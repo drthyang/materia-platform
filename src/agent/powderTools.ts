@@ -17,7 +17,7 @@ import {
   suggest_next_steps,
 } from "@/mcp/tools";
 import type { StructureModel } from "@/core/crystal/types";
-import type { RefinementParameter } from "@/core/refinement/types";
+import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { BackgroundType } from "@/core/diffraction/background";
 import type { CorrectionsUpdate, MustrainModel, PeakCorrectionId, SiteTies } from "@/app/powderSpec";
 import type { PowderXUnit } from "@/core/diffraction/types";
@@ -35,6 +35,9 @@ import { powderReflectionObsCalc } from "@/core/workflow/obsCalc";
 import { excludedPointMask } from "@/core/refinement/factors";
 import { checkEqualTies, type EqualTieUpdate } from "@/core/refinement/constraints";
 import { applyFree, bondsOf, cellOf, describeFree, freeNoOp, goToStep, historyView, matchIds, parameterSummary, pct, sig, type LiveToolHost } from "@/agent/liveCommon";
+import { powderValidation } from "@/core/diagnostics/powderValidation";
+import type { ReportCheck } from "@/core/export/report";
+import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, correlationsCheck, findingChecks, noResultCheck, verdictCheck } from "@/agent/reportChecks";
 
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- inputs are validated against the spec's zod schema before a handler runs */
@@ -670,6 +673,52 @@ function fitDiagnosisView(s: PowderLiveState): Record<string, unknown> {
     ...(dx.wilson ? { intensityFalloff: { deltaB: sig(dx.wilson.deltaB, 3), r: sig(dx.wilson.r, 2), reflections: dx.wilson.n } } : {}),
     ...(dx.texture ? { textureTest: { axis: dx.texture.axis.join(" "), r: sig(dx.texture.r, 2), reflections: dx.texture.n } } : {}),
   };
+}
+
+/**
+ * The engine's checks of the fit on screen, for the Agent's report: the
+ * convergence, the agreement verdict, correlations, bounds, the residual
+ * peaks, the serial correlation of the residual, the bond-valence sums and
+ * the assessment's other findings (reportChecks.ts).
+ */
+export function powderReportChecks(s: PowderLiveState, probe: RefinementResult | null = null): ReportCheck[] {
+  if (!s.result || s.structure.sites.length === 0) return [noResultCheck()];
+  const a = assessment(s);
+  const checks: ReportCheck[] = [
+    convergenceCheck(s.result),
+    verdictCheck(a),
+    probe ? correlationsCheck(probe, s.parameters, s.restraints) : correlationsCheck(s.result, s.parameters, s.restraints, CORRELATION_LISTED),
+    boundsCheck(s.result, s.parameters),
+  ];
+  if (s.d) {
+    const { between, beside, onReflection } = residualPeaks(residualOf(s), { limit: 12 });
+    const list = (ps: readonly { d: number }[]): string => ps.slice(0, 6).map((p) => p.d.toFixed(4)).join(", ") + (ps.length > 6 ? ", …" : "");
+    const misfits = [...onReflection, ...beside].sort((x, y) => y.height - x.height);
+    checks.push(between.length > 0
+      ? { name: "Residual peaks", status: "warn", detail: `${between.length} peak${between.length === 1 ? "" : "s"} on no phase's reflection, 5σ above the noise: d = ${list(between)} Å — intensity no phase in the model accounts for.${misfits.length > 0 ? ` ${misfits.length} more on or beside the model's reflections (misfits).` : ""}` }
+      : misfits.length > 0
+        ? { name: "Residual peaks", status: "note", detail: `No extra peak. ${misfits.length} residual peak${misfits.length === 1 ? "" : "s"} on or beside the model's reflections (intensity or shape misfits): d = ${list(misfits)} Å.` }
+        : { name: "Residual peaks", status: "pass", detail: "No residual peak stands 5σ above its own noise." });
+  }
+  // The serial correlation of the residual: a systematic misfit makes the esds optimistic.
+  const points = s.pattern.points.length === s.curves.x.length ? s.pattern.points : null;
+  const sigma = s.curves.yObs.map((y, i) => {
+    const given = points?.[i]?.sigma;
+    return given !== undefined && given > 0 ? given : Math.sqrt(Math.max(y, 1));
+  });
+  const excluded = excludedPointMask(s.curves.yObs);
+  const include = s.curves.x.map((x, i) => !excluded[i] && (!s.fitRange || (x >= s.fitRange.min && x <= s.fitRange.max)));
+  const v = powderValidation({ x: s.curves.x, yObs: s.curves.yObs, yCalc: s.curves.yCalc, sigma, include, nParams: s.parameters.filter((p) => !p.fixed && !p.expression).length });
+  if (v.durbinWatson) {
+    const dw = v.durbinWatson;
+    checks.push(dw.correlated
+      ? { name: "Serial correlation", status: "note", detail: `Durbin–Watson d = ${dw.d.toFixed(2)}, below Q_D = ${dw.qd.toFixed(2)}: neighbouring residuals correlate (a systematic misfit of the profile or the model), so the esds — and a posterior's intervals — are optimistic.` }
+      : { name: "Serial correlation", status: "pass", detail: `Durbin–Watson d = ${dw.d.toFixed(2)} (Q_D = ${dw.qd.toFixed(2)}): no significant serial correlation of the residuals.` });
+  }
+  const bv = bondValenceCheck(s.refinedPhases);
+  if (bv) checks.push(bv);
+  checks.push(...findingChecks(a));
+  return checks;
 }
 
 /**

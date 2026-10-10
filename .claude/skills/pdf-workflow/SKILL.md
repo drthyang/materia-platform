@@ -79,6 +79,10 @@ unit weights and are not statistical: when a value carries a conclusion (a local
 an ADP, a correlation length), its posterior (`bayesian-check`; the noise scale is
 integrated out) is the better uncertainty — approximate, since G(r) points are correlated.
 
+In the app, `write_report` writes the analysis report once it is done: the page's numbers,
+the History's steps, the checks and open issues, and your account in your own words, which
+adds no number the tools did not give.
+
 ## MCP tool map (quick reference)
 
 | Step | Tool |
@@ -91,6 +95,7 @@ integrated out) is the better uncertainty — approximate, since G(r) points are
 | Partial PDFs (which pairs make a peak) | `compute_partial_pdf` |
 | Judge a block / the fit | `assess_refinement` |
 | Geometry / bonds sanity | `bond_geometry`, `interpret_structure` |
+| The written report (in the app) | `write_report` |
 
 ## References
 

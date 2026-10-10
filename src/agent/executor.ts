@@ -11,10 +11,11 @@
 import { z } from "zod";
 import { PAGE_LABEL, liveTool, type LiveToolSpec, type ToolEffect } from "@/agent/tools";
 import type { AgentPort, LiveState, PdfLiveState, PowderLiveState } from "@/agent/port";
-import { changePowder, describePowderChange, powderNoOp, readPowderTool } from "@/agent/powderTools";
+import { changePowder, describePowderChange, powderNoOp, powderReportChecks, readPowderTool, requireStructure } from "@/agent/powderTools";
 import { changeMagnetic, describeMagneticChange, isMagneticTool, magneticNoOp, magneticOutcome, readMagneticTool } from "@/agent/magneticTools";
-import { changePdf, describePdfChange, pdfNoOp, readPdfTool } from "@/agent/pdfTools";
-import { samplePosteriorTool } from "@/agent/posteriorTool";
+import { changePdf, describePdfChange, pdfNoOp, pdfReportChecks, readPdfTool } from "@/agent/pdfTools";
+import { samplePosteriorTool, type PosteriorRun } from "@/agent/posteriorTool";
+import { buildAgentReport, reportFileBase, type AgentReport } from "@/agent/report";
 import type { LiveToolHost } from "@/agent/liveCommon";
 import { PROBE_OPTIONS, correlationRefusal, pairText, readCorrelations, refusalLine } from "@/agent/correlationCheck";
 import { PAGE_METHOD, readSkill } from "@/agent/skills";
@@ -78,6 +79,10 @@ export interface ExecutorOptions {
   readonly onActivity: (entry: ActivityEntry) => void;
   /** Largest answer, in characters of compact JSON (default 8000, as the MCP server). */
   readonly budget?: number;
+  /** The model and how it is reached, for the report ("Claude Opus 5.5 · Anthropic API"). */
+  readonly modelLabel?: () => string;
+  /** A report the Agent wrote (write_report), for the viewer. */
+  readonly onReport?: (report: AgentReport) => void;
 }
 
 /** History step kind for a change that does not record its own step. */
@@ -95,12 +100,16 @@ let nextCallId = 1;
 /** Notes kept per analysis; the oldest go first. */
 const MAX_NOTES = 40;
 
+let nextReportId = 1;
+
 export class AgentExecutor implements ToolRunner {
   private readonly refs = new RefStore(128);
   /** The skills read in this conversation (a page's method gates its changes). */
   private readonly skillsRead = new Set<string>();
   /** Changes run one at a time: the page has one compute client and one history. */
   private changes: Promise<unknown> = Promise.resolve();
+  /** The last posterior run (sample_posterior), with the analysis and the step it sampled: for the report. */
+  private posterior: { readonly run: PosteriorRun; readonly key: string; readonly step: { id: string; label: string } | null } | null = null;
 
   constructor(private readonly host: AgentHost, private readonly opts: ExecutorOptions) {}
 
@@ -167,6 +176,13 @@ export class AgentExecutor implements ToolRunner {
         return this.respond({ noted: true, notes: this.host.record(key).notes.length });
       }
 
+      if (spec.name === "write_report") {
+        update({});
+        // Let the drawer paint "running" before the checks run.
+        await new Promise((r) => setTimeout(r, 0));
+        return await this.writeReport(port, (input as { summary: string }).summary, update);
+      }
+
       if (spec.effect === "read") {
         update({});
         // The space group is questioned last: only once the method's stages
@@ -180,7 +196,7 @@ export class AgentExecutor implements ToolRunner {
         }
         // Let the drawer paint "running" before a heavy synchronous analysis.
         await new Promise((r) => setTimeout(r, 0));
-        let out = spec.name === "sample_posterior" ? await samplePosteriorTool(input as { continue?: boolean; steps?: number; compare?: [string, string][] }, port)
+        let out = spec.name === "sample_posterior" ? await samplePosteriorTool(input as { continue?: boolean; steps?: number; compare?: [string, string][] }, port, (run) => { this.posterior = { run, key: keyOfState(port.technique, port.state()), step: this.currentStep() }; })
           : port.technique === "pdf" ? readPdfTool(spec.name, input, port, this.host)
             : isMagneticTool(spec.name) ? await readMagneticTool(spec.name, input, port)
               : readPowderTool(spec.name, input, port, this.host);
@@ -373,6 +389,77 @@ export class AgentExecutor implements ToolRunner {
       ...(record.exceptions.length > 0 ? { exceptions: record.exceptions.map((e) => `${e.rule}: ${e.reason}`) } : {}),
       ...(record.notes.length > 0 ? { notes: record.notes.map((n) => n.text) } : {}),
     };
+  }
+
+  /**
+   * write_report: the page's report with the analysis as the Agent ran it and
+   * its account, opened in the viewer. The answer lists the checks, the open
+   * issues and any number in the account the report did not compute.
+   */
+  private async writeReport(port: AgentPort, summary: string, update: (patch: Partial<ActivityEntry>) => void): Promise<ToolOutcome> {
+    if (!port.reportInput) throw new Error("this page cannot build a report");
+    const s = port.state();
+    if (s.busy) throw new Error("a refinement is running — wait for it to finish, then write the report");
+    if (port.technique === "powder") requireStructure("refine", s as PowderLiveState);
+    const record = this.syncStages(port);
+    // The correlations at the refined values, every pair from |ρ| 0.5 as refine measures them (the
+    // refinement itself keeps only those at 0.95): for the free set the refinement on screen had.
+    const free = s.parameters.filter((p) => !p.fixed && !p.expression).map((p) => p.id);
+    const refined = s.result ? Object.keys(s.result.esd) : [];
+    let probe: RefinementResult | null = null;
+    if (free.length > 0 && free.length === refined.length && free.every((id) => refined.includes(id))) {
+      try {
+        probe = await port.probe(PROBE_OPTIONS);
+      } catch {
+        probe = null;
+      }
+    }
+    const checks = port.technique === "pdf" ? pdfReportChecks(s as PdfLiveState, probe) : powderReportChecks(s as PowderLiveState, probe);
+    // The last run on this analysis: of the refinement on screen, or of an earlier one (a focused
+    // set, before the final refinement), which the report labels with how far its values moved since.
+    const sampled = this.posterior && this.posterior.key === keyOfState(port.technique, s) ? this.posterior : null;
+    const built = buildAgentReport({
+      page: port.technique,
+      input: port.reportInput(),
+      history: this.host.history(),
+      record,
+      checks,
+      posterior: sampled ? { run: sampled.run, current: sampled.run.result === s.result, stepId: sampled.step?.id ?? null, parameters: s.parameters } : null,
+      model: this.opts.modelLabel?.() ?? "the configured model",
+      narrative: summary,
+    });
+    const report: AgentReport = {
+      id: nextReportId++,
+      title: built.input.title,
+      technique: port.technique,
+      html: built.html,
+      markdown: built.markdown,
+      fileBase: reportFileBase(built.input.title),
+      at: Date.now(),
+      unverified: built.unverified,
+    };
+    this.opts.onReport?.(report);
+    const attention = built.agent.checks.filter((c) => c.status === "warn").length;
+    update({
+      status: "done",
+      preview: built.input.title,
+      outcome: `Report open · ${built.agent.steps.length} steps · ${built.agent.checks.length} checks${attention ? `, ${attention} for attention` : ""}${built.unverified.length ? ` · ${built.unverified.length} number${built.unverified.length === 1 ? "" : "s"} unverified` : ""}`,
+    });
+    return this.respond({
+      shown: true,
+      title: built.input.title,
+      steps: built.agent.steps.length,
+      checks: built.agent.checks.map((c) => `${c.status === "warn" ? "attention" : c.status}: ${c.name} — ${c.detail}`),
+      openIssues: built.agent.openIssues,
+      ...(built.agent.posterior ? { bayesianCheck: `included (${built.agent.posterior.convergence}${built.agent.posterior.earlier ? `; ${built.agent.posterior.earlier}` : ""})` } : {}),
+      ...(built.unverified.length > 0
+        ? {
+            unverifiedNumbers: built.unverified,
+            note: "These numbers in your account (or your notes) match no value the report computed, and are underlined in it. Check each against the tools: correct the account and call write_report again, or leave the number out.",
+          }
+        : {}),
+      downloads: "The user can save the report as HTML, Markdown or PDF, and the CIF, from the viewer.",
+    });
   }
 
   /** allow_exception: the user lifts a firm rule for this analysis. Always asks them. */

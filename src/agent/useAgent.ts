@@ -12,6 +12,8 @@ import { API_KEY_KEY, SETTINGS_KEY, migrateLegacyKeys } from "@/agent/storage";
 import { DEFAULT_OLLAMA_URL } from "@/agent/ollama";
 import { DEFAULT_LMSTUDIO_URL } from "@/agent/lmstudio";
 import { TOOL_CARDS, cardsInReply, cardsInText, type AgentCard } from "@/agent/focus";
+import { CHAT_MODELS } from "@/agent/chat-models";
+import type { AgentReport } from "@/agent/report";
 
 /** How the Agent reaches a model: Claude two ways, or a local model on Ollama or LM Studio. */
 export type AgentMode = "api-key" | "proxy" | "ollama" | "lmstudio";
@@ -63,6 +65,12 @@ export interface AgentController {
   readonly focus: readonly AgentCard[];
   /** A reply under the pointer (null when it leaves): its cards join the focus. */
   readonly hoverReply: (text: string | null) => void;
+  /** The last report the Agent wrote (write_report); null before the first. */
+  readonly report: AgentReport | null;
+  /** The report viewer is open. */
+  readonly reportOpen: boolean;
+  readonly openReport: () => void;
+  readonly closeReport: () => void;
 }
 
 /** How long the cards a finished reply names keep breathing. */
@@ -92,6 +100,8 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
   const [activity, setActivity] = useState<Record<string, ActivityEntry>>({});
   const [thinking, setThinking] = useState(false);
   const [usage, setUsage] = useState({ input: 0, output: 0, cacheRead: 0 });
+  const [report, setReport] = useState<AgentReport | null>(null);
+  const [reportOpen, setReportOpen] = useState(false);
   const approvals = useRef(new Map<string, (ok: boolean) => void>());
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
@@ -120,6 +130,11 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
               // queue as the chat text: an effect would run after the next turn has
               // already begun and put the card below that turn's reply.
               setTranscript((t) => (t.some((i) => i.kind === "tool" && i.entryId === entry.id) ? t : [...t, { kind: "tool", id: itemId(), entryId: entry.id }]));
+            },
+            modelLabel: () => modelLabel(settingsRef.current),
+            onReport: (r) => {
+              setReport(r);
+              setReportOpen(true);
             },
           }),
       ));
@@ -259,7 +274,18 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
   }, [activity, mentionLive, lastReply, hover]);
   const hoverReply = useCallback((text: string | null) => setHover(text ? cardsInText(text) : []), []);
 
-  return { settings, updateSettings, apiKey, setApiKey, transcript, activity, pending, decide, thinking, send, stop, clear, usage, focus, hoverReply };
+  const openReport = useCallback(() => setReportOpen(true), []);
+  const closeReport = useCallback(() => setReportOpen(false), []);
+
+  return { settings, updateSettings, apiKey, setApiKey, transcript, activity, pending, decide, thinking, send, stop, clear, usage, focus, hoverReply, report, reportOpen, openReport, closeReport };
+}
+
+/** The model and how it is reached, as a report names it. */
+export function modelLabel(s: AgentSettings): string {
+  if (s.mode === "ollama") return `${s.ollamaModel || "a local model"} · Ollama (local)`;
+  if (s.mode === "lmstudio") return `${s.lmstudioModel || "a local model"} · LM Studio (local)`;
+  const name = CHAT_MODELS.find((m) => m.id === s.model)?.label ?? s.model;
+  return `${name} · ${s.mode === "proxy" ? "local proxy" : "Anthropic API"}`;
 }
 
 /** What one chat message runs on, from the settings. */

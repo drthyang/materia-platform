@@ -272,6 +272,16 @@ Report the outcome as: GoF + the key refined values with ESDs + which correction
 gives the cell and the coordinates, occupancies and B as value(esd); compare them with a
 published structure when there is one.
 
+**The written report.** In the app, `write_report` writes it once the analysis is done and
+reported: the page's report (data, model, fit figure, structure with esds, every parameter)
+with the History's steps, the method's checklist, the engine's checks and open issues, the
+Bayesian check of the refinement on screen if one ran, and the notes. Every number in it is
+the engine's. Its `summary` is the account in your own words — the approach, what the result
+says about the structure, the caveats, what is left open — and adds no number of its own: a
+number it quotes must be one the tools gave (rounded at most). Numbers the report did not
+compute are underlined in it and listed back; correct the account and write it again. Over
+MCP, the same content comes from `export_bundle` and the tools' results.
+
 **Lab X-ray data.** The instrument file says which lines the tube gives: a Cu or Co tube
 without a monochromator gives Kα₁ and Kα₂, and every reflection is drawn at both (the
 data card shows "λ 1.5405 / 1.5443 Å (Kα₂ 0.5)"). A Kα₂ peak is never an extra peak. The
@@ -318,6 +328,7 @@ standard or an X-ray cell.
 | Decide what's limiting the fit | `rank_next_parameters`, `suggest_next_steps` |
 | Geometry / bonds sanity | `bond_geometry`, `interpret_structure` |
 | Cross-check export | `export_bundle` (`fullprof` + `gsas2`, into `outDir`) |
+| The written report (in the app) | `write_report` |
 | Magnetic handoff | `build_magnetic_model`, `list_magnetic_subgroups`, `refine_magnetic_powder` |
 | Symmetry review (last, if at all) | `review_symmetry` on the converged residual; then the `symmetry-review` skill |
 

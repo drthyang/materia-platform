@@ -12,8 +12,12 @@ describe("the method as code", () => {
   });
 
   it("maps a free set onto the stages it covers", () => {
-    expect(stagesCovered("powder", [p("scale", "scale"), p("profW", "profileW"), p("B", "bIso")])).toEqual(["base", "profile", "adp"]);
-    expect(stagesCovered("pdf", [p("s", "pdfScale"), p("d2", "delta2")])).toEqual(["base", "motion"]);
+    // The scale rides along with every stage: it marks the first only alone.
+    expect(stagesCovered("powder", [p("scale", "scale"), p("profW", "profileW"), p("B", "bIso")])).toEqual(["profile", "adp"]);
+    expect(stagesCovered("powder", [p("scale", "scale"), p("bkg0", "background")])).toEqual(["base"]);
+    expect(stagesCovered("powder", [p("scale", "scale")])).toEqual(["base"]);
+    expect(stagesCovered("pdf", [p("s", "pdfScale"), p("d2", "delta2")])).toEqual(["motion"]);
+    expect(stagesCovered("pdf", [p("s", "pdfScale"), p("a", "cellLength")])).toEqual(["base"]);
   });
 
   it("tracks the stages and names the next required one", () => {

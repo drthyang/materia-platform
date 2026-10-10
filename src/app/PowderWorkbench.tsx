@@ -39,7 +39,7 @@ import { siteGroups } from "@/core/workflow/structureRefinement";
 import { powderPatternCsv } from "@/core/export/exporters";
 import { powderWorkspaceFrom, type PowderViewState } from "@/app/projectIo";
 import { structureToCif, magneticStructureToMcif, type CifRefinementMeta } from "@/core/export/cif";
-import { reportHtml } from "@/core/export/report";
+import { reportHtml, type ReportInput } from "@/core/export/report";
 import { powderReportInput, reportFileName, type MagneticExploration } from "@/app/reportInputs";
 import { isMagneticModelParameterKind, isMomentParameterKind } from "@/core/refinement/types";
 import type { ComputeClient } from "@/workers/computeClient";
@@ -1316,9 +1316,9 @@ export function PowderWorkbench({
   // and model, the fit as plotted (display unit, ticks, window), agreement,
   // the refined phases with esds, the magnetic structure (applied model, or
   // the candidate under exploration, labelled), every parameter, diagnostics.
-  function exportReport(): void {
+  function reportInputNow(): ReportInput {
     const inWindow = curves.x.filter((x) => x >= effectiveFitRange.min && x <= effectiveFitRange.max).length;
-    const html = reportHtml(powderReportInput({
+    return powderReportInput({
       session,
       refinedPhases,
       params: powderParams,
@@ -1336,8 +1336,10 @@ export function PowderWorkbench({
       pointsInWindow: inWindow,
       tofViewOnly,
       explored: exploredMagnetic.current,
-    }));
-    downloadText(reportFileName(structure), html, "text/html");
+    });
+  }
+  function exportReport(): void {
+    downloadText(reportFileName(structure), reportHtml(reportInputNow()), "text/html");
   }
 
   // Publish this engine's header exports while it is the active mode; cleared on
@@ -1432,6 +1434,7 @@ export function PowderWorkbench({
         setPlotMode("posterior");
         return runSample(continueRun, steps);
       },
+      reportInput: reportInputNow,
       refine: runPowder,
       thorough: runThorough,
       probe: (options) => powderFit(options),

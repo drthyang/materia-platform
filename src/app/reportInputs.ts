@@ -164,6 +164,12 @@ function probeLabel(r: Radiation): string {
   return `X-ray, λ = ${num(r.wavelength, 4)} Å${r.polarization !== undefined ? ` · polarization ${num(r.polarization, 2)}` : ""}`;
 }
 
+/** The probe inside a sentence: "neutron, constant wavelength λ = … Å", with "X-ray" and "Å" kept as written. */
+function probeInSentence(r: Radiation): string {
+  const label = probeLabel(r);
+  return label.startsWith("X-ray") ? label : label.charAt(0).toLowerCase() + label.slice(1);
+}
+
 function instrumentLabel(inst: InstrumentParameters, loaded: boolean): string {
   const name = [inst.name, inst.facility].filter(Boolean).join(" · ");
   const bits: string[] = [];
@@ -268,7 +274,7 @@ export function powderReportInput(o: {
   const summary =
     `Rietveld refinement of ${structure.name || structure.id}${structure.spaceGroup.hermannMauguin ? ` (${structure.spaceGroup.hermannMauguin})` : ""}` +
     `${multi ? ` with ${session.extraPhases.length} additional phase${session.extraPhases.length === 1 ? "" : "s"}` : ""}` +
-    ` against ${probeLabel(pattern.radiation).toLowerCase()} data${inst && o.instrumentLoaded ? ` from ${inst}` : ""}: ` +
+    ` against ${probeInSentence(pattern.radiation)} data${inst && o.instrumentLoaded ? ` from ${inst}` : ""}: ` +
     `wR = ${pct(o.wR)}${o.gof !== null ? ` (S = ${num(o.gof, 2)})` : ""} with ${free} free parameter${free === 1 ? "" : "s"} over ${o.pointsInWindow} points. ` +
     magnetic.summary;
 
@@ -360,7 +366,7 @@ export function singleCrystalReportInput(o: {
     { label: "Unit cell", value: "fixed at the input values (not refinable from a single reflection file)" },
   ];
   const summary =
-    `Single-crystal F² refinement of ${o.structure.name || o.structure.id}${o.structure.spaceGroup.hermannMauguin ? ` (${o.structure.spaceGroup.hermannMauguin})` : ""} against ${probeLabel(o.dataset.radiation).toLowerCase()} data: ` +
+    `Single-crystal F² refinement of ${o.structure.name || o.structure.id}${o.structure.spaceGroup.hermannMauguin ? ` (${o.structure.spaceGroup.hermannMauguin})` : ""} against ${probeInSentence(o.dataset.radiation)} data: ` +
     `R1 = ${pct(ag.r1)}, wR2 = ${pct(ag.wr2)}, GooF = ${num(ag.goof, 2)} with ${free} free parameter${free === 1 ? "" : "s"} over ${o.dataset.reflections.length} reflections (${st.unique} unique). ` +
     magnetic.summary;
   const notes = [

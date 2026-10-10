@@ -6,6 +6,7 @@
  */
 
 import { AgentExecutor, type ActivityEntry, type AgentHost } from "@/agent/executor";
+import type { AgentReport } from "@/agent/report";
 import { PAGE_METHOD } from "@/agent/skills";
 import { emptyRecord, type AgentRecord } from "@/agent/method";
 import type { AgentPort, PdfAgentPort, PdfLiveState, PowderAgentPort, PowderLiveState } from "@/agent/port";
@@ -27,7 +28,8 @@ import { buildMagneticPowderProblem } from "@/core/workflow/magneticPowder";
 import { buildPowderProblem } from "@/core/workflow/powder";
 import { samplePosterior, type SampleResult } from "@/core/refinement/bayes/sampler";
 import { magneticHandle, sessionCurves } from "@/testSupport/magneticHeadless";
-import type { StepKind } from "@/core/project/history";
+import type { ProjectHistory, StepKind } from "@/core/project/history";
+import { pdfReportInput, powderReportInput } from "@/app/reportInputs";
 
 /**
  * A powder page without React: a session, the real curves and the real
@@ -195,6 +197,29 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
       calls.push("probe");
       return fitOnce(options);
     },
+    // The page's report (Export ▾ → Report) from the same state.
+    reportInput: () => {
+      const st = state();
+      return powderReportInput({
+        session: s,
+        refinedPhases: st.refinedPhases,
+        params: s.powderParams,
+        bindings: s.powderBindings,
+        result,
+        instrument,
+        instrumentLoaded: true,
+        wR: st.wR,
+        rExp: result?.agreement.rExpected ?? null,
+        gof: result?.agreement.goodnessOfFit ?? null,
+        curves: { x: st.curves.x, yObs: st.curves.yObs, yCalc: st.curves.yCalc, diff: st.curves.yObs.map((o, i) => o - st.curves.yCalc[i]!) },
+        xLabel: s.pattern.xUnit === "twoTheta" ? "2θ (°)" : s.pattern.xUnit,
+        ticks: [],
+        fitRange,
+        pointsInWindow: st.observationCount,
+        tofViewOnly: false,
+        explored: null,
+      });
+    },
     cancel: () => calls.push("cancel"),
     reset: (ids) => {
       calls.push(ids ? `reset ${ids.join(",")}` : "reset");
@@ -212,7 +237,7 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
   return { port, calls, session: () => s };
 }
 
-export function fakeHost(port: AgentPort | null): { host: AgentHost; steps: { kind: StepKind; agent: boolean }[]; records: Map<string, AgentRecord> } {
+export function fakeHost(port: AgentPort | null, history: () => ProjectHistory | null = () => null): { host: AgentHost; steps: { kind: StepKind; agent: boolean }[]; records: Map<string, AgentRecord> } {
   const steps: { kind: StepKind; agent: boolean }[] = [];
   const records = new Map<string, AgentRecord>();
   let agent = false;
@@ -229,7 +254,7 @@ export function fakeHost(port: AgentPort | null): { host: AgentHost; steps: { ki
       }
     },
     recordNow: (kind) => steps.push({ kind, agent }),
-    history: () => null,
+    history,
     goToStep: () => undefined,
     record: (key) => records.get(key) ?? emptyRecord(key),
     updateRecord: (key, update) => void records.set(key, update(records.get(key) ?? emptyRecord(key))),
@@ -242,7 +267,11 @@ export function fakeHost(port: AgentPort | null): { host: AgentHost; steps: { ki
  * (`readMethods: false` for one that has read nothing yet). The reads run
  * before the activity is recorded, so tests see only their own calls.
  */
-export function executor(host: AgentHost, decision: boolean | "auto" = true, { readMethods = true } = {}): { ex: AgentExecutor; asked: ActivityEntry[]; seen: ActivityEntry[] } {
+export function executor(
+  host: AgentHost,
+  decision: boolean | "auto" = true,
+  { readMethods = true, onReport }: { readMethods?: boolean; onReport?: (report: AgentReport) => void } = {},
+): { ex: AgentExecutor; asked: ActivityEntry[]; seen: ActivityEntry[] } {
   const asked: ActivityEntry[] = [];
   const seen: ActivityEntry[] = [];
   let recording = false;
@@ -254,6 +283,8 @@ export function executor(host: AgentHost, decision: boolean | "auto" = true, { r
     onActivity: (e) => {
       if (recording) seen.push(e);
     },
+    modelLabel: () => "Test model · headless",
+    ...(onReport ? { onReport } : {}),
   });
   // A read_skill call runs synchronously up to its result, so the methods
   // count as read before this returns.
@@ -343,6 +374,14 @@ export function pdfPort(): { port: PdfAgentPort; calls: string[] } {
       });
       const freeIds = params.filter((p) => !p.fixed && !p.expression).map((p) => p.id);
       return { windows, width: plan.width, restarts: 0, freeIds, series: [{ direction: "up" as const, result: { steps, evolution: [] } }] };
+    },
+    reportInput: () => {
+      const st = state();
+      return pdfReportInput({
+        phases: st.refinedPhases, params, bindings: spec.bindings, result, pattern: demo.pattern, rw: st.rw, fitRange,
+        curves: { x: st.curves.x, yObs: st.curves.yObs, yCalc: st.curves.yCalc, diff: st.curves.yObs.map((o, i) => o - st.curves.yCalc[i]!) },
+        positionMode: "atomic", spinModel: null, explored: null,
+      });
     },
     cancel: () => calls.push("cancel"),
     reset: () => calls.push("reset"),

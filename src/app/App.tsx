@@ -68,6 +68,7 @@ import { AgentLink } from "@/agent/link";
 import type { AgentHost } from "@/agent/executor";
 import { useAgent } from "@/agent/useAgent";
 import { AgentDrawer } from "@/agent/ui/AgentDrawer";
+import { AgentReportViewer } from "@/agent/ui/AgentReportViewer";
 import { emptyRecord, keyOfState, methodProgress, type AgentRecord } from "@/agent/method";
 
 // The header's refinement-target chips. "Nuclear" is the main refinement page
@@ -1292,6 +1293,17 @@ export function App(): JSX.Element {
       </footer>
     </div>
     {agentOpen && <AgentDrawer agent={agent} method={agentMethod} onClose={() => setAgentOpen(false)} />}
+    {agent.reportOpen && agent.report && (
+      <AgentReportViewer
+        report={agent.report}
+        onClose={agent.closeReport}
+        onCif={(() => {
+          // The page the report was written on, while it is the one open.
+          const exports = agent.report.technique === "pdf" ? pdfExports : powderExports;
+          return exports.current?.cif ? () => exports.current?.cif?.() : undefined;
+        })()}
+      />
+    )}
     </div>
   );
 }

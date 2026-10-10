@@ -9,6 +9,22 @@ release fixes bugs.
 
 ### Added
 
+- **The Agent's analysis report** (`write_report`). Read in the app and saved
+  as one self-contained HTML file, as Markdown (the figure embedded) or as
+  PDF from the print dialog, with the CIF beside it. It holds the page's
+  report — data, model, the observed/calculated/difference figure, the
+  structures with esds, every parameter, Rwp/Rexp/GoF and the diagnostics —
+  and how the analysis went: the History's steps on the path to the result
+  (what each refinement freed, the method stage behind it, who took it), the
+  method's checklist, the engine's checks with the issues left open
+  (convergence, agreement, correlations, bounds, residual peaks,
+  Durbin–Watson, bond valences, the cell check and symmetry review), the
+  Bayesian check of the refinement on screen, the Agent's notes, and the
+  model used. Every number comes from the engine and the History; the Agent
+  writes only its account, labelled as its words, and a number in it that the
+  report did not compute is underlined and handed back to the Agent to
+  correct. A new eval scenario replays it.
+
 - **A lab tube's Kα₂.** Every reflection is drawn at Kα₁ and Kα₂ (at the
   intensity ratio, as GSAS-II and FullProf draw it), read from a GSAS
   `.prm` (λ₂ and KRATIO), a GSAS-II `.instprm` (Lam1, Lam2, I(L2)/I(L1)) or
@@ -171,6 +187,11 @@ release fixes bugs.
 
 ### Fixed
 
+- **The method's first stage is not marked done by the scale alone.** The
+  scale is refined with every stage, so a refinement of the positions with
+  the scale free no longer ticked "scale, background, cell" in the
+  checklist (and so opened the symmetry review) when the background and the
+  cell had never been refined.
 - **d read off constant-wavelength data takes out the refined zero shift**, as
   GSAS-II's Pos2dsp does. The residual peaks the Agent and the MCP tools
   report, the peaks handed to the k-search, the d and Q axes of the plot and

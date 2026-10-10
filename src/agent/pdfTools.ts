@@ -18,7 +18,9 @@ import { assess_refinement, bond_geometry, interpret_structure, suggest_next_ste
 import { structureTable } from "@/agent/structureTable";
 import { applyFree, bondsOf, cellOf, describeFree, freeNoOp, goToStep, historyView, matchIds, parameterSummary, pct, sig, type ChangeResult, type LiveToolHost } from "@/agent/liveCommon";
 import { boxcarStepIndex, boxcarWindows, type BoxcarRun } from "@/core/workflow/pdfBoxcar";
-import type { RefinementParameter } from "@/core/refinement/types";
+import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
+import type { ReportCheck } from "@/core/export/report";
+import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, correlationsCheck, findingChecks, noResultCheck } from "@/agent/reportChecks";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- inputs are validated against the spec's zod schema before a handler runs */
 type Input = any;
@@ -193,6 +195,27 @@ function assessment(s: PdfLiveState): ReturnType<typeof assess_refinement> & { c
     restraints: s.restraints,
   });
   return { ...out, convention: `${PDF_CONVENTION} The verdict reads convergence only; wRPercent is Rw. No residual-peak scan in real space.` };
+}
+
+/**
+ * The engine's checks of the fit on screen, for the Agent's report: the
+ * convergence, correlations, bounds, the bond-valence sums, the page's own
+ * warnings and the assessment's other findings. No GoF verdict and no
+ * residual-peak scan: G(r) points are equally weighted and Fourier-correlated.
+ */
+export function pdfReportChecks(s: PdfLiveState, probe: RefinementResult | null = null): ReportCheck[] {
+  if (!s.result) return [noResultCheck()];
+  const checks: ReportCheck[] = [
+    convergenceCheck(s.result),
+    { name: "Agreement", status: "note", detail: `Rw = ${(100 * s.rw).toFixed(2)} % over r ${s.fitRange.min.toFixed(2)}–${s.fitRange.max.toFixed(2)} Å. ${PDF_CONVENTION}` },
+    probe ? correlationsCheck(probe, s.parameters, s.restraints) : correlationsCheck(s.result, s.parameters, s.restraints, CORRELATION_LISTED),
+    boundsCheck(s.result, s.parameters),
+  ];
+  const bv = bondValenceCheck(s.refinedPhases);
+  if (bv) checks.push(bv);
+  for (const w of s.warnings) checks.push({ name: "Page warning", status: "warn", detail: w });
+  checks.push(...findingChecks(assessment(s)));
+  return checks;
 }
 
 /** One box of a scan, in the run's ascending window order. */

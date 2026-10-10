@@ -75,7 +75,7 @@ import { WorkbenchPlot, type FitRangeSelection } from "@/app/ui/WorkbenchPlot";
 import { SegmentedToggle } from "@/app/ui/SegmentedToggle";
 import { downloadText } from "@/app/download";
 import { structureToCif, magneticStructureToMcif } from "@/core/export/cif";
-import { reportHtml } from "@/core/export/report";
+import { reportHtml, type ReportInput } from "@/core/export/report";
 import { pdfReportInput, type MagneticExploration } from "@/app/reportInputs";
 import { card as themeCard, color, mono, secondaryButton, uppercaseLabel, fz, toolbarBtn, resetRangeBtn, space } from "@/app/theme";
 
@@ -1147,6 +1147,37 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
     client.cancel();
   }
 
+  // The mPDF page's current candidate, for the report — published by KSearchPanel;
+  // null when nothing is selected there. The same contract the powder and
+  // single-crystal pages use, so "report: Export ▾" means the same on all three.
+  const exploredMagnetic = useRef<MagneticExploration | null>(null);
+  const publishExploration = useCallback((m: MagneticExploration | null): void => {
+    exploredMagnetic.current = m;
+  }, []);
+
+  const reportInputRef = useRef<() => ReportInput>(() => { throw new Error("PdfWorkbench: not mounted"); });
+  reportInputRef.current = (): ReportInput => {
+    // Every phase AS REFINED, each through its own bindings (as the CIF export).
+    const values: Record<string, number> = {};
+    for (const p of activeParams) values[p.id] = p.value;
+    const refined = phases.map((phase) =>
+      applyParameters(phase.structure, multiPhase ? pdfPhaseBindingsFor(spec.bindings, phase.id) : spec.bindings, values).model,
+    );
+    return pdfReportInput({
+      phases: refined,
+      params: activeParams,
+      bindings: spec.bindings,
+      result,
+      pattern,
+      rw,
+      fitRange,
+      curves,
+      positionMode,
+      spinModel: spinFit ? refinedMagnetic ?? spinFit.magnetic : null,
+      explored: exploredMagnetic.current,
+      ...(motionConflict ? { warnings: [motionConflict] } : {}),
+    });
+  };
   // Publish the Agent port (agent/port.ts): the live state, read lazily, and
   // this page's own handlers — the Agent's `refine` is the Refine button.
   // Republished every render, so a call always sees the state on screen.
@@ -1192,6 +1223,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
         setViewTab("posterior");
         return runSample(continueRun, steps);
       },
+      reportInput: () => reportInputRef.current(),
       // The Refine button's request with the Agent's options; the result is only read.
       probe: (options) => {
         const req = { ...refineRequest(params, 0), options };
@@ -1256,37 +1288,9 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
       exportPhaseCifRef.current(applyParameters(phase.structure, b, values).model, phase.id, phaseMagnetic(phase.structure));
     }
   };
-  // The mPDF page's current candidate, for the report — published by KSearchPanel;
-  // null when nothing is selected there. The same contract the powder and
-  // single-crystal pages use, so "report: Export ▾" means the same on all three.
-  const exploredMagnetic = useRef<MagneticExploration | null>(null);
-  const publishExploration = useCallback((m: MagneticExploration | null): void => {
-    exploredMagnetic.current = m;
-  }, []);
-
   const exportReportRef = useRef<() => void>(noop);
   exportReportRef.current = (): void => {
-    // Every phase AS REFINED, each through its own bindings (as the CIF export).
-    const values: Record<string, number> = {};
-    for (const p of activeParams) values[p.id] = p.value;
-    const refined = phases.map((phase) =>
-      applyParameters(phase.structure, multiPhase ? pdfPhaseBindingsFor(spec.bindings, phase.id) : spec.bindings, values).model,
-    );
-    const html = reportHtml(pdfReportInput({
-      phases: refined,
-      params: activeParams,
-      bindings: spec.bindings,
-      result,
-      pattern,
-      rw,
-      fitRange,
-      curves,
-      positionMode,
-      spinModel: spinFit ? refinedMagnetic ?? spinFit.magnetic : null,
-      explored: exploredMagnetic.current,
-      ...(motionConflict ? { warnings: [motionConflict] } : {}),
-    }));
-    downloadText(`${pattern.id}_report.html`, html, "text/html");
+    downloadText(`${pattern.id}_report.html`, reportHtml(reportInputRef.current()), "text/html");
   };
   // The project snapshot reads the live state through a ref (like the exports
   // above), so the shell's stable handler always sees the current page.

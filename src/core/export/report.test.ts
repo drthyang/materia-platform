@@ -5,7 +5,8 @@ import { exampleStructure } from "@/examples/mn3ga";
 import { magneticSubgroupLattice, latticeRepresentatives } from "@/core/magnetic/subgroupLattice";
 import { buildMagneticModel } from "@/core/magnetic/momentModel";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
-import { reportHtml, formatParameterValue, type ReportInput } from "@/core/export/report";
+import { reportHtml, formatParameterValue, type ReportAgent, type ReportInput } from "@/core/export/report";
+import { reportMarkdown } from "@/core/export/reportMarkdown";
 import { formatWithEsd } from "@/core/export/cif";
 import { niceTicks, patternFigureSvg } from "@/core/export/reportFigures";
 import { groupOfOperations, magneticReportSection, pdfReportInput, reportFileName } from "@/app/reportInputs";
@@ -169,6 +170,104 @@ describe("refinement report (HTML)", () => {
     expect(html).toContain('aria-label="Observed versus calculated structure-factor amplitudes"');
     expect(html).toContain("3 reflections · 1 magnetic");
     expect(html).toContain('<path class="ptmag"');
+  });
+});
+
+describe("the analysis as the Agent ran it", () => {
+  const agent: ReportAgent = {
+    model: "Claude Opus 5.5 · Anthropic API",
+    method: { skill: "my-rietveld-workflow", stages: [{ label: "Cell check", done: true, optional: false }, { label: "Positions", done: true, optional: false }, { label: "Occupancy", done: false, optional: true }] },
+    steps: [
+      { label: "Loaded PbSO4.cif", by: "user", kind: "load", free: 0 },
+      { label: "Refine", by: "agent", kind: "refine", wR: 0.1203, gof: 3.1, free: 6, refined: "scale, background ×4, zero", stages: "Scale, background, cell" },
+      { label: "Refine", by: "agent", kind: "refine", wR: 0.0386, gof: 1.4, free: 14, refined: "positions ×8, B ×5, scale", stages: "Positions · ADPs" },
+    ],
+    otherBranches: 2,
+    agreementLabel: "wR",
+    checks: [
+      { name: "Convergence", status: "pass", detail: "Converged in 4 cycles." },
+      { name: "Residual peaks", status: "warn", detail: "1 peak on no phase's reflection: d = 2.2012 Å <unexplained>." },
+    ],
+    posterior: {
+      convergence: "close", walkers: 12, steps: 2300, samples: 13800, maxRHat: 1.071, minEss: 412,
+      rows: [{ label: "B_iso Mn1", refined: 0.62, esd: 0.05, median: 0.6213, ci68: [0.571, 0.672], ci95: [0.52, 0.72], esdRatio: 1.02, verdict: "the posterior confirms the esd" }],
+      differences: ["B_Mn1 − B_Ga1 = 0.1 (68 % 0.05 to 0.15); P(B_Mn1 > B_Ga1) = 0.98: the data distinguish them."],
+    },
+    openIssues: ["Residual peaks: 1 peak on no phase's reflection: d = 2.2012 Å."],
+    notes: ["The 2.2012 Å line is also in the 300 K pattern & at 9.99 Å."],
+    narrative: "I refined the structure stage by stage.\n\nThe fit reaches wR 3.86 % with B = 0.62(5) Å²; the extra line at 7.77 Å is open.",
+    unverified: ["7.77", "9.99"],
+  };
+  const withAgent = (a: ReportAgent = agent): ReportInput => ({ ...powderInput(), agent: a });
+
+  it("puts the analysis first: the steps, the method, the checks, the Bayesian check, the account", () => {
+    const html = reportHtml(withAgent());
+    expect(html).toContain("Rietveld refinement report · analysed with the Agent · 2026-09-16");
+    const order = ["The analysis", "Data &amp; model", "Fit", "Atomic structure"].map((t) => html.indexOf(t));
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(html).toContain("3 steps from the History · model Claude Opus 5.5 · Anthropic API");
+    expect(html).toContain('<span class="pill agent">Agent</span>');
+    expect(html).toContain("positions ×8, B ×5, scale");
+    expect(html).toContain("12.03 %");
+    expect(html).toContain('<th class="num">GoF</th>');
+    expect(html).toContain("2 steps on branches the analysis left are kept in the History, not shown.");
+    expect(html).toContain('<span class="stage done">✓ Cell check</span>');
+    expect(html).toContain("○ Occupancy, if needed");
+    // Checks escaped, the attention pill, the open issue.
+    expect(html).toContain('<span class="pill warn">attention</span>');
+    expect(html).toContain("d = 2.2012 Å &lt;unexplained&gt;.");
+    expect(html).not.toContain("<unexplained>");
+    // The Bayesian check table, its convergence and caveat.
+    expect(html).toContain("Bayesian check");
+    expect(html).toContain("12 walkers × 2300 steps");
+    expect(html).toContain("close to converged");
+    expect(html).toContain("0.620(50)");
+    expect(html).toContain("0.571–0.672");
+    expect(html).toContain("not final values to quote");
+    expect(html).toContain("P(B_Mn1 &gt; B_Ga1) = 0.98");
+    // The account: the Agent's words, labelled, two paragraphs, its unverified numbers marked (and its notes').
+    expect(html).toContain("The Agent's account");
+    expect(html).toContain("<p>I refined the structure stage by stage.</p>");
+    expect(html).toContain('<span class="unverified" title="Not among the values this report computed">7.77</span>');
+    expect(html).not.toContain('>3.86</span>');
+    expect(html).toContain("The Agent's notes");
+    expect(html).toContain('pattern &amp; at <span class="unverified" title="Not among the values this report computed">9.99</span> Å');
+    expect(html).toContain("in its own words, as are its notes");
+  });
+
+  it("drops the GoF column on the PDF page and names its agreement Rw", () => {
+    const html = reportHtml(withAgent({ ...agent, agreementLabel: "Rw", steps: agent.steps.map(({ gof: _g, ...st }) => st), posterior: null, narrative: "", unverified: [] }));
+    expect(html).toContain('<th class="num">Rw</th>');
+    expect(html).not.toContain('<th class="num">GoF</th>');
+    expect(html).not.toContain("Bayesian check");
+    expect(html).not.toContain("The Agent's account");
+  });
+
+  it("carries the same content as Markdown, the figure embedded and the unverified numbers marked †", () => {
+    const md = reportMarkdown(withAgent());
+    expect(md.startsWith("# Mn<3>Ga <test>\n")).toBe(true);
+    expect(md).toContain("*MATERIA · Rietveld refinement report · analysed with the Agent · 2026-09-16*");
+    const order = ["## 1. The analysis", "## 2. Data & model", "## 3. Fit", "## 4. Atomic structure", "## 5. Parameters", "## 6. Refinement details"].map((t) => md.indexOf(t));
+    expect(order.every((i) => i > 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(md).toContain("| # | Step | By | Refined | Free | wR | GoF |");
+    expect(md).toContain("| 3 | Refine · Positions · ADPs | Agent | positions ×8, B ×5, scale | 14 | 3.86 % | 1.40 |");
+    expect(md).toContain("| Residual peaks | attention | 1 peak on no phase's reflection: d = 2.2012 Å <unexplained>. |");
+    expect(md).toContain("**Bayesian check** — ensemble MCMC, 12 walkers × 2300 steps");
+    expect(md).toContain("| B_iso Mn1 | 0.620(50) | 0.621 | 0.571–0.672 | 0.520–0.720 | 1.02 | the posterior confirms the esd |");
+    expect(md).toContain("> I refined the structure stage by stage.\n>\n> The fit reaches wR 3.86 % with B = 0.62(5) Å²; the extra line at 7.77† Å is open.");
+    expect(md).toContain("- The 2.2012 Å line is also in the 300 K pattern & at 9.99† Å.");
+    expect(md).toContain("Numbers marked † in the Agent's words are not among the values this report computed.");
+    // The figure: an SVG data URI with its own style; the cell and sites with esds.
+    expect(md).toMatch(/!\[Observed, calculated and difference pattern\]\(data:image\/svg\+xml;base64,[A-Za-z0-9+/=]+\)/);
+    const svg = new TextDecoder().decode(Uint8Array.from(atob(md.match(/base64,([A-Za-z0-9+/=]+)\)/)![1]!), (c) => c.charCodeAt(0)));
+    expect(svg).toContain("<style>");
+    expect(svg).toContain('xmlns="http://www.w3.org/2000/svg"');
+    expect(md).toContain(formatWithEsd(exampleStructure().cell.a, 0.00031, 5));
+    expect(md).toContain("| B_iso Mn1 | 0.620(50) | Å² | refined |");
+    expect(md).toContain("| b (= a) | 5.43210 | Å | tied · = cell_a |");
+    // A table cell with a pipe stays one cell.
+    expect(reportMarkdown({ ...powderInput(), data: [{ label: "Data | file", value: "a|b" }] })).toContain("| **Data \\| file** | a\\|b |");
   });
 });
 

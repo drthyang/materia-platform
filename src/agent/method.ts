@@ -13,7 +13,8 @@
  *   required stage is done): a structure is refined to the best before its
  *   symmetry is questioned, and intensity misfit is what refinement fixes.
  * - Stages are the method's blocks in order. A stage is done once a converged
- *   refinement had one of its parameters free. Freeing a later block before an
+ *   refinement had one of its parameters free (the scale, refined with every
+ *   stage, counts for the first only when nothing else is free). Freeing a later block before an
  *   earlier one is a note on the outcome, not a refusal (the user's profile
  *   order is not rigid); the drawer shows the stages as a checklist.
  *
@@ -91,9 +92,18 @@ export function stagesFor(page: AgentPage): readonly MethodStage[] {
   return page === "powder" ? POWDER_STAGES : PDF_STAGES;
 }
 
-/** The stages a converged refinement with these parameters free covers. */
+/** Refined with every stage, so they mark the first stage only when nothing else is free. */
+const ALWAYS_FREE: ReadonlySet<ParameterKind> = new Set(["scale", "pdfScale"]);
+
+/**
+ * The stages a converged refinement with these parameters free covers. The
+ * scale rides along with every stage: refined with the positions, it does not
+ * make the background and the cell refined.
+ */
 export function stagesCovered(page: AgentPage, free: readonly RefinementParameter[]): string[] {
-  const kinds = new Set(free.map((p) => p.kind));
+  const all = new Set(free.map((p) => p.kind));
+  const rest = new Set([...all].filter((k) => !ALWAYS_FREE.has(k)));
+  const kinds = rest.size > 0 ? rest : all;
   return stagesFor(page).filter((s) => s.kinds.some((k) => kinds.has(k))).map((s) => s.id);
 }
 

@@ -48,6 +48,7 @@ export function AgentDrawer({ agent, method = null, onClose }: Props): JSX.Eleme
           <StatusChip agent={agent} />
         </span>
         <span style={{ display: "flex", gap: 4 }}>
+          {agent.report && <IconButton title="Open the analysis report" onClick={agent.openReport}><ReportIcon /></IconButton>}
           <IconButton title="Settings" active={showSettings} onClick={() => setShowSettings((v) => !v)}>⚙</IconButton>
           <IconButton title="Clear the conversation" onClick={agent.clear} disabled={agent.thinking}>⌫</IconButton>
           <IconButton title="Close the Agent" onClick={onClose}>✕</IconButton>
@@ -414,14 +415,14 @@ function Item({ item, agent }: { item: TranscriptItem; agent: AgentController })
       );
     case "tool": {
       const entry = agent.activity[item.entryId];
-      return entry ? <ToolCard entry={entry} onDecide={agent.decide} /> : null;
+      return entry ? <ToolCard entry={entry} onDecide={agent.decide} {...(entry.tool === "write_report" && entry.status === "done" && agent.report ? { onOpenReport: agent.openReport } : {})} /> : null;
     }
     case "notice":
       return <div style={noticeStyle(item.tone)}>{item.text}</div>;
   }
 }
 
-function ToolCard({ entry, onDecide }: { entry: ActivityEntry; onDecide: (id: string, ok: boolean) => void }): JSX.Element {
+function ToolCard({ entry, onDecide, onOpenReport }: { entry: ActivityEntry; onDecide: (id: string, ok: boolean) => void; onOpenReport?: () => void }): JSX.Element {
   const waiting = entry.status === "waiting";
   const tone = entry.status === "failed" ? color.warnInk : entry.status === "declined" ? color.faint : entry.status === "done" ? color.okInk : color.primary;
   const statusText = { waiting: "Needs approval", running: "Running…", done: "Done", declined: "Declined", failed: "Failed" }[entry.status];
@@ -437,6 +438,11 @@ function ToolCard({ entry, onDecide }: { entry: ActivityEntry; onDecide: (id: st
       </div>
       {entry.preview && <div style={{ fontSize: 12.5, color: color.ink, marginTop: 3 }}>{entry.preview}</div>}
       {entry.outcome && entry.status !== "waiting" && <div style={{ fontSize: 12, color: entry.status === "failed" ? color.warnInk : color.secondary, marginTop: 3, fontFamily: entry.tool === "refine" ? mono : undefined }}>{entry.outcome}</div>}
+      {onOpenReport && (
+        <div style={{ marginTop: 8 }}>
+          <button style={secondaryButton} onClick={onOpenReport}>Open the report</button>
+        </div>
+      )}
       {waiting && (
         <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
           <button style={primaryButton} onClick={() => onDecide(entry.id, true)}>Approve</button>
@@ -579,6 +585,16 @@ function TexText({ tex }: { tex: string }): JSX.Element {
 
 function fmtTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n);
+}
+
+/** A page with lines: the report. */
+function ReportIcon(): JSX.Element {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden style={{ display: "block", margin: "0 auto" }}>
+      <path d="M4 1.5h5.5L13 5v9.5H4z" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+      <path d="M9.5 1.5V5H13M6 8h5M6 10.5h5M6 13h3" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
 }
 
 function IconButton({ children, title, onClick, active, disabled }: { children: ReactNode; title: string; onClick: () => void; active?: boolean; disabled?: boolean }): JSX.Element {

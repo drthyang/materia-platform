@@ -21,6 +21,7 @@ import {
   ran,
   readsMethodFirst,
   refines,
+  reportsEngineNumbers,
   symmetryLast,
 } from "@/agent/evals/checks";
 import type { EvalScenario } from "@/agent/evals/harness";
@@ -34,6 +35,15 @@ export const SCENARIOS: readonly EvalScenario[] = [
     messages: ["Run the full refinement to improve the quality of the fit."],
     autonomy: "auto",
     checks: [readsMethodFirst, doesNotRefuse, refines(3), coversStages(["base", "positions", "profile", "adp"]), symmetryLast, noStall],
+  },
+  {
+    id: "analysis-report",
+    title: "Writes the report from the engine's numbers",
+    origin: "User request: the analysis report — every number from the engine and the History, the Agent writing only its own account.",
+    page: () => powderPage(mn3gaSession()),
+    messages: ["Refine the scale, background and cell, then write the analysis report."],
+    autonomy: "auto",
+    checks: [readsMethodFirst, refines(1), ran("write_report"), reportsEngineNumbers, noStall],
   },
   {
     id: "misfits-not-extra-peaks",

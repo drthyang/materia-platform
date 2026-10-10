@@ -79,7 +79,16 @@ decision is yours.
   ties, antisite disorder, the magnetic structure (k, the magnetic space groups,
   the moments, the joint refinement) and boxcar scans of a PDF; then it reports
   the result with its esds and its own assessment, and answers questions about
-  it. 42 tools across the powder page, its magnetic step and the PDF page.
+  it. 43 tools across the powder page, its magnetic step and the PDF page.
+- **A report you can hand on.** `write_report` opens the analysis report in the
+  app, to save as HTML, Markdown or PDF with the CIF: the data and the model, the
+  fit, the structure with esds, every parameter, and how the analysis went — the
+  History's steps with what each refinement freed and the method stage behind
+  it, the engine's checks (convergence, correlations, bounds, residual peaks,
+  serial correlation, bond valences) with the issues left open, and the Bayesian
+  check. Every number comes from the engine and the History; the Agent writes
+  only its account, labelled as its words, and any number in it the report did
+  not compute is underlined.
 - **The Bayesian check when a number is not convincing.** `sample_posterior` runs
   the ensemble MCMC over the free parameters of a converged fit: credible
   intervals, limits where a value sits on a bound, the posterior correlations,
@@ -95,7 +104,7 @@ decision is yours.
   checked at the current values before every refine; no bare occupancy; the
   space group questioned only once the method's stages are refined. The stages
   show as a checklist in the drawer.
-- **Tested on what it does.** Ten eval scenarios, each written against a failure
+- **Tested on what it does.** Eleven eval scenarios, each written against a failure
   a user or a researcher round found, replay the real chat loop and tools in CI
   with a scripted model — once as the Agent should behave and once as it
   failed, so every check is shown to catch its failure — and run against a real

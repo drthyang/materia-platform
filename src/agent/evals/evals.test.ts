@@ -40,6 +40,22 @@ const REPLAYS: Readonly<Record<string, Replay>> = {
     ],
     catches: ["does not refuse the refinement or cite a gate", "runs at least 3 converged refinements", "proposes no symmetry change before the review"],
   },
+  "analysis-report": {
+    good: [
+      { calls: [RIETVELD, { name: "get_state" }] },
+      { text: "Scale, background and cell first.", calls: [{ name: "refine" }] },
+      // A first account with a number of its own; the answer underlines it, and the Agent takes it out.
+      { calls: [{ name: "write_report", input: { summary: "Scale, background and cell refined to convergence; the cell is a = 7.65432 Å." } }] },
+      { calls: [{ name: "write_report", input: { summary: "Scale, background and cell refined to convergence in one refinement. The report lists the checks; the atoms, the profile and the ADPs are the next stages." } }] },
+      { text: "The report is open: the steps, the checks and the refined values with their esds." },
+    ],
+    bad: [
+      { calls: [RIETVELD, { name: "refine" }] },
+      { calls: [{ name: "write_report", input: { summary: "Refined to wR 1.23456 %, with a = 7.65432 Å and c = 3.21098 Å." } }] },
+      { text: "Report written." },
+    ],
+    catches: ["writes the report with no number of its own"],
+  },
   "misfits-not-extra-peaks": {
     good: [
       { calls: [{ name: "find_unexplained_peaks" }] },

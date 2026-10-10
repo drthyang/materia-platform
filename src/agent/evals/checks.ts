@@ -132,6 +132,24 @@ export function ran(name: string): Check {
   };
 }
 
+/**
+ * The report holds the engine's numbers, and the Agent's account adds none of
+ * its own: the last write_report left no number unverified (write_report
+ * underlines any number in the account the report did not compute).
+ */
+export const reportsEngineNumbers: Check = {
+  name: "writes the report with no number of its own",
+  grade: (run) => {
+    const reports = calls(run).filter((c) => c.name === "write_report" && !c.isError);
+    const last = reports.length > 0 ? json(reports[reports.length - 1]!.text) : null;
+    if (!last) return fail("wrote no report");
+    const own = (last.unverifiedNumbers as string[] | undefined) ?? [];
+    return own.length === 0
+      ? ok(`${reports.length} report${reports.length === 1 ? "" : "s"}; the last adds no number the engine did not compute`)
+      : fail(`the last report keeps ${own.length} unverified number${own.length === 1 ? "" : "s"}: ${own.join(", ")}`);
+  },
+};
+
 /** A reply names a d-spacing within `tol` of `d`: a line found is reported where the user can find it. */
 export function mentionsD(d: number, tol: number): Check {
   return {

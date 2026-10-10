@@ -101,7 +101,10 @@ reproduced (McCluskey et al. 2023). The form (the numbers are illustrative):
 > within the parameter bounds; noise scale marginalized.
 
 Then say what it means for the structure: which numbers are determined, which are limits,
-and which conclusions they support.
+and which conclusions they support. In the app, `write_report` puts the last run in the
+report — the intervals, the width against the esd and the convergence. A run on a focused
+set, made before the final refinement, is labelled as such, with how far its values have
+moved since in their esds: if they moved by more than about one, sample again.
 
 ## References
 

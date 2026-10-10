@@ -386,6 +386,19 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     pages: ["powder", "pdf"],
   },
   {
+    name: "write_report",
+    title: "Write the analysis report",
+    description:
+      "Write the analysis report and open it for the user, who can save it as HTML, Markdown or PDF, with the CIF. It holds what the page's own report holds — the data and the model, the fit figure, the refined structure with esds, every parameter, the agreement factors and the diagnostics — and the analysis as you ran it: the History's steps on the path to the result (what each refinement freed, and the method stage that is the reason), the method's checklist, the engine's checks (convergence, agreement, correlations, bounds, residual peaks, serial correlation, bond valences, the cell check and symmetry review) with the issues left open, the Bayesian check if you ran sample_posterior on this refinement, and your notes. Every number in it comes from the engine and the History. You write only `summary`, your own account, which the report labels as yours. Its decimal numbers are checked against the numbers the report computed: any that match none are underlined in the report and listed in the answer — correct them (get_state, structure_table) and call again, or leave them out. Call it when the analysis is done and you have reported, or when the user asks for the report.",
+    inputSchema: {
+      summary: z.string().min(20).max(6000).describe(
+        "Your account, in plain prose, one to four short paragraphs separated by blank lines: what you did and why, what the result shows about the structure, its caveats, and what is left open. Quote numbers exactly as the tools gave them (or rounded from them); add none of your own.",
+      ),
+    },
+    effect: "read",
+    pages: ["powder", "pdf"],
+  },
+  {
     name: "read_ref",
     title: "Read a stored value",
     description:

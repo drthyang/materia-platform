@@ -422,8 +422,8 @@ and [`pdfTools.ts`](../src/agent/pdfTools.ts).
   `suggest_next_steps`, `rank_next_parameters`, `check_cell_symmetry`,
   `find_unexplained_peaks`, `review_symmetry`, `diagnose_fit`,
   `structure_table`, `bond_geometry`, `interpret_structure`, `identify_peaks`,
-  `sample_posterior` (powder and PDF), `read_skill`, `read_ref`, and on the
-  magnetic step
+  `sample_posterior` (powder and PDF), `write_report`, `read_skill`,
+  `read_ref`, and on the magnetic step
   `magnetic_state`, `search_propagation_vector`, `rank_magnetic_groups`. The analysis tools are the MCP handlers above, fed
   from what is on screen.
 - `read_skill` returns a skill whole, as Markdown (not cut to the ref budget),
@@ -459,7 +459,8 @@ and [`pdfTools.ts`](../src/agent/pdfTools.ts).
   symmetry review last; PDF: scale/cell, ADPs, correlated motion, positions,
   then occupancy and particle size) are a checklist in the drawer and
   `get_state`'s `method`. A stage is done once a converged refinement had one
-  of its parameters free, whoever ran it. A refinement out of order runs, with
+  of its parameters free, whoever ran it (the scale, refined with every
+  stage, counts for the first only when nothing else is free). A refinement out of order runs, with
   a `methodNote` in its outcome.
 - The record behind them (the cell check, the symmetry review, the
   exceptions, the stages done, and the Agent's notes) is kept per analysis by the shell and saved with the project
@@ -520,6 +521,23 @@ and [`pdfTools.ts`](../src/agent/pdfTools.ts).
   the chain. The skill `bayesian-check` says when to run it (an esd as large
   as the value, a bound, a correlated pair, path dependence, a claim resting
   on one number) and what it cannot do (choose a model, fix a misfit).
+- **The analysis report** ([`src/agent/report.ts`](../src/agent/report.ts)).
+  `write_report` (powder and PDF pages, a read) builds the page's own report
+  (Export ▾ → Report: data, model, the fit figure, the structures with esds,
+  every parameter, the diagnostics) with the analysis as it went: the
+  History's steps on the path to the result — what each refinement freed and
+  the method stage behind it, who took it — the method's checklist, the
+  engine's checks ([`reportChecks.ts`](../src/agent/reportChecks.ts):
+  convergence, the agreement verdict, correlations, bounds, residual peaks,
+  Durbin–Watson, bond valences, the cell check and symmetry review, the
+  exceptions the user allowed) with the issues left open, the Bayesian check
+  of the refinement on screen when one ran, and the Agent's notes. The model
+  and how it was reached are named. The Agent writes only `summary`, its
+  account, labelled as its words; its decimal numbers are checked against the
+  numbers the report computed ([`reportAudit.ts`](../src/core/export/reportAudit.ts)),
+  and any that match none are underlined (HTML) or marked † (Markdown) and
+  returned, so the Agent corrects them and writes again. The report opens in
+  a viewer (Save HTML, Markdown, Print / PDF, CIF), and again from the drawer.
 - **The magnetic analysis step** ([`src/agent/magneticTools.ts`](../src/agent/magneticTools.ts)).
   The powder page's second step publishes its controls as a handle on the
   powder port ([`magneticPort.ts`](../src/agent/magneticPort.ts)), so the Agent

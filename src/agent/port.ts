@@ -27,6 +27,7 @@ import type { BackgroundType } from "@/core/diffraction/background";
 import type { CorrectionsUpdate, MustrainModel, SampleCorrections, SiteTies } from "@/app/powderSpec";
 import type { AxisContext } from "@/visualization/axisUnits";
 import type { BoxcarDirectionChoice, BoxcarRun } from "@/core/workflow/pdfBoxcar";
+import type { ReportInput } from "@/core/export/report";
 
 /** The powder page as the Agent reads it — one render's state. */
 export interface PowderLiveState {
@@ -118,6 +119,8 @@ export interface PowderAgentPort {
   readonly cancel: () => void;
   /** Parameters back to their starting values: these ids, or every one. */
   readonly reset: (ids?: readonly string[]) => void;
+  /** The page's report of what is on screen (Export ▾ → Report): the engine's numbers, ready to render. */
+  readonly reportInput?: () => ReportInput;
   /** The magnetic analysis step's controls (agent/magneticPort.ts); null while it has none. */
   readonly magnetic?: () => MagneticAgentHandle | null;
   /** Show a step of the page: 0 the refinement, 1 the magnetic analysis. */
@@ -180,6 +183,8 @@ export interface PdfAgentPort {
   readonly boxcar: (plan: { readonly width: number; readonly step: number; readonly direction: BoxcarDirectionChoice }) => Promise<BoxcarRun | null>;
   /** Sample the Bayesian posterior of the free parameters (the Posterior tab's Sample / Continue). */
   readonly samplePosterior?: PosteriorSampler;
+  /** The page's report of what is on screen (Export ▾ → Report): the engine's numbers, ready to render. */
+  readonly reportInput?: () => ReportInput;
   readonly cancel: () => void;
   /** Parameters back to their starting values: these ids, or every one. */
   readonly reset: (ids?: readonly string[]) => void;

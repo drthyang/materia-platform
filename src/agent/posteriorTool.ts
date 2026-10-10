@@ -14,7 +14,7 @@
  * systematic misfit leaves it too narrow as well.
  */
 
-import type { RefinementParameter } from "@/core/refinement/types";
+import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { SampleResult } from "@/core/refinement/bayes/sampler";
 import type { PdfAgentPort, PowderAgentPort } from "@/agent/port";
 import { sig } from "@/agent/liveCommon";
@@ -31,7 +31,7 @@ const STRONG = 0.8;
 export const POSTERIOR_STEPS = 400;
 export const MAX_POSTERIOR_STEPS = 5000;
 
-interface ParameterReading {
+export interface ParameterReading {
   readonly id: string;
   readonly label: string;
   readonly refined: number;
@@ -80,8 +80,12 @@ export function posteriorDifference(result: SampleResult, a: string, b: string):
   };
 }
 
-/** The posterior as the Agent reads it. */
-export function posteriorView(result: SampleResult, parameters: readonly RefinementParameter[], esd: Readonly<Record<string, number>> | undefined, compare: readonly (readonly [string, string])[] = []): Record<string, unknown> {
+/**
+ * A run read parameter by parameter: converged (the sampler's own test), close
+ * to it, and each parameter's interval, width against its esd, bound and
+ * verdict. posteriorView and the Agent's report both read a run through this.
+ */
+export function readPosterior(result: SampleResult, parameters: readonly RefinementParameter[], esd: Readonly<Record<string, number>> | undefined): { converged: boolean; nearly: boolean; essWanted: number; rows: ParameterReading[] } {
   const byId = new Map(parameters.map((p) => [p.id, p]));
   // The sampler's own test: R̂ < 1.05 and ESS ≥ max(100, 10 per free parameter).
   // Split-R̂ over ensemble walkers (not independent chains) is conservative and
@@ -130,6 +134,26 @@ export function posteriorView(result: SampleResult, parameters: readonly Refinem
         : skewed && !bound ? `${verdict}; the distribution is asymmetric (68 %: −${sig(lo, 2)} / +${sig(hi, 2)})` : verdict,
     };
   });
+  return { converged, nearly, essWanted, rows };
+}
+
+/** Each compared pair's difference as a sentence: its intervals and whether the data tell the two apart. */
+export function differenceSentences(result: SampleResult, parameters: readonly RefinementParameter[], compare: readonly (readonly [string, string])[]): string[] {
+  const byId = new Map(parameters.map((p) => [p.id, p]));
+  return compare.map(([a, b]) => {
+    const d = posteriorDifference(result, a, b);
+    const la = byId.get(d.a)?.label ?? d.a;
+    const lb = byId.get(d.b)?.label ?? d.b;
+    const p = d.probabilityAGreater;
+    const decisive = p >= 0.975 || p <= 0.025;
+    return `${la} − ${lb} = ${d.median} (68 % ${d.ci68[0]} to ${d.ci68[1]}; 95 % ${d.ci95[0]} to ${d.ci95[1]}); P(${la} > ${lb}) = ${p}: ${decisive ? "the data distinguish them" : "the data do not distinguish them at 95 %"}.`;
+  });
+}
+
+/** The posterior as the Agent reads it. */
+export function posteriorView(result: SampleResult, parameters: readonly RefinementParameter[], esd: Readonly<Record<string, number>> | undefined, compare: readonly (readonly [string, string])[] = []): Record<string, unknown> {
+  const byId = new Map(parameters.map((p) => [p.id, p]));
+  const { converged, nearly, essWanted, rows } = readPosterior(result, parameters, esd);
   const ids = result.freeIds;
   const pairs: { a: string; b: string; rho: number }[] = [];
   for (let i = 0; i < ids.length; i++) {
@@ -157,13 +181,7 @@ export function posteriorView(result: SampleResult, parameters: readonly Refinem
       "The intervals hold within this model and its noise model: a systematic misfit (Durbin–Watson well below 2) leaves them as overconfident as the esds.",
     ].join(" ");
   const differences = compare.map(([a, b]) => posteriorDifference(result, a, b));
-  const differenceReading = differences.map((d) => {
-    const la = byId.get(d.a)?.label ?? d.a;
-    const lb = byId.get(d.b)?.label ?? d.b;
-    const p = d.probabilityAGreater;
-    const decisive = p >= 0.975 || p <= 0.025;
-    return `${la} − ${lb} = ${d.median} (68 % ${d.ci68[0]} to ${d.ci68[1]}; 95 % ${d.ci95[0]} to ${d.ci95[1]}); P(${la} > ${lb}) = ${p}: ${decisive ? "the data distinguish them" : "the data do not distinguish them at 95 %"}.`;
-  });
+  const differenceReading = differenceSentences(result, parameters, compare);
   return {
     status: result.status,
     converged,
@@ -180,8 +198,17 @@ export function posteriorView(result: SampleResult, parameters: readonly Refinem
   };
 }
 
-/** Run the page's sampler and read the result. */
-export async function samplePosteriorTool(input: { continue?: boolean; steps?: number; compare?: readonly (readonly [string, string])[] }, port: PowderAgentPort | PdfAgentPort): Promise<Record<string, unknown>> {
+/** A finished run, with what it was read against: kept by the executor for the report. */
+export interface PosteriorRun {
+  readonly run: SampleResult;
+  /** The refinement it sampled around (the report shows the run only while that result is on screen). */
+  readonly result: RefinementResult;
+  readonly parameters: readonly RefinementParameter[];
+  readonly compare: readonly (readonly [string, string])[];
+}
+
+/** Run the page's sampler and read the result. `onRun` receives every finished run. */
+export async function samplePosteriorTool(input: { continue?: boolean; steps?: number; compare?: readonly (readonly [string, string])[] }, port: PowderAgentPort | PdfAgentPort, onRun?: (run: PosteriorRun) => void): Promise<Record<string, unknown>> {
   if (!port.samplePosterior) throw new Error("this page has no posterior sampler");
   const s = port.state();
   if (s.busy) throw new Error("a refinement is running — wait for it to finish");
@@ -203,5 +230,6 @@ export async function samplePosteriorTool(input: { continue?: boolean; steps?: n
     for (const id of [a, b]) if (!free.some((p) => p.id === id)) throw new Error(`compare: ${id} is not free — only sampled parameters can be compared (free: ${free.map((p) => p.id).join(", ")})`);
   }
   const view = posteriorView(run, s.parameters, s.result.esd, compare);
+  onRun?.({ run, result: s.result, parameters: s.parameters, compare });
   return free.length > 12 ? { ...view, note: `${free.length} free parameters: each step costs ${2 * free.length + 2} pattern evaluations, and the chain mixes more slowly the more there are (expect ~10⁴ steps at 20). To ask about a few values, fix what does not correlate with them (the profile, the background, the cell and zero usually), refine that set, then sample it.` } : view;
 }

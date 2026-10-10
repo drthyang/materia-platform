@@ -95,6 +95,9 @@ a single irreducible representation — a maximal group — so start there:
   at 0: before you report a moment whose esd is a large part of it, sample the posterior
   (`bayesian-check`, `sample_posterior` with the moments, the scale and the B's free) and
   quote its credible interval.
+- The written report (`write_report`, once the joint refinement is done) carries the
+  magnetic section from the engine — k, the group, the moments with esds — and the Bayesian
+  check of that refinement; your account adds the powder's limits above in words.
 
 ## Tools
 
