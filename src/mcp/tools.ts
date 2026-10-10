@@ -570,7 +570,8 @@ export function search_propagation_vector(args: {
   peakD: number[];
   options?: KSearchOptions;
 }): { candidates: { k: Vec3; label: string; matched: number; total: number; rmsd: number; score: number }[] } {
-  const candidates = searchPropagationVector(args.structure.cell, args.peakD, args.options ?? {});
+  // A line's width in d grows with d: match within 0.5 % of d where that is wider than the Å tolerance.
+  const candidates = searchPropagationVector(args.structure.cell, args.peakD, { relativeTolerance: 0.005, ...(args.options ?? {}) });
   return { candidates: candidates.map((c) => ({ ...c })) };
 }
 

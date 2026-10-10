@@ -114,7 +114,10 @@ export async function readMagneticTool(name: string, input: Input, port: PowderA
     case "magnetic_state":
       return magneticView(h.state());
     case "search_propagation_vector": {
-      const found = h.searchK();
+      const found = h.searchK({
+        ...(Array.isArray(input.exclude) ? { exclude: input.exclude as number[] } : {}),
+        ...(Array.isArray(input.include) ? { include: input.include as number[] } : {}),
+      });
       port.openStep?.(1);
       const all = found.filter((c) => c.matched === c.total);
       const simplest = [...all].sort((a, b) => simplicity(a.k) - simplicity(b.k))[0];

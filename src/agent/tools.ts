@@ -228,8 +228,11 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     name: "search_propagation_vector",
     title: "Search the propagation vector",
     description:
-      "Powder page only. Search commensurate propagation vectors k (denominators 2, 3, 4, 6) that put magnetic satellites G ± k on the residual peaks the k-search uses (magnetic_state lists them; peaks on nuclear reflections are left out). Ranked by how many peaks each explains and how closely. Shows the list on the magnetic step. It does not set k: set_propagation_vector does.",
-    inputSchema: {},
+      "Powder page only. Search commensurate propagation vectors k (denominators 2, 3, 4, 6, and k = 0, whose magnetic peaks can sit on reflections the space group forbids) that put magnetic reflections G ± k on the residual peaks the k-search uses (magnetic_state lists them, numbered; peaks on allowed nuclear reflections are left out). Ranked by how many peaks each explains and how closely. Leave out lines already identified as not magnetic — the sample environment, an impurity, a line present above the ordering temperature — with `exclude` (their numbers), as the peak table's check boxes do; `include` puts a peak in. Shows the list on the magnetic step. It does not set k: set_propagation_vector does.",
+    inputSchema: {
+      exclude: z.array(z.number().int().positive()).optional().describe("Numbers of residual peaks to leave out of the search (magnetic_state's residualPeaks n)"),
+      include: z.array(z.number().int().positive()).optional().describe("Numbers of residual peaks to put into the search"),
+    },
     effect: "read",
     pages: ["powder"],
   },

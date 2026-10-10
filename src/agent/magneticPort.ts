@@ -100,8 +100,10 @@ export type MomentTies = MagneticPanelState["ties"];
 
 export interface MagneticAgentHandle {
   readonly state: () => MagneticPanelState;
-  /** Search k from the included residual peaks; shows the list on the page. */
-  readonly searchK: () => readonly KCandidateView[];
+  /** Search k from the included residual peaks; shows the list on the page. `exclude` /
+   *  `include` set peaks (by their number) out of or into the search first, as the
+   *  peak table's check boxes do. */
+  readonly searchK: (choice?: { readonly exclude?: readonly number[]; readonly include?: readonly number[] }) => readonly KCandidateView[];
   /** Set k (the group pick is dropped). */
   readonly setK: (k: Vec3) => void;
   readonly selectIons: (labels: readonly string[]) => void;

@@ -71,10 +71,12 @@ export function magneticHandle(get: () => Session, set: (s: Session) => void, op
     return resolveTies(b.params, base);
   };
 
+  // The Agent's picks of peaks into or out of the search, by number (the table's check boxes).
+  const overrides = new Map<number, boolean>();
   const peaks = () => {
     const s = get();
     const curves = sessionCurves(s);
-    const d = convertAxisArray(curves.x, s.pattern.xUnit, "dSpacing", axisContext(s.pattern));
+    const d = convertAxisArray(curves.x, s.pattern.xUnit, "dSpacing", axisContext(s.pattern, undefined, s.powderParams.find((p) => p.kind === "zeroShift")?.value));
     const pointSigma = s.pattern.points.every((p) => p.sigma !== undefined) ? s.pattern.points.map((p) => p.sigma!) : undefined;
     const found = detectExtraPeaks(d, curves.yObs, curves.yCalc, { ...(pointSigma ? { pointSigma, minSignificance: 3 } : {}), limit: 24 });
     const finite = d.filter((v) => Number.isFinite(v) && v > 0);
@@ -82,7 +84,7 @@ export function magneticHandle(get: () => Session, set: (s: Session) => void, op
       .map((r) => ({ d: r.d, hkl: `${r.h} ${r.k} ${r.l}`, phaseLabel: s.structure.name || s.structure.id }));
     return annotateExtraPeaks(found, refs)
       .sort((a, b) => b.d - a.d)
-      .map((p, i) => ({ ...p, n: i + 1, included: (p.significance === undefined || p.significance >= 5) && !p.nearNuclear }));
+      .map((p, i) => ({ ...p, n: i + 1, included: overrides.get(i + 1) ?? ((p.significance === undefined || p.significance >= 5) && !p.nearNuclear) }));
   };
 
   const fit = (b: MagneticModelBuild, start?: Record<string, number>): { values: Record<string, number>; agreement: number | null } => {
@@ -147,11 +149,13 @@ export function magneticHandle(get: () => Session, set: (s: Session) => void, op
         canRefineK: !!kRows && kRows.params.length > 0,
       };
     },
-    searchK: () => {
+    searchK: (choice) => {
+      for (const n of choice?.exclude ?? []) overrides.set(n, false);
+      for (const n of choice?.include ?? []) overrides.set(n, true);
       const included = peaks().filter((p) => p.included);
       if (included.length === 0) throw new Error("no residual peak is included for the k-search");
       const weights = included.some((p) => p.significance !== undefined) ? included.map((p) => Math.min(p.significance ?? 1, 20)) : undefined;
-      results = searchPropagationVector(structure().cell, included.map((p) => p.d), { tolerance: 0.02, maxQ: 0, ...(weights ? { weights } : {}) });
+      results = searchPropagationVector(structure().cell, included.map((p) => p.d), { tolerance: 0.02, relativeTolerance: 0.005, maxQ: 0, ...(weights ? { weights } : {}) });
       openStep(1);
       return results.slice(0, 8).map(kView);
     },

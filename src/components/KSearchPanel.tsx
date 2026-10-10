@@ -894,10 +894,11 @@ export function KSearchPanel({
    *  maxQ is disabled: the curated checkbox list is now the authoritative
    *  criterion — a hidden low-Q cut would silently drop peaks the user ticked
    *  and desynchronize the matched counts from the "N used" chip. */
-  function runKSearch(): KCandidate[] {
-    const weights = hasSignificance ? includedPeaks.map((p) => Math.min(p.significance ?? 1, 20)) : undefined;
-    const found = searchPropagationVector(structure.cell, includedPeaks.map((p) => p.d), {
+  function runKSearch(peaks: readonly (typeof includedPeaks)[number][] = includedPeaks): KCandidate[] {
+    const weights = hasSignificance ? peaks.map((p) => Math.min(p.significance ?? 1, 20)) : undefined;
+    const found = searchPropagationVector(structure.cell, peaks.map((p) => p.d), {
       tolerance: 0.02,
+      relativeTolerance: 0.005,
       maxQ: 0,
       ...(weights ? { weights } : {}),
     });
@@ -944,9 +945,20 @@ export function KSearchPanel({
         canFit,
         canRefineK,
       }),
-      searchK: () => {
-        if (includedPeaks.length === 0) throw new Error("no residual peak is included for the k-search — the nuclear fit leaves none, or every one sits on a nuclear reflection");
-        return runKSearch().slice(0, 8).map(kView);
+      searchK: (choice) => {
+        // The Agent's picks, as the table's check boxes: applied now (the search
+        // reads them in this call) and kept as overrides (the table shows them).
+        const out = new Set(choice?.exclude ?? []);
+        const into = new Set(choice?.include ?? []);
+        const unknown = [...out, ...into].filter((n) => !peakRows.some((r) => r.idx === n));
+        if (unknown.length > 0) throw new Error(`no residual peak ${unknown.join(", ")} — the peaks are 1–${peakRows.length} (magnetic_state lists them)`);
+        const rows = peakRows.map((r) => (out.has(r.idx) ? { ...r, included: false } : into.has(r.idx) ? { ...r, included: true } : r));
+        if (out.size + into.size > 0) {
+          setPeakOverrides((o) => ({ ...o, ...Object.fromEntries(rows.filter((r) => out.has(r.idx) || into.has(r.idx)).map((r) => [r.key, r.included])) }));
+        }
+        const included = rows.filter((r) => r.included);
+        if (included.length === 0) throw new Error("no residual peak is included for the k-search — the nuclear fit leaves none, or every one sits on a nuclear reflection");
+        return runKSearch(included).slice(0, 8).map(kView);
       },
       setK: (kk) => applyK([kk[0], kk[1], kk[2]]),
       selectIons: (labels) => {
@@ -1408,7 +1420,7 @@ export function KSearchPanel({
               <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 8, flexWrap: "wrap" }}>
                 <button
                   style={{ ...ghostBtn, opacity: includedPeaks.length === 0 ? 0.5 : 1 }}
-                  onClick={runKSearch}
+                  onClick={() => runKSearch()}
                   disabled={includedPeaks.length === 0}
                   title={includedPeaks.length === 0
                     ? "No peaks pass the criteria — lower the I/σ threshold or tick peaks manually"
