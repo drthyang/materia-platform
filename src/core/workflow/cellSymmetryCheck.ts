@@ -143,8 +143,10 @@ const hkl = (r: { h: number; k: number; l: number }): string => `${r.h} ${r.k} $
 
 /** A shoulder lies within this many peak widths of its line … */
 const SHOULDER_WIDTHS = 6;
-/** … and is at most this fraction of the line's height. */
+/** … and is at most this fraction of the line's height … */
 const SHOULDER_HEIGHT = 0.03;
+/** … where the calculated pattern still carries this fraction of the bump. */
+const SHOULDER_ON_LINE = 0.5;
 
 /** Median of a sample (copies and sorts). */
 function median(xs: readonly number[]): number {
@@ -363,6 +365,10 @@ export function checkCellSymmetry(
     ...others,
   ].map((l) => ({ ...l, height: net[nearestIndex(l.x)]! }));
   const shoulderOf = (xi: number, bump: number): { of: string; offset: number; relativeHeight: number } | null => {
+    // A tail sits on calculated intensity; a weak peak with background
+    // between it and the line is a peak (Al from a cryostat beside a strong
+    // Cr₂WO₆ line), however near.
+    if (!(net[nearestIndex(xi)]! >= SHOULDER_ON_LINE * bump)) return null;
     const reach = SHOULDER_WIDTHS * width(xi);
     let best: { of: string; offset: number; relativeHeight: number } | null = null;
     for (const l of lines) {

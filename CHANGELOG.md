@@ -33,6 +33,30 @@ release fixes bugs.
 - `parse_powder_data` (MCP) takes the instrument, so the pattern carries its
   radiation: X-ray or neutron, λ, polarization and Kα₂.
 - Tables in the Agent's replies render as tables.
+- **Antisite disorder for the Agent** (`add_antisite`): two sites exchange
+  their atoms — each element added on the other site at occupancy 0, with
+  Σ occ = 1 and hold composition on — so the exchange refines as one
+  fraction under the formula. Asks the user.
+- **"On" and "beside" a reflection follow the line width** on
+  constant-wavelength data (one width, three widths) instead of a fixed
+  0.5 % and 2 % in d: on CW neutron data 2 % was four widths, and the
+  cryostat's Al 111 read as a misfit of the sample's 200.
+- **Which phase is that extra peak?** (`identify_peaks`, for the Agent):
+  extra peaks matched against the sample environment (Al cans and cryostat
+  shields, V, Cu, steels, Nb, Pb), holders (corundum, graphite) and
+  standards (Si, LaB₆, CeO₂), with the lines each candidate should also show.
+  On Cr₂WO₆ at 150 K it named the cryostat's aluminium.
+- **Equal-value ties** (`tie_parameters`, for the Agent): B values (or
+  occupancies) the data cannot separate refine as one value — the
+  cations of an oxide, all the oxygens — with that value's esd reported on
+  every tied site. The tie survives every rebuild of the parameter set (a
+  background, correction or site-tie change) and travels in the project.
+  On Cr₂WO₆ at 150 K (Q ≤ 4.7 Å⁻¹) two refinement paths at the same wR gave
+  B(W) 0.8 and 1.5 Å²; the tied pair gives one B with an honest esd.
+- **`diagnose_fit` knows what is already free.** Once the Caglioti terms and
+  the Lorentzian X refine and the line widths agree, it no longer says to
+  free them: it names what is left — asymmetry, anisotropic broadening, or
+  the profile function's limit, with the esds read as too small.
 - **New data of the same structure starts from the refined structure.** The
   cell, positions, ADPs and occupancies carry over from the last fit (a
   temperature series: the paramagnetic refinement seeds the ordered data);
@@ -124,6 +148,14 @@ release fixes bugs.
   Instrument, Pattern, Parameters, Result) breathes, as do the cards a reply
   points to in its last paragraph (for a few seconds) and a reply under the
   pointer. With reduced motion the edge is steady.
+
+### Changed
+
+- **The Agent's opening text says what it is and what it does.** It names
+  the model in use (Claude, or the local model on Ollama or LM Studio), says
+  it can run the whole analysis by the page's method and discuss it, and
+  describes the approval mode that is on (Ask first or Auto), with examples
+  for the page open.
 
 ### Fixed
 

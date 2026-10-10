@@ -29,7 +29,7 @@ import { cellVolume } from "@/core/crystal/unitCell";
 import { powderCurves, type PowderProfile } from "@/core/workflow/powder";
 import { magneticComponentCurve } from "@/core/workflow/magneticPowder";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
-import { resolveTies } from "@/core/refinement/constraints";
+import { resolveTies, withEqualTies, type EqualTieUpdate } from "@/core/refinement/constraints";
 import type { PeakShape } from "@/core/diffraction/profile";
 import type { BackgroundType } from "@/core/diffraction/background";
 import { extractSizeStrain } from "@/core/diffraction/microstructure";
@@ -85,7 +85,8 @@ import { SegmentedToggle } from "@/app/ui/SegmentedToggle";
 import { applyParameters } from "@/core/workflow/apply";
 import { excludedPointMask } from "@/core/refinement/factors";
 import { secondLine, type InstrumentConstants, type InstrumentParameters } from "@/core/diffraction/instrument";
-import { type Session, buildSpecFor, DEFAULT_INSTRUMENT, SYNTHETIC_SOURCE, EMPTY_SOURCE } from "@/app/powderSession";
+import { withAntisite } from "@/core/crystal/antisite";
+import { type Session, buildSpecFor, keptRow, keptRows, withValidUserTies, DEFAULT_INSTRUMENT, SYNTHETIC_SOURCE, EMPTY_SOURCE } from "@/app/powderSession";
 import type { EngineExportsRef } from "@/app/workbenchEngine";
 import type { AgentLink } from "@/agent/link";
 import type { MagneticAgentHandle } from "@/agent/magneticPort";
@@ -616,14 +617,10 @@ export function PowderWorkbench({
     const count = Math.max(0, Math.min(24, Math.trunc(n)));
     setSession((s) => {
       const spec = buildSpecFor(s.structure, s.extraPhases, s.pattern, instrumentLoaded ? instrument : DEFAULT_INSTRUMENT, s.powderProfile.lorentz ?? true, count, s.siteTies, s.mustrain ?? "isotropic", s.corrections);
-      const previous = new Map(s.powderParams.map((p) => [p.id, p]));
       return {
         ...s,
         backgroundTerms: count,
-        powderParams: spec.params.map((p) => {
-          const old = previous.get(p.id);
-          return old ? { ...p, value: old.value, initialValue: old.initialValue, fixed: old.fixed } : p;
-        }),
+        powderParams: keptRows(spec.params, s.powderParams),
         powderBindings: spec.bindings,
         powderProfile: { ...spec.profile, ...(s.powderProfile.backgroundType ? { backgroundType: s.powderProfile.backgroundType } : {}) },
       };
@@ -631,19 +628,53 @@ export function PowderWorkbench({
     setPowderResult(null);
   }
 
+  /**
+   * Antisite disorder between two sites: each element added on the other site
+   * at occupancy 0, sharing its host's position and ADP, with Σ occ = 1 and
+   * hold composition on. Rebuilds the spec; every existing row keeps its value
+   * and state, the new occupancy rows come in fixed.
+   */
+  function addAntisite(siteA: string, siteB: string): void {
+    setSession((s) => {
+      const structure = withAntisite(s.structure, siteA, siteB);
+      const ties = { ...s.siteTies, occupancyToUnity: true, composition: true };
+      const spec = buildSpecFor(structure, s.extraPhases, s.pattern, instrumentLoaded ? instrument : DEFAULT_INSTRUMENT, s.powderProfile.lorentz ?? true, s.backgroundTerms, ties, s.mustrain ?? "isotropic", s.corrections);
+      return {
+        ...s,
+        structure,
+        siteTies: ties,
+        powderParams: keptRows(spec.params, s.powderParams),
+        powderBindings: spec.bindings,
+        powderProfile: { ...spec.profile, ...(s.powderProfile.backgroundType ? { backgroundType: s.powderProfile.backgroundType } : {}) },
+      };
+    });
+    setPowderResult(null);
+    stepHistory?.requestStep("settings", `Antisite ${siteA} ⇄ ${siteB}`);
+  }
+
+  /**
+   * Tie parameters of one kind to one refined value (equal ADPs, equal
+   * occupancies): the followers take the leader's value and follow it. Or
+   * release such ties (the rows come back fixed at their value).
+   */
+  function setParameterTies(update: EqualTieUpdate): void {
+    setSession((s) => ({ ...s, powderParams: withEqualTies(s.powderParams, update) }));
+    setPowderResult(null);
+    const label = update.equal
+      ? `Tie ${update.equal.slice(1).join(", ")} = ${update.equal[0]}`
+      : `Release ${(update.release ?? []).join(", ")}`;
+    stepHistory?.requestStep("settings", label);
+  }
+
   /** Toggle tying position/ADP across shared (disordered) sites; rebuilds the spec. */
   function setSiteTies(update: Partial<SiteTies>): void {
     setSession((s) => {
       const ties = { ...s.siteTies, ...update };
       const spec = buildSpecFor(s.structure, s.extraPhases, s.pattern, instrumentLoaded ? instrument : DEFAULT_INSTRUMENT, s.powderProfile.lorentz ?? true, s.backgroundTerms, ties, s.mustrain ?? "isotropic", s.corrections);
-      const previous = new Map(s.powderParams.map((p) => [p.id, p]));
       return {
         ...s,
         siteTies: ties,
-        powderParams: spec.params.map((p) => {
-          const old = previous.get(p.id);
-          return old ? { ...p, value: old.value, initialValue: old.initialValue, fixed: old.fixed } : p;
-        }),
+        powderParams: keptRows(spec.params, s.powderParams),
         powderBindings: spec.bindings,
         powderProfile: { ...spec.profile, ...(s.powderProfile.backgroundType ? { backgroundType: s.powderProfile.backgroundType } : {}) },
       };
@@ -660,14 +691,10 @@ export function PowderWorkbench({
   function setMustrain(model: MustrainModel): void {
     setSession((s) => {
       const spec = buildSpecFor(s.structure, s.extraPhases, s.pattern, instrumentLoaded ? instrument : DEFAULT_INSTRUMENT, s.powderProfile.lorentz ?? true, s.backgroundTerms, s.siteTies, model, s.corrections);
-      const previous = new Map(s.powderParams.map((p) => [p.id, p]));
       return {
         ...s,
         mustrain: model,
-        powderParams: spec.params.map((p) => {
-          const old = previous.get(p.id);
-          return old ? { ...p, value: old.value, initialValue: old.initialValue, fixed: old.fixed } : p;
-        }),
+        powderParams: keptRows(spec.params, s.powderParams),
         powderBindings: spec.bindings,
         powderProfile: { ...spec.profile, ...(s.powderProfile.backgroundType ? { backgroundType: s.powderProfile.backgroundType } : {}) },
       };
@@ -704,11 +731,11 @@ export function PowderWorkbench({
       return {
         ...s,
         corrections,
-        powderParams: spec.params.map((p) => {
+        powderParams: withValidUserTies(spec.params.map((p) => {
           const old = previous.get(p.id);
           if (!old || (axisChanged && p.kind === "poRatio")) return { ...p, fixed: true };
-          return { ...p, value: old.value, initialValue: old.initialValue, fixed: old.fixed };
-        }),
+          return keptRow(p, old);
+        })),
         powderBindings: spec.bindings,
         powderProfile: { ...spec.profile, ...(s.powderProfile.backgroundType ? { backgroundType: s.powderProfile.backgroundType } : {}) },
       };
@@ -742,13 +769,13 @@ export function PowderWorkbench({
         ...s,
         structure: promoted,
         anisotropicAdp: on,
-        powderParams: spec.params.map((p) => {
-          // ADP rows are freshly seeded by the rebuild; everything else keeps
-          // its current (possibly refined) value and free/fixed state.
+        powderParams: withValidUserTies(spec.params.map((p) => {
+          // ADP rows are freshly seeded by the rebuild (their ties with them);
+          // everything else keeps its current (possibly refined) value and
+          // free/fixed state.
           if (p.kind === "bIso" || p.kind === "uAniso") return p;
-          const old = previous.get(p.id);
-          return old ? { ...p, value: old.value, initialValue: old.initialValue, fixed: old.fixed } : p;
-        }),
+          return keptRow(p, previous.get(p.id));
+        })),
         powderBindings: spec.bindings,
         powderProfile: { ...spec.profile, ...(s.powderProfile.backgroundType ? { backgroundType: s.powderProfile.backgroundType } : {}) },
       };
@@ -1379,6 +1406,8 @@ export function PowderWorkbench({
       setAnisotropicAdp,
       setSiteTies,
       setCorrections,
+      addAntisite,
+      setParameterTies,
       ...(onInstrumentConstants ? { setInstrumentConstants: onInstrumentConstants } : {}),
       setFitRange: (range) => setFitRange(range ? { min: range.min, max: range.max } : null),
       showPeaks: (peaks) => {

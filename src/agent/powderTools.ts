@@ -17,19 +17,23 @@ import {
   suggest_next_steps,
 } from "@/mcp/tools";
 import type { StructureModel } from "@/core/crystal/types";
+import type { RefinementParameter } from "@/core/refinement/types";
 import type { BackgroundType } from "@/core/diffraction/background";
 import type { CorrectionsUpdate, MustrainModel, PeakCorrectionId, SiteTies } from "@/app/powderSpec";
 import type { PowderXUnit } from "@/core/diffraction/types";
 import { availableDisplayUnits, convertAxisValue, convertInterval } from "@/visualization/axisUnits";
-import { K0_MAGNETIC, k0MagneticHint, residualPeaks } from "@/core/diagnostics/assessment";
+import { K0_MAGNETIC, k0MagneticHint, relativeLineWidth, residualPeaks } from "@/core/diagnostics/assessment";
 import { reviewSymmetry } from "@/core/diagnostics/symmetryReview";
 import { formatWt, fractionsOf } from "@/core/diagnostics/phaseFractions";
 import { magneticIonCandidates } from "@/core/magnetic/magneticIons";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { diagnoseFit, widthsComparable } from "@/core/diagnostics/fitDiagnosis";
+import { matchKnownPhases } from "@/core/diagnostics/knownPhases";
+import { withAntisite } from "@/core/crystal/antisite";
 import { structureTable } from "@/agent/structureTable";
 import { powderReflectionObsCalc } from "@/core/workflow/obsCalc";
 import { excludedPointMask } from "@/core/refinement/factors";
+import { checkEqualTies, type EqualTieUpdate } from "@/core/refinement/constraints";
 import { applyFree, bondsOf, cellOf, describeFree, freeNoOp, goToStep, historyView, matchIds, parameterSummary, pct, sig, type LiveToolHost } from "@/agent/liveCommon";
 
 
@@ -99,7 +103,7 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
       const violated = check.absences.violated;
       const flags = violated.map((v) => `${v.h} ${v.k} ${v.l} at d ${v.d.toFixed(3)} Å`).join(", ");
       const readings = [
-        ...(unindexed.length > 0 ? [`${unindexed.length} peak${unindexed.length === 1 ? "" : "s"} no reflection of the cell indexes: a missing phase (most often) or a wrong cell. Settle this with the user before refining the structure.`] : []),
+        ...(unindexed.length > 0 ? [`${unindexed.length} peak${unindexed.length === 1 ? "" : "s"} no reflection of the cell indexes: a missing phase (most often) or a wrong cell. identify_peaks (with their d) checks the sample environment and common standards. Settle this with the user before refining the structure.`] : []),
         ...(check.shoulders.length > 0 ? [shoulderReading(check.shoulders, s.pattern.xUnit)] : []),
         ...(violated.length > 0
           ? [`${violated.length} forbidden reflection${violated.length === 1 ? "" : "s"} show${violated.length === 1 ? "s" : ""} leftover intensity (${flags}). This is a flag, not a verdict: before the structure is refined, profile misfit${unindexed.length > 0 ? ", or a line of the unindexed phase," : ""} reads the same way. Do not change the space group now: note it (write_note) and refine the structure to the best; review_symmetry reads the refined residual at the end.`]
@@ -142,7 +146,7 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
         ? "No residual peak stands 5σ above its own noise."
         : (between.length === 0
           ? "No extra peak: no residual peak sits away from the phases' reflections."
-          : `${between.length} peak${between.length === 1 ? "" : "s"} away from every phase's reflections: intensity no phase accounts for (an impurity, magnetic order, or an unmodelled feature).`) +
+          : `${between.length} peak${between.length === 1 ? "" : "s"} on no phase's reflection or its tail: intensity no phase accounts for (an impurity, the sample environment, magnetic order, or an unmodelled feature; identify_peaks checks the sample environment and common standards).`) +
           misfitReading +
           (k0MagneticHint(residual.magneticNeutron, onReflection) ? ` ${K0_MAGNETIC}` : "");
       return {
@@ -153,6 +157,32 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
         ...(marked.length > 0
           ? { markedOnPlot: input.showMisfits ? "The user sees these marked on the plot (filled ▽ unexplained, hollow ▽ misfits on or beside a known reflection, listed under it); refer to them by d." : "The user sees the unexplained peaks marked on the plot (filled ▽, listed under it); refer to them by d." }
           : {}),
+      };
+    }
+    case "identify_peaks": {
+      const residual = residualOf(s);
+      const given = Array.isArray(input.d) ? (input.d as number[]).filter((d) => d > 0) : null;
+      const peaks = given
+        ? given.map((d) => ({ d, height: 0 }))
+        : residualPeaks(residual, { limit: 12 }).between.map((p) => ({ d: p.d, height: p.height }));
+      if (peaks.length === 0) return { peaks: [], candidates: [], reading: "No unexplained peak to identify: every residual peak sits on or beside a reflection of the model's phases." };
+      const finite = residual.d.filter((v) => Number.isFinite(v) && v > 0);
+      const candidates = matchKnownPhases(peaks, s.pattern.radiation, { dMin: Math.min(...finite), dMax: Math.max(...finite) });
+      const lead = candidates[0];
+      const strongLead = lead && (lead.explains.length >= 2 || (lead.explains.length === 1 && lead.explains[0]!.relativeIntensity >= 0.8 && lead.alsoExpected.length === 0));
+      const reading = !lead
+        ? `None of the ${peaks.length} peak${peaks.length === 1 ? "" : "s"} matches a common sample-environment phase or standard: an impurity of the sample, magnetic order, or a feature to put to the user.`
+        : strongLead
+          ? `${lead.explains.length} of ${peaks.length} peak${peaks.length === 1 ? "" : "s"} match ${lead.phase} (${lead.explains.map((e) => e.hkl).join(", ")}), with its d-spacings × ${lead.dScale.toFixed(4)} — usually ${lead.source}.${lead.alsoExpected.length ? ` Its strong lines ${lead.alsoExpected.map((e) => `${e.hkl} at d ${e.d.toFixed(3)} Å`).join(", ")} should also be seen (they may hide under the sample's lines).` : ""} Put it to the user: add the phase (Load CIF) or leave the lines unmodelled and say so; it is not part of the sample.`
+          : `Only weak or single matches (best: ${lead.phase} ${lead.explains.map((e) => e.hkl).join(", ")}): not enough to name a phase. Report the peaks to the user as unexplained.`;
+      return {
+        peaks: peaks.map((p) => ({ d: sig(p.d, 5), ...(s.pattern.xUnit !== "dSpacing" && s.pattern.xUnit !== "q" ? { [s.pattern.xUnit]: sig(convertAxisValue(p.d, "dSpacing", s.pattern.xUnit, s.axis), 6) } : {}) })),
+        candidates: candidates.slice(0, 4).map((c) => ({
+          phase: c.phase, source: c.source, dScale: sig(c.dScale, 5),
+          explains: c.explains.map((e) => ({ d: sig(e.d, 5), hkl: e.hkl, relativeIntensity: sig(e.relativeIntensity, 2) })),
+          alsoExpected: c.alsoExpected.map((e) => ({ d: sig(e.d, 5), hkl: e.hkl, relativeIntensity: sig(e.relativeIntensity, 2) })),
+        })),
+        reading,
       };
     }
     case "review_symmetry": {
@@ -222,6 +252,16 @@ export async function changePowder(name: string, input: Input, port: PowderAgent
       port.setCorrections(correctionUpdate(input));
       return undefined;
     }
+    case "add_antisite": {
+      if (!port.addAntisite) throw new Error("this page cannot change its structure");
+      port.addAntisite(String(input.siteA), String(input.siteB));
+      return undefined;
+    }
+    case "tie_parameters": {
+      if (!port.setParameterTies) throw new Error("this page cannot tie parameters");
+      port.setParameterTies(tieUpdate(s.parameters, input));
+      return undefined;
+    }
     case "set_instrument_constants": {
       if (!port.setInstrumentConstants) throw new Error("this page cannot change its instrument");
       port.setInstrumentConstants(constantsUpdate(input));
@@ -281,6 +321,15 @@ export function powderNoOp(spec: LiveToolSpec, input: Input, s: PowderLiveState)
       && (update.peak === undefined || [...update.peak].sort().join() === [...(now.peak ?? [])].sort().join());
     return same ? "the corrections are already set so" : null;
   }
+  if (spec.name === "add_antisite") {
+    if (s.extraPhases.length > 0) throw new Error("antisite disorder is added to a single-phase model");
+    // Throws for an unknown site, two sites of one element, or a pair already exchanged.
+    withAntisite(s.structure, String(input.siteA), String(input.siteB));
+    return null;
+  }
+  if (spec.name === "tie_parameters") {
+    return checkEqualTies(s.parameters, tieUpdate(s.parameters, input)).unchanged ? "those parameters are already tied so" : null;
+  }
   if (spec.name === "set_instrument_constants") {
     const update = constantsUpdate(input);
     if (Object.keys(update).length === 0) throw new Error("pass `polarization`, `kAlpha2Ratio`, or both");
@@ -292,6 +341,15 @@ export function powderNoOp(spec: LiveToolSpec, input: Input, s: PowderLiveState)
     return same ? "the instrument constants are already so" : null;
   }
   return spec.name === "set_free" ? freeNoOp(s.parameters, input) : null;
+}
+
+/** tie_parameters' globs expanded in the order given (so the leader stays first), each id once. */
+function tieUpdate(params: readonly RefinementParameter[], input: Input): EqualTieUpdate {
+  const expand = (list: readonly string[]): string[] => [...new Set(list.flatMap((g) => matchIds(params, [g])))];
+  return {
+    ...(Array.isArray(input.equal) ? { equal: expand(input.equal as string[]) } : {}),
+    ...(Array.isArray(input.release) ? { release: expand(input.release as string[]) } : {}),
+  };
 }
 
 function constantsUpdate(input: Input): InstrumentConstants {
@@ -342,6 +400,19 @@ export function describePowderChange(spec: LiveToolSpec, input: Input, s: Powder
         ...(u.asymmetry !== undefined ? [`asymmetry ${u.asymmetry ? "on" : "off"}`] : []),
         ...(u.preferredOrientation !== undefined ? [u.preferredOrientation ? `preferred orientation along ${u.preferredOrientation.join(" ")}` : "preferred orientation off"] : []),
         ...(u.peak !== undefined ? [`peak corrections: ${u.peak.length ? u.peak.join(", ") : "none"}`] : []),
+      ].join(" · ");
+    }
+    case "add_antisite": {
+      const a = s.structure.sites.find((x) => x.label === input.siteA);
+      const b = s.structure.sites.find((x) => x.label === input.siteB);
+      return `Antisite ${String(input.siteA)} ⇄ ${String(input.siteB)}: ${b?.element ?? "?"} on ${String(input.siteA)}, ${a?.element ?? "?"} on ${String(input.siteB)}, at occupancy 0 · Σ occ = 1 and hold composition on`;
+    }
+    case "tie_parameters": {
+      const u = tieUpdate(s.parameters, input);
+      const kind = (id: string | undefined): string => (s.parameters.find((p) => p.id === id)?.kind === "occupancy" ? "occupancy" : "B");
+      return [
+        ...(u.equal ? [`Tie ${u.equal.slice(1).join(", ")} = ${u.equal[0]} (one ${kind(u.equal[0])} refines)`] : []),
+        ...(u.release ? [`Release the tie on ${u.release.join(", ")}`] : []),
       ].join(" · ");
     }
     case "set_instrument_constants": {
@@ -489,7 +560,7 @@ function requestedWindow(s: PowderLiveState, input: Input): { min: number; max: 
   return w;
 }
 
-function residualOf(s: PowderLiveState): { d: number[]; yObs: number[]; yCalc: number[]; sigma: number[]; reflections: { d: number; hkl: string; phaseLabel: string }[]; magneticNeutron: boolean } {
+function residualOf(s: PowderLiveState): { d: number[]; yObs: number[]; yCalc: number[]; sigma: number[]; reflections: { d: number; hkl: string; phaseLabel: string }[]; magneticNeutron: boolean; lineWidth?: number } {
   if (!s.d) throw new Error("this pattern's axis cannot be converted to d-spacing (no wavelength or TOF calibration)");
   // Inside the fit window only: outside it the model is not being fitted.
   const keep = s.curves.x.map((x) => !s.fitRange || (x >= s.fitRange.min && x <= s.fitRange.max));
@@ -509,7 +580,10 @@ function residualOf(s: PowderLiveState): { d: number[]; yObs: number[]; yCalc: n
   );
   // Neutrons see magnetic order; a phase with magnetic ions may carry it.
   const magneticNeutron = s.pattern.radiation.kind.startsWith("neutron") && s.magnetic === null && [s.structure, ...s.extraPhases].some((ph) => magneticIonCandidates(ph).length > 0);
-  return { d, yObs: pick(s.curves.yObs), yCalc: pick(s.curves.yCalc), sigma: pick(sigma), reflections, magneticNeutron };
+  const yCalc = pick(s.curves.yCalc);
+  // Constant wavelength: "on" and "beside" a reflection follow the lines' own width.
+  const lineWidth = s.pattern.xUnit === "twoTheta" ? relativeLineWidth(d, yCalc) : undefined;
+  return { d, yObs: pick(s.curves.yObs), yCalc, sigma: pick(sigma), reflections, magneticNeutron, ...(lineWidth !== undefined ? { lineWidth } : {}) };
 }
 
 function assessment(s: PowderLiveState): ReturnType<typeof assess_refinement> {
@@ -535,6 +609,13 @@ function sharedSiteAdps(s: PowderLiveState): string[] {
 }
 
 /** diagnose_fit: the residual read cause by cause (core/diagnostics/fitDiagnosis.ts). */
+const WIDTH_KINDS = ["profileU", "profileV", "profileW", "profileX"] as const;
+
+/** diagnose_fit's action for ± lobes once the width terms are free and the widths agree. */
+function shapeLeft(ratio: number, lorentzian: boolean): string {
+  return `The Caglioti U, V, W${lorentzian ? " and the Lorentzian X" : ""} are already free and the line widths agree (observed/calculated ${sig(ratio, 3)}): what is left is a shape the profile does not follow, not a width. Read the worst reflections: lobes on one side at low angle are axial-divergence asymmetry (set_corrections asymmetry); some hkl broader than others are anisotropic broadening (set_microstrain); lobes that change side from peak to peak, at a few % of the peak, are the limit of the profile function — say so, and read the esds as too small by the Durbin–Watson factor rather than adding parameters.`;
+}
+
 function fitDiagnosisView(s: PowderLiveState): Record<string, unknown> {
   if (!s.d) throw new Error("this pattern's axis cannot be converted to d-spacing (no wavelength or TOF calibration)");
   const curves = s.curves;
@@ -560,9 +641,16 @@ function fitDiagnosisView(s: PowderLiveState): Record<string, unknown> {
     xOf: (d) => convertAxisValue(d, "dSpacing", s.pattern.xUnit, s.axis),
   });
   const v = dx.validation;
+  // "Free the widths" is no advice once they are free and the widths agree: what is left is the shape.
+  const freeKinds = new Set(s.parameters.filter((p) => !p.fixed && !p.expression).map((p) => p.kind));
+  const present = WIDTH_KINDS.filter((k) => s.parameters.some((p) => p.kind === k));
+  const widthsDone = present.includes("profileU") && present.every((k) => freeKinds.has(k)) && !!dx.width && Math.abs(dx.width.median - 1) <= 0.1;
   return {
     reading: dx.reading,
-    causes: dx.causes.map((c) => ({ cause: c.id, chi2Share: pct(c.share), evidence: c.evidence, action: c.action })),
+    causes: dx.causes.map((c) => ({
+      cause: c.id, chi2Share: pct(c.share), evidence: c.evidence,
+      action: c.id === "peak-shape" && widthsDone ? shapeLeft(dx.width!.median, present.includes("profileX")) : c.action,
+    })),
     agreement: {
       rwp: pct(v.agreement.rwp), rexp: pct(v.agreement.rexp), gof: sig(v.agreement.gof, 3),
       ...(v.agreement.rwpBkg !== undefined ? { rwpBackgroundSubtracted: pct(v.agreement.rwpBkg) } : {}),

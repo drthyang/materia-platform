@@ -102,20 +102,34 @@ describe("check_cell_symmetry — synthetic failures", () => {
     expect(check_cell_symmetry({ structure: cscl, pattern: mixed, extraPhases: [other] }).everyPeakIndexes).toBe(true);
   });
 
-  it("calls a small bump beside a strong line a shoulder, and the same bump on its own an unindexed peak", () => {
-    // 1.5 % of the strongest line (CsCl 110), 0.25° below it — a profile tail's
-    // size and place — and the same bump at 26°, far from every line.
+  it("calls a small bump on a strong line's tail a shoulder, and a bump with background around it a peak", () => {
+    // Lines with Lorentzian tails (X = 6), CsCl 110 the strongest. A 1.5 %
+    // bump 0.3° above it sits on its tail — a profile tail's size and place;
+    // the same bump 0.6° above it, with background in between, and one at 26°,
+    // far from every line, are peaks.
+    const tailed = { kind: "constantWavelength" as const, radiationKind: "xray" as const, wavelength: 1.54, u: 0, v: 0, w: 64, x: 6, y: 0 };
+    const sim = simulate_pattern({ structure: cscl, xMin: 10, xMax: 110, points: 5000, instrument: tailed });
+    const top = Math.max(...sim.curves.yCalc);
+    const gauss = noise();
     const tt110 = (2 * Math.asin(1.54 / (2 * (4.12 / Math.SQRT2))) * 180) / Math.PI;
     const bump = (x: number, c: number): number => 300 * Math.exp((-4 * Math.LN2 * (x - c) ** 2) / 0.12 ** 2);
-    const withBumps: PowderPattern = { ...pattern, points: pattern.points.map((p) => ({ ...p, yObs: p.yObs + bump(p.x, tt110 - 0.25) + bump(p.x, 26) })) };
-    const r = check_cell_symmetry({ structure: cscl, pattern: withBumps });
+    const withBumps = (at: readonly number[]): PowderPattern => ({
+      id: "p", name: "sim", xUnit: "twoTheta", radiation: { kind: "xray", wavelength: 1.54 }, wavelength: 1.54,
+      points: sim.curves.x.map((x, i) => {
+        const y = (20000 * sim.curves.yCalc[i]!) / top + 300 - 1.5 * x + at.reduce((sum, c) => sum + bump(x, c), 0);
+        return { x, yObs: y + Math.sqrt(y) * gauss(), sigma: Math.sqrt(y) };
+      }),
+    });
+    const r = check_cell_symmetry({ structure: cscl, pattern: withBumps([tt110 + 0.3, 26]), instrument: tailed });
     expect(r.shoulders).toHaveLength(1);
     expect(r.shoulders[0]).toMatchObject({ of: "1 1 0" });
-    expect(r.shoulders[0]!.offset).toBeCloseTo(-0.25, 1);
+    expect(r.shoulders[0]!.offset).toBeCloseTo(0.3, 1);
     expect(r.shoulders[0]!.relativeHeight).toBeLessThan(0.03);
-    expect(r.unindexedPeaks).toHaveLength(1);
-    expect(r.unindexedPeaks[0]!.x).toBeCloseTo(26, 0);
+    expect(r.unindexedPeaks.map((p) => Math.round(p.x))).toEqual([26]);
     expect(r.everyPeakIndexes).toBe(false); // the lone bump, not the shoulder
+    const apart = check_cell_symmetry({ structure: cscl, pattern: withBumps([tt110 + 0.6]), instrument: tailed });
+    expect(apart.shoulders).toEqual([]);
+    expect(apart.unindexedPeaks).toHaveLength(1);
   });
 
   it("reads only d ≥ dMin, and says so", () => {

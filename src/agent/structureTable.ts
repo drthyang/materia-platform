@@ -10,6 +10,7 @@
 
 import type { StructureModel } from "@/core/crystal/types";
 import type { ParameterBinding, RefinementParameter } from "@/core/refinement/types";
+import { parseTie } from "@/core/refinement/constraints";
 
 /** A value with its esd in parentheses, in the last digits: 0.18752(9), 8.46808(10). */
 export function withEsd(value: number, esd: number | undefined, maxDecimals = 6): string {
@@ -56,8 +57,22 @@ export function structureTable(
 ): StructureTable {
   // A multi-phase spec prefixes phase i's ids with p{i}_ and binds them to the phase's id.
   const mine = bindings.filter((b) => b.targetId === phase.id || (phaseIndex === 0 && !/^p\d+_/.test(b.parameterId)));
-  const err = (id: string): number | undefined => esd[id];
   const free = new Set(parameters.filter((p) => !p.fixed && !p.expression).map((p) => p.id));
+  const byId = new Map(parameters.map((p) => [p.id, p]));
+  // A free row's esd; a row tied to a free one ("= f·leader") carries |f| × the leader's.
+  const err = (id: string): number | undefined => {
+    if (free.has(id)) return esd[id];
+    const p = byId.get(id);
+    if (!p?.expression) return undefined;
+    try {
+      const tie = parseTie(p.expression);
+      if (tie.kind !== "linear" || !free.has(tie.refId)) return undefined;
+      const e = esd[tie.refId];
+      return e !== undefined ? Math.abs(tie.factor) * e : undefined;
+    } catch {
+      return undefined;
+    }
+  };
   const cellEsd: Record<string, number> = {};
   for (const b of mine) {
     if ((b.kind === "cellLength" || b.kind === "cellAngle") && b.targetKey && free.has(b.parameterId)) {
@@ -79,7 +94,7 @@ export function structureTable(
   const volume = c.a * c.b * c.c * Math.sqrt(Math.max(1 - ca * ca - cb * cb - cg * cg + 2 * ca * cb * cg, 0));
   const relV = Math.sqrt(["a", "b", "c"].reduce((s, k) => s + ((cellEsd[k] ?? 0) / (c as unknown as Record<string, number>)[k]!) ** 2, 0));
   const sites = phase.sites.map((site): StructureTableSite => {
-    const own = mine.filter((b) => b.targetKey === site.label && free.has(b.parameterId));
+    const own = mine.filter((b) => b.targetKey === site.label && err(b.parameterId) !== undefined);
     const posVar = [0, 0, 0];
     let occEsd: number | undefined;
     let adpEsd: number | undefined;

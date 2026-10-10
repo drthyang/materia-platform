@@ -486,6 +486,16 @@ and [`pdfTools.ts`](../src/agent/pdfTools.ts).
   displacement, transparency, μR absorption, roughness — as the profile
   group's corrections boxes do; their rows come in fixed. `structure_table`
   gives the refined cell, coordinates, occupancies and B as value(esd).
+  `add_antisite` lets two sites exchange their atoms (each element added on
+  the other site at occupancy 0, Σ occ = 1 and hold composition on), so
+  antisite disorder refines as one fraction; it asks the user.
+  `tie_parameters` constrains B's (or occupancies) of one kind to one refined
+  value — the leader refines, the others follow it — or releases such a tie;
+  the tie rides through every rebuild of the spec, `set_free` skips the
+  followers, and `structure_table` gives them the leader's esd.
+  `identify_peaks` matches extra peaks against the sample environment (Al,
+  V, Cu, steels, Nb, Pb) and common holders and standards, each phase's lines
+  computed for the pattern's radiation and allowed one d scale.
   `set_instrument_constants` sets an X-ray instrument's polarization fraction
   and Kα₂/Kα₁ ratio — constants the fit cannot determine (the polarization
   trades with every B at the same wR) — and always asks the user.
@@ -633,8 +643,8 @@ conversation stays valid.
   Ollama with `OLLAMA_ORIGINS` set to its address. The instructions alone are
   about 15k tokens, so pick a model with at least a 32k context. Checked with
   `gemma4:26b` on Ollama 0.40: it read the fit, refined after approval,
-  assessed the result and stopped at the method's gate. Local models follow
-  the method less reliably than Claude; the approval cards are the guard.
+  assessed the result and stopped at the method's gate. A smaller model
+  follows a long method less reliably than a large one; Ask first is the guard.
 - **LM Studio.** LM Studio 0.4.1 and later answer the same Messages API at
   `<server>/v1/messages` ([`src/agent/lmstudio.ts`](../src/agent/lmstudio.ts)),
   so it runs the same loop with the same plain headers and request fields as

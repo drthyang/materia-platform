@@ -15,6 +15,7 @@ import { buildPowderSpec, type SiteTies, type PowderSpec, type MustrainModel, ty
 import { buildMultiPhaseSpec } from "@/app/multiPhaseSpec";
 import { buildSyntheticPowder } from "@/examples/synthetic";
 import { parseSymmetryOperation } from "@/core/crystal/symmetry";
+import { isUserTie, tieReferences } from "@/core/refinement/constraints";
 
 export const DEFAULT_INSTRUMENT: InstrumentParameters = { kind: "constantWavelength", wavelength: 1.54 };
 const DEFAULT_BACKGROUND_TERMS = 4;
@@ -128,6 +129,38 @@ export function carryRefinedStructure(previous: Session, params: readonly Refine
     return { ...p, value: o.value };
   });
   return { params: out, carried };
+}
+
+/**
+ * A rebuilt row keeping the previous row's value and free state. A tie the
+ * user made rides along (the spec only regenerates its own ties); rows the
+ * spec ties itself take the spec's tie.
+ */
+export function keptRow(p: RefinementParameter, old: RefinementParameter | undefined): RefinementParameter {
+  if (!old) return p;
+  const tie = isUserTie(old) && !p.expression ? { expression: old.expression!, group: old.group! } : {};
+  return { ...p, value: old.value, initialValue: old.initialValue, fixed: old.fixed, ...tie };
+}
+
+/**
+ * The rows with every user tie still meaningful: one whose leader is gone, or
+ * is itself tied now, is released (the row comes back fixed at its value).
+ */
+export function withValidUserTies(params: readonly RefinementParameter[]): RefinementParameter[] {
+  const byId = new Map(params.map((p) => [p.id, p]));
+  return params.map((p) => {
+    if (!isUserTie(p)) return p;
+    const leader = byId.get(tieReferences(p.expression!)[0] ?? "");
+    if (leader && !leader.expression) return p;
+    const { expression: _e, group: _g, ...rest } = p;
+    return { ...rest, fixed: true };
+  });
+}
+
+/** Rebuilt rows keeping the previous ones by id (keptRow), user ties checked. */
+export function keptRows(specParams: readonly RefinementParameter[], previous: readonly RefinementParameter[]): RefinementParameter[] {
+  const old = new Map(previous.map((p) => [p.id, p]));
+  return withValidUserTies(specParams.map((p) => keptRow(p, old.get(p.id))));
 }
 
 /** The session with its corrections cleared: new data starts without them. */

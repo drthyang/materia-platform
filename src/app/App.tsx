@@ -59,6 +59,7 @@ import {
   buildSpecFor,
   withoutCorrections,
   carryRefinedStructure,
+  keptRows,
   DEFAULT_INSTRUMENT,
   EMPTY_SOURCE,
 } from "@/app/powderSession";
@@ -640,14 +641,10 @@ export function App(): JSX.Element {
         setSession((s) => {
           const extraPhases = [...s.extraPhases, parsed];
           const spec = buildSpecFor(s.structure, extraPhases, s.pattern, instrumentLoaded ? instrument : DEFAULT_INSTRUMENT, s.powderProfile.lorentz ?? true, s.backgroundTerms, s.siteTies, s.mustrain ?? "isotropic", s.corrections);
-          const previous = new Map(s.powderParams.map((p) => [p.id, p]));
           return {
             ...s,
             extraPhases,
-            powderParams: spec.params.map((p) => {
-              const old = previous.get(p.id);
-              return old ? { ...p, value: old.value, initialValue: old.initialValue, fixed: old.fixed } : p;
-            }),
+            powderParams: keptRows(spec.params, s.powderParams),
             powderBindings: spec.bindings,
             powderProfile: { ...spec.profile, ...(s.powderProfile.backgroundType ? { backgroundType: s.powderProfile.backgroundType } : {}) },
           };
@@ -668,14 +665,10 @@ export function App(): JSX.Element {
     setSession((s) => {
       const extraPhases = s.extraPhases.filter((p) => p.id !== id);
       const spec = buildSpecFor(s.structure, extraPhases, s.pattern, instrumentLoaded ? instrument : DEFAULT_INSTRUMENT, s.powderProfile.lorentz ?? true, s.backgroundTerms, s.siteTies, s.mustrain ?? "isotropic", s.corrections);
-      const previous = new Map(s.powderParams.map((p) => [p.id, p]));
       return {
         ...s,
         extraPhases,
-        powderParams: spec.params.map((p) => {
-          const old = previous.get(p.id);
-          return old ? { ...p, value: old.value, initialValue: old.initialValue, fixed: old.fixed } : p;
-        }),
+        powderParams: keptRows(spec.params, s.powderParams),
         powderBindings: spec.bindings,
         powderProfile: { ...spec.profile, ...(s.powderProfile.backgroundType ? { backgroundType: s.powderProfile.backgroundType } : {}) },
       };

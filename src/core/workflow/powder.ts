@@ -13,7 +13,7 @@ import type { PowderPattern } from "@/core/diffraction/types";
 import type { CalculateOptions, LinearRestraint, ParameterBinding, ParameterKind, RefinementParameter } from "@/core/refinement/types";
 import type { RefinementProblem } from "@/core/refinement/engine";
 import { weightsFromSigma, excludedPointMask, applyExclusionMask, fitRangeMask } from "@/core/refinement/factors";
-import { resolveTies } from "@/core/refinement/constraints";
+import { resolveTies, tieReferences } from "@/core/refinement/constraints";
 import { applyParameters, type AppliedModel } from "@/core/workflow/apply";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { powderPeakIntensities, lorentzPolarization, marchDollase } from "@/core/diffraction/intensity";
@@ -499,7 +499,12 @@ export function buildPowderProblem(
           };
           // Decide which columns are analytic before touching structure factors,
           // so a request with no occupancy/B_iso free skips the whole pass.
+          // A parameter another one follows (a tie "= p") moves the follower's
+          // sites too, which its own bindings do not name: finite differences,
+          // which see the tie through calculate().
+          const followed = new Set(parameters.flatMap((q) => (q.expression ? tieReferences(q.expression) : [])));
           const kindOf = (p: RefinementParameter): "occupancy" | "bIso" | null => {
+            if (followed.has(p.id)) return null;
             const bs = bindings.filter((b) => b.parameterId === p.id);
             if (bs.length === 0) return null;
             // Analytic only when every binding is the same coupling-free kind on a

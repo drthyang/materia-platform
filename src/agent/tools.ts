@@ -145,6 +145,42 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     pages: ["powder"],
   },
   {
+    name: "add_antisite",
+    title: "Add antisite disorder",
+    description:
+      "Powder page only. Let two sites of different elements exchange their atoms: site B's element is added on site A and A's on B, at occupancy 0, each sharing its host's position and ADP, with the Shared site ties Σ occ = 1 and hold composition switched on — so the exchange refines as one fraction while the formula stays. Call it when the ADPs point at it (one site's B rails toward 0 while the other's is high: the first scatters more, the second less, than the ordered model has), on data with contrast between the two elements, after positions, profile and ADPs are refined. Then free the occupancies of both sites (set_free with the occ_ ids) and refine; report the exchange fraction with its esd, and how the ADPs moved. On data to a modest Q the exchange trades with the two sites' B values (both scale a site's scattering): the esd is then large, and further cycles drift along that valley — report the esd and the correlation, not just the value. Always asks the user.",
+    inputSchema: {
+      siteA: z.string().describe("Label of one site, e.g. W1"),
+      siteB: z.string().describe("Label of the other site, e.g. Cr1"),
+    },
+    effect: "change",
+    pages: ["powder"],
+    alwaysAsk: true,
+  },
+  {
+    name: "tie_parameters",
+    title: "Tie parameters to one value",
+    description:
+      "Powder page only. Constrain parameters of one kind to a single refined value, as a crystallographer does when the data cannot separate them: `equal` (ids or globs, the leader first) makes every other row take the leader's value and follow it, so only the leader refines; `release` undoes a tie (the row comes back fixed at its current value). For ADPs (B) and occupancies. Tie when two values trade off rather than being measured: they swap between refinement paths at the same wR, an esd is as large as the value, or one B rails at 0 while its partner climbs — common below Q ≈ 6 Å⁻¹, and for light atoms beside heavy ones on X-rays. Tie chemically alike atoms (the cations of one oxide, all the oxygens, the H atoms), refine, and report the common value with its esd and why it is tied. set_free skips tied rows.",
+    inputSchema: {
+      equal: z.array(z.string()).min(1).optional().describe("Ids or globs, the leader first: [\"B_W1\", \"B_Cr1\"], or [\"B_O*\"] (the first match leads)"),
+      release: z.array(z.string()).min(1).optional().describe("Ids or globs of tied rows to release"),
+    },
+    effect: "change",
+    pages: ["powder"],
+  },
+  {
+    name: "identify_peaks",
+    title: "Identify extra peaks",
+    description:
+      "Powder page only. Match peaks no phase of the model explains against phases a pattern often holds besides the sample: the sample environment (Al can or cryostat shields, V, Cu, steels, Nb heat shields, Pb shielding), holders (corundum, graphite) and standards (Si, LaB₆, CeO₂), their lines computed for this radiation. Each phase may scale its d-spacings by up to ±1.5 % (cooling; a part off the sample position shifts its lines). Returns the candidates with the lines they explain and the strong lines they should also show. Uses the residual's unexplained peaks (find_unexplained_peaks), or the d-spacings you pass (e.g. the cell check's unindexed peaks). A lead to put to the user, not an identification.",
+    inputSchema: {
+      d: z.array(z.number().positive()).optional().describe("d-spacings (Å) to identify; default: the residual's unexplained peaks"),
+    },
+    effect: "read",
+    pages: ["powder"],
+  },
+  {
     name: "set_instrument_constants",
     title: "Set X-ray instrument constants",
     description:
@@ -280,7 +316,7 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     name: "bond_geometry",
     title: "Bond lengths",
     description:
-      "Nearest-neighbour bond lengths (Å) of a phase at the current parameter values, shortest first. The plausibility check after refining positions: an impossibly short contact means the refinement went somewhere unphysical.",
+      "Nearest-neighbour bond lengths (Å) of a phase at the current parameter values, shortest first, and each cation's bond-valence sum against its oxidation state (oxides and fluorides; the CIF's type symbol gives the state, else the tabulated state closest to the sum is assumed). The plausibility check after refining positions: an impossibly short contact, or a sum more than ~15 % from the valence, means a wrong position, a wrong element on the site, or a strained or mixed-valent site.",
     inputSchema: {
       cutoff: z.number().positive().max(8).optional().describe("Longest bond listed, Å (default 3.2)"),
       phase: z.string().optional().describe("Phase id (get_state lists them); default the primary phase"),

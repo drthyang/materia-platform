@@ -19,6 +19,7 @@ import type { StructureModel } from "@/core/crystal/types";
 import type { PdfPattern, PowderPattern } from "@/core/diffraction/types";
 import type { InstrumentConstants, InstrumentParameters } from "@/core/diffraction/instrument";
 import type { LinearRestraint, ParameterBinding, RefinementOptions, RefinementParameter, RefinementResult } from "@/core/refinement/types";
+import type { EqualTieUpdate } from "@/core/refinement/constraints";
 import type { PowderProfile } from "@/core/workflow/powder";
 import type { MagneticModel } from "@/core/magnetic/types";
 import type { BackgroundType } from "@/core/diffraction/background";
@@ -89,6 +90,11 @@ export interface PowderAgentPort {
   readonly setSiteTies: (update: Partial<SiteTies>) => void;
   /** The profile group's corrections boxes (asymmetry, texture axis, displacement, …). */
   readonly setCorrections?: (update: CorrectionsUpdate) => void;
+  /** Let two sites exchange their atoms (antisite disorder): each element added
+   *  on the other site at occupancy 0, with Σ occ = 1 and hold composition on. */
+  readonly addAntisite?: (siteA: string, siteB: string) => void;
+  /** Tie parameters of one kind to one refined value (the leader first), or release such ties. */
+  readonly setParameterTies?: (update: EqualTieUpdate) => void;
   /** An X-ray instrument's constants the fit cannot determine: the polarization
    *  fraction and the Kα₂/Kα₁ ratio (the instrument and the pattern's radiation). */
   readonly setInstrumentConstants?: (update: InstrumentConstants) => void;

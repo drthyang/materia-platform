@@ -48,7 +48,12 @@ Only a peak that sits on no reflection of any phase is an extra peak.
    - **unindexed peaks** (`unindexedPeaks`) — a peak no reflection of the cell can place.
      Most often a missing phase (an impurity), sometimes a wrong cell. Worth settling with
      the user before the structure is refined: identify the phase and add it, or check
-     the cell. This is the one thing refinement cannot fix.
+     the cell. This is the one thing refinement cannot fix. On neutron data at low or high
+     temperature, think of the sample environment first: `identify_peaks` matches the
+     peaks against Al (can, cryostat shields), V, Cu, steels, Nb, Pb and common standards
+     (Cr₂WO₆ at 150 K: weak lines at 62.4° and 73.5° were Al 111 and 200, shifted because
+     the shields sit off the sample position). Small bumps on a strong line's flank are
+     `shoulders` — a profile tail, not a phase.
    - **absence flags** (`absences.violated`) — leftover intensity at a reflection the
      space group forbids. A flag, not a verdict: before the structure is refined, a strong
      neighbour's profile misfit, an impurity line or the Le Bail fit's own shape error
@@ -95,7 +100,12 @@ stable and hasn't railed to a bound.
 4. **ADPs** — `B_iso` first. Go **anisotropic only if the data clearly support it**
    (high real-space resolution / low temperature); otherwise keep it isotropic. Watch for
    `B_iso` railing toward 0 — that usually means the background or an intensity correction
-   is stealing high-angle intensity, not that the atom is truly rigid.
+   is stealing high-angle intensity, not that the atom is truly rigid. When B values are
+   not *determined* — they swap between two refinement paths at the same wR, an esd is as
+   large as the value, or one rails at 0 as its partner climbs (common below Q ≈ 6 Å⁻¹) —
+   `tie_parameters` constrains chemically alike atoms to one B (the cations of an oxide,
+   all the oxygens): one value with a real esd beats two numbers the data cannot separate.
+   Say in the report which B's are tied and why.
 5. **Occupancy** — see the guardrail below. Usually near-last.
 6. **Corrections** — end-stage polish only; see below.
 
@@ -144,6 +154,17 @@ exchange between sites while the formula stays — anti-site disorder or spinel 
 then refines as one exchange fraction. The ties act only while an occupancy they cover is
 free, and `get_state` lists them. Report the exchange fraction (e.g. the inversion as the
 minority cation's occupancy on the other site) with its esd, not every occupancy.
+
+**Antisite disorder has a signature in the ADPs.** When, after the ADP stage, one cation
+site's B rails toward 0 while another's is high, the first scatters more and the second
+less than the ordered model says: the two elements exchange (Cr₂WO₆: B(Cr) 0.0, B(W)
+1.7). If the probe has contrast between them (neutron b, or X-ray Z), `add_antisite`
+puts each element on the other site at occupancy 0 with Σ occ = 1 and hold composition —
+one exchange fraction under the formula (it asks the user). Free the four occupancies,
+refine, and report the exchange with its esd and how the B values moved. On data to a
+modest Q the exchange trades with the B values: a large esd is the honest result. If the
+exchange refines to zero, the ADP contrast is not disorder: return to the ordered model
+and, unless the contrast is significant and stable, tie the two cation B's.
 
 ## The correlation guardrail (do not skip)
 

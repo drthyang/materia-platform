@@ -145,7 +145,7 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
       result: anyObj.describe("RefinementResult from refine_powder"),
       parameters: anyArr,
       observationCount: z.number().int().nonnegative(),
-      residual: z.object({ d: z.array(z.number()), yObs: z.array(z.number()), yCalc: z.array(z.number()) }).optional().describe("From refine_powder; enables missing-peak detection"),
+      residual: z.object({ d: z.array(z.number()), yObs: z.array(z.number()), yCalc: z.array(z.number()), lineWidth: z.number().optional() }).optional().describe("From refine_powder; enables missing-peak detection"),
       mode: z.enum(["powder", "single-crystal"]).optional(),
     },
     handler: tools.assess_refinement,
@@ -208,7 +208,7 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
   {
     name: "bond_geometry",
     title: "Bond lengths (sanity check)",
-    description: "Nearest-neighbour bond lengths (Å) up to a cutoff from the symmetry-expanded structure, sorted shortest first. The physical-plausibility check after refining positions: an impossibly short contact means the refinement went somewhere unphysical.",
+    description: "Nearest-neighbour bond lengths (Å) up to a cutoff from the symmetry-expanded structure, sorted shortest first, and each cation's bond-valence sum against its oxidation state (oxides and fluorides; Brese & O'Keeffe R₀, b = 0.37 Å; the CIF type symbol gives the state, else the tabulated one closest to the sum is assumed). The physical-plausibility check after refining positions: an impossibly short contact, or a sum more than ~15 % from the valence, means the refinement went somewhere unphysical or the site holds another element.",
     inputSchema: { structure: anyObj, cutoff: z.number().positive().max(8).optional() },
     handler: tools.bond_geometry,
   },
@@ -224,7 +224,7 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
     title: "Find unexplained residual peaks",
     description: "Find peaks in the residual (obs − calc) — the magnetic-order / impurity-phase signal. Robust MAD-based thresholding; returns d-spacings ranked by height. Check each against the phases' reflections (reflection_list) before calling it an extra peak: residual ON a known reflection is that reflection's intensity or shape misfit, which refining the structure, profile and corrections fixes — not a new phase and not a reason to lower the symmetry. A handful of peaks away from every reflection suggests magnetic satellites or one impurity; dozens mean the fit itself is poor.",
     inputSchema: {
-      residual: z.object({ d: z.array(z.number()), yObs: z.array(z.number()), yCalc: z.array(z.number()) }).describe("From refine_powder"),
+      residual: z.object({ d: z.array(z.number()), yObs: z.array(z.number()), yCalc: z.array(z.number()), lineWidth: z.number().optional() }).describe("From refine_powder"),
       options: z.object({ sigma: z.number().positive().optional(), minFraction: z.number().positive().optional(), window: z.number().int().positive().optional(), mergeD: z.number().positive().optional(), limit: z.number().int().positive().optional() }).optional(),
     },
     handler: tools.find_unexplained_peaks,
@@ -236,7 +236,7 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
     inputSchema: {
       structure: anyObj.describe("The refined primary phase (StructureModel)"),
       extraPhases: anyArr.optional().describe("Other refined phases: their reflections count as allowed"),
-      residual: z.object({ d: z.array(z.number()), yObs: z.array(z.number()), yCalc: z.array(z.number()), sigma: z.array(z.number()).optional() }).describe("From the converged refine_powder"),
+      residual: z.object({ d: z.array(z.number()), yObs: z.array(z.number()), yCalc: z.array(z.number()), sigma: z.array(z.number()).optional(), lineWidth: z.number().optional() }).describe("From the converged refine_powder"),
     },
     handler: tools.review_symmetry,
   },

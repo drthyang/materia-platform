@@ -48,6 +48,7 @@ import { axisContext, convertAxisArray } from "@/visualization/axisUnits";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { abscissaFromD, radiationOf } from "@/core/diffraction/instrument";
 import { bondLengths } from "@/core/crystal/geometry";
+import { bondValenceReading, bondValenceSums, type BondValenceSum } from "@/core/crystal/bondValence";
 import { analyzeSiteSymmetry, type SiteSymmetry } from "@/core/crystal/siteSymmetry";
 import { classifyPointGroup } from "@/core/crystal/pointGroup";
 import { detectExtraPeaks, type ExtraPeakOptions } from "@/core/magnetic/extraPeaks";
@@ -106,6 +107,7 @@ import type { Vec3 } from "@/core/math/types";
 import type { PeakShape } from "@/core/diffraction/profile";
 import {
   assessRefinement,
+  relativeLineWidth,
   suggestNextSteps,
   type AssessmentInput,
   type RefinementAssessment,
@@ -266,7 +268,7 @@ export async function refine_powder(args: {
   staged?: boolean;
   fitRange?: { min: number; max: number };
   maxIterations?: number;
-}): Promise<{ result: RefinementResult; parameters: RefinementParameter[]; observationCount: number; residual: { d: number[]; yObs: number[]; yCalc: number[] }; parallel: { workers: number } | null }> {
+}): Promise<{ result: RefinementResult; parameters: RefinementParameter[]; observationCount: number; residual: { d: number[]; yObs: number[]; yCalc: number[]; lineWidth?: number }; parallel: { workers: number } | null }> {
   const shape: PeakShape = args.profile.shape;
   const options = { maxIterations: args.maxIterations ?? 20 };
 
@@ -326,7 +328,9 @@ export async function refine_powder(args: {
   const d = args.pattern.xUnit === "dSpacing" ? [...curves.x] : convertAxisArray(curves.x, args.pattern.xUnit, "dSpacing", ctx);
   const excluded = excludedPointMask(curves.yObs);
   const observationCount = excluded.reduce((n, ex) => n + (ex ? 0 : 1), 0);
-  return { result, parameters: refined, observationCount, residual: { d, yObs: [...curves.yObs], yCalc: [...curves.yCalc] }, parallel };
+  // Constant wavelength: assess_refinement reads "on" and "beside" a reflection by the lines' own width.
+  const lineWidth = args.pattern.xUnit === "twoTheta" ? relativeLineWidth(d, curves.yCalc) : undefined;
+  return { result, parameters: refined, observationCount, residual: { d, yObs: [...curves.yObs], yCalc: [...curves.yCalc], ...(lineWidth !== undefined ? { lineWidth } : {}) }, parallel };
 }
 
 /**
@@ -494,9 +498,11 @@ export function reflection_list(args: {
 export function bond_geometry(args: { structure: StructureModel; cutoff?: number }): {
   bonds: { from: string; to: string; distance: number }[];
   shortest: { from: string; to: string; distance: number } | null;
+  bondValence?: { sums: BondValenceSum[]; reading: string };
 } {
   const bonds = bondLengths(args.structure, args.cutoff ?? 3.2);
-  return { bonds, shortest: bonds[0] ?? null };
+  const sums = bondValenceSums(args.structure);
+  return { bonds, shortest: bonds[0] ?? null, ...(sums.length ? { bondValence: { sums, reading: bondValenceReading(sums) } } : {}) };
 }
 
 /**

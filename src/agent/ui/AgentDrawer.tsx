@@ -1,7 +1,7 @@
 /**
  * The Agent drawer: the conversation with the model, every tool call as a
  * card, and an approval card for each change waiting on the user. It sits beside the page, not over
- * it, so the plot and the parameter panel stay in view while Claude works.
+ * it, so the plot and the parameter panel stay in view while the model works.
  */
 
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
@@ -55,7 +55,7 @@ export function AgentDrawer({ agent, method = null, onClose }: Props): JSX.Eleme
       </div>
       {method && <MethodChecklist method={method} />}
       {showSettings && <Settings agent={agent} />}
-      <Transcript agent={agent} />
+      <Transcript agent={agent} page={method?.skill ?? null} />
       <Composer agent={agent} disabled={needsSetup} />
     </aside>
   );
@@ -254,7 +254,7 @@ function OllamaSettings({ agent }: { agent: AgentController }): JSX.Element {
         <p style={{ ...note, color: color.noteInk }}>This model takes {kTokens(picked.context)} tokens of context; the Agent's instructions alone are about 15k. Expect it to lose track in a long session.</p>
       )}
       <p style={note}>
-        The conversation goes only to this server. Local models follow the method less reliably than Claude: watch the approval cards. A page not served from this machine (the published site) also needs <code style={code}>OLLAMA_ORIGINS</code> set to its address where Ollama runs.
+        The conversation goes only to this server. A smaller model follows a long method less reliably than a large one: keep Ask first on until it has shown it follows yours. A page not served from this machine (the published site) also needs <code style={code}>OLLAMA_ORIGINS</code> set to its address where Ollama runs.
       </p>
     </>
   );
@@ -304,7 +304,7 @@ function LmStudioSettings({ agent }: { agent: AgentController }): JSX.Element {
         <p style={note}>Not loaded yet: the Agent loads it with a 32k context on your first message.</p>
       )}
       <p style={note}>
-        The conversation goes only to this server. Needs LM Studio 0.4.1 or later with its server running and <b>Enable CORS</b> on (Developer tab → server settings, or <code style={code}>lms server start --cors</code>). Local models follow the method less reliably than Claude: watch the approval cards.
+        The conversation goes only to this server. Needs LM Studio 0.4.1 or later with its server running and <b>Enable CORS</b> on (Developer tab → server settings, or <code style={code}>lms server start --cors</code>). A smaller model follows a long method less reliably than a large one: keep Ask first on until it has shown it follows yours.
       </p>
     </>
   );
@@ -329,7 +329,7 @@ function ModelPicker<T>({ label, list, value, onChange, onRefresh, children }: {
 
 // ── transcript ──────────────────────────────────────────────────────────────
 
-function Transcript({ agent }: { agent: AgentController }): JSX.Element {
+function Transcript({ agent, page }: { agent: AgentController; page: string | null }): JSX.Element {
   const end = useRef<HTMLDivElement>(null);
   const items = agent.transcript;
   useEffect(() => {
@@ -337,7 +337,7 @@ function Transcript({ agent }: { agent: AgentController }): JSX.Element {
   }, [items, agent.activity]);
   return (
     <div style={transcriptBox} aria-live="polite">
-      {items.length === 0 && <EmptyState mode={agent.settings.mode} />}
+      {items.length === 0 && <EmptyState settings={agent.settings} page={page} />}
       {items.map((item) => <Item key={item.id} item={item} agent={agent} />)}
       {agent.thinking && <div style={{ fontSize: 12.5, color: color.faint, padding: "0 2px" }}>Working…</div>}
       <div ref={end} />
@@ -345,11 +345,49 @@ function Transcript({ agent }: { agent: AgentController }): JSX.Element {
   );
 }
 
-function EmptyState({ mode }: { mode: AgentMode }): JSX.Element {
+/** The model the Agent talks to, as the settings name it. */
+function modelName(s: AgentSettings): string {
+  if (s.mode === "ollama") return s.ollamaModel ? `${s.ollamaModel} (Ollama)` : "the Ollama model you pick";
+  if (s.mode === "lmstudio") return s.lmstudioModel ? `${s.lmstudioModel} (LM Studio)` : "the LM Studio model you pick";
+  return CHAT_MODELS.find((m) => m.id === s.model)?.label ?? s.model;
+}
+
+/** What to ask, by page: the powder page's method or the PDF page's. */
+const EXAMPLES: Readonly<Record<string, readonly string[]>> = {
+  "my-rietveld-workflow": [
+    "Refine this pattern by my method and report the structure.",
+    "Why is the fit poor? Fix what you can.",
+    "There are new peaks at low temperature: find the magnetic structure.",
+    "Assess the fit and suggest what to free next.",
+  ],
+  "pdf-workflow": [
+    "Refine this G(r) and report the local structure.",
+    "Does the local structure differ from the average one?",
+    "Assess the fit and suggest what to free next.",
+  ],
+};
+const DEFAULT_EXAMPLES = ["Assess the fit and suggest what to free next.", "Refine this from the start and report the result."];
+
+function EmptyState({ settings, page }: { settings: AgentSettings; page: string | null }): JSX.Element {
+  const examples = (page && EXAMPLES[page]) || DEFAULT_EXAMPLES;
   return (
     <div style={{ color: color.secondary, fontSize: fz.small, lineHeight: 1.5, padding: "6px 2px" }}>
-      <p style={{ margin: "0 0 8px" }}>Ask about the fit on screen, or ask {mode === "ollama" || mode === "lmstudio" ? "the model" : "Claude"} to take the next step. It reads the analysis, judges it with MATERIA's tools, and asks before it changes anything.</p>
-      <p style={{ margin: 0 }}>For example: <i>“Assess the fit and suggest what to free next.”</i></p>
+      <p style={{ margin: "0 0 8px" }}>
+        <b style={{ color: color.ink }}>{modelName(settings)}</b> works on the analysis open beside it, through MATERIA's tools and the page's own controls. It can run
+        the whole analysis by the page's method — the cell check, the refinement stage by stage, why a fit is poor, which phase an extra peak is,
+        a magnetic structure — and report the result with its esds and its own assessment. Talk it through as you would with a colleague: ask why
+        it took a step, tell it what you know about the sample, or ask anything about the fit on screen.
+      </p>
+      <p style={{ margin: "0 0 8px" }}>
+        {settings.autoApprove
+          ? "Auto: it works through the stages on its own and stops when a decision is yours. A change to the structure or the instrument still asks."
+          : "Ask first: every change waits for your approval on a card. Switch to Auto below to let it work through the stages on its own."}{" "}
+        Every change is a History step you can go back to. The model is your choice, in the settings (⚙): Claude through an API key or a local proxy, or a local model on Ollama or LM Studio.
+      </p>
+      <p style={{ margin: 0 }}>For example:</p>
+      <ul style={{ margin: "2px 0 0", paddingLeft: 18 }}>
+        {examples.map((e) => <li key={e}><i>“{e}”</i></li>)}
+      </ul>
     </div>
   );
 }
@@ -423,7 +461,7 @@ function Composer({ agent, disabled }: { agent: AgentController; disabled: boole
       <textarea
         aria-label="Message the Agent"
         style={{ ...input, resize: "none", minHeight: 58, fontFamily: "inherit", lineHeight: 1.4 }}
-        placeholder={disabled ? (localModel(agent.settings) !== null ? "Pick a model in the settings first" : "Add your API key in the settings first") : "Ask about the fit, or ask for the next step…"}
+        placeholder={disabled ? (localModel(agent.settings) !== null ? "Pick a model in the settings first" : "Add your API key in the settings first") : "Ask anything, or ask it to run the analysis…"}
         value={text}
         disabled={disabled}
         onChange={(e) => setText(e.target.value)}

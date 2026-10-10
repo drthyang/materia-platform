@@ -14,8 +14,10 @@ import { buildPdfProblem, buildPdfSpec, pdfCurves } from "@/core/workflow/pdf";
 import { applyParameters } from "@/core/workflow/apply";
 import { refine as refineProblem } from "@/core/refinement/engine";
 import { boxcarWindows } from "@/core/workflow/pdfBoxcar";
-import { DEFAULT_INSTRUMENT, buildSpecFor, type Session } from "@/app/powderSession";
+import { DEFAULT_INSTRUMENT, buildSpecFor, keptRows, type Session } from "@/app/powderSession";
+import { withEqualTies } from "@/core/refinement/constraints";
 import { withConstants, type InstrumentParameters } from "@/core/diffraction/instrument";
+import { withAntisite } from "@/core/crystal/antisite";
 import { powderRestraints } from "@/app/powderSpec";
 import { runPowderRefinement } from "@/workers/runPowder";
 import { axisContext, convertAxisArray } from "@/visualization/axisUnits";
@@ -131,6 +133,17 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
     setSiteTies: (update) => {
       calls.push(`ties ${JSON.stringify(update)}`);
       s = { ...s, siteTies: { ...s.siteTies, ...update } };
+    },
+    addAntisite: (a, b) => {
+      calls.push(`antisite ${a} ${b}`);
+      const structure = withAntisite(s.structure, a, b);
+      const siteTies = { ...s.siteTies, occupancyToUnity: true, composition: true };
+      const spec = buildSpecFor(structure, s.extraPhases, s.pattern, instrument, true, s.backgroundTerms, siteTies, s.mustrain ?? "isotropic", s.corrections);
+      s = { ...s, structure, siteTies, powderParams: keptRows(spec.params, s.powderParams), powderBindings: spec.bindings };
+    },
+    setParameterTies: (update) => {
+      calls.push(`ties ${JSON.stringify(update)}`);
+      s = { ...s, powderParams: withEqualTies(s.powderParams, update) };
     },
     setInstrumentConstants: (update) => {
       calls.push(`constants ${JSON.stringify(update)}`);

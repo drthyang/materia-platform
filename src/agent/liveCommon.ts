@@ -9,6 +9,7 @@ import type { RefinementParameter } from "@/core/refinement/types";
 import type { ProjectHistory } from "@/core/project/history";
 import { lineage } from "@/core/project/history";
 import type { StructureModel } from "@/core/crystal/types";
+import { bondValenceReading, bondValenceSums } from "@/core/crystal/bondValence";
 
 /** What a change handler returns: a note for the model, or a note and data to merge into its answer. */
 export type ChangeResult = string | { readonly note?: string; readonly data: Record<string, unknown> } | undefined;
@@ -88,7 +89,18 @@ export function bondsOf(refinedPhases: readonly StructureModel[], input: Input, 
     seen.add(key);
     return true;
   });
-  return { phase: phase.id, shortest: geo.shortest, bonds: bonds.slice(0, 40).map((b) => ({ ...b, distance: sig(b.distance, 5) })) };
+  const sums = bondValenceSums(phase);
+  return {
+    phase: phase.id,
+    shortest: geo.shortest,
+    bonds: bonds.slice(0, 40).map((b) => ({ ...b, distance: sig(b.distance, 5) })),
+    ...(sums.length ? {
+      bondValence: {
+        sums: sums.map((v) => ({ site: v.site, valence: `${v.element}${v.valence}+${v.assumed ? " (assumed)" : ""}`, sum: sig(v.sum, 3), coordination: sig(v.coordination, 3), meanDistance: sig(v.meanDistance, 4) })),
+        reading: bondValenceReading(sums),
+      },
+    } : {}),
+  };
 }
 
 export function historyView(history: ProjectHistory | null): unknown {
