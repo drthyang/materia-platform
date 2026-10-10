@@ -46,6 +46,18 @@ release fixes bugs.
   shields, V, Cu, steels, Nb, Pb), holders (corundum, graphite) and
   standards (Si, LaB₆, CeO₂), with the lines each candidate should also show.
   On Cr₂WO₆ at 150 K it named the cryostat's aluminium.
+- **The Agent checks unconvincing numbers with the Bayesian posterior**
+  (`sample_posterior` on the powder and PDF pages, and the `bayesian-check`
+  skill). When an esd is as large as the value, a parameter sits on a bound,
+  a pair stays strongly correlated or a value moves between refinement paths,
+  the Agent samples the posterior of the free parameters (the Posterior
+  view's ensemble MCMC) and reports credible intervals, one-sided limits and
+  the posterior correlations, with the convergence evidence. The MCP
+  `sample_posterior` samples powder fits too (single-phase, multi-phase and
+  nuclear + magnetic), given build_refinement's profile.
+- **Bond-valence sums** in `bond_geometry` (MCP and Agent): each cation's sum
+  against its oxidation state (Brese & O'Keeffe R₀, b = 0.37 Å), flagged
+  beyond 8 % and 15 % of the valence.
 - **Equal-value ties** (`tie_parameters`, for the Agent): B values (or
   occupancies) the data cannot separate refine as one value — the
   cations of an oxide, all the oxygens — with that value's esd reported on

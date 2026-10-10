@@ -91,6 +91,10 @@ a single irreducible representation — a maximal group — so start there:
   report a direction the data cannot fix, and do not choose among degenerate groups by R
   factor alone.
 - Domains: the group's domain count; a powder averages them.
+- A moment's size trades with the scale and the ADPs, and a small one sits near its bound
+  at 0: before you report a moment whose esd is a large part of it, sample the posterior
+  (`bayesian-check`, `sample_posterior` with the moments, the scale and the B's free) and
+  quote its credible interval.
 
 ## Tools
 

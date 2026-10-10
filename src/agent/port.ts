@@ -20,6 +20,7 @@ import type { PdfPattern, PowderPattern } from "@/core/diffraction/types";
 import type { InstrumentConstants, InstrumentParameters } from "@/core/diffraction/instrument";
 import type { LinearRestraint, ParameterBinding, RefinementOptions, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { EqualTieUpdate } from "@/core/refinement/constraints";
+import type { SampleResult } from "@/core/refinement/bayes/sampler";
 import type { PowderProfile } from "@/core/workflow/powder";
 import type { MagneticModel } from "@/core/magnetic/types";
 import type { BackgroundType } from "@/core/diffraction/background";
@@ -95,6 +96,8 @@ export interface PowderAgentPort {
   readonly addAntisite?: (siteA: string, siteB: string) => void;
   /** Tie parameters of one kind to one refined value (the leader first), or release such ties. */
   readonly setParameterTies?: (update: EqualTieUpdate) => void;
+  /** Sample the Bayesian posterior of the free parameters (the Posterior view's Sample / Continue). */
+  readonly samplePosterior?: PosteriorSampler;
   /** An X-ray instrument's constants the fit cannot determine: the polarization
    *  fraction and the Kα₂/Kα₁ ratio (the instrument and the pattern's radiation). */
   readonly setInstrumentConstants?: (update: InstrumentConstants) => void;
@@ -175,6 +178,8 @@ export interface PdfAgentPort {
    *  view opens): the free set refined in each box across the fit window. The
    *  parameter rows are left as they are. Null when it was cancelled or failed. */
   readonly boxcar: (plan: { readonly width: number; readonly step: number; readonly direction: BoxcarDirectionChoice }) => Promise<BoxcarRun | null>;
+  /** Sample the Bayesian posterior of the free parameters (the Posterior tab's Sample / Continue). */
+  readonly samplePosterior?: PosteriorSampler;
   readonly cancel: () => void;
   /** Parameters back to their starting values: these ids, or every one. */
   readonly reset: (ids?: readonly string[]) => void;
@@ -190,3 +195,10 @@ export type LiveState = PowderLiveState | PdfLiveState;
 export type AgentPortRef = MutableRefObject<AgentPort | null>;
 
 export type { InstrumentConstants } from "@/core/diffraction/instrument";
+
+/**
+ * A page's posterior sampler: `continue` resumes the last run's chain (the
+ * same problem), else a fresh run starts at the current values; `steps` per
+ * call. Resolves to the run, or to why it did not run or finish.
+ */
+export type PosteriorSampler = (options: { readonly continue: boolean; readonly steps: number }) => Promise<SampleResult | string>;

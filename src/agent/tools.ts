@@ -170,6 +170,19 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     pages: ["powder"],
   },
   {
+    name: "sample_posterior",
+    title: "Sample the Bayesian posterior",
+    description:
+      "Powder and PDF pages. The Bayesian check of a converged refinement: an ensemble MCMC (Goodman–Weare stretch moves over the worker pool) samples the posterior of the FREE parameters around the refined values and returns, per parameter, the median with 68 % and 95 % credible intervals, the posterior width over the least-squares esd (esdRatio), whether the interval ends on a bound, and the convergence (split-R̂, effective sample size); with the posterior correlations the data leave. Use it when a number is not convincing: an esd as large as the value, a parameter on a bound (B = 0, an occupancy at 1: the posterior gives a one-sided limit where the esd means nothing), a pair the correlation check flags, values that move between refinement paths at the same wR, or a physical claim resting on one parameter (an exchange fraction, a moment, a small distortion). esdRatio ≈ 1 confirms the esds; > 1.5 means they understate the uncertainty: quote the credible interval. `compare` gives the posterior of a difference (two B's, two occupancies, two moments) and the probability one is the larger: whether the data tell them apart. It quantifies uncertainty within the model and cannot fix a wrong one; with a systematic misfit (Durbin–Watson well below 2) it is as overconfident as the esds. Cost: each step evaluates the pattern 2·nFree+2 times, and the chain mixes more slowly with more free parameters (about 10⁴ steps at 20 free; a few thousand at 8–10): fix what does not correlate with the values in question (the profile, the background, the cell and zero usually), refine that set — the posterior is read against that refinement's esds — then sample. Not converged: call again with continue: true. Changes nothing in the model; the page shows the marginals in its Posterior view.",
+    inputSchema: {
+      continue: z.boolean().optional().describe("Resume the last run's chain (same problem) instead of starting a new one"),
+      steps: z.number().int().min(50).max(5000).optional().describe("Ensemble steps this call (default 400)"),
+      compare: z.array(z.tuple([z.string(), z.string()])).optional().describe("Pairs [a, b] of free parameter ids: the posterior of a − b and P(a > b) — do two B's, occupancies or moments differ?"),
+    },
+    effect: "read",
+    pages: ["powder", "pdf"],
+  },
+  {
     name: "identify_peaks",
     title: "Identify extra peaks",
     description:

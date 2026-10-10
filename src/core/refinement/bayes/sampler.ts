@@ -107,8 +107,12 @@ export interface SampleOptions {
   /** Resume token from a previous run's `resume` output. */
   readonly init?: WalkerState;
   /** Initial walker dispersion around the starting values, as a fraction of each
-   *  parameter's scale (|value| or bound span). Default 1e-2. Ignored on resume. */
+   *  parameter's scale (|value| or bound span), for a parameter with no
+   *  linearized esd. Default 1e-2. Ignored on resume. */
   readonly initialSpread?: number;
+  /** Initial dispersion, in esds, of a parameter with a linearized esd (see
+   *  `linearizedEsd`). Default 1. Ignored on resume. */
+  readonly initialSpreadEsd?: number;
   /** Linearized ESDs (from a prior LM fit) for the esdRatio comparison. */
   readonly linearizedEsd?: Readonly<Record<string, number>>;
   /** Progress callback per completed ensemble step. */
@@ -229,10 +233,16 @@ export function* sampleCore(
     seed = (options.seed ?? DEFAULT_SEED) >>> 0;
     const rng = mulberry32From(seed, 0);
     const spread = options.initialSpread ?? 1e-2;
+    const spreadEsd = options.initialSpreadEsd ?? 1;
 
     // Initialize walkers in a tight ball around the current parameter values
-    // (bounded space), then transform. The ball scale per parameter is
-    // spread·max(|value|, span/100, tiny) so zero-valued parameters still move.
+    // (bounded space), then transform. With the least-squares esds the ball is
+    // spreadEsd·esd per parameter — the expected posterior width, as emcee
+    // practice asks. A ball set by |value| instead puts a precise parameter
+    // (a cell length, esd 1e-5 of its value) hundreds of esds out, where a
+    // walker can settle in a false minimum the stretch move never leaves
+    // (Cr₂WO₆: one walker of 42 held a = 4.29 Å against 4.575 Å). Without an
+    // esd: spread·max(|value|, span/100, tiny), so zero-valued parameters move.
     const center = freeParams.map((p) => p.value);
     q = [];
     for (let w = 0; w < even; w++) {
@@ -240,7 +250,10 @@ export function* sampleCore(
       for (let j = 0; j < nFree; j++) {
         const p = freeParams[j]!;
         const span = p.min !== undefined && p.max !== undefined ? p.max - p.min : 0;
-        const scale = spread * Math.max(Math.abs(center[j]!), span / 100, 1e-8);
+        const esd = options.linearizedEsd?.[p.id];
+        const scale = esd !== undefined && Number.isFinite(esd) && esd > 0
+          ? spreadEsd * esd
+          : spread * Math.max(Math.abs(center[j]!), span / 100, 1e-8);
         let x = center[j]! + (rng.next() * 2 - 1) * scale;
         if (p.min !== undefined) x = Math.max(x, p.min);
         if (p.max !== undefined) x = Math.min(x, p.max);

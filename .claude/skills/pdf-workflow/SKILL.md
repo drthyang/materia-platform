@@ -74,7 +74,10 @@ question); a box holds less information than the whole window.
   local one agrees and where it differs.
 
 Report: Rw and the window, the refined values with their (non-statistical) esds, which
-terms were free, and anything held at its standard (Qdamp, Qbroad).
+terms were free, and anything held at its standard (Qdamp, Qbroad). The PDF esds come from
+unit weights and are not statistical: when a value carries a conclusion (a local distortion,
+an ADP, a correlation length), its posterior (`bayesian-check`; the noise scale is
+integrated out) is the better uncertainty — approximate, since G(r) points are correlated.
 
 ## MCP tool map (quick reference)
 

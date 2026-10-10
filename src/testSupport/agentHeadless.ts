@@ -24,6 +24,8 @@ import { axisContext, convertAxisArray } from "@/visualization/axisUnits";
 import { excludedPointMask } from "@/core/refinement/factors";
 import type { RefinementOptions, RefinementResult } from "@/core/refinement/types";
 import { buildMagneticPowderProblem } from "@/core/workflow/magneticPowder";
+import { buildPowderProblem } from "@/core/workflow/powder";
+import { samplePosterior, type SampleResult } from "@/core/refinement/bayes/sampler";
 import { magneticHandle, sessionCurves } from "@/testSupport/magneticHeadless";
 import type { StepKind } from "@/core/project/history";
 
@@ -95,6 +97,7 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
         restraints: powderRestraints([s.structure], s.siteTies, s.powderParams),
         options,
       });
+  let sampled: SampleResult | null = null;
   const refine = async (): Promise<string | null> => {
     calls.push("refine");
     if (s.magnetic) {
@@ -176,6 +179,18 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
     showPeaks: (peaks) => calls.push(`showPeaks ${peaks.map((p) => p.d.toFixed(3)).join(",")}`),
     refine,
     thorough: refine,
+    samplePosterior: async ({ continue: more, steps }) => {
+      calls.push(`sample ${more ? "continue" : "start"} ${steps}`);
+      if (more && !sampled) return "there is no posterior run to continue: sample first";
+      const problem = buildPowderProblem(s.structure, s.pattern, s.powderParams, s.powderBindings, s.powderProfile, powderRestraints([s.structure], s.siteTies, s.powderParams));
+      sampled = samplePosterior(problem, {
+        nSteps: steps,
+        seed: 0xbae5,
+        ...(more && sampled ? { init: sampled.resume } : {}),
+        ...(result?.esd ? { linearizedEsd: result.esd } : {}),
+      });
+      return sampled;
+    },
     probe: async (options) => {
       calls.push("probe");
       return fitOnce(options);

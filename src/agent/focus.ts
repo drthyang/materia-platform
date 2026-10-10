@@ -29,6 +29,7 @@ export const TOOL_CARDS: Readonly<Record<string, readonly AgentCard[]>> = {
   identify_peaks: ["pattern"],
   add_antisite: ["structure", "parameters"],
   tie_parameters: ["parameters"],
+  sample_posterior: ["parameters"],
   magnetic_state: [],
   search_propagation_vector: [],
   set_propagation_vector: [],

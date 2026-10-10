@@ -480,11 +480,13 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
   {
     name: "sample_posterior",
     title: "Sample Bayesian posterior (MCMC)",
-    description: "Draw Bayesian posterior samples over the FREED parameters of a PDF fit with an affine-invariant ensemble MCMC sampler — the full parameter distribution where refine_pdf gives a point estimate. Reports per-parameter median / 68% / 95% credible intervals, convergence diagnostics (R-hat, ESS, acceptance), sample correlations, and — when `linearizedEsd` from a prior refine_pdf is supplied — `esdRatio` (posterior std / least-squares esd: ≈1 validates the esds, ≫1 means they were overconfident from correlation or non-Gaussianity). The default `marginalized` noise model integrates out the unknown G(r) error scale (uniform weights are not honest sigmas), so widths are meaningful. Run refine_pdf FIRST and seed `parameters` at the converged values. Bounded per call: if `converged` is false, pass the returned `resume` token to a follow-up call to continue the same chain.",
+    description: "Draw Bayesian posterior samples over the FREED parameters of a PDF fit, or of a powder fit (pass build_refinement's `profile`, and `magnetic` for a nuclear + magnetic co-refinement), with an affine-invariant ensemble MCMC sampler — the full parameter distribution where refine_pdf / refine_powder give a point estimate. Run it when a refined value is not convincing: an esd as large as the value, a parameter on a bound, a strongly correlated pair, a value that moves between refinement paths at the same wR. Reports per-parameter median / 68% / 95% credible intervals, convergence diagnostics (R-hat, ESS, acceptance), sample correlations, and — when `linearizedEsd` from a prior refine_pdf is supplied — `esdRatio` (posterior std / least-squares esd: ≈1 validates the esds, ≫1 means they were overconfident from correlation or non-Gaussianity). The default `marginalized` noise model integrates out the unknown G(r) error scale (uniform weights are not honest sigmas), so widths are meaningful. Run refine_pdf / refine_powder FIRST and seed `parameters` at the converged values. Bounded per call: if `converged` is false, pass the returned `resume` token to a follow-up call to continue the same chain.",
     inputSchema: {
-      structure: anyObj, pattern: anyObj,
-      parameters: anyArr.describe("RefinementParameter[] seeded at the refine_pdf optimum (fixed:true excludes from sampling)"),
+      structure: anyObj, pattern: anyObj.describe("The PDF G(r), or the powder pattern"),
+      parameters: anyArr.describe("RefinementParameter[] seeded at the refine_pdf / refine_powder optimum (fixed:true excludes from sampling)"),
       bindings: anyArr,
+      profile: anyObj.optional().describe("Powder only: build_refinement's profile (peak shape, η, Lorentz, background basis)"),
+      magnetic: anyObj.optional().describe("Powder only: the magnetic model of a nuclear + magnetic co-refinement"),
       restraints: anyArr.optional(),
       extraPhases: anyArr.optional().describe("Additional crystallographic phases (multi-phase)"),
       fitRange: z.object({ min: z.number().optional(), max: z.number().optional() }).optional(),

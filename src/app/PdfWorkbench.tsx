@@ -905,7 +905,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
    * token, so the chain keeps targeting the identical posterior even if the
    * user edited parameters meanwhile.
    */
-  async function runSample(continueRun: boolean): Promise<void> {
+  async function runSample(continueRun: boolean, steps = SAMPLE_STEPS): Promise<SampleResult | string> {
     setSampleBusy(true);
     const specAtCall = specRef.current;
     const prior = continueRun ? sample : null;
@@ -920,11 +920,11 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
           restraints: spec.restraints,
           fitRange,
         };
-    const total = (prior ? prior.result.resume.stepIndex : 0) + SAMPLE_STEPS;
+    const total = (prior ? prior.result.resume.stepIndex : 0) + steps;
     setSampleProgress({ step: prior ? prior.result.resume.stepIndex : 0, total });
     try {
       const options = {
-        nSteps: SAMPLE_STEPS,
+        nSteps: steps,
         seed: 0xbae5,
         ...(prior ? { init: prior.result.resume } : {}),
         ...(result?.esd ? { linearizedEsd: result.esd } : {}),
@@ -939,14 +939,17 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
         : await client.samplePdfPosterior(req, options);
       if (specRef.current !== specAtCall) {
         console.info("[status] posterior result discarded — the parameter spec changed while it ran");
-        return;
+        return "discarded: the parameters changed while it ran";
       }
       setSample({ result: res, req });
       console.info(
         `[status] posterior ${prior ? "continued" : "sampled"}: ${res.status} · R̂max ${res.diagnostics.maxRHat.toFixed(3)} · ESSmin ${Math.round(res.diagnostics.minEss)} · ${res.diagnostics.nSamples} samples`,
       );
+      return res;
     } catch (e) {
-      console.error(`[status] posterior sampling failed: ${e instanceof Error ? e.message : String(e)}`);
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error(`[status] posterior sampling failed: ${msg}`);
+      return `failed: ${msg}`;
     } finally {
       setSampleProgress(null);
       setSampleBusy(false);
@@ -1183,6 +1186,12 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
       refine: runRefine,
       thorough: runMultiStart,
       boxcar: (plan) => runBoxcar(plan),
+      samplePosterior: async ({ continue: continueRun, steps }) => {
+        if (sampleBusy) return "a posterior run is already going";
+        if (continueRun && !sample) return "there is no posterior run to continue: sample first";
+        setViewTab("posterior");
+        return runSample(continueRun, steps);
+      },
       // The Refine button's request with the Agent's options; the result is only read.
       probe: (options) => {
         const req = { ...refineRequest(params, 0), options };

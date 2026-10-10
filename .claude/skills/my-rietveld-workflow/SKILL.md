@@ -179,6 +179,11 @@ against the cell) — or refine them in separate stages, and free it again only 
 other is stable. A combination the data cannot determine at all (a null direction) is the
 same rule at its limit. This is a firm rule for the user, like the occupancy guardrail.
 
+When a pair has to stay free together, or a value stays unconvincing after the method has
+run (an esd as large as the value, a parameter on a bound, a value that moves between
+refinement paths at the same wR), sample the posterior before reporting it: the
+`bayesian-check` skill says when and how, and `sample_posterior` runs it on the page.
+
 What does **not** count: the terms of one curve among themselves — the background
 coefficients, and the Caglioti `U, V, W` of one FWHM²(θ). They trade off by construction
 while the curve itself is determined, and nobody reports them as results, so free `U, V, W`
@@ -243,8 +248,10 @@ The user does **not** chase absolute Rwp. A fit is acceptable when all of:
    rather than celebrating. (The GaNb4Se8 run landed GoF ≈ 0.46 — a good fit, but with
    generous σ's, exactly this case.)
 2. **Physical sanity holds** — `B_iso > 0`, occupancy sums are chemically sensible, bond
-   lengths/angles are reasonable. `assess_refinement` surfaces at-bounds and unphysical
-   parameters; treat any as a blocker, not a rounding detail.
+   lengths/angles are reasonable (`bond_geometry` gives the bond-valence sums).
+   `assess_refinement` surfaces at-bounds and unphysical parameters; treat any as a
+   blocker, not a rounding detail. A parameter the result rests on that is weakly
+   determined gets its credible interval (`bayesian-check`), not only its esd.
 3. **External cross-check agrees** — export and re-run in **both GSAS-II and FullProf**
    and confirm the parameters and ESDs are consistent. Write both bundles with
    `export_bundle` (`target` `"fullprof"` and `"gsas2"`, the refine call's `parameters`

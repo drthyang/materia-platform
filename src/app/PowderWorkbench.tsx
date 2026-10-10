@@ -47,7 +47,7 @@ import { CANCELLED } from "@/workers/computeClient";
 import type { PowderProgress } from "@/workers/runPowder";
 import { formatWt, fractionsOf } from "@/core/diagnostics/phaseFractions";
 import { PosteriorPanel } from "@/app/ui/PosteriorPanel";
-import type { SampleResult } from "@/core/refinement/bayes/sampler";
+import type { SampleOptions, SampleResult } from "@/core/refinement/bayes/sampler";
 import { KSearchPanel, type MagneticFit, type MagneticPatternView, type ResidualPeak } from "@/components/KSearchPanel";
 import type { DemoEntry, DemoId } from "@/app/demos";
 import { useOnChange } from "@/app/useOnChange";
@@ -163,6 +163,9 @@ export interface PowderWorkbenchProps {
   agentLink?: AgentLink;
 }
 
+/** Ensemble steps per posterior run or continue (each one proposal per walker). */
+const SAMPLE_STEPS = 400;
+
 export function PowderWorkbench({
   session, setSession, powderResult, setPowderResult, instrument, instrumentLoaded, ownStructure,
   client, active, step, onStep, setMessage, exportsRef,
@@ -192,7 +195,7 @@ export function PowderWorkbench({
   // different posterior.
   const [sample, setSample] = useState<{
     result: SampleResult;
-    rerun: (init?: SampleResult["resume"]) => Promise<SampleResult>;
+    rerun: (options: SampleOptions) => Promise<SampleResult>;
   } | null>(null);
   const [sampleBusy, setSampleBusy] = useState(false);
   const [sampleProgress, setSampleProgress] = useState<{ step: number; total: number } | null>(null);
@@ -895,21 +898,24 @@ export function PowderWorkbench({
    * magneticPowder spec. Continue re-runs the stored closure with the resume
    * token, so the chain keeps targeting the identical posterior.
    */
-  async function runSample(continueRun: boolean): Promise<void> {
+  async function runSample(continueRun: boolean, steps = SAMPLE_STEPS): Promise<SampleResult | string> {
     setSampleBusy(true);
     const prior = continueRun ? sample : null;
-    const total = (prior ? prior.result.resume.stepIndex : 0) + 400;
+    const total = (prior ? prior.result.resume.stepIndex : 0) + steps;
     setSampleProgress({ step: prior ? prior.result.resume.stepIndex : 0, total });
     try {
-      const baseOptions = {
-        nSteps: 400,
+      // A continued run keeps its first run's problem and esds (the stored
+      // closure), with this call's steps and progress.
+      const options: SampleOptions = {
+        nSteps: steps,
         seed: 0xbae5,
+        ...(prior ? { init: prior.result.resume } : {}),
         ...(powderResult?.esd ? { linearizedEsd: powderResult.esd } : {}),
         onStep: (step: number) => {
           if (step % 5 === 0 || step === total) setSampleProgress({ step, total });
         },
       };
-      let rerun: (init?: SampleResult["resume"]) => Promise<SampleResult>;
+      let rerun: (options: SampleOptions) => Promise<SampleResult>;
       if (prior) {
         rerun = prior.rerun;
       } else if (magneticApplied) {
@@ -920,23 +926,27 @@ export function PowderWorkbench({
           ...profileReq(),
           ...(fitRangeActive ? { fitRange: { min: fitRange!.min, max: fitRange!.max } } : {}),
         };
-        rerun = (init) => client.sampleMagneticPowderPosterior(spec, { ...baseOptions, ...(init ? { init } : {}) });
+        const esd = options.linearizedEsd;
+        rerun = (o) => client.sampleMagneticPowderPosterior(spec, { ...o, ...(esd ? { linearizedEsd: esd } : {}) });
       } else {
         const req = {
           structure, pattern, parameters: [...powderParams], bindings: pBindings, ...profileReq(), ...restraintReq,
           ...(session.extraPhases.length > 0 ? { extraPhases: session.extraPhases } : {}),
           ...(fitRangeActive ? { fitRange: { min: fitRange!.min, max: fitRange!.max } } : {}),
         };
-        rerun = (init) => client.samplePowderPosterior(req, { ...baseOptions, ...(init ? { init } : {}) });
+        const esd = options.linearizedEsd;
+        rerun = (o) => client.samplePowderPosterior(req, { ...o, ...(esd ? { linearizedEsd: esd } : {}) });
       }
-      const res = await rerun(prior?.result.resume);
+      const res = await rerun(options);
       setSample({ result: res, rerun });
       setMessage(
         `Posterior ${prior ? "continued" : "sampled"} (${res.status}): R̂max ${res.diagnostics.maxRHat.toFixed(3)} · ESSmin ${Math.round(res.diagnostics.minEss)} · ${res.diagnostics.nSamples} samples.`,
       );
+      return res;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setMessage(msg === CANCELLED ? "Posterior sampling cancelled." : `Posterior sampling failed: ${msg}`);
+      return msg === CANCELLED ? "cancelled" : `failed: ${msg}`;
     } finally {
       setSampleProgress(null);
       setSampleBusy(false);
@@ -1413,6 +1423,12 @@ export function PowderWorkbench({
       showPeaks: (peaks) => {
         setAgentPeaks(peaks.length > 0 ? peaks.map((p) => ({ d: p.d, height: p.height, ...(p.near ? { near: p.near } : {}) })) : null);
         if (peaks.length > 0) setPlotMode("curves");
+      },
+      samplePosterior: async ({ continue: continueRun, steps }) => {
+        if (sampleBusy) return "a posterior run is already going";
+        if (continueRun && !sample) return "there is no posterior run to continue: sample first";
+        setPlotMode("posterior");
+        return runSample(continueRun, steps);
       },
       refine: runPowder,
       thorough: runThorough,

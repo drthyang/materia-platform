@@ -1680,11 +1680,57 @@ function emptySpinFieldWarning(pattern: PdfPattern, magnetic: MagneticModel, gMa
  * least-squares error bars were honest. Bounded per call; the returned resume
  * token continues the same chain in a later call.
  */
-export async function sample_posterior(args: {
+/** The powder problem refine_powder fits: single-phase, multi-phase, or nuclear + magnetic. */
+function powderSampleSpec(args: {
   structure: StructureModel;
-  pattern: PdfPattern;
+  pattern: PowderPattern;
   parameters: RefinementParameter[];
   bindings: ParameterBinding[];
+  profile?: PowderProfile;
+  magnetic?: MagneticModel;
+  restraints?: LinearRestraint[];
+  extraPhases?: StructureModel[];
+  fitRange?: { min?: number; max?: number };
+}): EvaluatorSpec {
+  if (!args.profile) throw new Error("sample_posterior: a powder pattern needs the `profile` build_refinement returned");
+  const profile = args.profile;
+  const shared = {
+    pattern: args.pattern,
+    parameters: args.parameters,
+    bindings: args.bindings,
+    shape: profile.shape,
+    ...(profile.eta !== undefined ? { eta: profile.eta } : {}),
+    ...(args.fitRange ? { fitRange: args.fitRange } : {}),
+  };
+  const extra = args.extraPhases ?? [];
+  if (args.magnetic) {
+    return {
+      kind: "magneticPowder", structure: args.structure, magnetic: args.magnetic, ...shared,
+      ...(extra.length ? { extraPhases: extra.map((st) => ({ structure: st, id: st.id })) } : {}),
+      ...(profile.lorentz !== undefined ? { lorentz: profile.lorentz } : {}),
+      ...(profile.backgroundType !== undefined ? { backgroundType: profile.backgroundType } : {}),
+    };
+  }
+  const restraints = args.restraints && args.restraints.length ? { restraints: args.restraints } : {};
+  return extra.length
+    ? { kind: "multiPhasePowder", phases: [{ structure: args.structure, id: args.structure.id }, ...extra.map((st) => ({ structure: st, id: st.id }))], ...shared, ...restraints }
+    : {
+        kind: "powder", structure: args.structure, ...shared, ...restraints,
+        ...(profile.lorentz !== undefined ? { lorentz: profile.lorentz } : {}),
+        ...(profile.backgroundType !== undefined ? { backgroundType: profile.backgroundType } : {}),
+      };
+}
+
+export async function sample_posterior(args: {
+  structure: StructureModel;
+  /** A PDF G(r) or a powder pattern: the problem sampled is the one refine_pdf or refine_powder fits. */
+  pattern: PdfPattern | PowderPattern;
+  parameters: RefinementParameter[];
+  bindings: ParameterBinding[];
+  /** Powder only: the profile build_refinement returned. */
+  profile?: PowderProfile;
+  /** Powder only: a magnetic model refined with the nuclear one. */
+  magnetic?: MagneticModel;
   restraints?: LinearRestraint[];
   extraPhases?: StructureModel[];
   fitRange?: { min?: number; max?: number };
@@ -1717,18 +1763,20 @@ export async function sample_posterior(args: {
   nuts?: { divergences: number; maxTreeDepthHits: number; gradEvals: number; stepSize: number[] };
   parallel: { workers: number } | null;
 }> {
-  const multi = args.extraPhases && args.extraPhases.length > 0;
+  const multi = !!args.extraPhases && args.extraPhases.length > 0;
   const sampler = args.sampler ?? "ensemble";
-  const spec: EvaluatorSpec = {
-    kind: "pdf",
-    structure: args.structure,
-    ...(multi ? { extraPhases: args.extraPhases } : {}),
-    pattern: args.pattern,
-    parameters: args.parameters,
-    bindings: args.bindings,
-    ...(args.restraints && args.restraints.length ? { restraints: args.restraints } : {}),
-    ...(args.fitRange ? { fitRange: args.fitRange } : {}),
-  };
+  const spec = "xUnit" in args.pattern
+    ? powderSampleSpec({ ...args, pattern: args.pattern })
+    : {
+        kind: "pdf" as const,
+        structure: args.structure,
+        ...(multi ? { extraPhases: args.extraPhases } : {}),
+        pattern: args.pattern,
+        parameters: args.parameters,
+        bindings: args.bindings,
+        ...(args.restraints && args.restraints.length ? { restraints: args.restraints } : {}),
+        ...(args.fitRange ? { fitRange: args.fitRange } : {}),
+      };
   const problem = buildProblemForSpec(spec);
   const common = {
     nSteps: args.nSteps,
@@ -1746,6 +1794,7 @@ export async function sample_posterior(args: {
     | undefined;
 
   if (sampler === "nuts") {
+    if (spec.kind !== "pdf") throw new Error("sample_posterior: sampler \"nuts\" is for PDF fits; a powder pattern samples with \"ensemble\"");
     // Gradient-based path: needs the problem's scalar χ² gradient (single-phase
     // PDF today). Sequential leapfrog cannot batch over the pool — in-process.
     const gradChi2 = (problem as Partial<PdfRefinementProblem>).gradChi2;

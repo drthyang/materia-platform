@@ -14,6 +14,7 @@ import type { AgentPort, LiveState, PdfLiveState, PowderLiveState } from "@/agen
 import { changePowder, describePowderChange, powderNoOp, readPowderTool } from "@/agent/powderTools";
 import { changeMagnetic, describeMagneticChange, isMagneticTool, magneticNoOp, magneticOutcome, readMagneticTool } from "@/agent/magneticTools";
 import { changePdf, describePdfChange, pdfNoOp, readPdfTool } from "@/agent/pdfTools";
+import { samplePosteriorTool } from "@/agent/posteriorTool";
 import type { LiveToolHost } from "@/agent/liveCommon";
 import { PROBE_OPTIONS, correlationRefusal, pairText, readCorrelations, refusalLine } from "@/agent/correlationCheck";
 import { PAGE_METHOD, readSkill } from "@/agent/skills";
@@ -179,9 +180,10 @@ export class AgentExecutor implements ToolRunner {
         }
         // Let the drawer paint "running" before a heavy synchronous analysis.
         await new Promise((r) => setTimeout(r, 0));
-        let out = port.technique === "pdf" ? readPdfTool(spec.name, input, port, this.host)
-          : isMagneticTool(spec.name) ? await readMagneticTool(spec.name, input, port)
-            : readPowderTool(spec.name, input, port, this.host);
+        let out = spec.name === "sample_posterior" ? await samplePosteriorTool(input as { continue?: boolean; steps?: number; compare?: [string, string][] }, port)
+          : port.technique === "pdf" ? readPdfTool(spec.name, input, port, this.host)
+            : isMagneticTool(spec.name) ? await readMagneticTool(spec.name, input, port)
+              : readPowderTool(spec.name, input, port, this.host);
         if (spec.name === "check_cell_symmetry") this.noteCellCheck(port, out as { passed?: boolean; unindexedPeaks?: unknown[]; absences?: { violated?: unknown[] } });
         if (spec.name === "review_symmetry") this.noteSymmetryReview(port, out as { observedForbidden?: unknown[]; candidates?: { name: string }[] });
         if (spec.name === "get_state") out = { ...(out as object), method: this.methodView(port) };
