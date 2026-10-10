@@ -178,6 +178,15 @@ release fixes bugs.
   0.3–1 % short at low angle (the cryostat's Al 111 on Cr₂WO₆ read 2.322 Å),
   enough to misplace a peak against the reflections, and the ticks sat
   0.2° from the calculated peaks.
+- **The k-search finds k = 0 on wide lines.** A peak now matches within 0.5 %
+  of its d where that is wider than 0.02 Å (a line's width in d grows with d),
+  and among k that explain the same peaks the simpler ranks first. On
+  Cr₂WO₆ at 4 K the magnetic 0 0 1, 0.031 Å from its position at d 8.8 Å,
+  missed the fixed tolerance, and two peaks fit (0 ½ ¼) as closely as k = 0:
+  the search offered incommensurate vectors for a k = 0 antiferromagnet. The
+  Agent's `search_propagation_vector` also takes `exclude` / `include` (peak
+  numbers), as the peak table's check boxes do, to leave out a line already
+  identified as the sample environment.
 - **The posterior sampler starts its walkers within an esd** of the refined
   values when the least-squares esds are known, not within 1 % of each value
   (hundreds of esds for a cell length, where a walker could settle in a false
