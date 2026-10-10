@@ -394,13 +394,24 @@ page's own controls. Open it with the **Agent** button in the header.
 
 **Where it works.**
 - The powder page (Rietveld), single- and multi-phase, with or without an
-  applied magnetic model.
+  applied magnetic model, and its magnetic analysis step: the propagation
+  vector from the residual peaks, the magnetic space groups of the little
+  group of k, the moments fitted, and the model handed to the joint
+  nuclear + magnetic refinement.
 - The PDF page (a real-space fit of G(r)), single- and multi-phase, with or
   without an applied spin model. Rw is its agreement; the fit weights every
   point equally, so the answers carry no GoF and say the esds are not
   statistical.
-- Not yet: single crystal, and the magnetic analysis step. Their state is
-  private to the page; each needs its own port.
+- Not yet: single crystal. Its state is private to the page; it needs its
+  own port.
+
+**Its methods, read on demand.** The user's methods are skills in
+[`.claude/skills/`](../.claude/skills): `my-rietveld-workflow`,
+`magnetic-analysis`, `pdf-workflow`, `symmetry-review` and `bayesian-check`.
+The system prompt carries only their names and descriptions; the Agent reads a
+skill whole with `read_skill` when the task calls for it, and the knowledge
+notes a skill cites the same way. Claude Code loads the same files, so one
+method serves both.
 
 **Its tools.** One list ([`src/agent/tools.ts`](../src/agent/tools.ts))
 serves every way in, so a model sees the same names everywhere. Each tool names
@@ -410,8 +421,9 @@ and [`pdfTools.ts`](../src/agent/pdfTools.ts).
 - Read tools run at once: `get_state`, `assess_refinement`,
   `suggest_next_steps`, `rank_next_parameters`, `check_cell_symmetry`,
   `find_unexplained_peaks`, `review_symmetry`, `diagnose_fit`,
-  `structure_table`, `bond_geometry`, `interpret_structure`, `read_skill`,
-  `read_ref`, and on the magnetic step
+  `structure_table`, `bond_geometry`, `interpret_structure`, `identify_peaks`,
+  `sample_posterior` (powder and PDF), `read_skill`, `read_ref`, and on the
+  magnetic step
   `magnetic_state`, `search_propagation_vector`, `rank_magnetic_groups`. The analysis tools are the MCP handlers above, fed
   from what is on screen.
 - `read_skill` returns a skill whole, as Markdown (not cut to the ref budget),
@@ -463,7 +475,7 @@ and [`pdfTools.ts`](../src/agent/pdfTools.ts).
   untouched.
 - Change tools ask first: `set_free`, `set_background`, `set_microstrain`,
   `set_adp_model`, `set_site_ties`, `set_corrections`,
-  `set_instrument_constants`, `set_fit_range`,
+  `set_instrument_constants`, `add_antisite`, `tie_parameters`, `set_fit_range`,
   `refine`, `reset_parameters` (all, or the ids given), `go_to_step`, and on
   the magnetic step
   `set_propagation_vector`, `select_magnetic_ions`, `set_moment_ties`,
