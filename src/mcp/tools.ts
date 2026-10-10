@@ -324,7 +324,8 @@ export async function refine_powder(args: {
   // positive residual for the missing-phase / magnetic-order signal.
   const refined = args.parameters.map((p) => ({ ...p, value: result.parameters[p.id] ?? p.value }));
   const curves = powderCurves(args.structure, args.pattern, refined, args.bindings, args.profile);
-  const ctx = axisContext(args.pattern, args.instrument);
+  // d with the refined zero taken out, so residual peaks compare with the cell's reflections.
+  const ctx = axisContext(args.pattern, args.instrument, refined.find((p) => p.kind === "zeroShift")?.value);
   const d = args.pattern.xUnit === "dSpacing" ? [...curves.x] : convertAxisArray(curves.x, args.pattern.xUnit, "dSpacing", ctx);
   const excluded = excludedPointMask(curves.yObs);
   const observationCount = excluded.reduce((n, ex) => n + (ex ? 0 : 1), 0);

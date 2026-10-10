@@ -372,7 +372,9 @@ export function PowderWorkbench({
     fitRange !== null && (fitRange.min > patternExtent.min || fitRange.max < patternExtent.max);
 
   // Display-axis unit conversion (view only — data/refinement stay native).
-  const axisCtx = useMemo(() => axisContext(pattern, instrumentLoaded ? instrument : undefined), [pattern, instrument, instrumentLoaded]);
+  // The refined zero shift: d read off the data is d with the zero taken out.
+  const zeroShift = powderParams.find((p) => p.kind === "zeroShift")?.value ?? 0;
+  const axisCtx = useMemo(() => axisContext(pattern, instrumentLoaded ? instrument : undefined, zeroShift), [pattern, instrument, instrumentLoaded, zeroShift]);
   // A disordered site (≥2 atoms sharing a position) enables the tie controls.
   const hasSharedSite = useMemo(
     () => siteGroups(structure.sites, true).some((g) => g.members.length > 1),

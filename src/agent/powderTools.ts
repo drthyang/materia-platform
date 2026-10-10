@@ -123,10 +123,14 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
       const { between, beside, onReflection } = residualPeaks(residual, { ...(input.sigma !== undefined ? { sigma: input.sigma } : {}), limit: input.limit ?? 12 });
       const misfits = [...onReflection, ...beside].sort((a, b) => b.height - a.height);
       const isBeside = new Set(beside);
+      const isExtra = new Set(between);
       const near = (p: (typeof misfits)[number]): string | undefined => {
         if (!p.nearNuclear) return undefined;
         const ref = `${p.nearNuclear.phaseLabel} ${p.nearNuclear.hkl}`;
-        return isBeside.has(p) ? `beside ${ref} (${((p.d / p.nearNuclear.d - 1) * 100).toFixed(1)}% in d)` : `on ${ref}`;
+        const off = `${((p.d / p.nearNuclear.d - 1) * 100).toFixed(1)}% in d`;
+        // An extra peak near a line, but resolved from it: the model has no intensity there.
+        if (isExtra.has(p)) return `near ${ref} (${off}), resolved from it`;
+        return isBeside.has(p) ? `beside ${ref} (${off})` : `on ${ref}`;
       };
       // Shown to the user too: ▽ marks with guide lines on the plot.
       const marked = input.showMisfits ? [...between, ...misfits].sort((a, b) => b.height - a.height) : between;

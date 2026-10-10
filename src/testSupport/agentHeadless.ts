@@ -75,9 +75,9 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
       wR: Math.sqrt(num / den),
       settings: { backgroundTerms: s.backgroundTerms, backgroundType: "chebyshev", mustrain: "isotropic", anisotropicAdp: false, siteTies: s.siteTies, corrections: s.corrections ?? {} },
       curves,
-      d: convertAxisArray(curves.x, s.pattern.xUnit, "dSpacing", axisContext(s.pattern)),
+      d: convertAxisArray(curves.x, s.pattern.xUnit, "dSpacing", axisContext(s.pattern, undefined, s.powderParams.find((p) => p.kind === "zeroShift")?.value)),
       observationCount: n,
-      axis: axisContext(s.pattern),
+      axis: axisContext(s.pattern, undefined, s.powderParams.find((p) => p.kind === "zeroShift")?.value),
       source: "test",
       restraints: powderRestraints([s.structure], s.siteTies, s.powderParams),
     };

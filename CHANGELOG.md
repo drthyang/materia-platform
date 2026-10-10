@@ -171,6 +171,18 @@ release fixes bugs.
 
 ### Fixed
 
+- **d read off constant-wavelength data takes out the refined zero shift**, as
+  GSAS-II's Pos2dsp does. The residual peaks the Agent and the MCP tools
+  report, the peaks handed to the k-search, the d and Q axes of the plot and
+  its reflection ticks all used the raw 2θ: with a 0.2° zero every d was
+  0.3–1 % short at low angle (the cryostat's Al 111 on Cr₂WO₆ read 2.322 Å),
+  enough to misplace a peak against the reflections, and the ticks sat
+  0.2° from the calculated peaks.
+- **The posterior sampler starts its walkers within an esd** of the refined
+  values when the least-squares esds are known, not within 1 % of each value
+  (hundreds of esds for a cell length, where a walker could settle in a false
+  minimum for the whole chain); and the powder page's Continue runs the
+  steps asked for, not the first run's.
 - **Channels without counts in GSAS raw data are dropped**, as GSAS-II
   weights them zero. Fitted as one count, the two zeros padding the end of
   a Cu Kα scan (FAP.XRA) carried half the χ² of the refinement and pushed
