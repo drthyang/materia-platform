@@ -8,10 +8,20 @@
 **Crystal and magnetic structure refinement that runs entirely in your browser,
 built to be driven by people and by AI agents.**
 
+**An Agent works the analysis with you.** Open it beside a powder or PDF fit and
+a model — Claude, or your own on Ollama or LM Studio — runs the refinement by
+your written method, says why a fit is poor, names the phase behind an extra
+peak, finds a magnetic structure, checks an unconvincing number with a Bayesian
+posterior, and reports the result with esds. It asks before every change, or
+works through the stages on its own in Auto. Its methods are skills it reads on
+demand, its firm rules are code, and an eval suite replays the failures it once
+had in CI. [How it works ↓](#the-agent)
+
 **▶ Try it: [drthyang.github.io/web-refinement](https://drthyang.github.io/web-refinement/)** —
-nothing to install, and your data never leaves your machine. Two demos open
-already converged: a two-phase Mn₃Ga neutron TOF Rietveld fit and a GaTa₄Se₈
-X-ray PDF fit.
+nothing to install, and the analysis runs on your machine (the Agent sends its
+conversation to the model you choose: to Anthropic's API for Claude, nowhere
+else for a local model). Two demos open already converged: a two-phase Mn₃Ga
+neutron TOF Rietveld fit and a GaTa₄Se₈ X-ray PDF fit.
 
 <p align="center">
   <img src="docs/screenshots/desktop.png" alt="Two-phase Mn₃Ga + MnO Rietveld refinement of POWGEN time-of-flight data: observed/calculated/difference curves, per-phase Bragg ticks, and the symmetry-allowed parameter table with esds" width="100%" />
