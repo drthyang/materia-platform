@@ -6,6 +6,7 @@
  * headless session.
  */
 
+import { multiPhaseCurves } from "@/core/workflow/multiPhase";
 import type { Vec3 } from "@/core/math/types";
 import type { Session } from "@/app/powderSession";
 import { candidateId, candidateIndex, candidateView, selectionView, type KCandidateView, type MagneticAgentHandle, type MomentTies } from "@/agent/magneticPort";
@@ -37,7 +38,10 @@ interface RankEntry {
 
 /** The curves of a session, the magnetic model's contribution included. */
 export function sessionCurves(s: Session): ReturnType<typeof powderCurves> {
-  const curves = powderCurves(s.structure, s.pattern, s.powderParams, s.powderBindings, s.powderProfile);
+  // A multi-phase page sums its phases, as the page's own curves do.
+  const curves = s.extraPhases.length > 0
+    ? multiPhaseCurves([s.structure, ...s.extraPhases].map((st) => ({ structure: st, id: st.id })), s.pattern, s.powderParams, s.powderBindings, s.powderProfile)
+    : powderCurves(s.structure, s.pattern, s.powderParams, s.powderBindings, s.powderProfile);
   if (!s.magnetic) return curves;
   const mag = magneticComponentCurve(s.structure, s.magnetic, s.pattern, s.powderParams, s.powderBindings, s.powderProfile);
   const yCalc = curves.yCalc.map((y, i) => y + (mag[i] ?? 0));
