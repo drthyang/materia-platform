@@ -884,6 +884,7 @@ export function App(): JSX.Element {
           requestStep("load", `Loaded ${file.name}`, true);
           setMessage(
             `Loaded single-crystal “${file.name}” · ${loaded.kept} reflections [${loaded.format}]` +
+            `${loaded.radiationNamed ? ` · ${loaded.radiationNamed}, as the CIF names it` : ""}` +
             `${describeDrops(loaded)}. Merge report + F² refinement ready.`,
           );
           return;

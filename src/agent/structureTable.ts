@@ -9,6 +9,13 @@
  */
 
 import type { StructureModel } from "@/core/crystal/types";
+import { AFIX } from "@/core/crystal/riding";
+import type { RidingRule } from "@/core/crystal/types";
+
+/** How a riding hydrogen is placed, in a few words. */
+const PLACED: Readonly<Record<RidingRule["geometry"], string>> = {
+  aromatic: "on the bisector", methyl: "a rotating methyl", hydroxyl: "a rotating hydroxyl", methylene: "a CH₂ pair", methine: "opposite three neighbours", fixed: "at its offset", free: "refined",
+};
 import type { ParameterBinding, RefinementParameter } from "@/core/refinement/types";
 import { parseTie } from "@/core/refinement/constraints";
 import { EIGHT_PI_SQUARED, uEquivalent } from "@/core/crystal/adp";
@@ -46,6 +53,8 @@ export interface StructureTableSite {
   readonly u?: Readonly<Record<"U11" | "U22" | "U33" | "U12" | "U13" | "U23", string>>;
   /** A riding hydrogen: its parent and how it is placed (no esds: it has no parameter of its own). */
   readonly riding?: string;
+  /** A hydrogen whose position refines while its U_iso rides on its parent's U_eq. */
+  readonly ridingU?: string;
 }
 
 export interface StructureTable {
@@ -133,8 +142,11 @@ export function structureTable(
       ? Object.fromEntries((["U11", "U22", "U33", "U12", "U13", "U23"] as const).map((name, i) => [name, withEsd((site.adp as { uAniso: readonly number[] }).uAniso[i]!, sd(uVar[i]!), 5)])) as Record<"U11" | "U22" | "U33" | "U12" | "U13" | "U23", string>
       : undefined;
     const rule = ridingOf.get(site.label);
-    const riding = rule ? `rides on ${rule.parent} (${rule.geometry === "aromatic" ? "AFIX 43, on the bisector" : "AFIX 3, at its offset"}), U_iso = ${rule.uFactor}·U_eq(${rule.parent})` : undefined;
-    return { label: site.label, type: site.element, x: pos[0]!, y: pos[1]!, z: pos[2]!, occupancy: withEsd(site.occupancy, occEsd, 4), adp, ...(u ? { u } : {}), ...(riding ? { riding } : {}) };
+    const uRides = rule ? `U_iso = ${rule.uFactor}·U_eq(${rule.parent})` : "";
+    const riding = rule && rule.geometry !== "free" ? `rides on ${rule.parent} (AFIX ${AFIX[rule.geometry]}, ${PLACED[rule.geometry]}), ${uRides}` : undefined;
+    // A hydrogen whose position refines on its own: only its U rides.
+    const ridingU = rule?.geometry === "free" ? `${uRides}; the position refines` : undefined;
+    return { label: site.label, type: site.element, x: pos[0]!, y: pos[1]!, z: pos[2]!, occupancy: withEsd(site.occupancy, occEsd, 4), adp, ...(u ? { u } : {}), ...(riding ? { riding } : {}), ...(ridingU ? { ridingU } : {}) };
   });
   return {
     phase: phase.name || phase.id,

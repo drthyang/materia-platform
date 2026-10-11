@@ -2,8 +2,9 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { dataExists, dataPath } from "@/testSupport/data";
 import { parseCif } from "@/parsers/cif";
-import type { AtomSite, StructureModel } from "@/core/crystal/types";
-import { applyRiding, ridingRules } from "@/core/crystal/riding";
+import type { AtomSite, RidingRule, StructureModel } from "@/core/crystal/types";
+import { applyRiding, ridingRules, shelxDistance, withTorsions } from "@/core/crystal/riding";
+import { hydrogenFragment } from "@/testSupport/scPages";
 import { orthogonalizationMatrix } from "@/core/crystal/unitCell";
 import { EIGHT_PI_SQUARED, uEquivalent } from "@/core/crystal/adp";
 import { mulVec } from "@/core/math/mat3";
@@ -67,6 +68,58 @@ describe("riding hydrogens", () => {
     const after = applyParameters(model, bindings, { dx: 1 }).model.sites.find((s) => s.label === "H1")!.position;
     // C1 moved 0.1 Å along a; the hydrogen re-sits on the new bisector, moved by about as much.
     expect(Math.hypot((after[0] - before[0]) * 10, (after[1] - before[1]) * 10)).toBeGreaterThan(0.05);
+  });
+
+  it("rotates a methyl about its axis (AFIX 137) and places a methylene's pair by X–C–Y (AFIX 23), as SHELXL placed them", () => {
+    const model = hydrogenFragment();
+    const { rules, unbonded } = ridingRules(model);
+    expect(unbonded).toEqual([]);
+    const by = (site: string): RidingRule => rules.find((r) => r.site === site)!;
+    expect(["H1A", "H1B", "H1C"].map((h) => by(h).geometry)).toEqual(["methyl", "methyl", "methyl"]);
+    expect(by("H1A")).toMatchObject({ parent: "C1", neighbours: [expect.objectContaining({ label: "N1" })], uFactor: 1.5 });
+    expect(new Set(["H1A", "H1B", "H1C"].map((h) => by(h).phase))).toEqual(new Set([0, 120, 240]));
+    expect(by("H1A").distance).toBeCloseTo(0.98, 4);
+    expect([by("H3A").geometry, by("H3B").geometry]).toEqual(["methylene", "methylene"]);
+    expect(by("H3A").side).toBe(-by("H3B").side!);
+    expect(by("H3A").distance).toBeCloseTo(0.99, 4);
+    // A metal's hydrogen rides at its offset; asked, its position refines and only its U rides.
+    expect(by("H3'")).toMatchObject({ parent: "Ga2", geometry: "fixed" });
+    expect(ridingRules(model, { refine: ["H3'"] }).rules.find((r) => r.site === "H3'")).toEqual({ site: "H3'", parent: "Ga2", geometry: "free", uFactor: 1.2 });
+    // Placed from the heavy atoms alone, every hydrogen sits where SHELXL put it.
+    const sites = model.sites.map((s) => ({ ...s }));
+    applyRiding({ ...model, riding: rules }, sites);
+    const m = orthogonalizationMatrix(model.cell);
+    for (const rule of rules) {
+      const was = model.sites.find((s) => s.label === rule.site)!.position;
+      const now = sites.find((s) => s.label === rule.site)!.position;
+      const d = mulVec(m, [now[0] - was[0], now[1] - was[1], now[2] - was[2]]);
+      expect(Math.hypot(d[0], d[1], d[2]), rule.site).toBeLessThan(2e-4);
+    }
+    // A torsion turns the methyl, its hydrogens 120° apart, at the tetrahedral angle to the axis.
+    const turned = { ...model, riding: withTorsions(rules, new Map([["C1", by("H1A").torsion! + 60]])) };
+    const after = model.sites.map((s) => ({ ...s }));
+    applyRiding(turned, after);
+    const cart = (label: string, list: readonly AtomSite[]): number[] => [...mulVec(m, list.find((s) => s.label === label)!.position)];
+    const angle = (a: number[], o: number[], b: number[]): number => {
+      const u = a.map((x, i) => x - o[i]!);
+      const v = b.map((x, i) => x - o[i]!);
+      return (Math.acos(u.reduce((t, x, i) => t + x * v[i]!, 0) / Math.hypot(...u) / Math.hypot(...v)) * 180) / Math.PI;
+    };
+    const c1 = cart("C1", after);
+    expect(angle(cart("N1", after), c1, cart("H1A", after))).toBeCloseTo(109.4712, 3);
+    expect(angle(cart("H1A", after), c1, cart("H1B", after))).toBeCloseTo(109.4712, 3);
+    // Turned by 60° about the N1–C1 axis: the projections of H1A before and after, across the axis, are 60° apart.
+    const axis = cart("C1", after).map((x, i) => x - cart("N1", after)[i]!);
+    const across = (h: number[]): number[] => {
+      const v = h.map((x, i) => x - c1[i]!);
+      const k = v.reduce((t, x, i) => t + x * axis[i]!, 0) / axis.reduce((t, x) => t + x * x, 0);
+      return v.map((x, i) => x - k * axis[i]!);
+    };
+    const [p, q] = [across(cart("H1A", sites)), across(cart("H1A", after))];
+    expect((Math.acos(p.reduce((t, x, i) => t + x * q[i]!, 0) / Math.hypot(...p) / Math.hypot(...q)) * 180) / Math.PI).toBeCloseTo(60, 6);
+    expect(shelxDistance("methyl", "C", 173)).toBe(0.98);
+    expect(shelxDistance("methylene", "C", 296)).toBe(0.97);
+    expect(shelxDistance("aromatic", "C", 240)).toBe(0.94);
   });
 
   const dipyridyl = "GSAS-II-tutorials/sc/S2dipyridyl.cif";

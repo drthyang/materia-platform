@@ -16,7 +16,9 @@ import type { EngineExportsRef } from "@/app/workbenchEngine";
 import type { SingleCrystalWorkspace } from "@/core/project/types";
 import { modulatedInputsFrom, restoreMomentBindings, restoreSingleCrystalParameters, singleCrystalWorkspaceFrom } from "@/app/projectIo";
 import { useOnChange } from "@/app/useOnChange";
-import type { AtomSite, RidingRule, StructureModel } from "@/core/crystal/types";
+import type { AtomSite, DistanceRestraint, RidingRule, StructureModel } from "@/core/crystal/types";
+import { restraintCount } from "@/core/crystal/restraints";
+import { withEsd as withEsdText } from "@/agent/structureTable";
 import type { AgentLink } from "@/agent/link";
 import { isInversion, type ExtinctionModel, type OmittedMeasurement, type Radiation, type ResolutionRange, type ShelxWeighting, type SingleCrystalDataset, type TwinLaw } from "@/core/diffraction/types";
 import type { Vec3 } from "@/core/math/types";
@@ -65,7 +67,7 @@ import { card as themeCard, color, mono, fz, uppercaseLabel, secondaryButton, sp
 // Lazy so three.js stays out of the main bundle until the 3D view is opened.
 const StructureView = lazy(() => import("@/app/ui/StructureView").then((m) => ({ default: m.StructureView })));
 
-const DATA_ACCEPT = ".xye,.xy,.dat,.txt,.gr,.sgr,.fgr,.sq,.fq,.hkl,.fcf,.int,.csv,.gsa,.gss,.gsas,.fxye,.raw,.cwn,.xra,.rawd,text/plain";
+const DATA_ACCEPT = ".xye,.xy,.dat,.txt,.gr,.sgr,.fgr,.sq,.fq,.hkl,.fcf,.cif,.int,.csv,.gsa,.gss,.gsas,.fxye,.raw,.cwn,.xra,.rawd,text/plain";
 const pct = (x: number): string => `${(x * 100).toFixed(2)}%`;
 const noop = (): void => {};
 
@@ -180,10 +182,12 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
   );
   // Riding hydrogens (SHELXL's riding model): set by the Agent or restored; null when every atom refines on its own.
   const [riding, setRiding] = useState<readonly RidingRule[] | null>(restoring?.riding ?? null);
+  // Distance restraints (SHELXL's DFIX and SADI): set by the Agent or restored; empty for none.
+  const [restraints, setRestraints] = useState<readonly DistanceRestraint[]>(restoring?.restraints ?? []);
   const fitStructure = useMemo(() => {
     const withAdp = adp ? withAdpModel({ ...structure, sites: structure.sites.map((site) => ({ ...site, adp: adp.seeds[site.label] ?? site.adp })) }, adp.model, { hydrogensIsotropic: adp.hydrogensIsotropic }) : structure;
-    return riding ? { ...withAdp, riding } : withAdp;
-  }, [structure, adp, riding]);
+    return { ...withAdp, ...(riding ? { riding } : {}), ...(restraints.length ? { restraints } : {}) };
+  }, [structure, adp, riding, restraints]);
 
   const spec = useMemo(() => buildSingleCrystalSpec(fitStructure, probedDataset, { extinction: 0 }), [fitStructure, probedDataset]);
   const bindings = spec.bindings;
@@ -229,11 +233,14 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
   const [resolution, setResolution] = useState<ResolutionRange>(restoring?.resolution ?? {});
 
   // A new structure (CIF load) keeps this page mounted (keyed on the dataset):
-  // the rows become the new spec's, and the last fit, the ADP switch and the
-  // magnetic model go with the old cell. (On change only — the mount render may
+  // the rows become the new spec's, and the last fit, the ADP switch, the
+  // riding rules, the restraints and the magnetic model go with the old model. (On change only — the mount render may
   // carry a restored state.)
   useOnChange(structure, () => {
     setAdp(null);
+    // The riding rules and the restraints name the old model's atoms.
+    setRiding(null);
+    setRestraints([]);
     setParams(buildSingleCrystalSpec(structure, probedDataset, { extinction: 0 }).params);
     setResult(null);
     setMagnetic(null);
@@ -693,6 +700,13 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
     stepHistory?.requestStep("edit", update.complement ? `${update.complement[1]} = 1 − ${update.complement[0]}` : update.release ? `Released ${update.release.join(", ")}` : "Parameters tied");
   }
 
+  /** The distance restraints, replaced as a whole: they change what the fit minimizes, so the last fit is cleared. */
+  function changeRestraints(next: readonly DistanceRestraint[]): void {
+    setRestraints(next);
+    setResult(null);
+    stepHistory?.requestStep("settings", next.length ? `${restraintCount(next)} restraint${restraintCount(next) === 1 ? "" : "s"}` : "No restraints");
+  }
+
   /** The scheme SHELXL would suggest for the model as refined now. */
   function suggestedWeighting(): WeightingSuggestion {
     const rows = comparison.rows;
@@ -738,6 +752,11 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
       gof: comparison.agreement.goof,
       nRef: activeDataset.reflections.length,
       nParam: nFree,
+      nRestraints: restraintCount(restraints),
+      // An inversion twin's fraction is the Flack parameter.
+      ...(twinLaws.length === 1 && isInversion(twinLaws[0]!) && params.some((p) => p.id === "twin_1")
+        ? { flack: withEsdText(params.find((p) => p.id === "twin_1")!.value, result?.esd.twin_1) }
+        : {}),
     };
     // `refinedStructure`, not `structure`: structureToCif reads coordinates and
     // cell off the model and takes the parameters only for their esds, so the
@@ -831,6 +850,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
         riding: riding ?? [],
         weighting,
         twinLaws,
+        distanceRestraints: restraints,
         extinctionModel,
         adpModel: adpModelOf(fitStructure),
         magnetic: magnetic !== null,
@@ -849,6 +869,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
       setWeighting: changeWeighting,
       setTwinLaws: changeTwinLaws,
       setParameterTies: changeParameterTies,
+      setDistanceRestraints: changeRestraints,
       setOmitted: changeOmitted,
       setResolution: changeResolution,
       setOutlierFilter: ({ on, cutoffSigma: cutoff, minExtinction: minY }) => {
@@ -885,6 +906,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
         ...(riding ? { riding } : {}),
         ...(weighting ? { weighting } : {}),
         ...(twinLaws.length ? { twinLaws } : {}),
+        ...(restraints.length ? { restraints } : {}),
         modulated: { kText, ionState, moment: modMoment, seed: modSeed, restarts: modRestarts },
         adpModel: adp?.model ?? null,
       }),

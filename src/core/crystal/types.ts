@@ -140,14 +140,47 @@ export interface SpaceGroup {
 export interface RidingRule {
   readonly site: string;
   readonly parent: string;
-  readonly geometry: "aromatic" | "fixed";
-  /** For "aromatic": the parent's two heavy neighbours, each as the symmetry image (operation index, lattice translation) bonded to it. */
+  /**
+   * SHELXL's AFIX for the hydrogen: "aromatic" (43) on the external bisector
+   * of the parent's two neighbours; "methyl" (137) one of three tetrahedral
+   * hydrogens rotating about the neighbour–parent axis, the torsion refined;
+   * "hydroxyl" (147) a lone hydrogen rotating so; "methylene" (23) one of two
+   * in the plane bisecting the parent's two neighbours; "methine" (13)
+   * opposite its three neighbours; "fixed" (3) at its present offset; "free"
+   * its own position refined, only its U_iso riding.
+   */
+  readonly geometry: "aromatic" | "methyl" | "hydroxyl" | "methylene" | "methine" | "fixed" | "free";
+  /** The parent's heavy neighbours that place the hydrogen, each as the symmetry image bonded to it: two (aromatic, methylene), three (methine), or the rotation axis's one (methyl, hydroxyl). */
   readonly neighbours?: readonly { readonly label: string; readonly op: number; readonly cell: readonly [number, number, number] }[];
-  /** For "aromatic": the parent–hydrogen distance (Å). */
+  /** The parent–hydrogen distance (Å), for every idealized geometry. */
   readonly distance?: number;
   /** For "fixed": hydrogen minus parent, fractional. */
   readonly offset?: readonly [number, number, number];
+  /** For "methyl" and "hydroxyl": the group's torsion about its axis (degrees) from `reference`, the parameter that refines. */
+  readonly torsion?: number;
+  /** For "methyl": this hydrogen's place in the group, 0, 120 or 240° on from the torsion. */
+  readonly phase?: number;
+  /** For "methyl" and "hydroxyl": the Cartesian direction the torsion is measured from, fixed when the rule is made. */
+  readonly reference?: readonly [number, number, number];
+  /** For "methylene": the side of the plane of the parent and its neighbours, +1 or −1. */
+  readonly side?: number;
   readonly uFactor: number;
+}
+
+/** One distance a restraint names: an atom, and the image (operation, lattice translation) of another. */
+export interface RestrainedPair {
+  readonly from: string;
+  readonly to: string;
+  readonly op: number;
+  readonly cell: readonly [number, number, number];
+}
+
+/** A distance restraint, as SHELXL's: DFIX holds each distance near `target`, SADI holds the distances near one another; `sigma` (Å) is how near. */
+export interface DistanceRestraint {
+  readonly kind: "dfix" | "sadi";
+  readonly target?: number;
+  readonly sigma: number;
+  readonly pairs: readonly RestrainedPair[];
 }
 
 export interface StructureModel {
@@ -159,4 +192,6 @@ export interface StructureModel {
   readonly sites: readonly AtomSite[];
   /** Hydrogens riding on their parents (positions and U_iso follow; no parameters). */
   readonly riding?: readonly RidingRule[];
+  /** Distance restraints (SHELXL's DFIX and SADI) the fit carries beside the data. */
+  readonly restraints?: readonly DistanceRestraint[];
 }

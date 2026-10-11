@@ -49,6 +49,9 @@ export type ParameterKind =
   // number (1, 2, …); the first domain takes 1 − Σ of them. For the inversion
   // twin it is the Flack parameter.
   | "twinFraction"
+  // A rotating riding group's torsion about its axis (SHELXL's AFIX 137 and
+  // 147), degrees, targetKey the parent atom's label.
+  | "ridingTorsion"
   | "stephensStrain"
   | "anisoSizePerp"
   | "anisoSizePar"

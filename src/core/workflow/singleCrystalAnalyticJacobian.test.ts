@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildSingleCrystalRefinementProblem, buildSingleCrystalSpec } from "@/core/workflow/singleCrystalRefinement";
-import { chiralPage, corundumPage, disorderPage, pyridylPage } from "@/testSupport/scPages";
+import { chiralPage, corundumPage, disorderPage, hydrogenFragment, pyridylPage } from "@/testSupport/scPages";
 import { withEqualTies } from "@/core/refinement/constraints";
 import { INVERSION_TWIN } from "@/core/diffraction/types";
 import { withAdpModel } from "@/core/crystal/adp";
@@ -9,6 +9,8 @@ import type { RefinementProblem } from "@/core/refinement/engine";
 import { parseCif } from "@/parsers/cif";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { ridingRules } from "@/core/crystal/riding";
+import { nearestPair, restraintCount } from "@/core/crystal/restraints";
+import type { DistanceRestraint, RestrainedPair } from "@/core/crystal/types";
 
 /**
  * Every analytic column of the single-crystal problem against the central
@@ -95,6 +97,48 @@ C1 0.026 0.022 0.027 -0.003 0.006 0.002
     const params = spec.params.map((p) => ({ ...p, fixed: !(p.kind === "positionShift" || p.kind === "bIso") }));
     // Every position column of a ring atom carries the hydrogens it places; the central difference sees the bisector turn.
     expect(check(buildSingleCrystalRefinementProblem(structure, page.dataset, params, spec.bindings))).toBeGreaterThanOrEqual(30);
+  });
+
+  it("turns a methyl's hydrogens with its torsion (AFIX 137), and carries a methylene's pair (AFIX 23) and a free hydrogen's U, exactly", () => {
+    const base = hydrogenFragment();
+    const { rules } = ridingRules(base, { refine: ["H3'"] });
+    expect(new Set(rules.map((r) => r.geometry))).toEqual(new Set(["methyl", "methylene", "free"]));
+    const structure = { ...base, riding: rules };
+    const radiation = { kind: "xray" as const, wavelength: 0.71073, polarization: 0.5 };
+    const dataset = { id: "f", name: "f", radiation, reflections: generateReflections(base.cell, base.spaceGroup, 0.9, 20).map((r) => ({ h: r.h, k: r.k, l: r.l, iObs: 100, sigma: 3 })) };
+    const spec = buildSingleCrystalSpec(structure, dataset, { extinction: 0 });
+    // The torsion's row, the free hydrogen's position rows, and no B row for any hydrogen.
+    expect(spec.params.find((p) => p.id === "rot_C1")).toMatchObject({ kind: "ridingTorsion", label: "C1 methyl torsion (AFIX 137)" });
+    expect(spec.params.filter((p) => p.id.startsWith("pos_H3'"))).toHaveLength(3);
+    expect(spec.params.some((p) => p.kind === "bIso" && p.id.includes("H"))).toBe(false);
+    const params = spec.params.map((p) => ({ ...p, fixed: !(p.kind === "ridingTorsion" || p.kind === "positionShift" || p.kind === "bIso") }));
+    expect(check(buildSingleCrystalRefinementProblem(structure, dataset, params, spec.bindings))).toBeGreaterThanOrEqual(30);
+  });
+
+  it("differentiates DFIX and SADI rows after the data: a free hydride's, the heavy atoms', a riding hydrogen's", () => {
+    const base = hydrogenFragment();
+    const { rules } = ridingRules(base, { refine: ["H3'"] });
+    const pair = (a: string, b: string): RestrainedPair => {
+      const p = nearestPair(base, a, b)!;
+      return { from: p.from, to: p.to, op: p.op, cell: p.cell };
+    };
+    const restraints: DistanceRestraint[] = [
+      { kind: "dfix", target: 1.43, sigma: 0.02, pairs: [pair("Ga2", "H3'")] },
+      { kind: "sadi", sigma: 0.01, pairs: [pair("N1", "C1"), pair("N1", "C3")] },
+      { kind: "sadi", sigma: 0.02, pairs: [pair("N1", "C1"), pair("N1", "C2"), pair("N1", "C3")] },
+      { kind: "dfix", target: 1.5, sigma: 0.05, pairs: [pair("H1A", "N1")] },
+    ];
+    expect(restraintCount(restraints)).toBe(1 + 1 + 3 + 1);
+    const structure = { ...base, riding: rules, restraints };
+    const radiation = { kind: "xray" as const, wavelength: 0.71073, polarization: 0.5 };
+    const dataset = { id: "f", name: "f", radiation, reflections: generateReflections(base.cell, base.spaceGroup, 0.9, 20).map((r) => ({ h: r.h, k: r.k, l: r.l, iObs: 100, sigma: 3 })) };
+    const spec = buildSingleCrystalSpec(structure, dataset, { extinction: 0 });
+    const params = spec.params.map((p) => ({ ...p, fixed: !(p.kind === "ridingTorsion" || p.kind === "positionShift" || p.kind === "scale") }));
+    const problem = buildSingleCrystalRefinementProblem(structure, dataset, params, spec.bindings);
+    expect(problem.dataLength).toBe(dataset.reflections.length);
+    expect(problem.observations.length).toBe(dataset.reflections.length + 6);
+    // The scale, 21 heavy-atom and 3 hydride positions, the methyl's torsion: every row, the restraints' too.
+    expect(check(problem)).toBe(26);
   });
 
   it("differentiates a twinned fit exactly: the twin fraction, and every structural column through both domains", () => {

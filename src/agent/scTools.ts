@@ -21,7 +21,9 @@ import { canonicalKey, laueRotations } from "@/core/diffraction/merge";
 import { isHydrogen, nonPositiveDefiniteSites } from "@/core/crystal/adp";
 import { allowedPositionShifts } from "@/core/crystal/siteConstraints";
 import { dSpacing, reciprocalMetricTensor } from "@/core/crystal/unitCell";
-import { applyRiding, ridingDistances, ridingRules, ridingSummary } from "@/core/crystal/riding";
+import { AFIX, applyRiding, isRotating, ridingDistances, ridingRules, ridingSummary, type RidingOptions } from "@/core/crystal/riding";
+import type { DistanceRestraint, RestrainedPair, RidingRule } from "@/core/crystal/types";
+import { DEFAULT_RESTRAINT_SIGMA, nearestPair, restraintCount, restraintReport, restraintRows, restraintValues } from "@/core/crystal/restraints";
 import { EXTINCTION_MODEL_LABELS, shelxWeights, suggestShelxWeighting, type WeightingSuggestion } from "@/core/diffraction/singleCrystalFactors";
 import { inResolution, isOmitted } from "@/core/workflow/singleCrystalRefinement";
 import { INVERSION_TWIN, isInversion, type ExtinctionModel, type OmittedMeasurement, type ResolutionRange, type ShelxWeighting, type TwinLaw } from "@/core/diffraction/types";
@@ -106,7 +108,7 @@ export async function changeSingleCrystal(name: string, input: Input, port: Sing
       return `${next ? `WGHT ${next.a} ${next.b}` : "w = 1/σ²"} weights the next refinement: refine again before reading wR2 and GooF.`;
     }
     case "set_riding_hydrogens": {
-      const options = { ...(input.uFactor !== undefined ? { uFactor: input.uFactor } : {}), ...(input.distance !== undefined ? { distance: input.distance } : {}) };
+      const options = ridingOptionsOf(input);
       const note = port.setRiding(!!input.on, options);
       if (!input.on) return `The hydrogens have their own rows again, fixed at the loaded positions${note ? `; ${note}` : ""}. The last fit is cleared.`;
       // What the page did, computed as it computes it: the port in hand shows the page as it was before the change.
@@ -116,12 +118,26 @@ export async function changeSingleCrystal(name: string, input: Input, port: Sing
       const placed = { ...s.refinedStructure, riding: rules, sites };
       applyRiding(placed, sites);
       const odd = oddHydrogenDistances(s.probe, placed);
-      return `${rules.length} hydrogen${rules.length === 1 ? " rides" : "s ride"}: ${ridingSummary(placed)}${note ? `; ${note}` : ""}.${odd ? ` ${odd}` : ""} The last fit is cleared: refine again.`;
+      const torsions = [...new Set(rules.filter(isRotating).map((r) => r.parent))];
+      const free = rules.filter((r) => r.geometry === "free").map((r) => r.site);
+      const rows = [
+        ...(torsions.length ? [`the torsion${torsions.length === 1 ? "" : "s"} ${torsions.map((p) => `rot_${p}`).join(", ")} (fixed) refine${torsions.length === 1 ? "s" : ""} with the positions`] : []),
+        ...(free.length ? [`${free.join(", ")} keep${free.length === 1 ? "s" : ""} ${free.length === 1 ? "its" : "their"} position rows (fixed), to refine — restrained where the data are weak`] : []),
+      ];
+      return `${rules.length} hydrogen${rules.length === 1 ? " rides" : "s ride"}: ${ridingSummary(placed)}${note ? `; ${note}` : ""}.${odd ? ` ${odd}` : ""}${rows.length ? ` Free with set_free: ${rows.join("; ")}.` : ""} The last fit is cleared: refine again.`;
     }
     case "tie_parameters": {
       const update = scTieUpdate(s, input);
       port.setParameterTies(update);
       return tieNote(s, update);
+    }
+    case "restrain_distances": {
+      const next = restraintsAfter(s, input);
+      port.setDistanceRestraints(next);
+      if (next.length === 0) return "No restraints: the fit is the data's alone again. The last fit is cleared.";
+      const placed = { ...s.refinedStructure, restraints: next };
+      const far = restraintReport(placed, next).filter((r) => r.worst > 3);
+      return `${restraintCount(next)} restraint${restraintCount(next) === 1 ? "" : "s"} in all (as SHELXL counts them). As the model stands: ${restraintReport(placed, next).map((r) => r.text).join("; ")}.${far.length ? " One or more sits beyond 3σ now: the refinement will pull the atoms toward it." : ""} The last fit is cleared: refine again.`;
     }
     case "refine": {
       if (!s.parameters.some((p) => !p.fixed && !p.expression)) throw new Error("no parameter is free — free some with set_free first");
@@ -173,13 +189,23 @@ export function singleCrystalNoOp(spec: LiveToolSpec, input: Input, s: SingleCry
     }
     case "tie_parameters":
       return checkEqualTies(s.parameters, scTieUpdate(s, input)).unchanged ? "those parameters are already tied so" : null;
+    case "restrain_distances": {
+      const next = restraintsAfter(s, input);
+      return JSON.stringify(next) === JSON.stringify(s.distanceRestraints) ? (next.length ? `the restraints are already so (${restraintCount(next)})` : "there is no restraint to remove") : null;
+    }
     case "set_riding_hydrogens": {
       const hydrogens = s.structure.sites.filter((site) => isHydrogen(site)).length;
       if (input.on && hydrogens === 0) throw new Error("the model has no hydrogen atoms: nothing to ride");
       if (!input.on) return s.riding.length === 0 ? "no hydrogen rides: each refines on its own already" : null;
-      const same = (input.uFactor === undefined || s.riding.every((r) => r.uFactor === input.uFactor))
-        && (input.distance === undefined || s.riding.every((r) => r.geometry !== "aromatic" || r.distance === input.distance));
-      return s.riding.length > 0 && same ? `the hydrogens ride already: ${ridingSummary(s.refinedStructure)}` : null;
+      const named = (input.refine as string[] | undefined) ?? [];
+      const unknown = named.filter((label) => !s.structure.sites.some((site) => site.label === label && isHydrogen(site)));
+      if (unknown.length) throw new Error(`no hydrogen ${unknown.join(", ")} in the model`);
+      const next = ridingRules({ ...s.refinedStructure, riding: [] }, ridingOptionsOf(input)).rules;
+      const same = s.riding.length === next.length && next.every((r) => {
+        const was = s.riding.find((x) => x.site === r.site);
+        return was && was.parent === r.parent && was.geometry === r.geometry && was.uFactor === r.uFactor && Math.abs((was.distance ?? 0) - (r.distance ?? 0)) < 5e-4;
+      });
+      return same ? `the hydrogens ride already: ${ridingSummary(s.refinedStructure)}` : null;
     }
     case "set_resolution_range": {
       const next = resolutionAfter(s, input);
@@ -235,6 +261,16 @@ export function describeSingleCrystalChange(spec: LiveToolSpec, input: Input, s:
       const next = twinAfter(s, input);
       return next.length === 0 ? `Untwinned: the twin fraction${s.twinLaws.length ? "" : "s"} leave the fit` : `Twin law: ${twinText(next[0]!)} — its fraction${isInversion(next[0]!) ? " (the Flack x)" : " (BASF)"} refines from 0.1`;
     }
+    case "restrain_distances": {
+      const next = restraintsAfter(s, input);
+      const placed = { ...s.refinedStructure, restraints: next };
+      const added = next.filter((r) => !s.distanceRestraints.some((w) => JSON.stringify(w) === JSON.stringify(r)));
+      const removed = s.distanceRestraints.length - (next.length - added.length);
+      return [
+        ...(added.length ? [`Restrain ${restraintReport(placed, added).map((r) => r.text.replace(/ — the largest deviation.*$/, "")).join("; ")}`] : []),
+        ...(removed > 0 ? [`drop ${removed} restraint${removed === 1 ? "" : "s"}`] : []),
+      ].join(" · ") + ` — ${restraintCount(next)} restraint${restraintCount(next) === 1 ? "" : "s"} in all`;
+    }
     case "tie_parameters": {
       const u = scTieUpdate(s, input);
       const kind = (id: string | undefined): string => {
@@ -252,9 +288,15 @@ export function describeSingleCrystalChange(spec: LiveToolSpec, input: Input, s:
       const hydrogens = new Set(s.structure.sites.filter((site) => isHydrogen(site)).map((site) => site.label));
       if (!input.on) return `Hydrogens refine on their own again: ${hydrogens.size} hydrogen${hydrogens.size === 1 ? "" : "s"} get their own position and B rows (fixed, at the loaded positions)`;
       const rows = new Set(s.bindings.filter((b) => b.targetKey !== undefined && hydrogens.has(b.targetKey)).map((b) => b.parameterId)).size;
+      const rules = ridingRules({ ...s.refinedStructure, riding: [] }, ridingOptionsOf(input)).rules;
+      const counts = (Object.keys(AFIX) as RidingRule["geometry"][]).flatMap((g) => {
+        const n = rules.filter((r) => r.geometry === g).length;
+        return n ? [`${n} ${g === "free" ? "with their positions refined" : `AFIX ${AFIX[g]}`}`] : [];
+      });
       const u = input.uFactor !== undefined ? `${input.uFactor}·U_eq of the parent` : "1.2·U_eq of the parent (1.5 for methyl and hydroxyl)";
-      const d = input.distance !== undefined ? `, sp² C–H at ${input.distance} Å` : "";
-      return `Ride ${hydrogens.size} hydrogen${hydrogens.size === 1 ? "" : "s"} on ${hydrogens.size === 1 ? "its parent" : "their parents"} (SHELXL AFIX: positions follow${d}, U_iso = ${u})${rows ? ` — ${rows} parameter${rows === 1 ? "" : "s"} leave the fit` : ""}`;
+      const d = input.distance !== undefined ? `, X–H ${input.distance} Å` : input.temperature !== undefined ? `, SHELXL's X–H at ${input.temperature} K` : "";
+      const torsions = new Set(rules.filter(isRotating).map((r) => r.parent)).size;
+      return `Ride ${rules.length} hydrogen${rules.length === 1 ? "" : "s"} on ${rules.length === 1 ? "its parent" : "their parents"} (SHELXL AFIX: ${counts.join(", ")}${d}; U_iso = ${u})${rows ? ` — ${rows} parameter${rows === 1 ? "" : "s"} leave the fit` : ""}${torsions ? `, ${torsions} torsion${torsions === 1 ? " joins" : "s join"} it` : ""}`;
     }
     case "set_resolution_range": {
       const next = resolutionAfter(s, input);
@@ -337,6 +379,35 @@ function tieNote(s: SingleCrystalLiveState, update: EqualTieUpdate): string | un
   return parts.length ? `${parts.join("; ")}.` : undefined;
 }
 
+/**
+ * restrain_distances' outcome: the restraints on the page, less those
+ * removed, with those added (each pair the shorter contact between its two
+ * atoms, as SHELXL takes it); an identical restraint is not added twice.
+ */
+function restraintsAfter(s: SingleCrystalLiveState, input: Input): DistanceRestraint[] {
+  if (input.add === undefined && input.remove === undefined) throw new Error("pass `add`, `remove`, or both");
+  const same = (p: RestrainedPair, [a, b]: readonly [string, string]): boolean => (p.from === a && p.to === b) || (p.from === b && p.to === a);
+  let next = input.remove === true ? [] : [...s.distanceRestraints];
+  if (Array.isArray(input.remove)) {
+    const drop = input.remove as [string, string][];
+    next = next.filter((r) => !r.pairs.some((p) => drop.some((d) => same(p, d))));
+  }
+  for (const item of (input.add ?? []) as { kind: "dfix" | "sadi"; pairs: [string, string][]; distance?: number; sigma?: number }[]) {
+    if (item.kind === "dfix" && item.distance === undefined) throw new Error("a DFIX needs its target `distance`");
+    if (item.kind === "sadi" && item.pairs.length < 2) throw new Error("a SADI holds two distances or more equal: name at least two pairs");
+    if (item.kind === "sadi" && item.distance !== undefined) throw new Error("a SADI has no target distance (the distances are held to one another): use a DFIX for one");
+    const pairs = item.pairs.map(([a, b]) => {
+      if (a === b) throw new Error(`a pair joins two atoms (${a} twice)`);
+      const p = nearestPair(s.refinedStructure, a, b);
+      if (!p) throw new Error(`no site ${[a, b].filter((x) => !s.refinedStructure.sites.some((site) => site.label === x)).join(", ")} in the model`);
+      return { from: p.from, to: p.to, op: p.op, cell: p.cell };
+    });
+    const restraint: DistanceRestraint = { kind: item.kind, ...(item.kind === "dfix" ? { target: item.distance! } : {}), sigma: item.sigma ?? DEFAULT_RESTRAINT_SIGMA, pairs };
+    if (!next.some((r) => JSON.stringify(r) === JSON.stringify(restraint))) next.push(restraint);
+  }
+  return next;
+}
+
 /** X-ray data with hydrogens refined on their own: a note, or null. Neutron data place them as well as any atom. */
 function freeHydrogenNote(s: SingleCrystalLiveState): string | null {
   if (s.probe !== "xray") return null;
@@ -349,10 +420,26 @@ function freeHydrogenNote(s: SingleCrystalLiveState): string | null {
 
 /** X–H distances no refinement would publish (as a difference map placed them): a note, or null. X-rays see the electron, displaced into the bond; neutrons the nucleus. */
 function oddHydrogenDistances(probe: SingleCrystalLiveState["probe"], model: SingleCrystalLiveState["refinedStructure"]): string | null {
-  const [lo, hi] = probe === "xray" ? [0.85, 1.05] : [0.95, 1.15];
-  const odd = ridingDistances(model).filter((x) => x.distance < lo || x.distance > hi);
+  // C–H, N–H and O–H only (X-rays see each shorter, the electron drawn into the bond): a hydride's bond to a metal is longer by nature.
+  const ranges: Readonly<Record<string, readonly [number, number]>> = probe === "xray" ? { C: [0.85, 1.05], N: [0.8, 1.05], O: [0.75, 1.0] } : { C: [0.95, 1.15], N: [0.95, 1.1], O: [0.9, 1.05] };
+  const element = new Map(model.sites.map((site) => [site.label, site.element.replace(/[^A-Za-z]/g, "")]));
+  const parent = new Map((model.riding ?? []).map((r) => [r.site, r.parent]));
+  const odd = ridingDistances(model).filter((x) => {
+    const range = ranges[element.get(parent.get(x.site) ?? "") ?? ""];
+    return x.geometry !== "free" && range !== undefined && (x.distance < range[0] || x.distance > range[1]);
+  });
   if (odd.length === 0) return null;
-  return `X–H as placed is out of the usual range for ${odd.map((x) => `${x.site} (${x.distance.toFixed(2)} Å)`).join(", ")}: the sp² ones take \`distance\` (SHELXL: 0.93 Å at room temperature, 0.95 Å below about 200 K; neutron 1.08 Å); others need a better starting position.`;
+  return `X–H as placed is out of the usual range for ${odd.map((x) => `${x.site} (${x.distance.toFixed(2)} Å)`).join(", ")}: \`temperature\` places each group at SHELXL's X–H (C–H 0.93–0.98 Å at room temperature, +0.02 Å below 203 K; neutron 1.08 Å), or \`distance\` at one value.`;
+}
+
+/** set_riding_hydrogens' options from its input. */
+function ridingOptionsOf(input: Input): RidingOptions {
+  return {
+    ...(input.uFactor !== undefined ? { uFactor: input.uFactor } : {}),
+    ...(input.distance !== undefined ? { distance: input.distance } : {}),
+    ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
+    ...(Array.isArray(input.refine) && input.refine.length ? { refine: input.refine as string[] } : {}),
+  };
 }
 
 // ── twinning and the absolute structure ─────────────────────────────────────
@@ -698,6 +785,7 @@ function stateView(s: SingleCrystalLiveState, history: ProjectHistory | null, se
       weights: weightingText(s.weighting),
       anomalousScattering: s.dataset.radiation.kind !== "xray" ? "none (neutrons)" : anomalousLine(s) ? `f′, f″ at ${anomalousLine(s)} (Cromer & Liberman)` : `none: no tabulated line at λ ${s.dataset.radiation.wavelength} Å`,
       twin: s.twinLaws.length ? s.twinLaws.map(twinText).join("; ") : "none",
+      restraints: s.distanceRestraints.length ? `${restraintCount(s.distanceRestraints)}: ${restraintReport(s.refinedStructure, s.distanceRestraints).map((r) => r.text).join("; ")}` : "none",
       extinctionModel: EXTINCTION_MODEL_LABELS[s.extinctionModel],
     },
     agreement: { R1: pct(ag.r1), wR2: pct(ag.wr2), GooF: sig(ag.goof, 4), observed: ag.observed, total: ag.total, note: `R1 over Fo² > 2σ; wR2 and GooF over every reflection fitted, ${s.weighting ? `weighted by WGHT ${s.weighting.a} ${s.weighting.b}` : "w = 1/σ²"}.` },
@@ -803,6 +891,7 @@ function assessment(s: SingleCrystalLiveState): Record<string, unknown> {
     ...(s.omitted.length ? { omitted: s.omitted.map((o) => `${omittedText(o)}${o.reason ? `: ${o.reason}` : ""}`) } : {}),
     extinctionModel: EXTINCTION_MODEL_LABELS[s.extinctionModel],
     ...(twinningView(s) ? { twinning: twinningView(s) } : {}),
+    ...(s.distanceRestraints.length ? { restraints: restraintsView(s) } : {}),
     weighting: (() => {
       const sug = suggestionOf(s);
       return {
@@ -813,6 +902,24 @@ function assessment(s: SingleCrystalLiveState): Record<string, unknown> {
     })(),
     ...(npd.length ? { nonPositiveDefinite: npd } : {}),
     reflectionsPerParameter: sig(v.reflectionsPerParameter, 3),
+  };
+}
+
+/** The restraints as the fit left them: each one's distances and deviation in σ, and the GooF with them counted. */
+function restraintsView(s: SingleCrystalLiveState): Record<string, unknown> {
+  const report = restraintReport(s.refinedStructure, s.distanceRestraints);
+  const { pairs, rows } = restraintRows(s.distanceRestraints);
+  const values = restraintValues(s.refinedStructure, pairs, rows);
+  const chi2Restraints = rows.reduce((t, row, i) => t + ((values[i]! - row.target) / row.sigma) ** 2, 0);
+  const nData = s.observationCount;
+  const nFree = s.parameters.filter((p) => !p.fixed && !p.expression).length;
+  const goof = s.agreement.goof;
+  const restrainedGoof = Math.sqrt((goof * goof * Math.max(nData - nFree, 1) + chi2Restraints) / Math.max(nData + rows.length - nFree, 1));
+  return {
+    count: rows.length,
+    each: report.map((r) => r.text),
+    restrainedGooF: sig(restrainedGoof, 4),
+    reading: "Each restraint is an observation with its own esd: a deviation within 1–2σ is the restraint and the data agreeing; beyond 3σ the data pull against it — check the chemistry, or the data's reach, before tightening it. SHELXL reports the GooF over the data (S) and with the restraints counted (restrained S).",
   };
 }
 

@@ -34,7 +34,7 @@
  * the expert order scale → ADP → positions.
  */
 
-import type { AtomSite, StructureModel, UnitCell } from "@/core/crystal/types";
+import type { AtomSite, RidingRule, StructureModel, UnitCell } from "@/core/crystal/types";
 import { isInversion, type OmittedMeasurement, type ResolutionRange, type SingleCrystalDataset, type SingleCrystalReflection } from "@/core/diffraction/types";
 import type { ParameterBinding, ParameterKind, RefinementOptions, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import { refine, type RefinementProblem } from "@/core/refinement/engine";
@@ -53,7 +53,8 @@ import {
 } from "@/core/diffraction/singleCrystalFactors";
 import { cellVolume, dSpacing } from "@/core/crystal/unitCell";
 import { EIGHT_PI_SQUARED, uEquivalent } from "@/core/crystal/adp";
-import { ridingDependence } from "@/core/crystal/riding";
+import { AFIX, isRotating, ridingDependence, torsionDerivatives } from "@/core/crystal/riding";
+import { pairGeometry, restraintRows, restraintValues } from "@/core/crystal/restraints";
 import { mulVec } from "@/core/math/mat3";
 import type { Mat3, Vec3 } from "@/core/math/types";
 
@@ -184,9 +185,13 @@ export function buildSingleCrystalSpec(
   // by an earlier build that still carried fixed cell rows reopens cleanly: the
   // restore overlays saved rows onto this spec by id and drops the rest.)
 
-  // Riding hydrogens follow their parents and carry no parameter of their own.
+  // Riding hydrogens follow their parents and carry no parameter of their own,
+  // but a rotating group's torsion; one whose position refines ("free") has
+  // its position rows, its U still riding.
   const riding = new Set(structure.riding?.map((r) => r.site) ?? []);
+  const placed = new Set(structure.riding?.filter((r) => r.geometry !== "free").map((r) => r.site) ?? []);
   const groups = groupSites(structure.sites.filter((site) => !riding.has(site.label)), tieSharedSites);
+  const positionGroups = groupSites(structure.sites.filter((site) => !placed.has(site.label)), tieSharedSites);
 
   // Per-site ADP: isotropic B or symmetry-adapted anisotropic U modes.
   if (refineAdp) {
@@ -220,13 +225,22 @@ export function buildSingleCrystalSpec(
 
   // Symmetry-adapted positions: one parameter per free displacement mode.
   if (refinePositions) {
-    for (const g of groups) {
+    for (const g of positionGroups) {
       const { basis } = allowedPositionShifts(structure.spaceGroup.operations, g.rep.position);
       basis.forEach((axis, i) => {
         const id = `pos_${g.key}_${i}`;
         params.push({ id, label: `${groupLabel(g)} ${describeMode(axis)}`, kind: "positionShift", value: 0, initialValue: 0, min: -positionBound, max: positionBound, fixed: true });
         for (const m of g.members) bindings.push({ parameterId: id, kind: "positionShift", targetId: structure.id, targetKey: m.label, axis });
       });
+    }
+    // A rotating group's torsion about its axis (SHELXL's AFIX 137 and 147), in degrees.
+    const rotating = new Map<string, RidingRule>();
+    for (const r of structure.riding ?? []) if (isRotating(r) && !rotating.has(r.parent)) rotating.set(r.parent, r);
+    for (const [parent, r] of rotating) {
+      const id = `rot_${parent}`;
+      const t = r.torsion ?? 0;
+      params.push({ id, label: `${parent} ${r.geometry === "methyl" ? "methyl" : "hydroxyl"} torsion (AFIX ${AFIX[r.geometry]})`, kind: "ridingTorsion", value: t, initialValue: t, maxShift: 30, fixed: true });
+      bindings.push({ parameterId: id, kind: "ridingTorsion", targetId: structure.id, targetKey: parent });
     }
   }
 
@@ -492,10 +506,13 @@ export function buildSingleCrystalRefinementProblem(
   parameters: readonly RefinementParameter[],
   bindings: readonly ParameterBinding[],
 ): RefinementProblem {
-  const observations = Float64Array.from(dataset.reflections.map((r) => r.iObs));
+  // The distance restraints (SHELXL's DFIX and SADI): rows after the data, each held at its target with weight 1/σ².
+  const restrained = restraintRows(structure.restraints ?? []);
+  const nData = dataset.reflections.length;
+  const observations = Float64Array.from([...dataset.reflections.map((r) => r.iObs), ...restrained.rows.map((r) => r.target)]);
   // Under a weighting scheme the weights follow Fc²: from the dataset's, or from the Fc² these parameters give.
   const fitSigma = dataset.fitSigma?.length === dataset.reflections.length ? dataset.fitSigma : schemeSigma(structure, dataset, parameters, bindings);
-  const weights = weightsFromSigma(fitSigma ?? dataset.reflections.map((r) => r.sigma));
+  const weights = Float64Array.from([...weightsFromSigma(fitSigma ?? dataset.reflections.map((r) => r.sigma)), ...restrained.rows.map((r) => 1 / (r.sigma * r.sigma))]);
   const plans = scPlans(structure, dataset);
   const plan = plans.components[0]!;
   const siteIndex = new Map(structure.sites.map((site, j) => [site.label, j]));
@@ -506,7 +523,15 @@ export function buildSingleCrystalRefinementProblem(
   const appliedAt = (values: Readonly<Record<string, number>>): ReturnType<typeof applyParameters> =>
     applyParameters(structure, bindings, resolveTies(parameters, values));
 
-  const calculate = (values: Readonly<Record<string, number>>): Float64Array => scIntensities(plans, appliedAt(values), dataset).fc2;
+  const calculate = (values: Readonly<Record<string, number>>): Float64Array => {
+    const applied = appliedAt(values);
+    const fc2 = scIntensities(plans, applied, dataset).fc2;
+    if (restrained.rows.length === 0) return fc2;
+    const out = new Float64Array(nData + restrained.rows.length);
+    out.set(fc2);
+    out.set(restraintValues(applied.model, restrained.pairs, restrained.rows), nData);
+    return out;
+  };
 
   // The rows a parameter carries by a linear tie ("= f·p + c": the complement
   // of a disorder's occupancy, an ADP held equal to another's): their bindings
@@ -534,6 +559,8 @@ export function buildSingleCrystalRefinementProblem(
       for (const on of dep.on) movers.set(on.label, [...(movers.get(on.label) ?? []), { h, jacobian: on.jacobian }]);
     }
     const moversOf = (label: string): { h: number; jacobian: Mat3 }[] => movers.get(label) ?? [];
+    // Each rotating group's hydrogens, with ∂x_H/∂torsion at these values.
+    const turned = torsionDerivatives(applied.model);
     // Each free parameter's kernel derivatives (one per binding), or why it has none.
     const requests: ScDerivative[] = [];
     const columnPlans = freeParams.map((p): { kind: "structural"; at: number[] } | { kind: "scale" } | { kind: "extinction" } | { kind: "batch"; batch: number } | { kind: "twin"; law: number } | null => {
@@ -554,6 +581,16 @@ export function buildSingleCrystalRefinementProblem(
         const site = b.targetKey !== undefined ? siteIndex.get(b.targetKey) : undefined;
         if (site === undefined) return null;
         const scaled = f === 1 ? {} : { scale: f };
+        // A group's torsion moves its hydrogens about the axis.
+        if (b.kind === "ridingTorsion") {
+          for (const t of turned.get(b.targetKey!) ?? []) {
+            const h = siteIndex.get(t.site);
+            if (h === undefined) continue;
+            at.push(requests.length);
+            requests.push({ kind: "position", site: h, axis: [t.axis[0], t.axis[1], t.axis[2]], ...scaled });
+          }
+          continue;
+        }
         let d: ScDerivative | null = null;
         if (b.kind === "positionShift" && b.axis) d = { kind: "position", site, axis: b.axis as [number, number, number], ...scaled };
         else if (b.kind === "uAniso" && b.uBasis) d = { kind: "uMode", site, basis: b.uBasis as [number, number, number, number, number, number], ...scaled };
@@ -588,9 +625,26 @@ export function buildSingleCrystalRefinementProblem(
     const out = scIntensities(plans, applied, dataset, requests, true);
     const comps = out.components;
     const n = plan.n;
+    // The restrained distances' gradients at these values: a column's position moves change them.
+    const geometry = restrained.rows.length ? pairGeometry(applied.model, restrained.pairs) : [];
     return columnPlans.map((pl): Float64Array | null => {
       if (!pl) return null;
-      const col = new Float64Array(n);
+      const col = new Float64Array(n + restrained.rows.length);
+      if (pl.kind === "structural" && restrained.rows.length) {
+        const dd = new Float64Array(restrained.pairs.length);
+        for (const r of pl.at) {
+          const q = requests[r]!;
+          if (q.kind !== "position") continue;
+          const f = q.scale ?? 1;
+          geometry.forEach((g, k) => {
+            if (g.from === q.site) dd[k]! += f * (g.gradFrom[0] * q.axis[0] + g.gradFrom[1] * q.axis[1] + g.gradFrom[2] * q.axis[2]);
+            if (g.to === q.site) dd[k]! += f * (g.gradTo[0] * q.axis[0] + g.gradTo[1] * q.axis[1] + g.gradTo[2] * q.axis[2]);
+          });
+        }
+        restrained.rows.forEach((row, i) => {
+          col[n + i] = row.terms.reduce((t, x) => t + x.coefficient * dd[x.pair]!, 0);
+        });
+      }
       if (pl.kind === "scale") {
         for (const c of comps) for (let i = 0; i < n; i++) col[i]! += c.w * out.batch[i]! * c.y[i]! * c.f2[i]!;
       } else if (pl.kind === "batch") {
@@ -628,7 +682,7 @@ export function buildSingleCrystalRefinementProblem(
     });
   };
 
-  return { parameters, observations, weights, calculate, analyticColumns };
+  return { parameters, observations, weights, dataLength: nData, calculate, analyticColumns };
 }
 
 export interface SingleCrystalRefinementComparison {

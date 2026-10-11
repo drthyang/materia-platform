@@ -190,11 +190,30 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     name: "set_riding_hydrogens",
     title: "Ride the hydrogens",
     description:
-      "Single-crystal page only. The riding model for hydrogen, as SHELXL's AFIX and as X-ray structures are published: each hydrogen follows the atom it is bonded to — an sp² C–H on the external bisector of its parent's two neighbours (AFIX 43), at its present distance or at `distance`; any other at its present offset (AFIX 3) — with U_iso = 1.2·U_eq of the parent (1.5 for methyl and hydroxyl; `uFactor` sets one value for all), so it carries no parameter of its own. X-ray data cannot place a hydrogen on its own (one electron, displaced into its bond): ride them in an X-ray refinement before the heavy atoms go anisotropic, and say so in the report. Neutron data see the hydrogens as well as any atom and can refine them freely. The result lists the X–H distances as placed: hydrogens from a difference map sit at whatever the map gave, and SHELXL's sp² C–H is 0.93 Å at room temperature, 0.95 Å below about 200 K. `on: false` gives the hydrogens their own rows again (fixed, at the loaded positions). The parents come from the structure as refined now; the last fit is cleared.",
+      "Single-crystal page only. The riding model for hydrogen, as SHELXL's AFIX and as X-ray structures are published: each hydrogen follows the atoms it is bonded to, in its group's ideal geometry — an sp² X–H on the external bisector of its parent's two neighbours (AFIX 43); a methyl's (or NH₃'s) three hydrogens tetrahedral about the X–C axis and rotating: the group's torsion is a parameter (rot_C1, AFIX 137) to free with the positions; a hydroxyl's hydrogen likewise (AFIX 147); a CH₂ pair in the plane bisecting X–C–Y (AFIX 23); a tertiary C–H opposite its three neighbours (AFIX 13); a metal's hydrogen, or any other, at its present offset (AFIX 3) — with U_iso = 1.2·U_eq of the parent (1.5 for methyl and hydroxyl; `uFactor` sets one value for all), so it carries no parameter of its own. X–H: each group at its present distance; `temperature` (the measurement's, K) sets SHELXL's for each group (C–H 0.93 sp², 0.96 CH₃, 0.97 CH₂, 0.98 CH at room temperature, +0.01 Å below 253 K and +0.02 below 203 K; N–H 0.86–0.91; O–H 0.82); `distance` one value for all. `refine` names hydrogens whose positions the data determine (a hydride beside a metal, a hydrogen-bonded OH seen in the difference map): their positions refine — usually restrained (restrain_distances) — while their U_iso rides. X-ray data cannot place a hydrogen on its own (one electron, displaced into its bond): ride them in an X-ray refinement before the heavy atoms go anisotropic, and say so in the report. Neutron data see the hydrogens as well as any atom and can refine them freely. The result lists the groups and the X–H distances as placed. `on: false` gives the hydrogens their own rows again (fixed, at the loaded positions). The parents come from the structure as refined now; the last fit is cleared.",
     inputSchema: {
       on: z.boolean(),
       uFactor: z.number().min(1).max(2).optional().describe("U_iso as this multiple of the parent's U_eq, for every hydrogen (default: 1.2, and 1.5 for methyl and hydroxyl)"),
-      distance: z.number().min(0.8).max(1.2).optional().describe("X–H (Å) of the sp² hydrogens set on the bisector; default: each at its present distance"),
+      temperature: z.number().min(1).max(1000).optional().describe("The measurement's temperature (K): each group at SHELXL's X–H for it"),
+      distance: z.number().min(0.8).max(1.3).optional().describe("X–H (Å) of every hydrogen placed in a group's geometry; default: each group at its present distance"),
+      refine: z.array(z.string()).optional().describe("Hydrogens whose own positions refine (their U_iso still rides): [\"H1'\", \"H2'\"]"),
+    },
+    effect: "change",
+    pages: ["singleCrystal"],
+  },
+  {
+    name: "restrain_distances",
+    title: "Restrain distances",
+    description:
+      "Single-crystal page only. SHELXL's distance restraints: observations beside the data that hold a geometry the data alone place poorly — a hydride beside a heavy metal, hydrogens whose positions refine, a disordered fragment. `add` DFIX (each distance near `distance` Å) or SADI (the distances near one another), each with an esd `sigma` (SHELXL's default 0.02 Å; smaller holds tighter). A pair is two atom labels; the shorter contact between them is meant (its symmetry image found). Counted as SHELXL counts them: a DFIX one per distance; a SADI of two distances one, of more one per distance. `remove: true` clears them all; `remove` with pairs drops the restraints that name any of them. They change what the fit minimizes: refine again. assess_refinement lists each restraint's distances and its deviation in σ, and the report counts them. Restrain what the chemistry fixes and the data cannot; a restraint more than 3σ off says the data disagree with it.",
+    inputSchema: {
+      add: z.array(z.object({
+        kind: z.enum(["dfix", "sadi"]),
+        pairs: z.array(z.tuple([z.string(), z.string()])).min(1).describe("Atom pairs: [[\"Ga2\", \"H3'\"], [\"Ga2\", \"H4'\"]]"),
+        distance: z.number().min(0.5).max(5).optional().describe("DFIX: the target distance (Å)"),
+        sigma: z.number().min(0.001).max(0.5).optional().describe("The esd the distances are held to (Å; default 0.02)"),
+      })).min(1).optional(),
+      remove: z.union([z.literal(true), z.array(z.tuple([z.string(), z.string()])).min(1)]).optional().describe("true: every restraint; or the pairs whose restraints to drop"),
     },
     effect: "change",
     pages: ["singleCrystal"],

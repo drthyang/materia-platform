@@ -14,7 +14,7 @@
 
 import type { MagneticAgentHandle } from "@/agent/magneticPort";
 import type { MutableRefObject } from "react";
-import type { RidingRule, StructureModel } from "@/core/crystal/types";
+import type { DistanceRestraint, RidingRule, StructureModel } from "@/core/crystal/types";
 import type { RidingOptions } from "@/core/crystal/riding";
 import type { ExtinctionModel, OmittedMeasurement, PdfPattern, PowderPattern, ResolutionRange, ShelxWeighting, SingleCrystalDataset, TwinLaw } from "@/core/diffraction/types";
 import type { MergeStatistics } from "@/core/diffraction/merge";
@@ -248,6 +248,8 @@ export interface SingleCrystalLiveState {
   readonly weighting: ShelxWeighting | null;
   /** Twin laws beyond the first domain (SHELXL's TWIN); empty: untwinned. */
   readonly twinLaws: readonly TwinLaw[];
+  /** Distance restraints (SHELXL's DFIX and SADI) the fit carries beside the data. */
+  readonly distanceRestraints: readonly DistanceRestraint[];
   /** The resolution range fitted (SHELXL's SHEL), and how many measurements lie outside it. */
   readonly resolution: ResolutionRange & { readonly excluded: number };
   /** The extinction model the fit applies (SHELXL's EXTI unless switched). */
@@ -280,6 +282,8 @@ export interface SingleCrystalAgentPort {
   readonly setTwinLaws: (laws: readonly TwinLaw[]) => void;
   /** Ties the user makes: rows held to a leader's value, a disorder's second occupancy to one minus the first; or released. */
   readonly setParameterTies: (update: EqualTieUpdate) => void;
+  /** The distance restraints, replaced as a whole; the last fit is cleared. */
+  readonly setDistanceRestraints: (next: readonly DistanceRestraint[]) => void;
   /** The probe and the wavelength (constant wavelength only); the scale restarts from its best value, the last fit is cleared. */
   readonly setRadiation: (update: { readonly probe?: "xray" | "neutron" | "neutron-tof"; readonly wavelength?: number }) => void;
   /** The measurements left out by hand, replaced as a whole. */

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { keyOfState } from "@/agent/method";
 import type { AgentReport } from "@/agent/report";
 import { executor, fakeHost, singleCrystalPort } from "@/testSupport/agentHeadless";
-import { chiralPage, corundumPage, disorderPage, pyridylPage } from "@/testSupport/scPages";
+import { chiralPage, corundumPage, disorderPage, hydridePage, pyridylPage } from "@/testSupport/scPages";
 import { dSpacing, orthogonalizationMatrix } from "@/core/crystal/unitCell";
 import { mulVec } from "@/core/math/mat3";
 
@@ -282,19 +282,20 @@ describe("AgentExecutor on the single-crystal page", () => {
     await ex.run("reset_parameters", {});
     await ex.run("set_free", { fix: ["pos_*"] });
     const on = await ex.run("set_riding_hydrogens", { on: true });
-    expect(seen.find((e) => e.tool === "set_riding_hydrogens" && e.preview)?.preview).toBe("Ride 7 hydrogens on their parents (SHELXL AFIX: positions follow, U_iso = 1.2·U_eq of the parent (1.5 for methyl and hydroxyl)) — 28 parameters leave the fit");
+    expect(seen.find((e) => e.tool === "set_riding_hydrogens" && e.preview)?.preview).toBe("Ride 7 hydrogens on their parents (SHELXL AFIX: 4 AFIX 43, 3 AFIX 137; U_iso = 1.2·U_eq of the parent (1.5 for methyl and hydroxyl)) — 28 parameters leave the fit, 1 torsion joins it");
     expect(hydrogenRows()).toBe(0);
     expect(port.state().riding).toHaveLength(7);
     expect(steps.at(-1)).toEqual({ kind: "settings", agent: true });
     // Where the difference map put them: the distances as they are, the odd ones named.
     const note = String(parse(on.text).note);
-    expect(note).toMatch(/^7 hydrogens ride: 4 sp² C–H on the bisector \(AFIX 43\), X–H 0\.800–1\.101 Å, U_iso 1\.2·U_eq; 3 at their present offset \(AFIX 3\), X–H 0\.980 Å, U_iso 1\.5·U_eq\./);
-    expect(note).toMatch(/out of the usual range for H3 \(0\.80 Å\), H6 \(1\.10 Å\): the sp² ones take `distance`/);
-    // Idealized at SHELXL's 0.95 Å (below 200 K).
-    const ideal = String(parse((await ex.run("set_riding_hydrogens", { on: true, distance: 0.95 })).text).note);
-    expect(ideal).toMatch(/4 sp² C–H on the bisector \(AFIX 43\), X–H 0\.950 Å/);
+    expect(note).toMatch(/^7 hydrogens ride: 4 sp² X–H on the bisector \(AFIX 43\), X–H 0\.800–1\.101 Å, U_iso 1\.2·U_eq; 3 methyl hydrogens rotating, the torsion refined \(AFIX 137\) in 1 group, X–H 0\.980 Å, U_iso 1\.5·U_eq\./);
+    expect(note).toMatch(/out of the usual range for H3 \(0\.80 Å\), H6 \(1\.10 Å\): `temperature` places each group at SHELXL's X–H/);
+    expect(note).toMatch(/Free with set_free: the torsion rot_C7 \(fixed\) refines with the positions\./);
+    // Idealized at SHELXL's X–H for 150 K: 0.95 Å sp², 0.98 Å methyl.
+    const ideal = String(parse((await ex.run("set_riding_hydrogens", { on: true, temperature: 150 })).text).note);
+    expect(ideal).toMatch(/4 sp² X–H on the bisector \(AFIX 43\), X–H 0\.950 Å, U_iso 1\.2·U_eq; 3 methyl hydrogens rotating, the torsion refined \(AFIX 137\) in 1 group, X–H 0\.980 Å/);
     expect(ideal).not.toMatch(/out of the usual range/);
-    expect(parse((await ex.run("set_riding_hydrogens", { on: true })).text).unchanged).toBe(true);
+    expect(parse((await ex.run("set_riding_hydrogens", { on: true, temperature: 150 })).text).unchanged).toBe(true);
     // The heavy atoms refine; the hydrogens follow, on the bisector at 0.95 Å with U_iso 1.2·U_eq.
     await ex.run("set_free", { free: ["pos_*", "B_*"] });
     const fit = parse((await ex.run("refine", {})).text);
@@ -329,7 +330,7 @@ describe("AgentExecutor on the single-crystal page", () => {
     expect(bondRows.some((b) => b.from === "C2" && b.to === "C3")).toBe(true);
     // The report states the treatment.
     const report = port.reportInput!().data.find((r) => r.label === "Hydrogens")!.value;
-    expect(report).toMatch(/^7 riding on their parents \(4 sp² C–H on the bisector \(AFIX 43\), X–H 0\.950 Å, U_iso 1\.2·U_eq; 3 at their present offset \(AFIX 3\), X–H 0\.980 Å, U_iso 1\.5·U_eq\)$/);
+    expect(report).toMatch(/^7 riding on their parents \(4 sp² X–H on the bisector \(AFIX 43\), X–H 0\.950 Å, U_iso 1\.2·U_eq; 3 methyl hydrogens rotating, the torsion refined \(AFIX 137\) in 1 group, X–H 0\.980 Å, U_iso 1\.5·U_eq\)$/);
     // The truth's hydrogens are where the riding model puts them.
     const truthH4 = pyridyl.truth.sites.find((x) => x.label === "H4")!.position;
     const off = mulVec(m, [at("H4").position[0] - truthH4[0], at("H4").position[1] - truthH4[1], at("H4").position[2] - truthH4[2]]);
@@ -453,6 +454,39 @@ describe("AgentExecutor on the single-crystal page", () => {
     // Released, the follower keeps its value, fixed.
     await ex.run("tie_parameters", { release: ["occ_Ga1"] });
     expect(port.state().parameters.find((p) => p.id === "occ_Ga1")).toMatchObject({ fixed: true, value: 1 - al });
+  });
+
+  it("restrains a refined hydride's distance as SHELXL's DFIX and SADI do, and reads each restraint's deviation", async () => {
+    const h = hydridePage();
+    const { port } = singleCrystalPort(h.structure, h.dataset);
+    const { ex, seen } = executor(fakeHost(port).host, "auto");
+    // The hydride's position refines on its own; the methyl and the methylene ride.
+    const ride = String(parse((await ex.run("set_riding_hydrogens", { on: true, refine: ["H3'"] })).text).note);
+    expect(ride).toMatch(/; 1 with its position refined, only U_iso riding, X–H 1\.570 Å/);
+    expect(ride).toMatch(/H3' keeps its position rows \(fixed\), to refine/);
+    const add = parse((await ex.run("restrain_distances", { add: [{ kind: "dfix", pairs: [["Ga2", "H3'"]], distance: 1.43 }, { kind: "sadi", pairs: [["N1", "C1"], ["N1", "C3"]], sigma: 0.01 }] })).text);
+    expect(seen.find((e) => e.tool === "restrain_distances" && e.preview)?.preview).toMatch(/^Restrain DFIX 1\.43 Å \(σ 0\.02\): Ga2–H3' 1\.\d{3} Å; SADI \(σ 0\.01\), mean 1\.47\d Å: N1–C1 1\.475, N1–C3 1\.479 Å — 2 restraints in all$/);
+    expect(String(add.note)).toMatch(/^2 restraints in all \(as SHELXL counts them\)\. As the model stands: DFIX 1\.43 Å/);
+    expect(port.state().distanceRestraints).toHaveLength(2);
+    expect(parse((await ex.run("restrain_distances", { add: [{ kind: "dfix", pairs: [["Ga2", "H3'"]], distance: 1.43 }] })).text).unchanged).toBe(true);
+    expect((await ex.run("restrain_distances", { add: [{ kind: "sadi", pairs: [["N1", "C1"]] }] })).text).toMatch(/at least two pairs/);
+    expect((await ex.run("restrain_distances", { add: [{ kind: "dfix", pairs: [["Ga2", "Q9"]], distance: 1.5 }] })).text).toMatch(/no site Q9/);
+    await ex.run("set_free", { free: ["pos_*", "B_*", "rot_*"] });
+    expect(parse((await ex.run("refine", {})).text).status).toBe("converged");
+    const st = port.state();
+    const m = orthogonalizationMatrix(st.refinedStructure.cell);
+    const at = (label: string) => st.refinedStructure.sites.find((x) => x.label === label)!.position;
+    const d = mulVec(m, [at("H3'")[0] - at("Ga2")[0], at("H3'")[1] - at("Ga2")[1], at("H3'")[2] - at("Ga2")[2]]);
+    expect(Math.abs(Math.hypot(d[0], d[1], d[2]) - 1.43)).toBeLessThan(0.06);
+    const restraints = parse((await ex.run("assess_refinement", {})).text).restraints as { count: number; each: string[]; restrainedGooF: string };
+    expect(restraints.count).toBe(2);
+    expect(restraints.each[0]).toMatch(/^DFIX 1\.43 Å \(σ 0\.02\): Ga2–H3' 1\.\d{3} Å — the largest deviation \d+\.\d+σ$/);
+    expect(Number(restraints.restrainedGooF)).toBeGreaterThan(0);
+    expect(port.reportInput!().data.find((r) => r.label === "Restraints")!.value).toMatch(/^2 \(as SHELXL counts them\): DFIX 1\.43/);
+    await ex.run("restrain_distances", { remove: [["C3", "N1"]] });
+    expect(port.state().distanceRestraints.map((r) => r.kind)).toEqual(["dfix"]);
+    await ex.run("restrain_distances", { remove: true });
+    expect(port.state().distanceRestraints).toEqual([]);
   });
 
   it("gives the anisotropic tensor and the bond lengths with their esds", async () => {

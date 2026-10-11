@@ -146,7 +146,8 @@ export function detectDataFormat(input: DetectInput): DetectedFormat {
   // intensity ≥ 10000.00 whitespace-split into a huge `l` that fails the
   // small-Miller-index test, and an `.fcf` carries CIF tag lines between its
   // numeric rows — a file of strong reflections can slip through as powder.
-  const isReflectionFile = /\.(hkl|fcf)$/i.test(input.filename);
+  // A CIF that embeds SHELXL's .hkl (`_shelx_hkl_file`) is the measurement itself.
+  const isReflectionFile = /\.(hkl|fcf)$/i.test(input.filename) || /^_shelx_hkl_file\b/m.test(text);
   const dataType: DataType =
     override?.dataType ??
     (isFgr || looksLikePdf(text, input.filename) ? "pdf"

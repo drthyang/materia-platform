@@ -51,6 +51,10 @@ export interface CifRefinementMeta {
   readonly nRef?: number;
   /** Refined-parameter count, → `_refine_ls_number_parameters`. */
   readonly nParam?: number;
+  /** Restraint count, as SHELXL counts them, → `_refine_ls_number_restraints`. */
+  readonly nRestraints?: number;
+  /** The Flack parameter with its esd, as printed (e.g. "0.435(15)"), → `_refine_ls_abs_structure_Flack`. */
+  readonly flack?: string;
 }
 
 export interface CifExportOptions {
@@ -230,6 +234,8 @@ function refinementBlock(meta: CifRefinementMeta | undefined): string {
   const lines: string[] = [];
   if (meta.nRef !== undefined) lines.push(`_refine_ls_number_reflns      ${meta.nRef}`);
   if (meta.nParam !== undefined) lines.push(`_refine_ls_number_parameters  ${meta.nParam}`);
+  if (meta.nRestraints !== undefined) lines.push(`_refine_ls_number_restraints  ${meta.nRestraints}`);
+  if (meta.flack !== undefined) lines.push(`_refine_ls_abs_structure_Flack ${meta.flack}`);
   if (meta.rwp !== undefined) lines.push(`_refine_ls_wR_factor_obs      ${(meta.rwp / 100).toFixed(4)}`);
   if (meta.r1 !== undefined) lines.push(`_refine_ls_R_factor_gt        ${meta.r1.toFixed(4)}`);
   if (meta.wr2 !== undefined) lines.push(`_refine_ls_wR_factor_ref      ${meta.wr2.toFixed(4)}`);

@@ -410,3 +410,71 @@ ${atoms.map(([label, element, x, y, z, u, part]) => `${label} ${element} ${x} ${
   };
   return { structure: start, dataset, split };
 }
+
+/**
+ * A fragment of 1b with its hydrogens as SHELXL placed them (the .res's six
+ * decimals): the N-methyl C1 (AFIX 137), the methylene C3 between N1 and C4
+ * (AFIX 23), and the hydride H3′ on Ga2 — in P2₁2₁2₁, X-ray at Mo Kα.
+ */
+export function hydrogenFragment(): StructureModel {
+  return parseCif(`data_fragment
+_cell_length_a 6.2256
+_cell_length_b 12.9136
+_cell_length_c 17.4444
+_cell_angle_alpha 90
+_cell_angle_beta 90
+_cell_angle_gamma 90
+_symmetry_space_group_name_H-M 'P 21 21 21'
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_U_iso_or_equiv
+Ga2 Ga 0.208877 0.612476 0.176941 0.045
+H3' H 0.357358 0.619562 0.239500 0.054
+N1 N 0.304302 0.555908 -0.046424 0.037
+N2 N 0.403050 0.523115 0.107491 0.031
+C1 C 0.104531 0.593800 -0.082157 0.054
+H1A H 0.137997 0.651129 -0.116974 0.082
+H1B H 0.005924 0.617983 -0.042193 0.082
+H1C H 0.036917 0.537467 -0.111049 0.082
+C2 C 0.451658 0.519406 -0.107270 0.058
+C3 C 0.408644 0.639626 -0.002128 0.042
+H3A H 0.297956 0.686066 0.019745 0.050
+H3B H 0.501960 0.681102 -0.036318 0.050
+C4 C 0.541105 0.593055 0.061521 0.042
+`, "fragment");
+}
+
+/**
+ * The 1b fragment measured (Mo Kα, to 0.8 Å, Friedel pairs apart), its
+ * hydride H3′ moved 0.2 Å off its place in the starting model: what a
+ * difference map gives, and what restraints hold.
+ */
+export function hydridePage({ seed = 23 }: { readonly seed?: number } = {}): { structure: StructureModel; dataset: SingleCrystalDataset; truth: StructureModel } {
+  const truth = hydrogenFragment();
+  const start: StructureModel = {
+    ...truth,
+    sites: truth.sites.map((s) => (s.label === "H3'" ? { ...s, position: [s.position[0] + 0.2 / 6.2256, s.position[1], s.position[2]] as [number, number, number] } : s)),
+  };
+  const radiation = { kind: "xray" as const, wavelength: 0.71073, polarization: 0.5 };
+  const unique = generateReflections(truth.cell, truth.spaceGroup, 0.8, 30);
+  const indices = unique.flatMap((r) => (r.h === 0 && r.k === 0 && r.l === 0 ? [] : [{ h: r.h, k: r.k, l: r.l }, { h: -r.h, k: -r.k, l: -r.l }]));
+  const empty: SingleCrystalDataset = { id: "hydride-sx", name: "Ga hydride fragment (synthetic, Mo Kα)", radiation, reflections: indices.map((r) => ({ ...r, iObs: 1 })) };
+  const spec = buildSingleCrystalSpec(truth, empty, { scale: 1 });
+  const calc = singleCrystalRefinementComparison(truth, empty, spec.params, spec.bindings).rows;
+  const noise = normals(seed);
+  const iMax = Math.max(...calc.map((c) => c.fcSq));
+  const g = iMax / 4e5;
+  const background = 0.001 * iMax;
+  const dataset: SingleCrystalDataset = {
+    ...empty,
+    reflections: calc.map((c) => {
+      const sigma = Math.sqrt((Math.max(c.fcSq, 0) + background) * g + (0.01 * c.fcSq) ** 2);
+      return { h: c.h, k: c.k, l: c.l, iObs: c.fcSq + sigma * noise(), sigma };
+    }),
+  };
+  return { structure: start, dataset, truth };
+}

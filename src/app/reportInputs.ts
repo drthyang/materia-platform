@@ -11,6 +11,7 @@
 import type { StructureModel } from "@/core/crystal/types";
 import { isHydrogen } from "@/core/crystal/adp";
 import { ridingSummary } from "@/core/crystal/riding";
+import { restraintCount, restraintReport } from "@/core/crystal/restraints";
 import { covalentBonds, isMolecular } from "@/core/crystal/geometry";
 import { bondEsds, bondKeys } from "@/core/workflow/bondEsds";
 import { withEsd } from "@/agent/structureTable";
@@ -24,7 +25,7 @@ import { isInversion, type OmittedMeasurement, type PdfPattern, type Radiation, 
 import { dispersionLine } from "@/core/scattering/dispersion";
 import { EXTINCTION_MODEL_LABELS } from "@/core/diffraction/singleCrystalFactors";
 import { isMomentParameterKind, type ParameterBinding, type RefinementParameter, type RefinementResult } from "@/core/refinement/types";
-import { resolveTies } from "@/core/refinement/constraints";
+import { parseTie, resolveTies } from "@/core/refinement/constraints";
 import type { PowderProfile } from "@/core/workflow/powder";
 import { formatMagneticSymbol, identifyMagneticGroupAnySetting } from "@/core/magnetic/bnsOg";
 import { magneticOperationSignature } from "@/core/magnetic/operationSignature";
@@ -64,8 +65,20 @@ function withEsds(params: readonly RefinementParameter[], result: RefinementResu
     for (const p of params) values[p.id] = p.value;
     try { resolved = resolveTies(params, values); } catch { resolved = null; }
   }
+  // A row tied linearly to a free one ("= f·leader + c") carries |f| times the leader's esd.
+  const esdOf = (p: RefinementParameter): number | undefined => {
+    const own = result?.esd[p.id];
+    if (own !== undefined || !p.expression) return own;
+    try {
+      const tie = parseTie(p.expression);
+      const lead = tie.kind === "linear" ? result?.esd[tie.refId] : undefined;
+      return tie.kind === "linear" && lead !== undefined ? Math.abs(tie.factor) * lead : undefined;
+    } catch {
+      return undefined;
+    }
+  };
   return params.map((p) => {
-    const e = result?.esd[p.id];
+    const e = esdOf(p);
     const value = p.expression && resolved ? resolved[p.id] ?? p.value : p.value;
     return { ...p, value, ...(e !== undefined && Number.isFinite(e) ? { esd: e } : {}) };
   });
@@ -388,7 +401,7 @@ function moleculeBonds(refined: StructureModel, base: StructureModel | undefined
   const keys = bondKeys(bonds);
   const esds = base && result ? bondEsds(base, bindings, params, result.esd, covalentBonds) : null;
   const pair = (a: string, b: string): string => [a, b].sort().join("–");
-  const riding = new Set((refined.riding ?? []).map((r) => pair(r.site, r.parent)));
+  const riding = new Set((refined.riding ?? []).filter((r) => r.geometry !== "free").map((r) => pair(r.site, r.parent)));
   return bonds.map((b, i) => ({
     from: b.from,
     to: b.to,
@@ -403,6 +416,23 @@ function twinRow(laws: readonly TwinLaw[], params: readonly RefinementParameter[
     const value = p ? (p.esd !== undefined && !p.fixed ? withEsd(p.value, p.esd, 4) : p.value.toFixed(3)) : "?";
     return isInversion(law) ? `inversion twin: Flack x = ${value}` : `twin law h′ = R·h, R = ${JSON.stringify(law.matrix)}: fraction ${value}`;
   }).join("; ");
+}
+
+/** Each disorder assembly: its alternatives' occupancies, and how they were tied. */
+function disorderRow(structure: StructureModel, params: readonly RefinementParameter[]): ReportRow[] {
+  const sites = structure.sites.filter((site) => site.disorder);
+  if (sites.length === 0) return [];
+  const assemblies = [...new Set(sites.map((site) => site.disorder!.assembly))];
+  const value = assemblies.map((a) => {
+    const members = sites.filter((site) => site.disorder!.assembly === a);
+    const parts = members.map((site) => {
+      const row = params.find((p) => p.id === `occ_${site.label}`);
+      return `${site.label} (part ${site.disorder!.group}) ${withEsd(site.occupancy, row?.esd, 4)}`;
+    });
+    const tied = members.some((site) => params.find((p) => p.id === `occ_${site.label}`)?.expression);
+    return `${a ? `assembly ${a}: ` : ""}${parts.join(", ")}${tied ? ", the occupancies tied to add up to one" : ""}`;
+  }).join("; ");
+  return [{ label: "Disorder", value }];
 }
 
 /** How the hydrogens were treated: riding (SHELXL's AFIX, with their distances), refined, or held at the input positions. */
@@ -485,6 +515,8 @@ export function singleCrystalReportInput(o: {
     ...(o.dataset.radiation.kind === "xray" ? [{ label: "Anomalous scattering", value: dispersionLine(o.dataset.radiation.wavelength) ? `f′ and f″ at ${dispersionLine(o.dataset.radiation.wavelength)!.name} (Cromer & Liberman, 1981)` : `none: no tabulated line at λ ${o.dataset.radiation.wavelength} Å` }] : []),
     ...(o.dataset.twinLaws?.length ? [{ label: "Twinning", value: twinRow(o.dataset.twinLaws, params, o.bindings) }] : []),
     ...hydrogenRow(o.structure, params, o.bindings),
+    ...disorderRow(o.structure, params),
+    ...(o.structure.restraints?.length ? [{ label: "Restraints", value: `${restraintCount(o.structure.restraints)} (as SHELXL counts them): ${restraintReport(o.structure, o.structure.restraints).map((r) => r.text).join("; ")}` }] : []),
     { label: "Merging", value: `${st.observations} observations → ${st.unique} unique · redundancy ${num(st.redundancy, 2)} · ${st.redundancy > 1 + 1e-9 ? `R_int ${pct(st.rInt)}` : "R_int n/a (merged data)"} · R_σ ${pct(st.rSigma)}${st.dMin !== undefined ? ` · d_min ${num(st.dMin, 3)} Å` : ""}` },
     ...(o.dataset.origin === "refinement-listing" ? [{ label: "Source", value: "a refinement's listing (.fcf): Fo² on that refinement's scale, merged, the systematic absences left out, and in SHELXL's LIST 4 its extinction divided out" }] : []),
     { label: "Observed", value: `${ag.observed} of ${ag.total} reflections with F_o² > 2σ(F_o²)` },

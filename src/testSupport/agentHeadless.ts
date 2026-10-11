@@ -20,7 +20,7 @@ import { withEqualTies } from "@/core/refinement/constraints";
 import { withConstants, type InstrumentParameters } from "@/core/diffraction/instrument";
 import { withAntisite } from "@/core/crystal/antisite";
 import { isHydrogen, withAdpModel } from "@/core/crystal/adp";
-import type { RidingRule, StructureModel } from "@/core/crystal/types";
+import type { DistanceRestraint, RidingRule, StructureModel } from "@/core/crystal/types";
 import { ridingRules } from "@/core/crystal/riding";
 import { powderRestraints } from "@/app/powderSpec";
 import { runPowderRefinement } from "@/workers/runPowder";
@@ -453,6 +453,7 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
   let riding: readonly RidingRule[] | null = start.riding?.length ? start.riding : null;
   let weighting: ShelxWeighting | null = loaded.weighting ?? null;
   let twinLaws: readonly TwinLaw[] = loaded.twinLaws ?? [];
+  let restraints: readonly DistanceRestraint[] = start.restraints ?? [];
   // The reflections with the extinction model, as the page's probed dataset.
   let dataset: SingleCrystalDataset = { ...loaded, extinctionModel };
   let spec = buildSingleCrystalSpec(model, dataset, { extinction: 0 });
@@ -494,6 +495,7 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
       riding: riding ?? [],
       weighting,
       twinLaws,
+      distanceRestraints: restraints,
       extinctionModel,
       adpModel: adpModelOf(model),
       magnetic: false,
@@ -560,6 +562,12 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
     setParameterTies: (update) => {
       calls.push(`ties ${JSON.stringify(update)}`);
       params = withValidUserTies(withEqualTies(params, update));
+    },
+    setDistanceRestraints: (next) => {
+      calls.push(`restraints ${next.length}`);
+      restraints = next;
+      model = next.length ? { ...model, restraints: next } : (({ restraints: _, ...rest }) => rest)(model);
+      result = null;
     },
     setWeighting: (next) => {
       calls.push(`weighting ${next ? `${next.a} ${next.b}` : "1/σ²"}`);

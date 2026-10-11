@@ -399,19 +399,38 @@ function checkSingleCrystalWorkspace(ws: Rec, path: string, ctx: PhaseContext): 
     const r = rec(item, ip);
     str(r.site, `${ip}.site`);
     str(r.parent, `${ip}.parent`);
-    const geometry = oneOf(["aromatic", "fixed"] as const)(r.geometry, `${ip}.geometry`);
+    const geometry = oneOf(["aromatic", "methyl", "hydroxyl", "methylene", "methine", "fixed", "free"] as const)(r.geometry, `${ip}.geometry`);
     num(r.uFactor, `${ip}.uFactor`);
     opt(r.distance, `${ip}.distance`, num);
     opt(r.offset, `${ip}.offset`, vec3);
+    opt(r.torsion, `${ip}.torsion`, num);
+    opt(r.phase, `${ip}.phase`, num);
+    opt(r.reference, `${ip}.reference`, vec3);
+    opt(r.side, `${ip}.side`, num);
     opt(r.neighbours, `${ip}.neighbours`, (nv, np) => each(nv, np, (n, nip) => {
       const nr = rec(n, nip);
       str(nr.label, `${nip}.label`);
       int(nr.op, `${nip}.op`);
       vec3(nr.cell, `${nip}.cell`);
     }));
-    if (geometry === "aromatic" ? r.distance === undefined || !Array.isArray(r.neighbours) : r.offset === undefined) {
-      fail(ip, geometry === "aromatic" ? "an aromatic hydrogen needs its distance and two neighbours" : "a fixed hydrogen needs its offset");
-    }
+    if (geometry === "fixed" && r.offset === undefined) fail(ip, "a hydrogen at a fixed offset needs its offset");
+    if (geometry !== "fixed" && geometry !== "free" && (r.distance === undefined || !Array.isArray(r.neighbours))) fail(ip, `a ${geometry} hydrogen needs its distance and the neighbours that place it`);
+    if ((geometry === "methyl" || geometry === "hydroxyl") && (r.torsion === undefined || r.reference === undefined)) fail(ip, `a ${geometry} hydrogen needs its group's torsion and reference`);
+  }));
+  opt(ws.restraints, `${path}.restraints`, (v, p) => each(v, p, (item, ip) => {
+    const r = rec(item, ip);
+    const kind = oneOf(["dfix", "sadi"] as const)(r.kind, `${ip}.kind`);
+    num(r.sigma, `${ip}.sigma`);
+    opt(r.target, `${ip}.target`, num);
+    if (kind === "dfix" && r.target === undefined) fail(ip, "a DFIX needs its target distance");
+    const pairs = each(r.pairs, `${ip}.pairs`, (pv, pp) => {
+      const pr = rec(pv, pp);
+      str(pr.from, `${pp}.from`);
+      str(pr.to, `${pp}.to`);
+      int(pr.op, `${pp}.op`);
+      vec3(pr.cell, `${pp}.cell`);
+    });
+    if (pairs.length === 0 || (kind === "sadi" && pairs.length < 2)) fail(`${ip}.pairs`, kind === "sadi" ? "a SADI needs two distances or more" : "a DFIX needs a distance");
   }));
   opt(ws.twinLaws, `${path}.twinLaws`, (v, p) => each(v, p, (item, ip) => {
     const law = rec(item, ip);

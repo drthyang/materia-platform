@@ -8,7 +8,7 @@ import type { AtomSite, StructureModel, UnitCell } from "@/core/crystal/types";
 import type { ParameterBinding } from "@/core/refinement/types";
 import type { UAniso } from "@/core/crystal/adpConstraints";
 import { isCorrectionKind, type CorrectionValues } from "@/core/diffraction/corrections";
-import { applyRiding } from "@/core/crystal/riding";
+import { applyRiding, withTorsions } from "@/core/crystal/riding";
 
 export interface AppliedModel {
   readonly model: StructureModel;
@@ -167,6 +167,7 @@ export function applyParameters(
   let extinction = 0;
   const batchScales = new Map<number, number>();
   const twinFractions = new Map<number, number>();
+  const torsions = new Map<string, number>();
   let po: { axis: [number, number, number]; ratio: number } | undefined;
   const stephensS = new Map<number, number>();
   let sizePerp: number | undefined;
@@ -304,6 +305,9 @@ export function applyParameters(
       case "twinFraction":
         if (binding.targetKey !== undefined) twinFractions.set(Number(binding.targetKey), v);
         break;
+      case "ridingTorsion":
+        if (binding.targetKey !== undefined) torsions.set(binding.targetKey, v);
+        break;
       case "stephensStrain":
         if (binding.targetKey !== undefined) stephensS.set(Number(binding.targetKey), v);
         break;
@@ -347,10 +351,11 @@ export function applyParameters(
     const site = byLabel.get(label);
     if (site) (site as { adp: { kind: "anisotropic"; uAniso: UAniso } }).adp = { kind: "anisotropic", uAniso: u };
   }
-  // Riding hydrogens follow their parents' positions and ADPs as now refined.
-  applyRiding({ ...model, cell }, sites);
+  // Riding hydrogens follow their parents' positions and ADPs as now refined, and the rotating groups their torsions.
+  const riding = model.riding && torsions.size > 0 ? withTorsions(model.riding, torsions) : model.riding;
+  applyRiding({ ...model, cell, ...(riding ? { riding } : {}) }, sites);
 
-  const appliedModel: StructureModel = { ...model, cell, sites };
+  const appliedModel: StructureModel = { ...model, cell, sites, ...(riding ? { riding } : {}) };
   const caglioti =
     profileU !== undefined || profileV !== undefined || profileW !== undefined
       ? { u: profileU ?? 0, v: profileV ?? 0, w: profileW ?? 0 }

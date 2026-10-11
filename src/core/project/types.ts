@@ -47,7 +47,7 @@
  * Versioning and migration policy: see `io.ts` and docs/PROJECT_FORMAT.md.
  */
 
-import type { RidingRule, StructureModel } from "@/core/crystal/types";
+import type { DistanceRestraint, RidingRule, StructureModel } from "@/core/crystal/types";
 import type { DistortionModeSet } from "@/core/crystal/distortionModes";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import type { ExtinctionModel, OmittedMeasurement, PdfPattern, PowderPattern, PowderXUnit, ResolutionRange, ShelxWeighting, SingleCrystalDataset, TwinLaw } from "@/core/diffraction/types";
@@ -207,6 +207,8 @@ export interface SingleCrystalWorkspace {
   readonly weighting?: ShelxWeighting;
   /** Twin laws (SHELXL's TWIN); absent ⇒ untwinned. */
   readonly twinLaws?: readonly TwinLaw[];
+  /** Distance restraints (SHELXL's DFIX and SADI); absent ⇒ none. */
+  readonly restraints?: readonly DistanceRestraint[];
   readonly modulated?: ModulatedHypothesis;
   /** The ADP model switched to on the page; absent ⇒ the CIF's. */
   readonly adpModel?: "isotropic" | "anisotropic";

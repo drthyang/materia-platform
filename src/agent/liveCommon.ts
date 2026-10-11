@@ -110,7 +110,7 @@ export function bondsOf(refinedPhases: readonly StructureModel[], input: Input, 
   const listed = bonds.map((b, i) => ({ b, key: keys[i]! })).filter(({ b }) => !asked || asked.has(b.from ?? "") || asked.has(b.to ?? ""));
   // A riding hydrogen's bond to its parent is set by the constraint: no esd.
   const pair = (a?: string, b?: string): string => [a ?? "", b ?? ""].sort().join("–");
-  const riding = new Set((phase.riding ?? []).map((r) => pair(r.site, r.parent)));
+  const riding = new Set((phase.riding ?? []).filter((r) => r.geometry !== "free").map((r) => pair(r.site, r.parent)));
   return {
     phase: phase.id,
     shortest: geo.shortest,
