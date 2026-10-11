@@ -35,7 +35,7 @@
  */
 
 import type { AtomSite, StructureModel, UnitCell } from "@/core/crystal/types";
-import type { OmittedMeasurement, ResolutionRange, SingleCrystalDataset, SingleCrystalReflection } from "@/core/diffraction/types";
+import { isInversion, type OmittedMeasurement, type ResolutionRange, type SingleCrystalDataset, type SingleCrystalReflection } from "@/core/diffraction/types";
 import type { ParameterBinding, ParameterKind, RefinementOptions, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import { refine, type RefinementProblem } from "@/core/refinement/engine";
 import { allowedPositionShifts } from "@/core/crystal/siteConstraints";
@@ -76,6 +76,8 @@ export interface SingleCrystalSpecOptions {
   readonly refineAdp?: boolean;
   /** Refine site occupancies. Default false (correlates with scale/ADP). */
   readonly refineOccupancy?: boolean;
+  /** Starting fractions of the dataset's twin laws, in order (default 0.1 each). */
+  readonly twinFractions?: readonly number[];
   /** Include a secondary-extinction parameter (SHELXL EXTI). Default 0 = none. */
   readonly extinction?: number;
   /** Tie atoms sharing one crystallographic site (disorder). Default true. */
@@ -166,6 +168,16 @@ export function buildSingleCrystalSpec(
       bindings.push({ parameterId: id, kind: "batchScale", targetId: dataset.id, targetKey: String(b) });
     }
   }
+
+  // Twin domains (SHELXL's TWIN/BASF): one fraction per law beyond the first
+  // domain, free — the law is a decision already made. For the inversion twin
+  // it is the Flack parameter.
+  (dataset.twinLaws ?? []).forEach((law, i) => {
+    const id = `twin_${i + 1}`;
+    const start = opts.twinFractions?.[i] ?? 0.1;
+    params.push({ id, label: isInversion(law) ? "inversion twin fraction (Flack x)" : `twin fraction ${i + 1} (BASF)`, kind: "twinFraction", value: start, initialValue: start, min: 0, max: 1, fixed: false });
+    bindings.push({ parameterId: id, kind: "twinFraction", targetId: dataset.id, targetKey: String(i + 1) });
+  });
 
   // No cell rows — see the module comment: the cell is fixed input from
   // indexing, as in every single-crystal refinement program. (A project saved
@@ -294,7 +306,7 @@ export function optimalScale(structure: StructureModel, dataset: SingleCrystalDa
   const values: Record<string, number> = {};
   for (const p of unit) values[p.id] = p.value;
   const applied = applyParameters(structure, bindings, resolveTies(unit, values));
-  const c = scIntensities(scPlan(structure, dataset.radiation, dataset.reflections), applied, dataset).fc2;
+  const c = scIntensities(scPlans(structure, dataset), applied, dataset).fc2;
   let num = 0;
   let den = 0;
   dataset.reflections.forEach((r, i) => {
@@ -311,50 +323,90 @@ export function guidedSingleCrystalParams(params: readonly RefinementParameter[]
   return params.map((p) => (unlock.has(p.kind) ? { ...p, fixed: false } : { ...p }));
 }
 
+/** The plans of a fit: the reflections as indexed, and for each twin law the indices of the reflection that overlaps them, h′ = R·h. */
+export interface ScPlans {
+  readonly components: readonly ScPlan[];
+}
+
+export function scPlans(structure: StructureModel, dataset: SingleCrystalDataset): ScPlans {
+  const base = scPlan(structure, dataset.radiation, dataset.reflections);
+  const twins = (dataset.twinLaws ?? []).map((law) => {
+    const R = law.matrix;
+    return scPlan(structure, dataset.radiation, dataset.reflections.map((r) => ({
+      h: R[0][0] * r.h + R[0][1] * r.k + R[0][2] * r.l,
+      k: R[1][0] * r.h + R[1][1] * r.k + R[1][2] * r.l,
+      l: R[2][0] * r.h + R[2][1] * r.k + R[2][2] * r.l,
+    })));
+  });
+  return { components: [base, ...twins] };
+}
+
+/** One twin domain's share of every reflection: its fraction, |F|², y, the gain that turns ∂|F|² into ∂Fc², and the kernel's F and ∂F. */
+interface ScComponent {
+  readonly w: number;
+  readonly f2: Float64Array;
+  readonly y: Float64Array;
+  readonly gain: Float64Array | null;
+  readonly kernel: ScKernelResult;
+}
+
 /**
- * Fc² = k·k_b·y·|F|² for every reflection from the kernel's F, with what the
- * analytic Jacobian needs: |F|², y, and g = k·k_b·(y + |F|²·∂y/∂|F|²), the
- * factor that turns ∂|F|²/∂p into ∂Fc²/∂p. ∂y/∂|F|² is taken numerically on
+ * Fc² = k·k_b·Σ_m w_m·y_m·|F(R_m·h)|² for every reflection from the kernel's
+ * F — one domain, or each twin domain at its fraction (the first at 1 − Σ of
+ * the others), each extinguished on its own intensity — with what the
+ * analytic Jacobian needs per domain: |F|², y, and g = k·k_b·(y + |F|²·∂y/∂|F|²),
+ * the factor that turns ∂|F|²/∂p into ∂Fc²/∂p. ∂y/∂|F|² is taken numerically on
  * the scalar extinction function (cheap, and the same function the fit uses).
+ * `y` is the first domain's, for display.
  */
 function scIntensities(
-  plan: ScPlan,
+  plans: ScPlans,
   applied: ReturnType<typeof applyParameters>,
   dataset: SingleCrystalDataset,
   derivatives: readonly ScDerivative[] = [],
   withGain = false,
-): { fc2: Float64Array; f2: Float64Array; y: Float64Array; batch: Float64Array; gain: Float64Array | null; kernel: ScKernelResult } {
+): { fc2: Float64Array; y: Float64Array; batch: Float64Array; components: ScComponent[] } {
   const model = applied.model;
-  const kernel = scStructureFactors(plan, model, derivatives);
-  const n = plan.n;
+  const base = plans.components[0]!;
+  const n = base.n;
   const volume = cellVolume(model.cell);
-  const fc2 = new Float64Array(n);
-  const f2 = new Float64Array(n);
-  const y = new Float64Array(n);
-  const batch = new Float64Array(n);
-  const gain = withGain ? new Float64Array(n) : null;
   const x = applied.extinction;
+  const fractions = plans.components.slice(1).map((_, m) => applied.twinFractions?.get(m + 1) ?? 0);
+  const weights = [1 - fractions.reduce((a, b) => a + b, 0), ...fractions];
+  const batch = new Float64Array(n);
   for (let i = 0; i < n; i++) {
     const r = dataset.reflections[i]!;
-    const fsq = kernel.re[i]! * kernel.re[i]! + kernel.im[i]! * kernel.im[i]!;
-    const d = 1 / (2 * Math.sqrt(plan.s2[i]!));
-    const yOf = (value: number): number => extinctionFactorFor(dataset.extinctionModel, x, value, dataset.radiation, d, volume, r);
-    const yi = x > 0 ? yOf(fsq) : 1;
-    const kb = applied.scale * (r.batch !== undefined ? applied.batchScales?.get(r.batch) ?? 1 : 1);
-    f2[i] = fsq;
-    y[i] = yi;
     batch[i] = r.batch !== undefined ? applied.batchScales?.get(r.batch) ?? 1 : 1;
-    fc2[i] = kb * yi * fsq;
-    if (gain) {
-      let dy = 0;
-      if (x > 0 && fsq > 0) {
-        const step = 1e-5 * fsq;
-        dy = (yOf(fsq + step) - yOf(fsq - step)) / (2 * step);
-      }
-      gain[i] = kb * (yi + fsq * dy);
-    }
   }
-  return { fc2, f2, y, batch, gain, kernel };
+  const fc2 = new Float64Array(n);
+  const components = plans.components.map((plan, c): ScComponent => {
+    const kernel = scStructureFactors(plan, model, derivatives);
+    const f2 = new Float64Array(n);
+    const y = new Float64Array(n);
+    const gain = withGain ? new Float64Array(n) : null;
+    const w = weights[c]!;
+    for (let i = 0; i < n; i++) {
+      const r = dataset.reflections[i]!;
+      const fsq = kernel.re[i]! * kernel.re[i]! + kernel.im[i]! * kernel.im[i]!;
+      const d = 1 / (2 * Math.sqrt(plan.s2[i]!));
+      const yOf = (value: number): number => extinctionFactorFor(dataset.extinctionModel, x, value, dataset.radiation, d, volume, r);
+      const yi = x > 0 ? yOf(fsq) : 1;
+      const kb = applied.scale * batch[i]!;
+      f2[i] = fsq;
+      y[i] = yi;
+      fc2[i]! += w * kb * yi * fsq;
+      if (gain) {
+        let dy = 0;
+        if (x > 0 && fsq > 0) {
+          const step = 1e-5 * fsq;
+          dy = (yOf(fsq + step) - yOf(fsq - step)) / (2 * step);
+        }
+        gain[i] = kb * (yi + fsq * dy);
+      }
+    }
+    return { w, f2, y, gain, kernel };
+  });
+  return { fc2, y: components[0]!.y, batch, components };
 }
 
 /** Whether the dataset's weighting scheme is more than 1/σ². */
@@ -371,7 +423,7 @@ export function schemeSigma(structure: StructureModel, dataset: SingleCrystalDat
   const values: Record<string, number> = {};
   for (const p of parameters) values[p.id] = p.value;
   const applied = applyParameters(structure, bindings, resolveTies(parameters, values));
-  const fc2 = scIntensities(scPlan(structure, dataset.radiation, dataset.reflections), applied, dataset).fc2;
+  const fc2 = scIntensities(scPlans(structure, dataset), applied, dataset).fc2;
   return dataset.reflections.map((r, i) => {
     const p = (Math.max(r.iObs, 0) + 2 * Math.max(fc2[i]!, 0)) / 3;
     const s = r.sigma ?? 0;
@@ -443,7 +495,8 @@ export function buildSingleCrystalRefinementProblem(
   // Under a weighting scheme the weights follow Fc²: from the dataset's, or from the Fc² these parameters give.
   const fitSigma = dataset.fitSigma?.length === dataset.reflections.length ? dataset.fitSigma : schemeSigma(structure, dataset, parameters, bindings);
   const weights = weightsFromSigma(fitSigma ?? dataset.reflections.map((r) => r.sigma));
-  const plan = scPlan(structure, dataset.radiation, dataset.reflections);
+  const plans = scPlans(structure, dataset);
+  const plan = plans.components[0]!;
   const siteIndex = new Map(structure.sites.map((site, j) => [site.label, j]));
   // The hydrogens riding on each site: they move with its position and their U_iso follows its U_eq.
   const ridersOf = new Map<string, NonNullable<StructureModel["riding"]>[number][]>();
@@ -452,7 +505,7 @@ export function buildSingleCrystalRefinementProblem(
   const appliedAt = (values: Readonly<Record<string, number>>): ReturnType<typeof applyParameters> =>
     applyParameters(structure, bindings, resolveTies(parameters, values));
 
-  const calculate = (values: Readonly<Record<string, number>>): Float64Array => scIntensities(plan, appliedAt(values), dataset).fc2;
+  const calculate = (values: Readonly<Record<string, number>>): Float64Array => scIntensities(plans, appliedAt(values), dataset).fc2;
 
   // A parameter another one follows (a tie "= p") moves sites its own bindings
   // do not name: finite differences, which see the tie through calculate().
@@ -473,13 +526,14 @@ export function buildSingleCrystalRefinementProblem(
     const moversOf = (label: string): { h: number; jacobian: Mat3 }[] => movers.get(label) ?? [];
     // Each free parameter's kernel derivatives (one per binding), or why it has none.
     const requests: ScDerivative[] = [];
-    const plans = freeParams.map((p): { kind: "structural"; at: number[] } | { kind: "scale" } | { kind: "extinction" } | { kind: "batch"; batch: number } | null => {
+    const columnPlans = freeParams.map((p): { kind: "structural"; at: number[] } | { kind: "scale" } | { kind: "extinction" } | { kind: "batch"; batch: number } | { kind: "twin"; law: number } | null => {
       if (followed.has(p.id)) return null;
       const bs = bindings.filter((b) => b.parameterId === p.id);
       if (bs.length === 0) return null;
       if (bs.every((b) => b.kind === "scale")) return { kind: "scale" };
       if (bs.every((b) => b.kind === "extinction")) return { kind: "extinction" };
       if (bs.length === 1 && bs[0]!.kind === "batchScale" && bs[0]!.targetKey !== undefined) return { kind: "batch", batch: Number(bs[0]!.targetKey) };
+      if (bs.length === 1 && bs[0]!.kind === "twinFraction" && bs[0]!.targetKey !== undefined) return { kind: "twin", law: Number(bs[0]!.targetKey) };
       const at: number[] = [];
       for (const b of bs) {
         const site = b.targetKey !== undefined ? siteIndex.get(b.targetKey) : undefined;
@@ -514,33 +568,44 @@ export function buildSingleCrystalRefinementProblem(
       }
       return { kind: "structural", at };
     });
-    if (plans.every((pl) => pl === null)) return plans.map(() => null);
-    const out = scIntensities(plan, applied, dataset, requests, true);
-    const { kernel, gain } = out;
+    if (columnPlans.every((pl) => pl === null)) return columnPlans.map(() => null);
+    const out = scIntensities(plans, applied, dataset, requests, true);
+    const comps = out.components;
     const n = plan.n;
-    return plans.map((pl): Float64Array | null => {
+    return columnPlans.map((pl): Float64Array | null => {
       if (!pl) return null;
       const col = new Float64Array(n);
       if (pl.kind === "scale") {
-        for (let i = 0; i < n; i++) col[i] = out.batch[i]! * out.y[i]! * out.f2[i]!;
+        for (const c of comps) for (let i = 0; i < n; i++) col[i]! += c.w * out.batch[i]! * c.y[i]! * c.f2[i]!;
       } else if (pl.kind === "batch") {
-        for (let i = 0; i < n; i++) if (dataset.reflections[i]!.batch === pl.batch) col[i] = applied.scale * out.y[i]! * out.f2[i]!;
+        for (const c of comps) for (let i = 0; i < n; i++) if (dataset.reflections[i]!.batch === pl.batch) col[i]! += c.w * applied.scale * c.y[i]! * c.f2[i]!;
+      } else if (pl.kind === "twin") {
+        // ∂Fc²/∂k_m: the domain's intensity against the first domain's, which gives up what it takes.
+        const m = comps[pl.law];
+        if (!m) return null;
+        const first = comps[0]!;
+        for (let i = 0; i < n; i++) col[i] = applied.scale * out.batch[i]! * (m.y[i]! * m.f2[i]! - first.y[i]! * first.f2[i]!);
       } else if (pl.kind === "extinction") {
         const x = applied.extinction;
         const volume = cellVolume(applied.model.cell);
         const step = Math.max(1e-6 * x, 1e-10);
-        for (let i = 0; i < n; i++) {
-          const r = dataset.reflections[i]!;
-          const d = 1 / (2 * Math.sqrt(plan.s2[i]!));
-          const yAt = (v: number): number => (v > 0 ? extinctionFactorFor(dataset.extinctionModel, v, out.f2[i]!, dataset.radiation, d, volume, r) : 1);
-          const dy = x > 10 * step ? (yAt(x + step) - yAt(x - step)) / (2 * step) : (yAt(x + step) - yAt(x)) / step;
-          col[i] = applied.scale * out.batch[i]! * out.f2[i]! * dy;
+        for (const c of comps) {
+          for (let i = 0; i < n; i++) {
+            const r = dataset.reflections[i]!;
+            const d = 1 / (2 * Math.sqrt(plan.s2[i]!));
+            const yAt = (v: number): number => (v > 0 ? extinctionFactorFor(dataset.extinctionModel, v, c.f2[i]!, dataset.radiation, d, volume, r) : 1);
+            const dy = x > 10 * step ? (yAt(x + step) - yAt(x - step)) / (2 * step) : (yAt(x + step) - yAt(x)) / step;
+            col[i]! += c.w * applied.scale * out.batch[i]! * c.f2[i]! * dy;
+          }
         }
       } else {
-        for (let i = 0; i < n; i++) {
-          let dF2 = 0;
-          for (const r of pl.at) dF2 += 2 * (kernel.re[i]! * kernel.dRe[r]![i]! + kernel.im[i]! * kernel.dIm[r]![i]!);
-          col[i] = gain![i]! * dF2;
+        for (const c of comps) {
+          const { kernel, gain } = c;
+          for (let i = 0; i < n; i++) {
+            let dF2 = 0;
+            for (const r of pl.at) dF2 += 2 * (kernel.re[i]! * kernel.dRe[r]![i]! + kernel.im[i]! * kernel.dIm[r]![i]!);
+            col[i]! += c.w * gain![i]! * dF2;
+          }
         }
       }
       return col;
@@ -581,7 +646,7 @@ export function singleCrystalRefinementComparison(
   for (const p of parameters) values[p.id] = p.value;
   const resolved = resolveTies(parameters, values);
   const applied = applyParameters(structure, bindings, resolved);
-  const computed = scIntensities(scPlan(structure, dataset.radiation, dataset.reflections), applied, dataset);
+  const computed = scIntensities(scPlans(structure, dataset), applied, dataset);
 
   const foSq: number[] = [];
   const fcSq: number[] = [];

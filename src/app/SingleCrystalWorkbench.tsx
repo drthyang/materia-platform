@@ -18,7 +18,7 @@ import { modulatedInputsFrom, restoreMomentBindings, restoreSingleCrystalParamet
 import { useOnChange } from "@/app/useOnChange";
 import type { AtomSite, RidingRule, StructureModel } from "@/core/crystal/types";
 import type { AgentLink } from "@/agent/link";
-import type { ExtinctionModel, OmittedMeasurement, Radiation, ResolutionRange, ShelxWeighting, SingleCrystalDataset } from "@/core/diffraction/types";
+import { isInversion, type ExtinctionModel, type OmittedMeasurement, type Radiation, type ResolutionRange, type ShelxWeighting, type SingleCrystalDataset, type TwinLaw } from "@/core/diffraction/types";
 import type { Vec3 } from "@/core/math/types";
 import type { ReflectionObsCalc } from "@/core/workflow/obsCalc";
 import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
@@ -163,10 +163,12 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
   const [extinctionModel, setExtinctionModel] = useState<ExtinctionModel>(restoring?.extinctionModel ?? "shelx");
   // SHELXL's weighting scheme (WGHT a b); null for w = 1/σ².
   const [weighting, setWeighting] = useState<ShelxWeighting | null>(restoring?.weighting ?? null);
-  // The dataset the physics runs against — same reflections, user-chosen radiation, extinction model and weights.
+  // Twin laws (SHELXL's TWIN), each with its fraction row; empty when untwinned.
+  const [twinLaws, setTwinLaws] = useState<readonly TwinLaw[]>(restoring?.twinLaws ?? []);
+  // The dataset the physics runs against — same reflections, user-chosen radiation, extinction model, weights and twin laws.
   const probedDataset = useMemo(
-    () => ({ ...dataset, radiation: effectiveRadiation, extinctionModel, ...(weighting ? { weighting } : {}) }),
-    [dataset, effectiveRadiation, extinctionModel, weighting],
+    () => ({ ...dataset, radiation: effectiveRadiation, extinctionModel, ...(weighting ? { weighting } : {}), ...(twinLaws.length ? { twinLaws } : {}) }),
+    [dataset, effectiveRadiation, extinctionModel, weighting, twinLaws],
   );
 
   // The ADP model the fit uses: the CIF's (null), or the one switched to,
@@ -666,6 +668,28 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
     stepHistory?.requestStep("settings", scheme ? `WGHT ${scheme.a} ${scheme.b}` : "Weights 1/σ²");
   }
 
+  /**
+   * The twin laws (SHELXL's TWIN): each brings its fraction row (BASF; the
+   * Flack x for the inversion twin), free at 0.1; the other rows keep their
+   * values. The last fit is cleared.
+   */
+  function changeTwinLaws(next: readonly TwinLaw[]): void {
+    const nextDataset = { ...probedDataset, ...(next.length ? { twinLaws: next } : {}) };
+    if (!next.length) delete (nextDataset as { twinLaws?: unknown }).twinLaws;
+    const fresh = buildSingleCrystalSpec(fitStructure, nextDataset, { extinction: 0 }).params;
+    const kept = new Map(params.map((p) => [p.id, p]));
+    setParams([
+      ...fresh.map((p) => {
+        const old = p.kind === "twinFraction" ? undefined : kept.get(p.id);
+        return old ? { ...p, value: old.value, initialValue: old.initialValue, fixed: old.fixed } : p;
+      }),
+      ...params.filter((p) => isMagneticModelParameterKind(p.kind)),
+    ]);
+    setTwinLaws(next);
+    setResult(null);
+    stepHistory?.requestStep("settings", next.length === 0 ? "Untwinned" : next.length === 1 && isInversion(next[0]!) ? "Inversion twin" : `${next.length} twin law${next.length === 1 ? "" : "s"}`);
+  }
+
   /** The scheme SHELXL would suggest for the model as refined now. */
   function suggestedWeighting(): WeightingSuggestion {
     const rows = comparison.rows;
@@ -803,6 +827,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
         resolution: { ...resolution, excluded: outsideRange },
         riding: riding ?? [],
         weighting,
+        twinLaws,
         extinctionModel,
         adpModel: adpModelOf(fitStructure),
         magnetic: magnetic !== null,
@@ -819,6 +844,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
       setRadiation: changeRadiation,
       setRiding: changeRiding,
       setWeighting: changeWeighting,
+      setTwinLaws: changeTwinLaws,
       setOmitted: changeOmitted,
       setResolution: changeResolution,
       setOutlierFilter: ({ on, cutoffSigma: cutoff, minExtinction: minY }) => {
@@ -854,6 +880,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
         ...(wavelengthOverride !== null ? { wavelength: wavelengthOverride } : {}),
         ...(riding ? { riding } : {}),
         ...(weighting ? { weighting } : {}),
+        ...(twinLaws.length ? { twinLaws } : {}),
         modulated: { kText, ionState, moment: modMoment, seed: modSeed, restarts: modRestarts },
         adpModel: adp?.model ?? null,
       }),

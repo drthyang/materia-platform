@@ -33,7 +33,7 @@ import { samplePosterior, type SampleResult } from "@/core/refinement/bayes/samp
 import { magneticHandle, sessionCurves } from "@/testSupport/magneticHeadless";
 import type { ProjectHistory, StepKind } from "@/core/project/history";
 import { pdfReportInput, powderReportInput, singleCrystalReportInput } from "@/app/reportInputs";
-import type { ExtinctionModel, OmittedMeasurement, Radiation, ResolutionRange, ShelxWeighting, SingleCrystalDataset } from "@/core/diffraction/types";
+import type { ExtinctionModel, OmittedMeasurement, Radiation, ResolutionRange, ShelxWeighting, SingleCrystalDataset, TwinLaw } from "@/core/diffraction/types";
 import { EXTINCTION_PARAMETER_LABELS } from "@/core/diffraction/singleCrystalFactors";
 import { mergeEquivalents } from "@/core/diffraction/merge";
 import { SINGLE_CRYSTAL_REFINE_OPTIONS, buildSingleCrystalRefinementProblem, buildSingleCrystalSpec, refineSingleCrystal, inResolution, isOmitted, optimalScale, singleCrystalRefinementComparison, withinResolution, withoutOmitted } from "@/core/workflow/singleCrystalRefinement";
@@ -452,6 +452,7 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
   let resolution: ResolutionRange = {};
   let riding: readonly RidingRule[] | null = start.riding?.length ? start.riding : null;
   let weighting: ShelxWeighting | null = loaded.weighting ?? null;
+  let twinLaws: readonly TwinLaw[] = loaded.twinLaws ?? [];
   // The reflections with the extinction model, as the page's probed dataset.
   let dataset: SingleCrystalDataset = { ...loaded, extinctionModel };
   let spec = buildSingleCrystalSpec(model, dataset, { extinction: 0 });
@@ -492,6 +493,7 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
       resolution: { ...resolution, excluded: outside },
       riding: riding ?? [],
       weighting,
+      twinLaws,
       extinctionModel,
       adpModel: adpModelOf(model),
       magnetic: false,
@@ -526,7 +528,7 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
     setExtinctionModel: (m) => {
       calls.push(`extinction model ${m}`);
       extinctionModel = m;
-      dataset = { ...base, extinctionModel, ...(weighting ? { weighting } : {}) };
+      dataset = { ...base, extinctionModel, ...(weighting ? { weighting } : {}), ...(twinLaws.length ? { twinLaws } : {}) };
       params = params.map((p) => (p.kind === "extinction" ? { ...p, label: EXTINCTION_PARAMETER_LABELS[m], value: 0, initialValue: 0 } : p));
       result = null;
     },
@@ -536,7 +538,7 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
       const wl = update.wavelength ?? ("wavelength" in base.radiation ? base.radiation.wavelength : 1.54);
       const radiation: Radiation = probe === "neutron-tof" ? { kind: "neutron-tof" } : probe === "xray" ? { kind: "xray", wavelength: wl, polarization: 0.5 } : { kind: "neutron", wavelength: wl };
       base = { ...base, radiation };
-      dataset = { ...base, extinctionModel, ...(weighting ? { weighting } : {}) };
+      dataset = { ...base, extinctionModel, ...(weighting ? { weighting } : {}), ...(twinLaws.length ? { twinLaws } : {}) };
       const k = optimalScale(model, active(), params, spec.bindings);
       if (k !== null) params = params.map((p) => (p.kind === "scale" ? { ...p, value: k } : p));
       result = null;
@@ -547,6 +549,19 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
       const dMin = end(update.dMin, resolution.dMin);
       const dMax = end(update.dMax, resolution.dMax);
       resolution = { ...(dMin !== undefined ? { dMin } : {}), ...(dMax !== undefined ? { dMax } : {}) };
+    },
+    setTwinLaws: (laws) => {
+      calls.push(`twin ${laws.map((l) => JSON.stringify(l.matrix)).join(" ") || "none"}`);
+      twinLaws = laws;
+      const { twinLaws: _, ...rest } = dataset;
+      dataset = laws.length ? { ...rest, twinLaws: laws } : rest;
+      const old = new Map(params.map((p) => [p.id, p]));
+      spec = buildSingleCrystalSpec(model, dataset, { extinction: 0 });
+      params = spec.params.map((p) => {
+        const o = p.kind === "twinFraction" ? undefined : old.get(p.id);
+        return o ? { ...p, value: o.value, initialValue: o.initialValue, fixed: o.fixed } : p;
+      });
+      result = null;
     },
     setWeighting: (next) => {
       calls.push(`weighting ${next ? `${next.a} ${next.b}` : "1/σ²"}`);

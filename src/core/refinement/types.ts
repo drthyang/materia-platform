@@ -45,6 +45,10 @@ export type ParameterKind =
   // A single-crystal batch's scale relative to the first batch's (SHELX's batch
   // scale factors): one row per later batch, targetKey the batch number.
   | "batchScale"
+  // A single-crystal twin domain's fraction (SHELXL's BASF), targetKey the law's
+  // number (1, 2, …); the first domain takes 1 − Σ of them. For the inversion
+  // twin it is the Flack parameter.
+  | "twinFraction"
   | "stephensStrain"
   | "anisoSizePerp"
   | "anisoSizePar"

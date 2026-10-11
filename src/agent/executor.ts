@@ -103,6 +103,7 @@ const STEP_KIND: Readonly<Record<string, StepKind>> = {
   set_extinction_model: "settings",
   set_riding_hydrogens: "settings",
   set_weighting: "settings",
+  set_twin: "settings",
 };
 
 let nextCallId = 1;

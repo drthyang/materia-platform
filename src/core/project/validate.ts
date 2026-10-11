@@ -408,6 +408,11 @@ function checkSingleCrystalWorkspace(ws: Rec, path: string, ctx: PhaseContext): 
       fail(ip, geometry === "aromatic" ? "an aromatic hydrogen needs its distance and two neighbours" : "a fixed hydrogen needs its offset");
     }
   }));
+  opt(ws.twinLaws, `${path}.twinLaws`, (v, p) => each(v, p, (item, ip) => {
+    const law = rec(item, ip);
+    each(law.matrix, `${ip}.matrix`, (row, rp) => each(row, rp, (x, xp) => int(x, xp)));
+    if (!Array.isArray(law.matrix) || law.matrix.length !== 3 || law.matrix.some((row) => !Array.isArray(row) || row.length !== 3)) fail(`${ip}.matrix`, "a twin law is a 3×3 integer matrix");
+  }));
   if (ws.weighting !== undefined && ws.weighting !== null) {
     const w = rec(ws.weighting, `${path}.weighting`);
     for (const term of ["a", "b"] as const) if (num(w[term], `${path}.weighting.${term}`) < 0) fail(`${path}.weighting.${term}`, "a weighting term cannot be negative");

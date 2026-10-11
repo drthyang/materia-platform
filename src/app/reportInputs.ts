@@ -20,7 +20,8 @@ import { extractSizeStrain } from "@/core/diffraction/microstructure";
 import { formatWt, fractionsOf } from "@/core/diagnostics/phaseFractions";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import type { MergeStatistics } from "@/core/diffraction/merge";
-import type { OmittedMeasurement, PdfPattern, Radiation, SingleCrystalDataset } from "@/core/diffraction/types";
+import { isInversion, type OmittedMeasurement, type PdfPattern, type Radiation, type SingleCrystalDataset, type TwinLaw } from "@/core/diffraction/types";
+import { dispersionLine } from "@/core/scattering/dispersion";
 import { EXTINCTION_MODEL_LABELS } from "@/core/diffraction/singleCrystalFactors";
 import { isMomentParameterKind, type ParameterBinding, type RefinementParameter, type RefinementResult } from "@/core/refinement/types";
 import { resolveTies } from "@/core/refinement/constraints";
@@ -395,6 +396,15 @@ function moleculeBonds(refined: StructureModel, base: StructureModel | undefined
   }));
 }
 
+/** The twin laws and their fractions with esds: an inversion twin's is the Flack x. */
+function twinRow(laws: readonly TwinLaw[], params: readonly RefinementParameter[], bindings: readonly ParameterBinding[]): string {
+  return laws.map((law, i) => {
+    const p = params.find((q) => q.kind === "twinFraction" && bindings.some((b) => b.parameterId === q.id && b.targetKey === String(i + 1)));
+    const value = p ? (p.esd !== undefined && !p.fixed ? withEsd(p.value, p.esd, 4) : p.value.toFixed(3)) : "?";
+    return isInversion(law) ? `inversion twin: Flack x = ${value}` : `twin law h′ = R·h, R = ${JSON.stringify(law.matrix)}: fraction ${value}`;
+  }).join("; ");
+}
+
 /** How the hydrogens were treated: riding (SHELXL's AFIX, with their distances), refined, or held at the input positions. */
 function hydrogenRow(structure: StructureModel, params: readonly RefinementParameter[], bindings: readonly ParameterBinding[]): ReportRow[] {
   const hydrogens = structure.sites.filter((site) => isHydrogen(site));
@@ -472,6 +482,8 @@ export function singleCrystalReportInput(o: {
     { label: "Reflections", value: `${o.totalReflections} measured · ${o.dataset.reflections.length} used${omittedN > 0 ? ` · ${omittedN} omitted by hand` : ""}${outside > 0 && range ? ` · ${outside} outside ${range}` : ""}${o.excluded > 0 ? ` · ${o.excluded} rejected with |F_o² − F_c²|/σ > ${o.cutoffSigma}${o.minExtinction ? ` or y < ${o.minExtinction}` : ""}` : o.filterOn ? ` · the filter (|F_o² − F_c²|/σ > ${o.cutoffSigma}${o.minExtinction ? ` or y < ${o.minExtinction}` : ""}) rejected none` : ""}` },
     ...(omitted.length > 0 ? [{ label: "Omitted", value: omitted.map((m) => `${m.h} ${m.k} ${m.l}${m.batch !== undefined ? ` (batch ${m.batch})` : ""}${m.reason ? `: ${m.reason}` : ""}`).join("; ") }] : []),
     { label: "Extinction", value: EXTINCTION_MODEL_LABELS[o.dataset.extinctionModel ?? "shelx"] },
+    ...(o.dataset.radiation.kind === "xray" ? [{ label: "Anomalous scattering", value: dispersionLine(o.dataset.radiation.wavelength) ? `f′ and f″ at ${dispersionLine(o.dataset.radiation.wavelength)!.name} (Cromer & Liberman, 1981)` : `none: no tabulated line at λ ${o.dataset.radiation.wavelength} Å` }] : []),
+    ...(o.dataset.twinLaws?.length ? [{ label: "Twinning", value: twinRow(o.dataset.twinLaws, params, o.bindings) }] : []),
     ...hydrogenRow(o.structure, params, o.bindings),
     { label: "Merging", value: `${st.observations} observations → ${st.unique} unique · redundancy ${num(st.redundancy, 2)} · ${st.redundancy > 1 + 1e-9 ? `R_int ${pct(st.rInt)}` : "R_int n/a (merged data)"} · R_σ ${pct(st.rSigma)}${st.dMin !== undefined ? ` · d_min ${num(st.dMin, 3)} Å` : ""}` },
     ...(o.dataset.origin === "refinement-listing" ? [{ label: "Source", value: "a refinement's listing (.fcf): Fo² on that refinement's scale, merged, the systematic absences left out, and in SHELXL's LIST 4 its extinction divided out" }] : []),

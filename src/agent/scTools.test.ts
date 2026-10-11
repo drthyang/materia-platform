@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { keyOfState } from "@/agent/method";
 import type { AgentReport } from "@/agent/report";
 import { executor, fakeHost, singleCrystalPort } from "@/testSupport/agentHeadless";
-import { corundumPage, pyridylPage } from "@/testSupport/scPages";
+import { chiralPage, corundumPage, pyridylPage } from "@/testSupport/scPages";
 import { dSpacing, orthogonalizationMatrix } from "@/core/crystal/unitCell";
 import { mulVec } from "@/core/math/mat3";
 
@@ -383,6 +383,41 @@ describe("AgentExecutor on the single-crystal page", () => {
     expect(both.isError).toBe(true);
     await ex.run("set_weighting", { use: "sigma" });
     expect(port.state().weighting).toBeNull();
+  });
+
+  it("refines an inversion twin's fraction, the Flack x, with Friedel pairs and Ga's f″, and refuses laws that cannot twin the crystal", async () => {
+    const chiral = chiralPage({ flack: 0.3 });
+    const { port } = singleCrystalPort(chiral.structure, chiral.dataset);
+    const { host, steps } = fakeHost(port);
+    const { ex, seen } = executor(host, "auto");
+    const data = (parse((await ex.run("get_state", {})).text).data as Record<string, unknown>);
+    expect(data.anomalousScattering).toBe("f′, f″ at Mo Kα (Cromer & Liberman)");
+    expect(data.twin).toBe("none");
+    expect(String(parse((await ex.run("reflection_statistics", {})).text).friedel)).toMatch(/have their Friedel mate measured \(100 %\)/);
+    await ex.run("set_twin", { law: "inversion" });
+    expect(seen.find((e) => e.tool === "set_twin" && e.preview)?.preview).toBe("Twin law: inversion (h′ = −h) — its fraction (the Flack x) refines from 0.1");
+    expect(port.state().parameters.find((p) => p.kind === "twinFraction")).toMatchObject({ id: "twin_1", value: 0.1, fixed: false });
+    expect(steps.at(-1)).toEqual({ kind: "settings", agent: true });
+    expect(parse((await ex.run("set_twin", { law: "inversion" })).text).unchanged).toBe(true);
+    await ex.run("set_free", { free: ["pos_*", "B_*"] });
+    const fit = parse((await ex.run("refine", {})).text);
+    expect(fit.status).toBe("converged");
+    const x = port.state().parameters.find((p) => p.id === "twin_1")!.value;
+    expect(Math.abs(x - 0.3)).toBeLessThan(0.03);
+    const twin = (parse((await ex.run("assess_refinement", {})).text).twinning as { laws: { law: string; flackX: string; reading: string }[] }).laws[0]!;
+    expect(twin.law).toBe("inversion");
+    expect(twin.flackX).toMatch(/^0\.\d+\(\d+\)$/);
+    expect(twin.reading).toMatch(/^between the hands: an inversion twin, \d+ % of the crystal of the inverted hand$/);
+    expect(port.reportInput!().data.find((r) => r.label === "Twinning")!.value).toMatch(/^inversion twin: Flack x = 0\.\d+\(\d+\)$/);
+    // Laws that cannot twin this crystal, refused before the user is asked.
+    expect((await ex.run("set_twin", { law: [[0, 1, 0], [1, 0, 0], [0, 0, -1]] })).text).toMatch(/not a symmetry of this lattice/);
+    expect((await ex.run("set_twin", { law: [[-1, 0, 0], [0, -1, 0], [0, 0, 1]] })).text).toMatch(/one of the point group's own operations/);
+    expect((await ex.run("set_twin", { law: [[2, 0, 0], [0, 1, 0], [0, 0, 1]] })).text).toMatch(/determinant ±1/);
+    await ex.run("set_twin", { remove: true });
+    expect(port.state().parameters.some((p) => p.kind === "twinFraction")).toBe(false);
+    // In a centrosymmetric group there is no other hand.
+    const { port: centro } = page();
+    expect((await executor(fakeHost(centro).host, "auto").ex.run("set_twin", { law: "inversion" })).text).toMatch(/centrosymmetric: an inversion twin is the same crystal/);
   });
 
   it("gives the anisotropic tensor and the bond lengths with their esds", async () => {

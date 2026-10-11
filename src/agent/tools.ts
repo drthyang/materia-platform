@@ -213,6 +213,18 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     pages: ["singleCrystal"],
   },
   {
+    name: "set_twin",
+    title: "Set the twin law",
+    description:
+      "Single-crystal page only. Twin domains, as SHELXL's TWIN and BASF. `law: \"inversion\"`: an inversion twin — in a non-centrosymmetric crystal, domains of both hands; its fraction is the Flack parameter x (0: the model's hand, 1: the inverted one, between: a twin, racemic near 0.5). It needs the Friedel pairs measured apart (reflection_statistics says) and an anomalous scatterer at the wavelength (X-rays at a tabulated line). Or a merohedral law as a 3×3 integer matrix, rows, h′ = R·h: a symmetry of the lattice the point group lacks ([[0,1,0],[1,0,0],[0,0,-1]] is common in trigonal and tetragonal crystals), for intensity statistics that read low (⟨|E²−1|⟩ well under 0.736) or a fit that stalls with K drifting on the weakest reflections. The law brings its fraction (`twin_1`), free from 0.1: refine it with the structure, and report it with its esd; `remove: true` takes the law away. One law at a time; the last fit is cleared.",
+    inputSchema: {
+      law: z.union([z.literal("inversion"), z.array(z.array(z.number().int()).length(3)).length(3)]).optional().describe("\"inversion\" (h′ = −h), or a merohedral law: 3×3 integer matrix, rows, h′ = R·h"),
+      remove: z.boolean().optional().describe("Take the twin law away"),
+    },
+    effect: "change",
+    pages: ["singleCrystal"],
+  },
+  {
     name: "find_unexplained_peaks",
     title: "Find unexplained peaks",
     description:

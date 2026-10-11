@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildSingleCrystalRefinementProblem, buildSingleCrystalSpec } from "@/core/workflow/singleCrystalRefinement";
-import { corundumPage, pyridylPage } from "@/testSupport/scPages";
+import { chiralPage, corundumPage, pyridylPage } from "@/testSupport/scPages";
+import { INVERSION_TWIN } from "@/core/diffraction/types";
 import { withAdpModel } from "@/core/crystal/adp";
 import type { ExtinctionModel } from "@/core/diffraction/types";
 import type { RefinementProblem } from "@/core/refinement/engine";
@@ -93,6 +94,15 @@ C1 0.026 0.022 0.027 -0.003 0.006 0.002
     const params = spec.params.map((p) => ({ ...p, fixed: !(p.kind === "positionShift" || p.kind === "bIso") }));
     // Every position column of a ring atom carries the hydrogens it places; the central difference sees the bisector turn.
     expect(check(buildSingleCrystalRefinementProblem(structure, page.dataset, params, spec.bindings))).toBeGreaterThanOrEqual(30);
+  });
+
+  it("differentiates a twinned fit exactly: the twin fraction, and every structural column through both domains", () => {
+    const page = chiralPage();
+    const dataset = { ...page.dataset, twinLaws: [INVERSION_TWIN] };
+    const spec = buildSingleCrystalSpec(page.structure, dataset, { extinction: 2, twinFractions: [0.3] });
+    const params = spec.params.map((p) => ({ ...p, fixed: !(p.kind === "scale" || p.kind === "extinction" || p.kind === "twinFraction" || p.kind === "positionShift" || p.kind === "bIso") }));
+    expect(params.find((p) => p.kind === "twinFraction")).toMatchObject({ id: "twin_1", label: "inversion twin fraction (Flack x)", value: 0.3 });
+    expect(check(buildSingleCrystalRefinementProblem(page.structure, dataset, params, spec.bindings))).toBeGreaterThanOrEqual(40);
   });
 
   for (const model of ["shelx", "bc-1-lorentzian"] as ExtinctionModel[]) {

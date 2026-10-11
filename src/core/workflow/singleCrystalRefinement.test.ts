@@ -4,13 +4,15 @@ import { dataExists, dataPath } from "@/testSupport/data";
 import { parse_single_crystal_data, parse_structure } from "@/mcp/tools";
 import { dSpacing } from "@/core/crystal/unitCell";
 import type { StructureModel } from "@/core/crystal/types";
-import type { SingleCrystalDataset } from "@/core/diffraction/types";
+import { INVERSION_TWIN, type SingleCrystalDataset } from "@/core/diffraction/types";
 import { buildSpaceGroup } from "@/core/crystal/spaceGroups";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { refine } from "@/core/refinement/engine";
 import {
+  SINGLE_CRYSTAL_REFINE_OPTIONS,
   buildSingleCrystalSpec,
   buildSingleCrystalRefinementProblem,
+  refineSingleCrystal,
   singleCrystalRefinementComparison,
 } from "@/core/workflow/singleCrystalRefinement";
 
@@ -137,9 +139,37 @@ describe.skipIf(!dataExists(SHELX_1B.cif) || !dataExists(SHELX_1B.fcf))("the mod
     }
     const medians = [...shells.values()].filter((v) => v.length >= 20).map((v) => v.sort((a, b) => a - b)[Math.floor(v.length / 2)]!);
     expect(medians.length).toBeGreaterThanOrEqual(4);
-    // Within 5 % of each other from 0.1 to 0.6 Å⁻¹ (anomalous dispersion and the inversion twin
-    // are not modelled here); an L·P factor made the ratio run from 14 down to 0.9.
+    // Within 5 % of each other from 0.1 to 0.6 Å⁻¹ (the inversion twin is not modelled
+    // here); an L·P factor made the ratio run from 14 down to 0.9.
     expect(Math.max(...medians) / Math.min(...medians)).toBeLessThan(1.05);
+  });
+
+  it("is SHELXL's model with Ga's f′, f″ and its inversion twin at x = 0.435, Friedel pair by Friedel pair; the other hand is not", () => {
+    const s = parse_structure({ cif: readFileSync(dataPath(SHELX_1B.cif), "utf8") }).structure;
+    const fcf = readFileSync(dataPath(SHELX_1B.fcf), "utf8");
+    const listing = { ...parse_single_crystal_data({ text: fcf, name: "1b.fcf" }).dataset, radiation: { kind: "xray" as const, wavelength: 0.71073, polarization: 0.5 } };
+    const shelx = new Map(fcf.split("\n").map((l) => l.trim().split(/\s+/)).filter((t) => t.length === 7 && /^[ox]$/.test(t[6]!)).map((t) => [`${t[0]},${t[1]},${t[2]}`, Number(t[3])]));
+    // The spread of our Fc² over SHELXL's, about their median: the 90th percentile of |ratio/median − 1|.
+    const spread = (data: SingleCrystalDataset, x: number): number => {
+      const spec = buildSingleCrystalSpec(s, data, { scale: 1, twinFractions: [x] });
+      const ratios = singleCrystalRefinementComparison(s, data, spec.params, spec.bindings, {}).rows
+        .flatMap((r) => { const fc = shelx.get(`${r.h},${r.k},${r.l}`); return fc && fc > 100 ? [r.fcSq / fc] : []; })
+        .sort((a, b) => a - b);
+      const median = ratios[Math.floor(ratios.length / 2)]!;
+      const off = ratios.map((v) => Math.abs(v / median - 1)).sort((a, b) => a - b);
+      return off[Math.floor(off.length * 0.9)]!;
+    };
+    const twinned = { ...listing, twinLaws: [INVERSION_TWIN] };
+    expect(spread(twinned, 0.435)).toBeLessThan(0.01);
+    expect(spread(twinned, 0.565)).toBeGreaterThan(0.015);
+    expect(spread(listing, 0)).toBeGreaterThan(0.05);
+    // The Flack x refined with the scale alone, from 0.1: SHELXL's 0.435(15).
+    const spec = buildSingleCrystalSpec(s, twinned, { extinction: 0 });
+    const params = spec.params.map((p) => (p.kind === "extinction" ? { ...p, fixed: true } : p));
+    const r = refineSingleCrystal(s, twinned, params, spec.bindings, SINGLE_CRYSTAL_REFINE_OPTIONS);
+    expect(r.status).toBe("converged");
+    expect(r.parameters.twin_1).toBeGreaterThan(0.42);
+    expect(r.parameters.twin_1).toBeLessThan(0.47);
   });
 });
 

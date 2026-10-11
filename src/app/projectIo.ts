@@ -23,7 +23,7 @@ import { EMPTY_SOURCE } from "@/app/powderSession";
 import type { RidingRule, StructureModel } from "@/core/crystal/types";
 import type { DistortionModeSet } from "@/core/crystal/distortionModes";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
-import type { ExtinctionModel, OmittedMeasurement, PdfPattern, PowderXUnit, ResolutionRange, ShelxWeighting, SingleCrystalDataset } from "@/core/diffraction/types";
+import type { ExtinctionModel, OmittedMeasurement, PdfPattern, PowderXUnit, ResolutionRange, ShelxWeighting, SingleCrystalDataset, TwinLaw } from "@/core/diffraction/types";
 import type { MagneticModel } from "@/core/magnetic/types";
 import {
   PROJECT_SCHEMA_VERSION,
@@ -246,6 +246,7 @@ export interface SingleCrystalSnapshot {
   readonly wavelength?: number;
   readonly riding?: readonly RidingRule[];
   readonly weighting?: ShelxWeighting;
+  readonly twinLaws?: readonly TwinLaw[];
   readonly modulated: ModulatedInputs;
   readonly adpModel?: "isotropic" | "anisotropic" | null;
 }
@@ -269,6 +270,7 @@ export function singleCrystalWorkspaceFrom(s: SingleCrystalSnapshot): SingleCrys
     ...(s.wavelength !== undefined ? { wavelength: s.wavelength } : {}),
     ...(s.riding && s.riding.length > 0 ? { riding: s.riding.map((r) => ({ ...r })) } : {}),
     ...(s.weighting && (s.weighting.a > 0 || s.weighting.b > 0) ? { weighting: { a: s.weighting.a, b: s.weighting.b } } : {}),
+    ...(s.twinLaws && s.twinLaws.length > 0 ? { twinLaws: s.twinLaws.map((l) => ({ matrix: l.matrix })) } : {}),
     modulated: modulatedHypothesisFrom(s.modulated),
     ...(s.adpModel ? { adpModel: s.adpModel } : {}),
   };

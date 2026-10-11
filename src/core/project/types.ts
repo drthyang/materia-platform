@@ -50,7 +50,7 @@
 import type { RidingRule, StructureModel } from "@/core/crystal/types";
 import type { DistortionModeSet } from "@/core/crystal/distortionModes";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
-import type { ExtinctionModel, OmittedMeasurement, PdfPattern, PowderPattern, PowderXUnit, ResolutionRange, ShelxWeighting, SingleCrystalDataset } from "@/core/diffraction/types";
+import type { ExtinctionModel, OmittedMeasurement, PdfPattern, PowderPattern, PowderXUnit, ResolutionRange, ShelxWeighting, SingleCrystalDataset, TwinLaw } from "@/core/diffraction/types";
 import type { MagneticModel } from "@/core/magnetic/types";
 import type { ParameterBinding, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { PowderProfile } from "@/core/workflow/powder";
@@ -205,6 +205,8 @@ export interface SingleCrystalWorkspace {
   readonly riding?: readonly RidingRule[];
   /** SHELXL's weighting scheme (WGHT a b); absent ⇒ w = 1/σ². */
   readonly weighting?: ShelxWeighting;
+  /** Twin laws (SHELXL's TWIN); absent ⇒ untwinned. */
+  readonly twinLaws?: readonly TwinLaw[];
   readonly modulated?: ModulatedHypothesis;
   /** The ADP model switched to on the page; absent ⇒ the CIF's. */
   readonly adpModel?: "isotropic" | "anisotropic";

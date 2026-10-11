@@ -29,9 +29,11 @@ export interface FriedelCoverage {
   readonly centrosymmetric: boolean;
   /** Unique reflections under the point group (Friedel mates kept apart). */
   readonly unique: number;
-  /** Of them, those whose Friedel mate was measured too. */
+  /** Of them, the centric ones: −h is equivalent to h by the point group (h0l in 222), so no Bijvoet pair to measure. */
+  readonly centric: number;
+  /** Of the acentric ones, those whose Friedel mate was measured too. */
   readonly withMate: number;
-  /** withMate / unique (0 when the data were merged in the Laue class). */
+  /** withMate / acentric (0 when the data were merged in the Laue class). */
   readonly fraction: number;
 }
 
@@ -113,14 +115,17 @@ export function reflectionStatistics(rows: readonly StatisticsRow[], cell: UnitC
   // Friedel coverage: unique under the point group, and whether −h is there too.
   const keys = new Set(rows.map((r) => canonicalKey(rotations, r.h, r.k, r.l)));
   let withMate = 0;
+  let centric = 0;
   if (!centrosymmetric) {
     for (const key of keys) {
       const [h, k, l] = key.split(",").map(Number) as [number, number, number];
       const mate = canonicalKey(rotations, -h, -k, -l);
-      if (mate !== key && keys.has(mate)) withMate++;
+      if (mate === key) centric++;
+      else if (keys.has(mate)) withMate++;
     }
   }
-  const friedel: FriedelCoverage = { centrosymmetric, unique: keys.size, withMate, fraction: keys.size > 0 && !centrosymmetric ? withMate / keys.size : 0 };
+  const acentric = keys.size - centric;
+  const friedel: FriedelCoverage = { centrosymmetric, unique: keys.size, centric, withMate, fraction: acentric > 0 && !centrosymmetric ? withMate / acentric : 0 };
 
   // Merged in the Laue class: absences and intensity statistics read unique reflections.
   const merged = mergeEquivalents(rows.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.intensity, sigma: r.sigma })), sg.operations).reflections;

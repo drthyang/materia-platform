@@ -26,6 +26,7 @@ import { distinctSiteOps } from "@/core/diffraction/structureFactor";
 import { dSpacing, reciprocalMetricTensor } from "@/core/crystal/unitCell";
 import { neutronTable } from "@/core/scattering/neutron";
 import { xrayTable } from "@/core/scattering/xray";
+import { anomalousScattering, dispersionLine } from "@/core/scattering/dispersion";
 
 const TWO_PI = 2 * Math.PI;
 const TWO_PI_SQ = 2 * Math.PI * Math.PI;
@@ -43,6 +44,8 @@ export interface ScPlan {
   readonly cs: number;
   /** Scattering amplitude per reflection, by element (and isotope). */
   readonly amp: ReadonlyMap<string, { readonly re: Float64Array; readonly im: Float64Array }>;
+  /** The line whose f′ and f″ the X-ray amplitudes carry (dispersion.ts); absent: none (neutrons, or no tabulated line). */
+  readonly dispersion?: string;
 }
 
 const ampKey = (element: string, isotope?: number): string => (isotope !== undefined ? `${element}#${isotope}` : element);
@@ -65,21 +68,24 @@ export function scPlan(model: StructureModel, radiation: Radiation, reflections:
     s[i] = d === Infinity ? 0 : 1 / (2 * d);
     s2[i] = s[i]! * s[i]!;
   }
+  // X-rays at a laboratory line: each element's f′ + i·f″ on its form factor.
+  const line = radiation.kind === "xray" ? dispersionLine(radiation.wavelength) : null;
   const amp = new Map<string, { re: Float64Array; im: Float64Array }>();
   for (const site of model.sites) {
     const key = ampKey(site.element, site.isotope);
     if (amp.has(key)) continue;
     const re = new Float64Array(n);
     const im = new Float64Array(n);
+    const extra = line ? anomalousScattering(site.element, line) : { fp: 0, fpp: 0 };
     for (let i = 0; i < n; i++) {
       const a = table.amplitude(site.element, s[i]!, site.isotope);
-      re[i] = a.re;
-      im[i] = a.im;
+      re[i] = a.re + extra.fp;
+      im[i] = a.im + extra.fpp;
     }
     amp.set(key, { re, im });
   }
   const g = reciprocalMetricTensor(model.cell);
-  return { n, h, k, l, s2, as: Math.sqrt(g[0][0]), bs: Math.sqrt(g[1][1]), cs: Math.sqrt(g[2][2]), amp };
+  return { n, h, k, l, s2, as: Math.sqrt(g[0][0]), bs: Math.sqrt(g[1][1]), cs: Math.sqrt(g[2][2]), amp, ...(line ? { dispersion: line.name } : {}) };
 }
 
 /** One derivative the kernel returns: of F with respect to a structural parameter acting on one site, times `scale` (1 when absent). */

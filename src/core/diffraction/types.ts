@@ -108,6 +108,23 @@ export interface ShelxWeighting {
   readonly b: number;
 }
 
+/**
+ * A twin law, as SHELXL's TWIN: the integer matrix taking a reflection's
+ * indices in the first domain to those of the reflection it overlaps in
+ * another, h′ = R·h. A merohedral twin's R is a symmetry of the lattice the
+ * point group lacks; the inversion twin's is −I (a racemic or partly inverted
+ * crystal, whose fraction is the Flack parameter).
+ */
+export interface TwinLaw {
+  readonly matrix: readonly [readonly [number, number, number], readonly [number, number, number], readonly [number, number, number]];
+}
+
+/** The inversion twin's law: h′ = −h. */
+export const INVERSION_TWIN: TwinLaw = { matrix: [[-1, 0, 0], [0, -1, 0], [0, 0, -1]] };
+
+/** Whether a law is the inversion. */
+export const isInversion = (law: TwinLaw): boolean => law.matrix.every((row, i) => row.every((v, j) => v === (i === j ? -1 : 0)));
+
 /** A single-crystal reflection dataset. */
 export interface SingleCrystalDataset {
   readonly id: string;
@@ -125,6 +142,8 @@ export interface SingleCrystalDataset {
   readonly origin?: "refinement-listing";
   /** The fit's weighting scheme (SHELXL's WGHT); absent ⇒ w = 1/σ². */
   readonly weighting?: ShelxWeighting;
+  /** Twin laws beyond the first domain (SHELXL's TWIN), each with its fraction as a `twinFraction` parameter (BASF); absent ⇒ untwinned. */
+  readonly twinLaws?: readonly TwinLaw[];
   /**
    * The σ the fit weights by, √(σ² + (aP)² + bP), from the Fc² of the model
    * the scheme was last evaluated at (transient: derived, never saved). A

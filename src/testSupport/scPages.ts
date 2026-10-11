@@ -9,7 +9,7 @@
 
 import { parseCif } from "@/parsers/cif";
 import type { StructureModel } from "@/core/crystal/types";
-import type { ExtinctionModel, SingleCrystalDataset } from "@/core/diffraction/types";
+import { INVERSION_TWIN, type ExtinctionModel, type SingleCrystalDataset } from "@/core/diffraction/types";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { dSpacing, orthogonalizationMatrix } from "@/core/crystal/unitCell";
 import { inverse, mulVec } from "@/core/math/mat3";
@@ -272,4 +272,73 @@ ${rows.join("\n")}
     }),
   };
   return { structure: start, dataset, truth };
+}
+
+export interface ChiralPage {
+  readonly structure: StructureModel;
+  readonly dataset: SingleCrystalDataset;
+  /** The inversion twin fraction the intensities were computed with (the Flack x of the starting model's hand). */
+  readonly flack: number;
+}
+
+/**
+ * A non-centrosymmetric crystal with an anomalous scatterer for the absolute
+ * structure: the Ga, N and C framework of the GSAS-II tutorial's 1b in
+ * P2₁2₁2₁, measured with Mo Kα to d = 0.8 Å with every Friedel pair apart,
+ * its intensities from an inversion twin of fraction `flack` (Ga's f″ =
+ * 1.6 e gives Bijvoet differences of a few per cent). The page loads it
+ * untwinned, the positions a few hundredths of an ångström off.
+ */
+export function chiralPage({ flack = 0.3, seed = 13 }: { readonly flack?: number; readonly seed?: number } = {}): ChiralPage {
+  const atoms: [string, string, number, number, number, number][] = [
+    ["Ga2", "Ga", 0.20888, 0.61248, 0.17694, 0.035],
+    ["N1", "N", 0.3043, 0.55591, -0.04642, 0.035],
+    ["N2", "N", 0.403, 0.52312, 0.10749, 0.03],
+    ["N3", "N", 0.2682, 0.32177, 0.13327, 0.03],
+    ["C1", "C", 0.1045, 0.5938, -0.0822, 0.05],
+    ["C3", "C", 0.4086, 0.6396, -0.00213, 0.04],
+    ["C4", "C", 0.5411, 0.5931, 0.06152, 0.04],
+    ["C5", "C", 0.5383, 0.4558, 0.15634, 0.04],
+    ["C6", "C", 0.3965, 0.3749, 0.19306, 0.035],
+    ["C7", "C", 0.0556, 0.2903, 0.16437, 0.045],
+  ];
+  const cif = (jitter: number): string => `data_chiral
+_cell_length_a 6.2256
+_cell_length_b 12.9136
+_cell_length_c 17.4444
+_cell_angle_alpha 90
+_cell_angle_beta 90
+_cell_angle_gamma 90
+_symmetry_space_group_name_H-M 'P 21 21 21'
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_U_iso_or_equiv
+${atoms.map(([label, element, x, y, z, u], i) => `${label} ${element} ${(x + jitter * Math.sin(1.3 * i + 0.2) / 6.2).toFixed(6)} ${(y + jitter * Math.cos(2.1 * i) / 12.9).toFixed(6)} ${(z + jitter * Math.sin(2.9 * i + 1) / 17.4).toFixed(6)} ${u}`).join("\n")}
+`;
+  const truth = parseCif(cif(0), "chiral");
+  const start = parseCif(cif(0.03), "chiral");
+  const radiation = { kind: "xray" as const, wavelength: 0.71073, polarization: 0.5 };
+  // Every reflection and its Friedel mate, measured apart.
+  const unique = generateReflections(truth.cell, truth.spaceGroup, 0.8, 30);
+  const indices = unique.flatMap((r) => (r.h === 0 && r.k === 0 && r.l === 0 ? [] : [{ h: r.h, k: r.k, l: r.l }, { h: -r.h, k: -r.k, l: -r.l }]));
+  const empty: SingleCrystalDataset = { id: "chiral-sx", name: "chiral Ga complex (synthetic, Mo Kα)", radiation, reflections: indices.map((r) => ({ ...r, iObs: 1 })) };
+  const twinned: SingleCrystalDataset = { ...empty, twinLaws: [INVERSION_TWIN] };
+  const spec = buildSingleCrystalSpec(truth, twinned, { scale: 1, twinFractions: [flack] });
+  const calc = singleCrystalRefinementComparison(truth, twinned, spec.params, spec.bindings).rows;
+  const noise = normals(seed);
+  const iMax = Math.max(...calc.map((c) => c.fcSq));
+  const g = iMax / 4e5;
+  const background = 0.001 * iMax;
+  const dataset: SingleCrystalDataset = {
+    ...empty,
+    reflections: calc.map((c) => {
+      const sigma = Math.sqrt((Math.max(c.fcSq, 0) + background) * g + (0.01 * c.fcSq) ** 2);
+      return { h: c.h, k: c.k, l: c.l, iObs: c.fcSq + sigma * noise(), sigma };
+    }),
+  };
+  return { structure: start, dataset, flack };
 }

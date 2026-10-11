@@ -16,7 +16,7 @@ import type { MagneticAgentHandle } from "@/agent/magneticPort";
 import type { MutableRefObject } from "react";
 import type { RidingRule, StructureModel } from "@/core/crystal/types";
 import type { RidingOptions } from "@/core/crystal/riding";
-import type { ExtinctionModel, OmittedMeasurement, PdfPattern, PowderPattern, ResolutionRange, ShelxWeighting, SingleCrystalDataset } from "@/core/diffraction/types";
+import type { ExtinctionModel, OmittedMeasurement, PdfPattern, PowderPattern, ResolutionRange, ShelxWeighting, SingleCrystalDataset, TwinLaw } from "@/core/diffraction/types";
 import type { MergeStatistics } from "@/core/diffraction/merge";
 import type { InstrumentConstants, InstrumentParameters } from "@/core/diffraction/instrument";
 import type { LinearRestraint, ParameterBinding, RefinementOptions, RefinementParameter, RefinementResult } from "@/core/refinement/types";
@@ -246,6 +246,8 @@ export interface SingleCrystalLiveState {
   readonly riding: readonly RidingRule[];
   /** SHELXL's weighting scheme (WGHT a b); null: w = 1/σ². */
   readonly weighting: ShelxWeighting | null;
+  /** Twin laws beyond the first domain (SHELXL's TWIN); empty: untwinned. */
+  readonly twinLaws: readonly TwinLaw[];
   /** The resolution range fitted (SHELXL's SHEL), and how many measurements lie outside it. */
   readonly resolution: ResolutionRange & { readonly excluded: number };
   /** The extinction model the fit applies (SHELXL's EXTI unless switched). */
@@ -274,6 +276,8 @@ export interface SingleCrystalAgentPort {
   readonly setRiding: (on: boolean, options?: RidingOptions) => string | null;
   /** SHELXL's weighting scheme; null for w = 1/σ². */
   readonly setWeighting: (next: ShelxWeighting | null) => void;
+  /** The twin laws (each brings its fraction row, free at 0.1); empty for an untwinned crystal. */
+  readonly setTwinLaws: (laws: readonly TwinLaw[]) => void;
   /** The probe and the wavelength (constant wavelength only); the scale restarts from its best value, the last fit is cleared. */
   readonly setRadiation: (update: { readonly probe?: "xray" | "neutron" | "neutron-tof"; readonly wavelength?: number }) => void;
   /** The measurements left out by hand, replaced as a whole. */

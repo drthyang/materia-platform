@@ -74,6 +74,8 @@ export interface AppliedModel {
   readonly extinction: number;
   /** Single-crystal batch scales relative to the first batch, by batch number (absent ⇒ 1). */
   readonly batchScales?: ReadonlyMap<number, number>;
+  /** Single crystal: each twin law's domain fraction (BASF), by law number; absent ⇒ untwinned. */
+  readonly twinFractions?: ReadonlyMap<number, number>;
   /**
    * Stephens anisotropic-microstrain S coefficients, indexed by symmetry-allowed
    * invariant (order from `quarticStrainInvariants`). Present only when bound;
@@ -164,6 +166,7 @@ export function applyParameters(
   let asymHL: number | undefined;
   let extinction = 0;
   const batchScales = new Map<number, number>();
+  const twinFractions = new Map<number, number>();
   let po: { axis: [number, number, number]; ratio: number } | undefined;
   const stephensS = new Map<number, number>();
   let sizePerp: number | undefined;
@@ -298,6 +301,9 @@ export function applyParameters(
       case "batchScale":
         if (binding.targetKey !== undefined) batchScales.set(Number(binding.targetKey), v);
         break;
+      case "twinFraction":
+        if (binding.targetKey !== undefined) twinFractions.set(Number(binding.targetKey), v);
+        break;
       case "stephensStrain":
         if (binding.targetKey !== undefined) stephensS.set(Number(binding.targetKey), v);
         break;
@@ -409,6 +415,7 @@ export function applyParameters(
     corrections,
     extinction,
     ...(batchScales.size > 0 ? { batchScales } : {}),
+    ...(twinFractions.size > 0 ? { twinFractions } : {}),
     ...(stephensStrain ? { stephensStrain } : {}),
     ...(uniaxialSize ? { uniaxialSize } : {}),
     ...(uniaxialStrain ? { uniaxialStrain } : {}),

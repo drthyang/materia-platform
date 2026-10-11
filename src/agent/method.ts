@@ -129,6 +129,7 @@ const SC_STAGES: readonly MethodStage[] = [
   { id: "adp", label: "Isotropic ADPs", kinds: ["bIso"] },
   { id: "aniso", label: "Anisotropic ADPs", kinds: ["uAniso"], optional: true },
   { id: "occupancy", label: "Occupancy", kinds: ["occupancy"], optional: true },
+  { id: "twin", label: "Twin fractions", kinds: ["twinFraction"], optional: true },
 ];
 
 export function stagesFor(page: AgentPage): readonly MethodStage[] {

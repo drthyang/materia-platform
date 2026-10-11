@@ -11,7 +11,7 @@ import type { SingleCrystalAgentPort, SingleCrystalLiveState, SingleCrystalRow }
 import type { LiveToolSpec } from "@/agent/tools";
 import type { ProjectHistory } from "@/core/project/history";
 import { assess_refinement, bond_geometry } from "@/mcp/tools";
-import { compareWithLoaded, structureTable } from "@/agent/structureTable";
+import { compareWithLoaded, structureTable, withEsd } from "@/agent/structureTable";
 import { applyFree, bondEsds, bondsOf, uniqueBonds, cellOf, describeFree, freeNoOp, goToStep, historyView, matchIds, parameterSummary, pct, sig, type ChangeResult, type LiveToolHost } from "@/agent/liveCommon";
 import type { RefinementResult } from "@/core/refinement/types";
 import type { ReportCheck } from "@/core/export/report";
@@ -20,11 +20,12 @@ import { reflectionStatistics } from "@/core/diagnostics/reflectionStatistics";
 import { canonicalKey, laueRotations } from "@/core/diffraction/merge";
 import { isHydrogen, nonPositiveDefiniteSites } from "@/core/crystal/adp";
 import { allowedPositionShifts } from "@/core/crystal/siteConstraints";
-import { dSpacing } from "@/core/crystal/unitCell";
+import { dSpacing, reciprocalMetricTensor } from "@/core/crystal/unitCell";
 import { applyRiding, ridingDistances, ridingRules, ridingSummary } from "@/core/crystal/riding";
 import { EXTINCTION_MODEL_LABELS, shelxWeights, suggestShelxWeighting, type WeightingSuggestion } from "@/core/diffraction/singleCrystalFactors";
 import { inResolution, isOmitted } from "@/core/workflow/singleCrystalRefinement";
-import type { ExtinctionModel, OmittedMeasurement, ResolutionRange, ShelxWeighting } from "@/core/diffraction/types";
+import { INVERSION_TWIN, isInversion, type ExtinctionModel, type OmittedMeasurement, type ResolutionRange, type ShelxWeighting, type TwinLaw } from "@/core/diffraction/types";
+import { dispersionLine } from "@/core/scattering/dispersion";
 import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, correlationsCheck, findingChecks, noResultCheck, verdictCheck } from "@/agent/reportChecks";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- inputs are validated against the spec's zod schema before a handler runs */
@@ -91,6 +92,13 @@ export async function changeSingleCrystal(name: string, input: Input, port: Sing
     case "set_extinction_model":
       port.setExtinctionModel(input.model as ExtinctionModel);
       return "The extinction parameter restarted at 0 under the new model: refine it with the scale (and what was free before) to convergence before comparing the fit.";
+    case "set_twin": {
+      const next = twinAfter(s, input);
+      port.setTwinLaws(next);
+      if (next.length === 0) return "Untwinned again: the twin fraction left the fit, and the last fit is cleared.";
+      const signal = isInversion(next[0]!) && !anomalousLine(s) ? " No anomalous scattering at this radiation (X-rays at a tabulated line give it): the inversion fraction is undetermined." : "";
+      return `${isInversion(next[0]!) ? "The inversion twin's fraction, the Flack x (twin_1)" : "The twin fraction (twin_1, BASF)"}, is free from 0.1: refine it with the structure.${signal} The last fit is cleared.`;
+    }
     case "set_weighting": {
       const next = weightingAfter(s, input);
       port.setWeighting(next);
@@ -153,6 +161,10 @@ export function singleCrystalNoOp(spec: LiveToolSpec, input: Input, s: SingleCry
       const next = weightingAfter(s, input);
       return next?.a === s.weighting?.a && next?.b === s.weighting?.b ? `the weights are already ${weightingText(next)}` : null;
     }
+    case "set_twin": {
+      const next = twinAfter(s, input);
+      return sameLaws(next, s.twinLaws) ? (next.length ? `the twin law is already ${twinText(next[0]!)}` : "the crystal is already untwinned") : null;
+    }
     case "set_riding_hydrogens": {
       const hydrogens = s.structure.sites.filter((site) => isHydrogen(site)).length;
       if (input.on && hydrogens === 0) throw new Error("the model has no hydrogen atoms: nothing to ride");
@@ -211,6 +223,10 @@ export function describeSingleCrystalChange(spec: LiveToolSpec, input: Input, s:
       })() : "";
       return `Weights: ${weightingText(next)}${why}, in place of ${weightingText(s.weighting)} — wR2 and GooF change, R1 does not`;
     }
+    case "set_twin": {
+      const next = twinAfter(s, input);
+      return next.length === 0 ? `Untwinned: the twin fraction${s.twinLaws.length ? "" : "s"} leave the fit` : `Twin law: ${twinText(next[0]!)} — its fraction${isInversion(next[0]!) ? " (the Flack x)" : " (BASF)"} refines from 0.1`;
+    }
     case "set_riding_hydrogens": {
       const hydrogens = new Set(s.structure.sites.filter((site) => isHydrogen(site)).map((site) => site.label));
       if (!input.on) return `Hydrogens refine on their own again: ${hydrogens.size} hydrogen${hydrogens.size === 1 ? "" : "s"} get their own position and B rows (fixed, at the loaded positions)`;
@@ -261,6 +277,72 @@ function oddHydrogenDistances(probe: SingleCrystalLiveState["probe"], model: Sin
   const odd = ridingDistances(model).filter((x) => x.distance < lo || x.distance > hi);
   if (odd.length === 0) return null;
   return `X–H as placed is out of the usual range for ${odd.map((x) => `${x.site} (${x.distance.toFixed(2)} Å)`).join(", ")}: the sp² ones take \`distance\` (SHELXL: 0.93 Å at room temperature, 0.95 Å below about 200 K; neutron 1.08 Å); others need a better starting position.`;
+}
+
+// ── twinning and the absolute structure ─────────────────────────────────────
+
+const sameLaws = (a: readonly TwinLaw[], b: readonly TwinLaw[]): boolean => a.length === b.length && a.every((law, i) => law.matrix.every((row, r) => row.every((v, c) => v === b[i]!.matrix[r]![c])));
+
+const twinText = (law: TwinLaw): string => (isInversion(law) ? "inversion (h′ = −h)" : `h′ = R·h, R = ${JSON.stringify(law.matrix)}`);
+
+/** The tabulated line whose f′, f″ the fit carries, or null (neutrons, or no line at this wavelength). */
+function anomalousLine(s: SingleCrystalLiveState): string | null {
+  const r = s.dataset.radiation;
+  return r.kind === "xray" ? dispersionLine(r.wavelength)?.name ?? null : null;
+}
+
+/**
+ * The twin laws after set_twin. Throws, before the user is asked, on a law
+ * that cannot twin this crystal: the inversion in a centrosymmetric group, a
+ * matrix that is not a symmetry of the lattice (the domains' reflections would
+ * not overlap), or one of the point group's own operations (the domains would
+ * be the same crystal).
+ */
+function twinAfter(s: SingleCrystalLiveState, input: Input): TwinLaw[] {
+  if (input.remove) return [];
+  if (input.law === undefined) throw new Error("give `law` (\"inversion\" or a 3×3 matrix) or `remove: true`");
+  const ops = s.structure.spaceGroup.operations;
+  if (input.law === "inversion") {
+    if (ops.some((op) => op.rotation.every((row, i) => row.every((v, j) => Math.round(v) === (i === j ? -1 : 0))))) throw new Error("the space group is centrosymmetric: an inversion twin is the same crystal");
+    return [INVERSION_TWIN];
+  }
+  const R = input.law as number[][];
+  const det = R[0]![0]! * (R[1]![1]! * R[2]![2]! - R[1]![2]! * R[2]![1]!) - R[0]![1]! * (R[1]![0]! * R[2]![2]! - R[1]![2]! * R[2]![0]!) + R[0]![2]! * (R[1]![0]! * R[2]![1]! - R[1]![1]! * R[2]![0]!);
+  if (Math.abs(det) !== 1) throw new Error(`a twin law has determinant ±1; this one has ${det}`);
+  // h′ = R·h keeps every d when Rᵀ·G*·R = G*, G* the reciprocal metric.
+  const g = reciprocalMetricTensor(s.structure.cell);
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
+    let v = 0;
+    for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) v += R[a]![i]! * g[a]![b]! * R[b]![j]!;
+    if (Math.abs(v - g[i]![j]!) > 1e-4 * Math.max(g[0]![0]!, g[1]![1]!, g[2]![2]!)) throw new Error("not a symmetry of this lattice: the twin domains' reflections would not overlap");
+  }
+  // h′ = R·h equivalent to h by the point group (R = opᵀ for some operation): the same crystal.
+  if (ops.some((op) => [0, 1, 2].every((i) => [0, 1, 2].every((j) => Math.round(op.rotation[j]![i]!) === R[i]![j])))) throw new Error("this law is one of the point group's own operations: its domains are the same crystal");
+  return [{ matrix: [[R[0]![0]!, R[0]![1]!, R[0]![2]!], [R[1]![0]!, R[1]![1]!, R[1]![2]!], [R[2]![0]!, R[2]![1]!, R[2]![2]!]] }];
+}
+
+/** The twin fractions as refined, with their esds, and what an inversion twin's says about the absolute structure. */
+function twinningView(s: SingleCrystalLiveState): Record<string, unknown> | null {
+  if (s.twinLaws.length === 0) return null;
+  return {
+    laws: s.twinLaws.map((law, i) => {
+      const p = s.parameters.find((q) => q.kind === "twinFraction" && s.bindings.some((b) => b.parameterId === q.id && b.targetKey === String(i + 1)));
+      const esd = p && !p.fixed ? s.result?.esd[p.id] : undefined;
+      const x = p?.value ?? NaN;
+      const text = esd !== undefined ? withEsd(x, esd, 4) : sig(x, 3);
+      return isInversion(law) ? { law: "inversion", flackX: text, reading: flackReading(x, esd, anomalousLine(s)) } : { law: law.matrix, fraction: text };
+    }),
+  };
+}
+
+/** What a Flack x with its esd u says (Flack & Bernardinelli, J. Appl. Cryst. 33 (2000) 1143). */
+function flackReading(x: number, u: number | undefined, line: string | null): string {
+  if (!line) return "no anomalous scattering at this radiation: x is undetermined, whatever its value";
+  if (u === undefined) return "not refined yet: refine it with the structure for its esd";
+  if (u > 0.3) return `u = ${sig(u, 2)}: the anomalous signal is too weak to say anything about the absolute structure`;
+  if (Math.abs(x) <= 2 * u) return u < 0.04 ? "the model's hand: the absolute structure is determined" : `the model's hand within 2u, but u = ${sig(u, 2)} is too large to determine an unknown absolute structure (u < 0.04); enough to confirm a known enantiopure one (u < 0.1)`;
+  if (Math.abs(1 - x) <= 2 * u) return "the inverted hand: invert the structure (every coordinate to its negative, the space group to its enantiomorph if it has one) and refine again";
+  return `between the hands: an inversion twin, ${sig(100 * x, 2)} % of the crystal of the inverted hand${Math.abs(x - 0.5) <= 2 * u ? " — a racemic twin" : ""}`;
 }
 
 // ── weighting scheme ────────────────────────────────────────────────────────
@@ -537,6 +619,8 @@ function stateView(s: SingleCrystalLiveState, history: ProjectHistory | null, se
       omitted: s.omitted.length ? s.omitted.map((o) => `${omittedText(o)}${o.reason ? `: ${o.reason}` : ""}`) : "none",
       resolution: s.resolution.dMin === undefined && s.resolution.dMax === undefined ? "the full range" : `${rangeText(s.resolution)}: ${s.resolution.excluded} reflections outside`,
       weights: weightingText(s.weighting),
+      anomalousScattering: s.dataset.radiation.kind !== "xray" ? "none (neutrons)" : anomalousLine(s) ? `f′, f″ at ${anomalousLine(s)} (Cromer & Liberman)` : `none: no tabulated line at λ ${s.dataset.radiation.wavelength} Å`,
+      twin: s.twinLaws.length ? s.twinLaws.map(twinText).join("; ") : "none",
       extinctionModel: EXTINCTION_MODEL_LABELS[s.extinctionModel],
     },
     agreement: { R1: pct(ag.r1), wR2: pct(ag.wr2), GooF: sig(ag.goof, 4), observed: ag.observed, total: ag.total, note: "R1 over Fo² > 2σ; wR2 and GooF over every reflection fitted, w = 1/σ²." },
@@ -569,7 +653,7 @@ function statisticsView(s: SingleCrystalLiveState): Record<string, unknown> {
     })),
     friedel: f.centrosymmetric
       ? "centrosymmetric group: Friedel mates are equivalent; no absolute structure to determine"
-      : `${f.withMate} of ${f.unique} reflections unique under the point group have their Friedel mate measured (${pct(f.fraction)} %)${f.fraction < 0.2 ? ": the Friedel pairs were merged (or never measured) — the absolute structure cannot be determined from these data" : ""}`,
+      : `${f.withMate} of the ${f.unique - f.centric} acentric reflections unique under the point group have their Friedel mate measured (${pct(f.fraction)} %)${f.centric ? `; ${f.centric} more are centric (no Bijvoet pair)` : ""}${f.fraction < 0.2 ? ": the Friedel pairs were merged (or never measured) — the absolute structure cannot be determined from these data" : ""}`,
     absences: st.absences.measured === 0
       ? "no reflection the space group forbids was measured (or the file left them out)"
       : {
@@ -615,6 +699,7 @@ function assessment(s: SingleCrystalLiveState): Record<string, unknown> {
     outliersReading: "Each outlier against its equivalents: one marked a failed measurement goes with omit_reflections (by its batch); a reflection the model misses stays, whatever its residual.",
     ...(s.omitted.length ? { omitted: s.omitted.map((o) => `${omittedText(o)}${o.reason ? `: ${o.reason}` : ""}`) } : {}),
     extinctionModel: EXTINCTION_MODEL_LABELS[s.extinctionModel],
+    ...(twinningView(s) ? { twinning: twinningView(s) } : {}),
     weighting: (() => {
       const sug = suggestionOf(s);
       return {

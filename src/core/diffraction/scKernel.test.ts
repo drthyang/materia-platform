@@ -75,9 +75,51 @@ function compareWithReference(model: StructureModel, radiation: Parameters<typeo
 
 describe("the single-crystal structure-factor kernel", () => {
   it("reproduces nuclearStructureFactor on general and special positions, X-ray and neutron", () => {
-    expect(compareWithReference(monoclinic, { kind: "xray", wavelength: 0.71073 })).toBeLessThan(1e-12);
+    // At 1.0 Å no laboratory line's f′, f″ apply: the form factors alone, as the reference has them.
+    expect(compareWithReference(monoclinic, { kind: "xray", wavelength: 1.0 })).toBeLessThan(1e-12);
     expect(compareWithReference(monoclinic, { kind: "neutron", wavelength: 1.0 })).toBeLessThan(1e-12);
     expect(compareWithReference(corundum, { kind: "neutron", wavelength: 1.0 })).toBeLessThan(1e-12);
+  });
+
+  it("adds f′ and f″ at a laboratory line: Bijvoet pairs differ in a non-centrosymmetric group, not in a centrosymmetric one", () => {
+    const noncentro = parseCif(`data_n
+_cell_length_a 6.2
+_cell_length_b 12.9
+_cell_length_c 17.4
+_cell_angle_alpha 90
+_cell_angle_beta 90
+_cell_angle_gamma 90
+_symmetry_space_group_name_H-M 'P 21 21 21'
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_U_iso_or_equiv
+Ga1 Ga 0.209 0.612 0.177 0.03
+N1 N 0.304 0.556 -0.046 0.03
+C1 C 0.105 0.594 -0.082 0.04
+`, "n");
+    const refl = generateReflections(noncentro.cell, noncentro.spaceGroup, 0.9, 20).filter((r) => r.h > 0 && r.k > 0 && r.l > 0).slice(0, 60);
+    const friedel = refl.map((r) => ({ h: -r.h, k: -r.k, l: -r.l }));
+    const mo = { kind: "xray" as const, wavelength: 0.71073 };
+    const plan = scPlan(noncentro, mo, refl);
+    expect(plan.dispersion).toBe("Mo Kα");
+    const f = scStructureFactors(plan, noncentro);
+    const g = scStructureFactors(scPlan(noncentro, mo, friedel), noncentro);
+    const bijvoet = refl.map((_, i) => Math.abs((f.re[i]! ** 2 + f.im[i]! ** 2) - (g.re[i]! ** 2 + g.im[i]! ** 2)) / (f.re[i]! ** 2 + f.im[i]! ** 2));
+    // Ga's f″ = 1.6 e: Bijvoet differences of a few per cent.
+    expect(Math.max(...bijvoet)).toBeGreaterThan(0.01);
+    // Without a tabulated line, none.
+    const plain = scStructureFactors(scPlan(noncentro, { kind: "xray", wavelength: 1.0 }, refl), noncentro);
+    const plainNeg = scStructureFactors(scPlan(noncentro, { kind: "xray", wavelength: 1.0 }, friedel), noncentro);
+    refl.forEach((_, i) => expect(plain.re[i]! ** 2 + plain.im[i]! ** 2).toBeCloseTo(plainNeg.re[i]! ** 2 + plainNeg.im[i]! ** 2, 8));
+    // A centrosymmetric crystal keeps |F(h)| = |F(−h)| with them.
+    const cRefl = generateReflections(monoclinic.cell, monoclinic.spaceGroup, 0.9, 20).slice(0, 40);
+    const c1 = scStructureFactors(scPlan(monoclinic, mo, cRefl), monoclinic);
+    const c2 = scStructureFactors(scPlan(monoclinic, mo, cRefl.map((r) => ({ h: -r.h, k: -r.k, l: -r.l }))), monoclinic);
+    cRefl.forEach((_, i) => expect(c1.re[i]! ** 2 + c1.im[i]! ** 2).toBeCloseTo(c2.re[i]! ** 2 + c2.im[i]! ** 2, 8));
   });
 
   it("gives ∂F for position modes, U modes, B_iso and occupancy that match finite differences", () => {
