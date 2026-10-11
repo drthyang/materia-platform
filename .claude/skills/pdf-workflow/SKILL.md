@@ -41,7 +41,10 @@ Refine (`refine_pdf`; in the app, `refine` after `set_free`) and check
 stable and nothing sits at a bound.
 
 1. **Scale + cell.** Establish these first.
-2. **Displacement parameters** (U_iso, tied per element or per site as the model says).
+2. **Displacement parameters**: one U per site (`get_state` gives the ADP model). A CIF
+   with U_aniso columns loads a tensor per site even when the values are isotropic: switch
+   with `set_adp_model` to isotropic first. The tensor is the last structural step, with a
+   reason and high-Qmax data that reach high r.
 3. **One correlated-motion term**: `delta2` at low temperature, `delta1` at high
    temperature. **Never both**, and never together with `sratio`/`rcut` — they describe the
    same near-neighbour peak sharpening, and the correlation check refuses the pair.
@@ -63,7 +66,12 @@ To ask whether the local structure differs from the average one, run a **boxcar 
 across r, each box seeded from the previous one. A parameter that drifts with r, or an Rw
 that rises at low r, is the local-structure signal. Do this rather than comparing
 hand-picked windows. Keep the free set small (scale, cell, ADPs, and the parameter in
-question); a box holds less information than the whole window.
+question); a box holds less information than the whole window. Pass it as the scan's own
+`free`: the page keeps its free set and its fit, so the report afterwards matches them and
+carries the scan. When the question is a
+bond length (a Jahn–Teller or off-centre distortion), name the site in `bonds`: each box
+then gives that site's bond lengths in its own refined structure, so you compare lengths,
+not coordinate shifts.
 
 ## When it's done
 

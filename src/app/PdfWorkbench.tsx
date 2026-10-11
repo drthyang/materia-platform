@@ -16,7 +16,8 @@ import type { EngineExportsRef } from "@/app/workbenchEngine";
 import type { PdfWorkspace } from "@/core/project/types";
 import { overlaySavedParameters, pdfWorkspaceFrom } from "@/app/projectIo";
 import { useOnChange } from "@/app/useOnChange";
-import type { StructureModel } from "@/core/crystal/types";
+import type { AtomSite, StructureModel } from "@/core/crystal/types";
+import { withAdpModel } from "@/core/crystal/adp";
 import type { PdfPattern } from "@/core/diffraction/types";
 import type { RefinementResult } from "@/core/refinement/types";
 import type { ParameterBinding, RefinementParameter } from "@/core/refinement/types";
@@ -64,7 +65,7 @@ import { ParameterPanel } from "@/app/ui/ParameterPanel";
 import { PosteriorPanel } from "@/app/ui/PosteriorPanel";
 import { ReciprocalPanel } from "@/app/ui/ReciprocalPanel";
 import { BoxcarPanel, stepIndexFor, type BoxcarPlan, type BoxcarRun, type BoxcarSeries } from "@/app/ui/BoxcarPanel";
-import { boxcarPlanIssue, boxcarScannedMax, boxcarWindows, type BoxcarDirection, type BoxcarDirectionChoice } from "@/core/workflow/pdfBoxcar";
+import { boxcarPlanIssue, boxcarScannedMax, boxcarTable, boxcarWindows, type BoxcarDirection, type BoxcarDirectionChoice } from "@/core/workflow/pdfBoxcar";
 
 /** One finished (or interrupted) pass, accumulated while a run is in flight. */
 type BoxcarSeriesState = BoxcarSeries;
@@ -159,6 +160,14 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
     return dm ? { set: dm.set, parentName: dm.parentName, ...(dm.fromActivation ? { fromActivation: true } : {}) } : null;
   });
   useOnChange(structure, () => setModes(null));
+  // The primary phase's ADP model. A CIF's U_aniso columns load anisotropic (a
+  // tensor per site); a small-box fit usually refines one U per site. Null
+  // keeps the structure's own model. A switch seeds the new rows from the
+  // current (refined) ADPs, as the powder page's does.
+  const [adp, setAdp] = useState<{ readonly model: "isotropic" | "anisotropic"; readonly seeds: Readonly<Record<string, AtomSite["adp"]>> } | null>(
+    () => (restoring?.adpModel ? { model: restoring.adpModel, seeds: {} } : null),
+  );
+  useOnChange(structure, () => setAdp(null));
   // ---- Magnetic PDF (mPDF, roadmap P4) -----------------------------------
   // The spin model handed over from the magnetic page (step 1). Model AND its
   // moment rows travel together: they must enter the `spec` memo as one unit,
@@ -194,7 +203,16 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
       : null;
   // The mode parameters are anchored on the parentized structure; everything
   // downstream (spec, curves, worker refine, 3D view, CIF export) uses it.
-  const fitStructure = modeSet ? modeSet.parentized : structure;
+  const modeBase = modeSet ? modeSet.parentized : structure;
+  const fitStructure = useMemo(
+    () => (adp ? withAdpModel({ ...modeBase, sites: modeBase.sites.map((site) => ({ ...site, adp: adp.seeds[site.label] ?? site.adp })) }, adp.model) : modeBase),
+    [modeBase, adp],
+  );
+  // What the fitted primary phase refines: one U per site, a tensor, or both.
+  const adpModel = useMemo((): "isotropic" | "anisotropic" | "mixed" => {
+    const kinds = new Set(fitStructure.sites.map((site) => site.adp.kind));
+    return kinds.size === 1 ? [...kinds][0]! : "mixed";
+  }, [fitStructure]);
   // Mode selected in the 3D card's table: its eigenvector (unit-amplitude
   // displacement field) is drawn as green arrows on the 3D model. Click the
   // row to toggle; any mode-set change invalidates the selection.
@@ -521,6 +539,20 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
     ? "The data file names no radiation, so it is read as X-ray data. Neutrons weight the pairs differently (Mn, Ti, V, Li and H scatter with negative lengths): confirm the radiation before reading the fit."
     : null;
 
+  /**
+   * Switch the primary phase's ADP model: one U per site, or the symmetry-
+   * allowed tensor. The new rows are seeded from the ADPs as refined so far
+   * (a tensor's equivalent U, or a sphere), and enter fixed.
+   */
+  function switchAdpModel(anisotropic: boolean): void {
+    if ((anisotropic ? "anisotropic" : "isotropic") === adpModel) return;
+    const values: Record<string, number> = {};
+    for (const p of activeParams) values[p.id] = p.value;
+    const refined = applyParameters(fitStructure, multiPhase ? pdfPhaseBindingsFor(spec.bindings, fitStructure.id) : spec.bindings, values).model;
+    setAdp({ model: anisotropic ? "anisotropic" : "isotropic", seeds: Object.fromEntries(refined.sites.map((site) => [site.label, site.adp])) });
+    stepHistory?.requestStep("settings", anisotropic ? "Anisotropic ADPs" : "Isotropic ADPs");
+  }
+
   /** The refine request shared by the nuclear and magnetic paths. */
   function refineRequest(start: readonly RefinementParameter[], maxIterations: number) {
     return {
@@ -708,7 +740,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
    * the last box is not a better answer than the first. "Adopt" moves one box's
    * values into the panel deliberately.
    */
-  async function runBoxcar(override?: { readonly width: number; readonly step: number; readonly direction: BoxcarDirectionChoice }): Promise<BoxcarRun | null> {
+  async function runBoxcar(override?: { readonly width: number; readonly step: number; readonly direction: BoxcarDirectionChoice; readonly bonds?: readonly string[]; readonly free?: readonly string[] }): Promise<BoxcarRun | null> {
     // The Agent passes its own plan: it becomes the panel's plan, and the
     // Boxcar view opens so the user watches the scan fill in.
     const boxWidth = override?.width ?? boxWidthSetting;
@@ -724,15 +756,19 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
     const specAtCall = specRef.current;
     const restarts = boxRandomStart ? boxRestarts : 0;
     let final: BoxcarRun | null = null;
+    // The Agent may name the scan's own free set: each box refines those, and
+    // the panel keeps its free flags (and the fit they match) as they are.
+    const own = override?.free ? new Set(override.free) : null;
+    const scanParams = own ? params.map((p) => (p.expression ? p : { ...p, fixed: !own.has(p.id) })) : params;
     // Frozen with the run, not held as separate state: the panel's free flags
     // may change before the scan ends, and the tracks belong to the parameter
     // set that produced them.
-    const freeIds = params.filter((p) => !p.fixed && !p.expression).map((p) => p.id);
+    const freeIds = scanParams.filter((p) => !p.fixed && !p.expression).map((p) => p.id);
     // "both" is two passes over the SAME boxes, each starting from the SAME
     // model — that is what makes their separation a property of the fit rather
     // than of two different starting points.
     const directions: BoxcarDirection[] = boxDirection === "both" ? ["up", "down"] : [boxDirection];
-    const plan = { windows, width: boxWidth, restarts, freeIds };
+    const plan = { windows, width: boxWidth, restarts, freeIds, ...(override?.bonds?.length ? { bondSites: [...override.bonds] } : {}) };
     const totalBoxes = windows.length * directions.length;
     const done: BoxcarSeriesState[] = [];
     /** The evolution table for a pass's completed boxes — rebuilt per box while
@@ -778,7 +814,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
           {
             structure: fitStructure,
             pattern,
-            parameters: [...params],
+            parameters: [...scanParams],
             bindings: [...spec.bindings],
             restraints: spec.restraints,
             options: { maxIterations: 20 },
@@ -1182,6 +1218,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
       spinModel: spinFit ? refinedMagnetic ?? spinFit.magnetic : null,
       explored: exploredMagnetic.current,
       ...(motionConflict || radiationWarning ? { warnings: [motionConflict, radiationWarning].filter((w): w is string => w !== null) } : {}),
+      boxcar: boxcarRun ? boxcarTable(boxcarRun, fitStructure, multiPhase ? pdfPhaseBindingsFor(spec.bindings, fitStructure.id) : spec.bindings, activeParams) : null,
     });
   };
   // Publish the Agent port (agent/port.ts): the live state, read lazily, and
@@ -1209,6 +1246,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
           curves,
           observationCount: curves.x.filter((r) => r >= fitRange.min && r <= fitRange.max).length,
           positionMode,
+          adpModel,
           spinModel: spinFit !== null,
           warnings: [radiationWarning, motionConflict, adpWarning].filter((w): w is string => w !== null),
           source: pattern.name,
@@ -1219,6 +1257,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
         const fixed = new Map(changes.map((c) => [c.id, c.fixed]));
         setParams((ps) => ps.map((p) => (fixed.has(p.id) ? { ...p, fixed: fixed.get(p.id)! } : p)));
       },
+      setAdpModel: switchAdpModel,
       setFitRange: (range) => setFitRange(range ? { min: range.min, max: range.max } : defaultRange),
       refine: runRefine,
       thorough: runMultiStart,
@@ -1304,7 +1343,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   projectWorkspaceRef.current = () =>
     pdfWorkspaceFrom({
       pattern, params: activeParams, bindings: spec.bindings, result, fitRange, positionMode, modes, spinModel,
-      boxcarPlan: boxcarPlanState, boxcarRun,
+      boxcarPlan: boxcarPlanState, boxcarRun, adpModel: adp?.model ?? null,
     });
   useEffect(() => {
     if (!exportsRef) return;
@@ -1906,6 +1945,14 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
           result={result}
           title="PDF parameters"
           extraActions={refineActions}
+          groupControls={{
+            "ADPs (thermal)": (
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 5, cursor: busy ? "default" : "pointer" }} title="Refine the symmetry-allowed U tensor of each site instead of one U per site. Each site's tensor is seeded from its current U; a CIF with U_aniso columns loads anisotropic. A small-box fit usually refines one U per site.">
+                <input type="checkbox" checked={adpModel === "anisotropic"} disabled={busy} onChange={(e) => switchAdpModel(e.target.checked)} />
+                anisotropic (U tensor){adpModel === "mixed" ? " · some sites" : ""}
+              </label>
+            ),
+          }}
           groupInfo={{
             // Each PDF group is a distinct physical effect — the "?" badge spells
             // it out on hover so the physics stays off the resting parameter rows.

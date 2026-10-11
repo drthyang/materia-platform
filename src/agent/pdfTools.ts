@@ -17,9 +17,11 @@ import type { ProjectHistory } from "@/core/project/history";
 import { assess_refinement, bond_geometry, interpret_structure, suggest_next_steps } from "@/mcp/tools";
 import { structureTable } from "@/agent/structureTable";
 import { applyFree, bondsOf, cellOf, describeFree, freeNoOp, goToStep, historyView, matchIds, parameterSummary, pct, sig, type ChangeResult, type LiveToolHost } from "@/agent/liveCommon";
-import { boxcarStepIndex, boxcarWindows, type BoxcarRun } from "@/core/workflow/pdfBoxcar";
-import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
+import { boxShell, boxcarStepIndex, boxcarWindows, type BoxcarRun } from "@/core/workflow/pdfBoxcar";
+import type { RefinementResult } from "@/core/refinement/types";
 import type { ReportCheck } from "@/core/export/report";
+import { coordinationShells, type ShellBond } from "@/core/crystal/geometry";
+import { pdfPhaseBindingsFor } from "@/core/workflow/pdf";
 import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, correlationsCheck, findingChecks, noResultCheck } from "@/agent/reportChecks";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- inputs are validated against the spec's zod schema before a handler runs */
@@ -64,6 +66,9 @@ export async function changePdf(name: string, input: Input, port: PdfAgentPort, 
   switch (name) {
     case "set_free":
       return applyFree(s.parameters, input, port.setFixed);
+    case "set_adp_model":
+      port.setAdpModel(!!input.anisotropic);
+      return undefined;
     case "set_fit_range": {
       if (input.unit !== undefined) throw new Error("the PDF page fits a window in r (Å); leave out `unit`");
       if (input.whole) {
@@ -83,10 +88,20 @@ export async function changePdf(name: string, input: Input, port: PdfAgentPort, 
       return why ? `The refinement did not finish (${why}); the parameters keep their values from before it.` : undefined;
     }
     case "boxcar_scan": {
-      if (!s.parameters.some((p) => !p.fixed && !p.expression)) throw new Error("no parameter is free — free the ones to track with set_free first");
-      const run = await port.boxcar({ width: input.width ?? 5, step: input.step ?? 1, direction: input.direction ?? "up" });
+      // matchIds refuses a pattern that matches nothing; tied rows follow their tie and are not offered.
+      const free = input.free ? matchIds(s.parameters.filter((p) => !p.expression), input.free as string[]) : null;
+      if (!free && !s.parameters.some((p) => !p.fixed && !p.expression)) throw new Error("no parameter is free — free the ones to track with set_free first, or pass `free`");
+      const sites = (input.bonds as string[] | undefined) ?? [];
+      const phase = s.phases[0]!;
+      const labels = phase.sites.map((site) => site.label);
+      const unknown = sites.filter((l) => !labels.includes(l));
+      if (unknown.length) throw new Error(`no site ${unknown.join(", ")} in ${phase.name || "the primary phase"} — its sites: ${labels.join(", ")}`);
+      const cations = coordinationShells(s.refinedPhases[0]!).map((sh) => sh.site);
+      const anion = sites.filter((l) => !cations.includes(l));
+      if (anion.length) throw new Error(`${anion.join(", ")} has no coordination shell of its own (an anion): name the cation whose bonds to track — ${cations.join(", ")}`);
+      const run = await port.boxcar({ width: input.width ?? 5, step: input.step ?? 1, direction: input.direction ?? "up", ...(sites.length ? { bonds: sites } : {}), ...(free ? { free } : {}) });
       if (!run) return "The scan did not finish (cancelled, failed, or the model changed while it ran).";
-      return { note: boxcarLine(run), data: boxcarView(run, s.parameters) };
+      return { note: boxcarLine(run), data: boxcarView(run, s, sites) };
     }
     case "reset_parameters":
       port.reset(input.parameters ? matchIds(s.parameters, input.parameters as string[]) : undefined);
@@ -101,6 +116,7 @@ export async function changePdf(name: string, input: Input, port: PdfAgentPort, 
 
 /** Why a change would do nothing, or null when it would do something. */
 export function pdfNoOp(spec: LiveToolSpec, input: Input, s: PdfLiveState): string | null {
+  if (spec.name === "set_adp_model") return s.adpModel === (input.anisotropic ? "anisotropic" : "isotropic") ? `the ADPs are already ${s.adpModel}` : null;
   return spec.name === "set_free" ? freeNoOp(s.parameters, input) : null;
 }
 
@@ -111,11 +127,13 @@ export function describePdfChange(spec: LiveToolSpec, input: Input, s: PdfLiveSt
       const width = input.width ?? 5;
       const step = input.step ?? 1;
       const boxes = boxcarWindows({ range: s.fitRange, width, step }).length;
-      const free = s.parameters.filter((p) => !p.fixed && !p.expression).length;
+      const free = input.free ? matchIds(s.parameters.filter((p) => !p.expression), input.free as string[]).length : s.parameters.filter((p) => !p.fixed && !p.expression).length;
       return `Boxcar scan: ${boxes} boxes of ${width} Å every ${step} Å across r ${sig(s.fitRange.min, 4)} – ${sig(s.fitRange.max, 4)} Å, ${free} free parameters${input.direction === "both" ? ", both directions" : input.direction === "down" ? ", high → low r" : ""}`;
     }
     case "set_free":
       return describeFree(s.parameters, input);
+    case "set_adp_model":
+      return `ADPs ${s.adpModel} → ${input.anisotropic ? "anisotropic (U tensor per site)" : "isotropic (one U per site)"}`;
     case "set_fit_range":
       return input.whole
         ? `Fit the default window, r ${sig(s.defaultRange.min, 4)} – ${sig(s.defaultRange.max, 4)} Å`
@@ -159,6 +177,7 @@ function stateView(s: PdfLiveState, history: ProjectHistory | null, select: read
       ...(p.qmax !== undefined ? { qmax: p.qmax } : {}),
     },
     positions: s.positionMode === "irreps" ? "symmetry-mode amplitudes (irreps)" : "constrained atomic coordinates",
+    adp: s.adpModel === "anisotropic" ? "anisotropic (U tensor per site)" : s.adpModel === "isotropic" ? "isotropic (one U per site)" : "mixed (isotropic and anisotropic sites)",
     spinModel: s.spinModel ? "applied: refine fits nuclear + magnetic G(r)" : null,
     Rw: pct(s.rw),
     lastRefinement: s.result
@@ -223,18 +242,31 @@ function boxAt(run: BoxcarRun, series: BoxcarRun["series"][number], i: number): 
   return series.result.steps[boxcarStepIndex(series.direction, i, run.windows.length, series.result.steps.length)];
 }
 
-/** The scan as the model reads it: per box its window, Rw and the free values; per parameter its spread. */
-function boxcarView(run: BoxcarRun, parameters: readonly RefinementParameter[]): Record<string, unknown> {
-  const label = new Map(parameters.map((p) => [p.id, p.label]));
+/**
+ * The scan as the model reads it: per box its window, Rw and the free values;
+ * per parameter its spread. With `sites`, each box also gives those sites'
+ * bond lengths in the structure that box refined, and each bond its spread
+ * across the boxes — the local geometry box by box, computed rather than
+ * worked out from coordinate shifts.
+ */
+function boxcarView(run: BoxcarRun, s: PdfLiveState, sites: readonly string[]): Record<string, unknown> {
+  const label = new Map(s.parameters.map((p) => [p.id, p.label]));
+  const phase = s.phases[0]!;
+  const bindings = s.phases.length > 1 ? pdfPhaseBindingsFor(s.bindings, phase.id) : s.bindings;
+  const bondsIn = (values: Readonly<Record<string, number>>): Record<string, readonly ShellBond[]> =>
+    Object.fromEntries(sites.map((site) => [site, boxShell(phase, bindings, s.parameters, values, site) ?? []]));
   const passes = run.series.map((series) => {
     const boxes = run.windows.map((w, i) => {
       const step = boxAt(run, series, i);
       if (!step) return null;
+      const bonds = sites.length ? bondsIn(step.result.parameters) : null;
       return {
         r: [sig(w.min, 4), sig(w.max, 4)],
         Rw: pct(step.result.agreement.rWeighted ?? NaN),
         ...(step.carried ? {} : { diverged: true }),
         values: Object.fromEntries(run.freeIds.map((id) => [id, sig(step.result.parameters[id] ?? NaN, 5)])),
+        ...(bonds ? { bonds: Object.fromEntries(Object.entries(bonds).map(([site, list]) => [site, list.map((b) => `${b.to} ${b.distance.toFixed(4)}${b.count > 1 ? ` ×${b.count}` : ""}`)])) } : {}),
+        _bonds: bonds,
       };
     }).filter((b) => b !== null);
     const spread = Object.fromEntries(run.freeIds.map((id) => {
@@ -243,9 +275,21 @@ function boxcarView(run: BoxcarRun, parameters: readonly RefinementParameter[]):
       const hi = Math.max(...v);
       return [id, { label: label.get(id) ?? id, first: v[0], last: v.at(-1), min: lo, max: hi }];
     }));
-    return { direction: series.direction, boxes, spread };
+    // Each bond of the first box, followed through the boxes by its rank in the site's list.
+    const bondSpread: Record<string, { first: number; last: number; min: number; max: number }> = {};
+    for (const site of sites) {
+      (boxes[0]?._bonds?.[site] ?? []).forEach((b, k) => {
+        const v = boxes.map((box) => box._bonds?.[site]?.[k]?.distance).filter((d): d is number => d !== undefined);
+        bondSpread[`${site}–${b.to}${b.count > 1 ? ` ×${b.count}` : ""} #${k + 1}`] = { first: sig(v[0]!, 5), last: sig(v.at(-1)!, 5), min: sig(Math.min(...v), 5), max: sig(Math.max(...v), 5) };
+      });
+    }
+    return { direction: series.direction, boxes: boxes.map(({ _bonds: _drop, ...box }) => box), spread, ...(sites.length ? { bondSpread } : {}) };
   });
-  return { boxcar: { width: run.width, boxes: run.windows.length, passes }, reading: "Rw and a parameter that drift together across r mean the model fits some length scales and not others: compare the low-r boxes (the local structure) with the high-r ones (the average)." };
+  return {
+    boxcar: { width: run.width, boxes: run.windows.length, passes },
+    reading: "Rw and a parameter that drift together across r mean the model fits some length scales and not others: compare the low-r boxes (the local structure) with the high-r ones (the average)." +
+      (sites.length ? " The bond lengths are each box's refined structure (Å); the scan gives no esds, so judge a drift against the spread from box to box." : ""),
+  };
 }
 
 /** The card's outcome line: the scan's Rw at low and high r. */

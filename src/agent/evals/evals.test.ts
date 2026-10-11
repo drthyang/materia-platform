@@ -162,6 +162,20 @@ const REPLAYS: Readonly<Record<string, Replay>> = {
     ],
     catches: ["calls boxcar_scan"],
   },
+  "pdf-local-geometry": {
+    good: [
+      { calls: [PDF, { name: "get_state" }] },
+      { text: "A boxcar scan, refining the scale and the positions in each box, with the Ta1 shell reported box by box.", calls: [{ name: "boxcar_scan", input: { width: 2, step: 1, free: ["pdfScale", "pos_*"], bonds: ["Ta1"] } }] },
+      { calls: [{ name: "write_report", input: { summary: "The Ta1 coordination shell holds box by box across the window: the local structure agrees with the average one here. The scan, with the lengths in each box, is in the report." } }] },
+      { text: "The report is open, with the scan and the bond lengths in each box." },
+    ],
+    bad: [
+      { calls: [PDF, { name: "bond_geometry" }] },
+      { calls: [{ name: "write_report", input: { summary: "The Ta–Se bonds are the same locally as on average." } }] },
+      { text: "They are the same." },
+    ],
+    catches: ["calls boxcar_scan", "scans the bond lengths its question is about", "puts the scan in the report"],
+  },
 };
 
 async function replay(id: string, turns: readonly ScriptTurn[]): Promise<EvalResult & { overrun: number }> {

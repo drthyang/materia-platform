@@ -22,7 +22,7 @@ import { magneticOperationSignature } from "@/core/magnetic/operationSignature";
 import { latticeCandidateLabel, latticeRepresentatives, magneticSubgroupLattice } from "@/core/magnetic/subgroupLattice";
 import { crystalComponentsToCartesian } from "@/core/magnetic/moment";
 import { kLabel } from "@/core/magnetic/kSearch";
-import type { ReportGroup, ReportInput, ReportMagnetic, ReportPhase, ReportRow, ReportStat } from "@/core/export/report";
+import type { ReportBoxcar, ReportGroup, ReportInput, ReportMagnetic, ReportPhase, ReportRow, ReportStat } from "@/core/export/report";
 import type { FigureCurves, FigureTickRow, FobsFcalcPoint } from "@/core/export/reportFigures";
 import type { Session } from "@/app/powderSession";
 import { APP_VERSION } from "@/app/constants";
@@ -420,6 +420,8 @@ export function pdfReportInput(o: {
   /** The mPDF page's current candidate, when one is selected but not adopted. */
   readonly explored: MagneticExploration | null;
   readonly warnings?: readonly string[];
+  /** The last boxcar scan of this model, as a table (pdfBoxcar.boxcarTable). */
+  readonly boxcar?: ReportBoxcar | null;
 }): ReportInput {
   const params = withEsds(o.params, o.result);
   const free = params.filter((p) => !p.fixed && !p.expression).length;
@@ -458,7 +460,7 @@ export function pdfReportInput(o: {
   if (pattern.qbroad !== undefined) meta.push(`Q_broad ${pattern.qbroad} Å⁻¹`);
   const data: ReportRow[] = [
     { label: "Data file", value: `${pattern.name} — ${PDF_SOURCE_LABEL[pattern.sourceKind ?? "gr"] ?? "G(r)"}` },
-    { label: "Probe", value: pattern.scatteringType === "neutron" ? "Neutron total scattering (coherent scattering lengths b)" : "X-ray total scattering (Z-weighted, PDFfit2 convention)" },
+    { label: "Probe", value: (pattern.scatteringType === "neutron" ? "Neutron total scattering (coherent scattering lengths b)" : "X-ray total scattering (Z-weighted, PDFfit2 convention)") + (pattern.radiationAssumed ? " — assumed: the data file names no radiation" : "") },
     { label: "Range", value: `r = ${num(rFirst, 2)} – ${num(rLast, 2)} Å · ${pattern.points.length} points${pattern.rstep !== undefined ? ` · Δr ${pattern.rstep} Å` : ""}` },
     { label: "Fit window", value: `${num(o.fitRange.min, 2)} – ${num(o.fitRange.max, 2)} Å · ${inWindow} points` },
     ...(meta.length ? [{ label: "Reduction", value: meta.join(" · ") }] : []),
@@ -487,6 +489,7 @@ export function pdfReportInput(o: {
     data,
     phases,
     magnetic: magnetic.section,
+    ...(o.boxcar ? { boxcar: o.boxcar } : {}),
     figure: o.curves.x.length > 0
       ? {
           kind: "pattern",

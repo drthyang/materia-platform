@@ -27,6 +27,7 @@ import { crystalComponentsToCartesian } from "@/core/magnetic/moment";
 import { kLabel } from "@/core/magnetic/kSearch";
 import { magneticSupercell, momentAnchorPosition } from "@/core/crystal/cellExpansion";
 import { markNumbers } from "@/core/export/reportAudit";
+import { coordinationShells } from "@/core/crystal/geometry";
 import {
   fobsFcalcSvg,
   magneticProjectionSvg,
@@ -188,6 +189,23 @@ export interface ReportAgent {
   readonly unverified?: readonly string[];
 }
 
+/**
+ * A boxcar scan (PDF): the model refined box by box across r. Each row is a
+ * box — its r range, Rw and the tracked values (a site's bond lengths in the
+ * structure that box refined, or the free parameters' values).
+ */
+export interface ReportBoxcar {
+  /** Box width (Å). */
+  readonly width: number;
+  /** The parameters refined in each box (labels). */
+  readonly free: readonly string[];
+  /** What the value columns hold, e.g. "Mn1–O6 ×2 (Å)". */
+  readonly columns: readonly string[];
+  readonly rows: readonly { readonly r: readonly [number, number]; readonly rw: number; readonly values: readonly number[] }[];
+  /** Decimals for the value columns (4 for lengths in Å). */
+  readonly decimals: number;
+}
+
 export interface ReportInput {
   readonly technique: ReportTechnique;
   /** The material / structure name. */
@@ -203,6 +221,8 @@ export interface ReportInput {
   readonly phases: readonly ReportPhase[];
   readonly magnetic?: ReportMagnetic | null;
   readonly figure?: ReportFigure | null;
+  /** The last boxcar scan of this model (PDF), when one was run. */
+  readonly boxcar?: ReportBoxcar | null;
   /** Every parameter of the model, with esds merged in where the fit gave one. */
   readonly parameters: readonly RefinementParameter[];
   readonly result?: RefinementResult | null;
@@ -354,6 +374,41 @@ ${rows.join("\n")}
 </table></div>`;
 }
 
+/** What the bond tables say about their lengths. */
+export const BONDS_NOTE = "Each cation's shell at the refined positions, out to 3.2 Å (or 1.25 × its shortest bond for a large cation); no esds, as the covariance is not carried to the lengths.";
+
+/** The cations' coordination shells, one row per site: "O6 1.9067 ×2 · O1 1.9692 ×2 · …". */
+export function shellRows(structure: StructureModel): { site: string; bonds: string; mean: string }[] {
+  return coordinationShells(structure).map((sh) => ({
+    site: sh.site,
+    bonds: sh.bonds.map((b) => `${b.to} ${fixed(b.distance, 4)}${b.count > 1 ? ` ×${b.count}` : ""}`).join(" · "),
+    mean: fixed(sh.mean, 4),
+  }));
+}
+
+function bondsHtml(structure: StructureModel): string {
+  const rows = shellRows(structure);
+  if (rows.length === 0) return "";
+  return `<div class="card"><div class="scroll"><table>
+<tr><th>Site</th><th>Bonds (Å)</th><th class="num">Mean (Å)</th></tr>
+${rows.map((r) => `<tr><td><b>${esc(r.site)}</b></td><td>${esc(r.bonds)}</td><td class="num">${r.mean}</td></tr>`).join("\n")}
+</table></div><p class="note">${esc(BONDS_NOTE)}</p></div>`;
+}
+
+/** The boxcar scan as a table: r, Rw and the tracked values per box. */
+function boxcarHtml(b: ReportBoxcar): string {
+  const rows = b.rows.map((row) => `<tr><td class="num">${fixed(row.r[0], 2)}–${fixed(row.r[1], 2)}</td><td class="num">${fixed(100 * row.rw, 2)}</td>${row.values.map((v) => `<td class="num">${Number.isFinite(v) ? fixed(v, b.decimals) : "—"}</td>`).join("")}</tr>`);
+  return `<div class="card"><div class="scroll"><table>
+<tr><th class="num case">r (Å)</th><th class="num case">R<sub>w</sub> (%)</th>${b.columns.map((c) => `<th class="num case">${esc(c)}</th>`).join("")}</tr>
+${rows.join("\n")}
+</table></div><p class="note">${esc(boxcarNote(b))}</p></div>`;
+}
+
+/** How the scan was run, under its table. */
+export function boxcarNote(b: ReportBoxcar): string {
+  return `${b.rows.length} boxes of ${fixed(b.width, 2)} Å, each refining ${b.free.join(", ")} from the previous box's values. A value that drifts with r, or an Rw that rises at low r, is a local structure the average model lacks. No esds per box.`;
+}
+
 function phaseHtml(phase: ReportPhase, index: number, total: number): string {
   const st = phase.structure;
   const esd = buildEsdMap(phase.params, phase.bindings);
@@ -365,7 +420,8 @@ function phaseHtml(phase: ReportPhase, index: number, total: number): string {
 <div class="two">
   <div class="card">${sitesTable(st, esd)}</div>
   <div class="card">${cellTable(st.cell, esd)}<p class="note">${st.sites.length} site${st.sites.length === 1 ? "" : "s"} in the asymmetric unit · ${sg.operations.length} symmetry operation${sg.operations.length === 1 ? "" : "s"}</p></div>
-</div>`;
+</div>
+${bondsHtml(st)}`;
 }
 
 function figureHtml(fig: ReportFigure): string {
@@ -633,6 +689,7 @@ const CSS = `
   table { border-collapse: collapse; width: 100%; font-size: 13px; }
   th, td { padding: 6px 12px 6px 0; text-align: left; vertical-align: top; border-bottom: 1px solid var(--hair); }
   th { font-weight: 600; font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--soft); }
+  th.case { text-transform: none; letter-spacing: 0; }
   tr:last-child > td { border-bottom: none; }
   td:last-child, th:last-child { padding-right: 0; }
   .num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; font-size: 12.5px; }
@@ -716,6 +773,7 @@ export function reportHtml(input: ReportInput): string {
 
   const data = input.data.length > 0 ? `<div class="card">${kvHtml(input.data)}</div>` : "";
   const fit = input.figure ? figureHtml(input.figure) : "";
+  const boxcar = input.boxcar ? boxcarHtml(input.boxcar) : "";
   const phases = input.phases.map((p, i) => phaseHtml(p, i, input.phases.length)).join("\n");
   const magnetic = input.magnetic ? magneticHtml(input.magnetic, primary) : "";
   const params = parametersHtml(input.parameters);
@@ -742,6 +800,7 @@ export function reportHtml(input: ReportInput): string {
   ${section("analysis", "The analysis", agent)}
   ${section("data", "Data & model", data)}
   ${section("fit", "Fit", fit)}
+  ${section("local", "Local versus average", boxcar)}
   ${section("structure", input.phases.length > 1 ? "Atomic structures" : "Atomic structure", phases)}
   ${section("magnetic", "Magnetic structure", magnetic)}
   ${section("parameters", "Parameters", params)}

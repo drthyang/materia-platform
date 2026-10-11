@@ -552,14 +552,19 @@ and [`pdfTools.ts`](../src/agent/pdfTools.ts).
   free components) to the refinement step, where `refine` fits nuclear and
   magnetic together. Its changes wait for the `magnetic-analysis` skill to be
   read, as the page's changes wait for its method.
-- PDF page only: `boxcar_scan`, the Boxcar view's scan. The free parameters
-  are refined box by box across the fit window, seeded from the previous box,
-  and the parameter rows are left as they are. It returns each box's r range,
-  Rw and values, and each parameter's spread, to tell the local structure
-  from the average.
+- PDF page only: `boxcar_scan`, the Boxcar view's scan. The free parameters —
+  or the scan's own `free` set, which leaves the page's free set and fit as
+  they are — are refined box by box across the fit window, seeded from the
+  previous box, and the parameter rows are left as they are. It returns each
+  box's r range, Rw and values, and each parameter's spread, to tell the local
+  structure from the average; with `bonds` (cation sites), each box's
+  coordination shell in the structure it refined, so a distortion is compared
+  as lengths. The last scan goes into the report.
+- `set_adp_model` switches the primary phase between one U per site and the U
+  tensor on both pages: a CIF with U_aniso columns loads a tensor per site.
 - Powder page only: `rank_next_parameters`, `check_cell_symmetry`,
   `find_unexplained_peaks`, `review_symmetry`, `set_background`, `set_microstrain`,
-  `set_adp_model`, `set_site_ties`. On the PDF page, `assess_refinement` judges convergence,
+  `set_site_ties`. On the PDF page, `assess_refinement` judges convergence,
   correlations, bounds and physical values, without the GoF verdict or the
   Bragg-peak residual scan, and `set_fit_range` with `whole` restores the
   page's default r window.

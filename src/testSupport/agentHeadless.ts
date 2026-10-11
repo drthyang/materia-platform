@@ -14,11 +14,13 @@ import { gata4se8PdfExample } from "@/examples/gata4se8Pdf";
 import { buildPdfProblem, buildPdfSpec, pdfCurves } from "@/core/workflow/pdf";
 import { applyParameters } from "@/core/workflow/apply";
 import { refine as refineProblem } from "@/core/refinement/engine";
-import { boxcarWindows } from "@/core/workflow/pdfBoxcar";
+import { boxcarTable, boxcarWindows, type BoxcarRun } from "@/core/workflow/pdfBoxcar";
 import { DEFAULT_INSTRUMENT, buildSpecFor, keptBindings, keptRows, withMagneticRows, type Session } from "@/app/powderSession";
 import { withEqualTies } from "@/core/refinement/constraints";
 import { withConstants, type InstrumentParameters } from "@/core/diffraction/instrument";
 import { withAntisite } from "@/core/crystal/antisite";
+import { withAdpModel } from "@/core/crystal/adp";
+import type { StructureModel } from "@/core/crystal/types";
 import { powderRestraints } from "@/app/powderSpec";
 import { runPowderRefinement } from "@/workers/runPowder";
 import { axisContext, convertAxisArray } from "@/visualization/axisUnits";
@@ -293,18 +295,26 @@ export function executor(
   return { ex, asked, seen };
 }
 
+/** What a structure's sites refine: one U each, the tensor, or both. */
+function adpModelOf(structure: StructureModel): "isotropic" | "anisotropic" | "mixed" {
+  const kinds = new Set(structure.sites.map((site) => site.adp.kind));
+  return kinds.size === 1 ? [...kinds][0]! : "mixed";
+}
+
 /** The GaTa4Se8 PDF demo behind a PDF page's port, refined with the real engine. */
 export function pdfPort(): { port: PdfAgentPort; calls: string[] } {
   const demo = gata4se8PdfExample();
-  const spec = buildPdfSpec(demo.structure, demo.pattern);
+  let model: StructureModel = demo.structure;
+  let spec = buildPdfSpec(model, demo.pattern);
   let params = spec.params.map((p) => ({ ...p, value: demo.refinedParams[p.id] ?? p.value }));
   let result: RefinementResult | null = null;
+  let lastRun: BoxcarRun | null = null;
   const defaultRange = { min: 1.5, max: 6 };
   let fitRange = { ...defaultRange };
   const rs = demo.pattern.points.map((p) => p.r);
   const calls: string[] = [];
   const state = (): PdfLiveState => {
-    const curves = pdfCurves(demo.structure, demo.pattern, params, spec.bindings, fitRange);
+    const curves = pdfCurves(model, demo.pattern, params, spec.bindings, fitRange);
     let num = 0;
     let den = 0;
     let n = 0;
@@ -317,8 +327,8 @@ export function pdfPort(): { port: PdfAgentPort; calls: string[] } {
     const values: Record<string, number> = {};
     for (const p of params) values[p.id] = p.value;
     return {
-      phases: [demo.structure],
-      refinedPhases: [applyParameters(demo.structure, spec.bindings, values).model],
+      phases: [model],
+      refinedPhases: [applyParameters(model, spec.bindings, values).model],
       pattern: demo.pattern,
       parameters: params,
       bindings: spec.bindings,
@@ -331,6 +341,7 @@ export function pdfPort(): { port: PdfAgentPort; calls: string[] } {
       curves,
       observationCount: n,
       positionMode: "atomic",
+      adpModel: adpModelOf(model),
       spinModel: false,
       warnings: [],
       source: "test",
@@ -339,7 +350,7 @@ export function pdfPort(): { port: PdfAgentPort; calls: string[] } {
   };
   const refine = async (): Promise<string | null> => {
     calls.push("refine");
-    const r = refineProblem(buildPdfProblem(demo.structure, demo.pattern, params, spec.bindings, spec.restraints, fitRange), { maxIterations: 4, analyticDerivatives: true });
+    const r = refineProblem(buildPdfProblem(model, demo.pattern, params, spec.bindings, spec.restraints, fitRange), { maxIterations: 4, analyticDerivatives: true });
     params = params.map((p) => ({ ...p, value: r.parameters[p.id] ?? p.value }));
     result = r;
     return null;
@@ -352,6 +363,15 @@ export function pdfPort(): { port: PdfAgentPort; calls: string[] } {
       const m = new Map(changes.map((c) => [c.id, c.fixed]));
       params = params.map((p) => (m.has(p.id) ? { ...p, fixed: m.get(p.id)! } : p));
     },
+    // The ADPs box: the model rebuilt in the other ADP model, the other rows kept by id.
+    setAdpModel: (anisotropic) => {
+      calls.push(`adp ${anisotropic ? "anisotropic" : "isotropic"}`);
+      model = withAdpModel(model, anisotropic ? "anisotropic" : "isotropic");
+      const old = new Map(params.map((p) => [p.id, p]));
+      spec = buildPdfSpec(model, demo.pattern);
+      params = spec.params.map((p) => { const o = old.get(p.id); return o ? { ...p, value: o.value, fixed: o.fixed } : p; });
+      result = null;
+    },
     setFitRange: (r) => {
       calls.push(`range ${r ? `${r.min}-${r.max}` : "default"}`);
       fitRange = r ? { ...r } : { ...defaultRange };
@@ -361,19 +381,21 @@ export function pdfPort(): { port: PdfAgentPort; calls: string[] } {
       calls.push("thorough");
       return "cancelled";
     },
-    probe: async (options) => refineProblem(buildPdfProblem(demo.structure, demo.pattern, params, spec.bindings, spec.restraints, fitRange), { ...options, analyticDerivatives: true }),
+    probe: async (options) => refineProblem(buildPdfProblem(model, demo.pattern, params, spec.bindings, spec.restraints, fitRange), { ...options, analyticDerivatives: true }),
     // The Boxcar view's scan, one short refinement per box, the rows untouched.
     boxcar: async (plan) => {
-      calls.push(`boxcar ${plan.width}/${plan.step}`);
+      calls.push(`boxcar ${plan.width}/${plan.step}${plan.bonds?.length ? ` bonds ${plan.bonds.join(",")}` : ""}`);
       const windows = boxcarWindows({ range: fitRange, width: plan.width, step: plan.step });
-      let seed = params;
+      const own = plan.free ? new Set(plan.free) : null;
+      let seed = own ? params.map((p) => (p.expression ? p : { ...p, fixed: !own.has(p.id) })) : params;
       const steps = windows.map((w) => {
-        const result = refineProblem(buildPdfProblem(demo.structure, demo.pattern, seed, spec.bindings, spec.restraints, { min: w.min, max: w.max }), { maxIterations: 2, analyticDerivatives: true });
+        const result = refineProblem(buildPdfProblem(model, demo.pattern, seed, spec.bindings, spec.restraints, { min: w.min, max: w.max }), { maxIterations: 2, analyticDerivatives: true });
         seed = seed.map((p) => ({ ...p, value: result.parameters[p.id] ?? p.value }));
         return { datasetId: String(w.center), result, parameters: seed, carried: true };
       });
-      const freeIds = params.filter((p) => !p.fixed && !p.expression).map((p) => p.id);
-      return { windows, width: plan.width, restarts: 0, freeIds, series: [{ direction: "up" as const, result: { steps, evolution: [] } }] };
+      const freeIds = (own ? params.filter((p) => own.has(p.id)) : params).filter((p) => (own || !p.fixed) && !p.expression).map((p) => p.id);
+      lastRun = { windows, width: plan.width, restarts: 0, freeIds, series: [{ direction: "up" as const, result: { steps, evolution: [] } }], ...(plan.bonds?.length ? { bondSites: [...plan.bonds] } : {}) };
+      return lastRun;
     },
     reportInput: () => {
       const st = state();
@@ -381,6 +403,7 @@ export function pdfPort(): { port: PdfAgentPort; calls: string[] } {
         phases: st.refinedPhases, params, bindings: spec.bindings, result, pattern: demo.pattern, rw: st.rw, fitRange,
         curves: { x: st.curves.x, yObs: st.curves.yObs, yCalc: st.curves.yCalc, diff: st.curves.yObs.map((o, i) => o - st.curves.yCalc[i]!) },
         positionMode: "atomic", spinModel: null, explored: null,
+        boxcar: lastRun ? boxcarTable(lastRun, model, spec.bindings, params) : null,
       });
     },
     cancel: () => calls.push("cancel"),

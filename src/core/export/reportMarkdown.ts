@@ -21,6 +21,8 @@ import { magneticSupercell, momentAnchorPosition } from "@/core/crystal/cellExpa
 import { fobsFcalcSvg, patternFigureSvg } from "@/core/export/reportFigures";
 import { markNumbers } from "@/core/export/reportAudit";
 import {
+  BONDS_NOTE,
+  boxcarNote,
   formatParameterValue,
   KIND_UNIT,
   PARAMETER_GROUPS,
@@ -28,12 +30,14 @@ import {
   posteriorCaveat,
   posteriorStatus,
   type ReportAgent,
+  type ReportBoxcar,
   type ReportPosterior,
   type ReportFigure,
   type ReportInput,
   type ReportMagnetic,
   type ReportPhase,
   type ReportRow,
+  shellRows,
 } from "@/core/export/report";
 
 const TECHNIQUE_TITLE: Record<ReportInput["technique"], string> = {
@@ -186,7 +190,16 @@ function phaseMarkdown(phase: ReportPhase, index: number, total: number): string
     ]],
     ["r", "r", "r", "r", "r", "r", "r"],
   );
-  return `### ${st.name || st.id} — ${sgText}${role ? ` · ${role}` : ""}\n\n${cellRow}\n\n${sites}`;
+  const shells = shellRows(st);
+  const bonds = shells.length > 0
+    ? `\n\n${table(["Site", "Bonds (Å)", "Mean (Å)"], shells.map((r) => [r.site, r.bonds, r.mean]), ["l", "l", "r"])}\n\n*${BONDS_NOTE}*`
+    : "";
+  return `### ${st.name || st.id} — ${sgText}${role ? ` · ${role}` : ""}\n\n${cellRow}\n\n${sites}${bonds}`;
+}
+
+function boxcarMarkdown(b: ReportBoxcar): string {
+  const rows = b.rows.map((row) => [`${fixed(row.r[0], 2)}–${fixed(row.r[1], 2)}`, fixed(100 * row.rw, 2), ...row.values.map((v) => (Number.isFinite(v) ? fixed(v, b.decimals) : "—"))]);
+  return `${table(["r (Å)", "Rw (%)", ...b.columns], rows, ["r", "r", ...b.columns.map(() => "r" as const)])}\n\n*${boxcarNote(b)}*`;
 }
 
 function magneticMarkdown(m: ReportMagnetic, fallback: StructureModel | undefined): string {
@@ -295,6 +308,7 @@ export function reportMarkdown(input: ReportInput): string {
     section("The analysis", input.agent ? agentMarkdown(input.agent) : ""),
     section("Data & model", input.data.length > 0 ? kvTable(input.data) : ""),
     section("Fit", input.figure ? figureMarkdown(input.figure) : ""),
+    section("Local versus average", input.boxcar ? boxcarMarkdown(input.boxcar) : ""),
     section(input.phases.length > 1 ? "Atomic structures" : "Atomic structure", input.phases.map((p, i) => phaseMarkdown(p, i, input.phases.length)).join("\n\n")),
     section("Magnetic structure", input.magnetic ? magneticMarkdown(input.magnetic, primary) : ""),
     section("Parameters", parametersMarkdown(input.parameters)),

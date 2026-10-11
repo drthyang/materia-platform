@@ -205,4 +205,25 @@ O2 O2- 0.3075 0.3075 0.3400 1 0.6
     const { ex: ex2 } = executor(fakeHost(bare).host, "auto");
     expect((await ex2.run("write_report", { summary: "There is nothing to build the report from here." })).text).toMatch(/this page cannot build a report/);
   }, 60000);
+
+  it("carries the bond lengths and the last boxcar scan, so the account's lengths are the report's", async () => {
+    // Round 9 (LaMnO₃): the Agent's case rested on Mn–O lengths, overall and
+    // box by box, and the report had neither — every length it cited was
+    // marked as one the report did not compute.
+    const { port } = pdfPort();
+    const reports: AgentReport[] = [];
+    const { ex } = executor(fakeHost(port).host, "auto", { onReport: (r) => reports.push(r) });
+    await ex.run("set_free", { free: ["pdfScale", "pos_*"] });
+    await ex.run("refine", {});
+    const scan = parse((await ex.run("boxcar_scan", { width: 2, step: 1, bonds: ["Ta1"] })).text) as { boxcar: { passes: { boxes: { bonds: Record<string, string[]> }[] }[] } };
+    const firstBond = scan.boxcar.passes[0]!.boxes[0]!.bonds["Ta1"]![0]!; // e.g. "Se2 2.5124 ×3"
+    const length = firstBond.split(" ")[1]!;
+    const md = () => reports.at(-1)!.markdown;
+    await ex.run("write_report", { summary: `The scan holds the Ta1 shell box by box: its shortest bond is ${length} Å in the first box.` });
+    expect(md()).toContain("Local versus average");
+    expect(md()).toMatch(/\| r \(Å\) \| Rw \(%\) \| Ta1–\S+( ×\d+)? \(Å\)/);
+    expect(md()).toContain("Bonds (Å)");
+    expect(reports.at(-1)!.html).toContain('id="local"');
+    expect(reports.at(-1)!.unverified ?? []).toEqual([]);
+  }, 60000);
 });

@@ -150,6 +150,31 @@ export const reportsEngineNumbers: Check = {
   },
 };
 
+/**
+ * A boxcar scan that reports the bond lengths the question is about (round 9:
+ * whether a distortion holds at low r is a question about lengths, not about
+ * coordinate shifts).
+ */
+export const tracksBonds: Check = {
+  name: "scans the bond lengths its question is about",
+  grade: (run) => {
+    const scan = calls(run).find((c) => c.name === "boxcar_scan" && !c.isError && Array.isArray(c.input.bonds) && (c.input.bonds as unknown[]).length > 0);
+    return scan ? ok(`tracked ${(scan.input.bonds as string[]).join(", ")}`) : fail("no boxcar scan tracked a site's bonds");
+  },
+};
+
+/** The last report carries the scan it rests on (round 9: going back to the full fit had dropped it). */
+export const reportCarriesScan: Check = {
+  name: "puts the scan in the report",
+  grade: (run) => {
+    const reports = calls(run).filter((c) => c.name === "write_report" && !c.isError);
+    const last = reports.length > 0 ? json(reports[reports.length - 1]!.text) : null;
+    if (!last) return fail("wrote no report");
+    const scan = last.boxcarScan as string | undefined;
+    return scan?.startsWith("included") ? ok(scan) : fail("the report holds no boxcar scan");
+  },
+};
+
 /** A reply names a d-spacing within `tol` of `d`: a line found is reported where the user can find it. */
 export function mentionsD(d: number, tol: number): Check {
   return {

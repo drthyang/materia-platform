@@ -9,6 +9,27 @@ release fixes bugs.
 
 ### Added
 
+- **Bond lengths in the report.** Each phase's table of the cations'
+  coordination shells at the refined positions — neighbour, length and
+  multiplicity (Mn–O6 1.9067 ×2 · O1 1.9692 ×2 · O6 2.1794 ×2 in LaMnO₃) —
+  in the HTML and Markdown report, so the lengths an account cites are the
+  report's own. The shell reaches 3.2 Å, so a long Jahn–Teller bond stays in it.
+- **The local structure as lengths** (`boxcar_scan` with `bonds`, PDF page):
+  each box reports the named cations' coordination shells in the structure
+  that box refined, and each bond's spread across the boxes. The PDF report
+  carries the last scan as "Local versus average": per box its r range, Rw and
+  the tracked lengths. On LaMnO₃ at 300 K the short and long Mn–O pairs hold
+  at 1.900–1.910 and 2.173–2.189 Å from the 1.5–6.5 Å box to the 14.5–19.5 Å
+  one.
+- **A scan's own free set** (`boxcar_scan` `free`): each box refines the
+  parameters named, and the page keeps its free set and its fit, so the
+  report written next still matches them and carries the scan.
+- **The PDF page's ADP model**: the ADPs group's "anisotropic (U tensor)" box,
+  and `set_adp_model` for the Agent on the PDF page too. A CIF with U_aniso
+  columns loaded 20 tensor rows for LaMnO₃ even with isotropic values, and
+  nothing switched them to one U per site, as a small-box fit refines them.
+  Saved with the project.
+
 - **The Agent's analysis report** (`write_report`). Read in the app and saved
   as one self-contained HTML file, as Markdown (the figure embedded) or as
   PDF from the print dialog, with the CIF beside it. It holds the page's
@@ -187,6 +208,9 @@ release fixes bugs.
 
 ### Fixed
 
+- **No GoF beside a PDF fit's Rw.** The report's steps listed one (0.32 on
+  LaMnO₃), though uniform weights make it meaningless; History steps no
+  longer record it for a PDF fit, and the report leaves it out of older ones.
 - **PDFgetN files load as neutron data, and only their data.** A PDFgetN
   `.gr` (NPDF and the other neutron instruments it reduced for) names its
   instrument (`machine=npdf`) and program but never the radiation, so it

@@ -154,6 +154,8 @@ export interface PdfLiveState {
   readonly observationCount: number;
   /** "atomic" (constrained coordinates) or "irreps" (symmetry-mode amplitudes). */
   readonly positionMode: "atomic" | "irreps";
+  /** The primary phase's ADP model as fitted: one U per site, the tensor, or both on different sites. */
+  readonly adpModel: "isotropic" | "anisotropic" | "mixed";
   /** A spin model is part of the fit (mPDF co-refinement). */
   readonly spinModel: boolean;
   /** The page's own warnings (correlated-motion conflict, zero ADPs). */
@@ -169,6 +171,8 @@ export interface PdfAgentPort {
   readonly state: () => PdfLiveState;
   /** Free or fix parameters by id (the parameter panel's check boxes). */
   readonly setFixed: (changes: readonly { readonly id: string; readonly fixed: boolean }[]) => void;
+  /** The ADPs group's "anisotropic (U tensor)" box: the primary phase's ADP model. */
+  readonly setAdpModel: (anisotropic: boolean) => void;
   /** The fit window over r (Å); null restores the page's default window. */
   readonly setFitRange: (range: { readonly min: number; readonly max: number } | null) => void;
   /** The Refine button. Resolves to why it did not finish, or null when it did. */
@@ -178,9 +182,10 @@ export interface PdfAgentPort {
   /** The Refine button's fit with these options, returned and never applied (see PowderAgentPort). */
   readonly probe: (options: Partial<RefinementOptions>) => Promise<RefinementResult>;
   /** The Boxcar view's scan with this plan (it becomes the panel's plan, and the
-   *  view opens): the free set refined in each box across the fit window. The
-   *  parameter rows are left as they are. Null when it was cancelled or failed. */
-  readonly boxcar: (plan: { readonly width: number; readonly step: number; readonly direction: BoxcarDirectionChoice }) => Promise<BoxcarRun | null>;
+   *  view opens): the free set — or the plan's own `free` ids — refined in each
+   *  box across the fit window. The parameter rows are left as they are. Null
+   *  when it was cancelled or failed. */
+  readonly boxcar: (plan: { readonly width: number; readonly step: number; readonly direction: BoxcarDirectionChoice; readonly bonds?: readonly string[]; readonly free?: readonly string[] }) => Promise<BoxcarRun | null>;
   /** Sample the Bayesian posterior of the free parameters (the Posterior tab's Sample / Continue). */
   readonly samplePosterior?: PosteriorSampler;
   /** The page's report of what is on screen (Export ▾ → Report): the engine's numbers, ready to render. */

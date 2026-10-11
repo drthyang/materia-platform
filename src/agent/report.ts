@@ -91,7 +91,8 @@ export function historySteps(page: AgentPage, history: ProjectHistory | null): {
       by: st.actor === "agent" ? "agent" : "user",
       kind: st.kind,
       ...(refine && st.summary.wR !== undefined ? { wR: st.summary.wR } : {}),
-      ...(refine && st.summary.gof !== undefined ? { gof: st.summary.gof } : {}),
+      // No GoF on the PDF page (uniform weights), even from a project saved before steps left it out.
+      ...(refine && page !== "pdf" && st.summary.gof !== undefined ? { gof: st.summary.gof } : {}),
       free: st.summary.nFree,
       ...(free.length > 0 ? { refined: freeSummary(free) } : {}),
       ...(stages ? { stages } : {}),

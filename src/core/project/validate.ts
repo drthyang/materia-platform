@@ -430,6 +430,7 @@ function checkBoxcarRun(v: unknown, path: string): void {
   int(r.restarts, `${path}.restarts`);
   each(r.freeIds, `${path}.freeIds`, (x, p) => str(x, p));
   opt(r.partial, `${path}.partial`, bool);
+  if (r.bondSites !== undefined && r.bondSites !== null) each(r.bondSites, `${path}.bondSites`, (x, p) => str(x, p));
 }
 
 /** Retained S(Q)/F(Q): equal-length numeric columns (σ optional, ≥ 0). */
@@ -475,6 +476,7 @@ function checkPdfWorkspace(ws: Rec, path: string, ctx: PhaseContext): void {
   checkRefinement(ws.refinement, `${path}.refinement`);
   checkWindow(ws.fitRange, `${path}.fitRange`);
   oneOf(PDF_POSITION_MODES)(ws.positionMode, `${path}.positionMode`);
+  opt(ws.adpModel, `${path}.adpModel`, oneOf(["isotropic", "anisotropic"] as const));
   opt(ws.distortionModes, `${path}.distortionModes`, checkDistortionModes);
   if (ws.spinModel !== undefined && ws.spinModel !== null) {
     const s = rec(ws.spinModel, `${path}.spinModel`);

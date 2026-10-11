@@ -212,6 +212,11 @@ export interface PdfWorkspace {
   /** Per-coordinate shifts ("atomic") or symmetry-adapted mode amplitudes ("irreps"). */
   readonly positionMode: PdfPositionMode;
   /**
+   * The primary phase's ADP model, when the user chose one: one U per site or
+   * the tensor. Absent: the structure's own (a CIF's U_aniso loads anisotropic).
+   */
+  readonly adpModel?: "isotropic" | "anisotropic";
+  /**
    * The distortion-mode parameterization in force, when one was built from a
    * parent CIF or a subgroup activation. It cannot be regenerated from the
    * child structure alone, so the whole set is stored.

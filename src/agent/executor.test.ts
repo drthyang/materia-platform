@@ -503,6 +503,29 @@ describe("AgentExecutor on a live PDF fit", () => {
     expect((await ex.run("allow_exception", { rule: "cell-gate", reason: "an impurity" })).text).toMatch(/invalid input for allow_exception/);
   });
 
+  it("switches the ADP model on the PDF page, and says when it is already so", async () => {
+    // Round 9 (LaMnO₃ PDF): a CIF's U_aniso loaded 20 tensor rows, and nothing
+    // on the PDF page could make them one U per site.
+    const { port, calls } = pdfPort();
+    const { ex, asked } = executor(fakeHost(port).host);
+    // The demo's CIF carries U_aniso, as LaMnO₃'s did.
+    expect(parse((await ex.run("get_state", {})).text).adp).toBe("anisotropic (U tensor per site)");
+    const noop = await ex.run("set_adp_model", { anisotropic: true });
+    expect(noop.text).toMatch(/already anisotropic/);
+    expect(asked).toEqual([]);
+
+    await ex.run("set_adp_model", { anisotropic: false });
+    expect(asked.at(-1)!.preview).toBe("ADPs anisotropic → isotropic (one U per site)");
+    expect(calls).toContain("adp isotropic");
+    expect(port.state().adpModel).toBe("isotropic");
+    expect(port.state().parameters.some((p) => p.kind === "bIso")).toBe(true);
+    expect(port.state().parameters.some((p) => p.kind === "uAniso")).toBe(false);
+
+    await ex.run("set_adp_model", { anisotropic: true });
+    expect(port.state().adpModel).toBe("anisotropic");
+    expect(port.state().parameters.some((p) => p.kind === "bIso")).toBe(false);
+  });
+
   it("frees, refines as the agent, and reports Rw; the assessment drops the GoF verdict", async () => {
     const { port, calls } = pdfPort();
     const { host, steps } = fakeHost(port);
@@ -551,6 +574,48 @@ describe("AgentExecutor on a live PDF fit", () => {
     expect(pass.boxes.every((b) => Number.isFinite(b.Rw) && Object.keys(b.values).length > 0)).toBe(true);
     expect(String(out.note)).toMatch(/^3 boxes · Rw \d+\.\d% at low r → \d+\.\d% at high r$/);
     expect(port.state().parameters.map((p) => p.value)).toEqual(before);
+  });
+
+  it("scans with its own free set and leaves the page's free set and fit as they were", async () => {
+    // Round 9: narrowing the page's free set for a scan, then going back to the
+    // full fit, dropped the scan (it ran after that step) from the report.
+    const { port } = pdfPort();
+    const { ex, asked } = executor(fakeHost(port).host, true);
+    await ex.run("set_free", { free: ["pdfScale", "pos_*"] });
+    await ex.run("refine", {});
+    const freeBefore = port.state().parameters.filter((p) => !p.fixed && !p.expression).map((p) => p.id);
+    const resultBefore = port.state().result;
+    const out = parse((await ex.run("boxcar_scan", { width: 2, step: 1, free: ["pdfScale"] })).text);
+    expect(asked.at(-1)!.preview).toMatch(/, 1 free parameter/);
+    const values = (out.boxcar as { passes: { boxes: { values: Record<string, number> }[] }[] }).passes[0]!.boxes[0]!.values;
+    expect(Object.keys(values)).toEqual(["pdfScale"]);
+    expect(port.state().parameters.filter((p) => !p.fixed && !p.expression).map((p) => p.id)).toEqual(freeBefore);
+    expect(port.state().result).toBe(resultBefore);
+    expect((await ex.run("boxcar_scan", { free: ["nothing*"] })).text).toMatch(/nothing matches "nothing\*"/);
+  });
+
+  it("gives a site's bond lengths box by box, from each box's refined structure", async () => {
+    // Round 9 (LaMnO₃): whether the Jahn–Teller distortion holds at low r was a
+    // question about Mn–O lengths, and the scan gave only coordinate shifts.
+    const { port } = pdfPort();
+    const { ex } = executor(fakeHost(port).host, true);
+    await ex.run("set_free", { free: ["pos_*"] });
+    const out = parse((await ex.run("boxcar_scan", { width: 2, step: 1, bonds: ["Ta1"] })).text);
+    const pass = (out.boxcar as { passes: { boxes: { bonds: Record<string, string[]> }[]; bondSpread: Record<string, { first: number; min: number; max: number }> }[] }).passes[0]!;
+    expect(pass.boxes).toHaveLength(3);
+    for (const box of pass.boxes) expect(box.bonds["Ta1"]!.length).toBeGreaterThan(0);
+    expect(pass.boxes[0]!.bonds["Ta1"]![0]).toMatch(/^[A-Z][a-z]?\d+ \d\.\d{4}( ×\d+)?$/);
+    const first = Object.entries(pass.bondSpread)[0]!;
+    expect(first[0]).toMatch(/^Ta1–\S+( ×\d+)? #1$/);
+    expect(first[1].min).toBeLessThanOrEqual(first[1].max);
+    expect(String(out.reading)).toMatch(/no esds/);
+    // A site the model does not have, or an anion, is refused before the scan runs.
+    const bad = await ex.run("boxcar_scan", { bonds: ["Mn1"] });
+    expect(bad.isError).toBe(true);
+    expect(bad.text).toMatch(/no site Mn1 in .* — its sites: .*Ta1/);
+    const anion = await ex.run("boxcar_scan", { bonds: ["Se1"] });
+    expect(anion.isError).toBe(true);
+    expect(anion.text).toMatch(/Se1 has no coordination shell of its own \(an anion\): name the cation whose bonds to track — .*Ta1/);
   });
 
   it("restores the default r window and passes on why a run did not finish", async () => {

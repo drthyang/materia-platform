@@ -21,8 +21,10 @@ import {
   ran,
   readsMethodFirst,
   refines,
+  reportCarriesScan,
   reportsEngineNumbers,
   symmetryLast,
+  tracksBonds,
 } from "@/agent/evals/checks";
 import type { EvalScenario } from "@/agent/evals/harness";
 
@@ -125,6 +127,15 @@ export const SCENARIOS: readonly EvalScenario[] = [
     messages: ["Does the local structure differ from the average one?"],
     autonomy: "ask",
     checks: [ran("boxcar_scan"), noStall],
+  },
+  {
+    id: "pdf-local-geometry",
+    title: "Answers a bond-length question box by box, and reports the scan",
+    origin: "Researcher round 9 (LaMnO₃ at 300 K, NPDF): whether the Jahn–Teller distortion holds at low r is a question about Mn–O lengths, which the scan gave only as coordinate shifts; narrowing the page's free set for the scan, then going back to the full fit, left the scan out of the report.",
+    page: () => pdfPage(),
+    messages: ["Is the Ta coordination the same locally as on average? Write the report when you are done."],
+    autonomy: "auto",
+    checks: [ran("boxcar_scan"), tracksBonds, reportCarriesScan, reportsEngineNumbers, noStall],
   },
 ];
 

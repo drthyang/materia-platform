@@ -448,10 +448,10 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     name: "set_adp_model",
     title: "Change the ADP model",
     description:
-      "Powder page only. Switch the atomic displacement model between isotropic (B_iso) and anisotropic (symmetry-allowed U tensor components, seeded from each site's current B_iso). New rows start fixed — free them with set_free. Anisotropic ADPs need good data; they are the last structural step.",
+      "Switch the primary phase's atomic displacement model between isotropic (one B_iso / U per site) and anisotropic (the symmetry-allowed U tensor components), seeded from the current refined values. New rows start fixed — free them with set_free. A CIF with U_aniso columns loads anisotropic (get_state says which): on the PDF page a small-box fit usually refines one U per site. Anisotropic ADPs need good data; they are the last structural step.",
     inputSchema: { anisotropic: z.boolean() },
     effect: "change",
-    pages: ["powder"],
+    pages: ["powder", "pdf"],
   },
   {
     name: "set_site_ties",
@@ -496,11 +496,13 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     name: "boxcar_scan",
     title: "Boxcar scan",
     description:
-      "PDF page only. The r-resolved view of the current model: a box of fixed width slid across the fit window, the FREE parameters refined in each box (seeded from the previous one), as the page's Boxcar view does — the user watches it there. It answers whether the local structure differs from the average: Rw and parameters that drift between low and high r. The parameter rows are left as they are (a diagnostic, not a fit). Returns, per box, its r range, Rw and the free parameters' values, and each parameter's spread. Takes about one refinement per box. Free only what you want tracked first.",
+      "PDF page only. The r-resolved view of the current model: a box of fixed width slid across the fit window, the FREE parameters refined in each box (seeded from the previous one), as the page's Boxcar view does — the user watches it there. It answers whether the local structure differs from the average: Rw and parameters that drift between low and high r. The parameter rows are left as they are (a diagnostic, not a fit). Returns, per box, its r range, Rw and the free parameters' values, and each parameter's spread; with `bonds`, also those sites' bond lengths per box and each bond's spread — a distortion read as lengths, not coordinate shifts. Takes about one refinement per box. Pass `free` for a scan's own small set (scale, cell, the parameters in question): the page keeps its free set and its fit, so the report that follows still matches them.",
     inputSchema: {
       width: z.number().positive().optional().describe("Box width in Å (default 5)"),
       step: z.number().positive().optional().describe("Advance between boxes in Å (default 1; width/2 gives half-overlapping boxes)"),
       direction: z.enum(["up", "down", "both"]).optional().describe("Walk low → high r (default), high → low, or both (path dependence shows as a gap)"),
+      free: ids.optional().describe("The parameters each box refines (ids or globs), for this scan only; default the page's free set. The page's own free set and fit are left as they are."),
+      bonds: z.array(z.string()).max(4).optional().describe("Site labels (e.g. [\"Mn1\"]) whose bond lengths each box reports, from the structure that box refined: the local geometry box by box"),
     },
     effect: "change",
     pages: ["pdf"],

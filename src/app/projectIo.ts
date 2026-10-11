@@ -309,6 +309,8 @@ export interface PdfSnapshot {
   } | null;
   readonly boxcarPlan: BoxcarPlan;
   readonly boxcarRun: BoxcarRun | null;
+  /** The ADP model chosen on the page; null keeps the structure's own. */
+  readonly adpModel?: "isotropic" | "anisotropic" | null;
 }
 
 export function pdfWorkspaceFrom(s: PdfSnapshot): PdfWorkspace {
@@ -329,5 +331,6 @@ export function pdfWorkspaceFrom(s: PdfSnapshot): PdfWorkspace {
       ? { spinModel: { magnetic: s.spinModel.magnetic, parameters: s.spinModel.params.map(cloneParameter), bindings: [...s.spinModel.bindings] } }
       : {}),
     boxcar: { plan: s.boxcarPlan, ...(s.boxcarRun ? { lastRun: s.boxcarRun } : {}) },
+    ...(s.adpModel ? { adpModel: s.adpModel } : {}),
   };
 }
