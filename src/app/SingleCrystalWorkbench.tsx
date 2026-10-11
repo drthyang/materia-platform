@@ -86,6 +86,11 @@ function parseKComponent(s: string): number {
 }
 
 /** R1 quality bands (fraction): <8 % good · <15 % mediocre · else poor. */
+/** Whether two twin laws are the same matrix. */
+function sameTwinLaw(a: TwinLaw | undefined, b: TwinLaw | undefined): boolean {
+  return !!a && !!b && a.matrix.every((row, i) => row.every((v, j) => Math.round(v) === Math.round(b.matrix[i]![j]!)));
+}
+
 /** The ADP model of a structure's sites, as the Agent reads it. */
 function adpModelOf(s: StructureModel): "isotropic" | "anisotropic" | "mixed" {
   // Hydrogens that stay isotropic under an anisotropic model (X-ray) do not make it mixed.
@@ -112,10 +117,12 @@ type Selection = { hkl: string; kind: ReflectionObsCalc["kind"]; phaseId?: strin
  *  three-way value; the project file stores the same value. */
 type Probe = "xray" | "neutron" | "neutron-tof";
 
-export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, magneticDataset, client, step, onStep, onMagneticPresent, instrumentProbe, exportsRef, onLoadData, onLoadMagneticData, onLoadCif, restore, structureFileNotes, stepHistory, agentLink }: {
+export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, magneticDataset, client, step, onStep, onMagneticPresent, instrumentProbe, exportsRef, onLoadData, onLoadMagneticData, onLoadCif, restore, structureFileNotes, structureFileName, stepHistory, agentLink }: {
   structure: StructureModel;
   /** A SHELX .ins/.res loaded as the structure: its refinement instructions in a few lines (TWIN, BASF, EXTI, WGHT, FVAR, the hydrogens' U), for the Agent to read. */
   structureFileNotes?: readonly string[];
+  /** The SHELX file the model came from (3a.ins). */
+  structureFileName?: string;
   dataset: SingleCrystalDataset;
   /** Companion magnetic reflection file for joint co-refinement (Phase 2). When
    *  present alongside an applied magnetic model, the joint panel co-refines the
@@ -699,13 +706,18 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
     if (!next.length) delete (nextDataset as { twinLaws?: unknown }).twinLaws;
     const fresh = buildSingleCrystalSpec(fitStructure, nextDataset, { extinction: 0 }).params;
     const kept = new Map(params.map((p) => [p.id, p]));
+    // A law that stays where it was keeps its fraction (and its free or fixed state); a new one starts at 0.1.
+    const stays = (id: string): boolean => {
+      const i = Number(/^twin_(\d+)$/.exec(id)?.[1] ?? 0) - 1;
+      return i >= 0 && sameTwinLaw(twinLaws[i], next[i]);
+    };
     setParams(withValidUserTies([
-      ...fresh.map((p) => keptRow(p, p.kind === "twinFraction" ? undefined : kept.get(p.id))),
+      ...fresh.map((p) => keptRow(p, p.kind === "twinFraction" && !stays(p.id) ? undefined : kept.get(p.id))),
       ...params.filter((p) => isMagneticModelParameterKind(p.kind)),
     ]));
     setTwinLaws(next);
     setResult(null);
-    stepHistory?.requestStep("settings", next.length === 0 ? "Untwinned" : next.length === 1 && isInversion(next[0]!) ? "Inversion twin" : `${next.length} twin law${next.length === 1 ? "" : "s"}`);
+    stepHistory?.requestStep("settings", next.length === 0 ? "Untwinned" : next.length === 1 && isInversion(next[0]!) ? "Inversion twin" : next.length > 1 && next.some((law) => improper(law.matrix)) ? `Twin law with the inversion (${next.length + 1} domains)` : `${next.length} twin law${next.length === 1 ? "" : "s"}`);
   }
 
   /**
@@ -727,8 +739,11 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
    */
   function changeHand(): string {
     if (magnetic) throw new Error("a magnetic model is applied: invert the structure before applying it");
-    const flip = invertedModel(fitStructure);
-    const nextRiding = riding ? invertedRiding(riding, invertedModel(refinedStructure).structure) : null;
+    // One transform both ways, the one that takes the model as loaded to its inverse: the round trip is exact.
+    const forward = invertedModel(loadedStructure);
+    const total = forward.shift.map((v, i) => v + forward.translation[i]!) as unknown as typeof forward.shift;
+    const flip = invertedModel(fitStructure, { total });
+    const nextRiding = riding ? invertedRiding(riding, invertedModel(refinedStructure, { total }).structure) : null;
     const nextFit = { ...flip.structure, ...(nextRiding ? { riding: nextRiding } : {}) };
     const fresh = buildSingleCrystalSpec(nextFit, probedDataset, { extinction: 0 }).params;
     const kept = new Map(params.map((p) => [p.id, p]));
@@ -750,7 +765,7 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
     setRestraints(flip.structure.restraints ?? []);
     setInverted(!inverted);
     setResult(null);
-    const text = inverted ? "back to the model as loaded" : inversionText(loadedStructure, invertedModel(loadedStructure));
+    const text = inverted ? "back to the model as loaded" : inversionText(loadedStructure, forward);
     stepHistory?.requestStep("settings", inverted ? "Hand as loaded" : `Inverted${flip.enantiomorph ? ` (${flip.enantiomorph})` : ""}`);
     return text;
   }
@@ -912,6 +927,7 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
       magnetic,
       explored: exploredMagnetic.current,
       ...(handText ? { inverted: handText } : {}),
+      ...(structureFileNotes?.length ? { structureFile: structureFileNotes, ...(structureFileName ? { structureFileName } : {}) } : {}),
     });
   function exportReport(): void {
     downloadText(reportFileName(structure), reportHtml(reportInputRef.current()), "text/html");
@@ -1075,7 +1091,7 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
       chip: "✓ loaded",
       title: dataset.name,
       // A non-centrosymmetric group's merge as SHELXL reports it: the Friedel mates apart, the absences out.
-      meta: `${probeLabel}${wl} · ${st.observations} obs → ${st.friedelApart ? `${st.friedelApart.unique} unique (Friedel apart)` : `${st.unique} unique`} · ${st.redundancy > 1 + 1e-9 ? `R_int ${pct(st.friedelApart && st.friedelApart.redundancy > 1 + 1e-9 ? st.friedelApart.rInt : st.rInt)}` : "merged"}${dataset.origin === "refinement-listing" ? " · a refinement's listing" : ""}`,
+      meta: `${probeLabel}${wl} · ${st.observations} obs → ${st.friedelApart ? `${st.friedelApart.unique} unique (Friedel apart)` : `${st.unique} unique`} · ${(st.friedelApart ?? st).redundancy > 1 + 1e-9 ? `R_int ${pct((st.friedelApart ?? st).rInt)}` : "each reflection once"}${dataset.origin === "refinement-listing" ? " · a refinement's listing" : ""}`,
       control: (
         <div style={{ display: "inline-flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <ProbeToggle probe={probe} onChange={(p) => changeRadiation({ probe: p })} />
@@ -1184,12 +1200,14 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
             </div>
           </div>
 
+          {/* In an acentric group the Friedel mates stay apart, as SHELXL merges them (MERG 2): merged in the
+              Laue class, a listing's Bijvoet pairs would read as an R_int that is only their anomalous difference. */}
           {qualityView === "refinement" && <div style={mergeStrip}>
             <Stat small value={`${st.observations}`} label={excluded > 0 ? "kept" : "observations"} />
-            <Stat small value={`${st.unique}`} label="unique" />
-            <Stat small value={st.redundancy.toFixed(2)} label="redundancy" />
-            <Stat small value={st.redundancy > 1 + 1e-9 ? pct(st.rInt) : "—"} label="R_int" />
-            <Stat small value={pct(st.rSigma)} label="R_sigma" />
+            <Stat small value={`${(st.friedelApart ?? st).unique}`} label={st.friedelApart ? "unique (Friedel apart)" : "unique"} />
+            <Stat small value={(st.friedelApart ?? st).redundancy.toFixed(2)} label="redundancy" />
+            <Stat small value={(st.friedelApart ?? st).redundancy > 1 + 1e-9 ? pct((st.friedelApart ?? st).rInt) : "—"} label="R_int" />
+            <Stat small value={pct((st.friedelApart ?? st).rSigma)} label="R_sigma" />
           </div>}
 
           {/* Outlier (σ) reflection filter: here in the working view; in the

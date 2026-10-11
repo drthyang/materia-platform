@@ -421,7 +421,8 @@ describe("AgentExecutor on the single-crystal page", { timeout: 30_000 }, () => 
     expect(port.reportInput!().data.find((r) => r.label === "Twinning")!.value).toMatch(/^inversion twin: Flack x = 0\.\d+\(\d+\)$/);
     // The model right, the largest misfits are what counting gives among thousands: read as chance, the ratios to three digits.
     const outliers = parse((await ex.run("assess_refinement", {})).text).outliers as string[];
-    expect(outliers[0]).toMatch(/— 1 equivalent at Fo²\/Fc² \d\.\d{2,3} \(median\), this one \d\.\d{2,3}: no more than chance — the largest of 3340 misfits reaches about 4\.\dσ with nothing wrong$/);
+    // Each reflection's only Laue-class equivalent is its Friedel mate, which is named so.
+    expect(outliers[0]).toMatch(/— its Friedel mate at Fo²\/Fc² \d\.\d{2,3}, this one \d\.\d{2,3}: no more than chance — the largest of 3340 misfits reaches about 4\.\dσ with nothing wrong$/);
     // Laws that cannot twin this crystal, refused before the user is asked.
     expect((await ex.run("set_twin", { law: [[0, 1, 0], [1, 0, 0], [0, 0, -1]] })).text).toMatch(/not a symmetry of this lattice/);
     expect((await ex.run("set_twin", { law: [[-1, 0, 0], [0, -1, 0], [0, 0, 1]] })).text).toMatch(/one of the point group's own operations/);

@@ -556,12 +556,20 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
     },
     setTwinLaws: (laws) => {
       calls.push(`twin ${laws.map((l) => JSON.stringify(l.matrix)).join(" ") || "none"}`);
+      const before = twinLaws;
       twinLaws = laws;
       const { twinLaws: _, ...rest } = dataset;
       dataset = laws.length ? { ...rest, twinLaws: laws } : rest;
       const old = new Map(params.map((p) => [p.id, p]));
       spec = buildSingleCrystalSpec(model, dataset, { extinction: 0 });
-      params = withValidUserTies(spec.params.map((p) => keptRow(p, p.kind === "twinFraction" ? undefined : old.get(p.id))));
+      // As the page: a law that stays where it was keeps its fraction.
+      const stays = (id: string): boolean => {
+        const i = Number(/^twin_(\d+)$/.exec(id)?.[1] ?? 0) - 1;
+        const a = before[i];
+        const b = laws[i];
+        return i >= 0 && !!a && !!b && a.matrix.every((row, r) => row.every((v, c) => Math.round(v) === Math.round(b.matrix[r]![c]!)));
+      };
+      params = withValidUserTies(spec.params.map((p) => keptRow(p, p.kind === "twinFraction" && !stays(p.id) ? undefined : old.get(p.id))));
       result = null;
     },
     setParameterTies: (update) => {
@@ -590,8 +598,11 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
     // The page's handler: the model inverted through the origin, the shifts negated, the riding groups placed afresh, a twin with both hands re-expressed.
     invertStructure: () => {
       calls.push("invert");
-      const flip = invertedModel(model);
-      const nextRiding = riding ? invertedRiding(riding, invertedModel(applyParameters(model, spec.bindings, values()).model).structure) : null;
+      // As the page: one transform both ways, the one that takes the model as loaded to its inverse.
+      const forward = invertedModel(start);
+      const total = forward.shift.map((v, i) => v + forward.translation[i]!) as unknown as typeof forward.shift;
+      const flip = invertedModel(model, { total });
+      const nextRiding = riding ? invertedRiding(riding, invertedModel(applyParameters(model, spec.bindings, values()).model, { total }).structure) : null;
       const lawOf = (id: string): number => Number(spec.bindings.find((b) => b.parameterId === id && b.kind === "twinFraction")?.targetKey ?? 0) - 1;
       const twins = invertedTwinFractions(twinLaws, twinLaws.map((_, i) => params.find((p) => p.kind === "twinFraction" && lawOf(p.id) === i)?.value ?? 0));
       riding = nextRiding;

@@ -194,9 +194,12 @@ data's own scale, so a published WGHT is set as printed.
 `assess_refinement` gives the scheme SHELXL would suggest for the model as it stands: the a and
 b that make the GooF flat across the intensity bins and 1 overall. Set it with
 `set_weighting` (use "suggested") only once the model is complete — ADPs, extinction,
-hydrogens, outliers — since weights fitted to an unfinished model hide its errors; then refine
-once more and quote R1, wR2 and GooF with the scheme. wR2 and GooF depend on it, R1 does not.
-With σ that already describe the data the suggestion stays near 0 0.
+hydrogens, outliers, the twin and the hand — since weights fitted to an unfinished model hide
+its errors; then refine once more and quote R1, wR2 and GooF with the scheme. wR2 and GooF depend
+on it, R1 does not. With σ that already describe the data the suggestion stays near 0 0.
+A published WGHT set to reproduce a refinement, or to compare two models under one scheme (the
+two hands), is that model's: after the last change, set the suggestion for the final model and
+refine again. A GooF well below 1 under fixed weights says they no longer fit the model.
 
 ## Outliers
 

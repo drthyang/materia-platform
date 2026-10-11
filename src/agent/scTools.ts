@@ -104,6 +104,10 @@ export async function changeSingleCrystal(name: string, input: Input, port: Sing
       if (next.length === 0) return "Untwinned again: the twin fraction left the fit, and the last fit is cleared.";
       const signal = isInversion(next[0]!) && !anomalousLine(s) ? " No anomalous scattering at this radiation (X-rays at a tabulated line give it): the inversion fraction is undetermined." : "";
       if (next.length > 1) return `Four domains, as SHELXL's TWIN R −4: the law (twin_1), the inversion (twin_2) and the two together (twin_3), each fraction free from 0.1. The inverted domains (twin_2 + twin_3) hold the Flack x: refine them with the structure.${anomalousLine(s) ? "" : " No anomalous scattering at this radiation: their split between the hands is undetermined."} The last fit is cleared.`;
+      // The law that stays where it was keeps its fraction (the page keeps the row).
+      const kept = s.twinLaws[0] && s.twinLaws[0].matrix.every((row, i) => row.every((v, j) => Math.round(v) === Math.round(next[0]!.matrix[i]![j]!)));
+      const before = s.parameters.find((p) => p.id === "twin_1");
+      if (kept && before) return `The law stays, its fraction kept at ${sig(before.value, 4)} (twin_1)${s.twinLaws.length > 1 ? `; the other ${s.twinLaws.length - 1} domain${s.twinLaws.length === 2 ? "" : "s"} left the fit` : ""}: refine it with the structure.${signal} The last fit is cleared.`;
       return `${isInversion(next[0]!) ? "The inversion twin's fraction, the Flack x (twin_1)," : "The twin fraction (twin_1, BASF)"} is free from 0.1: refine it with the structure.${signal} The last fit is cleared.`;
     }
     case "invert_structure": {
@@ -172,7 +176,8 @@ export async function changeSingleCrystal(name: string, input: Input, port: Sing
       if (!s.parameters.some((p) => !p.fixed && !p.expression)) throw new Error("no parameter is free — free some with set_free first");
       const why = await (input.mode === "thorough" ? port.thorough() : port.refine());
       if (why) return `The refinement did not finish (${why}); the parameters keep their values from before it.`;
-      return freeHydrogenNote(s) ?? undefined;
+      const notes = [freeHydrogenNote(s), listingExtinctionNote(s)].filter((n): n is string => n !== null);
+      return notes.length ? notes.join(" ") : undefined;
     }
     case "reset_parameters":
       port.reset(input.parameters ? matchIds(s.parameters, input.parameters as string[]) : undefined);
@@ -308,12 +313,16 @@ export function describeSingleCrystalChange(spec: LiveToolSpec, input: Input, s:
     case "invert_structure": {
       const inv = invertedModel(s.structure);
       const shifted = inv.shift.some((v) => v !== 0);
-      return `${s.inverted ? "Back to the hand as loaded" : "Invert the model"}: every coordinate x → ${shifted ? `(${inv.shift.join(", ")}) − x` : "−x"}; ${inv.enantiomorph ? `the space group ${s.structure.spaceGroup.hermannMauguin ?? "?"} → ${inv.enantiomorph}` : `the space group ${s.structure.spaceGroup.hermannMauguin ?? "?"} kept`}${s.twinLaws.length ? "; the twin fractions re-expressed" : ""}${s.riding.length ? "; the riding groups placed afresh" : ""}`;
+      if (s.inverted) return `Back to the hand as loaded: the model as it was loaded, in ${inv.enantiomorph ?? s.structure.spaceGroup.hermannMauguin ?? "its space group"}${s.twinLaws.length ? "; the twin fractions re-expressed" : ""}${s.riding.length ? "; the riding groups placed afresh" : ""}`;
+      const moved = inv.translation.some((v) => v !== 0);
+      return `Invert the model: every coordinate x → ${shifted ? `(${inv.shift.join(", ")}) − x` : "−x"}${moved ? `, moved into the cell by (${inv.translation.join(", ")})` : ""}; ${inv.enantiomorph ? `the space group ${s.structure.spaceGroup.hermannMauguin ?? "?"} → ${inv.enantiomorph}` : `the space group ${s.structure.spaceGroup.hermannMauguin ?? "?"} kept`}${s.twinLaws.length ? "; the twin fractions re-expressed" : ""}${s.riding.length ? "; the riding groups placed afresh" : ""}`;
     }
     case "set_twin": {
       const next = twinAfter(s, input);
       if (next.length > 1) return `Twin law: ${twinText(next[0]!)} with the inversion — four domains (TWIN R −4), three fractions from 0.1`;
-      return next.length === 0 ? `Untwinned: the twin fraction${s.twinLaws.length ? "" : "s"} leave the fit` : `Twin law: ${twinText(next[0]!)} — its fraction${isInversion(next[0]!) ? " (the Flack x)" : " (BASF)"} refines from 0.1`;
+      if (next.length === 0) return `Untwinned: the twin fraction${s.twinLaws.length ? "" : "s"} leave the fit`;
+      const stays = s.twinLaws[0] && s.twinLaws[0].matrix.every((row, i) => row.every((v, j) => Math.round(v) === Math.round(next[0]!.matrix[i]![j]!)));
+      return `Twin law: ${twinText(next[0]!)} — its fraction${isInversion(next[0]!) ? " (the Flack x)" : " (BASF)"} ${stays ? `kept at ${sig(s.parameters.find((p) => p.id === "twin_1")?.value ?? 0.1, 4)}${s.twinLaws.length > 1 ? `, the other ${s.twinLaws.length - 1} domain${s.twinLaws.length === 2 ? "" : "s"} leaving the fit` : ""}` : "refines from 0.1"}`;
     }
     case "merge_equivalents": {
       if (!input.on) return `Fit every measurement again (${s.totalReflections}), not the merged equivalents`;
@@ -483,6 +492,14 @@ function restraintsAfter(s: SingleCrystalLiveState, input: Input): DistanceRestr
   return next;
 }
 
+/** An extinction refined against a refinement's listing, whose Fo² have that refinement's extinction divided out (SHELXL's LIST 4): a note, or null. */
+function listingExtinctionNote(s: SingleCrystalLiveState): string | null {
+  if (s.dataset.origin !== "refinement-listing") return null;
+  const ext = s.parameters.find((p) => p.kind === "extinction");
+  if (!ext || ext.fixed || ext.expression) return null;
+  return "The extinction refined against a refinement's listing: SHELXL's LIST 4 has its own extinction divided out of the Fo², so a second correction counts it twice. Hold it at 0 (set_free fix extinction, reset_parameters) and say in the report that the listing's Fo² carry SHELXL's.";
+}
+
 /**
  * X-ray data with hydrogens refined on their own: a note, or null. Neutron
  * data place them as well as any atom. A hydrogen chosen to refine
@@ -645,7 +662,11 @@ function flackReading(x: number, u: number | undefined, line: string | null): st
   if (!line) return "no anomalous scattering at this radiation: x is undetermined, whatever its value";
   if (u === undefined) return "not refined yet: refine it with the structure for its esd";
   if (u > 0.3) return `u = ${sig(u, 2)}: the anomalous signal is too weak to say anything about the absolute structure`;
-  if (Math.abs(x) <= 2 * u) return u < 0.04 ? "the model's hand: the absolute structure is determined" : `the model's hand within 2u, but u = ${sig(u, 2)} is too large to determine an unknown absolute structure (u < 0.04); enough to confirm a known enantiopure one (u < 0.1)`;
+  if (Math.abs(x) <= 2 * u) {
+    if (u < 0.04) return "the model's hand: the absolute structure is determined";
+    if (u < 0.1) return `the model's hand: x is 0 within 2u. With u = ${sig(u, 2)} (above 0.04) a few per cent of the other hand cannot be excluded for a compound of unknown enantiopurity; for one known to be enantiopure, u < 0.1 confirms the hand (Flack & Bernardinelli)`;
+    return `x is 0 within 2u, but u = ${sig(u, 2)} is too large to determine the hand (u < 0.1 is needed even for a compound known to be enantiopure): compare the two hands' fits (invert_structure) and quote both`;
+  }
   if (Math.abs(1 - x) <= 2 * u) return "the inverted hand: invert the model (invert_structure: every coordinate to its negative, the space group to its enantiomorph if it has one) and refine again";
   return `between the hands: an inversion twin, ${sig(100 * x, 2)} % of the crystal of the inverted hand${Math.abs(x - 0.5) <= 2 * u ? " — a racemic twin" : ""}`;
 }
@@ -675,7 +696,27 @@ function weightingAfter(s: SingleCrystalLiveState, input: Input): ShelxWeighting
 }
 
 /** R_int, or why there is none: data merged already have one value per reflection. */
-const rIntOf = (s: SingleCrystalLiveState): number | string => (s.merge.redundancy <= 1 + 1e-9 ? "n/a (each reflection once: merged data)" : pct(s.merge.rInt));
+/**
+ * The merge a crystallographer quotes: in an acentric group the Friedel mates
+ * kept apart and the absences left out, as SHELXL merges it (MERG 2); in a
+ * centrosymmetric one, the Laue class.
+ */
+const quotedMerge = (s: SingleCrystalLiveState): { readonly unique: number; readonly redundancy: number; readonly rInt: number; readonly rSigma: number } => s.merge.friedelApart ?? s.merge;
+
+/**
+ * R_int, or why there is none: data holding each reflection once (merged, or
+ * a refinement's listing) have no equivalents to compare. In an acentric group
+ * each reflection's Friedel mate is another reflection: merged in the Laue
+ * class, a listing's Bijvoet pairs would differ by their anomalous signal,
+ * which is no R_int.
+ */
+const rIntOf = (s: SingleCrystalLiveState): number | string => {
+  const m = quotedMerge(s);
+  if (m.redundancy > 1 + 1e-9) return pct(m.rInt);
+  return s.merge.friedelApart && s.merge.redundancy > 1 + 1e-9
+    ? `n/a (each reflection once, its Friedel mate apart; merged with them the Bijvoet pairs differ by ${pct(s.merge.rInt)} %, their anomalous signal, not the measurements' agreement)`
+    : "n/a (each reflection once: merged data)";
+};
 
 const LISTING_NOTE = "The Fo² come from a refinement's listing (.fcf), not from data reduction: each reflection once, on that refinement's scale, the systematic absences left out, and in SHELXL's LIST 4 its extinction divided out. R_int, the absences and the extinction cannot be judged from them, and R1 compares with that refinement's own.";
 
@@ -790,7 +831,11 @@ function equivalentsReading(s: SingleCrystalLiveState, row: SingleCrystalRow, ke
   const key = keyOf(row);
   const self = measurementKey(row);
   const others = s.allRows.filter((r) => keyOf(r) === key && measurementKey(r) !== self && r.fcSq > 0);
-  if (others.length === 0 || !(row.fcSq > 0)) return "no equivalent measured";
+  if (others.length === 0 || !(row.fcSq > 0)) return s.dataset.origin === "refinement-listing" ? "a listing's value, merged by the refinement that wrote it from equivalents this file does not hold" : "no equivalent measured";
+  // In an acentric group a Laue-class equivalent of the other hand is the Friedel mate: another reflection, which the anomalous signal sets apart (its own Fc² carries that).
+  const pg = pointGroupRotations(s.structure.spaceGroup.operations);
+  const own = canonicalKey(pg, row.h, row.k, row.l);
+  const mates = !isCentrosymmetric(s.structure.spaceGroup.operations) && others.every((r) => canonicalKey(pg, r.h, r.k, r.l) !== own);
   // A ratio floored at σ, so a measurement that caught nothing still has one.
   const ratio = (r: SingleCrystalRow): number => Math.max(r.foSq, r.sigma, 1e-9 * r.fcSq) / r.fcSq;
   const logs = others.map((r) => Math.log(ratio(r)));
@@ -799,7 +844,8 @@ function equivalentsReading(s: SingleCrystalLiveState, row: SingleCrystalRow, ke
   const lq = Math.log(ratio(row));
   const apart = Math.abs(lq - lm);
   // Three digits: near 1 a few per cent is several σ.
-  const n = `${others.length} equivalent${others.length === 1 ? "" : "s"} at Fo²/Fc² ${sig(Math.exp(lm), 3)} (median${others.length > 2 ? `, scatter ${sig(Math.exp(spread) - 1, 2)}` : ""}), this one ${sig(Math.exp(lq), 3)}`;
+  const what = mates ? (others.length === 1 ? "its Friedel mate" : `${others.length} equivalents of its Friedel mate`) : `${others.length} equivalent${others.length === 1 ? "" : "s"}`;
+  const n = `${what} at Fo²/Fc² ${sig(Math.exp(lm), 3)}${others.length > 1 ? ` (median${others.length > 2 ? `, scatter ${sig(Math.exp(spread) - 1, 2)}` : ""})` : ""}, this one ${sig(Math.exp(lq), 3)}`;
   // Failed: off by itself — its equivalents agree among themselves and roughly with the model (within ×1.8, so a
   // fit that one failure drags still counts), and it lies farther from the model than they do.
   if (Math.abs(row.deltaOverSigma) >= 6 && Math.abs(lm) <= 0.6 && Math.abs(lq) > Math.abs(lm) && apart >= Math.max(0.5, 4 * spread)) {
@@ -809,7 +855,9 @@ function equivalentsReading(s: SingleCrystalLiveState, row: SingleCrystalRow, ke
   const chance = Math.sqrt(2 * Math.log(Math.max(s.rows.length, 2)));
   if (Math.abs(row.deltaOverEsd ?? row.deltaOverSigma) <= chance) return `${n}: no more than chance — the largest of ${s.rows.length} misfits reaches about ${chance.toFixed(1)}σ with nothing wrong`;
   if (Math.sign(lm) === Math.sign(lq) && Math.abs(lm) >= Math.abs(lq) / 2) return `${n}: the model (or a correction) misses the reflection`;
-  return `${n}: they disagree among themselves — a correction that differs between them (extinction or absorption at another wavelength or path), or the model`;
+  // Laue data (each reflection its own λ) differ in λ as well as in path; a monochromatic measurement only in path.
+  const laue = row.wavelength !== undefined;
+  return `${n}: they disagree among themselves — a correction that differs between them (${laue ? "extinction or absorption at another wavelength or path" : "absorption along another path"}), or the model`;
 }
 
 /**
@@ -963,7 +1011,15 @@ function stateView(s: SingleCrystalLiveState, history: ProjectHistory | null, se
       ...(r.kind !== "neutron-tof" ? { wavelength: r.wavelength } : {}),
       reflectionsInFile: s.totalReflections,
       fitted: s.observationCount,
-      merging: { unique: s.merge.unique, redundancy: sig(s.merge.redundancy, 3), rInt: rIntOf(s), rSigma: pct(s.merge.rSigma), ...(s.merge.dMin !== undefined ? { dMin: sig(s.merge.dMin, 4) } : {}), fitted: s.dataset.merged ? mergedText(s) : "every measurement, each equivalent apart (merge_equivalents merges them as SHELXL does)" },
+      merging: {
+        unique: quotedMerge(s).unique,
+        ...(s.merge.friedelApart ? { uniqueNote: `the Friedel mates apart and the absences left out, as SHELXL merges this group; ${s.merge.unique} in the Laue class` } : {}),
+        redundancy: sig(quotedMerge(s).redundancy, 3),
+        rInt: rIntOf(s),
+        rSigma: pct(quotedMerge(s).rSigma),
+        ...(s.merge.dMin !== undefined ? { dMin: sig(s.merge.dMin, 4) } : {}),
+        fitted: s.dataset.merged ? mergedText(s) : s.dataset.origin === "refinement-listing" ? "the listing as it is: each reflection once, as the refinement that wrote it merged them" : quotedMerge(s).redundancy > 1 + 1e-9 ? "every measurement, each equivalent apart (merge_equivalents merges them as SHELXL does)" : "each reflection once",
+      },
       ...(s.dataset.origin === "refinement-listing" ? { origin: LISTING_NOTE } : {}),
       outlierFilter: s.outlierFilter.on ? `on at ${s.outlierFilter.cutoffSigma}σ${s.outlierFilter.minExtinction !== undefined ? ` and y ≥ ${s.outlierFilter.minExtinction}` : ""}: ${s.outlierFilter.excluded} reflections left out` : "off",
       omitted: s.omitted.length ? s.omitted.map((o) => `${omittedText(o)}${o.reason ? `: ${o.reason}` : ""}`) : "none",
@@ -971,8 +1027,8 @@ function stateView(s: SingleCrystalLiveState, history: ProjectHistory | null, se
       weights: weightingText(s.weighting),
       anomalousScattering: s.dataset.radiation.kind !== "xray" ? "none (neutrons)" : anomalousLine(s) ? `f′, f″ at ${anomalousLine(s)} (Cromer & Liberman)` : `none: no tabulated line at λ ${s.dataset.radiation.wavelength} Å`,
       twin: s.twinLaws.length ? s.twinLaws.map(twinText).join("; ") : "none",
-      restraints: s.distanceRestraints.length ? `${restraintCount(s.distanceRestraints)}: ${restraintReport(s.refinedStructure, s.distanceRestraints).map((r) => r.text).join("; ")}` : "none",
-      extinctionModel: EXTINCTION_MODEL_LABELS[s.extinctionModel],
+      restraints: restraintsLine(s),
+      extinctionModel: extinctionLabel(s),
     },
     agreement: { R1: pct(ag.r1), wR2: pct(ag.wr2), GooF: sig(ag.goof, 4), observed: ag.observed, total: ag.total, note: `R1 over Fo² > 2σ; wR2 and GooF over every reflection fitted, ${s.weighting ? `weighted by WGHT ${s.weighting.a} ${s.weighting.b}` : "w = 1/σ²"}.` },
     magneticModel: s.magnetic,
@@ -1038,17 +1094,19 @@ function statisticsView(s: SingleCrystalLiveState): Record<string, unknown> {
   const special = s.structure.sites.filter((site) => allowedPositionShifts(ops, site.position).basis.length < 3).length;
   // The data as measured: with the fit on the merged set, the measurement as loaded (its absences, its Friedel pairs).
   const read = s.dataset.merged ? s.measurement.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.iObs, sigma: r.sigma ?? 0 })) : s.rows.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.foSq, sigma: r.sigma }));
-  const st = reflectionStatistics(read, s.structure.cell, s.structure.spaceGroup, { sites: s.structure.sites.length, special });
+  const st = reflectionStatistics(read, s.structure.cell, s.structure.spaceGroup, { sites: s.structure.sites.length, special, twinned: s.twinLaws.some((l) => !isInversion(l)) });
   const f = st.friedel;
   const hkl = (x: { h: number; k: number; l: number }): string => `${x.h} ${x.k} ${x.l}`;
   return {
     reflections: {
-      measured: s.dataset.merged ? s.totalReflections : s.observationCount,
-      unique: s.merge.unique,
-      redundancy: sig(s.merge.redundancy, 3),
-      rInt: rIntOf(s),
-      ...(f.rIntApart !== undefined ? { rIntFriedelApart: pct(f.rIntApart), rIntNote: "rInt merges each reflection's Laue-class equivalents, the Friedel mates among them; rIntFriedelApart keeps the mates apart and leaves the absences out, as SHELXL merges a non-centrosymmetric group and reports it. The difference is what the mates differ by: the anomalous signal." } : {}),
-      rSigma: pct(s.merge.rSigma),
+      [s.dataset.origin === "refinement-listing" ? "listed" : "measured"]: s.dataset.merged ? s.totalReflections : s.observationCount,
+      // Data holding each reflection once (a listing, or merged) count as the merge that keeps the Friedel mates apart: a mate is not a repeat.
+      unique: quotedMerge(s).redundancy > 1 + 1e-9 ? s.merge.unique : quotedMerge(s).unique,
+      redundancy: sig(quotedMerge(s).redundancy > 1 + 1e-9 ? s.merge.redundancy : quotedMerge(s).redundancy, 3),
+      // A listing (or merged data) holds each reflection once: its Laue-class "R_int" is only the Bijvoet pairs' anomalous difference.
+      rInt: quotedMerge(s).redundancy > 1 + 1e-9 ? pct(s.merge.rInt) : rIntOf(s),
+      ...(f.rIntApart !== undefined && quotedMerge(s).redundancy > 1 + 1e-9 ? { rIntFriedelApart: pct(f.rIntApart), rIntNote: "rInt merges each reflection's Laue-class equivalents, the Friedel mates among them; rIntFriedelApart keeps the mates apart and leaves the absences out, as SHELXL merges a non-centrosymmetric group and reports it. The difference is what the mates differ by: the anomalous signal." } : {}),
+      rSigma: pct(quotedMerge(s).redundancy > 1 + 1e-9 ? s.merge.rSigma : quotedMerge(s).rSigma),
       ...(s.dataset.merged ? { fitted: mergedText(s) } : {}),
     },
     ...(s.dataset.origin === "refinement-listing" ? { origin: LISTING_NOTE } : {}),
@@ -1059,7 +1117,7 @@ function statisticsView(s: SingleCrystalLiveState): Record<string, unknown> {
       unique: sh.unique,
       ...(sh.completeness !== undefined ? { completeness: pct(sh.completeness) } : {}),
       iOverSigma: sig(sh.iOverSigma, 3),
-      ...(sh.rInt !== undefined ? { rInt: pct(sh.rInt) } : {}),
+      ...(sh.rInt !== undefined && quotedMerge(s).redundancy > 1 + 1e-9 ? { rInt: pct(sh.rInt) } : {}),
     })),
     friedel: f.centrosymmetric
       ? "centrosymmetric group: Friedel mates are equivalent; no absolute structure to determine"
@@ -1100,7 +1158,10 @@ function assessment(s: SingleCrystalLiveState): Record<string, unknown> {
       byResolution: v.shells.map((sh) => ({ d: `${sig(sh.dMax, 3)}–${sig(sh.dMin, 3)} Å`, n: sh.n, K: sig(sh.k, 3), GooF: sig(sh.goof, 3), R1: pct(sh.r1) })),
       reading: "K = ΣFo²/ΣFc² should stay level (near 1 once the scale is right) and GooF level across both: K falling on the strongest reflections, against the other bins, is extinction; K rising on the weakest is twinning or a wrong model; K rising with resolution is ADPs too large (or extinction at low angle); GooF growing with intensity is the weighting.",
     },
-    extinction: v.extinction.suspected
+    // A listing's Fo² have the extinction of the refinement that wrote it divided out: a level K on the strongest bin shows that correction.
+    extinction: s.dataset.origin === "refinement-listing"
+      ? `not judged from a listing: its Fo² have the extinction of the refinement that wrote it divided out (SHELXL's LIST 4); the strongest bin's K = ${sig(v.extinction.strongBinK, 3)} (the other bins ${sig(v.extinction.otherBinsK, 3)}) reflects that correction, not the crystal`
+      : v.extinction.suspected
       ? `suspected: the strongest bin has K = ${sig(v.extinction.strongBinK, 3)} against ${sig(v.extinction.otherBinsK, 3)} in the other bins, GooF ${sig(v.extinction.strongBinGoof, 3)}; ${v.extinction.strongUnder} of ${v.extinction.outliers} outliers are strong with Fo² < Fc²`
       : `not indicated (strongest bin K = ${sig(v.extinction.strongBinK, 3)}, the other bins ${sig(v.extinction.otherBinsK, 3)})`,
     ...(extinctionView(s.rows) ? { extinctionCorrection: extinctionView(s.rows) } : {}),
@@ -1108,7 +1169,7 @@ function assessment(s: SingleCrystalLiveState): Record<string, unknown> {
     outliers: outliersView(s, 8),
     outliersReading: "Each outlier against its equivalents: one marked a failed measurement goes with omit_reflections (by its batch); a reflection the model misses stays, whatever its residual.",
     ...(s.omitted.length ? { omitted: s.omitted.map((o) => `${omittedText(o)}${o.reason ? `: ${o.reason}` : ""}`) } : {}),
-    extinctionModel: EXTINCTION_MODEL_LABELS[s.extinctionModel],
+    extinctionModel: extinctionLabel(s),
     ...(twinningView(s) ? { twinning: twinningView(s) } : {}),
     ...((hand) => (hand ? { absoluteStructure: hand } : {}))(absoluteStructureView(s)),
     ...(s.distanceRestraints.length || floatingOrigins(s.refinedStructure, s.parameters, s.bindings).length ? { restraints: restraintsView(s) } : {}),
@@ -1126,6 +1187,27 @@ function assessment(s: SingleCrystalLiveState): Record<string, unknown> {
 }
 
 /** The restraints as the fit left them: each one's distances and deviation in σ, and the GooF with them counted. */
+/** The restraints in force, as SHELXL counts them: the distance restraints' rows and a polar group's floating origin, one per direction. */
+function restraintsLine(s: SingleCrystalLiveState): string {
+  const origins = floatingOrigins(s.refinedStructure, s.parameters, s.bindings);
+  const n = (s.distanceRestraints.length ? restraintCount(s.distanceRestraints) : 0) + origins.length;
+  if (n === 0) return "none";
+  const each = [
+    ...(s.distanceRestraints.length ? restraintReport(s.refinedStructure, s.distanceRestraints).map((r) => r.text) : []),
+    ...origins.map((o) => `the floating origin along ${o.axis} (SHELXL's floating-origin restraint)`),
+  ];
+  return `${n}: ${each.join("; ")}`;
+}
+
+/** The extinction model in use; none when its parameter is held at 0 (as against a listing, whose Fo² have it divided out). */
+function extinctionLabel(s: SingleCrystalLiveState): string {
+  const ext = s.parameters.find((p) => p.kind === "extinction");
+  if (ext && ext.fixed && !ext.expression && ext.value === 0) {
+    return s.dataset.origin === "refinement-listing" ? "none: held at 0, the listing's Fo² carrying the correction of the refinement that wrote them" : `none: held at 0 (${EXTINCTION_MODEL_LABELS[s.extinctionModel]} when it refines)`;
+  }
+  return EXTINCTION_MODEL_LABELS[s.extinctionModel];
+}
+
 function restraintsView(s: SingleCrystalLiveState): Record<string, unknown> {
   const report = restraintReport(s.refinedStructure, s.distanceRestraints);
   const { pairs, rows } = restraintRows(s.distanceRestraints);
@@ -1161,7 +1243,11 @@ export function singleCrystalReportChecks(s: SingleCrystalLiveState, probe: Refi
       status: (s.merge.friedelApart ?? s.merge).rInt > 0.1 || (v.completeness !== undefined && v.completeness < 0.95) ? "note" : "pass",
       detail: dataLine(s, v),
     },
-    {
+    s.dataset.origin === "refinement-listing" ? {
+      name: "Extinction",
+      status: "note",
+      detail: `Held at ${sig(s.parameters.find((p) => p.kind === "extinction")?.value ?? 0, 3)}: the listing's Fo² have the extinction of the refinement that wrote it divided out (SHELXL's LIST 4), so it cannot be judged here; the strongest reflections stand at K = ${sig(v.extinction.strongBinK, 3)} against ${sig(v.extinction.otherBinsK, 3)} in the others.`,
+    } : {
       name: "Extinction",
       status: v.extinction.suspected ? "warn" : "pass",
       detail: (v.extinction.suspected
@@ -1173,7 +1259,7 @@ export function singleCrystalReportChecks(s: SingleCrystalLiveState, probe: Refi
   checks.push({
     name: "Resolution shells",
     status: "note",
-    detail: v.shells.map((sh) => `${sig(sh.dMax, 3)}–${sig(sh.dMin, 3)} Å: ${sh.n} reflections${sh.completeness !== undefined ? `, completeness ${pct(sh.completeness)} %` : ""}, ⟨I/σ⟩ ${sig(sh.iOverSigma, 3)}${sh.rInt !== undefined ? `, R_int ${pct(sh.rInt)} %` : ""}, K ${sig(sh.k, 3)}, GooF ${sig(sh.goof, 3)}, R1 ${pct(sh.r1)} %`).join("; ") + ".",
+    detail: v.shells.map((sh) => `${sig(sh.dMax, 3)}–${sig(sh.dMin, 3)} Å: ${sh.n} reflections${sh.completeness !== undefined ? `, completeness ${pct(sh.completeness)} %` : ""}, ⟨I/σ⟩ ${sig(sh.iOverSigma, 3)}${sh.rInt !== undefined && quotedMerge(s).redundancy > 1 + 1e-9 ? `, R_int ${pct(sh.rInt)} %` : ""}, K ${sig(sh.k, 3)}, GooF ${sig(sh.goof, 3)}, R1 ${pct(sh.r1)} %`).join("; ") + ".",
   });
   checks.push({
     name: "Analysis of variance",
@@ -1213,14 +1299,17 @@ function dataLine(s: SingleCrystalLiveState, v: ScValidation): string {
   const m = s.merge;
   const apart = m.friedelApart;
   const merged = s.dataset.merged;
-  const rInt = m.redundancy <= 1 + 1e-9
-    ? "R_int n/a, merged data"
+  const quoted = quotedMerge(s);
+  // Each reflection once (merged, or a listing): no equivalents to compare. In an acentric group the Laue-class
+  // figure would only measure the Bijvoet pairs' anomalous difference.
+  const rInt = quoted.redundancy <= 1 + 1e-9
+    ? `R_int n/a, ${s.dataset.origin === "refinement-listing" ? "a listing" : "merged data"}: each reflection once${apart ? ", its Friedel mate apart" : ""}`
     : apart ? `R_int ${pct(apart.rInt)} % with the Friedel mates apart, as SHELXL reports it (${pct(m.rInt)} % in the Laue class)` : `R_int ${pct(m.rInt)} %`;
   const counts = merged
     ? `${merged.from} measurements merged as SHELXL's MERG 2 into ${s.dataset.reflections.length} reflections${merged.friedelApart ? ", the Friedel opposites apart" : ""}${s.observationCount < s.dataset.reflections.length ? `, ${s.observationCount} of them fitted` : ""}`
-    : `${s.observationCount} reflections, ${m.unique} unique`;
+    : `${s.observationCount} reflections, ${quoted.unique} unique${apart ? " with the Friedel mates apart" : ""}`;
   const pairs = v.independent > (v.uniqueAllowed ?? v.uniqueObserved) ? " (the Friedel pairs apart, as SHELXL counts its data)" : "";
-  return `${counts} (${rInt}, R_σ ${pct((apart ?? m).rSigma)} %), d_min ${sig(v.dMin, 4)} Å${v.completeness !== undefined ? `, completeness ${pct(v.completeness)} %` : ""}; ${sig(v.reflectionsPerParameter, 3)} independent reflections per free parameter${pairs}.${s.dataset.origin === "refinement-listing" ? ` ${LISTING_NOTE}` : ""}`;
+  return `${counts} (${rInt}, R_σ ${pct((apart ?? m).rSigma)} %), d_min ${sig(v.dMin, 4)} Å (sinθ/λ ${sig(v.sinThetaOverLambdaMax, 3)} Å⁻¹)${v.completeness !== undefined ? `, completeness ${pct(v.completeness)} %` : ""}; ${sig(v.reflectionsPerParameter, 3)} independent reflections per free parameter${pairs}.${s.dataset.origin === "refinement-listing" ? ` ${LISTING_NOTE}` : ""}`;
 }
 
 /** The correction's reach, for the report: the smallest y and how many reflections fall below 0.8. */

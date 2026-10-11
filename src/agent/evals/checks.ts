@@ -553,20 +553,23 @@ export const honestAboutListing: Check = {
 
 /**
  * SHELXL's weights set last: after every change of the model (ADPs, riding,
- * extinction, radiation), then refined, ending with GooF near 1 (round 2:
- * dipyridyl reported with w = 1/σ², GooF 2.35 against SHELXL's 1.041).
+ * extinction, radiation, the twin, the hand), then refined, ending with GooF
+ * near 1 (round 2: dipyridyl reported with w = 1/σ², GooF 2.35 against
+ * SHELXL's 1.041; round 4: 3a's weights, fitted to the model in P6₁, kept
+ * for its inverse in P6₅, GooF 0.889). Weights set earlier, to compare
+ * models under one scheme, are set again for the final one.
  */
 export const weightsLast: Check = {
   name: "sets the weighting scheme last, once the model is complete, and refines with it",
   grade: (run) => {
     const all = calls(run);
-    const modelChange = (c: (typeof all)[number]): boolean => !c.isError && ["set_adp_model", "set_riding_hydrogens", "set_extinction_model", "set_radiation"].includes(c.name);
+    const modelChange = (c: (typeof all)[number]): boolean => !c.isError && ["set_adp_model", "set_riding_hydrogens", "set_extinction_model", "set_radiation", "set_twin", "invert_structure"].includes(c.name);
     const weighting = (c: (typeof all)[number]): boolean => c.name === "set_weighting" && !c.isError && c.input.use !== "sigma";
-    const first = all.findIndex(weighting);
-    if (first < 0) return fail("never set a weighting scheme");
+    const last = all.reduce((at, c, i) => (weighting(c) ? i : at), -1);
+    if (last < 0) return fail("never set a weighting scheme");
     const lastChange = all.reduce((at, c, i) => (modelChange(c) ? i : at), -1);
-    if (lastChange > first) return fail(`set the weights before ${all[lastChange]!.name}`);
-    const refined = all.some((c, i) => i > first && c.name === "refine" && json(c.text)?.refined === true);
+    if (lastChange > last) return fail(`set the weights before ${all[lastChange]!.name}`);
+    const refined = all.some((c, i) => i > last && c.name === "refine" && json(c.text)?.refined === true);
     if (!refined) return fail("did not refine with the weights");
     const s = scState(run);
     if (!s?.weighting) return fail("ends with w = 1/σ²");
@@ -621,8 +624,26 @@ export const refinesFlack: Check = {
 };
 
 /**
- * A model of the wrong hand is inverted (round 4: 3a's published model was the
- * other enantiomer, x = 1.03(4) refined and 1.08(6) by Parsons' quotients):
+ * The extinction stays out of a fit to a refinement's listing (round 4: 3a's
+ * LIST 4 .fcf has SHELXL's EXTI divided out of its Fo², and the page entered
+ * the extinction free, as it does for measured data): refining it would
+ * correct twice.
+ */
+export const holdsListingExtinction: Check = {
+  name: "keeps the extinction out of a fit to a refinement's listing",
+  grade: (run) => {
+    const all = calls(run);
+    const freed = all.find((c) => c.name === "refine" && json(c.text)?.refined === true && (c.free ?? []).includes("extinction"));
+    if (freed) return fail("refined the extinction against a listing whose Fo² have it divided out");
+    const ext = scState(run)?.parameters.find((p) => p.kind === "extinction");
+    if (ext && ext.value !== 0) return fail(`ends with the extinction at ${ext.value}`);
+    return all.some((c) => c.name === "refine" && json(c.text)?.refined === true) ? ok("refined with the extinction held at 0") : fail("never refined");
+  },
+};
+
+/**
+ * A model of the wrong hand is inverted (round 4: 3a's model, SHELXL's .ins, was the
+ * other enantiomer, x = 1.01(5) refined and 1.08(6) by Parsons' quotients):
  * the hand tested, the model inverted (`invert_structure`), refined again,
  * and the account says so. Quoting x near 1 and leaving the model as it is
  * fails; so does never testing the hand.

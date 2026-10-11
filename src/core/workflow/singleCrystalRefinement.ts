@@ -162,9 +162,10 @@ export function buildSingleCrystalSpec(
   params.push({ id: "scale", label: "scale (OSF)", kind: "scale", value: scale, initialValue: scale, min: 0, fixed: false });
   bindings.push({ parameterId: "scale", kind: "scale", targetId: dataset.id });
 
-  // Secondary extinction (SHELXL EXTI) — free on load when present.
+  // Secondary extinction (SHELXL EXTI) — free on load when present; held at 0 against a
+  // refinement's listing, whose Fo² have that refinement's extinction divided out (LIST 4).
   if (extinction > 0 || opts.extinction !== undefined) {
-    params.push({ id: "extinction", label: EXTINCTION_PARAMETER_LABELS[dataset.extinctionModel ?? "shelx"], kind: "extinction", value: extinction, initialValue: extinction, min: 0, max: 100, fixed: false });
+    params.push({ id: "extinction", label: EXTINCTION_PARAMETER_LABELS[dataset.extinctionModel ?? "shelx"], kind: "extinction", value: extinction, initialValue: extinction, min: 0, max: 100, fixed: dataset.origin === "refinement-listing" });
     bindings.push({ parameterId: "extinction", kind: "extinction", targetId: dataset.id });
   }
 

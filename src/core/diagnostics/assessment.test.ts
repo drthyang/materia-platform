@@ -35,6 +35,14 @@ describe("assessRefinement — fit verdict", () => {
     expect(a.verdict.rationale).toMatch(/too good|over-parameterized|overestimated/i);
   });
 
+  it("on a single crystal, a GooF a little below 1 asks for the weights refitted, not a green light", () => {
+    const a = assessRefinement({ result: result({ agreement: { goodnessOfFit: 0.889 } }), parameters: [param("scale", "scale", 1)], observationCount: 1465, mode: "single-crystal" });
+    expect(a.verdict.band).toBe("good");
+    expect(a.verdict.rationale).toBe("GooF 0.89, below 1: the model leaves less misfit than the weights expect (their σ about 12 % too large) — refit the weighting scheme to the final model (SHELXL's suggestion).");
+    // At 1 it is the floor.
+    expect(assessRefinement({ result: result({ agreement: { goodnessOfFit: 1.02 } }), parameters: [param("scale", "scale", 1)], observationCount: 1465, mode: "single-crystal" }).verdict.band).toBe("excellent");
+  });
+
   it("a high GoF reads as poor", () => {
     const a = assessRefinement({ result: result({ agreement: { goodnessOfFit: 5.2 } }), parameters: [param("scale", "scale", 1)], observationCount: 4000 });
     expect(a.verdict.band).toBe("poor");

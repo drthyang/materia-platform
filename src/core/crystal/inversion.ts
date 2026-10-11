@@ -17,10 +17,12 @@ import { ridingRules } from "@/core/crystal/riding";
 import { isCentrosymmetric } from "@/core/diffraction/merge";
 
 export interface InvertedModel {
-  /** The inverted model: every site at s − x, in the same space group or its enantiomorph; its riding rules left out (see invertedRiding). */
+  /** The inverted model: every site at s + n − x, in the same space group or its enantiomorph; its riding rules left out (see invertedRiding). */
   readonly structure: StructureModel;
   /** The origin shift s (zero unless the group needs one to keep its setting). */
   readonly shift: Vec3;
+  /** The lattice translation n that brings the inverted model's centroid back into the cell (−x alone would put it in the cell below). */
+  readonly translation: Vec3;
   /** The enantiomorph's symbol, when the space group changed (P 61 → P 65). */
   readonly enantiomorph?: string;
   /** An image (operation, lattice translation) of the old model, as the same image of the inverted one. */
@@ -50,20 +52,24 @@ const SHIFTS: Vec3[] = (() => {
 })();
 
 /**
- * The model inverted: positions s − x, the space group kept when the inverse
- * of its operations is itself after an origin shift, or else its enantiomorph.
- * Throws for a centrosymmetric group (the inverse is the same model).
+ * The model inverted: positions s + n − x, the space group kept when the
+ * inverse of its operations is itself after an origin shift s, or else its
+ * enantiomorph; n the lattice vector that brings the centroid into the cell.
+ * `total` forces s + n (the page inverts back by the very transform that took
+ * the loaded model over, so that the round trip is exact). Throws for a
+ * centrosymmetric group (the inverse is the same model).
  */
-export function invertedModel(structure: StructureModel): InvertedModel {
+export function invertedModel(structure: StructureModel, options: { readonly total?: Vec3 } = {}): InvertedModel {
   const ops = structure.spaceGroup.operations;
   if (isCentrosymmetric(ops)) throw new Error("the space group is centrosymmetric: the inverted model is the same model");
   const holds = (s: Vec3): boolean => ops.every((op) => ops.some((o) => sameRotation(o.rotation, op.rotation) && sameTranslation(o.translation, invertedTranslation(op, s))));
-  let shift = SHIFTS.find(holds);
+  const candidates = options.total ? [options.total.map((v) => v - Math.floor(v + 1e-9)) as unknown as Vec3] : SHIFTS;
+  let shift = candidates.find(holds);
   let spaceGroup = structure.spaceGroup;
   let enantiomorph: string | undefined;
   if (!shift) {
     // The inverse is another group: its enantiomorph, in a tabulated setting.
-    for (const s of SHIFTS) {
+    for (const s of candidates) {
       const setting = settingForOperations(ops.map((op) => operation(op.rotation, invertedTranslation(op, s))));
       if (!setting) continue;
       shift = s;
@@ -73,7 +79,10 @@ export function invertedModel(structure: StructureModel): InvertedModel {
     }
     if (!shift) throw new Error(`no tabulated setting holds the inverse of ${structure.spaceGroup.hermannMauguin ?? "this space group"}'s operations`);
   }
-  const s = shift;
+  // Moved by a whole lattice vector so that the model's centroid sits in the cell, as the loaded one did.
+  const centroid = [0, 1, 2].map((i) => structure.sites.reduce((t, site) => t + shift![i]! - site.position[i]!, 0) / Math.max(1, structure.sites.length));
+  const translation = (options.total ? options.total.map((v, i) => Math.round(v - shift![i]!)) : centroid.map((c) => -Math.floor(c + 1e-9))) as unknown as Vec3;
+  const s = [0, 1, 2].map((i) => shift![i]! + translation[i]!) as unknown as Vec3;
   const newOps = spaceGroup.operations;
   const mapImage = (op: number, cell: readonly [number, number, number]): { op: number; cell: [number, number, number] } => {
     const old = ops[op];
@@ -90,7 +99,8 @@ export function invertedModel(structure: StructureModel): InvertedModel {
   const { riding: _, ...rest } = structure;
   return {
     structure: { ...rest, spaceGroup, sites, ...(restraints ? { restraints } : {}) },
-    shift: s,
+    shift: shift!,
+    translation,
     ...(enantiomorph ? { enantiomorph } : {}),
     mapImage,
   };
@@ -152,6 +162,7 @@ const fractionText = (v: number): string => {
 export function inversionText(loaded: StructureModel, inversion: InvertedModel): string {
   const s = inversion.shift;
   const shifted = s.some((v) => v !== 0);
+  const moved = inversion.translation.some((v) => v !== 0);
   const from = loaded.spaceGroup.hermannMauguin ?? "the space group";
-  return `the model as loaded, inverted through the origin (every coordinate x → ${shifted ? `(${s.map(fractionText).join(", ")}) − x` : "−x"}, as SHELXL's MOVE 1 1 1 −1)${inversion.enantiomorph ? `; the space group ${from} → ${inversion.enantiomorph}, its enantiomorph` : `; the space group ${from} kept`}`;
+  return `the model as loaded, inverted through the origin (every coordinate x → ${shifted ? `(${s.map(fractionText).join(", ")}) − x` : "−x"}, as SHELXL's MOVE 1 1 1 −1${moved ? `, then moved into the cell by (${inversion.translation.join(", ")})` : ""})${inversion.enantiomorph ? `; the space group ${from} → ${inversion.enantiomorph}, its enantiomorph` : `; the space group ${from} kept`}`;
 }

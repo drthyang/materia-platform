@@ -71,6 +71,8 @@ export interface IntensityStatistics {
 export interface StatisticsModel {
   readonly sites: number;
   readonly special: number;
+  /** The model holds a twin whose domains' reflections overlap (not the inversion twin alone): it lowers ⟨|E²−1|⟩. */
+  readonly twinned?: boolean;
 }
 
 export interface ReflectionStatistics {
@@ -192,7 +194,8 @@ export function reflectionStatistics(rows: readonly StatisticsRow[], cell: UnitC
     : !applies ? `no test here: ${model!.sites} independent site${model!.sites === 1 ? "" : "s"}, ${model!.special} on special positions — Wilson's distributions assume many atoms in general positions`
       : meanAbs >= (CENTRIC + ACENTRIC) / 2 ? `close to ${CENTRIC} (centrosymmetric)`
         : meanAbs >= ACENTRIC - 0.08 ? `close to ${ACENTRIC} (non-centrosymmetric)`
-          : `below ${ACENTRIC}: fewer weak reflections than either expects — look for twinning (or pseudo-symmetry)`;
+          : model?.twinned ? `below ${ACENTRIC}: fewer weak reflections than either expects — what the twin the model holds gives, its domains' intensities summed`
+            : `below ${ACENTRIC}: fewer weak reflections than either expects — look for twinning (or pseudo-symmetry)`;
   return {
     friedel,
     absences: { measured, violated: violated.slice(0, 20) },

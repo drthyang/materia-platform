@@ -15,7 +15,6 @@ import type { StructureModel } from "@/core/crystal/types";
 import type { RefinementParameter } from "@/core/refinement/types";
 import { buildEsdMap, cellVolume, formatWithEsd } from "@/core/export/cif";
 import { spaceGroupSymbol } from "@/core/crystal/spaceGroups";
-import { uEquivalent } from "@/core/crystal/adp";
 import { crystalComponentsToCartesian } from "@/core/magnetic/moment";
 import { kLabel } from "@/core/magnetic/kSearch";
 import { magneticSupercell, momentAnchorPosition } from "@/core/crystal/cellExpansion";
@@ -26,12 +25,14 @@ import {
   COVALENT_BONDS_NOTE,
   covalentBondRows,
   boxcarNote,
+  displacementColumn,
   formatParameterValue,
   KIND_UNIT,
   parameterGroups,
   parameterStatus,
   posteriorCaveat,
   posteriorStatus,
+  shownParameter,
   type ReportAgent,
   type ReportBoxcar,
   type ReportPosterior,
@@ -162,23 +163,21 @@ function agentMarkdown(a: ReportAgent): string {
   return `**How the analysis was done** — ${a.steps.length} step${a.steps.length === 1 ? "" : "s"} from the History; model ${a.model}.\n\n${steps}${stages}${branches}\n\n**Checks**\n\n${checks}\n\n**Open issues**\n\n${issues}${notes}${posterior}${narrative}`;
 }
 
-function phaseMarkdown(phase: ReportPhase, index: number, total: number): string {
+function phaseMarkdown(phase: ReportPhase, index: number, total: number, technique: ReportInput["technique"]): string {
   const st = phase.structure;
   const esd = buildEsdMap(phase.params, phase.bindings);
   const sg = st.spaceGroup;
   const sgText = `${spaceGroupSymbol(sg) ?? "no symbol"}${sg.number !== undefined ? ` (No. ${sg.number})` : ""}`;
   const role = phase.role ?? (total > 1 ? (index === 0 ? "primary phase" : `phase ${index + 1}`) : undefined);
-  const anyAniso = st.sites.some((s) => s.adp.kind === "anisotropic");
+  const adp = displacementColumn(phase, technique);
   const sites = table(
-    ["Site", "Type", "x", "y", "z", "Occ.", anyAniso ? "B_eq (Å²)" : "B_iso (Å²)"],
+    ["Site", "Type", "x", "y", "z", "Occ.", `${adp.symbol}_${adp.sub} (Å²)`],
     st.sites.map((s) => {
       const pe = esd.pos.get(s.label);
-      const b = s.adp.kind === "isotropic" ? s.adp.bIso : 8 * Math.PI * Math.PI * uEquivalent(s.adp.uAniso, st.cell);
-      const bEsd = s.adp.kind === "isotropic" ? esd.bIso.get(s.label) : undefined;
       return [
         s.label, s.element,
         formatWithEsd(s.position[0], pe?.[0], 5), formatWithEsd(s.position[1], pe?.[1], 5), formatWithEsd(s.position[2], pe?.[2], 5),
-        formatWithEsd(s.occupancy, esd.occ.get(s.label), 4), formatWithEsd(b, bEsd, 3),
+        formatWithEsd(s.occupancy, esd.occ.get(s.label), 4), adp.value(s),
       ];
     }),
     ["l", "l", "r", "r", "r", "r", "r"],
@@ -253,7 +252,7 @@ function parametersMarkdown(params: readonly RefinementParameter[], technique: R
     const free = rows.filter((p) => !p.fixed && !p.expression).length;
     return `### ${title} · ${rows.length} parameter${rows.length === 1 ? "" : "s"}, ${free} refined\n\n${table(
       ["Parameter", "Value", "Unit", "Status"],
-      rows.map((p) => [p.label, formatParameterValue(p), KIND_UNIT[p.kind] ?? "", parameterStatus(p)]),
+      rows.map((p) => shownParameter(p, technique)).map(({ parameter: p, value }) => [p.label, value, KIND_UNIT[p.kind] ?? "", parameterStatus(p)]),
       ["l", "r", "l", "l"],
     )}`;
   };
@@ -315,7 +314,7 @@ export function reportMarkdown(input: ReportInput): string {
     section("Data & model", input.data.length > 0 ? kvTable(input.data) : ""),
     section("Fit", input.figure ? figureMarkdown(input.figure) : ""),
     section("Local versus average", input.boxcar ? boxcarMarkdown(input.boxcar) : ""),
-    section(input.phases.length > 1 ? "Atomic structures" : "Atomic structure", input.phases.map((p, i) => phaseMarkdown(p, i, input.phases.length)).join("\n\n")),
+    section(input.phases.length > 1 ? "Atomic structures" : "Atomic structure", input.phases.map((p, i) => phaseMarkdown(p, i, input.phases.length, input.technique)).join("\n\n")),
     section("Magnetic structure", input.magnetic ? magneticMarkdown(input.magnetic, primary) : ""),
     section("Parameters", parametersMarkdown(input.parameters, input.technique)),
     section("Refinement details", detailsMarkdown(input)),

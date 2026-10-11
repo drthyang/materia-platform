@@ -40,16 +40,18 @@ describe("the inverted model", () => {
     expect(inv.structure.spaceGroup.number).toBe(170);
     expect(inv.enantiomorph).toBe("P 65");
     expect(inv.shift).toEqual([0, 0, 0]);
-    expect(inv.structure.sites.map((s) => s.position)).toEqual(m.sites.map((s) => s.position.map((x) => -x + 0)));
-    expect(inversionText(m, inv)).toBe("the model as loaded, inverted through the origin (every coordinate x → −x, as SHELXL's MOVE 1 1 1 −1); the space group P 61 → P 65, its enantiomorph");
-    const back = invertedModel(inv.structure);
+    // −x would put the model in the cell below: moved back by a lattice vector.
+    expect(inv.translation).toEqual([1, 1, 1]);
+    inv.structure.sites.forEach((s, i) => s.position.forEach((x, k) => expect(x).toBeCloseTo(1 - m.sites[i]!.position[k]!, 12)));
+    expect(inversionText(m, inv)).toBe("the model as loaded, inverted through the origin (every coordinate x → −x, as SHELXL's MOVE 1 1 1 −1, then moved into the cell by (1, 1, 1)); the space group P 61 → P 65, its enantiomorph");
+    const back = invertedModel(inv.structure, { total: [inv.shift[0] + inv.translation[0], inv.shift[1] + inv.translation[1], inv.shift[2] + inv.translation[2]] });
     expect(back.structure.spaceGroup.number).toBe(169);
     back.structure.sites.forEach((s, i) => s.position.forEach((x, k) => expect(x).toBeCloseTo(m.sites[i]!.position[k]!, 12)));
   });
 
   it("keeps a group the inversion maps onto itself (P2₁, P2₁2₁2₁), and shifts the origin where the group needs it (I4₁, Fdd2)", () => {
     const mono = invertedModel(model(4, { a: 5, b: 6, c: 7, alpha: 90, beta: 100, gamma: 90 }));
-    expect([mono.structure.spaceGroup.number, mono.enantiomorph, mono.shift]).toEqual([4, undefined, [0, 0, 0]]);
+    expect([mono.structure.spaceGroup.number, mono.enantiomorph, mono.shift, mono.translation]).toEqual([4, undefined, [0, 0, 0], [1, 1, 1]]);
     expect(invertedModel(model(19, { a: 5, b: 6, c: 7, alpha: 90, beta: 90, gamma: 90 })).structure.spaceGroup.number).toBe(19);
     for (const [group, cell] of [[80, { a: 7, b: 7, c: 9, alpha: 90, beta: 90, gamma: 90 }], [43, { a: 7, b: 8, c: 9, alpha: 90, beta: 90, gamma: 90 }]] as const) {
       const m = model(group, cell);
@@ -58,7 +60,7 @@ describe("the inverted model", () => {
       expect(inv.enantiomorph).toBeUndefined();
       expect(inv.shift.some((v) => v !== 0)).toBe(true);
       expect(holds(m.spaceGroup.operations, inv.shift)).toBe(true);
-      expect(inv.structure.sites[0]!.position).toEqual(m.sites[0]!.position.map((x, i) => inv.shift[i]! - x));
+      inv.structure.sites[0]!.position.forEach((x, i) => expect(x).toBeCloseTo(inv.shift[i]! + inv.translation[i]! - m.sites[0]!.position[i]!, 12));
     }
   });
 
@@ -74,7 +76,7 @@ describe("the inverted model", () => {
       const was = applyOperation(m.spaceGroup.operations[op]!, m.sites[1]!.position as Vec3).map((v, i) => v + cell[i]!);
       const image = inv.mapImage(op, cell);
       const now = applyOperation(inv.structure.spaceGroup.operations[image.op]!, inv.structure.sites[1]!.position as Vec3).map((v, i) => v + image.cell[i]!);
-      now.forEach((v, i) => expect(v).toBeCloseTo(inv.shift[i]! - was[i]!, 12));
+      now.forEach((v, i) => expect(v).toBeCloseTo(inv.shift[i]! + inv.translation[i]! - was[i]!, 12));
     }
     const restrained: StructureModel = { ...m, restraints: [{ kind: "dfix", target: 3.4, sigma: 0.01, pairs: [{ from: "Cs1", to: "C1", op: 2, cell: [0, 1, -1] }] }] };
     const flipped = invertedModel(restrained).structure;

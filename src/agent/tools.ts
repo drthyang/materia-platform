@@ -54,7 +54,7 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     name: "get_state",
     title: "Read the analysis",
     description:
-      "The live analysis on the page the user has open — `technique` says which: \"powder\" (Rietveld) or \"pdf\" (a real-space fit of G(r)). Phases (space group, cell), data (points, axis, fit window), the page's settings (powder: instrument, background, microstrain, ADP model, any magnetic model; PDF: position parameterization, any spin model, warnings), the last refinement (status and agreement: wR and GoF on powder, Rw on PDF; iterations), the parameter groups with how many are free, and the recent steps of the history. Lists the free parameters with values and esds; pass `parameters` (ids or globs, [\"*\"] for all) to list others. Call it first, and again whenever you are unsure what changed.",
+      "The live analysis on the page the user has open — `technique` says which: \"powder\" (Rietveld), \"pdf\" (a real-space fit of G(r)) or \"singleCrystal\" (F² from integrated reflections). Phases (space group, cell), data (points, axis, fit window), the page's settings (powder: instrument, background, microstrain, ADP model, any magnetic model; PDF: position parameterization, any spin model, warnings), the last refinement (status and agreement: wR and GoF on powder, Rw on PDF; iterations), the parameter groups with how many are free, and the recent steps of the history. Lists the free parameters with values and esds; pass `parameters` (ids or globs, [\"*\"] for all) to list others. Call it first, and again whenever you are unsure what changed.",
     inputSchema: {
       parameters: ids.optional().describe("Which parameters to list in full (ids or globs, [\"*\"] for every one). Default: the free ones."),
     },

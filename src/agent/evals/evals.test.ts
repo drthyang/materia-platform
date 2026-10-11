@@ -384,6 +384,18 @@ const REPLAYS: Readonly<Record<string, Replay>> = {
     // The guard refuses the bare occupancies; the bad run then claims a refinement that never ran.
     catches: ["ties a disorder's occupancies to add up to one before refining them", "runs at least 1 converged refinement"],
   },
+  "sc-listing-extinction": {
+    good: [
+      { text: "The data first: a refinement's listing, its extinction divided out, so the extinction stays at 0.", calls: [SC, { name: "reflection_statistics" }] },
+      { text: "The scale, then the positions with the B values.", calls: [{ name: "set_free", input: { fix: ["extinction"], free: ["scale", "pos_*", "B_*"] } }, { name: "refine" }] },
+      { text: "Refined against the listing with the extinction held at 0, as its Fo² carry SHELXL's correction already." },
+    ],
+    bad: [
+      { calls: [SC, { name: "set_free", input: { free: ["scale", "extinction", "pos_*", "B_*"] } }, { name: "refine" }] },
+      { text: "The extinction refined with the scale." },
+    ],
+    catches: ["keeps the extinction out of a fit to a refinement's listing"],
+  },
   "sc-inverted-hand": {
     good: [
       { text: "The method, then the data: are the Friedel pairs measured apart?", calls: [SC, { name: "reflection_statistics" }] },
@@ -396,6 +408,20 @@ const REPLAYS: Readonly<Record<string, Replay>> = {
       { text: "The Flack x is 1: the absolute structure is determined." },
     ],
     catches: ["inverts a model of the wrong hand and refines it again"],
+  },
+  "sc-weights-final-model": {
+    good: [
+      { text: "The method, then the inversion twin with the positions.", calls: [SC, { name: "set_twin", input: { law: "inversion" } }, { name: "set_free", input: { free: ["pos_*"] } }, { name: "refine" }] },
+      { text: "x refines to 1: the crystal is the other hand of the model. I invert the model and refine it again.", calls: [{ name: "invert_structure" }, { name: "refine" }] },
+      { text: "The model is complete in its own hand: SHELXL's suggested weights for it, and a last refinement.", calls: [{ name: "set_weighting", input: { use: "suggested" } }, { name: "refine" }] },
+      { text: "The model is inverted from the one loaded and x reads 0 within its esd; R1, wR2 and GooF are with the weights refitted to the final model." },
+    ],
+    bad: [
+      { text: "SHELXL's weights from the start, then the inversion twin with the positions.", calls: [SC, { name: "set_weighting", input: { a: 0.05, b: 0.2 } }, { name: "set_twin", input: { law: "inversion" } }, { name: "set_free", input: { free: ["pos_*"] } }, { name: "refine" }] },
+      { text: "x is 1: I invert the model and refine it again.", calls: [{ name: "invert_structure" }, { name: "refine" }] },
+      { text: "The model is inverted from the one loaded; R1, wR2 and GooF are with SHELXL's weights." },
+    ],
+    catches: ["sets the weighting scheme last, once the model is complete, and refines with it"],
   },
   "sc-hydrides-restrained": {
     good: [

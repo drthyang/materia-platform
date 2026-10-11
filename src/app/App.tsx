@@ -247,7 +247,7 @@ export function App(): JSX.Element {
   // when it is neutron data, and the file loads again as such.
   const [radiationNotice, setRadiationNotice] = useState<{ readonly text: string; readonly neutron: () => void } | null>(null);
   // A SHELX .ins/.res loaded as the structure: its wavelength (for reflection files that name none) and its instructions, for the page and the Agent.
-  const [structureFile, setStructureFile] = useState<{ readonly wavelength: number; readonly notes: readonly string[] } | null>(null);
+  const [structureFile, setStructureFile] = useState<{ readonly name: string; readonly wavelength: number; readonly notes: readonly string[] } | null>(null);
   // How the loaded powder file was classified — shown on the Data card, so the
   // unit is never a silent guess, and re-runnable with an explicit override.
   // Only the auto-detected path sets it; a reader that reads its own header
@@ -506,7 +506,7 @@ export function App(): JSX.Element {
         if (/\.(ins|res)$/i.test(file.name) || looksLikeShelxIns(text)) {
           const { structure: parsed, instructions } = parseShelxIns(text, "loaded");
           clearCifNotice();
-          setStructureFile({ wavelength: instructions.wavelength, notes: shelxNotes(instructions) });
+          setStructureFile({ name: file.name, wavelength: instructions.wavelength, notes: shelxNotes(instructions) });
           setSession(newSession({ ...parsed, id: "loaded" }, instrument));
           setOwnStructure(true);
           setDemoActive(false);
@@ -1326,7 +1326,7 @@ export function App(): JSX.Element {
         // the dataset id so a new file remounts with a fresh parameter set.
         <WorkbenchErrorBoundary resetKeys={[scDataset, scMagneticDataset, structure, restore.token]} onClear={clearWorkbench}>
         <main className="wb-main" style={{ flex: 1 }}>
-          <SingleCrystalWorkbench onMagneticPresent={setScMagnetic} key={`${scDataset.id}#${restore.token}`} structure={structure} dataset={scDataset} magneticDataset={scMagneticDataset} client={client.current} step={step} onStep={setStep} {...(instrumentLoaded && instrument.kind === "constantWavelength" && instrument.radiationKind ? { instrumentProbe: instrument.radiationKind } : {})} exportsRef={scExports} onLoadData={onLoadData} onLoadMagneticData={onLoadMagneticData} onLoadCif={onLoadCif} {...(restore.singleCrystal ? { restore: restore.singleCrystal } : {})} {...(structureFile ? { structureFileNotes: structureFile.notes } : {})} stepHistory={stepHistory} agentLink={agentLink} />
+          <SingleCrystalWorkbench onMagneticPresent={setScMagnetic} key={`${scDataset.id}#${restore.token}`} structure={structure} dataset={scDataset} magneticDataset={scMagneticDataset} client={client.current} step={step} onStep={setStep} {...(instrumentLoaded && instrument.kind === "constantWavelength" && instrument.radiationKind ? { instrumentProbe: instrument.radiationKind } : {})} exportsRef={scExports} onLoadData={onLoadData} onLoadMagneticData={onLoadMagneticData} onLoadCif={onLoadCif} {...(restore.singleCrystal ? { restore: restore.singleCrystal } : {})} {...(structureFile ? { structureFileNotes: structureFile.notes, structureFileName: structureFile.name } : {})} stepHistory={stepHistory} agentLink={agentLink} />
         </main>
         </WorkbenchErrorBoundary>
       )}

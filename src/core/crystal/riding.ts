@@ -571,7 +571,9 @@ export const RIDING_GEOMETRY_TEXT: Readonly<Record<RidingRule["geometry"], strin
 export function ridingStepLabel(rules: readonly RidingRule[]): string {
   const free = rules.filter((r) => r.geometry === "free").length;
   const riders = rules.length - free;
-  return `${riders} hydrogen${riders === 1 ? "" : "s"} riding${free ? `, ${free} refined with U riding` : ""}`;
+  const groups = sharedUGroups(rules);
+  const sharing = [...groups.values()].reduce((t, g) => t + g.length, 0);
+  return `${riders} hydrogen${riders === 1 ? "" : "s"} riding${free ? `, ${free} refined with U riding` : ""}${sharing ? `, ${sharing} sharing ${groups.size === 1 ? "one refined U" : `${groups.size} refined U`}` : ""}`;
 }
 
 /** A group's U_iso in words: the factors of those that ride, and the shared refined U_iso of the rest. */

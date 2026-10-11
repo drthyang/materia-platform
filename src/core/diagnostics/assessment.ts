@@ -326,6 +326,8 @@ function verdictFrom(result: RefinementResult, mode: "powder" | "single-crystal"
   // Bands mirror the app's qualityInk (Toby 2006): GoF ≈ 1 is ideal; < 1 warns of
   // over-fitting or overestimated σ; the higher bands are progressively worse.
   if (gof < 0.8) return { band: "fair", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)} < 1: the fit is "too good" — σ's are likely overestimated or the model is over-parameterized. Not a green light.` };
+  // On F² the weighting scheme is refitted to the model, as SHELXL's suggestion is: a GooF below 1 says the weights expect more misfit than the model leaves.
+  if (mode === "single-crystal" && gof < 0.95) return { band: "good", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GooF ${gof.toFixed(2)}, below 1: the model leaves less misfit than the weights expect (their σ about ${Math.round(100 * (1 / gof - 1))} % too large) — refit the weighting scheme to the final model (SHELXL's suggestion).` };
   if (gof <= 1.5) return { band: "excellent", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)} is close to the statistical floor — the model explains the data to within its uncertainties.` };
   if (gof <= 2.5) return { band: "good", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)}: a reasonable fit with residual structure the model does not fully capture.` };
   if (gof <= 4) return { band: "fair", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)}: ${MISFIT_CAUSES[mode].fair}.` };
@@ -450,6 +452,21 @@ export function assessRefinement(input: AssessmentInput): RefinementAssessment {
   // --- at-bound parameters ----------------------------------------------
   for (const b of diag?.atBounds ?? []) {
     const p = byId.get(b.parameterId);
+    // A twin domain at 0 is a finding about the crystal, not a fault of the fit: it holds none of that domain.
+    if (p?.kind === "twinFraction" && b.bound === "min") {
+      const hands = input.disorder?.get(b.parameterId) === BOTH_HANDS;
+      findings.push({
+        category: "at-bound",
+        severity: "note",
+        summary: `${p.label} refines to 0: the crystal holds none of that domain.`,
+        detail: hands
+          ? "In a twin of both hands, a domain at 0 says which hand the crystal is not. The inverted domains all at 0: the crystal is the model's hand — drop the inversion (set_twin with the law alone) and refine, as SHELXL's final model would be. The model's own domains at 0 (its law's fraction, and the first domain's what the laws leave): the crystal is the other hand — invert the model (invert_structure). Read the Flack x (the inverted domains together) with its esd from the covariance."
+          : "A twin law whose fraction refines to 0 twins nothing: the crystal holds no such domain. Take the law away (set_twin remove) unless the data reading gave a reason to keep it, and say so.",
+        parameterIds: [b.parameterId],
+        evidence: { bound: b.bound, value: b.value },
+      });
+      continue;
+    }
     const isStructural = p && (ADP_KINDS.has(p.kind) || p.kind === "occupancy");
     findings.push({
       category: "at-bound",

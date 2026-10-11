@@ -401,7 +401,7 @@ describe("PDF report (reportInputs)", () => {
 });
 
 describe("single-crystal report geometry", () => {
-  it("gives B_eq by the full U_eq in a monoclinic cell, and a molecule's covalent bonds with their esds", () => {
+  it("gives U_eq by the full formula in a monoclinic cell (B_eq on a powder), and a molecule's covalent bonds with their esds", () => {
     const base = exampleStructure();
     // A monoclinic cell (β 110°) with a U13 term: a third of the trace is not U_eq here.
     const cell = { a: 7, b: 9, c: 11, alpha: 90, beta: 110, gamma: 90 };
@@ -412,14 +412,30 @@ describe("single-crystal report geometry", () => {
       phases: [{ structure, params: [], bindings: [], bonds: [{ from: "C1", to: "C2", length: "1.381(2)" }, { from: "C1", to: "H1", length: "0.9500 (riding)" }, { from: "S1", to: "S2", length: "2.0222(5)" }] }],
     };
     const md = reportMarkdown(input);
-    const bEq = 8 * Math.PI * Math.PI * uEquivalent(u, cell);
-    const trace = 8 * Math.PI * Math.PI * ((u[0] + u[1] + u[2]) / 3);
-    expect(Math.abs(bEq - trace)).toBeGreaterThan(0.01);
-    expect(md).toContain(bEq.toFixed(3));
+    const uEq = uEquivalent(u, cell);
+    const trace = (u[0] + u[1] + u[2]) / 3;
+    expect(Math.abs(uEq - trace)).toBeGreaterThan(1e-4);
+    // A single crystal's table in U, SHELXL's and the CIF's convention; a powder's in B.
+    expect(md).toContain("U_eq (Å²)");
+    expect(md).toContain(uEq.toFixed(5));
+    expect(reportHtml(input)).toContain("U<sub>eq</sub> (Å²)");
+    const powder = reportMarkdown({ ...input, technique: "powder" });
+    expect(powder).toContain("B_eq (Å²)");
+    expect(powder).toContain((8 * Math.PI * Math.PI * uEq).toFixed(3));
     // The covalent table in place of the cation shells.
     expect(md).toContain("| C1 | C2 1.381(2) · H1 0.9500 (riding) |");
     expect(md).toContain("| S1 | S2 2.0222(5) |");
     expect(md).not.toContain("Mean (Å)");
     expect(reportHtml(input)).toContain("S2 2.0222(5)");
+  });
+
+  it("shows a single crystal's isotropic displacement parameters as U_iso, with their esds", () => {
+    const shared = { id: "B_shared_1", label: "H11A…H15C shared B (15 H)", kind: "bIso" as const, value: 6.9, initialValue: 7, esd: 0.6, fixed: false };
+    const input: ReportInput = { technique: "singleCrystal", title: "t", stats: [], data: [], parameters: [shared], phases: [], date: DATE };
+    const md = reportMarkdown(input);
+    expect(md).toContain("| H11A…H15C shared U_iso (15 H) | 0.087(8) | Å² | refined |");
+    expect(reportHtml(input)).toContain("H11A…H15C shared U_iso (15 H)");
+    // A powder keeps B.
+    expect(reportMarkdown({ ...input, technique: "powder" })).toContain("| H11A…H15C shared B (15 H) | 6.9(6) | Å² | refined |");
   });
 });

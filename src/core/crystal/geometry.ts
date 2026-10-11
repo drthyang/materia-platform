@@ -13,6 +13,13 @@ export interface BondLength {
   readonly from: string;
   readonly to: string;
   readonly distance: number;
+  /**
+   * The image of `to` the bond reaches, as a CIF's site-symmetry code
+   * (`_geom_bond_site_symmetry_2`): the operation's number in the space
+   * group's list and the lattice translation + 5, "3_564" for operation 3
+   * moved by (0, +1, −1). Absent for the atom as listed (1_555).
+   */
+  readonly image?: string;
 }
 
 /**
@@ -21,21 +28,26 @@ export interface BondLength {
  * and sorted by distance.
  */
 export function bondLengths(model: StructureModel, cutoff = 3.2): BondLength[] {
-  // Generate all atoms in the reference cell plus neighbouring cells.
-  const atoms: Array<{ label: string; site: AtomSite; frac: Vec3 }> = [];
+  // Generate all atoms in the reference cell plus neighbouring cells, each with the operation that made it
+  // and the lattice translation that wrapped it into the cell.
+  const atoms: Array<{ label: string; site: AtomSite; frac: Vec3; op: number; wrap: Vec3 }> = [];
   for (const site of model.sites) {
     const positions: Vec3[] = [];
-    for (const op of model.spaceGroup.operations) {
-      const p = wrapFractional(applyOperation(op, site.position));
-      if (!positions.some((q) => norm(sub(q, p)) < 1e-4)) positions.push(p);
-    }
-    for (const p of positions) atoms.push({ label: site.label, site, frac: p });
+    model.spaceGroup.operations.forEach((op, k) => {
+      const raw = applyOperation(op, site.position);
+      const p = wrapFractional(raw);
+      if (positions.some((q) => norm(sub(q, p)) < 1e-4)) return;
+      positions.push(p);
+      atoms.push({ label: site.label, site, frac: p, op: k, wrap: sub(p, raw) as Vec3 });
+    });
   }
 
   const bonds: BondLength[] = [];
   for (const site of model.sites) {
     const originFrac = wrapFractional(site.position);
     const originCart = fractionalToCartesian(model.cell, originFrac);
+    // The listed site was wrapped too: the image is read against it as listed.
+    const fromWrap = sub(originFrac, site.position as Vec3);
     for (const atom of atoms) {
       // Two alternatives of one disorder are never present together: no distance between them is a bond.
       if (alternatives(site, atom.site)) continue;
@@ -46,7 +58,9 @@ export function bondLengths(model: StructureModel, cutoff = 3.2): BondLength[] {
             const cart = fractionalToCartesian(model.cell, frac);
             const dist = norm(sub(cart, originCart));
             if (dist > 1e-3 && dist <= cutoff) {
-              bonds.push({ from: site.label, to: atom.label, distance: dist });
+              const n = [0, 1, 2].map((i) => Math.round(atom.wrap[i]! + [da, db, dc][i]! - fromWrap[i]!));
+              const code = `${atom.op + 1}_${n.map((v) => 5 + v).join("")}`;
+              bonds.push({ from: site.label, to: atom.label, distance: dist, ...(code !== "1_555" ? { image: code } : {}) });
             }
           }
         }
@@ -106,15 +120,47 @@ export function covalentBonds(model: StructureModel): BondLength[] {
   const element = new Map(model.sites.map((site) => [site.label, site.element]));
   const seen = new Set<string>();
   const out: BondLength[] = [];
-  for (const b of bondLengths(model, 3.0)) {
+  // Far enough for the two largest atoms present (Cs–C reaches 3.6 Å), never less than 3 Å.
+  const radii = model.sites.map((site) => covalentRadius(site.element)).sort((a, b) => b - a);
+  const reach = Math.min(5, Math.max(3, (radii[0] ?? 0.75) + (radii[1] ?? radii[0] ?? 0.75) + 0.4));
+  for (const b of bondLengths(model, reach)) {
     if (!covalentlyBonded(element.get(b.from)!, element.get(b.to)!, b.distance)) continue;
-    const [from, to] = order.get(b.from)! <= order.get(b.to)! ? [b.from, b.to] : [b.to, b.from];
+    // Each bond once, from the site listed first; the image code belongs to the far end as it is listed.
+    const flipped = order.get(b.from)! > order.get(b.to)!;
+    const [from, to] = flipped ? [b.to, b.from] : [b.from, b.to];
     const key = `${from}–${to}@${b.distance.toFixed(4)}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({ from, to, distance: b.distance });
+    const image = flipped ? (b.image ? inverseImage(model, b.image) : undefined) : b.image;
+    out.push({ from, to, distance: b.distance, ...(image && image !== "1_555" ? { image } : {}) });
   }
   return out.sort((x, y) => order.get(x.from)! - order.get(y.from)! || x.distance - y.distance);
+}
+
+/**
+ * The image code of the reverse bond: if B's image (R, t + n) sits at a
+ * distance d from A, A's image under the inverse operation (R⁻¹, −R⁻¹(t + n))
+ * sits at d from B. The inverse operation is looked up in the group's list.
+ */
+export function inverseImage(model: StructureModel, code: string): string | undefined {
+  const m = /^(\d+)_(\d)(\d)(\d)$/.exec(code);
+  if (!m) return undefined;
+  const ops = model.spaceGroup.operations;
+  const op = ops[Number(m[1]) - 1];
+  if (!op) return undefined;
+  const t = [0, 1, 2].map((i) => op.translation[i]! + Number(m[i + 2]) - 5);
+  const R = op.rotation;
+  // R⁻¹ of an integer rotation: an operation whose rotation times R is the identity, with the translation
+  // −R⁻¹(t + n) up to a whole lattice vector (in a centred group, one of the centred copies).
+  const isInverse = (o: (typeof ops)[number]): boolean => [0, 1, 2].every((i) => [0, 1, 2].every((j) => Math.round([0, 1, 2].reduce((s, l) => s + o.rotation[i]![l]! * R[l]![j]!, 0)) === (i === j ? 1 : 0)));
+  for (let k = 0; k < ops.length; k++) {
+    const inv = ops[k]!;
+    if (!isInverse(inv)) continue;
+    const target = [0, 1, 2].map((i) => -inv.rotation[i]!.reduce((s, r, j) => s + r * t[j]!, 0));
+    const n = target.map((v, i) => Math.round(v - inv.translation[i]!));
+    if (target.every((v, i) => Math.abs(v - inv.translation[i]! - n[i]!) < 1e-6)) return `${k + 1}_${n.map((v) => 5 + v).join("")}`;
+  }
+  return undefined;
 }
 
 /** One bond of a coordination shell: the neighbour site, the length and how many neighbours sit at it. */

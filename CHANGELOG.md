@@ -353,13 +353,20 @@ release fixes bugs.
   `absoluteStructure` and the report's "Absolute structure" row. On 3a: x =
   1.08(6) from 432 pairs for SHELXL's P6₁ model, −0.08(6) for its inverse.
 
-- **3a's hand.** The published model of 3a (Cs(C₅Me₅)·py, the GSAS-II
-  merohedral-twin tutorial) is the wrong enantiomorph: refined as SHELXL
+- **3a's hand.** SHELXL's model of 3a (Cs(C₅Me₅)·py, the GSAS-II
+  merohedral-twin tutorial's .ins) is the wrong enantiomorph: refined as SHELXL
   refined it, it reproduces SHELXL's R1 2.18 % on 1458 reflections and BASF
-  0.3407; the twin with both hands puts x = 1.03(4) on the inverted domains,
+  0.3407; the twin with both hands puts x = 1.01(5) on the inverted domains,
   Parsons' quotients give 1.08(6), and the same model in P6₅ refines to R1
   1.83 %, wR2 4.76 % against 5.66 % (a ratio of 1.19 for 161 parameters and
   1465 reflections), x = −0.08(6).
+
+- **Eval scenarios** `sc-listing-extinction`, `sc-inverted-hand` and
+  `sc-weights-final-model`, from round 4 (3a): the extinction held at 0
+  against a refinement's listing, a model of the wrong hand inverted and
+  refined again, and the weights set again for the final model once its hand
+  is settled. `weightsLast` now counts the twin and the hand among the model's
+  changes, and reads the last weighting scheme set, not the first.
 
 ### Changed
 
@@ -415,7 +422,94 @@ release fixes bugs.
 - **The fit range in the record and the report** says what the window leaves
   out and why, end by end, once a second read finds the window already set.
 
+- **A single-crystal report in U.** The atom table gives U_eq (and U_iso for
+  an isotropic site) in Å² with its esd, and the parameter table a shared or
+  isotropic hydrogen U as U_iso, SHELXL's and the CIF's convention, where it
+  gave B_eq and B; a powder's or a PDF's report keeps B. A riding group's
+  torsion carries its unit (°), and the Structure file row names the file.
+
 ### Fixed
+
+- **A listing's R_int.** SHELXL's LIST 4 holds each reflection once, its
+  Friedel mate apart in an acentric group; merged in the Laue class, 3a's 432
+  Bijvoet pairs read as "R_int 3.37 %" on the page, in `get_state`,
+  `reflection_statistics`, the report's figures and its Merging row — their
+  anomalous difference, not the measurements' agreement. In an acentric group
+  the page and the tools now give the Friedel-apart merge, as SHELXL does, and
+  no R_int for data holding each reflection once.
+
+- **The extinction against a listing.** The page entered the extinction free
+  on load whatever the data; a LIST 4 listing has the extinction of the
+  refinement that wrote it divided out, so refining it corrects twice. It now
+  enters fixed at 0 on a listing, `refine` says so if it is freed, and the
+  report's Extinction row and check say why it was not refined.
+
+- **The outliers of a listing** read "no equivalent measured"; they now say
+  the listing's value was merged by the refinement that wrote it. In an
+  acentric group the one Laue-class equivalent of a reflection is its Friedel
+  mate, and is named so.
+
+- **A twin domain at 0** drew "hold it fixed and find the upstream cause"; it
+  is a finding about the crystal (it holds none of that domain), and in a twin
+  with both hands it says which hand the crystal is not.
+
+- **The Flack reading's bands**: x at 0 within 2u with 0.04 ≤ u < 0.1 says the
+  hand is the model's and that a few per cent of the other cannot be excluded
+  for a compound of unknown enantiopurity; u ≥ 0.1 no longer claims to confirm
+  a known one.
+
+- **`set_twin`** restarted a law that stays (the merohedral law, when the
+  inversion domains are dropped) at 0.1; its fraction is now kept. The History
+  names a twin with both hands and a shared hydrogen U.
+
+- **`bond_geometry`** returned an empty list for an atom with nothing within
+  the cutoff (Cs1's ring and pyridine at 3.23–3.35 Å, beyond 3.2 Å); it now
+  says so, with the nearest neighbour. Each bond to a symmetry image carries
+  its CIF site-symmetry code ("2_554"), and the phase is named.
+
+- **The report's bond table** left out caesium's bonds: the covalent search
+  stopped at 3.0 Å, short of Cs–C (2.44 + 0.76 + 0.4 Å). It now reaches the
+  two largest atoms present, and marks each image with its symmetry code. The
+  Hydrogens row gives a shared U_iso's value, the Absolute structure row the
+  inverse model's x beside the model's, a "Structure file" row the SHELX
+  instructions the file applied, and the Data check sinθ/λ beside d_min; the
+  compared refinements name the twin and the hand, and give a shared U once.
+
+- **The inverted model sits in the cell**: −x put 3a's model in the cell
+  below; it is moved back by a lattice vector, and the page inverts back by
+  the same transform, so the round trip is exact.
+
+- **Refinements compared under other weights.** The report's comparison keyed
+  the refinements by their extinction, twin, hand and range, not their
+  weights: 3a's 4-domain fit at w = 1/σ² (wR2 3.88 %) stood beside the final
+  one under SHELXL's WGHT (4.76 %) as if the second fitted worse. The weighting
+  scheme is now one of the conditions, named in each entry, and a comparison
+  across schemes says wR2 and GooF compare only under the same weights. An
+  extinction held at 0 reads "no extinction", not "SHELXL EXTI".
+
+- **A GooF below 1 on a single crystal** read "Excellent: close to the
+  statistical floor". Between 0.8 and 0.95 it now says the model leaves less
+  misfit than the weights expect, by how much, and to refit the weighting
+  scheme to the final model (3a: 0.889 under the weights fitted to the other
+  hand; SHELXL's suggestion for the final model gives 0.977).
+
+- **A listing's counts and readings.** `reflection_statistics` gave 3a's
+  listing "1033 unique, redundancy 1.42" (the Laue class's, its Friedel mates
+  counted as repeats); data holding each reflection once now count as SHELXL
+  counts them, 1465 and 1. ⟨|E² − 1|⟩ below the acentric value says it is the
+  twin the model holds, when it holds one, not "look for twinning", and R_σ
+  is the listing's own (3.22 %), not the Laue merge's (2.73 %).
+  `assess_refinement` no longer reads a listing's extinction as "not
+  indicated": its Fo² have SHELXL's divided out, so it is not judged; it and
+  `get_state` name the extinction "none: held at 0" rather than "SHELXL EXTI",
+  and `get_state` counts the floating-origin restraint ("restraints: none"
+  while the fit held one). Friedel mates that disagree in a monochromatic
+  measurement no longer point to "another wavelength".
+
+- **`bond_geometry` reads the bonds from the atom asked for**: Cs1's bonds
+  came back as "C2–Cs1" with the image code of the far end; each is now
+  "Cs1–C2", the code inverted to the reverse bond's, as the report's table
+  gives it.
 
 - **The merged σ is SHELXL's.** Where a reflection's equivalents disagree
   beyond their σ, the merged σ came from their root-mean-square scatter, up to

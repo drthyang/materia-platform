@@ -380,8 +380,10 @@ export class AgentExecutor implements ToolRunner {
     const r = out.reflections;
     const e = out.intensityStatistics;
     const parts = [
-      `${r.measured} reflections, ${r.unique} unique, ${typeof r.rInt === "number" ? `R_int ${r.rInt} %${r.rIntFriedelApart !== undefined ? ` (${r.rIntFriedelApart} % with the Friedel mates apart, as SHELXL reports it)` : ""}` : "merged (one value per reflection)"}`,
-      `d_min ${out.resolution.dMin} Å${out.resolution.completeness !== undefined ? `, completeness ${out.resolution.completeness} %` : ""}`,
+      r.listed !== undefined
+        ? `${r.listed} reflections from a refinement's listing, each once: no R_int`
+        : `${r.measured} reflections, ${r.unique} unique, ${typeof r.rInt === "number" ? `R_int ${r.rInt} %${r.rIntFriedelApart !== undefined ? ` (${r.rIntFriedelApart} % with the Friedel mates apart, as SHELXL reports it)` : ""}` : "merged (one value per reflection)"}`,
+      `d_min ${out.resolution.dMin} Å${out.resolution.sinThetaOverLambdaMax !== undefined ? ` (sinθ/λ ${out.resolution.sinThetaOverLambdaMax} Å⁻¹)` : ""}${out.resolution.completeness !== undefined ? `, completeness ${out.resolution.completeness} %` : ""}`,
       ...(typeof e === "object" ? [`⟨|E²−1|⟩ ${e.meanAbsE2Minus1}: ${e.reading}`] : []),
       ...(typeof out.absences === "object" ? [`${out.absences.atThreeSigma} of ${out.absences.measured} forbidden reflections at ≥ 3σ${out.absences.strongest?.[0] ? `, the strongest ${out.absences.strongest[0]}` : ""}`] : []),
       ...(out.friedel.startsWith("centrosymmetric") ? [] : [out.friedel.split(":")[0]!]),
@@ -569,8 +571,9 @@ export class AgentExecutor implements ToolRunner {
 
 /** reflection_statistics' answer, as the record reads it. */
 interface DataAnswer {
-  readonly reflections: { readonly measured: number; readonly unique: number; readonly rInt: number | string; readonly rIntFriedelApart?: number };
-  readonly resolution: { readonly dMin: number; readonly completeness?: number };
+  /** `listed` for a refinement's listing (each reflection once), `measured` for a measurement. */
+  readonly reflections: { readonly measured?: number; readonly listed?: number; readonly unique: number; readonly rInt: number | string; readonly rIntFriedelApart?: number };
+  readonly resolution: { readonly dMin: number; readonly sinThetaOverLambdaMax?: number; readonly completeness?: number };
   readonly friedel: string;
   readonly absences: { readonly measured: number; readonly atThreeSigma: number; readonly strongest?: readonly string[] } | string;
   readonly intensityStatistics: { readonly meanAbsE2Minus1: number; readonly reading: string } | string;
@@ -640,7 +643,7 @@ function changeOutcome(
 function developedCorrelations(r: RefinementResult, parameters: readonly RefinementParameter[], restraints: readonly LinearRestraint[], assemblies: ReadonlyMap<string, string>): Record<string, unknown> {
   const check = readCorrelations(r, parameters, restraints, assemblies);
   const carried = check.carried.length > 0
-    ? { carriedCorrelations: check.carried.map(carriedText), carriedNote: "Correlated, and refined together: through the other free parameters (with them held fixed each pair separates), as the overall intensity terms (scale, extinction, batch scales), or as one disorder's alternatives, as every single-crystal program refines them. The correlation is in their esds: read them before quoting them." }
+    ? { carriedCorrelations: check.carried.map(carriedText), carriedNote: "Correlated, and refined together: through the other free parameters (with them held fixed each pair separates), as the overall intensity terms (scale, extinction, batch scales), as one disorder's alternatives, or as the domains of a twin with both hands, as every single-crystal program refines them. The correlation is in their esds: read them before quoting them." }
     : {};
   if (check.correlated.length === 0 && check.undetermined.length === 0) return carried;
   return {

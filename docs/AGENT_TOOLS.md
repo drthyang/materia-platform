@@ -649,8 +649,12 @@ The page-specific handlers are [`powderTools.ts`](../src/agent/powderTools.ts),
   the structure as loaded, in esds), and `bond_geometry` each length's esd
   (`atoms` for the bonds to named sites; a riding hydrogen's bond has none). The
   report's "Refinements compared" lists the last refinement under each set of
-  conditions (extinction model, resolution range, omissions, filter) with
-  wR2, GooF, the extinction parameter and U_eq, so a test can be quoted.
+  conditions (extinction model, resolution range, omissions, filter, twin,
+  hand, weighting scheme) with wR2, GooF, the extinction parameter and U_eq,
+  so a test can be quoted; wR2 and GooF compare only under one weighting
+  scheme, and the check says so when the entries differ in it. The report
+  gives a single crystal's displacements as U (U_eq and U_iso, Å²), SHELXL's
+  and the CIF's convention.
 - Powder page only: `rank_next_parameters`, `check_cell_symmetry`,
   `find_unexplained_peaks`, `review_symmetry`, `set_background`, `set_microstrain`,
   `set_site_ties`. On the PDF page, `assess_refinement` judges convergence,
