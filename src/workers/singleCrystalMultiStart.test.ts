@@ -70,7 +70,8 @@ const PREFIT = { restarts: 12, escapeSigma: 4, relFraction: 0.5, minKick };
 
 describe("refineSingleCrystalMultiStart — escapes a bound-trapped positional minimum", () => {
   it("a plain refine converges onto the ±0.2 bound with a large wR (the trap)", () => {
-    const r = refine(buildSingleCrystalRefinementProblem(structure, data, start, spec.bindings), { maxIterations: 50 });
+    // 55 cycles at Mo Kα, where Fe carries its f′ and f″: the trap is the same (wR 91 %), only slower to settle.
+    const r = refine(buildSingleCrystalRefinementProblem(structure, data, start, spec.bindings), { maxIterations: 100 });
     expect(r.status).toBe("converged");
     expect(r.agreement.rWeighted ?? 0).toBeGreaterThan(0.5);
     expect(Math.max(...posIds.map((id) => Math.abs(r.parameters[id] ?? 0)))).toBeCloseTo(0.2, 3);
