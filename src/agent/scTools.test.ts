@@ -489,6 +489,37 @@ describe("AgentExecutor on the single-crystal page", () => {
     expect(port.state().distanceRestraints).toEqual([]);
   });
 
+  it("merges the equivalents as SHELXL's MERG 2 does: Friedel opposites apart without the inversion, absences out, the data still read as measured", async () => {
+    const { port, c } = page();
+    const { ex, seen } = executor(fakeHost(port).host, "auto");
+    const before = port.state();
+    expect((parse((await ex.run("get_state", {})).text).data as { merging: { fitted: string } }).merging.fitted).toMatch(/^every measurement, each equivalent apart/);
+    await ex.run("omit_reflections", { omit: [{ h: before.rows[0]!.h, k: before.rows[0]!.k, l: before.rows[0]!.l }], reason: "a test" });
+    expect(port.state().omitted).toHaveLength(1);
+    const out = parse((await ex.run("merge_equivalents", { on: true })).text);
+    expect(seen.find((e) => e.tool === "merge_equivalents" && e.preview)?.preview).toMatch(new RegExp(`^Merge the equivalents as SHELXL's MERG 2: ${c.dataset.reflections.length} measurements → \\d+ reflections, Friedel opposites merged \\(centrosymmetric\\)$`));
+    const st = port.state();
+    expect(st.dataset.merged).toMatchObject({ from: c.dataset.reflections.length, friedelApart: false });
+    expect(st.observationCount).toBeLessThan(c.dataset.reflections.length / 2);
+    expect(st.omitted).toEqual([]);
+    expect(String(out.note)).toMatch(/measurements merged into \d+ reflections, the Friedel opposites merged too \(a centrosymmetric group\)\. R_int .* reads the measurement as loaded/);
+    // R_int and the redundancy read the measurement as loaded, not its merge.
+    expect(st.merge.redundancy).toBeGreaterThan(2);
+    expect(String((parse((await ex.run("reflection_statistics", {})).text).reflections as { fitted: string }).fitted)).toMatch(/merged as SHELXL's MERG 2/);
+    expect(parse((await ex.run("merge_equivalents", { on: true })).text).unchanged).toBe(true);
+    await ex.run("set_free", { free: ["pos_*", "B_*"] });
+    expect(parse((await ex.run("refine", {})).text).status).toBe("converged");
+    await ex.run("merge_equivalents", { on: false });
+    expect(port.state().observationCount).toBe(c.dataset.reflections.length);
+    // Without the inversion the Friedel opposites stay apart; a time-of-flight Laue file is never merged.
+    const chiral = chiralPage();
+    const { port: cp } = singleCrystalPort(chiral.structure, chiral.dataset);
+    await executor(fakeHost(cp).host, "auto").ex.run("merge_equivalents", { on: true });
+    expect(cp.state().dataset.merged).toMatchObject({ friedelApart: true });
+    const { port: tof } = page({ laue: true });
+    expect((await executor(fakeHost(tof).host, "auto").ex.run("merge_equivalents", { on: true })).text).toMatch(/time-of-flight Laue measurement is not merged/);
+  });
+
   it("gives the anisotropic tensor and the bond lengths with their esds", async () => {
     const { port } = page();
     const { ex } = executor(fakeHost(port).host, "auto");

@@ -251,6 +251,7 @@ export interface SingleCrystalSnapshot {
   readonly weighting?: ShelxWeighting;
   readonly twinLaws?: readonly TwinLaw[];
   readonly restraints?: readonly DistanceRestraint[];
+  readonly merged?: boolean;
   readonly modulated: ModulatedInputs;
   readonly adpModel?: "isotropic" | "anisotropic" | null;
 }
@@ -276,6 +277,7 @@ export function singleCrystalWorkspaceFrom(s: SingleCrystalSnapshot): SingleCrys
     ...(s.weighting && (s.weighting.a > 0 || s.weighting.b > 0) ? { weighting: { a: s.weighting.a, b: s.weighting.b } } : {}),
     ...(s.twinLaws && s.twinLaws.length > 0 ? { twinLaws: s.twinLaws.map((l) => ({ matrix: l.matrix })) } : {}),
     ...(s.restraints && s.restraints.length > 0 ? { restraints: s.restraints.map((r) => ({ ...r, pairs: r.pairs.map((x) => ({ ...x })) })) } : {}),
+    ...(s.merged ? { merged: true } : {}),
     modulated: modulatedHypothesisFrom(s.modulated),
     ...(s.adpModel ? { adpModel: s.adpModel } : {}),
   };

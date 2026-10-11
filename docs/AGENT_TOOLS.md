@@ -598,12 +598,30 @@ The page-specific handlers are [`powderTools.ts`](../src/agent/powderTools.ts),
   type I or II (Gaussian or Lorentzian mosaic), as GSAS-II computes it; the
   parameter restarts at 0. `set_radiation` sets the probe and wavelength,
   which a SHELX file does not carry (it loads as neutron at 1.54 Å).
-  `set_riding_hydrogens` rides the hydrogens on their parents as SHELXL's
-  AFIX does (sp² C–H on the bisector, AFIX 43, at its distance or one given;
-  any other at its present offset, AFIX 3; U_iso 1.2 or 1.5·U_eq), listing
-  each X–H as placed. `set_weighting` sets SHELXL's WGHT a b, or the scheme
-  SHELXL would suggest for the model as it stands (`assess_refinement` gives
-  it), re-evaluated at the fit's own Fc²; it is set last. There,
+  A CIF that carries SHELXL's `.hkl` (`_shelx_hkl_file`) loads as the
+  measurement, at the CIF's radiation. `merge_equivalents` fits the
+  equivalents merged as SHELXL's MERG 2 merges them (the Friedel opposites
+  apart in a non-centrosymmetric group, the absences left out), while R_int,
+  the statistics and the outliers still read the measurement; merge before
+  the model is refined. `set_twin` adds a twin law, as SHELXL's TWIN and BASF:
+  the inversion (its fraction is the Flack x, which needs the Friedel pairs
+  measured apart and an anomalous scatterer; X-ray amplitudes carry f′ and f″
+  at the laboratory lines) or a 3×3 merohedral law; a law that cannot twin
+  the crystal is refused. `set_riding_hydrogens` rides the hydrogens on their
+  parents as SHELXL's AFIX does: sp² on the bisector (43), a methyl or NH₃
+  rotating with its torsion refined (137), a hydroxyl likewise (147), a CH₂
+  pair (23), a methine (13), any other at its present offset (3); X–H at
+  SHELXL's distance for the `temperature`, or one given; U_iso 1.2 or
+  1.5·U_eq; `refine` lets a hydrogen the data place (a hydride) refine its
+  position while its U rides. It lists each X–H as placed.
+  `restrain_distances` adds SHELXL's DFIX and SADI, counted as SHELXL counts
+  them; `assess_refinement` gives each one's deviation and the restrained
+  GooF. `tie_parameters` there also ties a disorder (SHELXL's PART 1 and 2,
+  listed by get_state): `complement` makes the second occupancy one minus the
+  first (21/−21) and `adp` holds one site's ADP to another's (EADP).
+  `set_weighting` sets SHELXL's WGHT a b (on SHELXL's absolute scale), or the
+  scheme SHELXL would suggest for the model as it stands (`assess_refinement`
+  gives it), re-evaluated at the fit's own Fc²; it is set last. There,
   `assess_refinement` adds the analysis of variance by intensity and by
   resolution (K = ΣFo²/ΣFc² and GooF per bin), the extinction reading (the
   strongest bin against the others) and the correction's reach (the smallest
@@ -667,7 +685,15 @@ a combination the data cannot determine still stops the refinement (the null
 directions). A background or width term against the scale or a structural
 parameter still counts, and so does the Lorentzian X ↔ Y (size against
 strain). Two occupancies tied by one restraint the user set (a shared site's
-Σ, the composition) are not counted against each other either. A passing check puts the strongest remaining pair on the approval card.
+Σ, the composition) are not counted against each other either. On the
+single-crystal page two more groups are listed rather than refused: the
+overall intensity terms (scale, extinction, batch scales), which every
+single-crystal program refines together, and the parameters of one disorder
+among themselves (SHELXL's PART 1 and 2 of an assembly: the alternatives'
+positions, their shared ADP and the split), which sit a few tenths of an
+ångström apart and correlate at −0.99 by construction; SHELXL refines them
+together and the full covariance carries the correlation into their esds. A
+passing check puts the strongest remaining pair on the approval card.
 The check is measured on this data, so a pair the range separates (cell and
 zero over a wide 2θ range) is not refused. Pairs that tighten during the fit
 are listed in the outcome, and the next `refine` refuses them. The page's own

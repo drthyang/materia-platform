@@ -29,6 +29,7 @@ import { mergeEquivalents } from "@/core/diffraction/merge";
 import {
   SINGLE_CRYSTAL_REFINE_OPTIONS,
   buildSingleCrystalSpec,
+  mergedDataset,
   optimalScale,
   guidedSingleCrystalParams,
   inResolution,
@@ -169,10 +170,13 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
   const [weighting, setWeighting] = useState<ShelxWeighting | null>(restoring?.weighting ?? null);
   // Twin laws (SHELXL's TWIN), each with its fraction row; empty when untwinned.
   const [twinLaws, setTwinLaws] = useState<readonly TwinLaw[]>(restoring?.twinLaws ?? []);
-  // The dataset the physics runs against — same reflections, user-chosen radiation, extinction model, weights and twin laws.
+  // The equivalents merged as SHELXL's MERG 2 (Friedel opposites apart in a non-centrosymmetric group), or every measurement.
+  const [merged, setMerged] = useState<boolean>(restoring?.merged ?? false);
+  const fittedSet = useMemo(() => (merged ? mergedDataset(dataset, structure.spaceGroup.operations) : dataset), [dataset, merged, structure]);
+  // The dataset the physics runs against — the reflections fitted, user-chosen radiation, extinction model, weights and twin laws.
   const probedDataset = useMemo(
-    () => ({ ...dataset, radiation: effectiveRadiation, extinctionModel, ...(weighting ? { weighting } : {}), ...(twinLaws.length ? { twinLaws } : {}) }),
-    [dataset, effectiveRadiation, extinctionModel, weighting, twinLaws],
+    () => ({ ...fittedSet, radiation: effectiveRadiation, extinctionModel, ...(weighting ? { weighting } : {}), ...(twinLaws.length ? { twinLaws } : {}) }),
+    [fittedSet, effectiveRadiation, extinctionModel, weighting, twinLaws],
   );
 
   // The ADP model the fit uses: the CIF's (null), or the one switched to,
@@ -268,13 +272,13 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
   const outsideRange = omittedDataset.reflections.length - keptDataset.reflections.length;
   const excluded = keptDataset.reflections.length - activeDataset.reflections.length;
 
-  // Laue-equivalent merge report (data quality — R_int, redundancy) on the active set.
+  // Laue-equivalent merge report (data quality — R_int, redundancy) on the active set, or on the measurement as loaded when the fit runs on its merge.
   const merge = useMemo(
     () => mergeEquivalents(
-      activeDataset.reflections.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.iObs, sigma: r.sigma ?? 0 })),
+      (merged ? dataset : activeDataset).reflections.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.iObs, sigma: r.sigma ?? 0 })),
       structure.spaceGroup.operations,
     ),
-    [activeDataset, structure],
+    [merged, dataset, activeDataset, structure],
   );
 
   // Live obs/calc comparison + SHELX agreement for the current parameters.
@@ -707,10 +711,31 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
     stepHistory?.requestStep("settings", next.length ? `${restraintCount(next)} restraint${restraintCount(next) === 1 ? "" : "s"}` : "No restraints");
   }
 
+  /**
+   * Fit the merged equivalents (SHELXL's MERG 2) or every measurement. The
+   * reflections change, so the batch rows follow them, the omissions (which
+   * named the other set's reflections) are cleared, and so is the last fit.
+   */
+  function changeMerged(on: boolean): void {
+    if (on === merged) return;
+    const nextSet = on ? mergedDataset(dataset, structure.spaceGroup.operations) : dataset;
+    const fresh = buildSingleCrystalSpec(fitStructure, { ...probedDataset, reflections: nextSet.reflections }, { extinction: 0 }).params;
+    const kept = new Map(params.map((p) => [p.id, p]));
+    setParams(withValidUserTies([
+      ...fresh.map((p) => keptRow(p, kept.get(p.id))),
+      ...params.filter((p) => isMagneticModelParameterKind(p.kind)),
+    ]));
+    setMerged(on);
+    setOmitted([]);
+    setResult(null);
+    stepHistory?.requestStep("settings", on ? `Merged: ${dataset.reflections.length} → ${nextSet.reflections.length} reflections` : "Every measurement");
+  }
+
   /** The scheme SHELXL would suggest for the model as refined now. */
   function suggestedWeighting(): WeightingSuggestion {
     const rows = comparison.rows;
-    return suggestShelxWeighting(rows.map((r) => r.foSq), rows.map((r) => r.fcSq), rows.map((r) => r.sigma), params.filter((p) => !p.fixed && !p.expression).length);
+    // WGHT's b is on the absolute scale: the suggestion reads the data at the overall scale.
+    return suggestShelxWeighting(rows.map((r) => r.foSq), rows.map((r) => r.fcSq), rows.map((r) => r.sigma), params.filter((p) => !p.fixed && !p.expression).length, 10, params.find((p) => p.kind === "scale")?.value ?? 1);
   }
 
   /** Another extinction model: its parameter is another quantity, so it restarts at 0 (none), as on load. */
@@ -803,7 +828,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
       bindings: [...bindings, ...momentBindings],
       result,
       dataset: activeDataset,
-      totalReflections: probedDataset.reflections.length,
+      totalReflections: dataset.reflections.length,
       excluded,
       filterOn,
       cutoffSigma,
@@ -831,7 +856,8 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
         structure: fitStructure,
         refinedStructure,
         dataset: probedDataset,
-        totalReflections: probedDataset.reflections.length,
+        totalReflections: dataset.reflections.length,
+        measurement: dataset.reflections,
         probe,
         parameters: params,
         bindings: [...bindings, ...momentBindings],
@@ -870,6 +896,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
       setTwinLaws: changeTwinLaws,
       setParameterTies: changeParameterTies,
       setDistanceRestraints: changeRestraints,
+      setMerged: changeMerged,
       setOmitted: changeOmitted,
       setResolution: changeResolution,
       setOutlierFilter: ({ on, cutoffSigma: cutoff, minExtinction: minY }) => {
@@ -907,6 +934,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
         ...(weighting ? { weighting } : {}),
         ...(twinLaws.length ? { twinLaws } : {}),
         ...(restraints.length ? { restraints } : {}),
+        ...(merged ? { merged } : {}),
         modulated: { kText, ionState, moment: modMoment, seed: modSeed, restarts: modRestarts },
         adpModel: adp?.model ?? null,
       }),

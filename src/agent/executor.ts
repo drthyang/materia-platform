@@ -18,7 +18,7 @@ import { changeSingleCrystal, describeSingleCrystalChange, readSingleCrystalTool
 import { samplePosteriorTool, type PosteriorRun } from "@/agent/posteriorTool";
 import { buildAgentReport, reportFileBase, type AgentReport } from "@/agent/report";
 import { matchIds, type LiveToolHost } from "@/agent/liveCommon";
-import { PROBE_OPTIONS, carriedText, correlationRefusal, pairText, readCorrelations, refusalLine } from "@/agent/correlationCheck";
+import { PROBE_OPTIONS, carriedText, correlationRefusal, disorderAssemblies, pairText, readCorrelations, refusalLine } from "@/agent/correlationCheck";
 import { PAGE_METHOD, readSkill } from "@/agent/skills";
 import { RULES, advanceAlternation, alternationView, keyOfState, methodProgress, outOfOrder, ruleRefusal, stagesCovered, stagesLeft, type AgentRecord, type Alternation, type MethodRule } from "@/agent/method";
 import { REF_KEY, RefStore, buildView } from "@/mcp/refs";
@@ -105,6 +105,7 @@ const STEP_KIND: Readonly<Record<string, StepKind>> = {
   set_weighting: "settings",
   set_twin: "settings",
   restrain_distances: "settings",
+  merge_equivalents: "settings",
 };
 
 let nextCallId = 1;
@@ -281,7 +282,7 @@ export class AgentExecutor implements ToolRunner {
         } catch (e) {
           throw new Error(`could not check the free parameters' correlations before refining (${e instanceof Error ? e.message : String(e)}); nothing was refined`, { cause: e });
         }
-        const check = readCorrelations(probe, before.parameters, restraintsOf(before));
+        const check = readCorrelations(probe, before.parameters, restraintsOf(before), assembliesOf(before));
         const refusal = correlationRefusal(check);
         if (refusal) {
           update({ status: "failed", preview, outcome: refusalLine(check) });
@@ -622,7 +623,7 @@ function changeOutcome(
       ...("dataset" in after && "dataset" in before ? { R1: pct(after.agreement.r1), R1Before: pct(before.agreement.r1), GooF: Number(after.agreement.goof.toPrecision(4)) } : {}),
       iterations: r.history.length,
       ...(r.diagnostics ? { atBounds: r.diagnostics.atBounds.map((b) => b.parameterId), maxShiftOverEsd: Number(r.diagnostics.maxShiftOverEsd.toPrecision(3)) } : {}),
-      ...developedCorrelations(r, after.parameters, restraintsOf(after)),
+      ...developedCorrelations(r, after.parameters, restraintsOf(after), assembliesOf(after)),
       ...(r.message ? { message: r.message } : {}),
     };
   }
@@ -635,10 +636,10 @@ function changeOutcome(
  * read the starting values, and a pair can tighten on the way. The next
  * refinement refuses the set until one of each pair is fixed.
  */
-function developedCorrelations(r: RefinementResult, parameters: readonly RefinementParameter[], restraints: readonly LinearRestraint[]): Record<string, unknown> {
-  const check = readCorrelations(r, parameters, restraints);
+function developedCorrelations(r: RefinementResult, parameters: readonly RefinementParameter[], restraints: readonly LinearRestraint[], assemblies: ReadonlyMap<string, string>): Record<string, unknown> {
+  const check = readCorrelations(r, parameters, restraints, assemblies);
   const carried = check.carried.length > 0
-    ? { carriedCorrelations: check.carried.map(carriedText), carriedNote: "Correlated, and refined together: through the other free parameters (with them held fixed each pair separates), or as the overall intensity terms (scale, extinction, batch scales), as every single-crystal program refines them. Read their esds before quoting them." }
+    ? { carriedCorrelations: check.carried.map(carriedText), carriedNote: "Correlated, and refined together: through the other free parameters (with them held fixed each pair separates), as the overall intensity terms (scale, extinction, batch scales), or as one disorder's alternatives, as every single-crystal program refines them. The correlation is in their esds: read them before quoting them." }
     : {};
   if (check.correlated.length === 0 && check.undetermined.length === 0) return carried;
   return {
@@ -651,6 +652,8 @@ function developedCorrelations(r: RefinementResult, parameters: readonly Refinem
 
 /** The restraints the page fits with (site ties, a shared site's Σ). */
 const restraintsOf = (s: LiveState): readonly LinearRestraint[] => s.restraints;
+/** The single-crystal page's disorder assemblies (SHELXL's PART groups): pairs within one are listed, not stopped. */
+const assembliesOf = (s: LiveState): ReadonlyMap<string, string> => ("dataset" in s ? disorderAssemblies(s.structure, s.bindings) : new Map());
 
 function outcomeLine(name: string, before: LiveState, after: LiveState, note: string | undefined): string {
   if (name === "refine") {

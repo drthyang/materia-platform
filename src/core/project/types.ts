@@ -209,6 +209,8 @@ export interface SingleCrystalWorkspace {
   readonly twinLaws?: readonly TwinLaw[];
   /** Distance restraints (SHELXL's DFIX and SADI); absent ⇒ none. */
   readonly restraints?: readonly DistanceRestraint[];
+  /** The fit runs on the merged equivalents (SHELXL's MERG 2); absent ⇒ every measurement. */
+  readonly merged?: boolean;
   readonly modulated?: ModulatedHypothesis;
   /** The ADP model switched to on the page; absent ⇒ the CIF's. */
   readonly adpModel?: "isotropic" | "anisotropic";

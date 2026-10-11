@@ -34,7 +34,9 @@
  * the expert order scale → ADP → positions.
  */
 
-import type { AtomSite, RidingRule, StructureModel, UnitCell } from "@/core/crystal/types";
+import type { AtomSite, RidingRule, StructureModel, SymmetryOperation, UnitCell } from "@/core/crystal/types";
+import { isCentrosymmetric, mergeEquivalents } from "@/core/diffraction/merge";
+import { isReflectionAbsent } from "@/core/crystal/symmetry";
 import { isInversion, type OmittedMeasurement, type ResolutionRange, type SingleCrystalDataset, type SingleCrystalReflection } from "@/core/diffraction/types";
 import type { ParameterBinding, ParameterKind, RefinementOptions, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import { refine, type RefinementProblem } from "@/core/refinement/engine";
@@ -292,6 +294,27 @@ export function isOmitted(r: Pick<SingleCrystalReflection, "h" | "k" | "l" | "ba
   return omitted.some((o) => o.h === r.h && o.k === r.k && o.l === r.l && (o.batch === undefined || o.batch === r.batch));
 }
 
+/**
+ * The measurement merged as SHELXL's MERG 2 merges it before it refines: each
+ * set of equivalents becomes one reflection, their mean weighted by 1/σ², its
+ * σ the larger of the propagated one and the spread. In a non-centrosymmetric
+ * group the Friedel opposites stay apart — their difference is the anomalous
+ * signal an absolute structure rests on — and in a centrosymmetric one they
+ * merge with the rest. The systematic absences are left out, as SHELXL leaves
+ * them out of the refinement (the data reading still sees them). The batches
+ * and each measurement's own wavelength do not survive a merge.
+ */
+export function mergedDataset(dataset: SingleCrystalDataset, operations: readonly SymmetryOperation[]): SingleCrystalDataset {
+  const centric = isCentrosymmetric(operations);
+  const merged = mergeEquivalents(dataset.reflections.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.iObs, sigma: r.sigma ?? 0 })), operations, { friedel: centric });
+  const allowed = merged.reflections.filter((r) => !isReflectionAbsent(operations, r.h, r.k, r.l));
+  return {
+    ...dataset,
+    reflections: allowed.map((r) => ({ h: r.h, k: r.k, l: r.l, iObs: r.intensity, ...(r.sigma > 0 ? { sigma: r.sigma } : {}) })),
+    merged: { from: dataset.reflections.length, friedelApart: !centric, absences: merged.reflections.length - allowed.length },
+  };
+}
+
 /** The dataset without the measurements left out by hand. */
 export function withoutOmitted(dataset: SingleCrystalDataset, omitted: readonly OmittedMeasurement[]): SingleCrystalDataset {
   return omitted.length === 0 ? dataset : { ...dataset, reflections: dataset.reflections.filter((r) => !isOmitted(r, omitted)) };
@@ -439,10 +462,11 @@ export function schemeSigma(structure: StructureModel, dataset: SingleCrystalDat
   for (const p of parameters) values[p.id] = p.value;
   const applied = applyParameters(structure, bindings, resolveTies(parameters, values));
   const fc2 = scIntensities(scPlans(structure, dataset), applied, dataset).fc2;
+  // WGHT's b is on the absolute scale: on these data, scale·b (see shelxWeights).
   return dataset.reflections.map((r, i) => {
     const p = (Math.max(r.iObs, 0) + 2 * Math.max(fc2[i]!, 0)) / 3;
     const s = r.sigma ?? 0;
-    return Math.sqrt(s * s + (a * p) ** 2 + b * p);
+    return Math.sqrt(s * s + (a * p) ** 2 + b * applied.scale * p);
   });
 }
 
@@ -738,7 +762,7 @@ export function singleCrystalRefinementComparison(
   });
 
   const nFree = parameters.filter((p) => !p.fixed && !p.expression).length;
-  const weights = shelxWeights(foSq, fcSq, sigma, weightAB.a ?? 0, weightAB.b ?? 0);
+  const weights = shelxWeights(foSq, fcSq, sigma, weightAB.a ?? 0, weightAB.b ?? 0, applied.scale);
   const agreement = singleCrystalAgreement(foSq, fcSq, sigma, weights, nFree);
   return { rows, agreement };
 }

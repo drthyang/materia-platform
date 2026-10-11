@@ -25,11 +25,12 @@ import { AFIX, applyRiding, isRotating, ridingDistances, ridingRules, ridingSumm
 import type { DistanceRestraint, RestrainedPair, RidingRule } from "@/core/crystal/types";
 import { DEFAULT_RESTRAINT_SIGMA, nearestPair, restraintCount, restraintReport, restraintRows, restraintValues } from "@/core/crystal/restraints";
 import { EXTINCTION_MODEL_LABELS, shelxWeights, suggestShelxWeighting, type WeightingSuggestion } from "@/core/diffraction/singleCrystalFactors";
-import { inResolution, isOmitted } from "@/core/workflow/singleCrystalRefinement";
+import { inResolution, isOmitted, mergedDataset } from "@/core/workflow/singleCrystalRefinement";
 import { INVERSION_TWIN, isInversion, type ExtinctionModel, type OmittedMeasurement, type ResolutionRange, type ShelxWeighting, type TwinLaw } from "@/core/diffraction/types";
 import { dispersionLine } from "@/core/scattering/dispersion";
 import { checkEqualTies, type EqualTieUpdate } from "@/core/refinement/constraints";
 import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, correlationsCheck, findingChecks, noResultCheck, verdictCheck } from "@/agent/reportChecks";
+import { disorderAssemblies } from "@/agent/correlationCheck";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- inputs are validated against the spec's zod schema before a handler runs */
 type Input = any;
@@ -131,6 +132,12 @@ export async function changeSingleCrystal(name: string, input: Input, port: Sing
       port.setParameterTies(update);
       return tieNote(s, update);
     }
+    case "merge_equivalents": {
+      port.setMerged(!!input.on);
+      if (!input.on) return `Every measurement is fitted again: ${s.totalReflections} reflections. The omissions and the last fit are cleared.`;
+      const m = mergedDataset(s.dataset, s.structure.spaceGroup.operations);
+      return `${s.totalReflections} measurements merged into ${m.reflections.length} reflections, ${m.merged!.friedelApart ? "the Friedel opposites kept apart (a non-centrosymmetric group: their difference is the anomalous signal)" : "the Friedel opposites merged too (a centrosymmetric group)"}. R_int ${rIntOf(s)} reads the measurement as loaded. The omissions and the last fit are cleared: refine again.`;
+    }
     case "restrain_distances": {
       const next = restraintsAfter(s, input);
       port.setDistanceRestraints(next);
@@ -189,6 +196,12 @@ export function singleCrystalNoOp(spec: LiveToolSpec, input: Input, s: SingleCry
     }
     case "tie_parameters":
       return checkEqualTies(s.parameters, scTieUpdate(s, input)).unchanged ? "those parameters are already tied so" : null;
+    case "merge_equivalents": {
+      if (input.on && s.probe === "neutron-tof") throw new Error("a time-of-flight Laue measurement is not merged: each reflection has its own wavelength, extinction and batch, which a merge would lose");
+      if (input.on && s.dataset.origin === "refinement-listing") throw new Error("a refinement's listing is merged already: each reflection is there once");
+      const on = !!s.dataset.merged;
+      return !!input.on === on ? (on ? "the equivalents are merged already" : "every measurement is fitted already") : null;
+    }
     case "restrain_distances": {
       const next = restraintsAfter(s, input);
       return JSON.stringify(next) === JSON.stringify(s.distanceRestraints) ? (next.length ? `the restraints are already so (${restraintCount(next)})` : "there is no restraint to remove") : null;
@@ -260,6 +273,11 @@ export function describeSingleCrystalChange(spec: LiveToolSpec, input: Input, s:
     case "set_twin": {
       const next = twinAfter(s, input);
       return next.length === 0 ? `Untwinned: the twin fraction${s.twinLaws.length ? "" : "s"} leave the fit` : `Twin law: ${twinText(next[0]!)} — its fraction${isInversion(next[0]!) ? " (the Flack x)" : " (BASF)"} refines from 0.1`;
+    }
+    case "merge_equivalents": {
+      if (!input.on) return `Fit every measurement again (${s.totalReflections}), not the merged equivalents`;
+      const m = mergedDataset(s.dataset, s.structure.spaceGroup.operations);
+      return `Merge the equivalents as SHELXL's MERG 2: ${s.totalReflections} measurements → ${m.reflections.length} reflections, ${m.merged!.friedelApart ? "Friedel opposites apart" : "Friedel opposites merged (centrosymmetric)"}`;
     }
     case "restrain_distances": {
       const next = restraintsAfter(s, input);
@@ -514,7 +532,7 @@ const weightingText = (w: ShelxWeighting | null): string => (w ? `WGHT ${w.a} ${
 
 /** SHELXL's suggestion for the fit on screen: the a and b that flatten its analysis of variance. */
 function suggestionOf(s: SingleCrystalLiveState): WeightingSuggestion {
-  return suggestShelxWeighting(s.rows.map((r) => r.foSq), s.rows.map((r) => r.fcSq), s.rows.map((r) => r.sigma), s.parameters.filter((p) => !p.fixed && !p.expression).length);
+  return suggestShelxWeighting(s.rows.map((r) => r.foSq), s.rows.map((r) => r.fcSq), s.rows.map((r) => r.sigma), s.parameters.filter((p) => !p.fixed && !p.expression).length, 10, overallScale(s));
 }
 
 /** The scheme after set_weighting (null: w = 1/σ²). Throws, before the user is asked, on a request that cannot be met. */
@@ -751,7 +769,7 @@ function validationOf(s: SingleCrystalLiveState): ScValidation {
     spaceGroup: s.structure.spaceGroup,
     nParams: s.parameters.filter((p) => !p.fixed && !p.expression).length,
     // The analysis of variance with the fit's own weights.
-    ...(s.weighting ? { weights: shelxWeights(s.rows.map((r) => r.foSq), s.rows.map((r) => r.fcSq), s.rows.map((r) => r.sigma), s.weighting.a, s.weighting.b) } : {}),
+    ...(s.weighting ? { weights: shelxWeights(s.rows.map((r) => r.foSq), s.rows.map((r) => r.fcSq), s.rows.map((r) => r.sigma), s.weighting.a, s.weighting.b, overallScale(s)) } : {}),
   });
 }
 
@@ -777,7 +795,7 @@ function stateView(s: SingleCrystalLiveState, history: ProjectHistory | null, se
       ...(r.kind !== "neutron-tof" ? { wavelength: r.wavelength } : {}),
       reflectionsInFile: s.totalReflections,
       fitted: s.observationCount,
-      merging: { unique: s.merge.unique, redundancy: sig(s.merge.redundancy, 3), rInt: rIntOf(s), rSigma: pct(s.merge.rSigma), ...(s.merge.dMin !== undefined ? { dMin: sig(s.merge.dMin, 4) } : {}) },
+      merging: { unique: s.merge.unique, redundancy: sig(s.merge.redundancy, 3), rInt: rIntOf(s), rSigma: pct(s.merge.rSigma), ...(s.merge.dMin !== undefined ? { dMin: sig(s.merge.dMin, 4) } : {}), fitted: s.dataset.merged ? mergedText(s) : "every measurement, each equivalent apart (merge_equivalents merges them as SHELXL does)" },
       ...(s.dataset.origin === "refinement-listing" ? { origin: LISTING_NOTE } : {}),
       outlierFilter: s.outlierFilter.on ? `on at ${s.outlierFilter.cutoffSigma}σ${s.outlierFilter.minExtinction !== undefined ? ` and y ≥ ${s.outlierFilter.minExtinction}` : ""}: ${s.outlierFilter.excluded} reflections left out` : "off",
       omitted: s.omitted.length ? s.omitted.map((o) => `${omittedText(o)}${o.reason ? `: ${o.reason}` : ""}`) : "none",
@@ -822,16 +840,27 @@ function disorderView(s: SingleCrystalLiveState): { disorder?: string[] } {
   };
 }
 
+/** The overall scale on screen (SHELXL's OSF²): WGHT's b is on the absolute scale, so its term on these data is scale·b·P. */
+const overallScale = (s: SingleCrystalLiveState): number => s.parameters.find((p) => p.kind === "scale")?.value ?? 1;
+
+/** What the fit runs on when the equivalents are merged. */
+function mergedText(s: SingleCrystalLiveState): string {
+  const m = s.dataset.merged!;
+  return `the equivalents merged as SHELXL's MERG 2: ${m.from} measurements → ${s.dataset.reflections.length} reflections, ${m.friedelApart ? "the Friedel opposites apart" : "the Friedel opposites merged (centrosymmetric)"}${m.absences ? `, ${m.absences} systematic absence${m.absences === 1 ? "" : "s"} left out` : ""}`;
+}
+
 /** reflection_statistics: the data before the model. */
 function statisticsView(s: SingleCrystalLiveState): Record<string, unknown> {
   const v = validationOf(s);
   const ops = s.structure.spaceGroup.operations;
   const special = s.structure.sites.filter((site) => allowedPositionShifts(ops, site.position).basis.length < 3).length;
-  const st = reflectionStatistics(s.rows.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.foSq, sigma: r.sigma })), s.structure.cell, s.structure.spaceGroup, { sites: s.structure.sites.length, special });
+  // The data as measured: with the fit on the merged set, the measurement as loaded (its absences, its Friedel pairs).
+  const read = s.dataset.merged ? s.measurement.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.iObs, sigma: r.sigma ?? 0 })) : s.rows.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.foSq, sigma: r.sigma }));
+  const st = reflectionStatistics(read, s.structure.cell, s.structure.spaceGroup, { sites: s.structure.sites.length, special });
   const f = st.friedel;
   const hkl = (x: { h: number; k: number; l: number }): string => `${x.h} ${x.k} ${x.l}`;
   return {
-    reflections: { measured: s.observationCount, unique: s.merge.unique, redundancy: sig(s.merge.redundancy, 3), rInt: rIntOf(s), rSigma: pct(s.merge.rSigma) },
+    reflections: { measured: s.dataset.merged ? s.totalReflections : s.observationCount, unique: s.merge.unique, redundancy: sig(s.merge.redundancy, 3), rInt: rIntOf(s), rSigma: pct(s.merge.rSigma), ...(s.dataset.merged ? { fitted: mergedText(s) } : {}) },
     ...(s.dataset.origin === "refinement-listing" ? { origin: LISTING_NOTE } : {}),
     resolution: { dMin: sig(v.dMin, 4), sinThetaOverLambdaMax: sig(v.sinThetaOverLambdaMax, 4), ...(v.completeness !== undefined ? { completeness: pct(v.completeness) } : {}), uniqueAllowed: v.uniqueAllowed ?? v.uniqueObserved, ...(v.uniqueExpected !== undefined ? { uniqueExpected: v.uniqueExpected } : {}) },
     shells: v.shells.map((sh) => ({
@@ -844,7 +873,7 @@ function statisticsView(s: SingleCrystalLiveState): Record<string, unknown> {
     })),
     friedel: f.centrosymmetric
       ? "centrosymmetric group: Friedel mates are equivalent; no absolute structure to determine"
-      : `${f.withMate} of the ${f.unique - f.centric} acentric reflections unique under the point group have their Friedel mate measured (${pct(f.fraction)} %)${f.centric ? `; ${f.centric} more are centric (no Bijvoet pair)` : ""}${f.fraction < 0.2 ? ": the Friedel pairs were merged (or never measured) — the absolute structure cannot be determined from these data" : ""}`,
+      : `${f.withMate} of the ${f.unique - f.centric} acentric reflections unique under the point group have their Friedel mate measured (${pct(f.fraction)} %)${f.centric ? `; ${f.centric} more are centric (no Bijvoet pair)` : ""}${f.fraction < 0.2 ? ": the Friedel pairs were merged (or never measured) — the absolute structure cannot be determined from these data" : ""}${f.rIntApart !== undefined ? `. R_int with the Friedel mates apart and the absences left out, as SHELXL merges this group and reports it: ${pct(f.rIntApart)} % (${rIntOf(s)} % above merges them in the Laue class; the excess is what the mates differ by, the anomalous signal)` : ""}`,
     absences: st.absences.measured === 0
       ? "no reflection the space group forbids was measured (or the file left them out)"
       : {
@@ -931,7 +960,7 @@ export function singleCrystalReportChecks(s: SingleCrystalLiveState, probe: Refi
   const checks: ReportCheck[] = [
     convergenceCheck(s.result),
     verdictCheck(a),
-    probe ? correlationsCheck(probe, s.parameters, s.restraints) : correlationsCheck(s.result, s.parameters, s.restraints, CORRELATION_LISTED),
+    probe ? correlationsCheck(probe, s.parameters, s.restraints, undefined, disorderAssemblies(s.structure, s.bindings)) : correlationsCheck(s.result, s.parameters, s.restraints, CORRELATION_LISTED, disorderAssemblies(s.structure, s.bindings)),
     boundsCheck(s.result, s.parameters),
     {
       name: "Data",

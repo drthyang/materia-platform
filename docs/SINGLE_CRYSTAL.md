@@ -54,7 +54,17 @@ Both paths then apply parameters with
   σ the larger of the propagated error and the sample scatter
   ([merge.ts](../src/core/diffraction/merge.ts)).
 - R_int = Σ|Iᵢ − Ī| / Σ|Iᵢ| over classes of two or more, R_sigma = Σσ(Ī) / ΣĪ,
-  and redundancy. The page reports them and refines the unmerged list.
+  and redundancy. The page reports them from the measurement as loaded, and
+  refines it unmerged, or merged as SHELXL's MERG 2 (`merge_equivalents`, the
+  page's merge switch): each family averaged as above, the Friedel opposites
+  kept apart in a non-centrosymmetric group (the point group's rotations
+  only: their difference is the anomalous signal), the systematic absences
+  left out. On 1b, 13109 measurements merge to the 2482 reflections SHELXL
+  refined, their σ as SHELXL's (median ratio 1.000 in every bin of Fo²/σ)
+  ([sc1b.test.ts](../src/core/workflow/sc1b.test.ts)). For a
+  non-centrosymmetric group the statistics also give R_int with the Friedel
+  mates apart, as SHELXL reports it (1b: 2.93 %, SHELXL's figure; 3.04 % in
+  the Laue class, the excess the anomalous signal).
 - Checked on P-1 Friedel pairs, the 48 m-3m rotations, R_int of 0 and 0.10, and
   a {200} family ([merge.test.ts](../src/core/diffraction/merge.test.ts)).
 - Completeness against the unique set the space group allows to d_min, by
@@ -106,6 +116,8 @@ Both paths then apply parameters with
   extinction y. A `.fcf` with calculated columns is marked a refinement's
   listing (`origin`): each reflection once, on that refinement's scale, the
   absences left out, and in LIST 4 its extinction divided out.
+- A CIF that carries SHELXL's `.hkl` (`_shelx_hkl_file`) loads it as the
+  measurement (HKLF 4), at the radiation and wavelength the CIF names.
 
 **Not yet**
 - Placing k-header satellites at H + k: no refinement reads `kIndex`.
@@ -117,11 +129,13 @@ Both paths then apply parameters with
 
 | Quantity | Formula |
 | --- | --- |
-| Intensity | Fc² = k·k_b·y·\|F\|²: the file's Fo² are corrected for Lorentz, polarization and absorption in data reduction, as SHELXL, Jana, FullProf and GSAS-II take them |
+| Intensity | Fc² = k·k_b·y·\|F\|²: the file's Fo² are corrected for Lorentz, polarization and absorption in data reduction, as SHELXL, Jana, FullProf and GSAS-II take them. With twin laws, Fc² = k·k_b·Σ_m w_m·y_m·\|F(R_m·h)\|², each domain at its fraction (the first at 1 − Σ of the others) and extinguished on its own intensity, as SHELXL's TWIN and BASF |
+| Anomalous scattering | X-ray f = f₀(s) + f′ + i·f″ at a tabulated laboratory line (Cr to In Kα, 96 elements), so F(h) and F(−h) differ in a non-centrosymmetric crystal; the inversion twin's fraction is the Flack x |
 | Batch scale | k_b, relative to the first batch (1 for it, and without batches) |
 | Extinction (SHELXL EXTI, the default) | y = [1 + 0.001·x·F²·λ³/sin2θ]^(−1/2), at the reflection's own λ and 2θ when the file gives them (a TOF Laue file); 1 for TOF without them |
 | Extinction (Becker–Coppens, as GSAS-II) | y = [1 + 2p + A·p²/(1 + B·p)]^(−1/2), p = Q·T̄·ψ, Q = c·F²·λ²/V² (c = 10⁷ for neutrons with F² in barns; 7.9406·10⁵ times the polarization ratio for X-rays), T̄ the reflection's path length (cm), ψ = Eg/L (type I; L = sin2θ/λ, or (sinθ/λ)² for TOF Laue) or Es (type II); A, B the Gaussian or Lorentzian mosaic's coefficients in cos2θ |
-| SHELX weight (WGHT a b) | w = 1/[σ²(Fo²) + (aP)² + bP], P = [max(Fo², 0) + 2Fc²]/3, re-evaluated at the fit's own Fc² until no parameter moves by 5 % of its esd (SHELXL recomputes it every cycle); a = b = 0 is 1/σ² |
+| SHELX weight (WGHT a b) | w = 1/[σ²(Fo²) + (aP)² + bP], P = [max(Fo², 0) + 2Fc²]/3, re-evaluated at the fit's own Fc² until no parameter moves by 5 % of its esd (SHELXL recomputes it every cycle); a = b = 0 is 1/σ². a and b are on SHELXL's absolute scale: on data at scale k (Fc² = k·\|F\|²) the b term is k·b·P, so SHELXL's numbers apply to a raw measurement as they are |
+| Distance restraint (DFIX, SADI) | a row after the data, weight 1/σ²: d − target (DFIX), or each distance's difference from the group's mean (SADI), with analytic derivatives; counted as SHELXL counts them (a SADI of two distances one, of n > 2 n). GooF is over the reflections; the restrained GooF adds the restraints to N |
 | Suggested scheme | the a (grid to 0.3) and b ≥ 0 that make GooF 1 overall and flattest, Σ(GooF²_bin − 1)², over ten equal-count bins of Fc² |
 | wR2, all reflections | √[Σw(Fo² − Fc²)² / Σw(Fo²)²] |
 | R1, Fo² > 2σ (R1 all: no cutoff) | Σ\|\|Fo\| − \|Fc\|\| / Σ\|Fo\| |
@@ -135,15 +149,28 @@ Both paths then apply parameters with
   indices and batch, with a reason, whatever their residual; and the fit can
   be limited to a resolution range (SHELXL's SHEL), for a high-order
   refinement. Both are saved with the project and listed in the report.
-- Riding hydrogens (SHELXL's AFIX): an sp² C–H on the external bisector of its
-  parent's two neighbours (AFIX 43) at its present distance or one given, any
-  other at its present offset (AFIX 3); U_iso = 1.2·U_eq of the parent (1.5
-  for methyl and hydroxyl). They carry no parameter; their ∂F goes to the
-  parent's position and U modes and, for one on the bisector, to its
-  neighbours' positions too, through the bisector's turn — exactly, where
-  SHELXL keeps the parent's translation alone
-  ([riding.ts](../src/core/crystal/riding.ts)). On X-ray data the anisotropic
-  switch leaves hydrogens isotropic.
+- Riding hydrogens (SHELXL's AFIX): an sp² X–H on the external bisector of its
+  parent's two neighbours (AFIX 43); a methyl or NH₃ tetrahedral about its
+  X–C axis and rotating, the torsion a refined parameter with an exact
+  derivative (AFIX 137), a hydroxyl likewise (147); a CH₂ pair in the plane
+  bisecting X–C–Y, H–C–H = 122.643° − 0.131612·(X–C–Y) as SHELXL sets it (23);
+  a methine opposite its three neighbours (13); any other at its present
+  offset (3). X–H is SHELXL's for the measurement's temperature (C–H 0.93 sp²,
+  0.96 CH₃, 0.97 CH₂, 0.98 CH at room temperature, +0.01 Å below 253 K and
+  +0.02 below 203 K), the present distance, or one given; U_iso = 1.2·U_eq of
+  the parent (1.5 for methyl and hydroxyl). A hydrogen the data place (a
+  hydride) can refine its position while its U rides (SHELXL's −1.2). A
+  riding hydrogen carries no parameter; its ∂F goes to the parent's position
+  and U modes and to its neighbours' positions too, through the group's
+  turn — exactly, where SHELXL keeps the parent's translation alone
+  ([riding.ts](../src/core/crystal/riding.ts)). On 1b, placed from SHELXL's
+  heavy atoms, all 20 riding hydrogens land within 0.0001 Å of SHELXL's. On
+  X-ray data the anisotropic switch leaves hydrogens isotropic.
+- Disorder (SHELXL's PART): a CIF's disorder assembly and group are read and
+  written, and no bond joins two alternatives of one disorder. A partial or
+  disordered site has an occupancy row; the second alternative's occupancy can
+  be one minus the first (SHELXL's 21/−21), and one site's whole ADP held to
+  another's (EADP).
 - The report's geometry for a molecular structure (one with carbon) is its
   covalent bonds with esds, as SHELXL's `_geom_bond`; for an inorganic one,
   each cation's shell.
@@ -151,6 +178,14 @@ Both paths then apply parameters with
   `.fcf`, wR2 7.78 % and GooF 1.03 for 254 parameters (SHELXL: 7.86 %,
   1.041); the suggested scheme is 0.0324 0.951
   ([singleCrystalWeighting.test.ts](../src/core/workflow/singleCrystalWeighting.test.ts)).
+- SHELXL's refinement of 1b (Ga/Al hydride, P2₁2₁2₁; the GSAS-II tutorial's
+  CIF with its own measurement) reproduced with the same 142 parameters and 8
+  restraints: R1 2.02 % (SHELXL 2.04 %), wR2 4.95 % (5.04 %), GooF 1.010
+  (1.044), Flack x 0.437(11) (0.435(15)), the Al share 0.8443(18) (0.844(2))
+  ([sc1b.test.ts](../src/core/workflow/sc1b.test.ts)). The esds are 0.72–0.89×
+  SHELXL's; a Monte-Carlo of 40 refinements against data simulated at the
+  fit's weights scatters as this app's esds say, and on the centrosymmetric
+  dipyridyl disulfide the two programs' esds agree to the digit.
 - Becker–Coppens checked against a line-by-line transcription of GSAS-II's
   `SCExtinction` (type I and II, Gaussian and Lorentzian, TOF, CW and X-ray)
   to 12 digits.
@@ -160,11 +195,11 @@ Both paths then apply parameters with
 **Approximate**
 - The suggested scheme bins by Fc² only; SHELXL also weighs the resolution
   shells, so its suggestion can differ in the second digit.
-- Hydrogens other than sp² C–H ride at their present offset: methyl, CH₂ and
-  OH groups are not re-idealized (SHELXL's AFIX 137, 23, 147).
 
 **Not yet**
-- Twinning, anomalous dispersion, absorption (§2.7).
+- Absorption (§2.7); a non-merohedral twin (HKLF 5); more than one twin law
+  at a time; f′ and f″ at a synchrotron wavelength (only the laboratory lines
+  are tabulated).
 
 ### 2.4 Refinement assembly
 
@@ -205,7 +240,7 @@ Both paths then apply parameters with
   [singleCrystalMultiStart.test.ts](../src/workers/singleCrystalMultiStart.test.ts)).
 
 **Not yet**
-- Occupancy rows on the page; a `refine_single_crystal` agent tool.
+- A `refine_single_crystal` MCP tool.
 
 ### 2.5 Magnetic single-crystal refinement
 
@@ -258,19 +293,21 @@ Both paths then apply parameters with
   magnetic-symmetry panel fits moments to the loaded set, nuclear model fixed.
 - Projects save the datasets, probe and wavelength, parameters, magnetic model,
   OMIT filter and omitted measurements, extinction model, resolution range,
-  riding hydrogens, weighting scheme and supercell-panel inputs, but not the
-  panel's result.
+  riding hydrogens, weighting scheme, twin law, restraints, whether the
+  equivalents are merged, and supercell-panel inputs, but not the panel's
+  result.
 
 ### 2.7 Next
 
 **Next**, in the M7 order of [ROADMAP.md](./ROADMAP.md):
 1. ✅ Completeness against a generated theoretical unique set.
-2. ⬜ Twinning (TWIN/BASF; batch scales are in), and anomalous dispersion with f′, f″
-   and Friedel-pair splitting for absolute structure.
+2. ✅ Twinning (TWIN/BASF, one law at a time; batch scales are in), and
+   anomalous dispersion with f′, f″ and the Friedel pairs apart for the
+   absolute structure (the Flack x).
 3. ✅ Iterative WGHT reweighting on Fc² in the fit, and SHELXL's suggested scheme.
 4. 🚧 Absorption correction: core built (§3); UI, agent tool and multi-scan open.
-5. ⬜ Validation gate: reproduce a published SHELXL or GSAS-II F² refinement on
-   a real HKL file, within tolerance.
+5. ✅ Validation gate: reproduce a published SHELXL or GSAS-II F² refinement on
+   a real HKL file, within tolerance (1b, §2.3).
 
 ## 3. Forward plan: absorption correction
 

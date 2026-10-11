@@ -417,6 +417,7 @@ function checkSingleCrystalWorkspace(ws: Rec, path: string, ctx: PhaseContext): 
     if (geometry !== "fixed" && geometry !== "free" && (r.distance === undefined || !Array.isArray(r.neighbours))) fail(ip, `a ${geometry} hydrogen needs its distance and the neighbours that place it`);
     if ((geometry === "methyl" || geometry === "hydroxyl") && (r.torsion === undefined || r.reference === undefined)) fail(ip, `a ${geometry} hydrogen needs its group's torsion and reference`);
   }));
+  opt(ws.merged, `${path}.merged`, bool);
   opt(ws.restraints, `${path}.restraints`, (v, p) => each(v, p, (item, ip) => {
     const r = rec(item, ip);
     const kind = oneOf(["dfix", "sadi"] as const)(r.kind, `${ip}.kind`);

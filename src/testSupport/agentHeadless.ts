@@ -36,7 +36,7 @@ import { pdfReportInput, powderReportInput, singleCrystalReportInput } from "@/a
 import type { ExtinctionModel, OmittedMeasurement, Radiation, ResolutionRange, ShelxWeighting, SingleCrystalDataset, TwinLaw } from "@/core/diffraction/types";
 import { EXTINCTION_PARAMETER_LABELS } from "@/core/diffraction/singleCrystalFactors";
 import { mergeEquivalents } from "@/core/diffraction/merge";
-import { SINGLE_CRYSTAL_REFINE_OPTIONS, buildSingleCrystalRefinementProblem, buildSingleCrystalSpec, refineSingleCrystal, inResolution, isOmitted, optimalScale, singleCrystalRefinementComparison, withinResolution, withoutOmitted } from "@/core/workflow/singleCrystalRefinement";
+import { SINGLE_CRYSTAL_REFINE_OPTIONS, buildSingleCrystalRefinementProblem, buildSingleCrystalSpec, mergedDataset, refineSingleCrystal, inResolution, isOmitted, optimalScale, singleCrystalRefinementComparison, withinResolution, withoutOmitted } from "@/core/workflow/singleCrystalRefinement";
 
 /**
  * A powder page without React: a session, the real curves and the real
@@ -454,6 +454,7 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
   let weighting: ShelxWeighting | null = loaded.weighting ?? null;
   let twinLaws: readonly TwinLaw[] = loaded.twinLaws ?? [];
   let restraints: readonly DistanceRestraint[] = start.restraints ?? [];
+  let merged = false;
   // The reflections with the extinction model, as the page's probed dataset.
   let dataset: SingleCrystalDataset = { ...loaded, extinctionModel };
   let spec = buildSingleCrystalSpec(model, dataset, { extinction: 0 });
@@ -474,12 +475,13 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
     const nKept = kept().reflections.length;
     const outside = withoutOmitted(dataset, omitted).reflections.length - nKept;
     const cmp = singleCrystalRefinementComparison(model, ds, params, spec.bindings);
-    const merge = mergeEquivalents(ds.reflections.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.iObs, sigma: r.sigma ?? 0 })), model.spaceGroup.operations);
+    const merge = mergeEquivalents((merged ? loaded : ds).reflections.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.iObs, sigma: r.sigma ?? 0 })), model.spaceGroup.operations);
     return {
       structure: model,
       refinedStructure: applyParameters(model, spec.bindings, values()).model,
       dataset,
-      totalReflections: dataset.reflections.length,
+      totalReflections: loaded.reflections.length,
+      measurement: loaded.reflections,
       probe: dataset.radiation.kind,
       parameters: params,
       bindings: spec.bindings,
@@ -562,6 +564,19 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
     setParameterTies: (update) => {
       calls.push(`ties ${JSON.stringify(update)}`);
       params = withValidUserTies(withEqualTies(params, update));
+    },
+    // The page's handler: the merged equivalents (or every measurement) with the batch rows rebuilt, the omissions and the last fit cleared.
+    setMerged: (on) => {
+      calls.push(`merged ${on}`);
+      merged = on;
+      const set = on ? mergedDataset(loaded, model.spaceGroup.operations) : loaded;
+      base = { ...set, radiation: base.radiation };
+      dataset = { ...base, extinctionModel, ...(weighting ? { weighting } : {}), ...(twinLaws.length ? { twinLaws } : {}) };
+      const old = new Map(params.map((p) => [p.id, p]));
+      spec = buildSingleCrystalSpec(model, dataset, { extinction: 0 });
+      params = withValidUserTies(spec.params.map((p) => keptRow(p, old.get(p.id))));
+      omitted = [];
+      result = null;
     },
     setDistanceRestraints: (next) => {
       calls.push(`restraints ${next.length}`);

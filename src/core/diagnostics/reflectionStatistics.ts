@@ -35,6 +35,13 @@ export interface FriedelCoverage {
   readonly withMate: number;
   /** withMate / acentric (0 when the data were merged in the Laue class). */
   readonly fraction: number;
+  /**
+   * Non-centrosymmetric groups: R_int with the Friedel mates kept apart and the
+   * systematic absences left out, as SHELXL merges such a group (MERG 2) and
+   * reports it. Below the Laue-class R_int by what the mates differ by: the
+   * anomalous signal.
+   */
+  readonly rIntApart?: number;
 }
 
 export interface AbsenceViolation {
@@ -125,7 +132,17 @@ export function reflectionStatistics(rows: readonly StatisticsRow[], cell: UnitC
     }
   }
   const acentric = keys.size - centric;
-  const friedel: FriedelCoverage = { centrosymmetric, unique: keys.size, centric, withMate, fraction: acentric > 0 && !centrosymmetric ? withMate / acentric : 0 };
+  const apart = centrosymmetric
+    ? undefined
+    : mergeEquivalents(rows.filter((r) => !isReflectionAbsent(sg.operations, r.h, r.k, r.l)).map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.intensity, sigma: r.sigma })), sg.operations, { friedel: false }).statistics;
+  const friedel: FriedelCoverage = {
+    centrosymmetric,
+    unique: keys.size,
+    centric,
+    withMate,
+    fraction: acentric > 0 && !centrosymmetric ? withMate / acentric : 0,
+    ...(apart && apart.redundancy > 1 + 1e-9 ? { rIntApart: apart.rInt } : {}),
+  };
 
   // Merged in the Laue class: absences and intensity statistics read unique reflections.
   const merged = mergeEquivalents(rows.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.intensity, sigma: r.sigma })), sg.operations).reflections;

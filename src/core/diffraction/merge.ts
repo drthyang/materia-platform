@@ -115,16 +115,41 @@ export function canonicalKey(rotations: readonly SymmetryOperation["rotation"][]
 }
 
 /**
- * Merge symmetry-equivalent reflections under the Laue group of `operations`.
- * Returns the unique set (at canonical representatives) plus R_int / R_sigma /
- * redundancy statistics. Reflections with non-positive σ get unit weight so a
- * missing error does not divide by zero.
+ * The point group's rotations alone (no inversion added): equivalence that
+ * keeps Friedel opposites apart in a non-centrosymmetric group, where anomalous
+ * scattering makes them differ. A centrosymmetric group holds the inversion
+ * already.
+ */
+export function pointGroupRotations(operations: readonly SymmetryOperation[]): SymmetryOperation["rotation"][] {
+  const seen = new Map<string, SymmetryOperation["rotation"]>();
+  for (const op of operations) seen.set(op.rotation.map((row) => row.map((v) => Math.round(v)).join(",")).join(";"), op.rotation);
+  seen.set("1,0,0;0,1,0;0,0,1", [[1, 0, 0], [0, 1, 0], [0, 0, 1]]);
+  return [...seen.values()];
+}
+
+/** Whether the group holds the inversion: Friedel opposites are then equivalent. */
+export function isCentrosymmetric(operations: readonly SymmetryOperation[]): boolean {
+  return operations.some((op) => op.rotation.every((row, i) => row.every((v, j) => Math.round(v) === (i === j ? -1 : 0))));
+}
+
+export interface MergeOptions {
+  /** Merge Friedel opposites too (the Laue group, the default); false keeps them apart (the point group). */
+  readonly friedel?: boolean;
+}
+
+/**
+ * Merge symmetry-equivalent reflections under the Laue group of `operations`
+ * (or, with `friedel: false`, its point group). Returns the unique set (at
+ * canonical representatives) plus R_int / R_sigma / redundancy statistics.
+ * Reflections with non-positive σ get unit weight so a missing error does not
+ * divide by zero.
  */
 export function mergeEquivalents(
   reflections: readonly Reflection2[],
   operations: readonly SymmetryOperation[],
+  options: MergeOptions = {},
 ): MergeResult {
-  const rotations = laueRotations(operations);
+  const rotations = options.friedel === false ? pointGroupRotations(operations) : laueRotations(operations);
   const groups = new Map<string, Reflection2[]>();
   for (const r of reflections) {
     const key = canonicalKey(rotations, r.h, r.k, r.l);

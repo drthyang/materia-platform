@@ -143,7 +143,10 @@ release fixes bugs.
   With dipyridyl disulfide's published WGHT 0.0362 0.7686 the page gives
   wR2 7.78 % and GooF 1.03 for the 254 parameters (SHELXL: 7.86 % and 1.041),
   and suggests 0.0324 0.951. wR2 and GooF in the report and in the agreement
-  are weighted by the scheme; R1 is not.
+  are weighted by the scheme; R1 is not. a and b are SHELXL's, on its
+  absolute scale, so a measurement at its own scale takes SHELXL's numbers as
+  they are: 1b's raw data, weighted with b on the data's scale, gave a GooF
+  of 0.35 for SHELXL's 1.044 (1.010 now).
 
 - **Eval scenarios** `sc-radiation-first`, `sc-riding-hydrogens`,
   `sc-listing-honesty` and `sc-weighting-last`, from the dipyridyl disulfide
@@ -205,6 +208,67 @@ release fixes bugs.
   the fit on screen, so an account that quotes it ("the lines are 2.45×
   broader") quotes the report.
 
+- **Anomalous scattering.** X-ray amplitudes carry f′ and f″ at the
+  laboratory lines (Cr to In Kα, 96 elements), so the two members of a Friedel
+  pair differ in a non-centrosymmetric crystal, and a heavy atom scatters what
+  it does.
+
+- **Twin laws and the Flack x** (`set_twin`, single-crystal page): the fit
+  sums the twin domains' F² with refined fractions, as SHELXL's TWIN and BASF
+  do, with analytic derivatives; the inversion twin's fraction is the Flack x.
+  A law that cannot twin the crystal (one of its point group's own operations,
+  or no rotation of its lattice) is refused. The state, the assessment and the
+  report read the anomalous scattering, how many acentric reflections have
+  their Friedel opposite measured, and the fractions.
+
+- **Disorder on the single-crystal page**: a CIF's disorder assembly and group
+  (SHELXL's PART) are read and written, and no bond joins two alternatives of
+  one disorder. `tie_parameters` there makes a disorder's second occupancy one
+  minus the first (SHELXL's 21/−21) and holds one site's whole ADP to
+  another's (EADP); get_state lists each assembly. Covalent radii for every
+  element (Cordero et al. 2008), so a metal's bonds count. The Agent's
+  correlation guard lists the parameters of one disorder among themselves
+  rather than refusing them: two alternatives 0.2 Å apart correlate at −0.99
+  by construction, SHELXL refines them together, and their esds carry it.
+
+- **SHELXL's hydrogen groups** (`set_riding_hydrogens`): a methyl or NH₃
+  rotating about its bond with its torsion refined (AFIX 137), a hydroxyl
+  likewise (147), a CH₂ pair with H–C–H set by its X–C–Y (23), a methine (13),
+  sp² on the bisector (43), a metal's hydrogen at its offset (3); X–H at
+  SHELXL's distance for the measurement's temperature. On 1b, placed from the
+  heavy atoms of SHELXL's own .res, all 20 riding hydrogens land within
+  0.0001 Å of SHELXL's. A hydrogen the data place (a hydride) can refine its
+  position while its U rides on its parent, as SHELXL's −1.2.
+
+- **Distance restraints** (`restrain_distances`, SHELXL's DFIX and SADI):
+  rows after the data, weighted 1/σ², with analytic derivatives, counted as
+  SHELXL counts them. `assess_refinement` gives each one's deviation and the
+  restrained GooF; the report and the CIF carry them.
+
+- **A CIF with its own measurement** (SHELXL's `_shelx_hkl_file`) loads as the
+  data, at the radiation and wavelength the CIF names.
+
+- **The equivalents merged as SHELXL merges them** (`merge_equivalents`, the
+  page's "merge" switch): SHELXL's MERG 2 — each family averaged, the Friedel
+  opposites kept apart in a non-centrosymmetric group, the systematic absences
+  left out. The statistics, R_int and the outliers by their equivalents still
+  read the measurement. On 1b, 13109 measurements merge to the 2482
+  reflections SHELXL refined. `reflection_statistics` gives R_int as SHELXL
+  reports it for a non-centrosymmetric group, the Friedel mates apart (1b:
+  2.93 %, SHELXL's figure), beside the Laue class's (3.04 %): the excess is
+  the anomalous signal.
+
+- **SHELXL's refinement of 1b reproduced** (a Ga/Al hydride in P2₁2₁2₁, an
+  inversion twin, an Al/Ga disorder, five hydrides under SADI; the GSAS-II
+  tutorial's CIF with its own measurement), in a test: the same 142
+  parameters and 8 restraints give R1 2.02 % (SHELXL 2.04 %), wR2 4.95 %
+  (5.04 %), GooF 1.010 (1.044), Flack x 0.437(11) (0.435(15)) and the Al share
+  0.8443(18) (0.844(2)), in 5 cycles. The esds are 0.72–0.89× SHELXL's: a
+  Monte-Carlo at the fit's weights scatters as this app's say, and on the
+  centrosymmetric dipyridyl disulfide the two agree to the digit. The ratio is
+  what counting each Friedel pair once would give (1462 reflections for 2482);
+  without SHELXL's code that stays a guess.
+
 ### Changed
 
 - **Single-crystal structure factors with analytic derivatives.** A kernel
@@ -260,6 +324,26 @@ release fixes bugs.
   out and why, end by end, once a second read finds the window already set.
 
 ### Fixed
+
+- **Esds and correlations of correlated parameters, and the convergence of
+  correlated fits.** The eigen-decomposition behind the engine's step and its
+  covariance stopped after 80 single Jacobi rotations, far short of
+  convergence for more than a dozen parameters: each parameter's esd came out
+  near its conditional value (as if every other were fixed), the strongest
+  correlations went unreported, and each step was little better than steepest
+  descent. On 1b the split Al/Ga site's positions and shared U came out 3–5×
+  too precise (Al1 x 0.0003 for SHELXL's 0.0012) with no correlation reported
+  where they correlate at −0.99, and a refinement from SHELXL's own model took
+  42 cycles and 28 s. It is now a complete Householder and QL decomposition,
+  once per cycle for every damping tried: 5 cycles and 4 s, the esds the
+  inverse gives (Al1 x 0.0010), and a Monte-Carlo of 40 refinements scattering
+  as they say. Dipyridyl disulfide's 253 parameters converge in 3 cycles
+  (7 s) to SHELXL's R1, wR2 and GooF, and N1A x and S2A–C7A take SHELXL's
+  esds, (8) and (13), where they read (7) and (12). Powder and PDF fits share
+  the engine, and their esds grow where parameters correlate: on PbSO₄ (D1A,
+  27 free parameters) the scale's by 22 % and the B values' and positions' by
+  up to 8 %, the values moving by under 0.1 esd and wR not at all; with a
+  handful of parameters free nothing changes.
 
 - **Riding hydrogens' derivatives are exact.** An sp² hydrogen turns with
   the bisector when its carbon or the carbon's neighbours move, and the

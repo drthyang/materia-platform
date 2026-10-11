@@ -151,19 +151,25 @@ export function extinctionFactorFor(
     : beckerCoppensFactor(model, x, fSquared, radiation, d, volume, at);
 }
 
-/** SHELX WGHT weights w = 1/[σ²(Fo²) + (aP)² + bP], P = [max(Fo²,0)+2Fc²]/3. */
+/**
+ * SHELX WGHT weights w = 1/[σ²(Fo²) + (aP)² + bP], P = [max(Fo²,0)+2Fc²]/3.
+ * SHELXL states a and b on the absolute scale (Fc² in electrons², Fo² divided
+ * by its scale), so for data on the scale `scale` (Fc² here = scale·|F|²) the
+ * b term is scale·b·P; the a term does not depend on the scale.
+ */
 export function shelxWeights(
   foSq: readonly number[],
   fcSq: readonly number[],
   sigma: readonly number[],
   a = 0,
   b = 0,
+  scale = 1,
 ): Float64Array {
   const w = new Float64Array(foSq.length);
   for (let i = 0; i < foSq.length; i++) {
     const P = (Math.max(foSq[i]!, 0) + 2 * fcSq[i]!) / 3;
     const s = sigma[i] ?? 0;
-    const denom = s * s + (a * P) * (a * P) + b * P;
+    const denom = s * s + (a * P) * (a * P) + b * scale * P;
     w[i] = denom > 0 ? 1 / denom : (s > 0 ? 1 / (s * s) : 1);
   }
   return w;
@@ -186,7 +192,9 @@ export interface WeightingSuggestion {
  * the overall GooF to 1; the a whose bins scatter least about 1 is taken.
  * Fitted to a model, it absorbs that model's errors into the weights: it is
  * the last step of a refinement, not a way to a better one. A fit whose GooF
- * is at or below 1 with σ alone keeps a = b = 0.
+ * is at or below 1 with σ alone keeps a = b = 0. b is on SHELXL's absolute
+ * scale: for data on the scale `scale` (see shelxWeights) the b term is
+ * scale·b·P.
  */
 export function suggestShelxWeighting(
   foSq: readonly number[],
@@ -194,6 +202,7 @@ export function suggestShelxWeighting(
   sigma: readonly number[],
   nParams: number,
   binCount = 10,
+  scale = 1,
 ): WeightingSuggestion {
   const n = foSq.length;
   const dof = Math.max(n - nParams, 1);
@@ -211,7 +220,7 @@ export function suggestShelxWeighting(
   const chi2 = (a: number, b: number, idx?: readonly number[]): number => {
     let sum = 0;
     const one = (i: number): void => {
-      const v = s2[i]! + a * a * p[i]! * p[i]! + b * p[i]!;
+      const v = s2[i]! + a * a * p[i]! * p[i]! + b * scale * p[i]!;
       sum += v > 0 ? d2[i]! / v : 0;
     };
     if (idx) for (const i of idx) one(i);
@@ -223,7 +232,7 @@ export function suggestShelxWeighting(
     if (chi2(a, 0) / dof <= 1) return 0;
     let mean = 0;
     for (let i = 0; i < n; i++) mean += p[i]!;
-    mean = Math.max(mean / Math.max(n, 1), 1e-12);
+    mean = Math.max(mean / Math.max(n, 1) / scale, 1e-12);
     let hi = mean * 1e-6;
     for (let k = 0; k < 80 && chi2(a, hi) / dof > 1; k++) hi *= 2;
     let lo = 0;

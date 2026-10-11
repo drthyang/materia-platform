@@ -202,6 +202,17 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     pages: ["singleCrystal"],
   },
   {
+    name: "merge_equivalents",
+    title: "Merge the equivalents",
+    description:
+      "Single-crystal page only. Fit the measurement's equivalents merged, as SHELXL merges them before it refines (MERG 2): each set of symmetry-equivalent measurements becomes one reflection, their mean weighted by 1/σ², its σ the larger of the propagated one and the spread. In a non-centrosymmetric group the Friedel opposites stay apart — their difference is the anomalous signal the absolute structure (the Flack x) rests on — and in a centrosymmetric one they merge with the rest. R1, wR2 and GooF are then on unique reflections, comparable with SHELXL's; R_int and the redundancy still read the measurement as loaded. For monochromatic data with equivalents measured (a SHELX .hkl, a CIF's own measurement); not for a time-of-flight Laue file (each measurement has its own wavelength and extinction) or a refinement's listing (merged already). Merge before the model is refined, so the fit and the outliers read the reflections SHELXL would. `on: false` fits every measurement again. The omissions are cleared (they named the other set's reflections), and so is the last fit.",
+    inputSchema: {
+      on: z.boolean(),
+    },
+    effect: "change",
+    pages: ["singleCrystal"],
+  },
+  {
     name: "restrain_distances",
     title: "Restrain distances",
     description:

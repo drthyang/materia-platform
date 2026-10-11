@@ -33,6 +33,7 @@ export const TOOL_CARDS: Readonly<Record<string, readonly AgentCard[]>> = {
   set_weighting: ["result"],
   set_twin: ["parameters", "result"],
   restrain_distances: ["structure", "result"],
+  merge_equivalents: ["data", "result"],
   find_unexplained_peaks: ["pattern"],
   review_symmetry: ["structure", "pattern"],
   diagnose_fit: ["pattern", "result"],
