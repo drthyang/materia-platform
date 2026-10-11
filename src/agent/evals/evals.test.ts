@@ -237,7 +237,7 @@ const REPLAYS: Readonly<Record<string, Replay>> = {
     good: [
       { text: "The method first, and a refinement to see the misfits.", calls: [SC, { name: "refine" }, { name: "assess_refinement" }] },
       { text: "1 0 4 against its equivalents.", calls: [{ name: "reflection_equivalents", input: { h: 1, k: 0, l: 4 } }] },
-      { text: "That one measurement failed; the others agree with Fc². A cutoff just above the next worst takes only it.", calls: [{ name: "set_outlier_filter", input: { on: true, cutoffSigma: 100 } }, { name: "refine" }] },
+      { text: "That one measurement failed; the others agree with Fc². I omit it alone.", calls: [{ name: "omit_reflections", input: { omit: [{ h: 1, k: 0, l: 4 }], reason: "its two equivalents agree with Fc²; it reads 3 %" } }, { name: "refine" }] },
       { text: "Left out: the one failed measurement of 1 0 4; its equivalents agree with the model." },
     ],
     bad: [
@@ -245,6 +245,34 @@ const REPLAYS: Readonly<Record<string, Replay>> = {
       { text: "Reflections beyond 3σ are left out." },
     ],
     catches: ["compares the equivalents first, then leaves out only the failed measurement"],
+  },
+  "sc-failed-measurements": {
+    good: [
+      { text: "The method, then the structure, and the misfits with their equivalents.", calls: [SC, { name: "set_free", input: { free: ["pos_*", "B_*"] } }, { name: "refine" }, { name: "assess_refinement" }] },
+      { text: "1 0 4 failed: its equivalents fit. I omit it and look again.", calls: [{ name: "omit_reflections", input: { omit: [{ h: 1, k: 0, l: 4 }], reason: "its two equivalents agree with Fc²; it reads 3 %" } }, { name: "refine" }, { name: "assess_refinement" }] },
+      { text: "Now 3 0 12 stands out, and its equivalents fit: it failed too.", calls: [{ name: "omit_reflections", input: { omit: [{ h: 3, k: 0, l: 12 }], reason: "half the intensity of its two equivalents, which agree with Fc²" } }, { name: "refine" }, { name: "assess_refinement" }] },
+      { text: "Two measurements failed, 1 0 4 and 3 0 12, each against equivalents that agree with the model; nothing else is left out." },
+    ],
+    bad: [
+      { calls: [SC, { name: "set_free", input: { free: ["pos_*", "B_*"] } }, { name: "refine" }, { name: "reflection_equivalents", input: { h: 1, k: 0, l: 4 } }] },
+      { text: "1 0 4 failed. A cutoff just above the next worst takes only it.", calls: [{ name: "set_outlier_filter", input: { on: true, cutoffSigma: 100 } }, { name: "refine" }] },
+      { text: "Left out: the one failed measurement, 1 0 4." },
+    ],
+    catches: ["compares the equivalents first, then leaves out only the failed measurements"],
+  },
+  "sc-extinction-model": {
+    good: [
+      { text: "The method, then the structure under SHELXL's EXTI.", calls: [SC, { name: "set_free", input: { free: ["pos_*", "B_*"] } }, { name: "refine" }, { name: "assess_refinement" }] },
+      { text: "The strongest reflections still misfit: Becker–Coppens type I, refined the same way.", calls: [{ name: "set_extinction_model", input: { model: "bc-1-lorentzian" } }, { name: "refine" }, { name: "assess_refinement" }] },
+      { text: "It fits better. The B values against the high-order reflections alone, which extinction barely reaches.", calls: [{ name: "structure_table" }, { name: "set_resolution_range", input: { dMax: 0.6 } }, { name: "refine" }, { name: "structure_table" }] },
+      { text: "They agree. The full range back.", calls: [{ name: "set_resolution_range", input: { dMax: null } }, { name: "refine" }] },
+      { text: "Becker–Coppens type I fits the strongest reflections to their noise where EXTI did not, and its B values agree with the high-order ones: I keep it." },
+    ],
+    bad: [
+      { calls: [SC, { name: "set_free", input: { free: ["pos_*", "B_*"] } }, { name: "refine" }, { name: "assess_refinement" }] },
+      { text: "SHELXL's EXTI is the standard model; what remains on the strongest reflections is what any extinction model leaves." },
+    ],
+    catches: ["refines under another extinction model and keeps the one that fits better", "refines the high-order reflections alone, then the full range"],
   },
   "sc-extinction-test": {
     good: [

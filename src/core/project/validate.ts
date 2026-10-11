@@ -28,6 +28,7 @@ import {
   PDF_POSITION_MODES,
 } from "@/core/project/types";
 import { MUSTRAIN_MODELS, PEAK_CORRECTION_IDS } from "@/core/workflow/powderModelOptions";
+import { EXTINCTION_MODELS } from "@/core/diffraction/singleCrystalFactors";
 
 export class ProjectFileError extends Error {
   constructor(message: string, readonly path?: string) {
@@ -379,6 +380,20 @@ function checkSingleCrystalWorkspace(ws: Rec, path: string, ctx: PhaseContext): 
     bool(f.on, `${path}.outlierFilter.on`);
     num(f.cutoffSigma, `${path}.outlierFilter.cutoffSigma`);
     opt(f.minExtinction, `${path}.outlierFilter.minExtinction`, num);
+  }
+  opt(ws.omitted, `${path}.omitted`, (v, p) => each(v, p, (item, ip) => {
+    const o = rec(item, ip);
+    int(o.h, `${ip}.h`);
+    int(o.k, `${ip}.k`);
+    int(o.l, `${ip}.l`);
+    opt(o.batch, `${ip}.batch`, int);
+    opt(o.reason, `${ip}.reason`, str);
+  }));
+  opt(ws.extinctionModel, `${path}.extinctionModel`, oneOf(EXTINCTION_MODELS));
+  if (ws.resolution !== undefined && ws.resolution !== null) {
+    const r = rec(ws.resolution, `${path}.resolution`);
+    opt(r.dMin, `${path}.resolution.dMin`, num);
+    opt(r.dMax, `${path}.resolution.dMax`, num);
   }
   opt(ws.modulated, `${path}.modulated`, checkModulated);
 }

@@ -23,7 +23,7 @@ import { EMPTY_SOURCE } from "@/app/powderSession";
 import type { StructureModel } from "@/core/crystal/types";
 import type { DistortionModeSet } from "@/core/crystal/distortionModes";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
-import type { PdfPattern, PowderXUnit, SingleCrystalDataset } from "@/core/diffraction/types";
+import type { ExtinctionModel, OmittedMeasurement, PdfPattern, PowderXUnit, ResolutionRange, SingleCrystalDataset } from "@/core/diffraction/types";
 import type { MagneticModel } from "@/core/magnetic/types";
 import {
   PROJECT_SCHEMA_VERSION,
@@ -238,6 +238,10 @@ export interface SingleCrystalSnapshot {
   readonly cutoffSigma: number;
   /** The filter's extinction cut: reflections with y below it left out; absent ⇒ none. */
   readonly minExtinction?: number | null;
+  /** Measurements left out by hand (SHELXL's OMIT h k l). */
+  readonly omitted?: readonly OmittedMeasurement[];
+  readonly extinctionModel?: ExtinctionModel;
+  readonly resolution?: ResolutionRange;
   readonly modulated: ModulatedInputs;
   readonly adpModel?: "isotropic" | "anisotropic" | null;
 }
@@ -255,6 +259,9 @@ export function singleCrystalWorkspaceFrom(s: SingleCrystalSnapshot): SingleCrys
     },
     ...(s.magnetic ? { magnetic: s.magnetic } : {}),
     outlierFilter: { on: s.filterOn, cutoffSigma: s.cutoffSigma, ...(s.minExtinction ? { minExtinction: s.minExtinction } : {}) },
+    ...(s.omitted && s.omitted.length > 0 ? { omitted: s.omitted.map((o) => ({ ...o })) } : {}),
+    ...(s.extinctionModel && s.extinctionModel !== "shelx" ? { extinctionModel: s.extinctionModel } : {}),
+    ...(s.resolution && (s.resolution.dMin !== undefined || s.resolution.dMax !== undefined) ? { resolution: { ...s.resolution } } : {}),
     modulated: modulatedHypothesisFrom(s.modulated),
     ...(s.adpModel ? { adpModel: s.adpModel } : {}),
   };

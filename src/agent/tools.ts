@@ -141,6 +141,40 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     pages: ["singleCrystal"],
   },
   {
+    name: "omit_reflections",
+    title: "Omit measurements",
+    description:
+      "Single-crystal page only. Leaves single measurements out of the fit by their indices and batch, as SHELXL's OMIT h k l: for a measurement that failed (a detector edge or gap, a shadow), which its equivalents expose — assess_refinement marks each outlier whose equivalents fit as a failed measurement, and reflection_equivalents shows the family. Unlike the σ filter it takes only the measurements named, whatever their residual, so a failed one inside the misfit of an extinction-limited fit can go while the misfits stay. Give `batch` when the file has batches (the same indices measured in another batch stay); say why in `reason`, which goes into the report. `restore` puts measurements back (\"all\" for every one). Applies to the next refinement.",
+    inputSchema: {
+      omit: z.array(z.object({ h: z.number().int(), k: z.number().int(), l: z.number().int(), batch: z.number().int().optional() })).optional().describe("Measurements to leave out, by the file's own indices"),
+      reason: z.string().optional().describe("Why, for the report: what the equivalents show"),
+      restore: z.union([z.literal("all"), z.array(z.object({ h: z.number().int(), k: z.number().int(), l: z.number().int(), batch: z.number().int().optional() }))]).optional().describe("Omitted measurements to put back, or \"all\""),
+    },
+    effect: "change",
+    pages: ["singleCrystal"],
+  },
+  {
+    name: "set_resolution_range",
+    title: "Set the resolution range",
+    description:
+      "Single-crystal page only. Fits only the reflections with d between `dMin` and `dMax` (Å), as SHELXL's SHEL; null opens that end. Its use is a test, made and undone: a high-order refinement (dMax 0.5–0.6 Å, the reflections extinction barely reaches) gives ADPs nearly free of the extinction model, so the extinction model whose all-data ADPs agree with them, and whose parameter stays put, describes the crystal; or a range the data cannot support, said why. Put the full range back (both null) before the final refinement; the report states any limit. Applies to the next refinement.",
+    inputSchema: {
+      dMin: z.number().positive().nullable().optional().describe("Smallest d fitted (Å); null: no limit"),
+      dMax: z.number().positive().nullable().optional().describe("Largest d fitted (Å); null: no limit"),
+    },
+    effect: "change",
+    pages: ["singleCrystal"],
+  },
+  {
+    name: "set_extinction_model",
+    title: "Set the extinction model",
+    description:
+      "Single-crystal page only. The extinction model: SHELXL's empirical EXTI (\"shelx\", the default), or Becker–Coppens secondary extinction as GSAS-II applies it — type I, where the mosaic spread limits it (\"bc-1-lorentzian\", \"bc-1-gaussian\"), or type II, where the domain size does (\"bc-2-lorentzian\", \"bc-2-gaussian\") — with each reflection's mean path length when the file gives it (TOPAZ). The parameter is another quantity under each model (x, Eg, Es), so it restarts at 0: refine it with the scale and what was free before, to convergence, then compare wR2, GooF and the lowest resolution shell and strongest bin of assess_refinement with the model before. Worth trying when the extinction is severe (y well below 0.5) and the strongest low-angle reflections are what is left in the residual; report the model chosen and why.",
+    inputSchema: { model: z.enum(["shelx", "bc-1-lorentzian", "bc-1-gaussian", "bc-2-lorentzian", "bc-2-gaussian"]) },
+    effect: "change",
+    pages: ["singleCrystal"],
+  },
+  {
     name: "find_unexplained_peaks",
     title: "Find unexplained peaks",
     description:

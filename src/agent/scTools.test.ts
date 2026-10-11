@@ -3,6 +3,7 @@ import { keyOfState } from "@/agent/method";
 import type { AgentReport } from "@/agent/report";
 import { executor, fakeHost, singleCrystalPort } from "@/testSupport/agentHeadless";
 import { corundumPage } from "@/testSupport/scPages";
+import { dSpacing } from "@/core/crystal/unitCell";
 
 const parse = (text: string): Record<string, unknown> => JSON.parse(text) as Record<string, unknown>;
 
@@ -156,6 +157,115 @@ describe("AgentExecutor on the single-crystal page", () => {
     await ex.run("set_outlier_filter", { minExtinction: null });
     expect(port.state().outlierFilter.minExtinction).toBeUndefined();
     expect(port.state().outlierFilter.excluded).toBe(0);
+  });
+
+  it("marks each outlier by its equivalents, and omits the failed measurements by batch", async () => {
+    const failed = [{ h: 1, k: 0, l: 4, factor: 0.03 }, { h: 3, k: 0, l: 12, factor: 0.5 }];
+    const c = corundumPage({ extinction: 20, batches: [1, 1, 1], failed });
+    const batchOf = (h: number, k: number, l: number): number => c.dataset.reflections.find((r) => r.h === h && r.k === k && r.l === l)!.batch!;
+    const [b1, b2] = [batchOf(1, 0, 4), batchOf(3, 0, 12)];
+    const { port } = singleCrystalPort(c.structure, c.dataset);
+    const { host, steps } = fakeHost(port);
+    const { ex, seen } = executor(host, "auto");
+    await ex.run("set_free", { free: ["pos_*", "B_*"] });
+    await ex.run("refine", {});
+    // The worst failure drags the whole fit (every strong reflection reads high), yet its equivalents still single it out.
+    let outliers = parse((await ex.run("assess_refinement", {})).text).outliers as string[];
+    expect(outliers[0]).toMatch(new RegExp(`^1 0 4 \\(batch ${b1}\\): .* — 2 equivalents at Fo²/Fc² [\\d.]+ \\(median\\), this one 0\\.0\\d+: a failed measurement$`));
+    expect(outliers.slice(1).every((o) => /the model \(or a correction\) misses the reflection$/.test(o))).toBe(true);
+    const n0 = port.state().observationCount;
+    await ex.run("omit_reflections", { omit: [{ h: 1, k: 0, l: 4 }], reason: "its equivalents agree with Fc²" });
+    expect(seen.find((e) => e.tool === "omit_reflections" && e.preview)?.preview)
+      .toBe(`Omit 1 0 4 (batch ${b1}) (its equivalents agree with Fc²) — 1 measurement omitted in all`);
+    expect(port.state().omitted).toEqual([{ h: 1, k: 0, l: 4, batch: b1, reason: "its equivalents agree with Fc²" }]);
+    expect(port.state().observationCount).toBe(n0 - 1);
+    expect(port.state().outlierFilter.excluded).toBe(0);
+    expect(steps.at(-1)).toEqual({ kind: "settings", agent: true });
+    // With it out the fit recovers, and the second failure, at half its intensity, comes forward.
+    await ex.run("refine", {});
+    outliers = parse((await ex.run("assess_refinement", {})).text).outliers as string[];
+    expect(outliers[0]).toMatch(new RegExp(`^3 0 12 \\(batch ${b2}\\): .*: a failed measurement$`));
+    await ex.run("omit_reflections", { omit: [{ h: 3, k: 0, l: 12, batch: b2 }], reason: "half the intensity of its two equivalents" });
+    expect(port.state().omitted.map((o) => `${o.h} ${o.k} ${o.l}/${o.batch}`)).toEqual([`1 0 4/${b1}`, `3 0 12/${b2}`]);
+    expect(parse((await ex.run("omit_reflections", { omit: [{ h: 1, k: 0, l: 4, batch: b1 }] })).text).unchanged).toBe(true);
+    // Only a measurement that is there, by the file's own indices and batch.
+    const missing = await ex.run("omit_reflections", { omit: [{ h: 1, k: 0, l: 4, batch: 99 }] });
+    expect(missing.isError).toBe(true);
+    expect(missing.text).toContain(`no measurement 1 0 4 in batch 99 in the data (it was measured in batch ${b1})`);
+    const eq = parse((await ex.run("reflection_equivalents", { h: 1, k: 0, l: 4 })).text);
+    expect((eq.measurements as string[]).find((l) => l.startsWith("1 0 4,"))).toMatch(/, omitted$/);
+    expect((parse((await ex.run("get_state", {})).text).data as Record<string, unknown>).omitted)
+      .toEqual([`1 0 4 (batch ${b1}): its equivalents agree with Fc²`, `3 0 12 (batch ${b2}): half the intensity of its two equivalents`]);
+    await ex.run("omit_reflections", { restore: [{ h: 3, k: 0, l: 12 }] });
+    expect(port.state().omitted.map((o) => `${o.h}${o.k}${o.l}`)).toEqual(["104"]);
+    await ex.run("omit_reflections", { restore: "all" });
+    expect(port.state().omitted).toEqual([]);
+    expect(port.state().observationCount).toBe(n0);
+  });
+
+  it("calls no reflection failed whose equivalents scatter with wavelength before the extinction is refined", async () => {
+    // A Laue measurement: each equivalent at its own wavelength, so before extinction is refined the strong ones scatter among themselves.
+    const c = corundumPage({ extinction: 20, laue: true, failed: { h: 1, k: 0, l: 4, factor: 0.03 } });
+    const { port } = singleCrystalPort(c.structure, c.dataset);
+    const { ex } = executor(fakeHost(port).host, "auto");
+    await ex.run("set_free", { fix: ["extinction"] });
+    await ex.run("refine", {});
+    const before = parse((await ex.run("assess_refinement", {})).text).outliers as string[];
+    expect(before.filter((o) => !o.startsWith("1 0 4 ") && /failed measurement/.test(o))).toEqual([]);
+    expect(before.some((o) => /they disagree among themselves — a correction that differs between them \(extinction or absorption/.test(o))).toBe(true);
+    // With the extinction refined at each reflection's own wavelength, the one that failed stands out.
+    await ex.run("set_free", { free: ["extinction", "pos_*", "B_*"] });
+    await ex.run("refine", {});
+    const after = parse((await ex.run("assess_refinement", {})).text).outliers as string[];
+    expect(after[0]).toMatch(/^1 0 4: .*: a failed measurement$/);
+    expect(after.slice(1).filter((o) => /failed measurement/.test(o))).toEqual([]);
+  });
+
+  it("switches the extinction model, restarting its parameter, and fits the extinction the crystal has", async () => {
+    // Intensities computed with Becker–Coppens type I (Lorentzian), Eg = 1e-4; the page loads them under SHELXL's EXTI.
+    const c = corundumPage({ extinction: 1e-4, extinctionModel: "bc-1-lorentzian" });
+    const { port } = singleCrystalPort(c.structure, c.dataset);
+    const { ex, seen } = executor(fakeHost(port).host, "auto");
+    await ex.run("set_free", { free: ["pos_*", "B_*"] });
+    await ex.run("refine", {});
+    const shelx = port.state().agreement;
+    expect(port.state().extinctionModel).toBe("shelx");
+    await ex.run("set_extinction_model", { model: "bc-1-lorentzian" });
+    expect(seen.find((e) => e.tool === "set_extinction_model" && e.preview)?.preview).toBe("Extinction model: Becker–Coppens type I, Lorentzian, in place of SHELXL EXTI — its parameter restarts at 0");
+    const ext = port.state().parameters.find((p) => p.id === "extinction")!;
+    expect(ext).toMatchObject({ value: 0, label: "extinction Eg (B–C type I)", fixed: false });
+    expect(port.state().result).toBeNull();
+    expect(parse((await ex.run("set_extinction_model", { model: "bc-1-lorentzian" })).text).unchanged).toBe(true);
+    await ex.run("refine", {});
+    const bc = port.state().agreement;
+    // The model the intensities were made with fits them to their noise, and finds their Eg.
+    expect(bc.wr2).toBeLessThan(shelx.wr2);
+    expect(bc.goof).toBeLessThan(1.3);
+    expect(port.state().parameters.find((p) => p.id === "extinction")!.value / 1e-4).toBeCloseTo(1, 1);
+    expect(parse((await ex.run("assess_refinement", {})).text).extinctionModel).toBe("Becker–Coppens type I, Lorentzian");
+  });
+
+  it("limits the fit to a resolution range and opens it again", async () => {
+    const { port } = page({ extinction: 20 });
+    const { host, steps } = fakeHost(port);
+    const { ex, seen } = executor(host, "auto");
+    const all = port.state().observationCount;
+    const outside = port.state().allRows.filter((r) => dSpacing(port.state().structure.cell, r.h, r.k, r.l) > 0.8).length;
+    expect(outside).toBeGreaterThan(0);
+    await ex.run("set_resolution_range", { dMax: 0.8 });
+    expect(seen.find((e) => e.tool === "set_resolution_range" && e.preview)?.preview).toBe(`Resolution d ≤ 0.8 Å: leaves out ${outside} reflections`);
+    expect(port.state().resolution).toEqual({ dMax: 0.8, excluded: outside });
+    expect(port.state().observationCount).toBe(all - outside);
+    expect(steps.at(-1)).toEqual({ kind: "settings", agent: true });
+    const st = parse((await ex.run("get_state", {})).text);
+    expect((st.data as Record<string, unknown>).resolution).toBe(`d ≤ 0.8 Å: ${outside} reflections outside`);
+    expect(parse((await ex.run("set_resolution_range", { dMax: 0.8 })).text).unchanged).toBe(true);
+    const crossed = await ex.run("set_resolution_range", { dMin: 0.9 });
+    expect(crossed.isError).toBe(true);
+    expect(crossed.text).toMatch(/dMin 0\.9 Å must lie below dMax 0\.8 Å/);
+    await ex.run("set_resolution_range", { dMax: null });
+    expect(port.state().resolution).toEqual({ excluded: 0 });
+    expect(port.state().observationCount).toBe(all);
   });
 
   it("gives the anisotropic tensor and the bond lengths with their esds", async () => {

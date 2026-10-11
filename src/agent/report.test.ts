@@ -3,7 +3,10 @@ import { moveTo, recordStep, type ProjectHistory } from "@/core/project/history"
 import type { Workspace } from "@/core/project/types";
 import type { ParameterKind, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { ReportInput } from "@/core/export/report";
-import { buildAgentReport, freeSummary, historySteps, recordChecks, reportFileBase } from "@/agent/report";
+import { buildAgentReport, comparedRefinements, freeSummary, historySteps, recordChecks, reportFileBase } from "@/agent/report";
+import { corundumPage } from "@/testSupport/scPages";
+import { buildSingleCrystalSpec } from "@/core/workflow/singleCrystalRefinement";
+import { withAdpModel } from "@/core/crystal/adp";
 import { emptyRecord } from "@/agent/method";
 import { parse_structure, simulate_pattern } from "@/mcp/tools";
 import { loadedSession } from "@/app/powderSession";
@@ -50,6 +53,33 @@ describe("the analysis from the History", () => {
     expect(steps[2]!.wR).toBeUndefined();
     expect(otherBranches).toBe(1);
     expect(historySteps("powder", null)).toEqual({ steps: [], otherBranches: 0, rowOf: new Map() });
+  });
+
+  it("compares the single-crystal refinements made under other conditions, with the engine's U_eq", () => {
+    const c = corundumPage();
+    const aniso = withAdpModel(c.structure, "anisotropic");
+    const spec = buildSingleCrystalSpec(aniso, c.dataset, { extinction: 0 });
+    // U11 of each site at 0.004 (Al: U11 = U22 = U33 mode, so U_eq follows), esd 1e-4 on every free row.
+    const params = spec.params.map((p) => (p.kind === "uAniso" || p.kind === "extinction" ? { ...p, fixed: false, value: p.kind === "extinction" ? 0.3 : p.value } : p));
+    const esd = Object.fromEntries(params.filter((p) => !p.fixed).map((p) => [p.id, 1e-4]));
+    const lastResult = { status: "converged", parameters: {}, esd, agreement: { rFactor: 0.1352, rWeighted: 0.1352, goodnessOfFit: 2.79 }, history: [] } as unknown as RefinementResult;
+    const sc = (extra: Record<string, unknown>, wR = 0.1352, gof = 2.79): Workspace =>
+      ({ technique: "singleCrystal", dataset: c.dataset, probe: "neutron", adpModel: "anisotropic", refinement: { parameters: params, bindings: spec.bindings, lastResult: { ...lastResult, agreement: { rFactor: wR, rWeighted: wR, goodnessOfFit: gof } } }, ...extra }) as unknown as Workspace;
+    let h = recordStep(null, { kind: "load", label: "Loaded", structures: [], workspace: { ...sc({}), refinement: { parameters: spec.params, bindings: spec.bindings } } as unknown as Workspace });
+    h = recordStep(h, { kind: "refine", label: "Refine", structures: [], workspace: sc({}), actor: "agent" });
+    h = recordStep(h, { kind: "settings", label: "Extinction", structures: [], workspace: sc({ extinctionModel: "bc-1-lorentzian" }), actor: "agent" });
+    h = recordStep(h, { kind: "refine", label: "Refine", structures: [], workspace: sc({ extinctionModel: "bc-1-lorentzian" }, 0.1208, 2.49), actor: "agent" });
+    h = recordStep(h, { kind: "refine", label: "Refine", structures: [], workspace: sc({ extinctionModel: "bc-1-lorentzian", resolution: { dMax: 0.5 } }, 0.0938, 1.37), actor: "agent" });
+    const { rowOf } = historySteps("singleCrystal", h);
+    const check = comparedRefinements(h, c.structure.cell, rowOf)!;
+    expect(check.name).toBe("Refinements compared");
+    const rows = check.detail.replace(/^.*?the ADPs free: /, "").split("; step ");
+    expect(rows, check.detail).toHaveLength(3);
+    expect(rows[0]).toMatch(/^step 2: SHELXL EXTI, anisotropic — wR2 13\.52 %, GooF 2\.79; extinction \(SHELXL x\) 0\.30000\(10\); U_eq Al1 0\.00\d+\(\d+\), O1 0\.00\d+\(\d+\) Å²$/);
+    expect(rows[1]).toMatch(/^\d: Becker–Coppens type I, Lorentzian, anisotropic — wR2 12\.08 %, GooF 2\.49; extinction Eg \(B–C type I\) /);
+    expect(rows[2]).toMatch(/^\d: Becker–Coppens type I, Lorentzian, d ≤ 0\.5 Å, anisotropic — wR2 9\.38 %, GooF 1\.37;/);
+    // One set of conditions only: nothing to compare.
+    expect(comparedRefinements(recordStep(null, { kind: "refine", label: "Refine", structures: [], workspace: sc({}) }), c.structure.cell, new Map())).toBeNull();
   });
 
   it("names free sets by group, ties and fixed rows left out", () => {

@@ -15,7 +15,7 @@
 import type { MagneticAgentHandle } from "@/agent/magneticPort";
 import type { MutableRefObject } from "react";
 import type { StructureModel } from "@/core/crystal/types";
-import type { PdfPattern, PowderPattern, SingleCrystalDataset } from "@/core/diffraction/types";
+import type { ExtinctionModel, OmittedMeasurement, PdfPattern, PowderPattern, ResolutionRange, SingleCrystalDataset } from "@/core/diffraction/types";
 import type { MergeStatistics } from "@/core/diffraction/merge";
 import type { InstrumentConstants, InstrumentParameters } from "@/core/diffraction/instrument";
 import type { LinearRestraint, ParameterBinding, RefinementOptions, RefinementParameter, RefinementResult } from "@/core/refinement/types";
@@ -237,8 +237,14 @@ export interface SingleCrystalLiveState {
   readonly rows: readonly SingleCrystalRow[];
   /** Every reflection in the file against the current model (nuclear Fc²), the ones the filter leaves out too. */
   readonly allRows: readonly SingleCrystalRow[];
-  /** The SHELX-style OMIT filter: reflections beyond `cutoffSigma` left out while on. */
+  /** The SHELX-style OMIT filter: reflections beyond `cutoffSigma` left out while on (`excluded`: how many, the omitted ones apart). */
   readonly outlierFilter: { readonly on: boolean; readonly cutoffSigma: number; readonly excluded: number; readonly minExtinction?: number };
+  /** Single measurements left out by hand (SHELXL's OMIT h k l), whatever the filter. */
+  readonly omitted: readonly OmittedMeasurement[];
+  /** The resolution range fitted (SHELXL's SHEL), and how many measurements lie outside it. */
+  readonly resolution: ResolutionRange & { readonly excluded: number };
+  /** The extinction model the fit applies (SHELXL's EXTI unless switched). */
+  readonly extinctionModel: ExtinctionModel;
   /** The ADP model as fitted: one B per site, the tensor, or both on different sites. */
   readonly adpModel: "isotropic" | "anisotropic" | "mixed";
   /** A magnetic model is applied (nuclear + magnetic refined together). */
@@ -257,6 +263,12 @@ export interface SingleCrystalAgentPort {
   readonly setFixed: (changes: readonly { readonly id: string; readonly fixed: boolean }[]) => void;
   /** The ADP model: every site's B iso, or the U tensor (seeded from the refined B). */
   readonly setAdpModel: (anisotropic: boolean) => void;
+  /** The extinction model; its parameter restarts at 0. */
+  readonly setExtinctionModel: (model: ExtinctionModel) => void;
+  /** The measurements left out by hand, replaced as a whole. */
+  readonly setOmitted: (omitted: readonly OmittedMeasurement[]) => void;
+  /** The resolution range fitted; null opens that end. */
+  readonly setResolution: (update: { readonly dMin?: number | null; readonly dMax?: number | null }) => void;
   /** The OMIT filter: on/off and its cutoff in σ. */
   readonly setOutlierFilter: (update: { readonly on?: boolean; readonly cutoffSigma?: number; readonly minExtinction?: number | null }) => void;
   /** The Refine button. Resolves to why it did not finish, or null when it did. */

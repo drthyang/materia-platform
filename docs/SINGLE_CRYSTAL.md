@@ -116,7 +116,8 @@ Both paths then apply parameters with
 | --- | --- |
 | Intensity | Fc² = k·k_b·y·\|F\|²: the file's Fo² are corrected for Lorentz, polarization and absorption in data reduction, as SHELXL, Jana, FullProf and GSAS-II take them |
 | Batch scale | k_b, relative to the first batch (1 for it, and without batches) |
-| Extinction (SHELXL EXTI) | y = [1 + 0.001·x·F²·λ³/sin2θ]^(−1/2), at the reflection's own λ and 2θ when the file gives them (a TOF Laue file); 1 for TOF without them |
+| Extinction (SHELXL EXTI, the default) | y = [1 + 0.001·x·F²·λ³/sin2θ]^(−1/2), at the reflection's own λ and 2θ when the file gives them (a TOF Laue file); 1 for TOF without them |
+| Extinction (Becker–Coppens, as GSAS-II) | y = [1 + 2p + A·p²/(1 + B·p)]^(−1/2), p = Q·T̄·ψ, Q = c·F²·λ²/V² (c = 10⁷ for neutrons with F² in barns; 7.9406·10⁵ times the polarization ratio for X-rays), T̄ the reflection's path length (cm), ψ = Eg/L (type I; L = sin2θ/λ, or (sinθ/λ)² for TOF Laue) or Es (type II); A, B the Gaussian or Lorentzian mosaic's coefficients in cos2θ |
 | SHELX weight | w = 1/[σ²(Fo²) + (aP)² + bP], P = [max(Fo², 0) + 2Fc²]/3 |
 | wR2, all reflections | √[Σw(Fo² − Fc²)² / Σw(Fo²)²] |
 | R1, Fo² > 2σ (R1 all: no cutoff) | Σ\|\|Fo\| − \|Fc\|\| / Σ\|Fo\| |
@@ -126,6 +127,13 @@ Both paths then apply parameters with
   off by default, drops those beyond an adjustable cutoff, initially 6σ, and
   optionally those whose extinction factor y is below a cut (the extinction
   test: does the structure rest on the most extinguished reflections?).
+- Single measurements are left out by hand (SHELXL's OMIT h k l) by their
+  indices and batch, with a reason, whatever their residual; and the fit can
+  be limited to a resolution range (SHELXL's SHEL), for a high-order
+  refinement. Both are saved with the project and listed in the report.
+- Becker–Coppens checked against a line-by-line transcription of GSAS-II's
+  `SCExtinction` (type I and II, Gaussian and Lorentzian, TOF, CW and X-ray)
+  to 12 digits.
 - Checked by hand computations and perfect-fit zeros
   ([singleCrystalFactors.test.ts](../src/core/diffraction/singleCrystalFactors.test.ts)).
 

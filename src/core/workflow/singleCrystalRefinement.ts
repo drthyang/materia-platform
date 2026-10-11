@@ -34,8 +34,8 @@
  * the expert order scale → ADP → positions.
  */
 
-import type { AtomSite, StructureModel } from "@/core/crystal/types";
-import type { SingleCrystalDataset, SingleCrystalReflection } from "@/core/diffraction/types";
+import type { AtomSite, StructureModel, UnitCell } from "@/core/crystal/types";
+import type { OmittedMeasurement, ResolutionRange, SingleCrystalDataset, SingleCrystalReflection } from "@/core/diffraction/types";
 import type { ParameterBinding, ParameterKind, RefinementParameter } from "@/core/refinement/types";
 import type { RefinementProblem } from "@/core/refinement/engine";
 import { allowedPositionShifts } from "@/core/crystal/siteConstraints";
@@ -45,12 +45,13 @@ import { resolveTies } from "@/core/refinement/constraints";
 import { applyParameters } from "@/core/workflow/apply";
 import { nuclearStructureFactorSquared } from "@/core/diffraction/structureFactor";
 import {
-  extinctionFactor,
+  EXTINCTION_PARAMETER_LABELS,
+  extinctionFactorFor,
   shelxWeights,
   singleCrystalAgreement,
   type SingleCrystalAgreement,
 } from "@/core/diffraction/singleCrystalFactors";
-import { dSpacing } from "@/core/crystal/unitCell";
+import { cellVolume, dSpacing } from "@/core/crystal/unitCell";
 
 /** Structural kinds held fixed on load; freed via the table or staged sequence. */
 const STRUCTURAL_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>([
@@ -146,7 +147,7 @@ export function buildSingleCrystalSpec(
 
   // Secondary extinction (SHELXL EXTI) — free on load when present.
   if (extinction > 0 || opts.extinction !== undefined) {
-    params.push({ id: "extinction", label: "extinction (EXTI)", kind: "extinction", value: extinction, initialValue: extinction, min: 0, max: 100, fixed: false });
+    params.push({ id: "extinction", label: EXTINCTION_PARAMETER_LABELS[dataset.extinctionModel ?? "shelx"], kind: "extinction", value: extinction, initialValue: extinction, min: 0, max: 100, fixed: false });
     bindings.push({ parameterId: "extinction", kind: "extinction", targetId: dataset.id });
   }
 
@@ -253,6 +254,28 @@ export function buildSingleCrystalSpec(
  */
 export const SINGLE_CRYSTAL_REFINE_OPTIONS = { maxIterations: 50, convergenceTolerance: 1e-12, shiftTolerance: 0.05 } as const;
 
+/** Whether a measurement is one of those left out by hand: the same indices, and the same batch when the omission names one. */
+export function isOmitted(r: Pick<SingleCrystalReflection, "h" | "k" | "l" | "batch">, omitted: readonly OmittedMeasurement[]): boolean {
+  return omitted.some((o) => o.h === r.h && o.k === r.k && o.l === r.l && (o.batch === undefined || o.batch === r.batch));
+}
+
+/** The dataset without the measurements left out by hand. */
+export function withoutOmitted(dataset: SingleCrystalDataset, omitted: readonly OmittedMeasurement[]): SingleCrystalDataset {
+  return omitted.length === 0 ? dataset : { ...dataset, reflections: dataset.reflections.filter((r) => !isOmitted(r, omitted)) };
+}
+
+/** Whether a reflection lies in the resolution range (SHELXL's SHEL), its d from the cell. */
+export function inResolution(r: Pick<SingleCrystalReflection, "h" | "k" | "l">, cell: UnitCell, range: ResolutionRange): boolean {
+  if (range.dMin === undefined && range.dMax === undefined) return true;
+  const d = dSpacing(cell, r.h, r.k, r.l);
+  return (range.dMin === undefined || d >= range.dMin) && (range.dMax === undefined || d <= range.dMax);
+}
+
+/** The dataset limited to the resolution range. */
+export function withinResolution(dataset: SingleCrystalDataset, cell: UnitCell, range: ResolutionRange): SingleCrystalDataset {
+  return range.dMin === undefined && range.dMax === undefined ? dataset : { ...dataset, reflections: dataset.reflections.filter((r) => inResolution(r, cell, range)) };
+}
+
 /** Which structural rows the staged sequence unlocks (occupancy excluded). */
 export function guidedSingleCrystalParams(params: readonly RefinementParameter[]): RefinementParameter[] {
   const unlock: ReadonlySet<ParameterKind> = new Set<ParameterKind>([...STRUCTURAL_KINDS].filter((k) => k !== "occupancy"));
@@ -260,10 +283,10 @@ export function guidedSingleCrystalParams(params: readonly RefinementParameter[]
 }
 
 /** The extinction factor y of one reflection at the current values. */
-function extinctionOf(applied: ReturnType<typeof applyParameters>, dataset: SingleCrystalDataset, r: SingleCrystalReflection): number {
+function extinctionOf(applied: ReturnType<typeof applyParameters>, dataset: SingleCrystalDataset, r: SingleCrystalReflection, volume: number): number {
   if (!(applied.extinction > 0)) return 1;
   const f2 = nuclearStructureFactorSquared(applied.model, dataset.radiation, r.h, r.k, r.l);
-  return extinctionFactor(applied.extinction, f2, dataset.radiation, dSpacing(applied.model.cell, r.h, r.k, r.l), r);
+  return extinctionFactorFor(dataset.extinctionModel, applied.extinction, f2, dataset.radiation, dSpacing(applied.model.cell, r.h, r.k, r.l), volume, r);
 }
 
 /** Fc² for one reflection: k·y_ext·|F|² (the data are corrected Fo²), at the reflection's own λ and 2θ when the file gives them. */
@@ -271,11 +294,12 @@ function reflectionIntensity(
   applied: ReturnType<typeof applyParameters>,
   dataset: SingleCrystalDataset,
   r: SingleCrystalReflection,
+  volume: number,
 ): number {
   const model = applied.model;
   const d = dSpacing(model.cell, r.h, r.k, r.l);
   const f2 = nuclearStructureFactorSquared(model, dataset.radiation, r.h, r.k, r.l);
-  const y = extinctionFactor(applied.extinction, f2, dataset.radiation, d, r);
+  const y = applied.extinction > 0 ? extinctionFactorFor(dataset.extinctionModel, applied.extinction, f2, dataset.radiation, d, volume, r) : 1;
   const batch = r.batch !== undefined ? applied.batchScales?.get(r.batch) ?? 1 : 1;
   return applied.scale * batch * y * f2;
 }
@@ -298,10 +322,11 @@ export function buildSingleCrystalRefinementProblem(
   const calculate = (values: Readonly<Record<string, number>>): Float64Array => {
     const resolved = resolveTies(parameters, values);
     const applied = applyParameters(structure, bindings, resolved);
+    const volume = cellVolume(applied.model.cell);
     const out = new Float64Array(dataset.reflections.length);
     for (let i = 0; i < dataset.reflections.length; i++) {
       const r = dataset.reflections[i]!;
-      out[i] = reflectionIntensity(applied, dataset, r);
+      out[i] = reflectionIntensity(applied, dataset, r, volume);
     }
     return out;
   };
@@ -340,13 +365,14 @@ export function singleCrystalRefinementComparison(
   for (const p of parameters) values[p.id] = p.value;
   const resolved = resolveTies(parameters, values);
   const applied = applyParameters(structure, bindings, resolved);
+  const volume = cellVolume(applied.model.cell);
 
   const foSq: number[] = [];
   const fcSq: number[] = [];
   const sigma: number[] = [];
   const rows: SingleCrystalRefinementComparison["rows"] = [];
   for (const r of dataset.reflections) {
-    const fc2 = reflectionIntensity(applied, dataset, r);
+    const fc2 = reflectionIntensity(applied, dataset, r, volume);
     const s = r.sigma ?? 0;
     foSq.push(r.iObs);
     fcSq.push(fc2);
@@ -354,7 +380,7 @@ export function singleCrystalRefinementComparison(
     rows.push({
       h: r.h, k: r.k, l: r.l, foSq: r.iObs, fcSq: fc2, sigma: s,
       deltaOverSigma: s > 0 ? (r.iObs - fc2) / s : 0,
-      extinction: extinctionOf(applied, dataset, r),
+      extinction: extinctionOf(applied, dataset, r, volume),
       ...(r.batch !== undefined ? { batch: r.batch } : {}),
       ...(r.wavelength !== undefined ? { wavelength: r.wavelength } : {}),
     });

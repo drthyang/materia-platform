@@ -61,6 +61,23 @@ reflections whose intensity extinction more than halves), compare the positions 
 with their esds, then remove the cut. If they hold, quote the fit to all the data and say
 the test was made; if they move, the ADPs are not worth quoting.
 
+**The extinction model.** SHELXL's EXTI is an empirical formula. Where the extinction is
+severe (y well below 0.5) and the strongest low-angle reflections are what remains in the
+residual (the lowest resolution shell's GooF well above the rest), try Becker–Coppens
+(`set_extinction_model`): type I, where the mosaic spread limits the extinction, is the
+usual choice for a neutron crystal (Lorentzian or Gaussian mosaic; GSAS-II's tutorials use
+type I Lorentzian); type II, where the domain size does, for small perfect domains. Its
+parameter restarts at 0: refine it with the scale and everything free before, to
+convergence, and compare wR2, GooF and the lowest shell with the model before.
+
+Judge the models by the ADPs too, since the scale, the extinction and the ADPs trade off:
+refine once on the high-order reflections alone (`set_resolution_range` with dMax 0.5–0.6 Å,
+where extinction barely reaches), and compare their ADPs with the all-data ones. The model
+whose all-data ADPs agree with the high-order ones, and whose parameter stays about the same
+over both ranges, describes the crystal; one whose ADPs move by several esds biases them. Put
+the full range back before the final refinement, keep the model that passes, and report the
+test with the numbers.
+
 **Batches.** Data measured in batches (runs, orientations, scans; get_state and
 `assess_refinement` say how many) share one scale on load: the data reduction normally
 scales them. `assess_refinement`'s K by batch says whether it did: K scattering by more
@@ -99,15 +116,21 @@ refine it with that ADP fixed, or with a composition tied.
 
 ## Outliers
 
-Before leaving a reflection out, compare it with its symmetry equivalents
-(`reflection_equivalents`): one measurement far from the others, which agree with Fc², failed
-(a detector edge, a gap, a shadow); all of them off the same way is the model's misfit, which
-no filter should hide. `set_outlier_filter` then leaves out reflections whose |Fo² − Fc²|/σ
-exceeds a cutoff against the current model (SHELX's OMIT, applied wholesale): set it just
-above the failed ones, so it takes only those. Use it only for reflections with a physical
-reason, say how many and why, and never to lower R1. Many reflections beyond 6σ means the
-model or the data processing is wrong, not the reflections; strongly extinguished reflections
-are what the extinction model is for, and they stay.
+Before leaving a reflection out, compare it with its symmetry equivalents: one measurement
+far from the others, which fit, failed (a detector edge, a gap, a shadow); all of them off the
+same way is the model's misfit, which nothing should hide. `assess_refinement` gives each
+listed outlier its equivalents' reading; `reflection_equivalents` shows a whole family.
+
+Leave a failed measurement out by itself, with `omit_reflections` (SHELXL's OMIT h k l): by its
+indices and batch, with the reason, which goes into the report. One failed measurement with a
+small σ drags the whole fit, so after omitting it refine and read the outliers again: a second
+failure often shows only then, and one batch or one detector can hold several. Do not use a σ
+cutoff for this: set just above the next worst it leaves a failure that sits inside the misfit
+of the strongest reflections. `set_outlier_filter`'s cutoff is SHELX's wholesale OMIT, for a
+physical reason that touches many reflections at once; say how many it takes and why, and never
+use it to lower R1. Many reflections beyond 6σ means the model or the data processing is wrong,
+not the reflections; strongly extinguished reflections are what the extinction model is for,
+and they stay.
 
 ## When it's done
 
@@ -137,7 +160,8 @@ U^ij with esds, and `bond_geometry` each length with its esd from the positions'
 | Free and refine | `set_free`, `refine` (batch scales: `bscale_*`) | — (in the app only, for now) |
 | Judge a stage | `assess_refinement` | `assess_refinement` |
 | ADP model | `set_adp_model` | — |
-| Outliers | `reflection_equivalents`, `set_outlier_filter` | — |
+| Extinction model | `set_extinction_model`, `set_resolution_range` (high-order test) | — |
+| Outliers | `assess_refinement`, `reflection_equivalents`, `omit_reflections`, `set_outlier_filter` | — |
 | Structure and geometry | `structure_table`, `bond_geometry` | `bond_geometry`, `interpret_structure` |
 | Export the reflections | the Export menu | `write_single_crystal_data` |
 

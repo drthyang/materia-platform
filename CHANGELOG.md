@@ -67,9 +67,43 @@ release fixes bugs.
   and 0.5), and the report's tables of resolution shells, the analysis of
   variance by intensity, the batches and the largest outliers. `refine` gives
   R1 and GooF with wR2.
+- **Single measurements left out by hand** (`omit_reflections`, the page's
+  "Omitted" row): SHELXL's OMIT h k l, by the file's indices and batch, with
+  the reason, saved with the project and listed in the report. A σ cutoff
+  takes whatever lies beyond it: on sapphire the second failed measurement of
+  batch 24, 3 4 2 at 39 % of what its 16 equivalents read, sat at −42σ among
+  the extinction-limited misfits (−30 to −42σ), and the cutoff the Agent set
+  just above the next worst left it in. The GSAS-II tutorial removes it.
+  Omitting both took wR2 from 19.07 % to 16.79 % before anything else moved.
+- **Each outlier read against its equivalents**, in `assess_refinement` and
+  the report: the other measurements' Fo²/Fc² (median and scatter) beside
+  this one's, and the verdict — a failed measurement (off by itself while its
+  equivalents agree, so it holds when that one failure drags the fit), the
+  model's misfit (all of them off the same way), or equivalents that disagree
+  among themselves (a correction that differs with wavelength, such as
+  extinction before it is refined).
+- **Becker–Coppens extinction** (`set_extinction_model`, the page's extinction
+  menu): secondary type I or II with a Gaussian or Lorentzian mosaic, as
+  GSAS-II computes it, with each reflection's path length, beside SHELXL's
+  EXTI. The parameter is GSAS-II's Eg or Es in its units. On sapphire, type I
+  Lorentzian fits better (wR2 12.08 % against 13.52 %, GooF 2.49 against
+  2.79), with Eg = 6.2·10⁻⁴ (the GSAS-II tutorial's, on F with a cut:
+  5.71·10⁻⁴).
+- **A resolution range** (`set_resolution_range`, SHELXL's SHEL; the page's
+  "Resolution" row), for the high-order refinement that tests the extinction
+  model through the ADPs: on sapphire, Becker–Coppens gives the same U_eq
+  from all the data as from d ≤ 0.5 Å alone (0.00349(5) and 0.00342(7) Å² for
+  Al), while EXTI's all-data U_eq lie 6–7 esds below its own high-order ones
+  and its parameter falls from 0.30 to 0.070(5).
+- **Refinements compared** in the single-crystal report: the last converged
+  refinement under each set of conditions (extinction model, resolution
+  range, omissions, filter, ADP model) on the path to the result, with wR2,
+  GooF, the extinction parameter and each site's U_eq, all computed from the
+  History, so an account can quote a test.
 - **Eval scenarios** `sc-data-first`, `sc-failed-reflection`,
-  `sc-extinction-test` and `sc-batch-scales`, from the sapphire round, each
-  replayed as the Agent should behave and as it failed.
+  `sc-failed-measurements`, `sc-extinction-test`, `sc-extinction-model` and
+  `sc-batch-scales`, from the sapphire round, each replayed as the Agent should
+  behave and as it failed.
 - **The fit range, read from the data's ends** (`check_fit_range`, in the app
   and over MCP), the first stage of the Rietveld method and of its checklist.
   It proposes where the window starts and stops, as the GSAS-II tutorials do:
@@ -397,6 +431,10 @@ release fixes bugs.
   down and every K reads above 1 (sapphire with the scale alone: 3.6 on the
   weakest bin, 1.7 on the strongest), so severe extinction read "not
   indicated". The strongest bin now reads against the median of the others.
+- The single-crystal page's probe hints no longer mention a polarization
+  factor (the model applies none to corrected Fo²) and say that a
+  time-of-flight file with each reflection's wavelength has its extinction
+  computed at it.
 - The report's number audit accepts a number more precise than the report
   prints when it rounds to the printed value (2.9992 for a printed 2.999).
 - The symmetry-last eval read "Neither is evidence for a lower group" as

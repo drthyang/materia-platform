@@ -405,21 +405,79 @@ export const extinctionBeforeStructure: Check = {
 };
 
 /** A misfit reflection is compared with its equivalents before any is left out, and only the failed measurement goes (round 1: 5 4 1 in batch 24). */
-export function omitsOnlyFailed(expected: number): Check {
+/**
+ * Failed measurements left out, and nothing else (round 1: sapphire's 5 4 1
+ * and 3 4 2 in batch 24): the equivalents read before the first omission —
+ * reflection_equivalents, or assess_refinement, whose outliers carry their
+ * equivalents' reading — and in the end exactly these measurements out of the
+ * fit, by omit_reflections or the filter.
+ */
+export function omitsOnlyFailed(failed: readonly { readonly h: number; readonly k: number; readonly l: number }[]): Check {
+  const names = failed.map((f) => `${f.h} ${f.k} ${f.l}`);
   return {
-    name: `compares the equivalents first, then leaves out only the failed measurement${expected === 1 ? "" : "s"}`,
+    name: `compares the equivalents first, then leaves out only the failed measurement${failed.length === 1 ? "" : "s"}`,
     grade: (run) => {
       const all = calls(run);
-      const eq = all.findIndex((c) => c.name === "reflection_equivalents" && !c.isError);
-      const omit = all.findIndex((c) => c.name === "set_outlier_filter" && c.input.on !== false && !c.isError);
+      const omits = (c: (typeof all)[number]): boolean => !c.isError && ((c.name === "set_outlier_filter" && c.input.on !== false) || (c.name === "omit_reflections" && Array.isArray(c.input.omit)));
+      const first = all.findIndex(omits);
+      const evidence = all.findIndex((c) => (c.name === "reflection_equivalents" || c.name === "assess_refinement") && !c.isError);
       const s = scState(run);
-      if (omit < 0) return fail("left nothing out");
-      if (eq < 0 || eq > omit) return fail("left reflections out without comparing their equivalents");
-      if (!s?.outlierFilter.on) return fail("the filter ended off");
-      return s.outlierFilter.excluded === expected ? ok(`compared the equivalents, then left out ${expected}`) : fail(`leaves out ${s.outlierFilter.excluded}, not ${expected}`);
+      if (first < 0 || !s) return fail("left nothing out");
+      if (evidence < 0 || evidence > first) return fail("left reflections out without reading their equivalents");
+      const fitted = new Set(s.rows.map((r) => `${r.h} ${r.k} ${r.l} ${r.batch ?? ""} ${r.foSq}`));
+      const out = s.allRows.filter((r) => !fitted.has(`${r.h} ${r.k} ${r.l} ${r.batch ?? ""} ${r.foSq}`)).map((r) => `${r.h} ${r.k} ${r.l}`);
+      const missed = names.filter((n) => !out.includes(n));
+      const extra = out.filter((n) => !names.includes(n));
+      if (missed.length) return fail(`${missed.join(", ")} failed too, and ${missed.length === 1 ? "is" : "are"} still fitted${extra.length ? `; ${extra.length} other reflections left out` : ""}`);
+      if (extra.length) return fail(`leaves out ${extra.length} reflection${extra.length === 1 ? "" : "s"} that did not fail (${extra.slice(0, 3).join(", ")}${extra.length > 3 ? ", …" : ""})`);
+      return ok(`read the equivalents, then left out ${names.join(" and ")} only`);
     },
   };
 }
+
+/** The ADPs tested on the high-order reflections, then the full range refined (round 1: what told sapphire's extinction models apart). */
+export const testsHighOrder: Check = {
+  name: "refines the high-order reflections alone, then the full range",
+  grade: (run) => {
+    const all = calls(run);
+    const cut = all.findIndex((c) => c.name === "set_resolution_range" && !c.isError && typeof c.input.dMax === "number");
+    if (cut < 0) return fail("never refined the high-order reflections alone");
+    const refineCut = all.findIndex((c, i) => i > cut && c.name === "refine" && json(c.text)?.refined === true);
+    if (refineCut < 0) return fail("limited the range but did not refine");
+    const back = all.findIndex((c, i) => i > refineCut && c.name === "set_resolution_range" && !c.isError && c.input.dMax === null);
+    const refineBack = all.findIndex((c, i) => i > back && back >= 0 && c.name === "refine" && json(c.text)?.refined === true);
+    if (back < 0 || refineBack < 0) return fail("did not put the full range back and refine");
+    const s = scState(run);
+    return s && s.resolution.dMax === undefined && s.resolution.dMin === undefined ? ok("refined the high order alone, then the full range") : fail("ends with the range limited");
+  },
+};
+
+/**
+ * Another extinction model tried where the extinction limits the fit, and the
+ * better kept: a converged refinement under a Becker–Coppens model after one
+ * under SHELXL's, and the model in the end the one with the lower wR2 of those
+ * refined (round 1: sapphire, extinction-limited, refined only under EXTI).
+ */
+export const comparesExtinctionModels: Check = {
+  name: "refines under another extinction model and keeps the one that fits better",
+  grade: (run) => {
+    const byModel = new Map<string, number>();
+    let model = "shelx";
+    for (const c of calls(run)) {
+      if (c.name === "set_extinction_model" && !c.isError && typeof c.input.model === "string") model = c.input.model;
+      if (c.name === "refine" && !c.isError) {
+        const out = json(c.text);
+        if (out?.refined === true && typeof out.wR2 === "number") byModel.set(model, out.wR2);
+      }
+    }
+    const s = scState(run);
+    if (byModel.size < 2) return fail(`refined under ${byModel.size === 0 ? "no" : "one"} extinction model only`);
+    const best = [...byModel].sort((a, b) => a[1] - b[1])[0]![0];
+    return s?.extinctionModel === best
+      ? ok(`compared ${[...byModel].map(([m, w]) => `${m} (wR2 ${w} %)`).join(", ")}; kept ${best}`)
+      : fail(`ends under ${s?.extinctionModel ?? "?"}, though ${best} fitted better (${[...byModel].map(([m, w]) => `${m} ${w} %`).join(", ")})`);
+  },
+};
 
 /** The extinction test: the most extinguished reflections left out and refined, then restored and refined back (round 1). */
 export const testsExtinctionAndRestores: Check = {

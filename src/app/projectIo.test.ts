@@ -214,6 +214,31 @@ describe("single-crystal capture / restore", () => {
     });
   });
 
+  it("round-trips the measurements omitted by hand, the extinction cut, the extinction model and the resolution range", () => {
+    const omitted = [{ h: 5, k: 4, l: 1, batch: 24, reason: "9 equivalents agree with Fc²" }, { h: 3, k: 4, l: 2 }];
+    const ws = singleCrystalWorkspaceFrom({
+      dataset, magneticDataset: null, probe: "neutron-tof",
+      params: spec.params, bindings: spec.bindings, result: null, magnetic: null,
+      filterOn: true, cutoffSigma: 20, minExtinction: 0.5, omitted, extinctionModel: "bc-1-lorentzian", resolution: { dMax: 0.6 },
+      modulated: modulatedInputsFrom(modulatedHypothesisFrom({ kText: ["0", "0", "0"], ionState: {}, moment: 1, seed: 1, restarts: 8 })),
+    });
+    const file = roundTrip(projectFileFor({ structures: [structure], workspace: ws, title: "sc" }));
+    if (file.workspace.technique !== "singleCrystal") throw new Error("technique");
+    expect(file.workspace.omitted).toEqual(omitted);
+    expect(file.workspace.outlierFilter).toEqual({ on: true, cutoffSigma: 20, minExtinction: 0.5 });
+    expect(file.workspace.extinctionModel).toBe("bc-1-lorentzian");
+    expect(file.workspace.resolution).toEqual({ dMax: 0.6 });
+    // SHELXL's model and an empty list are the defaults, and are not written.
+    const plain = singleCrystalWorkspaceFrom({
+      dataset, magneticDataset: null, probe: "neutron", params: spec.params, bindings: spec.bindings, result: null, magnetic: null,
+      filterOn: false, cutoffSigma: 6, omitted: [], extinctionModel: "shelx", resolution: {},
+      modulated: modulatedInputsFrom(modulatedHypothesisFrom({ kText: ["0", "0", "0"], ionState: {}, moment: 1, seed: 1, restarts: 8 })),
+    });
+    expect("omitted" in plain || "extinctionModel" in plain || "resolution" in plain).toBe(false);
+    // A model the app does not know is refused on load.
+    expect(() => roundTrip(projectFileFor({ structures: [structure], workspace: { ...ws, extinctionModel: "zachariasen" as never }, title: "sc" }))).toThrow(/extinctionModel/);
+  });
+
   it("does not resurrect moment rows when the file has no magnetic model", () => {
     const ws = singleCrystalWorkspaceFrom({
       dataset, magneticDataset: null, probe: "neutron",

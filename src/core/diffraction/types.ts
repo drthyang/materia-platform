@@ -71,12 +71,41 @@ export interface PowderPoint {
   readonly sigma?: number;
 }
 
+/**
+ * The extinction model of a single-crystal fit: SHELXL's empirical EXTI, or
+ * Becker & Coppens' (1974) secondary extinction — type I (the mosaic spread
+ * limits it) or type II (the domain size does), with a Gaussian or Lorentzian
+ * mosaic — as GSAS-II and Jana apply it.
+ */
+export type ExtinctionModel = "shelx" | "bc-1-lorentzian" | "bc-1-gaussian" | "bc-2-lorentzian" | "bc-2-gaussian";
+
+/**
+ * One measurement left out of a single-crystal fit by hand, as SHELXL's
+ * OMIT h k l: its indices as the file gives them, its batch when the file has
+ * batches (the same indices measured in another batch stay), and why.
+ */
+export interface OmittedMeasurement {
+  readonly h: number;
+  readonly k: number;
+  readonly l: number;
+  readonly batch?: number;
+  readonly reason?: string;
+}
+
+/** A resolution range a single-crystal fit is limited to, as SHELXL's SHEL: d from `dMin` to `dMax` (Å); a limit absent is open. */
+export interface ResolutionRange {
+  readonly dMin?: number;
+  readonly dMax?: number;
+}
+
 /** A single-crystal reflection dataset. */
 export interface SingleCrystalDataset {
   readonly id: string;
   readonly name: string;
   readonly radiation: Radiation;
   readonly reflections: readonly SingleCrystalReflection[];
+  /** The extinction model the fit applies to these reflections (GSAS-II keeps it per histogram); absent ⇒ SHELXL's EXTI. */
+  readonly extinctionModel?: ExtinctionModel;
 }
 
 /** A powder diffraction pattern. */

@@ -15,7 +15,8 @@ import { extractSizeStrain } from "@/core/diffraction/microstructure";
 import { formatWt, fractionsOf } from "@/core/diagnostics/phaseFractions";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import type { MergeStatistics } from "@/core/diffraction/merge";
-import type { PdfPattern, Radiation, SingleCrystalDataset } from "@/core/diffraction/types";
+import type { OmittedMeasurement, PdfPattern, Radiation, SingleCrystalDataset } from "@/core/diffraction/types";
+import { EXTINCTION_MODEL_LABELS } from "@/core/diffraction/singleCrystalFactors";
 import { isMomentParameterKind, type ParameterBinding, type RefinementParameter, type RefinementResult } from "@/core/refinement/types";
 import { resolveTies } from "@/core/refinement/constraints";
 import type { PowderProfile } from "@/core/workflow/powder";
@@ -382,6 +383,12 @@ export function singleCrystalReportInput(o: {
   readonly excluded: number;
   readonly filterOn: boolean;
   readonly cutoffSigma: number;
+  /** The filter's extinction cut (null: none). */
+  readonly minExtinction?: number | null;
+  /** Measurements left out by hand, each with its reason. */
+  readonly omitted?: readonly OmittedMeasurement[];
+  /** The resolution range fitted, and how many measurements lie outside it. */
+  readonly resolution?: { readonly dMin?: number; readonly dMax?: number; readonly excluded: number };
   readonly agreement: { readonly r1: number; readonly wr2: number; readonly goof: number; readonly observed: number; readonly total: number };
   readonly merge: MergeStatistics;
   readonly points: readonly FobsFcalcPoint[];
@@ -392,6 +399,12 @@ export function singleCrystalReportInput(o: {
   const free = params.filter((p) => !p.fixed && !p.expression).length;
   const ag = o.agreement;
   const st = o.merge;
+  const omitted = o.omitted ?? [];
+  const outside = o.resolution?.excluded ?? 0;
+  const omittedN = o.totalReflections - o.dataset.reflections.length - o.excluded - outside;
+  const range = o.resolution && (o.resolution.dMin !== undefined || o.resolution.dMax !== undefined)
+    ? `d ${o.resolution.dMax !== undefined ? `≤ ${o.resolution.dMax}` : ""}${o.resolution.dMax !== undefined && o.resolution.dMin !== undefined ? " and " : ""}${o.resolution.dMin !== undefined ? `≥ ${o.resolution.dMin}` : ""} Å`
+    : null;
   const magnetic = magneticReportSection({
     structure: o.structure,
     applied: o.magnetic,
@@ -404,7 +417,7 @@ export function singleCrystalReportInput(o: {
     { label: "R1", value: pct(ag.r1), hint: `Σ||F_o| − |F_c|| / Σ|F_o| over the ${ag.observed} reflections with F_o² > 2σ` },
     { label: "wR2", value: pct(ag.wr2), hint: "√(Σ w (F_o² − F_c²)² / Σ w (F_o²)²), w = 1/σ²(F_o²), all reflections" },
     { label: "GooF", value: num(ag.goof, 2), hint: "√(Σ w (F_o² − F_c²)² / (N − P))" },
-    { label: "Reflections", value: String(o.dataset.reflections.length), hint: o.excluded > 0 ? `${o.excluded} excluded by the σ filter` : "All measured reflections" },
+    { label: "Reflections", value: String(o.dataset.reflections.length), hint: o.excluded > 0 || omittedN > 0 ? [omittedN > 0 ? `${omittedN} omitted by hand` : "", o.excluded > 0 ? `${o.excluded} excluded by the filter` : ""].filter(Boolean).join(", ") : "All measured reflections" },
     { label: "Unique", value: String(st.unique), hint: `Laue-equivalent merge · redundancy ${num(st.redundancy, 2)}` },
     { label: "R int", value: pct(st.rInt) },
     { label: "Free parameters", value: String(free) },
@@ -412,7 +425,9 @@ export function singleCrystalReportInput(o: {
   const data: ReportRow[] = [
     { label: "Data file", value: o.dataset.name },
     { label: "Probe", value: probeLabel(o.dataset.radiation) },
-    { label: "Reflections", value: `${o.totalReflections} measured · ${o.dataset.reflections.length} used${o.excluded > 0 ? ` · ${o.excluded} rejected with |F_o² − F_c²|/σ > ${o.cutoffSigma}` : o.filterOn ? ` · σ filter at ${o.cutoffSigma} rejected none` : ""}` },
+    { label: "Reflections", value: `${o.totalReflections} measured · ${o.dataset.reflections.length} used${omittedN > 0 ? ` · ${omittedN} omitted by hand` : ""}${outside > 0 && range ? ` · ${outside} outside ${range}` : ""}${o.excluded > 0 ? ` · ${o.excluded} rejected with |F_o² − F_c²|/σ > ${o.cutoffSigma}${o.minExtinction ? ` or y < ${o.minExtinction}` : ""}` : o.filterOn ? ` · the filter (|F_o² − F_c²|/σ > ${o.cutoffSigma}${o.minExtinction ? ` or y < ${o.minExtinction}` : ""}) rejected none` : ""}` },
+    ...(omitted.length > 0 ? [{ label: "Omitted", value: omitted.map((m) => `${m.h} ${m.k} ${m.l}${m.batch !== undefined ? ` (batch ${m.batch})` : ""}${m.reason ? `: ${m.reason}` : ""}`).join("; ") }] : []),
+    { label: "Extinction", value: EXTINCTION_MODEL_LABELS[o.dataset.extinctionModel ?? "shelx"] },
     { label: "Merging", value: `${st.observations} observations → ${st.unique} unique · redundancy ${num(st.redundancy, 2)} · R_int ${pct(st.rInt)} · R_σ ${pct(st.rSigma)}${st.dMin !== undefined ? ` · d_min ${num(st.dMin, 3)} Å` : ""}` },
     { label: "Observed", value: `${ag.observed} of ${ag.total} reflections with F_o² > 2σ(F_o²)` },
     { label: "Weights", value: "w = 1/σ²(F_o²); unit weights where σ is absent" },

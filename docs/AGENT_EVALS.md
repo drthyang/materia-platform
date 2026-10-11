@@ -50,8 +50,10 @@ real chat loop, executor and tools run; only the model changes.
 | `pdf-local-geometry` | answers a bond-length question box by box, and reports the scan | round 9 (LaMnO₃) |
 | `sc-data-first` | reads the reflection statistics before refining, and refines the extinction before the structure | single-crystal round 1 (sapphire, TOPAZ) |
 | `sc-failed-reflection` | compares a misfit reflection with its equivalents, and leaves out only the failed measurement | single-crystal round 1 (5 4 1 in batch 24) |
+| `sc-failed-measurements` | finds every failed measurement by its equivalents (the second shows once the first is out), not by a σ cutoff | single-crystal round 1 (3 4 2, also in batch 24) |
 | `sc-extinction-test` | refines without the reflections of y < 0.5, compares, and restores the data | single-crystal round 1 |
 | `sc-batch-scales` | reads K by batch, then tries a scale per batch | single-crystal round 1 |
+| `sc-extinction-model` | refines under Becker–Coppens as well as EXTI, keeps the better, and tests the ADPs on the high-order reflections | single-crystal round 1 (EXTI's ADPs ≈ 20 % small) |
 
 ## Results against real models
 

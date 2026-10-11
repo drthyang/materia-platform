@@ -32,9 +32,10 @@ import { samplePosterior, type SampleResult } from "@/core/refinement/bayes/samp
 import { magneticHandle, sessionCurves } from "@/testSupport/magneticHeadless";
 import type { ProjectHistory, StepKind } from "@/core/project/history";
 import { pdfReportInput, powderReportInput, singleCrystalReportInput } from "@/app/reportInputs";
-import type { SingleCrystalDataset } from "@/core/diffraction/types";
+import type { ExtinctionModel, OmittedMeasurement, ResolutionRange, SingleCrystalDataset } from "@/core/diffraction/types";
+import { EXTINCTION_PARAMETER_LABELS } from "@/core/diffraction/singleCrystalFactors";
 import { mergeEquivalents } from "@/core/diffraction/merge";
-import { SINGLE_CRYSTAL_REFINE_OPTIONS, buildSingleCrystalRefinementProblem, buildSingleCrystalSpec, singleCrystalRefinementComparison } from "@/core/workflow/singleCrystalRefinement";
+import { SINGLE_CRYSTAL_REFINE_OPTIONS, buildSingleCrystalRefinementProblem, buildSingleCrystalSpec, inResolution, isOmitted, singleCrystalRefinementComparison, withinResolution, withoutOmitted } from "@/core/workflow/singleCrystalRefinement";
 
 /**
  * A powder page without React: a session, the real curves and the real
@@ -429,22 +430,30 @@ export function pdfPort(): { port: PdfAgentPort; calls: string[] } {
  * the port, refined with the real engine, the outlier filter and the ADP
  * switch as the page has them.
  */
-export function singleCrystalPort(start: StructureModel, dataset: SingleCrystalDataset): { port: SingleCrystalAgentPort; calls: string[] } {
+export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDataset): { port: SingleCrystalAgentPort; calls: string[] } {
   let model = start;
+  let extinctionModel: ExtinctionModel = loaded.extinctionModel ?? "shelx";
+  let omitted: readonly OmittedMeasurement[] = [];
+  let resolution: ResolutionRange = {};
+  // The reflections with the extinction model, as the page's probed dataset.
+  let dataset: SingleCrystalDataset = { ...loaded, extinctionModel };
   let spec = buildSingleCrystalSpec(model, dataset, { extinction: 0 });
   let params = spec.params;
   let result: RefinementResult | null = null;
   let filter: { on: boolean; cutoffSigma: number; minExtinction?: number } = { on: false, cutoffSigma: 6 };
   const calls: string[] = [];
   const values = (): Record<string, number> => Object.fromEntries(params.map((p) => [p.id, p.value]));
-  // The filter reads the residuals of the whole set against the current model, as the page's.
+  // The omitted measurements go first; the filter reads the residuals of the whole set against the current model, as the page's.
+  const kept = (): SingleCrystalDataset => withinResolution(withoutOmitted(dataset, omitted), model.cell, resolution);
   const active = (): SingleCrystalDataset => {
-    if (!filter.on) return dataset;
+    if (!filter.on) return kept();
     const full = singleCrystalRefinementComparison(model, dataset, params, spec.bindings);
-    return { ...dataset, reflections: dataset.reflections.filter((_, i) => Math.abs(full.rows[i]?.deltaOverSigma ?? 0) <= filter.cutoffSigma && (filter.minExtinction === undefined || (full.rows[i]?.extinction ?? 1) >= filter.minExtinction)) };
+    return { ...dataset, reflections: dataset.reflections.filter((r, i) => !isOmitted(r, omitted) && inResolution(r, model.cell, resolution) && Math.abs(full.rows[i]?.deltaOverSigma ?? 0) <= filter.cutoffSigma && (filter.minExtinction === undefined || (full.rows[i]?.extinction ?? 1) >= filter.minExtinction)) };
   };
   const state = (): SingleCrystalLiveState => {
     const ds = active();
+    const nKept = kept().reflections.length;
+    const outside = withoutOmitted(dataset, omitted).reflections.length - nKept;
     const cmp = singleCrystalRefinementComparison(model, ds, params, spec.bindings);
     const merge = mergeEquivalents(ds.reflections.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.iObs, sigma: r.sigma ?? 0 })), model.spaceGroup.operations);
     return {
@@ -460,8 +469,11 @@ export function singleCrystalPort(start: StructureModel, dataset: SingleCrystalD
       agreement: cmp.agreement,
       merge: merge.statistics,
       rows: cmp.rows,
-      allRows: filter.on ? singleCrystalRefinementComparison(model, dataset, params, spec.bindings).rows : cmp.rows,
-      outlierFilter: { ...filter, excluded: dataset.reflections.length - ds.reflections.length },
+      allRows: ds.reflections.length < dataset.reflections.length ? singleCrystalRefinementComparison(model, dataset, params, spec.bindings).rows : cmp.rows,
+      outlierFilter: { ...filter, excluded: nKept - ds.reflections.length },
+      omitted,
+      resolution: { ...resolution, excluded: outside },
+      extinctionModel,
       adpModel: adpModelOf(model),
       magnetic: false,
       observationCount: ds.reflections.length,
@@ -491,6 +503,24 @@ export function singleCrystalPort(start: StructureModel, dataset: SingleCrystalD
       });
       result = null;
     },
+    setExtinctionModel: (m) => {
+      calls.push(`extinction model ${m}`);
+      extinctionModel = m;
+      dataset = { ...loaded, extinctionModel };
+      params = params.map((p) => (p.kind === "extinction" ? { ...p, label: EXTINCTION_PARAMETER_LABELS[m], value: 0, initialValue: 0 } : p));
+      result = null;
+    },
+    setResolution: (update) => {
+      calls.push(`resolution ${JSON.stringify(update)}`);
+      const end = (v: number | null | undefined, was: number | undefined): number | undefined => (v === undefined ? was : v ?? undefined);
+      const dMin = end(update.dMin, resolution.dMin);
+      const dMax = end(update.dMax, resolution.dMax);
+      resolution = { ...(dMin !== undefined ? { dMin } : {}), ...(dMax !== undefined ? { dMax } : {}) };
+    },
+    setOmitted: (next) => {
+      calls.push(`omit ${next.map((o) => `${o.h} ${o.k} ${o.l}${o.batch !== undefined ? `/${o.batch}` : ""}`).join(", ")}`);
+      omitted = next;
+    },
     setOutlierFilter: (update) => {
       calls.push(`filter ${JSON.stringify(update)}`);
       const minExtinction = update.minExtinction === null ? undefined : update.minExtinction ?? filter.minExtinction;
@@ -512,7 +542,7 @@ export function singleCrystalPort(start: StructureModel, dataset: SingleCrystalD
       const st = state();
       return singleCrystalReportInput({
         structure: st.refinedStructure, params, bindings: spec.bindings, result, dataset: active(), totalReflections: dataset.reflections.length,
-        excluded: st.outlierFilter.excluded, filterOn: filter.on, cutoffSigma: filter.cutoffSigma, agreement: st.agreement, merge: st.merge,
+        excluded: st.outlierFilter.excluded, filterOn: filter.on, cutoffSigma: filter.cutoffSigma, minExtinction: filter.minExtinction ?? null, omitted, resolution: st.resolution, agreement: st.agreement, merge: st.merge,
         points: st.rows.map((r) => ({ obs: r.foSq, calc: r.fcSq })), magnetic: null, explored: null,
       });
     },

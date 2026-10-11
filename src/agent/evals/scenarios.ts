@@ -4,7 +4,7 @@
  * own data, with the checks that say whether it got it right this time.
  */
 
-import { BATCH_SCALES, EDGE_STEP_AT, FAILED_REFLECTION, MAGNETIC_TRUTH, impurityD, scPage, mn3gaEdgeSession, mn3gaFluoriteSession, mn3gaImpuritySession, mn3gaMagneticSession, mn3gaMisfitSession, mn3gaSession, pdfPage, powderPage } from "@/agent/evals/pages";
+import { BATCH_SCALES, BC_EXTINCTION, EDGE_STEP_AT, FAILED_PAIR, FAILED_REFLECTION, MAGNETIC_TRUTH, impurityD, scPage, mn3gaEdgeSession, mn3gaFluoriteSession, mn3gaImpuritySession, mn3gaMagneticSession, mn3gaMisfitSession, mn3gaSession, pdfPage, powderPage } from "@/agent/evals/pages";
 import {
   addsKnownPhase,
   adaptsAfterRefusal,
@@ -14,6 +14,8 @@ import {
   explains,
   extinctionBeforeStructure,
   omitsOnlyFailed,
+  comparesExtinctionModels,
+  testsHighOrder,
   readsDataFirst,
   testsExtinctionAndRestores,
   triesBatchScales,
@@ -191,7 +193,25 @@ export const SCENARIOS: readonly EvalScenario[] = [
     page: () => scPage({ failed: FAILED_REFLECTION }),
     messages: ["One reflection fits very badly. Should it be left out?"],
     autonomy: "auto",
-    checks: [omitsOnlyFailed(1), noStall],
+    checks: [omitsOnlyFailed([FAILED_REFLECTION]), noStall],
+  },
+  {
+    id: "sc-failed-measurements",
+    title: "Finds every failed measurement by its equivalents, not by a σ cutoff",
+    origin: "Round 1 (sapphire): batch 24 held two failed measurements, 5 4 1 at −126σ and 3 4 2 at −42σ (699 against 1778 and 1872 for its equivalents, one at the same wavelength); a cutoff set just above the next worst took the first and left the second, which the GSAS-II tutorial removes.",
+    page: () => scPage({ failed: FAILED_PAIR, batches: [1, 1, 1] }),
+    messages: ["Refine the structure. A few reflections fit very badly: leave out what failed, and nothing else."],
+    autonomy: "auto",
+    checks: [omitsOnlyFailed(FAILED_PAIR), noStall],
+  },
+  {
+    id: "sc-extinction-model",
+    title: "Tries Becker–Coppens when the extinction model limits the fit",
+    origin: "Round 1 (sapphire): the fit was extinction-limited (GooF 5.1 in the lowest shell against 1.7–1.9 beyond) and refined under SHELXL's EXTI only; the GSAS-II tutorial uses Becker–Coppens type I with each reflection's path length.",
+    page: () => scPage(BC_EXTINCTION),
+    messages: ["Refine scale, extinction, positions and B values. The strongest reflections still misfit: is the extinction model adequate, and can I trust the B values?"],
+    autonomy: "auto",
+    checks: [comparesExtinctionModels, testsHighOrder, noStall],
   },
   {
     id: "sc-extinction-test",

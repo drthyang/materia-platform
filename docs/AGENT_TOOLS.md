@@ -587,19 +587,29 @@ The page-specific handlers are [`powderTools.ts`](../src/agent/powderTools.ts),
   every measurement of one reflection and its equivalents (batch, wavelength,
   extinction factor, distance from Fc² and from the family's median), to tell
   a failed measurement from a model that misses before anything is left
-  out. `set_outlier_filter` is the page's |Fo² − Fc²|/σ cutoff (SHELX's OMIT,
+  out. `omit_reflections` leaves single measurements out by their indices and
+  batch (SHELXL's OMIT h k l), with the reason, which the report lists.
+  `set_outlier_filter` is the page's |Fo² − Fc²|/σ cutoff (SHELX's OMIT,
   applied wholesale), and with `minExtinction` it also leaves out the
   reflections whose extinction factor y is below the cut, the extinction
-  test; its approval card counts what it leaves out. There,
+  test; its approval card counts what it leaves out. `set_resolution_range`
+  limits the fit to a d range (SHELXL's SHEL), for a high-order refinement.
+  `set_extinction_model` switches between SHELXL's EXTI and Becker–Coppens
+  type I or II (Gaussian or Lorentzian mosaic), as GSAS-II computes it; the
+  parameter restarts at 0. There,
   `assess_refinement` adds the analysis of variance by intensity and by
   resolution (K = ΣFo²/ΣFc² and GooF per bin), the extinction reading (the
   strongest bin against the others) and the correction's reach (the smallest
-  y), K and R1 by batch, the largest outliers and the tensors that are not
-  positive definite; `refine` answers with R1, wR2 and GooF before and after,
+  y), K and R1 by batch, the largest outliers each read against its
+  equivalents (a failed measurement, the model's misfit, or equivalents that
+  disagree), and the tensors that are not positive definite; `refine` answers with R1, wR2 and GooF before and after,
   and runs until every shift is below 0.05 esd. The scale, the extinction and
   the batch scales (`bscale_<b>`, entered fixed) refine together whatever
   their correlation, as in every single-crystal program. `structure_table`
-  gives U^ij and U_eq with esds, and `bond_geometry` each length's esd.
+  gives U^ij and U_eq with esds, and `bond_geometry` each length's esd. The
+  report's "Refinements compared" lists the last refinement under each set of
+  conditions (extinction model, resolution range, omissions, filter) with
+  wR2, GooF, the extinction parameter and U_eq, so a test can be quoted.
 - Powder page only: `rank_next_parameters`, `check_cell_symmetry`,
   `find_unexplained_peaks`, `review_symmetry`, `set_background`, `set_microstrain`,
   `set_site_ties`. On the PDF page, `assess_refinement` judges convergence,

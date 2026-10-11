@@ -95,6 +95,9 @@ const STEP_KIND: Readonly<Record<string, StepKind>> = {
   set_site_ties: "settings",
   set_fit_range: "settings",
   set_outlier_filter: "settings",
+  omit_reflections: "settings",
+  set_resolution_range: "settings",
+  set_extinction_model: "settings",
 };
 
 let nextCallId = 1;

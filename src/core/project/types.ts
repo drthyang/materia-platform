@@ -50,7 +50,7 @@
 import type { StructureModel } from "@/core/crystal/types";
 import type { DistortionModeSet } from "@/core/crystal/distortionModes";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
-import type { PdfPattern, PowderPattern, PowderXUnit, SingleCrystalDataset } from "@/core/diffraction/types";
+import type { ExtinctionModel, OmittedMeasurement, PdfPattern, PowderPattern, PowderXUnit, ResolutionRange, SingleCrystalDataset } from "@/core/diffraction/types";
 import type { MagneticModel } from "@/core/magnetic/types";
 import type { ParameterBinding, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { PowderProfile } from "@/core/workflow/powder";
@@ -193,6 +193,12 @@ export interface SingleCrystalWorkspace {
   readonly magnetic?: MagneticModel;
   /** SHELX-style OMIT filter on |Fo²−Fc²|/σ. Absent ⇒ off. */
   readonly outlierFilter?: { readonly on: boolean; readonly cutoffSigma: number; readonly minExtinction?: number };
+  /** Single measurements left out by hand (SHELXL's OMIT h k l). Absent ⇒ none. */
+  readonly omitted?: readonly OmittedMeasurement[];
+  /** The extinction model; absent ⇒ SHELXL's EXTI. */
+  readonly extinctionModel?: ExtinctionModel;
+  /** The resolution range fitted (SHELXL's SHEL); absent ⇒ every reflection. */
+  readonly resolution?: ResolutionRange;
   readonly modulated?: ModulatedHypothesis;
   /** The ADP model switched to on the page; absent ⇒ the CIF's. */
   readonly adpModel?: "isotropic" | "anisotropic";

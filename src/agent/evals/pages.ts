@@ -217,5 +217,16 @@ export function scPage(opts: CorundumOptions = {}): SingleCrystalAgentPort {
 /** A failed measurement for scPage: 1 0 4 at 3 % of its intensity (sapphire's 5 4 1 in batch 24). */
 export const FAILED_REFLECTION = { h: 1, k: 0, l: 4, factor: 0.03 } as const;
 
+/**
+ * Two failed measurements for scPage, measured in three batches: 1 0 4 at 3 %
+ * and 3 0 12 at half its intensity (sapphire's 5 4 1 and 3 4 2, both in batch
+ * 24). The second shows only once the first is out, and inside the residual a
+ * σ cutoff set just above the next worst would leave.
+ */
+export const FAILED_PAIR = [FAILED_REFLECTION, { h: 3, k: 0, l: 12, factor: 0.5 }] as const;
+
+/** A crystal whose extinction is Becker–Coppens type I (Lorentzian mosaic), Eg = 1e-4, measured to d = 0.45 Å, for scPage: SHELXL's EXTI fits it less well, and the high order lies beyond 0.6 Å. */
+export const BC_EXTINCTION = { extinction: 1e-4, extinctionModel: "bc-1-lorentzian", dMin: 0.45 } as const;
+
 /** Batch scales for scPage: four batches, the data reduction off by up to 8 %. */
 export const BATCH_SCALES = [1, 1.06, 0.94, 1.08] as const;

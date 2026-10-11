@@ -9,8 +9,9 @@
 
 import { parseCif } from "@/parsers/cif";
 import type { StructureModel } from "@/core/crystal/types";
-import type { SingleCrystalDataset } from "@/core/diffraction/types";
+import type { ExtinctionModel, SingleCrystalDataset } from "@/core/diffraction/types";
 import { generateReflections } from "@/core/diffraction/reflections";
+import { dSpacing } from "@/core/crystal/unitCell";
 import { buildSingleCrystalSpec, singleCrystalRefinementComparison } from "@/core/workflow/singleCrystalRefinement";
 
 const corundumCif = (alZ: number, oX: number, uIso: number): string => `data_corundum
@@ -53,19 +54,32 @@ export interface CorundumPage {
   readonly truth: { readonly alZ: number; readonly oX: number; readonly extinction: number };
 }
 
+/** A measurement that failed: this reflection (as indexed) at `factor` of its intensity. */
+export interface FailedMeasurement {
+  readonly h: number;
+  readonly k: number;
+  readonly l: number;
+  readonly factor: number;
+}
+
 export interface CorundumOptions {
-  /** SHELX EXTI of the crystal the intensities are computed for. */
+  /** The extinction of the crystal the intensities are computed for: SHELX's EXTI x, or Eg/Es under `extinctionModel`. */
   readonly extinction?: number;
+  /** The extinction model the intensities are computed with (SHELXL's by default); the page loads the data with SHELXL's whatever it is. */
+  readonly extinctionModel?: ExtinctionModel;
   readonly seed?: number;
   readonly dMin?: number;
   /** Batch scales: each reflection's equivalents measured in turn in batches 1, 2, …, each batch at its scale. */
   readonly batches?: readonly number[];
-  /** One measurement that failed: this reflection (as indexed) at `factor` of its intensity. */
-  readonly failed?: { readonly h: number; readonly k: number; readonly l: number; readonly factor: number };
+  /** Measurements that failed, each at `factor` of its intensity. */
+  readonly failed?: FailedMeasurement | readonly FailedMeasurement[];
+  /** Measured as a time-of-flight Laue experiment: each reflection at its own 2θ (30–150°) and so its own wavelength, as on TOPAZ. */
+  readonly laue?: boolean;
 }
 
 /** Corundum on a constant-wavelength neutron diffractometer (λ 1.0 Å). */
-export function corundumPage({ extinction = 2, seed = 7, dMin = 0.6, batches, failed }: CorundumOptions = {}): CorundumPage {
+export function corundumPage({ extinction = 2, extinctionModel, seed = 7, dMin = 0.6, batches, failed, laue = false }: CorundumOptions = {}): CorundumPage {
+  const failures: readonly FailedMeasurement[] = failed === undefined ? [] : "h" in failed ? [failed] : failed;
   const truth = parseCif(corundumCif(0.35216, 0.30624, 0.0035), "corundum");
   const start = parseCif(corundumCif(0.352, 0.306, 0.005), "corundum");
   const radiation = { kind: "neutron" as const, wavelength: 1.0 };
@@ -87,9 +101,17 @@ export function corundumPage({ extinction = 2, seed = 7, dMin = 0.6, batches, fa
       if (seen.size === 3) break;
     }
   }
-  const empty: SingleCrystalDataset = { id: "corundum-sx", name: "corundum (synthetic, neutron λ 1.0 Å)", radiation, reflections: indices.map(([h, k, l]) => ({ h, k, l, iObs: 1 })) };
-  const spec = buildSingleCrystalSpec(truth, empty, { scale: 1, extinction });
-  const calc = singleCrystalRefinementComparison(truth, empty, spec.params, spec.bindings).rows;
+  // On a Laue instrument each reflection lands at its own angle, and λ = 2d·sinθ.
+  const measuredAt = (h: number, k: number, l: number, i: number): { wavelength: number; twoTheta: number; tbar: number } => {
+    const twoTheta = 30 + ((i * 7919) % 121);
+    return { wavelength: 2 * dSpacing(truth.cell, h, k, l) * Math.sin((twoTheta * Math.PI) / 360), twoTheta, tbar: 0.07 };
+  };
+  const empty: SingleCrystalDataset = laue
+    ? { id: "corundum-sx", name: "corundum (synthetic, neutron TOF Laue)", radiation: { kind: "neutron-tof" }, reflections: indices.map(([h, k, l], i) => ({ h, k, l, iObs: 1, ...measuredAt(h, k, l, i) })) }
+    : { id: "corundum-sx", name: "corundum (synthetic, neutron λ 1.0 Å)", radiation, reflections: indices.map(([h, k, l]) => ({ h, k, l, iObs: 1 })) };
+  const computed: SingleCrystalDataset = extinctionModel ? { ...empty, extinctionModel } : empty;
+  const spec = buildSingleCrystalSpec(truth, computed, { scale: 1, extinction });
+  const calc = singleCrystalRefinementComparison(truth, computed, spec.params, spec.bindings).rows;
   const noise = normals(seed);
   // Counting statistics on a background, and 2 % of the intensity for what
   // the integration and the corrections add: σ² = (I + B)·g + (0.02·I)², with
@@ -102,10 +124,11 @@ export function corundumPage({ extinction = 2, seed = 7, dMin = 0.6, batches, fa
     reflections: calc.map((c, i) => {
       const batch = batches ? i % batches.length : -1;
       const k = batches ? batches[batch]! : 1;
-      const lost = failed && c.h === failed.h && c.k === failed.k && c.l === failed.l ? failed.factor : 1;
+      const lost = failures.find((f) => c.h === f.h && c.k === f.k && c.l === f.l)?.factor ?? 1;
       const iTrue = k * lost * c.fcSq;
       const sigma = Math.sqrt((Math.max(iTrue, 0) + background) * g + (0.02 * iTrue) ** 2);
-      return { h: c.h, k: c.k, l: c.l, iObs: iTrue + sigma * noise(), sigma, ...(batches ? { batch: batch + 1 } : {}) };
+      const at = empty.reflections[i]!;
+      return { ...at, h: c.h, k: c.k, l: c.l, iObs: iTrue + sigma * noise(), sigma, ...(batches ? { batch: batch + 1 } : {}) };
     }),
   };
   return { structure: start, dataset, truth: { alZ: 0.35216, oX: 0.30624, extinction } };

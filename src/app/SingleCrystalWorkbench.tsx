@@ -18,7 +18,7 @@ import { modulatedInputsFrom, restoreMomentBindings, restoreSingleCrystalParamet
 import { useOnChange } from "@/app/useOnChange";
 import type { AtomSite, StructureModel } from "@/core/crystal/types";
 import type { AgentLink } from "@/agent/link";
-import type { Radiation, SingleCrystalDataset } from "@/core/diffraction/types";
+import type { ExtinctionModel, OmittedMeasurement, Radiation, ResolutionRange, SingleCrystalDataset } from "@/core/diffraction/types";
 import type { Vec3 } from "@/core/math/types";
 import type { ReflectionObsCalc } from "@/core/workflow/obsCalc";
 import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
@@ -28,8 +28,13 @@ import {
   SINGLE_CRYSTAL_REFINE_OPTIONS,
   buildSingleCrystalSpec,
   guidedSingleCrystalParams,
+  inResolution,
+  isOmitted,
   singleCrystalRefinementComparison,
+  withinResolution,
+  withoutOmitted,
 } from "@/core/workflow/singleCrystalRefinement";
+import { EXTINCTION_MODELS, EXTINCTION_MODEL_LABELS, EXTINCTION_PARAMETER_LABELS } from "@/core/diffraction/singleCrystalFactors";
 import { nonPositiveDefiniteSites, withAdpModel } from "@/core/crystal/adp";
 import { dSpacing } from "@/core/crystal/unitCell";
 import { isMagneticModelParameterKind } from "@/core/refinement/types";
@@ -137,8 +142,8 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
   const restoredModulated = restoring?.modulated ? modulatedInputsFrom(restoring.modulated) : null;
   // Probe selection. The reflection file is hardcoded to neutron on load (it can't
   // report its own source), so the user can switch here — and the choice changes
-  // the physics (neutron b vs X-ray form factors f(Q) + polarization), rebuilding
-  // F_calc and the agreement factors live. Seeded from the instrument when known.
+  // the physics (neutron b vs X-ray form factors f(Q)), rebuilding F_calc and the
+  // agreement factors live. Seeded from the instrument when known.
   const baseWavelength = ("wavelength" in dataset.radiation ? dataset.radiation.wavelength : undefined) ?? 1.54;
   const [probe, setProbe] = useState<Probe>(() => restoring?.probe ?? instrumentProbe ?? dataset.radiation.kind);
   const effectiveRadiation: Radiation = useMemo(() => {
@@ -146,8 +151,14 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
     if (probe === "xray") return { kind: "xray", wavelength: baseWavelength, polarization: 0.5 };
     return { kind: "neutron", wavelength: baseWavelength };
   }, [probe, baseWavelength]);
-  // The dataset the physics runs against — same reflections, user-chosen radiation.
-  const probedDataset = useMemo(() => ({ ...dataset, radiation: effectiveRadiation }), [dataset, effectiveRadiation]);
+  // The extinction model: SHELXL's EXTI unless switched. GSAS-II keeps it with
+  // the histogram, so it travels with the dataset the fit runs against.
+  const [extinctionModel, setExtinctionModel] = useState<ExtinctionModel>(restoring?.extinctionModel ?? "shelx");
+  // The dataset the physics runs against — same reflections, user-chosen radiation and extinction model.
+  const probedDataset = useMemo(
+    () => ({ ...dataset, radiation: effectiveRadiation, extinctionModel }),
+    [dataset, effectiveRadiation, extinctionModel],
+  );
 
   // The ADP model the fit uses: the CIF's (null), or the one switched to,
   // seeded per site from the ADPs as refined so far.
@@ -196,6 +207,11 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
   // The filter's extinction cut (GSAS-II's "Min extinct."): reflections whose
   // extinction factor y falls below it are left out while the filter is on.
   const [minExtinction, setMinExtinction] = useState<number | null>(restoring?.outlierFilter?.minExtinction ?? null);
+  // Measurements left out by hand (SHELXL's OMIT h k l), each by its indices
+  // and batch, with the reason: a failed measurement its equivalents expose.
+  const [omitted, setOmitted] = useState<readonly OmittedMeasurement[]>(restoring?.omitted ?? []);
+  // The resolution range fitted (SHELXL's SHEL): a high-order refinement, or a range the data cannot support left out.
+  const [resolution, setResolution] = useState<ResolutionRange>(restoring?.resolution ?? {});
 
   // A new structure (CIF load) keeps this page mounted (keyed on the dataset):
   // the rows become the new spec's, and the last fit, the ADP switch and the
@@ -214,15 +230,21 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
     () => singleCrystalRefinementComparison(fitStructure, probedDataset, params, bindings),
     [fitStructure, probedDataset, params, bindings],
   );
+  // The measurements omitted by hand and the resolution range go first; the filter cuts what is left.
+  const omittedDataset = useMemo(() => withoutOmitted(probedDataset, omitted), [probedDataset, omitted]);
+  const keptDataset = useMemo(() => withinResolution(omittedDataset, structure.cell, resolution), [omittedDataset, structure, resolution]);
   const activeDataset = useMemo(() => {
-    if (!filterOn || (cutoffSigma <= 0 && minExtinction === null)) return probedDataset;
-    const keep = probedDataset.reflections.filter((_, i) => {
+    if (!filterOn || (cutoffSigma <= 0 && minExtinction === null)) return keptDataset;
+    const keep = probedDataset.reflections.filter((r, i) => {
+      if (isOmitted(r, omitted) || !inResolution(r, structure.cell, resolution)) return false;
       const row = fullComparison.rows[i];
       return (cutoffSigma <= 0 || Math.abs(row?.deltaOverSigma ?? 0) <= cutoffSigma) && (minExtinction === null || (row?.extinction ?? 1) >= minExtinction);
     });
     return { ...probedDataset, reflections: keep };
-  }, [probedDataset, filterOn, cutoffSigma, minExtinction, fullComparison]);
-  const excluded = probedDataset.reflections.length - activeDataset.reflections.length;
+  }, [probedDataset, keptDataset, omitted, structure, resolution, filterOn, cutoffSigma, minExtinction, fullComparison]);
+  const omittedCount = probedDataset.reflections.length - omittedDataset.reflections.length;
+  const outsideRange = omittedDataset.reflections.length - keptDataset.reflections.length;
+  const excluded = keptDataset.reflections.length - activeDataset.reflections.length;
 
   // Laue-equivalent merge report (data quality — R_int, redundancy) on the active set.
   const merge = useMemo(
@@ -235,8 +257,8 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
 
   // Live obs/calc comparison + SHELX agreement for the current parameters.
   const comparison = useMemo(
-    () => (filterOn && excluded > 0 ? singleCrystalRefinementComparison(fitStructure, activeDataset, params, bindings) : fullComparison),
-    [fitStructure, activeDataset, params, bindings, filterOn, excluded, fullComparison],
+    () => ((filterOn && excluded > 0) || omittedCount > 0 || outsideRange > 0 ? singleCrystalRefinementComparison(fitStructure, activeDataset, params, bindings) : fullComparison),
+    [fitStructure, activeDataset, params, bindings, filterOn, excluded, omittedCount, outsideRange, fullComparison],
   );
 
   // Observed vs calculated per reflection (Fo², Fc², σ) for the F plot and the
@@ -575,6 +597,34 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
     stepHistory?.requestStep("settings", anisotropic ? "Anisotropic ADPs" : "Isotropic ADPs");
   }
 
+  /** Another extinction model: its parameter is another quantity, so it restarts at 0 (none), as on load. */
+  function switchExtinctionModel(model: ExtinctionModel): void {
+    if (model === extinctionModel) return;
+    setParams((ps) => ps.map((p) => (p.kind === "extinction" ? { ...p, label: EXTINCTION_PARAMETER_LABELS[model], value: 0, initialValue: 0 } : p)));
+    setExtinctionModel(model);
+    setResult(null);
+    stepHistory?.requestStep("settings", `Extinction: ${EXTINCTION_MODEL_LABELS[model]}`);
+  }
+
+  /** The resolution range fitted; a limit given as null opens that end. */
+  function changeResolution(update: { readonly dMin?: number | null; readonly dMax?: number | null }): void {
+    const next: ResolutionRange = {
+      ...(update.dMin === undefined ? (resolution.dMin !== undefined ? { dMin: resolution.dMin } : {}) : update.dMin !== null ? { dMin: update.dMin } : {}),
+      ...(update.dMax === undefined ? (resolution.dMax !== undefined ? { dMax: resolution.dMax } : {}) : update.dMax !== null ? { dMax: update.dMax } : {}),
+    };
+    setResolution(next);
+    stepHistory?.requestStep("settings", next.dMin === undefined && next.dMax === undefined
+      ? "Full resolution range"
+      : `Resolution d ${[next.dMax !== undefined ? `≤ ${next.dMax}` : "", next.dMin !== undefined ? `≥ ${next.dMin}` : ""].filter(Boolean).join(" and ")} Å`);
+  }
+
+  /** The measurements left out by hand, replaced as a whole. */
+  function changeOmitted(next: readonly OmittedMeasurement[]): void {
+    const was = omitted.length;
+    setOmitted(next);
+    stepHistory?.requestStep("settings", next.length > was ? `Omitted ${next.length - was} measurement${next.length - was === 1 ? "" : "s"}` : `${next.length} measurement${next.length === 1 ? "" : "s"} omitted`);
+  }
+
   function exportCif(): void {
     const withEsd = params.map((p) => {
       const e = result?.esd[p.id];
@@ -635,6 +685,9 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
       excluded,
       filterOn,
       cutoffSigma,
+      minExtinction,
+      omitted,
+      resolution: { ...resolution, excluded: outsideRange },
       agreement: comparison.agreement,
       merge: merge.statistics,
       points: obsCalc.map((r) => ({ obs: r.iObs, calc: r.iCalc, ...(r.kind === "magnetic" ? { magnetic: true } : {}) })),
@@ -670,6 +723,9 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
           : comparison.rows,
         allRows: fullComparison.rows,
         outlierFilter: { on: filterOn, cutoffSigma, excluded, ...(minExtinction !== null ? { minExtinction } : {}) },
+        omitted,
+        resolution: { ...resolution, excluded: outsideRange },
+        extinctionModel,
         adpModel: adpModelOf(fitStructure),
         magnetic: magnetic !== null,
         observationCount: activeDataset.reflections.length,
@@ -681,6 +737,9 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
         setParams((ps) => ps.map((p) => (fixed.has(p.id) ? { ...p, fixed: fixed.get(p.id)! } : p)));
       },
       setAdpModel: switchAdpModel,
+      setExtinctionModel: switchExtinctionModel,
+      setOmitted: changeOmitted,
+      setResolution: changeResolution,
       setOutlierFilter: ({ on, cutoffSigma: cutoff, minExtinction: minY }) => {
         if (on !== undefined) setFilterOn(on);
         if (cutoff !== undefined) setCutoffSigma(cutoff);
@@ -710,7 +769,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
       projectWorkspace: () => singleCrystalWorkspaceFrom({
         dataset, magneticDataset: magneticDataset ?? null, probe,
         params, bindings: [...bindings, ...momentBindings], result, magnetic,
-        filterOn, cutoffSigma, minExtinction,
+        filterOn, cutoffSigma, minExtinction, omitted, extinctionModel, resolution,
         modulated: { kText, ionState, moment: modMoment, seed: modSeed, restarts: modRestarts },
         adpModel: adp?.model ?? null,
       }),
@@ -719,8 +778,10 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
   });
 
   const ag = comparison.agreement;
-  // The σ-reject control (SHELX-style OMIT), rendered in either view.
+  // The σ-reject control (SHELX-style OMIT), rendered in either view, and the
+  // measurements omitted by hand beneath it.
   const outlierFilter = (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
     <label style={filterRow} title="Reject reflections whose |Fo²−Fc²|/σ exceeds the threshold against the current model (SHELX-style OMIT)">
       <input type="checkbox" checked={filterOn} onChange={(e) => setFilterOn(e.target.checked)} style={{ accentColor: color.primary }} />
       <span style={{ color: color.secondary }}>Reject reflections with |Δ|/σ &gt;</span>
@@ -745,6 +806,9 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
         </span>
       )}
     </label>
+    <OmittedRow omitted={omitted} count={omittedCount} batches={probedDataset.reflections.some((r) => r.batch !== undefined)} onChange={changeOmitted} />
+    <ResolutionRow range={resolution} excluded={outsideRange} onChange={changeResolution} />
+    </div>
   );
   const st = merge.statistics;
   const cell = structure.cell;
@@ -770,7 +834,24 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
       chip: "✓ loaded",
       title: dataset.name,
       meta: `${probeLabel}${wl} · ${st.observations} obs → ${st.unique} unique · R_int ${pct(st.rInt)}`,
-      control: <ProbeToggle probe={probe} onChange={setProbe} />,
+      control: (
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <ProbeToggle probe={probe} onChange={setProbe} />
+          <label
+            style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+            title="The extinction model: SHELXL's empirical EXTI, or Becker–Coppens secondary extinction as GSAS-II applies it (type I: the mosaic spread limits it; type II: the domain size), with each reflection's path length when the file gives it. Switching restarts the extinction parameter at 0."
+          >
+            <span style={{ fontSize: fz.micro, color: color.faint }}>extinction</span>
+            <select
+              value={extinctionModel}
+              onChange={(e) => switchExtinctionModel(e.target.value as ExtinctionModel)}
+              style={{ border: `1px solid ${color.control}`, borderRadius: 6, fontSize: 11.5, padding: "1px 4px", background: "#fff", color: color.secondary }}
+            >
+              {EXTINCTION_MODELS.map((m) => <option key={m} value={m}>{EXTINCTION_MODEL_LABELS[m]}</option>)}
+            </select>
+          </label>
+        </div>
+      ),
     },
   ];
 
@@ -1091,7 +1172,7 @@ function ProbeToggle({ probe, onChange }: { probe: Probe; onChange: (p: Probe) =
     <div style={{ display: "inline-flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
       <ProbeSegment
         label="source"
-        hint="The reflection file cannot report its own radiation. X-ray uses atomic form factors f(Q) plus the polarization factor; neutron uses scattering lengths b — the choice changes every F_calc."
+        hint="The reflection file cannot report its own radiation. X-ray uses atomic form factors f(Q); neutron uses scattering lengths b — the choice changes every F_calc."
         options={[{ value: "xray", label: "X-ray" }, { value: "neutron", label: "Neutron" }]}
         value={source}
         onChange={setSource}
@@ -1100,7 +1181,7 @@ function ProbeToggle({ probe, onChange }: { probe: Probe; onChange: (p: Probe) =
         label="mode"
         hint={modeFixed
           ? "X-ray single-crystal data is always constant-wavelength (monochromatic)."
-          : "Constant wavelength: a monochromatic beam, λ from the file (default 1 Å). Time of flight: a spallation source — no single wavelength, so the λ-dependent corrections are not applied."}
+          : "Constant wavelength: a monochromatic beam, λ from the file (1.54 Å when it gives none). Time of flight: a Laue measurement at a spallation source — each reflection at its own wavelength, which the extinction correction uses when the file gives it (an SNS TOPAZ file does)."}
         options={[{ value: "cw", label: "CW" }, { value: "tof", label: "TOF" }]}
         value={mode}
         onChange={setMode}
@@ -1111,6 +1192,71 @@ function ProbeToggle({ probe, onChange }: { probe: Probe; onChange: (p: Probe) =
 }
 
 /** One labelled segmented group of the probe picker. */
+/** The resolution range fitted, SHELXL's SHEL: d from … to … Å, either end open (blank). */
+function ResolutionRow({ range, excluded, onChange }: {
+  range: ResolutionRange;
+  excluded: number;
+  onChange: (update: { readonly dMin?: number | null; readonly dMax?: number | null }) => void;
+}): JSX.Element {
+  const value = (v: string): number | null => (v.trim() === "" || !(Number(v) > 0) ? null : Number(v));
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: fz.small }} title="Fit only the reflections in this resolution range (SHELXL's SHEL); blank leaves an end open. A high-order refinement (d below 0.5–0.6 Å, where extinction barely reaches) gives ADPs nearly free of the extinction model.">
+      <span style={{ color: color.secondary }}>Resolution: d from</span>
+      <input type="number" min={0.1} step={0.05} value={range.dMax ?? ""} placeholder="∞" onChange={(e) => onChange({ dMax: value(e.target.value) })} style={numInput} />
+      <span style={{ color: color.secondary }}>to</span>
+      <input type="number" min={0.1} step={0.05} value={range.dMin ?? ""} placeholder="0" onChange={(e) => onChange({ dMin: value(e.target.value) })} style={numInput} />
+      <span style={{ color: color.secondary }}>Å</span>
+      {excluded > 0 && <span style={{ marginLeft: "auto", fontFamily: mono, color: color.warnInk }}>{excluded} outside</span>}
+    </div>
+  );
+}
+
+/** The measurements omitted by hand (SHELXL's OMIT h k l), each removable, and a box to omit one more: "h k l" or "h k l batch". */
+function OmittedRow({ omitted, count, batches, onChange }: {
+  omitted: readonly OmittedMeasurement[];
+  count: number;
+  batches: boolean;
+  onChange: (next: readonly OmittedMeasurement[]) => void;
+}): JSX.Element {
+  const [text, setText] = useState("");
+  const parsed = text.trim().split(/[\s,]+/).map(Number);
+  const valid = (parsed.length === 3 || (batches && parsed.length === 4)) && parsed.every(Number.isInteger);
+  const add = (): void => {
+    if (!valid) return;
+    const [h, k, l, batch] = parsed as [number, number, number, number | undefined];
+    onChange([...omitted, { h, k, l, ...(batch !== undefined ? { batch } : {}), reason: "omitted by hand" }]);
+    setText("");
+  };
+  const label = (o: OmittedMeasurement): string => `${o.h} ${o.k} ${o.l}${o.batch !== undefined ? ` (batch ${o.batch})` : ""}`;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: fz.small }}>
+      <span style={{ color: color.secondary }} title="Single measurements left out by hand, SHELXL's OMIT h k l: a failed measurement its equivalents expose. The filter above cuts by |Δ|/σ; these go whatever their residual.">Omitted:</span>
+      {omitted.length === 0 && <span style={{ color: color.faint }}>none</span>}
+      {omitted.map((o, i) => (
+        <span key={`${label(o)}-${i}`} title={o.reason ?? ""} style={{ display: "inline-flex", alignItems: "center", gap: 3, fontFamily: mono, border: `1px solid ${color.control}`, borderRadius: 6, padding: "0 4px" }}>
+          {label(o)}
+          <button
+            aria-label={`Restore ${label(o)}`}
+            onClick={() => onChange(omitted.filter((_, j) => j !== i))}
+            style={{ border: "none", background: "transparent", cursor: "pointer", color: color.faint, padding: 0, fontSize: 12 }}
+          >
+            ×
+          </button>
+        </span>
+      ))}
+      <input
+        value={text}
+        placeholder={batches ? "h k l batch" : "h k l"}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") add(); }}
+        style={{ ...numInput, width: 92 }}
+      />
+      <button onClick={add} disabled={!valid} style={{ ...secondaryButton, padding: "1px 8px", fontSize: 11.5, ...(valid ? {} : disabledStyle) }}>Omit</button>
+      {omitted.length > 0 && <span style={{ marginLeft: "auto", fontFamily: mono, color: color.faint }}>{count} left out</span>}
+    </div>
+  );
+}
+
 function ProbeSegment<T extends string>({ label, hint, options, value, onChange, disabled = false }: {
   label: string;
   hint: string;

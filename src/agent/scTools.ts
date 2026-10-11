@@ -20,6 +20,10 @@ import { reflectionStatistics } from "@/core/diagnostics/reflectionStatistics";
 import { canonicalKey, laueRotations } from "@/core/diffraction/merge";
 import { nonPositiveDefiniteSites } from "@/core/crystal/adp";
 import { allowedPositionShifts } from "@/core/crystal/siteConstraints";
+import { dSpacing } from "@/core/crystal/unitCell";
+import { EXTINCTION_MODEL_LABELS } from "@/core/diffraction/singleCrystalFactors";
+import { inResolution, isOmitted } from "@/core/workflow/singleCrystalRefinement";
+import type { ExtinctionModel, OmittedMeasurement, ResolutionRange } from "@/core/diffraction/types";
 import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, correlationsCheck, findingChecks, noResultCheck, verdictCheck } from "@/agent/reportChecks";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- inputs are validated against the spec's zod schema before a handler runs */
@@ -65,6 +69,15 @@ export async function changeSingleCrystal(name: string, input: Input, port: Sing
         ...(input.minExtinction !== undefined ? { minExtinction: input.minExtinction } : {}),
       });
       return undefined;
+    case "omit_reflections":
+      port.setOmitted(omitPlan(s, input).next);
+      return undefined;
+    case "set_resolution_range":
+      port.setResolution({ ...(input.dMin !== undefined ? { dMin: input.dMin } : {}), ...(input.dMax !== undefined ? { dMax: input.dMax } : {}) });
+      return undefined;
+    case "set_extinction_model":
+      port.setExtinctionModel(input.model as ExtinctionModel);
+      return "The extinction parameter restarted at 0 under the new model: refine it with the scale (and what was free before) to convergence before comparing the fit.";
     case "refine": {
       if (!s.parameters.some((p) => !p.fixed && !p.expression)) throw new Error("no parameter is free — free some with set_free first");
       const why = await (input.mode === "thorough" ? port.thorough() : port.refine());
@@ -96,6 +109,19 @@ export function singleCrystalNoOp(spec: LiveToolSpec, input: Input, s: SingleCry
         ? `the filter is already ${on ? `on at ${cutoff}σ${minY !== undefined ? `, y ≥ ${minY}` : ""}` : "off"}`
         : null;
     }
+    case "omit_reflections": {
+      const plan = omitPlan(s, input);
+      return plan.added.length === 0 && plan.restored.length === 0
+        ? s.omitted.length === 0 ? "nothing is omitted, and nothing new was named" : `already as asked: ${s.omitted.map(omittedText).join(", ")} omitted`
+        : null;
+    }
+    case "set_extinction_model":
+      return input.model === s.extinctionModel ? `the extinction model is already ${EXTINCTION_MODEL_LABELS[s.extinctionModel]}` : null;
+    case "set_resolution_range": {
+      const next = resolutionAfter(s, input);
+      if (next.dMin !== undefined && next.dMax !== undefined && next.dMin >= next.dMax) throw new Error(`dMin ${next.dMin} Å must lie below dMax ${next.dMax} Å`);
+      return next.dMin === s.resolution.dMin && next.dMax === s.resolution.dMax ? `the range is already ${rangeText(next)}` : null;
+    }
     default:
       return null;
   }
@@ -114,8 +140,23 @@ export function describeSingleCrystalChange(spec: LiveToolSpec, input: Input, s:
       const minY: number | undefined = input.minExtinction === undefined ? s.outlierFilter.minExtinction : input.minExtinction ?? undefined;
       if (!on) return "Outlier filter off: every reflection fitted";
       // Counted on every reflection in the file, against the current model, as the page's filter cuts.
-      const left = s.allRows.filter((r) => Math.abs(r.deltaOverSigma) > cutoff || (minY !== undefined && (r.extinction ?? 1) < minY)).length;
+      const left = s.allRows.filter((r) => !isOmitted(r, s.omitted) && inResolution(r, s.structure.cell, s.resolution) && (Math.abs(r.deltaOverSigma) > cutoff || (minY !== undefined && (r.extinction ?? 1) < minY))).length;
       return `Outlier filter on at ${cutoff}σ${minY !== undefined ? ` and y ≥ ${minY}` : ""}: leaves out ${left} reflection${left === 1 ? "" : "s"} against the current model`;
+    }
+    case "omit_reflections": {
+      const plan = omitPlan(s, input);
+      const parts = [
+        ...(plan.added.length ? [`Omit ${plan.added.map(omittedText).join(", ")}${input.reason ? ` (${String(input.reason)})` : ""}`] : []),
+        ...(plan.restored.length ? [`restore ${plan.restored.map(omittedText).join(", ")}`] : []),
+      ];
+      return `${parts.join("; ")} — ${plan.next.length} measurement${plan.next.length === 1 ? "" : "s"} omitted in all`;
+    }
+    case "set_extinction_model":
+      return `Extinction model: ${EXTINCTION_MODEL_LABELS[input.model as ExtinctionModel]}, in place of ${EXTINCTION_MODEL_LABELS[s.extinctionModel]} — its parameter restarts at 0`;
+    case "set_resolution_range": {
+      const next = resolutionAfter(s, input);
+      const outside = s.allRows.filter((r) => !inResolution(r, s.structure.cell, next) && !isOmitted(r, s.omitted)).length;
+      return `Resolution ${rangeText(next)}: ${outside === 0 ? "every reflection in range" : `leaves out ${outside} reflection${outside === 1 ? "" : "s"}`}`;
     }
     case "refine": {
       const free = s.parameters.filter((p) => !p.fixed && !p.expression).length;
@@ -132,9 +173,113 @@ export function describeSingleCrystalChange(spec: LiveToolSpec, input: Input, s:
   }
 }
 
+// ── resolution range ────────────────────────────────────────────────────────
+
+/** The range after set_resolution_range: a limit given as null opens that end, one not given stays. */
+function resolutionAfter(s: SingleCrystalLiveState, input: Input): ResolutionRange {
+  const end = (v: unknown, was: number | undefined): number | undefined => (v === undefined ? was : typeof v === "number" ? v : undefined);
+  const dMin = end(input.dMin, s.resolution.dMin);
+  const dMax = end(input.dMax, s.resolution.dMax);
+  return { ...(dMin !== undefined ? { dMin } : {}), ...(dMax !== undefined ? { dMax } : {}) };
+}
+
+const rangeText = (r: ResolutionRange): string =>
+  r.dMin === undefined && r.dMax === undefined ? "the full range" : `d ${r.dMax !== undefined ? `≤ ${r.dMax} Å` : ""}${r.dMin !== undefined && r.dMax !== undefined ? " and " : ""}${r.dMin !== undefined ? `≥ ${r.dMin} Å` : ""}`;
+
+// ── omitting measurements ───────────────────────────────────────────────────
+
+const omittedText = (o: OmittedMeasurement): string => `${o.h} ${o.k} ${o.l}${o.batch !== undefined ? ` (batch ${o.batch})` : ""}`;
+const sameMeasurement = (a: OmittedMeasurement, b: OmittedMeasurement): boolean => a.h === b.h && a.k === b.k && a.l === b.l && a.batch === b.batch;
+
+/**
+ * omit_reflections: the list after the call, what it adds and what it puts
+ * back. Each named measurement must be in the file; when the file has batches
+ * and the indices were measured in more than one, the batch must be named
+ * (the others stay). Throws, before the user is asked, on a measurement that
+ * is not there.
+ */
+function omitPlan(s: SingleCrystalLiveState, input: Input): { next: OmittedMeasurement[]; added: OmittedMeasurement[]; restored: OmittedMeasurement[] } {
+  const named = (item: { h: number; k: number; l: number; batch?: number }): OmittedMeasurement => {
+    const matches = s.dataset.reflections.filter((r) => r.h === item.h && r.k === item.k && r.l === item.l && (item.batch === undefined || r.batch === item.batch));
+    const where = `${item.h} ${item.k} ${item.l}${item.batch !== undefined ? ` in batch ${item.batch}` : ""}`;
+    if (matches.length === 0) {
+      const batches = [...new Set(s.dataset.reflections.filter((r) => r.h === item.h && r.k === item.k && r.l === item.l).flatMap((r) => (r.batch !== undefined ? [r.batch] : [])))];
+      throw new Error(`no measurement ${where} in the data${batches.length ? ` (it was measured in batch${batches.length === 1 ? "" : "es"} ${batches.join(", ")})` : " — the indices are the file's own, not an equivalent's"}`);
+    }
+    const batches = [...new Set(matches.flatMap((r) => (r.batch !== undefined ? [r.batch] : [])))];
+    if (item.batch === undefined && batches.length > 1) throw new Error(`${where} was measured in batches ${batches.join(", ")}: name the batch of the one that failed`);
+    return { h: item.h, k: item.k, l: item.l, ...(item.batch !== undefined ? { batch: item.batch } : batches.length === 1 ? { batch: batches[0]! } : {}) };
+  };
+  const reason = typeof input.reason === "string" && input.reason.trim() ? input.reason.trim() : undefined;
+  const added = ((input.omit ?? []) as { h: number; k: number; l: number; batch?: number }[]).map(named)
+    .filter((o, i, all) => all.findIndex((x) => sameMeasurement(x, o)) === i && !s.omitted.some((x) => sameMeasurement(x, o)))
+    .map((o) => ({ ...o, ...(reason ? { reason } : {}) }));
+  const restoreAll = input.restore === "all";
+  const restoreList = Array.isArray(input.restore) ? (input.restore as { h: number; k: number; l: number; batch?: number }[]) : [];
+  const restored = restoreAll ? [...s.omitted] : s.omitted.filter((o) => restoreList.some((r) => r.h === o.h && r.k === o.k && r.l === o.l && (r.batch === undefined || r.batch === o.batch)));
+  if (!restoreAll) {
+    for (const r of restoreList) {
+      if (!s.omitted.some((o) => r.h === o.h && r.k === o.k && r.l === o.l && (r.batch === undefined || r.batch === o.batch))) {
+        throw new Error(`${r.h} ${r.k} ${r.l}${r.batch !== undefined ? ` (batch ${r.batch})` : ""} is not omitted${s.omitted.length ? ` — omitted: ${s.omitted.map(omittedText).join(", ")}` : ""}`);
+      }
+    }
+  }
+  const next = [...s.omitted.filter((o) => !restored.includes(o)), ...added];
+  return { next, added, restored };
+}
+
 // ── views ───────────────────────────────────────────────────────────────────
 
 const hklOf = (x: { h: number; k: number; l: number }): string => `${x.h} ${x.k} ${x.l}`;
+const median = (values: readonly number[]): number => {
+  const v = [...values].sort((a, b) => a - b);
+  const mid = v.length >> 1;
+  return v.length % 2 ? v[mid]! : (v[mid - 1]! + v[mid]!) / 2;
+};
+const measurementKey = (r: SingleCrystalRow): string => `${r.h},${r.k},${r.l},${r.batch ?? ""},${r.foSq},${r.sigma}`;
+
+/**
+ * What a misfit measurement's equivalents say: the other measurements of the
+ * same reflection (the Laue class), each against its own Fc² (the extinction
+ * differs with wavelength), as the ratio Fo²/Fc². One far from the others'
+ * median while they agree among themselves failed — whatever the model, so it
+ * holds when that one failure drags the whole fit. All of them off the same
+ * way is the model's misfit, which no omission should hide; equivalents that
+ * scatter among themselves are a correction that differs between them
+ * (extinction at different wavelengths, before it is refined) or the model.
+ */
+function equivalentsReading(s: SingleCrystalLiveState, row: SingleCrystalRow, keyOf: (r: { h: number; k: number; l: number }) => string): string {
+  const key = keyOf(row);
+  const self = measurementKey(row);
+  const others = s.allRows.filter((r) => keyOf(r) === key && measurementKey(r) !== self && r.fcSq > 0);
+  if (others.length === 0 || !(row.fcSq > 0)) return "no equivalent measured";
+  // A ratio floored at σ, so a measurement that caught nothing still has one.
+  const ratio = (r: SingleCrystalRow): number => Math.max(r.foSq, r.sigma, 1e-9 * r.fcSq) / r.fcSq;
+  const logs = others.map((r) => Math.log(ratio(r)));
+  const lm = median(logs);
+  const spread = logs.length > 1 ? median(logs.map((v) => Math.abs(v - lm))) : 0;
+  const lq = Math.log(ratio(row));
+  const apart = Math.abs(lq - lm);
+  const n = `${others.length} equivalent${others.length === 1 ? "" : "s"} at Fo²/Fc² ${sig(Math.exp(lm), 2)} (median${others.length > 2 ? `, scatter ${sig(Math.exp(spread) - 1, 2)}` : ""}), this one ${sig(Math.exp(lq), 2)}`;
+  // Failed: off by itself — its equivalents agree among themselves and roughly with the model (within ×1.8, so a
+  // fit that one failure drags still counts), and it lies farther from the model than they do.
+  if (Math.abs(row.deltaOverSigma) >= 6 && Math.abs(lm) <= 0.6 && Math.abs(lq) > Math.abs(lm) && apart >= Math.max(0.5, 4 * spread)) {
+    return `${n}: ${others.length >= 2 && (apart >= 1 || Math.abs(row.deltaOverSigma) >= 10) ? "a failed measurement" : "possibly a failed measurement"}`;
+  }
+  if (Math.sign(lm) === Math.sign(lq) && Math.abs(lm) >= Math.abs(lq) / 2) return `${n}: the model (or a correction) misses the reflection`;
+  return `${n}: they disagree among themselves — a correction that differs between them (extinction or absorption at another wavelength or path), or the model`;
+}
+
+/** The largest misfits fitted, each with its batch and what its equivalents say. */
+function outliersView(s: SingleCrystalLiveState, count: number): string[] {
+  const rotations = laueRotations(s.structure.spaceGroup.operations);
+  const keyOf = (r: { h: number; k: number; l: number }): string => canonicalKey(rotations, r.h, r.k, r.l);
+  return [...s.rows]
+    .filter((r) => r.sigma > 0)
+    .sort((a, b) => Math.abs(b.deltaOverSigma) - Math.abs(a.deltaOverSigma))
+    .slice(0, count)
+    .map((r) => `${hklOf(r)}${r.batch !== undefined ? ` (batch ${r.batch})` : ""}: Fo² ${sig(r.foSq, 4)}, Fc² ${sig(r.fcSq, 4)}, ${sig(r.deltaOverSigma, 3)}σ (d ${sig(dSpacing(s.structure.cell, r.h, r.k, r.l), 3)} Å) — ${equivalentsReading(s, r, keyOf)}`);
+}
 
 /** How the reflections were measured, when the file says: each at its own wavelength (TOF Laue), in batches. */
 function measurementView(s: SingleCrystalLiveState): Record<string, unknown> | null {
@@ -213,7 +358,7 @@ function equivalentsView(s: SingleCrystalLiveState, h: number, k: number, l: num
       `${sig(r.deltaOverSigma, 3)}σ from Fc²`,
       ...(r.sigma > 0 ? [`${sig((r.foSq - median) / r.sigma, 3)}σ from the median`] : []),
       ...(r.extinction !== undefined && r.extinction < 1 ? [`y ${sig(r.extinction, 3)}`] : []),
-      ...(fitted.has(`${r.h},${r.k},${r.l},${r.foSq},${r.sigma}`) ? [] : ["left out by the filter"]),
+      ...(fitted.has(`${r.h},${r.k},${r.l},${r.foSq},${r.sigma}`) ? [] : [isOmitted(r, s.omitted) ? "omitted" : !inResolution(r, s.structure.cell, s.resolution) ? "outside the resolution range" : "left out by the filter"]),
     ].join(", ")),
     reading: "Equivalents agree to their σ (scatter ≈ 1) when each was measured well. One far from the others, which agree with Fc², failed (a detector edge, a gap, a shadow); all off the same way is the model's misfit, or a correction (extinction, absorption) that differs with wavelength.",
   };
@@ -264,6 +409,9 @@ function stateView(s: SingleCrystalLiveState, history: ProjectHistory | null, se
       fitted: s.observationCount,
       merging: { unique: s.merge.unique, redundancy: sig(s.merge.redundancy, 3), rInt: pct(s.merge.rInt), rSigma: pct(s.merge.rSigma), ...(s.merge.dMin !== undefined ? { dMin: sig(s.merge.dMin, 4) } : {}) },
       outlierFilter: s.outlierFilter.on ? `on at ${s.outlierFilter.cutoffSigma}σ${s.outlierFilter.minExtinction !== undefined ? ` and y ≥ ${s.outlierFilter.minExtinction}` : ""}: ${s.outlierFilter.excluded} reflections left out` : "off",
+      omitted: s.omitted.length ? s.omitted.map((o) => `${omittedText(o)}${o.reason ? `: ${o.reason}` : ""}`) : "none",
+      resolution: s.resolution.dMin === undefined && s.resolution.dMax === undefined ? "the full range" : `${rangeText(s.resolution)}: ${s.resolution.excluded} reflections outside`,
+      extinctionModel: EXTINCTION_MODEL_LABELS[s.extinctionModel],
     },
     agreement: { R1: pct(ag.r1), wR2: pct(ag.wr2), GooF: sig(ag.goof, 4), observed: ag.observed, total: ag.total, note: "R1 over Fo² > 2σ; wR2 and GooF over every reflection fitted, w = 1/σ²." },
     magneticModel: s.magnetic,
@@ -336,7 +484,10 @@ function assessment(s: SingleCrystalLiveState): Record<string, unknown> {
       : `not indicated (strongest bin K = ${sig(v.extinction.strongBinK, 3)}, the other bins ${sig(v.extinction.otherBinsK, 3)})`,
     ...(extinctionView(s.rows) ? { extinctionCorrection: extinctionView(s.rows) } : {}),
     ...(batchView(s.rows) ? { byBatch: batchView(s.rows) } : {}),
-    outliers: v.outliers.slice(0, 8).map((o) => `${o.h} ${o.k} ${o.l}: Fo² ${sig(o.foSq, 4)}, Fc² ${sig(o.fcSq, 4)}, ${sig(o.z, 3)}σ (d ${sig(o.d, 3)} Å)`),
+    outliers: outliersView(s, 8),
+    outliersReading: "Each outlier against its equivalents: one marked a failed measurement goes with omit_reflections (by its batch); a reflection the model misses stays, whatever its residual.",
+    ...(s.omitted.length ? { omitted: s.omitted.map((o) => `${omittedText(o)}${o.reason ? `: ${o.reason}` : ""}`) } : {}),
+    extinctionModel: EXTINCTION_MODEL_LABELS[s.extinctionModel],
     ...(npd.length ? { nonPositiveDefinite: npd } : {}),
     reflectionsPerParameter: sig(v.reflectionsPerParameter, 3),
   };
@@ -379,7 +530,7 @@ export function singleCrystalReportChecks(s: SingleCrystalLiveState, probe: Refi
   const batches = batchView(s.rows);
   if (batches) checks.push({ name: "Batches", status: "note", detail: `${String(batches.batches)} batches, K ${String(batches.K)}; farthest: ${(batches.farthest as string[]).slice(0, 3).join("; ")}.` });
   if (v.outliers.length > 0) {
-    checks.push({ name: "Largest outliers", status: "note", detail: v.outliers.slice(0, 6).map((o) => `${o.h} ${o.k} ${o.l} (Fo² ${sig(o.foSq, 4)}, Fc² ${sig(o.fcSq, 4)}, ${sig(o.z, 3)}σ)`).join("; ") + (s.outlierFilter.on ? `; ${s.outlierFilter.excluded} left out by the filter (|Δ|/σ > ${s.outlierFilter.cutoffSigma}${s.outlierFilter.minExtinction !== undefined ? ` or y < ${s.outlierFilter.minExtinction}` : ""}).` : ".") });
+    checks.push({ name: "Largest outliers", status: "note", detail: outliersView(s, 6).join("; ") + (s.outlierFilter.on ? `; ${s.outlierFilter.excluded} left out by the filter (|Δ|/σ > ${s.outlierFilter.cutoffSigma}${s.outlierFilter.minExtinction !== undefined ? ` or y < ${s.outlierFilter.minExtinction}` : ""}).` : ".") });
   }
   const npd = nonPositiveDefiniteSites(s.refinedStructure);
   if (npd.length) checks.push({ name: "ADPs", status: "warn", detail: `Not positive definite: ${npd.join(", ")} — the ellipsoid is unphysical; refine those sites isotropically, or look for disorder.` });
