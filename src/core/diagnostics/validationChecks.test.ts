@@ -101,6 +101,7 @@ function sc(over: Partial<ScValidation> = {}): ScValidation {
     uniqueObserved: 1400,
     uniqueExpected: 1408,
     completeness: 0.994,
+    independent: 1400,
     reflectionsPerParameter: 24.3,
     centrosymmetric: true,
     extinction: { suspected: false, strongBinK: 1, strongBinGoof: 0.95, otherBinsK: 1, strongUnder: 0, outliers: 2 },

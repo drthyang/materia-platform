@@ -129,6 +129,17 @@ export interface EqualTieUpdate {
   readonly release?: readonly string[];
 }
 
+/** A History step's label for a tie update: each tie it makes, in a few words. */
+export function tieStepLabel(update: EqualTieUpdate): string {
+  const parts = [
+    ...(update.complement ? [`${update.complement[1]} = 1 − ${update.complement[0]}`] : []),
+    ...(update.groups?.length ? [`EADP (${update.groups.length} ADP row${update.groups.length === 1 ? "" : "s"} tied)`] : []),
+    ...(update.equal?.length ? [`${update.equal.slice(1).join(", ")} = ${update.equal[0]}`] : []),
+    ...(update.release?.length ? [`Released ${update.release.join(", ")}`] : []),
+  ];
+  return parts.length ? parts.join("; ") : "Parameters tied";
+}
+
 /** The kinds a user may tie to one value: an ADP's B or U modes, an occupancy. */
 const TIEABLE_KINDS: ReadonlySet<RefinementParameter["kind"]> = new Set<RefinementParameter["kind"]>(["bIso", "uAniso", "occupancy"]);
 

@@ -100,6 +100,30 @@ describe("singleCrystalValidation", () => {
     for (const s of v.shells) expect(s.rInt).toBeGreaterThan(0);
   });
 
+  it("reads each shell's R_int from the measurement when the rows are its merge", () => {
+    const rows = dataset();
+    // Measured twice, the second 2 % high; fitted merged, each reflection once.
+    const measurement = [...rows, ...rows.map((r) => ({ ...r, foSq: r.foSq * 1.02 }))].map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.foSq, sigma: r.sigma ?? 0 }));
+    const fitted = singleCrystalValidation({ rows, cell, spaceGroup: centro, nParams: 40 });
+    for (const sh of fitted.shells) expect(sh.rInt).toBeUndefined();
+    const v = singleCrystalValidation({ rows, cell, spaceGroup: centro, nParams: 40, measurement });
+    // Each pair 1 % either side of its mean: R_int = 0.02/2.02 in every shell.
+    for (const sh of v.shells) expect(sh.rInt).toBeCloseTo(0.02 / 2.02, 10);
+  });
+
+  it("counts a Friedel pair measured apart twice in a non-centrosymmetric group, as SHELXL counts its data", () => {
+    const unique = generateReflections(cell, acentric, 0.8, 20);
+    const rows = unique.flatMap((r) => [{ h: r.h, k: r.k, l: r.l, foSq: 100, fcSq: 100, sigma: 10 }, { h: -r.h, k: -r.k, l: -r.l, foSq: 102, fcSq: 102, sigma: 10 }]);
+    const v = singleCrystalValidation({ rows, cell, spaceGroup: acentric, nParams: 10 });
+    // In 222 a reflection with a zero index is centric: its Friedel mate is an equivalent.
+    const centric = unique.filter((r) => r.h === 0 || r.k === 0 || r.l === 0).length;
+    expect(v.uniqueObserved).toBe(unique.length);
+    expect(v.independent).toBe(2 * unique.length - centric);
+    expect(v.reflectionsPerParameter).toBeCloseTo(v.independent / 10, 10);
+    // In a centrosymmetric group the mates are one reflection.
+    expect(singleCrystalValidation({ rows, cell, spaceGroup: centro, nParams: 10 }).independent).toBeLessThanOrEqual(unique.length);
+  });
+
   it("knows a non-centrosymmetric group", () => {
     const v = singleCrystalValidation({ rows: dataset().slice(0, 50), cell, spaceGroup: acentric, nParams: 10 });
     expect(v.centrosymmetric).toBe(false);

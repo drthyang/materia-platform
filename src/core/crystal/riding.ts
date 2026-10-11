@@ -537,6 +537,13 @@ export const RIDING_GEOMETRY_TEXT: Readonly<Record<RidingRule["geometry"], strin
   free: "with their positions refined, only U_iso riding",
 };
 
+/** A History step's label for a riding model: the hydrogens that ride, and those that refine their positions with U riding. */
+export function ridingStepLabel(rules: readonly RidingRule[]): string {
+  const free = rules.filter((r) => r.geometry === "free").length;
+  const riders = rules.length - free;
+  return `${riders} hydrogen${riders === 1 ? "" : "s"} riding${free ? `, ${free} refined with U riding` : ""}`;
+}
+
 /** The riding hydrogens in a line: how many of each geometry, their X–H distances and U factors. */
 export function ridingSummary(model: StructureModel): string {
   const rules = model.riding ?? [];

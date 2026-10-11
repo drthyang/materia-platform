@@ -58,6 +58,10 @@ real chat loop, executor and tools run; only the model changes.
 | `sc-riding-hydrogens` | rides the hydrogens of an X-ray structure; none refines on its own | single-crystal round 2 (16 hydrogens refined freely, then each its own tensor) |
 | `sc-listing-honesty` | calls a refinement's listing what it is, and quotes no R_int from it | single-crystal round 2 (SHELXL's .fcf, R_int shown as 0 %) |
 | `sc-weighting-last` | sets SHELXL's suggested weights once the model is complete, then refines with them | single-crystal round 2 (GooF 2.35 with 1/σ² against SHELXL's 1.041) |
+| `sc-merge-first` | merges the equivalents as SHELXL's MERG 2 (the Friedel opposites apart) before the first refinement | single-crystal round 3 (1b: 13169 measurements, which SHELXL refined as 2482 reflections) |
+| `sc-absolute-structure` | refines the inversion twin, and quotes the Flack x with its esd as the engine gives it | single-crystal round 3 (1b: an inversion twin, x = 0.435(15)) |
+| `sc-disorder-tied` | ties a disorder's two occupancies to add up to one before refining the split, and runs the refinement | single-crystal round 3 (1b's Al1/Ga1, SHELXL's 21/−21 with EADP) |
+| `sc-hydrides-restrained` | refines a hydride's position only with a restraint holding it | single-crystal round 3 (1b's five hydrides under 8 SADI) |
 
 ## Results against real models
 

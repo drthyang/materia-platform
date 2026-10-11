@@ -17,7 +17,7 @@ import type { RefinementResult } from "@/core/refinement/types";
 import type { ReportCheck } from "@/core/export/report";
 import { singleCrystalValidation, type ScValidation } from "@/core/diagnostics/singleCrystalValidation";
 import { reflectionStatistics } from "@/core/diagnostics/reflectionStatistics";
-import { canonicalKey, laueRotations } from "@/core/diffraction/merge";
+import { canonicalKey, laueRotations, pointGroupRotations } from "@/core/diffraction/merge";
 import { isHydrogen, nonPositiveDefiniteSites } from "@/core/crystal/adp";
 import { allowedPositionShifts } from "@/core/crystal/siteConstraints";
 import { dSpacing, reciprocalMetricTensor } from "@/core/crystal/unitCell";
@@ -125,7 +125,10 @@ export async function changeSingleCrystal(name: string, input: Input, port: Sing
         ...(torsions.length ? [`the torsion${torsions.length === 1 ? "" : "s"} ${torsions.map((p) => `rot_${p}`).join(", ")} (fixed) refine${torsions.length === 1 ? "s" : ""} with the positions`] : []),
         ...(free.length ? [`${free.join(", ")} keep${free.length === 1 ? "s" : ""} ${free.length === 1 ? "its" : "their"} position rows (fixed), to refine — restrained where the data are weak`] : []),
       ];
-      return `${rules.length} hydrogen${rules.length === 1 ? " rides" : "s ride"}: ${ridingSummary(placed)}${note ? `; ${note}` : ""}.${odd ? ` ${odd}` : ""}${rows.length ? ` Free with set_free: ${rows.join("; ")}.` : ""} The last fit is cleared: refine again.`;
+      // A hydrogen whose position refines rides by its U only: counted apart, as SHELXL's −1.2 is not an AFIX.
+      const riders = rules.length - free.length;
+      const head = `${riders} hydrogen${riders === 1 ? " rides" : "s ride"}${free.length ? `, ${free.length} refine${free.length === 1 ? "s its position" : " their positions"} with U riding` : ""}`;
+      return `${head}: ${ridingSummary(placed)}${note ? `; ${note}` : ""}.${odd ? ` ${odd}` : ""}${rows.length ? ` Free with set_free: ${rows.join("; ")}.` : ""} The last fit is cleared: refine again.`;
     }
     case "tie_parameters": {
       const update = scTieUpdate(s, input);
@@ -136,7 +139,12 @@ export async function changeSingleCrystal(name: string, input: Input, port: Sing
       port.setMerged(!!input.on);
       if (!input.on) return `Every measurement is fitted again: ${s.totalReflections} reflections. The omissions and the last fit are cleared.`;
       const m = mergedDataset(s.dataset, s.structure.spaceGroup.operations);
-      return `${s.totalReflections} measurements merged into ${m.reflections.length} reflections, ${m.merged!.friedelApart ? "the Friedel opposites kept apart (a non-centrosymmetric group: their difference is the anomalous signal)" : "the Friedel opposites merged too (a centrosymmetric group)"}. R_int ${rIntOf(s)} reads the measurement as loaded. The omissions and the last fit are cleared: refine again.`;
+      const apart = s.merge.friedelApart;
+      const rInt = apart && m.merged!.friedelApart
+        ? `R_int ${pct(apart.rInt)} % for this merge, as SHELXL reports it (${pct(s.merge.rInt)} % in the Laue class, the mates merged)`
+        : `R_int ${rIntOf(s)}${typeof rIntOf(s) === "number" ? " %" : ""}`;
+      const absent = m.merged!.absences ? `, ${m.merged!.absences} systematic absence${m.merged!.absences === 1 ? "" : "s"} left out${m.merged!.absentMeasurements ? ` (${m.merged!.absentMeasurements} measurements)` : ""}` : "";
+      return `${s.totalReflections} measurements merged into ${m.reflections.length} reflections, ${m.merged!.friedelApart ? "the Friedel opposites kept apart (a non-centrosymmetric group: their difference is the anomalous signal)" : "the Friedel opposites merged too (a centrosymmetric group)"}${absent}. ${rInt}; the data reading keeps the measurement as loaded. The omissions and the last fit are cleared: refine again.`;
     }
     case "restrain_distances": {
       const next = restraintsAfter(s, input);
@@ -305,8 +313,11 @@ export function describeSingleCrystalChange(spec: LiveToolSpec, input: Input, s:
     case "set_riding_hydrogens": {
       const hydrogens = new Set(s.structure.sites.filter((site) => isHydrogen(site)).map((site) => site.label));
       if (!input.on) return `Hydrogens refine on their own again: ${hydrogens.size} hydrogen${hydrogens.size === 1 ? "" : "s"} get their own position and B rows (fixed, at the loaded positions)`;
-      const rows = new Set(s.bindings.filter((b) => b.targetKey !== undefined && hydrogens.has(b.targetKey)).map((b) => b.parameterId)).size;
       const rules = ridingRules({ ...s.refinedStructure, riding: [] }, ridingOptionsOf(input)).rules;
+      // A hydrogen whose position refines keeps its position rows: only its U leaves.
+      const placed = new Set(rules.filter((r) => r.geometry === "free").map((r) => r.site));
+      const positional = new Set(["positionShift", "atomX", "atomY", "atomZ"]);
+      const rows = new Set(s.bindings.filter((b) => b.targetKey !== undefined && hydrogens.has(b.targetKey) && !(placed.has(b.targetKey) && positional.has(b.kind))).map((b) => b.parameterId)).size;
       const counts = (Object.keys(AFIX) as RidingRule["geometry"][]).flatMap((g) => {
         const n = rules.filter((r) => r.geometry === g).length;
         return n ? [`${n} ${g === "free" ? "with their positions refined" : `AFIX ${AFIX[g]}`}`] : [];
@@ -390,8 +401,18 @@ function adpTieGroups(s: SingleCrystalLiveState, labels: readonly string[]): str
 function tieNote(s: SingleCrystalLiveState, update: EqualTieUpdate): string | undefined {
   const fixedLeaders = [...(update.complement ? [update.complement[0]] : []), ...(update.groups ?? []).map((g) => g[0]!), ...(update.equal ? [update.equal[0]!] : [])]
     .filter((id) => s.parameters.find((p) => p.id === id)?.fixed);
+  // Each site whose ADP rows follow another's, by name (EADP).
+  const siteOf = (id: string): string => s.bindings.find((b) => b.parameterId === id)?.targetKey ?? id;
+  const followed = new Map<string, Set<string>>();
+  for (const g of update.groups ?? []) {
+    for (const f of g.slice(1)) {
+      const site = siteOf(f);
+      (followed.get(site) ?? followed.set(site, new Set()).get(site)!).add(siteOf(g[0]!));
+    }
+  }
   const parts = [
     ...(update.complement ? [`${update.complement[1]} follows 1 − ${update.complement[0]}`] : []),
+    ...[...followed].map(([site, leaders]) => `${site}'s ADP follows ${[...leaders].join(" and ")}'s (EADP)`),
     ...(fixedLeaders.length ? [`the leading row${fixedLeaders.length === 1 ? " is" : "s are"} fixed (${fixedLeaders.join(", ")}): free ${fixedLeaders.length === 1 ? "it" : "them"} with set_free to refine`] : []),
   ];
   return parts.length ? `${parts.join("; ")}.` : undefined;
@@ -426,14 +447,28 @@ function restraintsAfter(s: SingleCrystalLiveState, input: Input): DistanceRestr
   return next;
 }
 
-/** X-ray data with hydrogens refined on their own: a note, or null. Neutron data place them as well as any atom. */
+/**
+ * X-ray data with hydrogens refined on their own: a note, or null. Neutron
+ * data place them as well as any atom. A hydrogen chosen to refine
+ * (set_riding_hydrogens `refine`: a hydride, its U riding) draws a note only
+ * while no restraint holds it.
+ */
 function freeHydrogenNote(s: SingleCrystalLiveState): string | null {
   if (s.probe !== "xray") return null;
   const hydrogens = new Set(s.structure.sites.filter((site) => isHydrogen(site)).map((site) => site.label));
   const free = new Set(s.parameters.filter((p) => !p.fixed && !p.expression).map((p) => p.id));
   const refined = new Set(s.bindings.filter((b) => b.targetKey !== undefined && hydrogens.has(b.targetKey) && free.has(b.parameterId)).map((b) => b.targetKey!));
-  if (refined.size === 0) return null;
-  return `${refined.size} hydrogen${refined.size === 1 ? "" : "s"} refined on ${refined.size === 1 ? "its" : "their"} own against X-ray data: X-rays see a hydrogen's one electron, displaced into its bond, so free positions come out short and scattered and its U poorly defined. Ride them (set_riding_hydrogens), as published structures do, unless the data are good enough to place them — and then say so in the report.`;
+  const chosen = new Set(s.riding.filter((r) => r.geometry === "free").map((r) => r.site));
+  const restrained = new Set(s.distanceRestraints.flatMap((r) => r.pairs.flatMap((p) => [p.from, p.to])));
+  const unasked = [...refined].filter((h) => !chosen.has(h));
+  const loose = [...refined].filter((h) => chosen.has(h) && !restrained.has(h));
+  if (unasked.length > 0) {
+    return `${unasked.length} hydrogen${unasked.length === 1 ? "" : "s"} refined on ${unasked.length === 1 ? "its" : "their"} own against X-ray data: X-rays see a hydrogen's one electron, displaced into its bond, so free positions come out short and scattered and its U poorly defined. Ride them (set_riding_hydrogens), as published structures do, unless the data are good enough to place them — and then say so in the report.`;
+  }
+  if (loose.length > 0) {
+    return `${loose.join(", ")} refine${loose.length === 1 ? "s its position" : " their positions"} as asked, with nothing holding ${loose.length === 1 ? "it" : "them"}: X-rays place a hydrogen beside a heavy atom poorly. Restrain what the chemistry fixes (restrain_distances: SADI on equivalent M–H, or DFIX), and say so in the report.`;
+  }
+  return null;
 }
 
 /** X–H distances no refinement would publish (as a difference map placed them): a note, or null. X-rays see the electron, displaced into the bond; neutrons the nucleus. */
@@ -633,7 +668,36 @@ const measurementKey = (r: SingleCrystalRow): string => `${r.h},${r.k},${r.l},${
  * scatter among themselves are a correction that differs between them
  * (extinction at different wavelengths, before it is refined) or the model.
  */
+/**
+ * What the measurements behind a merged reflection say: each of them against
+ * the reflection's Fc² (symmetry-equivalent under the merge, so one Fc²). One
+ * far from the rest, which agree, is a measurement that failed inside the
+ * merge; all of them off together is the model's misfit.
+ */
+function mergedReading(s: SingleCrystalLiveState, row: SingleCrystalRow): string {
+  const ops = s.structure.spaceGroup.operations;
+  const rotations = s.dataset.merged?.friedelApart ? pointGroupRotations(ops) : laueRotations(ops);
+  const key = canonicalKey(rotations, row.h, row.k, row.l);
+  const members = s.measurement.filter((m) => canonicalKey(rotations, m.h, m.k, m.l) === key);
+  if (members.length < 2 || !(row.fcSq > 0)) return members.length === 1 ? "measured once" : "no measurement behind it";
+  const ratio = (m: (typeof members)[number]): number => Math.max(m.iObs, m.sigma ?? 0, 1e-9 * row.fcSq) / row.fcSq;
+  const logs = members.map((m) => Math.log(ratio(m)));
+  const lm = median(logs);
+  const spread = median(logs.map((v) => Math.abs(v - lm)));
+  let worst = 0;
+  logs.forEach((v, i) => { if (Math.abs(v - lm) > Math.abs(logs[worst]! - lm)) worst = i; });
+  const off = members[worst]!;
+  const apart = Math.abs(logs[worst]! - lm);
+  const n = `merged from ${members.length} measurements at Fo²/Fc² ${sig(Math.exp(lm), 3)} (median, scatter ${sig(Math.exp(spread) - 1, 2)})`;
+  if (members.length >= 3 && apart >= Math.max(0.5, 4 * spread)) {
+    return `${n}, one of them (${hklOf(off)}${off.batch !== undefined ? `, batch ${off.batch}` : ""}) at ${sig(ratio(off), 3)}: a measurement that failed inside the merge`;
+  }
+  if (Math.sign(lm) === Math.sign(row.deltaOverSigma) && Math.abs(lm) >= 0.02) return `${n}: they agree, and the model (or a correction) misses the reflection`;
+  return `${n}: they scatter about the merged value as their σ allow`;
+}
+
 function equivalentsReading(s: SingleCrystalLiveState, row: SingleCrystalRow, keyOf: (r: { h: number; k: number; l: number }) => string): string {
+  if (s.dataset.merged) return mergedReading(s, row);
   const key = keyOf(row);
   const self = measurementKey(row);
   const others = s.allRows.filter((r) => keyOf(r) === key && measurementKey(r) !== self && r.fcSq > 0);
@@ -645,25 +709,35 @@ function equivalentsReading(s: SingleCrystalLiveState, row: SingleCrystalRow, ke
   const spread = logs.length > 1 ? median(logs.map((v) => Math.abs(v - lm))) : 0;
   const lq = Math.log(ratio(row));
   const apart = Math.abs(lq - lm);
-  const n = `${others.length} equivalent${others.length === 1 ? "" : "s"} at Fo²/Fc² ${sig(Math.exp(lm), 2)} (median${others.length > 2 ? `, scatter ${sig(Math.exp(spread) - 1, 2)}` : ""}), this one ${sig(Math.exp(lq), 2)}`;
+  // Three digits: near 1 a few per cent is several σ.
+  const n = `${others.length} equivalent${others.length === 1 ? "" : "s"} at Fo²/Fc² ${sig(Math.exp(lm), 3)} (median${others.length > 2 ? `, scatter ${sig(Math.exp(spread) - 1, 2)}` : ""}), this one ${sig(Math.exp(lq), 3)}`;
   // Failed: off by itself — its equivalents agree among themselves and roughly with the model (within ×1.8, so a
   // fit that one failure drags still counts), and it lies farther from the model than they do.
   if (Math.abs(row.deltaOverSigma) >= 6 && Math.abs(lm) <= 0.6 && Math.abs(lq) > Math.abs(lm) && apart >= Math.max(0.5, 4 * spread)) {
     return `${n}: ${others.length >= 2 && (apart >= 1 || Math.abs(row.deltaOverSigma) >= 10) ? "a failed measurement" : "possibly a failed measurement"}`;
   }
+  // The largest of N misfits reaches about √(2 ln N)σ by chance alone (in the weights' esd, under a scheme).
+  const chance = Math.sqrt(2 * Math.log(Math.max(s.rows.length, 2)));
+  if (Math.abs(row.deltaOverEsd ?? row.deltaOverSigma) <= chance) return `${n}: no more than chance — the largest of ${s.rows.length} misfits reaches about ${chance.toFixed(1)}σ with nothing wrong`;
   if (Math.sign(lm) === Math.sign(lq) && Math.abs(lm) >= Math.abs(lq) / 2) return `${n}: the model (or a correction) misses the reflection`;
   return `${n}: they disagree among themselves — a correction that differs between them (extinction or absorption at another wavelength or path), or the model`;
 }
 
-/** The largest misfits fitted, each with its batch and what its equivalents say. */
+/**
+ * The largest misfits fitted, each with its batch and what its equivalents
+ * say. Under a weighting scheme they are ranked and given in the scheme's esd,
+ * as SHELXL lists its most disagreeable reflections, the file's σ beside it.
+ */
 function outliersView(s: SingleCrystalLiveState, count: number): string[] {
   const rotations = laueRotations(s.structure.spaceGroup.operations);
   const keyOf = (r: { h: number; k: number; l: number }): string => canonicalKey(rotations, r.h, r.k, r.l);
+  const misfit = (r: SingleCrystalRow): number => Math.abs(r.deltaOverEsd ?? r.deltaOverSigma);
+  const residual = (r: SingleCrystalRow): string => (r.deltaOverEsd !== undefined ? `Δ/esd ${sig(r.deltaOverEsd, 3)} by the weights (${sig(r.deltaOverSigma, 3)}σ by the file's σ)` : `${sig(r.deltaOverSigma, 3)}σ`);
   return [...s.rows]
     .filter((r) => r.sigma > 0)
-    .sort((a, b) => Math.abs(b.deltaOverSigma) - Math.abs(a.deltaOverSigma))
+    .sort((a, b) => misfit(b) - misfit(a))
     .slice(0, count)
-    .map((r) => `${hklOf(r)}${r.batch !== undefined ? ` (batch ${r.batch})` : ""}: Fo² ${sig(r.foSq, 4)}, Fc² ${sig(r.fcSq, 4)}, ${sig(r.deltaOverSigma, 3)}σ (d ${sig(dSpacing(s.structure.cell, r.h, r.k, r.l), 3)} Å) — ${equivalentsReading(s, r, keyOf)}`);
+    .map((r) => `${hklOf(r)}${r.batch !== undefined ? ` (batch ${r.batch})` : ""}: Fo² ${sig(r.foSq, 4)}, Fc² ${sig(r.fcSq, 4)}, ${residual(r)} (d ${sig(dSpacing(s.structure.cell, r.h, r.k, r.l), 3)} Å) — ${equivalentsReading(s, r, keyOf)}`);
 }
 
 /** How the reflections were measured, when the file says: each at its own wavelength (TOF Laue), in batches. */
@@ -765,6 +839,8 @@ function extinctionView(rows: readonly SingleCrystalRow[]): Record<string, unkno
 function validationOf(s: SingleCrystalLiveState): ScValidation {
   return singleCrystalValidation({
     rows: s.rows.map((r) => ({ h: r.h, k: r.k, l: r.l, foSq: r.foSq, fcSq: r.fcSq, ...(r.sigma > 0 ? { sigma: r.sigma } : {}) })),
+    // Fitting the merge, each shell's R_int still reads the measurement.
+    ...(s.dataset.merged ? { measurement: s.measurement.map((m) => ({ h: m.h, k: m.k, l: m.l, intensity: m.iObs, sigma: m.sigma ?? 0 })) } : {}),
     cell: s.structure.cell,
     spaceGroup: s.structure.spaceGroup,
     nParams: s.parameters.filter((p) => !p.fixed && !p.expression).length,
@@ -846,7 +922,8 @@ const overallScale = (s: SingleCrystalLiveState): number => s.parameters.find((p
 /** What the fit runs on when the equivalents are merged. */
 function mergedText(s: SingleCrystalLiveState): string {
   const m = s.dataset.merged!;
-  return `the equivalents merged as SHELXL's MERG 2: ${m.from} measurements → ${s.dataset.reflections.length} reflections, ${m.friedelApart ? "the Friedel opposites apart" : "the Friedel opposites merged (centrosymmetric)"}${m.absences ? `, ${m.absences} systematic absence${m.absences === 1 ? "" : "s"} left out` : ""}`;
+  const absences = m.absences ? `, ${m.absences} systematic absence${m.absences === 1 ? "" : "s"} left out${m.absentMeasurements ? ` (${m.absentMeasurements} of the measurements: ${m.from - m.absentMeasurements} without them, the count SHELXL reports)` : ""}` : "";
+  return `the equivalents merged as SHELXL's MERG 2: ${m.from} measurements → ${s.dataset.reflections.length} reflections, ${m.friedelApart ? "the Friedel opposites apart" : "the Friedel opposites merged (centrosymmetric)"}${absences}`;
 }
 
 /** reflection_statistics: the data before the model. */
@@ -860,7 +937,15 @@ function statisticsView(s: SingleCrystalLiveState): Record<string, unknown> {
   const f = st.friedel;
   const hkl = (x: { h: number; k: number; l: number }): string => `${x.h} ${x.k} ${x.l}`;
   return {
-    reflections: { measured: s.dataset.merged ? s.totalReflections : s.observationCount, unique: s.merge.unique, redundancy: sig(s.merge.redundancy, 3), rInt: rIntOf(s), rSigma: pct(s.merge.rSigma), ...(s.dataset.merged ? { fitted: mergedText(s) } : {}) },
+    reflections: {
+      measured: s.dataset.merged ? s.totalReflections : s.observationCount,
+      unique: s.merge.unique,
+      redundancy: sig(s.merge.redundancy, 3),
+      rInt: rIntOf(s),
+      ...(f.rIntApart !== undefined ? { rIntFriedelApart: pct(f.rIntApart), rIntNote: "rInt merges each reflection's Laue-class equivalents, the Friedel mates among them; rIntFriedelApart keeps the mates apart and leaves the absences out, as SHELXL merges a non-centrosymmetric group and reports it. The difference is what the mates differ by: the anomalous signal." } : {}),
+      rSigma: pct(s.merge.rSigma),
+      ...(s.dataset.merged ? { fitted: mergedText(s) } : {}),
+    },
     ...(s.dataset.origin === "refinement-listing" ? { origin: LISTING_NOTE } : {}),
     resolution: { dMin: sig(v.dMin, 4), sinThetaOverLambdaMax: sig(v.sinThetaOverLambdaMax, 4), ...(v.completeness !== undefined ? { completeness: pct(v.completeness) } : {}), uniqueAllowed: v.uniqueAllowed ?? v.uniqueObserved, ...(v.uniqueExpected !== undefined ? { uniqueExpected: v.uniqueExpected } : {}) },
     shells: v.shells.map((sh) => ({
@@ -873,7 +958,7 @@ function statisticsView(s: SingleCrystalLiveState): Record<string, unknown> {
     })),
     friedel: f.centrosymmetric
       ? "centrosymmetric group: Friedel mates are equivalent; no absolute structure to determine"
-      : `${f.withMate} of the ${f.unique - f.centric} acentric reflections unique under the point group have their Friedel mate measured (${pct(f.fraction)} %)${f.centric ? `; ${f.centric} more are centric (no Bijvoet pair)` : ""}${f.fraction < 0.2 ? ": the Friedel pairs were merged (or never measured) — the absolute structure cannot be determined from these data" : ""}${f.rIntApart !== undefined ? `. R_int with the Friedel mates apart and the absences left out, as SHELXL merges this group and reports it: ${pct(f.rIntApart)} % (${rIntOf(s)} % above merges them in the Laue class; the excess is what the mates differ by, the anomalous signal)` : ""}`,
+      : `${f.withMate} of the ${f.unique - f.centric} acentric reflections unique under the point group have their Friedel mate measured (${pct(f.fraction)} %)${f.centric ? `; ${f.centric} more are centric (no Bijvoet pair)` : ""}${f.fraction < 0.2 ? ": the Friedel pairs were merged (or never measured) — the absolute structure cannot be determined from these data" : ""}`,
     absences: st.absences.measured === 0
       ? "no reflection the space group forbids was measured (or the file left them out)"
       : {
@@ -899,7 +984,7 @@ function statisticsView(s: SingleCrystalLiveState): Record<string, unknown> {
 
 function assessment(s: SingleCrystalLiveState): Record<string, unknown> {
   if (!s.result) throw new Error("there is no refinement result on screen — refine first (a model change clears the last result)");
-  const a = assess_refinement({ result: s.result, parameters: [...s.parameters], observationCount: s.observationCount, mode: "single-crystal", restraints: s.restraints });
+  const a = assess_refinement({ result: s.result, parameters: [...s.parameters], observationCount: s.observationCount, mode: "single-crystal", restraints: s.restraints, disorder: disorderAssemblies(s.structure, s.bindings) });
   const v = validationOf(s);
   const npd = nonPositiveDefiniteSites(s.refinedStructure);
   return {
@@ -955,7 +1040,7 @@ function restraintsView(s: SingleCrystalLiveState): Record<string, unknown> {
 /** The report's checks: the engine's view of the fit on screen. */
 export function singleCrystalReportChecks(s: SingleCrystalLiveState, probe: RefinementResult | null = null): ReportCheck[] {
   if (!s.result || s.structure.sites.length === 0) return [noResultCheck()];
-  const a = assess_refinement({ result: s.result, parameters: [...s.parameters], observationCount: s.observationCount, mode: "single-crystal", restraints: s.restraints });
+  const a = assess_refinement({ result: s.result, parameters: [...s.parameters], observationCount: s.observationCount, mode: "single-crystal", restraints: s.restraints, disorder: disorderAssemblies(s.structure, s.bindings) });
   const v = validationOf(s);
   const checks: ReportCheck[] = [
     convergenceCheck(s.result),
@@ -964,8 +1049,8 @@ export function singleCrystalReportChecks(s: SingleCrystalLiveState, probe: Refi
     boundsCheck(s.result, s.parameters),
     {
       name: "Data",
-      status: s.merge.rInt > 0.1 || (v.completeness !== undefined && v.completeness < 0.95) ? "note" : "pass",
-      detail: `${s.observationCount} reflections, ${s.merge.unique} unique (R_int ${s.merge.redundancy <= 1 + 1e-9 ? "n/a, merged data" : `${pct(s.merge.rInt)} %`}, R_σ ${pct(s.merge.rSigma)} %), d_min ${sig(v.dMin, 4)} Å${v.completeness !== undefined ? `, completeness ${pct(v.completeness)} %` : ""}; ${sig(v.reflectionsPerParameter, 3)} unique reflections per free parameter.${s.dataset.origin === "refinement-listing" ? ` ${LISTING_NOTE}` : ""}`,
+      status: (s.merge.friedelApart ?? s.merge).rInt > 0.1 || (v.completeness !== undefined && v.completeness < 0.95) ? "note" : "pass",
+      detail: dataLine(s, v),
     },
     {
       name: "Extinction",
@@ -986,6 +1071,17 @@ export function singleCrystalReportChecks(s: SingleCrystalLiveState, probe: Refi
     status: "note",
     detail: `By intensity (weakest to strongest): ${v.bins.map((b) => `K ${sig(b.k, 3)}, GooF ${sig(b.goof, 3)}`).join("; ")}.`,
   });
+  // The scheme in use beside SHELXL's suggestion for the model as refined, as SHELXL prints both.
+  if (s.weighting) {
+    const sug = suggestionOf(s);
+    checks.push({ name: "Weights", status: "note", detail: `${weightingText(s.weighting)} in use; SHELXL's suggestion for the model as refined: WGHT ${sug.a} ${sug.b} (GooF ${sig(sug.goof, 3)}, by intensity bin ${sug.bins.map((g) => sig(g, 2)).join(", ")}).` });
+  }
+  // Against a published refinement loaded with its su's: the shifts, the ADPs and the esds, in the report so the account can quote them.
+  if (s.structure.sites.some((site) => site.su)) {
+    const cmp = compareWithLoaded(structureTable(s.refinedStructure, 0, s.parameters, s.bindings, s.result.esd), s.refinedStructure, s.structure) as { positions?: string; adps?: string; esds?: Record<string, string> };
+    const esds = cmp.esds ? Object.entries(cmp.esds).filter(([k]) => k !== "reading").map(([k, v]) => `${k === "uij" ? "U^ij" : k} ${v}`).join("; ") : "";
+    if (cmp.positions) checks.push({ name: "Against the model loaded", status: "note", detail: `${cmp.positions}; ${cmp.adps ?? ""}${esds ? `. Refined esd / published su: ${esds}` : ""}.` });
+  }
   const batches = batchView(s.rows);
   if (batches) checks.push({ name: "Batches", status: "note", detail: `${String(batches.batches)} batches, K ${String(batches.K)}; farthest: ${(batches.farthest as string[]).slice(0, 3).join("; ")}.` });
   if (v.outliers.length > 0) {
@@ -997,6 +1093,25 @@ export function singleCrystalReportChecks(s: SingleCrystalLiveState, probe: Refi
   if (bv) checks.push(bv);
   checks.push(...findingChecks(a));
   return checks;
+}
+
+/**
+ * The report's data line, in SHELXL's terms: merged, the measurements and the
+ * reflections they became; R_int as SHELXL reports it (a non-centrosymmetric
+ * group's with the Friedel mates apart); data per parameter as SHELXL counts them.
+ */
+function dataLine(s: SingleCrystalLiveState, v: ScValidation): string {
+  const m = s.merge;
+  const apart = m.friedelApart;
+  const merged = s.dataset.merged;
+  const rInt = m.redundancy <= 1 + 1e-9
+    ? "R_int n/a, merged data"
+    : apart ? `R_int ${pct(apart.rInt)} % with the Friedel mates apart, as SHELXL reports it (${pct(m.rInt)} % in the Laue class)` : `R_int ${pct(m.rInt)} %`;
+  const counts = merged
+    ? `${merged.from} measurements merged as SHELXL's MERG 2 into ${s.dataset.reflections.length} reflections${merged.friedelApart ? ", the Friedel opposites apart" : ""}${s.observationCount < s.dataset.reflections.length ? `, ${s.observationCount} of them fitted` : ""}`
+    : `${s.observationCount} reflections, ${m.unique} unique`;
+  const pairs = v.independent > (v.uniqueAllowed ?? v.uniqueObserved) ? " (the Friedel pairs apart, as SHELXL counts its data)" : "";
+  return `${counts} (${rInt}, R_σ ${pct((apart ?? m).rSigma)} %), d_min ${sig(v.dMin, 4)} Å${v.completeness !== undefined ? `, completeness ${pct(v.completeness)} %` : ""}; ${sig(v.reflectionsPerParameter, 3)} independent reflections per free parameter${pairs}.${s.dataset.origin === "refinement-listing" ? ` ${LISTING_NOTE}` : ""}`;
 }
 
 /** The correction's reach, for the report: the smallest y and how many reflections fall below 0.8. */

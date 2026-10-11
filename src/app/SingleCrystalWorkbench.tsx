@@ -25,7 +25,7 @@ import type { Vec3 } from "@/core/math/types";
 import type { ReflectionObsCalc } from "@/core/workflow/obsCalc";
 import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import { CANCELLED, type ComputeClient } from "@/workers/computeClient";
-import { mergeEquivalents } from "@/core/diffraction/merge";
+import { measurementMerge } from "@/core/diffraction/merge";
 import {
   SINGLE_CRYSTAL_REFINE_OPTIONS,
   buildSingleCrystalSpec,
@@ -40,8 +40,8 @@ import {
 } from "@/core/workflow/singleCrystalRefinement";
 import { EXTINCTION_MODELS, EXTINCTION_MODEL_LABELS, EXTINCTION_PARAMETER_LABELS, suggestShelxWeighting, type WeightingSuggestion } from "@/core/diffraction/singleCrystalFactors";
 import { isHydrogen, nonPositiveDefiniteSites, withAdpModel } from "@/core/crystal/adp";
-import { ridingRules, type RidingOptions } from "@/core/crystal/riding";
-import { withEqualTies, type EqualTieUpdate } from "@/core/refinement/constraints";
+import { ridingRules, ridingStepLabel, type RidingOptions } from "@/core/crystal/riding";
+import { tieStepLabel, withEqualTies, type EqualTieUpdate } from "@/core/refinement/constraints";
 import { keptRow, withValidUserTies } from "@/app/powderSession";
 import { dSpacing } from "@/core/crystal/unitCell";
 import { isMagneticModelParameterKind } from "@/core/refinement/types";
@@ -274,7 +274,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
 
   // Laue-equivalent merge report (data quality — R_int, redundancy) on the active set, or on the measurement as loaded when the fit runs on its merge.
   const merge = useMemo(
-    () => mergeEquivalents(
+    () => measurementMerge(
       (merged ? dataset : activeDataset).reflections.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.iObs, sigma: r.sigma ?? 0 })),
       structure.spaceGroup.operations,
     ),
@@ -659,7 +659,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
     ]));
     setRiding(nextRiding);
     setResult(null);
-    stepHistory?.requestStep("settings", nextRiding ? `${nextRiding.length} hydrogens riding` : "Hydrogens refined on their own");
+    stepHistory?.requestStep("settings", nextRiding ? ridingStepLabel(nextRiding) : "Hydrogens refined on their own");
     return rules && rules.unbonded.length ? `not riding (no parent in bonding distance): ${rules.unbonded.join(", ")}` : null;
   }
 
@@ -701,7 +701,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
    */
   function changeParameterTies(update: EqualTieUpdate): void {
     setParams((ps) => withValidUserTies(withEqualTies(ps, update)));
-    stepHistory?.requestStep("edit", update.complement ? `${update.complement[1]} = 1 − ${update.complement[0]}` : update.release ? `Released ${update.release.join(", ")}` : "Parameters tied");
+    stepHistory?.requestStep("edit", tieStepLabel(update));
   }
 
   /** The distance restraints, replaced as a whole: they change what the fit minimizes, so the last fit is cleared. */
@@ -998,7 +998,8 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
       onFile: onLoadData ?? noop,
       chip: "✓ loaded",
       title: dataset.name,
-      meta: `${probeLabel}${wl} · ${st.observations} obs → ${st.unique} unique · ${st.redundancy > 1 + 1e-9 ? `R_int ${pct(st.rInt)}` : "merged"}${dataset.origin === "refinement-listing" ? " · a refinement's listing" : ""}`,
+      // A non-centrosymmetric group's merge as SHELXL reports it: the Friedel mates apart, the absences out.
+      meta: `${probeLabel}${wl} · ${st.observations} obs → ${st.friedelApart ? `${st.friedelApart.unique} unique (Friedel apart)` : `${st.unique} unique`} · ${st.redundancy > 1 + 1e-9 ? `R_int ${pct(st.friedelApart && st.friedelApart.redundancy > 1 + 1e-9 ? st.friedelApart.rInt : st.rInt)}` : "merged"}${dataset.origin === "refinement-listing" ? " · a refinement's listing" : ""}`,
       control: (
         <div style={{ display: "inline-flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <ProbeToggle probe={probe} onChange={(p) => changeRadiation({ probe: p })} />

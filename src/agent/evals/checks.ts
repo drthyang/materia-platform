@@ -575,3 +575,85 @@ export const weightsLast: Check = {
   },
 };
 
+
+/**
+ * A measurement with its equivalents is merged as SHELXL merges it before the
+ * first refinement (round 3: 1b's CIF carries 13169 measurements, which SHELXL
+ * refines as 2482 reflections; R1, wR2 and GooF are only SHELXL's on those).
+ */
+export const mergesFirst: Check = {
+  name: "merges the equivalents (SHELXL's MERG 2) before the first refinement",
+  grade: (run) => {
+    const all = calls(run);
+    const merge = all.findIndex((c) => c.name === "merge_equivalents" && !c.isError && c.input.on === true);
+    const refine = all.findIndex((c) => c.name === "refine");
+    if (merge < 0) return fail("never merged the equivalents");
+    if (refine >= 0 && refine < merge) return fail("refined every measurement before merging");
+    return scState(run)?.dataset.merged ? ok(`merged ${scState(run)!.dataset.merged!.from} measurements before refining`) : fail("ends unmerged");
+  },
+};
+
+/**
+ * A non-centrosymmetric X-ray structure with an anomalous scatterer and its
+ * Friedel pairs measured refines the inversion twin, and the Flack x is
+ * reported with its esd (round 3: 1b is an inversion twin, x = 0.435(15)).
+ */
+export const refinesFlack: Check = {
+  name: "refines the inversion twin and reports the Flack x with its esd",
+  grade: (run) => {
+    const all = calls(run);
+    const twin = all.findIndex((c) => c.name === "set_twin" && !c.isError && c.input.law === "inversion");
+    if (twin < 0) return fail("never set the inversion twin");
+    const refined = all.some((c, i) => i > twin && c.name === "refine" && json(c.text)?.refined === true && (c.free ?? []).includes("twin_1"));
+    if (!refined) return fail("never refined the twin fraction");
+    const fit = scState(run)?.result;
+    const x = fit?.parameters.twin_1;
+    const esd = fit?.esd.twin_1;
+    if (x === undefined || esd === undefined) return fail("ends with no refined Flack x on screen");
+    // The x quoted with its esd, as the engine has it: within its esd, or the rounding of the digits quoted.
+    const quoted = sentences(replies(run).join("\n")).filter((t) => /Flack/i.test(t)).flatMap((t) => [...t.matchAll(/(\d\.(\d+))\(\d+\)/g)].map((m) => ({ t, v: Number(m[1]), digits: m[2]!.length })));
+    if (quoted.length === 0) return fail("never reports the Flack x with its esd");
+    const right = quoted.find((q) => Math.abs(q.v - x) <= Math.max(esd, 0.51 * 10 ** -q.digits));
+    return right
+      ? ok(`reports "${right.t.slice(0, 80)}" (the engine's x ${x.toFixed(4)}, esd ${esd.toFixed(4)})`)
+      : fail(`quotes x = ${quoted[0]!.v}, where the engine's is ${x.toFixed(4)} (esd ${esd.toFixed(4)})`);
+  },
+};
+
+/**
+ * A disorder's two alternatives are tied as SHELXL ties them (the second
+ * occupancy one minus the first) before an occupancy refines (round 3: 1b's
+ * Al1/Ga1, 21/−21 with EADP).
+ */
+export const tiesDisorder: Check = {
+  name: "ties a disorder's occupancies to add up to one before refining them",
+  grade: (run) => {
+    const all = calls(run);
+    const tie = all.findIndex((c) => c.name === "tie_parameters" && !c.isError && Array.isArray(c.input.complement));
+    const occ = all.findIndex((c) => c.name === "refine" && json(c.text)?.refined === true && (c.free ?? []).some((id) => id.startsWith("occ_")));
+    if (occ < 0) return fail("never refined the split");
+    if (tie < 0 || tie > occ) return fail("refined the occupancies untied");
+    const s = scState(run);
+    return s?.parameters.some((p) => p.kind === "occupancy" && p.expression) ? ok("tied the split, then refined it") : fail("ends with the occupancies untied");
+  },
+};
+
+/**
+ * A hydride refined beside a heavy metal on X-ray data is held by distance
+ * restraints (round 3: 1b's five hydrides refined under 8 SADI).
+ */
+export const restrainsHydrides: Check = {
+  name: "restrains the hydrides whose positions refine",
+  grade: (run) => {
+    const all = calls(run);
+    const at = all.findIndex((c) => c.name === "refine" && json(c.text)?.refined === true && (c.free ?? []).some((id) => /^pos_H/.test(id)));
+    if (at < 0) return fail("never refined a hydrogen's position");
+    const freed = new Set((all[at]!.free ?? []).flatMap((id) => /^pos_(H.*)_[0-2]$/.exec(id)?.[1] ?? []));
+    // Every hydrogen whose position refines named in a restraint added before.
+    const held = new Set(all.slice(0, at)
+      .filter((c) => c.name === "restrain_distances" && !c.isError && Array.isArray(c.input.add))
+      .flatMap((c) => (c.input.add as { pairs?: unknown }[]).flatMap((r) => (Array.isArray(r.pairs) ? r.pairs : []).flatMap((p) => (Array.isArray(p) ? p.map(String) : [])))));
+    const loose = [...freed].filter((h) => !held.has(h));
+    return loose.length === 0 ? ok(`restrained ${[...freed].join(", ")}, then refined`) : fail(`refined ${loose.join(", ")} with no restraint on ${loose.length === 1 ? "it" : "them"}`);
+  },
+};

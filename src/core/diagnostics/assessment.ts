@@ -113,6 +113,9 @@ export interface AssessmentInput {
   /** The restraints the fit ran with: two parameters in one move together by
    *  construction, so their correlation is noted once, not warned about. */
   readonly restraints?: readonly LinearRestraint[];
+  /** Each parameter of a disordered site by its assembly (SHELXL's PART groups):
+   *  the alternatives of one disorder correlate by construction, noted once. */
+  readonly disorder?: ReadonlyMap<string, string>;
   /** Displacement parameters of sites several atoms share (a mixed site): at a
    *  bound, the mixing is the first suspect. */
   readonly sharedSiteAdps?: readonly string[];
@@ -469,6 +472,24 @@ export function assessRefinement(input: AssessmentInput): RefinementAssessment {
   const tiedBy = (c: { parameterIdA: string; parameterIdB: string }) =>
     restraints.find((r) => r.terms.some((t) => t.parameterId === c.parameterIdA) && r.terms.some((t) => t.parameterId === c.parameterIdB));
   const tiedPairs = (diag?.highCorrelations ?? []).filter((c) => !curveOf(c) && tiedBy(c));
+  // The alternatives of one disorder, a few tenths of an ångström apart, scatter almost as one.
+  const assemblyOf = (c: { parameterIdA: string; parameterIdB: string }): string | undefined => {
+    const a = input.disorder?.get(c.parameterIdA);
+    return a !== undefined && input.disorder?.get(c.parameterIdB) === a ? a : undefined;
+  };
+  const disorderPairs = (diag?.highCorrelations ?? []).filter((c) => !curveOf(c) && !tiedBy(c) && assemblyOf(c) !== undefined);
+  if (disorderPairs.length > 0) {
+    const top = Math.max(...disorderPairs.map((c) => Math.abs(c.coefficient)));
+    const names = [...new Set(disorderPairs.map((c) => assemblyOf(c)!))].map((a) => (a ? `assembly ${a}` : "the disorder")).join(", ");
+    findings.push({
+      category: "correlation",
+      severity: "info",
+      summary: `One disorder's parameters correlate (up to ${top.toFixed(3)}): ${names}.`,
+      detail: "Expected: two alternatives a few tenths of an ångström apart scatter almost as one, so their positions and shared ADP trade off by construction. SHELXL refines them together, and the full covariance carries the correlation into their esds, which are what to quote; a split the data cannot resolve shows as a null direction.",
+      parameterIds: [...new Set(disorderPairs.flatMap((c) => [c.parameterIdA, c.parameterIdB]))],
+      evidence: { pairs: disorderPairs.length, maxCoefficient: top },
+    });
+  }
   if (tiedPairs.length > 0) {
     const top = Math.max(...tiedPairs.map((c) => Math.abs(c.coefficient)));
     findings.push({
@@ -494,7 +515,7 @@ export function assessRefinement(input: AssessmentInput): RefinementAssessment {
     });
   }
   for (const c of diag?.highCorrelations ?? []) {
-    if (curveOf(c) || tiedBy(c)) continue;
+    if (curveOf(c) || tiedBy(c) || assemblyOf(c) !== undefined) continue;
     const a = byId.get(c.parameterIdA);
     const b = byId.get(c.parameterIdB);
     const insight = a && b ? correlationInsight(a.kind, b.kind) : undefined;

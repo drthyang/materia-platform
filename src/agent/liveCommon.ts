@@ -12,6 +12,7 @@ import type { StructureModel } from "@/core/crystal/types";
 import { bondValenceReading, bondValenceSums } from "@/core/crystal/bondValence";
 import { withEsd } from "@/agent/structureTable";
 import { bondEsds, bondKeys } from "@/core/workflow/bondEsds";
+import { covalentlyBonded } from "@/core/crystal/geometry";
 
 export { bondEsds };
 
@@ -94,6 +95,12 @@ export function uniqueBonds(structure: StructureModel, input: Input, bondGeometr
   return { shortest: geo.shortest, bonds };
 }
 
+/** The shortest bond, its length to five significant digits (0.98, not 0.9799999999999989). */
+function shortestOf(shortest: unknown): unknown {
+  const s = shortest as { distance?: unknown } | null;
+  return s && typeof s.distance === "number" ? { ...s, distance: sig(s.distance, 5) } : shortest;
+}
+
 /** The bond_geometry tool on a page's refined phases; with `esds`, each bond's esd from the refined positions. */
 export function bondsOf(refinedPhases: readonly StructureModel[], input: Input, bondGeometry: BondGeometry, esds?: (phase: StructureModel) => Map<string, number>): unknown {
   const phase = input.phase ? refinedPhases.find((p) => p.id === input.phase) : refinedPhases[0];
@@ -107,14 +114,21 @@ export function bondsOf(refinedPhases: readonly StructureModel[], input: Input, 
   const asked = Array.isArray(input.atoms) && input.atoms.length > 0 ? new Set(input.atoms as string[]) : null;
   const unknown = asked ? [...asked].filter((label) => !phase.sites.some((site) => site.label === label)) : [];
   if (unknown.length) throw new Error(`no site ${unknown.join(", ")} in ${phase.id} — sites: ${phase.sites.map((site) => site.label).join(", ")}`);
-  const listed = bonds.map((b, i) => ({ b, key: keys[i]! })).filter(({ b }) => !asked || asked.has(b.from ?? "") || asked.has(b.to ?? ""));
+  const all = bonds.map((b, i) => ({ b, key: keys[i]! })).filter(({ b }) => !asked || asked.has(b.from ?? "") || asked.has(b.to ?? ""));
+  // In a molecular structure (one with carbon) a bond is what the covalent radii make one; the rest are contacts.
+  const molecular = phase.sites.some((site) => site.element === "C");
+  const elementOf = new Map(phase.sites.map((site) => [site.label, site.element]));
+  const bonded = (b: { from?: string; to?: string; distance: number }): boolean => covalentlyBonded(elementOf.get(b.from ?? "") ?? "", elementOf.get(b.to ?? "") ?? "", b.distance);
+  const listed = molecular ? all.filter(({ b }) => bonded(b)) : all;
+  const contacts = molecular ? all.filter(({ b }) => !bonded(b)) : [];
   // A riding hydrogen's bond to its parent is set by the constraint: no esd.
   const pair = (a?: string, b?: string): string => [a ?? "", b ?? ""].sort().join("–");
   const riding = new Set((phase.riding ?? []).filter((r) => r.geometry !== "free").map((r) => pair(r.site, r.parent)));
   return {
     phase: phase.id,
-    shortest: geo.shortest,
+    shortest: shortestOf(geo.shortest),
     ...(listed.length > 40 ? { listed: `the 40 shortest of ${listed.length} bonds${asked ? ` to ${[...asked].join(", ")}` : ""} up to the cutoff: name the atoms (atoms) to see the others` } : {}),
+    ...(contacts.length ? { contacts: `${contacts.length} longer contact${contacts.length === 1 ? "" : "s"} up to the cutoff, not bonds by the covalent radii (their sum + 0.4 Å): ${contacts.slice(0, 8).map(({ b }) => `${b.from}···${b.to} ${b.distance.toFixed(3)} Å`).join(", ")}${contacts.length > 8 ? ", …" : ""}` } : {}),
     bonds: listed.slice(0, 40).map(({ b, key }) => {
       if (riding.has(pair(b.from, b.to))) return { ...b, distance: sig(b.distance, 5), length: `${b.distance.toFixed(4)} (riding: set by the constraint, no esd)` };
       const e = esdByKey?.get(key);

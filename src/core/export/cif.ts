@@ -77,6 +77,8 @@ export interface EsdMap {
   readonly occ: Map<string, number>;
   /** site label → [σx, σy, σz] on the fractional coordinates. */
   readonly pos: Map<string, [number, number, number]>;
+  /** site label → the su of U11, U22, U33, U12, U13, U23, from the refined U modes (taken as independent). */
+  readonly uAniso: Map<string, [number, number, number, number, number, number]>;
 }
 
 /**
@@ -93,10 +95,12 @@ export function buildEsdMap(params: readonly RefinementParameter[], bindings: re
   const bIso = new Map<string, number>();
   const occ = new Map<string, number>();
   const posVar = new Map<string, [number, number, number]>();
+  const uVar = new Map<string, [number, number, number, number, number, number]>();
 
   for (const b of bindings) {
     const p = byId.get(b.parameterId);
-    if (!p || p.fixed || p.esd === undefined || !(p.esd > 0)) continue;
+    // A tied row that carries an esd (its leader's, scaled) gives its site one, as SHELXL's Ga1 occupancy 0.156(2) under 21/−21.
+    if (!p || (p.fixed && !p.expression) || p.esd === undefined || !(p.esd > 0)) continue;
     const e = p.esd;
     if (b.kind === "cellLength" || b.kind === "cellAngle") {
       if (b.targetKey) cell[b.targetKey as keyof UnitCell] = e;
@@ -108,11 +112,17 @@ export function buildEsdMap(params: readonly RefinementParameter[], bindings: re
       const v = posVar.get(b.targetKey) ?? [0, 0, 0];
       for (let i = 0; i < 3; i++) v[i]! += (b.axis[i]! * e) ** 2;
       posVar.set(b.targetKey, v);
+    } else if (b.kind === "uAniso" && b.targetKey && b.uBasis) {
+      const v = uVar.get(b.targetKey) ?? [0, 0, 0, 0, 0, 0];
+      for (let i = 0; i < 6; i++) v[i]! += (b.uBasis[i]! * e) ** 2;
+      uVar.set(b.targetKey, v);
     }
   }
   const pos = new Map<string, [number, number, number]>();
   for (const [k, v] of posVar) pos.set(k, [Math.sqrt(v[0]!), Math.sqrt(v[1]!), Math.sqrt(v[2]!)]);
-  return { cell, bIso, occ, pos };
+  const uAniso = new Map<string, [number, number, number, number, number, number]>();
+  for (const [k, v] of uVar) uAniso.set(k, v.map(Math.sqrt) as [number, number, number, number, number, number]);
+  return { cell, bIso, occ, pos, uAniso };
 }
 
 /**
@@ -122,11 +132,13 @@ export function buildEsdMap(params: readonly RefinementParameter[], bindings: re
  */
 export function formatWithEsd(value: number, esd: number | undefined, decimals: number): string {
   if (esd === undefined || !Number.isFinite(esd) || esd <= 0) return value.toFixed(decimals);
-  let d = -Math.floor(Math.log10(esd)) + 1; // two significant figures of the su
+  // The convention SHELXL and the IUCr follow: two significant figures of the su
+  // when they read 10–19 in the last places, one otherwise (0.4293(9), 0.2400(10)).
+  let d = -Math.floor(Math.log10(esd)) + 1;
   if (d < 0) d = 0;
   let su = Math.round(esd * 10 ** d);
-  if (su >= 100) {
-    // Rounding pushed the su to three digits (e.g. 99.6 → 100); drop a place.
+  if (su >= 20) {
+    // One figure (a su of 9.5–9.9 rounds to 10: two figures again, which the convention allows).
     d = Math.max(0, d - 1);
     su = Math.round(esd * 10 ** d);
   }
@@ -201,7 +213,8 @@ function atomSiteBlocks(structure: StructureModel, esd: EsdMap): string {
     ],
     aniso.map((s) => {
       const u = (s.adp as { uAniso: readonly number[] }).uAniso;
-      return [s.label, ...u.map((v) => v.toFixed(5))];
+      const su = esd.uAniso.get(s.label);
+      return [s.label, ...u.map((v, i) => formatWithEsd(v, su?.[i], 5))];
     }),
   );
   return `${atomLoop}\n\n${anisoLoop}`;

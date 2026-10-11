@@ -347,6 +347,55 @@ const REPLAYS: Readonly<Record<string, Replay>> = {
     ],
     catches: ["refines a scale per batch"],
   },
+  "sc-merge-first": {
+    good: [
+      { text: "The method, then the data.", calls: [SC, { name: "reflection_statistics" }] },
+      { text: "Each reflection was measured at two of its equivalents: merged as SHELXL's MERG 2, the Friedel opposites apart, then refined.", calls: [{ name: "merge_equivalents", input: { on: true } }, { name: "refine" }] },
+      { text: "Refined on the merged reflections, as SHELXL refines them: R1, wR2 and GooF are on that set." },
+    ],
+    bad: [
+      { calls: [SC, { name: "refine" }] },
+      { text: "Refined against every measurement." },
+    ],
+    catches: ["merges the equivalents (SHELXL's MERG 2) before the first refinement"],
+  },
+  "sc-absolute-structure": {
+    good: [
+      { text: "The method, then the data: are the Friedel pairs measured apart?", calls: [SC, { name: "reflection_statistics" }] },
+      { text: "They are, and Ga scatters anomalously at Mo Kα: the inversion twin, its fraction the Flack x, refined with the positions.", calls: [{ name: "set_twin", input: { law: "inversion" } }, { name: "set_free", input: { free: ["pos_*"] } }, { name: "refine" }] },
+      { text: "The Flack x refines to 0.305(4): an inversion twin, 30 % of the crystal of the inverted hand. The absolute structure is determined, as a twin of both hands." },
+    ],
+    bad: [
+      { calls: [SC, { name: "set_free", input: { free: ["pos_*"] } }, { name: "refine" }] },
+      { text: "The structure refines well. P2₁2₁2₁ is chiral, so the absolute structure is the model's." },
+    ],
+    catches: ["refines the inversion twin and reports the Flack x with its esd"],
+  },
+  "sc-disorder-tied": {
+    good: [
+      { text: "The method, then the split site as it stands.", calls: [SC, { name: "get_state" }] },
+      { text: "Al1 and Ga1 are one site's alternatives: Ga1's occupancy is one minus Al1's, with one ADP for both (EADP); then the split refines.", calls: [{ name: "tie_parameters", input: { complement: ["Al1", "Ga1"], adp: ["Al1", "Ga1"] } }, { name: "set_free", input: { free: ["occ_Al1"] } }, { name: "refine" }] },
+      { text: "The Al share refined as one fraction, Ga1 taking the rest." },
+    ],
+    bad: [
+      { calls: [SC, { name: "set_free", input: { free: ["occ_Al1", "occ_Ga1"] } }, { name: "refine" }] },
+      { text: "Both occupancies refined." },
+    ],
+    // The guard refuses the bare occupancies; the bad run then claims a refinement that never ran.
+    catches: ["ties a disorder's occupancies to add up to one before refining them", "runs at least 1 converged refinement"],
+  },
+  "sc-hydrides-restrained": {
+    good: [
+      { text: "The method. The hydrogens on carbon ride; H3′ keeps its position to refine, its U riding.", calls: [SC, { name: "set_riding_hydrogens", input: { on: true, refine: ["H3'"] } }] },
+      { text: "X-rays place a hydrogen beside Ga poorly: Ga2–H3′ held near 1.55 Å (DFIX, σ 0.02 Å), then the positions.", calls: [{ name: "restrain_distances", input: { add: [{ kind: "dfix", distance: 1.55, sigma: 0.02, pairs: [["Ga2", "H3'"]] }] } }, { name: "set_free", input: { free: ["pos_*"] } }, { name: "refine" }] },
+      { text: "H3′ refined under the restraint." },
+    ],
+    bad: [
+      { calls: [SC, { name: "set_riding_hydrogens", input: { on: true, refine: ["H3'"] } }, { name: "set_free", input: { free: ["pos_*"] } }, { name: "refine" }] },
+      { text: "H3′ refined freely with the structure." },
+    ],
+    catches: ["restrains the hydrides whose positions refine"],
+  },
 };
 
 async function replay(id: string, turns: readonly ScriptTurn[]): Promise<EvalResult & { overrun: number }> {

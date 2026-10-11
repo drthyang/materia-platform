@@ -311,7 +311,12 @@ export function mergedDataset(dataset: SingleCrystalDataset, operations: readonl
   return {
     ...dataset,
     reflections: allowed.map((r) => ({ h: r.h, k: r.k, l: r.l, iObs: r.intensity, ...(r.sigma > 0 ? { sigma: r.sigma } : {}) })),
-    merged: { from: dataset.reflections.length, friedelApart: !centric, absences: merged.reflections.length - allowed.length },
+    merged: {
+      from: dataset.reflections.length,
+      friedelApart: !centric,
+      absences: merged.reflections.length - allowed.length,
+      absentMeasurements: dataset.reflections.filter((r) => isReflectionAbsent(operations, r.h, r.k, r.l)).length,
+    },
   };
 }
 
@@ -715,6 +720,8 @@ export interface SingleCrystalRefinementComparison {
     readonly foSq: number; readonly fcSq: number; readonly sigma: number;
     /** Standardized residual (Fo²−Fc²)/σ — flags outliers. */
     readonly deltaOverSigma: number;
+    /** Under a weighting scheme, (Fo²−Fc²)·√w: the residual in the scheme's esd, as SHELXL lists its most disagreeable reflections. */
+    readonly deltaOverEsd?: number;
     /** The extinction factor y in Fc² (1 without extinction). */
     readonly extinction: number;
     /** The batch and wavelength it was measured at, when the file gives them. */
@@ -764,5 +771,6 @@ export function singleCrystalRefinementComparison(
   const nFree = parameters.filter((p) => !p.fixed && !p.expression).length;
   const weights = shelxWeights(foSq, fcSq, sigma, weightAB.a ?? 0, weightAB.b ?? 0, applied.scale);
   const agreement = singleCrystalAgreement(foSq, fcSq, sigma, weights, nFree);
-  return { rows, agreement };
+  const scheme = (weightAB.a ?? 0) > 0 || (weightAB.b ?? 0) > 0;
+  return { rows: scheme ? rows.map((r, i) => ({ ...r, deltaOverEsd: (r.foSq - r.fcSq) * Math.sqrt(weights[i]!) })) : rows, agreement };
 }

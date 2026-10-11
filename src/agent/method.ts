@@ -121,24 +121,26 @@ const PDF_STAGES: readonly MethodStage[] = [
 /**
  * sc-workflow: the data first (merging, resolution, completeness, absences),
  * then scale and extinction, positions, isotropic ADPs, anisotropic ADPs; the
- * rest where the data call for it.
+ * rest where the data call for it. A twin's fractions (the Flack x) are overall
+ * terms of the intensities, refined from the start with the scale as SHELXL
+ * refines BASF with the OSF: their stage follows the scale's.
  */
 const SC_STAGES: readonly MethodStage[] = [
   { id: "data", label: "Data quality", kinds: [] },
   { id: "base", label: "Scale, extinction", kinds: ["scale", "extinction", "batchScale"] },
+  { id: "twin", label: "Twin fractions", kinds: ["twinFraction"], optional: true },
   { id: "positions", label: "Positions", kinds: ["atomX", "atomY", "atomZ", "positionShift", "ridingTorsion"] },
   { id: "adp", label: "Isotropic ADPs", kinds: ["bIso"] },
   { id: "aniso", label: "Anisotropic ADPs", kinds: ["uAniso"], optional: true },
   { id: "occupancy", label: "Occupancy", kinds: ["occupancy"], optional: true },
-  { id: "twin", label: "Twin fractions", kinds: ["twinFraction"], optional: true },
 ];
 
 export function stagesFor(page: AgentPage): readonly MethodStage[] {
   return page === "powder" ? POWDER_STAGES : page === "pdf" ? PDF_STAGES : SC_STAGES;
 }
 
-/** Refined with every stage, so they mark the first stage only when nothing else is free. */
-const ALWAYS_FREE: ReadonlySet<ParameterKind> = new Set(["scale", "pdfScale"]);
+/** Refined with every stage, so they mark their own stage only when nothing else is free: the scale, and a twin's fractions with it. */
+const ALWAYS_FREE: ReadonlySet<ParameterKind> = new Set(["scale", "pdfScale", "twinFraction"]);
 
 /**
  * The stages a converged refinement with these parameters free covers. The
@@ -156,7 +158,8 @@ export function stagesCovered(page: AgentPage, free: readonly RefinementParamete
   const covered = stages.map((s) => s.kinds.some((k) => kinds.has(k)));
   const last = covered.lastIndexOf(true);
   const available = all ? new Set(all.map((p) => p.kind)) : null;
-  return stages.filter((s, i) => covered[i] || (available !== null && i < last && s.kinds.length > 0 && !s.kinds.some((k) => available.has(k)))).map((s) => s.id);
+  // A required stage the model has no parameter for is passed by a later one; an optional one (a twin the crystal does not have) stays open.
+  return stages.filter((s, i) => covered[i] || (available !== null && i < last && !s.optional && s.kinds.length > 0 && !s.kinds.some((k) => available.has(k)))).map((s) => s.id);
 }
 
 export interface StageView {
@@ -191,12 +194,14 @@ export function methodProgress(page: AgentPage, record: AgentRecord): MethodProg
  */
 export function outOfOrder(page: AgentPage, free: readonly RefinementParameter[], record: AgentRecord, all?: readonly RefinementParameter[]): string | null {
   const progress = methodProgress(page, record);
-  const covered = new Set(stagesCovered(page, free, all));
+  // A stage the model has no parameter for is passed, not refined: it is never "refined out of order".
+  const refined = new Set(stagesCovered(page, free));
+  const passed = new Set(stagesCovered(page, free, all));
   const stages = stagesFor(page);
   for (let i = 0; i < stages.length; i++) {
     const s = stages[i]!;
-    if (!covered.has(s.id)) continue;
-    const skipped = stages.slice(0, i).filter((e) => !e.optional && e.kinds.length > 0 && !covered.has(e.id) && !progress.stages.find((v) => v.id === e.id)!.done);
+    if (!refined.has(s.id)) continue;
+    const skipped = stages.slice(0, i).filter((e) => !e.optional && e.kinds.length > 0 && !passed.has(e.id) && !progress.stages.find((v) => v.id === e.id)!.done);
     if (skipped.length > 0) {
       return `Out of the method's order (${PAGE_METHOD[page]}): ${s.label.toLowerCase()} refined before ${skipped.map((e) => e.label.toLowerCase()).join(", ")}. Fine if the residual calls for it; say why.`;
     }

@@ -11,7 +11,7 @@ import { generateReflections } from "@/core/diffraction/reflections";
 import { powderPeakIntensities } from "@/core/diffraction/intensity";
 import { knownPhaseStructure } from "@/core/diagnostics/knownPhases";
 import { pdfPort, sessionPort, singleCrystalPort } from "@/testSupport/agentHeadless";
-import { corundumPage, pyridylPage, type CorundumOptions } from "@/testSupport/scPages";
+import { chiralPage, corundumPage, disorderPage, hydridePage, pyridylPage, type CorundumOptions } from "@/testSupport/scPages";
 import { runPowderRefinement } from "@/workers/runPowder";
 import { magneticSubgroupLattice, latticeRepresentatives, latticeCandidateLabel } from "@/core/magnetic/subgroupLattice";
 import { buildMagneticModel } from "@/core/magnetic/momentModel";
@@ -255,3 +255,27 @@ export function scOrganicPage(opts: OrganicPageOptions = {}): SingleCrystalAgent
   return singleCrystalPort(p.structure, dataset).port;
 }
 
+/**
+ * Round 3's 1b framework (testSupport/scPages): Ga, N and C in P2₁2₁2₁ with
+ * Mo Kα, every Friedel pair measured apart, the intensities from an inversion
+ * twin at x = 0.3 and the page loading it untwinned. With `equivalents` above
+ * one, each reflection and its mate are measured that many times at their
+ * rotation equivalents, as the measurement in 1b's CIF is: SHELXL merges it
+ * (MERG 2) before it refines.
+ */
+export function scChiralPage(opts: { readonly equivalents?: number } = {}): SingleCrystalAgentPort {
+  const c = chiralPage(opts);
+  return singleCrystalPort(c.structure, c.dataset).port;
+}
+
+/** 1b's split metal site, Al1 and Ga1 0.2 Å apart (PART 1 and 2 of one assembly), measured at an Al share of 0.84 and loaded at 0.7 and 0.3, untied. */
+export function scDisorderPage(): SingleCrystalAgentPort {
+  const d = disorderPage();
+  return singleCrystalPort(d.structure, d.dataset).port;
+}
+
+/** A fragment of 1b with its hydride H3′ on Ga2 0.2 Å off where the data put it, and the hydrogens on carbon where SHELXL placed them. */
+export function scHydridePage(): SingleCrystalAgentPort {
+  const h = hydridePage();
+  return singleCrystalPort(h.structure, h.dataset).port;
+}

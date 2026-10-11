@@ -289,7 +289,12 @@ export interface ChiralPage {
  * 1.6 e gives Bijvoet differences of a few per cent). The page loads it
  * untwinned, the positions a few hundredths of an ångström off.
  */
-export function chiralPage({ flack = 0.3, seed = 13 }: { readonly flack?: number; readonly seed?: number } = {}): ChiralPage {
+export function chiralPage({ flack = 0.3, seed = 13, equivalents = 1 }: {
+  readonly flack?: number;
+  readonly seed?: number;
+  /** How many of its rotation equivalents each reflection and its Friedel mate are measured at (1: each once), as a diffractometer measures them: what SHELXL merges (MERG 2). */
+  readonly equivalents?: number;
+} = {}): ChiralPage {
   const atoms: [string, string, number, number, number, number][] = [
     ["Ga2", "Ga", 0.20888, 0.61248, 0.17694, 0.035],
     ["N1", "N", 0.3043, 0.55591, -0.04642, 0.035],
@@ -322,9 +327,19 @@ ${atoms.map(([label, element, x, y, z, u], i) => `${label} ${element} ${(x + jit
   const truth = parseCif(cif(0), "chiral");
   const start = parseCif(cif(0.03), "chiral");
   const radiation = { kind: "xray" as const, wavelength: 0.71073, polarization: 0.5 };
-  // Every reflection and its Friedel mate, measured apart.
+  // Every reflection and its Friedel mate, measured apart, each at `equivalents` of its rotation equivalents.
   const unique = generateReflections(truth.cell, truth.spaceGroup, 0.8, 30);
-  const indices = unique.flatMap((r) => (r.h === 0 && r.k === 0 && r.l === 0 ? [] : [{ h: r.h, k: r.k, l: r.l }, { h: -r.h, k: -r.k, l: -r.l }]));
+  const rotations = truth.spaceGroup.operations.map((op) => op.rotation);
+  const measured = (h: number, k: number, l: number): { h: number; k: number; l: number }[] => {
+    const seen = new Map([[`${h},${k},${l}`, { h, k, l }]]);
+    for (const R of rotations) {
+      const e = { h: R[0]![0]! * h + R[1]![0]! * k + R[2]![0]! * l, k: R[0]![1]! * h + R[1]![1]! * k + R[2]![1]! * l, l: R[0]![2]! * h + R[1]![2]! * k + R[2]![2]! * l };
+      seen.set(`${e.h},${e.k},${e.l}`, e);
+    }
+    const all = [...seen.values()];
+    return Array.from({ length: equivalents }, (_, i) => all[i % all.length]!);
+  };
+  const indices = unique.flatMap((r) => (r.h === 0 && r.k === 0 && r.l === 0 ? [] : [...measured(r.h, r.k, r.l), ...measured(-r.h, -r.k, -r.l)]));
   const empty: SingleCrystalDataset = { id: "chiral-sx", name: "chiral Ga complex (synthetic, Mo Kα)", radiation, reflections: indices.map((r) => ({ ...r, iObs: 1 })) };
   const twinned: SingleCrystalDataset = { ...empty, twinLaws: [INVERSION_TWIN] };
   const spec = buildSingleCrystalSpec(truth, twinned, { scale: 1, twinFractions: [flack] });

@@ -152,6 +152,13 @@ function checkStructure(v: unknown, path: string): void {
       str(r.assembly, `${dp}.assembly`);
       int(r.group, `${dp}.group`);
     });
+    opt(site.su, `${p}.su`, (u, up) => {
+      const r = rec(u, up);
+      vec3(r.position, `${up}.position`);
+      num(r.occupancy, `${up}.occupancy`);
+      num(r.uIso, `${up}.uIso`);
+      opt(r.uAniso, `${up}.uAniso`, vec6);
+    });
   });
 }
 

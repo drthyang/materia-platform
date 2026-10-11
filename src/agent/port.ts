@@ -207,6 +207,8 @@ export interface SingleCrystalRow {
   readonly fcSq: number;
   readonly sigma: number;
   readonly deltaOverSigma: number;
+  /** Under a weighting scheme, (Fo² − Fc²) in the scheme's esd √(σ² + (aP)² + bP), as SHELXL lists its most disagreeable reflections. */
+  readonly deltaOverEsd?: number;
   /** The extinction factor y in Fc² (absent or 1 without extinction). */
   readonly extinction?: number;
   /** The batch (run, orientation) and wavelength it was measured at, when the file gives them. */

@@ -173,8 +173,8 @@ describe("refinementBundle", () => {
     expect(pcr).toMatch(/4\.4512/);
     expect(pcr).not.toMatch(/4\.4450/);
     const cif = refinementBundle("gsas2", structure, powder, opts).find((x) => x.name === "MnO.cif")!.data as string;
-    expect(cif).toMatch(/_cell_length_a\s+4\.45120\(30\)/);
-    expect(cif).toMatch(/Mn1 Mn .* Uiso 0\.01051\(25\)/); // B = 0.83 Å² as U = B/8π²
+    expect(cif).toMatch(/_cell_length_a\s+4\.4512\(3\)/);
+    expect(cif).toMatch(/Mn1 Mn .* Uiso 0\.0105\(3\)/); // B = 0.83 Å² as U = B/8π²
     expect(cif).not.toMatch(/9\.9/);
   });
 });

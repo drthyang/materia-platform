@@ -141,7 +141,13 @@ export interface SingleCrystalDataset {
    */
   readonly origin?: "refinement-listing";
   /** The equivalents merged (SHELXL's MERG 2): how many measurements, whether the Friedel opposites stayed apart, and how many systematic absences were left out; absent ⇒ every measurement as loaded. */
-  readonly merged?: { readonly from: number; readonly friedelApart: boolean; readonly absences: number };
+  readonly merged?: {
+    readonly from: number;
+    readonly friedelApart: boolean;
+    /** Systematic absences left out (unique reflections), and how many measurements they had: SHELXL counts the measurement without them (_diffrn_reflns_number). */
+    readonly absences: number;
+    readonly absentMeasurements?: number;
+  };
   /** The fit's weighting scheme (SHELXL's WGHT); absent ⇒ w = 1/σ². */
   readonly weighting?: ShelxWeighting;
   /** Twin laws beyond the first domain (SHELXL's TWIN), each with its fraction as a `twinFraction` parameter (BASF); absent ⇒ untwinned. */

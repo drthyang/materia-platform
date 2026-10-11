@@ -87,6 +87,19 @@ export interface AtomSite {
    * them. Absent for an ordered site.
    */
   readonly disorder?: { readonly assembly: string; readonly group: number };
+  /**
+   * The standard uncertainties the source gave with the values as loaded (a CIF
+   * from a published refinement), in their units: x, y, z (fractional), the
+   * occupancy, U_iso or U_eq (Å²) and U11 … U23 (Å²); 0 where it gave none.
+   * For comparing a re-refinement's esds with the published ones: nothing in
+   * the fit reads them.
+   */
+  readonly su?: {
+    readonly position: readonly [number, number, number];
+    readonly occupancy: number;
+    readonly uIso: number;
+    readonly uAniso?: readonly [number, number, number, number, number, number];
+  };
 }
 
 /**

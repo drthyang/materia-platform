@@ -35,7 +35,7 @@ import type { ProjectHistory, StepKind } from "@/core/project/history";
 import { pdfReportInput, powderReportInput, singleCrystalReportInput } from "@/app/reportInputs";
 import type { ExtinctionModel, OmittedMeasurement, Radiation, ResolutionRange, ShelxWeighting, SingleCrystalDataset, TwinLaw } from "@/core/diffraction/types";
 import { EXTINCTION_PARAMETER_LABELS } from "@/core/diffraction/singleCrystalFactors";
-import { mergeEquivalents } from "@/core/diffraction/merge";
+import { measurementMerge } from "@/core/diffraction/merge";
 import { SINGLE_CRYSTAL_REFINE_OPTIONS, buildSingleCrystalRefinementProblem, buildSingleCrystalSpec, mergedDataset, refineSingleCrystal, inResolution, isOmitted, optimalScale, singleCrystalRefinementComparison, withinResolution, withoutOmitted } from "@/core/workflow/singleCrystalRefinement";
 
 /**
@@ -475,7 +475,7 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
     const nKept = kept().reflections.length;
     const outside = withoutOmitted(dataset, omitted).reflections.length - nKept;
     const cmp = singleCrystalRefinementComparison(model, ds, params, spec.bindings);
-    const merge = mergeEquivalents((merged ? loaded : ds).reflections.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.iObs, sigma: r.sigma ?? 0 })), model.spaceGroup.operations);
+    const merge = measurementMerge((merged ? loaded : ds).reflections.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.iObs, sigma: r.sigma ?? 0 })), model.spaceGroup.operations);
     return {
       structure: model,
       refinedStructure: applyParameters(model, spec.bindings, values()).model,
@@ -628,7 +628,7 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
     reportInput: () => {
       const st = state();
       return singleCrystalReportInput({
-        structure: st.refinedStructure, base: model, params, bindings: spec.bindings, result, dataset: active(), totalReflections: dataset.reflections.length,
+        structure: st.refinedStructure, base: model, params, bindings: spec.bindings, result, dataset: active(), totalReflections: loaded.reflections.length,
         excluded: st.outlierFilter.excluded, filterOn: filter.on, cutoffSigma: filter.cutoffSigma, minExtinction: filter.minExtinction ?? null, omitted, resolution: st.resolution, agreement: st.agreement, merge: st.merge,
         points: st.rows.map((r) => ({ obs: r.foSq, calc: r.fcSq })), magnetic: null, explored: null,
       });

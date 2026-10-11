@@ -55,11 +55,13 @@ numbers, before the first refinement:
    Friedel mates measured separately and an anomalous signal (X-ray at a tabulated line,
    a heavy enough atom). Merged pairs, or neutron data, cannot determine it: say so.
    When it can be determined, refine the inversion twin (`set_twin`, law "inversion")
-   with the structure: its fraction is the Flack x. x near 0 with a small esd (≲ 0.04):
+   from the first refinement on, with the scale and then the structure, as SHELXL
+   refines BASF: its fraction is the Flack x. x near 0 with a small esd (≲ 0.04):
    the hand is right; near 1: the inverted hand (invert the model); clearly between: the
    crystal is an inversion twin, and the report says so with x and its esd.
-5. **Data per parameter.** Aim for at least 10 unique reflections per refined parameter;
-   below that, keep the model isotropic or restrained.
+5. **Data per parameter.** Aim for at least 10 reflections per refined parameter (8 in a
+   non-centrosymmetric group, where a Friedel pair measured apart counts twice, as SHELXL
+   counts its data); below that, keep the model isotropic or restrained.
 6. **Where the Fo² come from.** A refinement's listing (a SHELXL `.fcf`; get_state's `origin`)
    holds each reflection once, on that refinement's scale, with the systematic absences left
    out and, in LIST 4, its extinction divided out. Its R_int, absences and extinction cannot

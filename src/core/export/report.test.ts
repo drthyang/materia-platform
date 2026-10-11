@@ -103,9 +103,9 @@ describe("refinement report (HTML)", () => {
 
   it("tabulates the cell and sites with standard uncertainties and groups the parameters", () => {
     const html = reportHtml(powderInput());
-    expect(html).toContain(`${formatWithEsd(exampleStructure().cell.a, 0.00031, 5)} Å`); // a with its esd (two significant figures of the su)
+    expect(html).toContain(`${formatWithEsd(exampleStructure().cell.a, 0.00031, 5)} Å`); // a with its esd (as SHELXL writes the su)
     expect(html).toContain(`${exampleStructure().cell.c.toFixed(5)} Å`); // fixed c: plain decimals
-    expect(html).toContain("0.620(50)"); // B_iso Mn1
+    expect(html).toContain("0.62(5)"); // B_iso Mn1
     expect(html).toContain("Unit cell");
     expect(html).toContain("Scale &amp; background");
     expect(html).toContain("Atoms");
@@ -172,6 +172,18 @@ describe("refinement report (HTML)", () => {
     expect(html).toContain("3 reflections · 1 magnetic");
     expect(html).toContain('<path class="ptmag"');
   });
+
+  it("groups a single crystal's parameters by what they are: no background or peak shape", () => {
+    const p = (id: string, kind: RefinementParameter["kind"], label: string): RefinementParameter => ({ id, label, kind, value: 0.1, initialValue: 0.1, fixed: false, esd: 0.01 });
+    const parameters = [p("scale", "scale", "scale (OSF)"), p("twin_1", "twinFraction", "inversion twin fraction (Flack x)"), p("extinction", "extinction", "extinction (SHELXL x)"), p("pos_A_0", "positionShift", "A x"), p("rot_C1", "ridingTorsion", "C1 methyl torsion (AFIX 137)")];
+    const html = reportHtml({ ...powderInput(), technique: "singleCrystal", parameters });
+    for (const title of ["Scale", "Twin fractions", "Extinction", "Atoms", "Riding groups"]) expect(html).toContain(`<h4>${title} <span class="muted">`);
+    expect(html).not.toContain("Peak shape");
+    expect(html).not.toContain("Scale &amp; background");
+    // A position row is a shift from the loaded coordinate, and says so.
+    expect(html).toMatch(/<td>A x<\/td><td class="num">[^<]+<\/td><td class="muted">shift \(frac\.\)<\/td>/);
+    expect(reportMarkdown({ ...powderInput(), technique: "singleCrystal", parameters })).toContain("### Twin fractions · 1 parameter, 1 refined");
+  });
 });
 
 describe("the analysis as the Agent ran it", () => {
@@ -222,7 +234,7 @@ describe("the analysis as the Agent ran it", () => {
     expect(html).toContain("Bayesian check");
     expect(html).toContain("12 walkers × 2300 steps");
     expect(html).toContain("close to converged");
-    expect(html).toContain("0.620(50)");
+    expect(html).toContain("0.62(5)");
     expect(html).toContain("0.571–0.672");
     expect(html).toContain("not final values to quote");
     expect(html).toContain("P(B_Mn1 &gt; B_Ga1) = 0.98");
@@ -255,7 +267,7 @@ describe("the analysis as the Agent ran it", () => {
     expect(md).toContain("| 3 | Refine · Positions · ADPs | Agent | positions ×8, B ×5, scale | 14 | 3.86 % | 1.40 |");
     expect(md).toContain("| Residual peaks | attention | 1 peak on no phase's reflection: d = 2.2012 Å <unexplained>. |");
     expect(md).toContain("**Bayesian check** — ensemble MCMC, 12 walkers × 2300 steps");
-    expect(md).toContain("| B_iso Mn1 | 0.620(50) | 0.621 | 0.571–0.672 | 0.520–0.720 | 1.02 | the posterior confirms the esd |");
+    expect(md).toContain("| B_iso Mn1 | 0.62(5) | 0.621 | 0.571–0.672 | 0.520–0.720 | 1.02 | the posterior confirms the esd |");
     expect(md).toContain("> I refined the structure stage by stage.\n>\n> The fit reaches wR 3.86 % with B = 0.62(5) Å²; the extra line at 7.77† Å is open.");
     expect(md).toContain("- The 2.2012 Å line is also in the 300 K pattern & at 9.99† Å.");
     expect(md).toContain("Numbers marked † in the Agent's words are not among the values this report computed.");
@@ -265,7 +277,7 @@ describe("the analysis as the Agent ran it", () => {
     expect(svg).toContain("<style>");
     expect(svg).toContain('xmlns="http://www.w3.org/2000/svg"');
     expect(md).toContain(formatWithEsd(exampleStructure().cell.a, 0.00031, 5));
-    expect(md).toContain("| B_iso Mn1 | 0.620(50) | Å² | refined |");
+    expect(md).toContain("| B_iso Mn1 | 0.62(5) | Å² | refined |");
     expect(md).toContain("| b (= a) | 5.43210 | Å | tied · = cell_a |");
     // A table cell with a pipe stays one cell.
     expect(reportMarkdown({ ...powderInput(), data: [{ label: "Data | file", value: "a|b" }] })).toContain("| **Data \\| file** | a\\|b |");
@@ -276,7 +288,7 @@ describe("report helpers", () => {
   it("formats parameter values by kind, with esds when present", () => {
     const p = (kind: RefinementParameter["kind"], value: number, esd?: number): RefinementParameter =>
       ({ id: "x", label: "x", kind, value, initialValue: value, fixed: false, ...(esd !== undefined ? { esd } : {}) });
-    expect(formatParameterValue(p("cellLength", 5.43217, 0.00031))).toBe("5.43217(31)");
+    expect(formatParameterValue(p("cellLength", 5.43217, 0.00031))).toBe("5.4322(3)");
     expect(formatParameterValue(p("cellLength", 5.43217))).toBe("5.43217");
     expect(formatParameterValue(p("scale", 0.0123456))).toBe("0.012346");
     expect(formatParameterValue(p("scale", 1234567))).toBe("1.2346e+6");

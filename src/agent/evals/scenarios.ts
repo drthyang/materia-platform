@@ -4,8 +4,12 @@
  * own data, with the checks that say whether it got it right this time.
  */
 
-import { BATCH_SCALES, BC_EXTINCTION, EDGE_STEP_AT, FAILED_PAIR, FAILED_REFLECTION, MAGNETIC_TRUTH, impurityD, scOrganicPage, scPage, mn3gaEdgeSession, mn3gaFluoriteSession, mn3gaImpuritySession, mn3gaMagneticSession, mn3gaMisfitSession, mn3gaSession, pdfPage, powderPage } from "@/agent/evals/pages";
+import { BATCH_SCALES, BC_EXTINCTION, EDGE_STEP_AT, FAILED_PAIR, FAILED_REFLECTION, MAGNETIC_TRUTH, impurityD, scChiralPage, scDisorderPage, scHydridePage, scOrganicPage, scPage, mn3gaEdgeSession, mn3gaFluoriteSession, mn3gaImpuritySession, mn3gaMagneticSession, mn3gaMisfitSession, mn3gaSession, pdfPage, powderPage } from "@/agent/evals/pages";
 import {
+  mergesFirst,
+  refinesFlack,
+  restrainsHydrides,
+  tiesDisorder,
   honestAboutListing,
   ridesHydrogens,
   setsRadiationFirst,
@@ -270,6 +274,42 @@ export const SCENARIOS: readonly EvalScenario[] = [
     messages: ["Refine this structure as SHELXL would, to the end, and report R1, wR2 and GooF."],
     autonomy: "auto",
     checks: [readsMethodFirst, weightsLast, noStall],
+  },
+  {
+    id: "sc-merge-first",
+    title: "Merges the equivalents as SHELXL does before refining",
+    origin: "Round 3 (1b, Mo Kα): the CIF carries SHELXL's measurement, 13169 reflections, which SHELXL refined merged (MERG 2, the Friedel opposites apart) as 2482; fitted one by one, R1, wR2, GooF and every esd belonged to another refinement, and the page could not merge.",
+    page: () => scChiralPage({ equivalents: 2 }),
+    messages: ["Refine this structure as SHELXL would and report R1, wR2 and GooF."],
+    autonomy: "auto",
+    checks: [readsMethodFirst, mergesFirst, refines(1), noStall],
+  },
+  {
+    id: "sc-absolute-structure",
+    title: "Refines the inversion twin and reports the Flack x the engine gives",
+    origin: "Round 3 (1b): P2₁2₁2₁ with Ga at Mo Kα and every Friedel pair measured; SHELXL refined the inversion twin (TWIN/BASF), x = 0.435(15). The page had no anomalous scattering and no twin law, so the absolute structure could not be determined at all.",
+    page: () => scChiralPage(),
+    messages: ["Refine the structure and tell me whether its absolute structure is determined."],
+    autonomy: "auto",
+    checks: [readsMethodFirst, refinesFlack, refines(1), noStall],
+  },
+  {
+    id: "sc-disorder-tied",
+    title: "Ties a disorder's two occupancies before refining the split",
+    origin: "Round 3 (1b): Al1 and Ga1 share a site 0.2 Å apart (PART 1 and 2), refined by SHELXL as one fraction (21/−21) with one ADP (EADP), 0.844(2); the page had no occupancy rows and no complement tie, and two free occupancies trade against the scattering they share.",
+    page: () => scDisorderPage(),
+    messages: ["The Al/Ga site is disordered. Refine the split."],
+    autonomy: "auto",
+    checks: [readsMethodFirst, tiesDisorder, refines(1), noStall],
+  },
+  {
+    id: "sc-hydrides-restrained",
+    title: "Restrains a hydride beside a heavy metal before refining its position",
+    origin: "Round 3 (1b): five hydrides on Ga and Al, refined by SHELXL under 8 SADI restraints with their U riding; X-rays place a hydrogen beside Ga poorly, and the page had no restraints and could only ride every hydrogen or free it.",
+    page: () => scHydridePage(),
+    messages: ["H3' is a hydride on Ga2, placed from the difference map. Refine its position with the structure."],
+    autonomy: "auto",
+    checks: [readsMethodFirst, restrainsHydrides, refines(1), noStall],
   },
 ];
 

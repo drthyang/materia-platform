@@ -106,7 +106,7 @@ export function SingleCrystalValidationView(props: SingleCrystalValidationProps)
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <MetricStrip>
-        <Metric value={v.reflectionsPerParameter.toFixed(1)} label="refl / param" tone={v.reflectionsPerParameter >= need ? "ok" : "warn"} title={`${v.uniqueAllowed ?? v.uniqueObserved} unique allowed / ${nParams} free parameters; checkCIF asks ≥ ${need}`} />
+        <Metric value={v.reflectionsPerParameter.toFixed(1)} label="refl / param" tone={v.reflectionsPerParameter >= need ? "ok" : "warn"} title={`${v.independent} independent reflections${v.independent > (v.uniqueAllowed ?? v.uniqueObserved) ? " (Friedel pairs apart)" : ""} / ${nParams} free parameters; checkCIF asks ≥ ${need}`} />
         {v.completeness !== undefined ? <Metric value={pct(v.completeness, 1)} label="complete" title={`to sinθ/λ ${v.sinThetaOverLambdaMax.toFixed(3)} Å⁻¹`} tone={v.completeness >= 0.95 ? "ok" : v.completeness >= 0.9 ? "note" : "warn"} /> : null}
         <Metric value={pct(ag.r1All)} label="R1 · all" title="R1 over every reflection; R1 (I > 2σ), wR2 and GooF are in the header" />
         <Metric value={st.redundancy > 1 ? pct(st.rInt, 1) : "—"} label="R_int" title={st.redundancy > 1 ? undefined : "no redundant observations to merge"} />

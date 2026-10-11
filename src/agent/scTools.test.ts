@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { keyOfState } from "@/agent/method";
 import type { AgentReport } from "@/agent/report";
 import { executor, fakeHost, singleCrystalPort } from "@/testSupport/agentHeadless";
+import { singleCrystalReportChecks } from "@/agent/scTools";
 import { chiralPage, corundumPage, disorderPage, hydridePage, pyridylPage } from "@/testSupport/scPages";
 import { dSpacing, orthogonalizationMatrix } from "@/core/crystal/unitCell";
 import { mulVec } from "@/core/math/mat3";
@@ -14,7 +15,8 @@ function page(opts: Parameters<typeof corundumPage>[0] = {}) {
   return { c, port, calls };
 }
 
-describe("AgentExecutor on the single-crystal page", () => {
+// Several of these refine real models for 2–5 s: the default 5 s leaves no margin on a loaded machine.
+describe("AgentExecutor on the single-crystal page", { timeout: 30_000 }, () => {
   it("reads the page in its own terms: F², R1, wR2 and GooF, the cell fixed", async () => {
     const { port } = page();
     const { ex } = executor(fakeHost(port).host, "auto");
@@ -410,6 +412,9 @@ describe("AgentExecutor on the single-crystal page", () => {
     expect(twin.flackX).toMatch(/^0\.\d+\(\d+\)$/);
     expect(twin.reading).toMatch(/^between the hands: an inversion twin, \d+ % of the crystal of the inverted hand$/);
     expect(port.reportInput!().data.find((r) => r.label === "Twinning")!.value).toMatch(/^inversion twin: Flack x = 0\.\d+\(\d+\)$/);
+    // The model right, the largest misfits are what counting gives among thousands: read as chance, the ratios to three digits.
+    const outliers = parse((await ex.run("assess_refinement", {})).text).outliers as string[];
+    expect(outliers[0]).toMatch(/— 1 equivalent at Fo²\/Fc² \d\.\d{2,3} \(median\), this one \d\.\d{2,3}: no more than chance — the largest of 3340 misfits reaches about 4\.\dσ with nothing wrong$/);
     // Laws that cannot twin this crystal, refused before the user is asked.
     expect((await ex.run("set_twin", { law: [[0, 1, 0], [1, 0, 0], [0, 0, -1]] })).text).toMatch(/not a symmetry of this lattice/);
     expect((await ex.run("set_twin", { law: [[-1, 0, 0], [0, -1, 0], [0, 0, 1]] })).text).toMatch(/one of the point group's own operations/);
@@ -433,7 +438,7 @@ describe("AgentExecutor on the single-crystal page", () => {
     expect(bonds.some((b) => [b.from, b.to].includes("N2"))).toBe(true);
     const tie = parse((await ex.run("tie_parameters", { complement: ["Al1", "Ga1"], adp: ["Al1", "Ga1"] })).text);
     expect(seen.find((e) => e.tool === "tie_parameters" && e.preview)?.preview).toBe("Ga1 takes the ADP of Al1 (EADP: 1 row each) · occ_Ga1 = 1 − occ_Al1: the two alternatives add up to one, and the split refines as one fraction");
-    expect(String(tie.note)).toMatch(/occ_Ga1 follows 1 − occ_Al1; the leading rows are fixed \(occ_Al1, B_Al1\): free them with set_free/);
+    expect(String(tie.note)).toMatch(/occ_Ga1 follows 1 − occ_Al1; Ga1's ADP follows Al1's \(EADP\); the leading rows are fixed \(occ_Al1, B_Al1\): free them with set_free/);
     expect(port.state().parameters.find((p) => p.id === "occ_Ga1")).toMatchObject({ expression: "= -1*occ_Al1+1", fixed: true });
     expect(parse((await ex.run("tie_parameters", { complement: ["occ_Al1", "occ_Ga1"] })).text).unchanged).toBe(true);
     expect((await ex.run("tie_parameters", { complement: ["Al1", "Ga2"] })).text).toMatch(/no occupancy row for Ga2 \(a site at full occupancy and in no disorder has none\)/);
@@ -472,7 +477,10 @@ describe("AgentExecutor on the single-crystal page", () => {
     expect((await ex.run("restrain_distances", { add: [{ kind: "sadi", pairs: [["N1", "C1"]] }] })).text).toMatch(/at least two pairs/);
     expect((await ex.run("restrain_distances", { add: [{ kind: "dfix", pairs: [["Ga2", "Q9"]], distance: 1.5 }] })).text).toMatch(/no site Q9/);
     await ex.run("set_free", { free: ["pos_*", "B_*", "rot_*"] });
-    expect(parse((await ex.run("refine", {})).text).status).toBe("converged");
+    const refined = parse((await ex.run("refine", {})).text);
+    expect(refined.status).toBe("converged");
+    // A hydride refined as asked, and restrained, draws no "ride them" note.
+    expect(refined.note).toBeUndefined();
     const st = port.state();
     const m = orthogonalizationMatrix(st.refinedStructure.cell);
     const at = (label: string) => st.refinedStructure.sites.find((x) => x.label === label)!.position;
@@ -487,6 +495,8 @@ describe("AgentExecutor on the single-crystal page", () => {
     expect(port.state().distanceRestraints.map((r) => r.kind)).toEqual(["dfix"]);
     await ex.run("restrain_distances", { remove: true });
     expect(port.state().distanceRestraints).toEqual([]);
+    // Unrestrained, the hydride refined as asked is named, with what holds it.
+    expect(String(parse((await ex.run("refine", {})).text).note)).toMatch(/^H3' refines its position as asked, with nothing holding it: .*restrain_distances/);
   });
 
   it("merges the equivalents as SHELXL's MERG 2 does: Friedel opposites apart without the inversion, absences out, the data still read as measured", async () => {
@@ -502,7 +512,7 @@ describe("AgentExecutor on the single-crystal page", () => {
     expect(st.dataset.merged).toMatchObject({ from: c.dataset.reflections.length, friedelApart: false });
     expect(st.observationCount).toBeLessThan(c.dataset.reflections.length / 2);
     expect(st.omitted).toEqual([]);
-    expect(String(out.note)).toMatch(/measurements merged into \d+ reflections, the Friedel opposites merged too \(a centrosymmetric group\)\. R_int .* reads the measurement as loaded/);
+    expect(String(out.note)).toMatch(/measurements merged into \d+ reflections, the Friedel opposites merged too \(a centrosymmetric group\)\. R_int [\d.]+ %; the data reading keeps the measurement as loaded/);
     // R_int and the redundancy read the measurement as loaded, not its merge.
     expect(st.merge.redundancy).toBeGreaterThan(2);
     expect(String((parse((await ex.run("reflection_statistics", {})).text).reflections as { fitted: string }).fitted)).toMatch(/merged as SHELXL's MERG 2/);
@@ -512,12 +522,41 @@ describe("AgentExecutor on the single-crystal page", () => {
     await ex.run("merge_equivalents", { on: false });
     expect(port.state().observationCount).toBe(c.dataset.reflections.length);
     // Without the inversion the Friedel opposites stay apart; a time-of-flight Laue file is never merged.
-    const chiral = chiralPage();
+    const chiral = chiralPage({ equivalents: 2 });
     const { port: cp } = singleCrystalPort(chiral.structure, chiral.dataset);
-    await executor(fakeHost(cp).host, "auto").ex.run("merge_equivalents", { on: true });
+    const cx = executor(fakeHost(cp).host, "auto").ex;
+    await cx.run("merge_equivalents", { on: true });
     expect(cp.state().dataset.merged).toMatchObject({ friedelApart: true });
+    // The report's data line in SHELXL's terms: the measurements and what they became, R_int with the mates apart, data per parameter as SHELXL counts them.
+    await cx.run("set_free", { free: ["pos_*"] });
+    await cx.run("refine", {});
+    const merged = cp.state();
+    const line = singleCrystalReportChecks(merged).find((ch) => ch.name === "Data")!.detail;
+    const free = merged.parameters.filter((p) => !p.fixed && !p.expression).length;
+    expect(line).toMatch(new RegExp(`^${chiral.dataset.reflections.length} measurements merged as SHELXL's MERG 2 into ${merged.dataset.reflections.length} reflections, the Friedel opposites apart \\(R_int [\\d.]+ % with the Friedel mates apart, as SHELXL reports it \\([\\d.]+ % in the Laue class\\), R_σ [\\d.]+ %\\), d_min `));
+    expect(line).toContain(`; ${Number((merged.dataset.reflections.length / free).toPrecision(3))} independent reflections per free parameter (the Friedel pairs apart, as SHELXL counts its data).`);
     const { port: tof } = page({ laue: true });
     expect((await executor(fakeHost(tof).host, "auto").ex.run("merge_equivalents", { on: true })).text).toMatch(/time-of-flight Laue measurement is not merged/);
+  });
+
+  it("reads a merged reflection's outlier against the measurements behind it, and each shell's R_int from the measurement", async () => {
+    // 1 0 4 measured three times, once at 3 % of its intensity: merged, it reads low.
+    const c = corundumPage({ extinction: 20, batches: [1, 1, 1], failed: [{ h: 1, k: 0, l: 4, factor: 0.03 }] });
+    const { port } = singleCrystalPort(c.structure, c.dataset);
+    const { ex } = executor(fakeHost(port).host, "auto");
+    await ex.run("merge_equivalents", { on: true });
+    await ex.run("set_free", { free: ["pos_*", "B_*"] });
+    await ex.run("refine", {});
+    const out = parse((await ex.run("assess_refinement", {})).text);
+    const outliers = out.outliers as string[];
+    const worst = outliers.find((o) => o.includes("one of them (1 0 4"));
+    expect(worst).toMatch(/merged from 3 measurements at Fo²\/Fc² [\d.]+ \(median, scatter [\d.]+\), one of them \(1 0 4, batch \d+\) at 0\.0\d+: a measurement that failed inside the merge$/);
+    expect(outliers.some((o) => /no equivalent measured/.test(o))).toBe(false);
+    // The merged reflections are the fit's; the shells' R_int is the measurement's (three per reflection).
+    const shells = (parse((await ex.run("reflection_statistics", {})).text).shells as { rInt?: number }[]);
+    const report = port.reportInput!();
+    expect(shells.every((sh) => sh.rInt !== undefined)).toBe(true);
+    expect(report.data.find((r) => r.label === "Reflections")!.value).not.toMatch(/omitted by hand/);
   });
 
   it("gives the anisotropic tensor and the bond lengths with their esds", async () => {

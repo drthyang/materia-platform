@@ -252,7 +252,7 @@ release fixes bugs.
   page's "merge" switch): SHELXL's MERG 2 — each family averaged, the Friedel
   opposites kept apart in a non-centrosymmetric group, the systematic absences
   left out. The statistics, R_int and the outliers by their equivalents still
-  read the measurement. On 1b, 13109 measurements merge to the 2482
+  read the measurement. On 1b, 13169 measurements merge to the 2482
   reflections SHELXL refined. `reflection_statistics` gives R_int as SHELXL
   reports it for a non-centrosymmetric group, the Friedel mates apart (1b:
   2.93 %, SHELXL's figure), beside the Laue class's (3.04 %): the excess is
@@ -260,14 +260,43 @@ release fixes bugs.
 
 - **SHELXL's refinement of 1b reproduced** (a Ga/Al hydride in P2₁2₁2₁, an
   inversion twin, an Al/Ga disorder, five hydrides under SADI; the GSAS-II
-  tutorial's CIF with its own measurement), in a test: the same 142
-  parameters and 8 restraints give R1 2.02 % (SHELXL 2.04 %), wR2 4.95 %
-  (5.04 %), GooF 1.010 (1.044), Flack x 0.437(11) (0.435(15)) and the Al share
-  0.8443(18) (0.844(2)), in 5 cycles. The esds are 0.72–0.89× SHELXL's: a
+  tutorial's CIF with its own measurement), in a test and through the Agent's
+  tools: the same 142 parameters and 8 restraints give R1 2.02 % (SHELXL
+  2.04 %), wR2 4.97 % (5.04 %), GooF 1.030 (1.044), Flack x 0.435(11)
+  (0.435(15)) and the Al share 0.844(2) (0.844(2)), in 4 cycles. The esds of
+  the positions and U^ij are 0.75× SHELXL's (median; 0.61–1.00): a
   Monte-Carlo at the fit's weights scatters as this app's say, and on the
-  centrosymmetric dipyridyl disulfide the two agree to the digit. The ratio is
-  what counting each Friedel pair once would give (1462 reflections for 2482);
-  without SHELXL's code that stays a guess.
+  centrosymmetric dipyridyl disulfide the two agree to the digit. SHELXL
+  refined the same 2482 reflections (its listing holds the 1020 Bijvoet
+  partners apart), so the merge does not explain it; without SHELXL's code
+  the cause stays open.
+
+- **Eval scenarios** `sc-merge-first`, `sc-absolute-structure`,
+  `sc-disorder-tied` and `sc-hydrides-restrained`, from round 3 (1b): the
+  measurement merged before the first refinement, the Flack x refined as an
+  inversion twin and quoted as the engine gives it, a disorder's occupancies
+  tied before they refine, and a hydride's position refined only under a
+  restraint. The chiral test page can measure each reflection at several of
+  its equivalents.
+
+- **The esds against a published refinement's** (`structure_table` with
+  `against: "loaded"`): a CIF's standard uncertainties are read with its
+  values (positions, U_iso, the U tensor, occupancies) and saved with the
+  project, and the comparison gives each kind's ratio of this app's esd to the
+  published su, median and range, from the esds as computed (not as printed).
+  On 1b: 0.75 for positions and U^ij. The report carries it as a check
+  ("Against the model loaded"), with the largest shift in esds and the U_eq
+  ratios, so the account can quote it.
+
+- **SHELXL's suggested weights in the report**, beside the scheme in use (a
+  "Weights" check), as SHELXL prints both after every run.
+
+- **Bonds and contacts apart** in `bond_geometry` for a molecular structure:
+  a bond is what the covalent radii make one (their sum + 0.4 Å); the longer
+  contacts up to the cutoff are listed separately.
+
+- **The History names a tie** ("occ_Ga1 = 1 − occ_Al1; EADP (6 ADP rows
+  tied)"), not "Parameters tied".
 
 ### Changed
 
@@ -324,6 +353,89 @@ release fixes bugs.
   out and why, end by end, once a second read finds the window already set.
 
 ### Fixed
+
+- **The merged σ is SHELXL's.** Where a reflection's equivalents disagree
+  beyond their σ, the merged σ came from their root-mean-square scatter, up to
+  18 % above SHELXL's for one reflection in ten on 1b. It is now SHELXL's
+  estimate, the larger of the propagated σ and Σ|I − Ī|/(n√(n − 1)), found
+  against SHELXL's own listing: every one of 1b's 2482 merged σ agrees with it
+  to 0.1 % from the 10th to the 90th percentile, and R_σ is the 1.99 % its CIF
+  gives (2.10 % before). 1b's GooF goes from 1.010 to 1.030 (SHELXL 1.044)
+  and the Flack x from 0.437(11) to 0.435(11) (0.435(15)).
+
+- **Data per parameter as SHELXL counts them.** In a non-centrosymmetric
+  group a Friedel pair measured apart is two observations (MERG 2 keeps them
+  apart); the validation, the report and the page counted it once. 1b has
+  17.5 reflections per parameter (2482 for 142), not 10.3.
+
+- **The report's data line for merged data** gives the measurements and the
+  reflections they became, R_int and R_σ with the Friedel mates apart as
+  SHELXL reports them (1b: 2.93 % and 1.99 %, its CIF's figures, beside the
+  Laue class's 3.04 %), and the systematic absences' measurements, which
+  SHELXL leaves out of its count (1b: 13169 measured, 60 of them of the 21
+  absences, so 13109 as its CIF says). It read the merged reflections as the
+  measurement, and "N omitted by hand" where the merge had reduced them.
+
+- **A twin's fraction refined with the scale is not "out of the method's
+  order".** The Flack x, an overall term of the intensities, refines from the
+  start as SHELXL refines BASF with the OSF; its stage now follows the
+  scale's, and an optional stage (a twin the crystal may not have) is never
+  marked passed by a later one.
+
+- **A hydride refined as asked, under restraints, drew "refined on its own
+  against X-ray data".** The note now names hydrogens freed unasked, and
+  those chosen to refine with no restraint holding them.
+
+- **The outliers of a merged fit read "no equivalent measured".** Each is now
+  read against the measurements behind it, and one that failed inside the
+  merge is named; each resolution shell's R_int reads the measurement, not
+  the merged rows (which read 0). On unmerged data the ratios are given to
+  three digits (1.04 against 0.988 read "1" against "0.99"), and a misfit no
+  larger than chance gives among that many reflections (√(2 ln N) σ) is read
+  as chance, not as equivalents that disagree.
+
+- **One disorder's correlations are a note, not a warning to fix one of
+  them**, in `assess_refinement` and the report: two alternatives 0.2 Å apart
+  correlate at −0.99 by construction, SHELXL refines them together, and their
+  esds carry it. Correlations are given to three decimals (−0.998, not −1.00).
+
+- **The report's rows for 1b**: λ to five digits (0.71073 Å, not 0.7107), the
+  hydrogens as riding and refined ("20 riding on their parents, 5 (H1′, …)
+  with their positions refined and U_iso riding"), the disorder with its
+  shared ADP (EADP), and the riding preview counting only the rows that leave
+  (85, where a refined hydride keeps its position rows; it said 100).
+
+- **Esds are printed as SHELXL prints them** in the CIF: two digits only from
+  10 to 19 (0.0560(2), not 0.05602(16)). The CIF's U^ij now carry their su,
+  as SHELXL's do, and a tied value its leader's (1b's Ga1 occupancy
+  0.156(2), as SHELXL's −21 gives it).
+
+- **The completeness and the data per parameter count the data's own last
+  reflection.** d is rounded to 10⁻⁶ Å, and the limit the expected
+  reflections were generated to had a margin of 10⁻⁹: the highest-angle
+  reflection dropped out half the time (1b: 1461 unique and 2481 independent,
+  where SHELXL has 1462 and 2482).
+
+- **Under a weighting scheme, the outliers are ranked and given in its esd**,
+  as SHELXL lists its most disagreeable reflections, the file's σ beside it:
+  1b's 2 0 1 is 6.4 esd by the weights, where it read 11.4σ.
+
+- **A single crystal's report reads as one**: its parameters grouped as a
+  single crystal's (scale, twin fractions, extinction, atoms, riding groups),
+  not under "scale & background" and "peak shape"; a position row says it is
+  a shift from the loaded coordinate; a tied value carries its leader's esd in
+  the site table as in the parameter table; for an acentric group the
+  headline tiles give SHELXL's unique count and R_int (1b: 2482 and 2.93 %),
+  the Laue class's in their hints, and so does the page's data card.
+
+- **The tools' notes say what they did**: `merge_equivalents` gives the R_int
+  of the merge it made (with the Friedel mates apart, 2.93 % on 1b, where it
+  quoted the Laue class's 3.04 %) and the absences' measurements;
+  `tie_parameters` names the EADP it made; `set_riding_hydrogens` and the
+  History count the hydrogens that ride apart from those that refine their
+  positions ("20 hydrogens ride, 5 refine their positions with U riding",
+  not "25 hydrogens ride"); `bond_geometry`'s shortest bond is rounded
+  (0.98, not 0.9799999999999989).
 
 - **Esds and correlations of correlated parameters, and the convergence of
   correlated fits.** The eigen-decomposition behind the engine's step and its

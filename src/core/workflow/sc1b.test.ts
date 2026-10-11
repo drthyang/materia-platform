@@ -4,8 +4,9 @@ import { dataExists, dataPath } from "@/testSupport/data";
 import { parseCif } from "@/parsers/cif";
 import { loadReflectionDataset } from "@/app/loadData";
 import { mergedDataset } from "@/core/workflow/singleCrystalRefinement";
-import { mergeEquivalents } from "@/core/diffraction/merge";
+import { canonicalKey, mergeEquivalents, pointGroupRotations } from "@/core/diffraction/merge";
 import { reflectionStatistics } from "@/core/diagnostics/reflectionStatistics";
+import { singleCrystalValidation } from "@/core/diagnostics/singleCrystalValidation";
 
 /**
  * 1b (Luo et al., the Bruker–MIT workshop): SHELXL's CIF carries its own
@@ -27,7 +28,12 @@ describe.skipIf(!dataExists(CIF))("1b, from the CIF's own measurement", () => {
     expect(merged.merged).toMatchObject({ from: loaded.dataset.reflections.length, friedelApart: true });
     // The systematic absences left out, as SHELXL leaves them out of the refinement.
     expect(merged.merged!.absences).toBe(21);
+    expect(merged.merged!.absentMeasurements).toBe(60);
     expect(merged.reflections.length).toBe(2482);
+    // Complete to the last reflection: SHELXL's 1462 unique in the Laue class and 2482 independent (its
+    // _reflns_number_total), the data's own highest-angle reflection counted (d is rounded before the limit).
+    const v = singleCrystalValidation({ rows: merged.reflections.map((r) => ({ h: r.h, k: r.k, l: r.l, foSq: r.iObs, fcSq: r.iObs, sigma: r.sigma ?? 1 })), cell: structure.cell, spaceGroup: structure.spaceGroup, nParams: 142 });
+    expect([v.uniqueAllowed, v.uniqueExpected, v.independent]).toEqual([1462, 1462, 2482]);
   });
 
   it("reads R_int as SHELXL reports it: the Friedel mates apart, the absences out", () => {
@@ -36,6 +42,30 @@ describe.skipIf(!dataExists(CIF))("1b, from the CIF's own measurement", () => {
     // SHELXL: _diffrn_reflns_av_R_equivalents 0.0293. In the Laue class, the Bijvoet pairs merged, 3.04 %.
     expect(st.friedel.rIntApart).toBeCloseTo(0.0293, 4);
     expect(mergeEquivalents(rows, structure.spaceGroup.operations).statistics.rInt).toBeCloseTo(0.0304, 4);
+  });
+
+  it("gives each merged reflection SHELXL's σ, and R_σ as its CIF reports it", () => {
+    const merged = mergedDataset(loaded.dataset, structure.spaceGroup.operations);
+    const rotations = pointGroupRotations(structure.spaceGroup.operations);
+    // SHELXL's own merge, in its listing (LIST 4: Fo² and σ on its scale, one factor for both).
+    const fcf = new Map<string, { fo: number; sigma: number }>();
+    let on = false;
+    for (const line of readFileSync(dataPath("GSAS-II-tutorials/sc/1b.fcf"), "utf8").split("\n")) {
+      if (/_refln_observed_status/.test(line)) { on = true; continue; }
+      const f = line.trim().split(/\s+/);
+      if (on && f.length >= 6 && /^-?\d+$/.test(f[0]!)) fcf.set(canonicalKey(rotations, Number(f[0]), Number(f[1]), Number(f[2])), { fo: Number(f[4]), sigma: Number(f[5]) });
+    }
+    const found = merged.reflections.map((r) => ({ r, s: fcf.get(canonicalKey(rotations, r.h, r.k, r.l)) }));
+    expect(found.every((p) => p.s !== undefined)).toBe(true);
+    const scale = found.filter((p) => p.s!.fo > 20 * p.s!.sigma).map((p) => p.r.iObs / p.s!.fo).sort((a, b) => a - b);
+    const k = scale[Math.floor(scale.length / 2)]!;
+    const ratios = found.map((p) => (p.r.sigma ?? 0) / (k * p.s!.sigma)).sort((a, b) => a - b);
+    const q = (x: number): number => ratios[Math.floor(x * (ratios.length - 1))]!;
+    expect(q(0.1)).toBeGreaterThan(0.995);
+    expect(q(0.9)).toBeLessThan(1.005);
+    // _diffrn_reflns_av_unetI/netI 0.0199.
+    const rSigma = merged.reflections.reduce((a, r) => a + (r.sigma ?? 0), 0) / merged.reflections.reduce((a, r) => a + r.iObs, 0);
+    expect(rSigma).toBeCloseTo(0.0199, 4);
   });
 });
 
@@ -79,12 +109,13 @@ describe.skipIf(!dataExists(CIF))("1b refined as SHELXL refined it", () => {
     const refined = params.map((p) => ({ ...p, value: result.parameters[p.id] ?? p.value }));
     const ag = singleCrystalRefinementComparison(structure, dataset, refined, spec.bindings).agreement;
     // SHELXL: R1 2.04 % over 2334 Fo > 4σ(Fo), wR2 5.04 %, GooF 1.044 (WGHT 0.0271 0.2580 on its absolute scale).
+    // Here, with its merged σ: 2.02 %, 4.97 %, 1.030 over 2332.
     expect(Math.abs(ag.r1 - 0.0204)).toBeLessThan(0.001);
-    expect(Math.abs(ag.wr2 - 0.0504)).toBeLessThan(0.002);
-    expect(Math.abs(ag.goof - 1.044)).toBeLessThan(0.05);
-    expect(Math.abs(ag.observed - 2334)).toBeLessThan(15);
-    // Flack x 0.435(15) and the Al share 0.844(2): within SHELXL's esds.
-    expect(Math.abs(result.parameters.twin_1! - 0.435)).toBeLessThan(0.015);
+    expect(Math.abs(ag.wr2 - 0.0504)).toBeLessThan(0.001);
+    expect(Math.abs(ag.goof - 1.044)).toBeLessThan(0.02);
+    expect(Math.abs(ag.observed - 2334)).toBeLessThan(5);
+    // Flack x 0.435(15) and the Al share 0.844(2): here 0.435(11) and 0.844(2).
+    expect(Math.abs(result.parameters.twin_1! - 0.435)).toBeLessThan(0.002);
     expect(Math.abs(result.parameters.occ_Al1! - 0.844)).toBeLessThan(0.002);
     expect(result.parameters.occ_Ga1 ?? 1 - result.parameters.occ_Al1!).toBeCloseTo(1 - result.parameters.occ_Al1!, 12);
     // The split site's positions correlate at −0.99 with each other and with the shared U: their esds are

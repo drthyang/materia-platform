@@ -379,7 +379,7 @@ export class AgentExecutor implements ToolRunner {
     const r = out.reflections;
     const e = out.intensityStatistics;
     const parts = [
-      `${r.measured} reflections, ${r.unique} unique, ${typeof r.rInt === "number" ? `R_int ${r.rInt} %` : "merged (one value per reflection)"}`,
+      `${r.measured} reflections, ${r.unique} unique, ${typeof r.rInt === "number" ? `R_int ${r.rInt} %${r.rIntFriedelApart !== undefined ? ` (${r.rIntFriedelApart} % with the Friedel mates apart, as SHELXL reports it)` : ""}` : "merged (one value per reflection)"}`,
       `d_min ${out.resolution.dMin} Å${out.resolution.completeness !== undefined ? `, completeness ${out.resolution.completeness} %` : ""}`,
       ...(typeof e === "object" ? [`⟨|E²−1|⟩ ${e.meanAbsE2Minus1}: ${e.reading}`] : []),
       ...(typeof out.absences === "object" ? [`${out.absences.atThreeSigma} of ${out.absences.measured} forbidden reflections at ≥ 3σ${out.absences.strongest?.[0] ? `, the strongest ${out.absences.strongest[0]}` : ""}`] : []),
@@ -568,7 +568,7 @@ export class AgentExecutor implements ToolRunner {
 
 /** reflection_statistics' answer, as the record reads it. */
 interface DataAnswer {
-  readonly reflections: { readonly measured: number; readonly unique: number; readonly rInt: number | string };
+  readonly reflections: { readonly measured: number; readonly unique: number; readonly rInt: number | string; readonly rIntFriedelApart?: number };
   readonly resolution: { readonly dMin: number; readonly completeness?: number };
   readonly friedel: string;
   readonly absences: { readonly measured: number; readonly atThreeSigma: number; readonly strongest?: readonly string[] } | string;
