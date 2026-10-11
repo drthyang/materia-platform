@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { CORRELATION_LIMIT, correlationRefusal, readCorrelations, refusalLine } from "@/agent/correlationCheck";
+import { CORRELATION_LIMIT, carriedText, correlationRefusal, disorderAssemblies, readCorrelations, refusalLine } from "@/agent/correlationCheck";
+import { disorderPage } from "@/testSupport/scPages";
+import { buildSingleCrystalSpec } from "@/core/workflow/singleCrystalRefinement";
 import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
 
 function param(id: string, kind: RefinementParameter["kind"]): RefinementParameter {
@@ -40,6 +42,28 @@ describe("correlation check", () => {
     expect(readCorrelations(probe([["B_Al1", "B_O1", 0.993, 0.6]]), sc).correlated).toHaveLength(1);
     // Without the conditional (an older result), the pair stops as before.
     expect(readCorrelations(probe([["scale", "B_O1", 0.976]]), sc).correlated).toHaveLength(1);
+  });
+
+  it("refines one disorder's alternatives together, as SHELXL does, and still stops a pair outside it", () => {
+    // 1b's split site, Al1 and Ga1 0.2 Å apart (PART 1 and 2 of assembly A) sharing one U (EADP):
+    // their positions correlate at −0.996 by construction, and so with every other parameter fixed.
+    const split = [param("pos_Al1_1", "positionShift"), param("pos_Ga1_1", "positionShift"), param("U_Al1_1", "uAniso"), param("occ_Al1", "occupancy"), param("pos_N1_1", "positionShift")];
+    const assemblies = new Map([["pos_Al1_1", "A"], ["pos_Ga1_1", "A"], ["U_Al1_1", "A"], ["occ_Al1", "A"]]);
+    const pairs = probe([["pos_Al1_1", "pos_Ga1_1", -0.996, -0.99], ["pos_Ga1_1", "U_Al1_1", -0.965, -0.93], ["pos_Al1_1", "pos_N1_1", 0.97, 0.96]]);
+    const check = readCorrelations(pairs, split, [], assemblies);
+    expect(check.carried.map((p) => [p.a, p.b, p.disorder])).toEqual([["pos_Al1_1", "pos_Ga1_1", "A"], ["pos_Ga1_1", "U_Al1_1", "A"]]);
+    expect(carriedText(check.carried[0]!)).toBe("pos_Al1_1 ↔ pos_Ga1_1 -0.996 (one disorder (A): its alternatives refined together, as SHELXL refines them)");
+    // A pair with a site outside the disorder stops the refinement as before.
+    expect(check.correlated.map((p) => [p.a, p.b])).toEqual([["pos_Al1_1", "pos_N1_1"]]);
+    // Without the disorder known, the split stops it too.
+    expect(readCorrelations(pairs, split).correlated).toHaveLength(3);
+    // The assemblies come from the CIF's PART groups, through each parameter's site.
+    const d = disorderPage();
+    const spec = buildSingleCrystalSpec(d.structure, d.dataset);
+    const map = disorderAssemblies(d.structure, spec.bindings);
+    expect(map.get("pos_Al1_0")).toBe("A");
+    expect(map.get("pos_Ga1_0")).toBe("A");
+    expect([...map.keys()].some((id) => id.startsWith("pos_N"))).toBe(false);
   });
 
   it("passes a set with nothing at the limit, and names its strongest pair", () => {

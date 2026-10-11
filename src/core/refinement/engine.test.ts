@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { RefinementParameter } from "@/core/refinement/types";
 import { refine, type RefinementProblem } from "@/core/refinement/engine";
+import { invertMatrix } from "@/core/math/linalg";
 import { parseTie, resolveTies, applyEqualValueGroups } from "@/core/refinement/constraints";
 import { noisyPeakProblem } from "@/testSupport/noisyPeak";
 
@@ -235,6 +236,47 @@ describe("refinement engine (Levenberg–Marquardt)", () => {
     expect(analytic.parameters.off).toBeCloseTo(numeric.parameters.off!, 8);
     expect(analytic.parameters.scale).toBeCloseTo(2.5, 6);
     expect(analytic.parameters.off).toBeCloseTo(3, 6);
+  });
+
+  it("solves a fit of many correlated parameters, with the exact esds", () => {
+    // y = Σ p_j·x_j over 40 parameters whose columns come in nearly collinear
+    // pairs (|r| ≈ 0.999), as a split site's positions do. Linear: the esds are
+    // √(diag((XᵀWX)⁻¹)·χ²/(N−P)), and the fit needs only the cycles LM's damping
+    // costs (each pair's weak direction has an eigenvalue near the starting λ).
+    // An eigen-solver stopped short of convergence gave each pair its
+    // conditional esd, a fraction of the true one, and took every cycle allowed.
+    const n = 40;
+    const rows = 160;
+    let seed = 29;
+    const rnd = (): number => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed / 2147483648;
+    };
+    const x = Array.from({ length: rows }, () => {
+      const row = Array.from({ length: n }, () => rnd() - 0.5);
+      for (let j = 0; j + 1 < n; j += 2) row[j + 1] = -row[j]! + 0.05 * (rnd() - 0.5);
+      return row;
+    });
+    const truth = Array.from({ length: n }, (_, j) => 1 + 0.1 * j);
+    const observations = Float64Array.from(x.map((row) => row.reduce((t, v, j) => t + v * truth[j]!, 0) + 0.01 * (rnd() - 0.5)));
+    const weights = Float64Array.from(x.map(() => 1e4));
+    const parameters: RefinementParameter[] = truth.map((_, j) => ({ id: `p${j}`, label: `p${j}`, kind: "scale", value: 0, initialValue: 0, fixed: false }));
+    const result = refine(
+      { parameters, observations, weights, calculate: (v) => Float64Array.from(x.map((row) => row.reduce((t, xv, j) => t + xv * (v[`p${j}`] ?? 0), 0))) },
+      { maxIterations: 20, convergenceTolerance: 1e-10 },
+    );
+    expect(result.status).toBe("converged");
+    expect(result.history.length).toBeLessThanOrEqual(10);
+    const a = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (__, j) => x.reduce((t, row, r) => t + weights[r]! * row[i]! * row[j]!, 0)));
+    const inverse = invertMatrix(a);
+    let chi = 0;
+    x.forEach((row, r) => { chi += weights[r]! * (observations[r]! - row.reduce((t, xv, j) => t + xv * result.parameters[`p${j}`]!, 0)) ** 2; });
+    for (let j = 0; j < n; j++) {
+      const exact = Math.sqrt((inverse[j]![j]! * chi) / (rows - n));
+      expect(Math.abs(result.esd[`p${j}`]! / exact - 1)).toBeLessThan(1e-6);
+    }
+    // The pairs are reported as the high correlations they are.
+    expect(result.diagnostics?.highCorrelations.some((c) => Math.abs(c.coefficient) > 0.95)).toBe(true);
   });
 
   it("holds fixed parameters constant", () => {

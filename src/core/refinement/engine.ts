@@ -24,7 +24,7 @@ import { chiSquared, computeAgreementFactors } from "@/core/refinement/factors";
 import { resolveTies } from "@/core/refinement/constraints";
 import {
   pseudoInverseSymmetric,
-  solveSymmetricPseudoInverse,
+  shiftedPseudoInverseSolver,
   type Matrix,
   type SymmetricPseudoInverseResult,
 } from "@/core/math/linalg";
@@ -609,18 +609,16 @@ function* refineCore(
     }
 
     // LM damping on the (unit-diagonal) scaled system; retry with larger λ.
+    // Solve (D·JᵀJ·D + λI)·y = −D·Jᵀr with a truncated pseudo-inverse, then
+    // unscale Δp_j = y_j / s_j. The truncation removes near-null directions
+    // instead of letting a singular Hessian inject huge shifts. One
+    // eigen-decomposition serves every λ tried: A + λI has A's eigenvectors.
+    const solveDamped = shiftedPseudoInverseSolver(A, opts.svdTolerance ?? 1e-6);
+    const minusB = b.map((v) => -v);
     let stepAccepted = false;
     for (let attempt = 0; attempt < 15 && !stepAccepted; attempt++) {
       maxLambda = Math.max(maxLambda, lambda);
-      const damped: Matrix = A.map((row, i) => row.map((v, j) => (i === j ? v + lambda : v)));
-      // Solve (D·JᵀJ·D + λI)·y = −D·Jᵀr with a truncated pseudo-inverse,
-      // then unscale Δp_j = y_j / s_j. The truncation removes near-null
-      // directions instead of letting a singular Hessian inject huge shifts.
-      const { x: y, diagnostics: solveDiagnostics } = solveSymmetricPseudoInverse(
-        damped,
-        b.map((v) => -v),
-        opts.svdTolerance ?? 1e-6,
-      );
+      const { x: y, diagnostics: solveDiagnostics } = solveDamped(lambda, minusB);
       maxSolveZeroCount = Math.max(maxSolveZeroCount, solveDiagnostics.zeroCount);
       maxSolveConditionNumber = Math.max(maxSolveConditionNumber, solveDiagnostics.conditionNumber);
       for (const dropped of solveDiagnostics.droppedIndices) {

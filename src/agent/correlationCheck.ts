@@ -43,9 +43,19 @@
  * refined values while the extinction comes back to 3 % of its value (20.7(6)
  * for 20); an extinction the data do not determine shows as an esd as large as
  * the value, or a bound.
+ *
+ * So are the parameters of one disorder among themselves (SHELXL's PART 1 and
+ * PART 2 of an assembly: the alternatives' positions, their shared ADP, the
+ * split): two alternatives a few tenths of an ångström apart scatter almost
+ * as one, and their positions correlate at −0.99 by construction. SHELXL
+ * refines them together, and the correlation goes into their esds, which the
+ * full covariance gives (1b's Al1 x 0.0010 against SHELXL's 0.0012). A
+ * disorder the data cannot resolve at all still stops the refinement, as a
+ * null direction.
  */
 
-import type { LinearRestraint, ParameterKind, RefinementOptions, RefinementParameter, RefinementResult } from "@/core/refinement/types";
+import type { LinearRestraint, ParameterBinding, ParameterKind, RefinementOptions, RefinementParameter, RefinementResult } from "@/core/refinement/types";
+import type { StructureModel } from "@/core/crystal/types";
 import { correlationInsight, oneCurve } from "@/core/diagnostics/assessment";
 
 /** The line the engine and `assess_refinement` already draw for a high correlation. */
@@ -73,6 +83,8 @@ export interface CorrelatedPair {
   readonly reason?: string;
   /** Listed, not stopped, because both are overall intensity terms (scale, extinction, batch scales). */
   readonly intensityTerms?: true;
+  /** Listed, not stopped, because both belong to one disorder (the assembly named). */
+  readonly disorder?: string;
 }
 
 export interface CorrelationCheck {
@@ -86,8 +98,23 @@ export interface CorrelationCheck {
   readonly strongest: CorrelatedPair | null;
 }
 
-/** Read the check off a probe (or any refinement result) of the given parameter set, fitted with these restraints. */
-export function readCorrelations(result: RefinementResult, parameters: readonly RefinementParameter[], restraints: readonly LinearRestraint[] = []): CorrelationCheck {
+/**
+ * Each parameter of a disordered site by its disorder assembly (SHELXL's PART
+ * groups, from the CIF): the parameters whose pairs are listed, not stopped,
+ * among themselves.
+ */
+export function disorderAssemblies(structure: StructureModel, bindings: readonly ParameterBinding[]): ReadonlyMap<string, string> {
+  const assembly = new Map(structure.sites.flatMap((site) => (site.disorder ? [[site.label, site.disorder.assembly] as const] : [])));
+  const out = new Map<string, string>();
+  for (const b of bindings) {
+    const a = b.targetKey !== undefined && b.targetId === structure.id ? assembly.get(b.targetKey) : undefined;
+    if (a !== undefined) out.set(b.parameterId, a);
+  }
+  return out;
+}
+
+/** Read the check off a probe (or any refinement result) of the given parameter set, fitted with these restraints (and these disorders). */
+export function readCorrelations(result: RefinementResult, parameters: readonly RefinementParameter[], restraints: readonly LinearRestraint[] = [], assemblies: ReadonlyMap<string, string> = new Map()): CorrelationCheck {
   const kind = new Map<string, ParameterKind>(parameters.map((p) => [p.id, p.kind]));
   const sameCurve = (a: string, b: string): boolean => oneCurve(kind.get(a), kind.get(b)) !== null;
   const tied = (a: string, b: string): boolean => restraints.some((r) => r.terms.some((t) => t.parameterId === a) && r.terms.some((t) => t.parameterId === b));
@@ -96,9 +123,20 @@ export function readCorrelations(result: RefinementResult, parameters: readonly 
     const kb = kind.get(c.parameterIdB);
     const reason = ka && kb ? correlationInsight(ka, kb) : undefined;
     const intensity = INTENSITY_TERMS.has(ka!) && INTENSITY_TERMS.has(kb!);
-    return { a: c.parameterIdA, b: c.parameterIdB, coefficient: c.coefficient, ...(c.conditional !== undefined ? { conditional: c.conditional } : {}), ...(reason ? { reason } : {}), ...(intensity ? { intensityTerms: true as const } : {}) };
+    const disorder = assemblies.get(c.parameterIdA);
+    const oneDisorder = disorder !== undefined && assemblies.get(c.parameterIdB) === disorder;
+    return {
+      a: c.parameterIdA,
+      b: c.parameterIdB,
+      coefficient: c.coefficient,
+      ...(c.conditional !== undefined ? { conditional: c.conditional } : {}),
+      ...(reason ? { reason } : {}),
+      ...(intensity ? { intensityTerms: true as const } : {}),
+      ...(oneDisorder ? { disorder } : {}),
+    };
   });
-  const carriedPair = (p: CorrelatedPair): boolean => p.intensityTerms === true || (p.conditional !== undefined && Math.abs(p.conditional) < CARRIED_BELOW && Math.abs(p.coefficient) < CARRIED_MAX);
+  const carriedPair = (p: CorrelatedPair): boolean =>
+    p.intensityTerms === true || p.disorder !== undefined || (p.conditional !== undefined && Math.abs(p.conditional) < CARRIED_BELOW && Math.abs(p.coefficient) < CARRIED_MAX);
   const over = pairs.filter((p) => Math.abs(p.coefficient) >= CORRELATION_LIMIT);
   return {
     correlated: over.filter((p) => !carriedPair(p)),
@@ -112,7 +150,9 @@ export const pairText = (p: CorrelatedPair): string => `${p.a} ↔ ${p.b} ${p.co
 
 /** A carried pair as the model reads it: the correlation, and what it is with the rest held fixed. */
 export const carriedText = (p: CorrelatedPair): string =>
-  p.intensityTerms ? `${pairText(p)} (the overall intensity terms, refined together)` : `${pairText(p)} (${p.conditional!.toFixed(2)} with the other free parameters fixed)`;
+  p.intensityTerms ? `${pairText(p)} (the overall intensity terms, refined together)`
+    : p.disorder !== undefined ? `${pairText(p)} (one disorder${p.disorder ? ` (${p.disorder})` : ""}: its alternatives refined together, as SHELXL refines them)`
+      : `${pairText(p)} (${p.conditional!.toFixed(2)} with the other free parameters fixed)`;
 
 /** Why the refinement may not run, for the model; null when the free set is fine. */
 export function correlationRefusal(check: CorrelationCheck): string | null {

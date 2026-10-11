@@ -81,7 +81,11 @@ where `r_i = √w_i · (y_obs,i − y_calc,i)` and `J_ij = ∂r_i/∂p_j`.
 - **SVD truncation.** The scaled system is solved with a symmetric
   Moore–Penrose pseudo-inverse. Singular values below
   `svdTolerance × max(singular value)` are dropped (`svdTolerance` defaults to
-  1e-6), so nearly null parameter combinations cannot produce huge shifts.
+  1e-6), so nearly null parameter combinations cannot produce huge shifts. The
+  eigen-decomposition behind it is complete (Householder reduction to
+  tridiagonal form, then the implicit QL algorithm, EISPACK's tred2 and tql2;
+  [linalg.ts](../src/core/math/linalg.ts)), O(P³), and done once per cycle:
+  the damped matrix A + λI has A's eigenvectors, so every λ tried reuses it.
 - **Dead-column guard.** A parameter with no leverage at the current point, such
   as an exactly stationary pseudo-symmetric direction, has an FD column of pure
   cancellation noise, about `eps·|√w·y|/2h`. Scaling that column to a unit
@@ -178,6 +182,12 @@ Jacobian, with the same scaled pseudo-inverse:
 C = pinv(JᵀJ) * reduced_χ²        # reduced_χ² = χ² / (N − P)
 esd(p_j) = sqrt(C_jj)
 ```
+
+C is the full inverse: a parameter that trades off with another (a split
+site's two positions, at −0.99) carries the variance of the pair, as SHELXL's
+full-matrix esds do, not its conditional variance 1/(JᵀWJ)_jj. On 1b, a
+Monte-Carlo of 40 refinements against data simulated at the fit's weights
+scatters as these esds say (scatter/esd 0.74–1.18).
 
 The esds fill `RefinementResult.esd`, and callers copy them onto
 `RefinementParameter.esd`. A dead column gets esd 0. The result also carries

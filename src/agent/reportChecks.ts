@@ -46,10 +46,10 @@ export function verdictCheck(a: RefinementAssessment, name = "Agreement"): Repor
  * values (every pair from |ρ| 0.5, as refine measures before it runs) when
  * there is one, else the refinement itself (which keeps pairs from `listed`).
  */
-export function correlationsCheck(r: RefinementResult, parameters: readonly RefinementParameter[], restraints: readonly LinearRestraint[], listed = 0.5): ReportCheck {
+export function correlationsCheck(r: RefinementResult, parameters: readonly RefinementParameter[], restraints: readonly LinearRestraint[], listed = 0.5, assemblies: ReadonlyMap<string, string> = new Map()): ReportCheck {
   const label = new Map(parameters.map((p) => [p.id, p.label]));
   const name = (id: string): string => label.get(id) ?? id;
-  const check = readCorrelations(r, parameters, restraints);
+  const check = readCorrelations(r, parameters, restraints, assemblies);
   if (check.undetermined.length > 0) {
     return { name: "Correlations", status: "warn", detail: `Undetermined by the data (a null direction): ${check.undetermined.map(name).join(", ")}; their esds mean nothing.` };
   }
@@ -60,7 +60,7 @@ export function correlationsCheck(r: RefinementResult, parameters: readonly Refi
     return {
       name: "Correlations",
       status: "note",
-      detail: `Correlated at |ρ| ≥ ${CORRELATION_LIMIT}, refined together: ${check.carried.slice(0, 4).map((p) => `${name(p.a)} ↔ ${name(p.b)} ${p.coefficient.toFixed(3)} (${p.intensityTerms ? "overall intensity terms" : `${p.conditional!.toFixed(2)} with the rest fixed`})`).join("; ")}.`,
+      detail: `Correlated at |ρ| ≥ ${CORRELATION_LIMIT}, refined together: ${check.carried.slice(0, 4).map((p) => `${name(p.a)} ↔ ${name(p.b)} ${p.coefficient.toFixed(3)} (${p.intensityTerms ? "overall intensity terms" : p.disorder !== undefined ? "one disorder's alternatives" : `${p.conditional!.toFixed(2)} with the rest fixed`})`).join("; ")}.`,
     };
   }
   const s = check.strongest;
