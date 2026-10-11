@@ -250,9 +250,23 @@ describe("AgentExecutor on a live powder fit", () => {
     expect(check.passed).toBe(true);
     expect(check.reading).toBe("Every peak indexes and no forbidden reflection shows intensity: refine the structure.");
     expect(records.get(key)!.cellCheck).toMatchObject({ passed: true, summary: "every peak indexes; no absence flagged" });
-    const method = parse((await ex.run("get_state", {})).text).method as { stages: string[]; next: string; cellCheck: string };
-    expect(method.stages).toEqual(["✓ Cell check", "✓ Scale, background, cell", "✓ Positions", "○ Profile", "○ ADPs", "○ Occupancy (if needed)", "○ Corrections (if needed)", "○ Symmetry review (last) (if needed)"]);
+    expect(parse((await ex.run("get_state", {})).text).method).toMatchObject({ next: "Fit range" });
+    // The data's ends: read, recorded, and the window left to set_fit_range.
+    const range = parse((await ex.run("check_fit_range", {})).text);
+    expect(range.basis).toMatch(/^the data and the converged fit's residual$/);
+    expect(asked.map((e) => e.tool)).toEqual(["refine"]);
+    expect(records.get(key)!.rangeCheck?.summary).toMatch(/^low-angle end: (keep|trim to [\d.]+ \([a-z-, ]+\)); high-angle end: (keep|trim to [\d.]+ \([a-z-, ]+\))/);
+    const method = parse((await ex.run("get_state", {})).text).method as { stages: string[]; next: string; cellCheck: string; rangeCheck: string };
+    expect(method.stages).toEqual(["✓ Fit range", "✓ Cell check", "✓ Scale, background, cell", "✓ Positions", "○ Profile", "○ ADPs", "○ Occupancy (if needed)", "○ Corrections (if needed)", "○ Symmetry review (last) (if needed)"]);
     expect(method.next).toBe("Profile");
+    expect(method.rangeCheck).toBe(records.get(key)!.rangeCheck!.summary);
+    // Once the proposed window is set, a second read says what the window leaves out, and why.
+    const proposed = range.proposed as { min: number; max: number };
+    expect(typeof proposed).toBe("object");
+    await ex.run("set_fit_range", { min: proposed.min, max: proposed.max });
+    const again = parse((await ex.run("check_fit_range", {})).text);
+    expect(again.proposed).toBe("keep the current window: neither end needs trimming");
+    expect(records.get(key)!.rangeCheck!.summary).toMatch(/left out by the window \([a-z-, ]+\).*; window [\d.]+–[\d.]+ ° 2θ$/);
     expect(method.cellCheck).toBe("every peak indexes; no absence flagged");
 
     // ADPs before the profile: refined, with a note.
@@ -316,6 +330,29 @@ describe("AgentExecutor on a live powder fit", () => {
     // Past the rule, the correlation check still applies (scale ↔ the only occupancy).
     expect((await ex.run("refine", {})).text).not.toMatch(/free occupancy with nothing but the scale/);
   });
+
+  it("never refines the instrument's terms with the thermal parameters, and reports the alternation", async () => {
+    const start = newSession(exampleStructure());
+    const { port, calls } = sessionPort({ ...start, powderParams: start.powderParams.map((p) => ({ ...p, fixed: !["scale", "width", "B_Mn1"].includes(p.id) })) });
+    const { ex, asked } = executor(fakeHost(port).host, true);
+    const refused = await ex.run("refine", {});
+    expect(refused.isError).toBe(true);
+    expect(refused.text).toMatch(/the instrument's terms \(width\) and the thermal parameters \(B_Mn1\) are free together/);
+    // Refused before the correlation probe and before anyone is asked.
+    expect(asked).toEqual([]);
+    expect(calls).toEqual([]);
+    // The profile with the B values fixed, then the B values with the profile fixed.
+    await ex.run("set_free", { fix: ["B_Mn1"] });
+    const profile = parse((await ex.run("refine", {})).text);
+    expect(profile.refined).toBe(true);
+    expect(profile.alternation).toBeUndefined();
+    await ex.run("set_free", { fix: ["width"], free: ["B_Mn1"] });
+    const thermal = parse((await ex.run("refine", {})).text);
+    expect(thermal.alternation).toMatchObject({ refined: "the thermal parameters (B_Mn1, B_Ga1), with the instrument terms fixed", largestShift: "their first refinement in the alternation", settled: false });
+    await ex.run("set_free", { fix: ["B_Mn1"], free: ["width"] });
+    const again = parse((await ex.run("refine", {})).text).alternation as Record<string, unknown>;
+    expect(again.largestShift).toMatch(/^width \d+\.\d\d esd since their last refinement$/);
+  }, 60_000);
 
   it("does not refine when the correlation check itself fails", async () => {
     const { port, calls } = sessionPort(newSession(exampleStructure()));

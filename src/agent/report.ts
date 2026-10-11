@@ -17,10 +17,15 @@ import { reportHtml, type ReportAgent, type ReportCheck, type ReportInput, type 
 import { reportMarkdown } from "@/core/export/reportMarkdown";
 import { unverifiedNumbers } from "@/core/export/reportAudit";
 import { lineage, type HistoryStep, type ProjectHistory } from "@/core/project/history";
-import type { ParameterKind, RefinementParameter } from "@/core/refinement/types";
+import type { ParameterBinding, ParameterKind, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { AgentPage } from "@/agent/tools";
 import { RULES, methodProgress, stagesCovered, stagesFor, stagesLeft, type AgentRecord } from "@/agent/method";
 import { differenceSentences, readPosterior, type PosteriorRun } from "@/agent/posteriorTool";
+import type { UnitCell } from "@/core/crystal/types";
+import type { ExtinctionModel, OmittedMeasurement, ResolutionRange } from "@/core/diffraction/types";
+import { EIGHT_PI_SQUARED, uEquivalent } from "@/core/crystal/adp";
+import { EXTINCTION_MODEL_LABELS, EXTINCTION_PARAMETER_LABELS } from "@/core/diffraction/singleCrystalFactors";
+import { withEsd } from "@/agent/structureTable";
 
 /** A finished report, as the viewer shows it and the downloads save it. */
 export interface AgentReport {
@@ -45,7 +50,7 @@ const KIND_SHORT: Partial<Record<ParameterKind, string>> = {
   asymSL: "asymmetry", asymHL: "asymmetry",
   mustrainIso: "microstrain", stephensStrain: "microstrain", mustrainPerp: "microstrain", mustrainPar: "microstrain", anisoSizePerp: "size", anisoSizePar: "size",
   sampleDisplacement: "displacement", sampleTransparency: "transparency", poRatio: "texture", absorption: "absorption",
-  surfaceRoughA: "roughness", surfaceRoughB: "roughness", extinction: "extinction",
+  surfaceRoughA: "roughness", surfaceRoughB: "roughness", extinction: "extinction", batchScale: "batch scales",
   magneticScale: "magnetic scale", momentX: "moments", momentY: "moments", momentZ: "moments", momentMode: "moments", propagationK: "k",
   pdfScale: "scale", qdamp: "Qdamp", qbroad: "Qbroad", delta1: "δ1", delta2: "δ2", spdiameter: "particle size", sratio: "sratio", rcut: "rcut",
   mpdfOrdScale: "mPDF scale", mpdfParaScale: "mPDF paramagnetic scale", mpdfPsigma: "mPDF width", corrLength: "correlation length",
@@ -103,10 +108,100 @@ export function historySteps(page: AgentPage, history: ProjectHistory | null): {
 
 const capital = (s: string): string => (s ? s[0]!.toUpperCase() + s.slice(1) : s);
 
-/** The record's checks: the cell check, the symmetry review, the method exceptions the user allowed. */
+/** A single-crystal step's workspace fields the comparison reads (inline in a History step). */
+interface ScStepFields {
+  /** The bindings are shared between steps: a pointer into the History's blobs. */
+  readonly refinement?: { readonly parameters?: readonly RefinementParameter[]; readonly bindings?: readonly ParameterBinding[] | { readonly blob: string }; readonly lastResult?: RefinementResult };
+  readonly extinctionModel?: ExtinctionModel;
+  readonly resolution?: ResolutionRange;
+  readonly omitted?: readonly OmittedMeasurement[];
+  readonly outlierFilter?: { readonly on: boolean; readonly cutoffSigma: number; readonly minExtinction?: number };
+  readonly adpModel?: "isotropic" | "anisotropic";
+}
+
+/** Each site's U_eq (Å²) with its esd, from a step's parameters: Σ c·basis over its tensor modes, or B/8π². */
+function stepUeq(params: readonly RefinementParameter[], bindings: readonly ParameterBinding[], esd: Readonly<Record<string, number>>, cell: UnitCell): string[] {
+  const value = new Map(params.map((p) => [p.id, p.value]));
+  const free = new Set(params.filter((p) => !p.fixed && !p.expression).map((p) => p.id));
+  const sites = [...new Set(bindings.filter((b) => (b.kind === "uAniso" || b.kind === "bIso") && b.targetKey).map((b) => b.targetKey!))];
+  return sites.map((site) => {
+    const own = bindings.filter((b) => b.targetKey === site && (b.kind === "uAniso" || b.kind === "bIso"));
+    const aniso = own.filter((b) => b.kind === "uAniso" && b.uBasis);
+    if (aniso.length > 0) {
+      const u = [0, 0, 0, 0, 0, 0] as [number, number, number, number, number, number];
+      let variance = 0;
+      for (const b of aniso) {
+        const c = value.get(b.parameterId) ?? 0;
+        for (let i = 0; i < 6; i++) u[i]! += c * b.uBasis![i]!;
+        const e = free.has(b.parameterId) ? esd[b.parameterId] : undefined;
+        if (e !== undefined) variance += (uEquivalent(b.uBasis! as [number, number, number, number, number, number], cell) * e) ** 2;
+      }
+      return `${site} ${withEsd(uEquivalent(u, cell), variance > 0 ? Math.sqrt(variance) : undefined, 5)}`;
+    }
+    const b = own.find((x) => x.kind === "bIso");
+    if (!b) return `${site} —`;
+    const e = free.has(b.parameterId) ? esd[b.parameterId] : undefined;
+    return `${site} ${withEsd((value.get(b.parameterId) ?? 0) / EIGHT_PI_SQUARED, e !== undefined ? e / EIGHT_PI_SQUARED : undefined, 5)}`;
+  });
+}
+
+/**
+ * Single crystal: the last converged refinement with the ADPs free under each
+ * set of conditions — the extinction model, the resolution range, the
+ * measurements omitted, the filter, the ADP model — on the path to the
+ * result, with wR2, GooF, the extinction parameter and each site's U_eq. A
+ * test (another extinction model, a high-order refinement, the extinction
+ * cut) is reported with the engine's numbers, so the account can quote them.
+ * Null with fewer than two such sets.
+ */
+export function comparedRefinements(history: ProjectHistory | null, cell: UnitCell, rowOf: ReadonlyMap<string, number>): ReportCheck | null {
+  if (!history) return null;
+  const last = new Map<string, string>();
+  for (const st of lineage(history)) {
+    if (st.kind !== "refine" || st.summary.status !== "converged") continue;
+    const ws = st.workspace as ScStepFields;
+    const params = ws.refinement?.parameters ?? [];
+    if (!params.some((p) => !p.fixed && !p.expression && (p.kind === "bIso" || p.kind === "uAniso"))) continue;
+    const model = ws.extinctionModel ?? "shelx";
+    const range = ws.resolution ?? {};
+    const filter = ws.outlierFilter?.on ? ws.outlierFilter : undefined;
+    const omitted = ws.omitted?.length ?? 0;
+    const key = JSON.stringify([model, range.dMin ?? null, range.dMax ?? null, omitted, filter?.cutoffSigma ?? null, filter?.minExtinction ?? null, ws.adpModel ?? "cif"]);
+    const conditions = [
+      EXTINCTION_MODEL_LABELS[model],
+      ...(range.dMin !== undefined || range.dMax !== undefined ? [`d ${range.dMax !== undefined ? `≤ ${range.dMax}` : ""}${range.dMin !== undefined && range.dMax !== undefined ? " and " : ""}${range.dMin !== undefined ? `≥ ${range.dMin}` : ""} Å`] : []),
+      ...(filter ? [`filter |Δ|/σ > ${filter.cutoffSigma}${filter.minExtinction !== undefined ? ` or y < ${filter.minExtinction}` : ""}`] : []),
+      ...(omitted ? [`${omitted} omitted`] : []),
+      ws.adpModel === "anisotropic" ? "anisotropic" : ws.adpModel === "isotropic" ? "isotropic" : "the CIF's ADPs",
+    ].join(", ");
+    const ext = params.find((p) => p.kind === "extinction");
+    const esd = ws.refinement?.lastResult?.esd ?? {};
+    const extText = ext ? `${EXTINCTION_PARAMETER_LABELS[model]} ${withEsd(ext.value, ext.fixed ? undefined : esd[ext.id], 6)}` : "no extinction";
+    const row = rowOf.get(st.id);
+    const stored = ws.refinement?.bindings;
+    const bindings = Array.isArray(stored) ? stored : stored && "blob" in stored && Array.isArray(history.blobs[stored.blob]) ? (history.blobs[stored.blob] as ParameterBinding[]) : [];
+    const text = `${row !== undefined ? `step ${row}` : st.label}: ${conditions} — wR2 ${st.summary.wR !== undefined ? (100 * st.summary.wR).toFixed(2) : "—"} %, GooF ${st.summary.gof !== undefined ? st.summary.gof.toFixed(2) : "—"}; ${extText}; U_eq ${stepUeq(params, bindings, esd, cell).join(", ")} Å²`;
+    last.delete(key);
+    last.set(key, text);
+  }
+  if (last.size < 2) return null;
+  return {
+    name: "Refinements compared",
+    status: "note",
+    detail: `The last converged refinement under each set of conditions, the ADPs free: ${[...last.values()].join("; ")}.`,
+  };
+}
+
+/** The record's checks: the fit range, the cell check, the symmetry review, the data's reading, the method exceptions the user allowed. */
 export function recordChecks(page: AgentPage, record: AgentRecord): ReportCheck[] {
   const out: ReportCheck[] = [];
+  if (page === "singleCrystal") {
+    out.push(record.dataCheck
+      ? { name: "Data reading", status: "note", detail: `${capital(record.dataCheck.summary)}.` }
+      : { name: "Data reading", status: "note", detail: "Not run in this analysis (reflection_statistics)." });
+  }
   if (page === "powder") {
+    if (record.rangeCheck) out.push({ name: "Fit range", status: "note", detail: `${capital(record.rangeCheck.summary)}.` });
     out.push(record.cellCheck
       ? { name: "Cell check", status: record.cellCheck.passed ? "pass" : "note", detail: `${capital(record.cellCheck.summary)}.` }
       : { name: "Cell check", status: "note", detail: "Not run in this analysis." });
@@ -178,6 +273,8 @@ export interface AgentReportArgs {
   readonly model: string;
   /** The Agent's own account. */
   readonly narrative: string;
+  /** What the user said in the conversation: the numbers they gave may be quoted. */
+  readonly userText?: string;
   readonly date?: Date;
 }
 
@@ -185,7 +282,8 @@ export interface AgentReportArgs {
 export function buildAgentReport(a: AgentReportArgs): { input: ReportInput; agent: ReportAgent; html: string; markdown: string; unverified: string[] } {
   const progress = methodProgress(a.page, a.record);
   const { steps, otherBranches, rowOf } = historySteps(a.page, a.history);
-  const checks = [...a.checks, ...recordChecks(a.page, a.record)];
+  const compared = a.page === "singleCrystal" && a.input.phases[0] ? comparedRefinements(a.history, a.input.phases[0].structure.cell, rowOf) : null;
+  const checks = [...a.checks, ...recordChecks(a.page, a.record), ...(compared ? [compared] : [])];
   const left = stagesLeft(a.page, a.record);
   // An earlier run is placed by its row in the steps table, the reader's own reference.
   const where = (id: string | null): string => {
@@ -202,7 +300,7 @@ export function buildAgentReport(a: AgentReportArgs): { input: ReportInput; agen
     model: a.model,
     method: { skill: progress.skill, stages: progress.stages.map((s) => ({ label: s.label, done: s.done, optional: s.optional })) },
     steps,
-    agreementLabel: a.page === "pdf" ? "Rw" : "wR",
+    agreementLabel: a.page === "pdf" ? "Rw" : a.page === "singleCrystal" ? "wR2" : "wR",
     ...(otherBranches > 0 ? { otherBranches } : {}),
     checks,
     posterior,
@@ -214,7 +312,8 @@ export function buildAgentReport(a: AgentReportArgs): { input: ReportInput; agen
   // own words — the account, its notes, the reasons it gave for an exception.
   const engineText = reportMarkdown({ ...a.input, date, figure: null, agent: { ...base, notes: [], checks: checks.filter((c) => c.name !== "Method exception") } });
   const narrative = a.narrative.trim();
-  const unverified = unverifiedNumbers([narrative, ...base.notes].join("\n\n"), engineText);
+  // The numbers the user gave (a published refinement's, a reference) are quoted, not the Agent's own.
+  const unverified = unverifiedNumbers([narrative, ...base.notes].join("\n\n"), `${engineText}\n\n${a.userText ?? ""}`);
   const agent: ReportAgent = { ...base, narrative, unverified };
   const input: ReportInput = { ...a.input, date, agent };
   return { input, agent, html: reportHtml(input), markdown: reportMarkdown(input), unverified };

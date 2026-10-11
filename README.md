@@ -58,7 +58,7 @@ neutron TOF Rietveld fit and a GaTa₄Se₈ X-ray PDF fit.
 | **PDF and mPDF** | Neutron and X-ray G(r), multi-phase and multi-dataset, boxcar scans across r, symmetry-mode distortions, magnetic PDF; validated against PDFfit2 and diffpy.mpdf | [PDF roadmap](docs/PDF_MPDF_ROADMAP.md) |
 | **Uncertainty** | Levenberg–Marquardt esds plus Bayesian posterior sampling (ensemble MCMC and NUTS) with convergence diagnostics | [Refinement engine](docs/REFINEMENT_ENGINE.md) |
 | **In-app Agent** | A model beside the analysis — Claude, or your own on Ollama or LM Studio — runs it by your method and discusses it; every change approved or undoable | [The Agent](#the-agent) |
-| **Agent tools** | An MCP server over the same core (40 tools): parse → build → refine → assess → suggest → interpret | [Agent tools](docs/AGENT_TOOLS.md) |
+| **Agent tools** | An MCP server over the same core (41 tools): parse → build → refine → assess → suggest → interpret | [Agent tools](docs/AGENT_TOOLS.md) |
 | **Files** | Reads CIF/mCIF, hkl, `.int`, GSAS/FXYE/ILL/plain powder data, `.gr`/`.sq`/`.fq`; writes CIF/mCIF with esds, an HTML report, and a reopenable project file | [Project format](docs/PROJECT_FORMAT.md) |
 
 ## The Agent
@@ -71,25 +71,34 @@ undoable History step. **Ask first** puts every change on an approval card;
 **Auto** lets it work through the method's stages on its own and stop when a
 decision is yours.
 
-[![The Agent refines PbSO₄ stage by stage and writes its report](docs/media/agent-demo.png)](docs/media/agent-demo.mp4)
+[![The Agent sets the fit range, refines PbSO₄ with the instrument's terms and the B values in turn, and writes its report](docs/media/agent-demo.png)](docs/media/agent-demo.mp4)
 
-*[Watch the 80 s demo](docs/media/agent-demo.mp4) (MP4, 2.8 MB): the Agent refines
+*[Watch the 96 s demo](docs/media/agent-demo.mp4) (MP4, 3.4 MB): the Agent refines
 PbSO₄ against GSAS-II's D1A neutron tutorial data by the method's stages and writes
-its report. The refinements, the checks and the report's numbers are computed live in
-the browser; the Agent writes only its account. The model's turns follow a live run in which Claude did this
-analysis through the app (shortened here: its Bayesian check of the B values is left
-out) and are replayed through a local relay, which speaks LM Studio's API, so the
-recording can be repeated; the stretch where the Agent works is shown at 3.2× speed.*
+its report. It reads the data's ends first and leaves out the background below the
+first reflection and the last 2°, where one detector counts and the data end on a
+line's flank (the first fit leaves the last 0.8° 6σ above the model). It refines the instrument's
+terms (zero, profile, asymmetry) and the B values in turn, never together, until a
+cycle moves neither by more than 0.3 esd: wR 3.87 %, GoF 2.06. The refinements, the
+checks and the report's numbers are computed live in the browser; the Agent writes
+only its account. Its turns were written by Claude Opus 5.5 working the analysis
+through the app in a live run, and are replayed through a local relay so the
+recording can be repeated; the Agent's chip and the report say so ("Claude Opus 5.5 ·
+replay of a live run"). The stretch where the Agent refines is shown at 8× speed.*
 
-- **It runs the whole analysis, and talks it through.** The cell check (a Le Bail
-  fit: unindexed peaks, shoulders, absences), the refinement stage by stage, why
+- **It runs the whole analysis, and talks it through.** The fit range (where the
+  data's ends stop being data the model should fit: background below the first
+  reflection, a detector's edge, peaks faded into the noise), the cell check (a
+  Le Bail fit: unindexed peaks, shoulders, absences), the refinement stage by
+  stage, the instrument's terms and the B values in turn, why
   a fit is poor (`diagnose_fit`: background, positions, asymmetry, widths, the
   intensity fall-off, texture), which phase an extra peak is (`identify_peaks`:
   the sample environment and common standards), bond-valence sums, equal-value
   ties, antisite disorder, the magnetic structure (k, the magnetic space groups,
   the moments, the joint refinement) and boxcar scans of a PDF; then it reports
   the result with its esds and its own assessment, and answers questions about
-  it. 43 tools across the powder page, its magnetic step and the PDF page.
+  it. 54 tools across the powder page, its magnetic step, the single-crystal
+  page and the PDF page.
 - **A report you can hand on.** `write_report` opens the analysis report in the
   app, to save as HTML, Markdown or PDF with the CIF: the data and the model, the
   fit, the structure with esds, every parameter, and how the analysis went — the
@@ -111,14 +120,17 @@ recording can be repeated; the stretch where the Agent works is shown at 3.2× s
   model with a 32k context can follow it. Claude Code reads the same files.
 - **Rules in code, not only in prose.** No change before the page's method has
   been read; no refinement of a parameter set that correlates at |ρ| ≥ 0.95,
-  checked at the current values before every refine; no bare occupancy; the
-  space group questioned only once the method's stages are refined. The stages
-  show as a checklist in the drawer.
-- **Tested on what it does.** Thirteen eval scenarios, each written against a failure
+  checked at the current values before every refine; no bare occupancy; never
+  the instrument's terms (zero, profile, asymmetry) together with the B values
+  — they alternate, and each refinement says how far its group moved; the
+  space group questioned only once the method's stages are refined. The stages,
+  the fit range first, show as a checklist in the drawer.
+- **Tested on what it does.** Fifteen eval scenarios, each written against a failure
   a user or a researcher round found, replay the real chat loop and tools in CI
   with a scripted model — once as the Agent should behave and once as it
   failed, so every check is shown to catch its failure — and run against a real
-  model on demand (`npm run eval:agent`).
+  model on demand (`npm run eval:agent`; results in
+  [docs/AGENT_EVALS.md](docs/AGENT_EVALS.md)).
 - **Out of the way of the work.** The drawer sits beside the plot and the
   parameter table, not over them; the card the Agent is working on breathes, and
   the peaks it names are marked on the plot.

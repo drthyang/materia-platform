@@ -37,12 +37,37 @@ corrections fixes. A reflection the model has, with more or less intensity than 
 is a **misfit to refine**, never an "extra peak" and never evidence for a lower symmetry.
 Only a peak that sits on no reflection of any phase is an extra peak.
 
-## Stage 0 — Load and sanity-check the cell
+## Stage 0 — Load, set the fit range, and sanity-check the cell
 
 1. Load the three inputs: `parse_structure` (CIF), `parse_powder_data` (pattern),
    `parse_instrument`. Confirm the radiation/geometry (CW vs TOF; capillary, flat-plate,
    or cylindrical) — it decides which corrections are even meaningful later.
-2. Run the **free-intensity (Le Bail) check**: `check_cell_symmetry` (pass known impurity
+2. **Set the fit range: read the data's ends** (`check_fit_range`) before anything is
+   fitted. The ends of a scan are often not data the model should fit, and a model that
+   fits them anyway bends its background — which then trades with the B values at high
+   angle. The user's practice, which is also the GSAS-II tutorials': start **just below the
+   first reflection** (the background before it tells the structure nothing), and end **in
+   a gap below the end of the pattern** when the end is not real data:
+   - counts that **step up and stay** at the last points (a detector's or a scan's edge),
+     points with no counts, or a line cut by the last point;
+   - at the short-d end, the stretch where **no peak stands out of the noise** any more
+     (on POWGEN's short-TOF end: "find a place where there are still peaks and put the
+     lower limit into a convenient gap");
+   - on a converged fit, a stretch at an end the model misses by more than anywhere next
+     to it.
+   **Keep** what holds information: peaks below the first reflection that no phase explains
+   are magnetic order (neutrons, below the ordering temperature) or another phase — they
+   stay in the window and get explained (Cr₂WO₆ at 4 K: four peaks below the first nuclear
+   reflection, the strongest 40σ). Keep both ends when peaks are clear to the last point.
+   Every cut goes in a gap between reflections, never through a line. The tool reports
+   each end with its evidence and the counting σ there (PbSO₄ on D1A: one detector counts
+   the last 6°, 3.2× the middle's relative σ) and proposes the window; apply it with
+   `set_fit_range`, which asks the user, and say why end by end. A large cut (more than
+   15 % of the points) is the user's call. Read the ends again after the first refinement:
+   the residual then shows what the data alone could not (PbSO₄: the last 0.8° sat 4.4σ
+   above the model, more than anywhere just inside). The page fits one window; a stretch
+   inside the pattern (a spike, a sample-environment line) cannot be left out — say so.
+3. Run the **free-intensity (Le Bail) check**: `check_cell_symmetry` (pass known impurity
    phases as `extraPhases`). It refines the cell by a Le Bail fit and reads what is left
    over. It is a sanity check, not a gate — it never holds a refinement:
    - **unindexed peaks** (`unindexedPeaks`) — a peak no reflection of the cell can place.
@@ -66,7 +91,7 @@ Only a peak that sits on no reflection of any phase is an extra peak.
    Report the numbers, not just "passed": how many absences were tested, how many were
    untestable (overlapped), and the tool's `limits` — it cannot see a too-large cell or a
    group with too few absences.
-3. Carry the cell (the tool's Le Bail `cell`), zero, background, and a decent starting
+4. Carry the cell (the tool's Le Bail `cell`), zero, background, and a decent starting
    profile forward as the seed for the structural refinement. When the user asks for a
    refinement, refine: the check informs the refinement, it does not stand in its way.
 
@@ -100,7 +125,9 @@ stable and hasn't railed to a bound.
    a narrow 2θ range it is often held — but free it (and the rest) when a genuine width
    mismatch demands it rather than withholding it on principle. Judge by the residual and
    the correlations `assess_refinement` reports, not by a fixed checklist.
-4. **ADPs** — `B_iso` first. Go **anisotropic only if the data clearly support it**
+4. **ADPs** — with the instrument's terms fixed: the zero, `U V W X Y` and the asymmetry
+   are held while the B values refine (the guardrail below), then the two groups
+   alternate. `B_iso` first. Go **anisotropic only if the data clearly support it**
    (high real-space resolution / low temperature); otherwise keep it isotropic. Watch for
    `B_iso` railing toward 0 — that usually means the background or an intensity correction
    is stealing high-angle intensity, not that the atom is truly rigid. When B values are
@@ -168,6 +195,41 @@ refine, and report the exchange with its esd and how the B values moved. On data
 modest Q the exchange trades with the B values: a large esd is the honest result. If the
 exchange refines to zero, the ADP contrast is not disorder: return to the ordered model
 and, unless the contrast is significant and stable, tie the two cation B's.
+
+## The instrument–thermal guardrail (do not skip)
+
+**Never refine the instrument's terms together with the thermal parameters.** The
+instrument's terms are GSAS-II's Instrument Parameters: the **zero** (or the TOF
+calibration), the **peak shape** (Caglioti `U V W`, Lorentzian `X Y`, the TOF α β σ) and its
+**asymmetry** (S/L, H/L). The thermal parameters are the **B values or ADPs**. They trade
+against each other where the data can hardly separate them: wider or more Lorentzian
+peaks put intensity into tails that the background takes up at high angle, and the B
+values' fall-off with angle gives it back; the zero and the asymmetry shape the low-angle
+lines, which fix the scale the B values are measured against. Refined together, each
+absorbs the other's error — a B gone negative while the profile widens, a profile gone
+wrong while the B values look fine — and the esds hide it, because the trade runs through
+the background and the scale rather than one clean pair.
+
+**Alternate the two groups instead.** Refine the instrument terms with the B values fixed,
+then fix them and refine the B values; repeat. In the app, `refine` reports the
+`alternation` after each step: the group refined, its largest shift since its last
+refinement (in esd), and `settled` once a cycle moves neither group by more than 0.3 esd —
+stop there. If the shifts shrink slowly (each cycle more than two-thirds of the last), the
+groups are coupled: tell the user, and report the B values as conditional on the
+instrument terms unless they allow one joint refinement. Either way, each group's esds are
+conditional on the other held fixed — say so in the report.
+
+**With an instrument file from a standard**, its terms describe the instrument already:
+keep them fixed where they fit, and refine only what the sample adds. A microstrain model
+(`set_microstrain`) is the sample's broadening and is not under this rule (watch its
+correlation with the B values all the same); `X` and `Y` are, because they hold the
+instrument's Lorentzian part as well as the sample's size and strain. When the file does not describe the
+data — NAC on 11-BM: the 2009 profile was a quarter too broad in its Gaussian part —
+refine its terms, alternating with the B values as above.
+
+In the app this is a firm rule: `refine` refuses a free set that holds both groups and says
+which to fix. Only the user lifts it (`allow_exception`, rule `instrument-with-thermal`),
+for instance for one last joint cycle to get joint esds once the alternation has settled.
 
 ## The correlation guardrail (do not skip)
 
@@ -324,6 +386,7 @@ standard or an X-ray cell.
 | Step | Tool |
 |------|------|
 | Load | `parse_structure`, `parse_powder_data`, `parse_instrument` |
+| The fit range (first) | `check_fit_range` (the data's ends: where to start and stop; in the app, then `set_fit_range`) |
 | Cell sanity check (start) | `check_cell_symmetry` (Le Bail cell, unindexed peaks, absence flags) |
 | Build param set + staged plan | `build_refinement` |
 | Run a refinement block | `refine_powder` |

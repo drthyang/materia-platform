@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { settingsFrom } from "@/agent/useAgent";
+import { modelLabel, settingsFrom } from "@/agent/useAgent";
 
 describe("Agent settings from storage", () => {
   it("defaults to your own API key, with LM Studio and Ollama on their usual addresses", () => {
@@ -25,5 +25,12 @@ describe("Agent settings from storage", () => {
     expect(s.autoApprove).toBe(false);
     // A value of the wrong type is ignored.
     expect(s.rememberKey).toBe(false);
+  });
+
+  it("names a replayed run by the model that took it live, never by the server that carries the replay", () => {
+    const s = settingsFrom(JSON.stringify({ mode: "lmstudio", lmstudioModel: "claude-replay", replayOf: "Claude Opus 5.5" }));
+    expect(modelLabel(s)).toBe("Claude Opus 5.5 · replay of a live run");
+    expect(modelLabel(settingsFrom(JSON.stringify({ mode: "lmstudio", lmstudioModel: "qwen/qwen3-32b" })))).toBe("qwen/qwen3-32b · LM Studio (local)");
+    expect(settingsFrom(null).replayOf).toBe("");
   });
 });

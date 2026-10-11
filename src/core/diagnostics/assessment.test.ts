@@ -61,6 +61,23 @@ describe("assessRefinement — findings", () => {
     expect(f?.evidence?.origin).toBe("refined");
   });
 
+  it("lets an off-diagonal U term be negative, and flags a diagonal one", () => {
+    const a = assessRefinement({
+      result: result(),
+      parameters: [
+        // As the builders make them: U12 may go below 0, U11 is bounded at 0.
+        param("U_N1A_3", "uAniso", -0.0069, { label: "N1A U12", min: -0.03 }),
+        param("U_C4A_5", "uAniso", -0.0103, { label: "C4A U23", min: -0.05 }),
+        param("U_N1A_0", "uAniso", -0.001, { label: "N1A U11", min: 0, fixed: true }),
+        // A row without a bound is read by its label.
+        param("U_x", "uAniso", -0.002, { label: "C9 U13" }),
+      ],
+      observationCount: 4000,
+    });
+    const f = a.findings.filter((x) => x.category === "physical");
+    expect(f.map((x) => x.parameterIds)).toEqual([["U_N1A_0"]]);
+  });
+
   it("flags a free Lorentzian width refined negative, and not a held one", () => {
     const a = assessRefinement({
       result: result(),

@@ -7,6 +7,349 @@ release fixes bugs.
 
 ## [Unreleased]
 
+### Added
+
+- **The Agent on the single-crystal page.** It reads the page in its own
+  terms — a fit to integrated F², SHELX's R1 over Fo² > 2σ with wR2 and GooF
+  over every reflection, the cell fixed input from indexing — frees, refines,
+  assesses, switches the ADP model, sets the outlier filter and writes the
+  report, as on the powder and PDF pages. Its method is the new skill
+  `sc-workflow` (general practice, not yet the user's own): the data read
+  before the model, the scale then extinction, positions, isotropic then
+  anisotropic ADPs, occupancy only for a reason, and what the report must say.
+  `reflection_statistics` reads the data first: merging, resolution and
+  completeness by shell, the Friedel pairs, the reflections the space group
+  forbids measured at ≥ 3σ, and ⟨|E² − 1|⟩; the reading is the method's first
+  stage and a row of the report. `set_outlier_filter` is the page's |Δ|/σ
+  cutoff. `assess_refinement` there adds the analysis of variance by intensity
+  and resolution, the extinction reading, the largest outliers and the tensors
+  that are not positive definite.
+
+- **The single-crystal page switches its ADP model** (one B per site, or the
+  symmetry-allowed U tensor seeded from the refined B), and saves the choice
+  with the project.
+
+- **The SNS TOPAZ time-of-flight reflection file** (GSAS-II's "SNS TOF HKL
+  F2"), in the app and over MCP: per reflection its wavelength, 2θ, path
+  length, transmission and run. Its first 32 columns are SHELX HKLF 4, so it
+  read as a SHELX file before, at one wavelength of 1.54 Å; it is now
+  recognized first. The extinction of a Laue measurement is computed at each
+  reflection's own wavelength and angle (SHELXL's EXTI, as HKLF 2 carries a λ
+  per reflection); a time-of-flight file without them had none at all. On
+  sapphire (31 orientations, d down to 0.40 Å) the correction reaches
+  y = 0.09, and R_int falls from 24.8 % at low angle to 6–7 % at high angle,
+  the signature of a λ-dependent extinction.
+
+- **A scale per batch** (`bscale_<b>`, relative to the first batch), one row
+  for each further batch of a SHELX HKLF 4 file with batch numbers or each
+  run of a TOPAZ file, entered fixed: the data reduction scales the batches,
+  and freeing them is a decision the residuals by batch support. The SHELX
+  readers now keep the batch number. On sapphire, 30 batch scales took wR2
+  from 13.80 % to 13.01 % and left the structure where it was.
+
+- **The extinction test**: the outlier filter can also leave out the
+  reflections whose extinction factor y falls below a cut (the page's "or
+  y <" box, `minExtinction` in `set_outlier_filter`), to see whether the
+  structure rests on the most extinguished reflections. On sapphire, without
+  the 152 of y < 0.5, the positions and Al's tensor held within an esd and
+  O's U values fell by 3 % (2σ).
+
+- **`reflection_equivalents`**: every measurement of a reflection and its
+  equivalents, with batch, wavelength, extinction factor, and the distance
+  from Fc² and from the median of the family, to tell a failed measurement
+  from a model that misses before anything is left out. Sapphire's 5 4 1 in
+  batch 24 read 41(10) against nine equivalents that agree with Fc² ≈ 1360
+  within 2σ: a detector edge, not the model.
+
+- **Esds for the anisotropic tensors and the bonds.** `structure_table` gives
+  each U^ij and U_eq with its esd, and `bond_geometry` on the single-crystal
+  page each length with the esd its refined positions give (Al–O
+  1.8549(2) Å).
+
+- **The single-crystal reading of a fit**, in `reflection_statistics` and
+  `assess_refinement` and in the report: how the data were measured (the
+  wavelength band, the batches, the transmission), K and R1 by batch with the
+  batches farthest from the mean and their worst reflection, the reach of the
+  extinction correction (the smallest y, how many reflections fall below 0.8
+  and 0.5), and the report's tables of resolution shells, the analysis of
+  variance by intensity, the batches and the largest outliers. `refine` gives
+  R1 and GooF with wR2.
+
+- **Single measurements left out by hand** (`omit_reflections`, the page's
+  "Omitted" row): SHELXL's OMIT h k l, by the file's indices and batch, with
+  the reason, saved with the project and listed in the report. A σ cutoff
+  takes whatever lies beyond it: on sapphire the second failed measurement of
+  batch 24, 3 4 2 at 39 % of what its 16 equivalents read, sat at −42σ among
+  the extinction-limited misfits (−30 to −42σ), and the cutoff the Agent set
+  just above the next worst left it in. The GSAS-II tutorial removes it.
+  Omitting both took wR2 from 19.07 % to 16.79 % before anything else moved.
+
+- **Each outlier read against its equivalents**, in `assess_refinement` and
+  the report: the other measurements' Fo²/Fc² (median and scatter) beside
+  this one's, and the verdict — a failed measurement (off by itself while its
+  equivalents agree, so it holds when that one failure drags the fit), the
+  model's misfit (all of them off the same way), or equivalents that disagree
+  among themselves (a correction that differs with wavelength, such as
+  extinction before it is refined).
+
+- **Becker–Coppens extinction** (`set_extinction_model`, the page's extinction
+  menu): secondary type I or II with a Gaussian or Lorentzian mosaic, as
+  GSAS-II computes it, with each reflection's path length, beside SHELXL's
+  EXTI. The parameter is GSAS-II's Eg or Es in its units. On sapphire, type I
+  Lorentzian fits better (wR2 12.08 % against 13.52 %, GooF 2.49 against
+  2.79), with Eg = 6.2·10⁻⁴ (the GSAS-II tutorial's, on F with a cut:
+  5.71·10⁻⁴).
+
+- **A resolution range** (`set_resolution_range`, SHELXL's SHEL; the page's
+  "Resolution" row), for the high-order refinement that tests the extinction
+  model through the ADPs: on sapphire, Becker–Coppens gives the same U_eq
+  from all the data as from d ≤ 0.5 Å alone (0.00349(5) and 0.00342(7) Å² for
+  Al), while EXTI's all-data U_eq lie 6–7 esds below its own high-order ones
+  and its parameter falls from 0.30 to 0.070(5).
+
+- **Refinements compared** in the single-crystal report: the last converged
+  refinement under each set of conditions (extinction model, resolution
+  range, omissions, filter, ADP model) on the path to the result, with wR2,
+  GooF, the extinction parameter and each site's U_eq, all computed from the
+  History, so an account can quote a test.
+
+- **Eval scenarios** `sc-data-first`, `sc-failed-reflection`,
+  `sc-failed-measurements`, `sc-extinction-test`, `sc-extinction-model` and
+  `sc-batch-scales`, from the sapphire round, each replayed as the Agent should
+  behave and as it failed.
+
+- **The radiation and wavelength of single-crystal data** (`set_radiation`,
+  the page's λ box beside the probe): a SHELX `.hkl` or `.fcf` carries
+  neither, and loaded as neutron at 1.54 Å with no way to say Mo Kα. The
+  scale restarts from its best value under the new physics.
+
+- **Riding hydrogens** (`set_riding_hydrogens`), as SHELXL's AFIX: an sp² C–H
+  on the external bisector of its parent's two neighbours (AFIX 43), at its
+  distance or one given (0.93 Å at room temperature, 0.95 Å below about
+  200 K), any other at its present offset (AFIX 3), with U_iso 1.2·U_eq of the
+  parent (1.5 for methyl and hydroxyl) and no parameter of its own; their
+  derivatives go to the parent, as SHELXL's do. It reproduces SHELXL's 16
+  hydrogens of dipyridyl disulfide to 0.003 Å and their U_iso to 10⁻³ Å². The
+  result lists each X–H as placed and names those out of range;
+  `structure_table` marks the riding ones, the report states the treatment,
+  and a refinement with hydrogens free against X-ray data draws a note. On
+  X-ray data the anisotropic switch leaves the hydrogens isotropic.
+
+- **SHELXL's weighting scheme** (`set_weighting`, the page's WGHT a b with a
+  "suggest" button): w = 1/[σ² + (aP)² + bP], P = (Fo² + 2Fc²)/3, re-evaluated
+  at the fit's own Fc² until it settles, as SHELXL recomputes it every cycle.
+  `assess_refinement` gives SHELXL's suggestion for the model as it stands —
+  the a and b that make the GooF flat across the intensity bins and 1 overall.
+  With dipyridyl disulfide's published WGHT 0.0362 0.7686 the page gives
+  wR2 7.78 % and GooF 1.03 for the 254 parameters (SHELXL: 7.86 % and 1.041),
+  and suggests 0.0324 0.951. wR2 and GooF in the report and in the agreement
+  are weighted by the scheme; R1 is not.
+
+- **Eval scenarios** `sc-radiation-first`, `sc-riding-hydrogens`,
+  `sc-listing-honesty` and `sc-weighting-last`, from the dipyridyl disulfide
+  round.
+
+- **The refined structure against the one loaded** (`structure_table` with
+  `against: "loaded"`, single-crystal page): each site's shift in Å and in
+  esds and its U_eq against the loaded value, the sites beyond 2 esds listed —
+  for "does this reproduce the published refinement?". On dipyridyl disulfide:
+  no shift beyond 0.0008 Å (0.6 esd), and the four sulfur atoms' U_eq 1.5 %
+  below SHELXL's (4.3–4.5 esd), the f′ the app does not have yet.
+
+- **A molecule's bonds in the report**: for a structure with carbon, the
+  covalent bonds (closer than the covalent radii and 0.4 Å) with esds from the
+  refined positions, as SHELXL's `_geom_bond`, in place of the cation shells,
+  which for an organic molecule listed each carbon's N and S contacts and no
+  C–C bond. A riding hydrogen's bond is marked as set by its constraint.
+
+- **`bond_geometry` by atom** (`atoms`): only the bonds to the sites named. A
+  list cut at 40 now says so; on dipyridyl disulfide the S–S and S–C bonds lay
+  beyond the 40 shortest and were dropped without a word.
+
+- **The fit range, read from the data's ends** (`check_fit_range`, in the app
+  and over MCP), the first stage of the Rietveld method and of its checklist.
+  It proposes where the window starts and stops, as the GSAS-II tutorials do:
+  just below the first reflection (background beyond it), unless the data hold
+  peaks there no phase explains, which stay in (Cr₂WO₆ at 4 K: four peaks below
+  the first nuclear line, the strongest 40σ); and in a gap below what is not
+  real data — counts that step up and stay at the last points, points with no
+  counts, a line cut by the last point, the short-d stretch where no peak
+  stands out of the noise, or (on a converged fit) a stretch the model misses
+  more than anywhere next to it. Every cut lies in a gap between reflections;
+  `set_fit_range` applies it with the user's approval. On PbSO₄ (D1A) it
+  proposes 18.8–153.95°: below the first reflection at 20.4°, and above the
+  last 0.8°, which one detector counts and which sits 4.4σ above the model
+  once the base is refined. On fluorapatite, NAC, Cr₂WO₆ and Mn₃Ga it keeps
+  what the tutorials keep. The user found the edge on the demo.
+
+- **Instrument and thermal parameters refined apart** — a firm rule: `refine`
+  refuses a free set holding the instrument's terms (the zero or TOF
+  calibration, Caglioti U V W, Lorentzian X Y, the TOF profile, the asymmetry;
+  Qdamp and Qbroad on a PDF) together with the B values or ADPs, and says how
+  to alternate. Only the user lifts it (`allow_exception`). Each refinement of
+  one group reports the `alternation`: its largest shift since its last
+  refinement, in esd, and `settled` once a cycle moves neither by more than
+  0.3 esd (a note when the shifts shrink slowly: the groups are coupled). The
+  skills give the reason; `rank_next_parameters` marks the groups the rule
+  would refuse. The user found it on the demo, which refined both together.
+
+- **Eval scenarios** `instrument-thermal-apart` and `fit-range-edges`, each
+  replayed as the Agent should behave and as it failed.
+
+- **docs/AGENT_EVALS.md**: the scenarios, how to run them, and the results
+  against real models (Haiku 5.5 32/36 and Sonnet 5.5 28/36 over 12 scenarios
+  ×3; gemma4:26b on Ollama 9/10), with what the failures were. Live runs now
+  record the tokens each run spent.
+
+- **The fit diagnosis in the powder report**, as `diagnose_fit` gives it on
+  the fit on screen, so an account that quotes it ("the lines are 2.45×
+  broader") quotes the report.
+
+### Changed
+
+- **Single-crystal structure factors with analytic derivatives.** A kernel
+  computes F for a fixed reflection list and, in the same pass, ∂F for every
+  position mode, U mode, B and occupancy, so the Jacobian costs about two
+  evaluations instead of two per parameter. On dipyridyl disulfide (4508
+  reflections) an evaluation went from 835 ms to 96 ms and the 253-parameter
+  anisotropic refinement from 23 minutes to 16.5 s.
+
+- **A refinement's listing says so.** A `.fcf` with calculated columns loads
+  marked as a refinement's listing — each reflection once, on that
+  refinement's scale, the absences left out and, in SHELXL's LIST 4, its
+  extinction divided out — and get_state, `reflection_statistics`, the data
+  card and the report say what cannot be judged from it. R_int of data with
+  one value per reflection reads "n/a (merged)" in place of 0 %.
+
+- **The correlation guard lets through a pair a third parameter carries.** The
+  engine now reports, for each correlated pair, its correlation with every
+  other free parameter held fixed. A pair over 0.95 whose correlation the
+  others carry (below 0.9 with them fixed, and under 0.99 itself) refines,
+  listed in the outcome and the report: the scale, the extinction and the ADPs
+  of a single-crystal fit correlate so, and every single-crystal program
+  refines them together (on synthetic corundum to d = 0.4 Å, scale ↔ B(O)
+  reads 0.976, 0.72 with the rest fixed, and both B's come back within
+  0.002 Å² of the truth). A pair that trades off itself still stops it.
+  The overall intensity terms of a single-crystal fit — the scale, the
+  extinction and the batch scales — are listed and refined together whatever
+  their correlation: under severe extinction scale ↔ extinction reads 0.99
+  (sapphire), and every single-crystal program refines them so.
+
+- **A single-crystal refinement runs until every shift is below 0.05 esd**
+  (up to 50 cycles), the crystallographic criterion, not until χ² stops
+  falling: with a GooF near 3 a shift of most of an esd changes χ² by less
+  than the engine's tolerance. Sapphire with its batch scales stopped after 7
+  cycles with the extinction still moving by 0.79 esd, and needed 21.
+
+- **The single-crystal verdict names the causes of a misfit on integrated
+  F²** (extinction, badly measured reflections, isotropic ADPs, σ's too
+  small), not the powder's background and profile, and an ADP at its bound
+  points to extinction first.
+
+- **The demo, re-recorded** (docs/media/agent-demo.mp4, 96 s): the Agent now
+  reads the data's ends first and leaves out the background below the first
+  reflection and the last 2° of the D1A scan, and refines the instrument's terms
+  and the B values in turn until the alternation settles (wR 3.87 %, GoF 2.06).
+  The turns were written by Claude Opus 5.5 in a live run through the app and
+  are replayed for the recording, and the Agent's chip and the report say so
+  ("Claude Opus 5.5 · replay of a live run"), not the relay's "LM Studio ·
+  claude-replay". The video and its poster carry "© 2026 Tsung-Han Yang" in
+  the corner, and the speed badge no longer covers the Send button.
+
+- **The fit range in the record and the report** says what the window leaves
+  out and why, end by end, once a second read finds the window already set.
+
+### Fixed
+
+- **Riding hydrogens' derivatives are exact.** An sp² hydrogen turns with
+  the bisector when its carbon or the carbon's neighbours move, and the
+  Jacobian now carries that (SHELXL's riding derivatives keep only the
+  parent's translation). With the approximation, dipyridyl disulfide's
+  254-parameter refinement from SHELXL's own model stalled at 0.16 esd per
+  cycle; it now converges.
+
+- **`set_riding_hydrogens` reported "no hydrogen rides" after riding them**:
+  it read the page through the port it was given, which in the app shows the
+  page as it was before the change. The test host now hands out each render's
+  snapshot, as the app does, so a tool that reads its own change is caught.
+
+- **Negative off-diagonal U terms are not "unphysical".** `assess_refinement`
+  and the report flagged U12, U13 and U23 below 0 as unphysical displacement
+  parameters and listed them as open issues; only a diagonal term and the
+  tensor's positive definiteness are judged.
+
+- **The report's B_eq uses the full U_eq**, not a third of the trace, which
+  is wrong in a non-orthogonal cell.
+
+- **A method stage the model cannot refine is passed**: a structure loaded
+  anisotropic, its hydrogens riding, has no B to refine, and the isotropic-ADP
+  stage drew an "out of the method's order" note and stayed open in the
+  checklist and the report.
+
+- **A re-weighted refinement counts every cycle** in its message ("converged
+  after 27 iteration(s), the weights re-evaluated … 3 times"), where it gave
+  the last pass's ("after 1 iteration") beside 27 in its history.
+
+- **The report's number audit accepts the user's numbers**: a value the user
+  gave (a published refinement's R1) quoted in the account is theirs, not the
+  Agent's own.
+
+- **Loading a new CIF on the single-crystal page rebuilds its parameter
+  rows.** The page stays mounted for the same data, and kept the old
+  structure's rows against the new structure's bindings; the new spec's rows
+  now replace them, with the last fit and an applied magnetic model, which
+  belong to the old cell.
+
+- **The single-crystal model no longer applies a Lorentz–polarization
+  factor.** Reflection files hold Fo² already corrected in data reduction
+  (SHELX .hkl and .fcf, FullProf .int, the SNS TOPAZ .hkl), and the model
+  multiplied Fc² by 1/sin2θ (and the X-ray polarization) again: against
+  SHELXL's own Fc² in the GSAS-II tutorial's 1b.fcf (Mo Kα) the ratio ran from
+  14 at low angle to 0.9 at high angle, a fall-off with angle for the scale and
+  the ADPs to absorb. Fc² is now k·y·|F|², as SHELXL, Jana, FullProf and
+  GSAS-II fit it and as the page's own magnetic path already did; the ratio
+  is flat within 5 % (a test reads the tutorial file when it is present). The
+  Prefit and Escape searches were tuned on the old surface and recovered a
+  trapped start for 2 seeds in 10 on the corrected one; a new seed sweep sets
+  the positional kick floor to 0.15 and 50 iterations per start (8 in 10).
+
+- **Switching to anisotropic ADPs starts from the refined sphere in any
+  cell.** The seed was U11 = U22 = U33 = U with zero off-diagonals, which is
+  a sphere only on orthogonal axes: in a hexagonal cell the sphere has
+  U12 = U/2. On sapphire (R-3c) the switch moved wR2 from 14.13 % to 14.48 %
+  before anything refined; it now stays at 14.13 %. U_eq is the full
+  ⅓ Σ U^ij a*_i a*_j (a_i·a_j) (Fischer & Tillmanns), not the trace, in the
+  structure table, the CIF export and the switch back to one B per site.
+
+- **The reflection statistics read the reflections the space group allows.**
+  They set the unique reflections measured, forbidden ones included, beside
+  the count the group allows (sapphire: 484 against 466 expected, of which
+  444 allowed), and reflections per parameter counted the forbidden ones,
+  whose Fc is 0 whatever the model. ⟨|E² − 1|⟩ now carries the ε factor
+  of special reflections, and is reported as no test for a structure of
+  fewer than six independent sites or mostly on special positions
+  (corundum: two, both special), where Wilson's distributions do not hold.
+  A forbidden reflection measured is given as a fraction of the allowed
+  intensity at its d (sapphire's: about 1 %, multiple diffraction).
+
+- **The extinction reading compares the strongest reflections with the
+  rest.** It asked whether K = ΣFo²/ΣFc² of the strongest bin was below 0.95,
+  but before extinction is refined the strong reflections pull the scale
+  down and every K reads above 1 (sapphire with the scale alone: 3.6 on the
+  weakest bin, 1.7 on the strongest), so severe extinction read "not
+  indicated". The strongest bin now reads against the median of the others.
+- The single-crystal page's probe hints no longer mention a polarization
+  factor (the model applies none to corrected Fo²) and say that a
+  time-of-flight file with each reflection's wavelength has its extinction
+  computed at it.
+- The report's number audit accepts a number more precise than the report
+  prints when it rounds to the printed value (2.9992 for a printed 2.999).
+- The symmetry-last eval read "Neither is evidence for a lower group" as
+  proposing one: "neither" and "nor" count as negations.
+- A boxcar scan given its own free set is checked against the method's rules
+  with that set, not the page's.
+- A refinement that did not finish no longer marks the method's stages done.
+
 ## [0.4.0] - 2026-10-11
 
 ### Added

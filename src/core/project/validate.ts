@@ -28,6 +28,7 @@ import {
   PDF_POSITION_MODES,
 } from "@/core/project/types";
 import { MUSTRAIN_MODELS, PEAK_CORRECTION_IDS } from "@/core/workflow/powderModelOptions";
+import { EXTINCTION_MODELS } from "@/core/diffraction/singleCrystalFactors";
 
 export class ProjectFileError extends Error {
   constructor(message: string, readonly path?: string) {
@@ -146,6 +147,11 @@ function checkStructure(v: unknown, path: string): void {
     opt(site.isotope, `${p}.isotope`, num);
     opt(site.oxidationState, `${p}.oxidationState`, num);
     opt(site.multiplicity, `${p}.multiplicity`, int);
+    opt(site.disorder, `${p}.disorder`, (d, dp) => {
+      const r = rec(d, dp);
+      str(r.assembly, `${dp}.assembly`);
+      int(r.group, `${dp}.group`);
+    });
   });
 }
 
@@ -343,12 +349,13 @@ function checkScDataset(v: unknown, path: string): void {
   str(d.id, `${path}.id`);
   str(d.name, `${path}.name`);
   checkRadiation(d.radiation, `${path}.radiation`);
+  opt(d.origin, `${path}.origin`, oneOf(["refinement-listing"] as const));
   const refl = arr(d.reflections, `${path}.reflections`);
   refuseForeignData(refl[0], `${path}.reflections`, "singleCrystal");
   refl.forEach((item, i) => {
     const r = rec(item, `${path}.reflections[${i}]`);
     for (const k of ["h", "k", "l", "iObs"]) num(r[k], `${path}.reflections[${i}].${k}`);
-    opt(r.sigma, `${path}.reflections[${i}].sigma`, num);
+    for (const k of ["sigma", "batch", "wavelength", "twoTheta", "tbar", "transmission"]) opt(r[k], `${path}.reflections[${i}].${k}`, num);
   });
 }
 
@@ -373,10 +380,73 @@ function checkSingleCrystalWorkspace(ws: Rec, path: string, ctx: PhaseContext): 
   oneOf(SINGLE_CRYSTAL_PROBES)(ws.probe, `${path}.probe`);
   checkRefinement(ws.refinement, `${path}.refinement`);
   opt(ws.magnetic, `${path}.magnetic`, checkMagnetic(ctx));
+  opt(ws.adpModel, `${path}.adpModel`, oneOf(["isotropic", "anisotropic"] as const));
   if (ws.outlierFilter !== undefined && ws.outlierFilter !== null) {
     const f = rec(ws.outlierFilter, `${path}.outlierFilter`);
     bool(f.on, `${path}.outlierFilter.on`);
     num(f.cutoffSigma, `${path}.outlierFilter.cutoffSigma`);
+    opt(f.minExtinction, `${path}.outlierFilter.minExtinction`, num);
+  }
+  opt(ws.omitted, `${path}.omitted`, (v, p) => each(v, p, (item, ip) => {
+    const o = rec(item, ip);
+    int(o.h, `${ip}.h`);
+    int(o.k, `${ip}.k`);
+    int(o.l, `${ip}.l`);
+    opt(o.batch, `${ip}.batch`, int);
+    opt(o.reason, `${ip}.reason`, str);
+  }));
+  opt(ws.riding, `${path}.riding`, (v, p) => each(v, p, (item, ip) => {
+    const r = rec(item, ip);
+    str(r.site, `${ip}.site`);
+    str(r.parent, `${ip}.parent`);
+    const geometry = oneOf(["aromatic", "methyl", "hydroxyl", "methylene", "methine", "fixed", "free"] as const)(r.geometry, `${ip}.geometry`);
+    num(r.uFactor, `${ip}.uFactor`);
+    opt(r.distance, `${ip}.distance`, num);
+    opt(r.offset, `${ip}.offset`, vec3);
+    opt(r.torsion, `${ip}.torsion`, num);
+    opt(r.phase, `${ip}.phase`, num);
+    opt(r.reference, `${ip}.reference`, vec3);
+    opt(r.side, `${ip}.side`, num);
+    opt(r.neighbours, `${ip}.neighbours`, (nv, np) => each(nv, np, (n, nip) => {
+      const nr = rec(n, nip);
+      str(nr.label, `${nip}.label`);
+      int(nr.op, `${nip}.op`);
+      vec3(nr.cell, `${nip}.cell`);
+    }));
+    if (geometry === "fixed" && r.offset === undefined) fail(ip, "a hydrogen at a fixed offset needs its offset");
+    if (geometry !== "fixed" && geometry !== "free" && (r.distance === undefined || !Array.isArray(r.neighbours))) fail(ip, `a ${geometry} hydrogen needs its distance and the neighbours that place it`);
+    if ((geometry === "methyl" || geometry === "hydroxyl") && (r.torsion === undefined || r.reference === undefined)) fail(ip, `a ${geometry} hydrogen needs its group's torsion and reference`);
+  }));
+  opt(ws.restraints, `${path}.restraints`, (v, p) => each(v, p, (item, ip) => {
+    const r = rec(item, ip);
+    const kind = oneOf(["dfix", "sadi"] as const)(r.kind, `${ip}.kind`);
+    num(r.sigma, `${ip}.sigma`);
+    opt(r.target, `${ip}.target`, num);
+    if (kind === "dfix" && r.target === undefined) fail(ip, "a DFIX needs its target distance");
+    const pairs = each(r.pairs, `${ip}.pairs`, (pv, pp) => {
+      const pr = rec(pv, pp);
+      str(pr.from, `${pp}.from`);
+      str(pr.to, `${pp}.to`);
+      int(pr.op, `${pp}.op`);
+      vec3(pr.cell, `${pp}.cell`);
+    });
+    if (pairs.length === 0 || (kind === "sadi" && pairs.length < 2)) fail(`${ip}.pairs`, kind === "sadi" ? "a SADI needs two distances or more" : "a DFIX needs a distance");
+  }));
+  opt(ws.twinLaws, `${path}.twinLaws`, (v, p) => each(v, p, (item, ip) => {
+    const law = rec(item, ip);
+    each(law.matrix, `${ip}.matrix`, (row, rp) => each(row, rp, (x, xp) => int(x, xp)));
+    if (!Array.isArray(law.matrix) || law.matrix.length !== 3 || law.matrix.some((row) => !Array.isArray(row) || row.length !== 3)) fail(`${ip}.matrix`, "a twin law is a 3×3 integer matrix");
+  }));
+  if (ws.weighting !== undefined && ws.weighting !== null) {
+    const w = rec(ws.weighting, `${path}.weighting`);
+    for (const term of ["a", "b"] as const) if (num(w[term], `${path}.weighting.${term}`) < 0) fail(`${path}.weighting.${term}`, "a weighting term cannot be negative");
+  }
+  opt(ws.extinctionModel, `${path}.extinctionModel`, oneOf(EXTINCTION_MODELS));
+  opt(ws.wavelength, `${path}.wavelength`, num);
+  if (ws.resolution !== undefined && ws.resolution !== null) {
+    const r = rec(ws.resolution, `${path}.resolution`);
+    opt(r.dMin, `${path}.resolution.dMin`, num);
+    opt(r.dMax, `${path}.resolution.dMax`, num);
   }
   opt(ws.modulated, `${path}.modulated`, checkModulated);
 }
@@ -531,6 +601,16 @@ function checkAgent(v: unknown, path: string): void {
     const p = `${path}.records[${i}]`;
     const record = rec(r, p);
     str(record.key, `${p}.key`);
+    if (record.dataCheck !== undefined && record.dataCheck !== null) {
+      const check = rec(record.dataCheck, `${p}.dataCheck`);
+      num(check.at, `${p}.dataCheck.at`);
+      str(check.summary, `${p}.dataCheck.summary`);
+    }
+    if (record.rangeCheck !== undefined && record.rangeCheck !== null) {
+      const check = rec(record.rangeCheck, `${p}.rangeCheck`);
+      num(check.at, `${p}.rangeCheck.at`);
+      str(check.summary, `${p}.rangeCheck.summary`);
+    }
     if (record.cellCheck !== undefined && record.cellCheck !== null) {
       const check = rec(record.cellCheck, `${p}.cellCheck`);
       bool(check.passed, `${p}.cellCheck.passed`);
@@ -544,7 +624,7 @@ function checkAgent(v: unknown, path: string): void {
     }
     arr(record.exceptions, `${p}.exceptions`).forEach((e, j) => {
       const ex = rec(e, `${p}.exceptions[${j}]`);
-      oneOf(["bare-occupancy"])(ex.rule, `${p}.exceptions[${j}].rule`);
+      oneOf(["bare-occupancy", "instrument-with-thermal"])(ex.rule, `${p}.exceptions[${j}].rule`);
       str(ex.reason, `${p}.exceptions[${j}].reason`);
       num(ex.at, `${p}.exceptions[${j}].at`);
     });

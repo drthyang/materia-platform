@@ -25,6 +25,7 @@ const KNOWLEDGE = repoKeyed(import.meta.glob("../../knowledge/*.md", { query: "?
 export const PAGE_METHOD: Readonly<Record<AgentPage, string>> = {
   powder: "my-rietveld-workflow",
   pdf: "pdf-workflow",
+  singleCrystal: "sc-workflow",
 };
 
 export interface SkillReference {
@@ -139,7 +140,7 @@ export function skillIndex(): string {
     .join("\n");
 }
 
-const PAGE_LABEL: Record<AgentPage, string> = { powder: "Powder", pdf: "PDF" };
+const PAGE_LABEL: Record<AgentPage, string> = { powder: "Powder", pdf: "PDF", singleCrystal: "Single-crystal" };
 
 /**
  * What read_skill returns: the skill's body and its references' names, or

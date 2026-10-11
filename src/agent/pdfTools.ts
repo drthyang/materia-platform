@@ -42,6 +42,7 @@ export function readPdfTool(name: string, input: Input, port: PdfAgentPort, host
     case "suggest_next_steps":
       return { steps: suggest_next_steps({ assessment: assessment(s) }) };
     case "structure_table":
+      if (input.against !== undefined) throw new Error("`against` is on the single-crystal page only, for now");
       return { phases: s.refinedPhases.map((ph, k) => structureTable(ph, k, s.parameters, s.bindings, s.result?.esd ?? {})), ...(s.result ? {} : { note: "No refinement on screen: the values carry no esds." }) };
     case "bond_geometry":
       return bondsOf(s.refinedPhases, input, bond_geometry);

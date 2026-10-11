@@ -106,6 +106,23 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
     handler: tools.build_refinement,
   },
   {
+    name: "check_fit_range",
+    title: "Check the fit range (the data's ends)",
+    description: "The first step of a refinement: read the pattern's two ends and propose the fit window, as the GSAS-II tutorials do. The long-d end starts just below the first reflection (background only) unless the data hold peaks there no phase explains — magnetic order or another phase, which stay in. The far end stops in a gap below what is not real data: counts that step up and stay at the last points (a detector's or scan's edge), points with no counts, a line cut by the last point, the short-d stretch where no peak stands out of the noise, or (with a converged `result`) a stretch the model misses more than anywhere just inside. Every cut lies in a gap between reflections; a cut of more than 15 % of the points is flagged `large` — the user's call. Returns `low` and `high` (verdict, `cut`, findings with the evidence, notes on the counting σ), `proposed` (the window on the pattern's axis, or null), `proposedD` (Å) and `interior` (spikes, missing points no window removes). Pass the window on as `fitRange` to refine_powder and check_cell_symmetry.",
+    inputSchema: {
+      structure: anyObj.describe("StructureModel: its reflections are where the cuts must not fall"),
+      pattern: anyObj.describe("PowderPattern from parse_powder_data"),
+      instrument: anyObj.optional().describe("InstrumentParameters; required for time-of-flight data (difC)"),
+      extraPhases: anyArr.optional().describe("Other phases in the sample: their reflections count too"),
+      parameters: anyArr.optional().describe("RefinementParameter[] at their current values (single phase), for the model's curve"),
+      bindings: anyArr.optional(),
+      profile: anyObj.optional(),
+      result: anyObj.optional().describe("A converged RefinementResult for these parameters: its residual is read too"),
+      fitRange: z.object({ min: z.number(), max: z.number() }).optional().describe("The current window on the pattern's own axis"),
+    },
+    handler: tools.check_fit_range,
+  },
+  {
     name: "check_cell_symmetry",
     title: "Check cell & space group (Le Bail sanity check)",
     description: "A sanity check at the START of a refinement, not a gate: does the cell index every peak, and does the data respect the space group's systematic absences? A Le Bail fit refines the cell from peak positions alone (free intensities), with back-to-back-exponential peaks that widen with d on time-of-flight data; then it reads the leftover (≥ `significance` σ counts). On 2θ data it also refines a zero shift and the axial-divergence asymmetry, and draws a lab tube's Kα₂. `unindexedPeaks` mean a wrong cell or lattice, or a missing phase — settle these first; pass known impurities as `extraPhases`. `shoulders` are small bumps (≤ 3 %) within a few widths of a strong line: a profile tail the simple Le Bail shape misses, not a phase, and not counted against the cell. `absences.violated` is a FLAG, not a verdict: before the structure is refined, profile misfit or an impurity line reads the same way. Do not change the space group on it — note it, refine the structure to the best, and question the group last with review_symmetry on the refined residual. `absences.untestable` lists forbidden reflections too close to an allowed one to judge. Only d ≥ `dMin` (0.7 Å) is read. It cannot catch a too-LARGE cell (a supercell indexes anything) or a group with too FEW absences — read `limits`. `passed` and `cell` (the Le Bail cell) are the result.",
@@ -320,7 +337,7 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
   {
     name: "parse_single_crystal_data",
     title: "Parse single-crystal reflections",
-    description: "Parse single-crystal integrated intensities — a FullProf .int, a SHELX HKLF 4 .hkl, a .fcf CIF reflection loop, or a plain h k l I σ list — into a SingleCrystalDataset. ALWAYS pass `name`: .int and .fcf are detected from the text, but HKLF 4 is fixed-column and looks exactly like a free-format list, so only the .hkl filename selects the column-exact reader (whitespace-splitting an HKLF 4 row reads σ as the intensity once F² ≥ 10000.00 fills its field). `format` reports which reader ran. Parse the nuclear and magnetic files, then merge_magnetic_supercell into one dataset for the magnetic refinement. A 0 0 0 row (the forward beam, not a Bragg reflection) is skipped by default — pass skipForwardBeam:false for a fundamental-indexed MAGNETIC file, where 0 0 0 is the satellite at k itself.",
+    description: "Parse single-crystal integrated intensities — a FullProf .int, a SHELX HKLF 4 .hkl, a .fcf CIF reflection loop, an SNS TOPAZ time-of-flight .hkl (each reflection with its own wavelength, 2θ, path length and run, detected from its columns), or a plain h k l I σ list — into a SingleCrystalDataset. The intensities are taken as corrected F² (Lorentz, polarization and absorption applied in data reduction), as every single-crystal program takes them. ALWAYS pass `name`: .int and .fcf are detected from the text, but HKLF 4 is fixed-column and looks exactly like a free-format list, so only the .hkl filename selects the column-exact reader (whitespace-splitting an HKLF 4 row reads σ as the intensity once F² ≥ 10000.00 fills its field). `format` reports which reader ran. Parse the nuclear and magnetic files, then merge_magnetic_supercell into one dataset for the magnetic refinement. A 0 0 0 row (the forward beam, not a Bragg reflection) is skipped by default — pass skipForwardBeam:false for a fundamental-indexed MAGNETIC file, where 0 0 0 is the satellite at k itself.",
     inputSchema: {
       text: z.string().describe("FullProf .int, SHELX .hkl, .fcf, or plain h k l I σ file text"),
       name: z.string().optional().describe("The FILE NAME — required for a SHELX .hkl, which is only recognized by extension"),

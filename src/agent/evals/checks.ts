@@ -7,11 +7,11 @@
  */
 
 import { PAGE_METHOD } from "@/agent/skills";
-import { keyOfState } from "@/agent/method";
+import { groupOf, keyOfState, type ParameterGroup } from "@/agent/method";
 import { announcedTool } from "@/agent/chat";
 import { LIVE_TOOLS, liveTool } from "@/agent/tools";
 import { convertInterval } from "@/visualization/axisUnits";
-import type { PowderAgentPort, PowderLiveState } from "@/agent/port";
+import type { PowderAgentPort, PowderLiveState, SingleCrystalLiveState } from "@/agent/port";
 import { calls, isChange, replies, type Check, type EvalRun } from "@/agent/evals/harness";
 
 const ok = (detail: string) => ({ pass: true, detail });
@@ -29,7 +29,7 @@ export function sentences(text: string): string[] {
   return text.split(/(?<=[.!?])\s+|\n+/).map((s) => s.trim()).filter(Boolean);
 }
 
-const NEGATION = /\b(no|not|never|none|nothing|zero|without|don't|doesn't|isn't|aren't|won't|wouldn't|shouldn't|rather than|instead of|before|until|unless|only (if|when|after|once)|last|first refine|premature)\b|n't\b/i;
+const NEGATION = /\b(no|not|never|neither|nor|none|nothing|zero|without|don't|doesn't|isn't|aren't|won't|wouldn't|shouldn't|rather than|instead of|before|until|unless|only (if|when|after|once)|last|first refine|premature)\b|n't\b/i;
 
 /** The sentences of the replies that say `what` without negating it. */
 export function asserted(run: EvalRun, what: RegExp, upTo = Infinity): string[] {
@@ -263,6 +263,83 @@ export function fitWindowIs(unit: "dSpacing" | "q", min: number, max: number, to
   };
 }
 
+/** Which of the instrument's terms and the thermal parameters a free set holds. */
+function groupsFree(run: EvalRun, free: readonly string[] | undefined): Set<ParameterGroup> {
+  const kinds = new Map(run.port.state().parameters.map((p) => [p.id, p.kind]));
+  const out = new Set<ParameterGroup>();
+  for (const id of free ?? []) {
+    const kind = kinds.get(id);
+    const g = kind ? groupOf(kind) : null;
+    if (g) out.add(g);
+  }
+  return out;
+}
+
+/**
+ * No refinement tried with the instrument's terms and the thermal parameters
+ * free together, refused or not (the user's feedback on the demo: it refined
+ * instrument parameters with thermal ones, which the user avoids). The guard
+ * refuses such a set; the method should never ask for one.
+ */
+export const keepsGroupsApart: Check = {
+  name: "keeps the instrument's terms apart from the thermal parameters",
+  grade: (run) => {
+    const joint = calls(run).find((c) => (c.name === "refine" || c.name === "boxcar_scan") && groupsFree(run, c.free).size === 2);
+    return joint ? fail(`${joint.name} with ${joint.free!.join(", ")} free${joint.isError ? " (refused)" : ""}`) : ok("never free together");
+  },
+};
+
+/** The two groups refined in turn — instrument, thermal, instrument, or the reverse — or until the alternation settles. */
+export const alternatesGroups: Check = {
+  name: "alternates the instrument's terms and the thermal parameters",
+  grade: (run) => {
+    const order: ParameterGroup[] = [];
+    let settled = false;
+    for (const c of calls(run)) {
+      const out = c.name === "refine" && !c.isError ? json(c.text) : null;
+      if (out?.refined !== true) continue;
+      const groups = groupsFree(run, c.free);
+      if (groups.size !== 1) continue;
+      const g = [...groups][0]!;
+      if (order.at(-1) !== g) order.push(g);
+      if ((out.alternation as { settled?: boolean } | undefined)?.settled) settled = true;
+    }
+    return order.length >= 3 || settled
+      ? ok(`in turn: ${order.join(" → ")}${settled ? " (settled)" : ""}`)
+      : fail(order.length ? `only ${order.join(" → ")}` : "neither group refined on its own");
+  },
+};
+
+/**
+ * The fit window leaves out the data's unreal ends: it starts and ends inside
+ * these bands (the user's demo feedback: an edge that was not real data was
+ * fitted).
+ */
+export function fitWindowWithin(min: readonly [number, number], max: readonly [number, number]): Check {
+  return {
+    name: `sets the fit window from ${min[0]}–${min[1]} to ${max[0]}–${max[1]} (the data's ends left out)`,
+    grade: (run) => {
+      const s = run.port.state() as PowderLiveState;
+      if (!s.fitRange) return fail("the whole pattern is fitted, its ends and all");
+      const { min: lo, max: hi } = s.fitRange;
+      return lo >= min[0] && lo <= min[1] && hi >= max[0] && hi <= max[1] ? ok(`window ${lo.toFixed(3)}–${hi.toFixed(3)}`) : fail(`window ${lo.toFixed(3)}–${hi.toFixed(3)}`);
+    },
+  };
+}
+
+/** The data's ends are read and the window set before the first refinement (the method's first stage). */
+export const rangeBeforeRefining: Check = {
+  name: "reads the data's ends and sets the window before refining",
+  grade: (run) => {
+    const all = calls(run);
+    const first = all.findIndex((c) => c.name === "refine");
+    const before = first < 0 ? all : all.slice(0, first);
+    const checked = before.some((c) => c.name === "check_fit_range" && !c.isError);
+    const set = before.some((c) => c.name === "set_fit_range" && !c.isError);
+    return checked && set ? ok("check_fit_range, then set_fit_range, then refine") : fail(checked ? "refined before setting the window" : "refined without reading the data's ends");
+  },
+};
+
 /** Never a converged PDF refinement with δ1 and δ2 both free (the PDF method: one correlated-motion term). */
 export const oneMotionTerm: Check = {
   name: "never refines δ1 and δ2 together",
@@ -296,3 +373,205 @@ export function magneticGroupIs(id: string): Check {
     },
   };
 }
+
+/** The single-crystal page's state, or null on another page. */
+function scState(run: EvalRun): SingleCrystalLiveState | null {
+  const s = run.port.state();
+  return "dataset" in s ? s : null;
+}
+
+/** The data are read before the first refinement (the single-crystal method's first stage). */
+export const readsDataFirst: Check = {
+  name: "reads the data (reflection_statistics) before the first refinement",
+  grade: (run) => {
+    const all = calls(run);
+    const stats = all.findIndex((c) => c.name === "reflection_statistics" && !c.isError);
+    const refine = all.findIndex((c) => c.name === "refine");
+    if (stats < 0) return fail("never read the data");
+    return refine < 0 || stats < refine ? ok("read the data first") : fail("refined before reading the data");
+  },
+};
+
+/** Extinction before positions and ADPs: the strongest reflections first (sapphire, round 1, as the GSAS-II tutorial insists). */
+export const extinctionBeforeStructure: Check = {
+  name: "refines the extinction before the positions and ADPs",
+  grade: (run) => {
+    const done = calls(run).filter((c) => c.name === "refine" && !c.isError && json(c.text)?.refined === true);
+    const ext = done.findIndex((c) => (c.free ?? []).includes("extinction"));
+    const structural = done.findIndex((c) => (c.free ?? []).some((id) => /^(pos_|B_|U_)/.test(id)));
+    if (ext < 0) return fail("never refined the extinction");
+    return structural < 0 || ext < structural ? ok(`extinction in refinement ${ext + 1}, the structure from ${structural < 0 ? "—" : structural + 1}`) : fail("refined the structure before the extinction");
+  },
+};
+
+/** A misfit reflection is compared with its equivalents before any is left out, and only the failed measurement goes (round 1: 5 4 1 in batch 24). */
+/**
+ * Failed measurements left out, and nothing else (round 1: sapphire's 5 4 1
+ * and 3 4 2 in batch 24): the equivalents read before the first omission —
+ * reflection_equivalents, or assess_refinement, whose outliers carry their
+ * equivalents' reading — and in the end exactly these measurements out of the
+ * fit, by omit_reflections or the filter.
+ */
+export function omitsOnlyFailed(failed: readonly { readonly h: number; readonly k: number; readonly l: number }[]): Check {
+  const names = failed.map((f) => `${f.h} ${f.k} ${f.l}`);
+  return {
+    name: `compares the equivalents first, then leaves out only the failed measurement${failed.length === 1 ? "" : "s"}`,
+    grade: (run) => {
+      const all = calls(run);
+      const omits = (c: (typeof all)[number]): boolean => !c.isError && ((c.name === "set_outlier_filter" && c.input.on !== false) || (c.name === "omit_reflections" && Array.isArray(c.input.omit)));
+      const first = all.findIndex(omits);
+      const evidence = all.findIndex((c) => (c.name === "reflection_equivalents" || c.name === "assess_refinement") && !c.isError);
+      const s = scState(run);
+      if (first < 0 || !s) return fail("left nothing out");
+      if (evidence < 0 || evidence > first) return fail("left reflections out without reading their equivalents");
+      const fitted = new Set(s.rows.map((r) => `${r.h} ${r.k} ${r.l} ${r.batch ?? ""} ${r.foSq}`));
+      const out = s.allRows.filter((r) => !fitted.has(`${r.h} ${r.k} ${r.l} ${r.batch ?? ""} ${r.foSq}`)).map((r) => `${r.h} ${r.k} ${r.l}`);
+      const missed = names.filter((n) => !out.includes(n));
+      const extra = out.filter((n) => !names.includes(n));
+      if (missed.length) return fail(`${missed.join(", ")} failed too, and ${missed.length === 1 ? "is" : "are"} still fitted${extra.length ? `; ${extra.length} other reflections left out` : ""}`);
+      if (extra.length) return fail(`leaves out ${extra.length} reflection${extra.length === 1 ? "" : "s"} that did not fail (${extra.slice(0, 3).join(", ")}${extra.length > 3 ? ", …" : ""})`);
+      return ok(`read the equivalents, then left out ${names.join(" and ")} only`);
+    },
+  };
+}
+
+/** The ADPs tested on the high-order reflections, then the full range refined (round 1: what told sapphire's extinction models apart). */
+export const testsHighOrder: Check = {
+  name: "refines the high-order reflections alone, then the full range",
+  grade: (run) => {
+    const all = calls(run);
+    const cut = all.findIndex((c) => c.name === "set_resolution_range" && !c.isError && typeof c.input.dMax === "number");
+    if (cut < 0) return fail("never refined the high-order reflections alone");
+    const refineCut = all.findIndex((c, i) => i > cut && c.name === "refine" && json(c.text)?.refined === true);
+    if (refineCut < 0) return fail("limited the range but did not refine");
+    const back = all.findIndex((c, i) => i > refineCut && c.name === "set_resolution_range" && !c.isError && c.input.dMax === null);
+    const refineBack = all.findIndex((c, i) => i > back && back >= 0 && c.name === "refine" && json(c.text)?.refined === true);
+    if (back < 0 || refineBack < 0) return fail("did not put the full range back and refine");
+    const s = scState(run);
+    return s && s.resolution.dMax === undefined && s.resolution.dMin === undefined ? ok("refined the high order alone, then the full range") : fail("ends with the range limited");
+  },
+};
+
+/**
+ * Another extinction model tried where the extinction limits the fit, and the
+ * better kept: a converged refinement under a Becker–Coppens model after one
+ * under SHELXL's, and the model in the end the one with the lower wR2 of those
+ * refined (round 1: sapphire, extinction-limited, refined only under EXTI).
+ */
+export const comparesExtinctionModels: Check = {
+  name: "refines under another extinction model and keeps the one that fits better",
+  grade: (run) => {
+    const byModel = new Map<string, number>();
+    let model = "shelx";
+    for (const c of calls(run)) {
+      if (c.name === "set_extinction_model" && !c.isError && typeof c.input.model === "string") model = c.input.model;
+      if (c.name === "refine" && !c.isError) {
+        const out = json(c.text);
+        if (out?.refined === true && typeof out.wR2 === "number") byModel.set(model, out.wR2);
+      }
+    }
+    const s = scState(run);
+    if (byModel.size < 2) return fail(`refined under ${byModel.size === 0 ? "no" : "one"} extinction model only`);
+    const best = [...byModel].sort((a, b) => a[1] - b[1])[0]![0];
+    return s?.extinctionModel === best
+      ? ok(`compared ${[...byModel].map(([m, w]) => `${m} (wR2 ${w} %)`).join(", ")}; kept ${best}`)
+      : fail(`ends under ${s?.extinctionModel ?? "?"}, though ${best} fitted better (${[...byModel].map(([m, w]) => `${m} ${w} %`).join(", ")})`);
+  },
+};
+
+/** The extinction test: the most extinguished reflections left out and refined, then restored and refined back (round 1). */
+export const testsExtinctionAndRestores: Check = {
+  name: "tests the extinguished reflections' weight, then restores all the data",
+  grade: (run) => {
+    const all = calls(run);
+    const cut = all.findIndex((c) => c.name === "set_outlier_filter" && typeof c.input.minExtinction === "number" && !c.isError);
+    if (cut < 0) return fail("never left out the extinguished reflections");
+    const refineCut = all.findIndex((c, i) => i > cut && c.name === "refine" && json(c.text)?.refined === true);
+    const restore = all.findIndex((c, i) => i > refineCut && c.name === "set_outlier_filter" && c.input.minExtinction === null && !c.isError);
+    const refineBack = all.findIndex((c, i) => i > restore && c.name === "refine" && json(c.text)?.refined === true);
+    const s = scState(run);
+    if (refineCut < 0) return fail("left them out but did not refine");
+    if (restore < 0 || refineBack < 0) return fail("did not restore all the data and refine back");
+    return s?.outlierFilter.minExtinction === undefined ? ok("tested, then refined back on all the data") : fail("the extinction cut is still on");
+  },
+};
+
+/** Batch scales tried when the batches disagree: a refinement with them free (round 1). */
+export const triesBatchScales: Check = {
+  name: "refines a scale per batch",
+  grade: (run) => {
+    const done = calls(run).filter((c) => c.name === "refine" && json(c.text)?.refined === true && (c.free ?? []).some((id) => id.startsWith("bscale_")));
+    return done.length > 0 ? ok(`${done.length} refinement${done.length === 1 ? "" : "s"} with the batch scales free`) : fail("never freed the batch scales");
+  },
+};
+
+/** The probe and wavelength the user gave, set before the first refinement (round 2: a SHELX file carries none and loads as neutron at 1.54 Å). */
+export function setsRadiationFirst(probe: "xray" | "neutron", wavelength: number): Check {
+  return {
+    name: "sets the radiation the user gave before the first refinement",
+    grade: (run) => {
+      const all = calls(run);
+      const set = all.findIndex((c) => c.name === "set_radiation" && !c.isError && c.input.probe === probe && typeof c.input.wavelength === "number" && Math.abs(c.input.wavelength - wavelength) < 1e-3);
+      const refine = all.findIndex((c) => c.name === "refine");
+      const s = scState(run);
+      if (set < 0) return fail(`never set ${probe} at λ ${wavelength} Å`);
+      if (refine >= 0 && refine < set) return fail("refined before setting the radiation");
+      const r = s?.dataset.radiation;
+      return r && r.kind === probe && "wavelength" in r && Math.abs(r.wavelength - wavelength) < 1e-3 ? ok(`set ${probe}, λ ${wavelength} Å, then refined`) : fail("ends with another radiation");
+    },
+  };
+}
+
+/** A hydrogen parameter among the free ids (pos_H3_0, B_H7A, …). */
+const HYDROGEN_ID = /(^|_)H\d+[A-Za-z]*(_|$)/;
+
+/** X-ray hydrogens ride on their parents and none refines on its own (round 2: dipyridyl's 16 refined freely, then each its own tensor). */
+export const ridesHydrogens: Check = {
+  name: "rides the hydrogens (no hydrogen refined on its own against X-ray data)",
+  grade: (run) => {
+    const own = calls(run).filter((c) => c.name === "refine" && !c.isError && json(c.text)?.refined === true && (c.free ?? []).some((id) => HYDROGEN_ID.test(id)));
+    const s = scState(run);
+    const hydrogens = s ? s.structure.sites.filter((site) => /^H$|^D$/.test(site.element.replace(/[^A-Za-z]/g, ""))).length : 0;
+    if (own.length) return fail(`${own.length} refinement${own.length === 1 ? "" : "s"} with hydrogen parameters free`);
+    if (!s || s.riding.length < hydrogens) return fail(`${s?.riding.length ?? 0} of ${hydrogens} hydrogens ride`);
+    return ok(`all ${hydrogens} hydrogens ride; none refined on its own`);
+  },
+};
+
+const R_INT_VALUE = /\bR[ _]?int\b[^.\d]{0,25}\d/i;
+
+/** A refinement's listing is called what it is, and no R_int is quoted from data that hold each reflection once (round 2). */
+export const honestAboutListing: Check = {
+  name: "says the data are a refinement's listing and quotes no R_int from them",
+  grade: (run) => {
+    const text = replies(run).join("\n");
+    const quoted = sentences(text).filter((x) => R_INT_VALUE.test(x));
+    if (quoted.length) return fail(`quotes R_int: "${quoted[0]}"`);
+    return /\blisting\b|\.fcf\b|\bLIST 4\b|\bmerged\b/i.test(text) ? ok("names the data a refinement's listing, and quotes no R_int") : fail("never says the data are a refinement's listing");
+  },
+};
+
+/**
+ * SHELXL's weights set last: after every change of the model (ADPs, riding,
+ * extinction, radiation), then refined, ending with GooF near 1 (round 2:
+ * dipyridyl reported with w = 1/σ², GooF 2.35 against SHELXL's 1.041).
+ */
+export const weightsLast: Check = {
+  name: "sets the weighting scheme last, once the model is complete, and refines with it",
+  grade: (run) => {
+    const all = calls(run);
+    const modelChange = (c: (typeof all)[number]): boolean => !c.isError && ["set_adp_model", "set_riding_hydrogens", "set_extinction_model", "set_radiation"].includes(c.name);
+    const weighting = (c: (typeof all)[number]): boolean => c.name === "set_weighting" && !c.isError && c.input.use !== "sigma";
+    const first = all.findIndex(weighting);
+    if (first < 0) return fail("never set a weighting scheme");
+    const lastChange = all.reduce((at, c, i) => (modelChange(c) ? i : at), -1);
+    if (lastChange > first) return fail(`set the weights before ${all[lastChange]!.name}`);
+    const refined = all.some((c, i) => i > first && c.name === "refine" && json(c.text)?.refined === true);
+    if (!refined) return fail("did not refine with the weights");
+    const s = scState(run);
+    if (!s?.weighting) return fail("ends with w = 1/σ²");
+    const goof = s.agreement.goof;
+    return goof > 0.8 && goof < 1.25 ? ok(`WGHT ${s.weighting.a} ${s.weighting.b} set last; GooF ${goof.toFixed(3)}`) : fail(`ends with GooF ${goof.toFixed(3)}`);
+  },
+};
+

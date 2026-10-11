@@ -9,8 +9,19 @@
  */
 
 import type { StructureModel } from "@/core/crystal/types";
+import { AFIX } from "@/core/crystal/riding";
+import type { RidingRule } from "@/core/crystal/types";
+
+/** How a riding hydrogen is placed, in a few words. */
+const PLACED: Readonly<Record<RidingRule["geometry"], string>> = {
+  aromatic: "on the bisector", methyl: "a rotating methyl", hydroxyl: "a rotating hydroxyl", methylene: "a CH₂ pair", methine: "opposite three neighbours", fixed: "at its offset", free: "refined",
+};
 import type { ParameterBinding, RefinementParameter } from "@/core/refinement/types";
 import { parseTie } from "@/core/refinement/constraints";
+import { EIGHT_PI_SQUARED, uEquivalent } from "@/core/crystal/adp";
+import { orthogonalizationMatrix } from "@/core/crystal/unitCell";
+import { mulVec } from "@/core/math/mat3";
+import type { Vec3 } from "@/core/math/types";
 
 /** A value with its esd in parentheses, in the last digits: 0.18752(9), 8.46808(10). */
 export function withEsd(value: number, esd: number | undefined, maxDecimals = 6): string {
@@ -38,6 +49,12 @@ export interface StructureTableSite {
   readonly occupancy: string;
   /** B_iso (Å²) or U_eq (Å²) for an anisotropic site. */
   readonly adp: string;
+  /** An anisotropic site's tensor, U11 … U23 (Å², CIF convention), each with its esd from the refined modes. */
+  readonly u?: Readonly<Record<"U11" | "U22" | "U33" | "U12" | "U13" | "U23", string>>;
+  /** A riding hydrogen: its parent and how it is placed (no esds: it has no parameter of its own). */
+  readonly riding?: string;
+  /** A hydrogen whose position refines while its U_iso rides on its parent's U_eq. */
+  readonly ridingU?: string;
 }
 
 export interface StructureTable {
@@ -93,9 +110,13 @@ export function structureTable(
   const [ca, cb, cg] = [Math.cos(c.alpha * rad), Math.cos(c.beta * rad), Math.cos(c.gamma * rad)];
   const volume = c.a * c.b * c.c * Math.sqrt(Math.max(1 - ca * ca - cb * cb - cg * cg + 2 * ca * cb * cg, 0));
   const relV = Math.sqrt(["a", "b", "c"].reduce((s, k) => s + ((cellEsd[k] ?? 0) / (c as unknown as Record<string, number>)[k]!) ** 2, 0));
+  const ridingOf = new Map((phase.riding ?? []).map((r) => [r.site, r]));
   const sites = phase.sites.map((site): StructureTableSite => {
     const own = mine.filter((b) => b.targetKey === site.label && err(b.parameterId) !== undefined);
     const posVar = [0, 0, 0];
+    // A tensor is Σ_m c_m·basis_m over its symmetry modes: each U^ij and U_eq carry the modes' esds (taken as independent).
+    const uVar = [0, 0, 0, 0, 0, 0];
+    let uEqVar = 0;
     let occEsd: number | undefined;
     let adpEsd: number | undefined;
     for (const b of own) {
@@ -107,12 +128,25 @@ export function structureTable(
       if (b.kind === "atomZ") posVar[2]! += e * e;
       if (b.kind === "occupancy") occEsd = e;
       if (b.kind === "bIso") adpEsd = e;
+      if (b.kind === "uAniso" && b.uBasis) {
+        for (let i = 0; i < 6; i++) uVar[i]! += (b.uBasis[i]! * e) ** 2;
+        uEqVar += (uEquivalent(b.uBasis, phase.cell) * e) ** 2;
+      }
     }
     const pos = site.position.map((v, i) => withEsd(v, posVar[i]! > 0 ? Math.sqrt(posVar[i]!) : undefined));
+    const sd = (v: number): number | undefined => (v > 0 ? Math.sqrt(v) : undefined);
     const adp = site.adp.kind === "isotropic"
       ? `B ${withEsd(site.adp.bIso, adpEsd, 4)}`
-      : `Ueq ${((site.adp.uAniso[0] + site.adp.uAniso[1] + site.adp.uAniso[2]) / 3).toFixed(4)} (orthogonal approx.)`;
-    return { label: site.label, type: site.element, x: pos[0]!, y: pos[1]!, z: pos[2]!, occupancy: withEsd(site.occupancy, occEsd, 4), adp };
+      : `Ueq ${withEsd(uEquivalent(site.adp.uAniso, phase.cell), sd(uEqVar), 5)}`;
+    const u = site.adp.kind === "anisotropic"
+      ? Object.fromEntries((["U11", "U22", "U33", "U12", "U13", "U23"] as const).map((name, i) => [name, withEsd((site.adp as { uAniso: readonly number[] }).uAniso[i]!, sd(uVar[i]!), 5)])) as Record<"U11" | "U22" | "U33" | "U12" | "U13" | "U23", string>
+      : undefined;
+    const rule = ridingOf.get(site.label);
+    const uRides = rule ? `U_iso = ${rule.uFactor}·U_eq(${rule.parent})` : "";
+    const riding = rule && rule.geometry !== "free" ? `rides on ${rule.parent} (AFIX ${AFIX[rule.geometry]}, ${PLACED[rule.geometry]}), ${uRides}` : undefined;
+    // A hydrogen whose position refines on its own: only its U rides.
+    const ridingU = rule?.geometry === "free" ? `${uRides}; the position refines` : undefined;
+    return { label: site.label, type: site.element, x: pos[0]!, y: pos[1]!, z: pos[2]!, occupancy: withEsd(site.occupancy, occEsd, 4), adp, ...(u ? { u } : {}), ...(riding ? { riding } : {}), ...(ridingU ? { ridingU } : {}) };
   });
   return {
     phase: phase.name || phase.id,
@@ -122,3 +156,67 @@ export function structureTable(
     sites,
   };
 }
+
+/** A value(esd) as printed, back to numbers: "0.41020(7)" → 0.4102 ± 0.00007. */
+export function parseEsd(text: string): { value: number; esd?: number } {
+  const m = text.match(/(-?\d+(?:\.(\d+))?)(?:\((\d+)\))?/);
+  if (!m) return { value: NaN };
+  const value = Number(m[1]);
+  return m[3] !== undefined ? { value, esd: Number(m[3]) * 10 ** -(m[2]?.length ?? 0) } : { value };
+}
+
+/**
+ * The refined structure against the structure as loaded (a published
+ * refinement's CIF): each site's shift in Å and in esds of the refined
+ * position, and its U_eq (or B) against the loaded value in esds of the
+ * refined one; riding hydrogens, which have no parameter, are left out. The
+ * sites beyond 2 esds are listed; the summary gives the largest of each.
+ */
+export function compareWithLoaded(table: StructureTable, refined: StructureModel, loaded: StructureModel): Record<string, unknown> {
+  const m = orthogonalizationMatrix(refined.cell);
+  const byLabel = new Map(loaded.sites.map((site) => [site.label, site]));
+  const rows = table.sites.flatMap((row) => {
+    const was = byLabel.get(row.label);
+    if (!was || row.riding) return [];
+    const now = [parseEsd(row.x), parseEsd(row.y), parseEsd(row.z)];
+    const delta: Vec3 = [now[0]!.value - was.position[0], now[1]!.value - was.position[1], now[2]!.value - was.position[2]];
+    const cart = mulVec(m, delta);
+    const shift = Math.hypot(cart[0], cart[1], cart[2]);
+    // The shift's esd along its own direction, from the coordinates' esds.
+    const unit = shift > 0 ? [cart[0] / shift, cart[1] / shift, cart[2] / shift] : [0, 0, 0];
+    const shiftEsd = Math.sqrt([0, 1, 2].reduce((sum, i) => {
+      const g = unit[0]! * m[0][i]! + unit[1]! * m[1][i]! + unit[2]! * m[2][i]!;
+      return sum + (g * (now[i]!.esd ?? 0)) ** 2;
+    }, 0));
+    const adp = parseEsd(row.adp.replace(/^(Ueq|B)\s+/, ""));
+    const isU = row.adp.startsWith("Ueq");
+    const wasAdp = isU
+      ? (was.adp.kind === "anisotropic" ? uEquivalent(was.adp.uAniso, refined.cell) : was.adp.bIso / EIGHT_PI_SQUARED)
+      : (was.adp.kind === "isotropic" ? was.adp.bIso : EIGHT_PI_SQUARED * uEquivalent(was.adp.uAniso, refined.cell));
+    return [{
+      label: row.label,
+      shift, shiftEsds: shiftEsd > 0 ? shift / shiftEsd : undefined,
+      adpText: row.adp, wasAdp, isU,
+      adpEsds: adp.esd ? (adp.value - wasAdp) / adp.esd : undefined,
+      ratio: wasAdp > 0 ? adp.value / wasAdp : undefined,
+    }];
+  });
+  if (rows.length === 0) return { note: "no site to compare: none of the refined sites is in the loaded structure" };
+  const largest = <T>(xs: readonly T[], key: (x: T) => number): T => xs.reduce((a, b) => (key(b) > key(a) ? b : a));
+  const far = largest(rows, (r) => r.shiftEsds ?? 0);
+  const big = largest(rows, (r) => Math.abs(r.adpEsds ?? 0));
+  const ratios = rows.flatMap((r) => (r.ratio !== undefined ? [r.ratio] : []));
+  const beyond = rows.filter((r) => (r.shiftEsds ?? 0) > 2 || Math.abs(r.adpEsds ?? 0) > 2);
+  const sig = (v: number, d = 2): string => v.toFixed(d);
+  return {
+    sites: rows.length,
+    positions: `largest shift ${shift4(far.shift)} Å at ${far.label}${far.shiftEsds !== undefined ? ` (${sig(far.shiftEsds, 1)} esd)` : ""}; ${rows.filter((r) => (r.shiftEsds ?? 0) > 3).length} site(s) beyond 3 esd`,
+    adps: `refined/loaded ${rows[0]!.isU ? "U_eq" : "B"} ${ratios.length ? `${sig(Math.min(...ratios), 3)}–${sig(Math.max(...ratios), 3)}, mean ${sig(ratios.reduce((a, b) => a + b, 0) / ratios.length, 3)}` : "—"}; largest difference at ${big.label} (${big.adpEsds !== undefined ? `${sig(big.adpEsds, 1)} esd` : "no esd"})`,
+    ...(beyond.length ? {
+      beyond2Esd: beyond.map((r) => `${r.label}: shift ${shift4(r.shift)} Å${r.shiftEsds !== undefined ? ` (${sig(r.shiftEsds, 1)} esd)` : ""}, ${r.adpText} against ${r.wasAdp.toPrecision(4)} loaded${r.adpEsds !== undefined ? ` (${sig(r.adpEsds, 1)} esd)` : ""}`),
+    } : {}),
+    note: "The loaded structure is what the page started from (for a CIF from a published refinement, that refinement's values); its own esds are not known here, so differences are in the refined esds.",
+  };
+}
+
+const shift4 = (v: number): string => v.toFixed(4);

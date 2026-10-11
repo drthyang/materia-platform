@@ -214,6 +214,40 @@ describe("single-crystal capture / restore", () => {
     });
   });
 
+  it("round-trips the measurements omitted by hand, the extinction cut, the extinction model, the resolution range, the riding hydrogens and the weights", () => {
+    const omitted = [{ h: 5, k: 4, l: 1, batch: 24, reason: "9 equivalents agree with Fc²" }, { h: 3, k: 4, l: 2 }];
+    const riding = [
+      { site: "H1", parent: "C1", geometry: "aromatic" as const, neighbours: [{ label: "C2", op: 0, cell: [0, 0, 0] as [number, number, number] }, { label: "C6", op: 1, cell: [1, 0, -1] as [number, number, number] }], distance: 0.95, uFactor: 1.2 },
+      { site: "H7A", parent: "C7", geometry: "fixed" as const, offset: [0.05, -0.02, 0.07] as [number, number, number], uFactor: 1.5 },
+    ];
+    const ws = singleCrystalWorkspaceFrom({
+      dataset, magneticDataset: null, probe: "neutron-tof",
+      params: spec.params, bindings: spec.bindings, result: null, magnetic: null,
+      filterOn: true, cutoffSigma: 20, minExtinction: 0.5, omitted, extinctionModel: "bc-1-lorentzian", resolution: { dMax: 0.6 }, riding, weighting: { a: 0.0362, b: 0.7686 },
+      modulated: modulatedInputsFrom(modulatedHypothesisFrom({ kText: ["0", "0", "0"], ionState: {}, moment: 1, seed: 1, restarts: 8 })),
+    });
+    const file = roundTrip(projectFileFor({ structures: [structure], workspace: ws, title: "sc" }));
+    if (file.workspace.technique !== "singleCrystal") throw new Error("technique");
+    expect(file.workspace.omitted).toEqual(omitted);
+    expect(file.workspace.outlierFilter).toEqual({ on: true, cutoffSigma: 20, minExtinction: 0.5 });
+    expect(file.workspace.extinctionModel).toBe("bc-1-lorentzian");
+    expect(file.workspace.resolution).toEqual({ dMax: 0.6 });
+    expect(file.workspace.riding).toEqual(riding);
+    expect(file.workspace.weighting).toEqual({ a: 0.0362, b: 0.7686 });
+    expect(() => roundTrip(projectFileFor({ structures: [structure], workspace: { ...ws, weighting: { a: -0.1, b: 0 } }, title: "sc" }))).toThrow(/weighting\.a/);
+    // A rule that cannot place its hydrogen is refused on load.
+    expect(() => roundTrip(projectFileFor({ structures: [structure], workspace: { ...ws, riding: [{ site: "H1", parent: "C1", geometry: "aromatic", uFactor: 1.2 }] }, title: "sc" }))).toThrow(/riding\[0\]/);
+    // SHELXL's model and an empty list are the defaults, and are not written.
+    const plain = singleCrystalWorkspaceFrom({
+      dataset, magneticDataset: null, probe: "neutron", params: spec.params, bindings: spec.bindings, result: null, magnetic: null,
+      filterOn: false, cutoffSigma: 6, omitted: [], extinctionModel: "shelx", resolution: {},
+      modulated: modulatedInputsFrom(modulatedHypothesisFrom({ kText: ["0", "0", "0"], ionState: {}, moment: 1, seed: 1, restarts: 8 })),
+    });
+    expect("omitted" in plain || "extinctionModel" in plain || "resolution" in plain || "riding" in plain || "weighting" in plain).toBe(false);
+    // A model the app does not know is refused on load.
+    expect(() => roundTrip(projectFileFor({ structures: [structure], workspace: { ...ws, extinctionModel: "zachariasen" as never }, title: "sc" }))).toThrow(/extinctionModel/);
+  });
+
   it("does not resurrect moment rows when the file has no magnetic model", () => {
     const ws = singleCrystalWorkspaceFrom({
       dataset, magneticDataset: null, probe: "neutron",

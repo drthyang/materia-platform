@@ -9,6 +9,7 @@ import {
 import { parsePowderData } from "@/parsers/powderData";
 import { parseHkl } from "@/parsers/hkl";
 import { dSpacing } from "@/core/crystal/unitCell";
+import { detectDataFormat } from "@/parsers/detectFormat";
 import {
   optimalScale,
   powderOptsFromInstrument,
@@ -248,5 +249,38 @@ describe("loadReflectionDataset — fixed-column .hkl and header-ordered .fcf", 
     const loaded = loadReflectionDataset("1 0 0 253.71 3.42\n", structure, "ds", "peaks.txt");
     expect(loaded.format).toBe("list");
     expect(loaded.dataset.reflections[0]!.iObs).toBeCloseTo(253.71, 6);
+  });
+});
+
+describe("loadReflectionDataset — the measurement a SHELXL CIF embeds", () => {
+  const cif = `data_1b
+_diffrn_radiation_wavelength      0.71073
+_diffrn_radiation_type            MoK\\a
+_shelx_res_file
+;
+TITL 1b
+END
+;
+_shelx_hkl_file
+;
+  -2   0   0  125.59    3.55
+   2   0   0  114.06    3.56
+   1   2   3   10.00    0.50
+   0   0   0    0.00    0.00
+;
+_shelx_hkl_checksum   47345
+`;
+
+  it("reads the .hkl in _shelx_hkl_file, each measurement as it was, at the radiation the CIF names", () => {
+    const loaded = loadReflectionDataset(cif, exampleStructure(), "1b-hkl", "1b.cif");
+    expect(loaded.format).toBe("shelx-cif");
+    expect(loaded.dataset.reflections).toEqual([
+      { h: -2, k: 0, l: 0, iObs: 125.59, sigma: 3.55 },
+      { h: 2, k: 0, l: 0, iObs: 114.06, sigma: 3.56 },
+      { h: 1, k: 2, l: 3, iObs: 10, sigma: 0.5 },
+    ]);
+    expect(loaded.dataset.radiation).toEqual({ kind: "xray", wavelength: 0.71073, polarization: 0.5 });
+    expect(loaded.radiationNamed).toBe("X-ray MoKα, λ 0.71073 Å");
+    expect(detectDataFormat({ text: cif, filename: "1b.cif" }).dataType).toBe("single-crystal");
   });
 });

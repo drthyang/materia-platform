@@ -40,6 +40,7 @@ workbench? Start with the [user guide](./USER_GUIDE.md), and read
 | [DATA_MODEL.md](./DATA_MODEL.md) | The core data types, their units and conventions |
 | [AGENT_TOOLS.md](./AGENT_TOOLS.md) | The in-app Agent (its tools, skills, rules and eval suite) and the MCP agent tools |
 | [AGENT_EXAMPLES.md](./AGENT_EXAMPLES.md) | Worked examples of a language model driving the tools, with real runs |
+| [AGENT_EVALS.md](./AGENT_EVALS.md) | The Agent's eval scenarios, how to run them, and the results against real models |
 
 ## Plans
 

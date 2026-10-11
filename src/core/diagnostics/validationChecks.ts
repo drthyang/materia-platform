@@ -236,7 +236,7 @@ export function singleCrystalChecks(input: SingleCrystalCheckInput): ValidationV
   const need = v.centrosymmetric ? 10 : 8;
   const ratio = v.reflectionsPerParameter;
   checks.push(ratio >= need
-    ? { id: "data-parameter", status: "ok", title: `${fmt(ratio, 1)} reflections per parameter`, detail: `${v.uniqueObserved} unique; checkCIF asks ≥ ${need} for a ${v.centrosymmetric ? "centrosymmetric" : "non-centrosymmetric"} group` }
+    ? { id: "data-parameter", status: "ok", title: `${fmt(ratio, 1)} reflections per parameter`, detail: `${v.uniqueAllowed ?? v.uniqueObserved} unique allowed; checkCIF asks ≥ ${need} for a ${v.centrosymmetric ? "centrosymmetric" : "non-centrosymmetric"} group` }
     : { id: "data-parameter", status: "warn", title: `Only ${fmt(ratio, 1)} reflections per parameter`, detail: `checkCIF asks ≥ ${need}: free fewer parameters or add restraints` });
 
   if (v.completeness !== undefined) {
@@ -252,7 +252,7 @@ export function singleCrystalChecks(input: SingleCrystalCheckInput): ValidationV
   if (ext.suspected) {
     checks.push({
       id: "extinction", status: "warn", title: "Extinction",
-      detail: `K ${fmt(ext.strongBinK)} and GooF ${fmt(ext.strongBinGoof)} in the strongest bin; ${ext.strongUnder} of the ${ext.outliers} largest outliers are strong with Fo² < Fc². Refine the extinction parameter.`,
+      detail: `K ${fmt(ext.strongBinK)} and GooF ${fmt(ext.strongBinGoof)} in the strongest bin, against K ${fmt(ext.otherBinsK)} in the others; ${ext.strongUnder} of the ${ext.outliers} largest outliers are strong with Fo² < Fc². Refine the extinction parameter.`,
     });
   } else if (v.bins.length > 0) {
     checks.push({ id: "extinction", status: "ok", title: "Strong reflections agree", detail: `K ${fmt(ext.strongBinK)} in the strongest bin — no extinction signature` });

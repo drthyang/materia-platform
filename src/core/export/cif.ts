@@ -25,6 +25,7 @@ import type { AtomSite, StructureModel, SymmetryOperation, UnitCell } from "@/co
 import type { MagneticModel, MagneticMoment } from "@/core/magnetic/types";
 import type { ParameterBinding, RefinementParameter } from "@/core/refinement/types";
 import { orthogonalizationMatrix } from "@/core/crystal/unitCell";
+import { uEquivalent } from "@/core/crystal/adp";
 import { inverse, transpose } from "@/core/math/mat3";
 import { normalize } from "@/core/math/vec3";
 import type { Mat3, Vec3 } from "@/core/math/types";
@@ -50,6 +51,10 @@ export interface CifRefinementMeta {
   readonly nRef?: number;
   /** Refined-parameter count, → `_refine_ls_number_parameters`. */
   readonly nParam?: number;
+  /** Restraint count, as SHELXL counts them, → `_refine_ls_number_restraints`. */
+  readonly nRestraints?: number;
+  /** The Flack parameter with its esd, as printed (e.g. "0.435(15)"), → `_refine_ls_abs_structure_Flack`. */
+  readonly flack?: string;
 }
 
 export interface CifExportOptions {
@@ -139,8 +144,6 @@ export function cellVolume(cell: UnitCell): number {
   return cell.a * cell.b * cell.c * Math.sqrt(Math.max(0, 1 - ca * ca - cb * cb - cg * cg + 2 * ca * cb * cg));
 }
 
-/** Equivalent isotropic U (Å²) for an anisotropic site — the trace/3 approximation. */
-const uEquiv = (u: readonly number[]): number => (u[0]! + u[1]! + u[2]!) / 3;
 
 function loop(headers: readonly string[], rows: readonly (readonly string[])[]): string {
   const lines = ["loop_", ...headers.map((h) => `  ${h}`)];
@@ -150,9 +153,10 @@ function loop(headers: readonly string[], rows: readonly (readonly string[])[]):
 
 /** The atom-site loop plus, when any site is anisotropic, the aniso-U loop. */
 function atomSiteBlocks(structure: StructureModel, esd: EsdMap): string {
+  const disordered = structure.sites.some((s) => s.disorder);
   const siteRows = structure.sites.map((s) => {
     const pe = esd.pos.get(s.label);
-    const uIso = s.adp.kind === "isotropic" ? s.adp.bIso / EIGHT_PI2 : uEquiv(s.adp.uAniso);
+    const uIso = s.adp.kind === "isotropic" ? s.adp.bIso / EIGHT_PI2 : uEquivalent(s.adp.uAniso, structure.cell);
     // esd(U_iso) = esd(B_iso) / 8π²; only isotropic sites carry a B esd.
     const bEsd = s.adp.kind === "isotropic" ? esd.bIso.get(s.label) : undefined;
     return [
@@ -164,6 +168,8 @@ function atomSiteBlocks(structure: StructureModel, esd: EsdMap): string {
       formatWithEsd(s.occupancy, esd.occ.get(s.label), 4),
       s.adp.kind === "isotropic" ? "Uiso" : "Uani",
       formatWithEsd(uIso, bEsd === undefined ? undefined : bEsd / EIGHT_PI2, 5),
+      // SHELXL's PART, when any site is disordered: the assembly and the alternative ("." for an ordered site).
+      ...(disordered ? [s.disorder?.assembly || ".", s.disorder ? String(s.disorder.group) : "."] : []),
     ];
   });
   const atomLoop = loop(
@@ -176,6 +182,7 @@ function atomSiteBlocks(structure: StructureModel, esd: EsdMap): string {
       "_atom_site_occupancy",
       "_atom_site_adp_type",
       "_atom_site_U_iso_or_equiv",
+      ...(disordered ? ["_atom_site_disorder_assembly", "_atom_site_disorder_group"] : []),
     ],
     siteRows,
   );
@@ -227,6 +234,8 @@ function refinementBlock(meta: CifRefinementMeta | undefined): string {
   const lines: string[] = [];
   if (meta.nRef !== undefined) lines.push(`_refine_ls_number_reflns      ${meta.nRef}`);
   if (meta.nParam !== undefined) lines.push(`_refine_ls_number_parameters  ${meta.nParam}`);
+  if (meta.nRestraints !== undefined) lines.push(`_refine_ls_number_restraints  ${meta.nRestraints}`);
+  if (meta.flack !== undefined) lines.push(`_refine_ls_abs_structure_Flack ${meta.flack}`);
   if (meta.rwp !== undefined) lines.push(`_refine_ls_wR_factor_obs      ${(meta.rwp / 100).toFixed(4)}`);
   if (meta.r1 !== undefined) lines.push(`_refine_ls_R_factor_gt        ${meta.r1.toFixed(4)}`);
   if (meta.wr2 !== undefined) lines.push(`_refine_ls_wR_factor_ref      ${meta.wr2.toFixed(4)}`);

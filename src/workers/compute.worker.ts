@@ -14,7 +14,7 @@
 
 import type { ComputeRequest, ComputeResponse, EvaluatorSpec } from "@/workers/protocol";
 import { refine, type RefinementProblem } from "@/core/refinement/engine";
-import { buildSingleCrystalRefinementProblem } from "@/core/workflow/singleCrystalRefinement";
+import { refineSingleCrystal } from "@/core/workflow/singleCrystalRefinement";
 import { buildMagneticSingleCrystalProblem } from "@/core/workflow/magnetic";
 import { runPowderRefinement, runPdfRefinement, runMpdfRefinement, buildProblemForSpec } from "@/workers/runPowder";
 import { leBailCellPrefit } from "@/core/workflow/leBailPrefit";
@@ -87,8 +87,7 @@ async function handle(req: ComputeRequest): Promise<ComputeResponse> {
       const result = refine(problem, req.options ?? {});
       return { requestId: req.requestId, ok: true, result };
     }
-    const problem = buildSingleCrystalRefinementProblem(req.structure, req.dataset, req.parameters, req.bindings);
-    const result = refine(problem, req.options ?? {});
+    const result = refineSingleCrystal(req.structure, req.dataset, req.parameters, req.bindings, req.options ?? {});
     return { requestId: req.requestId, ok: true, result };
   } catch (err) {
     return { requestId: req.requestId, ok: false, error: err instanceof Error ? err.message : String(err) };

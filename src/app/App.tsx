@@ -884,6 +884,7 @@ export function App(): JSX.Element {
           requestStep("load", `Loaded ${file.name}`, true);
           setMessage(
             `Loaded single-crystal “${file.name}” · ${loaded.kept} reflections [${loaded.format}]` +
+            `${loaded.radiationNamed ? ` · ${loaded.radiationNamed}, as the CIF names it` : ""}` +
             `${describeDrops(loaded)}. Merge report + F² refinement ready.`,
           );
           return;
@@ -1307,7 +1308,7 @@ export function App(): JSX.Element {
         // the dataset id so a new file remounts with a fresh parameter set.
         <WorkbenchErrorBoundary resetKeys={[scDataset, scMagneticDataset, structure, restore.token]} onClear={clearWorkbench}>
         <main className="wb-main" style={{ flex: 1 }}>
-          <SingleCrystalWorkbench onMagneticPresent={setScMagnetic} key={`${scDataset.id}#${restore.token}`} structure={structure} dataset={scDataset} magneticDataset={scMagneticDataset} client={client.current} step={step} onStep={setStep} {...(instrumentLoaded && instrument.kind === "constantWavelength" && instrument.radiationKind ? { instrumentProbe: instrument.radiationKind } : {})} exportsRef={scExports} onLoadData={onLoadData} onLoadMagneticData={onLoadMagneticData} onLoadCif={onLoadCif} {...(restore.singleCrystal ? { restore: restore.singleCrystal } : {})} stepHistory={stepHistory} />
+          <SingleCrystalWorkbench onMagneticPresent={setScMagnetic} key={`${scDataset.id}#${restore.token}`} structure={structure} dataset={scDataset} magneticDataset={scMagneticDataset} client={client.current} step={step} onStep={setStep} {...(instrumentLoaded && instrument.kind === "constantWavelength" && instrument.radiationKind ? { instrumentProbe: instrument.radiationKind } : {})} exportsRef={scExports} onLoadData={onLoadData} onLoadMagneticData={onLoadMagneticData} onLoadCif={onLoadCif} {...(restore.singleCrystal ? { restore: restore.singleCrystal } : {})} stepHistory={stepHistory} agentLink={agentLink} />
         </main>
         </WorkbenchErrorBoundary>
       )}

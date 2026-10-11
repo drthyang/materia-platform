@@ -251,6 +251,29 @@ describe("refinement engine (Levenberg–Marquardt)", () => {
   });
 });
 
+describe("diagnostics: conditional correlations", () => {
+  it("tells a pair a third parameter carries from a pair that trades off itself", () => {
+    // y = a·u + b·v + c·(u + v + 0.2·w), u ⟂ v: a and b each trade with c, not with each other.
+    const xs = Array.from({ length: 200 }, (_, i) => i / 200);
+    const u = xs.map((x) => Math.sin(2 * Math.PI * x));
+    const v = xs.map((x) => Math.cos(2 * Math.PI * x));
+    const w = xs.map((x) => x - 0.5);
+    const truth = { a: 1, b: 2, c: 0.5 };
+    const calc = (p: Readonly<Record<string, number>>): Float64Array =>
+      Float64Array.from(xs.map((_, i) => (p.a ?? 0) * u[i]! + (p.b ?? 0) * v[i]! + (p.c ?? 0) * (u[i]! + v[i]! + 0.2 * w[i]!)));
+    const noise = xs.map((_, i) => 0.01 * Math.sin(i * 12.9898) * 43758.5453 % 1);
+    const observations = Float64Array.from(calc(truth).map((y, i) => y + noise[i]!));
+    const parameters: RefinementParameter[] = (["a", "b", "c"] as const).map((id) => ({ id, label: id, kind: "scale", value: 0.8, initialValue: 0.8, fixed: false }));
+    const r = refine({ parameters, observations, weights: Float64Array.from(xs.map(() => 1e4)), calculate: calc }, { correlationThreshold: 0.5 });
+    const pair = (a: string, b: string) => r.diagnostics!.highCorrelations.find((c) => c.parameterIdA === a && c.parameterIdB === b)!;
+    // Through c, a and b move together; held to themselves they are orthogonal.
+    expect(Math.abs(pair("a", "b").coefficient)).toBeGreaterThan(0.95);
+    expect(Math.abs(pair("a", "b").conditional!)).toBeLessThan(0.05);
+    // a and c share u: they trade off directly.
+    expect(Math.abs(pair("a", "c").conditional!)).toBeGreaterThan(0.5);
+  });
+});
+
 describe("diagnostics: bound-active parameters", () => {
   const model = [1, 2, 3, 4, 5];
   const problemFor = (obs: number[], scale: Partial<RefinementParameter>): RefinementProblem => ({

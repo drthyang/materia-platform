@@ -49,6 +49,16 @@ export interface SingleCrystalReflection {
   readonly iObs: number;
   /** Standard uncertainty on `iObs`. When absent, unit weights are used. */
   readonly sigma?: number;
+  /** The batch it was measured in (scan, run, crystal orientation): SHELX's HKLF 4 batch, a TOPAZ run's scale index. */
+  readonly batch?: number;
+  /** The wavelength it was measured at (Å), when each reflection has its own: time-of-flight Laue data. */
+  readonly wavelength?: number;
+  /** The scattering angle 2θ it was measured at (degrees), when each reflection has its own. */
+  readonly twoTheta?: number;
+  /** Mean path length through the crystal (cm), from the absorption correction. */
+  readonly tbar?: number;
+  /** The transmission the absorption correction applied (0–1). */
+  readonly transmission?: number;
 }
 
 /** A single measured point in a powder pattern. */
@@ -61,12 +71,86 @@ export interface PowderPoint {
   readonly sigma?: number;
 }
 
+/**
+ * The extinction model of a single-crystal fit: SHELXL's empirical EXTI, or
+ * Becker & Coppens' (1974) secondary extinction — type I (the mosaic spread
+ * limits it) or type II (the domain size does), with a Gaussian or Lorentzian
+ * mosaic — as GSAS-II and Jana apply it.
+ */
+export type ExtinctionModel = "shelx" | "bc-1-lorentzian" | "bc-1-gaussian" | "bc-2-lorentzian" | "bc-2-gaussian";
+
+/**
+ * One measurement left out of a single-crystal fit by hand, as SHELXL's
+ * OMIT h k l: its indices as the file gives them, its batch when the file has
+ * batches (the same indices measured in another batch stay), and why.
+ */
+export interface OmittedMeasurement {
+  readonly h: number;
+  readonly k: number;
+  readonly l: number;
+  readonly batch?: number;
+  readonly reason?: string;
+}
+
+/** A resolution range a single-crystal fit is limited to, as SHELXL's SHEL: d from `dMin` to `dMax` (Å); a limit absent is open. */
+export interface ResolutionRange {
+  readonly dMin?: number;
+  readonly dMax?: number;
+}
+
+/**
+ * SHELXL's weighting scheme, WGHT a b: w = 1/[σ²(Fo²) + (aP)² + bP] with
+ * P = (max(Fo², 0) + 2Fc²)/3. The a term covers errors that grow with the
+ * intensity (absorption, scaling), b a constant floor; a = b = 0 is w = 1/σ².
+ */
+export interface ShelxWeighting {
+  readonly a: number;
+  readonly b: number;
+}
+
+/**
+ * A twin law, as SHELXL's TWIN: the integer matrix taking a reflection's
+ * indices in the first domain to those of the reflection it overlaps in
+ * another, h′ = R·h. A merohedral twin's R is a symmetry of the lattice the
+ * point group lacks; the inversion twin's is −I (a racemic or partly inverted
+ * crystal, whose fraction is the Flack parameter).
+ */
+export interface TwinLaw {
+  readonly matrix: readonly [readonly [number, number, number], readonly [number, number, number], readonly [number, number, number]];
+}
+
+/** The inversion twin's law: h′ = −h. */
+export const INVERSION_TWIN: TwinLaw = { matrix: [[-1, 0, 0], [0, -1, 0], [0, 0, -1]] };
+
+/** Whether a law is the inversion. */
+export const isInversion = (law: TwinLaw): boolean => law.matrix.every((row, i) => row.every((v, j) => v === (i === j ? -1 : 0)));
+
 /** A single-crystal reflection dataset. */
 export interface SingleCrystalDataset {
   readonly id: string;
   readonly name: string;
   readonly radiation: Radiation;
   readonly reflections: readonly SingleCrystalReflection[];
+  /** The extinction model the fit applies to these reflections (GSAS-II keeps it per histogram); absent ⇒ SHELXL's EXTI. */
+  readonly extinctionModel?: ExtinctionModel;
+  /**
+   * "refinement-listing": the Fo² come from a refinement's listing (a SHELXL
+   * .fcf), not from data reduction — each reflection once, on that
+   * refinement's scale, the systematic absences left out, and (SHELXL's LIST 4)
+   * its extinction divided out.
+   */
+  readonly origin?: "refinement-listing";
+  /** The fit's weighting scheme (SHELXL's WGHT); absent ⇒ w = 1/σ². */
+  readonly weighting?: ShelxWeighting;
+  /** Twin laws beyond the first domain (SHELXL's TWIN), each with its fraction as a `twinFraction` parameter (BASF); absent ⇒ untwinned. */
+  readonly twinLaws?: readonly TwinLaw[];
+  /**
+   * The σ the fit weights by, √(σ² + (aP)² + bP), from the Fc² of the model
+   * the scheme was last evaluated at (transient: derived, never saved). A
+   * problem built on a dataset that carries it keeps these weights however its
+   * parameters start, so starts compared by χ² are compared on one set.
+   */
+  readonly fitSigma?: readonly number[];
 }
 
 /** A powder diffraction pattern. */

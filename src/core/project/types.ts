@@ -47,10 +47,10 @@
  * Versioning and migration policy: see `io.ts` and docs/PROJECT_FORMAT.md.
  */
 
-import type { StructureModel } from "@/core/crystal/types";
+import type { DistanceRestraint, RidingRule, StructureModel } from "@/core/crystal/types";
 import type { DistortionModeSet } from "@/core/crystal/distortionModes";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
-import type { PdfPattern, PowderPattern, PowderXUnit, SingleCrystalDataset } from "@/core/diffraction/types";
+import type { ExtinctionModel, OmittedMeasurement, PdfPattern, PowderPattern, PowderXUnit, ResolutionRange, ShelxWeighting, SingleCrystalDataset, TwinLaw } from "@/core/diffraction/types";
 import type { MagneticModel } from "@/core/magnetic/types";
 import type { ParameterBinding, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { PowderProfile } from "@/core/workflow/powder";
@@ -192,8 +192,26 @@ export interface SingleCrystalWorkspace {
   /** Magnetic model applied from the symmetry analysis, if any. */
   readonly magnetic?: MagneticModel;
   /** SHELX-style OMIT filter on |Fo²−Fc²|/σ. Absent ⇒ off. */
-  readonly outlierFilter?: { readonly on: boolean; readonly cutoffSigma: number };
+  readonly outlierFilter?: { readonly on: boolean; readonly cutoffSigma: number; readonly minExtinction?: number };
+  /** Single measurements left out by hand (SHELXL's OMIT h k l). Absent ⇒ none. */
+  readonly omitted?: readonly OmittedMeasurement[];
+  /** The extinction model; absent ⇒ SHELXL's EXTI. */
+  readonly extinctionModel?: ExtinctionModel;
+  /** The resolution range fitted (SHELXL's SHEL); absent ⇒ every reflection. */
+  readonly resolution?: ResolutionRange;
+  /** The wavelength set on the page (Å), in place of the file's; absent ⇒ the file's, or 1.54 Å. */
+  readonly wavelength?: number;
+  /** Hydrogens riding on their parents; absent ⇒ none. */
+  readonly riding?: readonly RidingRule[];
+  /** SHELXL's weighting scheme (WGHT a b); absent ⇒ w = 1/σ². */
+  readonly weighting?: ShelxWeighting;
+  /** Twin laws (SHELXL's TWIN); absent ⇒ untwinned. */
+  readonly twinLaws?: readonly TwinLaw[];
+  /** Distance restraints (SHELXL's DFIX and SADI); absent ⇒ none. */
+  readonly restraints?: readonly DistanceRestraint[];
   readonly modulated?: ModulatedHypothesis;
+  /** The ADP model switched to on the page; absent ⇒ the CIF's. */
+  readonly adpModel?: "isotropic" | "anisotropic";
 }
 
 // ---------------------------------------------------------------------------
@@ -266,9 +284,13 @@ export interface AgentRecordFile {
   readonly key: string;
   /** The cell check at the start (check_cell_symmetry): advisory, never a gate. */
   readonly cellCheck?: { readonly passed: boolean; readonly at: number; readonly summary: string };
+  /** The last read of the data's ends (check_fit_range): what it found and the window it proposed. */
+  readonly rangeCheck?: { readonly at: number; readonly summary: string };
+  /** The last read of a single-crystal data set (reflection_statistics): its quality in a line. */
+  readonly dataCheck?: { readonly at: number; readonly summary: string };
   /** The symmetry review at the end of the method (review_symmetry). */
   readonly symmetryReviewed?: { readonly at: number; readonly summary: string };
-  readonly exceptions: readonly { readonly rule: "bare-occupancy"; readonly reason: string; readonly at: number }[];
+  readonly exceptions: readonly { readonly rule: "bare-occupancy" | "instrument-with-thermal"; readonly reason: string; readonly at: number }[];
   readonly stagesDone: readonly string[];
   readonly notes: readonly { readonly text: string; readonly at: number }[];
 }

@@ -16,6 +16,19 @@ describe("the number audit of a narrative", () => {
     expect(unverifiedNumbers("23.0 free parameters", engine)).toEqual([]);
   });
 
+  it("accepts a number more precise than the report's when it rounds to the printed value", () => {
+    // The tools gave the Agent more digits than the report prints (the eval runs of 2026-10-10).
+    const engine = "GoF 2.999 · a = 1.23 Å · x 0.91 · wR 16.4 % · Rw 0.2214";
+    expect(unverifiedNumbers("GoF 2.9992, a = 1.2331 Å, x = 0.91004, Rw 22.143 %", engine)).toEqual([]);
+    // Not when it does not round to it: 16.48 is 16.5 at the printed precision, not 16.4.
+    expect(unverifiedNumbers("wR 16.48 %", engine)).toEqual(["16.48"]);
+    // A printed value with one significant digit vouches for nothing finer.
+    expect(unverifiedNumbers("B = 0.93", "B 0.9")).toEqual(["0.93"]);
+    expect(unverifiedNumbers("B = 1.04", "B 1")).toEqual(["1.04"]);
+    // A fraction finer than a printed percentage.
+    expect(unverifiedNumbers("0.22143", "Rw 22.14 %")).toEqual([]);
+  });
+
   it("flags decimal numbers no engine value rounds to, each once, in order", () => {
     expect(unverifiedNumbers("wR 9.81 %, a = 4.5761 Å, and again 9.81; the B is 0.44.", engine)).toEqual(["9.81", "4.5761"]);
     // One more digit than the engine gives is still checked against it: 4.57532 ≠ 4.57531.

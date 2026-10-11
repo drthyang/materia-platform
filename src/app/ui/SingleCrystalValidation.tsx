@@ -106,7 +106,7 @@ export function SingleCrystalValidationView(props: SingleCrystalValidationProps)
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <MetricStrip>
-        <Metric value={v.reflectionsPerParameter.toFixed(1)} label="refl / param" tone={v.reflectionsPerParameter >= need ? "ok" : "warn"} title={`${v.uniqueObserved} unique / ${nParams} free parameters; checkCIF asks ≥ ${need}`} />
+        <Metric value={v.reflectionsPerParameter.toFixed(1)} label="refl / param" tone={v.reflectionsPerParameter >= need ? "ok" : "warn"} title={`${v.uniqueAllowed ?? v.uniqueObserved} unique allowed / ${nParams} free parameters; checkCIF asks ≥ ${need}`} />
         {v.completeness !== undefined ? <Metric value={pct(v.completeness, 1)} label="complete" title={`to sinθ/λ ${v.sinThetaOverLambdaMax.toFixed(3)} Å⁻¹`} tone={v.completeness >= 0.95 ? "ok" : v.completeness >= 0.9 ? "note" : "warn"} /> : null}
         <Metric value={pct(ag.r1All)} label="R1 · all" title="R1 over every reflection; R1 (I > 2σ), wR2 and GooF are in the header" />
         <Metric value={st.redundancy > 1 ? pct(st.rInt, 1) : "—"} label="R_int" title={st.redundancy > 1 ? undefined : "no redundant observations to merge"} />
@@ -133,7 +133,7 @@ export function SingleCrystalValidationView(props: SingleCrystalValidationProps)
               value: b.k,
               text: b.k.toFixed(2),
               title: `Fc/Fc(max) ≤ ${b.fcRatioMax.toFixed(3)} · ${b.n} reflections · K ${b.k.toFixed(3)} · GooF ${b.goof.toFixed(2)}`,
-              flagged: i === strongest ? ext.strongBinK < 0.95 : Math.abs(b.k - 1) > 0.1 && i > 0,
+              flagged: i === strongest ? ext.strongBinK < 0.95 * ext.otherBinsK : Math.abs(b.k - 1) > 0.1 && i > 0,
             }))}
           />
           <span style={{ fontSize: fz.micro, fontWeight: 600, color: color.ink, marginTop: 2 }}>GooF</span>
@@ -251,7 +251,7 @@ export function SingleCrystalValidationView(props: SingleCrystalValidationProps)
 function outlierPattern(v: ScValidation): string | null {
   const ext = v.extinction;
   if (ext.suspected) {
-    return `${ext.strongUnder} of the ${ext.outliers} largest outliers are strong reflections with Fo² < Fc², and K is ${ext.strongBinK.toFixed(2)} in the strongest bin. That is the extinction signature, not random error.`;
+    return `${ext.strongUnder} of the ${ext.outliers} largest outliers are strong reflections with Fo² < Fc², and K is ${ext.strongBinK.toFixed(2)} in the strongest bin against ${ext.otherBinsK.toFixed(2)} in the others. That is the extinction signature, not random error.`;
   }
   const sig = v.outliers.filter((o) => Math.abs(o.z) > 3).slice(0, 8);
   if (sig.length < 3) return null;

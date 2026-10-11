@@ -100,6 +100,8 @@ export interface ExtinctionCheck {
   /** K and GooF of the strongest intensity bin. */
   readonly strongBinK: number;
   readonly strongBinGoof: number;
+  /** The median K of the other bins: the strongest bin reads against it, since a scale the strong reflections pull lifts every K. */
+  readonly otherBinsK: number;
   /** Of the listed outliers (|z| > 3), how many are strong with Fo² < Fc². */
   readonly strongUnder: number;
   readonly outliers: number;
@@ -114,6 +116,8 @@ export interface ScValidation {
   readonly sinThetaOverLambdaMax: number;
   /** Unique reflections observed and the symmetry-allowed count to dMin. */
   readonly uniqueObserved: number;
+  /** Of them, those the space group allows (the forbidden ones carry no structure). */
+  readonly uniqueAllowed?: number;
   readonly uniqueExpected?: number;
   readonly completeness?: number;
   /** Unique observed reflections per free parameter. */
@@ -125,7 +129,7 @@ export interface ScValidation {
   readonly goofWithoutStrongest?: number;
 }
 
-/** Below this K in the strongest bin, strong reflections are weak on Fo². */
+/** Below this K in the strongest bin, against the other bins', strong reflections are weak on Fo². */
 const EXTINCTION_K = 0.95;
 
 /**
@@ -283,10 +287,16 @@ export function singleCrystalValidation(input: ScValidationInput): ScValidation 
   const strongFloor = byFc.length > 0 ? byFc[Math.floor(0.7 * (byFc.length - 1))]!.row.fcSq : Infinity;
   const significant = outliers.filter((o) => Math.abs(o.z) > 3).slice(0, 8);
   const strongUnder = significant.filter((o) => o.z < 0 && o.fcSq >= strongFloor).length;
+  // K of the strongest bin against the others': before extinction is refined
+  // the strong reflections pull the scale down and every K reads above 1
+  // (sapphire, scale alone: 3.6 on the weakest bin, 1.7 on the strongest).
+  const otherKs = bins.slice(0, -1).map((b) => b.k).filter(Number.isFinite).sort((a, b) => a - b);
+  const otherBinsK = otherKs.length > 0 ? otherKs[Math.floor(otherKs.length / 2)]! : 1;
   const extinction: ExtinctionCheck = {
-    suspected: strong !== undefined && strong.k < EXTINCTION_K && significant.length >= 3 && strongUnder >= Math.max(3, Math.ceil(0.6 * significant.length)),
+    suspected: strong !== undefined && otherBinsK > 0 && strong.k / otherBinsK < EXTINCTION_K && significant.length >= 3 && strongUnder >= Math.max(3, Math.ceil(0.6 * significant.length)),
     strongBinK: strong?.k ?? 1,
     strongBinGoof: strong?.goof ?? 0,
+    otherBinsK,
     strongUnder,
     outliers: significant.length,
   };
@@ -299,9 +309,11 @@ export function singleCrystalValidation(input: ScValidationInput): ScValidation 
     dMin,
     sinThetaOverLambdaMax: Number.isFinite(dMin) ? 1 / (2 * dMin) : 0,
     uniqueObserved,
+    ...(observedAllowed !== undefined ? { uniqueAllowed: observedAllowed } : {}),
     ...(expected ? { uniqueExpected: expectedKeys!.size } : {}),
     ...(expected && expectedKeys!.size > 0 ? { completeness: observedAllowed! / expectedKeys!.size } : {}),
-    reflectionsPerParameter: nParams > 0 ? uniqueObserved / nParams : Infinity,
+    // Per parameter, the reflections that carry the structure: a forbidden one's Fc is 0 whatever the model.
+    reflectionsPerParameter: nParams > 0 ? (observedAllowed ?? uniqueObserved) / nParams : Infinity,
     centrosymmetric,
     extinction,
     ...(goofWithoutStrongest !== undefined ? { goofWithoutStrongest } : {}),

@@ -934,7 +934,7 @@ export function zeroAdpWarning(structures: readonly StructureModel[]): string | 
   const qualify = structures.length > 1;
   for (const s of structures) {
     for (const site of s.sites) {
-      const iso = toIsotropic(site.adp);
+      const iso = toIsotropic(site.adp, s.cell);
       if (iso.kind === "isotropic" && Math.abs(iso.bIso) < ZERO_ADP_TOLERANCE) {
         labels.push(qualify ? `${s.name || s.id}/${site.label}` : site.label);
       }

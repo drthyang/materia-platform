@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { RefinementParameter } from "@/core/refinement/types";
-import { USER_TIE_GROUP, checkEqualTies, isUserTie, parseTie, resolveTies, tieReferences, withEqualTies } from "@/core/refinement/constraints";
+import { USER_TIE_GROUP, checkEqualTies, complementOf, isUserTie, parseTie, resolveTies, tieReferences, withEqualTies } from "@/core/refinement/constraints";
 
 const p = (id: string, value: number, expression?: string): RefinementParameter =>
   ({ id, label: id, kind: "momentMode", value, initialValue: value, fixed: !!expression, ...(expression ? { expression } : {}) });
@@ -76,5 +76,27 @@ describe("equal-value ties the user makes", () => {
     expect(() => checkEqualTies(rows, { release: ["B_O1"] })).toThrow(/not held by a tie/);
     expect(() => checkEqualTies([row("scale", "scale", 1), row("s2", "scale", 1)], { equal: ["scale", "s2"] })).toThrow(/not tied this way/);
     expect(() => checkEqualTies(rows, {})).toThrow(/pass `equal`/);
+  });
+
+  it("makes a disorder's second occupancy one minus the first, and holds whole ADPs equal mode by mode (EADP)", () => {
+    const disorder = [
+      row("occ_Al1", "occupancy", 0.84, { fixed: true }), row("occ_Ga1", "occupancy", 0.16, { fixed: true }),
+      row("U_Al1_0", "uAniso", 0.031), row("U_Al1_1", "uAniso", 0.028), row("U_Ga1_0", "uAniso", 0.05), row("U_Ga1_1", "uAniso", 0.04),
+    ];
+    expect(checkEqualTies(disorder, { complement: ["occ_Al1", "occ_Ga1"] })).toEqual({ unchanged: false });
+    const split = withEqualTies(disorder, { complement: ["occ_Al1", "occ_Ga1"], groups: [["U_Al1_0", "U_Ga1_0"], ["U_Al1_1", "U_Ga1_1"]] });
+    const ga = split.find((p) => p.id === "occ_Ga1")!;
+    expect(ga).toMatchObject({ value: 1 - 0.84, fixed: true, expression: complementOf("occ_Al1"), group: USER_TIE_GROUP });
+    expect(resolveTies(split, { ...Object.fromEntries(split.map((p) => [p.id, p.value])), occ_Al1: 0.7 }).occ_Ga1).toBeCloseTo(0.3, 12);
+    expect(split.find((p) => p.id === "U_Ga1_1")).toMatchObject({ value: 0.028, expression: "= U_Al1_1" });
+    expect(checkEqualTies(split, { complement: ["occ_Al1", "occ_Ga1"] })).toEqual({ unchanged: true });
+    // An equal tie is not the complement, and the complement joins occupancies only.
+    expect(checkEqualTies(split, { equal: ["occ_Al1", "occ_Ga1"] })).toEqual({ unchanged: false });
+    expect(() => checkEqualTies(disorder, { complement: ["occ_Al1", "occ_Al1"] })).toThrow(/two different/);
+    expect(() => checkEqualTies(disorder, { complement: ["occ_Al1", "U_Ga1_0"] })).toThrow(/two occupancies/);
+    expect(() => checkEqualTies(split, { complement: ["occ_Ga1", "occ_Al1"] })).toThrow(/itself tied/);
+    const back = withEqualTies(split, { release: ["occ_Ga1"] }).find((p) => p.id === "occ_Ga1")!;
+    expect(back).toMatchObject({ value: 1 - 0.84, fixed: true });
+    expect(back.expression).toBeUndefined();
   });
 });

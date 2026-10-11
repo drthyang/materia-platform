@@ -109,6 +109,7 @@ export class AgentChat {
       if (loaded) cb.onNotice(loaded, "info");
     }
     this.messages.push({ role: "user", content: text });
+    this.executor.heard?.(text);
     let parseRetries = 0;
     let nudges = 0;
     const ran: string[] = [];

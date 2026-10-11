@@ -96,6 +96,7 @@ full descriptions at the end are the text an agent reads when it picks a tool.
 | Tool | What it does |
 |---|---|
 | `build_refinement` | Build refinement parameter set |
+| `check_fit_range` | Check the fit range (the data's ends) |
 | `check_cell_symmetry` | Check cell & space group (Le Bail sanity check) |
 | `refine_powder` | Refine (constrained least squares) |
 | `evaluate_pattern` | Evaluate pattern (no refinement) |
@@ -176,6 +177,8 @@ full descriptions at the end are the text an agent reads when it picks a tool.
 
 **`build_refinement`** — Build the SYMMETRY-ALLOWED parameter set, bindings, and profile for a structure + pattern. Only symmetry-allowed parameters are created, so an agent cannot free a forbidden one. Feed `parameters`/`bindings`/`profile` to refine_powder.
 
+**`check_fit_range`** — The first step of a refinement: read the pattern's two ends and propose the fit window, as the GSAS-II tutorials do. The long-d end starts just below the first reflection (background only) unless the data hold peaks there no phase explains — magnetic order or another phase, which stay in. The far end stops in a gap below what is not real data: counts that step up and stay at the last points (a detector's or scan's edge), points with no counts, a line cut by the last point, the short-d stretch where no peak stands out of the noise, or (with a converged `result`) a stretch the model misses more than anywhere just inside. Every cut lies in a gap between reflections; a cut of more than 15 % of the points is flagged `large` — the user's call. Returns `low` and `high` (verdict, `cut`, findings with the evidence, notes on the counting σ), `proposed` (the window on the pattern's axis, or null), `proposedD` (Å) and `interior` (spikes, missing points no window removes). Pass the window on as `fitRange` to refine_powder and check_cell_symmetry.
+
 **`check_cell_symmetry`** — A sanity check at the START of a refinement, not a gate: does the cell index every peak, and does the data respect the space group's systematic absences? A Le Bail fit refines the cell from peak positions alone (free intensities), with back-to-back-exponential peaks that widen with d on time-of-flight data; then it reads the leftover (≥ `significance` σ counts). On 2θ data it also refines a zero shift and the axial-divergence asymmetry, and draws a lab tube's Kα₂. `unindexedPeaks` mean a wrong cell or lattice, or a missing phase — settle these first; pass known impurities as `extraPhases`. `shoulders` are small bumps (≤ 3 %) within a few widths of a strong line: a profile tail the simple Le Bail shape misses, not a phase, and not counted against the cell. `absences.violated` is a FLAG, not a verdict: before the structure is refined, profile misfit or an impurity line reads the same way. Do not change the space group on it — note it, refine the structure to the best, and question the group last with review_symmetry on the refined residual. `absences.untestable` lists forbidden reflections too close to an allowed one to judge. Only d ≥ `dMin` (0.7 Å) is read. It cannot catch a too-LARGE cell (a supercell indexes anything) or a group with too FEW absences — read `limits`. `passed` and `cell` (the Le Bail cell) are the result.
 
 **`refine_powder`** — Run the deterministic Levenberg–Marquardt refinement of the FREED parameters (fix a parameter by setting its `fixed:true`). Returns refined values, esds, agreement (wR/GoF), the SVD/correlation/at-bound diagnostics, the observation count, and the residual — everything assess_refinement needs — plus `parameters`: the input set carrying the refined values, ready for the next block. The agent decides what to free; it never sets values.
@@ -212,7 +215,7 @@ full descriptions at the end are the text an agent reads when it picks a tool.
 
 **`refine_magnetic_powder`** — Co-refine nuclear + magnetic against a powder pattern. Staged by default: scale + background converge with moments and profile held, then everything requested is freed — a flat co-refinement from a poor moment start can collapse the scale against exploding moments. Combine the nuclear parameters/bindings from build_refinement with the moment set from build_magnetic_model. Returns the result, the refined `parameters` (ready for the next call), the refined magnetic model, and separated nuclear/magnetic component curves. The moments have several local minima (magnetic intensity is quadratic in them), so a single run can land in the wrong one: pass `restarts` (e.g. 12) to restart the moments from kicked starts on the frozen nuclear model first; `multiStart` then reports the costs, the ±m-canonical answer, and any poorly determined moment directions.
 
-**`parse_single_crystal_data`** — Parse single-crystal integrated intensities — a FullProf .int, a SHELX HKLF 4 .hkl, a .fcf CIF reflection loop, or a plain h k l I σ list — into a SingleCrystalDataset. ALWAYS pass `name`: .int and .fcf are detected from the text, but HKLF 4 is fixed-column and looks exactly like a free-format list, so only the .hkl filename selects the column-exact reader (whitespace-splitting an HKLF 4 row reads σ as the intensity once F² ≥ 10000.00 fills its field). `format` reports which reader ran. Parse the nuclear and magnetic files, then merge_magnetic_supercell into one dataset for the magnetic refinement. A 0 0 0 row (the forward beam, not a Bragg reflection) is skipped by default — pass skipForwardBeam:false for a fundamental-indexed MAGNETIC file, where 0 0 0 is the satellite at k itself.
+**`parse_single_crystal_data`** — Parse single-crystal integrated intensities — a FullProf .int, a SHELX HKLF 4 .hkl, a .fcf CIF reflection loop, an SNS TOPAZ time-of-flight .hkl (each reflection with its own wavelength, 2θ, path length and run, detected from its columns), or a plain h k l I σ list — into a SingleCrystalDataset. The intensities are taken as corrected F² (Lorentz, polarization and absorption applied in data reduction), as every single-crystal program takes them. ALWAYS pass `name`: .int and .fcf are detected from the text, but HKLF 4 is fixed-column and looks exactly like a free-format list, so only the .hkl filename selects the column-exact reader (whitespace-splitting an HKLF 4 row reads σ as the intensity once F² ≥ 10000.00 fills its field). `format` reports which reader ran. Parse the nuclear and magnetic files, then merge_magnetic_supercell into one dataset for the magnetic refinement. A 0 0 0 row (the forward beam, not a Bragg reflection) is skipped by default — pass skipForwardBeam:false for a fundamental-indexed MAGNETIC file, where 0 0 0 is the satellite at k itself.
 
 **`write_single_crystal_data`** — Serialize a SingleCrystalDataset to a FullProf .int file (h k l F² σ cod through the declared Fortran format). Pass kVectors + per-reflection kIndex for the propagation-vector variant (satellite = H + k_nv; pending external FullProf validation). Round-trips with parse_single_crystal_data.
 
@@ -402,12 +405,14 @@ page's own controls. Open it with the **Agent** button in the header.
   without an applied spin model. Rw is its agreement; the fit weights every
   point equally, so the answers carry no GoF and say the esds are not
   statistical.
-- Not yet: single crystal. Its state is private to the page; it needs its
-  own port.
+- The single-crystal page (a fit to integrated F²): R1 over Fo² > 2σ, wR2
+  and GooF over every reflection fitted (w = 1/σ²), the cell fixed input from
+  indexing. Its method reads the data first (`reflection_statistics`).
 
 **Its methods, read on demand.** The user's methods are skills in
 [`.claude/skills/`](../.claude/skills): `my-rietveld-workflow`,
-`magnetic-analysis`, `pdf-workflow`, `symmetry-review` and `bayesian-check`.
+`magnetic-analysis`, `pdf-workflow`, `sc-workflow`, `symmetry-review` and
+`bayesian-check`.
 The system prompt carries only their names and descriptions; the Agent reads a
 skill whole with `read_skill` when the task calls for it, and the knowledge
 notes a skill cites the same way. Claude Code loads the same files, so one
@@ -416,8 +421,9 @@ method serves both.
 **Its tools.** One list ([`src/agent/tools.ts`](../src/agent/tools.ts))
 serves every way in, so a model sees the same names everywhere. Each tool names
 the pages it works on; on another page it answers with an error that says so.
-The page-specific handlers are [`powderTools.ts`](../src/agent/powderTools.ts)
-and [`pdfTools.ts`](../src/agent/pdfTools.ts).
+The page-specific handlers are [`powderTools.ts`](../src/agent/powderTools.ts),
+[`pdfTools.ts`](../src/agent/pdfTools.ts) and
+[`scTools.ts`](../src/agent/scTools.ts).
 - Read tools run at once: `get_state`, `assess_refinement`,
   `suggest_next_steps`, `rank_next_parameters`, `check_cell_symmetry`,
   `find_unexplained_peaks`, `review_symmetry`, `diagnose_fit`,
@@ -430,7 +436,8 @@ and [`pdfTools.ts`](../src/agent/pdfTools.ts).
   with the names of its references; with `reference` it returns one of them.
   Before its first change on a page, the Agent must have read that page's
   method skill in this conversation (`my-rietveld-workflow` on the powder page,
-  `pdf-workflow` on the PDF page); a change before that is refused with the
+  `pdf-workflow` on the PDF page, `sc-workflow` on the single-crystal page); a
+  change before that is refused with the
   call to make. Clearing the conversation resets it.
 - **The method's firm rule is code** ([`src/agent/method.ts`](../src/agent/method.ts)),
   checked before the correlation probe: on both pages no occupancy refines
@@ -529,7 +536,7 @@ and [`pdfTools.ts`](../src/agent/pdfTools.ts).
   as the value, a bound, a correlated pair, path dependence, a claim resting
   on one number) and what it cannot do (choose a model, fix a misfit).
 - **The analysis report** ([`src/agent/report.ts`](../src/agent/report.ts)).
-  `write_report` (powder and PDF pages, a read) builds the page's own report
+  `write_report` (a read, on every page) builds the page's own report
   (Export ▾ → Report: data, model, the fit figure, the structures with esds,
   every parameter, the diagnostics) with the analysis as it went: the
   History's steps on the path to the result — what each refinement freed and
@@ -568,7 +575,50 @@ and [`pdfTools.ts`](../src/agent/pdfTools.ts).
   coordination shell in the structure it refined, so a distortion is compared
   as lengths. The last scan goes into the report.
 - `set_adp_model` switches the primary phase between one U per site and the U
-  tensor on both pages: a CIF with U_aniso columns loads a tensor per site.
+  tensor on every page: a CIF with U_aniso columns loads a tensor per site.
+- Single-crystal page only: `reflection_statistics` reads the data before the
+  model — merging (R_int, R_σ, redundancy), resolution and completeness by
+  shell, whether the Friedel pairs were measured apart, the reflections the
+  space group forbids measured at ≥ 3σ, and ⟨|E² − 1|⟩ (0.968 centrosymmetric,
+  0.736 not, lower for a twin, no test for a few sites on special positions),
+  and how the data were measured (the wavelength band of a Laue file, the
+  batches, the transmission); the reading goes into the record and the
+  report, and is the method's first stage. `reflection_equivalents` lists
+  every measurement of one reflection and its equivalents (batch, wavelength,
+  extinction factor, distance from Fc² and from the family's median), to tell
+  a failed measurement from a model that misses before anything is left
+  out. `omit_reflections` leaves single measurements out by their indices and
+  batch (SHELXL's OMIT h k l), with the reason, which the report lists.
+  `set_outlier_filter` is the page's |Fo² − Fc²|/σ cutoff (SHELX's OMIT,
+  applied wholesale), and with `minExtinction` it also leaves out the
+  reflections whose extinction factor y is below the cut, the extinction
+  test; its approval card counts what it leaves out. `set_resolution_range`
+  limits the fit to a d range (SHELXL's SHEL), for a high-order refinement.
+  `set_extinction_model` switches between SHELXL's EXTI and Becker–Coppens
+  type I or II (Gaussian or Lorentzian mosaic), as GSAS-II computes it; the
+  parameter restarts at 0. `set_radiation` sets the probe and wavelength,
+  which a SHELX file does not carry (it loads as neutron at 1.54 Å).
+  `set_riding_hydrogens` rides the hydrogens on their parents as SHELXL's
+  AFIX does (sp² C–H on the bisector, AFIX 43, at its distance or one given;
+  any other at its present offset, AFIX 3; U_iso 1.2 or 1.5·U_eq), listing
+  each X–H as placed. `set_weighting` sets SHELXL's WGHT a b, or the scheme
+  SHELXL would suggest for the model as it stands (`assess_refinement` gives
+  it), re-evaluated at the fit's own Fc²; it is set last. There,
+  `assess_refinement` adds the analysis of variance by intensity and by
+  resolution (K = ΣFo²/ΣFc² and GooF per bin), the extinction reading (the
+  strongest bin against the others) and the correction's reach (the smallest
+  y), K and R1 by batch, the largest outliers each read against its
+  equivalents (a failed measurement, the model's misfit, or equivalents that
+  disagree), and the tensors that are not positive definite; `refine` answers with R1, wR2 and GooF before and after,
+  and runs until every shift is below 0.05 esd. The scale, the extinction and
+  the batch scales (`bscale_<b>`, entered fixed) refine together whatever
+  their correlation, as in every single-crystal program. `structure_table`
+  gives U^ij and U_eq with esds (with `against: "loaded"`, each site against
+  the structure as loaded, in esds), and `bond_geometry` each length's esd
+  (`atoms` for the bonds to named sites; a riding hydrogen's bond has none). The
+  report's "Refinements compared" lists the last refinement under each set of
+  conditions (extinction model, resolution range, omissions, filter) with
+  wR2, GooF, the extinction parameter and U_eq, so a test can be quoted.
 - Powder page only: `rank_next_parameters`, `check_cell_symmetry`,
   `find_unexplained_peaks`, `review_symmetry`, `set_background`, `set_microstrain`,
   `set_site_ties`. On the PDF page, `assess_refinement` judges convergence,
@@ -773,7 +823,7 @@ Other planned work:
 - Richer per-tool JSON schemas.
 - Assessment variants for single-crystal data (in the R1/wR2/GooF convention)
   and for magnetic refinements.
-- The Agent on the single-crystal page and the magnetic PDF step, each
-  through its own port; PDF symmetry modes as tools.
+- The Agent on the magnetic PDF step, through its own port; PDF symmetry
+  modes as tools.
 
 The order across the whole project is in [ROADMAP.md §5](./ROADMAP.md).

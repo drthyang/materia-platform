@@ -412,6 +412,12 @@ function parseAnisotropicAdps(loops: Loop[]): Map<string, DisplacementParameters
   return adps;
 }
 
+/** A site's disorder alternative from its group and assembly ("." or "?" for none): none for an ordered site, or group 0 (SHELXL's PART 0). */
+function disorderOf(group: string | undefined, assembly: string | undefined): { disorder?: { assembly: string; group: number } } {
+  const g = group === undefined ? NaN : parseInt(group, 10);
+  return Number.isFinite(g) && g !== 0 ? { disorder: { assembly: assembly ?? "", group: g } } : {};
+}
+
 function parseSites(items: Map<string, string>, loops: Loop[]): AtomSite[] {
   const atomLoop = findLoop(loops, (h) => h.some((k) => k.includes("atom_site_fract_x")));
   if (!atomLoop) return [];
@@ -438,6 +444,9 @@ function parseSites(items: Map<string, string>, loops: Loop[]): AtomSite[] {
   const iU = col("_atom_site_u_iso_or_equiv");
   const iB = col("_atom_site_b_iso_or_equiv");
   const iMult = col("_atom_site_site_symmetry_multiplicity");
+  // SHELXL's PART: the assembly a disordered site belongs to, and its alternative (group) in it.
+  const iAssembly = col("_atom_site_disorder_assembly");
+  const iGroup = col("_atom_site_disorder_group");
   // For labels without a type symbol: does the file write element symbols in
   // proper case anywhere, and which elements does its formula name?
   const formula = cifText(items.get("_chemical_formula_sum"));
@@ -472,6 +481,7 @@ function parseSites(items: Map<string, string>, loops: Loop[]): AtomSite[] {
       occupancy: iOcc >= 0 ? parseCifNumberOr(row[iOcc], 1) : 1,
       adp,
       ...(iMult >= 0 && row[iMult] !== undefined ? { multiplicity: parseInt(row[iMult]!, 10) } : {}),
+      ...disorderOf(iGroup >= 0 ? cifText(row[iGroup]) : undefined, iAssembly >= 0 ? cifText(row[iAssembly]) : undefined),
     };
     return site;
   });

@@ -28,6 +28,7 @@ import { kLabel } from "@/core/magnetic/kSearch";
 import { magneticSupercell, momentAnchorPosition } from "@/core/crystal/cellExpansion";
 import { markNumbers } from "@/core/export/reportAudit";
 import { coordinationShells } from "@/core/crystal/geometry";
+import { uEquivalent } from "@/core/crystal/adp";
 import {
   fobsFcalcSvg,
   magneticProjectionSvg,
@@ -68,6 +69,15 @@ export interface ReportPhase {
   readonly bindings: readonly ParameterBinding[];
   /** e.g. "primary phase", "impurity phase". */
   readonly role?: string;
+  /** A molecular structure's covalent bonds, each length with its esd (in place of the cation shells). */
+  readonly bonds?: readonly ReportBond[];
+}
+
+/** One covalent bond of the report's table: its sites and its length as printed, with the esd or "riding". */
+export interface ReportBond {
+  readonly from: string;
+  readonly to: string;
+  readonly length: string;
 }
 
 /** How the magnetic group is named in the report. */
@@ -286,7 +296,7 @@ export interface ParameterGroup {
 }
 
 export const PARAMETER_GROUPS: readonly ParameterGroup[] = [
-  { title: "Scale & background", kinds: ["scale", "background", "magneticScale", "pdfScale"] },
+  { title: "Scale & background", kinds: ["scale", "batchScale", "background", "magneticScale", "pdfScale"] },
   { title: "Unit cell", kinds: ["cellLength", "cellAngle"] },
   { title: "Atoms", kinds: ["atomX", "atomY", "atomZ", "positionShift", "occupancy", "bIso", "uAniso"] },
   { title: "Magnetic moments", kinds: ["momentMode", "momentX", "momentY", "momentZ"] },
@@ -358,7 +368,8 @@ function sitesTable(structure: StructureModel, esd: ReturnType<typeof buildEsdMa
   const rows = structure.sites.map((s) => {
     const pe = esd.pos.get(s.label);
     const bEsd = s.adp.kind === "isotropic" ? esd.bIso.get(s.label) : undefined;
-    const b = s.adp.kind === "isotropic" ? s.adp.bIso : EIGHT_PI2 * ((s.adp.uAniso[0]! + s.adp.uAniso[1]! + s.adp.uAniso[2]!) / 3);
+    // B_eq = 8π²·U_eq, U_eq by the full formula (a third of the trace only in an orthogonal cell).
+    const b = s.adp.kind === "isotropic" ? s.adp.bIso : EIGHT_PI2 * uEquivalent(s.adp.uAniso, structure.cell);
     return `<tr><td><b>${esc(s.label)}</b></td><td>${esc(ionLabel(s.element, s.oxidationState))}</td>` +
       `<td class="num">${formatWithEsd(s.position[0], pe?.[0], 5)}</td>` +
       `<td class="num">${formatWithEsd(s.position[1], pe?.[1], 5)}</td>` +
@@ -376,6 +387,25 @@ ${rows.join("\n")}
 
 /** What the bond tables say about their lengths. */
 export const BONDS_NOTE = "Each cation's shell at the refined positions, out to 3.2 Å (or 1.25 × its shortest bond for a large cation); no esds, as the covariance is not carried to the lengths.";
+
+/** What the covalent bond table says about its lengths. */
+export const COVALENT_BONDS_NOTE = "The covalent bonds at the refined positions (atoms closer than their covalent radii and 0.4 Å), each once; the esds from the refined positions' (the cell fixed). A riding hydrogen's bond is set by its constraint.";
+
+/** A molecular structure's bonds, one row per site: "S1A: S2A 2.0222(5) · C6A 1.7868(13)". */
+export function covalentBondRows(bonds: readonly ReportBond[]): { site: string; bonds: string }[] {
+  const rows = new Map<string, string[]>();
+  for (const b of bonds) rows.set(b.from, [...(rows.get(b.from) ?? []), `${b.to} ${b.length}`]);
+  return [...rows].map(([site, list]) => ({ site, bonds: list.join(" · ") }));
+}
+
+function covalentBondsHtml(bonds: readonly ReportBond[]): string {
+  const rows = covalentBondRows(bonds);
+  if (rows.length === 0) return "";
+  return `<div class="card"><div class="scroll"><table>
+<tr><th>Site</th><th>Bonds (Å)</th></tr>
+${rows.map((r) => `<tr><td><b>${esc(r.site)}</b></td><td>${esc(r.bonds)}</td></tr>`).join("\n")}
+</table></div><p class="note">${esc(COVALENT_BONDS_NOTE)}</p></div>`;
+}
 
 /** The cations' coordination shells, one row per site: "O6 1.9067 ×2 · O1 1.9692 ×2 · …". */
 export function shellRows(structure: StructureModel): { site: string; bonds: string; mean: string }[] {
@@ -421,7 +451,7 @@ function phaseHtml(phase: ReportPhase, index: number, total: number): string {
   <div class="card">${sitesTable(st, esd)}</div>
   <div class="card">${cellTable(st.cell, esd)}<p class="note">${st.sites.length} site${st.sites.length === 1 ? "" : "s"} in the asymmetric unit · ${sg.operations.length} symmetry operation${sg.operations.length === 1 ? "" : "s"}</p></div>
 </div>
-${bondsHtml(st)}`;
+${phase.bonds ? covalentBondsHtml(phase.bonds) : bondsHtml(st)}`;
 }
 
 function figureHtml(fig: ReportFigure): string {

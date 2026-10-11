@@ -28,7 +28,7 @@ import type { MagneticModel } from "@/core/magnetic/types";
 import { leBailCellPrefit, type LeBailPrefitResult } from "@/core/workflow/leBailPrefit";
 import type { RefinementResult, RefinementOptions, AgreementFactors, RefinementParameter } from "@/core/refinement/types";
 import { refine, refineParallel, type BatchEvaluator, type ParallelDriverCapabilities, type RefinementProblem } from "@/core/refinement/engine";
-import { buildSingleCrystalRefinementProblem } from "@/core/workflow/singleCrystalRefinement";
+import { refineSingleCrystal, withFitWeights } from "@/core/workflow/singleCrystalRefinement";
 import { buildMagneticSingleCrystalProblem, applyMagneticMoments } from "@/core/workflow/magnetic";
 import { runPowderRefinement, runPdfRefinement, runMpdfRefinement, buildProblemForSpec, type PowderProgress } from "@/workers/runPowder";
 import { refineStagedAsync } from "@/core/refinement/staged";
@@ -1006,8 +1006,12 @@ export class ComputeClient {
   async refineSingleCrystalParallel(
     req: Omit<RefineSingleCrystalRequest, "requestId" | "type">,
   ): Promise<RefinementResult> {
-    if (this.poolSize() < 2) return this.refineSingleCrystal(req);
-    const spec: EvaluatorSpec = { kind: "singleCrystal", structure: req.structure, dataset: req.dataset, parameters: req.parameters, bindings: req.bindings };
+    // With analytic derivatives one kernel pass yields every column: the serial
+    // worker, which computes them off the UI thread, beats the pool's two
+    // evaluations per parameter by far.
+    if (this.poolSize() < 2 || req.options?.analyticDerivatives) return this.refineSingleCrystal(req);
+    // The pool evaluates one problem: a weighting scheme's weights are fixed at the start.
+    const spec: EvaluatorSpec = { kind: "singleCrystal", structure: req.structure, dataset: withFitWeights(req.structure, req.dataset, req.parameters, req.bindings), parameters: req.parameters, bindings: req.bindings };
     return this.runParallel(spec, req.options ?? {}, req.dataset.reflections.length);
   }
 
@@ -1025,8 +1029,9 @@ export class ComputeClient {
     req: Omit<RefineSingleCrystalRequest, "requestId" | "type">,
     multiStart: MultiStartOptions = {},
   ): Promise<MultiStartResult> {
+    // Every start weighted alike (a weighting scheme's weights fixed at the base model), so their χ² compare.
     const spec: Extract<EvaluatorSpec, { kind: "singleCrystal" }> = {
-      kind: "singleCrystal", structure: req.structure, dataset: req.dataset, parameters: req.parameters, bindings: req.bindings,
+      kind: "singleCrystal", structure: req.structure, dataset: withFitWeights(req.structure, req.dataset, req.parameters, req.bindings), parameters: req.parameters, bindings: req.bindings,
     };
     const options = req.options ?? {};
 
@@ -1043,8 +1048,11 @@ export class ComputeClient {
     this.activePool = pool;
     try {
       await pool.init(spec);
+      // Analytic columns come from one kernel pass on the driver, about two
+      // evaluations' work, where the pool would spend two per parameter.
+      const driver = options.analyticDerivatives ? { analyticOnDriver: true } : {};
       const runOnce = async (start: readonly RefinementParameter[]): Promise<{ parameters: RefinementParameter[]; final: RefinementResult }> => {
-        const result = await refineParallel(buildProblemForSpec({ ...spec, parameters: [...start] }), options, pool);
+        const result = await refineParallel(buildProblemForSpec({ ...spec, parameters: [...start] }), options, pool, driver);
         return { parameters: applyResultToParams(start, result), final: result };
       };
       return await refineMultiStart(spec.parameters, runOnce, multiStart);
@@ -1168,8 +1176,7 @@ function runInline(req: ComputeRequest, onProgress?: PowderProgress): Refinement
     return refine(problem, req.options ?? {});
   }
   if (req.type === "refineSingleCrystal") {
-    const problem = buildSingleCrystalRefinementProblem(req.structure, req.dataset, req.parameters, req.bindings);
-    return refine(problem, req.options ?? {});
+    return refineSingleCrystal(req.structure, req.dataset, req.parameters, req.bindings, req.options ?? {});
   }
   throw new Error(`request type ${req.type} has no in-thread fallback`);
 }

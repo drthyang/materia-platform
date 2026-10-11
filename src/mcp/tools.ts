@@ -44,7 +44,8 @@ import {
 } from "@/core/workflow/pdf";
 import { buildMpdfSpec, mpdfComponents, unsupportedMpdfModel, MPDF_STAGE_KINDS } from "@/core/workflow/mpdf";
 import { computeAgreementFactors, excludedPointMask, weightsFromSigma } from "@/core/refinement/factors";
-import { axisContext, convertAxisArray } from "@/visualization/axisUnits";
+import { axisContext, convertAxisArray, convertAxisValue } from "@/visualization/axisUnits";
+import { inspectDataRange, type DataRangeReading } from "@/core/diagnostics/dataRange";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { abscissaFromD, radiationOf } from "@/core/diffraction/instrument";
 import { bondLengths } from "@/core/crystal/geometry";
@@ -78,12 +79,13 @@ import {
 } from "@/core/workflow/pdfBoxcar";
 import type { SingleCrystalDataset } from "@/core/diffraction/types";
 import { parseFullProfInt, looksLikeFullProfInt } from "@/parsers/fullprofInt";
+import { looksLikeSnsTofHkl, parseSnsTofHkl } from "@/parsers/snsTofHkl";
 import { writeFullProfInt } from "@/core/export/fullprofInt";
 import { refinementBundle, type BundleTarget } from "@/core/export/bundle";
 import type { BackgroundType } from "@/core/diffraction/background";
 import type { CifRefinementMeta } from "@/core/export/cif";
 import { parseHklRows } from "@/parsers/hkl";
-import { isCifReflectionLoop, parseFcf, parseShelxHkl } from "@/parsers/shelxHkl";
+import { isCifReflectionLoop, isRefinementListing, parseFcf, parseShelxHkl } from "@/parsers/shelxHkl";
 import {
   mergeToMagneticSupercell,
   expandStructureToSupercell,
@@ -199,6 +201,57 @@ export function build_refinement(args: {
  * the end (review_symmetry, on the refined residual), not a reason to change
  * the space group before the structure is refined.
  */
+/**
+ * The data's ends: where the fit window should start and stop (just below the
+ * first reflection; in a gap below an edge that is not real data, or where the
+ * peaks have faded), each cut in a gap between reflections. With `parameters`,
+ * `bindings` and `profile` the calculated curve is the model's at those values;
+ * with a converged `result` its residual is read too.
+ */
+export function check_fit_range(args: {
+  structure: StructureModel;
+  pattern: PowderPattern;
+  instrument?: InstrumentParameters;
+  extraPhases?: StructureModel[];
+  parameters?: RefinementParameter[];
+  bindings?: ParameterBinding[];
+  profile?: PowderProfile;
+  result?: RefinementResult;
+  fitRange?: { min: number; max: number };
+}): DataRangeReading & { readonly proposedD: readonly [number, number] | null } {
+  const instrument = args.instrument ?? DEFAULT_INSTRUMENT;
+  if (args.pattern.xUnit === "tof" && instrument.kind !== "tof") {
+    throw new Error("check_fit_range: a time-of-flight pattern needs its TOF instrument (difC) to place reflections");
+  }
+  if (args.extraPhases?.length && args.parameters) throw new Error("check_fit_range: pass parameters only for a single phase; for several, leave them out and the instrument's profile is used");
+  const spec = args.parameters && args.bindings && args.profile ? null : buildPowderSpec(args.structure, args.pattern, instrument, true, 4, {}, "isotropic");
+  const curves = powderCurves(args.structure, args.pattern, args.parameters ?? spec!.params, args.bindings ?? spec!.bindings, args.profile ?? spec!.profile);
+  const zero = (args.parameters ?? []).find((p) => p.kind === "zeroShift")?.value;
+  const ctx = axisContext(args.pattern, args.instrument, zero);
+  const unit = args.pattern.xUnit;
+  const ds = args.pattern.points.map((p) => convertAxisValue(p.x, unit, "dSpacing", ctx)).filter((d) => Number.isFinite(d) && d > 0);
+  const dMin = Math.min(...ds) * 0.98;
+  const dMax = Math.min(50, Math.max(...ds) * 1.02);
+  const reflections = [args.structure, ...(args.extraPhases ?? [])]
+    .flatMap((ph) => generateReflections(ph.cell, ph.spaceGroup, dMin, dMax, { absences: true }).map((r) => convertAxisValue(r.d, "dSpacing", unit, ctx)))
+    .filter(Number.isFinite);
+  const yObs = args.pattern.points.map((p) => p.yObs);
+  const reading = inspectDataRange({
+    x: args.pattern.points.map((p) => p.x),
+    yObs,
+    sigma: args.pattern.points.map((p) => (p.sigma !== undefined && p.sigma > 0 ? p.sigma : Math.sqrt(Math.max(p.yObs, 1)))),
+    yCalc: curves.yCalc,
+    ...(curves.yBackground ? { yBackground: curves.yBackground } : {}),
+    fitted: args.result?.status === "converged" && !!args.parameters,
+    reflections,
+    shortD: unit === "tof" || unit === "dSpacing" ? "low" : "high",
+    excluded: excludedPointMask(yObs),
+    window: args.fitRange ?? null,
+  });
+  const p = reading.proposed;
+  return { ...reading, proposedD: p ? [convertAxisValue(p.min, unit, "dSpacing", ctx), convertAxisValue(p.max, unit, "dSpacing", ctx)] : null };
+}
+
 export function check_cell_symmetry(args: {
   structure: StructureModel;
   pattern: PowderPattern;
@@ -834,7 +887,7 @@ export function parse_single_crystal_data(args: { text: string; name?: string; i
   dropped: number;
   /** `0 0 0` forward-beam rows dropped (the all-zero SHELX terminator is never counted). */
   forwardBeamSkipped: number;
-  format: "fullprof" | "shelx" | "fcf" | "list";
+  format: "fullprof" | "shelx" | "fcf" | "sns-tof" | "list";
   /** Propagation vectors declared in the file ([] for a plain nuclear file). */
   kVectors: [number, number, number][];
   /** Line-numbered {line, expected, found} diagnostics for skipped rows ([] when clean). */
@@ -859,6 +912,20 @@ export function parse_single_crystal_data(args: { text: string; name?: string; i
       problems: parsed.problems.map((p) => ({ ...p })),
     };
   }
+  // A TOPAZ time-of-flight file before SHELX: its first 32 columns are HKLF 4,
+  // and a SHELX read would drop each reflection's wavelength.
+  if (looksLikeSnsTofHkl(args.text)) {
+    const parsed = parseSnsTofHkl(args.text);
+    return {
+      dataset: { id, name, radiation: { kind: "neutron-tof" }, reflections: parsed.reflections },
+      kept: parsed.reflections.length,
+      dropped: parsed.skipped,
+      forwardBeamSkipped: 0,
+      format: "sns-tof",
+      kVectors: [],
+      problems: [],
+    };
+  }
   const isHkl = /\.hkl$/i.test(args.name ?? "");
   if (isHkl || isCifReflectionLoop(args.text)) {
     const parsed = isHkl && !isCifReflectionLoop(args.text)
@@ -867,7 +934,8 @@ export function parse_single_crystal_data(args: { text: string; name?: string; i
     return {
       dataset: {
         id, name, radiation: { kind: "neutron", wavelength: 1.54 },
-        reflections: parsed.reflections.map((r) => ({ h: r.h, k: r.k, l: r.l, iObs: r.intensity, sigma: r.sigma })),
+        reflections: parsed.reflections.map((r) => ({ h: r.h, k: r.k, l: r.l, iObs: r.intensity, sigma: r.sigma, ...(parsed.hasBatches && r.batch !== undefined ? { batch: r.batch } : {}) })),
+        ...(isRefinementListing(args.text) ? { origin: "refinement-listing" as const } : {}),
       },
       kept: parsed.reflections.length,
       dropped: parsed.skipped,

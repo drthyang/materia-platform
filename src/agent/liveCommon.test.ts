@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { freePlan, matchIds, parameterSummary } from "@/agent/liveCommon";
+import { buildSpaceGroup } from "@/core/crystal/spaceGroups";
+import type { StructureModel } from "@/core/crystal/types";
+import { bondEsds, freePlan, matchIds, parameterSummary } from "@/agent/liveCommon";
 import type { RefinementParameter } from "@/core/refinement/types";
 
 const row = (id: string): RefinementParameter => ({ id, label: id, kind: "scale", value: 1, initialValue: 1, fixed: true });
@@ -25,5 +27,23 @@ describe("matching parameter ids", () => {
 
   it("still refuses a pattern nothing matches, listing the ids", () => {
     expect(() => matchIds(params, ["occ_*"])).toThrow(/nothing matches "occ_\*"\. Parameter ids: p0_scale/);
+  });
+});
+
+describe("bondEsds", () => {
+  it("follows a bond that a shift lists the other way round", () => {
+    const structure: StructureModel = {
+      id: "s", name: "s", cell: { a: 5, b: 5, c: 5, alpha: 90, beta: 90, gamma: 90 }, spaceGroup: buildSpaceGroup(1),
+      sites: [{ label: "A", element: "Al", position: [0, 0, 0], occupancy: 1, adp: { kind: "isotropic", bIso: 0.3 } }, { label: "B", element: "O", position: [0.3, 0, 0], occupancy: 1, adp: { kind: "isotropic", bIso: 0.3 } }],
+    };
+    const parameters: RefinementParameter[] = [{ id: "x_B", label: "B x", kind: "atomX", value: 0.3, initialValue: 0.3, fixed: false }];
+    let call = 0;
+    // The reference lists the short bond A–B; the shifted structure lists it B–A, 0.0002 Å longer.
+    const measure = (): { from: string; to: string; distance: number }[] =>
+      call++ === 0
+        ? [{ from: "A", to: "B", distance: 1.8549 }, { from: "A", to: "B", distance: 1.9717 }]
+        : [{ from: "B", to: "A", distance: 1.8551 }, { from: "A", to: "B", distance: 1.9716 }];
+    const esds = bondEsds(structure, [{ parameterId: "x_B", kind: "atomX", targetId: "s", targetKey: "B" }], parameters, { x_B: 1e-4 }, measure);
+    expect([...esds.values()].map((e) => Number(e.toFixed(4)))).toEqual([0.0002, 0.0001]);
   });
 });

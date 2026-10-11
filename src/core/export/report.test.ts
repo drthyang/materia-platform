@@ -8,6 +8,7 @@ import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { reportHtml, formatParameterValue, type ReportAgent, type ReportInput } from "@/core/export/report";
 import { reportMarkdown } from "@/core/export/reportMarkdown";
 import { formatWithEsd } from "@/core/export/cif";
+import { uEquivalent } from "@/core/crystal/adp";
 import { niceTicks, patternFigureSvg } from "@/core/export/reportFigures";
 import { groupOfOperations, magneticReportSection, pdfReportInput, reportFileName } from "@/app/reportInputs";
 import type { PdfPattern } from "@/core/diffraction/types";
@@ -384,5 +385,29 @@ describe("PDF report (reportInputs)", () => {
     const nuclearOnly = pdfReportInput({ ...base, explored: null });
     expect(nuclearOnly.magnetic).toBeNull();
     expect(nuclearOnly.summary).toContain("No magnetic (mPDF) component is included.");
+  });
+});
+
+describe("single-crystal report geometry", () => {
+  it("gives B_eq by the full U_eq in a monoclinic cell, and a molecule's covalent bonds with their esds", () => {
+    const base = exampleStructure();
+    // A monoclinic cell (β 110°) with a U13 term: a third of the trace is not U_eq here.
+    const cell = { a: 7, b: 9, c: 11, alpha: 90, beta: 110, gamma: 90 };
+    const u: [number, number, number, number, number, number] = [0.03, 0.025, 0.04, 0, -0.012, 0];
+    const structure = { ...base, cell, sites: base.sites.map((s, i) => (i === 0 ? { ...s, adp: { kind: "anisotropic" as const, uAniso: u } } : s)) };
+    const input: ReportInput = {
+      technique: "singleCrystal", title: "t", stats: [], data: [], parameters: [], date: DATE,
+      phases: [{ structure, params: [], bindings: [], bonds: [{ from: "C1", to: "C2", length: "1.381(2)" }, { from: "C1", to: "H1", length: "0.9500 (riding)" }, { from: "S1", to: "S2", length: "2.0222(5)" }] }],
+    };
+    const md = reportMarkdown(input);
+    const bEq = 8 * Math.PI * Math.PI * uEquivalent(u, cell);
+    const trace = 8 * Math.PI * Math.PI * ((u[0] + u[1] + u[2]) / 3);
+    expect(Math.abs(bEq - trace)).toBeGreaterThan(0.01);
+    expect(md).toContain(bEq.toFixed(3));
+    // The covalent table in place of the cation shells.
+    expect(md).toContain("| C1 | C2 1.381(2) · H1 0.9500 (riding) |");
+    expect(md).toContain("| S1 | S2 2.0222(5) |");
+    expect(md).not.toContain("Mean (Å)");
+    expect(reportHtml(input)).toContain("S2 2.0222(5)");
   });
 });

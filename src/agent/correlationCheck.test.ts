@@ -8,7 +8,7 @@ function param(id: string, kind: RefinementParameter["kind"]): RefinementParamet
 
 const params = [param("scale", "scale"), param("occ_Mn1", "occupancy"), param("B_Mn1", "bIso"), param("bkg0", "background"), param("bkg1", "background")];
 
-function probe(pairs: [string, string, number][], singular: string[] = []): RefinementResult {
+function probe(pairs: ([string, string, number] | [string, string, number, number])[], singular: string[] = []): RefinementResult {
   return {
     status: "maxIterations",
     parameters: {},
@@ -19,7 +19,7 @@ function probe(pairs: [string, string, number][], singular: string[] = []): Refi
       svdZeroCount: singular.length ? 1 : 0,
       singularParameterIds: singular,
       conditionNumber: 1e3,
-      highCorrelations: pairs.map(([a, b, c]) => ({ parameterIdA: a, parameterIdB: b, coefficient: c })),
+      highCorrelations: pairs.map(([a, b, c, conditional]) => ({ parameterIdA: a, parameterIdB: b, coefficient: c, ...(conditional !== undefined ? { conditional } : {}) })),
       maxLambda: 1e-3,
       atBounds: [],
       maxShiftOverEsd: 0,
@@ -28,6 +28,20 @@ function probe(pairs: [string, string, number][], singular: string[] = []): Refi
 }
 
 describe("correlation check", () => {
+  it("lists a pair a third parameter carries, and refines it; a pair that trades off itself still stops", () => {
+    const sc = [param("scale", "scale"), param("extinction", "extinction"), param("B_Al1", "bIso"), param("B_O1", "bIso"), param("occ_O1", "occupancy")];
+    // Synthetic corundum to d = 0.4 Å: the scale, the extinction and the B's trade with the overall fall-off.
+    const check = readCorrelations(probe([["scale", "B_O1", 0.976, 0.722], ["scale", "extinction", 0.955, 0.693], ["B_O1", "occ_O1", 0.97, 0.95]]), sc);
+    expect(check.carried.map((p) => [p.a, p.b])).toEqual([["scale", "B_O1"], ["scale", "extinction"]]);
+    expect(check.correlated.map((p) => [p.a, p.b])).toEqual([["B_O1", "occ_O1"]]);
+    expect(correlationRefusal(check)).toContain("B_O1 ↔ occ_O1 0.970");
+    expect(correlationRefusal(check)).not.toContain("scale ↔ B_O1");
+    // Carried or not, a pair at 0.99 stops.
+    expect(readCorrelations(probe([["B_Al1", "B_O1", 0.993, 0.6]]), sc).correlated).toHaveLength(1);
+    // Without the conditional (an older result), the pair stops as before.
+    expect(readCorrelations(probe([["scale", "B_O1", 0.976]]), sc).correlated).toHaveLength(1);
+  });
+
   it("passes a set with nothing at the limit, and names its strongest pair", () => {
     const check = readCorrelations(probe([["scale", "B_Mn1", 0.81], ["scale", "bkg0", 0.62]]), params);
     expect(check.correlated).toEqual([]);

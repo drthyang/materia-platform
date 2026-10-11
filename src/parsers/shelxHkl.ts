@@ -47,6 +47,31 @@ export function isCifReflectionLoop(text: string): boolean {
   return /^\s*_refln[_.]index_h\b/im.test(text);
 }
 
+/**
+ * The measurement a SHELXL CIF carries in its `_shelx_hkl_file` text field
+ * (SHELXL 2014 on embeds the .hkl it refined against): the HKLF 4 text, or
+ * null when the CIF carries none.
+ */
+export function embeddedHkl(text: string): string | null {
+  const m = text.match(/^_shelx_hkl_file[ \t]*\r?\n;[^\n]*\n([\s\S]*?)\r?\n;/m);
+  return m ? m[1]! : null;
+}
+
+/** The radiation a CIF names (`_diffrn_radiation_wavelength`, `_diffrn_radiation_type` or `_probe`), or null. */
+export function cifRadiation(text: string): { kind: "xray" | "neutron"; wavelength: number; name?: string } | null {
+  const wl = Number(text.match(/^_diffrn_radiation_wavelength[ \t]+([0-9.]+)/m)?.[1]);
+  if (!(wl > 0)) return null;
+  const type = text.match(/^_diffrn_radiation_type[ \t]+(.+)$/m)?.[1]?.trim().replace(/^['"]|['"]$/g, "");
+  const probe = text.match(/^_diffrn_radiation_probe[ \t]+(.+)$/m)?.[1]?.trim();
+  const neutron = /neutron/i.test(probe ?? "") || /neutron/i.test(type ?? "");
+  return { kind: neutron ? "neutron" : "xray", wavelength: wl, ...(type ? { name: type.replace(/\\a/g, "α") } : {}) };
+}
+
+/** True when the reflection loop carries calculated values: a refinement's listing, not data reduction's output. */
+export function isRefinementListing(text: string): boolean {
+  return isCifReflectionLoop(text) && /^\s*_refln[_.]F_(squared_)?calc\b/im.test(text);
+}
+
 function fixedField(line: string, start: number, width: number): number | null {
   const raw = line.slice(start, start + width).trim();
   if (raw === "") return 0; // a blank fixed field is a real zero (esp. batch)

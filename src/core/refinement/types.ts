@@ -42,6 +42,16 @@ export type ParameterKind =
   | "surfaceRoughA"
   | "surfaceRoughB"
   | "extinction"
+  // A single-crystal batch's scale relative to the first batch's (SHELX's batch
+  // scale factors): one row per later batch, targetKey the batch number.
+  | "batchScale"
+  // A single-crystal twin domain's fraction (SHELXL's BASF), targetKey the law's
+  // number (1, 2, …); the first domain takes 1 − Σ of them. For the inversion
+  // twin it is the Flack parameter.
+  | "twinFraction"
+  // A rotating riding group's torsion about its axis (SHELXL's AFIX 137 and
+  // 147), degrees, targetKey the parent atom's label.
+  | "ridingTorsion"
   | "stephensStrain"
   | "anisoSizePerp"
   | "anisoSizePar"
@@ -238,6 +248,14 @@ export interface RefinementCorrelation {
   readonly parameterIdA: string;
   readonly parameterIdB: string;
   readonly coefficient: number;
+  /**
+   * The pair's correlation with every other free parameter held fixed: from
+   * the normal matrix, −N_ab/√(N_aa·N_bb). Near ±1 when the two trade off
+   * against each other; well below |coefficient| when their covariance is
+   * carried by a third free parameter they both trade with (two ADPs that both
+   * trade with the scale move together, though the data tell them apart).
+   */
+  readonly conditional?: number;
 }
 
 /**

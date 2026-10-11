@@ -103,7 +103,7 @@ function sc(over: Partial<ScValidation> = {}): ScValidation {
     completeness: 0.994,
     reflectionsPerParameter: 24.3,
     centrosymmetric: true,
-    extinction: { suspected: false, strongBinK: 1, strongBinGoof: 0.95, strongUnder: 0, outliers: 2 },
+    extinction: { suspected: false, strongBinK: 1, strongBinGoof: 0.95, otherBinsK: 1, strongUnder: 0, outliers: 2 },
     goofWithoutStrongest: 1,
     ...over,
   };
@@ -122,7 +122,7 @@ describe("singleCrystalChecks", () => {
   it("extinction: flagged, and the GooF is attributed to the strong reflections", () => {
     const v = singleCrystalChecks({
       validation: sc({
-        extinction: { suspected: true, strongBinK: 0.917, strongBinGoof: 2.45, strongUnder: 8, outliers: 8 },
+        extinction: { suspected: true, strongBinK: 0.917, strongBinGoof: 2.45, otherBinsK: 1.01, strongUnder: 8, outliers: 8 },
         bins: [{ fcRatioMax: 0.1, n: 100, k: 1, goof: 1 }, { fcRatioMax: 0.5, n: 100, k: 1, goof: 1.02 }, { fcRatioMax: 0.8, n: 100, k: 0.99, goof: 0.98 }, { fcRatioMax: 1, n: 100, k: 0.917, goof: 2.45 }],
         goofWithoutStrongest: 1.01,
       }),

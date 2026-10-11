@@ -56,6 +56,13 @@ export function correlationsCheck(r: RefinementResult, parameters: readonly Refi
   if (check.correlated.length > 0) {
     return { name: "Correlations", status: "warn", detail: `Correlated at |ρ| ≥ ${CORRELATION_LIMIT}: ${check.correlated.slice(0, 4).map((p) => `${name(p.a)} ↔ ${name(p.b)} ${p.coefficient.toFixed(3)}`).join("; ")}.` };
   }
+  if (check.carried.length > 0) {
+    return {
+      name: "Correlations",
+      status: "note",
+      detail: `Correlated at |ρ| ≥ ${CORRELATION_LIMIT}, refined together: ${check.carried.slice(0, 4).map((p) => `${name(p.a)} ↔ ${name(p.b)} ${p.coefficient.toFixed(3)} (${p.intensityTerms ? "overall intensity terms" : `${p.conditional!.toFixed(2)} with the rest fixed`})`).join("; ")}.`,
+    };
+  }
   const s = check.strongest;
   if (!s) return { name: "Correlations", status: "pass", detail: `No pair of free parameters correlates at |ρ| ≥ ${listed}.` };
   return {

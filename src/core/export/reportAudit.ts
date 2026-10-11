@@ -8,8 +8,12 @@
  * A narrative number matches an engine value when the value rounds to it at
  * the narrative's precision ("9.9" matches 9.93), as a fraction or a
  * percentage (0.2214 matches "22.14"), and whatever its sign (a difference
- * may be written either way round). Integers are not audited: counts,
- * temperatures and hkl indices would only add noise.
+ * may be written either way round). A narrative number more precise than the
+ * report's matches when it rounds to the report's value ("2.9992" matches a
+ * printed 2.999: the tools gave the Agent more digits than the report shows),
+ * provided the report's value has a decimal and two significant digits, so a
+ * printed "1" or "0.9" vouches for nothing finer. Integers are not audited:
+ * counts, temperatures and hkl indices would only add noise.
  */
 
 /** A decimal number standing alone: not part of a word, a version string or a longer number. */
@@ -39,6 +43,27 @@ function engineValues(engineText: string): number[] {
   return out.sort((a, b) => a - b);
 }
 
+/** The engine's printed decimals precise enough to vouch for a finer number: a decimal and two significant digits. */
+function printedValues(engineText: string): Token[] {
+  const out: Token[] = [];
+  for (const m of engineText.matchAll(NUMBER_TOKEN)) {
+    const decimals = m[0].split(".")[1]!.length;
+    const significant = m[0].replace(".", "").replace(/^0+/, "").length;
+    if (significant < 2) continue;
+    const value = Number(m[0]);
+    // As printed, and as a percentage or a fraction of it (0.2214 ↔ 22.14).
+    out.push({ text: m[0], value, decimals });
+    if (decimals > 2) out.push({ text: m[0], value: value * 100, decimals: decimals - 2 });
+    out.push({ text: m[0], value: value / 100, decimals: decimals + 2 });
+  }
+  return out;
+}
+
+/** Whether `t`, more precise than a printed value, rounds to it at the printed precision. */
+function roundsToPrinted(t: Token, printed: readonly Token[]): boolean {
+  return printed.some((e) => e.decimals < t.decimals && Math.abs(t.value - e.value) <= 0.5 * 10 ** -e.decimals + 1e-9 * Math.max(1, t.value));
+}
+
 /** Whether a value in `sorted` rounds to `t` at its precision. */
 function matches(t: Token, sorted: readonly number[]): boolean {
   const half = 0.5 * 10 ** -t.decimals + 1e-9 * Math.max(1, t.value);
@@ -60,12 +85,15 @@ function matches(t: Token, sorted: readonly number[]): boolean {
  */
 export function unverifiedNumbers(narrative: string, engineText: string): string[] {
   const values = engineValues(engineText);
+  let printed: Token[] | null = null;
   const seen = new Set<string>();
   const out: string[] = [];
   for (const t of tokens(narrative)) {
     if (seen.has(t.text)) continue;
     seen.add(t.text);
-    if (!matches(t, values)) out.push(t.text);
+    if (matches(t, values)) continue;
+    printed ??= printedValues(engineText);
+    if (!roundsToPrinted(t, printed)) out.push(t.text);
   }
   return out;
 }

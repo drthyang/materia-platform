@@ -9,22 +9,30 @@
  */
 
 import type { StructureModel } from "@/core/crystal/types";
+import { isHydrogen } from "@/core/crystal/adp";
+import { ridingSummary } from "@/core/crystal/riding";
+import { restraintCount, restraintReport } from "@/core/crystal/restraints";
+import { covalentBonds, isMolecular } from "@/core/crystal/geometry";
+import { bondEsds, bondKeys } from "@/core/workflow/bondEsds";
+import { withEsd } from "@/agent/structureTable";
 import type { MagneticModel } from "@/core/magnetic/types";
 import type { Vec3 } from "@/core/math/types";
 import { extractSizeStrain } from "@/core/diffraction/microstructure";
 import { formatWt, fractionsOf } from "@/core/diagnostics/phaseFractions";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import type { MergeStatistics } from "@/core/diffraction/merge";
-import type { PdfPattern, Radiation, SingleCrystalDataset } from "@/core/diffraction/types";
+import { isInversion, type OmittedMeasurement, type PdfPattern, type Radiation, type SingleCrystalDataset, type TwinLaw } from "@/core/diffraction/types";
+import { dispersionLine } from "@/core/scattering/dispersion";
+import { EXTINCTION_MODEL_LABELS } from "@/core/diffraction/singleCrystalFactors";
 import { isMomentParameterKind, type ParameterBinding, type RefinementParameter, type RefinementResult } from "@/core/refinement/types";
-import { resolveTies } from "@/core/refinement/constraints";
+import { parseTie, resolveTies } from "@/core/refinement/constraints";
 import type { PowderProfile } from "@/core/workflow/powder";
 import { formatMagneticSymbol, identifyMagneticGroupAnySetting } from "@/core/magnetic/bnsOg";
 import { magneticOperationSignature } from "@/core/magnetic/operationSignature";
 import { latticeCandidateLabel, latticeRepresentatives, magneticSubgroupLattice } from "@/core/magnetic/subgroupLattice";
 import { crystalComponentsToCartesian } from "@/core/magnetic/moment";
 import { kLabel } from "@/core/magnetic/kSearch";
-import type { ReportBoxcar, ReportGroup, ReportInput, ReportMagnetic, ReportPhase, ReportRow, ReportStat } from "@/core/export/report";
+import type { ReportBond, ReportBoxcar, ReportGroup, ReportInput, ReportMagnetic, ReportPhase, ReportRow, ReportStat } from "@/core/export/report";
 import type { FigureCurves, FigureTickRow, FobsFcalcPoint } from "@/core/export/reportFigures";
 import type { Session } from "@/app/powderSession";
 import { APP_VERSION } from "@/app/constants";
@@ -57,8 +65,20 @@ function withEsds(params: readonly RefinementParameter[], result: RefinementResu
     for (const p of params) values[p.id] = p.value;
     try { resolved = resolveTies(params, values); } catch { resolved = null; }
   }
+  // A row tied linearly to a free one ("= f·leader + c") carries |f| times the leader's esd.
+  const esdOf = (p: RefinementParameter): number | undefined => {
+    const own = result?.esd[p.id];
+    if (own !== undefined || !p.expression) return own;
+    try {
+      const tie = parseTie(p.expression);
+      const lead = tie.kind === "linear" ? result?.esd[tie.refId] : undefined;
+      return tie.kind === "linear" && lead !== undefined ? Math.abs(tie.factor) * lead : undefined;
+    } catch {
+      return undefined;
+    }
+  };
   return params.map((p) => {
-    const e = result?.esd[p.id];
+    const e = esdOf(p);
     const value = p.expression && resolved ? resolved[p.id] ?? p.value : p.value;
     return { ...p, value, ...(e !== undefined && Number.isFinite(e) ? { esd: e } : {}) };
   });
@@ -370,9 +390,72 @@ export function powderReportInput(o: {
 // ---------------------------------------------------------------------------
 // Single crystal (F²)
 
+/**
+ * A molecular structure's covalent bonds for the report, each length with its
+ * esd from the refined positions' (as bond_geometry gives them), a riding
+ * hydrogen's bond marked as set by its constraint. `base` is the structure the
+ * parameters apply to; without it, or without a refinement, no esds.
+ */
+function moleculeBonds(refined: StructureModel, base: StructureModel | undefined, params: readonly RefinementParameter[], bindings: readonly ParameterBinding[], result: RefinementResult | null): ReportBond[] {
+  const bonds = covalentBonds(refined);
+  const keys = bondKeys(bonds);
+  const esds = base && result ? bondEsds(base, bindings, params, result.esd, covalentBonds) : null;
+  const pair = (a: string, b: string): string => [a, b].sort().join("–");
+  const riding = new Set((refined.riding ?? []).filter((r) => r.geometry !== "free").map((r) => pair(r.site, r.parent)));
+  return bonds.map((b, i) => ({
+    from: b.from,
+    to: b.to,
+    length: riding.has(pair(b.from, b.to)) ? `${b.distance.toFixed(4)} (riding)` : withEsd(b.distance, esds?.get(keys[i]!), 5),
+  }));
+}
+
+/** The twin laws and their fractions with esds: an inversion twin's is the Flack x. */
+function twinRow(laws: readonly TwinLaw[], params: readonly RefinementParameter[], bindings: readonly ParameterBinding[]): string {
+  return laws.map((law, i) => {
+    const p = params.find((q) => q.kind === "twinFraction" && bindings.some((b) => b.parameterId === q.id && b.targetKey === String(i + 1)));
+    const value = p ? (p.esd !== undefined && !p.fixed ? withEsd(p.value, p.esd, 4) : p.value.toFixed(3)) : "?";
+    return isInversion(law) ? `inversion twin: Flack x = ${value}` : `twin law h′ = R·h, R = ${JSON.stringify(law.matrix)}: fraction ${value}`;
+  }).join("; ");
+}
+
+/** Each disorder assembly: its alternatives' occupancies, and how they were tied. */
+function disorderRow(structure: StructureModel, params: readonly RefinementParameter[]): ReportRow[] {
+  const sites = structure.sites.filter((site) => site.disorder);
+  if (sites.length === 0) return [];
+  const assemblies = [...new Set(sites.map((site) => site.disorder!.assembly))];
+  const value = assemblies.map((a) => {
+    const members = sites.filter((site) => site.disorder!.assembly === a);
+    const parts = members.map((site) => {
+      const row = params.find((p) => p.id === `occ_${site.label}`);
+      return `${site.label} (part ${site.disorder!.group}) ${withEsd(site.occupancy, row?.esd, 4)}`;
+    });
+    const tied = members.some((site) => params.find((p) => p.id === `occ_${site.label}`)?.expression);
+    return `${a ? `assembly ${a}: ` : ""}${parts.join(", ")}${tied ? ", the occupancies tied to add up to one" : ""}`;
+  }).join("; ");
+  return [{ label: "Disorder", value }];
+}
+
+/** How the hydrogens were treated: riding (SHELXL's AFIX, with their distances), refined, or held at the input positions. */
+function hydrogenRow(structure: StructureModel, params: readonly RefinementParameter[], bindings: readonly ParameterBinding[]): ReportRow[] {
+  const hydrogens = structure.sites.filter((site) => isHydrogen(site));
+  if (hydrogens.length === 0) return [];
+  const riding = new Set((structure.riding ?? []).map((r) => r.site));
+  const own = hydrogens.filter((h) => !riding.has(h.label));
+  const free = new Set(params.filter((p) => !p.fixed && !p.expression).map((p) => p.id));
+  const refined = own.filter((h) => bindings.some((b) => b.targetKey === h.label && free.has(b.parameterId)));
+  const parts = [
+    ...(riding.size > 0 ? [`${riding.size} riding on ${riding.size === 1 ? "its parent" : "their parents"} (${ridingSummary(structure)})`] : []),
+    ...(refined.length > 0 ? [`${refined.length} refined on ${refined.length === 1 ? "its" : "their"} own (${refined.map((h) => h.label).join(", ")})`] : []),
+    ...(own.length > refined.length ? [`${own.length - refined.length} held at the input positions and U_iso`] : []),
+  ];
+  return [{ label: "Hydrogens", value: parts.join("; ") }];
+}
+
 export function singleCrystalReportInput(o: {
   /** The structure AS REFINED (parameters applied). */
   readonly structure: StructureModel;
+  /** The structure the parameters apply to, for the bond lengths' esds. */
+  readonly base?: StructureModel;
   readonly params: readonly RefinementParameter[];
   readonly bindings: readonly ParameterBinding[];
   readonly result: RefinementResult | null;
@@ -382,6 +465,12 @@ export function singleCrystalReportInput(o: {
   readonly excluded: number;
   readonly filterOn: boolean;
   readonly cutoffSigma: number;
+  /** The filter's extinction cut (null: none). */
+  readonly minExtinction?: number | null;
+  /** Measurements left out by hand, each with its reason. */
+  readonly omitted?: readonly OmittedMeasurement[];
+  /** The resolution range fitted, and how many measurements lie outside it. */
+  readonly resolution?: { readonly dMin?: number; readonly dMax?: number; readonly excluded: number };
   readonly agreement: { readonly r1: number; readonly wr2: number; readonly goof: number; readonly observed: number; readonly total: number };
   readonly merge: MergeStatistics;
   readonly points: readonly FobsFcalcPoint[];
@@ -392,6 +481,12 @@ export function singleCrystalReportInput(o: {
   const free = params.filter((p) => !p.fixed && !p.expression).length;
   const ag = o.agreement;
   const st = o.merge;
+  const omitted = o.omitted ?? [];
+  const outside = o.resolution?.excluded ?? 0;
+  const omittedN = o.totalReflections - o.dataset.reflections.length - o.excluded - outside;
+  const range = o.resolution && (o.resolution.dMin !== undefined || o.resolution.dMax !== undefined)
+    ? `d ${o.resolution.dMax !== undefined ? `≤ ${o.resolution.dMax}` : ""}${o.resolution.dMax !== undefined && o.resolution.dMin !== undefined ? " and " : ""}${o.resolution.dMin !== undefined ? `≥ ${o.resolution.dMin}` : ""} Å`
+    : null;
   const magnetic = magneticReportSection({
     structure: o.structure,
     applied: o.magnetic,
@@ -400,22 +495,32 @@ export function singleCrystalReportInput(o: {
     explored: o.explored,
     against: "the F² reflection data",
   });
+  const scheme = o.dataset.weighting && (o.dataset.weighting.a > 0 || o.dataset.weighting.b > 0) ? o.dataset.weighting : null;
+  const weightText = scheme ? `w = 1/[σ²(F_o²) + (${scheme.a}P)² + ${scheme.b}P], P = (F_o² + 2F_c²)/3` : "w = 1/σ²(F_o²)";
   const stats: ReportStat[] = [
     { label: "R1", value: pct(ag.r1), hint: `Σ||F_o| − |F_c|| / Σ|F_o| over the ${ag.observed} reflections with F_o² > 2σ` },
-    { label: "wR2", value: pct(ag.wr2), hint: "√(Σ w (F_o² − F_c²)² / Σ w (F_o²)²), w = 1/σ²(F_o²), all reflections" },
+    { label: "wR2", value: pct(ag.wr2), hint: `√(Σ w (F_o² − F_c²)² / Σ w (F_o²)²), ${weightText}, all reflections` },
     { label: "GooF", value: num(ag.goof, 2), hint: "√(Σ w (F_o² − F_c²)² / (N − P))" },
-    { label: "Reflections", value: String(o.dataset.reflections.length), hint: o.excluded > 0 ? `${o.excluded} excluded by the σ filter` : "All measured reflections" },
+    { label: "Reflections", value: String(o.dataset.reflections.length), hint: o.excluded > 0 || omittedN > 0 ? [omittedN > 0 ? `${omittedN} omitted by hand` : "", o.excluded > 0 ? `${o.excluded} excluded by the filter` : ""].filter(Boolean).join(", ") : "All measured reflections" },
     { label: "Unique", value: String(st.unique), hint: `Laue-equivalent merge · redundancy ${num(st.redundancy, 2)}` },
-    { label: "R int", value: pct(st.rInt) },
+    { label: "R int", value: st.redundancy > 1 + 1e-9 ? pct(st.rInt) : "—", ...(st.redundancy > 1 + 1e-9 ? {} : { hint: "merged data: one value per reflection" }) },
     { label: "Free parameters", value: String(free) },
   ];
   const data: ReportRow[] = [
     { label: "Data file", value: o.dataset.name },
     { label: "Probe", value: probeLabel(o.dataset.radiation) },
-    { label: "Reflections", value: `${o.totalReflections} measured · ${o.dataset.reflections.length} used${o.excluded > 0 ? ` · ${o.excluded} rejected with |F_o² − F_c²|/σ > ${o.cutoffSigma}` : o.filterOn ? ` · σ filter at ${o.cutoffSigma} rejected none` : ""}` },
-    { label: "Merging", value: `${st.observations} observations → ${st.unique} unique · redundancy ${num(st.redundancy, 2)} · R_int ${pct(st.rInt)} · R_σ ${pct(st.rSigma)}${st.dMin !== undefined ? ` · d_min ${num(st.dMin, 3)} Å` : ""}` },
+    { label: "Reflections", value: `${o.totalReflections} measured · ${o.dataset.reflections.length} used${omittedN > 0 ? ` · ${omittedN} omitted by hand` : ""}${outside > 0 && range ? ` · ${outside} outside ${range}` : ""}${o.excluded > 0 ? ` · ${o.excluded} rejected with |F_o² − F_c²|/σ > ${o.cutoffSigma}${o.minExtinction ? ` or y < ${o.minExtinction}` : ""}` : o.filterOn ? ` · the filter (|F_o² − F_c²|/σ > ${o.cutoffSigma}${o.minExtinction ? ` or y < ${o.minExtinction}` : ""}) rejected none` : ""}` },
+    ...(omitted.length > 0 ? [{ label: "Omitted", value: omitted.map((m) => `${m.h} ${m.k} ${m.l}${m.batch !== undefined ? ` (batch ${m.batch})` : ""}${m.reason ? `: ${m.reason}` : ""}`).join("; ") }] : []),
+    { label: "Extinction", value: EXTINCTION_MODEL_LABELS[o.dataset.extinctionModel ?? "shelx"] },
+    ...(o.dataset.radiation.kind === "xray" ? [{ label: "Anomalous scattering", value: dispersionLine(o.dataset.radiation.wavelength) ? `f′ and f″ at ${dispersionLine(o.dataset.radiation.wavelength)!.name} (Cromer & Liberman, 1981)` : `none: no tabulated line at λ ${o.dataset.radiation.wavelength} Å` }] : []),
+    ...(o.dataset.twinLaws?.length ? [{ label: "Twinning", value: twinRow(o.dataset.twinLaws, params, o.bindings) }] : []),
+    ...hydrogenRow(o.structure, params, o.bindings),
+    ...disorderRow(o.structure, params),
+    ...(o.structure.restraints?.length ? [{ label: "Restraints", value: `${restraintCount(o.structure.restraints)} (as SHELXL counts them): ${restraintReport(o.structure, o.structure.restraints).map((r) => r.text).join("; ")}` }] : []),
+    { label: "Merging", value: `${st.observations} observations → ${st.unique} unique · redundancy ${num(st.redundancy, 2)} · ${st.redundancy > 1 + 1e-9 ? `R_int ${pct(st.rInt)}` : "R_int n/a (merged data)"} · R_σ ${pct(st.rSigma)}${st.dMin !== undefined ? ` · d_min ${num(st.dMin, 3)} Å` : ""}` },
+    ...(o.dataset.origin === "refinement-listing" ? [{ label: "Source", value: "a refinement's listing (.fcf): Fo² on that refinement's scale, merged, the systematic absences left out, and in SHELXL's LIST 4 its extinction divided out" }] : []),
     { label: "Observed", value: `${ag.observed} of ${ag.total} reflections with F_o² > 2σ(F_o²)` },
-    { label: "Weights", value: "w = 1/σ²(F_o²); unit weights where σ is absent" },
+    { label: "Weights", value: scheme ? `${weightText} (SHELXL WGHT ${scheme.a} ${scheme.b})` : "w = 1/σ²(F_o²); unit weights where σ is absent" },
     { label: "Unit cell", value: "fixed at the input values (not refinable from a single reflection file)" },
   ];
   const summary =
@@ -423,7 +528,7 @@ export function singleCrystalReportInput(o: {
     `R1 = ${pct(ag.r1)}, wR2 = ${pct(ag.wr2)}, GooF = ${num(ag.goof, 2)} with ${free} free parameter${free === 1 ? "" : "s"} over ${o.dataset.reflections.length} reflections (${st.unique} unique). ` +
     magnetic.summary;
   const notes = [
-    "R1 = Σ||F_o| − |F_c|| / Σ|F_o| over reflections with F_o² > 2σ(F_o²); wR2 = √(Σ w (F_o² − F_c²)² / Σ w (F_o²)²) and GooF = √(Σ w (F_o² − F_c²)² / (N − P)) over all reflections, w = 1/σ²(F_o²) (SHELX conventions).",
+    `R1 = Σ||F_o| − |F_c|| / Σ|F_o| over reflections with F_o² > 2σ(F_o²); wR2 = √(Σ w (F_o² − F_c²)² / Σ w (F_o²)²) and GooF = √(Σ w (F_o² − F_c²)² / (N − P)) over all reflections, ${weightText} (SHELX conventions).`,
     "R_int = Σ|F_o² − ⟨F_o²⟩| / Σ F_o² over Laue-equivalent groups with two or more members; R_σ = Σ σ(F_o²) / Σ F_o².",
     ...(magnetic.section
       ? ["Magnetic reflections are computed from the moment component perpendicular to the scattering vector with the dipole ⟨j0⟩ form factor; with a magnetic model applied, the calculated intensity is nuclear + magnetic and one scale is shared."]
@@ -437,7 +542,7 @@ export function singleCrystalReportInput(o: {
     appVersion: APP_VERSION,
     stats,
     data,
-    phases: [{ structure: o.structure, params, bindings: o.bindings }],
+    phases: [{ structure: o.structure, params, bindings: o.bindings, ...(isMolecular(o.structure) ? { bonds: moleculeBonds(o.structure, o.base, o.params, o.bindings, o.result) } : {}) }],
     magnetic: magnetic.section,
     figure: { kind: "fobsFcalc", points: o.points, caption: "|F_obs| against |F_calc| for every reflection used; the dashed line is perfect agreement. Magnetic reflections (those whose calculated intensity is mostly magnetic) are coloured." },
     parameters: params,

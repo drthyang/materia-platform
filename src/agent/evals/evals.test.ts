@@ -16,6 +16,7 @@ import { impurityD, mn3gaImpuritySession, mn3gaMisfitSession, powderPage } from 
 
 const RIETVELD = { name: "read_skill", input: { name: "my-rietveld-workflow" } };
 const PDF = { name: "read_skill", input: { name: "pdf-workflow" } };
+const SC = { name: "read_skill", input: { name: "sc-workflow" } };
 
 interface Replay {
   readonly good: readonly ScriptTurn[];
@@ -31,7 +32,7 @@ const REPLAYS: Readonly<Record<string, Replay>> = {
       { text: "Stage 1: scale, background and cell.", calls: [{ name: "refine" }] },
       { text: "Positions next.", calls: [{ name: "set_free", input: { free: ["pos_Mn1_0"] } }, { name: "refine" }] },
       { text: "Now the profile.", calls: [{ name: "set_free", input: { free: ["width"] } }, { name: "refine" }] },
-      { text: "Then the ADPs.", calls: [{ name: "set_free", input: { free: ["B_Mn1", "B_Ga1"] } }, { name: "refine" }] },
+      { text: "Then the ADPs, with the peak width fixed.", calls: [{ name: "set_free", input: { free: ["B_Mn1", "B_Ga1"], fix: ["width"] } }, { name: "refine" }] },
       { text: "Done: scale, background, cell, the Mn position, the peak width and both B_iso refined; the fit improved at every stage." },
     ],
     bad: [
@@ -103,8 +104,8 @@ const REPLAYS: Readonly<Record<string, Replay>> = {
   "free-everything": {
     good: [
       { calls: [RIETVELD, { name: "set_free", input: { free: ["*"] } }, { name: "refine" }] },
-      { text: "The occupancies cannot refine bare; I hold them.", calls: [{ name: "set_free", input: { fix: ["occ_*"] } }, { name: "refine" }] },
-      { text: "Everything but the occupancies refined; they stay fixed until you choose a tie." },
+      { text: "The occupancies cannot refine bare, and the B values never refine with the peak width; I hold both.", calls: [{ name: "set_free", input: { fix: ["occ_*", "B_*"] } }, { name: "refine" }] },
+      { text: "Everything but the occupancies and the B values refined. The B values come next, with the width fixed; the occupancies stay fixed until you choose a tie." },
     ],
     bad: [
       { calls: [RIETVELD, { name: "set_free", input: { free: ["*"] } }, { name: "refine" }] },
@@ -112,6 +113,35 @@ const REPLAYS: Readonly<Record<string, Replay>> = {
       { text: "The refinement keeps being refused." },
     ],
     catches: ["changes the free set after a refused refinement (≤ 3 refusals)"],
+  },
+  "instrument-thermal-apart": {
+    good: [
+      { text: "Your method first.", calls: [RIETVELD, { name: "get_state" }] },
+      { text: "The peak width first, with the B values fixed.", calls: [{ name: "set_free", input: { free: ["width"] } }, { name: "refine" }] },
+      { text: "Now the B values, with the width fixed.", calls: [{ name: "set_free", input: { free: ["B_Mn1", "B_Ga1"], fix: ["width"] } }, { name: "refine" }] },
+      { text: "The width again, with the B values fixed.", calls: [{ name: "set_free", input: { free: ["width"], fix: ["B_Mn1", "B_Ga1"] } }, { name: "refine" }] },
+      { text: "The peak width and the B values were refined in turn, never together, as your method asks." },
+    ],
+    bad: [
+      { calls: [RIETVELD, { name: "set_free", input: { free: ["width", "B_Mn1", "B_Ga1"] } }, { name: "refine" }] },
+      { calls: [{ name: "allow_exception", input: { rule: "instrument-with-thermal", reason: "the user asked for both" } }] },
+      { text: "The width and the B values can only be refined together once you allow it." },
+    ],
+    catches: ["keeps the instrument's terms apart from the thermal parameters", "alternates the instrument's terms and the thermal parameters", "does not ask to lift a firm rule unprompted"],
+  },
+  "fit-range-edges": {
+    good: [
+      { text: "Your method first.", calls: [RIETVELD, { name: "get_state" }] },
+      { text: "Its first stage: the data's ends.", calls: [{ name: "check_fit_range" }] },
+      { text: "The scan holds only background below the first reflection, and its last points step up and stay — a detector's edge. I set the window inside both.", calls: [{ name: "set_fit_range", input: { min: 16.968, max: 108.12 } }] },
+      { text: "Now scale, background and cell.", calls: [{ name: "refine" }] },
+      { text: "The window leaves out the background below the first reflection and the stepped edge; the first refinement converged inside it." },
+    ],
+    bad: [
+      { calls: [RIETVELD, { name: "refine" }] },
+      { text: "Refined over the whole scan." },
+    ],
+    catches: ["calls check_fit_range", "reads the data's ends and sets the window before refining", "sets the fit window from 12–18.9 to 105.3–108.3 (the data's ends left out)"],
   },
   "fit-window-in-d": {
     good: [
@@ -189,6 +219,134 @@ const REPLAYS: Readonly<Record<string, Replay>> = {
     ],
     catches: ["calls boxcar_scan", "scans the bond lengths its question is about", "puts the scan in the report"],
   },
+  "sc-data-first": {
+    good: [
+      { text: "The method, then the data.", calls: [SC, { name: "get_state" }, { name: "reflection_statistics" }] },
+      { text: "Scale and extinction first.", calls: [{ name: "refine" }] },
+      { text: "Now the positions.", calls: [{ name: "set_free", input: { free: ["pos_*"] } }, { name: "refine" }] },
+      { text: "And the isotropic ADPs.", calls: [{ name: "set_free", input: { free: ["B_*"] } }, { name: "refine" }] },
+      { text: "Refined: the extinction first, then the positions and B values." },
+    ],
+    bad: [
+      { calls: [SC, { name: "set_free", input: { free: ["pos_*", "B_*"], fix: ["extinction"] } }, { name: "refine" }] },
+      { text: "Refined the structure." },
+    ],
+    catches: ["reads the data (reflection_statistics) before the first refinement", "refines the extinction before the positions and ADPs"],
+  },
+  "sc-failed-reflection": {
+    good: [
+      { text: "The method first, and a refinement to see the misfits.", calls: [SC, { name: "refine" }, { name: "assess_refinement" }] },
+      { text: "1 0 4 against its equivalents.", calls: [{ name: "reflection_equivalents", input: { h: 1, k: 0, l: 4 } }] },
+      { text: "That one measurement failed; the others agree with Fc². I omit it alone.", calls: [{ name: "omit_reflections", input: { omit: [{ h: 1, k: 0, l: 4 }], reason: "its two equivalents agree with Fc²; it reads 3 %" } }, { name: "refine" }] },
+      { text: "Left out: the one failed measurement of 1 0 4; its equivalents agree with the model." },
+    ],
+    bad: [
+      { calls: [SC, { name: "set_outlier_filter", input: { on: true, cutoffSigma: 3 } }, { name: "refine" }] },
+      { text: "Reflections beyond 3σ are left out." },
+    ],
+    catches: ["compares the equivalents first, then leaves out only the failed measurement"],
+  },
+  "sc-failed-measurements": {
+    good: [
+      { text: "The method, then the structure, and the misfits with their equivalents.", calls: [SC, { name: "set_free", input: { free: ["pos_*", "B_*"] } }, { name: "refine" }, { name: "assess_refinement" }] },
+      { text: "1 0 4 failed: its equivalents fit. I omit it and look again.", calls: [{ name: "omit_reflections", input: { omit: [{ h: 1, k: 0, l: 4 }], reason: "its two equivalents agree with Fc²; it reads 3 %" } }, { name: "refine" }, { name: "assess_refinement" }] },
+      { text: "Now 3 0 12 stands out, and its equivalents fit: it failed too.", calls: [{ name: "omit_reflections", input: { omit: [{ h: 3, k: 0, l: 12 }], reason: "half the intensity of its two equivalents, which agree with Fc²" } }, { name: "refine" }, { name: "assess_refinement" }] },
+      { text: "Two measurements failed, 1 0 4 and 3 0 12, each against equivalents that agree with the model; nothing else is left out." },
+    ],
+    bad: [
+      { calls: [SC, { name: "set_free", input: { free: ["pos_*", "B_*"] } }, { name: "refine" }, { name: "reflection_equivalents", input: { h: 1, k: 0, l: 4 } }] },
+      { text: "1 0 4 failed. A cutoff just above the next worst takes only it.", calls: [{ name: "set_outlier_filter", input: { on: true, cutoffSigma: 100 } }, { name: "refine" }] },
+      { text: "Left out: the one failed measurement, 1 0 4." },
+    ],
+    catches: ["compares the equivalents first, then leaves out only the failed measurements"],
+  },
+  "sc-extinction-model": {
+    good: [
+      { text: "The method, then the structure under SHELXL's EXTI.", calls: [SC, { name: "set_free", input: { free: ["pos_*", "B_*"] } }, { name: "refine" }, { name: "assess_refinement" }] },
+      { text: "The strongest reflections still misfit: Becker–Coppens type I, refined the same way.", calls: [{ name: "set_extinction_model", input: { model: "bc-1-lorentzian" } }, { name: "refine" }, { name: "assess_refinement" }] },
+      { text: "It fits better. The B values against the high-order reflections alone, which extinction barely reaches.", calls: [{ name: "structure_table" }, { name: "set_resolution_range", input: { dMax: 0.6 } }, { name: "refine" }, { name: "structure_table" }] },
+      { text: "They agree. The full range back.", calls: [{ name: "set_resolution_range", input: { dMax: null } }, { name: "refine" }] },
+      { text: "Becker–Coppens type I fits the strongest reflections to their noise where EXTI did not, and its B values agree with the high-order ones: I keep it." },
+    ],
+    bad: [
+      { calls: [SC, { name: "set_free", input: { free: ["pos_*", "B_*"] } }, { name: "refine" }, { name: "assess_refinement" }] },
+      { text: "SHELXL's EXTI is the standard model; what remains on the strongest reflections is what any extinction model leaves." },
+    ],
+    catches: ["refines under another extinction model and keeps the one that fits better", "refines the high-order reflections alone, then the full range"],
+  },
+  "sc-extinction-test": {
+    good: [
+      { text: "The method, then scale, extinction and positions.", calls: [SC, { name: "set_free", input: { free: ["pos_*"] } }, { name: "refine" }] },
+      { text: "The test: the reflections with y < 0.5 left out.", calls: [{ name: "set_outlier_filter", input: { on: true, cutoffSigma: 1000, minExtinction: 0.5 } }, { name: "refine" }, { name: "structure_table" }] },
+      { text: "Back to all the data.", calls: [{ name: "set_outlier_filter", input: { minExtinction: null } }, { name: "refine" }, { name: "structure_table" }] },
+      { text: "The positions agree within their esds with and without the extinguished reflections; the values quoted are from all the data." },
+    ],
+    bad: [
+      { calls: [SC, { name: "set_free", input: { free: ["pos_*"] } }, { name: "refine" }] },
+      { text: "The positions should not depend much on them: extinction mostly affects the strongest reflections." },
+    ],
+    catches: ["tests the extinguished reflections' weight, then restores all the data"],
+  },
+  "sc-radiation-first": {
+    good: [
+      { text: "The method first; then the probe: these are Mo Kα X-rays, not the neutrons a SHELX file loads as.", calls: [SC, { name: "set_radiation", input: { probe: "xray", wavelength: 0.71073 } }, { name: "refine" }] },
+      { text: "Refined against X-ray form factors at λ 0.71073 Å." },
+    ],
+    bad: [
+      { calls: [SC, { name: "refine" }] },
+      { text: "Refined the scale." },
+    ],
+    catches: ["sets the radiation the user gave before the first refinement"],
+  },
+  "sc-riding-hydrogens": {
+    good: [
+      { text: "X-ray data cannot place the hydrogens: they ride, as SHELXL's AFIX 43, at 0.95 Å.", calls: [SC, { name: "set_riding_hydrogens", input: { on: true, distance: 0.95 } }, { name: "set_free", input: { free: ["pos_*", "B_*"] } }, { name: "refine" }] },
+      { text: "The heavy atoms anisotropic; the hydrogens stay riding.", calls: [{ name: "set_adp_model", input: { anisotropic: true } }, { name: "set_free", input: { free: ["U_*"] } }, { name: "refine" }] },
+      { text: "Heavy atoms anisotropic, the hydrogens riding on their parents with U_iso 1.2·U_eq (1.5 for the methyl)." },
+    ],
+    bad: [
+      { calls: [SC, { name: "set_free", input: { free: ["pos_*", "B_*"] } }, { name: "refine" }] },
+      { text: "Positions and B values refined, the hydrogens with the rest." },
+    ],
+    catches: ["rides the hydrogens (no hydrogen refined on its own against X-ray data)"],
+  },
+  "sc-listing-honesty": {
+    good: [
+      { text: "The data first.", calls: [SC, { name: "reflection_statistics" }] },
+      { text: "Then the scale.", calls: [{ name: "refine" }] },
+      { text: "These Fo² come from a refinement's listing (.fcf): each reflection once, on that refinement's scale, so their merging, the absences and the extinction cannot be judged from them, and R1 compares with that refinement's own." },
+    ],
+    bad: [
+      { calls: [SC, { name: "reflection_statistics" }, { name: "refine" }] },
+      { text: "The data are excellent: R_int is 0.0 % and the completeness is high." },
+    ],
+    catches: ["says the data are a refinement's listing and quotes no R_int from them"],
+  },
+  "sc-weighting-last": {
+    good: [
+      { text: "The hydrogens ride; positions and B values first.", calls: [SC, { name: "set_riding_hydrogens", input: { on: true, distance: 0.95 } }, { name: "set_free", input: { free: ["pos_*", "B_*"] } }, { name: "refine" }] },
+      { text: "The heavy atoms anisotropic.", calls: [{ name: "set_adp_model", input: { anisotropic: true } }, { name: "set_free", input: { free: ["U_*"] } }, { name: "refine" }, { name: "assess_refinement" }] },
+      { text: "The model is complete: SHELXL's suggested weights, and a last refinement.", calls: [{ name: "set_weighting", input: { use: "suggested" } }, { name: "refine" }] },
+      { text: "R1, wR2 and GooF are with SHELXL's weighting scheme, set last." },
+    ],
+    bad: [
+      { text: "SHELXL's usual weights first.", calls: [SC, { name: "set_weighting", input: { a: 0.1, b: 0 } }, { name: "set_riding_hydrogens", input: { on: true } }, { name: "set_free", input: { free: ["pos_*", "B_*"] } }, { name: "refine" }] },
+      { text: "Refined with the weights SHELXL uses." },
+    ],
+    catches: ["sets the weighting scheme last, once the model is complete, and refines with it"],
+  },
+  "sc-batch-scales": {
+    good: [
+      { text: "The method, then scale and extinction.", calls: [SC, { name: "refine" }, { name: "assess_refinement" }] },
+      { text: "K by batch scatters well beyond counting: a scale per batch.", calls: [{ name: "set_free", input: { free: ["bscale_*"] } }, { name: "refine" }, { name: "assess_refinement" }] },
+      { text: "With a scale per batch the GooF fell and K by batch is level: these data need them." },
+    ],
+    bad: [
+      { calls: [SC, { name: "refine" }, { name: "assess_refinement" }] },
+      { text: "One scale is enough: the data reduction scales the batches." },
+    ],
+    catches: ["refines a scale per batch"],
+  },
 };
 
 async function replay(id: string, turns: readonly ScriptTurn[]): Promise<EvalResult & { overrun: number }> {
@@ -241,4 +399,13 @@ describe("the eval pages", () => {
   it("reads a reply sentence by sentence, with its negations", () => {
     expect(sentences("No extra peaks. Two misfits:\n- 1 0 0\n- 1 1 0")).toEqual(["No extra peaks.", "Two misfits:", "- 1 0 0", "- 1 1 0"]);
   });
+
+  it("does not take a denial for a proposal: \"Neither is evidence for a lower group\"", async () => {
+    // A live run (2026-10-10) failed symmetry-last on that sentence: "neither" was not read as a negation.
+    const r = await replay("symmetry-last", [
+      { calls: [{ name: "get_state" }] },
+      { text: "The misfit and the weak line at 2.1 Å are what refinement fixes. Neither is evidence for a lower group; the positions and the ADPs come first." },
+    ]);
+    expect(r.grades.find((g) => g.check === "proposes no symmetry change before the review")?.pass, why(r)).toBe(true);
+  }, 60_000);
 });

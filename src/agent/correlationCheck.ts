@@ -21,6 +21,28 @@
  * So are two parameters in one restraint the user set (a shared site's Σ
  * occupancy, the composition): the restraint ties them, so they move together
  * by construction, and the data decide only what the restraint leaves free.
+ *
+ * A pair whose correlation a third free parameter carries is listed, not
+ * stopped: with every other free parameter held fixed the two correlate below
+ * CARRIED_BELOW (the engine's `conditional`), and their own correlation stays
+ * under CARRIED_MAX. That is how the scale, the extinction and the ADPs of a
+ * single-crystal fit correlate (each trades with the overall fall-off of the
+ * intensities, which every single-crystal program refines together): on
+ * synthetic corundum to d = 0.4 Å, scale ↔ B(O) reads 0.976 with 0.72
+ * conditional, and both B's come back within 0.002 Å² of the truth. Two
+ * parameters that trade off against each other (an occupancy and its site's
+ * B, the zero and the cell over a short scan) correlate as strongly with the
+ * rest held fixed, and still stop the refinement.
+ *
+ * So are the overall intensity terms of a single-crystal fit — the scale, the
+ * extinction and the batch scales — listed, not stopped, whatever their
+ * correlation: SHELXL refines OSF, EXTI and BASF together as a matter of
+ * course, and the extinction is told from the scale by how the misfit grows
+ * with intensity, which a pair's correlation does not see. On synthetic
+ * corundum with strong extinction, scale ↔ extinction reads 0.989 at the
+ * refined values while the extinction comes back to 3 % of its value (20.7(6)
+ * for 20); an extinction the data do not determine shows as an esd as large as
+ * the value, or a bound.
  */
 
 import type { LinearRestraint, ParameterKind, RefinementOptions, RefinementParameter, RefinementResult } from "@/core/refinement/types";
@@ -28,6 +50,12 @@ import { correlationInsight, oneCurve } from "@/core/diagnostics/assessment";
 
 /** The line the engine and `assess_refinement` already draw for a high correlation. */
 export const CORRELATION_LIMIT = 0.95;
+/** Below this conditional correlation (every other free parameter fixed), a pair's correlation is carried by a third. */
+export const CARRIED_BELOW = 0.9;
+/** A pair this correlated stops the refinement whatever carries it. */
+export const CARRIED_MAX = 0.99;
+/** The overall intensity terms of a single-crystal fit: listed, never stopped, among themselves. */
+const INTENSITY_TERMS: ReadonlySet<ParameterKind> = new Set<ParameterKind>(["scale", "extinction", "batchScale"]);
 
 /**
  * The probe: no iterations, and correlations reported well under the limit,
@@ -39,13 +67,19 @@ export interface CorrelatedPair {
   readonly a: string;
   readonly b: string;
   readonly coefficient: number;
+  /** The pair's correlation with every other free parameter held fixed. */
+  readonly conditional?: number;
   /** Why the pair is expected to correlate, and what to do (known pairs only). */
   readonly reason?: string;
+  /** Listed, not stopped, because both are overall intensity terms (scale, extinction, batch scales). */
+  readonly intensityTerms?: true;
 }
 
 export interface CorrelationCheck {
   /** Free pairs at or over the limit, strongest first. */
   readonly correlated: readonly CorrelatedPair[];
+  /** Pairs over the limit whose correlation a third free parameter carries: listed, not stopped. */
+  readonly carried: readonly CorrelatedPair[];
   /** Free parameters in a direction the data cannot determine at all. */
   readonly undetermined: readonly string[];
   /** The strongest pair under the limit (null when none reaches 0.5). */
@@ -61,17 +95,24 @@ export function readCorrelations(result: RefinementResult, parameters: readonly 
     const ka = kind.get(c.parameterIdA);
     const kb = kind.get(c.parameterIdB);
     const reason = ka && kb ? correlationInsight(ka, kb) : undefined;
-    return { a: c.parameterIdA, b: c.parameterIdB, coefficient: c.coefficient, ...(reason ? { reason } : {}) };
+    const intensity = INTENSITY_TERMS.has(ka!) && INTENSITY_TERMS.has(kb!);
+    return { a: c.parameterIdA, b: c.parameterIdB, coefficient: c.coefficient, ...(c.conditional !== undefined ? { conditional: c.conditional } : {}), ...(reason ? { reason } : {}), ...(intensity ? { intensityTerms: true as const } : {}) };
   });
-  const correlated = pairs.filter((p) => Math.abs(p.coefficient) >= CORRELATION_LIMIT);
+  const carriedPair = (p: CorrelatedPair): boolean => p.intensityTerms === true || (p.conditional !== undefined && Math.abs(p.conditional) < CARRIED_BELOW && Math.abs(p.coefficient) < CARRIED_MAX);
+  const over = pairs.filter((p) => Math.abs(p.coefficient) >= CORRELATION_LIMIT);
   return {
-    correlated,
+    correlated: over.filter((p) => !carriedPair(p)),
+    carried: over.filter(carriedPair),
     undetermined: [...(result.diagnostics?.singularParameterIds ?? [])],
     strongest: pairs.find((p) => Math.abs(p.coefficient) < CORRELATION_LIMIT) ?? null,
   };
 }
 
 export const pairText = (p: CorrelatedPair): string => `${p.a} ↔ ${p.b} ${p.coefficient.toFixed(3)}`;
+
+/** A carried pair as the model reads it: the correlation, and what it is with the rest held fixed. */
+export const carriedText = (p: CorrelatedPair): string =>
+  p.intensityTerms ? `${pairText(p)} (the overall intensity terms, refined together)` : `${pairText(p)} (${p.conditional!.toFixed(2)} with the other free parameters fixed)`;
 
 /** Why the refinement may not run, for the model; null when the free set is fine. */
 export function correlationRefusal(check: CorrelationCheck): string | null {

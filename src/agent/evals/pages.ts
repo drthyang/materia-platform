@@ -4,13 +4,14 @@
  * synthetic neutron pattern, 2θ at 1.54 Å) and the GaTa₄Se₈ PDF demo.
  */
 
-import type { PdfAgentPort, PowderAgentPort } from "@/agent/port";
+import type { PdfAgentPort, PowderAgentPort, SingleCrystalAgentPort } from "@/agent/port";
 import { newSession, type Session } from "@/app/powderSession";
 import { exampleStructure } from "@/examples/mn3ga";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { powderPeakIntensities } from "@/core/diffraction/intensity";
 import { knownPhaseStructure } from "@/core/diagnostics/knownPhases";
-import { pdfPort, sessionPort } from "@/testSupport/agentHeadless";
+import { pdfPort, sessionPort, singleCrystalPort } from "@/testSupport/agentHeadless";
+import { corundumPage, pyridylPage, type CorundumOptions } from "@/testSupport/scPages";
 import { runPowderRefinement } from "@/workers/runPowder";
 import { magneticSubgroupLattice, latticeRepresentatives, latticeCandidateLabel } from "@/core/magnetic/subgroupLattice";
 import { buildMagneticModel } from "@/core/magnetic/momentModel";
@@ -145,6 +146,31 @@ export function mn3gaFluoriteSession(): Session {
   return prefit(withLines, scaleAndBackground(withLines));
 }
 
+/** Where the edge of `mn3gaEdgeSession` starts, and where its scan ends (2θ, °). */
+export const EDGE_STEP_AT = 108.3;
+const EDGE_SCAN_END = 109.3;
+
+/**
+ * The demo as a scan with an edge that is not real data (the user's demo
+ * feedback, PbSO₄ on D1A): the scan stops at EDGE_SCAN_END, in the gap after
+ * the line at 105.6°; on a background of 300 counts, from EDGE_STEP_AT to the
+ * end the counts step up by half the background and stay there, as at a
+ * detector's edge; below the first reflection the scan holds background only.
+ * The scale and background are fitted to the whole scan, edge and all.
+ */
+export function mn3gaEdgeSession(): Session {
+  const s0 = mn3gaSession();
+  const s = { ...s0, powderParams: s0.powderParams.map((p) => (p.id === "width" ? { ...p, value: TRUE_WIDTH } : p)) };
+  const noise = gaussian(11);
+  const points = s.pattern.points.filter((p) => p.x <= EDGE_SCAN_END).map((p) => {
+    const extra = 300 + (p.x >= EDGE_STEP_AT ? 150 : 0);
+    const y = p.yObs + extra + Math.sqrt(extra) * noise();
+    return { ...p, yObs: y, sigma: Math.sqrt(Math.max(y, 1)) };
+  });
+  const edged = { ...s, pattern: { ...s.pattern, points } };
+  return prefit(edged, scaleAndBackground(edged));
+}
+
 /** The magnetic structure behind `mn3gaMagneticSession`: k, the group (its id on the page) and the Mn moment. */
 export const MAGNETIC_TRUTH = { k: [0, 0, 0.5] as Vec3, id: "G2", moment: 2.5 } as const;
 
@@ -181,3 +207,51 @@ export function powderPage(session: Session): PowderAgentPort {
 export function pdfPage(): PdfAgentPort {
   return pdfPort().port;
 }
+
+/** The single-crystal page on synthetic corundum (testSupport/scPages): strong extinction unless asked otherwise. */
+export function scPage(opts: CorundumOptions = {}): SingleCrystalAgentPort {
+  const c = corundumPage({ extinction: 20, ...opts });
+  return singleCrystalPort(c.structure, c.dataset).port;
+}
+
+/** A failed measurement for scPage: 1 0 4 at 3 % of its intensity (sapphire's 5 4 1 in batch 24). */
+export const FAILED_REFLECTION = { h: 1, k: 0, l: 4, factor: 0.03 } as const;
+
+/**
+ * Two failed measurements for scPage, measured in three batches: 1 0 4 at 3 %
+ * and 3 0 12 at half its intensity (sapphire's 5 4 1 and 3 4 2, both in batch
+ * 24). The second shows only once the first is out, and inside the residual a
+ * σ cutoff set just above the next worst would leave.
+ */
+export const FAILED_PAIR = [FAILED_REFLECTION, { h: 3, k: 0, l: 12, factor: 0.5 }] as const;
+
+/** A crystal whose extinction is Becker–Coppens type I (Lorentzian mosaic), Eg = 1e-4, measured to d = 0.45 Å, for scPage: SHELXL's EXTI fits it less well, and the high order lies beyond 0.6 Å. */
+export const BC_EXTINCTION = { extinction: 1e-4, extinctionModel: "bc-1-lorentzian", dMin: 0.45 } as const;
+
+/** Batch scales for scPage: four batches, the data reduction off by up to 8 %. */
+export const BATCH_SCALES = [1, 1.06, 0.94, 1.08] as const;
+
+export interface OrganicPageOptions {
+  /** Loaded as a SHELX file loads: no radiation in it, so neutron at 1.54 Å until set. */
+  readonly asLoaded?: boolean;
+  /** The Fo² are a refinement's listing (.fcf): each reflection once, on that refinement's scale. */
+  readonly listing?: boolean;
+  /** An error on every Fo² of this fraction that the σ do not carry (what WGHT a covers). */
+  readonly extraError?: number;
+}
+
+/**
+ * The single-crystal page on a small organic X-ray structure
+ * (testSupport/scPages: 2-(methylthio)pyridine, P2₁/c, Mo Kα): seven
+ * hydrogens where a difference map put them, a riding model the truth.
+ */
+export function scOrganicPage(opts: OrganicPageOptions = {}): SingleCrystalAgentPort {
+  const p = pyridylPage(opts.extraError !== undefined ? { extraError: opts.extraError } : {});
+  const dataset = {
+    ...p.dataset,
+    ...(opts.asLoaded ? { radiation: { kind: "neutron" as const, wavelength: 1.54 } } : {}),
+    ...(opts.listing ? { origin: "refinement-listing" as const } : {}),
+  };
+  return singleCrystalPort(p.structure, dataset).port;
+}
+

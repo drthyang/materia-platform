@@ -15,6 +15,7 @@ import type { StructureModel } from "@/core/crystal/types";
 import type { RefinementParameter } from "@/core/refinement/types";
 import { buildEsdMap, cellVolume, formatWithEsd } from "@/core/export/cif";
 import { spaceGroupSymbol } from "@/core/crystal/spaceGroups";
+import { uEquivalent } from "@/core/crystal/adp";
 import { crystalComponentsToCartesian } from "@/core/magnetic/moment";
 import { kLabel } from "@/core/magnetic/kSearch";
 import { magneticSupercell, momentAnchorPosition } from "@/core/crystal/cellExpansion";
@@ -22,6 +23,8 @@ import { fobsFcalcSvg, patternFigureSvg } from "@/core/export/reportFigures";
 import { markNumbers } from "@/core/export/reportAudit";
 import {
   BONDS_NOTE,
+  COVALENT_BONDS_NOTE,
+  covalentBondRows,
   boxcarNote,
   formatParameterValue,
   KIND_UNIT,
@@ -170,7 +173,7 @@ function phaseMarkdown(phase: ReportPhase, index: number, total: number): string
     ["Site", "Type", "x", "y", "z", "Occ.", anyAniso ? "B_eq (Å²)" : "B_iso (Å²)"],
     st.sites.map((s) => {
       const pe = esd.pos.get(s.label);
-      const b = s.adp.kind === "isotropic" ? s.adp.bIso : 8 * Math.PI * Math.PI * ((s.adp.uAniso[0]! + s.adp.uAniso[1]! + s.adp.uAniso[2]!) / 3);
+      const b = s.adp.kind === "isotropic" ? s.adp.bIso : 8 * Math.PI * Math.PI * uEquivalent(s.adp.uAniso, st.cell);
       const bEsd = s.adp.kind === "isotropic" ? esd.bIso.get(s.label) : undefined;
       return [
         s.label, s.element,
@@ -191,9 +194,12 @@ function phaseMarkdown(phase: ReportPhase, index: number, total: number): string
     ["r", "r", "r", "r", "r", "r", "r"],
   );
   const shells = shellRows(st);
-  const bonds = shells.length > 0
-    ? `\n\n${table(["Site", "Bonds (Å)", "Mean (Å)"], shells.map((r) => [r.site, r.bonds, r.mean]), ["l", "l", "r"])}\n\n*${BONDS_NOTE}*`
-    : "";
+  const covalent = phase.bonds ? covalentBondRows(phase.bonds) : [];
+  const bonds = covalent.length > 0
+    ? `\n\n${table(["Site", "Bonds (Å)"], covalent.map((r) => [r.site, r.bonds]), ["l", "l"])}\n\n*${COVALENT_BONDS_NOTE}*`
+    : !phase.bonds && shells.length > 0
+      ? `\n\n${table(["Site", "Bonds (Å)", "Mean (Å)"], shells.map((r) => [r.site, r.bonds, r.mean]), ["l", "l", "r"])}\n\n*${BONDS_NOTE}*`
+      : "";
   return `### ${st.name || st.id} — ${sgText}${role ? ` · ${role}` : ""}\n\n${cellRow}\n\n${sites}${bonds}`;
 }
 

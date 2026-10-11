@@ -9,7 +9,7 @@ import { color, fz, mono, radius } from "@/app/theme";
 import { tableRows } from "@/agent/ui/markdownTable";
 import type { ActivityEntry } from "@/agent/executor";
 import type { MethodProgress } from "@/agent/method";
-import { AGENT_MODES, type AgentController, type AgentMode, type AgentSettings, type TranscriptItem } from "@/agent/useAgent";
+import { AGENT_MODES, replayLabel, type AgentController, type AgentMode, type AgentSettings, type TranscriptItem } from "@/agent/useAgent";
 import { CHAT_MODELS, hasRefusalFallback } from "@/agent/chat-models";
 import { listOllamaModels, unreachableHint, type OllamaModel } from "@/agent/ollama";
 import { listLmStudioModels, lmstudioUnreachableHint, type LmStudioModel } from "@/agent/lmstudio";
@@ -175,7 +175,10 @@ function StatusChip({ agent }: { agent: AgentController }): JSX.Element {
   const local = localModel(settings);
   let text = MODE_LABEL[settings.mode];
   let ok = true;
-  if (settings.mode === "api-key" && !agent.apiKey) {
+  // A replay, short enough for the chip; its tooltip and the report say "of a live run".
+  if (settings.replayOf) {
+    text = `${settings.replayOf} · replay`;
+  } else if (settings.mode === "api-key" && !agent.apiKey) {
     text = "API key · not set";
     ok = false;
   } else if (local !== null) {
@@ -184,7 +187,7 @@ function StatusChip({ agent }: { agent: AgentController }): JSX.Element {
   }
   const palette = ok ? { bg: color.okBg, bd: color.okBorder, ink: color.okInk } : { bg: color.chipBg, bd: color.border, ink: color.secondary };
   return (
-    <span role="status" style={{ fontSize: fz.micro, padding: "2px 8px", borderRadius: 999, background: palette.bg, border: `1px solid ${palette.bd}`, color: palette.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+    <span role="status" title={settings.replayOf ? replayLabel(settings.replayOf) : text} style={{ fontSize: fz.micro, padding: "2px 8px", borderRadius: 999, background: palette.bg, border: `1px solid ${palette.bd}`, color: palette.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
       {text}
     </span>
   );
@@ -424,12 +427,13 @@ function Transcript({ agent, page }: { agent: AgentController; page: string | nu
 
 /** The model the Agent talks to, as the settings name it. */
 function modelName(s: AgentSettings): string {
+  if (s.replayOf) return `${s.replayOf} (a replay of a live run)`;
   if (s.mode === "ollama") return s.ollamaModel ? `${s.ollamaModel} (Ollama)` : "the Ollama model you pick";
   if (s.mode === "lmstudio") return s.lmstudioModel ? `${s.lmstudioModel} (LM Studio)` : "the LM Studio model you pick";
   return CHAT_MODELS.find((m) => m.id === s.model)?.label ?? s.model;
 }
 
-/** What to ask, by page: the powder page's method or the PDF page's. */
+/** What to ask, by page: its method's examples. */
 const EXAMPLES: Readonly<Record<string, readonly string[]>> = {
   "my-rietveld-workflow": [
     "Refine this pattern by my method and report the structure.",
@@ -442,7 +446,20 @@ const EXAMPLES: Readonly<Record<string, readonly string[]>> = {
     "Does the local structure differ from the average one?",
     "Assess the fit and suggest what to free next.",
   ],
+  "sc-workflow": [
+    "Read the data, then refine the structure and report it.",
+    "Is extinction a problem here? Which reflections fit worst, and why?",
+    "Are the anisotropic ADPs justified by these data?",
+  ],
 };
+
+/** What the Agent can do on the open page, by its method. */
+const CAN_DO: Record<string, string> = {
+  "my-rietveld-workflow": "the fit range, the cell check, the refinement stage by stage, why a fit is poor, which phase an extra peak is, a magnetic structure",
+  "pdf-workflow": "the r window, the refinement stage by stage, local against average structure in boxcar scans",
+  "sc-workflow": "the data's merging, completeness and absences, extinction, the refinement stage by stage, the outliers, the ADPs",
+};
+const DEFAULT_CAN_DO = "the refinement stage by stage, why a fit is poor";
 const DEFAULT_EXAMPLES = ["Assess the fit and suggest what to free next.", "Refine this from the start and report the result."];
 
 function EmptyState({ settings, page }: { settings: AgentSettings; page: string | null }): JSX.Element {
@@ -451,9 +468,8 @@ function EmptyState({ settings, page }: { settings: AgentSettings; page: string 
     <div style={{ color: color.secondary, fontSize: fz.small, lineHeight: 1.5, padding: "6px 2px" }}>
       <p style={{ margin: "0 0 8px" }}>
         <b style={{ color: color.ink }}>{modelName(settings)}</b> works on the analysis open beside it, through MATERIA's tools and the page's own controls. It can run
-        the whole analysis by the page's method — the cell check, the refinement stage by stage, why a fit is poor, which phase an extra peak is,
-        a magnetic structure — and report the result with its esds and its own assessment. Talk it through as you would with a colleague: ask why
-        it took a step, tell it what you know about the sample, or ask anything about the fit on screen.
+        the whole analysis by the page's method — {(page && CAN_DO[page]) || DEFAULT_CAN_DO} — and report the result with its esds and its own assessment.
+        Talk it through as you would with a colleague: ask why it took a step, tell it what you know about the sample, or ask anything about the fit on screen.
       </p>
       <p style={{ margin: "0 0 8px" }}>
         {settings.autoApprove

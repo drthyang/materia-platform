@@ -38,6 +38,8 @@ import { applyFree, bondsOf, cellOf, describeFree, freeNoOp, goToStep, historyVi
 import { powderValidation } from "@/core/diagnostics/powderValidation";
 import type { ReportCheck } from "@/core/export/report";
 import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, correlationsCheck, findingChecks, noResultCheck, verdictCheck } from "@/agent/reportChecks";
+import { groupOf } from "@/agent/method";
+import { inspectDataRange, type DataEnd, type DataRangeReading } from "@/core/diagnostics/dataRange";
 
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- inputs are validated against the spec's zod schema before a handler runs */
@@ -74,16 +76,31 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
         profile: s.profile,
         magnetic: s.magnetic,
       });
+      // A group the instrument–thermal rule would refuse next to the free set: say so with the ranking.
+      const kindOf = new Map(s.parameters.map((p) => [p.id, p.kind]));
+      const freeGroups = new Set(s.parameters.filter((p) => !p.fixed && !p.expression).map((p) => groupOf(p.kind)));
+      const clash = (ids: readonly string[]): string | null => {
+        const mine = new Set(ids.map((id) => groupOf(kindOf.get(id) ?? "scale")));
+        if (mine.has("instrument") && freeGroups.has("thermal")) return "the B values are free: fix them first (the instrument's terms and the thermal parameters refine in turn)";
+        if (mine.has("thermal") && freeGroups.has("instrument")) return "instrument terms are free: fix them first (the instrument's terms and the thermal parameters refine in turn)";
+        return null;
+      };
       return {
         wrNow: pct(ranked.wrNow),
-        groups: ranked.groups.slice(0, 12).map((g) => ({
-          group: g.group,
-          parameterIds: g.parameterIds,
-          predictedWr: pct(g.predictedWr),
-          expectedRelativeImprovement: sig(g.expectedRelativeImprovement, 3),
-        })),
+        groups: ranked.groups.slice(0, 12).map((g) => {
+          const rule = clash(g.parameterIds);
+          return {
+            group: g.group,
+            parameterIds: g.parameterIds,
+            predictedWr: pct(g.predictedWr),
+            expectedRelativeImprovement: sig(g.expectedRelativeImprovement, 3),
+            ...(rule ? { rule } : {}),
+          };
+        }),
       };
     }
+    case "check_fit_range":
+      return fitRangeView(s, fitRangeReading(s));
     case "check_cell_symmetry": {
       const check = check_cell_symmetry({
         structure: s.refinedPhases[0] ?? s.structure,
@@ -217,6 +234,7 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
     case "diagnose_fit":
       return fitDiagnosisView(s);
     case "structure_table":
+      if (input.against !== undefined) throw new Error("`against` is on the single-crystal page only, for now");
       return { phases: s.refinedPhases.map((ph, i) => structureTable(ph, i, s.parameters, s.bindings, s.result?.esd ?? {})), ...(s.result ? {} : { note: "No refinement on screen: the values carry no esds." }) };
     case "bond_geometry":
       return bondsOf(s.refinedPhases, input, bond_geometry);
@@ -354,6 +372,7 @@ export function powderNoOp(spec: LiveToolSpec, input: Input, s: PowderLiveState)
     return null;
   }
   if (spec.name === "tie_parameters") {
+    if (input.complement !== undefined || input.adp !== undefined) throw new Error("`complement` and `adp` are the single-crystal page's: here set_site_ties ties a shared site's occupancies (Σ occ = 1) and ADPs");
     return checkEqualTies(s.parameters, tieUpdate(s.parameters, input)).unchanged ? "those parameters are already tied so" : null;
   }
   if (spec.name === "set_instrument_constants") {
@@ -576,6 +595,70 @@ function phaseFractionView(s: PowderLiveState): Record<string, unknown> {
 
 const UNIT: Record<PowderXUnit, string> = { tof: "µs (TOF)", twoTheta: "° 2θ", dSpacing: "Å (d)", q: "Å⁻¹ (Q)" };
 
+/** The data's ends read on the page's curves: every phase's reflections placed on the pattern's own axis. */
+export function fitRangeReading(s: PowderLiveState): DataRangeReading {
+  const unit = s.pattern.xUnit;
+  const x = s.curves.x;
+  const points = s.pattern.points.length === x.length ? s.pattern.points : null;
+  const sigma = s.curves.yObs.map((y, i) => {
+    const given = points?.[i]?.sigma;
+    return given !== undefined && given > 0 ? given : Math.sqrt(Math.max(y, 1));
+  });
+  let reflections: number[] = [];
+  if (s.d) {
+    const finite = s.d.filter((v) => Number.isFinite(v) && v > 0);
+    const dMin = Math.min(...finite) * 0.98;
+    const dMax = Math.max(...finite) * 1.02;
+    reflections = s.refinedPhases.flatMap((ph) => generateReflections(ph.cell, ph.spaceGroup, dMin, Math.min(dMax, 50), { absences: true }).map((r) => convertAxisValue(r.d, "dSpacing", unit, s.axis)));
+  }
+  return inspectDataRange({
+    x,
+    yObs: s.curves.yObs,
+    sigma,
+    yCalc: s.curves.yCalc,
+    ...(s.curves.yBackground ? { yBackground: s.curves.yBackground } : {}),
+    fitted: s.result?.status === "converged",
+    reflections: reflections.filter(Number.isFinite),
+    shortD: unit === "tof" || unit === "dSpacing" ? "low" : "high",
+    excluded: excludedPointMask(s.curves.yObs),
+    window: s.fitRange,
+  });
+}
+
+/** check_fit_range's answer: each end with its evidence, and the window to propose, in the data's unit and in d. */
+function fitRangeView(s: PowderLiveState, r: DataRangeReading): Record<string, unknown> {
+  const unit = s.pattern.xUnit;
+  const dOf = (v: number): number | null => {
+    if (unit === "dSpacing") return sig(v, 4);
+    const d = convertAxisValue(v, unit, "dSpacing", s.axis);
+    return Number.isFinite(d) ? sig(d, 4) : null;
+  };
+  // Which end is which on this axis, in words a crystallographer uses.
+  const name = (end: "low" | "high"): string => (unit === "tof" ? (end === "low" ? "short-TOF end (short d)" : "long-TOF end (long d)") : unit === "twoTheta" ? (end === "low" ? "low-angle end" : "high-angle end") : `${end} end`);
+  const endView = (e: DataEnd): Record<string, unknown> => ({
+    end: name(e.end),
+    verdict: e.verdict === "trim" ? "trim" : e.alreadyOutside ? "keep: the fit window already leaves the stretch out" : "keep",
+    ...(e.alreadyOutside ? { outside: true } : {}),
+    ...(e.cut !== undefined ? { cut: sig(e.cut, 6), cutD: dOf(e.cut), pointsLeftOut: e.dropped } : {}),
+    ...(e.large ? { large: "a large cut: put it to the user before applying it" } : {}),
+    findings: e.findings.map((f) => `${f.cause}: ${sig(Math.min(f.from, f.to), 6)}–${sig(Math.max(f.from, f.to), 6)} (${f.points} points): ${f.detail}`),
+    ...(e.notes.length ? { notes: e.notes } : {}),
+  });
+  const p = r.proposed;
+  return {
+    unit: UNIT[unit],
+    extent: [sig(r.extent.min, 6), sig(r.extent.max, 6)],
+    window: s.fitRange ? [sig(s.fitRange.min, 6), sig(s.fitRange.max, 6)] : "the whole pattern",
+    basis: r.basis === "the data" ? "the data alone (no converged fit yet: run this again after the first refinement, when the residual can show more)" : "the data and the converged fit's residual",
+    low: endView(r.low),
+    high: endView(r.high),
+    proposed: p
+      ? { min: sig(p.min, 6), max: sig(p.max, 6), unit, d: [dOf(p.min), dOf(p.max)], apply: "set_fit_range with this min and max (and unit) — it shows the user an approval card; say why, end by end" }
+      : "keep the current window: neither end needs trimming",
+    ...(r.interior.length ? { interior: r.interior, interiorNote: "The page fits one window; it cannot leave out a stretch inside the pattern. Tell the user if one matters." } : {}),
+  };
+}
+
 /**
  * The window set_fit_range asks for, on the pattern's own axis. min/max may
  * come in any unit the page can convert to; a bound left out is the pattern's
@@ -746,6 +829,16 @@ export function powderReportChecks(s: PowderLiveState, probe: RefinementResult |
   }
   const bv = bondValenceCheck(s.refinedPhases);
   if (bv) checks.push(bv);
+  // The fit's diagnosis, as diagnose_fit gives it on the fit on screen: an
+  // account that cites it ("the lines are 2.45× broader") cites the report.
+  if (s.d) {
+    const dx = fitDiagnosisView(s) as { reading: string; causes: { cause: string; chi2Share: number; evidence: string }[] };
+    checks.push({
+      name: "Fit diagnosis",
+      status: dx.causes.length > 0 ? "note" : "pass",
+      detail: `${dx.reading}${dx.causes.map((c) => ` ${c.cause} (${c.chi2Share} % of χ²): ${c.evidence}.`).join("")}`,
+    });
+  }
   checks.push(...findingChecks(a));
   return checks;
 }
