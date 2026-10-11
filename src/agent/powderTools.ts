@@ -635,7 +635,8 @@ function fitRangeView(s: PowderLiveState, r: DataRangeReading): Record<string, u
   const name = (end: "low" | "high"): string => (unit === "tof" ? (end === "low" ? "short-TOF end (short d)" : "long-TOF end (long d)") : unit === "twoTheta" ? (end === "low" ? "low-angle end" : "high-angle end") : `${end} end`);
   const endView = (e: DataEnd): Record<string, unknown> => ({
     end: name(e.end),
-    verdict: e.verdict === "trim" ? "trim" : e.alreadyOutside ? "keep (the fit window already stops inside the stretch)" : "keep",
+    verdict: e.verdict === "trim" ? "trim" : e.alreadyOutside ? "keep: the fit window already leaves the stretch out" : "keep",
+    ...(e.alreadyOutside ? { outside: true } : {}),
     ...(e.cut !== undefined ? { cut: sig(e.cut, 6), cutD: dOf(e.cut), pointsLeftOut: e.dropped } : {}),
     ...(e.large ? { large: "a large cut: put it to the user before applying it" } : {}),
     findings: e.findings.map((f) => `${f.cause}: ${sig(Math.min(f.from, f.to), 6)}–${sig(Math.max(f.from, f.to), 6)} (${f.points} points): ${f.detail}`),

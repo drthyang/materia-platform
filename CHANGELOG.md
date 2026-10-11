@@ -240,6 +240,15 @@ release fixes bugs.
 
 ### Changed
 
+- **The demo, re-recorded** (docs/media/agent-demo.mp4, 91 s): the Agent now
+  reads the data's ends first and leaves out the background below the first
+  reflection and the last 2° of the D1A scan, and refines the instrument's terms
+  and the B values in turn until the alternation settles (wR 3.87 %, GoF 2.06).
+  The turns were written in a live run through the app and are replayed for the
+  recording.
+- **The fit range in the record and the report** says what the window leaves
+  out and why, end by end, once a second read finds the window already set.
+
 - **`identify_peaks` ranks a candidate by the peaks it explains, weighed by
   how plausible its cell is**, then by line strength. Isostructural phases
   explain the same peaks, and the cell tells them apart: on NAC, fluorite at

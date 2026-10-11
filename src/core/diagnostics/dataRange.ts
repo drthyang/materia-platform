@@ -69,7 +69,7 @@ export interface DataEnd {
   readonly dropped?: number;
   /** A cut of more than LARGE_CUT of the points: the user's call. */
   readonly large?: boolean;
-  /** The current window already stops inside the stretch. */
+  /** The current window already leaves out every point of the stretch. */
   readonly alreadyOutside?: boolean;
   readonly findings: readonly EdgeFinding[];
   /** Context that is no reason to trim on its own. */
@@ -290,8 +290,11 @@ export function inspectDataRange(input: DataRangeInput): DataRangeReading {
     }
     const cut = pos(pick);
     const large = pick > LARGE_CUT * n;
+    // A window that already leaves out every flagged point needs no new cut
+    // (a refined cell moves the gaps a little; a tenth of a degree is no change).
     const w0 = input.window;
-    const alreadyOutside = !!w0 && (end === "low" ? w0.min >= cut : w0.max <= cut);
+    const flagged = pos(innermost);
+    const alreadyOutside = !!w0 && (end === "low" ? w0.min > flagged : w0.max < flagged);
     return {
       end,
       verdict: alreadyOutside ? "keep" : "trim",

@@ -260,6 +260,13 @@ describe("AgentExecutor on a live powder fit", () => {
     expect(method.stages).toEqual(["✓ Fit range", "✓ Cell check", "✓ Scale, background, cell", "✓ Positions", "○ Profile", "○ ADPs", "○ Occupancy (if needed)", "○ Corrections (if needed)", "○ Symmetry review (last) (if needed)"]);
     expect(method.next).toBe("Profile");
     expect(method.rangeCheck).toBe(records.get(key)!.rangeCheck!.summary);
+    // Once the proposed window is set, a second read says what the window leaves out, and why.
+    const proposed = range.proposed as { min: number; max: number };
+    expect(typeof proposed).toBe("object");
+    await ex.run("set_fit_range", { min: proposed.min, max: proposed.max });
+    const again = parse((await ex.run("check_fit_range", {})).text);
+    expect(again.proposed).toBe("keep the current window: neither end needs trimming");
+    expect(records.get(key)!.rangeCheck!.summary).toMatch(/left out by the window \([a-z-, ]+\).*; window [\d.]+–[\d.]+ ° 2θ$/);
     expect(method.cellCheck).toBe("every peak indexes; no absence flagged");
 
     // ADPs before the profile: refined, with a note.

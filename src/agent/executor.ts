@@ -345,8 +345,9 @@ export class AgentExecutor implements ToolRunner {
 
   /** The data ends' reading, kept for the analysis: what each end showed and the window proposed. A record, not a gate. */
   private noteRangeCheck(port: AgentPort, out: RangeAnswer): void {
-    const end = (e: RangeAnswer["low"]): string => e.verdict === "trim" ? `${e.end}: trim to ${e.cut} (${e.findings.map((f) => f.slice(0, f.indexOf(":"))).join(", ")})` : `${e.end}: keep`;
-    const proposed = typeof out.proposed === "object" ? `; proposed window ${out.proposed.min}–${out.proposed.max} ${out.unit}` : "";
+    const causes = (e: RangeAnswer["low"]): string => e.findings.map((f) => f.slice(0, f.indexOf(":"))).join(", ");
+    const end = (e: RangeAnswer["low"]): string => e.verdict === "trim" ? `${e.end}: trim to ${e.cut} (${causes(e)})` : e.outside ? `${e.end}: left out by the window (${causes(e)})` : `${e.end}: keep`;
+    const proposed = typeof out.proposed === "object" ? `; proposed window ${out.proposed.min}–${out.proposed.max} ${out.unit}` : Array.isArray(out.window) ? `; window ${out.window[0]}–${out.window[1]} ${out.unit}` : "";
     const summary = `${end(out.low)}; ${end(out.high)}${proposed}`;
     this.host.updateRecord(keyOfState(port.technique, port.state()), (r) => ({ ...r, rangeCheck: { at: Date.now(), summary } }));
   }
@@ -529,8 +530,9 @@ export class AgentExecutor implements ToolRunner {
 /** check_fit_range's answer, as the record reads it. */
 interface RangeAnswer {
   readonly unit: string;
-  readonly low: { readonly end: string; readonly verdict: string; readonly cut?: number; readonly findings: readonly string[] };
-  readonly high: { readonly end: string; readonly verdict: string; readonly cut?: number; readonly findings: readonly string[] };
+  readonly window: readonly [number, number] | string;
+  readonly low: { readonly end: string; readonly verdict: string; readonly outside?: true; readonly cut?: number; readonly findings: readonly string[] };
+  readonly high: { readonly end: string; readonly verdict: string; readonly outside?: true; readonly cut?: number; readonly findings: readonly string[] };
   readonly proposed: { readonly min: number; readonly max: number } | string;
 }
 

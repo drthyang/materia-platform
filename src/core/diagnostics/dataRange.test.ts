@@ -114,6 +114,11 @@ describe("the data's ends", () => {
     expect(r.high.findings.find((f) => f.cause === "residual")!.detail).toMatch(/^the fit leaves the data above the model by \d+\.\dσ on average, more than any stretch of that length just inside/);
     const inside = inspectDataRange({ ...input, window: { min: 18, max: 125 } });
     expect(inside.high).toMatchObject({ verdict: "keep", alreadyOutside: true });
+    // A window past the proposed cut but short of the flagged stretch is no reason to cut again;
+    // one that reaches into it is.
+    const flagged = Math.min(...r.high.findings.map((f) => f.to));
+    expect(inspectDataRange({ ...input, window: { min: 18, max: flagged - 0.05 } }).high.verdict).toBe("keep");
+    expect(inspectDataRange({ ...input, window: { min: 18, max: flagged + 0.1 } }).high.verdict).toBe("trim");
   });
 });
 
