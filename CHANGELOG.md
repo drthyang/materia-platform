@@ -482,6 +482,16 @@ release fixes bugs.
 
 ### Fixed
 
+- **The 3D structure view draws only when something changes.** It drew
+  every animation frame for as long as it was mounted, the views on hidden
+  pages too, and took the CPU from the refinement: an idle tab held 3.3
+  cores in a headless browser. It now draws when the camera moves (and
+  through the damping after a drag), on a resize, a rebuild or a knob, and
+  not while hidden. The 19-turn PbSO₄ demo replay, from Send to the report,
+  took 194 s before v0.4.0, 161 s at v0.4.0 and 117 s with the change: the
+  page did not get slower with v0.4.0. The 334 s of the last recording was
+  the machine, which had a second browser running the app.
+
 - **A listing's R_int.** SHELXL's LIST 4 holds each reflection once, its
   Friedel mate apart in an acentric group; merged in the Laue class, 3a's 432
   Bijvoet pairs read as "R_int 3.37 %" on the page, in `get_state`,
