@@ -288,14 +288,15 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
         );
         setMagnetic(applyMagneticMoments(magnetic, momentBindings, ms.final.parameters));
       } else {
-        // Kick floors: 0.1 in fractional coordinates (~0.6 Å in a 6 Å cell) for
-        // a positional mode — a seed sweep on a synthetic bound-trapped start
-        // put 0.05 at 2/10 recoveries and 0.1 at 7–9/10 — and a basin-sized
+        // Kick floors: 0.15 in fractional coordinates (~0.9 Å in a 6 Å cell)
+        // for a positional mode, with 50 iterations per start — a seed sweep
+        // on a synthetic bound-trapped start recovered 8/10 so, 2–5/10 with 25
+        // iterations, and fewer with the 0.05 or 0.2 floor — and a basin-sized
         // step for the displacement parameters. Prefit casts the wider net
         // (more restarts, ~4σ kicks), Escape a tighter one.
         const minKick = (p: RefinementParameter): number | undefined => {
           switch (p.kind) {
-            case "positionShift": return 0.1;
+            case "positionShift": return 0.15;
             case "bIso": return wide ? 1 : 0.5;
             case "uAniso": return wide ? 0.01 : 0.005;
             case "occupancy": return wide ? 0.2 : 0.1;
@@ -304,7 +305,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
           }
         };
         ms = await client.refineSingleCrystalMultiStart(
-          { structure, dataset: activeDataset, parameters: [...params], bindings, options: { maxIterations: 25 } },
+          { structure, dataset: activeDataset, parameters: [...params], bindings, options: { maxIterations: 50 } },
           wide ? { restarts: 12, escapeSigma: 4, relFraction: 0.5, minKick } : { restarts: 6, escapeSigma: 2, relFraction: 0.5, minKick },
         );
       }
@@ -763,7 +764,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
           onRefine={() => runRefine(false)}
           onThorough={() => void runThorough()}
           thoroughMode={result ? "escape" : "prefit"}
-          prefitTitle="Prefit from a cold start: a broad set of perturbed restarts of the free parameters (positions kicked by up to ~0.1 in fractional coordinates), keeping the best — lands the structure in a good basin before you refine. (No Le Bail stage: integrated intensities have no profile to pre-fit.)"
+          prefitTitle="Prefit from a cold start: a broad set of perturbed restarts of the free parameters (positions kicked by up to ~0.15 in fractional coordinates), keeping the best — lands the structure in a good basin before you refine. (No Le Bail stage: integrated intensities have no profile to pre-fit.)"
           onReset={reset}
           busy={busy}
           result={result}

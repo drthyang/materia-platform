@@ -1,7 +1,5 @@
 import { describe, it, expect } from "vitest";
 import {
-  singleCrystalLorentz,
-  polarizationFactor,
   extinctionFactor,
   shelxWeights,
   singleCrystalAgreement,
@@ -9,26 +7,6 @@ import {
 import type { Radiation } from "@/core/diffraction/types";
 
 const xray: Radiation = { kind: "xray", wavelength: 0.71073 };
-const neutron: Radiation = { kind: "neutron", wavelength: 1.54 };
-
-describe("single-crystal Lorentz / polarization", () => {
-  it("L = 1/sin2θ matches a hand computation", () => {
-    // d = 2 Å, λ = 0.71073 → sinθ = λ/2d, θ, then 1/sin2θ.
-    const d = 2;
-    const sinT = xray.wavelength / (2 * d);
-    const theta = Math.asin(sinT);
-    expect(singleCrystalLorentz(xray, d)).toBeCloseTo(1 / Math.sin(2 * theta), 10);
-  });
-
-  it("polarization is 1 for neutrons, <1 for X-rays away from 2θ=0", () => {
-    expect(polarizationFactor(neutron, 2)).toBe(1);
-    expect(polarizationFactor(xray, 2)).toBeLessThan(1);
-  });
-
-  it("TOF has unit Lorentz here (no single θ)", () => {
-    expect(singleCrystalLorentz({ kind: "neutron-tof" }, 2)).toBe(1);
-  });
-});
 
 describe("extinction", () => {
   it("is 1 when the parameter is 0 and damps strong low-angle reflections", () => {

@@ -3,12 +3,19 @@
  * of the powder `structureRefinement`, assembled from the *same* symmetry-
  * constraint layer (symmetry-adapted position and ADP modes, occupancy) so a
  * special-position atom is reduced identically whichever data type refines it.
- * What differs is the observable: one integrated intensity per reflection,
- * corrected by the single-crystal Lorentz-polarization geometry and
- * (optionally) secondary extinction, with SHELX F² agreement factors (R1, wR2,
- * GooF) instead of a profile wR.
+ * What differs is the observable: one F² per reflection, with (optionally)
+ * secondary extinction, and SHELX F² agreement factors (R1, wR2, GooF) instead
+ * of a profile wR.
  *
- *   I_calc(hkl) = k · L(θ) · P(θ) · y_ext(Fc²) · |F(hkl)|²
+ *   Fc²(hkl) = k · y_ext(Fc²) · |F(hkl)|²
+ *
+ * The reflection files hold Fo² as data reduction leaves them — Lorentz,
+ * polarization and absorption already corrected: SHELX HKLF 4 and .fcf,
+ * FullProf .int, the SNS TOPAZ .hkl. SHELXL, Jana, FullProf and GSAS-II fit
+ * them so, and so does this model: SHELXL's own Fc² in a LIST 4 .fcf is |F|²
+ * on the absolute scale, with no angle factor (multiplying the model by
+ * 1/sin2θ again, as this module once did, bent its fall-off with angle by up to
+ * a factor of 15 for Mo data, for the scale and the ADPs to absorb).
  *
  * The **unit cell is input, not a parameter.** Integrated intensities carry no
  * information about peak positions; the cell enters |F|² only through the weak
@@ -38,8 +45,6 @@ import { resolveTies } from "@/core/refinement/constraints";
 import { applyParameters } from "@/core/workflow/apply";
 import { nuclearStructureFactorSquared } from "@/core/diffraction/structureFactor";
 import {
-  singleCrystalLorentz,
-  polarizationFactor,
   extinctionFactor,
   shelxWeights,
   singleCrystalAgreement,
@@ -229,7 +234,7 @@ export function guidedSingleCrystalParams(params: readonly RefinementParameter[]
   return params.map((p) => (unlock.has(p.kind) ? { ...p, fixed: false } : { ...p }));
 }
 
-/** I_calc for one reflection: k·L·P·y_ext·|F|². */
+/** Fc² for one reflection: k·y_ext·|F|² (the data are corrected Fo²). */
 function reflectionIntensity(
   applied: ReturnType<typeof applyParameters>,
   dataset: SingleCrystalDataset,
@@ -240,14 +245,13 @@ function reflectionIntensity(
   const model = applied.model;
   const d = dSpacing(model.cell, h, k, l);
   const f2 = nuclearStructureFactorSquared(model, dataset.radiation, h, k, l);
-  const lp = singleCrystalLorentz(dataset.radiation, d) * polarizationFactor(dataset.radiation, d);
   const y = extinctionFactor(applied.extinction, f2, dataset.radiation, d);
-  return applied.scale * lp * y * f2;
+  return applied.scale * y * f2;
 }
 
 /**
  * Build a single-crystal F² refinement problem: observations are the measured
- * I ∝ Fo², the model returns I_calc = k·L·P·y·Fc², weights are 1/σ²(Fo²)
+ * Fo², the model returns k·y·|F|², weights are 1/σ²(Fo²)
  * (SHELX a = b = 0; the a/b terms need Fc²-dependent reweighting, tracked
  * separately in the agreement report).
  */

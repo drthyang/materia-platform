@@ -3,12 +3,13 @@
  * pieces that separate an integrated-Bragg refinement from the powder path,
  * following the SHELXL conventions crystallographers publish against.
  *
- * Calculated intensity for one reflection:
- *   I_calc = k · L · P · y(ext) · |F|²
- * with k the overall scale (SHELX OSF, applied to F²), L the single-crystal
- * Lorentz factor, P the polarization factor, and y the extinction correction.
- * Unlike powder there is no multiplicity or profile — each reflection is one
- * measured integrated intensity.
+ * Calculated F² for one reflection:
+ *   Fc² = k · y(ext) · |F|²
+ * with k the overall scale (SHELX OSF, applied to F²) and y the extinction
+ * correction. The observed Fo² come Lorentz-, polarization- and
+ * absorption-corrected from data reduction, as every single-crystal program
+ * takes them; unlike powder there is no multiplicity or profile — each
+ * reflection is one measured F².
  *
  * Agreement (F² refinement, SHELXL):
  *   w      = 1 / [σ²(Fo²) + (a·P)² + b·P],   P = [max(Fo²,0) + 2·Fc²]/3
@@ -21,28 +22,6 @@
 
 import type { Radiation } from "@/core/diffraction/types";
 import { braggTheta } from "@/core/crystal/unitCell";
-
-/**
- * Single-crystal Lorentz factor for a rotating-crystal / 4-circle measurement:
- * L = 1/sin(2θ). Returns 1 for TOF Laue (no single θ) and for the forward beam.
- */
-export function singleCrystalLorentz(radiation: Radiation, d: number): number {
-  if (radiation.kind === "neutron-tof") return 1;
-  const theta = braggTheta(d, radiation.wavelength);
-  if (Number.isNaN(theta)) return 1;
-  const s2t = Math.sin(2 * theta);
-  return Math.abs(s2t) < 1e-6 ? 1 : 1 / s2t;
-}
-
-/** Polarization factor P (X-ray only; 1 for neutrons). Mirrors the powder LP split. */
-export function polarizationFactor(radiation: Radiation, d: number): number {
-  if (radiation.kind !== "xray") return 1;
-  const theta = braggTheta(d, radiation.wavelength);
-  if (Number.isNaN(theta)) return 1;
-  const cos2T = Math.cos(2 * theta);
-  const p = radiation.polarization ?? 0.5;
-  return (1 - p) * cos2T * cos2T + p;
-}
 
 /**
  * Becker–Coppens / SHELXL secondary-extinction correction y applied to F²:

@@ -274,6 +274,18 @@ release fixes bugs.
 
 ### Fixed
 
+- **The single-crystal model no longer applies a Lorentz–polarization
+  factor.** Reflection files hold Fo² already corrected in data reduction
+  (SHELX .hkl and .fcf, FullProf .int, the SNS TOPAZ .hkl), and the model
+  multiplied Fc² by 1/sin2θ (and the X-ray polarization) again: against
+  SHELXL's own Fc² in the GSAS-II tutorial's 1b.fcf (Mo Kα) the ratio ran from
+  14 at low angle to 0.9 at high angle, a fall-off with angle for the scale and
+  the ADPs to absorb. Fc² is now k·y·|F|², as SHELXL, Jana, FullProf and
+  GSAS-II fit it and as the page's own magnetic path already did; the ratio
+  is flat within 5 % (a test reads the tutorial file when it is present). The
+  Prefit and Escape searches were tuned on the old surface and recovered a
+  trapped start for 2 seeds in 10 on the corrected one; a new seed sweep sets
+  the positional kick floor to 0.15 and 50 iterations per start (8 in 10).
 - The report's number audit accepts a number more precise than the report
   prints when it rounds to the printed value (2.9992 for a printed 2.999).
 - The symmetry-last eval read "Neither is evidence for a lower group" as

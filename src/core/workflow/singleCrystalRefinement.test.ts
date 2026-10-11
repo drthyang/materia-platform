@@ -1,4 +1,8 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { dataExists, dataPath } from "@/testSupport/data";
+import { parse_single_crystal_data, parse_structure } from "@/mcp/tools";
+import { dSpacing } from "@/core/crystal/unitCell";
 import type { StructureModel } from "@/core/crystal/types";
 import type { SingleCrystalDataset } from "@/core/diffraction/types";
 import { buildSpaceGroup } from "@/core/crystal/spaceGroups";
@@ -109,5 +113,32 @@ describe("single-crystal F² refinement recovery", () => {
     const cmp = singleCrystalRefinementComparison(structure, data, spec.params, spec.bindings);
     // At the truth scale the residuals are ~0.
     expect(Math.max(...cmp.rows.map((r) => Math.abs(r.deltaOverSigma)))).toBeLessThan(1e-6);
+  });
+});
+
+const SHELX_1B = { cif: "GSAS-II-tutorials/sc/1b.cif", fcf: "GSAS-II-tutorials/sc/1b.fcf" };
+
+describe.skipIf(!dataExists(SHELX_1B.cif) || !dataExists(SHELX_1B.fcf))("the model against SHELXL's own Fc² (GSAS-II tutorial 1b, Mo Kα)", () => {
+  it("has SHELXL's fall-off with angle: the data are corrected Fo², with no Lorentz–polarization factor left to apply", () => {
+    const s = parse_structure({ cif: readFileSync(dataPath(SHELX_1B.cif), "utf8") }).structure;
+    const fcf = readFileSync(dataPath(SHELX_1B.fcf), "utf8");
+    const ds = { ...parse_single_crystal_data({ text: fcf, name: "1b.fcf" }).dataset, radiation: { kind: "xray" as const, wavelength: 0.71073 } };
+    const spec = buildSingleCrystalSpec(s, ds, { scale: 1 });
+    const ours = singleCrystalRefinementComparison(s, ds, spec.params, spec.bindings).rows;
+    // The .fcf's own F²calc column (LIST 4: h k l Fc² Fo² σ flag).
+    const shelx = new Map(fcf.split("\n").map((l) => l.trim().split(/\s+/)).filter((t) => t.length === 7 && /^[ox]$/.test(t[6]!)).map((t) => [`${t[0]},${t[1]},${t[2]}`, Number(t[3])]));
+    // The median ratio per sinθ/λ shell: flat when the model falls off as SHELXL's does.
+    const shells = new Map<number, number[]>();
+    for (const r of ours) {
+      const fc = shelx.get(`${r.h},${r.k},${r.l}`);
+      if (!fc || fc < 50) continue;
+      const shell = Math.floor(1 / (2 * dSpacing(s.cell, r.h, r.k, r.l)) / 0.1);
+      (shells.get(shell) ?? shells.set(shell, []).get(shell)!).push(r.fcSq / fc);
+    }
+    const medians = [...shells.values()].filter((v) => v.length >= 20).map((v) => v.sort((a, b) => a - b)[Math.floor(v.length / 2)]!);
+    expect(medians.length).toBeGreaterThanOrEqual(4);
+    // Within 5 % of each other from 0.1 to 0.6 Å⁻¹ (anomalous dispersion and the inversion twin
+    // are not modelled here); an L·P factor made the ratio run from 14 down to 0.9.
+    expect(Math.max(...medians) / Math.min(...medians)).toBeLessThan(1.05);
   });
 });

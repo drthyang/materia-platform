@@ -16,12 +16,12 @@ import { ComputeClient } from "@/workers/computeClient";
 /**
  * The single-crystal escape path (Prefit / Escape min on the F² page). An F²
  * surface traps LM readily: from a start with every positional mode displaced
- * by 0.15, a plain refine converges CLEANLY onto the ±0.2 bound with wR ≈ 83 %
+ * by 0.15, a plain refine converges CLEANLY onto the ±0.2 bound with wR ≈ 92 %
  * — a wrong answer with a converged status. The multi-start, at the page's
- * Prefit settings (12 restarts, ~4σ kicks with the 0.1 fractional-coordinate
- * floor), lands a restart in the true basin and recovers the exact truth. The
- * settings come from a seed sweep (8–9 of 10 seeds recover; the default seed
- * used here does). Synthetic P-1 data, no data files; worker pooling is
+ * Prefit settings (12 restarts, ~4σ kicks with the 0.15 fractional-coordinate
+ * floor, 50 iterations per start), lands a restart in the true basin and
+ * recovers the exact truth. The settings come from a seed sweep (8 of 10 seeds
+ * recover; the default seed used here does). Synthetic P-1 data, no data files; worker pooling is
  * inactive under vitest (no `Worker`), so ComputeClient runs in-thread and
  * deterministically.
  */
@@ -65,12 +65,12 @@ const start: RefinementParameter[] = spec.params.map((p) => {
   return { ...p, fixed: true };
 });
 /** The page's positional kick floor and its Prefit settings. */
-const minKick = (p: RefinementParameter): number | undefined => (p.kind === "positionShift" ? 0.1 : undefined);
+const minKick = (p: RefinementParameter): number | undefined => (p.kind === "positionShift" ? 0.15 : undefined);
 const PREFIT = { restarts: 12, escapeSigma: 4, relFraction: 0.5, minKick };
 
 describe("refineSingleCrystalMultiStart — escapes a bound-trapped positional minimum", () => {
   it("a plain refine converges onto the ±0.2 bound with a large wR (the trap)", () => {
-    const r = refine(buildSingleCrystalRefinementProblem(structure, data, start, spec.bindings), { maxIterations: 25 });
+    const r = refine(buildSingleCrystalRefinementProblem(structure, data, start, spec.bindings), { maxIterations: 50 });
     expect(r.status).toBe("converged");
     expect(r.agreement.rWeighted ?? 0).toBeGreaterThan(0.5);
     expect(Math.max(...posIds.map((id) => Math.abs(r.parameters[id] ?? 0)))).toBeCloseTo(0.2, 3);
@@ -79,7 +79,7 @@ describe("refineSingleCrystalMultiStart — escapes a bound-trapped positional m
   it("the multi-start recovers the exact truth from the same start", async () => {
     const client = new ComputeClient();
     const ms = await client.refineSingleCrystalMultiStart(
-      { structure, dataset: data, parameters: start, bindings: spec.bindings, options: { maxIterations: 25 } },
+      { structure, dataset: data, parameters: start, bindings: spec.bindings, options: { maxIterations: 50 } },
       PREFIT,
     );
     expect(ms.costByStart).toHaveLength(13);
@@ -94,7 +94,7 @@ describe("refineSingleCrystalMultiStart — escapes a bound-trapped positional m
 
   it("is deterministic — the same seed reproduces every start's χ²", async () => {
     const client = new ComputeClient();
-    const req = { structure, dataset: data, parameters: start, bindings: spec.bindings, options: { maxIterations: 25 } };
+    const req = { structure, dataset: data, parameters: start, bindings: spec.bindings, options: { maxIterations: 50 } };
     const a = await client.refineSingleCrystalMultiStart(req, PREFIT);
     const b = await client.refineSingleCrystalMultiStart(req, PREFIT);
     expect(b.costByStart).toEqual(a.costByStart);
