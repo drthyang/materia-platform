@@ -10,14 +10,15 @@
 
 import { z } from "zod";
 import { PAGE_LABEL, liveTool, type LiveToolSpec, type ToolEffect } from "@/agent/tools";
-import type { AgentPort, LiveState, PdfLiveState, PowderLiveState } from "@/agent/port";
+import type { AgentPort, LiveState, PdfLiveState, PowderLiveState, SingleCrystalLiveState } from "@/agent/port";
 import { changePowder, describePowderChange, powderNoOp, powderReportChecks, readPowderTool, requireStructure } from "@/agent/powderTools";
 import { changeMagnetic, describeMagneticChange, isMagneticTool, magneticNoOp, magneticOutcome, readMagneticTool } from "@/agent/magneticTools";
 import { changePdf, describePdfChange, pdfNoOp, pdfReportChecks, readPdfTool } from "@/agent/pdfTools";
+import { changeSingleCrystal, describeSingleCrystalChange, readSingleCrystalTool, singleCrystalNoOp, singleCrystalReportChecks } from "@/agent/scTools";
 import { samplePosteriorTool, type PosteriorRun } from "@/agent/posteriorTool";
 import { buildAgentReport, reportFileBase, type AgentReport } from "@/agent/report";
 import { matchIds, type LiveToolHost } from "@/agent/liveCommon";
-import { PROBE_OPTIONS, correlationRefusal, pairText, readCorrelations, refusalLine } from "@/agent/correlationCheck";
+import { PROBE_OPTIONS, carriedText, correlationRefusal, pairText, readCorrelations, refusalLine } from "@/agent/correlationCheck";
 import { PAGE_METHOD, readSkill } from "@/agent/skills";
 import { RULES, advanceAlternation, alternationView, keyOfState, methodProgress, outOfOrder, ruleRefusal, stagesCovered, stagesLeft, type AgentRecord, type Alternation, type MethodRule } from "@/agent/method";
 import { REF_KEY, RefStore, buildView } from "@/mcp/refs";
@@ -93,6 +94,7 @@ const STEP_KIND: Readonly<Record<string, StepKind>> = {
   set_adp_model: "settings",
   set_site_ties: "settings",
   set_fit_range: "settings",
+  set_outlier_filter: "settings",
 };
 
 let nextCallId = 1;
@@ -198,12 +200,14 @@ export class AgentExecutor implements ToolRunner {
         }
         // Let the drawer paint "running" before a heavy synchronous analysis.
         await new Promise((r) => setTimeout(r, 0));
-        let out = spec.name === "sample_posterior" ? await samplePosteriorTool(input as { continue?: boolean; steps?: number; compare?: [string, string][] }, port, (run) => { this.posterior = { run, key: keyOfState(port.technique, port.state()), step: this.currentStep() }; })
-          : port.technique === "pdf" ? readPdfTool(spec.name, input, port, this.host)
-            : isMagneticTool(spec.name) ? await readMagneticTool(spec.name, input, port, () => this.host.settle())
-              : readPowderTool(spec.name, input, port, this.host);
+        let out = port.technique === "singleCrystal" ? readSingleCrystalTool(spec.name, input, port, this.host)
+          : spec.name === "sample_posterior" ? await samplePosteriorTool(input as { continue?: boolean; steps?: number; compare?: [string, string][] }, port, (run) => { this.posterior = { run, key: keyOfState(port.technique, port.state()), step: this.currentStep() }; })
+            : port.technique === "pdf" ? readPdfTool(spec.name, input, port, this.host)
+              : isMagneticTool(spec.name) ? await readMagneticTool(spec.name, input, port, () => this.host.settle())
+                : readPowderTool(spec.name, input, port, this.host);
         if (spec.name === "check_cell_symmetry") this.noteCellCheck(port, out as { passed?: boolean; unindexedPeaks?: unknown[]; absences?: { violated?: unknown[] } });
         if (spec.name === "check_fit_range") this.noteRangeCheck(port, out as RangeAnswer);
+        if (spec.name === "reflection_statistics") this.noteDataCheck(port, out as DataAnswer);
         if (spec.name === "review_symmetry") this.noteSymmetryReview(port, out as { observedForbidden?: unknown[]; candidates?: { name: string }[] });
         if (spec.name === "get_state") out = { ...(out as object), method: this.methodView(port) };
         update({ status: "done" });
@@ -222,15 +226,17 @@ export class AgentExecutor implements ToolRunner {
       if (before.busy) throw new Error("a refinement is running — wait for it to finish, or call cancel_refinement");
       const magnetic = port.technique === "powder" && isMagneticTool(spec.name);
       const noOp = port.technique === "pdf" ? pdfNoOp(spec, input, before as PdfLiveState)
-        : magnetic ? magneticNoOp(spec.name, input, port)
-          : powderNoOp(spec, input, before as PowderLiveState);
+        : port.technique === "singleCrystal" ? singleCrystalNoOp(spec, input, before as SingleCrystalLiveState)
+          : magnetic ? magneticNoOp(spec.name, input, port)
+            : powderNoOp(spec, input, before as PowderLiveState);
       if (noOp) {
         update({ status: "done", outcome: "No change" });
         return this.respond({ unchanged: true, note: noOp });
       }
       let preview = port.technique === "pdf" ? describePdfChange(spec, input, before as PdfLiveState)
-        : magnetic ? describeMagneticChange(spec.name, input, port)
-          : describePowderChange(spec, input, before as PowderLiveState);
+        : port.technique === "singleCrystal" ? describeSingleCrystalChange(spec, input, before as SingleCrystalLiveState)
+          : magnetic ? describeMagneticChange(spec.name, input, port)
+            : describePowderChange(spec, input, before as PowderLiveState);
       // The method's firm rules, then its order (a note, not a refusal).
       const key = keyOfState(port.technique, before);
       const freeBefore = before.parameters.filter((p) => !p.fixed && !p.expression);
@@ -263,7 +269,8 @@ export class AgentExecutor implements ToolRunner {
           update({ status: "failed", preview, outcome: refusalLine(check) });
           return error(refusal);
         }
-        preview += check.strongest ? ` · strongest correlation ${pairText(check.strongest)}` : " · no correlation above 0.5";
+        preview += check.carried.length > 0 ? ` · ${check.carried.map(carriedText).join("; ")}, carried by the other free parameters`
+          : check.strongest ? ` · strongest correlation ${pairText(check.strongest)}` : " · no correlation above 0.5";
       }
       update({ status: "waiting", preview });
       if (!(await this.opts.approve(entry))) {
@@ -276,8 +283,9 @@ export class AgentExecutor implements ToolRunner {
       this.host.recordNow("edit");
       const changed = await this.host.asAgent(async () => {
         const n = port.technique === "pdf" ? await changePdf(spec.name, input, port, this.host)
-          : magnetic ? await changeMagnetic(spec.name, input, port)
-            : await changePowder(spec.name, input, port, this.host);
+          : port.technique === "singleCrystal" ? await changeSingleCrystal(spec.name, input, port, this.host)
+            : magnetic ? await changeMagnetic(spec.name, input, port)
+              : await changePowder(spec.name, input, port, this.host);
         await this.host.settle();
         const kind = STEP_KIND[spec.name];
         if (kind) {
@@ -315,12 +323,7 @@ export class AgentExecutor implements ToolRunner {
   private requirePort(): AgentPort {
     const port = this.host.port();
     if (port) return port;
-    const technique = this.host.technique();
-    throw new Error(
-      technique === "singleCrystal"
-        ? "the Agent works on the powder and PDF pages for now; the single-crystal page is not connected yet"
-        : "no analysis is open — ask the user to load a structure and data, or a demo",
-    );
+    throw new Error("no analysis is open — ask the user to load a structure and data, or a demo");
   }
 
   private currentStep(): { id: string; label: string } | null {
@@ -350,6 +353,20 @@ export class AgentExecutor implements ToolRunner {
     const proposed = typeof out.proposed === "object" ? `; proposed window ${out.proposed.min}–${out.proposed.max} ${out.unit}` : Array.isArray(out.window) ? `; window ${out.window[0]}–${out.window[1]} ${out.unit}` : "";
     const summary = `${end(out.low)}; ${end(out.high)}${proposed}`;
     this.host.updateRecord(keyOfState(port.technique, port.state()), (r) => ({ ...r, rangeCheck: { at: Date.now(), summary } }));
+  }
+
+  /** The data's reading before the model (single crystal), kept for the analysis. A record, not a gate. */
+  private noteDataCheck(port: AgentPort, out: DataAnswer): void {
+    const r = out.reflections;
+    const e = out.intensityStatistics;
+    const parts = [
+      `${r.measured} reflections, ${r.unique} unique, R_int ${r.rInt} %`,
+      `d_min ${out.resolution.dMin} Å${out.resolution.completeness !== undefined ? `, completeness ${out.resolution.completeness} %` : ""}`,
+      ...(typeof e === "object" ? [`⟨|E²−1|⟩ ${e.meanAbsE2Minus1}: ${e.reading}`] : []),
+      ...(typeof out.absences === "object" ? [`${out.absences.atThreeSigma} of ${out.absences.measured} forbidden reflections at ≥ 3σ`] : []),
+      ...(out.friedel.startsWith("centrosymmetric") ? [] : [out.friedel.split(":")[0]!]),
+    ];
+    this.host.updateRecord(keyOfState(port.technique, port.state()), (rec) => ({ ...rec, dataCheck: { at: Date.now(), summary: parts.join("; ") } }));
   }
 
   /** The symmetry review's outcome, kept for the analysis. */
@@ -437,7 +454,9 @@ export class AgentExecutor implements ToolRunner {
         probe = null;
       }
     }
-    const checks = port.technique === "pdf" ? pdfReportChecks(s as PdfLiveState, probe) : powderReportChecks(s as PowderLiveState, probe);
+    const checks = port.technique === "pdf" ? pdfReportChecks(s as PdfLiveState, probe)
+      : port.technique === "singleCrystal" ? singleCrystalReportChecks(s as SingleCrystalLiveState, probe)
+        : powderReportChecks(s as PowderLiveState, probe);
     // The last run on this analysis: of the refinement on screen, or of an earlier one (a focused
     // set, before the final refinement), which the report labels with how far its values moved since.
     const sampled = this.posterior && this.posterior.key === keyOfState(port.technique, s) ? this.posterior : null;
@@ -527,6 +546,15 @@ export class AgentExecutor implements ToolRunner {
   }
 }
 
+/** reflection_statistics' answer, as the record reads it. */
+interface DataAnswer {
+  readonly reflections: { readonly measured: number; readonly unique: number; readonly rInt: number };
+  readonly resolution: { readonly dMin: number; readonly completeness?: number };
+  readonly friedel: string;
+  readonly absences: { readonly measured: number; readonly atThreeSigma: number } | string;
+  readonly intensityStatistics: { readonly meanAbsE2Minus1: number; readonly reading: string } | string;
+}
+
 /** check_fit_range's answer, as the record reads it. */
 interface RangeAnswer {
   readonly unit: string;
@@ -542,10 +570,11 @@ function error(message: string): ToolOutcome {
 
 /**
  * A page's agreement: wR on powder; Rw on PDF, which has no GoF (uniform
- * weights). The model sees the name the page shows.
+ * weights); wR2 on F² on the single-crystal page, with R1 beside it. The
+ * model sees the name the page shows.
  */
-function agreement(s: LiveState): { key: "wR" | "Rw"; live: number } {
-  return "rw" in s ? { key: "Rw", live: s.rw } : { key: "wR", live: s.wR };
+function agreement(s: LiveState): { key: "wR" | "Rw" | "wR2"; live: number } {
+  return "rw" in s ? { key: "Rw", live: s.rw } : "dataset" in s ? { key: "wR2", live: s.agreement.wr2 } : { key: "wR", live: s.wR };
 }
 
 /** What the model learns after a change: the effect on the fit and the step it became. */
@@ -571,6 +600,7 @@ function changeOutcome(
       [key]: pct(r.agreement.rWeighted ?? 0),
       [`${key}Before`]: pct(agreement(before).live),
       ...(key === "wR" ? { gof: r.agreement.goodnessOfFit !== undefined ? Number(r.agreement.goodnessOfFit.toPrecision(4)) : null } : {}),
+      ...("dataset" in after && "dataset" in before ? { R1: pct(after.agreement.r1), R1Before: pct(before.agreement.r1), GooF: Number(after.agreement.goof.toPrecision(4)) } : {}),
       iterations: r.history.length,
       ...(r.diagnostics ? { atBounds: r.diagnostics.atBounds.map((b) => b.parameterId), maxShiftOverEsd: Number(r.diagnostics.maxShiftOverEsd.toPrecision(3)) } : {}),
       ...developedCorrelations(r, after.parameters, restraintsOf(after)),
@@ -588,8 +618,12 @@ function changeOutcome(
  */
 function developedCorrelations(r: RefinementResult, parameters: readonly RefinementParameter[], restraints: readonly LinearRestraint[]): Record<string, unknown> {
   const check = readCorrelations(r, parameters, restraints);
-  if (check.correlated.length === 0 && check.undetermined.length === 0) return {};
+  const carried = check.carried.length > 0
+    ? { carriedCorrelations: check.carried.map(carriedText), carriedNote: "Correlated through the other free parameters: with them held fixed each pair separates, so they refine together (as the scale, the extinction and the ADPs do in every single-crystal program). Read their esds before quoting them." }
+    : {};
+  if (check.correlated.length === 0 && check.undetermined.length === 0) return carried;
   return {
+    ...carried,
     correlated: check.correlated.map(pairText),
     ...(check.undetermined.length > 0 ? { undetermined: check.undetermined } : {}),
     correlationNote: "These parameters correlate at the refined values. Fix one of each pair before the next refinement; refine will not run with them all free.",

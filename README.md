@@ -97,7 +97,8 @@ speed.*
   ties, antisite disorder, the magnetic structure (k, the magnetic space groups,
   the moments, the joint refinement) and boxcar scans of a PDF; then it reports
   the result with its esds and its own assessment, and answers questions about
-  it. 45 tools across the powder page, its magnetic step and the PDF page.
+  it. 47 tools across the powder page, its magnetic step, the single-crystal
+  page and the PDF page.
 - **A report you can hand on.** `write_report` opens the analysis report in the
   app, to save as HTML, Markdown or PDF with the CIF: the data and the model, the
   fit, the structure with esds, every parameter, and how the analysis went — the

@@ -16,6 +16,7 @@ import type {
   RefinementIteration,
   RefinementOptions,
   RefinementParameter,
+  RefinementCorrelation,
   RefinementResult,
   RefinementStatus,
 } from "@/core/refinement/types";
@@ -480,11 +481,12 @@ function maxShiftOverEsd(step: readonly number[], esd: readonly number[]): { val
 
 function highCorrelations(
   covariance: Matrix,
+  normal: Matrix,
   ids: readonly string[],
   threshold: number,
   maxPairs: number,
 ) {
-  const pairs: { parameterIdA: string; parameterIdB: string; coefficient: number }[] = [];
+  const pairs: RefinementCorrelation[] = [];
   for (let i = 0; i < covariance.length; i++) {
     const vi = covariance[i]![i]!;
     if (!(vi > 0)) continue;
@@ -493,7 +495,9 @@ function highCorrelations(
       if (!(vj > 0)) continue;
       const coefficient = covariance[i]![j]! / Math.sqrt(vi * vj);
       if (Number.isFinite(coefficient) && Math.abs(coefficient) >= threshold) {
-        pairs.push({ parameterIdA: ids[i]!, parameterIdB: ids[j]!, coefficient });
+        const nn = normal[i]![i]! * normal[j]![j]!;
+        const conditional = nn > 0 ? -normal[i]![j]! / Math.sqrt(nn) : NaN;
+        pairs.push({ parameterIdA: ids[i]!, parameterIdB: ids[j]!, coefficient, ...(Number.isFinite(conditional) ? { conditional } : {}) });
       }
     }
   }
@@ -718,6 +722,7 @@ function* refineCore(
     conditionNumber: Math.max(covDiagnostics.conditionNumber, maxSolveConditionNumber),
     highCorrelations: highCorrelations(
       covarianceBase,
+      finalJtj,
       freeIds,
       opts.correlationThreshold ?? 0.95,
       opts.maxReportedCorrelations ?? 12,

@@ -1,15 +1,15 @@
 /**
  * The Agent's pages without React, for tests and the eval suite: a powder
- * session and the GaTa4Se8 PDF demo behind real ports (the real curves and
- * the real engine), a host that keeps the Agent's records in memory, and an
- * executor that has read the pages' methods.
+ * session, the GaTa4Se8 PDF demo and a single-crystal data set behind real
+ * ports (the real curves and the real engine), a host that keeps the Agent's
+ * records in memory, and an executor that has read the pages' methods.
  */
 
 import { AgentExecutor, type ActivityEntry, type AgentHost } from "@/agent/executor";
 import type { AgentReport } from "@/agent/report";
 import { PAGE_METHOD } from "@/agent/skills";
 import { emptyRecord, type AgentRecord } from "@/agent/method";
-import type { AgentPort, PdfAgentPort, PdfLiveState, PowderAgentPort, PowderLiveState } from "@/agent/port";
+import type { AgentPort, PdfAgentPort, PdfLiveState, PowderAgentPort, PowderLiveState, SingleCrystalAgentPort, SingleCrystalLiveState } from "@/agent/port";
 import { gata4se8PdfExample } from "@/examples/gata4se8Pdf";
 import { buildPdfProblem, buildPdfSpec, pdfCurves } from "@/core/workflow/pdf";
 import { applyParameters } from "@/core/workflow/apply";
@@ -31,7 +31,10 @@ import { buildPowderProblem } from "@/core/workflow/powder";
 import { samplePosterior, type SampleResult } from "@/core/refinement/bayes/sampler";
 import { magneticHandle, sessionCurves } from "@/testSupport/magneticHeadless";
 import type { ProjectHistory, StepKind } from "@/core/project/history";
-import { pdfReportInput, powderReportInput } from "@/app/reportInputs";
+import { pdfReportInput, powderReportInput, singleCrystalReportInput } from "@/app/reportInputs";
+import type { SingleCrystalDataset } from "@/core/diffraction/types";
+import { mergeEquivalents } from "@/core/diffraction/merge";
+import { buildSingleCrystalRefinementProblem, buildSingleCrystalSpec, singleCrystalRefinementComparison } from "@/core/workflow/singleCrystalRefinement";
 
 /**
  * A powder page without React: a session, the real curves and the real
@@ -417,6 +420,107 @@ export function pdfPort(): { port: PdfAgentPort; calls: string[] } {
     },
     cancel: () => calls.push("cancel"),
     reset: () => calls.push("reset"),
+  };
+  return { port, calls };
+}
+
+/**
+ * A single-crystal page without React: a structure and its reflections behind
+ * the port, refined with the real engine, the outlier filter and the ADP
+ * switch as the page has them.
+ */
+export function singleCrystalPort(start: StructureModel, dataset: SingleCrystalDataset): { port: SingleCrystalAgentPort; calls: string[] } {
+  let model = start;
+  let spec = buildSingleCrystalSpec(model, dataset, { extinction: 0 });
+  let params = spec.params;
+  let result: RefinementResult | null = null;
+  let filter = { on: false, cutoffSigma: 6 };
+  const calls: string[] = [];
+  const values = (): Record<string, number> => Object.fromEntries(params.map((p) => [p.id, p.value]));
+  // The filter reads the residuals of the whole set against the current model, as the page's.
+  const active = (): SingleCrystalDataset => {
+    if (!filter.on) return dataset;
+    const full = singleCrystalRefinementComparison(model, dataset, params, spec.bindings);
+    return { ...dataset, reflections: dataset.reflections.filter((_, i) => Math.abs(full.rows[i]?.deltaOverSigma ?? 0) <= filter.cutoffSigma) };
+  };
+  const state = (): SingleCrystalLiveState => {
+    const ds = active();
+    const cmp = singleCrystalRefinementComparison(model, ds, params, spec.bindings);
+    const merge = mergeEquivalents(ds.reflections.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.iObs, sigma: r.sigma ?? 0 })), model.spaceGroup.operations);
+    return {
+      structure: model,
+      refinedStructure: applyParameters(model, spec.bindings, values()).model,
+      dataset,
+      totalReflections: dataset.reflections.length,
+      probe: dataset.radiation.kind,
+      parameters: params,
+      bindings: spec.bindings,
+      result,
+      busy: false,
+      agreement: cmp.agreement,
+      merge: merge.statistics,
+      rows: cmp.rows,
+      outlierFilter: { ...filter, excluded: dataset.reflections.length - ds.reflections.length },
+      adpModel: adpModelOf(model),
+      magnetic: false,
+      observationCount: ds.reflections.length,
+      source: dataset.name,
+      restraints: [],
+    };
+  };
+  const port: SingleCrystalAgentPort = {
+    technique: "singleCrystal",
+    state,
+    setFixed: (changes) => {
+      calls.push(`setFixed ${changes.map((c) => `${c.id}=${c.fixed}`).join(",")}`);
+      const m = new Map(changes.map((c) => [c.id, c.fixed]));
+      params = params.map((p) => (m.has(p.id) ? { ...p, fixed: m.get(p.id)! } : p));
+    },
+    // The page's switch: the tensors (or spheres) seeded from the refined ADPs, entering fixed.
+    setAdpModel: (anisotropic) => {
+      calls.push(`adp ${anisotropic ? "anisotropic" : "isotropic"}`);
+      const refined = applyParameters(model, spec.bindings, values()).model;
+      const seeds = new Map(refined.sites.map((site) => [site.label, site.adp]));
+      model = withAdpModel({ ...start, sites: start.sites.map((site) => ({ ...site, adp: seeds.get(site.label) ?? site.adp })) }, anisotropic ? "anisotropic" : "isotropic");
+      const old = new Map(params.map((p) => [p.id, p]));
+      spec = buildSingleCrystalSpec(model, dataset, { extinction: 0 });
+      params = spec.params.map((p) => {
+        const o = p.kind === "bIso" || p.kind === "uAniso" ? undefined : old.get(p.id);
+        return o ? { ...p, value: o.value, initialValue: o.initialValue, fixed: o.fixed } : p;
+      });
+      result = null;
+    },
+    setOutlierFilter: (update) => {
+      calls.push(`filter ${JSON.stringify(update)}`);
+      filter = { on: update.on ?? filter.on, cutoffSigma: update.cutoffSigma ?? filter.cutoffSigma };
+    },
+    refine: async () => {
+      calls.push("refine");
+      const r = refineProblem(buildSingleCrystalRefinementProblem(model, active(), params, spec.bindings), { maxIterations: 25 });
+      params = params.map((p) => ({ ...p, value: r.parameters[p.id] ?? p.value }));
+      result = r;
+      return null;
+    },
+    thorough: async () => {
+      calls.push("thorough");
+      return "cancelled";
+    },
+    probe: async (options) => refineProblem(buildSingleCrystalRefinementProblem(model, active(), params, spec.bindings), options),
+    reportInput: () => {
+      const st = state();
+      return singleCrystalReportInput({
+        structure: st.refinedStructure, params, bindings: spec.bindings, result, dataset: active(), totalReflections: dataset.reflections.length,
+        excluded: st.outlierFilter.excluded, filterOn: filter.on, cutoffSigma: filter.cutoffSigma, agreement: st.agreement, merge: st.merge,
+        points: st.rows.map((r) => ({ obs: r.foSq, calc: r.fcSq })), magnetic: null, explored: null,
+      });
+    },
+    cancel: () => calls.push("cancel"),
+    reset: (ids) => {
+      calls.push(`reset${ids ? ` ${ids.join(",")}` : ""}`);
+      const only = ids ? new Set(ids) : null;
+      params = params.map((p) => (only && !only.has(p.id) ? p : { ...p, value: p.initialValue }));
+      result = null;
+    },
   };
   return { port, calls };
 }

@@ -73,7 +73,9 @@ export function emptyRecord(key: string): AgentRecord {
 
 /** The analysis on a page, from its live state. */
 export function keyOfState(page: AgentPage, s: LiveState): string {
-  return "phases" in s ? analysisKey(page, s.source, s.phases) : analysisKey(page, s.source, [s.structure, ...s.extraPhases]);
+  if ("phases" in s) return analysisKey(page, s.source, s.phases);
+  if ("dataset" in s) return analysisKey(page, s.source, [s.structure]);
+  return analysisKey(page, s.source, [s.structure, ...s.extraPhases]);
 }
 
 /** What identifies an analysis: the page, the data, and the phases (name and space group). */
@@ -115,8 +117,22 @@ const PDF_STAGES: readonly MethodStage[] = [
   { id: "size", label: "Particle size", kinds: ["spdiameter"], optional: true },
 ];
 
+/**
+ * sc-workflow: the data first (merging, resolution, completeness, absences),
+ * then scale and extinction, positions, isotropic ADPs, anisotropic ADPs; the
+ * rest where the data call for it.
+ */
+const SC_STAGES: readonly MethodStage[] = [
+  { id: "data", label: "Data quality", kinds: [] },
+  { id: "base", label: "Scale, extinction", kinds: ["scale", "extinction"] },
+  { id: "positions", label: "Positions", kinds: ["atomX", "atomY", "atomZ", "positionShift"] },
+  { id: "adp", label: "Isotropic ADPs", kinds: ["bIso"] },
+  { id: "aniso", label: "Anisotropic ADPs", kinds: ["uAniso"], optional: true },
+  { id: "occupancy", label: "Occupancy", kinds: ["occupancy"], optional: true },
+];
+
 export function stagesFor(page: AgentPage): readonly MethodStage[] {
-  return page === "powder" ? POWDER_STAGES : PDF_STAGES;
+  return page === "powder" ? POWDER_STAGES : page === "pdf" ? PDF_STAGES : SC_STAGES;
 }
 
 /** Refined with every stage, so they mark the first stage only when nothing else is free. */
@@ -154,7 +170,7 @@ export function methodProgress(page: AgentPage, record: AgentRecord): MethodProg
   const stages = stagesFor(page).map((s): StageView => ({
     id: s.id,
     label: s.label,
-    done: s.id === "range" ? record.rangeCheck !== undefined : s.id === "check" ? record.cellCheck !== undefined : s.id === "symmetry" ? record.symmetryReviewed !== undefined : done.has(s.id),
+    done: s.id === "range" ? record.rangeCheck !== undefined : s.id === "check" ? record.cellCheck !== undefined : s.id === "data" ? record.dataCheck !== undefined : s.id === "symmetry" ? record.symmetryReviewed !== undefined : done.has(s.id),
     optional: !!s.optional,
   }));
   return { skill: PAGE_METHOD[page], stages, next: stages.find((s) => !s.done && !s.optional)?.label ?? null };

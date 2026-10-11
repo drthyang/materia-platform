@@ -237,6 +237,7 @@ export interface SingleCrystalSnapshot {
   readonly filterOn: boolean;
   readonly cutoffSigma: number;
   readonly modulated: ModulatedInputs;
+  readonly adpModel?: "isotropic" | "anisotropic" | null;
 }
 
 export function singleCrystalWorkspaceFrom(s: SingleCrystalSnapshot): SingleCrystalWorkspace {
@@ -253,6 +254,7 @@ export function singleCrystalWorkspaceFrom(s: SingleCrystalSnapshot): SingleCrys
     ...(s.magnetic ? { magnetic: s.magnetic } : {}),
     outlierFilter: { on: s.filterOn, cutoffSigma: s.cutoffSigma },
     modulated: modulatedHypothesisFrom(s.modulated),
+    ...(s.adpModel ? { adpModel: s.adpModel } : {}),
   };
 }
 

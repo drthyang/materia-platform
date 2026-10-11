@@ -194,6 +194,8 @@ export interface SingleCrystalWorkspace {
   /** SHELX-style OMIT filter on |Fo²−Fc²|/σ. Absent ⇒ off. */
   readonly outlierFilter?: { readonly on: boolean; readonly cutoffSigma: number };
   readonly modulated?: ModulatedHypothesis;
+  /** The ADP model switched to on the page; absent ⇒ the CIF's. */
+  readonly adpModel?: "isotropic" | "anisotropic";
 }
 
 // ---------------------------------------------------------------------------
@@ -268,6 +270,8 @@ export interface AgentRecordFile {
   readonly cellCheck?: { readonly passed: boolean; readonly at: number; readonly summary: string };
   /** The last read of the data's ends (check_fit_range): what it found and the window it proposed. */
   readonly rangeCheck?: { readonly at: number; readonly summary: string };
+  /** The last read of a single-crystal data set (reflection_statistics): its quality in a line. */
+  readonly dataCheck?: { readonly at: number; readonly summary: string };
   /** The symmetry review at the end of the method (review_symmetry). */
   readonly symmetryReviewed?: { readonly at: number; readonly summary: string };
   readonly exceptions: readonly { readonly rule: "bare-occupancy" | "instrument-with-thermal"; readonly reason: string; readonly at: number }[];

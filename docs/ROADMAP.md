@@ -424,12 +424,11 @@ the design and the generated tool list.
 
 - **Tools:** an MCP server delivers them, and its registry doubles as the
   headless API.
-- **In-app Agent:** a model acts on the live powder and PDF pages and the
-  powder page's magnetic analysis step — Claude through an API key or a local
-  proxy, or a local model on Ollama or LM Studio. Every change is an undoable
-  History step, approved first (Ask first) or run by the method's stages
-  (Auto) ([AGENT_TOOLS.md](./AGENT_TOOLS.md#the-in-app-agent)). Single crystal
-  is next.
+- **In-app Agent:** a model acts on the live powder, single-crystal and PDF
+  pages and the powder page's magnetic analysis step — Claude through an API
+  key or a local proxy, or a local model on Ollama or LM Studio. Every change
+  is an undoable History step, approved first (Ask first) or run by the
+  method's stages (Auto) ([AGENT_TOOLS.md](./AGENT_TOOLS.md#the-in-app-agent)).
 - **Skills:** the Rietveld workflow, the magnetic analysis, the PDF workflow,
   the symmetry review and the Bayesian check ship in
   [`.claude/skills/`](../.claude/skills), read on demand by the in-app Agent

@@ -103,9 +103,14 @@ export function historySteps(page: AgentPage, history: ProjectHistory | null): {
 
 const capital = (s: string): string => (s ? s[0]!.toUpperCase() + s.slice(1) : s);
 
-/** The record's checks: the fit range, the cell check, the symmetry review, the method exceptions the user allowed. */
+/** The record's checks: the fit range, the cell check, the symmetry review, the data's reading, the method exceptions the user allowed. */
 export function recordChecks(page: AgentPage, record: AgentRecord): ReportCheck[] {
   const out: ReportCheck[] = [];
+  if (page === "singleCrystal") {
+    out.push(record.dataCheck
+      ? { name: "Data reading", status: "note", detail: `${capital(record.dataCheck.summary)}.` }
+      : { name: "Data reading", status: "note", detail: "Not run in this analysis (reflection_statistics)." });
+  }
   if (page === "powder") {
     if (record.rangeCheck) out.push({ name: "Fit range", status: "note", detail: `${capital(record.rangeCheck.summary)}.` });
     out.push(record.cellCheck
@@ -203,7 +208,7 @@ export function buildAgentReport(a: AgentReportArgs): { input: ReportInput; agen
     model: a.model,
     method: { skill: progress.skill, stages: progress.stages.map((s) => ({ label: s.label, done: s.done, optional: s.optional })) },
     steps,
-    agreementLabel: a.page === "pdf" ? "Rw" : "wR",
+    agreementLabel: a.page === "pdf" ? "Rw" : a.page === "singleCrystal" ? "wR2" : "wR",
     ...(otherBranches > 0 ? { otherBranches } : {}),
     checks,
     posterior,

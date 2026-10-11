@@ -238,6 +238,14 @@ export interface RefinementCorrelation {
   readonly parameterIdA: string;
   readonly parameterIdB: string;
   readonly coefficient: number;
+  /**
+   * The pair's correlation with every other free parameter held fixed: from
+   * the normal matrix, −N_ab/√(N_aa·N_bb). Near ±1 when the two trade off
+   * against each other; well below |coefficient| when their covariance is
+   * carried by a third free parameter they both trade with (two ADPs that both
+   * trade with the scale move together, though the data tell them apart).
+   */
+  readonly conditional?: number;
 }
 
 /**

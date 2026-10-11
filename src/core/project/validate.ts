@@ -373,6 +373,7 @@ function checkSingleCrystalWorkspace(ws: Rec, path: string, ctx: PhaseContext): 
   oneOf(SINGLE_CRYSTAL_PROBES)(ws.probe, `${path}.probe`);
   checkRefinement(ws.refinement, `${path}.refinement`);
   opt(ws.magnetic, `${path}.magnetic`, checkMagnetic(ctx));
+  opt(ws.adpModel, `${path}.adpModel`, oneOf(["isotropic", "anisotropic"] as const));
   if (ws.outlierFilter !== undefined && ws.outlierFilter !== null) {
     const f = rec(ws.outlierFilter, `${path}.outlierFilter`);
     bool(f.on, `${path}.outlierFilter.on`);
@@ -531,6 +532,11 @@ function checkAgent(v: unknown, path: string): void {
     const p = `${path}.records[${i}]`;
     const record = rec(r, p);
     str(record.key, `${p}.key`);
+    if (record.dataCheck !== undefined && record.dataCheck !== null) {
+      const check = rec(record.dataCheck, `${p}.dataCheck`);
+      num(check.at, `${p}.dataCheck.at`);
+      str(check.summary, `${p}.dataCheck.summary`);
+    }
     if (record.rangeCheck !== undefined && record.rangeCheck !== null) {
       const check = rec(record.rangeCheck, `${p}.rangeCheck`);
       num(check.at, `${p}.rangeCheck.at`);

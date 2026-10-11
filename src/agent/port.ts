@@ -9,14 +9,14 @@
  * — so a Agent action is indistinguishable from a click, and the step history
  * records it the same way (tagged `actor: "agent"` by the shell).
  *
- * The powder and PDF pages publish one. Single crystal keeps its state private
- * to the page until it gets its own.
+ * The powder, PDF and single-crystal pages publish one.
  */
 
 import type { MagneticAgentHandle } from "@/agent/magneticPort";
 import type { MutableRefObject } from "react";
 import type { StructureModel } from "@/core/crystal/types";
-import type { PdfPattern, PowderPattern } from "@/core/diffraction/types";
+import type { PdfPattern, PowderPattern, SingleCrystalDataset } from "@/core/diffraction/types";
+import type { MergeStatistics } from "@/core/diffraction/merge";
 import type { InstrumentConstants, InstrumentParameters } from "@/core/diffraction/instrument";
 import type { LinearRestraint, ParameterBinding, RefinementOptions, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { EqualTieUpdate } from "@/core/refinement/constraints";
@@ -197,11 +197,79 @@ export interface PdfAgentPort {
   readonly reset: (ids?: readonly string[]) => void;
 }
 
+/** One reflection as the single-crystal page compares it: observed and calculated F², σ, and (Fo² − Fc²)/σ. */
+export interface SingleCrystalRow {
+  readonly h: number;
+  readonly k: number;
+  readonly l: number;
+  readonly foSq: number;
+  readonly fcSq: number;
+  readonly sigma: number;
+  readonly deltaOverSigma: number;
+}
+
+/** The single-crystal page as the Agent reads it — one render's state. */
+export interface SingleCrystalLiveState {
+  /** The structure as loaded (with the page's ADP model applied). */
+  readonly structure: StructureModel;
+  /** The structure with the current parameter values applied. */
+  readonly refinedStructure: StructureModel;
+  /** The reflections as the page fits them (the OMIT filter applied), with the probe's radiation. */
+  readonly dataset: SingleCrystalDataset;
+  /** Reflections in the file, before the filter. */
+  readonly totalReflections: number;
+  readonly probe: "xray" | "neutron" | "neutron-tof";
+  readonly parameters: readonly RefinementParameter[];
+  readonly bindings: readonly ParameterBinding[];
+  /** The last refinement's result; null before the first fit or after a model change. */
+  readonly result: RefinementResult | null;
+  readonly busy: boolean;
+  /** SHELX agreement of the curves on screen: R1 (Fo² > 2σ), wR2 and GooF over every reflection fitted. */
+  readonly agreement: { readonly r1: number; readonly wr2: number; readonly goof: number; readonly observed: number; readonly total: number };
+  /** The Laue-class merge of the fitted reflections: R_int, R_σ, redundancy. */
+  readonly merge: MergeStatistics;
+  /** Observed and calculated per reflection, in the dataset's order. */
+  readonly rows: readonly SingleCrystalRow[];
+  /** The SHELX-style OMIT filter: reflections beyond `cutoffSigma` left out while on. */
+  readonly outlierFilter: { readonly on: boolean; readonly cutoffSigma: number; readonly excluded: number };
+  /** The ADP model as fitted: one B per site, the tensor, or both on different sites. */
+  readonly adpModel: "isotropic" | "anisotropic" | "mixed";
+  /** A magnetic model is applied (nuclear + magnetic refined together). */
+  readonly magnetic: boolean;
+  /** Reflections fitted (after the filter). */
+  readonly observationCount: number;
+  readonly source: string;
+  readonly restraints: readonly LinearRestraint[];
+}
+
+/** What the single-crystal page lets the Agent do. Each call is the page's own handler. */
+export interface SingleCrystalAgentPort {
+  readonly technique: "singleCrystal";
+  readonly state: () => SingleCrystalLiveState;
+  /** Free or fix parameters by id (the parameter panel's check boxes). */
+  readonly setFixed: (changes: readonly { readonly id: string; readonly fixed: boolean }[]) => void;
+  /** The ADP model: every site's B iso, or the U tensor (seeded from the refined B). */
+  readonly setAdpModel: (anisotropic: boolean) => void;
+  /** The OMIT filter: on/off and its cutoff in σ. */
+  readonly setOutlierFilter: (update: { readonly on?: boolean; readonly cutoffSigma?: number }) => void;
+  /** The Refine button. Resolves to why it did not finish, or null when it did. */
+  readonly refine: () => Promise<string | null>;
+  /** The Prefit / Escape-minimum button (multi-start). */
+  readonly thorough: () => Promise<string | null>;
+  /** The Refine button's fit with these options, returned and never applied (see PowderAgentPort). */
+  readonly probe: (options: Partial<RefinementOptions>) => Promise<RefinementResult>;
+  /** The page's report of what is on screen (Export ▾ → Report): the engine's numbers, ready to render. */
+  readonly reportInput?: () => ReportInput;
+  readonly cancel: () => void;
+  /** Parameters back to their starting values: these ids, or every one. */
+  readonly reset: (ids?: readonly string[]) => void;
+}
+
 /** Any engine's port, told apart by `technique`. */
-export type AgentPort = PowderAgentPort | PdfAgentPort;
+export type AgentPort = PowderAgentPort | PdfAgentPort | SingleCrystalAgentPort;
 
 /** Any page's live state. */
-export type LiveState = PowderLiveState | PdfLiveState;
+export type LiveState = PowderLiveState | PdfLiveState | SingleCrystalLiveState;
 
 /** The shell-owned ref an engine publishes its port into (null when unmounted or inactive). */
 export type AgentPortRef = MutableRefObject<AgentPort | null>;

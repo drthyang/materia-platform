@@ -28,7 +28,7 @@ import { z } from "zod";
 export type ToolEffect = "read" | "change" | "control";
 
 /** The pages the Agent works on. Each publishes its own port (port.ts). */
-export type AgentPage = "powder" | "pdf";
+export type AgentPage = "powder" | "pdf" | "singleCrystal";
 
 export interface LiveToolSpec {
   /** snake_case, unique. */
@@ -59,7 +59,7 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
       parameters: ids.optional().describe("Which parameters to list in full (ids or globs, [\"*\"] for every one). Default: the free ones."),
     },
     effect: "read",
-    pages: ["powder", "pdf"],
+    pages: ["powder", "pdf", "singleCrystal"],
   },
   {
     name: "assess_refinement",
@@ -68,7 +68,7 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
       "Expert read of the LAST refinement on screen: a trust verdict (Toby GoF bands) and ranked findings — dangerous correlations with their physical reason, parameters at a bound or unphysical, ill-conditioning, over- or under-parameterization, and unexplained residual peaks (a missing phase or magnetic order). Needs a refinement result; after a model change, refine first. On the PDF page the verdict reads convergence only (uniform weights: no GoF) and there is no residual-peak scan.",
     inputSchema: {},
     effect: "read",
-    pages: ["powder", "pdf"],
+    pages: ["powder", "pdf", "singleCrystal"],
   },
   {
     name: "suggest_next_steps",
@@ -108,6 +108,27 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     inputSchema: {},
     effect: "read",
     pages: ["powder"],
+  },
+  {
+    name: "reflection_statistics",
+    title: "Read the reflection data",
+    description:
+      "Single-crystal page only. The data before the model, as a crystallographer reads them first: reflections measured and unique after merging in the Laue class, R_int and R_σ, the redundancy, the resolution (d_min, sinθ/λ max) and the completeness to it, ⟨I/σ⟩ and completeness shell by shell, whether Friedel pairs were measured apart (the absolute structure needs them in a non-centrosymmetric group), the reflections the space group forbids that carry intensity (≥ 3σ: a wrong group, twinning, or multiple scattering), and the intensity statistics ⟨|E²−1|⟩ (≈ 0.97 centrosymmetric, ≈ 0.74 not; low values hint at twinning). The method's first stage: read it before refining.",
+    inputSchema: {},
+    effect: "read",
+    pages: ["singleCrystal"],
+  },
+  {
+    name: "set_outlier_filter",
+    title: "Set the outlier filter",
+    description:
+      "Single-crystal page only. The SHELX-style OMIT filter: leave out reflections whose (Fo² − Fc²)/σ exceeds `cutoffSigma` against the current model (off by default; 6σ to start). For a few reflections hit by the beam stop, an ice ring or a detector edge — never to improve R: say which and why, and keep it off when the misfit is systematic (extinction, twinning). Applies to the next refinement; get_state lists how many it leaves out.",
+    inputSchema: {
+      on: z.boolean().optional(),
+      cutoffSigma: z.number().positive().optional().describe("|Fo² − Fc²|/σ beyond which a reflection is left out"),
+    },
+    effect: "change",
+    pages: ["singleCrystal"],
   },
   {
     name: "find_unexplained_peaks",
@@ -234,7 +255,7 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
       "The refined structure as it is reported: per phase the cell (a, b, c, angles, volume) and per site the fractional coordinates, occupancy and B_iso (U_eq when anisotropic), each as value(esd) in the last digits, from the last refinement's esds (no esd on a fixed value). Call it for the final report, or to compare with a published structure; get_state shows parameter shifts, not coordinates.",
     inputSchema: {},
     effect: "read",
-    pages: ["powder", "pdf"],
+    pages: ["powder", "pdf", "singleCrystal"],
   },
   {
     name: "magnetic_state",
@@ -359,7 +380,7 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
       phase: z.string().optional().describe("Phase id (get_state lists them); default the primary phase"),
     },
     effect: "read",
-    pages: ["powder", "pdf"],
+    pages: ["powder", "pdf", "singleCrystal"],
   },
   {
     name: "interpret_structure",
@@ -380,7 +401,7 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
       reference: z.string().min(1).optional().describe("One of the skill's references, by the name it lists"),
     },
     effect: "read",
-    pages: ["powder", "pdf"],
+    pages: ["powder", "pdf", "singleCrystal"],
   },
   {
     name: "allow_exception",
@@ -392,7 +413,7 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
       reason: z.string().min(3).describe("Why the rule does not apply here, in the user's terms"),
     },
     effect: "change",
-    pages: ["powder", "pdf"],
+    pages: ["powder", "pdf", "singleCrystal"],
     alwaysAsk: true,
   },
   {
@@ -404,7 +425,7 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
       text: z.string().min(3).max(400).describe("The note, in a sentence or two"),
     },
     effect: "read",
-    pages: ["powder", "pdf"],
+    pages: ["powder", "pdf", "singleCrystal"],
   },
   {
     name: "write_report",
@@ -417,7 +438,7 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
       ),
     },
     effect: "read",
-    pages: ["powder", "pdf"],
+    pages: ["powder", "pdf", "singleCrystal"],
   },
   {
     name: "read_ref",
@@ -430,7 +451,7 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
       end: z.number().int().min(0).optional(),
     },
     effect: "read",
-    pages: ["powder", "pdf"],
+    pages: ["powder", "pdf", "singleCrystal"],
   },
   {
     name: "set_free",
@@ -442,7 +463,7 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
       fix: ids.optional().describe("Parameters to hold at their current values"),
     },
     effect: "change",
-    pages: ["powder", "pdf"],
+    pages: ["powder", "pdf", "singleCrystal"],
   },
   {
     name: "set_background",
@@ -472,7 +493,7 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
       "Switch the primary phase's atomic displacement model between isotropic (one B_iso / U per site) and anisotropic (the symmetry-allowed U tensor components), seeded from the current refined values. New rows start fixed — free them with set_free. A CIF with U_aniso columns loads anisotropic (get_state says which): on the PDF page a small-box fit usually refines one U per site. Anisotropic ADPs need good data; they are the last structural step.",
     inputSchema: { anisotropic: z.boolean() },
     effect: "change",
-    pages: ["powder", "pdf"],
+    pages: ["powder", "pdf", "singleCrystal"],
   },
   {
     name: "set_site_ties",
@@ -511,7 +532,7 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
       mode: z.enum(["refine", "thorough"]).optional().describe("Default \"refine\""),
     },
     effect: "change",
-    pages: ["powder", "pdf"],
+    pages: ["powder", "pdf", "singleCrystal"],
   },
   {
     name: "boxcar_scan",
@@ -536,7 +557,7 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
       parameters: ids.optional().describe("Only these parameters (ids or globs); omit for all"),
     },
     effect: "change",
-    pages: ["powder", "pdf"],
+    pages: ["powder", "pdf", "singleCrystal"],
   },
   {
     name: "go_to_step",
@@ -545,7 +566,7 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
       "Return the analysis to an earlier step of the history (get_state lists recent ones; ids look like \"s7\"), as clicking it in History does. Nothing is lost: the steps after it stay in the tree as a branch.",
     inputSchema: { step: z.string().regex(/^s\d+$/).describe("Step id, e.g. \"s7\"") },
     effect: "change",
-    pages: ["powder", "pdf"],
+    pages: ["powder", "pdf", "singleCrystal"],
   },
   {
     name: "cancel_refinement",
@@ -553,11 +574,11 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     description: "Stop a refinement that is running. The parameters keep their values from before it started.",
     inputSchema: {},
     effect: "control",
-    pages: ["powder", "pdf"],
+    pages: ["powder", "pdf", "singleCrystal"],
   },
 ];
 
-export const PAGE_LABEL: Readonly<Record<AgentPage, string>> = { powder: "powder", pdf: "PDF" };
+export const PAGE_LABEL: Readonly<Record<AgentPage, string>> = { powder: "powder", pdf: "PDF", singleCrystal: "single-crystal" };
 
 export function liveTool(name: string): LiveToolSpec | undefined {
   return LIVE_TOOLS.find((t) => t.name === name);

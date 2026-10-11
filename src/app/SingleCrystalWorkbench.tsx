@@ -16,19 +16,20 @@ import type { EngineExportsRef } from "@/app/workbenchEngine";
 import type { SingleCrystalWorkspace } from "@/core/project/types";
 import { modulatedInputsFrom, restoreMomentBindings, restoreSingleCrystalParameters, singleCrystalWorkspaceFrom } from "@/app/projectIo";
 import { useOnChange } from "@/app/useOnChange";
-import type { StructureModel } from "@/core/crystal/types";
+import type { AtomSite, StructureModel } from "@/core/crystal/types";
+import type { AgentLink } from "@/agent/link";
 import type { Radiation, SingleCrystalDataset } from "@/core/diffraction/types";
 import type { Vec3 } from "@/core/math/types";
 import type { ReflectionObsCalc } from "@/core/workflow/obsCalc";
 import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
-import type { ComputeClient } from "@/workers/computeClient";
+import { CANCELLED, type ComputeClient } from "@/workers/computeClient";
 import { mergeEquivalents } from "@/core/diffraction/merge";
 import {
   buildSingleCrystalSpec,
   guidedSingleCrystalParams,
   singleCrystalRefinementComparison,
 } from "@/core/workflow/singleCrystalRefinement";
-import { nonPositiveDefiniteSites } from "@/core/crystal/adp";
+import { nonPositiveDefiniteSites, withAdpModel } from "@/core/crystal/adp";
 import { dSpacing } from "@/core/crystal/unitCell";
 import { isMagneticModelParameterKind } from "@/core/refinement/types";
 import type { ParameterBinding } from "@/core/refinement/types";
@@ -47,7 +48,7 @@ import { magneticIonCandidates } from "@/core/magnetic/magneticIons";
 import { expandStructureToSupercell, buildModulatedMomentModel, mergeToMagneticSupercell, type ModulatedIon } from "@/core/magnetic/magneticSupercell";
 import type { MomentDegeneracy } from "@/core/magnetic/canonicalize";
 import { downloadText } from "@/app/download";
-import { reportHtml } from "@/core/export/report";
+import { reportHtml, type ReportInput } from "@/core/export/report";
 import { singleCrystalReportInput, reportFileName, type MagneticExploration } from "@/app/reportInputs";
 import { card as themeCard, color, mono, fz, uppercaseLabel, secondaryButton, space } from "@/app/theme";
 
@@ -67,6 +68,12 @@ function parseKComponent(s: string): number {
 }
 
 /** R1 quality bands (fraction): <8 % good · <15 % mediocre · else poor. */
+/** The ADP model of a structure's sites, as the Agent reads it. */
+function adpModelOf(s: StructureModel): "isotropic" | "anisotropic" | "mixed" {
+  const aniso = s.sites.filter((site) => site.adp.kind === "anisotropic").length;
+  return aniso === 0 ? "isotropic" : aniso === s.sites.length ? "anisotropic" : "mixed";
+}
+
 function r1Ink(r1: number): string {
   if (!Number.isFinite(r1)) return color.ink;
   if (r1 < 0.08) return color.okInk;
@@ -85,7 +92,7 @@ type Selection = { hkl: string; kind: ReflectionObsCalc["kind"]; phaseId?: strin
  *  three-way value; the project file stores the same value. */
 type Probe = "xray" | "neutron" | "neutron-tof";
 
-export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, client, step, onStep, onMagneticPresent, instrumentProbe, exportsRef, onLoadData, onLoadMagneticData, onLoadCif, restore, stepHistory }: {
+export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, client, step, onStep, onMagneticPresent, instrumentProbe, exportsRef, onLoadData, onLoadMagneticData, onLoadCif, restore, stepHistory, agentLink }: {
   structure: StructureModel;
   dataset: SingleCrystalDataset;
   /** Companion magnetic reflection file for joint co-refinement (Phase 2). When
@@ -120,6 +127,8 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
   restore?: SingleCrystalWorkspace;
   /** The shell's step history: recorded at this page's refinements and model changes. */
   stepHistory?: HistoryBinding;
+  /** Where this page publishes its Agent port (agent/port.ts). */
+  agentLink?: AgentLink;
 }): JSX.Element {
   // Captured at mount: the shell may drop the prop later without this page
   // losing what it restored.
@@ -139,7 +148,17 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
   // The dataset the physics runs against — same reflections, user-chosen radiation.
   const probedDataset = useMemo(() => ({ ...dataset, radiation: effectiveRadiation }), [dataset, effectiveRadiation]);
 
-  const spec = useMemo(() => buildSingleCrystalSpec(structure, probedDataset, { extinction: 0 }), [structure, probedDataset]);
+  // The ADP model the fit uses: the CIF's (null), or the one switched to,
+  // seeded per site from the ADPs as refined so far.
+  const [adp, setAdp] = useState<{ readonly model: "isotropic" | "anisotropic"; readonly seeds: Readonly<Record<string, AtomSite["adp"]>> } | null>(
+    () => (restoring?.adpModel ? { model: restoring.adpModel, seeds: {} } : null),
+  );
+  const fitStructure = useMemo(
+    () => (adp ? withAdpModel({ ...structure, sites: structure.sites.map((site) => ({ ...site, adp: adp.seeds[site.label] ?? site.adp })) }, adp.model) : structure),
+    [structure, adp],
+  );
+
+  const spec = useMemo(() => buildSingleCrystalSpec(fitStructure, probedDataset, { extinction: 0 }), [fitStructure, probedDataset]);
   const bindings = spec.bindings;
   // Nuclear rows come from the fresh spec (with the saved state overlaid by
   // id); the saved moment rows, which no builder can regenerate, are appended.
@@ -150,8 +169,8 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
   const refinedStructure = useMemo(() => {
     const values: Record<string, number> = {};
     for (const p of params) values[p.id] = p.value;
-    return applyParameters(structure, bindings, values).model;
-  }, [structure, params, bindings]);
+    return applyParameters(fitStructure, bindings, values).model;
+  }, [fitStructure, params, bindings]);
   const [result, setResult] = useState<RefinementResult | null>(restoring?.refinement.lastResult ?? null);
   const [busy, setBusy] = useState(false);
   // Outcome of the last Prefit / Escape-min run, shown beside the refine actions.
@@ -174,10 +193,22 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
   const [filterOn, setFilterOn] = useState(restoring?.outlierFilter?.on ?? false);
   const [cutoffSigma, setCutoffSigma] = useState(restoring?.outlierFilter?.cutoffSigma ?? 6);
 
+  // A new structure (CIF load) keeps this page mounted (keyed on the dataset):
+  // the rows become the new spec's, and the last fit, the ADP switch and the
+  // magnetic model go with the old cell. (On change only — the mount render may
+  // carry a restored state.)
+  useOnChange(structure, () => {
+    setAdp(null);
+    setParams(buildSingleCrystalSpec(structure, probedDataset, { extinction: 0 }).params);
+    setResult(null);
+    setMagnetic(null);
+    setMomentBindings([]);
+  });
+
   // Comparison over the *full* dataset — the residuals that drive the filter.
   const fullComparison = useMemo(
-    () => singleCrystalRefinementComparison(structure, probedDataset, params, bindings),
-    [structure, probedDataset, params, bindings],
+    () => singleCrystalRefinementComparison(fitStructure, probedDataset, params, bindings),
+    [fitStructure, probedDataset, params, bindings],
   );
   const activeDataset = useMemo(() => {
     if (!filterOn || cutoffSigma <= 0) return probedDataset;
@@ -197,8 +228,8 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
 
   // Live obs/calc comparison + SHELX agreement for the current parameters.
   const comparison = useMemo(
-    () => (filterOn && excluded > 0 ? singleCrystalRefinementComparison(structure, activeDataset, params, bindings) : fullComparison),
-    [structure, activeDataset, params, bindings, filterOn, excluded, fullComparison],
+    () => (filterOn && excluded > 0 ? singleCrystalRefinementComparison(fitStructure, activeDataset, params, bindings) : fullComparison),
+    [fitStructure, activeDataset, params, bindings, filterOn, excluded, fullComparison],
   );
 
   // Observed vs calculated per reflection (Fo², Fc², σ) for the F plot and the
@@ -206,7 +237,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
   // (nuclear + magnetic) intensity.
   const obsCalc: ReflectionObsCalc[] = useMemo(() => {
     if (magnetic) {
-      return magneticComparison(structure, magnetic, activeDataset, params, [...bindings, ...momentBindings]).map((r) => ({
+      return magneticComparison(fitStructure, magnetic, activeDataset, params, [...bindings, ...momentBindings]).map((r) => ({
         kind: r.iMagnetic > r.iNuclear ? ("magnetic" as const) : ("nuclear" as const),
         h: r.h, k: r.k, l: r.l,
         d: dSpacing(structure.cell, r.h, r.k, r.l),
@@ -221,7 +252,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
       iObs: r.foSq, iCalc: r.fcSq,
       ...(r.sigma > 0 ? { sigma: r.sigma } : {}),
     }));
-  }, [magnetic, structure, activeDataset, params, bindings, momentBindings, comparison]);
+  }, [magnetic, structure, fitStructure, activeDataset, params, bindings, momentBindings, comparison]);
   // Anisotropic sites whose refined U is not positive-definite (validation).
   const nonPositiveDefinite = useMemo(() => nonPositiveDefiniteSites(refinedStructure), [refinedStructure]);
   const outliers = useMemo(
@@ -231,7 +262,8 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
 
   const nFree = params.filter((p) => !p.fixed && !p.expression).length;
 
-  async function runRefine(guided: boolean): Promise<void> {
+  /** The Refine buttons. Resolves to why it did not finish, or null when it did (the Agent reads it). */
+  async function runRefine(guided: boolean): Promise<string | null> {
     stepHistory?.recordNow("edit");
     setBusy(true);
     try {
@@ -241,17 +273,24 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
       // With a magnetic model applied, fit nuclear + moments together (F² total).
       const res = magnetic
         ? await client.refineMagneticParallel({
-            structure, magnetic, dataset: activeDataset, parameters: start, bindings: [...bindings, ...momentBindings], options: { maxIterations: 25 },
+            structure: fitStructure, magnetic, dataset: activeDataset, parameters: start, bindings: [...bindings, ...momentBindings], options: { maxIterations: 25 },
           })
         : await client.refineSingleCrystalParallel({
-            structure, dataset: activeDataset, parameters: start, bindings, options: { maxIterations: 25 },
+            structure: fitStructure, dataset: activeDataset, parameters: start, bindings, options: { maxIterations: 25 },
           });
       setParams(start.map((p) => ({ ...p, value: res.parameters[p.id] ?? p.value, ...(guided ? { fixed: false } : {}) })));
       setResult(res);
       if (magnetic) setMagnetic(applyMagneticMoments(magnetic, momentBindings, res.parameters));
       stepHistory?.requestStep("refine", guided ? "Guided refine" : magnetic ? "Refine nuclear + magnetic" : "Refine");
+      return null;
     } catch (e) {
-      console.error(`[status] Single-crystal refinement failed: ${e instanceof Error ? e.message : String(e)}`);
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg === CANCELLED) {
+        console.info("[status] Single-crystal refinement cancelled");
+        return "cancelled";
+      }
+      console.error(`[status] Single-crystal refinement failed: ${msg}`);
+      return `failed: ${msg}`;
     } finally {
       setBusy(false);
     }
@@ -271,7 +310,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
    * freezes the nuclear scaffold, searches the moment subspace, then runs one
    * joint LM over everything freed (nuclear minima are not searched there).
    */
-  async function runThorough(): Promise<void> {
+  async function runThorough(): Promise<string | null> {
     const mode: "prefit" | "escape" = result ? "escape" : "prefit";
     const wide = mode === "prefit";
     stepHistory?.recordNow("edit");
@@ -282,7 +321,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
       let ms;
       if (magnetic) {
         ms = await client.refineMagneticSingleCrystalMultiStart(
-          { structure, magnetic, dataset: activeDataset, parameters: [...params], bindings: [...bindings, ...momentBindings] },
+          { structure: fitStructure, magnetic, dataset: activeDataset, parameters: [...params], bindings: [...bindings, ...momentBindings] },
           wide ? { restarts: 12 } : { restarts: 6, escapeSigma: 3 },
           { maxIterations: 25 },
         );
@@ -305,7 +344,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
           }
         };
         ms = await client.refineSingleCrystalMultiStart(
-          { structure, dataset: activeDataset, parameters: [...params], bindings, options: { maxIterations: 50 } },
+          { structure: fitStructure, dataset: activeDataset, parameters: [...params], bindings, options: { maxIterations: 50 } },
           wide ? { restarts: 12, escapeSigma: 4, relFraction: 0.5, minKick } : { restarts: 6, escapeSigma: 2, relFraction: 0.5, minKick },
         );
       }
@@ -321,10 +360,16 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
             ? `Escaped a local minimum (restart ${ms.bestStartIndex} of ${ms.restartsRun}) — wR2 ${wr}%, best of ${starts} starts.`
             : `Already at the best minimum — the baseline beat all ${starts} starts, wR2 ${wr}%.`));
       stepHistory?.requestStep("refine", wide ? "Prefit" : "Escape minimum");
+      return null;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
+      if (msg === CANCELLED) {
+        setThoroughNote(`${wide ? "Prefit" : "Escape min"} cancelled`);
+        return "cancelled";
+      }
       setThoroughNote(`${wide ? "Prefit" : "Escape min"} failed: ${msg}`);
       console.error(`[status] Single-crystal ${mode} failed: ${msg}`);
+      return `failed: ${msg}`;
     } finally {
       setBusy(false);
     }
@@ -349,7 +394,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
       const scaleTie: RefinementParameter = { id: "magScale", label: "magnetic scale (= nuclear)", kind: "magneticScale", value: nuclearScale, initialValue: nuclearScale, fixed: true, expression: "= scale" };
       const scaleTieBinding: ParameterBinding = { parameterId: "magScale", kind: "magneticScale", targetId: activeDataset.id };
       const ms = await client.refineMagneticSingleCrystalMultiStart(
-        { structure, magnetic: mag, dataset: activeDataset, parameters: [...nuclearFixed, scaleTie, ...momentParams], bindings: [...bindings, scaleTieBinding, ...mBindings] },
+        { structure: fitStructure, magnetic: mag, dataset: activeDataset, parameters: [...nuclearFixed, scaleTie, ...momentParams], bindings: [...bindings, scaleTieBinding, ...mBindings] },
         { restarts: 8 }, { maxIterations: 20 },
       );
       const values: Record<string, number> = {};
@@ -489,11 +534,38 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
    * while the magnetic model stayed set, and the free/fixed choices of a
    * reopened project.)
    */
-  function reset(): void {
-    setParams((prev) => prev.map((p) => ({ ...p, value: p.initialValue })));
+  function reset(ids?: readonly string[]): void {
+    const only = ids ? new Set(ids) : null;
+    setParams((prev) => prev.map((p) => (only && !only.has(p.id) ? p : { ...p, value: p.initialValue })));
     setResult(null);
     setThoroughNote(null);
-    stepHistory?.requestStep("edit", "Reset to starting values");
+    stepHistory?.requestStep("edit", only ? `Reset ${[...only].join(", ")}` : "Reset to starting values");
+  }
+
+  /**
+   * Switch every site's ADP model: one B per site, or the symmetry-allowed U
+   * tensor. The new rows are seeded from the ADPs as refined so far (a
+   * tensor's equivalent B, or a sphere) and enter fixed; the other rows keep
+   * their values and free/fixed choices.
+   */
+  function switchAdpModel(anisotropic: boolean): void {
+    const model = anisotropic ? "anisotropic" : "isotropic";
+    if (model === adpModelOf(fitStructure)) return;
+    const next = { model, seeds: Object.fromEntries(refinedStructure.sites.map((site) => [site.label, site.adp])) } as const;
+    const nextStructure = withAdpModel({ ...structure, sites: structure.sites.map((site) => ({ ...site, adp: next.seeds[site.label] ?? site.adp })) }, model);
+    const fresh = buildSingleCrystalSpec(nextStructure, probedDataset, { extinction: 0 }).params;
+    const kept = new Map(params.map((p) => [p.id, p]));
+    setParams([
+      // The new ADP rows start (and reset) at the refined values; the rest are kept as they are.
+      ...fresh.map((p) => {
+        const old = p.kind === "bIso" || p.kind === "uAniso" ? undefined : kept.get(p.id);
+        return old ? { ...p, value: old.value, initialValue: old.initialValue, fixed: old.fixed } : p;
+      }),
+      ...params.filter((p) => isMagneticModelParameterKind(p.kind)),
+    ]);
+    setAdp(next);
+    setResult(null);
+    stepHistory?.requestStep("settings", anisotropic ? "Anisotropic ADPs" : "Isotropic ADPs");
   }
 
   function exportCif(): void {
@@ -545,8 +617,8 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
   // Self-contained HTML report (Export ▾ → Report): data and merge statistics,
   // the F_obs/F_calc figure, SHELX agreement, the refined structure with esds,
   // the magnetic model (applied or under exploration), every parameter.
-  function exportReport(): void {
-    const html = reportHtml(singleCrystalReportInput({
+  const reportInputRef = useRef<() => ReportInput>(() => { throw new Error("SingleCrystalWorkbench: not mounted"); });
+  reportInputRef.current = (): ReportInput => singleCrystalReportInput({
       structure: refinedStructure,
       params,
       bindings: [...bindings, ...momentBindings],
@@ -561,9 +633,59 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
       points: obsCalc.map((r) => ({ obs: r.iObs, calc: r.iCalc, ...(r.kind === "magnetic" ? { magnetic: true } : {}) })),
       magnetic,
       explored: exploredMagnetic.current,
-    }));
-    downloadText(reportFileName(structure), html, "text/html");
+    });
+  function exportReport(): void {
+    downloadText(reportFileName(structure), reportHtml(reportInputRef.current()), "text/html");
   }
+
+  // Publish the Agent port (agent/port.ts): the live state, read lazily, and
+  // this page's own handlers — the Agent's `refine` is the Refine button.
+  // Republished every render, so a call always sees the state on screen.
+  useEffect(() => {
+    if (!agentLink) return;
+    agentLink.publish({
+      technique: "singleCrystal",
+      state: () => ({
+        structure: fitStructure,
+        refinedStructure,
+        dataset: probedDataset,
+        totalReflections: probedDataset.reflections.length,
+        probe,
+        parameters: params,
+        bindings: [...bindings, ...momentBindings],
+        result,
+        busy,
+        agreement: comparison.agreement,
+        merge: merge.statistics,
+        rows: obsCalc.map((r) => ({ h: r.h, k: r.k, l: r.l, foSq: r.iObs, fcSq: r.iCalc, sigma: r.sigma ?? 0, deltaOverSigma: r.sigma ? (r.iObs - r.iCalc) / r.sigma : 0 })),
+        outlierFilter: { on: filterOn, cutoffSigma, excluded },
+        adpModel: adpModelOf(fitStructure),
+        magnetic: magnetic !== null,
+        observationCount: activeDataset.reflections.length,
+        source: dataset.name,
+        restraints: [],
+      }),
+      setFixed: (changes) => {
+        const fixed = new Map(changes.map((c) => [c.id, c.fixed]));
+        setParams((ps) => ps.map((p) => (fixed.has(p.id) ? { ...p, fixed: fixed.get(p.id)! } : p)));
+      },
+      setAdpModel: switchAdpModel,
+      setOutlierFilter: ({ on, cutoffSigma: cutoff }) => {
+        if (on !== undefined) setFilterOn(on);
+        if (cutoff !== undefined) setCutoffSigma(cutoff);
+      },
+      refine: () => runRefine(false),
+      thorough: runThorough,
+      // The Refine button's request with the Agent's options; the result is only read.
+      probe: (options) => (magnetic
+        ? client.refineMagneticParallel({ structure: fitStructure, magnetic, dataset: activeDataset, parameters: params, bindings: [...bindings, ...momentBindings], options })
+        : client.refineSingleCrystalParallel({ structure: fitStructure, dataset: activeDataset, parameters: params, bindings, options })),
+      reportInput: () => reportInputRef.current(),
+      cancel: () => client.cancel(),
+      reset,
+    });
+  });
+  useEffect(() => () => agentLink?.release("singleCrystal"), [agentLink]);
 
   // Publish the current exporter so the app header can drive it; clear on unmount
   // (switch back to powder) so the header never calls a stale single-crystal export.
@@ -578,6 +700,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
         params, bindings: [...bindings, ...momentBindings], result, magnetic,
         filterOn, cutoffSigma,
         modulated: { kText, ionState, moment: modMoment, seed: modSeed, restarts: modRestarts },
+        adpModel: adp?.model ?? null,
       }),
     };
     return () => { exportsRef.current = null; };

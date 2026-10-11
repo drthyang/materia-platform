@@ -9,6 +9,24 @@ release fixes bugs.
 
 ### Added
 
+- **The Agent on the single-crystal page.** It reads the page in its own
+  terms — a fit to integrated F², SHELX's R1 over Fo² > 2σ with wR2 and GooF
+  over every reflection, the cell fixed input from indexing — frees, refines,
+  assesses, switches the ADP model, sets the outlier filter and writes the
+  report, as on the powder and PDF pages. Its method is the new skill
+  `sc-workflow` (general practice, not yet the user's own): the data read
+  before the model, the scale then extinction, positions, isotropic then
+  anisotropic ADPs, occupancy only for a reason, and what the report must say.
+  `reflection_statistics` reads the data first: merging, resolution and
+  completeness by shell, the Friedel pairs, the reflections the space group
+  forbids measured at ≥ 3σ, and ⟨|E² − 1|⟩; the reading is the method's first
+  stage and a row of the report. `set_outlier_filter` is the page's |Δ|/σ
+  cutoff. `assess_refinement` there adds the analysis of variance by intensity
+  and resolution, the extinction reading, the largest outliers and the tensors
+  that are not positive definite.
+- **The single-crystal page switches its ADP model** (one B per site, or the
+  symmetry-allowed U tensor seeded from the refined B), and saves the choice
+  with the project.
 - **The fit range, read from the data's ends** (`check_fit_range`, in the app
   and over MCP), the first stage of the Rietveld method and of its checklist.
   It proposes where the window starts and stops, as the GSAS-II tutorials do:
@@ -247,6 +265,15 @@ release fixes bugs.
 
 ### Changed
 
+- **The correlation guard lets through a pair a third parameter carries.** The
+  engine now reports, for each correlated pair, its correlation with every
+  other free parameter held fixed. A pair over 0.95 whose correlation the
+  others carry (below 0.9 with them fixed, and under 0.99 itself) refines,
+  listed in the outcome and the report: the scale, the extinction and the ADPs
+  of a single-crystal fit correlate so, and every single-crystal program
+  refines them together (on synthetic corundum to d = 0.4 Å, scale ↔ B(O)
+  reads 0.976, 0.72 with the rest fixed, and both B's come back within
+  0.002 Å² of the truth). A pair that trades off itself still stops it.
 - **The demo, re-recorded** (docs/media/agent-demo.mp4, 91 s): the Agent now
   reads the data's ends first and leaves out the background below the first
   reflection and the last 2° of the D1A scan, and refines the instrument's terms
@@ -274,6 +301,11 @@ release fixes bugs.
 
 ### Fixed
 
+- **Loading a new CIF on the single-crystal page rebuilds its parameter
+  rows.** The page stays mounted for the same data, and kept the old
+  structure's rows against the new structure's bindings; the new spec's rows
+  now replace them, with the last fit and an applied magnetic model, which
+  belong to the old cell.
 - **The single-crystal model no longer applies a Lorentz–polarization
   factor.** Reflection files hold Fo² already corrected in data reduction
   (SHELX .hkl and .fcf, FullProf .int, the SNS TOPAZ .hkl), and the model

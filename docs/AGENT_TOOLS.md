@@ -405,12 +405,14 @@ page's own controls. Open it with the **Agent** button in the header.
   without an applied spin model. Rw is its agreement; the fit weights every
   point equally, so the answers carry no GoF and say the esds are not
   statistical.
-- Not yet: single crystal. Its state is private to the page; it needs its
-  own port.
+- The single-crystal page (a fit to integrated F²): R1 over Fo² > 2σ, wR2
+  and GooF over every reflection fitted (w = 1/σ²), the cell fixed input from
+  indexing. Its method reads the data first (`reflection_statistics`).
 
 **Its methods, read on demand.** The user's methods are skills in
 [`.claude/skills/`](../.claude/skills): `my-rietveld-workflow`,
-`magnetic-analysis`, `pdf-workflow`, `symmetry-review` and `bayesian-check`.
+`magnetic-analysis`, `pdf-workflow`, `sc-workflow`, `symmetry-review` and
+`bayesian-check`.
 The system prompt carries only their names and descriptions; the Agent reads a
 skill whole with `read_skill` when the task calls for it, and the knowledge
 notes a skill cites the same way. Claude Code loads the same files, so one
@@ -419,8 +421,9 @@ method serves both.
 **Its tools.** One list ([`src/agent/tools.ts`](../src/agent/tools.ts))
 serves every way in, so a model sees the same names everywhere. Each tool names
 the pages it works on; on another page it answers with an error that says so.
-The page-specific handlers are [`powderTools.ts`](../src/agent/powderTools.ts)
-and [`pdfTools.ts`](../src/agent/pdfTools.ts).
+The page-specific handlers are [`powderTools.ts`](../src/agent/powderTools.ts),
+[`pdfTools.ts`](../src/agent/pdfTools.ts) and
+[`scTools.ts`](../src/agent/scTools.ts).
 - Read tools run at once: `get_state`, `assess_refinement`,
   `suggest_next_steps`, `rank_next_parameters`, `check_cell_symmetry`,
   `find_unexplained_peaks`, `review_symmetry`, `diagnose_fit`,
@@ -433,7 +436,8 @@ and [`pdfTools.ts`](../src/agent/pdfTools.ts).
   with the names of its references; with `reference` it returns one of them.
   Before its first change on a page, the Agent must have read that page's
   method skill in this conversation (`my-rietveld-workflow` on the powder page,
-  `pdf-workflow` on the PDF page); a change before that is refused with the
+  `pdf-workflow` on the PDF page, `sc-workflow` on the single-crystal page); a
+  change before that is refused with the
   call to make. Clearing the conversation resets it.
 - **The method's firm rule is code** ([`src/agent/method.ts`](../src/agent/method.ts)),
   checked before the correlation probe: on both pages no occupancy refines
@@ -532,7 +536,7 @@ and [`pdfTools.ts`](../src/agent/pdfTools.ts).
   as the value, a bound, a correlated pair, path dependence, a claim resting
   on one number) and what it cannot do (choose a model, fix a misfit).
 - **The analysis report** ([`src/agent/report.ts`](../src/agent/report.ts)).
-  `write_report` (powder and PDF pages, a read) builds the page's own report
+  `write_report` (a read, on every page) builds the page's own report
   (Export ▾ → Report: data, model, the fit figure, the structures with esds,
   every parameter, the diagnostics) with the analysis as it went: the
   History's steps on the path to the result — what each refinement freed and
@@ -571,7 +575,19 @@ and [`pdfTools.ts`](../src/agent/pdfTools.ts).
   coordination shell in the structure it refined, so a distortion is compared
   as lengths. The last scan goes into the report.
 - `set_adp_model` switches the primary phase between one U per site and the U
-  tensor on both pages: a CIF with U_aniso columns loads a tensor per site.
+  tensor on every page: a CIF with U_aniso columns loads a tensor per site.
+- Single-crystal page only: `reflection_statistics` reads the data before the
+  model — merging (R_int, R_σ, redundancy), resolution and completeness by
+  shell, whether the Friedel pairs were measured apart, the reflections the
+  space group forbids measured at ≥ 3σ, and ⟨|E² − 1|⟩ (0.968 centrosymmetric,
+  0.736 not, lower for a twin); the reading goes into the record and the
+  report, and is the method's first stage. `set_outlier_filter` is the page's
+  |Fo² − Fc²|/σ cutoff (SHELX's OMIT, applied wholesale); its approval card
+  counts what it leaves out. There, `assess_refinement` adds the analysis of
+  variance by intensity and by resolution (K = ΣFo²/ΣFc² and GooF per bin), the
+  extinction reading, the largest outliers and the tensors that are not
+  positive definite, and `refine` answers with R1, wR2 and GooF before and
+  after.
 - Powder page only: `rank_next_parameters`, `check_cell_symmetry`,
   `find_unexplained_peaks`, `review_symmetry`, `set_background`, `set_microstrain`,
   `set_site_ties`. On the PDF page, `assess_refinement` judges convergence,
@@ -776,7 +792,7 @@ Other planned work:
 - Richer per-tool JSON schemas.
 - Assessment variants for single-crystal data (in the R1/wR2/GooF convention)
   and for magnetic refinements.
-- The Agent on the single-crystal page and the magnetic PDF step, each
-  through its own port; PDF symmetry modes as tools.
+- The Agent on the magnetic PDF step, through its own port; PDF symmetry
+  modes as tools.
 
 The order across the whole project is in [ROADMAP.md §5](./ROADMAP.md).
