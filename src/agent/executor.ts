@@ -16,10 +16,10 @@ import { changeMagnetic, describeMagneticChange, isMagneticTool, magneticNoOp, m
 import { changePdf, describePdfChange, pdfNoOp, pdfReportChecks, readPdfTool } from "@/agent/pdfTools";
 import { samplePosteriorTool, type PosteriorRun } from "@/agent/posteriorTool";
 import { buildAgentReport, reportFileBase, type AgentReport } from "@/agent/report";
-import type { LiveToolHost } from "@/agent/liveCommon";
+import { matchIds, type LiveToolHost } from "@/agent/liveCommon";
 import { PROBE_OPTIONS, correlationRefusal, pairText, readCorrelations, refusalLine } from "@/agent/correlationCheck";
 import { PAGE_METHOD, readSkill } from "@/agent/skills";
-import { RULES, keyOfState, methodProgress, outOfOrder, ruleRefusal, stagesCovered, stagesLeft, type AgentRecord, type MethodRule } from "@/agent/method";
+import { RULES, advanceAlternation, alternationView, keyOfState, methodProgress, outOfOrder, ruleRefusal, stagesCovered, stagesLeft, type AgentRecord, type Alternation, type MethodRule } from "@/agent/method";
 import { REF_KEY, RefStore, buildView } from "@/mcp/refs";
 import type { LinearRestraint, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { StepKind } from "@/core/project/history";
@@ -110,6 +110,8 @@ export class AgentExecutor implements ToolRunner {
   private changes: Promise<unknown> = Promise.resolve();
   /** The last posterior run (sample_posterior), with the analysis and the step it sampled: for the report. */
   private posterior: { readonly run: PosteriorRun; readonly key: string; readonly step: { id: string; label: string } | null } | null = null;
+  /** Per analysis: the instrument terms and the thermal parameters as each was last refined, for the alternation. */
+  private readonly alternations = new Map<string, Alternation>();
 
   constructor(private readonly host: AgentHost, private readonly opts: ExecutorOptions) {}
 
@@ -234,7 +236,10 @@ export class AgentExecutor implements ToolRunner {
       let orderNote: string | null = null;
       if (spec.name === "refine" || spec.name === "boxcar_scan") {
         const record = this.host.record(key);
-        const rule = ruleRefusal(port.technique, freeBefore, restraintsOf(before), record);
+        // A scan given its own free set refines that set, not the page's.
+        const scanFree = spec.name === "boxcar_scan" && Array.isArray(input.free) ? new Set(matchIds(before.parameters, input.free as string[])) : null;
+        const ruleFree = scanFree ? before.parameters.filter((p) => scanFree.has(p.id) && !p.expression) : freeBefore;
+        const rule = ruleRefusal(port.technique, ruleFree, restraintsOf(before), record);
         if (rule) {
           update({ status: "failed", preview, outcome: rule.line });
           return error(rule.message);
@@ -282,14 +287,19 @@ export class AgentExecutor implements ToolRunner {
       });
       const note = typeof changed === "object" ? changed.note : changed;
       const after = this.requirePort().state();
-      if (spec.name === "refine" && after.result?.status === "converged") {
+      let alternation: Record<string, unknown> | null = null;
+      if (spec.name === "refine" && after.result?.status === "converged" && after.result !== before.result) {
         const covered = stagesCovered(port.technique, freeBefore);
         this.host.updateRecord(key, (r) => ({ ...r, stagesDone: [...new Set([...r.stagesDone, ...covered])] }));
+        const step = advanceAlternation(this.alternations.get(key) ?? {}, freeBefore, after.parameters, after.result.esd);
+        this.alternations.set(key, step.memory);
+        alternation = alternationView(step.memory, step.refined, after.parameters);
       }
       const out = {
         ...changeOutcome(spec.name, before, after, this.currentStep(), note),
         ...(typeof changed === "object" ? changed.data : {}),
         ...(orderNote ? { methodNote: orderNote } : {}),
+        ...(alternation ?? {}),
         ...(magnetic ? magneticOutcome(spec.name, this.requirePort() as typeof port) : {}),
       };
       update({ status: "done", outcome: outcomeLine(spec.name, before, after, note) });

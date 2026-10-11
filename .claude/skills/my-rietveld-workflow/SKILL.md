@@ -100,7 +100,9 @@ stable and hasn't railed to a bound.
    a narrow 2θ range it is often held — but free it (and the rest) when a genuine width
    mismatch demands it rather than withholding it on principle. Judge by the residual and
    the correlations `assess_refinement` reports, not by a fixed checklist.
-4. **ADPs** — `B_iso` first. Go **anisotropic only if the data clearly support it**
+4. **ADPs** — with the instrument's terms fixed: the zero, `U V W X Y` and the asymmetry
+   are held while the B values refine (the guardrail below), then the two groups
+   alternate. `B_iso` first. Go **anisotropic only if the data clearly support it**
    (high real-space resolution / low temperature); otherwise keep it isotropic. Watch for
    `B_iso` railing toward 0 — that usually means the background or an intensity correction
    is stealing high-angle intensity, not that the atom is truly rigid. When B values are
@@ -168,6 +170,41 @@ refine, and report the exchange with its esd and how the B values moved. On data
 modest Q the exchange trades with the B values: a large esd is the honest result. If the
 exchange refines to zero, the ADP contrast is not disorder: return to the ordered model
 and, unless the contrast is significant and stable, tie the two cation B's.
+
+## The instrument–thermal guardrail (do not skip)
+
+**Never refine the instrument's terms together with the thermal parameters.** The
+instrument's terms are GSAS-II's Instrument Parameters: the **zero** (or the TOF
+calibration), the **peak shape** (Caglioti `U V W`, Lorentzian `X Y`, the TOF α β σ) and its
+**asymmetry** (S/L, H/L). The thermal parameters are the **B values or ADPs**. They trade
+against each other where the data can hardly separate them: wider or more Lorentzian
+peaks put intensity into tails that the background takes up at high angle, and the B
+values' fall-off with angle gives it back; the zero and the asymmetry shape the low-angle
+lines, which fix the scale the B values are measured against. Refined together, each
+absorbs the other's error — a B gone negative while the profile widens, a profile gone
+wrong while the B values look fine — and the esds hide it, because the trade runs through
+the background and the scale rather than one clean pair.
+
+**Alternate the two groups instead.** Refine the instrument terms with the B values fixed,
+then fix them and refine the B values; repeat. In the app, `refine` reports the
+`alternation` after each step: the group refined, its largest shift since its last
+refinement (in esd), and `settled` once a cycle moves neither group by more than 0.3 esd —
+stop there. If the shifts shrink slowly (each cycle more than two-thirds of the last), the
+groups are coupled: tell the user, and report the B values as conditional on the
+instrument terms unless they allow one joint refinement. Either way, each group's esds are
+conditional on the other held fixed — say so in the report.
+
+**With an instrument file from a standard**, its terms describe the instrument already:
+keep them fixed where they fit, and refine only what the sample adds. A microstrain model
+(`set_microstrain`) is the sample's broadening and is not under this rule (watch its
+correlation with the B values all the same); `X` and `Y` are, because they hold the
+instrument's Lorentzian part as well as the sample's size and strain. When the file does not describe the
+data — NAC on 11-BM: the 2009 profile was a quarter too broad in its Gaussian part —
+refine its terms, alternating with the B values as above.
+
+In the app this is a firm rule: `refine` refuses a free set that holds both groups and says
+which to fix. Only the user lifts it (`allow_exception`, rule `instrument-with-thermal`),
+for instance for one last joint cycle to get joint esds once the alternation has settled.
 
 ## The correlation guardrail (do not skip)
 

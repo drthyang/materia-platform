@@ -268,7 +268,7 @@ export interface AgentRecordFile {
   readonly cellCheck?: { readonly passed: boolean; readonly at: number; readonly summary: string };
   /** The symmetry review at the end of the method (review_symmetry). */
   readonly symmetryReviewed?: { readonly at: number; readonly summary: string };
-  readonly exceptions: readonly { readonly rule: "bare-occupancy"; readonly reason: string; readonly at: number }[];
+  readonly exceptions: readonly { readonly rule: "bare-occupancy" | "instrument-with-thermal"; readonly reason: string; readonly at: number }[];
   readonly stagesDone: readonly string[];
   readonly notes: readonly { readonly text: string; readonly at: number }[];
 }

@@ -7,7 +7,7 @@
  */
 
 import { PAGE_METHOD } from "@/agent/skills";
-import { keyOfState } from "@/agent/method";
+import { groupOf, keyOfState, type ParameterGroup } from "@/agent/method";
 import { announcedTool } from "@/agent/chat";
 import { LIVE_TOOLS, liveTool } from "@/agent/tools";
 import { convertInterval } from "@/visualization/axisUnits";
@@ -262,6 +262,53 @@ export function fitWindowIs(unit: "dSpacing" | "q", min: number, max: number, to
     },
   };
 }
+
+/** Which of the instrument's terms and the thermal parameters a free set holds. */
+function groupsFree(run: EvalRun, free: readonly string[] | undefined): Set<ParameterGroup> {
+  const kinds = new Map(run.port.state().parameters.map((p) => [p.id, p.kind]));
+  const out = new Set<ParameterGroup>();
+  for (const id of free ?? []) {
+    const kind = kinds.get(id);
+    const g = kind ? groupOf(kind) : null;
+    if (g) out.add(g);
+  }
+  return out;
+}
+
+/**
+ * No refinement tried with the instrument's terms and the thermal parameters
+ * free together, refused or not (the user's feedback on the demo: it refined
+ * instrument parameters with thermal ones, which the user avoids). The guard
+ * refuses such a set; the method should never ask for one.
+ */
+export const keepsGroupsApart: Check = {
+  name: "keeps the instrument's terms apart from the thermal parameters",
+  grade: (run) => {
+    const joint = calls(run).find((c) => (c.name === "refine" || c.name === "boxcar_scan") && groupsFree(run, c.free).size === 2);
+    return joint ? fail(`${joint.name} with ${joint.free!.join(", ")} free${joint.isError ? " (refused)" : ""}`) : ok("never free together");
+  },
+};
+
+/** The two groups refined in turn — instrument, thermal, instrument, or the reverse — or until the alternation settles. */
+export const alternatesGroups: Check = {
+  name: "alternates the instrument's terms and the thermal parameters",
+  grade: (run) => {
+    const order: ParameterGroup[] = [];
+    let settled = false;
+    for (const c of calls(run)) {
+      const out = c.name === "refine" && !c.isError ? json(c.text) : null;
+      if (out?.refined !== true) continue;
+      const groups = groupsFree(run, c.free);
+      if (groups.size !== 1) continue;
+      const g = [...groups][0]!;
+      if (order.at(-1) !== g) order.push(g);
+      if ((out.alternation as { settled?: boolean } | undefined)?.settled) settled = true;
+    }
+    return order.length >= 3 || settled
+      ? ok(`in turn: ${order.join(" → ")}${settled ? " (settled)" : ""}`)
+      : fail(order.length ? `only ${order.join(" → ")}` : "neither group refined on its own");
+  },
+};
 
 /** Never a converged PDF refinement with δ1 and δ2 both free (the PDF method: one correlated-motion term). */
 export const oneMotionTerm: Check = {

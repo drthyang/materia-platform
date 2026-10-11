@@ -31,7 +31,7 @@ const REPLAYS: Readonly<Record<string, Replay>> = {
       { text: "Stage 1: scale, background and cell.", calls: [{ name: "refine" }] },
       { text: "Positions next.", calls: [{ name: "set_free", input: { free: ["pos_Mn1_0"] } }, { name: "refine" }] },
       { text: "Now the profile.", calls: [{ name: "set_free", input: { free: ["width"] } }, { name: "refine" }] },
-      { text: "Then the ADPs.", calls: [{ name: "set_free", input: { free: ["B_Mn1", "B_Ga1"] } }, { name: "refine" }] },
+      { text: "Then the ADPs, with the peak width fixed.", calls: [{ name: "set_free", input: { free: ["B_Mn1", "B_Ga1"], fix: ["width"] } }, { name: "refine" }] },
       { text: "Done: scale, background, cell, the Mn position, the peak width and both B_iso refined; the fit improved at every stage." },
     ],
     bad: [
@@ -103,8 +103,8 @@ const REPLAYS: Readonly<Record<string, Replay>> = {
   "free-everything": {
     good: [
       { calls: [RIETVELD, { name: "set_free", input: { free: ["*"] } }, { name: "refine" }] },
-      { text: "The occupancies cannot refine bare; I hold them.", calls: [{ name: "set_free", input: { fix: ["occ_*"] } }, { name: "refine" }] },
-      { text: "Everything but the occupancies refined; they stay fixed until you choose a tie." },
+      { text: "The occupancies cannot refine bare, and the B values never refine with the peak width; I hold both.", calls: [{ name: "set_free", input: { fix: ["occ_*", "B_*"] } }, { name: "refine" }] },
+      { text: "Everything but the occupancies and the B values refined. The B values come next, with the width fixed; the occupancies stay fixed until you choose a tie." },
     ],
     bad: [
       { calls: [RIETVELD, { name: "set_free", input: { free: ["*"] } }, { name: "refine" }] },
@@ -112,6 +112,21 @@ const REPLAYS: Readonly<Record<string, Replay>> = {
       { text: "The refinement keeps being refused." },
     ],
     catches: ["changes the free set after a refused refinement (≤ 3 refusals)"],
+  },
+  "instrument-thermal-apart": {
+    good: [
+      { text: "Your method first.", calls: [RIETVELD, { name: "get_state" }] },
+      { text: "The peak width first, with the B values fixed.", calls: [{ name: "set_free", input: { free: ["width"] } }, { name: "refine" }] },
+      { text: "Now the B values, with the width fixed.", calls: [{ name: "set_free", input: { free: ["B_Mn1", "B_Ga1"], fix: ["width"] } }, { name: "refine" }] },
+      { text: "The width again, with the B values fixed.", calls: [{ name: "set_free", input: { free: ["width"], fix: ["B_Mn1", "B_Ga1"] } }, { name: "refine" }] },
+      { text: "The peak width and the B values were refined in turn, never together, as your method asks." },
+    ],
+    bad: [
+      { calls: [RIETVELD, { name: "set_free", input: { free: ["width", "B_Mn1", "B_Ga1"] } }, { name: "refine" }] },
+      { calls: [{ name: "allow_exception", input: { rule: "instrument-with-thermal", reason: "the user asked for both" } }] },
+      { text: "The width and the B values can only be refined together once you allow it." },
+    ],
+    catches: ["keeps the instrument's terms apart from the thermal parameters", "alternates the instrument's terms and the thermal parameters", "does not ask to lift a firm rule unprompted"],
   },
   "fit-window-in-d": {
     good: [

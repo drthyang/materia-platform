@@ -317,6 +317,29 @@ describe("AgentExecutor on a live powder fit", () => {
     expect((await ex.run("refine", {})).text).not.toMatch(/free occupancy with nothing but the scale/);
   });
 
+  it("never refines the instrument's terms with the thermal parameters, and reports the alternation", async () => {
+    const start = newSession(exampleStructure());
+    const { port, calls } = sessionPort({ ...start, powderParams: start.powderParams.map((p) => ({ ...p, fixed: !["scale", "width", "B_Mn1"].includes(p.id) })) });
+    const { ex, asked } = executor(fakeHost(port).host, true);
+    const refused = await ex.run("refine", {});
+    expect(refused.isError).toBe(true);
+    expect(refused.text).toMatch(/the instrument's terms \(width\) and the thermal parameters \(B_Mn1\) are free together/);
+    // Refused before the correlation probe and before anyone is asked.
+    expect(asked).toEqual([]);
+    expect(calls).toEqual([]);
+    // The profile with the B values fixed, then the B values with the profile fixed.
+    await ex.run("set_free", { fix: ["B_Mn1"] });
+    const profile = parse((await ex.run("refine", {})).text);
+    expect(profile.refined).toBe(true);
+    expect(profile.alternation).toBeUndefined();
+    await ex.run("set_free", { fix: ["width"], free: ["B_Mn1"] });
+    const thermal = parse((await ex.run("refine", {})).text);
+    expect(thermal.alternation).toMatchObject({ refined: "the thermal parameters (B_Mn1, B_Ga1), with the instrument terms fixed", largestShift: "their first refinement in the alternation", settled: false });
+    await ex.run("set_free", { fix: ["B_Mn1"], free: ["width"] });
+    const again = parse((await ex.run("refine", {})).text).alternation as Record<string, unknown>;
+    expect(again.largestShift).toMatch(/^width \d+\.\d\d esd since their last refinement$/);
+  }, 60_000);
+
   it("does not refine when the correlation check itself fails", async () => {
     const { port, calls } = sessionPort(newSession(exampleStructure()));
     const broken: PowderAgentPort = { ...port, probe: async () => { throw new Error("cancelled"); } };

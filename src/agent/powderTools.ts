@@ -38,6 +38,7 @@ import { applyFree, bondsOf, cellOf, describeFree, freeNoOp, goToStep, historyVi
 import { powderValidation } from "@/core/diagnostics/powderValidation";
 import type { ReportCheck } from "@/core/export/report";
 import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, correlationsCheck, findingChecks, noResultCheck, verdictCheck } from "@/agent/reportChecks";
+import { groupOf } from "@/agent/method";
 
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- inputs are validated against the spec's zod schema before a handler runs */
@@ -74,14 +75,27 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
         profile: s.profile,
         magnetic: s.magnetic,
       });
+      // A group the instrument–thermal rule would refuse next to the free set: say so with the ranking.
+      const kindOf = new Map(s.parameters.map((p) => [p.id, p.kind]));
+      const freeGroups = new Set(s.parameters.filter((p) => !p.fixed && !p.expression).map((p) => groupOf(p.kind)));
+      const clash = (ids: readonly string[]): string | null => {
+        const mine = new Set(ids.map((id) => groupOf(kindOf.get(id) ?? "scale")));
+        if (mine.has("instrument") && freeGroups.has("thermal")) return "the B values are free: fix them first (the instrument's terms and the thermal parameters refine in turn)";
+        if (mine.has("thermal") && freeGroups.has("instrument")) return "instrument terms are free: fix them first (the instrument's terms and the thermal parameters refine in turn)";
+        return null;
+      };
       return {
         wrNow: pct(ranked.wrNow),
-        groups: ranked.groups.slice(0, 12).map((g) => ({
-          group: g.group,
-          parameterIds: g.parameterIds,
-          predictedWr: pct(g.predictedWr),
-          expectedRelativeImprovement: sig(g.expectedRelativeImprovement, 3),
-        })),
+        groups: ranked.groups.slice(0, 12).map((g) => {
+          const rule = clash(g.parameterIds);
+          return {
+            group: g.group,
+            parameterIds: g.parameterIds,
+            predictedWr: pct(g.predictedWr),
+            expectedRelativeImprovement: sig(g.expectedRelativeImprovement, 3),
+            ...(rule ? { rule } : {}),
+          };
+        }),
       };
     }
     case "check_cell_symmetry": {

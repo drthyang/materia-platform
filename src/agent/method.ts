@@ -5,7 +5,9 @@
  *
  * - Firm rules (`MethodRule`) refuse a refinement, like the correlation
  *   check: the occupancy guardrail on both pages (no occupancy refines with
- *   nothing but the scale to determine it). Only the user lifts it, through
+ *   nothing but the scale to determine it), and the instrument's terms never
+ *   refined together with the thermal parameters (the user's demo feedback:
+ *   alternate the two groups). Only the user lifts a rule, through
  *   allow_exception, which always asks them, even in Auto.
  * - The cell check at the start is a check, not a gate: it catches gross
  *   problems (a peak no reflection can index) and never blocks a refinement.
@@ -28,11 +30,31 @@ import type { AgentPage } from "@/agent/tools";
 import type { LiveState } from "@/agent/port";
 import { PAGE_METHOD } from "@/agent/skills";
 
-export type MethodRule = "bare-occupancy";
+export type MethodRule = "bare-occupancy" | "instrument-with-thermal";
 
 export const RULES: Readonly<Record<MethodRule, { readonly title: string; readonly pages: readonly AgentPage[] }>> = {
   "bare-occupancy": { title: "Refine an occupancy with no tie or second contrast", pages: ["powder", "pdf"] },
+  "instrument-with-thermal": { title: "Refine instrument and thermal parameters together", pages: ["powder", "pdf"] },
 };
+
+/**
+ * The instrument's terms, GSAS-II's Instrument Parameters: the zero (or the
+ * TOF calibration), the peak shape (Caglioti U V W, Lorentzian X Y, the TOF
+ * profile) and its asymmetry; on a PDF the resolution, Qdamp and Qbroad.
+ * Size and strain broadening are the sample's, not the instrument's.
+ */
+export const INSTRUMENT_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>([
+  "zeroShift", "tofCalibration", "peakWidth", "profileU", "profileV", "profileW", "profileX", "profileY", "asymSL", "asymHL", "tofProfile", "qdamp", "qbroad",
+]);
+
+/** The thermal parameters: B_iso and the anisotropic U's. */
+export const THERMAL_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>(["bIso", "uAniso"]);
+
+export type ParameterGroup = "instrument" | "thermal";
+
+export function groupOf(kind: ParameterKind): ParameterGroup | null {
+  return INSTRUMENT_KINDS.has(kind) ? "instrument" : THERMAL_KINDS.has(kind) ? "thermal" : null;
+}
 
 /**
  * The record of one analysis (the shape a project file stores): the last cell
@@ -177,21 +199,123 @@ export function stagesLeft(page: AgentPage, record: AgentRecord): string[] {
 }
 
 /**
- * The firm rule a refinement of this free set would break, or null. Checked
- * before the correlation probe: it does not depend on the data's numbers.
+ * The firm rules a refinement of this free set would break, as one refusal,
+ * or null. Checked before the correlation probe: they do not depend on the
+ * data's numbers. Every broken rule is named at once, so one change of the
+ * free set can answer them all.
  */
 export function ruleRefusal(page: AgentPage, free: readonly RefinementParameter[], restraints: readonly LinearRestraint[], record: AgentRecord): RuleRefusal | null {
+  const broken: { rule: MethodRule; line: string; why: string }[] = [];
   if (!hasException(record, "bare-occupancy")) {
     const tied = new Set(restraints.flatMap((r) => r.terms.map((t) => t.parameterId)));
     const bare = free.filter((p) => p.kind === "occupancy" && !tied.has(p.id));
     if (bare.length > 0) {
       const fix = page === "powder" ? "Tie it (set_site_ties: Σ occ = 1 on a shared site, or hold composition)" : "Tie it (a shared site holds its Σ occupancy; a lone site has no tie on this page)";
-      return {
+      broken.push({
         rule: "bare-occupancy",
         line: `Not run: ${bare.map((p) => p.id).join(", ")} free with no tie`,
-        message: `Not refined: ${bare.map((p) => p.id).join(", ")} ${bare.length === 1 ? "is a free occupancy" : "are free occupancies"} with nothing but the scale to determine ${bare.length === 1 ? "it" : "them"} — the user's method never frees an occupancy bare. ${fix}, or fix ${bare.length === 1 ? "it" : "them"}. If a second contrast determines it (X-ray near an absorption edge, isotopic neutron contrast) and the user agrees, call allow_exception with rule "bare-occupancy" and the reason — they approve it themselves.`,
-      };
+        why: `${bare.map((p) => p.id).join(", ")} ${bare.length === 1 ? "is a free occupancy" : "are free occupancies"} with nothing but the scale to determine ${bare.length === 1 ? "it" : "them"} — the user's method never frees an occupancy bare. ${fix}, or fix ${bare.length === 1 ? "it" : "them"}. If a second contrast determines it (X-ray near an absorption edge, isotopic neutron contrast) and the user agrees, call allow_exception with rule "bare-occupancy" and the reason — they approve it themselves.`,
+      });
     }
   }
-  return null;
+  if (!hasException(record, "instrument-with-thermal")) {
+    const instrument = free.filter((p) => INSTRUMENT_KINDS.has(p.kind));
+    const thermal = free.filter((p) => THERMAL_KINDS.has(p.kind));
+    if (instrument.length > 0 && thermal.length > 0) {
+      const ids = (ps: readonly RefinementParameter[]): string => ps.length <= 6 ? ps.map((p) => p.id).join(", ") : `${ps.slice(0, 6).map((p) => p.id).join(", ")} and ${ps.length - 6} more`;
+      const trade = page === "pdf"
+        ? "Qbroad widens the peaks with r and Qdamp damps them with r, as the ADPs and the correlated motion do: refined together, each absorbs the other's error and the esds hide it. Keep Qdamp and Qbroad from the standard measured on the same instrument (Ni, Si); if they must be refined"
+        : "Wider or more Lorentzian peaks put intensity into tails the background takes up at high angle, and the B values' fall-off with angle gives it back; the zero and the asymmetry shape the low-angle lines that fix the scale the B values are measured against. Refined together, each absorbs the other's error (a B gone negative, a profile gone wide) and the esds hide it. Keep an instrument file's terms from its standard where they fit; where they must be refined";
+      broken.push({
+        rule: "instrument-with-thermal",
+        line: `Not run: instrument terms (${ids(instrument)}) free with thermal (${ids(thermal)})`,
+        why: `the instrument's terms (${ids(instrument)}) and the thermal parameters (${ids(thermal)}) are free together — the user's method never refines them together. ${trade}, alternate the two groups: fix the thermal parameters and refine the instrument terms, then fix those and refine the thermal ones, and repeat until a cycle moves neither by more than ${ALTERNATION_SETTLED} esd (refine's \`alternation\` gives the shifts). If the user wants them refined together, call allow_exception with rule "instrument-with-thermal" and their reason — they approve it themselves.`,
+      });
+    }
+  }
+  if (broken.length === 0) return null;
+  const first = broken[0]!;
+  if (broken.length === 1) return { rule: first.rule, line: first.line, message: `Not refined: ${first.why}` };
+  return {
+    rule: first.rule,
+    line: broken.map((b) => b.line).join("; "),
+    message: `Not refined, for ${broken.length} of the user's firm rules. ${broken.map((b, i) => `(${i + 1}) ${b.why}`).join(" ")}`,
+  };
+}
+
+// ── the alternation: instrument and thermal refined in turn ────────────────
+
+/** A cycle that moves neither group by more than this (in esd) ends the alternation. */
+export const ALTERNATION_SETTLED = 0.3;
+
+/** One group's last converged refinement in the alternation. */
+export interface GroupRefinement {
+  /** The group's values at its end, by id. */
+  readonly values: Readonly<Record<string, number>>;
+  /** The largest shift since the group's refinement before, in esd (null: its first). */
+  readonly shift: { readonly id: string; readonly esds: number } | null;
+  /** The shift of the refinement before (to see whether the alternation is converging). */
+  readonly previousShift: number | null;
+}
+
+export type Alternation = Readonly<Partial<Record<ParameterGroup, GroupRefinement>>>;
+
+/**
+ * The alternation after a converged refinement: the group refined (the one
+ * whose terms were free; none or both is no alternation step), its largest
+ * shift since its last refinement, and whether the cycle has settled.
+ */
+export function advanceAlternation(
+  memory: Alternation,
+  free: readonly RefinementParameter[],
+  parameters: readonly RefinementParameter[],
+  esd: Readonly<Record<string, number>>,
+): { readonly memory: Alternation; readonly refined: ParameterGroup | null } {
+  const groups = new Set(free.map((p) => groupOf(p.kind)).filter((g): g is ParameterGroup => g !== null));
+  let next: Alternation = memory;
+  for (const g of groups) {
+    const values = Object.fromEntries(parameters.filter((p) => groupOf(p.kind) === g).map((p) => [p.id, p.value]));
+    const before = memory[g];
+    let shift: GroupRefinement["shift"] = null;
+    if (before) {
+      for (const p of free) {
+        if (groupOf(p.kind) !== g || before.values[p.id] === undefined) continue;
+        const e = esd[p.id];
+        if (!(e !== undefined && e > 0)) continue;
+        const esds = Math.abs(values[p.id]! - before.values[p.id]!) / e;
+        if (!shift || esds > shift.esds) shift = { id: p.id, esds };
+      }
+    }
+    next = { ...next, [g]: { values, shift, previousShift: before?.shift?.esds ?? null } };
+  }
+  return { memory: next, refined: groups.size === 1 ? [...groups][0]! : null };
+}
+
+/** For refine's outcome: where the alternation stands after a step of it. Null when there is no alternation yet. */
+export function alternationView(memory: Alternation, refined: ParameterGroup | null, parameters: readonly RefinementParameter[]): Record<string, unknown> | null {
+  if (!refined) return null;
+  const other: ParameterGroup = refined === "instrument" ? "thermal" : "instrument";
+  // Before the other group has been refined, there is nothing to alternate with.
+  if (!memory[other]) return null;
+  const mine = memory[refined]!;
+  const name = (g: ParameterGroup): string => g === "instrument" ? "the instrument terms" : "the thermal parameters";
+  const idsOf = (g: ParameterGroup): string => {
+    const ids = parameters.filter((p) => groupOf(p.kind) === g && !p.expression).map((p) => p.id);
+    return ids.length <= 6 ? ids.join(", ") : `${ids.slice(0, 6).join(", ")}, …`;
+  };
+  const shiftText = (g: GroupRefinement | undefined): string => g?.shift ? `${g.shift.id} ${g.shift.esds.toFixed(2)} esd` : "not yet measured";
+  const settled = [mine, memory[other]].every((g) => g?.shift && g.shift.esds <= ALTERNATION_SETTLED);
+  const slow = mine.shift && mine.previousShift !== null && mine.shift.esds > ALTERNATION_SETTLED && mine.shift.esds > (2 / 3) * mine.previousShift;
+  return {
+    alternation: {
+      refined: `${name(refined)} (${idsOf(refined)}), with ${name(other)} fixed`,
+      largestShift: mine.shift ? `${shiftText(mine)} since their last refinement` : "their first refinement in the alternation",
+      otherGroupLastShift: shiftText(memory[other]),
+      settled,
+      next: settled
+        ? `Neither group moved by more than ${ALTERNATION_SETTLED} esd in its last refinement: the alternation has converged. Each group's esds are conditional on the other held fixed; say so in the report.`
+        : `Fix ${name(refined)} and refine ${name(other)} (${idsOf(other)}) again${other === "instrument" ? ", unless they stay at the instrument file's values" : ""}; stop when a cycle moves neither group by more than ${ALTERNATION_SETTLED} esd.`,
+      ...(slow ? { slow: `The shifts shrink slowly (${mine.shift!.id}: ${mine.previousShift!.toFixed(2)} → ${mine.shift!.esds.toFixed(2)} esd): the two groups are coupled. Tell the user, and ask whether one joint refinement is acceptable (allow_exception) or the B values are to be reported as conditional on the instrument terms.` } : {}),
+    },
+  };
 }

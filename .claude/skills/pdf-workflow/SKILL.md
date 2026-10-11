@@ -30,7 +30,10 @@ the esds are not statistical — never quote them as Rietveld esds.
 2. **Qdamp and Qbroad describe the instrument**, not the sample. They come from a standard
    measured on the same instrument (Ni, Si; `calibrate_qdamp`). Keep them fixed in the
    sample fit unless the user says otherwise — refined against the sample they absorb
-   structure.
+   structure. Never refine them together with the ADPs (a firm rule in the app, as on the
+   powder page): Qbroad widens the peaks with r and Qdamp damps them with r, as the ADPs and
+   the correlated motion do, so each absorbs the other's error. If the user wants them
+   refined, alternate: Qdamp/Qbroad with the ADPs fixed, then the ADPs with them fixed.
 3. Choose the fit window deliberately: from just below the first peak to where the
    signal or the model stops being trustworthy. Say what window you use.
 
