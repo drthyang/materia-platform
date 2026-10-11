@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { keyOfState } from "@/agent/method";
 import type { AgentReport } from "@/agent/report";
 import { executor, fakeHost, singleCrystalPort } from "@/testSupport/agentHeadless";
-import { chiralPage, corundumPage, pyridylPage } from "@/testSupport/scPages";
+import { chiralPage, corundumPage, disorderPage, pyridylPage } from "@/testSupport/scPages";
 import { dSpacing, orthogonalizationMatrix } from "@/core/crystal/unitCell";
 import { mulVec } from "@/core/math/mat3";
 
@@ -418,6 +418,41 @@ describe("AgentExecutor on the single-crystal page", () => {
     // In a centrosymmetric group there is no other hand.
     const { port: centro } = page();
     expect((await executor(fakeHost(centro).host, "auto").ex.run("set_twin", { law: "inversion" })).text).toMatch(/centrosymmetric: an inversion twin is the same crystal/);
+  });
+
+  it("refines a disorder's split as one fraction: the second occupancy one minus the first, the ADP shared (EADP)", async () => {
+    const d = disorderPage({ split: 0.84 });
+    const { port } = singleCrystalPort(d.structure, d.dataset);
+    const { ex, seen } = executor(fakeHost(port).host, "auto");
+    const phase = parse((await ex.run("get_state", {})).text).phase as { disorder: string[] };
+    expect(phase.disorder).toEqual(["assembly A: part 1 Al1 at occupancy 0.700; part 2 Ga1 at occupancy 0.300 — Σ 1.000; the occupancies are not tied: tie_parameters `complement` makes them add up to one, and the split refines as one fraction"]);
+    // No bond joins the two alternatives, 0.2 Å apart.
+    const bonds = parse((await ex.run("bond_geometry", { atoms: ["Al1"] })).text).bonds as { from: string; to: string }[];
+    expect(bonds.some((b) => [b.from, b.to].includes("Ga1"))).toBe(false);
+    expect(bonds.some((b) => [b.from, b.to].includes("N2"))).toBe(true);
+    const tie = parse((await ex.run("tie_parameters", { complement: ["Al1", "Ga1"], adp: ["Al1", "Ga1"] })).text);
+    expect(seen.find((e) => e.tool === "tie_parameters" && e.preview)?.preview).toBe("Ga1 takes the ADP of Al1 (EADP: 1 row each) · occ_Ga1 = 1 − occ_Al1: the two alternatives add up to one, and the split refines as one fraction");
+    expect(String(tie.note)).toMatch(/occ_Ga1 follows 1 − occ_Al1; the leading rows are fixed \(occ_Al1, B_Al1\): free them with set_free/);
+    expect(port.state().parameters.find((p) => p.id === "occ_Ga1")).toMatchObject({ expression: "= -1*occ_Al1+1", fixed: true });
+    expect(parse((await ex.run("tie_parameters", { complement: ["occ_Al1", "occ_Ga1"] })).text).unchanged).toBe(true);
+    expect((await ex.run("tie_parameters", { complement: ["Al1", "Ga2"] })).text).toMatch(/no occupancy row for Ga2 \(a site at full occupancy and in no disorder has none\)/);
+    await ex.run("set_free", { free: ["occ_Al1", "B_*", "pos_*"] });
+    expect(parse((await ex.run("refine", {})).text).status).toBe("converged");
+    const st = port.state();
+    const al = st.parameters.find((p) => p.id === "occ_Al1")!.value;
+    const esd = st.result!.esd.occ_Al1!;
+    expect(Math.abs(al - 0.84)).toBeLessThan(Math.max(4 * esd, 0.01));
+    expect(st.parameters.find((p) => p.id === "occ_Ga1")!.value).toBeCloseTo(1 - al, 12);
+    expect(st.parameters.find((p) => p.id === "B_Ga1")!.value).toBe(st.parameters.find((p) => p.id === "B_Al1")!.value);
+    // The table gives the follower the leader's esd.
+    const table = parse((await ex.run("structure_table", {})).text).phases as { sites: { label: string; occupancy: string }[] }[];
+    const occ = (label: string): string => table[0]!.sites.find((x) => x.label === label)!.occupancy;
+    expect(occ("Al1")).toMatch(/^0\.8\d+\(\d+\)$/);
+    expect(occ("Ga1")).toMatch(/^0\.1\d+\(\d+\)$/);
+    expect(occ("Al1").match(/\((\d+)\)/)![1]).toBe(occ("Ga1").match(/\((\d+)\)/)![1]);
+    // Released, the follower keeps its value, fixed.
+    await ex.run("tie_parameters", { release: ["occ_Ga1"] });
+    expect(port.state().parameters.find((p) => p.id === "occ_Ga1")).toMatchObject({ fixed: true, value: 1 - al });
   });
 
   it("gives the anisotropic tensor and the bond lengths with their esds", async () => {

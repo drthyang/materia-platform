@@ -147,6 +147,11 @@ function checkStructure(v: unknown, path: string): void {
     opt(site.isotope, `${p}.isotope`, num);
     opt(site.oxidationState, `${p}.oxidationState`, num);
     opt(site.multiplicity, `${p}.multiplicity`, int);
+    opt(site.disorder, `${p}.disorder`, (d, dp) => {
+      const r = rec(d, dp);
+      str(r.assembly, `${dp}.assembly`);
+      int(r.group, `${dp}.group`);
+    });
   });
 }
 

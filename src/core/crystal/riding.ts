@@ -15,9 +15,9 @@ import type { Mat3, Vec3 } from "@/core/math/types";
 import { orthogonalizationMatrix } from "@/core/crystal/unitCell";
 import { inverse, mulMat, mulVec } from "@/core/math/mat3";
 import { EIGHT_PI_SQUARED, isHydrogen, uEquivalent } from "@/core/crystal/adp";
-import { covalentlyBonded } from "@/core/crystal/geometry";
+import { alternatives, covalentlyBonded } from "@/core/crystal/geometry";
 
-const bonded = (a: AtomSite, b: AtomSite, distance: number): boolean => covalentlyBonded(a.element, b.element, distance);
+const bonded = (a: AtomSite, b: AtomSite, distance: number): boolean => !alternatives(a, b) && covalentlyBonded(a.element, b.element, distance);
 
 /** Every symmetry image of `site` within reach of `from`: its label, operation index, lattice translation and Cartesian distance. */
 function imagesNear(model: StructureModel, from: Vec3, site: AtomSite, reach: number): { op: number; cell: [number, number, number]; distance: number }[] {

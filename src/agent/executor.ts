@@ -263,7 +263,7 @@ export class AgentExecutor implements ToolRunner {
         // A scan given its own free set refines that set, not the page's.
         const scanFree = spec.name === "boxcar_scan" && Array.isArray(input.free) ? new Set(matchIds(before.parameters, input.free as string[])) : null;
         const ruleFree = scanFree ? before.parameters.filter((p) => scanFree.has(p.id) && !p.expression) : freeBefore;
-        const rule = ruleRefusal(port.technique, ruleFree, restraintsOf(before), record);
+        const rule = ruleRefusal(port.technique, ruleFree, restraintsOf(before), record, before.parameters);
         if (rule) {
           update({ status: "failed", preview, outcome: rule.line });
           return error(rule.message);

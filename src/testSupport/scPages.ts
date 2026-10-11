@@ -342,3 +342,71 @@ ${atoms.map(([label, element, x, y, z, u], i) => `${label} ${element} ${(x + jit
   };
   return { structure: start, dataset, flack };
 }
+
+export interface DisorderPage {
+  readonly structure: StructureModel;
+  readonly dataset: SingleCrystalDataset;
+  /** The Al share of the split site the intensities were computed with. */
+  readonly split: number;
+}
+
+/**
+ * 1b's framework with its split metal site (SHELXL's PART 1 and PART 2 of
+ * assembly A): Al1 and Ga1 0.2 Å apart, sharing one U, the intensities
+ * computed at an Al share of `split` with Mo Kα dispersion and counting noise.
+ * The starting model has the two alternatives at 0.7 and 0.3.
+ */
+export function disorderPage({ split = 0.84, seed = 17 }: { readonly split?: number; readonly seed?: number } = {}): DisorderPage {
+  const atoms: [string, string, number, number, number, number, string][] = [
+    ["Al1", "Al", 0.2398, 0.429, 0.035, 0.026, "A 1"],
+    ["Ga1", "Ga", 0.254, 0.4339, 0.0443, 0.026, "A 2"],
+    ["Ga2", "Ga", 0.20888, 0.61248, 0.17694, 0.035, ". ."],
+    ["N1", "N", 0.3043, 0.55591, -0.04642, 0.035, ". ."],
+    ["N2", "N", 0.403, 0.52312, 0.10749, 0.03, ". ."],
+    ["N3", "N", 0.2682, 0.32177, 0.13327, 0.03, ". ."],
+    ["C3", "C", 0.4086, 0.6396, -0.00213, 0.04, ". ."],
+    ["C4", "C", 0.5411, 0.5931, 0.06152, 0.04, ". ."],
+    ["C5", "C", 0.5383, 0.4558, 0.15634, 0.04, ". ."],
+    ["C6", "C", 0.3965, 0.3749, 0.19306, 0.035, ". ."],
+  ];
+  const cif = (al: number): string => `data_disorder
+_cell_length_a 6.2256
+_cell_length_b 12.9136
+_cell_length_c 17.4444
+_cell_angle_alpha 90
+_cell_angle_beta 90
+_cell_angle_gamma 90
+_symmetry_space_group_name_H-M 'P 21 21 21'
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_U_iso_or_equiv
+_atom_site_occupancy
+_atom_site_disorder_assembly
+_atom_site_disorder_group
+${atoms.map(([label, element, x, y, z, u, part]) => `${label} ${element} ${x} ${y} ${z} ${u} ${label === "Al1" ? al : label === "Ga1" ? (1 - al).toFixed(6) : 1} ${part}`).join("\n")}
+`;
+  const truth = parseCif(cif(split), "disorder");
+  const start = parseCif(cif(0.7), "disorder");
+  const radiation = { kind: "xray" as const, wavelength: 0.71073, polarization: 0.5 };
+  const unique = generateReflections(truth.cell, truth.spaceGroup, 0.8, 30);
+  const indices = unique.flatMap((r) => (r.h === 0 && r.k === 0 && r.l === 0 ? [] : [{ h: r.h, k: r.k, l: r.l }, { h: -r.h, k: -r.k, l: -r.l }]));
+  const empty: SingleCrystalDataset = { id: "disorder-sx", name: "Al/Ga split site (synthetic, Mo Kα)", radiation, reflections: indices.map((r) => ({ ...r, iObs: 1 })) };
+  const spec = buildSingleCrystalSpec(truth, empty, { scale: 1 });
+  const calc = singleCrystalRefinementComparison(truth, empty, spec.params, spec.bindings).rows;
+  const noise = normals(seed);
+  const iMax = Math.max(...calc.map((c) => c.fcSq));
+  const g = iMax / 4e5;
+  const background = 0.001 * iMax;
+  const dataset: SingleCrystalDataset = {
+    ...empty,
+    reflections: calc.map((c) => {
+      const sigma = Math.sqrt((Math.max(c.fcSq, 0) + background) * g + (0.01 * c.fcSq) ** 2);
+      return { h: c.h, k: c.k, l: c.l, iObs: c.fcSq + sigma * noise(), sigma };
+    }),
+  };
+  return { structure: start, dataset, split };
+}

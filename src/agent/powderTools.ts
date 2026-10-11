@@ -372,6 +372,7 @@ export function powderNoOp(spec: LiveToolSpec, input: Input, s: PowderLiveState)
     return null;
   }
   if (spec.name === "tie_parameters") {
+    if (input.complement !== undefined || input.adp !== undefined) throw new Error("`complement` and `adp` are the single-crystal page's: here set_site_ties ties a shared site's occupancies (Σ occ = 1) and ADPs");
     return checkEqualTies(s.parameters, tieUpdate(s.parameters, input)).unchanged ? "those parameters are already tied so" : null;
   }
   if (spec.name === "set_instrument_constants") {

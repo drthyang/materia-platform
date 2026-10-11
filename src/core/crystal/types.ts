@@ -80,6 +80,13 @@ export interface AtomSite {
    * from the space-group operations during structure expansion.
    */
   readonly multiplicity?: number;
+  /**
+   * The disorder alternative the site belongs to (SHELXL's PART; the CIF's
+   * `_atom_site_disorder_assembly` and `_atom_site_disorder_group`). The
+   * groups of one assembly are never present together, so no bond joins
+   * them. Absent for an ordered site.
+   */
+  readonly disorder?: { readonly assembly: string; readonly group: number };
 }
 
 /**

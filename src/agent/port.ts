@@ -278,6 +278,8 @@ export interface SingleCrystalAgentPort {
   readonly setWeighting: (next: ShelxWeighting | null) => void;
   /** The twin laws (each brings its fraction row, free at 0.1); empty for an untwinned crystal. */
   readonly setTwinLaws: (laws: readonly TwinLaw[]) => void;
+  /** Ties the user makes: rows held to a leader's value, a disorder's second occupancy to one minus the first; or released. */
+  readonly setParameterTies: (update: EqualTieUpdate) => void;
   /** The probe and the wavelength (constant wavelength only); the scale restarts from its best value, the last fit is cleared. */
   readonly setRadiation: (update: { readonly probe?: "xray" | "neutron" | "neutron-tof"; readonly wavelength?: number }) => void;
   /** The measurements left out by hand, replaced as a whole. */

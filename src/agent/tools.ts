@@ -285,13 +285,15 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     name: "tie_parameters",
     title: "Tie parameters to one value",
     description:
-      "Powder page only. Constrain parameters of one kind to a single refined value, as a crystallographer does when the data cannot separate them: `equal` (ids or globs, the leader first) makes every other row take the leader's value and follow it, so only the leader refines; `release` undoes a tie (the row comes back fixed at its current value). For ADPs (B) and occupancies. Tie when two values trade off rather than being measured: they swap between refinement paths at the same wR, an esd is as large as the value, or one B rails at 0 while its partner climbs — common below Q ≈ 6 Å⁻¹, and for light atoms beside heavy ones on X-rays. Tie chemically alike atoms (the cations of one oxide, all the oxygens, the H atoms), refine, and report the common value with its esd and why it is tied. set_free skips tied rows.",
+      "Powder and single-crystal pages. Constrain parameters to one refined value, as a crystallographer does when the data cannot separate them or the chemistry says they are one: `equal` (ids or globs, the leader first) makes every other row take the leader's value and follow it, so only the leader refines; `release` undoes a tie (the row comes back fixed at its current value). For ADPs (B, or U on the single-crystal page) and occupancies. Tie when two values trade off rather than being measured: they swap between refinement paths at the same wR, an esd is as large as the value, or one B rails at 0 while its partner climbs — common below Q ≈ 6 Å⁻¹, and for light atoms beside heavy ones on X-rays. Tie chemically alike atoms (the cations of one oxide, all the oxygens, the H atoms), refine, and report the common value with its esd and why it is tied. A disorder (single-crystal page: the alternatives of one site, SHELXL's PART 1 and PART 2; get_state lists them): `complement` [A, B] makes B's occupancy 1 − A's (SHELXL's 21 and −21), so the split refines as one fraction — free A's occ_ row after it; `adp` [A, B] gives B the ADP of A, every U (or B) row (SHELXL's EADP), for alternatives too close to separate their displacements. Report the fraction with its esd. set_free skips tied rows.",
     inputSchema: {
       equal: z.array(z.string()).min(1).optional().describe("Ids or globs, the leader first: [\"B_W1\", \"B_Cr1\"], or [\"B_O*\"] (the first match leads)"),
+      complement: z.tuple([z.string(), z.string()]).optional().describe("Single-crystal page: two occupancies (occ_ ids or site labels), the second = 1 − the first: [\"Al1\", \"Ga1\"]"),
+      adp: z.array(z.string()).min(2).optional().describe("Single-crystal page: site labels, the first leads: every ADP row of the others follows its (EADP): [\"Al1\", \"Ga1\"]"),
       release: z.array(z.string()).min(1).optional().describe("Ids or globs of tied rows to release"),
     },
     effect: "change",
-    pages: ["powder"],
+    pages: ["powder", "singleCrystal"],
   },
   {
     name: "sample_posterior",

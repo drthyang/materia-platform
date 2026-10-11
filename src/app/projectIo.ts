@@ -19,7 +19,7 @@
 
 import { APP_VERSION } from "@/app/constants";
 import type { Session } from "@/app/powderSession";
-import { EMPTY_SOURCE } from "@/app/powderSession";
+import { EMPTY_SOURCE, withValidUserTies } from "@/app/powderSession";
 import type { RidingRule, StructureModel } from "@/core/crystal/types";
 import type { DistortionModeSet } from "@/core/crystal/distortionModes";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
@@ -41,6 +41,7 @@ import {
   type Workspace,
 } from "@/core/project/types";
 import { isMomentParameterKind, type ParameterBinding, type RefinementParameter, type RefinementResult } from "@/core/refinement/types";
+import { isUserTie } from "@/core/refinement/constraints";
 import type { ProjectHistory } from "@/core/project/history";
 import type { BoxcarPlan, BoxcarRun } from "@/core/workflow/pdfBoxcar";
 
@@ -71,10 +72,12 @@ export function overlaySavedParameters(
     const s = byId.get(p.id);
     if (!s) return cloneParameter(p);
     const { esd: _esd, ...rest } = p;
-    return { ...rest, value: s.value, initialValue: s.initialValue, fixed: s.fixed, ...(s.esd !== undefined ? { esd: s.esd } : {}) };
+    // A tie the user made rides along (the spec only builds its own).
+    const tie = isUserTie(s) && !p.expression ? { expression: s.expression!, group: s.group! } : {};
+    return { ...rest, value: s.value, initialValue: s.initialValue, fixed: s.fixed, ...(s.esd !== undefined ? { esd: s.esd } : {}), ...tie };
   });
   for (const s of saved) if (!specIds.has(s.id) && append(s)) restored.push(cloneParameter(s));
-  return restored;
+  return withValidUserTies(restored);
 }
 
 /** The file's metadata title when the user has not named the project. */

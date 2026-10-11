@@ -38,6 +38,8 @@ import {
 import { EXTINCTION_MODELS, EXTINCTION_MODEL_LABELS, EXTINCTION_PARAMETER_LABELS, suggestShelxWeighting, type WeightingSuggestion } from "@/core/diffraction/singleCrystalFactors";
 import { isHydrogen, nonPositiveDefiniteSites, withAdpModel } from "@/core/crystal/adp";
 import { ridingRules, type RidingOptions } from "@/core/crystal/riding";
+import { withEqualTies, type EqualTieUpdate } from "@/core/refinement/constraints";
+import { keptRow, withValidUserTies } from "@/app/powderSession";
 import { dSpacing } from "@/core/crystal/unitCell";
 import { isMagneticModelParameterKind } from "@/core/refinement/types";
 import type { ParameterBinding } from "@/core/refinement/types";
@@ -598,14 +600,11 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
     const nextStructure = withAdpModel({ ...structure, sites: structure.sites.map((site) => ({ ...site, adp: next.seeds[site.label] ?? site.adp })) }, model, { hydrogensIsotropic: next.hydrogensIsotropic });
     const fresh = buildSingleCrystalSpec(nextStructure, probedDataset, { extinction: 0 }).params;
     const kept = new Map(params.map((p) => [p.id, p]));
-    setParams([
-      // The new ADP rows start (and reset) at the refined values; the rest are kept as they are.
-      ...fresh.map((p) => {
-        const old = p.kind === "bIso" || p.kind === "uAniso" ? undefined : kept.get(p.id);
-        return old ? { ...p, value: old.value, initialValue: old.initialValue, fixed: old.fixed } : p;
-      }),
+    setParams(withValidUserTies([
+      // The new ADP rows start (and reset) at the refined values, their ties gone; the rest are kept as they are.
+      ...fresh.map((p) => keptRow(p, p.kind === "bIso" || p.kind === "uAniso" ? undefined : kept.get(p.id))),
       ...params.filter((p) => isMagneticModelParameterKind(p.kind)),
-    ]);
+    ]));
     setAdp(next);
     setResult(null);
     stepHistory?.requestStep("settings", anisotropic ? "Anisotropic ADPs" : "Isotropic ADPs");
@@ -643,13 +642,10 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
     const nextStructure = nextRiding ? { ...fitStructure, riding: nextRiding } : (({ riding: _, ...rest }) => rest)(fitStructure);
     const fresh = buildSingleCrystalSpec(nextStructure, probedDataset, { extinction: 0 }).params;
     const kept = new Map(params.map((p) => [p.id, p]));
-    setParams([
-      ...fresh.map((p) => {
-        const old = kept.get(p.id);
-        return old ? { ...p, value: old.value, initialValue: old.initialValue, fixed: old.fixed } : p;
-      }),
+    setParams(withValidUserTies([
+      ...fresh.map((p) => keptRow(p, kept.get(p.id))),
       ...params.filter((p) => isMagneticModelParameterKind(p.kind)),
-    ]);
+    ]));
     setRiding(nextRiding);
     setResult(null);
     stepHistory?.requestStep("settings", nextRiding ? `${nextRiding.length} hydrogens riding` : "Hydrogens refined on their own");
@@ -678,16 +674,23 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
     if (!next.length) delete (nextDataset as { twinLaws?: unknown }).twinLaws;
     const fresh = buildSingleCrystalSpec(fitStructure, nextDataset, { extinction: 0 }).params;
     const kept = new Map(params.map((p) => [p.id, p]));
-    setParams([
-      ...fresh.map((p) => {
-        const old = p.kind === "twinFraction" ? undefined : kept.get(p.id);
-        return old ? { ...p, value: old.value, initialValue: old.initialValue, fixed: old.fixed } : p;
-      }),
+    setParams(withValidUserTies([
+      ...fresh.map((p) => keptRow(p, p.kind === "twinFraction" ? undefined : kept.get(p.id))),
       ...params.filter((p) => isMagneticModelParameterKind(p.kind)),
-    ]);
+    ]));
     setTwinLaws(next);
     setResult(null);
     stepHistory?.requestStep("settings", next.length === 0 ? "Untwinned" : next.length === 1 && isInversion(next[0]!) ? "Inversion twin" : `${next.length} twin law${next.length === 1 ? "" : "s"}`);
+  }
+
+  /**
+   * Ties the user (or the Agent) makes: rows held to a leader's value, a
+   * disorder's second occupancy to one minus the first, or released. The
+   * tied rows leave the fit; their values follow at once.
+   */
+  function changeParameterTies(update: EqualTieUpdate): void {
+    setParams((ps) => withValidUserTies(withEqualTies(ps, update)));
+    stepHistory?.requestStep("edit", update.complement ? `${update.complement[1]} = 1 − ${update.complement[0]}` : update.release ? `Released ${update.release.join(", ")}` : "Parameters tied");
   }
 
   /** The scheme SHELXL would suggest for the model as refined now. */
@@ -845,6 +848,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
       setRiding: changeRiding,
       setWeighting: changeWeighting,
       setTwinLaws: changeTwinLaws,
+      setParameterTies: changeParameterTies,
       setOmitted: changeOmitted,
       setResolution: changeResolution,
       setOutlierFilter: ({ on, cutoffSigma: cutoff, minExtinction: minY }) => {

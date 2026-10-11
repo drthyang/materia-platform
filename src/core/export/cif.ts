@@ -149,6 +149,7 @@ function loop(headers: readonly string[], rows: readonly (readonly string[])[]):
 
 /** The atom-site loop plus, when any site is anisotropic, the aniso-U loop. */
 function atomSiteBlocks(structure: StructureModel, esd: EsdMap): string {
+  const disordered = structure.sites.some((s) => s.disorder);
   const siteRows = structure.sites.map((s) => {
     const pe = esd.pos.get(s.label);
     const uIso = s.adp.kind === "isotropic" ? s.adp.bIso / EIGHT_PI2 : uEquivalent(s.adp.uAniso, structure.cell);
@@ -163,6 +164,8 @@ function atomSiteBlocks(structure: StructureModel, esd: EsdMap): string {
       formatWithEsd(s.occupancy, esd.occ.get(s.label), 4),
       s.adp.kind === "isotropic" ? "Uiso" : "Uani",
       formatWithEsd(uIso, bEsd === undefined ? undefined : bEsd / EIGHT_PI2, 5),
+      // SHELXL's PART, when any site is disordered: the assembly and the alternative ("." for an ordered site).
+      ...(disordered ? [s.disorder?.assembly || ".", s.disorder ? String(s.disorder.group) : "."] : []),
     ];
   });
   const atomLoop = loop(
@@ -175,6 +178,7 @@ function atomSiteBlocks(structure: StructureModel, esd: EsdMap): string {
       "_atom_site_occupancy",
       "_atom_site_adp_type",
       "_atom_site_U_iso_or_equiv",
+      ...(disordered ? ["_atom_site_disorder_assembly", "_atom_site_disorder_group"] : []),
     ],
     siteRows,
   );

@@ -41,7 +41,7 @@ import { refine, type RefinementProblem } from "@/core/refinement/engine";
 import { allowedPositionShifts } from "@/core/crystal/siteConstraints";
 import { allowedAnisotropicAdpModes } from "@/core/crystal/adpConstraints";
 import { weightsFromSigma } from "@/core/refinement/factors";
-import { resolveTies, tieReferences } from "@/core/refinement/constraints";
+import { parseTie, resolveTies } from "@/core/refinement/constraints";
 import { applyParameters } from "@/core/workflow/apply";
 import { scPlan, scStructureFactors, type ScDerivative, type ScKernelResult, type ScPlan } from "@/core/diffraction/scKernel";
 import {
@@ -74,7 +74,7 @@ export interface SingleCrystalSpecOptions {
   readonly refinePositions?: boolean;
   /** Refine per-site ADP (isotropic B or symmetry-adapted anisotropic U). Default true. */
   readonly refineAdp?: boolean;
-  /** Refine site occupancies. Default false (correlates with scale/ADP). */
+  /** An occupancy row for every site, not only the partial and disordered ones. Default false (correlates with scale/ADP). */
   readonly refineOccupancy?: boolean;
   /** Starting fractions of the dataset's twin laws, in order (default 0.1 each). */
   readonly twinFractions?: readonly number[];
@@ -230,13 +230,14 @@ export function buildSingleCrystalSpec(
     }
   }
 
-  // Occupancies (optional).
-  if (refineOccupancy) {
-    for (const site of structure.sites) {
-      const id = `occ_${site.label}`;
-      params.push({ id, label: `${site.label} occ`, kind: "occupancy", value: site.occupancy, initialValue: site.occupancy, min: 0, max: 1, fixed: true });
-      bindings.push({ parameterId: id, kind: "occupancy", targetId: structure.id, targetKey: site.label });
-    }
+  // Occupancies: a row, fixed, for each partial or disordered site — the
+  // alternatives of a disorder refine tied to add up to one (SHELXL's 21 and
+  // −21) — or for every site with `refineOccupancy`. A riding hydrogen has none.
+  for (const site of structure.sites) {
+    if (riding.has(site.label) || !(refineOccupancy || site.occupancy < 1 - 1e-6 || site.disorder)) continue;
+    const id = `occ_${site.label}`;
+    params.push({ id, label: `${site.label} occ`, kind: "occupancy", value: site.occupancy, initialValue: site.occupancy, min: 0, max: 1, fixed: true });
+    bindings.push({ parameterId: id, kind: "occupancy", targetId: structure.id, targetKey: site.label });
   }
 
   // Auto-estimate the overall scale so the initial |F|² match is sensible: the
@@ -507,9 +508,18 @@ export function buildSingleCrystalRefinementProblem(
 
   const calculate = (values: Readonly<Record<string, number>>): Float64Array => scIntensities(plans, appliedAt(values), dataset).fc2;
 
-  // A parameter another one follows (a tie "= p") moves sites its own bindings
-  // do not name: finite differences, which see the tie through calculate().
-  const followed = new Set(parameters.flatMap((q) => (q.expression ? tieReferences(q.expression) : [])));
+  // The rows a parameter carries by a linear tie ("= f·p + c": the complement
+  // of a disorder's occupancy, an ADP held equal to another's): their bindings
+  // move with it, f times. A magnitude tie leaves the parameters it reads to
+  // finite differences, which see it through calculate().
+  const followersOf = new Map<string, { id: string; factor: number }[]>();
+  const readByNorm = new Set<string>();
+  for (const q of parameters) {
+    if (!q.expression) continue;
+    const tie = parseTie(q.expression);
+    if (tie.kind === "linear") followersOf.set(tie.refId, [...(followersOf.get(tie.refId) ?? []), { id: q.id, factor: tie.factor }]);
+    else for (const id of tie.refIds) readByNorm.add(id);
+  }
 
   const analyticColumns = (freeParams: readonly RefinementParameter[], freeValues: readonly number[]): (Float64Array | null)[] => {
     const values: Record<string, number> = {};
@@ -527,22 +537,28 @@ export function buildSingleCrystalRefinementProblem(
     // Each free parameter's kernel derivatives (one per binding), or why it has none.
     const requests: ScDerivative[] = [];
     const columnPlans = freeParams.map((p): { kind: "structural"; at: number[] } | { kind: "scale" } | { kind: "extinction" } | { kind: "batch"; batch: number } | { kind: "twin"; law: number } | null => {
-      if (followed.has(p.id)) return null;
-      const bs = bindings.filter((b) => b.parameterId === p.id);
-      if (bs.length === 0) return null;
-      if (bs.every((b) => b.kind === "scale")) return { kind: "scale" };
-      if (bs.every((b) => b.kind === "extinction")) return { kind: "extinction" };
-      if (bs.length === 1 && bs[0]!.kind === "batchScale" && bs[0]!.targetKey !== undefined) return { kind: "batch", batch: Number(bs[0]!.targetKey) };
-      if (bs.length === 1 && bs[0]!.kind === "twinFraction" && bs[0]!.targetKey !== undefined) return { kind: "twin", law: Number(bs[0]!.targetKey) };
+      if (readByNorm.has(p.id)) return null;
+      const own = bindings.filter((b) => b.parameterId === p.id);
+      if (own.length === 0) return null;
+      const followers = followersOf.get(p.id) ?? [];
+      if (followers.length === 0) {
+        if (own.every((b) => b.kind === "scale")) return { kind: "scale" };
+        if (own.every((b) => b.kind === "extinction")) return { kind: "extinction" };
+        if (own.length === 1 && own[0]!.kind === "batchScale" && own[0]!.targetKey !== undefined) return { kind: "batch", batch: Number(own[0]!.targetKey) };
+        if (own.length === 1 && own[0]!.kind === "twinFraction" && own[0]!.targetKey !== undefined) return { kind: "twin", law: Number(own[0]!.targetKey) };
+      }
+      // Its own bindings, and its followers' at their factor.
+      const bs = [...own.map((b) => ({ b, f: 1 })), ...followers.flatMap(({ id, factor }) => bindings.filter((b) => b.parameterId === id).map((b) => ({ b, f: factor })))];
       const at: number[] = [];
-      for (const b of bs) {
+      for (const { b, f } of bs) {
         const site = b.targetKey !== undefined ? siteIndex.get(b.targetKey) : undefined;
         if (site === undefined) return null;
+        const scaled = f === 1 ? {} : { scale: f };
         let d: ScDerivative | null = null;
-        if (b.kind === "positionShift" && b.axis) d = { kind: "position", site, axis: b.axis as [number, number, number] };
-        else if (b.kind === "uAniso" && b.uBasis) d = { kind: "uMode", site, basis: b.uBasis as [number, number, number, number, number, number] };
-        else if (b.kind === "bIso") d = { kind: "bIso", site };
-        else if (b.kind === "occupancy") d = { kind: "occupancy", site };
+        if (b.kind === "positionShift" && b.axis) d = { kind: "position", site, axis: b.axis as [number, number, number], ...scaled };
+        else if (b.kind === "uAniso" && b.uBasis) d = { kind: "uMode", site, basis: b.uBasis as [number, number, number, number, number, number], ...scaled };
+        else if (b.kind === "bIso") d = { kind: "bIso", site, ...scaled };
+        else if (b.kind === "occupancy") d = { kind: "occupancy", site, ...scaled };
         if (!d) return null;
         at.push(requests.length);
         requests.push(d);
@@ -552,15 +568,15 @@ export function buildSingleCrystalRefinementProblem(
           for (const dep of moversOf(b.targetKey!)) {
             const v = mulVec(dep.jacobian, d.axis as Vec3);
             at.push(requests.length);
-            requests.push({ kind: "position", site: dep.h, axis: [v[0], v[1], v[2]] });
+            requests.push({ kind: "position", site: dep.h, axis: [v[0], v[1], v[2]], ...scaled });
           }
         }
         for (const rider of ridersOf.get(b.targetKey!) ?? []) {
           const h = siteIndex.get(rider.site);
           if (h === undefined) continue;
           let extra: ScDerivative | null = null;
-          if (d.kind === "uMode") extra = { kind: "bIso", site: h, scale: EIGHT_PI_SQUARED * rider.uFactor * uEquivalent(d.basis, structure.cell) };
-          else if (d.kind === "bIso") extra = { kind: "bIso", site: h, scale: rider.uFactor };
+          if (d.kind === "uMode") extra = { kind: "bIso", site: h, scale: f * EIGHT_PI_SQUARED * rider.uFactor * uEquivalent(d.basis, structure.cell) };
+          else if (d.kind === "bIso") extra = { kind: "bIso", site: h, scale: f * rider.uFactor };
           if (!extra) continue;
           at.push(requests.length);
           requests.push(extra);

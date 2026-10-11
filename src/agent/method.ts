@@ -33,11 +33,12 @@ import type { AgentRecordFile } from "@/core/project/types";
 import type { AgentPage } from "@/agent/tools";
 import type { LiveState } from "@/agent/port";
 import { PAGE_METHOD } from "@/agent/skills";
+import { parseTie } from "@/core/refinement/constraints";
 
 export type MethodRule = "bare-occupancy" | "instrument-with-thermal";
 
 export const RULES: Readonly<Record<MethodRule, { readonly title: string; readonly pages: readonly AgentPage[] }>> = {
-  "bare-occupancy": { title: "Refine an occupancy with no tie or second contrast", pages: ["powder", "pdf"] },
+  "bare-occupancy": { title: "Refine an occupancy with no tie or second contrast", pages: ["powder", "pdf", "singleCrystal"] },
   "instrument-with-thermal": { title: "Refine instrument and thermal parameters together", pages: ["powder", "pdf"] },
 };
 
@@ -233,13 +234,21 @@ export function stagesLeft(page: AgentPage, record: AgentRecord): string[] {
  * data's numbers. Every broken rule is named at once, so one change of the
  * free set can answer them all.
  */
-export function ruleRefusal(page: AgentPage, free: readonly RefinementParameter[], restraints: readonly LinearRestraint[], record: AgentRecord): RuleRefusal | null {
+export function ruleRefusal(page: AgentPage, free: readonly RefinementParameter[], restraints: readonly LinearRestraint[], record: AgentRecord, all: readonly RefinementParameter[] = free): RuleRefusal | null {
   const broken: { rule: MethodRule; line: string; why: string }[] = [];
   if (!hasException(record, "bare-occupancy")) {
     const tied = new Set(restraints.flatMap((r) => r.terms.map((t) => t.parameterId)));
+    // An occupancy whose complement follows it (a disorder's alternatives, one minus the other) holds the site's sum: their contrast measures the split.
+    for (const q of all) {
+      if (q.kind !== "occupancy" || !q.expression) continue;
+      const tie = parseTie(q.expression);
+      if (tie.kind === "linear" && tie.factor < 0) tied.add(tie.refId);
+    }
     const bare = free.filter((p) => p.kind === "occupancy" && !tied.has(p.id));
     if (bare.length > 0) {
-      const fix = page === "powder" ? "Tie it (set_site_ties: Σ occ = 1 on a shared site, or hold composition)" : "Tie it (a shared site holds its Σ occupancy; a lone site has no tie on this page)";
+      const fix = page === "powder" ? "Tie it (set_site_ties: Σ occ = 1 on a shared site, or hold composition)"
+        : page === "singleCrystal" ? "Tie it (tie_parameters `complement`: a disorder's two alternatives add up to one)"
+          : "Tie it (a shared site holds its Σ occupancy; a lone site has no tie on this page)";
       broken.push({
         rule: "bare-occupancy",
         line: `Not run: ${bare.map((p) => p.id).join(", ")} free with no tie`,

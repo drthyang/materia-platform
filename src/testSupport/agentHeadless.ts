@@ -15,7 +15,7 @@ import { buildPdfProblem, buildPdfSpec, pdfCurves } from "@/core/workflow/pdf";
 import { applyParameters } from "@/core/workflow/apply";
 import { refine as refineProblem } from "@/core/refinement/engine";
 import { boxcarTable, boxcarWindows, type BoxcarRun } from "@/core/workflow/pdfBoxcar";
-import { DEFAULT_INSTRUMENT, buildSpecFor, keptBindings, keptRows, withMagneticRows, type Session } from "@/app/powderSession";
+import { DEFAULT_INSTRUMENT, buildSpecFor, keptBindings, keptRow, keptRows, withMagneticRows, withValidUserTies, type Session } from "@/app/powderSession";
 import { withEqualTies } from "@/core/refinement/constraints";
 import { withConstants, type InstrumentParameters } from "@/core/diffraction/instrument";
 import { withAntisite } from "@/core/crystal/antisite";
@@ -519,10 +519,7 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
       model = riding ? { ...switched, riding } : switched;
       const old = new Map(params.map((p) => [p.id, p]));
       spec = buildSingleCrystalSpec(model, dataset, { extinction: 0 });
-      params = spec.params.map((p) => {
-        const o = p.kind === "bIso" || p.kind === "uAniso" ? undefined : old.get(p.id);
-        return o ? { ...p, value: o.value, initialValue: o.initialValue, fixed: o.fixed } : p;
-      });
+      params = withValidUserTies(spec.params.map((p) => keptRow(p, p.kind === "bIso" || p.kind === "uAniso" ? undefined : old.get(p.id))));
       result = null;
     },
     setExtinctionModel: (m) => {
@@ -557,11 +554,12 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
       dataset = laws.length ? { ...rest, twinLaws: laws } : rest;
       const old = new Map(params.map((p) => [p.id, p]));
       spec = buildSingleCrystalSpec(model, dataset, { extinction: 0 });
-      params = spec.params.map((p) => {
-        const o = p.kind === "twinFraction" ? undefined : old.get(p.id);
-        return o ? { ...p, value: o.value, initialValue: o.initialValue, fixed: o.fixed } : p;
-      });
+      params = withValidUserTies(spec.params.map((p) => keptRow(p, p.kind === "twinFraction" ? undefined : old.get(p.id))));
       result = null;
+    },
+    setParameterTies: (update) => {
+      calls.push(`ties ${JSON.stringify(update)}`);
+      params = withValidUserTies(withEqualTies(params, update));
     },
     setWeighting: (next) => {
       calls.push(`weighting ${next ? `${next.a} ${next.b}` : "1/σ²"}`);
@@ -579,10 +577,7 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
       model = riding ? { ...model, riding } : (({ riding: _, ...rest }) => rest)(model);
       const old = new Map(params.map((p) => [p.id, p]));
       spec = buildSingleCrystalSpec(model, dataset, { extinction: 0 });
-      params = spec.params.map((p) => {
-        const o = old.get(p.id);
-        return o ? { ...p, value: o.value, initialValue: o.initialValue, fixed: o.fixed } : p;
-      });
+      params = withValidUserTies(spec.params.map((p) => keptRow(p, old.get(p.id))));
       result = null;
       return rules && rules.unbonded.length ? `not riding (no parent in bonding distance): ${rules.unbonded.join(", ")}` : null;
     },

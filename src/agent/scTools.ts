@@ -26,6 +26,7 @@ import { EXTINCTION_MODEL_LABELS, shelxWeights, suggestShelxWeighting, type Weig
 import { inResolution, isOmitted } from "@/core/workflow/singleCrystalRefinement";
 import { INVERSION_TWIN, isInversion, type ExtinctionModel, type OmittedMeasurement, type ResolutionRange, type ShelxWeighting, type TwinLaw } from "@/core/diffraction/types";
 import { dispersionLine } from "@/core/scattering/dispersion";
+import { checkEqualTies, type EqualTieUpdate } from "@/core/refinement/constraints";
 import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, correlationsCheck, findingChecks, noResultCheck, verdictCheck } from "@/agent/reportChecks";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- inputs are validated against the spec's zod schema before a handler runs */
@@ -117,6 +118,11 @@ export async function changeSingleCrystal(name: string, input: Input, port: Sing
       const odd = oddHydrogenDistances(s.probe, placed);
       return `${rules.length} hydrogen${rules.length === 1 ? " rides" : "s ride"}: ${ridingSummary(placed)}${note ? `; ${note}` : ""}.${odd ? ` ${odd}` : ""} The last fit is cleared: refine again.`;
     }
+    case "tie_parameters": {
+      const update = scTieUpdate(s, input);
+      port.setParameterTies(update);
+      return tieNote(s, update);
+    }
     case "refine": {
       if (!s.parameters.some((p) => !p.fixed && !p.expression)) throw new Error("no parameter is free — free some with set_free first");
       const why = await (input.mode === "thorough" ? port.thorough() : port.refine());
@@ -165,6 +171,8 @@ export function singleCrystalNoOp(spec: LiveToolSpec, input: Input, s: SingleCry
       const next = twinAfter(s, input);
       return sameLaws(next, s.twinLaws) ? (next.length ? `the twin law is already ${twinText(next[0]!)}` : "the crystal is already untwinned") : null;
     }
+    case "tie_parameters":
+      return checkEqualTies(s.parameters, scTieUpdate(s, input)).unchanged ? "those parameters are already tied so" : null;
     case "set_riding_hydrogens": {
       const hydrogens = s.structure.sites.filter((site) => isHydrogen(site)).length;
       if (input.on && hydrogens === 0) throw new Error("the model has no hydrogen atoms: nothing to ride");
@@ -227,6 +235,19 @@ export function describeSingleCrystalChange(spec: LiveToolSpec, input: Input, s:
       const next = twinAfter(s, input);
       return next.length === 0 ? `Untwinned: the twin fraction${s.twinLaws.length ? "" : "s"} leave the fit` : `Twin law: ${twinText(next[0]!)} — its fraction${isInversion(next[0]!) ? " (the Flack x)" : " (BASF)"} refines from 0.1`;
     }
+    case "tie_parameters": {
+      const u = scTieUpdate(s, input);
+      const kind = (id: string | undefined): string => {
+        const k = s.parameters.find((p) => p.id === id)?.kind;
+        return k === "occupancy" ? "occupancy" : k === "uAniso" ? "U" : "B";
+      };
+      return [
+        ...(u.equal ? [`Tie ${u.equal.slice(1).join(", ")} = ${u.equal[0]} (one ${kind(u.equal[0])} refines)`] : []),
+        ...(u.groups?.length ? [`${(input.adp as string[]).slice(1).join(", ")} take${(input.adp as string[]).length > 2 ? "" : "s"} the ADP of ${String((input.adp as string[])[0])} (EADP: ${u.groups.length} row${u.groups.length === 1 ? "" : "s"} each)`] : []),
+        ...(u.complement ? [`${u.complement[1]} = 1 − ${u.complement[0]}: the two alternatives add up to one, and the split refines as one fraction`] : []),
+        ...(u.release ? [`Release the tie on ${u.release.join(", ")}`] : []),
+      ].join(" · ");
+    }
     case "set_riding_hydrogens": {
       const hydrogens = new Set(s.structure.sites.filter((site) => isHydrogen(site)).map((site) => site.label));
       if (!input.on) return `Hydrogens refine on their own again: ${hydrogens.size} hydrogen${hydrogens.size === 1 ? "" : "s"} get their own position and B rows (fixed, at the loaded positions)`;
@@ -259,6 +280,61 @@ export function describeSingleCrystalChange(spec: LiveToolSpec, input: Input, s:
     default:
       return spec.title;
   }
+}
+
+/**
+ * tie_parameters on this page: ids and globs as on the powder page; a
+ * disorder's two occupancies, the second one minus the first (by occ_ id or
+ * site label); and SHELXL's EADP, every ADP row of the later sites held to
+ * the first's, mode by mode.
+ */
+function scTieUpdate(s: SingleCrystalLiveState, input: Input): EqualTieUpdate {
+  const expand = (list: readonly string[]): string[] => [...new Set(list.flatMap((g) => matchIds(s.parameters, [g])))];
+  const occupancy = (name: string): string => {
+    if (s.parameters.some((p) => p.id === name)) return name;
+    if (s.parameters.some((p) => p.id === `occ_${name}`)) return `occ_${name}`;
+    throw new Error(`no occupancy row for ${name}${s.structure.sites.some((site) => site.label === name) ? " (a site at full occupancy and in no disorder has none)" : ""}`);
+  };
+  const groups = Array.isArray(input.adp) ? adpTieGroups(s, input.adp as string[]) : [];
+  const update: EqualTieUpdate = {
+    ...(Array.isArray(input.equal) ? { equal: expand(input.equal as string[]) } : {}),
+    ...(groups.length ? { groups } : {}),
+    ...(Array.isArray(input.complement) ? { complement: [occupancy(String(input.complement[0])), occupancy(String(input.complement[1]))] as const } : {}),
+    ...(Array.isArray(input.release) ? { release: expand(input.release as string[]) } : {}),
+  };
+  if (!update.equal && !update.groups && !update.complement && !update.release) throw new Error("pass `equal`, `complement`, `adp` or `release`");
+  return update;
+}
+
+/** EADP: the ADP rows of each later site, mode by mode, held to the first site's; their site symmetry must give the same modes. */
+function adpTieGroups(s: SingleCrystalLiveState, labels: readonly string[]): string[][] {
+  const rowsOf = (label: string): { id: string; kind: string; basis: readonly number[] | undefined }[] => {
+    if (!s.structure.sites.some((site) => site.label === label)) throw new Error(`no site ${label}`);
+    const rows = s.bindings.filter((b) => b.targetKey === label && (b.kind === "uAniso" || b.kind === "bIso")).map((b) => ({ id: b.parameterId, kind: b.kind, basis: b.uBasis }));
+    if (rows.length === 0) throw new Error(`${label} has no ADP row of its own${s.riding.some((r) => r.site === label) ? ": it rides, its U follows its parent's" : ""}`);
+    return rows;
+  };
+  const lead = rowsOf(labels[0]!);
+  const groups = lead.map((r) => [r.id]);
+  for (const label of labels.slice(1)) {
+    const rows = rowsOf(label);
+    const same = rows.length === lead.length && rows.every((r, i) => r.kind === lead[i]!.kind && (r.basis ?? []).every((v, j) => Math.abs(v - (lead[i]!.basis?.[j] ?? NaN)) < 1e-9));
+    if (!same) throw new Error(`${label}'s ADP is not of ${labels[0]}'s form (${rows.length} ${rows[0]!.kind === "uAniso" ? "U" : "B"} row${rows.length === 1 ? "" : "s"} against ${lead.length} ${lead[0]!.kind === "uAniso" ? "U" : "B"}: another ADP model or site symmetry), so it cannot take it whole`);
+    if (rows.some((r, i) => r.id === lead[i]!.id)) throw new Error(`${label} already shares ${labels[0]}'s ADP rows: they are one site`);
+    rows.forEach((r, i) => groups[i]!.push(r.id));
+  }
+  return groups;
+}
+
+/** What the tie leaves to do: the leader to free, the fraction to report. */
+function tieNote(s: SingleCrystalLiveState, update: EqualTieUpdate): string | undefined {
+  const fixedLeaders = [...(update.complement ? [update.complement[0]] : []), ...(update.groups ?? []).map((g) => g[0]!), ...(update.equal ? [update.equal[0]!] : [])]
+    .filter((id) => s.parameters.find((p) => p.id === id)?.fixed);
+  const parts = [
+    ...(update.complement ? [`${update.complement[1]} follows 1 − ${update.complement[0]}`] : []),
+    ...(fixedLeaders.length ? [`the leading row${fixedLeaders.length === 1 ? " is" : "s are"} fixed (${fixedLeaders.join(", ")}): free ${fixedLeaders.length === 1 ? "it" : "them"} with set_free to refine`] : []),
+  ];
+  return parts.length ? `${parts.join("; ")}.` : undefined;
 }
 
 /** X-ray data with hydrogens refined on their own: a note, or null. Neutron data place them as well as any atom. */
@@ -606,6 +682,7 @@ function stateView(s: SingleCrystalLiveState, history: ProjectHistory | null, se
       cell: cellOf(ph),
       sites: ph.sites.map((site) => `${site.label} ${site.element}`),
       adpModel: s.adpModel,
+      ...disorderView(s),
       note: "The cell is fixed input from indexing: intensities carry no peak positions.",
     },
     data: {
@@ -623,11 +700,37 @@ function stateView(s: SingleCrystalLiveState, history: ProjectHistory | null, se
       twin: s.twinLaws.length ? s.twinLaws.map(twinText).join("; ") : "none",
       extinctionModel: EXTINCTION_MODEL_LABELS[s.extinctionModel],
     },
-    agreement: { R1: pct(ag.r1), wR2: pct(ag.wr2), GooF: sig(ag.goof, 4), observed: ag.observed, total: ag.total, note: "R1 over Fo² > 2σ; wR2 and GooF over every reflection fitted, w = 1/σ²." },
+    agreement: { R1: pct(ag.r1), wR2: pct(ag.wr2), GooF: sig(ag.goof, 4), observed: ag.observed, total: ag.total, note: `R1 over Fo² > 2σ; wR2 and GooF over every reflection fitted, ${s.weighting ? `weighted by WGHT ${s.weighting.a} ${s.weighting.b}` : "w = 1/σ²"}.` },
     magneticModel: s.magnetic,
     lastRefinement: s.result ? { status: s.result.status, iterations: s.result.history.length, ...(s.result.diagnostics ? { maxShiftOverEsd: sig(s.result.diagnostics.maxShiftOverEsd, 3) } : {}) } : null,
     ...parameterSummary(s.parameters, s.result?.esd, select),
     history: historyView(history),
+  };
+}
+
+/**
+ * The model's disorder, as SHELXL's PARTs: each assembly's alternatives with
+ * their occupancies and the sum, and how the occupancies are tied (or that
+ * they are not).
+ */
+function disorderView(s: SingleCrystalLiveState): { disorder?: string[] } {
+  const sites = s.refinedStructure.sites.filter((site) => site.disorder);
+  if (sites.length === 0) return {};
+  const assemblies = [...new Set(sites.map((site) => site.disorder!.assembly))];
+  return {
+    disorder: assemblies.map((a) => {
+      const members = sites.filter((site) => site.disorder!.assembly === a);
+      const parts = [...new Set(members.map((site) => site.disorder!.group))].sort((x, y) => x - y).map((g) => {
+        const these = members.filter((site) => site.disorder!.group === g);
+        return { g, labels: these.map((site) => site.label), occ: these[0]!.occupancy };
+      });
+      const sum = parts.reduce((t, x) => t + x.occ, 0);
+      const ties = members.flatMap((site) => {
+        const row = s.parameters.find((p) => p.id === `occ_${site.label}`);
+        return row?.expression ? [`${row.id} ${row.expression}`] : [];
+      });
+      return `assembly ${a || "(unnamed)"}: ${parts.map((x) => `part ${x.g} ${x.labels.join(" ")} at occupancy ${x.occ.toFixed(3)}`).join("; ")} — Σ ${sum.toFixed(3)}; ${ties.length ? `tied: ${ties.join(", ")}` : "the occupancies are not tied: tie_parameters `complement` makes them add up to one, and the split refines as one fraction"}`;
+    }),
   };
 }
 

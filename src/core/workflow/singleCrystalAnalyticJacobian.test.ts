@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildSingleCrystalRefinementProblem, buildSingleCrystalSpec } from "@/core/workflow/singleCrystalRefinement";
-import { chiralPage, corundumPage, pyridylPage } from "@/testSupport/scPages";
+import { chiralPage, corundumPage, disorderPage, pyridylPage } from "@/testSupport/scPages";
+import { withEqualTies } from "@/core/refinement/constraints";
 import { INVERSION_TWIN } from "@/core/diffraction/types";
 import { withAdpModel } from "@/core/crystal/adp";
 import type { ExtinctionModel } from "@/core/diffraction/types";
@@ -103,6 +104,16 @@ C1 0.026 0.022 0.027 -0.003 0.006 0.002
     const params = spec.params.map((p) => ({ ...p, fixed: !(p.kind === "scale" || p.kind === "extinction" || p.kind === "twinFraction" || p.kind === "positionShift" || p.kind === "bIso") }));
     expect(params.find((p) => p.kind === "twinFraction")).toMatchObject({ id: "twin_1", label: "inversion twin fraction (Flack x)", value: 0.3 });
     expect(check(buildSingleCrystalRefinementProblem(page.structure, dataset, params, spec.bindings))).toBeGreaterThanOrEqual(40);
+  });
+
+  it("carries a tie's followers: a disorder's complement occupancy and the ADP held to the other alternative's", () => {
+    const page = disorderPage();
+    const spec = buildSingleCrystalSpec(page.structure, page.dataset, { extinction: 0 });
+    expect(spec.params.filter((p) => p.kind === "occupancy").map((p) => p.id)).toEqual(["occ_Al1", "occ_Ga1"]);
+    const tied = withEqualTies(spec.params, { complement: ["occ_Al1", "occ_Ga1"], equal: ["B_Al1", "B_Ga1"] });
+    const params = tied.map((p) => (p.expression ? p : { ...p, fixed: !(p.kind === "scale" || p.kind === "occupancy" || p.kind === "bIso" || p.kind === "positionShift") }));
+    const problem = buildSingleCrystalRefinementProblem(page.structure, page.dataset, params, spec.bindings);
+    expect(check(problem)).toBeGreaterThanOrEqual(30);
   });
 
   for (const model of ["shelx", "bc-1-lorentzian"] as ExtinctionModel[]) {
