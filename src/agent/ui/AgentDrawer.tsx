@@ -175,8 +175,9 @@ function StatusChip({ agent }: { agent: AgentController }): JSX.Element {
   const local = localModel(settings);
   let text = MODE_LABEL[settings.mode];
   let ok = true;
+  // A replay, short enough for the chip; its tooltip and the report say "of a live run".
   if (settings.replayOf) {
-    text = replayLabel(settings.replayOf);
+    text = `${settings.replayOf} · replay`;
   } else if (settings.mode === "api-key" && !agent.apiKey) {
     text = "API key · not set";
     ok = false;
@@ -186,7 +187,7 @@ function StatusChip({ agent }: { agent: AgentController }): JSX.Element {
   }
   const palette = ok ? { bg: color.okBg, bd: color.okBorder, ink: color.okInk } : { bg: color.chipBg, bd: color.border, ink: color.secondary };
   return (
-    <span role="status" style={{ fontSize: fz.micro, padding: "2px 8px", borderRadius: 999, background: palette.bg, border: `1px solid ${palette.bd}`, color: palette.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+    <span role="status" title={settings.replayOf ? replayLabel(settings.replayOf) : text} style={{ fontSize: fz.micro, padding: "2px 8px", borderRadius: 999, background: palette.bg, border: `1px solid ${palette.bd}`, color: palette.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
       {text}
     </span>
   );
