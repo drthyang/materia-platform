@@ -37,6 +37,12 @@ export interface AgentSettings {
   /** The LM Studio server, and the model on it (its key). */
   readonly lmstudioUrl: string;
   readonly lmstudioModel: string;
+  /**
+   * A recording that replays a live run this model took (a demo), "" in use:
+   * every label names this model and the replay, never the server that
+   * carries the replay. No setting shows it; a recording script sets it.
+   */
+  readonly replayOf: string;
 }
 
 export type TranscriptItem =
@@ -88,6 +94,7 @@ const DEFAULTS: AgentSettings = {
   ollamaModel: "",
   lmstudioUrl: DEFAULT_LMSTUDIO_URL,
   lmstudioModel: "",
+  replayOf: "",
 };
 
 let nextItem = 1;
@@ -283,11 +290,15 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
 
 /** The model and how it is reached, as a report names it. */
 export function modelLabel(s: AgentSettings): string {
+  if (s.replayOf) return replayLabel(s.replayOf);
   if (s.mode === "ollama") return `${s.ollamaModel || "a local model"} · Ollama (local)`;
   if (s.mode === "lmstudio") return `${s.lmstudioModel || "a local model"} · LM Studio (local)`;
   const name = CHAT_MODELS.find((m) => m.id === s.model)?.label ?? s.model;
   return `${name} · ${s.mode === "proxy" ? "local proxy" : "Anthropic API"}`;
 }
+
+/** A replayed run's label: the model that took it live, and that this is its replay. */
+export const replayLabel = (model: string): string => `${model} · replay of a live run`;
 
 /** What one chat message runs on, from the settings. */
 function chatConfig(s: AgentSettings, apiKey: string): ChatConfig {

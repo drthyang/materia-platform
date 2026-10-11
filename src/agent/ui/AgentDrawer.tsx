@@ -9,7 +9,7 @@ import { color, fz, mono, radius } from "@/app/theme";
 import { tableRows } from "@/agent/ui/markdownTable";
 import type { ActivityEntry } from "@/agent/executor";
 import type { MethodProgress } from "@/agent/method";
-import { AGENT_MODES, type AgentController, type AgentMode, type AgentSettings, type TranscriptItem } from "@/agent/useAgent";
+import { AGENT_MODES, replayLabel, type AgentController, type AgentMode, type AgentSettings, type TranscriptItem } from "@/agent/useAgent";
 import { CHAT_MODELS, hasRefusalFallback } from "@/agent/chat-models";
 import { listOllamaModels, unreachableHint, type OllamaModel } from "@/agent/ollama";
 import { listLmStudioModels, lmstudioUnreachableHint, type LmStudioModel } from "@/agent/lmstudio";
@@ -175,7 +175,9 @@ function StatusChip({ agent }: { agent: AgentController }): JSX.Element {
   const local = localModel(settings);
   let text = MODE_LABEL[settings.mode];
   let ok = true;
-  if (settings.mode === "api-key" && !agent.apiKey) {
+  if (settings.replayOf) {
+    text = replayLabel(settings.replayOf);
+  } else if (settings.mode === "api-key" && !agent.apiKey) {
     text = "API key · not set";
     ok = false;
   } else if (local !== null) {
@@ -424,6 +426,7 @@ function Transcript({ agent, page }: { agent: AgentController; page: string | nu
 
 /** The model the Agent talks to, as the settings name it. */
 function modelName(s: AgentSettings): string {
+  if (s.replayOf) return `${s.replayOf} (a replay of a live run)`;
   if (s.mode === "ollama") return s.ollamaModel ? `${s.ollamaModel} (Ollama)` : "the Ollama model you pick";
   if (s.mode === "lmstudio") return s.lmstudioModel ? `${s.lmstudioModel} (LM Studio)` : "the LM Studio model you pick";
   return CHAT_MODELS.find((m) => m.id === s.model)?.label ?? s.model;
