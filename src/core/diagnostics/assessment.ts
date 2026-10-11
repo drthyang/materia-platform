@@ -280,8 +280,24 @@ export function relativeLineWidth(d: readonly number[], yCalc: readonly number[]
   return widths[widths.length >> 1];
 }
 
+/** The usual causes of a fair or poor fit, by technique: what the verdict tells the user to look at. */
+const MISFIT_CAUSES: Record<"powder" | "single-crystal" | "pdf", { readonly fair: string; readonly poor: string }> = {
+  powder: {
+    fair: "significant unmodelled features — background, profile, or a missing phase are the usual causes",
+    poor: "the model is far from the data — revisit the starting cell, background, and phase content before trusting any parameter",
+  },
+  "single-crystal": {
+    fair: "significant unmodelled features — extinction on the strongest reflections, a few badly measured reflections, ADPs that should be anisotropic, or σ's that are too small are the usual causes",
+    poor: "the model is far from the data — on integrated F² look first at extinction (the strongest reflections reading weak), then the model and the space group, before trusting any parameter",
+  },
+  pdf: {
+    fair: "significant unmodelled features — the r window, the correlated motion, or a local structure the model does not hold are the usual causes",
+    poor: "the model is far from the data — revisit the structure, the r window and the instrument's Qdamp and Qbroad before trusting any parameter",
+  },
+};
+
 /** Toby 2006: the ratio wR/R_exp (the GoF) is what's meaningful, not absolute wR. */
-function verdictFrom(result: RefinementResult): FitVerdict {
+function verdictFrom(result: RefinementResult, mode: "powder" | "single-crystal" | "pdf" = "powder"): FitVerdict {
   const ag = result.agreement;
   const wRPercent = ag.rWeighted !== undefined ? 100 * ag.rWeighted : undefined;
   const gof = ag.goodnessOfFit;
@@ -299,8 +315,8 @@ function verdictFrom(result: RefinementResult): FitVerdict {
   if (gof < 0.8) return { band: "fair", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)} < 1: the fit is "too good" — σ's are likely overestimated or the model is over-parameterized. Not a green light.` };
   if (gof <= 1.5) return { band: "excellent", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)} is close to the statistical floor — the model explains the data to within its uncertainties.` };
   if (gof <= 2.5) return { band: "good", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)}: a reasonable fit with residual structure the model does not fully capture.` };
-  if (gof <= 4) return { band: "fair", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)}: significant unmodelled features — background, profile, or a missing phase are the usual causes.` };
-  return { band: "poor", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)}: the model is far from the data — revisit the starting cell, background, and phase content before trusting any parameter.` };
+  if (gof <= 4) return { band: "fair", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)}: ${MISFIT_CAUSES[mode].fair}.` };
+  return { band: "poor", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)}: ${MISFIT_CAUSES[mode].poor}.` };
 }
 
 const PHYSICAL_LABEL: Partial<Record<ParameterKind, string>> = {
@@ -373,7 +389,7 @@ export function assessRefinement(input: AssessmentInput): RefinementAssessment {
   const byId = new Map(parameters.map((p) => [p.id, p]));
   const findings: AssessmentFinding[] = [];
 
-  const verdict = verdictFrom(result);
+  const verdict = verdictFrom(result, input.mode);
 
   // --- convergence -------------------------------------------------------
   // Shift/esd of the last accepted step. The χ² test alone bounds it only by
@@ -418,6 +434,8 @@ export function assessRefinement(input: AssessmentInput): RefinementAssessment {
           ? `This displacement parameter belongs to a site several atoms share, so the site's scattering power is the first suspect: ${b.bound === "min" ? "B → 0 makes up for a site that scatters more than the model puts on it" : "a large B makes up for a site that scatters less than the model puts on it"}, i.e. the mixing is off (anti-site disorder, spinel inversion). Refine the site's occupancies with its Σ held (and the composition, when the formula is known) before trusting the ADP.`
           : input.mode === "pdf"
           ? "In real space a displacement parameter at 0 usually means the near-neighbour peaks are sharper than the model's: correlated motion sharpens them, and with δ1/δ2 (or sratio) held, U takes up the sharpening. Free one correlated-motion term (δ2 at low temperature, δ1 at high), or fit a window long enough to pin U, rather than trusting the value. In a short low-r window it can also mean the local structure differs from the model."
+          : input.mode === "single-crystal"
+          ? "On integrated F² a displacement parameter at 0 usually means unmodelled extinction (the strongest low-angle reflections read weak, and a smaller B flattens the model's fall-off to meet them), absorption left in the data, or a wrong element or occupancy: refine the extinction first, rather than trusting the value."
           : "A displacement parameter pinned at a bound (often B→0) usually means the model is over-damping high-angle intensity — check the background, an absorption/extinction effect, or a correlation, rather than trusting the value."
         : "A free parameter at a bound has a meaningless esd and signals the fit wanted to go where physics forbids — hold it fixed and find the upstream cause (correlation, wrong background, bad starting value).",
       parameterIds: [b.parameterId],

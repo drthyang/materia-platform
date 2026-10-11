@@ -11,6 +11,7 @@
 import type { StructureModel } from "@/core/crystal/types";
 import type { ParameterBinding, RefinementParameter } from "@/core/refinement/types";
 import { parseTie } from "@/core/refinement/constraints";
+import { uEquivalent } from "@/core/crystal/adp";
 
 /** A value with its esd in parentheses, in the last digits: 0.18752(9), 8.46808(10). */
 export function withEsd(value: number, esd: number | undefined, maxDecimals = 6): string {
@@ -38,6 +39,8 @@ export interface StructureTableSite {
   readonly occupancy: string;
   /** B_iso (Å²) or U_eq (Å²) for an anisotropic site. */
   readonly adp: string;
+  /** An anisotropic site's tensor, U11 … U23 (Å², CIF convention), each with its esd from the refined modes. */
+  readonly u?: Readonly<Record<"U11" | "U22" | "U33" | "U12" | "U13" | "U23", string>>;
 }
 
 export interface StructureTable {
@@ -96,6 +99,9 @@ export function structureTable(
   const sites = phase.sites.map((site): StructureTableSite => {
     const own = mine.filter((b) => b.targetKey === site.label && err(b.parameterId) !== undefined);
     const posVar = [0, 0, 0];
+    // A tensor is Σ_m c_m·basis_m over its symmetry modes: each U^ij and U_eq carry the modes' esds (taken as independent).
+    const uVar = [0, 0, 0, 0, 0, 0];
+    let uEqVar = 0;
     let occEsd: number | undefined;
     let adpEsd: number | undefined;
     for (const b of own) {
@@ -107,12 +113,20 @@ export function structureTable(
       if (b.kind === "atomZ") posVar[2]! += e * e;
       if (b.kind === "occupancy") occEsd = e;
       if (b.kind === "bIso") adpEsd = e;
+      if (b.kind === "uAniso" && b.uBasis) {
+        for (let i = 0; i < 6; i++) uVar[i]! += (b.uBasis[i]! * e) ** 2;
+        uEqVar += (uEquivalent(b.uBasis, phase.cell) * e) ** 2;
+      }
     }
     const pos = site.position.map((v, i) => withEsd(v, posVar[i]! > 0 ? Math.sqrt(posVar[i]!) : undefined));
+    const sd = (v: number): number | undefined => (v > 0 ? Math.sqrt(v) : undefined);
     const adp = site.adp.kind === "isotropic"
       ? `B ${withEsd(site.adp.bIso, adpEsd, 4)}`
-      : `Ueq ${((site.adp.uAniso[0] + site.adp.uAniso[1] + site.adp.uAniso[2]) / 3).toFixed(4)} (orthogonal approx.)`;
-    return { label: site.label, type: site.element, x: pos[0]!, y: pos[1]!, z: pos[2]!, occupancy: withEsd(site.occupancy, occEsd, 4), adp };
+      : `Ueq ${withEsd(uEquivalent(site.adp.uAniso, phase.cell), sd(uEqVar), 5)}`;
+    const u = site.adp.kind === "anisotropic"
+      ? Object.fromEntries((["U11", "U22", "U33", "U12", "U13", "U23"] as const).map((name, i) => [name, withEsd((site.adp as { uAniso: readonly number[] }).uAniso[i]!, sd(uVar[i]!), 5)])) as Record<"U11" | "U22" | "U33" | "U12" | "U13" | "U23", string>
+      : undefined;
+    return { label: site.label, type: site.element, x: pos[0]!, y: pos[1]!, z: pos[2]!, occupancy: withEsd(site.occupancy, occEsd, 4), adp, ...(u ? { u } : {}) };
   });
   return {
     phase: phase.name || phase.id,

@@ -4,7 +4,7 @@
  * own data, with the checks that say whether it got it right this time.
  */
 
-import { EDGE_STEP_AT, MAGNETIC_TRUTH, impurityD, mn3gaEdgeSession, mn3gaFluoriteSession, mn3gaImpuritySession, mn3gaMagneticSession, mn3gaMisfitSession, mn3gaSession, pdfPage, powderPage } from "@/agent/evals/pages";
+import { BATCH_SCALES, EDGE_STEP_AT, FAILED_REFLECTION, MAGNETIC_TRUTH, impurityD, scPage, mn3gaEdgeSession, mn3gaFluoriteSession, mn3gaImpuritySession, mn3gaMagneticSession, mn3gaMisfitSession, mn3gaSession, pdfPage, powderPage } from "@/agent/evals/pages";
 import {
   addsKnownPhase,
   adaptsAfterRefusal,
@@ -12,6 +12,11 @@ import {
   coversStages,
   doesNotRefuse,
   explains,
+  extinctionBeforeStructure,
+  omitsOnlyFailed,
+  readsDataFirst,
+  testsExtinctionAndRestores,
+  triesBatchScales,
   fitWindowIs,
   fitWindowWithin,
   keepsGroupsApart,
@@ -169,6 +174,42 @@ export const SCENARIOS: readonly EvalScenario[] = [
     messages: ["Is the Ta coordination the same locally as on average? Write the report when you are done."],
     autonomy: "auto",
     checks: [ran("boxcar_scan"), tracksBonds, reportCarriesScan, reportsEngineNumbers, noStall],
+  },
+  {
+    id: "sc-data-first",
+    title: "Reads the data, then refines the extinction before the structure",
+    origin: "Round 1 (sapphire, TOPAZ): the data first; with strong extinction the strongest reflections drive the scale, and the structure refined before the extinction absorbs it.",
+    page: () => scPage(),
+    messages: ["Refine this crystal structure properly and report the result."],
+    autonomy: "auto",
+    checks: [readsMethodFirst, readsDataFirst, extinctionBeforeStructure, refines(3), noStall],
+  },
+  {
+    id: "sc-failed-reflection",
+    title: "Compares a misfit reflection with its equivalents before leaving it out",
+    origin: "Round 1 (sapphire): 5 4 1 in batch 24 at 3 % of the intensity its nine equivalents measure — a failed measurement, told from the extinction-limited misfits by its equivalents.",
+    page: () => scPage({ failed: FAILED_REFLECTION }),
+    messages: ["One reflection fits very badly. Should it be left out?"],
+    autonomy: "auto",
+    checks: [omitsOnlyFailed(1), noStall],
+  },
+  {
+    id: "sc-extinction-test",
+    title: "Tests whether the structure rests on the extinguished reflections",
+    origin: "Round 1 (sapphire): the researcher asked whether the ADPs survive leaving out the reflections whose extinction correction is worse than y = 0.5.",
+    page: () => scPage(),
+    messages: ["Refine scale, extinction and positions, then tell me whether the positions depend on the reflections whose extinction correction is worse than y = 0.5."],
+    autonomy: "auto",
+    checks: [testsExtinctionAndRestores, noStall],
+  },
+  {
+    id: "sc-batch-scales",
+    title: "Tests a scale per batch when the batches disagree",
+    origin: "Round 1 (sapphire): K by batch scattered by 3.6 % with one scale; a scale per run (as GSAS-II refines) took GooF from 2.84 to 2.69 with the structure unmoved.",
+    page: () => scPage({ batches: BATCH_SCALES }),
+    messages: ["Refine scale and extinction, then tell me whether these data need a scale per batch."],
+    autonomy: "auto",
+    checks: [ran("assess_refinement"), triesBatchScales, noStall],
   },
 ];
 

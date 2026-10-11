@@ -45,7 +45,7 @@ const KIND_SHORT: Partial<Record<ParameterKind, string>> = {
   asymSL: "asymmetry", asymHL: "asymmetry",
   mustrainIso: "microstrain", stephensStrain: "microstrain", mustrainPerp: "microstrain", mustrainPar: "microstrain", anisoSizePerp: "size", anisoSizePar: "size",
   sampleDisplacement: "displacement", sampleTransparency: "transparency", poRatio: "texture", absorption: "absorption",
-  surfaceRoughA: "roughness", surfaceRoughB: "roughness", extinction: "extinction",
+  surfaceRoughA: "roughness", surfaceRoughB: "roughness", extinction: "extinction", batchScale: "batch scales",
   magneticScale: "magnetic scale", momentX: "moments", momentY: "moments", momentZ: "moments", momentMode: "moments", propagationK: "k",
   pdfScale: "scale", qdamp: "Qdamp", qbroad: "Qbroad", delta1: "δ1", delta2: "δ2", spdiameter: "particle size", sratio: "sratio", rcut: "rcut",
   mpdfOrdScale: "mPDF scale", mpdfParaScale: "mPDF paramagnetic scale", mpdfPsigma: "mPDF width", corrLength: "correlation length",

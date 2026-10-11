@@ -16,6 +16,7 @@ import { impurityD, mn3gaImpuritySession, mn3gaMisfitSession, powderPage } from 
 
 const RIETVELD = { name: "read_skill", input: { name: "my-rietveld-workflow" } };
 const PDF = { name: "read_skill", input: { name: "pdf-workflow" } };
+const SC = { name: "read_skill", input: { name: "sc-workflow" } };
 
 interface Replay {
   readonly good: readonly ScriptTurn[];
@@ -217,6 +218,58 @@ const REPLAYS: Readonly<Record<string, Replay>> = {
       { text: "They are the same." },
     ],
     catches: ["calls boxcar_scan", "scans the bond lengths its question is about", "puts the scan in the report"],
+  },
+  "sc-data-first": {
+    good: [
+      { text: "The method, then the data.", calls: [SC, { name: "get_state" }, { name: "reflection_statistics" }] },
+      { text: "Scale and extinction first.", calls: [{ name: "refine" }] },
+      { text: "Now the positions.", calls: [{ name: "set_free", input: { free: ["pos_*"] } }, { name: "refine" }] },
+      { text: "And the isotropic ADPs.", calls: [{ name: "set_free", input: { free: ["B_*"] } }, { name: "refine" }] },
+      { text: "Refined: the extinction first, then the positions and B values." },
+    ],
+    bad: [
+      { calls: [SC, { name: "set_free", input: { free: ["pos_*", "B_*"], fix: ["extinction"] } }, { name: "refine" }] },
+      { text: "Refined the structure." },
+    ],
+    catches: ["reads the data (reflection_statistics) before the first refinement", "refines the extinction before the positions and ADPs"],
+  },
+  "sc-failed-reflection": {
+    good: [
+      { text: "The method first, and a refinement to see the misfits.", calls: [SC, { name: "refine" }, { name: "assess_refinement" }] },
+      { text: "1 0 4 against its equivalents.", calls: [{ name: "reflection_equivalents", input: { h: 1, k: 0, l: 4 } }] },
+      { text: "That one measurement failed; the others agree with Fc². A cutoff just above the next worst takes only it.", calls: [{ name: "set_outlier_filter", input: { on: true, cutoffSigma: 100 } }, { name: "refine" }] },
+      { text: "Left out: the one failed measurement of 1 0 4; its equivalents agree with the model." },
+    ],
+    bad: [
+      { calls: [SC, { name: "set_outlier_filter", input: { on: true, cutoffSigma: 3 } }, { name: "refine" }] },
+      { text: "Reflections beyond 3σ are left out." },
+    ],
+    catches: ["compares the equivalents first, then leaves out only the failed measurement"],
+  },
+  "sc-extinction-test": {
+    good: [
+      { text: "The method, then scale, extinction and positions.", calls: [SC, { name: "set_free", input: { free: ["pos_*"] } }, { name: "refine" }] },
+      { text: "The test: the reflections with y < 0.5 left out.", calls: [{ name: "set_outlier_filter", input: { on: true, cutoffSigma: 1000, minExtinction: 0.5 } }, { name: "refine" }, { name: "structure_table" }] },
+      { text: "Back to all the data.", calls: [{ name: "set_outlier_filter", input: { minExtinction: null } }, { name: "refine" }, { name: "structure_table" }] },
+      { text: "The positions agree within their esds with and without the extinguished reflections; the values quoted are from all the data." },
+    ],
+    bad: [
+      { calls: [SC, { name: "set_free", input: { free: ["pos_*"] } }, { name: "refine" }] },
+      { text: "The positions should not depend much on them: extinction mostly affects the strongest reflections." },
+    ],
+    catches: ["tests the extinguished reflections' weight, then restores all the data"],
+  },
+  "sc-batch-scales": {
+    good: [
+      { text: "The method, then scale and extinction.", calls: [SC, { name: "refine" }, { name: "assess_refinement" }] },
+      { text: "K by batch scatters well beyond counting: a scale per batch.", calls: [{ name: "set_free", input: { free: ["bscale_*"] } }, { name: "refine" }, { name: "assess_refinement" }] },
+      { text: "With a scale per batch the GooF fell and K by batch is level: these data need them." },
+    ],
+    bad: [
+      { calls: [SC, { name: "refine" }, { name: "assess_refinement" }] },
+      { text: "One scale is enough: the data reduction scales the batches." },
+    ],
+    catches: ["refines a scale per batch"],
   },
 };
 

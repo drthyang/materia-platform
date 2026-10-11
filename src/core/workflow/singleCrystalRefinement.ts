@@ -35,7 +35,7 @@
  */
 
 import type { AtomSite, StructureModel } from "@/core/crystal/types";
-import type { SingleCrystalDataset } from "@/core/diffraction/types";
+import type { SingleCrystalDataset, SingleCrystalReflection } from "@/core/diffraction/types";
 import type { ParameterBinding, ParameterKind, RefinementParameter } from "@/core/refinement/types";
 import type { RefinementProblem } from "@/core/refinement/engine";
 import { allowedPositionShifts } from "@/core/crystal/siteConstraints";
@@ -79,6 +79,8 @@ export interface SingleCrystalSpecOptions {
   readonly positionBound?: number;
   /** Starting isotropic B for isotropic sites (Å²). Default 0.5. */
   readonly startB?: number;
+  /** A scale row per batch after the first, fixed, when the reflections carry two or more batches. Default true. */
+  readonly batchScales?: boolean;
 }
 
 /** Group atoms sharing a fractional position (periodic per-component). */
@@ -146,6 +148,18 @@ export function buildSingleCrystalSpec(
   if (extinction > 0 || opts.extinction !== undefined) {
     params.push({ id: "extinction", label: "extinction (EXTI)", kind: "extinction", value: extinction, initialValue: extinction, min: 0, max: 100, fixed: false });
     bindings.push({ parameterId: "extinction", kind: "extinction", targetId: dataset.id });
+  }
+
+  // Batch scales (SHELX's batch scale factors): one row per batch after the
+  // first, relative to it, fixed on load — the data reduction normally scales
+  // the batches, and freeing them is a decision the residuals by batch support.
+  if (opts.batchScales ?? true) {
+    const batches = [...new Set(dataset.reflections.flatMap((r) => (r.batch !== undefined ? [r.batch] : [])))].sort((a, b) => a - b);
+    for (const b of batches.slice(1)) {
+      const id = `bscale_${b}`;
+      params.push({ id, label: `batch ${b} scale`, kind: "batchScale", value: 1, initialValue: 1, min: 0.2, max: 5, fixed: true });
+      bindings.push({ parameterId: id, kind: "batchScale", targetId: dataset.id, targetKey: String(b) });
+    }
   }
 
   // No cell rows — see the module comment: the cell is fixed input from
@@ -228,25 +242,42 @@ export function buildSingleCrystalSpec(
   return { params, bindings };
 }
 
+/**
+ * A single-crystal refinement has converged, by the crystallographic
+ * convention, when every shift is below a fraction of its esd — not when χ²
+ * stops falling: with a GooF of 2–3 a shift of most of an esd changes χ² by
+ * less than the engine's relative tolerance. Sapphire with 31 batch scales
+ * stopped after 7 cycles with its extinction still moving by 0.79 esd, and
+ * needed 21 to settle below 0.05 (the scale moving by an esd on the way). So
+ * the page refines until every shift is below 0.05 esd, up to 50 cycles.
+ */
+export const SINGLE_CRYSTAL_REFINE_OPTIONS = { maxIterations: 50, convergenceTolerance: 1e-12, shiftTolerance: 0.05 } as const;
+
 /** Which structural rows the staged sequence unlocks (occupancy excluded). */
 export function guidedSingleCrystalParams(params: readonly RefinementParameter[]): RefinementParameter[] {
   const unlock: ReadonlySet<ParameterKind> = new Set<ParameterKind>([...STRUCTURAL_KINDS].filter((k) => k !== "occupancy"));
   return params.map((p) => (unlock.has(p.kind) ? { ...p, fixed: false } : { ...p }));
 }
 
-/** Fc² for one reflection: k·y_ext·|F|² (the data are corrected Fo²). */
+/** The extinction factor y of one reflection at the current values. */
+function extinctionOf(applied: ReturnType<typeof applyParameters>, dataset: SingleCrystalDataset, r: SingleCrystalReflection): number {
+  if (!(applied.extinction > 0)) return 1;
+  const f2 = nuclearStructureFactorSquared(applied.model, dataset.radiation, r.h, r.k, r.l);
+  return extinctionFactor(applied.extinction, f2, dataset.radiation, dSpacing(applied.model.cell, r.h, r.k, r.l), r);
+}
+
+/** Fc² for one reflection: k·y_ext·|F|² (the data are corrected Fo²), at the reflection's own λ and 2θ when the file gives them. */
 function reflectionIntensity(
   applied: ReturnType<typeof applyParameters>,
   dataset: SingleCrystalDataset,
-  h: number,
-  k: number,
-  l: number,
+  r: SingleCrystalReflection,
 ): number {
   const model = applied.model;
-  const d = dSpacing(model.cell, h, k, l);
-  const f2 = nuclearStructureFactorSquared(model, dataset.radiation, h, k, l);
-  const y = extinctionFactor(applied.extinction, f2, dataset.radiation, d);
-  return applied.scale * y * f2;
+  const d = dSpacing(model.cell, r.h, r.k, r.l);
+  const f2 = nuclearStructureFactorSquared(model, dataset.radiation, r.h, r.k, r.l);
+  const y = extinctionFactor(applied.extinction, f2, dataset.radiation, d, r);
+  const batch = r.batch !== undefined ? applied.batchScales?.get(r.batch) ?? 1 : 1;
+  return applied.scale * batch * y * f2;
 }
 
 /**
@@ -270,7 +301,7 @@ export function buildSingleCrystalRefinementProblem(
     const out = new Float64Array(dataset.reflections.length);
     for (let i = 0; i < dataset.reflections.length; i++) {
       const r = dataset.reflections[i]!;
-      out[i] = reflectionIntensity(applied, dataset, r.h, r.k, r.l);
+      out[i] = reflectionIntensity(applied, dataset, r);
     }
     return out;
   };
@@ -284,6 +315,11 @@ export interface SingleCrystalRefinementComparison {
     readonly foSq: number; readonly fcSq: number; readonly sigma: number;
     /** Standardized residual (Fo²−Fc²)/σ — flags outliers. */
     readonly deltaOverSigma: number;
+    /** The extinction factor y in Fc² (1 without extinction). */
+    readonly extinction: number;
+    /** The batch and wavelength it was measured at, when the file gives them. */
+    readonly batch?: number;
+    readonly wavelength?: number;
   }[];
   readonly agreement: SingleCrystalAgreement;
 }
@@ -310,7 +346,7 @@ export function singleCrystalRefinementComparison(
   const sigma: number[] = [];
   const rows: SingleCrystalRefinementComparison["rows"] = [];
   for (const r of dataset.reflections) {
-    const fc2 = reflectionIntensity(applied, dataset, r.h, r.k, r.l);
+    const fc2 = reflectionIntensity(applied, dataset, r);
     const s = r.sigma ?? 0;
     foSq.push(r.iObs);
     fcSq.push(fc2);
@@ -318,6 +354,9 @@ export function singleCrystalRefinementComparison(
     rows.push({
       h: r.h, k: r.k, l: r.l, foSq: r.iObs, fcSq: fc2, sigma: s,
       deltaOverSigma: s > 0 ? (r.iObs - fc2) / s : 0,
+      extinction: extinctionOf(applied, dataset, r),
+      ...(r.batch !== undefined ? { batch: r.batch } : {}),
+      ...(r.wavelength !== undefined ? { wavelength: r.wavelength } : {}),
     });
   }
 

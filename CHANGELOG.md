@@ -27,6 +27,49 @@ release fixes bugs.
 - **The single-crystal page switches its ADP model** (one B per site, or the
   symmetry-allowed U tensor seeded from the refined B), and saves the choice
   with the project.
+- **The SNS TOPAZ time-of-flight reflection file** (GSAS-II's "SNS TOF HKL
+  F2"), in the app and over MCP: per reflection its wavelength, 2θ, path
+  length, transmission and run. Its first 32 columns are SHELX HKLF 4, so it
+  read as a SHELX file before, at one wavelength of 1.54 Å; it is now
+  recognized first. The extinction of a Laue measurement is computed at each
+  reflection's own wavelength and angle (SHELXL's EXTI, as HKLF 2 carries a λ
+  per reflection); a time-of-flight file without them had none at all. On
+  sapphire (31 orientations, d down to 0.40 Å) the correction reaches
+  y = 0.09, and R_int falls from 24.8 % at low angle to 6–7 % at high angle,
+  the signature of a λ-dependent extinction.
+- **A scale per batch** (`bscale_<b>`, relative to the first batch), one row
+  for each further batch of a SHELX HKLF 4 file with batch numbers or each
+  run of a TOPAZ file, entered fixed: the data reduction scales the batches,
+  and freeing them is a decision the residuals by batch support. The SHELX
+  readers now keep the batch number. On sapphire, 30 batch scales took wR2
+  from 13.80 % to 13.01 % and left the structure where it was.
+- **The extinction test**: the outlier filter can also leave out the
+  reflections whose extinction factor y falls below a cut (the page's "or
+  y <" box, `minExtinction` in `set_outlier_filter`), to see whether the
+  structure rests on the most extinguished reflections. On sapphire, without
+  the 152 of y < 0.5, the positions and Al's tensor held within an esd and
+  O's U values fell by 3 % (2σ).
+- **`reflection_equivalents`**: every measurement of a reflection and its
+  equivalents, with batch, wavelength, extinction factor, and the distance
+  from Fc² and from the median of the family, to tell a failed measurement
+  from a model that misses before anything is left out. Sapphire's 5 4 1 in
+  batch 24 read 41(10) against nine equivalents that agree with Fc² ≈ 1360
+  within 2σ: a detector edge, not the model.
+- **Esds for the anisotropic tensors and the bonds.** `structure_table` gives
+  each U^ij and U_eq with its esd, and `bond_geometry` on the single-crystal
+  page each length with the esd its refined positions give (Al–O
+  1.8549(2) Å).
+- **The single-crystal reading of a fit**, in `reflection_statistics` and
+  `assess_refinement` and in the report: how the data were measured (the
+  wavelength band, the batches, the transmission), K and R1 by batch with the
+  batches farthest from the mean and their worst reflection, the reach of the
+  extinction correction (the smallest y, how many reflections fall below 0.8
+  and 0.5), and the report's tables of resolution shells, the analysis of
+  variance by intensity, the batches and the largest outliers. `refine` gives
+  R1 and GooF with wR2.
+- **Eval scenarios** `sc-data-first`, `sc-failed-reflection`,
+  `sc-extinction-test` and `sc-batch-scales`, from the sapphire round, each
+  replayed as the Agent should behave and as it failed.
 - **The fit range, read from the data's ends** (`check_fit_range`, in the app
   and over MCP), the first stage of the Rietveld method and of its checklist.
   It proposes where the window starts and stops, as the GSAS-II tutorials do:
@@ -274,6 +317,19 @@ release fixes bugs.
   refines them together (on synthetic corundum to d = 0.4 Å, scale ↔ B(O)
   reads 0.976, 0.72 with the rest fixed, and both B's come back within
   0.002 Å² of the truth). A pair that trades off itself still stops it.
+  The overall intensity terms of a single-crystal fit — the scale, the
+  extinction and the batch scales — are listed and refined together whatever
+  their correlation: under severe extinction scale ↔ extinction reads 0.99
+  (sapphire), and every single-crystal program refines them so.
+- **A single-crystal refinement runs until every shift is below 0.05 esd**
+  (up to 50 cycles), the crystallographic criterion, not until χ² stops
+  falling: with a GooF near 3 a shift of most of an esd changes χ² by less
+  than the engine's tolerance. Sapphire with its batch scales stopped after 7
+  cycles with the extinction still moving by 0.79 esd, and needed 21.
+- **The single-crystal verdict names the causes of a misfit on integrated
+  F²** (extinction, badly measured reflections, isotropic ADPs, σ's too
+  small), not the powder's background and profile, and an ADP at its bound
+  points to extinction first.
 - **The demo, re-recorded** (docs/media/agent-demo.mp4, 91 s): the Agent now
   reads the data's ends first and leaves out the background below the first
   reflection and the last 2° of the D1A scan, and refines the instrument's terms
@@ -318,6 +374,29 @@ release fixes bugs.
   Prefit and Escape searches were tuned on the old surface and recovered a
   trapped start for 2 seeds in 10 on the corrected one; a new seed sweep sets
   the positional kick floor to 0.15 and 50 iterations per start (8 in 10).
+- **Switching to anisotropic ADPs starts from the refined sphere in any
+  cell.** The seed was U11 = U22 = U33 = U with zero off-diagonals, which is
+  a sphere only on orthogonal axes: in a hexagonal cell the sphere has
+  U12 = U/2. On sapphire (R-3c) the switch moved wR2 from 14.13 % to 14.48 %
+  before anything refined; it now stays at 14.13 %. U_eq is the full
+  ⅓ Σ U^ij a*_i a*_j (a_i·a_j) (Fischer & Tillmanns), not the trace, in the
+  structure table, the CIF export and the switch back to one B per site.
+- **The reflection statistics read the reflections the space group allows.**
+  They set the unique reflections measured, forbidden ones included, beside
+  the count the group allows (sapphire: 484 against 466 expected, of which
+  444 allowed), and reflections per parameter counted the forbidden ones,
+  whose Fc is 0 whatever the model. ⟨|E² − 1|⟩ now carries the ε factor
+  of special reflections, and is reported as no test for a structure of
+  fewer than six independent sites or mostly on special positions
+  (corundum: two, both special), where Wilson's distributions do not hold.
+  A forbidden reflection measured is given as a fraction of the allowed
+  intensity at its d (sapphire's: about 1 %, multiple diffraction).
+- **The extinction reading compares the strongest reflections with the
+  rest.** It asked whether K = ΣFo²/ΣFc² of the strongest bin was below 0.95,
+  but before extinction is refined the strong reflections pull the scale
+  down and every K reads above 1 (sapphire with the scale alone: 3.6 on the
+  weakest bin, 1.7 on the strongest), so severe extinction read "not
+  indicated". The strongest bin now reads against the median of the others.
 - The report's number audit accepts a number more precise than the report
   prints when it rounds to the printed value (2.9992 for a printed 2.999).
 - The symmetry-last eval read "Neither is evidence for a lower group" as

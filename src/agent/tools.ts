@@ -119,13 +119,23 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     pages: ["singleCrystal"],
   },
   {
+    name: "reflection_equivalents",
+    title: "Compare a reflection's equivalents",
+    description:
+      "Single-crystal page only. Every measurement of one reflection and of its symmetry equivalents (the Laue class): its batch (run, orientation) and wavelength when the file gives them, Fo² with σ, Fc², (Fo² − Fc²)/σ and the extinction factor y, and how far each lies from the equivalents' median (robust to the one that failed). Before leaving a reflection out, this tells a measurement that failed (one far from its equivalents, which agree with Fc²) from a misfit of the model (all of them off the same way).",
+    inputSchema: { h: z.number().int(), k: z.number().int(), l: z.number().int() },
+    effect: "read",
+    pages: ["singleCrystal"],
+  },
+  {
     name: "set_outlier_filter",
     title: "Set the outlier filter",
     description:
-      "Single-crystal page only. The SHELX-style OMIT filter: leave out reflections whose (Fo² − Fc²)/σ exceeds `cutoffSigma` against the current model (off by default; 6σ to start). For a few reflections hit by the beam stop, an ice ring or a detector edge — never to improve R: say which and why, and keep it off when the misfit is systematic (extinction, twinning). Applies to the next refinement; get_state lists how many it leaves out.",
+      "Single-crystal page only. The SHELX-style OMIT filter: leave out reflections whose (Fo² − Fc²)/σ exceeds `cutoffSigma` against the current model (off by default; 6σ to start). For a few reflections hit by the beam stop, an ice ring or a detector edge (reflection_equivalents shows which) — never to improve R: say which and why, and keep it off when the misfit is systematic (extinction, twinning). `minExtinction` also leaves out the reflections whose extinction factor y falls below it (GSAS-II's minimum extinction; null removes it): where the correction is that severe the extinction model carries the intensity, so it is a test of whether the structure rests on those reflections, to report beside the fit with all of them. Applies to the next refinement; get_state lists how many it leaves out.",
     inputSchema: {
       on: z.boolean().optional(),
       cutoffSigma: z.number().positive().optional().describe("|Fo² − Fc²|/σ beyond which a reflection is left out"),
+      minExtinction: z.number().gt(0).lt(1).nullable().optional().describe("Leave out the reflections whose extinction factor y is below this (0–1); null removes the cut"),
     },
     effect: "change",
     pages: ["singleCrystal"],

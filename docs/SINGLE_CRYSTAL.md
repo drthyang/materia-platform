@@ -57,9 +57,13 @@ Both paths then apply parameters with
   and redundancy. The page reports them and refines the unmerged list.
 - Checked on P-1 Friedel pairs, the 48 m-3m rotations, R_int of 0 and 0.10, and
   a {200} family ([merge.test.ts](../src/core/diffraction/merge.test.ts)).
-
-**Not yet**
-- Completeness against a theoretical unique set.
+- Completeness against the unique set the space group allows to d_min, by
+  resolution shell, counting only the allowed reflections measured
+  ([singleCrystalValidation.ts](../src/core/diagnostics/singleCrystalValidation.ts));
+  the Friedel pairs, the forbidden reflections measured (each as a fraction of
+  the allowed intensity at its d) and ⟨|E² − 1|⟩ with the ε factor, reported
+  as no test for fewer than six independent sites or mostly special ones
+  ([reflectionStatistics.ts](../src/core/diagnostics/reflectionStatistics.ts)).
 
 ### 2.2 File input and output
 
@@ -76,6 +80,11 @@ Both paths then apply parameters with
   `.int` export writes the pair back.
 - SHELX-style `h k l I [σ]` lists ([hkl.ts](../src/parsers/hkl.ts)) and GSAS-II
   reflection lists filtered to the loaded cell.
+- The SNS TOPAZ time-of-flight file (`3I4,2F8.2,I4,2F8.5,2I7,F7.4,I4,F9.5,F9.4,2F7.2`):
+  per reflection F², σ, the run, its own wavelength, path length,
+  transmission and 2θ ([snsTofHkl.ts](../src/parsers/snsTofHkl.ts)). Its first
+  32 columns are HKLF 4, so it is recognized by its columns (λ = 2d·sinθ row
+  by row) before the SHELX reader.
 - SHELX **HKLF 4** fixed-column files (`3I4,2F8,I4` → h k l F² σ batch), with a
   whitespace fallback for hand-edited files and the `0 0 0` terminator honoured,
   and `.fcf` / CIF reflection loops (LIST 4 F², and LIST 6 F squared with σ
@@ -93,7 +102,7 @@ Both paths then apply parameters with
   one HB-3A MnWO₄ file; verify an export in FullProf. Real files use the
   supercell merge (§2.5).
 - SHELX lists carry no λ and load at 1.54 Å, which the page cannot change; λ
-  enters L, Pol and y.
+  enters the extinction y.
 
 **Not yet**
 - Placing k-header satellites at H + k: no refinement reads `kIndex`.
@@ -105,17 +114,18 @@ Both paths then apply parameters with
 
 | Quantity | Formula |
 | --- | --- |
-| Intensity | I_calc = k·L·Pol·y·\|F\|² |
-| Lorentz | L = 1/sin2θ; 1 for TOF |
-| Polarization, X-ray only | Pol = (1 − p)·cos²2θ + p, with p = 0.5 by default |
-| Extinction (SHELXL EXTI) | y = [1 + 0.001·x·F²·λ³/sin2θ]^(−1/2); 1 for TOF |
+| Intensity | Fc² = k·k_b·y·\|F\|²: the file's Fo² are corrected for Lorentz, polarization and absorption in data reduction, as SHELXL, Jana, FullProf and GSAS-II take them |
+| Batch scale | k_b, relative to the first batch (1 for it, and without batches) |
+| Extinction (SHELXL EXTI) | y = [1 + 0.001·x·F²·λ³/sin2θ]^(−1/2), at the reflection's own λ and 2θ when the file gives them (a TOF Laue file); 1 for TOF without them |
 | SHELX weight | w = 1/[σ²(Fo²) + (aP)² + bP], P = [max(Fo², 0) + 2Fc²]/3 |
 | wR2, all reflections | √[Σw(Fo² − Fc²)² / Σw(Fo²)²] |
 | R1, Fo² > 2σ (R1 all: no cutoff) | Σ\|\|Fo\| − \|Fc\|\| / Σ\|Fo\| |
 | GooF | √[Σw(Fo² − Fc²)² / (N − N_par)] |
 
 - Standardized residuals (Fo² − Fc²)/σ flag outliers. An optional OMIT filter,
-  off by default, drops those beyond an adjustable cutoff, initially 6σ.
+  off by default, drops those beyond an adjustable cutoff, initially 6σ, and
+  optionally those whose extinction factor y is below a cut (the extinction
+  test: does the structure rest on the most extinguished reflections?).
 - Checked by hand computations and perfect-fit zeros
   ([singleCrystalFactors.test.ts](../src/core/diffraction/singleCrystalFactors.test.ts)).
 
@@ -129,11 +139,20 @@ Both paths then apply parameters with
 ### 2.4 Refinement assembly
 
 **Supported**
-- `buildSingleCrystalSpec` emits scale, optional extinction, per-site B or U
-  modes, position modes bounded to ±0.2 and optional occupancies. It ties shared
-  sites and has no cell rows
+- `buildSingleCrystalSpec` emits scale, optional extinction, a fixed scale per
+  batch after the first (`bscale_<b>`), per-site B or U modes, position modes
+  bounded to ±0.2 and optional occupancies. It ties shared sites and has no
+  cell rows
   ([singleCrystalRefinement.ts](../src/core/workflow/singleCrystalRefinement.ts)).
 - The starting scale is the exact linear optimum k = Σ(Fo²·Fc²) / Σ(Fc²)².
+- The page refines until every shift is below 0.05 esd, up to 50 cycles
+  (`SINGLE_CRYSTAL_REFINE_OPTIONS`), the crystallographic criterion: with a
+  GooF near 3 a shift of most of an esd changes χ² by less than the engine's
+  relative tolerance.
+- Switching to anisotropic ADPs seeds each tensor with the refined sphere in
+  the cell, U^ij = U·cos(a*_i, a*_j) (U12 = U/2 in a hexagonal cell), so the
+  fit starts where the isotropic one ended; U_eq is ⅓ Σ U^ij a*_i a*_j (a_i·a_j)
+  ([adp.ts](../src/core/crystal/adp.ts)).
 - `refineSingleCrystalMultiStart` (Prefit, Escape min) keeps the best of a
   baseline and perturbed restarts. Kick floors, such as 0.1 in fractional
   coordinates, move modes that sit at 0.
@@ -182,7 +201,7 @@ Both paths then apply parameters with
   data-gated). Methods: [REFINEMENT_NOTES.md](./REFINEMENT_NOTES.md) §8.
 
 **Approximate**
-- The magnetic problem applies no L, Pol or y; the nuclear-only one does.
+- The magnetic problem applies no extinction y; the nuclear-only one does.
 - The N² rule is tested on nuclear intensities only, and the panel's real-data
   run is a smoke test, not a check of moment accuracy.
 
@@ -202,8 +221,8 @@ Both paths then apply parameters with
 ### 2.7 Next
 
 **Next**, in the M7 order of [ROADMAP.md](./ROADMAP.md):
-1. ⬜ Completeness against a generated theoretical unique set.
-2. ⬜ Twinning (TWIN/BASF, batch scales), and anomalous dispersion with f′, f″
+1. ✅ Completeness against a generated theoretical unique set.
+2. ⬜ Twinning (TWIN/BASF; batch scales are in), and anomalous dispersion with f′, f″
    and Friedel-pair splitting for absolute structure.
 3. ⬜ Iterative WGHT reweighting on Fc² in the fit.
 4. 🚧 Absorption correction: core built (§3); UI, agent tool and multi-scan open.

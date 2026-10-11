@@ -25,6 +25,7 @@ import type { AtomSite, StructureModel, SymmetryOperation, UnitCell } from "@/co
 import type { MagneticModel, MagneticMoment } from "@/core/magnetic/types";
 import type { ParameterBinding, RefinementParameter } from "@/core/refinement/types";
 import { orthogonalizationMatrix } from "@/core/crystal/unitCell";
+import { uEquivalent } from "@/core/crystal/adp";
 import { inverse, transpose } from "@/core/math/mat3";
 import { normalize } from "@/core/math/vec3";
 import type { Mat3, Vec3 } from "@/core/math/types";
@@ -139,8 +140,6 @@ export function cellVolume(cell: UnitCell): number {
   return cell.a * cell.b * cell.c * Math.sqrt(Math.max(0, 1 - ca * ca - cb * cb - cg * cg + 2 * ca * cb * cg));
 }
 
-/** Equivalent isotropic U (Å²) for an anisotropic site — the trace/3 approximation. */
-const uEquiv = (u: readonly number[]): number => (u[0]! + u[1]! + u[2]!) / 3;
 
 function loop(headers: readonly string[], rows: readonly (readonly string[])[]): string {
   const lines = ["loop_", ...headers.map((h) => `  ${h}`)];
@@ -152,7 +151,7 @@ function loop(headers: readonly string[], rows: readonly (readonly string[])[]):
 function atomSiteBlocks(structure: StructureModel, esd: EsdMap): string {
   const siteRows = structure.sites.map((s) => {
     const pe = esd.pos.get(s.label);
-    const uIso = s.adp.kind === "isotropic" ? s.adp.bIso / EIGHT_PI2 : uEquiv(s.adp.uAniso);
+    const uIso = s.adp.kind === "isotropic" ? s.adp.bIso / EIGHT_PI2 : uEquivalent(s.adp.uAniso, structure.cell);
     // esd(U_iso) = esd(B_iso) / 8π²; only isotropic sites carry a B esd.
     const bEsd = s.adp.kind === "isotropic" ? esd.bIso.get(s.label) : undefined;
     return [

@@ -79,6 +79,8 @@ describe("AgentExecutor on the single-crystal page", () => {
     await ex.run("set_free", { free: ["B_*"] });
     const out = parse((await ex.run("refine", {})).text);
     expect(out.status).toBe("converged");
+    // Converged by the crystallographic convention: every shift well below its esd.
+    expect(out.maxShiftOverEsd as number).toBeLessThan(0.05);
     const s = port.state();
     const al = s.refinedStructure.sites.find((site) => site.label === "Al1")!;
     const o = s.refinedStructure.sites.find((site) => site.label === "O1")!;
@@ -92,6 +94,7 @@ describe("AgentExecutor on the single-crystal page", () => {
   it("switches to anisotropic ADPs seeded from the refined B, and says when they already are", async () => {
     const { port, calls } = page();
     const { ex } = executor(fakeHost(port).host, "auto");
+    const before = port.state().agreement.wr2;
     const out = parse((await ex.run("set_adp_model", { anisotropic: true })).text);
     expect(out.unchanged).toBeUndefined();
     expect(calls).toContain("adp anisotropic");
@@ -99,6 +102,8 @@ describe("AgentExecutor on the single-crystal page", () => {
     expect(u.length).toBeGreaterThan(0);
     expect(u.every((p) => p.fixed)).toBe(true);
     expect(port.state().adpModel).toBe("anisotropic");
+    // Seeded with the sphere of the hexagonal cell (U12 = U/2): the fit is where it was.
+    expect(port.state().agreement.wr2).toBeCloseTo(before, 10);
     const again = parse((await ex.run("set_adp_model", { anisotropic: true })).text);
     expect(again.unchanged).toBe(true);
     expect(again.note).toMatch(/already anisotropic/);
@@ -115,6 +120,68 @@ describe("AgentExecutor on the single-crystal page", () => {
     expect(steps.at(-1)).toEqual({ kind: "settings", agent: true });
     const same = parse((await ex.run("set_outlier_filter", { on: true, cutoffSigma: 3 })).text);
     expect(same.unchanged).toBe(true);
+  });
+
+  it("compares a reflection with its equivalents, and marks the one the filter left out", async () => {
+    const c = corundumPage();
+    // One equivalent of 1 0 4 measured at a tenth of its intensity: a failed measurement.
+    const i = c.dataset.reflections.findIndex((r) => r.h === 1 && r.k === 0 && r.l === 4);
+    expect(i).toBeGreaterThanOrEqual(0);
+    const reflections = c.dataset.reflections.map((r, j) => (j === i ? { ...r, iObs: r.iObs / 10 } : r));
+    const { port } = singleCrystalPort(c.structure, { ...c.dataset, reflections });
+    const { ex } = executor(fakeHost(port).host, "auto");
+    await ex.run("refine", {});
+    const out = parse((await ex.run("reflection_equivalents", { h: 1, k: 0, l: 4 })).text);
+    expect(out.measured).toBe(3);
+    const lines = out.measurements as string[];
+    const bad = lines.find((l) => l.startsWith("1 0 4,"))!;
+    expect(Number(bad.match(/(-?[\d.]+)σ from the median/)![1])).toBeLessThan(-10);
+    // The others agree with each other and with Fc².
+    for (const l of lines.filter((x) => x !== bad)) expect(Math.abs(Number(l.match(/(-?[\d.]+)σ from Fc²/)![1]))).toBeLessThan(5);
+    await ex.run("set_outlier_filter", { on: true, cutoffSigma: 20 });
+    const after = parse((await ex.run("reflection_equivalents", { h: 1, k: 0, l: 4 })).text);
+    expect((after.measurements as string[]).find((l) => l.startsWith("1 0 4,"))).toMatch(/left out by the filter$/);
+  });
+
+  it("leaves out the most extinguished reflections on request, and puts them back", async () => {
+    const { port } = page({ extinction: 20 });
+    const { ex, seen } = executor(fakeHost(port).host, "auto");
+    await ex.run("refine", {});
+    const ys = port.state().rows.map((r) => r.extinction ?? 1);
+    const below = ys.filter((y) => y < 0.8).length;
+    expect(below).toBeGreaterThan(0);
+    await ex.run("set_outlier_filter", { on: true, cutoffSigma: 1000, minExtinction: 0.8 });
+    expect(seen.find((e) => e.tool === "set_outlier_filter" && e.preview)?.preview).toBe(`Outlier filter on at 1000σ and y ≥ 0.8: leaves out ${below} reflection${below === 1 ? "" : "s"} against the current model`);
+    expect(port.state().outlierFilter).toMatchObject({ on: true, minExtinction: 0.8, excluded: below });
+    await ex.run("set_outlier_filter", { minExtinction: null });
+    expect(port.state().outlierFilter.minExtinction).toBeUndefined();
+    expect(port.state().outlierFilter.excluded).toBe(0);
+  });
+
+  it("gives the anisotropic tensor and the bond lengths with their esds", async () => {
+    const { port } = page();
+    const { ex } = executor(fakeHost(port).host, "auto");
+    await ex.run("set_free", { free: ["pos_*", "B_*"] });
+    await ex.run("refine", {});
+    const bonds = parse((await ex.run("bond_geometry", {})).text).bonds as { from: string; to: string; length?: string }[];
+    const alO = bonds.filter((b) => [b.from, b.to].sort().join() === "Al1,O1");
+    expect(alO.length).toBeGreaterThanOrEqual(2);
+    // Each length with an esd from the positions' (≈ 10⁻⁴ Å here): never one bond's length against another's.
+    for (const b of alO) {
+      expect(b.length).toMatch(/^1\.\d+\(\d+\)$/);
+      const [, digits, esd] = b.length!.match(/^1\.(\d+)\((\d+)\)$/)!;
+      expect(Number(esd) * 10 ** -digits!.length).toBeLessThan(0.002);
+    }
+    await ex.run("set_adp_model", { anisotropic: true });
+    await ex.run("set_free", { free: ["U_*"] });
+    await ex.run("refine", {});
+    const table = parse((await ex.run("structure_table", {})).text) as { phases: { sites: { label: string; adp: string; u?: Record<string, string> }[] }[] };
+    const o = table.phases[0]!.sites.find((x) => x.label === "O1")!;
+    expect(o.adp).toMatch(/^Ueq 0\.00\d+\(\d+\)$/);
+    expect(Object.keys(o.u!)).toEqual(["U11", "U22", "U33", "U12", "U13", "U23"]);
+    // The site symmetry (2-fold along a) makes U12 = U22/2: both carry esds.
+    expect(o.u!.U22).toMatch(/\(\d+\)$/);
+    expect(o.u!.U12).toMatch(/\(\d+\)$/);
   });
 
   it("refuses the powder page's tools, naming the page", async () => {

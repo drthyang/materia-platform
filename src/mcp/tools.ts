@@ -79,6 +79,7 @@ import {
 } from "@/core/workflow/pdfBoxcar";
 import type { SingleCrystalDataset } from "@/core/diffraction/types";
 import { parseFullProfInt, looksLikeFullProfInt } from "@/parsers/fullprofInt";
+import { looksLikeSnsTofHkl, parseSnsTofHkl } from "@/parsers/snsTofHkl";
 import { writeFullProfInt } from "@/core/export/fullprofInt";
 import { refinementBundle, type BundleTarget } from "@/core/export/bundle";
 import type { BackgroundType } from "@/core/diffraction/background";
@@ -886,7 +887,7 @@ export function parse_single_crystal_data(args: { text: string; name?: string; i
   dropped: number;
   /** `0 0 0` forward-beam rows dropped (the all-zero SHELX terminator is never counted). */
   forwardBeamSkipped: number;
-  format: "fullprof" | "shelx" | "fcf" | "list";
+  format: "fullprof" | "shelx" | "fcf" | "sns-tof" | "list";
   /** Propagation vectors declared in the file ([] for a plain nuclear file). */
   kVectors: [number, number, number][];
   /** Line-numbered {line, expected, found} diagnostics for skipped rows ([] when clean). */
@@ -911,6 +912,20 @@ export function parse_single_crystal_data(args: { text: string; name?: string; i
       problems: parsed.problems.map((p) => ({ ...p })),
     };
   }
+  // A TOPAZ time-of-flight file before SHELX: its first 32 columns are HKLF 4,
+  // and a SHELX read would drop each reflection's wavelength.
+  if (looksLikeSnsTofHkl(args.text)) {
+    const parsed = parseSnsTofHkl(args.text);
+    return {
+      dataset: { id, name, radiation: { kind: "neutron-tof" }, reflections: parsed.reflections },
+      kept: parsed.reflections.length,
+      dropped: parsed.skipped,
+      forwardBeamSkipped: 0,
+      format: "sns-tof",
+      kVectors: [],
+      problems: [],
+    };
+  }
   const isHkl = /\.hkl$/i.test(args.name ?? "");
   if (isHkl || isCifReflectionLoop(args.text)) {
     const parsed = isHkl && !isCifReflectionLoop(args.text)
@@ -919,7 +934,7 @@ export function parse_single_crystal_data(args: { text: string; name?: string; i
     return {
       dataset: {
         id, name, radiation: { kind: "neutron", wavelength: 1.54 },
-        reflections: parsed.reflections.map((r) => ({ h: r.h, k: r.k, l: r.l, iObs: r.intensity, sigma: r.sigma })),
+        reflections: parsed.reflections.map((r) => ({ h: r.h, k: r.k, l: r.l, iObs: r.intensity, sigma: r.sigma, ...(parsed.hasBatches && r.batch !== undefined ? { batch: r.batch } : {}) })),
       },
       kept: parsed.reflections.length,
       dropped: parsed.skipped,

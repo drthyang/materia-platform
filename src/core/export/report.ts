@@ -286,7 +286,7 @@ export interface ParameterGroup {
 }
 
 export const PARAMETER_GROUPS: readonly ParameterGroup[] = [
-  { title: "Scale & background", kinds: ["scale", "background", "magneticScale", "pdfScale"] },
+  { title: "Scale & background", kinds: ["scale", "batchScale", "background", "magneticScale", "pdfScale"] },
   { title: "Unit cell", kinds: ["cellLength", "cellAngle"] },
   { title: "Atoms", kinds: ["atomX", "atomY", "atomZ", "positionShift", "occupancy", "bIso", "uAniso"] },
   { title: "Magnetic moments", kinds: ["momentMode", "momentX", "momentY", "momentZ"] },

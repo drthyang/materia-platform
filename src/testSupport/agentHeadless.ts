@@ -34,7 +34,7 @@ import type { ProjectHistory, StepKind } from "@/core/project/history";
 import { pdfReportInput, powderReportInput, singleCrystalReportInput } from "@/app/reportInputs";
 import type { SingleCrystalDataset } from "@/core/diffraction/types";
 import { mergeEquivalents } from "@/core/diffraction/merge";
-import { buildSingleCrystalRefinementProblem, buildSingleCrystalSpec, singleCrystalRefinementComparison } from "@/core/workflow/singleCrystalRefinement";
+import { SINGLE_CRYSTAL_REFINE_OPTIONS, buildSingleCrystalRefinementProblem, buildSingleCrystalSpec, singleCrystalRefinementComparison } from "@/core/workflow/singleCrystalRefinement";
 
 /**
  * A powder page without React: a session, the real curves and the real
@@ -434,14 +434,14 @@ export function singleCrystalPort(start: StructureModel, dataset: SingleCrystalD
   let spec = buildSingleCrystalSpec(model, dataset, { extinction: 0 });
   let params = spec.params;
   let result: RefinementResult | null = null;
-  let filter = { on: false, cutoffSigma: 6 };
+  let filter: { on: boolean; cutoffSigma: number; minExtinction?: number } = { on: false, cutoffSigma: 6 };
   const calls: string[] = [];
   const values = (): Record<string, number> => Object.fromEntries(params.map((p) => [p.id, p.value]));
   // The filter reads the residuals of the whole set against the current model, as the page's.
   const active = (): SingleCrystalDataset => {
     if (!filter.on) return dataset;
     const full = singleCrystalRefinementComparison(model, dataset, params, spec.bindings);
-    return { ...dataset, reflections: dataset.reflections.filter((_, i) => Math.abs(full.rows[i]?.deltaOverSigma ?? 0) <= filter.cutoffSigma) };
+    return { ...dataset, reflections: dataset.reflections.filter((_, i) => Math.abs(full.rows[i]?.deltaOverSigma ?? 0) <= filter.cutoffSigma && (filter.minExtinction === undefined || (full.rows[i]?.extinction ?? 1) >= filter.minExtinction)) };
   };
   const state = (): SingleCrystalLiveState => {
     const ds = active();
@@ -460,6 +460,7 @@ export function singleCrystalPort(start: StructureModel, dataset: SingleCrystalD
       agreement: cmp.agreement,
       merge: merge.statistics,
       rows: cmp.rows,
+      allRows: filter.on ? singleCrystalRefinementComparison(model, dataset, params, spec.bindings).rows : cmp.rows,
       outlierFilter: { ...filter, excluded: dataset.reflections.length - ds.reflections.length },
       adpModel: adpModelOf(model),
       magnetic: false,
@@ -492,11 +493,12 @@ export function singleCrystalPort(start: StructureModel, dataset: SingleCrystalD
     },
     setOutlierFilter: (update) => {
       calls.push(`filter ${JSON.stringify(update)}`);
-      filter = { on: update.on ?? filter.on, cutoffSigma: update.cutoffSigma ?? filter.cutoffSigma };
+      const minExtinction = update.minExtinction === null ? undefined : update.minExtinction ?? filter.minExtinction;
+      filter = { on: update.on ?? filter.on, cutoffSigma: update.cutoffSigma ?? filter.cutoffSigma, ...(minExtinction !== undefined ? { minExtinction } : {}) };
     },
     refine: async () => {
       calls.push("refine");
-      const r = refineProblem(buildSingleCrystalRefinementProblem(model, active(), params, spec.bindings), { maxIterations: 25 });
+      const r = refineProblem(buildSingleCrystalRefinementProblem(model, active(), params, spec.bindings), SINGLE_CRYSTAL_REFINE_OPTIONS);
       params = params.map((p) => ({ ...p, value: r.parameters[p.id] ?? p.value }));
       result = r;
       return null;

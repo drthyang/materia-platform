@@ -49,6 +49,16 @@ export interface SingleCrystalReflection {
   readonly iObs: number;
   /** Standard uncertainty on `iObs`. When absent, unit weights are used. */
   readonly sigma?: number;
+  /** The batch it was measured in (scan, run, crystal orientation): SHELX's HKLF 4 batch, a TOPAZ run's scale index. */
+  readonly batch?: number;
+  /** The wavelength it was measured at (Å), when each reflection has its own: time-of-flight Laue data. */
+  readonly wavelength?: number;
+  /** The scattering angle 2θ it was measured at (degrees), when each reflection has its own. */
+  readonly twoTheta?: number;
+  /** Mean path length through the crystal (cm), from the absorption correction. */
+  readonly tbar?: number;
+  /** The transmission the absorption correction applied (0–1). */
+  readonly transmission?: number;
 }
 
 /** A single measured point in a powder pattern. */

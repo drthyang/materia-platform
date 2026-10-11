@@ -55,6 +55,19 @@ by more than about 20–30 % is severe: say so, and do not trust those reflectio
 Absorption is corrected at data reduction (the file's intensities are corrected): do not
 correct it again in the model.
 
+When the correction is severe, test whether the structure rests on the reflections it
+carries: refine once more with `set_outlier_filter`'s `minExtinction` (0.5 leaves out the
+reflections whose intensity extinction more than halves), compare the positions and ADPs
+with their esds, then remove the cut. If they hold, quote the fit to all the data and say
+the test was made; if they move, the ADPs are not worth quoting.
+
+**Batches.** Data measured in batches (runs, orientations, scans; get_state and
+`assess_refinement` say how many) share one scale on load: the data reduction normally
+scales them. `assess_refinement`'s K by batch says whether it did: K scattering by more
+than a batch's precision, with no failed reflection behind it, asks for a scale per batch.
+Free them (`bscale_*`, each relative to the first batch) only then, and report how much the
+fit improved for the parameters they cost.
+
 ## Stage 2 — Positions
 
 Free the coordinates (the page's symmetry-allowed position shifts; special positions are
@@ -86,11 +99,15 @@ refine it with that ADP fixed, or with a composition tied.
 
 ## Outliers
 
-`set_outlier_filter` leaves out reflections whose |Fo² − Fc²|/σ exceeds a cutoff against
-the current model (SHELX's OMIT, applied wholesale). Use it only for reflections with a
-physical reason (the beamstop's shadow, an extinction-dominated strongest reflection,
-multiple diffraction), say how many and why, and never to lower R1. Many reflections beyond
-6σ means the model or the data processing is wrong, not the reflections.
+Before leaving a reflection out, compare it with its symmetry equivalents
+(`reflection_equivalents`): one measurement far from the others, which agree with Fc², failed
+(a detector edge, a gap, a shadow); all of them off the same way is the model's misfit, which
+no filter should hide. `set_outlier_filter` then leaves out reflections whose |Fo² − Fc²|/σ
+exceeds a cutoff against the current model (SHELX's OMIT, applied wholesale): set it just
+above the failed ones, so it takes only those. Use it only for reflections with a physical
+reason, say how many and why, and never to lower R1. Many reflections beyond 6σ means the
+model or the data processing is wrong, not the reflections; strongly extinguished reflections
+are what the extinction model is for, and they stay.
 
 ## When it's done
 
@@ -107,7 +124,8 @@ multiple diffraction), say how many and why, and never to lower R1. Many reflect
 
 Report: the data (reflections, unique, R_int, d_min, completeness), the model (free
 parameters, data per parameter, extinction), R1 (observed and total), wR2 and GooF, the
-largest outliers, and the refined structure with esds (`structure_table`). In the app,
+largest outliers, and the refined structure with esds: `structure_table` gives each tensor's
+U^ij with esds, and `bond_geometry` each length with its esd from the positions'. In the app,
 `write_report` writes it: you write only the account, with no number the tools did not give.
 
 ## In the app and over MCP
@@ -116,10 +134,10 @@ largest outliers, and the refined structure with esds (`structure_table`). In th
 |------|------------|----------|
 | Load | the user, in the app | `parse_structure`, `parse_single_crystal_data` |
 | Read the data | `reflection_statistics` | — |
-| Free and refine | `set_free`, `refine` | — (in the app only, for now) |
+| Free and refine | `set_free`, `refine` (batch scales: `bscale_*`) | — (in the app only, for now) |
 | Judge a stage | `assess_refinement` | `assess_refinement` |
 | ADP model | `set_adp_model` | — |
-| Outliers | `set_outlier_filter` | — |
+| Outliers | `reflection_equivalents`, `set_outlier_filter` | — |
 | Structure and geometry | `structure_table`, `bond_geometry` | `bond_geometry`, `interpret_structure` |
 | Export the reflections | the Export menu | `write_single_crystal_data` |
 

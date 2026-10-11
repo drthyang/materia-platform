@@ -23,6 +23,7 @@ export const TOOL_CARDS: Readonly<Record<string, readonly AgentCard[]>> = {
   check_cell_symmetry: ["structure", "pattern"],
   check_fit_range: ["data", "pattern"],
   reflection_statistics: ["data"],
+  reflection_equivalents: ["data", "result"],
   set_outlier_filter: ["data", "result"],
   find_unexplained_peaks: ["pattern"],
   review_symmetry: ["structure", "pattern"],

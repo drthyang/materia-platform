@@ -53,8 +53,19 @@ export interface CorundumPage {
   readonly truth: { readonly alZ: number; readonly oX: number; readonly extinction: number };
 }
 
+export interface CorundumOptions {
+  /** SHELX EXTI of the crystal the intensities are computed for. */
+  readonly extinction?: number;
+  readonly seed?: number;
+  readonly dMin?: number;
+  /** Batch scales: each reflection's equivalents measured in turn in batches 1, 2, …, each batch at its scale. */
+  readonly batches?: readonly number[];
+  /** One measurement that failed: this reflection (as indexed) at `factor` of its intensity. */
+  readonly failed?: { readonly h: number; readonly k: number; readonly l: number; readonly factor: number };
+}
+
 /** Corundum on a constant-wavelength neutron diffractometer (λ 1.0 Å). */
-export function corundumPage({ extinction = 2, seed = 7, dMin = 0.6 }: { readonly extinction?: number; readonly seed?: number; readonly dMin?: number } = {}): CorundumPage {
+export function corundumPage({ extinction = 2, seed = 7, dMin = 0.6, batches, failed }: CorundumOptions = {}): CorundumPage {
   const truth = parseCif(corundumCif(0.35216, 0.30624, 0.0035), "corundum");
   const start = parseCif(corundumCif(0.352, 0.306, 0.005), "corundum");
   const radiation = { kind: "neutron" as const, wavelength: 1.0 };
@@ -88,9 +99,13 @@ export function corundumPage({ extinction = 2, seed = 7, dMin = 0.6 }: { readonl
   const background = 0.01 * iMax;
   const dataset: SingleCrystalDataset = {
     ...empty,
-    reflections: calc.map((c) => {
-      const sigma = Math.sqrt((Math.max(c.fcSq, 0) + background) * g + (0.02 * c.fcSq) ** 2);
-      return { h: c.h, k: c.k, l: c.l, iObs: c.fcSq + sigma * noise(), sigma };
+    reflections: calc.map((c, i) => {
+      const batch = batches ? i % batches.length : -1;
+      const k = batches ? batches[batch]! : 1;
+      const lost = failed && c.h === failed.h && c.k === failed.k && c.l === failed.l ? failed.factor : 1;
+      const iTrue = k * lost * c.fcSq;
+      const sigma = Math.sqrt((Math.max(iTrue, 0) + background) * g + (0.02 * iTrue) ** 2);
+      return { h: c.h, k: c.k, l: c.l, iObs: iTrue + sigma * noise(), sigma, ...(batches ? { batch: batch + 1 } : {}) };
     }),
   };
   return { structure: start, dataset, truth: { alZ: 0.35216, oX: 0.30624, extinction } };

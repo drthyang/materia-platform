@@ -4,13 +4,14 @@
  * synthetic neutron pattern, 2θ at 1.54 Å) and the GaTa₄Se₈ PDF demo.
  */
 
-import type { PdfAgentPort, PowderAgentPort } from "@/agent/port";
+import type { PdfAgentPort, PowderAgentPort, SingleCrystalAgentPort } from "@/agent/port";
 import { newSession, type Session } from "@/app/powderSession";
 import { exampleStructure } from "@/examples/mn3ga";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { powderPeakIntensities } from "@/core/diffraction/intensity";
 import { knownPhaseStructure } from "@/core/diagnostics/knownPhases";
-import { pdfPort, sessionPort } from "@/testSupport/agentHeadless";
+import { pdfPort, sessionPort, singleCrystalPort } from "@/testSupport/agentHeadless";
+import { corundumPage, type CorundumOptions } from "@/testSupport/scPages";
 import { runPowderRefinement } from "@/workers/runPowder";
 import { magneticSubgroupLattice, latticeRepresentatives, latticeCandidateLabel } from "@/core/magnetic/subgroupLattice";
 import { buildMagneticModel } from "@/core/magnetic/momentModel";
@@ -206,3 +207,15 @@ export function powderPage(session: Session): PowderAgentPort {
 export function pdfPage(): PdfAgentPort {
   return pdfPort().port;
 }
+
+/** The single-crystal page on synthetic corundum (testSupport/scPages): strong extinction unless asked otherwise. */
+export function scPage(opts: CorundumOptions = {}): SingleCrystalAgentPort {
+  const c = corundumPage({ extinction: 20, ...opts });
+  return singleCrystalPort(c.structure, c.dataset).port;
+}
+
+/** A failed measurement for scPage: 1 0 4 at 3 % of its intensity (sapphire's 5 4 1 in batch 24). */
+export const FAILED_REFLECTION = { h: 1, k: 0, l: 4, factor: 0.03 } as const;
+
+/** Batch scales for scPage: four batches, the data reduction off by up to 8 %. */
+export const BATCH_SCALES = [1, 1.06, 0.94, 1.08] as const;

@@ -206,6 +206,11 @@ export interface SingleCrystalRow {
   readonly fcSq: number;
   readonly sigma: number;
   readonly deltaOverSigma: number;
+  /** The extinction factor y in Fc² (absent or 1 without extinction). */
+  readonly extinction?: number;
+  /** The batch (run, orientation) and wavelength it was measured at, when the file gives them. */
+  readonly batch?: number;
+  readonly wavelength?: number;
 }
 
 /** The single-crystal page as the Agent reads it — one render's state. */
@@ -214,7 +219,7 @@ export interface SingleCrystalLiveState {
   readonly structure: StructureModel;
   /** The structure with the current parameter values applied. */
   readonly refinedStructure: StructureModel;
-  /** The reflections as the page fits them (the OMIT filter applied), with the probe's radiation. */
+  /** The reflections in the file (before the OMIT filter), with the probe's radiation. */
   readonly dataset: SingleCrystalDataset;
   /** Reflections in the file, before the filter. */
   readonly totalReflections: number;
@@ -228,10 +233,12 @@ export interface SingleCrystalLiveState {
   readonly agreement: { readonly r1: number; readonly wr2: number; readonly goof: number; readonly observed: number; readonly total: number };
   /** The Laue-class merge of the fitted reflections: R_int, R_σ, redundancy. */
   readonly merge: MergeStatistics;
-  /** Observed and calculated per reflection, in the dataset's order. */
+  /** Observed and calculated per reflection fitted (the filter applied). */
   readonly rows: readonly SingleCrystalRow[];
+  /** Every reflection in the file against the current model (nuclear Fc²), the ones the filter leaves out too. */
+  readonly allRows: readonly SingleCrystalRow[];
   /** The SHELX-style OMIT filter: reflections beyond `cutoffSigma` left out while on. */
-  readonly outlierFilter: { readonly on: boolean; readonly cutoffSigma: number; readonly excluded: number };
+  readonly outlierFilter: { readonly on: boolean; readonly cutoffSigma: number; readonly excluded: number; readonly minExtinction?: number };
   /** The ADP model as fitted: one B per site, the tensor, or both on different sites. */
   readonly adpModel: "isotropic" | "anisotropic" | "mixed";
   /** A magnetic model is applied (nuclear + magnetic refined together). */
@@ -251,7 +258,7 @@ export interface SingleCrystalAgentPort {
   /** The ADP model: every site's B iso, or the U tensor (seeded from the refined B). */
   readonly setAdpModel: (anisotropic: boolean) => void;
   /** The OMIT filter: on/off and its cutoff in σ. */
-  readonly setOutlierFilter: (update: { readonly on?: boolean; readonly cutoffSigma?: number }) => void;
+  readonly setOutlierFilter: (update: { readonly on?: boolean; readonly cutoffSigma?: number; readonly minExtinction?: number | null }) => void;
   /** The Refine button. Resolves to why it did not finish, or null when it did. */
   readonly refine: () => Promise<string | null>;
   /** The Prefit / Escape-minimum button (multi-start). */

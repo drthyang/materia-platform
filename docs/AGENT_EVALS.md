@@ -48,6 +48,10 @@ real chat loop, executor and tools run; only the model changes.
 | `pdf-method` | refines a PDF by its method | the PDF page (v0.3) |
 | `pdf-local-structure` | compares local and average structure with a boxcar scan | boxcar scans (#40) |
 | `pdf-local-geometry` | answers a bond-length question box by box, and reports the scan | round 9 (LaMnO₃) |
+| `sc-data-first` | reads the reflection statistics before refining, and refines the extinction before the structure | single-crystal round 1 (sapphire, TOPAZ) |
+| `sc-failed-reflection` | compares a misfit reflection with its equivalents, and leaves out only the failed measurement | single-crystal round 1 (5 4 1 in batch 24) |
+| `sc-extinction-test` | refines without the reflections of y < 0.5, compares, and restores the data | single-crystal round 1 |
+| `sc-batch-scales` | reads K by batch, then tries a scale per batch | single-crystal round 1 |
 
 ## Results against real models
 

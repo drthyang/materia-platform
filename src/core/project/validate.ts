@@ -348,7 +348,7 @@ function checkScDataset(v: unknown, path: string): void {
   refl.forEach((item, i) => {
     const r = rec(item, `${path}.reflections[${i}]`);
     for (const k of ["h", "k", "l", "iObs"]) num(r[k], `${path}.reflections[${i}].${k}`);
-    opt(r.sigma, `${path}.reflections[${i}].sigma`, num);
+    for (const k of ["sigma", "batch", "wavelength", "twoTheta", "tbar", "transmission"]) opt(r[k], `${path}.reflections[${i}].${k}`, num);
   });
 }
 
@@ -378,6 +378,7 @@ function checkSingleCrystalWorkspace(ws: Rec, path: string, ctx: PhaseContext): 
     const f = rec(ws.outlierFilter, `${path}.outlierFilter`);
     bool(f.on, `${path}.outlierFilter.on`);
     num(f.cutoffSigma, `${path}.outlierFilter.cutoffSigma`);
+    opt(f.minExtinction, `${path}.outlierFilter.minExtinction`, num);
   }
   opt(ws.modulated, `${path}.modulated`, checkModulated);
 }

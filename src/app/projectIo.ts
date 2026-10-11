@@ -236,6 +236,8 @@ export interface SingleCrystalSnapshot {
   readonly magnetic: MagneticModel | null;
   readonly filterOn: boolean;
   readonly cutoffSigma: number;
+  /** The filter's extinction cut: reflections with y below it left out; absent ⇒ none. */
+  readonly minExtinction?: number | null;
   readonly modulated: ModulatedInputs;
   readonly adpModel?: "isotropic" | "anisotropic" | null;
 }
@@ -252,7 +254,7 @@ export function singleCrystalWorkspaceFrom(s: SingleCrystalSnapshot): SingleCrys
       ...(s.result ? { lastResult: s.result } : {}),
     },
     ...(s.magnetic ? { magnetic: s.magnetic } : {}),
-    outlierFilter: { on: s.filterOn, cutoffSigma: s.cutoffSigma },
+    outlierFilter: { on: s.filterOn, cutoffSigma: s.cutoffSigma, ...(s.minExtinction ? { minExtinction: s.minExtinction } : {}) },
     modulated: modulatedHypothesisFrom(s.modulated),
     ...(s.adpModel ? { adpModel: s.adpModel } : {}),
   };

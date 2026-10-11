@@ -44,6 +44,7 @@ const CATEGORY: Record<ParameterKind, string> = {
   surfaceRoughA: "Corrections",
   surfaceRoughB: "Corrections",
   extinction: "Corrections",
+  batchScale: "Scale",
   stephensStrain: "Microstructure",
   anisoSizePerp: "Microstructure",
   anisoSizePar: "Microstructure",

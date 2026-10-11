@@ -23,22 +23,39 @@
 import type { Radiation } from "@/core/diffraction/types";
 import { braggTheta } from "@/core/crystal/unitCell";
 
+/** Where a reflection was measured, when the file says: its own wavelength (Å) and 2θ (degrees). */
+export interface MeasuredAt {
+  readonly wavelength?: number;
+  readonly twoTheta?: number;
+}
+
 /**
- * Becker–Coppens / SHELXL secondary-extinction correction y applied to F²:
+ * SHELXL's secondary-extinction correction y applied to F²:
  *   F²_corr = F² · y,   y = [1 + 0.001·x·F²·λ³ / sin(2θ)]^(−1/2)
  * where x is the refinable EXTI parameter (0 = no extinction). Strong low-angle
- * reflections are damped, as physically observed. TOF/forward-beam → y = 1.
- * (SHELXL uses the same expression on Fc²; the ^(−1/2) form corresponds to the
- * intensity, i.e. |F|², correction.)
+ * reflections are damped, as physically observed. (SHELXL uses the same
+ * expression on Fc²; the ^(−1/2) form is the intensity's, |F|².)
+ *
+ * λ and 2θ are the reflection's own when the file gives them (`at`): a
+ * time-of-flight Laue measurement takes each reflection at its own wavelength,
+ * and the extinction follows the kinematic reflectivity λ³F²/sin2θ at that
+ * wavelength (the coupling of the beam to the mosaic blocks is the same at
+ * each λ; integrating over λ instead of over the angle changes the Lorentz
+ * factor of the integrated intensity, which the data reduction removed, not
+ * the extinction). SHELXL's HKLF 2 carries a wavelength per reflection for
+ * the same reason. With neither a wavelength nor a 2θ for a TOF reflection,
+ * y = 1.
  */
-export function extinctionFactor(x: number, fSquared: number, radiation: Radiation, d: number): number {
-  if (x <= 0 || radiation.kind === "neutron-tof") return 1;
-  const theta = braggTheta(d, radiation.wavelength);
+export function extinctionFactor(x: number, fSquared: number, radiation: Radiation, d: number, at: MeasuredAt = {}): number {
+  if (x <= 0) return 1;
+  const lambda = at.wavelength ?? (radiation.kind === "neutron-tof" ? undefined : radiation.wavelength);
+  const theta = at.twoTheta !== undefined ? (at.twoTheta * Math.PI) / 360 : lambda !== undefined ? braggTheta(d, lambda) : NaN;
   if (Number.isNaN(theta)) return 1;
+  // λ from 2θ and d when only the angle is known (λ = 2d·sinθ).
+  const wl = lambda ?? 2 * d * Math.sin(theta);
   const s2t = Math.sin(2 * theta);
   if (Math.abs(s2t) < 1e-6) return 1;
-  const lambda = radiation.wavelength;
-  const denom = 1 + (0.001 * x * fSquared * lambda * lambda * lambda) / s2t;
+  const denom = 1 + (0.001 * x * fSquared * wl * wl * wl) / s2t;
   return denom > 0 ? 1 / Math.sqrt(denom) : 1;
 }
 

@@ -20,6 +20,7 @@ import { parseHklRows } from "@/parsers/hkl";
 import { isCifReflectionLoop, parseFcf, parseShelxHkl, type ShelxHklParse } from "@/parsers/shelxHkl";
 import { parseReflectionList } from "@/parsers/reflectionList";
 import { parseFullProfInt, looksLikeFullProfInt } from "@/parsers/fullprofInt";
+import { looksLikeSnsTofHkl, parseSnsTofHkl } from "@/parsers/snsTofHkl";
 import { dSpacing } from "@/core/crystal/unitCell";
 
 /**
@@ -108,7 +109,7 @@ export interface LoadedReflections {
   readonly dropped: number;
   /** `0 0 0` forward-beam rows skipped (nuclear role only; the all-zero SHELX terminator is not counted). */
   readonly forwardBeamSkipped: number;
-  readonly format: "gsas" | "shelx" | "fcf" | "fullprof" | "list";
+  readonly format: "gsas" | "shelx" | "fcf" | "fullprof" | "sns-tof" | "list";
 }
 
 export interface LoadReflectionOptions {
@@ -185,6 +186,18 @@ export function loadReflectionDataset(
       format: "gsas",
     };
   }
+  // A TOPAZ time-of-flight file before SHELX: its first 32 columns are HKLF 4,
+  // and a SHELX read would drop each reflection's wavelength.
+  if (looksLikeSnsTofHkl(text)) {
+    const parsed = parseSnsTofHkl(text);
+    return {
+      dataset: { id: datasetId, name, radiation: { kind: "neutron-tof" }, reflections: parsed.reflections },
+      kept: parsed.reflections.length,
+      dropped: parsed.skipped,
+      forwardBeamSkipped: 0,
+      format: "sns-tof",
+    };
+  }
   // `.fcf` is recognized by content (the CIF reflection loop) so a renamed
   // export still reads correctly; `.hkl` has no content signature that
   // distinguishes it from a plain list, so it goes by extension.
@@ -194,7 +207,7 @@ export function loadReflectionDataset(
     : null;
   if (shelx) {
     const reflections: SingleCrystalReflection[] = shelx.parse.reflections.map((r) => ({
-      h: r.h, k: r.k, l: r.l, iObs: r.intensity, sigma: r.sigma,
+      h: r.h, k: r.k, l: r.l, iObs: r.intensity, sigma: r.sigma, ...(shelx.parse.hasBatches && r.batch !== undefined ? { batch: r.batch } : {}),
     }));
     return {
       dataset: { id: datasetId, name, radiation: { kind: "neutron" as const, wavelength: 1.54 }, reflections },

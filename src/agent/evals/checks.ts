@@ -11,7 +11,7 @@ import { groupOf, keyOfState, type ParameterGroup } from "@/agent/method";
 import { announcedTool } from "@/agent/chat";
 import { LIVE_TOOLS, liveTool } from "@/agent/tools";
 import { convertInterval } from "@/visualization/axisUnits";
-import type { PowderAgentPort, PowderLiveState } from "@/agent/port";
+import type { PowderAgentPort, PowderLiveState, SingleCrystalLiveState } from "@/agent/port";
 import { calls, isChange, replies, type Check, type EvalRun } from "@/agent/evals/harness";
 
 const ok = (detail: string) => ({ pass: true, detail });
@@ -373,3 +373,76 @@ export function magneticGroupIs(id: string): Check {
     },
   };
 }
+
+/** The single-crystal page's state, or null on another page. */
+function scState(run: EvalRun): SingleCrystalLiveState | null {
+  const s = run.port.state();
+  return "dataset" in s ? s : null;
+}
+
+/** The data are read before the first refinement (the single-crystal method's first stage). */
+export const readsDataFirst: Check = {
+  name: "reads the data (reflection_statistics) before the first refinement",
+  grade: (run) => {
+    const all = calls(run);
+    const stats = all.findIndex((c) => c.name === "reflection_statistics" && !c.isError);
+    const refine = all.findIndex((c) => c.name === "refine");
+    if (stats < 0) return fail("never read the data");
+    return refine < 0 || stats < refine ? ok("read the data first") : fail("refined before reading the data");
+  },
+};
+
+/** Extinction before positions and ADPs: the strongest reflections first (sapphire, round 1, as the GSAS-II tutorial insists). */
+export const extinctionBeforeStructure: Check = {
+  name: "refines the extinction before the positions and ADPs",
+  grade: (run) => {
+    const done = calls(run).filter((c) => c.name === "refine" && !c.isError && json(c.text)?.refined === true);
+    const ext = done.findIndex((c) => (c.free ?? []).includes("extinction"));
+    const structural = done.findIndex((c) => (c.free ?? []).some((id) => /^(pos_|B_|U_)/.test(id)));
+    if (ext < 0) return fail("never refined the extinction");
+    return structural < 0 || ext < structural ? ok(`extinction in refinement ${ext + 1}, the structure from ${structural < 0 ? "—" : structural + 1}`) : fail("refined the structure before the extinction");
+  },
+};
+
+/** A misfit reflection is compared with its equivalents before any is left out, and only the failed measurement goes (round 1: 5 4 1 in batch 24). */
+export function omitsOnlyFailed(expected: number): Check {
+  return {
+    name: `compares the equivalents first, then leaves out only the failed measurement${expected === 1 ? "" : "s"}`,
+    grade: (run) => {
+      const all = calls(run);
+      const eq = all.findIndex((c) => c.name === "reflection_equivalents" && !c.isError);
+      const omit = all.findIndex((c) => c.name === "set_outlier_filter" && c.input.on !== false && !c.isError);
+      const s = scState(run);
+      if (omit < 0) return fail("left nothing out");
+      if (eq < 0 || eq > omit) return fail("left reflections out without comparing their equivalents");
+      if (!s?.outlierFilter.on) return fail("the filter ended off");
+      return s.outlierFilter.excluded === expected ? ok(`compared the equivalents, then left out ${expected}`) : fail(`leaves out ${s.outlierFilter.excluded}, not ${expected}`);
+    },
+  };
+}
+
+/** The extinction test: the most extinguished reflections left out and refined, then restored and refined back (round 1). */
+export const testsExtinctionAndRestores: Check = {
+  name: "tests the extinguished reflections' weight, then restores all the data",
+  grade: (run) => {
+    const all = calls(run);
+    const cut = all.findIndex((c) => c.name === "set_outlier_filter" && typeof c.input.minExtinction === "number" && !c.isError);
+    if (cut < 0) return fail("never left out the extinguished reflections");
+    const refineCut = all.findIndex((c, i) => i > cut && c.name === "refine" && json(c.text)?.refined === true);
+    const restore = all.findIndex((c, i) => i > refineCut && c.name === "set_outlier_filter" && c.input.minExtinction === null && !c.isError);
+    const refineBack = all.findIndex((c, i) => i > restore && c.name === "refine" && json(c.text)?.refined === true);
+    const s = scState(run);
+    if (refineCut < 0) return fail("left them out but did not refine");
+    if (restore < 0 || refineBack < 0) return fail("did not restore all the data and refine back");
+    return s?.outlierFilter.minExtinction === undefined ? ok("tested, then refined back on all the data") : fail("the extinction cut is still on");
+  },
+};
+
+/** Batch scales tried when the batches disagree: a refinement with them free (round 1). */
+export const triesBatchScales: Check = {
+  name: "refines a scale per batch",
+  grade: (run) => {
+    const done = calls(run).filter((c) => c.name === "refine" && json(c.text)?.refined === true && (c.free ?? []).some((id) => id.startsWith("bscale_")));
+    return done.length > 0 ? ok(`${done.length} refinement${done.length === 1 ? "" : "s"} with the batch scales free`) : fail("never freed the batch scales");
+  },
+};

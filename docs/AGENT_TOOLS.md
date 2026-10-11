@@ -215,7 +215,7 @@ full descriptions at the end are the text an agent reads when it picks a tool.
 
 **`refine_magnetic_powder`** — Co-refine nuclear + magnetic against a powder pattern. Staged by default: scale + background converge with moments and profile held, then everything requested is freed — a flat co-refinement from a poor moment start can collapse the scale against exploding moments. Combine the nuclear parameters/bindings from build_refinement with the moment set from build_magnetic_model. Returns the result, the refined `parameters` (ready for the next call), the refined magnetic model, and separated nuclear/magnetic component curves. The moments have several local minima (magnetic intensity is quadratic in them), so a single run can land in the wrong one: pass `restarts` (e.g. 12) to restart the moments from kicked starts on the frozen nuclear model first; `multiStart` then reports the costs, the ±m-canonical answer, and any poorly determined moment directions.
 
-**`parse_single_crystal_data`** — Parse single-crystal integrated intensities — a FullProf .int, a SHELX HKLF 4 .hkl, a .fcf CIF reflection loop, or a plain h k l I σ list — into a SingleCrystalDataset. ALWAYS pass `name`: .int and .fcf are detected from the text, but HKLF 4 is fixed-column and looks exactly like a free-format list, so only the .hkl filename selects the column-exact reader (whitespace-splitting an HKLF 4 row reads σ as the intensity once F² ≥ 10000.00 fills its field). `format` reports which reader ran. Parse the nuclear and magnetic files, then merge_magnetic_supercell into one dataset for the magnetic refinement. A 0 0 0 row (the forward beam, not a Bragg reflection) is skipped by default — pass skipForwardBeam:false for a fundamental-indexed MAGNETIC file, where 0 0 0 is the satellite at k itself.
+**`parse_single_crystal_data`** — Parse single-crystal integrated intensities — a FullProf .int, a SHELX HKLF 4 .hkl, a .fcf CIF reflection loop, an SNS TOPAZ time-of-flight .hkl (each reflection with its own wavelength, 2θ, path length and run, detected from its columns), or a plain h k l I σ list — into a SingleCrystalDataset. The intensities are taken as corrected F² (Lorentz, polarization and absorption applied in data reduction), as every single-crystal program takes them. ALWAYS pass `name`: .int and .fcf are detected from the text, but HKLF 4 is fixed-column and looks exactly like a free-format list, so only the .hkl filename selects the column-exact reader (whitespace-splitting an HKLF 4 row reads σ as the intensity once F² ≥ 10000.00 fills its field). `format` reports which reader ran. Parse the nuclear and magnetic files, then merge_magnetic_supercell into one dataset for the magnetic refinement. A 0 0 0 row (the forward beam, not a Bragg reflection) is skipped by default — pass skipForwardBeam:false for a fundamental-indexed MAGNETIC file, where 0 0 0 is the satellite at k itself.
 
 **`write_single_crystal_data`** — Serialize a SingleCrystalDataset to a FullProf .int file (h k l F² σ cod through the declared Fortran format). Pass kVectors + per-reflection kIndex for the propagation-vector variant (satellite = H + k_nv; pending external FullProf validation). Round-trips with parse_single_crystal_data.
 
@@ -580,14 +580,26 @@ The page-specific handlers are [`powderTools.ts`](../src/agent/powderTools.ts),
   model — merging (R_int, R_σ, redundancy), resolution and completeness by
   shell, whether the Friedel pairs were measured apart, the reflections the
   space group forbids measured at ≥ 3σ, and ⟨|E² − 1|⟩ (0.968 centrosymmetric,
-  0.736 not, lower for a twin); the reading goes into the record and the
-  report, and is the method's first stage. `set_outlier_filter` is the page's
-  |Fo² − Fc²|/σ cutoff (SHELX's OMIT, applied wholesale); its approval card
-  counts what it leaves out. There, `assess_refinement` adds the analysis of
-  variance by intensity and by resolution (K = ΣFo²/ΣFc² and GooF per bin), the
-  extinction reading, the largest outliers and the tensors that are not
-  positive definite, and `refine` answers with R1, wR2 and GooF before and
-  after.
+  0.736 not, lower for a twin, no test for a few sites on special positions),
+  and how the data were measured (the wavelength band of a Laue file, the
+  batches, the transmission); the reading goes into the record and the
+  report, and is the method's first stage. `reflection_equivalents` lists
+  every measurement of one reflection and its equivalents (batch, wavelength,
+  extinction factor, distance from Fc² and from the family's median), to tell
+  a failed measurement from a model that misses before anything is left
+  out. `set_outlier_filter` is the page's |Fo² − Fc²|/σ cutoff (SHELX's OMIT,
+  applied wholesale), and with `minExtinction` it also leaves out the
+  reflections whose extinction factor y is below the cut, the extinction
+  test; its approval card counts what it leaves out. There,
+  `assess_refinement` adds the analysis of variance by intensity and by
+  resolution (K = ΣFo²/ΣFc² and GooF per bin), the extinction reading (the
+  strongest bin against the others) and the correction's reach (the smallest
+  y), K and R1 by batch, the largest outliers and the tensors that are not
+  positive definite; `refine` answers with R1, wR2 and GooF before and after,
+  and runs until every shift is below 0.05 esd. The scale, the extinction and
+  the batch scales (`bscale_<b>`, entered fixed) refine together whatever
+  their correlation, as in every single-crystal program. `structure_table`
+  gives U^ij and U_eq with esds, and `bond_geometry` each length's esd.
 - Powder page only: `rank_next_parameters`, `check_cell_symmetry`,
   `find_unexplained_peaks`, `review_symmetry`, `set_background`, `set_microstrain`,
   `set_site_ties`. On the PDF page, `assess_refinement` judges convergence,

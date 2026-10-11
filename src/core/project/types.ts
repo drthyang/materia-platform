@@ -192,7 +192,7 @@ export interface SingleCrystalWorkspace {
   /** Magnetic model applied from the symmetry analysis, if any. */
   readonly magnetic?: MagneticModel;
   /** SHELX-style OMIT filter on |Fo²−Fc²|/σ. Absent ⇒ off. */
-  readonly outlierFilter?: { readonly on: boolean; readonly cutoffSigma: number };
+  readonly outlierFilter?: { readonly on: boolean; readonly cutoffSigma: number; readonly minExtinction?: number };
   readonly modulated?: ModulatedHypothesis;
   /** The ADP model switched to on the page; absent ⇒ the CIF's. */
   readonly adpModel?: "isotropic" | "anisotropic";

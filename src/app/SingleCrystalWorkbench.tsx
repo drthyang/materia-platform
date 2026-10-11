@@ -25,6 +25,7 @@ import type { RefinementParameter, RefinementResult } from "@/core/refinement/ty
 import { CANCELLED, type ComputeClient } from "@/workers/computeClient";
 import { mergeEquivalents } from "@/core/diffraction/merge";
 import {
+  SINGLE_CRYSTAL_REFINE_OPTIONS,
   buildSingleCrystalSpec,
   guidedSingleCrystalParams,
   singleCrystalRefinementComparison,
@@ -192,6 +193,9 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
   // applied against the *current* model, so it stays live as the fit changes.
   const [filterOn, setFilterOn] = useState(restoring?.outlierFilter?.on ?? false);
   const [cutoffSigma, setCutoffSigma] = useState(restoring?.outlierFilter?.cutoffSigma ?? 6);
+  // The filter's extinction cut (GSAS-II's "Min extinct."): reflections whose
+  // extinction factor y falls below it are left out while the filter is on.
+  const [minExtinction, setMinExtinction] = useState<number | null>(restoring?.outlierFilter?.minExtinction ?? null);
 
   // A new structure (CIF load) keeps this page mounted (keyed on the dataset):
   // the rows become the new spec's, and the last fit, the ADP switch and the
@@ -211,10 +215,13 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
     [fitStructure, probedDataset, params, bindings],
   );
   const activeDataset = useMemo(() => {
-    if (!filterOn || cutoffSigma <= 0) return probedDataset;
-    const keep = probedDataset.reflections.filter((_, i) => Math.abs(fullComparison.rows[i]?.deltaOverSigma ?? 0) <= cutoffSigma);
+    if (!filterOn || (cutoffSigma <= 0 && minExtinction === null)) return probedDataset;
+    const keep = probedDataset.reflections.filter((_, i) => {
+      const row = fullComparison.rows[i];
+      return (cutoffSigma <= 0 || Math.abs(row?.deltaOverSigma ?? 0) <= cutoffSigma) && (minExtinction === null || (row?.extinction ?? 1) >= minExtinction);
+    });
     return { ...probedDataset, reflections: keep };
-  }, [probedDataset, filterOn, cutoffSigma, fullComparison]);
+  }, [probedDataset, filterOn, cutoffSigma, minExtinction, fullComparison]);
   const excluded = probedDataset.reflections.length - activeDataset.reflections.length;
 
   // Laue-equivalent merge report (data quality — R_int, redundancy) on the active set.
@@ -273,10 +280,10 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
       // With a magnetic model applied, fit nuclear + moments together (F² total).
       const res = magnetic
         ? await client.refineMagneticParallel({
-            structure: fitStructure, magnetic, dataset: activeDataset, parameters: start, bindings: [...bindings, ...momentBindings], options: { maxIterations: 25 },
+            structure: fitStructure, magnetic, dataset: activeDataset, parameters: start, bindings: [...bindings, ...momentBindings], options: SINGLE_CRYSTAL_REFINE_OPTIONS,
           })
         : await client.refineSingleCrystalParallel({
-            structure: fitStructure, dataset: activeDataset, parameters: start, bindings, options: { maxIterations: 25 },
+            structure: fitStructure, dataset: activeDataset, parameters: start, bindings, options: SINGLE_CRYSTAL_REFINE_OPTIONS,
           });
       setParams(start.map((p) => ({ ...p, value: res.parameters[p.id] ?? p.value, ...(guided ? { fixed: false } : {}) })));
       setResult(res);
@@ -657,8 +664,12 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
         busy,
         agreement: comparison.agreement,
         merge: merge.statistics,
-        rows: obsCalc.map((r) => ({ h: r.h, k: r.k, l: r.l, foSq: r.iObs, fcSq: r.iCalc, sigma: r.sigma ?? 0, deltaOverSigma: r.sigma ? (r.iObs - r.iCalc) / r.sigma : 0 })),
-        outlierFilter: { on: filterOn, cutoffSigma, excluded },
+        // With a magnetic model, the total (nuclear + magnetic) intensity; else the comparison's rows, with y and the batch.
+        rows: magnetic
+          ? obsCalc.map((r) => ({ h: r.h, k: r.k, l: r.l, foSq: r.iObs, fcSq: r.iCalc, sigma: r.sigma ?? 0, deltaOverSigma: r.sigma ? (r.iObs - r.iCalc) / r.sigma : 0 }))
+          : comparison.rows,
+        allRows: fullComparison.rows,
+        outlierFilter: { on: filterOn, cutoffSigma, excluded, ...(minExtinction !== null ? { minExtinction } : {}) },
         adpModel: adpModelOf(fitStructure),
         magnetic: magnetic !== null,
         observationCount: activeDataset.reflections.length,
@@ -670,9 +681,10 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
         setParams((ps) => ps.map((p) => (fixed.has(p.id) ? { ...p, fixed: fixed.get(p.id)! } : p)));
       },
       setAdpModel: switchAdpModel,
-      setOutlierFilter: ({ on, cutoffSigma: cutoff }) => {
+      setOutlierFilter: ({ on, cutoffSigma: cutoff, minExtinction: minY }) => {
         if (on !== undefined) setFilterOn(on);
         if (cutoff !== undefined) setCutoffSigma(cutoff);
+        if (minY !== undefined) setMinExtinction(minY);
       },
       refine: () => runRefine(false),
       thorough: runThorough,
@@ -698,7 +710,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
       projectWorkspace: () => singleCrystalWorkspaceFrom({
         dataset, magneticDataset: magneticDataset ?? null, probe,
         params, bindings: [...bindings, ...momentBindings], result, magnetic,
-        filterOn, cutoffSigma,
+        filterOn, cutoffSigma, minExtinction,
         modulated: { kText, ionState, moment: modMoment, seed: modSeed, restarts: modRestarts },
         adpModel: adp?.model ?? null,
       }),
@@ -719,6 +731,14 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
         style={{ ...numInput, ...(filterOn ? {} : { opacity: 0.5 }) }}
       />
       <span style={{ color: color.secondary }}>σ</span>
+      {/* GSAS-II's minimum extinction: blank for none. */}
+      <span style={{ color: color.secondary }} title="Also reject reflections whose extinction factor y is below this (blank: none) — where the correction is that severe, the extinction model carries the intensity">or y &lt;</span>
+      <input
+        type="number" min={0.05} max={0.95} step={0.05} value={minExtinction ?? ""} placeholder="—"
+        disabled={!filterOn}
+        onChange={(e) => { const v = Number(e.target.value); setMinExtinction(e.target.value === "" || !(v > 0 && v < 1) ? null : v); }}
+        style={{ ...numInput, ...(filterOn ? {} : { opacity: 0.5 }) }}
+      />
       {filterOn && (
         <span style={{ marginLeft: "auto", fontFamily: mono, color: excluded > 0 ? color.warnInk : color.faint }}>
           {excluded} of {dataset.reflections.length} excluded

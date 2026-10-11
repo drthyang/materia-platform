@@ -353,7 +353,7 @@ function modelName(s: AgentSettings): string {
   return CHAT_MODELS.find((m) => m.id === s.model)?.label ?? s.model;
 }
 
-/** What to ask, by page: the powder page's method or the PDF page's. */
+/** What to ask, by page: its method's examples. */
 const EXAMPLES: Readonly<Record<string, readonly string[]>> = {
   "my-rietveld-workflow": [
     "Refine this pattern by my method and report the structure.",
@@ -366,7 +366,20 @@ const EXAMPLES: Readonly<Record<string, readonly string[]>> = {
     "Does the local structure differ from the average one?",
     "Assess the fit and suggest what to free next.",
   ],
+  "sc-workflow": [
+    "Read the data, then refine the structure and report it.",
+    "Is extinction a problem here? Which reflections fit worst, and why?",
+    "Are the anisotropic ADPs justified by these data?",
+  ],
 };
+
+/** What the Agent can do on the open page, by its method. */
+const CAN_DO: Record<string, string> = {
+  "my-rietveld-workflow": "the fit range, the cell check, the refinement stage by stage, why a fit is poor, which phase an extra peak is, a magnetic structure",
+  "pdf-workflow": "the r window, the refinement stage by stage, local against average structure in boxcar scans",
+  "sc-workflow": "the data's merging, completeness and absences, extinction, the refinement stage by stage, the outliers, the ADPs",
+};
+const DEFAULT_CAN_DO = "the refinement stage by stage, why a fit is poor";
 const DEFAULT_EXAMPLES = ["Assess the fit and suggest what to free next.", "Refine this from the start and report the result."];
 
 function EmptyState({ settings, page }: { settings: AgentSettings; page: string | null }): JSX.Element {
@@ -375,9 +388,8 @@ function EmptyState({ settings, page }: { settings: AgentSettings; page: string 
     <div style={{ color: color.secondary, fontSize: fz.small, lineHeight: 1.5, padding: "6px 2px" }}>
       <p style={{ margin: "0 0 8px" }}>
         <b style={{ color: color.ink }}>{modelName(settings)}</b> works on the analysis open beside it, through MATERIA's tools and the page's own controls. It can run
-        the whole analysis by the page's method — the cell check, the refinement stage by stage, why a fit is poor, which phase an extra peak is,
-        a magnetic structure — and report the result with its esds and its own assessment. Talk it through as you would with a colleague: ask why
-        it took a step, tell it what you know about the sample, or ask anything about the fit on screen.
+        the whole analysis by the page's method — {(page && CAN_DO[page]) || DEFAULT_CAN_DO} — and report the result with its esds and its own assessment.
+        Talk it through as you would with a colleague: ask why it took a step, tell it what you know about the sample, or ask anything about the fit on screen.
       </p>
       <p style={{ margin: "0 0 8px" }}>
         {settings.autoApprove

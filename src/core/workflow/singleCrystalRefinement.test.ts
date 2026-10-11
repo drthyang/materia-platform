@@ -142,3 +142,22 @@ describe.skipIf(!dataExists(SHELX_1B.cif) || !dataExists(SHELX_1B.fcf))("the mod
     expect(Math.max(...medians) / Math.min(...medians)).toBeLessThan(1.05);
   });
 });
+
+describe("batch scales", () => {
+  it("emits a fixed row per batch after the first, and recovers a batch measured 10 % high", () => {
+    const base = truthDataset(2);
+    // The same reflections in two batches, the second 10 % high.
+    const two: SingleCrystalDataset = {
+      ...base,
+      reflections: [...base.reflections.map((r) => ({ ...r, batch: 1 })), ...base.reflections.map((r) => ({ ...r, iObs: 1.1 * r.iObs, sigma: 1.1 * (r.sigma ?? 1), batch: 2 }))],
+    };
+    const spec = buildSingleCrystalSpec(structure, two, { scale: 1 });
+    const rows = spec.params.filter((p) => p.kind === "batchScale");
+    expect(rows.map((p) => [p.id, p.fixed, p.value])).toEqual([["bscale_2", true, 1]]);
+    expect(buildSingleCrystalSpec(structure, base, { scale: 1 }).params.some((p) => p.kind === "batchScale")).toBe(false);
+    const free = spec.params.map((p) => ({ ...p, fixed: !(p.id === "scale" || p.id === "bscale_2") }));
+    const r = refine(buildSingleCrystalRefinementProblem(structure, two, free, spec.bindings), { maxIterations: 30 });
+    expect(r.parameters["bscale_2"]).toBeCloseTo(1.1, 5);
+    expect(r.parameters["scale"]).toBeCloseTo(2, 4);
+  });
+});

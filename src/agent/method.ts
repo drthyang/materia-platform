@@ -124,7 +124,7 @@ const PDF_STAGES: readonly MethodStage[] = [
  */
 const SC_STAGES: readonly MethodStage[] = [
   { id: "data", label: "Data quality", kinds: [] },
-  { id: "base", label: "Scale, extinction", kinds: ["scale", "extinction"] },
+  { id: "base", label: "Scale, extinction", kinds: ["scale", "extinction", "batchScale"] },
   { id: "positions", label: "Positions", kinds: ["atomX", "atomY", "atomZ", "positionShift"] },
   { id: "adp", label: "Isotropic ADPs", kinds: ["bIso"] },
   { id: "aniso", label: "Anisotropic ADPs", kinds: ["uAniso"], optional: true },

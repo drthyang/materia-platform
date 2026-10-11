@@ -60,7 +60,7 @@ export function correlationsCheck(r: RefinementResult, parameters: readonly Refi
     return {
       name: "Correlations",
       status: "note",
-      detail: `Correlated at |ρ| ≥ ${CORRELATION_LIMIT} through the other free parameters (with them held fixed, the pair separates): ${check.carried.slice(0, 4).map((p) => `${name(p.a)} ↔ ${name(p.b)} ${p.coefficient.toFixed(3)} (${p.conditional!.toFixed(2)})`).join("; ")}.`,
+      detail: `Correlated at |ρ| ≥ ${CORRELATION_LIMIT}, refined together: ${check.carried.slice(0, 4).map((p) => `${name(p.a)} ↔ ${name(p.b)} ${p.coefficient.toFixed(3)} (${p.intensityTerms ? "overall intensity terms" : `${p.conditional!.toFixed(2)} with the rest fixed`})`).join("; ")}.`,
     };
   }
   const s = check.strongest;

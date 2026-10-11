@@ -42,16 +42,26 @@ export interface AbsenceViolation {
   readonly d: number;
   /** I/σ of the merged reflection. */
   readonly iOverSigma: number;
+  /** I over the mean intensity of the allowed reflections at its resolution: how weak it is, as a fraction. */
+  readonly ofAllowed?: number;
 }
 
 export interface IntensityStatistics {
-  /** ⟨|E² − 1|⟩ over the merged, allowed reflections (E² normalized in resolution shells). */
+  /** ⟨|E² − 1|⟩ over the merged, allowed reflections (E² = I/(ε·⟨I/ε⟩) in resolution shells). */
   readonly meanAbsE2Minus1: number;
   /** Fraction of acentric-like weak reflections: E² < 0.1 (≈ 0.095 acentric, ≈ 0.248 centric, fewer when twinned). */
   readonly fractionWeak: number;
   readonly reflections: number;
-  /** What the value suggests, in words: centrosymmetric, non-centrosymmetric, or below both (twinning?). */
+  /** What the value suggests, in words: centrosymmetric, non-centrosymmetric, or below both (twinning?); or why it is no test here. */
   readonly reading: string;
+  /** False when the structure is too small or too special for Wilson statistics: the value then tests nothing. */
+  readonly applies: boolean;
+}
+
+/** The model the statistics are read against: its independent sites, and how many sit on special positions. */
+export interface StatisticsModel {
+  readonly sites: number;
+  readonly special: number;
 }
 
 export interface ReflectionStatistics {
@@ -76,7 +86,27 @@ function pointGroupRotations(sg: SpaceGroup): SpaceGroup["operations"][number]["
   return [...seen.values()];
 }
 
-export function reflectionStatistics(rows: readonly StatisticsRow[], cell: UnitCell, sg: SpaceGroup): ReflectionStatistics {
+/**
+ * Wilson's distributions hold for many atoms of comparable scattering power in
+ * general positions; a structure of a few independent sites, most of them on
+ * special positions (corundum: two, both special), has intensity classes of its
+ * own, and its ⟨|E² − 1|⟩ says nothing about a centre of symmetry.
+ */
+const WILSON_MIN_SITES = 6;
+
+/** ε: how many point-group operations map h onto itself (h·R = h). */
+function epsilon(rotations: readonly SpaceGroup["operations"][number]["rotation"][], h: number, k: number, l: number): number {
+  let n = 0;
+  for (const R of rotations) {
+    const hp = Math.round(R[0]![0]! * h + R[1]![0]! * k + R[2]![0]! * l);
+    const kp = Math.round(R[0]![1]! * h + R[1]![1]! * k + R[2]![1]! * l);
+    const lp = Math.round(R[0]![2]! * h + R[1]![2]! * k + R[2]![2]! * l);
+    if (hp === h && kp === k && lp === l) n++;
+  }
+  return Math.max(1, n);
+}
+
+export function reflectionStatistics(rows: readonly StatisticsRow[], cell: UnitCell, sg: SpaceGroup, model?: StatisticsModel): ReflectionStatistics {
   const rotations = pointGroupRotations(sg);
   const centrosymmetric = rotations.some(isInversion);
 
@@ -94,47 +124,56 @@ export function reflectionStatistics(rows: readonly StatisticsRow[], cell: UnitC
 
   // Merged in the Laue class: absences and intensity statistics read unique reflections.
   const merged = mergeEquivalents(rows.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.intensity, sigma: r.sigma })), sg.operations).reflections;
-  const violated: AbsenceViolation[] = [];
   let measured = 0;
-  const allowed: { d: number; i: number }[] = [];
+  const allowed: { d: number; i: number; eps: number }[] = [];
+  const forbidden: { m: (typeof merged)[number]; d: number }[] = [];
   for (const m of merged) {
     if (m.h === 0 && m.k === 0 && m.l === 0) continue;
     const d = dSpacing(cell, m.h, m.k, m.l);
     if (isReflectionAbsent(sg.operations, m.h, m.k, m.l)) {
       measured++;
-      if (m.sigma > 0 && m.intensity / m.sigma >= 3) violated.push({ h: m.h, k: m.k, l: m.l, d, iOverSigma: m.intensity / m.sigma });
+      if (m.sigma > 0 && m.intensity / m.sigma >= 3) forbidden.push({ m, d });
     } else if (Number.isFinite(d) && d > 0) {
-      allowed.push({ d, i: m.intensity });
+      allowed.push({ d, i: m.intensity, eps: epsilon(rotations, m.h, m.k, m.l) });
     }
   }
-  violated.sort((a, b) => b.iOverSigma - a.iOverSigma);
 
-  // E² = I / ⟨I⟩ within resolution shells of equal count (the multiplicity ε of
-  // special reflections is left at 1: a small bias for a few zones).
+  // E² = I / (ε·⟨I/ε⟩) within resolution shells of equal count.
   allowed.sort((a, b) => b.d - a.d);
   const shellSize = Math.max(50, Math.round(allowed.length / 12));
+  const shellMeans: { dLow: number; mean: number }[] = [];
   let sumAbs = 0;
   let weak = 0;
   let n = 0;
   for (let s = 0; s < allowed.length; s += shellSize) {
     const shell = allowed.slice(s, Math.min(allowed.length, s + shellSize));
-    const mean = shell.reduce((acc, r) => acc + r.i, 0) / shell.length;
+    const mean = shell.reduce((acc, r) => acc + r.i / r.eps, 0) / shell.length;
+    shellMeans.push({ dLow: shell[shell.length - 1]!.d, mean: shell.reduce((acc, r) => acc + r.i, 0) / shell.length });
     if (!(mean > 0)) continue;
     for (const r of shell) {
-      const e2 = r.i / mean;
+      const e2 = r.i / (r.eps * mean);
       sumAbs += Math.abs(e2 - 1);
       if (e2 < 0.1) weak++;
       n++;
     }
   }
+  // A forbidden reflection's intensity against the allowed ones at its d.
+  const allowedMeanAt = (d: number): number | undefined => (shellMeans.find((sh) => d >= sh.dLow) ?? shellMeans.at(-1))?.mean;
+  const violated: AbsenceViolation[] = forbidden.map(({ m, d }) => {
+    const ref = allowedMeanAt(d);
+    return { h: m.h, k: m.k, l: m.l, d, iOverSigma: m.intensity / m.sigma, ...(ref && ref > 0 ? { ofAllowed: m.intensity / ref } : {}) };
+  }).sort((a, b) => b.iOverSigma - a.iOverSigma);
+
   const meanAbs = n > 0 ? sumAbs / n : NaN;
+  const applies = !model || (model.sites >= WILSON_MIN_SITES && model.special <= model.sites / 2);
   const reading = !Number.isFinite(meanAbs) ? "too few reflections to read"
-    : meanAbs >= (CENTRIC + ACENTRIC) / 2 ? `close to ${CENTRIC} (centrosymmetric)`
-      : meanAbs >= ACENTRIC - 0.08 ? `close to ${ACENTRIC} (non-centrosymmetric)`
-        : `below ${ACENTRIC}: fewer weak reflections than either expects — look for twinning (or pseudo-symmetry)`;
+    : !applies ? `no test here: ${model!.sites} independent site${model!.sites === 1 ? "" : "s"}, ${model!.special} on special positions — Wilson's distributions assume many atoms in general positions`
+      : meanAbs >= (CENTRIC + ACENTRIC) / 2 ? `close to ${CENTRIC} (centrosymmetric)`
+        : meanAbs >= ACENTRIC - 0.08 ? `close to ${ACENTRIC} (non-centrosymmetric)`
+          : `below ${ACENTRIC}: fewer weak reflections than either expects — look for twinning (or pseudo-symmetry)`;
   return {
     friedel,
     absences: { measured, violated: violated.slice(0, 20) },
-    intensities: { meanAbsE2Minus1: meanAbs, fractionWeak: n > 0 ? weak / n : NaN, reflections: n, reading },
+    intensities: { meanAbsE2Minus1: meanAbs, fractionWeak: n > 0 ? weak / n : NaN, reflections: n, reading, applies },
   };
 }

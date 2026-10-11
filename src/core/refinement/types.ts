@@ -42,6 +42,9 @@ export type ParameterKind =
   | "surfaceRoughA"
   | "surfaceRoughB"
   | "extinction"
+  // A single-crystal batch's scale relative to the first batch's (SHELX's batch
+  // scale factors): one row per later batch, targetKey the batch number.
+  | "batchScale"
   | "stephensStrain"
   | "anisoSizePerp"
   | "anisoSizePar"

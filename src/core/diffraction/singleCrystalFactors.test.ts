@@ -17,6 +17,20 @@ describe("extinction", () => {
     // A stronger reflection is damped more.
     expect(extinctionFactor(0.5, 5000, xray, 3)).toBeLessThan(y);
   });
+
+  it("takes a time-of-flight reflection at its own wavelength and angle", () => {
+    const tof: Radiation = { kind: "neutron-tof" };
+    // With neither, there is no λ to correct with.
+    expect(extinctionFactor(0.5, 1000, tof, 2)).toBe(1);
+    // At λ = 1 Å, 2θ follows from d = 2 Å: the CW correction at the same λ.
+    const cw = extinctionFactor(0.5, 1000, { kind: "neutron", wavelength: 1 }, 2);
+    expect(extinctionFactor(0.5, 1000, tof, 2, { wavelength: 1 })).toBeCloseTo(cw, 12);
+    // A longer wavelength reflects more strongly per mosaic block: more extinction (λ³/sin2θ).
+    const twoTheta = (2 * Math.asin(1 / 4) * 180) / Math.PI;
+    expect(extinctionFactor(0.5, 1000, tof, 2, { wavelength: 2, twoTheta: 2 * (Math.asin(2 / 4) * 180) / Math.PI })).toBeLessThan(extinctionFactor(0.5, 1000, tof, 2, { wavelength: 1, twoTheta }));
+    // 2θ alone gives λ = 2d·sinθ.
+    expect(extinctionFactor(0.5, 1000, tof, 2, { twoTheta })).toBeCloseTo(cw, 12);
+  });
 });
 
 describe("SHELX F² weights and agreement", () => {

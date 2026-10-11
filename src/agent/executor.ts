@@ -363,7 +363,7 @@ export class AgentExecutor implements ToolRunner {
       `${r.measured} reflections, ${r.unique} unique, R_int ${r.rInt} %`,
       `d_min ${out.resolution.dMin} Å${out.resolution.completeness !== undefined ? `, completeness ${out.resolution.completeness} %` : ""}`,
       ...(typeof e === "object" ? [`⟨|E²−1|⟩ ${e.meanAbsE2Minus1}: ${e.reading}`] : []),
-      ...(typeof out.absences === "object" ? [`${out.absences.atThreeSigma} of ${out.absences.measured} forbidden reflections at ≥ 3σ`] : []),
+      ...(typeof out.absences === "object" ? [`${out.absences.atThreeSigma} of ${out.absences.measured} forbidden reflections at ≥ 3σ${out.absences.strongest?.[0] ? `, the strongest ${out.absences.strongest[0]}` : ""}`] : []),
       ...(out.friedel.startsWith("centrosymmetric") ? [] : [out.friedel.split(":")[0]!]),
     ];
     this.host.updateRecord(keyOfState(port.technique, port.state()), (rec) => ({ ...rec, dataCheck: { at: Date.now(), summary: parts.join("; ") } }));
@@ -551,7 +551,7 @@ interface DataAnswer {
   readonly reflections: { readonly measured: number; readonly unique: number; readonly rInt: number };
   readonly resolution: { readonly dMin: number; readonly completeness?: number };
   readonly friedel: string;
-  readonly absences: { readonly measured: number; readonly atThreeSigma: number } | string;
+  readonly absences: { readonly measured: number; readonly atThreeSigma: number; readonly strongest?: readonly string[] } | string;
   readonly intensityStatistics: { readonly meanAbsE2Minus1: number; readonly reading: string } | string;
 }
 
@@ -619,7 +619,7 @@ function changeOutcome(
 function developedCorrelations(r: RefinementResult, parameters: readonly RefinementParameter[], restraints: readonly LinearRestraint[]): Record<string, unknown> {
   const check = readCorrelations(r, parameters, restraints);
   const carried = check.carried.length > 0
-    ? { carriedCorrelations: check.carried.map(carriedText), carriedNote: "Correlated through the other free parameters: with them held fixed each pair separates, so they refine together (as the scale, the extinction and the ADPs do in every single-crystal program). Read their esds before quoting them." }
+    ? { carriedCorrelations: check.carried.map(carriedText), carriedNote: "Correlated, and refined together: through the other free parameters (with them held fixed each pair separates), or as the overall intensity terms (scale, extinction, batch scales), as every single-crystal program refines them. Read their esds before quoting them." }
     : {};
   if (check.correlated.length === 0 && check.undetermined.length === 0) return carried;
   return {

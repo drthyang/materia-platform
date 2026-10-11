@@ -8,6 +8,7 @@ import {
   uIsoFromBIso,
   withAdpModel,
   isPositiveDefiniteU,
+  uEquivalent,
 } from "@/core/crystal/adp";
 import { buildSpaceGroup } from "@/core/crystal/spaceGroups";
 import { buildStructureRefinement } from "@/core/workflow/structureRefinement";
@@ -28,6 +29,26 @@ describe("B_iso ↔ U_iso conversion", () => {
       expect(bIsoFromUAniso(aniso.uAniso)).toBeCloseTo(b, 12);
     }
   });
+  it("seeds the sphere of the cell, U^ij = U·cos(a*_i, a*_j), and returns it as its U_eq", () => {
+    const u = uIsoFromBIso(0.5);
+    // Hexagonal (γ* = 60°): the sphere has U12 = U/2.
+    const hex = { a: 4.7613, b: 4.7613, c: 12.9846, alpha: 90, beta: 90, gamma: 120 };
+    const h = toAnisotropic({ kind: "isotropic", bIso: 0.5 }, hex);
+    if (h.kind !== "anisotropic") throw new Error("not anisotropic");
+    expect(h.uAniso.map((x) => x / u)).toEqual([1, 1, 1, expect.closeTo(0.5, 12), 0, 0]);
+    expect(uEquivalent(h.uAniso, hex)).toBeCloseTo(u, 14);
+    // Triclinic: every off-diagonal, and the round trip holds.
+    const tri = { a: 6, b: 7, c: 8, alpha: 88, beta: 95, gamma: 101 };
+    const t = toAnisotropic({ kind: "isotropic", bIso: 0.5 }, tri);
+    if (t.kind !== "anisotropic") throw new Error("not anisotropic");
+    expect(t.uAniso.slice(3).every((x) => Math.abs(x) > 1e-6)).toBe(true);
+    const back = toIsotropic(t, tri);
+    expect(back.kind === "isotropic" && back.bIso).toBeCloseTo(0.5, 12);
+    // U_eq is not the trace/3 off orthogonal axes.
+    const ellipsoid = [0.004, 0.006, 0.005, 0.001, 0.0005, -0.0004] as const;
+    expect(Math.abs(uEquivalent(ellipsoid, tri) - uEquivalent(ellipsoid))).toBeGreaterThan(1e-5);
+  });
+
   it("passes an already-anisotropic tensor through unchanged", () => {
     const adp = { kind: "anisotropic", uAniso: [0.01, 0.02, 0.015, 0.001, 0, -0.002] } as const;
     expect(toAnisotropic(adp)).toBe(adp);
