@@ -562,7 +562,7 @@ export const RIDING_GEOMETRY_TEXT: Readonly<Record<RidingRule["geometry"], strin
   methyl: "methyl hydrogens rotating, the torsion refined (AFIX 137)",
   hydroxyl: "hydroxyl hydrogens rotating, the torsion refined (AFIX 147)",
   methylene: "CH₂ hydrogens, H–C–H from X–C–Y (AFIX 23)",
-  methine: "tertiary C–H opposite three neighbours (AFIX 13)",
+  methine: "tertiary X–H opposite three neighbours (AFIX 13)",
   fixed: "at their present offset (AFIX 3)",
   free: "with their positions refined, only U_iso riding",
 };
@@ -592,13 +592,20 @@ function uText(these: readonly RidingRule[]): string {
 export function ridingSummary(model: StructureModel): string {
   const rules = model.riding ?? [];
   const ds = ridingDistances(model);
+  const element = new Map(model.sites.map((site) => [site.label, site.element]));
+  const parentOf = new Map(rules.map((r) => [r.site, r.parent]));
   return (Object.keys(RIDING_GEOMETRY_TEXT) as RidingRule["geometry"][]).flatMap((g) => {
     const these = rules.filter((r) => r.geometry === g);
     if (these.length === 0) return [];
-    const d = ds.filter((x) => x.geometry === g).map((x) => x.distance);
+    const placed = ds.filter((x) => x.geometry === g);
     const n = new Set(these.map((r) => r.parent)).size;
     const groups = g === "methyl" || g === "methylene" ? ` in ${n} group${n === 1 ? "" : "s"}` : "";
     const what = g === "free" ? `with ${these.length === 1 ? "its position" : "their positions"} refined${these.every((r) => r.uShared !== undefined) ? "" : ", only U_iso riding"}` : RIDING_GEOMETRY_TEXT[g];
-    return [`${these.length} ${what}${groups}${d.length ? `, X–H ${distanceRange(d)}` : ""}, ${uText(these)}`];
+    // Each kind of parent at its own distance (SHELXL's C–H and N–H differ): one range per parent element.
+    const kinds = [...new Set(placed.map((x) => element.get(parentOf.get(x.site) ?? "") ?? "X"))];
+    const lengths = placed.length === 0 ? ""
+      : kinds.length <= 1 ? `, X–H ${distanceRange(placed.map((x) => x.distance))}`
+        : `, ${kinds.map((k) => `${k}–H ${distanceRange(placed.filter((x) => (element.get(parentOf.get(x.site) ?? "") ?? "X") === k).map((x) => x.distance))}`).join(", ")}`;
+    return [`${these.length} ${what}${groups}${lengths}, ${uText(these)}`];
   }).join("; ");
 }

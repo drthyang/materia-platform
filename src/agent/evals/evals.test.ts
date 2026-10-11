@@ -409,6 +409,20 @@ const REPLAYS: Readonly<Record<string, Replay>> = {
     ],
     catches: ["inverts a model of the wrong hand and refines it again"],
   },
+  "sc-twin-from-data": {
+    good: [
+      { text: "The method, then the data.", calls: [SC, { name: "reflection_statistics" }] },
+      { text: "⟨|E²−1|⟩ is low and the H-test puts α near 0.45 on h, k, l → k, h, −l: a twin by merohedry. The law first, its fraction with the scale.", calls: [{ name: "set_twin", input: { law: [[0, 1, 0], [1, 0, 0], [0, 0, -1]] } }, { name: "set_free", input: { free: ["scale", "twin_1"] } }, { name: "refine" }] },
+      { text: "Then the positions.", calls: [{ name: "set_free", input: { free: ["pos_*"] } }, { name: "refine" }] },
+      { text: "The crystal is twinned by h, k, l → k, h, −l, about 45 % of the second domain, and the structure refined with the twin." },
+    ],
+    bad: [
+      { text: "The method, then the data.", calls: [SC, { name: "reflection_statistics" }] },
+      { text: "The scale, then the positions.", calls: [{ name: "set_free", input: { free: ["scale", "pos_*"] } }, { name: "refine" }] },
+      { text: "Refined: the structure as given." },
+    ],
+    catches: ["sets the merohedral twin the data read before refining the structure"],
+  },
   "sc-weights-final-model": {
     good: [
       { text: "The method, then the inversion twin with the positions.", calls: [SC, { name: "set_twin", input: { law: "inversion" } }, { name: "set_free", input: { free: ["pos_*"] } }, { name: "refine" }] },

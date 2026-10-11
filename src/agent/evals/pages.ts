@@ -11,7 +11,7 @@ import { generateReflections } from "@/core/diffraction/reflections";
 import { powderPeakIntensities } from "@/core/diffraction/intensity";
 import { knownPhaseStructure } from "@/core/diagnostics/knownPhases";
 import { pdfPort, sessionPort, singleCrystalPort } from "@/testSupport/agentHeadless";
-import { chiralPage, corundumPage, disorderPage, hydridePage, pyridylPage, type CorundumOptions } from "@/testSupport/scPages";
+import { chiralPage, corundumPage, disorderPage, hydridePage, pyridylPage, twinnedTrigonalPage, type CorundumOptions } from "@/testSupport/scPages";
 import { runPowderRefinement } from "@/workers/runPowder";
 import { magneticSubgroupLattice, latticeRepresentatives, latticeCandidateLabel } from "@/core/magnetic/subgroupLattice";
 import { buildMagneticModel } from "@/core/magnetic/momentModel";
@@ -269,6 +269,12 @@ export function scChiralPage(opts: { readonly equivalents?: number } = {}): Sing
 }
 
 /** The chiral Ga framework measured from a crystal of the other hand (Flack x = 1): the model as loaded is the wrong enantiomer, as round 4's 3a was. */
+/** A light-atom molecule in P3₂, its crystal twinned by h, k, l → k, h, −l at 0.45, each reflection once (round 5's 2b in small). */
+export function scTwinnedPage(): SingleCrystalAgentPort {
+  const t = twinnedTrigonalPage();
+  return singleCrystalPort(t.structure, t.dataset).port;
+}
+
 export function scInvertedHandPage(): SingleCrystalAgentPort {
   const c = chiralPage({ flack: 1 });
   return singleCrystalPort(c.structure, c.dataset).port;

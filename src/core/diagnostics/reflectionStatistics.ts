@@ -121,8 +121,8 @@ export function reflectionStatistics(rows: readonly StatisticsRow[], cell: UnitC
   const rotations = pointGroupRotations(sg);
   const centrosymmetric = rotations.some(isInversion);
 
-  // Friedel coverage: unique under the point group, and whether −h is there too.
-  const keys = new Set(rows.map((r) => canonicalKey(rotations, r.h, r.k, r.l)));
+  // Friedel coverage: unique under the point group, and whether −h is there too; the systematic absences are not data.
+  const keys = new Set(rows.filter((r) => !isReflectionAbsent(sg.operations, r.h, r.k, r.l)).map((r) => canonicalKey(rotations, r.h, r.k, r.l)));
   let withMate = 0;
   let centric = 0;
   if (!centrosymmetric) {
@@ -151,15 +151,16 @@ export function reflectionStatistics(rows: readonly StatisticsRow[], cell: UnitC
   let measured = 0;
   const allowed: { d: number; i: number; eps: number }[] = [];
   const forbidden: { m: (typeof merged)[number]; d: number }[] = [];
+  // The absences counted as SHELXL counts them: in an acentric group, a forbidden reflection and its Friedel mate apart.
+  const absent = rows.filter((r) => isReflectionAbsent(sg.operations, r.h, r.k, r.l) && !(r.h === 0 && r.k === 0 && r.l === 0));
+  for (const m of mergeEquivalents(absent.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.intensity, sigma: r.sigma })), sg.operations, { friedel: centrosymmetric }).reflections) {
+    measured++;
+    if (m.sigma > 0 && m.intensity / m.sigma >= 3) forbidden.push({ m, d: dSpacing(cell, m.h, m.k, m.l) });
+  }
   for (const m of merged) {
-    if (m.h === 0 && m.k === 0 && m.l === 0) continue;
+    if ((m.h === 0 && m.k === 0 && m.l === 0) || isReflectionAbsent(sg.operations, m.h, m.k, m.l)) continue;
     const d = dSpacing(cell, m.h, m.k, m.l);
-    if (isReflectionAbsent(sg.operations, m.h, m.k, m.l)) {
-      measured++;
-      if (m.sigma > 0 && m.intensity / m.sigma >= 3) forbidden.push({ m, d });
-    } else if (Number.isFinite(d) && d > 0) {
-      allowed.push({ d, i: m.intensity, eps: epsilon(rotations, m.h, m.k, m.l) });
-    }
+    if (Number.isFinite(d) && d > 0) allowed.push({ d, i: m.intensity, eps: epsilon(rotations, m.h, m.k, m.l) });
   }
 
   // E² = I / (ε·⟨I/ε⟩) within resolution shells of equal count.

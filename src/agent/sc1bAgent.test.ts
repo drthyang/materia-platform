@@ -82,7 +82,7 @@ describe.skipIf(!dataExists(CIF))("1b refined by the Agent's tools, as round 3 r
 
     // The report carries the weights' suggestion and the comparison with SHELXL's model, so the account can quote them.
     const checks = singleCrystalReportChecks(port.state());
-    expect(checks.find((c) => c.name === "Weights")?.detail).toMatch(/^WGHT 0\.0271 0\.258 .* in use; SHELXL's suggestion for the model as refined: WGHT [\d.]+ [\d.]+ \(GooF/);
+    expect(checks.find((c) => c.name === "Weights")?.detail).toMatch(/^WGHT 0\.0271 0\.258 .* in use; suggested for the model as refined, by SHELXL's criterion: WGHT [\d.]+ [\d.]+ \(GooF/);
     expect(checks.find((c) => c.name === "Against the model loaded")?.detail).toMatch(/^largest shift 0\.0\d+ Å at .*; refined\/loaded U_eq .*\. Refined esd \/ published su: positions median 0\.\d\d \(.*\); U\^ij median 0\.\d\d/);
     expect(checks.find((c) => c.name === "Data")?.detail).toMatch(/^13169 measurements merged as SHELXL's MERG 2 into 2482 reflections, the Friedel opposites apart \(R_int 2\.93 % with the Friedel mates apart, as SHELXL reports it \(3\.04 % in the Laue class\), R_σ 1\.99 %\)/);
 
@@ -90,7 +90,7 @@ describe.skipIf(!dataExists(CIF))("1b refined by the Agent's tools, as round 3 r
     const bonds = parse((await ex.run("bond_geometry", { atoms: ["Al1"] })).text) as { bonds: { to?: string; from?: string }[]; contacts: string; shortest: { distance: number } };
     expect(String(bonds.shortest.distance)).toMatch(/^\d\.\d{1,4}$/);
     expect(bonds.bonds.map((b) => (b.from === "Al1" ? b.to : b.from)).sort()).toEqual(["H1'", "H2'", "N1", "N2", "N3"]);
-    expect(bonds.contacts).toMatch(/^\d+ longer contacts up to the cutoff, not bonds by the covalent radii/);
+    expect(bonds.contacts).toMatch(/^\d+ longer contacts up to the cutoff, neither bonds by the covalent radii \(their sum \+ 0\.4 Å\) nor two bonds apart/);
 
     // The report: no "omitted by hand" for the merge, SHELXL's R_int, λ as given, no stage left open.
     const report = port.reportInput!();

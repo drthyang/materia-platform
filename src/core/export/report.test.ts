@@ -175,7 +175,7 @@ describe("refinement report (HTML)", () => {
 
   it("groups a single crystal's parameters by what they are: no background or peak shape", () => {
     const p = (id: string, kind: RefinementParameter["kind"], label: string): RefinementParameter => ({ id, label, kind, value: 0.1, initialValue: 0.1, fixed: false, esd: 0.01 });
-    const parameters = [p("scale", "scale", "scale (OSF)"), p("twin_1", "twinFraction", "inversion twin fraction (Flack x)"), p("extinction", "extinction", "extinction (SHELXL x)"), p("pos_A_0", "positionShift", "A x"), p("rot_C1", "ridingTorsion", "C1 methyl torsion (AFIX 137)")];
+    const parameters = [p("scale", "scale", "scale k = OSF²"), p("twin_1", "twinFraction", "inversion twin fraction (Flack x)"), p("extinction", "extinction", "extinction (SHELXL x)"), p("pos_A_0", "positionShift", "A x"), p("rot_C1", "ridingTorsion", "C1 methyl torsion (AFIX 137)")];
     const html = reportHtml({ ...powderInput(), technique: "singleCrystal", parameters });
     for (const title of ["Scale", "Twin fractions", "Extinction", "Atoms", "Riding groups"]) expect(html).toContain(`<h4>${title} <span class="muted">`);
     expect(html).not.toContain("Peak shape");

@@ -159,7 +159,7 @@ export function buildSingleCrystalSpec(
   const bindings: ParameterBinding[] = [];
 
   // Overall scale (on F²) — free on load.
-  params.push({ id: "scale", label: "scale (OSF)", kind: "scale", value: scale, initialValue: scale, min: 0, fixed: false });
+  params.push({ id: "scale", label: "scale k = OSF²", kind: "scale", value: scale, initialValue: scale, min: 0, fixed: false });
   bindings.push({ parameterId: "scale", kind: "scale", targetId: dataset.id });
 
   // Secondary extinction (SHELXL EXTI) — free on load when present; held at 0 against a

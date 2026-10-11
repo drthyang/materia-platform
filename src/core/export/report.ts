@@ -16,12 +16,12 @@
  * the same parameter → field mapping the CIF export uses (`buildEsdMap`).
  */
 
-import type { StructureModel, UnitCell } from "@/core/crystal/types";
+import type { StructureModel } from "@/core/crystal/types";
 import type { MagneticModel } from "@/core/magnetic/types";
 import type { ParameterKind, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { ParameterBinding } from "@/core/refinement/types";
 import type { Vec3 } from "@/core/math/types";
-import { buildEsdMap, cellVolume, formatWithEsd } from "@/core/export/cif";
+import { buildEsdMap, cellEsdsOf, cellVolume, formatWithEsd } from "@/core/export/cif";
 import { spaceGroupSymbol } from "@/core/crystal/spaceGroups";
 import { crystalComponentsToCartesian } from "@/core/magnetic/moment";
 import { kLabel } from "@/core/magnetic/kSearch";
@@ -71,6 +71,10 @@ export interface ReportPhase {
   readonly role?: string;
   /** A molecular structure's covalent bonds, each length with its esd (in place of the cation shells). */
   readonly bonds?: readonly ReportBond[];
+  /** A molecule's planar rings and the contacts to their centroids (a Cp's metal, an X–H···π), in lines. */
+  readonly rings?: { readonly rings: readonly string[]; readonly contacts: readonly string[] };
+  /** A molecule's hydrogen bonds D–H···A, in lines. */
+  readonly hydrogenBonds?: readonly string[];
 }
 
 /** One covalent bond of the report's table: its sites and its length as printed, with the esd or "riding". */
@@ -375,16 +379,18 @@ function kvHtml(rows: readonly ReportRow[]): string {
   return `<dl class="kv">${rows.map((r) => `<dt>${esc(r.label)}</dt><dd>${esc(r.value)}</dd>`).join("")}</dl>`;
 }
 
-function cellTable(cell: UnitCell, esd: ReturnType<typeof buildEsdMap>): string {
+function cellTable(structure: StructureModel, esd: ReturnType<typeof buildEsdMap>): string {
+  const cell = structure.cell;
+  const e = cellEsdsOf(structure, esd);
   const row = (k: string, v: string): string => `<tr><td>${k}</td><td class="num">${v}</td></tr>`;
   return `<table>
-${row("a", `${formatWithEsd(cell.a, esd.cell.a, 5)} Å`)}
-${row("b", `${formatWithEsd(cell.b, esd.cell.b, 5)} Å`)}
-${row("c", `${formatWithEsd(cell.c, esd.cell.c, 5)} Å`)}
-${row("α", `${formatWithEsd(cell.alpha, esd.cell.alpha, 4)}°`)}
-${row("β", `${formatWithEsd(cell.beta, esd.cell.beta, 4)}°`)}
-${row("γ", `${formatWithEsd(cell.gamma, esd.cell.gamma, 4)}°`)}
-${row("V", `${fixed(cellVolume(cell), 3)} Å³`)}
+${row("a", `${formatWithEsd(cell.a, e.cell.a, 5)} Å`)}
+${row("b", `${formatWithEsd(cell.b, e.cell.b, 5)} Å`)}
+${row("c", `${formatWithEsd(cell.c, e.cell.c, 5)} Å`)}
+${row("α", `${formatWithEsd(cell.alpha, e.cell.alpha, 4)}°`)}
+${row("β", `${formatWithEsd(cell.beta, e.cell.beta, 4)}°`)}
+${row("γ", `${formatWithEsd(cell.gamma, e.cell.gamma, 4)}°`)}
+${row("V", `${e.volume !== undefined ? formatWithEsd(cellVolume(cell), e.volume, 3) : fixed(cellVolume(cell), 3)} Å³`)}
 </table>`;
 }
 
@@ -459,7 +465,21 @@ ${rows.join("\n")}
 export const BONDS_NOTE = "Each cation's shell at the refined positions, out to 3.2 Å (or 1.25 × its shortest bond for a large cation); no esds, as the covariance is not carried to the lengths.";
 
 /** What the covalent bond table says about its lengths. */
-export const COVALENT_BONDS_NOTE = "The covalent bonds at the refined positions (atoms closer than their covalent radii and 0.4 Å), each once; the esds from the refined positions' (the cell fixed). A riding hydrogen's bond is set by its constraint. [k_abc] marks an image of the atom listed: operation k of the symmetry list, moved by the lattice translation (a − 5, b − 5, c − 5), as a CIF's site-symmetry code.";
+export const COVALENT_BONDS_NOTE = "The covalent bonds at the refined positions (atoms closer than their covalent radii and 0.4 Å), each once; the esds from the refined positions' and, for a cell held fixed, from the structure file's cell esds (each independent cell parameter moved by its esd, as SHELXL adds them). A riding hydrogen's bond is set by its constraint. [k_abc] marks an image of the atom listed: operation k of the symmetry list, moved by the lattice translation (a − 5, b − 5, c − 5), as a CIF's site-symmetry code.";
+
+/** What the ring-centroid lines say. */
+export const RING_NOTE = "Cg: the centroid of a planar ring (each atom within 0.1 Å of its least-squares plane). A metal within 3.6 Å of one, an N–H or O–H whose hydrogen points at one within 3.0 Å (X–H···Cg above 120°), and the angle at a metal between its two nearest centroids; [k_abc] marks the centroid's image by its CIF site-symmetry code. No esds.";
+
+/** What the hydrogen-bond lines say. */
+export const HBOND_NOTE = "D–H···A with H···A shorter than the two atoms' van der Waals radii and D–H···A above 110°, as SHELXL's HTAB finds them, D an N, O, F or S; a riding hydrogen's D–H is set by its constraint; [k_abc] marks the acceptor's image. No esds.";
+
+/** The ring centroids and hydrogen bonds under a molecule's bond table. */
+function moleculeExtrasHtml(phase: ReportPhase): string {
+  const parts: string[] = [];
+  if (phase.rings && phase.rings.contacts.length > 0) parts.push(`<div class="card"><h4>Ring centroids</h4><p>${esc(phase.rings.rings.join("; "))}</p><p>${esc(phase.rings.contacts.join(" · "))}</p><p class="note">${esc(RING_NOTE)}</p></div>`);
+  if (phase.hydrogenBonds && phase.hydrogenBonds.length > 0) parts.push(`<div class="card"><h4>Hydrogen bonds</h4><p>${esc(phase.hydrogenBonds.join(" · "))}</p><p class="note">${esc(HBOND_NOTE)}</p></div>`);
+  return parts.join("\n");
+}
 
 /** A molecular structure's bonds, one row per site: "S1A: S2A 2.0222(5) · C6A 1.7868(13)". */
 export function covalentBondRows(bonds: readonly ReportBond[]): { site: string; bonds: string }[] {
@@ -519,9 +539,9 @@ function phaseHtml(phase: ReportPhase, index: number, total: number, technique: 
   return `<h3>${esc(st.name || st.id)} <span class="pill">${esc(sgText)}</span>${role ? `<span class="pill">${esc(role)}</span>` : ""}</h3>
 <div class="two">
   <div class="card">${sitesTable(phase, technique, esd)}</div>
-  <div class="card">${cellTable(st.cell, esd)}<p class="note">${st.sites.length} site${st.sites.length === 1 ? "" : "s"} in the asymmetric unit · ${sg.operations.length} symmetry operation${sg.operations.length === 1 ? "" : "s"}</p></div>
+  <div class="card">${cellTable(st, esd)}<p class="note">${st.sites.length} site${st.sites.length === 1 ? "" : "s"} in the asymmetric unit · ${sg.operations.length} symmetry operation${sg.operations.length === 1 ? "" : "s"}</p></div>
 </div>
-${phase.bonds ? covalentBondsHtml(phase.bonds) : bondsHtml(st)}`;
+${phase.bonds ? covalentBondsHtml(phase.bonds) : bondsHtml(st)}${moleculeExtrasHtml(phase)}`;
 }
 
 function figureHtml(fig: ReportFigure): string {

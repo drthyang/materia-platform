@@ -51,6 +51,15 @@ numbers, before the first refinement:
    well below both suggests twinning. These are evidence to note (`write_note`) and
    to weigh against the published structure, not a reason to change the group before
    the model is refined.
+   **Twinning by merohedry.** When the lattice holds more symmetry than the Laue class
+   (a trigonal, tetragonal, hexagonal or cubic crystal of lower Laue symmetry),
+   `reflection_statistics` lists each merohedral law with the fraction Yeates' H-test
+   reads for it from the intensities alone (`twinLaws`). A law whose α stands well above
+   the others' (a near-perfect twin reads ≈ 0.5, its sibling laws ≈ 0.12) twins the
+   crystal: set it (`set_twin`) before the first refinement, as SHELXL's TWIN, and refine
+   its fraction with the scale. A model refined without it cannot fit: R1 stays high and
+   the GooF several times 1, however long it runs. A structure file whose TWIN was taken
+   out, or never there, is no evidence against the data.
 4. **Friedel pairs** (non-centrosymmetric groups). The absolute structure needs the
    Friedel mates measured separately and an anomalous signal (X-ray at a tabulated line,
    a heavy enough atom). Merged pairs, or neutron data, cannot determine it: say so.
@@ -137,7 +146,7 @@ undefined. `set_riding_hydrogens` (SHELXL's AFIX) places each in its group's geo
 X–H on the external bisector of its parent's two neighbours (AFIX 43); a methyl's three (or an
 NH₃'s) tetrahedral about the X–C axis and rotating, the group's torsion a parameter (`rot_C1`,
 AFIX 137) to free with the positions; a hydroxyl's likewise (AFIX 147); a CH₂ pair (AFIX 23); a
-tertiary C–H (AFIX 13); a metal's hydrogen, or any other, at its present offset (AFIX 3). U_iso
+tertiary C–H or N–H (AFIX 13); a metal's hydrogen, or any other, at its present offset (AFIX 3). U_iso
 is 1.2·U_eq of the parent (1.5 for methyl and hydroxyl). Give `temperature` (the measurement's,
 in K) and each group sits at SHELXL's X–H for it (C–H 0.93–0.98 Å at room temperature, +0.02 Å
 below 203 K); the result lists each X–H as placed. A hydrogen the data place on their own — a
@@ -191,8 +200,11 @@ SHELXL weights a finished refinement with WGHT a b: w = 1/[σ²(Fo²) + (aP)² +
 2Fc²)/3, for the errors the σ do not carry (absorption, scaling, what no model describes). Its a
 and b are on SHELXL's absolute scale (Fo² divided by the scale); the page applies them at the
 data's own scale, so a published WGHT is set as printed.
-`assess_refinement` gives the scheme SHELXL would suggest for the model as it stands: the a and
-b that make the GooF flat across the intensity bins and 1 overall. Set it with
+`assess_refinement` gives the scheme SHELXL's criterion suggests for the model as it stands: the
+a and b that bring each of ten intensity bins' GooF nearest 1. The overall GooF is left where
+that puts it, a little above 1 (near √(N/(N−P))), as SHELXL leaves it; SHELXL's own printed
+suggestion comes from a coarser search in the same shallow valley, so a few thousandths in a
+and up to about 0.2 in b apart from this one is the same scheme. Set it with
 `set_weighting` (use "suggested") only once the model is complete — ADPs, extinction,
 hydrogens, outliers, the twin and the hand — since weights fitted to an unfinished model hide
 its errors; then refine once more and quote R1, wR2 and GooF with the scheme. wR2 and GooF depend
@@ -225,8 +237,8 @@ and they stay.
   refused or developed.
 - R1, wR2 and GooF with the weights stated: with w = 1/σ², a GooF above 1 means the σ are
   underestimated or the model misses something (say which the analysis of variance points at:
-  K drifting with intensity or resolution); with SHELXL's suggested scheme, set last, the GooF
-  is near 1 by construction and the analysis of variance is what still tells.
+  K drifting with intensity or resolution); with the suggested scheme, set last, the GooF
+  is a little above 1 by construction and the analysis of variance is what still tells.
 - The ADPs positive definite and physically ordered; the bond lengths (`bond_geometry`)
   and the coordination as the chemistry expects, and against the published structure
   when there is one.

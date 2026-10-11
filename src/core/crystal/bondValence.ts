@@ -61,6 +61,9 @@ export interface BondValenceSum {
   readonly deviation: number;
 }
 
+/** The non-metals and the metalloids that bond covalently in a molecule: no bond-valence sum for them there. */
+const NON_METALS: ReadonlySet<string> = new Set(["H", "D", "B", "C", "N", "O", "F", "Si", "P", "S", "Cl", "Ge", "As", "Se", "Br", "Sb", "Te", "I", "He", "Ne", "Ar", "Kr", "Xe"]);
+
 /** Every symmetry-generated position of each site in the cell. */
 function cellAtoms(model: StructureModel): { label: string; element: string; occupancy: number; frac: Vec3 }[] {
   const atoms: { label: string; element: string; occupancy: number; frac: Vec3 }[] = [];
@@ -85,9 +88,12 @@ function cellAtoms(model: StructureModel): { label: string; element: string; occ
 export function bondValenceSums(model: StructureModel, cutoff = 3.5): BondValenceSum[] {
   const atoms = cellAtoms(model).filter((a) => a.element in ANIONS);
   if (atoms.length === 0) return [];
+  // In a molecular structure (one with carbon) the non-metals' bonds are covalent: only its metals' sums describe cation–anion bonds.
+  const molecular = model.sites.some((s) => s.element === "C");
   const out: BondValenceSum[] = [];
   for (const site of model.sites) {
     if (site.element in ANIONS) continue;
+    if (molecular && NON_METALS.has(site.element)) continue;
     const tables = new Set(atoms.map((a) => a.element));
     if (![...tables].some((an) => ANIONS[an]![site.element])) continue;
     const origin = fractionalToCartesian(model.cell, wrapFractional(site.position));

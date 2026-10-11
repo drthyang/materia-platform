@@ -12,7 +12,7 @@ import type { StructureModel } from "@/core/crystal/types";
 import { bondValenceReading, bondValenceSums } from "@/core/crystal/bondValence";
 import { withEsd } from "@/agent/structureTable";
 import { bondEsds, bondKeys } from "@/core/workflow/bondEsds";
-import { covalentlyBonded, inverseImage } from "@/core/crystal/geometry";
+import { covalentlyBonded, hydrogenBondLines, inverseImage, ringGeometryLines } from "@/core/crystal/geometry";
 
 export { bondEsds };
 
@@ -127,7 +127,18 @@ export function bondsOf(refinedPhases: readonly StructureModel[], input: Input, 
   const elementOf = new Map(phase.sites.map((site) => [site.label, site.element]));
   const bonded = (b: { from?: string; to?: string; distance: number }): boolean => covalentlyBonded(elementOf.get(b.from ?? "") ?? "", elementOf.get(b.to ?? "") ?? "", b.distance);
   const listed = molecular ? all.filter(({ b }) => bonded(b)) : all;
-  const contacts = molecular ? all.filter(({ b }) => !bonded(b)) : [];
+  // A contact is neither a bond nor two bonds apart (a hydrogen and its parent's neighbour): those the bonds and their angles give.
+  const neighbours = new Map<string, Set<string>>();
+  for (const b of bonds) {
+    if (!bonded(b)) continue;
+    const [x, y] = [b.from ?? "", b.to ?? ""];
+    if (!neighbours.has(x)) neighbours.set(x, new Set());
+    if (!neighbours.has(y)) neighbours.set(y, new Set());
+    neighbours.get(x)!.add(y);
+    neighbours.get(y)!.add(x);
+  }
+  const geminal = (b: { from?: string; to?: string }): boolean => [...(neighbours.get(b.from ?? "") ?? [])].some((c) => neighbours.get(b.to ?? "")?.has(c));
+  const contacts = molecular ? all.filter(({ b }) => !bonded(b) && !geminal(b)) : [];
   // A riding hydrogen's bond to its parent is set by the constraint: no esd.
   const pair = (a?: string, b?: string): string => [a ?? "", b ?? ""].sort().join("–");
   const riding = new Set((phase.riding ?? []).filter((r) => r.geometry !== "free").map((r) => pair(r.site, r.parent)));
@@ -137,6 +148,11 @@ export function bondsOf(refinedPhases: readonly StructureModel[], input: Input, 
     ? uniqueBonds(phase, { cutoff: 6 }, bondGeometry).bonds.filter((b) => asked.has(b.from ?? "") || asked.has(b.to ?? "")).sort((a, b) => a.distance - b.distance)[0]
     : undefined;
   const nearAsked = <B extends { from?: string; to?: string; distance: number; image?: string }>(b: B): B => (asked && !asked.has(b.from ?? "") ? reversed(phase, b) : b);
+  // A molecule's rings (a Cp's metal, an X–H···π) and hydrogen bonds, those of the atoms asked for when asked.
+  const names = (line: string): boolean => !asked || [...asked].some((a) => line.split(/[^A-Za-z0-9']+/).includes(a));
+  const ringLines = molecular ? ringGeometryLines(phase) : { rings: [], contacts: [] };
+  const centroids = ringLines.contacts.filter(names);
+  const hydrogenBonds = molecular ? hydrogenBondLines(phase).filter(names) : [];
   return {
     // The id is what `phase` takes; the name, when it says more ("loaded" is a single-crystal page's id).
     phase: phase.id,
@@ -144,7 +160,9 @@ export function bondsOf(refinedPhases: readonly StructureModel[], input: Input, 
     shortest: shortestOf(geo.shortest),
     ...(asked && all.length === 0 ? { none: `no neighbour of ${[...asked].join(", ")} within the cutoff (${cutoff} Å)${nearest ? `; the nearest is ${nearAsked(nearest).from}–${nearAsked(nearest).to} at ${nearest.distance.toFixed(3)} Å: give a longer \`cutoff\`` : " nor within 6 Å"}` } : {}),
     ...(listed.length > 40 ? { listed: `the 40 shortest of ${listed.length} bonds${asked ? ` to ${[...asked].join(", ")}` : ""} up to the cutoff: name the atoms (atoms) to see the others` } : {}),
-    ...(contacts.length ? { contacts: `${contacts.length} longer contact${contacts.length === 1 ? "" : "s"} up to the cutoff, not bonds by the covalent radii (their sum + 0.4 Å): ${contacts.slice(0, 8).map(({ b }) => `${b.from}···${b.to} ${b.distance.toFixed(3)} Å`).join(", ")}${contacts.length > 8 ? ", …" : ""}` } : {}),
+    ...(contacts.length ? { contacts: `${contacts.length} longer contact${contacts.length === 1 ? "" : "s"} up to the cutoff, neither bonds by the covalent radii (their sum + 0.4 Å) nor two bonds apart: ${contacts.slice(0, 8).map(({ b }) => `${b.from}···${b.to} ${b.distance.toFixed(3)} Å`).join(", ")}${contacts.length > 8 ? ", …" : ""}` } : {}),
+    ...(centroids.length ? { rings: ringLines.rings, centroids } : {}),
+    ...(hydrogenBonds.length ? { hydrogenBonds } : {}),
     bonds: listed.slice(0, 40).map(({ b: found, key }) => {
       // Read from the atom asked for: the far end's image code becomes the reverse bond's.
       const b = asked && asked.has(found.to ?? "") ? nearAsked(found) : found;

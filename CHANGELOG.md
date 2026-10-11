@@ -361,6 +361,44 @@ release fixes bugs.
   1.83 %, wR2 4.76 % against 5.66 % (a ratio of 1.19 for 161 parameters and
   1465 reflections), x = −0.08(6).
 
+- **The lattice's merohedral twin laws, tested before the model.**
+  `reflection_statistics` lists, where the cell's metric holds more symmetry
+  than the Laue class, each merohedral twin law (one per coset of the Laue
+  class, the simplest rotation of it, as `set_twin` takes it) with the twin
+  fraction Yeates' H-test reads for it from the intensities alone, ⟨H⟩ = ½ − α
+  over the acentric pairs (h, R·h) (`twinLaws`; the data record names the
+  strongest). On 2b it reads α 0.448 on h, k, l → k, h, −l against 0.165 and
+  0.145 for the other two laws, before any model (refined, 0.4965); on 3a its
+  one law at about a third (BASF 0.34068).
+
+- **Ring centroids and hydrogen bonds** in `bond_geometry` and the report
+  for a molecule: its planar five- and six-membered rings (each atom within
+  0.1 Å of the plane), a metal within 3.6 Å of a centroid, an N–H or O–H
+  pointing at one (X–H···Cg above 120°), the angle at a metal between its
+  two nearest centroids, and the hydrogen bonds D–H···A as SHELXL's HTAB
+  finds them (H···A within the van der Waals contact, D–H···A above 110°),
+  each image by its CIF code. On 3a, Cs1 sits 3.030 and 3.066 Å from the two
+  C₅Me₅ centroids; on 2b the ammonium's N1–H1D points at an aryl ring's
+  centroid at 2.44 Å and 175°, and there is no classical hydrogen bond.
+
+- **The cell's esds** from the structure file (SHELXL's ZERR, a CIF's su):
+  the single-crystal page holds the cell fixed, and now carries its esds
+  into the report's cell table and Unit cell row, the CIF and
+  `structure_table`, with the volume's esd, and adds the cell's part to the
+  bond esds as SHELXL does. Each independent cell parameter moves by its esd,
+  the lengths and angles the lattice holds equal moving together (a and b of
+  a hexagonal cell). 1b's V comes out 1402.4(3) Å³ and dipyridyl's
+  2000.8(3) Å³, as SHELXL's CIFs give them; 2b's 3889.43(7) Å³.
+
+- **2b, reproduced** (the GSAS-II merohedral-twin example in P3₂, an
+  aluminate with 567 parameters): its 8435 reflections are SHELXL's 8414
+  once the 21 absences are out, and with the twin SHELXL's model refines to
+  R1 4.32 % on 7595 reflections (SHELXL 4.33 % on 7597), 5.16 % on all
+  (5.17 %), BASF 0.4965 (0.4966), in 2.5 minutes.
+
+- **Eval scenario** `sc-twin-from-data`, from round 5 (2b): the merohedral
+  twin the data read is set before the structure refines.
+
 - **Eval scenarios** `sc-listing-extinction`, `sc-inverted-hand` and
   `sc-weights-final-model`, from round 4 (3a): the extinction held at 0
   against a refinement's listing, a model of the wrong hand inverted and
@@ -428,13 +466,27 @@ release fixes bugs.
   gave B_eq and B; a powder's or a PDF's report keeps B. A riding group's
   torsion carries its unit (°), and the Structure file row names the file.
 
+- **The suggested weights follow SHELXL's criterion.** The suggestion held
+  the overall GooF at exactly 1 and chose a by the bins, so its b came out
+  high in every round (2b: 0.0454 0.7069 for SHELXL's 0.0436 0.2952). It now
+  brings each of ten Fc² bins' GooF, over its own reflections, nearest 1,
+  and leaves the overall GooF where that puts it, a little above 1 — as
+  SHELXL's converged suggestions leave it: from SHELXL's own listings 3a's
+  WGHT 0.0374 0.6277 suggests itself again at GooF 1.058, and 1b's
+  0.0271 0.2580 gives 1.044, SHELXL's figure. On those listings it gives
+  0.0370 0.668 for 3a's 0.0374 0.6277 and 0.0259 0.313 for 1b's
+  0.0277 0.2519 (SHELXL searches a coarser grid in the same shallow valley);
+  on 2b's refined model 0.0437 0.452. It is labelled the weights SHELXL's
+  criterion suggests, not SHELXL's own, and its bins are given as the
+  analysis of variance gives them.
+
 ### Fixed
 
 - **A listing's R_int.** SHELXL's LIST 4 holds each reflection once, its
   Friedel mate apart in an acentric group; merged in the Laue class, 3a's 432
   Bijvoet pairs read as "R_int 3.37 %" on the page, in `get_state`,
   `reflection_statistics`, the report's figures and its Merging row — their
-  anomalous difference, not the measurements' agreement. In an acentric group
+  anomalous difference and their noise together, not equivalents' agreement. In an acentric group
   the page and the tools now give the Friedel-apart merge, as SHELXL does, and
   no R_int for data holding each reflection once.
 
@@ -505,6 +557,56 @@ release fixes bugs.
   and `get_state` counts the floating-origin restraint ("restraints: none"
   while the fit held one). Friedel mates that disagree in a monochromatic
   measurement no longer point to "another wavelength".
+
+- **Bond valence in a molecule.** The report's open issues listed 23 of 2b's
+  carbons as "more than 15 % from the valence" (C4+, assumed): a bond-valence
+  sum describes cation–anion bonds, and in a molecular structure only the
+  metals have them. The non-metals are left out there (Al1 3.16 for Al³⁺).
+
+- **The hand read from x near 1** said "the inverted hand: invert the model"
+  whatever its esd; it now reads the same bands as x near 0. On 2b, x =
+  1.00(13) in P3₁ decides the hand no more than 0.00(13) in P3₂ does.
+
+- **A file its data reduction merged.** 2b's HKLF 4 holds each reflection
+  once: `merge_equivalents` said "8435 measurements merged into 8414 … R_int
+  0 %", the report "8414 measurements merged". It now says the file held
+  each reflection once and the merge left out only the 21 absences, with no
+  R_int, and the History step names it so. The Bijvoet pairs' difference
+  (2.96 % on 2b) is no longer called "their anomalous signal" without
+  asking: the model's own Bijvoet differences say how much of it is (0.19 %
+  of 2b's 2.96 %, 1.45 % of 3a's 3.37 %).
+
+- **Counts as SHELXL counts them.** The forbidden reflections are counted
+  with their Friedel mates apart in an acentric group (21 on 2b, not 19), and
+  the acentric reflections' Friedel coverage leaves the absences out. An
+  outlier measured once is read against its Friedel mate, as a listing's is.
+
+- **The riding note** called an ammonium's N–H "tertiary C–H … X–H
+  0.930–1.000 Å"; a group with parents of two elements gives each its
+  distance ("C–H 1.000 Å, N–H 0.930 Å").
+
+- **`set_free` on a large structure** listed every free id (567 on 2b); past
+  40 it gives them by kind, as the History's rows do. `bond_geometry`'s
+  contacts leave out atoms two bonds apart (a hydrogen and its parent's
+  neighbour). The report's Extinction row says "none refined (held at 0)"
+  when it was, and the compared refinements give a large structure's U_eq
+  as its first six sites and the others' range.
+
+- **Round 5's last run.** An outlier whose Fo² lies below its σ (8 −1 17
+  on 2b, Fo² −0.12) read "this one 0.21", the ratio floored at σ; it now
+  reads "below 0.21 (Fo² under its σ)". The compared refinements said "the
+  ADPs as loaded" of refined ADPs: they name the loaded model ("anisotropic
+  ADPs as loaded"). The History's step for a file merged by its data
+  reduction read "Absences left out: 8414 reflections"; it reads "21
+  absences left out: 8414 reflections". The scale was labelled "scale
+  (OSF)" with the value of OSF² (0.0959 where the .ins's FVAR gives OSF
+  0.3096): it is "scale k = OSF²". A molecule with N–H or O–H and no
+  hydrogen bond now says so ("none: N1–H1D reaches no acceptor …") in
+  `bond_geometry` and the report, rather than leaving the section out. The
+  suggested scheme's bins are printed to three figures, as the analysis of
+  variance prints them ("1.1, 1.1, 1.1, 1.1" hid 1.05–1.12), and two sites
+  that happen to share a U_eq are no longer counted as one entry ("the
+  other 54 entries" for 55 sites) in the compared refinements.
 
 - **`bond_geometry` reads the bonds from the atom asked for**: Cs1's bonds
   came back as "C2–Cs1" with the image code of the far end; each is now

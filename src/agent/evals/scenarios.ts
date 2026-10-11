@@ -4,11 +4,12 @@
  * own data, with the checks that say whether it got it right this time.
  */
 
-import { BATCH_SCALES, BC_EXTINCTION, EDGE_STEP_AT, FAILED_PAIR, FAILED_REFLECTION, MAGNETIC_TRUTH, impurityD, scChiralPage, scDisorderPage, scHydridePage, scInvertedHandPage, scOrganicPage, scPage, mn3gaEdgeSession, mn3gaFluoriteSession, mn3gaImpuritySession, mn3gaMagneticSession, mn3gaMisfitSession, mn3gaSession, pdfPage, powderPage } from "@/agent/evals/pages";
+import { BATCH_SCALES, BC_EXTINCTION, EDGE_STEP_AT, FAILED_PAIR, FAILED_REFLECTION, MAGNETIC_TRUTH, impurityD, scChiralPage, scDisorderPage, scHydridePage, scInvertedHandPage, scOrganicPage, scPage, scTwinnedPage, mn3gaEdgeSession, mn3gaFluoriteSession, mn3gaImpuritySession, mn3gaMagneticSession, mn3gaMisfitSession, mn3gaSession, pdfPage, powderPage } from "@/agent/evals/pages";
 import {
   mergesFirst,
   refinesFlack,
   invertsWrongHand,
+  twinFromData,
   holdsListingExtinction,
   restrainsHydrides,
   tiesDisorder,
@@ -330,6 +331,15 @@ export const SCENARIOS: readonly EvalScenario[] = [
     messages: ["Refine the structure and decide its absolute structure."],
     autonomy: "auto",
     checks: [readsMethodFirst, invertsWrongHand, refines(1), noStall],
+  },
+  {
+    id: "sc-twin-from-data",
+    title: "Finds a merohedral twin in the data and sets it before refining the structure",
+    origin: "Round 5 (2b): SHELXL's model of an aluminate in P3₂ came with its TWIN taken out, and refined without it R1 stalled at 15 %. The intensities said twin before any model: ⟨|E²−1|⟩ 0.652, and Yeates' H-test put α ≈ 0.45 on h, k, l → k, h, −l against 0.17 and 0.15 for the lattice's other laws; refined, BASF 0.4965.",
+    page: () => scTwinnedPage(),
+    messages: ["These are a model and its data, each reflection once with its Friedel mate apart. Refine the structure."],
+    autonomy: "auto",
+    checks: [readsMethodFirst, readsDataFirst, twinFromData, noStall],
   },
   {
     id: "sc-weights-final-model",

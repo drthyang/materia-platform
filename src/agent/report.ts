@@ -138,10 +138,28 @@ function runsOf(entries: readonly string[]): string[] {
     const [label, value] = [entries[i]!.slice(0, entries[i]!.indexOf(" ")), entries[i]!.slice(entries[i]!.indexOf(" ") + 1)];
     let j = i + 1;
     while (j < entries.length && entries[j]!.slice(entries[j]!.indexOf(" ") + 1) === value) j++;
-    out.push(j - i > 2 ? `${label}…${entries[j - 1]!.slice(0, entries[j - 1]!.indexOf(" "))} ${value} (${j - i} sites)` : entries.slice(i, j).join(", "));
+    // Two sites that happen to agree stay two entries; a run of three or more is one (a shared U, a group).
+    if (j - i > 2) out.push(`${label}…${entries[j - 1]!.slice(0, entries[j - 1]!.indexOf(" "))} ${value} (${j - i} sites)`);
+    else out.push(...entries.slice(i, j));
     i = j;
   }
   return out;
+}
+
+/** The ADP model a refinement kept as loaded, named: the values refine, the model (anisotropic or isotropic per atom) is the file's. */
+function loadedAdpWords(params: readonly { kind: string; fixed?: boolean; expression?: unknown }[]): string {
+  const aniso = params.some((p) => p.kind === "uAniso");
+  // A riding hydrogen's U_iso follows its parent (held, or tied to it): only a refined U_iso makes the model mixed.
+  const iso = params.some((p) => p.kind === "bIso" && !p.fixed && !p.expression);
+  return `${aniso && iso ? "anisotropic and isotropic" : aniso ? "anisotropic" : "isotropic"} ADPs as loaded`;
+}
+
+/** A step's U_eq in a line: every site of a small structure; of a large one, the first six (the heavy atoms, as a structure file lists them) and the others' range. */
+function ueqText(entries: readonly string[]): string {
+  if (entries.length <= 12) return entries.join(", ");
+  // The value is each entry's second word ("C12 0.050(4)", "H11A…H15C 0.082(7) (15 sites)").
+  const values = entries.slice(6).map((e) => Number.parseFloat(e.split(" ")[1] ?? "")).filter(Number.isFinite);
+  return `${entries.slice(0, 6).join(", ")}; the other ${entries.length - 6} entries${values.length ? ` ${Math.min(...values).toFixed(3)}–${Math.max(...values).toFixed(3)}` : ""}`;
 }
 
 /** Each site's U_eq (Å²) with its esd, from a step's parameters: Σ c·basis over its tensor modes, or B/8π². */
@@ -204,7 +222,7 @@ export function comparedRefinements(history: ProjectHistory | null, cell: UnitCe
       ...(range.dMin !== undefined || range.dMax !== undefined ? [`d ${range.dMax !== undefined ? `≤ ${range.dMax}` : ""}${range.dMin !== undefined && range.dMax !== undefined ? " and " : ""}${range.dMin !== undefined ? `≥ ${range.dMin}` : ""} Å`] : []),
       ...(filter ? [`filter |Δ|/σ > ${filter.cutoffSigma}${filter.minExtinction !== undefined ? ` or y < ${filter.minExtinction}` : ""}`] : []),
       ...(omitted ? [`${omitted} omitted`] : []),
-      ws.adpModel === "anisotropic" ? "anisotropic" : ws.adpModel === "isotropic" ? "isotropic" : "the ADPs as loaded",
+      ws.adpModel === "anisotropic" ? "anisotropic" : ws.adpModel === "isotropic" ? "isotropic" : loadedAdpWords(params),
       weights,
     ].join(", ");
     const esd = ws.refinement?.lastResult?.esd ?? {};
@@ -212,7 +230,7 @@ export function comparedRefinements(history: ProjectHistory | null, cell: UnitCe
     const row = rowOf.get(st.id);
     const stored = ws.refinement?.bindings;
     const bindings = Array.isArray(stored) ? stored : stored && "blob" in stored && Array.isArray(history.blobs[stored.blob]) ? (history.blobs[stored.blob] as ParameterBinding[]) : [];
-    const text = `${row !== undefined ? `step ${row}` : st.label}: ${conditions} — wR2 ${st.summary.wR !== undefined ? (100 * st.summary.wR).toFixed(2) : "—"} %, GooF ${st.summary.gof !== undefined ? st.summary.gof.toFixed(2) : "—"}${extText}; U_eq ${runsOf(stepUeq(params, bindings, esd, cell)).join(", ")} Å²`;
+    const text = `${row !== undefined ? `step ${row}` : st.label}: ${conditions} — wR2 ${st.summary.wR !== undefined ? (100 * st.summary.wR).toFixed(2) : "—"} %, GooF ${st.summary.gof !== undefined ? st.summary.gof.toFixed(2) : "—"}${extText}; U_eq ${ueqText(runsOf(stepUeq(params, bindings, esd, cell)))} Å²`;
     last.delete(key);
     last.set(key, { text, weights });
   }

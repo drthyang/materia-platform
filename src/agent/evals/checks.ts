@@ -567,7 +567,9 @@ export const weightsLast: Check = {
     const weighting = (c: (typeof all)[number]): boolean => c.name === "set_weighting" && !c.isError && c.input.use !== "sigma";
     const last = all.reduce((at, c, i) => (weighting(c) ? i : at), -1);
     if (last < 0) return fail("never set a weighting scheme");
-    const lastChange = all.reduce((at, c, i) => (modelChange(c) ? i : at), -1);
+    // An even number of inversions after the weights comes back to the model they were set for: the other hand only tested.
+    const inversionsAfter = all.filter((c, i) => i > last && c.name === "invert_structure" && !c.isError).length;
+    const lastChange = all.reduce((at, c, i) => (modelChange(c) && !(c.name === "invert_structure" && i > last && inversionsAfter % 2 === 0) ? i : at), -1);
     if (lastChange > last) return fail(`set the weights before ${all[lastChange]!.name}`);
     const refined = all.some((c, i) => i > last && c.name === "refine" && json(c.text)?.refined === true);
     if (!refined) return fail("did not refine with the weights");
@@ -638,6 +640,29 @@ export const holdsListingExtinction: Check = {
     const ext = scState(run)?.parameters.find((p) => p.kind === "extinction");
     if (ext && ext.value !== 0) return fail(`ends with the extinction at ${ext.value}`);
     return all.some((c) => c.name === "refine" && json(c.text)?.refined === true) ? ok("refined with the extinction held at 0") : fail("never refined");
+  },
+};
+
+/**
+ * A merohedral twin the intensities show is set before the structure refines
+ * (round 5: 2b came with SHELXL's TWIN taken out; refined without it, R1
+ * stalled at 15 %, while ⟨|E²−1|⟩ and Yeates' H-test read the twin before any
+ * model). The law set must be the crystal's: its fraction refines near the
+ * truth (0.45 on the eval's page).
+ */
+export const twinFromData: Check = {
+  name: "sets the merohedral twin the data read before refining the structure",
+  grade: (run) => {
+    const all = calls(run);
+    const stats = all.findIndex((c) => c.name === "reflection_statistics" && !c.isError);
+    if (stats < 0) return fail("never read the data (reflection_statistics)");
+    const twin = all.findIndex((c) => c.name === "set_twin" && !c.isError && Array.isArray(c.input.law));
+    if (twin < 0) return fail("never set a merohedral twin law");
+    const early = all.findIndex((c, i) => i < twin && c.name === "refine" && json(c.text)?.refined === true && (c.free ?? []).some((id) => /^(pos_|U_|B_)/.test(id)));
+    if (early >= 0) return fail("refined the structure before setting the twin");
+    const fraction = scState(run)?.result?.parameters.twin_1;
+    if (fraction === undefined) return fail("never refined the twin fraction");
+    return Math.abs(fraction - 0.45) < 0.05 ? ok(`set the twin the data read; its fraction refined to ${fraction.toFixed(3)}`) : fail(`the twin fraction ends at ${fraction.toFixed(3)}: not the crystal's law`);
   },
 };
 

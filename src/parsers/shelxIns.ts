@@ -156,6 +156,7 @@ export function parseShelxIns(text: string, id = "shelx"): ShelxModel {
   let title = "";
   let wavelength: number | undefined;
   let cell: StructureModel["cell"] | undefined;
+  let cellSu: StructureModel["cellSu"];
   let latt = 1;
   const symm: SymmetryOperation[] = [];
   const sfac: string[] = [];
@@ -189,6 +190,13 @@ export function parseShelxIns(text: string, id = "shelx"): ShelxModel {
         if (c === undefined || ga === undefined || be === undefined || al === undefined || a === undefined || b === undefined || l === undefined) throw new Error("CELL needs λ a b c α β γ");
         wavelength = l;
         cell = { a, b, c, alpha: al, beta: be, gamma: ga };
+        break;
+      }
+      case "ZERR": {
+        // ZERR Z σa σb σc σα σβ σγ: the cell's esds (0 for what the lattice holds).
+        const [, ...e] = nums();
+        const su = Object.fromEntries((["a", "b", "c", "alpha", "beta", "gamma"] as const).map((k, i) => [k, e[i] ?? 0]).filter(([, v]) => (v as number) > 0));
+        if (Object.keys(su).length > 0) cellSu = su;
         break;
       }
       case "LATT":
@@ -241,7 +249,7 @@ export function parseShelxIns(text: string, id = "shelx"): ShelxModel {
         part = nums()[0] ?? 0;
         break;
       default:
-        if (!LISTING_ONLY.has(keyword) && keyword !== "ZERR") notCarried.add(keyword);
+        if (!LISTING_ONLY.has(keyword)) notCarried.add(keyword);
     }
   }
   if (!cell || wavelength === undefined) throw new Error("no CELL instruction: not a SHELX .ins/.res");
@@ -318,7 +326,7 @@ export function parseShelxIns(text: string, id = "shelx"): ShelxModel {
 
   const name = title.split(/\s+in\s+/i)[0]!.trim() || id;
   return {
-    structure: { id, name, cell, spaceGroup, sites },
+    structure: { id, name, cell, ...(cellSu ? { cellSu } : {}), spaceGroup, sites },
     instructions: {
       title,
       wavelength,

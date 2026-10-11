@@ -493,3 +493,72 @@ export function hydridePage({ seed = 23 }: { readonly seed?: number } = {}): { s
   };
   return { structure: start, dataset, truth };
 }
+
+export interface TwinnedTrigonalPage {
+  readonly structure: StructureModel;
+  readonly dataset: SingleCrystalDataset;
+  /** The fraction of the second domain the intensities were computed with, by the law h, k, l → k, h, −l. */
+  readonly fraction: number;
+}
+
+/**
+ * A light-atom molecule in P3₂ whose crystal is twinned by merohedry — the
+ * hexagonal lattice's 2-fold h, k, l → k, h, −l, which the Laue class −3
+ * lacks — at `fraction`, as 2b is (round 5). Each reflection once with its
+ * Friedel mate apart, as a data reduction's merged HKLF 4 file holds them,
+ * with Mo Kα dispersion and counting noise. The starting model is the truth
+ * displaced, with no twin.
+ */
+export function twinnedTrigonalPage({ fraction = 0.45, seed = 29 }: { readonly fraction?: number; readonly seed?: number } = {}): TwinnedTrigonalPage {
+  const atoms: [string, string, number, number, number, number][] = [
+    ["O1", "O", 0.20888, 0.61248, 0.17694, 0.03],
+    ["N1", "N", 0.3043, 0.55591, 0.04642, 0.035],
+    ["N2", "N", 0.403, 0.52312, 0.10749, 0.03],
+    ["C1", "C", 0.1045, 0.5938, 0.0822, 0.045],
+    ["C2", "C", 0.2682, 0.32177, 0.13327, 0.04],
+    ["C3", "C", 0.4086, 0.6396, 0.00213, 0.04],
+    ["C4", "C", 0.5411, 0.5931, 0.06152, 0.04],
+    ["C5", "C", 0.5383, 0.4558, 0.15634, 0.04],
+    ["C6", "C", 0.3965, 0.3749, 0.19306, 0.035],
+    ["C7", "C", 0.0556, 0.2903, 0.16437, 0.045],
+  ];
+  const cif = (jitter: number): string => `data_trigonal
+_cell_length_a 9.5
+_cell_length_b 9.5
+_cell_length_c 14.2
+_cell_angle_alpha 90
+_cell_angle_beta 90
+_cell_angle_gamma 120
+_symmetry_space_group_name_H-M 'P 32'
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_U_iso_or_equiv
+${atoms.map(([label, element, x, y, z, u], i) => `${label} ${element} ${(x + jitter * Math.sin(1.3 * i + 0.2) / 9.5).toFixed(6)} ${(y + jitter * Math.cos(2.1 * i) / 9.5).toFixed(6)} ${(z + jitter * Math.sin(2.9 * i + 1) / 14.2).toFixed(6)} ${u}`).join("\n")}
+`;
+  const truth = parseCif(cif(0), "trigonal");
+  const start = parseCif(cif(0.03), "trigonal");
+  const radiation = { kind: "xray" as const, wavelength: 0.71073, polarization: 0.5 };
+  // Each reflection unique under the point group 3 once, its Friedel mate apart; the absences left out.
+  const unique = generateReflections(truth.cell, truth.spaceGroup, 0.85, 30).filter((r) => !(r.h === 0 && r.k === 0 && r.l === 0));
+  const indices = unique.flatMap((r) => [{ h: r.h, k: r.k, l: r.l }, { h: -r.h, k: -r.k, l: -r.l }]);
+  const empty: SingleCrystalDataset = { id: "trigonal-sx", name: "trigonal molecule (synthetic, Mo Kα, twinned)", radiation, reflections: indices.map((r) => ({ ...r, iObs: 1 })) };
+  const twinned: SingleCrystalDataset = { ...empty, twinLaws: [{ matrix: [[0, 1, 0], [1, 0, 0], [0, 0, -1]] }] };
+  const spec = buildSingleCrystalSpec(truth, twinned, { scale: 1, twinFractions: [fraction] });
+  const calc = singleCrystalRefinementComparison(truth, twinned, spec.params, spec.bindings).rows;
+  const noise = normals(seed);
+  const iMax = Math.max(...calc.map((c) => c.fcSq));
+  const g = iMax / 4e5;
+  const background = 0.001 * iMax;
+  const dataset: SingleCrystalDataset = {
+    ...empty,
+    reflections: calc.map((c) => {
+      const sigma = Math.sqrt((Math.max(c.fcSq, 0) + background) * g + (0.01 * c.fcSq) ** 2);
+      return { h: c.h, k: c.k, l: c.l, iObs: c.fcSq + sigma * noise(), sigma };
+    }),
+  };
+  return { structure: start, dataset, fraction };
+}

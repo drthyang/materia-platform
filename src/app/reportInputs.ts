@@ -9,12 +9,13 @@
  */
 
 import type { StructureModel } from "@/core/crystal/types";
+import { formatWithEsd } from "@/core/export/cif";
 import { EIGHT_PI_SQUARED, isHydrogen } from "@/core/crystal/adp";
 import { ridingSummary, sharedUGroups } from "@/core/crystal/riding";
 import { floatingOrigins } from "@/core/crystal/polarOrigin";
 import { improper, parsonsOfModel } from "@/core/workflow/singleCrystalRefinement";
 import { restraintCount, restraintReport } from "@/core/crystal/restraints";
-import { covalentBonds, isMolecular } from "@/core/crystal/geometry";
+import { covalentBonds, hydrogenBondLines, isMolecular, ringGeometryLines } from "@/core/crystal/geometry";
 import { bondEsds, bondKeys } from "@/core/workflow/bondEsds";
 import { withEsd } from "@/agent/structureTable";
 import type { MagneticModel } from "@/core/magnetic/types";
@@ -23,7 +24,7 @@ import { extractSizeStrain } from "@/core/diffraction/microstructure";
 import { formatWt, fractionsOf } from "@/core/diagnostics/phaseFractions";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import type { MergeStatistics } from "@/core/diffraction/merge";
-import { isInversion, type OmittedMeasurement, type PdfPattern, type Radiation, type SingleCrystalDataset, type TwinLaw } from "@/core/diffraction/types";
+import { isInversion, mergedOnlyAbsences, type OmittedMeasurement, type PdfPattern, type Radiation, type SingleCrystalDataset, type TwinLaw } from "@/core/diffraction/types";
 import { dispersionLine } from "@/core/scattering/dispersion";
 import { EXTINCTION_MODEL_LABELS } from "@/core/diffraction/singleCrystalFactors";
 import { isMomentParameterKind, type ParameterBinding, type RefinementParameter, type RefinementResult } from "@/core/refinement/types";
@@ -103,6 +104,19 @@ function instrumentProfileRow(instrument: InstrumentParameters, loaded: boolean)
 }
 
 /** A value with its esd in the last digits, e.g. 19.8(4); the value alone without one. */
+/** The cell's esds as the structure file gives them, in a few words: "a 12.7506(1), c 27.6245(3) Å", the lengths the lattice holds equal given once. */
+function cellSuText(structure: StructureModel): string {
+  const su = structure.cellSu ?? {};
+  const c = structure.cell;
+  const lengths = (["a", "b", "c"] as const).filter((k, i, all) => su[k] !== undefined && !all.slice(0, i).some((j) => Math.abs(c[j] - c[k]) < 1e-9 && su[j] === su[k]));
+  const angles = (["alpha", "beta", "gamma"] as const).filter((k) => su[k] !== undefined);
+  const sym = { alpha: "α", beta: "β", gamma: "γ" } as const;
+  return [
+    ...(lengths.length ? [`${lengths.map((k) => `${k} ${formatWithEsd(c[k], su[k], 5)}`).join(", ")} Å`] : []),
+    ...(angles.length ? [`${angles.map((k) => `${sym[k]} ${formatWithEsd(c[k], su[k], 4)}`).join(", ")}°`] : []),
+  ].join("; ");
+}
+
 function withEsdText(v: number, esd: number | undefined, decimals: number): string {
   if (esd === undefined || !(esd > 0)) return v.toFixed(decimals);
   const d = Math.min(Math.max(-Math.floor(Math.log10(esd)) + (esd < 2 * 10 ** Math.floor(Math.log10(esd)) ? 1 : 0), 0), 6);
@@ -528,6 +542,17 @@ function absencesText(m: NonNullable<SingleCrystalDataset["merged"]>): string {
     : `${m.absences} systematic absence${m.absences === 1 ? "" : "s"} left out`;
 }
 
+/** A molecule's geometry for the report: its covalent bonds with their esds, its ring centroids' contacts and its hydrogen bonds, when it has any. */
+function moleculeGeometry(structure: StructureModel, base: StructureModel | undefined, params: readonly RefinementParameter[], bindings: readonly ParameterBinding[], result: RefinementResult | null): Pick<ReportPhase, "bonds" | "rings" | "hydrogenBonds"> {
+  const rings = ringGeometryLines(structure);
+  const hydrogenBonds = hydrogenBondLines(structure);
+  return {
+    bonds: moleculeBonds(structure, base, params, bindings, result),
+    ...(rings.contacts.length > 0 ? { rings } : {}),
+    ...(hydrogenBonds.length > 0 ? { hydrogenBonds } : {}),
+  };
+}
+
 export function singleCrystalReportInput(o: {
   /** The structure AS REFINED (parameters applied). */
   readonly structure: StructureModel;
@@ -601,9 +626,9 @@ export function singleCrystalReportInput(o: {
     { label: "Data file", value: o.dataset.name },
     ...(o.structureFile?.length ? [{ label: "Structure file", value: `${o.structureFileName ? `${o.structureFileName}, ` : ""}a SHELX instruction file, whose refinement applied: ${o.structureFile.join("; ")}` }] : []),
     { label: "Probe", value: probeLabel(o.dataset.radiation) },
-    { label: "Reflections", value: `${o.totalReflections} ${o.dataset.origin === "refinement-listing" ? "listed" : "measured"}${o.dataset.merged ? ` · merged as SHELXL's MERG 2 (${o.dataset.merged.friedelApart ? "the Friedel opposites apart" : "the Friedel opposites merged"}${o.dataset.merged.absences ? `; ${absencesText(o.dataset.merged)}` : ""})` : ""} · ${o.dataset.reflections.length} used${omittedN > 0 ? ` · ${omittedN} omitted by hand` : ""}${outside > 0 && range ? ` · ${outside} outside ${range}` : ""}${o.excluded > 0 ? ` · ${o.excluded} rejected with |F_o² − F_c²|/σ > ${o.cutoffSigma}${o.minExtinction ? ` or y < ${o.minExtinction}` : ""}` : o.filterOn ? ` · the filter (|F_o² − F_c²|/σ > ${o.cutoffSigma}${o.minExtinction ? ` or y < ${o.minExtinction}` : ""}) rejected none` : ""}` },
+    { label: "Reflections", value: `${o.totalReflections} ${o.dataset.origin === "refinement-listing" ? "listed" : o.dataset.merged && mergedOnlyAbsences(o.dataset.merged, o.dataset.reflections.length) ? `in the file, each once (merged by its data reduction${o.dataset.merged.friedelApart ? ", the Friedel opposites apart" : ""})${o.dataset.merged.absences ? ` · ${o.dataset.merged.absences} systematic absence${o.dataset.merged.absences === 1 ? "" : "s"} left out, as SHELXL's MERG 2 leaves them` : ""}` : `measured${o.dataset.merged ? ` · merged as SHELXL's MERG 2 (${o.dataset.merged.friedelApart ? "the Friedel opposites apart" : "the Friedel opposites merged"}${o.dataset.merged.absences ? `; ${absencesText(o.dataset.merged)}` : ""})` : ""}`} · ${o.dataset.reflections.length} used${omittedN > 0 ? ` · ${omittedN} omitted by hand` : ""}${outside > 0 && range ? ` · ${outside} outside ${range}` : ""}${o.excluded > 0 ? ` · ${o.excluded} rejected with |F_o² − F_c²|/σ > ${o.cutoffSigma}${o.minExtinction ? ` or y < ${o.minExtinction}` : ""}` : o.filterOn ? ` · the filter (|F_o² − F_c²|/σ > ${o.cutoffSigma}${o.minExtinction ? ` or y < ${o.minExtinction}` : ""}) rejected none` : ""}` },
     ...(omitted.length > 0 ? [{ label: "Omitted", value: omitted.map((m) => `${m.h} ${m.k} ${m.l}${m.batch !== undefined ? ` (batch ${m.batch})` : ""}${m.reason ? `: ${m.reason}` : ""}`).join("; ") }] : []),
-    { label: "Extinction", value: o.dataset.origin === "refinement-listing" && !params.some((p) => p.kind === "extinction" && (!p.fixed || p.value !== 0)) ? "none refined: the listing's Fo² have the extinction of the refinement that wrote it divided out (SHELXL's LIST 4)" : EXTINCTION_MODEL_LABELS[o.dataset.extinctionModel ?? "shelx"] },
+    { label: "Extinction", value: !params.some((p) => p.kind === "extinction" && (!p.fixed || p.value !== 0)) ? (o.dataset.origin === "refinement-listing" ? "none refined: the listing's Fo² have the extinction of the refinement that wrote it divided out (SHELXL's LIST 4)" : "none refined (held at 0)") : EXTINCTION_MODEL_LABELS[o.dataset.extinctionModel ?? "shelx"] },
     ...(o.dataset.radiation.kind === "xray" ? [{ label: "Anomalous scattering", value: dispersionLine(o.dataset.radiation.wavelength) ? `f′ and f″ at ${dispersionLine(o.dataset.radiation.wavelength)!.name} (Cromer & Liberman, 1981)` : `none: no tabulated line at λ ${o.dataset.radiation.wavelength} Å` }] : []),
     ...(o.dataset.twinLaws?.length ? [{ label: "Twinning", value: twinRow(o.dataset.twinLaws, params, o.bindings, o.result?.combinationEsd) }] : []),
     ...absoluteStructureRow(o),
@@ -616,11 +641,11 @@ export function singleCrystalReportInput(o: {
     ...(o.dataset.origin === "refinement-listing" ? [{ label: "Source", value: "a refinement's listing (.fcf): Fo² on that refinement's scale, merged, the systematic absences left out, and in SHELXL's LIST 4 its extinction divided out" }] : []),
     { label: "Observed", value: `${ag.observed} of ${ag.total} reflections with F_o² > 2σ(F_o²)` },
     { label: "Weights", value: scheme ? `${weightText} (SHELXL WGHT ${scheme.a} ${scheme.b})` : "w = 1/σ²(F_o²); unit weights where σ is absent" },
-    { label: "Unit cell", value: "fixed at the input values (not refinable from a single reflection file)" },
+    { label: "Unit cell", value: `fixed at the input values (not refinable from a single reflection file)${o.structure.cellSu ? `, with the structure file's esds (${cellSuText(o.structure)}), which the volume and the bond esds carry` : ", which give no esds"}` },
   ];
   const summary =
     `Single-crystal F² refinement of ${o.structure.name || o.structure.id}${o.structure.spaceGroup.hermannMauguin ? ` (${o.structure.spaceGroup.hermannMauguin})` : ""} against ${probeInSentence(o.dataset.radiation)} data: ` +
-    `R1 = ${pct(ag.r1)}, wR2 = ${pct(ag.wr2)}, GooF = ${num(ag.goof, 2)} with ${free} free parameter${free === 1 ? "" : "s"} over ${o.dataset.reflections.length} reflections (${o.dataset.merged ? `${o.totalReflections} measurements merged as SHELXL's MERG 2` : apart ? `${apart.unique} unique, the Friedel mates apart` : `${st.unique} unique`}). ` +
+    `R1 = ${pct(ag.r1)}, wR2 = ${pct(ag.wr2)}, GooF = ${num(ag.goof, 2)} with ${free} free parameter${free === 1 ? "" : "s"} over ${o.dataset.reflections.length} reflections (${o.dataset.merged ? mergedOnlyAbsences(o.dataset.merged, o.dataset.reflections.length) ? `${o.totalReflections} in the file, each once${o.dataset.merged.absences ? `, the ${o.dataset.merged.absences} systematic absences left out` : ""}` : `${o.totalReflections} measurements merged as SHELXL's MERG 2` : apart ? `${apart.unique} unique, the Friedel mates apart` : `${st.unique} unique`}). ` +
     magnetic.summary;
   const notes = [
     `R1 = Σ||F_o| − |F_c|| / Σ|F_o| over reflections with F_o² > 2σ(F_o²); wR2 = √(Σ w (F_o² − F_c²)² / Σ w (F_o²)²) and GooF = √(Σ w (F_o² − F_c²)² / (N − P)) over all reflections, ${weightText} (SHELX conventions).`,
@@ -637,7 +662,7 @@ export function singleCrystalReportInput(o: {
     appVersion: APP_VERSION,
     stats,
     data,
-    phases: [{ structure: o.structure, params, bindings: o.bindings, ...(isMolecular(o.structure) ? { bonds: moleculeBonds(o.structure, o.base, o.params, o.bindings, o.result) } : {}) }],
+    phases: [{ structure: o.structure, params, bindings: o.bindings, ...(isMolecular(o.structure) ? moleculeGeometry(o.structure, o.base, o.params, o.bindings, o.result) : {}) }],
     magnetic: magnetic.section,
     figure: { kind: "fobsFcalc", points: o.points, caption: "|F_obs| against |F_calc| for every reflection used; the dashed line is perfect agreement. Magnetic reflections (those whose calculated intensity is mostly magnetic) are coloured." },
     parameters: params,

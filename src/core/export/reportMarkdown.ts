@@ -13,7 +13,7 @@
 
 import type { StructureModel } from "@/core/crystal/types";
 import type { RefinementParameter } from "@/core/refinement/types";
-import { buildEsdMap, cellVolume, formatWithEsd } from "@/core/export/cif";
+import { buildEsdMap, cellEsdsOf, cellVolume, formatWithEsd } from "@/core/export/cif";
 import { spaceGroupSymbol } from "@/core/crystal/spaceGroups";
 import { crystalComponentsToCartesian } from "@/core/magnetic/moment";
 import { kLabel } from "@/core/magnetic/kSearch";
@@ -23,6 +23,8 @@ import { markNumbers } from "@/core/export/reportAudit";
 import {
   BONDS_NOTE,
   COVALENT_BONDS_NOTE,
+  HBOND_NOTE,
+  RING_NOTE,
   covalentBondRows,
   boxcarNote,
   displacementColumn,
@@ -183,12 +185,13 @@ function phaseMarkdown(phase: ReportPhase, index: number, total: number, techniq
     ["l", "l", "r", "r", "r", "r", "r"],
   );
   const c = st.cell;
+  const ce = cellEsdsOf(st, esd);
   const cellRow = table(
     ["a (Å)", "b (Å)", "c (Å)", "α (°)", "β (°)", "γ (°)", "V (Å³)"],
     [[
-      formatWithEsd(c.a, esd.cell.a, 5), formatWithEsd(c.b, esd.cell.b, 5), formatWithEsd(c.c, esd.cell.c, 5),
-      formatWithEsd(c.alpha, esd.cell.alpha, 4), formatWithEsd(c.beta, esd.cell.beta, 4), formatWithEsd(c.gamma, esd.cell.gamma, 4),
-      fixed(cellVolume(c), 3),
+      formatWithEsd(c.a, ce.cell.a, 5), formatWithEsd(c.b, ce.cell.b, 5), formatWithEsd(c.c, ce.cell.c, 5),
+      formatWithEsd(c.alpha, ce.cell.alpha, 4), formatWithEsd(c.beta, ce.cell.beta, 4), formatWithEsd(c.gamma, ce.cell.gamma, 4),
+      ce.volume !== undefined ? formatWithEsd(cellVolume(c), ce.volume, 3) : fixed(cellVolume(c), 3),
     ]],
     ["r", "r", "r", "r", "r", "r", "r"],
   );
@@ -199,7 +202,10 @@ function phaseMarkdown(phase: ReportPhase, index: number, total: number, techniq
     : !phase.bonds && shells.length > 0
       ? `\n\n${table(["Site", "Bonds (Å)", "Mean (Å)"], shells.map((r) => [r.site, r.bonds, r.mean]), ["l", "l", "r"])}\n\n*${BONDS_NOTE}*`
       : "";
-  return `### ${st.name || st.id} — ${sgText}${role ? ` · ${role}` : ""}\n\n${cellRow}\n\n${sites}${bonds}`;
+  // The ring centroids and hydrogen bonds under a molecule's bond table.
+  const rings = phase.rings && phase.rings.contacts.length > 0 ? `\n\n**Ring centroids.** ${phase.rings.rings.join("; ")}. ${phase.rings.contacts.join(" · ")}.\n\n*${RING_NOTE}*` : "";
+  const hbonds = phase.hydrogenBonds && phase.hydrogenBonds.length > 0 ? `\n\n**Hydrogen bonds.** ${phase.hydrogenBonds.join(" · ")}.\n\n*${HBOND_NOTE}*` : "";
+  return `### ${st.name || st.id} — ${sgText}${role ? ` · ${role}` : ""}\n\n${cellRow}\n\n${sites}${bonds}${rings}${hbonds}`;
 }
 
 function boxcarMarkdown(b: ReportBoxcar): string {

@@ -8,7 +8,7 @@
  * orthogonal on a special position).
  */
 
-import type { StructureModel } from "@/core/crystal/types";
+import type { StructureModel, UnitCell } from "@/core/crystal/types";
 import { AFIX } from "@/core/crystal/riding";
 import type { RidingRule } from "@/core/crystal/types";
 
@@ -19,7 +19,8 @@ const PLACED: Readonly<Record<RidingRule["geometry"], string>> = {
 import type { ParameterBinding, RefinementParameter } from "@/core/refinement/types";
 import { parseTie } from "@/core/refinement/constraints";
 import { EIGHT_PI_SQUARED, uEquivalent } from "@/core/crystal/adp";
-import { orthogonalizationMatrix } from "@/core/crystal/unitCell";
+import { cellVolume, orthogonalizationMatrix } from "@/core/crystal/unitCell";
+import { cellVolumeEsd } from "@/core/crystal/cellEsd";
 import { mulVec } from "@/core/math/mat3";
 import type { Vec3 } from "@/core/math/types";
 
@@ -109,18 +110,18 @@ export function structureTable(
     }
   }
   const c = phase.cell;
+  // A refined cell's esds, else those the structure file gives a cell held fixed (ZERR, a CIF's su).
+  const su: Partial<Record<keyof UnitCell, number>> = Object.keys(cellEsd).length > 0 ? cellEsd : phase.cellSu ?? {};
   const cell: Record<string, string> = {
-    a: withEsd(c.a, cellEsd.a),
-    b: withEsd(c.b, cellEsd.b),
-    c: withEsd(c.c, cellEsd.c),
-    alpha: withEsd(c.alpha, cellEsd.alpha, 4),
-    beta: withEsd(c.beta, cellEsd.beta, 4),
-    gamma: withEsd(c.gamma, cellEsd.gamma, 4),
+    a: withEsd(c.a, su.a),
+    b: withEsd(c.b, su.b),
+    c: withEsd(c.c, su.c),
+    alpha: withEsd(c.alpha, su.alpha, 4),
+    beta: withEsd(c.beta, su.beta, 4),
+    gamma: withEsd(c.gamma, su.gamma, 4),
   };
-  const rad = Math.PI / 180;
-  const [ca, cb, cg] = [Math.cos(c.alpha * rad), Math.cos(c.beta * rad), Math.cos(c.gamma * rad)];
-  const volume = c.a * c.b * c.c * Math.sqrt(Math.max(1 - ca * ca - cb * cb - cg * cg + 2 * ca * cb * cg, 0));
-  const relV = Math.sqrt(["a", "b", "c"].reduce((s, k) => s + ((cellEsd[k] ?? 0) / (c as unknown as Record<string, number>)[k]!) ** 2, 0));
+  const volume = cellVolume(c);
+  const volumeEsd = cellVolumeEsd(c, su, phase.spaceGroup.operations);
   const ridingOf = new Map((phase.riding ?? []).map((r) => [r.site, r]));
   const raw = new Map<string, SiteEsds>();
   const sites = phase.sites.map((site): StructureTableSite => {
@@ -165,7 +166,7 @@ export function structureTable(
     phase: phase.name || phase.id,
     spaceGroup: phase.spaceGroup.hermannMauguin ?? String(phase.spaceGroup.number ?? "?"),
     cell,
-    volume: withEsd(volume, relV > 0 ? volume * relV : undefined, 3),
+    volume: withEsd(volume, volumeEsd, 3),
     sites,
   };
   RAW_ESDS.set(table, raw);

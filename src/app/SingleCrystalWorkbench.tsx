@@ -20,7 +20,7 @@ import type { AtomSite, DistanceRestraint, RidingRule, StructureModel } from "@/
 import { restraintCount } from "@/core/crystal/restraints";
 import { withEsd as withEsdText } from "@/agent/structureTable";
 import type { AgentLink } from "@/agent/link";
-import { isInversion, type ExtinctionModel, type OmittedMeasurement, type Radiation, type ResolutionRange, type ShelxWeighting, type SingleCrystalDataset, type TwinLaw } from "@/core/diffraction/types";
+import { isInversion, mergedOnlyAbsences, type ExtinctionModel, type OmittedMeasurement, type Radiation, type ResolutionRange, type ShelxWeighting, type SingleCrystalDataset, type TwinLaw } from "@/core/diffraction/types";
 import type { Vec3 } from "@/core/math/types";
 import type { ReflectionObsCalc } from "@/core/workflow/obsCalc";
 import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
@@ -544,7 +544,7 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
       const scaleStart = estimateScale(superS, merged);
       // ONE scale: nuclear + magnetic share it (same measurement); magneticScale
       // is tied to the (freed) nuclear scale, structure frozen (two-phase).
-      const scaleP: RefinementParameter = { id: "scale", label: "scale (OSF)", kind: "scale", value: scaleStart, initialValue: scaleStart, fixed: false, min: 0 };
+      const scaleP: RefinementParameter = { id: "scale", label: "scale k = OSF²", kind: "scale", value: scaleStart, initialValue: scaleStart, fixed: false, min: 0 };
       const mscaleP: RefinementParameter = { id: "magScale", label: "magnetic scale (= nuclear)", kind: "magneticScale", value: scaleStart, initialValue: scaleStart, fixed: true, expression: "= scale" };
       const scaleB: ParameterBinding = { parameterId: "scale", kind: "scale", targetId: merged.id };
       const mscaleB: ParameterBinding = { parameterId: "magScale", kind: "magneticScale", targetId: merged.id };
@@ -794,7 +794,9 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
     setMerged(on);
     setOmitted([]);
     setResult(null);
-    stepHistory?.requestStep("settings", on ? `Merged: ${dataset.reflections.length} → ${nextSet.reflections.length} reflections` : "Every measurement");
+    // A file merged by its data reduction loses only its absences: say so, not "merged".
+    const onlyAbsences = on && nextSet.merged ? mergedOnlyAbsences(nextSet.merged, nextSet.reflections.length) : false;
+    stepHistory?.requestStep("settings", on ? (onlyAbsences ? `${dataset.reflections.length - nextSet.reflections.length} absences left out: ${nextSet.reflections.length} reflections` : `Merged: ${dataset.reflections.length} → ${nextSet.reflections.length} reflections`) : "Every measurement");
   }
 
   /** The scheme SHELXL would suggest for the model as refined now. */

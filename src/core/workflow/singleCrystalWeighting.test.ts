@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { pyridylPage } from "@/testSupport/scPages";
 import { buildSingleCrystalSpec, refineSingleCrystal, singleCrystalRefinementComparison, SINGLE_CRYSTAL_REFINE_OPTIONS, withFitWeights } from "@/core/workflow/singleCrystalRefinement";
-import { suggestShelxWeighting } from "@/core/diffraction/singleCrystalFactors";
+import { shelxWeights, suggestShelxWeighting } from "@/core/diffraction/singleCrystalFactors";
 import type { SingleCrystalDataset } from "@/core/diffraction/types";
 import { ridingRules } from "@/core/crystal/riding";
 import { readFileSync } from "node:fs";
@@ -96,5 +96,35 @@ describe("SHELXL weighting scheme", () => {
     expect(suggested.a).toBeLessThan(0.045);
     expect(suggested.b).toBeGreaterThan(0.4);
     expect(suggested.b).toBeLessThan(1.5);
+  });
+
+  /** A LIST 4 listing's rows used in the refinement: Fo², σ and SHELXL's own Fc², all on the absolute scale. */
+  const listingRows = (rel: string): { fo: number[]; fc: number[]; sigma: number[] } => {
+    const rows = readFileSync(dataPath(rel), "utf8").split(/\r?\n/).map((l) => l.trim().split(/\s+/)).filter((t) => t.length === 7 && t.slice(0, 3).every((x) => /^-?\d+$/.test(x)) && t[6] === "o");
+    return { fc: rows.map((t) => Number(t[3])), fo: rows.map((t) => Number(t[4])), sigma: rows.map((t) => Number(t[5])) };
+  };
+  const LISTINGS = ["GSAS-II-tutorials/sc/1b.fcf", "GSAS-II-tutorials/sc/3a.fcf", DIPYRIDYL.fcf];
+  it.skipIf(LISTINGS.some((f) => !dataExists(f)))("suggests what SHELXL suggested from its own final listings, the GooF left above 1 as SHELXL leaves it", () => {
+    // SHELXL's GooF under its WGHT, from its own Fc²: 1b 1.044 (WGHT 0.0271 0.2580), dipyridyl 1.041 (0.0362 0.7686).
+    const goofUnder = (l: { fo: number[]; fc: number[]; sigma: number[] }, a: number, b: number, nParams: number): number => {
+      const w = shelxWeights(l.fo, l.fc, l.sigma, a, b);
+      return Math.sqrt(l.fo.reduce((sum, fo, i) => sum + w[i]! * (fo - l.fc[i]!) ** 2, 0) / (l.fo.length - nParams));
+    };
+    const oneB = listingRows("GSAS-II-tutorials/sc/1b.fcf");
+    expect(goofUnder(oneB, 0.0271, 0.258, 142)).toBeCloseTo(1.044, 3);
+    expect(goofUnder(listingRows(DIPYRIDYL.fcf), 0.0362, 0.7686, 254)).toBeCloseTo(1.041, 3);
+    // 3a: SHELXL's converged suggestion repeats the WGHT it refined with, at GooF 1.058, not 1.
+    const threeA = listingRows("GSAS-II-tutorials/sc/3a.fcf");
+    expect(goofUnder(threeA, 0.0374, 0.6277, 162)).toBeCloseTo(1.058, 3);
+    const s3 = suggestShelxWeighting(threeA.fo, threeA.fc, threeA.sigma, 162);
+    expect(Math.abs(s3.a - 0.0374)).toBeLessThan(0.001);
+    expect(Math.abs(s3.b - 0.6277)).toBeLessThan(0.06);
+    expect(s3.goof).toBeGreaterThan(1.04);
+    // 1b: SHELXL's last run suggested 0.0277 0.2519 (its .res, embedded in the CIF).
+    const s1 = suggestShelxWeighting(oneB.fo, oneB.fc, oneB.sigma, 142);
+    expect(Math.abs(s1.a - 0.0277)).toBeLessThan(0.002);
+    expect(Math.abs(s1.b - 0.2519)).toBeLessThan(0.08);
+    // Each bin's GooF over its own reflections, as SHELXL's analysis of variance gives it: near 1 on average.
+    expect(s3.bins.reduce((sum, g) => sum + g * g, 0) / s3.bins.length).toBeCloseTo(1, 1);
   });
 });

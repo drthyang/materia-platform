@@ -16,7 +16,7 @@ import { changeMagnetic, describeMagneticChange, isMagneticTool, magneticNoOp, m
 import { changePdf, describePdfChange, pdfNoOp, pdfReportChecks, readPdfTool } from "@/agent/pdfTools";
 import { changeSingleCrystal, describeSingleCrystalChange, readSingleCrystalTool, singleCrystalNoOp, singleCrystalReportChecks } from "@/agent/scTools";
 import { samplePosteriorTool, type PosteriorRun } from "@/agent/posteriorTool";
-import { buildAgentReport, reportFileBase, type AgentReport } from "@/agent/report";
+import { buildAgentReport, freeSummary, reportFileBase, type AgentReport } from "@/agent/report";
 import { matchIds, type LiveToolHost } from "@/agent/liveCommon";
 import { PROBE_OPTIONS, carriedText, correlationRefusal, disorderAssemblies, pairText, readCorrelations, refusalLine } from "@/agent/correlationCheck";
 import { PAGE_METHOD, readSkill } from "@/agent/skills";
@@ -385,6 +385,8 @@ export class AgentExecutor implements ToolRunner {
         : `${r.measured} reflections, ${r.unique} unique, ${typeof r.rInt === "number" ? `R_int ${r.rInt} %${r.rIntFriedelApart !== undefined ? ` (${r.rIntFriedelApart} % with the Friedel mates apart, as SHELXL reports it)` : ""}` : "merged (one value per reflection)"}`,
       `d_min ${out.resolution.dMin} Å${out.resolution.sinThetaOverLambdaMax !== undefined ? ` (sinθ/λ ${out.resolution.sinThetaOverLambdaMax} Å⁻¹)` : ""}${out.resolution.completeness !== undefined ? `, completeness ${out.resolution.completeness} %` : ""}`,
       ...(typeof e === "object" ? [`⟨|E²−1|⟩ ${e.meanAbsE2Minus1}: ${e.reading}`] : []),
+      // The strongest merohedral law the H-test reads, when it reads one.
+      ...(typeof out.twinLaws === "object" && typeof out.twinLaws.laws[0]?.alpha === "number" && out.twinLaws.laws[0].alpha >= 0.2 ? [`the H-test reads a twin by ${out.twinLaws.laws[0].indices.replace("h, k, l → ", "(h, k, l) → (")}) at α ≈ ${out.twinLaws.laws[0].alpha} (${out.twinLaws.laws[0].pairs} pairs)`] : []),
       ...(typeof out.absences === "object" ? [`${out.absences.atThreeSigma} of ${out.absences.measured} forbidden reflections at ≥ 3σ${out.absences.strongest?.[0] ? `, the strongest ${out.absences.strongest[0]}` : ""}`] : []),
       ...(out.friedel.startsWith("centrosymmetric") ? [] : [out.friedel.split(":")[0]!]),
     ];
@@ -577,6 +579,7 @@ interface DataAnswer {
   readonly friedel: string;
   readonly absences: { readonly measured: number; readonly atThreeSigma: number; readonly strongest?: readonly string[] } | string;
   readonly intensityStatistics: { readonly meanAbsE2Minus1: number; readonly reading: string } | string;
+  readonly twinLaws?: { readonly laws: readonly { readonly indices: string; readonly alpha: number | string; readonly pairs: number }[] } | string;
 }
 
 /** check_fit_range's answer, as the record reads it. */
@@ -631,7 +634,8 @@ function changeOutcome(
       ...(r.message ? { message: r.message } : {}),
     };
   }
-  if (name === "set_free") return { ...base, free };
+  // A long free set by kind, as the History's rows give it (a structure of 567 parameters would fill the context with ids).
+  if (name === "set_free") return { ...base, free: free.length > 40 ? freeSummary(after.parameters) : free };
   return { ...base, [key]: pct(agreement(after).live), lastResultCleared: before.result !== null && after.result === null };
 }
 

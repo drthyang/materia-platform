@@ -64,6 +64,7 @@ real chat loop, executor and tools run; only the model changes.
 | `sc-hydrides-restrained` | refines a hydride's position only with a restraint holding it | single-crystal round 3 (1b's five hydrides under 8 SADI) |
 | `sc-listing-extinction` | keeps the extinction at 0 against a refinement's listing (SHELXL's LIST 4 has its own divided out) | single-crystal round 4 (3a's .fcf; the page entered the extinction free) |
 | `sc-inverted-hand` | tests the hand, inverts a model of the wrong one (`invert_structure`), refines it again and says so | single-crystal round 4 (3a: SHELXL's P6₁ model is the other enantiomer, x = 1.08(6) by Parsons' quotients) |
+| `sc-twin-from-data` | reads the data, sets the merohedral twin law the H-test reads before refining the structure, and refines its fraction near the truth | single-crystal round 5 (2b: SHELXL's TWIN taken out; ⟨\|E²−1\|⟩ 0.652, the H-test's α 0.45 on k, h, −l, BASF 0.4965) |
 | `sc-weights-final-model` | sets the weighting scheme again after the last change of the model (the twin and the hand count), and refines with it | single-crystal round 4 (3a: the weights fitted to the P6₁ model kept for its inverse, GooF 0.889 where SHELXL's suggestion gives 0.977) |
 
 ## Results against real models

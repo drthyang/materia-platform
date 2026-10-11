@@ -327,6 +327,13 @@ function parseCell(items: Map<string, string>): UnitCell {
   };
 }
 
+/** The cell's su as the CIF gives them (12.7506(1)), or undefined when it gives none. */
+function parseCellSu(items: Map<string, string>): StructureModel["cellSu"] {
+  const keys = { a: "_cell_length_a", b: "_cell_length_b", c: "_cell_length_c", alpha: "_cell_angle_alpha", beta: "_cell_angle_beta", gamma: "_cell_angle_gamma" } as const;
+  const su = Object.fromEntries(Object.entries(keys).map(([k, tag]) => [k, cifSu(items.get(tag))]).filter(([, v]) => (v as number) > 0));
+  return Object.keys(su).length > 0 ? su : undefined;
+}
+
 /** Options for reading a CIF. */
 export interface CifParseOptions {
   /**
@@ -531,10 +538,12 @@ export function parseCif(text: string, id = "structure", options: CifParseOption
   const { items, loops } = parseCifBlocks(text);
   const name = phaseName(items);
   const cell = parseCell(items);
+  const cellSu = parseCellSu(items);
   return {
     id,
     name,
     cell,
+    ...(cellSu ? { cellSu } : {}),
     spaceGroup: parseSpaceGroup(items, loops, cell, options.spaceGroupSetting),
     sites: parseSites(items, loops),
   };

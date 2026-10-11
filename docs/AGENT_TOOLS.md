@@ -607,7 +607,11 @@ The page-specific handlers are [`powderTools.ts`](../src/agent/powderTools.ts),
   equivalents merged as SHELXL's MERG 2 merges them (the Friedel opposites
   apart in a non-centrosymmetric group, the absences left out), while R_int,
   the statistics and the outliers still read the measurement; merge before
-  the model is refined. `set_twin` adds a twin law, as SHELXL's TWIN and BASF:
+  the model is refined (a file its data reduction merged already loses only
+  its absences, and gives no R_int). Where the lattice holds more symmetry
+  than the Laue class, `reflection_statistics` lists each merohedral twin law
+  (`twinLaws`, as `set_twin` takes it) with the fraction Yeates' H-test reads
+  for it from the intensities alone. `set_twin` adds a twin law, as SHELXL's TWIN and BASF:
   the inversion (its fraction is the Flack x, which needs the Friedel pairs
   measured apart and an anomalous scatterer; X-ray amplitudes carry f′ and f″
   at the laboratory lines) or a 3×3 merohedral law, `withInversion` for both
@@ -634,8 +638,10 @@ The page-specific handlers are [`powderTools.ts`](../src/agent/powderTools.ts),
   listed by get_state): `complement` makes the second occupancy one minus the
   first (21/−21) and `adp` holds one site's ADP to another's (EADP).
   `set_weighting` sets SHELXL's WGHT a b (on SHELXL's absolute scale), or the
-  scheme SHELXL would suggest for the model as it stands (`assess_refinement`
-  gives it), re-evaluated at the fit's own Fc²; it is set last. There,
+  scheme SHELXL's criterion suggests for the model as it stands
+  (`assess_refinement` gives it: each of ten Fc² bins' GooF nearest 1, the
+  overall GooF left a little above 1, as SHELXL's own converged suggestions
+  leave it), re-evaluated at the fit's own Fc²; it is set last. There,
   `assess_refinement` adds the analysis of variance by intensity and by
   resolution (K = ΣFo²/ΣFc² and GooF per bin), the extinction reading (the
   strongest bin against the others) and the correction's reach (the smallest
@@ -645,8 +651,15 @@ The page-specific handlers are [`powderTools.ts`](../src/agent/powderTools.ts),
   and runs until every shift is below 0.05 esd. The scale, the extinction and
   the batch scales (`bscale_<b>`, entered fixed) refine together whatever
   their correlation, as in every single-crystal program. `structure_table`
-  gives U^ij and U_eq with esds (with `against: "loaded"`, each site against
-  the structure as loaded, in esds), and `bond_geometry` each length's esd
+  gives U^ij and U_eq with esds and the cell with the structure file's esds
+  (SHELXL's ZERR, a CIF's su) and the volume's (with `against: "loaded"`,
+  each site against the structure as loaded, in esds), and `bond_geometry`
+  each length's esd, the cell's part included
+  and, in a molecule, its planar rings with the contacts to their centroids
+  (a metal within 3.6 Å, an N–H or O–H pointing at one, the angle at a metal
+  between its two nearest) and its hydrogen bonds D–H···A as SHELXL's HTAB
+  finds them, each image by its CIF code, or "none" when its N–H and O–H
+  reach no acceptor (the report gives them too)
   (`atoms` for the bonds to named sites; a riding hydrogen's bond has none). The
   report's "Refinements compared" lists the last refinement under each set of
   conditions (extinction model, resolution range, omissions, filter, twin,

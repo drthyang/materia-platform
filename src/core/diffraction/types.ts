@@ -126,6 +126,15 @@ export const INVERSION_TWIN: TwinLaw = { matrix: [[-1, 0, 0], [0, -1, 0], [0, 0,
 export const isInversion = (law: TwinLaw): boolean => law.matrix.every((row, i) => row.every((v, j) => v === (i === j ? -1 : 0)));
 
 /** A single-crystal reflection dataset. */
+/**
+ * Whether a merge only left out the systematic absences: the file held each
+ * reflection once already (its data reduction merged them), so nothing was
+ * averaged and no R_int comes of it.
+ */
+export function mergedOnlyAbsences(m: NonNullable<SingleCrystalDataset["merged"]>, used: number): boolean {
+  return m.from - (m.absentMeasurements ?? m.absences) === used;
+}
+
 export interface SingleCrystalDataset {
   readonly id: string;
   readonly name: string;

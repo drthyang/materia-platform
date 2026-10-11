@@ -34,6 +34,7 @@ import { magneticCellGroup, type MagneticCellGroup } from "@/core/magnetic/super
 import { identifyMagneticGroupAnySetting } from "@/core/magnetic/bnsOg";
 import { classifyPropagation, describePropagation } from "@/core/magnetic/propagation";
 import { centringTranslations } from "@/core/crystal/symmetry";
+import { cellVolumeEsd } from "@/core/crystal/cellEsd";
 
 const EIGHT_PI2 = 8 * Math.PI * Math.PI;
 
@@ -222,15 +223,28 @@ function atomSiteBlocks(structure: StructureModel, esd: EsdMap): string {
   return `${atomLoop}\n\n${anisoLoop}`;
 }
 
-function cellBlock(cell: UnitCell, esd: EsdMap): string {
+/**
+ * The cell's esds to print: the refined cell's, else the structure file's
+ * (SHELXL's ZERR, a CIF's su) for a cell held fixed, and the volume's from
+ * them, the lattice's equal lengths and angles moving together.
+ */
+export function cellEsdsOf(structure: StructureModel, esd: EsdMap): { readonly cell: Partial<Record<keyof UnitCell, number>>; readonly volume?: number } {
+  const cell = Object.keys(esd.cell).length > 0 ? esd.cell : structure.cellSu ?? {};
+  const volume = cellVolumeEsd(structure.cell, cell, structure.spaceGroup.operations);
+  return { cell, ...(volume !== undefined ? { volume } : {}) };
+}
+
+function cellBlock(structure: StructureModel, esd: EsdMap): string {
+  const cell = structure.cell;
+  const e = cellEsdsOf(structure, esd);
   return [
-    `_cell_length_a    ${formatWithEsd(cell.a, esd.cell.a, 5)}`,
-    `_cell_length_b    ${formatWithEsd(cell.b, esd.cell.b, 5)}`,
-    `_cell_length_c    ${formatWithEsd(cell.c, esd.cell.c, 5)}`,
-    `_cell_angle_alpha ${formatWithEsd(cell.alpha, esd.cell.alpha, 4)}`,
-    `_cell_angle_beta  ${formatWithEsd(cell.beta, esd.cell.beta, 4)}`,
-    `_cell_angle_gamma ${formatWithEsd(cell.gamma, esd.cell.gamma, 4)}`,
-    `_cell_volume      ${cellVolume(cell).toFixed(4)}`,
+    `_cell_length_a    ${formatWithEsd(cell.a, e.cell.a, 5)}`,
+    `_cell_length_b    ${formatWithEsd(cell.b, e.cell.b, 5)}`,
+    `_cell_length_c    ${formatWithEsd(cell.c, e.cell.c, 5)}`,
+    `_cell_angle_alpha ${formatWithEsd(cell.alpha, e.cell.alpha, 4)}`,
+    `_cell_angle_beta  ${formatWithEsd(cell.beta, e.cell.beta, 4)}`,
+    `_cell_angle_gamma ${formatWithEsd(cell.gamma, e.cell.gamma, 4)}`,
+    `_cell_volume      ${formatWithEsd(cellVolume(cell), e.volume, 4)}`,
   ].join("\n");
 }
 
@@ -273,7 +287,7 @@ export function structureToCif(structure: StructureModel, opts: CifExportOptions
     HEADER,
     `data_${block}`,
     `_pd_phase_name  '${structure.name}'`,
-    cellBlock(structure.cell, esd),
+    cellBlock(structure, esd),
     symmetryBlock(structure),
     refinementBlock(opts.refinement),
     atomSiteBlocks(structure, esd),
@@ -504,8 +518,10 @@ function mcifSupercell(
   }
   const labelOf = new Map<SupercellAtom, string>();
   for (const [parent, list] of byParent) list.forEach((a, i) => labelOf.set(a, list.length === 1 ? parent : `${parent}_${i + 1}`));
+  // The parent cell's esds do not carry to the supercell's lengths as given.
+  const { cellSu: _parentSu, ...parent } = structure;
   const supStructure: StructureModel = {
-    ...structure,
+    ...parent,
     cell: sup.cell,
     sites: group.asymmetricUnit.map((a) => ({ ...a.site, label: labelOf.get(a)! })),
     spaceGroup: { operations: group.operations },
@@ -528,7 +544,7 @@ function mcifSupercell(
     `data_${block}`,
     `_pd_phase_name  '${structure.name}'`,
     supercellProvenance(structure, k, sup.n),
-    cellBlock(sup.cell, noEsd),
+    cellBlock(supStructure, noEsd),
     magneticCellSymmetryBlock(group, sup.n),
     refinementBlock(opts.refinement),
     atomSiteBlocks(supStructure, noEsd),
@@ -573,7 +589,7 @@ export function magneticStructureToMcif(
       : []),
     `data_${block}`,
     `_pd_phase_name  '${structure.name}'`,
-    cellBlock(structure.cell, esd),
+    cellBlock(structure, esd),
     magneticSymopBlock(structure, magnetic, opts.magneticLabel),
     refinementBlock(opts.refinement),
     atomSiteBlocks(aug.structure, esd),

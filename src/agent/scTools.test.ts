@@ -206,6 +206,19 @@ describe("AgentExecutor on the single-crystal page", { timeout: 30_000 }, () => 
     expect(port.state().observationCount).toBe(n0);
   });
 
+  it("gives a measurement that caught nothing its Fo²/Fc² as a bound, not a ratio its Fo² does not have", async () => {
+    // Nothing counted for 1 0 4: its Fo² is noise about zero (negative here), the ratio floored at its σ.
+    const c = corundumPage({ extinction: 20, batches: [1, 1, 1], failed: { h: 1, k: 0, l: 4, factor: 0 } });
+    const { port } = singleCrystalPort(c.structure, c.dataset);
+    const { ex } = executor(fakeHost(port).host, "auto");
+    await ex.run("set_free", { free: ["pos_*", "B_*"] });
+    await ex.run("refine", {});
+    const row = port.state().rows.find((r) => r.h === 1 && r.k === 0 && r.l === 4)!;
+    expect(row.foSq).toBeLessThan(row.sigma);
+    const outliers = parse((await ex.run("assess_refinement", {})).text).outliers as string[];
+    expect(outliers[0]).toMatch(/^1 0 4 \(batch \d\): Fo² -?[\d.]+, .* — 2 equivalents at Fo²\/Fc² [\d.]+ \(median\), this one below 0\.0\d+ \(Fo² under its σ\): a failed measurement$/);
+  });
+
   it("calls no reflection failed whose equivalents scatter with wavelength before the extinction is refined", async () => {
     // A Laue measurement: each equivalent at its own wavelength, so before extinction is refined the strong ones scatter among themselves.
     const c = corundumPage({ extinction: 20, laue: true, failed: { h: 1, k: 0, l: 4, factor: 0.03 } });
@@ -372,9 +385,10 @@ describe("AgentExecutor on the single-crystal page", { timeout: 30_000 }, () => 
     expect(sigmaOnly.goof).toBeGreaterThan(1.3);
     const a = parse((await ex.run("assess_refinement", {})).text).weighting as Record<string, string>;
     expect(a.scheme).toBe("w = 1/σ²");
-    expect(a.suggested).toMatch(/^WGHT 0\.0[34]\d* [\d.]+: GooF (1|0\.99\d*|1\.00\d*), by intensity bin/);
+    // SHELXL's criterion leaves the GooF near √(N/(N−P)), a little above 1.
+    expect(a.suggested).toMatch(/^WGHT 0\.0[34]\d* [\d.]+: GooF (1|0\.99\d*|1\.0\d*), by intensity bin/);
     await ex.run("set_weighting", { use: "suggested" });
-    expect(seen.find((e) => e.tool === "set_weighting" && e.preview)?.preview).toMatch(/^Weights: WGHT 0\.0[34]\d* [\d.]+ \(w = 1\/\[σ² \+ \(0\.0[34]\d*P\)² \+ [\d.]+P\]\) \(suggested for the model as refined now: GooF (1|0\.99\d*|1\.00\d*), by intensity bin [\d., ]+\), in place of w = 1\/σ² — wR2 and GooF change, R1 does not$/);
+    expect(seen.find((e) => e.tool === "set_weighting" && e.preview)?.preview).toMatch(/^Weights: WGHT 0\.0[34]\d* [\d.]+ \(w = 1\/\[σ² \+ \(0\.0[34]\d*P\)² \+ [\d.]+P\]\) \(suggested for the model as refined now: GooF (1|0\.99\d*|1\.0\d*), by intensity bin [\d., ]+\), in place of w = 1\/σ² — wR2 and GooF change, R1 does not$/);
     const scheme = port.state().weighting!;
     expect(scheme.a).toBeGreaterThan(0.03);
     expect(scheme.a).toBeLessThan(0.05);
