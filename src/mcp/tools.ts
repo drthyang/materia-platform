@@ -44,7 +44,8 @@ import {
 } from "@/core/workflow/pdf";
 import { buildMpdfSpec, mpdfComponents, unsupportedMpdfModel, MPDF_STAGE_KINDS } from "@/core/workflow/mpdf";
 import { computeAgreementFactors, excludedPointMask, weightsFromSigma } from "@/core/refinement/factors";
-import { axisContext, convertAxisArray } from "@/visualization/axisUnits";
+import { axisContext, convertAxisArray, convertAxisValue } from "@/visualization/axisUnits";
+import { inspectDataRange, type DataRangeReading } from "@/core/diagnostics/dataRange";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { abscissaFromD, radiationOf } from "@/core/diffraction/instrument";
 import { bondLengths } from "@/core/crystal/geometry";
@@ -199,6 +200,57 @@ export function build_refinement(args: {
  * the end (review_symmetry, on the refined residual), not a reason to change
  * the space group before the structure is refined.
  */
+/**
+ * The data's ends: where the fit window should start and stop (just below the
+ * first reflection; in a gap below an edge that is not real data, or where the
+ * peaks have faded), each cut in a gap between reflections. With `parameters`,
+ * `bindings` and `profile` the calculated curve is the model's at those values;
+ * with a converged `result` its residual is read too.
+ */
+export function check_fit_range(args: {
+  structure: StructureModel;
+  pattern: PowderPattern;
+  instrument?: InstrumentParameters;
+  extraPhases?: StructureModel[];
+  parameters?: RefinementParameter[];
+  bindings?: ParameterBinding[];
+  profile?: PowderProfile;
+  result?: RefinementResult;
+  fitRange?: { min: number; max: number };
+}): DataRangeReading & { readonly proposedD: readonly [number, number] | null } {
+  const instrument = args.instrument ?? DEFAULT_INSTRUMENT;
+  if (args.pattern.xUnit === "tof" && instrument.kind !== "tof") {
+    throw new Error("check_fit_range: a time-of-flight pattern needs its TOF instrument (difC) to place reflections");
+  }
+  if (args.extraPhases?.length && args.parameters) throw new Error("check_fit_range: pass parameters only for a single phase; for several, leave them out and the instrument's profile is used");
+  const spec = args.parameters && args.bindings && args.profile ? null : buildPowderSpec(args.structure, args.pattern, instrument, true, 4, {}, "isotropic");
+  const curves = powderCurves(args.structure, args.pattern, args.parameters ?? spec!.params, args.bindings ?? spec!.bindings, args.profile ?? spec!.profile);
+  const zero = (args.parameters ?? []).find((p) => p.kind === "zeroShift")?.value;
+  const ctx = axisContext(args.pattern, args.instrument, zero);
+  const unit = args.pattern.xUnit;
+  const ds = args.pattern.points.map((p) => convertAxisValue(p.x, unit, "dSpacing", ctx)).filter((d) => Number.isFinite(d) && d > 0);
+  const dMin = Math.min(...ds) * 0.98;
+  const dMax = Math.min(50, Math.max(...ds) * 1.02);
+  const reflections = [args.structure, ...(args.extraPhases ?? [])]
+    .flatMap((ph) => generateReflections(ph.cell, ph.spaceGroup, dMin, dMax, { absences: true }).map((r) => convertAxisValue(r.d, "dSpacing", unit, ctx)))
+    .filter(Number.isFinite);
+  const yObs = args.pattern.points.map((p) => p.yObs);
+  const reading = inspectDataRange({
+    x: args.pattern.points.map((p) => p.x),
+    yObs,
+    sigma: args.pattern.points.map((p) => (p.sigma !== undefined && p.sigma > 0 ? p.sigma : Math.sqrt(Math.max(p.yObs, 1)))),
+    yCalc: curves.yCalc,
+    ...(curves.yBackground ? { yBackground: curves.yBackground } : {}),
+    fitted: args.result?.status === "converged" && !!args.parameters,
+    reflections,
+    shortD: unit === "tof" || unit === "dSpacing" ? "low" : "high",
+    excluded: excludedPointMask(yObs),
+    window: args.fitRange ?? null,
+  });
+  const p = reading.proposed;
+  return { ...reading, proposedD: p ? [convertAxisValue(p.min, unit, "dSpacing", ctx), convertAxisValue(p.max, unit, "dSpacing", ctx)] : null };
+}
+
 export function check_cell_symmetry(args: {
   structure: StructureModel;
   pattern: PowderPattern;

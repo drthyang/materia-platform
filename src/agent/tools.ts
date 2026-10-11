@@ -101,6 +101,15 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     pages: ["powder"],
   },
   {
+    name: "check_fit_range",
+    title: "Check the fit range",
+    description:
+      "Powder page only. Reads the data's two ends and proposes where the fit window should start and stop, as the GSAS-II tutorials do: the long-d end starts just below the first reflection (the background beyond it tells the structure nothing) unless the data hold peaks there that no phase explains (magnetic order, an impurity: then keep them); the far end ends in a gap below a detector's or scan's edge (counts that step up and stay), points with no counts, a line cut by the last point, or the stretch where peaks have faded into the noise; on a converged fit, a stretch at an end the model misses by more than anywhere just inside. Each cut lies in a gap between reflections. Returns each end's verdict with the evidence, the counting σ at the ends, and `proposed` (the window, in the data's unit and in d) — apply it with set_fit_range, which asks the user. The first step of the method: run it before the cell check, and again after the first refinement, when the residual can show what the data alone could not. It never changes the window itself.",
+    inputSchema: {},
+    effect: "read",
+    pages: ["powder"],
+  },
+  {
     name: "find_unexplained_peaks",
     title: "Find unexplained peaks",
     description:

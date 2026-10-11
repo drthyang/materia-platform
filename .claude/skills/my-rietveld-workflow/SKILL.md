@@ -37,12 +37,37 @@ corrections fixes. A reflection the model has, with more or less intensity than 
 is a **misfit to refine**, never an "extra peak" and never evidence for a lower symmetry.
 Only a peak that sits on no reflection of any phase is an extra peak.
 
-## Stage 0 — Load and sanity-check the cell
+## Stage 0 — Load, set the fit range, and sanity-check the cell
 
 1. Load the three inputs: `parse_structure` (CIF), `parse_powder_data` (pattern),
    `parse_instrument`. Confirm the radiation/geometry (CW vs TOF; capillary, flat-plate,
    or cylindrical) — it decides which corrections are even meaningful later.
-2. Run the **free-intensity (Le Bail) check**: `check_cell_symmetry` (pass known impurity
+2. **Set the fit range: read the data's ends** (`check_fit_range`) before anything is
+   fitted. The ends of a scan are often not data the model should fit, and a model that
+   fits them anyway bends its background — which then trades with the B values at high
+   angle. The user's practice, which is also the GSAS-II tutorials': start **just below the
+   first reflection** (the background before it tells the structure nothing), and end **in
+   a gap below the end of the pattern** when the end is not real data:
+   - counts that **step up and stay** at the last points (a detector's or a scan's edge),
+     points with no counts, or a line cut by the last point;
+   - at the short-d end, the stretch where **no peak stands out of the noise** any more
+     (on POWGEN's short-TOF end: "find a place where there are still peaks and put the
+     lower limit into a convenient gap");
+   - on a converged fit, a stretch at an end the model misses by more than anywhere next
+     to it.
+   **Keep** what holds information: peaks below the first reflection that no phase explains
+   are magnetic order (neutrons, below the ordering temperature) or another phase — they
+   stay in the window and get explained (Cr₂WO₆ at 4 K: four peaks below the first nuclear
+   reflection, the strongest 40σ). Keep both ends when peaks are clear to the last point.
+   Every cut goes in a gap between reflections, never through a line. The tool reports
+   each end with its evidence and the counting σ there (PbSO₄ on D1A: one detector counts
+   the last 6°, 3.2× the middle's relative σ) and proposes the window; apply it with
+   `set_fit_range`, which asks the user, and say why end by end. A large cut (more than
+   15 % of the points) is the user's call. Read the ends again after the first refinement:
+   the residual then shows what the data alone could not (PbSO₄: the last 0.8° sat 4.4σ
+   above the model, more than anywhere just inside). The page fits one window; a stretch
+   inside the pattern (a spike, a sample-environment line) cannot be left out — say so.
+3. Run the **free-intensity (Le Bail) check**: `check_cell_symmetry` (pass known impurity
    phases as `extraPhases`). It refines the cell by a Le Bail fit and reads what is left
    over. It is a sanity check, not a gate — it never holds a refinement:
    - **unindexed peaks** (`unindexedPeaks`) — a peak no reflection of the cell can place.
@@ -66,7 +91,7 @@ Only a peak that sits on no reflection of any phase is an extra peak.
    Report the numbers, not just "passed": how many absences were tested, how many were
    untestable (overlapped), and the tool's `limits` — it cannot see a too-large cell or a
    group with too few absences.
-3. Carry the cell (the tool's Le Bail `cell`), zero, background, and a decent starting
+4. Carry the cell (the tool's Le Bail `cell`), zero, background, and a decent starting
    profile forward as the seed for the structural refinement. When the user asks for a
    refinement, refine: the check informs the refinement, it does not stand in its way.
 
@@ -361,6 +386,7 @@ standard or an X-ray cell.
 | Step | Tool |
 |------|------|
 | Load | `parse_structure`, `parse_powder_data`, `parse_instrument` |
+| The fit range (first) | `check_fit_range` (the data's ends: where to start and stop; in the app, then `set_fit_range`) |
 | Cell sanity check (start) | `check_cell_symmetry` (Le Bail cell, unindexed peaks, absence flags) |
 | Build param set + staged plan | `build_refinement` |
 | Run a refinement block | `refine_powder` |

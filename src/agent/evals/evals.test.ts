@@ -128,6 +128,20 @@ const REPLAYS: Readonly<Record<string, Replay>> = {
     ],
     catches: ["keeps the instrument's terms apart from the thermal parameters", "alternates the instrument's terms and the thermal parameters", "does not ask to lift a firm rule unprompted"],
   },
+  "fit-range-edges": {
+    good: [
+      { text: "Your method first.", calls: [RIETVELD, { name: "get_state" }] },
+      { text: "Its first stage: the data's ends.", calls: [{ name: "check_fit_range" }] },
+      { text: "The scan holds only background below the first reflection, and its last points step up and stay — a detector's edge. I set the window inside both.", calls: [{ name: "set_fit_range", input: { min: 16.968, max: 108.12 } }] },
+      { text: "Now scale, background and cell.", calls: [{ name: "refine" }] },
+      { text: "The window leaves out the background below the first reflection and the stepped edge; the first refinement converged inside it." },
+    ],
+    bad: [
+      { calls: [RIETVELD, { name: "refine" }] },
+      { text: "Refined over the whole scan." },
+    ],
+    catches: ["calls check_fit_range", "reads the data's ends and sets the window before refining", "sets the fit window from 12–18.9 to 105.3–108.3 (the data's ends left out)"],
+  },
   "fit-window-in-d": {
     good: [
       { calls: [RIETVELD, { name: "set_fit_range", input: { min: 1.2, max: 3, unit: "dSpacing" } }] },

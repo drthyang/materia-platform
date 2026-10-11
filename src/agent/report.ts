@@ -103,10 +103,11 @@ export function historySteps(page: AgentPage, history: ProjectHistory | null): {
 
 const capital = (s: string): string => (s ? s[0]!.toUpperCase() + s.slice(1) : s);
 
-/** The record's checks: the cell check, the symmetry review, the method exceptions the user allowed. */
+/** The record's checks: the fit range, the cell check, the symmetry review, the method exceptions the user allowed. */
 export function recordChecks(page: AgentPage, record: AgentRecord): ReportCheck[] {
   const out: ReportCheck[] = [];
   if (page === "powder") {
+    if (record.rangeCheck) out.push({ name: "Fit range", status: "note", detail: `${capital(record.rangeCheck.summary)}.` });
     out.push(record.cellCheck
       ? { name: "Cell check", status: record.cellCheck.passed ? "pass" : "note", detail: `${capital(record.cellCheck.summary)}.` }
       : { name: "Cell check", status: "note", detail: "Not run in this analysis." });

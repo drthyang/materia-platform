@@ -9,6 +9,34 @@ release fixes bugs.
 
 ### Added
 
+- **The fit range, read from the data's ends** (`check_fit_range`, in the app
+  and over MCP), the first stage of the Rietveld method and of its checklist.
+  It proposes where the window starts and stops, as the GSAS-II tutorials do:
+  just below the first reflection (background beyond it), unless the data hold
+  peaks there no phase explains, which stay in (Cr₂WO₆ at 4 K: four peaks below
+  the first nuclear line, the strongest 40σ); and in a gap below what is not
+  real data — counts that step up and stay at the last points, points with no
+  counts, a line cut by the last point, the short-d stretch where no peak
+  stands out of the noise, or (on a converged fit) a stretch the model misses
+  more than anywhere next to it. Every cut lies in a gap between reflections;
+  `set_fit_range` applies it with the user's approval. On PbSO₄ (D1A) it
+  proposes 18.8–153.95°: below the first reflection at 20.4°, and above the
+  last 0.8°, which one detector counts and which sits 4.4σ above the model
+  once the base is refined. On fluorapatite, NAC, Cr₂WO₆ and Mn₃Ga it keeps
+  what the tutorials keep. The user found the edge on the demo.
+- **Instrument and thermal parameters refined apart** — a firm rule: `refine`
+  refuses a free set holding the instrument's terms (the zero or TOF
+  calibration, Caglioti U V W, Lorentzian X Y, the TOF profile, the asymmetry;
+  Qdamp and Qbroad on a PDF) together with the B values or ADPs, and says how
+  to alternate. Only the user lifts it (`allow_exception`). Each refinement of
+  one group reports the `alternation`: its largest shift since its last
+  refinement, in esd, and `settled` once a cycle moves neither by more than
+  0.3 esd (a note when the shifts shrink slowly: the groups are coupled). The
+  skills give the reason; `rank_next_parameters` marks the groups the rule
+  would refuse. The user found it on the demo, which refined both together.
+- **Eval scenarios** `instrument-thermal-apart` and `fit-range-edges`, each
+  replayed as the Agent should behave and as it failed.
+
 - **Known phases the Agent can add** (`add_known_phase`): a phase
   `identify_peaks` matched goes into the model as a further phase, with the
   library's room-temperature cell and positions and B ≈ 0.5 Å², so its scale
@@ -230,6 +258,9 @@ release fixes bugs.
 
 ### Fixed
 
+- A boxcar scan given its own free set is checked against the method's rules
+  with that set, not the page's.
+- A refinement that did not finish no longer marks the method's stages done.
 - **The instrument file's peak asymmetry.** A GSAS type-3 profile's S/L and
   H/L (PRCF12) and GSAS-II's SH/L were dropped, and switching the asymmetry
   on seeded 0.01, nine times 11-BM's 0.0011. They are now read, seed the

@@ -531,6 +531,11 @@ function checkAgent(v: unknown, path: string): void {
     const p = `${path}.records[${i}]`;
     const record = rec(r, p);
     str(record.key, `${p}.key`);
+    if (record.rangeCheck !== undefined && record.rangeCheck !== null) {
+      const check = rec(record.rangeCheck, `${p}.rangeCheck`);
+      num(check.at, `${p}.rangeCheck.at`);
+      str(check.summary, `${p}.rangeCheck.summary`);
+    }
     if (record.cellCheck !== undefined && record.cellCheck !== null) {
       const check = rec(record.cellCheck, `${p}.cellCheck`);
       bool(check.passed, `${p}.cellCheck.passed`);

@@ -23,10 +23,12 @@ describe("the method as code", () => {
   it("tracks the stages and names the next required one", () => {
     const fresh = methodProgress("powder", emptyRecord("k"));
     expect(fresh.skill).toBe("my-rietveld-workflow");
-    expect(fresh.next).toBe("Cell check");
-    const later = methodProgress("powder", { ...emptyRecord("k"), cellCheck: { passed: false, at: 0, summary: "1 absence flagged" }, stagesDone: ["base", "positions"] });
+    // The fit range comes first: the data's ends before anything is fitted.
+    expect(fresh.next).toBe("Fit range");
+    expect(methodProgress("powder", { ...emptyRecord("k"), rangeCheck: { at: 0, summary: "low-angle end: trim to 18.8 (background-only)" } }).next).toBe("Cell check");
+    const later = methodProgress("powder", { ...emptyRecord("k"), rangeCheck: { at: 0, summary: "keep both ends" }, cellCheck: { passed: false, at: 0, summary: "1 absence flagged" }, stagesDone: ["base", "positions"] });
     // A check that flagged something is still done: it is a check, not a gate.
-    expect(later.stages.map((s) => s.done)).toEqual([true, true, true, false, false, false, false, false]);
+    expect(later.stages.map((s) => s.done)).toEqual([true, true, true, true, false, false, false, false, false]);
     expect(later.next).toBe("Profile");
     // The symmetry review is the last stage, and optional.
     expect(later.stages.at(-1)).toMatchObject({ id: "symmetry", label: "Symmetry review (last)", optional: true });

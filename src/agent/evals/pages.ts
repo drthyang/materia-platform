@@ -145,6 +145,31 @@ export function mn3gaFluoriteSession(): Session {
   return prefit(withLines, scaleAndBackground(withLines));
 }
 
+/** Where the edge of `mn3gaEdgeSession` starts, and where its scan ends (2θ, °). */
+export const EDGE_STEP_AT = 108.3;
+const EDGE_SCAN_END = 109.3;
+
+/**
+ * The demo as a scan with an edge that is not real data (the user's demo
+ * feedback, PbSO₄ on D1A): the scan stops at EDGE_SCAN_END, in the gap after
+ * the line at 105.6°; on a background of 300 counts, from EDGE_STEP_AT to the
+ * end the counts step up by half the background and stay there, as at a
+ * detector's edge; below the first reflection the scan holds background only.
+ * The scale and background are fitted to the whole scan, edge and all.
+ */
+export function mn3gaEdgeSession(): Session {
+  const s0 = mn3gaSession();
+  const s = { ...s0, powderParams: s0.powderParams.map((p) => (p.id === "width" ? { ...p, value: TRUE_WIDTH } : p)) };
+  const noise = gaussian(11);
+  const points = s.pattern.points.filter((p) => p.x <= EDGE_SCAN_END).map((p) => {
+    const extra = 300 + (p.x >= EDGE_STEP_AT ? 150 : 0);
+    const y = p.yObs + extra + Math.sqrt(extra) * noise();
+    return { ...p, yObs: y, sigma: Math.sqrt(Math.max(y, 1)) };
+  });
+  const edged = { ...s, pattern: { ...s.pattern, points } };
+  return prefit(edged, scaleAndBackground(edged));
+}
+
 /** The magnetic structure behind `mn3gaMagneticSession`: k, the group (its id on the page) and the Mn moment. */
 export const MAGNETIC_TRUTH = { k: [0, 0, 0.5] as Vec3, id: "G2", moment: 2.5 } as const;
 

@@ -9,6 +9,10 @@
  *   refined together with the thermal parameters (the user's demo feedback:
  *   alternate the two groups). Only the user lifts a rule, through
  *   allow_exception, which always asks them, even in Auto.
+ * - The fit range comes first: check_fit_range reads the data's ends and
+ *   proposes a window (the user's demo feedback: an edge that is not real
+ *   data was fitted). A check, done once it has run; the window is set by
+ *   set_fit_range, with the user's approval.
  * - The cell check at the start is a check, not a gate: it catches gross
  *   problems (a peak no reflection can index) and never blocks a refinement.
  *   The space group is reviewed LAST (review_symmetry refuses until every
@@ -88,8 +92,9 @@ export interface MethodStage {
   readonly optional?: boolean;
 }
 
-/** my-rietveld-workflow: the cell check, atoms before profile, ADPs, occupancy, corrections; symmetry last. */
+/** my-rietveld-workflow: the fit range, the cell check, atoms before profile, ADPs, occupancy, corrections; symmetry last. */
 const POWDER_STAGES: readonly MethodStage[] = [
+  { id: "range", label: "Fit range", kinds: [] },
   { id: "check", label: "Cell check", kinds: [] },
   { id: "base", label: "Scale, background, cell", kinds: ["scale", "background", "cellLength", "cellAngle", "zeroShift", "tofCalibration"] },
   { id: "positions", label: "Positions", kinds: ["atomX", "atomY", "atomZ", "positionShift"] },
@@ -149,7 +154,7 @@ export function methodProgress(page: AgentPage, record: AgentRecord): MethodProg
   const stages = stagesFor(page).map((s): StageView => ({
     id: s.id,
     label: s.label,
-    done: s.id === "check" ? record.cellCheck !== undefined : s.id === "symmetry" ? record.symmetryReviewed !== undefined : done.has(s.id),
+    done: s.id === "range" ? record.rangeCheck !== undefined : s.id === "check" ? record.cellCheck !== undefined : s.id === "symmetry" ? record.symmetryReviewed !== undefined : done.has(s.id),
     optional: !!s.optional,
   }));
   return { skill: PAGE_METHOD[page], stages, next: stages.find((s) => !s.done && !s.optional)?.label ?? null };

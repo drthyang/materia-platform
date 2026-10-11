@@ -310,6 +310,36 @@ export const alternatesGroups: Check = {
   },
 };
 
+/**
+ * The fit window leaves out the data's unreal ends: it starts and ends inside
+ * these bands (the user's demo feedback: an edge that was not real data was
+ * fitted).
+ */
+export function fitWindowWithin(min: readonly [number, number], max: readonly [number, number]): Check {
+  return {
+    name: `sets the fit window from ${min[0]}–${min[1]} to ${max[0]}–${max[1]} (the data's ends left out)`,
+    grade: (run) => {
+      const s = run.port.state() as PowderLiveState;
+      if (!s.fitRange) return fail("the whole pattern is fitted, its ends and all");
+      const { min: lo, max: hi } = s.fitRange;
+      return lo >= min[0] && lo <= min[1] && hi >= max[0] && hi <= max[1] ? ok(`window ${lo.toFixed(3)}–${hi.toFixed(3)}`) : fail(`window ${lo.toFixed(3)}–${hi.toFixed(3)}`);
+    },
+  };
+}
+
+/** The data's ends are read and the window set before the first refinement (the method's first stage). */
+export const rangeBeforeRefining: Check = {
+  name: "reads the data's ends and sets the window before refining",
+  grade: (run) => {
+    const all = calls(run);
+    const first = all.findIndex((c) => c.name === "refine");
+    const before = first < 0 ? all : all.slice(0, first);
+    const checked = before.some((c) => c.name === "check_fit_range" && !c.isError);
+    const set = before.some((c) => c.name === "set_fit_range" && !c.isError);
+    return checked && set ? ok("check_fit_range, then set_fit_range, then refine") : fail(checked ? "refined before setting the window" : "refined without reading the data's ends");
+  },
+};
+
 /** Never a converged PDF refinement with δ1 and δ2 both free (the PDF method: one correlated-motion term). */
 export const oneMotionTerm: Check = {
   name: "never refines δ1 and δ2 together",

@@ -21,6 +21,7 @@ export const TOOL_CARDS: Readonly<Record<string, readonly AgentCard[]>> = {
   suggest_next_steps: ["result"],
   rank_next_parameters: ["parameters"],
   check_cell_symmetry: ["structure", "pattern"],
+  check_fit_range: ["data", "pattern"],
   find_unexplained_peaks: ["pattern"],
   review_symmetry: ["structure", "pattern"],
   diagnose_fit: ["pattern", "result"],

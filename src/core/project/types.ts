@@ -266,6 +266,8 @@ export interface AgentRecordFile {
   readonly key: string;
   /** The cell check at the start (check_cell_symmetry): advisory, never a gate. */
   readonly cellCheck?: { readonly passed: boolean; readonly at: number; readonly summary: string };
+  /** The last read of the data's ends (check_fit_range): what it found and the window it proposed. */
+  readonly rangeCheck?: { readonly at: number; readonly summary: string };
   /** The symmetry review at the end of the method (review_symmetry). */
   readonly symmetryReviewed?: { readonly at: number; readonly summary: string };
   readonly exceptions: readonly { readonly rule: "bare-occupancy" | "instrument-with-thermal"; readonly reason: string; readonly at: number }[];

@@ -4,7 +4,7 @@
  * own data, with the checks that say whether it got it right this time.
  */
 
-import { MAGNETIC_TRUTH, impurityD, mn3gaFluoriteSession, mn3gaImpuritySession, mn3gaMagneticSession, mn3gaMisfitSession, mn3gaSession, pdfPage, powderPage } from "@/agent/evals/pages";
+import { EDGE_STEP_AT, MAGNETIC_TRUTH, impurityD, mn3gaEdgeSession, mn3gaFluoriteSession, mn3gaImpuritySession, mn3gaMagneticSession, mn3gaMisfitSession, mn3gaSession, pdfPage, powderPage } from "@/agent/evals/pages";
 import {
   addsKnownPhase,
   adaptsAfterRefusal,
@@ -13,6 +13,7 @@ import {
   doesNotRefuse,
   explains,
   fitWindowIs,
+  fitWindowWithin,
   keepsGroupsApart,
   liftsNoRule,
   magneticGroupIs,
@@ -22,6 +23,7 @@ import {
   noStall,
   oneMotionTerm,
   ran,
+  rangeBeforeRefining,
   readsMethodFirst,
   refines,
   reportCarriesScan,
@@ -113,6 +115,15 @@ export const SCENARIOS: readonly EvalScenario[] = [
     messages: ["Refine the peak width and the B values."],
     autonomy: "auto",
     checks: [readsMethodFirst, keepsGroupsApart, alternatesGroups, liftsNoRule, noStall],
+  },
+  {
+    id: "fit-range-edges",
+    title: "Reads the data's ends and leaves out what is not real data, before refining",
+    origin: "The user's feedback on the demo (2026-10-11): the edge of the data did not look real and should have been excluded; the Agent should optimize the fit range.",
+    page: () => powderPage(mn3gaEdgeSession()),
+    messages: ["Refine this pattern by my method."],
+    autonomy: "auto",
+    checks: [readsMethodFirst, ran("check_fit_range"), rangeBeforeRefining, fitWindowWithin([12, 18.9], [Number((EDGE_STEP_AT - 3).toFixed(1)), EDGE_STEP_AT]), noStall],
   },
   {
     id: "fit-window-in-d",

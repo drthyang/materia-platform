@@ -250,9 +250,16 @@ describe("AgentExecutor on a live powder fit", () => {
     expect(check.passed).toBe(true);
     expect(check.reading).toBe("Every peak indexes and no forbidden reflection shows intensity: refine the structure.");
     expect(records.get(key)!.cellCheck).toMatchObject({ passed: true, summary: "every peak indexes; no absence flagged" });
-    const method = parse((await ex.run("get_state", {})).text).method as { stages: string[]; next: string; cellCheck: string };
-    expect(method.stages).toEqual(["✓ Cell check", "✓ Scale, background, cell", "✓ Positions", "○ Profile", "○ ADPs", "○ Occupancy (if needed)", "○ Corrections (if needed)", "○ Symmetry review (last) (if needed)"]);
+    expect(parse((await ex.run("get_state", {})).text).method).toMatchObject({ next: "Fit range" });
+    // The data's ends: read, recorded, and the window left to set_fit_range.
+    const range = parse((await ex.run("check_fit_range", {})).text);
+    expect(range.basis).toMatch(/^the data and the converged fit's residual$/);
+    expect(asked.map((e) => e.tool)).toEqual(["refine"]);
+    expect(records.get(key)!.rangeCheck?.summary).toMatch(/^low-angle end: (keep|trim to [\d.]+ \([a-z-, ]+\)); high-angle end: (keep|trim to [\d.]+ \([a-z-, ]+\))/);
+    const method = parse((await ex.run("get_state", {})).text).method as { stages: string[]; next: string; cellCheck: string; rangeCheck: string };
+    expect(method.stages).toEqual(["✓ Fit range", "✓ Cell check", "✓ Scale, background, cell", "✓ Positions", "○ Profile", "○ ADPs", "○ Occupancy (if needed)", "○ Corrections (if needed)", "○ Symmetry review (last) (if needed)"]);
     expect(method.next).toBe("Profile");
+    expect(method.rangeCheck).toBe(records.get(key)!.rangeCheck!.summary);
     expect(method.cellCheck).toBe("every peak indexes; no absence flagged");
 
     // ADPs before the profile: refined, with a note.

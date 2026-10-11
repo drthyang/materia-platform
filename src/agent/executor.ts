@@ -203,6 +203,7 @@ export class AgentExecutor implements ToolRunner {
             : isMagneticTool(spec.name) ? await readMagneticTool(spec.name, input, port, () => this.host.settle())
               : readPowderTool(spec.name, input, port, this.host);
         if (spec.name === "check_cell_symmetry") this.noteCellCheck(port, out as { passed?: boolean; unindexedPeaks?: unknown[]; absences?: { violated?: unknown[] } });
+        if (spec.name === "check_fit_range") this.noteRangeCheck(port, out as RangeAnswer);
         if (spec.name === "review_symmetry") this.noteSymmetryReview(port, out as { observedForbidden?: unknown[]; candidates?: { name: string }[] });
         if (spec.name === "get_state") out = { ...(out as object), method: this.methodView(port) };
         update({ status: "done" });
@@ -342,6 +343,14 @@ export class AgentExecutor implements ToolRunner {
     this.host.updateRecord(keyOfState(port.technique, port.state()), (r) => ({ ...r, cellCheck: { passed: !!out.passed, at: Date.now(), summary } }));
   }
 
+  /** The data ends' reading, kept for the analysis: what each end showed and the window proposed. A record, not a gate. */
+  private noteRangeCheck(port: AgentPort, out: RangeAnswer): void {
+    const end = (e: RangeAnswer["low"]): string => e.verdict === "trim" ? `${e.end}: trim to ${e.cut} (${e.findings.map((f) => f.slice(0, f.indexOf(":"))).join(", ")})` : `${e.end}: keep`;
+    const proposed = typeof out.proposed === "object" ? `; proposed window ${out.proposed.min}–${out.proposed.max} ${out.unit}` : "";
+    const summary = `${end(out.low)}; ${end(out.high)}${proposed}`;
+    this.host.updateRecord(keyOfState(port.technique, port.state()), (r) => ({ ...r, rangeCheck: { at: Date.now(), summary } }));
+  }
+
   /** The symmetry review's outcome, kept for the analysis. */
   private noteSymmetryReview(port: AgentPort, out: { observedForbidden?: unknown[]; candidates?: { name: string }[] }): void {
     const n = out.observedForbidden?.length ?? 0;
@@ -396,6 +405,7 @@ export class AgentExecutor implements ToolRunner {
       skill: progress.skill,
       stages: progress.stages.map((st) => `${st.done ? "✓" : "○"} ${st.label}${st.optional ? " (if needed)" : ""}`),
       next: progress.next ?? `every required stage done: check the acceptance bar${port.technique === "powder" ? "; only if the fit is still not good, review_symmetry" : ""}`,
+      ...(record.rangeCheck ? { rangeCheck: record.rangeCheck.summary } : {}),
       ...(record.cellCheck ? { cellCheck: record.cellCheck.summary } : {}),
       ...(record.symmetryReviewed ? { symmetryReview: record.symmetryReviewed.summary } : {}),
       ...(record.exceptions.length > 0 ? { exceptions: record.exceptions.map((e) => `${e.rule}: ${e.reason}`) } : {}),
@@ -514,6 +524,14 @@ export class AgentExecutor implements ToolRunner {
     }
     return { ref, value: buildView(value, ref, budget) };
   }
+}
+
+/** check_fit_range's answer, as the record reads it. */
+interface RangeAnswer {
+  readonly unit: string;
+  readonly low: { readonly end: string; readonly verdict: string; readonly cut?: number; readonly findings: readonly string[] };
+  readonly high: { readonly end: string; readonly verdict: string; readonly cut?: number; readonly findings: readonly string[] };
+  readonly proposed: { readonly min: number; readonly max: number } | string;
 }
 
 function error(message: string): ToolOutcome {
