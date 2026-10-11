@@ -63,6 +63,41 @@ export function bondLengths(model: StructureModel, cutoff = 3.2): BondLength[] {
   return unique;
 }
 
+/** Covalent radii (Å), Cordero et al. (2008), for the elements of molecular crystals; 0.75 otherwise. */
+const COVALENT: Readonly<Record<string, number>> = {
+  H: 0.31, D: 0.31, B: 0.84, C: 0.76, N: 0.71, O: 0.66, F: 0.57, Si: 1.11, P: 1.07, S: 1.05, Cl: 1.02, Se: 1.2, Br: 1.2, I: 1.39,
+};
+export const covalentRadius = (element: string): number => COVALENT[element.replace(/[^A-Za-z]/g, "")] ?? 0.75;
+
+/** Two atoms at `distance` (Å) are bonded: closer than their covalent radii's sum and 0.4 Å. */
+export const covalentlyBonded = (a: string, b: string, distance: number): boolean => distance > 0.5 && distance < covalentRadius(a) + covalentRadius(b) + 0.4;
+
+/** A structure with carbon is molecular: its geometry is its covalent bonds, not cation shells. */
+export function isMolecular(model: StructureModel): boolean {
+  return model.sites.some((site) => site.element.replace(/[^A-Za-z]/g, "") === "C");
+}
+
+/**
+ * The covalent bonds of a structure, as SHELXL lists them (_geom_bond): each
+ * pair of atoms closer than their covalent radii's sum and 0.4 Å, once, from
+ * the site listed first, in the order of the sites and shortest first.
+ */
+export function covalentBonds(model: StructureModel): BondLength[] {
+  const order = new Map(model.sites.map((site, i) => [site.label, i]));
+  const element = new Map(model.sites.map((site) => [site.label, site.element]));
+  const seen = new Set<string>();
+  const out: BondLength[] = [];
+  for (const b of bondLengths(model, 3.0)) {
+    if (!covalentlyBonded(element.get(b.from)!, element.get(b.to)!, b.distance)) continue;
+    const [from, to] = order.get(b.from)! <= order.get(b.to)! ? [b.from, b.to] : [b.to, b.from];
+    const key = `${from}–${to}@${b.distance.toFixed(4)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ from, to, distance: b.distance });
+  }
+  return out.sort((x, y) => order.get(x.from)! - order.get(y.from)! || x.distance - y.distance);
+}
+
 /** One bond of a coordination shell: the neighbour site, the length and how many neighbours sit at it. */
 export interface ShellBond {
   readonly to: string;

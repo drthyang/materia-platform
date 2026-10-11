@@ -308,10 +308,25 @@ describe("AgentExecutor on the single-crystal page", () => {
     const b = (label: string): number => { const adp = at(label).adp; return adp.kind === "isotropic" ? adp.bIso : NaN; };
     expect(b("H4") / b("C4")).toBeCloseTo(1.2, 9);
     expect(b("H7A") / b("C7")).toBeCloseTo(1.5, 9);
+    // Bonds to the atoms asked for; the riding C–H set by the constraint, the C–C with an esd.
+    const bonds = parse((await ex.run("bond_geometry", { atoms: ["C4"], cutoff: 1.6 })).text).bonds as { from: string; to: string; length?: string }[];
+    expect(bonds.find((x) => [x.from, x.to].includes("H4"))!.length).toMatch(/^0\.9500 \(riding: set by the constraint, no esd\)$/);
+    expect(bonds.filter((x) => !(x.from === "H4" || x.to === "H4")).every((x) => /^1\.\d+\(\d+\)$/.test(x.length ?? ""))).toBe(true);
+    expect((await ex.run("bond_geometry", { atoms: ["C99"] })).text).toMatch(/no site C99/);
+    // Against the structure as loaded: the heavy atoms only (the riding hydrogens have no parameter), each shift in Å and esds.
+    const against = parse((await ex.run("structure_table", { against: "loaded" })).text).againstLoaded as Record<string, unknown>;
+    expect(against.sites).toBe(8);
+    expect(String(against.positions)).toMatch(/^largest shift 0\.0\d{3} Å at \w+ \(\d+(\.\d)? esd\); \d+ site\(s\) beyond 3 esd$/);
+    expect(String(against.adps)).toMatch(/^refined\/loaded B /);
     // The table says which ride, on what.
     const table = parse((await ex.run("structure_table", {})).text) as { phases: { sites: { label: string; riding?: string }[] }[] };
     expect(table.phases[0]!.sites.find((x) => x.label === "H4")!.riding).toBe("rides on C4 (AFIX 43, on the bisector), U_iso = 1.2·U_eq(C4)");
     expect(table.phases[0]!.sites.find((x) => x.label === "C4")!.riding).toBeUndefined();
+    // The report's geometry is the molecule's covalent bonds, with esds; the riding C–H set by the constraint.
+    const bondRows = port.reportInput!().phases[0]!.bonds!;
+    expect(bondRows.find((b) => b.from === "S1" && b.to === "C2")!.length).toMatch(/^1\.\d{3,4}\(\d+\)$/);
+    expect(bondRows.find((b) => [b.from, b.to].includes("H4"))!.length).toBe("0.9500 (riding)");
+    expect(bondRows.some((b) => b.from === "C2" && b.to === "C3")).toBe(true);
     // The report states the treatment.
     const report = port.reportInput!().data.find((r) => r.label === "Hydrogens")!.value;
     expect(report).toMatch(/^7 riding on their parents \(4 sp² C–H on the bisector \(AFIX 43\), X–H 0\.950 Å, U_iso 1\.2·U_eq; 3 at their present offset \(AFIX 3\), X–H 0\.980 Å, U_iso 1\.5·U_eq\)$/);

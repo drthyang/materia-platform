@@ -319,6 +319,19 @@ function verdictFrom(result: RefinementResult, mode: "powder" | "single-crystal"
   return { band: "poor", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)}: ${MISFIT_CAUSES[mode].poor}.` };
 }
 
+/**
+ * A U-tensor mode off the diagonal (U12, U13, U23, or a combination the site
+ * symmetry ties): negative values are as physical as positive ones, and the
+ * tensor as a whole is judged by its positive definiteness. The builders bound
+ * a diagonal mode at 0 and let an off-diagonal one below it; a row without a
+ * bound is read by its label.
+ */
+function offDiagonal(p: RefinementParameter): boolean {
+  if (p.kind !== "uAniso") return false;
+  if (p.min !== undefined) return p.min < 0;
+  return /U(12|13|23)\b/.test(p.label) && !/U(11|22|33)\b/.test(p.label);
+}
+
 const PHYSICAL_LABEL: Partial<Record<ParameterKind, string>> = {
   bIso: "isotropic displacement B",
   occupancy: "site occupancy",
@@ -334,7 +347,7 @@ const PHYSICAL_LABEL: Partial<Record<ParameterKind, string>> = {
 export function physicalFindings(parameters: readonly RefinementParameter[]): AssessmentFinding[] {
   const findings: AssessmentFinding[] = [];
   for (const p of parameters) {
-    if (ADP_KINDS.has(p.kind) && p.value < 0) {
+    if (ADP_KINDS.has(p.kind) && p.value < 0 && !offDiagonal(p)) {
       const what = PHYSICAL_LABEL[p.kind] ?? "displacement parameter";
       findings.push({
         category: "physical",

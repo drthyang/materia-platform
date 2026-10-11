@@ -253,12 +253,23 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
   return { port, calls, session: () => s };
 }
 
+/**
+ * The port as the app hands it out: the page publishes a new port object at
+ * every render, and its state() is that render's. A tool that changes the page
+ * and then reads the port it was given sees the page as it was before; only a
+ * port fetched again after the render sees the change.
+ */
+function renderSnapshot(port: AgentPort): AgentPort {
+  const frozen = port.state();
+  return { ...port, state: () => frozen } as AgentPort;
+}
+
 export function fakeHost(port: AgentPort | null, history: () => ProjectHistory | null = () => null): { host: AgentHost; steps: { kind: StepKind; agent: boolean }[]; records: Map<string, AgentRecord> } {
   const steps: { kind: StepKind; agent: boolean }[] = [];
   const records = new Map<string, AgentRecord>();
   let agent = false;
   const host: AgentHost = {
-    port: () => port,
+    port: () => (port ? renderSnapshot(port) : null),
     technique: () => port?.technique ?? null,
     settle: async () => undefined,
     asAgent: async (fn) => {
@@ -584,7 +595,7 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
     reportInput: () => {
       const st = state();
       return singleCrystalReportInput({
-        structure: st.refinedStructure, params, bindings: spec.bindings, result, dataset: active(), totalReflections: dataset.reflections.length,
+        structure: st.refinedStructure, base: model, params, bindings: spec.bindings, result, dataset: active(), totalReflections: dataset.reflections.length,
         excluded: st.outlierFilter.excluded, filterOn: filter.on, cutoffSigma: filter.cutoffSigma, minExtinction: filter.minExtinction ?? null, omitted, resolution: st.resolution, agreement: st.agreement, merge: st.merge,
         points: st.rows.map((r) => ({ obs: r.foSq, calc: r.fcSq })), magnetic: null, explored: null,
       });

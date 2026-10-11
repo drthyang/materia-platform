@@ -141,13 +141,20 @@ const ALWAYS_FREE: ReadonlySet<ParameterKind> = new Set(["scale", "pdfScale"]);
 /**
  * The stages a converged refinement with these parameters free covers. The
  * scale rides along with every stage: refined with the positions, it does not
- * make the background and the cell refined.
+ * make the background and the cell refined. A stage the model has no
+ * parameter for (`all`: every row on the page) cannot be refined, and a later
+ * stage refined passes it: isotropic ADPs in a structure loaded anisotropic,
+ * its hydrogens riding.
  */
-export function stagesCovered(page: AgentPage, free: readonly RefinementParameter[]): string[] {
-  const all = new Set(free.map((p) => p.kind));
-  const rest = new Set([...all].filter((k) => !ALWAYS_FREE.has(k)));
-  const kinds = rest.size > 0 ? rest : all;
-  return stagesFor(page).filter((s) => s.kinds.some((k) => kinds.has(k))).map((s) => s.id);
+export function stagesCovered(page: AgentPage, free: readonly RefinementParameter[], all?: readonly RefinementParameter[]): string[] {
+  const freeKinds = new Set(free.map((p) => p.kind));
+  const rest = new Set([...freeKinds].filter((k) => !ALWAYS_FREE.has(k)));
+  const kinds = rest.size > 0 ? rest : freeKinds;
+  const stages = stagesFor(page);
+  const covered = stages.map((s) => s.kinds.some((k) => kinds.has(k)));
+  const last = covered.lastIndexOf(true);
+  const available = all ? new Set(all.map((p) => p.kind)) : null;
+  return stages.filter((s, i) => covered[i] || (available !== null && i < last && s.kinds.length > 0 && !s.kinds.some((k) => available.has(k)))).map((s) => s.id);
 }
 
 export interface StageView {
@@ -180,9 +187,9 @@ export function methodProgress(page: AgentPage, record: AgentRecord): MethodProg
  * Freeing a block before an earlier required one: a note for the outcome.
  * The method's order is advice except where a firm rule backs it.
  */
-export function outOfOrder(page: AgentPage, free: readonly RefinementParameter[], record: AgentRecord): string | null {
+export function outOfOrder(page: AgentPage, free: readonly RefinementParameter[], record: AgentRecord, all?: readonly RefinementParameter[]): string | null {
   const progress = methodProgress(page, record);
-  const covered = new Set(stagesCovered(page, free));
+  const covered = new Set(stagesCovered(page, free, all));
   const stages = stagesFor(page);
   for (let i = 0; i < stages.length; i++) {
     const s = stages[i]!;

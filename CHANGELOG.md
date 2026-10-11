@@ -131,6 +131,20 @@ release fixes bugs.
 - **Eval scenarios** `sc-radiation-first`, `sc-riding-hydrogens`,
   `sc-listing-honesty` and `sc-weighting-last`, from the dipyridyl disulfide
   round.
+- **The refined structure against the one loaded** (`structure_table` with
+  `against: "loaded"`, single-crystal page): each site's shift in Å and in
+  esds and its U_eq against the loaded value, the sites beyond 2 esds listed —
+  for "does this reproduce the published refinement?". On dipyridyl disulfide:
+  no shift beyond 0.0008 Å (0.6 esd), and the four sulfur atoms' U_eq 1.5 %
+  below SHELXL's (4.3–4.5 esd), the f′ the app does not have yet.
+- **A molecule's bonds in the report**: for a structure with carbon, the
+  covalent bonds (closer than the covalent radii and 0.4 Å) with esds from the
+  refined positions, as SHELXL's `_geom_bond`, in place of the cation shells,
+  which for an organic molecule listed each carbon's N and S contacts and no
+  C–C bond. A riding hydrogen's bond is marked as set by its constraint.
+- **`bond_geometry` by atom** (`atoms`): only the bonds to the sites named. A
+  list cut at 40 now says so; on dipyridyl disulfide the S–S and S–C bonds lay
+  beyond the 40 shortest and were dropped without a word.
 - **The fit range, read from the data's ends** (`check_fit_range`, in the app
   and over MCP), the first stage of the Rietveld method and of its checklist.
   It proposes where the window starts and stops, as the GSAS-II tutorials do:
@@ -430,6 +444,32 @@ release fixes bugs.
 
 ### Fixed
 
+- **Riding hydrogens' derivatives are exact.** An sp² hydrogen turns with
+  the bisector when its carbon or the carbon's neighbours move, and the
+  Jacobian now carries that (SHELXL's riding derivatives keep only the
+  parent's translation). With the approximation, dipyridyl disulfide's
+  254-parameter refinement from SHELXL's own model stalled at 0.16 esd per
+  cycle; it now converges.
+- **`set_riding_hydrogens` reported "no hydrogen rides" after riding them**:
+  it read the page through the port it was given, which in the app shows the
+  page as it was before the change. The test host now hands out each render's
+  snapshot, as the app does, so a tool that reads its own change is caught.
+- **Negative off-diagonal U terms are not "unphysical".** `assess_refinement`
+  and the report flagged U12, U13 and U23 below 0 as unphysical displacement
+  parameters and listed them as open issues; only a diagonal term and the
+  tensor's positive definiteness are judged.
+- **The report's B_eq uses the full U_eq**, not a third of the trace, which
+  is wrong in a non-orthogonal cell.
+- **A method stage the model cannot refine is passed**: a structure loaded
+  anisotropic, its hydrogens riding, has no B to refine, and the isotropic-ADP
+  stage drew an "out of the method's order" note and stayed open in the
+  checklist and the report.
+- **A re-weighted refinement counts every cycle** in its message ("converged
+  after 27 iteration(s), the weights re-evaluated … 3 times"), where it gave
+  the last pass's ("after 1 iteration") beside 27 in its history.
+- **The report's number audit accepts the user's numbers**: a value the user
+  gave (a published refinement's R1) quoted in the account is theirs, not the
+  Agent's own.
 - **Loading a new CIF on the single-crystal page rebuilds its parameter
   rows.** The page stays mounted for the same data, and kept the old
   structure's rows against the new structure's bindings; the new spec's rows

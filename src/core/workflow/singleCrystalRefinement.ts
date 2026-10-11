@@ -53,6 +53,9 @@ import {
 } from "@/core/diffraction/singleCrystalFactors";
 import { cellVolume, dSpacing } from "@/core/crystal/unitCell";
 import { EIGHT_PI_SQUARED, uEquivalent } from "@/core/crystal/adp";
+import { ridingDependence } from "@/core/crystal/riding";
+import { mulVec } from "@/core/math/mat3";
+import type { Mat3, Vec3 } from "@/core/math/types";
 
 /** Structural kinds held fixed on load; freed via the table or staged sequence. */
 const STRUCTURAL_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>([
@@ -399,7 +402,8 @@ export function refineSingleCrystal(
   let result = refine(buildSingleCrystalRefinementProblem(structure, dataset, parameters, bindings), options);
   if (!weighted(dataset) || dataset.fitSigma) return result;
   let history = [...result.history];
-  for (let pass = 0; pass < 4 && (result.status === "converged" || result.status === "maxIterations"); pass++) {
+  let passes = 0;
+  for (; passes < 4 && (result.status === "converged" || result.status === "maxIterations"); passes++) {
     const start = parameters.map((p) => ({ ...p, value: result.parameters[p.id] ?? p.value }));
     const again = refine(buildSingleCrystalRefinementProblem(structure, dataset, start, bindings), options);
     history = [...history, ...again.history];
@@ -408,9 +412,14 @@ export function refineSingleCrystal(
       return e && e > 0 ? Math.abs((again.parameters[p.id] ?? p.value) - (result.parameters[p.id] ?? p.value)) / e : 0;
     }));
     result = again;
-    if (moved < 0.05) break;
+    if (moved < 0.05) {
+      passes++;
+      break;
+    }
   }
-  return { ...result, history };
+  // The message counts every cycle, as `history` does, not the last pass's alone.
+  const how = result.status === "converged" ? "converged" : `stopped (${result.status})`;
+  return { ...result, history, message: `${how} after ${history.length} iteration(s), the weights re-evaluated at the fit's own Fc² ${passes} time${passes === 1 ? "" : "s"}` };
 }
 
 /**
@@ -454,6 +463,14 @@ export function buildSingleCrystalRefinementProblem(
     for (const p of parameters) values[p.id] = p.value;
     for (let j = 0; j < freeParams.length; j++) values[freeParams[j]!.id] = freeValues[j]!;
     const applied = appliedAt(values);
+    // The riding hydrogens each atom's move carries, with ∂x_H/∂x_atom at these values.
+    const movers = new Map<string, { h: number; jacobian: Mat3 }[]>();
+    for (const dep of ridingDependence(applied.model)) {
+      const h = siteIndex.get(dep.site);
+      if (h === undefined) continue;
+      for (const on of dep.on) movers.set(on.label, [...(movers.get(on.label) ?? []), { h, jacobian: on.jacobian }]);
+    }
+    const moversOf = (label: string): { h: number; jacobian: Mat3 }[] => movers.get(label) ?? [];
     // Each free parameter's kernel derivatives (one per binding), or why it has none.
     const requests: ScDerivative[] = [];
     const plans = freeParams.map((p): { kind: "structural"; at: number[] } | { kind: "scale" } | { kind: "extinction" } | { kind: "batch"; batch: number } | null => {
@@ -475,13 +492,20 @@ export function buildSingleCrystalRefinementProblem(
         if (!d) return null;
         at.push(requests.length);
         requests.push(d);
-        // Its riding hydrogens: the same shift; B_H = 8π²·f·U_eq, linear in each U mode (f·B for an isotropic parent).
+        // The riding hydrogens it moves: x_H follows the atoms that place it (∂x_H/∂x·axis, from the
+        // geometry at these values); B_H = 8π²·f·U_eq of the parent, linear in each U mode (f·B for an isotropic parent).
+        if (d.kind === "position") {
+          for (const dep of moversOf(b.targetKey!)) {
+            const v = mulVec(dep.jacobian, d.axis as Vec3);
+            at.push(requests.length);
+            requests.push({ kind: "position", site: dep.h, axis: [v[0], v[1], v[2]] });
+          }
+        }
         for (const rider of ridersOf.get(b.targetKey!) ?? []) {
           const h = siteIndex.get(rider.site);
           if (h === undefined) continue;
           let extra: ScDerivative | null = null;
-          if (d.kind === "position") extra = { kind: "position", site: h, axis: d.axis };
-          else if (d.kind === "uMode") extra = { kind: "bIso", site: h, scale: EIGHT_PI_SQUARED * rider.uFactor * uEquivalent(d.basis, structure.cell) };
+          if (d.kind === "uMode") extra = { kind: "bIso", site: h, scale: EIGHT_PI_SQUARED * rider.uFactor * uEquivalent(d.basis, structure.cell) };
           else if (d.kind === "bIso") extra = { kind: "bIso", site: h, scale: rider.uFactor };
           if (!extra) continue;
           at.push(requests.length);

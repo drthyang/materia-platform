@@ -752,6 +752,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
   const reportInputRef = useRef<() => ReportInput>(() => { throw new Error("SingleCrystalWorkbench: not mounted"); });
   reportInputRef.current = (): ReportInput => singleCrystalReportInput({
       structure: refinedStructure,
+      base: fitStructure,
       params,
       bindings: [...bindings, ...momentBindings],
       result,
@@ -927,7 +928,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
                 type="number" min={0.1} max={5} step={0.0001} defaultValue={baseWavelength} key={baseWavelength}
                 onBlur={(e) => { const v = Number(e.target.value); if (v > 0.1 && v < 5) changeRadiation({ wavelength: v }); }}
                 onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                style={{ ...numInput, width: 70 }}
+                style={{ ...numInput, width: 80 }}
               />
               <span style={{ fontSize: fz.micro, color: color.faint }}>Å</span>
             </label>
@@ -957,7 +958,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
                 aria-label={`WGHT ${term}`}
                 onBlur={(e) => { const v = Number(e.target.value); if (v >= 0) changeWeighting({ a: weighting?.a ?? 0, b: weighting?.b ?? 0, [term]: v }); }}
                 onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                style={{ ...numInput, width: 62 }}
+                style={{ ...numInput, width: 74 }}
               />
             ))}
             <button

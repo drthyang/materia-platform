@@ -5,13 +5,15 @@
  * sees the same shapes whichever page is open.
  */
 
-import type { ParameterBinding, RefinementParameter } from "@/core/refinement/types";
+import type { RefinementParameter } from "@/core/refinement/types";
 import type { ProjectHistory } from "@/core/project/history";
 import { lineage } from "@/core/project/history";
 import type { StructureModel } from "@/core/crystal/types";
 import { bondValenceReading, bondValenceSums } from "@/core/crystal/bondValence";
-import { applyParameters } from "@/core/workflow/apply";
 import { withEsd } from "@/agent/structureTable";
+import { bondEsds, bondKeys } from "@/core/workflow/bondEsds";
+
+export { bondEsds };
 
 /** What a change handler returns: a note for the model, or a note and data to merge into its answer. */
 export type ChangeResult = string | { readonly note?: string; readonly data: Record<string, unknown> } | undefined;
@@ -20,8 +22,6 @@ export type ChangeResult = string | { readonly note?: string; readonly data: Rec
 export interface LiveToolHost {
   readonly history: () => ProjectHistory | null;
   readonly goToStep: (id: string) => void;
-  /** Resolves once the state a change set has rendered: a handler reading the page after its own change waits for it. */
-  readonly settle?: () => Promise<void>;
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- inputs are validated against the spec's zod schema before a handler runs */
@@ -81,55 +81,6 @@ export function goToStep(host: LiveToolHost, step: string): void {
 
 type BondGeometry = (args: { structure: StructureModel; cutoff?: number }) => { shortest: unknown; bonds: readonly { distance: number }[] };
 
-/**
- * A bond's identity across small shifts of the structure: its two sites, in
- * either order (a shift can list A–B as B–A), and its rank among their bonds.
- */
-function bondKeys(bonds: readonly { from?: string; to?: string; distance: number }[]): string[] {
-  const rank = new Map<string, number>();
-  return bonds.map((b) => {
-    const pair = [b.from ?? "", b.to ?? ""].sort().join("–");
-    const r = rank.get(pair) ?? 0;
-    rank.set(pair, r + 1);
-    return `${pair}#${r}`;
-  });
-}
-
-/**
- * The esd of each bond length from the refined positions' esds: every free
- * positional parameter shifted by its esd, the bonds measured again in the
- * structure that gives (each symmetry image follows its own operation), and the
- * changes added in quadrature (the positions taken as independent; the cell is
- * fixed input on the single-crystal page). Keyed as `bondKeys` keys the bonds.
- */
-export function bondEsds(
-  base: StructureModel,
-  bindings: readonly ParameterBinding[],
-  parameters: readonly RefinementParameter[],
-  esd: Readonly<Record<string, number>>,
-  measure: (structure: StructureModel) => readonly { from?: string; to?: string; distance: number }[],
-): Map<string, number> {
-  const values: Record<string, number> = Object.fromEntries(parameters.map((p) => [p.id, p.value]));
-  const at = (v: Record<string, number>): Map<string, number> => {
-    const bonds = measure(applyParameters(base, bindings, v).model);
-    const keys = bondKeys(bonds);
-    return new Map(bonds.map((b, i) => [keys[i]!, b.distance]));
-  };
-  const ref = at(values);
-  const variance = new Map<string, number>([...ref.keys()].map((k) => [k, 0]));
-  const positional = new Set(["positionShift", "atomX", "atomY", "atomZ"]);
-  for (const p of parameters) {
-    const e = esd[p.id];
-    if (p.fixed || p.expression || !positional.has(p.kind) || !(e !== undefined && e > 0)) continue;
-    const moved = at({ ...values, [p.id]: p.value + e });
-    for (const [k, d] of ref) {
-      const d2 = moved.get(k);
-      if (d2 !== undefined) variance.set(k, variance.get(k)! + (d2 - d) ** 2);
-    }
-  }
-  return new Map([...variance].map(([k, v]) => [k, Math.sqrt(v)]));
-}
-
 /** A structure's bonds as bond_geometry finds them, each once: A–B and B–A at the same length are one bond. */
 export function uniqueBonds(structure: StructureModel, input: Input, bondGeometry: BondGeometry): { shortest: unknown; bonds: { from?: string; to?: string; distance: number }[] } {
   const geo = bondGeometry({ structure, ...(input.cutoff !== undefined ? { cutoff: input.cutoff } : {}) });
@@ -152,11 +103,21 @@ export function bondsOf(refinedPhases: readonly StructureModel[], input: Input, 
   const sums = bondValenceSums(phase);
   const esdByKey = esds?.(phase);
   const keys = bondKeys(bonds);
+  // Only the bonds to the atoms asked for, when asked; a list cut at 40 says so.
+  const asked = Array.isArray(input.atoms) && input.atoms.length > 0 ? new Set(input.atoms as string[]) : null;
+  const unknown = asked ? [...asked].filter((label) => !phase.sites.some((site) => site.label === label)) : [];
+  if (unknown.length) throw new Error(`no site ${unknown.join(", ")} in ${phase.id} — sites: ${phase.sites.map((site) => site.label).join(", ")}`);
+  const listed = bonds.map((b, i) => ({ b, key: keys[i]! })).filter(({ b }) => !asked || asked.has(b.from ?? "") || asked.has(b.to ?? ""));
+  // A riding hydrogen's bond to its parent is set by the constraint: no esd.
+  const pair = (a?: string, b?: string): string => [a ?? "", b ?? ""].sort().join("–");
+  const riding = new Set((phase.riding ?? []).map((r) => pair(r.site, r.parent)));
   return {
     phase: phase.id,
     shortest: geo.shortest,
-    bonds: bonds.slice(0, 40).map((b, i) => {
-      const e = esdByKey?.get(keys[i]!);
+    ...(listed.length > 40 ? { listed: `the 40 shortest of ${listed.length} bonds${asked ? ` to ${[...asked].join(", ")}` : ""} up to the cutoff: name the atoms (atoms) to see the others` } : {}),
+    bonds: listed.slice(0, 40).map(({ b, key }) => {
+      if (riding.has(pair(b.from, b.to))) return { ...b, distance: sig(b.distance, 5), length: `${b.distance.toFixed(4)} (riding: set by the constraint, no esd)` };
+      const e = esdByKey?.get(key);
       return e !== undefined && e > 0 ? { ...b, distance: sig(b.distance, 5), length: withEsd(b.distance, e, 5) } : { ...b, distance: sig(b.distance, 5) };
     }),
     ...(sums.length ? {

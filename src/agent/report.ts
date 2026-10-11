@@ -273,6 +273,8 @@ export interface AgentReportArgs {
   readonly model: string;
   /** The Agent's own account. */
   readonly narrative: string;
+  /** What the user said in the conversation: the numbers they gave may be quoted. */
+  readonly userText?: string;
   readonly date?: Date;
 }
 
@@ -310,7 +312,8 @@ export function buildAgentReport(a: AgentReportArgs): { input: ReportInput; agen
   // own words — the account, its notes, the reasons it gave for an exception.
   const engineText = reportMarkdown({ ...a.input, date, figure: null, agent: { ...base, notes: [], checks: checks.filter((c) => c.name !== "Method exception") } });
   const narrative = a.narrative.trim();
-  const unverified = unverifiedNumbers([narrative, ...base.notes].join("\n\n"), engineText);
+  // The numbers the user gave (a published refinement's, a reference) are quoted, not the Agent's own.
+  const unverified = unverifiedNumbers([narrative, ...base.notes].join("\n\n"), `${engineText}\n\n${a.userText ?? ""}`);
   const agent: ReportAgent = { ...base, narrative, unverified };
   const input: ReportInput = { ...a.input, date, agent };
   return { input, agent, html: reportHtml(input), markdown: reportMarkdown(input), unverified };

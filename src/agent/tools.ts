@@ -334,8 +334,10 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     name: "structure_table",
     title: "The refined structure",
     description:
-      "The refined structure as it is reported: per phase the cell (a, b, c, angles, volume) and per site the fractional coordinates, occupancy and B_iso (U_eq when anisotropic), each as value(esd) in the last digits, from the last refinement's esds (no esd on a fixed value). Call it for the final report, or to compare with a published structure; get_state shows parameter shifts, not coordinates.",
-    inputSchema: {},
+      "The refined structure as it is reported: per phase the cell (a, b, c, angles, volume) and per site the fractional coordinates, occupancy and B_iso (U_eq when anisotropic), each as value(esd) in the last digits, from the last refinement's esds (no esd on a fixed value). Call it for the final report, or to compare with a published structure; get_state shows parameter shifts, not coordinates. On the single-crystal page, `against: \"loaded\"` compares each site with the structure as loaded (a published refinement's CIF): its shift in Å and in esds, and its U_eq against the loaded one, listing the sites beyond 2 esds.",
+    inputSchema: {
+      against: z.enum(["loaded"]).optional().describe("Single-crystal page: compare with the structure as loaded"),
+    },
     effect: "read",
     pages: ["powder", "pdf", "singleCrystal"],
   },
@@ -456,10 +458,11 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     name: "bond_geometry",
     title: "Bond lengths",
     description:
-      "Nearest-neighbour bond lengths (Å) of a phase at the current parameter values, shortest first, and each cation's bond-valence sum against its oxidation state (oxides and fluorides; the CIF's type symbol gives the state, else the tabulated state closest to the sum is assumed). The plausibility check after refining positions: an impossibly short contact, or a sum more than ~15 % from the valence, means a wrong position, a wrong element on the site, or a strained or mixed-valent site.",
+      "Nearest-neighbour bond lengths (Å) of a phase at the current parameter values, shortest first (at most 40: `atoms` lists only the bonds to the sites named, for a molecule with more), and each cation's bond-valence sum against its oxidation state (oxides and fluorides; the CIF's type symbol gives the state, else the tabulated state closest to the sum is assumed). The plausibility check after refining positions: an impossibly short contact, or a sum more than ~15 % from the valence, means a wrong position, a wrong element on the site, or a strained or mixed-valent site. A riding hydrogen's bond is set by the constraint and carries no esd.",
     inputSchema: {
       cutoff: z.number().positive().max(8).optional().describe("Longest bond listed, Å (default 3.2)"),
       phase: z.string().optional().describe("Phase id (get_state lists them); default the primary phase"),
+      atoms: z.array(z.string()).optional().describe("Only the bonds to these sites (labels)"),
     },
     effect: "read",
     pages: ["powder", "pdf", "singleCrystal"],

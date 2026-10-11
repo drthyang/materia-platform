@@ -63,6 +63,8 @@ describe("SHELXL weighting scheme", () => {
     const weighted = { ...dataset, weighting: { a: 0.04, b: 0 } };
     const result = refineSingleCrystal(start, weighted, params, startSpec.bindings, SINGLE_CRYSTAL_REFINE_OPTIONS);
     expect(result.status).toBe("converged");
+    // Its message counts every cycle, as its history does.
+    expect(result.message).toBe(`converged after ${result.history.length} iteration(s), the weights re-evaluated at the fit's own Fc² ${result.message!.match(/(\d+) times?$/)![1]} time${result.message!.endsWith("times") ? "s" : ""}`);
     const refined = params.map((p) => ({ ...p, value: result.parameters[p.id] ?? p.value }));
     const cmp = singleCrystalRefinementComparison(start, weighted, refined, startSpec.bindings);
     expect(cmp.agreement.goof).toBeGreaterThan(0.85);

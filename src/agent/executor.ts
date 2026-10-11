@@ -71,6 +71,8 @@ export interface ToolRunner {
   readonly run: (name: string, input: unknown) => Promise<ToolOutcome>;
   /** A new conversation: the skills read in the last one must be read again. */
   readonly newConversation?: () => void;
+  /** What the user said: a number they gave (a published refinement's, a reference value) may be quoted in the report. */
+  readonly heard?: (text: string) => void;
 }
 
 export interface ExecutorOptions {
@@ -125,6 +127,14 @@ export class AgentExecutor implements ToolRunner {
 
   newConversation(): void {
     this.skillsRead.clear();
+    this.userText = [];
+  }
+
+  /** The user's messages in this conversation: their numbers are theirs to quote, not the Agent's own. */
+  private userText: string[] = [];
+
+  heard(text: string): void {
+    this.userText.push(text);
   }
 
   /** Run one call. Never throws: failures come back as an error outcome the model can read. */
@@ -257,7 +267,7 @@ export class AgentExecutor implements ToolRunner {
           update({ status: "failed", preview, outcome: rule.line });
           return error(rule.message);
         }
-        if (spec.name === "refine") orderNote = outOfOrder(port.technique, freeBefore, record);
+        if (spec.name === "refine") orderNote = outOfOrder(port.technique, freeBefore, record, before.parameters);
       }
       if (spec.name === "refine") {
         // Correlated parameters are never refined together: measure the free
@@ -304,7 +314,7 @@ export class AgentExecutor implements ToolRunner {
       const after = this.requirePort().state();
       let alternation: Record<string, unknown> | null = null;
       if (spec.name === "refine" && after.result?.status === "converged" && after.result !== before.result) {
-        const covered = stagesCovered(port.technique, freeBefore);
+        const covered = stagesCovered(port.technique, freeBefore, before.parameters);
         this.host.updateRecord(key, (r) => ({ ...r, stagesDone: [...new Set([...r.stagesDone, ...covered])] }));
         const step = advanceAlternation(this.alternations.get(key) ?? {}, freeBefore, after.parameters, after.result.esd);
         this.alternations.set(key, step.memory);
@@ -388,7 +398,7 @@ export class AgentExecutor implements ToolRunner {
     const s = port.state();
     const key = keyOfState(port.technique, s);
     if (s.result?.status === "converged") {
-      const covered = stagesCovered(port.technique, s.parameters.filter((p) => !p.fixed && !p.expression));
+      const covered = stagesCovered(port.technique, s.parameters.filter((p) => !p.fixed && !p.expression), s.parameters);
       this.host.updateRecord(key, (r) => (covered.every((c) => r.stagesDone.includes(c)) ? r : { ...r, stagesDone: [...new Set([...r.stagesDone, ...covered])] }));
     }
     return this.host.record(key);
@@ -475,6 +485,7 @@ export class AgentExecutor implements ToolRunner {
       posterior: sampled ? { run: sampled.run, current: sampled.run.result === s.result, stepId: sampled.step?.id ?? null, parameters: s.parameters } : null,
       model: this.opts.modelLabel?.() ?? "the configured model",
       narrative: summary,
+      userText: this.userText.join("\n\n"),
     });
     const report: AgentReport = {
       id: nextReportId++,

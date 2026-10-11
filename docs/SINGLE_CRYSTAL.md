@@ -139,9 +139,14 @@ Both paths then apply parameters with
   parent's two neighbours (AFIX 43) at its present distance or one given, any
   other at its present offset (AFIX 3); U_iso = 1.2·U_eq of the parent (1.5
   for methyl and hydroxyl). They carry no parameter; their ∂F goes to the
-  parent's position and U modes, as SHELXL's derivatives do
+  parent's position and U modes and, for one on the bisector, to its
+  neighbours' positions too, through the bisector's turn — exactly, where
+  SHELXL keeps the parent's translation alone
   ([riding.ts](../src/core/crystal/riding.ts)). On X-ray data the anisotropic
   switch leaves hydrogens isotropic.
+- The report's geometry for a molecular structure (one with carbon) is its
+  covalent bonds with esds, as SHELXL's `_geom_bond`; for an inorganic one,
+  each cation's shell.
 - With dipyridyl disulfide's model and SHELXL's WGHT 0.0362 0.7686 on its own
   `.fcf`, wR2 7.78 % and GooF 1.03 for 254 parameters (SHELXL: 7.86 %,
   1.041); the suggested scheme is 0.0324 0.951

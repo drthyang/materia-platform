@@ -11,6 +11,9 @@
 import type { StructureModel } from "@/core/crystal/types";
 import { isHydrogen } from "@/core/crystal/adp";
 import { ridingSummary } from "@/core/crystal/riding";
+import { covalentBonds, isMolecular } from "@/core/crystal/geometry";
+import { bondEsds, bondKeys } from "@/core/workflow/bondEsds";
+import { withEsd } from "@/agent/structureTable";
 import type { MagneticModel } from "@/core/magnetic/types";
 import type { Vec3 } from "@/core/math/types";
 import { extractSizeStrain } from "@/core/diffraction/microstructure";
@@ -27,7 +30,7 @@ import { magneticOperationSignature } from "@/core/magnetic/operationSignature";
 import { latticeCandidateLabel, latticeRepresentatives, magneticSubgroupLattice } from "@/core/magnetic/subgroupLattice";
 import { crystalComponentsToCartesian } from "@/core/magnetic/moment";
 import { kLabel } from "@/core/magnetic/kSearch";
-import type { ReportBoxcar, ReportGroup, ReportInput, ReportMagnetic, ReportPhase, ReportRow, ReportStat } from "@/core/export/report";
+import type { ReportBond, ReportBoxcar, ReportGroup, ReportInput, ReportMagnetic, ReportPhase, ReportRow, ReportStat } from "@/core/export/report";
 import type { FigureCurves, FigureTickRow, FobsFcalcPoint } from "@/core/export/reportFigures";
 import type { Session } from "@/app/powderSession";
 import { APP_VERSION } from "@/app/constants";
@@ -373,6 +376,25 @@ export function powderReportInput(o: {
 // ---------------------------------------------------------------------------
 // Single crystal (F²)
 
+/**
+ * A molecular structure's covalent bonds for the report, each length with its
+ * esd from the refined positions' (as bond_geometry gives them), a riding
+ * hydrogen's bond marked as set by its constraint. `base` is the structure the
+ * parameters apply to; without it, or without a refinement, no esds.
+ */
+function moleculeBonds(refined: StructureModel, base: StructureModel | undefined, params: readonly RefinementParameter[], bindings: readonly ParameterBinding[], result: RefinementResult | null): ReportBond[] {
+  const bonds = covalentBonds(refined);
+  const keys = bondKeys(bonds);
+  const esds = base && result ? bondEsds(base, bindings, params, result.esd, covalentBonds) : null;
+  const pair = (a: string, b: string): string => [a, b].sort().join("–");
+  const riding = new Set((refined.riding ?? []).map((r) => pair(r.site, r.parent)));
+  return bonds.map((b, i) => ({
+    from: b.from,
+    to: b.to,
+    length: riding.has(pair(b.from, b.to)) ? `${b.distance.toFixed(4)} (riding)` : withEsd(b.distance, esds?.get(keys[i]!), 5),
+  }));
+}
+
 /** How the hydrogens were treated: riding (SHELXL's AFIX, with their distances), refined, or held at the input positions. */
 function hydrogenRow(structure: StructureModel, params: readonly RefinementParameter[], bindings: readonly ParameterBinding[]): ReportRow[] {
   const hydrogens = structure.sites.filter((site) => isHydrogen(site));
@@ -392,6 +414,8 @@ function hydrogenRow(structure: StructureModel, params: readonly RefinementParam
 export function singleCrystalReportInput(o: {
   /** The structure AS REFINED (parameters applied). */
   readonly structure: StructureModel;
+  /** The structure the parameters apply to, for the bond lengths' esds. */
+  readonly base?: StructureModel;
   readonly params: readonly RefinementParameter[];
   readonly bindings: readonly ParameterBinding[];
   readonly result: RefinementResult | null;
@@ -474,7 +498,7 @@ export function singleCrystalReportInput(o: {
     appVersion: APP_VERSION,
     stats,
     data,
-    phases: [{ structure: o.structure, params, bindings: o.bindings }],
+    phases: [{ structure: o.structure, params, bindings: o.bindings, ...(isMolecular(o.structure) ? { bonds: moleculeBonds(o.structure, o.base, o.params, o.bindings, o.result) } : {}) }],
     magnetic: magnetic.section,
     figure: { kind: "fobsFcalc", points: o.points, caption: "|F_obs| against |F_calc| for every reflection used; the dashed line is perfect agreement. Magnetic reflections (those whose calculated intensity is mostly magnetic) are coloured." },
     parameters: params,

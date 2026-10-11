@@ -18,6 +18,11 @@ describe("the method as code", () => {
     expect(stagesCovered("powder", [p("scale", "scale")])).toEqual(["base"]);
     expect(stagesCovered("pdf", [p("s", "pdfScale"), p("d2", "delta2")])).toEqual(["motion"]);
     expect(stagesCovered("pdf", [p("s", "pdfScale"), p("a", "cellLength")])).toEqual(["base"]);
+    // A structure loaded anisotropic, its hydrogens riding, has no B to refine: the tensors refined pass the isotropic stage.
+    const aniso = [p("scale", "scale"), p("ext", "extinction"), p("pos", "positionShift"), p("U", "uAniso")];
+    expect(stagesCovered("singleCrystal", aniso.slice(2), aniso)).toEqual(["positions", "adp", "aniso"]);
+    expect(stagesCovered("singleCrystal", aniso.slice(2), [...aniso, p("B_H1", "bIso")])).toEqual(["positions", "aniso"]);
+    expect(outOfOrder("singleCrystal", aniso.slice(2), { ...emptyRecord("k"), stagesDone: ["base"] }, aniso)).toBeNull();
   });
 
   it("tracks the stages and names the next required one", () => {

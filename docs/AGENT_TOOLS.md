@@ -613,7 +613,9 @@ The page-specific handlers are [`powderTools.ts`](../src/agent/powderTools.ts),
   and runs until every shift is below 0.05 esd. The scale, the extinction and
   the batch scales (`bscale_<b>`, entered fixed) refine together whatever
   their correlation, as in every single-crystal program. `structure_table`
-  gives U^ij and U_eq with esds, and `bond_geometry` each length's esd. The
+  gives U^ij and U_eq with esds (with `against: "loaded"`, each site against
+  the structure as loaded, in esds), and `bond_geometry` each length's esd
+  (`atoms` for the bonds to named sites; a riding hydrogen's bond has none). The
   report's "Refinements compared" lists the last refinement under each set of
   conditions (extinction model, resolution range, omissions, filter) with
   wR2, GooF, the extinction parameter and U_eq, so a test can be quoted.

@@ -234,6 +234,7 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
     case "diagnose_fit":
       return fitDiagnosisView(s);
     case "structure_table":
+      if (input.against !== undefined) throw new Error("`against` is on the single-crystal page only, for now");
       return { phases: s.refinedPhases.map((ph, i) => structureTable(ph, i, s.parameters, s.bindings, s.result?.esd ?? {})), ...(s.result ? {} : { note: "No refinement on screen: the values carry no esds." }) };
     case "bond_geometry":
       return bondsOf(s.refinedPhases, input, bond_geometry);

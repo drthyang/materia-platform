@@ -11,7 +11,7 @@ import type { SingleCrystalAgentPort, SingleCrystalLiveState, SingleCrystalRow }
 import type { LiveToolSpec } from "@/agent/tools";
 import type { ProjectHistory } from "@/core/project/history";
 import { assess_refinement, bond_geometry } from "@/mcp/tools";
-import { structureTable } from "@/agent/structureTable";
+import { compareWithLoaded, structureTable } from "@/agent/structureTable";
 import { applyFree, bondEsds, bondsOf, uniqueBonds, cellOf, describeFree, freeNoOp, goToStep, historyView, matchIds, parameterSummary, pct, sig, type ChangeResult, type LiveToolHost } from "@/agent/liveCommon";
 import type { RefinementResult } from "@/core/refinement/types";
 import type { ReportCheck } from "@/core/export/report";
@@ -21,7 +21,7 @@ import { canonicalKey, laueRotations } from "@/core/diffraction/merge";
 import { isHydrogen, nonPositiveDefiniteSites } from "@/core/crystal/adp";
 import { allowedPositionShifts } from "@/core/crystal/siteConstraints";
 import { dSpacing } from "@/core/crystal/unitCell";
-import { ridingDistances, ridingSummary } from "@/core/crystal/riding";
+import { applyRiding, ridingDistances, ridingRules, ridingSummary } from "@/core/crystal/riding";
 import { EXTINCTION_MODEL_LABELS, shelxWeights, suggestShelxWeighting, type WeightingSuggestion } from "@/core/diffraction/singleCrystalFactors";
 import { inResolution, isOmitted } from "@/core/workflow/singleCrystalRefinement";
 import type { ExtinctionModel, OmittedMeasurement, ResolutionRange, ShelxWeighting } from "@/core/diffraction/types";
@@ -42,8 +42,14 @@ export function readSingleCrystalTool(name: string, input: Input, port: SingleCr
       return equivalentsView(s, input.h, input.k, input.l);
     case "assess_refinement":
       return assessment(s);
-    case "structure_table":
-      return { phases: [structureTable(s.refinedStructure, 0, s.parameters, s.bindings, s.result?.esd ?? {})], ...(s.result ? {} : { note: "No refinement on screen: the values carry no esds." }) };
+    case "structure_table": {
+      const table = structureTable(s.refinedStructure, 0, s.parameters, s.bindings, s.result?.esd ?? {});
+      return {
+        phases: [table],
+        ...(input.against === "loaded" ? { againstLoaded: compareWithLoaded(table, s.refinedStructure, s.structure) } : {}),
+        ...(s.result ? {} : { note: "No refinement on screen: the values carry no esds." }),
+      };
+    }
     case "bond_geometry":
       // With the refined positions' esds, each length's esd (the cell is fixed input here).
       return bondsOf([s.refinedStructure], input, bond_geometry, s.result
@@ -91,13 +97,17 @@ export async function changeSingleCrystal(name: string, input: Input, port: Sing
       return `${next ? `WGHT ${next.a} ${next.b}` : "w = 1/σ²"} weights the next refinement: refine again before reading wR2 and GooF.`;
     }
     case "set_riding_hydrogens": {
-      const note = port.setRiding(!!input.on, { ...(input.uFactor !== undefined ? { uFactor: input.uFactor } : {}), ...(input.distance !== undefined ? { distance: input.distance } : {}) });
+      const options = { ...(input.uFactor !== undefined ? { uFactor: input.uFactor } : {}), ...(input.distance !== undefined ? { distance: input.distance } : {}) };
+      const note = port.setRiding(!!input.on, options);
       if (!input.on) return `The hydrogens have their own rows again, fixed at the loaded positions${note ? `; ${note}` : ""}. The last fit is cleared.`;
-      await host.settle?.();
-      const after = port.state();
-      if (after.riding.length === 0) throw new Error(note ?? "no hydrogen rides");
-      const odd = oddHydrogenDistances(after);
-      return `${after.riding.length} hydrogen${after.riding.length === 1 ? " rides" : "s ride"}: ${ridingSummary(after.refinedStructure)}${note ? `; ${note}` : ""}.${odd ? ` ${odd}` : ""} The last fit is cleared: refine again.`;
+      // What the page did, computed as it computes it: the port in hand shows the page as it was before the change.
+      const rules = ridingRules({ ...s.refinedStructure, riding: [] }, options).rules;
+      if (rules.length === 0) throw new Error(note ?? "no hydrogen rides");
+      const sites = s.refinedStructure.sites.map((site) => ({ ...site }));
+      const placed = { ...s.refinedStructure, riding: rules, sites };
+      applyRiding(placed, sites);
+      const odd = oddHydrogenDistances(s.probe, placed);
+      return `${rules.length} hydrogen${rules.length === 1 ? " rides" : "s ride"}: ${ridingSummary(placed)}${note ? `; ${note}` : ""}.${odd ? ` ${odd}` : ""} The last fit is cleared: refine again.`;
     }
     case "refine": {
       if (!s.parameters.some((p) => !p.fixed && !p.expression)) throw new Error("no parameter is free — free some with set_free first");
@@ -246,9 +256,9 @@ function freeHydrogenNote(s: SingleCrystalLiveState): string | null {
 }
 
 /** X–H distances no refinement would publish (as a difference map placed them): a note, or null. X-rays see the electron, displaced into the bond; neutrons the nucleus. */
-function oddHydrogenDistances(s: SingleCrystalLiveState): string | null {
-  const [lo, hi] = s.probe === "xray" ? [0.85, 1.05] : [0.95, 1.15];
-  const odd = ridingDistances(s.refinedStructure).filter((x) => x.distance < lo || x.distance > hi);
+function oddHydrogenDistances(probe: SingleCrystalLiveState["probe"], model: SingleCrystalLiveState["refinedStructure"]): string | null {
+  const [lo, hi] = probe === "xray" ? [0.85, 1.05] : [0.95, 1.15];
+  const odd = ridingDistances(model).filter((x) => x.distance < lo || x.distance > hi);
   if (odd.length === 0) return null;
   return `X–H as placed is out of the usual range for ${odd.map((x) => `${x.site} (${x.distance.toFixed(2)} Å)`).join(", ")}: the sp² ones take \`distance\` (SHELXL: 0.93 Å at room temperature, 0.95 Å below about 200 K; neutron 1.08 Å); others need a better starting position.`;
 }

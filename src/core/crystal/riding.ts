@@ -11,17 +11,13 @@
  */
 
 import type { AtomSite, RidingRule, StructureModel } from "@/core/crystal/types";
-import type { Vec3 } from "@/core/math/types";
+import type { Mat3, Vec3 } from "@/core/math/types";
 import { orthogonalizationMatrix } from "@/core/crystal/unitCell";
-import { inverse, mulVec } from "@/core/math/mat3";
+import { inverse, mulMat, mulVec } from "@/core/math/mat3";
 import { EIGHT_PI_SQUARED, isHydrogen, uEquivalent } from "@/core/crystal/adp";
+import { covalentlyBonded } from "@/core/crystal/geometry";
 
-/** Covalent radii (Å), Cordero et al. (2008), for the common elements; 0.75 otherwise. */
-const COVALENT: Readonly<Record<string, number>> = {
-  H: 0.31, D: 0.31, B: 0.84, C: 0.76, N: 0.71, O: 0.66, F: 0.57, Si: 1.11, P: 1.07, S: 1.05, Cl: 1.02, Se: 1.2, Br: 1.2, I: 1.39,
-};
-const radius = (element: string): number => COVALENT[element.replace(/[^A-Za-z]/g, "")] ?? 0.75;
-const bonded = (a: AtomSite, b: AtomSite, distance: number): boolean => distance > 0.5 && distance < radius(a.element) + radius(b.element) + 0.4;
+const bonded = (a: AtomSite, b: AtomSite, distance: number): boolean => covalentlyBonded(a.element, b.element, distance);
 
 /** Every symmetry image of `site` within reach of `from`: its label, operation index, lattice translation and Cartesian distance. */
 function imagesNear(model: StructureModel, from: Vec3, site: AtomSite, reach: number): { op: number; cell: [number, number, number]; distance: number }[] {
@@ -116,6 +112,96 @@ function imageOf(model: StructureModel, site: AtomSite, op: number, cell: readon
 }
 
 /**
+ * An sp² hydrogen on the external bisector of its parent's two neighbours, at
+ * `distance` (Å) from the parent: fractional positions in, fractional out;
+ * null when the neighbours lie on one line through the parent.
+ */
+function placeOnBisector(m: Mat3, mi: Mat3, parent: Vec3, n1: Vec3, n2: Vec3, distance: number): Vec3 | null {
+  const pc = mulVec(m, parent);
+  // The external bisector: away from both neighbours, along their unit vectors' sum.
+  const u = (q: Vec3): Vec3 => {
+    const qc = mulVec(m, q);
+    const d: Vec3 = [pc[0] - qc[0], pc[1] - qc[1], pc[2] - qc[2]];
+    const len = Math.hypot(d[0], d[1], d[2]);
+    return [d[0] / len, d[1] / len, d[2] / len];
+  };
+  const a = u(n1);
+  const b = u(n2);
+  const sum: Vec3 = [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+  const len = Math.hypot(sum[0], sum[1], sum[2]);
+  if (len <= 1e-6) return null;
+  return mulVec(mi, [pc[0] + (distance * sum[0]) / len, pc[1] + (distance * sum[1]) / len, pc[2] + (distance * sum[2]) / len]);
+}
+
+/** How a riding hydrogen moves with the atoms that place it: ∂x_H/∂x (fractional, 3×3) for its parent and for each neighbour, the latter as the neighbour's own coordinates move (through the image's rotation). */
+export interface RidingDependence {
+  readonly site: string;
+  /** The atom whose move moves the hydrogen, and the 3×3 ∂x_H/∂x_atom. */
+  readonly on: readonly { readonly label: string; readonly jacobian: Mat3 }[];
+}
+
+/**
+ * The derivatives of each riding hydrogen's position with respect to the
+ * positions that place it, at the model's current sites: the identity on its
+ * parent for a hydrogen at a fixed offset; for one on the bisector, the
+ * parent's move and each neighbour's turn the bisector too, so the hydrogen
+ * moves by more than its parent and also when a neighbour moves. SHELXL's
+ * riding derivatives keep only the parent's translation; the full chain keeps
+ * a least-squares fit from stalling on an approximate Jacobian.
+ */
+export function ridingDependence(model: StructureModel): RidingDependence[] {
+  if (!model.riding?.length) return [];
+  const byLabel = new Map(model.sites.map((s) => [s.label, s]));
+  const m = orthogonalizationMatrix(model.cell);
+  const mi = inverse(m);
+  const identity: Mat3 = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  const out: RidingDependence[] = [];
+  for (const rule of model.riding) {
+    const parent = byLabel.get(rule.parent);
+    if (!parent || !byLabel.has(rule.site)) continue;
+    const ns = rule.geometry === "aromatic" && rule.neighbours?.length === 2 && rule.distance !== undefined
+      ? rule.neighbours.map((n) => {
+        const site = byLabel.get(n.label);
+        return site ? { label: n.label, rotation: model.spaceGroup.operations[n.op]!.rotation, at: imageOf(model, site, n.op, n.cell) } : null;
+      })
+      : null;
+    if (!ns || !ns[0] || !ns[1] || !placeOnBisector(m, mi, parent.position, ns[0].at, ns[1].at, rule.distance!)) {
+      out.push({ site: rule.site, on: [{ label: rule.parent, jacobian: identity }] });
+      continue;
+    }
+    const [n1, n2] = [ns[0], ns[1]];
+    // Central differences of the placement in each coordinate of each of the three atoms.
+    const h = 1e-6;
+    const column = (move: (k: number, by: number) => [Vec3, Vec3, Vec3], k: number): Vec3 => {
+      const [pf, af, bf] = move(k, h);
+      const [pb, ab, bb] = move(k, -h);
+      const f = placeOnBisector(m, mi, pf, af, bf, rule.distance!)!;
+      const g = placeOnBisector(m, mi, pb, ab, bb, rule.distance!)!;
+      return [(f[0] - g[0]) / (2 * h), (f[1] - g[1]) / (2 * h), (f[2] - g[2]) / (2 * h)];
+    };
+    const shifted = (v: Vec3, k: number, by: number): Vec3 => [v[0] + (k === 0 ? by : 0), v[1] + (k === 1 ? by : 0), v[2] + (k === 2 ? by : 0)];
+    const jacobianOf = (which: 0 | 1 | 2): Mat3 => {
+      const cols = [0, 1, 2].map((k) => column((kk, by) => [
+        which === 0 ? shifted(parent.position, kk, by) : parent.position,
+        which === 1 ? shifted(n1.at, kk, by) : n1.at,
+        which === 2 ? shifted(n2.at, kk, by) : n2.at,
+      ], k));
+      return [[cols[0]![0], cols[1]![0], cols[2]![0]], [cols[0]![1], cols[1]![1], cols[2]![1]], [cols[0]![2], cols[1]![2], cols[2]![2]]];
+    };
+    // A neighbour's image moves by R·Δx when the neighbour moves by Δx.
+    out.push({
+      site: rule.site,
+      on: [
+        { label: rule.parent, jacobian: jacobianOf(0) },
+        { label: n1.label, jacobian: mulMat(jacobianOf(1), n1.rotation) },
+        { label: n2.label, jacobian: mulMat(jacobianOf(2), n2.rotation) },
+      ],
+    });
+  }
+  return out;
+}
+
+/**
  * The sites with every riding hydrogen placed from its parent's current
  * position and given U_iso = uFactor·U_eq(parent), as an isotropic B.
  */
@@ -132,27 +218,11 @@ export function applyRiding(model: StructureModel, sites: AtomSite[]): void {
     const parent = sites[pi]!;
     let position: Vec3 | null = null;
     if (rule.geometry === "aromatic" && rule.neighbours?.length === 2 && rule.distance !== undefined) {
-      const pc = mulVec(m, parent.position);
       const ns = rule.neighbours.map((n) => {
         const ni = byLabel.get(n.label);
-        return ni === undefined ? null : mulVec(m, imageOf(current, sites[ni]!, n.op, n.cell));
+        return ni === undefined ? null : imageOf(current, sites[ni]!, n.op, n.cell);
       });
-      if (ns[0] && ns[1]) {
-        // The external bisector: away from both neighbours, along their unit vectors' sum.
-        const u = (q: Vec3): Vec3 => {
-          const d: Vec3 = [pc[0] - q[0], pc[1] - q[1], pc[2] - q[2]];
-          const len = Math.hypot(d[0], d[1], d[2]);
-          return [d[0] / len, d[1] / len, d[2] / len];
-        };
-        const a = u(ns[0]);
-        const b = u(ns[1]);
-        const sum: Vec3 = [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
-        const len = Math.hypot(sum[0], sum[1], sum[2]);
-        if (len > 1e-6) {
-          const hc: Vec3 = [pc[0] + (rule.distance * sum[0]) / len, pc[1] + (rule.distance * sum[1]) / len, pc[2] + (rule.distance * sum[2]) / len];
-          position = mulVec(mi, hc);
-        }
-      }
+      if (ns[0] && ns[1]) position = placeOnBisector(m, mi, parent.position, ns[0], ns[1], rule.distance);
     }
     if (!position && rule.offset) position = [parent.position[0] + rule.offset[0], parent.position[1] + rule.offset[1], parent.position[2] + rule.offset[2]];
     const uEq = parent.adp.kind === "anisotropic" ? uEquivalent(parent.adp.uAniso, model.cell) : parent.adp.bIso / EIGHT_PI_SQUARED;

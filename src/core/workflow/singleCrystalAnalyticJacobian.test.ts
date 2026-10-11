@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildSingleCrystalRefinementProblem, buildSingleCrystalSpec } from "@/core/workflow/singleCrystalRefinement";
-import { corundumPage } from "@/testSupport/scPages";
+import { corundumPage, pyridylPage } from "@/testSupport/scPages";
 import { withAdpModel } from "@/core/crystal/adp";
 import type { ExtinctionModel } from "@/core/diffraction/types";
 import type { RefinementProblem } from "@/core/refinement/engine";
@@ -82,6 +82,17 @@ C1 0.026 0.022 0.027 -0.003 0.006 0.002
     expect(spec.params.some((p) => p.id.includes("H1"))).toBe(false);
     const params = spec.params.map((p) => ({ ...p, fixed: p.kind === "extinction" }));
     expect(check(buildSingleCrystalRefinementProblem(structure, dataset, params, spec.bindings))).toBeGreaterThanOrEqual(13);
+  });
+
+  it("turns an sp² hydrogen with the bisector when its carbon or the carbon's neighbours move (AFIX 43), exactly", () => {
+    const page = pyridylPage();
+    const { rules } = ridingRules(page.structure, { distance: 0.95 });
+    expect(rules.filter((r) => r.geometry === "aromatic")).toHaveLength(4);
+    const structure = { ...page.structure, riding: rules };
+    const spec = buildSingleCrystalSpec(structure, page.dataset, { extinction: 0 });
+    const params = spec.params.map((p) => ({ ...p, fixed: !(p.kind === "positionShift" || p.kind === "bIso") }));
+    // Every position column of a ring atom carries the hydrogens it places; the central difference sees the bisector turn.
+    expect(check(buildSingleCrystalRefinementProblem(structure, page.dataset, params, spec.bindings))).toBeGreaterThanOrEqual(30);
   });
 
   for (const model of ["shelx", "bc-1-lorentzian"] as ExtinctionModel[]) {

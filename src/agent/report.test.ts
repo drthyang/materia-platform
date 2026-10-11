@@ -113,6 +113,9 @@ describe("the analysis from the History", () => {
     expect(built.agent.openIssues).toEqual(["Method stages not yet refined to convergence: Scale, background, cell, Positions, Profile, ADPs."]);
     expect(built.html).toContain("analysed with the Agent");
     expect(built.markdown).toContain("a = 8.4807† Å");
+    // A number the user gave (a published refinement's) is theirs to quote.
+    const quoted = buildAgentReport({ page: "powder", input, history: null, record: emptyRecord("k"), checks: [], posterior: null, model: "M", narrative: "wR 3.71 % against the published 3.92 %; a = 8.4807 Å.", userText: "Compare with the published wR of 3.92 %." });
+    expect(quoted.unverified).toEqual(["8.4807"]);
   });
 
   it("names the files after the title", () => {
