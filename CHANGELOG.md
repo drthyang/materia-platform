@@ -246,12 +246,15 @@ release fixes bugs.
   small), not the powder's background and profile, and an ADP at its bound
   points to extinction first.
 
-- **The demo, re-recorded** (docs/media/agent-demo.mp4, 91 s): the Agent now
+- **The demo, re-recorded** (docs/media/agent-demo.mp4, 96 s): the Agent now
   reads the data's ends first and leaves out the background below the first
   reflection and the last 2° of the D1A scan, and refines the instrument's terms
   and the B values in turn until the alternation settles (wR 3.87 %, GoF 2.06).
-  The turns were written in a live run through the app and are replayed for the
-  recording.
+  The turns were written by Claude Opus 5.5 in a live run through the app and
+  are replayed for the recording, and the Agent's chip and the report say so
+  ("Claude Opus 5.5 · replay of a live run"), not the relay's "LM Studio ·
+  claude-replay". The video and its poster carry "© 2026 Tsung-Han Yang" in
+  the corner, and the speed badge no longer covers the Send button.
 
 - **The fit range in the record and the report** says what the window leaves
   out and why, end by end, once a second read finds the window already set.

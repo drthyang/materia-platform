@@ -73,7 +73,7 @@ decision is yours.
 
 [![The Agent sets the fit range, refines PbSO₄ with the instrument's terms and the B values in turn, and writes its report](docs/media/agent-demo.png)](docs/media/agent-demo.mp4)
 
-*[Watch the 91 s demo](docs/media/agent-demo.mp4) (MP4, 3.8 MB): the Agent refines
+*[Watch the 96 s demo](docs/media/agent-demo.mp4) (MP4, 3.4 MB): the Agent refines
 PbSO₄ against GSAS-II's D1A neutron tutorial data by the method's stages and writes
 its report. It reads the data's ends first and leaves out the background below the
 first reflection and the last 2°, where one detector counts and the data end on a
@@ -81,10 +81,10 @@ line's flank (the first fit leaves the last 0.8° 6σ above the model). It refin
 terms (zero, profile, asymmetry) and the B values in turn, never together, until a
 cycle moves neither by more than 0.3 esd: wR 3.87 %, GoF 2.06. The refinements, the
 checks and the report's numbers are computed live in the browser; the Agent writes
-only its account. Its turns were written by Claude working the analysis through the
-app in a live run, and are replayed through a local relay that speaks LM Studio's API,
-so the recording can be repeated; the stretch where the Agent refines is shown at 5×
-speed.*
+only its account. Its turns were written by Claude Opus 5.5 working the analysis
+through the app in a live run, and are replayed through a local relay so the
+recording can be repeated; the Agent's chip and the report say so ("Claude Opus 5.5 ·
+replay of a live run"). The stretch where the Agent refines is shown at 8× speed.*
 
 - **It runs the whole analysis, and talks it through.** The fit range (where the
   data's ends stop being data the model should fit: background below the first
