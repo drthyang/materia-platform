@@ -23,8 +23,8 @@ import type { HistoryBinding } from "@/app/historyBinding";
 import { defaultProjectTitle, projectFileFor, sessionFromPowderWorkspace, type PowderViewState } from "@/app/projectIo";
 import { downloadText } from "@/app/download";
 import type { MagneticModel } from "@/core/magnetic/types";
-import type { PdfPattern, SingleCrystalDataset } from "@/core/diffraction/types";
-import type { InstrumentParameters } from "@/core/diffraction/instrument";
+import type { PdfPattern, PdfScatteringType, SingleCrystalDataset } from "@/core/diffraction/types";
+import { radiationOf, withConstants, type InstrumentConstants, type InstrumentParameters } from "@/core/diffraction/instrument";
 import { buildPowderSpec } from "@/app/powderSpec";
 import { parseMagneticCif, parseCif } from "@/parsers/cif";
 import { SpaceGroupSettingError, type SpaceGroupSettingInfo } from "@/core/crystal/spaceGroups";
@@ -57,6 +57,11 @@ import {
   loadedSession,
   emptySession,
   buildSpecFor,
+  withoutCorrections,
+  carryRefinedStructure,
+  keptBindings,
+  keptRows,
+  withMagneticRows,
   DEFAULT_INSTRUMENT,
   EMPTY_SOURCE,
 } from "@/app/powderSession";
@@ -65,6 +70,8 @@ import { AgentLink } from "@/agent/link";
 import type { AgentHost } from "@/agent/executor";
 import { useAgent } from "@/agent/useAgent";
 import { AgentDrawer } from "@/agent/ui/AgentDrawer";
+import { AgentReportViewer } from "@/agent/ui/AgentReportViewer";
+import { emptyRecord, keyOfState, methodProgress, type AgentRecord } from "@/agent/method";
 
 // The header's refinement-target chips. "Nuclear" is the main refinement page
 // (the whole app refines, so no "Refinement" label needed); "Magnetic" is the
@@ -235,6 +242,9 @@ export function App(): JSX.Element {
     readonly candidates: readonly SpaceGroupSettingInfo[];
     readonly pick: (symbol: string) => void;
   } | null>(null);
+  // A PDF file that names no radiation is read as X-ray data; the user says
+  // when it is neutron data, and the file loads again as such.
+  const [radiationNotice, setRadiationNotice] = useState<{ readonly text: string; readonly neutron: () => void } | null>(null);
   // How the loaded powder file was classified — shown on the Data card, so the
   // unit is never a silent guess, and re-runnable with an explicit override.
   // Only the auto-detected path sets it; a reader that reads its own header
@@ -258,6 +268,11 @@ export function App(): JSX.Element {
   const agentLink = useRef(new AgentLink()).current;
   const stepActor = useRef<StepActor | undefined>(undefined);
   const [agentOpen, setAgentOpen] = useState(false);
+  // The Agent's record of each analysis (agent/method.ts): the cell check, the
+  // exceptions the user allowed, the method stages done, its notes. The ref
+  // lets the executor read its own update before the next render.
+  const [agentRecords, setAgentRecords] = useState<Readonly<Record<string, AgentRecord>>>({});
+  const agentRecordsRef = useRef(agentRecords);
 
   const { structure } = session;
 
@@ -402,8 +417,20 @@ export function App(): JSX.Element {
     },
     history: () => agentLatest.current.history,
     goToStep: (id) => agentLatest.current.goToStep(id),
+    record: (key) => agentRecordsRef.current[key] ?? emptyRecord(key),
+    updateRecord: (key, update) => {
+      const next = { ...agentRecordsRef.current, [key]: update(agentRecordsRef.current[key] ?? emptyRecord(key)) };
+      agentRecordsRef.current = next;
+      setAgentRecords(next);
+    },
   }), [agentLink]);
   const agent = useAgent(agentHost, () => setAgentOpen(true));
+  // The open page's method, as the drawer's checklist shows it.
+  const agentPort = agentOpen ? agentLink.port() : null;
+  const agentMethod = agentPort ? (() => {
+    const key = keyOfState(agentPort.technique, agentPort.state());
+    return methodProgress(agentPort.technique, agentRecords[key] ?? emptyRecord(key));
+  })() : null;
   // The cards the agent is on breathe (workbench.css), while the Agent is open.
   const agentFocus = agentOpen ? agent.focus.join(" ") : "";
   useEffect(() => {
@@ -501,6 +528,7 @@ export function App(): JSX.Element {
   /** Reset the workbench to the clean, data-less landing (drops the demo or any
    *  loaded structures/data/instrument). */
   function clearWorkbench(): void {
+    setRadiationNotice(null);
     setSession(emptySession());
     setInstrument(DEFAULT_INSTRUMENT);
     setInstrumentLoaded(false);
@@ -616,29 +644,29 @@ export function App(): JSX.Element {
         const name = raw.name && raw.name !== "structure"
           ? raw.name
           : [...new Set(raw.sites.map((st) => st.element))].join("") || raw.id;
-        const parsed = { ...raw, name };
-        setSession((s) => {
-          const extraPhases = [...s.extraPhases, parsed];
-          const spec = buildSpecFor(s.structure, extraPhases, s.pattern, instrumentLoaded ? instrument : DEFAULT_INSTRUMENT, s.powderProfile.lorentz ?? true, s.backgroundTerms, s.siteTies, s.mustrain ?? "isotropic");
-          const previous = new Map(s.powderParams.map((p) => [p.id, p]));
-          return {
-            ...s,
-            extraPhases,
-            powderParams: spec.params.map((p) => {
-              const old = previous.get(p.id);
-              return old ? { ...p, value: old.value, initialValue: old.initialValue, fixed: old.fixed } : p;
-            }),
-            powderBindings: spec.bindings,
-            powderProfile: { ...spec.profile, ...(s.powderProfile.backgroundType ? { backgroundType: s.powderProfile.backgroundType } : {}) },
-          };
-        });
-        setPowderResult(null);
-        setMessage(`Added phase "${parsed.name}" (${parsed.spaceGroup.hermannMauguin ?? "?"}). Refine to fit its scale/cell.`);
-        requestStep("load", `Added phase ${parsed.name}`);
+        addPhaseStructure({ ...raw, name });
       } catch (e) {
         reportCifError("Add phase failed", e, (setting) => onAddPhase(file, setting));
       }
     });
+  }
+
+  /** Add a further phase (a parsed CIF, or a known phase the Agent adds) and rebuild the spec. */
+  function addPhaseStructure(parsed: StructureModel): void {
+    setSession((s) => {
+      const extraPhases = [...s.extraPhases, parsed];
+      const spec = buildSpecFor(s.structure, extraPhases, s.pattern, instrumentLoaded ? instrument : DEFAULT_INSTRUMENT, s.powderProfile.lorentz ?? true, s.backgroundTerms, s.siteTies, s.mustrain ?? "isotropic", s.corrections);
+      return {
+        ...s,
+        extraPhases,
+        powderParams: keptRows(spec.params, s.powderParams),
+        powderBindings: keptBindings(spec.bindings, s.powderBindings),
+        powderProfile: { ...spec.profile, ...(s.powderProfile.backgroundType ? { backgroundType: s.powderProfile.backgroundType } : {}) },
+      };
+    });
+    setPowderResult(null);
+    setMessage(`Added phase "${parsed.name}" (${parsed.spaceGroup.hermannMauguin ?? "?"}). Refine to fit its scale/cell.`);
+    requestStep("load", `Added phase ${parsed.name}`);
   }
 
   /** Remove an added phase (by id) and rebuild the spec back down. */
@@ -647,16 +675,12 @@ export function App(): JSX.Element {
     requestStep("load", `Removed phase ${removed?.name || id}`);
     setSession((s) => {
       const extraPhases = s.extraPhases.filter((p) => p.id !== id);
-      const spec = buildSpecFor(s.structure, extraPhases, s.pattern, instrumentLoaded ? instrument : DEFAULT_INSTRUMENT, s.powderProfile.lorentz ?? true, s.backgroundTerms, s.siteTies, s.mustrain ?? "isotropic");
-      const previous = new Map(s.powderParams.map((p) => [p.id, p]));
+      const spec = buildSpecFor(s.structure, extraPhases, s.pattern, instrumentLoaded ? instrument : DEFAULT_INSTRUMENT, s.powderProfile.lorentz ?? true, s.backgroundTerms, s.siteTies, s.mustrain ?? "isotropic", s.corrections);
       return {
         ...s,
         extraPhases,
-        powderParams: spec.params.map((p) => {
-          const old = previous.get(p.id);
-          return old ? { ...p, value: old.value, initialValue: old.initialValue, fixed: old.fixed } : p;
-        }),
-        powderBindings: spec.bindings,
+        powderParams: keptRows(spec.params, s.powderParams),
+        powderBindings: keptBindings(spec.bindings, s.powderBindings),
         powderProfile: { ...spec.profile, ...(s.powderProfile.backgroundType ? { backgroundType: s.powderProfile.backgroundType } : {}) },
       };
     });
@@ -685,6 +709,7 @@ export function App(): JSX.Element {
       ...(projectMeta ? { createdAt: projectMeta.createdAt } : {}),
       ...(projectMeta?.notes !== undefined ? { notes: projectMeta.notes } : {}),
       ...(h ? { history: h } : {}),
+      agentRecords: Object.values(agentRecordsRef.current),
     });
   }
 
@@ -732,6 +757,9 @@ export function App(): JSX.Element {
     setDetection(null);
     // The file's own history, or a new one that starts at this open.
     setHistory(file.history ?? null);
+    // The Agent's records travel with the project (gate, exceptions, stages, notes).
+    agentRecordsRef.current = Object.fromEntries((file.agent?.records ?? []).map((r) => [r.key, r]));
+    setAgentRecords(agentRecordsRef.current);
     if (!file.history) requestStep("open", `Opened ${sourceName}`, true);
     setMessage(`Opened project “${file.metadata.title}” — ${TECHNIQUE_LABEL[ws.technique]}, saved by v${file.metadata.appVersion}${file.history ? `, ${file.history.steps.length} steps` : ""}.`);
   }
@@ -786,7 +814,7 @@ export function App(): JSX.Element {
 
   // Unified, auto-detecting data loader: the resolver classifies the file
   // (powder vs single-crystal) and, for powder, its x-unit, then dispatches.
-  function onLoadData(file: File): void {
+  function onLoadData(file: File, pdfRadiation?: PdfScatteringType): void {
     file.text().then((text) => {
       try {
         // A project file dropped on any load button opens as a project.
@@ -794,6 +822,7 @@ export function App(): JSX.Element {
           openProjectText(text, file.name);
           return;
         }
+        setRadiationNotice(null);
         // Any data load is the user's own content — no longer the pristine demo.
         setDemoActive(false);
         // FullProf's ILL `.dat` templates share the extension but differ in
@@ -813,10 +842,16 @@ export function App(): JSX.Element {
           // column — rebuild the observed one instead of mis-reading it.
           const parsed = looksLikeFgr(text, file.name)
             ? fgrToPattern(parseFgr(text), { id: `${structure.id}-pdf`, filename: file.name })
-            : parsePdfData(text, { id: `${structure.id}-pdf`, filename: file.name });
+            : parsePdfData(text, { id: `${structure.id}-pdf`, filename: file.name, ...(pdfRadiation ? { scatteringType: pdfRadiation } : {}) });
           if (parsed.points.length < 3) throw new Error("fewer than 3 usable G(r) rows");
           setScNuclearDataset(null);
           setPdfDataset(parsed);
+          if (parsed.radiationAssumed) {
+            setRadiationNotice({
+              text: `“${file.name}” names no radiation, so it is read as X-ray data. Neutrons weight the pairs differently (Mn, Ti, V, Li and H scatter with negative lengths).`,
+              neutron: () => onLoadData(file, "neutron"),
+            });
+          }
           setStep(0);
           setDetection(null);
           const errs = parsed.reciprocal?.sigma ? ", its errors propagated to σ_G(r) — see the S(Q) tab" : "";
@@ -906,11 +941,12 @@ export function App(): JSX.Element {
     const wavelength = parsed.wavelength ?? cw?.wavelength ?? 2.5;
     const inst: InstrumentParameters = cw ?? { kind: "constantWavelength", radiationKind: "neutron", wavelength };
     const spec = buildPowderSpec(structure, parsed, inst, session.powderProfile.lorentz, session.backgroundTerms, session.siteTies);
-    setSession((s) => ({ ...s, extraPhases: [], pattern: parsed, powderParams: spec.params, powderBindings: spec.bindings, powderProfile: spec.profile, powderOverlay: null, powderSource: filename, rawData: { name: filename, text } }));
+    const kept = carryRefinedStructure(session, spec.params);
+    setSession((s) => ({ ...withoutCorrections(s), extraPhases: [], pattern: parsed, powderParams: kept.params, powderBindings: spec.bindings, powderProfile: spec.profile, powderOverlay: null, powderSource: filename, rawData: { name: filename, text } }));
     if (instrument.kind === "tof") { setInstrument(DEFAULT_INSTRUMENT); setInstrumentLoaded(false); }
     setPowderResult(null);
     const last = parsed.points[parsed.points.length - 1]!;
-    setMessage(`Loaded FullProf INSTRM=6 powder “${filename}” · ${parsed.points.length} pts · 2θ ${parsed.points[0]!.x.toFixed(2)}–${last.x.toFixed(2)}° · neutron λ=${wavelength} Å.`);
+    setMessage(`Loaded FullProf INSTRM=6 powder “${filename}” · ${parsed.points.length} pts · 2θ ${parsed.points[0]!.x.toFixed(2)}–${last.x.toFixed(2)}° · neutron λ=${wavelength} Å${carriedNote(kept.carried)}.`);
     requestStep("load", `Loaded data ${filename}`);
   }
 
@@ -925,13 +961,14 @@ export function App(): JSX.Element {
     setPdfDataset(null);
     const inst: InstrumentParameters = cw ?? { kind: "constantWavelength", radiationKind: "neutron", wavelength };
     const spec = buildPowderSpec(structure, parsed, inst, session.powderProfile.lorentz, session.backgroundTerms, session.siteTies);
-    setSession((s) => ({ ...s, extraPhases: [], pattern: parsed, powderParams: spec.params, powderBindings: spec.bindings, powderProfile: spec.profile, powderOverlay: null, powderSource: filename, rawData: { name: filename, text } }));
+    const kept = carryRefinedStructure(session, spec.params);
+    setSession((s) => ({ ...withoutCorrections(s), extraPhases: [], pattern: parsed, powderParams: kept.params, powderBindings: spec.bindings, powderProfile: spec.profile, powderOverlay: null, powderSource: filename, rawData: { name: filename, text } }));
     if (instrument.kind === "tof") { setInstrument(DEFAULT_INSTRUMENT); setInstrumentLoaded(false); }
     setPowderResult(null);
     const last = parsed.points[parsed.points.length - 1]!;
     setMessage(
       `Loaded ILL powder “${filename}” · ${parsed.points.length} pts · 2θ ${parsed.points[0]!.x.toFixed(2)}–${last.x.toFixed(2)}° · neutron λ=${wavelength} Å` +
-      `${cw ? " (Caglioti widths from instrument)" : " — load the .irf for Caglioti widths"}.`,
+      `${cw ? " (Caglioti widths from instrument)" : " — load the .irf for Caglioti widths"}${carriedNote(kept.carried)}.`,
     );
     requestStep("load", `Loaded data ${filename}`);
   }
@@ -999,9 +1036,10 @@ export function App(): JSX.Element {
         return;
       }
       const spec = buildPowderSpec(structure, parsed, tofInstrument, true, session.backgroundTerms, session.siteTies);
-      setSession((s) => ({ ...s, extraPhases: [], pattern: parsed, powderParams: spec.params, powderBindings: spec.bindings, powderProfile: spec.profile, powderOverlay: null, powderSource: filename, rawData: { name: filename, text } }));
+      const kept = carryRefinedStructure(session, spec.params);
+      setSession((s) => ({ ...withoutCorrections(s), extraPhases: [], pattern: parsed, powderParams: kept.params, powderBindings: spec.bindings, powderProfile: spec.profile, powderOverlay: null, powderSource: filename, rawData: { name: filename, text } }));
       setPowderResult(null);
-      setMessage(`Loaded powder “${filename}” · ${parsed.points.length} pts · TOF ${tag}. ${spec.params.length} parameters, back-to-back-exponential profile — click “Refine”. ${fmt.note}`);
+      setMessage(`Loaded powder “${filename}” · ${parsed.points.length} pts · TOF ${tag}. ${spec.params.length} parameters, back-to-back-exponential profile${carriedNote(kept.carried)} — click “Refine”. ${fmt.note}`);
       return;
     }
     const parsed = isGsasHist
@@ -1014,14 +1052,15 @@ export function App(): JSX.Element {
     // workbench into the matching mode instead of staying view-only.
     const cwInstrument = instrumentLoaded && instrument.kind === "constantWavelength" ? instrument : DEFAULT_INSTRUMENT;
     const spec = buildPowderSpec(structure, parsed, cwInstrument, session.powderProfile.lorentz, session.backgroundTerms, session.siteTies);
-    setSession((s) => ({ ...s, extraPhases: [], pattern: parsed, powderParams: spec.params, powderBindings: spec.bindings, powderProfile: spec.profile, powderOverlay: null, powderSource: filename, rawData: { name: filename, text } }));
+    const kept = carryRefinedStructure(session, spec.params);
+    setSession((s) => ({ ...withoutCorrections(s), extraPhases: [], pattern: parsed, powderParams: kept.params, powderBindings: spec.bindings, powderProfile: spec.profile, powderOverlay: null, powderSource: filename, rawData: { name: filename, text } }));
     if (instrument.kind === "tof") {
       setInstrument(DEFAULT_INSTRUMENT);
       setInstrumentLoaded(false);
     }
     setPowderResult(null);
     const nParams = spec.params.length;
-    setMessage(`Loaded powder “${filename}” · ${parsed.points.length} pts · unit=${fmt.xUnit} ${tag}. ${nParams} symmetry-allowed parameters. Scale auto-estimated — click “Refine”. ${fmt.note}`);
+    setMessage(`Loaded powder “${filename}” · ${parsed.points.length} pts · unit=${fmt.xUnit} ${tag}. ${nParams} symmetry-allowed parameters${carriedNote(kept.carried)}. Scale auto-estimated — click “Refine”. ${fmt.note}`);
   }
 
   function onLoadInstrument(file: File): void {
@@ -1043,10 +1082,10 @@ export function App(): JSX.Element {
           // regardless of whether the data or the instrument was loaded first.
           const pattern =
             parsed.kind === "constantWavelength" && s.pattern.xUnit !== "tof"
-              ? { ...s.pattern, radiation: { kind: parsed.radiationKind ?? "neutron", wavelength: parsed.wavelength }, wavelength: parsed.wavelength }
+              ? { ...s.pattern, radiation: radiationOf(parsed), wavelength: parsed.wavelength }
               : s.pattern;
-          const spec = buildSpecFor(s.structure, s.extraPhases, pattern, parsed, s.powderProfile.lorentz ?? true, s.backgroundTerms, s.siteTies, s.mustrain ?? "isotropic");
-          return { ...s, pattern, powderParams: spec.params, powderBindings: spec.bindings, powderProfile: spec.profile, rawInstrument: { name: file.name, text } };
+          const spec = buildSpecFor(s.structure, s.extraPhases, pattern, parsed, s.powderProfile.lorentz ?? true, s.backgroundTerms, s.siteTies, s.mustrain ?? "isotropic", s.corrections);
+          return { ...s, pattern, powderParams: withMagneticRows(spec.params, s.powderParams), powderBindings: keptBindings(spec.bindings, s.powderBindings), powderProfile: spec.profile, rawInstrument: { name: file.name, text } };
         });
         setPowderResult(null);
         setMessage(
@@ -1059,6 +1098,16 @@ export function App(): JSX.Element {
         setMessage(`Instrument parse failed: ${e instanceof Error ? e.message : String(e)}`);
       }
     });
+  }
+
+  /** An X-ray instrument's polarization and Kα₂ ratio, on the instrument and on
+   *  the pattern's radiation (which the model reads): constants the fit cannot
+   *  determine, so they are set, never refined. */
+  function onInstrumentConstants(update: InstrumentConstants): void {
+    setInstrument((inst) => (inst.kind === "constantWavelength" ? withConstants(inst, update) : inst));
+    setSession((s) => (s.pattern.radiation.kind === "xray" ? { ...s, pattern: { ...s.pattern, radiation: withConstants(s.pattern.radiation, update) } } : s));
+    setPowderResult(null);
+    requestStep("settings", "Instrument constants changed");
   }
 
   // Header export buttons follow the active mode, calling into the engine's
@@ -1139,7 +1188,7 @@ export function App(): JSX.Element {
     // workbench.css (.wb-shell): the height must follow the dynamic viewport on
     // iOS and undo the large-screen UI zoom, and on phones the whole page
     // scrolls instead, header included.
-    <div className="wb-frame">
+    <div className={agentOpen ? "wb-frame wb-frame-agent" : "wb-frame"}>
     <div className="wb-shell">
       <WorkbenchHeader
         steps={headerSteps}
@@ -1167,6 +1216,15 @@ export function App(): JSX.Element {
             </button>
           ))}
           <button onClick={() => { setNotice(null); setSettingChoice(null); }} style={noticeClose} title="Dismiss">✕</button>
+        </div>
+      )}
+      {radiationNotice && (
+        <div role="alert" style={noticeBar}>
+          <span style={{ flex: 1 }}>{radiationNotice.text}</span>
+          <button onClick={radiationNotice.neutron} style={noticeAction} title="Load the file again as neutron data">
+            It is neutron data
+          </button>
+          <button onClick={() => setRadiationNotice(null)} style={noticeClose} title="Keep X-ray">✕</button>
         </div>
       )}
       {autosaveOffer && !hasContent && (
@@ -1219,11 +1277,13 @@ export function App(): JSX.Element {
         onLoadData={onLoadData}
         onLoadCif={onLoadCif}
         onAddPhase={onAddPhase}
+        onAddStructure={addPhaseStructure}
         onRemovePhase={onRemovePhase}
         onClearStructures={onClearStructures}
         detection={detection}
         {...(session.rawData ? { onOverrideXUnit } : {})}
         onLoadInstrument={onLoadInstrument}
+        onInstrumentConstants={onInstrumentConstants}
         onLoadDemo={onLoadDemo}
         demos={demos}
         onOpenProject={onOpenProject}
@@ -1259,7 +1319,18 @@ export function App(): JSX.Element {
         </a>
       </footer>
     </div>
-    {agentOpen && <AgentDrawer agent={agent} onClose={() => setAgentOpen(false)} />}
+    {agentOpen && <AgentDrawer agent={agent} method={agentMethod} onClose={() => setAgentOpen(false)} />}
+    {agent.reportOpen && agent.report && (
+      <AgentReportViewer
+        report={agent.report}
+        onClose={agent.closeReport}
+        onCif={(() => {
+          // The page the report was written on, while it is the one open.
+          const exports = agent.report.technique === "pdf" ? pdfExports : powderExports;
+          return exports.current?.cif ? () => exports.current?.cif?.() : undefined;
+        })()}
+      />
+    )}
     </div>
   );
 }
@@ -1294,3 +1365,8 @@ const offerButton: React.CSSProperties = { border: `1px solid ${theme.noteBorder
 const disclaimerLink: React.CSSProperties = { color: theme.warnInk, textDecoration: "underline" };
 const copyrightBar: React.CSSProperties = { display: "flex", justifyContent: "center", alignItems: "center", gap: 8, padding: `10px ${space.edge}`, fontSize: 11, color: theme.faint, borderTop: `1px solid ${theme.border}`, background: theme.raised };
 const footerLink: React.CSSProperties = { color: theme.secondary, textDecoration: "none" };
+
+/** The load message's note on a structure carried from the previous fit. */
+function carriedNote(carried: number): string {
+  return carried > 0 ? ` · the structure starts where the last fit left it (${carried} cell, position, ADP and occupancy values; Reset returns to the CIF)` : "";
+}

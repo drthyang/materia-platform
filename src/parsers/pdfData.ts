@@ -13,10 +13,15 @@
  *   2. **Mantid** (POWGEN) — a SPEC-style header (`#Comment: neutron, Qmin=…,
  *      Qmax=…`, `#L r G(r) dr dG(r)`) and a four-column table (G scaled by the
  *      instrument, absorbed by the fit scale).
+ *   3. **PDFgetN** (NPDF and the other neutron instruments it reduced for) — a
+ *      run log with tables of its own (detector banks, GSAS multipliers), then
+ *      `##### start data`, `#L r G(r) dr dG(r)` and a four-column table. It
+ *      names the instrument (`machine=npdf`) and the program, never "neutron".
  *
- * Both reduce to the same shape: `#`/label/blank lines are metadata, numeric rows
+ * All reduce to the same shape: `#`/label/blank lines are metadata, numeric rows
  * are data (col 0 = r, col 1 = G, optional dG column), and a `#L` column-label
- * line — when present — names the columns authoritatively.
+ * line — when present — names the columns authoritatively. A `start data` line,
+ * when there is one, ends the header: numeric rows above it are the header's own.
  *
  * Pure `string → PdfPattern`; no DOM, no side effects.
  */
@@ -43,13 +48,28 @@ function num(header: string, re: RegExp): number | undefined {
   return Number.isFinite(v) ? v : undefined;
 }
 
-/** Detect neutron vs X-ray from the header; explicit `mode=` wins over keywords. */
-function detectScatteringType(header: string): PdfScatteringType {
-  if (/\bmode\s*[=:]\s*neutron/i.test(header)) return "neutron";
-  if (/\bmode\s*[=:]\s*x-?ray/i.test(header)) return "xray";
-  if (/\bneutron/i.test(header)) return "neutron";
-  if (/\bx-?ray/i.test(header)) return "xray";
-  return "xray"; // synchrotron PDF is the common default; caller can override
+/**
+ * A neutron reduction named by its program or instrument: PDFgetN reduced only
+ * neutron data, and its header names the instrument (`machine=npdf`), never the
+ * radiation. PDFgetX2/X3 reduce X-ray data.
+ */
+const NEUTRON_SOURCE = /\bpdfgetn\b|\b(?:machine|instrument|beamline)\s*[=:]\s*(?:npdf|nomad|powgen|pg3|hipd|sepd|glad|gem|polaris|sandals|nimrod|slad|d4c?)\b/i;
+const XRAY_SOURCE = /\bpdfgetx\d?\b/i;
+
+/**
+ * Detect neutron vs X-ray from the header: an explicit `mode=` first, then the
+ * words, then the reduction program or instrument. `assumed` when nothing in
+ * the header says it (X-ray, synchrotron PDF being the common case).
+ */
+function detectScatteringType(header: string): { type: PdfScatteringType; assumed: boolean } {
+  const said = (type: PdfScatteringType) => ({ type, assumed: false });
+  if (/\bmode\s*[=:]\s*neutron/i.test(header)) return said("neutron");
+  if (/\bmode\s*[=:]\s*x-?ray/i.test(header)) return said("xray");
+  if (/\bneutron/i.test(header)) return said("neutron");
+  if (/\bx-?ray/i.test(header)) return said("xray");
+  if (NEUTRON_SOURCE.test(header)) return said("neutron");
+  if (XRAY_SOURCE.test(header)) return said("xray");
+  return { type: "xray", assumed: true };
 }
 
 /**
@@ -179,8 +199,13 @@ export function parsePdfData(text: string, opts: ParsePdfOptions = {}): PdfPatte
   const headerParts: string[] = [];
   let labelLine: string | undefined;
   const rows: number[][] = [];
+  // Where the data begins, when the file says so (PDFgetN, PDFgetX3, Mantid). A
+  // PDFgetN header holds tables whose rows start with a number — read as data,
+  // its detector banks (`1  90.0  1.62  29.42`) put points at r = 1…6 Å with G
+  // up to ±148 among the real ones.
+  const dataStart = lines.findIndex((l) => /^#+\s*start\s+data\b/i.test(l.trim()));
 
-  for (const raw of lines) {
+  for (const [i, raw] of lines.entries()) {
     const line = raw.trim();
     if (line === "") continue;
     if (/^#\s*l\b/i.test(line)) {
@@ -190,7 +215,7 @@ export function parsePdfData(text: string, opts: ParsePdfOptions = {}): PdfPatte
     }
     const firstTok = line.split(/[\s,]+/)[0] ?? "";
     const startsNumeric = /^[+-]?\.?\d/.test(firstTok);
-    if (!startsNumeric || line.startsWith("#") || line.startsWith("!")) {
+    if (i < dataStart || !startsNumeric || line.startsWith("#") || line.startsWith("!")) {
       headerParts.push(line);
       continue;
     }
@@ -233,7 +258,9 @@ export function parsePdfData(text: string, opts: ParsePdfOptions = {}): PdfPatte
   put("rpoly", num(header, /rpoly\s*[=:]\s*([0-9.eE+-]+)/i));
   if (rstep !== undefined) put("rstep", rstep);
 
-  const scatteringType = opts.scatteringType ?? detectScatteringType(header);
+  const detected = detectScatteringType(header);
+  const scatteringType = opts.scatteringType ?? detected.type;
+  const assumed = opts.scatteringType === undefined && detected.assumed ? { radiationAssumed: true as const } : {};
 
   // Q-space data (S(Q)/F(Q)): sine-transform to G(r) at load time so the app's
   // entry point is uniform — any reduced file lands on a fittable G(r). The
@@ -262,6 +289,7 @@ export function parsePdfData(text: string, opts: ParsePdfOptions = {}): PdfPatte
       id,
       name,
       scatteringType,
+      ...assumed,
       points: rGrid.map((r, i) => (sigma ? { r, gObs: t.g[i]!, sigma: sigma[i]! } : { r, gObs: t.g[i]! })),
       qmax: qmaxEff,
       ...(qminEff > 0 ? { qmin: qminEff } : {}),
@@ -279,6 +307,7 @@ export function parsePdfData(text: string, opts: ParsePdfOptions = {}): PdfPatte
     id,
     name,
     scatteringType,
+    ...assumed,
     points,
     ...meta,
     ...(composition ? { composition } : {}),

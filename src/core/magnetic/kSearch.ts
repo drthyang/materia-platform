@@ -45,6 +45,14 @@ export interface KCandidate {
 export interface KSearchOptions {
   /** Match tolerance on d (Å). Default 0.02. */
   readonly tolerance?: number;
+  /**
+   * Match tolerance relative to d, taken where it is the wider: a line's width
+   * in d grows with d (at fixed angular width, Δd = d·cotθ·Δθ), so a fixed Å
+   * tolerance that suits d ≈ 2 Å is a fraction of a line at 9 Å (Cr₂WO₆'s
+   * magnetic 0 0 1 sat 0.031 Å — 0.35 % — from its position, and k = 0 lost to
+   * spurious vectors). Default 0 (absolute only).
+   */
+  readonly relativeTolerance?: number;
   /** Denominators for the commensurate grid. Default [2, 3, 4, 6]. */
   readonly denominators?: readonly number[];
   /** Half-range of integer hkl for satellite prediction. Default 4. */
@@ -131,7 +139,8 @@ export function searchPropagationVector(
   observedD: readonly number[],
   options: KSearchOptions = {},
 ): KCandidate[] {
-  const { tolerance = 0.02, denominators = [2, 3, 4, 6], hklRange = 4, limit = 12, maxQ = 6, weights } = options;
+  const { tolerance = 0.02, relativeTolerance = 0, denominators = [2, 3, 4, 6], hklRange = 4, limit = 12, maxQ = 6, weights } = options;
+  const tolAt = (d: number): number => Math.max(tolerance, relativeTolerance * d);
   // Q = 2π/d; keep only low-Q peaks (large d), where magnetic scattering lives.
   // Weights stay parallel through the filter.
   const dMinQ = maxQ > 0 && Number.isFinite(maxQ) ? (2 * Math.PI) / maxQ : 0;
@@ -158,7 +167,7 @@ export function searchPropagationVector(
         const e = Math.abs(p - o.d);
         if (e < best) best = e;
       }
-      if (best <= tolerance) {
+      if (best <= tolAt(o.d)) {
         matched++;
         matchedW += o.w;
         sumSq += best * best;
@@ -172,14 +181,17 @@ export function searchPropagationVector(
     return { k, label: kLabel(k), matched, total: obs.length, rmsd, score, matches, matchedW };
   });
 
-  // Prefer simpler k (smaller denominators) among peaks that match equally well.
+  // Prefer simpler k (smaller denominators) among k that explain the same
+  // peaks: inside the tolerance a smaller RMSD is noise, and with few peaks a
+  // complex k matches by chance (Cr₂WO₆'s two magnetic peaks fit (0 ½ ¼) as
+  // closely as k = 0). RMSD decides between k of equal complexity.
   const denomComplexity = (k: Vec3): number =>
     k.reduce((acc, v) => acc + (v === 0 ? 0 : minDenominator(v)), 0);
 
   candidates.sort((a, b) =>
     b.matchedW - a.matchedW ||
-    a.rmsd - b.rmsd ||
     denomComplexity(a.k) - denomComplexity(b.k) ||
+    a.rmsd - b.rmsd ||
     a.k.reduce((s, v) => s + v, 0) - b.k.reduce((s, v) => s + v, 0),
   );
   return candidates.slice(0, limit).map(({ matchedW: _w, ...c }) => c);

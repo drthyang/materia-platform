@@ -29,6 +29,18 @@ describe("buildPowderSpec", () => {
     expect(spec.params.filter((p) => p.kind === "peakWidth").every((p) => p.fixed)).toBe(true);
   });
 
+  it("seeds the asymmetry from the instrument file when it is switched on", () => {
+    // 11-BM's GSAS file gives S/L = H/L = 0.0011; the default 0.01 is nine times that.
+    const inst: InstrumentParameters = { kind: "constantWavelength", wavelength: 0.4139, u: 6.4, v: -0.7, w: 0.35, x: 0.17, y: 0, asymmetry: { sl: 0.0011, hl: 0.0011 } };
+    const on = buildPowderSpec(structure, pattern, inst, true, 4, {}, "isotropic", { asymmetry: true });
+    expect(on.params.find((p) => p.kind === "asymSL")?.value).toBeCloseTo(0.0011, 6);
+    const { asymmetry: _drop, ...bare } = inst;
+    const seeded = buildPowderSpec(structure, pattern, bare, true, 4, {}, "isotropic", { asymmetry: true });
+    expect(seeded.params.find((p) => p.kind === "asymSL")?.value).toBeCloseTo(0.01, 6);
+    // Off by default: the file's asymmetry waits until it is switched on.
+    expect(buildPowderSpec(structure, pattern, inst).params.some((p) => p.kind === "asymSL")).toBe(false);
+  });
+
   it("holds instrument / profile parameters fixed on load", () => {
     const inst: InstrumentParameters = { kind: "constantWavelength", wavelength: 0.1665, u: -46, v: 0, w: 1.2, zero: 0 };
     const spec = buildPowderSpec(structure, pattern, inst);

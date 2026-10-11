@@ -20,9 +20,22 @@ export type Radiation =
        * synchrotron is ~0.9–0.95. Absent ⇒ 0.5. (GSAS-II "Polariz.")
        */
       readonly polarization?: number;
+      /**
+       * The tube's second line, Kα₂: its wavelength (Å) and its intensity
+       * relative to Kα₁ (≈ 0.5 for Cu, Co and Mo). Every reflection is drawn
+       * at both wavelengths. Absent ⇒ a monochromatic beam. (GSAS-II Lam2,
+       * I(L2)/I(L1).)
+       */
+      readonly kAlpha2?: KAlpha2;
     }
   /** Time-of-flight neutron: no single wavelength; d-spacing comes from TOF. */
   | { readonly kind: "neutron-tof" };
+
+/** A lab tube's second emission line: wavelength (Å) and intensity relative to Kα₁. */
+export interface KAlpha2 {
+  readonly wavelength: number;
+  readonly ratio: number;
+}
 
 /** Abscissa unit for a powder pattern point. */
 export type PowderXUnit = "twoTheta" | "dSpacing" | "q" | "tof";
@@ -141,6 +154,12 @@ export interface PdfPattern {
   readonly id: string;
   readonly name: string;
   readonly scatteringType: PdfScatteringType;
+  /**
+   * True when the file named no radiation and `scatteringType` is the
+   * default (X-ray): the user should confirm it, since neutron and X-ray
+   * weight the pairs differently (a neutron Mn–O peak is negative).
+   */
+  readonly radiationAssumed?: true;
   readonly points: readonly PdfPoint[];
   /** Fourier-termination Qmax used in the reduction (Å⁻¹); drives the sinc ripple. */
   readonly qmax?: number;

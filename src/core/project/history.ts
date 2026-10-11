@@ -104,7 +104,7 @@ const DISPLAY_ONLY = new Set(["displayUnit"]);
 const FIELD_LABEL: Readonly<Record<string, string>> = {
   pattern: "data", dataset: "data", magneticDataset: "magnetic data", instrument: "instrument",
   instrumentLoaded: "instrument", profile: "profile", backgroundTerms: "background terms",
-  siteTies: "site ties", anisotropicAdp: "ADP model", mustrain: "microstrain model",
+  siteTies: "site ties", anisotropicAdp: "ADP model", adpModel: "ADP model", mustrain: "microstrain model",
   magnetic: "magnetic model", fitRange: "fit range", manualPeaks: "marked peaks",
   probe: "probe", outlierFilter: "outlier filter", modulated: "modulated model",
   positionMode: "position mode", distortionModes: "distortion modes", spinModel: "spin model",
@@ -199,7 +199,8 @@ function summaryOf(workspace: Workspace): StepSummary {
   const r: RefinementResult | undefined = workspace.refinement.lastResult;
   return {
     ...(r?.agreement.rWeighted !== undefined ? { wR: r.agreement.rWeighted } : {}),
-    ...(r?.agreement.goodnessOfFit !== undefined ? { gof: r.agreement.goodnessOfFit } : {}),
+    // A PDF fit weights G(r) uniformly: the engine's GoF means nothing there.
+    ...(r?.agreement.goodnessOfFit !== undefined && workspace.technique !== "pdf" ? { gof: r.agreement.goodnessOfFit } : {}),
     ...(r ? { status: r.status } : {}),
     nFree: freeCount(workspace.refinement.parameters),
   };

@@ -5,7 +5,7 @@
  * screen, so the Agent and a headless agent judge a fit the same way.
  */
 
-import type { PowderAgentPort, PowderLiveState } from "@/agent/port";
+import type { InstrumentConstants, PowderAgentPort, PowderLiveState } from "@/agent/port";
 import type { LiveToolSpec } from "@/agent/tools";
 import type { ProjectHistory } from "@/core/project/history";
 import {
@@ -17,23 +17,46 @@ import {
   suggest_next_steps,
 } from "@/mcp/tools";
 import type { StructureModel } from "@/core/crystal/types";
+import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { BackgroundType } from "@/core/diffraction/background";
-import type { MustrainModel, SiteTies } from "@/app/powderSpec";
+import type { CorrectionsUpdate, MustrainModel, PeakCorrectionId, SiteTies } from "@/app/powderSpec";
 import type { PowderXUnit } from "@/core/diffraction/types";
 import { availableDisplayUnits, convertAxisValue, convertInterval } from "@/visualization/axisUnits";
-import { K0_MAGNETIC, k0MagneticHint, residualPeaks } from "@/core/diagnostics/assessment";
+import { K0_MAGNETIC, k0MagneticHint, relativeLineWidth, residualPeaks } from "@/core/diagnostics/assessment";
+import { reviewSymmetry } from "@/core/diagnostics/symmetryReview";
 import { formatWt, fractionsOf } from "@/core/diagnostics/phaseFractions";
 import { magneticIonCandidates } from "@/core/magnetic/magneticIons";
 import { generateReflections } from "@/core/diffraction/reflections";
-import { applyFree, bondsOf, cellOf, describeFree, freeNoOp, goToStep, historyView, parameterSummary, pct, sig, type LiveToolHost } from "@/agent/liveCommon";
+import { diagnoseFit, widthsComparable } from "@/core/diagnostics/fitDiagnosis";
+import { knownPhaseNames, knownPhaseStructure, matchKnownPhases } from "@/core/diagnostics/knownPhases";
+import { withAntisite } from "@/core/crystal/antisite";
+import { structureTable } from "@/agent/structureTable";
+import { powderReflectionObsCalc } from "@/core/workflow/obsCalc";
+import { excludedPointMask } from "@/core/refinement/factors";
+import { checkEqualTies, type EqualTieUpdate } from "@/core/refinement/constraints";
+import { applyFree, bondsOf, cellOf, describeFree, freeNoOp, goToStep, historyView, matchIds, parameterSummary, pct, sig, type LiveToolHost } from "@/agent/liveCommon";
+import { powderValidation } from "@/core/diagnostics/powderValidation";
+import type { ReportCheck } from "@/core/export/report";
+import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, correlationsCheck, findingChecks, noResultCheck, verdictCheck } from "@/agent/reportChecks";
 
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- inputs are validated against the spec's zod schema before a handler runs */
 type Input = any;
 
 /** Run a read or control tool. Returns the JSON result the model sees. */
+/** The tools that need a model with atoms: on the placeholder they would judge nothing. */
+const NEEDS_STRUCTURE = new Set(["assess_refinement", "suggest_next_steps", "rank_next_parameters", "check_cell_symmetry", "find_unexplained_peaks", "review_symmetry", "diagnose_fit", "bond_geometry", "interpret_structure", "refine"]);
+
+/** Refuse a tool that needs a structure when only data are loaded. */
+export function requireStructure(name: string, s: PowderLiveState): void {
+  if (NEEDS_STRUCTURE.has(name) && s.structure.sites.length === 0) {
+    throw new Error("no structure is loaded: the data sit on an empty placeholder model (no atoms, no reflections). Ask the user to load the CIF of the phase (Load CIF…) before refining or judging anything");
+  }
+}
+
 export function readPowderTool(name: string, input: Input, port: PowderAgentPort, host: LiveToolHost): unknown {
   const s = port.state();
+  requireStructure(name, s);
   switch (name) {
     case "get_state":
       return stateView(s, host.history(), input.parameters);
@@ -62,7 +85,7 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
       };
     }
     case "check_cell_symmetry": {
-      const gate = check_cell_symmetry({
+      const check = check_cell_symmetry({
         structure: s.refinedPhases[0] ?? s.structure,
         pattern: s.pattern,
         ...(s.instrument ? { instrument: s.instrument } : {}),
@@ -72,33 +95,50 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
         ...(input.significance !== undefined ? { significance: input.significance } : {}),
       });
       // Each unindexed peak in d and Q too, and marked on the plot for the user.
-      const unindexed = gate.unindexedPeaks.map((p) => {
+      const unindexed = check.unindexedPeaks.map((p) => {
         const d = convertAxisValue(p.x, s.pattern.xUnit, "dSpacing", s.axis);
         return { ...p, ...(Number.isFinite(d) ? { d: sig(d, 5), q: sig((2 * Math.PI) / d, 5) } : {}) };
       });
       const marks = unindexed.flatMap((p) => ("d" in p && p.d !== undefined ? [{ d: p.d, height: p.significance }] : []));
       if (marks.length > 0) port.showPeaks(marks);
-      // An impurity's line can land on a forbidden position and read as a violation.
-      const reading = unindexed.length > 0 && gate.absences.violated.length > 0
-        ? `With ${unindexed.length} unindexed peak${unindexed.length === 1 ? "" : "s"} present, the violated absence${gate.absences.violated.length === 1 ? "" : "s"} (${gate.absences.violated.map((v) => `${v.h} ${v.k} ${v.l} at d ${v.d.toFixed(3)} Å`).join(", ")}) may be a line of the same unindexed phase. Identify that phase (add it as an extra phase) and run the gate again before concluding the space group is wrong.`
-        : undefined;
-      return { ...gate, unindexedPeaks: unindexed, ...(reading ? { reading } : {}), ...(marks.length > 0 ? { markedOnPlot: "The unindexed peaks are marked on the plot (filled ▽, listed under it)." } : {}) };
+      // A check, not a gate: an absence flag is recorded and revisited at the
+      // end (review_symmetry), never acted on before the structure is refined.
+      const violated = check.absences.violated;
+      const flags = violated.map((v) => `${v.h} ${v.k} ${v.l} at d ${v.d.toFixed(3)} Å`).join(", ");
+      const readings = [
+        ...(unindexed.length > 0 ? [`${unindexed.length} peak${unindexed.length === 1 ? "" : "s"} no reflection of the cell indexes: a missing phase (most often) or a wrong cell. identify_peaks (with their d) checks the sample environment and common standards. Settle this with the user before refining the structure.`] : []),
+        ...(check.shoulders.length > 0 ? [shoulderReading(check.shoulders, s.pattern.xUnit)] : []),
+        ...(violated.length > 0
+          ? [`${violated.length} forbidden reflection${violated.length === 1 ? "" : "s"} show${violated.length === 1 ? "s" : ""} leftover intensity (${flags}). This is a flag, not a verdict: before the structure is refined, profile misfit${unindexed.length > 0 ? ", or a line of the unindexed phase," : ""} reads the same way. Do not change the space group now: note it (write_note) and refine the structure to the best; review_symmetry reads the refined residual at the end.`]
+          : []),
+      ];
+      const reading = readings.length > 0 ? readings.join(" ") : "Every peak indexes and no forbidden reflection shows intensity: refine the structure.";
+      // Shoulders in the pattern's own unit, rounded.
+      const shoulders = check.shoulders.map((sh) => ({ x: sig(sh.x, 6), significance: sig(sh.significance, 3), of: sh.of, offset: sig(sh.offset, 3), relativeHeight: sig(sh.relativeHeight, 2) }));
+      return { ...check, unindexedPeaks: unindexed, shoulders, reading, ...(marks.length > 0 ? { markedOnPlot: "The unindexed peaks are marked on the plot (filled ▽, listed under it)." } : {}) };
     }
     case "find_unexplained_peaks": {
       // Each peak must stand 5σ above its own counting noise, and is checked
-      // against every phase's reflections: on one, it is that reflection's misfit.
+      // against every phase's reflections. Only a peak on no reflection is
+      // unexplained (an extra peak); one on or beside a reflection is that
+      // reflection's misfit, which refining the model fixes.
       const residual = residualOf(s);
       const { between, beside, onReflection } = residualPeaks(residual, { ...(input.sigma !== undefined ? { sigma: input.sigma } : {}), limit: input.limit ?? 12 });
-      const all = [...between, ...beside, ...onReflection].sort((a, b) => b.height - a.height);
+      const misfits = [...onReflection, ...beside].sort((a, b) => b.height - a.height);
       const isBeside = new Set(beside);
-      const near = (p: (typeof all)[number]): string | undefined => {
+      const isExtra = new Set(between);
+      const near = (p: (typeof misfits)[number]): string | undefined => {
         if (!p.nearNuclear) return undefined;
         const ref = `${p.nearNuclear.phaseLabel} ${p.nearNuclear.hkl}`;
-        return isBeside.has(p) ? `beside ${ref} (${((p.d / p.nearNuclear.d - 1) * 100).toFixed(1)}% in d)` : ref;
+        const off = `${((p.d / p.nearNuclear.d - 1) * 100).toFixed(1)}% in d`;
+        // An extra peak near a line, but resolved from it: the model has no intensity there.
+        if (isExtra.has(p)) return `near ${ref} (${off}), resolved from it`;
+        return isBeside.has(p) ? `beside ${ref} (${off})` : `on ${ref}`;
       };
       // Shown to the user too: ▽ marks with guide lines on the plot.
-      port.showPeaks(all.map((p) => ({ d: p.d, height: p.height, ...(near(p) ? { near: near(p)! } : {}) })));
-      const view = (p: (typeof all)[number]): Record<string, unknown> => ({
+      const marked = input.showMisfits ? [...between, ...misfits].sort((a, b) => b.height - a.height) : between;
+      port.showPeaks(marked.map((p) => ({ d: p.d, height: p.height, ...(near(p) ? { near: near(p)! } : {}) })));
+      const view = (p: (typeof misfits)[number]): Record<string, unknown> => ({
         d: sig(p.d, 5),
         q: sig((2 * Math.PI) / p.d, 5),
         // The data's own axis (TOF or 2θ), from the page's calibration.
@@ -107,18 +147,77 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
         ...(p.significance !== undefined ? { sigmas: sig(p.significance, 3) } : {}),
         ...(near(p) ? { near: near(p) } : {}),
       });
+      const misfitReading = misfits.length === 0 ? ""
+        : ` ${misfits.length} residual peak${misfits.length === 1 ? " sits" : "s sit"} on or beside a known reflection (misfits): ${misfits.length === 1 ? "a reflection" : "reflections"} the model has, with intensity or shape not matched yet. They are not extra peaks — don't call them so, and don't add a phase or change the symmetry for them. Refining the structure (positions, ADPs, occupancy), the profile and the corrections (preferred orientation, absorption) is what fixes them.`;
+      const reading = between.length === 0 && misfits.length === 0
+        ? "No residual peak stands 5σ above its own noise."
+        : (between.length === 0
+          ? "No extra peak: no residual peak sits away from the phases' reflections."
+          : `${between.length} peak${between.length === 1 ? "" : "s"} on no phase's reflection or its tail: intensity no phase accounts for (an impurity, the sample environment, magnetic order, or an unmodelled feature; identify_peaks checks the sample environment and common standards).`) +
+          misfitReading +
+          (k0MagneticHint(residual.magneticNeutron, onReflection) ? ` ${K0_MAGNETIC}` : "");
       return {
-        count: all.length,
+        count: between.length,
         unexplained: between.map(view),
-        besideKnownReflections: beside.map(view),
-        onKnownReflections: onReflection.map(view),
-        reading: all.length === 0
-          ? "No residual peak stands 5σ above its own noise."
-          : `${between.length} away from every phase's reflections (intensity no phase accounts for: an impurity, magnetic order, or an unmodelled feature); ${beside.length} within 2% in d of a reflection (most often its shoulder or tail: check the profile first); ${onReflection.length} on a reflection (calculated too weak: the atoms, ADPs or an intensity correction, not a new phase).` +
-            (k0MagneticHint(residual.magneticNeutron, onReflection) ? ` ${K0_MAGNETIC}` : ""),
-        ...(all.length > 0 ? { markedOnPlot: "The user sees these marked on the plot (filled ▽ unexplained, hollow ▽ on or beside a known reflection, listed under it); refer to them by d." } : {}),
+        misfits: misfits.map(view),
+        reading,
+        ...(marked.length > 0
+          ? { markedOnPlot: input.showMisfits ? "The user sees these marked on the plot (filled ▽ unexplained, hollow ▽ misfits on or beside a known reflection, listed under it); refer to them by d." : "The user sees the unexplained peaks marked on the plot (filled ▽, listed under it); refer to them by d." }
+          : {}),
       };
     }
+    case "identify_peaks": {
+      const residual = residualOf(s);
+      const given = Array.isArray(input.d) ? (input.d as number[]).filter((d) => d > 0) : null;
+      const peaks = given
+        ? given.map((d) => ({ d, height: 0 }))
+        : residualPeaks(residual, { limit: 12 }).between.map((p) => ({ d: p.d, height: p.height }));
+      if (peaks.length === 0) return { peaks: [], candidates: [], reading: "No unexplained peak to identify: every residual peak sits on or beside a reflection of the model's phases." };
+      const finite = residual.d.filter((v) => Number.isFinite(v) && v > 0);
+      const candidates = matchKnownPhases(peaks, s.pattern.radiation, { dMin: Math.min(...finite), dMax: Math.max(...finite) });
+      const lead = candidates[0];
+      // A phase whose strongest line is missing is a doubtful match, however many weak lines it explains
+      // (round 10: graphite offered for two weak NAC lines without its 002).
+      const strongestMissing = lead?.alsoExpected.find((e) => e.relativeIntensity >= 0.8);
+      const strongLead = lead && !strongestMissing && (lead.explains.length >= 2 || (lead.explains.length === 1 && lead.explains[0]!.relativeIntensity >= 0.8 && lead.alsoExpected.length === 0));
+      const reading = !lead
+        ? `None of the ${peaks.length} peak${peaks.length === 1 ? "" : "s"} matches a common sample-environment phase or standard: an impurity of the sample, magnetic order, or a feature to put to the user.`
+        : strongestMissing
+          ? `No convincing match: ${lead.phase} would explain ${lead.explains.length} of ${peaks.length} (${lead.explains.map((e) => e.hkl).join(", ")}), but its strongest line ${strongestMissing.hkl} at d ${strongestMissing.d.toFixed(3)} Å is not among the peaks. Unless that line hides under one of the sample's, report the peaks as unexplained.`
+        : strongLead
+          ? `${lead.explains.length} of ${peaks.length} peak${peaks.length === 1 ? "" : "s"} match ${lead.phase} (${lead.explains.map((e) => e.hkl).join(", ")}), with its d-spacings × ${lead.dScale.toFixed(4)} — usually ${lead.source}.${lead.alsoExpected.length ? ` Its strong lines ${lead.alsoExpected.map((e) => `${e.hkl} at d ${e.d.toFixed(3)} Å`).join(", ")} should also be seen (they may hide under the sample's lines).` : ""}${lead.impurity ? " An impurity of the sample: put it to the user, and add it (add_known_phase) so its lines are modelled and its weight fraction refines." : " Put it to the user: add the phase (add_known_phase) or leave the lines unmodelled and say so; it is not part of the sample."}`
+          : `Only weak or single matches (best: ${lead.phase} ${lead.explains.map((e) => e.hkl).join(", ")}): not enough to name a phase. Report the peaks to the user as unexplained.`;
+      return {
+        peaks: peaks.map((p) => ({ d: sig(p.d, 5), ...(s.pattern.xUnit !== "dSpacing" && s.pattern.xUnit !== "q" ? { [s.pattern.xUnit]: sig(convertAxisValue(p.d, "dSpacing", s.pattern.xUnit, s.axis), 6) } : {}) })),
+        candidates: candidates.slice(0, 4).map((c) => ({
+          phase: c.phase, source: c.source, dScale: sig(c.dScale, 5),
+          explains: c.explains.map((e) => ({ d: sig(e.d, 5), hkl: e.hkl, relativeIntensity: sig(e.relativeIntensity, 2) })),
+          alsoExpected: c.alsoExpected.map((e) => ({ d: sig(e.d, 5), hkl: e.hkl, relativeIntensity: sig(e.relativeIntensity, 2) })),
+        })),
+        reading,
+      };
+    }
+    case "review_symmetry": {
+      // The executor runs this only once the method's stages are refined.
+      const residual = residualOf(s);
+      const review = reviewSymmetry(s.refinedPhases, residual);
+      const marks = review.observedForbidden.map((o) => ({ d: o.d, height: o.height, near: `forbidden ${o.hkl}` }));
+      if (marks.length > 0) port.showPeaks(marks);
+      const magnetic = review.observedForbidden.length > 0 && residual.magneticNeutron
+        ? "Neutron data with magnetic ions: magnetic order with k = 0 puts intensity on nuclear-forbidden reflections. Rule that out (is the sample below its ordering temperature? the magnetic page) before lowering the nuclear symmetry."
+        : undefined;
+      return {
+        ...review,
+        observedForbidden: review.observedForbidden.map((o) => ({ hkl: o.hkl, d: sig(o.d, 5), ...(o.sigmas !== undefined ? { sigmas: sig(o.sigmas, 3) } : {}) })),
+        ...(magnetic ? { magneticCaveat: magnetic } : {}),
+        decision: "The user's. Present the evidence and the candidates; do not change the model. A lower symmetry is a new model (its CIF, loaded by the user), refined again from the start of the method, and kept only if it fits these reflections without the misfit moving elsewhere and with fewer free parameters than it gains in χ² (a Hamilton-type test).",
+        ...(marks.length > 0 ? { markedOnPlot: "The forbidden reflections with intensity are marked on the plot (filled ▽, labelled forbidden h k l)." } : {}),
+      };
+    }
+    case "diagnose_fit":
+      return fitDiagnosisView(s);
+    case "structure_table":
+      return { phases: s.refinedPhases.map((ph, i) => structureTable(ph, i, s.parameters, s.bindings, s.result?.esd ?? {})), ...(s.result ? {} : { note: "No refinement on screen: the values carry no esds." }) };
     case "bond_geometry":
       return bondsOf(s.refinedPhases, input, bond_geometry);
     case "interpret_structure": {
@@ -143,6 +242,7 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
  */
 export async function changePowder(name: string, input: Input, port: PowderAgentPort, host: LiveToolHost): Promise<string | undefined> {
   const s = port.state();
+  requireStructure(name, s);
   switch (name) {
     case "set_free":
       return applyFree(s.parameters, input, port.setFixed);
@@ -159,6 +259,31 @@ export async function changePowder(name: string, input: Input, port: PowderAgent
     case "set_site_ties":
       port.setSiteTies(siteTieUpdate(input));
       return undefined;
+    case "set_corrections": {
+      if (!port.setCorrections) throw new Error("this page has no corrections to set");
+      port.setCorrections(correctionUpdate(input));
+      return undefined;
+    }
+    case "add_antisite": {
+      if (!port.addAntisite) throw new Error("this page cannot change its structure");
+      port.addAntisite(String(input.siteA), String(input.siteB));
+      return undefined;
+    }
+    case "add_known_phase": {
+      if (!port.addPhase) throw new Error("this page cannot add a phase");
+      port.addPhase(knownPhaseStructure(String(input.name))!);
+      return undefined;
+    }
+    case "tie_parameters": {
+      if (!port.setParameterTies) throw new Error("this page cannot tie parameters");
+      port.setParameterTies(tieUpdate(s.parameters, input));
+      return undefined;
+    }
+    case "set_instrument_constants": {
+      if (!port.setInstrumentConstants) throw new Error("this page cannot change its instrument");
+      port.setInstrumentConstants(constantsUpdate(input));
+      return undefined;
+    }
     case "set_fit_range": {
       if (input.whole) {
         port.setFitRange(null);
@@ -177,7 +302,7 @@ export async function changePowder(name: string, input: Input, port: PowderAgent
         return why ? `The refinement did not finish (${why}); the parameters keep their values from before it.` : undefined;
       }
     case "reset_parameters":
-      port.reset();
+      port.reset(input.parameters ? matchIds(s.parameters, input.parameters as string[]) : undefined);
       return undefined;
     case "go_to_step":
       goToStep(host, input.step);
@@ -192,15 +317,80 @@ export async function changePowder(name: string, input: Input, port: PowderAgent
  * no-op never asks the user for approval.
  */
 export function powderNoOp(spec: LiveToolSpec, input: Input, s: PowderLiveState): string | null {
+  // Checked before the correlation probe: on the placeholder it would misread.
+  requireStructure(spec.name, s);
   // An empty change is an error before anyone is asked.
   if (spec.name === "set_background" && input.terms === undefined && input.type === undefined) throw new Error("pass `terms`, `type`, or both");
+  if (spec.name === "set_adp_model") {
+    const want = input.anisotropic ? "anisotropic" : "isotropic";
+    return s.structure.sites.every((site) => site.adp.kind === want) ? `the ADPs are already ${want}` : null;
+  }
   if (spec.name === "set_site_ties") {
     const update = siteTieUpdate(input);
     const keys = Object.keys(update) as (keyof SiteTies)[];
     if (keys.length === 0) throw new Error("pass at least one of `positions`, `adp`, `occupancyToUnity`, `composition`");
     return keys.every((k) => tieOn(s.settings.siteTies, k) === update[k]) ? "the site ties are already set so" : null;
   }
+  if (spec.name === "set_corrections") {
+    const update = correctionUpdate(input);
+    if (Object.keys(update).length === 0) throw new Error("pass `asymmetry`, `preferredOrientation`, `peak`, or several");
+    if (update.asymmetry && s.pattern.xUnit !== "twoTheta") throw new Error("peak asymmetry (FCJ) is for constant-wavelength 2θ data; a TOF peak's asymmetry is its back-to-back exponentials");
+    if (update.asymmetry && s.profile.shape !== "pseudoVoigt") throw new Error("peak asymmetry (FCJ) works on the pseudo-Voigt profile, which needs the instrument's Caglioti U, V, W: ask the user to load the instrument file");
+    const now = s.settings.corrections;
+    const same = (update.asymmetry === undefined || !!now.asymmetry === update.asymmetry)
+      && (update.preferredOrientation === undefined || (update.preferredOrientation === null ? !now.preferredOrientation : now.preferredOrientation?.join() === update.preferredOrientation.join()))
+      && (update.peak === undefined || [...update.peak].sort().join() === [...(now.peak ?? [])].sort().join());
+    return same ? "the corrections are already set so" : null;
+  }
+  if (spec.name === "add_known_phase") {
+    const name = String(input.name);
+    if (!knownPhaseStructure(name)) throw new Error(`"${name}" is not in the library — it holds ${knownPhaseNames().join(", ")}; for another phase the user loads its CIF (Add CIF…)`);
+    if ([s.structure, ...s.extraPhases].some((p) => p.name === name)) return `${name} is already a phase of the model`;
+  }
+  if (spec.name === "add_antisite") {
+    if (s.extraPhases.length > 0) throw new Error("antisite disorder is added to a single-phase model");
+    // Throws for an unknown site, two sites of one element, or a pair already exchanged.
+    withAntisite(s.structure, String(input.siteA), String(input.siteB));
+    return null;
+  }
+  if (spec.name === "tie_parameters") {
+    return checkEqualTies(s.parameters, tieUpdate(s.parameters, input)).unchanged ? "those parameters are already tied so" : null;
+  }
+  if (spec.name === "set_instrument_constants") {
+    const update = constantsUpdate(input);
+    if (Object.keys(update).length === 0) throw new Error("pass `polarization`, `kAlpha2Ratio`, or both");
+    const r = s.pattern.radiation;
+    if (r.kind !== "xray" || s.pattern.xUnit !== "twoTheta") throw new Error("the polarization and the Kα₂ ratio are constants of constant-wavelength X-ray data; this pattern is not");
+    if (update.kAlpha2Ratio !== undefined && !r.kAlpha2) throw new Error("this instrument has no Kα₂ line (a monochromatic beam): there is no ratio to set");
+    const same = (update.polarization === undefined || Math.abs((r.polarization ?? 0.5) - update.polarization) < 1e-9)
+      && (update.kAlpha2Ratio === undefined || Math.abs((r.kAlpha2?.ratio ?? 0) - update.kAlpha2Ratio) < 1e-9);
+    return same ? "the instrument constants are already so" : null;
+  }
   return spec.name === "set_free" ? freeNoOp(s.parameters, input) : null;
+}
+
+/** tie_parameters' globs expanded in the order given (so the leader stays first), each id once. */
+function tieUpdate(params: readonly RefinementParameter[], input: Input): EqualTieUpdate {
+  const expand = (list: readonly string[]): string[] => [...new Set(list.flatMap((g) => matchIds(params, [g])))];
+  return {
+    ...(Array.isArray(input.equal) ? { equal: expand(input.equal as string[]) } : {}),
+    ...(Array.isArray(input.release) ? { release: expand(input.release as string[]) } : {}),
+  };
+}
+
+function constantsUpdate(input: Input): InstrumentConstants {
+  return {
+    ...(typeof input.polarization === "number" ? { polarization: input.polarization } : {}),
+    ...(typeof input.kAlpha2Ratio === "number" ? { kAlpha2Ratio: input.kAlpha2Ratio } : {}),
+  };
+}
+
+function correctionUpdate(input: Input): CorrectionsUpdate {
+  return {
+    ...(typeof input.asymmetry === "boolean" ? { asymmetry: input.asymmetry as boolean } : {}),
+    ...(input.preferredOrientation !== undefined ? { preferredOrientation: input.preferredOrientation as [number, number, number] | null } : {}),
+    ...(Array.isArray(input.peak) ? { peak: input.peak as PeakCorrectionId[] } : {}),
+  };
 }
 
 const SITE_TIE_KEYS = ["positions", "adp", "occupancyToUnity", "composition"] as const;
@@ -230,6 +420,39 @@ export function describePowderChange(spec: LiveToolSpec, input: Input, s: Powder
       return `ADPs ${s.settings.anisotropicAdp ? "anisotropic" : "isotropic"} → ${input.anisotropic ? "anisotropic" : "isotropic"}`;
     case "set_site_ties":
       return Object.entries(siteTieUpdate(input)).map(([k, v]) => `${SITE_TIE_NAMES[k as keyof SiteTies]} ${v ? "on" : "off"}`).join(" · ");
+    case "set_corrections": {
+      const u = correctionUpdate(input);
+      return [
+        ...(u.asymmetry !== undefined ? [`asymmetry ${u.asymmetry ? "on" : "off"}`] : []),
+        ...(u.preferredOrientation !== undefined ? [u.preferredOrientation ? `preferred orientation along ${u.preferredOrientation.join(" ")}` : "preferred orientation off"] : []),
+        ...(u.peak !== undefined ? [`peak corrections: ${u.peak.length ? u.peak.join(", ") : "none"}`] : []),
+      ].join(" · ");
+    }
+    case "add_known_phase": {
+      const p = knownPhaseStructure(String(input.name));
+      return p ? `Add ${p.name} (${p.spaceGroup.hermannMauguin ?? "?"}, a = ${p.cell.a} Å) as a further phase: its scale and cell refine with the others` : `Add ${String(input.name)}`;
+    }
+    case "add_antisite": {
+      const a = s.structure.sites.find((x) => x.label === input.siteA);
+      const b = s.structure.sites.find((x) => x.label === input.siteB);
+      return `Antisite ${String(input.siteA)} ⇄ ${String(input.siteB)}: ${b?.element ?? "?"} on ${String(input.siteA)}, ${a?.element ?? "?"} on ${String(input.siteB)}, at occupancy 0 · Σ occ = 1 and hold composition on`;
+    }
+    case "tie_parameters": {
+      const u = tieUpdate(s.parameters, input);
+      const kind = (id: string | undefined): string => (s.parameters.find((p) => p.id === id)?.kind === "occupancy" ? "occupancy" : "B");
+      return [
+        ...(u.equal ? [`Tie ${u.equal.slice(1).join(", ")} = ${u.equal[0]} (one ${kind(u.equal[0])} refines)`] : []),
+        ...(u.release ? [`Release the tie on ${u.release.join(", ")}`] : []),
+      ].join(" · ");
+    }
+    case "set_instrument_constants": {
+      const u = constantsUpdate(input);
+      const r = s.pattern.radiation;
+      return [
+        ...(u.polarization !== undefined ? [`Polarization ${r.kind === "xray" ? r.polarization ?? 0.5 : "—"} → ${u.polarization}`] : []),
+        ...(u.kAlpha2Ratio !== undefined ? [`Kα₂/Kα₁ ${r.kind === "xray" ? r.kAlpha2?.ratio ?? "—" : "—"} → ${u.kAlpha2Ratio}`] : []),
+      ].join(" · ");
+    }
     case "set_fit_range": {
       if (input.whole) return "Fit the whole pattern";
       const w = requestedWindow(s, input);
@@ -244,7 +467,7 @@ export function describePowderChange(spec: LiveToolSpec, input: Input, s: Powder
         : `Refine ${free} free parameter${free === 1 ? "" : "s"}`;
     }
     case "reset_parameters":
-      return "Reset every parameter to its starting value";
+      return input.parameters ? `Reset ${matchIds(s.parameters, input.parameters as string[]).join(", ")} to the starting value` : "Reset every parameter to its starting value";
     case "go_to_step":
       return `Go to step ${String(input.step)}`;
     default:
@@ -255,6 +478,14 @@ export function describePowderChange(spec: LiveToolSpec, input: Input, s: Powder
 // ── state view ──────────────────────────────────────────────────────────────
 
 function stateView(s: PowderLiveState, history: ProjectHistory | null, select: readonly string[] | undefined): Record<string, unknown> {
+  if (s.structure.sites.length === 0) {
+    return {
+      technique: "powder",
+      source: s.source,
+      warning: "No structure is loaded: the data sit on an empty placeholder model (no atoms, no reflections). Nothing can be refined or judged until the user loads the phase's CIF (Load CIF…).",
+      data: { points: s.pattern.points.length, axis: s.pattern.xUnit, extent: [sig(s.extent.min, 6), sig(s.extent.max, 6)], radiation: s.pattern.radiation.kind },
+    };
+  }
   const xs = s.pattern.points;
   return {
     technique: "powder",
@@ -282,10 +513,24 @@ function stateView(s: PowderLiveState, history: ProjectHistory | null, select: r
       ),
       observations: s.observationCount,
       radiation: s.pattern.radiation.kind,
+      // X-ray constants the fit cannot determine (set_instrument_constants); a
+      // lab tube's Kα₂ is drawn with every reflection: no misfit and no phase.
+      ...(s.pattern.radiation.kind === "xray" ? {
+        polarization: s.pattern.radiation.polarization ?? 0.5,
+        ...(s.pattern.radiation.kAlpha2 && s.pattern.xUnit === "twoTheta"
+          ? { kAlpha2: { wavelength: s.pattern.radiation.kAlpha2.wavelength, ratio: s.pattern.radiation.kAlpha2.ratio, note: "every reflection is drawn at Kα₁ and Kα₂" } }
+          : {}),
+      } : {}),
     },
     instrument: s.instrument
       ? s.instrument.kind === "constantWavelength"
-        ? { kind: "constant wavelength", wavelength: s.instrument.wavelength }
+        ? {
+            kind: "constant wavelength",
+            wavelength: s.instrument.wavelength,
+            ...(s.instrument.asymmetry
+              ? { asymmetry: `S/L ${s.instrument.asymmetry.sl}, H/L ${s.instrument.asymmetry.hl} in the file — ${s.settings.corrections.asymmetry ? "on" : "off until set_corrections switches it on, which seeds it from these"}` }
+              : {}),
+          }
         : { kind: "time of flight", difC: s.instrument.difC, difA: s.instrument.difA ?? 0, zero: s.instrument.zero ?? 0, note: "TOF = difC·d + difA·d² + zero; set_fit_range and find_unexplained_peaks convert for you" }
       : "none loaded (default CW, λ = 1.54 Å)",
     settings: {
@@ -351,7 +596,7 @@ function requestedWindow(s: PowderLiveState, input: Input): { min: number; max: 
   return w;
 }
 
-function residualOf(s: PowderLiveState): { d: number[]; yObs: number[]; yCalc: number[]; sigma: number[]; reflections: { d: number; hkl: string; phaseLabel: string }[]; magneticNeutron: boolean } {
+function residualOf(s: PowderLiveState): { d: number[]; yObs: number[]; yCalc: number[]; sigma: number[]; reflections: { d: number; hkl: string; phaseLabel: string }[]; magneticNeutron: boolean; lineWidth?: number } {
   if (!s.d) throw new Error("this pattern's axis cannot be converted to d-spacing (no wavelength or TOF calibration)");
   // Inside the fit window only: outside it the model is not being fitted.
   const keep = s.curves.x.map((x) => !s.fitRange || (x >= s.fitRange.min && x <= s.fitRange.max));
@@ -371,7 +616,10 @@ function residualOf(s: PowderLiveState): { d: number[]; yObs: number[]; yCalc: n
   );
   // Neutrons see magnetic order; a phase with magnetic ions may carry it.
   const magneticNeutron = s.pattern.radiation.kind.startsWith("neutron") && s.magnetic === null && [s.structure, ...s.extraPhases].some((ph) => magneticIonCandidates(ph).length > 0);
-  return { d, yObs: pick(s.curves.yObs), yCalc: pick(s.curves.yCalc), sigma: pick(sigma), reflections, magneticNeutron };
+  const yCalc = pick(s.curves.yCalc);
+  // Constant wavelength: "on" and "beside" a reflection follow the lines' own width.
+  const lineWidth = s.pattern.xUnit === "twoTheta" ? relativeLineWidth(d, yCalc) : undefined;
+  return { d, yObs: pick(s.curves.yObs), yCalc, sigma: pick(sigma), reflections, magneticNeutron, ...(lineWidth !== undefined ? { lineWidth } : {}) };
 }
 
 function assessment(s: PowderLiveState): ReturnType<typeof assess_refinement> {
@@ -394,4 +642,126 @@ function sharedSiteAdps(s: PowderLiveState): string[] {
     if ((b.kind === "bIso" || b.kind === "uAniso") && b.targetKey) sites.set(b.parameterId, (sites.get(b.parameterId) ?? new Set()).add(`${b.targetId}/${b.targetKey}`));
   }
   return [...sites].filter(([, set]) => set.size > 1).map(([id]) => id);
+}
+
+/** diagnose_fit: the residual read cause by cause (core/diagnostics/fitDiagnosis.ts). */
+const WIDTH_KINDS = ["profileU", "profileV", "profileW", "profileX"] as const;
+
+/** diagnose_fit's action for ± lobes once the width terms are free and the widths agree. */
+function shapeLeft(ratio: number, lorentzian: boolean): string {
+  return `The Caglioti U, V, W${lorentzian ? " and the Lorentzian X" : ""} are already free and the line widths agree (observed/calculated ${sig(ratio, 3)}): what is left is a shape the profile does not follow, not a width. Read the worst reflections: lobes on one side at low angle are axial-divergence asymmetry (set_corrections asymmetry); some hkl broader than others are anisotropic broadening (set_microstrain); lobes that change side from peak to peak, at a few % of the peak, are the limit of the profile function — say so, and read the esds as too small by the Durbin–Watson factor rather than adding parameters.`;
+}
+
+function fitDiagnosisView(s: PowderLiveState): Record<string, unknown> {
+  if (!s.d) throw new Error("this pattern's axis cannot be converted to d-spacing (no wavelength or TOF calibration)");
+  const curves = s.curves;
+  const points = s.pattern.points.length === curves.x.length ? s.pattern.points : null;
+  const sigma = curves.yObs.map((y, i) => {
+    const given = points?.[i]?.sigma;
+    return given !== undefined && given > 0 ? given : Math.sqrt(Math.max(y, 1));
+  });
+  const excluded = excludedPointMask(curves.yObs);
+  const include = curves.x.map((x, i) => !excluded[i] && (!s.fitRange || (x >= s.fitRange.min && x <= s.fitRange.max)));
+  const reflections = powderReflectionObsCalc(s.structure, s.pattern, [...s.parameters], [...s.bindings], s.profile, s.magnetic, s.fitRange, s.extraPhases, "rietveld", {
+    yCalc: [...curves.yCalc], sigma, include,
+  });
+  const dx = diagnoseFit({
+    x: curves.x, yObs: curves.yObs, yCalc: curves.yCalc,
+    ...(curves.yBackground && curves.yBackground.length === curves.x.length ? { yBackground: curves.yBackground } : {}),
+    sigma, include,
+    nParams: s.parameters.filter((p) => !p.fixed && !p.expression).length,
+    d: s.d,
+    reflections,
+    cells: s.refinedPhases.map((p) => p.cell),
+    twoTheta: s.pattern.xUnit === "twoTheta",
+    xOf: (d) => convertAxisValue(d, "dSpacing", s.pattern.xUnit, s.axis),
+  });
+  const v = dx.validation;
+  // "Free the widths" is no advice once they are free and the widths agree: what is left is the shape.
+  const freeKinds = new Set(s.parameters.filter((p) => !p.fixed && !p.expression).map((p) => p.kind));
+  const present = WIDTH_KINDS.filter((k) => s.parameters.some((p) => p.kind === k));
+  const widthsDone = present.includes("profileU") && present.every((k) => freeKinds.has(k)) && !!dx.width && Math.abs(dx.width.median - 1) <= 0.1;
+  return {
+    reading: dx.reading,
+    causes: dx.causes.map((c) => ({
+      cause: c.id, chi2Share: pct(c.share), evidence: c.evidence,
+      action: c.id === "peak-shape" && widthsDone ? shapeLeft(dx.width!.median, present.includes("profileX")) : c.action,
+    })),
+    agreement: {
+      rwp: pct(v.agreement.rwp), rexp: pct(v.agreement.rexp), gof: sig(v.agreement.gof, 3),
+      ...(v.agreement.rwpBkg !== undefined ? { rwpBackgroundSubtracted: pct(v.agreement.rwpBkg) } : {}),
+      ...(v.durbinWatson ? { durbinWatson: sig(v.durbinWatson.d, 3), durbinWatsonCritical: sig(v.durbinWatson.qd, 3) } : {}),
+    },
+    ...(dx.betweenPeaks ? { betweenPeaks: { chi2Share: pct(dx.betweenPeaks.share), chi2PerPoint: sig(dx.betweenPeaks.chi2PerPoint, 3), points: dx.betweenPeaks.points } } : {}),
+    ...(dx.width ? { lineWidths: { observedOverCalculated: sig(dx.width.median, 3), lowerThird: sig(dx.width.low, 3), upperThird: sig(dx.width.high, 3), isolatedLines: dx.width.lines, ...(dx.width.etaObs !== undefined && dx.width.etaCalc !== undefined && widthsComparable(dx.width) ? { lorentzianFraction: { observed: sig(dx.width.etaObs, 2), calculated: sig(dx.width.etaCalc, 2), lines: dx.width.shapeLines } } : {}) } } : {}),
+    dShells: v.shells.map((sh) => ({ d: `${sig(Math.min(sh.lo, sh.hi), 3)}–${sig(Math.max(sh.lo, sh.hi), 3)} Å`, chi2PerPoint: sig(sh.chi2PerPoint, 3), chi2Share: pct(sh.share) })),
+    worstReflections: dx.worst.map((w) => ({
+      hkl: `${w.phase ? `${w.phase} ` : ""}${w.hkl}`, d: sig(w.d, 4), [s.pattern.xUnit]: sig(w.x, 5), chi2Share: pct(w.share),
+      misfit: w.signature === "shape" ? `shape (residual ${w.lobe > 0 ? "on the high" : "on the low"}-${s.pattern.xUnit === "twoTheta" ? "angle" : "x"} side)` : w.signature === "under" ? "calculated too weak" : "calculated too strong",
+    })),
+    ...(dx.wilson ? { intensityFalloff: { deltaB: sig(dx.wilson.deltaB, 3), r: sig(dx.wilson.r, 2), reflections: dx.wilson.n } } : {}),
+    ...(dx.texture ? { textureTest: { axis: dx.texture.axis.join(" "), r: sig(dx.texture.r, 2), reflections: dx.texture.n } } : {}),
+  };
+}
+
+/**
+ * The engine's checks of the fit on screen, for the Agent's report: the
+ * convergence, the agreement verdict, correlations, bounds, the residual
+ * peaks, the serial correlation of the residual, the bond-valence sums and
+ * the assessment's other findings (reportChecks.ts).
+ */
+export function powderReportChecks(s: PowderLiveState, probe: RefinementResult | null = null): ReportCheck[] {
+  if (!s.result || s.structure.sites.length === 0) return [noResultCheck()];
+  const a = assessment(s);
+  const checks: ReportCheck[] = [
+    convergenceCheck(s.result),
+    verdictCheck(a),
+    probe ? correlationsCheck(probe, s.parameters, s.restraints) : correlationsCheck(s.result, s.parameters, s.restraints, CORRELATION_LISTED),
+    boundsCheck(s.result, s.parameters),
+  ];
+  if (s.d) {
+    const { between, beside, onReflection } = residualPeaks(residualOf(s), { limit: 12 });
+    const list = (ps: readonly { d: number }[]): string => ps.slice(0, 6).map((p) => p.d.toFixed(4)).join(", ") + (ps.length > 6 ? ", …" : "");
+    const misfits = [...onReflection, ...beside].sort((x, y) => y.height - x.height);
+    checks.push(between.length > 0
+      ? { name: "Residual peaks", status: "warn", detail: `${between.length} peak${between.length === 1 ? "" : "s"} on no phase's reflection, 5σ above the noise: d = ${list(between)} Å — intensity no phase in the model accounts for.${misfits.length > 0 ? ` ${misfits.length} more on or beside the model's reflections (misfits).` : ""}` }
+      : misfits.length > 0
+        ? { name: "Residual peaks", status: "note", detail: `No extra peak. ${misfits.length} residual peak${misfits.length === 1 ? "" : "s"} on or beside the model's reflections (intensity or shape misfits): d = ${list(misfits)} Å.` }
+        : { name: "Residual peaks", status: "pass", detail: "No residual peak stands 5σ above its own noise." });
+  }
+  // The serial correlation of the residual: a systematic misfit makes the esds optimistic.
+  const points = s.pattern.points.length === s.curves.x.length ? s.pattern.points : null;
+  const sigma = s.curves.yObs.map((y, i) => {
+    const given = points?.[i]?.sigma;
+    return given !== undefined && given > 0 ? given : Math.sqrt(Math.max(y, 1));
+  });
+  const excluded = excludedPointMask(s.curves.yObs);
+  const include = s.curves.x.map((x, i) => !excluded[i] && (!s.fitRange || (x >= s.fitRange.min && x <= s.fitRange.max)));
+  const v = powderValidation({ x: s.curves.x, yObs: s.curves.yObs, yCalc: s.curves.yCalc, sigma, include, nParams: s.parameters.filter((p) => !p.fixed && !p.expression).length });
+  if (v.durbinWatson) {
+    const dw = v.durbinWatson;
+    checks.push(dw.correlated
+      ? { name: "Serial correlation", status: "note", detail: `Durbin–Watson d = ${dw.d.toFixed(2)}, below Q_D = ${dw.qd.toFixed(2)}: neighbouring residuals correlate (a systematic misfit of the profile or the model), so the esds — and a posterior's intervals — are optimistic.` }
+      : { name: "Serial correlation", status: "pass", detail: `Durbin–Watson d = ${dw.d.toFixed(2)} (Q_D = ${dw.qd.toFixed(2)}): no significant serial correlation of the residuals.` });
+  }
+  const bv = bondValenceCheck(s.refinedPhases);
+  if (bv) checks.push(bv);
+  checks.push(...findingChecks(a));
+  return checks;
+}
+
+/**
+ * What the cell check's shoulders mean: tails of a profile the Le Bail fit
+ * draws simply, not a phase. Shoulders at one common offset from their lines
+ * are the instrument's; the Rietveld profile is the place to fit them.
+ */
+export function shoulderReading(shoulders: readonly { x: number; of: string; offset: number; relativeHeight: number }[], unit: string): string {
+  const n = shoulders.length;
+  const at = (x: number): string => (unit === "twoTheta" ? `${x.toFixed(2)}°` : `${x.toFixed(4)} ${unit}`);
+  const list = shoulders.slice(0, 4).map((sh) => `${at(sh.x)} beside ${sh.of}, ${(100 * sh.relativeHeight).toFixed(1)} %`).join("; ");
+  const offsets = shoulders.map((sh) => sh.offset);
+  const mean = offsets.reduce((a, b) => a + b, 0) / n;
+  const spread = Math.max(...offsets) - Math.min(...offsets);
+  const common = n >= 2 && spread <= 0.25 * Math.abs(mean);
+  return `${n} shoulder${n === 1 ? "" : "s"} on the flank of a strong line (${list}): the tail of a peak profile the Le Bail fit draws simply, not a missing phase${common ? `; ${n === 2 ? "both sit" : "they sit"} at one offset from their lines (${mean < 0 ? "−" : "+"}${Math.abs(mean).toFixed(2)}${unit === "twoTheta" ? "°" : ` ${unit}`}), an instrumental feature` : ""}. They do not count against the cell. The Rietveld profile (asymmetry, Lorentzian X and Y) fits such tails; look at them again on the refined residual, and name them to the user only if they outlive it.`;
 }

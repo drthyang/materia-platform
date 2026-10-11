@@ -11,6 +11,8 @@
 import type { StructureModel } from "@/core/crystal/types";
 import type { MagneticModel } from "@/core/magnetic/types";
 import type { Vec3 } from "@/core/math/types";
+import { extractSizeStrain } from "@/core/diffraction/microstructure";
+import { formatWt, fractionsOf } from "@/core/diagnostics/phaseFractions";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import type { MergeStatistics } from "@/core/diffraction/merge";
 import type { PdfPattern, Radiation, SingleCrystalDataset } from "@/core/diffraction/types";
@@ -22,7 +24,7 @@ import { magneticOperationSignature } from "@/core/magnetic/operationSignature";
 import { latticeCandidateLabel, latticeRepresentatives, magneticSubgroupLattice } from "@/core/magnetic/subgroupLattice";
 import { crystalComponentsToCartesian } from "@/core/magnetic/moment";
 import { kLabel } from "@/core/magnetic/kSearch";
-import type { ReportGroup, ReportInput, ReportMagnetic, ReportPhase, ReportRow, ReportStat } from "@/core/export/report";
+import type { ReportBoxcar, ReportGroup, ReportInput, ReportMagnetic, ReportPhase, ReportRow, ReportStat } from "@/core/export/report";
 import type { FigureCurves, FigureTickRow, FobsFcalcPoint } from "@/core/export/reportFigures";
 import type { Session } from "@/app/powderSession";
 import { APP_VERSION } from "@/app/constants";
@@ -64,6 +66,48 @@ function withEsds(params: readonly RefinementParameter[], result: RefinementResu
 
 const pct = (v: number | null | undefined, d = 2): string => (v === null || v === undefined || !Number.isFinite(v) ? "—" : `${(100 * v).toFixed(d)} %`);
 const num = (v: number, d: number): string => v.toFixed(d);
+
+/**
+ * The profile the instrument file was calibrated with, beside the refined one
+ * in the parameter table: what a profile standard is measured against (round
+ * 10, NAC against 11-BM's 2009 LaB₆ profile).
+ */
+function instrumentProfileRow(instrument: InstrumentParameters, loaded: boolean): ReportRow[] {
+  if (!loaded || instrument.kind !== "constantWavelength" || instrument.u === undefined) return [];
+  const g = `U ${instrument.u.toFixed(3)}, V ${(instrument.v ?? 0).toFixed(3)}, W ${(instrument.w ?? 0).toFixed(3)} (Gaussian FWHM², centideg²)`;
+  const l = instrument.x !== undefined ? ` · X ${instrument.x}, Y ${instrument.y ?? 0} (Lorentzian, centideg)` : "";
+  const a = instrument.asymmetry ? ` · S/L ${instrument.asymmetry.sl}, H/L ${instrument.asymmetry.hl}` : "";
+  return [{ label: "Instrument profile (file)", value: `${g}${l}${a}` }];
+}
+
+/** A value with its esd in the last digits, e.g. 19.8(4); the value alone without one. */
+function withEsdText(v: number, esd: number | undefined, decimals: number): string {
+  if (esd === undefined || !(esd > 0)) return v.toFixed(decimals);
+  const d = Math.min(Math.max(-Math.floor(Math.log10(esd)) + (esd < 2 * 10 ** Math.floor(Math.log10(esd)) ? 1 : 0), 0), 6);
+  return `${v.toFixed(d)}(${Math.round(esd * 10 ** d)})`;
+}
+
+/**
+ * Crystallite size and microstrain from the refined Lorentzian X and Y, with
+ * the instrument's (the starting values, from its file) subtracted — the
+ * page's microstructure readout, as report rows.
+ */
+function microstructureRows(params: readonly RefinementParameter[], result: RefinementResult, wavelength: number): ReportRow[] {
+  const px = params.find((p) => p.kind === "profileX");
+  const py = params.find((p) => p.kind === "profileY");
+  if (!px || !py || (px.fixed && py.fixed)) return [];
+  const ss = extractSizeStrain({
+    x: px.value, y: py.value, wavelength,
+    ...(result.esd[px.id] !== undefined ? { xEsd: result.esd[px.id]! } : {}),
+    ...(result.esd[py.id] !== undefined ? { yEsd: result.esd[py.id]! } : {}),
+    instrument: { x: px.initialValue, y: py.initialValue },
+  });
+  const ref = `the instrument's X = ${px.initialValue}, Y = ${py.initialValue} subtracted`;
+  return [
+    { label: "Crystallite size", value: Number.isFinite(ss.sizeNm.value) ? `${withEsdText(ss.sizeNm.value, ss.sizeNm.esd, 0)} nm — Lorentzian X, Scherrer K 0.9, ${ref}` : `not resolved: X is not above the instrument's (${ref})` },
+    { label: "Microstrain", value: `${withEsdText(ss.strainPpm.value, ss.strainPpm.esd, 1)} × 10⁻⁶ — Lorentzian Y, ${ref}` },
+  ];
+}
 
 /**
  * Name a magnetic group from its operations the way the magnetic page names
@@ -164,6 +208,12 @@ function probeLabel(r: Radiation): string {
   return `X-ray, λ = ${num(r.wavelength, 4)} Å${r.polarization !== undefined ? ` · polarization ${num(r.polarization, 2)}` : ""}`;
 }
 
+/** The probe inside a sentence: "neutron, constant wavelength λ = … Å", with "X-ray" and "Å" kept as written. */
+function probeInSentence(r: Radiation): string {
+  const label = probeLabel(r);
+  return label.startsWith("X-ray") ? label : label.charAt(0).toLowerCase() + label.slice(1);
+}
+
 function instrumentLabel(inst: InstrumentParameters, loaded: boolean): string {
   const name = [inst.name, inst.facility].filter(Boolean).join(" · ");
   const bits: string[] = [];
@@ -251,24 +301,33 @@ export function powderReportInput(o: {
     ...(multi ? [{ label: "Phases", value: String(o.refinedPhases.length) }] : []),
   ];
 
+  // The phases' weight fractions, and what the refined Lorentzian adds to the
+  // instrument's: rows of their own, so an account that cites them cites the
+  // report (round 10, NAC with fluorite on 11-BM).
+  const fractions = multi && result ? fractionsOf(o.refinedPhases, params, result) : null;
+  const micro = pattern.xUnit === "twoTheta" && result && "wavelength" in pattern.radiation ? microstructureRows(params, result, pattern.radiation.wavelength) : [];
+
   const data: ReportRow[] = [
     { label: "Data file", value: session.rawData?.name ?? pattern.name },
     { label: "Probe", value: probeLabel(pattern.radiation) },
     { label: "Instrument", value: instrumentLabel(o.instrument, o.instrumentLoaded) + (session.rawInstrument ? ` · file ${session.rawInstrument.name}` : "") },
+    ...instrumentProfileRow(o.instrument, o.instrumentLoaded),
     { label: "Range", value: `${num(xmin, pattern.xUnit === "tof" ? 0 : 3)} – ${num(xmax, pattern.xUnit === "tof" ? 0 : 3)} ${unit} · ${pattern.points.length} points` },
     ...(o.fitRange ? [{ label: "Fit window", value: `${num(o.fitRange.min, 3)} – ${num(o.fitRange.max, 3)} (${o.xLabel}) · ${o.pointsInWindow} points` }] : []),
     { label: "Background", value: `Chebyshev polynomial, ${session.backgroundTerms} terms` },
-    { label: "Peak shape", value: o.tofViewOnly ? "View only — GSAS-II's calculated curve is shown; MATERIA did not refine this TOF pattern" : peakShapeLabel(session.powderProfile) },
+    { label: "Peak shape", value: o.tofViewOnly ? "View only — GSAS-II's calculated curve is shown; MATERIA did not refine this TOF pattern" : `${peakShapeLabel(session.powderProfile)}${session.corrections?.asymmetry ? " · Finger–Cox–Jephcoat axial-divergence asymmetry (S/L, H/L)" : ""}` },
     { label: "Lorentz factor", value: session.powderProfile.lorentz === false ? "off (pre-reduced intensities)" : "applied" },
     ...(session.mustrain && session.mustrain !== "isotropic" ? [{ label: "Microstrain model", value: session.mustrain }] : []),
     ...(multi ? [{ label: "Phases", value: o.refinedPhases.map((s) => s.name || s.id).join(" · ") }] : []),
+    ...(fractions ? [{ label: "Phase fractions", value: `${fractions.map((w) => `${w.name} ${formatWt(w)}`).join(" · ")} — Hill & Howard, from the refined scales; crystalline phases only, no microabsorption correction, esds from the scales alone` }] : []),
+    ...micro,
   ];
 
   const inst = [o.instrument.name, o.instrument.facility].filter(Boolean).join(" · ");
   const summary =
     `Rietveld refinement of ${structure.name || structure.id}${structure.spaceGroup.hermannMauguin ? ` (${structure.spaceGroup.hermannMauguin})` : ""}` +
     `${multi ? ` with ${session.extraPhases.length} additional phase${session.extraPhases.length === 1 ? "" : "s"}` : ""}` +
-    ` against ${probeLabel(pattern.radiation).toLowerCase()} data${inst && o.instrumentLoaded ? ` from ${inst}` : ""}: ` +
+    ` against ${probeInSentence(pattern.radiation)} data${inst && o.instrumentLoaded ? ` from ${inst}` : ""}: ` +
     `wR = ${pct(o.wR)}${o.gof !== null ? ` (S = ${num(o.gof, 2)})` : ""} with ${free} free parameter${free === 1 ? "" : "s"} over ${o.pointsInWindow} points. ` +
     magnetic.summary;
 
@@ -360,7 +419,7 @@ export function singleCrystalReportInput(o: {
     { label: "Unit cell", value: "fixed at the input values (not refinable from a single reflection file)" },
   ];
   const summary =
-    `Single-crystal F² refinement of ${o.structure.name || o.structure.id}${o.structure.spaceGroup.hermannMauguin ? ` (${o.structure.spaceGroup.hermannMauguin})` : ""} against ${probeLabel(o.dataset.radiation).toLowerCase()} data: ` +
+    `Single-crystal F² refinement of ${o.structure.name || o.structure.id}${o.structure.spaceGroup.hermannMauguin ? ` (${o.structure.spaceGroup.hermannMauguin})` : ""} against ${probeInSentence(o.dataset.radiation)} data: ` +
     `R1 = ${pct(ag.r1)}, wR2 = ${pct(ag.wr2)}, GooF = ${num(ag.goof, 2)} with ${free} free parameter${free === 1 ? "" : "s"} over ${o.dataset.reflections.length} reflections (${st.unique} unique). ` +
     magnetic.summary;
   const notes = [
@@ -414,6 +473,8 @@ export function pdfReportInput(o: {
   /** The mPDF page's current candidate, when one is selected but not adopted. */
   readonly explored: MagneticExploration | null;
   readonly warnings?: readonly string[];
+  /** The last boxcar scan of this model, as a table (pdfBoxcar.boxcarTable). */
+  readonly boxcar?: ReportBoxcar | null;
 }): ReportInput {
   const params = withEsds(o.params, o.result);
   const free = params.filter((p) => !p.fixed && !p.expression).length;
@@ -452,7 +513,7 @@ export function pdfReportInput(o: {
   if (pattern.qbroad !== undefined) meta.push(`Q_broad ${pattern.qbroad} Å⁻¹`);
   const data: ReportRow[] = [
     { label: "Data file", value: `${pattern.name} — ${PDF_SOURCE_LABEL[pattern.sourceKind ?? "gr"] ?? "G(r)"}` },
-    { label: "Probe", value: pattern.scatteringType === "neutron" ? "Neutron total scattering (coherent scattering lengths b)" : "X-ray total scattering (Z-weighted, PDFfit2 convention)" },
+    { label: "Probe", value: (pattern.scatteringType === "neutron" ? "Neutron total scattering (coherent scattering lengths b)" : "X-ray total scattering (Z-weighted, PDFfit2 convention)") + (pattern.radiationAssumed ? " — assumed: the data file names no radiation" : "") },
     { label: "Range", value: `r = ${num(rFirst, 2)} – ${num(rLast, 2)} Å · ${pattern.points.length} points${pattern.rstep !== undefined ? ` · Δr ${pattern.rstep} Å` : ""}` },
     { label: "Fit window", value: `${num(o.fitRange.min, 2)} – ${num(o.fitRange.max, 2)} Å · ${inWindow} points` },
     ...(meta.length ? [{ label: "Reduction", value: meta.join(" · ") }] : []),
@@ -481,6 +542,7 @@ export function pdfReportInput(o: {
     data,
     phases,
     magnetic: magnetic.section,
+    ...(o.boxcar ? { boxcar: o.boxcar } : {}),
     figure: o.curves.x.length > 0
       ? {
           kind: "pattern",

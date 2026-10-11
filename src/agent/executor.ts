@@ -11,10 +11,15 @@
 import { z } from "zod";
 import { PAGE_LABEL, liveTool, type LiveToolSpec, type ToolEffect } from "@/agent/tools";
 import type { AgentPort, LiveState, PdfLiveState, PowderLiveState } from "@/agent/port";
-import { changePowder, describePowderChange, powderNoOp, readPowderTool } from "@/agent/powderTools";
-import { changePdf, describePdfChange, pdfNoOp, readPdfTool } from "@/agent/pdfTools";
+import { changePowder, describePowderChange, powderNoOp, powderReportChecks, readPowderTool, requireStructure } from "@/agent/powderTools";
+import { changeMagnetic, describeMagneticChange, isMagneticTool, magneticNoOp, magneticOutcome, readMagneticTool } from "@/agent/magneticTools";
+import { changePdf, describePdfChange, pdfNoOp, pdfReportChecks, readPdfTool } from "@/agent/pdfTools";
+import { samplePosteriorTool, type PosteriorRun } from "@/agent/posteriorTool";
+import { buildAgentReport, reportFileBase, type AgentReport } from "@/agent/report";
 import type { LiveToolHost } from "@/agent/liveCommon";
 import { PROBE_OPTIONS, correlationRefusal, pairText, readCorrelations, refusalLine } from "@/agent/correlationCheck";
+import { PAGE_METHOD, readSkill } from "@/agent/skills";
+import { RULES, keyOfState, methodProgress, outOfOrder, ruleRefusal, stagesCovered, stagesLeft, type AgentRecord, type MethodRule } from "@/agent/method";
 import { REF_KEY, RefStore, buildView } from "@/mcp/refs";
 import type { LinearRestraint, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { StepKind } from "@/core/project/history";
@@ -31,6 +36,9 @@ export interface AgentHost extends LiveToolHost {
   readonly asAgent: <T>(fn: () => Promise<T>) => Promise<T>;
   /** Record the live state as a step now (a no-op when nothing changed). */
   readonly recordNow: (kind: StepKind, label?: string) => void;
+  /** The Agent's record of an analysis (method.ts): kept by the shell, saved with the project. */
+  readonly record: (key: string) => AgentRecord;
+  readonly updateRecord: (key: string, update: (record: AgentRecord) => AgentRecord) => void;
 }
 
 export type ActivityStatus = "waiting" | "running" | "done" | "declined" | "failed";
@@ -47,6 +55,8 @@ export interface ActivityEntry {
   readonly status: ActivityStatus;
   /** A short outcome line once it finished. */
   readonly outcome?: string;
+  /** Only the user may approve it: asked even in Auto. */
+  readonly alwaysAsk?: boolean;
 }
 
 /** The answer a model gets: JSON text, flagged when it is an error. */
@@ -58,6 +68,8 @@ export interface ToolOutcome {
 /** What the chat calls: the executor, or a lazy stand-in for it. */
 export interface ToolRunner {
   readonly run: (name: string, input: unknown) => Promise<ToolOutcome>;
+  /** A new conversation: the skills read in the last one must be read again. */
+  readonly newConversation?: () => void;
 }
 
 export interface ExecutorOptions {
@@ -67,6 +79,10 @@ export interface ExecutorOptions {
   readonly onActivity: (entry: ActivityEntry) => void;
   /** Largest answer, in characters of compact JSON (default 8000, as the MCP server). */
   readonly budget?: number;
+  /** The model and how it is reached, for the report ("Claude Opus 5.5 · Anthropic API"). */
+  readonly modelLabel?: () => string;
+  /** A report the Agent wrote (write_report), for the viewer. */
+  readonly onReport?: (report: AgentReport) => void;
 }
 
 /** History step kind for a change that does not record its own step. */
@@ -81,12 +97,25 @@ const STEP_KIND: Readonly<Record<string, StepKind>> = {
 
 let nextCallId = 1;
 
+/** Notes kept per analysis; the oldest go first. */
+const MAX_NOTES = 40;
+
+let nextReportId = 1;
+
 export class AgentExecutor implements ToolRunner {
   private readonly refs = new RefStore(128);
+  /** The skills read in this conversation (a page's method gates its changes). */
+  private readonly skillsRead = new Set<string>();
   /** Changes run one at a time: the page has one compute client and one history. */
   private changes: Promise<unknown> = Promise.resolve();
+  /** The last posterior run (sample_posterior), with the analysis and the step it sampled: for the report. */
+  private posterior: { readonly run: PosteriorRun; readonly key: string; readonly step: { id: string; label: string } | null } | null = null;
 
   constructor(private readonly host: AgentHost, private readonly opts: ExecutorOptions) {}
+
+  newConversation(): void {
+    this.skillsRead.clear();
+  }
 
   /** Run one call. Never throws: failures come back as an error outcome the model can read. */
   run(name: string, input: unknown): Promise<ToolOutcome> {
@@ -99,7 +128,7 @@ export class AgentExecutor implements ToolRunner {
   }
 
   private async execute(spec: LiveToolSpec, raw: unknown): Promise<ToolOutcome> {
-    let entry: ActivityEntry = { id: `c${nextCallId++}`, tool: spec.name, title: spec.title, effect: spec.effect, at: Date.now(), status: "running" };
+    let entry: ActivityEntry = { id: `c${nextCallId++}`, tool: spec.name, title: spec.title, effect: spec.effect, at: Date.now(), status: "running", ...(spec.alwaysAsk ? { alwaysAsk: true } : {}) };
     const update = (patch: Partial<ActivityEntry>): void => {
       entry = { ...entry, ...patch };
       this.opts.onActivity(entry);
@@ -115,6 +144,15 @@ export class AgentExecutor implements ToolRunner {
         update({ status: "done" });
         return { isError: false, text: JSON.stringify(out) };
       }
+      if (spec.name === "read_skill") {
+        // Whole, as Markdown: a skill is read as written, not paged as a ref.
+        const { name, reference } = input as { name: string; reference?: string };
+        update({ preview: reference ? `${name} · ${reference}` : name });
+        const text = readSkill(name, reference);
+        if (reference === undefined) this.skillsRead.add(name);
+        update({ status: "done" });
+        return { isError: false, text };
+      }
 
       const port = this.requirePort();
       if (!spec.pages.includes(port.technique)) {
@@ -128,24 +166,81 @@ export class AgentExecutor implements ToolRunner {
         return this.respond({ cancelled: port.state().busy ? "requested" : "nothing was running" });
       }
 
+      if (spec.name === "write_note") {
+        // The record's notes, not the page: no approval, no history step.
+        const text = (input as { text: string }).text.trim();
+        update({ preview: text });
+        const key = keyOfState(port.technique, port.state());
+        this.host.updateRecord(key, (r) => ({ ...r, notes: [...r.notes, { text, at: Date.now() }].slice(-MAX_NOTES) }));
+        update({ status: "done" });
+        return this.respond({ noted: true, notes: this.host.record(key).notes.length });
+      }
+
+      if (spec.name === "write_report") {
+        update({});
+        // Let the drawer paint "running" before the checks run.
+        await new Promise((r) => setTimeout(r, 0));
+        return await this.writeReport(port, (input as { summary: string }).summary, update);
+      }
+
       if (spec.effect === "read") {
         update({});
+        // The space group is questioned last: only once the method's stages
+        // are refined, on a converged fit.
+        if (spec.name === "review_symmetry") {
+          const notYet = this.symmetryNotYet(port);
+          if (notYet) {
+            update({ status: "failed", outcome: notYet.line });
+            return error(notYet.message);
+          }
+        }
         // Let the drawer paint "running" before a heavy synchronous analysis.
         await new Promise((r) => setTimeout(r, 0));
-        const out = port.technique === "pdf" ? readPdfTool(spec.name, input, port, this.host) : readPowderTool(spec.name, input, port, this.host);
+        let out = spec.name === "sample_posterior" ? await samplePosteriorTool(input as { continue?: boolean; steps?: number; compare?: [string, string][] }, port, (run) => { this.posterior = { run, key: keyOfState(port.technique, port.state()), step: this.currentStep() }; })
+          : port.technique === "pdf" ? readPdfTool(spec.name, input, port, this.host)
+            : isMagneticTool(spec.name) ? await readMagneticTool(spec.name, input, port, () => this.host.settle())
+              : readPowderTool(spec.name, input, port, this.host);
+        if (spec.name === "check_cell_symmetry") this.noteCellCheck(port, out as { passed?: boolean; unindexedPeaks?: unknown[]; absences?: { violated?: unknown[] } });
+        if (spec.name === "review_symmetry") this.noteSymmetryReview(port, out as { observedForbidden?: unknown[]; candidates?: { name: string }[] });
+        if (spec.name === "get_state") out = { ...(out as object), method: this.methodView(port) };
         update({ status: "done" });
         return this.respond(out);
       }
 
-      // A change: refuse while a fit runs, then ask, then act as the agent.
+      // A change: only once the page's method has been read, never while a fit
+      // runs; then ask, then act as the agent.
+      const method = spec.skill ?? PAGE_METHOD[port.technique];
+      if (!this.skillsRead.has(method)) {
+        const what = spec.skill ? `it is how the user works on this step` : `it is how the user works on this page`;
+        throw new Error(`read the method first: call read_skill with name "${method}" — ${what}, and changes wait until it has been read in this conversation`);
+      }
+      if (spec.name === "allow_exception") return await this.allowException(port, input as { rule: MethodRule; reason: string }, entry, update);
       const before = port.state();
       if (before.busy) throw new Error("a refinement is running — wait for it to finish, or call cancel_refinement");
-      const noOp = port.technique === "pdf" ? pdfNoOp(spec, input, before as PdfLiveState) : powderNoOp(spec, input, before as PowderLiveState);
+      const magnetic = port.technique === "powder" && isMagneticTool(spec.name);
+      const noOp = port.technique === "pdf" ? pdfNoOp(spec, input, before as PdfLiveState)
+        : magnetic ? magneticNoOp(spec.name, input, port)
+          : powderNoOp(spec, input, before as PowderLiveState);
       if (noOp) {
         update({ status: "done", outcome: "No change" });
         return this.respond({ unchanged: true, note: noOp });
       }
-      let preview = port.technique === "pdf" ? describePdfChange(spec, input, before as PdfLiveState) : describePowderChange(spec, input, before as PowderLiveState);
+      let preview = port.technique === "pdf" ? describePdfChange(spec, input, before as PdfLiveState)
+        : magnetic ? describeMagneticChange(spec.name, input, port)
+          : describePowderChange(spec, input, before as PowderLiveState);
+      // The method's firm rules, then its order (a note, not a refusal).
+      const key = keyOfState(port.technique, before);
+      const freeBefore = before.parameters.filter((p) => !p.fixed && !p.expression);
+      let orderNote: string | null = null;
+      if (spec.name === "refine" || spec.name === "boxcar_scan") {
+        const record = this.host.record(key);
+        const rule = ruleRefusal(port.technique, freeBefore, restraintsOf(before), record);
+        if (rule) {
+          update({ status: "failed", preview, outcome: rule.line });
+          return error(rule.message);
+        }
+        if (spec.name === "refine") orderNote = outOfOrder(port.technique, freeBefore, record);
+      }
       if (spec.name === "refine") {
         // Correlated parameters are never refined together: measure the free
         // set first, and ask the user only about a set that may run.
@@ -174,7 +269,9 @@ export class AgentExecutor implements ToolRunner {
       // step holds only what the agent changed.
       this.host.recordNow("edit");
       const changed = await this.host.asAgent(async () => {
-        const n = port.technique === "pdf" ? await changePdf(spec.name, input, port, this.host) : await changePowder(spec.name, input, port, this.host);
+        const n = port.technique === "pdf" ? await changePdf(spec.name, input, port, this.host)
+          : magnetic ? await changeMagnetic(spec.name, input, port)
+            : await changePowder(spec.name, input, port, this.host);
         await this.host.settle();
         const kind = STEP_KIND[spec.name];
         if (kind) {
@@ -185,7 +282,16 @@ export class AgentExecutor implements ToolRunner {
       });
       const note = typeof changed === "object" ? changed.note : changed;
       const after = this.requirePort().state();
-      const out = { ...changeOutcome(spec.name, before, after, this.currentStep(), note), ...(typeof changed === "object" ? changed.data : {}) };
+      if (spec.name === "refine" && after.result?.status === "converged") {
+        const covered = stagesCovered(port.technique, freeBefore);
+        this.host.updateRecord(key, (r) => ({ ...r, stagesDone: [...new Set([...r.stagesDone, ...covered])] }));
+      }
+      const out = {
+        ...changeOutcome(spec.name, before, after, this.currentStep(), note),
+        ...(typeof changed === "object" ? changed.data : {}),
+        ...(orderNote ? { methodNote: orderNote } : {}),
+        ...(magnetic ? magneticOutcome(spec.name, this.requirePort() as typeof port) : {}),
+      };
       update({ status: "done", outcome: outcomeLine(spec.name, before, after, note) });
       return this.respond(out);
     } catch (e) {
@@ -210,6 +316,168 @@ export class AgentExecutor implements ToolRunner {
     const h = this.host.history();
     const st = h?.steps.find((s) => s.id === h.current);
     return st ? { id: st.id, label: st.name ?? st.label } : null;
+  }
+
+  /** The cell check's outcome, kept for the analysis it ran on. A record, not a gate. */
+  private noteCellCheck(port: AgentPort, out: { passed?: boolean; unindexedPeaks?: unknown[]; absences?: { violated?: unknown[] } }): void {
+    const unindexed = out.unindexedPeaks?.length ?? 0;
+    const flagged = out.absences?.violated?.length ?? 0;
+    // The peaks by d, so the report says which they were, and a note that names them names the report's numbers.
+    const ds = (out.unindexedPeaks ?? []).map((p) => (p as { d?: number }).d).filter((d): d is number => typeof d === "number").slice(0, 12);
+    const parts = [
+      ...(unindexed > 0 ? [`${unindexed} unindexed peak${unindexed === 1 ? "" : "s"}${ds.length ? ` (d = ${ds.join(", ")}${unindexed > ds.length ? ", …" : ""} Å)` : ""}`] : []),
+      ...(flagged > 0 ? [`${flagged} absence${flagged === 1 ? "" : "s"} flagged (revisit at the symmetry review)`] : []),
+    ];
+    const summary = out.passed ? "every peak indexes; no absence flagged" : parts.join(", ");
+    this.host.updateRecord(keyOfState(port.technique, port.state()), (r) => ({ ...r, cellCheck: { passed: !!out.passed, at: Date.now(), summary } }));
+  }
+
+  /** The symmetry review's outcome, kept for the analysis. */
+  private noteSymmetryReview(port: AgentPort, out: { observedForbidden?: unknown[]; candidates?: { name: string }[] }): void {
+    const n = out.observedForbidden?.length ?? 0;
+    const top = out.candidates?.slice(0, 3).map((c) => c.name) ?? [];
+    const summary = n === 0 ? "no forbidden reflection carries intensity in the refined fit" : `${n} forbidden reflection${n === 1 ? "" : "s"} with intensity${top.length ? `; subgroups allowing them: ${top.join(", ")}` : ""}`;
+    this.host.updateRecord(keyOfState(port.technique, port.state()), (r) => ({ ...r, symmetryReviewed: { at: Date.now(), summary } }));
+  }
+
+  /** A converged refinement on screen counts its free blocks as done, whoever ran it. */
+  private syncStages(port: AgentPort): AgentRecord {
+    const s = port.state();
+    const key = keyOfState(port.technique, s);
+    if (s.result?.status === "converged") {
+      const covered = stagesCovered(port.technique, s.parameters.filter((p) => !p.fixed && !p.expression));
+      this.host.updateRecord(key, (r) => (covered.every((c) => r.stagesDone.includes(c)) ? r : { ...r, stagesDone: [...new Set([...r.stagesDone, ...covered])] }));
+    }
+    return this.host.record(key);
+  }
+
+  /**
+   * Why the space group may not be questioned yet, or null: the method's
+   * required stages must be refined, and the fit on screen converged.
+   */
+  private symmetryNotYet(port: AgentPort): { message: string; line: string } | null {
+    const record = this.syncStages(port);
+    const left = stagesLeft(port.technique, record);
+    const why = "The space group is the last thing questioned: a structure is refined to the best its group allows first, and intensity that differs on the group's own reflections is what that refinement fixes, not evidence against the group.";
+    if (left.length > 0) {
+      return {
+        line: `Not yet: ${left.length} stage${left.length === 1 ? "" : "s"} to refine first`,
+        message: `Not yet. ${why} Refine these stages of ${PAGE_METHOD[port.technique]} first, each to convergence: ${left.join(", ")}. Then, only if the fit is still not good, review the symmetry.`,
+      };
+    }
+    const status = port.state().result?.status;
+    if (status !== "converged") {
+      return {
+        line: "Not yet: no converged refinement on screen",
+        message: `Not yet: the review reads the refined residual, and the fit on screen is ${status ? `"${status}"` : "not refined"}. ${why} Refine to convergence first.`,
+      };
+    }
+    return null;
+  }
+
+  /**
+   * get_state's view of the method: its stages (done or not), the cell check,
+   * the symmetry review, and the exceptions the user allowed.
+   */
+  private methodView(port: AgentPort): Record<string, unknown> {
+    const record = this.syncStages(port);
+    const progress = methodProgress(port.technique, record);
+    return {
+      skill: progress.skill,
+      stages: progress.stages.map((st) => `${st.done ? "✓" : "○"} ${st.label}${st.optional ? " (if needed)" : ""}`),
+      next: progress.next ?? `every required stage done: check the acceptance bar${port.technique === "powder" ? "; only if the fit is still not good, review_symmetry" : ""}`,
+      ...(record.cellCheck ? { cellCheck: record.cellCheck.summary } : {}),
+      ...(record.symmetryReviewed ? { symmetryReview: record.symmetryReviewed.summary } : {}),
+      ...(record.exceptions.length > 0 ? { exceptions: record.exceptions.map((e) => `${e.rule}: ${e.reason}`) } : {}),
+      ...(record.notes.length > 0 ? { notes: record.notes.map((n) => n.text) } : {}),
+    };
+  }
+
+  /**
+   * write_report: the page's report with the analysis as the Agent ran it and
+   * its account, opened in the viewer. The answer lists the checks, the open
+   * issues and any number in the account the report did not compute.
+   */
+  private async writeReport(port: AgentPort, summary: string, update: (patch: Partial<ActivityEntry>) => void): Promise<ToolOutcome> {
+    if (!port.reportInput) throw new Error("this page cannot build a report");
+    const s = port.state();
+    if (s.busy) throw new Error("a refinement is running — wait for it to finish, then write the report");
+    if (port.technique === "powder") requireStructure("refine", s as PowderLiveState);
+    const record = this.syncStages(port);
+    // The correlations at the refined values, every pair from |ρ| 0.5 as refine measures them (the
+    // refinement itself keeps only those at 0.95): for the free set the refinement on screen had.
+    const free = s.parameters.filter((p) => !p.fixed && !p.expression).map((p) => p.id);
+    const refined = s.result ? Object.keys(s.result.esd) : [];
+    let probe: RefinementResult | null = null;
+    if (free.length > 0 && free.length === refined.length && free.every((id) => refined.includes(id))) {
+      try {
+        probe = await port.probe(PROBE_OPTIONS);
+      } catch {
+        probe = null;
+      }
+    }
+    const checks = port.technique === "pdf" ? pdfReportChecks(s as PdfLiveState, probe) : powderReportChecks(s as PowderLiveState, probe);
+    // The last run on this analysis: of the refinement on screen, or of an earlier one (a focused
+    // set, before the final refinement), which the report labels with how far its values moved since.
+    const sampled = this.posterior && this.posterior.key === keyOfState(port.technique, s) ? this.posterior : null;
+    const built = buildAgentReport({
+      page: port.technique,
+      input: port.reportInput(),
+      history: this.host.history(),
+      record,
+      checks,
+      posterior: sampled ? { run: sampled.run, current: sampled.run.result === s.result, stepId: sampled.step?.id ?? null, parameters: s.parameters } : null,
+      model: this.opts.modelLabel?.() ?? "the configured model",
+      narrative: summary,
+    });
+    const report: AgentReport = {
+      id: nextReportId++,
+      title: built.input.title,
+      technique: port.technique,
+      html: built.html,
+      markdown: built.markdown,
+      fileBase: reportFileBase(built.input.title),
+      at: Date.now(),
+      unverified: built.unverified,
+    };
+    this.opts.onReport?.(report);
+    const attention = built.agent.checks.filter((c) => c.status === "warn").length;
+    update({
+      status: "done",
+      preview: built.input.title,
+      outcome: `Report open · ${built.agent.steps.length} steps · ${built.agent.checks.length} checks${attention ? `, ${attention} for attention` : ""}${built.unverified.length ? ` · ${built.unverified.length} number${built.unverified.length === 1 ? "" : "s"} unverified` : ""}`,
+    });
+    return this.respond({
+      shown: true,
+      title: built.input.title,
+      steps: built.agent.steps.length,
+      checks: built.agent.checks.map((c) => `${c.status === "warn" ? "attention" : c.status}: ${c.name} — ${c.detail}`),
+      openIssues: built.agent.openIssues,
+      ...(built.agent.posterior ? { bayesianCheck: `included (${built.agent.posterior.convergence}${built.agent.posterior.earlier ? `; ${built.agent.posterior.earlier}` : ""})` } : {}),
+      ...(built.input.boxcar ? { boxcarScan: `included (${built.input.boxcar.rows.length} boxes of ${built.input.boxcar.width} Å: ${built.input.boxcar.columns.join(", ")})` } : {}),
+      ...(built.unverified.length > 0
+        ? {
+            unverifiedNumbers: built.unverified,
+            note: "These numbers in your account (or your notes) match no value the report computed, and are underlined in it. Check each against the tools: correct the account and call write_report again, or leave the number out.",
+          }
+        : {}),
+      downloads: "The user can save the report as HTML, Markdown or PDF, and the CIF, from the viewer.",
+    });
+  }
+
+  /** allow_exception: the user lifts a firm rule for this analysis. Always asks them. */
+  private async allowException(port: AgentPort, input: { rule: MethodRule; reason: string }, entry: ActivityEntry, update: (patch: Partial<ActivityEntry>) => void): Promise<ToolOutcome> {
+    const rule = RULES[input.rule];
+    if (!rule.pages.includes(port.technique)) throw new Error(`the rule "${input.rule}" does not apply on this page`);
+    update({ status: "waiting", preview: `${rule.title}, because: ${input.reason}` });
+    if (!(await this.opts.approve({ ...entry, status: "waiting", preview: `${rule.title}, because: ${input.reason}`, alwaysAsk: true }))) {
+      update({ status: "declined", outcome: "Declined" });
+      return this.respond({ declined: true, note: "The user keeps the rule. Work within it, or ask what they would prefer." });
+    }
+    const key = keyOfState(port.technique, port.state());
+    this.host.updateRecord(key, (r) => ({ ...r, exceptions: [...r.exceptions.filter((e) => e.rule !== input.rule), { rule: input.rule, reason: input.reason, at: Date.now() }] }));
+    update({ status: "done", outcome: "Allowed for this analysis" });
+    return this.respond({ allowed: input.rule, until: "the data or the phases change" });
   }
 
   private respond(out: unknown): ToolOutcome {

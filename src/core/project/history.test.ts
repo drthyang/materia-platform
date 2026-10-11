@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { makeExamplePowderProject } from "@/core/project/fixture";
-import type { PowderWorkspace, ProjectFile } from "@/core/project/types";
+import { makeExamplePdfProject, makeExamplePowderProject } from "@/core/project/fixture";
+import type { PdfWorkspace, PowderWorkspace, ProjectFile } from "@/core/project/types";
+import type { RefinementResult } from "@/core/refinement/types";
 import {
   describeChange, lineage, moveTo, recordStep, redoTarget, renameStep, restoreStep, undoTarget,
   type ProjectHistory, type Snapshot,
@@ -63,6 +64,16 @@ describe("recordStep", () => {
     expect(h.steps[0]!.summary.nFree).toBe(nFree);
     const r = powderWs.refinement.lastResult;
     if (r?.agreement.rWeighted !== undefined) expect(h.steps[0]!.summary.wR).toBe(r.agreement.rWeighted);
+  });
+
+  it("keeps no GoF for a PDF fit, whose uniform weights make it meaningless", () => {
+    // Round 9: the Agent's report on LaMnO₃ listed a GoF of 0.32 beside each PDF Rw.
+    const pdf = makeExamplePdfProject();
+    const ws = pdf.workspace as PdfWorkspace;
+    const result: RefinementResult = { status: "converged", parameters: {}, esd: {}, history: [], agreement: { rFactor: 0.1, rWeighted: 0.11, goodnessOfFit: 0.32 } };
+    const h = recordStep(null, { structures: pdf.structures, workspace: { ...ws, refinement: { ...ws.refinement, lastResult: result } }, kind: "refine" });
+    expect(h.steps[0]!.summary.wR).toBe(0.11);
+    expect(h.steps[0]!.summary.gof).toBeUndefined();
   });
 });
 

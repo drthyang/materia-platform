@@ -27,7 +27,7 @@ import {
   SINGLE_CRYSTAL_PROBES,
   PDF_POSITION_MODES,
 } from "@/core/project/types";
-import { MUSTRAIN_MODELS } from "@/core/workflow/powderModelOptions";
+import { MUSTRAIN_MODELS, PEAK_CORRECTION_IDS } from "@/core/workflow/powderModelOptions";
 
 export class ProjectFileError extends Error {
   constructor(message: string, readonly path?: string) {
@@ -153,7 +153,14 @@ function checkRadiation(v: unknown, path: string): void {
   const r = rec(v, path);
   const kind = oneOf(RADIATION_KINDS)(r.kind, `${path}.kind`);
   if (kind !== "neutron-tof") num(r.wavelength, `${path}.wavelength`);
-  if (kind === "xray") opt(r.polarization, `${path}.polarization`, num);
+  if (kind === "xray") {
+    opt(r.polarization, `${path}.polarization`, num);
+    if (r.kAlpha2 !== undefined && r.kAlpha2 !== null) {
+      const k = rec(r.kAlpha2, `${path}.kAlpha2`);
+      num(k.wavelength, `${path}.kAlpha2.wavelength`);
+      num(k.ratio, `${path}.kAlpha2.ratio`);
+    }
+  }
 }
 
 function checkWindow(v: unknown, path: string): void {
@@ -304,6 +311,15 @@ function checkPowderWorkspace(ws: Rec, path: string, ctx: PhaseContext): void {
   for (const k of ["positions", "adp", "occupancyToUnity", "composition"]) opt(ties[k], `${path}.siteTies.${k}`, bool);
   opt(ws.anisotropicAdp, `${path}.anisotropicAdp`, bool);
   opt(ws.mustrain, `${path}.mustrain`, oneOf(MUSTRAIN_MODELS));
+  if (ws.corrections !== undefined && ws.corrections !== null) {
+    const c = rec(ws.corrections, `${path}.corrections`);
+    opt(c.asymmetry, `${path}.corrections.asymmetry`, bool);
+    if (c.preferredOrientation !== undefined && c.preferredOrientation !== null) {
+      const axis = each(c.preferredOrientation, `${path}.corrections.preferredOrientation`, (x, p) => int(x, p));
+      if (axis.length !== 3) fail(`${path}.corrections.preferredOrientation`, "needs three indices h k l");
+    }
+    if (c.peak !== undefined && c.peak !== null) each(c.peak, `${path}.corrections.peak`, (x, p) => oneOf(PEAK_CORRECTION_IDS)(x, p));
+  }
   if (ws.overlay !== undefined && ws.overlay !== null) {
     const ov = rec(ws.overlay, `${path}.overlay`);
     const calc = each(ov.calc, `${path}.overlay.calc`, (x, p) => num(x, p));
@@ -414,6 +430,7 @@ function checkBoxcarRun(v: unknown, path: string): void {
   int(r.restarts, `${path}.restarts`);
   each(r.freeIds, `${path}.freeIds`, (x, p) => str(x, p));
   opt(r.partial, `${path}.partial`, bool);
+  if (r.bondSites !== undefined && r.bondSites !== null) each(r.bondSites, `${path}.bondSites`, (x, p) => str(x, p));
 }
 
 /** Retained S(Q)/F(Q): equal-length numeric columns (σ optional, ≥ 0). */
@@ -459,6 +476,7 @@ function checkPdfWorkspace(ws: Rec, path: string, ctx: PhaseContext): void {
   checkRefinement(ws.refinement, `${path}.refinement`);
   checkWindow(ws.fitRange, `${path}.fitRange`);
   oneOf(PDF_POSITION_MODES)(ws.positionMode, `${path}.positionMode`);
+  opt(ws.adpModel, `${path}.adpModel`, oneOf(["isotropic", "anisotropic"] as const));
   opt(ws.distortionModes, `${path}.distortionModes`, checkDistortionModes);
   if (ws.spinModel !== undefined && ws.spinModel !== null) {
     const s = rec(ws.spinModel, `${path}.spinModel`);
@@ -502,7 +520,41 @@ export function validateProjectFile(raw: unknown): ProjectFile {
     opt(view.step, "view.step", int);
   }
   if (root.history !== undefined && root.history !== null) checkHistory(root.history, "history");
+  if (root.agent !== undefined && root.agent !== null) checkAgent(root.agent, "agent");
   return root as unknown as ProjectFile;
+}
+
+/** The Agent's records: one per analysis, each with its checks, exceptions, stages and notes. */
+function checkAgent(v: unknown, path: string): void {
+  const agent = rec(v, path);
+  arr(agent.records, `${path}.records`).forEach((r, i) => {
+    const p = `${path}.records[${i}]`;
+    const record = rec(r, p);
+    str(record.key, `${p}.key`);
+    if (record.cellCheck !== undefined && record.cellCheck !== null) {
+      const check = rec(record.cellCheck, `${p}.cellCheck`);
+      bool(check.passed, `${p}.cellCheck.passed`);
+      num(check.at, `${p}.cellCheck.at`);
+      str(check.summary, `${p}.cellCheck.summary`);
+    }
+    if (record.symmetryReviewed !== undefined && record.symmetryReviewed !== null) {
+      const review = rec(record.symmetryReviewed, `${p}.symmetryReviewed`);
+      num(review.at, `${p}.symmetryReviewed.at`);
+      str(review.summary, `${p}.symmetryReviewed.summary`);
+    }
+    arr(record.exceptions, `${p}.exceptions`).forEach((e, j) => {
+      const ex = rec(e, `${p}.exceptions[${j}]`);
+      oneOf(["bare-occupancy"])(ex.rule, `${p}.exceptions[${j}].rule`);
+      str(ex.reason, `${p}.exceptions[${j}].reason`);
+      num(ex.at, `${p}.exceptions[${j}].at`);
+    });
+    arr(record.stagesDone, `${p}.stagesDone`).forEach((st, j) => str(st, `${p}.stagesDone[${j}]`));
+    arr(record.notes, `${p}.notes`).forEach((n, j) => {
+      const note = rec(n, `${p}.notes[${j}]`);
+      str(note.text, `${p}.notes[${j}].text`);
+      num(note.at, `${p}.notes[${j}].at`);
+    });
+  });
 }
 
 /** The phases and the workspace that uses them — a project's model, or a history step's. */

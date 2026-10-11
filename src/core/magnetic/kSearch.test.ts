@@ -66,6 +66,21 @@ describe("propagation-vector (k) search", () => {
     expect(matchOf(0.5, 0, 0)).toBeGreaterThan(matchOf(0, 0, 0.5));
   });
 
+  it("matches a large-d peak within a tolerance relative to d (a line's width in d grows with d)", () => {
+    // Cr₂WO₆ at 4 K (trirutile, a 4.5778, c 8.8423 Å): k = 0 magnetic intensity on the
+    // forbidden 0 0 1 and 1 0 2. The 0 0 1 apex sits 0.35 % (0.031 Å) long at 2θ = 16°.
+    const cwo: UnitCell = { a: 4.5778, b: 4.5778, c: 8.8423, alpha: 90, beta: 90, gamma: 90 };
+    const d = (h: number, k: number, l: number): number => 1 / Math.sqrt(inverseDSquared(cwo, h, k, l));
+    const observed = [d(0, 0, 1) * 1.0035, d(1, 0, 2) * 1.0006];
+    const absolute = searchPropagationVector(cwo, observed, { tolerance: 0.02, maxQ: 0 });
+    expect(absolute.find((c) => c.k.every((v) => v === 0))!.matched).toBe(1);
+    // Now k = 0 explains both, and leads: two peaks also fit complex k by chance,
+    // as closely, and the simpler k ranks first among equal matches.
+    const relative = searchPropagationVector(cwo, observed, { tolerance: 0.02, relativeTolerance: 0.005, maxQ: 0 });
+    expect(relative[0]!.k).toEqual([0, 0, 0]);
+    expect(relative[0]!.matched).toBe(2);
+  });
+
   it("ignores high-Q peaks (magnetic scattering lives at low Q)", () => {
     const lowQ = [dOf(0, 0, 0.5), dOf(1, 0, 0.5)]; // large d, Q ≪ 6
     const highQd = 0.5; // d = 0.5 Å → Q = 2π/0.5 ≈ 12.6 Å⁻¹, above the default maxQ = 6

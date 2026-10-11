@@ -9,6 +9,7 @@ import type { RefinementParameter } from "@/core/refinement/types";
 import type { ProjectHistory } from "@/core/project/history";
 import { lineage } from "@/core/project/history";
 import type { StructureModel } from "@/core/crystal/types";
+import { bondValenceReading, bondValenceSums } from "@/core/crystal/bondValence";
 
 /** What a change handler returns: a note for the model, or a note and data to merge into its answer. */
 export type ChangeResult = string | { readonly note?: string; readonly data: Record<string, unknown> } | undefined;
@@ -37,9 +38,9 @@ export function parameterSummary(
     if (p.expression) g.tied++;
     groups.set(p.kind, g);
   }
-  const patterns = select?.map((f) => ({ f, re: globRegExp(f) }));
-  const unmatched = patterns?.filter(({ re }) => !params.some((p) => re.test(p.id))).map(({ f }) => f) ?? [];
-  const rows = (patterns ? params.filter((p) => patterns.some(({ re }) => re.test(p.id))) : params.filter(isFree))
+  const patterns = select?.map((f) => ({ f, test: idMatcher(params, f) }));
+  const unmatched = patterns?.filter(({ test }) => !params.some((p) => test(p.id))).map(({ f }) => f) ?? [];
+  const rows = (patterns ? params.filter((p) => patterns.some(({ test }) => test(p.id))) : params.filter(isFree))
     .map((p) => parameterRow(p, esd?.[p.id] ?? p.esd));
   return { parameterGroups: [...groups.values()], parameterRows: rows, ...(unmatched.length ? { unmatched } : {}) };
 }
@@ -88,7 +89,18 @@ export function bondsOf(refinedPhases: readonly StructureModel[], input: Input, 
     seen.add(key);
     return true;
   });
-  return { phase: phase.id, shortest: geo.shortest, bonds: bonds.slice(0, 40).map((b) => ({ ...b, distance: sig(b.distance, 5) })) };
+  const sums = bondValenceSums(phase);
+  return {
+    phase: phase.id,
+    shortest: geo.shortest,
+    bonds: bonds.slice(0, 40).map((b) => ({ ...b, distance: sig(b.distance, 5) })),
+    ...(sums.length ? {
+      bondValence: {
+        sums: sums.map((v) => ({ site: v.site, valence: `${v.element}${v.valence}+${v.assumed ? " (assumed)" : ""}`, sum: sig(v.sum, 3), coordination: sig(v.coordination, 3), meanDistance: sig(v.meanDistance, 4) })),
+        reading: bondValenceReading(sums),
+      },
+    } : {}),
+  };
 }
 
 export function historyView(history: ProjectHistory | null): unknown {
@@ -142,8 +154,8 @@ export function freePlan(
     const out = new Set<string>();
     const unmatched: string[] = [];
     for (const f of list) {
-      const re = globRegExp(f);
-      const hits = params.filter((p) => re.test(p.id));
+      const test = idMatcher(params, f);
+      const hits = params.filter((p) => test(p.id));
       if (hits.length === 0) unmatched.push(`"${f}"`);
       for (const p of hits) out.add(p.id);
     }
@@ -165,6 +177,26 @@ export function freePlan(
     }
   }
   return { changes, ...(tied.length ? { note: `skipped tied parameter${tied.length === 1 ? "" : "s"} ${tied.join(", ")} (they follow their tie)` } : {}) };
+}
+
+/** The ids these globs match, in the parameters' order; an unmatched glob is an error naming the ids. */
+export function matchIds(params: readonly RefinementParameter[], globs: readonly string[]): string[] {
+  const res = globs.map((g) => ({ g, test: idMatcher(params, g) }));
+  const unmatched = res.filter(({ test }) => !params.some((p) => test(p.id))).map(({ g }) => `"${g}"`);
+  if (unmatched.length) throw new Error(`nothing matches ${unmatched.join(", ")}. Parameter ids: ${params.map((p) => p.id).join(", ")}`);
+  return params.filter((p) => res.some(({ test }) => test(p.id))).map((p) => p.id);
+}
+
+/**
+ * Which ids a glob names. A multi-phase model prefixes each phase's ids
+ * (p0_pos_Ca1_0, p1_cell_a): a glob that matches no id as written is tried
+ * against the ids without the prefix, so "pos_*" means every phase's
+ * positions, as on a single-phase page (round 10, NAC with fluorite).
+ */
+export function idMatcher(params: readonly RefinementParameter[], glob: string): (id: string) => boolean {
+  const re = globRegExp(glob);
+  if (params.some((p) => re.test(p.id))) return (id) => re.test(id);
+  return (id) => re.test(id.replace(/^p\d+_/, ""));
 }
 
 export function globRegExp(pattern: string): RegExp {

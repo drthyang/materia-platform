@@ -19,7 +19,8 @@ import type { UnitCell, SpaceGroup } from "@/core/crystal/types";
 import type { PowderPattern } from "@/core/diffraction/types";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { braggTheta } from "@/core/crystal/unitCell";
-import { gaussian, pseudoVoigt, supportTaper, tofBackToBack, type PeakShape, type TofShape } from "@/core/diffraction/profile";
+import { fcjSubPeaks, gaussian, pseudoVoigt, supportTaper, tofBackToBack, type AxialDivergence, type PeakShape, type TofShape } from "@/core/diffraction/profile";
+import { secondLine, secondLineTwoTheta } from "@/core/diffraction/instrument";
 
 export interface LeBailReflection {
   readonly h: number;
@@ -74,6 +75,22 @@ export interface LeBailOptions {
    * flanks then read as unindexed peaks. Default 0 (one width).
    */
   readonly fwhmU?: number;
+  /**
+   * Constant wavelength, 2θ axis: the instrument's resolution curve, Caglioti
+   * FWHM² = u·tan²θ + v·tanθ + w (deg²), from its parameter file. When given,
+   * the width follows this curve's shape, scaled so `fwhm` is the width at the
+   * middle angle (`fwhmU` still adds growth). Two terms cannot follow an
+   * instrument whose width falls then rises with angle (D1A: V < 0).
+   */
+  readonly caglioti?: Caglioti;
+  /** Constant wavelength, 2θ axis: a zero shift (degrees) on every reflection's position. */
+  readonly zero?: number;
+  /**
+   * Constant wavelength, 2θ axis: Finger–Cox–Jephcoat axial divergence. A
+   * symmetric profile leaves the low-angle tail of every strong line below
+   * 2θ ≈ 40° as a leftover peak (fluorapatite on a Cu tube).
+   */
+  readonly axial?: AxialDivergence;
   readonly shape?: PeakShape;
   readonly eta?: number;
   readonly cycles?: number;
@@ -91,19 +108,45 @@ export interface LeBailOptions {
 }
 
 const FWHM_PER_SIGMA = 2 * Math.sqrt(2 * Math.LN2);
+/** Quadrature nodes for the FCJ tail: the Le Bail shape is a nuisance, and
+ *  half the Rietveld count keeps the cell check's fit quick. */
+const FCJ_NODES = 8;
 
 /**
  * The constant-wavelength FWHM at position x: `fwhm` at the middle angle,
  * grown (or shrunk) by `u` as FWHM² = fwhm² + u·(tan²θ − tan²θ_mid), never
  * below a fifth of `fwhm`. One width everywhere off a 2θ axis, or when u is 0.
  */
-export function cwWidth(pattern: PowderPattern, fwhm: number, u: number): (x: number) => number {
-  if (u === 0 || pattern.xUnit !== "twoTheta" || pattern.points.length === 0) return () => fwhm;
+export function cwWidth(pattern: PowderPattern, fwhm: number, u: number, caglioti?: Caglioti): (x: number) => number {
+  if (pattern.xUnit !== "twoTheta" || pattern.points.length === 0) return () => fwhm;
   const xs = pattern.points.map((p) => p.x).sort((a, b) => a - b);
-  const tan2 = (x: number): number => Math.tan((x * Math.PI) / 360) ** 2;
-  const mid = tan2(xs[xs.length >> 1]!);
+  const tan = (x: number): number => Math.tan((x * Math.PI) / 360);
+  const xMid = xs[xs.length >> 1]!;
+  const mid = tan(xMid) ** 2;
   const floor = (0.2 * fwhm) ** 2;
-  return (x) => Math.sqrt(Math.max(fwhm * fwhm + u * (tan2(x) - mid), floor));
+  const curve = caglioti ? (x: number): number => caglioti.u * tan(x) ** 2 + caglioti.v * tan(x) + caglioti.w : null;
+  const curveMid = curve?.(xMid) ?? 0;
+  if (curve && curveMid > 0) {
+    // The instrument's shape, its value at the middle angle scaled to fwhm.
+    const k = (fwhm * fwhm) / curveMid;
+    return (x) => Math.sqrt(Math.max(k * curve(x) + u * (tan(x) ** 2 - mid), floor));
+  }
+  if (u === 0) return () => fwhm;
+  return (x) => Math.sqrt(Math.max(fwhm * fwhm + u * (tan(x) ** 2 - mid), floor));
+}
+
+/** A constant-wavelength resolution curve: FWHM² = u·tan²θ + v·tanθ + w (deg²). */
+export interface Caglioti {
+  readonly u: number;
+  readonly v: number;
+  readonly w: number;
+}
+
+/** The instrument's curve from its U, V, W (FWHM², centidegrees²), or undefined when it has none. */
+export function cagliotiOf(instrument: { readonly kind: string; readonly u?: number; readonly v?: number; readonly w?: number } | null | undefined): Caglioti | undefined {
+  if (!instrument || instrument.kind !== "constantWavelength") return undefined;
+  const { u = 0, v = 0, w = 0 } = instrument;
+  return u === 0 && v === 0 && w === 0 ? undefined : { u: u / 1e4, v: v / 1e4, w: w / 1e4 };
 }
 
 /** The back-to-back-exponential coefficients at d. */
@@ -222,23 +265,38 @@ export function leBailExtract(
   const shape = options.shape ?? "gaussian";
   const eta = options.eta ?? 0.5;
   const fwhm = Math.max(options.fwhm, 1e-4);
-  const widthAt = cwWidth(pattern, fwhm, options.fwhmU ?? 0);
+  const widthAt = cwWidth(pattern, fwhm, options.fwhmU ?? 0, options.caglioti);
   const bkgOpt = options.background ?? 0;
   const bkgAt = (i: number): number => (typeof bkgOpt === "number" ? bkgOpt : bkgOpt[i] ?? 0);
   const cycles = options.cycles ?? 8;
   const tofProfile = shape === "tof" && pattern.xUnit === "tof" && options.tof ? options.tofProfile : undefined;
 
-  const centers = reflections.map((r) => dToX(pattern, r.d, options.tof));
+  const twoTheta = pattern.xUnit === "twoTheta";
+  const zero = twoTheta ? options.zero ?? 0 : 0;
+  const axial = twoTheta ? options.axial : undefined;
+  const bragg = reflections.map((r) => dToX(pattern, r.d, options.tof));
+  const centers = bragg.map((b) => b + zero);
   const valid = reflections.map((_, i) => Number.isFinite(centers[i]!));
   const x = pattern.points.map((p) => p.x);
   const yObs = pattern.points.map((p) => p.yObs);
   const order = monotonicity(x);
+  // A lab tube's Kα₂: each reflection's profile carries its second line too,
+  // or every high-angle Kα₂ shoulder reads as a misfit.
+  const line2 = secondLine(pattern);
 
   // Faded to zero at the support edge: the cell prefit refines the widths and
   // the cell by finite differences, and a hard cutoff made yCalc (and each
   // norm_k) jump whenever a point crossed a moving edge.
-  const profileOf = (k: number): { support: number; at: (xi: number) => number } => {
-    const center = centers[k]!;
+  const profileOf = (k: number): { mid: number; support: number; at: (xi: number) => number } => {
+    const one = lineProfileOf(k, centers[k]!);
+    const c2 = line2 ? secondLineTwoTheta(bragg[k]!, line2.lambdaRatio) + zero : NaN;
+    if (!line2 || Number.isNaN(c2)) return { mid: centers[k]!, ...one };
+    const two = lineProfileOf(k, c2);
+    const ratio = line2.ratio;
+    // One window spanning both lines.
+    return { mid: (centers[k]! + c2) / 2, support: one.support + (c2 - centers[k]!) / 2, at: (xi) => one.at(xi) + ratio * two.at(xi) };
+  };
+  const lineProfileOf = (k: number, center: number): { support: number; at: (xi: number) => number } => {
     const scale = phases[phaseOf[k]!]!.widthScale ?? 1;
     if (tofProfile) {
       const s0 = tofShapeAt(reflections[k]!.d, tofProfile);
@@ -248,11 +306,23 @@ export function leBailExtract(
       return { support, at: (xi) => tofBackToBack(xi - center, s) * supportTaper(Math.abs(xi - center), support) };
     }
     const w = widthAt(center) * scale;
+    const line = (xi: number, c: number): number => (shape === "gaussian" ? gaussian(xi, c, w) : pseudoVoigt(xi, c, w, eta));
+    const subs = axial ? fcjSubPeaks(center, axial, FCJ_NODES) : null;
+    if (subs && subs.length > 1) {
+      // The low-angle tail reaches to the lowest sub-peak.
+      const tail = center - Math.min(...subs.map((sp) => sp.center));
+      const support = 12 * w + tail;
+      return {
+        support,
+        at: (xi) => {
+          let v = 0;
+          for (const sp of subs) v += sp.weight * line(xi, sp.center);
+          return v * supportTaper(Math.abs(xi - center), support);
+        },
+      };
+    }
     const support = 12 * w;
-    return {
-      support,
-      at: (xi) => (shape === "gaussian" ? gaussian(xi, center, w) : pseudoVoigt(xi, center, w, eta)) * supportTaper(Math.abs(xi - center), support),
-    };
+    return { support, at: (xi) => line(xi, center) * supportTaper(Math.abs(xi - center), support) };
   };
 
   // Point-sum-normalized profile Ω_ik (Σ_i Ω_ik = 1) so that the Le Bail
@@ -268,7 +338,7 @@ export function leBailExtract(
       continue;
     }
     const prof = profileOf(k);
-    const idx = window(x, centers[k]!, prof.support, order);
+    const idx = window(x, prof.mid, prof.support, order);
     const raw = idx.map((i) => prof.at(x[i]!));
     let s = 0;
     for (const v of raw) s += v;

@@ -67,8 +67,8 @@ approximate, however plausible its output looks.
 **Supported**
 - Least-squares esds and parameter correlations.
 - Bayesian posterior sampling, as a prototype: the Posterior view on the powder
-  and PDF pages, and the `sample_posterior` agent tool for PDF fits. Two
-  samplers:
+  and PDF pages, the in-app Agent's `sample_posterior` on both, and the MCP
+  `sample_posterior` for PDF and powder fits. Two samplers:
   - an ensemble (stretch-move) sampler, which runs on the worker pool and
     accepts any problem;
   - a gradient-based NUTS sampler, for single-phase PDF fits only.

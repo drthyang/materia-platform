@@ -168,7 +168,7 @@ const CONTRACTS: Record<string, { args: object; keys: string[] }> = {
   build_refinement: { args: { structure, pattern }, keys: ["bindings", "freeCount", "parameters", "profile"] },
   check_cell_symmetry: {
     args: { structure, pattern },
-    keys: ["absences", "absencesConsistent", "cell", "cellValues", "everyPeakIndexes", "leBail", "limits", "passed", "unindexedPeaks"],
+    keys: ["absences", "absencesConsistent", "cell", "cellValues", "everyPeakIndexes", "leBail", "limits", "passed", "shoulders", "unindexedPeaks"],
   },
   refine_powder: {
     args: { structure, pattern, parameters: built.parameters, bindings: built.bindings, profile: built.profile, maxIterations: 2 },
@@ -199,6 +199,7 @@ const CONTRACTS: Record<string, { args: object; keys: string[] }> = {
     },
     keys: ["count", "peaks"],
   },
+  review_symmetry: { args: { structure, residual: refined.residual }, keys: ["candidates", "limits", "observedForbidden", "reading", "tested", "untestable"] },
   search_propagation_vector: { args: { structure, peakD: [6.7, 3.35] }, keys: ["candidates"] },
   list_magnetic_subgroups: { args: { structure, maxIndex: 4 }, keys: ["candidates"] },
   allowed_moments: { args: { structure }, keys: ["sites"] },

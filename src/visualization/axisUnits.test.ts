@@ -50,6 +50,14 @@ describe("convertAxisValue", () => {
     expect(convertAxisValue(d, "dSpacing", "twoTheta", cwCtx)).toBeCloseTo(40, 6);
   });
 
+  it("takes the refined zero shift out of 2θ (observed = Bragg + zero), as GSAS-II's Pos2dsp does", () => {
+    const zeroed = axisContext(pattern("twoTheta"), { kind: "constantWavelength", wavelength: 1.54 }, 0.2);
+    expect(convertAxisValue(40.2, "twoTheta", "dSpacing", zeroed)).toBeCloseTo(convertAxisValue(40, "twoTheta", "dSpacing", cwCtx), 9);
+    expect(convertAxisValue(convertAxisValue(40, "twoTheta", "dSpacing", cwCtx), "dSpacing", "twoTheta", zeroed)).toBeCloseTo(40.2, 9);
+    // Only for 2θ data: a TOF pattern ignores it.
+    expect(axisContext(pattern("tof"), { kind: "tof", difC: 22585.8 }, 0.2).zero).toBeUndefined();
+  });
+
   it("TOF → d uses difC (TOF = difC·d)", () => {
     expect(convertAxisValue(45171.6, "tof", "dSpacing", tofCtx)).toBeCloseTo(2, 4);
     expect(convertAxisValue(2, "dSpacing", "tof", tofCtx)).toBeCloseTo(45171.6, 1);

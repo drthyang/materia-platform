@@ -1,11 +1,12 @@
 ---
 name: my-rietveld-workflow
 description: >-
-  The user's personal powder Rietveld refinement methodology for MATERIA — his fixed
-  freeing sequence, his gates, and his acceptance criteria — driving the MATERIA MCP
-  tools. Use this whenever the user asks to refine a loaded powder pattern, run "my/his
+  The user's personal powder Rietveld refinement methodology for MATERIA — a sanity
+  check of the cell, a fixed freeing sequence, acceptance criteria, and the space group
+  questioned last, only once everything else is refined — driving the MATERIA MCP
+  tools. Use this whenever the user asks to refine a loaded powder pattern, run "my
   refinement", do a Rietveld refinement, stage or free parameters on a powder dataset,
-  decide what to refine next, or asks why a fit is stuck — even if he doesn't name the
+  decide what to refine next, or asks why a fit is stuck — even if they don't name the
   skill. Covers constant-wavelength and time-of-flight, single- and multi-phase; hands
   off to the magnetic-analysis flow for magnetic structures. NOT for single-crystal
   integrated-intensity refinement, and NOT for ab-initio structure solution / indexing
@@ -14,54 +15,75 @@ description: >-
 
 # My Rietveld workflow (MATERIA)
 
-This encodes **how the user runs a powder refinement** — the order, the gates, and the
-bar for calling it done. It is deliberately opinionated: it is his method, not a generic
+This encodes **how the user runs a powder refinement** — the order, the checks, and the
+bar for calling it done. It is deliberately opinionated: it is their method, not a generic
 "free everything and hope" Rietveld. Follow the sequence, but explain what you are doing
-and why at each gate so he can steer — he judges the fit, you drive the mechanics.
+and why at each stage so they can steer — they judge the fit, you drive the mechanics.
 
 The heuristics live in the app already (`suggest_next_steps`, `rank_next_parameters`,
-`assess_refinement`, the staged plan). This skill's job is to apply **his** ordering and
-**his** stopping rules on top of them.
+`assess_refinement`, the staged plan). This skill's job is to apply **their** ordering and
+**their** stopping rules on top of them.
 
-## The one rule that comes before everything
+## The rule that comes before everything: doubt the model before the symmetry
 
-**Do not refine the structure until the cell and space group are trusted.** A structural
-refinement on a wrong cell or space group produces a plausible-looking wR and a wrong
-answer — the most expensive failure mode. So the workflow has a hard gate up front.
+**Refine the model to the best its space group allows before questioning the space
+group.** Changing the symmetry is the *last* step, taken only when everything in this
+method has been refined and the fit is still not good — never at the beginning, and never
+to explain a misfit that refinement has not yet had a chance to fix.
 
-## Stage 0 — Load and gate on cell + symmetry
+At the start, observed and calculated intensities differ on many reflections. That is
+normal: it is exactly what refining the atoms, ADPs, occupancies, the profile and the
+corrections fixes. A reflection the model has, with more or less intensity than calculated,
+is a **misfit to refine**, never an "extra peak" and never evidence for a lower symmetry.
+Only a peak that sits on no reflection of any phase is an extra peak.
+
+## Stage 0 — Load and sanity-check the cell
 
 1. Load the three inputs: `parse_structure` (CIF), `parse_powder_data` (pattern),
    `parse_instrument`. Confirm the radiation/geometry (CW vs TOF; capillary, flat-plate,
    or cylindrical) — it decides which corrections are even meaningful later.
-2. Run the **free-intensity (Le Bail) gate**: `check_cell_symmetry` (pass known impurity
-   phases as `extraPhases`). It refines the cell by a Le Bail fit and applies the user's
-   two tests:
-   - **every observed peak indexes** — `everyPeakIndexes`, with any `unindexedPeaks`;
-   - the **systematic absences are consistent with the chosen space group** —
-     `absencesConsistent`, with any `absences.violated` (hkl and σ).
-   If a peak won't index or an absence is violated, STOP and say so — the cell or space
-   group is wrong (or a phase is missing), and no amount of structural refinement will fix
-   it. Do not proceed. Report the numbers, not just "passed": how many absences were
-   tested, how many were untestable (overlapped), and the tool's `limits` — it cannot see
-   a too-large cell or a group with too few absences, so those stay his call.
-3. Only once that holds do you carry the cell (the tool's Le Bail `cell`), zero,
-   background, and a decent starting profile forward as the seed for the structural
-   refinement.
+2. Run the **free-intensity (Le Bail) check**: `check_cell_symmetry` (pass known impurity
+   phases as `extraPhases`). It refines the cell by a Le Bail fit and reads what is left
+   over. It is a sanity check, not a gate — it never holds a refinement:
+   - **unindexed peaks** (`unindexedPeaks`) — a peak no reflection of the cell can place.
+     Most often a missing phase (an impurity), sometimes a wrong cell. Worth settling with
+     the user before the structure is refined: identify the phase and add it, or check
+     the cell. This is the one thing refinement cannot fix. On neutron data at low or high
+     temperature, think of the sample environment first: `identify_peaks` matches the
+     peaks against Al (can, cryostat shields), V, Cu, steels, Nb, Pb and common standards
+     (Cr₂WO₆ at 150 K: weak lines at 62.4° and 73.5° were Al 111 and 200, shifted because
+     the shields sit off the sample position). It knows the impurities a synthesis leaves
+     most often too (CaF₂, NaF, NaCl: NAC on 11-BM held fluorite), and `add_known_phase`
+     adds a matched phase to the model once the user agrees; another phase needs the
+     user's CIF. Small bumps on a strong line's flank are `shoulders` — a profile tail,
+     not a phase.
+   - **absence flags** (`absences.violated`) — leftover intensity at a reflection the
+     space group forbids. A flag, not a verdict: before the structure is refined, a strong
+     neighbour's profile misfit, an impurity line or the Le Bail fit's own shape error
+     reads the same way. Note it (`write_note`) and go on; do **not** propose a lower
+     symmetry here. The symmetry review at the end reads the refined residual and decides
+     whether the flag was real.
+   Report the numbers, not just "passed": how many absences were tested, how many were
+   untestable (overlapped), and the tool's `limits` — it cannot see a too-large cell or a
+   group with too few absences.
+3. Carry the cell (the tool's Le Bail `cell`), zero, background, and a decent starting
+   profile forward as the seed for the structural refinement. When the user asks for a
+   refinement, refine: the check informs the refinement, it does not stand in its way.
 
-Rationale: he gates on *indexing + absences*, not just "the Le Bail wR looks low" — a low
-free-intensity wR can hide a wrong space group that still fits by absorbing intensity.
+Rationale: the check catches what refinement cannot fix (a peak nothing indexes). What
+refinement can fix — intensity on the group's own reflections, and the profile — it leaves
+to refinement.
 
-## Stage 1 — Structural refinement, in his fixed order
+## Stage 1 — Structural refinement, in the fixed order
 
-His sequence is **atoms before profile**. Build the refinement (`build_refinement`) and
+The sequence is **atoms before profile**. Build the refinement (`build_refinement`) and
 free parameters in this order, refining (`refine_powder`) and checking
 (`assess_refinement`) between blocks. Free the next block only once the current one is
 stable and hasn't railed to a bound.
 
 1. **Scale + background + cell** — establish these first so intensity has somewhere sane
-   to go. **Re-free the cell here** (with the zero) even though the gate already
-   established it: the Le Bail cell is a starting value, and the structural refinement
+   to go. **Re-free the cell here** (with the zero) even though the check already
+   refined it: the Le Bail cell is a starting value, and the structural refinement
    re-refines it against the full model. (Watch the cell↔zero↔displacement correlation —
    `assess_refinement` flags it; free the zero from a standard or on a wide range.)
 2. **Atomic positions** — freed *early*, against the roughly-correct profile carried from
@@ -81,13 +103,37 @@ stable and hasn't railed to a bound.
 4. **ADPs** — `B_iso` first. Go **anisotropic only if the data clearly support it**
    (high real-space resolution / low temperature); otherwise keep it isotropic. Watch for
    `B_iso` railing toward 0 — that usually means the background or an intensity correction
-   is stealing high-angle intensity, not that the atom is truly rigid.
+   is stealing high-angle intensity, not that the atom is truly rigid. When B values are
+   not *determined* — they swap between two refinement paths at the same wR, an esd is as
+   large as the value, or one rails at 0 as its partner climbs (common below Q ≈ 6 Å⁻¹) —
+   `tie_parameters` constrains chemically alike atoms to one B (the cations of an oxide,
+   all the oxygens): one value with a real esd beats two numbers the data cannot separate.
+   Say in the report which B's are tied and why.
 5. **Occupancy** — see the guardrail below. Usually near-last.
 6. **Corrections** — end-stage polish only; see below.
 
 If the fit stalls between blocks, use `rank_next_parameters` / `assess_refinement` to see
 what is limiting it, but keep the block order — don't jump ahead to occupancy or
-corrections to chase a number.
+corrections to chase a number. When the verdict is poor or fair and you need to know *why*,
+`diagnose_fit` reads the residual cause by cause (background, peak positions, asymmetry,
+width/shape, intensity fall-off with angle, texture, structure), with the share of χ² each
+carries and the action. Act on the largest first, and re-run it after each change.
+
+**Peak asymmetry is part of the profile, not polish.** On constant-wavelength data a
+one-sided residual at low angle (`diagnose_fit` says asymmetry) is axial divergence: switch
+it on (`set_corrections` asymmetry; S/L refines, H/L follows it) and refine it with the
+Caglioti terms. On PbSO₄ (D1A) it took wR from 12% to 6%. A Lorentzian X or Y that
+refines negative is unphysical: reset it (`reset_parameters` with its id), hold it, refine
+the rest.
+
+**When the starting profile is far off, the profile comes before the positions.** The
+order above assumes the instrument's widths are roughly the sample's. When `diagnose_fit`
+measures the lines much broader (or narrower) than calculated (`peak-width`), refine the
+Caglioti terms first and say why: positions refined against lines that wrong absorb the
+width misfit. Then, if it says the lines are more Lorentzian than calculated
+(`peak-tails`: a Gaussian core widened to reach long tails), free X and Y. Fluorapatite on
+a Cu tube: lines 1.7× the instrument file's width, then η ≈ 0.8 — wR 37 → 18 → 9 %, with
+the positions barely moving until the shape was right.
 
 ## The occupancy guardrail (do not skip)
 
@@ -102,7 +148,26 @@ breaks the tie:
   that makes occupancy separately determined.
 
 If none of these is present, keep occupancy fixed and say why. This is a firm rule for
-him, not a suggestion.
+the user, not a suggestion — and in the app a refinement with a bare occupancy is refused;
+only they can allow one (`allow_exception`), for a genuine second contrast.
+
+In the app the first two are the Shared site ties (`set_site_ties`): **Σ occ = 1** holds a
+mixed site full, and **hold composition** keeps each element's total in the cell, so atoms
+exchange between sites while the formula stays — anti-site disorder or spinel inversion
+then refines as one exchange fraction. The ties act only while an occupancy they cover is
+free, and `get_state` lists them. Report the exchange fraction (e.g. the inversion as the
+minority cation's occupancy on the other site) with its esd, not every occupancy.
+
+**Antisite disorder has a signature in the ADPs.** When, after the ADP stage, one cation
+site's B rails toward 0 while another's is high, the first scatters more and the second
+less than the ordered model says: the two elements exchange (Cr₂WO₆: B(Cr) 0.0, B(W)
+1.7). If the probe has contrast between them (neutron b, or X-ray Z), `add_antisite`
+puts each element on the other site at occupancy 0 with Σ occ = 1 and hold composition —
+one exchange fraction under the formula (it asks the user). Free the four occupancies,
+refine, and report the exchange with its esd and how the B values moved. On data to a
+modest Q the exchange trades with the B values: a large esd is the honest result. If the
+exchange refines to zero, the ADP contrast is not disorder: return to the ordered model
+and, unless the contrast is significant and stable, tie the two cation B's.
 
 ## The correlation guardrail (do not skip)
 
@@ -115,7 +180,20 @@ current values and refuses a correlated set; headless, read the correlations
 the one this sequence frees later (occupancy against scale, B against scale, the zero
 against the cell) — or refine them in separate stages, and free it again only once the
 other is stable. A combination the data cannot determine at all (a null direction) is the
-same rule at its limit. This is a firm rule for him, like the occupancy guardrail.
+same rule at its limit. This is a firm rule for the user, like the occupancy guardrail.
+
+When a pair has to stay free together, or a value stays unconvincing after the method has
+run (an esd as large as the value, a parameter on a bound, a value that moves between
+refinement paths at the same wR), sample the posterior before reporting it: the
+`bayesian-check` skill says when and how, and `sample_posterior` runs it on the page.
+
+What does **not** count: the terms of one curve among themselves — the background
+coefficients, and the Caglioti `U, V, W` of one FWHM²(θ). They trade off by construction
+while the curve itself is determined, and nobody reports them as results, so free `U, V, W`
+together on a wide range. Two occupancies tied by one restraint (a mixed site's Σ, the
+composition) move together by construction too. Each of these against anything else (the
+scale, a structural parameter) still counts, and so does the Lorentzian `X` ↔ `Y` (size
+against strain, which people do report).
 
 ## Corrections are polish, not a crutch
 
@@ -135,9 +213,35 @@ Watch the correlations `assess_refinement` reports — displacement correlates w
 and the zero; roughness SRA/SRB correlate with each other and with scale/background. Free
 at most what the angular range can actually separate.
 
-## When it's done — his acceptance bar
+In the app, `set_corrections` switches each on (their rows come in fixed: free them, then
+refine): `preferredOrientation` [h, k, l] when `diagnose_fit` finds the intensity misfit
+following one direction, `peak` absorption (capillary), displacement / transparency /
+roughness (flat plate).
 
-He does **not** chase absolute Rwp. A fit is acceptable when all of:
+## The symmetry review — the last step, if at all
+
+Only when every block above has been refined to convergence (scale/background/cell,
+positions, profile, ADPs; occupancy and corrections where the data called for them) and the
+fit is still not acceptable may the space group be questioned — and then only on evidence
+in the **refined** residual, not on the Stage 0 flag. Run `review_symmetry` (in the app it
+refuses, naming the stages left, until they are done). It reads the refined residual at the
+reflections the group forbids and lists the subgroups of the same lattice that allow those
+still carrying intensity.
+
+- **No forbidden reflection carries intensity**: the symmetry is not the problem. Look at
+  the profile, the background, a missing phase, or the model's chemistry instead.
+- **Some do**: rule out what else puts intensity there, then put the evidence to the user
+  — which reflections, how many σ, which subgroups (smallest index first), how many
+  domains. The decision is theirs. Never change the model yourself. Read the
+  `symmetry-review` skill for the full procedure.
+
+What is **not** evidence for a lower symmetry: intensity misfit on allowed reflections; a
+poor GoF on its own; an absence the Stage 0 check flagged that the refined residual no
+longer shows.
+
+## When it's done — the acceptance bar
+
+The user does **not** chase absolute Rwp. A fit is acceptable when all of:
 
 1. **GoF (= Rwp/Rexp, i.e. reduced χ²) is reasonable** — the fit is close to the
    statistical floor, not just numerically small. Report GoF, not Rwp alone. **Flag a GoF
@@ -147,13 +251,15 @@ He does **not** chase absolute Rwp. A fit is acceptable when all of:
    rather than celebrating. (The GaNb4Se8 run landed GoF ≈ 0.46 — a good fit, but with
    generous σ's, exactly this case.)
 2. **Physical sanity holds** — `B_iso > 0`, occupancy sums are chemically sensible, bond
-   lengths/angles are reasonable. `assess_refinement` surfaces at-bounds and unphysical
-   parameters; treat any as a blocker, not a rounding detail.
+   lengths/angles are reasonable (`bond_geometry` gives the bond-valence sums).
+   `assess_refinement` surfaces at-bounds and unphysical parameters; treat any as a
+   blocker, not a rounding detail. A parameter the result rests on that is weakly
+   determined gets its credible interval (`bayesian-check`), not only its esd.
 3. **External cross-check agrees** — export and re-run in **both GSAS-II and FullProf**
    and confirm the parameters and ESDs are consistent. Write both bundles with
    `export_bundle` (`target` `"fullprof"` and `"gsas2"`, the refine call's `parameters`
    and `result`, the original instrument file as `rawInstrument`, an `outDir`) and give
-   him the paths. The `.pcr` starts scale, background and the CW peak shape from seeds —
+   the user the paths. The `.pcr` starts scale, background and the CW peak shape from seeds —
    say so, since they must be freed in FullProf before the comparison means anything.
 
 **Stopping rule — cross-check agreement.** The signal that the refinement is *done* is not
@@ -165,7 +271,36 @@ find and resolve the discrepancy before calling it. This makes the cross-check (
 item 3) the actual terminator of the loop, not just a final rubber-stamp.
 
 Report the outcome as: GoF + the key refined values with ESDs + which corrections were on
-+ any correlations/at-bounds worth knowing — not just "converged, wR = X%".
++ any correlations/at-bounds worth knowing — not just "converged, wR = X%". `structure_table`
+gives the cell and the coordinates, occupancies and B as value(esd); compare them with a
+published structure when there is one.
+
+**The written report.** In the app, `write_report` writes it once the analysis is done and
+reported: the page's report (data, model, fit figure, structure with esds, every parameter)
+with the History's steps, the method's checklist, the engine's checks and open issues, the
+Bayesian check of the refinement on screen if one ran, and the notes. Every number in it is
+the engine's. Its `summary` is the account in your own words — the approach, what the result
+says about the structure, the caveats, what is left open — and adds no number of its own: a
+number it quotes must be one the tools gave (rounded at most). Numbers the report did not
+compute are underlined in it and listed back; correct the account and write it again. Over
+MCP, the same content comes from `export_bundle` and the tools' results.
+
+**Lab X-ray data.** The instrument file says which lines the tube gives: a Cu or Co tube
+without a monochromator gives Kα₁ and Kα₂, and every reflection is drawn at both (the
+data card shows "λ 1.5405 / 1.5443 Å (Kα₂ 0.5)"). A Kα₂ peak is never an extra peak. The
+polarization fraction P of the Lorentz-polarization factor is an instrument constant the
+fit cannot determine: it changes intensity with angle as the ADPs do, so every B moves
+with it at the same wR (fluorapatite: P 0.7 → 0.5 lowered every B by ≈ 0.55 Å², and with
+0.5 they matched GSAS's own refinement of the data). Report the B values with the P they
+assume. If the instrument file's P does not fit the setup the user describes (0.5
+unpolarized; ≈ 0.56 for Cu with a graphite monochromator), propose
+`set_instrument_constants` — it always asks the user.
+
+**The cell is only as good as the wavelength.** On constant-wavelength neutron data the
+wavelength is a calibration, not a constant: a cell uniformly off by a fraction of a percent
+from the literature says the wavelength is (PbSO₄ on D1A: 0.13% small, λ ≈ 1.9115 Å rather
+than the nominal 1.909 Å). Quote such a cell as uncalibrated, or calibrate λ against a
+standard or an X-ray cell.
 
 ## Multi-phase and magnetic
 
@@ -176,21 +311,35 @@ Report the outcome as: GoF + the key refined values with ESDs + which correction
   shared instrument keeps them coupled anyway. **Fall back to phase-by-phase only if the
   all-at-once step is unstable** (a phase's scale collapsing, divergence, or runaway
   cross-phase correlations that `assess_refinement` flags). Try the simple way first; split
-  when it fights back.
-- **Magnetic**: once the nuclear structure is converged, hand off to the magnetic-analysis
-  flow (`build_magnetic_model`, `list_magnetic_subgroups`, `search_propagation_vector`,
-  `refine_magnetic_powder`) — that's a separate methodology, not this one.
+  when it fights back. Report each phase's **weight fraction** (Hill–Howard, from the
+  refined scales: `get_state` gives `phaseFractions` with esds) and say what it rests on —
+  the crystalline phases in the model only, no microabsorption correction.
+- **Magnetic**: once the nuclear structure is converged, hand off to the `magnetic-analysis`
+  skill (in the app, the powder page's magnetic analysis step; over MCP,
+  `search_propagation_vector`, `list_magnetic_subgroups`, `build_magnetic_model`,
+  `refine_magnetic_powder`) — a separate method, not this one.
 
 ## MCP tool map (quick reference)
 
 | Step | Tool |
 |------|------|
 | Load | `parse_structure`, `parse_powder_data`, `parse_instrument` |
-| Cell/SG gate | `check_cell_symmetry` (Le Bail cell, unindexed peaks, violated absences) |
+| Cell sanity check (start) | `check_cell_symmetry` (Le Bail cell, unindexed peaks, absence flags) |
 | Build param set + staged plan | `build_refinement` |
 | Run a refinement block | `refine_powder` |
 | Judge a block / the fit | `assess_refinement` |
 | Decide what's limiting the fit | `rank_next_parameters`, `suggest_next_steps` |
 | Geometry / bonds sanity | `bond_geometry`, `interpret_structure` |
 | Cross-check export | `export_bundle` (`fullprof` + `gsas2`, into `outDir`) |
+| The written report (in the app) | `write_report` |
 | Magnetic handoff | `build_magnetic_model`, `list_magnetic_subgroups`, `refine_magnetic_powder` |
+| Symmetry review (last, if at all) | `review_symmetry` on the converged residual; then the `symmetry-review` skill |
+
+## References
+
+Longer knowledge bases behind this method. Read one only when a question needs it.
+
+- [`powder_structural_refinement`](../../../knowledge/powder_structural_refinement_knowledge.md) — the Rietveld model and its policy: profile functions, ADPs, occupancies, constraints, and what makes a refinement physically defensible.
+- [`refinement_fitting_algorithms`](../../../knowledge/refinement_fitting_algorithms_knowledge.md) — the least-squares engine: Levenberg–Marquardt, convergence and shift/esd, correlations and the SVD, restraints, esds and the GoF.
+- [`powder_background_texture`](../../../knowledge/powder_background_texture_knowledge.md) — background models and preferred orientation: which basis to use, how many terms, and how texture shows in the residual.
+- [`magnetic_structure_symmetry`](../../../knowledge/magnetic_structure_symmetry_knowledge.md) — magnetic symmetry and refinement, for the hand-off: when excess intensity may be magnetic order and what the magnetic step needs.

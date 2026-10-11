@@ -28,6 +28,9 @@ describe("parseInstrumentParameters", () => {
     expect(p.w).toBeCloseTo(1.2088 * 8 * Math.log(2), 2); // ≈ 6.703
     expect(p.x).toBe(0); // Lorentzian X (FWHM coeff) read as-is
     expect(p.polarization).toBeCloseTo(0.8442, 4);
+    // GSAS-II's one SH/L = (S + H)/L, S and H equal.
+    expect(p.asymmetry?.sl).toBeCloseTo(0.002711817508568138 / 2, 10);
+    expect(p.asymmetry?.hl).toBeCloseTo(0.002711817508568138 / 2, 10);
   });
 
   it("still parses a TOF file (difC) without profile terms", () => {
@@ -85,12 +88,45 @@ describe("parseInstrumentParameters", () => {
     // Lorentzian LX/LY (PRCF12) are FWHM coefficients — taken as-is (no 8 ln2).
     expect(p.x).toBeCloseTo(0.173, 4);
     expect(p.y).toBe(0);
+    // A type-3 profile's FCJ asymmetry follows on PRCF12 (round 10: it was dropped,
+    // and switching the asymmetry on seeded 0.01, nine times 11-BM's own).
+    expect(p.asymmetry).toEqual({ sl: 0.0011, hl: 0.0011 });
     // POLA is fixed-column field 5 (0.990) — the synchrotron polarization, not
     // the blank field-4 that whitespace-splitting would otherwise land on.
     expect(p.polarization).toBeCloseTo(0.99, 3);
+    // λ₂ = 0: a monochromatic beam, whatever the ratio column holds.
+    expect(p.kAlpha2).toBeUndefined();
     // Recognised from the header/INAME → 11-BM at the APS.
     expect(p.name).toBe("11-BM");
     expect(p.facility).toContain("APS");
+  });
+
+  it("reads a lab tube's Kα₂ from GSAS, GSAS-II and FullProf files, and none from a monochromator", () => {
+    // GSAS-II's INST_XRY.PRM: λ₂ in field 2, KRATIO in columns 55–65, POLA in field 5.
+    const prm = [
+      "INS   BANK      1",
+      "INS   HTYPE   PXCR",
+      "INS  1 ICONS  1.540500  1.544300       0.0         0       0.7    0       0.5   ",
+      "INS  1PRCF1     3    8      0.01",
+      "INS  1PRCF11   2.000000E+00  -2.000000E+00   5.000000E+00   0.100000E+00",
+    ].join("\n");
+    const gsas = parseInstrumentParameters(prm);
+    if (gsas.kind !== "constantWavelength") throw new Error("wrong kind");
+    expect(gsas.wavelength).toBeCloseTo(1.5405, 6);
+    expect(gsas.kAlpha2).toEqual({ wavelength: 1.5443, ratio: 0.5 });
+    expect(gsas.polarization).toBeCloseTo(0.7, 6);
+    const instprm = parseInstrumentParameters("Type:PXC\nLam1:1.5405\nLam2:1.5443\nI(L2)/I(L1):0.48\nPolariz.:0.7\nU:2\nV:-2\nW:5\n");
+    if (instprm.kind !== "constantWavelength") throw new Error("wrong kind");
+    expect(instprm.wavelength).toBeCloseTo(1.5405, 6);
+    expect(instprm.kAlpha2).toEqual({ wavelength: 1.5443, ratio: 0.48 });
+    const irf = parseInstrumentParameters("JOBT XRAY\nWAVE   1.54056   1.54439   0.5000\n  0.004 -0.002 0.003 0 0 0\n");
+    if (irf.kind !== "constantWavelength") throw new Error("wrong kind");
+    expect(irf.kAlpha2).toEqual({ wavelength: 1.54439, ratio: 0.5 });
+    // FullProf writes λ₂ = λ₁ for a monochromatic beam; neutrons have no Kα₂.
+    const mono = parseInstrumentParameters("JOBT XRAY\nWAVE   0.41390   0.41390   1.0000\n  0.004 -0.002 0.003 0 0 0\n");
+    expect(mono.kind === "constantWavelength" && mono.kAlpha2).toBeFalsy();
+    const neutron = parseInstrumentParameters("Type:PNC\nLam1:1.5405\nLam2:1.5443\nI(L2)/I(L1):0.5\n");
+    expect(neutron.kind === "constantWavelength" && neutron.kAlpha2).toBeFalsy();
   });
 
   it("reads a classic GSAS .prm TOF file (HTYPE PNT, ICONS difC/difA/Zero)", () => {

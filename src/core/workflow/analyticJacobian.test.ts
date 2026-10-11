@@ -117,6 +117,29 @@ describe("analytic Jacobian columns (F1.1)", () => {
     }
   });
 
+  it("a parameter another row is tied to falls back to finite differences (its column moves the follower too)", () => {
+    const pattern: PowderPattern = {
+      id: "p", name: "s", xUnit: "twoTheta", radiation: { kind: "neutron", wavelength: 1.54 },
+      points: Array.from({ length: 600 }, (_, i) => ({ x: 10 + (i * 80) / 599, yObs: 100 })),
+    };
+    const spec = buildPowderSpec(structure, pattern, inst, true, 3, {});
+    const bs = spec.params.filter((p) => p.kind === "bIso");
+    expect(bs.length).toBe(2);
+    const [leader, follower] = [bs[0]!, bs[1]!];
+    const other = spec.params.find((p) => p.kind === "occupancy")!;
+    const params = spec.params.map((p) => ({
+      ...p,
+      fixed: !(p.kind === "bIso" || p.id === other.id) || p.id === follower.id,
+      ...(p.id === follower.id ? { expression: `= ${leader.id}` } : {}),
+    }));
+    const problem = buildPowderProblem(structure, pattern, params, spec.bindings, spec.profile);
+    const freeParams = problem.parameters.filter((p) => !p.fixed);
+    const columns = problem.analyticColumns!(freeParams, freeParams.map((p) => p.value));
+    expect(columns[freeParams.findIndex((p) => p.id === leader.id)]).toBeNull();
+    // A parameter nothing follows stays analytic.
+    expect(columns[freeParams.findIndex((p) => p.id === other.id)]).not.toBeNull();
+  });
+
   it("a problem with restraints exposes no analytic columns (conservative fallback)", () => {
     const grid = Array.from({ length: 400 }, (_, i) => 10 + (i * 80) / 399);
     const pattern: PowderPattern = {

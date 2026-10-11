@@ -1,166 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { AgentExecutor, type ActivityEntry, type AgentHost } from "@/agent/executor";
-import type { AgentPort, PdfAgentPort, PdfLiveState, PowderAgentPort, PowderLiveState } from "@/agent/port";
+import { withAdpModel } from "@/core/crystal/adp";
+import { emptyRecord, keyOfState } from "@/agent/method";
+import type { PowderAgentPort } from "@/agent/port";
 import { AgentLink } from "@/agent/link";
-import { gata4se8PdfExample } from "@/examples/gata4se8Pdf";
-import { buildPdfProblem, buildPdfSpec, pdfCurves } from "@/core/workflow/pdf";
-import { applyParameters } from "@/core/workflow/apply";
-import { refine as refineProblem } from "@/core/refinement/engine";
 import { freePlan } from "@/agent/liveCommon";
-import { boxcarWindows } from "@/core/workflow/pdfBoxcar";
 import { LIVE_TOOLS, inputJsonSchema } from "@/agent/tools";
 import { newSession, type Session } from "@/app/powderSession";
-import { powderRestraints } from "@/app/powderSpec";
 import { exampleStructure } from "@/examples/mn3ga";
-import { powderCurves } from "@/core/workflow/powder";
-import { runPowderRefinement } from "@/workers/runPowder";
-import { axisContext, convertAxisArray } from "@/visualization/axisUnits";
-import { excludedPointMask } from "@/core/refinement/factors";
-import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
-import type { StepKind } from "@/core/project/history";
-
-/**
- * A powder page without React: a session, the real curves and the real
- * engine behind the port, so the tools judge an actual fit.
- */
-function sessionPort(start: Session): { port: PowderAgentPort; calls: string[]; session: () => Session } {
-  let s = start;
-  let result: RefinementResult | null = null;
-  let fitRange: { min: number; max: number } | null = null;
-  const calls: string[] = [];
-  const state = (): PowderLiveState => {
-    const curves = powderCurves(s.structure, s.pattern, s.powderParams, s.powderBindings, s.powderProfile);
-    const xs = curves.x;
-    const excluded = excludedPointMask(curves.yObs);
-    let num = 0;
-    let den = 0;
-    let n = 0;
-    curves.yObs.forEach((o, i) => {
-      if (excluded[i]) return;
-      n++;
-      const w = 1 / Math.max(o, 1);
-      num += w * (o - curves.yCalc[i]!) ** 2;
-      den += w * o * o;
-    });
-    return {
-      structure: s.structure,
-      extraPhases: s.extraPhases,
-      refinedPhases: [s.structure],
-      pattern: s.pattern,
-      parameters: s.powderParams,
-      bindings: s.powderBindings,
-      profile: s.powderProfile,
-      magnetic: null,
-      result,
-      instrument: null,
-      fitRange,
-      extent: { min: Math.min(...xs), max: Math.max(...xs) },
-      busy: false,
-      viewOnly: false,
-      wR: Math.sqrt(num / den),
-      settings: { backgroundTerms: s.backgroundTerms, backgroundType: "chebyshev", mustrain: "isotropic", anisotropicAdp: false, siteTies: s.siteTies },
-      curves,
-      d: convertAxisArray(curves.x, s.pattern.xUnit, "dSpacing", axisContext(s.pattern)),
-      observationCount: n,
-      axis: axisContext(s.pattern),
-      source: "test",
-      restraints: powderRestraints([s.structure], s.siteTies, s.powderParams),
-    };
-  };
-  const refine = async (): Promise<string | null> => {
-    calls.push("refine");
-    const r = runPowderRefinement({
-      type: "refinePowder",
-      requestId: 0,
-      structure: s.structure,
-      pattern: s.pattern,
-      parameters: s.powderParams,
-      bindings: s.powderBindings,
-      shape: s.powderProfile.shape,
-      restraints: powderRestraints([s.structure], s.siteTies, s.powderParams),
-      options: { maxIterations: 20 },
-    });
-    s = { ...s, powderParams: s.powderParams.map((p) => ({ ...p, value: r.parameters[p.id] ?? p.value })) };
-    result = r;
-    return null;
-  };
-  const port: PowderAgentPort = {
-    technique: "powder",
-    state,
-    setFixed: (changes) => {
-      calls.push(`setFixed ${changes.map((c) => `${c.id}=${c.fixed}`).join(",")}`);
-      const m = new Map(changes.map((c) => [c.id, c.fixed]));
-      s = { ...s, powderParams: s.powderParams.map((p) => (m.has(p.id) ? { ...p, fixed: m.get(p.id)! } : p)) };
-    },
-    setBackgroundTerms: (n) => calls.push(`terms ${n}`),
-    setBackgroundType: (t) => calls.push(`type ${t}`),
-    setMustrain: (m) => calls.push(`mustrain ${m}`),
-    setAnisotropicAdp: (on) => calls.push(`adp ${on}`),
-    setSiteTies: (update) => {
-      calls.push(`ties ${JSON.stringify(update)}`);
-      s = { ...s, siteTies: { ...s.siteTies, ...update } };
-    },
-    setFitRange: (r) => {
-      calls.push(`range ${r ? `${r.min}-${r.max}` : "whole"}`);
-      fitRange = r ? { ...r } : null;
-    },
-    showPeaks: (peaks) => calls.push(`showPeaks ${peaks.map((p) => p.d.toFixed(3)).join(",")}`),
-    refine,
-    thorough: refine,
-    probe: async (options) => {
-      calls.push("probe");
-      return runPowderRefinement({
-        type: "refinePowder",
-        requestId: 0,
-        structure: s.structure,
-        pattern: s.pattern,
-        parameters: s.powderParams,
-        bindings: s.powderBindings,
-        shape: s.powderProfile.shape,
-        restraints: powderRestraints([s.structure], s.siteTies, s.powderParams),
-        options,
-      });
-    },
-    cancel: () => calls.push("cancel"),
-    reset: () => calls.push("reset"),
-  };
-  return { port, calls, session: () => s };
-}
-
-function fakeHost(port: AgentPort | null): { host: AgentHost; steps: { kind: StepKind; agent: boolean }[] } {
-  const steps: { kind: StepKind; agent: boolean }[] = [];
-  let agent = false;
-  const host: AgentHost = {
-    port: () => port,
-    technique: () => port?.technique ?? null,
-    settle: async () => undefined,
-    asAgent: async (fn) => {
-      agent = true;
-      try {
-        return await fn();
-      } finally {
-        agent = false;
-      }
-    },
-    recordNow: (kind) => steps.push({ kind, agent }),
-    history: () => null,
-    goToStep: () => undefined,
-  };
-  return { host, steps };
-}
-
-function executor(host: AgentHost, decision: boolean | "auto" = true): { ex: AgentExecutor; asked: ActivityEntry[]; seen: ActivityEntry[] } {
-  const asked: ActivityEntry[] = [];
-  const seen: ActivityEntry[] = [];
-  const ex = new AgentExecutor(host, {
-    approve: async (entry) => {
-      asked.push(entry);
-      return decision === "auto" ? true : decision;
-    },
-    onActivity: (e) => seen.push(e),
-  });
-  return { ex, asked, seen };
-}
+import type { RefinementParameter } from "@/core/refinement/types";
+import { executor, fakeHost, pdfPort, sessionPort } from "@/testSupport/agentHeadless";
+import { shoulderReading } from "@/agent/powderTools";
 
 const parse = (text: string): Record<string, unknown> => JSON.parse(text) as Record<string, unknown>;
 
@@ -232,6 +81,32 @@ describe("AgentExecutor on a live powder fit", () => {
     expect((await empty.run("get_state", {})).text).toMatch(/no analysis is open/);
   });
 
+  it("reads the ADP model from the structure, so a CIF's tensors read as anisotropic", async () => {
+    // Round 10 (NAC on 11-BM): the CIF's U_aniso loaded 22 tensor rows while the
+    // page said "anisotropicAdp: false", and the box under ADPs was unticked.
+    const iso = newSession(exampleStructure());
+    const { ex } = executor(fakeHost(sessionPort(iso).port).host);
+    expect((parse((await ex.run("get_state", {})).text).settings as { anisotropicAdp: boolean }).anisotropicAdp).toBe(false);
+    expect((await ex.run("set_adp_model", { anisotropic: false })).text).toMatch(/already isotropic/);
+    const tensors = newSession(withAdpModel(exampleStructure(), "anisotropic"));
+    const { ex: ex2 } = executor(fakeHost(sessionPort(tensors).port).host);
+    expect((parse((await ex2.run("get_state", {})).text).settings as { anisotropicAdp: boolean }).anisotropicAdp).toBe(true);
+    expect((await ex2.run("set_adp_model", { anisotropic: true })).text).toMatch(/already anisotropic/);
+  });
+
+  it("adds a library phase as a further phase, always asking, and refuses a name it does not hold", async () => {
+    // Round 10: NAC's unindexed lines were fluorite, and only the user's CIF could add it.
+    const { port, calls } = sessionPort(newSession(exampleStructure()));
+    const { ex, asked } = executor(fakeHost(port).host, "auto");
+    expect((await ex.run("add_known_phase", { name: "unobtainium" })).text).toMatch(/not in the library — it holds .*CaF₂.*Add CIF/);
+    await ex.run("add_known_phase", { name: "CaF₂" });
+    expect(asked.at(-1)!.preview).toMatch(/^Add CaF₂ \(F m -3 m, a = 5\.4626 Å\) as a further phase/);
+    expect(asked.at(-1)!.alwaysAsk).toBe(true);
+    expect(calls).toContain("add phase CaF₂");
+    expect(port.state().extraPhases.map((p) => p.name)).toEqual(["CaF₂"]);
+    expect((await ex.run("add_known_phase", { name: "CaF₂" })).text).toMatch(/CaF₂ is already a phase of the model/);
+  });
+
   /** The demo session with every parameter fixed, so freeing one is a change. */
   const allFixed = (): Session => {
     const s = newSession(exampleStructure());
@@ -245,6 +120,32 @@ describe("AgentExecutor on a live powder fit", () => {
     expect(out.unchanged).toBe(true);
     expect(asked).toEqual([]);
     expect(calls).toEqual([]);
+  });
+
+  it("reads a skill whole, and refuses a change until the page's method has been read", async () => {
+    const { port, calls } = sessionPort(allFixed());
+    const { ex, asked } = executor(fakeHost(port).host, true, { readMethods: false });
+    const refused = await ex.run("set_free", { free: ["scale"] });
+    expect(refused.isError).toBe(true);
+    expect(refused.text).toMatch(/read_skill with name "my-rietveld-workflow"/);
+    expect(asked).toEqual([]);
+    expect(calls).toEqual([]);
+    // Reading another skill does not open the gate.
+    await ex.run("read_skill", { name: "pdf-workflow" });
+    expect((await ex.run("set_free", { free: ["scale"] })).isError).toBe(true);
+    const skill = await ex.run("read_skill", { name: "my-rietveld-workflow" });
+    expect(skill.isError).toBe(false);
+    expect(skill.text).toMatch(/^Skill my-rietveld-workflow\n/);
+    expect(skill.text).toContain("## The occupancy guardrail");
+    expect(skill.text).toContain("- powder_structural_refinement:");
+    expect(skill.text.length).toBeGreaterThan(8000); // whole, not cut to the ref budget
+    expect((await ex.run("set_free", { free: ["scale"] })).isError).toBe(false);
+    // A reference by name; an unknown one names the ones there are.
+    expect((await ex.run("read_skill", { name: "my-rietveld-workflow", reference: "refinement_fitting_algorithms" })).text).toMatch(/^Reference "refinement_fitting_algorithms"/);
+    expect((await ex.run("read_skill", { name: "my-rietveld-workflow", reference: "nope" })).text).toMatch(/has no reference "nope" — it has powder_structural_refinement/);
+    // A new conversation reads the method again.
+    ex.newConversation();
+    expect((await ex.run("set_free", { fix: ["scale"] })).isError).toBe(true);
   });
 
   it("asks before a change; a decline leaves the page untouched", async () => {
@@ -307,7 +208,12 @@ describe("AgentExecutor on a live powder fit", () => {
     const start = newSession(exampleStructure());
     // Scale with every site occupancy: an exact degeneracy (all three only scale intensity).
     const { port, calls } = sessionPort({ ...start, powderParams: start.powderParams.map((p) => ({ ...p, fixed: !["scale", "occ_Mn1", "occ_Ga1"].includes(p.id) })) });
-    const { ex, asked, seen } = executor(fakeHost(port).host, true);
+    const { host, records } = fakeHost(port);
+    // The method's firm rules come first (see below); here the user allowed
+    // the bare occupancies, so the correlations decide.
+    const key = keyOfState("powder", port.state());
+    records.set(key, { ...emptyRecord(key), exceptions: [{ rule: "bare-occupancy", reason: "test", at: 0 }] });
+    const { ex, asked, seen } = executor(host, true);
     const out = await ex.run("refine", {});
     expect(out.isError).toBe(true);
     expect(out.text).toMatch(/Not refined: .*Not determined by the data at all, together: .*occ_Mn1.*Fix one of each pair with set_free/);
@@ -322,6 +228,93 @@ describe("AgentExecutor on a live powder fit", () => {
     const refined = parse((await ex.run("refine", {})).text);
     expect(refined.refined).toBe(true);
     expect(asked.at(-1)!.preview).toMatch(/^Refine .* · (strongest correlation \S+ ↔ \S+ -?0\.\d{3}|no correlation above 0\.5)$/);
+  });
+
+  it("refines the structure whatever the cell check says, and counts the stages a refinement covers", async () => {
+    const start = newSession(exampleStructure());
+    const { port, calls } = sessionPort({ ...start, powderParams: start.powderParams.map((p) => ({ ...p, fixed: !["scale", "bkg0", "pos_Mn1_0"].includes(p.id) })) });
+    const { host, records } = fakeHost(port);
+    const { ex, asked } = executor(host, true);
+    // No cell check yet: atomic parameters refine anyway (the deployed Agent
+    // refused a full refinement here, citing the check).
+    const done = parse((await ex.run("refine", {})).text);
+    expect(done.refined).toBe(true);
+    expect(calls.slice(0, 2)).toEqual(["probe", "refine"]);
+    expect(asked.map((e) => e.tool)).toEqual(["refine"]);
+    expect(done.methodNote).toBeUndefined(); // the base block was free alongside
+    const key = keyOfState("powder", port.state());
+    expect(records.get(key)!.stagesDone).toEqual(expect.arrayContaining(["base", "positions"]));
+
+    // The check is recorded, not enforced.
+    const check = parse((await ex.run("check_cell_symmetry", {})).text);
+    expect(check.passed).toBe(true);
+    expect(check.reading).toBe("Every peak indexes and no forbidden reflection shows intensity: refine the structure.");
+    expect(records.get(key)!.cellCheck).toMatchObject({ passed: true, summary: "every peak indexes; no absence flagged" });
+    const method = parse((await ex.run("get_state", {})).text).method as { stages: string[]; next: string; cellCheck: string };
+    expect(method.stages).toEqual(["✓ Cell check", "✓ Scale, background, cell", "✓ Positions", "○ Profile", "○ ADPs", "○ Occupancy (if needed)", "○ Corrections (if needed)", "○ Symmetry review (last) (if needed)"]);
+    expect(method.next).toBe("Profile");
+    expect(method.cellCheck).toBe("every peak indexes; no absence flagged");
+
+    // ADPs before the profile: refined, with a note.
+    await ex.run("set_free", { fix: ["pos_Mn1_0"], free: ["B_Mn1"] });
+    const adp = parse((await ex.run("refine", {})).text);
+    expect(adp.methodNote).toMatch(/^Out of the method's order \(my-rietveld-workflow\): adps refined before profile\./);
+  });
+
+  it("questions the space group only last: review_symmetry waits for the method's stages", async () => {
+    const start = newSession(exampleStructure());
+    const { port } = sessionPort({ ...start, powderParams: start.powderParams.map((p) => ({ ...p, fixed: !["scale", "bkg0"].includes(p.id) })) });
+    const { host, records } = fakeHost(port);
+    const { ex, seen } = executor(host, true);
+    const early = await ex.run("review_symmetry", {});
+    expect(early.isError).toBe(true);
+    expect(early.text).toMatch(/^Error: Not yet\. The space group is the last thing questioned: a structure is refined to the best its group allows first, and intensity that differs on the group's own reflections is what that refinement fixes/);
+    expect(early.text).toMatch(/Refine these stages of my-rietveld-workflow first, each to convergence: Scale, background, cell, Positions, Profile, ADPs\./);
+    expect(seen.filter((e) => e.tool === "review_symmetry").at(-1)!.outcome).toBe("Not yet: 4 stages to refine first");
+
+    // Every required stage covered, but nothing refined on screen: still not yet.
+    const key = keyOfState("powder", port.state());
+    records.set(key, { ...emptyRecord(key), stagesDone: ["base", "positions", "profile", "adp"] });
+    expect((await ex.run("review_symmetry", {})).text).toMatch(/^Error: Not yet: the review reads the refined residual, and the fit on screen is not refined\./);
+
+    // Refined to convergence: the review reads the residual and is recorded.
+    expect(parse((await ex.run("refine", {})).text).refined).toBe(true);
+    const review = parse((await ex.run("review_symmetry", {})).text);
+    expect(Array.isArray(review.observedForbidden)).toBe(true);
+    expect(String(review.decision)).toMatch(/^The user's\./);
+    expect(records.get(key)!.symmetryReviewed?.summary).toMatch(/forbidden reflection/);
+    const method = parse((await ex.run("get_state", {})).text).method as { stages: string[]; symmetryReview: string };
+    expect(method.stages.at(-1)).toBe("✓ Symmetry review (last) (if needed)");
+    expect(method.symmetryReview).toBe(records.get(key)!.symmetryReviewed!.summary);
+  });
+
+  it("keeps notes on the analysis, without asking, and lists them in get_state", async () => {
+    const { port, calls } = sessionPort(newSession(exampleStructure()));
+    const { host, records, steps } = fakeHost(port);
+    const { ex, asked } = executor(host, true);
+    const out = parse((await ex.run("write_note", { text: "The minor phase is MnO (user)." })).text);
+    expect(out).toMatchObject({ noted: true, notes: 1 });
+    expect(asked).toEqual([]);
+    expect(calls).toEqual([]);
+    expect(steps).toEqual([]);
+    expect(records.get(keyOfState("powder", port.state()))!.notes.map((n) => n.text)).toEqual(["The minor phase is MnO (user)."]);
+    expect((parse((await ex.run("get_state", {})).text).method as { notes: string[] }).notes).toEqual(["The minor phase is MnO (user)."]);
+  });
+
+  it("never frees an occupancy bare; only the user lifts the rule, asked even in Auto", async () => {
+    const start = newSession(exampleStructure());
+    const { port } = sessionPort({ ...start, powderParams: start.powderParams.map((p) => ({ ...p, fixed: !["scale", "occ_Mn1"].includes(p.id) })) });
+    const { host, records } = fakeHost(port);
+    const key = keyOfState("powder", port.state());
+    const { ex, asked } = executor(host, "auto");
+    const refused = await ex.run("refine", {});
+    expect(refused.text).toMatch(/occ_Mn1 is a free occupancy with nothing but the scale to determine it.*Tie it \(set_site_ties/);
+    const allow = parse((await ex.run("allow_exception", { rule: "bare-occupancy", reason: "Mn K-edge anomalous contrast" })).text);
+    expect(allow.allowed).toBe("bare-occupancy");
+    expect(asked.at(-1)).toMatchObject({ tool: "allow_exception", alwaysAsk: true, preview: "Refine an occupancy with no tie or second contrast, because: Mn K-edge anomalous contrast" });
+    expect(records.get(key)!.exceptions).toEqual([expect.objectContaining({ rule: "bare-occupancy", reason: "Mn K-edge anomalous contrast" })]);
+    // Past the rule, the correlation check still applies (scale ↔ the only occupancy).
+    expect((await ex.run("refine", {})).text).not.toMatch(/free occupancy with nothing but the scale/);
   });
 
   it("does not refine when the correlation check itself fails", async () => {
@@ -344,6 +337,77 @@ describe("AgentExecutor on a live powder fit", () => {
     expect(calls).toContain("cancel");
   });
 
+  it("diagnoses the fit, switches corrections on, reports the structure, and resets one parameter", async () => {
+    const D1A = { kind: "constantWavelength" as const, radiationKind: "neutron" as const, wavelength: 1.54, zero: 0, u: 1963, v: -4217, w: 3613, x: 0, y: 0 };
+    const start = newSession(exampleStructure(), D1A);
+    const { port, session } = sessionPort(start, D1A);
+    const { ex, asked } = executor(fakeHost(port).host, true);
+    const dx = parse((await ex.run("diagnose_fit", {})).text);
+    expect(String(dx.reading)).toMatch(/^GoF [\d.]+ \(Rwp/);
+    expect(Array.isArray(dx.causes)).toBe(true);
+    expect((dx.dShells as unknown[]).length).toBeGreaterThan(2);
+
+    // Asymmetry and texture: their rows come in fixed, H/L tied to S/L.
+    expect(parse((await ex.run("set_corrections", { asymmetry: true, preferredOrientation: [0, 0, 1], peak: ["absorption"] })).text).freeCount).toBeGreaterThan(0);
+    expect(asked.at(-1)!.preview).toBe("asymmetry on · preferred orientation along 0 0 1 · peak corrections: absorption");
+    const rows = new Map(session().powderParams.map((p) => [p.id, p]));
+    expect(rows.get("asymSL")).toMatchObject({ fixed: true });
+    expect(rows.get("asymHL")?.expression).toBe("= asymSL");
+    expect(rows.get("po")).toMatchObject({ kind: "poRatio", fixed: true, value: 1 });
+    expect([...rows.values()].some((p) => p.kind === "absorption")).toBe(true);
+    expect(parse((await ex.run("set_corrections", { asymmetry: true })).text)).toMatchObject({ unchanged: true });
+    expect(parse((await ex.run("get_state", {})).text).settings).toMatchObject({ corrections: { asymmetry: true, preferredOrientation: [0, 0, 1], peak: ["absorption"] } });
+    await ex.run("set_corrections", { preferredOrientation: null, peak: [] });
+    expect(session().powderParams.some((p) => p.kind === "poRatio" || p.kind === "absorption")).toBe(false);
+
+    // The structure as reported: coordinates and B with esds after a refinement.
+    await ex.run("set_free", { free: ["B_*"] });
+    await ex.run("refine", {});
+    const table = parse((await ex.run("structure_table", {})).text).phases as { cell: Record<string, string>; sites: { label: string; x: string; adp: string }[] }[];
+    expect(table[0]!.cell.a).toMatch(/^\d+\.\d+\(\d+\)$/);
+    expect(table[0]!.sites.find((s) => s.label === "Mn1")!.adp).toMatch(/^B \d+\.\d+\(\d+\)$/);
+    // The refined value, not the CIF's: the table reads the phase with the parameters applied.
+    const bMn1 = session().powderParams.find((p) => p.kind === "bIso" && p.id.includes("Mn1"))!.value;
+    expect(Number(table[0]!.sites.find((s) => s.label === "Mn1")!.adp.match(/^B ([\d.]+)/)![1])).toBeCloseTo(bMn1, 1);
+
+    // One parameter back to its starting value, the others kept.
+    const scale = session().powderParams.find((p) => p.id === "scale")!.value;
+    await ex.run("reset_parameters", { parameters: ["B_Mn1"] });
+    const after = new Map(session().powderParams.map((p) => [p.id, p]));
+    expect(after.get("B_Mn1")!.value).toBe(after.get("B_Mn1")!.initialValue);
+    expect(after.get("scale")!.value).toBe(scale);
+    expect(asked.at(-1)!.preview).toBe("Reset B_Mn1 to the starting value");
+  }, 60_000);
+
+  it("sets an X-ray tube's polarization and Kα₂ ratio only with the user's approval, and only on X-ray data", async () => {
+    const start = newSession(exampleStructure());
+    const xray: Session = { ...start, pattern: { ...start.pattern, xUnit: "twoTheta", radiation: { kind: "xray", wavelength: 1.5405, polarization: 0.7, kAlpha2: { wavelength: 1.5443, ratio: 0.5 } } } };
+    const { port, session } = sessionPort(xray);
+    // Auto mode, yet it asks: an instrument constant is the user's call.
+    const { ex, asked } = executor(fakeHost(port).host, "auto");
+    const state = parse((await ex.run("get_state", {})).text);
+    expect(state.data).toMatchObject({ radiation: "xray", polarization: 0.7, kAlpha2: { wavelength: 1.5443, ratio: 0.5 } });
+    await ex.run("set_instrument_constants", { polarization: 0.5 });
+    expect(asked.at(-1)!.preview).toBe("Polarization 0.7 → 0.5");
+    expect(session().pattern.radiation).toMatchObject({ kind: "xray", polarization: 0.5, kAlpha2: { ratio: 0.5 } });
+    expect(parse((await ex.run("set_instrument_constants", { polarization: 0.5 })).text)).toMatchObject({ unchanged: true });
+    // Neutron data have neither.
+    const { port: neutron } = sessionPort(newSession(exampleStructure()));
+    const n = executor(fakeHost(neutron).host, true).ex;
+    expect((await n.run("set_instrument_constants", { polarization: 0.5 })).text).toMatch(/constants of constant-wavelength X-ray data/);
+  });
+
+  it("refuses asymmetry without the instrument's profile, and any judgement with no structure loaded", async () => {
+    const { port } = sessionPort(newSession(exampleStructure()));
+    const { ex } = executor(fakeHost(port).host, true);
+    expect((await ex.run("set_corrections", { asymmetry: true })).text).toMatch(/needs the instrument's Caglioti U, V, W/);
+    const empty = sessionPort({ ...newSession(exampleStructure()), structure: { ...exampleStructure(), sites: [] } }).port;
+    const ex2 = executor(fakeHost(empty).host, true).ex;
+    expect((await ex2.run("check_cell_symmetry", {})).text).toMatch(/no structure is loaded/);
+    expect((await ex2.run("refine", {})).text).toMatch(/no structure is loaded/);
+    expect(parse((await ex2.run("get_state", {})).text).warning).toMatch(/^No structure is loaded/);
+  });
+
   it("keeps big answers small and opens them with read_ref", async () => {
     const { port } = sessionPort(newSession(exampleStructure()));
     const { ex } = executor(fakeHost(port).host);
@@ -360,20 +424,27 @@ describe("AgentExecutor on a live powder fit", () => {
     const { ex } = executor(fakeHost(port).host);
     const peaks = parse((await ex.run("find_unexplained_peaks", {})).text);
     expect(typeof peaks.count).toBe("number");
-    // What it found is marked on the plot for the user, without an approval card.
+    type Listed = { d: number; q: number; twoTheta: number; near?: string };
+    const unexplained = peaks.unexplained as Listed[];
+    const misfits = peaks.misfits as Listed[];
+    // Only the peaks on no reflection count, and only they are marked on the
+    // plot for the user, without an approval card.
+    expect(unexplained.length).toBe(peaks.count as number);
     const shown = calls.find((c) => c.startsWith("showPeaks"));
     expect(shown).toBeDefined();
     expect(shown!.split(" ")[1]?.split(",").filter(Boolean).length ?? 0).toBe(peaks.count as number);
     if ((peaks.count as number) > 0) expect(String(peaks.markedOnPlot)).toMatch(/marked on the plot/);
-    type Listed = { d: number; q: number; twoTheta: number; near?: string };
-    const listed = [...(peaks.unexplained as Listed[]), ...(peaks.besideKnownReflections as Listed[]), ...(peaks.onKnownReflections as Listed[])];
-    expect(listed.length).toBe(peaks.count as number);
-    for (const p of peaks.onKnownReflections as Listed[]) expect(p.near).toMatch(/^\S+ -?\d+ -?\d+ -?\d+$/);
-    for (const p of peaks.besideKnownReflections as Listed[]) expect(p.near).toMatch(/^beside \S+ -?\d+ -?\d+ -?\d+ \(-?\d+\.\d% in d\)$/);
-    for (const p of listed) {
+    // Residual on a known reflection is its misfit, never an extra peak.
+    for (const p of misfits) expect(p.near).toMatch(/^(on|beside) \S+ -?\d+ -?\d+ -?\d+( \(-?\d+\.\d% in d\))?$/);
+    if (misfits.length > 0) expect(String(peaks.reading)).toMatch(/They are not extra peaks/);
+    for (const p of [...unexplained, ...misfits]) {
       expect(p.q).toBeCloseTo((2 * Math.PI) / p.d, 3);
       expect(1.54 / (2 * Math.sin((p.twoTheta / 2) * Math.PI / 180))).toBeCloseTo(p.d, 4);
     }
+    // showMisfits marks the misfits as well.
+    calls.length = 0;
+    await ex.run("find_unexplained_peaks", { showMisfits: true });
+    expect(calls.find((c) => c.startsWith("showPeaks"))!.split(" ")[1]?.split(",").filter(Boolean).length ?? 0).toBe(unexplained.length + misfits.length);
     const bonds = parse((await ex.run("bond_geometry", { cutoff: 3 })).text);
     expect(bonds.phase).toBe(port.state().structure.id);
     expect((await ex.run("bond_geometry", { phase: "nope" })).text).toMatch(/no phase "nope"/);
@@ -434,93 +505,6 @@ describe("AgentExecutor on a live powder fit", () => {
  * converged values, the real curves and the real engine behind the port, over
  * a short r window so the fit is quick.
  */
-function pdfPort(): { port: PdfAgentPort; calls: string[] } {
-  const demo = gata4se8PdfExample();
-  const spec = buildPdfSpec(demo.structure, demo.pattern);
-  let params = spec.params.map((p) => ({ ...p, value: demo.refinedParams[p.id] ?? p.value }));
-  let result: RefinementResult | null = null;
-  const defaultRange = { min: 1.5, max: 6 };
-  let fitRange = { ...defaultRange };
-  const rs = demo.pattern.points.map((p) => p.r);
-  const calls: string[] = [];
-  const state = (): PdfLiveState => {
-    const curves = pdfCurves(demo.structure, demo.pattern, params, spec.bindings, fitRange);
-    let num = 0;
-    let den = 0;
-    let n = 0;
-    curves.x.forEach((r, i) => {
-      if (r < fitRange.min || r > fitRange.max) return;
-      n++;
-      num += (curves.yObs[i]! - curves.yCalc[i]!) ** 2;
-      den += curves.yObs[i]! ** 2;
-    });
-    const values: Record<string, number> = {};
-    for (const p of params) values[p.id] = p.value;
-    return {
-      phases: [demo.structure],
-      refinedPhases: [applyParameters(demo.structure, spec.bindings, values).model],
-      pattern: demo.pattern,
-      parameters: params,
-      bindings: spec.bindings,
-      result,
-      fitRange,
-      defaultRange,
-      extent: { min: rs[0]!, max: rs.at(-1)! },
-      busy: false,
-      rw: Math.sqrt(num / den),
-      curves,
-      observationCount: n,
-      positionMode: "atomic",
-      spinModel: false,
-      warnings: [],
-      source: "test",
-      restraints: spec.restraints,
-    };
-  };
-  const refine = async (): Promise<string | null> => {
-    calls.push("refine");
-    const r = refineProblem(buildPdfProblem(demo.structure, demo.pattern, params, spec.bindings, spec.restraints, fitRange), { maxIterations: 4, analyticDerivatives: true });
-    params = params.map((p) => ({ ...p, value: r.parameters[p.id] ?? p.value }));
-    result = r;
-    return null;
-  };
-  const port: PdfAgentPort = {
-    technique: "pdf",
-    state,
-    setFixed: (changes) => {
-      calls.push(`setFixed ${changes.map((c) => `${c.id}=${c.fixed}`).join(",")}`);
-      const m = new Map(changes.map((c) => [c.id, c.fixed]));
-      params = params.map((p) => (m.has(p.id) ? { ...p, fixed: m.get(p.id)! } : p));
-    },
-    setFitRange: (r) => {
-      calls.push(`range ${r ? `${r.min}-${r.max}` : "default"}`);
-      fitRange = r ? { ...r } : { ...defaultRange };
-    },
-    refine,
-    thorough: async () => {
-      calls.push("thorough");
-      return "cancelled";
-    },
-    probe: async (options) => refineProblem(buildPdfProblem(demo.structure, demo.pattern, params, spec.bindings, spec.restraints, fitRange), { ...options, analyticDerivatives: true }),
-    // The Boxcar view's scan, one short refinement per box, the rows untouched.
-    boxcar: async (plan) => {
-      calls.push(`boxcar ${plan.width}/${plan.step}`);
-      const windows = boxcarWindows({ range: fitRange, width: plan.width, step: plan.step });
-      let seed = params;
-      const steps = windows.map((w) => {
-        const result = refineProblem(buildPdfProblem(demo.structure, demo.pattern, seed, spec.bindings, spec.restraints, { min: w.min, max: w.max }), { maxIterations: 2, analyticDerivatives: true });
-        seed = seed.map((p) => ({ ...p, value: result.parameters[p.id] ?? p.value }));
-        return { datasetId: String(w.center), result, parameters: seed, carried: true };
-      });
-      const freeIds = params.filter((p) => !p.fixed && !p.expression).map((p) => p.id);
-      return { windows, width: plan.width, restarts: 0, freeIds, series: [{ direction: "up" as const, result: { steps, evolution: [] } }] };
-    },
-    cancel: () => calls.push("cancel"),
-    reset: () => calls.push("reset"),
-  };
-  return { port, calls };
-}
-
 describe("AgentExecutor on a live PDF fit", () => {
   it("reads the PDF page in its own terms: r window, Rw, no GoF", async () => {
     const { port } = pdfPort();
@@ -542,6 +526,31 @@ describe("AgentExecutor on a live PDF fit", () => {
       expect(out.isError).toBe(true);
       expect(out.text).toMatch(new RegExp(`${name} works on the powder page only; the PDF page is open`));
     }
+    // There is no cell gate to lift, on either page.
+    expect((await ex.run("allow_exception", { rule: "cell-gate", reason: "an impurity" })).text).toMatch(/invalid input for allow_exception/);
+  });
+
+  it("switches the ADP model on the PDF page, and says when it is already so", async () => {
+    // Round 9 (LaMnO₃ PDF): a CIF's U_aniso loaded 20 tensor rows, and nothing
+    // on the PDF page could make them one U per site.
+    const { port, calls } = pdfPort();
+    const { ex, asked } = executor(fakeHost(port).host);
+    // The demo's CIF carries U_aniso, as LaMnO₃'s did.
+    expect(parse((await ex.run("get_state", {})).text).adp).toBe("anisotropic (U tensor per site)");
+    const noop = await ex.run("set_adp_model", { anisotropic: true });
+    expect(noop.text).toMatch(/already anisotropic/);
+    expect(asked).toEqual([]);
+
+    await ex.run("set_adp_model", { anisotropic: false });
+    expect(asked.at(-1)!.preview).toBe("ADPs anisotropic → isotropic (one U per site)");
+    expect(calls).toContain("adp isotropic");
+    expect(port.state().adpModel).toBe("isotropic");
+    expect(port.state().parameters.some((p) => p.kind === "bIso")).toBe(true);
+    expect(port.state().parameters.some((p) => p.kind === "uAniso")).toBe(false);
+
+    await ex.run("set_adp_model", { anisotropic: true });
+    expect(port.state().adpModel).toBe("anisotropic");
+    expect(port.state().parameters.some((p) => p.kind === "bIso")).toBe(false);
   });
 
   it("frees, refines as the agent, and reports Rw; the assessment drops the GoF verdict", async () => {
@@ -594,6 +603,48 @@ describe("AgentExecutor on a live PDF fit", () => {
     expect(port.state().parameters.map((p) => p.value)).toEqual(before);
   });
 
+  it("scans with its own free set and leaves the page's free set and fit as they were", async () => {
+    // Round 9: narrowing the page's free set for a scan, then going back to the
+    // full fit, dropped the scan (it ran after that step) from the report.
+    const { port } = pdfPort();
+    const { ex, asked } = executor(fakeHost(port).host, true);
+    await ex.run("set_free", { free: ["pdfScale", "pos_*"] });
+    await ex.run("refine", {});
+    const freeBefore = port.state().parameters.filter((p) => !p.fixed && !p.expression).map((p) => p.id);
+    const resultBefore = port.state().result;
+    const out = parse((await ex.run("boxcar_scan", { width: 2, step: 1, free: ["pdfScale"] })).text);
+    expect(asked.at(-1)!.preview).toMatch(/, 1 free parameter/);
+    const values = (out.boxcar as { passes: { boxes: { values: Record<string, number> }[] }[] }).passes[0]!.boxes[0]!.values;
+    expect(Object.keys(values)).toEqual(["pdfScale"]);
+    expect(port.state().parameters.filter((p) => !p.fixed && !p.expression).map((p) => p.id)).toEqual(freeBefore);
+    expect(port.state().result).toBe(resultBefore);
+    expect((await ex.run("boxcar_scan", { free: ["nothing*"] })).text).toMatch(/nothing matches "nothing\*"/);
+  });
+
+  it("gives a site's bond lengths box by box, from each box's refined structure", async () => {
+    // Round 9 (LaMnO₃): whether the Jahn–Teller distortion holds at low r was a
+    // question about Mn–O lengths, and the scan gave only coordinate shifts.
+    const { port } = pdfPort();
+    const { ex } = executor(fakeHost(port).host, true);
+    await ex.run("set_free", { free: ["pos_*"] });
+    const out = parse((await ex.run("boxcar_scan", { width: 2, step: 1, bonds: ["Ta1"] })).text);
+    const pass = (out.boxcar as { passes: { boxes: { bonds: Record<string, string[]> }[]; bondSpread: Record<string, { first: number; min: number; max: number }> }[] }).passes[0]!;
+    expect(pass.boxes).toHaveLength(3);
+    for (const box of pass.boxes) expect(box.bonds["Ta1"]!.length).toBeGreaterThan(0);
+    expect(pass.boxes[0]!.bonds["Ta1"]![0]).toMatch(/^[A-Z][a-z]?\d+ \d\.\d{4}( ×\d+)?$/);
+    const first = Object.entries(pass.bondSpread)[0]!;
+    expect(first[0]).toMatch(/^Ta1–\S+( ×\d+)? #1$/);
+    expect(first[1].min).toBeLessThanOrEqual(first[1].max);
+    expect(String(out.reading)).toMatch(/no esds/);
+    // A site the model does not have, or an anion, is refused before the scan runs.
+    const bad = await ex.run("boxcar_scan", { bonds: ["Mn1"] });
+    expect(bad.isError).toBe(true);
+    expect(bad.text).toMatch(/no site Mn1 in .* — its sites: .*Ta1/);
+    const anion = await ex.run("boxcar_scan", { bonds: ["Se1"] });
+    expect(anion.isError).toBe(true);
+    expect(anion.text).toMatch(/Se1 has no coordination shell of its own \(an anion\): name the cation whose bonds to track — .*Ta1/);
+  });
+
   it("restores the default r window and passes on why a run did not finish", async () => {
     const { port, calls } = pdfPort();
     const { ex, asked } = executor(fakeHost(port).host);
@@ -618,5 +669,15 @@ describe("AgentLink", () => {
     expect(link.port()).toBe(pdf);
     link.release("pdf");
     expect(link.port()).toBeNull();
+  });
+});
+
+describe("the cell check's shoulders", () => {
+  it("are read as a profile tail, at one offset an instrumental feature", () => {
+    const r = shoulderReading([{ x: 32.78, of: "3 0 0", offset: -0.268, relativeHeight: 0.011 }, { x: 49.26, of: "2 1 3", offset: -0.262, relativeHeight: 0.015 }], "twoTheta");
+    expect(r).toMatch(/^2 shoulders on the flank of a strong line \(32\.78° beside 3 0 0, 1\.1 %; 49\.26° beside 2 1 3, 1\.5 %\)/);
+    expect(r).toMatch(/both sit at one offset from their lines \(−0\.27°\), an instrumental feature/);
+    expect(r).toMatch(/not a missing phase/);
+    expect(shoulderReading([{ x: 32.78, of: "3 0 0", offset: -0.27, relativeHeight: 0.01 }, { x: 40, of: "2 1 1", offset: 0.3, relativeHeight: 0.02 }], "twoTheta")).not.toMatch(/one offset/);
   });
 });

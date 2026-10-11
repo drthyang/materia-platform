@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { exampleStructure } from "@/examples/mn3ga";
 import { buildSyntheticSingleCrystal } from "@/examples/synthetic";
-import { newSession, DEFAULT_INSTRUMENT } from "@/app/powderSession";
+import { newSession, DEFAULT_INSTRUMENT, carryRefinedStructure, type Session } from "@/app/powderSession";
 import {
   defaultProjectTitle,
   modulatedHypothesisFrom,
@@ -37,6 +37,27 @@ function roundTrip<T>(file: T): T {
   return parseProject(serializeProject(file as never)) as unknown as T;
 }
 
+describe("the Agent's records in a project", () => {
+  it("travel with the file, and a malformed one is refused by name", () => {
+    const session = newSession(structure, DEFAULT_INSTRUMENT);
+    const ws = powderWorkspaceFrom(session, someResult, DEFAULT_INSTRUMENT, false, { fitRange: null, displayUnit: null, manualPeakD: [] });
+    const record = {
+      key: "powder¦mgal2o4.xye¦MgAl2O4|F d -3 m:2",
+      cellCheck: { passed: true, at: 1, summary: "every peak indexes; no absence flagged" },
+      exceptions: [{ rule: "bare-occupancy" as const, reason: "isotopic contrast", at: 2 }],
+      stagesDone: ["base", "positions"],
+      notes: [{ text: "The user holds the composition: inversion is the question.", at: 3 }],
+    };
+    const file = roundTrip(projectFileFor({ structures: [session.structure], workspace: ws, title: "t", agentRecords: [record] }));
+    expect(file.agent).toEqual({ records: [record] });
+    // No records, no block.
+    expect(projectFileFor({ structures: [session.structure], workspace: ws, title: "t", agentRecords: [] }).agent).toBeUndefined();
+    const bad = JSON.parse(serializeProject(file as never));
+    bad.agent.records[0].exceptions[0].rule = "anything-goes";
+    expect(() => parseProject(JSON.stringify(bad))).toThrow(/agent\.records\[0\]\.exceptions\[0\]\.rule/);
+  });
+});
+
 describe("powder capture / restore", () => {
   it("rebuilds an identical session from a saved workspace (real spec, real bindings)", () => {
     const session = { ...newSession(structure, DEFAULT_INSTRUMENT), anisotropicAdp: false, mustrain: "uniaxial" as const };
@@ -52,6 +73,22 @@ describe("powder capture / restore", () => {
     expect(back.result).toEqual(someResult);
     expect(back.instrument).toEqual(DEFAULT_INSTRUMENT);
     expect(back.view).toEqual(view);
+  });
+
+  it("keeps the sample corrections, and refuses one the app does not know", () => {
+    const corrections = { asymmetry: true, preferredOrientation: [0, 0, 1] as const, peak: ["absorption" as const] };
+    const session = { ...newSession(structure, DEFAULT_INSTRUMENT), corrections };
+    const ws = powderWorkspaceFrom(session, null, DEFAULT_INSTRUMENT, false, { fitRange: null, displayUnit: null, manualPeakD: [] });
+    const file = roundTrip(projectFileFor({ structures: [session.structure], workspace: ws, title: "t" }));
+    if (file.workspace.technique !== "powder") throw new Error("technique");
+    expect(sessionFromPowderWorkspace(file.workspace, file.structures).session.corrections).toEqual(corrections);
+    // None switched on: no block in the file.
+    expect(powderWorkspaceFrom({ ...session, corrections: {} }, null, DEFAULT_INSTRUMENT, false, { fitRange: null, displayUnit: null, manualPeakD: [] }).corrections).toBeUndefined();
+    const bad = JSON.parse(serializeProject(file as never));
+    bad.workspace.corrections.peak = ["extinction"];
+    expect(() => parseProject(JSON.stringify(bad))).toThrow(/corrections\.peak\[0\]/);
+    bad.workspace.corrections = { preferredOrientation: [0, 1] };
+    expect(() => parseProject(JSON.stringify(bad))).toThrow(/three indices/);
   });
 
   it("carries extra phases as structures[1..] and the magnetic model with the primary phase", () => {
@@ -218,5 +255,25 @@ describe("titles", () => {
   it("names the file after the primary phase and the technique", () => {
     expect(defaultProjectTitle(structure, "pdf")).toBe(`${structure.name} · PDF (real space)`);
     expect(defaultProjectTitle({ ...structure, name: "" }, "powder")).toBe(`${structure.id} · Rietveld (powder)`);
+  });
+});
+
+describe("a new dataset of the same structure", () => {
+  it("starts the structure where the last fit left it, with the dataset's own scale and profile", () => {
+    const fitted: Session = { ...newSession(structure, DEFAULT_INSTRUMENT), powderSource: "T150K.dat" };
+    const fresh = newSession(structure, DEFAULT_INSTRUMENT).powderParams;
+    const moved = fitted.powderParams.map((p) => (p.kind === "cellLength" || p.kind === "bIso" ? { ...p, value: p.value * 1.01 } : p.kind === "scale" ? { ...p, value: 42 } : p));
+    const { params, carried } = carryRefinedStructure({ ...fitted, powderParams: moved }, fresh);
+    expect(carried).toBe(moved.filter((p) => p.kind === "cellLength" || p.kind === "bIso").length);
+    for (const p of params) {
+      const was = moved.find((m) => m.id === p.id)!;
+      if (p.kind === "cellLength" || p.kind === "bIso") {
+        expect(p.value).toBe(was.value);
+        expect(p.initialValue).toBe(fresh.find((f) => f.id === p.id)!.initialValue); // Reset → the CIF
+      }
+      if (p.kind === "scale") expect(p.value).not.toBe(42);
+    }
+    // The demo's synthetic pattern carries nothing.
+    expect(carryRefinedStructure({ ...fitted, powderSource: "synthetic (self-consistent demo)", powderParams: moved }, fresh).carried).toBe(0);
   });
 });

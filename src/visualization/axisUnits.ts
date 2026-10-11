@@ -34,9 +34,16 @@ export interface AxisContext {
   readonly native: PowderXUnit;
   readonly wavelength?: number;
   readonly tof?: TofConstants;
+  /**
+   * Constant wavelength: the refined zero shift (°). An observed 2θ is
+   * 2θ_Bragg + zero, so 2θ → d subtracts it and d → 2θ adds it, as GSAS-II's
+   * Pos2dsp does. Without it every d read off the data is off by the zero
+   * (0.2° moves d by 1 % at 16°), against reflections computed from the cell.
+   */
+  readonly zero?: number;
 }
 
-export function axisContext(pattern: PowderPattern, instrument?: InstrumentParameters): AxisContext {
+export function axisContext(pattern: PowderPattern, instrument?: InstrumentParameters, zero?: number): AxisContext {
   const wavelength =
     pattern.wavelength ??
     (pattern.radiation.kind !== "neutron-tof" ? pattern.radiation.wavelength : undefined) ??
@@ -45,7 +52,8 @@ export function axisContext(pattern: PowderPattern, instrument?: InstrumentParam
     instrument?.kind === "tof"
       ? { difC: instrument.difC, difA: instrument.difA ?? 0, difB: instrument.difB ?? 0, zero: instrument.zero ?? 0 }
       : undefined;
-  return { native: pattern.xUnit, ...(wavelength !== undefined ? { wavelength } : {}), ...(tof ? { tof } : {}) };
+  const cwZero = pattern.xUnit === "twoTheta" && zero !== undefined && Number.isFinite(zero) && zero !== 0 ? { zero } : {};
+  return { native: pattern.xUnit, ...(wavelength !== undefined ? { wavelength } : {}), ...(tof ? { tof } : {}), ...cwZero };
 }
 
 /**
@@ -78,7 +86,7 @@ function toD(x: number, unit: PowderXUnit, ctx: AxisContext): number {
     case "q":
       return x !== 0 ? TWO_PI / x : NaN;
     case "twoTheta":
-      return ctx.wavelength !== undefined ? ctx.wavelength / (2 * Math.sin((x / 2) * DEG)) : NaN;
+      return ctx.wavelength !== undefined ? ctx.wavelength / (2 * Math.sin(((x - (ctx.zero ?? 0)) / 2) * DEG)) : NaN;
     case "tof":
       return ctx.tof ? dFromTof({ kind: "tof", ...ctx.tof }, x) : NaN;
   }
@@ -94,7 +102,7 @@ function fromD(d: number, unit: PowderXUnit, ctx: AxisContext): number {
     case "twoTheta": {
       if (ctx.wavelength === undefined) return NaN;
       const arg = ctx.wavelength / (2 * d);
-      return arg > 1 ? NaN : (2 * Math.asin(arg)) / DEG;
+      return arg > 1 ? NaN : (2 * Math.asin(arg)) / DEG + (ctx.zero ?? 0);
     }
     case "tof":
       return ctx.tof ? tofFromD({ kind: "tof", ...ctx.tof }, d) : NaN;

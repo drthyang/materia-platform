@@ -18,6 +18,10 @@
  */
 
 import type { SequentialResult } from "@/core/refinement/sequential";
+import type { ParameterBinding, RefinementParameter } from "@/core/refinement/types";
+import type { StructureModel } from "@/core/crystal/types";
+import { coordinationShells, type ShellBond } from "@/core/crystal/geometry";
+import { applyParameters } from "@/core/workflow/apply";
 
 export type BoxcarDirection = "up" | "down";
 
@@ -178,4 +182,62 @@ export interface BoxcarRun {
   /** True when the scan was cancelled (or failed) partway: some boxes (or a
    *  whole pass) are missing from the plan. */
   readonly partial?: boolean;
+  /** Cation sites whose coordination shell each box reports (the bond lengths
+   *  in the structure that box refined), when the scan was asked to track them. */
+  readonly bondSites?: readonly string[];
+}
+
+/** A site's coordination shell in the structure one box refined: the box's values over the model's. */
+export function boxShell(
+  phase: StructureModel,
+  bindings: readonly ParameterBinding[],
+  parameters: readonly RefinementParameter[],
+  values: Readonly<Record<string, number>>,
+  site: string,
+): readonly ShellBond[] | null {
+  const base: Record<string, number> = {};
+  for (const p of parameters) base[p.id] = p.value;
+  const refined = applyParameters(phase, bindings, { ...base, ...values }).model;
+  return coordinationShells(refined).find((sh) => sh.site === site)?.bonds ?? null;
+}
+
+/**
+ * A scan as a report table, from its first pass: per box its window, Rw and
+ * the tracked values — each tracked site's shell bonds (the first box's bonds,
+ * followed through the boxes by rank), or, with no sites tracked, the free
+ * parameters' values.
+ */
+export function boxcarTable(
+  run: BoxcarRun,
+  phase: StructureModel,
+  bindings: readonly ParameterBinding[],
+  parameters: readonly RefinementParameter[],
+): { width: number; free: string[]; columns: string[]; decimals: number; rows: { r: [number, number]; rw: number; values: number[] }[] } {
+  const label = new Map(parameters.map((p) => [p.id, p.label]));
+  const series = run.series[0];
+  const boxes = series
+    ? run.windows.map((w, i) => {
+        const step = series.result.steps[boxcarStepIndex(series.direction, i, run.windows.length, series.result.steps.length)];
+        return step ? { w, step } : null;
+      }).filter((b) => b !== null)
+    : [];
+  const sites = run.bondSites ?? [];
+  const free = run.freeIds.map((id) => label.get(id) ?? id);
+  if (sites.length === 0) {
+    return {
+      width: run.width, free, columns: free, decimals: 5,
+      rows: boxes.map(({ w, step }) => ({ r: [w.min, w.max], rw: step.result.agreement.rWeighted ?? NaN, values: run.freeIds.map((id) => step.result.parameters[id] ?? NaN) })),
+    };
+  }
+  const shells = boxes.map(({ step }) => sites.map((site) => boxShell(phase, bindings, parameters, step.result.parameters, site) ?? []));
+  const first = shells[0] ?? sites.map(() => []);
+  const columns = sites.flatMap((site, s) => first[s]!.map((b) => `${site}–${b.to}${b.count > 1 ? ` ×${b.count}` : ""} (Å)`));
+  return {
+    width: run.width, free, columns, decimals: 4,
+    rows: boxes.map(({ w, step }, k) => ({
+      r: [w.min, w.max],
+      rw: step.result.agreement.rWeighted ?? NaN,
+      values: sites.flatMap((_, s) => first[s]!.map((_b, j) => shells[k]![s]![j]?.distance ?? NaN)),
+    })),
+  };
 }

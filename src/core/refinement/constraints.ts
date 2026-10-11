@@ -44,6 +44,19 @@ export function parseTie(expression: string): ParsedTie {
   return { kind: "linear", factor, refId, constant };
 }
 
+/**
+ * The group tag of a tie the user (or the Agent) made — two ADPs or two
+ * occupancies constrained to one refined value. The spec regenerates its own
+ * ties (shared sites, symmetry) on every rebuild; this tag marks the ones to
+ * carry over, which the spec knows nothing of.
+ */
+export const USER_TIE_GROUP = "user-tie";
+
+/** Whether a row follows a tie the user made ("= leader", tagged USER_TIE_GROUP). */
+export function isUserTie(p: RefinementParameter): boolean {
+  return p.group === USER_TIE_GROUP && !!p.expression;
+}
+
 /** The parameter ids a tie expression reads. */
 export function tieReferences(expression: string): string[] {
   const tie = parseTie(expression);
@@ -101,5 +114,79 @@ export function applyEqualValueGroups(
     const leader = leaders.get(p.group)!;
     if (p.id === leader) return { ...p };
     return { ...p, expression: `= ${leader}` };
+  });
+}
+
+/** A change of the user's equal-value ties (ids already expanded from globs). */
+export interface EqualTieUpdate {
+  /** The leader first; the others take its value and follow it. */
+  readonly equal?: readonly string[];
+  /** Rows whose user tie to release. */
+  readonly release?: readonly string[];
+}
+
+/** The kinds a user may tie to one value: an ADP's B, an occupancy. */
+const TIEABLE_KINDS: ReadonlySet<RefinementParameter["kind"]> = new Set<RefinementParameter["kind"]>(["bIso", "occupancy"]);
+
+/**
+ * Check a tie change against the rows: throws on one that cannot be made
+ * (fewer than two rows, mixed kinds, a kind that is not tied this way, a
+ * leader that is itself tied, a row the model already ties, a release of a
+ * row no user tie holds). Returns whether it would change nothing.
+ */
+export function checkEqualTies(params: readonly RefinementParameter[], update: EqualTieUpdate): { readonly unchanged: boolean } {
+  const byId = new Map(params.map((p) => [p.id, p]));
+  const row = (id: string): RefinementParameter => {
+    const p = byId.get(id);
+    if (!p) throw new Error(`no parameter ${id}`);
+    return p;
+  };
+  let unchanged = true;
+  if (update.equal) {
+    const ids = update.equal;
+    if (ids.length < 2) throw new Error("a tie needs at least two parameters: the leader first, then the ones that follow it");
+    if (new Set(ids).size !== ids.length) throw new Error("a parameter is named twice");
+    const rows = ids.map(row);
+    const leader = rows[0]!;
+    const kinds = new Set(rows.map((p) => p.kind));
+    if (kinds.size > 1) throw new Error(`a tie joins parameters of one kind; these are ${[...kinds].join(" and ")}`);
+    if (!TIEABLE_KINDS.has(leader.kind)) throw new Error(`${leader.kind} parameters are not tied this way: tie ADPs (B) or occupancies`);
+    if (leader.expression) throw new Error(`${leader.id} is itself tied (${leader.expression}): lead with a parameter that refines`);
+    for (const f of rows.slice(1)) {
+      if (f.expression && !isUserTie(f)) throw new Error(`${f.id} is already tied by the model (${f.expression})`);
+      if (!(isUserTie(f) && tieReferences(f.expression!)[0] === leader.id)) unchanged = false;
+    }
+  }
+  if (update.release) {
+    if (update.release.length === 0) throw new Error("name the tied parameters to release");
+    for (const id of update.release) {
+      if (!isUserTie(row(id))) throw new Error(`${id} is not held by a tie made with tie_parameters`);
+    }
+    unchanged = false;
+  }
+  if (!update.equal && !update.release) throw new Error("pass `equal`, `release`, or both");
+  return { unchanged };
+}
+
+/**
+ * The rows with the tie change applied. `equal`'s first id leads: the others
+ * take its value and follow it ("= leader", fixed, tagged USER_TIE_GROUP),
+ * and a row that followed one of them now follows the leader (ties are not
+ * chained). A released row keeps its value, fixed. Check with
+ * checkEqualTies first.
+ */
+export function withEqualTies(params: readonly RefinementParameter[], update: EqualTieUpdate): RefinementParameter[] {
+  const leader = update.equal ? params.find((p) => p.id === update.equal![0]) : undefined;
+  const followers = new Set(update.equal?.slice(1) ?? []);
+  const released = new Set(update.release ?? []);
+  const follow = (p: RefinementParameter, l: RefinementParameter): RefinementParameter => ({ ...p, value: l.value, fixed: true, expression: `= ${l.id}`, group: USER_TIE_GROUP });
+  return params.map((p) => {
+    if (leader && followers.has(p.id)) return follow(p, leader);
+    if (leader && isUserTie(p) && followers.has(tieReferences(p.expression!)[0] ?? "")) return follow(p, leader);
+    if (released.has(p.id) && isUserTie(p)) {
+      const { expression: _e, group: _g, ...rest } = p;
+      return { ...rest, fixed: true };
+    }
+    return p;
   });
 }
