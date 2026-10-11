@@ -42,7 +42,13 @@ describe.skipIf(!live)(`Agent evals, live (${model.model})`, () => {
       return { id: s.id, passed: runs.filter((r) => r.passed).length, runs: runs.length };
     });
     const total = rows.reduce((n, r) => n + r.passed, 0);
-    console.log(`\nAgent evals (${model.model}, ${transport}): ${total}/${results.length} runs passed\n${rows.map((r) => `  ${r.passed === r.runs ? "✓" : "✗"} ${r.id}: ${r.passed}/${r.runs}`).join("\n")}`);
+    const usage = results.reduce((u, r) => ({
+      input: u.input + r.run.usage.input,
+      output: u.output + r.run.usage.output,
+      cacheRead: u.cacheRead + r.run.usage.cacheRead,
+      cacheWrite: u.cacheWrite + r.run.usage.cacheWrite,
+    }), { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+    console.log(`\nAgent evals (${model.model}, ${transport}): ${total}/${results.length} runs passed\n${rows.map((r) => `  ${r.passed === r.runs ? "✓" : "✗"} ${r.id}: ${r.passed}/${r.runs}`).join("\n")}\nTokens: input ${usage.input}, output ${usage.output}, cache read ${usage.cacheRead}, cache write ${usage.cacheWrite}`);
     if (env.MATERIA_AGENT_EVAL_OUT) {
       mkdirSync(dirname(env.MATERIA_AGENT_EVAL_OUT), { recursive: true });
       writeFileSync(env.MATERIA_AGENT_EVAL_OUT, JSON.stringify({
@@ -51,7 +57,8 @@ describe.skipIf(!live)(`Agent evals, live (${model.model})`, () => {
         effort: model.effort,
         at: new Date().toISOString(),
         summary: rows,
-        runs: results.map((r) => ({ scenario: r.scenario, passed: r.passed, grades: r.grades, transcript: transcript(r.run, 2000) })),
+        usage,
+        runs: results.map((r) => ({ scenario: r.scenario, passed: r.passed, usage: r.run.usage, grades: r.grades, transcript: transcript(r.run, 2000) })),
       }, null, 2));
     }
   });

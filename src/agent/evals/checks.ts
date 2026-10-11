@@ -29,7 +29,7 @@ export function sentences(text: string): string[] {
   return text.split(/(?<=[.!?])\s+|\n+/).map((s) => s.trim()).filter(Boolean);
 }
 
-const NEGATION = /\b(no|not|never|none|nothing|zero|without|don't|doesn't|isn't|aren't|won't|wouldn't|shouldn't|rather than|instead of|before|until|unless|only (if|when|after|once)|last|first refine|premature)\b|n't\b/i;
+const NEGATION = /\b(no|not|never|neither|nor|none|nothing|zero|without|don't|doesn't|isn't|aren't|won't|wouldn't|shouldn't|rather than|instead of|before|until|unless|only (if|when|after|once)|last|first refine|premature)\b|n't\b/i;
 
 /** The sentences of the replies that say `what` without negating it. */
 export function asserted(run: EvalRun, what: RegExp, upTo = Infinity): string[] {

@@ -827,6 +827,16 @@ export function powderReportChecks(s: PowderLiveState, probe: RefinementResult |
   }
   const bv = bondValenceCheck(s.refinedPhases);
   if (bv) checks.push(bv);
+  // The fit's diagnosis, as diagnose_fit gives it on the fit on screen: an
+  // account that cites it ("the lines are 2.45× broader") cites the report.
+  if (s.d) {
+    const dx = fitDiagnosisView(s) as { reading: string; causes: { cause: string; chi2Share: number; evidence: string }[] };
+    checks.push({
+      name: "Fit diagnosis",
+      status: dx.causes.length > 0 ? "note" : "pass",
+      detail: `${dx.reading}${dx.causes.map((c) => ` ${c.cause} (${c.chi2Share} % of χ²): ${c.evidence}.`).join("")}`,
+    });
+  }
   checks.push(...findingChecks(a));
   return checks;
 }

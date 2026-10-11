@@ -128,7 +128,8 @@ speed.*
   a user or a researcher round found, replay the real chat loop and tools in CI
   with a scripted model — once as the Agent should behave and once as it
   failed, so every check is shown to catch its failure — and run against a real
-  model on demand (`npm run eval:agent`).
+  model on demand (`npm run eval:agent`; results in
+  [docs/AGENT_EVALS.md](docs/AGENT_EVALS.md)).
 - **Out of the way of the work.** The drawer sits beside the plot and the
   parameter table, not over them; the card the Agent is working on breathes, and
   the peaks it names are marked on the plot.

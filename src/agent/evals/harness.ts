@@ -35,6 +35,14 @@ export type EvalEvent =
 
 export type EvalCall = Extract<EvalEvent, { kind: "call" }>;
 
+/** Tokens the model spent on a run, summed over its turns (zero for a scripted model). */
+export interface EvalUsage {
+  readonly input: number;
+  readonly output: number;
+  readonly cacheRead: number;
+  readonly cacheWrite: number;
+}
+
 export interface EvalRun {
   readonly events: readonly EvalEvent[];
   readonly port: AgentPort;
@@ -44,6 +52,7 @@ export interface EvalRun {
   readonly asked: readonly ActivityEntry[];
   /** The chat's notices (errors, stalls, loops). */
   readonly notices: readonly string[];
+  readonly usage: EvalUsage;
 }
 
 export interface Verdict {
@@ -98,6 +107,7 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
   const asked: ActivityEntry[] = [];
   const events: EvalEvent[] = [];
   const notices: string[] = [];
+  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
   const executor = new AgentExecutor(host, {
     approve: async (entry) => {
       asked.push(entry);
@@ -129,13 +139,18 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
         },
         onThinking: () => undefined,
         onNotice: (notice) => notices.push(notice),
-        onUsage: () => undefined,
+        onUsage: (u) => {
+          usage.input += u.input_tokens ?? 0;
+          usage.output += u.output_tokens ?? 0;
+          usage.cacheRead += u.cache_read_input_tokens ?? 0;
+          usage.cacheWrite += u.cache_creation_input_tokens ?? 0;
+        },
       }, signal);
     } catch (e) {
       notices.push(`chat error: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
-  const run: EvalRun = { events, port, records, asked, notices };
+  const run: EvalRun = { events, port, records, asked, notices, usage };
   const grades = scenario.checks.map((c) => ({ check: c.name, ...c.grade(run) }));
   return { scenario: scenario.id, run, grades, passed: grades.every((g) => g.pass) };
 }

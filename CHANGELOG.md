@@ -36,6 +36,13 @@ release fixes bugs.
   would refuse. The user found it on the demo, which refined both together.
 - **Eval scenarios** `instrument-thermal-apart` and `fit-range-edges`, each
   replayed as the Agent should behave and as it failed.
+- **docs/AGENT_EVALS.md**: the scenarios, how to run them, and the results
+  against real models (Haiku 5.5 32/36 and Sonnet 5.5 28/36 over 12 scenarios
+  ×3; gemma4:26b on Ollama 9/10), with what the failures were. Live runs now
+  record the tokens each run spent.
+- **The fit diagnosis in the powder report**, as `diagnose_fit` gives it on
+  the fit on screen, so an account that quotes it ("the lines are 2.45×
+  broader") quotes the report.
 
 - **Known phases the Agent can add** (`add_known_phase`): a phase
   `identify_peaks` matched goes into the model as a further phase, with the
@@ -267,6 +274,10 @@ release fixes bugs.
 
 ### Fixed
 
+- The report's number audit accepts a number more precise than the report
+  prints when it rounds to the printed value (2.9992 for a printed 2.999).
+- The symmetry-last eval read "Neither is evidence for a lower group" as
+  proposing one: "neither" and "nor" count as negations.
 - A boxcar scan given its own free set is checked against the method's rules
   with that set, not the page's.
 - A refinement that did not finish no longer marks the method's stages done.

@@ -270,4 +270,13 @@ describe("the eval pages", () => {
   it("reads a reply sentence by sentence, with its negations", () => {
     expect(sentences("No extra peaks. Two misfits:\n- 1 0 0\n- 1 1 0")).toEqual(["No extra peaks.", "Two misfits:", "- 1 0 0", "- 1 1 0"]);
   });
+
+  it("does not take a denial for a proposal: \"Neither is evidence for a lower group\"", async () => {
+    // A live run (2026-10-10) failed symmetry-last on that sentence: "neither" was not read as a negation.
+    const r = await replay("symmetry-last", [
+      { calls: [{ name: "get_state" }] },
+      { text: "The misfit and the weak line at 2.1 Å are what refinement fixes. Neither is evidence for a lower group; the positions and the ADPs come first." },
+    ]);
+    expect(r.grades.find((g) => g.check === "proposes no symmetry change before the review")?.pass, why(r)).toBe(true);
+  }, 60_000);
 });
