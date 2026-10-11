@@ -171,6 +171,11 @@ function parseGsasPrm(text: string): InstrumentParameters {
   const uvw = prcfRow1 ? nums(prcfRow1.slice(prcfRow1.search(/PRCF11/) + "PRCF11".length)) : [];
   const prcfRow2 = lines.find((l) => /PRCF12\b/.test(l));
   const lxy = prcfRow2 ? nums(prcfRow2.slice(prcfRow2.search(/PRCF12/) + "PRCF12".length)) : [];
+  // The profile type (`PRCF1  3  19 …`): types 3 and 4 put the FCJ asymmetry
+  // S/L and H/L after LX, LY on PRCF12 (11-BM: 0.0011 each).
+  const prcfHead = lines.find((l) => /PRCF1\s/.test(l));
+  const prcfType = prcfHead ? nums(prcfHead.slice(prcfHead.search(/PRCF1\s/) + "PRCF1".length))[0] : undefined;
+  const asym = (prcfType === 3 || prcfType === 4) && lxy.length >= 4 && (lxy[2]! > 0 || lxy[3]! > 0) ? { sl: lxy[2]!, hl: lxy[3]! } : undefined;
   // POLA (fixed-column field 5) is the X-ray polarization fraction for the Lp
   // correction; ~0.99 for a synchrotron like 11-BM, 0.5 for an unpolarized tube.
   const pola = iconsCol(4);
@@ -185,6 +190,7 @@ function parseGsasPrm(text: string): InstrumentParameters {
       w: uvw[2]! * GSAS_SIG2_TO_FWHM2,
     } : {}),
     ...(lxy.length >= 2 ? { x: lxy[0]!, y: lxy[1]! } : {}),
+    ...(asym ? { asymmetry: asym } : {}),
     ...(radiationKind === "xray" && pola !== undefined && pola > 0 && pola <= 1 ? { polarization: pola } : {}),
     ...kAlpha2Of(radiationKind, lam1, lam2, kRatio),
   };
@@ -271,6 +277,8 @@ function parseInstrumentBase(text: string): InstrumentParameters {
       // calibrated size/strain broadening — seed them so sharp peaks fit on load.
       ...(v.get("x") !== undefined ? { x: v.get("x")! } : {}),
       ...(v.get("y") !== undefined ? { y: v.get("y")! } : {}),
+      // GSAS-II refines one SH/L = (S + H)/L, S and H taken equal.
+      ...(v.get("sh/l")! > 0 ? { asymmetry: { sl: v.get("sh/l")! / 2, hl: v.get("sh/l")! / 2 } } : {}),
       ...(v.get("polariz.") !== undefined ? { polarization: v.get("polariz.")! } : {}),
       ...kAlpha2Of(radiationKind, lam, v.get("lam2"), v.get("i(l2)/i(l1)") ?? 0.5),
     };

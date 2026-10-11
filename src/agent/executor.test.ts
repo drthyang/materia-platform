@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { withAdpModel } from "@/core/crystal/adp";
 import { emptyRecord, keyOfState } from "@/agent/method";
 import type { PowderAgentPort } from "@/agent/port";
 import { AgentLink } from "@/agent/link";
@@ -78,6 +79,32 @@ describe("AgentExecutor on a live powder fit", () => {
     expect((await ex.run("set_value", {})).text).toBe("Error: no tool named set_value");
     const empty = executor(fakeHost(null).host).ex;
     expect((await empty.run("get_state", {})).text).toMatch(/no analysis is open/);
+  });
+
+  it("reads the ADP model from the structure, so a CIF's tensors read as anisotropic", async () => {
+    // Round 10 (NAC on 11-BM): the CIF's U_aniso loaded 22 tensor rows while the
+    // page said "anisotropicAdp: false", and the box under ADPs was unticked.
+    const iso = newSession(exampleStructure());
+    const { ex } = executor(fakeHost(sessionPort(iso).port).host);
+    expect((parse((await ex.run("get_state", {})).text).settings as { anisotropicAdp: boolean }).anisotropicAdp).toBe(false);
+    expect((await ex.run("set_adp_model", { anisotropic: false })).text).toMatch(/already isotropic/);
+    const tensors = newSession(withAdpModel(exampleStructure(), "anisotropic"));
+    const { ex: ex2 } = executor(fakeHost(sessionPort(tensors).port).host);
+    expect((parse((await ex2.run("get_state", {})).text).settings as { anisotropicAdp: boolean }).anisotropicAdp).toBe(true);
+    expect((await ex2.run("set_adp_model", { anisotropic: true })).text).toMatch(/already anisotropic/);
+  });
+
+  it("adds a library phase as a further phase, always asking, and refuses a name it does not hold", async () => {
+    // Round 10: NAC's unindexed lines were fluorite, and only the user's CIF could add it.
+    const { port, calls } = sessionPort(newSession(exampleStructure()));
+    const { ex, asked } = executor(fakeHost(port).host, "auto");
+    expect((await ex.run("add_known_phase", { name: "unobtainium" })).text).toMatch(/not in the library — it holds .*CaF₂.*Add CIF/);
+    await ex.run("add_known_phase", { name: "CaF₂" });
+    expect(asked.at(-1)!.preview).toMatch(/^Add CaF₂ \(F m -3 m, a = 5\.4626 Å\) as a further phase/);
+    expect(asked.at(-1)!.alwaysAsk).toBe(true);
+    expect(calls).toContain("add phase CaF₂");
+    expect(port.state().extraPhases.map((p) => p.name)).toEqual(["CaF₂"]);
+    expect((await ex.run("add_known_phase", { name: "CaF₂" })).text).toMatch(/CaF₂ is already a phase of the model/);
   });
 
   /** The demo session with every parameter fixed, so freeing one is a change. */

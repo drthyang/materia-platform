@@ -189,6 +189,23 @@ O2 O2- 0.3075 0.3075 0.3400 1 0.6
     expect(reports[2]!.markdown).toContain("**Bayesian check** — of an earlier refinement");
   }, 120000);
 
+  it("carries the phase fractions and the line broadening the sample adds, so the account can cite them", async () => {
+    // Round 10 (NAC on 11-BM): the question was the profile — what the sample adds
+    // to the instrument's lines — and the fluorite fraction; the report had neither.
+    const { port } = page();
+    const reports: AgentReport[] = [];
+    const { ex } = executor(fakeHost(port).host, "auto", { onReport: (r) => reports.push(r) });
+    await ex.run("add_known_phase", { name: "Al" });
+    // X and Y trade at |ρ| > 0.95 on this short simulated range: Y alone, with the two scales.
+    await ex.run("set_free", { free: ["p0_scale", "p1_scale", "profY"], fix: ["p0_cell_*", "bkg*"] });
+    expect(parse((await ex.run("refine", {})).text).refined).toBe(true);
+    await ex.run("write_report", { summary: "Refined the two scales and the Lorentzian Y on the simulated pattern; the report gives the fractions and the broadening." });
+    const md = reports.at(-1)!.markdown;
+    expect(md).toMatch(/\| \*\*Phase fractions\*\* \| structure [\d.()]+ wt% · Al [\d.()]+ wt% — Hill & Howard/);
+    expect(md).toMatch(/\| \*\*Microstrain\*\* \| [\d.()]+ × 10⁻⁶ — Lorentzian Y, the instrument's X = 0, Y = 0 subtracted/);
+    expect(md).toMatch(/\| \*\*Crystallite size\*\* \| not resolved: X is not above the instrument's/);
+  }, 120000);
+
   it("reports a PDF fit with Rw and no GoF, and refuses a page without a report", async () => {
     const { port } = pdfPort();
     const reports: AgentReport[] = [];

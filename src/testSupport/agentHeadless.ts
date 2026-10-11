@@ -77,13 +77,14 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
       busy: false,
       viewOnly: false,
       wR: Math.sqrt(num / den),
-      settings: { backgroundTerms: s.backgroundTerms, backgroundType: "chebyshev", mustrain: "isotropic", anisotropicAdp: false, siteTies: s.siteTies, corrections: s.corrections ?? {} },
+      settings: { backgroundTerms: s.backgroundTerms, backgroundType: "chebyshev", mustrain: "isotropic", anisotropicAdp: s.structure.sites.some((site) => site.adp.kind === "anisotropic"), siteTies: s.siteTies, corrections: s.corrections ?? {} },
       curves,
       d: convertAxisArray(curves.x, s.pattern.xUnit, "dSpacing", axisContext(s.pattern, undefined, s.powderParams.find((p) => p.kind === "zeroShift")?.value)),
       observationCount: n,
       axis: axisContext(s.pattern, undefined, s.powderParams.find((p) => p.kind === "zeroShift")?.value),
       source: "test",
       restraints: powderRestraints([s.structure], s.siteTies, s.powderParams),
+      ...(s.extraPhases.length > 0 ? { extraPhases: s.extraPhases } : {}),
     };
   };
   /** The fit as the page runs it: nuclear + magnetic once a magnetic model is on the session. */
@@ -99,6 +100,7 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
         bindings: s.powderBindings,
         shape: s.powderProfile.shape,
         restraints: powderRestraints([s.structure], s.siteTies, s.powderParams),
+        ...(s.extraPhases.length > 0 ? { extraPhases: s.extraPhases } : {}),
         options,
       });
   let sampled: SampleResult | null = null;
@@ -119,6 +121,7 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
       bindings: s.powderBindings,
       shape: s.powderProfile.shape,
       restraints: powderRestraints([s.structure], s.siteTies, s.powderParams),
+      ...(s.extraPhases.length > 0 ? { extraPhases: s.extraPhases } : {}),
       options: { maxIterations: 20 },
     });
     s = { ...s, powderParams: s.powderParams.map((p) => ({ ...p, value: r.parameters[p.id] ?? p.value })) };
@@ -147,6 +150,12 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
       const siteTies = { ...s.siteTies, occupancyToUnity: true, composition: true };
       const spec = buildSpecFor(structure, s.extraPhases, s.pattern, instrument, true, s.backgroundTerms, siteTies, s.mustrain ?? "isotropic", s.corrections);
       s = { ...s, structure, siteTies, powderParams: keptRows(spec.params, s.powderParams), powderBindings: keptBindings(spec.bindings, s.powderBindings) };
+    },
+    addPhase: (structure) => {
+      calls.push(`add phase ${structure.name}`);
+      const extraPhases = [...s.extraPhases, structure];
+      const spec = buildSpecFor(s.structure, extraPhases, s.pattern, instrument, true, s.backgroundTerms, s.siteTies, s.mustrain ?? "isotropic", s.corrections);
+      s = { ...s, extraPhases, powderParams: keptRows(spec.params, s.powderParams), powderBindings: keptBindings(spec.bindings, s.powderBindings), powderProfile: spec.profile };
     },
     setParameterTies: (update) => {
       calls.push(`ties ${JSON.stringify(update)}`);

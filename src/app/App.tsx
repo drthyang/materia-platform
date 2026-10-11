@@ -644,25 +644,29 @@ export function App(): JSX.Element {
         const name = raw.name && raw.name !== "structure"
           ? raw.name
           : [...new Set(raw.sites.map((st) => st.element))].join("") || raw.id;
-        const parsed = { ...raw, name };
-        setSession((s) => {
-          const extraPhases = [...s.extraPhases, parsed];
-          const spec = buildSpecFor(s.structure, extraPhases, s.pattern, instrumentLoaded ? instrument : DEFAULT_INSTRUMENT, s.powderProfile.lorentz ?? true, s.backgroundTerms, s.siteTies, s.mustrain ?? "isotropic", s.corrections);
-          return {
-            ...s,
-            extraPhases,
-            powderParams: keptRows(spec.params, s.powderParams),
-            powderBindings: keptBindings(spec.bindings, s.powderBindings),
-            powderProfile: { ...spec.profile, ...(s.powderProfile.backgroundType ? { backgroundType: s.powderProfile.backgroundType } : {}) },
-          };
-        });
-        setPowderResult(null);
-        setMessage(`Added phase "${parsed.name}" (${parsed.spaceGroup.hermannMauguin ?? "?"}). Refine to fit its scale/cell.`);
-        requestStep("load", `Added phase ${parsed.name}`);
+        addPhaseStructure({ ...raw, name });
       } catch (e) {
         reportCifError("Add phase failed", e, (setting) => onAddPhase(file, setting));
       }
     });
+  }
+
+  /** Add a further phase (a parsed CIF, or a known phase the Agent adds) and rebuild the spec. */
+  function addPhaseStructure(parsed: StructureModel): void {
+    setSession((s) => {
+      const extraPhases = [...s.extraPhases, parsed];
+      const spec = buildSpecFor(s.structure, extraPhases, s.pattern, instrumentLoaded ? instrument : DEFAULT_INSTRUMENT, s.powderProfile.lorentz ?? true, s.backgroundTerms, s.siteTies, s.mustrain ?? "isotropic", s.corrections);
+      return {
+        ...s,
+        extraPhases,
+        powderParams: keptRows(spec.params, s.powderParams),
+        powderBindings: keptBindings(spec.bindings, s.powderBindings),
+        powderProfile: { ...spec.profile, ...(s.powderProfile.backgroundType ? { backgroundType: s.powderProfile.backgroundType } : {}) },
+      };
+    });
+    setPowderResult(null);
+    setMessage(`Added phase "${parsed.name}" (${parsed.spaceGroup.hermannMauguin ?? "?"}). Refine to fit its scale/cell.`);
+    requestStep("load", `Added phase ${parsed.name}`);
   }
 
   /** Remove an added phase (by id) and rebuild the spec back down. */
@@ -1273,6 +1277,7 @@ export function App(): JSX.Element {
         onLoadData={onLoadData}
         onLoadCif={onLoadCif}
         onAddPhase={onAddPhase}
+        onAddStructure={addPhaseStructure}
         onRemovePhase={onRemovePhase}
         onClearStructures={onClearStructures}
         detection={detection}

@@ -1,8 +1,9 @@
 /**
  * Phases a powder pattern often holds besides the sample: the sample
  * environment (an aluminium can or cryostat shields, steel, copper, niobium
- * heat shields, lead shielding), common holders (corundum, graphite) and line
- * standards (Si, LaB₆, CeO₂). Peaks no phase of the model explains are matched
+ * heat shields, lead shielding), common holders (corundum, graphite), line
+ * standards (Si, LaB₆, CeO₂) and the impurities a synthesis leaves most often
+ * (fluorite, NaF, rock salt). Peaks no phase of the model explains are matched
  * against their lines — positions and relative intensities computed for the
  * pattern's own radiation — allowing each phase one d scale: thermal
  * contraction, and a part (a cryostat shield, a can) that does not sit at the
@@ -27,6 +28,8 @@ interface KnownPhase {
   readonly setting?: string;
   /** label element x y z */
   readonly sites: readonly string[];
+  /** A by-product of the sample's synthesis, so part of the sample (not its surroundings). */
+  readonly impurity?: true;
 }
 
 /** Room-temperature cells (Å); a d scale absorbs cooling and an off-centre part. */
@@ -43,7 +46,28 @@ const LIBRARY: readonly KnownPhase[] = [
   { name: "CeO₂", source: "a CeO₂ standard", cell: [5.4113, 5.4113, 5.4113, 90, 90, 90], spaceGroup: "F m -3 m", sites: ["Ce Ce 0 0 0", "O O 0.25 0.25 0.25"] },
   { name: "corundum Al₂O₃", source: "an alumina crucible or holder", cell: [4.7589, 4.7589, 12.991, 90, 90, 120], spaceGroup: "R -3 c", setting: "R -3 c:H", sites: ["Al Al 0 0 0.35216", "O O 0.30624 0 0.25"] },
   { name: "graphite", source: "a graphite holder or furnace part", cell: [2.4640, 2.4640, 6.7110, 90, 90, 120], spaceGroup: "P 63/m m c", sites: ["C1 C 0 0 0.25", "C2 C 0.33333 0.66667 0.25"] },
+  // The impurities a synthesis leaves most often (round 10: NAC on 11-BM held fluorite).
+  { name: "CaF₂", source: "fluorite: a by-product of a fluoride synthesis, a CaF₂ standard or window", cell: [5.4626, 5.4626, 5.4626, 90, 90, 90], spaceGroup: "F m -3 m", sites: ["Ca Ca 0 0 0", "F F 0.25 0.25 0.25"], impurity: true },
+  { name: "NaF", source: "unreacted NaF from a fluoride synthesis", cell: [4.6330, 4.6330, 4.6330, 90, 90, 90], spaceGroup: "F m -3 m", sites: ["Na Na 0 0 0", "F F 0.5 0.5 0.5"], impurity: true },
+  { name: "NaCl", source: "rock salt: a flux, a chloride precursor or a salt residue", cell: [5.6402, 5.6402, 5.6402, 90, 90, 90], spaceGroup: "F m -3 m", sites: ["Na Na 0 0 0", "Cl Cl 0.5 0.5 0.5"], impurity: true },
 ];
+
+/** The library's phase names, for the Agent's add_known_phase. */
+export function knownPhaseNames(): string[] {
+  return LIBRARY.map((p) => p.name);
+}
+
+/**
+ * A library phase as a further phase of the model: its room-temperature cell,
+ * positions and a B of about 0.5 Å² on every site, with its own id. Null for
+ * a name the library does not hold.
+ */
+export function knownPhaseStructure(name: string): StructureModel | null {
+  const p = LIBRARY.find((x) => x.name === name);
+  if (!p) return null;
+  const s = structureOf(p);
+  return { ...s, id: `phase-${p.name.replace(/\W+/g, "") || "known"}-${Date.now().toString(36)}`, name: p.name };
+}
 
 function structureOf(p: KnownPhase): StructureModel {
   const [a, b, c, al, be, ga] = p.cell;
@@ -76,6 +100,8 @@ export interface PeakToMatch {
 export interface KnownPhaseMatch {
   readonly phase: string;
   readonly source: string;
+  /** A synthesis by-product: part of the sample, its fraction worth refining. */
+  readonly impurity: boolean;
   /** d_observed / d_room-temperature: < 1 a cooled or off-centre part. */
   readonly dScale: number;
   /** The peaks it explains, with the line each sits on. */
@@ -84,11 +110,20 @@ export interface KnownPhaseMatch {
   readonly alsoExpected: readonly { readonly d: number; readonly hkl: string; readonly relativeIntensity: number }[];
 }
 
+/** Lines this weak still count as a phase's (a heavy-atom-free phase's high-angle lines on synchrotron data). */
+const WEAKEST_LINE = 0.005;
+/** The d-scale search: ±1.5 %, a cooled or off-centre part at the most. */
+const SCALE_RANGE = 0.015;
+
 /**
  * The library phases whose lines explain at least one of `peaks`, best first:
- * most peaks explained with their strongest lines, then the closest d scale
- * to 1. `tolerance` is the relative d window of a match (default 0.25 %);
- * the d scale is searched over ±1.5 %.
+ * by the peaks explained, weighed by how plausible the phase's d scale is
+ * (1 at its room-temperature cell, ½ at the ±1.5 % edge), then by the
+ * strength of the lines that explain them. Isostructural candidates explain
+ * the same peaks, and the cell tells them apart: on NAC, fluorite at its own
+ * cell beat CeO₂, the same lattice 1 % smaller, that the line strengths alone
+ * had preferred. `tolerance` is the relative d window of a match (default
+ * 0.25 %).
  */
 export function matchKnownPhases(
   peaks: readonly PeakToMatch[],
@@ -97,7 +132,7 @@ export function matchKnownPhases(
   tolerance = 0.0025,
 ): KnownPhaseMatch[] {
   if (peaks.length === 0) return [];
-  const out: (KnownPhaseMatch & { score: number })[] = [];
+  const out: (KnownPhaseMatch & { score: number; weight: number })[] = [];
   for (const phase of LIBRARY) {
     const model = structureFor(phase);
     // Lines over a range wide enough for any scale in the search.
@@ -108,9 +143,9 @@ export function matchKnownPhases(
     if (!(top > 0)) continue;
     const lines = reflections
       .map((r, i) => ({ d: r.d, hkl: `${r.h} ${r.k} ${r.l}`, rel: intensities[i]!.intensity / top }))
-      .filter((l) => l.rel >= 0.02);
-    let best: { scale: number; explains: KnownPhaseMatch["explains"]; error: number; weight: number } | null = null;
-    for (let scale = 0.985; scale <= 1.015 + 1e-9; scale += 0.0005) {
+      .filter((l) => l.rel >= WEAKEST_LINE);
+    let best: { scale: number; explains: KnownPhaseMatch["explains"]; error: number; weight: number; score: number } | null = null;
+    for (let scale = 1 - SCALE_RANGE; scale <= 1 + SCALE_RANGE + 1e-9; scale += 0.0005) {
       const explains: { d: number; hkl: string; relativeIntensity: number }[] = [];
       let error = 0;
       let weight = 0;
@@ -126,8 +161,9 @@ export function matchKnownPhases(
         weight += Math.sqrt(hit.rel);
       }
       if (explains.length === 0) continue;
-      if (!best || weight > best.weight + 1e-9 || (Math.abs(weight - best.weight) <= 1e-9 && error < best.error)) {
-        best = { scale, explains, error, weight };
+      const score = explains.length * (1 - Math.abs(scale - 1) / (2 * SCALE_RANGE));
+      if (!best || score > best.score + 1e-9 || (Math.abs(score - best.score) <= 1e-9 && (weight > best.weight + 1e-9 || (Math.abs(weight - best.weight) <= 1e-9 && error < best.error)))) {
+        best = { scale, explains, error, weight, score };
       }
     }
     if (!best) continue;
@@ -137,10 +173,9 @@ export function matchKnownPhases(
     const alsoExpected = lines
       .filter((l) => l.rel >= 0.3 && !explained.has(l.hkl) && inRange(l.d))
       .map((l) => ({ d: scale * l.d, hkl: l.hkl, relativeIntensity: l.rel }));
-    out.push({ phase: phase.name, source: phase.source, dScale: scale, explains: best.explains, alsoExpected, score: best.weight });
+    out.push({ phase: phase.name, source: phase.source, impurity: !!phase.impurity, dScale: scale, explains: best.explains, alsoExpected, score: best.score, weight: best.weight });
   }
-  // A single weak line matches something by chance; rank by the weight of what is explained.
   return out
-    .sort((a, b) => b.score - a.score || Math.abs(a.dScale - 1) - Math.abs(b.dScale - 1))
-    .map(({ score: _score, ...m }) => m);
+    .sort((a, b) => b.score - a.score || b.weight - a.weight || Math.abs(a.dScale - 1) - Math.abs(b.dScale - 1))
+    .map(({ score: _score, weight: _weight, ...m }) => m);
 }

@@ -8,6 +8,8 @@ import type { PdfAgentPort, PowderAgentPort } from "@/agent/port";
 import { newSession, type Session } from "@/app/powderSession";
 import { exampleStructure } from "@/examples/mn3ga";
 import { generateReflections } from "@/core/diffraction/reflections";
+import { powderPeakIntensities } from "@/core/diffraction/intensity";
+import { knownPhaseStructure } from "@/core/diagnostics/knownPhases";
 import { pdfPort, sessionPort } from "@/testSupport/agentHeadless";
 import { runPowderRefinement } from "@/workers/runPowder";
 import { magneticSubgroupLattice, latticeRepresentatives, latticeCandidateLabel } from "@/core/magnetic/subgroupLattice";
@@ -114,6 +116,33 @@ export function mn3gaImpuritySession(): Session {
   });
   const withLine = { ...s, pattern: { ...s.pattern, points } };
   return prefit(withLine, scaleAndBackground(withLine));
+}
+
+/**
+ * The demo with fluorite's lines added at a few per cent (round 10: NAC on
+ * 11-BM held a fluorite by-product), its relative intensities computed from
+ * the library's own CaF₂ for this radiation, the scale and background
+ * already fitted: what is left over is a known phase, ready to be named and
+ * added.
+ */
+export function mn3gaFluoriteSession(): Session {
+  const s0 = mn3gaSession();
+  const s = { ...s0, powderParams: s0.powderParams.map((p) => (p.id === "width" ? { ...p, value: TRUE_WIDTH } : p)) };
+  const caf2 = knownPhaseStructure("CaF₂")!;
+  const xs = s.pattern.points.map((p) => p.x);
+  const dOf = (tt: number): number => WAVELENGTH / (2 * Math.sin((tt * Math.PI) / 360));
+  const reflections = generateReflections(caf2.cell, caf2.spaceGroup, dOf(Math.max(...xs)), dOf(Math.min(...xs)));
+  const intensities = powderPeakIntensities(caf2, s.pattern.radiation, reflections, 1, undefined, true).map((p) => p.intensity);
+  const strongest = Math.max(...intensities);
+  const top = Math.max(...s.pattern.points.map((p) => p.yObs));
+  const sigma = TRUE_WIDTH / 2.355;
+  const lines = reflections.map((r, i) => ({ at: twoThetaOf(r.d), height: 0.05 * top * intensities[i]! / strongest }));
+  const points = s.pattern.points.map((p) => {
+    const y = p.yObs + lines.reduce((sum, l) => sum + l.height * Math.exp(-0.5 * ((p.x - l.at) / sigma) ** 2), 0);
+    return { ...p, yObs: y, sigma: Math.sqrt(Math.max(y, 4)) };
+  });
+  const withLines = { ...s, pattern: { ...s.pattern, points } };
+  return prefit(withLines, scaleAndBackground(withLines));
 }
 
 /** The magnetic structure behind `mn3gaMagneticSession`: k, the group (its id on the page) and the Mn moment. */

@@ -66,11 +66,14 @@ export interface EvalScenario {
   readonly messages: readonly string[];
   readonly autonomy: AgentAutonomy;
   /**
-   * What the stand-in user approves: every change (default) or none. Lifting
-   * a firm rule (allow_exception) is always declined: no scenario's user
-   * asked for one.
+   * What the stand-in user approves: every change (default) or none. A change
+   * only the user may make (an always-ask tool: lifting a firm rule, adding a
+   * phase, an instrument constant) is declined unless the scenario's user
+   * asked for it and names the tool here.
    */
   readonly approve?: "changes" | "nothing";
+  /** Always-ask tools the stand-in user approves (their request asked for it). */
+  readonly approveAsked?: readonly string[];
   readonly checks: readonly Check[];
 }
 
@@ -98,7 +101,7 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
   const executor = new AgentExecutor(host, {
     approve: async (entry) => {
       asked.push(entry);
-      return !entry.alwaysAsk && scenario.approve !== "nothing";
+      return (!entry.alwaysAsk || (scenario.approveAsked ?? []).includes(entry.tool)) && scenario.approve !== "nothing";
     },
     onActivity: () => undefined,
   });

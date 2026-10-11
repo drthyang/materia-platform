@@ -162,6 +162,19 @@ const REPLAYS: Readonly<Record<string, Replay>> = {
     ],
     catches: ["calls boxcar_scan"],
   },
+  "known-impurity": {
+    good: [
+      { calls: [RIETVELD, { name: "find_unexplained_peaks" }] },
+      { calls: [{ name: "identify_peaks" }] },
+      { text: "The extra lines are fluorite, CaF₂, at its own cell: an impurity of the sample. I add it as a phase so its lines are modelled.", calls: [{ name: "add_known_phase", input: { name: "CaF₂" } }] },
+      { text: "CaF₂ is in the model as a second phase: its lines are now part of the calculated pattern." },
+    ],
+    bad: [
+      { calls: [RIETVELD, { name: "identify_peaks" }] },
+      { text: "They match CaF₂. Load a CIF for it if you want it modelled." },
+    ],
+    catches: ["adds CaF₂ as a phase"],
+  },
   "pdf-local-geometry": {
     good: [
       { calls: [PDF, { name: "get_state" }] },

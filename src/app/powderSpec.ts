@@ -153,11 +153,12 @@ function applySeeds(
 }
 
 /** The corrections as the structure builder takes them, for this pattern and instrument. */
-function correctionOptions(corrections: SampleCorrections | undefined, pattern: PowderPattern, cwProfile: boolean): Record<string, unknown> {
+function correctionOptions(corrections: SampleCorrections | undefined, pattern: PowderPattern, cwProfile: boolean, asymmetry?: { readonly sl: number; readonly hl: number }): Record<string, unknown> {
   if (!corrections) return {};
   return {
-    // FCJ needs the CW pseudo-Voigt profile; seeded small (S/L = H/L = 0.01).
-    ...(corrections.asymmetry && cwProfile && pattern.xUnit === "twoTheta" ? { axial: { sl: 0.01, hl: 0.01 } } : {}),
+    // FCJ needs the CW pseudo-Voigt profile; seeded from the instrument file's
+    // S/L and H/L when it has them (11-BM: 0.0011), else small (0.01).
+    ...(corrections.asymmetry && cwProfile && pattern.xUnit === "twoTheta" ? { axial: { sl: asymmetry?.sl ?? 0.01, hl: asymmetry?.hl ?? 0.01 } } : {}),
     ...(corrections.preferredOrientation ? { preferredOrientation: { axis: [...corrections.preferredOrientation] as [number, number, number], ratio: 1 } } : {}),
     ...(corrections.peak && corrections.peak.length > 0 ? { corrections: corrections.peak.map((id) => ({ id, refine: false })) } : {}),
   };
@@ -257,7 +258,7 @@ export function buildPowderSpec(
   const microOpt = caglioti && mustrain === "generalized" ? { stephensStrain: true }
     : caglioti && mustrain === "uniaxial" ? { uniaxialStrain: { axis: [0, 0, 1] as [number, number, number] } }
     : {};
-  const corr = correctionOptions(corrections, pattern, !!caglioti);
+  const corr = correctionOptions(corrections, pattern, !!caglioti, cw?.asymmetry);
   const spec = buildStructureRefinement(structure, pattern, { scale: s, backgroundTerms, zero, ...profOpt, ...microOpt, ...corr, refineOccupancy: true, ...tieOpts });
   // S/L and H/L enter the FCJ profile symmetrically: the data determine their
   // sum, not each (GSAS-II refines one SH/L). H/L follows S/L.

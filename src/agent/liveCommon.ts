@@ -38,9 +38,9 @@ export function parameterSummary(
     if (p.expression) g.tied++;
     groups.set(p.kind, g);
   }
-  const patterns = select?.map((f) => ({ f, re: globRegExp(f) }));
-  const unmatched = patterns?.filter(({ re }) => !params.some((p) => re.test(p.id))).map(({ f }) => f) ?? [];
-  const rows = (patterns ? params.filter((p) => patterns.some(({ re }) => re.test(p.id))) : params.filter(isFree))
+  const patterns = select?.map((f) => ({ f, test: idMatcher(params, f) }));
+  const unmatched = patterns?.filter(({ test }) => !params.some((p) => test(p.id))).map(({ f }) => f) ?? [];
+  const rows = (patterns ? params.filter((p) => patterns.some(({ test }) => test(p.id))) : params.filter(isFree))
     .map((p) => parameterRow(p, esd?.[p.id] ?? p.esd));
   return { parameterGroups: [...groups.values()], parameterRows: rows, ...(unmatched.length ? { unmatched } : {}) };
 }
@@ -154,8 +154,8 @@ export function freePlan(
     const out = new Set<string>();
     const unmatched: string[] = [];
     for (const f of list) {
-      const re = globRegExp(f);
-      const hits = params.filter((p) => re.test(p.id));
+      const test = idMatcher(params, f);
+      const hits = params.filter((p) => test(p.id));
       if (hits.length === 0) unmatched.push(`"${f}"`);
       for (const p of hits) out.add(p.id);
     }
@@ -181,10 +181,22 @@ export function freePlan(
 
 /** The ids these globs match, in the parameters' order; an unmatched glob is an error naming the ids. */
 export function matchIds(params: readonly RefinementParameter[], globs: readonly string[]): string[] {
-  const res = globs.map((g) => ({ g, re: globRegExp(g) }));
-  const unmatched = res.filter(({ re }) => !params.some((p) => re.test(p.id))).map(({ g }) => `"${g}"`);
+  const res = globs.map((g) => ({ g, test: idMatcher(params, g) }));
+  const unmatched = res.filter(({ test }) => !params.some((p) => test(p.id))).map(({ g }) => `"${g}"`);
   if (unmatched.length) throw new Error(`nothing matches ${unmatched.join(", ")}. Parameter ids: ${params.map((p) => p.id).join(", ")}`);
-  return params.filter((p) => res.some(({ re }) => re.test(p.id))).map((p) => p.id);
+  return params.filter((p) => res.some(({ test }) => test(p.id))).map((p) => p.id);
+}
+
+/**
+ * Which ids a glob names. A multi-phase model prefixes each phase's ids
+ * (p0_pos_Ca1_0, p1_cell_a): a glob that matches no id as written is tried
+ * against the ids without the prefix, so "pos_*" means every phase's
+ * positions, as on a single-phase page (round 10, NAC with fluorite).
+ */
+export function idMatcher(params: readonly RefinementParameter[], glob: string): (id: string) => boolean {
+  const re = globRegExp(glob);
+  if (params.some((p) => re.test(p.id))) return (id) => re.test(id);
+  return (id) => re.test(id.replace(/^p\d+_/, ""));
 }
 
 export function globRegExp(pattern: string): RegExp {

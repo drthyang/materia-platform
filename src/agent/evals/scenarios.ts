@@ -4,8 +4,9 @@
  * own data, with the checks that say whether it got it right this time.
  */
 
-import { MAGNETIC_TRUTH, impurityD, mn3gaImpuritySession, mn3gaMagneticSession, mn3gaMisfitSession, mn3gaSession, pdfPage, powderPage } from "@/agent/evals/pages";
+import { MAGNETIC_TRUTH, impurityD, mn3gaFluoriteSession, mn3gaImpuritySession, mn3gaMagneticSession, mn3gaMisfitSession, mn3gaSession, pdfPage, powderPage } from "@/agent/evals/pages";
 import {
+  addsKnownPhase,
   adaptsAfterRefusal,
   coversStages,
   doesNotRefuse,
@@ -73,6 +74,16 @@ export const SCENARIOS: readonly EvalScenario[] = [
     messages: ["Is there anything in the pattern the model does not account for?"],
     autonomy: "ask",
     checks: [ran("find_unexplained_peaks"), mentionsD(impurityD(), 0.03), symmetryLast, noStall],
+  },
+  {
+    id: "known-impurity",
+    title: "Names a known impurity and adds it as a phase",
+    origin: "Researcher round 10 (NAC on 11-BM): 22 unindexed lines were fluorite, a by-product of the fluoride synthesis; the library did not hold it, and only the user's CIF could add it.",
+    page: () => powderPage(mn3gaFluoriteSession()),
+    messages: ["There are lines this model does not explain. What are they? Model them if you can."],
+    autonomy: "auto",
+    approveAsked: ["add_known_phase"],
+    checks: [ran("identify_peaks"), addsKnownPhase("CaF₂"), noStall],
   },
   {
     id: "bare-occupancy",

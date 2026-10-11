@@ -28,7 +28,7 @@ import { formatWt, fractionsOf } from "@/core/diagnostics/phaseFractions";
 import { magneticIonCandidates } from "@/core/magnetic/magneticIons";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { diagnoseFit, widthsComparable } from "@/core/diagnostics/fitDiagnosis";
-import { matchKnownPhases } from "@/core/diagnostics/knownPhases";
+import { knownPhaseNames, knownPhaseStructure, matchKnownPhases } from "@/core/diagnostics/knownPhases";
 import { withAntisite } from "@/core/crystal/antisite";
 import { structureTable } from "@/agent/structureTable";
 import { powderReflectionObsCalc } from "@/core/workflow/obsCalc";
@@ -176,11 +176,16 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
       const finite = residual.d.filter((v) => Number.isFinite(v) && v > 0);
       const candidates = matchKnownPhases(peaks, s.pattern.radiation, { dMin: Math.min(...finite), dMax: Math.max(...finite) });
       const lead = candidates[0];
-      const strongLead = lead && (lead.explains.length >= 2 || (lead.explains.length === 1 && lead.explains[0]!.relativeIntensity >= 0.8 && lead.alsoExpected.length === 0));
+      // A phase whose strongest line is missing is a doubtful match, however many weak lines it explains
+      // (round 10: graphite offered for two weak NAC lines without its 002).
+      const strongestMissing = lead?.alsoExpected.find((e) => e.relativeIntensity >= 0.8);
+      const strongLead = lead && !strongestMissing && (lead.explains.length >= 2 || (lead.explains.length === 1 && lead.explains[0]!.relativeIntensity >= 0.8 && lead.alsoExpected.length === 0));
       const reading = !lead
         ? `None of the ${peaks.length} peak${peaks.length === 1 ? "" : "s"} matches a common sample-environment phase or standard: an impurity of the sample, magnetic order, or a feature to put to the user.`
+        : strongestMissing
+          ? `No convincing match: ${lead.phase} would explain ${lead.explains.length} of ${peaks.length} (${lead.explains.map((e) => e.hkl).join(", ")}), but its strongest line ${strongestMissing.hkl} at d ${strongestMissing.d.toFixed(3)} Å is not among the peaks. Unless that line hides under one of the sample's, report the peaks as unexplained.`
         : strongLead
-          ? `${lead.explains.length} of ${peaks.length} peak${peaks.length === 1 ? "" : "s"} match ${lead.phase} (${lead.explains.map((e) => e.hkl).join(", ")}), with its d-spacings × ${lead.dScale.toFixed(4)} — usually ${lead.source}.${lead.alsoExpected.length ? ` Its strong lines ${lead.alsoExpected.map((e) => `${e.hkl} at d ${e.d.toFixed(3)} Å`).join(", ")} should also be seen (they may hide under the sample's lines).` : ""} Put it to the user: add the phase (Load CIF) or leave the lines unmodelled and say so; it is not part of the sample.`
+          ? `${lead.explains.length} of ${peaks.length} peak${peaks.length === 1 ? "" : "s"} match ${lead.phase} (${lead.explains.map((e) => e.hkl).join(", ")}), with its d-spacings × ${lead.dScale.toFixed(4)} — usually ${lead.source}.${lead.alsoExpected.length ? ` Its strong lines ${lead.alsoExpected.map((e) => `${e.hkl} at d ${e.d.toFixed(3)} Å`).join(", ")} should also be seen (they may hide under the sample's lines).` : ""}${lead.impurity ? " An impurity of the sample: put it to the user, and add it (add_known_phase) so its lines are modelled and its weight fraction refines." : " Put it to the user: add the phase (add_known_phase) or leave the lines unmodelled and say so; it is not part of the sample."}`
           : `Only weak or single matches (best: ${lead.phase} ${lead.explains.map((e) => e.hkl).join(", ")}): not enough to name a phase. Report the peaks to the user as unexplained.`;
       return {
         peaks: peaks.map((p) => ({ d: sig(p.d, 5), ...(s.pattern.xUnit !== "dSpacing" && s.pattern.xUnit !== "q" ? { [s.pattern.xUnit]: sig(convertAxisValue(p.d, "dSpacing", s.pattern.xUnit, s.axis), 6) } : {}) })),
@@ -264,6 +269,11 @@ export async function changePowder(name: string, input: Input, port: PowderAgent
       port.addAntisite(String(input.siteA), String(input.siteB));
       return undefined;
     }
+    case "add_known_phase": {
+      if (!port.addPhase) throw new Error("this page cannot add a phase");
+      port.addPhase(knownPhaseStructure(String(input.name))!);
+      return undefined;
+    }
     case "tie_parameters": {
       if (!port.setParameterTies) throw new Error("this page cannot tie parameters");
       port.setParameterTies(tieUpdate(s.parameters, input));
@@ -311,6 +321,10 @@ export function powderNoOp(spec: LiveToolSpec, input: Input, s: PowderLiveState)
   requireStructure(spec.name, s);
   // An empty change is an error before anyone is asked.
   if (spec.name === "set_background" && input.terms === undefined && input.type === undefined) throw new Error("pass `terms`, `type`, or both");
+  if (spec.name === "set_adp_model") {
+    const want = input.anisotropic ? "anisotropic" : "isotropic";
+    return s.structure.sites.every((site) => site.adp.kind === want) ? `the ADPs are already ${want}` : null;
+  }
   if (spec.name === "set_site_ties") {
     const update = siteTieUpdate(input);
     const keys = Object.keys(update) as (keyof SiteTies)[];
@@ -327,6 +341,11 @@ export function powderNoOp(spec: LiveToolSpec, input: Input, s: PowderLiveState)
       && (update.preferredOrientation === undefined || (update.preferredOrientation === null ? !now.preferredOrientation : now.preferredOrientation?.join() === update.preferredOrientation.join()))
       && (update.peak === undefined || [...update.peak].sort().join() === [...(now.peak ?? [])].sort().join());
     return same ? "the corrections are already set so" : null;
+  }
+  if (spec.name === "add_known_phase") {
+    const name = String(input.name);
+    if (!knownPhaseStructure(name)) throw new Error(`"${name}" is not in the library — it holds ${knownPhaseNames().join(", ")}; for another phase the user loads its CIF (Add CIF…)`);
+    if ([s.structure, ...s.extraPhases].some((p) => p.name === name)) return `${name} is already a phase of the model`;
   }
   if (spec.name === "add_antisite") {
     if (s.extraPhases.length > 0) throw new Error("antisite disorder is added to a single-phase model");
@@ -408,6 +427,10 @@ export function describePowderChange(spec: LiveToolSpec, input: Input, s: Powder
         ...(u.preferredOrientation !== undefined ? [u.preferredOrientation ? `preferred orientation along ${u.preferredOrientation.join(" ")}` : "preferred orientation off"] : []),
         ...(u.peak !== undefined ? [`peak corrections: ${u.peak.length ? u.peak.join(", ") : "none"}`] : []),
       ].join(" · ");
+    }
+    case "add_known_phase": {
+      const p = knownPhaseStructure(String(input.name));
+      return p ? `Add ${p.name} (${p.spaceGroup.hermannMauguin ?? "?"}, a = ${p.cell.a} Å) as a further phase: its scale and cell refine with the others` : `Add ${String(input.name)}`;
     }
     case "add_antisite": {
       const a = s.structure.sites.find((x) => x.label === input.siteA);
@@ -501,7 +524,13 @@ function stateView(s: PowderLiveState, history: ProjectHistory | null, select: r
     },
     instrument: s.instrument
       ? s.instrument.kind === "constantWavelength"
-        ? { kind: "constant wavelength", wavelength: s.instrument.wavelength }
+        ? {
+            kind: "constant wavelength",
+            wavelength: s.instrument.wavelength,
+            ...(s.instrument.asymmetry
+              ? { asymmetry: `S/L ${s.instrument.asymmetry.sl}, H/L ${s.instrument.asymmetry.hl} in the file — ${s.settings.corrections.asymmetry ? "on" : "off until set_corrections switches it on, which seeds it from these"}` }
+              : {}),
+          }
         : { kind: "time of flight", difC: s.instrument.difC, difA: s.instrument.difA ?? 0, zero: s.instrument.zero ?? 0, note: "TOF = difC·d + difA·d² + zero; set_fit_range and find_unexplained_peaks convert for you" }
       : "none loaded (default CW, λ = 1.54 Å)",
     settings: {

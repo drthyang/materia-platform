@@ -28,6 +28,9 @@ describe("parseInstrumentParameters", () => {
     expect(p.w).toBeCloseTo(1.2088 * 8 * Math.log(2), 2); // ≈ 6.703
     expect(p.x).toBe(0); // Lorentzian X (FWHM coeff) read as-is
     expect(p.polarization).toBeCloseTo(0.8442, 4);
+    // GSAS-II's one SH/L = (S + H)/L, S and H equal.
+    expect(p.asymmetry?.sl).toBeCloseTo(0.002711817508568138 / 2, 10);
+    expect(p.asymmetry?.hl).toBeCloseTo(0.002711817508568138 / 2, 10);
   });
 
   it("still parses a TOF file (difC) without profile terms", () => {
@@ -85,6 +88,9 @@ describe("parseInstrumentParameters", () => {
     // Lorentzian LX/LY (PRCF12) are FWHM coefficients — taken as-is (no 8 ln2).
     expect(p.x).toBeCloseTo(0.173, 4);
     expect(p.y).toBe(0);
+    // A type-3 profile's FCJ asymmetry follows on PRCF12 (round 10: it was dropped,
+    // and switching the asymmetry on seeded 0.01, nine times 11-BM's own).
+    expect(p.asymmetry).toEqual({ sl: 0.0011, hl: 0.0011 });
     // POLA is fixed-column field 5 (0.990) — the synchrotron polarization, not
     // the blank field-4 that whitespace-splitting would otherwise land on.
     expect(p.polarization).toBeCloseTo(0.99, 3);

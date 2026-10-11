@@ -163,6 +163,19 @@ export const tracksBonds: Check = {
   },
 };
 
+/** A library phase is added to the model (round 10: fluorite in NAC, which only the user's CIF could add). */
+export function addsKnownPhase(name: string): Check {
+  return {
+    name: `adds ${name} as a phase`,
+    grade: (run) => {
+      const added = calls(run).some((c) => c.name === "add_known_phase" && !c.isError && c.input.name === name);
+      const s = run.port.state() as { extraPhases?: readonly { name: string }[] };
+      const present = (s.extraPhases ?? []).some((p) => p.name === name);
+      return added && present ? ok(`${name} is a phase of the model`) : fail(added ? `${name} was asked for but is not in the model` : `${name} was never added`);
+    },
+  };
+}
+
 /** The last report carries the scan it rests on (round 9: going back to the full fit had dropped it). */
 export const reportCarriesScan: Check = {
   name: "puts the scan in the report",

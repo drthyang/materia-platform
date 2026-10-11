@@ -476,7 +476,7 @@ and [`pdfTools.ts`](../src/agent/pdfTools.ts).
   untouched.
 - Change tools ask first: `set_free`, `set_background`, `set_microstrain`,
   `set_adp_model`, `set_site_ties`, `set_corrections`,
-  `set_instrument_constants`, `add_antisite`, `tie_parameters`, `set_fit_range`,
+  `set_instrument_constants`, `add_antisite`, `add_known_phase`, `tie_parameters`, `set_fit_range`,
   `refine`, `reset_parameters` (all, or the ids given), `go_to_step`, and on
   the magnetic step
   `set_propagation_vector`, `select_magnetic_ions`, `set_moment_ties`,
@@ -507,8 +507,15 @@ and [`pdfTools.ts`](../src/agent/pdfTools.ts).
   the tie rides through every rebuild of the spec, `set_free` skips the
   followers, and `structure_table` gives them the leader's esd.
   `identify_peaks` matches extra peaks against the sample environment (Al,
-  V, Cu, steels, Nb, Pb) and common holders and standards, each phase's lines
-  computed for the pattern's radiation and allowed one d scale.
+  V, Cu, steels, Nb, Pb), common holders and standards, and the impurities a
+  synthesis leaves most often (CaF₂, NaF, NaCl), each phase's lines computed
+  for the pattern's radiation and allowed one d scale; candidates rank by the
+  peaks they explain, weighed by how plausible their cell is, and one whose
+  strongest line is missing is called doubtful. `add_known_phase` adds a
+  matched library phase to the model as a further phase (its cell, positions
+  and B ≈ 0.5 Å²) and always asks the user; another phase needs the user's
+  CIF. A glob without a phase prefix (`pos_*`) matches every phase's rows of
+  a multi-phase model.
   `set_instrument_constants` sets an X-ray instrument's polarization fraction
   and Kα₂/Kα₁ ratio — constants the fit cannot determine (the polarization
   trades with every B at the same wR) — and always asks the user.

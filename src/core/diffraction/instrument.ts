@@ -33,6 +33,10 @@ export type InstrumentParameters =
        *  calibrated Lorentzian; Γ_L = X/cosθ + Y·tanθ, centidegrees). */
       readonly x?: number;
       readonly y?: number;
+      /** The axial-divergence asymmetry (Finger–Cox–Jephcoat S/L and H/L) the
+       *  file was calibrated with: a GSAS type-3 profile's PRCF12 terms 3–4, or
+       *  GSAS-II's SH/L split evenly. Seeds the asymmetry when it is switched on. */
+      readonly asymmetry?: { readonly sl: number; readonly hl: number };
       /** Polarization fraction (GSAS-II `Polariz.`), for the Lp correction. */
       readonly polarization?: number;
       /** A lab tube's Kα₂ line (GSAS-II Lam2, I(L2)/I(L1)); absent ⇒ monochromatic. */

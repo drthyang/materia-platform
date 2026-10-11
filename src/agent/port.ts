@@ -95,6 +95,8 @@ export interface PowderAgentPort {
   /** Let two sites exchange their atoms (antisite disorder): each element added
    *  on the other site at occupancy 0, with Σ occ = 1 and hold composition on. */
   readonly addAntisite?: (siteA: string, siteB: string) => void;
+  /** Add a further phase to the model (Add CIF… with a structure in hand): its scale and cell refine with the others. */
+  readonly addPhase?: (structure: StructureModel) => void;
   /** Tie parameters of one kind to one refined value (the leader first), or release such ties. */
   readonly setParameterTies?: (update: EqualTieUpdate) => void;
   /** Sample the Bayesian posterior of the free parameters (the Posterior view's Sample / Continue). */

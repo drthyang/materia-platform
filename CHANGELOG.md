@@ -9,6 +9,18 @@ release fixes bugs.
 
 ### Added
 
+- **Known phases the Agent can add** (`add_known_phase`): a phase
+  `identify_peaks` matched goes into the model as a further phase, with the
+  library's room-temperature cell and positions and B ≈ 0.5 Å², so its scale
+  and cell refine with the others; it always asks the user. The library now
+  holds the impurities a synthesis leaves most often: CaF₂, NaF, NaCl. On NAC
+  from 11-BM, 22 unindexed lines were fluorite, 1.448(6) wt %.
+- **Phase fractions and line broadening in the powder report**: the weight
+  fractions (Hill & Howard, with their basis), the crystallite size and
+  microstrain from the refined Lorentzian with the instrument's subtracted,
+  the instrument file's profile beside the refined one, and the axial
+  asymmetry named in the peak shape.
+
 - **Bond lengths in the report.** Each phase's table of the cations'
   coordination shells at the refined positions — neighbour, length and
   multiplicity (Mn–O6 1.9067 ×2 · O1 1.9692 ×2 · O6 2.1794 ×2 in LaMnO₃) —
@@ -200,6 +212,16 @@ release fixes bugs.
 
 ### Changed
 
+- **`identify_peaks` ranks a candidate by the peaks it explains, weighed by
+  how plausible its cell is**, then by line strength. Isostructural phases
+  explain the same peaks, and the cell tells them apart: on NAC, fluorite at
+  its own cell came first, where the line strengths alone had put CeO₂ (the
+  same lattice 1 % smaller). Lines down to 0.5 % count; a candidate whose
+  strongest line is missing is called doubtful, and an impurity is called
+  part of the sample.
+- A glob without a phase prefix (`pos_*`, `cell_*`) matches every phase's
+  rows of a multi-phase model, in `set_free`, `get_state` and the scans.
+
 - **The Agent's opening text says what it is and what it does.** It names
   the model in use (Claude, or the local model on Ollama or LM Studio), says
   it can run the whole analysis by the page's method and discuss it, and
@@ -208,6 +230,18 @@ release fixes bugs.
 
 ### Fixed
 
+- **The instrument file's peak asymmetry.** A GSAS type-3 profile's S/L and
+  H/L (PRCF12) and GSAS-II's SH/L were dropped, and switching the asymmetry
+  on seeded 0.01, nine times 11-BM's 0.0011. They are now read, seed the
+  asymmetry, and `get_state` says the file carries one.
+- **The powder page reads its ADP model from the structure.** A CIF with
+  U_aniso columns loaded 22 tensor rows for NAC while `get_state` said
+  `anisotropicAdp: false` and the box under ADPs was unticked; a no-op
+  `set_adp_model` now says so.
+- The cell check's record names its unindexed peaks by d, so the report's
+  cell check lists them and a note that cites them cites the report.
+- `interpret_structure` printed a microstrain esd under 0.5 × 10⁻⁶ as
+  "± 0".
 - **No GoF beside a PDF fit's Rw.** The report's steps listed one (0.32 on
   LaMnO₃), though uniform weights make it meaningless; History steps no
   longer record it for a PDF fit, and the report leaves it out of older ones.

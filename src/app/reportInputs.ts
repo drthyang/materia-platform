@@ -11,6 +11,8 @@
 import type { StructureModel } from "@/core/crystal/types";
 import type { MagneticModel } from "@/core/magnetic/types";
 import type { Vec3 } from "@/core/math/types";
+import { extractSizeStrain } from "@/core/diffraction/microstructure";
+import { formatWt, fractionsOf } from "@/core/diagnostics/phaseFractions";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import type { MergeStatistics } from "@/core/diffraction/merge";
 import type { PdfPattern, Radiation, SingleCrystalDataset } from "@/core/diffraction/types";
@@ -64,6 +66,48 @@ function withEsds(params: readonly RefinementParameter[], result: RefinementResu
 
 const pct = (v: number | null | undefined, d = 2): string => (v === null || v === undefined || !Number.isFinite(v) ? "—" : `${(100 * v).toFixed(d)} %`);
 const num = (v: number, d: number): string => v.toFixed(d);
+
+/**
+ * The profile the instrument file was calibrated with, beside the refined one
+ * in the parameter table: what a profile standard is measured against (round
+ * 10, NAC against 11-BM's 2009 LaB₆ profile).
+ */
+function instrumentProfileRow(instrument: InstrumentParameters, loaded: boolean): ReportRow[] {
+  if (!loaded || instrument.kind !== "constantWavelength" || instrument.u === undefined) return [];
+  const g = `U ${instrument.u.toFixed(3)}, V ${(instrument.v ?? 0).toFixed(3)}, W ${(instrument.w ?? 0).toFixed(3)} (Gaussian FWHM², centideg²)`;
+  const l = instrument.x !== undefined ? ` · X ${instrument.x}, Y ${instrument.y ?? 0} (Lorentzian, centideg)` : "";
+  const a = instrument.asymmetry ? ` · S/L ${instrument.asymmetry.sl}, H/L ${instrument.asymmetry.hl}` : "";
+  return [{ label: "Instrument profile (file)", value: `${g}${l}${a}` }];
+}
+
+/** A value with its esd in the last digits, e.g. 19.8(4); the value alone without one. */
+function withEsdText(v: number, esd: number | undefined, decimals: number): string {
+  if (esd === undefined || !(esd > 0)) return v.toFixed(decimals);
+  const d = Math.min(Math.max(-Math.floor(Math.log10(esd)) + (esd < 2 * 10 ** Math.floor(Math.log10(esd)) ? 1 : 0), 0), 6);
+  return `${v.toFixed(d)}(${Math.round(esd * 10 ** d)})`;
+}
+
+/**
+ * Crystallite size and microstrain from the refined Lorentzian X and Y, with
+ * the instrument's (the starting values, from its file) subtracted — the
+ * page's microstructure readout, as report rows.
+ */
+function microstructureRows(params: readonly RefinementParameter[], result: RefinementResult, wavelength: number): ReportRow[] {
+  const px = params.find((p) => p.kind === "profileX");
+  const py = params.find((p) => p.kind === "profileY");
+  if (!px || !py || (px.fixed && py.fixed)) return [];
+  const ss = extractSizeStrain({
+    x: px.value, y: py.value, wavelength,
+    ...(result.esd[px.id] !== undefined ? { xEsd: result.esd[px.id]! } : {}),
+    ...(result.esd[py.id] !== undefined ? { yEsd: result.esd[py.id]! } : {}),
+    instrument: { x: px.initialValue, y: py.initialValue },
+  });
+  const ref = `the instrument's X = ${px.initialValue}, Y = ${py.initialValue} subtracted`;
+  return [
+    { label: "Crystallite size", value: Number.isFinite(ss.sizeNm.value) ? `${withEsdText(ss.sizeNm.value, ss.sizeNm.esd, 0)} nm — Lorentzian X, Scherrer K 0.9, ${ref}` : `not resolved: X is not above the instrument's (${ref})` },
+    { label: "Microstrain", value: `${withEsdText(ss.strainPpm.value, ss.strainPpm.esd, 1)} × 10⁻⁶ — Lorentzian Y, ${ref}` },
+  ];
+}
 
 /**
  * Name a magnetic group from its operations the way the magnetic page names
@@ -257,17 +301,26 @@ export function powderReportInput(o: {
     ...(multi ? [{ label: "Phases", value: String(o.refinedPhases.length) }] : []),
   ];
 
+  // The phases' weight fractions, and what the refined Lorentzian adds to the
+  // instrument's: rows of their own, so an account that cites them cites the
+  // report (round 10, NAC with fluorite on 11-BM).
+  const fractions = multi && result ? fractionsOf(o.refinedPhases, params, result) : null;
+  const micro = pattern.xUnit === "twoTheta" && result && "wavelength" in pattern.radiation ? microstructureRows(params, result, pattern.radiation.wavelength) : [];
+
   const data: ReportRow[] = [
     { label: "Data file", value: session.rawData?.name ?? pattern.name },
     { label: "Probe", value: probeLabel(pattern.radiation) },
     { label: "Instrument", value: instrumentLabel(o.instrument, o.instrumentLoaded) + (session.rawInstrument ? ` · file ${session.rawInstrument.name}` : "") },
+    ...instrumentProfileRow(o.instrument, o.instrumentLoaded),
     { label: "Range", value: `${num(xmin, pattern.xUnit === "tof" ? 0 : 3)} – ${num(xmax, pattern.xUnit === "tof" ? 0 : 3)} ${unit} · ${pattern.points.length} points` },
     ...(o.fitRange ? [{ label: "Fit window", value: `${num(o.fitRange.min, 3)} – ${num(o.fitRange.max, 3)} (${o.xLabel}) · ${o.pointsInWindow} points` }] : []),
     { label: "Background", value: `Chebyshev polynomial, ${session.backgroundTerms} terms` },
-    { label: "Peak shape", value: o.tofViewOnly ? "View only — GSAS-II's calculated curve is shown; MATERIA did not refine this TOF pattern" : peakShapeLabel(session.powderProfile) },
+    { label: "Peak shape", value: o.tofViewOnly ? "View only — GSAS-II's calculated curve is shown; MATERIA did not refine this TOF pattern" : `${peakShapeLabel(session.powderProfile)}${session.corrections?.asymmetry ? " · Finger–Cox–Jephcoat axial-divergence asymmetry (S/L, H/L)" : ""}` },
     { label: "Lorentz factor", value: session.powderProfile.lorentz === false ? "off (pre-reduced intensities)" : "applied" },
     ...(session.mustrain && session.mustrain !== "isotropic" ? [{ label: "Microstrain model", value: session.mustrain }] : []),
     ...(multi ? [{ label: "Phases", value: o.refinedPhases.map((s) => s.name || s.id).join(" · ") }] : []),
+    ...(fractions ? [{ label: "Phase fractions", value: `${fractions.map((w) => `${w.name} ${formatWt(w)}`).join(" · ")} — Hill & Howard, from the refined scales; crystalline phases only, no microabsorption correction, esds from the scales alone` }] : []),
+    ...micro,
   ];
 
   const inst = [o.instrument.name, o.instrument.facility].filter(Boolean).join(" · ");

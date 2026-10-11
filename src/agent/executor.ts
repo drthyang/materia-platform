@@ -322,8 +322,10 @@ export class AgentExecutor implements ToolRunner {
   private noteCellCheck(port: AgentPort, out: { passed?: boolean; unindexedPeaks?: unknown[]; absences?: { violated?: unknown[] } }): void {
     const unindexed = out.unindexedPeaks?.length ?? 0;
     const flagged = out.absences?.violated?.length ?? 0;
+    // The peaks by d, so the report says which they were, and a note that names them names the report's numbers.
+    const ds = (out.unindexedPeaks ?? []).map((p) => (p as { d?: number }).d).filter((d): d is number => typeof d === "number").slice(0, 12);
     const parts = [
-      ...(unindexed > 0 ? [`${unindexed} unindexed peak${unindexed === 1 ? "" : "s"}`] : []),
+      ...(unindexed > 0 ? [`${unindexed} unindexed peak${unindexed === 1 ? "" : "s"}${ds.length ? ` (d = ${ds.join(", ")}${unindexed > ds.length ? ", …" : ""} Å)` : ""}`] : []),
       ...(flagged > 0 ? [`${flagged} absence${flagged === 1 ? "" : "s"} flagged (revisit at the symmetry review)`] : []),
     ];
     const summary = out.passed ? "every peak indexes; no absence flagged" : parts.join(", ");

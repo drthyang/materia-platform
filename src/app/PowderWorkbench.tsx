@@ -131,6 +131,8 @@ export interface PowderWorkbenchProps {
   onLoadData: (file: File) => void;
   onLoadCif: (file: File) => void;
   onAddPhase: (file: File) => void;
+  /** Add a further phase from a structure in hand (the Agent's add_known_phase). */
+  onAddStructure?: (structure: StructureModel) => void;
   onRemovePhase: (id: string) => void;
   onClearStructures: () => void;
   /** How the loaded powder file was classified (null when the reader knew its
@@ -163,13 +165,22 @@ export interface PowderWorkbenchProps {
   agentLink?: AgentLink;
 }
 
+/**
+ * The primary phase refines U tensors: some site is anisotropic. Read from
+ * the structure, not from the toggle alone — a CIF with U_aniso columns loads
+ * tensors without anyone ticking the box (round 10, NAC on 11-BM).
+ */
+function hasTensorAdp(structure: StructureModel): boolean {
+  return structure.sites.some((site) => site.adp.kind === "anisotropic");
+}
+
 /** Ensemble steps per posterior run or continue (each one proposal per walker). */
 const SAMPLE_STEPS = 400;
 
 export function PowderWorkbench({
   session, setSession, powderResult, setPowderResult, instrument, instrumentLoaded, ownStructure,
   client, active, step, onStep, setMessage, exportsRef,
-  onLoadData, onLoadCif, onAddPhase, onRemovePhase, onClearStructures, detection, onOverrideXUnit,
+  onLoadData, onLoadCif, onAddPhase, onAddStructure, onRemovePhase, onClearStructures, detection, onOverrideXUnit,
   onLoadInstrument, onInstrumentConstants, onLoadDemo, demos = [],
   onOpenProject, viewRestore, useGpu = true,
   stepHistory, agentLink,
@@ -1401,7 +1412,7 @@ export function PowderWorkbench({
             backgroundTerms: session.backgroundTerms,
             backgroundType: session.powderProfile.backgroundType ?? "chebyshev",
             mustrain: session.mustrain ?? "isotropic",
-            anisotropicAdp: !!session.anisotropicAdp,
+            anisotropicAdp: hasTensorAdp(session.structure),
             siteTies: session.siteTies,
             corrections: session.corrections ?? {},
           },
@@ -1426,6 +1437,7 @@ export function PowderWorkbench({
       setSiteTies,
       setCorrections,
       addAntisite,
+      ...(onAddStructure ? { addPhase: onAddStructure } : {}),
       setParameterTies,
       ...(onInstrumentConstants ? { setInstrumentConstants: onInstrumentConstants } : {}),
       setFitRange: (range) => setFitRange(range ? { min: range.min, max: range.max } : null),
@@ -1884,7 +1896,7 @@ export function PowderWorkbench({
                   ),
                   "ADPs (thermal)": (
                     <label style={{ display: "inline-flex", alignItems: "center", gap: 5, cursor: "pointer" }} title="Refine the anisotropic U tensor. Each site's U is seeded from its current B_iso; symmetry fixes which components are free. Turn on after an isotropic fit converges.">
-                      <input type="checkbox" checked={session.anisotropicAdp ?? false} onChange={(e) => setAnisotropicAdp(e.target.checked)} />
+                      <input type="checkbox" checked={hasTensorAdp(session.structure)} onChange={(e) => setAnisotropicAdp(e.target.checked)} />
                       anisotropic (U tensor)
                     </label>
                   ),
