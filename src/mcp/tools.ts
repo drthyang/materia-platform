@@ -14,7 +14,7 @@
  */
 
 import type { StructureModel } from "@/core/crystal/types";
-import type { PdfPattern, PowderPattern, SineTransformRecord } from "@/core/diffraction/types";
+import type { PdfPattern, PdfScatteringType, PowderPattern, SineTransformRecord } from "@/core/diffraction/types";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import { isMomentParameterKind, type LinearRestraint, type ParameterBinding, type RefinementParameter, type RefinementResult } from "@/core/refinement/types";
 import type { PowderProfile } from "@/core/workflow/powder";
@@ -46,11 +46,15 @@ import { buildMpdfSpec, mpdfComponents, unsupportedMpdfModel, MPDF_STAGE_KINDS }
 import { computeAgreementFactors, excludedPointMask, weightsFromSigma } from "@/core/refinement/factors";
 import { axisContext, convertAxisArray } from "@/visualization/axisUnits";
 import { generateReflections } from "@/core/diffraction/reflections";
-import { abscissaFromD } from "@/core/diffraction/instrument";
+import { abscissaFromD, radiationOf } from "@/core/diffraction/instrument";
 import { bondLengths } from "@/core/crystal/geometry";
+import { bondValenceReading, bondValenceSums, type BondValenceSum } from "@/core/crystal/bondValence";
 import { analyzeSiteSymmetry, type SiteSymmetry } from "@/core/crystal/siteSymmetry";
 import { classifyPointGroup } from "@/core/crystal/pointGroup";
 import { detectExtraPeaks, type ExtraPeakOptions } from "@/core/magnetic/extraPeaks";
+import { reviewSymmetry, type SymmetryReview } from "@/core/diagnostics/symmetryReview";
+import { isGsasHistogram, parseGsasHistogramPattern } from "@/parsers/gsasHistogram";
+import { cagliotiOf } from "@/core/workflow/leBail";
 import { searchPropagationVector, type KSearchOptions } from "@/core/magnetic/kSearch";
 import { magneticSubgroupLattice, latticeRepresentatives } from "@/core/magnetic/subgroupLattice";
 import { allowedMomentDirections } from "@/core/magnetic/allowedMoments";
@@ -103,6 +107,7 @@ import type { Vec3 } from "@/core/math/types";
 import type { PeakShape } from "@/core/diffraction/profile";
 import {
   assessRefinement,
+  relativeLineWidth,
   suggestNextSteps,
   type AssessmentInput,
   type RefinementAssessment,
@@ -125,20 +130,25 @@ export function parse_structure(args: { cif: string; id?: string; spaceGroupSett
 }
 
 /** Classify + parse powder data; returns the pattern and how the format was detected. */
-export function parse_powder_data(args: { text: string; filename?: string }): {
+export function parse_powder_data(args: { text: string; filename?: string; instrument?: InstrumentParameters }): {
   detected: { dataType: string; xUnit?: string; source: string; confidence: string; note?: string };
   pattern: PowderPattern;
   summary: { points: number; xUnit: string; xMin: number; xMax: number; radiation: string };
 } {
-  const fmt = detectDataFormat({ text: args.text, filename: args.filename ?? "data" });
+  // The instrument sets the radiation: X-ray or neutron, λ, polarization, a lab tube's Kα₂.
+  const fmt = detectDataFormat({ text: args.text, filename: args.filename ?? "data", ...(args.instrument ? { instrument: args.instrument } : {}) });
   if (fmt.dataType !== "powder") throw new Error(`detected ${fmt.dataType} data, not powder — use the single-crystal path`);
-  const pattern = parsePowderData(args.text, {
-    id: "data",
-    name: args.filename ?? "data",
-    xUnit: fmt.xUnit,
-    radiation: fmt.radiation,
-    ...(fmt.radiation.kind !== "neutron-tof" ? { wavelength: fmt.radiation.wavelength } : {}),
-  });
+  // A GSAS histogram (BANK records: STD/ESD/ALT/FXYE, CONST or TOF binning)
+  // is read as the app reads it; its packed rows are not columns.
+  const pattern = isGsasHistogram(args.text)
+    ? parseGsasHistogramPattern(args.text, "data", args.filename ?? "data", { radiation: fmt.radiation })
+    : parsePowderData(args.text, {
+      id: "data",
+      name: args.filename ?? "data",
+      xUnit: fmt.xUnit,
+      radiation: fmt.radiation,
+      ...(fmt.radiation.kind !== "neutron-tof" ? { wavelength: fmt.radiation.wavelength } : {}),
+    });
   const xs = pattern.points.map((p) => p.x);
   return {
     detected: { dataType: fmt.dataType, ...(fmt.xUnit ? { xUnit: fmt.xUnit } : {}), source: fmt.source, confidence: fmt.confidence, ...(fmt.note ? { note: fmt.note } : {}) },
@@ -182,11 +192,12 @@ export function build_refinement(args: {
 }
 
 /**
- * The cell / space-group gate, run before any structural refinement: a Le Bail
- * fit refines the cell from peak positions alone, then every leftover peak
- * must index and every forbidden reflection must be absent. A wrong cell or
- * lattice shows as unindexed peaks; a space group that is too symmetric (a
- * centring or glide the crystal lacks) shows as violated absences.
+ * The cell / space-group check at the start of a refinement — a sanity check,
+ * not a gate: a Le Bail fit refines the cell from peak positions alone, then
+ * reads the leftover. A wrong cell or a missing phase shows as unindexed
+ * peaks. Intensity at a forbidden reflection is a flag to note and revisit at
+ * the end (review_symmetry, on the refined residual), not a reason to change
+ * the space group before the structure is refined.
  */
 export function check_cell_symmetry(args: {
   structure: StructureModel;
@@ -217,6 +228,9 @@ export function check_cell_symmetry(args: {
       ...(instrument.sigQ !== undefined ? { sigQ: instrument.sigQ } : {}),
     }
     : undefined;
+  // A loaded instrument's resolution curve shapes the Le Bail widths (the
+  // default instrument's generic one would mislead).
+  const caglioti = args.instrument ? cagliotiOf(args.instrument) : undefined;
   return checkCellSymmetry(
     args.structure,
     args.pattern,
@@ -224,6 +238,7 @@ export function check_cell_symmetry(args: {
     spec.bindings.filter((b) => isCell(b.kind)),
     {
       ...(tof ? { tof } : {}),
+      ...(caglioti ? { caglioti } : {}),
       ...(tofProfile ? { tofProfile } : {}),
       ...(args.extraPhases ? { extraPhases: args.extraPhases } : {}),
       ...(args.fitRange ? { fitRange: args.fitRange } : {}),
@@ -253,7 +268,7 @@ export async function refine_powder(args: {
   staged?: boolean;
   fitRange?: { min: number; max: number };
   maxIterations?: number;
-}): Promise<{ result: RefinementResult; parameters: RefinementParameter[]; observationCount: number; residual: { d: number[]; yObs: number[]; yCalc: number[] }; parallel: { workers: number } | null }> {
+}): Promise<{ result: RefinementResult; parameters: RefinementParameter[]; observationCount: number; residual: { d: number[]; yObs: number[]; yCalc: number[]; lineWidth?: number }; parallel: { workers: number } | null }> {
   const shape: PeakShape = args.profile.shape;
   const options = { maxIterations: args.maxIterations ?? 20 };
 
@@ -309,11 +324,14 @@ export async function refine_powder(args: {
   // positive residual for the missing-phase / magnetic-order signal.
   const refined = args.parameters.map((p) => ({ ...p, value: result.parameters[p.id] ?? p.value }));
   const curves = powderCurves(args.structure, args.pattern, refined, args.bindings, args.profile);
-  const ctx = axisContext(args.pattern, args.instrument);
+  // d with the refined zero taken out, so residual peaks compare with the cell's reflections.
+  const ctx = axisContext(args.pattern, args.instrument, refined.find((p) => p.kind === "zeroShift")?.value);
   const d = args.pattern.xUnit === "dSpacing" ? [...curves.x] : convertAxisArray(curves.x, args.pattern.xUnit, "dSpacing", ctx);
   const excluded = excludedPointMask(curves.yObs);
   const observationCount = excluded.reduce((n, ex) => n + (ex ? 0 : 1), 0);
-  return { result, parameters: refined, observationCount, residual: { d, yObs: [...curves.yObs], yCalc: [...curves.yCalc] }, parallel };
+  // Constant wavelength: assess_refinement reads "on" and "beside" a reflection by the lines' own width.
+  const lineWidth = args.pattern.xUnit === "twoTheta" ? relativeLineWidth(d, curves.yCalc) : undefined;
+  return { result, parameters: refined, observationCount, residual: { d, yObs: [...curves.yObs], yCalc: [...curves.yCalc], ...(lineWidth !== undefined ? { lineWidth } : {}) }, parallel };
 }
 
 /**
@@ -421,7 +439,7 @@ export function simulate_pattern(args: {
     id: "sim",
     name: "simulated",
     xUnit: isTof ? "tof" : "twoTheta",
-    radiation: isTof ? { kind: "neutron-tof" } : { kind: instrument.radiationKind === "neutron" ? "neutron" : "xray", wavelength: instrument.wavelength },
+    radiation: isTof ? { kind: "neutron-tof" } : radiationOf(instrument, "xray"),
     points: grid.map((x) => ({ x, yObs: 0 })),
   };
   const spec = buildPowderSpec(args.structure, pattern, instrument, true, 1, {});
@@ -481,9 +499,11 @@ export function reflection_list(args: {
 export function bond_geometry(args: { structure: StructureModel; cutoff?: number }): {
   bonds: { from: string; to: string; distance: number }[];
   shortest: { from: string; to: string; distance: number } | null;
+  bondValence?: { sums: BondValenceSum[]; reading: string };
 } {
   const bonds = bondLengths(args.structure, args.cutoff ?? 3.2);
-  return { bonds, shortest: bonds[0] ?? null };
+  const sums = bondValenceSums(args.structure);
+  return { bonds, shortest: bonds[0] ?? null, ...(sums.length ? { bondValence: { sums, reading: bondValenceReading(sums) } } : {}) };
 }
 
 /**
@@ -520,6 +540,27 @@ export function find_unexplained_peaks(args: {
 }
 
 /**
+ * The symmetry review, the LAST step of a Rietveld refinement: on the refined
+ * residual, the forbidden reflections of the primary phase that still carry
+ * intensity, and the same-lattice subgroups that allow them
+ * (diagnostics/symmetryReview.ts). Run only once the structure is refined to
+ * the best its group allows.
+ */
+export function review_symmetry(args: {
+  structure: StructureModel;
+  extraPhases?: StructureModel[];
+  residual: { d: number[]; yObs: number[]; yCalc: number[]; sigma?: number[] };
+}): SymmetryReview {
+  const phases = [args.structure, ...(args.extraPhases ?? [])];
+  const finite = args.residual.d.filter((v) => Number.isFinite(v) && v > 0);
+  const dMin = Math.min(...finite) * 0.99;
+  const dMax = Math.max(...finite) * 1.01;
+  const reflections = phases.flatMap((ph) =>
+    generateReflections(ph.cell, ph.spaceGroup, dMin, dMax).map((r) => ({ d: r.d, hkl: `${r.h} ${r.k} ${r.l}`, phaseLabel: ph.name || ph.id })));
+  return reviewSymmetry(phases, { ...args.residual, reflections });
+}
+
+/**
  * Rank candidate propagation vectors k (commensurate, denominators 2/3/4/6)
  * by how many unexplained peaks their satellites G ± k explain. The k-search
  * step of magnetic structure solution.
@@ -529,7 +570,8 @@ export function search_propagation_vector(args: {
   peakD: number[];
   options?: KSearchOptions;
 }): { candidates: { k: Vec3; label: string; matched: number; total: number; rmsd: number; score: number }[] } {
-  const candidates = searchPropagationVector(args.structure.cell, args.peakD, args.options ?? {});
+  // A line's width in d grows with d: match within 0.5 % of d where that is wider than the Å tolerance.
+  const candidates = searchPropagationVector(args.structure.cell, args.peakD, { relativeTolerance: 0.005, ...(args.options ?? {}) });
   return { candidates: candidates.map((c) => ({ ...c })) };
 }
 
@@ -1024,12 +1066,12 @@ export function interpret_structure(args: {
 
 /** Parse a reduced PDF file (.gr/.sq/.fq — PDFgetX3 or Mantid dialect) or a
  *  PDFgui fit export (.fgr; `signal` picks observed vs residual). */
-export function parse_pdf_data(args: { text: string; filename?: string; signal?: FgrSignal }): {
+export function parse_pdf_data(args: { text: string; filename?: string; signal?: FgrSignal; scatteringType?: PdfScatteringType }): {
   detected: { dataType: string; source: string; confidence: string; note?: string };
   pattern: PdfPattern;
   summary: {
     points: number; rMin: number; rMax: number; rStep?: number;
-    scatteringType: string; qmax?: number; qdamp?: number; composition?: string;
+    scatteringType: string; radiationAssumed?: true; qmax?: number; qdamp?: number; composition?: string;
     dscale?: number; fitrmin?: number; fitrmax?: number;
     sourceKind?: string; sigma?: string; transform?: SineTransformRecord;
   };
@@ -1062,7 +1104,7 @@ export function parse_pdf_data(args: { text: string; filename?: string; signal?:
   if (args.signal !== undefined) throw new Error("`signal` applies only to PDFgui .fgr fit exports");
   const fmt = detectDataFormat({ text: args.text, filename: args.filename ?? "data.gr" });
   if (fmt.dataType !== "pdf") throw new Error(`detected ${fmt.dataType} data, not a reduced PDF — use the powder/single-crystal path`);
-  const pattern = parsePdfData(args.text, { id: "pdf", ...(args.filename ? { filename: args.filename } : {}) });
+  const pattern = parsePdfData(args.text, { id: "pdf", ...(args.filename ? { filename: args.filename } : {}), ...(args.scatteringType ? { scatteringType: args.scatteringType } : {}) });
   if (pattern.points.length < 3) throw new Error("fewer than 3 usable G(r) rows");
   const rMin = pattern.points[0]!.r;
   const rMax = pattern.points[pattern.points.length - 1]!.r;
@@ -1073,6 +1115,7 @@ export function parse_pdf_data(args: { text: string; filename?: string; signal?:
       points: pattern.points.length, rMin, rMax,
       ...(pattern.rstep !== undefined ? { rStep: pattern.rstep } : {}),
       scatteringType: pattern.scatteringType,
+      ...(pattern.radiationAssumed ? { radiationAssumed: true as const } : {}),
       ...(pattern.qmax !== undefined ? { qmax: pattern.qmax } : {}),
       ...(pattern.qdamp !== undefined ? { qdamp: pattern.qdamp } : {}),
       ...(pattern.composition ? { composition: pattern.composition } : {}),
@@ -1640,11 +1683,57 @@ function emptySpinFieldWarning(pattern: PdfPattern, magnetic: MagneticModel, gMa
  * least-squares error bars were honest. Bounded per call; the returned resume
  * token continues the same chain in a later call.
  */
-export async function sample_posterior(args: {
+/** The powder problem refine_powder fits: single-phase, multi-phase, or nuclear + magnetic. */
+function powderSampleSpec(args: {
   structure: StructureModel;
-  pattern: PdfPattern;
+  pattern: PowderPattern;
   parameters: RefinementParameter[];
   bindings: ParameterBinding[];
+  profile?: PowderProfile;
+  magnetic?: MagneticModel;
+  restraints?: LinearRestraint[];
+  extraPhases?: StructureModel[];
+  fitRange?: { min?: number; max?: number };
+}): EvaluatorSpec {
+  if (!args.profile) throw new Error("sample_posterior: a powder pattern needs the `profile` build_refinement returned");
+  const profile = args.profile;
+  const shared = {
+    pattern: args.pattern,
+    parameters: args.parameters,
+    bindings: args.bindings,
+    shape: profile.shape,
+    ...(profile.eta !== undefined ? { eta: profile.eta } : {}),
+    ...(args.fitRange ? { fitRange: args.fitRange } : {}),
+  };
+  const extra = args.extraPhases ?? [];
+  if (args.magnetic) {
+    return {
+      kind: "magneticPowder", structure: args.structure, magnetic: args.magnetic, ...shared,
+      ...(extra.length ? { extraPhases: extra.map((st) => ({ structure: st, id: st.id })) } : {}),
+      ...(profile.lorentz !== undefined ? { lorentz: profile.lorentz } : {}),
+      ...(profile.backgroundType !== undefined ? { backgroundType: profile.backgroundType } : {}),
+    };
+  }
+  const restraints = args.restraints && args.restraints.length ? { restraints: args.restraints } : {};
+  return extra.length
+    ? { kind: "multiPhasePowder", phases: [{ structure: args.structure, id: args.structure.id }, ...extra.map((st) => ({ structure: st, id: st.id }))], ...shared, ...restraints }
+    : {
+        kind: "powder", structure: args.structure, ...shared, ...restraints,
+        ...(profile.lorentz !== undefined ? { lorentz: profile.lorentz } : {}),
+        ...(profile.backgroundType !== undefined ? { backgroundType: profile.backgroundType } : {}),
+      };
+}
+
+export async function sample_posterior(args: {
+  structure: StructureModel;
+  /** A PDF G(r) or a powder pattern: the problem sampled is the one refine_pdf or refine_powder fits. */
+  pattern: PdfPattern | PowderPattern;
+  parameters: RefinementParameter[];
+  bindings: ParameterBinding[];
+  /** Powder only: the profile build_refinement returned. */
+  profile?: PowderProfile;
+  /** Powder only: a magnetic model refined with the nuclear one. */
+  magnetic?: MagneticModel;
   restraints?: LinearRestraint[];
   extraPhases?: StructureModel[];
   fitRange?: { min?: number; max?: number };
@@ -1677,18 +1766,20 @@ export async function sample_posterior(args: {
   nuts?: { divergences: number; maxTreeDepthHits: number; gradEvals: number; stepSize: number[] };
   parallel: { workers: number } | null;
 }> {
-  const multi = args.extraPhases && args.extraPhases.length > 0;
+  const multi = !!args.extraPhases && args.extraPhases.length > 0;
   const sampler = args.sampler ?? "ensemble";
-  const spec: EvaluatorSpec = {
-    kind: "pdf",
-    structure: args.structure,
-    ...(multi ? { extraPhases: args.extraPhases } : {}),
-    pattern: args.pattern,
-    parameters: args.parameters,
-    bindings: args.bindings,
-    ...(args.restraints && args.restraints.length ? { restraints: args.restraints } : {}),
-    ...(args.fitRange ? { fitRange: args.fitRange } : {}),
-  };
+  const spec = "xUnit" in args.pattern
+    ? powderSampleSpec({ ...args, pattern: args.pattern })
+    : {
+        kind: "pdf" as const,
+        structure: args.structure,
+        ...(multi ? { extraPhases: args.extraPhases } : {}),
+        pattern: args.pattern,
+        parameters: args.parameters,
+        bindings: args.bindings,
+        ...(args.restraints && args.restraints.length ? { restraints: args.restraints } : {}),
+        ...(args.fitRange ? { fitRange: args.fitRange } : {}),
+      };
   const problem = buildProblemForSpec(spec);
   const common = {
     nSteps: args.nSteps,
@@ -1706,6 +1797,7 @@ export async function sample_posterior(args: {
     | undefined;
 
   if (sampler === "nuts") {
+    if (spec.kind !== "pdf") throw new Error("sample_posterior: sampler \"nuts\" is for PDF fits; a powder pattern samples with \"ensemble\"");
     // Gradient-based path: needs the problem's scalar χ² gradient (single-phase
     // PDF today). Sequential leapfrog cannot batch over the pool — in-process.
     const gradChi2 = (problem as Partial<PdfRefinementProblem>).gradChi2;

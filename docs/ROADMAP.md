@@ -51,7 +51,7 @@ what is missing. [VALIDATION.md](./VALIDATION.md) records the evidence.
 | PDF symmetry modes | ✅ | Γ distortion modes and the translationengleiche subgroup tree | [Track A plan](./PLAN_SUBGROUPS_AND_INCOMMENSURATE.md) |
 | Track A: PDF supercells | ⬜ | Klassengleiche subgroups, zone-boundary modes, child-cell PDF model | [Track A plan](./PLAN_SUBGROUPS_AND_INCOMMENSURATE.md) |
 | Track B: incommensurate | 🚧 | Refine k ✅ (powder; FullProf golden on DyMn₆Ge₆); Fourier-loop mCIF, star of k, harmonics open | [Track B plan](./PLAN_SUBGROUPS_AND_INCOMMENSURATE.md) |
-| [Agent layer](#5-agent-tools-skills-and-llm-guided-refinement) | 🚧 | MCP tools per milestone; a powder Rietveld skill; the in-app Agent (powder and PDF pages) | [AGENT_TOOLS.md](./AGENT_TOOLS.md) |
+| [Agent layer](#5-agent-tools-skills-and-llm-guided-refinement) | 🚧 | MCP tools per milestone; five method skills read on demand; the in-app Agent (powder, magnetic step and PDF pages) with rules in code and an eval suite; single crystal open | [AGENT_TOOLS.md](./AGENT_TOOLS.md) |
 
 ## 3. Foundations
 
@@ -424,14 +424,20 @@ the design and the generated tool list.
 
 - **Tools:** an MCP server delivers them, and its registry doubles as the
   headless API.
-- **In-app Agent:** Claude acts on the live powder and PDF pages, through an
-  API key or a local proxy, and so can a local model on Ollama or LM Studio;
-  every change is an approved, undoable agent step
-  ([AGENT_TOOLS.md](./AGENT_TOOLS.md#the-in-app-agent)). Single crystal
+- **In-app Agent:** a model acts on the live powder and PDF pages and the
+  powder page's magnetic analysis step — Claude through an API key or a local
+  proxy, or a local model on Ollama or LM Studio. Every change is an undoable
+  History step, approved first (Ask first) or run by the method's stages
+  (Auto) ([AGENT_TOOLS.md](./AGENT_TOOLS.md#the-in-app-agent)). Single crystal
   is next.
-- **Skills:** a powder Rietveld skill ships
-  ([SKILL.md](../.claude/skills/my-rietveld-workflow/SKILL.md)); a magnetic
-  structure determination skill (M2 → M3 → M4) is planned.
+- **Skills:** the Rietveld workflow, the magnetic analysis, the PDF workflow,
+  the symmetry review and the Bayesian check ship in
+  [`.claude/skills/`](../.claude/skills), read on demand by the in-app Agent
+  and by Claude Code; the method's firm rules are code
+  ([`src/agent/method.ts`](../src/agent/method.ts)).
+- **Evals:** ten scenarios, each against a failure a user or a researcher round
+  found, replayed in CI through the real chat loop and tools
+  ([`src/agent/evals/`](../src/agent/evals)).
 - **Agent in the loop:** the LLM plans and sequences, and the LM engine does
   every numeric solve. `rank_next_parameters` (F1.5) is the first hook.
 - **Tool rules:** tools are pure and deterministic, with JSON in and out. Each

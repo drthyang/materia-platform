@@ -90,7 +90,8 @@ export function interpretStructure(input: InterpretationInput): StructureInterpr
     if (Number.isFinite(ppm) && ppm > 0) {
       findings.push({
         category: "microstructure",
-        summary: `Microstrain ≈ ${ppm.toFixed(0)} ×10⁻⁶ (${(ppm / 1e4).toFixed(3)}%)${ss.strainPpm.esd !== undefined ? ` ± ${ss.strainPpm.esd.toFixed(0)}` : ""}.`,
+        // An esd under 0.5 ×10⁻⁶ printed as "± 0" (round 10, NAC on 11-BM): one significant digit at least.
+        summary: `Microstrain ≈ ${ppm.toFixed(ppm < 100 ? 1 : 0)} ×10⁻⁶ (${(ppm / 1e4).toFixed(4)}%)${ss.strainPpm.esd !== undefined ? ` ± ${ss.strainPpm.esd >= 10 ? ss.strainPpm.esd.toFixed(0) : ss.strainPpm.esd.toPrecision(1)}` : ""}.`,
         detail: ppm > 1000
           ? "Significant lattice strain — dislocations, compositional gradients, or residual stress from processing (milling, quenching, thin-film mismatch). A lever for property engineering and a candidate cause of anisotropic broadening."
           : "Low lattice strain — a well-relaxed lattice.",

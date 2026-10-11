@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { assessRefinement, suggestNextSteps } from "@/core/diagnostics/assessment";
+import { assessRefinement, relativeLineWidth, residualPeaks, suggestNextSteps } from "@/core/diagnostics/assessment";
 import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import { refine, type RefinementProblem } from "@/core/refinement/engine";
 import { noisyPeakProblem } from "@/testSupport/noisyPeak";
@@ -59,6 +59,18 @@ describe("assessRefinement — findings", () => {
     expect(f?.parameterIds).toEqual(["Fe1_B"]);
     expect(f?.summary).toMatch(/Fe1_B refined negative/);
     expect(f?.evidence?.origin).toBe("refined");
+  });
+
+  it("flags a free Lorentzian width refined negative, and not a held one", () => {
+    const a = assessRefinement({
+      result: result(),
+      parameters: [param("profileY", "profileY", -7.2, { label: "Lorentzian Y" }), param("profileX", "profileX", -0.5, { fixed: true })],
+      observationCount: 4000,
+    });
+    const f = a.findings.filter((x) => x.category === "physical");
+    expect(f.map((x) => x.parameterIds)).toEqual([["profileY"]]);
+    expect(f[0]?.summary).toMatch(/Lorentzian Y refined negative.*no physical meaning/);
+    expect(f[0]?.detail).toMatch(/Fix it at 0 and refine U, V, W/);
   });
 
   it("words a held negative B_iso as an input value, not a refinement result", () => {
@@ -203,6 +215,42 @@ describe("assessRefinement — findings", () => {
     const f = a.findings.find((x) => x.category === "residual");
     expect(f).toBeDefined();
     expect(f?.detail).toMatch(/impurity|phase|magnetic/i);
+  });
+});
+
+describe("residual peaks against the line width", () => {
+  // Lines 0.4 % wide in d (a CW neutron pattern); an extra peak 1.5 % from a
+  // reflection — the cryostat's Al 111 beside Cr₂WO₆ 200.
+  const d = Array.from({ length: 3000 }, (_, i) => 1.5 + i * 0.001);
+  const line = (x: number, c: number, h: number): number => h * Math.exp((-4 * Math.LN2 * ((x - c) / (0.004 * c)) ** 2));
+  const centers = [1.8, 2.0, 2.287, 2.6, 3.1, 3.6, 4.1];
+  const yCalc = d.map((x) => 50 + centers.reduce((s, c) => s + line(x, c, 2000), 0));
+  const extra = 2.287 * 1.015;
+  const yObs = d.map((x, i) => yCalc[i]! + line(x, extra, 300));
+  const reflections = centers.map((c, i) => ({ d: c, hkl: `${i} 0 0`, phaseLabel: "sample" }));
+
+  it("measures the lines' width as a fraction of d", () => {
+    expect(relativeLineWidth(d, yCalc)).toBeCloseTo(0.004, 3);
+  });
+
+  it("calls a peak four widths away an extra peak on CW data, and keeps the wide window without the width", () => {
+    const lineWidth = relativeLineWidth(d, yCalc)!;
+    const cw = residualPeaks({ d, yObs, yCalc, reflections, lineWidth });
+    expect(cw.between.map((p) => Math.round(p.d * 1000))).toEqual([Math.round(extra * 1000)]);
+    // Without the width the window is the wide 2 % — but a bump the line's
+    // calculated intensity does not reach is a resolved peak, not its tail.
+    const wide = residualPeaks({ d, yObs, yCalc, reflections });
+    expect(wide.between.map((p) => Math.round(p.d * 1000))).toEqual([Math.round(extra * 1000)]);
+    expect(wide.beside).toEqual([]);
+  });
+
+  it("keeps a bump on a line's own tail beside it (a TOF line tailing to larger d)", () => {
+    const tail = (x: number, c: number, h: number): number => line(x, c, h) + (x > c ? 0.1 * h * Math.exp(-(x - c) / (0.01 * c)) : 0);
+    const yTail = d.map((x) => 50 + centers.reduce((s, c) => s + tail(x, c, 2000), 0));
+    const bump = d.map((x, i) => yTail[i]! + line(x, extra, 60));
+    const tof = residualPeaks({ d, yObs: bump, yCalc: yTail, reflections });
+    expect(tof.between).toEqual([]);
+    expect(tof.beside.map((p) => Math.round(p.d * 1000))).toEqual([Math.round(extra * 1000)]);
   });
 });
 

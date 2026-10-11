@@ -13,17 +13,21 @@
  * to the page until it gets its own.
  */
 
+import type { MagneticAgentHandle } from "@/agent/magneticPort";
 import type { MutableRefObject } from "react";
 import type { StructureModel } from "@/core/crystal/types";
 import type { PdfPattern, PowderPattern } from "@/core/diffraction/types";
-import type { InstrumentParameters } from "@/core/diffraction/instrument";
+import type { InstrumentConstants, InstrumentParameters } from "@/core/diffraction/instrument";
 import type { LinearRestraint, ParameterBinding, RefinementOptions, RefinementParameter, RefinementResult } from "@/core/refinement/types";
+import type { EqualTieUpdate } from "@/core/refinement/constraints";
+import type { SampleResult } from "@/core/refinement/bayes/sampler";
 import type { PowderProfile } from "@/core/workflow/powder";
 import type { MagneticModel } from "@/core/magnetic/types";
 import type { BackgroundType } from "@/core/diffraction/background";
-import type { MustrainModel, SiteTies } from "@/app/powderSpec";
+import type { CorrectionsUpdate, MustrainModel, SampleCorrections, SiteTies } from "@/app/powderSpec";
 import type { AxisContext } from "@/visualization/axisUnits";
 import type { BoxcarDirectionChoice, BoxcarRun } from "@/core/workflow/pdfBoxcar";
+import type { ReportInput } from "@/core/export/report";
 
 /** The powder page as the Agent reads it — one render's state. */
 export interface PowderLiveState {
@@ -56,9 +60,11 @@ export interface PowderLiveState {
     readonly mustrain: MustrainModel;
     readonly anisotropicAdp: boolean;
     readonly siteTies: SiteTies;
+    /** Sample and geometry corrections switched on. */
+    readonly corrections: SampleCorrections;
   };
-  /** The plotted curves (nuclear + any applied magnetic model), as fitted. */
-  readonly curves: { readonly x: readonly number[]; readonly yObs: readonly number[]; readonly yCalc: readonly number[] };
+  /** The plotted curves (nuclear + any applied magnetic model), as fitted, with the background when known. */
+  readonly curves: { readonly x: readonly number[]; readonly yObs: readonly number[]; readonly yCalc: readonly number[]; readonly yBackground?: readonly number[] };
   /** `curves.x` as d-spacings (Å); null when the axis cannot convert. */
   readonly d: readonly number[] | null;
   /** The page's axis calibration (wavelength, TOF constants), for converting positions between units. */
@@ -84,6 +90,20 @@ export interface PowderAgentPort {
   readonly setAnisotropicAdp: (on: boolean) => void;
   /** The Shared site check boxes (tie position, tie ADP, Σ occ = 1, hold composition). */
   readonly setSiteTies: (update: Partial<SiteTies>) => void;
+  /** The profile group's corrections boxes (asymmetry, texture axis, displacement, …). */
+  readonly setCorrections?: (update: CorrectionsUpdate) => void;
+  /** Let two sites exchange their atoms (antisite disorder): each element added
+   *  on the other site at occupancy 0, with Σ occ = 1 and hold composition on. */
+  readonly addAntisite?: (siteA: string, siteB: string) => void;
+  /** Add a further phase to the model (Add CIF… with a structure in hand): its scale and cell refine with the others. */
+  readonly addPhase?: (structure: StructureModel) => void;
+  /** Tie parameters of one kind to one refined value (the leader first), or release such ties. */
+  readonly setParameterTies?: (update: EqualTieUpdate) => void;
+  /** Sample the Bayesian posterior of the free parameters (the Posterior view's Sample / Continue). */
+  readonly samplePosterior?: PosteriorSampler;
+  /** An X-ray instrument's constants the fit cannot determine: the polarization
+   *  fraction and the Kα₂/Kα₁ ratio (the instrument and the pattern's radiation). */
+  readonly setInstrumentConstants?: (update: InstrumentConstants) => void;
   /** The fit window on the pattern's own axis; null restores the whole pattern. */
   readonly setFitRange: (range: { readonly min: number; readonly max: number } | null) => void;
   /** Mark these residual peaks on the plot (▽ with a guide line); cleared by
@@ -99,8 +119,14 @@ export interface PowderAgentPort {
    *  current values (the correlation check, correlationCheck.ts). */
   readonly probe: (options: Partial<RefinementOptions>) => Promise<RefinementResult>;
   readonly cancel: () => void;
-  /** Every parameter back to its starting value. */
-  readonly reset: () => void;
+  /** Parameters back to their starting values: these ids, or every one. */
+  readonly reset: (ids?: readonly string[]) => void;
+  /** The page's report of what is on screen (Export ▾ → Report): the engine's numbers, ready to render. */
+  readonly reportInput?: () => ReportInput;
+  /** The magnetic analysis step's controls (agent/magneticPort.ts); null while it has none. */
+  readonly magnetic?: () => MagneticAgentHandle | null;
+  /** Show a step of the page: 0 the refinement, 1 the magnetic analysis. */
+  readonly openStep?: (step: 0 | 1) => void;
 }
 
 /** The PDF page as the Agent reads it — one render's state. */
@@ -130,6 +156,8 @@ export interface PdfLiveState {
   readonly observationCount: number;
   /** "atomic" (constrained coordinates) or "irreps" (symmetry-mode amplitudes). */
   readonly positionMode: "atomic" | "irreps";
+  /** The primary phase's ADP model as fitted: one U per site, the tensor, or both on different sites. */
+  readonly adpModel: "isotropic" | "anisotropic" | "mixed";
   /** A spin model is part of the fit (mPDF co-refinement). */
   readonly spinModel: boolean;
   /** The page's own warnings (correlated-motion conflict, zero ADPs). */
@@ -145,6 +173,8 @@ export interface PdfAgentPort {
   readonly state: () => PdfLiveState;
   /** Free or fix parameters by id (the parameter panel's check boxes). */
   readonly setFixed: (changes: readonly { readonly id: string; readonly fixed: boolean }[]) => void;
+  /** The ADPs group's "anisotropic (U tensor)" box: the primary phase's ADP model. */
+  readonly setAdpModel: (anisotropic: boolean) => void;
   /** The fit window over r (Å); null restores the page's default window. */
   readonly setFitRange: (range: { readonly min: number; readonly max: number } | null) => void;
   /** The Refine button. Resolves to why it did not finish, or null when it did. */
@@ -154,12 +184,17 @@ export interface PdfAgentPort {
   /** The Refine button's fit with these options, returned and never applied (see PowderAgentPort). */
   readonly probe: (options: Partial<RefinementOptions>) => Promise<RefinementResult>;
   /** The Boxcar view's scan with this plan (it becomes the panel's plan, and the
-   *  view opens): the free set refined in each box across the fit window. The
-   *  parameter rows are left as they are. Null when it was cancelled or failed. */
-  readonly boxcar: (plan: { readonly width: number; readonly step: number; readonly direction: BoxcarDirectionChoice }) => Promise<BoxcarRun | null>;
+   *  view opens): the free set — or the plan's own `free` ids — refined in each
+   *  box across the fit window. The parameter rows are left as they are. Null
+   *  when it was cancelled or failed. */
+  readonly boxcar: (plan: { readonly width: number; readonly step: number; readonly direction: BoxcarDirectionChoice; readonly bonds?: readonly string[]; readonly free?: readonly string[] }) => Promise<BoxcarRun | null>;
+  /** Sample the Bayesian posterior of the free parameters (the Posterior tab's Sample / Continue). */
+  readonly samplePosterior?: PosteriorSampler;
+  /** The page's report of what is on screen (Export ▾ → Report): the engine's numbers, ready to render. */
+  readonly reportInput?: () => ReportInput;
   readonly cancel: () => void;
-  /** Every parameter back to its starting value. */
-  readonly reset: () => void;
+  /** Parameters back to their starting values: these ids, or every one. */
+  readonly reset: (ids?: readonly string[]) => void;
 }
 
 /** Any engine's port, told apart by `technique`. */
@@ -170,3 +205,12 @@ export type LiveState = PowderLiveState | PdfLiveState;
 
 /** The shell-owned ref an engine publishes its port into (null when unmounted or inactive). */
 export type AgentPortRef = MutableRefObject<AgentPort | null>;
+
+export type { InstrumentConstants } from "@/core/diffraction/instrument";
+
+/**
+ * A page's posterior sampler: `continue` resumes the last run's chain (the
+ * same problem), else a fresh run starts at the current values; `steps` per
+ * call. Resolves to the run, or to why it did not run or finish.
+ */
+export type PosteriorSampler = (options: { readonly continue: boolean; readonly steps: number }) => Promise<SampleResult | string>;

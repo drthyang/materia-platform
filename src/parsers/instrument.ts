@@ -76,6 +76,7 @@ function parseFullProfIrf(text: string): InstrumentParameters {
       kind: "constantWavelength",
       ...(radiationKind !== undefined ? { radiationKind } : {}),
       wavelength: wave[0]!,
+      ...kAlpha2Of(radiationKind, wave[0]!, wave[1], wave[2]),
       ...(zero !== undefined ? { zero } : {}),
       ...(uvw ? {
         u: uvw[0]! * FP_UVW_DEG2_TO_CENTIDEG2,
@@ -153,6 +154,11 @@ function parseGsasPrm(text: string): InstrumentParameters {
 
   const lam1 = icons[0];
   if (lam1 === undefined || lam1 <= 0) throw new Error("GSAS .prm: CW ICONS record has no wavelength");
+  // A lab tube's Kα₂: λ₂ in field 2 and the Kα₂/Kα₁ ratio in columns 55–65
+  // (where GSAS-II reads it). A blank ratio is the usual 0.5.
+  const lam2 = iconsCol(1);
+  const kRatioField = iconsRaw.slice(55, 65).trim();
+  const kRatio = kRatioField === "" ? 0.5 : Number(kRatioField);
   const zeroCentideg = icons[2];
   // First PRCF coefficient row (e.g. `PRCF11`): GU GV GW (GP) for CW profile
   // functions 1–4 — the first three are the Gaussian Caglioti terms.
@@ -165,6 +171,11 @@ function parseGsasPrm(text: string): InstrumentParameters {
   const uvw = prcfRow1 ? nums(prcfRow1.slice(prcfRow1.search(/PRCF11/) + "PRCF11".length)) : [];
   const prcfRow2 = lines.find((l) => /PRCF12\b/.test(l));
   const lxy = prcfRow2 ? nums(prcfRow2.slice(prcfRow2.search(/PRCF12/) + "PRCF12".length)) : [];
+  // The profile type (`PRCF1  3  19 …`): types 3 and 4 put the FCJ asymmetry
+  // S/L and H/L after LX, LY on PRCF12 (11-BM: 0.0011 each).
+  const prcfHead = lines.find((l) => /PRCF1\s/.test(l));
+  const prcfType = prcfHead ? nums(prcfHead.slice(prcfHead.search(/PRCF1\s/) + "PRCF1".length))[0] : undefined;
+  const asym = (prcfType === 3 || prcfType === 4) && lxy.length >= 4 && (lxy[2]! > 0 || lxy[3]! > 0) ? { sl: lxy[2]!, hl: lxy[3]! } : undefined;
   // POLA (fixed-column field 5) is the X-ray polarization fraction for the Lp
   // correction; ~0.99 for a synchrotron like 11-BM, 0.5 for an unpolarized tube.
   const pola = iconsCol(4);
@@ -179,8 +190,18 @@ function parseGsasPrm(text: string): InstrumentParameters {
       w: uvw[2]! * GSAS_SIG2_TO_FWHM2,
     } : {}),
     ...(lxy.length >= 2 ? { x: lxy[0]!, y: lxy[1]! } : {}),
+    ...(asym ? { asymmetry: asym } : {}),
     ...(radiationKind === "xray" && pola !== undefined && pola > 0 && pola <= 1 ? { polarization: pola } : {}),
+    ...kAlpha2Of(radiationKind, lam1, lam2, kRatio),
   };
+}
+
+/** The Kα₂ field of an X-ray instrument: present when λ₂ is a second line
+ *  (FullProf writes λ₂ = λ₁ for a monochromator) with a positive ratio. */
+function kAlpha2Of(radiationKind: "xray" | "neutron" | undefined, lam1: number, lam2: number | undefined, ratio: number | undefined): { kAlpha2?: { wavelength: number; ratio: number } } {
+  if (radiationKind !== "xray" || lam2 === undefined || !(lam2 > 0) || ratio === undefined || !(ratio > 0)) return {};
+  if (Math.abs(lam2 - lam1) <= 1e-6 * lam1) return {};
+  return { kAlpha2: { wavelength: lam2, ratio } };
 }
 
 function readValues(text: string): Map<string, number> {
@@ -188,9 +209,9 @@ function readValues(text: string): Map<string, number> {
   for (const rawLine of text.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (line === "" || line.startsWith("#")) continue;
-    // Keys may carry a dot, slash, or hyphen (GSAS-II `Polariz.`, `SH/L`,
-    // `beta-0`, `sig-1`).
-    const m = line.match(/^([A-Za-z0-9_./-]+)\s*[:=\s]\s*(-?\d[\d.eE+-]*)/);
+    // Keys may carry a dot, slash, hyphen or parentheses (GSAS-II `Polariz.`,
+    // `SH/L`, `beta-0`, `sig-1`, `I(L2)/I(L1)`).
+    const m = line.match(/^([A-Za-z0-9_./()-]+)\s*[:=\s]\s*(-?\d[\d.eE+-]*)/);
     if (!m) continue;
     const key = m[1]!.toLowerCase();
     const value = parseFloat(m[2]!);
@@ -256,7 +277,10 @@ function parseInstrumentBase(text: string): InstrumentParameters {
       // calibrated size/strain broadening — seed them so sharp peaks fit on load.
       ...(v.get("x") !== undefined ? { x: v.get("x")! } : {}),
       ...(v.get("y") !== undefined ? { y: v.get("y")! } : {}),
+      // GSAS-II refines one SH/L = (S + H)/L, S and H taken equal.
+      ...(v.get("sh/l")! > 0 ? { asymmetry: { sl: v.get("sh/l")! / 2, hl: v.get("sh/l")! / 2 } } : {}),
       ...(v.get("polariz.") !== undefined ? { polarization: v.get("polariz.")! } : {}),
+      ...kAlpha2Of(radiationKind, lam, v.get("lam2"), v.get("i(l2)/i(l1)") ?? 0.5),
     };
   }
   throw new Error("Instrument file has neither difC (TOF) nor a wavelength (CW)");

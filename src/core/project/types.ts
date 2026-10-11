@@ -54,7 +54,7 @@ import type { PdfPattern, PowderPattern, PowderXUnit, SingleCrystalDataset } fro
 import type { MagneticModel } from "@/core/magnetic/types";
 import type { ParameterBinding, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { PowderProfile } from "@/core/workflow/powder";
-import type { MustrainModel, SiteTies } from "@/core/workflow/powderModelOptions";
+import type { MustrainModel, SampleCorrections, SiteTies } from "@/core/workflow/powderModelOptions";
 import type { BoxcarPlan, BoxcarRun } from "@/core/workflow/pdfBoxcar";
 import type { ProjectHistory } from "@/core/project/history";
 
@@ -127,6 +127,8 @@ export interface PowderWorkspace {
   readonly anisotropicAdp?: boolean;
   /** Sample microstrain model. Absent ⇒ isotropic. */
   readonly mustrain?: MustrainModel;
+  /** Sample and geometry corrections switched on. Absent ⇒ none. */
+  readonly corrections?: SampleCorrections;
   /** A reference calc/background overlay for a view-only pattern (GSAS-II CSV). */
   readonly overlay?: { readonly calc: readonly number[]; readonly background: readonly number[] };
   /** Provenance of the observed data (file name or the demo marker). */
@@ -210,6 +212,11 @@ export interface PdfWorkspace {
   /** Per-coordinate shifts ("atomic") or symmetry-adapted mode amplitudes ("irreps"). */
   readonly positionMode: PdfPositionMode;
   /**
+   * The primary phase's ADP model, when the user chose one: one U per site or
+   * the tensor. Absent: the structure's own (a CIF's U_aniso loads anisotropic).
+   */
+  readonly adpModel?: "isotropic" | "anisotropic";
+  /**
    * The distortion-mode parameterization in force, when one was built from a
    * parent CIF or a subgroup activation. It cannot be regenerated from the
    * child structure alone, so the whole set is stored.
@@ -248,6 +255,24 @@ export interface ProjectView {
   readonly step?: number;
 }
 
+/**
+ * The in-app Agent's record of one analysis (agent/method.ts): the cell
+ * check's outcome, the symmetry review's, the method's rules the user lifted
+ * and why, the method's stages a refinement has covered, and the Agent's
+ * notes. Keyed by the analysis (page, data, phases). Optional, and ignored by
+ * builds without the Agent.
+ */
+export interface AgentRecordFile {
+  readonly key: string;
+  /** The cell check at the start (check_cell_symmetry): advisory, never a gate. */
+  readonly cellCheck?: { readonly passed: boolean; readonly at: number; readonly summary: string };
+  /** The symmetry review at the end of the method (review_symmetry). */
+  readonly symmetryReviewed?: { readonly at: number; readonly summary: string };
+  readonly exceptions: readonly { readonly rule: "bare-occupancy"; readonly reason: string; readonly at: number }[];
+  readonly stagesDone: readonly string[];
+  readonly notes: readonly { readonly text: string; readonly at: number }[];
+}
+
 /** The complete state of a session. */
 export interface ProjectFile {
   readonly schemaVersion: number;
@@ -261,6 +286,8 @@ export interface ProjectFile {
    * session. Optional — older files have none, and older builds ignore it.
    */
   readonly history?: ProjectHistory;
+  /** The in-app Agent's records, one per analysis it worked on. */
+  readonly agent?: { readonly records: readonly AgentRecordFile[] };
 }
 
 // Re-exported for call sites that narrow on the dataset types.

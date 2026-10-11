@@ -315,4 +315,20 @@ describe("ensemble sampler — structural invariants", () => {
     expect(batchSizes[0]).toBe(64);
     expect(batchSizes.slice(1)).toEqual([32, 32, 32, 32]);
   });
+
+  it("seeds the walkers within an esd of the start when the least-squares esds are given", () => {
+    // A precise parameter (a cell length: esd 1e-4 of a 4.575 value) and a loose one.
+    const precise: RefinementProblem = { ...problem, parameters: [param("a", 4.575, { min: 4, max: 5 }), param("b", 0.8, { min: 0, max: 10 })] };
+    const firstBatch = (o: SampleOptions): Record<string, number>[] => sampleCore(precise, { ...o, nSteps: 1 }).next().value as Record<string, number>[];
+    const withEsd = firstBatch({ nSteps: 1, seed: 3, linearizedEsd: { a: 1e-4, b: 0.3 } });
+    const spreadA = Math.max(...withEsd.map((v) => Math.abs(v.a! - 4.575)));
+    const spreadB = Math.max(...withEsd.map((v) => Math.abs(v.b! - 0.8)));
+    expect(spreadA).toBeLessThanOrEqual(1e-4 * (1 + 1e-9));
+    expect(spreadA).toBeGreaterThan(0.3e-4);
+    expect(spreadB).toBeLessThanOrEqual(0.3 * (1 + 1e-9));
+    expect(spreadB).toBeGreaterThan(0.1);
+    // Without them, 1 % of the value: hundreds of esds for the precise one.
+    const without = firstBatch({ nSteps: 1, seed: 3 });
+    expect(Math.max(...without.map((v) => Math.abs(v.a! - 4.575)))).toBeGreaterThan(0.01);
+  });
 });

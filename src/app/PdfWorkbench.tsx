@@ -16,7 +16,8 @@ import type { EngineExportsRef } from "@/app/workbenchEngine";
 import type { PdfWorkspace } from "@/core/project/types";
 import { overlaySavedParameters, pdfWorkspaceFrom } from "@/app/projectIo";
 import { useOnChange } from "@/app/useOnChange";
-import type { StructureModel } from "@/core/crystal/types";
+import type { AtomSite, StructureModel } from "@/core/crystal/types";
+import { withAdpModel } from "@/core/crystal/adp";
 import type { PdfPattern } from "@/core/diffraction/types";
 import type { RefinementResult } from "@/core/refinement/types";
 import type { ParameterBinding, RefinementParameter } from "@/core/refinement/types";
@@ -64,7 +65,7 @@ import { ParameterPanel } from "@/app/ui/ParameterPanel";
 import { PosteriorPanel } from "@/app/ui/PosteriorPanel";
 import { ReciprocalPanel } from "@/app/ui/ReciprocalPanel";
 import { BoxcarPanel, stepIndexFor, type BoxcarPlan, type BoxcarRun, type BoxcarSeries } from "@/app/ui/BoxcarPanel";
-import { boxcarPlanIssue, boxcarScannedMax, boxcarWindows, type BoxcarDirection, type BoxcarDirectionChoice } from "@/core/workflow/pdfBoxcar";
+import { boxcarPlanIssue, boxcarScannedMax, boxcarTable, boxcarWindows, type BoxcarDirection, type BoxcarDirectionChoice } from "@/core/workflow/pdfBoxcar";
 
 /** One finished (or interrupted) pass, accumulated while a run is in flight. */
 type BoxcarSeriesState = BoxcarSeries;
@@ -75,7 +76,7 @@ import { WorkbenchPlot, type FitRangeSelection } from "@/app/ui/WorkbenchPlot";
 import { SegmentedToggle } from "@/app/ui/SegmentedToggle";
 import { downloadText } from "@/app/download";
 import { structureToCif, magneticStructureToMcif } from "@/core/export/cif";
-import { reportHtml } from "@/core/export/report";
+import { reportHtml, type ReportInput } from "@/core/export/report";
 import { pdfReportInput, type MagneticExploration } from "@/app/reportInputs";
 import { card as themeCard, color, mono, secondaryButton, uppercaseLabel, fz, toolbarBtn, resetRangeBtn, space } from "@/app/theme";
 
@@ -159,6 +160,14 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
     return dm ? { set: dm.set, parentName: dm.parentName, ...(dm.fromActivation ? { fromActivation: true } : {}) } : null;
   });
   useOnChange(structure, () => setModes(null));
+  // The primary phase's ADP model. A CIF's U_aniso columns load anisotropic (a
+  // tensor per site); a small-box fit usually refines one U per site. Null
+  // keeps the structure's own model. A switch seeds the new rows from the
+  // current (refined) ADPs, as the powder page's does.
+  const [adp, setAdp] = useState<{ readonly model: "isotropic" | "anisotropic"; readonly seeds: Readonly<Record<string, AtomSite["adp"]>> } | null>(
+    () => (restoring?.adpModel ? { model: restoring.adpModel, seeds: {} } : null),
+  );
+  useOnChange(structure, () => setAdp(null));
   // ---- Magnetic PDF (mPDF, roadmap P4) -----------------------------------
   // The spin model handed over from the magnetic page (step 1). Model AND its
   // moment rows travel together: they must enter the `spec` memo as one unit,
@@ -194,7 +203,16 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
       : null;
   // The mode parameters are anchored on the parentized structure; everything
   // downstream (spec, curves, worker refine, 3D view, CIF export) uses it.
-  const fitStructure = modeSet ? modeSet.parentized : structure;
+  const modeBase = modeSet ? modeSet.parentized : structure;
+  const fitStructure = useMemo(
+    () => (adp ? withAdpModel({ ...modeBase, sites: modeBase.sites.map((site) => ({ ...site, adp: adp.seeds[site.label] ?? site.adp })) }, adp.model) : modeBase),
+    [modeBase, adp],
+  );
+  // What the fitted primary phase refines: one U per site, a tensor, or both.
+  const adpModel = useMemo((): "isotropic" | "anisotropic" | "mixed" => {
+    const kinds = new Set(fitStructure.sites.map((site) => site.adp.kind));
+    return kinds.size === 1 ? [...kinds][0]! : "mixed";
+  }, [fitStructure]);
   // Mode selected in the 3D card's table: its eigenvector (unit-amplitude
   // displacement field) is drawn as green arrows on the 3D model. Click the
   // row to toggle; any mode-set change invalidates the selection.
@@ -514,6 +532,26 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   // real space wrecks the fit silently (delta-sharp peaks, collapsed scale) —
   // say so on the plot card rather than letting it converge on nonsense.
   const adpWarning = useMemo(() => zeroAdpWarning(phases.map((p) => p.structure)), [phases]);
+  // A file that names no radiation is read as X-ray data. Neutrons weight the
+  // pairs differently (Mn, Ti, V, Li and H scatter with a negative length), so
+  // the fit holds only if that default is right.
+  const radiationWarning = pattern.radiationAssumed
+    ? "The data file names no radiation, so it is read as X-ray data. Neutrons weight the pairs differently (Mn, Ti, V, Li and H scatter with negative lengths): confirm the radiation before reading the fit."
+    : null;
+
+  /**
+   * Switch the primary phase's ADP model: one U per site, or the symmetry-
+   * allowed tensor. The new rows are seeded from the ADPs as refined so far
+   * (a tensor's equivalent U, or a sphere), and enter fixed.
+   */
+  function switchAdpModel(anisotropic: boolean): void {
+    if ((anisotropic ? "anisotropic" : "isotropic") === adpModel) return;
+    const values: Record<string, number> = {};
+    for (const p of activeParams) values[p.id] = p.value;
+    const refined = applyParameters(fitStructure, multiPhase ? pdfPhaseBindingsFor(spec.bindings, fitStructure.id) : spec.bindings, values).model;
+    setAdp({ model: anisotropic ? "anisotropic" : "isotropic", seeds: Object.fromEntries(refined.sites.map((site) => [site.label, site.adp])) });
+    stepHistory?.requestStep("settings", anisotropic ? "Anisotropic ADPs" : "Isotropic ADPs");
+  }
 
   /** The refine request shared by the nuclear and magnetic paths. */
   function refineRequest(start: readonly RefinementParameter[], maxIterations: number) {
@@ -702,7 +740,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
    * the last box is not a better answer than the first. "Adopt" moves one box's
    * values into the panel deliberately.
    */
-  async function runBoxcar(override?: { readonly width: number; readonly step: number; readonly direction: BoxcarDirectionChoice }): Promise<BoxcarRun | null> {
+  async function runBoxcar(override?: { readonly width: number; readonly step: number; readonly direction: BoxcarDirectionChoice; readonly bonds?: readonly string[]; readonly free?: readonly string[] }): Promise<BoxcarRun | null> {
     // The Agent passes its own plan: it becomes the panel's plan, and the
     // Boxcar view opens so the user watches the scan fill in.
     const boxWidth = override?.width ?? boxWidthSetting;
@@ -718,15 +756,19 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
     const specAtCall = specRef.current;
     const restarts = boxRandomStart ? boxRestarts : 0;
     let final: BoxcarRun | null = null;
+    // The Agent may name the scan's own free set: each box refines those, and
+    // the panel keeps its free flags (and the fit they match) as they are.
+    const own = override?.free ? new Set(override.free) : null;
+    const scanParams = own ? params.map((p) => (p.expression ? p : { ...p, fixed: !own.has(p.id) })) : params;
     // Frozen with the run, not held as separate state: the panel's free flags
     // may change before the scan ends, and the tracks belong to the parameter
     // set that produced them.
-    const freeIds = params.filter((p) => !p.fixed && !p.expression).map((p) => p.id);
+    const freeIds = scanParams.filter((p) => !p.fixed && !p.expression).map((p) => p.id);
     // "both" is two passes over the SAME boxes, each starting from the SAME
     // model — that is what makes their separation a property of the fit rather
     // than of two different starting points.
     const directions: BoxcarDirection[] = boxDirection === "both" ? ["up", "down"] : [boxDirection];
-    const plan = { windows, width: boxWidth, restarts, freeIds };
+    const plan = { windows, width: boxWidth, restarts, freeIds, ...(override?.bonds?.length ? { bondSites: [...override.bonds] } : {}) };
     const totalBoxes = windows.length * directions.length;
     const done: BoxcarSeriesState[] = [];
     /** The evolution table for a pass's completed boxes — rebuilt per box while
@@ -772,7 +814,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
           {
             structure: fitStructure,
             pattern,
-            parameters: [...params],
+            parameters: [...scanParams],
             bindings: [...spec.bindings],
             restraints: spec.restraints,
             options: { maxIterations: 20 },
@@ -905,7 +947,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
    * token, so the chain keeps targeting the identical posterior even if the
    * user edited parameters meanwhile.
    */
-  async function runSample(continueRun: boolean): Promise<void> {
+  async function runSample(continueRun: boolean, steps = SAMPLE_STEPS): Promise<SampleResult | string> {
     setSampleBusy(true);
     const specAtCall = specRef.current;
     const prior = continueRun ? sample : null;
@@ -920,11 +962,11 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
           restraints: spec.restraints,
           fitRange,
         };
-    const total = (prior ? prior.result.resume.stepIndex : 0) + SAMPLE_STEPS;
+    const total = (prior ? prior.result.resume.stepIndex : 0) + steps;
     setSampleProgress({ step: prior ? prior.result.resume.stepIndex : 0, total });
     try {
       const options = {
-        nSteps: SAMPLE_STEPS,
+        nSteps: steps,
         seed: 0xbae5,
         ...(prior ? { init: prior.result.resume } : {}),
         ...(result?.esd ? { linearizedEsd: result.esd } : {}),
@@ -939,14 +981,17 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
         : await client.samplePdfPosterior(req, options);
       if (specRef.current !== specAtCall) {
         console.info("[status] posterior result discarded — the parameter spec changed while it ran");
-        return;
+        return "discarded: the parameters changed while it ran";
       }
       setSample({ result: res, req });
       console.info(
         `[status] posterior ${prior ? "continued" : "sampled"}: ${res.status} · R̂max ${res.diagnostics.maxRHat.toFixed(3)} · ESSmin ${Math.round(res.diagnostics.minEss)} · ${res.diagnostics.nSamples} samples`,
       );
+      return res;
     } catch (e) {
-      console.error(`[status] posterior sampling failed: ${e instanceof Error ? e.message : String(e)}`);
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error(`[status] posterior sampling failed: ${msg}`);
+      return `failed: ${msg}`;
     } finally {
       setSampleProgress(null);
       setSampleBusy(false);
@@ -1131,11 +1176,12 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   }
 
   /** Values back to their starting values, every row and free/fixed choice kept — as on the powder page. */
-  function reset(): void {
-    setParams((prev) => prev.map((p) => ({ ...p, value: p.initialValue })));
+  function reset(ids?: readonly string[]): void {
+    const only = ids ? new Set(ids) : null;
+    setParams((prev) => prev.map((p) => (only && !only.has(p.id) ? p : { ...p, value: p.initialValue })));
     setResult(null);
     setLive(null);
-    stepHistory?.requestStep("edit", "Reset to starting values");
+    stepHistory?.requestStep("edit", only ? `Reset ${[...only].join(", ")}` : "Reset to starting values");
   }
 
   /** Stop the running refinement or multi-start; the parameters keep their values. */
@@ -1143,6 +1189,38 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
     client.cancel();
   }
 
+  // The mPDF page's current candidate, for the report — published by KSearchPanel;
+  // null when nothing is selected there. The same contract the powder and
+  // single-crystal pages use, so "report: Export ▾" means the same on all three.
+  const exploredMagnetic = useRef<MagneticExploration | null>(null);
+  const publishExploration = useCallback((m: MagneticExploration | null): void => {
+    exploredMagnetic.current = m;
+  }, []);
+
+  const reportInputRef = useRef<() => ReportInput>(() => { throw new Error("PdfWorkbench: not mounted"); });
+  reportInputRef.current = (): ReportInput => {
+    // Every phase AS REFINED, each through its own bindings (as the CIF export).
+    const values: Record<string, number> = {};
+    for (const p of activeParams) values[p.id] = p.value;
+    const refined = phases.map((phase) =>
+      applyParameters(phase.structure, multiPhase ? pdfPhaseBindingsFor(spec.bindings, phase.id) : spec.bindings, values).model,
+    );
+    return pdfReportInput({
+      phases: refined,
+      params: activeParams,
+      bindings: spec.bindings,
+      result,
+      pattern,
+      rw,
+      fitRange,
+      curves,
+      positionMode,
+      spinModel: spinFit ? refinedMagnetic ?? spinFit.magnetic : null,
+      explored: exploredMagnetic.current,
+      ...(motionConflict || radiationWarning ? { warnings: [motionConflict, radiationWarning].filter((w): w is string => w !== null) } : {}),
+      boxcar: boxcarRun ? boxcarTable(boxcarRun, fitStructure, multiPhase ? pdfPhaseBindingsFor(spec.bindings, fitStructure.id) : spec.bindings, activeParams) : null,
+    });
+  };
   // Publish the Agent port (agent/port.ts): the live state, read lazily, and
   // this page's own handlers — the Agent's `refine` is the Refine button.
   // Republished every render, so a call always sees the state on screen.
@@ -1168,8 +1246,9 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
           curves,
           observationCount: curves.x.filter((r) => r >= fitRange.min && r <= fitRange.max).length,
           positionMode,
+          adpModel,
           spinModel: spinFit !== null,
-          warnings: [motionConflict, adpWarning].filter((w): w is string => w !== null),
+          warnings: [radiationWarning, motionConflict, adpWarning].filter((w): w is string => w !== null),
           source: pattern.name,
           restraints: spec.restraints,
         };
@@ -1178,10 +1257,18 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
         const fixed = new Map(changes.map((c) => [c.id, c.fixed]));
         setParams((ps) => ps.map((p) => (fixed.has(p.id) ? { ...p, fixed: fixed.get(p.id)! } : p)));
       },
+      setAdpModel: switchAdpModel,
       setFitRange: (range) => setFitRange(range ? { min: range.min, max: range.max } : defaultRange),
       refine: runRefine,
       thorough: runMultiStart,
       boxcar: (plan) => runBoxcar(plan),
+      samplePosterior: async ({ continue: continueRun, steps }) => {
+        if (sampleBusy) return "a posterior run is already going";
+        if (continueRun && !sample) return "there is no posterior run to continue: sample first";
+        setViewTab("posterior");
+        return runSample(continueRun, steps);
+      },
+      reportInput: () => reportInputRef.current(),
       // The Refine button's request with the Agent's options; the result is only read.
       probe: (options) => {
         const req = { ...refineRequest(params, 0), options };
@@ -1246,37 +1333,9 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
       exportPhaseCifRef.current(applyParameters(phase.structure, b, values).model, phase.id, phaseMagnetic(phase.structure));
     }
   };
-  // The mPDF page's current candidate, for the report — published by KSearchPanel;
-  // null when nothing is selected there. The same contract the powder and
-  // single-crystal pages use, so "report: Export ▾" means the same on all three.
-  const exploredMagnetic = useRef<MagneticExploration | null>(null);
-  const publishExploration = useCallback((m: MagneticExploration | null): void => {
-    exploredMagnetic.current = m;
-  }, []);
-
   const exportReportRef = useRef<() => void>(noop);
   exportReportRef.current = (): void => {
-    // Every phase AS REFINED, each through its own bindings (as the CIF export).
-    const values: Record<string, number> = {};
-    for (const p of activeParams) values[p.id] = p.value;
-    const refined = phases.map((phase) =>
-      applyParameters(phase.structure, multiPhase ? pdfPhaseBindingsFor(spec.bindings, phase.id) : spec.bindings, values).model,
-    );
-    const html = reportHtml(pdfReportInput({
-      phases: refined,
-      params: activeParams,
-      bindings: spec.bindings,
-      result,
-      pattern,
-      rw,
-      fitRange,
-      curves,
-      positionMode,
-      spinModel: spinFit ? refinedMagnetic ?? spinFit.magnetic : null,
-      explored: exploredMagnetic.current,
-      ...(motionConflict ? { warnings: [motionConflict] } : {}),
-    }));
-    downloadText(`${pattern.id}_report.html`, html, "text/html");
+    downloadText(`${pattern.id}_report.html`, reportHtml(reportInputRef.current()), "text/html");
   };
   // The project snapshot reads the live state through a ref (like the exports
   // above), so the shell's stable handler always sees the current page.
@@ -1284,7 +1343,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   projectWorkspaceRef.current = () =>
     pdfWorkspaceFrom({
       pattern, params: activeParams, bindings: spec.bindings, result, fitRange, positionMode, modes, spinModel,
-      boxcarPlan: boxcarPlanState, boxcarRun,
+      boxcarPlan: boxcarPlanState, boxcarRun, adpModel: adp?.model ?? null,
     });
   useEffect(() => {
     if (!exportsRef) return;
@@ -1326,7 +1385,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
       chip: "✓ reduced G(r)",
       title: pattern.name,
       meta:
-        `${probeLabel} · r ${rFirst.toFixed(2)}–${rLast.toFixed(2)} Å · ${pattern.points.length} pts` +
+        `${probeLabel}${pattern.radiationAssumed ? " (assumed)" : ""} · r ${rFirst.toFixed(2)}–${rLast.toFixed(2)} Å · ${pattern.points.length} pts` +
         (pattern.qmax !== undefined ? ` · Qmax ${pattern.qmax.toFixed(1)} Å⁻¹` : "") +
         (pattern.sourceKind === "sq" ? " · from S(Q)" : pattern.sourceKind === "fq" ? " · from F(Q)" : "") +
         (pattern.reciprocal?.sigma ? " ± σ" : "") +
@@ -1543,6 +1602,9 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
               <p style={{ marginTop: 8, marginBottom: 0, fontSize: 12, color: color.secondary }}>
                 Drag across the plot to zoom, blue handles to set the fit window. Qdamp/Qbroad are instrument constants — hold them fixed once calibrated on a standard.
               </p>
+              {radiationWarning && (
+                <div style={{ marginTop: 6, fontSize: 12, color: color.warnInk }}>⚠ {radiationWarning}</div>
+              )}
               {motionConflict && (
                 <div style={{ marginTop: 6, fontSize: 12, color: color.warnInk }}>⚠ {motionConflict}</div>
               )}
@@ -1883,6 +1945,14 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
           result={result}
           title="PDF parameters"
           extraActions={refineActions}
+          groupControls={{
+            "ADPs (thermal)": (
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 5, cursor: busy ? "default" : "pointer" }} title="Refine the symmetry-allowed U tensor of each site instead of one U per site. Each site's tensor is seeded from its current U; a CIF with U_aniso columns loads anisotropic. A small-box fit usually refines one U per site.">
+                <input type="checkbox" checked={adpModel === "anisotropic"} disabled={busy} onChange={(e) => switchAdpModel(e.target.checked)} />
+                anisotropic (U tensor){adpModel === "mixed" ? " · some sites" : ""}
+              </label>
+            ),
+          }}
           groupInfo={{
             // Each PDF group is a distinct physical effect — the "?" badge spells
             // it out on hover so the physics stays off the resting parameter rows.

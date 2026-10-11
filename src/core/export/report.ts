@@ -26,6 +26,8 @@ import { spaceGroupSymbol } from "@/core/crystal/spaceGroups";
 import { crystalComponentsToCartesian } from "@/core/magnetic/moment";
 import { kLabel } from "@/core/magnetic/kSearch";
 import { magneticSupercell, momentAnchorPosition } from "@/core/crystal/cellExpansion";
+import { markNumbers } from "@/core/export/reportAudit";
+import { coordinationShells } from "@/core/crystal/geometry";
 import {
   fobsFcalcSvg,
   magneticProjectionSvg,
@@ -110,6 +112,100 @@ export type ReportFigure =
       readonly caption?: string;
     };
 
+/** One step of the analysis, from the project's History. */
+export interface ReportStep {
+  readonly label: string;
+  /** Who took it: the Agent or the user. */
+  readonly by: "agent" | "user";
+  /** History step kind (load, settings, edit, refine, magnetic, open). */
+  readonly kind: string;
+  /** Agreement after the step, when it was a refinement (fractions). */
+  readonly wR?: number;
+  readonly gof?: number;
+  readonly free: number;
+  /** A refinement's free parameters, grouped: "scale, background ×4, cell ×2". */
+  readonly refined?: string;
+  /** The method stages those parameters belong to — the reason in the method's terms. */
+  readonly stages?: string;
+}
+
+/** A check the engine made on the result (never a model's judgement). */
+export interface ReportCheck {
+  readonly name: string;
+  readonly status: "pass" | "note" | "warn";
+  readonly detail: string;
+}
+
+/** One parameter's posterior from the Bayesian check (the engine's sampler). */
+export interface ReportPosteriorRow {
+  readonly label: string;
+  readonly refined: number;
+  readonly esd?: number;
+  readonly median: number;
+  readonly ci68: readonly [number, number];
+  readonly ci95: readonly [number, number];
+  /** Posterior width over the least-squares esd. */
+  readonly esdRatio?: number;
+  /** The engine's reading: the esd stands, a limit only, wider than the esd, … */
+  readonly verdict: string;
+}
+
+/** The Bayesian check (ensemble MCMC over a refinement's free parameters). */
+export interface ReportPosterior {
+  /** Set when the run sampled an earlier refinement than the final one: which, and how far its values moved since. */
+  readonly earlier?: string;
+  readonly convergence: "converged" | "close" | "not converged";
+  readonly walkers: number;
+  readonly steps: number;
+  readonly samples: number;
+  readonly maxRHat: number;
+  readonly minEss: number;
+  readonly rows: readonly ReportPosteriorRow[];
+  /** Differences the Agent asked about, as the engine read them. */
+  readonly differences: readonly string[];
+}
+
+/**
+ * How an analysis run with the in-app Agent was done: its steps (the History),
+ * the method's stages, the engine's checks and open issues, and the notes the
+ * Agent kept. Only `narrative` is a model's text, and the report says so.
+ */
+export interface ReportAgent {
+  /** The model and how it was reached, e.g. "Claude Opus 5.5 · API key". */
+  readonly model: string;
+  readonly method?: { readonly skill: string; readonly stages: readonly { readonly label: string; readonly done: boolean; readonly optional: boolean }[] };
+  readonly steps: readonly ReportStep[];
+  /** The agreement factor the steps carry: "wR" (powder, with a GoF) or "Rw" (PDF, none). */
+  readonly agreementLabel?: string;
+  /** History steps on branches the analysis left (not on the path to the result). */
+  readonly otherBranches?: number;
+  readonly checks: readonly ReportCheck[];
+  readonly posterior?: ReportPosterior | null;
+  readonly openIssues: readonly string[];
+  readonly notes: readonly string[];
+  /** The Agent's own account of what it did and found. */
+  readonly narrative?: string;
+  /** Numbers in the narrative that match no value the report computed (reportAudit.ts): marked where they appear. */
+  readonly unverified?: readonly string[];
+}
+
+/**
+ * A boxcar scan (PDF): the model refined box by box across r. Each row is a
+ * box — its r range, Rw and the tracked values (a site's bond lengths in the
+ * structure that box refined, or the free parameters' values).
+ */
+export interface ReportBoxcar {
+  /** Box width (Å). */
+  readonly width: number;
+  /** The parameters refined in each box (labels). */
+  readonly free: readonly string[];
+  /** What the value columns hold, e.g. "Mn1–O6 ×2 (Å)". */
+  readonly columns: readonly string[];
+  readonly rows: readonly { readonly r: readonly [number, number]; readonly rw: number; readonly values: readonly number[] }[];
+  /** Decimals for the value columns (4 for lengths in Å). */
+  readonly decimals: number;
+}
+
 export interface ReportInput {
   readonly technique: ReportTechnique;
   /** The material / structure name. */
@@ -125,12 +221,16 @@ export interface ReportInput {
   readonly phases: readonly ReportPhase[];
   readonly magnetic?: ReportMagnetic | null;
   readonly figure?: ReportFigure | null;
+  /** The last boxcar scan of this model (PDF), when one was run. */
+  readonly boxcar?: ReportBoxcar | null;
   /** Every parameter of the model, with esds merged in where the fit gave one. */
   readonly parameters: readonly RefinementParameter[];
   readonly result?: RefinementResult | null;
   /** Method notes: how the agreement factors, weights, and models are defined. */
   readonly notes?: readonly string[];
   readonly warnings?: readonly string[];
+  /** The analysis as the in-app Agent ran it, when it did. */
+  readonly agent?: ReportAgent | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -164,7 +264,7 @@ const KIND_DECIMALS: Partial<Record<ParameterKind, number>> = {
   qdamp: 4, qbroad: 4, delta1: 4, delta2: 4, sratio: 4, rcut: 3, spdiameter: 2, corrLength: 2, mpdfPsigma: 4,
 };
 
-const KIND_UNIT: Partial<Record<ParameterKind, string>> = {
+export const KIND_UNIT: Partial<Record<ParameterKind, string>> = {
   cellLength: "Å", cellAngle: "°",
   positionShift: "(frac.)", bIso: "Å²", uAniso: "Å²",
   momentX: "µB", momentY: "µB", momentZ: "µB", momentMode: "µB", propagationK: "(r.l.u.)",
@@ -180,12 +280,12 @@ export function formatParameterValue(p: RefinementParameter): string {
   return d !== undefined ? fixed(p.value, d) : sig(p.value);
 }
 
-interface ParameterGroup {
+export interface ParameterGroup {
   readonly title: string;
   readonly kinds: readonly ParameterKind[];
 }
 
-const PARAMETER_GROUPS: readonly ParameterGroup[] = [
+export const PARAMETER_GROUPS: readonly ParameterGroup[] = [
   { title: "Scale & background", kinds: ["scale", "background", "magneticScale", "pdfScale"] },
   { title: "Unit cell", kinds: ["cellLength", "cellAngle"] },
   { title: "Atoms", kinds: ["atomX", "atomY", "atomZ", "positionShift", "occupancy", "bIso", "uAniso"] },
@@ -206,9 +306,14 @@ const PARAMETER_GROUPS: readonly ParameterGroup[] = [
   },
 ];
 
-function statusOf(p: RefinementParameter): string {
-  if (p.expression) return `tied · ${esc(p.expression.trim().startsWith("=") ? p.expression.trim() : `= ${p.expression}`)}`;
+/** A parameter's state in words: refined, fixed, or the tie it follows. */
+export function parameterStatus(p: RefinementParameter): string {
+  if (p.expression) return `tied · ${p.expression.trim().startsWith("=") ? p.expression.trim() : `= ${p.expression}`}`;
   return p.fixed ? "fixed" : "refined";
+}
+
+function statusOf(p: RefinementParameter): string {
+  return esc(parameterStatus(p));
 }
 
 // ---------------------------------------------------------------------------
@@ -269,6 +374,41 @@ ${rows.join("\n")}
 </table></div>`;
 }
 
+/** What the bond tables say about their lengths. */
+export const BONDS_NOTE = "Each cation's shell at the refined positions, out to 3.2 Å (or 1.25 × its shortest bond for a large cation); no esds, as the covariance is not carried to the lengths.";
+
+/** The cations' coordination shells, one row per site: "O6 1.9067 ×2 · O1 1.9692 ×2 · …". */
+export function shellRows(structure: StructureModel): { site: string; bonds: string; mean: string }[] {
+  return coordinationShells(structure).map((sh) => ({
+    site: sh.site,
+    bonds: sh.bonds.map((b) => `${b.to} ${fixed(b.distance, 4)}${b.count > 1 ? ` ×${b.count}` : ""}`).join(" · "),
+    mean: fixed(sh.mean, 4),
+  }));
+}
+
+function bondsHtml(structure: StructureModel): string {
+  const rows = shellRows(structure);
+  if (rows.length === 0) return "";
+  return `<div class="card"><div class="scroll"><table>
+<tr><th>Site</th><th>Bonds (Å)</th><th class="num">Mean (Å)</th></tr>
+${rows.map((r) => `<tr><td><b>${esc(r.site)}</b></td><td>${esc(r.bonds)}</td><td class="num">${r.mean}</td></tr>`).join("\n")}
+</table></div><p class="note">${esc(BONDS_NOTE)}</p></div>`;
+}
+
+/** The boxcar scan as a table: r, Rw and the tracked values per box. */
+function boxcarHtml(b: ReportBoxcar): string {
+  const rows = b.rows.map((row) => `<tr><td class="num">${fixed(row.r[0], 2)}–${fixed(row.r[1], 2)}</td><td class="num">${fixed(100 * row.rw, 2)}</td>${row.values.map((v) => `<td class="num">${Number.isFinite(v) ? fixed(v, b.decimals) : "—"}</td>`).join("")}</tr>`);
+  return `<div class="card"><div class="scroll"><table>
+<tr><th class="num case">r (Å)</th><th class="num case">R<sub>w</sub> (%)</th>${b.columns.map((c) => `<th class="num case">${esc(c)}</th>`).join("")}</tr>
+${rows.join("\n")}
+</table></div><p class="note">${esc(boxcarNote(b))}</p></div>`;
+}
+
+/** How the scan was run, under its table. */
+export function boxcarNote(b: ReportBoxcar): string {
+  return `${b.rows.length} boxes of ${fixed(b.width, 2)} Å, each refining ${b.free.join(", ")} from the previous box's values. A value that drifts with r, or an Rw that rises at low r, is a local structure the average model lacks. No esds per box.`;
+}
+
 function phaseHtml(phase: ReportPhase, index: number, total: number): string {
   const st = phase.structure;
   const esd = buildEsdMap(phase.params, phase.bindings);
@@ -280,7 +420,8 @@ function phaseHtml(phase: ReportPhase, index: number, total: number): string {
 <div class="two">
   <div class="card">${sitesTable(st, esd)}</div>
   <div class="card">${cellTable(st.cell, esd)}<p class="note">${st.sites.length} site${st.sites.length === 1 ? "" : "s"} in the asymmetric unit · ${sg.operations.length} symmetry operation${sg.operations.length === 1 ? "" : "s"}</p></div>
-</div>`;
+</div>
+${bondsHtml(st)}`;
 }
 
 function figureHtml(fig: ReportFigure): string {
@@ -379,6 +520,95 @@ ${rows.map((p) => `<tr><td>${esc(p.label)}</td><td class="num">${formatParameter
   return blocks.join("\n");
 }
 
+const CHECK_LABEL: Record<ReportCheck["status"], string> = { pass: "pass", note: "note", warn: "attention" };
+
+const UNVERIFIED = (t: string): string => `<span class="unverified" title="Not among the values this report computed">${t}</span>`;
+
+/** The narrative as paragraphs: blank lines separate them; nothing else is interpreted. Unverified numbers are marked. */
+function paragraphs(text: string, unverified: readonly string[]): string {
+  const mark = UNVERIFIED;
+  return text.trim().split(/\n\s*\n/).map((p) => `<p>${markNumbers(esc(p.trim()), unverified, mark).replace(/\n/g, "<br>")}</p>`).join("");
+}
+
+/** How the convergence of a posterior run reads. */
+export function posteriorStatus(p: ReportPosterior): string {
+  const run = `${p.earlier ? "of an earlier refinement · " : ""}ensemble MCMC, ${p.walkers} walkers × ${p.steps} steps, ${p.samples} samples kept · R̂max ${p.maxRHat.toFixed(3)} · ESS min ${Math.round(p.minEss)}`;
+  return p.convergence === "converged" ? `${run} · converged` : p.convergence === "close" ? `${run} · close to converged` : `${run} · not converged`;
+}
+
+/** The posterior's caveat line: what the intervals may be used for. */
+export function posteriorCaveat(p: ReportPosterior): string {
+  const use = p.convergence === "converged"
+    ? ""
+    : p.convergence === "close"
+      ? "Close to converged (R̂ < 1.1): the intervals say whether a value is determined, but are not final values to quote. "
+      : "Not converged: the intervals are not to be read. ";
+  const when = p.earlier ? `Of an earlier refinement: ${p.earlier}; the other parameters were held at their values then. ` : "";
+  return `${when}${use}Uniform priors within each parameter's bounds; the noise scale is marginalized (the Bayesian counterpart of scaling the esds by the GoF). The intervals hold within this model: a systematic misfit leaves them as overconfident as the esds.`;
+}
+
+function posteriorHtml(p: ReportPosterior): string {
+  const rows = p.rows.map((r) =>
+    // Three significant figures: an interval's ends are uncertain at the few-% level themselves.
+    `<tr><td>${esc(r.label)}</td><td class="num">${formatWithEsd(r.refined, r.esd, 5)}</td><td class="num">${sig(r.median, 3)}</td>` +
+    `<td class="num">${sig(r.ci68[0], 3)}–${sig(r.ci68[1], 3)}</td><td class="num">${sig(r.ci95[0], 3)}–${sig(r.ci95[1], 3)}</td>` +
+    `<td class="num">${r.esdRatio !== undefined ? r.esdRatio.toFixed(2) : "—"}</td><td class="small reading">${esc(r.verdict)}</td></tr>`,
+  ).join("\n");
+  const diffs = p.differences.length > 0 ? `<ul class="notes" style="margin-top:8px">${p.differences.map((d) => `<li>${esc(d)}</li>`).join("")}</ul>` : "";
+  return `<div class="card scroll" style="margin-top:14px">
+  <h4>Bayesian check <span class="muted">· ${esc(posteriorStatus(p))}</span></h4>
+  <table>
+    <tr><th>Parameter</th><th class="num">Refined (esd)</th><th class="num">Median</th><th class="num">68 %</th><th class="num">95 %</th><th class="num" title="Posterior width over the least-squares esd">Width/esd</th><th>Reading</th></tr>
+    ${rows}
+  </table>
+  ${diffs}
+  <p class="note">${esc(posteriorCaveat(p))}</p>
+</div>`;
+}
+
+function agentHtml(a: ReportAgent): string {
+  const pctOf = (v: number | undefined): string => (v === undefined ? "" : `${(100 * v).toFixed(2)} %`);
+  const anyGof = a.steps.some((st) => st.gof !== undefined);
+  const steps = a.steps.map((st, i) =>
+    `<tr${st.by === "agent" ? ' class="byagent"' : ""}><td class="num">${i + 1}</td><td>${esc(st.label)}${st.stages ? `<div class="muted small">${esc(st.stages)}</div>` : ""}</td>` +
+    `<td>${st.by === "agent" ? '<span class="pill agent">Agent</span>' : '<span class="muted">user</span>'}</td>` +
+    `<td class="muted small">${st.refined ? esc(st.refined) : ""}</td>` +
+    `<td class="num">${st.free}</td><td class="num">${pctOf(st.wR)}</td>${anyGof ? `<td class="num">${st.gof !== undefined ? st.gof.toFixed(2) : ""}</td>` : ""}</tr>`,
+  ).join("\n");
+  const stages = a.method
+    ? `<p class="note">Method (the skill <code>${esc(a.method.skill)}</code>): ${a.method.stages
+      .map((st) => `<span class="stage${st.done ? " done" : ""}">${st.done ? "✓" : "○"} ${esc(st.label)}${st.optional && !st.done ? ", if needed" : ""}</span>`)
+      .join(" ")}</p>`
+    : "";
+  const checks = a.checks.map((c) =>
+    `<tr><td>${esc(c.name)}</td><td><span class="pill ${c.status}">${CHECK_LABEL[c.status]}</span></td><td>${esc(c.detail)}</td></tr>`,
+  ).join("\n");
+  const issues = a.openIssues.length > 0
+    ? `<ul class="issues">${a.openIssues.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>`
+    : `<p class="note">None: the engine's checks raised nothing left to settle.</p>`;
+  const unverified = a.unverified ?? [];
+  const mark = UNVERIFIED;
+  const notes = a.notes.length > 0 ? `<h4 style="margin-top:14px">The Agent's notes</h4><ul class="notes">${a.notes.map((t) => `<li>${markNumbers(esc(t), unverified, mark)}</li>`).join("")}</ul>` : "";
+  const narrative = a.narrative?.trim()
+    ? `<div class="card narrative" style="margin-top:14px"><h4>The Agent's account</h4>${paragraphs(a.narrative, unverified)}<p class="note">Written by the Agent (${esc(a.model)}) in its own words, as are its notes. Every other number in this report — the steps, the checks, the parameters, the agreement factors and the figure — comes from the refinement engine and the project's History, not from the model.${unverified.length > 0 ? ` <span class="unverified">Underlined</span> numbers in the Agent's words are not among the values this report computed.` : ""}</p></div>`
+    : "";
+  const branches = a.otherBranches ? ` The table follows the path to the result; ${a.otherBranches} step${a.otherBranches === 1 ? "" : "s"} on branches the analysis left ${a.otherBranches === 1 ? "is" : "are"} kept in the History, not shown.` : "";
+  return `<div class="card scroll">
+  <h4>How the analysis was done <span class="muted">· ${a.steps.length} step${a.steps.length === 1 ? "" : "s"} from the History · model ${esc(a.model)}</span></h4>
+  <table class="steps">
+    <tr><th class="num">#</th><th>Step</th><th>By</th><th>Refined</th><th class="num">Free</th><th class="num">${esc(a.agreementLabel ?? "wR")}</th>${anyGof ? '<th class="num">GoF</th>' : ""}</tr>
+    ${steps}
+  </table>
+  ${stages}${branches ? `<p class="note">${esc(branches.trim())}</p>` : ""}
+</div>
+<div class="two" style="margin-top:14px">
+  <div class="card scroll"><h4>Checks</h4><table><tr><th>Check</th><th>Result</th><th>Detail</th></tr>${checks}</table></div>
+  <div class="card"><h4>Open issues</h4>${issues}${notes}</div>
+</div>
+${a.posterior ? posteriorHtml(a.posterior) : ""}
+${narrative}`;
+}
+
 function detailsHtml(input: ReportInput): string {
   const r = input.result;
   const labelOf = new Map(input.parameters.map((p) => [p.id, p.label]));
@@ -420,7 +650,7 @@ function detailsHtml(input: ReportInput): string {
 const CSS = `
   :root {
     --bg: #f5f6f8; --panel: #ffffff; --ink: #1d232c; --soft: #5a6572; --faint: #8e98a3;
-    --hair: #e1e5ea; --accent: #0f6f8f; --warn: #a3541c;
+    --hair: #e1e5ea; --accent: #0f6f8f; --warn: #a3541c; --ok: #2f7d4f;
     --obs: #23486f; --calc: #c8352e; --diffc: #4f7a33; --bkgc: #98a3ae; --excl: rgba(110, 120, 132, .10);
     --cellc: #8b93a0; --bondc: #b9a7d6;
     --mono: "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
@@ -428,7 +658,7 @@ const CSS = `
   }
   @media (prefers-color-scheme: dark) {
     :root { --bg: #14181e; --panel: #1b2129; --ink: #e5e9ee; --soft: #a0aab5; --faint: #7d8792; --hair: #2c343e;
-            --accent: #63b3d1; --warn: #e0925a; --obs: #9ec1ea; --calc: #ff7b72; --diffc: #8fc46e; --bkgc: #6f7b87;
+            --accent: #63b3d1; --warn: #e0925a; --ok: #7cc49a; --obs: #9ec1ea; --calc: #ff7b72; --diffc: #8fc46e; --bkgc: #6f7b87;
             --excl: rgba(160, 170, 182, .12); --cellc: #6d7683; --bondc: #55496e; }
   }
   * { box-sizing: border-box; }
@@ -459,6 +689,7 @@ const CSS = `
   table { border-collapse: collapse; width: 100%; font-size: 13px; }
   th, td { padding: 6px 12px 6px 0; text-align: left; vertical-align: top; border-bottom: 1px solid var(--hair); }
   th { font-weight: 600; font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--soft); }
+  th.case { text-transform: none; letter-spacing: 0; }
   tr:last-child > td { border-bottom: none; }
   td:last-child, th:last-child { padding-right: 0; }
   .num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; font-size: 12.5px; }
@@ -476,6 +707,22 @@ const CSS = `
   .notes li { margin: 3px 0; }
   .pgroup + .pgroup { margin-top: 12px; }
   .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 7px; vertical-align: -1px; }
+  .small { font-size: 11.5px; }
+  .pill.pass { color: var(--ok); border-color: var(--ok); margin-left: 0; }
+  .pill.note { margin-left: 0; }
+  .pill.warn { color: var(--warn); border-color: var(--warn); margin-left: 0; }
+  .pill.agent { color: var(--accent); border-color: var(--accent); margin-left: 0; }
+  tr.byagent td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
+  .steps td:first-child, .steps th:first-child { padding-left: 10px; }
+  .stage { white-space: nowrap; margin-right: 10px; }
+  .stage.done { color: var(--ok); }
+  .issues { margin: 0; padding-left: 18px; font-size: 13px; color: var(--warn); line-height: 1.55; }
+  .issues li { margin: 3px 0; }
+  .narrative p { margin: 0 0 10px; max-width: 80ch; }
+  .narrative { border-left: 3px solid var(--accent); }
+  .unverified { text-decoration: underline dotted var(--warn); text-underline-offset: 3px; cursor: help; }
+  td.reading { min-width: 150px; }
+  code { font-family: var(--mono); font-size: 12px; }
   footer { margin-top: 40px; padding-top: 12px; border-top: 1px solid var(--hair); font-size: 12px; color: var(--soft); line-height: 1.5; }
   /* figures */
   .frame { fill: none; stroke: var(--hair); stroke-width: 1; }
@@ -501,10 +748,16 @@ const CSS = `
   .axisdot { fill: var(--soft); }
   .lbl { font-family: var(--mono); font-size: 11px; fill: var(--soft); paint-order: stroke; stroke: var(--panel); stroke-width: 3px; stroke-linejoin: round; }
   @media print {
-    body { background: #fff; color: #000; }
+    body { background: #fff; color: #000; font-size: 13px; }
     .wrap { max-width: none; padding: 0; }
     .card, .fig, .stat { border-color: #cfd4da; break-inside: avoid; }
-    h2, h3 { break-after: avoid; }
+    /* A long table may run onto the next page, a row at a time; the page holds no hidden overflow. */
+    .card.scroll { break-inside: auto; overflow: visible; }
+    tr { break-inside: avoid; }
+    table { font-size: 11.5px; }
+    th, td { padding: 5px 8px 5px 0; }
+    .num { font-size: 11px; }
+    h2, h3, h4 { break-after: avoid; }
     .stats { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
   }
 `;
@@ -520,10 +773,12 @@ export function reportHtml(input: ReportInput): string {
 
   const data = input.data.length > 0 ? `<div class="card">${kvHtml(input.data)}</div>` : "";
   const fit = input.figure ? figureHtml(input.figure) : "";
+  const boxcar = input.boxcar ? boxcarHtml(input.boxcar) : "";
   const phases = input.phases.map((p, i) => phaseHtml(p, i, input.phases.length)).join("\n");
   const magnetic = input.magnetic ? magneticHtml(input.magnetic, primary) : "";
   const params = parametersHtml(input.parameters);
   const details = detailsHtml(input);
+  const agent = input.agent ? agentHtml(input.agent) : "";
 
   return `<!doctype html>
 <html lang="en">
@@ -536,14 +791,16 @@ export function reportHtml(input: ReportInput): string {
 <body>
 <div class="wrap">
   <header class="masthead">
-    <p class="eyebrow">MATERIA · ${esc(technique)} report · ${esc(date)}</p>
+    <p class="eyebrow">MATERIA · ${esc(technique)} report${input.agent ? " · analysed with the Agent" : ""} · ${esc(date)}</p>
     <h1>${esc(input.title)}</h1>
     ${input.subtitle ? `<p class="sub">${esc(input.subtitle)}</p>` : ""}
     ${input.summary ? `<p class="summary">${esc(input.summary)}</p>` : ""}
   </header>
   ${statsHtml(input.stats)}
+  ${section("analysis", "The analysis", agent)}
   ${section("data", "Data & model", data)}
   ${section("fit", "Fit", fit)}
+  ${section("local", "Local versus average", boxcar)}
   ${section("structure", input.phases.length > 1 ? "Atomic structures" : "Atomic structure", phases)}
   ${section("magnetic", "Magnetic structure", magnetic)}
   ${section("parameters", "Parameters", params)}

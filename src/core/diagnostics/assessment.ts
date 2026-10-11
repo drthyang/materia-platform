@@ -100,6 +100,14 @@ export interface AssessmentInput {
     /** A neutron pattern of a phase with magnetic ions: excess on nuclear
      *  reflections at large d may then be k = 0 magnetic order. */
     readonly magneticNeutron?: boolean;
+    /**
+     * Constant-wavelength data: the calculated lines' typical FWHM over d
+     * (relativeLineWidth). A residual peak is then on a reflection within one
+     * width and beside it within three; without it, 0.5 % and 2 % (time of
+     * flight, whose tails run far). On CW neutron data 2 % was four widths,
+     * and the cryostat's Al 111 read as the sample's 200 misfit.
+     */
+    readonly lineWidth?: number;
   };
   readonly mode?: "powder" | "single-crystal" | "pdf";
   /** The restraints the fit ran with: two parameters in one move together by
@@ -204,18 +212,72 @@ export function residualPeaks(residual: NonNullable<AssessmentInput["residual"]>
   onReflection: AnnotatedExtraPeak[];
 } {
   const { d, yObs, yCalc, sigma, reflections } = residual;
+  const w = residual.lineWidth;
+  const onTol = w !== undefined && w > 0 ? Math.min(ON_REFLECTION, Math.max(0.002, w)) : ON_REFLECTION;
+  const besideTol = w !== undefined && w > 0 ? Math.min(BESIDE_REFLECTION, Math.max(0.006, 3 * w)) : BESIDE_REFLECTION;
   const peaks = detectExtraPeaks(d, yObs, yCalc, {
     ...(sigma ? { pointSigma: sigma } : {}),
     ...(options.sigma !== undefined ? { sigma: options.sigma } : {}),
     ...(options.limit !== undefined ? { limit: options.limit } : {}),
   });
-  const annotated: AnnotatedExtraPeak[] = reflections ? annotateExtraPeaks(peaks, reflections, BESIDE_REFLECTION) : [...peaks];
+  const annotated: AnnotatedExtraPeak[] = reflections ? annotateExtraPeaks(peaks, reflections, besideTol) : [...peaks];
   const rel = (p: AnnotatedExtraPeak): number => p.nearNuclear?.relDelta ?? Infinity;
-  return {
-    between: annotated.filter((p) => rel(p) > BESIDE_REFLECTION),
-    beside: annotated.filter((p) => rel(p) > ON_REFLECTION && rel(p) <= BESIDE_REFLECTION),
-    onReflection: annotated.filter((p) => rel(p) <= ON_REFLECTION),
+  // A shoulder or tail sits on the line's own calculated intensity; a bump
+  // where the calculated curve is down to its background is a separate,
+  // resolved peak however close the line (Cr₂WO₆: 2.4 widths from 1 1 3).
+  const onLine = (p: AnnotatedExtraPeak): boolean => {
+    let i = 0;
+    for (let j = 1; j < d.length; j++) if (Math.abs(d[j]! - p.d) < Math.abs(d[i]! - p.d)) i = j;
+    let base = yCalc[i]!;
+    for (let j = 0; j < d.length; j++) if (Math.abs(d[j]! - p.d) <= 0.03 * p.d) base = Math.min(base, yCalc[j]!);
+    return yCalc[i]! - base >= TAIL_ON_LINE * p.height;
   };
+  const beside = (p: AnnotatedExtraPeak): boolean => rel(p) > onTol && rel(p) <= besideTol;
+  return {
+    between: annotated.filter((p) => rel(p) > besideTol || (beside(p) && !onLine(p))),
+    beside: annotated.filter((p) => beside(p) && onLine(p)),
+    onReflection: annotated.filter((p) => rel(p) <= onTol),
+  };
+}
+
+/** A bump beside a line is its tail only where the line's calculated intensity is at least this fraction of the bump. */
+const TAIL_ON_LINE = 0.5;
+
+/**
+ * The calculated lines' typical FWHM as a fraction of d: the median over the
+ * strongest resolved maxima of the calculated curve (half maximum above the
+ * lowest calculated value within 3 % in d). Undefined when fewer than three
+ * lines are resolved.
+ */
+export function relativeLineWidth(d: readonly number[], yCalc: readonly number[]): number | undefined {
+  const n = d.length;
+  const maxima: number[] = [];
+  for (let i = 2; i < n - 2; i++) {
+    const y = yCalc[i]!;
+    if (y > yCalc[i - 1]! && y >= yCalc[i + 1]! && y > yCalc[i - 2]! && y >= yCalc[i + 2]!) maxima.push(i);
+  }
+  maxima.sort((a, b) => yCalc[b]! - yCalc[a]!);
+  const widths: number[] = [];
+  for (const i of maxima.slice(0, 30)) {
+    const di = d[i]!;
+    if (!(di > 0)) continue;
+    let base = yCalc[i]!;
+    for (let j = i; j >= 0 && Math.abs(d[j]! - di) <= 0.03 * di; j--) base = Math.min(base, yCalc[j]!);
+    for (let j = i; j < n && Math.abs(d[j]! - di) <= 0.03 * di; j++) base = Math.min(base, yCalc[j]!);
+    const half = base + (yCalc[i]! - base) / 2;
+    const cross = (dir: 1 | -1): number => {
+      for (let j = i; j + dir >= 0 && j + dir < n; j += dir) {
+        if (Math.abs(d[j + dir]! - di) > 0.03 * di) return NaN;
+        if (yCalc[j + dir]! < half) return d[j]! + ((d[j + dir]! - d[j]!) * (yCalc[j]! - half)) / (yCalc[j]! - yCalc[j + dir]!);
+      }
+      return NaN;
+    };
+    const fw = Math.abs(cross(1) - cross(-1)) / di;
+    if (Number.isFinite(fw) && fw > 0) widths.push(fw);
+  }
+  if (widths.length < 3) return undefined;
+  widths.sort((a, b) => a - b);
+  return widths[widths.length >> 1];
 }
 
 /** Toby 2006: the ratio wR/R_exp (the GoF) is what's meaningful, not absolute wR. */
@@ -269,6 +331,17 @@ export function physicalFindings(parameters: readonly RefinementParameter[]): As
           : "A negative ADP has no physical meaning; it typically absorbs an error elsewhere (scale, background, absorption, or a wrong scattering type). Fix it at a small positive value and address the real cause.",
         parameterIds: [p.id],
         evidence: { value: p.value, origin: p.fixed ? "input" : "refined" },
+      });
+    }
+    if ((p.kind === "profileX" || p.kind === "profileY") && p.value < -1e-6 && !p.fixed) {
+      const what = p.kind === "profileX" ? "size (Lorentzian X)" : "microstrain (Lorentzian Y)";
+      findings.push({
+        category: "physical",
+        severity: "warning",
+        summary: `${p.label} refined negative (${p.value.toFixed(3)}): a negative ${what} has no physical meaning.`,
+        detail: "It narrows the peaks below the Gaussian width, compensating Caglioti U, V, W that make them too broad (or a wrong peak-shape mix). Fix it at 0 and refine U, V, W, then free it again; quote no size or strain from it.",
+        parameterIds: [p.id],
+        evidence: { value: p.value },
       });
     }
     if (p.kind === "occupancy" && (p.value < -1e-6 || p.value > 1 + 1e-6)) {
@@ -441,7 +514,7 @@ export function assessRefinement(input: AssessmentInput): RefinementAssessment {
       findings.push({
         category: "residual",
         severity: between.length >= 3 ? "warning" : "note",
-        summary: `${between.length} unexplained peak${between.length === 1 ? "" : "s"} in the positive residual (obs > calc)${input.residual.reflections ? ", away from every phase's reflections," : ""} at d ≈ ${ds.join(", ")} Å.`,
+        summary: `${between.length} unexplained peak${between.length === 1 ? "" : "s"} in the positive residual (obs > calc)${input.residual.reflections ? ", on no phase's reflection or its tail," : ""} at d ≈ ${ds.join(", ")} Å.`,
         detail: "Intensity the model does not account for. In order of likelihood: an impurity or secondary crystallographic phase, magnetic Bragg peaks (if magnetic ions are present — try a k-search), or unmodelled peak-shape/asymmetry. This is where new materials physics hides.",
         evidence: { peakCount: between.length, dSpacings: ds.join(", ") },
       });
@@ -458,7 +531,7 @@ export function assessRefinement(input: AssessmentInput): RefinementAssessment {
           by.length ? `${beside.length} beside one: ${by.join(", ")}` : null,
         ].filter(Boolean).join("; ") + ".",
         detail: (k0MagneticHint(input.residual.magneticNeutron, onReflection) ? K0_MAGNETIC + " " : "") +
-          "On a reflection, the reflection is calculated too weak — a misfit of its intensity: the atoms (positions, ADPs, occupancy constraints) or an intensity correction. Beside one, within 2% in d, it is most often the peak's shoulder or tail — the profile (TOF peaks tail to larger d) — and only then a weak peak of another phase. Refine those per the method before reading anything new into them.",
+          "On a reflection, the reflection is calculated too weak — a misfit of its intensity: the atoms (positions, ADPs, occupancy constraints) or an intensity correction. Beside one, within 2% in d, it is most often the peak's shoulder or tail — the profile (TOF peaks tail to larger d) — and only then a weak peak of another phase. Refine those per the method before reading anything new into them: they are misfits, not extra peaks, and no reason to change the space group.",
         evidence: { onReflection: onReflection.length, beside: beside.length, reflections: [...on, ...by].join("; ") },
       });
     }

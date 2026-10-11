@@ -1,12 +1,14 @@
 /**
  * The Agent drawer: the conversation with the model, every tool call as a
  * card, and an approval card for each change waiting on the user. It sits beside the page, not over
- * it, so the plot and the parameter panel stay in view while Claude works.
+ * it, so the plot and the parameter panel stay in view while the model works.
  */
 
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { color, fz, mono, radius } from "@/app/theme";
+import { tableRows } from "@/agent/ui/markdownTable";
 import type { ActivityEntry } from "@/agent/executor";
+import type { MethodProgress } from "@/agent/method";
 import { AGENT_MODES, type AgentController, type AgentMode, type AgentSettings, type TranscriptItem } from "@/agent/useAgent";
 import { CHAT_MODELS, hasRefusalFallback } from "@/agent/chat-models";
 import { listOllamaModels, unreachableHint, type OllamaModel } from "@/agent/ollama";
@@ -16,6 +18,8 @@ import { MATH_SPAN_SOURCE, mathInside, texPieces } from "@/agent/ui/texText";
 
 interface Props {
   readonly agent: AgentController;
+  /** The open page's method and how far along it is (null with no page open). */
+  readonly method?: MethodProgress | null;
   readonly onClose: () => void;
 }
 
@@ -26,7 +30,7 @@ function localModel(s: AgentSettings): string | null {
   return s.mode === "ollama" ? s.ollamaModel : s.mode === "lmstudio" ? s.lmstudioModel : null;
 }
 
-export function AgentDrawer({ agent, onClose }: Props): JSX.Element {
+export function AgentDrawer({ agent, method = null, onClose }: Props): JSX.Element {
   const { settings } = agent;
   const [showSettings, setShowSettings] = useState(false);
   const needsSetup = (settings.mode === "api-key" && !agent.apiKey) || localModel(settings) === "";
@@ -44,15 +48,47 @@ export function AgentDrawer({ agent, onClose }: Props): JSX.Element {
           <StatusChip agent={agent} />
         </span>
         <span style={{ display: "flex", gap: 4 }}>
+          {agent.report && <IconButton title="Open the analysis report" onClick={agent.openReport}><ReportIcon /></IconButton>}
           <IconButton title="Settings" active={showSettings} onClick={() => setShowSettings((v) => !v)}>⚙</IconButton>
           <IconButton title="Clear the conversation" onClick={agent.clear} disabled={agent.thinking}>⌫</IconButton>
           <IconButton title="Close the Agent" onClick={onClose}>✕</IconButton>
         </span>
       </div>
+      {method && <MethodChecklist method={method} />}
       {showSettings && <Settings agent={agent} />}
-      <Transcript agent={agent} />
+      <Transcript agent={agent} page={method?.skill ?? null} />
       <Composer agent={agent} disabled={needsSetup} />
     </aside>
+  );
+}
+
+// ── method ──────────────────────────────────────────────────────────────────
+
+/**
+ * The page's method as a checklist: each stage done (✓) or not (○), the next
+ * required one marked, the stages used only when the data call for them dim.
+ */
+function MethodChecklist({ method }: { method: MethodProgress }): JSX.Element {
+  return (
+    <div style={checklist} aria-label="Method progress">
+      <span style={{ fontWeight: 600, color: color.secondary, marginRight: 2 }} title={`The page's method: the skill ${method.skill}`}>Method</span>
+      {method.stages.map((st) => {
+        const next = !st.done && st.label === method.next;
+        return (
+          <span
+            key={st.id}
+            style={{
+              whiteSpace: "nowrap",
+              color: st.done ? color.okInk : next ? color.primary : st.optional ? color.faintest : color.faint,
+              fontWeight: next ? 600 : 500,
+            }}
+            title={st.done ? "Done" : next ? "Next" : st.optional ? "If the data call for it" : "Not yet"}
+          >
+            {st.done ? "✓" : "○"} {st.label}
+          </span>
+        );
+      })}
+    </div>
   );
 }
 
@@ -219,7 +255,7 @@ function OllamaSettings({ agent }: { agent: AgentController }): JSX.Element {
         <p style={{ ...note, color: color.noteInk }}>This model takes {kTokens(picked.context)} tokens of context; the Agent's instructions alone are about 15k. Expect it to lose track in a long session.</p>
       )}
       <p style={note}>
-        The conversation goes only to this server. Local models follow the method less reliably than Claude: watch the approval cards. A page not served from this machine (the published site) also needs <code style={code}>OLLAMA_ORIGINS</code> set to its address where Ollama runs.
+        The conversation goes only to this server. A smaller model follows a long method less reliably than a large one: keep Ask first on until it has shown it follows yours. A page not served from this machine (the published site) also needs <code style={code}>OLLAMA_ORIGINS</code> set to its address where Ollama runs.
       </p>
     </>
   );
@@ -269,7 +305,7 @@ function LmStudioSettings({ agent }: { agent: AgentController }): JSX.Element {
         <p style={note}>Not loaded yet: the Agent loads it with a 32k context on your first message.</p>
       )}
       <p style={note}>
-        The conversation goes only to this server. Needs LM Studio 0.4.1 or later with its server running and <b>Enable CORS</b> on (Developer tab → server settings, or <code style={code}>lms server start --cors</code>). Local models follow the method less reliably than Claude: watch the approval cards.
+        The conversation goes only to this server. Needs LM Studio 0.4.1 or later with its server running and <b>Enable CORS</b> on (Developer tab → server settings, or <code style={code}>lms server start --cors</code>). A smaller model follows a long method less reliably than a large one: keep Ask first on until it has shown it follows yours.
       </p>
     </>
   );
@@ -294,7 +330,7 @@ function ModelPicker<T>({ label, list, value, onChange, onRefresh, children }: {
 
 // ── transcript ──────────────────────────────────────────────────────────────
 
-function Transcript({ agent }: { agent: AgentController }): JSX.Element {
+function Transcript({ agent, page }: { agent: AgentController; page: string | null }): JSX.Element {
   const end = useRef<HTMLDivElement>(null);
   const items = agent.transcript;
   useEffect(() => {
@@ -302,7 +338,7 @@ function Transcript({ agent }: { agent: AgentController }): JSX.Element {
   }, [items, agent.activity]);
   return (
     <div style={transcriptBox} aria-live="polite">
-      {items.length === 0 && <EmptyState mode={agent.settings.mode} />}
+      {items.length === 0 && <EmptyState settings={agent.settings} page={page} />}
       {items.map((item) => <Item key={item.id} item={item} agent={agent} />)}
       {agent.thinking && <div style={{ fontSize: 12.5, color: color.faint, padding: "0 2px" }}>Working…</div>}
       <div ref={end} />
@@ -310,11 +346,49 @@ function Transcript({ agent }: { agent: AgentController }): JSX.Element {
   );
 }
 
-function EmptyState({ mode }: { mode: AgentMode }): JSX.Element {
+/** The model the Agent talks to, as the settings name it. */
+function modelName(s: AgentSettings): string {
+  if (s.mode === "ollama") return s.ollamaModel ? `${s.ollamaModel} (Ollama)` : "the Ollama model you pick";
+  if (s.mode === "lmstudio") return s.lmstudioModel ? `${s.lmstudioModel} (LM Studio)` : "the LM Studio model you pick";
+  return CHAT_MODELS.find((m) => m.id === s.model)?.label ?? s.model;
+}
+
+/** What to ask, by page: the powder page's method or the PDF page's. */
+const EXAMPLES: Readonly<Record<string, readonly string[]>> = {
+  "my-rietveld-workflow": [
+    "Refine this pattern by my method and report the structure.",
+    "Why is the fit poor? Fix what you can.",
+    "There are new peaks at low temperature: find the magnetic structure.",
+    "Assess the fit and suggest what to free next.",
+  ],
+  "pdf-workflow": [
+    "Refine this G(r) and report the local structure.",
+    "Does the local structure differ from the average one?",
+    "Assess the fit and suggest what to free next.",
+  ],
+};
+const DEFAULT_EXAMPLES = ["Assess the fit and suggest what to free next.", "Refine this from the start and report the result."];
+
+function EmptyState({ settings, page }: { settings: AgentSettings; page: string | null }): JSX.Element {
+  const examples = (page && EXAMPLES[page]) || DEFAULT_EXAMPLES;
   return (
     <div style={{ color: color.secondary, fontSize: fz.small, lineHeight: 1.5, padding: "6px 2px" }}>
-      <p style={{ margin: "0 0 8px" }}>Ask about the fit on screen, or ask {mode === "ollama" || mode === "lmstudio" ? "the model" : "Claude"} to take the next step. It reads the analysis, judges it with MATERIA's tools, and asks before it changes anything.</p>
-      <p style={{ margin: 0 }}>For example: <i>“Assess the fit and suggest what to free next.”</i></p>
+      <p style={{ margin: "0 0 8px" }}>
+        <b style={{ color: color.ink }}>{modelName(settings)}</b> works on the analysis open beside it, through MATERIA's tools and the page's own controls. It can run
+        the whole analysis by the page's method — the cell check, the refinement stage by stage, why a fit is poor, which phase an extra peak is,
+        a magnetic structure — and report the result with its esds and its own assessment. Talk it through as you would with a colleague: ask why
+        it took a step, tell it what you know about the sample, or ask anything about the fit on screen.
+      </p>
+      <p style={{ margin: "0 0 8px" }}>
+        {settings.autoApprove
+          ? "Auto: it works through the stages on its own and stops when a decision is yours. A change to the structure or the instrument still asks."
+          : "Ask first: every change waits for your approval on a card. Switch to Auto below to let it work through the stages on its own."}{" "}
+        Every change is a History step you can go back to. The model is your choice, in the settings (⚙): Claude through an API key or a local proxy, or a local model on Ollama or LM Studio.
+      </p>
+      <p style={{ margin: 0 }}>For example:</p>
+      <ul style={{ margin: "2px 0 0", paddingLeft: 18 }}>
+        {examples.map((e) => <li key={e}><i>“{e}”</i></li>)}
+      </ul>
     </div>
   );
 }
@@ -341,14 +415,14 @@ function Item({ item, agent }: { item: TranscriptItem; agent: AgentController })
       );
     case "tool": {
       const entry = agent.activity[item.entryId];
-      return entry ? <ToolCard entry={entry} onDecide={agent.decide} /> : null;
+      return entry ? <ToolCard entry={entry} onDecide={agent.decide} {...(entry.tool === "write_report" && entry.status === "done" && agent.report ? { onOpenReport: agent.openReport } : {})} /> : null;
     }
     case "notice":
       return <div style={noticeStyle(item.tone)}>{item.text}</div>;
   }
 }
 
-function ToolCard({ entry, onDecide }: { entry: ActivityEntry; onDecide: (id: string, ok: boolean) => void }): JSX.Element {
+function ToolCard({ entry, onDecide, onOpenReport }: { entry: ActivityEntry; onDecide: (id: string, ok: boolean) => void; onOpenReport?: () => void }): JSX.Element {
   const waiting = entry.status === "waiting";
   const tone = entry.status === "failed" ? color.warnInk : entry.status === "declined" ? color.faint : entry.status === "done" ? color.okInk : color.primary;
   const statusText = { waiting: "Needs approval", running: "Running…", done: "Done", declined: "Declined", failed: "Failed" }[entry.status];
@@ -364,6 +438,11 @@ function ToolCard({ entry, onDecide }: { entry: ActivityEntry; onDecide: (id: st
       </div>
       {entry.preview && <div style={{ fontSize: 12.5, color: color.ink, marginTop: 3 }}>{entry.preview}</div>}
       {entry.outcome && entry.status !== "waiting" && <div style={{ fontSize: 12, color: entry.status === "failed" ? color.warnInk : color.secondary, marginTop: 3, fontFamily: entry.tool === "refine" ? mono : undefined }}>{entry.outcome}</div>}
+      {onOpenReport && (
+        <div style={{ marginTop: 8 }}>
+          <button style={secondaryButton} onClick={onOpenReport}>Open the report</button>
+        </div>
+      )}
       {waiting && (
         <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
           <button style={primaryButton} onClick={() => onDecide(entry.id, true)}>Approve</button>
@@ -388,7 +467,7 @@ function Composer({ agent, disabled }: { agent: AgentController; disabled: boole
       <textarea
         aria-label="Message the Agent"
         style={{ ...input, resize: "none", minHeight: 58, fontFamily: "inherit", lineHeight: 1.4 }}
-        placeholder={disabled ? (localModel(agent.settings) !== null ? "Pick a model in the settings first" : "Add your API key in the settings first") : "Ask about the fit, or ask for the next step…"}
+        placeholder={disabled ? (localModel(agent.settings) !== null ? "Pick a model in the settings first" : "Add your API key in the settings first") : "Ask anything, or ask it to run the analysis…"}
         value={text}
         disabled={disabled}
         onChange={(e) => setText(e.target.value)}
@@ -415,9 +494,9 @@ function Composer({ agent, disabled }: { agent: AgentController; disabled: boole
 }
 
 /**
- * Ask first: every change waits for approval, and the agent stops at each
- * gate. Auto: changes run without a card (still undoable History steps), and
- * the agent works through the stages, stopping at a failed gate or a decision
+ * Ask first: every change waits for approval, and the agent stops after each
+ * stage. Auto: changes run without a card (still undoable History steps), and
+ * the agent works through the stages, stopping at a failed stage or a decision
  * the method leaves to the user. Off again on reload.
  */
 function AutonomySwitch({ agent }: { agent: AgentController }): JSX.Element {
@@ -436,21 +515,33 @@ function AutonomySwitch({ agent }: { agent: AgentController }): JSX.Element {
   );
   return (
     <div role="radiogroup" aria-label="Approval mode" style={{ display: "flex", border: `1px solid ${color.control}`, borderRadius: radius.button, overflow: "hidden", flexShrink: 0 }}>
-      {option(false, "Ask first", "Every change waits for your approval, and the agent stops at each gate of the method to report.")}
-      {option(true, "Auto", "Changes run without an approval card (each is still a History step you can undo), and the agent works through the method's stages on its own, stopping at a failed gate or a decision that is yours. Back to Ask first on reload.")}
+      {option(false, "Ask first", "Every change waits for your approval, and the agent stops after each stage of the method to report.")}
+      {option(true, "Auto", "Changes run without an approval card (each is still a History step you can undo), and the agent works through the method's stages on its own, stopping at a failed stage or a decision that is yours. Back to Ask first on reload.")}
     </div>
   );
 }
 
 // ── small pieces ────────────────────────────────────────────────────────────
 
-/** A safe, minimal Markdown subset: paragraphs, bullet/numbered lists, **bold**, `code`, and inline $math$ read as text. */
+/** A safe, minimal Markdown subset: paragraphs, bullet/numbered lists, tables, **bold**, `code`, and inline $math$ read as text. */
 function Markdown({ text }: { text: string }): JSX.Element {
   const blocks = text.split(/\n{2,}/);
   return (
     <>
       {blocks.map((block, i) => {
         const lines = block.split("\n");
+        const rows = tableRows(lines);
+        if (rows) {
+          const [head, ...body] = rows;
+          return (
+            <div key={i} style={{ overflowX: "auto", margin: "0 0 6px" }}>
+              <table style={table}>
+                <thead><tr>{head!.map((c, j) => <th key={j} style={th}>{inline(c)}</th>)}</tr></thead>
+                <tbody>{body.map((r, k) => <tr key={k}>{r.map((c, j) => <td key={j} style={td}>{inline(c)}</td>)}</tr>)}</tbody>
+              </table>
+            </div>
+          );
+        }
         if (lines.every((l) => /^\s*([-*]|\d+\.)\s+/.test(l))) {
           const ordered = /^\s*\d+\./.test(lines[0]!);
           const items = lines.map((l, j) => <li key={j}>{inline(l.replace(/^\s*([-*]|\d+\.)\s+/, ""))}</li>);
@@ -496,6 +587,16 @@ function fmtTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n);
 }
 
+/** A page with lines: the report. */
+function ReportIcon(): JSX.Element {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden style={{ display: "block", margin: "0 auto" }}>
+      <path d="M4 1.5h5.5L13 5v9.5H4z" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+      <path d="M9.5 1.5V5H13M6 8h5M6 10.5h5M6 13h3" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function IconButton({ children, title, onClick, active, disabled }: { children: ReactNode; title: string; onClick: () => void; active?: boolean; disabled?: boolean }): JSX.Element {
   return (
     <button
@@ -529,6 +630,7 @@ const drawer: CSSProperties = {
   background: color.raised,
   borderLeft: `1px solid ${color.border}`,
 };
+const checklist: CSSProperties = { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "3px 10px", padding: "7px 14px", borderBottom: `1px solid ${color.border}`, background: color.muted2, fontSize: fz.micro };
 const head: CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "12px 14px", borderBottom: `1px solid ${color.border}` };
 const settingsBox: CSSProperties = { display: "flex", flexDirection: "column", gap: 10, padding: "12px 14px", borderBottom: `1px solid ${color.border}`, background: color.muted2 };
 const transcriptBox: CSSProperties = { flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 };
@@ -541,6 +643,9 @@ const code: CSSProperties = { fontFamily: mono, fontSize: "0.92em", background: 
 const userBubble: CSSProperties = { alignSelf: "flex-end", maxWidth: "88%", background: color.primaryTintBg, border: `1px solid ${color.primaryTintBorder}`, color: color.ink, padding: "7px 10px", borderRadius: 10, fontSize: 13, whiteSpace: "pre-wrap", lineHeight: 1.45 };
 const assistantText: CSSProperties = { fontSize: 13, color: color.ink, lineHeight: 1.5 };
 const list: CSSProperties = { margin: "0 0 6px", paddingLeft: 18 };
+const table: CSSProperties = { borderCollapse: "collapse", fontSize: 12, fontVariantNumeric: "tabular-nums" };
+const th: CSSProperties = { textAlign: "left", fontWeight: 600, padding: "2px 8px 3px 0", borderBottom: `1px solid ${color.border}`, whiteSpace: "nowrap" };
+const td: CSSProperties = { padding: "2px 8px 2px 0", borderBottom: `1px solid ${color.chipBg}`, whiteSpace: "nowrap" };
 const toolCard: CSSProperties = { border: `1px solid ${color.border}`, borderRadius: 8, padding: "8px 10px", background: color.surface };
 const primaryButton: CSSProperties = { border: `1px solid ${color.primary}`, background: color.primary, color: "#fff", borderRadius: 6, padding: "5px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" };
 const secondaryButton: CSSProperties = { border: `1px solid ${color.control}`, background: color.surface, color: color.ink, borderRadius: 6, padding: "5px 14px", fontSize: 12.5, cursor: "pointer" };

@@ -8,13 +8,14 @@
 import type { StructureModel } from "@/core/crystal/types";
 import type { PowderPattern } from "@/core/diffraction/types";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
-import type { ParameterBinding, RefinementParameter } from "@/core/refinement/types";
+import { isMagneticModelParameterKind, type ParameterBinding, type RefinementParameter } from "@/core/refinement/types";
 import type { PowderProfile } from "@/core/workflow/powder";
 import type { MagneticModel } from "@/core/magnetic/types";
-import { buildPowderSpec, type SiteTies, type PowderSpec, type MustrainModel } from "@/app/powderSpec";
+import { buildPowderSpec, type SiteTies, type PowderSpec, type MustrainModel, type SampleCorrections } from "@/app/powderSpec";
 import { buildMultiPhaseSpec } from "@/app/multiPhaseSpec";
 import { buildSyntheticPowder } from "@/examples/synthetic";
 import { parseSymmetryOperation } from "@/core/crystal/symmetry";
+import { isUserTie, tieReferences } from "@/core/refinement/constraints";
 
 export const DEFAULT_INSTRUMENT: InstrumentParameters = { kind: "constantWavelength", wavelength: 1.54 };
 const DEFAULT_BACKGROUND_TERMS = 4;
@@ -44,6 +45,8 @@ export interface Session {
   anisotropicAdp?: boolean;
   /** Sample microstrain (Mustrain) model: isotropic | uniaxial | generalized. */
   mustrain?: MustrainModel;
+  /** Sample and geometry corrections switched on (asymmetry, preferred orientation, displacement, …). */
+  corrections?: SampleCorrections;
   /** GSAS-II's own calc/background overlay for a view-only (TOF) pattern. */
   powderOverlay?: { calc: number[]; background: number[] } | null;
   /** Provenance of the observed data driving the refinement. */
@@ -105,12 +108,88 @@ export function newSession(structure: StructureModel, instrument: InstrumentPara
   };
 }
 
+/** The parameters of the structure itself, which a new dataset of it starts from. */
+const STRUCTURAL_KINDS = new Set<RefinementParameter["kind"]>(["cellLength", "cellAngle", "positionShift", "atomX", "atomY", "atomZ", "bIso", "uAniso", "occupancy"]);
+
+/**
+ * A new dataset's parameters with the structure where the previous fit left
+ * it: the cell, positions, ADPs and occupancies of the same structure carry
+ * over (a temperature series — the paramagnetic refinement seeds the ordered
+ * data), while their free states and the dataset's own scale, background and
+ * profile start afresh. Reset still returns to the CIF's values.
+ */
+export function carryRefinedStructure(previous: Session, params: readonly RefinementParameter[]): { params: RefinementParameter[]; carried: number } {
+  const fitted = previous.powderSource !== EMPTY_SOURCE && previous.powderSource !== SYNTHETIC_SOURCE;
+  const old = new Map(fitted ? previous.powderParams.filter((p) => STRUCTURAL_KINDS.has(p.kind)).map((p) => [p.id, p]) : []);
+  let carried = 0;
+  const out = params.map((p) => {
+    const o = old.get(p.id);
+    if (!o || o.kind !== p.kind || o.value === p.value) return p;
+    carried++;
+    return { ...p, value: o.value };
+  });
+  return { params: out, carried };
+}
+
+/**
+ * A rebuilt row keeping the previous row's value and free state. A tie the
+ * user made rides along (the spec only regenerates its own ties); rows the
+ * spec ties itself take the spec's tie.
+ */
+export function keptRow(p: RefinementParameter, old: RefinementParameter | undefined): RefinementParameter {
+  if (!old) return p;
+  const tie = isUserTie(old) && !p.expression ? { expression: old.expression!, group: old.group! } : {};
+  return { ...p, value: old.value, initialValue: old.initialValue, fixed: old.fixed, ...tie };
+}
+
+/**
+ * The rows with every user tie still meaningful: one whose leader is gone, or
+ * is itself tied now, is released (the row comes back fixed at its value).
+ */
+export function withValidUserTies(params: readonly RefinementParameter[]): RefinementParameter[] {
+  const byId = new Map(params.map((p) => [p.id, p]));
+  return params.map((p) => {
+    if (!isUserTie(p)) return p;
+    const leader = byId.get(tieReferences(p.expression!)[0] ?? "");
+    if (leader && !leader.expression) return p;
+    const { expression: _e, group: _g, ...rest } = p;
+    return { ...rest, fixed: true };
+  });
+}
+
+/**
+ * Rebuilt rows with the magnetic model's rows (moments, k) carried over as
+ * they were: the spec builds the nuclear set only, and the model stays on the
+ * session, so a settings change must not drop its moments from the fit.
+ */
+export function withMagneticRows(specParams: readonly RefinementParameter[], previous: readonly RefinementParameter[]): RefinementParameter[] {
+  const ids = new Set(specParams.map((p) => p.id));
+  return [...specParams, ...previous.filter((p) => isMagneticModelParameterKind(p.kind) && !ids.has(p.id))];
+}
+
+/** A rebuilt spec's bindings with the magnetic model's carried over (see withMagneticRows). */
+export function keptBindings(specBindings: readonly ParameterBinding[], previous: readonly ParameterBinding[]): ParameterBinding[] {
+  return [...specBindings, ...previous.filter((b) => isMagneticModelParameterKind(b.kind))];
+}
+
+/** Rebuilt rows keeping the previous ones by id (keptRow), the magnetic rows carried, user ties checked. */
+export function keptRows(specParams: readonly RefinementParameter[], previous: readonly RefinementParameter[]): RefinementParameter[] {
+  const old = new Map(previous.map((p) => [p.id, p]));
+  return withValidUserTies(withMagneticRows(specParams.map((p) => keptRow(p, old.get(p.id))), previous));
+}
+
+/** The session with its corrections cleared: new data starts without them. */
+export function withoutCorrections(s: Session): Session {
+  const { corrections: _cleared, ...rest } = s;
+  return rest;
+}
+
 /** Build the powder spec for a session, branching to the multi-phase builder when
  *  the session carries extra phases (so every rebuild preserves all phases). */
-export function buildSpecFor(structure: StructureModel, extraPhases: readonly StructureModel[], pattern: PowderPattern, instrument: InstrumentParameters, lorentz: boolean, backgroundTerms: number, ties: SiteTies, mustrain: MustrainModel): PowderSpec {
+export function buildSpecFor(structure: StructureModel, extraPhases: readonly StructureModel[], pattern: PowderPattern, instrument: InstrumentParameters, lorentz: boolean, backgroundTerms: number, ties: SiteTies, mustrain: MustrainModel, corrections?: SampleCorrections): PowderSpec {
   return extraPhases.length > 0
-    ? buildMultiPhaseSpec([structure, ...extraPhases], pattern, instrument, backgroundTerms, ties, mustrain)
-    : buildPowderSpec(structure, pattern, instrument, lorentz, backgroundTerms, ties, mustrain);
+    ? buildMultiPhaseSpec([structure, ...extraPhases], pattern, instrument, backgroundTerms, ties, mustrain, corrections)
+    : buildPowderSpec(structure, pattern, instrument, lorentz, backgroundTerms, ties, mustrain, corrections);
 }
 
 /**

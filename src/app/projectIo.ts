@@ -27,6 +27,7 @@ import type { PdfPattern, PowderXUnit, SingleCrystalDataset } from "@/core/diffr
 import type { MagneticModel } from "@/core/magnetic/types";
 import {
   PROJECT_SCHEMA_VERSION,
+  type AgentRecordFile,
   TECHNIQUE_LABEL,
   type FitWindow,
   type ModulatedHypothesis,
@@ -92,6 +93,8 @@ export interface ProjectEnvelope {
   readonly step?: number;
   /** The step history, when the session has one. */
   readonly history?: ProjectHistory;
+  /** The in-app Agent's records (agent/method.ts). */
+  readonly agentRecords?: readonly AgentRecordFile[];
 }
 
 /** Wrap a workspace into a complete, timestamped project file. */
@@ -110,6 +113,7 @@ export function projectFileFor(env: ProjectEnvelope): ProjectFile {
     workspace: env.workspace,
     ...(env.step !== undefined ? { view: { step: env.step } } : {}),
     ...(env.history ? { history: env.history } : {}),
+    ...(env.agentRecords && env.agentRecords.length > 0 ? { agent: { records: env.agentRecords } } : {}),
   };
 }
 
@@ -141,6 +145,7 @@ export function powderWorkspaceFrom(
     siteTies: session.siteTies,
     ...(session.anisotropicAdp !== undefined ? { anisotropicAdp: session.anisotropicAdp } : {}),
     ...(session.mustrain !== undefined ? { mustrain: session.mustrain } : {}),
+    ...(session.corrections && Object.keys(session.corrections).length > 0 ? { corrections: session.corrections } : {}),
     ...(session.powderOverlay ? { overlay: session.powderOverlay } : {}),
     source: session.powderSource,
     ...(session.rawInstrument ? { rawInstrument: session.rawInstrument } : {}),
@@ -185,6 +190,7 @@ export function sessionFromPowderWorkspace(ws: PowderWorkspace, structures: read
     siteTies: ws.siteTies,
     ...(ws.anisotropicAdp !== undefined ? { anisotropicAdp: ws.anisotropicAdp } : {}),
     ...(ws.mustrain !== undefined ? { mustrain: ws.mustrain } : {}),
+    ...(ws.corrections ? { corrections: ws.corrections } : {}),
     ...(ws.overlay ? { powderOverlay: { calc: [...ws.overlay.calc], background: [...ws.overlay.background] } } : {}),
     // A hand-edited source equal to the landing marker would hide the loaded
     // data behind the empty state; fall back to the pattern's name.
@@ -303,6 +309,8 @@ export interface PdfSnapshot {
   } | null;
   readonly boxcarPlan: BoxcarPlan;
   readonly boxcarRun: BoxcarRun | null;
+  /** The ADP model chosen on the page; null keeps the structure's own. */
+  readonly adpModel?: "isotropic" | "anisotropic" | null;
 }
 
 export function pdfWorkspaceFrom(s: PdfSnapshot): PdfWorkspace {
@@ -323,5 +331,6 @@ export function pdfWorkspaceFrom(s: PdfSnapshot): PdfWorkspace {
       ? { spinModel: { magnetic: s.spinModel.magnetic, parameters: s.spinModel.params.map(cloneParameter), bindings: [...s.spinModel.bindings] } }
       : {}),
     boxcar: { plan: s.boxcarPlan, ...(s.boxcarRun ? { lastRun: s.boxcarRun } : {}) },
+    ...(s.adpModel ? { adpModel: s.adpModel } : {}),
   };
 }

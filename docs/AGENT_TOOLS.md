@@ -96,10 +96,11 @@ full descriptions at the end are the text an agent reads when it picks a tool.
 | Tool | What it does |
 |---|---|
 | `build_refinement` | Build refinement parameter set |
-| `check_cell_symmetry` | Check cell & space group (Le Bail gate) |
+| `check_cell_symmetry` | Check cell & space group (Le Bail sanity check) |
 | `refine_powder` | Refine (constrained least squares) |
 | `evaluate_pattern` | Evaluate pattern (no refinement) |
 | `simulate_pattern` | Simulate pattern (structure only) |
+| `review_symmetry` | Review the space group (last step) |
 | `rank_next_parameters` | Rank next parameters (sensitivity) |
 
 **Judging a refinement**
@@ -169,13 +170,13 @@ full descriptions at the end are the text an agent reads when it picks a tool.
 
 **`parse_structure`** — Parse CIF/mCIF text into a StructureModel (cell, sites, space group) and any magnetic model. The entry point: feed its `structure` to build_refinement / interpret_structure. The setting is never guessed: a CIF with no symmetry operations whose symbol or number fits several settings (e.g. "F d -3 m", origin choice 1 or 2) is an error listing them — pass the right one as `spaceGroupSetting`. A CIF with no symmetry at all is an error too; pass "P 1" only if it lists every atom in the cell (diffpy writes such files).
 
-**`parse_powder_data`** — Auto-detect and parse powder data (xye/xy/dat/GSAS/FullProf/ILL). Returns the pattern, a summary (points, unit, range, radiation), and how the format was detected (source + confidence).
+**`parse_powder_data`** — Auto-detect and parse powder data (xye/xy/dat/GSAS/FullProf/ILL). Returns the pattern, a summary (points, unit, range, radiation), and how the format was detected (source + confidence). Pass the instrument from parse_instrument so the radiation is right: X-ray or neutron, the wavelength, the polarization, and a lab tube's Kα₂ line.
 
 **`parse_instrument`** — Parse an instrument-parameter file (GSAS-II .instprm, classic GSAS .prm, FullProf .irf) into a CW or TOF calibration. Pass the result to build_refinement/refine_powder so the wavelength and profile are right.
 
 **`build_refinement`** — Build the SYMMETRY-ALLOWED parameter set, bindings, and profile for a structure + pattern. Only symmetry-allowed parameters are created, so an agent cannot free a forbidden one. Feed `parameters`/`bindings`/`profile` to refine_powder.
 
-**`check_cell_symmetry`** — The gate BEFORE refining a structure: does the cell index every peak, and does the data respect the space group's systematic absences? A Le Bail fit refines the cell from peak positions alone (free intensities), with back-to-back-exponential peaks that widen with d on time-of-flight data; then every leftover peak must sit on a reflection and every forbidden reflection must carry no intensity (≥ `significance` σ counts). `unindexedPeaks` mean a wrong cell or lattice, or a missing phase — pass known impurities as `extraPhases`. `absences.violated` means the group is too symmetric (a centring or glide the crystal lacks). `absences.untestable` lists forbidden reflections too close to an allowed one to judge. Only d ≥ `dMin` (0.7 Å) is read. It cannot catch a too-LARGE cell (a supercell indexes anything) or a group with too FEW absences — read `limits`. `passed` and `cell` (the Le Bail cell) are the result. When unindexed peaks and a violated absence come together, `reading` warns that the violation may be a line of the same unidentified phase.
+**`check_cell_symmetry`** — A sanity check at the START of a refinement, not a gate: does the cell index every peak, and does the data respect the space group's systematic absences? A Le Bail fit refines the cell from peak positions alone (free intensities), with back-to-back-exponential peaks that widen with d on time-of-flight data; then it reads the leftover (≥ `significance` σ counts). On 2θ data it also refines a zero shift and the axial-divergence asymmetry, and draws a lab tube's Kα₂. `unindexedPeaks` mean a wrong cell or lattice, or a missing phase — settle these first; pass known impurities as `extraPhases`. `shoulders` are small bumps (≤ 3 %) within a few widths of a strong line: a profile tail the simple Le Bail shape misses, not a phase, and not counted against the cell. `absences.violated` is a FLAG, not a verdict: before the structure is refined, profile misfit or an impurity line reads the same way. Do not change the space group on it — note it, refine the structure to the best, and question the group last with review_symmetry on the refined residual. `absences.untestable` lists forbidden reflections too close to an allowed one to judge. Only d ≥ `dMin` (0.7 Å) is read. It cannot catch a too-LARGE cell (a supercell indexes anything) or a group with too FEW absences — read `limits`. `passed` and `cell` (the Le Bail cell) are the result.
 
 **`refine_powder`** — Run the deterministic Levenberg–Marquardt refinement of the FREED parameters (fix a parameter by setting its `fixed:true`). Returns refined values, esds, agreement (wR/GoF), the SVD/correlation/at-bound diagnostics, the observation count, and the residual — everything assess_refinement needs — plus `parameters`: the input set carrying the refined values, ready for the next block. The agent decides what to free; it never sets values.
 
@@ -191,11 +192,13 @@ full descriptions at the end are the text an agent reads when it picks a tool.
 
 **`reflection_list`** — Unique hkl families with d-spacing and multiplicity for a structure, optionally with the instrument-frame position (2θ or TOF µs). Set absences:false to keep nuclear-extinct families — that is where AFM magnetic satellites live, and how you match an unexplained peak to a candidate hkl.
 
-**`bond_geometry`** — Nearest-neighbour bond lengths (Å) up to a cutoff from the symmetry-expanded structure, sorted shortest first. The physical-plausibility check after refining positions: an impossibly short contact means the refinement went somewhere unphysical.
+**`bond_geometry`** — Nearest-neighbour bond lengths (Å) up to a cutoff from the symmetry-expanded structure, sorted shortest first, and each cation's bond-valence sum against its oxidation state (oxides and fluorides; Brese & O'Keeffe R₀, b = 0.37 Å; the CIF type symbol gives the state, else the tabulated one closest to the sum is assumed). The physical-plausibility check after refining positions: an impossibly short contact, or a sum more than ~15 % from the valence, means the refinement went somewhere unphysical or the site holds another element.
 
 **`analyze_site_symmetry`** — Per-site symmetry: for each atom, its Wyckoff label (e.g. "6h", for the built-in space groups), multiplicity, point-group site symmetry, and the symmetry-allowed refinable degrees of freedom — free positional coordinates (0–3), anisotropic-ADP components (0–6), and magnetic-moment components (0–3). The parameterization guardrail: read this BEFORE freeing coordinates or moments so you never fight a symmetry constraint — an atom on a fixed special position has 0 free coordinates, and a site with `allowedMomentComponents: 0` cannot carry a moment. Also reports the crystal's overall point group.
 
-**`find_unexplained_peaks`** — Find peaks in the residual (obs − calc) that the nuclear model does not explain — the magnetic-order / impurity-phase signal. Robust MAD-based thresholding; returns d-spacings ranked by height. A handful of peaks suggests magnetic satellites; dozens mean the nuclear fit itself is poor.
+**`find_unexplained_peaks`** — Find peaks in the residual (obs − calc) — the magnetic-order / impurity-phase signal. Robust MAD-based thresholding; returns d-spacings ranked by height. Check each against the phases' reflections (reflection_list) before calling it an extra peak: residual ON a known reflection is that reflection's intensity or shape misfit, which refining the structure, profile and corrections fixes — not a new phase and not a reason to lower the symmetry. A handful of peaks away from every reflection suggests magnetic satellites or one impurity; dozens mean the fit itself is poor.
+
+**`review_symmetry`** — The LAST step of a Rietveld refinement, never the first: once scale, background, cell, positions, profile and ADPs are refined to convergence and the fit is still not good, read the refined residual at the reflections the primary phase's space group forbids. Returns the forbidden reflections that still carry intensity (`observedForbidden`), the same-lattice (translationengleiche) subgroups that allow them, smallest index first, with their domain counts (`candidates`), and a `reading`. Intensity that differs on allowed reflections is what refinement fixes, never evidence against the group. A lower group is a new model refined again from the start, kept only if it fits these reflections without the misfit moving elsewhere — the user decides. Lost centrings and larger cells are not enumerated (read `limits`).
 
 **`search_propagation_vector`** — Rank candidate commensurate propagation vectors k (denominators 2/3/4/6) by how many unexplained peak d-spacings their satellites G ± k explain. Feed the d values from find_unexplained_peaks; the winning k goes to list_magnetic_subgroups.
 
@@ -219,7 +222,7 @@ full descriptions at the end are the text an agent reads when it picks a tool.
 
 **`merge_magnetic_supercell`** — Merge a nuclear + magnetic single-crystal reflection pair (both indexed in the nuclear cell, the FullProf single-k convention where the magnetic file's h k l is the fundamental of a satellite at hkl+k) into one dataset in the magnetic supercell, where k becomes an integer reciprocal-lattice vector. Feed the result to a magnetic structure refinement. k must be commensurate and axis-diagonal.
 
-**`parse_pdf_data`** — Parse a reduced pair-distribution-function file (.gr/.sq/.fq — diffpy PDFgetX3 or Mantid dialect) or a PDFgui fit export (.fgr) into a PdfPattern with its total-scattering metadata (Qmax, Qdamp, composition). For .fgr, `signal` picks the curve: 'observed' (default, Gcalc+Gdiff) or 'difference' (the fit residual — the mPDF signal for a neutron nuclear fit). The real-space entry point: feed `pattern` to build_pdf_model / refine_pdf.
+**`parse_pdf_data`** — Parse a reduced pair-distribution-function file (.gr/.sq/.fq — diffpy PDFgetX3, PDFgetN or Mantid dialect) or a PDFgui fit export (.fgr) into a PdfPattern with its total-scattering metadata (Qmax, Qdamp, composition). For .fgr, `signal` picks the curve: 'observed' (default, Gcalc+Gdiff) or 'difference' (the fit residual — the mPDF signal for a neutron nuclear fit). When the file names no radiation the summary says `radiationAssumed: true` (read as X-ray): ask, and parse again with `scatteringType` if it is neutron data. The real-space entry point: feed `pattern` to build_pdf_model / refine_pdf.
 
 **`build_pdf_model`** — Build the SYMMETRY-ALLOWED PDF parameter set for a structure (plus optional extra phases) against an observed G(r): the PDF scale (seeded to the least-squares optimum), the Qdamp/Qbroad instrument envelope (seeded from the header, fixed), correlated-motion δ1/δ2 and sratio/rcut, the particle-diameter envelope, and the symmetry-reduced cell/positions/ADPs/occupancies. Feed `parameters`/`bindings`/`restraints` to refine_pdf. CHECK `warnings`: it names any site with no displacement parameter (B_iso = 0, e.g. a CIF with no U_iso/B_iso column) — that gives delta-sharp G(r) peaks and a collapsed scale, so the fit converges on a meaningless model. Set a B_iso before refining.
 
@@ -233,7 +236,7 @@ full descriptions at the end are the text an agent reads when it picks a tool.
 
 **`compute_mpdf_components`** — Split the calculated G(r) into its nuclear and magnetic parts at the CURRENT parameter values, without refining. Use it to check whether a candidate spin model produces enough magnetic signal to fit. `magneticFraction` is the RATIO peak|magnetic| / peak|nuclear| — 0.01 is 1%, and below about that the moments are effectively unconstrained by the data (a strongly magnetic neutron PDF runs 0.1–1). Always read it with `nuclearPeak`/`magneticPeak`: the ratio is reported as 0 when the nuclear peak is zero, which means a degenerate nuclear model, not weak magnetism.
 
-**`sample_posterior`** — Draw Bayesian posterior samples over the FREED parameters of a PDF fit with an affine-invariant ensemble MCMC sampler — the full parameter distribution where refine_pdf gives a point estimate. Reports per-parameter median / 68% / 95% credible intervals, convergence diagnostics (R-hat, ESS, acceptance), sample correlations, and — when `linearizedEsd` from a prior refine_pdf is supplied — `esdRatio` (posterior std / least-squares esd: ≈1 validates the esds, ≫1 means they were overconfident from correlation or non-Gaussianity). The default `marginalized` noise model integrates out the unknown G(r) error scale (uniform weights are not honest sigmas), so widths are meaningful. Run refine_pdf FIRST and seed `parameters` at the converged values. Bounded per call: if `converged` is false, pass the returned `resume` token to a follow-up call to continue the same chain.
+**`sample_posterior`** — Draw Bayesian posterior samples over the FREED parameters of a PDF fit, or of a powder fit (pass build_refinement's `profile`, and `magnetic` for a nuclear + magnetic co-refinement), with an affine-invariant ensemble MCMC sampler — the full parameter distribution where refine_pdf / refine_powder give a point estimate. Run it when a refined value is not convincing: an esd as large as the value, a parameter on a bound, a strongly correlated pair, a value that moves between refinement paths at the same wR. Reports per-parameter median / 68% / 95% credible intervals, convergence diagnostics (R-hat, ESS, acceptance), sample correlations, and — when `linearizedEsd` from a prior refine_pdf is supplied — `esdRatio` (posterior std / least-squares esd: ≈1 validates the esds, ≫1 means they were overconfident from correlation or non-Gaussianity). The default `marginalized` noise model integrates out the unknown G(r) error scale (uniform weights are not honest sigmas), so widths are meaningful. Run refine_pdf / refine_powder FIRST and seed `parameters` at the converged values. Bounded per call: if `converged` is false, pass the returned `resume` token to a follow-up call to continue the same chain.
 
 **`compute_partial_pdf`** — Decompose the calculated G(r) for interpretation — which chemistry (element pair) or which phase makes which peak. Single phase → Faber–Ziman element-pair partials; with extraPhases → per-phase contributions. The curves sum exactly to the total calc.
 
@@ -297,12 +300,46 @@ shape is pinned, and every registered tool appears on this page.
 
 ## Skills
 
-A skill composes tools into an expert procedure. One ships in this repository:
-[`.claude/skills/my-rietveld-workflow/`](../.claude/skills/my-rietveld-workflow/SKILL.md),
-the maintainer's own powder Rietveld procedure: a fixed freeing sequence, gates
-between stages, and acceptance criteria. It covers constant-wavelength and TOF
-data, single- and multi-phase, and hands magnetic structures on to the
-magnetic-analysis flow.
+A skill composes tools into an expert procedure. Four ship in this repository:
+
+- [`.claude/skills/my-rietveld-workflow/`](../.claude/skills/my-rietveld-workflow/SKILL.md),
+  the maintainer's own powder Rietveld procedure: a sanity check of the cell, a
+  fixed freeing sequence, acceptance criteria, and the space group reviewed
+  last, only when everything else is refined. It covers constant-wavelength and TOF
+  data, single- and multi-phase, and hands magnetic structures on to the
+  magnetic-analysis flow.
+- [`.claude/skills/pdf-workflow/`](../.claude/skills/pdf-workflow/SKILL.md), the
+  small-box PDF procedure: instrument resolution from a standard, the freeing
+  order, one correlated-motion term, boxcar scans for local versus average
+  structure. General practice until the maintainer's own PDF method is written
+  down.
+- [`.claude/skills/magnetic-analysis/`](../.claude/skills/magnetic-analysis/SKILL.md),
+  the powder magnetic structure procedure the Rietveld skill hands off to: k from
+  the peaks the nuclear fit leaves, the magnetic space groups top-down, the
+  moments, then nuclear and magnetic together, with the powder's limits. A first
+  draft, to confirm with the maintainer.
+- [`.claude/skills/symmetry-review/`](../.claude/skills/symmetry-review/SKILL.md),
+  the last step of a Rietveld refinement, if at all: when the data ask for a
+  lower space group, the alternatives to rule out, and how a lower group is
+  tested — never before the structure is refined to the best its group allows.
+
+New skills come from interviewing the user; [SKILL_INTERVIEWS.md](./SKILL_INTERVIEWS.md)
+is the guide (magnetic, PDF, single crystal, the symmetry review), and says where
+each answer lands: the skill's text, a firm rule in code, or an eval scenario.
+
+The same files serve both agents. Claude Code loads them as skills in this
+repository; the in-app Agent reads them through
+[`src/agent/skills.ts`](../src/agent/skills.ts). Its system prompt carries only
+each skill's name and description, and the Agent reads a skill with
+`read_skill` when the task calls for it (progressive disclosure). A skill's
+**References** section lists longer knowledge bases as relative links
+(`- [\`name\`](../../../knowledge/file.md) — what it covers`): Claude Code follows
+the path, and the in-app Agent reads the reference by name. `skills.test.ts`
+checks that every skill parses and every reference resolves.
+
+To add a skill, add a folder with a `SKILL.md` (frontmatter `name` and
+`description`, then the procedure, then References). Nothing else changes: both
+agents find it. A page's method skill is named in `PAGE_METHOD` (skills.ts).
 
 **Planned skills**
 - `refine-structure` — the guided sequence scale → background → cell → profile
@@ -357,13 +394,24 @@ page's own controls. Open it with the **Agent** button in the header.
 
 **Where it works.**
 - The powder page (Rietveld), single- and multi-phase, with or without an
-  applied magnetic model.
+  applied magnetic model, and its magnetic analysis step: the propagation
+  vector from the residual peaks, the magnetic space groups of the little
+  group of k, the moments fitted, and the model handed to the joint
+  nuclear + magnetic refinement.
 - The PDF page (a real-space fit of G(r)), single- and multi-phase, with or
   without an applied spin model. Rw is its agreement; the fit weights every
   point equally, so the answers carry no GoF and say the esds are not
   statistical.
-- Not yet: single crystal, and the magnetic analysis step. Their state is
-  private to the page; each needs its own port.
+- Not yet: single crystal. Its state is private to the page; it needs its
+  own port.
+
+**Its methods, read on demand.** The user's methods are skills in
+[`.claude/skills/`](../.claude/skills): `my-rietveld-workflow`,
+`magnetic-analysis`, `pdf-workflow`, `symmetry-review` and `bayesian-check`.
+The system prompt carries only their names and descriptions; the Agent reads a
+skill whole with `read_skill` when the task calls for it, and the knowledge
+notes a skill cites the same way. Claude Code loads the same files, so one
+method serves both.
 
 **Its tools.** One list ([`src/agent/tools.ts`](../src/agent/tools.ts))
 serves every way in, so a model sees the same names everywhere. Each tool names
@@ -372,20 +420,158 @@ The page-specific handlers are [`powderTools.ts`](../src/agent/powderTools.ts)
 and [`pdfTools.ts`](../src/agent/pdfTools.ts).
 - Read tools run at once: `get_state`, `assess_refinement`,
   `suggest_next_steps`, `rank_next_parameters`, `check_cell_symmetry`,
-  `find_unexplained_peaks`, `bond_geometry`, `interpret_structure`, `read_ref`.
-  The analysis tools are the MCP handlers above, fed from what is on screen.
+  `find_unexplained_peaks`, `review_symmetry`, `diagnose_fit`,
+  `structure_table`, `bond_geometry`, `interpret_structure`, `identify_peaks`,
+  `sample_posterior` (powder and PDF), `write_report`, `read_skill`,
+  `read_ref`, and on the magnetic step
+  `magnetic_state`, `search_propagation_vector`, `rank_magnetic_groups`. The analysis tools are the MCP handlers above, fed
+  from what is on screen.
+- `read_skill` returns a skill whole, as Markdown (not cut to the ref budget),
+  with the names of its references; with `reference` it returns one of them.
+  Before its first change on a page, the Agent must have read that page's
+  method skill in this conversation (`my-rietveld-workflow` on the powder page,
+  `pdf-workflow` on the PDF page); a change before that is refused with the
+  call to make. Clearing the conversation resets it.
+- **The method's firm rule is code** ([`src/agent/method.ts`](../src/agent/method.ts)),
+  checked before the correlation probe: on both pages no occupancy refines
+  bare, with no Σ or composition tie. Only the user lifts it:
+  `allow_exception` (rule, reason) shows an approval card even in Auto, and the
+  exception lasts until the data or the phases change.
+- **The cell check is a check, not a gate.** `check_cell_symmetry` at the start
+  settles gross problems (a peak no reflection indexes: a missing phase or a
+  wrong cell); it never holds a refinement. Intensity it finds at a forbidden
+  reflection is a flag to note, not a reason to change the space group: before
+  the structure is refined, profile misfit reads the same way.
+- **The space group is questioned last.** `review_symmetry` reads the refined
+  residual at the forbidden reflections and lists the same-lattice subgroups
+  that allow those still carrying intensity (named, with their index and
+  domain count). It refuses, naming the stages left, until scale, background,
+  cell, positions, profile and ADPs have each been refined to convergence and
+  the fit on screen is converged: a structure is refined to the best its
+  group allows before the group is doubted. Its result is a proposal for the
+  user; a lower group is a new model, refined again from the start.
+- **Misfits are not extra peaks.** `find_unexplained_peaks` counts and marks
+  only residual peaks on no reflection of any phase; residual on or beside a
+  known reflection comes back apart as `misfits` — intensity or shape the
+  refinement has yet to match (`showMisfits` marks them too).
+- **The method's stages** (powder: cell check, scale/background/cell,
+  positions, profile, ADPs, then occupancy and corrections if needed, and the
+  symmetry review last; PDF: scale/cell, ADPs, correlated motion, positions,
+  then occupancy and particle size) are a checklist in the drawer and
+  `get_state`'s `method`. A stage is done once a converged refinement had one
+  of its parameters free, whoever ran it (the scale, refined with every
+  stage, counts for the first only when nothing else is free). A refinement out of order runs, with
+  a `methodNote` in its outcome.
+- The record behind them (the cell check, the symmetry review, the
+  exceptions, the stages done, and the Agent's notes) is kept per analysis by the shell and saved with the project
+  (`agent.records` in the project file; autosaved too). `write_note` adds a
+  note without asking (it changes the record, not the analysis); `get_state`
+  lists the notes, so a later conversation or session starts from them.
+- **Long sessions** ([`src/agent/contextWindow.ts`](../src/agent/contextWindow.ts)).
+  With Claude, the API clears old tool results once the prompt passes 60k
+  tokens (context editing), keeping the last six and every `read_skill`
+  result; server-side clearing is not an edit of the history the model's
+  thinking is bound to. A local model gets a pruned copy past ~15k tokens: old
+  results replaced by a line naming the tool to call again, the stored history
+  untouched.
 - Change tools ask first: `set_free`, `set_background`, `set_microstrain`,
-  `set_adp_model`, `set_site_ties`, `set_fit_range`, `refine`,
-  `reset_parameters`, `go_to_step`.
+  `set_adp_model`, `set_site_ties`, `set_corrections`,
+  `set_instrument_constants`, `add_antisite`, `add_known_phase`, `tie_parameters`, `set_fit_range`,
+  `refine`, `reset_parameters` (all, or the ids given), `go_to_step`, and on
+  the magnetic step
+  `set_propagation_vector`, `select_magnetic_ions`, `set_moment_ties`,
+  `choose_magnetic_group`, `refine_moments`, `show_magnetic_model`,
+  `continue_magnetic_refinement`.
   Each is the page's own handler — the Agent's `refine` is the Refine button.
-- PDF page only: `boxcar_scan`, the Boxcar view's scan. The free parameters
-  are refined box by box across the fit window, seeded from the previous box,
-  and the parameter rows are left as they are. It returns each box's r range,
-  Rw and values, and each parameter's spread, to tell the local structure
-  from the average.
+- **Why a fit is poor** ([`src/core/diagnostics/fitDiagnosis.ts`](../src/core/diagnostics/fitDiagnosis.ts)).
+  `diagnose_fit` reads the residual cause by cause, each with its share of χ²
+  and the action: peak width (the half-maximum widths of observed against
+  calculated isolated lines), line shape (their Lorentzian fraction, read from
+  height × FWHM ÷ area), background (misfit where even a Lorentzian line of
+  the observed width puts less than half a σ), peak positions
+  (residual on one side of every peak), asymmetry (one-sided at low angle),
+  width/shape (± lobes everywhere), intensity falling off with angle wrongly
+  (ln(I_obs/I_calc) against sin²θ/λ²: a ΔB), texture (the intensity misfit
+  against the angle to a low-index direction), and what is left for the
+  structure; with the background-subtracted Rwp′, Durbin–Watson, χ² by d
+  shell and the worst reflections. `set_corrections` switches on what it
+  names — FCJ asymmetry (S/L, H/L tied), March–Dollase texture along h k l,
+  displacement, transparency, μR absorption, roughness — as the profile
+  group's corrections boxes do; their rows come in fixed. `structure_table`
+  gives the refined cell, coordinates, occupancies and B as value(esd).
+  `add_antisite` lets two sites exchange their atoms (each element added on
+  the other site at occupancy 0, Σ occ = 1 and hold composition on), so
+  antisite disorder refines as one fraction; it asks the user.
+  `tie_parameters` constrains B's (or occupancies) of one kind to one refined
+  value — the leader refines, the others follow it — or releases such a tie;
+  the tie rides through every rebuild of the spec, `set_free` skips the
+  followers, and `structure_table` gives them the leader's esd.
+  `identify_peaks` matches extra peaks against the sample environment (Al,
+  V, Cu, steels, Nb, Pb), common holders and standards, and the impurities a
+  synthesis leaves most often (CaF₂, NaF, NaCl), each phase's lines computed
+  for the pattern's radiation and allowed one d scale; candidates rank by the
+  peaks they explain, weighed by how plausible their cell is, and one whose
+  strongest line is missing is called doubtful. `add_known_phase` adds a
+  matched library phase to the model as a further phase (its cell, positions
+  and B ≈ 0.5 Å²) and always asks the user; another phase needs the user's
+  CIF. A glob without a phase prefix (`pos_*`) matches every phase's rows of
+  a multi-phase model.
+  `set_instrument_constants` sets an X-ray instrument's polarization fraction
+  and Kα₂/Kα₁ ratio — constants the fit cannot determine (the polarization
+  trades with every B at the same wR) — and always asks the user.
+  `sample_posterior` (powder and PDF pages, a read) runs the page's Bayesian
+  posterior sampler — the ensemble MCMC of the Posterior view — over the free
+  parameters of a converged fit, and reads it: per parameter the median, the
+  68 % and 95 % credible intervals, the posterior width over the esd, an
+  interval that ends on a bound (a limit, not a value), the posterior
+  correlations, and the convergence (split-R̂, ESS). `continue: true` resumes
+  the chain. The skill `bayesian-check` says when to run it (an esd as large
+  as the value, a bound, a correlated pair, path dependence, a claim resting
+  on one number) and what it cannot do (choose a model, fix a misfit).
+- **The analysis report** ([`src/agent/report.ts`](../src/agent/report.ts)).
+  `write_report` (powder and PDF pages, a read) builds the page's own report
+  (Export ▾ → Report: data, model, the fit figure, the structures with esds,
+  every parameter, the diagnostics) with the analysis as it went: the
+  History's steps on the path to the result — what each refinement freed and
+  the method stage behind it, who took it — the method's checklist, the
+  engine's checks ([`reportChecks.ts`](../src/agent/reportChecks.ts):
+  convergence, the agreement verdict, correlations, bounds, residual peaks,
+  Durbin–Watson, bond valences, the cell check and symmetry review, the
+  exceptions the user allowed) with the issues left open, the Bayesian check
+  of the refinement on screen when one ran, and the Agent's notes. The model
+  and how it was reached are named. The Agent writes only `summary`, its
+  account, labelled as its words; its decimal numbers are checked against the
+  numbers the report computed ([`reportAudit.ts`](../src/core/export/reportAudit.ts)),
+  and any that match none are underlined (HTML) or marked † (Markdown) and
+  returned, so the Agent corrects them and writes again. The report opens in
+  a viewer (Save HTML, Markdown, Print / PDF, CIF), and again from the drawer.
+- **The magnetic analysis step** ([`src/agent/magneticTools.ts`](../src/agent/magneticTools.ts)).
+  The powder page's second step publishes its controls as a handle on the
+  powder port ([`magneticPort.ts`](../src/agent/magneticPort.ts)), so the Agent
+  works it as the user does, and the page switches to it when a tool acts:
+  read the residual peaks the k-search uses (`magnetic_state`), search k and
+  set it (several k often explain a few satellites: the search names the
+  simplest), choose the magnetic ions, rank the magnetic space groups of the
+  little group of k by a moments-only fit (maximal groups first; ties go to the
+  maximal group with the fewest moment parameters), choose one (by its id, G1,
+  G2, … in the page's order), fit its moments, and either show it on the
+  refinement pattern with its moments held or hand its moment rows (and k's
+  free components) to the refinement step, where `refine` fits nuclear and
+  magnetic together. Its changes wait for the `magnetic-analysis` skill to be
+  read, as the page's changes wait for its method.
+- PDF page only: `boxcar_scan`, the Boxcar view's scan. The free parameters —
+  or the scan's own `free` set, which leaves the page's free set and fit as
+  they are — are refined box by box across the fit window, seeded from the
+  previous box, and the parameter rows are left as they are. It returns each
+  box's r range, Rw and values, and each parameter's spread, to tell the local
+  structure from the average; with `bonds` (cation sites), each box's
+  coordination shell in the structure it refined, so a distortion is compared
+  as lengths. The last scan goes into the report.
+- `set_adp_model` switches the primary phase between one U per site and the U
+  tensor on both pages: a CIF with U_aniso columns loads a tensor per site.
 - Powder page only: `rank_next_parameters`, `check_cell_symmetry`,
-  `find_unexplained_peaks`, `set_background`, `set_microstrain`,
-  `set_adp_model`, `set_site_ties`. On the PDF page, `assess_refinement` judges convergence,
+  `find_unexplained_peaks`, `review_symmetry`, `set_background`, `set_microstrain`,
+  `set_site_ties`. On the PDF page, `assess_refinement` judges convergence,
   correlations, bounds and physical values, without the GoF verdict or the
   Bragg-peak residual scan, and `set_fit_range` with `whole` restores the
   page's default r window.
@@ -441,15 +627,16 @@ Refine button is unchanged.
 peak only if it stands 5σ above that point's own uncertainty, so lone noisy
 points in a low-count region are not peaks. It checks each peak against every
 phase's reflections:
-- **on** one (within 0.5% in d): that reflection is calculated too weak;
+- **on** one (within 0.5% in d): that reflection is calculated too weak — a
+  misfit;
 - **beside** one (within 2%): most often its shoulder or tail (TOF peaks tail
-  to larger d);
+  to larger d) — a misfit;
 - **unexplained** otherwise: an impurity, magnetic order or an unmodelled
-  feature.
+  feature. Only these are counted and called extra peaks.
 
-`assess_refinement` reports the same split. The peaks are marked on the
-Rietveld plot: a filled ▽ when unexplained, hollow when on or beside a
-reflection, each with a dashed guide through the pattern. A row under the plot
+`assess_refinement` reports the same split. The unexplained peaks are marked
+on the Rietveld plot with a filled ▽ (with `showMisfits`, the misfits too,
+hollow), each with a dashed guide through the pattern. A row under the plot
 lists each d and its reflection (click to zoom), with a Clear button. The marks go at the next refinement, when the residual
 changes. Viewing only: no approval card, no history step.
 
@@ -488,8 +675,9 @@ conversation stays valid.
   refusal fallback to another model is an opt-in setting, and a turn another
   model answered is announced. The key is kept for the tab unless you tick
   Remember; it is never written to a project, autosave, or report. The system
-  prompt carries the `my-rietveld-workflow` skill and two `knowledge/` notes,
-  and is cached across turns.
+  prompt carries the role and the index of skills (about 6 KB; it carried the
+  Rietveld skill and two knowledge notes, about 63 KB, until the skills were
+  read on demand), and is cached across turns.
 - **Local proxy.** `<base>api/anthropic/` on the dev and preview servers
   ([`src/agent/proxy.ts`](../src/agent/proxy.ts)). The page sends its
   requests there, and the server adds the key from `ANTHROPIC_API_KEY` and
@@ -506,8 +694,8 @@ conversation stays valid.
   Ollama with `OLLAMA_ORIGINS` set to its address. The instructions alone are
   about 15k tokens, so pick a model with at least a 32k context. Checked with
   `gemma4:26b` on Ollama 0.40: it read the fit, refined after approval,
-  assessed the result and stopped at the method's gate. Local models follow
-  the method less reliably than Claude; the approval cards are the guard.
+  assessed the result and stopped at the method's gate. A smaller model
+  follows a long method less reliably than a large one; Ask first is the guard.
 - **LM Studio.** LM Studio 0.4.1 and later answer the same Messages API at
   `<server>/v1/messages` ([`src/agent/lmstudio.ts`](../src/agent/lmstudio.ts)),
   so it runs the same loop with the same plain headers and request fields as
@@ -531,6 +719,41 @@ the chat loop against a stand-in API that streams scripted turns (as Claude,
 Ollama and LM Studio), the Ollama and LM Studio model listings against
 stand-in servers, and the proxy against a stubbed upstream.
 
+**The eval suite** ([`src/agent/evals/`](../src/agent/evals)) grades the
+Agent's behaviour, not its code. A scenario is a page built from the
+repository's own data (the Mn₃Ga powder demo with seeded noise, a start with
+only intensity misfits, one with an impurity line, one with magnetic
+satellites from a known group at k = (0 0 ½); the GaTa₄Se₈ PDF demo),
+what the user says, what they approve, and the checks the run must pass. It
+runs through the real chat loop, executor and tools; only the model varies.
+Each scenario guards against a failure that was found:
+
+| Scenario | Guards against |
+|---|---|
+| `full-refinement` | refusing the full refinement on the cell check (user report) |
+| `misfits-not-extra-peaks` | calling intensity misfit on known reflections extra peaks (user report) |
+| `symmetry-last` | proposing a lower symmetry before the structure is refined (user report) |
+| `impurity-line` | missing, or not reporting, a line no phase explains |
+| `bare-occupancy` | freeing an occupancy bare, or lifting the rule unasked |
+| `free-everything` | retrying a refused refinement with the same free set |
+| `fit-window-in-d` | reading a window given in d as 2θ |
+| `magnetic-structure` | not acting on the magnetic step at all (user report) |
+| `pdf-method` | changing the PDF fit before reading its method; δ1 with δ2 |
+| `pdf-local-structure` | answering local-versus-average without a boxcar scan |
+
+The checks mostly read the tool calls (what the Agent did); a few read the
+replies sentence by sentence (a sentence that names extra peaks or a lower
+symmetry without negating it). In CI every scenario is replayed with a
+scripted model twice: as the Agent should behave, where every check passes,
+and as it behaved when the failure was found, where the checks written
+against it must fail. So each check is shown to catch what it is for.
+
+Against a real model, `MATERIA_AGENT_EVAL=1 ANTHROPIC_API_KEY=… npm run
+eval:agent` runs every scenario and prints a pass count per scenario.
+`MATERIA_AGENT_EVAL_MODEL`, `_EFFORT`, `_TRANSPORT` (`ollama` or `lmstudio`,
+with `_SERVER`), `_ONLY` (scenario ids), `_REPEAT` (runs per scenario) and
+`_OUT` (a JSON report with the transcripts) adjust the run.
+
 ## Planned
 
 Tool slices, in priority order (names are provisional):
@@ -544,13 +767,13 @@ Tool slices, in priority order (names are provisional):
 
 Other planned work:
 - One more worked example: a Rietveld refinement driven by the skill (the cell
-  gate, the freeing blocks, the cross-check bundle).
+  check, the freeing blocks, the symmetry review, the cross-check bundle).
 - Expose `knowledge/*.md` as **MCP resources**, so an agent can read the domain
   knowledge the tools assume.
 - Richer per-tool JSON schemas.
 - Assessment variants for single-crystal data (in the R1/wR2/GooF convention)
   and for magnetic refinements.
-- The Agent on the single-crystal page and the magnetic analysis step, each
-  through its own port; PDF symmetry modes and boxcar scans as tools.
+- The Agent on the single-crystal page and the magnetic PDF step, each
+  through its own port; PDF symmetry modes as tools.
 
 The order across the whole project is in [ROADMAP.md §5](./ROADMAP.md).
