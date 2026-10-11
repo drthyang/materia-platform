@@ -97,7 +97,10 @@ const STEP_KIND: Readonly<Record<string, StepKind>> = {
   set_outlier_filter: "settings",
   omit_reflections: "settings",
   set_resolution_range: "settings",
+  set_radiation: "settings",
   set_extinction_model: "settings",
+  set_riding_hydrogens: "settings",
+  set_weighting: "settings",
 };
 
 let nextCallId = 1;
@@ -363,7 +366,7 @@ export class AgentExecutor implements ToolRunner {
     const r = out.reflections;
     const e = out.intensityStatistics;
     const parts = [
-      `${r.measured} reflections, ${r.unique} unique, R_int ${r.rInt} %`,
+      `${r.measured} reflections, ${r.unique} unique, ${typeof r.rInt === "number" ? `R_int ${r.rInt} %` : "merged (one value per reflection)"}`,
       `d_min ${out.resolution.dMin} Å${out.resolution.completeness !== undefined ? `, completeness ${out.resolution.completeness} %` : ""}`,
       ...(typeof e === "object" ? [`⟨|E²−1|⟩ ${e.meanAbsE2Minus1}: ${e.reading}`] : []),
       ...(typeof out.absences === "object" ? [`${out.absences.atThreeSigma} of ${out.absences.measured} forbidden reflections at ≥ 3σ${out.absences.strongest?.[0] ? `, the strongest ${out.absences.strongest[0]}` : ""}`] : []),
@@ -551,7 +554,7 @@ export class AgentExecutor implements ToolRunner {
 
 /** reflection_statistics' answer, as the record reads it. */
 interface DataAnswer {
-  readonly reflections: { readonly measured: number; readonly unique: number; readonly rInt: number };
+  readonly reflections: { readonly measured: number; readonly unique: number; readonly rInt: number | string };
   readonly resolution: { readonly dMin: number; readonly completeness?: number };
   readonly friedel: string;
   readonly absences: { readonly measured: number; readonly atThreeSigma: number; readonly strongest?: readonly string[] } | string;

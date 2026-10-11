@@ -17,7 +17,7 @@ import { powderParameters, singleCrystalParameters } from "@/examples/synthetic"
 import { powderCurves } from "@/core/workflow/powder";
 import { singleCrystalComparison } from "@/core/workflow/singleCrystal";
 import { parseHklRows } from "@/parsers/hkl";
-import { isCifReflectionLoop, parseFcf, parseShelxHkl, type ShelxHklParse } from "@/parsers/shelxHkl";
+import { isCifReflectionLoop, isRefinementListing, parseFcf, parseShelxHkl, type ShelxHklParse } from "@/parsers/shelxHkl";
 import { parseReflectionList } from "@/parsers/reflectionList";
 import { parseFullProfInt, looksLikeFullProfInt } from "@/parsers/fullprofInt";
 import { looksLikeSnsTofHkl, parseSnsTofHkl } from "@/parsers/snsTofHkl";
@@ -210,7 +210,7 @@ export function loadReflectionDataset(
       h: r.h, k: r.k, l: r.l, iObs: r.intensity, sigma: r.sigma, ...(shelx.parse.hasBatches && r.batch !== undefined ? { batch: r.batch } : {}),
     }));
     return {
-      dataset: { id: datasetId, name, radiation: { kind: "neutron" as const, wavelength: 1.54 }, reflections },
+      dataset: { id: datasetId, name, radiation: { kind: "neutron" as const, wavelength: 1.54 }, reflections, ...(isRefinementListing(text) ? { origin: "refinement-listing" as const } : {}) },
       kept: reflections.length,
       dropped: shelx.parse.skipped,
       forwardBeamSkipped: shelx.parse.forwardBeamSkipped,

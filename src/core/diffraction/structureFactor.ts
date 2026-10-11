@@ -54,7 +54,7 @@ function almostEqualMod1(a: Vec3, b: Vec3, tol = 1e-3): boolean {
  * across a calc/refinement) then a coarse position key.
  */
 const cosetCache = new WeakMap<readonly SymmetryOperation[], Map<string, SymmetryOperation[]>>();
-function distinctSiteOps(ops: readonly SymmetryOperation[], pos: Vec3): readonly SymmetryOperation[] {
+export function distinctSiteOps(ops: readonly SymmetryOperation[], pos: Vec3): readonly SymmetryOperation[] {
   let byPos = cosetCache.get(ops);
   if (!byPos) {
     byPos = new Map();

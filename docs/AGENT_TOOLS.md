@@ -596,7 +596,14 @@ The page-specific handlers are [`powderTools.ts`](../src/agent/powderTools.ts),
   limits the fit to a d range (SHELXL's SHEL), for a high-order refinement.
   `set_extinction_model` switches between SHELXL's EXTI and Becker–Coppens
   type I or II (Gaussian or Lorentzian mosaic), as GSAS-II computes it; the
-  parameter restarts at 0. There,
+  parameter restarts at 0. `set_radiation` sets the probe and wavelength,
+  which a SHELX file does not carry (it loads as neutron at 1.54 Å).
+  `set_riding_hydrogens` rides the hydrogens on their parents as SHELXL's
+  AFIX does (sp² C–H on the bisector, AFIX 43, at its distance or one given;
+  any other at its present offset, AFIX 3; U_iso 1.2 or 1.5·U_eq), listing
+  each X–H as placed. `set_weighting` sets SHELXL's WGHT a b, or the scheme
+  SHELXL would suggest for the model as it stands (`assess_refinement` gives
+  it), re-evaluated at the fit's own Fc²; it is set last. There,
   `assess_refinement` adds the analysis of variance by intensity and by
   resolution (K = ΣFo²/ΣFc² and GooF per bin), the extinction reading (the
   strongest bin against the others) and the correction's reach (the smallest

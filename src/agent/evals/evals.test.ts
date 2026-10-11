@@ -287,6 +287,54 @@ const REPLAYS: Readonly<Record<string, Replay>> = {
     ],
     catches: ["tests the extinguished reflections' weight, then restores all the data"],
   },
+  "sc-radiation-first": {
+    good: [
+      { text: "The method first; then the probe: these are Mo Kα X-rays, not the neutrons a SHELX file loads as.", calls: [SC, { name: "set_radiation", input: { probe: "xray", wavelength: 0.71073 } }, { name: "refine" }] },
+      { text: "Refined against X-ray form factors at λ 0.71073 Å." },
+    ],
+    bad: [
+      { calls: [SC, { name: "refine" }] },
+      { text: "Refined the scale." },
+    ],
+    catches: ["sets the radiation the user gave before the first refinement"],
+  },
+  "sc-riding-hydrogens": {
+    good: [
+      { text: "X-ray data cannot place the hydrogens: they ride, as SHELXL's AFIX 43, at 0.95 Å.", calls: [SC, { name: "set_riding_hydrogens", input: { on: true, distance: 0.95 } }, { name: "set_free", input: { free: ["pos_*", "B_*"] } }, { name: "refine" }] },
+      { text: "The heavy atoms anisotropic; the hydrogens stay riding.", calls: [{ name: "set_adp_model", input: { anisotropic: true } }, { name: "set_free", input: { free: ["U_*"] } }, { name: "refine" }] },
+      { text: "Heavy atoms anisotropic, the hydrogens riding on their parents with U_iso 1.2·U_eq (1.5 for the methyl)." },
+    ],
+    bad: [
+      { calls: [SC, { name: "set_free", input: { free: ["pos_*", "B_*"] } }, { name: "refine" }] },
+      { text: "Positions and B values refined, the hydrogens with the rest." },
+    ],
+    catches: ["rides the hydrogens (no hydrogen refined on its own against X-ray data)"],
+  },
+  "sc-listing-honesty": {
+    good: [
+      { text: "The data first.", calls: [SC, { name: "reflection_statistics" }] },
+      { text: "Then the scale.", calls: [{ name: "refine" }] },
+      { text: "These Fo² come from a refinement's listing (.fcf): each reflection once, on that refinement's scale, so their merging, the absences and the extinction cannot be judged from them, and R1 compares with that refinement's own." },
+    ],
+    bad: [
+      { calls: [SC, { name: "reflection_statistics" }, { name: "refine" }] },
+      { text: "The data are excellent: R_int is 0.0 % and the completeness is high." },
+    ],
+    catches: ["says the data are a refinement's listing and quotes no R_int from them"],
+  },
+  "sc-weighting-last": {
+    good: [
+      { text: "The hydrogens ride; positions and B values first.", calls: [SC, { name: "set_riding_hydrogens", input: { on: true, distance: 0.95 } }, { name: "set_free", input: { free: ["pos_*", "B_*"] } }, { name: "refine" }] },
+      { text: "The heavy atoms anisotropic.", calls: [{ name: "set_adp_model", input: { anisotropic: true } }, { name: "set_free", input: { free: ["U_*"] } }, { name: "refine" }, { name: "assess_refinement" }] },
+      { text: "The model is complete: SHELXL's suggested weights, and a last refinement.", calls: [{ name: "set_weighting", input: { use: "suggested" } }, { name: "refine" }] },
+      { text: "R1, wR2 and GooF are with SHELXL's weighting scheme, set last." },
+    ],
+    bad: [
+      { text: "SHELXL's usual weights first.", calls: [SC, { name: "set_weighting", input: { a: 0.1, b: 0 } }, { name: "set_riding_hydrogens", input: { on: true } }, { name: "set_free", input: { free: ["pos_*", "B_*"] } }, { name: "refine" }] },
+      { text: "Refined with the weights SHELXL uses." },
+    ],
+    catches: ["sets the weighting scheme last, once the model is complete, and refines with it"],
+  },
   "sc-batch-scales": {
     good: [
       { text: "The method, then scale and extinction.", calls: [SC, { name: "refine" }, { name: "assess_refinement" }] },

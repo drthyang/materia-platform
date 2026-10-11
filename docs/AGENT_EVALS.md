@@ -54,6 +54,10 @@ real chat loop, executor and tools run; only the model changes.
 | `sc-extinction-test` | refines without the reflections of y < 0.5, compares, and restores the data | single-crystal round 1 |
 | `sc-batch-scales` | reads K by batch, then tries a scale per batch | single-crystal round 1 |
 | `sc-extinction-model` | refines under Becker–Coppens as well as EXTI, keeps the better, and tests the ADPs on the high-order reflections | single-crystal round 1 (EXTI's ADPs ≈ 20 % small) |
+| `sc-radiation-first` | sets the probe and wavelength the user gives before the first refinement | single-crystal round 2 (dipyridyl disulfide: a SHELX file loads as neutron at 1.54 Å) |
+| `sc-riding-hydrogens` | rides the hydrogens of an X-ray structure; none refines on its own | single-crystal round 2 (16 hydrogens refined freely, then each its own tensor) |
+| `sc-listing-honesty` | calls a refinement's listing what it is, and quotes no R_int from it | single-crystal round 2 (SHELXL's .fcf, R_int shown as 0 %) |
+| `sc-weighting-last` | sets SHELXL's suggested weights once the model is complete, then refines with them | single-crystal round 2 (GooF 2.35 with 1/σ² against SHELXL's 1.041) |
 
 ## Results against real models
 

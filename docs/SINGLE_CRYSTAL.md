@@ -101,8 +101,11 @@ Both paths then apply parameters with
 - No golden covers the k-vector header, which follows the FullProf manual and
   one HB-3A MnWO₄ file; verify an export in FullProf. Real files use the
   supercell merge (§2.5).
-- SHELX lists carry no λ and load at 1.54 Å, which the page cannot change; λ
-  enters the extinction y.
+- SHELX lists carry no probe or λ and load as neutron at 1.54 Å; the page's
+  probe toggle and λ box (the Agent's `set_radiation`) set them. λ enters the
+  extinction y. A `.fcf` with calculated columns is marked a refinement's
+  listing (`origin`): each reflection once, on that refinement's scale, the
+  absences left out, and in LIST 4 its extinction divided out.
 
 **Not yet**
 - Placing k-header satellites at H + k: no refinement reads `kIndex`.
@@ -118,7 +121,8 @@ Both paths then apply parameters with
 | Batch scale | k_b, relative to the first batch (1 for it, and without batches) |
 | Extinction (SHELXL EXTI, the default) | y = [1 + 0.001·x·F²·λ³/sin2θ]^(−1/2), at the reflection's own λ and 2θ when the file gives them (a TOF Laue file); 1 for TOF without them |
 | Extinction (Becker–Coppens, as GSAS-II) | y = [1 + 2p + A·p²/(1 + B·p)]^(−1/2), p = Q·T̄·ψ, Q = c·F²·λ²/V² (c = 10⁷ for neutrons with F² in barns; 7.9406·10⁵ times the polarization ratio for X-rays), T̄ the reflection's path length (cm), ψ = Eg/L (type I; L = sin2θ/λ, or (sinθ/λ)² for TOF Laue) or Es (type II); A, B the Gaussian or Lorentzian mosaic's coefficients in cos2θ |
-| SHELX weight | w = 1/[σ²(Fo²) + (aP)² + bP], P = [max(Fo², 0) + 2Fc²]/3 |
+| SHELX weight (WGHT a b) | w = 1/[σ²(Fo²) + (aP)² + bP], P = [max(Fo², 0) + 2Fc²]/3, re-evaluated at the fit's own Fc² until no parameter moves by 5 % of its esd (SHELXL recomputes it every cycle); a = b = 0 is 1/σ² |
+| Suggested scheme | the a (grid to 0.3) and b ≥ 0 that make GooF 1 overall and flattest, Σ(GooF²_bin − 1)², over ten equal-count bins of Fc² |
 | wR2, all reflections | √[Σw(Fo² − Fc²)² / Σw(Fo²)²] |
 | R1, Fo² > 2σ (R1 all: no cutoff) | Σ\|\|Fo\| − \|Fc\|\| / Σ\|Fo\| |
 | GooF | √[Σw(Fo² − Fc²)² / (N − N_par)] |
@@ -131,6 +135,17 @@ Both paths then apply parameters with
   indices and batch, with a reason, whatever their residual; and the fit can
   be limited to a resolution range (SHELXL's SHEL), for a high-order
   refinement. Both are saved with the project and listed in the report.
+- Riding hydrogens (SHELXL's AFIX): an sp² C–H on the external bisector of its
+  parent's two neighbours (AFIX 43) at its present distance or one given, any
+  other at its present offset (AFIX 3); U_iso = 1.2·U_eq of the parent (1.5
+  for methyl and hydroxyl). They carry no parameter; their ∂F goes to the
+  parent's position and U modes, as SHELXL's derivatives do
+  ([riding.ts](../src/core/crystal/riding.ts)). On X-ray data the anisotropic
+  switch leaves hydrogens isotropic.
+- With dipyridyl disulfide's model and SHELXL's WGHT 0.0362 0.7686 on its own
+  `.fcf`, wR2 7.78 % and GooF 1.03 for 254 parameters (SHELXL: 7.86 %,
+  1.041); the suggested scheme is 0.0324 0.951
+  ([singleCrystalWeighting.test.ts](../src/core/workflow/singleCrystalWeighting.test.ts)).
 - Becker–Coppens checked against a line-by-line transcription of GSAS-II's
   `SCExtinction` (type I and II, Gaussian and Lorentzian, TOF, CW and X-ray)
   to 12 digits.
@@ -138,11 +153,13 @@ Both paths then apply parameters with
   ([singleCrystalFactors.test.ts](../src/core/diffraction/singleCrystalFactors.test.ts)).
 
 **Approximate**
-- The fit uses 1/σ² weights. `singleCrystalRefinementComparison` accepts WGHT a
-  and b for the reported wR2 and GooF, but no caller passes them.
+- The suggested scheme bins by Fc² only; SHELXL also weighs the resolution
+  shells, so its suggestion can differ in the second digit.
+- Hydrogens other than sp² C–H ride at their present offset: methyl, CH₂ and
+  OH groups are not re-idealized (SHELXL's AFIX 137, 23, 147).
 
 **Not yet**
-- WGHT reweighting, twinning, anomalous dispersion, absorption (§2.7).
+- Twinning, anomalous dispersion, absorption (§2.7).
 
 ### 2.4 Refinement assembly
 
@@ -153,6 +170,17 @@ Both paths then apply parameters with
   cell rows
   ([singleCrystalRefinement.ts](../src/core/workflow/singleCrystalRefinement.ts)).
 - The starting scale is the exact linear optimum k = Σ(Fo²·Fc²) / Σ(Fc²)².
+- Structure factors come from a kernel over a fixed reflection list
+  ([scKernel.ts](../src/core/diffraction/scKernel.ts)): s² and each element's
+  amplitude are computed once, the anisotropic factor of an orbit image is read
+  with the rotated index, and ∂F for every position mode, U mode, B and
+  occupancy comes from the same sums, so every Jacobian column is analytic (the
+  scale, batch scales and extinction too). One call with every derivative
+  costs about two plain ones: on dipyridyl disulfide (4508 reflections, 253
+  parameters) an evaluation takes 96 ms, where it took 835 ms, and the
+  anisotropic refinement 16.5 s, where it took 23 minutes. Each column matches
+  the central difference to 2·10⁻⁵
+  ([singleCrystalAnalyticJacobian.test.ts](../src/core/workflow/singleCrystalAnalyticJacobian.test.ts)).
 - The page refines until every shift is below 0.05 esd, up to 50 cycles
   (`SINGLE_CRYSTAL_REFINE_OPTIONS`), the crystallographic criterion: with a
   GooF near 3 a shift of most of an esd changes χ² by less than the engine's
@@ -223,8 +251,10 @@ Both paths then apply parameters with
 ([SingleCrystalWorkbench.tsx](../src/app/SingleCrystalWorkbench.tsx))
 - The supercell panel runs §2.5 without changing the loaded structure. The
   magnetic-symmetry panel fits moments to the loaded set, nuclear model fixed.
-- Projects save the datasets, probe, parameters, magnetic model, OMIT filter and
-  supercell-panel inputs, but not the panel's result.
+- Projects save the datasets, probe and wavelength, parameters, magnetic model,
+  OMIT filter and omitted measurements, extinction model, resolution range,
+  riding hydrogens, weighting scheme and supercell-panel inputs, but not the
+  panel's result.
 
 ### 2.7 Next
 
@@ -232,7 +262,7 @@ Both paths then apply parameters with
 1. ✅ Completeness against a generated theoretical unique set.
 2. ⬜ Twinning (TWIN/BASF; batch scales are in), and anomalous dispersion with f′, f″
    and Friedel-pair splitting for absolute structure.
-3. ⬜ Iterative WGHT reweighting on Fc² in the fit.
+3. ✅ Iterative WGHT reweighting on Fc² in the fit, and SHELXL's suggested scheme.
 4. 🚧 Absorption correction: core built (§3); UI, agent tool and multi-scan open.
 5. ⬜ Validation gate: reproduce a published SHELXL or GSAS-II F² refinement on
    a real HKL file, within tolerance.

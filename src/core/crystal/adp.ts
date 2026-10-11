@@ -82,15 +82,25 @@ export function toIsotropic(adp: DisplacementParameters, cell?: UnitCell): Displ
   return { kind: "isotropic", bIso: bIsoFromUAniso(adp.uAniso, cell) };
 }
 
+/** A hydrogen (or deuterium) site. */
+export function isHydrogen(site: Pick<AtomSite, "element">): boolean {
+  const e = site.element.replace(/[^A-Za-z]/g, "");
+  return e === "H" || e === "D";
+}
+
 /**
  * Return a structure with every site's ADP set to the requested model. Sites
  * already in that model are unchanged; promotion seeds the spherical tensor from
  * each site's current B_iso, so a converged isotropic fit is the starting point
- * for the anisotropic one.
+ * for the anisotropic one. `hydrogensIsotropic` keeps (or makes) the hydrogens
+ * isotropic under an anisotropic model, as X-ray data require: a hydrogen's one
+ * electron sits displaced into its bond, and cannot define a tensor.
  */
-export function withAdpModel(structure: StructureModel, kind: "isotropic" | "anisotropic"): StructureModel {
-  const convert = kind === "anisotropic" ? toAnisotropic : toIsotropic;
-  const sites: AtomSite[] = structure.sites.map((s) => ({ ...s, adp: convert(s.adp, structure.cell) }));
+export function withAdpModel(structure: StructureModel, kind: "isotropic" | "anisotropic", opts: { readonly hydrogensIsotropic?: boolean } = {}): StructureModel {
+  const sites: AtomSite[] = structure.sites.map((s) => {
+    const iso = kind === "isotropic" || (opts.hydrogensIsotropic === true && isHydrogen(s));
+    return { ...s, adp: iso ? toIsotropic(s.adp, structure.cell) : toAnisotropic(s.adp, structure.cell) };
+  });
   return { ...structure, sites };
 }
 

@@ -47,10 +47,10 @@
  * Versioning and migration policy: see `io.ts` and docs/PROJECT_FORMAT.md.
  */
 
-import type { StructureModel } from "@/core/crystal/types";
+import type { RidingRule, StructureModel } from "@/core/crystal/types";
 import type { DistortionModeSet } from "@/core/crystal/distortionModes";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
-import type { ExtinctionModel, OmittedMeasurement, PdfPattern, PowderPattern, PowderXUnit, ResolutionRange, SingleCrystalDataset } from "@/core/diffraction/types";
+import type { ExtinctionModel, OmittedMeasurement, PdfPattern, PowderPattern, PowderXUnit, ResolutionRange, ShelxWeighting, SingleCrystalDataset } from "@/core/diffraction/types";
 import type { MagneticModel } from "@/core/magnetic/types";
 import type { ParameterBinding, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { PowderProfile } from "@/core/workflow/powder";
@@ -199,6 +199,12 @@ export interface SingleCrystalWorkspace {
   readonly extinctionModel?: ExtinctionModel;
   /** The resolution range fitted (SHELXL's SHEL); absent ⇒ every reflection. */
   readonly resolution?: ResolutionRange;
+  /** The wavelength set on the page (Å), in place of the file's; absent ⇒ the file's, or 1.54 Å. */
+  readonly wavelength?: number;
+  /** Hydrogens riding on their parents; absent ⇒ none. */
+  readonly riding?: readonly RidingRule[];
+  /** SHELXL's weighting scheme (WGHT a b); absent ⇒ w = 1/σ². */
+  readonly weighting?: ShelxWeighting;
   readonly modulated?: ModulatedHypothesis;
   /** The ADP model switched to on the page; absent ⇒ the CIF's. */
   readonly adpModel?: "isotropic" | "anisotropic";

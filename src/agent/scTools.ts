@@ -18,12 +18,13 @@ import type { ReportCheck } from "@/core/export/report";
 import { singleCrystalValidation, type ScValidation } from "@/core/diagnostics/singleCrystalValidation";
 import { reflectionStatistics } from "@/core/diagnostics/reflectionStatistics";
 import { canonicalKey, laueRotations } from "@/core/diffraction/merge";
-import { nonPositiveDefiniteSites } from "@/core/crystal/adp";
+import { isHydrogen, nonPositiveDefiniteSites } from "@/core/crystal/adp";
 import { allowedPositionShifts } from "@/core/crystal/siteConstraints";
 import { dSpacing } from "@/core/crystal/unitCell";
-import { EXTINCTION_MODEL_LABELS } from "@/core/diffraction/singleCrystalFactors";
+import { ridingDistances, ridingSummary } from "@/core/crystal/riding";
+import { EXTINCTION_MODEL_LABELS, shelxWeights, suggestShelxWeighting, type WeightingSuggestion } from "@/core/diffraction/singleCrystalFactors";
 import { inResolution, isOmitted } from "@/core/workflow/singleCrystalRefinement";
-import type { ExtinctionModel, OmittedMeasurement, ResolutionRange } from "@/core/diffraction/types";
+import type { ExtinctionModel, OmittedMeasurement, ResolutionRange, ShelxWeighting } from "@/core/diffraction/types";
 import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, correlationsCheck, findingChecks, noResultCheck, verdictCheck } from "@/agent/reportChecks";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- inputs are validated against the spec's zod schema before a handler runs */
@@ -59,9 +60,12 @@ export async function changeSingleCrystal(name: string, input: Input, port: Sing
   switch (name) {
     case "set_free":
       return applyFree(s.parameters, input, port.setFixed);
-    case "set_adp_model":
+    case "set_adp_model": {
       port.setAdpModel(!!input.anisotropic);
-      return undefined;
+      const hydrogens = s.structure.sites.filter((site) => isHydrogen(site)).length;
+      if (!input.anisotropic || s.probe !== "xray" || hydrogens === 0) return undefined;
+      return `The ${hydrogens} hydrogen${hydrogens === 1 ? " stays" : "s stay"} isotropic: X-ray data cannot give a hydrogen a tensor.${s.riding.length === 0 ? " Ride them (set_riding_hydrogens) unless the data can place them on their own." : ""}`;
+    }
     case "set_outlier_filter":
       port.setOutlierFilter({
         ...(input.on !== undefined ? { on: !!input.on } : {}),
@@ -75,13 +79,31 @@ export async function changeSingleCrystal(name: string, input: Input, port: Sing
     case "set_resolution_range":
       port.setResolution({ ...(input.dMin !== undefined ? { dMin: input.dMin } : {}), ...(input.dMax !== undefined ? { dMax: input.dMax } : {}) });
       return undefined;
+    case "set_radiation":
+      port.setRadiation({ ...(input.probe !== undefined ? { probe: input.probe } : {}), ...(input.wavelength !== undefined ? { wavelength: input.wavelength } : {}) });
+      return "Every Fc changed with the radiation: the scale restarted from its best value and the last fit is cleared. Refine the scale (and what was free) again before comparing.";
     case "set_extinction_model":
       port.setExtinctionModel(input.model as ExtinctionModel);
       return "The extinction parameter restarted at 0 under the new model: refine it with the scale (and what was free before) to convergence before comparing the fit.";
+    case "set_weighting": {
+      const next = weightingAfter(s, input);
+      port.setWeighting(next);
+      return `${next ? `WGHT ${next.a} ${next.b}` : "w = 1/σ²"} weights the next refinement: refine again before reading wR2 and GooF.`;
+    }
+    case "set_riding_hydrogens": {
+      const note = port.setRiding(!!input.on, { ...(input.uFactor !== undefined ? { uFactor: input.uFactor } : {}), ...(input.distance !== undefined ? { distance: input.distance } : {}) });
+      if (!input.on) return `The hydrogens have their own rows again, fixed at the loaded positions${note ? `; ${note}` : ""}. The last fit is cleared.`;
+      await host.settle?.();
+      const after = port.state();
+      if (after.riding.length === 0) throw new Error(note ?? "no hydrogen rides");
+      const odd = oddHydrogenDistances(after);
+      return `${after.riding.length} hydrogen${after.riding.length === 1 ? " rides" : "s ride"}: ${ridingSummary(after.refinedStructure)}${note ? `; ${note}` : ""}.${odd ? ` ${odd}` : ""} The last fit is cleared: refine again.`;
+    }
     case "refine": {
       if (!s.parameters.some((p) => !p.fixed && !p.expression)) throw new Error("no parameter is free — free some with set_free first");
       const why = await (input.mode === "thorough" ? port.thorough() : port.refine());
-      return why ? `The refinement did not finish (${why}); the parameters keep their values from before it.` : undefined;
+      if (why) return `The refinement did not finish (${why}); the parameters keep their values from before it.`;
+      return freeHydrogenNote(s) ?? undefined;
     }
     case "reset_parameters":
       port.reset(input.parameters ? matchIds(s.parameters, input.parameters as string[]) : undefined);
@@ -117,10 +139,28 @@ export function singleCrystalNoOp(spec: LiveToolSpec, input: Input, s: SingleCry
     }
     case "set_extinction_model":
       return input.model === s.extinctionModel ? `the extinction model is already ${EXTINCTION_MODEL_LABELS[s.extinctionModel]}` : null;
+    case "set_weighting": {
+      const next = weightingAfter(s, input);
+      return next?.a === s.weighting?.a && next?.b === s.weighting?.b ? `the weights are already ${weightingText(next)}` : null;
+    }
+    case "set_riding_hydrogens": {
+      const hydrogens = s.structure.sites.filter((site) => isHydrogen(site)).length;
+      if (input.on && hydrogens === 0) throw new Error("the model has no hydrogen atoms: nothing to ride");
+      if (!input.on) return s.riding.length === 0 ? "no hydrogen rides: each refines on its own already" : null;
+      const same = (input.uFactor === undefined || s.riding.every((r) => r.uFactor === input.uFactor))
+        && (input.distance === undefined || s.riding.every((r) => r.geometry !== "aromatic" || r.distance === input.distance));
+      return s.riding.length > 0 && same ? `the hydrogens ride already: ${ridingSummary(s.refinedStructure)}` : null;
+    }
     case "set_resolution_range": {
       const next = resolutionAfter(s, input);
       if (next.dMin !== undefined && next.dMax !== undefined && next.dMin >= next.dMax) throw new Error(`dMin ${next.dMin} Å must lie below dMax ${next.dMax} Å`);
       return next.dMin === s.resolution.dMin && next.dMax === s.resolution.dMax ? `the range is already ${rangeText(next)}` : null;
+    }
+    case "set_radiation": {
+      const probe = input.probe ?? s.probe;
+      if (probe === "neutron-tof" && input.wavelength !== undefined) throw new Error("a time-of-flight measurement has no single wavelength: each reflection has its own");
+      const wl = "wavelength" in s.dataset.radiation ? s.dataset.radiation.wavelength : undefined;
+      return probe === s.probe && (input.wavelength === undefined || input.wavelength === wl) ? `the radiation is already ${radiationText(probe, wl)}` : null;
     }
     default:
       return null;
@@ -153,10 +193,32 @@ export function describeSingleCrystalChange(spec: LiveToolSpec, input: Input, s:
     }
     case "set_extinction_model":
       return `Extinction model: ${EXTINCTION_MODEL_LABELS[input.model as ExtinctionModel]}, in place of ${EXTINCTION_MODEL_LABELS[s.extinctionModel]} — its parameter restarts at 0`;
+    case "set_weighting": {
+      const next = weightingAfter(s, input);
+      const why = input.use === "suggested" ? (() => {
+        const sug = suggestionOf(s);
+        return ` (suggested for the model as refined now: GooF ${sig(sug.goof, 3)}, by intensity bin ${sug.bins.map((g) => sig(g, 2)).join(", ")})`;
+      })() : "";
+      return `Weights: ${weightingText(next)}${why}, in place of ${weightingText(s.weighting)} — wR2 and GooF change, R1 does not`;
+    }
+    case "set_riding_hydrogens": {
+      const hydrogens = new Set(s.structure.sites.filter((site) => isHydrogen(site)).map((site) => site.label));
+      if (!input.on) return `Hydrogens refine on their own again: ${hydrogens.size} hydrogen${hydrogens.size === 1 ? "" : "s"} get their own position and B rows (fixed, at the loaded positions)`;
+      const rows = new Set(s.bindings.filter((b) => b.targetKey !== undefined && hydrogens.has(b.targetKey)).map((b) => b.parameterId)).size;
+      const u = input.uFactor !== undefined ? `${input.uFactor}·U_eq of the parent` : "1.2·U_eq of the parent (1.5 for methyl and hydroxyl)";
+      const d = input.distance !== undefined ? `, sp² C–H at ${input.distance} Å` : "";
+      return `Ride ${hydrogens.size} hydrogen${hydrogens.size === 1 ? "" : "s"} on ${hydrogens.size === 1 ? "its parent" : "their parents"} (SHELXL AFIX: positions follow${d}, U_iso = ${u})${rows ? ` — ${rows} parameter${rows === 1 ? "" : "s"} leave the fit` : ""}`;
+    }
     case "set_resolution_range": {
       const next = resolutionAfter(s, input);
       const outside = s.allRows.filter((r) => !inResolution(r, s.structure.cell, next) && !isOmitted(r, s.omitted)).length;
       return `Resolution ${rangeText(next)}: ${outside === 0 ? "every reflection in range" : `leaves out ${outside} reflection${outside === 1 ? "" : "s"}`}`;
+    }
+    case "set_radiation": {
+      const probe = input.probe ?? s.probe;
+      const wl = input.wavelength ?? ("wavelength" in s.dataset.radiation ? s.dataset.radiation.wavelength : undefined);
+      const was = "wavelength" in s.dataset.radiation ? s.dataset.radiation.wavelength : undefined;
+      return `Radiation: ${radiationText(probe, wl)}, in place of ${radiationText(s.probe, was)} — every Fc changes; the scale restarts from its best value`;
     }
     case "refine": {
       const free = s.parameters.filter((p) => !p.fixed && !p.expression).length;
@@ -172,6 +234,56 @@ export function describeSingleCrystalChange(spec: LiveToolSpec, input: Input, s:
       return spec.title;
   }
 }
+
+/** X-ray data with hydrogens refined on their own: a note, or null. Neutron data place them as well as any atom. */
+function freeHydrogenNote(s: SingleCrystalLiveState): string | null {
+  if (s.probe !== "xray") return null;
+  const hydrogens = new Set(s.structure.sites.filter((site) => isHydrogen(site)).map((site) => site.label));
+  const free = new Set(s.parameters.filter((p) => !p.fixed && !p.expression).map((p) => p.id));
+  const refined = new Set(s.bindings.filter((b) => b.targetKey !== undefined && hydrogens.has(b.targetKey) && free.has(b.parameterId)).map((b) => b.targetKey!));
+  if (refined.size === 0) return null;
+  return `${refined.size} hydrogen${refined.size === 1 ? "" : "s"} refined on ${refined.size === 1 ? "its" : "their"} own against X-ray data: X-rays see a hydrogen's one electron, displaced into its bond, so free positions come out short and scattered and its U poorly defined. Ride them (set_riding_hydrogens), as published structures do, unless the data are good enough to place them — and then say so in the report.`;
+}
+
+/** X–H distances no refinement would publish (as a difference map placed them): a note, or null. X-rays see the electron, displaced into the bond; neutrons the nucleus. */
+function oddHydrogenDistances(s: SingleCrystalLiveState): string | null {
+  const [lo, hi] = s.probe === "xray" ? [0.85, 1.05] : [0.95, 1.15];
+  const odd = ridingDistances(s.refinedStructure).filter((x) => x.distance < lo || x.distance > hi);
+  if (odd.length === 0) return null;
+  return `X–H as placed is out of the usual range for ${odd.map((x) => `${x.site} (${x.distance.toFixed(2)} Å)`).join(", ")}: the sp² ones take \`distance\` (SHELXL: 0.93 Å at room temperature, 0.95 Å below about 200 K; neutron 1.08 Å); others need a better starting position.`;
+}
+
+// ── weighting scheme ────────────────────────────────────────────────────────
+
+const weightingText = (w: ShelxWeighting | null): string => (w ? `WGHT ${w.a} ${w.b} (w = 1/[σ² + (${w.a}P)² + ${w.b}P])` : "w = 1/σ²");
+
+/** SHELXL's suggestion for the fit on screen: the a and b that flatten its analysis of variance. */
+function suggestionOf(s: SingleCrystalLiveState): WeightingSuggestion {
+  return suggestShelxWeighting(s.rows.map((r) => r.foSq), s.rows.map((r) => r.fcSq), s.rows.map((r) => r.sigma), s.parameters.filter((p) => !p.fixed && !p.expression).length);
+}
+
+/** The scheme after set_weighting (null: w = 1/σ²). Throws, before the user is asked, on a request that cannot be met. */
+function weightingAfter(s: SingleCrystalLiveState, input: Input): ShelxWeighting | null {
+  if (input.use !== undefined && (input.a !== undefined || input.b !== undefined)) throw new Error("give `use` or `a` and `b`, not both");
+  if (input.use === "sigma") return null;
+  if (input.use === "suggested") {
+    if (!s.result) throw new Error("the suggestion is for a refined model: refine first (a change of model or setting clears the last result)");
+    const sug = suggestionOf(s);
+    return sug.a > 0 || sug.b > 0 ? { a: sug.a, b: sug.b } : null;
+  }
+  if (input.a === undefined && input.b === undefined) throw new Error("give `use` (\"suggested\" or \"sigma\") or the terms `a` and `b`");
+  const a = input.a ?? s.weighting?.a ?? 0;
+  const b = input.b ?? s.weighting?.b ?? 0;
+  return a > 0 || b > 0 ? { a, b } : null;
+}
+
+/** R_int, or why there is none: data merged already have one value per reflection. */
+const rIntOf = (s: SingleCrystalLiveState): number | string => (s.merge.redundancy <= 1 + 1e-9 ? "n/a (each reflection once: merged data)" : pct(s.merge.rInt));
+
+const LISTING_NOTE = "The Fo² come from a refinement's listing (.fcf), not from data reduction: each reflection once, on that refinement's scale, the systematic absences left out, and in SHELXL's LIST 4 its extinction divided out. R_int, the absences and the extinction cannot be judged from them, and R1 compares with that refinement's own.";
+
+const radiationText = (probe: "xray" | "neutron" | "neutron-tof", wavelength: number | undefined): string =>
+  probe === "neutron-tof" ? "neutron time of flight (each reflection its own wavelength)" : `${probe === "xray" ? "X-ray" : "neutron"}, λ ${wavelength ?? "?"} Å`;
 
 // ── resolution range ────────────────────────────────────────────────────────
 
@@ -383,6 +495,8 @@ function validationOf(s: SingleCrystalLiveState): ScValidation {
     cell: s.structure.cell,
     spaceGroup: s.structure.spaceGroup,
     nParams: s.parameters.filter((p) => !p.fixed && !p.expression).length,
+    // The analysis of variance with the fit's own weights.
+    ...(s.weighting ? { weights: shelxWeights(s.rows.map((r) => r.foSq), s.rows.map((r) => r.fcSq), s.rows.map((r) => r.sigma), s.weighting.a, s.weighting.b) } : {}),
   });
 }
 
@@ -407,10 +521,12 @@ function stateView(s: SingleCrystalLiveState, history: ProjectHistory | null, se
       ...(r.kind !== "neutron-tof" ? { wavelength: r.wavelength } : {}),
       reflectionsInFile: s.totalReflections,
       fitted: s.observationCount,
-      merging: { unique: s.merge.unique, redundancy: sig(s.merge.redundancy, 3), rInt: pct(s.merge.rInt), rSigma: pct(s.merge.rSigma), ...(s.merge.dMin !== undefined ? { dMin: sig(s.merge.dMin, 4) } : {}) },
+      merging: { unique: s.merge.unique, redundancy: sig(s.merge.redundancy, 3), rInt: rIntOf(s), rSigma: pct(s.merge.rSigma), ...(s.merge.dMin !== undefined ? { dMin: sig(s.merge.dMin, 4) } : {}) },
+      ...(s.dataset.origin === "refinement-listing" ? { origin: LISTING_NOTE } : {}),
       outlierFilter: s.outlierFilter.on ? `on at ${s.outlierFilter.cutoffSigma}σ${s.outlierFilter.minExtinction !== undefined ? ` and y ≥ ${s.outlierFilter.minExtinction}` : ""}: ${s.outlierFilter.excluded} reflections left out` : "off",
       omitted: s.omitted.length ? s.omitted.map((o) => `${omittedText(o)}${o.reason ? `: ${o.reason}` : ""}`) : "none",
       resolution: s.resolution.dMin === undefined && s.resolution.dMax === undefined ? "the full range" : `${rangeText(s.resolution)}: ${s.resolution.excluded} reflections outside`,
+      weights: weightingText(s.weighting),
       extinctionModel: EXTINCTION_MODEL_LABELS[s.extinctionModel],
     },
     agreement: { R1: pct(ag.r1), wR2: pct(ag.wr2), GooF: sig(ag.goof, 4), observed: ag.observed, total: ag.total, note: "R1 over Fo² > 2σ; wR2 and GooF over every reflection fitted, w = 1/σ²." },
@@ -430,7 +546,8 @@ function statisticsView(s: SingleCrystalLiveState): Record<string, unknown> {
   const f = st.friedel;
   const hkl = (x: { h: number; k: number; l: number }): string => `${x.h} ${x.k} ${x.l}`;
   return {
-    reflections: { measured: s.observationCount, unique: s.merge.unique, redundancy: sig(s.merge.redundancy, 3), rInt: pct(s.merge.rInt), rSigma: pct(s.merge.rSigma) },
+    reflections: { measured: s.observationCount, unique: s.merge.unique, redundancy: sig(s.merge.redundancy, 3), rInt: rIntOf(s), rSigma: pct(s.merge.rSigma) },
+    ...(s.dataset.origin === "refinement-listing" ? { origin: LISTING_NOTE } : {}),
     resolution: { dMin: sig(v.dMin, 4), sinThetaOverLambdaMax: sig(v.sinThetaOverLambdaMax, 4), ...(v.completeness !== undefined ? { completeness: pct(v.completeness) } : {}), uniqueAllowed: v.uniqueAllowed ?? v.uniqueObserved, ...(v.uniqueExpected !== undefined ? { uniqueExpected: v.uniqueExpected } : {}) },
     shells: v.shells.map((sh) => ({
       d: `${sig(sh.dMax, 3)}–${sig(sh.dMin, 3)} Å`,
@@ -488,6 +605,14 @@ function assessment(s: SingleCrystalLiveState): Record<string, unknown> {
     outliersReading: "Each outlier against its equivalents: one marked a failed measurement goes with omit_reflections (by its batch); a reflection the model misses stays, whatever its residual.",
     ...(s.omitted.length ? { omitted: s.omitted.map((o) => `${omittedText(o)}${o.reason ? `: ${o.reason}` : ""}`) } : {}),
     extinctionModel: EXTINCTION_MODEL_LABELS[s.extinctionModel],
+    weighting: (() => {
+      const sug = suggestionOf(s);
+      return {
+        scheme: weightingText(s.weighting),
+        suggested: `WGHT ${sug.a} ${sug.b}: GooF ${sig(sug.goof, 3)}, by intensity bin ${sug.bins.map((g) => sig(g, 2)).join(", ")}`,
+        reading: "SHELXL's suggestion for the model as it stands, as SHELXL prints it after every run. Apply it (set_weighting) at the end, when nothing is left to refine, and refine once more; a model error it would absorb shows first in the analysis of variance and the outliers.",
+      };
+    })(),
     ...(npd.length ? { nonPositiveDefinite: npd } : {}),
     reflectionsPerParameter: sig(v.reflectionsPerParameter, 3),
   };
@@ -506,7 +631,7 @@ export function singleCrystalReportChecks(s: SingleCrystalLiveState, probe: Refi
     {
       name: "Data",
       status: s.merge.rInt > 0.1 || (v.completeness !== undefined && v.completeness < 0.95) ? "note" : "pass",
-      detail: `${s.observationCount} reflections, ${s.merge.unique} unique (R_int ${pct(s.merge.rInt)} %, R_σ ${pct(s.merge.rSigma)} %), d_min ${sig(v.dMin, 4)} Å${v.completeness !== undefined ? `, completeness ${pct(v.completeness)} %` : ""}; ${sig(v.reflectionsPerParameter, 3)} unique reflections per free parameter.`,
+      detail: `${s.observationCount} reflections, ${s.merge.unique} unique (R_int ${s.merge.redundancy <= 1 + 1e-9 ? "n/a, merged data" : `${pct(s.merge.rInt)} %`}, R_σ ${pct(s.merge.rSigma)} %), d_min ${sig(v.dMin, 4)} Å${v.completeness !== undefined ? `, completeness ${pct(v.completeness)} %` : ""}; ${sig(v.reflectionsPerParameter, 3)} unique reflections per free parameter.${s.dataset.origin === "refinement-listing" ? ` ${LISTING_NOTE}` : ""}`,
     },
     {
       name: "Extinction",

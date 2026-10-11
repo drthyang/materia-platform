@@ -8,6 +8,7 @@ import type { AtomSite, StructureModel, UnitCell } from "@/core/crystal/types";
 import type { ParameterBinding } from "@/core/refinement/types";
 import type { UAniso } from "@/core/crystal/adpConstraints";
 import { isCorrectionKind, type CorrectionValues } from "@/core/diffraction/corrections";
+import { applyRiding } from "@/core/crystal/riding";
 
 export interface AppliedModel {
   readonly model: StructureModel;
@@ -340,6 +341,8 @@ export function applyParameters(
     const site = byLabel.get(label);
     if (site) (site as { adp: { kind: "anisotropic"; uAniso: UAniso } }).adp = { kind: "anisotropic", uAniso: u };
   }
+  // Riding hydrogens follow their parents' positions and ADPs as now refined.
+  applyRiding({ ...model, cell }, sites);
 
   const appliedModel: StructureModel = { ...model, cell, sites };
   const caglioti =

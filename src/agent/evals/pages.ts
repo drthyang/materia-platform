@@ -11,7 +11,7 @@ import { generateReflections } from "@/core/diffraction/reflections";
 import { powderPeakIntensities } from "@/core/diffraction/intensity";
 import { knownPhaseStructure } from "@/core/diagnostics/knownPhases";
 import { pdfPort, sessionPort, singleCrystalPort } from "@/testSupport/agentHeadless";
-import { corundumPage, type CorundumOptions } from "@/testSupport/scPages";
+import { corundumPage, pyridylPage, type CorundumOptions } from "@/testSupport/scPages";
 import { runPowderRefinement } from "@/workers/runPowder";
 import { magneticSubgroupLattice, latticeRepresentatives, latticeCandidateLabel } from "@/core/magnetic/subgroupLattice";
 import { buildMagneticModel } from "@/core/magnetic/momentModel";
@@ -230,3 +230,28 @@ export const BC_EXTINCTION = { extinction: 1e-4, extinctionModel: "bc-1-lorentzi
 
 /** Batch scales for scPage: four batches, the data reduction off by up to 8 %. */
 export const BATCH_SCALES = [1, 1.06, 0.94, 1.08] as const;
+
+export interface OrganicPageOptions {
+  /** Loaded as a SHELX file loads: no radiation in it, so neutron at 1.54 Å until set. */
+  readonly asLoaded?: boolean;
+  /** The Fo² are a refinement's listing (.fcf): each reflection once, on that refinement's scale. */
+  readonly listing?: boolean;
+  /** An error on every Fo² of this fraction that the σ do not carry (what WGHT a covers). */
+  readonly extraError?: number;
+}
+
+/**
+ * The single-crystal page on a small organic X-ray structure
+ * (testSupport/scPages: 2-(methylthio)pyridine, P2₁/c, Mo Kα): seven
+ * hydrogens where a difference map put them, a riding model the truth.
+ */
+export function scOrganicPage(opts: OrganicPageOptions = {}): SingleCrystalAgentPort {
+  const p = pyridylPage(opts.extraError !== undefined ? { extraError: opts.extraError } : {});
+  const dataset = {
+    ...p.dataset,
+    ...(opts.asLoaded ? { radiation: { kind: "neutron" as const, wavelength: 1.54 } } : {}),
+    ...(opts.listing ? { origin: "refinement-listing" as const } : {}),
+  };
+  return singleCrystalPort(p.structure, dataset).port;
+}
+

@@ -4,8 +4,12 @@
  * own data, with the checks that say whether it got it right this time.
  */
 
-import { BATCH_SCALES, BC_EXTINCTION, EDGE_STEP_AT, FAILED_PAIR, FAILED_REFLECTION, MAGNETIC_TRUTH, impurityD, scPage, mn3gaEdgeSession, mn3gaFluoriteSession, mn3gaImpuritySession, mn3gaMagneticSession, mn3gaMisfitSession, mn3gaSession, pdfPage, powderPage } from "@/agent/evals/pages";
+import { BATCH_SCALES, BC_EXTINCTION, EDGE_STEP_AT, FAILED_PAIR, FAILED_REFLECTION, MAGNETIC_TRUTH, impurityD, scOrganicPage, scPage, mn3gaEdgeSession, mn3gaFluoriteSession, mn3gaImpuritySession, mn3gaMagneticSession, mn3gaMisfitSession, mn3gaSession, pdfPage, powderPage } from "@/agent/evals/pages";
 import {
+  honestAboutListing,
+  ridesHydrogens,
+  setsRadiationFirst,
+  weightsLast,
   addsKnownPhase,
   adaptsAfterRefusal,
   alternatesGroups,
@@ -230,6 +234,42 @@ export const SCENARIOS: readonly EvalScenario[] = [
     messages: ["Refine scale and extinction, then tell me whether these data need a scale per batch."],
     autonomy: "auto",
     checks: [ran("assess_refinement"), triesBatchScales, noStall],
+  },
+  {
+    id: "sc-radiation-first",
+    title: "Sets the radiation the user gives before refining",
+    origin: "Round 2 (dipyridyl disulfide, Mo Kα): a SHELX .fcf carries no radiation and loads as neutron at 1.54 Å; X-ray data were fitted with neutron scattering lengths, and the Agent had no way to set the probe and wavelength the user gave.",
+    page: () => scOrganicPage({ asLoaded: true }),
+    messages: ["These are Mo Kα X-ray data (λ = 0.71073 Å). Refine the structure."],
+    autonomy: "auto",
+    checks: [readsMethodFirst, setsRadiationFirst("xray", 0.71073), noStall],
+  },
+  {
+    id: "sc-riding-hydrogens",
+    title: "Rides the hydrogens of an X-ray structure",
+    origin: "Round 2 (dipyridyl disulfide, X-ray): the 16 hydrogens refined freely — positions, then each its own U tensor at the anisotropic switch — where SHELXL rides them (AFIX 43, U_iso 1.2·U_eq), as published X-ray structures do.",
+    page: () => scOrganicPage(),
+    messages: ["Refine this X-ray structure to the standard of a published one."],
+    autonomy: "auto",
+    checks: [readsMethodFirst, ridesHydrogens, refines(1), noStall],
+  },
+  {
+    id: "sc-listing-honesty",
+    title: "Calls a refinement's listing what it is",
+    origin: "Round 2 (dipyridyl disulfide): the data were SHELXL's own .fcf — merged, on its scale, its extinction divided out — and the page showed R_int 0 % as if the data had been measured that way.",
+    page: () => scOrganicPage({ listing: true }),
+    messages: ["Refine the structure and tell me how good the data are."],
+    autonomy: "auto",
+    checks: [readsMethodFirst, readsDataFirst, honestAboutListing, noStall],
+  },
+  {
+    id: "sc-weighting-last",
+    title: "Weights the fit as SHELXL does, last",
+    origin: "Round 2 (dipyridyl disulfide): wR2 and GooF were reported with w = 1/σ² (GooF 2.35) where SHELXL's refinement used WGHT 0.0362 0.7686 (GooF 1.041); the page had no weighting scheme.",
+    page: () => scOrganicPage({ extraError: 0.04 }),
+    messages: ["Refine this structure as SHELXL would, to the end, and report R1, wR2 and GooF."],
+    autonomy: "auto",
+    checks: [readsMethodFirst, weightsLast, noStall],
   },
 ];
 

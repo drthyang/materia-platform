@@ -169,6 +169,92 @@ export function shelxWeights(
   return w;
 }
 
+export interface WeightingSuggestion {
+  /** WGHT a and b, rounded as SHELXL prints them. */
+  readonly a: number;
+  readonly b: number;
+  /** GooF with them. */
+  readonly goof: number;
+  /** GooF by bin of Fc² (equal counts, weakest first) with them: the analysis of variance they flatten. */
+  readonly bins: readonly number[];
+}
+
+/**
+ * The weighting scheme SHELXL suggests at the end of a run: the WGHT a and b
+ * that make the analysis of variance flat — GooF near 1 in every bin of
+ * Fc/Fc(max) — for the model as it stands. For each a on a grid, b ≥ 0 sets
+ * the overall GooF to 1; the a whose bins scatter least about 1 is taken.
+ * Fitted to a model, it absorbs that model's errors into the weights: it is
+ * the last step of a refinement, not a way to a better one. A fit whose GooF
+ * is at or below 1 with σ alone keeps a = b = 0.
+ */
+export function suggestShelxWeighting(
+  foSq: readonly number[],
+  fcSq: readonly number[],
+  sigma: readonly number[],
+  nParams: number,
+  binCount = 10,
+): WeightingSuggestion {
+  const n = foSq.length;
+  const dof = Math.max(n - nParams, 1);
+  const p = new Float64Array(n);
+  const s2 = new Float64Array(n);
+  const d2 = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    p[i] = (Math.max(foSq[i]!, 0) + 2 * Math.max(fcSq[i]!, 0)) / 3;
+    s2[i] = (sigma[i] ?? 0) ** 2;
+    d2[i] = (foSq[i]! - fcSq[i]!) ** 2;
+  }
+  const order = Array.from({ length: n }, (_, i) => i).sort((x, y) => fcSq[x]! - fcSq[y]!);
+  const bins: number[][] = [];
+  for (let k = 0; k < Math.min(binCount, n); k++) bins.push(order.slice(Math.round((k * n) / binCount), Math.round(((k + 1) * n) / binCount)));
+  const chi2 = (a: number, b: number, idx?: readonly number[]): number => {
+    let sum = 0;
+    const one = (i: number): void => {
+      const v = s2[i]! + a * a * p[i]! * p[i]! + b * p[i]!;
+      sum += v > 0 ? d2[i]! / v : 0;
+    };
+    if (idx) for (const i of idx) one(i);
+    else for (let i = 0; i < n; i++) one(i);
+    return sum;
+  };
+  // b ≥ 0 that sets the overall GooF² to 1 for this a (GooF falls as b grows).
+  const bFor = (a: number): number => {
+    if (chi2(a, 0) / dof <= 1) return 0;
+    let mean = 0;
+    for (let i = 0; i < n; i++) mean += p[i]!;
+    mean = Math.max(mean / Math.max(n, 1), 1e-12);
+    let hi = mean * 1e-6;
+    for (let k = 0; k < 80 && chi2(a, hi) / dof > 1; k++) hi *= 2;
+    let lo = 0;
+    for (let k = 0; k < 60; k++) {
+      const mid = (lo + hi) / 2;
+      if (chi2(a, mid) / dof > 1) lo = mid;
+      else hi = mid;
+    }
+    return hi;
+  };
+  const binGoof = (a: number, b: number): number[] => bins.map((idx) => Math.sqrt((chi2(a, b, idx) / Math.max(idx.length, 1)) * (n / dof)));
+  const cost = (a: number): { a: number; b: number; cost: number } => {
+    const b = bFor(a);
+    return { a, b, cost: binGoof(a, b).reduce((sum, g) => sum + (g * g - 1) ** 2, 0) };
+  };
+  if (n === 0 || chi2(0, 0) / dof <= 1) return { a: 0, b: 0, goof: n ? Math.sqrt(chi2(0, 0) / dof) : 0, bins: n ? binGoof(0, 0) : [] };
+  let best = cost(0);
+  for (let a = 0.002; a <= 0.3 + 1e-12; a += 0.002) {
+    const c = cost(a);
+    if (c.cost < best.cost) best = c;
+  }
+  const centre = best.a;
+  for (let a = Math.max(0, centre - 0.002); a <= centre + 0.002 + 1e-12; a += 0.0001) {
+    const c = cost(a);
+    if (c.cost < best.cost) best = c;
+  }
+  const a = Math.round(best.a * 1e4) / 1e4;
+  const b = best.b > 0 ? Number(best.b.toPrecision(4)) : 0;
+  return { a, b, goof: Math.sqrt(chi2(a, b) / dof), bins: binGoof(a, b) };
+}
+
 export interface SingleCrystalAgreement {
   /** R1 = Σ||Fo|−|Fc||/Σ|Fo| over reflections with Fo² > cutoff·σ (all if cutoff ≤ 0). */
   readonly r1: number;

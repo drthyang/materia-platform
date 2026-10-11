@@ -504,3 +504,74 @@ export const triesBatchScales: Check = {
     return done.length > 0 ? ok(`${done.length} refinement${done.length === 1 ? "" : "s"} with the batch scales free`) : fail("never freed the batch scales");
   },
 };
+
+/** The probe and wavelength the user gave, set before the first refinement (round 2: a SHELX file carries none and loads as neutron at 1.54 Å). */
+export function setsRadiationFirst(probe: "xray" | "neutron", wavelength: number): Check {
+  return {
+    name: "sets the radiation the user gave before the first refinement",
+    grade: (run) => {
+      const all = calls(run);
+      const set = all.findIndex((c) => c.name === "set_radiation" && !c.isError && c.input.probe === probe && typeof c.input.wavelength === "number" && Math.abs(c.input.wavelength - wavelength) < 1e-3);
+      const refine = all.findIndex((c) => c.name === "refine");
+      const s = scState(run);
+      if (set < 0) return fail(`never set ${probe} at λ ${wavelength} Å`);
+      if (refine >= 0 && refine < set) return fail("refined before setting the radiation");
+      const r = s?.dataset.radiation;
+      return r && r.kind === probe && "wavelength" in r && Math.abs(r.wavelength - wavelength) < 1e-3 ? ok(`set ${probe}, λ ${wavelength} Å, then refined`) : fail("ends with another radiation");
+    },
+  };
+}
+
+/** A hydrogen parameter among the free ids (pos_H3_0, B_H7A, …). */
+const HYDROGEN_ID = /(^|_)H\d+[A-Za-z]*(_|$)/;
+
+/** X-ray hydrogens ride on their parents and none refines on its own (round 2: dipyridyl's 16 refined freely, then each its own tensor). */
+export const ridesHydrogens: Check = {
+  name: "rides the hydrogens (no hydrogen refined on its own against X-ray data)",
+  grade: (run) => {
+    const own = calls(run).filter((c) => c.name === "refine" && !c.isError && json(c.text)?.refined === true && (c.free ?? []).some((id) => HYDROGEN_ID.test(id)));
+    const s = scState(run);
+    const hydrogens = s ? s.structure.sites.filter((site) => /^H$|^D$/.test(site.element.replace(/[^A-Za-z]/g, ""))).length : 0;
+    if (own.length) return fail(`${own.length} refinement${own.length === 1 ? "" : "s"} with hydrogen parameters free`);
+    if (!s || s.riding.length < hydrogens) return fail(`${s?.riding.length ?? 0} of ${hydrogens} hydrogens ride`);
+    return ok(`all ${hydrogens} hydrogens ride; none refined on its own`);
+  },
+};
+
+const R_INT_VALUE = /\bR[ _]?int\b[^.\d]{0,25}\d/i;
+
+/** A refinement's listing is called what it is, and no R_int is quoted from data that hold each reflection once (round 2). */
+export const honestAboutListing: Check = {
+  name: "says the data are a refinement's listing and quotes no R_int from them",
+  grade: (run) => {
+    const text = replies(run).join("\n");
+    const quoted = sentences(text).filter((x) => R_INT_VALUE.test(x));
+    if (quoted.length) return fail(`quotes R_int: "${quoted[0]}"`);
+    return /\blisting\b|\.fcf\b|\bLIST 4\b|\bmerged\b/i.test(text) ? ok("names the data a refinement's listing, and quotes no R_int") : fail("never says the data are a refinement's listing");
+  },
+};
+
+/**
+ * SHELXL's weights set last: after every change of the model (ADPs, riding,
+ * extinction, radiation), then refined, ending with GooF near 1 (round 2:
+ * dipyridyl reported with w = 1/σ², GooF 2.35 against SHELXL's 1.041).
+ */
+export const weightsLast: Check = {
+  name: "sets the weighting scheme last, once the model is complete, and refines with it",
+  grade: (run) => {
+    const all = calls(run);
+    const modelChange = (c: (typeof all)[number]): boolean => !c.isError && ["set_adp_model", "set_riding_hydrogens", "set_extinction_model", "set_radiation"].includes(c.name);
+    const weighting = (c: (typeof all)[number]): boolean => c.name === "set_weighting" && !c.isError && c.input.use !== "sigma";
+    const first = all.findIndex(weighting);
+    if (first < 0) return fail("never set a weighting scheme");
+    const lastChange = all.reduce((at, c, i) => (modelChange(c) ? i : at), -1);
+    if (lastChange > first) return fail(`set the weights before ${all[lastChange]!.name}`);
+    const refined = all.some((c, i) => i > first && c.name === "refine" && json(c.text)?.refined === true);
+    if (!refined) return fail("did not refine with the weights");
+    const s = scState(run);
+    if (!s?.weighting) return fail("ends with w = 1/σ²");
+    const goof = s.agreement.goof;
+    return goof > 0.8 && goof < 1.25 ? ok(`WGHT ${s.weighting.a} ${s.weighting.b} set last; GooF ${goof.toFixed(3)}`) : fail(`ends with GooF ${goof.toFixed(3)}`);
+  },
+};
+

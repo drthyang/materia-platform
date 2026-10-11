@@ -13,15 +13,21 @@ description: >-
 a careful small-molecule and inorganic crystallographer uses. When the user states a
 preference that differs, follow them, and say so.
 
-The fit is least squares against the measured intensities (∝ Fo²), weighted w = 1/σ²(Fo²).
-The agreement is SHELX's: **R1** over the reflections with Fo² > 2σ, **wR2** and **GooF**
+The fit is least squares against the measured intensities (∝ Fo²), weighted w = 1/σ²(Fo²)
+until SHELXL's weighting scheme is set, last (Stage 6). The agreement is SHELX's: **R1** over the reflections with Fo² > 2σ, **wR2** and **GooF**
 over every reflection fitted. The **cell is fixed**: it comes from indexing, and integrated
 intensities carry no peak positions. A low R1 is necessary, not sufficient: the ADPs, the
 geometry and the GooF must all be sane.
 
 ## Stage 0 — Read the data before the model
 
-`reflection_statistics` reads them (the method's first stage). Say what you find, with its
+**The radiation first.** A SHELX `.hkl` or `.fcf` carries no radiation: it loads as neutron at
+1.54 Å, and get_state says so. When the user gives the probe and wavelength (Mo Kα 0.71073 Å,
+Cu Kα 1.54184 Å), set them with `set_radiation` before anything else: X-ray against neutron
+changes every Fc, and the wavelength enters the extinction. When neither the file nor the user
+says, ask.
+
+`reflection_statistics` reads the data (the method's first stage). Say what you find, with its
 numbers, before the first refinement:
 
 1. **Merging.** R_int (agreement of symmetry equivalents) and R_σ. X-ray data reduced
@@ -43,6 +49,11 @@ numbers, before the first refinement:
    atom). Merged pairs, or neutron data, cannot determine it: say so.
 5. **Data per parameter.** Aim for at least 10 unique reflections per refined parameter;
    below that, keep the model isotropic or restrained.
+6. **Where the Fo² come from.** A refinement's listing (a SHELXL `.fcf`; get_state's `origin`)
+   holds each reflection once, on that refinement's scale, with the systematic absences left
+   out and, in LIST 4, its extinction divided out. Its R_int, absences and extinction cannot
+   be judged: say so, quote no R_int, and compare R1 with that refinement's own, not with
+   data you measured.
 
 ## Stage 1 — Scale, then extinction
 
@@ -85,10 +96,20 @@ than a batch's precision, with no failed reflection behind it, asks for a scale 
 Free them (`bscale_*`, each relative to the first batch) only then, and report how much the
 fit improved for the parameters they cost.
 
-## Stage 2 — Positions
+## Stage 2 — Positions, the hydrogens riding
 
 Free the coordinates (the page's symmetry-allowed position shifts; special positions are
 already fixed or coupled). The shifts should converge to well below their esds.
+
+**Hydrogens on X-ray data ride** before the positions are refined: X-rays see a hydrogen's one
+electron, displaced into its bond, so a free hydrogen comes out short and scattered and its U
+undefined. `set_riding_hydrogens` (SHELXL's AFIX): an sp² C–H on the external bisector of its
+parent's two neighbours (AFIX 43), any other at its present offset (AFIX 3), U_iso 1.2·U_eq of
+the parent (1.5 for methyl and hydroxyl); no parameter of its own. Its result lists each X–H
+as placed: hydrogens from a difference map sit at whatever the map gave, so give the sp² ones
+SHELXL's distance (`distance`: 0.93 Å at room temperature, 0.95 Å below about 200 K). Report
+the treatment. On **neutron** data the hydrogens scatter as strongly as carbon: refine them
+freely, anisotropic where the data allow.
 
 ## Stage 3 — Isotropic ADPs
 
@@ -104,15 +125,26 @@ With the resolution and the data per parameter of Stage 0, switch with `set_adp_
 every tensor **positive definite** (assess_refinement lists those that are not — a hard red
 flag: wrong symmetry, absorption, disorder or element); no strongly prolate or oblate
 ellipsoid without a reason (disorder); the change in R1, wR2 and GooF worth the parameters
-it cost. Hydrogen atoms: free and anisotropic on neutron data (H scatters strongly, with
-negative b); on X-ray data they ride on their parent atoms and are never reported as
-internuclear geometry.
+it cost. Hydrogen atoms stay isotropic on X-ray data (the switch leaves them so) and ride;
+free and anisotropic on neutron data (H scatters strongly, with negative b). X-ray hydrogen
+positions are never reported as internuclear geometry.
 
 ## Stage 5 — Occupancy (only for a reason)
 
 Only for a site with a reason to be partial or mixed (disorder, a vacancy, a substitution
 the chemistry allows), never to improve R. Occupancy correlates with the ADP of the site:
 refine it with that ADP fixed, or with a composition tied.
+
+## Stage 6 — The weights, last
+
+SHELXL weights a finished refinement with WGHT a b: w = 1/[σ²(Fo²) + (aP)² + bP], P = (Fo² +
+2Fc²)/3, for the errors the σ do not carry (absorption, scaling, what no model describes).
+`assess_refinement` gives the scheme SHELXL would suggest for the model as it stands: the a and
+b that make the GooF flat across the intensity bins and 1 overall. Set it with
+`set_weighting` (use "suggested") only once the model is complete — ADPs, extinction,
+hydrogens, outliers — since weights fitted to an unfinished model hide its errors; then refine
+once more and quote R1, wR2 and GooF with the scheme. wR2 and GooF depend on it, R1 does not.
+With σ that already describe the data the suggestion stays near 0 0.
 
 ## Outliers
 
@@ -136,17 +168,19 @@ and they stay.
 
 - Converged: the largest shift well below its esd; nothing at a bound; no correlation
   refused or developed.
-- R1, wR2 and GooF: with σ weights only (the page does not refine SHELX's WGHT a, b), a
-  GooF above 1 means the σ's are underestimated or the model misses something; say which
-  the analysis of variance points at (K drifting with intensity or resolution).
+- R1, wR2 and GooF with the weights stated: with w = 1/σ², a GooF above 1 means the σ are
+  underestimated or the model misses something (say which the analysis of variance points at:
+  K drifting with intensity or resolution); with SHELXL's suggested scheme, set last, the GooF
+  is near 1 by construction and the analysis of variance is what still tells.
 - The ADPs positive definite and physically ordered; the bond lengths (`bond_geometry`)
   and the coordination as the chemistry expects, and against the published structure
   when there is one.
 - The open issues named: what the data could not decide (absolute structure, H positions
   from X-ray, a weak extinction model).
 
-Report: the data (reflections, unique, R_int, d_min, completeness), the model (free
-parameters, data per parameter, extinction), R1 (observed and total), wR2 and GooF, the
+Report: the data (reflections, unique, R_int, d_min, completeness; or that they are a
+refinement's listing), the model (free parameters, data per parameter, extinction, the
+hydrogen treatment, the weights), R1 (observed and total), wR2 and GooF, the
 largest outliers, and the refined structure with esds: `structure_table` gives each tensor's
 U^ij with esds, and `bond_geometry` each length with its esd from the positions'. In the app,
 `write_report` writes it: you write only the account, with no number the tools did not give.
@@ -156,10 +190,13 @@ U^ij with esds, and `bond_geometry` each length with its esd from the positions'
 | Step | In the app | Over MCP |
 |------|------------|----------|
 | Load | the user, in the app | `parse_structure`, `parse_single_crystal_data` |
+| Radiation and wavelength | `set_radiation` | — |
 | Read the data | `reflection_statistics` | — |
 | Free and refine | `set_free`, `refine` (batch scales: `bscale_*`) | — (in the app only, for now) |
 | Judge a stage | `assess_refinement` | `assess_refinement` |
 | ADP model | `set_adp_model` | — |
+| Hydrogens | `set_riding_hydrogens` | — |
+| Weights | `set_weighting` (the suggestion in `assess_refinement`) | — |
 | Extinction model | `set_extinction_model`, `set_resolution_range` (high-order test) | — |
 | Outliers | `assess_refinement`, `reflection_equivalents`, `omit_reflections`, `set_outlier_filter` | — |
 | Structure and geometry | `structure_table`, `bond_geometry` | `bond_geometry`, `interpret_structure` |

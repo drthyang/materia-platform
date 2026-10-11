@@ -104,6 +104,33 @@ release fixes bugs.
   `sc-failed-measurements`, `sc-extinction-test`, `sc-extinction-model` and
   `sc-batch-scales`, from the sapphire round, each replayed as the Agent should
   behave and as it failed.
+- **The radiation and wavelength of single-crystal data** (`set_radiation`,
+  the page's λ box beside the probe): a SHELX `.hkl` or `.fcf` carries
+  neither, and loaded as neutron at 1.54 Å with no way to say Mo Kα. The
+  scale restarts from its best value under the new physics.
+- **Riding hydrogens** (`set_riding_hydrogens`), as SHELXL's AFIX: an sp² C–H
+  on the external bisector of its parent's two neighbours (AFIX 43), at its
+  distance or one given (0.93 Å at room temperature, 0.95 Å below about
+  200 K), any other at its present offset (AFIX 3), with U_iso 1.2·U_eq of the
+  parent (1.5 for methyl and hydroxyl) and no parameter of its own; their
+  derivatives go to the parent, as SHELXL's do. It reproduces SHELXL's 16
+  hydrogens of dipyridyl disulfide to 0.003 Å and their U_iso to 10⁻³ Å². The
+  result lists each X–H as placed and names those out of range;
+  `structure_table` marks the riding ones, the report states the treatment,
+  and a refinement with hydrogens free against X-ray data draws a note. On
+  X-ray data the anisotropic switch leaves the hydrogens isotropic.
+- **SHELXL's weighting scheme** (`set_weighting`, the page's WGHT a b with a
+  "suggest" button): w = 1/[σ² + (aP)² + bP], P = (Fo² + 2Fc²)/3, re-evaluated
+  at the fit's own Fc² until it settles, as SHELXL recomputes it every cycle.
+  `assess_refinement` gives SHELXL's suggestion for the model as it stands —
+  the a and b that make the GooF flat across the intensity bins and 1 overall.
+  With dipyridyl disulfide's published WGHT 0.0362 0.7686 the page gives
+  wR2 7.78 % and GooF 1.03 for the 254 parameters (SHELXL: 7.86 % and 1.041),
+  and suggests 0.0324 0.951. wR2 and GooF in the report and in the agreement
+  are weighted by the scheme; R1 is not.
+- **Eval scenarios** `sc-radiation-first`, `sc-riding-hydrogens`,
+  `sc-listing-honesty` and `sc-weighting-last`, from the dipyridyl disulfide
+  round.
 - **The fit range, read from the data's ends** (`check_fit_range`, in the app
   and over MCP), the first stage of the Rietveld method and of its checklist.
   It proposes where the window starts and stops, as the GSAS-II tutorials do:
@@ -342,6 +369,18 @@ release fixes bugs.
 
 ### Changed
 
+- **Single-crystal structure factors with analytic derivatives.** A kernel
+  computes F for a fixed reflection list and, in the same pass, ∂F for every
+  position mode, U mode, B and occupancy, so the Jacobian costs about two
+  evaluations instead of two per parameter. On dipyridyl disulfide (4508
+  reflections) an evaluation went from 835 ms to 96 ms and the 253-parameter
+  anisotropic refinement from 23 minutes to 16.5 s.
+- **A refinement's listing says so.** A `.fcf` with calculated columns loads
+  marked as a refinement's listing — each reflection once, on that
+  refinement's scale, the absences left out and, in SHELXL's LIST 4, its
+  extinction divided out — and get_state, `reflection_statistics`, the data
+  card and the report say what cannot be judged from it. R_int of data with
+  one value per reflection reads "n/a (merged)" in place of 0 %.
 - **The correlation guard lets through a pair a third parameter carries.** The
   engine now reports, for each correlated pair, its correlation with every
   other free parameter held fixed. A pair over 0.95 whose correlation the

@@ -41,6 +41,8 @@ export interface StructureTableSite {
   readonly adp: string;
   /** An anisotropic site's tensor, U11 … U23 (Å², CIF convention), each with its esd from the refined modes. */
   readonly u?: Readonly<Record<"U11" | "U22" | "U33" | "U12" | "U13" | "U23", string>>;
+  /** A riding hydrogen: its parent and how it is placed (no esds: it has no parameter of its own). */
+  readonly riding?: string;
 }
 
 export interface StructureTable {
@@ -96,6 +98,7 @@ export function structureTable(
   const [ca, cb, cg] = [Math.cos(c.alpha * rad), Math.cos(c.beta * rad), Math.cos(c.gamma * rad)];
   const volume = c.a * c.b * c.c * Math.sqrt(Math.max(1 - ca * ca - cb * cb - cg * cg + 2 * ca * cb * cg, 0));
   const relV = Math.sqrt(["a", "b", "c"].reduce((s, k) => s + ((cellEsd[k] ?? 0) / (c as unknown as Record<string, number>)[k]!) ** 2, 0));
+  const ridingOf = new Map((phase.riding ?? []).map((r) => [r.site, r]));
   const sites = phase.sites.map((site): StructureTableSite => {
     const own = mine.filter((b) => b.targetKey === site.label && err(b.parameterId) !== undefined);
     const posVar = [0, 0, 0];
@@ -126,7 +129,9 @@ export function structureTable(
     const u = site.adp.kind === "anisotropic"
       ? Object.fromEntries((["U11", "U22", "U33", "U12", "U13", "U23"] as const).map((name, i) => [name, withEsd((site.adp as { uAniso: readonly number[] }).uAniso[i]!, sd(uVar[i]!), 5)])) as Record<"U11" | "U22" | "U33" | "U12" | "U13" | "U23", string>
       : undefined;
-    return { label: site.label, type: site.element, x: pos[0]!, y: pos[1]!, z: pos[2]!, occupancy: withEsd(site.occupancy, occEsd, 4), adp, ...(u ? { u } : {}) };
+    const rule = ridingOf.get(site.label);
+    const riding = rule ? `rides on ${rule.parent} (${rule.geometry === "aromatic" ? "AFIX 43, on the bisector" : "AFIX 3, at its offset"}), U_iso = ${rule.uFactor}·U_eq(${rule.parent})` : undefined;
+    return { label: site.label, type: site.element, x: pos[0]!, y: pos[1]!, z: pos[2]!, occupancy: withEsd(site.occupancy, occEsd, 4), adp, ...(u ? { u } : {}), ...(riding ? { riding } : {}) };
   });
   return {
     phase: phase.name || phase.id,

@@ -2,8 +2,9 @@ import { describe, it, expect } from "vitest";
 import { keyOfState } from "@/agent/method";
 import type { AgentReport } from "@/agent/report";
 import { executor, fakeHost, singleCrystalPort } from "@/testSupport/agentHeadless";
-import { corundumPage } from "@/testSupport/scPages";
-import { dSpacing } from "@/core/crystal/unitCell";
+import { corundumPage, pyridylPage } from "@/testSupport/scPages";
+import { dSpacing, orthogonalizationMatrix } from "@/core/crystal/unitCell";
+import { mulVec } from "@/core/math/mat3";
 
 const parse = (text: string): Record<string, unknown> => JSON.parse(text) as Record<string, unknown>;
 
@@ -266,6 +267,107 @@ describe("AgentExecutor on the single-crystal page", () => {
     await ex.run("set_resolution_range", { dMax: null });
     expect(port.state().resolution).toEqual({ excluded: 0 });
     expect(port.state().observationCount).toBe(all);
+  });
+
+  it("rides the hydrogens of an X-ray structure on their parents, idealized on request, and gives them back", async () => {
+    const pyridyl = pyridylPage();
+    const { port } = singleCrystalPort(pyridyl.structure, pyridyl.dataset);
+    const { host, steps } = fakeHost(port);
+    const { ex, seen } = executor(host, "auto");
+    const hydrogenRows = (): number => new Set(port.state().bindings.filter((b) => /^H/.test(b.targetKey ?? "")).map((b) => b.parameterId)).size;
+    expect(hydrogenRows()).toBe(28);
+    // Refined on their own against X-ray data, the hydrogens draw a note.
+    await ex.run("set_free", { free: ["pos_*"] });
+    expect(String(parse((await ex.run("refine", {})).text).note)).toMatch(/^7 hydrogens refined on their own against X-ray data: .*Ride them \(set_riding_hydrogens\)/);
+    await ex.run("reset_parameters", {});
+    await ex.run("set_free", { fix: ["pos_*"] });
+    const on = await ex.run("set_riding_hydrogens", { on: true });
+    expect(seen.find((e) => e.tool === "set_riding_hydrogens" && e.preview)?.preview).toBe("Ride 7 hydrogens on their parents (SHELXL AFIX: positions follow, U_iso = 1.2·U_eq of the parent (1.5 for methyl and hydroxyl)) — 28 parameters leave the fit");
+    expect(hydrogenRows()).toBe(0);
+    expect(port.state().riding).toHaveLength(7);
+    expect(steps.at(-1)).toEqual({ kind: "settings", agent: true });
+    // Where the difference map put them: the distances as they are, the odd ones named.
+    const note = String(parse(on.text).note);
+    expect(note).toMatch(/^7 hydrogens ride: 4 sp² C–H on the bisector \(AFIX 43\), X–H 0\.800–1\.101 Å, U_iso 1\.2·U_eq; 3 at their present offset \(AFIX 3\), X–H 0\.980 Å, U_iso 1\.5·U_eq\./);
+    expect(note).toMatch(/out of the usual range for H3 \(0\.80 Å\), H6 \(1\.10 Å\): the sp² ones take `distance`/);
+    // Idealized at SHELXL's 0.95 Å (below 200 K).
+    const ideal = String(parse((await ex.run("set_riding_hydrogens", { on: true, distance: 0.95 })).text).note);
+    expect(ideal).toMatch(/4 sp² C–H on the bisector \(AFIX 43\), X–H 0\.950 Å/);
+    expect(ideal).not.toMatch(/out of the usual range/);
+    expect(parse((await ex.run("set_riding_hydrogens", { on: true })).text).unchanged).toBe(true);
+    // The heavy atoms refine; the hydrogens follow, on the bisector at 0.95 Å with U_iso 1.2·U_eq.
+    await ex.run("set_free", { free: ["pos_*", "B_*"] });
+    const fit = parse((await ex.run("refine", {})).text);
+    expect(fit.status).toBe("converged");
+    expect(port.state().agreement.r1).toBeLessThan(0.04);
+    const refined = port.state().refinedStructure;
+    const at = (label: string) => refined.sites.find((x) => x.label === label)!;
+    const m = orthogonalizationMatrix(refined.cell);
+    const d = mulVec(m, [at("H4").position[0] - at("C4").position[0], at("H4").position[1] - at("C4").position[1], at("H4").position[2] - at("C4").position[2]]);
+    expect(Math.hypot(d[0], d[1], d[2])).toBeCloseTo(0.95, 6);
+    const b = (label: string): number => { const adp = at(label).adp; return adp.kind === "isotropic" ? adp.bIso : NaN; };
+    expect(b("H4") / b("C4")).toBeCloseTo(1.2, 9);
+    expect(b("H7A") / b("C7")).toBeCloseTo(1.5, 9);
+    // The table says which ride, on what.
+    const table = parse((await ex.run("structure_table", {})).text) as { phases: { sites: { label: string; riding?: string }[] }[] };
+    expect(table.phases[0]!.sites.find((x) => x.label === "H4")!.riding).toBe("rides on C4 (AFIX 43, on the bisector), U_iso = 1.2·U_eq(C4)");
+    expect(table.phases[0]!.sites.find((x) => x.label === "C4")!.riding).toBeUndefined();
+    // The report states the treatment.
+    const report = port.reportInput!().data.find((r) => r.label === "Hydrogens")!.value;
+    expect(report).toMatch(/^7 riding on their parents \(4 sp² C–H on the bisector \(AFIX 43\), X–H 0\.950 Å, U_iso 1\.2·U_eq; 3 at their present offset \(AFIX 3\), X–H 0\.980 Å, U_iso 1\.5·U_eq\)$/);
+    // The truth's hydrogens are where the riding model puts them.
+    const truthH4 = pyridyl.truth.sites.find((x) => x.label === "H4")!.position;
+    const off = mulVec(m, [at("H4").position[0] - truthH4[0], at("H4").position[1] - truthH4[1], at("H4").position[2] - truthH4[2]]);
+    expect(Math.hypot(off[0], off[1], off[2])).toBeLessThan(0.02);
+    // Back on their own: their rows return, fixed.
+    await ex.run("set_riding_hydrogens", { on: false });
+    expect(port.state().riding).toEqual([]);
+    expect(hydrogenRows()).toBe(28);
+    expect(parse((await ex.run("set_riding_hydrogens", { on: false })).text).unchanged).toBe(true);
+    // Corundum has no hydrogen: refused before the user is asked.
+    const { port: noH } = page();
+    const refused = await executor(fakeHost(noH).host, "auto").ex.run("set_riding_hydrogens", { on: true });
+    expect(refused.isError).toBe(true);
+    expect(refused.text).toMatch(/no hydrogen atoms/);
+  });
+
+  it("weights the fit as SHELXL's WGHT, from the suggestion for the refined model, and goes back to 1/σ²", async () => {
+    // A 4 % error on every Fo² that the σ do not carry.
+    const pyridyl = pyridylPage({ extraError: 0.04 });
+    const { port } = singleCrystalPort(pyridyl.structure, pyridyl.dataset);
+    const { host, steps } = fakeHost(port);
+    const { ex, seen } = executor(host, "auto");
+    const early = await ex.run("set_weighting", { use: "suggested" });
+    expect(early.isError).toBe(true);
+    expect(early.text).toMatch(/the suggestion is for a refined model: refine first/);
+    await ex.run("set_riding_hydrogens", { on: true, distance: 0.95 });
+    await ex.run("set_free", { free: ["pos_*", "B_*"] });
+    await ex.run("refine", {});
+    const sigmaOnly = port.state().agreement;
+    expect(sigmaOnly.goof).toBeGreaterThan(1.3);
+    const a = parse((await ex.run("assess_refinement", {})).text).weighting as Record<string, string>;
+    expect(a.scheme).toBe("w = 1/σ²");
+    expect(a.suggested).toMatch(/^WGHT 0\.0[34]\d* [\d.]+: GooF (1|0\.99\d*|1\.00\d*), by intensity bin/);
+    await ex.run("set_weighting", { use: "suggested" });
+    expect(seen.find((e) => e.tool === "set_weighting" && e.preview)?.preview).toMatch(/^Weights: WGHT 0\.0[34]\d* [\d.]+ \(w = 1\/\[σ² \+ \(0\.0[34]\d*P\)² \+ [\d.]+P\]\) \(suggested for the model as refined now: GooF (1|0\.99\d*|1\.00\d*), by intensity bin [\d., ]+\), in place of w = 1\/σ² — wR2 and GooF change, R1 does not$/);
+    const scheme = port.state().weighting!;
+    expect(scheme.a).toBeGreaterThan(0.03);
+    expect(scheme.a).toBeLessThan(0.05);
+    expect(steps.at(-1)).toEqual({ kind: "settings", agent: true });
+    expect(port.state().result).toBeNull();
+    const st = parse((await ex.run("get_state", {})).text);
+    expect((st.data as Record<string, unknown>).weights).toMatch(/^WGHT 0\.0[34]/);
+    expect(parse((await ex.run("set_weighting", { a: scheme.a, b: scheme.b })).text).unchanged).toBe(true);
+    await ex.run("refine", {});
+    // Weighted by it, the fit's GooF is near 1; R1 is the same fit's.
+    expect(port.state().agreement.goof).toBeGreaterThan(0.9);
+    expect(port.state().agreement.goof).toBeLessThan(1.1);
+    expect(Math.abs(port.state().agreement.r1 - sigmaOnly.r1)).toBeLessThan(0.003);
+    expect(port.reportInput!().data.find((r) => r.label === "Weights")!.value).toBe(`w = 1/[σ²(F_o²) + (${scheme.a}P)² + ${scheme.b}P], P = (F_o² + 2F_c²)/3 (SHELXL WGHT ${scheme.a} ${scheme.b})`);
+    const both = await ex.run("set_weighting", { use: "sigma", a: 0.1 });
+    expect(both.isError).toBe(true);
+    await ex.run("set_weighting", { use: "sigma" });
+    expect(port.state().weighting).toBeNull();
   });
 
   it("gives the anisotropic tensor and the bond lengths with their esds", async () => {

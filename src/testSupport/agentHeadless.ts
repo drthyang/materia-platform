@@ -19,8 +19,9 @@ import { DEFAULT_INSTRUMENT, buildSpecFor, keptBindings, keptRows, withMagneticR
 import { withEqualTies } from "@/core/refinement/constraints";
 import { withConstants, type InstrumentParameters } from "@/core/diffraction/instrument";
 import { withAntisite } from "@/core/crystal/antisite";
-import { withAdpModel } from "@/core/crystal/adp";
-import type { StructureModel } from "@/core/crystal/types";
+import { isHydrogen, withAdpModel } from "@/core/crystal/adp";
+import type { RidingRule, StructureModel } from "@/core/crystal/types";
+import { ridingRules } from "@/core/crystal/riding";
 import { powderRestraints } from "@/app/powderSpec";
 import { runPowderRefinement } from "@/workers/runPowder";
 import { axisContext, convertAxisArray } from "@/visualization/axisUnits";
@@ -32,10 +33,10 @@ import { samplePosterior, type SampleResult } from "@/core/refinement/bayes/samp
 import { magneticHandle, sessionCurves } from "@/testSupport/magneticHeadless";
 import type { ProjectHistory, StepKind } from "@/core/project/history";
 import { pdfReportInput, powderReportInput, singleCrystalReportInput } from "@/app/reportInputs";
-import type { ExtinctionModel, OmittedMeasurement, ResolutionRange, SingleCrystalDataset } from "@/core/diffraction/types";
+import type { ExtinctionModel, OmittedMeasurement, Radiation, ResolutionRange, ShelxWeighting, SingleCrystalDataset } from "@/core/diffraction/types";
 import { EXTINCTION_PARAMETER_LABELS } from "@/core/diffraction/singleCrystalFactors";
 import { mergeEquivalents } from "@/core/diffraction/merge";
-import { SINGLE_CRYSTAL_REFINE_OPTIONS, buildSingleCrystalRefinementProblem, buildSingleCrystalSpec, inResolution, isOmitted, singleCrystalRefinementComparison, withinResolution, withoutOmitted } from "@/core/workflow/singleCrystalRefinement";
+import { SINGLE_CRYSTAL_REFINE_OPTIONS, buildSingleCrystalRefinementProblem, buildSingleCrystalSpec, refineSingleCrystal, inResolution, isOmitted, optimalScale, singleCrystalRefinementComparison, withinResolution, withoutOmitted } from "@/core/workflow/singleCrystalRefinement";
 
 /**
  * A powder page without React: a session, the real curves and the real
@@ -310,7 +311,9 @@ export function executor(
 
 /** What a structure's sites refine: one U each, the tensor, or both. */
 function adpModelOf(structure: StructureModel): "isotropic" | "anisotropic" | "mixed" {
-  const kinds = new Set(structure.sites.map((site) => site.adp.kind));
+  // Hydrogens kept isotropic under an anisotropic model (X-ray) do not make it mixed.
+  const heavy = structure.sites.filter((site) => !isHydrogen(site));
+  const kinds = new Set((heavy.length ? heavy : structure.sites).map((site) => site.adp.kind));
   return kinds.size === 1 ? [...kinds][0]! : "mixed";
 }
 
@@ -432,9 +435,12 @@ export function pdfPort(): { port: PdfAgentPort; calls: string[] } {
  */
 export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDataset): { port: SingleCrystalAgentPort; calls: string[] } {
   let model = start;
+  let base: SingleCrystalDataset = loaded;
   let extinctionModel: ExtinctionModel = loaded.extinctionModel ?? "shelx";
   let omitted: readonly OmittedMeasurement[] = [];
   let resolution: ResolutionRange = {};
+  let riding: readonly RidingRule[] | null = start.riding?.length ? start.riding : null;
+  let weighting: ShelxWeighting | null = loaded.weighting ?? null;
   // The reflections with the extinction model, as the page's probed dataset.
   let dataset: SingleCrystalDataset = { ...loaded, extinctionModel };
   let spec = buildSingleCrystalSpec(model, dataset, { extinction: 0 });
@@ -473,6 +479,8 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
       outlierFilter: { ...filter, excluded: nKept - ds.reflections.length },
       omitted,
       resolution: { ...resolution, excluded: outside },
+      riding: riding ?? [],
+      weighting,
       extinctionModel,
       adpModel: adpModelOf(model),
       magnetic: false,
@@ -494,7 +502,8 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
       calls.push(`adp ${anisotropic ? "anisotropic" : "isotropic"}`);
       const refined = applyParameters(model, spec.bindings, values()).model;
       const seeds = new Map(refined.sites.map((site) => [site.label, site.adp]));
-      model = withAdpModel({ ...start, sites: start.sites.map((site) => ({ ...site, adp: seeds.get(site.label) ?? site.adp })) }, anisotropic ? "anisotropic" : "isotropic");
+      const switched = withAdpModel({ ...start, sites: start.sites.map((site) => ({ ...site, adp: seeds.get(site.label) ?? site.adp })) }, anisotropic ? "anisotropic" : "isotropic", { hydrogensIsotropic: dataset.radiation.kind === "xray" });
+      model = riding ? { ...switched, riding } : switched;
       const old = new Map(params.map((p) => [p.id, p]));
       spec = buildSingleCrystalSpec(model, dataset, { extinction: 0 });
       params = spec.params.map((p) => {
@@ -506,8 +515,19 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
     setExtinctionModel: (m) => {
       calls.push(`extinction model ${m}`);
       extinctionModel = m;
-      dataset = { ...loaded, extinctionModel };
+      dataset = { ...base, extinctionModel, ...(weighting ? { weighting } : {}) };
       params = params.map((p) => (p.kind === "extinction" ? { ...p, label: EXTINCTION_PARAMETER_LABELS[m], value: 0, initialValue: 0 } : p));
+      result = null;
+    },
+    setRadiation: (update) => {
+      calls.push(`radiation ${JSON.stringify(update)}`);
+      const probe = update.probe ?? base.radiation.kind;
+      const wl = update.wavelength ?? ("wavelength" in base.radiation ? base.radiation.wavelength : 1.54);
+      const radiation: Radiation = probe === "neutron-tof" ? { kind: "neutron-tof" } : probe === "xray" ? { kind: "xray", wavelength: wl, polarization: 0.5 } : { kind: "neutron", wavelength: wl };
+      base = { ...base, radiation };
+      dataset = { ...base, extinctionModel, ...(weighting ? { weighting } : {}) };
+      const k = optimalScale(model, active(), params, spec.bindings);
+      if (k !== null) params = params.map((p) => (p.kind === "scale" ? { ...p, value: k } : p));
       result = null;
     },
     setResolution: (update) => {
@@ -516,6 +536,29 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
       const dMin = end(update.dMin, resolution.dMin);
       const dMax = end(update.dMax, resolution.dMax);
       resolution = { ...(dMin !== undefined ? { dMin } : {}), ...(dMax !== undefined ? { dMax } : {}) };
+    },
+    setWeighting: (next) => {
+      calls.push(`weighting ${next ? `${next.a} ${next.b}` : "1/σ²"}`);
+      weighting = next && (next.a > 0 || next.b > 0) ? { a: next.a, b: next.b } : null;
+      const { weighting: _, ...rest } = dataset;
+      dataset = weighting ? { ...rest, weighting } : rest;
+      result = null;
+    },
+    // The page's handler: rules from the structure as refined now; the hydrogens' rows leave the fit (or come back).
+    setRiding: (on, options) => {
+      calls.push(`riding ${on ? "on" : "off"}${options ? ` ${JSON.stringify(options)}` : ""}`);
+      const rules = on ? ridingRules({ ...applyParameters(model, spec.bindings, values()).model, riding: [] }, options) : null;
+      if (rules && rules.rules.length === 0) return "no hydrogen is bonded to an atom of this model";
+      riding = rules ? rules.rules : null;
+      model = riding ? { ...model, riding } : (({ riding: _, ...rest }) => rest)(model);
+      const old = new Map(params.map((p) => [p.id, p]));
+      spec = buildSingleCrystalSpec(model, dataset, { extinction: 0 });
+      params = spec.params.map((p) => {
+        const o = old.get(p.id);
+        return o ? { ...p, value: o.value, initialValue: o.initialValue, fixed: o.fixed } : p;
+      });
+      result = null;
+      return rules && rules.unbonded.length ? `not riding (no parent in bonding distance): ${rules.unbonded.join(", ")}` : null;
     },
     setOmitted: (next) => {
       calls.push(`omit ${next.map((o) => `${o.h} ${o.k} ${o.l}${o.batch !== undefined ? `/${o.batch}` : ""}`).join(", ")}`);
@@ -528,7 +571,7 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
     },
     refine: async () => {
       calls.push("refine");
-      const r = refineProblem(buildSingleCrystalRefinementProblem(model, active(), params, spec.bindings), SINGLE_CRYSTAL_REFINE_OPTIONS);
+      const r = refineSingleCrystal(model, active(), params, spec.bindings, SINGLE_CRYSTAL_REFINE_OPTIONS);
       params = params.map((p) => ({ ...p, value: r.parameters[p.id] ?? p.value }));
       result = r;
       return null;
@@ -537,7 +580,7 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
       calls.push("thorough");
       return "cancelled";
     },
-    probe: async (options) => refineProblem(buildSingleCrystalRefinementProblem(model, active(), params, spec.bindings), options),
+    probe: async (options) => refineProblem(buildSingleCrystalRefinementProblem(model, active(), params, spec.bindings), { analyticDerivatives: true, ...options }),
     reportInput: () => {
       const st = state();
       return singleCrystalReportInput({

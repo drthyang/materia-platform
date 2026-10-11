@@ -85,7 +85,7 @@ import { refinementBundle, type BundleTarget } from "@/core/export/bundle";
 import type { BackgroundType } from "@/core/diffraction/background";
 import type { CifRefinementMeta } from "@/core/export/cif";
 import { parseHklRows } from "@/parsers/hkl";
-import { isCifReflectionLoop, parseFcf, parseShelxHkl } from "@/parsers/shelxHkl";
+import { isCifReflectionLoop, isRefinementListing, parseFcf, parseShelxHkl } from "@/parsers/shelxHkl";
 import {
   mergeToMagneticSupercell,
   expandStructureToSupercell,
@@ -935,6 +935,7 @@ export function parse_single_crystal_data(args: { text: string; name?: string; i
       dataset: {
         id, name, radiation: { kind: "neutron", wavelength: 1.54 },
         reflections: parsed.reflections.map((r) => ({ h: r.h, k: r.k, l: r.l, iObs: r.intensity, sigma: r.sigma, ...(parsed.hasBatches && r.batch !== undefined ? { batch: r.batch } : {}) })),
+        ...(isRefinementListing(args.text) ? { origin: "refinement-listing" as const } : {}),
       },
       kept: parsed.reflections.length,
       dropped: parsed.skipped,

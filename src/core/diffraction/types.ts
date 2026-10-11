@@ -98,6 +98,16 @@ export interface ResolutionRange {
   readonly dMax?: number;
 }
 
+/**
+ * SHELXL's weighting scheme, WGHT a b: w = 1/[σ²(Fo²) + (aP)² + bP] with
+ * P = (max(Fo², 0) + 2Fc²)/3. The a term covers errors that grow with the
+ * intensity (absorption, scaling), b a constant floor; a = b = 0 is w = 1/σ².
+ */
+export interface ShelxWeighting {
+  readonly a: number;
+  readonly b: number;
+}
+
 /** A single-crystal reflection dataset. */
 export interface SingleCrystalDataset {
   readonly id: string;
@@ -106,6 +116,22 @@ export interface SingleCrystalDataset {
   readonly reflections: readonly SingleCrystalReflection[];
   /** The extinction model the fit applies to these reflections (GSAS-II keeps it per histogram); absent ⇒ SHELXL's EXTI. */
   readonly extinctionModel?: ExtinctionModel;
+  /**
+   * "refinement-listing": the Fo² come from a refinement's listing (a SHELXL
+   * .fcf), not from data reduction — each reflection once, on that
+   * refinement's scale, the systematic absences left out, and (SHELXL's LIST 4)
+   * its extinction divided out.
+   */
+  readonly origin?: "refinement-listing";
+  /** The fit's weighting scheme (SHELXL's WGHT); absent ⇒ w = 1/σ². */
+  readonly weighting?: ShelxWeighting;
+  /**
+   * The σ the fit weights by, √(σ² + (aP)² + bP), from the Fc² of the model
+   * the scheme was last evaluated at (transient: derived, never saved). A
+   * problem built on a dataset that carries it keeps these weights however its
+   * parameters start, so starts compared by χ² are compared on one set.
+   */
+  readonly fitSigma?: readonly number[];
 }
 
 /** A powder diffraction pattern. */

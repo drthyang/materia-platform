@@ -154,6 +154,18 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     pages: ["singleCrystal"],
   },
   {
+    name: "set_radiation",
+    title: "Set the radiation",
+    description:
+      "Single-crystal page only. The probe and the wavelength the data were measured with, which a reflection file cannot say (a SHELX .hkl or .fcf loads as neutron at 1.54 Å): \"xray\" (atomic form factors f(s)), \"neutron\" (scattering lengths, one wavelength) or \"neutron-tof\" (a Laue measurement, each reflection at its own wavelength). `wavelength` in Å for X-ray and constant-wavelength neutrons: Mo Kα 0.71073, Cu Kα 1.54184, Ag Kα 0.56087. The probe changes every Fc; the wavelength enters the extinction correction (not |F|²). The scale restarts from its best value under the new physics and the last fit is cleared: refine again. Set it before anything else when get_state's probe or wavelength is not what the user says the data are.",
+    inputSchema: {
+      probe: z.enum(["xray", "neutron", "neutron-tof"]).optional(),
+      wavelength: z.number().gt(0.1).lt(5).optional().describe("Å, for X-ray and constant-wavelength neutrons"),
+    },
+    effect: "change",
+    pages: ["singleCrystal"],
+  },
+  {
     name: "set_resolution_range",
     title: "Set the resolution range",
     description:
@@ -171,6 +183,32 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     description:
       "Single-crystal page only. The extinction model: SHELXL's empirical EXTI (\"shelx\", the default), or Becker–Coppens secondary extinction as GSAS-II applies it — type I, where the mosaic spread limits it (\"bc-1-lorentzian\", \"bc-1-gaussian\"), or type II, where the domain size does (\"bc-2-lorentzian\", \"bc-2-gaussian\") — with each reflection's mean path length when the file gives it (TOPAZ). The parameter is another quantity under each model (x, Eg, Es), so it restarts at 0: refine it with the scale and what was free before, to convergence, then compare wR2, GooF and the lowest resolution shell and strongest bin of assess_refinement with the model before. Worth trying when the extinction is severe (y well below 0.5) and the strongest low-angle reflections are what is left in the residual; report the model chosen and why.",
     inputSchema: { model: z.enum(["shelx", "bc-1-lorentzian", "bc-1-gaussian", "bc-2-lorentzian", "bc-2-gaussian"]) },
+    effect: "change",
+    pages: ["singleCrystal"],
+  },
+  {
+    name: "set_riding_hydrogens",
+    title: "Ride the hydrogens",
+    description:
+      "Single-crystal page only. The riding model for hydrogen, as SHELXL's AFIX and as X-ray structures are published: each hydrogen follows the atom it is bonded to — an sp² C–H on the external bisector of its parent's two neighbours (AFIX 43), at its present distance or at `distance`; any other at its present offset (AFIX 3) — with U_iso = 1.2·U_eq of the parent (1.5 for methyl and hydroxyl; `uFactor` sets one value for all), so it carries no parameter of its own. X-ray data cannot place a hydrogen on its own (one electron, displaced into its bond): ride them in an X-ray refinement before the heavy atoms go anisotropic, and say so in the report. Neutron data see the hydrogens as well as any atom and can refine them freely. The result lists the X–H distances as placed: hydrogens from a difference map sit at whatever the map gave, and SHELXL's sp² C–H is 0.93 Å at room temperature, 0.95 Å below about 200 K. `on: false` gives the hydrogens their own rows again (fixed, at the loaded positions). The parents come from the structure as refined now; the last fit is cleared.",
+    inputSchema: {
+      on: z.boolean(),
+      uFactor: z.number().min(1).max(2).optional().describe("U_iso as this multiple of the parent's U_eq, for every hydrogen (default: 1.2, and 1.5 for methyl and hydroxyl)"),
+      distance: z.number().min(0.8).max(1.2).optional().describe("X–H (Å) of the sp² hydrogens set on the bisector; default: each at its present distance"),
+    },
+    effect: "change",
+    pages: ["singleCrystal"],
+  },
+  {
+    name: "set_weighting",
+    title: "Set the weighting scheme",
+    description:
+      "Single-crystal page only. SHELXL's weighting scheme WGHT a b: w = 1/[σ²(Fo²) + (aP)² + bP], P = (max(Fo², 0) + 2Fc²)/3, for the errors the file's σ do not carry (absorption, scaling, what no model describes). `use: \"suggested\"` takes the a and b that make the GooF flat across the intensity bins and 1 overall for the model as refined now — SHELXL prints them after every run, and assess_refinement shows them; `use: \"sigma\"` goes back to w = 1/σ²; or give `a` and `b`. Set it LAST, when the model is complete (ADPs, extinction, hydrogens): weights fitted to an unfinished model hide its errors. Then refine once more (the weights follow Fc² and are re-evaluated until they settle). wR2 and GooF depend on the weights, R1 does not; the report states the scheme.",
+    inputSchema: {
+      use: z.enum(["suggested", "sigma"]).optional().describe("\"suggested\": SHELXL's suggestion for the model as refined now; \"sigma\": w = 1/σ²"),
+      a: z.number().min(0).max(0.5).optional(),
+      b: z.number().min(0).optional(),
+    },
     effect: "change",
     pages: ["singleCrystal"],
   },
@@ -534,7 +572,7 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     name: "set_adp_model",
     title: "Change the ADP model",
     description:
-      "Switch the primary phase's atomic displacement model between isotropic (one B_iso / U per site) and anisotropic (the symmetry-allowed U tensor components), seeded from the current refined values. New rows start fixed — free them with set_free. A CIF with U_aniso columns loads anisotropic (get_state says which): on the PDF page a small-box fit usually refines one U per site. Anisotropic ADPs need good data; they are the last structural step.",
+      "Switch the primary phase's atomic displacement model between isotropic (one B_iso / U per site) and anisotropic (the symmetry-allowed U tensor components), seeded from the current refined values. New rows start fixed — free them with set_free. A CIF with U_aniso columns loads anisotropic (get_state says which): on the PDF page a small-box fit usually refines one U per site. Anisotropic ADPs need good data; they are the last structural step. On the single-crystal page with X-ray data the hydrogens stay isotropic (one electron, displaced into its bond, defines no tensor); with neutrons they follow.",
     inputSchema: { anisotropic: z.boolean() },
     effect: "change",
     pages: ["powder", "pdf", "singleCrystal"],

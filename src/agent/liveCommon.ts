@@ -20,6 +20,8 @@ export type ChangeResult = string | { readonly note?: string; readonly data: Rec
 export interface LiveToolHost {
   readonly history: () => ProjectHistory | null;
   readonly goToStep: (id: string) => void;
+  /** Resolves once the state a change set has rendered: a handler reading the page after its own change waits for it. */
+  readonly settle?: () => Promise<void>;
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- inputs are validated against the spec's zod schema before a handler runs */

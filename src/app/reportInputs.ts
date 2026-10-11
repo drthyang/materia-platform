@@ -9,6 +9,8 @@
  */
 
 import type { StructureModel } from "@/core/crystal/types";
+import { isHydrogen } from "@/core/crystal/adp";
+import { ridingSummary } from "@/core/crystal/riding";
 import type { MagneticModel } from "@/core/magnetic/types";
 import type { Vec3 } from "@/core/math/types";
 import { extractSizeStrain } from "@/core/diffraction/microstructure";
@@ -371,6 +373,22 @@ export function powderReportInput(o: {
 // ---------------------------------------------------------------------------
 // Single crystal (F²)
 
+/** How the hydrogens were treated: riding (SHELXL's AFIX, with their distances), refined, or held at the input positions. */
+function hydrogenRow(structure: StructureModel, params: readonly RefinementParameter[], bindings: readonly ParameterBinding[]): ReportRow[] {
+  const hydrogens = structure.sites.filter((site) => isHydrogen(site));
+  if (hydrogens.length === 0) return [];
+  const riding = new Set((structure.riding ?? []).map((r) => r.site));
+  const own = hydrogens.filter((h) => !riding.has(h.label));
+  const free = new Set(params.filter((p) => !p.fixed && !p.expression).map((p) => p.id));
+  const refined = own.filter((h) => bindings.some((b) => b.targetKey === h.label && free.has(b.parameterId)));
+  const parts = [
+    ...(riding.size > 0 ? [`${riding.size} riding on ${riding.size === 1 ? "its parent" : "their parents"} (${ridingSummary(structure)})`] : []),
+    ...(refined.length > 0 ? [`${refined.length} refined on ${refined.length === 1 ? "its" : "their"} own (${refined.map((h) => h.label).join(", ")})`] : []),
+    ...(own.length > refined.length ? [`${own.length - refined.length} held at the input positions and U_iso`] : []),
+  ];
+  return [{ label: "Hydrogens", value: parts.join("; ") }];
+}
+
 export function singleCrystalReportInput(o: {
   /** The structure AS REFINED (parameters applied). */
   readonly structure: StructureModel;
@@ -413,13 +431,15 @@ export function singleCrystalReportInput(o: {
     explored: o.explored,
     against: "the F² reflection data",
   });
+  const scheme = o.dataset.weighting && (o.dataset.weighting.a > 0 || o.dataset.weighting.b > 0) ? o.dataset.weighting : null;
+  const weightText = scheme ? `w = 1/[σ²(F_o²) + (${scheme.a}P)² + ${scheme.b}P], P = (F_o² + 2F_c²)/3` : "w = 1/σ²(F_o²)";
   const stats: ReportStat[] = [
     { label: "R1", value: pct(ag.r1), hint: `Σ||F_o| − |F_c|| / Σ|F_o| over the ${ag.observed} reflections with F_o² > 2σ` },
-    { label: "wR2", value: pct(ag.wr2), hint: "√(Σ w (F_o² − F_c²)² / Σ w (F_o²)²), w = 1/σ²(F_o²), all reflections" },
+    { label: "wR2", value: pct(ag.wr2), hint: `√(Σ w (F_o² − F_c²)² / Σ w (F_o²)²), ${weightText}, all reflections` },
     { label: "GooF", value: num(ag.goof, 2), hint: "√(Σ w (F_o² − F_c²)² / (N − P))" },
     { label: "Reflections", value: String(o.dataset.reflections.length), hint: o.excluded > 0 || omittedN > 0 ? [omittedN > 0 ? `${omittedN} omitted by hand` : "", o.excluded > 0 ? `${o.excluded} excluded by the filter` : ""].filter(Boolean).join(", ") : "All measured reflections" },
     { label: "Unique", value: String(st.unique), hint: `Laue-equivalent merge · redundancy ${num(st.redundancy, 2)}` },
-    { label: "R int", value: pct(st.rInt) },
+    { label: "R int", value: st.redundancy > 1 + 1e-9 ? pct(st.rInt) : "—", ...(st.redundancy > 1 + 1e-9 ? {} : { hint: "merged data: one value per reflection" }) },
     { label: "Free parameters", value: String(free) },
   ];
   const data: ReportRow[] = [
@@ -428,9 +448,11 @@ export function singleCrystalReportInput(o: {
     { label: "Reflections", value: `${o.totalReflections} measured · ${o.dataset.reflections.length} used${omittedN > 0 ? ` · ${omittedN} omitted by hand` : ""}${outside > 0 && range ? ` · ${outside} outside ${range}` : ""}${o.excluded > 0 ? ` · ${o.excluded} rejected with |F_o² − F_c²|/σ > ${o.cutoffSigma}${o.minExtinction ? ` or y < ${o.minExtinction}` : ""}` : o.filterOn ? ` · the filter (|F_o² − F_c²|/σ > ${o.cutoffSigma}${o.minExtinction ? ` or y < ${o.minExtinction}` : ""}) rejected none` : ""}` },
     ...(omitted.length > 0 ? [{ label: "Omitted", value: omitted.map((m) => `${m.h} ${m.k} ${m.l}${m.batch !== undefined ? ` (batch ${m.batch})` : ""}${m.reason ? `: ${m.reason}` : ""}`).join("; ") }] : []),
     { label: "Extinction", value: EXTINCTION_MODEL_LABELS[o.dataset.extinctionModel ?? "shelx"] },
-    { label: "Merging", value: `${st.observations} observations → ${st.unique} unique · redundancy ${num(st.redundancy, 2)} · R_int ${pct(st.rInt)} · R_σ ${pct(st.rSigma)}${st.dMin !== undefined ? ` · d_min ${num(st.dMin, 3)} Å` : ""}` },
+    ...hydrogenRow(o.structure, params, o.bindings),
+    { label: "Merging", value: `${st.observations} observations → ${st.unique} unique · redundancy ${num(st.redundancy, 2)} · ${st.redundancy > 1 + 1e-9 ? `R_int ${pct(st.rInt)}` : "R_int n/a (merged data)"} · R_σ ${pct(st.rSigma)}${st.dMin !== undefined ? ` · d_min ${num(st.dMin, 3)} Å` : ""}` },
+    ...(o.dataset.origin === "refinement-listing" ? [{ label: "Source", value: "a refinement's listing (.fcf): Fo² on that refinement's scale, merged, the systematic absences left out, and in SHELXL's LIST 4 its extinction divided out" }] : []),
     { label: "Observed", value: `${ag.observed} of ${ag.total} reflections with F_o² > 2σ(F_o²)` },
-    { label: "Weights", value: "w = 1/σ²(F_o²); unit weights where σ is absent" },
+    { label: "Weights", value: scheme ? `${weightText} (SHELXL WGHT ${scheme.a} ${scheme.b})` : "w = 1/σ²(F_o²); unit weights where σ is absent" },
     { label: "Unit cell", value: "fixed at the input values (not refinable from a single reflection file)" },
   ];
   const summary =
@@ -438,7 +460,7 @@ export function singleCrystalReportInput(o: {
     `R1 = ${pct(ag.r1)}, wR2 = ${pct(ag.wr2)}, GooF = ${num(ag.goof, 2)} with ${free} free parameter${free === 1 ? "" : "s"} over ${o.dataset.reflections.length} reflections (${st.unique} unique). ` +
     magnetic.summary;
   const notes = [
-    "R1 = Σ||F_o| − |F_c|| / Σ|F_o| over reflections with F_o² > 2σ(F_o²); wR2 = √(Σ w (F_o² − F_c²)² / Σ w (F_o²)²) and GooF = √(Σ w (F_o² − F_c²)² / (N − P)) over all reflections, w = 1/σ²(F_o²) (SHELX conventions).",
+    `R1 = Σ||F_o| − |F_c|| / Σ|F_o| over reflections with F_o² > 2σ(F_o²); wR2 = √(Σ w (F_o² − F_c²)² / Σ w (F_o²)²) and GooF = √(Σ w (F_o² − F_c²)² / (N − P)) over all reflections, ${weightText} (SHELX conventions).`,
     "R_int = Σ|F_o² − ⟨F_o²⟩| / Σ F_o² over Laue-equivalent groups with two or more members; R_σ = Σ σ(F_o²) / Σ F_o².",
     ...(magnetic.section
       ? ["Magnetic reflections are computed from the moment component perpendicular to the scattering vector with the dipole ⟨j0⟩ form factor; with a magnetic model applied, the calculated intensity is nuclear + magnetic and one scale is shared."]

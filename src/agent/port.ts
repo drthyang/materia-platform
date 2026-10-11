@@ -14,8 +14,9 @@
 
 import type { MagneticAgentHandle } from "@/agent/magneticPort";
 import type { MutableRefObject } from "react";
-import type { StructureModel } from "@/core/crystal/types";
-import type { ExtinctionModel, OmittedMeasurement, PdfPattern, PowderPattern, ResolutionRange, SingleCrystalDataset } from "@/core/diffraction/types";
+import type { RidingRule, StructureModel } from "@/core/crystal/types";
+import type { RidingOptions } from "@/core/crystal/riding";
+import type { ExtinctionModel, OmittedMeasurement, PdfPattern, PowderPattern, ResolutionRange, ShelxWeighting, SingleCrystalDataset } from "@/core/diffraction/types";
 import type { MergeStatistics } from "@/core/diffraction/merge";
 import type { InstrumentConstants, InstrumentParameters } from "@/core/diffraction/instrument";
 import type { LinearRestraint, ParameterBinding, RefinementOptions, RefinementParameter, RefinementResult } from "@/core/refinement/types";
@@ -241,6 +242,10 @@ export interface SingleCrystalLiveState {
   readonly outlierFilter: { readonly on: boolean; readonly cutoffSigma: number; readonly excluded: number; readonly minExtinction?: number };
   /** Single measurements left out by hand (SHELXL's OMIT h k l), whatever the filter. */
   readonly omitted: readonly OmittedMeasurement[];
+  /** The hydrogens riding on their parents (none: every atom refines on its own). */
+  readonly riding: readonly RidingRule[];
+  /** SHELXL's weighting scheme (WGHT a b); null: w = 1/σ². */
+  readonly weighting: ShelxWeighting | null;
   /** The resolution range fitted (SHELXL's SHEL), and how many measurements lie outside it. */
   readonly resolution: ResolutionRange & { readonly excluded: number };
   /** The extinction model the fit applies (SHELXL's EXTI unless switched). */
@@ -265,6 +270,12 @@ export interface SingleCrystalAgentPort {
   readonly setAdpModel: (anisotropic: boolean) => void;
   /** The extinction model; its parameter restarts at 0. */
   readonly setExtinctionModel: (model: ExtinctionModel) => void;
+  /** Riding hydrogens on (rules set from the structure as refined now) or off; resolves to a note on hydrogens left out, or null. */
+  readonly setRiding: (on: boolean, options?: RidingOptions) => string | null;
+  /** SHELXL's weighting scheme; null for w = 1/σ². */
+  readonly setWeighting: (next: ShelxWeighting | null) => void;
+  /** The probe and the wavelength (constant wavelength only); the scale restarts from its best value, the last fit is cleared. */
+  readonly setRadiation: (update: { readonly probe?: "xray" | "neutron" | "neutron-tof"; readonly wavelength?: number }) => void;
   /** The measurements left out by hand, replaced as a whole. */
   readonly setOmitted: (omitted: readonly OmittedMeasurement[]) => void;
   /** The resolution range fitted; null opens that end. */

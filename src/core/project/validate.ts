@@ -344,6 +344,7 @@ function checkScDataset(v: unknown, path: string): void {
   str(d.id, `${path}.id`);
   str(d.name, `${path}.name`);
   checkRadiation(d.radiation, `${path}.radiation`);
+  opt(d.origin, `${path}.origin`, oneOf(["refinement-listing"] as const));
   const refl = arr(d.reflections, `${path}.reflections`);
   refuseForeignData(refl[0], `${path}.reflections`, "singleCrystal");
   refl.forEach((item, i) => {
@@ -389,7 +390,30 @@ function checkSingleCrystalWorkspace(ws: Rec, path: string, ctx: PhaseContext): 
     opt(o.batch, `${ip}.batch`, int);
     opt(o.reason, `${ip}.reason`, str);
   }));
+  opt(ws.riding, `${path}.riding`, (v, p) => each(v, p, (item, ip) => {
+    const r = rec(item, ip);
+    str(r.site, `${ip}.site`);
+    str(r.parent, `${ip}.parent`);
+    const geometry = oneOf(["aromatic", "fixed"] as const)(r.geometry, `${ip}.geometry`);
+    num(r.uFactor, `${ip}.uFactor`);
+    opt(r.distance, `${ip}.distance`, num);
+    opt(r.offset, `${ip}.offset`, vec3);
+    opt(r.neighbours, `${ip}.neighbours`, (nv, np) => each(nv, np, (n, nip) => {
+      const nr = rec(n, nip);
+      str(nr.label, `${nip}.label`);
+      int(nr.op, `${nip}.op`);
+      vec3(nr.cell, `${nip}.cell`);
+    }));
+    if (geometry === "aromatic" ? r.distance === undefined || !Array.isArray(r.neighbours) : r.offset === undefined) {
+      fail(ip, geometry === "aromatic" ? "an aromatic hydrogen needs its distance and two neighbours" : "a fixed hydrogen needs its offset");
+    }
+  }));
+  if (ws.weighting !== undefined && ws.weighting !== null) {
+    const w = rec(ws.weighting, `${path}.weighting`);
+    for (const term of ["a", "b"] as const) if (num(w[term], `${path}.weighting.${term}`) < 0) fail(`${path}.weighting.${term}`, "a weighting term cannot be negative");
+  }
   opt(ws.extinctionModel, `${path}.extinctionModel`, oneOf(EXTINCTION_MODELS));
+  opt(ws.wavelength, `${path}.wavelength`, num);
   if (ws.resolution !== undefined && ws.resolution !== null) {
     const r = rec(ws.resolution, `${path}.resolution`);
     opt(r.dMin, `${path}.resolution.dMin`, num);

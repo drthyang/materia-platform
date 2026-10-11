@@ -47,6 +47,11 @@ export function isCifReflectionLoop(text: string): boolean {
   return /^\s*_refln[_.]index_h\b/im.test(text);
 }
 
+/** True when the reflection loop carries calculated values: a refinement's listing, not data reduction's output. */
+export function isRefinementListing(text: string): boolean {
+  return isCifReflectionLoop(text) && /^\s*_refln[_.]F_(squared_)?calc\b/im.test(text);
+}
+
 function fixedField(line: string, start: number, width: number): number | null {
   const raw = line.slice(start, start + width).trim();
   if (raw === "") return 0; // a blank fixed field is a real zero (esp. batch)

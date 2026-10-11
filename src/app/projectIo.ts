@@ -20,10 +20,10 @@
 import { APP_VERSION } from "@/app/constants";
 import type { Session } from "@/app/powderSession";
 import { EMPTY_SOURCE } from "@/app/powderSession";
-import type { StructureModel } from "@/core/crystal/types";
+import type { RidingRule, StructureModel } from "@/core/crystal/types";
 import type { DistortionModeSet } from "@/core/crystal/distortionModes";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
-import type { ExtinctionModel, OmittedMeasurement, PdfPattern, PowderXUnit, ResolutionRange, SingleCrystalDataset } from "@/core/diffraction/types";
+import type { ExtinctionModel, OmittedMeasurement, PdfPattern, PowderXUnit, ResolutionRange, ShelxWeighting, SingleCrystalDataset } from "@/core/diffraction/types";
 import type { MagneticModel } from "@/core/magnetic/types";
 import {
   PROJECT_SCHEMA_VERSION,
@@ -242,6 +242,10 @@ export interface SingleCrystalSnapshot {
   readonly omitted?: readonly OmittedMeasurement[];
   readonly extinctionModel?: ExtinctionModel;
   readonly resolution?: ResolutionRange;
+  /** The wavelength set on the page, in place of the file's. */
+  readonly wavelength?: number;
+  readonly riding?: readonly RidingRule[];
+  readonly weighting?: ShelxWeighting;
   readonly modulated: ModulatedInputs;
   readonly adpModel?: "isotropic" | "anisotropic" | null;
 }
@@ -262,6 +266,9 @@ export function singleCrystalWorkspaceFrom(s: SingleCrystalSnapshot): SingleCrys
     ...(s.omitted && s.omitted.length > 0 ? { omitted: s.omitted.map((o) => ({ ...o })) } : {}),
     ...(s.extinctionModel && s.extinctionModel !== "shelx" ? { extinctionModel: s.extinctionModel } : {}),
     ...(s.resolution && (s.resolution.dMin !== undefined || s.resolution.dMax !== undefined) ? { resolution: { ...s.resolution } } : {}),
+    ...(s.wavelength !== undefined ? { wavelength: s.wavelength } : {}),
+    ...(s.riding && s.riding.length > 0 ? { riding: s.riding.map((r) => ({ ...r })) } : {}),
+    ...(s.weighting && (s.weighting.a > 0 || s.weighting.b > 0) ? { weighting: { a: s.weighting.a, b: s.weighting.b } } : {}),
     modulated: modulatedHypothesisFrom(s.modulated),
     ...(s.adpModel ? { adpModel: s.adpModel } : {}),
   };
