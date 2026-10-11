@@ -7,6 +7,8 @@ release fixes bugs.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-11
+
 ### Added
 
 - **Known phases the Agent can add** (`add_known_phase`): a phase
