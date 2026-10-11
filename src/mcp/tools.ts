@@ -14,7 +14,7 @@
  */
 
 import type { StructureModel } from "@/core/crystal/types";
-import type { PdfPattern, PowderPattern, SineTransformRecord } from "@/core/diffraction/types";
+import type { PdfPattern, PdfScatteringType, PowderPattern, SineTransformRecord } from "@/core/diffraction/types";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import { isMomentParameterKind, type LinearRestraint, type ParameterBinding, type RefinementParameter, type RefinementResult } from "@/core/refinement/types";
 import type { PowderProfile } from "@/core/workflow/powder";
@@ -1066,12 +1066,12 @@ export function interpret_structure(args: {
 
 /** Parse a reduced PDF file (.gr/.sq/.fq — PDFgetX3 or Mantid dialect) or a
  *  PDFgui fit export (.fgr; `signal` picks observed vs residual). */
-export function parse_pdf_data(args: { text: string; filename?: string; signal?: FgrSignal }): {
+export function parse_pdf_data(args: { text: string; filename?: string; signal?: FgrSignal; scatteringType?: PdfScatteringType }): {
   detected: { dataType: string; source: string; confidence: string; note?: string };
   pattern: PdfPattern;
   summary: {
     points: number; rMin: number; rMax: number; rStep?: number;
-    scatteringType: string; qmax?: number; qdamp?: number; composition?: string;
+    scatteringType: string; radiationAssumed?: true; qmax?: number; qdamp?: number; composition?: string;
     dscale?: number; fitrmin?: number; fitrmax?: number;
     sourceKind?: string; sigma?: string; transform?: SineTransformRecord;
   };
@@ -1104,7 +1104,7 @@ export function parse_pdf_data(args: { text: string; filename?: string; signal?:
   if (args.signal !== undefined) throw new Error("`signal` applies only to PDFgui .fgr fit exports");
   const fmt = detectDataFormat({ text: args.text, filename: args.filename ?? "data.gr" });
   if (fmt.dataType !== "pdf") throw new Error(`detected ${fmt.dataType} data, not a reduced PDF — use the powder/single-crystal path`);
-  const pattern = parsePdfData(args.text, { id: "pdf", ...(args.filename ? { filename: args.filename } : {}) });
+  const pattern = parsePdfData(args.text, { id: "pdf", ...(args.filename ? { filename: args.filename } : {}), ...(args.scatteringType ? { scatteringType: args.scatteringType } : {}) });
   if (pattern.points.length < 3) throw new Error("fewer than 3 usable G(r) rows");
   const rMin = pattern.points[0]!.r;
   const rMax = pattern.points[pattern.points.length - 1]!.r;
@@ -1115,6 +1115,7 @@ export function parse_pdf_data(args: { text: string; filename?: string; signal?:
       points: pattern.points.length, rMin, rMax,
       ...(pattern.rstep !== undefined ? { rStep: pattern.rstep } : {}),
       scatteringType: pattern.scatteringType,
+      ...(pattern.radiationAssumed ? { radiationAssumed: true as const } : {}),
       ...(pattern.qmax !== undefined ? { qmax: pattern.qmax } : {}),
       ...(pattern.qdamp !== undefined ? { qdamp: pattern.qdamp } : {}),
       ...(pattern.composition ? { composition: pattern.composition } : {}),

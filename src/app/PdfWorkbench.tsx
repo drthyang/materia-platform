@@ -514,6 +514,12 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   // real space wrecks the fit silently (delta-sharp peaks, collapsed scale) —
   // say so on the plot card rather than letting it converge on nonsense.
   const adpWarning = useMemo(() => zeroAdpWarning(phases.map((p) => p.structure)), [phases]);
+  // A file that names no radiation is read as X-ray data. Neutrons weight the
+  // pairs differently (Mn, Ti, V, Li and H scatter with a negative length), so
+  // the fit holds only if that default is right.
+  const radiationWarning = pattern.radiationAssumed
+    ? "The data file names no radiation, so it is read as X-ray data. Neutrons weight the pairs differently (Mn, Ti, V, Li and H scatter with negative lengths): confirm the radiation before reading the fit."
+    : null;
 
   /** The refine request shared by the nuclear and magnetic paths. */
   function refineRequest(start: readonly RefinementParameter[], maxIterations: number) {
@@ -1175,7 +1181,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
       positionMode,
       spinModel: spinFit ? refinedMagnetic ?? spinFit.magnetic : null,
       explored: exploredMagnetic.current,
-      ...(motionConflict ? { warnings: [motionConflict] } : {}),
+      ...(motionConflict || radiationWarning ? { warnings: [motionConflict, radiationWarning].filter((w): w is string => w !== null) } : {}),
     });
   };
   // Publish the Agent port (agent/port.ts): the live state, read lazily, and
@@ -1204,7 +1210,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
           observationCount: curves.x.filter((r) => r >= fitRange.min && r <= fitRange.max).length,
           positionMode,
           spinModel: spinFit !== null,
-          warnings: [motionConflict, adpWarning].filter((w): w is string => w !== null),
+          warnings: [radiationWarning, motionConflict, adpWarning].filter((w): w is string => w !== null),
           source: pattern.name,
           restraints: spec.restraints,
         };
@@ -1340,7 +1346,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
       chip: "✓ reduced G(r)",
       title: pattern.name,
       meta:
-        `${probeLabel} · r ${rFirst.toFixed(2)}–${rLast.toFixed(2)} Å · ${pattern.points.length} pts` +
+        `${probeLabel}${pattern.radiationAssumed ? " (assumed)" : ""} · r ${rFirst.toFixed(2)}–${rLast.toFixed(2)} Å · ${pattern.points.length} pts` +
         (pattern.qmax !== undefined ? ` · Qmax ${pattern.qmax.toFixed(1)} Å⁻¹` : "") +
         (pattern.sourceKind === "sq" ? " · from S(Q)" : pattern.sourceKind === "fq" ? " · from F(Q)" : "") +
         (pattern.reciprocal?.sigma ? " ± σ" : "") +
@@ -1557,6 +1563,9 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
               <p style={{ marginTop: 8, marginBottom: 0, fontSize: 12, color: color.secondary }}>
                 Drag across the plot to zoom, blue handles to set the fit window. Qdamp/Qbroad are instrument constants — hold them fixed once calibrated on a standard.
               </p>
+              {radiationWarning && (
+                <div style={{ marginTop: 6, fontSize: 12, color: color.warnInk }}>⚠ {radiationWarning}</div>
+              )}
               {motionConflict && (
                 <div style={{ marginTop: 6, fontSize: 12, color: color.warnInk }}>⚠ {motionConflict}</div>
               )}

@@ -23,7 +23,7 @@ import type { HistoryBinding } from "@/app/historyBinding";
 import { defaultProjectTitle, projectFileFor, sessionFromPowderWorkspace, type PowderViewState } from "@/app/projectIo";
 import { downloadText } from "@/app/download";
 import type { MagneticModel } from "@/core/magnetic/types";
-import type { PdfPattern, SingleCrystalDataset } from "@/core/diffraction/types";
+import type { PdfPattern, PdfScatteringType, SingleCrystalDataset } from "@/core/diffraction/types";
 import { radiationOf, withConstants, type InstrumentConstants, type InstrumentParameters } from "@/core/diffraction/instrument";
 import { buildPowderSpec } from "@/app/powderSpec";
 import { parseMagneticCif, parseCif } from "@/parsers/cif";
@@ -242,6 +242,9 @@ export function App(): JSX.Element {
     readonly candidates: readonly SpaceGroupSettingInfo[];
     readonly pick: (symbol: string) => void;
   } | null>(null);
+  // A PDF file that names no radiation is read as X-ray data; the user says
+  // when it is neutron data, and the file loads again as such.
+  const [radiationNotice, setRadiationNotice] = useState<{ readonly text: string; readonly neutron: () => void } | null>(null);
   // How the loaded powder file was classified — shown on the Data card, so the
   // unit is never a silent guess, and re-runnable with an explicit override.
   // Only the auto-detected path sets it; a reader that reads its own header
@@ -525,6 +528,7 @@ export function App(): JSX.Element {
   /** Reset the workbench to the clean, data-less landing (drops the demo or any
    *  loaded structures/data/instrument). */
   function clearWorkbench(): void {
+    setRadiationNotice(null);
     setSession(emptySession());
     setInstrument(DEFAULT_INSTRUMENT);
     setInstrumentLoaded(false);
@@ -806,7 +810,7 @@ export function App(): JSX.Element {
 
   // Unified, auto-detecting data loader: the resolver classifies the file
   // (powder vs single-crystal) and, for powder, its x-unit, then dispatches.
-  function onLoadData(file: File): void {
+  function onLoadData(file: File, pdfRadiation?: PdfScatteringType): void {
     file.text().then((text) => {
       try {
         // A project file dropped on any load button opens as a project.
@@ -814,6 +818,7 @@ export function App(): JSX.Element {
           openProjectText(text, file.name);
           return;
         }
+        setRadiationNotice(null);
         // Any data load is the user's own content — no longer the pristine demo.
         setDemoActive(false);
         // FullProf's ILL `.dat` templates share the extension but differ in
@@ -833,10 +838,16 @@ export function App(): JSX.Element {
           // column — rebuild the observed one instead of mis-reading it.
           const parsed = looksLikeFgr(text, file.name)
             ? fgrToPattern(parseFgr(text), { id: `${structure.id}-pdf`, filename: file.name })
-            : parsePdfData(text, { id: `${structure.id}-pdf`, filename: file.name });
+            : parsePdfData(text, { id: `${structure.id}-pdf`, filename: file.name, ...(pdfRadiation ? { scatteringType: pdfRadiation } : {}) });
           if (parsed.points.length < 3) throw new Error("fewer than 3 usable G(r) rows");
           setScNuclearDataset(null);
           setPdfDataset(parsed);
+          if (parsed.radiationAssumed) {
+            setRadiationNotice({
+              text: `“${file.name}” names no radiation, so it is read as X-ray data. Neutrons weight the pairs differently (Mn, Ti, V, Li and H scatter with negative lengths).`,
+              neutron: () => onLoadData(file, "neutron"),
+            });
+          }
           setStep(0);
           setDetection(null);
           const errs = parsed.reciprocal?.sigma ? ", its errors propagated to σ_G(r) — see the S(Q) tab" : "";
@@ -1201,6 +1212,15 @@ export function App(): JSX.Element {
             </button>
           ))}
           <button onClick={() => { setNotice(null); setSettingChoice(null); }} style={noticeClose} title="Dismiss">✕</button>
+        </div>
+      )}
+      {radiationNotice && (
+        <div role="alert" style={noticeBar}>
+          <span style={{ flex: 1 }}>{radiationNotice.text}</span>
+          <button onClick={radiationNotice.neutron} style={noticeAction} title="Load the file again as neutron data">
+            It is neutron data
+          </button>
+          <button onClick={() => setRadiationNotice(null)} style={noticeClose} title="Keep X-ray">✕</button>
         </div>
       )}
       {autosaveOffer && !hasContent && (

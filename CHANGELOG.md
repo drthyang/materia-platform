@@ -187,6 +187,16 @@ release fixes bugs.
 
 ### Fixed
 
+- **PDFgetN files load as neutron data, and only their data.** A PDFgetN
+  `.gr` (NPDF and the other neutron instruments it reduced for) names its
+  instrument (`machine=npdf`) and program but never the radiation, so it
+  loaded as X-ray data; and the rows of its header's bank and multiplier
+  tables were read as twelve points at r = 1–6 Å with G up to ±148. The data
+  now start at the file's `start data` line, and PDFgetN or a neutron
+  instrument in the header means neutrons. A file that names no radiation
+  says it was read as X-ray — on the data card, to the Agent, and in a
+  notice that loads it again as neutron data; the MCP `parse_pdf_data`
+  returns `radiationAssumed` and takes `scatteringType` (LaMnO₃ at 300 K).
 - **A settings change kept the magnetic model's moments in the fit.**
   Switching on the asymmetry or an absorption correction, changing the
   background terms, site ties, the microstrain or the ADP model, adding a

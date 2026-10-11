@@ -40,6 +40,60 @@ const MANTID_NEUTRON = `#Comment: neutron, Qmin=0.910607, Qmax=34.9906
   0.185  -407.453  0  0.124302
 `;
 
+// The layout of a PDFgetN file (LaMnO₃ at 300 K on NPDF, the PDFgui tutorial
+// data): a run log whose bank and multiplier tables start with numbers, the
+// instrument named as `machine=npdf`, and never the word for the radiation.
+const PDFGETN = `History written: Fri Apr 30 13:05:36 2004
+##### Run Information     runCorrection=T
+prep=gsas     machine=npdf
+run=300K     background=npdf_00907
+##### Sample Material     numElements=3     NormLaue=0.47445
+Element relAtomNum atomMass atomCoherCS atomIncoherCS atomAbsorpCS
+   O        0.6000   15.999      4.2320        0.0008      0.00019
+  Mn        0.2000   54.931     -1.7500        0.4000     13.30000
+##### Banks=6  deltaQ=0.01  matchRef=0  matchScal=T  matchOffset=T
+bank   angle   blendQmin   blendQmax       (0.0 means no info)
+  1     90.0        1.62    29.42
+  2    -90.0        1.62    29.42
+  3    119.0        1.97    35.85
+## Damp     Qmin=2.0     Qmax=32     startDampQ=32    QAveMin=0.6
+##### prepgsas     prepOutput=1     numBanksMiss=0       fileExt=gsa
+Bank#  mulData  mulBack
+   1      1.0230      1.0000
+   2      1.0300      1.0000
+##### start data
+#O0 rg_int sig_rg_int low_int sig_low_int rmax rhofit
+#S 1 - PDF from PDFgetN
+#P0   -4.09986    0.44295    0.11702    0.01370    1.50  0.0731
+#L r G(r) dr dG(r)
+  0.010     -0.017   0.0     0.0068
+  0.020     -0.034   0.0     0.0068
+  0.030     -0.051   0.0     0.0069
+`;
+
+describe("parsePdfData — PDFgetN (neutron) dialect", () => {
+  const p = parsePdfData(PDFGETN, { filename: "LaMnO3_300K.gr" });
+
+  it("reads neutron from the program and the instrument, with nothing assumed", () => {
+    expect(p.scatteringType).toBe("neutron");
+    expect(p.radiationAssumed).toBeUndefined();
+    expect(p.qmax).toBe(32);
+  });
+
+  it("reads only the rows after `start data`, not the header's bank and multiplier tables", () => {
+    expect(p.points.map((pt) => pt.r)).toEqual([0.01, 0.02, 0.03]);
+    expect(p.points[0]).toEqual({ r: 0.01, gObs: -0.017, sigma: 0.0068 });
+  });
+
+  it("says when the radiation is a default, not the file's", () => {
+    const bare = "#### start data\n0.01 0.5\n0.02 0.4\n0.03 0.3\n";
+    expect(parsePdfData(bare, { filename: "x.gr" })).toMatchObject({ scatteringType: "xray", radiationAssumed: true });
+    expect(parsePdfData(bare, { filename: "x.gr", scatteringType: "neutron" })).toMatchObject({ scatteringType: "neutron" });
+    expect(parsePdfData(bare, { filename: "x.gr", scatteringType: "neutron" }).radiationAssumed).toBeUndefined();
+    expect(parsePdfData(DIFFPY_XRAY, { filename: "x.gr" }).radiationAssumed).toBeUndefined();
+  });
+});
+
 describe("parsePdfData — diffpy PDFgetX3 (X-ray) dialect", () => {
   const p = parsePdfData(DIFFPY_XRAY, { filename: "sample.gr" });
 

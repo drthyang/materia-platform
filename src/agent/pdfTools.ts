@@ -155,7 +155,7 @@ function stateView(s: PdfLiveState, history: ProjectHistory | null, select: read
       fitWindow: [sig(s.fitRange.min, 5), sig(s.fitRange.max, 5)],
       defaultWindow: [sig(s.defaultRange.min, 5), sig(s.defaultRange.max, 5)],
       observations: s.observationCount,
-      radiation: p.scatteringType,
+      radiation: p.radiationAssumed ? `${p.scatteringType} (assumed: the file names none)` : p.scatteringType,
       ...(p.qmax !== undefined ? { qmax: p.qmax } : {}),
     },
     positions: s.positionMode === "irreps" ? "symmetry-mode amplitudes (irreps)" : "constrained atomic coordinates",
