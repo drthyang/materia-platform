@@ -62,6 +62,7 @@ real chat loop, executor and tools run; only the model changes.
 | `sc-absolute-structure` | refines the inversion twin, and quotes the Flack x with its esd as the engine gives it | single-crystal round 3 (1b: an inversion twin, x = 0.435(15)) |
 | `sc-disorder-tied` | ties a disorder's two occupancies to add up to one before refining the split, and runs the refinement | single-crystal round 3 (1b's Al1/Ga1, SHELXL's 21/−21 with EADP) |
 | `sc-hydrides-restrained` | refines a hydride's position only with a restraint holding it | single-crystal round 3 (1b's five hydrides under 8 SADI) |
+| `sc-inverted-hand` | tests the hand, inverts a model of the wrong one (`invert_structure`), refines it again and says so | single-crystal round 4 (3a: SHELXL's P6₁ model is the other enantiomer, x = 1.08(6) by Parsons' quotients) |
 
 ## Results against real models
 

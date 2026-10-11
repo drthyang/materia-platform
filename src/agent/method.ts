@@ -75,7 +75,8 @@ export function emptyRecord(key: string): AgentRecord {
 /** The analysis on a page, from its live state. */
 export function keyOfState(page: AgentPage, s: LiveState): string {
   if ("phases" in s) return analysisKey(page, s.source, s.phases);
-  if ("dataset" in s) return analysisKey(page, s.source, [s.structure]);
+  // An inverted model is the same analysis: keyed by the model as loaded.
+  if ("dataset" in s) return analysisKey(page, s.source, [s.loadedAs ?? s.structure]);
   return analysisKey(page, s.source, [s.structure, ...s.extraPhases]);
 }
 

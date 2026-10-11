@@ -104,6 +104,7 @@ const STEP_KIND: Readonly<Record<string, StepKind>> = {
   set_riding_hydrogens: "settings",
   set_weighting: "settings",
   set_twin: "settings",
+  invert_structure: "settings",
   restrain_distances: "settings",
   merge_equivalents: "settings",
 };
@@ -653,7 +654,7 @@ function developedCorrelations(r: RefinementResult, parameters: readonly Refinem
 /** The restraints the page fits with (site ties, a shared site's Σ). */
 const restraintsOf = (s: LiveState): readonly LinearRestraint[] => s.restraints;
 /** The single-crystal page's disorder assemblies (SHELXL's PART groups): pairs within one are listed, not stopped. */
-const assembliesOf = (s: LiveState): ReadonlyMap<string, string> => ("dataset" in s ? disorderAssemblies(s.structure, s.bindings) : new Map());
+const assembliesOf = (s: LiveState): ReadonlyMap<string, string> => ("dataset" in s ? disorderAssemblies(s.structure, s.bindings, s.twinLaws) : new Map());
 
 function outcomeLine(name: string, before: LiveState, after: LiveState, note: string | undefined): string {
   if (name === "refine") {

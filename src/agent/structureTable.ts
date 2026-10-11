@@ -155,7 +155,7 @@ export function structureTable(
       ? Object.fromEntries((["U11", "U22", "U33", "U12", "U13", "U23"] as const).map((name, i) => [name, withEsd((site.adp as { uAniso: readonly number[] }).uAniso[i]!, sd(uVar[i]!), 5)])) as Record<"U11" | "U22" | "U33" | "U12" | "U13" | "U23", string>
       : undefined;
     const rule = ridingOf.get(site.label);
-    const uRides = rule ? `U_iso = ${rule.uFactor}·U_eq(${rule.parent})` : "";
+    const uRides = !rule ? "" : rule.uShared !== undefined ? `U_iso shared and refined (B_shared_${rule.uShared})` : `U_iso = ${rule.uFactor}·U_eq(${rule.parent})`;
     const riding = rule && rule.geometry !== "free" ? `rides on ${rule.parent} (AFIX ${AFIX[rule.geometry]}, ${PLACED[rule.geometry]}), ${uRides}` : undefined;
     // A hydrogen whose position refines on its own: only its U rides.
     const ridingU = rule?.geometry === "free" ? `${uRides}; the position refines` : undefined;

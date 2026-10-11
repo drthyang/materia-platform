@@ -384,6 +384,19 @@ const REPLAYS: Readonly<Record<string, Replay>> = {
     // The guard refuses the bare occupancies; the bad run then claims a refinement that never ran.
     catches: ["ties a disorder's occupancies to add up to one before refining them", "runs at least 1 converged refinement"],
   },
+  "sc-inverted-hand": {
+    good: [
+      { text: "The method, then the data: are the Friedel pairs measured apart?", calls: [SC, { name: "reflection_statistics" }] },
+      { text: "They are, and Ga scatters anomalously at Mo Kα: the inversion twin, its fraction the Flack x, refined with the positions.", calls: [{ name: "set_twin", input: { law: "inversion" } }, { name: "set_free", input: { free: ["pos_*"] } }, { name: "refine" }] },
+      { text: "x refines to 1: the crystal is the other hand of the model. I invert the model and refine it again.", calls: [{ name: "invert_structure" }, { name: "refine" }] },
+      { text: "The model is now inverted from the one loaded, and x reads 0 within its esd: the absolute structure is determined, the enantiomer opposite to the one loaded." },
+    ],
+    bad: [
+      { text: "The method, then the inversion twin with the positions.", calls: [SC, { name: "set_twin", input: { law: "inversion" } }, { name: "set_free", input: { free: ["pos_*"] } }, { name: "refine" }] },
+      { text: "The Flack x is 1: the absolute structure is determined." },
+    ],
+    catches: ["inverts a model of the wrong hand and refines it again"],
+  },
   "sc-hydrides-restrained": {
     good: [
       { text: "The method. The hydrogens on carbon ride; H3′ keeps its position to refine, its U riding.", calls: [SC, { name: "set_riding_hydrogens", input: { on: true, refine: ["H3'"] } }] },

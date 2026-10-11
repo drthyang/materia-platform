@@ -298,6 +298,69 @@ release fixes bugs.
 - **The History names a tie** ("occ_Ga1 = 1 − occ_Al1; EADP (6 ADP rows
   tied)"), not "Parameters tied".
 
+- **SHELX instruction files as the structure** (`.ins`, `.res`; the
+  single-crystal, powder and PDF pages' "Load CIF…" takes them): CELL's
+  wavelength and the cell, LATT and SYMM expanded to the space group (P6₁
+  from 3a's five SYMM lines), SFAC's elements, every atom line in SHELX's U
+  order (U23 U13 U12) and continued with `=`, a sof read with the site's
+  symmetry, free variables resolved (21 is fv(2), −21 is 1 − fv(2)), PART as
+  the disorder groups, a riding U (−1.2) as 1.2·U_eq of the previous atom
+  that is not a hydrogen; nothing after END (a .res's difference-map peaks).
+  TWIN, BASF, EXTI, WGHT, FVAR, AFIX, TEMP and the hydrogens' U come back as
+  the file's instructions, which `get_state` lists for the Agent
+  (`shelxInstructions`) — none applied until it sets them — and a reflection
+  file loaded with it is measured as X-rays at CELL's wavelength.
+
+- **The floating origin of a polar space group**, held as SHELXL holds it
+  (Flack & Schwarzenbach, 1988): in P6₁, P2₁, Pc, P1… shifting every atom
+  along the polar axis changes no intensity, so a fit with every coordinate
+  free had a direction the data cannot see. The Z²-weighted mean coordinate
+  along each polar direction is now held, one restraint per direction,
+  counted as SHELXL counts it ("1 restraint" on 3a), named in the report's
+  Restraints row and in `get_state` (`polarAxes`).
+
+- **A shared refined hydrogen U** (SHELXL's free variable on the U column,
+  21.0): `set_riding_hydrogens` `sharedU` gives each list of hydrogens (by
+  label, by geometry — `[["methyl"]]` — or "all") one U_iso that refines
+  (`B_shared_1`, freed with the ADPs) instead of riding on its parent's U_eq.
+  On 3a the 15 methyl hydrogens refine 0.0885 against SHELXL's 0.08883.
+
+- **A twin with both hands** (`set_twin` `withInversion`: SHELXL's TWIN R −4,
+  the law, the inversion and the two together), the domains of the inverted
+  hand summed into the Flack x. A domain and its inverse differ only by the
+  anomalous signal, so their fractions trade (−0.999 on 3a): the correlation
+  guard refines them together, as SHELXL does, and says so, and the
+  assessment notes it once. The esds of the Flack x and of the first domain's
+  fraction come from the fit's full covariance (`combinationEsd`, a new
+  engine output for named linear combinations), not from the fractions' in
+  quadrature.
+
+- **`invert_structure`**: the model inverted through the origin, as SHELXL's
+  MOVE 1 1 1 −1 with the space group changed by hand — every coordinate x →
+  −x, the origin shifted where the group needs it to keep its setting (I4₁,
+  I4₁22, I4₁md, I4₁cd, I-42d, Fdd2, F4₁32), and the space group to its
+  enantiomorph in the eleven pairs (P6₁ → P6₅). The positions as refined,
+  the riding groups (placed afresh), the restraints (each image mapped) and
+  every other row are kept; a twin with both hands keeps its fit (each domain
+  takes its inverse's fraction), a lone inversion twin's x becomes 1 − x.
+  Saved with the project; the report's "Absolute structure" row says so. The
+  Flack reading for x near 1 now names the tool.
+
+- **Parsons' quotients** (Parsons, Flack & Wagner, 2013): the Flack x from
+  the Bijvoet pairs fitted both ways, Q = (I⁺ − I⁻)/(I⁺ + I⁻) against the
+  model's (an inverted twin domain folded onto the one it inverts), the scale
+  and most systematic errors cancelling — `assess_refinement`'s
+  `absoluteStructure` and the report's "Absolute structure" row. On 3a: x =
+  1.08(6) from 432 pairs for SHELXL's P6₁ model, −0.08(6) for its inverse.
+
+- **3a's hand.** The published model of 3a (Cs(C₅Me₅)·py, the GSAS-II
+  merohedral-twin tutorial) is the wrong enantiomorph: refined as SHELXL
+  refined it, it reproduces SHELXL's R1 2.18 % on 1458 reflections and BASF
+  0.3407; the twin with both hands puts x = 1.03(4) on the inverted domains,
+  Parsons' quotients give 1.08(6), and the same model in P6₅ refines to R1
+  1.83 %, wR2 4.76 % against 5.66 % (a ratio of 1.19 for 161 parameters and
+  1465 reflections), x = −0.08(6).
+
 ### Changed
 
 - **Single-crystal structure factors with analytic derivatives.** A kernel

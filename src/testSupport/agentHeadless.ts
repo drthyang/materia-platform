@@ -21,6 +21,7 @@ import { withConstants, type InstrumentParameters } from "@/core/diffraction/ins
 import { withAntisite } from "@/core/crystal/antisite";
 import { isHydrogen, withAdpModel } from "@/core/crystal/adp";
 import type { DistanceRestraint, RidingRule, StructureModel } from "@/core/crystal/types";
+import { inversionText, invertedModel, invertedRiding, invertedTwinFractions } from "@/core/crystal/inversion";
 import { ridingRules } from "@/core/crystal/riding";
 import { powderRestraints } from "@/app/powderSpec";
 import { runPowderRefinement } from "@/workers/runPowder";
@@ -455,6 +456,7 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
   let twinLaws: readonly TwinLaw[] = loaded.twinLaws ?? [];
   let restraints: readonly DistanceRestraint[] = start.restraints ?? [];
   let merged = false;
+  let inverted = false;
   // The reflections with the extinction model, as the page's probed dataset.
   let dataset: SingleCrystalDataset = { ...loaded, extinctionModel };
   let spec = buildSingleCrystalSpec(model, dataset, { extinction: 0 });
@@ -500,6 +502,7 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
       distanceRestraints: restraints,
       extinctionModel,
       adpModel: adpModelOf(model),
+      ...(inverted ? { inverted: inversionText(start, invertedModel(start)), loadedAs: start } : {}),
       magnetic: false,
       observationCount: ds.reflections.length,
       source: dataset.name,
@@ -584,6 +587,29 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
       model = next.length ? { ...model, restraints: next } : (({ restraints: _, ...rest }) => rest)(model);
       result = null;
     },
+    // The page's handler: the model inverted through the origin, the shifts negated, the riding groups placed afresh, a twin with both hands re-expressed.
+    invertStructure: () => {
+      calls.push("invert");
+      const flip = invertedModel(model);
+      const nextRiding = riding ? invertedRiding(riding, invertedModel(applyParameters(model, spec.bindings, values()).model).structure) : null;
+      const lawOf = (id: string): number => Number(spec.bindings.find((b) => b.parameterId === id && b.kind === "twinFraction")?.targetKey ?? 0) - 1;
+      const twins = invertedTwinFractions(twinLaws, twinLaws.map((_, i) => params.find((p) => p.kind === "twinFraction" && lawOf(p.id) === i)?.value ?? 0));
+      riding = nextRiding;
+      restraints = flip.structure.restraints ?? [];
+      model = { ...flip.structure, ...(nextRiding ? { riding: nextRiding } : {}) };
+      const old = new Map(params.map((p) => [p.id, p]));
+      spec = buildSingleCrystalSpec(model, dataset, { extinction: 0 });
+      params = withValidUserTies(spec.params.map((p) => {
+        const row = keptRow(p, old.get(p.id));
+        if (p.kind === "positionShift") return { ...row, value: -(old.get(p.id)?.value ?? 0) };
+        if (p.kind === "ridingTorsion") return { ...row, value: p.value, initialValue: p.value };
+        if (p.kind === "twinFraction") return { ...row, value: twins[lawOf(p.id)] ?? row.value };
+        return row;
+      }));
+      inverted = !inverted;
+      result = null;
+      return inverted ? inversionText(start, invertedModel(start)) : "back to the model as loaded";
+    },
     setWeighting: (next) => {
       calls.push(`weighting ${next ? `${next.a} ${next.b}` : "1/σ²"}`);
       weighting = next && (next.a > 0 || next.b > 0) ? { a: next.a, b: next.b } : null;
@@ -631,6 +657,7 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
         structure: st.refinedStructure, base: model, params, bindings: spec.bindings, result, dataset: active(), totalReflections: loaded.reflections.length,
         excluded: st.outlierFilter.excluded, filterOn: filter.on, cutoffSigma: filter.cutoffSigma, minExtinction: filter.minExtinction ?? null, omitted, resolution: st.resolution, agreement: st.agreement, merge: st.merge,
         points: st.rows.map((r) => ({ obs: r.foSq, calc: r.fcSq })), magnetic: null, explored: null,
+        ...(st.inverted ? { inverted: st.inverted } : {}),
       });
     },
     cancel: () => calls.push("cancel"),

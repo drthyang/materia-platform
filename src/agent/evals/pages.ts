@@ -268,6 +268,12 @@ export function scChiralPage(opts: { readonly equivalents?: number } = {}): Sing
   return singleCrystalPort(c.structure, c.dataset).port;
 }
 
+/** The chiral Ga framework measured from a crystal of the other hand (Flack x = 1): the model as loaded is the wrong enantiomer, as round 4's 3a was. */
+export function scInvertedHandPage(): SingleCrystalAgentPort {
+  const c = chiralPage({ flack: 1 });
+  return singleCrystalPort(c.structure, c.dataset).port;
+}
+
 /** 1b's split metal site, Al1 and Ga1 0.2 Å apart (PART 1 and 2 of one assembly), measured at an Al share of 0.84 and loaded at 0.7 and 0.3, untied. */
 export function scDisorderPage(): SingleCrystalAgentPort {
   const d = disorderPage();

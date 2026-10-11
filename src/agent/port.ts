@@ -228,6 +228,12 @@ export interface SingleCrystalLiveState {
   readonly totalReflections: number;
   /** The measurement as loaded, every equivalent apart: what the data reading reads when the fit runs on the merged set. */
   readonly measurement: readonly SingleCrystalReflection[];
+  /** A SHELX .ins/.res loaded as the structure: what it instructs a refinement to do (TWIN, BASF, EXTI, WGHT, the hydrogens' U), in a few lines. */
+  readonly structureFile?: readonly string[];
+  /** The model inverted from the one loaded (invert_structure), in words; absent: the hand as loaded. */
+  readonly inverted?: string;
+  /** The model as loaded, while the page works on its inverse: the analysis (its stages, exceptions and notes) stays keyed by it. */
+  readonly loadedAs?: { readonly name: string; readonly spaceGroup: { readonly hermannMauguin?: string; readonly number?: number } };
   readonly probe: "xray" | "neutron" | "neutron-tof";
   readonly parameters: readonly RefinementParameter[];
   readonly bindings: readonly ParameterBinding[];
@@ -288,6 +294,8 @@ export interface SingleCrystalAgentPort {
   readonly setParameterTies: (update: EqualTieUpdate) => void;
   /** The distance restraints, replaced as a whole; the last fit is cleared. */
   readonly setDistanceRestraints: (next: readonly DistanceRestraint[]) => void;
+  /** The model inverted through the origin (or back to the hand as loaded); resolves to what was done, in words. Throws for a centrosymmetric group. */
+  readonly invertStructure: () => string;
   /** Fit the equivalents merged as SHELXL's MERG 2 (Friedel opposites apart in a non-centrosymmetric group), or every measurement; the omissions and the last fit are cleared. */
   readonly setMerged: (on: boolean) => void;
   /** The probe and the wavelength (constant wavelength only); the scale restarts from its best value, the last fit is cleared. */

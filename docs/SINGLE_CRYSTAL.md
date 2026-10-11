@@ -186,6 +186,19 @@ Both paths then apply parameters with
   SHELXL's; a Monte-Carlo of 40 refinements against data simulated at the
   fit's weights scatters as this app's esds say, and on the centrosymmetric
   dipyridyl disulfide the two programs' esds agree to the digit.
+- SHELXL's refinement of 3a (Cs(C₅Me₅)·py, P6₁, twinned by
+  [[0,1,0],[1,0,0],[0,0,−1]]; its `.ins` and LIST 4 `.fcf`) reproduced: R1
+  2.18 % on the 1458 reflections with Fo > 4σ(Fo) and 2.20 % on all 1465
+  (SHELXL 2.18 %, 2.20 %), 161 parameters with EXTI the 162nd and the one
+  floating-origin restraint, BASF 0.3407 (0.34068), the methyl hydrogens'
+  shared U 0.0885 (0.08883) ([sc3a.test.ts](../src/core/workflow/sc3a.test.ts)).
+  Its hand is the inverse: Parsons' x 1.08(6) from 432 Bijvoet pairs, and the
+  model in P6₅ refines to R1 1.83 %, wR2 4.76 % (5.66 % in P6₁), x −0.08(6).
+- Parsons' quotients and the inverted model checked on synthetic twins: a
+  crystal with 30 % of the other hand gives x = 0.300 from its quotients
+  ([absoluteStructure.test.ts](../src/core/diagnostics/absoluteStructure.test.ts)),
+  and an inverted model's images, restraints, riding groups and twin
+  fractions map exactly ([inversion.test.ts](../src/core/crystal/inversion.test.ts)).
 - Becker–Coppens checked against a line-by-line transcription of GSAS-II's
   `SCExtinction` (type I and II, Gaussian and Lorentzian, TOF, CW and X-ray)
   to 12 digits.
@@ -197,9 +210,10 @@ Both paths then apply parameters with
   shells, so its suggestion can differ in the second digit.
 
 **Not yet**
-- Absorption (§2.7); a non-merohedral twin (HKLF 5); more than one twin law
-  at a time; f′ and f″ at a synchrotron wavelength (only the laboratory lines
-  are tabulated).
+- Absorption (§2.7); a non-merohedral twin (HKLF 5); more than one
+  merohedral law at a time (one law with the inversion, TWIN R −4, is in);
+  f′ and f″ at a synchrotron wavelength (only the laboratory lines are
+  tabulated).
 
 ### 2.4 Refinement assembly
 
@@ -301,9 +315,10 @@ Both paths then apply parameters with
 
 **Next**, in the M7 order of [ROADMAP.md](./ROADMAP.md):
 1. ✅ Completeness against a generated theoretical unique set.
-2. ✅ Twinning (TWIN/BASF, one law at a time; batch scales are in), and
-   anomalous dispersion with f′, f″ and the Friedel pairs apart for the
-   absolute structure (the Flack x).
+2. ✅ Twinning (TWIN/BASF, one law at a time or a law with the inversion,
+   TWIN R −4; batch scales are in), and anomalous dispersion with f′, f″ and
+   the Friedel pairs apart for the absolute structure (the Flack x, refined
+   and by Parsons' quotients; the model inverted to the other hand).
 3. ✅ Iterative WGHT reweighting on Fc² in the fit, and SHELXL's suggested scheme.
 4. 🚧 Absorption correction: core built (§3); UI, agent tool and multi-scan open.
 5. ✅ Validation gate: reproduce a published SHELXL or GSAS-II F² refinement on

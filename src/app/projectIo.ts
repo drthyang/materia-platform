@@ -252,6 +252,8 @@ export interface SingleCrystalSnapshot {
   readonly twinLaws?: readonly TwinLaw[];
   readonly restraints?: readonly DistanceRestraint[];
   readonly merged?: boolean;
+  /** The model inverted through the origin (invert_structure). */
+  readonly inverted?: boolean;
   readonly modulated: ModulatedInputs;
   readonly adpModel?: "isotropic" | "anisotropic" | null;
 }
@@ -278,6 +280,7 @@ export function singleCrystalWorkspaceFrom(s: SingleCrystalSnapshot): SingleCrys
     ...(s.twinLaws && s.twinLaws.length > 0 ? { twinLaws: s.twinLaws.map((l) => ({ matrix: l.matrix })) } : {}),
     ...(s.restraints && s.restraints.length > 0 ? { restraints: s.restraints.map((r) => ({ ...r, pairs: r.pairs.map((x) => ({ ...x })) })) } : {}),
     ...(s.merged ? { merged: true } : {}),
+    ...(s.inverted ? { inverted: true } : {}),
     modulated: modulatedHypothesisFrom(s.modulated),
     ...(s.adpModel ? { adpModel: s.adpModel } : {}),
   };

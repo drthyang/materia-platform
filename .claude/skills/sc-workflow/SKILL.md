@@ -56,17 +56,34 @@ numbers, before the first refinement:
    a heavy enough atom). Merged pairs, or neutron data, cannot determine it: say so.
    When it can be determined, refine the inversion twin (`set_twin`, law "inversion")
    from the first refinement on, with the scale and then the structure, as SHELXL
-   refines BASF: its fraction is the Flack x. x near 0 with a small esd (≲ 0.04):
-   the hand is right; near 1: the inverted hand (invert the model); clearly between: the
-   crystal is an inversion twin, and the report says so with x and its esd.
+   refines BASF: its fraction is the Flack x. A crystal twinned by a merohedral law
+   too: the law `withInversion` (SHELXL's TWIN R −4), the inverted domains together
+   holding x — their fractions trade by construction; read the sum. x near 0 with a
+   small esd (≲ 0.04): the hand is right; near 1: the inverted hand — `invert_structure`
+   (in an enantiomorphic group the space group changes too: P6₁ ↔ P6₅, P4₁ ↔ P4₃, P3₁ ↔
+   P3₂), refine again, and compare wR2 and x with the other hand's (a published model
+   can be the wrong one: say which hand the data choose, by how much); clearly between:
+   the crystal is an inversion twin, and the report says so with x and its esd.
+   `assess_refinement`'s `absoluteStructure` gives Parsons' x from the Bijvoet pairs
+   (the scale and most systematic errors cancel in its quotients): quote it beside
+   the refined x.
+   A polar group (P6₁, P2₁, Pc, P1) leaves the origin free along its polar axis: the
+   fit holds it by SHELXL's restraint (`get_state`'s `polarAxes`), counted with the
+   restraints; nothing is fixed by hand.
 5. **Data per parameter.** Aim for at least 10 reflections per refined parameter (8 in a
    non-centrosymmetric group, where a Friedel pair measured apart counts twice, as SHELXL
    counts its data); below that, keep the model isotropic or restrained.
 6. **Where the Fo² come from.** A refinement's listing (a SHELXL `.fcf`; get_state's `origin`)
    holds each reflection once, on that refinement's scale, with the systematic absences left
    out and, in LIST 4, its extinction divided out. Its R_int, absences and extinction cannot
-   be judged: say so, quote no R_int, and compare R1 with that refinement's own, not with
-   data you measured.
+   be judged: say so, quote no R_int, keep the extinction at 0 (refining it would correct
+   twice), and compare R1 with that refinement's own, not with data you measured.
+7. **A SHELX `.ins`/`.res` as the structure.** `get_state`'s `shelxInstructions` lists what
+   that refinement applied — TWIN and BASF (`set_twin`), WGHT (`set_weighting`), EXTI,
+   AFIX and the hydrogens' U (`set_riding_hydrogens`: a free variable on the U column, as
+   21.0 for every methyl hydrogen, is `sharedU`), TEMP (none: SHELXL took 20 °C). None of
+   it is applied until you set it; set each one deliberately, and say in the report which
+   you took from the file.
 
 ## Stage 1 — Scale, then extinction
 
@@ -228,7 +245,7 @@ U^ij with esds, and `bond_geometry` each length with its esd from the positions'
 | Radiation and wavelength | `set_radiation` | — |
 | Read the data | `reflection_statistics` | — |
 | Merge the equivalents | `merge_equivalents` | — |
-| Absolute structure, twins | `set_twin` | — |
+| Absolute structure, twins | `set_twin` (`withInversion` for both hands), `invert_structure`; Parsons' x in `assess_refinement` | — |
 | Free and refine | `set_free`, `refine` (batch scales: `bscale_*`) | — (in the app only, for now) |
 | Judge a stage | `assess_refinement` | `assess_refinement` |
 | ADP model | `set_adp_model` | — |

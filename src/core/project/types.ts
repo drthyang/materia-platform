@@ -214,6 +214,8 @@ export interface SingleCrystalWorkspace {
   readonly modulated?: ModulatedHypothesis;
   /** The ADP model switched to on the page; absent ⇒ the CIF's. */
   readonly adpModel?: "isotropic" | "anisotropic";
+  /** The model inverted through the origin (the other hand; the space group to its enantiomorph where it has one); absent ⇒ as loaded. */
+  readonly inverted?: boolean;
 }
 
 // ---------------------------------------------------------------------------

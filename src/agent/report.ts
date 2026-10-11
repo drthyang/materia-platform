@@ -22,7 +22,8 @@ import type { AgentPage } from "@/agent/tools";
 import { RULES, methodProgress, stagesCovered, stagesFor, stagesLeft, type AgentRecord } from "@/agent/method";
 import { differenceSentences, readPosterior, type PosteriorRun } from "@/agent/posteriorTool";
 import type { UnitCell } from "@/core/crystal/types";
-import type { ExtinctionModel, OmittedMeasurement, ResolutionRange } from "@/core/diffraction/types";
+import { isInversion, type ExtinctionModel, type OmittedMeasurement, type ResolutionRange, type TwinLaw } from "@/core/diffraction/types";
+import { improper } from "@/core/workflow/singleCrystalRefinement";
 import { EIGHT_PI_SQUARED, uEquivalent } from "@/core/crystal/adp";
 import { EXTINCTION_MODEL_LABELS, EXTINCTION_PARAMETER_LABELS } from "@/core/diffraction/singleCrystalFactors";
 import { withEsd } from "@/agent/structureTable";
@@ -117,6 +118,15 @@ interface ScStepFields {
   readonly omitted?: readonly OmittedMeasurement[];
   readonly outlierFilter?: { readonly on: boolean; readonly cutoffSigma: number; readonly minExtinction?: number };
   readonly adpModel?: "isotropic" | "anisotropic";
+  readonly twinLaws?: readonly TwinLaw[];
+  readonly inverted?: boolean;
+}
+
+/** A step's twin model in a few words: untwinned, the inversion twin, or the domains (both hands when one is inverted). */
+function twinWords(laws: readonly TwinLaw[] | undefined): string {
+  if (!laws?.length) return "untwinned";
+  if (laws.length === 1 && isInversion(laws[0]!)) return "inversion twin";
+  return `${laws.length + 1} twin domains${laws.some((l) => improper(l.matrix)) ? " of both hands" : ""}`;
 }
 
 /** Each site's U_eq (Å²) with its esd, from a step's parameters: Σ c·basis over its tensor modes, or B/8π². */
@@ -166,8 +176,11 @@ export function comparedRefinements(history: ProjectHistory | null, cell: UnitCe
     const range = ws.resolution ?? {};
     const filter = ws.outlierFilter?.on ? ws.outlierFilter : undefined;
     const omitted = ws.omitted?.length ?? 0;
-    const key = JSON.stringify([model, range.dMin ?? null, range.dMax ?? null, omitted, filter?.cutoffSigma ?? null, filter?.minExtinction ?? null, ws.adpModel ?? "cif"]);
+    const twin = twinWords(ws.twinLaws);
+    const key = JSON.stringify([model, range.dMin ?? null, range.dMax ?? null, omitted, filter?.cutoffSigma ?? null, filter?.minExtinction ?? null, ws.adpModel ?? "cif", twin, ws.inverted ?? false]);
     const conditions = [
+      ...(ws.inverted ? ["the model inverted"] : []),
+      ...(ws.twinLaws?.length ? [twin] : []),
       EXTINCTION_MODEL_LABELS[model],
       ...(range.dMin !== undefined || range.dMax !== undefined ? [`d ${range.dMax !== undefined ? `≤ ${range.dMax}` : ""}${range.dMin !== undefined && range.dMax !== undefined ? " and " : ""}${range.dMin !== undefined ? `≥ ${range.dMin}` : ""} Å`] : []),
       ...(filter ? [`filter |Δ|/σ > ${filter.cutoffSigma}${filter.minExtinction !== undefined ? ` or y < ${filter.minExtinction}` : ""}`] : []),

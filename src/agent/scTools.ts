@@ -17,15 +17,17 @@ import type { RefinementResult } from "@/core/refinement/types";
 import type { ReportCheck } from "@/core/export/report";
 import { singleCrystalValidation, type ScValidation } from "@/core/diagnostics/singleCrystalValidation";
 import { reflectionStatistics } from "@/core/diagnostics/reflectionStatistics";
-import { canonicalKey, laueRotations, pointGroupRotations } from "@/core/diffraction/merge";
+import { canonicalKey, isCentrosymmetric, laueRotations, pointGroupRotations } from "@/core/diffraction/merge";
+import { floatingOrigins, polarDirections } from "@/core/crystal/polarOrigin";
+import { invertedModel } from "@/core/crystal/inversion";
 import { isHydrogen, nonPositiveDefiniteSites } from "@/core/crystal/adp";
 import { allowedPositionShifts } from "@/core/crystal/siteConstraints";
 import { dSpacing, reciprocalMetricTensor } from "@/core/crystal/unitCell";
-import { AFIX, applyRiding, isRotating, ridingDistances, ridingRules, ridingSummary, type RidingOptions } from "@/core/crystal/riding";
+import { AFIX, applyRiding, isRotating, ridingDistances, ridingRules, ridingSummary, sharedUGroups, type RidingOptions } from "@/core/crystal/riding";
 import type { DistanceRestraint, RestrainedPair, RidingRule } from "@/core/crystal/types";
 import { DEFAULT_RESTRAINT_SIGMA, nearestPair, restraintCount, restraintReport, restraintRows, restraintValues } from "@/core/crystal/restraints";
 import { EXTINCTION_MODEL_LABELS, shelxWeights, suggestShelxWeighting, type WeightingSuggestion } from "@/core/diffraction/singleCrystalFactors";
-import { inResolution, isOmitted, mergedDataset } from "@/core/workflow/singleCrystalRefinement";
+import { improper, inResolution, isOmitted, mergedDataset, parsonsOfModel } from "@/core/workflow/singleCrystalRefinement";
 import { INVERSION_TWIN, isInversion, type ExtinctionModel, type OmittedMeasurement, type ResolutionRange, type ShelxWeighting, type TwinLaw } from "@/core/diffraction/types";
 import { dispersionLine } from "@/core/scattering/dispersion";
 import { checkEqualTies, type EqualTieUpdate } from "@/core/refinement/constraints";
@@ -101,7 +103,17 @@ export async function changeSingleCrystal(name: string, input: Input, port: Sing
       port.setTwinLaws(next);
       if (next.length === 0) return "Untwinned again: the twin fraction left the fit, and the last fit is cleared.";
       const signal = isInversion(next[0]!) && !anomalousLine(s) ? " No anomalous scattering at this radiation (X-rays at a tabulated line give it): the inversion fraction is undetermined." : "";
-      return `${isInversion(next[0]!) ? "The inversion twin's fraction, the Flack x (twin_1)" : "The twin fraction (twin_1, BASF)"}, is free from 0.1: refine it with the structure.${signal} The last fit is cleared.`;
+      if (next.length > 1) return `Four domains, as SHELXL's TWIN R −4: the law (twin_1), the inversion (twin_2) and the two together (twin_3), each fraction free from 0.1. The inverted domains (twin_2 + twin_3) hold the Flack x: refine them with the structure.${anomalousLine(s) ? "" : " No anomalous scattering at this radiation: their split between the hands is undetermined."} The last fit is cleared.`;
+      return `${isInversion(next[0]!) ? "The inversion twin's fraction, the Flack x (twin_1)," : "The twin fraction (twin_1, BASF)"} is free from 0.1: refine it with the structure.${signal} The last fit is cleared.`;
+    }
+    case "invert_structure": {
+      const was = s.structure.spaceGroup.hermannMauguin ?? "the space group";
+      const text = port.invertStructure();
+      const twins = s.twinLaws.length === 0 ? ""
+        : s.twinLaws.length === 1 && isInversion(s.twinLaws[0]!) ? " The inversion twin's x is now 1 − x."
+          : s.twinLaws.some((law) => improper(law.matrix)) ? " The twin keeps its fit: each domain took the fraction of its inverse."
+            : " The twin law keeps its fraction: the crystal is now modelled with the other hand.";
+      return `${text[0]!.toUpperCase()}${text.slice(1)} (was ${was}).${twins}${s.riding.length ? " The riding groups were placed afresh on the inverted atoms." : ""} The last fit is cleared: refine again, and compare wR2 and the Flack x with the other hand's.`;
     }
     case "set_weighting": {
       const next = weightingAfter(s, input);
@@ -121,9 +133,11 @@ export async function changeSingleCrystal(name: string, input: Input, port: Sing
       const odd = oddHydrogenDistances(s.probe, placed);
       const torsions = [...new Set(rules.filter(isRotating).map((r) => r.parent))];
       const free = rules.filter((r) => r.geometry === "free").map((r) => r.site);
+      const shared = [...sharedUGroups(rules).keys()].map((key) => `B_shared_${key}`);
       const rows = [
         ...(torsions.length ? [`the torsion${torsions.length === 1 ? "" : "s"} ${torsions.map((p) => `rot_${p}`).join(", ")} (fixed) refine${torsions.length === 1 ? "s" : ""} with the positions`] : []),
         ...(free.length ? [`${free.join(", ")} keep${free.length === 1 ? "s" : ""} ${free.length === 1 ? "its" : "their"} position rows (fixed), to refine — restrained where the data are weak`] : []),
+        ...(shared.length ? [`the shared U_iso ${shared.join(", ")} (fixed, at the hydrogens' present mean) refine${shared.length === 1 ? "s" : ""} with the ADPs`] : []),
       ];
       // A hydrogen whose position refines rides by its U only: counted apart, as SHELXL's −1.2 is not an AFIX.
       const riders = rules.length - free.length;
@@ -198,6 +212,12 @@ export function singleCrystalNoOp(spec: LiveToolSpec, input: Input, s: SingleCry
       const next = weightingAfter(s, input);
       return next?.a === s.weighting?.a && next?.b === s.weighting?.b ? `the weights are already ${weightingText(next)}` : null;
     }
+    case "invert_structure": {
+      if (isCentrosymmetric(s.structure.spaceGroup.operations)) throw new Error(`${s.structure.spaceGroup.hermannMauguin ?? "the space group"} is centrosymmetric: the inverted model is the same model`);
+      if (s.magnetic) throw new Error("a magnetic model is applied: invert the structure before applying it");
+      invertedModel(s.structure);
+      return null;
+    }
     case "set_twin": {
       const next = twinAfter(s, input);
       return sameLaws(next, s.twinLaws) ? (next.length ? `the twin law is already ${twinText(next[0]!)}` : "the crystal is already untwinned") : null;
@@ -221,10 +241,17 @@ export function singleCrystalNoOp(spec: LiveToolSpec, input: Input, s: SingleCry
       const named = (input.refine as string[] | undefined) ?? [];
       const unknown = named.filter((label) => !s.structure.sites.some((site) => site.label === label && isHydrogen(site)));
       if (unknown.length) throw new Error(`no hydrogen ${unknown.join(", ")} in the model`);
+      const shared = (input.sharedU as string[][] | undefined) ?? [];
+      const words = new Set(["all", ...Object.keys(AFIX)]);
+      const strange = shared.flat().filter((name) => !words.has(name) && !s.structure.sites.some((site) => site.label === name && isHydrogen(site)));
+      if (strange.length) throw new Error(`sharedU names ${strange.join(", ")}: neither a hydrogen of the model nor a geometry (${[...words].join(", ")})`);
       const next = ridingRules({ ...s.refinedStructure, riding: [] }, ridingOptionsOf(input)).rules;
+      const keys = new Set(next.flatMap((r) => (r.uShared !== undefined ? [r.uShared] : [])));
+      const empty = shared.flatMap((names, k) => (keys.has(String(k + 1)) ? [] : [`[${names.join(", ")}]`]));
+      if (empty.length) throw new Error(`sharedU ${empty.join(", ")} names no hydrogen that rides here${empty.length === shared.length ? "" : " (or only hydrogens an earlier list took)"}`);
       const same = s.riding.length === next.length && next.every((r) => {
         const was = s.riding.find((x) => x.site === r.site);
-        return was && was.parent === r.parent && was.geometry === r.geometry && was.uFactor === r.uFactor && Math.abs((was.distance ?? 0) - (r.distance ?? 0)) < 5e-4;
+        return was && was.parent === r.parent && was.geometry === r.geometry && was.uFactor === r.uFactor && was.uShared === r.uShared && Math.abs((was.distance ?? 0) - (r.distance ?? 0)) < 5e-4;
       });
       return same ? `the hydrogens ride already: ${ridingSummary(s.refinedStructure)}` : null;
     }
@@ -278,8 +305,14 @@ export function describeSingleCrystalChange(spec: LiveToolSpec, input: Input, s:
       })() : "";
       return `Weights: ${weightingText(next)}${why}, in place of ${weightingText(s.weighting)} — wR2 and GooF change, R1 does not`;
     }
+    case "invert_structure": {
+      const inv = invertedModel(s.structure);
+      const shifted = inv.shift.some((v) => v !== 0);
+      return `${s.inverted ? "Back to the hand as loaded" : "Invert the model"}: every coordinate x → ${shifted ? `(${inv.shift.join(", ")}) − x` : "−x"}; ${inv.enantiomorph ? `the space group ${s.structure.spaceGroup.hermannMauguin ?? "?"} → ${inv.enantiomorph}` : `the space group ${s.structure.spaceGroup.hermannMauguin ?? "?"} kept`}${s.twinLaws.length ? "; the twin fractions re-expressed" : ""}${s.riding.length ? "; the riding groups placed afresh" : ""}`;
+    }
     case "set_twin": {
       const next = twinAfter(s, input);
+      if (next.length > 1) return `Twin law: ${twinText(next[0]!)} with the inversion — four domains (TWIN R −4), three fractions from 0.1`;
       return next.length === 0 ? `Untwinned: the twin fraction${s.twinLaws.length ? "" : "s"} leave the fit` : `Twin law: ${twinText(next[0]!)} — its fraction${isInversion(next[0]!) ? " (the Flack x)" : " (BASF)"} refines from 0.1`;
     }
     case "merge_equivalents": {
@@ -322,10 +355,13 @@ export function describeSingleCrystalChange(spec: LiveToolSpec, input: Input, s:
         const n = rules.filter((r) => r.geometry === g).length;
         return n ? [`${n} ${g === "free" ? "with their positions refined" : `AFIX ${AFIX[g]}`}`] : [];
       });
-      const u = input.uFactor !== undefined ? `${input.uFactor}·U_eq of the parent` : "1.2·U_eq of the parent (1.5 for methyl and hydroxyl)";
+      const groups = sharedUGroups(rules);
+      const sharing = [...groups.values()].reduce((t, g) => t + g.length, 0);
+      const u = `${input.uFactor !== undefined ? `${input.uFactor}·U_eq of the parent` : "1.2·U_eq of the parent (1.5 for methyl and hydroxyl)"}${sharing ? `; ${sharing === rules.length ? "every one's" : `${sharing}'s`} refined instead, shared: ${[...groups].map(([key, labels]) => `B_shared_${key} for ${labels.length}`).join(", ")}` : ""}`;
       const d = input.distance !== undefined ? `, X–H ${input.distance} Å` : input.temperature !== undefined ? `, SHELXL's X–H at ${input.temperature} K` : "";
       const torsions = new Set(rules.filter(isRotating).map((r) => r.parent)).size;
-      return `Ride ${rules.length} hydrogen${rules.length === 1 ? "" : "s"} on ${rules.length === 1 ? "its parent" : "their parents"} (SHELXL AFIX: ${counts.join(", ")}${d}; U_iso = ${u})${rows ? ` — ${rows} parameter${rows === 1 ? "" : "s"} leave the fit` : ""}${torsions ? `, ${torsions} torsion${torsions === 1 ? " joins" : "s join"} it` : ""}`;
+      const joining = [torsions ? `${torsions} torsion${torsions === 1 ? "" : "s"}` : "", groups.size ? `${groups.size} shared U_iso` : ""].filter(Boolean).join(" and ");
+      return `Ride ${rules.length} hydrogen${rules.length === 1 ? "" : "s"} on ${rules.length === 1 ? "its parent" : "their parents"} (SHELXL AFIX: ${counts.join(", ")}${d}; U_iso = ${u})${rows ? ` — ${rows} parameter${rows === 1 ? "" : "s"} leave the fit` : ""}${joining ? `, ${joining} join${torsions + groups.size === 1 ? "s" : ""} it` : ""}`;
     }
     case "set_resolution_range": {
       const next = resolutionAfter(s, input);
@@ -456,7 +492,9 @@ function restraintsAfter(s: SingleCrystalLiveState, input: Input): DistanceRestr
 function freeHydrogenNote(s: SingleCrystalLiveState): string | null {
   if (s.probe !== "xray") return null;
   const hydrogens = new Set(s.structure.sites.filter((site) => isHydrogen(site)).map((site) => site.label));
-  const free = new Set(s.parameters.filter((p) => !p.fixed && !p.expression).map((p) => p.id));
+  // A riding group's shared U_iso (SHELXL's free variable on the U column) refines one value for the group: no hydrogen of it refines on its own.
+  const shared = new Set([...sharedUGroups(s.riding).keys()].map((key) => `B_shared_${key}`));
+  const free = new Set(s.parameters.filter((p) => !p.fixed && !p.expression && !shared.has(p.id)).map((p) => p.id));
   const refined = new Set(s.bindings.filter((b) => b.targetKey !== undefined && hydrogens.has(b.targetKey) && free.has(b.parameterId)).map((b) => b.targetKey!));
   const chosen = new Set(s.riding.filter((r) => r.geometry === "free").map((r) => r.site));
   const restrained = new Set(s.distanceRestraints.flatMap((r) => r.pairs.flatMap((p) => [p.from, p.to])));
@@ -492,6 +530,7 @@ function ridingOptionsOf(input: Input): RidingOptions {
     ...(input.distance !== undefined ? { distance: input.distance } : {}),
     ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
     ...(Array.isArray(input.refine) && input.refine.length ? { refine: input.refine as string[] } : {}),
+    ...(Array.isArray(input.sharedU) && input.sharedU.length ? { sharedU: input.sharedU as string[][] } : {}),
   };
 }
 
@@ -518,10 +557,13 @@ function twinAfter(s: SingleCrystalLiveState, input: Input): TwinLaw[] {
   if (input.remove) return [];
   if (input.law === undefined) throw new Error("give `law` (\"inversion\" or a 3×3 matrix) or `remove: true`");
   const ops = s.structure.spaceGroup.operations;
+  const centrosymmetric = ops.some((op) => op.rotation.every((row, i) => row.every((v, j) => Math.round(v) === (i === j ? -1 : 0))));
   if (input.law === "inversion") {
-    if (ops.some((op) => op.rotation.every((row, i) => row.every((v, j) => Math.round(v) === (i === j ? -1 : 0))))) throw new Error("the space group is centrosymmetric: an inversion twin is the same crystal");
+    if (centrosymmetric) throw new Error("the space group is centrosymmetric: an inversion twin is the same crystal");
+    if (input.withInversion) throw new Error("`withInversion` goes with a merohedral law; the inversion alone is law \"inversion\"");
     return [INVERSION_TWIN];
   }
+  if (input.withInversion && centrosymmetric) throw new Error("the space group is centrosymmetric: there is no other hand to add");
   const R = input.law as number[][];
   const det = R[0]![0]! * (R[1]![1]! * R[2]![2]! - R[1]![2]! * R[2]![1]!) - R[0]![1]! * (R[1]![0]! * R[2]![2]! - R[1]![2]! * R[2]![0]!) + R[0]![2]! * (R[1]![0]! * R[2]![1]! - R[1]![1]! * R[2]![0]!);
   if (Math.abs(det) !== 1) throw new Error(`a twin law has determinant ±1; this one has ${det}`);
@@ -534,20 +576,67 @@ function twinAfter(s: SingleCrystalLiveState, input: Input): TwinLaw[] {
   }
   // h′ = R·h equivalent to h by the point group (R = opᵀ for some operation): the same crystal.
   if (ops.some((op) => [0, 1, 2].every((i) => [0, 1, 2].every((j) => Math.round(op.rotation[j]![i]!) === R[i]![j])))) throw new Error("this law is one of the point group's own operations: its domains are the same crystal");
-  return [{ matrix: [[R[0]![0]!, R[0]![1]!, R[0]![2]!], [R[1]![0]!, R[1]![1]!, R[1]![2]!], [R[2]![0]!, R[2]![1]!, R[2]![2]!]] }];
+  const law: TwinLaw = { matrix: [[R[0]![0]!, R[0]![1]!, R[0]![2]!], [R[1]![0]!, R[1]![1]!, R[1]![2]!], [R[2]![0]!, R[2]![1]!, R[2]![2]!]] };
+  // With the inversion as well: four domains, as SHELXL's TWIN R −4 — the law, the inversion, and the two together.
+  if (input.withInversion) return [law, INVERSION_TWIN, { matrix: law.matrix.map((row) => row.map((v) => -v)) as unknown as TwinLaw["matrix"] }];
+  return [law];
 }
 
 /** The twin fractions as refined, with their esds, and what an inversion twin's says about the absolute structure. */
 function twinningView(s: SingleCrystalLiveState): Record<string, unknown> | null {
   if (s.twinLaws.length === 0) return null;
+  const fraction = (i: number): { x: number; esd?: number } => {
+    const p = s.parameters.find((q) => q.kind === "twinFraction" && s.bindings.some((b) => b.parameterId === q.id && b.targetKey === String(i + 1)));
+    const esd = p && !p.fixed ? s.result?.esd[p.id] : undefined;
+    return { x: p?.value ?? NaN, ...(esd !== undefined ? { esd } : {}) };
+  };
+  const laws = s.twinLaws.map((law, i) => {
+    const { x, esd } = fraction(i);
+    const text = esd !== undefined ? withEsd(x, esd, 4) : sig(x, 3);
+    if (s.twinLaws.length === 1 && isInversion(law)) return { law: "inversion", flackX: text, reading: flackReading(x, esd, anomalousLine(s)) };
+    return { law: isInversion(law) ? "inversion" : law.matrix, fraction: text, ...(improper(law.matrix) ? { hand: "inverted" } : {}) };
+  });
+  // Beside a merohedral law, the Flack x is what the domains of the other hand hold together.
+  const inverted = s.twinLaws.map((law, i) => ({ law, i })).filter(({ law }) => improper(law.matrix));
+  if (s.twinLaws.length > 1 && inverted.length > 0) {
+    const parts = inverted.map(({ i }) => fraction(i));
+    const x = parts.reduce((t, p) => t + p.x, 0);
+    const known = parts.every((p) => p.esd !== undefined);
+    // The esd of the sum from the fit's covariance (the fractions trade against each other); else theirs in quadrature.
+    const covariant = known ? s.result?.combinationEsd?.flack : undefined;
+    const esd = covariant ?? (known ? Math.sqrt(parts.reduce((t, p) => t + p.esd! ** 2, 0)) : undefined);
+    const first = s.result?.combinationEsd?.twin_first;
+    const firstX = 1 - s.twinLaws.reduce((t, _, i) => t + fraction(i).x, 0);
+    return {
+      laws,
+      firstDomain: first !== undefined ? withEsd(firstX, first, 4) : sig(firstX, 3),
+      flackX: esd !== undefined ? withEsd(x, esd, 4) : sig(x, 3),
+      flackNote: `the domains of the inverted hand together (${inverted.map(({ i }) => `twin_${i + 1}`).join(" + ")}); ${covariant !== undefined ? "the esd from the fit's covariance, their correlation counted" : "the esd from theirs in quadrature, their correlation not counted"}`,
+      reading: flackReading(x, esd, anomalousLine(s)),
+    };
+  }
+  return { laws };
+}
+
+/**
+ * The absolute structure by Parsons' quotients, from the Bijvoet pairs the fit
+ * holds both ways, against the model's Fc² of its own hand (an inverted twin
+ * domain folded onto the one it inverts); null for a centrosymmetric group or
+ * without anomalous scattering.
+ */
+function absoluteStructureView(s: SingleCrystalLiveState): Record<string, unknown> | null {
+  const line = anomalousLine(s);
+  if (!line || isCentrosymmetric(s.structure.spaceGroup.operations)) return null;
+  const fitted = new Set(s.rows.map((r) => `${r.h} ${r.k} ${r.l}`));
+  const est = parsonsOfModel(s.structure, { ...s.dataset, reflections: s.dataset.reflections.filter((r) => fitted.has(`${r.h} ${r.k} ${r.l}`)) }, s.parameters, s.bindings);
+  if (!est) return { parsonsX: "none", reading: "no Bijvoet pair measured both ways (the Friedel opposites merged, or never measured): the absolute structure cannot be determined from these data" };
+  const twinned = s.twinLaws.some((law) => improper(law.matrix));
   return {
-    laws: s.twinLaws.map((law, i) => {
-      const p = s.parameters.find((q) => q.kind === "twinFraction" && s.bindings.some((b) => b.parameterId === q.id && b.targetKey === String(i + 1)));
-      const esd = p && !p.fixed ? s.result?.esd[p.id] : undefined;
-      const x = p?.value ?? NaN;
-      const text = esd !== undefined ? withEsd(x, esd, 4) : sig(x, 3);
-      return isInversion(law) ? { law: "inversion", flackX: text, reading: flackReading(x, esd, anomalousLine(s)) } : { law: law.matrix, fraction: text };
-    }),
+    parsonsX: withEsd(est.x, est.esd, 4),
+    quotients: est.quotients,
+    bijvoetSigns: est.signs.observed ? `of the ${est.signs.observed} Bijvoet difference${est.signs.observed === 1 ? "" : "s"} observed at more than 3σ, ${est.signs.modelSign} ${est.signs.modelSign === 1 ? "has" : "have"} the model's sign` : "no Bijvoet difference observed at more than 3σ",
+    reading: flackReading(est.x, est.esd, line),
+    note: `Parsons' quotients (I⁺ − I⁻)/(I⁺ + I⁻) of the ${est.quotients} Bijvoet pairs fitted both ways, against the model's${twinned ? " with each inverted domain folded onto the domain it inverts (the model's hand alone)" : ""}: Q_obs = (1 − 2x)·Q_calc, the scale and most systematic errors cancelling, as SHELXL determines x after its refinement (Parsons, Flack & Wagner, Acta Cryst. B69 (2013) 249). √χ²_ν of the quotients ${sig(est.goodness, 3)}${est.goodness > 1 ? ", the esd scaled by it" : ""}.`,
   };
 }
 
@@ -557,7 +646,7 @@ function flackReading(x: number, u: number | undefined, line: string | null): st
   if (u === undefined) return "not refined yet: refine it with the structure for its esd";
   if (u > 0.3) return `u = ${sig(u, 2)}: the anomalous signal is too weak to say anything about the absolute structure`;
   if (Math.abs(x) <= 2 * u) return u < 0.04 ? "the model's hand: the absolute structure is determined" : `the model's hand within 2u, but u = ${sig(u, 2)} is too large to determine an unknown absolute structure (u < 0.04); enough to confirm a known enantiopure one (u < 0.1)`;
-  if (Math.abs(1 - x) <= 2 * u) return "the inverted hand: invert the structure (every coordinate to its negative, the space group to its enantiomorph if it has one) and refine again";
+  if (Math.abs(1 - x) <= 2 * u) return "the inverted hand: invert the model (invert_structure: every coordinate to its negative, the space group to its enantiomorph if it has one) and refine again";
   return `between the hands: an inversion twin, ${sig(100 * x, 2)} % of the crystal of the inverted hand${Math.abs(x - 0.5) <= 2 * u ? " — a racemic twin" : ""}`;
 }
 
@@ -864,6 +953,9 @@ function stateView(s: SingleCrystalLiveState, history: ProjectHistory | null, se
       sites: ph.sites.map((site) => `${site.label} ${site.element}`),
       adpModel: s.adpModel,
       ...disorderView(s),
+      ...(s.structureFile ? { shelxInstructions: s.structureFile, shelxReading: "What the SHELX file's refinement applied. None of it is applied here until you set it: set_twin for TWIN and BASF, set_weighting for WGHT, the extinction for EXTI (not against a listing, whose Fo² have it divided out), set_riding_hydrogens for AFIX and the hydrogens' U (sharedU for a free variable on the U column)." } : {}),
+      ...(s.inverted ? { hand: s.inverted } : {}),
+      ...polarView(s),
       note: "The cell is fixed input from indexing: intensities carry no peak positions.",
     },
     data: {
@@ -913,6 +1005,19 @@ function disorderView(s: SingleCrystalLiveState): { disorder?: string[] } {
       });
       return `assembly ${a || "(unnamed)"}: ${parts.map((x) => `part ${x.g} ${x.labels.join(" ")} at occupancy ${x.occ.toFixed(3)}`).join("; ")} — Σ ${sum.toFixed(3)}; ${ties.length ? `tied: ${ties.join(", ")}` : "the occupancies are not tied: tie_parameters `complement` makes them add up to one, and the split refines as one fraction"}`;
     }),
+  };
+}
+
+/** A polar group's floating origin: what holds it in the fit (SHELXL's restraint), or that nothing needs to. */
+function polarView(s: SingleCrystalLiveState): Record<string, unknown> {
+  const directions = polarDirections(s.structure.spaceGroup.operations);
+  if (directions.length === 0) return {};
+  const floating = floatingOrigins(s.refinedStructure, s.parameters, s.bindings);
+  const axes = directions.map((d) => (d[0] === 1 && d[1] === 0 && d[2] === 0 ? "a" : d[0] === 0 && d[1] === 1 && d[2] === 0 ? "b" : d[0] === 0 && d[1] === 0 && d[2] === 1 ? "c" : `[${d.join(" ")}]`));
+  return {
+    polarAxes: `${axes.join(", ")}: the origin floats along ${axes.length === 1 ? "it" : "them"}. ${floating.length
+      ? `With every coordinate along ${floating.map((f) => f.axis).join(", ")} free, the fit holds the weighted mean coordinate (Z² weights) by a restraint, as SHELXL does (one per direction, counted with the restraints): nothing to fix by hand.`
+      : "While an atom's coordinate along it is held, the origin is fixed and needs no restraint."}`,
   };
 }
 
@@ -984,7 +1089,7 @@ function statisticsView(s: SingleCrystalLiveState): Record<string, unknown> {
 
 function assessment(s: SingleCrystalLiveState): Record<string, unknown> {
   if (!s.result) throw new Error("there is no refinement result on screen — refine first (a model change clears the last result)");
-  const a = assess_refinement({ result: s.result, parameters: [...s.parameters], observationCount: s.observationCount, mode: "single-crystal", restraints: s.restraints, disorder: disorderAssemblies(s.structure, s.bindings) });
+  const a = assess_refinement({ result: s.result, parameters: [...s.parameters], observationCount: s.observationCount, mode: "single-crystal", restraints: s.restraints, disorder: disorderAssemblies(s.structure, s.bindings, s.twinLaws) });
   const v = validationOf(s);
   const npd = nonPositiveDefiniteSites(s.refinedStructure);
   return {
@@ -1005,7 +1110,8 @@ function assessment(s: SingleCrystalLiveState): Record<string, unknown> {
     ...(s.omitted.length ? { omitted: s.omitted.map((o) => `${omittedText(o)}${o.reason ? `: ${o.reason}` : ""}`) } : {}),
     extinctionModel: EXTINCTION_MODEL_LABELS[s.extinctionModel],
     ...(twinningView(s) ? { twinning: twinningView(s) } : {}),
-    ...(s.distanceRestraints.length ? { restraints: restraintsView(s) } : {}),
+    ...((hand) => (hand ? { absoluteStructure: hand } : {}))(absoluteStructureView(s)),
+    ...(s.distanceRestraints.length || floatingOrigins(s.refinedStructure, s.parameters, s.bindings).length ? { restraints: restraintsView(s) } : {}),
     weighting: (() => {
       const sug = suggestionOf(s);
       return {
@@ -1025,13 +1131,16 @@ function restraintsView(s: SingleCrystalLiveState): Record<string, unknown> {
   const { pairs, rows } = restraintRows(s.distanceRestraints);
   const values = restraintValues(s.refinedStructure, pairs, rows);
   const chi2Restraints = rows.reduce((t, row, i) => t + ((values[i]! - row.target) / row.sigma) ** 2, 0);
+  // A polar group's floating origin is held by a restraint of its own, one per direction, as SHELXL counts it (it adds nothing to χ²).
+  const origins = floatingOrigins(s.refinedStructure, s.parameters, s.bindings);
+  const count = rows.length + origins.length;
   const nData = s.observationCount;
   const nFree = s.parameters.filter((p) => !p.fixed && !p.expression).length;
   const goof = s.agreement.goof;
-  const restrainedGoof = Math.sqrt((goof * goof * Math.max(nData - nFree, 1) + chi2Restraints) / Math.max(nData + rows.length - nFree, 1));
+  const restrainedGoof = Math.sqrt((goof * goof * Math.max(nData - nFree, 1) + chi2Restraints) / Math.max(nData + count - nFree, 1));
   return {
-    count: rows.length,
-    each: report.map((r) => r.text),
+    count,
+    each: [...report.map((r) => r.text), ...origins.map((o) => `the floating origin along ${o.axis}: the Z²-weighted mean coordinate held (SHELXL's floating-origin restraint)`)],
     restrainedGooF: sig(restrainedGoof, 4),
     reading: "Each restraint is an observation with its own esd: a deviation within 1–2σ is the restraint and the data agreeing; beyond 3σ the data pull against it — check the chemistry, or the data's reach, before tightening it. SHELXL reports the GooF over the data (S) and with the restraints counted (restrained S).",
   };
@@ -1040,12 +1149,12 @@ function restraintsView(s: SingleCrystalLiveState): Record<string, unknown> {
 /** The report's checks: the engine's view of the fit on screen. */
 export function singleCrystalReportChecks(s: SingleCrystalLiveState, probe: RefinementResult | null = null): ReportCheck[] {
   if (!s.result || s.structure.sites.length === 0) return [noResultCheck()];
-  const a = assess_refinement({ result: s.result, parameters: [...s.parameters], observationCount: s.observationCount, mode: "single-crystal", restraints: s.restraints, disorder: disorderAssemblies(s.structure, s.bindings) });
+  const a = assess_refinement({ result: s.result, parameters: [...s.parameters], observationCount: s.observationCount, mode: "single-crystal", restraints: s.restraints, disorder: disorderAssemblies(s.structure, s.bindings, s.twinLaws) });
   const v = validationOf(s);
   const checks: ReportCheck[] = [
     convergenceCheck(s.result),
     verdictCheck(a),
-    probe ? correlationsCheck(probe, s.parameters, s.restraints, undefined, disorderAssemblies(s.structure, s.bindings)) : correlationsCheck(s.result, s.parameters, s.restraints, CORRELATION_LISTED, disorderAssemblies(s.structure, s.bindings)),
+    probe ? correlationsCheck(probe, s.parameters, s.restraints, undefined, disorderAssemblies(s.structure, s.bindings, s.twinLaws)) : correlationsCheck(s.result, s.parameters, s.restraints, CORRELATION_LISTED, disorderAssemblies(s.structure, s.bindings, s.twinLaws)),
     boundsCheck(s.result, s.parameters),
     {
       name: "Data",

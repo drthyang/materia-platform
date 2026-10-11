@@ -6,6 +6,41 @@ import { parseTie, resolveTies, applyEqualValueGroups } from "@/core/refinement/
 import { noisyPeakProblem } from "@/testSupport/noisyPeak";
 
 describe("refinement engine (Levenberg–Marquardt)", () => {
+  it("reports a named combination's esd from the full covariance, not the terms' in quadrature", () => {
+    // y = a·u + b·v with u and v nearly alike: a and b trade off, their sum is well determined.
+    const u = [1, 2, 3, 4, 5, 6, 7, 8];
+    const v = u.map((x, i) => x * (1 + 0.02 * ((i % 3) - 1)));
+    const noise = [0.03, -0.02, 0.01, -0.04, 0.02, 0.01, -0.03, 0.02];
+    const observations = Float64Array.from(u.map((x, i) => 0.7 * x + 0.3 * v[i]! + noise[i]!));
+    const weights = Float64Array.from(u.map(() => 1));
+    const parameters: RefinementParameter[] = [
+      { id: "a", label: "a", kind: "twinFraction", value: 0.5, initialValue: 0.5, fixed: false },
+      { id: "b", label: "b", kind: "twinFraction", value: 0.5, initialValue: 0.5, fixed: false },
+    ];
+    const problem: RefinementProblem = {
+      parameters, observations, weights,
+      calculate: (p) => Float64Array.from(u.map((x, i) => (p.a ?? 0) * x + (p.b ?? 0) * v[i]!)),
+      combinations: [
+        { id: "sum", terms: [{ id: "a", coefficient: 1 }, { id: "b", coefficient: 1 }] },
+        { id: "absent", terms: [{ id: "a", coefficient: 1 }, { id: "c", coefficient: 1 }] },
+      ],
+    };
+    const result = refine(problem, { maxIterations: 50 });
+    // The normal matrix by hand: C = (JᵀJ)⁻¹·χ²/(n − 2).
+    const suu = u.reduce((t, x) => t + x * x, 0);
+    const svv = v.reduce((t, x) => t + x * x, 0);
+    const suv = u.reduce((t, x, i) => t + x * v[i]!, 0);
+    const det = suu * svv - suv * suv;
+    const chi2 = u.reduce((t, x, i) => t + (observations[i]! - result.parameters.a! * x - result.parameters.b! * v[i]!) ** 2, 0) / (u.length - 2);
+    const [caa, cbb, cab] = [(svv / det) * chi2, (suu / det) * chi2, (-suv / det) * chi2];
+    expect(result.esd.a).toBeCloseTo(Math.sqrt(caa), 6);
+    expect(result.combinationEsd?.sum).toBeCloseTo(Math.sqrt(caa + cbb + 2 * cab), 6);
+    // Far below the quadrature: a and b anticorrelate.
+    expect(result.combinationEsd!.sum!).toBeLessThan(0.1 * Math.hypot(result.esd.a!, result.esd.b!));
+    // A combination with a term that is not free is not reported.
+    expect(result.combinationEsd?.absent).toBeUndefined();
+  });
+
   it("recovers a linear scale factor from synthetic data", () => {
     // y = scale · model, true scale = 2.5. Start at 1.0.
     const model = [1, 4, 9, 16, 25];

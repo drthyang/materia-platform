@@ -55,6 +55,8 @@ export interface CifRefinementMeta {
   readonly nRestraints?: number;
   /** The Flack parameter with its esd, as printed (e.g. "0.435(15)"), → `_refine_ls_abs_structure_Flack`. */
   readonly flack?: string;
+  /** How the Flack x was determined, → `_refine_ls_abs_structure_details`. */
+  readonly absStructureDetails?: string;
 }
 
 export interface CifExportOptions {
@@ -249,6 +251,7 @@ function refinementBlock(meta: CifRefinementMeta | undefined): string {
   if (meta.nParam !== undefined) lines.push(`_refine_ls_number_parameters  ${meta.nParam}`);
   if (meta.nRestraints !== undefined) lines.push(`_refine_ls_number_restraints  ${meta.nRestraints}`);
   if (meta.flack !== undefined) lines.push(`_refine_ls_abs_structure_Flack ${meta.flack}`);
+  if (meta.absStructureDetails !== undefined) lines.push(`_refine_ls_abs_structure_details\n;\n${meta.absStructureDetails}\n;`);
   if (meta.rwp !== undefined) lines.push(`_refine_ls_wR_factor_obs      ${(meta.rwp / 100).toFixed(4)}`);
   if (meta.r1 !== undefined) lines.push(`_refine_ls_R_factor_gt        ${meta.r1.toFixed(4)}`);
   if (meta.wr2 !== undefined) lines.push(`_refine_ls_wR_factor_ref      ${meta.wr2.toFixed(4)}`);

@@ -11,6 +11,8 @@
 import type { StructureModel } from "@/core/crystal/types";
 import { isHydrogen } from "@/core/crystal/adp";
 import { ridingSummary } from "@/core/crystal/riding";
+import { floatingOrigins } from "@/core/crystal/polarOrigin";
+import { improper, parsonsOfModel } from "@/core/workflow/singleCrystalRefinement";
 import { restraintCount, restraintReport } from "@/core/crystal/restraints";
 import { covalentBonds, isMolecular } from "@/core/crystal/geometry";
 import { bondEsds, bondKeys } from "@/core/workflow/bondEsds";
@@ -410,12 +412,30 @@ function moleculeBonds(refined: StructureModel, base: StructureModel | undefined
 }
 
 /** The twin laws and their fractions with esds: an inversion twin's is the Flack x. */
-function twinRow(laws: readonly TwinLaw[], params: readonly RefinementParameter[], bindings: readonly ParameterBinding[]): string {
-  return laws.map((law, i) => {
-    const p = params.find((q) => q.kind === "twinFraction" && bindings.some((b) => b.parameterId === q.id && b.targetKey === String(i + 1)));
-    const value = p ? (p.esd !== undefined && !p.fixed ? withEsd(p.value, p.esd, 4) : p.value.toFixed(3)) : "?";
-    return isInversion(law) ? `inversion twin: Flack x = ${value}` : `twin law h′ = R·h, R = ${JSON.stringify(law.matrix)}: fraction ${value}`;
-  }).join("; ");
+function twinRow(laws: readonly TwinLaw[], params: readonly RefinementParameter[], bindings: readonly ParameterBinding[], combined?: Readonly<Record<string, number>>): string {
+  const fractionOf = (i: number): RefinementParameter | undefined => params.find((q) => q.kind === "twinFraction" && bindings.some((b) => b.parameterId === q.id && b.targetKey === String(i + 1)));
+  const text = (p: RefinementParameter | undefined): string => (p ? (p.esd !== undefined && !p.fixed ? withEsd(p.value, p.esd, 4) : p.value.toFixed(3)) : "?");
+  if (laws.length === 1 && isInversion(laws[0]!)) return `inversion twin: Flack x = ${text(fractionOf(0))}`;
+  const all = laws.map((_, i) => fractionOf(i));
+  const firstX = 1 - all.reduce((t, p) => t + (p?.value ?? 0), 0);
+  // The first domain's fraction is what the laws leave: one law's esd is its own; with several, from the covariance.
+  const lone = laws.length === 1 && all[0] && !all[0].fixed ? all[0].esd : undefined;
+  const firstEsd = laws.length > 1 ? combined?.twin_first : lone;
+  const first = firstEsd !== undefined ? withEsd(firstX, firstEsd, 4) : firstX.toFixed(3);
+  const rows = [
+    `the first domain (the model as given): fraction ${first}`,
+    ...laws.map((law, i) => `${isInversion(law) ? "inversion" : `h′ = R·h, R = ${JSON.stringify(law.matrix)}`}${improper(law.matrix) && !isInversion(law) ? " (inverted hand)" : ""}: fraction ${text(fractionOf(i))}`),
+  ];
+  // Beside a merohedral law, the domains of the other hand hold the Flack x together; its esd from the covariance when the fit gave it.
+  const inverted = laws.map((law, i) => ({ law, p: fractionOf(i) })).filter(({ law }) => improper(law.matrix));
+  if (laws.length > 1 && inverted.length > 0 && inverted.every(({ p }) => p)) {
+    const x = inverted.reduce((t, { p }) => t + p!.value, 0);
+    const esds = inverted.map(({ p }) => (p!.esd !== undefined && !p!.fixed ? p!.esd : undefined));
+    const covariant = esds.every((e) => e !== undefined) ? combined?.flack : undefined;
+    const esd = covariant ?? (esds.every((e) => e !== undefined) ? Math.sqrt(esds.reduce((t, e) => t + e! ** 2, 0)) : undefined);
+    rows.push(`Flack x (the inverted domains together) = ${esd !== undefined ? withEsd(x, esd, 4) : x.toFixed(3)}${esd !== undefined ? (covariant !== undefined ? ", its esd from the covariance" : ", its esd from the fractions' in quadrature") : ""}`);
+  }
+  return `${laws.length + 1} domains: ${rows.join("; ")}`;
 }
 
 /** Each disorder assembly: its alternatives' occupancies, and how they were tied. */
@@ -463,6 +483,34 @@ function hydrogenRow(structure: StructureModel, params: readonly RefinementParam
   return [{ label: "Hydrogens", value: parts.join("; ") }];
 }
 
+/** The restraints, as SHELXL counts them: the distances, and a polar group's floating origin. */
+function restraintsRow(structure: StructureModel, params: readonly RefinementParameter[], bindings: readonly ParameterBinding[]): ReportRow[] {
+  const distances = structure.restraints ?? [];
+  const origins = floatingOrigins(structure, params, bindings);
+  if (distances.length === 0 && origins.length === 0) return [];
+  const parts = [
+    ...(distances.length ? restraintReport(structure, distances).map((r) => r.text) : []),
+    ...origins.map((o) => `the floating origin along ${o.axis}, held by its Z²-weighted mean coordinate (SHELXL's floating-origin restraint)`),
+  ];
+  return [{ label: "Restraints", value: `${restraintCount(distances) + origins.length} (as SHELXL counts them): ${parts.join("; ")}` }];
+}
+
+/**
+ * The absolute structure: Parsons' x from the Bijvoet pairs fitted both ways
+ * (an acentric group, X-rays at a tabulated line), and the model's hand when
+ * it was inverted from the one loaded.
+ */
+function absoluteStructureRow(o: { readonly base?: StructureModel; readonly structure: StructureModel; readonly dataset: SingleCrystalDataset; readonly params: readonly RefinementParameter[]; readonly bindings: readonly ParameterBinding[]; readonly inverted?: string }): ReportRow[] {
+  const r = o.dataset.radiation;
+  const anomalous = r.kind === "xray" && dispersionLine(r.wavelength) !== undefined;
+  const est = anomalous && o.base ? parsonsOfModel(o.base, o.dataset, o.params, o.bindings) : null;
+  const parts = [
+    ...(est ? [`Flack x = ${withEsd(est.x, est.esd, 4)} by Parsons' quotients from ${est.quotients} Bijvoet pairs (Parsons, Flack & Wagner, 2013)${est.signs.observed ? `; of the ${est.signs.observed} Bijvoet differences observed at more than 3σ, ${est.signs.modelSign} ${est.signs.modelSign === 1 ? "has" : "have"} the model's sign` : ""}`] : []),
+    ...(o.inverted ? [o.inverted] : []),
+  ];
+  return parts.length ? [{ label: "Absolute structure", value: parts.join("; ") }] : [];
+}
+
 /** The absences a merge left out, and the measurement count without them: the figure SHELXL reports (_diffrn_reflns_number). */
 function absencesText(m: NonNullable<SingleCrystalDataset["merged"]>): string {
   const measured = m.absentMeasurements;
@@ -496,6 +544,8 @@ export function singleCrystalReportInput(o: {
   readonly points: readonly FobsFcalcPoint[];
   readonly magnetic: MagneticModel | null;
   readonly explored: MagneticExploration | null;
+  /** The model inverted from the one loaded (invert_structure), in words: the coordinates and the space group it took. */
+  readonly inverted?: string;
 }): ReportInput {
   const params = withEsds(o.params, o.result);
   const free = params.filter((p) => !p.fixed && !p.expression).length;
@@ -538,10 +588,11 @@ export function singleCrystalReportInput(o: {
     ...(omitted.length > 0 ? [{ label: "Omitted", value: omitted.map((m) => `${m.h} ${m.k} ${m.l}${m.batch !== undefined ? ` (batch ${m.batch})` : ""}${m.reason ? `: ${m.reason}` : ""}`).join("; ") }] : []),
     { label: "Extinction", value: EXTINCTION_MODEL_LABELS[o.dataset.extinctionModel ?? "shelx"] },
     ...(o.dataset.radiation.kind === "xray" ? [{ label: "Anomalous scattering", value: dispersionLine(o.dataset.radiation.wavelength) ? `f′ and f″ at ${dispersionLine(o.dataset.radiation.wavelength)!.name} (Cromer & Liberman, 1981)` : `none: no tabulated line at λ ${o.dataset.radiation.wavelength} Å` }] : []),
-    ...(o.dataset.twinLaws?.length ? [{ label: "Twinning", value: twinRow(o.dataset.twinLaws, params, o.bindings) }] : []),
+    ...(o.dataset.twinLaws?.length ? [{ label: "Twinning", value: twinRow(o.dataset.twinLaws, params, o.bindings, o.result?.combinationEsd) }] : []),
+    ...absoluteStructureRow(o),
     ...hydrogenRow(o.structure, params, o.bindings),
     ...disorderRow(o.structure, params, o.bindings),
-    ...(o.structure.restraints?.length ? [{ label: "Restraints", value: `${restraintCount(o.structure.restraints)} (as SHELXL counts them): ${restraintReport(o.structure, o.structure.restraints).map((r) => r.text).join("; ")}` }] : []),
+    ...restraintsRow(o.structure, params, o.bindings),
     { label: "Merging", value: `${st.observations} observations → ${st.unique} unique in the Laue class · redundancy ${num(st.redundancy, 2)} · ${st.redundancy > 1 + 1e-9 ? `R_int ${pct(st.rInt)}` : "R_int n/a (merged data)"} · R_σ ${pct(st.rSigma)}${st.dMin !== undefined ? ` · d_min ${num(st.dMin, 3)} Å` : ""}${apart && apart.redundancy > 1 + 1e-9 ? `; with the Friedel mates apart and the absences left out, as SHELXL merges this group: ${apart.unique} unique · R_int ${pct(apart.rInt)} · R_σ ${pct(apart.rSigma)}` : ""}` },
     ...(o.dataset.origin === "refinement-listing" ? [{ label: "Source", value: "a refinement's listing (.fcf): Fo² on that refinement's scale, merged, the systematic absences left out, and in SHELXL's LIST 4 its extinction divided out" }] : []),
     { label: "Observed", value: `${ag.observed} of ${ag.total} reflections with F_o² > 2σ(F_o²)` },

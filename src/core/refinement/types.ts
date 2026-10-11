@@ -324,6 +324,8 @@ export interface RefinementResult {
   readonly parameters: Readonly<Record<string, number>>;
   /** Estimated standard deviations (by id) from the final covariance matrix. */
   readonly esd: Readonly<Record<string, number>>;
+  /** The esds of the problem's named linear combinations (RefinementProblem.combinations), from the full covariance. */
+  readonly combinationEsd?: Readonly<Record<string, number>>;
   readonly agreement: AgreementFactors;
   /** Per-iteration history, oldest first. */
   readonly history: readonly RefinementIteration[];

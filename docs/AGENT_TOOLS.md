@@ -597,7 +597,11 @@ The page-specific handlers are [`powderTools.ts`](../src/agent/powderTools.ts),
   `set_extinction_model` switches between SHELXL's EXTI and Becker–Coppens
   type I or II (Gaussian or Lorentzian mosaic), as GSAS-II computes it; the
   parameter restarts at 0. `set_radiation` sets the probe and wavelength,
-  which a SHELX file does not carry (it loads as neutron at 1.54 Å).
+  which a SHELX reflection file does not carry (it loads as neutron at
+  1.54 Å, or as X-rays at CELL's wavelength when a SHELX `.ins`/`.res` is the
+  structure). A `.ins`/`.res` loads as the structure; what its refinement
+  applied (TWIN, BASF, EXTI, WGHT, FVAR, AFIX, the hydrogens' U) is listed by
+  `get_state` (`shelxInstructions`) and applied only when the Agent sets it.
   A CIF that carries SHELXL's `.hkl` (`_shelx_hkl_file`) loads as the
   measurement, at the CIF's radiation. `merge_equivalents` fits the
   equivalents merged as SHELXL's MERG 2 merges them (the Friedel opposites
@@ -606,14 +610,24 @@ The page-specific handlers are [`powderTools.ts`](../src/agent/powderTools.ts),
   the model is refined. `set_twin` adds a twin law, as SHELXL's TWIN and BASF:
   the inversion (its fraction is the Flack x, which needs the Friedel pairs
   measured apart and an anomalous scatterer; X-ray amplitudes carry f′ and f″
-  at the laboratory lines) or a 3×3 merohedral law; a law that cannot twin
-  the crystal is refused. `set_riding_hydrogens` rides the hydrogens on their
+  at the laboratory lines) or a 3×3 merohedral law, `withInversion` for both
+  hands (SHELXL's TWIN R −4, four domains, the inverted ones summed into the
+  Flack x with its esd from the covariance); a law that cannot twin the
+  crystal is refused. `invert_structure` inverts the model (SHELXL's MOVE 1 1
+  1 −1, the space group to its enantiomorph, P6₁ → P6₅, or the origin shifted
+  where the group needs it), keeping the refined values and the twin's fit;
+  called again it returns to the hand as loaded. `assess_refinement`'s
+  `absoluteStructure` gives Parsons' x from the Bijvoet pairs fitted both
+  ways. In a polar group (P6₁, P2₁, Pc, P1) the fit holds the floating origin
+  by SHELXL's restraint. `set_riding_hydrogens` rides the hydrogens on their
   parents as SHELXL's AFIX does: sp² on the bisector (43), a methyl or NH₃
   rotating with its torsion refined (137), a hydroxyl likewise (147), a CH₂
   pair (23), a methine (13), any other at its present offset (3); X–H at
   SHELXL's distance for the `temperature`, or one given; U_iso 1.2 or
-  1.5·U_eq; `refine` lets a hydrogen the data place (a hydride) refine its
-  position while its U rides. It lists each X–H as placed.
+  1.5·U_eq, or one refined U_iso per `sharedU` list (SHELXL's free variable
+  on the U column: `[["methyl"]]` gives every methyl hydrogen `B_shared_1`);
+  `refine` lets a hydrogen the data place (a hydride) refine its position
+  while its U rides. It lists each X–H as placed.
   `restrain_distances` adds SHELXL's DFIX and SADI, counted as SHELXL counts
   them; `assess_refinement` gives each one's deviation and the restrained
   GooF. `tie_parameters` there also ties a disorder (SHELXL's PART 1 and 2,

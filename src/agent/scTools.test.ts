@@ -342,6 +342,13 @@ describe("AgentExecutor on the single-crystal page", { timeout: 30_000 }, () => 
     expect(port.state().riding).toEqual([]);
     expect(hydrogenRows()).toBe(28);
     expect(parse((await ex.run("set_riding_hydrogens", { on: false })).text).unchanged).toBe(true);
+    // A shared U names hydrogens or a geometry, and each list must hold a hydrogen that rides.
+    const unknown = await ex.run("set_riding_hydrogens", { on: true, sharedU: [["H99"]] });
+    expect(unknown.isError).toBe(true);
+    expect(unknown.text).toMatch(/sharedU names H99: neither a hydrogen of the model nor a geometry \(all, aromatic, methyl/);
+    const empty = await ex.run("set_riding_hydrogens", { on: true, sharedU: [["methyl"], ["hydroxyl"]] });
+    expect(empty.isError).toBe(true);
+    expect(empty.text).toMatch(/sharedU \[hydroxyl\] names no hydrogen that rides here \(or only hydrogens an earlier list took\)/);
     // Corundum has no hydrogen: refused before the user is asked.
     const { port: noH } = page();
     const refused = await executor(fakeHost(noH).host, "auto").ex.run("set_riding_hydrogens", { on: true });

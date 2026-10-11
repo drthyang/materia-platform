@@ -145,7 +145,8 @@ export interface SpaceGroup {
 /**
  * A hydrogen riding on the atom it is bonded to, as SHELXL's riding model:
  * its position follows its parent's and its U_iso is `uFactor`·U_eq(parent), so
- * it carries no parameter of its own. "aromatic" places it on the bisector of
+ * it carries no parameter of its own (unless `uShared` gives a group of them
+ * one refined U_iso). "aromatic" places it on the bisector of
  * the parent's external angle at `distance` (SHELXL's AFIX 43, for an sp² C–H
  * with two heavy neighbours); "fixed" keeps the parent-to-hydrogen vector of
  * the model it was set from.
@@ -178,6 +179,12 @@ export interface RidingRule {
   /** For "methylene": the side of the plane of the parent and its neighbours, +1 or −1. */
   readonly side?: number;
   readonly uFactor: number;
+  /**
+   * Set when the hydrogen's U_iso refines rather than rides: one U_iso shared
+   * by every hydrogen with the same key (SHELXL's free variable on the U
+   * column, as 21.0), `uFactor` then unused.
+   */
+  readonly uShared?: string;
 }
 
 /** One distance a restraint names: an atom, and the image (operation, lattice translation) of another. */

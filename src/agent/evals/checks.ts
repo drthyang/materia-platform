@@ -621,6 +621,34 @@ export const refinesFlack: Check = {
 };
 
 /**
+ * A model of the wrong hand is inverted (round 4: 3a's published model was the
+ * other enantiomer, x = 1.03(4) refined and 1.08(6) by Parsons' quotients):
+ * the hand tested, the model inverted (`invert_structure`), refined again,
+ * and the account says so. Quoting x near 1 and leaving the model as it is
+ * fails; so does never testing the hand.
+ */
+export const invertsWrongHand: Check = {
+  name: "inverts a model of the wrong hand and refines it again",
+  grade: (run) => {
+    const all = calls(run);
+    const tested = all.findIndex((c) => (c.name === "set_twin" && !c.isError && (c.input.law === "inversion" || c.input.withInversion === true)) || (c.name === "assess_refinement" && !c.isError && /parsonsX/.test(c.text)));
+    if (tested < 0) return fail("never tested the hand (no inversion twin, no Parsons' quotients read)");
+    const inverted = all.findIndex((c) => c.name === "invert_structure" && !c.isError);
+    if (inverted < 0) return fail("left the model in the hand the data reject");
+    const after = all.some((c, i) => i > inverted && c.name === "refine" && json(c.text)?.refined === true);
+    if (!after) return fail("inverted the model but never refined it again");
+    const s = scState(run);
+    if (!s?.inverted) return fail("ends with the model back in the hand the data reject");
+    // A remaining inversion twin's x must now read the model's hand.
+    const x = s.result?.parameters.twin_1;
+    const esd = s.result?.esd.twin_1;
+    if (s.twinLaws.length === 1 && x !== undefined && esd !== undefined && Math.abs(x) > 3 * esd + 0.05) return fail(`ends with x = ${x.toFixed(3)}(${esd.toFixed(3)}) after inverting`);
+    const said = asserted(run, /\b(invert|inverted|inversion of the model|enantiomer|enantiomorph|other hand)\b/i);
+    return said.length ? ok(`inverted the model, refined it again, and said so: "${said[0]!.slice(0, 80)}"`) : fail("inverted the model without saying so");
+  },
+};
+
+/**
  * A disorder's two alternatives are tied as SHELXL ties them (the second
  * occupancy one minus the first) before an occupancy refines (round 3: 1b's
  * Al1/Ga1, 21/−21 with EADP).

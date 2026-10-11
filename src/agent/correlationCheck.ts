@@ -56,7 +56,9 @@
 
 import type { LinearRestraint, ParameterBinding, ParameterKind, RefinementOptions, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { StructureModel } from "@/core/crystal/types";
-import { correlationInsight, oneCurve } from "@/core/diagnostics/assessment";
+import type { TwinLaw } from "@/core/diffraction/types";
+import { improper } from "@/core/workflow/singleCrystalRefinement";
+import { BOTH_HANDS, correlationInsight, oneCurve } from "@/core/diagnostics/assessment";
 
 /** The line the engine and `assess_refinement` already draw for a high correlation. */
 export const CORRELATION_LIMIT = 0.95;
@@ -100,16 +102,17 @@ export interface CorrelationCheck {
 
 /**
  * Each parameter of a disordered site by its disorder assembly (SHELXL's PART
- * groups, from the CIF): the parameters whose pairs are listed, not stopped,
- * among themselves.
+ * groups, from the CIF), and the fractions of a twin with both hands as one
+ * more: the parameters whose pairs are listed, not stopped, among themselves.
  */
-export function disorderAssemblies(structure: StructureModel, bindings: readonly ParameterBinding[]): ReadonlyMap<string, string> {
+export function disorderAssemblies(structure: StructureModel, bindings: readonly ParameterBinding[], twinLaws: readonly TwinLaw[] = []): ReadonlyMap<string, string> {
   const assembly = new Map(structure.sites.flatMap((site) => (site.disorder ? [[site.label, site.disorder.assembly] as const] : [])));
   const out = new Map<string, string>();
   for (const b of bindings) {
     const a = b.targetKey !== undefined && b.targetId === structure.id ? assembly.get(b.targetKey) : undefined;
     if (a !== undefined) out.set(b.parameterId, a);
   }
+  if (twinLaws.length > 1 && twinLaws.some((law) => improper(law.matrix))) for (const b of bindings) if (b.kind === "twinFraction") out.set(b.parameterId, BOTH_HANDS);
   return out;
 }
 
@@ -151,6 +154,7 @@ export const pairText = (p: CorrelatedPair): string => `${p.a} ↔ ${p.b} ${p.co
 /** A carried pair as the model reads it: the correlation, and what it is with the rest held fixed. */
 export const carriedText = (p: CorrelatedPair): string =>
   p.intensityTerms ? `${pairText(p)} (the overall intensity terms, refined together)`
+    : p.disorder === BOTH_HANDS ? `${pairText(p)} (a twin with both hands: a domain and its inverse differ only by the anomalous signal, so their fractions trade, refined together as SHELXL's TWIN R −4 refines them; read the sums — the Flack x and the law's fraction — with their esds from the covariance)`
     : p.disorder !== undefined ? `${pairText(p)} (one disorder${p.disorder ? ` (${p.disorder})` : ""}: its alternatives refined together, as SHELXL refines them)`
       : `${pairText(p)} (${p.conditional!.toFixed(2)} with the other free parameters fixed)`;
 

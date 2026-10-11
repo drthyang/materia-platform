@@ -1363,7 +1363,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
       // Once the user owns the structure, the button appends phases (multi-phase
       // G(r) sum) instead of replacing — mirroring the powder card's behaviour.
       loadLabel: ownStructure && onAddPhase ? "Add CIF…" : "Load CIF…",
-      accept: ".cif,.mcif,text/plain",
+      accept: ".cif,.mcif,.ins,.res,text/plain",
       onFile: (ownStructure && onAddPhase ? onAddPhase : onLoadCif) ?? noop,
       chip: multiPhase ? `✓ ${phases.length} phases` : "✓ parsed",
       title: multiPhase

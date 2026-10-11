@@ -4,10 +4,11 @@
  * own data, with the checks that say whether it got it right this time.
  */
 
-import { BATCH_SCALES, BC_EXTINCTION, EDGE_STEP_AT, FAILED_PAIR, FAILED_REFLECTION, MAGNETIC_TRUTH, impurityD, scChiralPage, scDisorderPage, scHydridePage, scOrganicPage, scPage, mn3gaEdgeSession, mn3gaFluoriteSession, mn3gaImpuritySession, mn3gaMagneticSession, mn3gaMisfitSession, mn3gaSession, pdfPage, powderPage } from "@/agent/evals/pages";
+import { BATCH_SCALES, BC_EXTINCTION, EDGE_STEP_AT, FAILED_PAIR, FAILED_REFLECTION, MAGNETIC_TRUTH, impurityD, scChiralPage, scDisorderPage, scHydridePage, scInvertedHandPage, scOrganicPage, scPage, mn3gaEdgeSession, mn3gaFluoriteSession, mn3gaImpuritySession, mn3gaMagneticSession, mn3gaMisfitSession, mn3gaSession, pdfPage, powderPage } from "@/agent/evals/pages";
 import {
   mergesFirst,
   refinesFlack,
+  invertsWrongHand,
   restrainsHydrides,
   tiesDisorder,
   honestAboutListing,
@@ -310,6 +311,15 @@ export const SCENARIOS: readonly EvalScenario[] = [
     messages: ["H3' is a hydride on Ga2, placed from the difference map. Refine its position with the structure."],
     autonomy: "auto",
     checks: [readsMethodFirst, restrainsHydrides, refines(1), noStall],
+  },
+  {
+    id: "sc-inverted-hand",
+    title: "Inverts a model of the wrong hand, refines it again, and says so",
+    origin: "Round 4 (3a): SHELXL's published model of Cs(C₅Me₅)·py in P6₁ is the other enantiomer — the twin with both hands put x = 1.03(4) on the inverted domains, Parsons' quotients gave 1.08(6), and the model in P6₅ refined to wR2 4.76 % against 5.66 %. The page had no way to invert a model, and its Flack reading only said to.",
+    page: () => scInvertedHandPage(),
+    messages: ["Refine the structure and decide its absolute structure."],
+    autonomy: "auto",
+    checks: [readsMethodFirst, invertsWrongHand, refines(1), noStall],
   },
 ];
 

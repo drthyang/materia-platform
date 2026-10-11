@@ -388,6 +388,7 @@ function checkSingleCrystalWorkspace(ws: Rec, path: string, ctx: PhaseContext): 
   checkRefinement(ws.refinement, `${path}.refinement`);
   opt(ws.magnetic, `${path}.magnetic`, checkMagnetic(ctx));
   opt(ws.adpModel, `${path}.adpModel`, oneOf(["isotropic", "anisotropic"] as const));
+  opt(ws.inverted, `${path}.inverted`, bool);
   if (ws.outlierFilter !== undefined && ws.outlierFilter !== null) {
     const f = rec(ws.outlierFilter, `${path}.outlierFilter`);
     bool(f.on, `${path}.outlierFilter.on`);
@@ -408,6 +409,7 @@ function checkSingleCrystalWorkspace(ws: Rec, path: string, ctx: PhaseContext): 
     str(r.parent, `${ip}.parent`);
     const geometry = oneOf(["aromatic", "methyl", "hydroxyl", "methylene", "methine", "fixed", "free"] as const)(r.geometry, `${ip}.geometry`);
     num(r.uFactor, `${ip}.uFactor`);
+    opt(r.uShared, `${ip}.uShared`, str);
     opt(r.distance, `${ip}.distance`, num);
     opt(r.offset, `${ip}.offset`, vec3);
     opt(r.torsion, `${ip}.torsion`, num);

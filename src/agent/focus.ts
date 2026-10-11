@@ -32,6 +32,7 @@ export const TOOL_CARDS: Readonly<Record<string, readonly AgentCard[]>> = {
   set_riding_hydrogens: ["structure", "parameters"],
   set_weighting: ["result"],
   set_twin: ["parameters", "result"],
+  invert_structure: ["structure", "parameters"],
   restrain_distances: ["structure", "result"],
   merge_equivalents: ["data", "result"],
   find_unexplained_peaks: ["pattern"],

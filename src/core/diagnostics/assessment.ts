@@ -27,6 +27,15 @@ import type {
 import { annotateExtraPeaks, detectExtraPeaks, type AnnotatedExtraPeak } from "@/core/magnetic/extraPeaks";
 import { correctionCorrelation } from "@/core/diffraction/corrections";
 
+/**
+ * The assembly of a twin's fractions when the twin has both hands (a
+ * merohedral law with the inversion, SHELXL's TWIN R −4): a domain and its
+ * inverse differ only by the anomalous signal, so their fractions trade by
+ * construction — SHELXL refines them together, and the sums (the Flack x, the
+ * law's fraction over both hands) are what the data determine.
+ */
+export const BOTH_HANDS = "\u0000both hands";
+
 export type Severity = "info" | "note" | "warning" | "critical";
 
 /** The order matters: higher index = more urgent, used for sorting findings. */
@@ -114,7 +123,8 @@ export interface AssessmentInput {
    *  construction, so their correlation is noted once, not warned about. */
   readonly restraints?: readonly LinearRestraint[];
   /** Each parameter of a disordered site by its assembly (SHELXL's PART groups):
-   *  the alternatives of one disorder correlate by construction, noted once. */
+   *  the alternatives of one disorder correlate by construction, noted once.
+   *  The fractions of a twin with both hands come as the assembly BOTH_HANDS. */
   readonly disorder?: ReadonlyMap<string, string>;
   /** Displacement parameters of sites several atoms share (a mixed site): at a
    *  bound, the mixing is the first suspect. */
@@ -477,7 +487,19 @@ export function assessRefinement(input: AssessmentInput): RefinementAssessment {
     const a = input.disorder?.get(c.parameterIdA);
     return a !== undefined && input.disorder?.get(c.parameterIdB) === a ? a : undefined;
   };
-  const disorderPairs = (diag?.highCorrelations ?? []).filter((c) => !curveOf(c) && !tiedBy(c) && assemblyOf(c) !== undefined);
+  const twinPairs = (diag?.highCorrelations ?? []).filter((c) => !curveOf(c) && !tiedBy(c) && assemblyOf(c) === BOTH_HANDS);
+  if (twinPairs.length > 0) {
+    const top = Math.max(...twinPairs.map((c) => Math.abs(c.coefficient)));
+    findings.push({
+      category: "correlation",
+      severity: "info",
+      summary: `The twin's fractions correlate (up to ${top.toFixed(3)}): a twin with both hands.`,
+      detail: "Expected: a domain and its inverse differ only by the anomalous signal, so their fractions trade by construction — SHELXL's TWIN R −4 refines them together. The sums are what the data determine: the Flack x (the inverted domains together) and the law's fraction over both hands, each with its esd from the full covariance; quote those, not each fraction's.",
+      parameterIds: [...new Set(twinPairs.flatMap((c) => [c.parameterIdA, c.parameterIdB]))],
+      evidence: { pairs: twinPairs.length, maxCoefficient: top },
+    });
+  }
+  const disorderPairs = (diag?.highCorrelations ?? []).filter((c) => !curveOf(c) && !tiedBy(c) && assemblyOf(c) !== undefined && assemblyOf(c) !== BOTH_HANDS);
   if (disorderPairs.length > 0) {
     const top = Math.max(...disorderPairs.map((c) => Math.abs(c.coefficient)));
     const names = [...new Set(disorderPairs.map((c) => assemblyOf(c)!))].map((a) => (a ? `assembly ${a}` : "the disorder")).join(", ");
