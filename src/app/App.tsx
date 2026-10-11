@@ -59,7 +59,9 @@ import {
   buildSpecFor,
   withoutCorrections,
   carryRefinedStructure,
+  keptBindings,
   keptRows,
+  withMagneticRows,
   DEFAULT_INSTRUMENT,
   EMPTY_SOURCE,
 } from "@/app/powderSession";
@@ -646,7 +648,7 @@ export function App(): JSX.Element {
             ...s,
             extraPhases,
             powderParams: keptRows(spec.params, s.powderParams),
-            powderBindings: spec.bindings,
+            powderBindings: keptBindings(spec.bindings, s.powderBindings),
             powderProfile: { ...spec.profile, ...(s.powderProfile.backgroundType ? { backgroundType: s.powderProfile.backgroundType } : {}) },
           };
         });
@@ -670,7 +672,7 @@ export function App(): JSX.Element {
         ...s,
         extraPhases,
         powderParams: keptRows(spec.params, s.powderParams),
-        powderBindings: spec.bindings,
+        powderBindings: keptBindings(spec.bindings, s.powderBindings),
         powderProfile: { ...spec.profile, ...(s.powderProfile.backgroundType ? { backgroundType: s.powderProfile.backgroundType } : {}) },
       };
     });
@@ -1068,7 +1070,7 @@ export function App(): JSX.Element {
               ? { ...s.pattern, radiation: radiationOf(parsed), wavelength: parsed.wavelength }
               : s.pattern;
           const spec = buildSpecFor(s.structure, s.extraPhases, pattern, parsed, s.powderProfile.lorentz ?? true, s.backgroundTerms, s.siteTies, s.mustrain ?? "isotropic", s.corrections);
-          return { ...s, pattern, powderParams: spec.params, powderBindings: spec.bindings, powderProfile: spec.profile, rawInstrument: { name: file.name, text } };
+          return { ...s, pattern, powderParams: withMagneticRows(spec.params, s.powderParams), powderBindings: keptBindings(spec.bindings, s.powderBindings), powderProfile: spec.profile, rawInstrument: { name: file.name, text } };
         });
         setPowderResult(null);
         setMessage(

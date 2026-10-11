@@ -136,7 +136,7 @@ not do was fixed:
 | 5 | MgAl₂O₄ with 22 % inversion, from a normal-spinel CIF (simulated) | occupancy restraints in the fit; hold composition |
 | 6 | PbSO₄, D1A neutrons (GSAS-II tutorial) | `diagnose_fit`, which found the missing peak asymmetry: wR 12 → 3.7 % |
 | 7 | Fluorapatite, lab Cu Kα (GSAS-II tutorial) | the Kα₂ doublet and the polarization; the cell to 1 part in 10⁵ of GSAS's |
-| 8 | Cr₂WO₆, neutrons at 150 K and 4 K (in progress) | `identify_peaks`, `tie_parameters`, bond valences, the Bayesian check, d with the zero shift taken out |
+| 8 | Cr₂WO₆, neutrons at 150 K and 4 K | `identify_peaks`, `tie_parameters`, bond valences, the Bayesian check, d with the zero shift taken out, k = 0 found on wide lines, the moments kept through a settings change; in-plane moments, 2.28(2) µB in Pn′nm |
 
 ## Status
 

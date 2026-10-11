@@ -86,7 +86,7 @@ import { applyParameters } from "@/core/workflow/apply";
 import { excludedPointMask } from "@/core/refinement/factors";
 import { secondLine, type InstrumentConstants, type InstrumentParameters } from "@/core/diffraction/instrument";
 import { withAntisite } from "@/core/crystal/antisite";
-import { type Session, buildSpecFor, keptRow, keptRows, withValidUserTies, DEFAULT_INSTRUMENT, SYNTHETIC_SOURCE, EMPTY_SOURCE } from "@/app/powderSession";
+import { type Session, buildSpecFor, keptBindings, keptRow, keptRows, withMagneticRows, withValidUserTies, DEFAULT_INSTRUMENT, SYNTHETIC_SOURCE, EMPTY_SOURCE } from "@/app/powderSession";
 import type { EngineExportsRef } from "@/app/workbenchEngine";
 import type { AgentLink } from "@/agent/link";
 import type { MagneticAgentHandle } from "@/agent/magneticPort";
@@ -293,6 +293,10 @@ export function PowderWorkbench({
   // 3D view, and magnetic analysis should track. In multi-phase mode each phase's
   // structural bindings are routed by `targetId` (as `multiPhaseCurves` does);
   // applying the whole set to one structure would cross-apply the phases' cells.
+  // Keyed on the parameter values, not the rows: freeing or fixing a parameter
+  // leaves the refined structure (and what depends on it, such as the magnetic
+  // step's ranked groups) as it was.
+  const paramValuesKey = powderParams.map((p) => `${p.id}=${p.value}`).join(";");
   const refinedPhases = useMemo(() => {
     const values: Record<string, number> = {};
     for (const p of powderParams) values[p.id] = p.value;
@@ -300,7 +304,8 @@ export function PowderWorkbench({
     return [structure, ...session.extraPhases].map((ph) =>
       applyParameters(ph, multi ? pBindings.filter((b) => b.targetId === ph.id) : pBindings, values).model,
     );
-  }, [structure, session.extraPhases, powderParams, pBindings]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the values key stands for powderParams
+  }, [structure, session.extraPhases, paramValuesKey, pBindings]);
   const refinedStructure = refinedPhases[0]!;
 
   // The profile shape the magnetic component is synthesized with (the
@@ -626,7 +631,7 @@ export function PowderWorkbench({
         ...s,
         backgroundTerms: count,
         powderParams: keptRows(spec.params, s.powderParams),
-        powderBindings: spec.bindings,
+        powderBindings: keptBindings(spec.bindings, s.powderBindings),
         powderProfile: { ...spec.profile, ...(s.powderProfile.backgroundType ? { backgroundType: s.powderProfile.backgroundType } : {}) },
       };
     });
@@ -649,7 +654,7 @@ export function PowderWorkbench({
         structure,
         siteTies: ties,
         powderParams: keptRows(spec.params, s.powderParams),
-        powderBindings: spec.bindings,
+        powderBindings: keptBindings(spec.bindings, s.powderBindings),
         powderProfile: { ...spec.profile, ...(s.powderProfile.backgroundType ? { backgroundType: s.powderProfile.backgroundType } : {}) },
       };
     });
@@ -680,7 +685,7 @@ export function PowderWorkbench({
         ...s,
         siteTies: ties,
         powderParams: keptRows(spec.params, s.powderParams),
-        powderBindings: spec.bindings,
+        powderBindings: keptBindings(spec.bindings, s.powderBindings),
         powderProfile: { ...spec.profile, ...(s.powderProfile.backgroundType ? { backgroundType: s.powderProfile.backgroundType } : {}) },
       };
     });
@@ -700,7 +705,7 @@ export function PowderWorkbench({
         ...s,
         mustrain: model,
         powderParams: keptRows(spec.params, s.powderParams),
-        powderBindings: spec.bindings,
+        powderBindings: keptBindings(spec.bindings, s.powderBindings),
         powderProfile: { ...spec.profile, ...(s.powderProfile.backgroundType ? { backgroundType: s.powderProfile.backgroundType } : {}) },
       };
     });
@@ -736,12 +741,12 @@ export function PowderWorkbench({
       return {
         ...s,
         corrections,
-        powderParams: withValidUserTies(spec.params.map((p) => {
+        powderParams: withValidUserTies(withMagneticRows(spec.params.map((p) => {
           const old = previous.get(p.id);
           if (!old || (axisChanged && p.kind === "poRatio")) return { ...p, fixed: true };
           return keptRow(p, old);
-        })),
-        powderBindings: spec.bindings,
+        }), s.powderParams)),
+        powderBindings: keptBindings(spec.bindings, s.powderBindings),
         powderProfile: { ...spec.profile, ...(s.powderProfile.backgroundType ? { backgroundType: s.powderProfile.backgroundType } : {}) },
       };
     });
@@ -774,14 +779,14 @@ export function PowderWorkbench({
         ...s,
         structure: promoted,
         anisotropicAdp: on,
-        powderParams: withValidUserTies(spec.params.map((p) => {
+        powderParams: withValidUserTies(withMagneticRows(spec.params.map((p) => {
           // ADP rows are freshly seeded by the rebuild (their ties with them);
           // everything else keeps its current (possibly refined) value and
           // free/fixed state.
           if (p.kind === "bIso" || p.kind === "uAniso") return p;
           return keptRow(p, previous.get(p.id));
-        })),
-        powderBindings: spec.bindings,
+        }), s.powderParams)),
+        powderBindings: keptBindings(spec.bindings, s.powderBindings),
         powderProfile: { ...spec.profile, ...(s.powderProfile.backgroundType ? { backgroundType: s.powderProfile.backgroundType } : {}) },
       };
     });

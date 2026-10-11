@@ -187,6 +187,20 @@ release fixes bugs.
 
 ### Fixed
 
+- **A settings change kept the magnetic model's moments in the fit.**
+  Switching on the asymmetry or an absorption correction, changing the
+  background terms, site ties, the microstrain or the ADP model, adding a
+  phase or loading an instrument rebuilt the parameter set from the nuclear
+  model alone: the moment rows (and their bindings) were dropped, and the next
+  joint refinement held the moment at its last value without saying so. They
+  now carry over as they were, free or fixed (Cr₂WO₆ at 4 K).
+- **The Agent's `rank_magnetic_groups` read the ranking it ran.** It read the
+  magnetic step's state from the handle taken before the ranking, which the
+  page replaces each render, and so returned the previous table (empty on a
+  first ranking).
+- The magnetic step's ranking table no longer resets when a parameter is
+  freed or fixed: the refined phases it is drawn from are rebuilt only when a
+  value changes.
 - **The method's first stage is not marked done by the scale alone.** The
   scale is refined with every stage, so a refinement of the positions with
   the scale free no longer ticked "scale, background, cell" in the

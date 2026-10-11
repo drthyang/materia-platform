@@ -108,7 +108,13 @@ export function magneticView(s: MagneticPanelState): Record<string, unknown> {
   };
 }
 
-export async function readMagneticTool(name: string, input: Input, port: PowderAgentPort): Promise<unknown> {
+/**
+ * Run a read tool on the magnetic step. The step publishes a fresh handle on
+ * every render, its state() fixed at that render: after an await (the ranking
+ * fits each group), read through a handle taken after the page has rendered
+ * (`settle`), or the answer is the state from before the call.
+ */
+export async function readMagneticTool(name: string, input: Input, port: PowderAgentPort, settle: () => Promise<void> = async () => undefined): Promise<unknown> {
   const h = handleOf(port);
   switch (name) {
     case "magnetic_state":
@@ -136,8 +142,10 @@ export async function readMagneticTool(name: string, input: Input, port: PowderA
     case "rank_magnetic_groups": {
       const scope = (input.scope as "open" | "all" | undefined) ?? "open";
       port.openStep?.(1);
-      await h.rank(scope);
-      return { ranked: scope, ...rankView(h.state()) };
+      await settle();
+      await handleOf(port).rank(scope);
+      await settle();
+      return { ranked: scope, ...rankView(handleOf(port).state()) };
     }
     default:
       throw new Error(`${name} is not a magnetic read tool`);

@@ -8,7 +8,7 @@
 import type { StructureModel } from "@/core/crystal/types";
 import type { PowderPattern } from "@/core/diffraction/types";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
-import type { ParameterBinding, RefinementParameter } from "@/core/refinement/types";
+import { isMagneticModelParameterKind, type ParameterBinding, type RefinementParameter } from "@/core/refinement/types";
 import type { PowderProfile } from "@/core/workflow/powder";
 import type { MagneticModel } from "@/core/magnetic/types";
 import { buildPowderSpec, type SiteTies, type PowderSpec, type MustrainModel, type SampleCorrections } from "@/app/powderSpec";
@@ -157,10 +157,25 @@ export function withValidUserTies(params: readonly RefinementParameter[]): Refin
   });
 }
 
-/** Rebuilt rows keeping the previous ones by id (keptRow), user ties checked. */
+/**
+ * Rebuilt rows with the magnetic model's rows (moments, k) carried over as
+ * they were: the spec builds the nuclear set only, and the model stays on the
+ * session, so a settings change must not drop its moments from the fit.
+ */
+export function withMagneticRows(specParams: readonly RefinementParameter[], previous: readonly RefinementParameter[]): RefinementParameter[] {
+  const ids = new Set(specParams.map((p) => p.id));
+  return [...specParams, ...previous.filter((p) => isMagneticModelParameterKind(p.kind) && !ids.has(p.id))];
+}
+
+/** A rebuilt spec's bindings with the magnetic model's carried over (see withMagneticRows). */
+export function keptBindings(specBindings: readonly ParameterBinding[], previous: readonly ParameterBinding[]): ParameterBinding[] {
+  return [...specBindings, ...previous.filter((b) => isMagneticModelParameterKind(b.kind))];
+}
+
+/** Rebuilt rows keeping the previous ones by id (keptRow), the magnetic rows carried, user ties checked. */
 export function keptRows(specParams: readonly RefinementParameter[], previous: readonly RefinementParameter[]): RefinementParameter[] {
   const old = new Map(previous.map((p) => [p.id, p]));
-  return withValidUserTies(specParams.map((p) => keptRow(p, old.get(p.id))));
+  return withValidUserTies(withMagneticRows(specParams.map((p) => keptRow(p, old.get(p.id))), previous));
 }
 
 /** The session with its corrections cleared: new data starts without them. */

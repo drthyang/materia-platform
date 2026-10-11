@@ -15,7 +15,7 @@ import { buildPdfProblem, buildPdfSpec, pdfCurves } from "@/core/workflow/pdf";
 import { applyParameters } from "@/core/workflow/apply";
 import { refine as refineProblem } from "@/core/refinement/engine";
 import { boxcarWindows } from "@/core/workflow/pdfBoxcar";
-import { DEFAULT_INSTRUMENT, buildSpecFor, keptRows, type Session } from "@/app/powderSession";
+import { DEFAULT_INSTRUMENT, buildSpecFor, keptBindings, keptRows, withMagneticRows, type Session } from "@/app/powderSession";
 import { withEqualTies } from "@/core/refinement/constraints";
 import { withConstants, type InstrumentParameters } from "@/core/diffraction/instrument";
 import { withAntisite } from "@/core/crystal/antisite";
@@ -144,7 +144,7 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
       const structure = withAntisite(s.structure, a, b);
       const siteTies = { ...s.siteTies, occupancyToUnity: true, composition: true };
       const spec = buildSpecFor(structure, s.extraPhases, s.pattern, instrument, true, s.backgroundTerms, siteTies, s.mustrain ?? "isotropic", s.corrections);
-      s = { ...s, structure, siteTies, powderParams: keptRows(spec.params, s.powderParams), powderBindings: spec.bindings };
+      s = { ...s, structure, siteTies, powderParams: keptRows(spec.params, s.powderParams), powderBindings: keptBindings(spec.bindings, s.powderBindings) };
     },
     setParameterTies: (update) => {
       calls.push(`ties ${JSON.stringify(update)}`);
@@ -165,11 +165,11 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
       s = {
         ...s,
         corrections,
-        powderParams: spec.params.map((p) => {
+        powderParams: withMagneticRows(spec.params.map((p) => {
           const old = previous.get(p.id);
           return old ? { ...p, value: old.value, initialValue: old.initialValue, fixed: old.fixed } : { ...p, fixed: true };
-        }),
-        powderBindings: spec.bindings,
+        }), s.powderParams),
+        powderBindings: keptBindings(spec.bindings, s.powderBindings),
         powderProfile: spec.profile,
       };
       result = null;

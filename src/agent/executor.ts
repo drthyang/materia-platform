@@ -198,7 +198,7 @@ export class AgentExecutor implements ToolRunner {
         await new Promise((r) => setTimeout(r, 0));
         let out = spec.name === "sample_posterior" ? await samplePosteriorTool(input as { continue?: boolean; steps?: number; compare?: [string, string][] }, port, (run) => { this.posterior = { run, key: keyOfState(port.technique, port.state()), step: this.currentStep() }; })
           : port.technique === "pdf" ? readPdfTool(spec.name, input, port, this.host)
-            : isMagneticTool(spec.name) ? await readMagneticTool(spec.name, input, port)
+            : isMagneticTool(spec.name) ? await readMagneticTool(spec.name, input, port, () => this.host.settle())
               : readPowderTool(spec.name, input, port, this.host);
         if (spec.name === "check_cell_symmetry") this.noteCellCheck(port, out as { passed?: boolean; unindexedPeaks?: unknown[]; absences?: { violated?: unknown[] } });
         if (spec.name === "review_symmetry") this.noteSymmetryReview(port, out as { observedForbidden?: unknown[]; candidates?: { name: string }[] });

@@ -52,7 +52,12 @@ a single irreducible representation — a maximal group — so start there:
 
 1. `rank_magnetic_groups` with the default scope fits the maximal groups' moments (the
    nuclear model held) and ranks them by wR against the nuclear-only wR. Widen to
-   `"all"` only when no maximal group explains the magnetic peaks.
+   `"all"` only when no maximal group explains the magnetic peaks — and check that it
+   explains each of them, not only the wR: neutrons see the moment component
+   perpendicular to Q, so a moment along c puts no intensity on 0 0 l. A magnetic 0 0 l
+   line the best maximal group leaves in the residual asks for an in-plane component,
+   which may only a lower group allow (Cr₂WO₆ at 4 K: the maximal P4₂'/m'nm', moments
+   along c, left 0 0 1 at 32σ; the in-plane groups of index 4 took wR from 18.9 to 12 %).
 2. Read the ranking honestly. A powder often cannot tell several groups apart (the
    direction ambiguity below): groups within the noise of the best are equally good fits.
    Among them prefer the maximal group with the fewest moment parameters (the ★), and say
@@ -70,6 +75,9 @@ a single irreducible representation — a maximal group — so start there:
      More is a red flag: the form factor, the scale, the multiplicity, or overlap.
    - Reduced moments are expected and meaningful (covalency, fluctuations, crystal field).
    - The magnetic peaks are fitted, and the wR gain over the nuclear-only fit is real.
+   - A component that starts at exactly zero has no gradient (intensity is quadratic in
+     the moment): the fit cannot move it, and refine refuses it as undetermined. Hold it
+     and say it was not tested — not that the data put it at zero.
 
 ## Stage 4 — nuclear and magnetic together
 
@@ -81,6 +89,12 @@ a single irreducible representation — a maximal group — so start there:
    then together, watching the correlations (moment ↔ scale; for k = 0, moment ↔ the ADPs
    and occupancies of the magnetic site).
 3. `assess_refinement` and the acceptance bar as for the nuclear fit.
+4. With k = 0 the magnetic and nuclear intensities share reflections, and the nuclear
+   positions can follow the magnetic model. Compare the refined positions and bond-valence
+   sums with a refinement above the ordering temperature: positions that drift by several
+   esds and strain the bond valences are absorbing magnetic misfit. Compare candidate
+   groups on one structure (positions held) before choosing, and report the tension if
+   the magnetic intensities and the nuclear structure want different positions.
 
 ## What to report — and what not
 
@@ -90,7 +104,10 @@ a single irreducible representation — a maximal group — so start there:
   from powder data (only |M|); in a uniaxial one only the angle to the unique axis. Do not
   report a direction the data cannot fix, and do not choose among degenerate groups by R
   factor alone.
-- Domains: the group's domain count; a powder averages them.
+- Domains: the group's domain count; a powder averages them. Orientation domains that
+  exchange two axes (a and b in an orthorhombic group of a tetragonal parent) make the
+  moment's direction between those axes undeterminable: report the size and the
+  arrangement, not the direction within the plane.
 - A moment's size trades with the scale and the ADPs, and a small one sits near its bound
   at 0: before you report a moment whose esd is a large part of it, sample the posterior
   (`bayesian-check`, `sample_posterior` with the moments, the scale and the B's free) and
