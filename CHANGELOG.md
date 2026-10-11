@@ -192,6 +192,12 @@ release fixes bugs.
   so adding a skill needs no code. A PDF skill (`pdf-workflow`) joins the
   Rietveld one, and the Rietveld skill now matches what the app enforces (the
   correlation exemptions, the site ties, phase fractions).
+- **The Agent panel is resizable.** Drag its left edge (or focus it and use
+  ← / →); the browser remembers the width, and a double click restores the
+  default. The page beside it always keeps 480px. On a tablet held upright the
+  panel docks under the page as a sheet instead of covering it, so the plot and
+  the cards the Agent works on stay in view.
+
 - **Hold the composition** (Shared site row, and the Agent's new
   `set_site_ties`): each element on two or more sites keeps its total in the
   cell, so atoms exchange between sites while the formula stays (anti-site
@@ -328,6 +334,15 @@ release fixes bugs.
   nothing else can be refined. The check also stops reading a strong
   neighbour's tail as a forbidden reflection's intensity (a violation must be
   a peak's apex).
+- **The page lays out for the room it has beside the Agent.** Its breakpoints
+  read the window, so with the Agent open a 1024px window kept the wide layout
+  in 684px (a 208px parameter column). They now read the page's own width
+  (container queries): the page stacks, splits or keeps three columns for the
+  width it actually gets, and the parameter column keeps at least 340px.
+- **The header holds its rows.** Its bands were tuned before the Agent button
+  and the step label joined it, and it wrapped at every width from 720px to
+  1460px (menus or the GPU chip alone on a second row). One row from 1120px,
+  two designed rows below, and nothing overflows down to 340px.
 
 - **Occupancy restraints reach the Rietveld fit.** The powder page never sent
   them, so a shared site's occupancies refined with no Σ restraint (the site
