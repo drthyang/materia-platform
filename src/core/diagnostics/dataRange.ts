@@ -310,9 +310,17 @@ export function inspectDataRange(input: DataRangeInput): DataRangeReading {
   const low = readEnd("low");
   const high = readEnd("high");
   const window = input.window ?? { min: x[0]!, max: x[n - 1]! };
-  const proposed = low.verdict === "trim" || high.verdict === "trim"
+  let proposed: { min: number; max: number } | null = low.verdict === "trim" || high.verdict === "trim"
     ? { min: low.verdict === "trim" ? low.cut! : window.min, max: high.verdict === "trim" ? high.cut! : window.max }
     : null;
+  // An end trimmed past the far end of the current window: the window held only
+  // what is trimmed, so the far end opens to the data's own. Two trims that
+  // cross leave nothing to propose.
+  if (proposed && proposed.min >= proposed.max) {
+    proposed = low.verdict === "trim" && high.verdict !== "trim" ? { min: proposed.min, max: x[n - 1]! }
+      : high.verdict === "trim" && low.verdict !== "trim" ? { min: x[0]!, max: proposed.max }
+      : null;
+  }
   return {
     extent: { min: x[0]!, max: x[n - 1]! },
     low,

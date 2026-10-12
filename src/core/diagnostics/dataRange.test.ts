@@ -60,6 +60,14 @@ describe("the data's ends", () => {
     expect(r.basis).toBe("the data");
   });
 
+  it("never proposes a window whose ends cross", () => {
+    // The current window lies wholly in the background below the first line: trimming the low end past it leaves nothing.
+    const r = inspectDataRange({ ...pattern(LINES), window: { min: 10, max: 15 } });
+    expect(r.low.verdict).toBe("trim");
+    if (r.proposed) expect(r.proposed.min).toBeLessThan(r.proposed.max);
+    expect(r.proposed).toEqual({ min: r.low.cut, max: 130 });
+  });
+
   it("keeps the background stretch when the data hold a peak there no phase explains", () => {
     // A line at 14° the model lacks (magnetic order, an impurity).
     const r = inspectDataRange(pattern(LINES, 200, (v, y) => y + 400 * Math.exp((-4 * Math.LN2 * (v - 14) ** 2) / 0.09)));
