@@ -589,6 +589,11 @@ The page-specific handlers are [`powderTools.ts`](../src/agent/powderTools.ts),
   a failed measurement from a model that misses before anything is left
   out. `omit_reflections` leaves single measurements out by their indices and
   batch (SHELXL's OMIT h k l), with the reason, which the report lists.
+  `assess_refinement` computes `failedMeasurements` (off by themselves at 6σ
+  or more, their equivalents agreeing with the model), and `write_report`
+  refuses while one is still fitted, neither left out nor kept by the user
+  (`keep_reflections`, an approval card even in Auto; the report lists what
+  was kept and why).
   `set_outlier_filter` is the page's |Fo² − Fc²|/σ cutoff (SHELX's OMIT,
   applied wholesale), and with `minExtinction` it also leaves out the
   reflections whose extinction factor y is below the cut, the extinction

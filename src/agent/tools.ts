@@ -141,6 +141,19 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     pages: ["singleCrystal"],
   },
   {
+    name: "keep_reflections",
+    title: "Keep failed measurements",
+    description:
+      "Single-crystal page only. Keep in the fit measurements assess_refinement lists as failed (`failedMeasurements`: off by themselves, their equivalents agreeing with the model), when the user wants them kept: write_report refuses while a listed failure is fitted and neither left out (omit_reflections) nor kept. Only when the user asks for it, never to get past the refusal. Always shows the user an approval card, even in Auto; only they can approve it. Give their reason in `reason`; the report lists what was kept and why. Lasts until the data change.",
+    inputSchema: {
+      reflections: z.array(z.object({ h: z.number().int(), k: z.number().int(), l: z.number().int(), batch: z.number().int().optional() })).min(1),
+      reason: z.string().min(3).describe("Why the user keeps them, in their terms"),
+    },
+    effect: "change",
+    pages: ["singleCrystal"],
+    alwaysAsk: true,
+  },
+  {
     name: "test_extinction",
     title: "Test the extinguished reflections",
     description:

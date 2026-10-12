@@ -92,6 +92,16 @@ export async function changeSingleCrystal(name: string, input: Input, port: Sing
       return undefined;
     case "test_extinction":
       return extinctionTest(s, port, input.below ?? 0.5);
+    case "keep_reflections": {
+      const failed = failedMeasurements(s);
+      const asked = (input.reflections as { h: number; k: number; l: number; batch?: number }[]);
+      const unknown = asked.filter((r) => !failed.some((f) => keptKey(f) === keptKey(r)));
+      if (unknown.length) throw new Error(`${unknown.map(measurementName).join(", ")} ${unknown.length === 1 ? "is" : "are"} not on the failed list (assess_refinement \`failedMeasurements\`): only a listed failure needs keeping`);
+      const kept = new Map(keptMeasurements(s));
+      for (const r of asked) kept.set(keptKey(r), String(input.reason));
+      KEPT.set(s.dataset, kept);
+      return `Kept in the fit at the user's word (${input.reason}): ${asked.map(measurementName).join(", ")}. The report says so; a change of the data starts the list again.`;
+    }
     case "set_resolution_range":
       port.setResolution({ ...(input.dMin !== undefined ? { dMin: input.dMin } : {}), ...(input.dMax !== undefined ? { dMax: input.dMax } : {}) });
       return undefined;
@@ -285,6 +295,8 @@ export function singleCrystalNoOp(spec: LiveToolSpec, input: Input, s: SingleCry
 /** One line for the approval card: what this change will do, in the page's terms. */
 export function describeSingleCrystalChange(spec: LiveToolSpec, input: Input, s: SingleCrystalLiveState): string {
   switch (spec.name) {
+    case "keep_reflections":
+      return `Keep in the fit, at your word, ${(input.reflections as { h: number; k: number; l: number; batch?: number }[]).map(measurementName).join(", ")} — read as failed measurements: ${String(input.reason)}`;
     case "test_extinction": {
       const below = input.below ?? 0.5;
       return `Test the extinction: refine twice as probes, with and without the ${s.rows.filter((r) => (r.extinction ?? 1) < below).length} reflections of y < ${below}, and compare — the page stays as it is`;
@@ -997,6 +1009,34 @@ function outliersView(s: SingleCrystalLiveState, count: number): string[] {
     .map((r) => `${hklOf(r)}${r.batch !== undefined ? ` (batch ${r.batch})` : ""}: Fo² ${sig(r.foSq, 4)}, Fc² ${sig(r.fcSq, 4)}, ${residual(r)} (d ${sig(dSpacing(s.structure.cell, r.h, r.k, r.l), 3)} Å) — ${equivalentsReading(s, r, keyOf)}`);
 }
 
+/** How a measurement is named to the user: its indices and batch. */
+const measurementName = (r: { h: number; k: number; l: number; batch?: number }): string => `${r.h} ${r.k} ${r.l}${r.batch !== undefined ? ` (batch ${r.batch})` : ""}`;
+const keptKey = (r: { h: number; k: number; l: number; batch?: number }): string => `${r.h},${r.k},${r.l},${r.batch ?? ""}`;
+
+/**
+ * The measurements the user chose to keep in the fit though they read as
+ * failed (keep_reflections, always their decision), by the data they belong
+ * to: a change of the data starts a new list, as it lifts an exception.
+ */
+const KEPT = new WeakMap<object, Map<string, string>>();
+
+export function keptMeasurements(s: SingleCrystalLiveState): ReadonlyMap<string, string> {
+  return KEPT.get(s.dataset) ?? new Map();
+}
+
+/**
+ * The measurements still fitted that read as failed: off by themselves at 6σ
+ * or more, their equivalents agreeing among themselves and with the model
+ * (the reading the outlier list gives "a failed measurement"). Computed, not
+ * judged: the list write_report refuses on while one is fitted and not kept.
+ */
+export function failedMeasurements(s: SingleCrystalLiveState): SingleCrystalRow[] {
+  if (s.dataset.merged) return [];
+  const rotations = laueRotations(s.structure.spaceGroup.operations);
+  const keyOf = (r: { h: number; k: number; l: number }): string => canonicalKey(rotations, r.h, r.k, r.l);
+  return s.rows.filter((r) => r.sigma > 0 && Math.abs(r.deltaOverSigma) >= 6 && /: a failed measurement$/.test(equivalentsReading(s, r, keyOf)));
+}
+
 /** The least and greatest of `values`, by a loop: spreading a TOF file's 10⁵–10⁶ values into Math.min overflows the call stack. */
 export function extent(values: readonly number[]): [number, number] {
   let lo = Infinity;
@@ -1312,6 +1352,11 @@ function assessment(s: SingleCrystalLiveState): Record<string, unknown> {
     ...(extinctionView(s.rows) ? { extinctionCorrection: extinctionView(s.rows) } : {}),
     ...(batchView(s.rows) ? { byBatch: batchView(s.rows) } : {}),
     outliers: outliersView(s, 8),
+    ...(() => {
+      const failed = failedMeasurements(s);
+      const kept = keptMeasurements(s);
+      return failed.length > 0 ? { failedMeasurements: failed.map((r) => `${measurementName(r)}${kept.has(keptKey(r)) ? ` — kept by the user: ${kept.get(keptKey(r))}` : ""}`) } : {};
+    })(),
     outliersReading: "Each outlier against its equivalents: one marked a failed measurement goes with omit_reflections (by its batch); a reflection the model misses stays, whatever its residual.",
     ...(s.omitted.length ? { omitted: s.omitted.map((o) => `${omittedText(o)}${o.reason ? `: ${o.reason}` : ""}`) } : {}),
     extinctionModel: extinctionLabel(s),
@@ -1376,6 +1421,13 @@ function restraintsView(s: SingleCrystalLiveState): Record<string, unknown> {
 /** The report's checks: the engine's view of the fit on screen. */
 export function singleCrystalReportChecks(s: SingleCrystalLiveState, probe: RefinementResult | null = null): ReportCheck[] {
   if (!s.result || s.structure.sites.length === 0) return [noResultCheck()];
+  // A measurement the data say failed, still fitted and not kept by the user: no report on a fit that carries it.
+  const kept = keptMeasurements(s);
+  const failed = failedMeasurements(s);
+  const open = failed.filter((r) => !kept.has(keptKey(r)));
+  if (open.length > 0) {
+    throw new Error(`not yet: ${open.length === 1 ? "a failed measurement is" : `${open.length} failed measurements are`} still fitted (${open.map(measurementName).join(", ")}: off by themselves, their equivalents agreeing with the model). Leave ${open.length === 1 ? "it" : "them"} out with omit_reflections (by batch, with the reason) and refine; or, if the user wants ${open.length === 1 ? "it" : "them"} kept, keep_reflections asks them. Then write the report.`);
+  }
   const a = assess_refinement({ result: s.result, parameters: [...s.parameters], observationCount: s.observationCount, mode: "single-crystal", restraints: s.restraints, disorder: disorderAssemblies(s.structure, s.bindings, s.twinLaws) });
   const v = validationOf(s);
   const checks: ReportCheck[] = [
@@ -1424,6 +1476,7 @@ export function singleCrystalReportChecks(s: SingleCrystalLiveState, probe: Refi
   }
   const batches = batchView(s.rows);
   if (batches) checks.push({ name: "Batches", status: "note", detail: `${String(batches.batches)} batches, K ${String(batches.K)}; farthest: ${(batches.farthest as string[]).slice(0, 3).join("; ")}.` });
+  if (failed.length > 0) checks.push({ name: "Failed measurements kept", status: "warn", detail: `Kept in the fit at the user's word: ${failed.map((r) => `${measurementName(r)} (${kept.get(keptKey(r))})`).join("; ")}.` });
   if (v.outliers.length > 0) {
     checks.push({ name: "Largest outliers", status: "note", detail: outliersView(s, 6).join("; ") + (s.outlierFilter.on ? `; ${s.outlierFilter.excluded} left out by the filter (|Δ|/σ > ${s.outlierFilter.cutoffSigma}${s.outlierFilter.minExtinction !== undefined ? ` or y < ${s.outlierFilter.minExtinction}` : ""}).` : ".") });
   }

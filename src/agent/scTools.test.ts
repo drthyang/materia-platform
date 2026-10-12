@@ -192,6 +192,32 @@ describe("AgentExecutor on the single-crystal page", { timeout: 30_000 }, () => 
     expect(out.text).toMatch(/refine first/);
   });
 
+  it("lists the failed measurements, refuses the report while one is fitted, and writes it once it is left out or kept", async () => {
+    const failedPage = (): ReturnType<typeof page> => page({ extinction: 20, failed: { h: 1, k: 0, l: 4, factor: 0.03 } });
+    for (const way of ["omit", "keep"] as const) {
+      const { port } = failedPage();
+      const { ex, asked } = executor(fakeHost(port).host, "auto");
+      await ex.run("refine", {});
+      const listed = parse((await ex.run("assess_refinement", {})).text).failedMeasurements as string[];
+      expect(listed).toEqual(["1 0 4"]);
+      const refused = await ex.run("write_report", { summary: "Refined; R1 as listed." });
+      expect(refused.isError).toBe(true);
+      expect(refused.text).toMatch(/a failed measurement is still fitted \(1 0 4: .*omit_reflections.*keep_reflections asks them/);
+      if (way === "omit") {
+        await ex.run("omit_reflections", { omit: [{ h: 1, k: 0, l: 4 }], reason: "its equivalents agree with Fc²; it reads 3 %" });
+        await ex.run("refine", {});
+      } else {
+        // Only a listed failure can be kept, and only the user decides: the card asks even in Auto.
+        expect((await ex.run("keep_reflections", { reflections: [{ h: 2, k: 0, l: 4 }], reason: "the user trusts it" })).isError).toBe(true);
+        await ex.run("keep_reflections", { reflections: [{ h: 1, k: 0, l: 4 }], reason: "the user re-measured it and the value stands" });
+        expect(asked.some((e) => e.tool === "keep_reflections")).toBe(true);
+      }
+      const written = await ex.run("write_report", { summary: "Refined; R1 as listed." });
+      expect(written.isError, written.text).toBe(false);
+      if (way === "keep") expect(parse(written.text).checks as string[]).toContainEqual(expect.stringMatching(/^attention: Failed measurements kept — Kept in the fit at the user's word: 1 0 4 \(the user re-measured it/));
+    }
+  });
+
   it("marks each outlier by its equivalents, and omits the failed measurements by batch", async () => {
     const failed = [{ h: 1, k: 0, l: 4, factor: 0.03 }, { h: 3, k: 0, l: 12, factor: 0.5 }];
     const c = corundumPage({ extinction: 20, batches: [1, 1, 1], failed });
