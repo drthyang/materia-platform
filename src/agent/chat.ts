@@ -30,7 +30,7 @@ import type {
   BetaToolUseBlock,
   BetaUsage,
 } from "@anthropic-ai/sdk/resources/beta/messages/messages";
-import { LIVE_TOOLS, inputJsonSchema, type LiveToolSpec } from "@/agent/tools";
+import { LIVE_TOOLS, inputJsonSchema, liveTool, type LiveToolSpec } from "@/agent/tools";
 import { SCOPE_NOTE, scopedTools } from "@/agent/toolScope";
 import { evidenceGate } from "@/agent/evidence";
 import type { AgentSituation, ToolRunner } from "@/agent/executor";
@@ -541,8 +541,8 @@ const MAX_SAME_CALL = 3;
 const MAX_REPEATS = 4;
 /** Calls in a row that change nothing: the model is told at the first count, and the turn stops at the second. */
 const STILL_NOTE = 12;
-/** Calls that neither count toward STILL_STOP nor reset it. */
-const STILL_NEUTRAL: ReadonlySet<string> = new Set(["read_ref", "read_skill"]);
+/** Read tools that neither count toward STILL_STOP nor reset it: reading what is there, and writing notes and the report. */
+const STILL_NEUTRAL: ReadonlySet<string> = new Set(["read_ref", "read_skill", "write_note", "write_report"]);
 const STILL_STOP = 20;
 
 const callKey = (name: string, input: unknown): string => `${name} ${stableJson(input ?? {})}`;
@@ -596,8 +596,11 @@ export class LoopGuard {
     const repeat = prev !== undefined && prev.text === answer && (before === null || prev.at === before);
     const count = repeat ? prev.count + 1 : 1;
     this.seen.set(key, { at: before, text: answer, count });
-    // Reading a ref or a skill is reading what is already there: neither progress nor a stall.
-    if (!STILL_NEUTRAL.has(name)) this.still = this.opts.countStill !== false && before !== null && after === before ? this.still + 1 : 0;
+    // Only reads count toward a stall: a change attempt, a note or a report is work even when the fit
+    // stays as it was (a boxcar scan, a refused refinement), and reading a ref or a skill reads what is there.
+    const changed = before !== null && after !== before;
+    if (changed) this.still = 0;
+    else if (!STILL_NEUTRAL.has(name) && liveTool(name)?.effect === "read") this.still = this.opts.countStill !== false && before !== null ? this.still + 1 : 0;
     if (repeat) {
       this.repeats++;
       if (count >= MAX_SAME_CALL) return { note: null, stop: `it called ${name} ${count} times with the same input, and nothing changed in between` };

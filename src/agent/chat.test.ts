@@ -572,6 +572,19 @@ describe("the loop guard", () => {
     expect(pages.every((o) => o.stop === null && o.note === null)).toBe(true);
   });
 
+  it("counts only reads toward a stall: notes, reports and change attempts are work", () => {
+    const g = new LoopGuard({ countStill: true });
+    // A wrap-up as qwen3.8-27b did it on the PDF page: scans, notes, the table, reports.
+    const calls: [string, Record<string, unknown>][] = [
+      ...Array.from({ length: 3 }, (_, i): [string, Record<string, unknown>] => ["boxcar_scan", { width: 2 + i }]),
+      ...Array.from({ length: 8 }, (_, i): [string, Record<string, unknown>] => ["write_note", { text: `n${i}` }]),
+      ["structure_table", {}],
+      ...Array.from({ length: 3 }, (_, i): [string, Record<string, unknown>] => ["write_report", { summary: `r${i}` }]),
+      ...Array.from({ length: 6 }, (_, i): [string, Record<string, unknown>] => ["refine", { i }]),
+    ];
+    expect(calls.map(([n, input], i) => g.record(n, input, `{"n":${i}}`, "s", "s")).every((o) => o.stop === null && o.note === null)).toBe(true);
+  });
+
   it("tells the model once when the twelfth call that changes nothing is a repeat", () => {
     const g = new LoopGuard({ countStill: true });
     for (let i = 0; i < 11; i++) g.record("reflection_equivalents", { h: i }, `{"n":${i}}`, "s", "s");
