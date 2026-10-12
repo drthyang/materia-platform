@@ -40,3 +40,21 @@ describe("mentionsD", () => {
     expect(check.grade(run("GoF 2.30 and wR 2.29 %, B = 2.31 Å², at 2θ 2.32°.")).pass).toBe(false);
   });
 });
+
+describe("comparesExtinctionModels", () => {
+  const refine = (wR2: number) => ({ kind: "call", name: "refine", input: {}, isError: false, text: JSON.stringify({ refined: true, wR2 }), free: ["scale", "extinction", "B_O1"] });
+  const run = (events: unknown[], model: string): EvalRun => ({ events, port: { state: () => ({ dataset: {}, extinctionModel: model }) } }) as unknown as EvalRun;
+  const setModel = { kind: "call", name: "set_extinction_model", input: { model: "bc-1-lorentzian" }, isError: false, text: "{}" };
+
+  it("compares the wR2s of refinements under the same conditions only", async () => {
+    const { comparesExtinctionModels } = await import("@/agent/evals/checks");
+    // Same data, weights and free set: a fair comparison, the better kept.
+    expect(comparesExtinctionModels.grade(run([refine(5.1), setModel, refine(4.2)], "bc-1-lorentzian")).pass).toBe(true);
+    // The high order alone under EXTI, the full range under Becker–Coppens: the wR2s do not compare.
+    const cut = { kind: "call", name: "set_resolution_range", input: { dMax: 1 }, isError: false, text: "{}" };
+    const back = { kind: "call", name: "set_resolution_range", input: { dMax: null }, isError: false, text: "{}" };
+    const verdict = comparesExtinctionModels.grade(run([cut, refine(3.0), back, setModel, refine(4.2)], "shelx"));
+    expect(verdict.pass).toBe(false);
+    expect(verdict.detail).toMatch(/never under the same data/);
+  });
+});
