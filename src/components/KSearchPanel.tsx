@@ -900,6 +900,7 @@ export function KSearchPanel({
       tolerance: 0.02,
       relativeTolerance: 0.005,
       maxQ: 0,
+      centring: centringTranslations(structure.spaceGroup.operations),
       ...(weights ? { weights } : {}),
     });
     setResults(found);

@@ -23,6 +23,7 @@
 import type { UnitCell } from "@/core/crystal/types";
 import type { Vec3 } from "@/core/math/types";
 import { inverseDSquared } from "@/core/crystal/unitCell";
+import { isReciprocalLatticeVector } from "@/core/crystal/symmetry";
 
 export interface KCandidate {
   /** Propagation vector (reciprocal-lattice units), components in [0, ½]. */
@@ -73,11 +74,19 @@ export interface KSearchOptions {
    * explaining a marginal one. The reported `matched`/`total` stay plain counts.
    */
   readonly weights?: readonly number[];
+  /**
+   * The lattice's centring translations (centringTranslations of the space
+   * group: (½ ½ ½) for I). The nuclear reflections are then only the G with
+   * G·t integer, and an integer k that is not one of them (k = (0 0 1) of an
+   * I lattice) is a vector of its own. Default none: a primitive lattice.
+   */
+  readonly centring?: readonly Vec3[];
 }
 
 const FRAC_LABEL: ReadonlyMap<string, string> = new Map([
   ["0.0000", "0"], ["0.5000", "½"], ["0.3333", "⅓"], ["0.6667", "⅔"],
   ["0.2500", "¼"], ["0.7500", "¾"], ["0.1667", "⅙"], ["0.8333", "⅚"],
+  ["1.0000", "1"],
 ]);
 
 function comp(x: number): string {
@@ -109,12 +118,39 @@ export function candidateKVectors(denominators: readonly number[] = [2, 3, 4, 6]
   return out;
 }
 
-/** Predicted magnetic-satellite d-spacings (Å) for propagation vector k. */
-function predictedSatelliteD(cell: UnitCell, k: Vec3, hklRange: number, dMin: number, dMax: number): number[] {
+/**
+ * The integer vectors that are not reciprocal-lattice vectors of a centred
+ * lattice, one per class modulo the lattice: [(0 0 1)] for I, three for F,
+ * none for P. Each added to the grid gives the vectors a primitive grid misses.
+ */
+function integerCosets(centring: readonly Vec3[]): Vec3[] {
+  const reps: Vec3[] = [[0, 0, 0]];
+  for (let x = 0; x <= 1; x++) for (let y = 0; y <= 1; y++) for (let z = 0; z <= 1; z++) {
+    const v: Vec3 = [x, y, z];
+    if (!reps.some((r) => isReciprocalLatticeVector([v[0] - r[0], v[1] - r[1], v[2] - r[2]], centring))) reps.push(v);
+  }
+  return reps;
+}
+
+/** One key per powder-equivalent k: k and −k, each modulo the (centred) reciprocal lattice. */
+function kClass(k: Vec3, centring: readonly Vec3[]): string {
+  const keys: string[] = [];
+  for (const s of [1, -1]) for (let a = -2; a <= 2; a++) for (let b = -2; b <= 2; b++) for (let c = -2; c <= 2; c++) {
+    const g: Vec3 = [a, b, c];
+    if (!isReciprocalLatticeVector(g, centring)) continue;
+    keys.push([s * k[0] + a, s * k[1] + b, s * k[2] + c].map((v) => (Math.abs(v) < 1e-9 ? 0 : v).toFixed(4)).join(","));
+  }
+  return keys.sort()[0]!;
+}
+
+/** Predicted magnetic-satellite d-spacings (Å) for propagation vector k, about the lattice's reflections G. */
+function predictedSatelliteD(cell: UnitCell, k: Vec3, hklRange: number, dMin: number, dMax: number, centring: readonly Vec3[] = []): number[] {
   const ds: number[] = [];
   for (let h = -hklRange; h <= hklRange; h++) {
     for (let kk = -hklRange; kk <= hklRange; kk++) {
       for (let l = -hklRange; l <= hklRange; l++) {
+        // Only the centred lattice's own reflections carry satellites.
+        if (centring.length > 0 && !isReciprocalLatticeVector([h, kk, l], centring)) continue;
         // Both satellites G+k and G−k (they differ for non-½ components).
         for (const s of [1, -1]) {
           const m0 = h + s * k[0], m1 = kk + s * k[1], m2 = l + s * k[2];
@@ -139,7 +175,7 @@ export function searchPropagationVector(
   observedD: readonly number[],
   options: KSearchOptions = {},
 ): KCandidate[] {
-  const { tolerance = 0.02, relativeTolerance = 0, denominators = [2, 3, 4, 6], hklRange = 4, limit = 12, maxQ = 6, weights } = options;
+  const { tolerance = 0.02, relativeTolerance = 0, denominators = [2, 3, 4, 6], hklRange = 4, limit = 12, maxQ = 6, weights, centring = [] } = options;
   const tolAt = (d: number): number => Math.max(tolerance, relativeTolerance * d);
   // Q = 2π/d; keep only low-Q peaks (large d), where magnetic scattering lives.
   // Weights stay parallel through the filter.
@@ -155,8 +191,21 @@ export function searchPropagationVector(
   const dMin = Math.min(...obs.map((o) => o.d)) * 0.95;
   const totalW = obs.reduce((s, o) => s + o.w, 0);
 
-  const candidates: (KCandidate & { matchedW: number })[] = candidateKVectors(denominators).map((k) => {
-    const predicted = predictedSatelliteD(cell, k, hklRange, dMin, dMax);
+  // The grid, and in a centred lattice the grid shifted by each integer vector the lattice lacks; one k per class.
+  const grid = candidateKVectors(denominators);
+  const classes = new Set<string>();
+  const kVectors: Vec3[] = [];
+  for (const c of integerCosets(centring)) {
+    for (const g of grid) {
+      const k: Vec3 = [g[0] + c[0], g[1] + c[1], g[2] + c[2]];
+      const key = kClass(k, centring);
+      if (classes.has(key)) continue;
+      classes.add(key);
+      kVectors.push(k);
+    }
+  }
+  const candidates: (KCandidate & { matchedW: number })[] = kVectors.map((k) => {
+    const predicted = predictedSatelliteD(cell, k, hklRange, dMin, dMax, centring);
     let matched = 0;
     let matchedW = 0;
     let sumSq = 0;

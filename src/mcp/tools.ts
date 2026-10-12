@@ -49,6 +49,7 @@ import { inspectDataRange, type DataRangeReading } from "@/core/diagnostics/data
 import { generateReflections } from "@/core/diffraction/reflections";
 import { abscissaFromD, radiationOf } from "@/core/diffraction/instrument";
 import { bondLengths } from "@/core/crystal/geometry";
+import { centringTranslations } from "@/core/crystal/symmetry";
 import { bondValenceReading, bondValenceSums, type BondValenceSum } from "@/core/crystal/bondValence";
 import { analyzeSiteSymmetry, type SiteSymmetry } from "@/core/crystal/siteSymmetry";
 import { classifyPointGroup } from "@/core/crystal/pointGroup";
@@ -672,7 +673,8 @@ export function search_propagation_vector(args: {
   options?: KSearchOptions;
 }): { candidates: { k: Vec3; label: string; matched: number; total: number; rmsd: number; score: number }[] } {
   // A line's width in d grows with d: match within 0.5 % of d where that is wider than the Å tolerance.
-  const candidates = searchPropagationVector(args.structure.cell, args.peakD, { relativeTolerance: 0.005, ...(args.options ?? {}) });
+  // Satellites about the lattice's own reflections: a centred lattice's absences carry none.
+  const candidates = searchPropagationVector(args.structure.cell, args.peakD, { relativeTolerance: 0.005, centring: centringTranslations(args.structure.spaceGroup.operations), ...(args.options ?? {}) });
   return { candidates: candidates.map((c) => ({ ...c })) };
 }
 
