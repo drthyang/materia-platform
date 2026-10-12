@@ -25,7 +25,7 @@ interface Props {
   readonly onClose: () => void;
 }
 
-const MODE_LABEL: Record<AgentMode, string> = { "api-key": "API key", proxy: "Local proxy", ollama: "Ollama", lmstudio: "LM Studio" };
+const MODE_LABEL: Record<AgentMode, string> = { "api-key": "API key", proxy: "Local proxy", ollama: "Ollama", lmstudio: "LM Studio", "openai-compatible": "OpenAI-compatible" };
 
 /** The model a local mode will use ("" with none picked); null for the Claude modes. */
 function localModel(s: AgentSettings): string | null {

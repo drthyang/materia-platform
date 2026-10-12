@@ -39,10 +39,11 @@ import { CONTEXT_EDITING, CONTEXT_EDITING_BETA, historyChars, pruneForLocal } fr
 import { hasRefusalFallback } from "@/agent/chat-models";
 import { ollamaBase, unreachableHint } from "@/agent/ollama";
 import { ollamaNativeFetch, ollamaWindow, type OllamaPlan } from "@/agent/ollamaNative";
+import { DEFAULT_OPENAI_CONTEXT, openaiBase, openaiCompatFetch, openaiUnreachableHint, openaiWindow } from "@/agent/openaiCompat";
 import { ensureLmStudioContext, lmstudioBase, lmstudioUnreachableHint } from "@/agent/lmstudio";
 import { MIN_AGENT_CONTEXT, plainFetch } from "@/agent/localServer";
 
-export type ChatTransport = "api-key" | "proxy" | "ollama" | "lmstudio";
+export type ChatTransport = "api-key" | "proxy" | "ollama" | "lmstudio" | "openai-compatible";
 export type ChatEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
 export interface ChatConfig {
@@ -51,8 +52,13 @@ export interface ChatConfig {
   readonly apiKey?: string;
   /** Another API address for the api-key transport (default the Anthropic API). */
   readonly baseURL?: string;
-  /** The local server (ollama and lmstudio transports; default that server's usual address). */
+  /** The local server (ollama and lmstudio transports; default that server's usual address), or an OpenAI-compatible server's base URL (with its /v1). */
   readonly serverUrl?: string;
+  /**
+   * OpenAI-compatible: the context to size requests to when the server does
+   * not say how long a prompt it takes, in tokens (default 32k).
+   */
+  readonly context?: number;
   readonly model: string;
   readonly effort: ChatEffort;
   /** How far the agent goes on its own (default "ask": stop at each gate). */
@@ -88,10 +94,14 @@ const MAX_TURNS = 40;
 export const PROXY_PATH = "api/anthropic";
 
 
-/** Which API the history was written for: Claude's thinking is signed, a local server's is not. */
-type Backend = "anthropic" | "ollama" | "lmstudio";
+/** Which API the history was written for: Claude's thinking is signed, another server's is not. */
+type Backend = "anthropic" | "ollama" | "lmstudio" | "openai-compatible";
 
 const isLocal = (t: ChatTransport): t is "ollama" | "lmstudio" => t === "ollama" || t === "lmstudio";
+/** Requests sized to a window the app knows, with only the fields every server reads (not Claude's). */
+const isSized = (t: ChatTransport): t is "ollama" | "lmstudio" | "openai-compatible" => isLocal(t) || t === "openai-compatible";
+/** A window this long or more holds every tool: the OpenAI-compatible provider then offers them all. */
+const LARGE_CONTEXT = 131_072;
 
 export class AgentChat {
   private readonly messages: BetaMessageParam[] = [];
@@ -128,7 +138,7 @@ export class AgentChat {
   /** Send one user message and run the turns it leads to. */
   async send(text: string, config: ChatConfig, cb: ChatCallbacks, signal: AbortSignal): Promise<void> {
     const client = clientFor(config, () => this.ollamaPlan);
-    const backend: Backend = isLocal(config.transport) ? config.transport : "anthropic";
+    const backend: Backend = isSized(config.transport) ? config.transport : "anthropic";
     if (this.backend !== null && this.backend !== backend) this.keepPortableBlocks();
     this.backend = backend;
     this.window = null;
@@ -145,6 +155,11 @@ export class AgentChat {
       const loaded = await ensureLmStudioContext(config.serverUrl ?? "", config.model, signal);
       if (loaded.notice) cb.onNotice(loaded.notice, "info");
       this.window = loaded.context;
+    }
+    if (config.transport === "openai-compatible") {
+      // The server's own context when it says (vLLM, llama.cpp, gateways), else the one the user set.
+      const reported = await openaiWindow(config.serverUrl ?? "", config.apiKey, config.model, signal);
+      this.window = reported ?? config.context ?? DEFAULT_OPENAI_CONTEXT;
     }
     if (config.transport === "ollama") {
       // Ollama runs a request at the context it asks for (num_ctx, through the
@@ -209,7 +224,7 @@ export class AgentChat {
       }
       cb.onUsage(message.usage);
       this.messages.push({ role: "assistant", content: message.content });
-      const cut = isLocal(config.transport) ? this.readCount(message.usage) : null;
+      const cut = isSized(config.transport) ? this.readCount(message.usage) : null;
       // Never a silent switch: say which model answered when a fallback did.
       for (const b of message.content) {
         if (b.type === "fallback") cb.onNotice(`${b.from.model} declined this turn; ${b.to.model} answered it.`, "info");
@@ -312,8 +327,8 @@ export class AgentChat {
 
   /** One turn's request: everything Claude reads, or only what a local server does. */
   private request(config: ChatConfig): BetaMessageStreamParams {
-    if (isLocal(config.transport)) {
-      // A thinking-capable model thinks by default, and both servers reuse the
+    if (isSized(config.transport)) {
+      // A thinking-capable model thinks by default, and the servers reuse the
       // cached prompt prefix by themselves.
       const scoped = this.offered(config);
       const system = `${this.system}\n\n${autonomyNote(config.autonomy ?? "ask")}${scoped ? `\n\n${SCOPE_NOTE}` : ""}`;
@@ -384,7 +399,8 @@ export class AgentChat {
    * analysis stands.
    */
   private offered(config: ChatConfig): BetaTool[] | null {
-    const scope = config.toolScope ?? (isLocal(config.transport) ? "stage" : "all");
+    // A local model's window is small; an OpenAI-compatible one's may be either: all the tools only when it is large.
+    const scope = config.toolScope ?? (isLocal(config.transport) || (config.transport === "openai-compatible" && (this.window ?? 0) < LARGE_CONTEXT) ? "stage" : "all");
     if (scope === "all" || this.here === null) return null;
     const asked = this.messages.filter((m) => m.role === "user" && typeof m.content === "string" && !m.content.startsWith(FROM_APP)).map((m) => m.content as string);
     return scopedTools({ page: this.here.page, stage: this.here.stage, magnetic: this.here.magnetic, asked, called: this.called }).map(toBetaTool);
@@ -475,7 +491,9 @@ export function fitWindow(messages: readonly BetaMessageParam[], fixedChars: num
       const needs = `it needs about ${k(estimate + MIN_REPLY)} (the instructions and tools alone about ${k(fixedChars / charsPerToken)}). Nothing was sent, so the model was not handed a cut prompt.`;
       return config.transport === "lmstudio"
         ? `This conversation no longer fits the ${k(window)}-token context LM Studio runs ${config.model} with, even with the old tool results shortened: ${needs} Start a new conversation, or give the model a longer context (lms unload ${config.model} && lms load ${config.model} --context-length ${2 * window}).`
-        : `This conversation no longer fits ${config.model}'s ${k(window)}-token context on Ollama, even with the old tool results shortened: ${needs} Start a new conversation, or pick a model with a longer context.`;
+        : config.transport === "openai-compatible"
+          ? `This conversation no longer fits the ${k(window)}-token window used for ${config.model} (the server's own, or the context set in the Agent settings when the server does not say), even with the old tool results shortened: ${needs} Start a new conversation, or set a longer context if the model takes one.`
+          : `This conversation no longer fits ${config.model}'s ${k(window)}-token context on Ollama, even with the old tool results shortened: ${needs} Start a new conversation, or pick a model with a longer context.`;
     },
   };
 }
@@ -679,6 +697,11 @@ function toolError(id: string, text: string): BetaToolResultBlockParam {
 }
 
 function clientFor(config: ChatConfig, ollamaPlan: () => OllamaPlan | null): Anthropic {
+  if (config.transport === "openai-compatible") {
+    // The SDK's requests become chat completions (openaiCompat.ts); the key goes only to the server named, as a Bearer token.
+    const base = openaiBase(config.serverUrl ?? "");
+    return new Anthropic({ apiKey: "openai-compatible", baseURL: base, dangerouslyAllowBrowser: true, maxRetries: 1, fetch: openaiCompatFetch(base, config.apiKey || undefined) });
+  }
   if (isLocal(config.transport)) {
     // A local server ignores the key, but the SDK wants one; plainFetch never sends it.
     // Ollama goes through its native chat, the only endpoint that takes a context length.
@@ -698,6 +721,7 @@ function clientFor(config: ChatConfig, ollamaPlan: () => OllamaPlan | null): Ant
 export function describeChatError(e: unknown, config: Pick<ChatConfig, "transport" | "model" | "serverUrl">): string {
   const { transport } = config;
   if (transport === "ollama") return describeOllamaError(e, config);
+  if (transport === "openai-compatible") return describeOpenAIError(e, config);
   if (transport === "lmstudio") return describeLmStudioError(e, config);
   if (e instanceof Anthropic.AuthenticationError) {
     return transport === "proxy"
@@ -733,6 +757,24 @@ function describeOllamaError(e: unknown, config: Pick<ChatConfig, "model" | "ser
       return `"${config.model}" cannot call tools, and the Agent works only through them. Pick a model marked "tools" in the Agent settings.`;
     }
     return `Ollama error ${e.status ?? ""}: ${message}`;
+  }
+  return e instanceof Error ? e.message : String(e);
+}
+
+function describeOpenAIError(e: unknown, config: Pick<ChatConfig, "model" | "serverUrl">): string {
+  const base = openaiBase(config.serverUrl ?? "");
+  if (e instanceof Anthropic.APIConnectionError) return openaiUnreachableHint(base);
+  if (e instanceof Anthropic.APIError) {
+    const body = e.error as { error?: { message?: string } | string } | undefined;
+    const message = (typeof body?.error === "string" ? body.error : body?.error?.message) ?? e.message;
+    if (e.status === 401 || e.status === 403) return `${base} refused the API key (${e.status}): ${message} Check the key in the Agent settings.`;
+    if (e.status === 429) return `${base} is rate-limiting this key: ${message} Wait a moment and try again.`;
+    if (/context|too long|maximum.*tokens|token limit/i.test(message) && /length|exceed|maximum|limit|long/i.test(message)) {
+      return `The server says the prompt is longer than ${config.model} takes: ${message} Set the context in the Agent settings to what the model takes (the Agent then shortens old results to fit), or start a new conversation.`;
+    }
+    if (e.status === 404 || /model.*(not found|does not exist)|unknown model/i.test(message)) return `${base} has no model "${config.model}": ${message} Pick another in the Agent settings.`;
+    if (/tool|function/i.test(message) && /support/i.test(message)) return `"${config.model}" cannot call tools on ${base}, and the Agent works only through them: ${message}`;
+    return `Server error ${e.status ?? ""} from ${base}: ${message}`;
   }
   return e instanceof Error ? e.message : String(e);
 }
