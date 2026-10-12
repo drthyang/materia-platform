@@ -197,7 +197,9 @@ describe("worked examples, replayed through an MCP client", () => {
     expect(first).toEqual(["100@18.9", "101@27.8", "2-10@33.0", "200@38.3"]);
     const bonds = await call("bond_geometry", { structure: s.structure, cutoff: 3.2 });
     expect(bonds.shortest).toMatchObject({ from: "Mn1", to: "Mn1" });
-    expect(bonds.shortest.distance).toBeCloseTo(2.665, 3); // a normal metallic Mn–Mn contact
+    // A normal metallic Mn–Mn contact. The run in AGENT_EXAMPLES.md read 2.665 Å; the CIF's
+    // y (0.32775) is 1e-4 off 2x, and one copy per symmetry position now gives 2.6657.
+    expect(bonds.shortest.distance).toBeCloseTo(2.6657, 3);
   });
 
   it("Example 3 — a magnetic structure from the peaks the nuclear model leaves", async () => {
