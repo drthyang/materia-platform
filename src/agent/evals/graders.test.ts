@@ -58,3 +58,15 @@ describe("comparesExtinctionModels", () => {
     expect(verdict.detail).toMatch(/never under the same data/);
   });
 });
+
+describe("the free set an eval records for a call", () => {
+  it("is what a boxcar_scan given `free` fits, not the page's set", async () => {
+    const { freeAtCall } = await import("@/agent/evals/harness");
+    const row = (id: string, fixed: boolean, expression?: string) => ({ id, label: id, kind: "bIso" as const, value: 1, initialValue: 1, fixed, ...(expression ? { expression } : {}) });
+    const params = [row("scale", false), row("delta2", false), row("x_Ga1", true), row("x_Se1", true), row("x_Se2", true, "= x_Se1")];
+    expect(freeAtCall("boxcar_scan", { free: ["x_*"] }, params)).toEqual(["x_Ga1", "x_Se1"]);
+    expect(freeAtCall("boxcar_scan", {}, params)).toEqual(["scale", "delta2"]);
+    expect(freeAtCall("refine", { free: ["x_*"] }, params)).toEqual(["scale", "delta2"]);
+    expect(freeAtCall("get_state", {}, params)).toBeUndefined();
+  });
+});
