@@ -12,7 +12,7 @@ import { z } from "zod";
 import { PAGE_LABEL, liveTool, type AgentPage, type LiveToolSpec, type ToolEffect } from "@/agent/tools";
 import type { AgentPort, LiveState, PdfLiveState, PowderLiveState, SingleCrystalLiveState } from "@/agent/port";
 import { changePowder, describePowderChange, diagnosisText, powderNoOp, powderReportChecks, readPowderTool, requireStructure, type DiagnosisView } from "@/agent/powderTools";
-import { changeMagnetic, describeMagneticChange, isMagneticTool, magneticNoOp, magneticOutcome, readMagneticTool } from "@/agent/magneticTools";
+import { changeMagnetic, describeMagneticChange, isMagneticTool, magneticNext, magneticNoOp, magneticOutcome, readMagneticTool } from "@/agent/magneticTools";
 import { changePdf, describePdfChange, pdfNoOp, pdfReportChecks, readPdfTool } from "@/agent/pdfTools";
 import { changeSingleCrystal, describeSingleCrystalChange, readSingleCrystalTool, singleCrystalNoOp, singleCrystalReportChecks } from "@/agent/scTools";
 import { samplePosteriorTool, type PosteriorRun } from "@/agent/posteriorTool";
@@ -548,10 +548,15 @@ export class AgentExecutor implements ToolRunner {
   private methodView(port: AgentPort): Record<string, unknown> {
     const record = this.syncStages(port);
     const progress = methodProgress(port.technique, record);
+    // Where the magnetic step has something to work on, its own next step leads (as get_state's magneticStep): the stages are the refinement step's.
+    const panel = port.technique === "powder" ? port.magnetic?.()?.state() ?? null : null;
+    const magnetic = panel !== null && (panel.peaks.some((p) => p.included) || panel.kSearch !== null || panel.selected !== null);
     return {
-      skill: progress.skill,
+      skill: magnetic ? "magnetic-analysis" : progress.skill,
       stages: progress.stages.map((st) => `${st.done ? "✓" : "○"} ${st.label}${st.optional ? " (if needed)" : ""}`),
-      next: progress.next ?? `every required stage done: check the acceptance bar${port.technique === "powder" ? "; only if the fit is still not good, review_symmetry" : ""}`,
+      next: magnetic
+        ? `the magnetic step: ${magneticNext(panel)} (the stages above are the refinement step's)`
+        : progress.next ?? `every required stage done: check the acceptance bar${port.technique === "powder" ? "; only if the fit is still not good, review_symmetry" : ""}`,
       ...(record.rangeCheck ? { rangeCheck: record.rangeCheck.summary } : {}),
       ...(record.cellCheck ? { cellCheck: record.cellCheck.summary } : {}),
       ...(record.symmetryReviewed ? { symmetryReview: record.symmetryReviewed.summary } : {}),

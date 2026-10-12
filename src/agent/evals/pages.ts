@@ -53,6 +53,29 @@ export function mn3gaSession(): Session {
   return { ...s, pattern: { ...s.pattern, points } };
 }
 
+/**
+ * Fault injection: the demo's pattern with its abscissa converted to d (Å)
+ * but still labelled 2θ — a file of d-spacings loaded as degrees. Nothing a
+ * refinement can do fits it; the axis has to be questioned first.
+ */
+export function mn3gaSwappedUnitsSession(): Session {
+  const s = mn3gaSession();
+  const points = s.pattern.points
+    .map((p) => ({ ...p, x: WAVELENGTH / (2 * Math.sin((p.x * Math.PI) / 360)) }))
+    .sort((a, b) => a.x - b.x);
+  return { ...s, pattern: { ...s.pattern, points } };
+}
+
+/**
+ * Fault injection: the demo's pattern, measured at 1.54 Å, loaded as if at
+ * 1.556 Å (a wavelength 1 % off) — every d 1 % long, beyond what the cell
+ * check's Le Bail fit can follow.
+ */
+export function mn3gaWrongWavelengthSession(): Session {
+  const s = mn3gaSession();
+  return { ...s, pattern: { ...s.pattern, wavelength: 1.556, radiation: { ...s.pattern.radiation, wavelength: 1.556 } as typeof s.pattern.radiation } };
+}
+
 /** The demo's true peak width (FWHM, °2θ); the page starts at 0.1. */
 const TRUE_WIDTH = 0.5;
 

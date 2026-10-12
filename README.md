@@ -8,7 +8,7 @@
 **Crystal and magnetic structure refinement that runs entirely in your browser,
 built to be driven by people and by AI agents.**
 
-**An Agent works the analysis with you.** Open it beside a powder or PDF fit and
+**An Agent works the analysis with you.** Open it beside a powder, single-crystal or PDF fit and
 a model of your choice — local on Ollama or LM Studio, or in the cloud — runs the refinement by
 your written method, says why a fit is poor, names the phase behind an extra
 peak, finds a magnetic structure, checks an unconvincing number with a Bayesian
@@ -29,24 +29,14 @@ neutron TOF Rietveld fit and a GaTa₄Se₈ X-ray PDF fit.
 
 ## Goals
 
-- **Refinement an agent can reason about.** Refinement is an expert loop, not a
-  black box: free only symmetry-allowed parameters, watch correlations, judge the
-  residuals. Every scientific function lives in a pure TypeScript core, so the
-  same engine backs the UI buttons, the MCP agent tools and the in-app Agent. It
-  returns what an agent needs to think with — correlations, near-null
-  directions, at-bound flags — not just a scalar wR. See
-  [The Agent](#the-agent) and [docs/AGENT_TOOLS.md](docs/AGENT_TOOLS.md).
+- **Refinement an agent can reason about.** One pure TypeScript core backs the
+  UI, the MCP tools and the in-app Agent, and returns what judgment needs —
+  correlations, null directions, bounds — not only wR.
 - **One workflow, nothing to install.** Powder and single crystal, X-ray and
-  neutron (constant-wavelength and time-of-flight), nuclear and magnetic,
-  reciprocal and real space: one engine, one UI, on any OS with a browser. It
-  reads the files you already have and complements GSAS-II, Jana2020 and
-  FullProf rather than replacing them. See [docs/COMPARISON.md](docs/COMPARISON.md).
-- **Transparent by design.** Fit quality is judged in a Validation view, not by
-  wR alone: a verdict checklist, residual analysis (Durbin–Watson, cumulative
-  χ², worst peaks) for powder, and SHELXL's analysis of variance for single
-  crystal. Every result is cross-checked against
-  established tools where possible, and the code is readable, tested TypeScript.
-  See [docs/VALIDATION.md](docs/VALIDATION.md).
+  neutron (CW and TOF), nuclear and magnetic, reciprocal and real space, in a
+  browser, beside GSAS-II, Jana2020 and FullProf ([comparison](docs/COMPARISON.md)).
+- **Transparent by design.** A validation view, not wR alone, and results
+  checked against established tools ([validation](docs/VALIDATION.md)).
 
 ## Features
 
@@ -54,7 +44,7 @@ neutron TOF Rietveld fit and a GaTa₄Se₈ X-ray PDF fit.
 | --- | --- | --- |
 | **Powder Rietveld** | CW and TOF, multi-phase, background, peak shape, microstructure; GSAS-II, GSAS and FullProf instrument files; one-click FullProf / GSAS-II cross-check bundle | [User guide](docs/USER_GUIDE.md) |
 | **Magnetic structures** | Detect magnetic peaks → k-vector search → magnetic subgroups with BNS/OG labels → moment refinement; k = 0, commensurate and incommensurate single-k; mCIF export | [Magnetic symmetry](docs/MAGNETIC_SYMMETRY.md) |
-| **Single crystal** | F² refinement from hkl, SHELX HKL and FullProf `.int` lists, with absorption correction | [Single crystal](docs/SINGLE_CRYSTAL.md) |
+| **Single crystal** | F² refinement from hkl, SHELX HKL and FullProf `.int` lists, extinction, twins and the absolute structure; the Agent works it too (absorption correction is in the core only, with no page control or Agent tool yet) | [Single crystal](docs/SINGLE_CRYSTAL.md) |
 | **PDF and mPDF** | Neutron and X-ray G(r), multi-phase and multi-dataset, boxcar scans across r, symmetry-mode distortions, magnetic PDF; validated against PDFfit2 and diffpy.mpdf | [PDF roadmap](docs/PDF_MPDF_ROADMAP.md) |
 | **Uncertainty** | Levenberg–Marquardt esds plus Bayesian posterior sampling (ensemble MCMC and NUTS) with convergence diagnostics | [Refinement engine](docs/REFINEMENT_ENGINE.md) |
 | **In-app Agent** | A model of your choice beside the analysis — local on Ollama or LM Studio, or a cloud model — runs it by your method and discusses it; every change approved or undoable | [The Agent](#the-agent) |
@@ -63,13 +53,13 @@ neutron TOF Rietveld fit and a GaTa₄Se₈ X-ray PDF fit.
 
 ## The Agent
 
-The **Agent** button opens a model beside the analysis on screen: one you run
-yourself on Ollama or LM Studio, or a cloud model (Anthropic's, through an API
-key or the local proxy), or any server that speaks OpenAI's API (OpenAI,
-Gemini, vLLM, a llama.cpp server). It reads the live page, judges the fit with the tools the MCP server
-exposes, and changes things through the page's own controls, each change an
-undoable History step. **Ask first** puts every change on an approval card;
-**Auto** lets it work through the method's stages on its own and stop when a
+The **Agent** button opens a model beside the analysis: one you run yourself on
+Ollama or LM Studio, a cloud model (Anthropic's, through an API key or the
+local proxy), or any server that speaks OpenAI's API (OpenAI, Gemini, vLLM, a
+llama.cpp server). It reads the live page, judges the fit with the same tools
+the MCP server exposes, and changes things through the page's own controls,
+each change an undoable History step. **Ask first** puts every change on an
+approval card; **Auto** works through the method's stages and stops when a
 decision is yours.
 
 Local models are experimental. The app sizes every request to the model's
@@ -80,84 +70,36 @@ suite's [local tier](docs/AGENT_EVALS.md#the-local-tier).
 
 [![The Agent sets the fit range, refines PbSO₄ with the instrument's terms and the B values in turn, and writes its report](docs/media/agent-demo.png)](docs/media/agent-demo.mp4)
 
-*[Watch the 96 s demo](docs/media/agent-demo.mp4) (MP4, 3.4 MB): the Agent refines
-PbSO₄ against GSAS-II's D1A neutron tutorial data by the method's stages and writes
-its report. It reads the data's ends first and leaves out the background below the
-first reflection and the last 2°, where one detector counts and the data end on a
-line's flank (the first fit leaves the last 0.8° 6σ above the model). It refines the instrument's
-terms (zero, profile, asymmetry) and the B values in turn, never together, until a
-cycle moves neither by more than 0.3 esd: wR 3.87 %, GoF 2.06. The refinements, the
-checks and the report's numbers are computed live in the browser; the Agent writes
-only its account. Its turns were written by Claude Opus 5.5 working the analysis
-through the app in a live run, and are replayed through a local relay so the
-recording can be repeated; the Agent's chip and the report say so ("Claude Opus 5.5 ·
-replay of a live run"). The stretch where the Agent refines is shown at 8× speed.*
+*[Watch the 96 s demo](docs/media/agent-demo.mp4): PbSO₄ against GSAS-II's D1A
+tutorial data, refined by the method's stages to wR 3.87 %, with its report. The
+numbers are computed live in the browser; the Agent's turns are a recorded live
+run (Claude Opus 5.5), replayed, and labelled so.*
 
-- **It runs the whole analysis, and talks it through.** The fit range (where the
-  data's ends stop being data the model should fit: background below the first
-  reflection, a detector's edge, peaks faded into the noise), the cell check (a
-  Le Bail fit: unindexed peaks, shoulders, absences), the refinement stage by
-  stage, the instrument's terms and the B values in turn, why
-  a fit is poor (`diagnose_fit`: background, positions, asymmetry, widths, the
-  intensity fall-off, texture), which phase an extra peak is (`identify_peaks`:
-  the sample environment and common standards), bond-valence sums, equal-value
-  ties, antisite disorder, the magnetic structure (k, the magnetic space groups,
-  the moments, the joint refinement) and boxcar scans of a PDF; then it reports
-  the result with its esds and its own assessment, and answers questions about
-  it. 57 tools across the powder page, its magnetic step, the single-crystal
-  page and the PDF page.
-- **A report you can hand on.** `write_report` opens the analysis report in the
-  app, to save as HTML, Markdown or PDF with the CIF: the data and the model, the
-  fit, the structure with esds, every parameter, and how the analysis went — the
-  History's steps with what each refinement freed and the method stage behind
-  it, the engine's checks (convergence, correlations, bounds, residual peaks,
-  serial correlation, bond valences) with the issues left open, and the Bayesian
-  check. Every number comes from the engine and the History; the Agent writes
-  only its account, labelled as its words, and any number in it the report did
-  not compute is underlined.
-- **The Bayesian check when a number is not convincing.** `sample_posterior` runs
-  the ensemble MCMC over the free parameters of a converged fit: credible
-  intervals, limits where a value sits on a bound, the posterior correlations,
-  and the probability that one value exceeds another. On Cr₂WO₆ it showed that
-  the data do not tell the two cations' B apart, so one tied B is the model.
-- **Your method, as skills read on demand.** The Rietveld workflow, the magnetic
-  analysis, the PDF workflow, the symmetry review and the Bayesian check live in
-  [`.claude/skills/`](.claude/skills). The system prompt carries their names and
-  descriptions only; the Agent reads a skill when the task needs it, so a local
-  model with a 32k context can follow it. Claude Code reads the same files.
-- **Rules in code, not only in prose.** No change before the page's method has
-  been read; no refinement of a parameter set that correlates at |ρ| ≥ 0.95,
-  checked at the current values before every refine; no bare occupancy; never
-  the instrument's terms (zero, profile, asymmetry) together with the B values
-  — they alternate, and each refinement says how far its group moved; the
-  space group questioned only once the method's stages are refined. The stages,
-  the fit range first, show as a checklist in the drawer.
-- **Tested on what it does.** Fifteen eval scenarios, each written against a failure
-  a user or a researcher round found, replay the real chat loop and tools in CI
-  with a scripted model — once as the Agent should behave and once as it
-  failed, so every check is shown to catch its failure — and run against a real
-  model on demand (`npm run eval:agent`; results in
-  [docs/AGENT_EVALS.md](docs/AGENT_EVALS.md)).
-- **Out of the way of the work.** The drawer sits beside the plot and the
-  parameter table, not over them; the card the Agent is working on breathes, and
-  the peaks it names are marked on the plot.
+- **The whole analysis, talked through.** Fit range, cell check, the refinement
+  stage by stage, why a fit is poor, which phase an extra peak is, bond
+  valences, the magnetic structure, boxcar scans of a PDF, the single-crystal
+  data, twins and the absolute structure; then a report with esds. It
+  answers questions about the fit on screen. 60 tools across the powder page, its magnetic step, the
+  single-crystal page and the PDF page.
+- **Your method, as skills read on demand** ([`.claude/skills/`](.claude/skills)),
+  so a local model with a 32k context can follow it. **Firm rules in code**: no
+  change before the method is read, no refinement of a set correlated at
+  |ρ| ≥ 0.95, no bare occupancy, the instrument's terms and the B values never
+  together, the space group questioned last.
+- **A report you can hand on**: every number from the engine and the History;
+  the Agent's own account labelled, any number in it the engine did not compute
+  underlined. A Bayesian check (`sample_posterior`) when a number is not
+  convincing.
+- **Tested on what it does.** 37 eval scenarios, each written against a failure
+  a user or a researcher round found, replay the real chat loop in CI with a
+  scripted model, as the Agent should behave and as it failed (50 of the 57
+  checks are shown to catch a failure this way); real models run on demand.
+  Ten researcher rounds on real data drove it; see
+  [docs/AGENT_EVALS.md](docs/AGENT_EVALS.md) and
+  [docs/VALIDATION.md](docs/VALIDATION.md#researcher-rounds).
 
-**Driven through real analyses.** In ten researcher rounds a crystallographer
-put the Agent through an analysis end to end, and what it got wrong or could
-not do was fixed:
-
-| Round | Data | What it led to |
-| --- | --- | --- |
-| 1 | Mn₃Ga + MnO, POWGEN neutron TOF | residual peaks judged against each point's σ; misfits on known reflections kept apart from extra peaks |
-| 2 | Mn₃Ga, CW neutrons, loaded from files | a cell check that holds on a 5–130° scan |
-| 3 | GaTa₄Se₈, X-ray PDF | boxcar scans for local-versus-average questions |
-| 4 | Mn₃Ga with an unannounced MnO impurity (simulated lab X-ray) | phase fractions with esds: 3.7 wt % read back as 3.65(8) |
-| 5 | MgAl₂O₄ with 22 % inversion, from a normal-spinel CIF (simulated) | occupancy restraints in the fit; hold composition |
-| 6 | PbSO₄, D1A neutrons (GSAS-II tutorial) | `diagnose_fit`, which found the missing peak asymmetry: wR 12 → 3.7 % |
-| 7 | Fluorapatite, lab Cu Kα (GSAS-II tutorial) | the Kα₂ doublet and the polarization; the cell to 1 part in 10⁵ of GSAS's |
-| 8 | Cr₂WO₆, neutrons at 150 K and 4 K | `identify_peaks`, `tie_parameters`, bond valences, the Bayesian check, d with the zero shift taken out, k = 0 found on wide lines, the moments kept through a settings change; in-plane moments, 2.28(2) µB in Pn′nm |
-| 9 | LaMnO₃, NPDF neutron PDF (PDFgui tutorial) | PDFgetN files read as neutron data, and only their data; the PDF page's ADP model; bond lengths box by box in the boxcar scan and in the report; the Jahn–Teller distortion holds from the first box (1.5–6.5 Å) to the last |
-| 10 | NAC (Na₂Ca₃Al₂F₁₄), 11-BM synchrotron | fluorite found and added as a known phase (1.448(6) wt %); the instrument file's asymmetry read; size, strain and phase fractions in the report; the 2009 profile ~¼ too broad in its Gaussian part, the sample adding next to nothing |
+More: [docs/AGENT_TOOLS.md](docs/AGENT_TOOLS.md) (every tool and rule),
+[docs/AGENT_EXAMPLES.md](docs/AGENT_EXAMPLES.md) (worked MCP sessions).
 
 ## Status
 

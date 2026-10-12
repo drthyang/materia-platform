@@ -124,3 +124,15 @@ describe("the magnetic analysis step through the Agent", () => {
     ]);
   }, 60_000);
 });
+
+describe("the magnetic step's next step", () => {
+  it("leads get_state on a magnetic question, and moves on as the step does", async () => {
+    const { port } = sessionPort(mn3gaMagneticSession());
+    const { ex } = executor(fakeHost(port).host, "auto");
+    const state = async (): Promise<{ magneticStep?: { next: string } }> => JSON.parse((await ex.run("get_state", {})).text) as { magneticStep?: { next: string } };
+    expect((await state()).magneticStep?.next).toMatch(/^search_propagation_vector/);
+    expect(String((JSON.parse((await ex.run("magnetic_state", {})).text) as { next: string }).next)).toMatch(/^search_propagation_vector/);
+    await ex.run("search_propagation_vector", {});
+    expect((await state()).magneticStep?.next).toMatch(/^set_propagation_vector/);
+  });
+});

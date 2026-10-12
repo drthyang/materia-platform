@@ -8,8 +8,9 @@ real chat loop, executor and tools run; only the model changes.
 
 - **In CI**, every scenario is replayed with a scripted model twice: once as the
   Agent should behave (every check passes) and once as it did when the failure
-  was found (the checks written against it fail). This shows that each check
-  catches its failure. The scripts are in
+  was found (the checks written against it must fail). That shows each of
+  those checks catches its failure: 53 of the suite's 57 checks so far; the
+  rest (`calls identify_peaks` among them) have no failing replay yet. The scripts are in
   [`src/agent/evals/evals.test.ts`](../src/agent/evals/evals.test.ts).
 - **On demand**, the same scenarios run against a real model
   ([`live.test.ts`](../src/agent/evals/live.test.ts)):
@@ -63,6 +64,9 @@ real chat loop, executor and tools run; only the model changes.
 | `fit-range-edges` | reads the data's ends and leaves out what is not real data, before refining | the user, on the demo |
 | `fit-window-in-d` | sets a fit window given in d | axis units (#39) |
 | `magnetic-structure` | solves a magnetic structure on the magnetic step | a user |
+| `swapped-units` | questions a pattern whose axis cannot be what it says (d-spacings loaded as 2θ; get_state's `axisWarning`) rather than refining around it | THY-19 fault injection (held out) |
+| `wrong-wavelength` | puts a wavelength the peaks contradict to the user (λ 1.556 Å given, 1.54 measured: the cell check finds every d × 1.011 from the pattern's own peaks) instead of refining a cell that absorbs it | THY-19 fault injection (held out) |
+| `magnetic-step-first` | searches k before going back to the powder stages: the magnetic step's own sequence leads (get_state's `magneticStep.next`) | Track A2, Haiku's magnetic runs |
 | `pdf-method` | refines a PDF by its method | the PDF page (v0.3) |
 | `pdf-local-structure` | compares local and average structure with a boxcar scan | boxcar scans (#40) |
 | `pdf-local-geometry` | answers a bond-length question box by box, and reports the scan | round 9 (LaMnO₃) |
@@ -131,11 +135,37 @@ Until a model passes this tier, the Agent on it is experimental: it is
 offered, and it is guarded, but it is not yet shown to follow the method as
 Claude does.
 
+## Held out
+
+Some scenarios run on data no skill or knowledge note was written or tuned
+against (`HELD_OUT` in [`scenarios.ts`](../src/agent/evals/scenarios.ts); a
+test keeps their data's names out of `.claude/skills` and `knowledge`). A pass
+there is not the method recalling its own examples, so their passes are
+reported apart. Now: `swapped-units` and `wrong-wavelength`. Real held-out data — public tutorial
+patterns the rounds never used, gitignored here — join on the machine that
+has them.
+
 ## Results against real models
+
+These are test results on the project's own scenarios, each written against a
+failure the Agent once had: how often a model passed the checks of this suite.
+They are not a measure of accuracy on refinements in general, and a model that
+passes them all can still be wrong on data the scenarios do not cover.
 
 Each row is what the run reported: the commit it ran at, the scenarios the suite
 held then, and how many runs passed. The runs were made from the "Fetch all
-repos" session and relayed here; their JSON reports hold every transcript.
+repos" session and relayed here.
+
+### Claude, 2026-10-11, at `2eec39d` (15 scenarios, 3 runs each, effort high)
+
+| | Haiku 5.5 | Sonnet 5.5 |
+| --- | --- | --- |
+| **total** | **36/45** | **38/45** |
+
+The per-scenario passes and the tokens of these runs were not saved: the runs
+predate the whole-run reports (`_OUT`, ee6acaf), so they cannot be re-scored
+either. What they called for is under "Since the 2026-10-11 runs" below. The
+next live round writes its runs whole, and its rows will carry both.
 
 ### Claude, 2026-10-10, at `e9aa7f7` (12 scenarios, 3 runs each, effort high)
 
@@ -162,7 +192,16 @@ Tokens over the 36 runs (API key, prompt caching on):
 | Haiku 5.5 | 2,264 | 233,075 | 14.1 M | 755 k |
 | Sonnet 5.5 | 824 | 70,663 | 8.12 M | 490 k |
 
-The Sonnet runs cost about $2.7; both models together at most about $10.70.
+At the per-million-token prices of the API (Haiku 5.5: $0.10 input, $0.50
+output, $0.01 cache read, $0.125 cache write; Sonnet 5.5: $2, $10, $0.10,
+$2.50):
+
+| | input | output | cache read | cache write | total |
+| --- | --- | --- | --- | --- | --- |
+| Haiku 5.5 | $0.0002 | $0.12 | $0.14 | $0.09 | **$0.35** |
+| Sonnet 5.5 | $0.002 | $0.71 | $0.81 | $1.23 | **$2.75** |
+
+Both models together: about $3.10 for the 72 runs.
 
 ### gemma4:26b on Ollama, at `04ddf2d` (10 scenarios, 1 run each)
 
@@ -216,7 +255,7 @@ after `96c4e45`):
   cache read, cache write); the live run prints the totals and writes them,
   per run and summed, to the `_OUT` report.
 - **Two new scenarios** from the user's feedback on the demo:
-  `instrument-thermal-apart` and `fit-range-edges` (fifteen in all).
+  `instrument-thermal-apart` and `fit-range-edges` (fifteen then; 36 now).
 
 ## Since the 2026-10-11 runs
 

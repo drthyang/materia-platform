@@ -90,6 +90,18 @@ export async function changeSingleCrystal(name: string, input: Input, port: Sing
     case "omit_reflections":
       port.setOmitted(omitPlan(s, input).next);
       return undefined;
+    case "test_extinction":
+      return extinctionTest(s, port, input.below ?? 0.5);
+    case "keep_reflections": {
+      const failed = failedMeasurements(s);
+      const asked = (input.reflections as { h: number; k: number; l: number; batch?: number }[]);
+      const unknown = asked.filter((r) => !failed.some((f) => keptKey(f) === keptKey(r)));
+      if (unknown.length) throw new Error(`${unknown.map(measurementName).join(", ")} ${unknown.length === 1 ? "is" : "are"} not on the failed list (assess_refinement \`failedMeasurements\`): only a listed failure needs keeping`);
+      const kept = new Map(keptMeasurements(s));
+      for (const r of asked) kept.set(keptKey(r), String(input.reason));
+      KEPT.set(s.dataset, kept);
+      return `Kept in the fit at the user's word (${input.reason}): ${asked.map(measurementName).join(", ")}. The report says so; a change of the data starts the list again.`;
+    }
     case "set_resolution_range":
       port.setResolution({ ...(input.dMin !== undefined ? { dMin: input.dMin } : {}), ...(input.dMax !== undefined ? { dMax: input.dMax } : {}) });
       return undefined;
@@ -283,6 +295,12 @@ export function singleCrystalNoOp(spec: LiveToolSpec, input: Input, s: SingleCry
 /** One line for the approval card: what this change will do, in the page's terms. */
 export function describeSingleCrystalChange(spec: LiveToolSpec, input: Input, s: SingleCrystalLiveState): string {
   switch (spec.name) {
+    case "keep_reflections":
+      return `Keep in the fit, at your word, ${(input.reflections as { h: number; k: number; l: number; batch?: number }[]).map(measurementName).join(", ")} — read as failed measurements: ${String(input.reason)}`;
+    case "test_extinction": {
+      const below = input.below ?? 0.5;
+      return `Test the extinction: refine twice as probes, with and without the ${s.rows.filter((r) => (r.extinction ?? 1) < below).length} reflections of y < ${below}, and compare — the page stays as it is`;
+    }
     case "set_free":
       return describeFree(s.parameters, input);
     case "set_adp_model":
@@ -703,6 +721,51 @@ export function twinStarts(s: SingleCrystalLiveState, next: readonly TwinLaw[]):
 const startsText = (starts: readonly { id: string; kept: boolean; value: number }[]): string =>
   starts.map((t) => (t.kept ? `${t.id} kept at ${sig(t.value, 4)}` : `${t.id} from 0.1`)).join(", ");
 
+// ── extinction test ─────────────────────────────────────────────────────────
+
+/**
+ * The extinction test as two probes, the page untouched: the fit on all the
+ * data fitted, and on them less the reflections whose y is below `below`.
+ * What moves by more than 2 esd between them rests on the reflections the
+ * extinction correction carries.
+ */
+async function extinctionTest(s: SingleCrystalLiveState, port: SingleCrystalAgentPort, below: number): Promise<ChangeResult> {
+  if (!s.result) throw new Error("refine first: the test starts from the converged fit, and reads the shifts against its esds");
+  const free = s.parameters.filter((p) => !p.fixed && !p.expression);
+  if (free.length === 0) throw new Error("no parameter is free: free what the test should follow (the ADPs, the extinction, the scale), refine, then test");
+  const cut = s.rows.filter((r) => (r.extinction ?? 1) < below).length;
+  if (cut === 0) {
+    const lowest = s.rows.reduce((m, r) => Math.min(m, r.extinction ?? 1), 1);
+    return { note: `No reflection fitted has y below ${below} (the lowest is ${sig(lowest, 3)}): none rests on a severe correction, and there is nothing to test. The page is unchanged.`, data: { below, leftOut: 0, lowestY: sig(lowest, 3) } };
+  }
+  const options = { maxIterations: 30 };
+  const all = await port.probe(options);
+  const without = await port.probe(options, { minExtinction: below });
+  const extinction = free.find((p) => p.kind === "extinction");
+  const moved = free.flatMap((p) => {
+    const a = all.parameters[p.id];
+    const b = without.parameters[p.id];
+    const e = all.esd[p.id];
+    if (a === undefined || b === undefined || !(e !== undefined && e > 0)) return [];
+    const shift = (b - a) / e;
+    return Math.abs(shift) > 2 ? [{ id: p.id, all: a, without: b, esds: shift }] : [];
+  }).sort((x, y) => Math.abs(y.esds) - Math.abs(x.esds));
+  const wr = (r: typeof all): string => (r.agreement.rWeighted !== undefined ? `${pct(r.agreement.rWeighted)} %` : "—");
+  const reading = moved.length === 0
+    ? `No free parameter moves by more than 2 esd without the ${cut} reflections of y < ${below}: the structure does not rest on what the extinction correction carries. Keep all the data, and report the test.`
+    : `${moved.length} free parameter${moved.length === 1 ? " moves" : "s move"} by more than 2 esd without them (${moved.slice(0, 4).map((m) => `${m.id} ${sig(m.esds, 2)} esd`).join(", ")}): the model leans on the reflections the extinction correction carries. Try the other extinction model (set_extinction_model), refine, and test again; report which holds.`;
+  return {
+    note: `${reading} The page is unchanged: both fits were probes.`,
+    data: {
+      below,
+      leftOut: `${cut} of ${s.rows.length} reflections fitted`,
+      wR2: { allData: wr(all), without: wr(without) },
+      ...(extinction ? { extinction: { allData: sig(all.parameters[extinction.id] ?? NaN, 4), without: sig(without.parameters[extinction.id] ?? NaN, 4) } } : {}),
+      movedBeyond2Esd: moved.map((m) => `${m.id}: ${sig(m.all, 5)} → ${sig(m.without, 5)} (${sig(m.esds, 2)} esd)`),
+    },
+  };
+}
+
 // ── weighting scheme ────────────────────────────────────────────────────────
 
 const weightingText = (w: ShelxWeighting | null): string => (w ? `WGHT ${w.a} ${w.b} (w = 1/[σ² + (${w.a}P)² + ${w.b}P])` : "w = 1/σ²");
@@ -944,6 +1007,34 @@ function outliersView(s: SingleCrystalLiveState, count: number): string[] {
     .sort((a, b) => misfit(b) - misfit(a))
     .slice(0, count)
     .map((r) => `${hklOf(r)}${r.batch !== undefined ? ` (batch ${r.batch})` : ""}: Fo² ${sig(r.foSq, 4)}, Fc² ${sig(r.fcSq, 4)}, ${residual(r)} (d ${sig(dSpacing(s.structure.cell, r.h, r.k, r.l), 3)} Å) — ${equivalentsReading(s, r, keyOf)}`);
+}
+
+/** How a measurement is named to the user: its indices and batch. */
+const measurementName = (r: { h: number; k: number; l: number; batch?: number }): string => `${r.h} ${r.k} ${r.l}${r.batch !== undefined ? ` (batch ${r.batch})` : ""}`;
+const keptKey = (r: { h: number; k: number; l: number; batch?: number }): string => `${r.h},${r.k},${r.l},${r.batch ?? ""}`;
+
+/**
+ * The measurements the user chose to keep in the fit though they read as
+ * failed (keep_reflections, always their decision), by the data they belong
+ * to: a change of the data starts a new list, as it lifts an exception.
+ */
+const KEPT = new WeakMap<object, Map<string, string>>();
+
+export function keptMeasurements(s: SingleCrystalLiveState): ReadonlyMap<string, string> {
+  return KEPT.get(s.dataset) ?? new Map();
+}
+
+/**
+ * The measurements still fitted that read as failed: off by themselves at 6σ
+ * or more, their equivalents agreeing among themselves and with the model
+ * (the reading the outlier list gives "a failed measurement"). Computed, not
+ * judged: the list write_report refuses on while one is fitted and not kept.
+ */
+export function failedMeasurements(s: SingleCrystalLiveState): SingleCrystalRow[] {
+  if (s.dataset.merged) return [];
+  const rotations = laueRotations(s.structure.spaceGroup.operations);
+  const keyOf = (r: { h: number; k: number; l: number }): string => canonicalKey(rotations, r.h, r.k, r.l);
+  return s.rows.filter((r) => r.sigma > 0 && Math.abs(r.deltaOverSigma) >= 6 && /: a failed measurement$/.test(equivalentsReading(s, r, keyOf)));
 }
 
 /** The least and greatest of `values`, by a loop: spreading a TOF file's 10⁵–10⁶ values into Math.min overflows the call stack. */
@@ -1261,6 +1352,11 @@ function assessment(s: SingleCrystalLiveState): Record<string, unknown> {
     ...(extinctionView(s.rows) ? { extinctionCorrection: extinctionView(s.rows) } : {}),
     ...(batchView(s.rows) ? { byBatch: batchView(s.rows) } : {}),
     outliers: outliersView(s, 8),
+    ...(() => {
+      const failed = failedMeasurements(s);
+      const kept = keptMeasurements(s);
+      return failed.length > 0 ? { failedMeasurements: failed.map((r) => `${measurementName(r)}${kept.has(keptKey(r)) ? ` — kept by the user: ${kept.get(keptKey(r))}` : ""}`) } : {};
+    })(),
     outliersReading: "Each outlier against its equivalents: one marked a failed measurement goes with omit_reflections (by its batch); a reflection the model misses stays, whatever its residual.",
     ...(s.omitted.length ? { omitted: s.omitted.map((o) => `${omittedText(o)}${o.reason ? `: ${o.reason}` : ""}`) } : {}),
     extinctionModel: extinctionLabel(s),
@@ -1325,6 +1421,13 @@ function restraintsView(s: SingleCrystalLiveState): Record<string, unknown> {
 /** The report's checks: the engine's view of the fit on screen. */
 export function singleCrystalReportChecks(s: SingleCrystalLiveState, probe: RefinementResult | null = null): ReportCheck[] {
   if (!s.result || s.structure.sites.length === 0) return [noResultCheck()];
+  // A measurement the data say failed, still fitted and not kept by the user: no report on a fit that carries it.
+  const kept = keptMeasurements(s);
+  const failed = failedMeasurements(s);
+  const open = failed.filter((r) => !kept.has(keptKey(r)));
+  if (open.length > 0) {
+    throw new Error(`not yet: ${open.length === 1 ? "a failed measurement is" : `${open.length} failed measurements are`} still fitted (${open.map(measurementName).join(", ")}: off by themselves, their equivalents agreeing with the model). Leave ${open.length === 1 ? "it" : "them"} out with omit_reflections (by batch, with the reason) and refine; or, if the user wants ${open.length === 1 ? "it" : "them"} kept, keep_reflections asks them. Then write the report.`);
+  }
   const a = assess_refinement({ result: s.result, parameters: [...s.parameters], observationCount: s.observationCount, mode: "single-crystal", restraints: s.restraints, disorder: disorderAssemblies(s.structure, s.bindings, s.twinLaws) });
   const v = validationOf(s);
   const checks: ReportCheck[] = [
@@ -1373,6 +1476,7 @@ export function singleCrystalReportChecks(s: SingleCrystalLiveState, probe: Refi
   }
   const batches = batchView(s.rows);
   if (batches) checks.push({ name: "Batches", status: "note", detail: `${String(batches.batches)} batches, K ${String(batches.K)}; farthest: ${(batches.farthest as string[]).slice(0, 3).join("; ")}.` });
+  if (failed.length > 0) checks.push({ name: "Failed measurements kept", status: "warn", detail: `Kept in the fit at the user's word: ${failed.map((r) => `${measurementName(r)} (${kept.get(keptKey(r))})`).join("; ")}.` });
   if (v.outliers.length > 0) {
     checks.push({ name: "Largest outliers", status: "note", detail: outliersView(s, 6).join("; ") + (s.outlierFilter.on ? `; ${s.outlierFilter.excluded} left out by the filter (|Δ|/σ > ${s.outlierFilter.cutoffSigma}${s.outlierFilter.minExtinction !== undefined ? ` or y < ${s.outlierFilter.minExtinction}` : ""}).` : ".") });
   }

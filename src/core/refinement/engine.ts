@@ -457,6 +457,36 @@ function normalizedPseudoInverse(
  */
 const EXACT_FIT_RWP = 1e-6;
 
+/**
+ * The status when no downhill step exists. A zero gradient is a minimum; so
+ * is an exact fit (its χ² at the round-off floor, where no step can lower
+ * it), and a fit whose last accepted step moved nothing by more than the
+ * shift tolerance in esds. Only with shifts still large and χ² refusing to
+ * fall is it a stall. (macOS arm64 reached χ² 1.2e-21 on the polar-origin
+ * fit and found no step below it: "stalled", where Linux's round-off had
+ * let the relative-χ² test fire first.)
+ */
+export function noDescentStatus(at: {
+  readonly gradNorm: number;
+  readonly chi: number;
+  /** The data's weighted R, when the data are not all zero. */
+  readonly rWeighted?: number;
+  readonly lastShiftOverEsd?: number;
+  readonly shiftTolerance?: number;
+}): "converged" | "stalled" {
+  if (at.gradNorm < 1e-6 * (1 + at.chi)) return "converged";
+  if (at.rWeighted !== undefined && at.rWeighted < EXACT_FIT_RWP) return "converged";
+  if (at.lastShiftOverEsd !== undefined && at.shiftTolerance !== undefined && at.lastShiftOverEsd < at.shiftTolerance) return "converged";
+  return "stalled";
+}
+
+/**
+ * Weighted residual at which an exact fit stops: far below EXACT_FIT_RWP, so
+ * the values are those of the minimum to many digits, and far above the
+ * round-off floor (~1e-16), so every platform reaches it.
+ */
+const EXACT_FIT_STOP_RWP = 1e-12;
+
 /** esd_j = √(C_jj · χ²_red); 0 for a dropped (dead or singular) direction. */
 function esdsFrom(covarianceBase: Matrix, reducedChi: number): number[] {
   return covarianceBase.map((row, j) => {
@@ -562,6 +592,10 @@ function* refineCore(
   const dataLength = problem.dataLength ?? problem.observations.length;
   const dataAgreement = (yCalc: Float64Array, nParams: number): AgreementFactors =>
     computeAgreementFactors(problem.observations.subarray(0, dataLength), yCalc.subarray(0, dataLength), problem.weights.subarray(0, dataLength), nParams);
+  // Σ w·y_obs² over the data: zero when the observations are all zero (a residual
+  // posed as the observable), where Rw reads 0 and says nothing about the fit.
+  let dataScale = 0;
+  for (let i = 0; i < dataLength; i++) dataScale += problem.weights[i]! * problem.observations[i]! ** 2;
   const withChi = (yCalc: Float64Array): { yCalc: Float64Array; chi: number } => ({
     yCalc,
     chi: chiSquared(problem.observations, yCalc, problem.weights),
@@ -664,9 +698,24 @@ function* refineCore(
     opts.onIteration?.(current.yCalc, agreement);
 
     if (!stepAccepted) {
-      // No downhill step exists. If the gradient is essentially zero we are at
-      // a minimum (converged); otherwise the search genuinely stalled.
-      status = gradNorm < 1e-6 * (1 + current.chi) ? "converged" : "stalled";
+      const shiftTolerance = opts.shiftTolerance ?? 0;
+      const lastShiftOverEsd = shiftTolerance > 0 && lastStep
+        ? maxShiftOverEsd(lastStep, esdsFrom(normalizedPseudoInverse(jtj, opts.svdTolerance ?? 1e-6, floors).covarianceBase, current.chi / dof)).value
+        : undefined;
+      status = noDescentStatus({
+        gradNorm,
+        chi: current.chi,
+        ...(dataScale > 0 && agreement.rWeighted !== undefined ? { rWeighted: agreement.rWeighted } : {}),
+        ...(lastShiftOverEsd !== undefined ? { lastShiftOverEsd, shiftTolerance } : {}),
+      });
+      break;
+    }
+    // An exact fit (noise-free, simulated data) is converged: past it χ² and
+    // every shift are round-off, which differs between platforms (summation
+    // order, libm), so the relative-χ² and shift/esd tests below could pass on
+    // one machine and run to maxIterations on another.
+    if (dataScale > 0 && agreement.rWeighted !== undefined && agreement.rWeighted < EXACT_FIT_STOP_RWP) {
+      status = "converged";
       break;
     }
     if (history.length >= 2) {

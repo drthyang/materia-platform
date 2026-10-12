@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { AgentExecutor, type ActivityEntry } from "@/agent/executor";
 import { executor, fakeHost, sessionPort } from "@/testSupport/agentHeadless";
-import { mn3gaSession, powderPage } from "@/agent/evals/pages";
+import { mn3gaMagneticSession, mn3gaSession, powderPage } from "@/agent/evals/pages";
 import { PAGE_METHOD } from "@/agent/skills";
 import { keyOfState } from "@/agent/method";
 import type { PowderAgentPort } from "@/agent/port";
@@ -126,5 +126,20 @@ describe("Agent settings saved", () => {
     expect("replayOf" in saved).toBe(false);
     expect("autoApprove" in saved).toBe(false);
     expect(settingsFrom(JSON.stringify(saved)).replayOf).toBe("");
+  });
+});
+
+describe("the method view on the magnetic step", () => {
+  it("lets the magnetic step's own next step lead once it has peaks to work on", async () => {
+    const port = powderPage(mn3gaMagneticSession());
+    const { ex } = executor(fakeHost(port).host, "auto");
+    // The nuclear fit leaves the satellites: the magnetic step has included peaks.
+    const method = (JSON.parse((await ex.run("get_state", {})).text) as { method: { skill: string; next: string } }).method;
+    expect(method.skill).toBe("magnetic-analysis");
+    expect(method.next).toMatch(/^the magnetic step: search_propagation_vector: the k that indexes the residual peaks \(the stages above are the refinement step's\)$/);
+    // A page with nothing magnetic keeps the powder method's next stage.
+    const plain = (JSON.parse((await executor(fakeHost(powderPage(mn3gaSession())).host).ex.run("get_state", {})).text) as { method: { skill: string; next: string } }).method;
+    expect(plain.skill).toBe("my-rietveld-workflow");
+    expect(plain.next).not.toMatch(/magnetic/);
   });
 });

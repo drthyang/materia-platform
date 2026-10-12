@@ -39,6 +39,9 @@ import { powderValidation } from "@/core/diagnostics/powderValidation";
 import type { ReportCheck } from "@/core/export/report";
 import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, correlationsCheck, findingChecks, noResultCheck, verdictCheck } from "@/agent/reportChecks";
 import { groupOf } from "@/agent/method";
+import { magneticNext } from "@/agent/magneticTools";
+import type { UnitCell } from "@/core/crystal/types";
+import { dScaleSearch, observedPeaks, wrongScale } from "@/core/diagnostics/dScale";
 import { satellitePositions } from "@/core/magnetic/kSearch";
 import { centringTranslations } from "@/core/crystal/symmetry";
 import { inspectDataRange, type DataEnd, type DataRangeReading } from "@/core/diagnostics/dataRange";
@@ -63,8 +66,14 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
   const s = port.state();
   requireStructure(name, s);
   switch (name) {
-    case "get_state":
-      return stateView(s, host.history(), input.parameters);
+    case "get_state": {
+      // Where the magnetic step has something to work on, its own next step: for a
+      // magnetic question it leads, and the powder checklist is the refinement step's.
+      const magnetic = port.magnetic?.()?.state();
+      const view = stateView(s, host.history(), input.parameters);
+      const active = magnetic && (magnetic.peaks.some((p) => p.included) || magnetic.kSearch !== null || magnetic.selected !== null);
+      return active ? { magneticStep: { next: magneticNext(magnetic), note: "For the magnetic structure, follow the magnetic step's sequence (magnetic_state reads it): the method's powder stages below are the refinement step's, not the next step of a magnetic analysis." }, ...view } : view;
+    }
     case "assess_refinement":
       return assessment(s);
     case "suggest_next_steps":
@@ -105,7 +114,10 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
     case "check_fit_range":
       return fitRangeView(s, fitRangeReading(s));
     case "check_cell_symmetry": {
-      const check = check_cell_symmetry({
+      // One factor on every d (a wrong λ or difC) first, from the pattern's own peaks: the Le Bail fit cannot follow it.
+      const scale = scaleReading(s);
+      const runCellCheck = (): ReturnType<typeof check_cell_symmetry> =>
+        check_cell_symmetry({
         structure: s.refinedPhases[0] ?? s.structure,
         pattern: s.pattern,
         ...(s.instrument ? { instrument: s.instrument } : {}),
@@ -113,7 +125,13 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
         ...(s.fitRange ? { fitRange: { ...s.fitRange } } : {}),
         ...(input.dMin !== undefined ? { dMin: input.dMin } : {}),
         ...(input.significance !== undefined ? { significance: input.significance } : {}),
-      });
+        });
+      let check: ReturnType<typeof check_cell_symmetry>;
+      try {
+        check = runCellCheck();
+      } catch (e) {
+        throw new Error(`${e instanceof Error ? e.message : String(e)}${scale ? `. ${scale}` : ""}`, { cause: e });
+      }
       // Each unindexed peak in d and Q too, and marked on the plot for the user:
       // in 2θ with the check's own refined zero taken out, as its reflections were placed.
       const axis = check.zero !== undefined ? { ...s.axis, zero: check.zero } : s.axis;
@@ -127,7 +145,10 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
       // end (review_symmetry), never acted on before the structure is refined.
       const violated = check.absences.violated;
       const flags = violated.map((v) => `${v.h} ${v.k} ${v.l} at d ${v.d.toFixed(3)} Å`).join(", ");
+      // The cell a good Le Bail fit found, against the structure's: one factor on every length reads as the wavelength.
+      const shift = scale ?? (check.leBail.rWeighted < 0.5 ? cellShiftReading(s.structure.cell, check.cell, s.pattern.xUnit) : null);
       const readings = [
+        ...(shift ? [shift] : []),
         ...(unindexed.length > 0 ? [`${unindexed.length} peak${unindexed.length === 1 ? "" : "s"} no reflection of the cell indexes: a missing phase (most often) or a wrong cell. identify_peaks (with their d) checks the sample environment and common standards. Settle this with the user before refining the structure.`] : []),
         ...(check.shoulders.length > 0 ? [shoulderReading(check.shoulders, s.pattern.xUnit)] : []),
         ...(violated.length > 0
@@ -524,10 +545,12 @@ function stateView(s: PowderLiveState, history: ProjectHistory | null, select: r
     };
   }
   const xs = s.pattern.points;
+  const axisWarning = axisPlausibility(s);
   return {
     technique: "powder",
     source: s.source,
     busy: s.busy,
+    ...(axisWarning ? { axisWarning } : {}),
     ...(s.viewOnly ? { viewOnly: "TOF pattern without a TOF profile: shown, not refined" } : {}),
     phases: [s.structure, ...s.extraPhases].map((ph, i) => {
       const refined = s.refinedPhases[i] ?? ph;
@@ -695,6 +718,64 @@ function requestedWindow(s: PowderLiveState, input: Input): { min: number; max: 
   const w = convertInterval({ min: lo, max: hi }, unit, native, s.axis);
   if (!Number.isFinite(w.min) || !Number.isFinite(w.max)) throw new Error(`${lo}–${hi} ${UNIT[unit]} does not convert to ${UNIT[native]} on this pattern`);
   return w;
+}
+
+/**
+ * The pattern's strongest peaks against the structure's reflections: one
+ * factor on every d that indexes them where 1 does not is a wrong wavelength
+ * (or TOF difC), named with the value it implies. Null when 1 indexes them.
+ */
+export function scaleReading(s: PowderLiveState): string | null {
+  if (!s.d || s.structure.sites.length === 0) return null;
+  const peaks = observedPeaks(s.d, s.pattern.points.map((p) => p.yObs), s.pattern.points.map((p) => p.sigma ?? 0));
+  const r = dScaleSearch(peaks, generateReflections(s.structure.cell, s.structure.spaceGroup, 0.4, 50).map((x) => x.d));
+  if (!wrongScale(r)) return null;
+  const f = r.factor;
+  const pctOf = (v: number): string => `${Math.round(100 * v)} %`;
+  const lambda = s.pattern.xUnit === "twoTheta" ? (s.instrument?.kind === "constantWavelength" ? s.instrument.wavelength : s.pattern.radiation.kind !== "neutron-tof" ? s.pattern.radiation.wavelength : undefined) : undefined;
+  const cause = s.pattern.xUnit === "tof"
+    ? `a wrong difC (the calibration would be difC × ${(1 / f).toFixed(4)})`
+    : lambda !== undefined
+      ? `a wrong wavelength: the data would be at λ ${(lambda / f).toFixed(4)} Å, not ${lambda} Å`
+      : "a wrong wavelength or calibration";
+  return `The pattern's ${r.peaks} strongest peaks index the structure's cell with every d × ${f.toFixed(4)} (${pctOf(r.indexed)} of their height; at × 1, ${pctOf(r.indexedAtOne)}): one factor on every line is ${cause} — or the wrong cell for this phase. Ask the user to confirm before anything else: no refinement fixes it, and a refined cell would absorb it.`;
+}
+
+/**
+ * The cell the peaks give against the structure's. Every length scaled by
+ * one factor is what a wrong wavelength (or a wrong TOF difC) does to every
+ * d, more often than a wrong cell; lengths moving apart are the phase, its
+ * temperature or its composition. Null when the cell agrees within 0.5 %.
+ */
+export function cellShiftReading(loaded: UnitCell, found: UnitCell, unit: PowderLiveState["pattern"]["xUnit"]): string | null {
+  const rel = (["a", "b", "c"] as const).map((k) => found[k] / loaded[k] - 1);
+  const worst = Math.max(...rel.map(Math.abs));
+  if (worst <= 0.005) return null;
+  const spread = Math.max(...rel) - Math.min(...rel);
+  const pctText = (v: number): string => `${v > 0 ? "+" : ""}${(100 * v).toFixed(2)} %`;
+  const what = unit === "tof" ? "the TOF calibration (difC)" : unit === "twoTheta" ? "the wavelength" : "the d scale";
+  if (spread <= 0.1 * worst) {
+    const mean = rel.reduce((t, v) => t + v, 0) / 3;
+    return `The peaks give a cell ${pctText(mean)} off the structure's in every length alike (a ${pctText(rel[0]!)}, b ${pctText(rel[1]!)}, c ${pctText(rel[2]!)}): one factor on every d is what a wrong ${unit === "twoTheta" ? "wavelength" : "calibration"} does. Ask the user to confirm ${what} before refining: a refined cell would absorb it silently.`;
+  }
+  return `The peaks give a cell up to ${pctText(rel[rel.map(Math.abs).indexOf(worst)]!)} off the structure's (a ${pctText(rel[0]!)}, b ${pctText(rel[1]!)}, c ${pctText(rel[2]!)}), unevenly: the phase at another temperature or composition, or another phase. Say so before refining.`;
+}
+
+/**
+ * Whether the data's axis can be what the file says: the structure's
+ * reflections against the extent. A 2θ axis that holds next to none of them
+ * (d-spacings, or Q, read as degrees: 0.6–5 "°") is the commonest swapped
+ * unit; null when the axis holds the reflections a pattern of it should.
+ */
+export function axisPlausibility(s: PowderLiveState): string | null {
+  if (s.structure.sites.length === 0 || s.pattern.points.length === 0 || !s.d) return null;
+  const finite = s.d.filter((v) => Number.isFinite(v) && v > 0);
+  if (finite.length === 0) return `the ${UNIT[s.pattern.xUnit]} axis (${sig(s.extent.min, 4)}–${sig(s.extent.max, 4)}) converts to no d-spacing at this wavelength: is the axis in another unit (d in Å, or Q)? Ask the user before anything else.`;
+  const lo = Math.min(...finite);
+  const hi = Math.max(...finite);
+  const inside = generateReflections(s.structure.cell, s.structure.spaceGroup, lo, Math.min(hi, 50)).length;
+  if (inside >= 3) return null;
+  return `the ${UNIT[s.pattern.xUnit]} axis (${sig(s.extent.min, 4)}–${sig(s.extent.max, 4)}) spans d ${sig(lo, 3)}–${sig(hi, 3)} Å at this wavelength, where the structure has ${inside === 0 ? "no reflection" : `only ${inside} reflection${inside === 1 ? "" : "s"}`}: the axis is likely in another unit (d in Å or Q read as ${UNIT[s.pattern.xUnit]}), or the wavelength is wrong. Ask the user before refining: no refinement fixes it.`;
 }
 
 function residualOf(s: PowderLiveState): { d: number[]; yObs: number[]; yCalc: number[]; sigma: number[]; reflections: { d: number; hkl: string; phaseLabel: string }[]; magneticNeutron: boolean; lineWidth?: number } {

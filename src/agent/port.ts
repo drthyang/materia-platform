@@ -310,8 +310,13 @@ export interface SingleCrystalAgentPort {
   readonly refine: () => Promise<string | null>;
   /** The Prefit / Escape-minimum button (multi-start). */
   readonly thorough: () => Promise<string | null>;
-  /** The Refine button's fit with these options, returned and never applied (see PowderAgentPort). */
-  readonly probe: (options: Partial<RefinementOptions>) => Promise<RefinementResult>;
+  /**
+   * The Refine button's fit with these options, returned and never applied
+   * (see PowderAgentPort). `cut.minExtinction`: on the data fitted less the
+   * reflections whose extinction factor y (at the current model) is below it —
+   * the extinction test without touching the page's filter.
+   */
+  readonly probe: (options: Partial<RefinementOptions>, cut?: { readonly minExtinction: number }) => Promise<RefinementResult>;
   /** The page's report of what is on screen (Export ▾ → Report): the engine's numbers, ready to render. */
   readonly reportInput?: () => ReportInput;
   readonly cancel: () => void;
