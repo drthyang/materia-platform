@@ -390,7 +390,7 @@ external comparison records it.
 
 ## The in-app Agent
 
-The Agent puts a model — Claude, or a local model on Ollama or LM Studio — beside the
+The Agent puts a model of your choice — local on Ollama or LM Studio, or a cloud model — beside the
 analysis open in the browser. It reads the
 live page, judges the fit with the tools above, and makes changes through the
 page's own controls. Open it with the **Agent** button in the header.

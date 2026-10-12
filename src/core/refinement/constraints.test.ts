@@ -66,6 +66,21 @@ describe("equal-value ties the user makes", () => {
     expect(all.find((p) => p.id === "B_O2")!.value).toBe(1.5);
   });
 
+  it("keeps a complement's form when its leader is tied to another: B2 = 1 − A2, then A2 = A1, gives B2 = 1 − A1", () => {
+    const sites = [
+      row("occ_A1", "occupancy", 0.8), row("occ_B1", "occupancy", 0.2), row("occ_A2", "occupancy", 0.6), row("occ_B2", "occupancy", 0.4),
+    ];
+    const complements = withEqualTies(withEqualTies(sites, { complement: ["occ_A1", "occ_B1"] }), { complement: ["occ_A2", "occ_B2"] });
+    const joined = withEqualTies(complements, { equal: ["occ_A1", "occ_A2"] });
+    const b2 = joined.find((p) => p.id === "occ_B2")!;
+    expect(b2).toMatchObject({ expression: complementOf("occ_A1"), fixed: true, group: USER_TIE_GROUP });
+    expect(b2.value).toBeCloseTo(0.2, 12);
+    // Each site still sums to one, at the refined value and at any other.
+    const values = resolveTies(joined, { ...Object.fromEntries(joined.map((p) => [p.id, p.value])), occ_A1: 0.7 });
+    expect(values.occ_A2! + values.occ_B2!).toBeCloseTo(1, 12);
+    expect(values.occ_B2).toBeCloseTo(0.3, 12);
+  });
+
   it("refuses what cannot be tied", () => {
     expect(() => checkEqualTies(rows, { equal: ["B_W1"] })).toThrow(/at least two/);
     expect(() => checkEqualTies(rows, { equal: ["B_W1", "B_W1"] })).toThrow(/twice/);

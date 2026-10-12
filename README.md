@@ -9,7 +9,7 @@
 built to be driven by people and by AI agents.**
 
 **An Agent works the analysis with you.** Open it beside a powder or PDF fit and
-a model — Claude, or your own on Ollama or LM Studio — runs the refinement by
+a model of your choice — local on Ollama or LM Studio, or in the cloud — runs the refinement by
 your written method, says why a fit is poor, names the phase behind an extra
 peak, finds a magnetic structure, checks an unconvincing number with a Bayesian
 posterior, and reports the result with esds. It asks before every change, or
@@ -19,8 +19,8 @@ had in CI. [How it works ↓](#the-agent)
 
 **▶ Try it: [drthyang.github.io/web-refinement](https://drthyang.github.io/web-refinement/)** —
 nothing to install, and the analysis runs on your machine (the Agent sends its
-conversation to the model you choose: to Anthropic's API for Claude, nowhere
-else for a local model). Two demos open already converged: a two-phase Mn₃Ga
+conversation only to the model you choose: nowhere else for a local model, to
+the provider's API for a cloud one). Two demos open already converged: a two-phase Mn₃Ga
 neutron TOF Rietveld fit and a GaTa₄Se₈ X-ray PDF fit.
 
 <p align="center">
@@ -57,15 +57,15 @@ neutron TOF Rietveld fit and a GaTa₄Se₈ X-ray PDF fit.
 | **Single crystal** | F² refinement from hkl, SHELX HKL and FullProf `.int` lists, with absorption correction | [Single crystal](docs/SINGLE_CRYSTAL.md) |
 | **PDF and mPDF** | Neutron and X-ray G(r), multi-phase and multi-dataset, boxcar scans across r, symmetry-mode distortions, magnetic PDF; validated against PDFfit2 and diffpy.mpdf | [PDF roadmap](docs/PDF_MPDF_ROADMAP.md) |
 | **Uncertainty** | Levenberg–Marquardt esds plus Bayesian posterior sampling (ensemble MCMC and NUTS) with convergence diagnostics | [Refinement engine](docs/REFINEMENT_ENGINE.md) |
-| **In-app Agent** | A model beside the analysis — Claude, or your own on Ollama or LM Studio — runs it by your method and discusses it; every change approved or undoable | [The Agent](#the-agent) |
+| **In-app Agent** | A model of your choice beside the analysis — local on Ollama or LM Studio, or a cloud model — runs it by your method and discusses it; every change approved or undoable | [The Agent](#the-agent) |
 | **Agent tools** | An MCP server over the same core (41 tools): parse → build → refine → assess → suggest → interpret | [Agent tools](docs/AGENT_TOOLS.md) |
 | **Files** | Reads CIF/mCIF, hkl, `.int`, GSAS/FXYE/ILL/plain powder data, `.gr`/`.sq`/`.fq`; writes CIF/mCIF with esds, an HTML report, and a reopenable project file | [Project format](docs/PROJECT_FORMAT.md) |
 
 ## The Agent
 
-The **Agent** button opens a model beside the analysis on screen: Claude through
-an API key or the local proxy, or a model you run yourself on Ollama or LM
-Studio. It reads the live page, judges the fit with the tools the MCP server
+The **Agent** button opens a model beside the analysis on screen: one you run
+yourself on Ollama or LM Studio, or a cloud model (Anthropic's, through an API
+key or the local proxy). It reads the live page, judges the fit with the tools the MCP server
 exposes, and changes things through the page's own controls, each change an
 undoable History step. **Ask first** puts every change on an approval card;
 **Auto** lets it work through the method's stages on its own and stop when a

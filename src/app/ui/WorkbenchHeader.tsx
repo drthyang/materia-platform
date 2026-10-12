@@ -150,7 +150,7 @@ export function WorkbenchHeader({ steps, active, onStep, version, exports, techn
             onClick={agent.onToggle}
             active={agent.open}
             ariaLabel="Agent"
-            title={agent.pending > 0 ? `Agent: ${agent.pending} change${agent.pending === 1 ? "" : "s"} waiting for your approval` : "Agent: Claude reads the analysis, judges the fit with MATERIA's tools, and makes changes you approve"}
+            title={agent.pending > 0 ? `Agent: ${agent.pending} change${agent.pending === 1 ? "" : "s"} waiting for your approval` : "Agent: works on the analysis with MATERIA's tools; changes wait for your approval"}
           >
             <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
               <SparkIcon size={14} />
