@@ -66,6 +66,19 @@ describe("correlation check", () => {
     expect([...map.keys()].some((id) => id.startsWith("pos_N"))).toBe(false);
   });
 
+  it("exempts the intensity terms among themselves on a single-crystal fit only: two powder phases' scales at −0.99 stop", () => {
+    const powder = [param("p0_scale", "scale"), param("p1_scale", "scale"), param("bkg0", "background"), param("cell_a", "cellLength"), param("B_Mn1", "bIso")];
+    const scales = probe([["p0_scale", "p1_scale", -0.99, -0.98]]);
+    expect(readCorrelations(scales, powder).correlated.map((p) => [p.a, p.b])).toEqual([["p0_scale", "p1_scale"]]);
+    // On a single-crystal fit the scale, the extinction and the batch scales are listed, not stopped.
+    const sc = [param("scale", "scale"), param("extinction", "extinction"), param("bscale_2", "batchScale"), param("B_O1", "bIso"), param("pos_O1_0", "positionShift")];
+    const check = readCorrelations(probe([["scale", "extinction", 0.97, 0.96], ["scale", "bscale_2", -0.98, -0.97]]), sc);
+    expect(check.correlated).toEqual([]);
+    expect(check.carried.every((p) => p.intensityTerms)).toBe(true);
+    // Named either way.
+    expect(readCorrelations(scales, powder, [], new Map(), true).correlated).toEqual([]);
+  });
+
   it("passes a set with nothing at the limit, and names its strongest pair", () => {
     const check = readCorrelations(probe([["scale", "B_Mn1", 0.81], ["scale", "bkg0", 0.62]]), params);
     expect(check.correlated).toEqual([]);
