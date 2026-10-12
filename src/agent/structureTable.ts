@@ -18,27 +18,23 @@ const PLACED: Readonly<Record<RidingRule["geometry"], string>> = {
 };
 import type { ParameterBinding, RefinementParameter } from "@/core/refinement/types";
 import { parseTie } from "@/core/refinement/constraints";
+import { formatWithEsd } from "@/core/export/cif";
 import { EIGHT_PI_SQUARED, uEquivalent } from "@/core/crystal/adp";
 import { cellVolume, orthogonalizationMatrix } from "@/core/crystal/unitCell";
 import { cellVolumeEsd } from "@/core/crystal/cellEsd";
 import { mulVec } from "@/core/math/mat3";
 import type { Vec3 } from "@/core/math/types";
 
-/** A value with its esd in parentheses, in the last digits: 0.18752(9), 8.46808(10). */
+/**
+ * A value with its esd in parentheses, in the last digits: 0.18752(9),
+ * 8.46808(10), 0.435(15). The CIF writer's convention (formatWithEsd: two
+ * figures when they read 10–19, else one), at most `maxDecimals` decimals.
+ */
 export function withEsd(value: number, esd: number | undefined, maxDecimals = 6): string {
   if (esd === undefined || !(esd > 0) || !Number.isFinite(esd)) return value.toFixed(Math.min(maxDecimals, 5));
-  // Two significant digits of esd when they start with 1, else one (the convention).
-  let decimals = Math.max(0, -Math.floor(Math.log10(esd)));
-  let digits = Math.round(esd * 10 ** decimals);
-  if (digits < 2) {
-    decimals += 1;
-    digits = Math.round(esd * 10 ** decimals);
-  }
-  if (decimals > maxDecimals) {
-    decimals = maxDecimals;
-    digits = Math.max(1, Math.round(esd * 10 ** decimals));
-  }
-  return `${value.toFixed(decimals)}(${digits})`;
+  const text = formatWithEsd(value, esd, maxDecimals);
+  if ((text.match(/\.(\d+)\(/)?.[1]?.length ?? 0) <= maxDecimals) return text;
+  return `${value.toFixed(maxDecimals)}(${Math.max(1, Math.round(esd * 10 ** maxDecimals))})`;
 }
 
 export interface StructureTableSite {
@@ -72,6 +68,8 @@ interface SiteEsds {
   /** U11, U22, U33, U12, U13, U23. */
   readonly u?: readonly (number | undefined)[];
   readonly occupancy?: number;
+  /** The values themselves, unrounded: the position, and B (isotropic) or U_eq, with its esd. */
+  readonly value: { readonly position: Vec3; readonly adp: number; readonly adpEsd?: number };
 }
 
 /** Each table's esds as numbers, by site label: kept beside the table, out of what the tool prints. */
@@ -148,7 +146,12 @@ export function structureTable(
     }
     const pos = site.position.map((v, i) => withEsd(v, posVar[i]! > 0 ? Math.sqrt(posVar[i]!) : undefined));
     const sd = (v: number): number | undefined => (v > 0 ? Math.sqrt(v) : undefined);
-    raw.set(site.label, { position: posVar.map(sd), ...(site.adp.kind === "anisotropic" ? { u: uVar.map(sd) } : {}), ...(occEsd !== undefined ? { occupancy: occEsd } : {}) });
+    const adpValue = site.adp.kind === "isotropic" ? site.adp.bIso : uEquivalent(site.adp.uAniso, phase.cell);
+    const adpSu = site.adp.kind === "isotropic" ? adpEsd : sd(uEqVar);
+    raw.set(site.label, {
+      position: posVar.map(sd), ...(site.adp.kind === "anisotropic" ? { u: uVar.map(sd) } : {}), ...(occEsd !== undefined ? { occupancy: occEsd } : {}),
+      value: { position: [site.position[0], site.position[1], site.position[2]], adp: adpValue, ...(adpSu !== undefined ? { adpEsd: adpSu } : {}) },
+    });
     const adp = site.adp.kind === "isotropic"
       ? `B ${withEsd(site.adp.bIso, adpEsd, 4)}`
       : `Ueq ${withEsd(uEquivalent(site.adp.uAniso, phase.cell), sd(uEqVar), 5)}`;
@@ -194,11 +197,12 @@ export function compareWithLoaded(table: StructureTable, refined: StructureModel
   const rows = table.sites.flatMap((row) => {
     const was = byLabel.get(row.label);
     if (!was || row.riding) return [];
-    const now = [parseEsd(row.x), parseEsd(row.y), parseEsd(row.z)];
-    // The esds as computed, not as printed: rounded to one or two digits they would add their rounding to every ratio.
+    const printed = [parseEsd(row.x), parseEsd(row.y), parseEsd(row.z)];
+    // The values and esds as computed, not as printed: rounded to the esd's last digit they would add their rounding to every shift and ratio.
     const raw = RAW_ESDS.get(table)?.get(row.label);
-    const posEsd = [0, 1, 2].map((i) => raw?.position[i] ?? now[i]!.esd);
-    const delta: Vec3 = [now[0]!.value - was.position[0], now[1]!.value - was.position[1], now[2]!.value - was.position[2]];
+    const posEsd = [0, 1, 2].map((i) => raw?.position[i] ?? printed[i]!.esd);
+    const now = raw?.value.position ?? [printed[0]!.value, printed[1]!.value, printed[2]!.value];
+    const delta: Vec3 = [now[0]! - was.position[0], now[1]! - was.position[1], now[2]! - was.position[2]];
     const cart = mulVec(m, delta);
     const shift = Math.hypot(cart[0], cart[1], cart[2]);
     // The shift's esd along its own direction, from the coordinates' esds.
@@ -207,7 +211,8 @@ export function compareWithLoaded(table: StructureTable, refined: StructureModel
       const g = unit[0]! * m[0][i]! + unit[1]! * m[1][i]! + unit[2]! * m[2][i]!;
       return sum + (g * (posEsd[i] ?? 0)) ** 2;
     }, 0));
-    const adp = parseEsd(row.adp.replace(/^(Ueq|B)\s+/, ""));
+    const printedAdp = parseEsd(row.adp.replace(/^(Ueq|B)\s+/, ""));
+    const adp = raw ? { value: raw.value.adp, esd: raw.value.adpEsd } : printedAdp;
     const isU = row.adp.startsWith("Ueq");
     const wasAdp = isU
       ? (was.adp.kind === "anisotropic" ? uEquivalent(was.adp.uAniso, refined.cell) : was.adp.bIso / EIGHT_PI_SQUARED)

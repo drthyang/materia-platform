@@ -74,3 +74,20 @@ describe("convertInterval", () => {
     expect(iv.min).toBeCloseTo(convertAxisValue(60, "twoTheta", "dSpacing", ctx), 6);
   });
 });
+
+describe("TOF d with the refined calibration", () => {
+  it("reads d from the refined difC and zero, not the instrument file's", async () => {
+    const { axisContext, convertAxisValue, tofCalibrationOf } = await import("@/visualization/axisUnits");
+    const pattern = { id: "p", name: "p", xUnit: "tof", radiation: { kind: "neutron-tof" }, points: [] } as never;
+    const instrument = { kind: "tof", difC: 5000, difA: 0, difB: 0, zero: 0 } as never;
+    const params = [
+      { id: "tof_difC", kind: "tofCalibration", value: 5010 },
+      { id: "tof_difA", kind: "tofCalibration", value: 0 },
+      { id: "zero", kind: "zeroShift", value: 10 },
+    ];
+    const ctx = axisContext(pattern, instrument, 10, tofCalibrationOf(params));
+    // TOF = zero + difC·d: 10 030 µs is d = 2 Å under the refined calibration, 2.006 under the file's.
+    expect(convertAxisValue(10030, "tof", "dSpacing", ctx)).toBeCloseTo(2, 9);
+    expect(convertAxisValue(10030, "tof", "dSpacing", axisContext(pattern, instrument))).toBeCloseTo(2.006, 9);
+  });
+});

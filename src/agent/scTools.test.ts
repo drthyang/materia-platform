@@ -1,3 +1,4 @@
+import { extent } from "@/agent/scTools";
 import { describe, it, expect } from "vitest";
 import { keyOfState } from "@/agent/method";
 import type { AgentReport } from "@/agent/report";
@@ -630,5 +631,29 @@ describe("AgentExecutor on the single-crystal page", { timeout: 30_000 }, () => 
     expect(out.unverifiedNumbers).toBeUndefined();
     expect(reports).toHaveLength(1);
     expect(reports[0]!.markdown).toMatch(/\| wR2 \|/);
+  });
+});
+
+describe("the range of a large file's values", () => {
+  it("is read by a loop: 500 000 wavelengths do not overflow the stack", () => {
+    const values = Array.from({ length: 500_000 }, (_, i) => 0.4 + (i % 1000) * 0.003);
+    expect(() => Math.min(...values)).toThrow(RangeError);
+    expect(extent(values)).toEqual([0.4, 0.4 + 999 * 0.003]);
+  });
+});
+
+describe("set_twin's note", () => {
+  it("reports the fraction each law keeps: adding the inversion to a law keeps the law's own", async () => {
+    const { twinStarts } = await import("@/agent/scTools");
+    const law = { matrix: [[0, 1, 0], [1, 0, 0], [0, 0, -1]] as [[number, number, number], [number, number, number], [number, number, number]] };
+    const inv = { matrix: [[-1, 0, 0], [0, -1, 0], [0, 0, -1]] as typeof law.matrix };
+    const both = { matrix: [[0, -1, 0], [-1, 0, 0], [0, 0, 1]] as typeof law.matrix };
+    const s = { twinLaws: [law], parameters: [{ id: "twin_1", value: 0.34 }] } as unknown as Parameters<typeof twinStarts>[0];
+    expect(twinStarts(s, [law, inv, both])).toEqual([
+      { id: "twin_1", kept: true, value: 0.34 },
+      { id: "twin_2", kept: false, value: 0.1 },
+      { id: "twin_3", kept: false, value: 0.1 },
+    ]);
+    expect(twinStarts(s, [inv])[0]).toEqual({ id: "twin_1", kept: false, value: 0.1 });
   });
 });

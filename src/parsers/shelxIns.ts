@@ -35,7 +35,8 @@ export interface ShelxInstructions {
   /** TEMP, in kelvin. */
   readonly temperature?: number;
   /** TWIN: the matrix (rows, h′ = R·h) and the number of domains. */
-  readonly twin?: { readonly matrix: Mat3; readonly domains: number };
+  /** TWIN: the law, |N| domains, and N's sign (negative: the law combined with the inversion, both hands — set_twin's withInversion). */
+  readonly twin?: { readonly matrix: Mat3; readonly domains: number; readonly withInversion?: true };
   /** BASF: the fractions of the domains after the first. */
   readonly basf: readonly number[];
   /** EXTI x. */
@@ -169,19 +170,30 @@ export function parseShelxIns(text: string, id = "shelx"): ShelxModel {
   let hklf: number | undefined;
   const notCarried = new Set<string>();
   // Atom lines wait for FVAR, which may come after them only in odd files: read them once the header is known.
-  const atomLines: { tokens: string[]; afix: number; part: number }[] = [];
+  const atomLines: { tokens: string[]; afix: number; part: number; block: number }[] = [];
   let afix = 0;
   let part = 0;
+  // Each run of PARTs between PART 0s: a disorder of its own unless a free variable joins it to another.
+  let block = 0;
+  // Between FRAG and FEND: a rigid fragment's model geometry for AFIX n6/n9, in its own cell. Not atoms of the structure.
+  let inFrag = false;
 
   for (const line of lines) {
     const tokens = line.split(/\s+/);
     const keyword = tokens[0]!.toUpperCase();
     const nums = (from = 1): number[] => tokens.slice(from).map(Number).filter((n) => Number.isFinite(n));
     if (!KEYWORDS.has(keyword.slice(0, 4)) || (keyword.length > 4 && keyword !== "L.S.")) {
-      if (tokens.length >= 5 && /^\d+$/.test(tokens[1]!)) atomLines.push({ tokens, afix, part });
+      if (!inFrag && tokens.length >= 5 && /^\d+$/.test(tokens[1]!)) atomLines.push({ tokens, afix, part, block });
       continue;
     }
     switch (keyword.slice(0, 4)) {
+      case "FRAG":
+        inFrag = true;
+        notCarried.add("FRAG");
+        break;
+      case "FEND":
+        inFrag = false;
+        break;
       case "TITL":
         title = line.slice(4).trim();
         break;
@@ -223,9 +235,12 @@ export function parseShelxIns(text: string, id = "shelx"): ShelxModel {
       case "TWIN": {
         const v = nums();
         const m = v.length >= 9 ? v.slice(0, 9) : [-1, 0, 0, 0, -1, 0, 0, 0, -1];
-        // SHELXL multiplies the indices as a row vector, (h k l)·M: as a column, h′ = Mᵀ·h.
-        const matrix: Mat3 = [[m[0]!, m[3]!, m[6]!], [m[1]!, m[4]!, m[7]!], [m[2]!, m[5]!, m[8]!]];
-        twin = { matrix, domains: Math.abs(v[9] ?? 2) };
+        // Row-major, the rows acting on the column (h k l): h′ = M·h, the convention
+        // set_twin takes. SHELXL's own pseudo-hexagonal example, TWIN 0 0 1 0 1 0 −1 0 −1 3
+        // for a ≈ c, β ≈ 120°, keeps d only read this way.
+        const matrix: Mat3 = [[m[0]!, m[1]!, m[2]!], [m[3]!, m[4]!, m[5]!], [m[6]!, m[7]!, m[8]!]];
+        const n = v.length >= 10 ? v[9]! : 2;
+        twin = { matrix, domains: Math.abs(n), ...(n < 0 ? { withInversion: true as const } : {}) };
         break;
       }
       case "BASF":
@@ -245,9 +260,12 @@ export function parseShelxIns(text: string, id = "shelx"): ShelxModel {
       case "AFIX":
         afix = nums()[0] ?? 0;
         break;
-      case "PART":
-        part = nums()[0] ?? 0;
+      case "PART": {
+        const next = nums()[0] ?? 0;
+        if (part === 0 && next !== 0) block++;
+        part = next;
         break;
+      }
       default:
         if (!LISTING_ONLY.has(keyword)) notCarried.add(keyword);
     }
@@ -273,7 +291,14 @@ export function parseShelxIns(text: string, id = "shelx"): ShelxModel {
   const ridingU = new Map<string, number>();
   const shared = new Map<number, { value: number; labels: string[] }>();
   let lastHeavy: AtomSite | undefined;
-  for (const { tokens, afix: code, part: group } of atomLines) {
+  // Disorder assemblies, lettered in order: the parts one free variable splits
+  // (sof 21 and −21) are one; parts with fixed occupancies, one per run of PARTs.
+  const assemblyNames = new Map<string, string>();
+  const assemblyOf = (key: string): string => {
+    if (!assemblyNames.has(key)) assemblyNames.set(key, String.fromCharCode(65 + (assemblyNames.size % 26)));
+    return assemblyNames.get(key)!;
+  };
+  for (const { tokens, afix: code, part: group, block: run } of atomLines) {
     const index = Number(tokens[1]);
     const element = sfac[index - 1];
     if (!element) throw new Error(`atom ${tokens[0]} names SFAC ${index}, and there are ${sfac.length}`);
@@ -281,7 +306,8 @@ export function parseShelxIns(text: string, id = "shelx"): ShelxModel {
     if (values.length < 3 || values.slice(0, 3).some((v) => !Number.isFinite(v))) throw new Error(`atom ${tokens[0]}: x y z expected`);
     const label = labelOf(tokens[0]!, element);
     const position: Vec3 = [shelxValue(values[0]!, fv).value, shelxValue(values[1]!, fv).value, shelxValue(values[2]!, fv).value];
-    const sof = shelxValue(values[3] ?? 11, fv).value;
+    const sofValue = shelxValue(values[3] ?? 11, fv);
+    const sof = sofValue.value;
     // The sof carries the site's symmetry: an atom on a twofold axis has 0.5 for a full site.
     const share = siteMultiplicity(operations, position) / operations.length;
     const occupancy = sof / share;
@@ -316,7 +342,7 @@ export function parseShelxIns(text: string, id = "shelx"): ShelxModel {
       position,
       occupancy,
       adp,
-      ...(group !== 0 ? { disorder: { assembly: "A", group } } : {}),
+      ...(group !== 0 ? { disorder: { assembly: assemblyOf(sofValue.variable !== undefined ? `fv${sofValue.variable}` : `run${run}`), group } } : {}),
     };
     sites.push(site);
     afixOf.set(label, code);
@@ -353,7 +379,8 @@ export function shelxNotes(ins: ShelxInstructions): string[] {
   for (const code of ins.afix.values()) if (code > 0) groups.set(code, (groups.get(code) ?? 0) + 1);
   return [
     `CELL: λ ${ins.wavelength} Å (X-ray)${ins.temperature !== undefined ? `; TEMP ${Math.round(ins.temperature)} K` : "; no TEMP (SHELXL then takes 20 °C)"}`,
-    ...(ins.twin ? [`TWIN: law h′ = R·h, R = ${matrixText(ins.twin.matrix)}, ${ins.twin.domains} domains${ins.basf.length ? `, BASF ${ins.basf.join(" ")}` : ""}`] : ins.basf.length ? [`BASF ${ins.basf.join(" ")}`] : []),
+    ...(ins.twin ? [`TWIN: law h′ = R·h, R = ${matrixText(ins.twin.matrix)}, ${ins.twin.domains} domains${ins.twin.withInversion ? " (N negative: with the inversion, both hands — set_twin withInversion)" : ""}${ins.basf.length ? `, BASF ${ins.basf.join(" ")}` : ""}`] : ins.basf.length ? [`BASF ${ins.basf.join(" ")}`] : []),
+    ...(ins.hklf !== undefined && ins.hklf !== 4 ? [`HKLF ${ins.hklf}: MATERIA reads HKLF 4 reflection files only, so it refuses the one this .ins refined against`] : []),
     ...(ins.exti !== undefined ? [`EXTI ${ins.exti}`] : []),
     ...(ins.weighting ? [`WGHT ${ins.weighting.a} ${ins.weighting.b}`] : []),
     ...(ins.freeVariables.length ? [`FVAR: OSF ${ins.freeVariables[0]}${ins.freeVariables.length > 1 ? `; free variables ${ins.freeVariables.slice(1).map((v, i) => `${i + 2} = ${v}`).join(", ")}` : ""}`] : []),

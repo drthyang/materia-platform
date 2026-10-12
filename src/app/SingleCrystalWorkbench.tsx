@@ -60,14 +60,14 @@ import { SingleCrystalValidationView } from "@/app/ui/SingleCrystalValidation";
 import { SegmentedToggle } from "@/app/ui/SegmentedToggle";
 import { ParameterPanel } from "@/app/ui/ParameterPanel";
 import { SummaryCards, type SummaryCardData } from "@/app/ui/SummaryCards";
-import { structureToCif, type CifRefinementMeta } from "@/core/export/cif";
+import type { CifRefinementMeta } from "@/core/export/cif";
 import { writeFullProfInt } from "@/core/export/fullprofInt";
 import { magneticIonCandidates } from "@/core/magnetic/magneticIons";
 import { expandStructureToSupercell, buildModulatedMomentModel, mergeToMagneticSupercell, type ModulatedIon } from "@/core/magnetic/magneticSupercell";
 import type { MomentDegeneracy } from "@/core/magnetic/canonicalize";
 import { downloadText } from "@/app/download";
 import { reportHtml, type ReportInput } from "@/core/export/report";
-import { singleCrystalReportInput, reportFileName, type MagneticExploration } from "@/app/reportInputs";
+import { singleCrystalCifText, singleCrystalReportInput, reportFileName, type MagneticExploration } from "@/app/reportInputs";
 import { card as themeCard, color, mono, fz, uppercaseLabel, secondaryButton, space } from "@/app/theme";
 
 // Lazy so three.js stays out of the main bundle until the 3D view is opened.
@@ -857,10 +857,6 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
   }
 
   function exportCif(): void {
-    const withEsd = params.map((p) => {
-      const e = result?.esd[p.id];
-      return e !== undefined ? { ...p, esd: e } : { ...p };
-    });
     const meta: CifRefinementMeta = {
       r1: comparison.agreement.r1,
       wr2: comparison.agreement.wr2,
@@ -874,7 +870,8 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
     // `refinedStructure`, not `structure`: structureToCif reads coordinates and
     // cell off the model and takes the parameters only for their esds, so the
     // starting model would export pre-refinement values with refined esds.
-    downloadText(`${structure.id}.cif`, structureToCif(refinedStructure, { params: withEsd, bindings, refinement: meta }), "chemical/x-cif");
+    // A tied row (a complement occupancy, an EADP follower) carries its leader's esd, as the report does.
+    downloadText(`${structure.id}.cif`, singleCrystalCifText({ structure: refinedStructure, params, result, bindings, refinement: meta }), "chemical/x-cif");
   }
 
   // Export the reflection data as FullProf `.int`. When a joint session is loaded

@@ -11,7 +11,7 @@
 import type { StructureModel } from "@/core/crystal/types";
 import type { Vec3 } from "@/core/math/types";
 import { fractionalToCartesian } from "@/core/crystal/unitCell";
-import { applyOperation } from "@/core/crystal/symmetry";
+import { equivalentPositions } from "@/core/crystal/symmetry";
 import { wrapFractional, sub, norm } from "@/core/math/vec3";
 
 const B = 0.37;
@@ -59,6 +59,8 @@ export interface BondValenceSum {
   readonly sum: number;
   /** (sum − valence)/valence. */
   readonly deviation: number;
+  /** Anion neighbours left out of the sum: no R₀ tabulated for this cation against them (the sum is then low by their share). */
+  readonly untabulated?: readonly string[];
 }
 
 /** The non-metals and the metalloids that bond covalently in a molecule: no bond-valence sum for them there. */
@@ -68,12 +70,8 @@ const NON_METALS: ReadonlySet<string> = new Set(["H", "D", "B", "C", "N", "O", "
 function cellAtoms(model: StructureModel): { label: string; element: string; occupancy: number; frac: Vec3 }[] {
   const atoms: { label: string; element: string; occupancy: number; frac: Vec3 }[] = [];
   for (const site of model.sites) {
-    const positions: Vec3[] = [];
-    for (const op of model.spaceGroup.operations) {
-      const p = wrapFractional(applyOperation(op, site.position));
-      if (!positions.some((q) => norm(sub(q, p)) < 1e-4)) positions.push(p);
-    }
-    for (const p of positions) atoms.push({ label: site.label, element: site.element, occupancy: site.occupancy, frac: p });
+    // Periodic, and coarse enough for a CIF's rounded special positions (0.3333, 0.6667).
+    for (const p of equivalentPositions(model.spaceGroup.operations, site.position)) atoms.push({ label: site.label, element: site.element, occupancy: site.occupancy, frac: p });
   }
   return atoms;
 }
@@ -110,14 +108,17 @@ export function bondValenceSums(model: StructureModel, cutoff = 3.5): BondValenc
       }
     }
     if (neighbours.length === 0) continue;
+    // The sum over the anions with a tabulated R₀ for this state; one anion without one leaves only its own bonds out.
     const sumFor = (state: number): number | null => {
       let total = 0;
+      let any = false;
       for (const n of neighbours) {
         const r0 = ANIONS[n.element]?.[site.element]?.[state];
-        if (r0 === undefined) return null;
+        if (r0 === undefined) continue;
+        any = true;
         total += n.occupancy * Math.exp((r0 - n.distance) / B);
       }
-      return total;
+      return any ? total : null;
     };
     const states = Object.keys(R0_OXIDE[site.element] ?? R0_FLUORIDE[site.element] ?? {}).map(Number);
     const given = site.oxidationState !== undefined && site.oxidationState > 0 ? site.oxidationState : undefined;
@@ -149,6 +150,10 @@ export function bondValenceSums(model: StructureModel, cutoff = 3.5): BondValenc
       meanDistance: shell.reduce((s, n) => s + n.occupancy * n.distance, 0) / weight,
       sum,
       deviation: (sum - valence) / valence,
+      ...(() => {
+        const missing = [...new Set(neighbours.filter((n) => ANIONS[n.element]?.[site.element]?.[valence!] === undefined).map((n) => n.element))];
+        return missing.length ? { untabulated: missing } : {};
+      })(),
     });
   }
   return out;
@@ -157,7 +162,7 @@ export function bondValenceSums(model: StructureModel, cutoff = 3.5): BondValenc
 /** One line on the sums: which agree with their valence, which do not and what that usually means. */
 export function bondValenceReading(sums: readonly BondValenceSum[]): string {
   if (sums.length === 0) return "No cation here has tabulated bond-valence parameters against these anions.";
-  const show = (v: BondValenceSum): string => `${v.site} ${v.sum.toFixed(2)} (${v.element}${v.valence}+${v.assumed ? ", assumed" : ""})`;
+  const show = (v: BondValenceSum): string => `${v.site} ${v.sum.toFixed(2)} (${v.element}${v.valence}+${v.assumed ? ", assumed" : ""}${v.untabulated ? `; without its ${v.untabulated.join(", ")} neighbours, no R₀ tabulated` : ""})`;
   const off = sums.filter((v) => Math.abs(v.deviation) > 0.15);
   const strained = sums.filter((v) => Math.abs(v.deviation) > 0.08 && Math.abs(v.deviation) <= 0.15);
   if (off.length === 0 && strained.length === 0) return `Bond-valence sums agree with the valences (within 8 %): ${sums.map(show).join(", ")}.`;

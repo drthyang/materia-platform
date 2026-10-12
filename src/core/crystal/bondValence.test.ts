@@ -34,6 +34,27 @@ describe("bond-valence sums", () => {
     expect(sums.get("Cr1")!.meanDistance).toBeCloseTo(1.978, 2);
   });
 
+  it("ZnO (P6₃mc) with 4-decimal special positions: Zn²⁺ fourfold, BVS near 2, no duplicated symmetry copies", () => {
+    const zno = parseCif(cif("_cell_length_a 3.2498\n_cell_length_b 3.2498\n_cell_length_c 5.2066\n_cell_angle_alpha 90\n_cell_angle_beta 90\n_cell_angle_gamma 120", "P 63 m c", [
+      "Zn1 Zn 0.3333 0.6667 0 1 0.005", "O1 O 0.3333 0.6667 0.3821 1 0.005",
+    ]), "zno");
+    const [zn] = bondValenceSums(zno);
+    expect(zn!.coordination).toBe(4);
+    expect(zn!.sum).toBeGreaterThan(1.85);
+    expect(zn!.sum).toBeLessThan(2.05);
+  });
+
+  it("sums the tabulated anions when one is not: Ti⁴⁺ with O and F neighbours (no Ti–F R₀) keeps its sum, F left out and named", () => {
+    // A cubic oxyfluoride: Ti at the corner, O on the edges, F at the body centre (3.4 Å away, inside the cutoff).
+    const s = parseCif(cif("_cell_length_a 3.92\n_cell_length_b 3.92\n_cell_length_c 3.92\n_cell_angle_alpha 90\n_cell_angle_beta 90\n_cell_angle_gamma 90", "P m -3 m", [
+      "Ti1 Ti4+ 0 0 0 1 0.005", "O1 O2- 0.5 0 0 1 0.005", "F1 F1- 0.5 0.5 0.5 1 0.005",
+    ]), "tof");
+    const [ti] = bondValenceSums(s);
+    expect(ti).toMatchObject({ site: "Ti1", valence: 4, coordination: 6, untabulated: ["F"] });
+    expect(ti!.sum).toBeCloseTo(6 * Math.exp((1.815 - 1.96) / 0.37), 2);
+    expect(bondValenceReading([ti!])).toMatch(/without its F neighbours/);
+  });
+
   it("flags a cation far from its valence: W on the Cr site of the same structure", () => {
     const s = parseCif(cif("_cell_length_a 4.57531\n_cell_length_b 4.57531\n_cell_length_c 8.8537\n_cell_angle_alpha 90\n_cell_angle_beta 90\n_cell_angle_gamma 90", "P 42/m n m", [
       "Cr1 Cr3+ 0 0 0 1 0.005", "W1 W6+ 0 0 0.3345 1 0.005", "O1 O2- 0.2974 0.2974 0 1 0.005", "O2 O2- 0.3059 0.3059 0.3393 1 0.005",

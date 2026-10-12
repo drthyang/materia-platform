@@ -187,6 +187,20 @@ export interface BoxcarRun {
   readonly bondSites?: readonly string[];
 }
 
+/**
+ * The bond of another box's shell that is `bond` of the first box's: the one
+ * reaching the same neighbour image, else (no images) the one of the same
+ * rank among that neighbour's bonds. Never by rank alone, which swaps two
+ * bonds' columns when one grows past the other.
+ */
+export function followBond(bond: ShellBond, firstShell: readonly ShellBond[], shell: readonly ShellBond[]): ShellBond | undefined {
+  const image = bond.images?.[0];
+  const same = image !== undefined ? shell.find((x) => x.images?.includes(image)) : undefined;
+  if (same) return same;
+  const rank = firstShell.filter((x) => x.to === bond.to).indexOf(bond);
+  return shell.filter((x) => x.to === bond.to)[rank];
+}
+
 /** A site's coordination shell in the structure one box refined: the box's values over the model's. */
 export function boxShell(
   phase: StructureModel,
@@ -204,8 +218,9 @@ export function boxShell(
 /**
  * A scan as a report table, from its first pass: per box its window, Rw and
  * the tracked values — each tracked site's shell bonds (the first box's bonds,
- * followed through the boxes by rank), or, with no sites tracked, the free
- * parameters' values.
+ * each followed through the boxes by the neighbour image it reaches, so a bond
+ * that grows past another keeps its column), or, with no sites tracked, the
+ * free parameters' values.
  */
 export function boxcarTable(
   run: BoxcarRun,
@@ -237,7 +252,7 @@ export function boxcarTable(
     rows: boxes.map(({ w, step }, k) => ({
       r: [w.min, w.max],
       rw: step.result.agreement.rWeighted ?? NaN,
-      values: sites.flatMap((_, s) => first[s]!.map((_b, j) => shells[k]![s]![j]?.distance ?? NaN)),
+      values: sites.flatMap((_, s) => first[s]!.map((b) => followBond(b, first[s]!, shells[k]![s]!)?.distance ?? NaN)),
     })),
   };
 }

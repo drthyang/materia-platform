@@ -185,8 +185,11 @@ export function mergeEquivalents(
       sumWI += w * m.intensity;
     }
     const mean = sumW > 0 ? sumWI / sumW : 0;
-    // Propagated error and observed scatter; the merged σ is the larger.
-    const sigmaProp = sumW > 0 ? 1 / Math.sqrt(sumW) : 0;
+    // Propagated error and observed scatter; the merged σ is the larger. A
+    // member without its own σ has none to propagate: unit weights would
+    // invent σ = 1/√n, so the scatter alone stands (0, unknown, for one).
+    const known = members.every((m) => m.sigma > 0);
+    const sigmaProp = known && sumW > 0 ? 1 / Math.sqrt(sumW) : 0;
     let scatter = 0;
     if (members.length >= 2) {
       let deviation = 0;

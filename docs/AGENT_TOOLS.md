@@ -611,7 +611,9 @@ The page-specific handlers are [`powderTools.ts`](../src/agent/powderTools.ts),
   its absences, and gives no R_int). Where the lattice holds more symmetry
   than the Laue class, `reflection_statistics` lists each merohedral twin law
   (`twinLaws`, as `set_twin` takes it) with the fraction Yeates' H-test reads
-  for it from the intensities alone. `set_twin` adds a twin law, as SHELXL's TWIN and BASF:
+  for it from the intensities alone: over the acentric pairs (h, R·h), ⟨|H|⟩ =
+  ½ − α; in a centrosymmetric group, where every reflection is centric, over
+  all of them by the centric distribution, ⟨|H|⟩ = (2/π)(1 − 2α). `set_twin` adds a twin law, as SHELXL's TWIN and BASF:
   the inversion (its fraction is the Flack x, which needs the Friedel pairs
   measured apart and an anomalous scatterer; X-ray amplitudes carry f′ and f″
   at the laboratory lines) or a 3×3 merohedral law, `withInversion` for both

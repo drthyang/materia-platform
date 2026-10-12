@@ -11,6 +11,8 @@
  * was written against.
  */
 
+import type { RefinementParameter } from "@/core/refinement/types";
+import { matchIds } from "@/agent/liveCommon";
 import { AgentChat, type ChatConfig } from "@/agent/chat";
 import { AgentExecutor, type ActivityEntry, type ToolRunner } from "@/agent/executor";
 import type { AgentPort } from "@/agent/port";
@@ -118,6 +120,24 @@ export const calls = (run: EvalRun): EvalCall[] => run.events.filter((e): e is E
 export const replies = (run: EvalRun): string[] => run.events.filter((e) => e.kind === "reply").map((e) => (e as { text: string }).text).filter((t) => t.trim() !== "");
 export const isChange = (name: string): boolean => liveTool(name)?.effect === "change";
 
+/**
+ * The parameters a refine or boxcar_scan call fits: the page's free set, or
+ * for a scan given `free`, the ones that list names (the scan frees them, the
+ * page's set aside). Undefined for other tools.
+ */
+export function freeAtCall(name: string, input: unknown, parameters: readonly RefinementParameter[]): string[] | undefined {
+  if (name !== "refine" && name !== "boxcar_scan") return undefined;
+  const given = (input as { free?: unknown } | null)?.free;
+  if (name === "boxcar_scan" && Array.isArray(given) && given.every((g) => typeof g === "string")) {
+    try {
+      return matchIds(parameters.filter((p) => !p.expression), given as string[]);
+    } catch {
+      return []; // a pattern that matches nothing: the call is refused
+    }
+  }
+  return parameters.filter((p) => !p.fixed && !p.expression).map((p) => p.id);
+}
+
 /** Run one scenario and grade it. Never throws for the model's behaviour; a chat error becomes a notice. */
 export async function runScenario(scenario: EvalScenario, model: EvalModel, signal: AbortSignal = new AbortController().signal): Promise<EvalResult> {
   const port = scenario.page();
@@ -141,7 +161,7 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
   });
   const runner: ToolRunner = {
     run: async (name, input, signal) => {
-      const free = name === "refine" || name === "boxcar_scan" ? port.state().parameters.filter((p) => !p.fixed && !p.expression).map((p) => p.id) : undefined;
+      const free = freeAtCall(name, input, port.state().parameters);
       const out = await executor.run(name, input, signal);
       // The page records a refinement's step when it ends, as the Agent's.
       if (name === "refine" && !out.isError && /"refined":true/.test(out.text)) history.record("refine", "agent", "Refine");

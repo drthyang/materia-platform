@@ -1,3 +1,4 @@
+import type { Vec3 } from "@/core/math/types";
 import { describe, it, expect } from "vitest";
 import type { UnitCell } from "@/core/crystal/types";
 import { inverseDSquared } from "@/core/crystal/unitCell";
@@ -89,5 +90,39 @@ describe("propagation-vector (k) search", () => {
     expect(result[0]!.k).toEqual([0, 0, 0.5]);
     // Disabling the cut keeps all three.
     expect(searchPropagationVector(ortho, [...lowQ, highQd], { tolerance: 0.005, maxQ: 0 })[0]!.total).toBe(3);
+  });
+});
+
+describe("k-search in a centred lattice", () => {
+  // I4/mmm, a = 4, c = 10: the body centring forbids h + k + l odd.
+  const cell = { a: 4, b: 4, c: 10, alpha: 90, beta: 90, gamma: 90 };
+  const I: Vec3[] = [[0.5, 0.5, 0.5]];
+  const d = (h: number, k: number, l: number): number => 1 / Math.sqrt(h * h / 16 + k * k / 16 + l * l / 100);
+
+  it("does not explain centring-forbidden peaks with k = 0, and finds the vector that puts them there", () => {
+    // Magnetic peaks at 1 0 0, 0 0 1 and 1 1 1: h + k + l odd, absent from the nuclear I lattice.
+    const peaks = [d(1, 0, 0), d(0, 0, 1), d(1, 1, 1), d(2, 1, 0)];
+    const plain = searchPropagationVector(cell, peaks);
+    expect(plain[0]!.label).toBe("(0 0 0)"); // the primitive reading: the bug
+    const centred = searchPropagationVector(cell, peaks, { centring: I });
+    const gamma = centred.find((c) => c.label === "(0 0 0)");
+    expect(gamma?.matched ?? 0).toBe(0);
+    // k = (0 0 1) of the I lattice (the X/M point, ≡ (1 0 0)) explains them all.
+    expect(centred[0]!.matched).toBe(4);
+    expect(centred[0]!.label).toBe("(0 0 1)");
+  });
+});
+
+describe("satellite positions", () => {
+  it("lists G ± k with their labels, and k = 0 at the lattice points, absences included", async () => {
+    const { satellitePositions } = await import("@/core/magnetic/kSearch");
+    const cubic = { a: 4, b: 4, c: 4, alpha: 90, beta: 90, gamma: 90 };
+    const half = satellitePositions(cubic, [0.5, 0, 0], 1.5, 10);
+    expect(half.filter((r) => Math.abs(r.d - 8) < 1e-9).map((r) => r.hkl)).toContain("0 0 0 + k");
+    expect(half.some((r) => Math.abs(r.d - 4) < 1e-9)).toBe(false); // (1 0 0) itself is not a satellite of k = (½ 0 0)…
+    expect(half.some((r) => Math.abs(r.d - 4 / Math.sqrt(1.25)) < 1e-9)).toBe(true); // …but (½ 1 0) is
+    const gamma = satellitePositions(cubic, [0, 0, 0], 1.5, 10, [[0.5, 0.5, 0.5]]);
+    expect(gamma.some((r) => r.hkl === "1 1 0")).toBe(true);
+    expect(gamma.some((r) => r.hkl === "1 0 0")).toBe(false); // the I lattice has no 1 0 0
   });
 });

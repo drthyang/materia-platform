@@ -202,7 +202,9 @@ export function mentionsD(d: number, tol: number): Check {
   return {
     name: `reports the line at d ≈ ${d.toFixed(2)} Å`,
     grade: (run) => {
-      const numbers = replies(run).flatMap((r) => [...r.matchAll(/\d+\.\d+/g)].map((m) => Number(m[0])));
+      // A d-spacing as such: "d = 2.31", "the d-spacing … is 2.31", or a length in Å. Any number near d (an R, a 2θ, an occupancy) is not the line.
+      const D = /\bd(?:-spacing)?\b[^\d.]{0,30}?(\d+\.\d+)(?!\d|\s*[%°]|\s*Å[²³])|(\d+\.\d+)\s*Å(?![²³])/g;
+      const numbers = replies(run).flatMap((r) => [...r.matchAll(D)].map((m) => Number(m[1] ?? m[2])));
       const hit = numbers.find((n) => Math.abs(n - d) <= tol);
       return hit !== undefined ? ok(`said ${hit}`) : fail(`no d within ${tol} Å of ${d.toFixed(3)} in the replies`);
     },
@@ -470,21 +472,34 @@ export const testsHighOrder: Check = {
 export const comparesExtinctionModels: Check = {
   name: "refines under another extinction model and keeps the one that fits better",
   grade: (run) => {
-    const byModel = new Map<string, number>();
+    // wR2s compare only under the same conditions: the same data (range, filter, merging), weights and free set.
+    const conditions: Record<string, unknown> = {};
+    const byConditions = new Map<string, Map<string, number>>();
     let model = "shelx";
     for (const c of calls(run)) {
-      if (c.name === "set_extinction_model" && !c.isError && typeof c.input.model === "string") model = c.input.model;
-      if (c.name === "refine" && !c.isError) {
+      if (c.isError) continue;
+      if (c.name === "set_extinction_model" && typeof c.input.model === "string") model = c.input.model;
+      if (["set_resolution_range", "set_outlier_filter", "set_weighting", "merge_equivalents", "omit_reflections"].includes(c.name)) conditions[c.name] = c.input;
+      if (c.name === "refine") {
         const out = json(c.text);
-        if (out?.refined === true && typeof out.wR2 === "number") byModel.set(model, out.wR2);
+        if (out?.refined !== true || typeof out.wR2 !== "number") continue;
+        const key = JSON.stringify({ ...conditions, free: [...(c.free ?? [])].filter((id) => !/^ext/i.test(id)).sort() });
+        const byModel = byConditions.get(key) ?? new Map<string, number>();
+        byModel.set(model, out.wR2);
+        byConditions.delete(key);
+        byConditions.set(key, byModel); // the latest conditions last
       }
     }
     const s = scState(run);
-    if (byModel.size < 2) return fail(`refined under ${byModel.size === 0 ? "no" : "one"} extinction model only`);
-    const best = [...byModel].sort((a, b) => a[1] - b[1])[0]![0];
+    const compared = [...byConditions.values()].filter((m) => m.size >= 2).at(-1);
+    if (!compared) {
+      const models = new Set([...byConditions.values()].flatMap((m) => [...m.keys()]));
+      return fail(models.size >= 2 ? "refined under two extinction models, but never under the same data, weights and free set: the wR2s do not compare" : `refined under ${models.size === 0 ? "no" : "one"} extinction model only`);
+    }
+    const best = [...compared].sort((a, b) => a[1] - b[1])[0]![0];
     return s?.extinctionModel === best
-      ? ok(`compared ${[...byModel].map(([m, w]) => `${m} (wR2 ${w} %)`).join(", ")}; kept ${best}`)
-      : fail(`ends under ${s?.extinctionModel ?? "?"}, though ${best} fitted better (${[...byModel].map(([m, w]) => `${m} ${w} %`).join(", ")})`);
+      ? ok(`compared ${[...compared].map(([m, w]) => `${m} (wR2 ${w} %)`).join(", ")}; kept ${best}`)
+      : fail(`ends under ${s?.extinctionModel ?? "?"}, though ${best} fitted better (${[...compared].map(([m, w]) => `${m} ${w} %`).join(", ")})`);
   },
 };
 
@@ -631,7 +646,7 @@ export const refinesFlack: Check = {
     const esd = fit?.esd.twin_1;
     if (x === undefined || esd === undefined) return fail("ends with no refined Flack x on screen");
     // The x quoted with its esd, as the engine has it: within its esd, or the rounding of the digits quoted.
-    const quoted = sentences(replies(run).join("\n")).filter((t) => /Flack/i.test(t)).flatMap((t) => [...t.matchAll(/(\d\.(\d+))\(\d+\)/g)].map((m) => ({ t, v: Number(m[1]), digits: m[2]!.length })));
+    const quoted = sentences(replies(run).join("\n")).filter((t) => /Flack/i.test(t)).flatMap((t) => [...t.matchAll(/([−-]?\d\.(\d+))\(\d+\)/g)].map((m) => ({ t, v: Number(m[1]!.replace("−", "-")), digits: m[2]!.length })));
     if (quoted.length === 0) return fail("never reports the Flack x with its esd");
     const right = quoted.find((q) => Math.abs(q.v - x) <= Math.max(esd, 0.51 * 10 ** -q.digits));
     return right

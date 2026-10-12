@@ -108,6 +108,8 @@ export interface CellSymmetryCheck {
   /** Both hold: every peak indexes and no absence shows intensity. */
   readonly passed: boolean;
   readonly everyPeakIndexes: boolean;
+  /** The zero shift (°) the Le Bail fit refined for 2θ data: the positions of the unindexed peaks carry it, so their d is read without it. */
+  readonly zero?: number;
   readonly absencesConsistent: boolean;
   /** The cell after the Le Bail fit, and the refined cell-parameter values by id. */
   readonly cell: UnitCell;
@@ -399,6 +401,7 @@ export function checkCellSymmetry(
   return {
     passed: everyPeakIndexes && absencesConsistent,
     everyPeakIndexes,
+    ...(pattern.xUnit === "twoTheta" && pre.zero !== undefined ? { zero: pre.zero } : {}),
     absencesConsistent,
     cell,
     cellValues: pre.cellValues,

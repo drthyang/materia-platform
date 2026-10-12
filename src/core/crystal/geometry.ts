@@ -6,7 +6,7 @@
 import type { AtomSite, StructureModel } from "@/core/crystal/types";
 import type { Vec3 } from "@/core/math/types";
 import { fractionalToCartesian } from "@/core/crystal/unitCell";
-import { applyOperation } from "@/core/crystal/symmetry";
+import { almostEqualFractional, applyOperation } from "@/core/crystal/symmetry";
 import { wrapFractional, sub, norm } from "@/core/math/vec3";
 import { symmetricEigenDecomposition } from "@/core/math/linalg";
 
@@ -37,7 +37,8 @@ export function bondLengths(model: StructureModel, cutoff = 3.2): BondLength[] {
     model.spaceGroup.operations.forEach((op, k) => {
       const raw = applyOperation(op, site.position);
       const p = wrapFractional(raw);
-      if (positions.some((q) => norm(sub(q, p)) < 1e-4)) return;
+      // Periodic, and coarse enough for a CIF's rounded special positions (0.3333, 0.6667).
+      if (positions.some((q) => almostEqualFractional(q, p, 1e-3))) return;
       positions.push(p);
       atoms.push({ label: site.label, site, frac: p, op: k, wrap: sub(p, raw) as Vec3 });
     });
@@ -405,6 +406,13 @@ export interface ShellBond {
   readonly to: string;
   readonly distance: number;
   readonly count: number;
+  /**
+   * The neighbours the bond reaches, one per count: the symmetry operation's
+   * number and the lattice translation from where it put the atom. Each
+   * identifies its bond whatever its length, so a scan follows it from box
+   * to box.
+   */
+  readonly images?: readonly string[];
 }
 
 /** A site's first coordination shell, shortest bond first. */
@@ -430,28 +438,31 @@ const SHELL_REACH = 3.2;
  * neighbours. Lengths equal within 0.0005 Å are one bond.
  */
 export function coordinationShells(model: StructureModel, cutoff = 3.5): CoordinationShell[] {
-  const atoms: { label: string; element: string; frac: Vec3 }[] = [];
+  const atoms: { label: string; element: string; frac: Vec3; op: number; wrap: Vec3 }[] = [];
   for (const site of model.sites) {
     const positions: Vec3[] = [];
-    for (const op of model.spaceGroup.operations) {
-      const p = wrapFractional(applyOperation(op, site.position));
-      if (!positions.some((q) => norm(sub(q, p)) < 1e-4)) positions.push(p);
-    }
-    for (const p of positions) atoms.push({ label: site.label, element: site.element, frac: p });
+    model.spaceGroup.operations.forEach((op, k) => {
+      const raw = applyOperation(op, site.position);
+      const p = wrapFractional(raw);
+      // Periodic, and coarse enough for a CIF's rounded special positions (0.3333, 0.6667).
+      if (positions.some((q) => almostEqualFractional(q, p, 1e-3))) return;
+      positions.push(p);
+      atoms.push({ label: site.label, element: site.element, frac: p, op: k, wrap: sub(p, raw) as Vec3 });
+    });
   }
   const anions = atoms.some((a) => ANION_ELEMENTS.has(a.element));
   const out: CoordinationShell[] = [];
   for (const site of model.sites) {
     if (anions && ANION_ELEMENTS.has(site.element)) continue;
     const origin = fractionalToCartesian(model.cell, wrapFractional(site.position));
-    const found: { to: string; distance: number }[] = [];
+    const found: { to: string; distance: number; image: string }[] = [];
     for (const atom of atoms) {
       if (anions && !ANION_ELEMENTS.has(atom.element)) continue;
       for (let da = -1; da <= 1; da++) {
         for (let db = -1; db <= 1; db++) {
           for (let dc = -1; dc <= 1; dc++) {
             const d = norm(sub(fractionalToCartesian(model.cell, [atom.frac[0] + da, atom.frac[1] + db, atom.frac[2] + dc]), origin));
-            if (d > 0.5 && d <= cutoff) found.push({ to: atom.label, distance: d });
+            if (d > 0.5 && d <= cutoff) found.push({ to: atom.label, distance: d, image: `${atom.label}#${atom.op + 1}:${[da + atom.wrap[0], db + atom.wrap[1], dc + atom.wrap[2]].map(Math.round).join(",")}` });
           }
         }
       }
@@ -460,11 +471,13 @@ export function coordinationShells(model: StructureModel, cutoff = 3.5): Coordin
     const shortest = Math.min(...found.map((f) => f.distance));
     const reach = Math.max(SHELL_REACH, 1.25 * shortest);
     const shell = found.filter((f) => f.distance <= reach).sort((a, b) => a.distance - b.distance);
-    const bonds: { to: string; distance: number; count: number }[] = [];
+    const bonds: { to: string; distance: number; count: number; images: string[] }[] = [];
     for (const f of shell) {
       const same = bonds.find((b) => b.to === f.to && Math.abs(b.distance - f.distance) < 5e-4);
-      if (same) same.count++;
-      else bonds.push({ to: f.to, distance: f.distance, count: 1 });
+      if (same) {
+        same.count++;
+        same.images.push(f.image);
+      } else bonds.push({ to: f.to, distance: f.distance, count: 1, images: [f.image] });
     }
     out.push({ site: site.label, bonds, mean: shell.reduce((s, f) => s + f.distance, 0) / shell.length });
   }

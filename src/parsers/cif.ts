@@ -490,7 +490,7 @@ function parseSites(items: Map<string, string>, loops: Loop[]): AtomSite[] {
     ...(formula !== undefined ? { formula: formulaElements(formula) } : {}),
   };
 
-  return atomLoop.rows.map((row) => {
+  return nameUnnamedDisorders(atomLoop.rows.map((row) => {
     // Per row, not per column: a mixed loop can leave U_iso as `?` on the sites
     // whose value sits in the B column (and vice versa).
     const uIso = iU >= 0 ? parseCifNumberOr(row[iU], NaN) : NaN;
@@ -526,6 +526,29 @@ function parseSites(items: Map<string, string>, loops: Loop[]): AtomSite[] {
       ...(hasSu ? { su: { position: suPosition, occupancy: suOcc, uIso: suU, ...(suAniso ? { uAniso: suAniso } : {}) } } : {}),
     };
     return site;
+  }));
+}
+
+/**
+ * A CIF that groups its disordered sites (_atom_site_disorder_group) without
+ * naming their assemblies: each run of disordered rows between ordered ones
+ * is one assembly, lettered in order, as SHELXL writes the atoms of one PART
+ * block together. Two disorders are then never read as one.
+ */
+function nameUnnamedDisorders(sites: AtomSite[]): AtomSite[] {
+  if (!sites.some((s) => s.disorder && s.disorder.assembly === "")) return sites;
+  let run = -1;
+  let inRun = false;
+  return sites.map((site) => {
+    if (!site.disorder) {
+      inRun = false;
+      return site;
+    }
+    if (!inRun) {
+      run++;
+      inRun = true;
+    }
+    return site.disorder.assembly === "" ? { ...site, disorder: { ...site.disorder, assembly: String.fromCharCode(65 + (run % 26)) } } : site;
   });
 }
 

@@ -39,6 +39,8 @@ import { powderValidation } from "@/core/diagnostics/powderValidation";
 import type { ReportCheck } from "@/core/export/report";
 import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, correlationsCheck, findingChecks, noResultCheck, verdictCheck } from "@/agent/reportChecks";
 import { groupOf } from "@/agent/method";
+import { satellitePositions } from "@/core/magnetic/kSearch";
+import { centringTranslations } from "@/core/crystal/symmetry";
 import { inspectDataRange, type DataEnd, type DataRangeReading } from "@/core/diagnostics/dataRange";
 
 
@@ -47,7 +49,8 @@ type Input = any;
 
 /** Run a read or control tool. Returns the JSON result the model sees. */
 /** The tools that need a model with atoms: on the placeholder they would judge nothing. */
-const NEEDS_STRUCTURE = new Set(["assess_refinement", "suggest_next_steps", "rank_next_parameters", "check_cell_symmetry", "find_unexplained_peaks", "review_symmetry", "diagnose_fit", "bond_geometry", "interpret_structure", "refine"]);
+// check_fit_range too: it cuts the window in the gaps between the reflections, and a placeholder has none.
+const NEEDS_STRUCTURE = new Set(["check_fit_range", "assess_refinement", "suggest_next_steps", "rank_next_parameters", "check_cell_symmetry", "find_unexplained_peaks", "review_symmetry", "diagnose_fit", "bond_geometry", "interpret_structure", "refine"]);
 
 /** Refuse a tool that needs a structure when only data are loaded. */
 export function requireStructure(name: string, s: PowderLiveState): void {
@@ -111,9 +114,11 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
         ...(input.dMin !== undefined ? { dMin: input.dMin } : {}),
         ...(input.significance !== undefined ? { significance: input.significance } : {}),
       });
-      // Each unindexed peak in d and Q too, and marked on the plot for the user.
+      // Each unindexed peak in d and Q too, and marked on the plot for the user:
+      // in 2θ with the check's own refined zero taken out, as its reflections were placed.
+      const axis = check.zero !== undefined ? { ...s.axis, zero: check.zero } : s.axis;
       const unindexed = check.unindexedPeaks.map((p) => {
-        const d = convertAxisValue(p.x, s.pattern.xUnit, "dSpacing", s.axis);
+        const d = convertAxisValue(p.x, s.pattern.xUnit, "dSpacing", axis);
         return { ...p, ...(Number.isFinite(d) ? { d: sig(d, 5), q: sig((2 * Math.PI) / d, 5) } : {}) };
       });
       const marks = unindexed.flatMap((p) => ("d" in p && p.d !== undefined ? [{ d: p.d, height: p.significance }] : []));
@@ -710,6 +715,14 @@ function residualOf(s: PowderLiveState): { d: number[]; yObs: number[]; yCalc: n
   const reflections = s.refinedPhases.flatMap((ph) =>
     generateReflections(ph.cell, ph.spaceGroup, dMin, dMax, { absences: true }).map((r) => ({ d: r.d, hkl: `${r.h} ${r.k} ${r.l}`, phaseLabel: ph.name || ph.id })),
   );
+  // An applied magnetic model's satellites are lines of the model too: a residual on one is its misfit, not a missing phase.
+  if (s.magnetic) {
+    const parent = s.refinedPhases.find((ph) => ph.id === s.magnetic!.structureId) ?? s.refinedPhases[0]!;
+    const centring = centringTranslations(parent.spaceGroup.operations);
+    for (const k of s.magnetic.propagation) {
+      reflections.push(...satellitePositions(parent.cell, k, dMin, dMax, centring).map((r) => ({ ...r, phaseLabel: `${parent.name || parent.id} magnetic` })));
+    }
+  }
   // Neutrons see magnetic order; a phase with magnetic ions may carry it.
   const magneticNeutron = s.pattern.radiation.kind.startsWith("neutron") && s.magnetic === null && [s.structure, ...s.extraPhases].some((ph) => magneticIonCandidates(ph).length > 0);
   const yCalc = pick(s.curves.yCalc);

@@ -101,14 +101,13 @@ export async function changeSingleCrystal(name: string, input: Input, port: Sing
       return "The extinction parameter restarted at 0 under the new model: refine it with the scale (and what was free before) to convergence before comparing the fit.";
     case "set_twin": {
       const next = twinAfter(s, input);
+      const starts = twinStarts(s, next);
       port.setTwinLaws(next);
       if (next.length === 0) return "Untwinned again: the twin fraction left the fit, and the last fit is cleared.";
       const signal = isInversion(next[0]!) && !anomalousLine(s) ? " No anomalous scattering at this radiation (X-rays at a tabulated line give it): the inversion fraction is undetermined." : "";
-      if (next.length > 1) return `Four domains, as SHELXL's TWIN R −4: the law (twin_1), the inversion (twin_2) and the two together (twin_3), each fraction free from 0.1. The inverted domains (twin_2 + twin_3) hold the Flack x: refine them with the structure.${anomalousLine(s) ? "" : " No anomalous scattering at this radiation: their split between the hands is undetermined."} The last fit is cleared.`;
-      // The law that stays where it was keeps its fraction (the page keeps the row).
-      const kept = s.twinLaws[0] && s.twinLaws[0].matrix.every((row, i) => row.every((v, j) => Math.round(v) === Math.round(next[0]!.matrix[i]![j]!)));
-      const before = s.parameters.find((p) => p.id === "twin_1");
-      if (kept && before) return `The law stays, its fraction kept at ${sig(before.value, 4)} (twin_1)${s.twinLaws.length > 1 ? `; the other ${s.twinLaws.length - 1} domain${s.twinLaws.length === 2 ? "" : "s"} left the fit` : ""}: refine it with the structure.${signal} The last fit is cleared.`;
+      const dropped = s.twinLaws.length > next.length ? `; the other ${s.twinLaws.length - next.length} domain${s.twinLaws.length - next.length === 1 ? "" : "s"} left the fit` : "";
+      if (next.length > 1) return `Four domains, as SHELXL's TWIN R −4: the law (twin_1), the inversion (twin_2) and the two together (twin_3) — ${startsText(starts)}. The inverted domains (twin_2 + twin_3) hold the Flack x: refine them with the structure.${anomalousLine(s) ? "" : " No anomalous scattering at this radiation: their split between the hands is undetermined."} The last fit is cleared.`;
+      if (starts[0]!.kept) return `The law stays, its fraction kept at ${sig(starts[0]!.value, 4)} (twin_1)${dropped}: refine it with the structure.${signal} The last fit is cleared.`;
       return `${isInversion(next[0]!) ? "The inversion twin's fraction, the Flack x (twin_1)," : "The twin fraction (twin_1, BASF)"} is free from 0.1: refine it with the structure.${signal} The last fit is cleared.`;
     }
     case "invert_structure": {
@@ -324,10 +323,11 @@ export function describeSingleCrystalChange(spec: LiveToolSpec, input: Input, s:
     }
     case "set_twin": {
       const next = twinAfter(s, input);
-      if (next.length > 1) return `Twin law: ${twinText(next[0]!)} with the inversion — four domains (TWIN R −4), three fractions from 0.1`;
+      const starts = twinStarts(s, next);
+      if (next.length > 1) return `Twin law: ${twinText(next[0]!)} with the inversion — four domains (TWIN R −4): ${startsText(starts)}`;
       if (next.length === 0) return `Untwinned: the twin fraction${s.twinLaws.length ? "" : "s"} leave the fit`;
-      const stays = s.twinLaws[0] && s.twinLaws[0].matrix.every((row, i) => row.every((v, j) => Math.round(v) === Math.round(next[0]!.matrix[i]![j]!)));
-      return `Twin law: ${twinText(next[0]!)} — its fraction${isInversion(next[0]!) ? " (the Flack x)" : " (BASF)"} ${stays ? `kept at ${sig(s.parameters.find((p) => p.id === "twin_1")?.value ?? 0.1, 4)}${s.twinLaws.length > 1 ? `, the other ${s.twinLaws.length - 1} domain${s.twinLaws.length === 2 ? "" : "s"} leaving the fit` : ""}` : "refines from 0.1"}`;
+      const leaving = s.twinLaws.length > next.length ? `, the other ${s.twinLaws.length - next.length} domain${s.twinLaws.length - next.length === 1 ? "" : "s"} leaving the fit` : "";
+      return `Twin law: ${twinText(next[0]!)} — its fraction${isInversion(next[0]!) ? " (the Flack x)" : " (BASF)"} ${starts[0]!.kept ? `kept at ${sig(starts[0]!.value, 4)}${leaving}` : "refines from 0.1"}`;
     }
     case "merge_equivalents": {
       if (!input.on) return `Fit every measurement again (${s.totalReflections}), not the merged equivalents`;
@@ -663,7 +663,7 @@ function absoluteStructureView(s: SingleCrystalLiveState): Record<string, unknow
 }
 
 /** What a Flack x with its esd u says (Flack & Bernardinelli, J. Appl. Cryst. 33 (2000) 1143). */
-function flackReading(x: number, u: number | undefined, line: string | null): string {
+export function flackReading(x: number, u: number | undefined, line: string | null): string {
   if (!line) return "no anomalous scattering at this radiation: x is undetermined, whatever its value";
   if (u === undefined) return "not refined yet: refine it with the structure for its esd";
   if (u > 0.3) return `u = ${sig(u, 2)}: the anomalous signal is too weak to say anything about the absolute structure`;
@@ -679,8 +679,29 @@ function flackReading(x: number, u: number | undefined, line: string | null): st
     if (u < 0.1) return `the inverted hand: ${invert}. With u = ${sig(u, 2)} (above 0.04) a few per cent of this model's hand cannot be excluded for a compound of unknown enantiopurity (Flack & Bernardinelli)`;
     return `x is 1 within 2u, but u = ${sig(u, 2)} is too large to determine the hand (u < 0.1 is needed even for a compound known to be enantiopure): the data lean to the inverted model, no more — compare the two hands' fits (invert_structure) and quote both`;
   }
+  // Outside [0, 1] by more than 2u: no crystal holds a negative share of a hand.
+  if (x < 0 || x > 1) {
+    return `x = ${sig(x, 2)} lies ${x < 0 ? "below 0" : "above 1"} by more than 2u (u = ${sig(u, 2)}), which no crystal can be: the model's hand is ${x < 0 ? "this one" : "the inverted one"} as far as the data go, but the excess points to a systematic error (absorption, the weighting, extinction, an unresolved twin or disorder) to find before quoting x`;
+  }
   return `between the hands: an inversion twin, ${sig(100 * x, 2)} % of the crystal of the inverted hand${Math.abs(x - 0.5) <= 2 * u ? " — a racemic twin" : ""}`;
 }
+
+/**
+ * Where each fraction of a new set of laws starts, as the page sets them: a
+ * law that stays at its place keeps its row's value (twin_i), a new one
+ * starts at 0.1.
+ */
+export function twinStarts(s: SingleCrystalLiveState, next: readonly TwinLaw[]): { id: string; kept: boolean; value: number }[] {
+  const same = (a: TwinLaw | undefined, b: TwinLaw): boolean => !!a && a.matrix.every((row, i) => row.every((v, j) => Math.round(v) === Math.round(b.matrix[i]![j]!)));
+  return next.map((law, i) => {
+    const id = `twin_${i + 1}`;
+    const row = same(s.twinLaws[i], law) ? s.parameters.find((p) => p.id === id) : undefined;
+    return row ? { id, kept: true, value: row.value } : { id, kept: false, value: 0.1 };
+  });
+}
+
+const startsText = (starts: readonly { id: string; kept: boolean; value: number }[]): string =>
+  starts.map((t) => (t.kept ? `${t.id} kept at ${sig(t.value, 4)}` : `${t.id} from 0.1`)).join(", ");
 
 // ── weighting scheme ────────────────────────────────────────────────────────
 
@@ -925,10 +946,24 @@ function outliersView(s: SingleCrystalLiveState, count: number): string[] {
     .map((r) => `${hklOf(r)}${r.batch !== undefined ? ` (batch ${r.batch})` : ""}: Fo² ${sig(r.foSq, 4)}, Fc² ${sig(r.fcSq, 4)}, ${residual(r)} (d ${sig(dSpacing(s.structure.cell, r.h, r.k, r.l), 3)} Å) — ${equivalentsReading(s, r, keyOf)}`);
 }
 
+/** The least and greatest of `values`, by a loop: spreading a TOF file's 10⁵–10⁶ values into Math.min overflows the call stack. */
+export function extent(values: readonly number[]): [number, number] {
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const v of values) {
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
+  return [lo, hi];
+}
+
 /** How the reflections were measured, when the file says: each at its own wavelength (TOF Laue), in batches. */
 function measurementView(s: SingleCrystalLiveState): Record<string, unknown> | null {
   const refl = s.dataset.reflections;
-  const range = (values: number[], digits: number): string => `${sig(Math.min(...values), digits)}–${sig(Math.max(...values), digits)}`;
+  const range = (values: number[], digits: number): string => {
+    const [lo, hi] = extent(values);
+    return `${sig(lo, digits)}–${sig(hi, digits)}`;
+  };
   const wl = refl.flatMap((r) => (r.wavelength !== undefined ? [r.wavelength] : []));
   const tt = refl.flatMap((r) => (r.twoTheta !== undefined ? [r.twoTheta] : []));
   const tr = refl.flatMap((r) => (r.transmission !== undefined ? [r.transmission] : []));
@@ -963,7 +998,7 @@ function batchView(rows: readonly SingleCrystalRow[]): Record<string, unknown> |
   per.sort((a, b) => Math.abs(Math.log(b.k) - mean) - Math.abs(Math.log(a.k) - mean));
   return {
     batches: per.length,
-    K: `${sig(Math.min(...per.map((b) => b.k)), 3)}–${sig(Math.max(...per.map((b) => b.k)), 3)} (geometric mean ${sig(Math.exp(mean), 3)}, scatter ${pct(sd)} %)`,
+    K: `${sig(extent(per.map((b) => b.k))[0], 3)}–${sig(extent(per.map((b) => b.k))[1], 3)} (geometric mean ${sig(Math.exp(mean), 3)}, scatter ${pct(sd)} %)`,
     farthest: per.slice(0, 5).map((b) => `batch ${b.batch}: ${b.n} reflections, K ${sig(b.k, 3)}, R1 ${pct(b.r1)} %; worst ${hklOf(b.worst)} at ${sig(b.worst.deltaOverSigma, 3)}σ`),
     reading: "One scale serves every batch, so K should scatter about its mean by each batch's precision. A batch whose K stands apart has a scale of its own, or holds a reflection measured wrongly (an edge of the detector, a shadow): its worst reflection says which.",
   };
@@ -1199,8 +1234,8 @@ function twinLawsView(read: readonly { h: number; k: number; l: number; intensit
   const laws = merohedralTwinLaws(read, s.structure.cell, s.structure.spaceGroup);
   if (laws.length === 0) return "none: the lattice holds no symmetry beyond the Laue class, so no merohedral twin (a pseudo-merohedral one needs a cell that nearly holds more)";
   return {
-    laws: laws.map((l) => ({ law: l.matrix, indices: l.indices, pairs: l.pairs, ...(l.pairs > 0 ? { meanH: sig(l.meanH, 3), alpha: sig(l.alpha, 3) } : { alpha: "no pair measured" }) })),
-    reading: "Yeates' H-test, before any model: over the acentric pairs (h, R·h) both measured above 3σ, ⟨H⟩ = ⟨|I₁ − I₂|/(I₁ + I₂)⟩ = ½ − α. A law with α well above the others' twins the crystal: set_twin with it, and refine its fraction (the test's α is an estimate; noise lowers it). A perfect twin by one law leaves the others near α ≈ 0.12 (each intensity then the mean of two), and pseudo-symmetry raises every α; all near 0: no merohedral twin.",
+    laws: laws.map((l) => ({ law: l.matrix, indices: l.indices, pairs: l.pairs, ...(l.pairs > 0 ? { meanH: sig(l.meanH, 3), alpha: sig(l.alpha, 3) } : { alpha: `no ${l.distribution} pair (h, R·h) measured above 3σ: the test has nothing to read for this law` }) })),
+    reading: `Yeates' H-test, before any model: over the pairs (h, R·h) both measured above 3σ, ⟨H⟩ = ⟨|I₁ − I₂|/(I₁ + I₂)⟩ = ${laws[0]!.distribution === "centric" ? "(2/π)(1 − 2α) — the group is centrosymmetric, so every reflection is centric and I₁/(I₁ + I₂) follows the arcsine law" : "½ − α over the acentric pairs"}. A law with α well above the others' twins the crystal: set_twin with it, and refine its fraction (the test's α is an estimate; noise lowers it). A perfect twin by one law leaves the others near α ≈ 0.12 (each intensity then the mean of two), and pseudo-symmetry raises every α; all near 0: no merohedral twin.`,
   };
 }
 

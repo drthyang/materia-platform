@@ -9,6 +9,7 @@
  */
 
 import type { StructureModel } from "@/core/crystal/types";
+import { structureToCif, type CifRefinementMeta } from "@/core/export/cif";
 import { formatWithEsd } from "@/core/export/cif";
 import { EIGHT_PI_SQUARED, isHydrogen } from "@/core/crystal/adp";
 import { ridingSummary, sharedUGroups } from "@/core/crystal/riding";
@@ -59,8 +60,8 @@ export function reportFileName(structure: StructureModel): string {
   return `${token.length >= 2 ? token : structure.id}_report.html`;
 }
 
-/** Parameters with the last result's esds merged in (the CIF export's `withEsd`). */
-function withEsds(params: readonly RefinementParameter[], result: RefinementResult | null | undefined): RefinementParameter[] {
+/** Parameters with the last result's esds merged in, a tied row's from its leader's: what the CIF exports and the report prints. */
+export function withEsds(params: readonly RefinementParameter[], result: RefinementResult | null | undefined): RefinementParameter[] {
   // A tied row (e.g. "= hypot(…)") reports what its tie evaluates to.
   let resolved: Record<string, number> | null = null;
   if (params.some((p) => p.expression)) {
@@ -85,6 +86,15 @@ function withEsds(params: readonly RefinementParameter[], result: RefinementResu
     const value = p.expression && resolved ? resolved[p.id] ?? p.value : p.value;
     return { ...p, value, ...(e !== undefined && Number.isFinite(e) ? { esd: e } : {}) };
   });
+}
+
+/**
+ * The single-crystal page's CIF: the refined model with each parameter's su,
+ * a tied row's from its leader's (withEsds). The workbench's Export CIF writes
+ * exactly this.
+ */
+export function singleCrystalCifText(o: { structure: StructureModel; params: readonly RefinementParameter[]; result: RefinementResult | null | undefined; bindings: readonly ParameterBinding[]; refinement: CifRefinementMeta }): string {
+  return structureToCif(o.structure, { params: withEsds(o.params, o.result), bindings: o.bindings, refinement: o.refinement });
 }
 
 const pct = (v: number | null | undefined, d = 2): string => (v === null || v === undefined || !Number.isFinite(v) ? "—" : `${(100 * v).toFixed(d)} %`);

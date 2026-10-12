@@ -18,10 +18,60 @@ import type { EvaluatorSpec } from "@/workers/protocol";
 import type { BatchEvaluator } from "@/core/refinement/engine";
 import { buildProblemForSpec } from "@/workers/runPowder";
 
-interface NodeWorkerLike {
+export interface NodeWorkerLike {
   postMessage(msg: unknown): void;
-  on(event: "message" | "error", cb: (payload: never) => void): void;
+  on(event: "message" | "error" | "exit", cb: (payload: never) => void): void;
   terminate(): Promise<number>;
+}
+
+type Reply = { id: number; ok: boolean; results?: Float64Array[]; error?: string };
+
+/**
+ * The requests in flight to a set of workers, each answered by its reply, or
+ * rejected when its worker dies (an error, or an exit before replying): a dead
+ * worker's requests would otherwise wait forever, and so would the solve.
+ */
+export function workerRequests(): {
+  attach(worker: NodeWorkerLike): void;
+  post(worker: NodeWorkerLike, payload: Record<string, unknown>): Promise<Float64Array[]>;
+  clear(): void;
+} {
+  const pending = new Map<number, { worker: NodeWorkerLike; resolve: (r: Reply) => void; reject: (e: Error) => void }>();
+  const dead = new Map<NodeWorkerLike, string>();
+  let nextId = 1;
+  const fail = (worker: NodeWorkerLike, why: string): void => {
+    if (!dead.has(worker)) dead.set(worker, why);
+    for (const [id, p] of pending) {
+      if (p.worker !== worker) continue;
+      pending.delete(id);
+      p.reject(new Error(`an evaluator worker stopped: ${why}`));
+    }
+  };
+  return {
+    attach(worker) {
+      worker.on("message", (msg: Reply) => {
+        const p = pending.get(msg.id);
+        if (p) {
+          pending.delete(msg.id);
+          p.resolve(msg);
+        }
+      });
+      worker.on("error", (e: Error) => fail(worker, e instanceof Error ? e.message : String(e)));
+      worker.on("exit", (code: number) => fail(worker, `exited with code ${code}`));
+    },
+    post(worker, payload) {
+      return new Promise((resolve, reject) => {
+        const why = dead.get(worker);
+        if (why !== undefined) return reject(new Error(`an evaluator worker stopped: ${why}`));
+        const id = nextId++;
+        pending.set(id, { worker, reject, resolve: (r) => (r.ok && r.results ? resolve(r.results) : reject(new Error(r.error ?? "evaluator failed"))) });
+        worker.postMessage({ id, ...payload });
+      });
+    },
+    clear() {
+      pending.clear();
+    },
+  };
 }
 
 interface WorkerThreadsModule {
@@ -108,22 +158,11 @@ export async function createNodeEvaluatorPool(spec: EvaluatorSpec, maxWorkers = 
   if (size < 2) return null;
 
   const workers: NodeWorkerLike[] = [];
-  const pending = new Map<number, { resolve: (r: { ok: boolean; results?: Float64Array[]; error?: string }) => void }>();
-  let nextId = 1;
+  const requests = workerRequests();
   try {
     for (let i = 0; i < size; i++) {
       const w = new wt.Worker(new URL(entry), { workerData: { [EVALUATOR_FLAG]: true, spec } });
-      w.on("message", (msg: { id: number; ok: boolean; results?: Float64Array[]; error?: string }) => {
-        const entry2 = pending.get(msg.id);
-        if (entry2) {
-          pending.delete(msg.id);
-          entry2.resolve(msg);
-        }
-      });
-      w.on("error", () => {
-        /* a dead worker leaves its requests pending; evaluate() will reject via timeout-free design —
-           errors surface on the next send as a hang, so treat construction errors as fatal below */
-      });
+      requests.attach(w);
       workers.push(w);
     }
   } catch {
@@ -132,13 +171,7 @@ export async function createNodeEvaluatorPool(spec: EvaluatorSpec, maxWorkers = 
   }
 
   const post = (worker: NodeWorkerLike, payload: { sets: Record<string, number>[] } | { spec: EvaluatorSpec }): Promise<Float64Array[]> =>
-    new Promise((resolve, reject) => {
-      const id = nextId++;
-      pending.set(id, {
-        resolve: (r) => (r.ok && r.results ? resolve(r.results) : reject(new Error(r.error ?? "evaluator failed"))),
-      });
-      worker.postMessage({ id, ...payload });
-    });
+    requests.post(worker, payload);
 
   const send = (worker: NodeWorkerLike, sets: Record<string, number>[]): Promise<Float64Array[]> =>
     post(worker, { sets });
@@ -157,8 +190,8 @@ export async function createNodeEvaluatorPool(spec: EvaluatorSpec, maxWorkers = 
       return (await Promise.all(jobs)).flat();
     },
     async dispose(): Promise<void> {
+      requests.clear();
       await Promise.all(workers.map((w) => w.terminate()));
-      pending.clear();
     },
   };
 }

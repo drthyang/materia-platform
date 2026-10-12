@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { parse_structure, simulate_pattern } from "@/mcp/tools";
 import { loadedSession } from "@/app/powderSession";
 import { executor, fakeHost, sessionPort } from "@/testSupport/agentHeadless";
-import { posteriorDifference, posteriorView } from "@/agent/posteriorTool";
+import { posteriorDifference, posteriorView, samplePosteriorTool } from "@/agent/posteriorTool";
 import type { SampleResult } from "@/core/refinement/bayes/sampler";
 import type { RefinementParameter } from "@/core/refinement/types";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
@@ -48,6 +48,16 @@ describe("reading the posterior", () => {
     expect(view.reading).toMatch(/B_Cr1: on a bound, only a limit is determined/);
     expect(view.reading).toMatch(/B_W1 ↔ B_Cr1 -0\.86 — the data fix their combination/);
     expect(view.reading).toMatch(/as overconfident as the esds/);
+  });
+
+  it("reads a bound against the posterior's width, not the bound range: B 0.15 [0.082, 0.218] in [0, 20] is determined", () => {
+    const wide = [row("B_Mn1", 0.15, { min: 0, max: 20 })];
+    const view = posteriorView(result([{ id: "B_Mn1", median: 0.15, q: [0.082, 0.115, 0.185, 0.218], esdRatio: 1.0 }]), wide, { B_Mn1: 0.035 }) as { intervals: { id: string; verdict: string; bound?: string }[] };
+    expect(view.intervals[0]!.bound).toBeUndefined();
+    expect(view.intervals[0]!.verdict).toBe("the posterior confirms the esd");
+    // Piled against the bound: its 2.5 % quantile within a few per cent of its width of it.
+    const piled = posteriorView(result([{ id: "B_Mn1", median: 0.03, q: [0.001, 0.01, 0.07, 0.1], esdRatio: 1.0 }]), wide, { B_Mn1: 0.03 }) as { intervals: { bound?: string }[] };
+    expect(piled.intervals[0]!.bound).toBe("lower");
   });
 
   it("gives the posterior of a difference and the probability one value is the larger", () => {
@@ -151,4 +161,20 @@ O2 O2- 0.3075 0.3075 0.3400 1 0.6
     // The refused continue asked the page, which had nothing to continue.
     expect(calls.filter((c) => c.startsWith("sample")).slice(0, 3)).toEqual(["sample continue 400", "sample start 300", "sample continue 2000"]);
   }, 180000);
+});
+
+describe("sample_posterior's compare", () => {
+  it("is checked before the run: a pair naming a fixed parameter costs no chain", async () => {
+    let sampled = 0;
+    const port = {
+      technique: "powder",
+      state: () => ({ busy: false, result: { esd: { B_W1: 0.1 } }, parameters: [row("B_W1", 0.4), row("B_Cr1", 0.3, { fixed: true })] }),
+      samplePosterior: async () => {
+        sampled++;
+        return "not reached";
+      },
+    } as unknown as Parameters<typeof samplePosteriorTool>[1];
+    await expect(samplePosteriorTool({ compare: [["B_W1", "B_Cr1"]] }, port)).rejects.toThrow(/B_Cr1 is not free/);
+    expect(sampled).toBe(0);
+  });
 });

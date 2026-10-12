@@ -102,6 +102,21 @@ describe("check_cell_symmetry — synthetic failures", () => {
     expect(check_cell_symmetry({ structure: cscl, pattern: mixed, extraPhases: [other] }).everyPeakIndexes).toBe(true);
   });
 
+  it("gives the zero it refined, so an unindexed peak's d is read where the phase's line is", () => {
+    // The two-phase data with the 2θ scale off by +0.15°, checked as CsCl alone: NaCl's lines are the unindexed peaks.
+    const other = structureOf(cif("F m -3 m", 5.64, 5.64, "Na1 Na 0 0 0 1 0.01\nCl1 Cl 0.5 0.5 0.5 1 0.01"));
+    const mixed = observed([cscl, 1], [other, 0.5]);
+    const shifted: PowderPattern = { ...mixed, points: mixed.points.map((p) => ({ ...p, x: p.x + 0.15 })) };
+    const r = check_cell_symmetry({ structure: cscl, pattern: shifted });
+    expect(r.zero).toBeCloseTo(0.15, 1);
+    const naclD = generateReflections(other.cell, other.spaceGroup, 0.9, 6).map((x) => x.d);
+    const dOf = (x: number, zero: number): number => 1.54 / (2 * Math.sin(((x - zero) / 2) * Math.PI / 180));
+    const off = (zero: number): number => Math.max(...r.unindexedPeaks.map((p) => Math.min(...naclD.map((d) => Math.abs(dOf(p.x, zero) - d) / d))));
+    // With the zero taken out each peak sits on an NaCl line; without it, up to a few tenths of a per cent off.
+    expect(off(r.zero!)).toBeLessThan(0.0015);
+    expect(off(0)).toBeGreaterThan(off(r.zero!));
+  });
+
   it("calls a small bump on a strong line's tail a shoulder, and a bump with background around it a peak", () => {
     // Lines with Lorentzian tails (X = 6), CsCl 110 the strongest. A 1.5 %
     // bump 0.3° above it sits on its tail — a profile tail's size and place;

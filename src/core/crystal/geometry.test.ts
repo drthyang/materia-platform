@@ -88,7 +88,9 @@ describe("coordination shells", () => {
   it("gives every site's shell of any neighbours when there are no anions", () => {
     const ni = coordinationShells(parseCif(NICKEL, "ni"));
     expect(ni).toHaveLength(1);
-    expect(ni[0]!.bonds).toEqual([{ to: "Ni1", distance: expect.closeTo(3.524 / Math.SQRT2, 6), count: 12 }]);
+    expect(ni[0]!.bonds).toMatchObject([{ to: "Ni1", distance: expect.closeTo(3.524 / Math.SQRT2, 6), count: 12 }]);
+    // Twelve neighbours, each its own image.
+    expect(new Set(ni[0]!.bonds[0]!.images).size).toBe(12);
   });
 });
 
@@ -181,5 +183,23 @@ describe.skipIf(!dataExists("GSAS-II-tutorials/sc/3a.ins") || !dataExists("GSAS-
     const nh = ringGeometryLines(two).contacts.filter((c) => c.startsWith("N1–H1D···"));
     expect(nh).toHaveLength(1);
     expect(nh[0]).toMatch(/^N1–H1D···Cg\d 2\.4\d\d Å, 17\d°$/);
+  });
+});
+
+describe("symmetry copies at rounded special positions", () => {
+  // ZnO, P6₃mc, with the 4-decimal coordinates a CIF prints: 0.3333 and 0.6667
+  // map to copies 1e-4 apart, which are one atom, not two.
+  const ZNO = ["data_zno", "_cell_length_a 3.2498", "_cell_length_b 3.2498", "_cell_length_c 5.2066", "_cell_angle_alpha 90", "_cell_angle_beta 90", "_cell_angle_gamma 120",
+    "_symmetry_space_group_name_H-M 'P 63 m c'", "loop_", "_atom_site_label", "_atom_site_type_symbol", "_atom_site_fract_x", "_atom_site_fract_y", "_atom_site_fract_z",
+    "Zn1 Zn 0.3333 0.6667 0", "O1 O 0.3333 0.6667 0.3821"].join("\n");
+
+  it("are one atom in the coordination shell and the bond list", () => {
+    const zno = parseCif(ZNO, "zno");
+    const zn = coordinationShells(zno).find((sh) => sh.site === "Zn1")!;
+    expect(zn.bonds.reduce((n, b) => n + b.count, 0)).toBe(4);
+    const znO = bondLengths(zno, 2.1).filter((b) => b.from === "Zn1" && b.to === "O1");
+    // One Zn–O at 1.99 Å along c and three at 1.97 Å: four bonds, no doubles.
+    expect(znO.length).toBeLessThanOrEqual(4);
+    expect(znO.length).toBeGreaterThan(0);
   });
 });
