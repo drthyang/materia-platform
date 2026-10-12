@@ -92,6 +92,12 @@ export interface ChatCallbacks {
 
 /** Most model turns one user message may run (each tool round is a turn). */
 const MAX_TURNS = 40;
+/**
+ * A local model makes one call a turn where Claude makes several, so a full
+ * refinement takes it twice the turns; the loop guard, not the cap, stops a
+ * model going in circles.
+ */
+const MAX_TURNS_SIZED = 80;
 /** The proxy route's path under the app's base URL (vite.config.ts serves it). */
 export const PROXY_PATH = "api/anthropic";
 
@@ -188,7 +194,10 @@ export class AgentChat {
     const guard = new LoopGuard({ countStill: isSized(config.transport) });
     this.here = await this.situation();
     let fingerprint = this.here?.fingerprint ?? null;
-    for (let turn = 0; turn < MAX_TURNS; turn++) {
+    const maxTurns = isSized(config.transport) ? MAX_TURNS_SIZED : MAX_TURNS;
+    // Refinements the guards refused in a row: after a few, the model is told how to get out.
+    let refusedInARow = 0;
+    for (let turn = 0; turn < maxTurns; turn++) {
       if (signal.aborted) return;
       // Sized before anything shows: a request that cannot fit is refused, not retried.
       const params = this.request(config);
@@ -312,7 +321,12 @@ export class AgentChat {
         const seen = guard.record(call.name, call.input, out.text, fingerprint, after);
         fingerprint = after;
         if (seen.stop !== null) circling = seen.stop;
-        const text = seen.note === null ? out.text : `${out.text}\n\n${seen.note}`;
+        let note = seen.note;
+        if (call.name === "refine") {
+          refusedInARow = out.isError && /Not refined|refused|not run/i.test(out.text) ? refusedInARow + 1 : 0;
+          if (refusedInARow === REFUSED_HINT && note === null) note = `${FROM_APP} ${REFUSED_HINT} refinements in a row were refused. Go back to the last free set that refined (fix what you freed since), then free one group more at a time and refine after each; hold one of each pair the refusal names. Instrument terms and B values refine in turn, never together.`;
+        }
+        const text = note === null ? out.text : `${out.text}\n\n${note}`;
         results.push({ type: "tool_result", tool_use_id: call.id, content: text, ...(out.isError ? { is_error: true } : {}) });
       }
       // Every tool call is answered in ONE user message, even when stopped.
@@ -329,7 +343,7 @@ export class AgentChat {
         return;
       }
     }
-    cb.onNotice(`Stopped after ${MAX_TURNS} model turns for one message. Say "continue" to go on.`, "info");
+    cb.onNotice(`Stopped after ${maxTurns} model turns for one message. Say "continue" to go on.`, "info");
   }
 
   /** One turn's request: everything Claude reads, or only what a local server does. */
@@ -601,6 +615,9 @@ export class LoopGuard {
     return { note: null, stop: null };
   }
 }
+
+/** Refused refinements in a row before the model is told how to get out. */
+const REFUSED_HINT = 3;
 
 /** Most times one user message may ask a stalled model to go on. */
 const MAX_NUDGES = 2;

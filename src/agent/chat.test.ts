@@ -872,3 +872,27 @@ describe("a turn that fails part-way keeps the conversation valid", () => {
     expect(announcedTool("Let me run check_cell_symmetry.", names)).toBe("check_cell_symmetry");
   });
 });
+
+describe("a local model at work", () => {
+  it("gets twice Claude's turns, and is told how to get out of refused refinements", async () => {
+    const refine = (n: number) => sse([{ type: "tool_use", id: `r${n}`, name: "refine", input: {} }], "tool_use");
+    const free = (n: number) => sse([{ type: "tool_use", id: `f${n}`, name: "set_free", input: { fix: [`p${n}`] } }], "tool_use");
+    // Free, refine (refused), three times; then 50 more rounds of real changes.
+    const turns = [free(0), refine(0), free(1), refine(1), free(2), refine(2), ...Array.from({ length: 50 }, (_, i) => free(10 + i))];
+    const api = await fakeApi(turns);
+    let step = 0;
+    const runner = {
+      run: async (name: string) => (name === "refine" ? { isError: true, text: "Error: Not refined: the free set holds parameters the data cannot separate." } : { isError: false, text: `{"step":${++step}}` }),
+      situation: () => ({ page: "powder", stage: "base", stagesDone: [], magnetic: false, fingerprint: `s${step}`, summary: "" }),
+    } as unknown as AgentExecutor;
+    const notices: string[] = [];
+    const chat = new AgentChat(runner);
+    await chat.send("Refine it.", { transport: "api-key", apiKey: "sk", baseURL: api.url, model: "claude-opus-5-5", effort: "high", toolScope: "all" }, { onAssistantStart: () => undefined, onText: () => undefined, onThinking: () => undefined, onNotice: (t) => notices.push(t), onUsage: () => undefined }, new AbortController().signal);
+    await new Promise<void>((r) => api.server.close(() => r()));
+    const results = chat.history().filter((m) => m.role === "user" && typeof m.content !== "string").flatMap((m) => m.content as { content: string }[]);
+    expect(results.filter((r) => /3 refinements in a row were refused\. Go back to the last free set that refined/.test(r.content))).toHaveLength(1);
+    // Claude: 40 turns, then the cap.
+    expect(api.requests).toHaveLength(40);
+    expect(notices.at(-1)).toBe('Stopped after 40 model turns for one message. Say "continue" to go on.');
+  });
+});
