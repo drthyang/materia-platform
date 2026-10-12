@@ -41,6 +41,7 @@ import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, co
 import { groupOf } from "@/agent/method";
 import { magneticNext } from "@/agent/magneticTools";
 import type { UnitCell } from "@/core/crystal/types";
+import { dScaleSearch, observedPeaks, wrongScale } from "@/core/diagnostics/dScale";
 import { satellitePositions } from "@/core/magnetic/kSearch";
 import { centringTranslations } from "@/core/crystal/symmetry";
 import { inspectDataRange, type DataEnd, type DataRangeReading } from "@/core/diagnostics/dataRange";
@@ -113,7 +114,10 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
     case "check_fit_range":
       return fitRangeView(s, fitRangeReading(s));
     case "check_cell_symmetry": {
-      const check = check_cell_symmetry({
+      // One factor on every d (a wrong λ or difC) first, from the pattern's own peaks: the Le Bail fit cannot follow it.
+      const scale = scaleReading(s);
+      const runCellCheck = (): ReturnType<typeof check_cell_symmetry> =>
+        check_cell_symmetry({
         structure: s.refinedPhases[0] ?? s.structure,
         pattern: s.pattern,
         ...(s.instrument ? { instrument: s.instrument } : {}),
@@ -121,7 +125,13 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
         ...(s.fitRange ? { fitRange: { ...s.fitRange } } : {}),
         ...(input.dMin !== undefined ? { dMin: input.dMin } : {}),
         ...(input.significance !== undefined ? { significance: input.significance } : {}),
-      });
+        });
+      let check: ReturnType<typeof check_cell_symmetry>;
+      try {
+        check = runCellCheck();
+      } catch (e) {
+        throw new Error(`${e instanceof Error ? e.message : String(e)}${scale ? `. ${scale}` : ""}`, { cause: e });
+      }
       // Each unindexed peak in d and Q too, and marked on the plot for the user:
       // in 2θ with the check's own refined zero taken out, as its reflections were placed.
       const axis = check.zero !== undefined ? { ...s.axis, zero: check.zero } : s.axis;
@@ -136,7 +146,7 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
       const violated = check.absences.violated;
       const flags = violated.map((v) => `${v.h} ${v.k} ${v.l} at d ${v.d.toFixed(3)} Å`).join(", ");
       // The cell a good Le Bail fit found, against the structure's: one factor on every length reads as the wavelength.
-      const shift = check.leBail.rWeighted < 0.5 ? cellShiftReading(s.structure.cell, check.cell, s.pattern.xUnit) : null;
+      const shift = scale ?? (check.leBail.rWeighted < 0.5 ? cellShiftReading(s.structure.cell, check.cell, s.pattern.xUnit) : null);
       const readings = [
         ...(shift ? [shift] : []),
         ...(unindexed.length > 0 ? [`${unindexed.length} peak${unindexed.length === 1 ? "" : "s"} no reflection of the cell indexes: a missing phase (most often) or a wrong cell. identify_peaks (with their d) checks the sample environment and common standards. Settle this with the user before refining the structure.`] : []),
@@ -708,6 +718,27 @@ function requestedWindow(s: PowderLiveState, input: Input): { min: number; max: 
   const w = convertInterval({ min: lo, max: hi }, unit, native, s.axis);
   if (!Number.isFinite(w.min) || !Number.isFinite(w.max)) throw new Error(`${lo}–${hi} ${UNIT[unit]} does not convert to ${UNIT[native]} on this pattern`);
   return w;
+}
+
+/**
+ * The pattern's strongest peaks against the structure's reflections: one
+ * factor on every d that indexes them where 1 does not is a wrong wavelength
+ * (or TOF difC), named with the value it implies. Null when 1 indexes them.
+ */
+export function scaleReading(s: PowderLiveState): string | null {
+  if (!s.d || s.structure.sites.length === 0) return null;
+  const peaks = observedPeaks(s.d, s.pattern.points.map((p) => p.yObs), s.pattern.points.map((p) => p.sigma ?? 0));
+  const r = dScaleSearch(peaks, generateReflections(s.structure.cell, s.structure.spaceGroup, 0.4, 50).map((x) => x.d));
+  if (!wrongScale(r)) return null;
+  const f = r.factor;
+  const pctOf = (v: number): string => `${Math.round(100 * v)} %`;
+  const lambda = s.pattern.xUnit === "twoTheta" ? (s.instrument?.kind === "constantWavelength" ? s.instrument.wavelength : s.pattern.radiation.kind !== "neutron-tof" ? s.pattern.radiation.wavelength : undefined) : undefined;
+  const cause = s.pattern.xUnit === "tof"
+    ? `a wrong difC (the calibration would be difC × ${(1 / f).toFixed(4)})`
+    : lambda !== undefined
+      ? `a wrong wavelength: the data would be at λ ${(lambda / f).toFixed(4)} Å, not ${lambda} Å`
+      : "a wrong wavelength or calibration";
+  return `The pattern's ${r.peaks} strongest peaks index the structure's cell with every d × ${f.toFixed(4)} (${pctOf(r.indexed)} of their height; at × 1, ${pctOf(r.indexedAtOne)}): one factor on every line is ${cause} — or the wrong cell for this phase. Ask the user to confirm before anything else: no refinement fixes it, and a refined cell would absorb it.`;
 }
 
 /**

@@ -58,6 +58,21 @@ export const questionsAxis: Check = {
   },
 };
 
+/**
+ * A wavelength (or calibration) put to the user, not refined around (THY-19
+ * fault injection): the cell check run, no successful refinement, and a reply
+ * that questions the wavelength.
+ */
+export const questionsWavelength: Check = {
+  name: "questions the wavelength before refining",
+  grade: (run) => {
+    if (!calls(run).some((c) => c.name === "check_cell_symmetry")) return fail("never checked the cell");
+    if (calls(run).some((c) => c.name === "refine" && !c.isError && json(c.text)?.refined === true)) return fail("refined data at a wavelength the peaks contradict");
+    const said = sentences(replies(run).join("\n")).find((t) => /\b(wavelength|λ|difC|calibration)\b/i.test(t));
+    return said ? ok(`said "${said.slice(0, 90)}"`) : fail("never questioned the wavelength");
+  },
+};
+
 /** The powder page's own changes: refining, freeing, the fit window and the corrections. */
 const POWDER_CHANGES = new Set(["refine", "set_free", "set_fit_range", "set_corrections", "set_background", "reset_parameters"]);
 

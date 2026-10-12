@@ -82,9 +82,9 @@ run (Claude Opus 5.5), replayed, and labelled so.*
   the Agent's own account labelled, any number in it the engine did not compute
   underlined. A Bayesian check (`sample_posterior`) when a number is not
   convincing.
-- **Tested on what it does.** 35 eval scenarios, each written against a failure
+- **Tested on what it does.** 36 eval scenarios, each written against a failure
   a user or a researcher round found, replay the real chat loop in CI with a
-  scripted model, as the Agent should behave and as it failed (49 of the 56
+  scripted model, as the Agent should behave and as it failed (50 of the 57
   checks are shown to catch a failure this way); real models run on demand.
   Ten researcher rounds on real data drove it; see
   [docs/AGENT_EVALS.md](docs/AGENT_EVALS.md) and
