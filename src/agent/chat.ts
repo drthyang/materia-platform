@@ -30,7 +30,8 @@ import type {
   BetaToolUseBlock,
   BetaUsage,
 } from "@anthropic-ai/sdk/resources/beta/messages/messages";
-import { LIVE_TOOLS, inputJsonSchema } from "@/agent/tools";
+import { LIVE_TOOLS, inputJsonSchema, type LiveToolSpec } from "@/agent/tools";
+import { SCOPE_NOTE, scopedTools } from "@/agent/toolScope";
 import type { AgentSituation, ToolRunner } from "@/agent/executor";
 import { agentSystemPrompt, autonomyNote, type AgentAutonomy } from "@/agent/systemPrompt";
 import { CONTEXT_EDITING, CONTEXT_EDITING_BETA, historyChars, pruneForLocal } from "@/agent/contextWindow";
@@ -62,6 +63,12 @@ export interface ChatConfig {
    * and a turn another model answered is always announced.
    */
   readonly fallback?: boolean;
+  /**
+   * Which tools each request offers: "all" (Claude's default), or "stage" —
+   * the page's, and on the powder page the method stage's (toolScope.ts): a
+   * local model's default, its window being small.
+   */
+  readonly toolScope?: "stage" | "all";
 }
 
 export interface ChatCallbacks {
@@ -88,11 +95,11 @@ const isLocal = (t: ChatTransport): t is "ollama" | "lmstudio" => t === "ollama"
 export class AgentChat {
   private readonly messages: BetaMessageParam[] = [];
   private backend: Backend | null = null;
-  private readonly tools: BetaTool[] = LIVE_TOOLS.map((t) => ({
-    name: t.name,
-    description: t.description,
-    input_schema: inputJsonSchema(t) as BetaTool["input_schema"],
-  }));
+  private readonly tools: BetaTool[] = LIVE_TOOLS.map(toBetaTool);
+  /** Where the analysis stood after the last call (the page, the stage), for the tools a request offers. */
+  private here: AgentSituation | null = null;
+  /** Every tool called in this conversation: it stays offered. */
+  private readonly called = new Set<string>();
   private readonly system = agentSystemPrompt();
   /**
    * A local model's window, in tokens, as the server runs it (null: unknown,
@@ -154,7 +161,8 @@ export class AgentChat {
     const ran: string[] = [];
     // The same call at the same state, or call after call that changes nothing: a loop.
     const guard = new LoopGuard();
-    let fingerprint = (await this.situation())?.fingerprint ?? null;
+    this.here = await this.situation();
+    let fingerprint = this.here?.fingerprint ?? null;
     for (let turn = 0; turn < MAX_TURNS; turn++) {
       if (signal.aborted) return;
       // Sized before anything shows: a request that cannot fit is refused, not retried.
@@ -256,9 +264,11 @@ export class AgentChat {
           results.push(toolError(call.id, refused.nudge));
           continue;
         }
+        this.called.add(call.name);
         const out = await this.executor.run(call.name, call.input);
         ran.push(call.name);
-        const after = (await this.situation())?.fingerprint ?? null;
+        this.here = await this.situation();
+        const after = this.here?.fingerprint ?? null;
         const seen = guard.record(call.name, call.input, out.text, fingerprint, after);
         fingerprint = after;
         if (seen.stop !== null) circling = seen.stop;
@@ -287,8 +297,9 @@ export class AgentChat {
     if (isLocal(config.transport)) {
       // A thinking-capable model thinks by default, and both servers reuse the
       // cached prompt prefix by themselves.
-      const system = `${this.system}\n\n${autonomyNote(config.autonomy ?? "ask")}`;
-      const tools = this.tools;
+      const scoped = this.offered(config);
+      const system = `${this.system}\n\n${autonomyNote(config.autonomy ?? "ask")}${scoped ? `\n\n${SCOPE_NOTE}` : ""}`;
+      const tools = scoped ?? this.tools;
       if (this.window === null) {
         // The window unknown: old tool results go from the copy it gets past a fixed budget.
         this.sent = null;
@@ -313,9 +324,9 @@ export class AgentChat {
       model: config.model,
       max_tokens: 64000,
       // The mode follows the cached prompt, so switching it keeps the cache.
-      system: [{ type: "text", text: this.system, cache_control: { type: "ephemeral" } }, { type: "text", text: autonomyNote(config.autonomy ?? "ask") }],
+      system: [{ type: "text", text: this.system, cache_control: { type: "ephemeral" } }, { type: "text", text: `${autonomyNote(config.autonomy ?? "ask")}${this.offered(config) ? `\n\n${SCOPE_NOTE}` : ""}` }],
       // Inputs stream as generated; the executor validates each against its schema.
-      tools: this.tools.map((t) => ({ ...t, eager_input_streaming: true })),
+      tools: (this.offered(config) ?? this.tools).map((t) => ({ ...t, eager_input_streaming: true })),
       messages: this.messages,
       thinking: { type: "adaptive", display: "summarized" },
       output_config: { effort: config.effort },
@@ -347,6 +358,18 @@ export class AgentChat {
   /** Messages so far (for tests). */
   history(): readonly BetaMessageParam[] {
     return this.messages;
+  }
+
+  /**
+   * The tools this request offers when they are scoped (null: every tool):
+   * a local model's default, and only when the runner says where the
+   * analysis stands.
+   */
+  private offered(config: ChatConfig): BetaTool[] | null {
+    const scope = config.toolScope ?? (isLocal(config.transport) ? "stage" : "all");
+    if (scope === "all" || this.here === null) return null;
+    const asked = this.messages.filter((m) => m.role === "user" && typeof m.content === "string" && !m.content.startsWith(FROM_APP)).map((m) => m.content as string);
+    return scopedTools({ page: this.here.page, stage: this.here.stage, magnetic: this.here.magnetic, asked, called: this.called }).map(toBetaTool);
   }
 
   /**
@@ -610,6 +633,10 @@ export function repeatingTail(text: string, run = 6, minUnit = 8, maxUnit = 400)
     if (k > run && /\p{L}/u.test(unit)) return unit.trim();
   }
   return null;
+}
+
+function toBetaTool(t: LiveToolSpec): BetaTool {
+  return { name: t.name, description: t.description, input_schema: inputJsonSchema(t) as BetaTool["input_schema"] };
 }
 
 function toolError(id: string, text: string): BetaToolResultBlockParam {

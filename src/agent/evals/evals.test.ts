@@ -4,6 +4,7 @@ import { runScenario, transcript, type EvalResult } from "@/agent/evals/harness"
 import { scriptedModel, type ScriptTurn } from "@/agent/evals/scripted";
 import { sentences } from "@/agent/evals/checks";
 import { executor, fakeHost } from "@/testSupport/agentHeadless";
+import { LIVE_TOOLS } from "@/agent/tools";
 import { impurityD, mn3gaImpuritySession, mn3gaMisfitSession, powderPage } from "@/agent/evals/pages";
 
 /**
@@ -469,11 +470,11 @@ const REPLAYS: Readonly<Record<string, Replay>> = {
   },
 };
 
-async function replay(id: string, turns: readonly ScriptTurn[]): Promise<EvalResult & { overrun: number }> {
+async function replay(id: string, turns: readonly ScriptTurn[], toolScope?: "stage"): Promise<EvalResult & { overrun: number; offered: readonly (readonly string[])[] }> {
   const stand = await scriptedModel(turns);
   try {
-    const result = await runScenario(scenario(id), stand.model);
-    return { ...result, overrun: stand.overrun() };
+    const result = await runScenario(scenario(id), { ...stand.model, ...(toolScope ? { toolScope } : {}) });
+    return { ...result, overrun: stand.overrun(), offered: stand.offered() };
   } finally {
     await stand.close();
   }
@@ -495,6 +496,16 @@ describe("Agent evals, scripted", () => {
         const result = await replay(s.id, r.good);
         expect(result.overrun, why(result)).toBe(0);
         expect(failing(result), why(result)).toEqual([]);
+      }, 60_000);
+
+      it("offers every tool the good replay calls when the tools follow the stage (a local model's list)", async () => {
+        const result = await replay(s.id, r.good, "stage");
+        // Request i is answered with turn i: each call it makes must have been offered with it.
+        const missing = r.good.flatMap((turn, i) => (turn.calls ?? []).filter((c) => !result.offered[i]?.includes(c.name)).map((c) => `turn ${i + 1}: ${c.name}`));
+        expect(missing, why(result)).toEqual([]);
+        expect(failing(result), why(result)).toEqual([]);
+        // Fewer tools than the page has, on the powder page.
+        if (result.run.port.technique === "powder") expect(Math.min(...result.offered.slice(0, r.good.length).map((o) => o.length))).toBeLessThan(LIVE_TOOLS.filter((t) => t.pages.includes("powder")).length);
       }, 60_000);
 
       it("fails the checks written against the failure", async () => {

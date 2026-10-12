@@ -730,3 +730,29 @@ describe("a local model's window", () => {
     expect(last).toEqual([expect.objectContaining({ tool_use_id: "b", is_error: true })]);
   });
 });
+
+describe("the tools a request offers", () => {
+  it("a local model gets the page's and the stage's tools, and grows them as it goes; Claude gets every one", async () => {
+    const runner = {
+      run: async () => ({ isError: false, text: "{}" }),
+      situation: () => ({ page: "powder", stage: "range", stagesDone: [], magnetic: false, fingerprint: String(Math.random()), summary: "" }),
+    } as unknown as AgentExecutor;
+    const local = await fakeApi([ndjson([{ type: "tool_use", id: "a", name: "check_cell_symmetry", input: {} }]), ndjson([{ type: "text", text: "Done." }])], undefined, { model: "qwen3:32b", loaded: null, max: 40960 });
+    const quiet = { onAssistantStart: () => undefined, onText: () => undefined, onThinking: () => undefined, onNotice: () => undefined, onUsage: () => undefined };
+    await new AgentChat(runner).send("Check the cell.", { transport: "ollama", serverUrl: local.url, model: "qwen3:32b", effort: "high" }, quiet, new AbortController().signal);
+    await new Promise<void>((r) => local.server.close(() => r()));
+    const offered = local.requests.map((r) => (r.body.tools as { function: { name: string } }[]).map((t) => t.function.name));
+    const powder = LIVE_TOOLS.filter((t) => t.pages.includes("powder")).length;
+    expect(offered[0]!.length).toBeLessThan(powder / 2);
+    expect(offered[0]).toEqual(expect.arrayContaining(["get_state", "read_skill", "check_fit_range", "set_fit_range", "refine"]));
+    // The user's words asked for the cell check, and once used it stays.
+    expect(offered[0]).toContain("check_cell_symmetry");
+    expect(offered[1]).toContain("check_cell_symmetry");
+    expect(((local.requests[0]!.body.messages as { content: string }[])[0]!.content)).toMatch(/Tools: you are offered the tools of the page and of the method's current stage/);
+
+    const claude = await fakeApi([sse([{ type: "text", text: "Done." }], "end_turn")]);
+    await new AgentChat(runner).send("Check the cell.", { transport: "api-key", apiKey: "sk", baseURL: claude.url, model: "claude-opus-5-5", effort: "high" }, quiet, new AbortController().signal);
+    await new Promise<void>((r) => claude.server.close(() => r()));
+    expect((claude.requests[0]!.body.tools as { name: string }[]).map((t) => t.name)).toEqual(LIVE_TOOLS.map((t) => t.name));
+  });
+});
