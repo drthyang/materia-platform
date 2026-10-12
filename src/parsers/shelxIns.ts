@@ -169,9 +169,11 @@ export function parseShelxIns(text: string, id = "shelx"): ShelxModel {
   let hklf: number | undefined;
   const notCarried = new Set<string>();
   // Atom lines wait for FVAR, which may come after them only in odd files: read them once the header is known.
-  const atomLines: { tokens: string[]; afix: number; part: number }[] = [];
+  const atomLines: { tokens: string[]; afix: number; part: number; block: number }[] = [];
   let afix = 0;
   let part = 0;
+  // Each run of PARTs between PART 0s: a disorder of its own unless a free variable joins it to another.
+  let block = 0;
   // Between FRAG and FEND: a rigid fragment's model geometry for AFIX n6/n9, in its own cell. Not atoms of the structure.
   let inFrag = false;
 
@@ -180,7 +182,7 @@ export function parseShelxIns(text: string, id = "shelx"): ShelxModel {
     const keyword = tokens[0]!.toUpperCase();
     const nums = (from = 1): number[] => tokens.slice(from).map(Number).filter((n) => Number.isFinite(n));
     if (!KEYWORDS.has(keyword.slice(0, 4)) || (keyword.length > 4 && keyword !== "L.S.")) {
-      if (!inFrag && tokens.length >= 5 && /^\d+$/.test(tokens[1]!)) atomLines.push({ tokens, afix, part });
+      if (!inFrag && tokens.length >= 5 && /^\d+$/.test(tokens[1]!)) atomLines.push({ tokens, afix, part, block });
       continue;
     }
     switch (keyword.slice(0, 4)) {
@@ -254,9 +256,12 @@ export function parseShelxIns(text: string, id = "shelx"): ShelxModel {
       case "AFIX":
         afix = nums()[0] ?? 0;
         break;
-      case "PART":
-        part = nums()[0] ?? 0;
+      case "PART": {
+        const next = nums()[0] ?? 0;
+        if (part === 0 && next !== 0) block++;
+        part = next;
         break;
+      }
       default:
         if (!LISTING_ONLY.has(keyword)) notCarried.add(keyword);
     }
@@ -282,7 +287,14 @@ export function parseShelxIns(text: string, id = "shelx"): ShelxModel {
   const ridingU = new Map<string, number>();
   const shared = new Map<number, { value: number; labels: string[] }>();
   let lastHeavy: AtomSite | undefined;
-  for (const { tokens, afix: code, part: group } of atomLines) {
+  // Disorder assemblies, lettered in order: the parts one free variable splits
+  // (sof 21 and −21) are one; parts with fixed occupancies, one per run of PARTs.
+  const assemblyNames = new Map<string, string>();
+  const assemblyOf = (key: string): string => {
+    if (!assemblyNames.has(key)) assemblyNames.set(key, String.fromCharCode(65 + (assemblyNames.size % 26)));
+    return assemblyNames.get(key)!;
+  };
+  for (const { tokens, afix: code, part: group, block: run } of atomLines) {
     const index = Number(tokens[1]);
     const element = sfac[index - 1];
     if (!element) throw new Error(`atom ${tokens[0]} names SFAC ${index}, and there are ${sfac.length}`);
@@ -290,7 +302,8 @@ export function parseShelxIns(text: string, id = "shelx"): ShelxModel {
     if (values.length < 3 || values.slice(0, 3).some((v) => !Number.isFinite(v))) throw new Error(`atom ${tokens[0]}: x y z expected`);
     const label = labelOf(tokens[0]!, element);
     const position: Vec3 = [shelxValue(values[0]!, fv).value, shelxValue(values[1]!, fv).value, shelxValue(values[2]!, fv).value];
-    const sof = shelxValue(values[3] ?? 11, fv).value;
+    const sofValue = shelxValue(values[3] ?? 11, fv);
+    const sof = sofValue.value;
     // The sof carries the site's symmetry: an atom on a twofold axis has 0.5 for a full site.
     const share = siteMultiplicity(operations, position) / operations.length;
     const occupancy = sof / share;
@@ -325,7 +338,7 @@ export function parseShelxIns(text: string, id = "shelx"): ShelxModel {
       position,
       occupancy,
       adp,
-      ...(group !== 0 ? { disorder: { assembly: "A", group } } : {}),
+      ...(group !== 0 ? { disorder: { assembly: assemblyOf(sofValue.variable !== undefined ? `fv${sofValue.variable}` : `run${run}`), group } } : {}),
     };
     sites.push(site);
     afixOf.set(label, code);

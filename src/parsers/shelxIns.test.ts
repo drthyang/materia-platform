@@ -87,6 +87,18 @@ describe("SHELX instruction files", () => {
     expect(instructions.notCarried).toContain("FRAG");
   });
 
+  it("keeps two independent disorders apart: one assembly per free variable, or per run of PARTs", () => {
+    const two = INS.replace("FVAR 1.5 0.7", "FVAR 1.5 0.7 0.6").replace("PART 0\nH1", "PART 0\nPART 1\nO2 3 0.4 0.1 0.1 31.0 0.03\nPART 2\nO2B 3 0.42 0.1 0.1 -31.0 0.03\nPART 0\nPART 1\nC5 1 0.3 0.4 0.5 10.5 0.03\nPART 2\nC5B 1 0.31 0.4 0.5 10.5 0.03\nPART 0\nH1");
+    const { structure } = parseShelxIns(two, "x");
+    const assembly = (label: string): string | undefined => structure.sites.find((x) => x.label === label)?.disorder?.assembly;
+    // C1/C1B split by free variable 2, O2/O2B by 3, C5/C5B with fixed halves in a run of their own.
+    expect(assembly("C1")).toBe(assembly("C1B"));
+    expect(assembly("O2")).toBe(assembly("O2B"));
+    expect(assembly("C5")).toBe(assembly("C5B"));
+    expect(new Set([assembly("C1"), assembly("O2"), assembly("C5")]).size).toBe(3);
+    expect(assembly("C1")).toBe("A");
+  });
+
   it("warns when the instructions refine against anything but HKLF 4", () => {
     expect(shelxNotes(parseShelxIns(INS, "x").instructions).some((n) => /HKLF/.test(n))).toBe(false);
     const notes = shelxNotes(parseShelxIns(INS.replace("HKLF 4", "HKLF 5"), "x").instructions);
