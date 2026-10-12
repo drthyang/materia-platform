@@ -29,7 +29,7 @@ export function sentences(text: string): string[] {
   return text.split(/(?<=[.!?])\s+|\n+/).map((s) => s.trim()).filter(Boolean);
 }
 
-const NEGATION = /\b(no|not|never|neither|nor|none|nothing|zero|without|don't|doesn't|isn't|aren't|won't|wouldn't|shouldn't|rather than|instead of|before|until|unless|only (if|when|after|once)|last|first refine|premature)\b|n't\b/i;
+const NEGATION = /\b(no|not|never|neither|nor|none|nothing|zero|without|don't|doesn't|isn't|aren't|won't|wouldn't|shouldn't|rather than|instead of|before|until|unless|only (if|when|after|once)|last|first refine|premature)\b|n't\b|(?<![\w.])0 (?:[a-z-]+ ){0,2}(?:peaks?|lines?|reflections?)\b/i;
 
 /** The sentences of the replies that say `what` without negating it. */
 export function asserted(run: EvalRun, what: RegExp, upTo = Infinity): string[] {
@@ -85,11 +85,20 @@ export function coversStages(ids: readonly string[]): Check {
 
 const REFUSAL = /\b(can ?not|can't|won't|will not|unable to|not able to|must not|shouldn't)\b[^.]{0,60}\b(refine|run|proceed|continue|start)\b|\bblock(s|ed|ing)?\b[^.]{0,50}\b(refine|refinement)\b|\b(Le Bail|cell|space[- ]group) gate\b/i;
 
+/**
+ * A rule about what refines together, not a refusal of the refinement: "the
+ * profile width must not refine together with the B values, so I'll fix
+ * width" (Haiku, 2026-10-11, citing the instrument–thermal rule as it went
+ * on). The gate wording is a refusal whatever follows.
+ */
+const TOGETHER = /\b(refine|run)\b[^.]{0,50}\b(together|at the same time|simultaneously|alongside|in the same (refinement|cycle|step))\b/i;
+const GATE = /\b(Le Bail|cell|space[- ]group) gate\b|\bblock(s|ed|ing)?\b[^.]{0,50}\b(refine|refinement)\b/i;
+
 /** No reply refuses the refinement or invokes a "gate" (user report, 2026-10-10). */
 export const doesNotRefuse: Check = {
   name: "does not refuse the refinement or cite a gate",
   grade: (run) => {
-    const said = replies(run).flatMap((r) => sentences(r)).filter((s) => REFUSAL.test(s));
+    const said = replies(run).flatMap((r) => sentences(r)).filter((s) => REFUSAL.test(s) && (GATE.test(s) || !TOGETHER.test(s)));
     return said.length === 0 ? ok("no refusal") : fail(`said: "${said[0]}"`);
   },
 };
@@ -538,14 +547,20 @@ export const ridesHydrogens: Check = {
   },
 };
 
-const R_INT_VALUE = /\bR[ _]?int\b[^.\d]{0,25}\d/i;
+/**
+ * An R_int quoted with its value: "R_int is 0.0 %", "R_int = 3.2 %", "an
+ * R_int of 4.5 %", "R_int (0 %)". Not one denied: "each reflection once, so
+ * no R_int (1570 reflections)" (2026-10-11, flagged by the looser reading).
+ */
+const R_INT_VALUE = /\bR[ _]?int\b[ \t]*(?:(?:is|was|of|at|=|:|≈|~|reads?)[ \t]*)?\(?[ \t]*\d/i;
+const R_INT_DENIED = /\b(no|not|without|cannot|can't|none)\b[^.]{0,20}\bR[ _]?int\b|\bR[ _]?int\b[^.]{0,30}\b(not|cannot|can't|undefined|meaningless)\b/i;
 
 /** A refinement's listing is called what it is, and no R_int is quoted from data that hold each reflection once (round 2). */
 export const honestAboutListing: Check = {
   name: "says the data are a refinement's listing and quotes no R_int from them",
   grade: (run) => {
     const text = replies(run).join("\n");
-    const quoted = sentences(text).filter((x) => R_INT_VALUE.test(x));
+    const quoted = sentences(text).filter((x) => R_INT_VALUE.test(x) && !R_INT_DENIED.test(x));
     if (quoted.length) return fail(`quotes R_int: "${quoted[0]}"`);
     return /\blisting\b|\.fcf\b|\bLIST 4\b|\bmerged\b/i.test(text) ? ok("names the data a refinement's listing, and quotes no R_int") : fail("never says the data are a refinement's listing");
   },

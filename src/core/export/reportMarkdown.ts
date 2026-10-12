@@ -35,6 +35,7 @@ import {
   posteriorCaveat,
   posteriorStatus,
   shownParameter,
+  startText,
   type ReportAgent,
   type ReportBoxcar,
   type ReportPosterior,
@@ -149,6 +150,7 @@ function agentMarkdown(a: ReportAgent): string {
     ["r", "l", "l", "l", "r", "r", "r"],
   );
   const branches = a.otherBranches ? `\n\n*The table follows the path to the result; ${a.otherBranches} step${a.otherBranches === 1 ? "" : "s"} on branches the analysis left ${a.otherBranches === 1 ? "is" : "are"} kept in the History, not shown.*` : "";
+  const start = a.start ? `\n\n${startText(a.start, a.agreementLabel ?? "wR")}` : "";
   const stages = a.method
     ? `\n\nMethod (the skill \`${a.method.skill}\`): ${a.method.stages.map((st) => `${st.done ? "✓" : "○"} ${st.label}${st.optional && !st.done ? ", if needed" : ""}`).join(" · ")}`
     : "";
@@ -162,7 +164,7 @@ function agentMarkdown(a: ReportAgent): string {
     ? `\n\n**The Agent's account**\n\n${account.split(/\n\s*\n/).map((p) => `> ${p.trim().replace(/\n/g, "\n> ")}`).join("\n>\n")}\n\n*Written by the Agent (${a.model}) in its own words, as are its notes. Every other number in this report — the steps, the checks, the parameters, the agreement factors and the figure — comes from the refinement engine and the project's History, not from the model.${unverified.length > 0 ? " Numbers marked † in the Agent's words are not among the values this report computed." : ""}*`
     : "";
   const posterior = a.posterior ? `\n\n${posteriorMarkdown(a.posterior)}` : "";
-  return `**How the analysis was done** — ${a.steps.length} step${a.steps.length === 1 ? "" : "s"} from the History; model ${a.model}.\n\n${steps}${stages}${branches}\n\n**Checks**\n\n${checks}\n\n**Open issues**\n\n${issues}${notes}${posterior}${narrative}`;
+  return `**How the analysis was done** — ${a.steps.length} step${a.steps.length === 1 ? "" : "s"} from the History; model ${a.model}.\n\n${steps}${start}${stages}${branches}\n\n**Checks**\n\n${checks}\n\n**Open issues**\n\n${issues}${notes}${posterior}${narrative}`;
 }
 
 function phaseMarkdown(phase: ReportPhase, index: number, total: number, technique: ReportInput["technique"]): string {

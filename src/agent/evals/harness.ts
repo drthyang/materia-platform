@@ -17,7 +17,8 @@ import type { AgentPort } from "@/agent/port";
 import type { AgentAutonomy } from "@/agent/systemPrompt";
 import type { AgentRecord } from "@/agent/method";
 import { liveTool } from "@/agent/tools";
-import { fakeHost } from "@/testSupport/agentHeadless";
+import { unverifiedNumbers } from "@/core/export/reportAudit";
+import { fakeHost, headlessHistory } from "@/testSupport/agentHeadless";
 
 /** One thing that happened in the conversation, in order. */
 export type EvalEvent =
@@ -43,6 +44,15 @@ export interface EvalUsage {
   readonly cacheWrite: number;
 }
 
+/** A report the Agent wrote in a run: its text, and what the number audit read. */
+export interface EvalReport {
+  readonly title: string;
+  /** The report as Markdown, its figures left out. */
+  readonly markdown: string;
+  readonly unverified: readonly string[];
+  readonly audit: { readonly account: string; readonly against: string };
+}
+
 export interface EvalRun {
   readonly events: readonly EvalEvent[];
   readonly port: AgentPort;
@@ -53,6 +63,8 @@ export interface EvalRun {
   /** The chat's notices (errors, stalls, loops). */
   readonly notices: readonly string[];
   readonly usage: EvalUsage;
+  /** The reports written, in order. */
+  readonly reports: readonly EvalReport[];
 }
 
 export interface Verdict {
@@ -103,10 +115,13 @@ export const isChange = (name: string): boolean => liveTool(name)?.effect === "c
 /** Run one scenario and grade it. Never throws for the model's behaviour; a chat error becomes a notice. */
 export async function runScenario(scenario: EvalScenario, model: EvalModel, signal: AbortSignal = new AbortController().signal): Promise<EvalResult> {
   const port = scenario.page();
-  const { host, records } = fakeHost(port);
+  // The History as the app keeps it: the report lists the steps the analysis took.
+  const history = headlessHistory(port);
+  const { host, records } = fakeHost(port, history.history, (kind, agent) => history.record(kind, agent ? "agent" : undefined));
   const asked: ActivityEntry[] = [];
   const events: EvalEvent[] = [];
   const notices: string[] = [];
+  const reports: EvalReport[] = [];
   const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
   const executor = new AgentExecutor(host, {
     approve: async (entry) => {
@@ -114,11 +129,14 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
       return (!entry.alwaysAsk || (scenario.approveAsked ?? []).includes(entry.tool)) && scenario.approve !== "nothing";
     },
     onActivity: () => undefined,
+    onReport: (r) => reports.push({ title: r.title, markdown: withoutFigures(r.markdown), unverified: r.unverified, audit: r.audit }),
   });
   const runner: ToolRunner = {
     run: async (name, input) => {
       const free = name === "refine" || name === "boxcar_scan" ? port.state().parameters.filter((p) => !p.fixed && !p.expression).map((p) => p.id) : undefined;
       const out = await executor.run(name, input);
+      // The page records a refinement's step when it ends, as the Agent's.
+      if (name === "refine" && !out.isError && /"refined":true/.test(out.text)) history.record("refine", "agent", "Refine");
       events.push({ kind: "call", name, input: (input ?? {}) as Record<string, unknown>, isError: out.isError, text: out.text, ...(free ? { free } : {}) });
       return out;
     },
@@ -151,9 +169,96 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
       notices.push(`chat error: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
-  const run: EvalRun = { events, port, records, asked, notices, usage };
+  const run: EvalRun = { events, port, records, asked, notices, usage, reports };
   const grades = scenario.checks.map((c) => ({ check: c.name, ...c.grade(run) }));
   return { scenario: scenario.id, run, grades, passed: grades.every((g) => g.pass) };
+}
+
+/** A report's Markdown without its figures (data URIs of a few hundred kB each). */
+export function withoutFigures(markdown: string): string {
+  return markdown.replace(/!\[([^\]]*)\]\(data:[^)]*\)/g, "![$1](figure left out)");
+}
+
+/**
+ * A run as an `_OUT` report keeps it: every event in full (each tool's
+ * answer), the records, what the stand-in user was asked, the notices, the
+ * reports and the grades. regrade() scores it again with the checks as they
+ * are now, at no cost.
+ */
+export interface SavedRun {
+  readonly scenario: string;
+  readonly technique: AgentPort["technique"];
+  readonly passed: boolean;
+  readonly usage: EvalUsage;
+  readonly grades: EvalResult["grades"];
+  readonly events: readonly EvalEvent[];
+  readonly records: readonly AgentRecord[];
+  readonly asked: readonly { readonly tool: string; readonly preview?: string; readonly alwaysAsk?: boolean }[];
+  readonly notices: readonly string[];
+  readonly reports: readonly EvalReport[];
+}
+
+export function savedRun(r: EvalResult): SavedRun {
+  return {
+    scenario: r.scenario,
+    technique: r.run.port.technique,
+    passed: r.passed,
+    usage: r.run.usage,
+    grades: r.grades,
+    events: r.run.events,
+    records: [...r.run.records.values()],
+    asked: r.run.asked.map((e) => ({ tool: e.tool, ...(e.preview !== undefined ? { preview: e.preview } : {}), ...(e.alwaysAsk ? { alwaysAsk: true } : {}) })),
+    notices: r.run.notices,
+    reports: r.run.reports,
+  };
+}
+
+/** Thrown by a saved run's page: the page's final state was not saved, so a check that reads it keeps its verdict. */
+class StateNotSaved extends Error {}
+
+/**
+ * Score a saved run again with the scenario's checks as they are now. The
+ * number audit runs again on each report (the account against the text it
+ * was checked against), so a change to the audit counts. A check that reads
+ * the page's final state (the window set, the reflections left out) cannot
+ * run on a saved run: it keeps the verdict the run had, marked as kept.
+ */
+export function regrade(saved: SavedRun, scenario: EvalScenario): EvalResult {
+  const refused = (): never => {
+    throw new StateNotSaved("the page's state is not saved");
+  };
+  const port = { technique: saved.technique, state: refused, magnetic: refused } as unknown as AgentPort;
+  // Each write_report's answer with the audit run again, in order.
+  let n = 0;
+  const events = saved.events.map((e) => {
+    if (e.kind !== "call" || e.name !== "write_report" || e.isError) return e;
+    const report = saved.reports[n++];
+    if (!report) return e;
+    const unverified = unverifiedNumbers(report.audit.account, report.audit.against);
+    const out = JSON.parse(e.text) as Record<string, unknown>;
+    const { unverifiedNumbers: _old, note: _note, ...rest } = out;
+    return { ...e, text: JSON.stringify(unverified.length ? { ...rest, unverifiedNumbers: unverified } : rest) };
+  });
+  const run: EvalRun = {
+    events,
+    port,
+    records: new Map(saved.records.map((r) => [r.key, r])),
+    asked: saved.asked as unknown as ActivityEntry[],
+    notices: saved.notices,
+    usage: saved.usage,
+    reports: saved.reports,
+  };
+  const before = new Map(saved.grades.map((g) => [g.check, g]));
+  const grades = scenario.checks.map((c) => {
+    try {
+      return { check: c.name, ...c.grade(run) };
+    } catch (e) {
+      if (!(e instanceof StateNotSaved)) throw e;
+      const was = before.get(c.name);
+      return { check: c.name, pass: was?.pass ?? false, detail: `${was?.detail ?? "not graded in the run"} (kept from the run: this check reads the page's final state)` };
+    }
+  });
+  return { scenario: saved.scenario, run, grades, passed: grades.every((g) => g.pass) };
 }
 
 /** A run as text, for a report or a failing test's message. */

@@ -21,13 +21,27 @@ real chat loop, executor and tools run; only the model changes.
   `MATERIA_AGENT_EVAL_MODEL` (default `claude-opus-5-5`), `_EFFORT` (default
   `high`), `_TRANSPORT` (`api-key`, `ollama` or `lmstudio`, with a local server
   at `_SERVER`), `_ONLY` (scenario ids, comma-separated), `_REPEAT` (runs per
-  scenario) and `_OUT` (a JSON report with every transcript) adjust it. A local
+  scenario) and `_OUT` (a JSON report) adjust it. A local
   model needs no key:
 
   ```bash
   MATERIA_AGENT_EVAL=1 MATERIA_AGENT_EVAL_TRANSPORT=ollama MATERIA_AGENT_EVAL_MODEL=gemma4:26b \
     MATERIA_AGENT_EVAL_OUT=/tmp/materia-eval-out/ollama-gemma4-26b.json npm run eval:agent -- --reporter=verbose
   ```
+
+- **Again, for free**: the `_OUT` report keeps each run whole — every tool's
+  answer, the Agent's records, each report's text and what its number audit
+  read. A change to a check or to the audit is scored on saved runs with no
+  model called ([`regrade.test.ts`](../src/agent/evals/regrade.test.ts)):
+
+  ```bash
+  MATERIA_AGENT_EVAL_REGRADE=/tmp/materia-eval-out/run.json npx vitest run src/agent/evals/regrade.test.ts
+  ```
+
+  It prints each run's verdicts beside the ones it had; `_OUT` writes the
+  re-scored report. A check that reads the page's final state (the window
+  set, the reflections left out) keeps the verdict the run had. CI replays
+  every scripted run through that save and re-score.
 
 ## The scenarios
 
@@ -139,8 +153,9 @@ after `96c4e45`):
   finer. A number that rounds to neither stays flagged: 16.48 is 16.5 at one
   decimal, not 16.4. Numbers that came from a tool whose output the report
   did not hold (the "2.45" case) are covered by the report change above.
-  Re-grading needs a new live run: the saved JSON reports hold the accounts but
-  not the report text the audit reads.
+  Re-grading those runs needs a new live run: their JSON reports hold the
+  accounts but not the report text the audit reads (runs saved since do; see
+  "Since the 2026-10-11 runs").
 - **The symmetry-last grading.** The reply "Neither is evidence for a lower
   group" names "a lower group", and the check's negations did not include
   "neither"; it does now (with "nor"), and a CI test replays that sentence.
@@ -152,3 +167,28 @@ after `96c4e45`):
   per run and summed, to the `_OUT` report.
 - **Two new scenarios** from the user's feedback on the demo:
   `instrument-thermal-apart` and `fit-range-edges` (fifteen in all).
+
+## Since the 2026-10-11 runs
+
+What the runs at `2eec39d` called for, on `claude/agent-skills` after `7b538df`:
+
+- **"16.48" against "16.4".** No formatter truncates. `refine` gives the
+  agreement as a JSON number, and 16.40 (16.3996) prints as `16.4`: JSON drops
+  the trailing zero, and the audit reads `16.4` and `16.40` alike. 16.48 was
+  the Rw before the first refinement, which the report did not carry; the
+  flagged per-box and intermediate values were steps the eval's report could
+  not list, as its page kept no History.
+- **The report's coverage.** The report now gives the agreement before the
+  Agent's first refinement, the cell check's Le Bail fit (its Rwp and cell),
+  and each earlier `diagnose_fit` reading by the step it read, with the worst
+  reflections. The eval's pages keep a History as the app does (each
+  refinement a step), so the report lists the steps with their agreement.
+- **Grader false positives.** `full-refinement` no longer reads a rule about
+  what refines together ("the profile width must not refine together with the
+  B values, so I'll fix width") as a refusal; `misfits-not-extra-peaks` reads
+  "0 unexplained peaks" as none, and still fails "Other unexplained peaks
+  could be sample-environment lines" when the tool found none;
+  `sc-listing-honesty` takes "so no R_int (1570 reflections)" as the denial it
+  is. Each sentence is replayed in CI.
+- **Re-scoring for free.** See "Again, for free" above.
+

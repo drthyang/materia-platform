@@ -11,7 +11,7 @@
 import { z } from "zod";
 import { PAGE_LABEL, liveTool, type LiveToolSpec, type ToolEffect } from "@/agent/tools";
 import type { AgentPort, LiveState, PdfLiveState, PowderLiveState, SingleCrystalLiveState } from "@/agent/port";
-import { changePowder, describePowderChange, powderNoOp, powderReportChecks, readPowderTool, requireStructure } from "@/agent/powderTools";
+import { changePowder, describePowderChange, diagnosisText, powderNoOp, powderReportChecks, readPowderTool, requireStructure, type DiagnosisView } from "@/agent/powderTools";
 import { changeMagnetic, describeMagneticChange, isMagneticTool, magneticNoOp, magneticOutcome, readMagneticTool } from "@/agent/magneticTools";
 import { changePdf, describePdfChange, pdfNoOp, pdfReportChecks, readPdfTool } from "@/agent/pdfTools";
 import { changeSingleCrystal, describeSingleCrystalChange, readSingleCrystalTool, singleCrystalNoOp, singleCrystalReportChecks } from "@/agent/scTools";
@@ -113,6 +113,9 @@ let nextCallId = 1;
 
 /** Notes kept per analysis; the oldest go first. */
 const MAX_NOTES = 40;
+
+/** Diagnoses of the fit kept per analysis (one per History step); the oldest go first. */
+const MAX_DIAGNOSES = 12;
 
 let nextReportId = 1;
 
@@ -225,7 +228,8 @@ export class AgentExecutor implements ToolRunner {
             : port.technique === "pdf" ? readPdfTool(spec.name, input, port, this.host)
               : isMagneticTool(spec.name) ? await readMagneticTool(spec.name, input, port, () => this.host.settle())
                 : readPowderTool(spec.name, input, port, this.host);
-        if (spec.name === "check_cell_symmetry") this.noteCellCheck(port, out as { passed?: boolean; unindexedPeaks?: unknown[]; absences?: { violated?: unknown[] } });
+        if (spec.name === "check_cell_symmetry") this.noteCellCheck(port, out as CellCheckAnswer);
+        if (spec.name === "diagnose_fit") this.noteDiagnosis(port, out);
         if (spec.name === "check_fit_range") this.noteRangeCheck(port, out as RangeAnswer);
         if (spec.name === "reflection_statistics") this.noteDataCheck(port, out as DataAnswer);
         if (spec.name === "review_symmetry") this.noteSymmetryReview(port, out as { observedForbidden?: unknown[]; candidates?: { name: string }[] });
@@ -316,6 +320,11 @@ export class AgentExecutor implements ToolRunner {
       });
       const note = typeof changed === "object" ? changed.note : changed;
       const after = this.requirePort().state();
+      // Where the fit started, once per analysis: the report gives it before the steps.
+      if (spec.name === "refine" && after.result && after.result !== before.result && !this.host.record(key).start) {
+        const r1 = "dataset" in before ? { r1: before.agreement.r1 } : {};
+        this.host.updateRecord(key, (r) => (r.start ? r : { ...r, start: { at: Date.now(), agreement: agreement(before).live, ...r1 } }));
+      }
       let alternation: Record<string, unknown> | null = null;
       if (spec.name === "refine" && after.result?.status === "converged" && after.result !== before.result) {
         const covered = stagesCovered(port.technique, freeBefore, before.parameters);
@@ -353,17 +362,25 @@ export class AgentExecutor implements ToolRunner {
   }
 
   /** The cell check's outcome, kept for the analysis it ran on. A record, not a gate. */
-  private noteCellCheck(port: AgentPort, out: { passed?: boolean; unindexedPeaks?: unknown[]; absences?: { violated?: unknown[] } }): void {
-    const unindexed = out.unindexedPeaks?.length ?? 0;
-    const flagged = out.absences?.violated?.length ?? 0;
-    // The peaks by d, so the report says which they were, and a note that names them names the report's numbers.
-    const ds = (out.unindexedPeaks ?? []).map((p) => (p as { d?: number }).d).filter((d): d is number => typeof d === "number").slice(0, 12);
-    const parts = [
-      ...(unindexed > 0 ? [`${unindexed} unindexed peak${unindexed === 1 ? "" : "s"}${ds.length ? ` (d = ${ds.join(", ")}${unindexed > ds.length ? ", …" : ""} Å)` : ""}`] : []),
-      ...(flagged > 0 ? [`${flagged} absence${flagged === 1 ? "" : "s"} flagged (revisit at the symmetry review)`] : []),
-    ];
-    const summary = out.passed ? "every peak indexes; no absence flagged" : parts.join(", ");
-    this.host.updateRecord(keyOfState(port.technique, port.state()), (r) => ({ ...r, cellCheck: { passed: !!out.passed, at: Date.now(), summary } }));
+  private noteCellCheck(port: AgentPort, out: CellCheckAnswer): void {
+    this.host.updateRecord(keyOfState(port.technique, port.state()), (r) => ({ ...r, cellCheck: { passed: !!out.passed, at: Date.now(), summary: cellCheckSummary(out, port.state().parameters) } }));
+  }
+
+  /**
+   * A diagnosis of the fit (diagnose_fit), kept with the History step it read:
+   * the report gives the earlier ones by step, so an account that cites what
+   * the fit was diagnosed with on the way cites the report. The latest per
+   * step, at most MAX_DIAGNOSES.
+   */
+  private noteDiagnosis(port: AgentPort, out: unknown): void {
+    const dx = out as Partial<DiagnosisView>;
+    if (typeof dx.reading !== "string" || !Array.isArray(dx.causes)) return;
+    const step = this.currentStep()?.id;
+    const entry = { at: Date.now(), ...(step ? { step } : {}), summary: diagnosisText(dx as DiagnosisView) };
+    this.host.updateRecord(keyOfState(port.technique, port.state()), (r) => ({
+      ...r,
+      diagnoses: [...(r.diagnoses ?? []).filter((d) => d.step !== entry.step), entry].slice(-MAX_DIAGNOSES),
+    }));
   }
 
   /** The data ends' reading, kept for the analysis: what each end showed and the window proposed. A record, not a gate. */
@@ -504,6 +521,7 @@ export class AgentExecutor implements ToolRunner {
       fileBase: reportFileBase(built.input.title),
       at: Date.now(),
       unverified: built.unverified,
+      audit: built.audit,
     };
     this.opts.onReport?.(report);
     const attention = built.agent.checks.filter((c) => c.status === "warn").length;
@@ -580,6 +598,39 @@ interface DataAnswer {
   readonly absences: { readonly measured: number; readonly atThreeSigma: number; readonly strongest?: readonly string[] } | string;
   readonly intensityStatistics: { readonly meanAbsE2Minus1: number; readonly reading: string } | string;
   readonly twinLaws?: { readonly laws: readonly { readonly indices: string; readonly alpha: number | string; readonly pairs: number }[] } | string;
+}
+
+/** check_cell_symmetry's answer, as the record reads it. */
+interface CellCheckAnswer {
+  readonly passed?: boolean;
+  readonly unindexedPeaks?: readonly { readonly d?: number }[];
+  readonly absences?: { readonly violated?: readonly unknown[] };
+  /** The Le Bail fit: Rwp in per cent, the independent cell parameters by id. */
+  readonly leBail?: { readonly Rwp?: number };
+  readonly cellValues?: Readonly<Record<string, number>>;
+}
+
+/**
+ * The cell check in a line, for the record and the report: what indexed and
+ * what was flagged, and the Le Bail fit that judged it (its Rwp and cell, as
+ * the tool gave them), so an account that quotes the Le Bail cell quotes the
+ * report.
+ */
+export function cellCheckSummary(out: CellCheckAnswer, parameters: readonly RefinementParameter[]): string {
+  const unindexed = out.unindexedPeaks?.length ?? 0;
+  const flagged = out.absences?.violated?.length ?? 0;
+  // The peaks by d, so the report says which they were, and a note that names them names the report's numbers.
+  const ds = (out.unindexedPeaks ?? []).map((p) => p.d).filter((d): d is number => typeof d === "number").slice(0, 12);
+  const parts = [
+    ...(unindexed > 0 ? [`${unindexed} unindexed peak${unindexed === 1 ? "" : "s"}${ds.length ? ` (d = ${ds.join(", ")}${unindexed > ds.length ? ", …" : ""} Å)` : ""}`] : []),
+    ...(flagged > 0 ? [`${flagged} absence${flagged === 1 ? "" : "s"} flagged (revisit at the symmetry review)`] : []),
+  ];
+  const cell = Object.entries(out.cellValues ?? {}).map(([id, v]) => {
+    const p = parameters.find((q) => q.id === id);
+    return `${(p?.label ?? id).replace(/\s*\(.*\)$/, "")} ${v} ${p?.kind === "cellAngle" ? "°" : "Å"}`;
+  });
+  const leBail = typeof out.leBail?.Rwp === "number" ? `; the Le Bail fit (every intensity free) reached Rwp ${out.leBail.Rwp.toFixed(2)} %${cell.length ? ` with ${cell.join(", ")}` : ""}` : "";
+  return `${out.passed ? "every peak indexes; no absence flagged" : parts.join(", ")}${leBail}`;
 }
 
 /** check_fit_range's answer, as the record reads it. */

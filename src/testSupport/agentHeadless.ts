@@ -32,7 +32,8 @@ import { buildMagneticPowderProblem } from "@/core/workflow/magneticPowder";
 import { buildPowderProblem } from "@/core/workflow/powder";
 import { samplePosterior, type SampleResult } from "@/core/refinement/bayes/sampler";
 import { magneticHandle, sessionCurves } from "@/testSupport/magneticHeadless";
-import type { ProjectHistory, StepKind } from "@/core/project/history";
+import { recordStep, type ProjectHistory, type Snapshot, type StepActor, type StepKind } from "@/core/project/history";
+import type { Workspace } from "@/core/project/types";
 import { pdfReportInput, powderReportInput, singleCrystalReportInput } from "@/app/reportInputs";
 import type { ExtinctionModel, OmittedMeasurement, Radiation, ResolutionRange, ShelxWeighting, SingleCrystalDataset, TwinLaw } from "@/core/diffraction/types";
 import { EXTINCTION_PARAMETER_LABELS } from "@/core/diffraction/singleCrystalFactors";
@@ -265,7 +266,11 @@ function renderSnapshot(port: AgentPort): AgentPort {
   return { ...port, state: () => frozen } as AgentPort;
 }
 
-export function fakeHost(port: AgentPort | null, history: () => ProjectHistory | null = () => null): { host: AgentHost; steps: { kind: StepKind; agent: boolean }[]; records: Map<string, AgentRecord> } {
+export function fakeHost(
+  port: AgentPort | null,
+  history: () => ProjectHistory | null = () => null,
+  onRecord?: (kind: StepKind, agent: boolean) => void,
+): { host: AgentHost; steps: { kind: StepKind; agent: boolean }[]; records: Map<string, AgentRecord> } {
   const steps: { kind: StepKind; agent: boolean }[] = [];
   const records = new Map<string, AgentRecord>();
   let agent = false;
@@ -281,13 +286,53 @@ export function fakeHost(port: AgentPort | null, history: () => ProjectHistory |
         agent = false;
       }
     },
-    recordNow: (kind) => steps.push({ kind, agent }),
+    recordNow: (kind) => {
+      steps.push({ kind, agent });
+      onRecord?.(kind, agent);
+    },
     history,
     goToStep: () => undefined,
     record: (key) => records.get(key) ?? emptyRecord(key),
     updateRecord: (key, update) => void records.set(key, update(records.get(key) ?? emptyRecord(key))),
   };
   return { host, steps, records };
+}
+
+/**
+ * The History as the app keeps it, for a headless page: each step the
+ * executor asks for is recorded from the page's state — the phases, the
+ * parameters and the last result, and on the single-crystal page the
+ * settings the report compares refinements by — and the first is the start,
+ * as when data loads. The pages record a refinement's own step when it ends
+ * ("Refine"); a headless port does not, so its caller records that one
+ * (record("refine", "agent", "Refine")). A report written in a test or an
+ * eval then lists the analysis' steps with their agreement, as the app's does.
+ */
+export function headlessHistory(port: AgentPort): { history: () => ProjectHistory | null; record: (kind: StepKind, actor?: StepActor, label?: string) => void } {
+  const snapshot = (): Snapshot => {
+    const s = port.state();
+    const structures = "phases" in s ? s.phases : "dataset" in s ? [s.structure] : [s.structure, ...s.extraPhases];
+    const refinement = { parameters: s.parameters, bindings: s.bindings, ...(s.result ? { lastResult: s.result } : {}) };
+    const sc = "dataset" in s
+      ? {
+          extinctionModel: s.extinctionModel,
+          resolution: { ...(s.resolution.dMin !== undefined ? { dMin: s.resolution.dMin } : {}), ...(s.resolution.dMax !== undefined ? { dMax: s.resolution.dMax } : {}) },
+          omitted: s.omitted,
+          outlierFilter: { on: s.outlierFilter.on, cutoffSigma: s.outlierFilter.cutoffSigma, ...(s.outlierFilter.minExtinction !== undefined ? { minExtinction: s.outlierFilter.minExtinction } : {}) },
+          twinLaws: s.twinLaws,
+          inverted: s.inverted !== undefined,
+          ...(s.weighting ? { weighting: { a: s.weighting.a, b: s.weighting.b } } : {}),
+        }
+      : {};
+    return { structures, workspace: { technique: port.technique, refinement, ...sc } as unknown as Workspace };
+  };
+  let h: ProjectHistory = recordStep(null, { ...snapshot(), kind: "load", label: "Start" });
+  return {
+    history: () => h,
+    record: (kind, actor, label) => {
+      h = recordStep(h, { ...snapshot(), kind, ...(label ? { label } : {}), ...(actor ? { actor } : {}) });
+    },
+  };
 }
 
 /**

@@ -195,6 +195,8 @@ export interface ReportAgent {
   readonly agreementLabel?: string;
   /** History steps on branches the analysis left (not on the path to the result). */
   readonly otherBranches?: number;
+  /** The agreement before the Agent's first refinement (fractions; R1 on the single-crystal page). */
+  readonly start?: { readonly agreement: number; readonly r1?: number };
   readonly checks: readonly ReportCheck[];
   readonly posterior?: ReportPosterior | null;
   readonly openIssues: readonly string[];
@@ -203,6 +205,11 @@ export interface ReportAgent {
   readonly narrative?: string;
   /** Numbers in the narrative that match no value the report computed (reportAudit.ts): marked where they appear. */
   readonly unverified?: readonly string[];
+}
+
+/** "Before the Agent's first refinement: wR2 25.61 %, R1 12.34 %." */
+export function startText(start: NonNullable<ReportAgent["start"]>, label: string): string {
+  return `Before the Agent's first refinement: ${label} ${(100 * start.agreement).toFixed(2)} %${start.r1 !== undefined ? `, R1 ${(100 * start.r1).toFixed(2)} %` : ""}.`;
 }
 
 /**
@@ -713,13 +720,14 @@ function agentHtml(a: ReportAgent): string {
     ? `<div class="card narrative" style="margin-top:14px"><h4>The Agent's account</h4>${paragraphs(a.narrative, unverified)}<p class="note">Written by the Agent (${esc(a.model)}) in its own words, as are its notes. Every other number in this report — the steps, the checks, the parameters, the agreement factors and the figure — comes from the refinement engine and the project's History, not from the model.${unverified.length > 0 ? ` <span class="unverified">Underlined</span> numbers in the Agent's words are not among the values this report computed.` : ""}</p></div>`
     : "";
   const branches = a.otherBranches ? ` The table follows the path to the result; ${a.otherBranches} step${a.otherBranches === 1 ? "" : "s"} on branches the analysis left ${a.otherBranches === 1 ? "is" : "are"} kept in the History, not shown.` : "";
+  const start = a.start ? `<p class="note">${esc(startText(a.start, a.agreementLabel ?? "wR"))}</p>` : "";
   return `<div class="card scroll">
   <h4>How the analysis was done <span class="muted">· ${a.steps.length} step${a.steps.length === 1 ? "" : "s"} from the History · model ${esc(a.model)}</span></h4>
   <table class="steps">
     <tr><th class="num">#</th><th>Step</th><th>By</th><th>Refined</th><th class="num">Free</th><th class="num">${esc(a.agreementLabel ?? "wR")}</th>${anyGof ? '<th class="num">GoF</th>' : ""}</tr>
     ${steps}
   </table>
-  ${stages}${branches ? `<p class="note">${esc(branches.trim())}</p>` : ""}
+  ${start}${stages}${branches ? `<p class="note">${esc(branches.trim())}</p>` : ""}
 </div>
 <div class="two" style="margin-top:14px">
   <div class="card scroll"><h4>Checks</h4><table><tr><th>Check</th><th>Result</th><th>Detail</th></tr>${checks}</table></div>
