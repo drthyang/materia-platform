@@ -235,8 +235,10 @@ export function parseShelxIns(text: string, id = "shelx"): ShelxModel {
       case "TWIN": {
         const v = nums();
         const m = v.length >= 9 ? v.slice(0, 9) : [-1, 0, 0, 0, -1, 0, 0, 0, -1];
-        // SHELXL multiplies the indices as a row vector, (h k l)·M: as a column, h′ = Mᵀ·h.
-        const matrix: Mat3 = [[m[0]!, m[3]!, m[6]!], [m[1]!, m[4]!, m[7]!], [m[2]!, m[5]!, m[8]!]];
+        // Row-major, the rows acting on the column (h k l): h′ = M·h, the convention
+        // set_twin takes. SHELXL's own pseudo-hexagonal example, TWIN 0 0 1 0 1 0 −1 0 −1 3
+        // for a ≈ c, β ≈ 120°, keeps d only read this way.
+        const matrix: Mat3 = [[m[0]!, m[1]!, m[2]!], [m[3]!, m[4]!, m[5]!], [m[6]!, m[7]!, m[8]!]];
         const n = v.length >= 10 ? v[9]! : 2;
         twin = { matrix, domains: Math.abs(n), ...(n < 0 ? { withInversion: true as const } : {}) };
         break;
