@@ -8,8 +8,9 @@ real chat loop, executor and tools run; only the model changes.
 
 - **In CI**, every scenario is replayed with a scripted model twice: once as the
   Agent should behave (every check passes) and once as it did when the failure
-  was found (the checks written against it fail). This shows that each check
-  catches its failure. The scripts are in
+  was found (the checks written against it must fail). That shows each of
+  those checks catches its failure: 47 of the suite's 54 checks so far; the
+  rest (`noStall` among them) have no failing replay yet. The scripts are in
   [`src/agent/evals/evals.test.ts`](../src/agent/evals/evals.test.ts).
 - **On demand**, the same scenarios run against a real model
   ([`live.test.ts`](../src/agent/evals/live.test.ts)):
@@ -166,7 +167,7 @@ after `96c4e45`):
   cache read, cache write); the live run prints the totals and writes them,
   per run and summed, to the `_OUT` report.
 - **Two new scenarios** from the user's feedback on the demo:
-  `instrument-thermal-apart` and `fit-range-edges` (fifteen in all).
+  `instrument-thermal-apart` and `fit-range-edges` (fifteen then; 33 now).
 
 ## Since the 2026-10-11 runs
 

@@ -8,7 +8,7 @@
 **Crystal and magnetic structure refinement that runs entirely in your browser,
 built to be driven by people and by AI agents.**
 
-**An Agent works the analysis with you.** Open it beside a powder or PDF fit and
+**An Agent works the analysis with you.** Open it beside a powder, single-crystal or PDF fit and
 a model of your choice — local on Ollama or LM Studio, or in the cloud — runs the refinement by
 your written method, says why a fit is poor, names the phase behind an extra
 peak, finds a magnetic structure, checks an unconvincing number with a Bayesian
@@ -54,7 +54,7 @@ neutron TOF Rietveld fit and a GaTa₄Se₈ X-ray PDF fit.
 | --- | --- | --- |
 | **Powder Rietveld** | CW and TOF, multi-phase, background, peak shape, microstructure; GSAS-II, GSAS and FullProf instrument files; one-click FullProf / GSAS-II cross-check bundle | [User guide](docs/USER_GUIDE.md) |
 | **Magnetic structures** | Detect magnetic peaks → k-vector search → magnetic subgroups with BNS/OG labels → moment refinement; k = 0, commensurate and incommensurate single-k; mCIF export | [Magnetic symmetry](docs/MAGNETIC_SYMMETRY.md) |
-| **Single crystal** | F² refinement from hkl, SHELX HKL and FullProf `.int` lists, with absorption correction | [Single crystal](docs/SINGLE_CRYSTAL.md) |
+| **Single crystal** | F² refinement from hkl, SHELX HKL and FullProf `.int` lists, extinction, twins and the absolute structure; the Agent works it too (absorption correction is in the core only, with no page control or Agent tool yet) | [Single crystal](docs/SINGLE_CRYSTAL.md) |
 | **PDF and mPDF** | Neutron and X-ray G(r), multi-phase and multi-dataset, boxcar scans across r, symmetry-mode distortions, magnetic PDF; validated against PDFfit2 and diffpy.mpdf | [PDF roadmap](docs/PDF_MPDF_ROADMAP.md) |
 | **Uncertainty** | Levenberg–Marquardt esds plus Bayesian posterior sampling (ensemble MCMC and NUTS) with convergence diagnostics | [Refinement engine](docs/REFINEMENT_ENGINE.md) |
 | **In-app Agent** | A model of your choice beside the analysis — local on Ollama or LM Studio, or a cloud model — runs it by your method and discusses it; every change approved or undoable | [The Agent](#the-agent) |
@@ -97,7 +97,7 @@ replay of a live run"). The stretch where the Agent refines is shown at 8× spee
   ties, antisite disorder, the magnetic structure (k, the magnetic space groups,
   the moments, the joint refinement) and boxcar scans of a PDF; then it reports
   the result with its esds and its own assessment, and answers questions about
-  it. 57 tools across the powder page, its magnetic step, the single-crystal
+  it. 58 tools across the powder page, its magnetic step, the single-crystal
   page and the PDF page.
 - **A report you can hand on.** `write_report` opens the analysis report in the
   app, to save as HTML, Markdown or PDF with the CIF: the data and the model, the
@@ -125,11 +125,12 @@ replay of a live run"). The stretch where the Agent refines is shown at 8× spee
   — they alternate, and each refinement says how far its group moved; the
   space group questioned only once the method's stages are refined. The stages,
   the fit range first, show as a checklist in the drawer.
-- **Tested on what it does.** Fifteen eval scenarios, each written against a failure
+- **Tested on what it does.** 33 eval scenarios, each written against a failure
   a user or a researcher round found, replay the real chat loop and tools in CI
-  with a scripted model — once as the Agent should behave and once as it
-  failed, so every check is shown to catch its failure — and run against a real
-  model on demand (`npm run eval:agent`; results in
+  with a scripted model — once as the Agent should behave (every check passes)
+  and once as it failed (the checks written against that failure must fail;
+  47 of the 54 checks are shown to catch a failure this way, the rest not yet,
+  `noStall` among them) — and run against a real model on demand (`npm run eval:agent`; results in
   [docs/AGENT_EVALS.md](docs/AGENT_EVALS.md)).
 - **Out of the way of the work.** The drawer sits beside the plot and the
   parameter table, not over them; the card the Agent is working on breathes, and
