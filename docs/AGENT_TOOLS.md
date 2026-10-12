@@ -589,10 +589,18 @@ The page-specific handlers are [`powderTools.ts`](../src/agent/powderTools.ts),
   a failed measurement from a model that misses before anything is left
   out. `omit_reflections` leaves single measurements out by their indices and
   batch (SHELXL's OMIT h k l), with the reason, which the report lists.
+  `assess_refinement` computes `failedMeasurements` (off by themselves at 6σ
+  or more, their equivalents agreeing with the model), and `write_report`
+  refuses while one is still fitted, neither left out nor kept by the user
+  (`keep_reflections`, an approval card even in Auto; the report lists what
+  was kept and why).
   `set_outlier_filter` is the page's |Fo² − Fc²|/σ cutoff (SHELX's OMIT,
   applied wholesale), and with `minExtinction` it also leaves out the
   reflections whose extinction factor y is below the cut, the extinction
-  test; its approval card counts what it leaves out. `set_resolution_range`
+  test; its approval card counts what it leaves out. `test_extinction` runs
+  that test with the page left as it is: two probe fits, with and without the
+  reflections of y below the cut (0.5 by default), and every free parameter
+  that moves by more than 2 esd between them. `set_resolution_range`
   limits the fit to a d range (SHELXL's SHEL), for a high-order refinement.
   `set_extinction_model` switches between SHELXL's EXTI and Becker–Coppens
   type I or II (Gaussian or Lorentzian mosaic), as GSAS-II computes it; the
@@ -855,7 +863,8 @@ replies sentence by sentence (a sentence that names extra peaks or a lower
 symmetry without negating it). In CI every scenario is replayed with a
 scripted model twice: as the Agent should behave, where every check passes,
 and as it behaved when the failure was found, where the checks written
-against it must fail. So each check is shown to catch what it is for.
+against it must fail. So those checks are shown to catch what they are for:
+48 of the 55 so far; the rest (`noStall` among them) have no failing replay yet.
 
 Against a real model, `MATERIA_AGENT_EVAL=1 ANTHROPIC_API_KEY=… npm run
 eval:agent` runs every scenario and prints a pass count per scenario.

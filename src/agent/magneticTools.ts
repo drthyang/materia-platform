@@ -62,6 +62,22 @@ function candidateRow(c: MagneticCandidateView): Record<string, unknown> {
 
 const pct = (f: number): number => Math.round(f * 10000) / 100;
 
+/**
+ * The magnetic analysis's own next step, from where the step stands: the
+ * peaks, the k-search, k, the groups ranked, one chosen, its moments fitted.
+ * On the magnetic step this order comes before the powder stages (a model
+ * that read only get_state's powder checklist went back to the fit range).
+ */
+export function magneticNext(s: MagneticPanelState): string {
+  if (!s.peaks.some((p) => p.included)) return "no residual peak is used for the k-search: include the magnetic peaks (search_propagation_vector `include`), or the nuclear fit leaves none and there is nothing magnetic to find";
+  if (!s.kSearch) return "search_propagation_vector: the k that indexes the residual peaks";
+  if (!s.selected) return s.best === null
+    ? "set_propagation_vector to the k the search supports (the simplest of equal fits), then rank_magnetic_groups"
+    : `choose_magnetic_group (the ranking's best: ${s.best}), then refine_moments`;
+  if (s.selected.fitAgreement === null) return "refine_moments: fit the chosen group's moments, the nuclear model held";
+  return "the moments are fitted: refine the nuclear and magnetic models together on the refinement step, then report the group, k and the moments with what the powder cannot tell";
+}
+
 /** The step as the model reads it: compact, the candidates that can carry a moment first. */
 export function magneticView(s: MagneticPanelState): Record<string, unknown> {
   const carrying = s.candidates.filter((c) => c.momentDims > 0);
@@ -78,6 +94,7 @@ export function magneticView(s: MagneticPanelState): Record<string, unknown> {
   const included = s.peaks.filter((p) => p.included);
   const excluded = s.peaks.filter((p) => !p.included).sort((a, b) => (b.sigmas ?? 0) - (a.sigmas ?? 0));
   return {
+    next: magneticNext(s),
     ions: s.ions.map((i) => `${i.label} (${i.element})${i.selected ? " ✓" : ""}`),
     residualPeaks: {
       usedByKSearch: included.map(peak),

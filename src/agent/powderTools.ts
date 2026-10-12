@@ -39,6 +39,7 @@ import { powderValidation } from "@/core/diagnostics/powderValidation";
 import type { ReportCheck } from "@/core/export/report";
 import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, correlationsCheck, findingChecks, noResultCheck, verdictCheck } from "@/agent/reportChecks";
 import { groupOf } from "@/agent/method";
+import { magneticNext } from "@/agent/magneticTools";
 import { satellitePositions } from "@/core/magnetic/kSearch";
 import { centringTranslations } from "@/core/crystal/symmetry";
 import { inspectDataRange, type DataEnd, type DataRangeReading } from "@/core/diagnostics/dataRange";
@@ -63,8 +64,14 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
   const s = port.state();
   requireStructure(name, s);
   switch (name) {
-    case "get_state":
-      return stateView(s, host.history(), input.parameters);
+    case "get_state": {
+      // Where the magnetic step has something to work on, its own next step: for a
+      // magnetic question it leads, and the powder checklist is the refinement step's.
+      const magnetic = port.magnetic?.()?.state();
+      const view = stateView(s, host.history(), input.parameters);
+      const active = magnetic && (magnetic.peaks.some((p) => p.included) || magnetic.kSearch !== null || magnetic.selected !== null);
+      return active ? { magneticStep: { next: magneticNext(magnetic), note: "For the magnetic structure, follow the magnetic step's sequence (magnetic_state reads it): the method's powder stages below are the refinement step's, not the next step of a magnetic analysis." }, ...view } : view;
+    }
     case "assess_refinement":
       return assessment(s);
     case "suggest_next_steps":

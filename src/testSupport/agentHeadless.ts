@@ -706,7 +706,14 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
       calls.push("thorough");
       return "cancelled";
     },
-    probe: async (options) => refineProblem(buildSingleCrystalRefinementProblem(model, active(), params, spec.bindings), { analyticDerivatives: true, ...options }),
+    probe: async (options, cut) => {
+      const data = active();
+      // As the page: the reflections whose y at the current model is below the cut leave the probe's data only.
+      const rows = cut ? singleCrystalRefinementComparison(model, dataset, params, spec.bindings).rows : [];
+      const yOf = new Map(dataset.reflections.map((r, i) => [r, rows[i]?.extinction ?? 1] as const));
+      const fitted = cut ? { ...data, reflections: data.reflections.filter((r) => (yOf.get(r) ?? 1) >= cut.minExtinction) } : data;
+      return refineProblem(buildSingleCrystalRefinementProblem(model, fitted, params, spec.bindings), { analyticDerivatives: true, ...options });
+    },
     reportInput: () => {
       const st = state();
       return singleCrystalReportInput({

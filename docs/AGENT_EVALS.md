@@ -8,8 +8,9 @@ real chat loop, executor and tools run; only the model changes.
 
 - **In CI**, every scenario is replayed with a scripted model twice: once as the
   Agent should behave (every check passes) and once as it did when the failure
-  was found (the checks written against it fail). This shows that each check
-  catches its failure. The scripts are in
+  was found (the checks written against it must fail). That shows each of
+  those checks catches its failure: 48 of the suite's 55 checks so far; the
+  rest (`noStall` among them) have no failing replay yet. The scripts are in
   [`src/agent/evals/evals.test.ts`](../src/agent/evals/evals.test.ts).
 - **On demand**, the same scenarios run against a real model
   ([`live.test.ts`](../src/agent/evals/live.test.ts)):
@@ -59,6 +60,7 @@ real chat loop, executor and tools run; only the model changes.
 | `fit-range-edges` | reads the data's ends and leaves out what is not real data, before refining | the user, on the demo |
 | `fit-window-in-d` | sets a fit window given in d | axis units (#39) |
 | `magnetic-structure` | solves a magnetic structure on the magnetic step | a user |
+| `magnetic-step-first` | searches k before going back to the powder stages: the magnetic step's own sequence leads (get_state's `magneticStep.next`) | Track A2, Haiku's magnetic runs |
 | `pdf-method` | refines a PDF by its method | the PDF page (v0.3) |
 | `pdf-local-structure` | compares local and average structure with a boxcar scan | boxcar scans (#40) |
 | `pdf-local-geometry` | answers a bond-length question box by box, and reports the scan | round 9 (LaMnO₃) |
@@ -166,7 +168,7 @@ after `96c4e45`):
   cache read, cache write); the live run prints the totals and writes them,
   per run and summed, to the `_OUT` report.
 - **Two new scenarios** from the user's feedback on the demo:
-  `instrument-thermal-apart` and `fit-range-edges` (fifteen in all).
+  `instrument-thermal-apart` and `fit-range-edges` (fifteen then; 34 now).
 
 ## Since the 2026-10-11 runs
 
