@@ -17,7 +17,7 @@ import type { ProjectHistory } from "@/core/project/history";
 import { assess_refinement, bond_geometry, interpret_structure, suggest_next_steps } from "@/mcp/tools";
 import { structureTable } from "@/agent/structureTable";
 import { applyFree, bondsOf, cellOf, describeFree, freeNoOp, goToStep, historyView, matchIds, parameterSummary, pct, sig, type ChangeResult, type LiveToolHost } from "@/agent/liveCommon";
-import { boxShell, boxcarStepIndex, boxcarWindows, type BoxcarRun } from "@/core/workflow/pdfBoxcar";
+import { boxShell, boxcarStepIndex, boxcarWindows, followBond, type BoxcarRun } from "@/core/workflow/pdfBoxcar";
 import type { RefinementResult } from "@/core/refinement/types";
 import type { ReportCheck } from "@/core/export/report";
 import { coordinationShells, type ShellBond } from "@/core/crystal/geometry";
@@ -279,8 +279,10 @@ function boxcarView(run: BoxcarRun, s: PdfLiveState, sites: readonly string[]): 
     // Each bond of the first box, followed through the boxes by its rank in the site's list.
     const bondSpread: Record<string, { first: number; last: number; min: number; max: number }> = {};
     for (const site of sites) {
-      (boxes[0]?._bonds?.[site] ?? []).forEach((b, k) => {
-        const v = boxes.map((box) => box._bonds?.[site]?.[k]?.distance).filter((d): d is number => d !== undefined);
+      const firstShell = boxes[0]?._bonds?.[site] ?? [];
+      firstShell.forEach((b, k) => {
+        // Each bond followed by the neighbour image it reaches, not by its rank in the box's shell.
+        const v = boxes.map((box) => followBond(b, firstShell, box._bonds?.[site] ?? [])?.distance).filter((d): d is number => d !== undefined);
         bondSpread[`${site}–${b.to}${b.count > 1 ? ` ×${b.count}` : ""} #${k + 1}`] = { first: sig(v[0]!, 5), last: sig(v.at(-1)!, 5), min: sig(Math.min(...v), 5), max: sig(Math.max(...v), 5) };
       });
     }
