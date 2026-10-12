@@ -9,6 +9,17 @@ release fixes bugs.
 
 ### Added
 
+- **The Agent on any server that speaks OpenAI's API**: OpenAI, Gemini's
+  OpenAI-compatible endpoint, vLLM, a llama.cpp server. A base URL, a key if
+  the server needs one (kept as Anthropic's is), a model from the server's
+  list, and the model's context when the server does not say it.
+
+- **A local tier for the Agent's evals**: each run also reports the turn cap,
+  the loop guard, chat errors, refused or cut prompts, each turn's prompt size
+  and its time, with an acceptance level for a local model. A new scenario
+  runs the user's own request on their own (unpublished, git-ignored) data
+  where the data are.
+
 - **Agent evals re-scored for free.** A live run's `_OUT` report now keeps
   each run whole (every tool's answer, the records, each report's text and
   what its number audit read), and `regrade.test.ts` scores it again with the
@@ -492,6 +503,22 @@ release fixes bugs.
   analysis of variance gives them.
 
 ### Fixed
+
+- **A local model no longer loops, its prompt cut.** On qwen3.8-27b in LM
+  Studio the Agent re-read its method and the state until the turn cap: the
+  instructions and every tool took 18.8k of the model's 32k tokens, LM Studio
+  cut the rest from the middle without a word, and the old results were
+  replaced by "call it again". Every request to a local model is now sized to
+  its real window (old results become digests, a skill read again keeps its
+  latest copy, a prompt that cannot fit is refused, never sent cut); Ollama
+  is driven through its native chat so the context can be set; a local model
+  is offered the tools of the method's stage; and a call repeated at the same
+  state is noted, then stopped, with where the analysis stands.
+- **Stop reaches a running change**: nothing is run or asked after it, and a
+  fit a change started is cancelled. A change is checked again after its
+  approval card, which may wait. The user's unsaved edits stay their own
+  History step when the Agent's change follows in the same tick. A failed
+  load no longer wedges the Agent, and no tool call is left unanswered.
 
 - **Three eval graders that failed good answers**: a rule about what refines
   together read as a refusal of the refinement, "0 unexplained peaks" read as

@@ -28,6 +28,7 @@ import { generateReflections } from "@/core/diffraction/reflections";
 import { momentCartesian } from "@/core/magnetic/moment";
 import { isMagneticModelParameterKind } from "@/core/refinement/types";
 import { axisContext, convertAxisArray } from "@/visualization/axisUnits";
+import type { InstrumentParameters } from "@/core/diffraction/instrument";
 
 interface RankEntry {
   readonly status: "ok" | "failed" | "forbidden";
@@ -49,7 +50,7 @@ export function sessionCurves(s: Session): ReturnType<typeof powderCurves> {
 }
 
 /** The handle over a session the caller owns (`get` / `set`), as the panel's. */
-export function magneticHandle(get: () => Session, set: (s: Session) => void, openStep: (step: 0 | 1) => void): MagneticAgentHandle {
+export function magneticHandle(get: () => Session, set: (s: Session) => void, openStep: (step: 0 | 1) => void, instrument?: InstrumentParameters): MagneticAgentHandle {
   let selected: Set<string> | null = null;
   let k: Vec3 = [0, 0, 0];
   let results: KCandidate[] | null = null;
@@ -80,7 +81,8 @@ export function magneticHandle(get: () => Session, set: (s: Session) => void, op
   const peaks = () => {
     const s = get();
     const curves = sessionCurves(s);
-    const d = convertAxisArray(curves.x, s.pattern.xUnit, "dSpacing", axisContext(s.pattern, undefined, s.powderParams.find((p) => p.kind === "zeroShift")?.value));
+    // A TOF pattern reaches d through the instrument's calibration.
+    const d = convertAxisArray(curves.x, s.pattern.xUnit, "dSpacing", axisContext(s.pattern, instrument, s.powderParams.find((p) => p.kind === "zeroShift")?.value));
     const pointSigma = s.pattern.points.every((p) => p.sigma !== undefined) ? s.pattern.points.map((p) => p.sigma!) : undefined;
     const found = detectExtraPeaks(d, curves.yObs, curves.yCalc, { ...(pointSigma ? { pointSigma, minSignificance: 3 } : {}), limit: 24 });
     const finite = d.filter((v) => Number.isFinite(v) && v > 0);

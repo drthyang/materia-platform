@@ -6,6 +6,8 @@
 
 export const SETTINGS_KEY = "materia.agent.settings";
 export const API_KEY_KEY = "materia.agent.apiKey";
+/** The OpenAI-compatible server's key, kept apart from Anthropic's (the same rule: the tab, or Remember). */
+export const OPENAI_KEY_KEY = "materia.agent.openaiKey";
 /** The drawer width the user dragged to (drawerWidth.ts). */
 export const WIDTH_KEY = "materia.agent.width";
 export const SHEET_KEY = "materia.agent.sheet";

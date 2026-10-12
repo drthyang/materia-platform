@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { modelLabel, settingsFrom } from "@/agent/useAgent";
+import { modelLabel, providerOf, savedSettings, settingsFrom } from "@/agent/useAgent";
 
 describe("Agent settings from storage", () => {
   it("defaults to your own API key, with LM Studio and Ollama on their usual addresses", () => {
@@ -32,5 +32,25 @@ describe("Agent settings from storage", () => {
     expect(modelLabel(s)).toBe("Claude Opus 5.5 · replay of a live run");
     expect(modelLabel(settingsFrom(JSON.stringify({ mode: "lmstudio", lmstudioModel: "qwen/qwen3-32b" })))).toBe("qwen/qwen3-32b · LM Studio (local)");
     expect(settingsFrom(null).replayOf).toBe("");
+  });
+});
+
+describe("the OpenAI-compatible provider's settings", () => {
+  it("default to OpenAI's address and a 32k context, and keep a saved server, model and context", () => {
+    const d = settingsFrom(null);
+    expect([d.openaiPreset, d.openaiUrl, d.openaiModel, d.openaiContext]).toEqual(["openai", "https://api.openai.com/v1", "", 32768]);
+    const s = settingsFrom(JSON.stringify({ mode: "openai-compatible", openaiPreset: "vllm", openaiUrl: "http://localhost:8000/v1", openaiModel: "Qwen/Qwen3-32B", openaiContext: 40960 }));
+    expect(s.mode).toBe("openai-compatible");
+    expect(providerOf(s.mode)).toBe("openai-compatible");
+    expect(providerOf("proxy")).toBe("anthropic");
+    expect([s.openaiUrl, s.openaiModel, s.openaiContext]).toEqual(["http://localhost:8000/v1", "Qwen/Qwen3-32B", 40960]);
+    // The key is never part of the saved settings.
+    expect(JSON.stringify(savedSettings(s))).not.toMatch(/openaiKey|apiKey/);
+  });
+
+  it("names the model and where it runs", () => {
+    expect(modelLabel(settingsFrom(JSON.stringify({ mode: "openai-compatible", openaiUrl: "http://localhost:8000/v1", openaiModel: "Qwen/Qwen3-32B" })))).toBe("Qwen/Qwen3-32B · vLLM (local)");
+    expect(modelLabel(settingsFrom(JSON.stringify({ mode: "openai-compatible", openaiUrl: "https://generativelanguage.googleapis.com/v1beta/openai", openaiModel: "gemini-2.5-pro" })))).toBe("gemini-2.5-pro · Gemini (OpenAI-compatible)");
+    expect(modelLabel(settingsFrom(JSON.stringify({ mode: "openai-compatible", openaiUrl: "https://gateway.example.org/v1", openaiModel: "m" })))).toBe("m · gateway.example.org");
   });
 });

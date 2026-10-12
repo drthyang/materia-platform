@@ -778,7 +778,7 @@ left alone. A reply (or its reasoning) that starts repeating one phrase over
 and over is stopped, keeping the text up to the first repeat so the
 conversation stays valid.
 
-**Four ways to reach a model.**
+**Five ways to reach a model.**
 
 | Mode | Where the model runs | Credentials | Works on |
 |---|---|---|---|
@@ -786,6 +786,7 @@ conversation stays valid.
 | Local proxy | the browser; the dev server forwards to the API | `ANTHROPIC_API_KEY` where the dev server runs (or `.env.local`) | `npm run dev`, `npm run preview` |
 | Ollama | your Ollama server (a local model) | none | the dev server; the published site once Ollama allows its origin |
 | LM Studio | your LM Studio server (a local model) | none | the dev server and the published site, with CORS on in LM Studio |
+| OpenAI API | any server that speaks OpenAI's API: OpenAI, Gemini, vLLM, a llama.cpp server | that server's key, if it needs one, kept in this browser | wherever the server admits the page's origin |
 
 - **API key.** Claude Opus 5.5 by default (Sonnet 5.5 and Haiku 5.5 on offer),
   adaptive thinking, streamed. Every turn stays on the chosen model: the API's
@@ -800,9 +801,14 @@ conversation stays valid.
   requests there, and the server adds the key from `ANTHROPIC_API_KEY` and
   forwards them to api.anthropic.com, so the key never reaches the browser.
   Only the app's own pages may use it. The static build has no proxy.
-- **Ollama.** Ollama answers the Anthropic Messages API at
-  `<server>/v1/messages`, so the same chat loop, tools and approvals drive a
-  local model ([`src/agent/ollama.ts`](../src/agent/ollama.ts)). The page
+- **Ollama.** The same chat loop, tools and approvals drive a local model
+  through Ollama's native `/api/chat`, translated to and from the Messages
+  API ([`src/agent/ollamaNative.ts`](../src/agent/ollamaNative.ts)): it is
+  the only Ollama endpoint that takes a context length, and Ollama cuts a
+  prompt longer than its default context without a word. Each request asks
+  for the context the model is loaded with, or 32k, or the smallest step of
+  8k that holds the conversation, up to the model's maximum, and is refused
+  with why when even that cannot hold it. The page
   talks to the server directly (default `http://localhost:11434`) and lists
   its models from `/api/tags`; models that cannot call tools are shown but
   not offered. Requests carry only plain headers, which Ollama's CORS rules
@@ -816,7 +822,7 @@ conversation stays valid.
 - **LM Studio.** LM Studio 0.4.1 and later answer the same Messages API at
   `<server>/v1/messages` ([`src/agent/lmstudio.ts`](../src/agent/lmstudio.ts)),
   so it runs the same loop with the same plain headers and request fields as
-  Ollama. The page talks to the server directly (default
+  Ollama, each request sized to the context the model is loaded with. The page talks to the server directly (default
   `http://localhost:1234`) and lists its language models from
   `/api/v1/models`, those trained for tool use first; LM Studio can offer tools
   to the others too, so they stay selectable with a note. LM Studio admits no
@@ -827,8 +833,53 @@ conversation stays valid.
   does not fit is cut. So before each message the Agent loads a model that is
   not loaded with 32k (`/api/v1/models/load`), and will not send to one loaded
   with less: it says how to reload it, and never unloads a copy another program
-  may be using. Tested against a stand-in server built from LM Studio's
-  documented responses, not yet against LM Studio itself.
+  may be using. On the user's own data, qwen3.8-27b at 32k had its prompt cut
+  from the middle (LM Studio's TruncateMiddle) from the sixth request on,
+  lost its method and its results, and read them again in a loop: since then
+  every request is sized to the loaded context (below).
+- **OpenAI API.** Any server that speaks OpenAI's API: a base URL (with its
+  `/v1`), a key if it needs one (kept as Anthropic's is: for the tab, or with
+  Remember; never in a project or a report), and a model from
+  `<base>/models`. Chat goes through `<base>/chat/completions` with tools,
+  translated to and from the Messages API by a fetch the SDK uses
+  ([`src/agent/openaiCompat.ts`](../src/agent/openaiCompat.ts)), so the loop
+  is the same. The model's context is the server's own when it says (vLLM's
+  `max_model_len`, a llama.cpp server's `n_ctx`), else the one in the
+  settings (32k by default). Presets: OpenAI, Gemini's OpenAI-compatible
+  endpoint, vLLM, a llama.cpp server, or any other address.
+
+**A local model's window.** Claude's server clears old tool results itself;
+a local server cuts a prompt longer than its window without a word. So for
+Ollama, LM Studio and the OpenAI API every request is sized to the model's
+window ([`src/agent/contextWindow.ts`](../src/agent/contextWindow.ts),
+`fitWindow` in [`chat.ts`](../src/agent/chat.ts)): the instructions, the
+tools and room for the reply (6k tokens) first; then the history, its old
+tool results turned into digests (the tool, its ref, its key values, and
+whether a change ran since; `read_ref` opens the whole) in batches, so the
+server's prompt cache keeps the conversation; a skill read again keeps only
+its latest copy. A prompt that still cannot fit is refused with why, never
+sent cut, and the reply is capped at the room left. Tokens are first counted
+at 3 characters each, then measured from the server's own counts; once a
+server has counted a whole prompt, a count far below the estimate means it
+cut one after all, and nothing that reply asked for runs.
+
+**A local model's tools.** Every tool's description goes with every request:
+all 58 take about 58k characters, which with the instructions took 18.8k of
+qwen3.8-27b's 32k tokens before the conversation began. A local model (and
+an OpenAI-API model below a 128k context) is offered the core (the state,
+the method, refs, notes, freeing and refining, undoing, the report), the
+page's tools, and on the powder page those of the method's current and next
+stage; what the user's words ask for (a magnetic structure, an impurity, the
+symmetry…) and every tool it has used are added
+([`src/agent/toolScope.ts`](../src/agent/toolScope.ts)). A powder stage's
+list is about a quarter of all the tools.
+
+**Loops.** A model that loses track calls the same tool again and again. The
+chat remembers each call, the state it ran at (a fingerprint of everything a
+tool can change) and its answer: a call repeated at the same state with the
+same answer gets a note from the app; the third is not run, and the turn
+stops with where the analysis stands and what to tell the Agent; so do four
+repeats of any kind, or 20 calls in a row that change nothing.
 
 **How it is tested.** [`src/agent/`](../src/agent) tests run the tools on
 a real powder fit and a real PDF fit (the refinement engine, the assessment),
@@ -864,13 +915,14 @@ symmetry without negating it). In CI every scenario is replayed with a
 scripted model twice: as the Agent should behave, where every check passes,
 and as it behaved when the failure was found, where the checks written
 against it must fail. So those checks are shown to catch what they are for:
-50 of the 57 so far; the rest (`noStall` among them) have no failing replay yet.
+53 of the 57 so far; the rest (`calls identify_peaks` among them) have no failing replay yet.
 
 Against a real model, `MATERIA_AGENT_EVAL=1 ANTHROPIC_API_KEY=… npm run
 eval:agent` runs every scenario and prints a pass count per scenario.
-`MATERIA_AGENT_EVAL_MODEL`, `_EFFORT`, `_TRANSPORT` (`ollama` or `lmstudio`,
-with `_SERVER`), `_ONLY` (scenario ids), `_REPEAT` (runs per scenario) and
-`_OUT` (a JSON report with the transcripts) adjust the run.
+`MATERIA_AGENT_EVAL_MODEL`, `_EFFORT`, `_TRANSPORT` (`ollama`, `lmstudio` or
+`openai-compatible`, with `_SERVER`), `_ONLY` (scenario ids), `_REPEAT` (runs
+per scenario) and `_OUT` (a JSON report with the transcripts) adjust the run;
+[AGENT_EVALS.md](AGENT_EVALS.md) has the rest, and the local tier.
 
 ## Planned
 

@@ -54,11 +54,19 @@ neutron TOF Rietveld fit and a GaTa₄Se₈ X-ray PDF fit.
 ## The Agent
 
 The **Agent** button opens a model beside the analysis: one you run yourself on
-Ollama or LM Studio, or a cloud model (Anthropic's, through an API key or the
-local proxy). It reads the live page, judges the fit with the same tools the MCP
-server exposes, and changes things through the page's own controls, each change
-an undoable History step. **Ask first** puts every change on an approval card;
-**Auto** works through the method's stages and stops when a decision is yours.
+Ollama or LM Studio, a cloud model (Anthropic's, through an API key or the
+local proxy), or any server that speaks OpenAI's API (OpenAI, Gemini, vLLM, a
+llama.cpp server). It reads the live page, judges the fit with the same tools
+the MCP server exposes, and changes things through the page's own controls,
+each change an undoable History step. **Ask first** puts every change on an
+approval card; **Auto** works through the method's stages and stops when a
+decision is yours.
+
+Local models are experimental. The app sizes every request to the model's
+window (old results shortened to a digest, a prompt that cannot fit refused,
+never sent cut), offers it only the tools of the method's stage, and stops it
+if it goes in circles; a model counts as supported once it passes the eval
+suite's [local tier](docs/AGENT_EVALS.md#the-local-tier).
 
 [![The Agent sets the fit range, refines PbSO₄ with the instrument's terms and the B values in turn, and writes its report](docs/media/agent-demo.png)](docs/media/agent-demo.mp4)
 
@@ -82,7 +90,7 @@ run (Claude Opus 5.5), replayed, and labelled so.*
   the Agent's own account labelled, any number in it the engine did not compute
   underlined. A Bayesian check (`sample_posterior`) when a number is not
   convincing.
-- **Tested on what it does.** 36 eval scenarios, each written against a failure
+- **Tested on what it does.** 37 eval scenarios, each written against a failure
   a user or a researcher round found, replay the real chat loop in CI with a
   scripted model, as the Agent should behave and as it failed (50 of the 57
   checks are shown to catch a failure this way); real models run on demand.

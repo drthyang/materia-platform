@@ -6,7 +6,7 @@
  * menu shows the tree from the same binding.
  */
 
-import type { ProjectHistory, StepKind } from "@/core/project/history";
+import { recordStep, type ProjectHistory, type StepInput, type StepKind } from "@/core/project/history";
 
 export interface HistoryBinding {
   readonly history: ProjectHistory | null;
@@ -23,4 +23,22 @@ export interface HistoryBinding {
   /** Present when there is a step to go back / forward to. */
   readonly back?: () => void;
   readonly forward?: () => void;
+}
+
+/**
+ * Record a step on the history as last set, not on the one a render
+ * captured. Two records in one tick — the Agent recording the user's unsaved
+ * edits as their step, then its change's own record before anything has
+ * rendered — then chain: the second sees the first, instead of rebuilding
+ * from the older history and turning the user's step into the Agent's.
+ * Every writer of the history goes through `latest`.
+ */
+export function recordOnLatest(latest: { current: ProjectHistory | null }, set: (h: ProjectHistory | null) => void, input: StepInput): ProjectHistory {
+  const base = latest.current;
+  const next = recordStep(base, input);
+  if (next !== base) {
+    latest.current = next;
+    set(next);
+  }
+  return next;
 }

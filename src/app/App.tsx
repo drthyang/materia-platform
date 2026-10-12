@@ -19,7 +19,7 @@ import { TECHNIQUE_LABEL, type PdfWorkspace, type ProjectFile, type SingleCrysta
 import { looksLikeProjectFile, parseProject, projectFileName, restoreHistoryStep, serializeProject } from "@/core/project/io";
 import { moveTo, recordStep, redoTarget, renameStep, undoTarget, type ProjectHistory, type Snapshot, type StepActor, type StepKind } from "@/core/project/history";
 import { clearAutosave, readAutosave, writeAutosave, type AutosaveEntry } from "@/app/autosave";
-import type { HistoryBinding } from "@/app/historyBinding";
+import { recordOnLatest, type HistoryBinding } from "@/app/historyBinding";
 import { defaultProjectTitle, projectFileFor, sessionFromPowderWorkspace, type PowderViewState } from "@/app/projectIo";
 import { downloadText } from "@/app/download";
 import type { MagneticModel } from "@/core/magnetic/types";
@@ -229,7 +229,15 @@ export function App(): JSX.Element {
   const [projectMeta, setProjectMeta] = useState<ProjectMeta | null>(null);
   const [restore, setRestore] = useState<ProjectRestore>(NO_RESTORE);
   // Step history (core/project/history.ts): a tree of snapshots of the session.
-  const [history, setHistory] = useState<ProjectHistory | null>(null);
+  const [history, setHistoryState] = useState<ProjectHistory | null>(null);
+  // The history as last set, read by every writer (recordOnLatest): two
+  // records in one tick chain instead of the second rebuilding from the
+  // render's older history.
+  const historyRef = useRef<ProjectHistory | null>(null);
+  const setHistory = useCallback((h: ProjectHistory | null): void => {
+    historyRef.current = h;
+    setHistoryState(h);
+  }, []);
   const [stepRequest, setStepRequest] = useState<StepRequest | null>(null);
   // The previous session found in browser storage, offered on the landing view.
   const [autosaveOffer, setAutosaveOffer] = useState<AutosaveEntry | null>(null);
@@ -301,10 +309,8 @@ export function App(): JSX.Element {
    */
   function recordNow(kind: StepKind, label?: string): ProjectHistory | null {
     const snap = liveSnapshot();
-    if (!snap) return history;
-    const next = recordStep(history, { ...snap, kind, ...(label ? { label } : {}), ...(stepActor.current ? { actor: stepActor.current } : {}) });
-    if (next !== history) setHistory(next);
-    return next;
+    if (!snap) return historyRef.current;
+    return recordOnLatest(historyRef, setHistory, { ...snap, kind, ...(label ? { label } : {}), ...(stepActor.current ? { actor: stepActor.current } : {}) });
   }
 
   /** Record a step once the state change that caused it has rendered. */
@@ -336,9 +342,9 @@ export function App(): JSX.Element {
         if (fresh) setHistory(null);
         return;
       }
-      setHistory((h) => recordStep(fresh ? null : h, { ...snap, kind, ...(label ? { label } : {}), ...(actor ? { actor } : {}) }));
+      setHistory(recordStep(fresh ? null : historyRef.current, { ...snap, kind, ...(label ? { label } : {}), ...(actor ? { actor } : {}) }));
     }, 0);
-  }, [stepRequest]);
+  }, [stepRequest, setHistory]);
 
   /** Go back (or forward) to a step: restored as opening its project would, history kept. */
   function goToStep(id: string): void {
@@ -371,7 +377,8 @@ export function App(): JSX.Element {
   }
 
   function onRenameStep(id: string, name: string): void {
-    setHistory((h) => (h ? renameStep(h, id, name) : h));
+    const h = historyRef.current;
+    if (h) setHistory(renameStep(h, id, name));
   }
 
   /** What every engine gets: the tree, and the calls that record and move through it. */

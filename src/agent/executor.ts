@@ -9,10 +9,10 @@
  */
 
 import { z } from "zod";
-import { PAGE_LABEL, liveTool, type LiveToolSpec, type ToolEffect } from "@/agent/tools";
+import { PAGE_LABEL, liveTool, type AgentPage, type LiveToolSpec, type ToolEffect } from "@/agent/tools";
 import type { AgentPort, LiveState, PdfLiveState, PowderLiveState, SingleCrystalLiveState } from "@/agent/port";
 import { changePowder, describePowderChange, diagnosisText, powderNoOp, powderReportChecks, readPowderTool, requireStructure, type DiagnosisView } from "@/agent/powderTools";
-import { changeMagnetic, describeMagneticChange, isMagneticTool, magneticNoOp, magneticOutcome, readMagneticTool } from "@/agent/magneticTools";
+import { changeMagnetic, describeMagneticChange, isMagneticTool, magneticNext, magneticNoOp, magneticOutcome, readMagneticTool } from "@/agent/magneticTools";
 import { changePdf, describePdfChange, pdfNoOp, pdfReportChecks, readPdfTool } from "@/agent/pdfTools";
 import { changeSingleCrystal, describeSingleCrystalChange, readSingleCrystalTool, singleCrystalNoOp, singleCrystalReportChecks } from "@/agent/scTools";
 import { samplePosteriorTool, type PosteriorRun } from "@/agent/posteriorTool";
@@ -66,18 +66,42 @@ export interface ToolOutcome {
   readonly text: string;
 }
 
+/**
+ * Where the analysis stands, as the chat loop reads it between tool calls:
+ * its loop guard compares fingerprints (did a call change anything?), and a
+ * local model's tool list follows the page and the method's stage.
+ */
+export interface AgentSituation {
+  readonly page: AgentPage;
+  /** The method's next required stage (its id), or null when every required one is done. */
+  readonly stage: string | null;
+  /** The stages done (ids). */
+  readonly stagesDone: readonly string[];
+  /** The magnetic step is under way: a magnetic model on the page, or the step's tools used in this conversation. */
+  readonly magnetic: boolean;
+  /** Changes whenever anything a tool can change changes: the parameters and their values, the fit, the settings, the History step, the method's record. */
+  readonly fingerprint: string;
+  /** One sentence for the user: the page, the stages done, the next, the last refinement. */
+  readonly summary: string;
+}
+
 /** What the chat calls: the executor, or a lazy stand-in for it. */
 export interface ToolRunner {
-  readonly run: (name: string, input: unknown) => Promise<ToolOutcome>;
+  /** Run one call; `signal` is the user's Stop: a call it reaches before acting is not run, and a running fit is cancelled. */
+  readonly run: (name: string, input: unknown, signal?: AbortSignal) => Promise<ToolOutcome>;
   /** A new conversation: the skills read in the last one must be read again. */
   readonly newConversation?: () => void;
   /** What the user said: a number they gave (a published refinement's, a reference value) may be quoted in the report. */
   readonly heard?: (text: string) => void;
+  /** Where the analysis stands now; null with nothing open. */
+  readonly situation?: () => Promise<AgentSituation | null> | AgentSituation | null;
+  /** The page open (null: nothing loaded, or not known yet). */
+  readonly page?: () => "powder" | "pdf" | "singleCrystal" | null;
 }
 
 export interface ExecutorOptions {
   /** Ask the user to approve a change. Resolves false when they decline. */
-  readonly approve: (entry: ActivityEntry) => Promise<boolean>;
+  readonly approve: (entry: ActivityEntry, signal?: AbortSignal) => Promise<boolean>;
   /** Every status change of every call, for the drawer. */
   readonly onActivity: (entry: ActivityEntry) => void;
   /** Largest answer, in characters of compact JSON (default 8000, as the MCP server). */
@@ -135,6 +159,49 @@ export class AgentExecutor implements ToolRunner {
   newConversation(): void {
     this.skillsRead.clear();
     this.userText = [];
+    this.magneticUsed = false;
+  }
+
+  /** The magnetic step's tools ran in this conversation (its panel then counts in the fingerprint). */
+  private magneticUsed = false;
+
+  /** The page open. */
+  page(): "powder" | "pdf" | "singleCrystal" | null {
+    return this.host.port()?.technique ?? null;
+  }
+
+  /** Where the analysis stands (the chat's loop guard and a local model's tool list read it). */
+  situation(): AgentSituation | null {
+    const port = this.host.port();
+    if (!port) return null;
+    const s = port.state();
+    const record = this.syncStages(port);
+    const progress = methodProgress(port.technique, record);
+    const next = progress.stages.find((st) => !st.done && !st.optional) ?? null;
+    const powder = port.technique === "powder" ? (s as PowderLiveState) : null;
+    const panel = powder && this.magneticUsed ? (port as Extract<AgentPort, { technique: "powder" }>).magnetic?.()?.state() ?? null : null;
+    const sig = (v: number): number => (Number.isFinite(v) ? Number(v.toPrecision(6)) : v);
+    const fingerprint = hashText(JSON.stringify({
+      step: this.currentStep()?.id ?? null,
+      busy: s.busy,
+      parameters: s.parameters.map((p) => [p.id, p.fixed ? 0 : 1, p.expression ?? "", sig(p.value)]),
+      result: s.result ? [s.result.status, s.result.history.length, Object.keys(s.result.esd).sort()] : null,
+      fitRange: "fitRange" in s ? s.fitRange : null,
+      settings: "settings" in s ? s.settings : null,
+      magnetic: powder ? powder.magnetic !== null : null,
+      panel: panel ? [panel.k, panel.ions.filter((i) => i.selected).map((i) => i.label), panel.ties, panel.selected?.id ?? null, panel.kSearch?.length ?? null, panel.candidates.filter((c) => c.fit !== undefined).length] : null,
+      record: [record.stagesDone, record.exceptions.map((e) => e.rule), !!record.rangeCheck, !!record.cellCheck, !!record.dataCheck, !!record.symmetryReviewed],
+    }));
+    const done = progress.stages.filter((st) => st.done).map((st) => st.label);
+    const fit = s.result ? `the last refinement ${s.result.status}` : "no refinement on screen yet";
+    return {
+      page: port.technique,
+      stage: next?.id ?? null,
+      stagesDone: record.stagesDone,
+      magnetic: this.magneticUsed || (powder !== null && powder.magnetic !== null),
+      fingerprint,
+      summary: `the ${PAGE_LABEL[port.technique]} page; done: ${done.length ? done.join(", ") : "nothing yet"}; next: ${next?.label ?? "every required stage is done"}; ${fit}.`,
+    };
   }
 
   /** The user's messages in this conversation: their numbers are theirs to quote, not the Agent's own. */
@@ -145,16 +212,19 @@ export class AgentExecutor implements ToolRunner {
   }
 
   /** Run one call. Never throws: failures come back as an error outcome the model can read. */
-  run(name: string, input: unknown): Promise<ToolOutcome> {
+  run(name: string, input: unknown, signal?: AbortSignal): Promise<ToolOutcome> {
     const spec = liveTool(name);
     if (!spec) return Promise.resolve(error(`no tool named ${name}`));
-    if (spec.effect !== "change") return this.execute(spec, input);
-    const run = this.changes.then(() => this.execute(spec, input));
+    if (spec.effect !== "change") return this.execute(spec, input, signal);
+    // A change queued behind another still checks the Stop when its turn comes.
+    const run = this.changes.then(() => this.execute(spec, input, signal));
     this.changes = run.catch(() => undefined);
     return run;
   }
 
-  private async execute(spec: LiveToolSpec, raw: unknown): Promise<ToolOutcome> {
+  private async execute(spec: LiveToolSpec, raw: unknown, signal?: AbortSignal): Promise<ToolOutcome> {
+    if (signal?.aborted) return error(STOPPED);
+    if (isMagneticTool(spec.name)) this.magneticUsed = true;
     let entry: ActivityEntry = { id: `c${nextCallId++}`, tool: spec.name, title: spec.title, effect: spec.effect, at: Date.now(), status: "running", ...(spec.alwaysAsk ? { alwaysAsk: true } : {}) };
     const update = (patch: Partial<ActivityEntry>): void => {
       entry = { ...entry, ...patch };
@@ -297,14 +367,30 @@ export class AgentExecutor implements ToolRunner {
           : check.strongest ? ` · strongest correlation ${pairText(check.strongest)}` : " · no correlation above 0.5";
       }
       update({ status: "waiting", preview });
-      if (!(await this.opts.approve(entry))) {
-        update({ status: "declined", outcome: "Declined" });
+      if (!(await this.opts.approve(entry, signal))) {
+        update({ status: "declined", outcome: signal?.aborted ? "Stopped" : "Declined" });
+        if (signal?.aborted) return error(STOPPED);
         return this.respond({ declined: true, note: "The user declined this change. Ask what they would prefer, or propose something else." });
+      }
+      // The card may have waited a long time: Stop, a running fit, or a page that changed since it was checked all hold the change back.
+      if (signal?.aborted) {
+        update({ status: "declined", outcome: "Stopped" });
+        return error(STOPPED);
+      }
+      // The page as it is now (a port is a render's view: ask the host again).
+      const now = this.requirePort().state();
+      if (now.busy || stateStamp(now) !== stateStamp(before)) {
+        const why = now.busy ? "a refinement is running" : "the analysis changed while it waited for approval";
+        update({ status: "failed", outcome: `Not run: ${why}` });
+        return error(`not run: ${why}, so what was checked and approved no longer describes it. Read the state again (get_state) and propose the change again if it still applies.`);
       }
       update({ status: "running" });
       // The user's own unsaved edits become their step first, so the agent's
       // step holds only what the agent changed.
       this.host.recordNow("edit");
+      // Stop cancels a fit this change started.
+      const cancel = (): void => this.host.port()?.cancel();
+      signal?.addEventListener("abort", cancel);
       const changed = await this.host.asAgent(async () => {
         const n = port.technique === "pdf" ? await changePdf(spec.name, input, port, this.host)
           : port.technique === "singleCrystal" ? await changeSingleCrystal(spec.name, input, port, this.host)
@@ -317,7 +403,7 @@ export class AgentExecutor implements ToolRunner {
           await this.host.settle();
         }
         return n;
-      });
+      }).finally(() => signal?.removeEventListener("abort", cancel));
       const note = typeof changed === "object" ? changed.note : changed;
       const after = this.requirePort().state();
       // Where the fit started, once per analysis: the report gives it before the steps.
@@ -423,7 +509,9 @@ export class AgentExecutor implements ToolRunner {
     const s = port.state();
     const key = keyOfState(port.technique, s);
     if (s.result?.status === "converged") {
-      const covered = stagesCovered(port.technique, s.parameters.filter((p) => !p.fixed && !p.expression), s.parameters);
+      // What the fit on screen refined (its esds), not what is free now: a parameter freed since has not been refined.
+      const refined = new Set(Object.keys(s.result.esd));
+      const covered = stagesCovered(port.technique, s.parameters.filter((p) => refined.has(p.id)), s.parameters);
       this.host.updateRecord(key, (r) => (covered.every((c) => r.stagesDone.includes(c)) ? r : { ...r, stagesDone: [...new Set([...r.stagesDone, ...covered])] }));
     }
     return this.host.record(key);
@@ -460,10 +548,15 @@ export class AgentExecutor implements ToolRunner {
   private methodView(port: AgentPort): Record<string, unknown> {
     const record = this.syncStages(port);
     const progress = methodProgress(port.technique, record);
+    // Where the magnetic step has something to work on, its own next step leads (as get_state's magneticStep): the stages are the refinement step's.
+    const panel = port.technique === "powder" ? port.magnetic?.()?.state() ?? null : null;
+    const magnetic = panel !== null && (panel.peaks.some((p) => p.included) || panel.kSearch !== null || panel.selected !== null);
     return {
-      skill: progress.skill,
+      skill: magnetic ? "magnetic-analysis" : progress.skill,
       stages: progress.stages.map((st) => `${st.done ? "✓" : "○"} ${st.label}${st.optional ? " (if needed)" : ""}`),
-      next: progress.next ?? `every required stage done: check the acceptance bar${port.technique === "powder" ? "; only if the fit is still not good, review_symmetry" : ""}`,
+      next: magnetic
+        ? `the magnetic step: ${magneticNext(panel)} (the stages above are the refinement step's)`
+        : progress.next ?? `every required stage done: check the acceptance bar${port.technique === "powder" ? "; only if the fit is still not good, review_symmetry" : ""}`,
       ...(record.rangeCheck ? { rangeCheck: record.rangeCheck.summary } : {}),
       ...(record.cellCheck ? { cellCheck: record.cellCheck.summary } : {}),
       ...(record.symmetryReviewed ? { symmetryReview: record.symmetryReviewed.summary } : {}),
@@ -725,4 +818,31 @@ function outcomeLine(name: string, before: LiveState, after: LiveState, note: st
 
 function pct(f: number): number {
   return Math.round(f * 10000) / 100;
+}
+
+/** A short, stable hash of a string (FNV-1a, 32 bits, as hex): the situation's fingerprint. */
+export function hashText(text: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16).padStart(8, "0");
+}
+
+/** What a stopped call answers. */
+const STOPPED = "Stopped by the user before this ran.";
+
+/**
+ * What a change was checked against: the parameters (free, tied, values),
+ * the fit window and the settings. A change approved after any of them moved
+ * is not run (the approval card described another state).
+ */
+export function stateStamp(s: LiveState): string {
+  const sig = (v: number): number => (Number.isFinite(v) ? Number(v.toPrecision(6)) : v);
+  return hashText(JSON.stringify({
+    parameters: s.parameters.map((p) => [p.id, p.fixed ? 0 : 1, p.expression ?? "", sig(p.value)]),
+    fitRange: "fitRange" in s ? s.fitRange : null,
+    settings: "settings" in s ? s.settings : null,
+  }));
 }

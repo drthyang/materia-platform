@@ -9,7 +9,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-export const DATA_DIR = resolve(process.cwd(), "data");
+/** The data folder: `data/` in the checkout, or MATERIA_DATA_DIR (a worktree reads its main checkout's). */
+export const DATA_DIR = process.env.MATERIA_DATA_DIR ? resolve(process.env.MATERIA_DATA_DIR) : resolve(process.cwd(), "data");
 
 /**
  * Datasets whose local folder name varies between checkouts. Tests, README and

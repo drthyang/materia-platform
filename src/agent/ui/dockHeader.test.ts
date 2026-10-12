@@ -13,6 +13,17 @@ describe("the Agent dock's header", () => {
     expect(connectionStatus({ ...base, mode: "lmstudio", lmstudioModel: "qwen3-32b" }, "")).toMatchObject({ text: "LM Studio", ok: true });
   });
 
+  it("covers an OpenAI-compatible server: a missing key, the preset's name, where the conversation goes", () => {
+    const openai = { ...base, mode: "openai-compatible" as const, openaiUrl: "https://api.openai.com/v1", openaiModel: "gpt-5" };
+    expect(connectionStatus(openai, "", "")).toMatchObject({ text: "OpenAI · no key", ok: false });
+    const cloud = connectionStatus(openai, "", "sk-x");
+    expect(cloud).toMatchObject({ text: "OpenAI", ok: true });
+    expect(cloud.title).toContain("Sent to OpenAI");
+    const llama = connectionStatus({ ...openai, openaiUrl: "http://localhost:8080/v1", openaiModel: "qwen3" }, "", "");
+    expect(llama.ok).toBe(true);
+    expect(llama.title).toContain("nothing leaves it");
+  });
+
   it("keeps a local model's privacy note and a cloud model's billing note in the tooltip", () => {
     expect(connectionStatus({ ...base, mode: "ollama", ollamaModel: "qwen3:8b" }, "").title).toContain("nothing leaves it");
     expect(connectionStatus({ ...base, mode: "api-key" }, "sk-ant-x").title).toContain("billed to your key");
