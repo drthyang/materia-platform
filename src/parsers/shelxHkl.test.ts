@@ -63,6 +63,29 @@ describe("parseShelxHkl (HKLF 4)", () => {
   });
 });
 
+describe("parseShelxHkl refuses HKLF 5", () => {
+  // HKLF 5: columns 29–32 hold the twin component; a negative one marks a
+  // reflection that overlaps the next row. Read as HKLF 4 they became batches.
+  const hklf5 = [
+    "   1   0   0  100.00    2.00  -2",
+    "   1   0   0  100.00    2.00   1",
+    "   0   1   1   50.00    1.50   1",
+    "   0   0   0    0.00    0.00   0",
+  ].join("\n");
+
+  it("says a file with twin components is HKLF 5, not batches", () => {
+    expect(() => parseShelxHkl(hklf5)).toThrow(/HKLF 5/);
+    expect(() => parseShelxHkl(hklf5)).toThrow(/twin component/);
+  });
+
+  it("refuses any file the structure says is not HKLF 4, and reads HKLF 4 batches as before", () => {
+    const batches = "   1   0   0  100.00    2.00   1\n   0   1   1   50.00    1.50   2\n";
+    expect(() => parseShelxHkl(batches, { hklf: 5 })).toThrow(/HKLF 5/);
+    expect(parseShelxHkl(batches, { hklf: 4 }).hasBatches).toBe(true);
+    expect(parseShelxHkl(batches).reflections).toHaveLength(2);
+  });
+});
+
 describe("parseFcf", () => {
   it("reads an F² CIF reflection loop honoring the header column order", () => {
     const text = [

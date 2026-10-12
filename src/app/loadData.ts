@@ -120,6 +120,8 @@ export interface LoadReflectionOptions {
   readonly role?: "nuclear" | "magnetic";
   /** The X-ray wavelength the structure file gives (a SHELX .ins's CELL), for a reflection file that names no radiation. */
   readonly wavelength?: number;
+  /** The HKLF code the structure file gives (a SHELX .ins's HKLF): anything but 4 is refused. */
+  readonly hklf?: number;
 }
 
 /** True when the text looks like a GSAS-II reflection list (has Fo**2 / header). */
@@ -227,7 +229,7 @@ export function loadReflectionDataset(
   // distinguishes it from a plain list, so it goes by extension.
   const shelx: { parse: ShelxHklParse; format: "shelx" | "fcf" } | null =
     isCifReflectionLoop(text) ? { parse: parseFcf(text, { skipForwardBeam }), format: "fcf" }
-    : extensionOf(name) === "hkl" ? { parse: parseShelxHkl(text, { skipForwardBeam }), format: "shelx" }
+    : extensionOf(name) === "hkl" ? { parse: parseShelxHkl(text, { skipForwardBeam, ...(opts.hklf !== undefined ? { hklf: opts.hklf } : {}) }), format: "shelx" }
     : null;
   // A file that names no radiation takes the structure file's (a SHELX .ins's CELL is X-ray at its λ), else neutron at 1.54 Å.
   const unnamed: Radiation = opts.wavelength !== undefined ? { kind: "xray", wavelength: opts.wavelength, polarization: 0.5 } : { kind: "neutron", wavelength: 1.54 };
