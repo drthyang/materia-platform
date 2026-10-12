@@ -25,6 +25,8 @@ const FCF = "GSAS-II-tutorials/sc/3a.fcf";
 const FREE = new Set(["scale", "twinFraction", "positionShift", "uAniso", "ridingTorsion", "bIso"]);
 
 describe.skipIf(!dataExists(INS) || !dataExists(FCF))("3a, refined as SHELXL refined it", () => {
+  // The data is gitignored and CI has none: return before reading it, or collection fails.
+  if (!dataExists(INS) || !dataExists(FCF)) return;
   const { structure: loaded, instructions } = parseShelxIns(readFileSync(dataPath(INS), "utf8"), "3a");
   const fcf = readFileSync(dataPath(FCF), "utf8");
   const ride = (s: StructureModel): StructureModel => ({ ...s, riding: ridingRules(s, { temperature: 293, sharedU: [["methyl"]] }).rules });

@@ -82,6 +82,8 @@ describe("SHELX instruction files", () => {
 const INS_3A = "GSAS-II-tutorials/sc/3a.ins";
 
 describe.skipIf(!dataExists(INS_3A))("3a.ins: Cs(C5Me5)·py in P6₁, a merohedral twin", () => {
+  // The data is gitignored and CI has none: return before reading it, or collection fails.
+  if (!dataExists(INS_3A)) return;
   const { structure, instructions } = parseShelxIns(readFileSync(dataPath(INS_3A), "utf8"), "3a");
 
   it("reads the group from its SYMM lines, the atoms in SFAC's elements, and the hydrogens' U", () => {

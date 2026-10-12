@@ -24,6 +24,8 @@ const LAW: Mat3 = [[0, 1, 0], [1, 0, 0], [0, 0, -1]];
 const FREE = new Set(["scale", "twinFraction", "positionShift", "uAniso", "ridingTorsion"]);
 
 describe.skipIf(!dataExists(INS) || !dataExists(HKL))("2b, a near-perfect merohedral twin, refined as SHELXL refined it", () => {
+  // The data is gitignored and CI has none: return before reading it, or collection fails.
+  if (!dataExists(INS) || !dataExists(HKL)) return;
   const { structure: loaded, instructions } = parseShelxIns(readFileSync(dataPath(INS), "utf8"), "2b");
   const measured = loadReflectionDataset(readFileSync(dataPath(HKL), "utf8"), loaded, "2b-hkl", "2b.hkl", { wavelength: instructions.wavelength }).dataset;
   const merged = mergedDataset(measured, loaded.spaceGroup.operations);

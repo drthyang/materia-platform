@@ -17,6 +17,8 @@ import { singleCrystalValidation } from "@/core/diagnostics/singleCrystalValidat
 const CIF = "GSAS-II-tutorials/sc/1b.cif";
 
 describe.skipIf(!dataExists(CIF))("1b, from the CIF's own measurement", () => {
+  // The data is gitignored and CI has none: return before reading it, or collection fails.
+  if (!dataExists(CIF)) return;
   const text = readFileSync(dataPath(CIF), "utf8");
   const structure = parseCif(text, "1b");
   const loaded = loadReflectionDataset(text, structure, "1b-hkl", "1b.cif");
@@ -70,6 +72,8 @@ describe.skipIf(!dataExists(CIF))("1b, from the CIF's own measurement", () => {
 });
 
 describe.skipIf(!dataExists(CIF))("1b refined as SHELXL refined it", () => {
+  // The data is gitignored and CI has none: return before reading it, or collection fails.
+  if (!dataExists(CIF)) return;
   it("reproduces SHELXL's fit from its own model: 142 parameters, 8 restraints, the inversion twin's Flack x", async () => {
     const { INVERSION_TWIN } = await import("@/core/diffraction/types");
     const { ridingRules } = await import("@/core/crystal/riding");
