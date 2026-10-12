@@ -172,16 +172,25 @@ export function parseShelxIns(text: string, id = "shelx"): ShelxModel {
   const atomLines: { tokens: string[]; afix: number; part: number }[] = [];
   let afix = 0;
   let part = 0;
+  // Between FRAG and FEND: a rigid fragment's model geometry for AFIX n6/n9, in its own cell. Not atoms of the structure.
+  let inFrag = false;
 
   for (const line of lines) {
     const tokens = line.split(/\s+/);
     const keyword = tokens[0]!.toUpperCase();
     const nums = (from = 1): number[] => tokens.slice(from).map(Number).filter((n) => Number.isFinite(n));
     if (!KEYWORDS.has(keyword.slice(0, 4)) || (keyword.length > 4 && keyword !== "L.S.")) {
-      if (tokens.length >= 5 && /^\d+$/.test(tokens[1]!)) atomLines.push({ tokens, afix, part });
+      if (!inFrag && tokens.length >= 5 && /^\d+$/.test(tokens[1]!)) atomLines.push({ tokens, afix, part });
       continue;
     }
     switch (keyword.slice(0, 4)) {
+      case "FRAG":
+        inFrag = true;
+        notCarried.add("FRAG");
+        break;
+      case "FEND":
+        inFrag = false;
+        break;
       case "TITL":
         title = line.slice(4).trim();
         break;

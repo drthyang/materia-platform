@@ -78,6 +78,15 @@ describe("SHELX instruction files", () => {
     expect(instructions.twin).toBeUndefined();
   });
 
+  it("skips a FRAG block's atoms: a rigid fragment's model geometry, not sites", () => {
+    const withFrag = INS.replace("HKLF 4", "FRAG 17 1 1 1 90 90 90\nC1 1 1.2 0.0 0.0\nC2 1 0.6 1.04 0.0\nC3 1 -0.6 1.04 0.0\nFEND\nHKLF 4");
+    const { structure, instructions } = parseShelxIns(withFrag, "x");
+    const plain = parseShelxIns(INS, "x").structure;
+    expect(structure.sites.map((s) => s.label)).toEqual(plain.sites.map((s) => s.label));
+    expect(structure.sites.find((s) => s.label === "C1")!.position).toEqual(plain.sites.find((s) => s.label === "C1")!.position);
+    expect(instructions.notCarried).toContain("FRAG");
+  });
+
   it("warns when the instructions refine against anything but HKLF 4", () => {
     expect(shelxNotes(parseShelxIns(INS, "x").instructions).some((n) => /HKLF/.test(n))).toBe(false);
     const notes = shelxNotes(parseShelxIns(INS.replace("HKLF 4", "HKLF 5"), "x").instructions);
