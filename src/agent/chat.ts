@@ -56,7 +56,9 @@ export interface ChatConfig {
   readonly serverUrl?: string;
   /**
    * OpenAI-compatible: the context to size requests to when the server does
-   * not say how long a prompt it takes, in tokens (default 32k).
+   * not say how long a prompt it takes, in tokens (default 32k). Ollama: the
+   * context to load a model with that is not loaded (default 32k; a loaded
+   * model keeps its own, so another program using it is never reloaded).
    */
   readonly context?: number;
   readonly model: string;
@@ -166,7 +168,7 @@ export class AgentChat {
       // native API): the one the model is loaded with when it holds the Agent
       // (no reload), else the Agent's own, never past the model's maximum.
       const w = await ollamaWindow(config.serverUrl ?? "", config.model, signal);
-      const want = Math.max(w.loaded ?? 0, MIN_AGENT_CONTEXT);
+      const want = Math.max(w.loaded ?? config.context ?? 0, MIN_AGENT_CONTEXT);
       this.maxWindow = w.max;
       this.window = w.max !== null ? Math.min(want, w.max) : want;
     }

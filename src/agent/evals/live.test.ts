@@ -13,7 +13,9 @@ import type { ChatEffort, ChatTransport } from "@/agent/chat";
  *   MATERIA_AGENT_EVAL=1 ANTHROPIC_API_KEY=… npm run eval:agent
  *
  * MATERIA_AGENT_EVAL_MODEL (default claude-opus-5-5), _EFFORT (default high),
- * _TRANSPORT (api-key, ollama or lmstudio; a local server at _SERVER),
+ * _TRANSPORT (api-key, ollama, lmstudio or openai-compatible; a server at
+ * _SERVER, the last with its key in _API_KEY), _CONTEXT (the context for a
+ * server that does not say its own, or for Ollama to load a model with),
  * _ONLY (scenario ids, comma-separated), _REPEAT (runs per scenario, default
  * 1), _TIMEOUT_MIN (minutes per run, default 20) and _OUT (a JSON report)
  * adjust it. Each scenario's checks are soft assertions: the run reports every
@@ -40,7 +42,9 @@ const model: EvalModel = {
   model: env.MATERIA_AGENT_EVAL_MODEL ?? "claude-opus-5-5",
   effort: (env.MATERIA_AGENT_EVAL_EFFORT ?? "high") as ChatEffort,
   ...(transport === "api-key" && env.ANTHROPIC_API_KEY ? { apiKey: env.ANTHROPIC_API_KEY } : {}),
+  ...(transport === "openai-compatible" && env.MATERIA_AGENT_EVAL_API_KEY ? { apiKey: env.MATERIA_AGENT_EVAL_API_KEY } : {}),
   ...(env.MATERIA_AGENT_EVAL_SERVER ? { serverUrl: env.MATERIA_AGENT_EVAL_SERVER } : {}),
+  ...(env.MATERIA_AGENT_EVAL_CONTEXT ? { context: Number(env.MATERIA_AGENT_EVAL_CONTEXT) } : {}),
 };
 const only = env.MATERIA_AGENT_EVAL_ONLY?.split(",").map((s) => s.trim()).filter(Boolean);
 const repeat = Math.max(1, Number(env.MATERIA_AGENT_EVAL_REPEAT ?? 1) || 1);
