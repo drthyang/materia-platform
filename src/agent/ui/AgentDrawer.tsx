@@ -9,7 +9,7 @@ import { color, fz, mono, radius } from "@/app/theme";
 import { tableRows } from "@/agent/ui/markdownTable";
 import type { ActivityEntry } from "@/agent/executor";
 import type { MethodProgress } from "@/agent/method";
-import { AGENT_MODES, replayLabel, type AgentController, type AgentMode, type AgentSettings, type TranscriptItem } from "@/agent/useAgent";
+import { replayLabel, type AgentController, type AgentMode, type AgentSettings, type TranscriptItem } from "@/agent/useAgent";
 import { CHAT_MODELS, hasRefusalFallback } from "@/agent/chat-models";
 import { listOllamaModels, unreachableHint, type OllamaModel } from "@/agent/ollama";
 import { listLmStudioModels, lmstudioUnreachableHint, type LmStudioModel } from "@/agent/lmstudio";
@@ -27,7 +27,24 @@ interface Props {
 
 const MODE_LABEL: Record<AgentMode, string> = { "api-key": "API key", proxy: "Local proxy", ollama: "Ollama", lmstudio: "LM Studio", "openai-compatible": "OpenAI-compatible" };
 
-/** The model a local mode will use ("" with none picked); null for the Claude modes. */
+/**
+ * The providers the settings offer, local ones first. A provider owns one or
+ * more connection modes; a new provider (an OpenAI-compatible server) is one
+ * more entry here and its own settings block below.
+ */
+type Provider = "ollama" | "lmstudio" | "anthropic";
+const PROVIDERS: readonly { readonly id: Provider; readonly label: string; readonly modes: readonly AgentMode[] }[] = [
+  { id: "ollama", label: "Ollama", modes: ["ollama"] },
+  { id: "lmstudio", label: "LM Studio", modes: ["lmstudio"] },
+  { id: "anthropic", label: "Anthropic", modes: ["api-key", "proxy"] },
+];
+const providerOf = (mode: AgentMode): Provider => PROVIDERS.find((p) => p.modes.includes(mode))?.id ?? "anthropic";
+
+/** The one-line privacy note under each provider. */
+const LOCAL_NOTE = "Runs on this machine; nothing leaves it.";
+const cloudNote = (provider: string): string => `Sent to ${provider} and billed to your key; not saved in projects or reports.`;
+
+/** The model a local mode will use ("" with none picked); null for the cloud modes. */
 function localModel(s: AgentSettings): string | null {
   return s.mode === "ollama" ? s.ollamaModel : s.mode === "lmstudio" ? s.lmstudioModel : null;
 }
@@ -197,42 +214,50 @@ function StatusChip({ agent }: { agent: AgentController }): JSX.Element {
 
 function Settings({ agent }: { agent: AgentController }): JSX.Element {
   const { settings, updateSettings } = agent;
+  const provider = providerOf(settings.mode);
+  const cloud = settings.mode === "api-key" || settings.mode === "proxy";
   return (
     <div style={settingsBox}>
-      <div style={{ display: "flex", gap: 0, border: `1px solid ${color.control}`, borderRadius: radius.button, overflow: "hidden" }} role="radiogroup" aria-label="How the Agent reaches a model">
-        {AGENT_MODES.map((m) => (
+      <div style={segmented} role="radiogroup" aria-label="Model provider">
+        {PROVIDERS.map((p) => (
           <button
-            key={m}
+            key={p.id}
             role="radio"
-            aria-checked={settings.mode === m}
-            onClick={() => updateSettings({ mode: m })}
-            style={{ flex: 1, border: "none", padding: "6px 4px", fontSize: 12.5, cursor: "pointer", background: settings.mode === m ? color.primaryTintBg : color.surface, color: settings.mode === m ? color.primary : color.ink, fontWeight: settings.mode === m ? 600 : 500 }}
+            aria-checked={provider === p.id}
+            onClick={() => provider !== p.id && updateSettings({ mode: p.modes[0]! })}
+            style={segment(provider === p.id)}
           >
-            {MODE_LABEL[m]}
+            {p.label}
           </button>
         ))}
       </div>
-      {settings.mode === "api-key" && (
+      {provider === "anthropic" && (
         <>
-          <label style={field}>
-            <span style={fieldLabel}>Anthropic API key</span>
-            <input style={input} type="password" autoComplete="off" placeholder="sk-ant-…" value={agent.apiKey} onChange={(e) => agent.setApiKey(e.target.value.trim())} spellCheck={false} />
-          </label>
-          <label style={{ ...field, flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <input type="checkbox" checked={settings.rememberKey} onChange={(e) => updateSettings({ rememberKey: e.target.checked })} />
-            <span style={{ fontSize: 12.5 }}>Remember on this device</span>
-          </label>
-          <p style={note}>Sent only from this browser to api.anthropic.com, and billed to the key. Kept for this tab unless you tick Remember; never saved in a project or report.</p>
+          <div style={segmented} role="radiogroup" aria-label="How to reach Anthropic">
+            {(["api-key", "proxy"] as const).map((m) => (
+              <button key={m} role="radio" aria-checked={settings.mode === m} onClick={() => updateSettings({ mode: m })} style={segment(settings.mode === m)}>
+                {MODE_LABEL[m]}
+              </button>
+            ))}
+          </div>
+          {settings.mode === "api-key" && (
+            <>
+              <label style={field}>
+                <span style={fieldLabel}>Anthropic API key</span>
+                <input style={input} type="password" autoComplete="off" placeholder="sk-ant-…" value={agent.apiKey} onChange={(e) => agent.setApiKey(e.target.value.trim())} spellCheck={false} />
+              </label>
+              <label style={{ ...field, flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <input type="checkbox" checked={settings.rememberKey} onChange={(e) => updateSettings({ rememberKey: e.target.checked })} />
+                <span style={{ fontSize: 12.5 }}>Remember on this device</span>
+              </label>
+            </>
+          )}
+          <p style={note}>{cloudNote("Anthropic")}</p>
         </>
-      )}
-      {settings.mode === "proxy" && (
-        <p style={note}>
-          The dev server forwards to the API with <code style={code}>ANTHROPIC_API_KEY</code> from where you ran <code style={code}>npm run dev</code> (or <code style={code}>.env.local</code>), so the key never reaches this page. Local only: the published site has no proxy.
-        </p>
       )}
       {settings.mode === "ollama" && <OllamaSettings agent={agent} />}
       {settings.mode === "lmstudio" && <LmStudioSettings agent={agent} />}
-      {(settings.mode === "api-key" || settings.mode === "proxy") && (
+      {cloud && (
         <div style={{ display: "flex", gap: 8 }}>
           <label style={{ ...field, flex: 1 }}>
             <span style={fieldLabel}>Model</span>
@@ -248,13 +273,42 @@ function Settings({ agent }: { agent: AgentController }): JSX.Element {
           </label>
         </div>
       )}
-      {(settings.mode === "api-key" || settings.mode === "proxy") && hasRefusalFallback(settings.model) && (
+      {cloud && hasRefusalFallback(settings.model) && (
         <label style={{ ...field, flexDirection: "row", alignItems: "center", gap: 6 }} title="Off: every turn stays on the chosen model, so a session can be reproduced. On: if the model declines a turn, the API answers it with another model, and the conversation says which.">
           <input type="checkbox" checked={settings.fallback} onChange={(e) => updateSettings({ fallback: e.target.checked })} />
           <span style={{ fontSize: 12.5 }}>Fall back to another model if this one declines</span>
         </label>
       )}
+      <HowToConnect mode={settings.mode} />
     </div>
+  );
+}
+
+/** The longer how-to for the chosen connection, folded away. */
+function HowToConnect({ mode }: { mode: AgentMode }): JSX.Element {
+  return (
+    <details style={{ ...note, margin: 0 }}>
+      <summary style={{ cursor: "pointer" }}>? How to connect a model</summary>
+      <div style={{ marginTop: 4, display: "flex", flexDirection: "column", gap: 4 }}>
+        {mode === "api-key" && <span>The key goes only from this browser to api.anthropic.com. It is kept for this tab unless you tick Remember.</span>}
+        {mode === "proxy" && (
+          <span>
+            The dev server forwards to the API with <code style={code}>ANTHROPIC_API_KEY</code> from where you ran <code style={code}>npm run dev</code> (or <code style={code}>.env.local</code>), so the key never reaches this page. Local only: the published site has no proxy.
+          </span>
+        )}
+        {mode === "ollama" && (
+          <span>
+            Pull a model that can call tools (e.g. <code style={code}>ollama pull qwen3</code>). A page not served from this machine also needs <code style={code}>OLLAMA_ORIGINS</code> set to its address where Ollama runs.
+          </span>
+        )}
+        {mode === "lmstudio" && (
+          <span>
+            Needs LM Studio 0.4.1 or later with its server running and <b>Enable CORS</b> on (Developer tab → server settings, or <code style={code}>lms server start --cors</code>).
+          </span>
+        )}
+        {(mode === "ollama" || mode === "lmstudio") && <span>A smaller model follows a long method less reliably than a large one: keep Ask first on until it has shown it follows yours.</span>}
+      </div>
+    </details>
   );
 }
 
@@ -333,9 +387,7 @@ function OllamaSettings({ agent }: { agent: AgentController }): JSX.Element {
       {picked?.context != null && picked.context < MIN_AGENT_CONTEXT && (
         <p style={{ ...note, color: color.noteInk }}>This model takes {kTokens(picked.context)} tokens of context; the Agent's instructions alone are about 15k. Expect it to lose track in a long session.</p>
       )}
-      <p style={note}>
-        The conversation goes only to this server. A smaller model follows a long method less reliably than a large one: keep Ask first on until it has shown it follows yours. A page not served from this machine (the published site) also needs <code style={code}>OLLAMA_ORIGINS</code> set to its address where Ollama runs.
-      </p>
+      <p style={note}>{LOCAL_NOTE}</p>
     </>
   );
 }
@@ -383,9 +435,7 @@ function LmStudioSettings({ agent }: { agent: AgentController }): JSX.Element {
       {picked && picked.loadedContext == null && (
         <p style={note}>Not loaded yet: the Agent loads it with a 32k context on your first message.</p>
       )}
-      <p style={note}>
-        The conversation goes only to this server. Needs LM Studio 0.4.1 or later with its server running and <b>Enable CORS</b> on (Developer tab → server settings, or <code style={code}>lms server start --cors</code>). A smaller model follows a long method less reliably than a large one: keep Ask first on until it has shown it follows yours.
-      </p>
+      <p style={note}>{LOCAL_NOTE}</p>
     </>
   );
 }
@@ -453,32 +503,19 @@ const EXAMPLES: Readonly<Record<string, readonly string[]>> = {
   ],
 };
 
-/** What the Agent can do on the open page, by its method. */
-const CAN_DO: Record<string, string> = {
-  "my-rietveld-workflow": "the fit range, the cell check, the refinement stage by stage, why a fit is poor, which phase an extra peak is, a magnetic structure",
-  "pdf-workflow": "the r window, the refinement stage by stage, local against average structure in boxcar scans",
-  "sc-workflow": "the data's merging, completeness and absences, extinction, the refinement stage by stage, the outliers, the ADPs",
-};
-const DEFAULT_CAN_DO = "the refinement stage by stage, why a fit is poor";
 const DEFAULT_EXAMPLES = ["Assess the fit and suggest what to free next.", "Refine this from the start and report the result."];
 
-function EmptyState({ settings, page }: { settings: AgentSettings; page: string | null }): JSX.Element {
-  const examples = (page && EXAMPLES[page]) || DEFAULT_EXAMPLES;
+export function EmptyState({ settings, page }: { settings: AgentSettings; page: string | null }): JSX.Element {
+  const examples = ((page && EXAMPLES[page]) || DEFAULT_EXAMPLES).slice(0, 3);
   return (
     <div style={{ color: color.secondary, fontSize: fz.small, lineHeight: 1.5, padding: "6px 2px" }}>
-      <p style={{ margin: "0 0 8px" }}>
-        <b style={{ color: color.ink }}>{modelName(settings)}</b> works on the analysis open beside it, through MATERIA's tools and the page's own controls. It can run
-        the whole analysis by the page's method — {(page && CAN_DO[page]) || DEFAULT_CAN_DO} — and report the result with its esds and its own assessment.
-        Talk it through as you would with a colleague: ask why it took a step, tell it what you know about the sample, or ask anything about the fit on screen.
+      <p style={{ margin: "0 0 6px" }}>
+        <b style={{ color: color.ink }}>{modelName(settings)}</b> works on this analysis with MATERIA's tools and reports the result.
       </p>
-      <p style={{ margin: "0 0 8px" }}>
-        {settings.autoApprove
-          ? "Auto: it works through the stages on its own and stops when a decision is yours. A change to the structure or the instrument still asks."
-          : "Ask first: every change waits for your approval on a card. Switch to Auto below to let it work through the stages on its own."}{" "}
-        Every change is a History step you can go back to. The model is your choice, in the settings (⚙): Claude through an API key or a local proxy, or a local model on Ollama or LM Studio.
+      <p style={{ margin: "0 0 6px" }}>
+        {settings.autoApprove ? "Auto: it works on its own and stops when a decision is yours." : "Ask first: every change waits for your approval."} Each change is a History step.
       </p>
-      <p style={{ margin: 0 }}>For example:</p>
-      <ul style={{ margin: "2px 0 0", paddingLeft: 18 }}>
+      <ul data-examples style={{ margin: 0, paddingLeft: 18 }}>
         {examples.map((e) => <li key={e}><i>“{e}”</i></li>)}
       </ul>
     </div>
@@ -730,6 +767,8 @@ const composer: CSSProperties = { display: "flex", flexDirection: "column", gap:
 const field: CSSProperties = { display: "flex", flexDirection: "column", gap: 4 };
 const fieldLabel: CSSProperties = { fontSize: fz.micro, color: color.secondary, fontWeight: 600 };
 const input: CSSProperties = { border: `1px solid ${color.input}`, borderRadius: 6, padding: "6px 8px", fontSize: 13, background: color.surface, color: color.ink, width: "100%", boxSizing: "border-box" };
+const segmented: CSSProperties = { display: "flex", gap: 0, border: `1px solid ${color.control}`, borderRadius: radius.button, overflow: "hidden" };
+const segment = (on: boolean): CSSProperties => ({ flex: 1, border: "none", padding: "6px 4px", fontSize: 12.5, cursor: "pointer", background: on ? color.primaryTintBg : color.surface, color: on ? color.primary : color.ink, fontWeight: on ? 600 : 500 });
 const note: CSSProperties = { margin: 0, fontSize: 12, color: color.secondary, lineHeight: 1.45 };
 const code: CSSProperties = { fontFamily: mono, fontSize: "0.92em", background: color.chipBg, padding: "0 4px", borderRadius: 4 };
 // A long unbroken token (a parameter id list, a file name, a ref) wraps
