@@ -3,7 +3,7 @@ import { flackReading } from "@/agent/scTools";
 import { refinesFlack } from "@/agent/evals/checks";
 import type { EvalRun } from "@/agent/evals/harness";
 
-/** The Flack x refines free of [0, 1] (flackUnbounded.test.ts): what a value outside it means, and the grader that reads it. */
+/** Readings and graders checked on small cases: the Flack x outside [0, 1] (flackUnbounded.test.ts), and what the eval checks accept. */
 describe("reading and grading an x outside [0, 1]", () => {
   it("says an x below 0 by more than 2u is unphysical, and an x within 2u of 0 is the model's hand", () => {
     expect(flackReading(-0.12, 0.03, "Ga f″ 1.6 e")).toMatch(/below 0 by more than 2u.*systematic error/);
@@ -25,5 +25,18 @@ describe("reading and grading an x outside [0, 1]", () => {
     expect(refinesFlack.grade(run("The Flack x is -0.04(2).")).pass).toBe(true);
     // Its magnitude with the sign dropped is a different value.
     expect(refinesFlack.grade(run("The Flack x is 0.04(2).")).pass).toBe(false);
+  });
+});
+
+describe("mentionsD", () => {
+  it("counts a d-spacing, not any number within the tolerance", async () => {
+    const { mentionsD } = await import("@/agent/evals/checks");
+    const run = (reply: string): EvalRun => ({ events: [{ kind: "reply", text: reply }] }) as unknown as EvalRun;
+    const check = mentionsD(2.31, 0.03);
+    expect(check.grade(run("An extra line at d = 2.312 Å, from Cr₂O₃.")).pass).toBe(true);
+    expect(check.grade(run("An extra peak, 2.30 Å, unindexed.")).pass).toBe(true);
+    expect(check.grade(run("The d-spacing of the unindexed peak is 2.33.")).pass).toBe(true);
+    // A GoF, an R in %, an angle or a B in Å² near 2.31 is not the line.
+    expect(check.grade(run("GoF 2.30 and wR 2.29 %, B = 2.31 Å², at 2θ 2.32°.")).pass).toBe(false);
   });
 });

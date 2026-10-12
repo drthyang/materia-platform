@@ -202,7 +202,9 @@ export function mentionsD(d: number, tol: number): Check {
   return {
     name: `reports the line at d ≈ ${d.toFixed(2)} Å`,
     grade: (run) => {
-      const numbers = replies(run).flatMap((r) => [...r.matchAll(/\d+\.\d+/g)].map((m) => Number(m[0])));
+      // A d-spacing as such: "d = 2.31", "the d-spacing … is 2.31", or a length in Å. Any number near d (an R, a 2θ, an occupancy) is not the line.
+      const D = /\bd(?:-spacing)?\b[^\d.]{0,30}?(\d+\.\d+)(?!\d|\s*[%°]|\s*Å[²³])|(\d+\.\d+)\s*Å(?![²³])/g;
+      const numbers = replies(run).flatMap((r) => [...r.matchAll(D)].map((m) => Number(m[1] ?? m[2])));
       const hit = numbers.find((n) => Math.abs(n - d) <= tol);
       return hit !== undefined ? ok(`said ${hit}`) : fail(`no d within ${tol} Å of ${d.toFixed(3)} in the replies`);
     },
