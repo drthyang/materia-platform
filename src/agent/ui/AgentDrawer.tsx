@@ -4,7 +4,7 @@
  * it, so the plot and the parameter panel stay in view while the model works.
  */
 
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from "react";
 import { color, fz, mono, radius } from "@/app/theme";
 import { tableRows } from "@/agent/ui/markdownTable";
 import type { ActivityEntry } from "@/agent/executor";
@@ -15,8 +15,9 @@ import { CHAT_MODELS, hasRefusalFallback } from "@/agent/chat-models";
 import { listOllamaModels, unreachableHint, type OllamaModel } from "@/agent/ollama";
 import { listLmStudioModels, lmstudioUnreachableHint, type LmStudioModel } from "@/agent/lmstudio";
 import { MIN_AGENT_CONTEXT } from "@/agent/localServer";
+import { cardsInReply, type AgentCard } from "@/agent/focus";
 import { MATH_SPAN_SOURCE, mathInside, texPieces } from "@/agent/ui/texText";
-import { DRAWER_MAX, DRAWER_MIN, KEY_STEP, clampDrawerWidth, readDrawerWidth, writeDrawerWidth } from "@/agent/ui/drawerWidth";
+import { DRAWER_MAX, DRAWER_MIN, KEY_STEP, SHEET_DEFAULT, SHEET_MAX, SHEET_MIN, SHEET_QUERY, clampDrawerWidth, clampSheet, readDrawerWidth, readSheet, sheetFor, writeDrawerWidth, writeSheet } from "@/agent/ui/drawerWidth";
 import { cssZoom } from "@/app/ui/cssZoom";
 
 interface Props {
@@ -63,62 +64,202 @@ export function AgentDrawer({ agent, method = null, onClose }: Props): JSX.Eleme
   }, [needsSetup]);
 
   const [width, setWidth] = useDrawerWidth();
+  const [sheet, setSheet] = useSheetHeight();
+  const sheetMode = useMediaQuery(SHEET_QUERY);
+  const lowered = useSheetForFocus(sheetMode, sheet, agent.focus);
   const aside = useRef<HTMLElement>(null);
+  const sized: CSSProperties = { ...drawer, ...(width === null ? {} : { ["--wb-agent-w" as string]: `${width}px` }), ["--wb-sheet-h" as string]: `calc(${((lowered ?? sheet) * 100).toFixed(1)}dvh / var(--ui-zoom))` };
   return (
-    <aside ref={aside} className="wb-agent" style={width === null ? drawer : { ...drawer, ["--wb-agent-w" as string]: `${width}px` }} aria-label="Agent">
-      <ResizeHandle drawer={aside} width={width} onResize={setWidth} />
-      <div style={head}>
-        <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-          <SparkIcon />
-          <b style={{ fontSize: 15, color: color.ink }}>Agent</b>
-          <StatusChip agent={agent} />
-        </span>
-        <span style={{ display: "flex", gap: 4 }}>
-          {agent.report && <IconButton title="Open the analysis report" onClick={agent.openReport}><ReportIcon /></IconButton>}
-          <IconButton title="Settings" active={showSettings} onClick={() => setShowSettings((v) => !v)}>⚙</IconButton>
-          <IconButton title="Clear the conversation" onClick={agent.clear} disabled={agent.thinking}>⌫</IconButton>
-          <IconButton title="Close the Agent" onClick={onClose}>✕</IconButton>
-        </span>
-      </div>
-      {method && <MethodChecklist method={method} />}
+    <aside ref={aside} className="wb-agent" data-mode={sheetMode ? "sheet" : "docked"} style={sized} aria-label="Agent">
+      {sheetMode ? <SheetHandle fraction={sheet} onResize={setSheet} /> : <ResizeHandle drawer={aside} width={width} onResize={setWidth} />}
+      {sheetMode ? (
+        // The sheet is short: one row, the status a dot (its words in the tooltip), the model in the settings.
+        <div style={{ ...head, flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: "8px 12px" }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+            <SparkIcon />
+            <b style={{ fontSize: 15, color: color.ink }}>Agent</b>
+            <span className="wb-agent-beta" title="A public beta: check what it does, as you would a new colleague's work">Beta</span>
+            <StatusChip agent={agent} compact />
+          </span>
+          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <AutonomySwitch agent={agent} />
+            {agent.report && <IconButton title="Open the analysis report" onClick={agent.openReport}><ReportIcon /></IconButton>}
+            <IconButton title="Settings" active={showSettings} onClick={() => setShowSettings((v) => !v)}>⚙</IconButton>
+            <IconButton title="Close the Agent" onClick={onClose}>✕</IconButton>
+          </span>
+        </div>
+      ) : (
+        <div style={head}>
+          <div style={headRow}>
+            <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+              <SparkIcon />
+              <b style={{ fontSize: 15, color: color.ink }}>Agent</b>
+              <span className="wb-agent-beta" title="A public beta: check what it does, as you would a new colleague's work">Beta</span>
+            </span>
+            <span style={{ display: "flex", gap: 4 }}>
+              {agent.report && <IconButton title="Open the analysis report" onClick={agent.openReport}><ReportIcon /></IconButton>}
+              <IconButton title="Settings" active={showSettings} onClick={() => setShowSettings((v) => !v)}>⚙</IconButton>
+              <IconButton title="Close the Agent" onClick={onClose}>✕</IconButton>
+            </span>
+          </div>
+          <div style={{ ...headRow, flexWrap: "wrap", rowGap: 6 }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: "1 1 auto" }}>
+              <StatusChip agent={agent} />
+              <ModelSelect agent={agent} onSettings={() => setShowSettings(true)} />
+            </span>
+            <AutonomySwitch agent={agent} />
+          </div>
+        </div>
+      )}
+      {method && <MethodChecklist key={sheetMode ? "sheet" : "docked"} method={method} folded={sheetMode} />}
       {showSettings && <Settings agent={agent} />}
       <Transcript agent={agent} page={method?.skill ?? null} />
-      <Composer agent={agent} disabled={needsSetup} />
+      <Composer agent={agent} disabled={needsSetup} compact={sheetMode} />
     </aside>
   );
 }
 
 // ── method ──────────────────────────────────────────────────────────────────
 
+/** The checklist folded to one line: how many stages are done, and the next. */
+export function methodSummary(method: MethodProgress): string {
+  const required = method.stages.filter((st) => !st.optional);
+  const done = required.filter((st) => st.done).length;
+  return `${done} of ${required.length} done${method.next ? ` · next: ${method.next}` : ""}`;
+}
+
 /**
  * The page's method as a checklist: each stage done (✓) or not (○), the next
  * required one marked, the stages used only when the data call for them dim.
+ * It folds to one line (open beside the page, folded in the sheet, where
+ * height is short), and the user's choice holds while the drawer is open.
  */
-function MethodChecklist({ method }: { method: MethodProgress }): JSX.Element {
+function MethodChecklist({ method, folded: foldedAtFirst }: { method: MethodProgress; folded: boolean }): JSX.Element {
+  const [folded, setFolded] = useState(foldedAtFirst);
   return (
     <div style={checklist} aria-label="Method progress">
-      <span style={{ fontWeight: 600, color: color.secondary, marginRight: 2 }} title={`The page's method: the skill ${method.skill}`}>Method</span>
-      {method.stages.map((st) => {
-        const next = !st.done && st.label === method.next;
-        return (
-          <span
-            key={st.id}
-            style={{
-              whiteSpace: "nowrap",
-              color: st.done ? color.okInk : next ? color.primary : st.optional ? color.faintest : color.faint,
-              fontWeight: next ? 600 : 500,
-            }}
-            title={st.done ? "Done" : next ? "Next" : st.optional ? "If the data call for it" : "Not yet"}
-          >
-            {st.done ? "✓" : "○"} {st.label}
-          </span>
-        );
-      })}
+      <button type="button" className="wb-agent-fold" aria-expanded={!folded} onClick={() => setFolded((f) => !f)} title={`The page's method: the skill ${method.skill}. ${folded ? "Show" : "Hide"} the stages`}>
+        <span aria-hidden="true">{folded ? "▸" : "▾"}</span> Method
+      </button>
+      {folded
+        ? <span style={{ color: color.secondary, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{methodSummary(method)}</span>
+        : method.stages.map((st) => {
+          const next = !st.done && st.label === method.next;
+          return (
+            <span
+              key={st.id}
+              style={{
+                whiteSpace: "nowrap",
+                color: st.done ? color.okInk : next ? color.primary : st.optional ? color.faintest : color.faint,
+                fontWeight: next ? 600 : 500,
+              }}
+              title={st.done ? "Done" : next ? "Next" : st.optional ? "If the data call for it" : "Not yet"}
+            >
+              {st.done ? "✓" : "○"} {st.label}
+            </span>
+          );
+        })}
     </div>
   );
 }
 
 // ── width ───────────────────────────────────────────────────────────────────
+
+/** Whether a media query matches, following the window as it changes. */
+function useMediaQuery(query: string): boolean {
+  const get = (): boolean => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(query).matches;
+  const [matches, setMatches] = useState(get);
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const mq = window.matchMedia(query);
+    const on = (): void => setMatches(mq.matches);
+    on();
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, [query]);
+  return matches;
+}
+
+/** The sheet's height as a share of the window (a portrait tablet, a phone), remembered by the browser. */
+function useSheetHeight(): [number, (f: number, commit?: boolean) => void] {
+  const [fraction, setFraction] = useState<number>(() => (typeof localStorage === "undefined" ? null : readSheet(localStorage)) ?? SHEET_DEFAULT);
+  const update = (f: number, commit = true): void => {
+    setFraction(clampSheet(f));
+    if (commit && typeof localStorage !== "undefined") writeSheet(localStorage, f);
+  };
+  return [fraction, update];
+}
+
+/**
+ * While the Agent points at a page card (agent.focus) in the sheet, the sheet
+ * lowers, for now, so that card fits in the page above it (sheetFor); it goes
+ * back to the user's height when the focus moves off. Null: no change.
+ */
+function useSheetForFocus(sheetMode: boolean, fraction: number, focus: readonly AgentCard[]): number | null {
+  const [lowered, setLowered] = useState<number | null>(null);
+  const key = focus.join(" ");
+  useLayoutEffect(() => {
+    if (!sheetMode || key === "") {
+      setLowered(null);
+      return;
+    }
+    const card = key.split(" ").map((c) => document.querySelector(`[data-agent-card="${c}"]`)).find((el): el is Element => el !== null);
+    const page = document.querySelector(".wb-shell");
+    if (!card || !page) return;
+    const f = sheetFor(fraction, card.getBoundingClientRect().height, page.getBoundingClientRect().height, window.innerHeight / cssZoom());
+    setLowered(f < fraction ? f : null);
+    // The page scrolls to the card once the sheet has moved (or at once, if it stays).
+    const show = (): void => card.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    const timer = window.setTimeout(show, f < fraction ? 220 : 0);
+    return () => window.clearTimeout(timer);
+  }, [sheetMode, fraction, key]);
+  return lowered;
+}
+
+/** The sheet's top edge: drag (or ↑ / ↓) to make the conversation taller or the page. */
+function SheetHandle({ fraction, onResize }: { fraction: number; onResize: (f: number, commit?: boolean) => void }): JSX.Element {
+  const drag = useRef<{ y: number; f: number; last: number } | null>(null);
+  const viewport = (): number => window.innerHeight / cssZoom();
+  return (
+    <div
+      className="wb-agent-resize"
+      role="separator"
+      aria-orientation="horizontal"
+      aria-label="Resize the Agent panel"
+      aria-valuemin={Math.round(SHEET_MIN * 100)}
+      aria-valuemax={Math.round(SHEET_MAX * 100)}
+      aria-valuenow={Math.round(fraction * 100)}
+      title="Drag to resize"
+      tabIndex={0}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        e.currentTarget.setPointerCapture(e.pointerId);
+        drag.current = { y: e.clientY, f: fraction, last: fraction };
+      }}
+      onPointerMove={(e) => {
+        const d = drag.current;
+        if (!d) return;
+        d.last = clampSheet(d.f + (d.y - e.clientY) / cssZoom() / viewport());
+        onResize(d.last, false);
+      }}
+      onPointerUp={() => {
+        const d = drag.current;
+        drag.current = null;
+        if (d && d.last !== d.f) onResize(d.last);
+      }}
+      onPointerCancel={() => {
+        drag.current = null;
+      }}
+      onKeyDown={(e) => {
+        const step = e.key === "ArrowUp" ? 0.04 : e.key === "ArrowDown" ? -0.04 : 0;
+        if (step === 0) return;
+        e.preventDefault();
+        onResize(fraction + step);
+      }}
+    />
+  );
+}
 
 /** The width the user dragged the drawer to (null: the default), remembered by the browser. */
 function useDrawerWidth(): [number | null, (w: number | null, commit?: boolean) => void] {
@@ -191,29 +332,55 @@ function ResizeHandle({ drawer, width, onResize }: { drawer: RefObject<HTMLEleme
 
 // ── status ──────────────────────────────────────────────────────────────────
 
-function StatusChip({ agent }: { agent: AgentController }): JSX.Element {
-  const { settings } = agent;
+/**
+ * How the Agent is connected, for the header's status line: the provider (or
+ * the replay), and whether it can send. The model is the select beside it.
+ */
+export function connectionStatus(settings: AgentSettings, apiKey: string, openaiKey = ""): { readonly text: string; readonly ok: boolean; readonly title: string } {
+  // A replay, short enough for the line; its tooltip and the report say what it replays.
+  if (settings.replayOf) return { text: `${settings.replayOf} · replay`, ok: true, title: replayLabel(settings.replayOf) };
+  if (settings.mode === "api-key" && !apiKey) return { text: "No API key", ok: false, title: "Add your Anthropic API key in the settings (⚙)" };
   const local = localModel(settings);
-  let text = MODE_LABEL[settings.mode];
-  let ok = true;
-  // A replay, short enough for the chip; its tooltip and the report say "of a live run".
-  if (settings.replayOf) {
-    text = `${settings.replayOf} · replay`;
-  } else if (settings.mode === "api-key" && !agent.apiKey) {
-    text = "API key · not set";
-    ok = false;
-  } else if (missingOpenAIKey(settings, agent.openaiKey)) {
-    text = `${presetForUrl(settings.openaiUrl)?.label ?? MODE_LABEL[settings.mode]} · key not set`;
-    ok = false;
-  } else if (local !== null) {
-    text = `${MODE_LABEL[settings.mode]} · ${local || "no model"}`;
-    ok = local !== "";
+  if (missingOpenAIKey(settings, openaiKey)) return { text: `${presetForUrl(settings.openaiUrl)?.label ?? MODE_LABEL[settings.mode]} · no key`, ok: false, title: "Add the server's API key in the settings (⚙)" };
+  if (local === "") return { text: `${MODE_LABEL[settings.mode]} · no model`, ok: false, title: "Pick a model in the settings (⚙)" };
+  if (settings.mode === "openai-compatible") {
+    const where = presetForUrl(settings.openaiUrl)?.label ?? MODE_LABEL[settings.mode];
+    return { text: where, ok: true, title: `${where}: ${isMachineUrl(settings.openaiUrl) ? LOCAL_NOTE : cloudNote(where)}` };
   }
-  const palette = ok ? { bg: color.okBg, bd: color.okBorder, ink: color.okInk } : { bg: color.chipBg, bd: color.border, ink: color.secondary };
+  const where = settings.mode === "api-key" ? "Anthropic API" : MODE_LABEL[settings.mode];
+  return { text: where, ok: true, title: local === null ? `${where}: ${cloudNote("Anthropic")}` : `${where}: ${LOCAL_NOTE}` };
+}
+
+function StatusChip({ agent, compact = false }: { agent: AgentController; compact?: boolean }): JSX.Element {
+  const { text, ok, title } = connectionStatus(agent.settings, agent.apiKey, agent.openaiKey);
   return (
-    <span role="status" title={settings.replayOf ? replayLabel(settings.replayOf) : text} style={{ fontSize: fz.micro, padding: "2px 8px", borderRadius: 999, background: palette.bg, border: `1px solid ${palette.bd}`, color: palette.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-      {text}
+    <span role="status" className={`wb-agent-status ${ok ? "is-ok" : "is-off"}`} title={compact ? `${text}. ${title}` : title} {...(compact ? { "aria-label": text } : {})}>
+      <span className="wb-agent-status-dot" aria-hidden="true" />
+      {!compact && text}
     </span>
+  );
+}
+
+/**
+ * The model, beside the status: Claude's models as a select; a local
+ * server's model by name, which opens the settings (they list the server's
+ * models); nothing for a replay, whose model is the recording.
+ */
+function ModelSelect({ agent, onSettings }: { agent: AgentController; onSettings: () => void }): JSX.Element | null {
+  const { settings, updateSettings } = agent;
+  if (settings.replayOf) return null;
+  const local = localModel(settings);
+  if (local !== null) {
+    return (
+      <button type="button" className="wb-agent-model" onClick={onSettings} title="Pick the model in the settings" aria-label={`Model: ${local || "none"}. Pick one in the settings`}>
+        {local || "Pick a model"} ▾
+      </button>
+    );
+  }
+  return (
+    <select className="wb-agent-model" aria-label="Model" title="Model" value={settings.model} onChange={(e) => updateSettings({ model: e.target.value })}>
+      {CHAT_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+    </select>
   );
 }
 
@@ -573,10 +740,18 @@ function Transcript({ agent, page }: { agent: AgentController; page: string | nu
   useEffect(() => {
     end.current?.scrollIntoView({ block: "end" });
   }, [items, agent.activity]);
+  const ended = useEndTimes(agent.activity);
+  // Each finished turn's verdict, after its last item: what its tools computed.
+  const outcomes = turnOutcomes(items, agent.activity, agent.thinking);
   return (
     <div style={transcriptBox} aria-live="polite">
       {items.length === 0 && <EmptyState settings={agent.settings} page={page} />}
-      {items.map((item) => <Item key={item.id} item={item} agent={agent} />)}
+      {items.map((item) => (
+        <Fragment key={item.id}>
+          <Item item={item} agent={agent} ended={ended} />
+          {outcomes.get(item.id) && <OutcomePill outcome={outcomes.get(item.id)!} />}
+        </Fragment>
+      ))}
       {agent.thinking && <div style={{ fontSize: 12.5, color: color.faint, padding: "0 2px" }}>Working…</div>}
       <div ref={end} />
     </div>
@@ -631,7 +806,7 @@ export function EmptyState({ settings, page }: { settings: AgentSettings; page: 
   );
 }
 
-function Item({ item, agent }: { item: TranscriptItem; agent: AgentController }): JSX.Element | null {
+function Item({ item, agent, ended }: { item: TranscriptItem; agent: AgentController; ended: ReadonlyMap<string, number> }): JSX.Element | null {
   switch (item.kind) {
     case "user":
       return <div style={userBubble}>{item.text}</div>;
@@ -645,44 +820,56 @@ function Item({ item, agent }: { item: TranscriptItem; agent: AgentController })
             </details>
           )}
           {item.text && (
-            <div style={assistantText} onMouseEnter={() => agent.hoverReply(item.text)} onMouseLeave={() => agent.hoverReply(null)}>
-              <Markdown text={item.text} />
+            <div className="wb-agent-answer" onMouseEnter={() => agent.hoverReply(item.text)} onMouseLeave={() => agent.hoverReply(null)}>
+              <div style={assistantText}><Markdown text={item.text} /></div>
+              <CardChips text={item.text} onHover={(card) => agent.hoverReply(card ? CARD_WORD[card] : item.text)} />
             </div>
           )}
         </div>
       );
     case "tool": {
       const entry = agent.activity[item.entryId];
-      return entry ? <ToolCard entry={entry} onDecide={agent.decide} {...(entry.tool === "write_report" && entry.status === "done" && agent.report ? { onOpenReport: agent.openReport } : {})} /> : null;
+      return entry ? <ToolCard entry={entry} endedAt={ended.get(entry.id)} onDecide={agent.decide} {...(entry.tool === "write_report" && entry.status === "done" && agent.report ? { onOpenReport: agent.openReport } : {})} /> : null;
     }
     case "notice":
       return <div style={noticeStyle(item.tone)}>{item.text}</div>;
   }
 }
 
-function ToolCard({ entry, onDecide, onOpenReport }: { entry: ActivityEntry; onDecide: (id: string, ok: boolean) => void; onOpenReport?: () => void }): JSX.Element {
+const STATUS_TEXT: Record<ActivityEntry["status"], string> = { waiting: "Needs approval", running: "Running…", done: "Done", declined: "Declined", failed: "Failed" };
+
+/** A duration as a step card shows it: 0.4 s, 12 s. */
+export function formatDuration(ms: number | undefined): string | null {
+  if (ms === undefined || !Number.isFinite(ms) || ms < 0) return null;
+  if (ms < 100) return "<0.1 s";
+  return ms < 10_000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms / 1000)} s`;
+}
+
+/**
+ * One tool call, compact: a status dot, its title, the status and how long it
+ * took, and the one line that matters (the preview while it waits, the
+ * outcome after). A change waiting for approval keeps its Approve / Decline.
+ */
+function ToolCard({ entry, endedAt, onDecide, onOpenReport }: { entry: ActivityEntry; endedAt: number | undefined; onDecide: (id: string, ok: boolean) => void; onOpenReport?: () => void }): JSX.Element {
   const waiting = entry.status === "waiting";
-  const tone = entry.status === "failed" ? color.warnInk : entry.status === "declined" ? color.faint : entry.status === "done" ? color.okInk : color.primary;
-  const statusText = { waiting: "Needs approval", running: "Running…", done: "Done", declined: "Declined", failed: "Failed" }[entry.status];
+  const took = endedAt !== undefined && entry.status !== "running" && !waiting ? formatDuration(endedAt - entry.at) : null;
+  const meta = [STATUS_TEXT[entry.status], took].filter(Boolean).join(" · ");
+  const line = waiting ? entry.preview : entry.outcome ?? entry.preview;
   return (
-    <div style={{ ...toolCard, ...(waiting ? { border: `1px solid ${color.primaryTintBorder}`, background: color.primaryTintBg } : {}) }} data-tool={entry.tool} data-status={entry.status}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
-        <span style={{ fontWeight: 600, fontSize: 12.5, color: color.ink }}>
-          {entry.effect === "read" ? "◦ " : "● "}{entry.title}
-        </span>
-        <span style={{ fontSize: fz.micro, color: tone, whiteSpace: "nowrap" }}>
-          {statusText}
-        </span>
+    <div className={`wb-agent-step is-${entry.status}`} data-tool={entry.tool} data-status={entry.status}>
+      <div className="wb-agent-step-head">
+        <span className="wb-agent-step-dot" aria-hidden="true" />
+        <span className="wb-agent-step-label">{entry.title}</span>
+        <span className="wb-agent-step-meta">{meta}</span>
       </div>
-      {entry.preview && <div style={{ fontSize: 12.5, color: color.ink, marginTop: 3 }}>{entry.preview}</div>}
-      {entry.outcome && entry.status !== "waiting" && <div style={{ fontSize: 12, color: entry.status === "failed" ? color.warnInk : color.secondary, marginTop: 3, fontFamily: entry.tool === "refine" ? mono : undefined }}>{entry.outcome}</div>}
+      {line && <div className="wb-agent-step-line" style={entry.tool === "refine" && !waiting ? { fontFamily: mono } : undefined}>{line}</div>}
       {onOpenReport && (
-        <div style={{ marginTop: 8 }}>
+        <div style={{ marginTop: 6 }}>
           <button style={secondaryButton} onClick={onOpenReport}>Open the report</button>
         </div>
       )}
       {waiting && (
-        <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+        <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
           <button style={primaryButton} onClick={() => onDecide(entry.id, true)}>Approve</button>
           <button style={secondaryButton} onClick={() => onDecide(entry.id, false)}>Decline</button>
         </div>
@@ -691,43 +878,154 @@ function ToolCard({ entry, onDecide, onOpenReport }: { entry: ActivityEntry; onD
   );
 }
 
+/** When each tool call stopped running, seen as the activity changes: a step card's duration. */
+function useEndTimes(activity: Readonly<Record<string, ActivityEntry>>): ReadonlyMap<string, number> {
+  const ended = useRef(new Map<string, number>());
+  for (const entry of Object.values(activity)) {
+    if (entry.status !== "running" && entry.status !== "waiting" && !ended.current.has(entry.id)) ended.current.set(entry.id, Date.now());
+  }
+  return ended.current;
+}
+
+// ── outcome ─────────────────────────────────────────────────────────────────
+
+export interface TurnOutcome {
+  readonly status: "achieved" | "partial" | "not-achieved";
+  readonly note: string;
+}
+
+const OUTCOME_TEXT: Record<TurnOutcome["status"], string> = { achieved: "Achieved", partial: "Partial", "not-achieved": "Not achieved" };
+
+/**
+ * A finished turn's verdict, from what its tools computed, not from what the
+ * reply says: a refusal or a failed change is not achieved; a declined change,
+ * or a refinement that stopped short of converging, is partial; a converged
+ * refinement, or changes all made, achieved. A turn of reads and words alone
+ * has none. Keyed by the turn's last item.
+ */
+export function turnOutcomes(items: readonly TranscriptItem[], activity: Readonly<Record<string, ActivityEntry>>, thinking: boolean): Map<string, TurnOutcome> {
+  const out = new Map<string, TurnOutcome>();
+  const turns: TranscriptItem[][] = [];
+  for (const item of items) {
+    if (item.kind === "user" || turns.length === 0) turns.push([]);
+    turns[turns.length - 1]!.push(item);
+  }
+  turns.forEach((turn, t) => {
+    if (thinking && t === turns.length - 1) return;
+    const entries = turn.flatMap((i) => (i.kind === "tool" && activity[i.entryId] ? [activity[i.entryId]!] : []));
+    const changes = entries.filter((e) => e.effect !== "read");
+    if (changes.length === 0) return;
+    const last = turn[turn.length - 1]!;
+    const failed = changes.filter((e) => e.status === "failed");
+    const declined = changes.filter((e) => e.status === "declined");
+    const refines = changes.filter((e) => e.tool === "refine" && e.status === "done");
+    const lastRefine = refines.at(-1);
+    if (failed.length > 0) out.set(last.id, { status: "not-achieved", note: `${failed.at(-1)!.title}: ${failed.at(-1)!.outcome ?? "failed"}` });
+    else if (declined.length > 0) out.set(last.id, { status: "partial", note: `${declined.length} change${declined.length === 1 ? "" : "s"} declined` });
+    else if (lastRefine && !/^converged\b/.test(lastRefine.outcome ?? "")) out.set(last.id, { status: "partial", note: `the refinement ${lastRefine.outcome ?? "did not converge"}` });
+    else out.set(last.id, { status: "achieved", note: lastRefine?.outcome ?? `${changes.length} change${changes.length === 1 ? "" : "s"} made` });
+  });
+  return out;
+}
+
+function OutcomePill({ outcome }: { outcome: TurnOutcome }): JSX.Element {
+  return (
+    <div className={`wb-agent-outcome is-${outcome.status}`} role="status">
+      <span className="wb-agent-outcome-label">Outcome</span>
+      <strong>{OUTCOME_TEXT[outcome.status]}</strong>
+      <span className="wb-agent-outcome-note">{outcome.note}</span>
+    </div>
+  );
+}
+
+// ── card chips ──────────────────────────────────────────────────────────────
+
+const CARD_LABEL: Record<AgentCard, string> = { structure: "Structure", data: "Data", instrument: "Instrument", pattern: "Plot", parameters: "Parameters", result: "Result" };
+/** A word each card's own pattern (focus.ts) reads as that card alone: hovering a chip lights its card. */
+const CARD_WORD: Record<AgentCard, string> = { structure: "structure", data: "dataset", instrument: "instrument", pattern: "plot", parameters: "parameters", result: "wR" };
+
+/** The cards an answer points to, as chips: hover lights the card, a click brings it into view. */
+function CardChips({ text, onHover }: { text: string; onHover: (card: AgentCard | null) => void }): JSX.Element | null {
+  const cards = cardsInReply(text);
+  if (cards.length === 0) return null;
+  return (
+    <div className="wb-agent-chips">
+      {cards.map((card) => (
+        <button
+          key={card}
+          type="button"
+          className="wb-agent-chip"
+          onMouseEnter={() => onHover(card)}
+          onMouseLeave={() => onHover(null)}
+          onFocus={() => onHover(card)}
+          onBlur={() => onHover(null)}
+          onClick={() => document.querySelector(`[data-agent-card="${card}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" })}
+          title={`Show the ${CARD_LABEL[card].toLowerCase()} card`}
+        >
+          {CARD_LABEL[card]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ── input ───────────────────────────────────────────────────────────────────
 
-function Composer({ agent, disabled }: { agent: AgentController; disabled: boolean }): JSX.Element {
+function Composer({ agent, disabled, compact }: { agent: AgentController; disabled: boolean; compact: boolean }): JSX.Element {
   const [text, setText] = useState("");
   const submit = (): void => {
     if (!text.trim() || agent.thinking || disabled) return;
     agent.send(text);
     setText("");
   };
+  const { usage } = agent;
+  const used = usage.input + usage.output > 0;
   return (
     <div style={composer}>
-      <textarea
-        aria-label="Message the Agent"
-        style={{ ...input, resize: "none", minHeight: 58, fontFamily: "inherit", lineHeight: 1.4 }}
-        placeholder={disabled ? (localModel(agent.settings) !== null ? "Pick a model in the settings first" : "Add your API key in the settings first") : "Ask anything, or ask it to run the analysis…"}
-        value={text}
-        disabled={disabled}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-            e.preventDefault();
-            submit();
-          }
-        }}
-      />
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-        <AutonomySwitch agent={agent} />
-        <span className="wb-agent-hint" style={{ fontSize: fz.micro, color: color.faint, fontFamily: mono, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {agent.usage.input + agent.usage.output > 0
-            ? `${fmtTokens(agent.usage.input)} in · ${fmtTokens(agent.usage.cacheRead)} cached · ${fmtTokens(agent.usage.output)} out`
-            : "Enter to send · Shift+Enter for a new line"}
-        </span>
+      <div className="wb-agent-input">
+        <textarea
+          aria-label="Message the Agent"
+          rows={compact ? 1 : 2}
+          placeholder={disabled ? (localModel(agent.settings) !== null ? "Pick a model in the settings first" : "Add your API key in the settings first") : "Ask anything, or ask it to run the analysis…"}
+          value={text}
+          disabled={disabled}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              submit();
+            }
+          }}
+        />
         {agent.thinking
-          ? <button style={secondaryButton} onClick={agent.stop}>Stop</button>
-          : <button style={primaryButton} onClick={submit} disabled={disabled || !text.trim()}>Send</button>}
+          ? <button type="button" className="wb-agent-send is-stop" onClick={agent.stop} aria-label="Stop" title="Stop"><StopGlyph /></button>
+          : <button type="button" className="wb-agent-send" onClick={submit} disabled={disabled || !text.trim()} aria-label="Send" title="Send (Enter)"><ArrowGlyph /></button>}
+      </div>
+      <div className="wb-agent-foot">
+        <span className="wb-agent-hint" title={used ? `${usage.input} input tokens (${usage.cacheRead} read from the cache) and ${usage.output} output tokens this session` : undefined}>
+          {used ? `${fmtTokens(usage.input)} in · ${fmtTokens(usage.cacheRead)} cached · ${fmtTokens(usage.output)} out` : "Enter to send · Shift+Enter for a new line"}
+        </span>
+        {agent.transcript.length > 0 && !agent.thinking && (
+          <button type="button" className="wb-agent-link" onClick={agent.clear}>New conversation</button>
+        )}
       </div>
     </div>
+  );
+}
+
+function ArrowGlyph(): JSX.Element {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden style={{ display: "block" }}>
+      <path d="M8 13V3.5M3.8 7.6 8 3.4l4.2 4.2" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function StopGlyph(): JSX.Element {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden style={{ display: "block" }}>
+      <rect x="2" y="2" width="8" height="8" rx="1.5" fill="currentColor" />
+    </svg>
   );
 }
 
@@ -746,7 +1044,7 @@ function AutonomySwitch({ agent }: { agent: AgentController }): JSX.Element {
       aria-checked={auto === on}
       title={title}
       onClick={() => agent.updateSettings({ autoApprove: on })}
-      style={{ border: "none", padding: "3px 9px", fontSize: 12, cursor: "pointer", background: auto === on ? (on ? color.noteBg : color.primaryTintBg) : color.surface, color: auto === on ? (on ? color.noteInk : color.primary) : color.secondary, fontWeight: auto === on ? 600 : 500 }}
+      style={{ border: "none", padding: "3px 9px", fontSize: 12, whiteSpace: "nowrap", cursor: "pointer", background: auto === on ? (on ? color.noteBg : color.primaryTintBg) : color.surface, color: auto === on ? (on ? color.noteInk : color.primary) : color.secondary, fontWeight: auto === on ? 600 : 500 }}
     >
       {label}
     </button>
@@ -850,6 +1148,28 @@ function IconButton({ children, title, onClick, active, disabled }: { children: 
 }
 
 /** The Agent mark: a four-point spark. */
+/** The answers in a conversation: what the collapsed rail's dot counts. */
+export function answersIn(transcript: readonly TranscriptItem[]): number {
+  return transcript.filter((t) => t.kind === "assistant" && t.text.trim() !== "").length;
+}
+
+/**
+ * The Agent collapsed: a slim rail beside the page, or a bar under it on a
+ * tablet held upright or a phone, with a dot when an answer has landed since
+ * it was closed.
+ */
+export function AgentRail({ unread, onOpen }: { unread: boolean; onOpen: () => void }): JSX.Element {
+  return (
+    <aside className="wb-agent-rail" aria-label="Agent">
+      <button type="button" onClick={onOpen} title={unread ? "Open the Agent: a new answer" : "Open the Agent"} aria-label={unread ? "Open the Agent (a new answer)" : "Open the Agent"}>
+        <SparkIcon size={18} />
+        <span className="wb-agent-rail-label">Agent</span>
+        {unread && <span className="wb-agent-dot" aria-hidden="true" />}
+      </button>
+    </aside>
+  );
+}
+
 export function SparkIcon({ size = 16 }: { size?: number }): JSX.Element {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden style={{ display: "block", flex: "none" }}>
@@ -868,11 +1188,12 @@ const drawer: CSSProperties = {
   background: color.raised,
   borderLeft: `1px solid ${color.border}`,
 };
-const checklist: CSSProperties = { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "3px 10px", padding: "7px 14px", borderBottom: `1px solid ${color.border}`, background: color.muted2, fontSize: fz.micro };
-const head: CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "12px 14px", borderBottom: `1px solid ${color.border}` };
+const checklist: CSSProperties = { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "3px 10px", padding: "6px 14px", borderBottom: `1px solid ${color.border}`, background: color.muted2, fontSize: fz.micro };
+const head: CSSProperties = { display: "flex", flexDirection: "column", gap: 8, padding: "10px 14px", borderBottom: `1px solid ${color.border}` };
+const headRow: CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, minWidth: 0 };
 const settingsBox: CSSProperties = { display: "flex", flexDirection: "column", gap: 10, padding: "12px 14px", borderBottom: `1px solid ${color.border}`, background: color.muted2 };
 const transcriptBox: CSSProperties = { flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 };
-const composer: CSSProperties = { display: "flex", flexDirection: "column", gap: 6, padding: "10px 14px 12px", borderTop: `1px solid ${color.border}`, background: color.surface };
+const composer: CSSProperties = { display: "flex", flexDirection: "column", gap: 5, padding: "10px 12px 10px", borderTop: `1px solid ${color.border}`, background: color.raised };
 const field: CSSProperties = { display: "flex", flexDirection: "column", gap: 4 };
 const fieldLabel: CSSProperties = { fontSize: fz.micro, color: color.secondary, fontWeight: 600 };
 const input: CSSProperties = { border: `1px solid ${color.input}`, borderRadius: 6, padding: "6px 8px", fontSize: 13, background: color.surface, color: color.ink, width: "100%", boxSizing: "border-box" };
@@ -888,7 +1209,6 @@ const list: CSSProperties = { margin: "0 0 6px", paddingLeft: 18 };
 const table: CSSProperties = { borderCollapse: "collapse", fontSize: 12, fontVariantNumeric: "tabular-nums" };
 const th: CSSProperties = { textAlign: "left", fontWeight: 600, padding: "2px 8px 3px 0", borderBottom: `1px solid ${color.border}`, whiteSpace: "nowrap" };
 const td: CSSProperties = { padding: "2px 8px 2px 0", borderBottom: `1px solid ${color.chipBg}`, whiteSpace: "nowrap" };
-const toolCard: CSSProperties = { border: `1px solid ${color.border}`, borderRadius: 8, padding: "8px 10px", background: color.surface, overflowWrap: "anywhere" };
 const primaryButton: CSSProperties = { border: `1px solid ${color.primary}`, background: color.primary, color: "#fff", borderRadius: 6, padding: "5px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" };
 const secondaryButton: CSSProperties = { border: `1px solid ${color.control}`, background: color.surface, color: color.ink, borderRadius: 6, padding: "5px 14px", fontSize: 12.5, cursor: "pointer" };
 const noticeStyle = (tone: "info" | "error"): CSSProperties => ({

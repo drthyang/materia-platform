@@ -6,6 +6,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { normalize, resolve, sep } from "node:path";
 import { anthropicProxy } from "./src/agent/proxy";
+import { scriptedReplay } from "./src/agent/replay/server";
 
 // GitHub Pages serves from a repo subpath; override with VITE_BASE if needed.
 const base = process.env.VITE_BASE ?? "/web-refinement/";
@@ -81,10 +82,27 @@ function agentProxy(apiKey: string | undefined): Plugin {
   };
 }
 
+/**
+ * The dock's screenshots (scripts/agent-dock-screenshots.mjs): with
+ * `?agentReplay=<id>` the page arms a cookie (src/agent/replay/arm.ts) and
+ * the proxy route answers with one of the eval suite's scripted replays
+ * (src/agent/replay/server.ts). `npm run dev` only: not the preview server,
+ * not the static build.
+ */
+export function agentReplay(): Plugin {
+  return {
+    name: "agent-scripted-replay",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use(scriptedReplay());
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => ({
   base,
   // Read without a prefix filter, server side only: never exposed to the page.
-  plugins: [react(), serveLocalData(), agentProxy(loadEnv(mode, process.cwd(), "").ANTHROPIC_API_KEY)],
+  plugins: [react(), serveLocalData(), agentReplay(), agentProxy(loadEnv(mode, process.cwd(), "").ANTHROPIC_API_KEY)],
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
