@@ -93,3 +93,19 @@ describe("measurementMerge", () => {
     expect(measurementMerge(rows, buildSpaceGroup(62).operations).statistics.friedelApart).toBeUndefined();
   });
 });
+
+describe("merging reflections without their own σ", () => {
+  it("invents no σ = 1/√n: the scatter alone stands, and a single measurement's σ stays unknown", () => {
+    const ops = buildSpaceGroup(2).operations; // P-1: h and -h equivalent
+    const rows: Reflection2[] = [
+      { h: 1, k: 0, l: 0, intensity: 100, sigma: 0 },
+      { h: -1, k: 0, l: 0, intensity: 104, sigma: 0 },
+      { h: 0, k: 1, l: 0, intensity: 50, sigma: 0 },
+    ];
+    const merged = mergeEquivalents(rows, ops).reflections;
+    const pair = merged.find((r) => r.redundancy === 2)!;
+    // The scatter: |100 − 102| + |104 − 102| over 2·√1 = 2. Not max(1/√2, 2) by chance, and not 1 for the single one.
+    expect(pair.sigma).toBeCloseTo(2, 12);
+    expect(merged.find((r) => r.redundancy === 1)!.sigma).toBe(0);
+  });
+});
