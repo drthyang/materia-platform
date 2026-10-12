@@ -595,3 +595,18 @@ describe("an exact fit", () => {
     expect(result.parameters.b).toBeCloseTo(1.25, 6);
   });
 });
+
+describe("no downhill step", () => {
+  it("is converged at an exact fit's round-off floor, and a stall only while shifts are large", async () => {
+    const { noDescentStatus } = await import("@/core/refinement/engine");
+    // macOS arm64, the polar-origin fit at iteration 8: χ² 1.233e-21 twice, the last step 0 esd,
+    // a gradient of round-off that the gradient test alone does not call zero.
+    const floor = { gradNorm: 1e-3, chi: 1.233172098e-21 };
+    expect(noDescentStatus(floor)).toBe("stalled"); // the gradient test alone: the old verdict
+    expect(noDescentStatus({ ...floor, rWeighted: 1e-14 })).toBe("converged");
+    expect(noDescentStatus({ ...floor, lastShiftOverEsd: 0, shiftTolerance: 0.05 })).toBe("converged");
+    // A real stall: χ² well above the floor, the last step still large.
+    expect(noDescentStatus({ gradNorm: 40, chi: 812, rWeighted: 0.08, lastShiftOverEsd: 3.2, shiftTolerance: 0.05 })).toBe("stalled");
+    expect(noDescentStatus({ gradNorm: 1e-9, chi: 812 })).toBe("converged");
+  });
+});
