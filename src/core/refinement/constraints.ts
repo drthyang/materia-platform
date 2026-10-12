@@ -200,7 +200,7 @@ export function checkEqualTies(params: readonly RefinementParameter[], update: E
  * The rows with the tie change applied. `equal`'s first id leads (and each
  * group's): the others take its value and follow it ("= leader", fixed,
  * tagged USER_TIE_GROUP), and a row that followed one of them now follows the
- * leader (ties are not chained). A complement's second occupancy becomes one
+ * leader with its own factor and constant (ties are not chained). A complement's second occupancy becomes one
  * minus the first. A released row keeps its value, fixed. Check with
  * checkEqualTies first.
  */
@@ -211,9 +211,19 @@ export function withEqualTies(params: readonly RefinementParameter[], update: Eq
     if (!leader) continue;
     const followers = new Set(ids.slice(1));
     const follow = (p: RefinementParameter): RefinementParameter => ({ ...p, value: leader.value, fixed: true, expression: `= ${leader.id}`, group: USER_TIE_GROUP });
+    // A row that followed a new follower now reads the leader, keeping its own
+    // factor and constant: a complement 1 − A2 becomes 1 − A1, not = A1.
+    const repoint = (p: RefinementParameter): RefinementParameter => {
+      const tie = parseTie(p.expression!);
+      if (tie.kind !== "linear") return p;
+      const expression = tie.factor === 1 && tie.constant === 0 ? `= ${leader.id}`
+        : tie.factor === -1 && tie.constant === 1 ? complementOf(leader.id)
+        : `= ${tie.factor}*${leader.id}${tie.constant === 0 ? "" : `${tie.constant > 0 ? "+" : ""}${tie.constant}`}`;
+      return { ...p, value: tie.factor * leader.value + tie.constant, fixed: true, expression, group: USER_TIE_GROUP };
+    };
     out = out.map((p) => {
       if (followers.has(p.id)) return follow(p);
-      if (isUserTie(p) && followers.has(tieReferences(p.expression!)[0] ?? "")) return follow(p);
+      if (isUserTie(p) && followers.has(tieReferences(p.expression!)[0] ?? "")) return repoint(p);
       return p;
     });
   }
