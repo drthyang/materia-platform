@@ -185,6 +185,17 @@ const REPLAYS: Readonly<Record<string, Replay>> = {
     ],
     catches: ["searches k before going back to the powder stages"],
   },
+  "swapped-units": {
+    good: [
+      { text: "The method first, and the page.", calls: [RIETVELD, { name: "get_state" }] },
+      { text: "The axis says 2θ, but it runs from 0.9 to 6.5 — d-spacings in Å, not degrees: no reflection of Mn₃Ga falls there as 2θ. Please check the file's units before I refine anything." },
+    ],
+    bad: [
+      { text: "The method first.", calls: [RIETVELD, { name: "get_state" }, { name: "refine" }] },
+      { text: "Refined the scale and background; the fit is poor, so the profile is next." },
+    ],
+    catches: ["questions the data's axis before refining"],
+  },
   "pdf-method": {
     good: [
       { calls: [PDF, { name: "refine" }] },

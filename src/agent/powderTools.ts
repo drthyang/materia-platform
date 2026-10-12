@@ -535,10 +535,12 @@ function stateView(s: PowderLiveState, history: ProjectHistory | null, select: r
     };
   }
   const xs = s.pattern.points;
+  const axisWarning = axisPlausibility(s);
   return {
     technique: "powder",
     source: s.source,
     busy: s.busy,
+    ...(axisWarning ? { axisWarning } : {}),
     ...(s.viewOnly ? { viewOnly: "TOF pattern without a TOF profile: shown, not refined" } : {}),
     phases: [s.structure, ...s.extraPhases].map((ph, i) => {
       const refined = s.refinedPhases[i] ?? ph;
@@ -726,6 +728,23 @@ export function cellShiftReading(loaded: UnitCell, found: UnitCell, unit: Powder
     return `The peaks give a cell ${pctText(mean)} off the structure's in every length alike (a ${pctText(rel[0]!)}, b ${pctText(rel[1]!)}, c ${pctText(rel[2]!)}): one factor on every d is what a wrong ${unit === "twoTheta" ? "wavelength" : "calibration"} does. Ask the user to confirm ${what} before refining: a refined cell would absorb it silently.`;
   }
   return `The peaks give a cell up to ${pctText(rel[rel.map(Math.abs).indexOf(worst)]!)} off the structure's (a ${pctText(rel[0]!)}, b ${pctText(rel[1]!)}, c ${pctText(rel[2]!)}), unevenly: the phase at another temperature or composition, or another phase. Say so before refining.`;
+}
+
+/**
+ * Whether the data's axis can be what the file says: the structure's
+ * reflections against the extent. A 2θ axis that holds next to none of them
+ * (d-spacings, or Q, read as degrees: 0.6–5 "°") is the commonest swapped
+ * unit; null when the axis holds the reflections a pattern of it should.
+ */
+export function axisPlausibility(s: PowderLiveState): string | null {
+  if (s.structure.sites.length === 0 || s.pattern.points.length === 0 || !s.d) return null;
+  const finite = s.d.filter((v) => Number.isFinite(v) && v > 0);
+  if (finite.length === 0) return `the ${UNIT[s.pattern.xUnit]} axis (${sig(s.extent.min, 4)}–${sig(s.extent.max, 4)}) converts to no d-spacing at this wavelength: is the axis in another unit (d in Å, or Q)? Ask the user before anything else.`;
+  const lo = Math.min(...finite);
+  const hi = Math.max(...finite);
+  const inside = generateReflections(s.structure.cell, s.structure.spaceGroup, lo, Math.min(hi, 50)).length;
+  if (inside >= 3) return null;
+  return `the ${UNIT[s.pattern.xUnit]} axis (${sig(s.extent.min, 4)}–${sig(s.extent.max, 4)}) spans d ${sig(lo, 3)}–${sig(hi, 3)} Å at this wavelength, where the structure has ${inside === 0 ? "no reflection" : `only ${inside} reflection${inside === 1 ? "" : "s"}`}: the axis is likely in another unit (d in Å or Q read as ${UNIT[s.pattern.xUnit]}), or the wavelength is wrong. Ask the user before refining: no refinement fixes it.`;
 }
 
 function residualOf(s: PowderLiveState): { d: number[]; yObs: number[]; yCalc: number[]; sigma: number[]; reflections: { d: number; hkl: string; phaseLabel: string }[]; magneticNeutron: boolean; lineWidth?: number } {

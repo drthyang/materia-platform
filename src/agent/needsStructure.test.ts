@@ -21,3 +21,17 @@ describe("the cell the peaks give, against the structure's", () => {
     expect(cellShiftReading(cell, scaled(1.002, 1.012), "twoTheta")).toMatch(/unevenly: the phase at another temperature or composition/);
   });
 });
+
+describe("the data's axis against the structure", () => {
+  it("warns when a 2θ axis holds no reflection of the structure (d-spacings read as degrees), and not on the demo", async () => {
+    const { mn3gaSession, mn3gaSwappedUnitsSession } = await import("@/agent/evals/pages");
+    const { executor, fakeHost, sessionPort } = await import("@/testSupport/agentHeadless");
+    const stateOf = async (session: ReturnType<typeof mn3gaSession>): Promise<{ axisWarning?: string }> => {
+      const { port } = sessionPort(session);
+      const { ex } = executor(fakeHost(port).host, "auto");
+      return JSON.parse((await ex.run("get_state", {})).text) as { axisWarning?: string };
+    };
+    expect((await stateOf(mn3gaSession())).axisWarning).toBeUndefined();
+    expect((await stateOf(mn3gaSwappedUnitsSession())).axisWarning).toMatch(/axis is likely in another unit .*Ask the user before refining/);
+  });
+});

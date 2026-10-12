@@ -125,11 +125,11 @@ replay of a live run"). The stretch where the Agent refines is shown at 8× spee
   — they alternate, and each refinement says how far its group moved; the
   space group questioned only once the method's stages are refined. The stages,
   the fit range first, show as a checklist in the drawer.
-- **Tested on what it does.** 34 eval scenarios, each written against a failure
+- **Tested on what it does.** 35 eval scenarios, each written against a failure
   a user or a researcher round found, replay the real chat loop and tools in CI
   with a scripted model — once as the Agent should behave (every check passes)
   and once as it failed (the checks written against that failure must fail;
-  48 of the 55 checks are shown to catch a failure this way, the rest not yet,
+  49 of the 56 checks are shown to catch a failure this way, the rest not yet,
   `noStall` among them) — and run against a real model on demand (`npm run eval:agent`; results in
   [docs/AGENT_EVALS.md](docs/AGENT_EVALS.md)).
 - **Out of the way of the work.** The drawer sits beside the plot and the

@@ -44,6 +44,20 @@ export function asserted(run: EvalRun, what: RegExp, upTo = Infinity): string[] 
   return out;
 }
 
+/**
+ * A swapped unit questioned, not refined around (THY-19 fault injection):
+ * no successful refinement, and a reply that names the axis or its unit.
+ */
+export const questionsAxis: Check = {
+  name: "questions the data's axis before refining",
+  grade: (run) => {
+    const refined = calls(run).some((c) => c.name === "refine" && !c.isError && json(c.text)?.refined === true);
+    if (refined) return fail("refined data whose axis cannot be what it says");
+    const said = sentences(replies(run).join("\n")).find((t) => /\b(axis|units?|d-spacings?|d spacings?|Å|Q|degrees|2θ|two-theta)\b/i.test(t) && /\b(wrong|swapped|not|another|instead|check|confirm|looks like|appears|seems)\b/i.test(t));
+    return said ? ok(`said "${said.slice(0, 90)}"`) : fail("never questioned the axis");
+  },
+};
+
 /** The powder page's own changes: refining, freeing, the fit window and the corrections. */
 const POWDER_CHANGES = new Set(["refine", "set_free", "set_fit_range", "set_corrections", "set_background", "reset_parameters"]);
 
