@@ -144,3 +144,25 @@ describe("keeping a local model's history in its window", () => {
     expect(results(pruneForLocal(h, 3000, 1))[0]).toMatch(/No change ran after it, up to the results kept whole below\./);
   });
 });
+
+describe("when even one-line digests are not enough", () => {
+  it("shortens a method read before the latest to its outline, never the latest", () => {
+    const rietveld = "Skill my-rietveld-workflow\n\n# My Rietveld workflow\n\n## Stage 0 — the fit range\n" + "r".repeat(9000) + "\n## Stage 1 — refinement\n" + "r".repeat(9000);
+    const magnetic = "Skill magnetic-analysis\n\n# Powder magnetic analysis\n" + "m".repeat(5000);
+    const h = session([
+      { name: "read_skill", input: { name: "my-rietveld-workflow" }, result: rietveld },
+      { name: "get_state", result: state(9, 1) },
+      { name: "read_skill", input: { name: "magnetic-analysis" }, result: magnetic },
+      { name: "magnetic_state", result: state(9, 2) },
+    ]);
+    const pruned = pruneForLocal(h, 10_000);
+    expect(historyChars(pruned)).toBeLessThanOrEqual(10_000);
+    const r = results(pruned);
+    expect(r[0]).toMatch(/^\[read_skill "my-rietveld-workflow": read earlier, shortened to its outline/);
+    expect(r[0]).toContain("## Stage 0 — the fit range\n## Stage 1 — refinement");
+    expect(r[2]).toBe(magnetic);
+    // A single method is never shortened.
+    const one = session([{ name: "read_skill", input: { name: "my-rietveld-workflow" }, result: rietveld }, { name: "get_state", result: state(9, 1) }]);
+    expect(results(pruneForLocal(one, 5000))[0]).toBe(rietveld);
+  });
+});
