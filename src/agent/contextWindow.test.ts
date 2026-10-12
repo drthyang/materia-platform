@@ -1,40 +1,101 @@
 import { describe, it, expect } from "vitest";
 import type { BetaMessageParam } from "@anthropic-ai/sdk/resources/beta/messages/messages";
-import { pruneForLocal } from "@/agent/contextWindow";
+import { digestResult, historyChars, pruneForLocal } from "@/agent/contextWindow";
 
-/** A session of `n` tool calls, each answered with a `size`-character result. */
-function session(names: string[], size: number): BetaMessageParam[] {
+type Step = { name: string; input?: Record<string, unknown>; result: string; error?: boolean; thinking?: string };
+
+/** A session of tool calls, one per turn, each answered. */
+function session(steps: readonly Step[]): BetaMessageParam[] {
   const out: BetaMessageParam[] = [{ role: "user", content: "Refine it." }];
-  names.forEach((name, i) => {
-    out.push({ role: "assistant", content: [{ type: "tool_use", id: `t${i}`, name, input: {} }] });
-    out.push({ role: "user", content: [{ type: "tool_result", tool_use_id: `t${i}`, content: "x".repeat(size) }] });
+  steps.forEach((s, i) => {
+    out.push({ role: "assistant", content: [...(s.thinking ? [{ type: "thinking" as const, thinking: s.thinking, signature: "" }] : []), { type: "tool_use", id: `t${i}`, name: s.name, input: s.input ?? {} }] });
+    out.push({ role: "user", content: [{ type: "tool_result", tool_use_id: `t${i}`, content: s.result, ...(s.error ? { is_error: true } : {}) }] });
   });
   return out;
 }
 
-const resultOf = (m: BetaMessageParam): string => {
-  const b = (m.content as { type: string; content?: unknown }[])[0]!;
-  return String(b.content);
-};
+const results = (h: readonly BetaMessageParam[]): string[] =>
+  h.flatMap((m) => (m.role === "user" && typeof m.content !== "string" ? m.content.filter((b) => b.type === "tool_result").map((b) => String((b as { content: unknown }).content)) : []));
+
+const state = (wR: number, ref: number): string => JSON.stringify({ ref: `#${ref}`, technique: "powder", wR, phases: [{ name: "Mn3Ga", spaceGroup: "P 63/m m c" }], pad: "x".repeat(1500) });
+const SKILL = "Skill my-rietveld-workflow\n\n" + "m".repeat(3000);
 
 describe("keeping a local model's history in its window", () => {
   it("leaves a history under the budget alone", () => {
-    const h = session(["get_state", "refine"], 100);
+    const h = session([{ name: "get_state", result: state(8, 1) }]);
     expect(pruneForLocal(h, 10_000)).toEqual(h);
   });
 
-  it("clears all but the last results past the budget, never a skill, and never the stored history", () => {
-    const names = ["read_skill", "get_state", "refine", "get_state", "assess_refinement", "refine", "get_state", "refine"];
-    const h = session(names, 2000);
+  it("turns old results into digests that say what they held and whether it still holds, and keeps the method whole", () => {
+    const steps: Step[] = [
+      { name: "read_skill", input: { name: "my-rietveld-workflow" }, result: SKILL },
+      { name: "get_state", result: state(9.1, 1) },
+      { name: "check_fit_range", result: state(9.1, 2) },
+      { name: "refine", result: JSON.stringify({ ref: "#3", refined: true, status: "converged", wR: 8.31, pad: "y".repeat(1500) }) },
+      { name: "get_state", result: state(8.31, 4) },
+      { name: "assess_refinement", result: "Error: refine first", error: true },
+      // The method read again (the user's loop): only the latest copy stays.
+      { name: "read_skill", input: { name: "my-rietveld-workflow" }, result: SKILL },
+      { name: "get_state", result: state(8.31, 5) },
+    ];
+    const h = session(steps);
     const before = JSON.stringify(h);
-    const pruned = pruneForLocal(h, 5000, 3);
-    const results = pruned.filter((_, i) => i > 0 && i % 2 === 0).map(resultOf);
-    expect(results[0]).toBe("x".repeat(2000)); // the skill stays
-    expect(results.slice(1, 5).every((r) => r.startsWith("[An earlier result of"))).toBe(true);
-    expect(results[1]).toBe("[An earlier result of get_state, cleared to keep the conversation in the model's window. Call get_state again if you need it.]");
-    expect(results.slice(5)).toEqual(["x".repeat(2000), "x".repeat(2000), "x".repeat(2000)]);
+    const pruned = pruneForLocal(h, 9000, 2);
+    expect(historyChars(pruned)).toBeLessThanOrEqual(9000);
+    const r = results(pruned);
+    expect(r[0]).toBe('[read_skill "my-rietveld-workflow": read again later in this conversation, where it is in full.]');
+    expect(r[6]).toBe(SKILL);
+    // A result from before a change says so, and how to see the analysis now.
+    expect(r[1]).toBe('[get_state, an earlier result (#1), shortened to fit the model\'s window: technique powder · wR 9.1 · pad ' + "x".repeat(59) + '… · phases[] 1 · phases[0].name Mn3Ga · phases[0].spaceGroup P 63/m m c. Changed since by refine: get_state gives the analysis as it is now. read_ref "#1" gives it whole.]');
+    expect(r[3]).toMatch(/^\[refine, an earlier result \(#3\), shortened to fit the model's window: refined true · status converged · wR 8\.31 · pad y+…\. Nothing has been changed since: it still holds\. read_ref "#3" gives it whole\.\]$/);
+    // Digested two at a time: the four oldest went, the newer ones stay whole.
+    expect(r[5]).toBe("Error: refine first");
+    expect(digestResult("assess_refinement", "Error: refine first", true, [])).toBe("[assess_refinement, an earlier call: it answered with an error: Error: refine first]");
+    // The last result is whole; the stored history is untouched; the same history prunes the same way.
+    expect(r[7]).toBe(state(8.31, 5));
     expect(JSON.stringify(h)).toBe(before);
-    // Deterministic: the same history prunes the same way.
-    expect(pruneForLocal(h, 5000, 3)).toEqual(pruned);
+    expect(pruneForLocal(h, 9000, 2)).toEqual(pruned);
+  });
+
+  it("digests in batches, so between batches the copy sent only grows at its end (the server's prefix cache holds)", () => {
+    const steps: Step[] = [{ name: "read_skill", input: { name: "my-rietveld-workflow" }, result: SKILL }];
+    for (let i = 0; i < 30; i++) steps.push({ name: i % 2 ? "get_state" : "refine", result: state(9 - i / 10, i + 1) });
+    let moves = 0;
+    let previous: BetaMessageParam[] | null = null;
+    for (let n = 2; n <= steps.length; n++) {
+      const pruned = pruneForLocal(session(steps.slice(0, n)), 24_000, 6);
+      expect(historyChars(pruned)).toBeLessThanOrEqual(24_000);
+      if (previous !== null && JSON.stringify(pruned.slice(0, previous.length)) !== JSON.stringify(previous)) moves++;
+      previous = pruned;
+    }
+    // A window sliding by one result would rewrite the prefix on almost every turn.
+    expect(moves).toBeLessThanOrEqual(6);
+    expect(moves).toBeGreaterThan(0);
+  });
+
+  it("drops the reasoning of the turns it digests, and keeps the latest", () => {
+    const steps: Step[] = Array.from({ length: 8 }, (_, i) => ({ name: "get_state", result: state(9, i + 1), thinking: "t".repeat(800) }));
+    const pruned = pruneForLocal(session(steps), 8000, 4);
+    const thinking = pruned.map((m) => (m.role === "assistant" && typeof m.content !== "string" ? m.content.some((b) => b.type === "thinking") : null)).filter((x) => x !== null);
+    expect(thinking.slice(0, 4).every((t) => !t)).toBe(true);
+    expect(thinking.at(-1)).toBe(true);
+  });
+
+  it("does its most when nothing fits, and the chat measures it", () => {
+    const h = session([{ name: "read_skill", input: { name: "my-rietveld-workflow" }, result: SKILL }, { name: "get_state", result: state(8, 1) }]);
+    const pruned = pruneForLocal(h, 1000);
+    expect(historyChars(pruned)).toBeGreaterThan(1000);
+    expect(results(pruned)).toEqual([SKILL, state(8, 1)]);
+  });
+
+  it("digests a text result and a declined change", () => {
+    expect(digestResult("read_ref", "plain text\nresult", false, [])).toBe("[read_ref, an earlier result, shortened to fit the model's window: plain text result. Nothing has been changed since: it still holds.]");
+    const h = session([
+      { name: "get_state", result: state(8, 1) },
+      { name: "set_free", result: JSON.stringify({ ref: "#2", declined: true }) },
+      { name: "get_state", result: state(8, 3) },
+    ]);
+    // A declined change changed nothing.
+    expect(results(pruneForLocal(h, 2000, 1))[0]).toMatch(/Nothing has been changed since: it still holds\./);
   });
 });

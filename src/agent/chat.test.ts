@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createServer, type Server } from "node:http";
-import { AgentChat, LoopGuard, announcedTool, describeChatError, repeatingTail, stalledReply } from "@/agent/chat";
+import { AgentChat, CHARS_PER_TOKEN, LoopGuard, MIN_REPLY, REPLY_RESERVE, announcedTool, describeChatError, fitWindow, repeatingTail, stalledReply } from "@/agent/chat";
+import type { BetaMessageParam } from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import type { AgentExecutor } from "@/agent/executor";
 import { LIVE_TOOLS } from "@/agent/tools";
 import { executor, fakeHost } from "@/testSupport/agentHeadless";
@@ -555,5 +556,98 @@ describe("the loop guard", () => {
     expect(api.requests).toHaveLength(3);
     expect(notices).toHaveLength(1);
     expect(notices[0]).toMatch(/^The Agent was going in circles: it called get_state 3 times with the same input, and nothing changed in between, so the app stopped it here\. Where it stands: the powder page; done: nothing yet; next: Fit range; no refinement on screen yet\./);
+  });
+});
+
+describe("a local model's window", () => {
+  let server: Server | null = null;
+  afterEach(async () => {
+    if (server) await new Promise<void>((r) => server!.close(() => r()));
+    server = null;
+  });
+  const quiet = (notices: string[]) => ({ onAssistantStart: () => undefined, onText: () => undefined, onThinking: () => undefined, onNotice: (t: string) => notices.push(t), onUsage: () => undefined });
+  const fixed = 70_000; // about the system prompt and every tool, in characters
+
+  it("prunes the history to what the window leaves, and caps the reply at the room left", () => {
+    const big = Array.from({ length: 30 }, (_, i): BetaMessageParam[] => [
+      { role: "assistant", content: [{ type: "tool_use", id: `t${i}`, name: "get_state", input: {} }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: `t${i}`, content: JSON.stringify({ ref: `#${i}`, wR: 9, pad: "x".repeat(6000) }) }] },
+    ]).flat();
+    const fit = fitWindow([{ role: "user", content: "Refine it." }, ...big], 20_000, 32_768, CHARS_PER_TOKEN);
+    expect(fit.refusal).toBeNull();
+    expect(fit.estimate + MIN_REPLY).toBeLessThanOrEqual(32_768);
+    expect(fit.maxTokens).toBe(32_768 - fit.estimate);
+    expect(32_768 - fit.estimate).toBeGreaterThanOrEqual(REPLY_RESERVE - 400);
+  });
+
+  it("refuses, and says why, when even the most pruned history cannot fit", () => {
+    const skill: BetaMessageParam[] = [
+      { role: "user", content: "Refine it." },
+      { role: "assistant", content: [{ type: "tool_use", id: "s", name: "read_skill", input: { name: "my-rietveld-workflow" } }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "s", content: "m".repeat(60_000) }] },
+    ];
+    const fit = fitWindow(skill, fixed, 32_768, CHARS_PER_TOKEN);
+    expect(fit.refusal!({ transport: "lmstudio", model: "qwen/qwen3.8-27b" })).toMatch(/^This conversation no longer fits the 32k-token context LM Studio runs qwen\/qwen3\.8-27b with, even with the old tool results shortened: it needs about \d+k \(the instructions and tools alone about 23k\)\. Nothing was sent, so the model was not handed a cut prompt\. Start a new conversation, or give the model a longer context \(lms unload qwen\/qwen3\.8-27b && lms load qwen\/qwen3\.8-27b --context-length 65536\)\.$/);
+  });
+
+  /** An LM Studio stand-in that counts each prompt as a server does (3.7 characters a token), or cuts the n-th. */
+  async function countingServer(turns: string[], cutAt: number | null): Promise<{ url: string; server: Server; sizes: { tokens: number; max: number }[] }> {
+    const sizes: { tokens: number; max: number }[] = [];
+    const s = createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (c: Buffer) => chunks.push(c));
+      req.on("end", () => {
+        if (req.url?.startsWith("/api/v1/models")) {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ models: [{ type: "llm", key: "qwen/qwen3.8-27b", max_context_length: 262144, loaded_instances: [{ id: "q", config: { context_length: 32768 } }], capabilities: { trained_for_tool_use: true } }] }));
+          return;
+        }
+        const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as { system: string; tools: unknown; messages: unknown; max_tokens: number };
+        const tokens = Math.round((body.system.length + JSON.stringify(body.tools).length + JSON.stringify(body.messages).length) / 3.7);
+        sizes.push({ tokens, max: body.max_tokens });
+        const turn = turns[sizes.length - 1] ?? sse([{ type: "text", text: "Done." }], "end_turn");
+        const counted = sizes.length - 1 === cutAt ? 7000 : tokens;
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        res.end(turn.replace('"input_tokens":100', `"input_tokens":${counted}`).replace('"cache_read_input_tokens":80', '"cache_read_input_tokens":0'));
+      });
+    });
+    await new Promise<void>((r) => s.listen(0, "127.0.0.1", () => r()));
+    const addr = s.address();
+    return { url: `http://127.0.0.1:${typeof addr === "object" && addr ? addr.port : 0}`, server: s, sizes };
+  }
+
+  it("never sends LM Studio more than its loaded context, however long the analysis runs", async () => {
+    // Twenty-four rounds of large results, each a new call (no loop): without pruning to the window this passes 32k by the fourth.
+    const turns = Array.from({ length: 24 }, (_, i) => sse([{ type: "tool_use", id: `c${i}`, name: "reflection_equivalents", input: { h: i, k: 0, l: 0 } }], "tool_use"));
+    const api = await countingServer(turns, null);
+    server = api.server;
+    const runner = { run: async (_: string, input: { h: number }) => ({ isError: false, text: JSON.stringify({ ref: `#${input.h}`, h: input.h, pad: "x".repeat(7000) }) }) };
+    const notices: string[] = [];
+    await new AgentChat(runner as unknown as AgentExecutor).send("Compare them.", { transport: "lmstudio", serverUrl: api.url, model: "qwen/qwen3.8-27b", effort: "high" }, quiet(notices), new AbortController().signal);
+    expect(api.sizes).toHaveLength(25);
+    for (const s of api.sizes) {
+      expect(s.tokens + MIN_REPLY).toBeLessThanOrEqual(32_768);
+      expect(s.tokens + s.max).toBeLessThanOrEqual(32_768);
+    }
+    expect(notices).toEqual([]);
+  });
+
+  it("says so when the server cut the prompt after all, and runs nothing the reply asked for", async () => {
+    const turns = [
+      sse([{ type: "tool_use", id: "a", name: "get_state", input: {} }], "tool_use"),
+      sse([{ type: "tool_use", id: "b", name: "refine", input: {} }], "tool_use"),
+    ];
+    const api = await countingServer(turns, 1);
+    server = api.server;
+    const ran: string[] = [];
+    const runner = { run: async (name: string) => (ran.push(name), { isError: false, text: "{}" }) };
+    const notices: string[] = [];
+    const chat = new AgentChat(runner as unknown as AgentExecutor);
+    await chat.send("Refine it.", { transport: "lmstudio", serverUrl: api.url, model: "qwen/qwen3.8-27b", effort: "high" }, quiet(notices), new AbortController().signal);
+    expect(ran).toEqual(["get_state"]);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatch(/^The server read only 7,000 of about [\d,]+ prompt tokens: it cut the prompt, so this reply did not see all of its instructions and the conversation, and nothing it asked for was run\./);
+    const last = chat.history().at(-1)!.content as { tool_use_id: string; is_error: boolean }[];
+    expect(last).toEqual([expect.objectContaining({ tool_use_id: "b", is_error: true })]);
   });
 });

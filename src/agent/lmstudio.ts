@@ -89,12 +89,16 @@ export function lmstudioUnreachableHint(url: string): string {
 
 /**
  * Before a message: make sure the model runs with room for the Agent's
- * instructions. Not loaded: load it with 32k (or its own maximum, if smaller)
- * and say so. Loaded with less than that: refuse, with how to reload it — a
- * copy another program may be using is never unloaded from here. A model the
- * server does not list is left to the request to report.
+ * instructions, and say how much it has. Not loaded: load it with 32k (or its
+ * own maximum, if smaller) and say so. Loaded with less than that: refuse,
+ * with how to reload it — a copy another program may be using is never
+ * unloaded from here. A model the server does not list is left to the
+ * request to report (its context then unknown).
+ *
+ * `context` is the window the chat sizes each request to: LM Studio cuts a
+ * longer prompt from the middle without a word.
  */
-export async function ensureLmStudioContext(url: string, model: string, signal?: AbortSignal): Promise<string | null> {
+export async function ensureLmStudioContext(url: string, model: string, signal?: AbortSignal): Promise<{ readonly notice: string | null; readonly context: number | null }> {
   const base = lmstudioBase(url);
   let models: LmStudioModel[];
   try {
@@ -104,11 +108,11 @@ export async function ensureLmStudioContext(url: string, model: string, signal?:
     throw e;
   }
   const m = models.find((x) => x.key === model);
-  if (!m) return null;
+  if (!m) return { notice: null, context: null };
   const needed = Math.min(MIN_AGENT_CONTEXT, m.maxContext ?? MIN_AGENT_CONTEXT);
   const k = (n: number): string => `${Math.round(n / 1024)}k`;
   if (m.loadedContext !== null) {
-    if (m.loadedContext >= needed) return null;
+    if (m.loadedContext >= needed) return { notice: null, context: m.loadedContext };
     throw new Error(
       `LM Studio has ${model} loaded with ${k(m.loadedContext)} tokens of context, and the Agent's instructions alone are about 15k, so the model would lose them. ` +
         `Reload it with ${k(needed)}: eject it in LM Studio, then pick it again here (the Agent loads it with ${k(needed)}), or run lms unload ${model} && lms load ${model} --context-length ${needed}.`,
@@ -122,5 +126,5 @@ export async function ensureLmStudioContext(url: string, model: string, signal?:
     const why = (typeof body.error === "string" ? body.error : body.error?.message) ?? body.message ?? `it answered ${res.status}`;
     throw new Error(`LM Studio could not load ${model} with a ${k(needed)} context: ${why}`);
   }
-  return `Loaded ${model} in LM Studio with a ${k(needed)} context.`;
+  return { notice: `Loaded ${model} in LM Studio with a ${k(needed)} context.`, context: needed };
 }

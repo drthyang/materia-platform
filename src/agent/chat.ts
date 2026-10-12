@@ -33,7 +33,7 @@ import type {
 import { LIVE_TOOLS, inputJsonSchema } from "@/agent/tools";
 import type { AgentSituation, ToolRunner } from "@/agent/executor";
 import { agentSystemPrompt, autonomyNote, type AgentAutonomy } from "@/agent/systemPrompt";
-import { CONTEXT_EDITING, CONTEXT_EDITING_BETA, pruneForLocal } from "@/agent/contextWindow";
+import { CONTEXT_EDITING, CONTEXT_EDITING_BETA, historyChars, pruneForLocal } from "@/agent/contextWindow";
 import { hasRefusalFallback } from "@/agent/chat-models";
 import { ollamaBase, unreachableHint } from "@/agent/ollama";
 import { ensureLmStudioContext, lmstudioBase, lmstudioUnreachableHint } from "@/agent/lmstudio";
@@ -93,6 +93,23 @@ export class AgentChat {
     input_schema: inputJsonSchema(t) as BetaTool["input_schema"],
   }));
   private readonly system = agentSystemPrompt();
+  /**
+   * A local model's window, in tokens, as the server runs it (null: unknown,
+   * then the history keeps to a fixed budget). Each request is sized to it.
+   */
+  private window: number | null = null;
+  /** Characters per token of this model's prompts: a cautious guess, then measured from the server's own counts. */
+  private charsPerToken = CHARS_PER_TOKEN;
+  /** The last local request's size, to read the server's count against. */
+  private sent: { readonly chars: number; readonly estimate: number } | null = null;
+  /**
+   * The server has counted a whole prompt once (a count near the estimate):
+   * it reports totals, so a count far below the estimate means a cut. A
+   * server that counts only the tokens it had not cached never arms it.
+   */
+  private countsWhole = false;
+  /** The server and model the measured characters per token are for. */
+  private windowOf = "";
 
   constructor(private readonly executor: ToolRunner) {}
 
@@ -102,11 +119,20 @@ export class AgentChat {
     const backend: Backend = isLocal(config.transport) ? config.transport : "anthropic";
     if (this.backend !== null && this.backend !== backend) this.keepPortableBlocks();
     this.backend = backend;
+    this.window = null;
+    if (this.windowOf !== `${config.transport} ${config.model}`) {
+      // Another model: its tokens are counted anew.
+      this.windowOf = `${config.transport} ${config.model}`;
+      this.charsPerToken = CHARS_PER_TOKEN;
+      this.countsWhole = false;
+    }
     if (config.transport === "lmstudio") {
       // A model LM Studio loads by itself gets its default context, often far
-      // too short for the instructions: load it with room, or refuse.
+      // too short for the instructions: load it with room, or refuse. Its
+      // context is the window each request must fit: a longer prompt is cut.
       const loaded = await ensureLmStudioContext(config.serverUrl ?? "", config.model, signal);
-      if (loaded) cb.onNotice(loaded, "info");
+      if (loaded.notice) cb.onNotice(loaded.notice, "info");
+      this.window = loaded.context;
     }
     this.messages.push({ role: "user", content: text });
     this.executor.heard?.(text);
@@ -118,11 +144,13 @@ export class AgentChat {
     let fingerprint = (await this.situation())?.fingerprint ?? null;
     for (let turn = 0; turn < MAX_TURNS; turn++) {
       if (signal.aborted) return;
+      // Sized before anything shows: a request that cannot fit is refused, not retried.
+      const params = this.request(config);
       cb.onAssistantStart();
       let message: BetaMessage;
       const watch = { text: new RepeatWatch(), thinking: new RepeatWatch() };
       try {
-        const stream = client.beta.messages.stream(this.request(config), { signal });
+        const stream = client.beta.messages.stream(params, { signal });
         stream.on("text", (delta) => {
           cb.onText(delta);
           if (watch.text.add(delta)) stream.abort();
@@ -157,6 +185,7 @@ export class AgentChat {
       }
       cb.onUsage(message.usage);
       this.messages.push({ role: "assistant", content: message.content });
+      const cut = isLocal(config.transport) ? this.readCount(message.usage) : null;
       // Never a silent switch: say which model answered when a fallback did.
       for (const b of message.content) {
         if (b.type === "fallback") cb.onNotice(`${b.from.model} declined this turn; ${b.to.model} answered it.`, "info");
@@ -168,6 +197,12 @@ export class AgentChat {
       }
       if (message.stop_reason === "pause_turn") continue;
       const calls = message.content.filter((b: BetaContentBlock): b is BetaToolUseBlock => b.type === "tool_use");
+      if (cut !== null) {
+        // The server cut the prompt after all: this reply did not see all of it. Run nothing it asked for.
+        if (calls.length) this.messages.push({ role: "user", content: calls.map((c) => toolError(c.id, "Not run: the server cut the prompt, so this call was made without all of the conversation.")) });
+        cb.onNotice(cut, "error");
+        return;
+      }
       if (calls.length === 0) {
         // A reply that stalls (promises a call it does not make, waits for a
         // tool that already answered, or says nothing after a result) leaves
@@ -175,6 +210,7 @@ export class AgentChat {
         const said = message.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("\n");
         const stall = nudges < MAX_NUDGES ? stalledReply(said, this.tools.map((t) => t.name), ran) : null;
         if (stall === null) {
+          if (message.stop_reason === "max_tokens" && this.window !== null) cb.onNotice("The reply filled the room left in the model's window and was cut off. Ask it to go on, or clear the conversation to give it more room.", "error");
           if (!said.trim() && ran.length > 0) cb.onNotice(`The model gave no reply after the ${ran.at(-1)} result.${isLocal(config.transport) ? " Local models do this when the conversation no longer fits their context: clear the conversation, or use a longer context." : ""}`, "error");
           return;
         }
@@ -238,8 +274,17 @@ export class AgentChat {
     if (isLocal(config.transport)) {
       // A thinking-capable model thinks by default, and both servers reuse the
       // cached prompt prefix by themselves.
-      // A local window is small: old tool results go from the copy it gets.
-      return { model: config.model, max_tokens: 64000, system: `${this.system}\n\n${autonomyNote(config.autonomy ?? "ask")}`, tools: this.tools, messages: pruneForLocal(this.messages) };
+      const system = `${this.system}\n\n${autonomyNote(config.autonomy ?? "ask")}`;
+      const tools = this.tools;
+      if (this.window === null) {
+        // The window unknown: old tool results go from the copy it gets past a fixed budget.
+        this.sent = null;
+        return { model: config.model, max_tokens: 64000, system, tools, messages: pruneForLocal(this.messages) };
+      }
+      const fit = fitWindow(this.messages, system.length + JSON.stringify(tools).length, this.window, this.charsPerToken);
+      if (fit.refusal !== null) throw new Error(fit.refusal(config));
+      this.sent = { chars: fit.chars, estimate: fit.estimate };
+      return { model: config.model, max_tokens: fit.maxTokens, system, tools, messages: fit.messages };
     }
     return {
       model: config.model,
@@ -281,6 +326,28 @@ export class AgentChat {
     return this.messages;
   }
 
+  /**
+   * The server's count of the prompt it read, against what was sent: a count
+   * far below the estimate means it cut the prompt (a sentence for the user);
+   * otherwise it calibrates the characters per token. Null when it fits.
+   */
+  private readCount(usage: BetaUsage): string | null {
+    const sent = this.sent;
+    const read = (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0);
+    if (sent === null || this.window === null || read <= 0) return null;
+    if (read < CUT_SHARE * sent.estimate) {
+      if (!this.countsWhole) return null;
+      return `The server read only ${read.toLocaleString("en-US")} of about ${sent.estimate.toLocaleString("en-US")} prompt tokens: it cut the prompt, so this reply did not see all of its instructions and the conversation, and nothing it asked for was run. Check the context the model is loaded with, or clear the conversation.`;
+    }
+    const ratio = sent.chars / read;
+    // A count near the window may itself be a cut one: learn only from a prompt that clearly fit.
+    if (ratio >= 2 && ratio <= 6 && read < 0.95 * this.window) {
+      this.countsWhole = true;
+      this.charsPerToken = Math.min(MAX_CHARS_PER_TOKEN, Math.max(CHARS_PER_TOKEN_FLOOR, ratio * 0.92));
+    }
+    return null;
+  }
+
   /** Where the analysis stands, when the runner can say (a failure to read it is no reason to stop a turn). */
   private async situation(): Promise<AgentSituation | null> {
     try {
@@ -289,6 +356,54 @@ export class AgentChat {
       return null;
     }
   }
+}
+
+/** Characters per token a local model's prompt is first taken to have: low, so the estimate errs high (measured: 3.7 on the Agent's prompt for qwen3.8-27b). */
+export const CHARS_PER_TOKEN = 3;
+const CHARS_PER_TOKEN_FLOOR = 2.5;
+const MAX_CHARS_PER_TOKEN = 4.2;
+/** Tokens kept free for a local model's reply and its thinking. */
+export const REPLY_RESERVE = 6144;
+/** The least room for a reply a request is sent with. */
+export const MIN_REPLY = 2048;
+/** Template tokens around each message. */
+const MESSAGE_TOKENS = 8;
+/** A prompt the server counts below this share of the estimate was cut. */
+const CUT_SHARE = 0.4;
+
+const k = (n: number): string => `${Math.round(n / 1024)}k`;
+
+/**
+ * A local request sized to the model's window (tokens): the history pruned to
+ * what is left after the instructions, the tools and room for the reply; the
+ * reply capped at the room left. When even the most pruned history does not
+ * fit, a refusal instead: a prompt the server would cut is never sent.
+ */
+export function fitWindow(messages: readonly BetaMessageParam[], fixedChars: number, window: number, charsPerToken: number): {
+  readonly messages: BetaMessageParam[];
+  readonly chars: number;
+  readonly estimate: number;
+  readonly maxTokens: number;
+  readonly refusal: ((config: Pick<ChatConfig, "transport" | "model">) => string) | null;
+} {
+  const overhead = MESSAGE_TOKENS * (messages.length + 2);
+  const budget = Math.max(0, Math.floor((window - REPLY_RESERVE - overhead) * charsPerToken - fixedChars));
+  const pruned = pruneForLocal(messages, budget);
+  const chars = fixedChars + historyChars(pruned);
+  const estimate = Math.ceil(chars / charsPerToken) + overhead;
+  const room = window - estimate;
+  if (room >= MIN_REPLY) return { messages: pruned, chars, estimate, maxTokens: Math.min(64000, room), refusal: null };
+  return {
+    messages: pruned,
+    chars,
+    estimate,
+    maxTokens: 0,
+    refusal: (config) => {
+      const server = config.transport === "lmstudio" ? "LM Studio" : "Ollama";
+      const reload = config.transport === "lmstudio" ? ` (lms unload ${config.model} && lms load ${config.model} --context-length ${2 * window})` : "";
+      return `This conversation no longer fits the ${k(window)}-token context ${server} runs ${config.model} with, even with the old tool results shortened: it needs about ${k(estimate + MIN_REPLY)} (the instructions and tools alone about ${k(fixedChars / charsPerToken)}). Nothing was sent, so the model was not handed a cut prompt. Start a new conversation, or give the model a longer context${reload}.`;
+    },
+  };
 }
 
 /** A call made again at the same state, its result unchanged: noted once, and the third time the turn stops. */
