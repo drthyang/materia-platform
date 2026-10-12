@@ -15,8 +15,8 @@
  * keeps the full history:
  *
  *  - an old tool result becomes a digest: the tool, its ref, its key values,
- *    and whether the analysis has changed since — so the model knows what it
- *    already learned, and that it still holds unless a change ran.
+ *    and which changes ran after it (up to the results kept whole) — so the
+ *    model knows what it already learned, and whether it still holds.
  *    `read_ref` opens the whole result again.
  *  - a skill read again keeps only its latest copy; the method itself is
  *    never cut.
@@ -71,7 +71,7 @@ interface Call {
 /**
  * The history as a local model gets it, within `budget` characters: under it,
  * unchanged; over it, older copies of a skill read again, then the oldest
- * tool results in batches of `batch` (never the last), digested, and the
+ * tool results in batches of `batch` (never those of the last round), digested, and the
  * reasoning of the turns before them dropped, until it fits. When even that
  * does not fit, the most it can do; the chat measures the result and refuses
  * to send a prompt the model would lose.
@@ -95,10 +95,12 @@ export function pruneForLocal(messages: readonly BetaMessageParam[], budget = LO
   for (const r of results) if (KEEP_TOOLS.includes(r.name)) latestSkill.set(skillKey(r), r.id);
   const staleSkills = new Set(results.filter((r) => KEEP_TOOLS.includes(r.name) && latestSkill.get(skillKey(r)) !== r.id).map((r) => r.id));
   const others = results.filter((r) => !KEEP_TOOLS.includes(r.name));
-  const changed = changesAfter(messages, callOf);
 
   const prune = (cut: number): BetaMessageParam[] => {
     const digested = new Set([...staleSkills, ...others.slice(0, cut).map((r) => r.id)]);
+    // What changed after each digested result, up to the last digested one: a digest depends only
+    // on the batch, so it reads the same until the next batch; later changes are in the results kept whole.
+    const changed = changesAfter(messages, callOf, cut > 0 ? others[cut - 1]!.id : null);
     // The reasoning of every turn before the last digested result goes with it.
     const thinkingBefore = cut > 0 ? others[cut - 1]!.message : -1;
     return messages.map((m, i) => {
@@ -121,8 +123,9 @@ export function pruneForLocal(messages: readonly BetaMessageParam[], budget = LO
       };
     });
   };
-  // The smallest batch of digests that fits; at most every result but the last.
-  const most = Math.max(0, others.length - 1);
+  // The smallest batch of digests that fits; never a result of the last round, which the model has not read yet.
+  const lastRound = results.length ? results.at(-1)!.message : -1;
+  const most = others.filter((r) => r.message < lastRound).length;
   for (let cut = 0; ; cut = Math.min(most, cut + batch)) {
     const pruned = prune(cut);
     if (historyChars(pruned) <= budget || cut === most) return pruned;
@@ -132,8 +135,8 @@ export function pruneForLocal(messages: readonly BetaMessageParam[], budget = LO
 const skillName = (input: Readonly<Record<string, unknown>>): string =>
   [input.name, input.reference].filter((v): v is string => typeof v === "string").map((v) => `"${v}"`).join(" · ");
 
-/** For each tool result, the change tools that ran (and changed something) after it, in order. */
-function changesAfter(messages: readonly BetaMessageParam[], callOf: ReadonlyMap<string, Call>): Map<string, string[]> {
+/** For each tool result, the change tools that ran (and changed something) after it, up to the result `until` (null: none), in order. */
+function changesAfter(messages: readonly BetaMessageParam[], callOf: ReadonlyMap<string, Call>, until: string | null): Map<string, string[]> {
   const order: { readonly id: string; readonly change: string | null }[] = [];
   for (const m of messages) {
     if (m.role !== "user" || typeof m.content === "string") continue;
@@ -144,6 +147,8 @@ function changesAfter(messages: readonly BetaMessageParam[], callOf: ReadonlyMap
       order.push({ id: b.tool_use_id, change: done ? name : null });
     }
   }
+  if (until === null) return new Map();
+  order.splice(order.findIndex((o) => o.id === until) + 1);
   const out = new Map<string, string[]>();
   const later: string[] = [];
   for (let i = order.length - 1; i >= 0; i--) {
@@ -170,8 +175,8 @@ export function digestResult(tool: string, text: string, isError: boolean, chang
   const ref = parsed !== null && typeof parsed === "object" && typeof (parsed as { ref?: unknown }).ref === "string" ? (parsed as { ref: string }).ref : null;
   const values = parsed === undefined ? clip(text.replace(/\s+/g, " "), DIGEST_VALUES) : keyValues(parsed, DIGEST_VALUES);
   const since = changedSince.length === 0
-    ? "Nothing has been changed since: it still holds."
-    : `Changed since by ${changedSince.slice(0, 4).join(", ")}${changedSince.length > 4 ? ", …" : ""}: ${tool === "get_state" ? "get_state gives the analysis as it is now" : "its values may have moved"}.`;
+    ? "No change ran after it, up to the results kept whole below."
+    : `After it, ${changedSince.slice(0, 4).join(", ")}${changedSince.length > 4 ? ", …" : ""} changed the analysis: ${tool === "get_state" ? "get_state gives it as it is now" : "its values may have moved"}.`;
   return `[${tool}, an earlier result${ref ? ` (${ref})` : ""}, shortened to fit the model's window: ${values || "(no values)"}. ${since}${ref ? ` read_ref "${ref}" gives it whole.` : ""}]`;
 }
 

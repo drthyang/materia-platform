@@ -238,7 +238,8 @@ export function completionEvents(model: string): { readonly feed: (line: string)
       out += event("content_block_delta", { index, delta: { type: "input_json_delta", partial_json: c.args.trim() || "{}" } });
       out += event("content_block_stop", { index });
     }
-    const stop = calls.size > 0 ? "tool_use" : finish === "length" ? "max_tokens" : "end_turn";
+    // Cut off by the limit, a call's input may be cut too: never "tool_use" then (the chat runs nothing).
+    const stop = finish === "length" ? "max_tokens" : calls.size > 0 ? "tool_use" : "end_turn";
     out += event("message_delta", { delta: { stop_reason: stop, stop_sequence: null }, usage: { output_tokens: usage.output, ...(usage.input !== null ? { input_tokens: usage.input } : {}) } });
     return out + event("message_stop", {});
   };
@@ -323,19 +324,27 @@ export function openaiCompatFetch(base: string, key: string | undefined): (input
     const sse = completionEvents(req.model);
     let buffer = "";
     const stream = new ReadableStream<Uint8Array>({
+      // Read until a read yields an event (or the stream ends): a pull that
+      // enqueues nothing is not called again, and the reader would wait forever
+      // on a chunk that held only part of a line, or lines with no event.
       async pull(controller) {
-        const { done, value } = await reader.read();
-        if (done) {
-          const tail = sse.feed(buffer + decoder.decode()) + sse.end();
-          if (tail) controller.enqueue(encoder.encode(tail));
-          controller.close();
-          return;
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) {
+            const tail = sse.feed(buffer + decoder.decode()) + sse.end();
+            if (tail) controller.enqueue(encoder.encode(tail));
+            controller.close();
+            return;
+          }
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+          const out = lines.map(sse.feed).join("");
+          if (out) {
+            controller.enqueue(encoder.encode(out));
+            return;
+          }
         }
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        const out = lines.map(sse.feed).join("");
-        if (out) controller.enqueue(encoder.encode(out));
       },
       cancel(reason) {
         return reader.cancel(reason);

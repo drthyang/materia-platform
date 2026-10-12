@@ -122,13 +122,16 @@ export class AgentChat {
   /** Characters per token of this model's prompts: a cautious guess, then measured from the server's own counts. */
   private charsPerToken = CHARS_PER_TOKEN;
   /** The last local request's size, to read the server's count against. */
-  private sent: { readonly chars: number; readonly estimate: number } | null = null;
+  private sent: { readonly chars: number; readonly sentChars: number; readonly estimate: number } | null = null;
   /**
-   * The server has counted a whole prompt once (a count near the estimate):
-   * it reports totals, so a count far below the estimate means a cut. A
-   * server that counts only the tokens it had not cached never arms it.
+   * The server's counts that read as the whole prompt (near the estimate, and
+   * not below the last such count): after two, it is known to count whole
+   * prompts, cached or not, so a count far below the estimate means a cut. A
+   * server that counts only what it had not cached gives one such count at
+   * most (its first, cold request) and never arms the check.
    */
-  private countsWhole = false;
+  private wholeCounts = 0;
+  private lastWhole = 0;
   /** The server and model the measured characters per token are for. */
   private windowOf = "";
   /** Ollama: the longest context the model takes (null: unknown), and what the next request runs with. */
@@ -148,7 +151,8 @@ export class AgentChat {
       // Another model: its tokens are counted anew.
       this.windowOf = `${config.transport} ${config.model}`;
       this.charsPerToken = CHARS_PER_TOKEN;
-      this.countsWhole = false;
+      this.wholeCounts = 0;
+      this.lastWhole = 0;
     }
     if (config.transport === "lmstudio") {
       // A model LM Studio loads by itself gets its default context, often far
@@ -180,7 +184,8 @@ export class AgentChat {
     const gated = new Set<string>();
     const ran: string[] = [];
     // The same call at the same state, or call after call that changes nothing: a loop.
-    const guard = new LoopGuard();
+    // Calls that change nothing are counted on a local model only: Claude may read at length (a ref page by page).
+    const guard = new LoopGuard({ countStill: isSized(config.transport) });
     this.here = await this.situation();
     let fingerprint = this.here?.fingerprint ?? null;
     for (let turn = 0; turn < MAX_TURNS; turn++) {
@@ -341,16 +346,18 @@ export class AgentChat {
         return { model: config.model, max_tokens: 64000, system, tools, messages: pruneForLocal(this.messages) };
       }
       const fixed = system.length + JSON.stringify(tools).length;
-      let fit = fitWindow(this.messages, fixed, this.window, this.charsPerToken);
+      // OpenAI's own models take at most 16k (gpt-4o) to 32k tokens of reply: cap it there.
+      const cap = config.transport === "openai-compatible" ? OPENAI_REPLY_CAP : 64000;
+      let fit = fitWindow(this.messages, fixed, this.window, this.charsPerToken, cap);
       if (fit.refusal !== null && config.transport === "ollama" && this.maxWindow !== null && this.window < this.maxWindow) {
         // Ollama can run the model with more: the smallest step of 8k that holds it (one reload), up to its maximum.
         const grown = Math.min(this.maxWindow, Math.ceil((fit.estimate + REPLY_RESERVE) / 8192) * 8192);
-        const wider = fitWindow(this.messages, fixed, grown, this.charsPerToken);
+        const wider = fitWindow(this.messages, fixed, grown, this.charsPerToken, cap);
         if (wider.refusal === null) this.window = grown;
         fit = wider;
       }
       if (fit.refusal !== null) throw new Error(fit.refusal(config));
-      this.sent = { chars: fit.chars, estimate: fit.estimate };
+      this.sent = { chars: fit.chars, sentChars: fit.sentChars, estimate: fit.estimate };
       // fit was sized to this.window (grown when it had to be).
       this.ollamaPlan = config.transport === "ollama" ? { numCtx: this.window, numPredict: fit.maxTokens } : null;
       return { model: config.model, max_tokens: fit.maxTokens, system, tools, messages: fit.messages };
@@ -418,13 +425,16 @@ export class AgentChat {
     const read = (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0);
     if (sent === null || this.window === null || read <= 0) return null;
     if (read < CUT_SHARE * sent.estimate) {
-      if (!this.countsWhole) return null;
+      if (this.wholeCounts < 2) return null;
       return `The server read only ${read.toLocaleString("en-US")} of about ${sent.estimate.toLocaleString("en-US")} prompt tokens: it cut the prompt, so this reply did not see all of its instructions and the conversation, and nothing it asked for was run. Check the context the model is loaded with, or clear the conversation.`;
     }
-    const ratio = sent.chars / read;
-    // A count near the window may itself be a cut one: learn only from a prompt that clearly fit.
-    if (ratio >= 2 && ratio <= 6 && read < 0.95 * this.window) {
-      this.countsWhole = true;
+    // Measured on what the server surely read (reasoning a server drops is left out), so the
+    // ratio errs low. A count near the window may be a cut one, and a count below the last
+    // whole one may leave out what was cached: learn only from a prompt that clearly fit, whole.
+    const ratio = sent.sentChars / read;
+    if (ratio >= 2.4 && ratio <= 4.5 && read < 0.95 * this.window && read >= 0.9 * this.lastWhole) {
+      this.wholeCounts++;
+      this.lastWhole = read;
       this.charsPerToken = Math.min(MAX_CHARS_PER_TOKEN, Math.max(CHARS_PER_TOKEN_FLOOR, ratio * 0.92));
     }
     return null;
@@ -452,11 +462,13 @@ export class AgentChat {
 /** Characters per token a local model's prompt is first taken to have: low, so the estimate errs high (measured: 3.7 on the Agent's prompt for qwen3.8-27b). */
 export const CHARS_PER_TOKEN = 3;
 const CHARS_PER_TOKEN_FLOOR = 2.5;
-const MAX_CHARS_PER_TOKEN = 4.2;
+const MAX_CHARS_PER_TOKEN = 3.8;
 /** Tokens kept free for a local model's reply and its thinking. */
 export const REPLY_RESERVE = 6144;
 /** The least room for a reply a request is sent with. */
 export const MIN_REPLY = 2048;
+/** The most an OpenAI-compatible reply is given (gpt-4o takes no more). */
+const OPENAI_REPLY_CAP = 16384;
 /** Template tokens around each message. */
 const MESSAGE_TOKENS = 8;
 /** A prompt the server counts below this share of the estimate was cut. */
@@ -464,15 +476,20 @@ const CUT_SHARE = 0.4;
 
 const k = (n: number): string => `${Math.round(n / 1024)}k`;
 
+const withoutThinking = (messages: readonly BetaMessageParam[]): BetaMessageParam[] =>
+  messages.map((m) => (m.role !== "assistant" || typeof m.content === "string" ? m : { ...m, content: m.content.filter((b) => b.type !== "thinking" && b.type !== "redacted_thinking") }));
+
 /**
  * A local request sized to the model's window (tokens): the history pruned to
  * what is left after the instructions, the tools and room for the reply; the
  * reply capped at the room left. When even the most pruned history does not
  * fit, a refusal instead: a prompt the server would cut is never sent.
  */
-export function fitWindow(messages: readonly BetaMessageParam[], fixedChars: number, window: number, charsPerToken: number): {
+export function fitWindow(messages: readonly BetaMessageParam[], fixedChars: number, window: number, charsPerToken: number, replyCap = 64000): {
   readonly messages: BetaMessageParam[];
   readonly chars: number;
+  /** The characters every server surely reads: without the reasoning of earlier replies, which some drop. */
+  readonly sentChars: number;
   readonly estimate: number;
   readonly maxTokens: number;
   readonly refusal: ((config: Pick<ChatConfig, "transport" | "model">) => string) | null;
@@ -481,12 +498,14 @@ export function fitWindow(messages: readonly BetaMessageParam[], fixedChars: num
   const budget = Math.max(0, Math.floor((window - REPLY_RESERVE - overhead) * charsPerToken - fixedChars));
   const pruned = pruneForLocal(messages, budget);
   const chars = fixedChars + historyChars(pruned);
+  const sentChars = fixedChars + historyChars(withoutThinking(pruned));
   const estimate = Math.ceil(chars / charsPerToken) + overhead;
   const room = window - estimate;
-  if (room >= MIN_REPLY) return { messages: pruned, chars, estimate, maxTokens: Math.min(64000, room), refusal: null };
+  if (room >= MIN_REPLY) return { messages: pruned, chars, sentChars, estimate, maxTokens: Math.min(replyCap, room), refusal: null };
   return {
     messages: pruned,
     chars,
+    sentChars,
     estimate,
     maxTokens: 0,
     refusal: (config) => {
@@ -506,6 +525,8 @@ const MAX_SAME_CALL = 3;
 const MAX_REPEATS = 4;
 /** Calls in a row that change nothing: the model is told at the first count, and the turn stops at the second. */
 const STILL_NOTE = 12;
+/** Calls that neither count toward STILL_STOP nor reset it. */
+const STILL_NEUTRAL: ReadonlySet<string> = new Set(["read_ref", "read_skill"]);
 const STILL_STOP = 20;
 
 const callKey = (name: string, input: unknown): string => `${name} ${stableJson(input ?? {})}`;
@@ -537,6 +558,9 @@ export class LoopGuard {
   private readonly seen = new Map<string, { readonly at: string | null; readonly text: string; readonly count: number }>();
   private repeats = 0;
   private still = 0;
+  private toldStill = false;
+
+  constructor(private readonly opts: { readonly countStill?: boolean } = {}) {}
 
   /** Before a call: why it must not run (it already ran twice at this very state), or null. */
   check(name: string, input: unknown, at: string | null): { readonly why: string; readonly nudge: string } | null {
@@ -556,7 +580,8 @@ export class LoopGuard {
     const repeat = prev !== undefined && prev.text === answer && (before === null || prev.at === before);
     const count = repeat ? prev.count + 1 : 1;
     this.seen.set(key, { at: before, text: answer, count });
-    this.still = before !== null && after === before ? this.still + 1 : 0;
+    // Reading a ref or a skill is reading what is already there: neither progress nor a stall.
+    if (!STILL_NEUTRAL.has(name)) this.still = this.opts.countStill !== false && before !== null && after === before ? this.still + 1 : 0;
     if (repeat) {
       this.repeats++;
       if (count >= MAX_SAME_CALL) return { note: null, stop: `it called ${name} ${count} times with the same input, and nothing changed in between` };
@@ -567,8 +592,9 @@ export class LoopGuard {
       };
     }
     if (this.still >= STILL_STOP) return { note: null, stop: `it made ${this.still} tool calls in a row without changing the analysis` };
-    if (this.still === STILL_NOTE) {
-      return { note: `${FROM_APP} ${STILL_NOTE} tool calls in a row have not changed the analysis. Make the change the method calls for next, write the report if the work is done, or stop and ask the user.`, stop: null };
+    if (this.still >= STILL_NOTE && !this.toldStill) {
+      this.toldStill = true;
+      return { note: `${FROM_APP} ${this.still} tool calls in a row have not changed the analysis. Make the change the method calls for next, write the report if the work is done, or stop and ask the user.`, stop: null };
     }
     return { note: null, stop: null };
   }

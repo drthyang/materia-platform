@@ -191,7 +191,7 @@ export function messagesEvents(model: string): { readonly feed: (line: string) =
     if (chunk.done) {
       finished = true;
       out += close();
-      const stop = calls > 0 ? "tool_use" : chunk.done_reason === "length" ? "max_tokens" : "end_turn";
+      const stop = chunk.done_reason === "length" ? "max_tokens" : calls > 0 ? "tool_use" : "end_turn";
       out += event("message_delta", { delta: { stop_reason: stop, stop_sequence: null }, usage: { output_tokens: chunk.eval_count ?? 0, ...(typeof chunk.prompt_eval_count === "number" ? { input_tokens: chunk.prompt_eval_count } : {}) } });
       out += event("message_stop", {});
     }
@@ -231,19 +231,27 @@ export function ollamaNativeFetch(plan: () => OllamaPlan | null): (input: string
     const sse = messagesEvents(req.model);
     let buffer = "";
     const stream = new ReadableStream<Uint8Array>({
+      // Read until a read yields an event (or the stream ends): a pull that
+      // enqueues nothing is not called again, and the reader would wait forever
+      // on a chunk that held only part of a line, or lines with no event.
       async pull(controller) {
-        const { done, value } = await reader.read();
-        if (done) {
-          const tail = sse.feed(buffer + decoder.decode()) + sse.end();
-          if (tail) controller.enqueue(encoder.encode(tail));
-          controller.close();
-          return;
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) {
+            const tail = sse.feed(buffer + decoder.decode()) + sse.end();
+            if (tail) controller.enqueue(encoder.encode(tail));
+            controller.close();
+            return;
+          }
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+          const out = lines.map(sse.feed).join("");
+          if (out) {
+            controller.enqueue(encoder.encode(out));
+            return;
+          }
         }
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        const out = lines.map(sse.feed).join("");
-        if (out) controller.enqueue(encoder.encode(out));
       },
       cancel(reason) {
         return reader.cancel(reason);

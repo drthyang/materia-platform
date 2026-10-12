@@ -46,8 +46,8 @@ describe("keeping a local model's history in its window", () => {
     expect(r[0]).toBe('[read_skill "my-rietveld-workflow": read again later in this conversation, where it is in full.]');
     expect(r[6]).toBe(SKILL);
     // A result from before a change says so, and how to see the analysis now.
-    expect(r[1]).toBe('[get_state, an earlier result (#1), shortened to fit the model\'s window: technique powder · wR 9.1 · pad ' + "x".repeat(59) + '… · phases[] 1 · phases[0].name Mn3Ga · phases[0].spaceGroup P 63/m m c. Changed since by refine: get_state gives the analysis as it is now. read_ref "#1" gives it whole.]');
-    expect(r[3]).toMatch(/^\[refine, an earlier result \(#3\), shortened to fit the model's window: refined true · status converged · wR 8\.31 · pad y+…\. Nothing has been changed since: it still holds\. read_ref "#3" gives it whole\.\]$/);
+    expect(r[1]).toBe('[get_state, an earlier result (#1), shortened to fit the model\'s window: technique powder · wR 9.1 · pad ' + "x".repeat(59) + '… · phases[] 1 · phases[0].name Mn3Ga · phases[0].spaceGroup P 63/m m c. After it, refine changed the analysis: get_state gives it as it is now. read_ref "#1" gives it whole.]');
+    expect(r[3]).toMatch(/^\[refine, an earlier result \(#3\), shortened to fit the model's window: refined true · status converged · wR 8\.31 · pad y+…\. No change ran after it, up to the results kept whole below\. read_ref "#3" gives it whole\.\]$/);
     // Digested two at a time: the four oldest went, the newer ones stay whole.
     expect(r[5]).toBe("Error: refine first");
     expect(digestResult("assess_refinement", "Error: refine first", true, [])).toBe("[assess_refinement, an earlier call: it answered with an error: Error: refine first]");
@@ -73,6 +73,29 @@ describe("keeping a local model's history in its window", () => {
     expect(moves).toBeGreaterThan(0);
   });
 
+  it("never shortens a result of the last round, which the model has not read yet", () => {
+    const h = session([{ name: "get_state", result: state(9, 1) }, { name: "get_state", result: state(9, 2) }]);
+    // The last round made three calls at once.
+    h.push({ role: "assistant", content: ["a", "b", "c"].map((id) => ({ type: "tool_use" as const, id, name: "get_state", input: {} })) });
+    h.push({ role: "user", content: ["a", "b", "c"].map((id, i) => ({ type: "tool_result" as const, tool_use_id: id, content: state(8, 10 + i) })) });
+    const r = results(pruneForLocal(h, 1000, 1));
+    expect(r.slice(0, 2).every((x) => x.startsWith("[get_state, an earlier result"))).toBe(true);
+    expect(r.slice(2)).toEqual([state(8, 10), state(8, 11), state(8, 12)]);
+  });
+
+  it("keeps a digest's words until the next batch, whatever changes after it", () => {
+    const steps: Step[] = [
+      { name: "get_state", result: state(9, 1) },
+      { name: "refine", result: state(8, 2) },
+      { name: "get_state", result: state(8, 3) },
+      { name: "get_state", result: state(8, 4) },
+    ];
+    const first = pruneForLocal(session(steps), 4000, 2);
+    // A new kind of change after the batch's last digested result: the digests read as before.
+    const later = pruneForLocal(session([...steps, { name: "set_background", result: JSON.stringify({ ref: "#5", terms: 6 }) }]), 4000, 2);
+    expect(results(later).slice(0, 2)).toEqual(results(first).slice(0, 2));
+  });
+
   it("drops the reasoning of the turns it digests, and keeps the latest", () => {
     const steps: Step[] = Array.from({ length: 8 }, (_, i) => ({ name: "get_state", result: state(9, i + 1), thinking: "t".repeat(800) }));
     const pruned = pruneForLocal(session(steps), 8000, 4);
@@ -89,13 +112,13 @@ describe("keeping a local model's history in its window", () => {
   });
 
   it("digests a text result and a declined change", () => {
-    expect(digestResult("read_ref", "plain text\nresult", false, [])).toBe("[read_ref, an earlier result, shortened to fit the model's window: plain text result. Nothing has been changed since: it still holds.]");
+    expect(digestResult("read_ref", "plain text\nresult", false, [])).toBe("[read_ref, an earlier result, shortened to fit the model's window: plain text result. No change ran after it, up to the results kept whole below.]");
     const h = session([
       { name: "get_state", result: state(8, 1) },
       { name: "set_free", result: JSON.stringify({ ref: "#2", declined: true }) },
       { name: "get_state", result: state(8, 3) },
     ]);
     // A declined change changed nothing.
-    expect(results(pruneForLocal(h, 2000, 1))[0]).toMatch(/Nothing has been changed since: it still holds\./);
+    expect(results(pruneForLocal(h, 2000, 1))[0]).toMatch(/No change ran after it, up to the results kept whole below\./);
   });
 });

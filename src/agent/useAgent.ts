@@ -160,11 +160,16 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
               if (settingsRef.current.autoApprove && !entry.alwaysAsk) return Promise.resolve(true);
               attention.current();
               return new Promise<boolean>((resolve) => {
-                approvals.current.set(entry.id, resolve);
-                signal?.addEventListener("abort", () => {
+                // Stop declines the card; a decision removes the listener (one per card would pile up).
+                const onAbort = (): void => {
                   approvals.current.delete(entry.id);
                   resolve(false);
-                }, { once: true });
+                };
+                approvals.current.set(entry.id, (ok) => {
+                  signal?.removeEventListener("abort", onAbort);
+                  resolve(ok);
+                });
+                signal?.addEventListener("abort", onAbort, { once: true });
               });
             },
             onActivity: (entry) => {

@@ -542,7 +542,7 @@ describe("the loop guard", () => {
   const model = (url: string) => ({ transport: "api-key" as const, apiKey: "sk-test", baseURL: url, model: "qwen/qwen3.8-27b", effort: "high" as const });
 
   it("notes a call repeated at the same state, refuses the third, and tells a changed state apart", () => {
-    const g = new LoopGuard();
+    const g = new LoopGuard({ countStill: true });
     expect(g.record("get_state", {}, '{"ref":"#1","wR":8}', "s1", "s1")).toEqual({ note: null, stop: null });
     // The same call, the same state, the same answer (only the ref differs): a repeat.
     const again = g.record("get_state", {}, '{"ref":"#2","wR":8}', "s1", "s1");
@@ -564,8 +564,24 @@ describe("the loop guard", () => {
     expect(g.record("read_skill", { name: "m" }, "Skill m", null, null).stop).toBe("it called read_skill 3 times with the same input, and nothing changed in between");
   });
 
+  it("does not count calls that change nothing for Claude, nor reading refs and skills for anyone", () => {
+    const claude = new LoopGuard({ countStill: false });
+    expect(Array.from({ length: 30 }, (_, i) => claude.record("reflection_equivalents", { h: i }, `{"n":${i}}`, "s", "s")).every((o) => o.stop === null && o.note === null)).toBe(true);
+    const local = new LoopGuard({ countStill: true });
+    const pages = Array.from({ length: 30 }, (_, i) => local.record("read_ref", { ref: "#3", start: i * 100 }, `page ${i}`, "s", "s"));
+    expect(pages.every((o) => o.stop === null && o.note === null)).toBe(true);
+  });
+
+  it("tells the model once when the twelfth call that changes nothing is a repeat", () => {
+    const g = new LoopGuard({ countStill: true });
+    for (let i = 0; i < 11; i++) g.record("reflection_equivalents", { h: i }, `{"n":${i}}`, "s", "s");
+    // The twelfth repeats the eleventh: its note is the repeat's; the next call gets the stall note.
+    expect(g.record("reflection_equivalents", { h: 10 }, '{"n":10}', "s", "s").note).toMatch(/You already made this call/);
+    expect(g.record("reflection_equivalents", { h: 12 }, '{"n":12}', "s", "s").note).toMatch(/13 tool calls in a row|12 tool calls in a row/);
+  });
+
   it("stops when call after call changes nothing, and tells the model first", () => {
-    const g = new LoopGuard();
+    const g = new LoopGuard({ countStill: true });
     const outs = Array.from({ length: 20 }, (_, i) => g.record("reflection_equivalents", { h: i, k: 0, l: 0 }, `{"n":${i}}`, "s", "s"));
     expect(outs[11]!.note).toMatch(/12 tool calls in a row have not changed the analysis/);
     expect(outs.slice(0, 19).every((o) => o.stop === null)).toBe(true);
@@ -714,20 +730,52 @@ describe("a local model's window", () => {
   it("says so when the server cut the prompt after all, and runs nothing the reply asked for", async () => {
     const turns = [
       sse([{ type: "tool_use", id: "a", name: "get_state", input: {} }], "tool_use"),
+      sse([{ type: "tool_use", id: "a2", name: "assess_refinement", input: {} }], "tool_use"),
       sse([{ type: "tool_use", id: "b", name: "refine", input: {} }], "tool_use"),
     ];
-    const api = await countingServer(turns, 1);
+    // Two whole counts first: the server is known to count whole prompts; then a cut one.
+    const api = await countingServer(turns, 2);
     server = api.server;
     const ran: string[] = [];
     const runner = { run: async (name: string) => (ran.push(name), { isError: false, text: "{}" }) };
     const notices: string[] = [];
     const chat = new AgentChat(runner as unknown as AgentExecutor);
     await chat.send("Refine it.", { transport: "lmstudio", serverUrl: api.url, model: "qwen/qwen3.8-27b", effort: "high" }, quiet(notices), new AbortController().signal);
-    expect(ran).toEqual(["get_state"]);
+    expect(ran).toEqual(["get_state", "assess_refinement"]);
     expect(notices).toHaveLength(1);
     expect(notices[0]).toMatch(/^The server read only 7,000 of about [\d,]+ prompt tokens: it cut the prompt, so this reply did not see all of its instructions and the conversation, and nothing it asked for was run\./);
     const last = chat.history().at(-1)!.content as { tool_use_id: string; is_error: boolean }[];
     expect(last).toEqual([expect.objectContaining({ tool_use_id: "b", is_error: true })]);
+  });
+
+  it("never calls a cache hit a cut, on a server that counts only what it had not cached", async () => {
+    // Its first, cold request counts the whole prompt; every later one only the new tokens.
+    const turns = Array.from({ length: 4 }, (_, i) => sse([{ type: "tool_use", id: `t${i}`, name: "reflection_equivalents", input: { h: i, k: 0, l: 0 } }], "tool_use"));
+    const s = createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (c: Buffer) => chunks.push(c));
+      req.on("end", () => {
+        if (req.url?.startsWith("/api/v1/models")) {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ models: [{ type: "llm", key: "q", max_context_length: 262144, loaded_instances: [{ id: "q", config: { context_length: 32768 } }], capabilities: { trained_for_tool_use: true } }] }));
+          return;
+        }
+        const n = served++;
+        const body = Buffer.concat(chunks).toString("utf8");
+        const counted = n === 0 ? Math.round(body.length / 3.7) : 300;
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        res.end((turns[n] ?? sse([{ type: "text", text: "Done." }], "end_turn")).replace('"input_tokens":100', `"input_tokens":${counted}`).replace('"cache_read_input_tokens":80', '"cache_read_input_tokens":0'));
+      });
+    });
+    let served = 0;
+    await new Promise<void>((r) => s.listen(0, "127.0.0.1", () => r()));
+    server = s;
+    const addr = s.address();
+    const notices: string[] = [];
+    const runner = { run: async () => ({ isError: false, text: "{\"h\":1}" }) };
+    await new AgentChat(runner as unknown as AgentExecutor).send("Compare.", { transport: "lmstudio", serverUrl: `http://127.0.0.1:${typeof addr === "object" && addr ? addr.port : 0}`, model: "q", effort: "high" }, quiet(notices), new AbortController().signal);
+    expect(notices).toEqual([]);
+    expect(served).toBe(5);
   });
 });
 
