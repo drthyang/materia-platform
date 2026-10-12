@@ -32,6 +32,7 @@ import type {
 } from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import { LIVE_TOOLS, inputJsonSchema, type LiveToolSpec } from "@/agent/tools";
 import { SCOPE_NOTE, scopedTools } from "@/agent/toolScope";
+import { evidenceGate } from "@/agent/evidence";
 import type { AgentSituation, ToolRunner } from "@/agent/executor";
 import { agentSystemPrompt, autonomyNote, type AgentAutonomy } from "@/agent/systemPrompt";
 import { CONTEXT_EDITING, CONTEXT_EDITING_BETA, historyChars, pruneForLocal } from "@/agent/contextWindow";
@@ -158,6 +159,8 @@ export class AgentChat {
     this.executor.heard?.(text);
     let parseRetries = 0;
     let nudges = 0;
+    // Evidence rules sent back for this message (evidence.ts): each at most once, and apart from the stall nudges.
+    const gated = new Set<string>();
     const ran: string[] = [];
     // The same call at the same state, or call after call that changes nothing: a loop.
     const guard = new LoopGuard();
@@ -213,7 +216,10 @@ export class AgentChat {
       }
 
       if (message.stop_reason === "refusal") {
-        cb.onNotice("Claude declined to continue this request.", "error");
+        // A call the declined reply began is answered, so the conversation stays valid.
+        const begun = message.content.filter((b: BetaContentBlock): b is BetaToolUseBlock => b.type === "tool_use");
+        if (begun.length) this.messages.push({ role: "user", content: begun.map((c) => toolError(c.id, "Not run: the model declined to continue this request.")) });
+        cb.onNotice("The model declined to continue this request.", "error");
         return;
       }
       if (message.stop_reason === "pause_turn") continue;
@@ -233,7 +239,13 @@ export class AgentChat {
         if (stall === null) {
           if (message.stop_reason === "max_tokens" && this.window !== null) cb.onNotice("The reply filled the room left in the model's window and was cut off. Ask it to go on, or clear the conversation to give it more room.", "error");
           if (!said.trim() && ran.length > 0) cb.onNotice(`The model gave no reply after the ${ran.at(-1)} result.${isLocal(config.transport) ? " Local models do this when the conversation no longer fits their context: clear the conversation, or use a longer context." : ""}`, "error");
-          return;
+          // An answer without the evidence its question needs goes back once, with what to run.
+          const gate = gated.size < MAX_GATES ? evidenceGate(said, text, ran, this.page(), gated) : null;
+          if (gate === null) return;
+          gated.add(gate.id);
+          cb.onNotice(gate.notice, "info");
+          this.messages.push({ role: "user", content: gate.nudge });
+          continue;
         }
         nudges++;
         cb.onNotice(stall.notice, "info");
@@ -265,7 +277,13 @@ export class AgentChat {
           continue;
         }
         this.called.add(call.name);
-        const out = await this.executor.run(call.name, call.input);
+        let out: { isError: boolean; text: string };
+        try {
+          out = await this.executor.run(call.name, call.input, signal);
+        } catch (e) {
+          // Never a call left without its answer: the conversation must stay valid.
+          out = { isError: true, text: `Error: the tool failed to run: ${e instanceof Error ? e.message : String(e)}` };
+        }
         ran.push(call.name);
         this.here = await this.situation();
         const after = this.here?.fingerprint ?? null;
@@ -392,6 +410,15 @@ export class AgentChat {
       this.charsPerToken = Math.min(MAX_CHARS_PER_TOKEN, Math.max(CHARS_PER_TOKEN_FLOOR, ratio * 0.92));
     }
     return null;
+  }
+
+  /** The page open, as the runner says (the evidence rules are per page). */
+  private page(): "powder" | "pdf" | "singleCrystal" | null {
+    try {
+      return this.executor.page?.() ?? this.here?.page ?? null;
+    } catch {
+      return null;
+    }
   }
 
   /** Where the analysis stands, when the runner can say (a failure to read it is no reason to stop a turn). */
@@ -529,6 +556,8 @@ export class LoopGuard {
 
 /** Most times one user message may ask a stalled model to go on. */
 const MAX_NUDGES = 2;
+/** Most evidence rules one user message may send back (evidence.ts). */
+const MAX_GATES = 2;
 const FROM_APP = "(From the app, not the user.)";
 
 /**
@@ -577,16 +606,22 @@ export function announcedTool(text: string, tools: readonly string[]): string | 
   if (!t || /\?\s*$/.test(t)) return null;
   const last = t.split(/\n\s*\n/).filter((p) => p.trim()).at(-1)!.trim();
   if (/\b(shall|should|may) I\b|\bwould you\b|\bdo you want\b|\blet me know\b|\bif you (want|agree|approve|prefer)\b|\byour (go-ahead|approval|call|decision)\b|\b(stop|stopping|pause|wait|waiting|hold) (here|for)\b/i.test(last)) return null;
-  const acting = /\b(now|next)\s*[.!]?$/i.test(last) || /^(starting|running|calling|proceeding|launching|beginning)\b/i.test(last) || /\b(I'll|I will|I'm going to|I am going to|let me|let's) (now )?(call|run|start|refine|free|fix|check|set|assess|use)\b/i.test(last);
+  // An action the reply takes now, in the first person ("I'll refine", "Starting the gate now."):
+  // "for now" is a stop, and "next" without a person is a summary of what is left.
+  const firstPerson = /\b(I|I'll|I will|I'm|I am|let me|let's|we'll|we will)\b/i.test(last);
+  const acting = /^(starting|running|calling|proceeding|launching|beginning)\b/i.test(last)
+    || /\b(I'll|I will|I'm going to|I am going to|let me|let's) (now )?(call|run|start|refine|free|fix|check|set|assess|use)\b/i.test(last)
+    || (/\b(now|next)\s*[.!]?$/i.test(last) && !/\bfor now\s*[.!]?$/i.test(last) && firstPerson);
   if (!acting) return null;
-  // The tool named closest to the end, else "refine" when the reply speaks of refining.
+  // The tool named closest to the end, as a word ("refine" is not in "refinement"), else "refine" when the reply speaks of refining.
   let best: string | null = null;
   let at = -1;
   for (const name of tools) {
-    const i = t.lastIndexOf(name);
-    if (i > at) {
-      at = i;
-      best = name;
+    for (const m of t.matchAll(new RegExp(`(?<![A-Za-z0-9_])${name}(?![A-Za-z0-9_])`, "g"))) {
+      if (m.index > at) {
+        at = m.index;
+        best = name;
+      }
     }
   }
   return best ?? (/\brefin(e|ing)\b/i.test(t) ? "refine" : null);

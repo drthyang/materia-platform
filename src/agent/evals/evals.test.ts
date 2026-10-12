@@ -473,6 +473,25 @@ const REPLAYS: Readonly<Record<string, Replay>> = {
   },
 };
 
+/**
+ * Failures some checks hold in every scenario but no scenario's bad replay
+ * shows: each replayed here on a page of each kind, to show the check
+ * catches it. A reply that ends on a promise to act (served three times: the
+ * stall guard asks twice to go on), and a change made before the method was
+ * read.
+ */
+const stall = (text: string): ScriptTurn[] => [{ text }, { text }, { text }];
+const MORE_FAILURES: readonly { readonly scenario: string; readonly turns: readonly ScriptTurn[]; readonly catches: readonly string[] }[] = [
+  { scenario: "full-refinement", turns: [{ calls: [RIETVELD, { name: "get_state" }] }, ...stall("According to your method, the cell check comes first. I will start by running check_cell_symmetry.\n\nStarting the Le Bail gate now.")], catches: ["does not end on a promise to act"] },
+  { scenario: "pdf-method", turns: [{ calls: [PDF, { name: "get_state" }] }, ...stall("The scale and the cell come first. I'll refine them now.")], catches: ["does not end on a promise to act"] },
+  { scenario: "sc-data-first", turns: [{ calls: [SC] }, ...stall("The data come first. Let me run reflection_statistics.")], catches: ["does not end on a promise to act"] },
+  { scenario: "full-refinement", turns: [{ calls: [{ name: "set_free", input: { free: ["pos_Mn1_0"] } }, { name: "refine" }] }, { text: "Refined." }], catches: ["reads the page's method before its first change"] },
+  { scenario: "pdf-method", turns: [{ calls: [{ name: "set_free", input: { free: ["pdfScale"] } }] }, { text: "Freed the scale." }], catches: ["reads the page's method before its first change"] },
+  { scenario: "sc-radiation-first", turns: [{ calls: [{ name: "set_radiation", input: { probe: "xray", wavelength: 0.71073 } }] }, { text: "Set to Mo Kα." }], catches: ["reads the page's method before its first change"] },
+  // The magnetic step has its own method: the Rietveld one does not count for it.
+  { scenario: "magnetic-structure", turns: [{ calls: [RIETVELD, { name: "search_propagation_vector" }] }, { calls: [{ name: "set_propagation_vector", input: { k: [0, 0, "1/2"] } }] }, { text: "k set." }], catches: ["reads the page's method before its first change"] },
+];
+
 async function replay(id: string, turns: readonly ScriptTurn[], toolScope?: "stage"): Promise<EvalResult & { overrun: number; offered: readonly (readonly string[])[] }> {
   const stand = await scriptedModel(turns);
   try {
@@ -523,6 +542,16 @@ describe("Agent evals, scripted", () => {
         expect(regraded(result), "the saved run, scored again").toEqual(verdicts(result));
       }, 60_000);
     });
+  }
+});
+
+describe("checks every scenario holds, shown to catch their failure", () => {
+  for (const f of MORE_FAILURES) {
+    it(`${f.scenario}: ${f.catches.join(", ")}`, async () => {
+      const result = await replay(f.scenario, f.turns);
+      for (const c of f.catches) expect(scenario(f.scenario).checks.map((k) => k.name), `${c} is not a check of ${f.scenario}`).toContain(c);
+      expect(failing(result), why(result)).toEqual(expect.arrayContaining([...f.catches]));
+    }, 60_000);
   }
 });
 

@@ -756,3 +756,42 @@ describe("the tools a request offers", () => {
     expect((claude.requests[0]!.body.tools as { name: string }[]).map((t) => t.name)).toEqual(LIVE_TOOLS.map((t) => t.name));
   });
 });
+
+describe("a turn that fails part-way keeps the conversation valid", () => {
+  const quiet = (notices: string[]) => ({ onAssistantStart: () => undefined, onText: () => undefined, onThinking: () => undefined, onNotice: (t: string) => notices.push(t), onUsage: () => undefined });
+
+  it("answers a call whose tool threw with an error, and goes on", async () => {
+    const api = await fakeApi([sse([{ type: "tool_use", id: "x", name: "get_state", input: {} }], "tool_use"), sse([{ type: "text", text: "The page could not be read." }], "end_turn")]);
+    const chat = new AgentChat({ run: async () => { throw new Error("chunk failed to load"); } } as unknown as AgentExecutor);
+    await chat.send("How is it?", { transport: "api-key", apiKey: "sk", baseURL: api.url, model: "claude-opus-5-5", effort: "high" }, quiet([]), new AbortController().signal);
+    await new Promise<void>((r) => api.server.close(() => r()));
+    const results = chat.history()[2]!.content as { tool_use_id: string; is_error: boolean; content: string }[];
+    expect(results).toEqual([{ type: "tool_result", tool_use_id: "x", is_error: true, content: "Error: the tool failed to run: chunk failed to load" }]);
+    expect(chat.history().map((m) => m.role)).toEqual(["user", "assistant", "user", "assistant"]);
+  });
+
+  it("answers the calls of a declined reply", async () => {
+    const api = await fakeApi([sse([{ type: "tool_use", id: "y", name: "refine", input: {} }], "refusal"), sse([{ type: "text", text: "OK." }], "end_turn")]);
+    const notices: string[] = [];
+    const chat = new AgentChat({ run: async () => ({ isError: false, text: "{}" }) } as unknown as AgentExecutor);
+    const config = { transport: "api-key" as const, apiKey: "sk", baseURL: api.url, model: "claude-opus-5-5", effort: "high" as const };
+    await chat.send("Refine.", config, quiet(notices), new AbortController().signal);
+    expect(notices).toEqual(["The model declined to continue this request."]);
+    expect(chat.history().at(-1)!.content).toEqual([{ type: "tool_result", tool_use_id: "y", content: "Not run: the model declined to continue this request.", is_error: true }]);
+    // The next message is accepted: every tool_use has its result.
+    await chat.send("Go on.", config, quiet(notices), new AbortController().signal);
+    await new Promise<void>((r) => api.server.close(() => r()));
+    expect(chat.history().map((m) => m.role)).toEqual(["user", "assistant", "user", "user", "assistant"]);
+  });
+
+  it("does not take an ordinary stop for a promise to act", () => {
+    const names = LIVE_TOOLS.map((t) => t.name);
+    // "for now" is a stop, and "refine" is not a word of "refinement".
+    expect(announcedTool("The scale, background and cell refinement converged at wR 8.3 %. I'll keep the occupancies fixed for now.", names)).toBeNull();
+    // A summary of what is left, with no one acting on it.
+    expect(announcedTool("Scale, background and cell are refined. Positions next.", names)).toBeNull();
+    // Still caught: an action in the first person.
+    expect(announcedTool("The cell checks out. I'll refine the positions now.", names)).toBe("refine");
+    expect(announcedTool("Let me run check_cell_symmetry.", names)).toBe("check_cell_symmetry");
+  });
+});

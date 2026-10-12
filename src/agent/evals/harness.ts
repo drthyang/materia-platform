@@ -140,9 +140,9 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
     onReport: (r) => reports.push({ title: r.title, markdown: withoutFigures(r.markdown), unverified: r.unverified, audit: r.audit }),
   });
   const runner: ToolRunner = {
-    run: async (name, input) => {
+    run: async (name, input, signal) => {
       const free = name === "refine" || name === "boxcar_scan" ? port.state().parameters.filter((p) => !p.fixed && !p.expression).map((p) => p.id) : undefined;
-      const out = await executor.run(name, input);
+      const out = await executor.run(name, input, signal);
       // The page records a refinement's step when it ends, as the Agent's.
       if (name === "refine" && !out.isError && /"refined":true/.test(out.text)) history.record("refine", "agent", "Refine");
       events.push({ kind: "call", name, input: (input ?? {}) as Record<string, unknown>, isError: out.isError, text: out.text, ...(free ? { free } : {}) });
@@ -151,6 +151,7 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
     newConversation: () => executor.newConversation(),
     heard: (text) => executor.heard(text),
     situation: () => executor.situation(),
+    page: () => executor.page(),
   };
   const chat = new AgentChat(runner);
   let reply: { kind: "reply"; text: string } | null = null;

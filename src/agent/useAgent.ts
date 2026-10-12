@@ -121,15 +121,26 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
   // first call, so a session that never uses the Agent never downloads it.
   const executor = useMemo<ToolRunner>(() => {
     let loaded: Promise<AgentExecutor> | null = null;
+    // The executor once loaded, for what is read synchronously (the page open).
+    let instance: AgentExecutor | null = null;
+    // A chunk that failed to load is asked for again next time, not remembered as failed.
     const load = (): Promise<AgentExecutor> =>
       (loaded ??= import("@/agent/executor").then(
         (m) =>
-          new m.AgentExecutor(host, {
-            approve: (entry) => {
+          (instance = new m.AgentExecutor(host, {
+            approve: (entry, signal) => {
+              // After Stop nothing is approved, and no new card appears.
+              if (signal?.aborted) return Promise.resolve(false);
               // Auto approves every change but the ones only the user may make.
               if (settingsRef.current.autoApprove && !entry.alwaysAsk) return Promise.resolve(true);
               attention.current();
-              return new Promise<boolean>((resolve) => approvals.current.set(entry.id, resolve));
+              return new Promise<boolean>((resolve) => {
+                approvals.current.set(entry.id, resolve);
+                signal?.addEventListener("abort", () => {
+                  approvals.current.delete(entry.id);
+                  resolve(false);
+                }, { once: true });
+              });
             },
             onActivity: (entry) => {
               setActivity((a) => ({ ...a, [entry.id]: entry }));
@@ -143,13 +154,18 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
               setReport(r);
               setReportOpen(true);
             },
-          }),
+          })),
+        (e: unknown) => {
+          loaded = null;
+          throw e;
+        },
       ));
     return {
-      run: async (name, input) => (await load()).run(name, input),
+      run: async (name, input, signal) => (await load()).run(name, input, signal),
       newConversation: () => void loaded?.then((e) => e.newConversation()),
       heard: (text) => void load().then((e) => e.heard(text)),
       situation: async () => (await load()).situation(),
+      page: () => instance?.page() ?? null,
     };
   }, [host]);
 
@@ -197,9 +213,11 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
       setTranscript((t) => t.map((i) => (i.id === id && i.kind === "assistant" ? { ...i, ...fn(i) } : i)));
     };
     void (async () => {
-      // Loaded on first use: the SDK and the system prompt stay out of the main bundle.
-      const mod = await import("@/agent/chat");
+      let mod: typeof import("@/agent/chat") | null = null;
       try {
+        // Loaded on first use: the SDK and the system prompt stay out of the main bundle.
+        // Inside the try: a chunk that fails to load must not leave the turn running.
+        mod = await import("@/agent/chat");
         chat.current ??= new mod.AgentChat(executor);
         await chat.current.send(
           message,
@@ -223,7 +241,8 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
           ctrl.signal,
         );
       } catch (e) {
-        setTranscript((t) => [...t, { kind: "notice", id: itemId(), text: mod.describeChatError(e, config), tone: "error" }]);
+        const text = mod ? mod.describeChatError(e, config) : `The Agent could not load (${e instanceof Error ? e.message : String(e)}). Check the connection and send again.`;
+        setTranscript((t) => [...t, { kind: "notice", id: itemId(), text, tone: "error" }]);
       } finally {
         turn.current = null;
         setThinking(false);
@@ -314,7 +333,10 @@ function chatConfig(s: AgentSettings, apiKey: string): ChatConfig {
 function readSettings(): AgentSettings {
   try {
     migrateLegacyKeys(localStorage, sessionStorage);
-    return settingsFrom(localStorage.getItem(SETTINGS_KEY));
+    const s = settingsFrom(localStorage.getItem(SETTINGS_KEY));
+    // A replay's label is for this load only: taken out of storage once read.
+    if (s.replayOf) localStorage.setItem(SETTINGS_KEY, JSON.stringify(savedSettings(s)));
+    return s;
   } catch {
     return DEFAULTS;
   }
@@ -345,10 +367,19 @@ export function settingsFrom(raw: string | null): AgentSettings {
   return out as unknown as AgentSettings;
 }
 
+/**
+ * What is saved of the settings: neither auto-approve (a per-session choice)
+ * nor a replay's label (a recording sets it for one load; saved, it would
+ * call every later live run a replay).
+ */
+export function savedSettings(s: AgentSettings): Omit<AgentSettings, "autoApprove" | "replayOf"> {
+  const { autoApprove: _auto, replayOf: _replay, ...kept } = s;
+  return kept;
+}
+
 function writeSettings(s: AgentSettings): void {
   try {
-    const { autoApprove: _auto, ...kept } = s;
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(kept));
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(savedSettings(s)));
   } catch {
     // Not remembered; the session still uses it.
   }
