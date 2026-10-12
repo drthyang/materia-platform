@@ -61,6 +61,7 @@ import type { CheckAction } from "@/core/diagnostics/validationChecks";
 import type { MagneticModel } from "@/core/magnetic/types";
 import {
   axisContext,
+  tofCalibrationOf,
   availableDisplayUnits,
   convertAxisArray,
   convertAxisValue,
@@ -388,9 +389,15 @@ export function PowderWorkbench({
     fitRange !== null && (fitRange.min > patternExtent.min || fitRange.max < patternExtent.max);
 
   // Display-axis unit conversion (view only — data/refinement stay native).
-  // The refined zero shift: d read off the data is d with the zero taken out.
-  const zeroShift = powderParams.find((p) => p.kind === "zeroShift")?.value ?? 0;
-  const axisCtx = useMemo(() => axisContext(pattern, instrumentLoaded ? instrument : undefined, zeroShift), [pattern, instrument, instrumentLoaded, zeroShift]);
+  // The refined zero (none when the model has no zero row: the instrument's own then stands): d read off the data is d with the zero taken out.
+  const zeroShift = powderParams.find((p) => p.kind === "zeroShift")?.value;
+  // The refined TOF calibration too: a d read off the plot sits where the refinement puts the reflections.
+  const { difC, difA, difB } = tofCalibrationOf(powderParams);
+  const axisCtx = useMemo(
+    () => axisContext(pattern, instrumentLoaded ? instrument : undefined, zeroShift, { ...(difC !== undefined ? { difC } : {}), ...(difA !== undefined ? { difA } : {}), ...(difB !== undefined ? { difB } : {}) }),
+    [pattern, instrument, instrumentLoaded, zeroShift, difC, difA, difB],
+  );
+
   // A disordered site (≥2 atoms sharing a position) enables the tie controls.
   const hasSharedSite = useMemo(
     () => siteGroups(structure.sites, true).some((g) => g.members.length > 1),

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { parse_structure, simulate_pattern } from "@/mcp/tools";
 import { loadedSession } from "@/app/powderSession";
 import { executor, fakeHost, sessionPort } from "@/testSupport/agentHeadless";
-import { posteriorDifference, posteriorView } from "@/agent/posteriorTool";
+import { posteriorDifference, posteriorView, samplePosteriorTool } from "@/agent/posteriorTool";
 import type { SampleResult } from "@/core/refinement/bayes/sampler";
 import type { RefinementParameter } from "@/core/refinement/types";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
@@ -161,4 +161,20 @@ O2 O2- 0.3075 0.3075 0.3400 1 0.6
     // The refused continue asked the page, which had nothing to continue.
     expect(calls.filter((c) => c.startsWith("sample")).slice(0, 3)).toEqual(["sample continue 400", "sample start 300", "sample continue 2000"]);
   }, 180000);
+});
+
+describe("sample_posterior's compare", () => {
+  it("is checked before the run: a pair naming a fixed parameter costs no chain", async () => {
+    let sampled = 0;
+    const port = {
+      technique: "powder",
+      state: () => ({ busy: false, result: { esd: { B_W1: 0.1 } }, parameters: [row("B_W1", 0.4), row("B_Cr1", 0.3, { fixed: true })] }),
+      samplePosterior: async () => {
+        sampled++;
+        return "not reached";
+      },
+    } as unknown as Parameters<typeof samplePosteriorTool>[1];
+    await expect(samplePosteriorTool({ compare: [["B_W1", "B_Cr1"]] }, port)).rejects.toThrow(/B_Cr1 is not free/);
+    expect(sampled).toBe(0);
+  });
 });

@@ -225,13 +225,14 @@ export async function samplePosteriorTool(input: { continue?: boolean; steps?: n
   if (!input.continue && (added.length > 0 || dropped.length > 0)) {
     throw new Error(`refine first with this free set: the refinement on screen freed a different one (${[...(added.length ? [`now free: ${added.join(", ")}`] : []), ...(dropped.length ? [`now fixed: ${dropped.join(", ")}`] : [])].join("; ")}), and the posterior is read against its esds`);
   }
-  const steps = Math.min(MAX_POSTERIOR_STEPS, Math.max(50, Math.round(input.steps ?? POSTERIOR_STEPS)));
-  const run = await port.samplePosterior({ continue: !!input.continue, steps });
-  if (typeof run === "string") throw new Error(`the posterior run did not finish: ${run}`);
+  // The pairs to compare are checked before the run: a typo must not cost a whole chain.
   const compare = input.compare ?? [];
   for (const [a, b] of compare) {
     for (const id of [a, b]) if (!free.some((p) => p.id === id)) throw new Error(`compare: ${id} is not free — only sampled parameters can be compared (free: ${free.map((p) => p.id).join(", ")})`);
   }
+  const steps = Math.min(MAX_POSTERIOR_STEPS, Math.max(50, Math.round(input.steps ?? POSTERIOR_STEPS)));
+  const run = await port.samplePosterior({ continue: !!input.continue, steps });
+  if (typeof run === "string") throw new Error(`the posterior run did not finish: ${run}`);
   const view = posteriorView(run, s.parameters, s.result.esd, compare);
   onRun?.({ run, result: s.result, parameters: s.parameters, compare });
   return free.length > 12 ? { ...view, note: `${free.length} free parameters: each step costs ${2 * free.length + 2} pattern evaluations, and the chain mixes more slowly the more there are (expect ~10⁴ steps at 20). To ask about a few values, fix what does not correlate with them (the profile, the background, the cell and zero usually), refine that set, then sample it.` } : view;

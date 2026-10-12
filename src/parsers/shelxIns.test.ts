@@ -1,3 +1,4 @@
+import { inverseDSquared } from "@/core/crystal/unitCell";
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { dataExists, dataPath } from "@/testSupport/data";
@@ -97,6 +98,38 @@ describe("SHELX instruction files", () => {
     expect(assembly("C5")).toBe(assembly("C5B"));
     expect(new Set([assembly("C1"), assembly("O2"), assembly("C5")]).size).toBe(3);
     expect(assembly("C1")).toBe("A");
+  });
+
+  it("keeps the sign of TWIN's N: negative is the law with the inversion", () => {
+    const four = parseShelxIns(INS.replace("HKLF 4", "TWIN 0 1 0 1 0 0 0 0 -1 -4\nHKLF 4"), "x").instructions;
+    expect(four.twin).toMatchObject({ domains: 4, withInversion: true });
+    expect(shelxNotes(four).find((n) => n.startsWith("TWIN"))).toMatch(/with the inversion/);
+    expect(parseShelxIns(INS.replace("HKLF 4", "TWIN 0 1 0 1 0 0 0 0 -1 2\nHKLF 4"), "x").instructions.twin!.withInversion).toBeUndefined();
+  });
+
+  it("reads TWIN's nine numbers row-major, the rows acting on (h k l): h′ = M·h", () => {
+    const law = (twin: string): number[][] => parseShelxIns(INS.replace("HKLF 4", `${twin}\nHKLF 4`), "x").instructions.twin!.matrix.map((r) => [...r]);
+    const apply = (m: number[][], h: number[]): number[] => m.map((r) => r[0]! * h[0]! + r[1]! * h[1]! + r[2]! * h[2]!);
+    const indices = [[1, 0, 0], [0, 0, 1], [1, 2, 3], [2, -1, 1], [-3, 1, 2], [0, 1, 0]];
+    // SHELXL's documented pseudo-hexagonal law for P2₁/c with a ≈ c, β ≈ 120°: three components, each at the same d.
+    const hex = { a: 6, b: 7, c: 6, alpha: 90, beta: 120, gamma: 90 };
+    const three = law("TWIN 0 0 1 0 1 0 -1 0 -1 3");
+    expect(three).toEqual([[0, 0, 1], [0, 1, 0], [-1, 0, -1]]);
+    for (const h of indices) {
+      const once = apply(three, h);
+      const twice = apply(three, once);
+      for (const g of [once, twice]) expect(inverseDSquared(hex, g[0]!, g[1]!, g[2]!)).toBeCloseTo(inverseDSquared(hex, h[0]!, h[1]!, h[2]!), 10);
+      expect(apply(three, twice)).toEqual(h);
+    }
+    // A twofold about a in a cell with c·cosβ = −a/2: l′ = −h − l.
+    const two = law("TWIN 1 0 0 0 -1 0 -1 0 -1 2");
+    for (const h of indices) {
+      const g = apply(two, h);
+      expect(inverseDSquared(hex, g[0]!, g[1]!, g[2]!)).toBeCloseTo(inverseDSquared(hex, h[0]!, h[1]!, h[2]!), 10);
+    }
+    // The racemic default, written or left out.
+    expect(law("TWIN -1 0 0 0 -1 0 0 0 -1 2")).toEqual([[-1, 0, 0], [0, -1, 0], [0, 0, -1]]);
+    expect(law("TWIN")).toEqual([[-1, 0, 0], [0, -1, 0], [0, 0, -1]]);
   });
 
   it("warns when the instructions refine against anything but HKLF 4", () => {

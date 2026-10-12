@@ -43,14 +43,38 @@ export interface AxisContext {
   readonly zero?: number;
 }
 
-export function axisContext(pattern: PowderPattern, instrument?: InstrumentParameters, zero?: number): AxisContext {
+/**
+ * The refined TOF calibration among the parameters (tof_difC, tof_difA,
+ * tof_difB): what axisContext takes over the instrument file's constants.
+ */
+export function tofCalibrationOf(parameters: readonly { readonly id: string; readonly kind: string; readonly value: number }[]): Partial<Pick<TofConstants, "difC" | "difA" | "difB">> {
+  const out: Partial<Record<"difC" | "difA" | "difB", number>> = {};
+  for (const p of parameters) {
+    const key = p.kind === "tofCalibration" ? /^tof_(difC|difA|difB)$/.exec(p.id)?.[1] as "difC" | "difA" | "difB" | undefined : undefined;
+    if (key && Number.isFinite(p.value)) out[key] = p.value;
+  }
+  return out;
+}
+
+/**
+ * The conversions for this pattern. `zero` is the refined zero: the shift in
+ * degrees for 2θ data, the TOF zero (µs) for time of flight. `calibration`
+ * is the refined difC/difA/difB (tofCalibrationOf): a d read off TOF data
+ * then sits where the refinement put the reflections.
+ */
+export function axisContext(pattern: PowderPattern, instrument?: InstrumentParameters, zero?: number, calibration: Partial<Pick<TofConstants, "difC" | "difA" | "difB">> = {}): AxisContext {
   const wavelength =
     pattern.wavelength ??
     (pattern.radiation.kind !== "neutron-tof" ? pattern.radiation.wavelength : undefined) ??
     (instrument?.kind === "constantWavelength" ? instrument.wavelength : undefined);
   const tof =
     instrument?.kind === "tof"
-      ? { difC: instrument.difC, difA: instrument.difA ?? 0, difB: instrument.difB ?? 0, zero: instrument.zero ?? 0 }
+      ? {
+          difC: calibration.difC ?? instrument.difC,
+          difA: calibration.difA ?? instrument.difA ?? 0,
+          difB: calibration.difB ?? instrument.difB ?? 0,
+          zero: zero !== undefined && Number.isFinite(zero) ? zero : instrument.zero ?? 0,
+        }
       : undefined;
   const cwZero = pattern.xUnit === "twoTheta" && zero !== undefined && Number.isFinite(zero) && zero !== 0 ? { zero } : {};
   return { native: pattern.xUnit, ...(wavelength !== undefined ? { wavelength } : {}), ...(tof ? { tof } : {}), ...cwZero };

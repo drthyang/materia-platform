@@ -280,3 +280,28 @@ function minDenominator(v: number): number {
   for (let n = 1; n <= 12; n++) if (Math.abs(v * n - Math.round(v * n)) < 1e-4) return n;
   return 12;
 }
+
+/**
+ * The magnetic satellites G ± k of a cell in [dMin, dMax], each with its
+ * label ("1 0 0 + k"): the lines a magnetic model puts in a pattern. G runs
+ * over the (centred) lattice's own reflections; k = 0 gives the lattice
+ * points themselves, the space group's absences included (magnetic order can
+ * break them).
+ */
+export function satellitePositions(cell: UnitCell, k: Vec3, dMin: number, dMax: number, centring: readonly Vec3[] = []): { d: number; hkl: string }[] {
+  const zero = k.every((v) => Math.abs(v) < 1e-9);
+  const n = Math.min(16, Math.ceil(Math.max(cell.a, cell.b, cell.c) / dMin) + 1);
+  const out: { d: number; hkl: string }[] = [];
+  for (let h = -n; h <= n; h++) for (let kk = -n; kk <= n; kk++) for (let l = -n; l <= n; l++) {
+    if (centring.length > 0 && !isReciprocalLatticeVector([h, kk, l], centring)) continue;
+    for (const s of zero ? [1] : [1, -1]) {
+      const m: Vec3 = [h + s * k[0], kk + s * k[1], l + s * k[2]];
+      if (m.every((v) => Math.abs(v) < 1e-9)) continue;
+      const inv = inverseDSquared(cell, m[0], m[1], m[2]);
+      if (!(inv > 0)) continue;
+      const d = 1 / Math.sqrt(inv);
+      if (d >= dMin && d <= dMax) out.push({ d, hkl: zero ? `${h} ${kk} ${l}` : `${h} ${kk} ${l} ${s > 0 ? "+" : "−"} k` });
+    }
+  }
+  return out;
+}
