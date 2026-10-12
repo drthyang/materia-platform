@@ -262,6 +262,25 @@ end, a GPU-accelerated powder refinement converges to the *same minimum* as the
 CPU pool: both reach wR 5.00% on a Mn₃Ga occupancy + ADP fit. The f32 |F|²
 nudges the LM path but not the answer.
 
+## Researcher rounds
+
+In ten researcher rounds a crystallographer
+put the Agent through an analysis end to end, and what it got wrong or could
+not do was fixed:
+
+| Round | Data | What it led to |
+| --- | --- | --- |
+| 1 | Mn₃Ga + MnO, POWGEN neutron TOF | residual peaks judged against each point's σ; misfits on known reflections kept apart from extra peaks |
+| 2 | Mn₃Ga, CW neutrons, loaded from files | a cell check that holds on a 5–130° scan |
+| 3 | GaTa₄Se₈, X-ray PDF | boxcar scans for local-versus-average questions |
+| 4 | Mn₃Ga with an unannounced MnO impurity (simulated lab X-ray) | phase fractions with esds: 3.7 wt % read back as 3.65(8) |
+| 5 | MgAl₂O₄ with 22 % inversion, from a normal-spinel CIF (simulated) | occupancy restraints in the fit; hold composition |
+| 6 | PbSO₄, D1A neutrons (GSAS-II tutorial) | `diagnose_fit`, which found the missing peak asymmetry: wR 12 → 3.7 % |
+| 7 | Fluorapatite, lab Cu Kα (GSAS-II tutorial) | the Kα₂ doublet and the polarization; the cell to 1 part in 10⁵ of GSAS's |
+| 8 | Cr₂WO₆, neutrons at 150 K and 4 K | `identify_peaks`, `tie_parameters`, bond valences, the Bayesian check, d with the zero shift taken out, k = 0 found on wide lines, the moments kept through a settings change; in-plane moments, 2.28(2) µB in Pn′nm |
+| 9 | LaMnO₃, NPDF neutron PDF (PDFgui tutorial) | PDFgetN files read as neutron data, and only their data; the PDF page's ADP model; bond lengths box by box in the boxcar scan and in the report; the Jahn–Teller distortion holds from the first box (1.5–6.5 Å) to the last |
+| 10 | NAC (Na₂Ca₃Al₂F₁₄), 11-BM synchrotron | fluorite found and added as a known phase (1.448(6) wt %); the instrument file's asymmetry read; size, strain and phase fractions in the report; the 2009 profile ~¼ too broad in its Gaussian part, the sample adding next to nothing |
+
 ## Honesty rule
 
 If a number has not been checked against an independent source, the docs and UI
