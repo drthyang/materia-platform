@@ -69,14 +69,14 @@ function serveLocalData(): Plugin {
  * only; the static build has no server and so no proxy.
  */
 function agentProxy(apiKey: string | undefined): Plugin {
-  const handler = anthropicProxy(apiKey);
   return {
     name: "agent-anthropic-proxy",
+    // Only on this machine's names or the server's allowedHosts: a DNS-rebound name is refused.
     configureServer(server) {
-      server.middlewares.use(handler);
+      server.middlewares.use(anthropicProxy(apiKey, undefined, () => server.config.server.allowedHosts));
     },
     configurePreviewServer(server) {
-      server.middlewares.use(handler);
+      server.middlewares.use(anthropicProxy(apiKey, undefined, () => server.config.preview.allowedHosts));
     },
   };
 }
