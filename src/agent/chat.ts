@@ -422,7 +422,9 @@ export class AgentChat {
    */
   private readCount(usage: BetaUsage): string | null {
     const sent = this.sent;
-    const read = (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0);
+    // These servers count the whole prompt as its input (LM Studio gives the cached part again
+    // as cache_read; Ollama's prompt_eval_count and an OpenAI server's prompt_tokens are totals).
+    const read = usage.input_tokens ?? 0;
     if (sent === null || this.window === null || read <= 0) return null;
     if (read < CUT_SHARE * sent.estimate) {
       if (this.wholeCounts < 2) return null;

@@ -173,7 +173,9 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
           usage.output += u.output_tokens ?? 0;
           usage.cacheRead += u.cache_read_input_tokens ?? 0;
           usage.cacheWrite += u.cache_creation_input_tokens ?? 0;
-          turns.push({ prompt: (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0), output: u.output_tokens ?? 0 });
+          // Claude counts the cached part apart from the input; a local server's input is the whole prompt.
+          const whole = model.transport === "ollama" || model.transport === "lmstudio" || model.transport === "openai-compatible";
+          turns.push({ prompt: whole ? u.input_tokens ?? 0 : (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0), output: u.output_tokens ?? 0 });
         },
       }, signal);
     } catch (e) {

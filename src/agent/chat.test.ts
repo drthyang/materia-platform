@@ -748,6 +748,35 @@ describe("a local model's window", () => {
     expect(last).toEqual([expect.objectContaining({ tool_use_id: "b", is_error: true })]);
   });
 
+  it("reads LM Studio's count as it gives it: the whole prompt as the input, the cached part again beside it", async () => {
+    const turns = Array.from({ length: 4 }, (_, i) => sse([{ type: "tool_use", id: `t${i}`, name: "reflection_equivalents", input: { h: i, k: 0, l: 0 } }], "tool_use"));
+    const sizes: { tokens: number; max: number }[] = [];
+    const s = createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (c: Buffer) => chunks.push(c));
+      req.on("end", () => {
+        if (req.url?.startsWith("/api/v1/models")) {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ models: [{ type: "llm", key: "q", max_context_length: 262144, loaded_instances: [{ id: "q", config: { context_length: 32768 } }], capabilities: { trained_for_tool_use: true } }] }));
+          return;
+        }
+        const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as { system: string; tools: unknown; messages: unknown; max_tokens: number };
+        const tokens = Math.round((body.system.length + JSON.stringify(body.tools).length + JSON.stringify(body.messages).length) / 3.7);
+        sizes.push({ tokens, max: body.max_tokens });
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        res.end((turns[sizes.length - 1] ?? sse([{ type: "text", text: "Done." }], "end_turn")).replace('"input_tokens":100', `"input_tokens":${tokens}`).replace('"cache_read_input_tokens":80', `"cache_read_input_tokens":${Math.round(tokens * 0.9)}`));
+      });
+    });
+    await new Promise<void>((r) => s.listen(0, "127.0.0.1", () => r()));
+    server = s;
+    const addr = s.address();
+    const runner = { run: async (_: string, input: { h: number }) => ({ isError: false, text: JSON.stringify({ h: input.h, pad: "x".repeat(3000) }) }) };
+    await new AgentChat(runner as unknown as AgentExecutor).send("Compare.", { transport: "lmstudio", serverUrl: `http://127.0.0.1:${typeof addr === "object" && addr ? addr.port : 0}`, model: "q", effort: "high" }, quiet([]), new AbortController().signal);
+    // Calibrated on the whole prompt, not on it counted twice: the reply keeps the room the window leaves.
+    const last = sizes.at(-1)!;
+    expect(last.max).toBeGreaterThan(32768 - 1.25 * last.tokens);
+  });
+
   it("never calls a cache hit a cut, on a server that counts only what it had not cached", async () => {
     // Its first, cold request counts the whole prompt; every later one only the new tokens.
     const turns = Array.from({ length: 4 }, (_, i) => sse([{ type: "tool_use", id: `t${i}`, name: "reflection_equivalents", input: { h: i, k: 0, l: 0 } }], "tool_use"));
