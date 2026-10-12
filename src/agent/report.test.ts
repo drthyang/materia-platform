@@ -135,6 +135,36 @@ describe("the analysis from the History", () => {
     expect(quoted.unverified).toEqual(["8.4807"]);
   });
 
+  it("carries where the fit started, the cell check's Le Bail fit and the earlier diagnoses by step, so an account citing them cites the report", () => {
+    // Live runs (2026-10-11): accounts quoted the Rw before the first refinement (16.48), the Le Bail
+    // cell and an earlier diagnose_fit reading, and the audit underlined them: the report had none.
+    const input: ReportInput = { technique: "powder", title: "PbSO₄", stats: [{ label: "wR", value: "4.12 %" }], data: [], phases: [], parameters: [], date: new Date("2026-10-10T00:00:00Z") };
+    const h = analysis();
+    const steps = h.steps.filter((st) => st.kind === "refine").map((st) => st.id);
+    const record = {
+      ...emptyRecord("k"),
+      start: { at: 0, agreement: 0.1648 },
+      cellCheck: { passed: true, at: 0, summary: "every peak indexes; no absence flagged; the Le Bail fit (every intensity free) reached Rwp 1.51 % with a 8.48072 Å, b 5.39841 Å, c 6.95893 Å" },
+      diagnoses: [
+        { at: 0, step: steps[0]!, summary: "GoF 3.1 (Rwp 12.03%, Rexp 3.88%). Durbin–Watson d = 0.41 < 1.75. peak-width (61.2 % of χ²): the observed lines are 2.45× broader than calculated at half maximum (median of 31 isolated lines)." },
+        // At the step on screen: the report's own "Fit diagnosis" reads that fit.
+        { at: 1, step: h.current, summary: "GoF 1.62 (Rwp 4.12%, Rexp 2.54%)." },
+      ],
+    };
+    const built = buildAgentReport({
+      page: "powder", input, history: h, record, checks: [], posterior: null, model: "M",
+      narrative: "From wR 16.48 % to 4.12 %. The Le Bail fit gave a = 8.48072 Å at Rwp 1.51 %; before the profile the lines were 2.45× too broad (Durbin–Watson 0.41).",
+    });
+    expect(built.unverified).toEqual([]);
+    expect(built.markdown).toContain("Before the Agent's first refinement: wR 16.48 %.");
+    expect(built.agent.checks.find((c) => c.name === "Earlier fit diagnoses")?.detail).toBe(
+      "At step 2 (Refine): GoF 3.1 (Rwp 12.03%, Rexp 3.88%). Durbin–Watson d = 0.41 < 1.75. peak-width (61.2 % of χ²): the observed lines are 2.45× broader than calculated at half maximum (median of 31 isolated lines).",
+    );
+    // Without them, the same account is underlined where it cites them.
+    const bare = buildAgentReport({ page: "powder", input, history: h, record: emptyRecord("k"), checks: [], posterior: null, model: "M", narrative: "From wR 16.48 % to 4.12 %. The Le Bail fit gave a = 8.48072 Å at Rwp 1.51 %; before the profile the lines were 2.45× too broad (Durbin–Watson 0.41)." });
+    expect(bare.unverified).toEqual(["16.48", "8.48072", "1.51", "2.45", "0.41"]);
+  });
+
   it("names the files after the title", () => {
     expect(reportFileBase("Cr₂WO₆ 4 K")).toBe("Cr2WO6_4_K_agent_report");
     expect(reportFileBase("✦")).toBe("analysis_agent_report");

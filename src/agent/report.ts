@@ -40,6 +40,13 @@ export interface AgentReport {
   readonly at: number;
   /** Numbers in the Agent's account that match no value the report computed. */
   readonly unverified: readonly string[];
+  /**
+   * What the number audit read: the Agent's words (its account and notes) and
+   * the text it checked them against (the report's engine numbers and what
+   * the user said). An eval saves it, so a change to the audit can be scored
+   * on saved runs again.
+   */
+  readonly audit: { readonly account: string; readonly against: string };
 }
 
 /** Short names of the parameter kinds, for a refinement's "Refined" column. */
@@ -244,6 +251,31 @@ export function comparedRefinements(history: ProjectHistory | null, cell: UnitCe
   };
 }
 
+/**
+ * The fit's earlier diagnoses (diagnose_fit), each by the step of the table
+ * whose fit it read. The report's own "Fit diagnosis" reads the fit on
+ * screen; these are the fits on the way, so an account that cites what a
+ * diagnosis found then (the lines 2.45× too broad before the profile was
+ * refined) cites the report. A diagnosis made after a step the table folds
+ * away (freeing or fixing parameters) read the fit of the step before it.
+ */
+export function earlierDiagnoses(record: AgentRecord, history: ProjectHistory | null, rowOf: ReadonlyMap<string, number>, steps: readonly ReportStep[]): ReportCheck | null {
+  const earlier = (record.diagnoses ?? []).filter((d) => !history || d.step !== history.current);
+  if (earlier.length === 0) return null;
+  const path = history ? lineage(history) : [];
+  const onPath = new Set(path.map((st) => st.id));
+  const parentOf = new Map(path.map((st) => [st.id, st.parent]));
+  const where = (step: string | undefined): string => {
+    if (step === undefined) return "a fit before the History began";
+    if (!onPath.has(step)) return "a step on a branch the analysis left";
+    let id: string | undefined = step;
+    while (id !== undefined && !rowOf.has(id)) id = parentOf.get(id);
+    const row = id !== undefined ? rowOf.get(id)! : undefined;
+    return row !== undefined ? `step ${row} (${steps[row - 1]!.label})` : "the first step";
+  };
+  return { name: "Earlier fit diagnoses", status: "note", detail: earlier.map((d) => `At ${where(d.step)}: ${d.summary}`).join(" ") };
+}
+
 /** The record's checks: the fit range, the cell check, the symmetry review, the data's reading, the method exceptions the user allowed. */
 export function recordChecks(page: AgentPage, record: AgentRecord): ReportCheck[] {
   const out: ReportCheck[] = [];
@@ -331,11 +363,12 @@ export interface AgentReportArgs {
 }
 
 /** Build the report: its input, the Agent section, the HTML and the Markdown, and the audit. */
-export function buildAgentReport(a: AgentReportArgs): { input: ReportInput; agent: ReportAgent; html: string; markdown: string; unverified: string[] } {
+export function buildAgentReport(a: AgentReportArgs): { input: ReportInput; agent: ReportAgent; html: string; markdown: string; unverified: string[]; audit: AgentReport["audit"] } {
   const progress = methodProgress(a.page, a.record);
   const { steps, otherBranches, rowOf } = historySteps(a.page, a.history);
   const compared = a.page === "singleCrystal" && a.input.phases[0] ? comparedRefinements(a.history, a.input.phases[0].structure.cell, rowOf) : null;
-  const checks = [...a.checks, ...recordChecks(a.page, a.record), ...(compared ? [compared] : [])];
+  const diagnosed = earlierDiagnoses(a.record, a.history, rowOf, steps);
+  const checks = [...a.checks, ...recordChecks(a.page, a.record), ...(diagnosed ? [diagnosed] : []), ...(compared ? [compared] : [])];
   const left = stagesLeft(a.page, a.record);
   // An earlier run is placed by its row in the steps table, the reader's own reference.
   const where = (id: string | null): string => {
@@ -354,6 +387,7 @@ export function buildAgentReport(a: AgentReportArgs): { input: ReportInput; agen
     steps,
     agreementLabel: a.page === "pdf" ? "Rw" : a.page === "singleCrystal" ? "wR2" : "wR",
     ...(otherBranches > 0 ? { otherBranches } : {}),
+    ...(a.record.start ? { start: { agreement: a.record.start.agreement, ...(a.record.start.r1 !== undefined ? { r1: a.record.start.r1 } : {}) } } : {}),
     checks,
     posterior,
     openIssues,
@@ -365,10 +399,11 @@ export function buildAgentReport(a: AgentReportArgs): { input: ReportInput; agen
   const engineText = reportMarkdown({ ...a.input, date, figure: null, agent: { ...base, notes: [], checks: checks.filter((c) => c.name !== "Method exception") } });
   const narrative = a.narrative.trim();
   // The numbers the user gave (a published refinement's, a reference) are quoted, not the Agent's own.
-  const unverified = unverifiedNumbers([narrative, ...base.notes].join("\n\n"), `${engineText}\n\n${a.userText ?? ""}`);
+  const audit = { account: [narrative, ...base.notes].join("\n\n"), against: `${engineText}\n\n${a.userText ?? ""}` };
+  const unverified = unverifiedNumbers(audit.account, audit.against);
   const agent: ReportAgent = { ...base, narrative, unverified };
   const input: ReportInput = { ...a.input, date, agent };
-  return { input, agent, html: reportHtml(input), markdown: reportMarkdown(input), unverified };
+  return { input, agent, html: reportHtml(input), markdown: reportMarkdown(input), unverified, audit };
 }
 
 /** "<title>_agent_report", the title reduced to a safe token. */

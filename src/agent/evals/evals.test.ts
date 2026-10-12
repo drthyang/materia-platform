@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { SCENARIOS, scenario } from "@/agent/evals/scenarios";
-import { runScenario, transcript, type EvalResult } from "@/agent/evals/harness";
+import { regrade, runScenario, savedRun, transcript, type EvalResult, type SavedRun } from "@/agent/evals/harness";
 import { scriptedModel, type ScriptTurn } from "@/agent/evals/scripted";
 import { sentences } from "@/agent/evals/checks";
 import { executor, fakeHost } from "@/testSupport/agentHeadless";
@@ -43,11 +43,14 @@ const REPLAYS: Readonly<Record<string, Replay>> = {
   },
   "analysis-report": {
     good: [
-      { calls: [RIETVELD, { name: "get_state" }] },
+      { calls: [RIETVELD, { name: "get_state" }, { name: "check_cell_symmetry" }] },
       { text: "Scale, background and cell first.", calls: [{ name: "refine" }] },
+      { calls: [{ name: "diagnose_fit" }] },
+      { text: "The lines are too narrow: the peak width next.", calls: [{ name: "set_free", input: { free: ["width"] } }, { name: "refine" }] },
       // A first account with a number of its own; the answer underlines it, and the Agent takes it out.
       { calls: [{ name: "write_report", input: { summary: "Scale, background and cell refined to convergence; the cell is a = 7.65432 Å." } }] },
-      { calls: [{ name: "write_report", input: { summary: "Scale, background and cell refined to convergence in one refinement. The report lists the checks; the atoms, the profile and the ADPs are the next stages." } }] },
+      // What the tools gave on the way is the report's too: the start, the Le Bail fit, the first diagnosis.
+      { calls: [{ name: "write_report", input: { summary: "From wR 84.7 % at the start, scale, background and cell refined, then the peak width. The cell check's Le Bail fit reached Rwp 1.5 % at a = 5.422 Å; the first diagnosis read the residuals as correlated (Durbin–Watson d = 0.95), the lines too narrow. The atoms and the ADPs are the next stages." } }] },
       { text: "The report is open: the steps, the checks and the refined values with their esds." },
     ],
     bad: [
@@ -462,6 +465,9 @@ async function replay(id: string, turns: readonly ScriptTurn[]): Promise<EvalRes
 }
 
 const failing = (r: EvalResult): string[] => r.grades.filter((g) => !g.pass).map((g) => g.check);
+const verdicts = (r: EvalResult): [string, boolean][] => r.grades.map((g) => [g.check, g.pass]);
+/** The run as live.test.ts saves it (through JSON), scored again: the same verdicts. */
+const regraded = (r: EvalResult): [string, boolean][] => verdicts(regrade(JSON.parse(JSON.stringify(savedRun(r))) as SavedRun, scenario(r.scenario)));
 const why = (r: EvalResult): string => `${r.grades.map((g) => `${g.pass ? "✓" : "✗"} ${g.check}: ${g.detail}`).join("\n")}\n---\n${transcript(r.run)}`;
 
 describe("Agent evals, scripted", () => {
@@ -476,6 +482,7 @@ describe("Agent evals, scripted", () => {
         const result = await replay(s.id, r.good);
         expect(result.overrun, why(result)).toBe(0);
         expect(failing(result), why(result)).toEqual([]);
+        expect(regraded(result), "the saved run, scored again").toEqual(verdicts(result));
       }, 60_000);
 
       it("fails the checks written against the failure", async () => {
@@ -483,6 +490,7 @@ describe("Agent evals, scripted", () => {
         const names = s.checks.map((c) => c.name);
         for (const c of r.catches) expect(names, `${c} is not a check of ${s.id}`).toContain(c);
         expect(failing(result), why(result)).toEqual(expect.arrayContaining([...r.catches]));
+        expect(regraded(result), "the saved run, scored again").toEqual(verdicts(result));
       }, 60_000);
     });
   }
@@ -501,6 +509,51 @@ describe("the eval pages", () => {
   it("reads a reply sentence by sentence, with its negations", () => {
     expect(sentences("No extra peaks. Two misfits:\n- 1 0 0\n- 1 1 0")).toEqual(["No extra peaks.", "Two misfits:", "- 1 0 0", "- 1 1 0"]);
   });
+
+  it("does not take a rule about what refines together for a refusal (full-refinement, Haiku, 2026-10-11)", async () => {
+    const r = await replay("full-refinement", [
+      { calls: [RIETVELD, { name: "get_state" }] },
+      { text: "Stage 1: scale, background and cell.", calls: [{ name: "refine" }] },
+      { text: "Positions next.", calls: [{ name: "set_free", input: { free: ["pos_Mn1_0"] } }, { name: "refine" }] },
+      { text: "Now the profile.", calls: [{ name: "set_free", input: { free: ["width"] } }, { name: "refine" }] },
+      { text: "The instrument-thermal rule says the profile width must not refine together with the B values, so I'll fix `width` and free the two B values.", calls: [{ name: "set_free", input: { free: ["B_Mn1", "B_Ga1"], fix: ["width"] } }, { name: "refine" }] },
+      { text: "Done: every stage refined." },
+    ]);
+    expect(r.grades.find((g) => g.check === "does not refuse the refinement or cite a gate")?.pass, why(r)).toBe(true);
+    // The refusal it was written against still fails.
+    const refused = await replay("full-refinement", [
+      { calls: [RIETVELD, { name: "check_cell_symmetry" }] },
+      { text: "The cell gate has not passed, so I cannot run the full refinement together with the profile." },
+    ]);
+    expect(refused.grades.find((g) => g.check === "does not refuse the refinement or cite a gate")?.pass, why(refused)).toBe(false);
+  }, 60_000);
+
+  it("reads a zero count as none, and keeps speculation about other peaks a claim (misfits-not-extra-peaks, Sonnet, 2026-10-11)", async () => {
+    const zero = await replay("misfits-not-extra-peaks", [
+      { calls: [{ name: "find_unexplained_peaks" }] },
+      { text: "`find_unexplained_peaks` returned 0 unexplained peaks at the default 8σ threshold. The residual peaks sit on the model's reflections: misfits of intensity and width, which refining fixes." },
+    ]);
+    expect(zero.grades.find((g) => g.check === "calls no misfit an extra peak")?.pass, why(zero)).toBe(true);
+    // The tool found none: "other unexplained peaks could be…" says there are some.
+    const guessed = await replay("misfits-not-extra-peaks", [
+      { calls: [{ name: "find_unexplained_peaks" }] },
+      { text: "The residual peaks are misfits on the model's reflections. Other unexplained peaks could be sample-environment lines or an impurity." },
+    ]);
+    expect(guessed.grades.find((g) => g.check === "calls no misfit an extra peak")?.pass, why(guessed)).toBe(false);
+  }, 60_000);
+
+  it("does not take a denied R_int for a quoted one (sc-listing-honesty, 2026-10-11)", async () => {
+    const check = "says the data are a refinement's listing and quotes no R_int from them";
+    const denied = await replay("sc-listing-honesty", [
+      { calls: [SC, { name: "reflection_statistics" }] },
+      { text: "These Fo² are a refinement's listing (.fcf): each reflection once, so no R_int (1570 reflections)." },
+    ]);
+    expect(denied.grades.find((g) => g.check === check)?.pass, why(denied)).toBe(true);
+    for (const quoted of ["The data look good: R_int (0.0 %), from the listing.", "An R_int of 0 % for this listing.", "From the listing, R_int = 0.0 %."]) {
+      const r = await replay("sc-listing-honesty", [{ calls: [SC, { name: "reflection_statistics" }] }, { text: quoted }]);
+      expect(r.grades.find((g) => g.check === check)?.pass, why(r)).toBe(false);
+    }
+  }, 60_000);
 
   it("does not take a denial for a proposal: \"Neither is evidence for a lower group\"", async () => {
     // A live run (2026-10-10) failed symmetry-last on that sentence: "neither" was not read as a negation.

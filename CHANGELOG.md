@@ -9,6 +9,17 @@ release fixes bugs.
 
 ### Added
 
+- **Agent evals re-scored for free.** A live run's `_OUT` report now keeps
+  each run whole (every tool's answer, the records, each report's text and
+  what its number audit read), and `regrade.test.ts` scores it again with the
+  checks as they are now, with no model called. CI replays every scripted run
+  through that save and re-score.
+
+- **The Agent's report gives where the fit started and what was read on the
+  way**: the agreement before its first refinement, the cell check's Le Bail
+  fit (Rwp and cell) and each earlier `diagnose_fit` reading by the step it
+  read, so an account that cites them cites the report.
+
 - **The Agent on the single-crystal page.** It reads the page in its own
   terms — a fit to integrated F², SHELX's R1 over Fo² > 2σ with wR2 and GooF
   over every reflection, the cell fixed input from indexing — frees, refines,
@@ -481,6 +492,14 @@ release fixes bugs.
   analysis of variance gives them.
 
 ### Fixed
+
+- **Three eval graders that failed good answers**: a rule about what refines
+  together read as a refusal of the refinement, "0 unexplained peaks" read as
+  a claim of some, and "so no R_int" read as an R_int quoted. Each live
+  sentence is replayed in CI.
+
+- **The PDF boxcar scan's outcome line** rounded Rw twice (to two decimals,
+  then one).
 
 - **The 3D structure view draws only when something changes.** It drew
   every animation frame for as long as it was mounted, the views on hidden

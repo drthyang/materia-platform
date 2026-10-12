@@ -294,6 +294,14 @@ export interface AgentRecordFile {
   readonly dataCheck?: { readonly at: number; readonly summary: string };
   /** The symmetry review at the end of the method (review_symmetry). */
   readonly symmetryReviewed?: { readonly at: number; readonly summary: string };
+  /**
+   * The agreement on screen before the Agent's first refinement of this
+   * analysis (fractions: wR, Rw or wR2, and R1 on the single-crystal page),
+   * so the report says where the fit started.
+   */
+  readonly start?: { readonly at: number; readonly agreement: number; readonly r1?: number };
+  /** The fit's diagnoses (diagnose_fit), each with the History step it read; the latest per step, oldest first. */
+  readonly diagnoses?: readonly { readonly at: number; readonly step?: string; readonly summary: string }[];
   readonly exceptions: readonly { readonly rule: "bare-occupancy" | "instrument-with-thermal"; readonly reason: string; readonly at: number }[];
   readonly stagesDone: readonly string[];
   readonly notes: readonly { readonly text: string; readonly at: number }[];
