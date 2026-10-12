@@ -40,6 +40,7 @@ import type { ReportCheck } from "@/core/export/report";
 import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, correlationsCheck, findingChecks, noResultCheck, verdictCheck } from "@/agent/reportChecks";
 import { groupOf } from "@/agent/method";
 import { magneticNext } from "@/agent/magneticTools";
+import type { UnitCell } from "@/core/crystal/types";
 import { satellitePositions } from "@/core/magnetic/kSearch";
 import { centringTranslations } from "@/core/crystal/symmetry";
 import { inspectDataRange, type DataEnd, type DataRangeReading } from "@/core/diagnostics/dataRange";
@@ -134,7 +135,10 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
       // end (review_symmetry), never acted on before the structure is refined.
       const violated = check.absences.violated;
       const flags = violated.map((v) => `${v.h} ${v.k} ${v.l} at d ${v.d.toFixed(3)} Å`).join(", ");
+      // The cell a good Le Bail fit found, against the structure's: one factor on every length reads as the wavelength.
+      const shift = check.leBail.rWeighted < 0.5 ? cellShiftReading(s.structure.cell, check.cell, s.pattern.xUnit) : null;
       const readings = [
+        ...(shift ? [shift] : []),
         ...(unindexed.length > 0 ? [`${unindexed.length} peak${unindexed.length === 1 ? "" : "s"} no reflection of the cell indexes: a missing phase (most often) or a wrong cell. identify_peaks (with their d) checks the sample environment and common standards. Settle this with the user before refining the structure.`] : []),
         ...(check.shoulders.length > 0 ? [shoulderReading(check.shoulders, s.pattern.xUnit)] : []),
         ...(violated.length > 0
@@ -702,6 +706,26 @@ function requestedWindow(s: PowderLiveState, input: Input): { min: number; max: 
   const w = convertInterval({ min: lo, max: hi }, unit, native, s.axis);
   if (!Number.isFinite(w.min) || !Number.isFinite(w.max)) throw new Error(`${lo}–${hi} ${UNIT[unit]} does not convert to ${UNIT[native]} on this pattern`);
   return w;
+}
+
+/**
+ * The cell the peaks give against the structure's. Every length scaled by
+ * one factor is what a wrong wavelength (or a wrong TOF difC) does to every
+ * d, more often than a wrong cell; lengths moving apart are the phase, its
+ * temperature or its composition. Null when the cell agrees within 0.5 %.
+ */
+export function cellShiftReading(loaded: UnitCell, found: UnitCell, unit: PowderLiveState["pattern"]["xUnit"]): string | null {
+  const rel = (["a", "b", "c"] as const).map((k) => found[k] / loaded[k] - 1);
+  const worst = Math.max(...rel.map(Math.abs));
+  if (worst <= 0.005) return null;
+  const spread = Math.max(...rel) - Math.min(...rel);
+  const pctText = (v: number): string => `${v > 0 ? "+" : ""}${(100 * v).toFixed(2)} %`;
+  const what = unit === "tof" ? "the TOF calibration (difC)" : unit === "twoTheta" ? "the wavelength" : "the d scale";
+  if (spread <= 0.1 * worst) {
+    const mean = rel.reduce((t, v) => t + v, 0) / 3;
+    return `The peaks give a cell ${pctText(mean)} off the structure's in every length alike (a ${pctText(rel[0]!)}, b ${pctText(rel[1]!)}, c ${pctText(rel[2]!)}): one factor on every d is what a wrong ${unit === "twoTheta" ? "wavelength" : "calibration"} does. Ask the user to confirm ${what} before refining: a refined cell would absorb it silently.`;
+  }
+  return `The peaks give a cell up to ${pctText(rel[rel.map(Math.abs).indexOf(worst)]!)} off the structure's (a ${pctText(rel[0]!)}, b ${pctText(rel[1]!)}, c ${pctText(rel[2]!)}), unevenly: the phase at another temperature or composition, or another phase. Say so before refining.`;
 }
 
 function residualOf(s: PowderLiveState): { d: number[]; yObs: number[]; yCalc: number[]; sigma: number[]; reflections: { d: number; hkl: string; phaseLabel: string }[]; magneticNeutron: boolean; lineWidth?: number } {
