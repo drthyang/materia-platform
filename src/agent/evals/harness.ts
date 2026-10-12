@@ -132,6 +132,7 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
     },
     newConversation: () => executor.newConversation(),
     heard: (text) => executor.heard(text),
+    situation: () => executor.situation(),
   };
   const chat = new AgentChat(runner);
   let reply: { kind: "reply"; text: string } | null = null;

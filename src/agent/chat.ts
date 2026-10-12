@@ -31,7 +31,7 @@ import type {
   BetaUsage,
 } from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import { LIVE_TOOLS, inputJsonSchema } from "@/agent/tools";
-import type { ToolRunner } from "@/agent/executor";
+import type { AgentSituation, ToolRunner } from "@/agent/executor";
 import { agentSystemPrompt, autonomyNote, type AgentAutonomy } from "@/agent/systemPrompt";
 import { CONTEXT_EDITING, CONTEXT_EDITING_BETA, pruneForLocal } from "@/agent/contextWindow";
 import { hasRefusalFallback } from "@/agent/chat-models";
@@ -113,6 +113,9 @@ export class AgentChat {
     let parseRetries = 0;
     let nudges = 0;
     const ran: string[] = [];
+    // The same call at the same state, or call after call that changes nothing: a loop.
+    const guard = new LoopGuard();
+    let fingerprint = (await this.situation())?.fingerprint ?? null;
     for (let turn = 0; turn < MAX_TURNS; turn++) {
       if (signal.aborted) return;
       cb.onAssistantStart();
@@ -188,18 +191,44 @@ export class AgentChat {
         return;
       }
       const results: BetaToolResultBlockParam[] = [];
+      let circling: string | null = null;
       for (const call of calls) {
         if (signal.aborted) {
           results.push(toolError(call.id, "Stopped by the user before this ran."));
           continue;
         }
+        if (circling !== null) {
+          results.push(toolError(call.id, `${FROM_APP} Not run: the app stopped this turn because the conversation was going in circles.`));
+          continue;
+        }
+        const refused = guard.check(call.name, call.input, fingerprint);
+        if (refused !== null) {
+          circling = refused.why;
+          results.push(toolError(call.id, refused.nudge));
+          continue;
+        }
         const out = await this.executor.run(call.name, call.input);
         ran.push(call.name);
-        results.push({ type: "tool_result", tool_use_id: call.id, content: out.text, ...(out.isError ? { is_error: true } : {}) });
+        const after = (await this.situation())?.fingerprint ?? null;
+        const seen = guard.record(call.name, call.input, out.text, fingerprint, after);
+        fingerprint = after;
+        if (seen.stop !== null) circling = seen.stop;
+        const text = seen.note === null ? out.text : `${out.text}\n\n${seen.note}`;
+        results.push({ type: "tool_result", tool_use_id: call.id, content: text, ...(out.isError ? { is_error: true } : {}) });
       }
       // Every tool call is answered in ONE user message, even when stopped.
       this.messages.push({ role: "user", content: results });
       if (signal.aborted) return;
+      if (circling !== null) {
+        // Never a silent stop: say where the analysis stands and what the Agent needs.
+        const where = (await this.situation())?.summary;
+        cb.onNotice(
+          `The Agent was going in circles: ${circling}, so the app stopped it here.${where ? ` Where it stands: ${where}` : ""} ` +
+            `Tell it the next step to take (for example "free the atomic positions and refine"), or start a new conversation if it has lost track.`,
+          "error",
+        );
+        return;
+      }
     }
     cb.onNotice(`Stopped after ${MAX_TURNS} model turns for one message. Say "continue" to go on.`, "info");
   }
@@ -250,6 +279,89 @@ export class AgentChat {
   /** Messages so far (for tests). */
   history(): readonly BetaMessageParam[] {
     return this.messages;
+  }
+
+  /** Where the analysis stands, when the runner can say (a failure to read it is no reason to stop a turn). */
+  private async situation(): Promise<AgentSituation | null> {
+    try {
+      return (await this.executor.situation?.()) ?? null;
+    } catch {
+      return null;
+    }
+  }
+}
+
+/** A call made again at the same state, its result unchanged: noted once, and the third time the turn stops. */
+const MAX_SAME_CALL = 3;
+/** Repeated calls of any kind in one message before the turn stops. */
+const MAX_REPEATS = 4;
+/** Calls in a row that change nothing: the model is told at the first count, and the turn stops at the second. */
+const STILL_NOTE = 12;
+const STILL_STOP = 20;
+
+const callKey = (name: string, input: unknown): string => `${name} ${stableJson(input ?? {})}`;
+/** A result as compared between calls: without its ref, which numbers every result anew. */
+const sameText = (text: string): string => text.replace(/"ref":"#\d+",?/g, "");
+
+function stableJson(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(stableJson).join(",")}]`;
+  if (v !== null && typeof v === "object") return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${stableJson((v as Record<string, unknown>)[k])}`).join(",")}}`;
+  return JSON.stringify(v) ?? "null";
+}
+
+/**
+ * The chat's guard against a model going in circles (local models lose track
+ * and call the same tool again and again). Per user message it remembers each
+ * call (tool and input), the state it was made at (the runner's fingerprint)
+ * and what it answered:
+ *
+ *  - the same call at the same state with the same answer is a repeat: its
+ *    result carries a note from the app saying so;
+ *  - a third such call at the same state is not run, and the turn stops; so
+ *    does a fourth repeat of any kind, or STILL_STOP calls in a row that
+ *    changed nothing (the model is told at STILL_NOTE).
+ *
+ * Without a fingerprint (a runner that cannot say), a repeat is the same call
+ * with the same answer, and nothing is refused before it runs.
+ */
+export class LoopGuard {
+  private readonly seen = new Map<string, { readonly at: string | null; readonly text: string; readonly count: number }>();
+  private repeats = 0;
+  private still = 0;
+
+  /** Before a call: why it must not run (it already ran twice at this very state), or null. */
+  check(name: string, input: unknown, at: string | null): { readonly why: string; readonly nudge: string } | null {
+    const prev = this.seen.get(callKey(name, input));
+    if (at === null || prev === undefined || prev.at !== at || prev.count < MAX_SAME_CALL - 1) return null;
+    return {
+      why: `it called ${name} ${MAX_SAME_CALL} times with the same input, and nothing changed in between`,
+      nudge: `${FROM_APP} Not run: ${name} already ran ${prev.count} times with this input, and nothing has changed since. The app stopped this turn; the user will tell you how to go on.`,
+    };
+  }
+
+  /** After a call: a note for the model (a repeat, or calls that change nothing), and why the turn must stop, if it must. */
+  record(name: string, input: unknown, text: string, before: string | null, after: string | null): { readonly note: string | null; readonly stop: string | null } {
+    const key = callKey(name, input);
+    const prev = this.seen.get(key);
+    const answer = sameText(text);
+    const repeat = prev !== undefined && prev.text === answer && (before === null || prev.at === before);
+    const count = repeat ? prev.count + 1 : 1;
+    this.seen.set(key, { at: before, text: answer, count });
+    this.still = before !== null && after === before ? this.still + 1 : 0;
+    if (repeat) {
+      this.repeats++;
+      if (count >= MAX_SAME_CALL) return { note: null, stop: `it called ${name} ${count} times with the same input, and nothing changed in between` };
+      if (this.repeats >= MAX_REPEATS) return { note: null, stop: `it repeated calls it had already made ${this.repeats} times, with nothing changed in between` };
+      return {
+        note: `${FROM_APP} You already made this call (${name}, the same input) and nothing has changed since: this is the same result as before.${name === "read_skill" ? " The skill is already in this conversation." : ""} Do not call it again. Take the next step of the method with what you have, or stop and tell the user what you need.`,
+        stop: null,
+      };
+    }
+    if (this.still >= STILL_STOP) return { note: null, stop: `it made ${this.still} tool calls in a row without changing the analysis` };
+    if (this.still === STILL_NOTE) {
+      return { note: `${FROM_APP} ${STILL_NOTE} tool calls in a row have not changed the analysis. Make the change the method calls for next, write the report if the work is done, or stop and ask the user.`, stop: null };
+    }
+    return { note: null, stop: null };
   }
 }
 

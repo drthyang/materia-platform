@@ -1,8 +1,10 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createServer, type Server } from "node:http";
-import { AgentChat, announcedTool, describeChatError, repeatingTail, stalledReply } from "@/agent/chat";
+import { AgentChat, LoopGuard, announcedTool, describeChatError, repeatingTail, stalledReply } from "@/agent/chat";
 import type { AgentExecutor } from "@/agent/executor";
 import { LIVE_TOOLS } from "@/agent/tools";
+import { executor, fakeHost } from "@/testSupport/agentHeadless";
+import { mn3gaSession, powderPage } from "@/agent/evals/pages";
 
 /**
  * The chat loop against a stand-in Messages API that streams scripted turns
@@ -447,5 +449,111 @@ describe("auto mode", () => {
     const system = api.requests[0]!.body.system as { text: string; cache_control?: unknown }[];
     expect(system[0]!.cache_control).toEqual({ type: "ephemeral" });
     expect(system[1]!.text).toMatch(/^Mode: auto\. .*while it converges sensibly go on to the next\. Stop and report when a stage fails/);
+  });
+});
+
+describe("the loop guard", () => {
+  let server: Server | null = null;
+  afterEach(async () => {
+    if (server) await new Promise<void>((r) => server!.close(() => r()));
+    server = null;
+  });
+  const quiet = (notices: string[]) => ({ onAssistantStart: () => undefined, onText: () => undefined, onThinking: () => undefined, onNotice: (t: string) => notices.push(t), onUsage: () => undefined });
+  const model = (url: string) => ({ transport: "api-key" as const, apiKey: "sk-test", baseURL: url, model: "qwen/qwen3.8-27b", effort: "high" as const });
+
+  it("notes a call repeated at the same state, refuses the third, and tells a changed state apart", () => {
+    const g = new LoopGuard();
+    expect(g.record("get_state", {}, '{"ref":"#1","wR":8}', "s1", "s1")).toEqual({ note: null, stop: null });
+    // The same call, the same state, the same answer (only the ref differs): a repeat.
+    const again = g.record("get_state", {}, '{"ref":"#2","wR":8}', "s1", "s1");
+    expect(again.note).toMatch(/^\(From the app, not the user\.\) You already made this call \(get_state, the same input\) and nothing has changed since/);
+    expect(again.stop).toBeNull();
+    expect(g.check("get_state", {}, "s1")).toMatchObject({ why: "it called get_state 3 times with the same input, and nothing changed in between" });
+    // After a change, the same call is a new one.
+    expect(g.check("get_state", {}, "s2")).toBeNull();
+    expect(g.record("get_state", {}, '{"ref":"#3","wR":7}', "s2", "s2").note).toBeNull();
+    // Inputs compare by value, whatever their key order.
+    expect(g.record("set_free", { free: ["a"], fix: ["b"] }, "{}", "s2", "s3").note).toBeNull();
+    expect(g.record("set_free", { fix: ["b"], free: ["a"] }, "{}", "s3", "s3").note).toBeNull();
+  });
+
+  it("without a fingerprint, a repeat is the same call with the same answer", () => {
+    const g = new LoopGuard();
+    g.record("read_skill", { name: "m" }, "Skill m", null, null);
+    expect(g.record("read_skill", { name: "m" }, "Skill m", null, null).note).toMatch(/The skill is already in this conversation\./);
+    expect(g.record("read_skill", { name: "m" }, "Skill m", null, null).stop).toBe("it called read_skill 3 times with the same input, and nothing changed in between");
+  });
+
+  it("stops when call after call changes nothing, and tells the model first", () => {
+    const g = new LoopGuard();
+    const outs = Array.from({ length: 20 }, (_, i) => g.record("reflection_equivalents", { h: i, k: 0, l: 0 }, `{"n":${i}}`, "s", "s"));
+    expect(outs[11]!.note).toMatch(/12 tool calls in a row have not changed the analysis/);
+    expect(outs.slice(0, 19).every((o) => o.stop === null)).toBe(true);
+    expect(outs[19]!.stop).toBe("it made 20 tool calls in a row without changing the analysis");
+  });
+
+  it("stops the user's loop — the method and the state read again and again — and says where the analysis stands", async () => {
+    // As qwen3.8-27b did on the user's data: read_skill and get_state, turn after turn, nothing else.
+    const turn = (n: number) => sse([{ type: "tool_use", id: `s${n}`, name: "read_skill", input: { name: "my-rietveld-workflow" } }, { type: "tool_use", id: `g${n}`, name: "get_state", input: {} }], "tool_use");
+    const api = await fakeApi(Array.from({ length: 10 }, (_, i) => turn(i)));
+    server = api.server;
+    const ran: string[] = [];
+    const runner = {
+      run: async (name: string) => {
+        ran.push(name);
+        return { isError: false, text: name === "read_skill" ? "Skill my-rietveld-workflow\n\n# My Rietveld workflow" : `{"ref":"#${ran.length}","technique":"powder"}` };
+      },
+      situation: () => ({ page: "powder", stage: "base", stagesDone: [], magnetic: false, fingerprint: "unchanged", summary: "the powder page; done: Fit range; next: Scale, background, cell; no refinement on screen yet." }),
+    };
+    const notices: string[] = [];
+    const chat = new AgentChat(runner as unknown as AgentExecutor);
+    await chat.send("Can you refine the structure for me?", model(api.url), quiet(notices), new AbortController().signal);
+    // Two rounds ran; the third round's calls did not, and the model was not asked again.
+    expect(ran).toEqual(["read_skill", "get_state", "read_skill", "get_state"]);
+    expect(api.requests).toHaveLength(3);
+    expect(notices).toEqual([
+      "The Agent was going in circles: it called read_skill 3 times with the same input, and nothing changed in between, so the app stopped it here. Where it stands: the powder page; done: Fit range; next: Scale, background, cell; no refinement on screen yet. Tell it the next step to take (for example \"free the atomic positions and refine\"), or start a new conversation if it has lost track.",
+    ]);
+    // The second round's results said so; every call of the last round is answered, so the conversation goes on.
+    const history = chat.history();
+    const second = history[4]!.content as { content: string }[];
+    expect(second.every((r) => /You already made this call/.test(r.content))).toBe(true);
+    const last = history.at(-1)!.content as { tool_use_id: string; is_error?: boolean; content: string }[];
+    expect(last.map((r) => [r.tool_use_id, r.is_error])).toEqual([["s2", true], ["g2", true]]);
+    expect(last[0]!.content).toMatch(/Not run: read_skill already ran 2 times with this input, and nothing has changed since/);
+  });
+
+  it("lets a call run again once the analysis changed", async () => {
+    const api = await fakeApi([
+      sse([{ type: "tool_use", id: "r1", name: "refine", input: {} }], "tool_use"),
+      sse([{ type: "tool_use", id: "r2", name: "refine", input: {} }], "tool_use"),
+      sse([{ type: "tool_use", id: "r3", name: "refine", input: {} }], "tool_use"),
+      sse([{ type: "text", text: "Converged." }], "end_turn"),
+    ]);
+    server = api.server;
+    let step = 0;
+    const runner = {
+      run: async () => ({ isError: false, text: `{"refined":true,"wR":${10 - ++step}}` }),
+      situation: () => ({ page: "powder", stage: "base", stagesDone: [], magnetic: false, fingerprint: `step ${step}`, summary: "" }),
+    };
+    const notices: string[] = [];
+    const chat = new AgentChat(runner as unknown as AgentExecutor);
+    await chat.send("Refine.", model(api.url), quiet(notices), new AbortController().signal);
+    expect(step).toBe(3);
+    expect(notices).toEqual([]);
+    expect(JSON.stringify(chat.history())).not.toMatch(/You already made this call/);
+  });
+
+  it("stops the loop on the real executor and page, with the stage it was at", async () => {
+    const turn = (n: number) => sse([{ type: "tool_use", id: `g${n}`, name: "get_state", input: {} }], "tool_use");
+    const api = await fakeApi(Array.from({ length: 6 }, (_, i) => turn(i)));
+    server = api.server;
+    const { ex } = executor(fakeHost(powderPage(mn3gaSession())).host);
+    const notices: string[] = [];
+    const chat = new AgentChat(ex);
+    await chat.send("Refine it.", model(api.url), quiet(notices), new AbortController().signal);
+    expect(api.requests).toHaveLength(3);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatch(/^The Agent was going in circles: it called get_state 3 times with the same input, and nothing changed in between, so the app stopped it here\. Where it stands: the powder page; done: nothing yet; next: Fit range; no refinement on screen yet\./);
   });
 });

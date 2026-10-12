@@ -9,7 +9,7 @@
  */
 
 import { z } from "zod";
-import { PAGE_LABEL, liveTool, type LiveToolSpec, type ToolEffect } from "@/agent/tools";
+import { PAGE_LABEL, liveTool, type AgentPage, type LiveToolSpec, type ToolEffect } from "@/agent/tools";
 import type { AgentPort, LiveState, PdfLiveState, PowderLiveState, SingleCrystalLiveState } from "@/agent/port";
 import { changePowder, describePowderChange, powderNoOp, powderReportChecks, readPowderTool, requireStructure } from "@/agent/powderTools";
 import { changeMagnetic, describeMagneticChange, isMagneticTool, magneticNoOp, magneticOutcome, readMagneticTool } from "@/agent/magneticTools";
@@ -66,6 +66,25 @@ export interface ToolOutcome {
   readonly text: string;
 }
 
+/**
+ * Where the analysis stands, as the chat loop reads it between tool calls:
+ * its loop guard compares fingerprints (did a call change anything?), and a
+ * local model's tool list follows the page and the method's stage.
+ */
+export interface AgentSituation {
+  readonly page: AgentPage;
+  /** The method's next required stage (its id), or null when every required one is done. */
+  readonly stage: string | null;
+  /** The stages done (ids). */
+  readonly stagesDone: readonly string[];
+  /** The magnetic step is under way: a magnetic model on the page, or the step's tools used in this conversation. */
+  readonly magnetic: boolean;
+  /** Changes whenever anything a tool can change changes: the parameters and their values, the fit, the settings, the History step, the method's record. */
+  readonly fingerprint: string;
+  /** One sentence for the user: the page, the stages done, the next, the last refinement. */
+  readonly summary: string;
+}
+
 /** What the chat calls: the executor, or a lazy stand-in for it. */
 export interface ToolRunner {
   readonly run: (name: string, input: unknown) => Promise<ToolOutcome>;
@@ -73,6 +92,8 @@ export interface ToolRunner {
   readonly newConversation?: () => void;
   /** What the user said: a number they gave (a published refinement's, a reference value) may be quoted in the report. */
   readonly heard?: (text: string) => void;
+  /** Where the analysis stands now; null with nothing open. */
+  readonly situation?: () => Promise<AgentSituation | null> | AgentSituation | null;
 }
 
 export interface ExecutorOptions {
@@ -132,6 +153,44 @@ export class AgentExecutor implements ToolRunner {
   newConversation(): void {
     this.skillsRead.clear();
     this.userText = [];
+    this.magneticUsed = false;
+  }
+
+  /** The magnetic step's tools ran in this conversation (its panel then counts in the fingerprint). */
+  private magneticUsed = false;
+
+  /** Where the analysis stands (the chat's loop guard and a local model's tool list read it). */
+  situation(): AgentSituation | null {
+    const port = this.host.port();
+    if (!port) return null;
+    const s = port.state();
+    const record = this.syncStages(port);
+    const progress = methodProgress(port.technique, record);
+    const next = progress.stages.find((st) => !st.done && !st.optional) ?? null;
+    const powder = port.technique === "powder" ? (s as PowderLiveState) : null;
+    const panel = powder && this.magneticUsed ? (port as Extract<AgentPort, { technique: "powder" }>).magnetic?.()?.state() ?? null : null;
+    const sig = (v: number): number => (Number.isFinite(v) ? Number(v.toPrecision(6)) : v);
+    const fingerprint = hashText(JSON.stringify({
+      step: this.currentStep()?.id ?? null,
+      busy: s.busy,
+      parameters: s.parameters.map((p) => [p.id, p.fixed ? 0 : 1, p.expression ?? "", sig(p.value)]),
+      result: s.result ? [s.result.status, s.result.history.length, Object.keys(s.result.esd).sort()] : null,
+      fitRange: "fitRange" in s ? s.fitRange : null,
+      settings: "settings" in s ? s.settings : null,
+      magnetic: powder ? powder.magnetic !== null : null,
+      panel: panel ? [panel.k, panel.ions.filter((i) => i.selected).map((i) => i.label), panel.ties, panel.selected?.id ?? null, panel.kSearch?.length ?? null, panel.candidates.filter((c) => c.fit !== undefined).length] : null,
+      record: [record.stagesDone, record.exceptions.map((e) => e.rule), !!record.rangeCheck, !!record.cellCheck, !!record.dataCheck, !!record.symmetryReviewed],
+    }));
+    const done = progress.stages.filter((st) => st.done).map((st) => st.label);
+    const fit = s.result ? `the last refinement ${s.result.status}` : "no refinement on screen yet";
+    return {
+      page: port.technique,
+      stage: next?.id ?? null,
+      stagesDone: record.stagesDone,
+      magnetic: this.magneticUsed || (powder !== null && powder.magnetic !== null),
+      fingerprint,
+      summary: `the ${PAGE_LABEL[port.technique]} page; done: ${done.length ? done.join(", ") : "nothing yet"}; next: ${next?.label ?? "every required stage is done"}; ${fit}.`,
+    };
   }
 
   /** The user's messages in this conversation: their numbers are theirs to quote, not the Agent's own. */
@@ -152,6 +211,7 @@ export class AgentExecutor implements ToolRunner {
   }
 
   private async execute(spec: LiveToolSpec, raw: unknown): Promise<ToolOutcome> {
+    if (isMagneticTool(spec.name)) this.magneticUsed = true;
     let entry: ActivityEntry = { id: `c${nextCallId++}`, tool: spec.name, title: spec.title, effect: spec.effect, at: Date.now(), status: "running", ...(spec.alwaysAsk ? { alwaysAsk: true } : {}) };
     const update = (patch: Partial<ActivityEntry>): void => {
       entry = { ...entry, ...patch };
@@ -674,4 +734,14 @@ function outcomeLine(name: string, before: LiveState, after: LiveState, note: st
 
 function pct(f: number): number {
   return Math.round(f * 10000) / 100;
+}
+
+/** A short, stable hash of a string (FNV-1a, 32 bits, as hex): the situation's fingerprint. */
+export function hashText(text: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16).padStart(8, "0");
 }

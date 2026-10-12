@@ -149,6 +149,7 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
       run: async (name, input) => (await load()).run(name, input),
       newConversation: () => void loaded?.then((e) => e.newConversation()),
       heard: (text) => void load().then((e) => e.heard(text)),
+      situation: async () => (await load()).situation(),
     };
   }, [host]);
 
