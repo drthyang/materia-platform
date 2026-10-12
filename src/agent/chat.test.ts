@@ -45,6 +45,25 @@ function sse(blocks: Block[], stop: string): string {
   return out;
 }
 
+/** The same turn as Ollama's native chat streams it: one JSON line per piece, then the counts. */
+function ndjson(blocks: Block[], doneReason = "stop", promptTokens?: number): string {
+  const lines = blocks.map((b) =>
+    b.type === "thinking" ? { message: { role: "assistant", content: "", thinking: b.thinking } }
+      : b.type === "text" ? { message: { role: "assistant", content: b.text } }
+        : b.type === "tool_use" ? { message: { role: "assistant", content: "", tool_calls: [{ function: { name: b.name, arguments: b.input } }] } }
+          : {},
+  );
+  lines.push({ done: true, done_reason: doneReason, ...(promptTokens !== undefined ? { prompt_eval_count: promptTokens } : {}), eval_count: 20 } as never);
+  return lines.map((l) => JSON.stringify({ model: "m", ...l })).join("\n") + "\n";
+}
+
+/** Ollama's REST answers, for an Ollama stand-in: the model loaded now (and its context), and its longest. */
+interface OllamaSide {
+  readonly model: string;
+  readonly loaded: number | null;
+  readonly max: number | null;
+}
+
 /** LM Studio's REST answers, for an LM Studio stand-in: the model list, and what a load does. */
 interface LmStudioSide {
   readonly models: unknown;
@@ -52,12 +71,19 @@ interface LmStudioSide {
   readonly seen: { path: string; body: unknown }[];
 }
 
-async function fakeApi(turns: (string | { status: number; json: unknown })[], lmstudio?: LmStudioSide): Promise<{ url: string; server: Server; requests: { headers: Record<string, unknown>; body: Record<string, unknown> }[] }> {
-  const requests: { headers: Record<string, unknown>; body: Record<string, unknown> }[] = [];
+async function fakeApi(turns: (string | { status: number; json: unknown })[], lmstudio?: LmStudioSide, ollama?: OllamaSide): Promise<{ url: string; server: Server; requests: { path: string; headers: Record<string, unknown>; body: Record<string, unknown> }[] }> {
+  const requests: { path: string; headers: Record<string, unknown>; body: Record<string, unknown> }[] = [];
   const server = createServer((req, res) => {
     const chunks: Buffer[] = [];
     req.on("data", (c: Buffer) => chunks.push(c));
     req.on("end", () => {
+      if (ollama && (req.url === "/api/ps" || req.url === "/api/show")) {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify(req.url === "/api/ps"
+          ? { models: ollama.loaded === null ? [] : [{ name: ollama.model, model: ollama.model, context_length: ollama.loaded }] }
+          : { model_info: ollama.max === null ? {} : { "qwen3.context_length": ollama.max } }));
+        return;
+      }
       if (lmstudio && req.url?.startsWith("/api/v1/models")) {
         const text = Buffer.concat(chunks).toString("utf8");
         lmstudio.seen.push({ path: req.url, body: text ? JSON.parse(text) : null });
@@ -66,7 +92,7 @@ async function fakeApi(turns: (string | { status: number; json: unknown })[], lm
         res.end(JSON.stringify(out.json));
         return;
       }
-      requests.push({ headers: req.headers, body: JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown> });
+      requests.push({ path: req.url ?? "", headers: req.headers, body: JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown> });
       const turn = turns[requests.length - 1];
       if (!turn) {
         res.statusCode = 500;
@@ -78,7 +104,7 @@ async function fakeApi(turns: (string | { status: number; json: unknown })[], lm
         res.end(JSON.stringify(turn.json));
         return;
       }
-      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.writeHead(200, { "content-type": req.url === "/api/chat" ? "application/x-ndjson" : "text/event-stream" });
       res.end(turn);
     });
   });
@@ -218,48 +244,101 @@ describe("AgentChat on Ollama", () => {
   });
   const quiet = { onAssistantStart: () => undefined, onText: () => undefined, onThinking: () => undefined, onNotice: () => undefined, onUsage: () => undefined };
 
-  it("sends plain headers and only the fields Ollama reads", async () => {
-    const api = await fakeApi([sse([{ type: "thinking", thinking: "Look first." }, { type: "tool_use", id: "call_1", name: "get_state", input: {} }], "tool_use"), sse([{ type: "text", text: "Fine." }], "end_turn")]);
+  const qwen = (loaded: number | null = null, max: number | null = 40960): OllamaSide => ({ model: "qwen3:32b", loaded, max });
+
+  it("speaks Ollama's native chat, with only plain headers, and the context it asks for", async () => {
+    const api = await fakeApi([ndjson([{ type: "thinking", thinking: "Look first." }, { type: "tool_use", id: "call_1", name: "get_state", input: {} }]), ndjson([{ type: "text", text: "Fine." }])], undefined, qwen());
     server = api.server;
     let thought = "";
-    const chat = new AgentChat({ run: async () => ({ isError: false, text: "{}" }) } as unknown as AgentExecutor);
+    const chat = new AgentChat({ run: async () => ({ isError: false, text: "{\"technique\":\"powder\"}" }) } as unknown as AgentExecutor);
     await chat.send("How is it?", { transport: "ollama", serverUrl: api.url + "/", model: "qwen3:32b", effort: "high" }, { ...quiet, onThinking: (d) => (thought += d) }, new AbortController().signal);
 
     expect(thought).toBe("Look first.");
+    expect(api.requests.map((r) => r.path)).toEqual(["/api/chat", "/api/chat"]);
     const first = api.requests[0]!;
     for (const h of ["x-api-key", "anthropic-version", "anthropic-beta", "anthropic-dangerous-direct-browser-access", "x-stainless-lang"]) expect(first.headers[h]).toBeUndefined();
     expect(first.body.model).toBe("qwen3:32b");
     expect(first.body.stream).toBe(true);
-    for (const k of ["thinking", "output_config", "cache_control", "fallbacks"]) expect(first.body[k]).toBeUndefined();
-    expect(first.body.system as string).toContain("<skills>");
-    expect(first.body.system as string).toMatch(/Mode: ask\. [^]*$/);
-    const tools = first.body.tools as { name: string; eager_input_streaming?: boolean }[];
-    expect(tools.map((t) => t.name)).toEqual(LIVE_TOOLS.map((t) => t.name));
-    expect(tools.some((t) => "eager_input_streaming" in t)).toBe(false);
+    // Not loaded: the Agent's own 32k, the reply capped at the room left.
+    const options = first.body.options as { num_ctx: number; num_predict: number };
+    expect(options.num_ctx).toBe(32768);
+    expect(options.num_predict).toBeGreaterThanOrEqual(2048);
+    expect(options.num_predict).toBeLessThan(32768);
+    const messages = first.body.messages as { role: string; content: string }[];
+    expect(messages[0]!.role).toBe("system");
+    expect(messages[0]!.content).toContain("<skills>");
+    expect(messages[0]!.content).toMatch(/Mode: ask\. [^]*$/);
+    expect(messages[1]).toEqual({ role: "user", content: "How is it?" });
+    const tools = first.body.tools as { type: string; function: { name: string } }[];
+    expect(tools.map((t) => t.function.name)).toEqual(LIVE_TOOLS.map((t) => t.name));
+    expect(tools.every((t) => t.type === "function")).toBe(true);
     // The tool loop runs as it does on Claude: the call is answered, then the reply.
     expect(chat.history().map((m) => m.role)).toEqual(["user", "assistant", "user", "assistant"]);
+    const second = api.requests[1]!.body.messages as { role: string; content: string; tool_name?: string; thinking?: string; tool_calls?: unknown[] }[];
+    expect(second.slice(2)).toEqual([
+      { role: "assistant", content: "", thinking: "Look first.", tool_calls: [{ function: { name: "get_state", arguments: {} } }] },
+      { role: "tool", content: "{\"technique\":\"powder\"}", tool_name: "get_state" },
+    ]);
+  });
+
+  it("runs at the context the model is loaded with, when it holds the Agent: no reload", async () => {
+    const api = await fakeApi([ndjson([{ type: "text", text: "Fine." }])], undefined, qwen(40960));
+    server = api.server;
+    await new AgentChat({ run: async () => ({ isError: false, text: "{}" }) } as unknown as AgentExecutor).send("hi", { transport: "ollama", serverUrl: api.url, model: "qwen3:32b", effort: "high" }, quiet, new AbortController().signal);
+    expect((api.requests[0]!.body.options as { num_ctx: number }).num_ctx).toBe(40960);
+  });
+
+  it("asks for a longer context when the method no longer fits 32k, up to the model's maximum, and refuses past it", async () => {
+    const skill = "m".repeat(70_000);
+    const turns = [ndjson([{ type: "tool_use", id: "s", name: "read_skill", input: { name: "my-rietveld-workflow" } }]), ndjson([{ type: "text", text: "Read." }])];
+    const run = async () => ({ isError: false, text: skill });
+    const api = await fakeApi(turns, undefined, qwen(null, 131072));
+    server = api.server;
+    await new AgentChat({ run } as unknown as AgentExecutor).send("Read your method.", { transport: "ollama", serverUrl: api.url, model: "qwen3:32b", effort: "high" }, quiet, new AbortController().signal);
+    expect(api.requests.map((r) => (r.body.options as { num_ctx: number }).num_ctx)).toEqual([32768, 57344]);
+    await new Promise<void>((r) => api.server.close(() => r()));
+
+    // A model that takes at most 40k cannot hold it: nothing is sent, and the user is told why.
+    const small = await fakeApi(turns, undefined, qwen(null, 40960));
+    server = small.server;
+    const chat = new AgentChat({ run } as unknown as AgentExecutor);
+    const err = await chat.send("Read your method.", { transport: "ollama", serverUrl: small.url, model: "qwen3:32b", effort: "high" }, quiet, new AbortController().signal).then(() => null, (e: unknown) => e);
+    expect(small.requests).toHaveLength(1);
+    expect((err as Error).message).toMatch(/^This conversation no longer fits qwen3:32b's 40k-token context on Ollama, even with the old tool results shortened: it needs about \d+k .*Nothing was sent, so the model was not handed a cut prompt\. Start a new conversation, or pick a model with a longer context\.$/);
   });
 
   it("moving the conversation to Claude drops Ollama's unsigned thinking from earlier replies", async () => {
-    const api = await fakeApi([sse([{ type: "thinking", thinking: "unsigned" }, { type: "text", text: "Hi." }], "end_turn"), sse([{ type: "text", text: "Hello again." }], "end_turn")]);
-    server = api.server;
+    const local = await fakeApi([ndjson([{ type: "thinking", thinking: "unsigned" }, { type: "text", text: "Hi." }])], undefined, qwen());
+    const claude = await fakeApi([sse([{ type: "text", text: "Hello again." }], "end_turn")]);
+    server = local.server;
     const chat = new AgentChat({ run: async () => ({ isError: false, text: "{}" }) } as unknown as AgentExecutor);
     const signal = new AbortController().signal;
-    await chat.send("hi", { transport: "ollama", serverUrl: api.url, model: "qwen3:32b", effort: "high" }, quiet, signal);
+    await chat.send("hi", { transport: "ollama", serverUrl: local.url, model: "qwen3:32b", effort: "high" }, quiet, signal);
     expect((chat.history()[1]!.content as { type: string }[]).map((b) => b.type)).toEqual(["thinking", "text"]);
 
-    await chat.send("again", { transport: "api-key", apiKey: "sk-test", baseURL: api.url, model: "claude-opus-5-5", effort: "high" }, quiet, signal);
-    const sent = api.requests[1]!.body.messages as { role: string; content: string | { type: string }[] }[];
+    await chat.send("again", { transport: "api-key", apiKey: "sk-test", baseURL: claude.url, model: "claude-opus-5-5", effort: "high" }, quiet, signal);
+    await new Promise<void>((r) => claude.server.close(() => r()));
+    const sent = claude.requests[0]!.body.messages as { role: string; content: string | { type: string }[] }[];
     expect((sent[1]!.content as { type: string }[]).map((b) => b.type)).toEqual(["text"]);
   });
 
   it("names the missing model and how to get it", async () => {
-    const api = await fakeApi([{ status: 404, json: { type: "error", error: { type: "not_found_error", message: "model 'nope:1b' not found" } } }]);
+    const api = await fakeApi([{ status: 404, json: { error: "model 'nope:1b' not found" } }], undefined, { model: "nope:1b", loaded: null, max: null });
     server = api.server;
     const chat = new AgentChat({ run: async () => ({ isError: false, text: "{}" }) } as unknown as AgentExecutor);
     const config = { transport: "ollama" as const, serverUrl: api.url, model: "nope:1b", effort: "high" as const };
     const err = await chat.send("hi", config, quiet, new AbortController().signal).then(() => null, (e: unknown) => e);
     expect(describeChatError(err, config)).toBe('Ollama has no model "nope:1b". Pull it (ollama pull nope:1b) or pick another in the Agent settings.');
+  });
+
+  it("names a model that cannot call tools", async () => {
+    const api = await fakeApi([{ status: 400, json: { error: "registry.ollama.ai/library/gemma:2b does not support tools" } }], undefined, { model: "gemma:2b", loaded: null, max: 8192 });
+    server = api.server;
+    const config = { transport: "ollama" as const, serverUrl: api.url, model: "gemma:2b", effort: "high" as const };
+    const err = await new AgentChat({ run: async () => ({ isError: false, text: "{}" }) } as unknown as AgentExecutor).send("hi", config, quiet, new AbortController().signal).then(() => null, (e: unknown) => e);
+    // 8k cannot hold the Agent: refused before anything is sent.
+    expect((err as Error).message).toMatch(/no longer fits gemma:2b's 8k-token context on Ollama/);
+    expect(api.requests).toHaveLength(0);
   });
 });
 
@@ -294,7 +373,7 @@ describe("AgentChat on LM Studio", () => {
   });
 
   it("moving from Ollama to LM Studio drops the other server's thinking", async () => {
-    const api = await fakeApi([sse([{ type: "thinking", thinking: "unsigned" }, { type: "text", text: "Hi." }], "end_turn"), sse([{ type: "text", text: "Hello." }], "end_turn")], lmModels({ "qwen/qwen3-32b": 40960 }));
+    const api = await fakeApi([ndjson([{ type: "thinking", thinking: "unsigned" }, { type: "text", text: "Hi." }]), sse([{ type: "text", text: "Hello." }], "end_turn")], lmModels({ "qwen/qwen3-32b": 40960 }), { model: "qwen3:32b", loaded: null, max: 40960 });
     server = api.server;
     const chat = new AgentChat(runner);
     const signal = new AbortController().signal;
@@ -361,7 +440,7 @@ describe("a reply that repeats itself", () => {
 
   it("stops the turn, keeps the history valid, and says why", async () => {
     const loop = "I will now refine the scale. " + "(Actually, I'll call refine())\n\n".repeat(40);
-    const api = await fakeApi([sse([{ type: "text", text: loop }], "end_turn"), sse([{ type: "text", text: "OK." }], "end_turn")]);
+    const api = await fakeApi([ndjson([{ type: "text", text: loop }]), ndjson([{ type: "text", text: "OK." }])], undefined, { model: "qwen3:8b", loaded: null, max: 40960 });
     server = api.server;
     const notices: string[] = [];
     const chat = new AgentChat({ run: async () => ({ isError: false, text: "{}" }) } as unknown as AgentExecutor);

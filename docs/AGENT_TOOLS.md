@@ -790,9 +790,14 @@ conversation stays valid.
   requests there, and the server adds the key from `ANTHROPIC_API_KEY` and
   forwards them to api.anthropic.com, so the key never reaches the browser.
   Only the app's own pages may use it. The static build has no proxy.
-- **Ollama.** Ollama answers the Anthropic Messages API at
-  `<server>/v1/messages`, so the same chat loop, tools and approvals drive a
-  local model ([`src/agent/ollama.ts`](../src/agent/ollama.ts)). The page
+- **Ollama.** The same chat loop, tools and approvals drive a local model
+  through Ollama's native `/api/chat`, translated to and from the Messages
+  API ([`src/agent/ollamaNative.ts`](../src/agent/ollamaNative.ts)): it is
+  the only Ollama endpoint that takes a context length, and Ollama cuts a
+  prompt longer than its default context without a word. Each request asks
+  for the context the model is loaded with, or 32k, or the smallest step of
+  8k that holds the conversation, up to the model's maximum, and is refused
+  with why when even that cannot hold it. The page
   talks to the server directly (default `http://localhost:11434`) and lists
   its models from `/api/tags`; models that cannot call tools are shown but
   not offered. Requests carry only plain headers, which Ollama's CORS rules

@@ -1,10 +1,12 @@
 /**
  * The Agent on a local model: an Ollama server, reached straight from this
  * browser. Ollama answers the Anthropic Messages API at `<server>/v1/messages`
- * (checked on 0.40), so the chat loop (chat.ts) drives it with the same
- * SDK, tools and executor as Claude. Nothing leaves this machine.
+ * (checked on 0.40), but that endpoint cannot set a context length, so the
+ * chat loop (chat.ts) speaks Ollama's native /api/chat through a fetch that
+ * translates (ollamaNative.ts), with a `num_ctx` sized to each prompt: the
+ * same SDK, tools and executor as Claude. Nothing leaves this machine.
  *
- * Two things differ from the Anthropic API:
+ * Two more things differ from the Anthropic API:
  *  - Ollama's CORS rules admit only plain headers (Content-Type, Accept, …),
  *    not the SDK's `x-api-key` / `anthropic-*`, so `plainFetch`
  *    (localServer.ts) sends the request without them. Ollama needs none of them.

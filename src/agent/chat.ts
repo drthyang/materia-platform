@@ -36,8 +36,9 @@ import { agentSystemPrompt, autonomyNote, type AgentAutonomy } from "@/agent/sys
 import { CONTEXT_EDITING, CONTEXT_EDITING_BETA, historyChars, pruneForLocal } from "@/agent/contextWindow";
 import { hasRefusalFallback } from "@/agent/chat-models";
 import { ollamaBase, unreachableHint } from "@/agent/ollama";
+import { ollamaNativeFetch, ollamaWindow, type OllamaPlan } from "@/agent/ollamaNative";
 import { ensureLmStudioContext, lmstudioBase, lmstudioUnreachableHint } from "@/agent/lmstudio";
-import { plainFetch } from "@/agent/localServer";
+import { MIN_AGENT_CONTEXT, plainFetch } from "@/agent/localServer";
 
 export type ChatTransport = "api-key" | "proxy" | "ollama" | "lmstudio";
 export type ChatEffort = "low" | "medium" | "high" | "xhigh" | "max";
@@ -110,12 +111,15 @@ export class AgentChat {
   private countsWhole = false;
   /** The server and model the measured characters per token are for. */
   private windowOf = "";
+  /** Ollama: the longest context the model takes (null: unknown), and what the next request runs with. */
+  private maxWindow: number | null = null;
+  private ollamaPlan: OllamaPlan | null = null;
 
   constructor(private readonly executor: ToolRunner) {}
 
   /** Send one user message and run the turns it leads to. */
   async send(text: string, config: ChatConfig, cb: ChatCallbacks, signal: AbortSignal): Promise<void> {
-    const client = clientFor(config);
+    const client = clientFor(config, () => this.ollamaPlan);
     const backend: Backend = isLocal(config.transport) ? config.transport : "anthropic";
     if (this.backend !== null && this.backend !== backend) this.keepPortableBlocks();
     this.backend = backend;
@@ -133,6 +137,15 @@ export class AgentChat {
       const loaded = await ensureLmStudioContext(config.serverUrl ?? "", config.model, signal);
       if (loaded.notice) cb.onNotice(loaded.notice, "info");
       this.window = loaded.context;
+    }
+    if (config.transport === "ollama") {
+      // Ollama runs a request at the context it asks for (num_ctx, through the
+      // native API): the one the model is loaded with when it holds the Agent
+      // (no reload), else the Agent's own, never past the model's maximum.
+      const w = await ollamaWindow(config.serverUrl ?? "", config.model, signal);
+      const want = Math.max(w.loaded ?? 0, MIN_AGENT_CONTEXT);
+      this.maxWindow = w.max;
+      this.window = w.max !== null ? Math.min(want, w.max) : want;
     }
     this.messages.push({ role: "user", content: text });
     this.executor.heard?.(text);
@@ -281,9 +294,19 @@ export class AgentChat {
         this.sent = null;
         return { model: config.model, max_tokens: 64000, system, tools, messages: pruneForLocal(this.messages) };
       }
-      const fit = fitWindow(this.messages, system.length + JSON.stringify(tools).length, this.window, this.charsPerToken);
+      const fixed = system.length + JSON.stringify(tools).length;
+      let fit = fitWindow(this.messages, fixed, this.window, this.charsPerToken);
+      if (fit.refusal !== null && config.transport === "ollama" && this.maxWindow !== null && this.window < this.maxWindow) {
+        // Ollama can run the model with more: the smallest step of 8k that holds it (one reload), up to its maximum.
+        const grown = Math.min(this.maxWindow, Math.ceil((fit.estimate + REPLY_RESERVE) / 8192) * 8192);
+        const wider = fitWindow(this.messages, fixed, grown, this.charsPerToken);
+        if (wider.refusal === null) this.window = grown;
+        fit = wider;
+      }
       if (fit.refusal !== null) throw new Error(fit.refusal(config));
       this.sent = { chars: fit.chars, estimate: fit.estimate };
+      // fit was sized to this.window (grown when it had to be).
+      this.ollamaPlan = config.transport === "ollama" ? { numCtx: this.window, numPredict: fit.maxTokens } : null;
       return { model: config.model, max_tokens: fit.maxTokens, system, tools, messages: fit.messages };
     }
     return {
@@ -399,9 +422,10 @@ export function fitWindow(messages: readonly BetaMessageParam[], fixedChars: num
     estimate,
     maxTokens: 0,
     refusal: (config) => {
-      const server = config.transport === "lmstudio" ? "LM Studio" : "Ollama";
-      const reload = config.transport === "lmstudio" ? ` (lms unload ${config.model} && lms load ${config.model} --context-length ${2 * window})` : "";
-      return `This conversation no longer fits the ${k(window)}-token context ${server} runs ${config.model} with, even with the old tool results shortened: it needs about ${k(estimate + MIN_REPLY)} (the instructions and tools alone about ${k(fixedChars / charsPerToken)}). Nothing was sent, so the model was not handed a cut prompt. Start a new conversation, or give the model a longer context${reload}.`;
+      const needs = `it needs about ${k(estimate + MIN_REPLY)} (the instructions and tools alone about ${k(fixedChars / charsPerToken)}). Nothing was sent, so the model was not handed a cut prompt.`;
+      return config.transport === "lmstudio"
+        ? `This conversation no longer fits the ${k(window)}-token context LM Studio runs ${config.model} with, even with the old tool results shortened: ${needs} Start a new conversation, or give the model a longer context (lms unload ${config.model} && lms load ${config.model} --context-length ${2 * window}).`
+        : `This conversation no longer fits ${config.model}'s ${k(window)}-token context on Ollama, even with the old tool results shortened: ${needs} Start a new conversation, or pick a model with a longer context.`;
     },
   };
 }
@@ -592,11 +616,12 @@ function toolError(id: string, text: string): BetaToolResultBlockParam {
   return { type: "tool_result", tool_use_id: id, content: text, is_error: true };
 }
 
-function clientFor(config: ChatConfig): Anthropic {
+function clientFor(config: ChatConfig, ollamaPlan: () => OllamaPlan | null): Anthropic {
   if (isLocal(config.transport)) {
     // A local server ignores the key, but the SDK wants one; plainFetch never sends it.
+    // Ollama goes through its native chat, the only endpoint that takes a context length.
     const baseURL = config.transport === "ollama" ? ollamaBase(config.serverUrl ?? "") : lmstudioBase(config.serverUrl ?? "");
-    return new Anthropic({ apiKey: config.transport, baseURL, dangerouslyAllowBrowser: true, maxRetries: 1, fetch: plainFetch });
+    return new Anthropic({ apiKey: config.transport, baseURL, dangerouslyAllowBrowser: true, maxRetries: 1, fetch: config.transport === "ollama" ? ollamaNativeFetch(ollamaPlan) : plainFetch });
   }
   if (config.transport === "proxy") {
     const base = new URL(`${import.meta.env.BASE_URL}${PROXY_PATH}`, window.location.origin).href;
