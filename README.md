@@ -65,11 +65,18 @@ neutron TOF Rietveld fit and a GaTa₄Se₈ X-ray PDF fit.
 
 The **Agent** button opens a model beside the analysis on screen: one you run
 yourself on Ollama or LM Studio, or a cloud model (Anthropic's, through an API
-key or the local proxy). It reads the live page, judges the fit with the tools the MCP server
+key or the local proxy), or any server that speaks OpenAI's API (OpenAI,
+Gemini, vLLM, a llama.cpp server). It reads the live page, judges the fit with the tools the MCP server
 exposes, and changes things through the page's own controls, each change an
 undoable History step. **Ask first** puts every change on an approval card;
 **Auto** lets it work through the method's stages on its own and stop when a
 decision is yours.
+
+Local models are experimental. The app sizes every request to the model's
+window (old results shortened to a digest, a prompt that cannot fit refused,
+never sent cut), offers it only the tools of the method's stage, and stops it
+if it goes in circles; a model counts as supported once it passes the eval
+suite's [local tier](docs/AGENT_EVALS.md#the-local-tier).
 
 [![The Agent sets the fit range, refines PbSO₄ with the instrument's terms and the B values in turn, and writes its report](docs/media/agent-demo.png)](docs/media/agent-demo.mp4)
 
