@@ -9,7 +9,8 @@ import { color, fz, mono, radius } from "@/app/theme";
 import { tableRows } from "@/agent/ui/markdownTable";
 import type { ActivityEntry } from "@/agent/executor";
 import type { MethodProgress } from "@/agent/method";
-import { replayLabel, type AgentController, type AgentMode, type AgentSettings, type TranscriptItem } from "@/agent/useAgent";
+import { providerOf, replayLabel, type AgentController, type AgentMode, type AgentProvider, type AgentSettings, type TranscriptItem } from "@/agent/useAgent";
+import { OPENAI_PRESETS, isMachineUrl, listOpenAIModels, openaiBase, openaiUnreachableHint, presetForUrl, type OpenAIModel } from "@/agent/openaiCompat";
 import { CHAT_MODELS, hasRefusalFallback } from "@/agent/chat-models";
 import { listOllamaModels, unreachableHint, type OllamaModel } from "@/agent/ollama";
 import { listLmStudioModels, lmstudioUnreachableHint, type LmStudioModel } from "@/agent/lmstudio";
@@ -29,30 +30,33 @@ const MODE_LABEL: Record<AgentMode, string> = { "api-key": "API key", proxy: "Lo
 
 /**
  * The providers the settings offer, local ones first. A provider owns one or
- * more connection modes; a new provider (an OpenAI-compatible server) is one
- * more entry here and its own settings block below.
+ * more connection modes (providerOf, useAgent.ts); a new provider is one more
+ * entry here and its own settings block below. "OpenAI-compatible" is any
+ * server that speaks OpenAI's API: OpenAI, Gemini, vLLM, a llama.cpp server.
  */
-type Provider = "ollama" | "lmstudio" | "anthropic";
-const PROVIDERS: readonly { readonly id: Provider; readonly label: string; readonly modes: readonly AgentMode[] }[] = [
+const PROVIDERS: readonly { readonly id: AgentProvider; readonly label: string; readonly title?: string; readonly modes: readonly AgentMode[] }[] = [
   { id: "ollama", label: "Ollama", modes: ["ollama"] },
   { id: "lmstudio", label: "LM Studio", modes: ["lmstudio"] },
   { id: "anthropic", label: "Anthropic", modes: ["api-key", "proxy"] },
+  { id: "openai-compatible", label: "OpenAI API", title: "Any server that speaks OpenAI's API: OpenAI, Gemini, vLLM, a llama.cpp server, …", modes: ["openai-compatible"] },
 ];
-const providerOf = (mode: AgentMode): Provider => PROVIDERS.find((p) => p.modes.includes(mode))?.id ?? "anthropic";
 
 /** The one-line privacy note under each provider. */
 const LOCAL_NOTE = "Runs on this machine; nothing leaves it.";
 const cloudNote = (provider: string): string => `Sent to ${provider} and billed to your key; not saved in projects or reports.`;
 
-/** The model a local mode will use ("" with none picked); null for the cloud modes. */
+/** The model a server the user picks from will use ("" with none picked); null for Anthropic's modes. */
 function localModel(s: AgentSettings): string | null {
-  return s.mode === "ollama" ? s.ollamaModel : s.mode === "lmstudio" ? s.lmstudioModel : null;
+  return s.mode === "ollama" ? s.ollamaModel : s.mode === "lmstudio" ? s.lmstudioModel : s.mode === "openai-compatible" ? s.openaiModel : null;
 }
+
+/** The OpenAI-compatible server needs a key the user has not given. */
+const missingOpenAIKey = (s: AgentSettings, key: string): boolean => s.mode === "openai-compatible" && !key && (presetForUrl(s.openaiUrl)?.needsKey ?? false);
 
 export function AgentDrawer({ agent, method = null, onClose }: Props): JSX.Element {
   const { settings } = agent;
   const [showSettings, setShowSettings] = useState(false);
-  const needsSetup = (settings.mode === "api-key" && !agent.apiKey) || localModel(settings) === "";
+  const needsSetup = (settings.mode === "api-key" && !agent.apiKey) || localModel(settings) === "" || missingOpenAIKey(settings, agent.openaiKey);
   // First open with nothing set up: show the settings.
   useEffect(() => {
     if (needsSetup) setShowSettings(true);
@@ -198,6 +202,9 @@ function StatusChip({ agent }: { agent: AgentController }): JSX.Element {
   } else if (settings.mode === "api-key" && !agent.apiKey) {
     text = "API key · not set";
     ok = false;
+  } else if (missingOpenAIKey(settings, agent.openaiKey)) {
+    text = `${presetForUrl(settings.openaiUrl)?.label ?? MODE_LABEL[settings.mode]} · key not set`;
+    ok = false;
   } else if (local !== null) {
     text = `${MODE_LABEL[settings.mode]} · ${local || "no model"}`;
     ok = local !== "";
@@ -226,6 +233,7 @@ function Settings({ agent }: { agent: AgentController }): JSX.Element {
             aria-checked={provider === p.id}
             onClick={() => provider !== p.id && updateSettings({ mode: p.modes[0]! })}
             style={segment(provider === p.id)}
+            {...(p.title ? { title: p.title } : {})}
           >
             {p.label}
           </button>
@@ -257,6 +265,7 @@ function Settings({ agent }: { agent: AgentController }): JSX.Element {
       )}
       {settings.mode === "ollama" && <OllamaSettings agent={agent} />}
       {settings.mode === "lmstudio" && <LmStudioSettings agent={agent} />}
+      {settings.mode === "openai-compatible" && <OpenAICompatSettings agent={agent} />}
       {cloud && (
         <div style={{ display: "flex", gap: 8 }}>
           <label style={{ ...field, flex: 1 }}>
@@ -306,7 +315,16 @@ function HowToConnect({ mode }: { mode: AgentMode }): JSX.Element {
             Needs LM Studio 0.4.1 or later with its server running and <b>Enable CORS</b> on (Developer tab → server settings, or <code style={code}>lms server start --cors</code>).
           </span>
         )}
-        {(mode === "ollama" || mode === "lmstudio") && <span>A smaller model follows a long method less reliably than a large one: keep Ask first on until it has shown it follows yours.</span>}
+        {mode === "openai-compatible" && (
+          <>
+            <span>
+              Any server that speaks OpenAI's API: its base URL (usually ending in <code style={code}>/v1</code>) and, if it needs one, a key. OpenAI and Gemini need a key from their consoles; vLLM (started with <code style={code}>--allowed-origins</code> for this page) and llama.cpp's server run on this machine with none.
+            </span>
+            <span>The key goes only to that server. It is kept for this tab unless you tick Remember.</span>
+            <span>Every request is sized to the model's context: the server's own when it says, else the one set here. Below 128k the Agent offers the tools of the method's stage; at 128k or more, all of them.</span>
+          </>
+        )}
+        {(mode === "ollama" || mode === "lmstudio" || mode === "openai-compatible") && <span>A smaller model follows a long method less reliably than a large one: keep Ask first on until it has shown it follows yours.</span>}
       </div>
     </details>
   );
@@ -337,7 +355,7 @@ function useModelList<T>(url: string, list: (url: string, signal: AbortSignal) =
         (e: unknown) => {
           if (ctrl.signal.aborted) return;
           // A server that answered, but not as expected, says why; one that did not answer gets the setup hint.
-          const answered = e instanceof Error && /did not answer as|needs LM Studio/.test(e.message);
+          const answered = e instanceof Error && /did not answer as|needs LM Studio|refused the API key|answered \d+|did not list models/.test(e.message);
           setState({ status: "error", message: answered ? (e as Error).message : fresh.current.hint(url) });
         },
       );
@@ -440,6 +458,96 @@ function LmStudioSettings({ agent }: { agent: AgentController }): JSX.Element {
   );
 }
 
+/**
+ * Any OpenAI-compatible server: a preset (or another address), the base URL,
+ * the key when it needs one, a model from its list, and the context the
+ * model takes when the server does not say.
+ */
+export function OpenAICompatSettings({ agent }: { agent: AgentController }): JSX.Element {
+  const { settings, updateSettings } = agent;
+  const preset = presetForUrl(settings.openaiUrl);
+  // The list is asked again when the address or the key changes.
+  const sep = "\u0000";
+  const { list, refresh } = useModelList<OpenAIModel>(
+    `${settings.openaiUrl}${sep}${agent.openaiKey}`,
+    (both, signal) => {
+      const [url, key] = both.split(sep);
+      return listOpenAIModels(url ?? "", key || undefined, signal);
+    },
+    (both) => openaiUnreachableHint(both.split(sep)[0] ?? ""),
+    (models) => {
+      if (!models.some((m) => m.id === settings.openaiModel)) updateSettings({ openaiModel: models[0]?.id ?? "" });
+    },
+  );
+  const models = list.status === "ok" ? list.models : [];
+  const picked = models.find((m) => m.id === settings.openaiModel);
+  const local = isMachineUrl(settings.openaiUrl);
+  let where = "the server";
+  try {
+    where = preset?.label ?? new URL(openaiBase(settings.openaiUrl)).host;
+  } catch {
+    // An address still being typed.
+  }
+  return (
+    <>
+      <label style={field}>
+        <span style={fieldLabel}>Server</span>
+        <select
+          style={input}
+          value={preset?.id ?? "custom"}
+          onChange={(e) => {
+            const next = OPENAI_PRESETS.find((p) => p.id === e.target.value);
+            updateSettings({ openaiPreset: e.target.value, ...(next?.baseUrl ? { openaiUrl: next.baseUrl, openaiModel: "" } : {}) });
+          }}
+        >
+          {OPENAI_PRESETS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+        </select>
+      </label>
+      <label style={field}>
+        <span style={fieldLabel}>Base URL</span>
+        <input style={input} value={settings.openaiUrl} onChange={(e) => updateSettings({ openaiUrl: e.target.value.trim(), openaiPreset: presetForUrl(e.target.value)?.id ?? "custom" })} spellCheck={false} placeholder="https://api.openai.com/v1" />
+      </label>
+      <label style={field}>
+        <span style={fieldLabel}>API key{preset?.needsKey ? "" : " (if the server needs one)"}</span>
+        <input style={input} type="password" autoComplete="off" placeholder={preset?.needsKey ? "sk-…" : "none"} value={agent.openaiKey} onChange={(e) => agent.setOpenaiKey(e.target.value.trim())} spellCheck={false} />
+      </label>
+      {agent.openaiKey && (
+        <label style={{ ...field, flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <input type="checkbox" checked={settings.rememberKey} onChange={(e) => updateSettings({ rememberKey: e.target.checked })} />
+          <span style={{ fontSize: 12.5 }}>Remember on this device</span>
+        </label>
+      )}
+      <ModelPicker label="Model on the server" list={list} value={picked ? settings.openaiModel : ""} onChange={(v) => updateSettings({ openaiModel: v })} onRefresh={refresh}>
+        {models.map((m) => (
+          <option key={m.id} value={m.id}>
+            {[m.id, m.context ? `${kTokens(m.context)} context` : null].filter(Boolean).join(" · ")}
+          </option>
+        ))}
+      </ModelPicker>
+      {list.status === "error" && <p style={{ ...note, color: color.warnInk }}>{list.message}</p>}
+      <label style={field} title="The longest prompt the model takes. Every request is sized to it, old results shortened to fit; a prompt that cannot fit is refused, never sent cut. Used when the server does not say its own.">
+        <span style={fieldLabel}>Context (tokens){picked?.context ? ` · the server says ${kTokens(picked.context)}` : ""}</span>
+        <input
+          style={input}
+          type="number"
+          min={8192}
+          step={1024}
+          disabled={!!picked?.context}
+          value={picked?.context ?? settings.openaiContext}
+          onChange={(e) => {
+            const n = Math.round(Number(e.target.value));
+            if (Number.isFinite(n) && n >= 4096) updateSettings({ openaiContext: n });
+          }}
+        />
+      </label>
+      {(picked?.context ?? settings.openaiContext) < MIN_AGENT_CONTEXT && (
+        <p style={{ ...note, color: color.noteInk }}>The Agent's instructions alone are about 15k tokens: below 32k, expect it to refuse long sessions.</p>
+      )}
+      <p style={note}>{local ? LOCAL_NOTE : cloudNote(where)}</p>
+    </>
+  );
+}
+
 /** A local server's model list, with a button to ask again. */
 function ModelPicker<T>({ label, list, value, onChange, onRefresh, children }: { label: string; list: ModelList<T>; value: string; onChange: (v: string) => void; onRefresh: () => void; children: ReactNode }): JSX.Element {
   const empty = list.status !== "ok" || list.models.length === 0;
@@ -480,6 +588,7 @@ function modelName(s: AgentSettings): string {
   if (s.replayOf) return `${s.replayOf} (a replay of a live run)`;
   if (s.mode === "ollama") return s.ollamaModel ? `${s.ollamaModel} (Ollama)` : "the Ollama model you pick";
   if (s.mode === "lmstudio") return s.lmstudioModel ? `${s.lmstudioModel} (LM Studio)` : "the LM Studio model you pick";
+  if (s.mode === "openai-compatible") return s.openaiModel ? `${s.openaiModel} (${presetForUrl(s.openaiUrl)?.label ?? "OpenAI-compatible"})` : "the model you pick on your server";
   return CHAT_MODELS.find((m) => m.id === s.model)?.label ?? s.model;
 }
 
