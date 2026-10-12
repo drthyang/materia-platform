@@ -56,3 +56,48 @@ export class HttpError extends Error {
 export function isMachineOrigin(pageOrigin: string): boolean {
   return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(pageOrigin);
 }
+
+/** What a local server's model could run with, for a conversation that no longer fits its window. */
+export interface ContextAdviceInput {
+  readonly server: "LM Studio" | "Ollama";
+  readonly model: string;
+  /** Tokens the conversation needs, its reply included. */
+  readonly needed: number;
+  /** The window it runs with now. */
+  readonly current: number;
+  /** The longest context the model takes (null: the server does not say). */
+  readonly max: number | null;
+  /** Memory free for a larger window, in bytes (null: the server does not say; neither LM Studio nor Ollama tells a page). */
+  readonly freeBytes?: number | null;
+  /** The KV cache's bytes per token of context (null: not known). */
+  readonly kvBytesPerToken?: number | null;
+}
+
+const kTok = (n: number): string => `${Math.round(n / 1024)}k`;
+const gb = (bytes: number): string => `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+
+/**
+ * The next step for a conversation that no longer fits the window: the
+ * smallest larger window that holds it (a multiple of 16k), whether the model
+ * takes it, and whether the machine has the memory for its KV cache where
+ * that is known. Ollama needs no reload (the chat sets num_ctx itself, up to
+ * the model's maximum), so for it only the maximum is advice. Never a reload
+ * button: a model another program uses must not be unloaded from here.
+ */
+export function contextAdvice(i: ContextAdviceInput): { readonly size: number | null; readonly text: string } {
+  const size = Math.ceil(i.needed / 16384) * 16384;
+  const needs = `This conversation needs about ${kTok(i.needed)} tokens`;
+  if (i.max !== null && size > i.max) {
+    return { size: null, text: `${needs}; ${i.model} takes at most ${kTok(i.max)}. Start a new conversation (the analysis stays as it is), or pick a model with a longer context.` };
+  }
+  if (i.server === "Ollama") return { size, text: `${needs}. Start a new conversation (the analysis stays as it is).` };
+  const takes = i.max !== null ? `${i.model} takes up to ${kTok(i.max)}` : `${i.model} may take more than ${kTok(i.current)}`;
+  const extra = i.kvBytesPerToken ? (size - i.current) * i.kvBytesPerToken : null;
+  const reload = `Reload it at ${kTok(size)} in LM Studio (eject it, then load it with Context Length ${size}, or lms unload ${i.model} && lms load ${i.model} --context-length ${size}), or start a new conversation (the analysis stays as it is).`;
+  if (extra !== null && i.freeBytes != null) {
+    return extra <= i.freeBytes
+      ? { size, text: `${needs}; ${takes}, and this machine has room for ${kTok(size)} (about ${gb(extra)} more). ${reload}` }
+      : { size: null, text: `${needs}; ${takes}, but ${kTok(size)} needs about ${gb(extra)} more memory and this machine has ${gb(i.freeBytes)} free. Start a new conversation (the analysis stays as it is).` };
+  }
+  return { size, text: `${needs}; ${takes}, if this machine has the memory for it${extra !== null ? ` (about ${gb(extra)} more)` : ""}. ${reload}` };
+}

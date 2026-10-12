@@ -41,7 +41,7 @@ import { ollamaBase, unreachableHint } from "@/agent/ollama";
 import { ollamaNativeFetch, ollamaWindow, type OllamaPlan } from "@/agent/ollamaNative";
 import { DEFAULT_OPENAI_CONTEXT, openaiBase, openaiCompatFetch, openaiUnreachableHint, openaiWindow } from "@/agent/openaiCompat";
 import { ensureLmStudioContext, lmstudioBase, lmstudioUnreachableHint } from "@/agent/lmstudio";
-import { MIN_AGENT_CONTEXT, plainFetch } from "@/agent/localServer";
+import { MIN_AGENT_CONTEXT, contextAdvice, plainFetch } from "@/agent/localServer";
 
 export type ChatTransport = "api-key" | "proxy" | "ollama" | "lmstudio" | "openai-compatible";
 export type ChatEffort = "low" | "medium" | "high" | "xhigh" | "max";
@@ -167,6 +167,7 @@ export class AgentChat {
       const loaded = await ensureLmStudioContext(config.serverUrl ?? "", config.model, signal);
       if (loaded.notice) cb.onNotice(loaded.notice, "info");
       this.window = loaded.context;
+      this.maxWindow = loaded.maxContext;
     }
     if (config.transport === "openai-compatible") {
       // The server's own context when it says (vLLM, llama.cpp, gateways), else the one the user set.
@@ -380,7 +381,13 @@ export class AgentChat {
         if (wider.refusal === null) this.window = grown;
         fit = wider;
       }
-      if (fit.refusal !== null) throw new Error(fit.refusal(config));
+      if (fit.refusal !== null) {
+        // What the model could run with instead (LM Studio: a reload; Ollama: past its maximum, nothing).
+        const advice = isLocal(config.transport)
+          ? contextAdvice({ server: config.transport === "lmstudio" ? "LM Studio" : "Ollama", model: config.model, needed: fit.estimate + REPLY_RESERVE, current: this.window, max: this.maxWindow }).text
+          : undefined;
+        throw new Error(fit.refusal(config, advice));
+      }
       this.sent = { chars: fit.chars, sentChars: fit.sentChars, estimate: fit.estimate };
       // fit was sized to this.window (grown when it had to be).
       this.ollamaPlan = config.transport === "ollama" ? { numCtx: this.window, numPredict: fit.maxTokens } : null;
@@ -519,7 +526,8 @@ export function fitWindow(messages: readonly BetaMessageParam[], fixedChars: num
   readonly sentChars: number;
   readonly estimate: number;
   readonly maxTokens: number;
-  readonly refusal: ((config: Pick<ChatConfig, "transport" | "model">) => string) | null;
+  /** Why nothing was sent; `advice` (contextAdvice) replaces the generic next step. */
+  readonly refusal: ((config: Pick<ChatConfig, "transport" | "model">, advice?: string) => string) | null;
 } {
   const overhead = MESSAGE_TOKENS * (messages.length + 2);
   const budget = Math.max(0, Math.floor((window - REPLY_RESERVE - overhead) * charsPerToken - fixedChars));
@@ -535,8 +543,9 @@ export function fitWindow(messages: readonly BetaMessageParam[], fixedChars: num
     sentChars,
     estimate,
     maxTokens: 0,
-    refusal: (config) => {
+    refusal: (config, advice) => {
       const needs = `it needs about ${k(estimate + MIN_REPLY)} (the instructions and tools alone about ${k(fixedChars / charsPerToken)}). Nothing was sent, so the model was not handed a cut prompt.`;
+      if (advice) return `This conversation no longer fits the ${k(window)}-token context ${config.transport === "lmstudio" ? "LM Studio" : "Ollama"} runs ${config.model} with, even with the old tool results shortened. Nothing was sent, so the model was not handed a cut prompt. ${advice}`;
       return config.transport === "lmstudio"
         ? `This conversation no longer fits the ${k(window)}-token context LM Studio runs ${config.model} with, even with the old tool results shortened: ${needs} Start a new conversation, or give the model a longer context (lms unload ${config.model} && lms load ${config.model} --context-length ${2 * window}).`
         : config.transport === "openai-compatible"

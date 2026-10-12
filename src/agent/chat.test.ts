@@ -304,7 +304,7 @@ describe("AgentChat on Ollama", () => {
     const chat = new AgentChat({ run } as unknown as AgentExecutor);
     const err = await chat.send("Read your method.", { transport: "ollama", serverUrl: small.url, model: "qwen3:32b", effort: "high" }, quiet, new AbortController().signal).then(() => null, (e: unknown) => e);
     expect(small.requests).toHaveLength(1);
-    expect((err as Error).message).toMatch(/^This conversation no longer fits qwen3:32b's 40k-token context on Ollama, even with the old tool results shortened: it needs about \d+k .*Nothing was sent, so the model was not handed a cut prompt\. Start a new conversation, or pick a model with a longer context\.$/);
+    expect((err as Error).message).toMatch(/^This conversation no longer fits the 40k-token context Ollama runs qwen3:32b with, even with the old tool results shortened\. Nothing was sent, so the model was not handed a cut prompt\. This conversation needs about \d+k tokens; qwen3:32b takes at most 40k\. Start a new conversation \(the analysis stays as it is\), or pick a model with a longer context\.$/);
   });
 
   it("moving the conversation to Claude drops Ollama's unsigned thinking from earlier replies", async () => {
@@ -337,7 +337,7 @@ describe("AgentChat on Ollama", () => {
     const config = { transport: "ollama" as const, serverUrl: api.url, model: "gemma:2b", effort: "high" as const };
     const err = await new AgentChat({ run: async () => ({ isError: false, text: "{}" }) } as unknown as AgentExecutor).send("hi", config, quiet, new AbortController().signal).then(() => null, (e: unknown) => e);
     // 8k cannot hold the Agent: refused before anything is sent.
-    expect((err as Error).message).toMatch(/no longer fits gemma:2b's 8k-token context on Ollama/);
+    expect((err as Error).message).toMatch(/no longer fits the 8k-token context Ollama runs gemma:2b with.*gemma:2b takes at most 8k/);
     expect(api.requests).toHaveLength(0);
   });
 });
@@ -937,5 +937,18 @@ describe("a long local session's last resorts", () => {
     const offered = api.requests.map((r) => (r.body.tools as unknown[]).length);
     expect(offered[1]).toBeLessThan(powder.length / 2);
     expect(notices.filter((n) => /no longer fits/.test(n))).toEqual([]);
+  });
+});
+
+describe("a refusal that says what would fit", () => {
+  it("names the reload LM Studio's model takes, with nothing sent", async () => {
+    const side = lmModels({ "qwen/qwen3.8-27b": 32768 });
+    const api = await fakeApi([sse([{ type: "tool_use", id: "s", name: "read_skill", input: { name: "my-rietveld-workflow" } }], "tool_use"), sse([{ type: "text", text: "never" }], "end_turn")], side);
+    const config = { transport: "lmstudio" as const, serverUrl: api.url, model: "qwen/qwen3.8-27b", effort: "high" as const };
+    const runner = { run: async () => ({ isError: false, text: "m".repeat(90_000) }) } as unknown as AgentExecutor;
+    const err = await new AgentChat(runner).send("Read your method.", config, { onAssistantStart: () => undefined, onText: () => undefined, onThinking: () => undefined, onNotice: () => undefined, onUsage: () => undefined }, new AbortController().signal).then(() => null, (e: unknown) => e);
+    await new Promise<void>((r) => api.server.close(() => r()));
+    expect(api.requests).toHaveLength(1);
+    expect(describeChatError(err, config)).toMatch(/^This conversation no longer fits the 32k-token context LM Studio runs qwen\/qwen3\.8-27b with, even with the old tool results shortened\. Nothing was sent, so the model was not handed a cut prompt\. This conversation needs about \d+k tokens; qwen\/qwen3\.8-27b takes up to 128k, if this machine has the memory for it\. Reload it at \d+k in LM Studio/);
   });
 });
