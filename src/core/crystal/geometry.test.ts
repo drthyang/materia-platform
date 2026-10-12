@@ -88,7 +88,9 @@ describe("coordination shells", () => {
   it("gives every site's shell of any neighbours when there are no anions", () => {
     const ni = coordinationShells(parseCif(NICKEL, "ni"));
     expect(ni).toHaveLength(1);
-    expect(ni[0]!.bonds).toEqual([{ to: "Ni1", distance: expect.closeTo(3.524 / Math.SQRT2, 6), count: 12 }]);
+    expect(ni[0]!.bonds).toMatchObject([{ to: "Ni1", distance: expect.closeTo(3.524 / Math.SQRT2, 6), count: 12 }]);
+    // Twelve neighbours, each its own image.
+    expect(new Set(ni[0]!.bonds[0]!.images).size).toBe(12);
   });
 });
 

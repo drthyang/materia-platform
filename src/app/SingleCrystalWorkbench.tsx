@@ -67,7 +67,7 @@ import { expandStructureToSupercell, buildModulatedMomentModel, mergeToMagneticS
 import type { MomentDegeneracy } from "@/core/magnetic/canonicalize";
 import { downloadText } from "@/app/download";
 import { reportHtml, type ReportInput } from "@/core/export/report";
-import { singleCrystalReportInput, reportFileName, type MagneticExploration } from "@/app/reportInputs";
+import { singleCrystalReportInput, reportFileName, withEsds, type MagneticExploration } from "@/app/reportInputs";
 import { card as themeCard, color, mono, fz, uppercaseLabel, secondaryButton, space } from "@/app/theme";
 
 // Lazy so three.js stays out of the main bundle until the 3D view is opened.
@@ -857,10 +857,8 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
   }
 
   function exportCif(): void {
-    const withEsd = params.map((p) => {
-      const e = result?.esd[p.id];
-      return e !== undefined ? { ...p, esd: e } : { ...p };
-    });
+    // A tied row (a complement occupancy, an EADP follower) carries its leader's esd, as the report does.
+    const withEsd = withEsds(params, result);
     const meta: CifRefinementMeta = {
       r1: comparison.agreement.r1,
       wr2: comparison.agreement.wr2,

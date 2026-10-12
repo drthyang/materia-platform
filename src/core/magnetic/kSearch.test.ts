@@ -1,3 +1,4 @@
+import type { Vec3 } from "@/core/math/types";
 import { describe, it, expect } from "vitest";
 import type { UnitCell } from "@/core/crystal/types";
 import { inverseDSquared } from "@/core/crystal/unitCell";
@@ -89,5 +90,25 @@ describe("propagation-vector (k) search", () => {
     expect(result[0]!.k).toEqual([0, 0, 0.5]);
     // Disabling the cut keeps all three.
     expect(searchPropagationVector(ortho, [...lowQ, highQd], { tolerance: 0.005, maxQ: 0 })[0]!.total).toBe(3);
+  });
+});
+
+describe("k-search in a centred lattice", () => {
+  // I4/mmm, a = 4, c = 10: the body centring forbids h + k + l odd.
+  const cell = { a: 4, b: 4, c: 10, alpha: 90, beta: 90, gamma: 90 };
+  const I: Vec3[] = [[0.5, 0.5, 0.5]];
+  const d = (h: number, k: number, l: number): number => 1 / Math.sqrt(h * h / 16 + k * k / 16 + l * l / 100);
+
+  it("does not explain centring-forbidden peaks with k = 0, and finds the vector that puts them there", () => {
+    // Magnetic peaks at 1 0 0, 0 0 1 and 1 1 1: h + k + l odd, absent from the nuclear I lattice.
+    const peaks = [d(1, 0, 0), d(0, 0, 1), d(1, 1, 1), d(2, 1, 0)];
+    const plain = searchPropagationVector(cell, peaks);
+    expect(plain[0]!.label).toBe("(0 0 0)"); // the primitive reading: the bug
+    const centred = searchPropagationVector(cell, peaks, { centring: I });
+    const gamma = centred.find((c) => c.label === "(0 0 0)");
+    expect(gamma?.matched ?? 0).toBe(0);
+    // k = (0 0 1) of the I lattice (the X/M point, ≡ (1 0 0)) explains them all.
+    expect(centred[0]!.matched).toBe(4);
+    expect(centred[0]!.label).toBe("(0 0 1)");
   });
 });

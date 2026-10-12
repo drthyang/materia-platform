@@ -6,7 +6,9 @@
  *
  * Only the app's own pages may use it: a request carrying an Origin must come
  * from the server's own host, so another site open in the browser cannot spend
- * the key through it.
+ * the key through it. And the host must be this machine (or one the server's
+ * allowedHosts names): a site whose name an attacker re-points at 127.0.0.1
+ * (DNS rebinding) is its own origin, and would otherwise pass.
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -21,11 +23,15 @@ const RETURN = ["content-type", "request-id", "retry-after", "anthropic-ratelimi
 
 type Next = (err?: unknown) => void;
 
-export function anthropicProxy(apiKey: string | undefined, mount = "/api/anthropic") {
+/** The hosts beyond this machine the server answers for: Vite's `allowedHosts` (true: any). */
+export type AllowedHosts = readonly string[] | true | undefined;
+
+export function anthropicProxy(apiKey: string | undefined, mount = "/api/anthropic", allowedHosts: () => AllowedHosts = () => undefined) {
   return (req: IncomingMessage, res: ServerResponse, next: Next): void => {
     const url = req.url ?? "";
     const at = url.indexOf(mount + "/");
     if (at < 0) return next();
+    if (!trustedHost(req.headers.host, allowedHosts())) return fail(res, 403, "forbidden", "The proxy answers only on this machine's own names (localhost, a loopback address) or a host the server's allowedHosts names.");
     void forward(req, res, url.slice(at + mount.length), apiKey).catch((e) => {
       if (!res.headersSent) fail(res, 502, "proxy_error", `The proxy could not reach the API: ${e instanceof Error ? e.message : String(e)}`);
       else res.end();
@@ -61,6 +67,29 @@ async function forward(req: IncomingMessage, res: ServerResponse, path: string, 
   }
   // Stream it back as it arrives (server-sent events for a streaming request).
   Readable.fromWeb(upstream.body as import("node:stream/web").ReadableStream).pipe(res);
+}
+
+/**
+ * Whether a Host header names this machine: localhost (or a *.localhost
+ * name), a loopback address, or a host `allowed` names (".example.com" for
+ * its subdomains too, as Vite's allowedHosts reads it). Not an arbitrary
+ * name that merely resolves here.
+ */
+export function trustedHost(host: string | undefined, allowed: AllowedHosts = undefined): boolean {
+  if (!host) return false;
+  if (allowed === true) return true;
+  let name: string;
+  try {
+    name = new URL(`http://${host}`).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  if (name === "localhost" || name.endsWith(".localhost")) return true;
+  if (/^127(?:\.\d{1,3}){3}$/.test(name) || name === "[::1]") return true;
+  return (allowed ?? []).some((a) => {
+    const entry = a.toLowerCase();
+    return entry.startsWith(".") ? name === entry.slice(1) || name.endsWith(entry) : name === entry;
+  });
 }
 
 /**

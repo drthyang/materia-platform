@@ -21,16 +21,22 @@ function rng(seed: number): () => number {
   };
 }
 
-/** One reflection per Laue class of P3₂ (−3), Wilson-distributed, twinned by `law` at fraction α. */
-function trigonal(alpha: number, law: Mat3, seed = 7): TwinLawRow[] {
-  const sg = buildSpaceGroup(145);
+/**
+ * One reflection per Laue class of P3₂ (−3), Wilson-distributed, twinned by
+ * `law` at fraction α. `centric`: P−3's intensities, |F|² of a Gaussian F.
+ */
+function trigonal(alpha: number, law: Mat3, seed = 7, centric = false): TwinLawRow[] {
+  const sg = buildSpaceGroup(centric ? 147 : 145);
   const laue = laueRotations(sg.operations);
   const random = rng(seed);
   const truth = new Map<string, number>();
   for (let h = -8; h <= 8; h++) for (let k = -8; k <= 8; k++) for (let l = -12; l <= 12; l++) {
     if (h === 0 && k === 0 && l === 0) continue;
     const key = canonicalKey(laue, h, k, l);
-    if (!truth.has(key)) truth.set(key, -Math.log(1 - random()) * 1000);
+    if (truth.has(key)) continue;
+    // Acentric: exponential. Centric: the square of a normal deviate (Box–Muller).
+    const z = Math.sqrt(-2 * Math.log(1 - random())) * Math.cos(2 * Math.PI * random());
+    truth.set(key, centric ? z * z * 1000 : -Math.log(1 - random()) * 1000);
   }
   const rows: TwinLawRow[] = [];
   for (const [key, i] of truth) {
@@ -75,6 +81,21 @@ describe("the lattice's merohedral twin laws", () => {
     expect(twinned[0]!.alpha).toBeGreaterThan(0.26);
     expect(twinned[0]!.alpha).toBeLessThan(0.34);
     expect(twinned[0]!.pairs).toBeGreaterThan(500);
+  });
+
+  it("reads a centrosymmetric group's twin from the centric H distribution (P−3, α = 0.3)", () => {
+    const law: Mat3 = [[0, 1, 0], [1, 0, 0], [0, 0, -1]];
+    const none = merohedralTwinLaws(trigonal(0, law, 7, true), hexagonal, buildSpaceGroup(147));
+    for (const l of none) {
+      expect(l.distribution).toBe("centric");
+      expect(l.pairs).toBeGreaterThan(500);
+      expect(l.alpha).toBeLessThan(0.04);
+    }
+    const twinned = merohedralTwinLaws(trigonal(0.3, law, 7, true), hexagonal, buildSpaceGroup(147));
+    expect(twinned[0]!.matrix).toEqual(law);
+    expect(twinned[0]!.pairs).toBeGreaterThan(500);
+    expect(twinned[0]!.alpha).toBeGreaterThan(0.26);
+    expect(twinned[0]!.alpha).toBeLessThan(0.34);
   });
 });
 

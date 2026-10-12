@@ -50,6 +50,16 @@ describe("reading the posterior", () => {
     expect(view.reading).toMatch(/as overconfident as the esds/);
   });
 
+  it("reads a bound against the posterior's width, not the bound range: B 0.15 [0.082, 0.218] in [0, 20] is determined", () => {
+    const wide = [row("B_Mn1", 0.15, { min: 0, max: 20 })];
+    const view = posteriorView(result([{ id: "B_Mn1", median: 0.15, q: [0.082, 0.115, 0.185, 0.218], esdRatio: 1.0 }]), wide, { B_Mn1: 0.035 }) as { intervals: { id: string; verdict: string; bound?: string }[] };
+    expect(view.intervals[0]!.bound).toBeUndefined();
+    expect(view.intervals[0]!.verdict).toBe("the posterior confirms the esd");
+    // Piled against the bound: its 2.5 % quantile within a few per cent of its width of it.
+    const piled = posteriorView(result([{ id: "B_Mn1", median: 0.03, q: [0.001, 0.01, 0.07, 0.1], esdRatio: 1.0 }]), wide, { B_Mn1: 0.03 }) as { intervals: { bound?: string }[] };
+    expect(piled.intervals[0]!.bound).toBe("lower");
+  });
+
   it("gives the posterior of a difference and the probability one value is the larger", () => {
     // Two walkers' draws of (a, b): a − b = 0.5 ± spread, a the larger in 9 of 10 draws.
     const draws = [0.9, 0.7, 0.6, 0.55, 0.5, 0.45, 0.4, 0.3, 0.1, -0.2].map((d, i) => [1 + d, 1, i]);

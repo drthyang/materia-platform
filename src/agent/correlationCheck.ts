@@ -70,6 +70,14 @@ export const CARRIED_MAX = 0.99;
 const INTENSITY_TERMS: ReadonlySet<ParameterKind> = new Set<ParameterKind>(["scale", "extinction", "batchScale"]);
 
 /**
+ * Every kind a single-crystal fit has. A parameter set of these alone is a
+ * single-crystal fit; a powder one always carries a cell, background or
+ * profile row, and there two phases' scales at −0.99 are a real problem.
+ */
+const SINGLE_CRYSTAL_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>(["scale", "extinction", "batchScale", "twinFraction", "positionShift", "bIso", "uAniso", "occupancy", "ridingTorsion"]);
+export const isSingleCrystalSet = (parameters: readonly RefinementParameter[]): boolean => parameters.length > 0 && parameters.every((p) => SINGLE_CRYSTAL_KINDS.has(p.kind));
+
+/**
  * The probe: no iterations, and correlations reported well under the limit,
  * so a passing check can still name its strongest pair.
  */
@@ -116,8 +124,13 @@ export function disorderAssemblies(structure: StructureModel, bindings: readonly
   return out;
 }
 
-/** Read the check off a probe (or any refinement result) of the given parameter set, fitted with these restraints (and these disorders). */
-export function readCorrelations(result: RefinementResult, parameters: readonly RefinementParameter[], restraints: readonly LinearRestraint[] = [], assemblies: ReadonlyMap<string, string> = new Map()): CorrelationCheck {
+/**
+ * Read the check off a probe (or any refinement result) of the given parameter
+ * set, fitted with these restraints (and these disorders). The intensity terms
+ * are exempt among themselves on a single-crystal fit only: `singleCrystal`,
+ * or a parameter set of single-crystal kinds alone.
+ */
+export function readCorrelations(result: RefinementResult, parameters: readonly RefinementParameter[], restraints: readonly LinearRestraint[] = [], assemblies: ReadonlyMap<string, string> = new Map(), singleCrystal = isSingleCrystalSet(parameters)): CorrelationCheck {
   const kind = new Map<string, ParameterKind>(parameters.map((p) => [p.id, p.kind]));
   const sameCurve = (a: string, b: string): boolean => oneCurve(kind.get(a), kind.get(b)) !== null;
   const tied = (a: string, b: string): boolean => restraints.some((r) => r.terms.some((t) => t.parameterId === a) && r.terms.some((t) => t.parameterId === b));
@@ -125,7 +138,7 @@ export function readCorrelations(result: RefinementResult, parameters: readonly 
     const ka = kind.get(c.parameterIdA);
     const kb = kind.get(c.parameterIdB);
     const reason = ka && kb ? correlationInsight(ka, kb) : undefined;
-    const intensity = INTENSITY_TERMS.has(ka!) && INTENSITY_TERMS.has(kb!);
+    const intensity = singleCrystal && INTENSITY_TERMS.has(ka!) && INTENSITY_TERMS.has(kb!);
     const disorder = assemblies.get(c.parameterIdA);
     const oneDisorder = disorder !== undefined && assemblies.get(c.parameterIdB) === disorder;
     return {

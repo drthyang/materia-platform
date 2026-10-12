@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { createServer, type IncomingMessage, type Server } from "node:http";
-import { anthropicProxy, sameOrigin } from "@/agent/proxy";
+import { anthropicProxy, sameOrigin, trustedHost } from "@/agent/proxy";
 
 /** The proxy behind a real HTTP server; the upstream API is a stubbed fetch. */
 async function serve(apiKey: string | undefined): Promise<{ url: string; server: Server }> {
@@ -30,6 +30,35 @@ describe("Agent API proxy", () => {
     expect(sameOrigin(req({ host: "localhost:5173", origin: "https://evil.example" }))).toBe(false);
     expect(sameOrigin(req({ host: "localhost:5173" }))).toBe(true); // curl: no browser metadata
     expect(sameOrigin(req({ host: "localhost:5173", "sec-fetch-site": "cross-site" }))).toBe(false);
+  });
+
+  it("answers only on this machine's names or the allowed hosts: a DNS-rebound name is refused", async () => {
+    // The page of evil.example, re-pointed at 127.0.0.1, is its own origin: Origin and Host agree.
+    const rebound = { host: "evil.example:5173", origin: "http://evil.example:5173" };
+    expect(sameOrigin({ headers: rebound } as unknown as IncomingMessage)).toBe(true);
+    expect(trustedHost(rebound.host)).toBe(false);
+    for (const host of ["localhost:5173", "127.0.0.1:4173", "[::1]:5173", "app.localhost:5173"]) expect(trustedHost(host), host).toBe(true);
+    expect(trustedHost("lab.example.org:5173", ["lab.example.org"])).toBe(true);
+    expect(trustedHost("a.lab.example.org", [".lab.example.org"])).toBe(true);
+    expect(trustedHost("evil.example", true)).toBe(true);
+    expect(trustedHost(undefined)).toBe(false);
+    expect(trustedHost("127.0.0.1.evil.example")).toBe(false);
+
+    const s = await serve("sk-test");
+    server = s.server;
+    const fetchSpy = vi.fn();
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+    const { request } = await import("node:http");
+    const status = await new Promise<number>((resolve, reject) => {
+      const r = request(`${s.url}/web-refinement/api/anthropic/v1/messages`, { method: "POST", headers: { Host: rebound.host, Origin: rebound.origin, "content-type": "application/json" } }, (res) => {
+        res.resume();
+        resolve(res.statusCode ?? 0);
+      });
+      r.on("error", reject);
+      r.end("{}");
+    });
+    expect(status).toBe(403);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("says how to configure it when there is no key", async () => {

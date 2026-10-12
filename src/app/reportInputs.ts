@@ -59,8 +59,8 @@ export function reportFileName(structure: StructureModel): string {
   return `${token.length >= 2 ? token : structure.id}_report.html`;
 }
 
-/** Parameters with the last result's esds merged in (the CIF export's `withEsd`). */
-function withEsds(params: readonly RefinementParameter[], result: RefinementResult | null | undefined): RefinementParameter[] {
+/** Parameters with the last result's esds merged in, a tied row's from its leader's: what the CIF exports and the report prints. */
+export function withEsds(params: readonly RefinementParameter[], result: RefinementResult | null | undefined): RefinementParameter[] {
   // A tied row (e.g. "= hypot(…)") reports what its tie evaluates to.
   let resolved: Record<string, number> | null = null;
   if (params.some((p) => p.expression)) {

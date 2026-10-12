@@ -18,27 +18,23 @@ const PLACED: Readonly<Record<RidingRule["geometry"], string>> = {
 };
 import type { ParameterBinding, RefinementParameter } from "@/core/refinement/types";
 import { parseTie } from "@/core/refinement/constraints";
+import { formatWithEsd } from "@/core/export/cif";
 import { EIGHT_PI_SQUARED, uEquivalent } from "@/core/crystal/adp";
 import { cellVolume, orthogonalizationMatrix } from "@/core/crystal/unitCell";
 import { cellVolumeEsd } from "@/core/crystal/cellEsd";
 import { mulVec } from "@/core/math/mat3";
 import type { Vec3 } from "@/core/math/types";
 
-/** A value with its esd in parentheses, in the last digits: 0.18752(9), 8.46808(10). */
+/**
+ * A value with its esd in parentheses, in the last digits: 0.18752(9),
+ * 8.46808(10), 0.435(15). The CIF writer's convention (formatWithEsd: two
+ * figures when they read 10–19, else one), at most `maxDecimals` decimals.
+ */
 export function withEsd(value: number, esd: number | undefined, maxDecimals = 6): string {
   if (esd === undefined || !(esd > 0) || !Number.isFinite(esd)) return value.toFixed(Math.min(maxDecimals, 5));
-  // Two significant digits of esd when they start with 1, else one (the convention).
-  let decimals = Math.max(0, -Math.floor(Math.log10(esd)));
-  let digits = Math.round(esd * 10 ** decimals);
-  if (digits < 2) {
-    decimals += 1;
-    digits = Math.round(esd * 10 ** decimals);
-  }
-  if (decimals > maxDecimals) {
-    decimals = maxDecimals;
-    digits = Math.max(1, Math.round(esd * 10 ** decimals));
-  }
-  return `${value.toFixed(decimals)}(${digits})`;
+  const text = formatWithEsd(value, esd, maxDecimals);
+  if ((text.match(/\.(\d+)\(/)?.[1]?.length ?? 0) <= maxDecimals) return text;
+  return `${value.toFixed(maxDecimals)}(${Math.max(1, Math.round(esd * 10 ** maxDecimals))})`;
 }
 
 export interface StructureTableSite {
