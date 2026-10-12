@@ -156,6 +156,47 @@ Each row is what the run reported: the commit it ran at, the scenarios the suite
 held then, and how many runs passed. The runs were made from the "Fetch all
 repos" session and relayed here.
 
+### qwen3.8-27b in LM Studio (32k), the local tier, 2026-10-12 (partial)
+
+One stream at a time, on `fix/local-model-loops` (the runs span `af9710e` to
+`d24e5bb`; each scenario's latest run is counted). Not yet run: ten of the
+single-crystal scenarios, the before-sample on `main` beyond the AWO4 flow,
+the OpenAI-compatible smoke test, and gemma4:26b (9/10 on `main` before
+these fixes; it needs its own slot).
+
+**The user's AWO4 flow** (`awo4-user-flow`):
+
+| | before (`main`) | after |
+| --- | --- | --- |
+| result | fails: no refinement, no report | passes: 4 converged fits, the report, then the k-search |
+| turns | 80 (the cap, both messages) | 46 (40-turn cap) / 89 (80-turn cap) |
+| the same call | `get_state` 70×, `read_skill` 67× | at most 17× (refine, each time a changed free set) |
+| prompts cut by the server | 71 of 81 (TruncateMiddle, up to 516k tokens) | 0 (largest prompt 27.5k of 32k) |
+
+**The tier** (20 scenarios): 16 pass (80 %).
+
+| | pass | turn cap | loop stopped | refused (said) | cut silently | chat error |
+| --- | --- | --- | --- | --- | --- | --- |
+| powder (15) | 12 | 0 | 1 | 1 | 0 | 0 |
+| AWO4 (1) | 1 | 1 | 0 | 1 | 0 | 0 |
+| PDF (3) | 2 | 0 | 0 | 0 | 0 | 0 |
+| single crystal (1 of 8 run) | 1 | 0 | 0 | 0 | 0 | 0 |
+
+- The four failures are the model's: `analysis-report` and `pdf-local-geometry`
+  put numbers in the report that the engine did not give; `instrument-thermal-apart`
+  refined the two groups together (in both its runs); `magnetic-step-first`
+  refined the nuclear model before the k-search.
+- The loop stop: `magnetic-structure` sent the same report three times; the
+  guard stopped it after the report was written (it passes).
+- The refusals: `full-refinement` (38 turns) and the AWO4 flow's second
+  message no longer fitted the window; since then the method itself, and a
+  long session's tools, shrink last (`d24e5bb`, `575a390`).
+- The turn cap: the AWO4 flow in auto mode refined, ran the magnetic step,
+  sampled the posterior and rewrote its report for 80 turns, one call a
+  turn; no call ran three times at the same state.
+- Four scenarios that ran while another job loaded a model on the same GPU
+  (05:15–05:30) were run again: the same verdicts.
+
 ### Claude, 2026-10-11, at `2eec39d` (15 scenarios, 3 runs each, effort high)
 
 | | Haiku 5.5 | Sonnet 5.5 |
