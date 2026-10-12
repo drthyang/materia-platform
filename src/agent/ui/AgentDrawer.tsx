@@ -15,7 +15,7 @@ import { listOllamaModels, unreachableHint, type OllamaModel } from "@/agent/oll
 import { listLmStudioModels, lmstudioUnreachableHint, type LmStudioModel } from "@/agent/lmstudio";
 import { MIN_AGENT_CONTEXT } from "@/agent/localServer";
 import { MATH_SPAN_SOURCE, mathInside, texPieces } from "@/agent/ui/texText";
-import { DRAWER_MAX, DRAWER_MIN, KEY_STEP, clampDrawerWidth, readDrawerWidth, writeDrawerWidth } from "@/agent/ui/drawerWidth";
+import { DRAWER_MAX, DRAWER_MIN, KEY_STEP, SHEET_DEFAULT, SHEET_MAX, SHEET_MIN, SHEET_QUERY, clampDrawerWidth, clampSheet, readDrawerWidth, readSheet, writeDrawerWidth, writeSheet } from "@/agent/ui/drawerWidth";
 import { cssZoom } from "@/app/ui/cssZoom";
 
 interface Props {
@@ -59,10 +59,13 @@ export function AgentDrawer({ agent, method = null, onClose }: Props): JSX.Eleme
   }, [needsSetup]);
 
   const [width, setWidth] = useDrawerWidth();
+  const [sheet, setSheet] = useSheetHeight();
+  const sheetMode = useMediaQuery(SHEET_QUERY);
   const aside = useRef<HTMLElement>(null);
+  const sized: CSSProperties = { ...drawer, ...(width === null ? {} : { ["--wb-agent-w" as string]: `${width}px` }), ["--wb-sheet-h" as string]: `calc(${(sheet * 100).toFixed(1)}dvh / var(--ui-zoom))` };
   return (
-    <aside ref={aside} className="wb-agent" style={width === null ? drawer : { ...drawer, ["--wb-agent-w" as string]: `${width}px` }} aria-label="Agent">
-      <ResizeHandle drawer={aside} width={width} onResize={setWidth} />
+    <aside ref={aside} className="wb-agent" data-mode={sheetMode ? "sheet" : "docked"} style={sized} aria-label="Agent">
+      {sheetMode ? <SheetHandle fraction={sheet} onResize={setSheet} /> : <ResizeHandle drawer={aside} width={width} onResize={setWidth} />}
       <div style={head}>
         <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
           <SparkIcon />
@@ -115,6 +118,76 @@ function MethodChecklist({ method }: { method: MethodProgress }): JSX.Element {
 }
 
 // ── width ───────────────────────────────────────────────────────────────────
+
+/** Whether a media query matches, following the window as it changes. */
+function useMediaQuery(query: string): boolean {
+  const get = (): boolean => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(query).matches;
+  const [matches, setMatches] = useState(get);
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const mq = window.matchMedia(query);
+    const on = (): void => setMatches(mq.matches);
+    on();
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, [query]);
+  return matches;
+}
+
+/** The sheet's height as a share of the window (a portrait tablet, a phone), remembered by the browser. */
+function useSheetHeight(): [number, (f: number, commit?: boolean) => void] {
+  const [fraction, setFraction] = useState<number>(() => (typeof localStorage === "undefined" ? null : readSheet(localStorage)) ?? SHEET_DEFAULT);
+  const update = (f: number, commit = true): void => {
+    setFraction(clampSheet(f));
+    if (commit && typeof localStorage !== "undefined") writeSheet(localStorage, f);
+  };
+  return [fraction, update];
+}
+
+/** The sheet's top edge: drag (or ↑ / ↓) to make the conversation taller or the page. */
+function SheetHandle({ fraction, onResize }: { fraction: number; onResize: (f: number, commit?: boolean) => void }): JSX.Element {
+  const drag = useRef<{ y: number; f: number; last: number } | null>(null);
+  const viewport = (): number => window.innerHeight / cssZoom();
+  return (
+    <div
+      className="wb-agent-resize"
+      role="separator"
+      aria-orientation="horizontal"
+      aria-label="Resize the Agent panel"
+      aria-valuemin={Math.round(SHEET_MIN * 100)}
+      aria-valuemax={Math.round(SHEET_MAX * 100)}
+      aria-valuenow={Math.round(fraction * 100)}
+      title="Drag to resize"
+      tabIndex={0}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        e.currentTarget.setPointerCapture(e.pointerId);
+        drag.current = { y: e.clientY, f: fraction, last: fraction };
+      }}
+      onPointerMove={(e) => {
+        const d = drag.current;
+        if (!d) return;
+        d.last = clampSheet(d.f + (d.y - e.clientY) / cssZoom() / viewport());
+        onResize(d.last, false);
+      }}
+      onPointerUp={() => {
+        const d = drag.current;
+        drag.current = null;
+        if (d && d.last !== d.f) onResize(d.last);
+      }}
+      onPointerCancel={() => {
+        drag.current = null;
+      }}
+      onKeyDown={(e) => {
+        const step = e.key === "ArrowUp" ? 0.04 : e.key === "ArrowDown" ? -0.04 : 0;
+        if (step === 0) return;
+        e.preventDefault();
+        onResize(fraction + step);
+      }}
+    />
+  );
+}
 
 /** The width the user dragged the drawer to (null: the default), remembered by the browser. */
 function useDrawerWidth(): [number | null, (w: number | null, commit?: boolean) => void] {
@@ -741,6 +814,28 @@ function IconButton({ children, title, onClick, active, disabled }: { children: 
 }
 
 /** The Agent mark: a four-point spark. */
+/** The answers in a conversation: what the collapsed rail's dot counts. */
+export function answersIn(transcript: readonly TranscriptItem[]): number {
+  return transcript.filter((t) => t.kind === "assistant" && t.text.trim() !== "").length;
+}
+
+/**
+ * The Agent collapsed: a slim rail beside the page, or a bar under it on a
+ * tablet held upright or a phone, with a dot when an answer has landed since
+ * it was closed.
+ */
+export function AgentRail({ unread, onOpen }: { unread: boolean; onOpen: () => void }): JSX.Element {
+  return (
+    <aside className="wb-agent-rail" aria-label="Agent">
+      <button type="button" onClick={onOpen} title={unread ? "Open the Agent: a new answer" : "Open the Agent"} aria-label={unread ? "Open the Agent (a new answer)" : "Open the Agent"}>
+        <SparkIcon size={18} />
+        <span className="wb-agent-rail-label">Agent</span>
+        {unread && <span className="wb-agent-dot" aria-hidden="true" />}
+      </button>
+    </aside>
+  );
+}
+
 export function SparkIcon({ size = 16 }: { size?: number }): JSX.Element {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden style={{ display: "block", flex: "none" }}>

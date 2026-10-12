@@ -70,7 +70,7 @@ import type { WorkbenchExports } from "@/app/workbenchEngine";
 import { AgentLink } from "@/agent/link";
 import type { AgentHost } from "@/agent/executor";
 import { useAgent } from "@/agent/useAgent";
-import { AgentDrawer } from "@/agent/ui/AgentDrawer";
+import { AgentDrawer, AgentRail, answersIn } from "@/agent/ui/AgentDrawer";
 import { AgentReportViewer } from "@/agent/ui/AgentReportViewer";
 import { emptyRecord, keyOfState, methodProgress, type AgentRecord } from "@/agent/method";
 
@@ -436,6 +436,13 @@ export function App(): JSX.Element {
   })() : null;
   // The cards the agent is on breathe (workbench.css), while the Agent is open.
   const agentFocus = agentOpen ? agent.focus.join(" ") : "";
+  // The collapsed rail's dot: answers that landed while the drawer was closed.
+  const answers = answersIn(agent.transcript);
+  const [seenAnswers, setSeenAnswers] = useState(0);
+  useEffect(() => {
+    if (agentOpen) setSeenAnswers(answers);
+  }, [agentOpen, answers]);
+  const agentRail = !agentOpen && agent.transcript.length > 0;
   useEffect(() => {
     const root = document.documentElement;
     if (agentFocus) root.dataset.agentFocus = agentFocus;
@@ -1207,7 +1214,7 @@ export function App(): JSX.Element {
     // workbench.css (.wb-shell): the height must follow the dynamic viewport on
     // iOS and undo the large-screen UI zoom, and on phones the whole page
     // scrolls instead, header included.
-    <div className={agentOpen ? "wb-frame wb-frame-agent" : "wb-frame"}>
+    <div className={agentOpen ? "wb-frame wb-frame-agent" : agentRail ? "wb-frame wb-frame-rail" : "wb-frame"}>
     <div className="wb-shell">
       <WorkbenchHeader
         steps={headerSteps}
@@ -1339,6 +1346,7 @@ export function App(): JSX.Element {
       </footer>
     </div>
     {agentOpen && <AgentDrawer agent={agent} method={agentMethod} onClose={() => setAgentOpen(false)} />}
+    {agentRail && <AgentRail unread={answers > seenAnswers} onOpen={() => setAgentOpen(true)} />}
     {agent.reportOpen && agent.report && (
       <AgentReportViewer
         report={agent.report}

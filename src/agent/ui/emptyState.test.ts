@@ -25,3 +25,16 @@ describe("the Agent drawer's empty state", () => {
     }
   });
 });
+
+describe("the collapsed rail's dot", () => {
+  it("counts the answers with text, not the tool cards, the user's lines or the notices", async () => {
+    const { answersIn } = await import("@/agent/ui/AgentDrawer");
+    expect(answersIn([
+      { kind: "user", id: "1", text: "Refine." },
+      { kind: "tool", id: "2", entryId: "e" },
+      { kind: "assistant", id: "3", text: "", thinking: "…" },
+      { kind: "assistant", id: "4", text: "Done: wR 3.9 %.", thinking: "" },
+      { kind: "notice", id: "5", text: "stalled", tone: "info" },
+    ])).toBe(1);
+  });
+});
