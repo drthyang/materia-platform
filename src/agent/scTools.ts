@@ -663,7 +663,7 @@ function absoluteStructureView(s: SingleCrystalLiveState): Record<string, unknow
 }
 
 /** What a Flack x with its esd u says (Flack & Bernardinelli, J. Appl. Cryst. 33 (2000) 1143). */
-function flackReading(x: number, u: number | undefined, line: string | null): string {
+export function flackReading(x: number, u: number | undefined, line: string | null): string {
   if (!line) return "no anomalous scattering at this radiation: x is undetermined, whatever its value";
   if (u === undefined) return "not refined yet: refine it with the structure for its esd";
   if (u > 0.3) return `u = ${sig(u, 2)}: the anomalous signal is too weak to say anything about the absolute structure`;
@@ -678,6 +678,10 @@ function flackReading(x: number, u: number | undefined, line: string | null): st
     if (u < 0.04) return `the inverted hand: ${invert}`;
     if (u < 0.1) return `the inverted hand: ${invert}. With u = ${sig(u, 2)} (above 0.04) a few per cent of this model's hand cannot be excluded for a compound of unknown enantiopurity (Flack & Bernardinelli)`;
     return `x is 1 within 2u, but u = ${sig(u, 2)} is too large to determine the hand (u < 0.1 is needed even for a compound known to be enantiopure): the data lean to the inverted model, no more — compare the two hands' fits (invert_structure) and quote both`;
+  }
+  // Outside [0, 1] by more than 2u: no crystal holds a negative share of a hand.
+  if (x < 0 || x > 1) {
+    return `x = ${sig(x, 2)} lies ${x < 0 ? "below 0" : "above 1"} by more than 2u (u = ${sig(u, 2)}), which no crystal can be: the model's hand is ${x < 0 ? "this one" : "the inverted one"} as far as the data go, but the excess points to a systematic error (absorption, the weighting, extinction, an unresolved twin or disorder) to find before quoting x`;
   }
   return `between the hands: an inversion twin, ${sig(100 * x, 2)} % of the crystal of the inverted hand${Math.abs(x - 0.5) <= 2 * u ? " — a racemic twin" : ""}`;
 }

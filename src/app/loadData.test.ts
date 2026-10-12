@@ -292,4 +292,17 @@ _shelx_hkl_checksum   47345
     expect(loaded.radiationNamed).toBe("X-ray MoKα, λ 0.71073 Å, as the CIF names it");
     expect(detectDataFormat({ text: cif, filename: "1b.cif" }).dataType).toBe("single-crystal");
   });
+
+  it("refuses an embedded HKLF 5 measurement: by the twin components, or by the HKLF line of the embedded .res", () => {
+    const twinned = cif.replace("   2   0   0  114.06    3.56", "   2   0   0  114.06    3.56  -2\n   2   0   0  114.06    3.56   1");
+    expect(() => loadReflectionDataset(twinned, exampleStructure(), "1b-hkl", "1b.cif")).toThrow(/HKLF 5/);
+    const declared = cif.replace("TITL 1b\nEND", "TITL 1b\nHKLF 5\nEND");
+    expect(() => loadReflectionDataset(declared, exampleStructure(), "1b-hkl", "1b.cif")).toThrow(/HKLF 5/);
+  });
+
+  it("refuses a .hkl the structure file says is HKLF 5", () => {
+    const hkl = "   1   0   0  100.00    2.00   1\n   0   1   1   50.00    1.50   2\n   0   0   0    0.00    0.00   0\n";
+    expect(() => loadReflectionDataset(hkl, exampleStructure(), "x-hkl", "x.hkl", { wavelength: 0.71073, hklf: 5 })).toThrow(/HKLF 5/);
+    expect(loadReflectionDataset(hkl, exampleStructure(), "x-hkl", "x.hkl", { wavelength: 0.71073, hklf: 4 }).kept).toBe(2);
+  });
 });

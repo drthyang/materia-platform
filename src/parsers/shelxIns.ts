@@ -354,6 +354,7 @@ export function shelxNotes(ins: ShelxInstructions): string[] {
   return [
     `CELL: λ ${ins.wavelength} Å (X-ray)${ins.temperature !== undefined ? `; TEMP ${Math.round(ins.temperature)} K` : "; no TEMP (SHELXL then takes 20 °C)"}`,
     ...(ins.twin ? [`TWIN: law h′ = R·h, R = ${matrixText(ins.twin.matrix)}, ${ins.twin.domains} domains${ins.basf.length ? `, BASF ${ins.basf.join(" ")}` : ""}`] : ins.basf.length ? [`BASF ${ins.basf.join(" ")}`] : []),
+    ...(ins.hklf !== undefined && ins.hklf !== 4 ? [`HKLF ${ins.hklf}: MATERIA reads HKLF 4 reflection files only, so it refuses the one this .ins refined against`] : []),
     ...(ins.exti !== undefined ? [`EXTI ${ins.exti}`] : []),
     ...(ins.weighting ? [`WGHT ${ins.weighting.a} ${ins.weighting.b}`] : []),
     ...(ins.freeVariables.length ? [`FVAR: OSF ${ins.freeVariables[0]}${ins.freeVariables.length > 1 ? `; free variables ${ins.freeVariables.slice(1).map((v, i) => `${i + 2} = ${v}`).join(", ")}` : ""}`] : []),

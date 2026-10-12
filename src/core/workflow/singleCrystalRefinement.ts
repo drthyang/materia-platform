@@ -190,7 +190,11 @@ export function buildSingleCrystalSpec(
     const start = opts.twinFractions?.[i] ?? 0.1;
     // Alone, the inversion's fraction is the Flack x; beside a merohedral law, each domain of the inverted hand holds part of it.
     const label = laws.length === 1 && isInversion(law) ? "inversion twin fraction (Flack x)" : `twin domain ${i + 2} fraction (BASF ${i + 1})${improper(law.matrix) ? ", inverted hand" : ""}`;
-    params.push({ id, label, kind: "twinFraction", value: start, initialValue: start, min: 0, max: 1, fixed: false });
+    // Refined free of [0, 1], as SHELXL refines BASF and the Flack x: a value a
+    // little outside it is what the data say (flackReading reads it), and a
+    // bound at 0 would report it as 0 at bound. ±0.5 beyond keeps a divergent
+    // fit from running away.
+    params.push({ id, label, kind: "twinFraction", value: start, initialValue: start, min: -0.5, max: 1.5, fixed: false });
     bindings.push({ parameterId: id, kind: "twinFraction", targetId: dataset.id, targetKey: String(i + 1) });
   });
 

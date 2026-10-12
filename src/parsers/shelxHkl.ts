@@ -30,6 +30,19 @@ import type { Reflection2 } from "@/core/diffraction/merge";
 export interface ShelxParseOptions {
   /** Drop `0 0 0` rows that carry an intensity (the forward beam). Default false. */
   readonly skipForwardBeam?: boolean;
+  /** The HKLF code the structure's instructions give: anything but 4 is refused. */
+  readonly hklf?: number;
+}
+
+/**
+ * Why an HKLF 5 file is refused. Its columns 29–32 hold the twin component
+ * each row belongs to (negative for every component of an overlapped
+ * reflection but the last), not a scale batch: read as HKLF 4 they became
+ * batches and the overlaps independent reflections.
+ */
+export function hklf5Refusal(n: number, why: string): string {
+  if (n !== 5) return `This is HKLF ${n} data (${why}). MATERIA reads HKLF 4 only (F² and σ(F²)); load the HKLF 4 file from your integration.`;
+  return `This is HKLF 5 data (${why}). MATERIA reads HKLF 4 only: in HKLF 5 the column after σ is the twin component, not a batch, and reading it as HKLF 4 would treat overlapped reflections as separate ones. Load the HKLF 4 file from your integration (one twin domain, or detwinned) and describe the twin with TWIN/BASF.`;
 }
 
 export interface ShelxHklParse {
@@ -53,6 +66,9 @@ export function isCifReflectionLoop(text: string): boolean {
  * null when the CIF carries none.
  */
 export function embeddedHkl(text: string): string | null {
+  // The .res a SHELXL CIF embeds names the HKLF code it refined against.
+  const hklf = Number(text.match(/^_shelx_res_file[ \t]*\r?\n;[\s\S]*?^HKLF[ \t]+(-?\d+)/m)?.[1] ?? 4);
+  if (hklf !== 4) throw new Error(hklf5Refusal(hklf, `the CIF's _shelx_res_file says HKLF ${hklf}`));
   const m = text.match(/^_shelx_hkl_file[ \t]*\r?\n;[^\n]*\n([\s\S]*?)\r?\n;/m);
   return m ? m[1]! : null;
 }
@@ -110,6 +126,7 @@ function parseHklfLine(line: string): (Reflection2 & { batch: number }) | null {
 
 /** Parse SHELX HKLF-4 intensity data. Stops at the `0 0 0` terminator line. */
 export function parseShelxHkl(text: string, opts: ShelxParseOptions = {}): ShelxHklParse {
+  if (opts.hklf !== undefined && opts.hklf !== 4) throw new Error(hklf5Refusal(opts.hklf, `the structure's instructions say HKLF ${opts.hklf}`));
   const reflections: Reflection2[] = [];
   let hasBatches = false;
   let skipped = 0;
@@ -124,6 +141,8 @@ export function parseShelxHkl(text: string, opts: ShelxParseOptions = {}): Shelx
       if (row.intensity === 0 && row.sigma <= 0) break;
       if (opts.skipForwardBeam) { forwardBeamSkipped++; continue; }
     }
+    // A negative component number exists only in HKLF 5.
+    if (row.batch < 0) throw new Error(hklf5Refusal(5, `${row.h} ${row.k} ${row.l} has twin component ${row.batch}`));
     if (row.batch !== 1) hasBatches = true;
     reflections.push({ h: row.h, k: row.k, l: row.l, intensity: row.intensity, sigma: row.sigma, ...(row.batch !== 1 ? { batch: row.batch } : {}) });
   }

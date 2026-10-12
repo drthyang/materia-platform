@@ -11,7 +11,7 @@
 import type { StructureModel } from "@/core/crystal/types";
 import type { Vec3 } from "@/core/math/types";
 import { fractionalToCartesian } from "@/core/crystal/unitCell";
-import { applyOperation } from "@/core/crystal/symmetry";
+import { equivalentPositions } from "@/core/crystal/symmetry";
 import { wrapFractional, sub, norm } from "@/core/math/vec3";
 
 const B = 0.37;
@@ -68,12 +68,8 @@ const NON_METALS: ReadonlySet<string> = new Set(["H", "D", "B", "C", "N", "O", "
 function cellAtoms(model: StructureModel): { label: string; element: string; occupancy: number; frac: Vec3 }[] {
   const atoms: { label: string; element: string; occupancy: number; frac: Vec3 }[] = [];
   for (const site of model.sites) {
-    const positions: Vec3[] = [];
-    for (const op of model.spaceGroup.operations) {
-      const p = wrapFractional(applyOperation(op, site.position));
-      if (!positions.some((q) => norm(sub(q, p)) < 1e-4)) positions.push(p);
-    }
-    for (const p of positions) atoms.push({ label: site.label, element: site.element, occupancy: site.occupancy, frac: p });
+    // Periodic, and coarse enough for a CIF's rounded special positions (0.3333, 0.6667).
+    for (const p of equivalentPositions(model.spaceGroup.operations, site.position)) atoms.push({ label: site.label, element: site.element, occupancy: site.occupancy, frac: p });
   }
   return atoms;
 }

@@ -77,6 +77,12 @@ describe("SHELX instruction files", () => {
     expect(instructions.ridingU.get("H1")).toBe(1.5);
     expect(instructions.twin).toBeUndefined();
   });
+
+  it("warns when the instructions refine against anything but HKLF 4", () => {
+    expect(shelxNotes(parseShelxIns(INS, "x").instructions).some((n) => /HKLF/.test(n))).toBe(false);
+    const notes = shelxNotes(parseShelxIns(INS.replace("HKLF 4", "HKLF 5"), "x").instructions);
+    expect(notes.find((n) => /HKLF 5/.test(n))).toMatch(/reads HKLF 4 reflection files only/);
+  });
 });
 
 const INS_3A = "GSAS-II-tutorials/sc/3a.ins";
