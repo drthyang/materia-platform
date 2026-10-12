@@ -4,7 +4,7 @@
  * it, so the plot and the parameter panel stay in view while the model works.
  */
 
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from "react";
+import { Fragment, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from "react";
 import { color, fz, mono, radius } from "@/app/theme";
 import { tableRows } from "@/agent/ui/markdownTable";
 import type { ActivityEntry } from "@/agent/executor";
@@ -14,6 +14,7 @@ import { CHAT_MODELS, hasRefusalFallback } from "@/agent/chat-models";
 import { listOllamaModels, unreachableHint, type OllamaModel } from "@/agent/ollama";
 import { listLmStudioModels, lmstudioUnreachableHint, type LmStudioModel } from "@/agent/lmstudio";
 import { MIN_AGENT_CONTEXT } from "@/agent/localServer";
+import { cardsInReply, type AgentCard } from "@/agent/focus";
 import { MATH_SPAN_SOURCE, mathInside, texPieces } from "@/agent/ui/texText";
 import { DRAWER_MAX, DRAWER_MIN, KEY_STEP, SHEET_DEFAULT, SHEET_MAX, SHEET_MIN, SHEET_QUERY, clampDrawerWidth, clampSheet, readDrawerWidth, readSheet, writeDrawerWidth, writeSheet } from "@/agent/ui/drawerWidth";
 import { cssZoom } from "@/app/ui/cssZoom";
@@ -538,10 +539,18 @@ function Transcript({ agent, page }: { agent: AgentController; page: string | nu
   useEffect(() => {
     end.current?.scrollIntoView({ block: "end" });
   }, [items, agent.activity]);
+  const ended = useEndTimes(agent.activity);
+  // Each finished turn's verdict, after its last item: what its tools computed.
+  const outcomes = turnOutcomes(items, agent.activity, agent.thinking);
   return (
     <div style={transcriptBox} aria-live="polite">
       {items.length === 0 && <EmptyState settings={agent.settings} page={page} />}
-      {items.map((item) => <Item key={item.id} item={item} agent={agent} />)}
+      {items.map((item) => (
+        <Fragment key={item.id}>
+          <Item item={item} agent={agent} ended={ended} />
+          {outcomes.get(item.id) && <OutcomePill outcome={outcomes.get(item.id)!} />}
+        </Fragment>
+      ))}
       {agent.thinking && <div style={{ fontSize: 12.5, color: color.faint, padding: "0 2px" }}>Working…</div>}
       <div ref={end} />
     </div>
@@ -595,7 +604,7 @@ export function EmptyState({ settings, page }: { settings: AgentSettings; page: 
   );
 }
 
-function Item({ item, agent }: { item: TranscriptItem; agent: AgentController }): JSX.Element | null {
+function Item({ item, agent, ended }: { item: TranscriptItem; agent: AgentController; ended: ReadonlyMap<string, number> }): JSX.Element | null {
   switch (item.kind) {
     case "user":
       return <div style={userBubble}>{item.text}</div>;
@@ -609,48 +618,151 @@ function Item({ item, agent }: { item: TranscriptItem; agent: AgentController })
             </details>
           )}
           {item.text && (
-            <div style={assistantText} onMouseEnter={() => agent.hoverReply(item.text)} onMouseLeave={() => agent.hoverReply(null)}>
-              <Markdown text={item.text} />
+            <div className="wb-agent-answer" onMouseEnter={() => agent.hoverReply(item.text)} onMouseLeave={() => agent.hoverReply(null)}>
+              <div style={assistantText}><Markdown text={item.text} /></div>
+              <CardChips text={item.text} onHover={(card) => agent.hoverReply(card ? CARD_WORD[card] : item.text)} />
             </div>
           )}
         </div>
       );
     case "tool": {
       const entry = agent.activity[item.entryId];
-      return entry ? <ToolCard entry={entry} onDecide={agent.decide} {...(entry.tool === "write_report" && entry.status === "done" && agent.report ? { onOpenReport: agent.openReport } : {})} /> : null;
+      return entry ? <ToolCard entry={entry} endedAt={ended.get(entry.id)} onDecide={agent.decide} {...(entry.tool === "write_report" && entry.status === "done" && agent.report ? { onOpenReport: agent.openReport } : {})} /> : null;
     }
     case "notice":
       return <div style={noticeStyle(item.tone)}>{item.text}</div>;
   }
 }
 
-function ToolCard({ entry, onDecide, onOpenReport }: { entry: ActivityEntry; onDecide: (id: string, ok: boolean) => void; onOpenReport?: () => void }): JSX.Element {
+const STATUS_TEXT: Record<ActivityEntry["status"], string> = { waiting: "Needs approval", running: "Running…", done: "Done", declined: "Declined", failed: "Failed" };
+
+/** A duration as a step card shows it: 0.4 s, 12 s. */
+export function formatDuration(ms: number | undefined): string | null {
+  if (ms === undefined || !Number.isFinite(ms) || ms < 0) return null;
+  if (ms < 100) return "<0.1 s";
+  return ms < 10_000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms / 1000)} s`;
+}
+
+/**
+ * One tool call, compact: a status dot, its title, the status and how long it
+ * took, and the one line that matters (the preview while it waits, the
+ * outcome after). A change waiting for approval keeps its Approve / Decline.
+ */
+function ToolCard({ entry, endedAt, onDecide, onOpenReport }: { entry: ActivityEntry; endedAt: number | undefined; onDecide: (id: string, ok: boolean) => void; onOpenReport?: () => void }): JSX.Element {
   const waiting = entry.status === "waiting";
-  const tone = entry.status === "failed" ? color.warnInk : entry.status === "declined" ? color.faint : entry.status === "done" ? color.okInk : color.primary;
-  const statusText = { waiting: "Needs approval", running: "Running…", done: "Done", declined: "Declined", failed: "Failed" }[entry.status];
+  const took = endedAt !== undefined && entry.status !== "running" && !waiting ? formatDuration(endedAt - entry.at) : null;
+  const meta = [STATUS_TEXT[entry.status], took].filter(Boolean).join(" · ");
+  const line = waiting ? entry.preview : entry.outcome ?? entry.preview;
   return (
-    <div style={{ ...toolCard, ...(waiting ? { border: `1px solid ${color.primaryTintBorder}`, background: color.primaryTintBg } : {}) }} data-tool={entry.tool} data-status={entry.status}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
-        <span style={{ fontWeight: 600, fontSize: 12.5, color: color.ink }}>
-          {entry.effect === "read" ? "◦ " : "● "}{entry.title}
-        </span>
-        <span style={{ fontSize: fz.micro, color: tone, whiteSpace: "nowrap" }}>
-          {statusText}
-        </span>
+    <div className={`wb-agent-step is-${entry.status}`} data-tool={entry.tool} data-status={entry.status}>
+      <div className="wb-agent-step-head">
+        <span className="wb-agent-step-dot" aria-hidden="true" />
+        <span className="wb-agent-step-label">{entry.title}</span>
+        <span className="wb-agent-step-meta">{meta}</span>
       </div>
-      {entry.preview && <div style={{ fontSize: 12.5, color: color.ink, marginTop: 3 }}>{entry.preview}</div>}
-      {entry.outcome && entry.status !== "waiting" && <div style={{ fontSize: 12, color: entry.status === "failed" ? color.warnInk : color.secondary, marginTop: 3, fontFamily: entry.tool === "refine" ? mono : undefined }}>{entry.outcome}</div>}
+      {line && <div className="wb-agent-step-line" style={entry.tool === "refine" && !waiting ? { fontFamily: mono } : undefined}>{line}</div>}
       {onOpenReport && (
-        <div style={{ marginTop: 8 }}>
+        <div style={{ marginTop: 6 }}>
           <button style={secondaryButton} onClick={onOpenReport}>Open the report</button>
         </div>
       )}
       {waiting && (
-        <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+        <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
           <button style={primaryButton} onClick={() => onDecide(entry.id, true)}>Approve</button>
           <button style={secondaryButton} onClick={() => onDecide(entry.id, false)}>Decline</button>
         </div>
       )}
+    </div>
+  );
+}
+
+/** When each tool call stopped running, seen as the activity changes: a step card's duration. */
+function useEndTimes(activity: Readonly<Record<string, ActivityEntry>>): ReadonlyMap<string, number> {
+  const ended = useRef(new Map<string, number>());
+  for (const entry of Object.values(activity)) {
+    if (entry.status !== "running" && entry.status !== "waiting" && !ended.current.has(entry.id)) ended.current.set(entry.id, Date.now());
+  }
+  return ended.current;
+}
+
+// ── outcome ─────────────────────────────────────────────────────────────────
+
+export interface TurnOutcome {
+  readonly status: "achieved" | "partial" | "not-achieved";
+  readonly note: string;
+}
+
+const OUTCOME_TEXT: Record<TurnOutcome["status"], string> = { achieved: "Achieved", partial: "Partial", "not-achieved": "Not achieved" };
+
+/**
+ * A finished turn's verdict, from what its tools computed, not from what the
+ * reply says: a refusal or a failed change is not achieved; a declined change,
+ * or a refinement that stopped short of converging, is partial; a converged
+ * refinement, or changes all made, achieved. A turn of reads and words alone
+ * has none. Keyed by the turn's last item.
+ */
+export function turnOutcomes(items: readonly TranscriptItem[], activity: Readonly<Record<string, ActivityEntry>>, thinking: boolean): Map<string, TurnOutcome> {
+  const out = new Map<string, TurnOutcome>();
+  const turns: TranscriptItem[][] = [];
+  for (const item of items) {
+    if (item.kind === "user" || turns.length === 0) turns.push([]);
+    turns[turns.length - 1]!.push(item);
+  }
+  turns.forEach((turn, t) => {
+    if (thinking && t === turns.length - 1) return;
+    const entries = turn.flatMap((i) => (i.kind === "tool" && activity[i.entryId] ? [activity[i.entryId]!] : []));
+    const changes = entries.filter((e) => e.effect !== "read");
+    if (changes.length === 0) return;
+    const last = turn[turn.length - 1]!;
+    const failed = changes.filter((e) => e.status === "failed");
+    const declined = changes.filter((e) => e.status === "declined");
+    const refines = changes.filter((e) => e.tool === "refine" && e.status === "done");
+    const lastRefine = refines.at(-1);
+    if (failed.length > 0) out.set(last.id, { status: "not-achieved", note: `${failed.at(-1)!.title}: ${failed.at(-1)!.outcome ?? "failed"}` });
+    else if (declined.length > 0) out.set(last.id, { status: "partial", note: `${declined.length} change${declined.length === 1 ? "" : "s"} declined` });
+    else if (lastRefine && !/^converged\b/.test(lastRefine.outcome ?? "")) out.set(last.id, { status: "partial", note: `the refinement ${lastRefine.outcome ?? "did not converge"}` });
+    else out.set(last.id, { status: "achieved", note: lastRefine?.outcome ?? `${changes.length} change${changes.length === 1 ? "" : "s"} made` });
+  });
+  return out;
+}
+
+function OutcomePill({ outcome }: { outcome: TurnOutcome }): JSX.Element {
+  return (
+    <div className={`wb-agent-outcome is-${outcome.status}`} role="status">
+      <span className="wb-agent-outcome-label">Outcome</span>
+      <strong>{OUTCOME_TEXT[outcome.status]}</strong>
+      <span className="wb-agent-outcome-note">{outcome.note}</span>
+    </div>
+  );
+}
+
+// ── card chips ──────────────────────────────────────────────────────────────
+
+const CARD_LABEL: Record<AgentCard, string> = { structure: "Structure", data: "Data", instrument: "Instrument", pattern: "Plot", parameters: "Parameters", result: "Result" };
+/** A word each card's own pattern (focus.ts) reads as that card alone: hovering a chip lights its card. */
+const CARD_WORD: Record<AgentCard, string> = { structure: "structure", data: "dataset", instrument: "instrument", pattern: "plot", parameters: "parameters", result: "wR" };
+
+/** The cards an answer points to, as chips: hover lights the card, a click brings it into view. */
+function CardChips({ text, onHover }: { text: string; onHover: (card: AgentCard | null) => void }): JSX.Element | null {
+  const cards = cardsInReply(text);
+  if (cards.length === 0) return null;
+  return (
+    <div className="wb-agent-chips">
+      {cards.map((card) => (
+        <button
+          key={card}
+          type="button"
+          className="wb-agent-chip"
+          onMouseEnter={() => onHover(card)}
+          onMouseLeave={() => onHover(null)}
+          onFocus={() => onHover(card)}
+          onBlur={() => onHover(null)}
+          onClick={() => document.querySelector(`[data-agent-card="${card}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" })}
+          title={`Show the ${CARD_LABEL[card].toLowerCase()} card`}
+        >
+          {CARD_LABEL[card]}
+        </button>
+      ))}
     </div>
   );
 }
@@ -874,7 +986,6 @@ const list: CSSProperties = { margin: "0 0 6px", paddingLeft: 18 };
 const table: CSSProperties = { borderCollapse: "collapse", fontSize: 12, fontVariantNumeric: "tabular-nums" };
 const th: CSSProperties = { textAlign: "left", fontWeight: 600, padding: "2px 8px 3px 0", borderBottom: `1px solid ${color.border}`, whiteSpace: "nowrap" };
 const td: CSSProperties = { padding: "2px 8px 2px 0", borderBottom: `1px solid ${color.chipBg}`, whiteSpace: "nowrap" };
-const toolCard: CSSProperties = { border: `1px solid ${color.border}`, borderRadius: 8, padding: "8px 10px", background: color.surface, overflowWrap: "anywhere" };
 const primaryButton: CSSProperties = { border: `1px solid ${color.primary}`, background: color.primary, color: "#fff", borderRadius: 6, padding: "5px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" };
 const secondaryButton: CSSProperties = { border: `1px solid ${color.control}`, background: color.surface, color: color.ink, borderRadius: 6, padding: "5px 14px", fontSize: 12.5, cursor: "pointer" };
 const noticeStyle = (tone: "info" | "error"): CSSProperties => ({

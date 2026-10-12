@@ -1031,3 +1031,133 @@ html {
     box-shadow: inset 0 0 0 2px rgba(31, 79, 216, 0.7);
   }
 }
+
+/* ── The Agent's conversation (THY-25, after the RMC Copilot) ─────────────── */
+
+/* A tool call: a compact card, its status as a dot and the left accent. */
+.wb-agent-step {
+  border: 1px solid #e8e2d8;
+  border-left: 3px solid #cfc7ba;
+  border-radius: 9px;
+  padding: 6px 9px;
+  background: #fff;
+  overflow-wrap: anywhere;
+}
+.wb-agent-step.is-done { border-left-color: #2f8f4e; }
+.wb-agent-step.is-failed { border-left-color: #b4232a; }
+.wb-agent-step.is-declined { border-left-color: #b5aea2; }
+.wb-agent-step.is-running { border-left-color: #1f4fd8; }
+.wb-agent-step.is-waiting {
+  border-left-color: #1f4fd8;
+  background: #eef3ff;
+  border-color: #c9d6fb;
+}
+.wb-agent-step-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.wb-agent-step-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #cfc7ba;
+}
+.wb-agent-step.is-done .wb-agent-step-dot { background: #2f8f4e; }
+.wb-agent-step.is-failed .wb-agent-step-dot { background: #b4232a; }
+.wb-agent-step.is-running .wb-agent-step-dot,
+.wb-agent-step.is-waiting .wb-agent-step-dot {
+  background: #1f4fd8;
+  animation: wb-agent-step-pulse 1.1s ease-in-out infinite;
+}
+@keyframes wb-agent-step-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wb-agent-step-dot { animation: none !important; }
+}
+.wb-agent-step-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #1e1d1a;
+}
+.wb-agent-step-meta {
+  flex: none;
+  font-size: 11px;
+  color: #8a8478;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.wb-agent-step-line {
+  margin: 3px 0 0 14px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #5b574f;
+}
+.wb-agent-step.is-failed .wb-agent-step-line { color: #b4232a; }
+.wb-agent-step.is-waiting .wb-agent-step-line { color: #1e1d1a; }
+
+/* An answer: a grey card, with chips for the cards it points to. */
+.wb-agent-answer {
+  background: #f4f1ec;
+  border: 1px solid #ebe5da;
+  border-radius: 10px;
+  padding: 9px 11px;
+}
+.wb-agent-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 7px;
+}
+.wb-agent-chip {
+  all: unset;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid #c9d6fb;
+  background: #fff;
+  color: #1f4fd8;
+}
+.wb-agent-chip:hover,
+.wb-agent-chip:focus-visible {
+  background: #eef3ff;
+  outline: none;
+}
+
+/* A turn's verdict from what its tools computed. */
+.wb-agent-outcome {
+  align-self: flex-start;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 7px;
+  max-width: 100%;
+  padding: 5px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  border: 1px solid #e8e2d8;
+  border-radius: 10px;
+  background: #faf8f4;
+}
+.wb-agent-outcome-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #8a8478;
+}
+.wb-agent-outcome strong { font-weight: 700; }
+.wb-agent-outcome-note { color: #3b3a36; overflow-wrap: anywhere; }
+.wb-agent-outcome.is-achieved { border-color: #b6dcc2; background: #eef8f1; }
+.wb-agent-outcome.is-achieved strong { color: #2f8f4e; }
+.wb-agent-outcome.is-partial { border-color: #ecd3a8; background: #fdf6ea; }
+.wb-agent-outcome.is-partial strong { color: #a15c07; }
+.wb-agent-outcome.is-not-achieved { border-color: #efc1c3; background: #fdf0f0; }
+.wb-agent-outcome.is-not-achieved strong { color: #b4232a; }
