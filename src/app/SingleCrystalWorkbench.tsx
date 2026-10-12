@@ -997,9 +997,14 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
       refine: () => runRefine(false),
       thorough: runThorough,
       // The Refine button's request with the Agent's options; the result is only read.
-      probe: (options) => (magnetic
-        ? client.refineMagneticParallel({ structure: fitStructure, magnetic, dataset: activeDataset, parameters: params, bindings: [...bindings, ...momentBindings], options })
-        : client.refineSingleCrystalParallel({ structure: fitStructure, dataset: activeDataset, parameters: params, bindings, options: { analyticDerivatives: true, ...options } })),
+      probe: (options, cut) => {
+        // The extinction test's data: the fitted set less the reflections whose y (at the current model) is below the cut; the page's filter untouched.
+        const yOf = cut ? new Map(probedDataset.reflections.map((r, i) => [r, fullComparison.rows[i]?.extinction ?? 1] as const)) : null;
+        const data = yOf && cut ? { ...activeDataset, reflections: activeDataset.reflections.filter((r) => (yOf.get(r) ?? 1) >= cut.minExtinction) } : activeDataset;
+        return magnetic
+          ? client.refineMagneticParallel({ structure: fitStructure, magnetic, dataset: data, parameters: params, bindings: [...bindings, ...momentBindings], options })
+          : client.refineSingleCrystalParallel({ structure: fitStructure, dataset: data, parameters: params, bindings, options: { analyticDerivatives: true, ...options } });
+      },
       reportInput: () => reportInputRef.current(),
       cancel: () => client.cancel(),
       reset,

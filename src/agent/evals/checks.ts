@@ -528,6 +528,9 @@ export const testsExtinctionAndRestores: Check = {
   name: "tests the extinguished reflections' weight, then restores all the data",
   grade: (run) => {
     const all = calls(run);
+    // test_extinction runs the cut and the full fit as probes, the page untouched: the test, restored by construction.
+    const probe = all.find((c) => c.name === "test_extinction" && !c.isError && json(c.text)?.leftOut !== undefined);
+    if (probe) return ok("tested with test_extinction, the page left as it was");
     const cut = all.findIndex((c) => c.name === "set_outlier_filter" && typeof c.input.minExtinction === "number" && !c.isError);
     if (cut < 0) return fail("never left out the extinguished reflections");
     const refineCut = all.findIndex((c, i) => i > cut && c.name === "refine" && json(c.text)?.refined === true);

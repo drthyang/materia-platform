@@ -90,6 +90,8 @@ export async function changeSingleCrystal(name: string, input: Input, port: Sing
     case "omit_reflections":
       port.setOmitted(omitPlan(s, input).next);
       return undefined;
+    case "test_extinction":
+      return extinctionTest(s, port, input.below ?? 0.5);
     case "set_resolution_range":
       port.setResolution({ ...(input.dMin !== undefined ? { dMin: input.dMin } : {}), ...(input.dMax !== undefined ? { dMax: input.dMax } : {}) });
       return undefined;
@@ -283,6 +285,10 @@ export function singleCrystalNoOp(spec: LiveToolSpec, input: Input, s: SingleCry
 /** One line for the approval card: what this change will do, in the page's terms. */
 export function describeSingleCrystalChange(spec: LiveToolSpec, input: Input, s: SingleCrystalLiveState): string {
   switch (spec.name) {
+    case "test_extinction": {
+      const below = input.below ?? 0.5;
+      return `Test the extinction: refine twice as probes, with and without the ${s.rows.filter((r) => (r.extinction ?? 1) < below).length} reflections of y < ${below}, and compare — the page stays as it is`;
+    }
     case "set_free":
       return describeFree(s.parameters, input);
     case "set_adp_model":
@@ -702,6 +708,51 @@ export function twinStarts(s: SingleCrystalLiveState, next: readonly TwinLaw[]):
 
 const startsText = (starts: readonly { id: string; kept: boolean; value: number }[]): string =>
   starts.map((t) => (t.kept ? `${t.id} kept at ${sig(t.value, 4)}` : `${t.id} from 0.1`)).join(", ");
+
+// ── extinction test ─────────────────────────────────────────────────────────
+
+/**
+ * The extinction test as two probes, the page untouched: the fit on all the
+ * data fitted, and on them less the reflections whose y is below `below`.
+ * What moves by more than 2 esd between them rests on the reflections the
+ * extinction correction carries.
+ */
+async function extinctionTest(s: SingleCrystalLiveState, port: SingleCrystalAgentPort, below: number): Promise<ChangeResult> {
+  if (!s.result) throw new Error("refine first: the test starts from the converged fit, and reads the shifts against its esds");
+  const free = s.parameters.filter((p) => !p.fixed && !p.expression);
+  if (free.length === 0) throw new Error("no parameter is free: free what the test should follow (the ADPs, the extinction, the scale), refine, then test");
+  const cut = s.rows.filter((r) => (r.extinction ?? 1) < below).length;
+  if (cut === 0) {
+    const lowest = s.rows.reduce((m, r) => Math.min(m, r.extinction ?? 1), 1);
+    return { note: `No reflection fitted has y below ${below} (the lowest is ${sig(lowest, 3)}): none rests on a severe correction, and there is nothing to test. The page is unchanged.`, data: { below, leftOut: 0, lowestY: sig(lowest, 3) } };
+  }
+  const options = { maxIterations: 30 };
+  const all = await port.probe(options);
+  const without = await port.probe(options, { minExtinction: below });
+  const extinction = free.find((p) => p.kind === "extinction");
+  const moved = free.flatMap((p) => {
+    const a = all.parameters[p.id];
+    const b = without.parameters[p.id];
+    const e = all.esd[p.id];
+    if (a === undefined || b === undefined || !(e !== undefined && e > 0)) return [];
+    const shift = (b - a) / e;
+    return Math.abs(shift) > 2 ? [{ id: p.id, all: a, without: b, esds: shift }] : [];
+  }).sort((x, y) => Math.abs(y.esds) - Math.abs(x.esds));
+  const wr = (r: typeof all): string => (r.agreement.rWeighted !== undefined ? `${pct(r.agreement.rWeighted)} %` : "—");
+  const reading = moved.length === 0
+    ? `No free parameter moves by more than 2 esd without the ${cut} reflections of y < ${below}: the structure does not rest on what the extinction correction carries. Keep all the data, and report the test.`
+    : `${moved.length} free parameter${moved.length === 1 ? " moves" : "s move"} by more than 2 esd without them (${moved.slice(0, 4).map((m) => `${m.id} ${sig(m.esds, 2)} esd`).join(", ")}): the model leans on the reflections the extinction correction carries. Try the other extinction model (set_extinction_model), refine, and test again; report which holds.`;
+  return {
+    note: `${reading} The page is unchanged: both fits were probes.`,
+    data: {
+      below,
+      leftOut: `${cut} of ${s.rows.length} reflections fitted`,
+      wR2: { allData: wr(all), without: wr(without) },
+      ...(extinction ? { extinction: { allData: sig(all.parameters[extinction.id] ?? NaN, 4), without: sig(without.parameters[extinction.id] ?? NaN, 4) } } : {}),
+      movedBeyond2Esd: moved.map((m) => `${m.id}: ${sig(m.all, 5)} → ${sig(m.without, 5)} (${sig(m.esds, 2)} esd)`),
+    },
+  };
+}
 
 // ── weighting scheme ────────────────────────────────────────────────────────
 

@@ -26,6 +26,7 @@ export const TOOL_CARDS: Readonly<Record<string, readonly AgentCard[]>> = {
   reflection_equivalents: ["data", "result"],
   set_outlier_filter: ["data", "result"],
   omit_reflections: ["data", "result"],
+  test_extinction: ["data", "result"],
   set_resolution_range: ["data", "result"],
   set_radiation: ["data", "result"],
   set_extinction_model: ["data", "parameters"],

@@ -592,7 +592,10 @@ The page-specific handlers are [`powderTools.ts`](../src/agent/powderTools.ts),
   `set_outlier_filter` is the page's |Fo² − Fc²|/σ cutoff (SHELX's OMIT,
   applied wholesale), and with `minExtinction` it also leaves out the
   reflections whose extinction factor y is below the cut, the extinction
-  test; its approval card counts what it leaves out. `set_resolution_range`
+  test; its approval card counts what it leaves out. `test_extinction` runs
+  that test with the page left as it is: two probe fits, with and without the
+  reflections of y below the cut (0.5 by default), and every free parameter
+  that moves by more than 2 esd between them. `set_resolution_range`
   limits the fit to a d range (SHELXL's SHEL), for a high-order refinement.
   `set_extinction_model` switches between SHELXL's EXTI and Becker–Coppens
   type I or II (Gaussian or Lorentzian mosaic), as GSAS-II computes it; the

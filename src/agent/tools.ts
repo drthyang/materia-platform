@@ -141,6 +141,17 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     pages: ["singleCrystal"],
   },
   {
+    name: "test_extinction",
+    title: "Test the extinguished reflections",
+    description:
+      "Single-crystal page only. The extinction test, with the page left as it is: the fit on screen refined twice as probes (the free set and start as they are), once on all the data fitted and once without the reflections whose extinction factor y is below `below` (default 0.5). Answers how many that leaves out, wR2 and the extinction parameter each way, and every free parameter that moves by more than 2 esd between them. None moving: the structure does not rest on the reflections the correction carries; one moving (an ADP, an occupancy): the model leans on them — try the other extinction model (set_extinction_model) and compare. Nothing on the page changes: no filter, no values, no step. Refine first: it starts from the converged fit.",
+    inputSchema: {
+      below: z.number().gt(0).lt(1).optional().describe("Leave out the reflections whose y is below this (default 0.5)"),
+    },
+    effect: "change",
+    pages: ["singleCrystal"],
+  },
+  {
     name: "omit_reflections",
     title: "Omit measurements",
     description:

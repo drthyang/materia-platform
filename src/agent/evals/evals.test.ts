@@ -294,8 +294,7 @@ const REPLAYS: Readonly<Record<string, Replay>> = {
   "sc-extinction-test": {
     good: [
       { text: "The method, then scale, extinction and positions.", calls: [SC, { name: "set_free", input: { free: ["pos_*"] } }, { name: "refine" }] },
-      { text: "The test: the reflections with y < 0.5 left out.", calls: [{ name: "set_outlier_filter", input: { on: true, cutoffSigma: 1000, minExtinction: 0.5 } }, { name: "refine" }, { name: "structure_table" }] },
-      { text: "Back to all the data.", calls: [{ name: "set_outlier_filter", input: { minExtinction: null } }, { name: "refine" }, { name: "structure_table" }] },
+      { text: "The test: the reflections with y < 0.5 left out, as probes.", calls: [{ name: "test_extinction" }] },
       { text: "The positions agree within their esds with and without the extinguished reflections; the values quoted are from all the data." },
     ],
     bad: [

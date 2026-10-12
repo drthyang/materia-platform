@@ -163,6 +163,35 @@ describe("AgentExecutor on the single-crystal page", { timeout: 30_000 }, () => 
     expect(port.state().outlierFilter.excluded).toBe(0);
   });
 
+  it("tests the extinguished reflections as probes, the page left as it was", async () => {
+    const { port, calls } = page({ extinction: 20 });
+    const { ex, seen } = executor(fakeHost(port).host, "auto");
+    await ex.run("refine", {});
+    const before = port.state();
+    const below = before.rows.filter((r) => (r.extinction ?? 1) < 0.8).length;
+    expect(below).toBeGreaterThan(0);
+    const steps = calls.length;
+    const out = parse((await ex.run("test_extinction", { below: 0.8 })).text);
+    expect(seen.find((e) => e.tool === "test_extinction" && e.preview)?.preview).toMatch(new RegExp(`with and without the ${below} reflections of y < 0\\.8, and compare — the page stays as it is`));
+    expect(out.leftOut).toBe(`${below} of ${before.rows.length} reflections fitted`);
+    expect(out.wR2).toMatchObject({ allData: expect.stringMatching(/%$/), without: expect.stringMatching(/%$/) });
+    expect(String(out.note)).toMatch(/The page is unchanged: both fits were probes\.$/);
+    // Nothing on the page moved: the filter, every value, the result, and no page call.
+    const after = port.state();
+    expect(after.outlierFilter).toEqual(before.outlierFilter);
+    expect(after.parameters).toEqual(before.parameters);
+    expect(after.result).toBe(before.result);
+    expect(calls.slice(steps)).toEqual([]);
+  });
+
+  it("refuses the extinction test before a refinement", async () => {
+    const { port } = page({ extinction: 20 });
+    const { ex } = executor(fakeHost(port).host, "auto");
+    const out = await ex.run("test_extinction", {});
+    expect(out.isError).toBe(true);
+    expect(out.text).toMatch(/refine first/);
+  });
+
   it("marks each outlier by its equivalents, and omits the failed measurements by batch", async () => {
     const failed = [{ h: 1, k: 0, l: 4, factor: 0.03 }, { h: 3, k: 0, l: 12, factor: 0.5 }];
     const c = corundumPage({ extinction: 20, batches: [1, 1, 1], failed });
