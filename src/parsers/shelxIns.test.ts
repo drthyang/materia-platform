@@ -99,6 +99,13 @@ describe("SHELX instruction files", () => {
     expect(assembly("C1")).toBe("A");
   });
 
+  it("keeps the sign of TWIN's N: negative is the law with the inversion", () => {
+    const four = parseShelxIns(INS.replace("HKLF 4", "TWIN 0 1 0 1 0 0 0 0 -1 -4\nHKLF 4"), "x").instructions;
+    expect(four.twin).toMatchObject({ domains: 4, withInversion: true });
+    expect(shelxNotes(four).find((n) => n.startsWith("TWIN"))).toMatch(/with the inversion/);
+    expect(parseShelxIns(INS.replace("HKLF 4", "TWIN 0 1 0 1 0 0 0 0 -1 2\nHKLF 4"), "x").instructions.twin!.withInversion).toBeUndefined();
+  });
+
   it("warns when the instructions refine against anything but HKLF 4", () => {
     expect(shelxNotes(parseShelxIns(INS, "x").instructions).some((n) => /HKLF/.test(n))).toBe(false);
     const notes = shelxNotes(parseShelxIns(INS.replace("HKLF 4", "HKLF 5"), "x").instructions);

@@ -35,7 +35,8 @@ export interface ShelxInstructions {
   /** TEMP, in kelvin. */
   readonly temperature?: number;
   /** TWIN: the matrix (rows, h′ = R·h) and the number of domains. */
-  readonly twin?: { readonly matrix: Mat3; readonly domains: number };
+  /** TWIN: the law, |N| domains, and N's sign (negative: the law combined with the inversion, both hands — set_twin's withInversion). */
+  readonly twin?: { readonly matrix: Mat3; readonly domains: number; readonly withInversion?: true };
   /** BASF: the fractions of the domains after the first. */
   readonly basf: readonly number[];
   /** EXTI x. */
@@ -236,7 +237,8 @@ export function parseShelxIns(text: string, id = "shelx"): ShelxModel {
         const m = v.length >= 9 ? v.slice(0, 9) : [-1, 0, 0, 0, -1, 0, 0, 0, -1];
         // SHELXL multiplies the indices as a row vector, (h k l)·M: as a column, h′ = Mᵀ·h.
         const matrix: Mat3 = [[m[0]!, m[3]!, m[6]!], [m[1]!, m[4]!, m[7]!], [m[2]!, m[5]!, m[8]!]];
-        twin = { matrix, domains: Math.abs(v[9] ?? 2) };
+        const n = v.length >= 10 ? v[9]! : 2;
+        twin = { matrix, domains: Math.abs(n), ...(n < 0 ? { withInversion: true as const } : {}) };
         break;
       }
       case "BASF":
@@ -375,7 +377,7 @@ export function shelxNotes(ins: ShelxInstructions): string[] {
   for (const code of ins.afix.values()) if (code > 0) groups.set(code, (groups.get(code) ?? 0) + 1);
   return [
     `CELL: λ ${ins.wavelength} Å (X-ray)${ins.temperature !== undefined ? `; TEMP ${Math.round(ins.temperature)} K` : "; no TEMP (SHELXL then takes 20 °C)"}`,
-    ...(ins.twin ? [`TWIN: law h′ = R·h, R = ${matrixText(ins.twin.matrix)}, ${ins.twin.domains} domains${ins.basf.length ? `, BASF ${ins.basf.join(" ")}` : ""}`] : ins.basf.length ? [`BASF ${ins.basf.join(" ")}`] : []),
+    ...(ins.twin ? [`TWIN: law h′ = R·h, R = ${matrixText(ins.twin.matrix)}, ${ins.twin.domains} domains${ins.twin.withInversion ? " (N negative: with the inversion, both hands — set_twin withInversion)" : ""}${ins.basf.length ? `, BASF ${ins.basf.join(" ")}` : ""}`] : ins.basf.length ? [`BASF ${ins.basf.join(" ")}`] : []),
     ...(ins.hklf !== undefined && ins.hklf !== 4 ? [`HKLF ${ins.hklf}: MATERIA reads HKLF 4 reflection files only, so it refuses the one this .ins refined against`] : []),
     ...(ins.exti !== undefined ? [`EXTI ${ins.exti}`] : []),
     ...(ins.weighting ? [`WGHT ${ins.weighting.a} ${ins.weighting.b}`] : []),
