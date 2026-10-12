@@ -44,6 +44,27 @@ describe("the number audit of a narrative", () => {
     expect(unverifiedNumbers("Built with 1.2.3.", "")).toEqual([]);
   });
 
+  it("scales by 100 only between a labelled fraction and a percentage, so a random wR rarely passes", () => {
+    let seed = 7;
+    const random = (): number => (seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
+    // A report's worth of engine text: 60 sites' coordinates, B and occupancy.
+    const sites = Array.from({ length: 60 }, (_, i) =>
+      `Site X${i}: x ${random().toFixed(4)}(3) y ${random().toFixed(4)}(3) z ${random().toFixed(4)}(4) B ${(0.2 + random()).toFixed(2)}(5) Å² occupancy ${i % 5 ? "1" : random().toFixed(3)}`).join("\n");
+    const report = `wR 9.93 % · Rp 7.41 % · GoF 1.56 · a 4.57531(8) Å · c 8.8537(2) Å\n${sites}`;
+    let passed = 0;
+    const n = 2000;
+    for (let i = 0; i < n; i++) {
+      if (unverifiedNumbers(`The final wR is ${(5 + 25 * random()).toFixed(1)} %.`, report).length === 0) passed++;
+    }
+    // Scaling every engine number both ways let 23 % of these through.
+    expect(passed / n).toBeLessThan(0.06);
+    // A labelled fraction and a percentage still meet: occupancy 0.2214 ↔ 22.14 %, wR 9.93 % ↔ 0.0993.
+    expect(unverifiedNumbers("an antisite fraction of 22.14 %, wR 0.0993", "wR 9.93 % · occupancy 0.2214(30)")).toEqual([]);
+    expect(unverifiedNumbers("Rwp 12.31 %", "Rwp 0.1231")).toEqual([]);
+    // A coordinate or a B is not a percentage.
+    expect(unverifiedNumbers("wR 44.0 %, wR 31.27 %", "B 0.44(8) Å² · x 0.3127(4)")).toEqual(["44.0", "31.27"]);
+  });
+
   it("leaves integers, version strings and numbers inside words alone", () => {
     expect(unverifiedNumbers("Cr2WO6 at 4 K, 150 K and 300 K; reflections 0 0 1 and 1 0 2; MATERIA v1.2.3; P42/mnm", engine)).toEqual([]);
   });
