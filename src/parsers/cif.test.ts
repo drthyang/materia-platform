@@ -717,3 +717,16 @@ Ni1 Ni 0 0 0
     expect(parseCif(body("data_global\n_chemical_formula_sum ?")).name).toBe("structure");
   });
 });
+
+describe("disorders a CIF groups without naming their assemblies", () => {
+  it("reads each run of disordered rows as an assembly of its own", () => {
+    const cif = ["data_d", "_cell_length_a 7", "_cell_length_b 8", "_cell_length_c 9", "_cell_angle_alpha 90", "_cell_angle_beta 90", "_cell_angle_gamma 90",
+      "_symmetry_space_group_name_H-M 'P 1'", "loop_", "_atom_site_label", "_atom_site_type_symbol", "_atom_site_fract_x", "_atom_site_fract_y", "_atom_site_fract_z", "_atom_site_occupancy", "_atom_site_disorder_group",
+      "Fe1 Fe 0 0 0 1 .", "C1 C 0.2 0.1 0.1 0.7 1", "C1B C 0.21 0.1 0.1 0.3 2", "O1 O 0.3 0.3 0.3 1 .", "C5 C 0.5 0.5 0.5 0.5 1", "C5B C 0.51 0.5 0.5 0.5 2"].join("\n");
+    const sites = new Map(parseCif(cif, "d").sites.map((s) => [s.label, s]));
+    expect(sites.get("C1")!.disorder).toEqual({ assembly: "A", group: 1 });
+    expect(sites.get("C1B")!.disorder).toEqual({ assembly: "A", group: 2 });
+    expect(sites.get("C5")!.disorder).toEqual({ assembly: "B", group: 1 });
+    expect(sites.get("Fe1")!.disorder).toBeUndefined();
+  });
+});
