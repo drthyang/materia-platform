@@ -101,14 +101,13 @@ export async function changeSingleCrystal(name: string, input: Input, port: Sing
       return "The extinction parameter restarted at 0 under the new model: refine it with the scale (and what was free before) to convergence before comparing the fit.";
     case "set_twin": {
       const next = twinAfter(s, input);
+      const starts = twinStarts(s, next);
       port.setTwinLaws(next);
       if (next.length === 0) return "Untwinned again: the twin fraction left the fit, and the last fit is cleared.";
       const signal = isInversion(next[0]!) && !anomalousLine(s) ? " No anomalous scattering at this radiation (X-rays at a tabulated line give it): the inversion fraction is undetermined." : "";
-      if (next.length > 1) return `Four domains, as SHELXL's TWIN R −4: the law (twin_1), the inversion (twin_2) and the two together (twin_3), each fraction free from 0.1. The inverted domains (twin_2 + twin_3) hold the Flack x: refine them with the structure.${anomalousLine(s) ? "" : " No anomalous scattering at this radiation: their split between the hands is undetermined."} The last fit is cleared.`;
-      // The law that stays where it was keeps its fraction (the page keeps the row).
-      const kept = s.twinLaws[0] && s.twinLaws[0].matrix.every((row, i) => row.every((v, j) => Math.round(v) === Math.round(next[0]!.matrix[i]![j]!)));
-      const before = s.parameters.find((p) => p.id === "twin_1");
-      if (kept && before) return `The law stays, its fraction kept at ${sig(before.value, 4)} (twin_1)${s.twinLaws.length > 1 ? `; the other ${s.twinLaws.length - 1} domain${s.twinLaws.length === 2 ? "" : "s"} left the fit` : ""}: refine it with the structure.${signal} The last fit is cleared.`;
+      const dropped = s.twinLaws.length > next.length ? `; the other ${s.twinLaws.length - next.length} domain${s.twinLaws.length - next.length === 1 ? "" : "s"} left the fit` : "";
+      if (next.length > 1) return `Four domains, as SHELXL's TWIN R −4: the law (twin_1), the inversion (twin_2) and the two together (twin_3) — ${startsText(starts)}. The inverted domains (twin_2 + twin_3) hold the Flack x: refine them with the structure.${anomalousLine(s) ? "" : " No anomalous scattering at this radiation: their split between the hands is undetermined."} The last fit is cleared.`;
+      if (starts[0]!.kept) return `The law stays, its fraction kept at ${sig(starts[0]!.value, 4)} (twin_1)${dropped}: refine it with the structure.${signal} The last fit is cleared.`;
       return `${isInversion(next[0]!) ? "The inversion twin's fraction, the Flack x (twin_1)," : "The twin fraction (twin_1, BASF)"} is free from 0.1: refine it with the structure.${signal} The last fit is cleared.`;
     }
     case "invert_structure": {
@@ -324,10 +323,11 @@ export function describeSingleCrystalChange(spec: LiveToolSpec, input: Input, s:
     }
     case "set_twin": {
       const next = twinAfter(s, input);
-      if (next.length > 1) return `Twin law: ${twinText(next[0]!)} with the inversion — four domains (TWIN R −4), three fractions from 0.1`;
+      const starts = twinStarts(s, next);
+      if (next.length > 1) return `Twin law: ${twinText(next[0]!)} with the inversion — four domains (TWIN R −4): ${startsText(starts)}`;
       if (next.length === 0) return `Untwinned: the twin fraction${s.twinLaws.length ? "" : "s"} leave the fit`;
-      const stays = s.twinLaws[0] && s.twinLaws[0].matrix.every((row, i) => row.every((v, j) => Math.round(v) === Math.round(next[0]!.matrix[i]![j]!)));
-      return `Twin law: ${twinText(next[0]!)} — its fraction${isInversion(next[0]!) ? " (the Flack x)" : " (BASF)"} ${stays ? `kept at ${sig(s.parameters.find((p) => p.id === "twin_1")?.value ?? 0.1, 4)}${s.twinLaws.length > 1 ? `, the other ${s.twinLaws.length - 1} domain${s.twinLaws.length === 2 ? "" : "s"} leaving the fit` : ""}` : "refines from 0.1"}`;
+      const leaving = s.twinLaws.length > next.length ? `, the other ${s.twinLaws.length - next.length} domain${s.twinLaws.length - next.length === 1 ? "" : "s"} leaving the fit` : "";
+      return `Twin law: ${twinText(next[0]!)} — its fraction${isInversion(next[0]!) ? " (the Flack x)" : " (BASF)"} ${starts[0]!.kept ? `kept at ${sig(starts[0]!.value, 4)}${leaving}` : "refines from 0.1"}`;
     }
     case "merge_equivalents": {
       if (!input.on) return `Fit every measurement again (${s.totalReflections}), not the merged equivalents`;
@@ -685,6 +685,23 @@ export function flackReading(x: number, u: number | undefined, line: string | nu
   }
   return `between the hands: an inversion twin, ${sig(100 * x, 2)} % of the crystal of the inverted hand${Math.abs(x - 0.5) <= 2 * u ? " — a racemic twin" : ""}`;
 }
+
+/**
+ * Where each fraction of a new set of laws starts, as the page sets them: a
+ * law that stays at its place keeps its row's value (twin_i), a new one
+ * starts at 0.1.
+ */
+export function twinStarts(s: SingleCrystalLiveState, next: readonly TwinLaw[]): { id: string; kept: boolean; value: number }[] {
+  const same = (a: TwinLaw | undefined, b: TwinLaw): boolean => !!a && a.matrix.every((row, i) => row.every((v, j) => Math.round(v) === Math.round(b.matrix[i]![j]!)));
+  return next.map((law, i) => {
+    const id = `twin_${i + 1}`;
+    const row = same(s.twinLaws[i], law) ? s.parameters.find((p) => p.id === id) : undefined;
+    return row ? { id, kept: true, value: row.value } : { id, kept: false, value: 0.1 };
+  });
+}
+
+const startsText = (starts: readonly { id: string; kept: boolean; value: number }[]): string =>
+  starts.map((t) => (t.kept ? `${t.id} kept at ${sig(t.value, 4)}` : `${t.id} from 0.1`)).join(", ");
 
 // ── weighting scheme ────────────────────────────────────────────────────────
 

@@ -641,3 +641,19 @@ describe("the range of a large file's values", () => {
     expect(extent(values)).toEqual([0.4, 0.4 + 999 * 0.003]);
   });
 });
+
+describe("set_twin's note", () => {
+  it("reports the fraction each law keeps: adding the inversion to a law keeps the law's own", async () => {
+    const { twinStarts } = await import("@/agent/scTools");
+    const law = { matrix: [[0, 1, 0], [1, 0, 0], [0, 0, -1]] as [[number, number, number], [number, number, number], [number, number, number]] };
+    const inv = { matrix: [[-1, 0, 0], [0, -1, 0], [0, 0, -1]] as typeof law.matrix };
+    const both = { matrix: [[0, -1, 0], [-1, 0, 0], [0, 0, 1]] as typeof law.matrix };
+    const s = { twinLaws: [law], parameters: [{ id: "twin_1", value: 0.34 }] } as unknown as Parameters<typeof twinStarts>[0];
+    expect(twinStarts(s, [law, inv, both])).toEqual([
+      { id: "twin_1", kept: true, value: 0.34 },
+      { id: "twin_2", kept: false, value: 0.1 },
+      { id: "twin_3", kept: false, value: 0.1 },
+    ]);
+    expect(twinStarts(s, [inv])[0]).toEqual({ id: "twin_1", kept: false, value: 0.1 });
+  });
+});
