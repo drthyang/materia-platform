@@ -631,7 +631,7 @@ export const refinesFlack: Check = {
     const esd = fit?.esd.twin_1;
     if (x === undefined || esd === undefined) return fail("ends with no refined Flack x on screen");
     // The x quoted with its esd, as the engine has it: within its esd, or the rounding of the digits quoted.
-    const quoted = sentences(replies(run).join("\n")).filter((t) => /Flack/i.test(t)).flatMap((t) => [...t.matchAll(/(\d\.(\d+))\(\d+\)/g)].map((m) => ({ t, v: Number(m[1]), digits: m[2]!.length })));
+    const quoted = sentences(replies(run).join("\n")).filter((t) => /Flack/i.test(t)).flatMap((t) => [...t.matchAll(/([−-]?\d\.(\d+))\(\d+\)/g)].map((m) => ({ t, v: Number(m[1]!.replace("−", "-")), digits: m[2]!.length })));
     if (quoted.length === 0) return fail("never reports the Flack x with its esd");
     const right = quoted.find((q) => Math.abs(q.v - x) <= Math.max(esd, 0.51 * 10 ** -q.digits));
     return right
