@@ -2,7 +2,7 @@ import { describe, it, expect, afterAll } from "vitest";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { SCENARIOS } from "@/agent/evals/scenarios";
-import { runScenario, tierFlags, transcript, type EvalModel, type EvalResult } from "@/agent/evals/harness";
+import { runScenario, savedRun, tierFlags, transcript, type EvalModel, type EvalResult } from "@/agent/evals/harness";
 import type { ChatEffort, ChatTransport } from "@/agent/chat";
 
 /**
@@ -24,6 +24,12 @@ import type { ChatEffort, ChatTransport } from "@/agent/chat";
  * run: whether it hit the turn cap, was stopped for going in circles, met a
  * chat error, or had its prompt cut, and how long it took; the summary prints
  * them and the report keeps each turn's prompt size.
+ *
+ * The _OUT report keeps each run whole (savedRun): every tool's answer, the
+ * records, the reports' text and what their number audit read. A change to a
+ * check or to the audit is scored on it again for free:
+ *
+ *   MATERIA_AGENT_EVAL_REGRADE=/path/to/out.json npx vitest run src/agent/evals/regrade.test.ts
  */
 
 const env = process.env;
@@ -82,7 +88,7 @@ describe.skipIf(!live)(`Agent evals, live (${model.model})`, () => {
         summary: rows,
         skipped: skipped.map((s) => s.id),
         usage,
-        runs: results.map((r) => ({ scenario: r.scenario, passed: r.passed, seconds: r.run.seconds, flags: tierFlags(r.run), turns: r.run.turns, notices: r.run.notices, usage: r.run.usage, grades: r.grades, transcript: transcript(r.run, 2000) })),
+        runs: results.map((r) => ({ ...savedRun(r), flags: tierFlags(r.run), transcript: transcript(r.run, 2000) })),
       }, null, 2));
     }
   });

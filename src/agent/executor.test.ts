@@ -244,12 +244,19 @@ describe("AgentExecutor on a live powder fit", () => {
     expect(done.methodNote).toBeUndefined(); // the base block was free alongside
     const key = keyOfState("powder", port.state());
     expect(records.get(key)!.stagesDone).toEqual(expect.arrayContaining(["base", "positions"]));
+    // Where the fit started: the report gives it before the steps.
+    expect(records.get(key)!.start!.agreement * 100).toBeCloseTo(done.wRBefore as number, 2);
+    // A diagnosis is kept with the step it read.
+    const dx = parse((await ex.run("diagnose_fit", {})).text);
+    expect(records.get(key)!.diagnoses).toEqual([{ at: expect.any(Number), summary: expect.stringContaining(dx.reading as string) }]);
 
     // The check is recorded, not enforced.
     const check = parse((await ex.run("check_cell_symmetry", {})).text);
     expect(check.passed).toBe(true);
     expect(check.reading).toBe("Every peak indexes and no forbidden reflection shows intensity: refine the structure.");
-    expect(records.get(key)!.cellCheck).toMatchObject({ passed: true, summary: "every peak indexes; no absence flagged" });
+    // The Le Bail fit that judged it, so an account quoting the Le Bail cell quotes the report.
+    expect(records.get(key)!.cellCheck).toMatchObject({ passed: true });
+    expect(records.get(key)!.cellCheck!.summary).toMatch(/^every peak indexes; no absence flagged; the Le Bail fit \(every intensity free\) reached Rwp \d+\.\d\d % with a 5\.42\d+ Å, c 4\.37\d+ Å$/);
     expect(parse((await ex.run("get_state", {})).text).method).toMatchObject({ next: "Fit range" });
     // The data's ends: read, recorded, and the window left to set_fit_range.
     const range = parse((await ex.run("check_fit_range", {})).text);
@@ -267,12 +274,14 @@ describe("AgentExecutor on a live powder fit", () => {
     const again = parse((await ex.run("check_fit_range", {})).text);
     expect(again.proposed).toBe("keep the current window: neither end needs trimming");
     expect(records.get(key)!.rangeCheck!.summary).toMatch(/left out by the window \([a-z-, ]+\).*; window [\d.]+–[\d.]+ ° 2θ$/);
-    expect(method.cellCheck).toBe("every peak indexes; no absence flagged");
+    expect(method.cellCheck).toBe(records.get(key)!.cellCheck!.summary);
 
     // ADPs before the profile: refined, with a note.
     await ex.run("set_free", { fix: ["pos_Mn1_0"], free: ["B_Mn1"] });
     const adp = parse((await ex.run("refine", {})).text);
     expect(adp.methodNote).toMatch(/^Out of the method's order \(my-rietveld-workflow\): adps refined before profile\./);
+    // The start is the first refinement's, kept.
+    expect(records.get(key)!.start!.agreement * 100).toBeCloseTo(done.wRBefore as number, 2);
   });
 
   it("questions the space group only last: review_symmetry waits for the method's stages", async () => {

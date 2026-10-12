@@ -632,6 +632,20 @@ function checkAgent(v: unknown, path: string): void {
       num(review.at, `${p}.symmetryReviewed.at`);
       str(review.summary, `${p}.symmetryReviewed.summary`);
     }
+    if (record.start !== undefined && record.start !== null) {
+      const start = rec(record.start, `${p}.start`);
+      num(start.at, `${p}.start.at`);
+      num(start.agreement, `${p}.start.agreement`);
+      opt(start.r1, `${p}.start.r1`, num);
+    }
+    if (record.diagnoses !== undefined && record.diagnoses !== null) {
+      arr(record.diagnoses, `${p}.diagnoses`).forEach((d, j) => {
+        const dx = rec(d, `${p}.diagnoses[${j}]`);
+        num(dx.at, `${p}.diagnoses[${j}].at`);
+        opt(dx.step, `${p}.diagnoses[${j}].step`, str);
+        str(dx.summary, `${p}.diagnoses[${j}].summary`);
+      });
+    }
     arr(record.exceptions, `${p}.exceptions`).forEach((e, j) => {
       const ex = rec(e, `${p}.exceptions[${j}]`);
       oneOf(["bare-occupancy", "instrument-with-thermal"])(ex.rule, `${p}.exceptions[${j}].rule`);

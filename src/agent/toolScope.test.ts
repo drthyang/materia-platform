@@ -41,7 +41,7 @@ describe("a local model's tools", () => {
 
   it("is far smaller than every tool, as the window needs", () => {
     const every = chars(new Set(LIVE_TOOLS.map((t) => t.name)));
-    for (const stage of ["range", "check", "base", "positions", "profile", "adp"]) expect(chars(at("powder", stage)) / every, stage).toBeLessThan(0.32);
+    for (const stage of ["range", "check", "base", "positions", "profile", "adp"]) expect(chars(at("powder", stage)) / every, stage).toBeLessThan(0.36);
     expect(chars(at("powder", null)) / every).toBeLessThan(0.45);
     expect(chars(at("pdf", "base")) / every).toBeLessThan(0.35);
   });

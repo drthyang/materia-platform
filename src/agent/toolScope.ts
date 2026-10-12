@@ -11,7 +11,8 @@
  *    refining, undoing, the report — every page, every stage;
  *  - the page's own: on the PDF and single-crystal pages all of them; on the
  *    powder page, the fit window and the fit's diagnosis, and the current
- *    stage's tools (the cell check's, the background's, the profile's…);
+ *    stage's tools and the next one's (the cell check's, the background's,
+ *    the profile's…);
  *    once every required stage is done, the review, the structure's tables,
  *    the posterior, the optional stages and the way into the magnetic step;
  *  - what the user's words ask for (an impurity, the symmetry, an occupancy,
@@ -22,6 +23,7 @@
  */
 
 import { LIVE_TOOLS, type AgentPage, type LiveToolSpec } from "@/agent/tools";
+import { stagesFor } from "@/agent/method";
 
 /** Offered on every page, at every stage. */
 export const CORE_TOOLS: readonly string[] = [
@@ -99,7 +101,15 @@ export function scopedToolNames(input: ScopeInput): Set<string> {
     add(LIVE_TOOLS.filter((t) => t.pages.includes(input.page!)).map((t) => t.name));
   } else if (input.page === "powder") {
     add(POWDER_ALWAYS);
-    add(input.stage === null ? POWDER_FINISH : POWDER_STAGE_TOOLS[input.stage] ?? []);
+    if (input.stage === null) add(POWDER_FINISH);
+    else {
+      // The stage's tools and the next one's: a model that takes the cell check before the window is not left without it.
+      const required = stagesFor("powder").filter((st) => !st.optional).map((st) => st.id);
+      const next = required[required.indexOf(input.stage) + 1];
+      add(POWDER_STAGE_TOOLS[input.stage] ?? []);
+      // (After the last, the finishing tools come once it is done.)
+      add(next ? POWDER_STAGE_TOOLS[next] ?? [] : []);
+    }
     if (input.magnetic) add(MAGNETIC_TOOLS);
   }
   for (const text of input.asked) for (const [what, tools] of ASKED) if (what.test(text)) add(tools);

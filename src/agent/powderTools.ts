@@ -132,7 +132,20 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
       const reading = readings.length > 0 ? readings.join(" ") : "Every peak indexes and no forbidden reflection shows intensity: refine the structure.";
       // Shoulders in the pattern's own unit, rounded.
       const shoulders = check.shoulders.map((sh) => ({ x: sig(sh.x, 6), significance: sig(sh.significance, 3), of: sh.of, offset: sig(sh.offset, 3), relativeHeight: sig(sh.relativeHeight, 2) }));
-      return { ...check, unindexedPeaks: unindexed, shoulders, reading, ...(marks.length > 0 ? { markedOnPlot: "The unindexed peaks are marked on the plot (filled ▽, listed under it)." } : {}) };
+      // The Le Bail fit as the report gives it (cellCheckSummary): the cell to six figures, Rwp in per cent.
+      const rounded = (o: Readonly<Record<string, number>>): Record<string, number> => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, sig(v, 6)]));
+      const hklAt = <T extends { d: number; x: number }>(r: T): T => ({ ...r, d: sig(r.d, 5), x: sig(r.x, 6) });
+      return {
+        ...check,
+        cell: rounded(check.cell as unknown as Record<string, number>),
+        cellValues: rounded(check.cellValues),
+        leBail: { Rwp: pct(check.leBail.rWeighted), fwhm: sig(check.leBail.fwhm, 4), background: sig(check.leBail.background, 4) },
+        absences: { ...check.absences, violated: check.absences.violated.map(hklAt), untestable: check.absences.untestable.map(hklAt) },
+        unindexedPeaks: unindexed,
+        shoulders,
+        reading,
+        ...(marks.length > 0 ? { markedOnPlot: "The unindexed peaks are marked on the plot (filled ▽, listed under it)." } : {}),
+      };
     }
     case "find_unexplained_peaks": {
       // Each peak must stand 5σ above its own counting noise, and is checked
@@ -787,6 +800,25 @@ function fitDiagnosisView(s: PowderLiveState): Record<string, unknown> {
   };
 }
 
+/** What diagnosisText reads of diagnose_fit's answer. */
+export interface DiagnosisView {
+  readonly reading: string;
+  readonly causes: readonly { readonly cause: string; readonly chi2Share: number; readonly evidence: string }[];
+  readonly worstReflections?: readonly { readonly hkl: string; readonly d: number; readonly chi2Share: number; readonly misfit: string }[];
+}
+
+/**
+ * diagnose_fit's answer as the report gives it: the reading, each cause with
+ * its share of χ² and its evidence, and the three worst reflections. The
+ * report's check on the fit on screen, and the record of each earlier
+ * diagnosis (by the step it read).
+ */
+export function diagnosisText(dx: DiagnosisView): string {
+  const worst = (dx.worstReflections ?? []).slice(0, 3);
+  return `${dx.reading}${dx.causes.map((c) => ` ${c.cause} (${c.chi2Share} % of χ²): ${c.evidence}.`).join("")}` +
+    (worst.length > 0 ? ` Worst reflections: ${worst.map((w) => `${w.hkl} (d ${w.d} Å, ${w.chi2Share} % of χ², ${w.misfit})`).join("; ")}.` : "");
+}
+
 /**
  * The engine's checks of the fit on screen, for the Agent's report: the
  * convergence, the agreement verdict, correlations, bounds, the residual
@@ -832,12 +864,8 @@ export function powderReportChecks(s: PowderLiveState, probe: RefinementResult |
   // The fit's diagnosis, as diagnose_fit gives it on the fit on screen: an
   // account that cites it ("the lines are 2.45× broader") cites the report.
   if (s.d) {
-    const dx = fitDiagnosisView(s) as { reading: string; causes: { cause: string; chi2Share: number; evidence: string }[] };
-    checks.push({
-      name: "Fit diagnosis",
-      status: dx.causes.length > 0 ? "note" : "pass",
-      detail: `${dx.reading}${dx.causes.map((c) => ` ${c.cause} (${c.chi2Share} % of χ²): ${c.evidence}.`).join("")}`,
-    });
+    const dx = fitDiagnosisView(s) as unknown as DiagnosisView;
+    checks.push({ name: "Fit diagnosis", status: dx.causes.length > 0 ? "note" : "pass", detail: diagnosisText(dx) });
   }
   checks.push(...findingChecks(a));
   return checks;

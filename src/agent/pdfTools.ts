@@ -298,6 +298,7 @@ function boxcarLine(run: BoxcarRun): string {
   const series = run.series[0];
   const first = series && boxAt(run, series, 0);
   const last = series && boxAt(run, series, run.windows.length - 1);
-  const rw = (step: typeof first): string => (step ? `${pct(step.result.agreement.rWeighted ?? NaN).toFixed(1)}%` : "?");
+  // From the fraction: pct() rounds to two decimals, and rounding that again to one can land on the wrong side.
+  const rw = (step: typeof first): string => (step ? `${(100 * (step.result.agreement.rWeighted ?? NaN)).toFixed(1)}%` : "?");
   return `${run.windows.length} boxes · Rw ${rw(first)} at low r → ${rw(last)} at high r`;
 }
