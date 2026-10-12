@@ -6,7 +6,7 @@
 import type { AtomSite, StructureModel } from "@/core/crystal/types";
 import type { Vec3 } from "@/core/math/types";
 import { fractionalToCartesian } from "@/core/crystal/unitCell";
-import { applyOperation } from "@/core/crystal/symmetry";
+import { almostEqualFractional, applyOperation, equivalentPositions } from "@/core/crystal/symmetry";
 import { wrapFractional, sub, norm } from "@/core/math/vec3";
 import { symmetricEigenDecomposition } from "@/core/math/linalg";
 
@@ -37,7 +37,8 @@ export function bondLengths(model: StructureModel, cutoff = 3.2): BondLength[] {
     model.spaceGroup.operations.forEach((op, k) => {
       const raw = applyOperation(op, site.position);
       const p = wrapFractional(raw);
-      if (positions.some((q) => norm(sub(q, p)) < 1e-4)) return;
+      // Periodic, and coarse enough for a CIF's rounded special positions (0.3333, 0.6667).
+      if (positions.some((q) => almostEqualFractional(q, p, 1e-3))) return;
       positions.push(p);
       atoms.push({ label: site.label, site, frac: p, op: k, wrap: sub(p, raw) as Vec3 });
     });
@@ -432,12 +433,8 @@ const SHELL_REACH = 3.2;
 export function coordinationShells(model: StructureModel, cutoff = 3.5): CoordinationShell[] {
   const atoms: { label: string; element: string; frac: Vec3 }[] = [];
   for (const site of model.sites) {
-    const positions: Vec3[] = [];
-    for (const op of model.spaceGroup.operations) {
-      const p = wrapFractional(applyOperation(op, site.position));
-      if (!positions.some((q) => norm(sub(q, p)) < 1e-4)) positions.push(p);
-    }
-    for (const p of positions) atoms.push({ label: site.label, element: site.element, frac: p });
+    // Periodic, and coarse enough for a CIF's rounded special positions (0.3333, 0.6667).
+    for (const p of equivalentPositions(model.spaceGroup.operations, site.position)) atoms.push({ label: site.label, element: site.element, frac: p });
   }
   const anions = atoms.some((a) => ANION_ELEMENTS.has(a.element));
   const out: CoordinationShell[] = [];
