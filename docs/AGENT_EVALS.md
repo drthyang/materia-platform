@@ -85,9 +85,25 @@ real chat loop, executor and tools run; only the model changes.
 
 ## Results against real models
 
+These are test results on the project's own scenarios, each written against a
+failure the Agent once had: how often a model passed the checks of this suite.
+They are not a measure of accuracy on refinements in general, and a model that
+passes them all can still be wrong on data the scenarios do not cover.
+
 Each row is what the run reported: the commit it ran at, the scenarios the suite
 held then, and how many runs passed. The runs were made from the "Fetch all
-repos" session and relayed here; their JSON reports hold every transcript.
+repos" session and relayed here.
+
+### Claude, 2026-10-11, at `2eec39d` (15 scenarios, 3 runs each, effort high)
+
+| | Haiku 5.5 | Sonnet 5.5 |
+| --- | --- | --- |
+| **total** | **36/45** | **38/45** |
+
+The per-scenario passes and the tokens of these runs were not saved: the runs
+predate the whole-run reports (`_OUT`, ee6acaf), so they cannot be re-scored
+either. What they called for is under "Since the 2026-10-11 runs" below. The
+next live round writes its runs whole, and its rows will carry both.
 
 ### Claude, 2026-10-10, at `e9aa7f7` (12 scenarios, 3 runs each, effort high)
 
@@ -114,7 +130,16 @@ Tokens over the 36 runs (API key, prompt caching on):
 | Haiku 5.5 | 2,264 | 233,075 | 14.1 M | 755 k |
 | Sonnet 5.5 | 824 | 70,663 | 8.12 M | 490 k |
 
-The Sonnet runs cost about $2.7; both models together at most about $10.70.
+At the per-million-token prices of the API (Haiku 5.5: $0.10 input, $0.50
+output, $0.01 cache read, $0.125 cache write; Sonnet 5.5: $2, $10, $0.10,
+$2.50):
+
+| | input | output | cache read | cache write | total |
+| --- | --- | --- | --- | --- | --- |
+| Haiku 5.5 | $0.0002 | $0.12 | $0.14 | $0.09 | **$0.35** |
+| Sonnet 5.5 | $0.002 | $0.71 | $0.81 | $1.23 | **$2.75** |
+
+Both models together: about $3.10 for the 72 runs.
 
 ### gemma4:26b on Ollama, at `04ddf2d` (10 scenarios, 1 run each)
 
