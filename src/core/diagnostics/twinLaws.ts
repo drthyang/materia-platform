@@ -17,18 +17,24 @@
 import type { SpaceGroup, UnitCell } from "@/core/crystal/types";
 import type { Mat3 } from "@/core/math/types";
 import { reciprocalMetricTensor } from "@/core/crystal/unitCell";
-import { canonicalKey, laueRotations, pointGroupRotations } from "@/core/diffraction/merge";
+import { canonicalKey, isCentrosymmetric, laueRotations, pointGroupRotations } from "@/core/diffraction/merge";
 
 export interface TwinLawTest {
   /** The law, h′ = R·h (rows), as `set_twin` and SHELXL's TWIN take it. */
   readonly matrix: Mat3;
   /** The law on the indices: "h, k, l → k, h, −l". */
   readonly indices: string;
-  /** The acentric pairs (h, R·h) both measured above the cut, h not equivalent to R·h. */
+  /** The pairs (h, R·h) both measured above the cut, h not equivalent to R·h: the acentric ones, or every one in a centrosymmetric group. */
   readonly pairs: number;
   /** ⟨|I₁ − I₂|/(I₁ + I₂)⟩ over them. */
   readonly meanH: number;
-  /** The twin fraction it reads, ½ − ⟨H⟩ within [0, ½]. */
+  /**
+   * The intensity statistics the pairs follow. Acentric: ⟨|H|⟩ = ½ untwinned.
+   * Centric (a centrosymmetric group, where every reflection is centric):
+   * I₁/(I₁ + I₂) follows the arcsine law, ⟨|H|⟩ = 2/π untwinned.
+   */
+  readonly distribution: "acentric" | "centric";
+  /** The twin fraction it reads, within [0, ½]: ½ − ⟨H⟩ (acentric), ½ − (π/4)·⟨H⟩ (centric). */
   readonly alpha: number;
 }
 
@@ -132,6 +138,8 @@ export function merohedralTwinLaws(rows: readonly TwinLawRow[], cell: UnitCell, 
     }
   }
   // Centric: h and −h related by a rotation of the point group; their intensities follow another distribution.
+  // In a centrosymmetric group every reflection is: the test then reads the centric distribution.
+  const centric = isCentrosymmetric(ops);
   const pg = pointGroupRotations(ops);
   const cut = options.minIOverSigma ?? 3;
   const strong = new Map<string, number>();
@@ -139,7 +147,7 @@ export function merohedralTwinLaws(rows: readonly TwinLawRow[], cell: UnitCell, 
     const i = m.sum / m.n;
     const s = Math.sqrt(m.var) / m.n;
     if (i < cut * s) continue;
-    if (canonicalKey(pg, m.h, m.k, m.l) === canonicalKey(pg, -m.h, -m.k, -m.l)) continue;
+    if (!centric && canonicalKey(pg, m.h, m.k, m.l) === canonicalKey(pg, -m.h, -m.k, -m.l)) continue;
     strong.set(key, i);
   }
   return laws.map((law) => {
@@ -156,6 +164,9 @@ export function merohedralTwinLaws(rows: readonly TwinLawRow[], cell: UnitCell, 
       pairs++;
     }
     const meanH = pairs > 0 ? sum / pairs : NaN;
-    return { matrix: law, indices: lawIndices(law), pairs, meanH, alpha: Number.isFinite(meanH) ? Math.min(0.5, Math.max(0, 0.5 - meanH)) : NaN };
+    // Twinned, H_obs = (1 − 2α)·H: ⟨|H|⟩ = (1 − 2α)·½ for acentric pairs, (1 − 2α)·2/π for centric ones.
+    const untwinned = centric ? 2 / Math.PI : 0.5;
+    const alpha = Number.isFinite(meanH) ? Math.min(0.5, Math.max(0, 0.5 * (1 - meanH / untwinned))) : NaN;
+    return { matrix: law, indices: lawIndices(law), pairs, meanH, distribution: centric ? "centric" as const : "acentric" as const, alpha };
   }).sort((a, b) => (Number.isFinite(b.alpha) ? b.alpha : -1) - (Number.isFinite(a.alpha) ? a.alpha : -1));
 }
