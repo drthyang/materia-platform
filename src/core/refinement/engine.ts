@@ -457,6 +457,13 @@ function normalizedPseudoInverse(
  */
 const EXACT_FIT_RWP = 1e-6;
 
+/**
+ * Weighted residual at which an exact fit stops: far below EXACT_FIT_RWP, so
+ * the values are those of the minimum to many digits, and far above the
+ * round-off floor (~1e-16), so every platform reaches it.
+ */
+const EXACT_FIT_STOP_RWP = 1e-12;
+
 /** esd_j = √(C_jj · χ²_red); 0 for a dropped (dead or singular) direction. */
 function esdsFrom(covarianceBase: Matrix, reducedChi: number): number[] {
   return covarianceBase.map((row, j) => {
@@ -562,6 +569,10 @@ function* refineCore(
   const dataLength = problem.dataLength ?? problem.observations.length;
   const dataAgreement = (yCalc: Float64Array, nParams: number): AgreementFactors =>
     computeAgreementFactors(problem.observations.subarray(0, dataLength), yCalc.subarray(0, dataLength), problem.weights.subarray(0, dataLength), nParams);
+  // Σ w·y_obs² over the data: zero when the observations are all zero (a residual
+  // posed as the observable), where Rw reads 0 and says nothing about the fit.
+  let dataScale = 0;
+  for (let i = 0; i < dataLength; i++) dataScale += problem.weights[i]! * problem.observations[i]! ** 2;
   const withChi = (yCalc: Float64Array): { yCalc: Float64Array; chi: number } => ({
     yCalc,
     chi: chiSquared(problem.observations, yCalc, problem.weights),
@@ -667,6 +678,14 @@ function* refineCore(
       // No downhill step exists. If the gradient is essentially zero we are at
       // a minimum (converged); otherwise the search genuinely stalled.
       status = gradNorm < 1e-6 * (1 + current.chi) ? "converged" : "stalled";
+      break;
+    }
+    // An exact fit (noise-free, simulated data) is converged: past it χ² and
+    // every shift are round-off, which differs between platforms (summation
+    // order, libm), so the relative-χ² and shift/esd tests below could pass on
+    // one machine and run to maxIterations on another.
+    if (dataScale > 0 && agreement.rWeighted !== undefined && agreement.rWeighted < EXACT_FIT_STOP_RWP) {
+      status = "converged";
       break;
     }
     if (history.length >= 2) {

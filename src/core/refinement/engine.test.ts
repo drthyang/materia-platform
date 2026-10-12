@@ -562,3 +562,36 @@ describe("dead-column guard (zero-leverage parameters)", () => {
     expect(result.diagnostics?.singularParameterIds ?? []).toContain("p");
   });
 });
+
+describe("an exact fit", () => {
+  it("stops converged once the residual is round-off, whatever the round-off does next", () => {
+    // y = a·x + b on noise-free data, its round-off made to keep shrinking with every
+    // evaluation (as a platform's summation order or libm can): the relative-χ² test
+    // never sees two equal values, and the shift/esd ratio is noise over noise.
+    const x = Array.from({ length: 40 }, (_, i) => i / 4);
+    const obs = Float64Array.from(x, (v) => 2.5 * v + 1.25);
+    let calls = 0;
+    const problem: RefinementProblem = {
+      parameters: [
+        { id: "a", label: "a", kind: "scale", value: 2, initialValue: 2, fixed: false },
+        { id: "b", label: "b", kind: "background", value: 1, initialValue: 1, fixed: false },
+      ],
+      observations: obs,
+      weights: new Float64Array(x.length).fill(1),
+      calculate: (v) => {
+        calls++;
+        const noise = 1e-12 / calls;
+        return Float64Array.from(x, (xi, i) => v.a! * xi + v.b! + (i % 2 ? noise : -noise));
+      },
+    };
+    const result = refine(problem, { maxIterations: 50, convergenceTolerance: 1e-12, shiftTolerance: 0.05 });
+    expect(result.status).toBe("converged");
+    // It stops at the first iterate whose residual is round-off (the fourth here), not
+    // after more iterations of round-off that another platform may never end.
+    expect(result.agreement.rWeighted!).toBeLessThan(1e-12);
+    expect(result.history.length).toBe(4);
+    expect(result.history.at(-2)!.agreement.rWeighted!).toBeGreaterThan(1e-12);
+    expect(result.parameters.a).toBeCloseTo(2.5, 6);
+    expect(result.parameters.b).toBeCloseTo(1.25, 6);
+  });
+});
