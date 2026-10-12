@@ -70,11 +70,18 @@ interface Call {
 
 /**
  * The history as a local model gets it, within `budget` characters: under it,
- * unchanged; over it, older copies of a skill read again, then the oldest
- * tool results in batches of `batch` (never those of the last round), digested, and the
- * reasoning of the turns before them dropped, until it fits. When even that
- * does not fit, the most it can do; the chat measures the result and refuses
- * to send a prompt the model would lose.
+ * unchanged; over it, step by step until it fits:
+ *
+ *  1. older copies of a skill read again, then the oldest tool results in
+ *     batches of `batch` (never those of the last round), become digests; the
+ *     replies of the turns before them keep their first lines, without their
+ *     reasoning;
+ *  2. then, oldest first and in the same batches, those digests shrink to one
+ *     line, and the replies around them to one sentence.
+ *
+ * The user's messages, the calls made and the method are never cut. When even
+ * that does not fit, the most it can do; the chat measures the result and
+ * refuses to send a prompt the model would lose.
  */
 export function pruneForLocal(messages: readonly BetaMessageParam[], budget = LOCAL_BUDGET_CHARS, batch = LOCAL_BATCH): BetaMessageParam[] {
   if (historyChars(messages) <= budget) return [...messages];
@@ -96,17 +103,23 @@ export function pruneForLocal(messages: readonly BetaMessageParam[], budget = LO
   const staleSkills = new Set(results.filter((r) => KEEP_TOOLS.includes(r.name) && latestSkill.get(skillKey(r)) !== r.id).map((r) => r.id));
   const others = results.filter((r) => !KEEP_TOOLS.includes(r.name));
 
-  const prune = (cut: number): BetaMessageParam[] => {
+  /** `cut` oldest results digested, the `compact` oldest of them to one line (compact ≤ cut). */
+  const prune = (cut: number, compact: number): BetaMessageParam[] => {
     const digested = new Set([...staleSkills, ...others.slice(0, cut).map((r) => r.id)]);
+    const oneLine = new Set(others.slice(0, compact).map((r) => r.id));
     // What changed after each digested result, up to the last digested one: a digest depends only
     // on the batch, so it reads the same until the next batch; later changes are in the results kept whole.
     const changed = changesAfter(messages, callOf, cut > 0 ? others[cut - 1]!.id : null);
-    // The reasoning of every turn before the last digested result goes with it.
-    const thinkingBefore = cut > 0 ? others[cut - 1]!.message : -1;
+    // The turns before the last digested result lose their reasoning and keep their first lines; before the last compacted one, a sentence.
+    const softBefore = cut > 0 ? others[cut - 1]!.message : -1;
+    const hardBefore = compact > 0 ? others[compact - 1]!.message : -1;
     return messages.map((m, i) => {
       if (m.role === "assistant") {
-        if (i > thinkingBefore || typeof m.content === "string" || !m.content.some((b) => b.type === "thinking" || b.type === "redacted_thinking")) return m;
-        const kept = m.content.filter((b) => b.type !== "thinking" && b.type !== "redacted_thinking");
+        if (i > softBefore || typeof m.content === "string") return m;
+        const limit = i <= hardBefore ? REPLY_HARD : REPLY_SOFT;
+        const kept = m.content
+          .filter((b) => b.type !== "thinking" && b.type !== "redacted_thinking")
+          .map((b) => (b.type === "text" && b.text.length > limit ? { ...b, text: `${b.text.slice(0, limit - 1).trimEnd()}… (shortened to fit the window)` } : b));
         return { ...m, content: kept.length ? kept : [{ type: "text", text: "(reasoning left out to fit the window)" }] };
       }
       if (typeof m.content === "string" || !m.content.some((b) => b.type === "tool_result" && digested.has(b.tool_use_id))) return m;
@@ -117,7 +130,9 @@ export function pruneForLocal(messages: readonly BetaMessageParam[], budget = LO
           const call = callOf.get(b.tool_use_id) ?? { name: "a tool", input: {} };
           const text = staleSkills.has(b.tool_use_id)
             ? `[${call.name} ${skillName(call.input)}: read again later in this conversation, where it is in full.]`
-            : digestResult(call.name, resultText(b), b.is_error === true, changed.get(b.tool_use_id) ?? []);
+            : oneLine.has(b.tool_use_id)
+              ? compactResult(call.name, resultText(b), b.is_error === true)
+              : digestResult(call.name, resultText(b), b.is_error === true, changed.get(b.tool_use_id) ?? []);
           return { type: "tool_result", tool_use_id: b.tool_use_id, content: text, ...(b.is_error ? { is_error: true } : {}) };
         }),
       };
@@ -127,9 +142,32 @@ export function pruneForLocal(messages: readonly BetaMessageParam[], budget = LO
   const lastRound = results.length ? results.at(-1)!.message : -1;
   const most = others.filter((r) => r.message < lastRound).length;
   for (let cut = 0; ; cut = Math.min(most, cut + batch)) {
-    const pruned = prune(cut);
-    if (historyChars(pruned) <= budget || cut === most) return pruned;
+    const pruned = prune(cut, 0);
+    if (historyChars(pruned) <= budget) return pruned;
+    if (cut === most) break;
   }
+  for (let compact = Math.min(most, batch); ; compact = Math.min(most, compact + batch)) {
+    const pruned = prune(most, compact);
+    if (historyChars(pruned) <= budget || compact >= most) return pruned;
+  }
+}
+
+/** What a reply keeps when its turn's results are digested (characters), and when they are one line. */
+const REPLY_SOFT = 400;
+const REPLY_HARD = 140;
+
+/** An old result in one line: the tool, its ref, a few values. read_ref still opens it whole. */
+export function compactResult(tool: string, text: string, isError: boolean): string {
+  if (isError) return `[${tool}: an error: ${clip(text.replace(/\s+/g, " "), 90)}]`;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    parsed = undefined;
+  }
+  const ref = parsed !== null && typeof parsed === "object" && typeof (parsed as { ref?: unknown }).ref === "string" ? (parsed as { ref: string }).ref : null;
+  const values = parsed === undefined ? clip(text.replace(/\s+/g, " "), 90) : keyValues(parsed, 90);
+  return `[${tool}${ref ? ` ${ref}` : ""}: ${values || "done"}]`;
 }
 
 const skillName = (input: Readonly<Record<string, unknown>>): string =>

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { BetaMessageParam } from "@anthropic-ai/sdk/resources/beta/messages/messages";
-import { digestResult, historyChars, pruneForLocal } from "@/agent/contextWindow";
+import { compactResult, digestResult, historyChars, pruneForLocal } from "@/agent/contextWindow";
 
 type Step = { name: string; input?: Record<string, unknown>; result: string; error?: boolean; thinking?: string };
 
@@ -79,7 +79,7 @@ describe("keeping a local model's history in its window", () => {
     h.push({ role: "assistant", content: ["a", "b", "c"].map((id) => ({ type: "tool_use" as const, id, name: "get_state", input: {} })) });
     h.push({ role: "user", content: ["a", "b", "c"].map((id, i) => ({ type: "tool_result" as const, tool_use_id: id, content: state(8, 10 + i) })) });
     const r = results(pruneForLocal(h, 1000, 1));
-    expect(r.slice(0, 2).every((x) => x.startsWith("[get_state, an earlier result"))).toBe(true);
+    expect(r.slice(0, 2).every((x) => x.startsWith("[get_state"))).toBe(true);
     expect(r.slice(2)).toEqual([state(8, 10), state(8, 11), state(8, 12)]);
   });
 
@@ -94,6 +94,27 @@ describe("keeping a local model's history in its window", () => {
     // A new kind of change after the batch's last digested result: the digests read as before.
     const later = pruneForLocal(session([...steps, { name: "set_background", result: JSON.stringify({ ref: "#5", terms: 6 }) }]), 4000, 2);
     expect(results(later).slice(0, 2)).toEqual(results(first).slice(0, 2));
+  });
+
+  it("when digests are not enough, shortens the oldest to one line and the replies around them, oldest first", () => {
+    const steps: Step[] = Array.from({ length: 24 }, (_, i) => ({ name: i % 2 ? "get_state" : "refine", result: state(9 - i / 10, i + 1) }));
+    const h = session(steps);
+    // Long replies, as a local model writes them.
+    for (const m of h) if (m.role === "assistant" && typeof m.content !== "string") m.content.unshift({ type: "text", text: "I refined the scale and the background; ".repeat(30) });
+    const digestsOnly = pruneForLocal(h, 1_000_000);
+    expect(digestsOnly).toEqual(h);
+    const pruned = pruneForLocal(h, 14_000, 6);
+    expect(historyChars(pruned)).toBeLessThanOrEqual(14_000);
+    const r = results(pruned);
+    expect(r[0]).toMatch(/^\[refine #1: technique powder · wR 9 · pad x+…?/);
+    expect(r[0]!.length).toBeLessThan(140);
+    expect(r.at(-1)).toBe(state(9 - 23 / 10, 24));
+    const firstReply = (pruned[1]!.content as { type: string; text?: string }[])[0]!.text!;
+    expect(firstReply).toMatch(/… \(shortened to fit the window\)$/);
+    expect(firstReply.length).toBeLessThan(180);
+    // The user's message and every call stay.
+    expect(pruned[0]).toEqual(h[0]);
+    expect(pruned.filter((m) => m.role === "assistant").flatMap((m) => (m.content as { type: string }[]).filter((b) => b.type === "tool_use"))).toHaveLength(24);
   });
 
   it("drops the reasoning of the turns it digests, and keeps the latest", () => {
@@ -112,6 +133,7 @@ describe("keeping a local model's history in its window", () => {
   });
 
   it("digests a text result and a declined change", () => {
+    expect(compactResult("assess_refinement", "Error: refine first", true)).toBe("[assess_refinement: an error: Error: refine first]");
     expect(digestResult("read_ref", "plain text\nresult", false, [])).toBe("[read_ref, an earlier result, shortened to fit the model's window: plain text result. No change ran after it, up to the results kept whole below.]");
     const h = session([
       { name: "get_state", result: state(8, 1) },
@@ -119,6 +141,6 @@ describe("keeping a local model's history in its window", () => {
       { name: "get_state", result: state(8, 3) },
     ]);
     // A declined change changed nothing.
-    expect(results(pruneForLocal(h, 2000, 1))[0]).toMatch(/No change ran after it, up to the results kept whole below\./);
+    expect(results(pruneForLocal(h, 3000, 1))[0]).toMatch(/No change ran after it, up to the results kept whole below\./);
   });
 });
