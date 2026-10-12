@@ -47,7 +47,8 @@ type Input = any;
 
 /** Run a read or control tool. Returns the JSON result the model sees. */
 /** The tools that need a model with atoms: on the placeholder they would judge nothing. */
-const NEEDS_STRUCTURE = new Set(["assess_refinement", "suggest_next_steps", "rank_next_parameters", "check_cell_symmetry", "find_unexplained_peaks", "review_symmetry", "diagnose_fit", "bond_geometry", "interpret_structure", "refine"]);
+// check_fit_range too: it cuts the window in the gaps between the reflections, and a placeholder has none.
+const NEEDS_STRUCTURE = new Set(["check_fit_range", "assess_refinement", "suggest_next_steps", "rank_next_parameters", "check_cell_symmetry", "find_unexplained_peaks", "review_symmetry", "diagnose_fit", "bond_geometry", "interpret_structure", "refine"]);
 
 /** Refuse a tool that needs a structure when only data are loaded. */
 export function requireStructure(name: string, s: PowderLiveState): void {
