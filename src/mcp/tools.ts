@@ -44,7 +44,7 @@ import {
 } from "@/core/workflow/pdf";
 import { buildMpdfSpec, mpdfComponents, unsupportedMpdfModel, MPDF_STAGE_KINDS } from "@/core/workflow/mpdf";
 import { computeAgreementFactors, excludedPointMask, fitRangeMask, weightsFromSigma } from "@/core/refinement/factors";
-import { axisContext, convertAxisArray, convertAxisValue } from "@/visualization/axisUnits";
+import { axisContext, convertAxisArray, convertAxisValue, tofCalibrationOf } from "@/visualization/axisUnits";
 import { inspectDataRange, type DataRangeReading } from "@/core/diagnostics/dataRange";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { abscissaFromD, radiationOf } from "@/core/diffraction/instrument";
@@ -231,7 +231,7 @@ export function check_fit_range(args: {
   const spec = args.parameters && args.bindings && args.profile ? null : buildPowderSpec(args.structure, args.pattern, instrument, true, 4, {}, "isotropic");
   const curves = powderCurves(args.structure, args.pattern, args.parameters ?? spec!.params, args.bindings ?? spec!.bindings, args.profile ?? spec!.profile);
   const zero = (args.parameters ?? []).find((p) => p.kind === "zeroShift")?.value;
-  const ctx = axisContext(args.pattern, args.instrument, zero);
+  const ctx = axisContext(args.pattern, args.instrument, zero, tofCalibrationOf(args.parameters ?? []));
   const unit = args.pattern.xUnit;
   const ds = args.pattern.points.map((p) => convertAxisValue(p.x, unit, "dSpacing", ctx)).filter((d) => Number.isFinite(d) && d > 0);
   const dMin = Math.min(...ds) * 0.98;
@@ -409,7 +409,7 @@ function powderResidual(
     ? multiPhaseCurves(phases, args.pattern, refined, args.bindings, args.profile)
     : powderCurves(args.structure, args.pattern, refined, args.bindings, args.profile);
   // d with the refined zero taken out, so residual peaks compare with the cell's reflections.
-  const ctx = axisContext(args.pattern, args.instrument, refined.find((p) => p.kind === "zeroShift")?.value);
+  const ctx = axisContext(args.pattern, args.instrument, refined.find((p) => p.kind === "zeroShift")?.value, tofCalibrationOf(refined));
   const dAll = args.pattern.xUnit === "dSpacing" ? [...curves.x] : convertAxisArray(curves.x, args.pattern.xUnit, "dSpacing", ctx);
   const plateau = excludedPointMask(curves.yObs);
   const outside = fitRangeMask(curves.x, args.fitRange);
