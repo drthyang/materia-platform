@@ -39,6 +39,8 @@ import { powderValidation } from "@/core/diagnostics/powderValidation";
 import type { ReportCheck } from "@/core/export/report";
 import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, correlationsCheck, findingChecks, noResultCheck, verdictCheck } from "@/agent/reportChecks";
 import { groupOf } from "@/agent/method";
+import { satellitePositions } from "@/core/magnetic/kSearch";
+import { centringTranslations } from "@/core/crystal/symmetry";
 import { inspectDataRange, type DataEnd, type DataRangeReading } from "@/core/diagnostics/dataRange";
 
 
@@ -713,6 +715,14 @@ function residualOf(s: PowderLiveState): { d: number[]; yObs: number[]; yCalc: n
   const reflections = s.refinedPhases.flatMap((ph) =>
     generateReflections(ph.cell, ph.spaceGroup, dMin, dMax, { absences: true }).map((r) => ({ d: r.d, hkl: `${r.h} ${r.k} ${r.l}`, phaseLabel: ph.name || ph.id })),
   );
+  // An applied magnetic model's satellites are lines of the model too: a residual on one is its misfit, not a missing phase.
+  if (s.magnetic) {
+    const parent = s.refinedPhases.find((ph) => ph.id === s.magnetic!.structureId) ?? s.refinedPhases[0]!;
+    const centring = centringTranslations(parent.spaceGroup.operations);
+    for (const k of s.magnetic.propagation) {
+      reflections.push(...satellitePositions(parent.cell, k, dMin, dMax, centring).map((r) => ({ ...r, phaseLabel: `${parent.name || parent.id} magnetic` })));
+    }
+  }
   // Neutrons see magnetic order; a phase with magnetic ions may carry it.
   const magneticNeutron = s.pattern.radiation.kind.startsWith("neutron") && s.magnetic === null && [s.structure, ...s.extraPhases].some((ph) => magneticIonCandidates(ph).length > 0);
   const yCalc = pick(s.curves.yCalc);

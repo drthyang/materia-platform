@@ -112,3 +112,17 @@ describe("k-search in a centred lattice", () => {
     expect(centred[0]!.label).toBe("(0 0 1)");
   });
 });
+
+describe("satellite positions", () => {
+  it("lists G ± k with their labels, and k = 0 at the lattice points, absences included", async () => {
+    const { satellitePositions } = await import("@/core/magnetic/kSearch");
+    const cubic = { a: 4, b: 4, c: 4, alpha: 90, beta: 90, gamma: 90 };
+    const half = satellitePositions(cubic, [0.5, 0, 0], 1.5, 10);
+    expect(half.filter((r) => Math.abs(r.d - 8) < 1e-9).map((r) => r.hkl)).toContain("0 0 0 + k");
+    expect(half.some((r) => Math.abs(r.d - 4) < 1e-9)).toBe(false); // (1 0 0) itself is not a satellite of k = (½ 0 0)…
+    expect(half.some((r) => Math.abs(r.d - 4 / Math.sqrt(1.25)) < 1e-9)).toBe(true); // …but (½ 1 0) is
+    const gamma = satellitePositions(cubic, [0, 0, 0], 1.5, 10, [[0.5, 0.5, 0.5]]);
+    expect(gamma.some((r) => r.hkl === "1 1 0")).toBe(true);
+    expect(gamma.some((r) => r.hkl === "1 0 0")).toBe(false); // the I lattice has no 1 0 0
+  });
+});
