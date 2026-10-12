@@ -43,7 +43,7 @@ import {
   PDF_STAGE_KINDS,
 } from "@/core/workflow/pdf";
 import { buildMpdfSpec, mpdfComponents, unsupportedMpdfModel, MPDF_STAGE_KINDS } from "@/core/workflow/mpdf";
-import { computeAgreementFactors, excludedPointMask, weightsFromSigma } from "@/core/refinement/factors";
+import { computeAgreementFactors, excludedPointMask, fitRangeMask, weightsFromSigma } from "@/core/refinement/factors";
 import { axisContext, convertAxisArray, convertAxisValue } from "@/visualization/axisUnits";
 import { inspectDataRange, type DataRangeReading } from "@/core/diagnostics/dataRange";
 import { generateReflections } from "@/core/diffraction/reflections";
@@ -66,6 +66,9 @@ import { buildMagneticPowderProblem, magneticPowderComponents, magneticStage1Par
 import { rankNextParameterGroups } from "@/core/workflow/nextParameters";
 import { buildPowderProblem } from "@/core/workflow/powder";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
+import { multiPhaseCurves, phaseBindingsFor } from "@/core/workflow/multiPhase";
+import { applyParameters } from "@/core/workflow/apply";
+import { resolveTies } from "@/core/refinement/constraints";
 import { buildDistortionModes, buildSymmetryModes } from "@/core/crystal/distortionModes";
 import { refine, refineParallel } from "@/core/refinement/engine";
 import { refineSequentialAsync } from "@/core/refinement/sequential";
@@ -321,7 +324,7 @@ export async function refine_powder(args: {
   staged?: boolean;
   fitRange?: { min: number; max: number };
   maxIterations?: number;
-}): Promise<{ result: RefinementResult; parameters: RefinementParameter[]; observationCount: number; residual: { d: number[]; yObs: number[]; yCalc: number[]; lineWidth?: number }; parallel: { workers: number } | null }> {
+}): Promise<{ result: RefinementResult; parameters: RefinementParameter[]; observationCount: number; residual: PowderResidual; parallel: { workers: number } | null }> {
   const shape: PeakShape = args.profile.shape;
   const options = { maxIterations: args.maxIterations ?? 20 };
 
@@ -373,18 +376,60 @@ export async function refine_powder(args: {
     });
   }
 
-  // Residual (obs − calc) as d-spacing arrays, so assess_refinement can scan the
-  // positive residual for the missing-phase / magnetic-order signal.
   const refined = args.parameters.map((p) => ({ ...p, value: result.parameters[p.id] ?? p.value }));
-  const curves = powderCurves(args.structure, args.pattern, refined, args.bindings, args.profile);
+  const { residual, observationCount } = powderResidual(args, refined);
+  return { result, parameters: refined, observationCount, residual, parallel };
+}
+
+/** The residual refine_powder hands assess_refinement: in d, inside the fit window, with σ and every phase's reflections. */
+export interface PowderResidual {
+  d: number[];
+  yObs: number[];
+  yCalc: number[];
+  sigma: number[];
+  reflections: { d: number; hkl: string; phaseLabel: string }[];
+  lineWidth?: number;
+}
+
+/**
+ * The refined model's residual (obs − calc) as d-spacing arrays, so
+ * assess_refinement can scan the positive residual for the missing-phase /
+ * magnetic-order signal. Every phase's calculated pattern (the one the
+ * refinement fitted), only the points it fitted (inside the fit range, not a
+ * masked plateau), each point's σ, and the reflections of every phase in its
+ * refined cell.
+ */
+function powderResidual(
+  args: { structure: StructureModel; pattern: PowderPattern; bindings: ParameterBinding[]; profile: PowderProfile; instrument?: InstrumentParameters; extraPhases?: StructureModel[]; fitRange?: { min: number; max: number } },
+  refined: readonly RefinementParameter[],
+): { residual: PowderResidual; observationCount: number } {
+  const phases = [{ structure: args.structure, id: args.structure.id }, ...(args.extraPhases ?? []).map((s) => ({ structure: s, id: s.id }))];
+  const curves = phases.length > 1
+    ? multiPhaseCurves(phases, args.pattern, refined, args.bindings, args.profile)
+    : powderCurves(args.structure, args.pattern, refined, args.bindings, args.profile);
   // d with the refined zero taken out, so residual peaks compare with the cell's reflections.
   const ctx = axisContext(args.pattern, args.instrument, refined.find((p) => p.kind === "zeroShift")?.value);
-  const d = args.pattern.xUnit === "dSpacing" ? [...curves.x] : convertAxisArray(curves.x, args.pattern.xUnit, "dSpacing", ctx);
-  const excluded = excludedPointMask(curves.yObs);
-  const observationCount = excluded.reduce((n, ex) => n + (ex ? 0 : 1), 0);
+  const dAll = args.pattern.xUnit === "dSpacing" ? [...curves.x] : convertAxisArray(curves.x, args.pattern.xUnit, "dSpacing", ctx);
+  const plateau = excludedPointMask(curves.yObs);
+  const outside = fitRangeMask(curves.x, args.fitRange);
+  const keep = curves.x.map((_, i) => !plateau[i] && !outside[i]);
+  const pick = <T>(a: readonly T[]): T[] => a.filter((_, i) => keep[i]);
+  const sigma = args.pattern.points.map((p) => (p.sigma !== undefined && p.sigma > 0 ? p.sigma : Math.sqrt(Math.max(p.yObs, 1))));
+  const d = pick(dAll);
+  const yCalc = pick(curves.yCalc);
+  const finite = d.filter((v) => Number.isFinite(v) && v > 0);
+  const values = resolveTies(refined, Object.fromEntries(refined.map((p) => [p.id, p.value])));
+  const reflections = finite.length === 0 ? [] : phases.flatMap((ph) => {
+    const cell = applyParameters(ph.structure, phaseBindingsFor(args.bindings, ph.id), values).model;
+    return generateReflections(cell.cell, cell.spaceGroup, Math.min(...finite) * 0.99, Math.max(...finite) * 1.01, { absences: true })
+      .map((r) => ({ d: r.d, hkl: `${r.h} ${r.k} ${r.l}`, phaseLabel: ph.structure.name || ph.id }));
+  });
   // Constant wavelength: assess_refinement reads "on" and "beside" a reflection by the lines' own width.
-  const lineWidth = args.pattern.xUnit === "twoTheta" ? relativeLineWidth(d, curves.yCalc) : undefined;
-  return { result, parameters: refined, observationCount, residual: { d, yObs: [...curves.yObs], yCalc: [...curves.yCalc], ...(lineWidth !== undefined ? { lineWidth } : {}) }, parallel };
+  const lineWidth = args.pattern.xUnit === "twoTheta" ? relativeLineWidth(d, yCalc) : undefined;
+  return {
+    residual: { d, yObs: pick(curves.yObs), yCalc, sigma: pick(sigma), reflections, ...(lineWidth !== undefined ? { lineWidth } : {}) },
+    observationCount: keep.reduce((n, k) => n + (k ? 1 : 0), 0),
+  };
 }
 
 /**
