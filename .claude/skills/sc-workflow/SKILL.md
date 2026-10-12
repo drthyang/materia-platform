@@ -24,8 +24,10 @@ geometry and the GooF must all be sane.
 **The radiation first.** A SHELX `.hkl` or `.fcf` carries no radiation: it loads as neutron at
 1.54 Å, and get_state says so. When the user gives the probe and wavelength (Mo Kα 0.71073 Å,
 Cu Kα 1.54184 Å), set them with `set_radiation` before anything else: X-ray against neutron
-changes every Fc, and the wavelength enters the extinction. When neither the file nor the user
-says, ask.
+changes every Fc, the wavelength enters the extinction, and at a tabulated line (Cr–In Kα) the
+atoms' anomalous scattering f′, f″ (get_state's `anomalousScattering`). When neither the file
+nor the user says, ask. A SHELXL CIF that carries its own measurement (`_shelx_hkl_file`) loads
+as that measurement, at the radiation the CIF names.
 
 `reflection_statistics` reads the data (the method's first stage). Say what you find, with its
 numbers, before the first refinement:
@@ -35,7 +37,12 @@ numbers, before the first refinement:
    class, an absorption or scaling problem, or a poor crystal. Neutron time-of-flight
    Laue data (one wavelength band per orientation) run higher, and its equivalents were
    measured at different wavelengths: R_int there also carries the λ-dependent
-   corrections (extinction, absorption).
+   corrections (extinction, absorption). Monochromatic data holding every equivalent (a
+   SHELX `.hkl`, a CIF's own measurement) are merged before they are refined, as SHELXL
+   merges them (MERG 2): `merge_equivalents`, after this reading and before the first
+   refinement. The Friedel opposites stay apart in a non-centrosymmetric group, the
+   systematic absences are left out, and R1, wR2 and GooF are then SHELXL's; the data
+   reading keeps the measurement as loaded. Never merge a time-of-flight Laue file.
 2. **Resolution and completeness.** d_min (sinθ/λ max): about 0.83 Å (0.6 Å⁻¹) is the
    least for anisotropic ADPs; completeness to that resolution should be ≥ 98–99 %.
 3. **The space group.** Forbidden reflections measured at ≥ 3σ: a few weak ones are
@@ -44,16 +51,48 @@ numbers, before the first refinement:
    well below both suggests twinning. These are evidence to note (`write_note`) and
    to weigh against the published structure, not a reason to change the group before
    the model is refined.
+   **Twinning by merohedry.** When the lattice holds more symmetry than the Laue class
+   (a trigonal, tetragonal, hexagonal or cubic crystal of lower Laue symmetry),
+   `reflection_statistics` lists each merohedral law with the fraction Yeates' H-test
+   reads for it from the intensities alone (`twinLaws`). A law whose α stands well above
+   the others' (a near-perfect twin reads ≈ 0.5, its sibling laws ≈ 0.12) twins the
+   crystal: set it (`set_twin`) before the first refinement, as SHELXL's TWIN, and refine
+   its fraction with the scale. A model refined without it cannot fit: R1 stays high and
+   the GooF several times 1, however long it runs. A structure file whose TWIN was taken
+   out, or never there, is no evidence against the data.
 4. **Friedel pairs** (non-centrosymmetric groups). The absolute structure needs the
-   Friedel mates measured separately and an anomalous signal (X-ray, a heavy enough
-   atom). Merged pairs, or neutron data, cannot determine it: say so.
-5. **Data per parameter.** Aim for at least 10 unique reflections per refined parameter;
-   below that, keep the model isotropic or restrained.
+   Friedel mates measured separately and an anomalous signal (X-ray at a tabulated line,
+   a heavy enough atom). Merged pairs, or neutron data, cannot determine it: say so.
+   When it can be determined, refine the inversion twin (`set_twin`, law "inversion")
+   from the first refinement on, with the scale and then the structure, as SHELXL
+   refines BASF: its fraction is the Flack x. A crystal twinned by a merohedral law
+   too: the law `withInversion` (SHELXL's TWIN R −4), the inverted domains together
+   holding x — their fractions trade by construction; read the sum. x near 0 with a
+   small esd (≲ 0.04): the hand is right; near 1: the inverted hand — `invert_structure`
+   (in an enantiomorphic group the space group changes too: P6₁ ↔ P6₅, P4₁ ↔ P4₃, P3₁ ↔
+   P3₂), refine again, and compare wR2 and x with the other hand's (a published model
+   can be the wrong one: say which hand the data choose, by how much); clearly between:
+   the crystal is an inversion twin, and the report says so with x and its esd.
+   `assess_refinement`'s `absoluteStructure` gives Parsons' x from the Bijvoet pairs
+   (the scale and most systematic errors cancel in its quotients): quote it beside
+   the refined x.
+   A polar group (P6₁, P2₁, Pc, P1) leaves the origin free along its polar axis: the
+   fit holds it by SHELXL's restraint (`get_state`'s `polarAxes`), counted with the
+   restraints; nothing is fixed by hand.
+5. **Data per parameter.** Aim for at least 10 reflections per refined parameter (8 in a
+   non-centrosymmetric group, where a Friedel pair measured apart counts twice, as SHELXL
+   counts its data); below that, keep the model isotropic or restrained.
 6. **Where the Fo² come from.** A refinement's listing (a SHELXL `.fcf`; get_state's `origin`)
    holds each reflection once, on that refinement's scale, with the systematic absences left
    out and, in LIST 4, its extinction divided out. Its R_int, absences and extinction cannot
-   be judged: say so, quote no R_int, and compare R1 with that refinement's own, not with
-   data you measured.
+   be judged: say so, quote no R_int, keep the extinction at 0 (refining it would correct
+   twice), and compare R1 with that refinement's own, not with data you measured.
+7. **A SHELX `.ins`/`.res` as the structure.** `get_state`'s `shelxInstructions` lists what
+   that refinement applied — TWIN and BASF (`set_twin`), WGHT (`set_weighting`), EXTI,
+   AFIX and the hydrogens' U (`set_riding_hydrogens`: a free variable on the U column, as
+   21.0 for every methyl hydrogen, is `sharedU`), TEMP (none: SHELXL took 20 °C). None of
+   it is applied until you set it; set each one deliberately, and say in the report which
+   you took from the file.
 
 ## Stage 1 — Scale, then extinction
 
@@ -103,13 +142,25 @@ already fixed or coupled). The shifts should converge to well below their esds.
 
 **Hydrogens on X-ray data ride** before the positions are refined: X-rays see a hydrogen's one
 electron, displaced into its bond, so a free hydrogen comes out short and scattered and its U
-undefined. `set_riding_hydrogens` (SHELXL's AFIX): an sp² C–H on the external bisector of its
-parent's two neighbours (AFIX 43), any other at its present offset (AFIX 3), U_iso 1.2·U_eq of
-the parent (1.5 for methyl and hydroxyl); no parameter of its own. Its result lists each X–H
-as placed: hydrogens from a difference map sit at whatever the map gave, so give the sp² ones
-SHELXL's distance (`distance`: 0.93 Å at room temperature, 0.95 Å below about 200 K). Report
-the treatment. On **neutron** data the hydrogens scatter as strongly as carbon: refine them
-freely, anisotropic where the data allow.
+undefined. `set_riding_hydrogens` (SHELXL's AFIX) places each in its group's geometry: an sp²
+X–H on the external bisector of its parent's two neighbours (AFIX 43); a methyl's three (or an
+NH₃'s) tetrahedral about the X–C axis and rotating, the group's torsion a parameter (`rot_C1`,
+AFIX 137) to free with the positions; a hydroxyl's likewise (AFIX 147); a CH₂ pair (AFIX 23); a
+tertiary C–H or N–H (AFIX 13); a metal's hydrogen, or any other, at its present offset (AFIX 3). U_iso
+is 1.2·U_eq of the parent (1.5 for methyl and hydroxyl). Give `temperature` (the measurement's,
+in K) and each group sits at SHELXL's X–H for it (C–H 0.93–0.98 Å at room temperature, +0.02 Å
+below 203 K); the result lists each X–H as placed. A hydrogen the data place on their own — a
+hydride beside a metal, a hydrogen-bonded OH found in the difference map — goes in `refine`:
+its position refines, its U still rides, and distance restraints (below) keep it chemically
+sensible. Report the treatment. On **neutron** data the hydrogens scatter as strongly as
+carbon: refine them freely, anisotropic where the data allow.
+
+**Restraints.** `restrain_distances` adds SHELXL's DFIX (a distance near a target) and SADI
+(distances near one another), each with an esd (0.02 Å by default; tighter for chemically
+equivalent bonds, e.g. SADI 0.005 on three M–H of one metal). They are observations beside the
+data, counted as SHELXL counts them; `assess_refinement` lists each one's deviation in σ and
+the restrained GooF. Restrain what the chemistry fixes and the data cannot place; a restraint
+more than 3σ off says the data disagree with it, which is a finding, not a reason to tighten it.
 
 ## Stage 3 — Isotropic ADPs
 
@@ -129,22 +180,38 @@ it cost. Hydrogen atoms stay isotropic on X-ray data (the switch leaves them so)
 free and anisotropic on neutron data (H scatters strongly, with negative b). X-ray hydrogen
 positions are never reported as internuclear geometry.
 
-## Stage 5 — Occupancy (only for a reason)
+## Stage 5 — Occupancy and disorder (only for a reason)
 
 Only for a site with a reason to be partial or mixed (disorder, a vacancy, a substitution
 the chemistry allows), never to improve R. Occupancy correlates with the ADP of the site:
 refine it with that ADP fixed, or with a composition tied.
 
+**A disorder** (get_state's `disorder`: SHELXL's PART 1 and PART 2 of an assembly, as the CIF
+gives them; no bond joins two alternatives). Tie the alternatives' occupancies to add up to one
+(`tie_parameters` `complement`, SHELXL's 21 and −21), and, when the alternatives sit too close
+for the data to separate their displacements (a few tenths of an Å), give the second the first's
+ADP (`adp`, SHELXL's EADP); then free the leading occupancy with the rest and report the split
+with its esd. The contrast between the alternatives (Al against Ga, a heavy against a light
+atom, or the positions themselves) is what measures it.
+
 ## Stage 6 — The weights, last
 
 SHELXL weights a finished refinement with WGHT a b: w = 1/[σ²(Fo²) + (aP)² + bP], P = (Fo² +
-2Fc²)/3, for the errors the σ do not carry (absorption, scaling, what no model describes).
-`assess_refinement` gives the scheme SHELXL would suggest for the model as it stands: the a and
-b that make the GooF flat across the intensity bins and 1 overall. Set it with
+2Fc²)/3, for the errors the σ do not carry (absorption, scaling, what no model describes). Its a
+and b are on SHELXL's absolute scale (Fo² divided by the scale); the page applies them at the
+data's own scale, so a published WGHT is set as printed.
+`assess_refinement` gives the scheme SHELXL's criterion suggests for the model as it stands: the
+a and b that bring each of ten intensity bins' GooF nearest 1. The overall GooF is left where
+that puts it, a little above 1 (near √(N/(N−P))), as SHELXL leaves it; SHELXL's own printed
+suggestion comes from a coarser search in the same shallow valley, so a few thousandths in a
+and up to about 0.2 in b apart from this one is the same scheme. Set it with
 `set_weighting` (use "suggested") only once the model is complete — ADPs, extinction,
-hydrogens, outliers — since weights fitted to an unfinished model hide its errors; then refine
-once more and quote R1, wR2 and GooF with the scheme. wR2 and GooF depend on it, R1 does not.
-With σ that already describe the data the suggestion stays near 0 0.
+hydrogens, outliers, the twin and the hand — since weights fitted to an unfinished model hide
+its errors; then refine once more and quote R1, wR2 and GooF with the scheme. wR2 and GooF depend
+on it, R1 does not. With σ that already describe the data the suggestion stays near 0 0.
+A published WGHT set to reproduce a refinement, or to compare two models under one scheme (the
+two hands), is that model's: after the last change, set the suggestion for the final model and
+refine again. A GooF well below 1 under fixed weights says they no longer fit the model.
 
 ## Outliers
 
@@ -170,8 +237,8 @@ and they stay.
   refused or developed.
 - R1, wR2 and GooF with the weights stated: with w = 1/σ², a GooF above 1 means the σ are
   underestimated or the model misses something (say which the analysis of variance points at:
-  K drifting with intensity or resolution); with SHELXL's suggested scheme, set last, the GooF
-  is near 1 by construction and the analysis of variance is what still tells.
+  K drifting with intensity or resolution); with the suggested scheme, set last, the GooF
+  is a little above 1 by construction and the analysis of variance is what still tells.
 - The ADPs positive definite and physically ordered; the bond lengths (`bond_geometry`)
   and the coordination as the chemistry expects, and against the published structure
   when there is one.
@@ -192,10 +259,14 @@ U^ij with esds, and `bond_geometry` each length with its esd from the positions'
 | Load | the user, in the app | `parse_structure`, `parse_single_crystal_data` |
 | Radiation and wavelength | `set_radiation` | — |
 | Read the data | `reflection_statistics` | — |
+| Merge the equivalents | `merge_equivalents` | — |
+| Absolute structure, twins | `set_twin` (`withInversion` for both hands), `invert_structure`; Parsons' x in `assess_refinement` | — |
 | Free and refine | `set_free`, `refine` (batch scales: `bscale_*`) | — (in the app only, for now) |
 | Judge a stage | `assess_refinement` | `assess_refinement` |
 | ADP model | `set_adp_model` | — |
 | Hydrogens | `set_riding_hydrogens` | — |
+| Restraints | `restrain_distances` | — |
+| Disorder, equal values | `tie_parameters` (`complement`, `adp`, `equal`) | — |
 | Weights | `set_weighting` (the suggestion in `assess_refinement`) | — |
 | Extinction model | `set_extinction_model`, `set_resolution_range` (high-order test) | — |
 | Outliers | `assess_refinement`, `reflection_equivalents`, `omit_reflections`, `set_outlier_filter` | — |

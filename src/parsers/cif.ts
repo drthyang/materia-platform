@@ -25,6 +25,15 @@ export function parseCifNumber(raw: string): number {
   return value;
 }
 
+/** The standard uncertainty a CIF number carries, in its own units: "0.2398(12)" → 0.0012, "125(12)" → 12; 0 for none. */
+export function cifSu(raw: string | undefined): number {
+  const m = raw?.trim().match(/^[-+]?(\d*)(?:\.(\d*))?(?:[eE]([-+]?\d+))?\((\d+)\)$/);
+  if (!m) return 0;
+  const decimals = m[2]?.length ?? 0;
+  const exponent = m[3] !== undefined ? Number(m[3]) : 0;
+  return Number(m[4]) * 10 ** (exponent - decimals);
+}
+
 /**
  * Parse an *optional* numeric CIF field, returning `fallback` for CIF null
  * markers — `?` (unknown) and `.` (inapplicable) — and for empty/missing values.
@@ -318,6 +327,13 @@ function parseCell(items: Map<string, string>): UnitCell {
   };
 }
 
+/** The cell's su as the CIF gives them (12.7506(1)), or undefined when it gives none. */
+function parseCellSu(items: Map<string, string>): StructureModel["cellSu"] {
+  const keys = { a: "_cell_length_a", b: "_cell_length_b", c: "_cell_length_c", alpha: "_cell_angle_alpha", beta: "_cell_angle_beta", gamma: "_cell_angle_gamma" } as const;
+  const su = Object.fromEntries(Object.entries(keys).map(([k, tag]) => [k, cifSu(items.get(tag))]).filter(([, v]) => (v as number) > 0));
+  return Object.keys(su).length > 0 ? su : undefined;
+}
+
 /** Options for reading a CIF. */
 export interface CifParseOptions {
   /**
@@ -379,6 +395,24 @@ function cifText(raw: string | undefined): string | undefined {
   return t === undefined || t === "" || t === "?" || t === "." ? undefined : t;
 }
 
+/** Each anisotropic site's U11 … U23 su, as the CIF gives them (0 where none). */
+function parseAnisotropicSus(loops: Loop[]): Map<string, readonly [number, number, number, number, number, number]> {
+  const anisoLoop = findLoop(loops, (h) => h.some((k) => k.includes("atom_site_aniso_u_11")));
+  if (!anisoLoop) return new Map();
+  const col = (name: string): number => anisoLoop.headers.findIndex((h) => h.toLowerCase() === name);
+  const iLabel = col("_atom_site_aniso_label");
+  const columns = ["_atom_site_aniso_u_11", "_atom_site_aniso_u_22", "_atom_site_aniso_u_33", "_atom_site_aniso_u_12", "_atom_site_aniso_u_13", "_atom_site_aniso_u_23"].map(col);
+  if (iLabel < 0 || columns.some((i) => i < 0)) return new Map();
+  const sus = new Map<string, readonly [number, number, number, number, number, number]>();
+  for (const row of anisoLoop.rows) {
+    const label = row[iLabel];
+    if (label === undefined) continue;
+    const su = columns.map((i) => cifSu(row[i])) as [number, number, number, number, number, number];
+    if (su.some((x) => x > 0)) sus.set(label, su);
+  }
+  return sus;
+}
+
 function parseAnisotropicAdps(loops: Loop[]): Map<string, DisplacementParameters> {
   const anisoLoop = findLoop(loops, (h) => h.some((k) => k.includes("atom_site_aniso_u_11")));
   if (!anisoLoop) return new Map();
@@ -422,6 +456,7 @@ function parseSites(items: Map<string, string>, loops: Loop[]): AtomSite[] {
   const atomLoop = findLoop(loops, (h) => h.some((k) => k.includes("atom_site_fract_x")));
   if (!atomLoop) return [];
   const anisoAdps = parseAnisotropicAdps(loops);
+  const anisoSus = parseAnisotropicSus(loops);
 
   const col = (name: string): number =>
     atomLoop.headers.findIndex((h) => h.toLowerCase() === name);
@@ -472,6 +507,12 @@ function parseSites(items: Map<string, string>, loops: Loop[]): AtomSite[] {
     const adp = adpType === "uani" && anisoAdps.has(label)
       ? anisoAdps.get(label)!
       : { kind: "isotropic" as const, bIso };
+    // The published su's, kept beside the values for comparing a re-refinement's esds (U from B: su/8π²).
+    const suPosition: [number, number, number] = [cifSu(row[iX]), cifSu(row[iY]), cifSu(row[iZ])];
+    const suOcc = iOcc >= 0 ? cifSu(row[iOcc]) : 0;
+    const suU = iU >= 0 && cifSu(row[iU]) > 0 ? cifSu(row[iU]) : iB >= 0 ? cifSu(row[iB]) / EIGHT_PI_SQUARED : 0;
+    const suAniso = adp.kind === "anisotropic" ? anisoSus.get(label) : undefined;
+    const hasSu = suPosition.some((x) => x > 0) || suOcc > 0 || suU > 0 || suAniso !== undefined;
     const site: AtomSite = {
       label,
       element,
@@ -482,6 +523,7 @@ function parseSites(items: Map<string, string>, loops: Loop[]): AtomSite[] {
       adp,
       ...(iMult >= 0 && row[iMult] !== undefined ? { multiplicity: parseInt(row[iMult]!, 10) } : {}),
       ...disorderOf(iGroup >= 0 ? cifText(row[iGroup]) : undefined, iAssembly >= 0 ? cifText(row[iAssembly]) : undefined),
+      ...(hasSu ? { su: { position: suPosition, occupancy: suOcc, uIso: suU, ...(suAniso ? { uAniso: suAniso } : {}) } } : {}),
     };
     return site;
   });
@@ -496,10 +538,12 @@ export function parseCif(text: string, id = "structure", options: CifParseOption
   const { items, loops } = parseCifBlocks(text);
   const name = phaseName(items);
   const cell = parseCell(items);
+  const cellSu = parseCellSu(items);
   return {
     id,
     name,
     cell,
+    ...(cellSu ? { cellSu } : {}),
     spaceGroup: parseSpaceGroup(items, loops, cell, options.spaceGroupSetting),
     sites: parseSites(items, loops),
   };

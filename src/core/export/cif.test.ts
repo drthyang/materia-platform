@@ -78,14 +78,14 @@ describe("structureToCif — writes the model's own values, never the parameters
 
   it("does NOT pick up a refined value the caller left in the parameters", () => {
     const cif = structureToCif(structure, { params, bindings });
-    expect(cif).toContain("_cell_length_a    5.43210(60)"); // the model's 5.4321
+    expect(cif).toContain("_cell_length_a    5.4321(6)"); // the model's 5.4321
     expect(cif).not.toContain("5.90000");
   });
 
   it("writes the refined value once the caller applies it to the model", () => {
     const refined: StructureModel = { ...structure, cell: { ...structure.cell, a: 5.9 } };
     const cif = structureToCif(refined, { params, bindings });
-    expect(cif).toContain("_cell_length_a    5.90000(60)");
+    expect(cif).toContain("_cell_length_a    5.9000(6)");
   });
 });
 
@@ -102,11 +102,32 @@ describe("structureToCif — standard uncertainties", () => {
     const cif = structureToCif(structure, { params, bindings });
     // su two sig figs sets the decimals: 0.0006 → 5 dp (60); O1 z axis=(0,0,1)
     // → σz=0.0012 → 4 dp (12), while x/y have no su and stay at 5 dp.
-    expect(cif).toContain("_cell_length_a    5.43210(60)");
+    expect(cif).toContain("_cell_length_a    5.4321(6)");
     expect(cif).toMatch(/O1 O 0\.33330 0\.66670 0\.2500\(12\)/);
     // Values still round-trip (parser strips the su).
     const back = parseCif(cif);
     expect(back.cell.a).toBeCloseTo(5.4321, 4);
+  });
+
+  it("gives each U^ij its su from the refined modes, and a tied occupancy its leader's", () => {
+    const params: RefinementParameter[] = [
+      { id: "U_O1_0", label: "O1 U11", kind: "uAniso", value: 0.01, initialValue: 0.01, fixed: false, esd: 0.0008 },
+      { id: "U_O1_1", label: "O1 U22", kind: "uAniso", value: 0.012, initialValue: 0.012, fixed: false, esd: 0.0013 },
+      { id: "occ_Fe1", label: "Fe1 occ", kind: "occupancy", value: 0.844, initialValue: 0.7, fixed: false, esd: 0.0018 },
+      // SHELXL's −21: the second alternative one minus the first, its esd the leader's.
+      { id: "occ_O1", label: "O1 occ", kind: "occupancy", value: 0.156, initialValue: 0.3, fixed: true, expression: "= -1*occ_Fe1+1", esd: 0.0018 },
+    ];
+    const bindings: ParameterBinding[] = [
+      { parameterId: "U_O1_0", kind: "uAniso", targetId: "s", targetKey: "O1", uBasis: [1, 0, 0, 0, 0, 0] },
+      { parameterId: "U_O1_1", kind: "uAniso", targetId: "s", targetKey: "O1", uBasis: [0, 1, 0, 0, 0, 0] },
+      { parameterId: "occ_Fe1", kind: "occupancy", targetId: "s", targetKey: "Fe1" },
+      { parameterId: "occ_O1", kind: "occupancy", targetId: "s", targetKey: "O1" },
+    ];
+    const cif = structureToCif(structure, { params, bindings });
+    expect(cif).toMatch(/^\s*O1 0\.0100\(8\) 0\.0120\(13\) 0\.00800 0\.00500 0\.00000 0\.00000$/m);
+    expect(cif).toMatch(/^\s*O1 O .* 0\.8000\(18\) Uani/m);
+    // A fixed row without a tie carries none.
+    expect(structureToCif(structure, { params: params.map((p) => (p.id === "occ_O1" ? { ...p, expression: undefined } : p)) as RefinementParameter[], bindings })).toMatch(/^\s*O1 O .* 0\.8000 Uani/m);
   });
 });
 
@@ -319,10 +340,16 @@ describe("magneticStructureToMcif — commensurate k builds the magnetic superce
 });
 
 describe("formatWithEsd", () => {
-  it("renders the su to two significant figures at the value's last place", () => {
-    expect(formatWithEsd(5.4321, 0.0006, 5)).toBe("5.43210(60)");
+  it("renders the su as SHELXL and the IUCr do: two figures when they read 10–19, else one", () => {
+    expect(formatWithEsd(5.4321, 0.0006, 5)).toBe("5.4321(6)");
     expect(formatWithEsd(0.25, 0.0012, 5)).toBe("0.2500(12)");
-    expect(formatWithEsd(1.234, 0.05, 4)).toBe("1.234(50)");
+    expect(formatWithEsd(1.234, 0.05, 4)).toBe("1.23(5)");
+    // 1b's split site, as SHELXL's CIF has it: Al1 y 0.4290(9), x 0.2398(12); the Al share 0.844(2).
+    expect(formatWithEsd(0.42926, 0.00088, 5)).toBe("0.4293(9)");
+    expect(formatWithEsd(0.23999, 0.00097, 5)).toBe("0.2400(10)");
+    expect(formatWithEsd(0.8443, 0.00177, 4)).toBe("0.8443(18)");
+    expect(formatWithEsd(0.0350, 0.00044, 5)).toBe("0.0350(4)");
+    expect(formatWithEsd(2.0243, 0.0092, 4)).toBe("2.024(9)");
   });
   it("falls back to fixed decimals with no su", () => {
     expect(formatWithEsd(0.3333, undefined, 5)).toBe("0.33330");

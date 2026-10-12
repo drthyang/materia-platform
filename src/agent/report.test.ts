@@ -75,11 +75,28 @@ describe("the analysis from the History", () => {
     expect(check.name).toBe("Refinements compared");
     const rows = check.detail.replace(/^.*?the ADPs free: /, "").split("; step ");
     expect(rows, check.detail).toHaveLength(3);
-    expect(rows[0]).toMatch(/^step 2: SHELXL EXTI, anisotropic — wR2 13\.52 %, GooF 2\.79; extinction \(SHELXL x\) 0\.30000\(10\); U_eq Al1 0\.00\d+\(\d+\), O1 0\.00\d+\(\d+\) Å²$/);
-    expect(rows[1]).toMatch(/^\d: Becker–Coppens type I, Lorentzian, anisotropic — wR2 12\.08 %, GooF 2\.49; extinction Eg \(B–C type I\) /);
-    expect(rows[2]).toMatch(/^\d: Becker–Coppens type I, Lorentzian, d ≤ 0\.5 Å, anisotropic — wR2 9\.38 %, GooF 1\.37;/);
+    expect(rows[0]).toMatch(/^step 2: SHELXL EXTI, anisotropic, w = 1\/σ² — wR2 13\.52 %, GooF 2\.79; extinction \(SHELXL x\) 0\.30000\(10\); U_eq Al1 0\.00\d+\(\d+\), O1 0\.00\d+\(\d+\) Å²$/);
+    expect(rows[1]).toMatch(/^\d: Becker–Coppens type I, Lorentzian, anisotropic, w = 1\/σ² — wR2 12\.08 %, GooF 2\.49; extinction Eg \(B–C type I\) /);
+    expect(rows[2]).toMatch(/^\d: Becker–Coppens type I, Lorentzian, d ≤ 0\.5 Å, anisotropic, w = 1\/σ² — wR2 9\.38 %, GooF 1\.37;/);
+    // All under the same weights: nothing to warn of.
+    expect(check.detail).not.toMatch(/compare only under the same weights/);
     // One set of conditions only: nothing to compare.
     expect(comparedRefinements(recordStep(null, { kind: "refine", label: "Refine", structures: [], workspace: sc({}) }), c.structure.cell, new Map())).toBeNull();
+
+    // Another weighting scheme is another condition, and said so: wR2 and GooF are sums under the weights.
+    // An extinction held at 0 (a listing's) is none, whatever model would refine it.
+    const held = params.map((p) => (p.kind === "extinction" ? { ...p, fixed: true, value: 0 } : p));
+    const listing = (extra: Record<string, unknown>, wR: number, gof: number): Workspace => {
+      const w = sc(extra, wR, gof) as unknown as { refinement: Record<string, unknown> };
+      return { ...w, refinement: { ...w.refinement, parameters: held } } as unknown as Workspace;
+    };
+    let k = recordStep(null, { kind: "refine", label: "Refine", structures: [], workspace: listing({}, 0.0387, 1.75), actor: "agent" });
+    k = recordStep(k, { kind: "refine", label: "Refine", structures: [], workspace: listing({ weighting: { a: 0.0374, b: 0.6277 } }, 0.0476, 0.89), actor: "agent" });
+    const weighed = comparedRefinements(k, c.structure.cell, historySteps("singleCrystal", k).rowOf)!;
+    expect(weighed.detail).toMatch(/^The last converged refinement under each set of conditions, the ADPs free \(wR2 and GooF compare only under the same weights\): /);
+    const [unweighted, wght] = weighed.detail.replace(/^.*?weights\): /, "").split("; step ");
+    expect(unweighted).toMatch(/^step 1: no extinction, anisotropic, w = 1\/σ² — wR2 3\.87 %, GooF 1\.75; U_eq /);
+    expect(wght).toMatch(/^2: no extinction, anisotropic, WGHT 0\.0374 0\.6277 — wR2 4\.76 %, GooF 0\.89; U_eq /);
   });
 
   it("names free sets by group, ties and fixed rows left out", () => {

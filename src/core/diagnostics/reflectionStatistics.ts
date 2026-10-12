@@ -35,6 +35,13 @@ export interface FriedelCoverage {
   readonly withMate: number;
   /** withMate / acentric (0 when the data were merged in the Laue class). */
   readonly fraction: number;
+  /**
+   * Non-centrosymmetric groups: R_int with the Friedel mates kept apart and the
+   * systematic absences left out, as SHELXL merges such a group (MERG 2) and
+   * reports it. Below the Laue-class R_int by what the mates differ by: the
+   * anomalous signal.
+   */
+  readonly rIntApart?: number;
 }
 
 export interface AbsenceViolation {
@@ -64,6 +71,8 @@ export interface IntensityStatistics {
 export interface StatisticsModel {
   readonly sites: number;
   readonly special: number;
+  /** The model holds a twin whose domains' reflections overlap (not the inversion twin alone): it lowers ⟨|E²−1|⟩. */
+  readonly twinned?: boolean;
 }
 
 export interface ReflectionStatistics {
@@ -112,8 +121,8 @@ export function reflectionStatistics(rows: readonly StatisticsRow[], cell: UnitC
   const rotations = pointGroupRotations(sg);
   const centrosymmetric = rotations.some(isInversion);
 
-  // Friedel coverage: unique under the point group, and whether −h is there too.
-  const keys = new Set(rows.map((r) => canonicalKey(rotations, r.h, r.k, r.l)));
+  // Friedel coverage: unique under the point group, and whether −h is there too; the systematic absences are not data.
+  const keys = new Set(rows.filter((r) => !isReflectionAbsent(sg.operations, r.h, r.k, r.l)).map((r) => canonicalKey(rotations, r.h, r.k, r.l)));
   let withMate = 0;
   let centric = 0;
   if (!centrosymmetric) {
@@ -125,22 +134,33 @@ export function reflectionStatistics(rows: readonly StatisticsRow[], cell: UnitC
     }
   }
   const acentric = keys.size - centric;
-  const friedel: FriedelCoverage = { centrosymmetric, unique: keys.size, centric, withMate, fraction: acentric > 0 && !centrosymmetric ? withMate / acentric : 0 };
+  const apart = centrosymmetric
+    ? undefined
+    : mergeEquivalents(rows.filter((r) => !isReflectionAbsent(sg.operations, r.h, r.k, r.l)).map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.intensity, sigma: r.sigma })), sg.operations, { friedel: false }).statistics;
+  const friedel: FriedelCoverage = {
+    centrosymmetric,
+    unique: keys.size,
+    centric,
+    withMate,
+    fraction: acentric > 0 && !centrosymmetric ? withMate / acentric : 0,
+    ...(apart && apart.redundancy > 1 + 1e-9 ? { rIntApart: apart.rInt } : {}),
+  };
 
   // Merged in the Laue class: absences and intensity statistics read unique reflections.
   const merged = mergeEquivalents(rows.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.intensity, sigma: r.sigma })), sg.operations).reflections;
   let measured = 0;
   const allowed: { d: number; i: number; eps: number }[] = [];
   const forbidden: { m: (typeof merged)[number]; d: number }[] = [];
+  // The absences counted as SHELXL counts them: in an acentric group, a forbidden reflection and its Friedel mate apart.
+  const absent = rows.filter((r) => isReflectionAbsent(sg.operations, r.h, r.k, r.l) && !(r.h === 0 && r.k === 0 && r.l === 0));
+  for (const m of mergeEquivalents(absent.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.intensity, sigma: r.sigma })), sg.operations, { friedel: centrosymmetric }).reflections) {
+    measured++;
+    if (m.sigma > 0 && m.intensity / m.sigma >= 3) forbidden.push({ m, d: dSpacing(cell, m.h, m.k, m.l) });
+  }
   for (const m of merged) {
-    if (m.h === 0 && m.k === 0 && m.l === 0) continue;
+    if ((m.h === 0 && m.k === 0 && m.l === 0) || isReflectionAbsent(sg.operations, m.h, m.k, m.l)) continue;
     const d = dSpacing(cell, m.h, m.k, m.l);
-    if (isReflectionAbsent(sg.operations, m.h, m.k, m.l)) {
-      measured++;
-      if (m.sigma > 0 && m.intensity / m.sigma >= 3) forbidden.push({ m, d });
-    } else if (Number.isFinite(d) && d > 0) {
-      allowed.push({ d, i: m.intensity, eps: epsilon(rotations, m.h, m.k, m.l) });
-    }
+    if (Number.isFinite(d) && d > 0) allowed.push({ d, i: m.intensity, eps: epsilon(rotations, m.h, m.k, m.l) });
   }
 
   // E² = I / (ε·⟨I/ε⟩) within resolution shells of equal count.
@@ -175,7 +195,8 @@ export function reflectionStatistics(rows: readonly StatisticsRow[], cell: UnitC
     : !applies ? `no test here: ${model!.sites} independent site${model!.sites === 1 ? "" : "s"}, ${model!.special} on special positions — Wilson's distributions assume many atoms in general positions`
       : meanAbs >= (CENTRIC + ACENTRIC) / 2 ? `close to ${CENTRIC} (centrosymmetric)`
         : meanAbs >= ACENTRIC - 0.08 ? `close to ${ACENTRIC} (non-centrosymmetric)`
-          : `below ${ACENTRIC}: fewer weak reflections than either expects — look for twinning (or pseudo-symmetry)`;
+          : model?.twinned ? `below ${ACENTRIC}: fewer weak reflections than either expects — what the twin the model holds gives, its domains' intensities summed`
+            : `below ${ACENTRIC}: fewer weak reflections than either expects — look for twinning (or pseudo-symmetry)`;
   return {
     friedel,
     absences: { measured, violated: violated.slice(0, 20) },

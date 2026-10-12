@@ -251,6 +251,8 @@ export function StructureView({
     controls: OrbitControls;
     centerV: THREE.Vector3;
     span: number;
+    /** Draw the next frame: the view renders on demand, not every frame. */
+    render: () => void;
   } | null>(null);
 
   // Look straight down a crystallographic axis (a, b or c): swing the camera onto
@@ -273,6 +275,7 @@ export function StructureView({
     s.camera.position.copy(target).addScaledVector(dir, dist);
     s.camera.lookAt(target);
     s.controls.update();
+    s.render();
   };
 
   // The magnetic supercell (> the atomic cell only for a non-zero commensurate k).
@@ -636,13 +639,30 @@ export function StructureView({
       controls.target.copy(centerV);
     }
     controls.update();
-    sceneRef.current = { camera, controls, centerV, span };
 
+    // On demand, not every frame: a frame when the camera moves (the controls'
+    // change, and each step of the damping after a drag), on a resize or a knob,
+    // and none while the view is hidden (another page, scrolled away). A loop
+    // that drew every frame kept every mounted view rendering, the hidden pages'
+    // too, and took the CPU from the refinement.
     let raf = 0;
+    let visible = true;
     const renderOnce = (): void => { controls.update(); renderer.render(scene, camera); };
-    const loop = (): void => { raf = requestAnimationFrame(loop); renderOnce(); };
+    const requestRender = (): void => {
+      if (raf || !visible) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        renderOnce(); // the controls' update dispatches "change" while the damping moves the camera: the next frame
+      });
+    };
+    controls.addEventListener("change", requestRender);
+    sceneRef.current = { camera, controls, centerV, span, render: requestRender };
     renderOnce(); // one synchronous frame so a still is present even if rAF is throttled
-    loop();
+    const io = typeof IntersectionObserver === "undefined" ? null : new IntersectionObserver((entries) => {
+      visible = entries.some((e) => e.isIntersecting);
+      if (visible) requestRender();
+    });
+    io?.observe(mount);
 
     const onResize = (): void => {
       const w = mount.clientWidth, h = mount.clientHeight;
@@ -669,6 +689,8 @@ export function StructureView({
       atomMatsRef.current = [];
       cancelAnimationFrame(raf);
       ro.disconnect();
+      io?.disconnect();
+      controls.removeEventListener("change", requestRender);
       controls.dispose();
       renderer.dispose();
       try { renderer.forceContextLoss(); } catch { /* free the WebGL context for rebuilds */ }
@@ -679,11 +701,12 @@ export function StructureView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [atoms, corners, center, span, showBondLengths, showAtomLabels, perspective, showAxes, structure, moments, propagation, standardCell, showParentCell, showStandardCell, cellView, displacements]);
 
-  // Light knob → in-place intensity update (the rAF loop shows it next frame).
+  // Light knob → in-place intensity update, drawn on the next frame.
   useEffect(() => {
     if (!lightsRef.current) return;
     lightsRef.current.ambient.intensity = 0.85 * lightLevel;
     lightsRef.current.directional.intensity = 0.55 * lightLevel;
+    sceneRef.current?.render();
   }, [lightLevel]);
 
   // Finish knob → in-place material update, camera untouched.
@@ -699,6 +722,7 @@ export function StructureView({
       m.shininess = shininess;
       m.specular.set(specular);
     }
+    sceneRef.current?.render();
   }, [finish]);
 
   // Re-render the legend swatches whenever the elements, finish, or light change

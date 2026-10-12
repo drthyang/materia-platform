@@ -13,9 +13,8 @@
 
 import type { StructureModel } from "@/core/crystal/types";
 import type { RefinementParameter } from "@/core/refinement/types";
-import { buildEsdMap, cellVolume, formatWithEsd } from "@/core/export/cif";
+import { buildEsdMap, cellEsdsOf, cellVolume, formatWithEsd } from "@/core/export/cif";
 import { spaceGroupSymbol } from "@/core/crystal/spaceGroups";
-import { uEquivalent } from "@/core/crystal/adp";
 import { crystalComponentsToCartesian } from "@/core/magnetic/moment";
 import { kLabel } from "@/core/magnetic/kSearch";
 import { magneticSupercell, momentAnchorPosition } from "@/core/crystal/cellExpansion";
@@ -24,14 +23,18 @@ import { markNumbers } from "@/core/export/reportAudit";
 import {
   BONDS_NOTE,
   COVALENT_BONDS_NOTE,
+  HBOND_NOTE,
+  RING_NOTE,
   covalentBondRows,
   boxcarNote,
+  displacementColumn,
   formatParameterValue,
   KIND_UNIT,
-  PARAMETER_GROUPS,
+  parameterGroups,
   parameterStatus,
   posteriorCaveat,
   posteriorStatus,
+  shownParameter,
   type ReportAgent,
   type ReportBoxcar,
   type ReportPosterior,
@@ -162,34 +165,33 @@ function agentMarkdown(a: ReportAgent): string {
   return `**How the analysis was done** — ${a.steps.length} step${a.steps.length === 1 ? "" : "s"} from the History; model ${a.model}.\n\n${steps}${stages}${branches}\n\n**Checks**\n\n${checks}\n\n**Open issues**\n\n${issues}${notes}${posterior}${narrative}`;
 }
 
-function phaseMarkdown(phase: ReportPhase, index: number, total: number): string {
+function phaseMarkdown(phase: ReportPhase, index: number, total: number, technique: ReportInput["technique"]): string {
   const st = phase.structure;
   const esd = buildEsdMap(phase.params, phase.bindings);
   const sg = st.spaceGroup;
   const sgText = `${spaceGroupSymbol(sg) ?? "no symbol"}${sg.number !== undefined ? ` (No. ${sg.number})` : ""}`;
   const role = phase.role ?? (total > 1 ? (index === 0 ? "primary phase" : `phase ${index + 1}`) : undefined);
-  const anyAniso = st.sites.some((s) => s.adp.kind === "anisotropic");
+  const adp = displacementColumn(phase, technique);
   const sites = table(
-    ["Site", "Type", "x", "y", "z", "Occ.", anyAniso ? "B_eq (Å²)" : "B_iso (Å²)"],
+    ["Site", "Type", "x", "y", "z", "Occ.", `${adp.symbol}_${adp.sub} (Å²)`],
     st.sites.map((s) => {
       const pe = esd.pos.get(s.label);
-      const b = s.adp.kind === "isotropic" ? s.adp.bIso : 8 * Math.PI * Math.PI * uEquivalent(s.adp.uAniso, st.cell);
-      const bEsd = s.adp.kind === "isotropic" ? esd.bIso.get(s.label) : undefined;
       return [
         s.label, s.element,
         formatWithEsd(s.position[0], pe?.[0], 5), formatWithEsd(s.position[1], pe?.[1], 5), formatWithEsd(s.position[2], pe?.[2], 5),
-        formatWithEsd(s.occupancy, esd.occ.get(s.label), 4), formatWithEsd(b, bEsd, 3),
+        formatWithEsd(s.occupancy, esd.occ.get(s.label), 4), adp.value(s),
       ];
     }),
     ["l", "l", "r", "r", "r", "r", "r"],
   );
   const c = st.cell;
+  const ce = cellEsdsOf(st, esd);
   const cellRow = table(
     ["a (Å)", "b (Å)", "c (Å)", "α (°)", "β (°)", "γ (°)", "V (Å³)"],
     [[
-      formatWithEsd(c.a, esd.cell.a, 5), formatWithEsd(c.b, esd.cell.b, 5), formatWithEsd(c.c, esd.cell.c, 5),
-      formatWithEsd(c.alpha, esd.cell.alpha, 4), formatWithEsd(c.beta, esd.cell.beta, 4), formatWithEsd(c.gamma, esd.cell.gamma, 4),
-      fixed(cellVolume(c), 3),
+      formatWithEsd(c.a, ce.cell.a, 5), formatWithEsd(c.b, ce.cell.b, 5), formatWithEsd(c.c, ce.cell.c, 5),
+      formatWithEsd(c.alpha, ce.cell.alpha, 4), formatWithEsd(c.beta, ce.cell.beta, 4), formatWithEsd(c.gamma, ce.cell.gamma, 4),
+      ce.volume !== undefined ? formatWithEsd(cellVolume(c), ce.volume, 3) : fixed(cellVolume(c), 3),
     ]],
     ["r", "r", "r", "r", "r", "r", "r"],
   );
@@ -200,7 +202,10 @@ function phaseMarkdown(phase: ReportPhase, index: number, total: number): string
     : !phase.bonds && shells.length > 0
       ? `\n\n${table(["Site", "Bonds (Å)", "Mean (Å)"], shells.map((r) => [r.site, r.bonds, r.mean]), ["l", "l", "r"])}\n\n*${BONDS_NOTE}*`
       : "";
-  return `### ${st.name || st.id} — ${sgText}${role ? ` · ${role}` : ""}\n\n${cellRow}\n\n${sites}${bonds}`;
+  // The ring centroids and hydrogen bonds under a molecule's bond table.
+  const rings = phase.rings && phase.rings.contacts.length > 0 ? `\n\n**Ring centroids.** ${phase.rings.rings.join("; ")}. ${phase.rings.contacts.join(" · ")}.\n\n*${RING_NOTE}*` : "";
+  const hbonds = phase.hydrogenBonds && phase.hydrogenBonds.length > 0 ? `\n\n**Hydrogen bonds.** ${phase.hydrogenBonds.join(" · ")}.\n\n*${HBOND_NOTE}*` : "";
+  return `### ${st.name || st.id} — ${sgText}${role ? ` · ${role}` : ""}\n\n${cellRow}\n\n${sites}${bonds}${rings}${hbonds}`;
 }
 
 function boxcarMarkdown(b: ReportBoxcar): string {
@@ -245,7 +250,7 @@ function magneticMarkdown(m: ReportMagnetic, fallback: StructureModel | undefine
   return `*${m.status}*\n\n${kvTable(facts)}${params}\n\n${moments}`;
 }
 
-function parametersMarkdown(params: readonly RefinementParameter[]): string {
+function parametersMarkdown(params: readonly RefinementParameter[], technique: ReportInput["technique"]): string {
   if (params.length === 0) return "No parameters.";
   const seen = new Set<string>();
   const blocks: string[] = [];
@@ -253,11 +258,11 @@ function parametersMarkdown(params: readonly RefinementParameter[]): string {
     const free = rows.filter((p) => !p.fixed && !p.expression).length;
     return `### ${title} · ${rows.length} parameter${rows.length === 1 ? "" : "s"}, ${free} refined\n\n${table(
       ["Parameter", "Value", "Unit", "Status"],
-      rows.map((p) => [p.label, formatParameterValue(p), KIND_UNIT[p.kind] ?? "", parameterStatus(p)]),
+      rows.map((p) => shownParameter(p, technique)).map(({ parameter: p, value }) => [p.label, value, KIND_UNIT[p.kind] ?? "", parameterStatus(p)]),
       ["l", "r", "l", "l"],
     )}`;
   };
-  for (const g of PARAMETER_GROUPS) {
+  for (const g of parameterGroups(technique)) {
     const rows = params.filter((p) => g.kinds.includes(p.kind));
     if (rows.length === 0) continue;
     rows.forEach((p) => seen.add(p.id));
@@ -285,7 +290,7 @@ function detailsMarkdown(input: ReportInput): string {
     if (diag && diag.highCorrelations.length > 0) {
       rows.push({
         label: "Strong correlations",
-        value: diag.highCorrelations.slice(0, 6).map((c) => `${labelOf.get(c.parameterIdA) ?? c.parameterIdA} / ${labelOf.get(c.parameterIdB) ?? c.parameterIdB} ${c.coefficient.toFixed(2)}`).join("; "),
+        value: diag.highCorrelations.slice(0, 6).map((c) => `${labelOf.get(c.parameterIdA) ?? c.parameterIdA} / ${labelOf.get(c.parameterIdB) ?? c.parameterIdB} ${c.coefficient.toFixed(3)}`).join("; "),
       });
     }
     if (r.message) rows.push({ label: "Engine note", value: r.message });
@@ -315,11 +320,11 @@ export function reportMarkdown(input: ReportInput): string {
     section("Data & model", input.data.length > 0 ? kvTable(input.data) : ""),
     section("Fit", input.figure ? figureMarkdown(input.figure) : ""),
     section("Local versus average", input.boxcar ? boxcarMarkdown(input.boxcar) : ""),
-    section(input.phases.length > 1 ? "Atomic structures" : "Atomic structure", input.phases.map((p, i) => phaseMarkdown(p, i, input.phases.length)).join("\n\n")),
+    section(input.phases.length > 1 ? "Atomic structures" : "Atomic structure", input.phases.map((p, i) => phaseMarkdown(p, i, input.phases.length, input.technique)).join("\n\n")),
     section("Magnetic structure", input.magnetic ? magneticMarkdown(input.magnetic, primary) : ""),
-    section("Parameters", parametersMarkdown(input.parameters)),
+    section("Parameters", parametersMarkdown(input.parameters, input.technique)),
     section("Refinement details", detailsMarkdown(input)),
-    `---\n\n*Generated by MATERIA Workbench${input.appVersion ? ` v${input.appVersion}` : ""} on ${date}. Values in parentheses are standard uncertainties in the last digit(s), from the least-squares covariance of this fit; a value without one was fixed, tied, or not part of the last refinement. MATERIA is in public beta — reproduce results you intend to publish in an established package.*`,
+    `---\n\n*Generated by MATERIA Workbench${input.appVersion ? ` v${input.appVersion}` : ""} on ${date}. Values in parentheses are standard uncertainties in the last digit(s), from the least-squares covariance of this fit; a value without one was fixed, set by a constraint, or not part of the last refinement; a tied value carries its leader's. MATERIA is in public beta — reproduce results you intend to publish in an established package.*`,
   ];
   return `${parts.filter((p) => p.trim().length > 0).join("\n\n")}\n`;
 }

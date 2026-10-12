@@ -116,6 +116,35 @@ export interface RidingOptions {
   readonly temperature?: number;
   /** Hydrogens whose own positions refine (a hydride, a hydroxyl the difference map shows): only their U_iso rides. */
   readonly refine?: readonly string[];
+  /**
+   * Hydrogens whose U_iso refines rather than rides, one U_iso for each list
+   * (SHELXL's free variable on the U column, as 21.0 for every methyl
+   * hydrogen): each list names hydrogens by label, or a whole geometry
+   * ("methyl", "aromatic", …), or "all".
+   */
+  readonly sharedU?: readonly (readonly string[])[];
+}
+
+/** The rules with each hydrogen a `sharedU` list names given that list's key ("1", "2", …): the first list that names it. */
+function withSharedU(rules: readonly RidingRule[], lists: readonly (readonly string[])[]): RidingRule[] {
+  const keyOf = new Map<string, string>();
+  lists.forEach((names, k) => {
+    for (const r of rules) if (!keyOf.has(r.site) && (names.includes(r.site) || names.includes(r.geometry) || names.includes("all"))) keyOf.set(r.site, String(k + 1));
+  });
+  return rules.map((r) => {
+    const key = keyOf.get(r.site);
+    if (key) return { ...r, uShared: key };
+    if (r.uShared === undefined) return r;
+    const { uShared: _, ...rest } = r;
+    return rest;
+  });
+}
+
+/** The hydrogens of each shared U_iso, by key, in rule order. */
+export function sharedUGroups(rules: readonly RidingRule[]): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const r of rules) if (r.uShared !== undefined) out.set(r.uShared, [...(out.get(r.uShared) ?? []), r.site]);
+  return out;
 }
 
 type Image = { readonly label: string; readonly op: number; readonly cell: readonly [number, number, number] };
@@ -343,7 +372,7 @@ export function ridingRules(model: StructureModel, options: RidingOptions = {}):
   // In the model's site order.
   const order = new Map(model.sites.map((s, i) => [s.label, i]));
   rules.sort((x, y) => order.get(x.site)! - order.get(y.site)!);
-  return { rules, unbonded };
+  return { rules: options.sharedU?.length ? withSharedU(rules, options.sharedU) : rules, unbonded };
 
   /**
    * The direction a rotating group's torsion is measured from: toward another
@@ -480,7 +509,7 @@ export function torsionDerivatives(model: StructureModel): Map<string, { site: s
  * The sites with every riding hydrogen placed from its parent's current
  * position (and its neighbours', and its group's torsion) and given U_iso =
  * uFactor·U_eq(parent), as an isotropic B. A hydrogen that refines its own
- * position keeps it.
+ * position keeps it; one whose U_iso is shared and refined keeps its B.
  */
 export function applyRiding(model: StructureModel, sites: AtomSite[]): void {
   if (!model.riding?.length) return;
@@ -503,7 +532,8 @@ export function applyRiding(model: StructureModel, sites: AtomSite[]): void {
     }
     if (!position && rule.offset) position = [parent.position[0] + rule.offset[0], parent.position[1] + rule.offset[1], parent.position[2] + rule.offset[2]];
     const uEq = parent.adp.kind === "anisotropic" ? uEquivalent(parent.adp.uAniso, model.cell) : parent.adp.bIso / EIGHT_PI_SQUARED;
-    sites[hi] = { ...sites[hi]!, ...(position ? { position } : {}), adp: { kind: "isotropic", bIso: EIGHT_PI_SQUARED * rule.uFactor * uEq } };
+    const adp = rule.uShared !== undefined && sites[hi]!.adp.kind === "isotropic" ? sites[hi]!.adp : { kind: "isotropic" as const, bIso: EIGHT_PI_SQUARED * rule.uFactor * uEq };
+    sites[hi] = { ...sites[hi]!, ...(position ? { position } : {}), adp };
   }
 }
 
@@ -532,23 +562,50 @@ export const RIDING_GEOMETRY_TEXT: Readonly<Record<RidingRule["geometry"], strin
   methyl: "methyl hydrogens rotating, the torsion refined (AFIX 137)",
   hydroxyl: "hydroxyl hydrogens rotating, the torsion refined (AFIX 147)",
   methylene: "CH₂ hydrogens, H–C–H from X–C–Y (AFIX 23)",
-  methine: "tertiary C–H opposite three neighbours (AFIX 13)",
+  methine: "tertiary X–H opposite three neighbours (AFIX 13)",
   fixed: "at their present offset (AFIX 3)",
   free: "with their positions refined, only U_iso riding",
 };
+
+/** A History step's label for a riding model: the hydrogens that ride, and those that refine their positions with U riding. */
+export function ridingStepLabel(rules: readonly RidingRule[]): string {
+  const free = rules.filter((r) => r.geometry === "free").length;
+  const riders = rules.length - free;
+  const groups = sharedUGroups(rules);
+  const sharing = [...groups.values()].reduce((t, g) => t + g.length, 0);
+  return `${riders} hydrogen${riders === 1 ? "" : "s"} riding${free ? `, ${free} refined with U riding` : ""}${sharing ? `, ${sharing} sharing ${groups.size === 1 ? "one refined U" : `${groups.size} refined U`}` : ""}`;
+}
+
+/** A group's U_iso in words: the factors of those that ride, and the shared refined U_iso of the rest. */
+function uText(these: readonly RidingRule[]): string {
+  const riding = these.filter((r) => r.uShared === undefined);
+  const shared = these.filter((r) => r.uShared !== undefined);
+  const factors = [...new Set(riding.map((r) => r.uFactor))].sort((a, b) => a - b).join(" or ");
+  const keys = [...new Set(shared.map((r) => r.uShared!))];
+  const refined = `${keys.length === 1 ? "one shared U_iso" : `${keys.length} shared U_iso`} refined (${keys.map((k) => `B_shared_${k}`).join(", ")})`;
+  if (shared.length === 0) return `U_iso ${factors}·U_eq`;
+  if (riding.length === 0) return refined;
+  return `U_iso ${factors}·U_eq, ${shared.length} with ${refined}`;
+}
 
 /** The riding hydrogens in a line: how many of each geometry, their X–H distances and U factors. */
 export function ridingSummary(model: StructureModel): string {
   const rules = model.riding ?? [];
   const ds = ridingDistances(model);
+  const element = new Map(model.sites.map((site) => [site.label, site.element]));
+  const parentOf = new Map(rules.map((r) => [r.site, r.parent]));
   return (Object.keys(RIDING_GEOMETRY_TEXT) as RidingRule["geometry"][]).flatMap((g) => {
     const these = rules.filter((r) => r.geometry === g);
     if (these.length === 0) return [];
-    const d = ds.filter((x) => x.geometry === g).map((x) => x.distance);
-    const factors = [...new Set(these.map((r) => r.uFactor))].sort((a, b) => a - b).join(" or ");
+    const placed = ds.filter((x) => x.geometry === g);
     const n = new Set(these.map((r) => r.parent)).size;
     const groups = g === "methyl" || g === "methylene" ? ` in ${n} group${n === 1 ? "" : "s"}` : "";
-    const what = g === "free" ? `with ${these.length === 1 ? "its position" : "their positions"} refined, only U_iso riding` : RIDING_GEOMETRY_TEXT[g];
-    return [`${these.length} ${what}${groups}${d.length ? `, X–H ${distanceRange(d)}` : ""}, U_iso ${factors}·U_eq`];
+    const what = g === "free" ? `with ${these.length === 1 ? "its position" : "their positions"} refined${these.every((r) => r.uShared !== undefined) ? "" : ", only U_iso riding"}` : RIDING_GEOMETRY_TEXT[g];
+    // Each kind of parent at its own distance (SHELXL's C–H and N–H differ): one range per parent element.
+    const kinds = [...new Set(placed.map((x) => element.get(parentOf.get(x.site) ?? "") ?? "X"))];
+    const lengths = placed.length === 0 ? ""
+      : kinds.length <= 1 ? `, X–H ${distanceRange(placed.map((x) => x.distance))}`
+        : `, ${kinds.map((k) => `${k}–H ${distanceRange(placed.filter((x) => (element.get(parentOf.get(x.site) ?? "") ?? "X") === k).map((x) => x.distance))}`).join(", ")}`;
+    return [`${these.length} ${what}${groups}${lengths}, ${uText(these)}`];
   }).join("; ");
 }

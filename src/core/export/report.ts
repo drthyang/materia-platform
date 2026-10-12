@@ -16,12 +16,12 @@
  * the same parameter → field mapping the CIF export uses (`buildEsdMap`).
  */
 
-import type { StructureModel, UnitCell } from "@/core/crystal/types";
+import type { StructureModel } from "@/core/crystal/types";
 import type { MagneticModel } from "@/core/magnetic/types";
 import type { ParameterKind, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { ParameterBinding } from "@/core/refinement/types";
 import type { Vec3 } from "@/core/math/types";
-import { buildEsdMap, cellVolume, formatWithEsd } from "@/core/export/cif";
+import { buildEsdMap, cellEsdsOf, cellVolume, formatWithEsd } from "@/core/export/cif";
 import { spaceGroupSymbol } from "@/core/crystal/spaceGroups";
 import { crystalComponentsToCartesian } from "@/core/magnetic/moment";
 import { kLabel } from "@/core/magnetic/kSearch";
@@ -71,6 +71,10 @@ export interface ReportPhase {
   readonly role?: string;
   /** A molecular structure's covalent bonds, each length with its esd (in place of the cation shells). */
   readonly bonds?: readonly ReportBond[];
+  /** A molecule's planar rings and the contacts to their centroids (a Cp's metal, an X–H···π), in lines. */
+  readonly rings?: { readonly rings: readonly string[]; readonly contacts: readonly string[] };
+  /** A molecule's hydrogen bonds D–H···A, in lines. */
+  readonly hydrogenBonds?: readonly string[];
 }
 
 /** One covalent bond of the report's table: its sites and its length as printed, with the esd or "riding". */
@@ -78,6 +82,8 @@ export interface ReportBond {
   readonly from: string;
   readonly to: string;
   readonly length: string;
+  /** The far atom's image as a CIF site-symmetry code ("2_554"), when it is not the atom as listed. */
+  readonly image?: string;
 }
 
 /** How the magnetic group is named in the report. */
@@ -265,6 +271,8 @@ function sig(v: number, digits = 5): string {
 }
 
 /** Decimal places (or -1 for significant figures) by parameter kind. */
+const EIGHT_PI2 = 8 * Math.PI * Math.PI;
+
 const KIND_DECIMALS: Partial<Record<ParameterKind, number>> = {
   cellLength: 5, cellAngle: 4,
   atomX: 5, atomY: 5, atomZ: 5, positionShift: 5,
@@ -276,7 +284,7 @@ const KIND_DECIMALS: Partial<Record<ParameterKind, number>> = {
 
 export const KIND_UNIT: Partial<Record<ParameterKind, string>> = {
   cellLength: "Å", cellAngle: "°",
-  positionShift: "(frac.)", bIso: "Å²", uAniso: "Å²",
+  positionShift: "shift (frac.)", bIso: "Å²", uAniso: "Å²", ridingTorsion: "°",
   momentX: "µB", momentY: "µB", momentZ: "µB", momentMode: "µB", propagationK: "(r.l.u.)",
   zeroShift: "° 2θ", sampleDisplacement: "µm",
   qdamp: "Å⁻¹", qbroad: "Å⁻¹", delta1: "Å", delta2: "Å²", rcut: "Å", spdiameter: "Å", corrLength: "Å", mpdfPsigma: "Å",
@@ -284,10 +292,25 @@ export const KIND_UNIT: Partial<Record<ParameterKind, string>> = {
 };
 
 /** value(su) when the fit gave an esd; otherwise a kind-appropriate precision. */
-export function formatParameterValue(p: RefinementParameter): string {
-  const d = KIND_DECIMALS[p.kind];
+export function formatParameterValue(p: RefinementParameter, decimals?: number): string {
+  const d = decimals ?? KIND_DECIMALS[p.kind];
   if (p.esd !== undefined && Number.isFinite(p.esd) && p.esd > 0) return formatWithEsd(p.value, p.esd, d ?? 5);
   return d !== undefined ? fixed(p.value, d) : sig(p.value);
+}
+
+/**
+ * A parameter as the report's table shows it: on a single crystal an
+ * isotropic displacement reads as U_iso (Å²), SHELXL's and the CIF's
+ * convention, B/8π² with its esd and bounds.
+ */
+export function shownParameter(p: RefinementParameter, technique: ReportTechnique): { readonly parameter: RefinementParameter; readonly value: string } {
+  if (technique !== "singleCrystal" || p.kind !== "bIso") return { parameter: p, value: formatParameterValue(p) };
+  const u = (v: number): number => v / EIGHT_PI2;
+  const parameter: RefinementParameter = {
+    ...p, label: p.label.replace(/\bB\b/, "U_iso"), value: u(p.value), initialValue: u(p.initialValue),
+    ...(p.min !== undefined ? { min: u(p.min) } : {}), ...(p.max !== undefined ? { max: u(p.max) } : {}), ...(p.esd !== undefined ? { esd: u(p.esd) } : {}),
+  };
+  return { parameter, value: formatParameterValue(parameter, 5) };
 }
 
 export interface ParameterGroup {
@@ -316,6 +339,22 @@ export const PARAMETER_GROUPS: readonly ParameterGroup[] = [
   },
 ];
 
+/** A single crystal's groups: no background or peak shape; the twin fractions, the extinction and the riding groups by name. */
+const SINGLE_CRYSTAL_GROUPS: readonly ParameterGroup[] = [
+  { title: "Scale", kinds: ["scale", "batchScale", "magneticScale"] },
+  { title: "Twin fractions", kinds: ["twinFraction"] },
+  { title: "Extinction", kinds: ["extinction"] },
+  { title: "Atoms", kinds: ["atomX", "atomY", "atomZ", "positionShift", "occupancy", "bIso", "uAniso"] },
+  { title: "Riding groups", kinds: ["ridingTorsion"] },
+  { title: "Magnetic moments", kinds: ["momentMode", "momentX", "momentY", "momentZ"] },
+  { title: "Propagation vector", kinds: ["propagationK"] },
+];
+
+/** The parameter groups a report of this technique lists. */
+export function parameterGroups(technique: ReportTechnique): readonly ParameterGroup[] {
+  return technique === "singleCrystal" ? SINGLE_CRYSTAL_GROUPS : PARAMETER_GROUPS;
+}
+
 /** A parameter's state in words: refined, fixed, or the tie it follows. */
 export function parameterStatus(p: RefinementParameter): string {
   if (p.expression) return `tied · ${p.expression.trim().startsWith("=") ? p.expression.trim() : `= ${p.expression}`}`;
@@ -340,20 +379,21 @@ function kvHtml(rows: readonly ReportRow[]): string {
   return `<dl class="kv">${rows.map((r) => `<dt>${esc(r.label)}</dt><dd>${esc(r.value)}</dd>`).join("")}</dl>`;
 }
 
-function cellTable(cell: UnitCell, esd: ReturnType<typeof buildEsdMap>): string {
+function cellTable(structure: StructureModel, esd: ReturnType<typeof buildEsdMap>): string {
+  const cell = structure.cell;
+  const e = cellEsdsOf(structure, esd);
   const row = (k: string, v: string): string => `<tr><td>${k}</td><td class="num">${v}</td></tr>`;
   return `<table>
-${row("a", `${formatWithEsd(cell.a, esd.cell.a, 5)} Å`)}
-${row("b", `${formatWithEsd(cell.b, esd.cell.b, 5)} Å`)}
-${row("c", `${formatWithEsd(cell.c, esd.cell.c, 5)} Å`)}
-${row("α", `${formatWithEsd(cell.alpha, esd.cell.alpha, 4)}°`)}
-${row("β", `${formatWithEsd(cell.beta, esd.cell.beta, 4)}°`)}
-${row("γ", `${formatWithEsd(cell.gamma, esd.cell.gamma, 4)}°`)}
-${row("V", `${fixed(cellVolume(cell), 3)} Å³`)}
+${row("a", `${formatWithEsd(cell.a, e.cell.a, 5)} Å`)}
+${row("b", `${formatWithEsd(cell.b, e.cell.b, 5)} Å`)}
+${row("c", `${formatWithEsd(cell.c, e.cell.c, 5)} Å`)}
+${row("α", `${formatWithEsd(cell.alpha, e.cell.alpha, 4)}°`)}
+${row("β", `${formatWithEsd(cell.beta, e.cell.beta, 4)}°`)}
+${row("γ", `${formatWithEsd(cell.gamma, e.cell.gamma, 4)}°`)}
+${row("V", `${e.volume !== undefined ? formatWithEsd(cellVolume(cell), e.volume, 3) : fixed(cellVolume(cell), 3)} Å³`)}
 </table>`;
 }
 
-const EIGHT_PI2 = 8 * Math.PI * Math.PI;
 
 function ionLabel(element: string, oxidation: number | undefined): string {
   if (oxidation === undefined || oxidation === 0) return element;
@@ -363,24 +403,60 @@ function ionLabel(element: string, oxidation: number | undefined): string {
   return `${element}${digits}${oxidation > 0 ? "⁺" : "⁻"}`;
 }
 
-function sitesTable(structure: StructureModel, esd: ReturnType<typeof buildEsdMap>): string {
+/**
+ * The atom table's displacement column: B_iso, or B_eq for an anisotropic
+ * site (Å²), on a powder or a PDF; on a single crystal U_iso and U_eq (Å²),
+ * SHELXL's and the CIF's convention, U_eq's esd from its tensor modes' taken
+ * as independent. U_eq by the full formula (a third of the trace only in an
+ * orthogonal cell).
+ */
+export function displacementColumn(phase: ReportPhase, technique: ReportTechnique): { readonly symbol: "B" | "U"; readonly sub: "eq" | "iso"; readonly value: (site: StructureModel["sites"][number]) => string } {
+  const st = phase.structure;
+  const esd = buildEsdMap(phase.params, phase.bindings);
+  const sub = st.sites.some((s) => s.adp.kind === "anisotropic") ? "eq" : "iso";
+  if (technique !== "singleCrystal") {
+    return {
+      symbol: "B", sub,
+      value: (s) => formatWithEsd(s.adp.kind === "isotropic" ? s.adp.bIso : EIGHT_PI2 * uEquivalent(s.adp.uAniso, st.cell), s.adp.kind === "isotropic" ? esd.bIso.get(s.label) : undefined, 3),
+    };
+  }
+  const byId = new Map(phase.params.map((p) => [p.id, p]));
+  const variance = new Map<string, number>();
+  for (const b of phase.bindings) {
+    const p = byId.get(b.parameterId);
+    if (b.kind !== "uAniso" || !b.targetKey || !b.uBasis || !p || (p.fixed && !p.expression) || !(p.esd !== undefined && p.esd > 0)) continue;
+    variance.set(b.targetKey, (variance.get(b.targetKey) ?? 0) + (uEquivalent(b.uBasis as Parameters<typeof uEquivalent>[0], st.cell) * p.esd) ** 2);
+  }
+  return {
+    symbol: "U", sub,
+    value: (s) => {
+      if (s.adp.kind === "isotropic") {
+        const e = esd.bIso.get(s.label);
+        return formatWithEsd(s.adp.bIso / EIGHT_PI2, e !== undefined ? e / EIGHT_PI2 : undefined, 5);
+      }
+      const v = variance.get(s.label);
+      return formatWithEsd(uEquivalent(s.adp.uAniso, st.cell), v !== undefined && v > 0 ? Math.sqrt(v) : undefined, 5);
+    },
+  };
+}
+
+function sitesTable(phase: ReportPhase, technique: ReportTechnique, esd: ReturnType<typeof buildEsdMap>): string {
+  const structure = phase.structure;
   const anyAniso = structure.sites.some((s) => s.adp.kind === "anisotropic");
+  const adp = displacementColumn(phase, technique);
   const rows = structure.sites.map((s) => {
     const pe = esd.pos.get(s.label);
-    const bEsd = s.adp.kind === "isotropic" ? esd.bIso.get(s.label) : undefined;
-    // B_eq = 8π²·U_eq, U_eq by the full formula (a third of the trace only in an orthogonal cell).
-    const b = s.adp.kind === "isotropic" ? s.adp.bIso : EIGHT_PI2 * uEquivalent(s.adp.uAniso, structure.cell);
     return `<tr><td><b>${esc(s.label)}</b></td><td>${esc(ionLabel(s.element, s.oxidationState))}</td>` +
       `<td class="num">${formatWithEsd(s.position[0], pe?.[0], 5)}</td>` +
       `<td class="num">${formatWithEsd(s.position[1], pe?.[1], 5)}</td>` +
       `<td class="num">${formatWithEsd(s.position[2], pe?.[2], 5)}</td>` +
       `<td class="num">${formatWithEsd(s.occupancy, esd.occ.get(s.label), 4)}</td>` +
-      `<td class="num">${formatWithEsd(b, bEsd, 3)}</td>` +
+      `<td class="num">${adp.value(s)}</td>` +
       (anyAniso ? `<td>${s.adp.kind === "isotropic" ? "iso" : "aniso"}</td>` : "") +
       `</tr>`;
   });
   return `<div class="scroll"><table>
-<tr><th>Site</th><th>Type</th><th class="num">x</th><th class="num">y</th><th class="num">z</th><th class="num">Occ.</th><th class="num">B${anyAniso ? "<sub>eq</sub>" : "<sub>iso</sub>"} (Å²)</th>${anyAniso ? "<th>ADP</th>" : ""}</tr>
+<tr><th>Site</th><th>Type</th><th class="num">x</th><th class="num">y</th><th class="num">z</th><th class="num">Occ.</th><th class="num">${adp.symbol}<sub>${adp.sub}</sub> (Å²)</th>${anyAniso ? "<th>ADP</th>" : ""}</tr>
 ${rows.join("\n")}
 </table></div>`;
 }
@@ -389,12 +465,26 @@ ${rows.join("\n")}
 export const BONDS_NOTE = "Each cation's shell at the refined positions, out to 3.2 Å (or 1.25 × its shortest bond for a large cation); no esds, as the covariance is not carried to the lengths.";
 
 /** What the covalent bond table says about its lengths. */
-export const COVALENT_BONDS_NOTE = "The covalent bonds at the refined positions (atoms closer than their covalent radii and 0.4 Å), each once; the esds from the refined positions' (the cell fixed). A riding hydrogen's bond is set by its constraint.";
+export const COVALENT_BONDS_NOTE = "The covalent bonds at the refined positions (atoms closer than their covalent radii and 0.4 Å), each once; the esds from the refined positions' and, for a cell held fixed, from the structure file's cell esds (each independent cell parameter moved by its esd, as SHELXL adds them). A riding hydrogen's bond is set by its constraint. [k_abc] marks an image of the atom listed: operation k of the symmetry list, moved by the lattice translation (a − 5, b − 5, c − 5), as a CIF's site-symmetry code.";
+
+/** What the ring-centroid lines say. */
+export const RING_NOTE = "Cg: the centroid of a planar ring (each atom within 0.1 Å of its least-squares plane). A metal within 3.6 Å of one, an N–H or O–H whose hydrogen points at one within 3.0 Å (X–H···Cg above 120°), and the angle at a metal between its two nearest centroids; [k_abc] marks the centroid's image by its CIF site-symmetry code. No esds.";
+
+/** What the hydrogen-bond lines say. */
+export const HBOND_NOTE = "D–H···A with H···A shorter than the two atoms' van der Waals radii and D–H···A above 110°, as SHELXL's HTAB finds them, D an N, O, F or S; a riding hydrogen's D–H is set by its constraint; [k_abc] marks the acceptor's image. No esds.";
+
+/** The ring centroids and hydrogen bonds under a molecule's bond table. */
+function moleculeExtrasHtml(phase: ReportPhase): string {
+  const parts: string[] = [];
+  if (phase.rings && phase.rings.contacts.length > 0) parts.push(`<div class="card"><h4>Ring centroids</h4><p>${esc(phase.rings.rings.join("; "))}</p><p>${esc(phase.rings.contacts.join(" · "))}</p><p class="note">${esc(RING_NOTE)}</p></div>`);
+  if (phase.hydrogenBonds && phase.hydrogenBonds.length > 0) parts.push(`<div class="card"><h4>Hydrogen bonds</h4><p>${esc(phase.hydrogenBonds.join(" · "))}</p><p class="note">${esc(HBOND_NOTE)}</p></div>`);
+  return parts.join("\n");
+}
 
 /** A molecular structure's bonds, one row per site: "S1A: S2A 2.0222(5) · C6A 1.7868(13)". */
 export function covalentBondRows(bonds: readonly ReportBond[]): { site: string; bonds: string }[] {
   const rows = new Map<string, string[]>();
-  for (const b of bonds) rows.set(b.from, [...(rows.get(b.from) ?? []), `${b.to} ${b.length}`]);
+  for (const b of bonds) rows.set(b.from, [...(rows.get(b.from) ?? []), `${b.to}${b.image ? ` [${b.image}]` : ""} ${b.length}`]);
   return [...rows].map(([site, list]) => ({ site, bonds: list.join(" · ") }));
 }
 
@@ -439,7 +529,7 @@ export function boxcarNote(b: ReportBoxcar): string {
   return `${b.rows.length} boxes of ${fixed(b.width, 2)} Å, each refining ${b.free.join(", ")} from the previous box's values. A value that drifts with r, or an Rw that rises at low r, is a local structure the average model lacks. No esds per box.`;
 }
 
-function phaseHtml(phase: ReportPhase, index: number, total: number): string {
+function phaseHtml(phase: ReportPhase, index: number, total: number, technique: ReportTechnique): string {
   const st = phase.structure;
   const esd = buildEsdMap(phase.params, phase.bindings);
   const sg = st.spaceGroup;
@@ -448,10 +538,10 @@ function phaseHtml(phase: ReportPhase, index: number, total: number): string {
   const role = phase.role ?? (total > 1 ? (index === 0 ? "primary phase" : `phase ${index + 1}`) : undefined);
   return `<h3>${esc(st.name || st.id)} <span class="pill">${esc(sgText)}</span>${role ? `<span class="pill">${esc(role)}</span>` : ""}</h3>
 <div class="two">
-  <div class="card">${sitesTable(st, esd)}</div>
-  <div class="card">${cellTable(st.cell, esd)}<p class="note">${st.sites.length} site${st.sites.length === 1 ? "" : "s"} in the asymmetric unit · ${sg.operations.length} symmetry operation${sg.operations.length === 1 ? "" : "s"}</p></div>
+  <div class="card">${sitesTable(phase, technique, esd)}</div>
+  <div class="card">${cellTable(st, esd)}<p class="note">${st.sites.length} site${st.sites.length === 1 ? "" : "s"} in the asymmetric unit · ${sg.operations.length} symmetry operation${sg.operations.length === 1 ? "" : "s"}</p></div>
 </div>
-${phase.bonds ? covalentBondsHtml(phase.bonds) : bondsHtml(st)}`;
+${phase.bonds ? covalentBondsHtml(phase.bonds) : bondsHtml(st)}${moleculeExtrasHtml(phase)}`;
 }
 
 function figureHtml(fig: ReportFigure): string {
@@ -527,7 +617,7 @@ function magneticHtml(m: ReportMagnetic, fallbackStructure: StructureModel | und
 </div>`;
 }
 
-function parametersHtml(params: readonly RefinementParameter[]): string {
+function parametersHtml(params: readonly RefinementParameter[], technique: ReportTechnique): string {
   if (params.length === 0) return `<p class="note">No parameters.</p>`;
   const seen = new Set<string>();
   const blocks: string[] = [];
@@ -536,10 +626,10 @@ function parametersHtml(params: readonly RefinementParameter[]): string {
     return `<div class="card pgroup"><h4>${esc(title)} <span class="muted">· ${rows.length} parameter${rows.length === 1 ? "" : "s"}, ${free} refined</span></h4>
 <table>
 <tr><th>Parameter</th><th class="num">Value</th><th>Unit</th><th>Status</th></tr>
-${rows.map((p) => `<tr><td>${esc(p.label)}</td><td class="num">${formatParameterValue(p)}</td><td class="muted">${KIND_UNIT[p.kind] ?? ""}</td><td class="muted">${statusOf(p)}</td></tr>`).join("\n")}
+${rows.map((p) => shownParameter(p, technique)).map(({ parameter: p, value }) => `<tr><td>${esc(p.label)}</td><td class="num">${value}</td><td class="muted">${KIND_UNIT[p.kind] ?? ""}</td><td class="muted">${statusOf(p)}</td></tr>`).join("\n")}
 </table></div>`;
   };
-  for (const g of PARAMETER_GROUPS) {
+  for (const g of parameterGroups(technique)) {
     const rows = params.filter((p) => g.kinds.includes(p.kind));
     if (rows.length === 0) continue;
     rows.forEach((p) => seen.add(p.id));
@@ -660,7 +750,7 @@ function detailsHtml(input: ReportInput): string {
           label: "Strong correlations",
           value: diag.highCorrelations
             .slice(0, 6)
-            .map((c) => `${labelOf.get(c.parameterIdA) ?? c.parameterIdA} / ${labelOf.get(c.parameterIdB) ?? c.parameterIdB} ${c.coefficient.toFixed(2)}`)
+            .map((c) => `${labelOf.get(c.parameterIdA) ?? c.parameterIdA} / ${labelOf.get(c.parameterIdB) ?? c.parameterIdB} ${c.coefficient.toFixed(3)}`)
             .join("; "),
         });
       }
@@ -804,9 +894,9 @@ export function reportHtml(input: ReportInput): string {
   const data = input.data.length > 0 ? `<div class="card">${kvHtml(input.data)}</div>` : "";
   const fit = input.figure ? figureHtml(input.figure) : "";
   const boxcar = input.boxcar ? boxcarHtml(input.boxcar) : "";
-  const phases = input.phases.map((p, i) => phaseHtml(p, i, input.phases.length)).join("\n");
+  const phases = input.phases.map((p, i) => phaseHtml(p, i, input.phases.length, input.technique)).join("\n");
   const magnetic = input.magnetic ? magneticHtml(input.magnetic, primary) : "";
-  const params = parametersHtml(input.parameters);
+  const params = parametersHtml(input.parameters, input.technique);
   const details = detailsHtml(input);
   const agent = input.agent ? agentHtml(input.agent) : "";
 
@@ -838,7 +928,7 @@ export function reportHtml(input: ReportInput): string {
   <footer>
     Generated by MATERIA Workbench${input.appVersion ? ` v${esc(input.appVersion)}` : ""} on ${esc(date)}.
     Values in parentheses are standard uncertainties in the last digit(s), from the least-squares covariance of this fit;
-    a value without one was fixed, tied, or not part of the last refinement.
+    a value without one was fixed, set by a constraint, or not part of the last refinement; a tied value carries its leader's.
     MATERIA is in public beta — reproduce results you intend to publish in an established package (the Export menu offers GSAS-II and FullProf bundles).
   </footer>
 </div>

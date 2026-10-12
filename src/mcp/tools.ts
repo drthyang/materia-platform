@@ -403,6 +403,8 @@ export function assess_refinement(args: {
   /** The restraints and mixed-site ADPs of the fit (see AssessmentInput). */
   restraints?: AssessmentInput["restraints"];
   sharedSiteAdps?: AssessmentInput["sharedSiteAdps"];
+  /** The disorder assemblies of the parameters (see AssessmentInput). */
+  disorder?: AssessmentInput["disorder"];
 }): RefinementAssessment {
   return assessRefinement({
     result: args.result,
@@ -412,6 +414,7 @@ export function assess_refinement(args: {
     ...(args.mode ? { mode: args.mode } : {}),
     ...(args.restraints?.length ? { restraints: args.restraints } : {}),
     ...(args.sharedSiteAdps?.length ? { sharedSiteAdps: args.sharedSiteAdps } : {}),
+    ...(args.disorder?.size ? { disorder: args.disorder } : {}),
   });
 }
 

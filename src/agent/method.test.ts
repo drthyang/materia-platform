@@ -25,6 +25,20 @@ describe("the method as code", () => {
     expect(outOfOrder("singleCrystal", aniso.slice(2), { ...emptyRecord("k"), stagesDone: ["base"] }, aniso)).toBeNull();
   });
 
+  it("refines a twin's fraction with the scale, as SHELXL refines BASF with OSF, and never calls a passed stage refined", () => {
+    // 1b: SHELXL's model loaded anisotropic, the hydrogens riding (no B left), an inversion twin.
+    const all = [p("scale", "scale"), p("ext", "extinction"), p("twin_1", "twinFraction"), p("pos", "positionShift"), p("U", "uAniso")];
+    const first = [p("scale", "scale"), p("twin_1", "twinFraction")];
+    expect(stagesCovered("singleCrystal", first, all)).toEqual(["base", "twin"]);
+    expect(outOfOrder("singleCrystal", first, emptyRecord("k"), all)).toBeNull();
+    // With the positions, the fraction rides along as the scale does: the positions are what this refinement adds.
+    expect(stagesCovered("singleCrystal", [...first, p("pos", "positionShift")])).toEqual(["positions"]);
+    const record = { ...emptyRecord("k"), stagesDone: ["data", "base", "twin"] };
+    expect(outOfOrder("singleCrystal", [...first, p("pos", "positionShift")], record, all)).toBeNull();
+    // The isotropic stage, which this model cannot refine, is passed once the tensors refine — never "refined" out of order.
+    expect(outOfOrder("singleCrystal", [p("U", "uAniso")], record, all)).toBe("Out of the method's order (sc-workflow): anisotropic adps refined before positions. Fine if the residual calls for it; say why.");
+  });
+
   it("tracks the stages and names the next required one", () => {
     const fresh = methodProgress("powder", emptyRecord("k"));
     expect(fresh.skill).toBe("my-rietveld-workflow");

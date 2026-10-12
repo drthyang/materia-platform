@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dataExists, dataPath } from "@/testSupport/data";
 import { parseCif } from "@/parsers/cif";
 import type { AtomSite, RidingRule, StructureModel } from "@/core/crystal/types";
-import { applyRiding, ridingRules, shelxDistance, withTorsions } from "@/core/crystal/riding";
+import { applyRiding, ridingRules, ridingSummary, sharedUGroups, shelxDistance, withTorsions } from "@/core/crystal/riding";
 import { hydrogenFragment } from "@/testSupport/scPages";
 import { orthogonalizationMatrix } from "@/core/crystal/unitCell";
 import { EIGHT_PI_SQUARED, uEquivalent } from "@/core/crystal/adp";
@@ -45,6 +45,25 @@ function fragment(): StructureModel {
 }
 
 describe("riding hydrogens", () => {
+  it("gives the hydrogens a sharedU list names one U_iso that refines, kept by the placement (SHELXL's free variable on the U column)", () => {
+    const model = hydrogenFragment();
+    const all = ridingRules(model).rules;
+    const shared = ridingRules(model, { sharedU: [["methyl"], ["H3A", "methylene"]] }).rules;
+    const keyed = (rules: readonly RidingRule[]): Record<string, string | undefined> => Object.fromEntries(rules.map((r) => [r.site, r.uShared]));
+    // A hydrogen goes to the first list that names it; the rest ride as before.
+    expect(keyed(shared)).toEqual({ ...Object.fromEntries(all.map((r) => [r.site, undefined])), H1A: "1", H1B: "1", H1C: "1", H3A: "2", H3B: "2" });
+    expect(sharedUGroups(shared)).toEqual(new Map([["1", ["H1A", "H1B", "H1C"]], ["2", ["H3A", "H3B"]]]));
+    // Placed, a shared hydrogen keeps its own B (the parameter's); a riding one takes its factor of its parent's U_eq.
+    const sites = model.sites.map((s) => (s.label === "H1A" ? { ...s, adp: { kind: "isotropic" as const, bIso: 7 } } : { ...s }));
+    applyRiding({ ...model, riding: shared }, sites);
+    expect(sites.find((s) => s.label === "H1A")!.adp).toEqual({ kind: "isotropic", bIso: 7 });
+    const summary = ridingSummary({ ...model, riding: shared });
+    expect(summary).toMatch(/3 methyl hydrogens rotating, the torsion refined \(AFIX 137\) in 1 group, X–H [\d.]+ Å, one shared U_iso refined \(B_shared_1\)/);
+    expect(summary).toMatch(/2 CH₂ hydrogens, H–C–H from X–C–Y \(AFIX 23\) in 1 group, X–H [\d.]+ Å, one shared U_iso refined \(B_shared_2\)/);
+    // Every geometry by name, or "all".
+    expect(ridingRules(model, { sharedU: [["all"]] }).rules.every((r) => r.uShared === "1")).toBe(true);
+  });
+
   it("places an sp² hydrogen on the external bisector at its distance, with U_iso 1.2·U_eq of its carbon", () => {
     const model = fragment();
     const { rules, unbonded } = ridingRules(model);

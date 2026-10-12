@@ -20,27 +20,33 @@ import type { AtomSite, DistanceRestraint, RidingRule, StructureModel } from "@/
 import { restraintCount } from "@/core/crystal/restraints";
 import { withEsd as withEsdText } from "@/agent/structureTable";
 import type { AgentLink } from "@/agent/link";
-import { isInversion, type ExtinctionModel, type OmittedMeasurement, type Radiation, type ResolutionRange, type ShelxWeighting, type SingleCrystalDataset, type TwinLaw } from "@/core/diffraction/types";
+import { isInversion, mergedOnlyAbsences, type ExtinctionModel, type OmittedMeasurement, type Radiation, type ResolutionRange, type ShelxWeighting, type SingleCrystalDataset, type TwinLaw } from "@/core/diffraction/types";
 import type { Vec3 } from "@/core/math/types";
 import type { ReflectionObsCalc } from "@/core/workflow/obsCalc";
 import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import { CANCELLED, type ComputeClient } from "@/workers/computeClient";
-import { mergeEquivalents } from "@/core/diffraction/merge";
+import { measurementMerge } from "@/core/diffraction/merge";
 import {
   SINGLE_CRYSTAL_REFINE_OPTIONS,
   buildSingleCrystalSpec,
+  mergedDataset,
   optimalScale,
   guidedSingleCrystalParams,
   inResolution,
   isOmitted,
+  improper,
+  parsonsOfModel,
   singleCrystalRefinementComparison,
   withinResolution,
   withoutOmitted,
 } from "@/core/workflow/singleCrystalRefinement";
+import { floatingOrigins } from "@/core/crystal/polarOrigin";
+import { dispersionLine } from "@/core/scattering/dispersion";
 import { EXTINCTION_MODELS, EXTINCTION_MODEL_LABELS, EXTINCTION_PARAMETER_LABELS, suggestShelxWeighting, type WeightingSuggestion } from "@/core/diffraction/singleCrystalFactors";
 import { isHydrogen, nonPositiveDefiniteSites, withAdpModel } from "@/core/crystal/adp";
-import { ridingRules, type RidingOptions } from "@/core/crystal/riding";
-import { withEqualTies, type EqualTieUpdate } from "@/core/refinement/constraints";
+import { ridingRules, ridingStepLabel, type RidingOptions } from "@/core/crystal/riding";
+import { inversionText, invertedModel, invertedRiding, invertedTwinFractions } from "@/core/crystal/inversion";
+import { tieStepLabel, withEqualTies, type EqualTieUpdate } from "@/core/refinement/constraints";
 import { keptRow, withValidUserTies } from "@/app/powderSession";
 import { dSpacing } from "@/core/crystal/unitCell";
 import { isMagneticModelParameterKind } from "@/core/refinement/types";
@@ -80,6 +86,11 @@ function parseKComponent(s: string): number {
 }
 
 /** R1 quality bands (fraction): <8 % good · <15 % mediocre · else poor. */
+/** Whether two twin laws are the same matrix. */
+function sameTwinLaw(a: TwinLaw | undefined, b: TwinLaw | undefined): boolean {
+  return !!a && !!b && a.matrix.every((row, i) => row.every((v, j) => Math.round(v) === Math.round(b.matrix[i]![j]!)));
+}
+
 /** The ADP model of a structure's sites, as the Agent reads it. */
 function adpModelOf(s: StructureModel): "isotropic" | "anisotropic" | "mixed" {
   // Hydrogens that stay isotropic under an anisotropic model (X-ray) do not make it mixed.
@@ -106,8 +117,12 @@ type Selection = { hkl: string; kind: ReflectionObsCalc["kind"]; phaseId?: strin
  *  three-way value; the project file stores the same value. */
 type Probe = "xray" | "neutron" | "neutron-tof";
 
-export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, client, step, onStep, onMagneticPresent, instrumentProbe, exportsRef, onLoadData, onLoadMagneticData, onLoadCif, restore, stepHistory, agentLink }: {
+export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, magneticDataset, client, step, onStep, onMagneticPresent, instrumentProbe, exportsRef, onLoadData, onLoadMagneticData, onLoadCif, restore, structureFileNotes, structureFileName, stepHistory, agentLink }: {
   structure: StructureModel;
+  /** A SHELX .ins/.res loaded as the structure: its refinement instructions in a few lines (TWIN, BASF, EXTI, WGHT, FVAR, the hydrogens' U), for the Agent to read. */
+  structureFileNotes?: readonly string[];
+  /** The SHELX file the model came from (3a.ins). */
+  structureFileName?: string;
   dataset: SingleCrystalDataset;
   /** Companion magnetic reflection file for joint co-refinement (Phase 2). When
    *  present alongside an applied magnetic model, the joint panel co-refines the
@@ -148,6 +163,12 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
   // losing what it restored.
   const restoring = useRef(restore).current;
   const restoredModulated = restoring?.modulated ? modulatedInputsFrom(restoring.modulated) : null;
+  // The model inverted through the origin (invert_structure: the other hand, the space group to its
+  // enantiomorph where it has one); the page works on it in place of the one loaded.
+  const [inverted, setInverted] = useState<boolean>(restoring?.inverted ?? false);
+  const inversion = useMemo(() => (inverted ? invertedModel(loadedStructure) : null), [inverted, loadedStructure]);
+  const structure = inversion?.structure ?? loadedStructure;
+  const handText = inversion ? inversionText(loadedStructure, inversion) : undefined;
   // Probe selection. The reflection file is hardcoded to neutron on load (it can't
   // report its own source), so the user can switch here — and the choice changes
   // the physics (neutron b vs X-ray form factors f(Q)), rebuilding F_calc and the
@@ -169,10 +190,13 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
   const [weighting, setWeighting] = useState<ShelxWeighting | null>(restoring?.weighting ?? null);
   // Twin laws (SHELXL's TWIN), each with its fraction row; empty when untwinned.
   const [twinLaws, setTwinLaws] = useState<readonly TwinLaw[]>(restoring?.twinLaws ?? []);
-  // The dataset the physics runs against — same reflections, user-chosen radiation, extinction model, weights and twin laws.
+  // The equivalents merged as SHELXL's MERG 2 (Friedel opposites apart in a non-centrosymmetric group), or every measurement.
+  const [merged, setMerged] = useState<boolean>(restoring?.merged ?? false);
+  const fittedSet = useMemo(() => (merged ? mergedDataset(dataset, structure.spaceGroup.operations) : dataset), [dataset, merged, structure]);
+  // The dataset the physics runs against — the reflections fitted, user-chosen radiation, extinction model, weights and twin laws.
   const probedDataset = useMemo(
-    () => ({ ...dataset, radiation: effectiveRadiation, extinctionModel, ...(weighting ? { weighting } : {}), ...(twinLaws.length ? { twinLaws } : {}) }),
-    [dataset, effectiveRadiation, extinctionModel, weighting, twinLaws],
+    () => ({ ...fittedSet, radiation: effectiveRadiation, extinctionModel, ...(weighting ? { weighting } : {}), ...(twinLaws.length ? { twinLaws } : {}) }),
+    [fittedSet, effectiveRadiation, extinctionModel, weighting, twinLaws],
   );
 
   // The ADP model the fit uses: the CIF's (null), or the one switched to,
@@ -236,12 +260,13 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
   // the rows become the new spec's, and the last fit, the ADP switch, the
   // riding rules, the restraints and the magnetic model go with the old model. (On change only — the mount render may
   // carry a restored state.)
-  useOnChange(structure, () => {
+  useOnChange(loadedStructure, () => {
     setAdp(null);
+    setInverted(false);
     // The riding rules and the restraints name the old model's atoms.
     setRiding(null);
     setRestraints([]);
-    setParams(buildSingleCrystalSpec(structure, probedDataset, { extinction: 0 }).params);
+    setParams(buildSingleCrystalSpec(loadedStructure, probedDataset, { extinction: 0 }).params);
     setResult(null);
     setMagnetic(null);
     setMomentBindings([]);
@@ -268,13 +293,13 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
   const outsideRange = omittedDataset.reflections.length - keptDataset.reflections.length;
   const excluded = keptDataset.reflections.length - activeDataset.reflections.length;
 
-  // Laue-equivalent merge report (data quality — R_int, redundancy) on the active set.
+  // Laue-equivalent merge report (data quality — R_int, redundancy) on the active set, or on the measurement as loaded when the fit runs on its merge.
   const merge = useMemo(
-    () => mergeEquivalents(
-      activeDataset.reflections.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.iObs, sigma: r.sigma ?? 0 })),
+    () => measurementMerge(
+      (merged ? dataset : activeDataset).reflections.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.iObs, sigma: r.sigma ?? 0 })),
       structure.spaceGroup.operations,
     ),
-    [activeDataset, structure],
+    [merged, dataset, activeDataset, structure],
   );
 
   // Live obs/calc comparison + SHELX agreement for the current parameters.
@@ -483,7 +508,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
   // A new structure (CIF load) keeps this workbench mounted (keyed on the dataset
   // id), so clear the stale magnetic hypothesis + results/error for the old cell.
   // (On change only — the mount render may carry a restored hypothesis.)
-  useOnChange(structure, () => { setIonState({}); setModResult(null); setModError(null); });
+  useOnChange(loadedStructure, () => { setIonState({}); setModResult(null); setModError(null); });
 
   /** One-pass linear least-squares scale from the nuclear reflections (satellites
    *  carry ~0 nuclear |F|², so they don't bias it): k = Σ Fo²Fc² / Σ (Fc²)². */
@@ -519,7 +544,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
       const scaleStart = estimateScale(superS, merged);
       // ONE scale: nuclear + magnetic share it (same measurement); magneticScale
       // is tied to the (freed) nuclear scale, structure frozen (two-phase).
-      const scaleP: RefinementParameter = { id: "scale", label: "scale (OSF)", kind: "scale", value: scaleStart, initialValue: scaleStart, fixed: false, min: 0 };
+      const scaleP: RefinementParameter = { id: "scale", label: "scale k = OSF²", kind: "scale", value: scaleStart, initialValue: scaleStart, fixed: false, min: 0 };
       const mscaleP: RefinementParameter = { id: "magScale", label: "magnetic scale (= nuclear)", kind: "magneticScale", value: scaleStart, initialValue: scaleStart, fixed: true, expression: "= scale" };
       const scaleB: ParameterBinding = { parameterId: "scale", kind: "scale", targetId: merged.id };
       const mscaleB: ParameterBinding = { parameterId: "magScale", kind: "magneticScale", targetId: merged.id };
@@ -655,7 +680,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
     ]));
     setRiding(nextRiding);
     setResult(null);
-    stepHistory?.requestStep("settings", nextRiding ? `${nextRiding.length} hydrogens riding` : "Hydrogens refined on their own");
+    stepHistory?.requestStep("settings", nextRiding ? ridingStepLabel(nextRiding) : "Hydrogens refined on their own");
     return rules && rules.unbonded.length ? `not riding (no parent in bonding distance): ${rules.unbonded.join(", ")}` : null;
   }
 
@@ -681,13 +706,18 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
     if (!next.length) delete (nextDataset as { twinLaws?: unknown }).twinLaws;
     const fresh = buildSingleCrystalSpec(fitStructure, nextDataset, { extinction: 0 }).params;
     const kept = new Map(params.map((p) => [p.id, p]));
+    // A law that stays where it was keeps its fraction (and its free or fixed state); a new one starts at 0.1.
+    const stays = (id: string): boolean => {
+      const i = Number(/^twin_(\d+)$/.exec(id)?.[1] ?? 0) - 1;
+      return i >= 0 && sameTwinLaw(twinLaws[i], next[i]);
+    };
     setParams(withValidUserTies([
-      ...fresh.map((p) => keptRow(p, p.kind === "twinFraction" ? undefined : kept.get(p.id))),
+      ...fresh.map((p) => keptRow(p, p.kind === "twinFraction" && !stays(p.id) ? undefined : kept.get(p.id))),
       ...params.filter((p) => isMagneticModelParameterKind(p.kind)),
     ]));
     setTwinLaws(next);
     setResult(null);
-    stepHistory?.requestStep("settings", next.length === 0 ? "Untwinned" : next.length === 1 && isInversion(next[0]!) ? "Inversion twin" : `${next.length} twin law${next.length === 1 ? "" : "s"}`);
+    stepHistory?.requestStep("settings", next.length === 0 ? "Untwinned" : next.length === 1 && isInversion(next[0]!) ? "Inversion twin" : next.length > 1 && next.some((law) => improper(law.matrix)) ? `Twin law with the inversion (${next.length + 1} domains)` : `${next.length} twin law${next.length === 1 ? "" : "s"}`);
   }
 
   /**
@@ -697,7 +727,47 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
    */
   function changeParameterTies(update: EqualTieUpdate): void {
     setParams((ps) => withValidUserTies(withEqualTies(ps, update)));
-    stepHistory?.requestStep("edit", update.complement ? `${update.complement[1]} = 1 − ${update.complement[0]}` : update.release ? `Released ${update.release.join(", ")}` : "Parameters tied");
+    stepHistory?.requestStep("edit", tieStepLabel(update));
+  }
+
+  /**
+   * The model inverted through the origin, as SHELXL's MOVE 1 1 1 −1 with the
+   * space group changed to its enantiomorph: the positions as refined go to
+   * s − x (their shifts change sign), the riding groups are placed afresh, the
+   * restraints follow their atoms' images, and a twin with both hands keeps
+   * its fit (each domain takes the place of its inverse). The last fit is cleared.
+   */
+  function changeHand(): string {
+    if (magnetic) throw new Error("a magnetic model is applied: invert the structure before applying it");
+    // One transform both ways, the one that takes the model as loaded to its inverse: the round trip is exact.
+    const forward = invertedModel(loadedStructure);
+    const total = forward.shift.map((v, i) => v + forward.translation[i]!) as unknown as typeof forward.shift;
+    const flip = invertedModel(fitStructure, { total });
+    const nextRiding = riding ? invertedRiding(riding, invertedModel(refinedStructure, { total }).structure) : null;
+    const nextFit = { ...flip.structure, ...(nextRiding ? { riding: nextRiding } : {}) };
+    const fresh = buildSingleCrystalSpec(nextFit, probedDataset, { extinction: 0 }).params;
+    const kept = new Map(params.map((p) => [p.id, p]));
+    const lawOf = (id: string): number => Number(bindings.find((b) => b.parameterId === id && b.kind === "twinFraction")?.targetKey ?? 0) - 1;
+    const fractions = twinLaws.map((_, i) => params.find((p) => p.kind === "twinFraction" && lawOf(p.id) === i)?.value ?? 0);
+    const twins = invertedTwinFractions(twinLaws, fractions);
+    setParams(withValidUserTies([
+      ...fresh.map((p) => {
+        const row = keptRow(p, kept.get(p.id));
+        // A shift moves the inverted site the other way; a torsion and a twin fraction take their new values.
+        if (p.kind === "positionShift") return { ...row, value: -(kept.get(p.id)?.value ?? 0) };
+        if (p.kind === "ridingTorsion") return { ...row, value: p.value, initialValue: p.value };
+        if (p.kind === "twinFraction") return { ...row, value: twins[lawOf(p.id)] ?? row.value };
+        return row;
+      }),
+      ...params.filter((p) => isMagneticModelParameterKind(p.kind)),
+    ]));
+    setRiding(nextRiding);
+    setRestraints(flip.structure.restraints ?? []);
+    setInverted(!inverted);
+    setResult(null);
+    const text = inverted ? "back to the model as loaded" : inversionText(loadedStructure, forward);
+    stepHistory?.requestStep("settings", inverted ? "Hand as loaded" : `Inverted${flip.enantiomorph ? ` (${flip.enantiomorph})` : ""}`);
+    return text;
   }
 
   /** The distance restraints, replaced as a whole: they change what the fit minimizes, so the last fit is cleared. */
@@ -707,10 +777,33 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
     stepHistory?.requestStep("settings", next.length ? `${restraintCount(next)} restraint${restraintCount(next) === 1 ? "" : "s"}` : "No restraints");
   }
 
+  /**
+   * Fit the merged equivalents (SHELXL's MERG 2) or every measurement. The
+   * reflections change, so the batch rows follow them, the omissions (which
+   * named the other set's reflections) are cleared, and so is the last fit.
+   */
+  function changeMerged(on: boolean): void {
+    if (on === merged) return;
+    const nextSet = on ? mergedDataset(dataset, structure.spaceGroup.operations) : dataset;
+    const fresh = buildSingleCrystalSpec(fitStructure, { ...probedDataset, reflections: nextSet.reflections }, { extinction: 0 }).params;
+    const kept = new Map(params.map((p) => [p.id, p]));
+    setParams(withValidUserTies([
+      ...fresh.map((p) => keptRow(p, kept.get(p.id))),
+      ...params.filter((p) => isMagneticModelParameterKind(p.kind)),
+    ]));
+    setMerged(on);
+    setOmitted([]);
+    setResult(null);
+    // A file merged by its data reduction loses only its absences: say so, not "merged".
+    const onlyAbsences = on && nextSet.merged ? mergedOnlyAbsences(nextSet.merged, nextSet.reflections.length) : false;
+    stepHistory?.requestStep("settings", on ? (onlyAbsences ? `${dataset.reflections.length - nextSet.reflections.length} absences left out: ${nextSet.reflections.length} reflections` : `Merged: ${dataset.reflections.length} → ${nextSet.reflections.length} reflections`) : "Every measurement");
+  }
+
   /** The scheme SHELXL would suggest for the model as refined now. */
   function suggestedWeighting(): WeightingSuggestion {
     const rows = comparison.rows;
-    return suggestShelxWeighting(rows.map((r) => r.foSq), rows.map((r) => r.fcSq), rows.map((r) => r.sigma), params.filter((p) => !p.fixed && !p.expression).length);
+    // WGHT's b is on the absolute scale: the suggestion reads the data at the overall scale.
+    return suggestShelxWeighting(rows.map((r) => r.foSq), rows.map((r) => r.fcSq), rows.map((r) => r.sigma), params.filter((p) => !p.fixed && !p.expression).length, 10, params.find((p) => p.kind === "scale")?.value ?? 1);
   }
 
   /** Another extinction model: its parameter is another quantity, so it restarts at 0 (none), as on load. */
@@ -741,6 +834,28 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
     stepHistory?.requestStep("settings", next.length > was ? `Omitted ${next.length - was} measurement${next.length - was === 1 ? "" : "s"}` : `${next.length} measurement${next.length === 1 ? "" : "s"} omitted`);
   }
 
+  /**
+   * The CIF's Flack x and how it was found: an inversion twin's fraction, the
+   * inverted domains of a twin with both hands summed (its esd from the
+   * covariance), or Parsons' quotients from the Bijvoet pairs.
+   */
+  function absoluteStructureMeta(): Pick<CifRefinementMeta, "flack" | "absStructureDetails"> {
+    const fraction = (i: number) => params.find((p) => p.kind === "twinFraction" && bindings.some((b) => b.parameterId === p.id && b.targetKey === String(i + 1)));
+    if (twinLaws.length === 1 && isInversion(twinLaws[0]!) && fraction(0)) {
+      const p = fraction(0)!;
+      return { flack: withEsdText(p.value, result?.esd[p.id]), absStructureDetails: "Refined as an inversion twin." };
+    }
+    const inverted = twinLaws.flatMap((law, i) => (improper(law.matrix) ? [fraction(i)] : []));
+    if (twinLaws.length > 1 && inverted.length > 0 && inverted.every((p) => p)) {
+      const x = inverted.reduce((t, p) => t + p!.value, 0);
+      return { flack: withEsdText(x, result?.combinationEsd?.flack), absStructureDetails: `Refined as a ${twinLaws.length + 1}-component twin of both hands (SHELXL's TWIN with the inversion); the Flack x is the inverted domains' fractions together, its su from the full covariance.` };
+    }
+    const r = effectiveRadiation;
+    if (r.kind !== "xray" || !dispersionLine(r.wavelength)) return {};
+    const est = parsonsOfModel(fitStructure, activeDataset, params, bindings);
+    return est ? { flack: withEsdText(est.x, est.esd), absStructureDetails: `Flack x determined using ${est.quotients} quotients [(I+)-(I-)]/[(I+)+(I-)] (Parsons, Flack and Wagner, Acta Cryst. B69 (2013) 249-259).${handText ? ` The model is ${handText}.` : ""}` } : {};
+  }
+
   function exportCif(): void {
     const withEsd = params.map((p) => {
       const e = result?.esd[p.id];
@@ -752,11 +867,9 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
       gof: comparison.agreement.goof,
       nRef: activeDataset.reflections.length,
       nParam: nFree,
-      nRestraints: restraintCount(restraints),
-      // An inversion twin's fraction is the Flack parameter.
-      ...(twinLaws.length === 1 && isInversion(twinLaws[0]!) && params.some((p) => p.id === "twin_1")
-        ? { flack: withEsdText(params.find((p) => p.id === "twin_1")!.value, result?.esd.twin_1) }
-        : {}),
+      // The floating origin of a polar group is a restraint, as SHELXL counts it.
+      nRestraints: restraintCount(restraints) + floatingOrigins(fitStructure, params, bindings).length,
+      ...absoluteStructureMeta(),
     };
     // `refinedStructure`, not `structure`: structureToCif reads coordinates and
     // cell off the model and takes the parameters only for their esds, so the
@@ -803,7 +916,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
       bindings: [...bindings, ...momentBindings],
       result,
       dataset: activeDataset,
-      totalReflections: probedDataset.reflections.length,
+      totalReflections: dataset.reflections.length,
       excluded,
       filterOn,
       cutoffSigma,
@@ -815,6 +928,8 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
       points: obsCalc.map((r) => ({ obs: r.iObs, calc: r.iCalc, ...(r.kind === "magnetic" ? { magnetic: true } : {}) })),
       magnetic,
       explored: exploredMagnetic.current,
+      ...(handText ? { inverted: handText } : {}),
+      ...(structureFileNotes?.length ? { structureFile: structureFileNotes, ...(structureFileName ? { structureFileName } : {}) } : {}),
     });
   function exportReport(): void {
     downloadText(reportFileName(structure), reportHtml(reportInputRef.current()), "text/html");
@@ -831,7 +946,10 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
         structure: fitStructure,
         refinedStructure,
         dataset: probedDataset,
-        totalReflections: probedDataset.reflections.length,
+        totalReflections: dataset.reflections.length,
+        measurement: dataset.reflections,
+        ...(structureFileNotes ? { structureFile: structureFileNotes } : {}),
+        ...(handText ? { inverted: handText, loadedAs: loadedStructure } : {}),
         probe,
         parameters: params,
         bindings: [...bindings, ...momentBindings],
@@ -870,6 +988,8 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
       setTwinLaws: changeTwinLaws,
       setParameterTies: changeParameterTies,
       setDistanceRestraints: changeRestraints,
+      invertStructure: changeHand,
+      setMerged: changeMerged,
       setOmitted: changeOmitted,
       setResolution: changeResolution,
       setOutlierFilter: ({ on, cutoffSigma: cutoff, minExtinction: minY }) => {
@@ -907,6 +1027,8 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
         ...(weighting ? { weighting } : {}),
         ...(twinLaws.length ? { twinLaws } : {}),
         ...(restraints.length ? { restraints } : {}),
+        ...(merged ? { merged } : {}),
+        ...(inverted ? { inverted } : {}),
         modulated: { kText, ionState, moment: modMoment, seed: modSeed, restarts: modRestarts },
         adpModel: adp?.model ?? null,
       }),
@@ -957,7 +1079,7 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
       label: "Structure",
       help: "The unit cell is taken from indexing / data reduction and held fixed. Integrated intensities carry no information on peak positions, so no single-crystal program refines the cell against F² (SHELXL's CELL/ZERR, Jana, FullProf and GSAS-II alike); its esds belong to the diffractometer, not to this fit.",
       loadLabel: "Load CIF…",
-      accept: ".cif,.mcif,text/plain",
+      accept: ".cif,.mcif,.ins,.res,text/plain",
       onFile: onLoadCif ?? noop,
       chip: "✓ parsed",
       title: `${structure.name || "structure"} · ${structure.spaceGroup.hermannMauguin ?? "—"}`,
@@ -970,7 +1092,8 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
       onFile: onLoadData ?? noop,
       chip: "✓ loaded",
       title: dataset.name,
-      meta: `${probeLabel}${wl} · ${st.observations} obs → ${st.unique} unique · ${st.redundancy > 1 + 1e-9 ? `R_int ${pct(st.rInt)}` : "merged"}${dataset.origin === "refinement-listing" ? " · a refinement's listing" : ""}`,
+      // A non-centrosymmetric group's merge as SHELXL reports it: the Friedel mates apart, the absences out.
+      meta: `${probeLabel}${wl} · ${st.observations} obs → ${st.friedelApart ? `${st.friedelApart.unique} unique (Friedel apart)` : `${st.unique} unique`} · ${(st.friedelApart ?? st).redundancy > 1 + 1e-9 ? `R_int ${pct((st.friedelApart ?? st).rInt)}` : "each reflection once"}${dataset.origin === "refinement-listing" ? " · a refinement's listing" : ""}`,
       control: (
         <div style={{ display: "inline-flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <ProbeToggle probe={probe} onChange={(p) => changeRadiation({ probe: p })} />
@@ -1079,12 +1202,14 @@ export function SingleCrystalWorkbench({ structure, dataset, magneticDataset, cl
             </div>
           </div>
 
+          {/* In an acentric group the Friedel mates stay apart, as SHELXL merges them (MERG 2): merged in the
+              Laue class, a listing's Bijvoet pairs would read as an R_int that is only their anomalous difference. */}
           {qualityView === "refinement" && <div style={mergeStrip}>
             <Stat small value={`${st.observations}`} label={excluded > 0 ? "kept" : "observations"} />
-            <Stat small value={`${st.unique}`} label="unique" />
-            <Stat small value={st.redundancy.toFixed(2)} label="redundancy" />
-            <Stat small value={st.redundancy > 1 + 1e-9 ? pct(st.rInt) : "—"} label="R_int" />
-            <Stat small value={pct(st.rSigma)} label="R_sigma" />
+            <Stat small value={`${(st.friedelApart ?? st).unique}`} label={st.friedelApart ? "unique (Friedel apart)" : "unique"} />
+            <Stat small value={(st.friedelApart ?? st).redundancy.toFixed(2)} label="redundancy" />
+            <Stat small value={(st.friedelApart ?? st).redundancy > 1 + 1e-9 ? pct((st.friedelApart ?? st).rInt) : "—"} label="R_int" />
+            <Stat small value={pct((st.friedelApart ?? st).rSigma)} label="R_sigma" />
           </div>}
 
           {/* Outlier (σ) reflection filter: here in the working view; in the

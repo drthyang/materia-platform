@@ -6,6 +6,7 @@
 import type { StructureModel } from "@/core/crystal/types";
 import type { ParameterBinding, RefinementParameter } from "@/core/refinement/types";
 import { applyParameters } from "@/core/workflow/apply";
+import { cellSuShifts } from "@/core/crystal/cellEsd";
 
 /**
  * A bond's identity across small shifts of the structure: its two sites, in
@@ -25,8 +26,10 @@ export function bondKeys(bonds: readonly { from?: string; to?: string; distance:
  * The esd of each bond length from the refined positions' esds: every free
  * positional parameter shifted by its esd, the bonds measured again in the
  * structure that gives (each symmetry image follows its own operation), and the
- * changes added in quadrature (the positions taken as independent; the cell is
- * fixed input on the single-crystal page). Keyed as `bondKeys` keys the bonds.
+ * changes added in quadrature (the positions taken as independent). A cell
+ * held fixed with the structure file's esds (`cellSu`) adds its part the same
+ * way, each independent cell parameter moved by its esd, as SHELXL adds the
+ * cell's errors to its bond esds. Keyed as `bondKeys` keys the bonds.
  */
 export function bondEsds(
   base: StructureModel,
@@ -36,8 +39,8 @@ export function bondEsds(
   measure: (structure: StructureModel) => readonly { from?: string; to?: string; distance: number }[],
 ): Map<string, number> {
   const values: Record<string, number> = Object.fromEntries(parameters.map((p) => [p.id, p.value]));
-  const at = (v: Record<string, number>): Map<string, number> => {
-    const bonds = measure(applyParameters(base, bindings, v).model);
+  const at = (v: Record<string, number>, model: StructureModel = base): Map<string, number> => {
+    const bonds = measure(applyParameters(model, bindings, v).model);
     const keys = bondKeys(bonds);
     return new Map(bonds.map((b, i) => [keys[i]!, b.distance]));
   };
@@ -51,6 +54,17 @@ export function bondEsds(
     for (const [k, d] of ref) {
       const d2 = moved.get(k);
       if (d2 !== undefined) variance.set(k, variance.get(k)! + (d2 - d) ** 2);
+    }
+  }
+  // The cell's part, when it is held fixed (no refined cell parameter) and the structure file gives its esds.
+  const refinesCell = parameters.some((p) => !p.fixed && (p.kind === "cellLength" || p.kind === "cellAngle"));
+  if (base.cellSu && !refinesCell) {
+    for (const cell of cellSuShifts(base.cell, base.cellSu, base.spaceGroup.operations)) {
+      const moved = at(values, { ...base, cell });
+      for (const [k, d] of ref) {
+        const d2 = moved.get(k);
+        if (d2 !== undefined) variance.set(k, variance.get(k)! + (d2 - d) ** 2);
+      }
     }
   }
   return new Map([...variance].map(([k, v]) => [k, Math.sqrt(v)]));

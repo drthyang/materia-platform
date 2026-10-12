@@ -16,7 +16,7 @@ import type { MagneticAgentHandle } from "@/agent/magneticPort";
 import type { MutableRefObject } from "react";
 import type { DistanceRestraint, RidingRule, StructureModel } from "@/core/crystal/types";
 import type { RidingOptions } from "@/core/crystal/riding";
-import type { ExtinctionModel, OmittedMeasurement, PdfPattern, PowderPattern, ResolutionRange, ShelxWeighting, SingleCrystalDataset, TwinLaw } from "@/core/diffraction/types";
+import type { ExtinctionModel, OmittedMeasurement, PdfPattern, PowderPattern, ResolutionRange, ShelxWeighting, SingleCrystalDataset, SingleCrystalReflection, TwinLaw } from "@/core/diffraction/types";
 import type { MergeStatistics } from "@/core/diffraction/merge";
 import type { InstrumentConstants, InstrumentParameters } from "@/core/diffraction/instrument";
 import type { LinearRestraint, ParameterBinding, RefinementOptions, RefinementParameter, RefinementResult } from "@/core/refinement/types";
@@ -207,6 +207,8 @@ export interface SingleCrystalRow {
   readonly fcSq: number;
   readonly sigma: number;
   readonly deltaOverSigma: number;
+  /** Under a weighting scheme, (Fo² − Fc²) in the scheme's esd √(σ² + (aP)² + bP), as SHELXL lists its most disagreeable reflections. */
+  readonly deltaOverEsd?: number;
   /** The extinction factor y in Fc² (absent or 1 without extinction). */
   readonly extinction?: number;
   /** The batch (run, orientation) and wavelength it was measured at, when the file gives them. */
@@ -224,6 +226,14 @@ export interface SingleCrystalLiveState {
   readonly dataset: SingleCrystalDataset;
   /** Reflections in the file, before the filter. */
   readonly totalReflections: number;
+  /** The measurement as loaded, every equivalent apart: what the data reading reads when the fit runs on the merged set. */
+  readonly measurement: readonly SingleCrystalReflection[];
+  /** A SHELX .ins/.res loaded as the structure: what it instructs a refinement to do (TWIN, BASF, EXTI, WGHT, the hydrogens' U), in a few lines. */
+  readonly structureFile?: readonly string[];
+  /** The model inverted from the one loaded (invert_structure), in words; absent: the hand as loaded. */
+  readonly inverted?: string;
+  /** The model as loaded, while the page works on its inverse: the analysis (its stages, exceptions and notes) stays keyed by it. */
+  readonly loadedAs?: { readonly name: string; readonly spaceGroup: { readonly hermannMauguin?: string; readonly number?: number } };
   readonly probe: "xray" | "neutron" | "neutron-tof";
   readonly parameters: readonly RefinementParameter[];
   readonly bindings: readonly ParameterBinding[];
@@ -284,6 +294,10 @@ export interface SingleCrystalAgentPort {
   readonly setParameterTies: (update: EqualTieUpdate) => void;
   /** The distance restraints, replaced as a whole; the last fit is cleared. */
   readonly setDistanceRestraints: (next: readonly DistanceRestraint[]) => void;
+  /** The model inverted through the origin (or back to the hand as loaded); resolves to what was done, in words. Throws for a centrosymmetric group. */
+  readonly invertStructure: () => string;
+  /** Fit the equivalents merged as SHELXL's MERG 2 (Friedel opposites apart in a non-centrosymmetric group), or every measurement; the omissions and the last fit are cleared. */
+  readonly setMerged: (on: boolean) => void;
   /** The probe and the wavelength (constant wavelength only); the scale restarts from its best value, the last fit is cleared. */
   readonly setRadiation: (update: { readonly probe?: "xray" | "neutron" | "neutron-tof"; readonly wavelength?: number }) => void;
   /** The measurements left out by hand, replaced as a whole. */

@@ -118,6 +118,8 @@ export interface LoadReflectionOptions {
   /** Which file this is. The nuclear set (default) drops a `0 0 0` forward-beam
    *  row; the companion magnetic set keeps it — there it is the satellite at k. */
   readonly role?: "nuclear" | "magnetic";
+  /** The X-ray wavelength the structure file gives (a SHELX .ins's CELL), for a reflection file that names no radiation. */
+  readonly wavelength?: number;
 }
 
 /** True when the text looks like a GSAS-II reflection list (has Fo**2 / header). */
@@ -217,7 +219,7 @@ export function loadReflectionDataset(
       dropped: parse.skipped,
       forwardBeamSkipped: parse.forwardBeamSkipped,
       format: "shelx-cif",
-      ...(named ? { radiationNamed: `${named.kind === "xray" ? "X-ray" : "neutron"}${named.name ? ` ${named.name}` : ""}, λ ${named.wavelength} Å` } : {}),
+      ...(named ? { radiationNamed: `${named.kind === "xray" ? "X-ray" : "neutron"}${named.name ? ` ${named.name}` : ""}, λ ${named.wavelength} Å, as the CIF names it` } : {}),
     };
   }
   // `.fcf` is recognized by content (the CIF reflection loop) so a renamed
@@ -227,25 +229,30 @@ export function loadReflectionDataset(
     isCifReflectionLoop(text) ? { parse: parseFcf(text, { skipForwardBeam }), format: "fcf" }
     : extensionOf(name) === "hkl" ? { parse: parseShelxHkl(text, { skipForwardBeam }), format: "shelx" }
     : null;
+  // A file that names no radiation takes the structure file's (a SHELX .ins's CELL is X-ray at its λ), else neutron at 1.54 Å.
+  const unnamed: Radiation = opts.wavelength !== undefined ? { kind: "xray", wavelength: opts.wavelength, polarization: 0.5 } : { kind: "neutron", wavelength: 1.54 };
+  const fromStructure = opts.wavelength !== undefined ? { radiationNamed: `X-ray, λ ${opts.wavelength} Å, as the structure file's CELL gives it` } : {};
   if (shelx) {
     const reflections: SingleCrystalReflection[] = shelx.parse.reflections.map((r) => ({
       h: r.h, k: r.k, l: r.l, iObs: r.intensity, sigma: r.sigma, ...(shelx.parse.hasBatches && r.batch !== undefined ? { batch: r.batch } : {}),
     }));
     return {
-      dataset: { id: datasetId, name, radiation: { kind: "neutron" as const, wavelength: 1.54 }, reflections, ...(isRefinementListing(text) ? { origin: "refinement-listing" as const } : {}) },
+      dataset: { id: datasetId, name, radiation: unnamed, reflections, ...(isRefinementListing(text) ? { origin: "refinement-listing" as const } : {}) },
       kept: reflections.length,
       dropped: shelx.parse.skipped,
       forwardBeamSkipped: shelx.parse.forwardBeamSkipped,
       format: shelx.format,
+      ...fromStructure,
     };
   }
   const { reflections, forwardBeamSkipped } = parseHklRows(text, { skipForwardBeam });
   return {
-    dataset: { id: datasetId, name, radiation: { kind: "neutron" as const, wavelength: 1.54 }, reflections },
+    dataset: { id: datasetId, name, radiation: unnamed, reflections },
     kept: reflections.length,
     dropped: 0,
     forwardBeamSkipped,
     format: "list",
+    ...fromStructure,
   };
 }
 

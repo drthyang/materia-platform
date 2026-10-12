@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { RefinementParameter } from "@/core/refinement/types";
-import { USER_TIE_GROUP, checkEqualTies, complementOf, isUserTie, parseTie, resolveTies, tieReferences, withEqualTies } from "@/core/refinement/constraints";
+import { USER_TIE_GROUP, checkEqualTies, complementOf, isUserTie, parseTie, resolveTies, tieReferences, tieStepLabel, withEqualTies } from "@/core/refinement/constraints";
 
 const p = (id: string, value: number, expression?: string): RefinementParameter =>
   ({ id, label: id, kind: "momentMode", value, initialValue: value, fixed: !!expression, ...(expression ? { expression } : {}) });
@@ -98,5 +98,14 @@ describe("equal-value ties the user makes", () => {
     const back = withEqualTies(split, { release: ["occ_Ga1"] }).find((p) => p.id === "occ_Ga1")!;
     expect(back).toMatchObject({ value: 1 - 0.84, fixed: true });
     expect(back.expression).toBeUndefined();
+  });
+});
+
+describe("a tie's History step", () => {
+  it("names every tie the update makes", () => {
+    expect(tieStepLabel({ complement: ["occ_Al1", "occ_Ga1"], groups: [["U_Al1_0", "U_Ga1_0"], ["U_Al1_1", "U_Ga1_1"]] })).toBe("occ_Ga1 = 1 − occ_Al1; EADP (2 ADP rows tied)");
+    expect(tieStepLabel({ equal: ["B_O1", "B_O2", "B_O3"] })).toBe("B_O2, B_O3 = B_O1");
+    expect(tieStepLabel({ release: ["B_O2"] })).toBe("Released B_O2");
+    expect(tieStepLabel({})).toBe("Parameters tied");
   });
 });

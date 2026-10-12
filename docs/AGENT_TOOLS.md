@@ -597,13 +597,51 @@ The page-specific handlers are [`powderTools.ts`](../src/agent/powderTools.ts),
   `set_extinction_model` switches between SHELXL's EXTI and Becker–Coppens
   type I or II (Gaussian or Lorentzian mosaic), as GSAS-II computes it; the
   parameter restarts at 0. `set_radiation` sets the probe and wavelength,
-  which a SHELX file does not carry (it loads as neutron at 1.54 Å).
-  `set_riding_hydrogens` rides the hydrogens on their parents as SHELXL's
-  AFIX does (sp² C–H on the bisector, AFIX 43, at its distance or one given;
-  any other at its present offset, AFIX 3; U_iso 1.2 or 1.5·U_eq), listing
-  each X–H as placed. `set_weighting` sets SHELXL's WGHT a b, or the scheme
-  SHELXL would suggest for the model as it stands (`assess_refinement` gives
-  it), re-evaluated at the fit's own Fc²; it is set last. There,
+  which a SHELX reflection file does not carry (it loads as neutron at
+  1.54 Å, or as X-rays at CELL's wavelength when a SHELX `.ins`/`.res` is the
+  structure). A `.ins`/`.res` loads as the structure; what its refinement
+  applied (TWIN, BASF, EXTI, WGHT, FVAR, AFIX, the hydrogens' U) is listed by
+  `get_state` (`shelxInstructions`) and applied only when the Agent sets it.
+  A CIF that carries SHELXL's `.hkl` (`_shelx_hkl_file`) loads as the
+  measurement, at the CIF's radiation. `merge_equivalents` fits the
+  equivalents merged as SHELXL's MERG 2 merges them (the Friedel opposites
+  apart in a non-centrosymmetric group, the absences left out), while R_int,
+  the statistics and the outliers still read the measurement; merge before
+  the model is refined (a file its data reduction merged already loses only
+  its absences, and gives no R_int). Where the lattice holds more symmetry
+  than the Laue class, `reflection_statistics` lists each merohedral twin law
+  (`twinLaws`, as `set_twin` takes it) with the fraction Yeates' H-test reads
+  for it from the intensities alone. `set_twin` adds a twin law, as SHELXL's TWIN and BASF:
+  the inversion (its fraction is the Flack x, which needs the Friedel pairs
+  measured apart and an anomalous scatterer; X-ray amplitudes carry f′ and f″
+  at the laboratory lines) or a 3×3 merohedral law, `withInversion` for both
+  hands (SHELXL's TWIN R −4, four domains, the inverted ones summed into the
+  Flack x with its esd from the covariance); a law that cannot twin the
+  crystal is refused. `invert_structure` inverts the model (SHELXL's MOVE 1 1
+  1 −1, the space group to its enantiomorph, P6₁ → P6₅, or the origin shifted
+  where the group needs it), keeping the refined values and the twin's fit;
+  called again it returns to the hand as loaded. `assess_refinement`'s
+  `absoluteStructure` gives Parsons' x from the Bijvoet pairs fitted both
+  ways. In a polar group (P6₁, P2₁, Pc, P1) the fit holds the floating origin
+  by SHELXL's restraint. `set_riding_hydrogens` rides the hydrogens on their
+  parents as SHELXL's AFIX does: sp² on the bisector (43), a methyl or NH₃
+  rotating with its torsion refined (137), a hydroxyl likewise (147), a CH₂
+  pair (23), a methine (13), any other at its present offset (3); X–H at
+  SHELXL's distance for the `temperature`, or one given; U_iso 1.2 or
+  1.5·U_eq, or one refined U_iso per `sharedU` list (SHELXL's free variable
+  on the U column: `[["methyl"]]` gives every methyl hydrogen `B_shared_1`);
+  `refine` lets a hydrogen the data place (a hydride) refine its position
+  while its U rides. It lists each X–H as placed.
+  `restrain_distances` adds SHELXL's DFIX and SADI, counted as SHELXL counts
+  them; `assess_refinement` gives each one's deviation and the restrained
+  GooF. `tie_parameters` there also ties a disorder (SHELXL's PART 1 and 2,
+  listed by get_state): `complement` makes the second occupancy one minus the
+  first (21/−21) and `adp` holds one site's ADP to another's (EADP).
+  `set_weighting` sets SHELXL's WGHT a b (on SHELXL's absolute scale), or the
+  scheme SHELXL's criterion suggests for the model as it stands
+  (`assess_refinement` gives it: each of ten Fc² bins' GooF nearest 1, the
+  overall GooF left a little above 1, as SHELXL's own converged suggestions
+  leave it), re-evaluated at the fit's own Fc²; it is set last. There,
   `assess_refinement` adds the analysis of variance by intensity and by
   resolution (K = ΣFo²/ΣFc² and GooF per bin), the extinction reading (the
   strongest bin against the others) and the correction's reach (the smallest
@@ -613,12 +651,23 @@ The page-specific handlers are [`powderTools.ts`](../src/agent/powderTools.ts),
   and runs until every shift is below 0.05 esd. The scale, the extinction and
   the batch scales (`bscale_<b>`, entered fixed) refine together whatever
   their correlation, as in every single-crystal program. `structure_table`
-  gives U^ij and U_eq with esds (with `against: "loaded"`, each site against
-  the structure as loaded, in esds), and `bond_geometry` each length's esd
+  gives U^ij and U_eq with esds and the cell with the structure file's esds
+  (SHELXL's ZERR, a CIF's su) and the volume's (with `against: "loaded"`,
+  each site against the structure as loaded, in esds), and `bond_geometry`
+  each length's esd, the cell's part included
+  and, in a molecule, its planar rings with the contacts to their centroids
+  (a metal within 3.6 Å, an N–H or O–H pointing at one, the angle at a metal
+  between its two nearest) and its hydrogen bonds D–H···A as SHELXL's HTAB
+  finds them, each image by its CIF code, or "none" when its N–H and O–H
+  reach no acceptor (the report gives them too)
   (`atoms` for the bonds to named sites; a riding hydrogen's bond has none). The
   report's "Refinements compared" lists the last refinement under each set of
-  conditions (extinction model, resolution range, omissions, filter) with
-  wR2, GooF, the extinction parameter and U_eq, so a test can be quoted.
+  conditions (extinction model, resolution range, omissions, filter, twin,
+  hand, weighting scheme) with wR2, GooF, the extinction parameter and U_eq,
+  so a test can be quoted; wR2 and GooF compare only under one weighting
+  scheme, and the check says so when the entries differ in it. The report
+  gives a single crystal's displacements as U (U_eq and U_iso, Å²), SHELXL's
+  and the CIF's convention.
 - Powder page only: `rank_next_parameters`, `check_cell_symmetry`,
   `find_unexplained_peaks`, `review_symmetry`, `set_background`, `set_microstrain`,
   `set_site_ties`. On the PDF page, `assess_refinement` judges convergence,
@@ -667,7 +716,15 @@ a combination the data cannot determine still stops the refinement (the null
 directions). A background or width term against the scale or a structural
 parameter still counts, and so does the Lorentzian X ↔ Y (size against
 strain). Two occupancies tied by one restraint the user set (a shared site's
-Σ, the composition) are not counted against each other either. A passing check puts the strongest remaining pair on the approval card.
+Σ, the composition) are not counted against each other either. On the
+single-crystal page two more groups are listed rather than refused: the
+overall intensity terms (scale, extinction, batch scales), which every
+single-crystal program refines together, and the parameters of one disorder
+among themselves (SHELXL's PART 1 and 2 of an assembly: the alternatives'
+positions, their shared ADP and the split), which sit a few tenths of an
+ångström apart and correlate at −0.99 by construction; SHELXL refines them
+together and the full covariance carries the correlation into their esds. A
+passing check puts the strongest remaining pair on the approval card.
 The check is measured on this data, so a pair the range separates (cell and
 zero over a wide 2θ range) is not refused. Pairs that tighten during the fit
 are listed in the outcome, and the next `refine` refuses them. The page's own

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { StructureModel } from "@/core/crystal/types";
-import { parseCif, parseCifNumber, parseMagneticCif, parseTypeSymbol } from "@/parsers/cif";
+import { cifSu, parseCif, parseCifNumber, parseMagneticCif, parseTypeSymbol } from "@/parsers/cif";
 import { siteIonId } from "@/core/magnetic/magneticIons";
 import { nuclearStructureFactor } from "@/core/diffraction/structureFactor";
 import { EIGHT_PI_SQUARED } from "@/core/crystal/adp";
@@ -19,6 +19,61 @@ describe("parseCifNumber", () => {
     expect(parseCifNumber("5.41317(8)")).toBeCloseTo(5.41317, 5);
     expect(parseCifNumber("110.7594(18)")).toBeCloseTo(110.7594, 4);
     expect(parseCifNumber("90")).toBe(90);
+  });
+});
+
+describe("the su's a CIF gives", () => {
+  it("reads each number's su in its own units", () => {
+    expect(cifSu("0.2398(12)")).toBeCloseTo(0.0012, 12);
+    expect(cifSu("0.20888(6)")).toBeCloseTo(0.00006, 12);
+    expect(cifSu("-0.0094(15)")).toBeCloseTo(0.0015, 12);
+    expect(cifSu("125(12)")).toBe(12);
+    expect(cifSu("1.2e-3(4)")).toBeCloseTo(0.0004, 12);
+    expect(cifSu("0.5")).toBe(0);
+    expect(cifSu("?")).toBe(0);
+    expect(cifSu(undefined)).toBe(0);
+  });
+
+  it("keeps them beside the values loaded, for comparing a re-refinement's esds", () => {
+    const m = parseCif(`data_x
+_cell_length_a 6.2256(8)
+_cell_length_b 12.9136(15)
+_cell_length_c 17.444(2)
+_cell_angle_alpha 90
+_cell_angle_beta 90
+_cell_angle_gamma 90
+_symmetry_space_group_name_H-M 'P 21 21 21'
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_U_iso_or_equiv
+_atom_site_adp_type
+_atom_site_occupancy
+Al1 Al 0.2398(12) 0.4290(9) 0.0350(5) 0.0260(8) Uani 0.844(2)
+H1' H 0.014(3) 0.440(2) 0.0373(16) 0.031 Uiso 1
+O9 O 0.5 0 0 0.02 Uiso 1
+loop_
+_atom_site_aniso_label
+_atom_site_aniso_U_11
+_atom_site_aniso_U_22
+_atom_site_aniso_U_33
+_atom_site_aniso_U_23
+_atom_site_aniso_U_13
+_atom_site_aniso_U_12
+Al1 0.0313(10) 0.0283(11) 0.019(2) -0.0054(13) -0.0038(11) -0.0005(9)
+`, "x");
+    const [al, h, o] = m.sites;
+    expect(al!.su!.position.map((x) => Number(x.toFixed(6)))).toEqual([0.0012, 0.0009, 0.0005]);
+    expect(al!.su!.occupancy).toBeCloseTo(0.002, 12);
+    expect(al!.su!.uIso).toBeCloseTo(0.0008, 12);
+    // In the CIF's order U11 U22 U33 U23 U13 U12, kept as U11 U22 U33 U12 U13 U23.
+    expect(al!.su!.uAniso!.map((x) => Number(x.toFixed(6)))).toEqual([0.001, 0.0011, 0.002, 0.0009, 0.0011, 0.0013]);
+    expect(h!.su).toMatchObject({ position: [0.003, 0.002, expect.closeTo(0.0016, 10)], occupancy: 0, uIso: 0 });
+    // None given, none kept.
+    expect(o!.su).toBeUndefined();
   });
 });
 

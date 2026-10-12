@@ -22,7 +22,7 @@
 import type { SpaceGroup, UnitCell } from "@/core/crystal/types";
 import { dSpacing } from "@/core/crystal/unitCell";
 import { generateReflections } from "@/core/diffraction/reflections";
-import { canonicalKey, laueRotations, mergeEquivalents } from "@/core/diffraction/merge";
+import { canonicalKey, laueRotations, mergeEquivalents, pointGroupRotations } from "@/core/diffraction/merge";
 
 export interface ScValidationRow {
   readonly h: number;
@@ -48,6 +48,12 @@ export interface ScValidationInput {
   readonly binCount?: number;
   /** Outliers to list (default 10). */
   readonly outlierCount?: number;
+  /**
+   * The measurement as loaded, when `rows` are its merge: each shell's R_int
+   * reads it (merged rows hold each reflection once, apart from its Friedel
+   * mate, whose difference is the anomalous signal, not the merging).
+   */
+  readonly measurement?: readonly { readonly h: number; readonly k: number; readonly l: number; readonly intensity: number; readonly sigma: number }[];
 }
 
 export interface ResolutionShell {
@@ -120,7 +126,13 @@ export interface ScValidation {
   readonly uniqueAllowed?: number;
   readonly uniqueExpected?: number;
   readonly completeness?: number;
-  /** Unique observed reflections per free parameter. */
+  /**
+   * The independent reflections the space group allows, as SHELXL counts its
+   * data: unique in the Laue class, but in a non-centrosymmetric group a
+   * Friedel pair measured apart counts twice (MERG 2 keeps the mates apart).
+   */
+  readonly independent: number;
+  /** Independent allowed reflections per free parameter (SHELXL's data / parameters). */
   readonly reflectionsPerParameter: number;
   /** The space group contains the inversion. */
   readonly centrosymmetric: boolean;
@@ -213,7 +225,8 @@ export function singleCrystalValidation(input: ScValidationInput): ScValidation 
   if (Number.isFinite(dMin)) {
     try {
       const dTop = 2 * Math.max(cell.a, cell.b, cell.c);
-      expected = generateReflections(cell, spaceGroup, dMin * (1 - 1e-9), dTop)
+      // dMin is rounded (roundD, 1e-6 Å): the margin must exceed the rounding, or the data's own edge reflection drops out.
+      expected = generateReflections(cell, spaceGroup, dMin * (1 - 1e-5), dTop)
         .map((r) => ({ key: canonicalKey(rotations, r.h, r.k, r.l), d: roundD(r.d) }));
     } catch {
       expected = undefined; // cell too large to enumerate — completeness stays unknown
@@ -222,11 +235,16 @@ export function singleCrystalValidation(input: ScValidationInput): ScValidation 
   const expectedKeys = expected ? new Set(expected.map((e) => e.key)) : undefined;
   const observedKeys = new Set(prepared.map((p) => canonicalKey(rotations, p.row.h, p.row.k, p.row.l)));
   const observedAllowed = expectedKeys ? [...observedKeys].filter((k) => expectedKeys.has(k)).length : undefined;
+  // The independent reflections, as SHELXL counts its data (MERG 2): in a non-centrosymmetric group a Friedel pair
+  // measured apart is two, its difference the anomalous signal; the forbidden ones carry no structure.
+  const apart = centrosymmetric ? rotations : pointGroupRotations(spaceGroup.operations);
+  const independent = new Set(prepared.filter((p) => !expectedKeys || expectedKeys.has(canonicalKey(rotations, p.row.h, p.row.k, p.row.l))).map((p) => canonicalKey(apart, p.row.h, p.row.k, p.row.l))).size;
 
   // Resolution shells: equal-count in d, low angle (large d) first. The edges
   // are midpoints between neighbouring shells, applied to the expected list too.
   const byD = [...prepared].sort((a, b) => b.d - a.d);
   const runs = equalCountRuns(byD, input.shellCount ?? 8, (p) => p.d);
+  const measured = input.measurement?.map((m) => ({ m, d: roundD(dSpacing(cell, m.h, m.k, m.l)) })).filter((x) => Number.isFinite(x.d));
   const shells: ResolutionShell[] = runs.map((run, j) => {
     const upper = j === 0 ? Infinity : (runs[j - 1]![runs[j - 1]!.length - 1]!.d + run[0]!.d) / 2;
     const lower = j === runs.length - 1 ? 0 : (run[run.length - 1]!.d + runs[j + 1]![0]!.d) / 2;
@@ -234,7 +252,10 @@ export function singleCrystalValidation(input: ScValidationInput): ScValidation 
     const inShell = expected?.filter((e) => e.d < upper && e.d >= lower);
     const shellExpected = inShell ? new Set(inShell.map((e) => e.key)) : undefined;
     const seen = shellExpected ? [...keys].filter((k) => shellExpected.has(k)).length : 0;
-    const merged = mergeEquivalents(run.map((p) => ({ h: p.row.h, k: p.row.k, l: p.row.l, intensity: p.row.foSq, sigma: p.s })), spaceGroup.operations);
+    const merged = mergeEquivalents(
+      measured ? measured.filter((x) => x.d < upper && x.d >= lower).map((x) => x.m) : run.map((p) => ({ h: p.row.h, k: p.row.k, l: p.row.l, intensity: p.row.foSq, sigma: p.s })),
+      spaceGroup.operations,
+    );
     const st = binStats(run);
     return {
       dMax: run[0]!.d,
@@ -312,8 +333,9 @@ export function singleCrystalValidation(input: ScValidationInput): ScValidation 
     ...(observedAllowed !== undefined ? { uniqueAllowed: observedAllowed } : {}),
     ...(expected ? { uniqueExpected: expectedKeys!.size } : {}),
     ...(expected && expectedKeys!.size > 0 ? { completeness: observedAllowed! / expectedKeys!.size } : {}),
+    independent,
     // Per parameter, the reflections that carry the structure: a forbidden one's Fc is 0 whatever the model.
-    reflectionsPerParameter: nParams > 0 ? (observedAllowed ?? uniqueObserved) / nParams : Infinity,
+    reflectionsPerParameter: nParams > 0 ? independent / nParams : Infinity,
     centrosymmetric,
     extinction,
     ...(goofWithoutStrongest !== undefined ? { goofWithoutStrongest } : {}),

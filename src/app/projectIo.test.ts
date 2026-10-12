@@ -218,12 +218,12 @@ describe("single-crystal capture / restore", () => {
     const omitted = [{ h: 5, k: 4, l: 1, batch: 24, reason: "9 equivalents agree with Fc²" }, { h: 3, k: 4, l: 2 }];
     const riding = [
       { site: "H1", parent: "C1", geometry: "aromatic" as const, neighbours: [{ label: "C2", op: 0, cell: [0, 0, 0] as [number, number, number] }, { label: "C6", op: 1, cell: [1, 0, -1] as [number, number, number] }], distance: 0.95, uFactor: 1.2 },
-      { site: "H7A", parent: "C7", geometry: "fixed" as const, offset: [0.05, -0.02, 0.07] as [number, number, number], uFactor: 1.5 },
+      { site: "H7A", parent: "C7", geometry: "fixed" as const, offset: [0.05, -0.02, 0.07] as [number, number, number], uFactor: 1.5, uShared: "1" },
     ];
     const ws = singleCrystalWorkspaceFrom({
       dataset, magneticDataset: null, probe: "neutron-tof",
       params: spec.params, bindings: spec.bindings, result: null, magnetic: null,
-      filterOn: true, cutoffSigma: 20, minExtinction: 0.5, omitted, extinctionModel: "bc-1-lorentzian", resolution: { dMax: 0.6 }, riding, weighting: { a: 0.0362, b: 0.7686 },
+      filterOn: true, cutoffSigma: 20, minExtinction: 0.5, omitted, extinctionModel: "bc-1-lorentzian", resolution: { dMax: 0.6 }, riding, weighting: { a: 0.0362, b: 0.7686 }, inverted: true,
       modulated: modulatedInputsFrom(modulatedHypothesisFrom({ kText: ["0", "0", "0"], ionState: {}, moment: 1, seed: 1, restarts: 8 })),
     });
     const file = roundTrip(projectFileFor({ structures: [structure], workspace: ws, title: "sc" }));
@@ -234,6 +234,9 @@ describe("single-crystal capture / restore", () => {
     expect(file.workspace.resolution).toEqual({ dMax: 0.6 });
     expect(file.workspace.riding).toEqual(riding);
     expect(file.workspace.weighting).toEqual({ a: 0.0362, b: 0.7686 });
+    // The model inverted on the page (invert_structure) reopens inverted.
+    expect(file.workspace.inverted).toBe(true);
+    expect(() => roundTrip(projectFileFor({ structures: [structure], workspace: { ...ws, inverted: "yes" as never }, title: "sc" }))).toThrow(/inverted/);
     expect(() => roundTrip(projectFileFor({ structures: [structure], workspace: { ...ws, weighting: { a: -0.1, b: 0 } }, title: "sc" }))).toThrow(/weighting\.a/);
     // A rule that cannot place its hydrogen is refused on load.
     expect(() => roundTrip(projectFileFor({ structures: [structure], workspace: { ...ws, riding: [{ site: "H1", parent: "C1", geometry: "aromatic", uFactor: 1.2 }] }, title: "sc" }))).toThrow(/riding\[0\]/);
@@ -243,7 +246,7 @@ describe("single-crystal capture / restore", () => {
       filterOn: false, cutoffSigma: 6, omitted: [], extinctionModel: "shelx", resolution: {},
       modulated: modulatedInputsFrom(modulatedHypothesisFrom({ kText: ["0", "0", "0"], ionState: {}, moment: 1, seed: 1, restarts: 8 })),
     });
-    expect("omitted" in plain || "extinctionModel" in plain || "resolution" in plain || "riding" in plain || "weighting" in plain).toBe(false);
+    expect("omitted" in plain || "extinctionModel" in plain || "resolution" in plain || "riding" in plain || "weighting" in plain || "inverted" in plain).toBe(false);
     // A model the app does not know is refused on load.
     expect(() => roundTrip(projectFileFor({ structures: [structure], workspace: { ...ws, extinctionModel: "zachariasen" as never }, title: "sc" }))).toThrow(/extinctionModel/);
   });

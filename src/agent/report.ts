@@ -22,7 +22,8 @@ import type { AgentPage } from "@/agent/tools";
 import { RULES, methodProgress, stagesCovered, stagesFor, stagesLeft, type AgentRecord } from "@/agent/method";
 import { differenceSentences, readPosterior, type PosteriorRun } from "@/agent/posteriorTool";
 import type { UnitCell } from "@/core/crystal/types";
-import type { ExtinctionModel, OmittedMeasurement, ResolutionRange } from "@/core/diffraction/types";
+import { isInversion, type ExtinctionModel, type OmittedMeasurement, type ResolutionRange, type TwinLaw } from "@/core/diffraction/types";
+import { improper } from "@/core/workflow/singleCrystalRefinement";
 import { EIGHT_PI_SQUARED, uEquivalent } from "@/core/crystal/adp";
 import { EXTINCTION_MODEL_LABELS, EXTINCTION_PARAMETER_LABELS } from "@/core/diffraction/singleCrystalFactors";
 import { withEsd } from "@/agent/structureTable";
@@ -117,6 +118,48 @@ interface ScStepFields {
   readonly omitted?: readonly OmittedMeasurement[];
   readonly outlierFilter?: { readonly on: boolean; readonly cutoffSigma: number; readonly minExtinction?: number };
   readonly adpModel?: "isotropic" | "anisotropic";
+  readonly twinLaws?: readonly TwinLaw[];
+  readonly inverted?: boolean;
+  readonly weighting?: { readonly a: number; readonly b: number };
+}
+
+/** A step's twin model in a few words: untwinned, the inversion twin, or the domains (both hands when one is inverted). */
+function twinWords(laws: readonly TwinLaw[] | undefined): string {
+  if (!laws?.length) return "untwinned";
+  if (laws.length === 1 && isInversion(laws[0]!)) return "inversion twin";
+  return `${laws.length + 1} twin domains${laws.some((l) => improper(l.matrix)) ? " of both hands" : ""}`;
+}
+
+/** "H11A 0.088(8)", "H11B 0.088(8)", … as one entry, "H11A…H15C 0.088(8)": a run of sites with one value (a shared U). */
+function runsOf(entries: readonly string[]): string[] {
+  const out: string[] = [];
+  let i = 0;
+  while (i < entries.length) {
+    const [label, value] = [entries[i]!.slice(0, entries[i]!.indexOf(" ")), entries[i]!.slice(entries[i]!.indexOf(" ") + 1)];
+    let j = i + 1;
+    while (j < entries.length && entries[j]!.slice(entries[j]!.indexOf(" ") + 1) === value) j++;
+    // Two sites that happen to agree stay two entries; a run of three or more is one (a shared U, a group).
+    if (j - i > 2) out.push(`${label}…${entries[j - 1]!.slice(0, entries[j - 1]!.indexOf(" "))} ${value} (${j - i} sites)`);
+    else out.push(...entries.slice(i, j));
+    i = j;
+  }
+  return out;
+}
+
+/** The ADP model a refinement kept as loaded, named: the values refine, the model (anisotropic or isotropic per atom) is the file's. */
+function loadedAdpWords(params: readonly { kind: string; fixed?: boolean; expression?: unknown }[]): string {
+  const aniso = params.some((p) => p.kind === "uAniso");
+  // A riding hydrogen's U_iso follows its parent (held, or tied to it): only a refined U_iso makes the model mixed.
+  const iso = params.some((p) => p.kind === "bIso" && !p.fixed && !p.expression);
+  return `${aniso && iso ? "anisotropic and isotropic" : aniso ? "anisotropic" : "isotropic"} ADPs as loaded`;
+}
+
+/** A step's U_eq in a line: every site of a small structure; of a large one, the first six (the heavy atoms, as a structure file lists them) and the others' range. */
+function ueqText(entries: readonly string[]): string {
+  if (entries.length <= 12) return entries.join(", ");
+  // The value is each entry's second word ("C12 0.050(4)", "H11A…H15C 0.082(7) (15 sites)").
+  const values = entries.slice(6).map((e) => Number.parseFloat(e.split(" ")[1] ?? "")).filter(Number.isFinite);
+  return `${entries.slice(0, 6).join(", ")}; the other ${entries.length - 6} entries${values.length ? ` ${Math.min(...values).toFixed(3)}–${Math.max(...values).toFixed(3)}` : ""}`;
 }
 
 /** Each site's U_eq (Å²) with its esd, from a step's parameters: Σ c·basis over its tensor modes, or B/8π². */
@@ -156,39 +199,48 @@ function stepUeq(params: readonly RefinementParameter[], bindings: readonly Para
  */
 export function comparedRefinements(history: ProjectHistory | null, cell: UnitCell, rowOf: ReadonlyMap<string, number>): ReportCheck | null {
   if (!history) return null;
-  const last = new Map<string, string>();
+  const last = new Map<string, { text: string; weights: string }>();
   for (const st of lineage(history)) {
     if (st.kind !== "refine" || st.summary.status !== "converged") continue;
     const ws = st.workspace as ScStepFields;
     const params = ws.refinement?.parameters ?? [];
     if (!params.some((p) => !p.fixed && !p.expression && (p.kind === "bIso" || p.kind === "uAniso"))) continue;
-    const model = ws.extinctionModel ?? "shelx";
+    const ext = params.find((p) => p.kind === "extinction");
+    // An extinction held at 0 is none, whichever model would refine it (a listing's).
+    const model = ext && (!ext.fixed || ext.value !== 0) ? ws.extinctionModel ?? "shelx" : null;
     const range = ws.resolution ?? {};
     const filter = ws.outlierFilter?.on ? ws.outlierFilter : undefined;
     const omitted = ws.omitted?.length ?? 0;
-    const key = JSON.stringify([model, range.dMin ?? null, range.dMax ?? null, omitted, filter?.cutoffSigma ?? null, filter?.minExtinction ?? null, ws.adpModel ?? "cif"]);
+    const twin = twinWords(ws.twinLaws);
+    // wR2 and GooF are sums under the weights: refinements under other weights are other conditions.
+    const weights = ws.weighting && (ws.weighting.a > 0 || ws.weighting.b > 0) ? `WGHT ${ws.weighting.a} ${ws.weighting.b}` : "w = 1/σ²";
+    const key = JSON.stringify([model, range.dMin ?? null, range.dMax ?? null, omitted, filter?.cutoffSigma ?? null, filter?.minExtinction ?? null, ws.adpModel ?? "cif", twin, ws.inverted ?? false, weights]);
     const conditions = [
-      EXTINCTION_MODEL_LABELS[model],
+      ...(ws.inverted ? ["the model inverted"] : []),
+      ...(ws.twinLaws?.length ? [twin] : []),
+      model ? EXTINCTION_MODEL_LABELS[model] : "no extinction",
       ...(range.dMin !== undefined || range.dMax !== undefined ? [`d ${range.dMax !== undefined ? `≤ ${range.dMax}` : ""}${range.dMin !== undefined && range.dMax !== undefined ? " and " : ""}${range.dMin !== undefined ? `≥ ${range.dMin}` : ""} Å`] : []),
       ...(filter ? [`filter |Δ|/σ > ${filter.cutoffSigma}${filter.minExtinction !== undefined ? ` or y < ${filter.minExtinction}` : ""}`] : []),
       ...(omitted ? [`${omitted} omitted`] : []),
-      ws.adpModel === "anisotropic" ? "anisotropic" : ws.adpModel === "isotropic" ? "isotropic" : "the CIF's ADPs",
+      ws.adpModel === "anisotropic" ? "anisotropic" : ws.adpModel === "isotropic" ? "isotropic" : loadedAdpWords(params),
+      weights,
     ].join(", ");
-    const ext = params.find((p) => p.kind === "extinction");
     const esd = ws.refinement?.lastResult?.esd ?? {};
-    const extText = ext ? `${EXTINCTION_PARAMETER_LABELS[model]} ${withEsd(ext.value, ext.fixed ? undefined : esd[ext.id], 6)}` : "no extinction";
+    const extText = model && ext ? `; ${EXTINCTION_PARAMETER_LABELS[model]} ${withEsd(ext.value, ext.fixed ? undefined : esd[ext.id], 6)}` : "";
     const row = rowOf.get(st.id);
     const stored = ws.refinement?.bindings;
     const bindings = Array.isArray(stored) ? stored : stored && "blob" in stored && Array.isArray(history.blobs[stored.blob]) ? (history.blobs[stored.blob] as ParameterBinding[]) : [];
-    const text = `${row !== undefined ? `step ${row}` : st.label}: ${conditions} — wR2 ${st.summary.wR !== undefined ? (100 * st.summary.wR).toFixed(2) : "—"} %, GooF ${st.summary.gof !== undefined ? st.summary.gof.toFixed(2) : "—"}; ${extText}; U_eq ${stepUeq(params, bindings, esd, cell).join(", ")} Å²`;
+    const text = `${row !== undefined ? `step ${row}` : st.label}: ${conditions} — wR2 ${st.summary.wR !== undefined ? (100 * st.summary.wR).toFixed(2) : "—"} %, GooF ${st.summary.gof !== undefined ? st.summary.gof.toFixed(2) : "—"}${extText}; U_eq ${ueqText(runsOf(stepUeq(params, bindings, esd, cell)))} Å²`;
     last.delete(key);
-    last.set(key, text);
+    last.set(key, { text, weights });
   }
   if (last.size < 2) return null;
+  const entries = [...last.values()];
+  const mixed = new Set(entries.map((e) => e.weights)).size > 1;
   return {
     name: "Refinements compared",
     status: "note",
-    detail: `The last converged refinement under each set of conditions, the ADPs free: ${[...last.values()].join("; ")}.`,
+    detail: `The last converged refinement under each set of conditions, the ADPs free${mixed ? " (wR2 and GooF compare only under the same weights)" : ""}: ${entries.map((e) => e.text).join("; ")}.`,
   };
 }
 

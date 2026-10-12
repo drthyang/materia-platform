@@ -115,6 +115,21 @@ C1 0.026 0.022 0.027 -0.003 0.006 0.002
     expect(check(buildSingleCrystalRefinementProblem(structure, dataset, params, spec.bindings))).toBeGreaterThanOrEqual(30);
   });
 
+  it("carries a shared hydrogen U (SHELXL's free variable) to every hydrogen it holds, and none of them follows its parent's U", () => {
+    const base = hydrogenFragment();
+    const { rules } = ridingRules(base, { sharedU: [["methyl"]] });
+    const structure = { ...base, riding: rules };
+    const radiation = { kind: "xray" as const, wavelength: 0.71073, polarization: 0.5 };
+    const dataset = { id: "f", name: "f", radiation, reflections: generateReflections(base.cell, base.spaceGroup, 0.9, 20).map((r) => ({ h: r.h, k: r.k, l: r.l, iObs: 100, sigma: 3 })) };
+    const spec = buildSingleCrystalSpec(structure, dataset, { extinction: 0 });
+    const shared = spec.params.find((p) => p.id === "B_shared_1")!;
+    expect(shared).toMatchObject({ kind: "bIso", label: "H1A…H1C shared B (3 H)", fixed: true });
+    expect(spec.bindings.filter((b) => b.parameterId === "B_shared_1").map((b) => b.targetKey)).toEqual(["H1A", "H1B", "H1C"]);
+    // The parents' ADPs and the shared B free together: each column as its finite difference.
+    const params = spec.params.map((p) => ({ ...p, fixed: !(p.kind === "bIso" || p.kind === "uAniso") }));
+    expect(check(buildSingleCrystalRefinementProblem(structure, dataset, params, spec.bindings))).toBeGreaterThanOrEqual(5);
+  });
+
   it("differentiates DFIX and SADI rows after the data: a free hydride's, the heavy atoms', a riding hydrogen's", () => {
     const base = hydrogenFragment();
     const { rules } = ridingRules(base, { refine: ["H3'"] });

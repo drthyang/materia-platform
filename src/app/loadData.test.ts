@@ -239,6 +239,15 @@ describe("loadReflectionDataset — fixed-column .hkl and header-ordered .fcf", 
     expect(loaded.dataset.reflections[0]).toEqual({ h: 1, k: 2, l: 3, iObs: 1000, sigma: 20 });
   });
 
+  it("measures a SHELX file at the wavelength its structure file's CELL gives, as X-rays", () => {
+    // A .hkl or .fcf carries no radiation; a SHELX .ins/.res loaded as the structure does (CELL λ a b c …).
+    const loaded = loadReflectionDataset("   1   2   3  100.00    2.00   1\n", structure, "ds", "x.hkl", { wavelength: 0.71073 });
+    expect(loaded.dataset.radiation).toEqual({ kind: "xray", wavelength: 0.71073, polarization: 0.5 });
+    expect(loaded.radiationNamed).toBe("X-ray, λ 0.71073 Å, as the structure file's CELL gives it");
+    // Without it, the file's own default and no claim about the radiation.
+    expect(loadReflectionDataset("   1   2   3  100.00    2.00   1\n", structure, "ds", "x.hkl").radiationNamed).toBeUndefined();
+  });
+
   it("still reads a hand-edited free-format .hkl", () => {
     const loaded = loadReflectionDataset("1 0 0 253.71 3.42\n2 0 0 118.06 2.90\n", structure, "ds", "x.hkl");
     expect(loaded.kept).toBe(2);
@@ -280,7 +289,7 @@ _shelx_hkl_checksum   47345
       { h: 1, k: 2, l: 3, iObs: 10, sigma: 0.5 },
     ]);
     expect(loaded.dataset.radiation).toEqual({ kind: "xray", wavelength: 0.71073, polarization: 0.5 });
-    expect(loaded.radiationNamed).toBe("X-ray MoKα, λ 0.71073 Å");
+    expect(loaded.radiationNamed).toBe("X-ray MoKα, λ 0.71073 Å, as the CIF names it");
     expect(detectDataFormat({ text: cif, filename: "1b.cif" }).dataType).toBe("single-crystal");
   });
 });

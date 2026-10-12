@@ -200,7 +200,9 @@ describe("staged controller guards", () => {
     expect(k1!.fixed).toBe(false);
     expect(k2!.fixed).toBe(false);
     expect(k1!.value).toBeCloseTo(0.5, 1);
-    expect(k2!.value).toBeCloseTo(k1!.value, 6);
+    // Equal as the data have them, to what rounding leaves along the direction
+    // that parts them, which no measurement fixes (a few 10⁻⁶ here).
+    expect(k2!.value).toBeCloseTo(k1!.value, 4);
     expect(wrOf(build, out.parameters)).toBeCloseTo(out.final!.agreement.rWeighted!, 12);
   });
 });

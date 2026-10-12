@@ -152,6 +152,13 @@ function checkStructure(v: unknown, path: string): void {
       str(r.assembly, `${dp}.assembly`);
       int(r.group, `${dp}.group`);
     });
+    opt(site.su, `${p}.su`, (u, up) => {
+      const r = rec(u, up);
+      vec3(r.position, `${up}.position`);
+      num(r.occupancy, `${up}.occupancy`);
+      num(r.uIso, `${up}.uIso`);
+      opt(r.uAniso, `${up}.uAniso`, vec6);
+    });
   });
 }
 
@@ -381,6 +388,7 @@ function checkSingleCrystalWorkspace(ws: Rec, path: string, ctx: PhaseContext): 
   checkRefinement(ws.refinement, `${path}.refinement`);
   opt(ws.magnetic, `${path}.magnetic`, checkMagnetic(ctx));
   opt(ws.adpModel, `${path}.adpModel`, oneOf(["isotropic", "anisotropic"] as const));
+  opt(ws.inverted, `${path}.inverted`, bool);
   if (ws.outlierFilter !== undefined && ws.outlierFilter !== null) {
     const f = rec(ws.outlierFilter, `${path}.outlierFilter`);
     bool(f.on, `${path}.outlierFilter.on`);
@@ -401,6 +409,7 @@ function checkSingleCrystalWorkspace(ws: Rec, path: string, ctx: PhaseContext): 
     str(r.parent, `${ip}.parent`);
     const geometry = oneOf(["aromatic", "methyl", "hydroxyl", "methylene", "methine", "fixed", "free"] as const)(r.geometry, `${ip}.geometry`);
     num(r.uFactor, `${ip}.uFactor`);
+    opt(r.uShared, `${ip}.uShared`, str);
     opt(r.distance, `${ip}.distance`, num);
     opt(r.offset, `${ip}.offset`, vec3);
     opt(r.torsion, `${ip}.torsion`, num);
@@ -417,6 +426,7 @@ function checkSingleCrystalWorkspace(ws: Rec, path: string, ctx: PhaseContext): 
     if (geometry !== "fixed" && geometry !== "free" && (r.distance === undefined || !Array.isArray(r.neighbours))) fail(ip, `a ${geometry} hydrogen needs its distance and the neighbours that place it`);
     if ((geometry === "methyl" || geometry === "hydroxyl") && (r.torsion === undefined || r.reference === undefined)) fail(ip, `a ${geometry} hydrogen needs its group's torsion and reference`);
   }));
+  opt(ws.merged, `${path}.merged`, bool);
   opt(ws.restraints, `${path}.restraints`, (v, p) => each(v, p, (item, ip) => {
     const r = rec(item, ip);
     const kind = oneOf(["dfix", "sadi"] as const)(r.kind, `${ip}.kind`);

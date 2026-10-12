@@ -236,7 +236,7 @@ export function singleCrystalChecks(input: SingleCrystalCheckInput): ValidationV
   const need = v.centrosymmetric ? 10 : 8;
   const ratio = v.reflectionsPerParameter;
   checks.push(ratio >= need
-    ? { id: "data-parameter", status: "ok", title: `${fmt(ratio, 1)} reflections per parameter`, detail: `${v.uniqueAllowed ?? v.uniqueObserved} unique allowed; checkCIF asks ≥ ${need} for a ${v.centrosymmetric ? "centrosymmetric" : "non-centrosymmetric"} group` }
+    ? { id: "data-parameter", status: "ok", title: `${fmt(ratio, 1)} reflections per parameter`, detail: `${v.independent} independent reflections${v.independent > (v.uniqueAllowed ?? v.uniqueObserved) ? " (the Friedel pairs apart, as SHELXL counts them)" : ""}; checkCIF asks ≥ ${need} for a ${v.centrosymmetric ? "centrosymmetric" : "non-centrosymmetric"} group` }
     : { id: "data-parameter", status: "warn", title: `Only ${fmt(ratio, 1)} reflections per parameter`, detail: `checkCIF asks ≥ ${need}: free fewer parameters or add restraints` });
 
   if (v.completeness !== undefined) {

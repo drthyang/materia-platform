@@ -5,7 +5,7 @@
  *
  * Calculated F² for one reflection:
  *   Fc² = k · y(ext) · |F|²
- * with k the overall scale (SHELX OSF, applied to F²) and y the extinction
+ * with k the overall scale on F² (SHELXL's OSF squared: OSF scales F) and y the extinction
  * correction (SHELXL's EXTI, or Becker–Coppens as GSAS-II applies it). The observed Fo² come Lorentz-, polarization- and
  * absorption-corrected from data reduction, as every single-crystal program
  * takes them; unlike powder there is no multiplicity or profile — each
@@ -151,19 +151,25 @@ export function extinctionFactorFor(
     : beckerCoppensFactor(model, x, fSquared, radiation, d, volume, at);
 }
 
-/** SHELX WGHT weights w = 1/[σ²(Fo²) + (aP)² + bP], P = [max(Fo²,0)+2Fc²]/3. */
+/**
+ * SHELX WGHT weights w = 1/[σ²(Fo²) + (aP)² + bP], P = [max(Fo²,0)+2Fc²]/3.
+ * SHELXL states a and b on the absolute scale (Fc² in electrons², Fo² divided
+ * by its scale), so for data on the scale `scale` (Fc² here = scale·|F|²) the
+ * b term is scale·b·P; the a term does not depend on the scale.
+ */
 export function shelxWeights(
   foSq: readonly number[],
   fcSq: readonly number[],
   sigma: readonly number[],
   a = 0,
   b = 0,
+  scale = 1,
 ): Float64Array {
   const w = new Float64Array(foSq.length);
   for (let i = 0; i < foSq.length; i++) {
     const P = (Math.max(foSq[i]!, 0) + 2 * fcSq[i]!) / 3;
     const s = sigma[i] ?? 0;
-    const denom = s * s + (a * P) * (a * P) + b * P;
+    const denom = s * s + (a * P) * (a * P) + b * scale * P;
     w[i] = denom > 0 ? 1 / denom : (s > 0 ? 1 / (s * s) : 1);
   }
   return w;
@@ -173,20 +179,27 @@ export interface WeightingSuggestion {
   /** WGHT a and b, rounded as SHELXL prints them. */
   readonly a: number;
   readonly b: number;
-  /** GooF with them. */
+  /** GooF with them, over N − P. */
   readonly goof: number;
-  /** GooF by bin of Fc² (equal counts, weakest first) with them: the analysis of variance they flatten. */
+  /** GooF by bin of Fc² (equal counts, weakest first) with them, each over its own reflections as SHELXL's analysis of variance gives it: what they flatten. */
   readonly bins: readonly number[];
 }
 
 /**
- * The weighting scheme SHELXL suggests at the end of a run: the WGHT a and b
- * that make the analysis of variance flat — GooF near 1 in every bin of
- * Fc/Fc(max) — for the model as it stands. For each a on a grid, b ≥ 0 sets
- * the overall GooF to 1; the a whose bins scatter least about 1 is taken.
- * Fitted to a model, it absorbs that model's errors into the weights: it is
- * the last step of a refinement, not a way to a better one. A fit whose GooF
- * is at or below 1 with σ alone keeps a = b = 0.
+ * The weighting scheme SHELXL suggests at the end of a run, by its criterion:
+ * the WGHT a and b that bring the analysis of variance flat at 1 — in each of
+ * `binCount` bins of Fc² (equal counts) GooF_bin = √(Σw(Fo²−Fc²)²/n_bin), the
+ * sum of (GooF_bin − 1)² least. Nothing holds the overall GooF at 1: over
+ * N − P it settles near √(N/(N−P)), as SHELXL's converged suggestions leave
+ * it (3a's WGHT 0.0374 0.6277 suggests itself again at GooF 1.058). SHELXL
+ * searches a coarse grid and stops in the criterion's shallow valley, a few
+ * thousandths off in a and up to about 0.2 in b (from SHELXL's own listings:
+ * 1b 0.0277 0.2519 where this gives 0.0259 0.313, 3a 0.0374 0.6277 for
+ * 0.0370 0.668); this finds the valley's bottom. Fitted to a model, it
+ * absorbs that model's errors into the weights: it is the last step of a
+ * refinement, not a way to a better one. Data whose bins all read GooF ≤ 1
+ * with σ alone keep a = b = 0. b is on SHELXL's absolute scale: for data on
+ * the scale `scale` (see shelxWeights) the b term is scale·b·P.
  */
 export function suggestShelxWeighting(
   foSq: readonly number[],
@@ -194,6 +207,7 @@ export function suggestShelxWeighting(
   sigma: readonly number[],
   nParams: number,
   binCount = 10,
+  scale = 1,
 ): WeightingSuggestion {
   const n = foSq.length;
   const dof = Math.max(n - nParams, 1);
@@ -211,48 +225,58 @@ export function suggestShelxWeighting(
   const chi2 = (a: number, b: number, idx?: readonly number[]): number => {
     let sum = 0;
     const one = (i: number): void => {
-      const v = s2[i]! + a * a * p[i]! * p[i]! + b * p[i]!;
+      const v = s2[i]! + a * a * p[i]! * p[i]! + b * scale * p[i]!;
       sum += v > 0 ? d2[i]! / v : 0;
     };
     if (idx) for (const i of idx) one(i);
     else for (let i = 0; i < n; i++) one(i);
     return sum;
   };
-  // b ≥ 0 that sets the overall GooF² to 1 for this a (GooF falls as b grows).
-  const bFor = (a: number): number => {
-    if (chi2(a, 0) / dof <= 1) return 0;
-    let mean = 0;
-    for (let i = 0; i < n; i++) mean += p[i]!;
-    mean = Math.max(mean / Math.max(n, 1), 1e-12);
-    let hi = mean * 1e-6;
-    for (let k = 0; k < 80 && chi2(a, hi) / dof > 1; k++) hi *= 2;
-    let lo = 0;
-    for (let k = 0; k < 60; k++) {
-      const mid = (lo + hi) / 2;
-      if (chi2(a, mid) / dof > 1) lo = mid;
-      else hi = mid;
+  // SHELXL's analysis of variance: each bin's GooF over its own reflections.
+  const binGoof = (a: number, b: number): number[] => bins.map((idx) => Math.sqrt(chi2(a, b, idx) / Math.max(idx.length, 1)));
+  const cost = (a: number, b: number): number => binGoof(a, b).reduce((sum, g) => sum + (g - 1) ** 2, 0);
+  const result = (a: number, b: number): WeightingSuggestion => ({ a, b, goof: n ? Math.sqrt(chi2(a, b) / dof) : 0, bins: n ? binGoof(a, b) : [] });
+  if (n === 0 || binGoof(0, 0).every((g) => g <= 1)) return result(0, 0);
+  // Every bin's GooF falls as b grows: the b that brings them all to 1 or below (a = 0) bounds b for every a.
+  let mean = 0;
+  for (let i = 0; i < n; i++) mean += p[i]!;
+  mean = Math.max(mean / n / scale, 1e-12);
+  let hi = mean * 1e-6;
+  for (let k = 0; k < 200 && binGoof(0, hi).some((g) => g > 1); k++) hi *= 2;
+  // For one a, the best b ≥ 0: a scan of [0, hi], then a golden section about its best.
+  const bestB = (a: number): { a: number; b: number; cost: number } => {
+    const steps = 32;
+    let j = 0;
+    let c = cost(a, 0);
+    for (let k = 1; k <= steps; k++) {
+      const ck = cost(a, (hi * k) / steps);
+      if (ck < c) [j, c] = [k, ck];
     }
-    return hi;
+    let lo = (hi * Math.max(j - 1, 0)) / steps;
+    let up = (hi * Math.min(j + 1, steps)) / steps;
+    for (let k = 0; k < 40; k++) {
+      const m1 = lo + 0.381966 * (up - lo);
+      const m2 = up - 0.381966 * (up - lo);
+      if (cost(a, m1) <= cost(a, m2)) up = m2;
+      else lo = m1;
+    }
+    const b = (lo + up) / 2;
+    const cb = cost(a, b);
+    return cb < c ? { a, b, cost: cb } : { a, b: (hi * j) / steps, cost: c };
   };
-  const binGoof = (a: number, b: number): number[] => bins.map((idx) => Math.sqrt((chi2(a, b, idx) / Math.max(idx.length, 1)) * (n / dof)));
-  const cost = (a: number): { a: number; b: number; cost: number } => {
-    const b = bFor(a);
-    return { a, b, cost: binGoof(a, b).reduce((sum, g) => sum + (g * g - 1) ** 2, 0) };
-  };
-  if (n === 0 || chi2(0, 0) / dof <= 1) return { a: 0, b: 0, goof: n ? Math.sqrt(chi2(0, 0) / dof) : 0, bins: n ? binGoof(0, 0) : [] };
-  let best = cost(0);
+  let best = bestB(0);
   for (let a = 0.002; a <= 0.3 + 1e-12; a += 0.002) {
-    const c = cost(a);
-    if (c.cost < best.cost) best = c;
+    const t = bestB(a);
+    if (t.cost < best.cost) best = t;
   }
   const centre = best.a;
   for (let a = Math.max(0, centre - 0.002); a <= centre + 0.002 + 1e-12; a += 0.0001) {
-    const c = cost(a);
-    if (c.cost < best.cost) best = c;
+    const t = bestB(a);
+    if (t.cost < best.cost) best = t;
   }
   const a = Math.round(best.a * 1e4) / 1e4;
   const b = best.b > 0 ? Number(best.b.toPrecision(4)) : 0;
-  return { a, b, goof: Math.sqrt(chi2(a, b) / dof), bins: binGoof(a, b) };
+  return result(a, b);
 }
 
 export interface SingleCrystalAgreement {

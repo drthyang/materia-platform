@@ -553,20 +553,25 @@ export const honestAboutListing: Check = {
 
 /**
  * SHELXL's weights set last: after every change of the model (ADPs, riding,
- * extinction, radiation), then refined, ending with GooF near 1 (round 2:
- * dipyridyl reported with w = 1/σ², GooF 2.35 against SHELXL's 1.041).
+ * extinction, radiation, the twin, the hand), then refined, ending with GooF
+ * near 1 (round 2: dipyridyl reported with w = 1/σ², GooF 2.35 against
+ * SHELXL's 1.041; round 4: 3a's weights, fitted to the model in P6₁, kept
+ * for its inverse in P6₅, GooF 0.889). Weights set earlier, to compare
+ * models under one scheme, are set again for the final one.
  */
 export const weightsLast: Check = {
   name: "sets the weighting scheme last, once the model is complete, and refines with it",
   grade: (run) => {
     const all = calls(run);
-    const modelChange = (c: (typeof all)[number]): boolean => !c.isError && ["set_adp_model", "set_riding_hydrogens", "set_extinction_model", "set_radiation"].includes(c.name);
+    const modelChange = (c: (typeof all)[number]): boolean => !c.isError && ["set_adp_model", "set_riding_hydrogens", "set_extinction_model", "set_radiation", "set_twin", "invert_structure"].includes(c.name);
     const weighting = (c: (typeof all)[number]): boolean => c.name === "set_weighting" && !c.isError && c.input.use !== "sigma";
-    const first = all.findIndex(weighting);
-    if (first < 0) return fail("never set a weighting scheme");
-    const lastChange = all.reduce((at, c, i) => (modelChange(c) ? i : at), -1);
-    if (lastChange > first) return fail(`set the weights before ${all[lastChange]!.name}`);
-    const refined = all.some((c, i) => i > first && c.name === "refine" && json(c.text)?.refined === true);
+    const last = all.reduce((at, c, i) => (weighting(c) ? i : at), -1);
+    if (last < 0) return fail("never set a weighting scheme");
+    // An even number of inversions after the weights comes back to the model they were set for: the other hand only tested.
+    const inversionsAfter = all.filter((c, i) => i > last && c.name === "invert_structure" && !c.isError).length;
+    const lastChange = all.reduce((at, c, i) => (modelChange(c) && !(c.name === "invert_structure" && i > last && inversionsAfter % 2 === 0) ? i : at), -1);
+    if (lastChange > last) return fail(`set the weights before ${all[lastChange]!.name}`);
+    const refined = all.some((c, i) => i > last && c.name === "refine" && json(c.text)?.refined === true);
     if (!refined) return fail("did not refine with the weights");
     const s = scState(run);
     if (!s?.weighting) return fail("ends with w = 1/σ²");
@@ -575,3 +580,154 @@ export const weightsLast: Check = {
   },
 };
 
+
+/**
+ * A measurement with its equivalents is merged as SHELXL merges it before the
+ * first refinement (round 3: 1b's CIF carries 13169 measurements, which SHELXL
+ * refines as 2482 reflections; R1, wR2 and GooF are only SHELXL's on those).
+ */
+export const mergesFirst: Check = {
+  name: "merges the equivalents (SHELXL's MERG 2) before the first refinement",
+  grade: (run) => {
+    const all = calls(run);
+    const merge = all.findIndex((c) => c.name === "merge_equivalents" && !c.isError && c.input.on === true);
+    const refine = all.findIndex((c) => c.name === "refine");
+    if (merge < 0) return fail("never merged the equivalents");
+    if (refine >= 0 && refine < merge) return fail("refined every measurement before merging");
+    return scState(run)?.dataset.merged ? ok(`merged ${scState(run)!.dataset.merged!.from} measurements before refining`) : fail("ends unmerged");
+  },
+};
+
+/**
+ * A non-centrosymmetric X-ray structure with an anomalous scatterer and its
+ * Friedel pairs measured refines the inversion twin, and the Flack x is
+ * reported with its esd (round 3: 1b is an inversion twin, x = 0.435(15)).
+ */
+export const refinesFlack: Check = {
+  name: "refines the inversion twin and reports the Flack x with its esd",
+  grade: (run) => {
+    const all = calls(run);
+    const twin = all.findIndex((c) => c.name === "set_twin" && !c.isError && c.input.law === "inversion");
+    if (twin < 0) return fail("never set the inversion twin");
+    const refined = all.some((c, i) => i > twin && c.name === "refine" && json(c.text)?.refined === true && (c.free ?? []).includes("twin_1"));
+    if (!refined) return fail("never refined the twin fraction");
+    const fit = scState(run)?.result;
+    const x = fit?.parameters.twin_1;
+    const esd = fit?.esd.twin_1;
+    if (x === undefined || esd === undefined) return fail("ends with no refined Flack x on screen");
+    // The x quoted with its esd, as the engine has it: within its esd, or the rounding of the digits quoted.
+    const quoted = sentences(replies(run).join("\n")).filter((t) => /Flack/i.test(t)).flatMap((t) => [...t.matchAll(/(\d\.(\d+))\(\d+\)/g)].map((m) => ({ t, v: Number(m[1]), digits: m[2]!.length })));
+    if (quoted.length === 0) return fail("never reports the Flack x with its esd");
+    const right = quoted.find((q) => Math.abs(q.v - x) <= Math.max(esd, 0.51 * 10 ** -q.digits));
+    return right
+      ? ok(`reports "${right.t.slice(0, 80)}" (the engine's x ${x.toFixed(4)}, esd ${esd.toFixed(4)})`)
+      : fail(`quotes x = ${quoted[0]!.v}, where the engine's is ${x.toFixed(4)} (esd ${esd.toFixed(4)})`);
+  },
+};
+
+/**
+ * The extinction stays out of a fit to a refinement's listing (round 4: 3a's
+ * LIST 4 .fcf has SHELXL's EXTI divided out of its Fo², and the page entered
+ * the extinction free, as it does for measured data): refining it would
+ * correct twice.
+ */
+export const holdsListingExtinction: Check = {
+  name: "keeps the extinction out of a fit to a refinement's listing",
+  grade: (run) => {
+    const all = calls(run);
+    const freed = all.find((c) => c.name === "refine" && json(c.text)?.refined === true && (c.free ?? []).includes("extinction"));
+    if (freed) return fail("refined the extinction against a listing whose Fo² have it divided out");
+    const ext = scState(run)?.parameters.find((p) => p.kind === "extinction");
+    if (ext && ext.value !== 0) return fail(`ends with the extinction at ${ext.value}`);
+    return all.some((c) => c.name === "refine" && json(c.text)?.refined === true) ? ok("refined with the extinction held at 0") : fail("never refined");
+  },
+};
+
+/**
+ * A merohedral twin the intensities show is set before the structure refines
+ * (round 5: 2b came with SHELXL's TWIN taken out; refined without it, R1
+ * stalled at 15 %, while ⟨|E²−1|⟩ and Yeates' H-test read the twin before any
+ * model). The law set must be the crystal's: its fraction refines near the
+ * truth (0.45 on the eval's page).
+ */
+export const twinFromData: Check = {
+  name: "sets the merohedral twin the data read before refining the structure",
+  grade: (run) => {
+    const all = calls(run);
+    const stats = all.findIndex((c) => c.name === "reflection_statistics" && !c.isError);
+    if (stats < 0) return fail("never read the data (reflection_statistics)");
+    const twin = all.findIndex((c) => c.name === "set_twin" && !c.isError && Array.isArray(c.input.law));
+    if (twin < 0) return fail("never set a merohedral twin law");
+    const early = all.findIndex((c, i) => i < twin && c.name === "refine" && json(c.text)?.refined === true && (c.free ?? []).some((id) => /^(pos_|U_|B_)/.test(id)));
+    if (early >= 0) return fail("refined the structure before setting the twin");
+    const fraction = scState(run)?.result?.parameters.twin_1;
+    if (fraction === undefined) return fail("never refined the twin fraction");
+    return Math.abs(fraction - 0.45) < 0.05 ? ok(`set the twin the data read; its fraction refined to ${fraction.toFixed(3)}`) : fail(`the twin fraction ends at ${fraction.toFixed(3)}: not the crystal's law`);
+  },
+};
+
+/**
+ * A model of the wrong hand is inverted (round 4: 3a's model, SHELXL's .ins, was the
+ * other enantiomer, x = 1.01(5) refined and 1.08(6) by Parsons' quotients):
+ * the hand tested, the model inverted (`invert_structure`), refined again,
+ * and the account says so. Quoting x near 1 and leaving the model as it is
+ * fails; so does never testing the hand.
+ */
+export const invertsWrongHand: Check = {
+  name: "inverts a model of the wrong hand and refines it again",
+  grade: (run) => {
+    const all = calls(run);
+    const tested = all.findIndex((c) => (c.name === "set_twin" && !c.isError && (c.input.law === "inversion" || c.input.withInversion === true)) || (c.name === "assess_refinement" && !c.isError && /parsonsX/.test(c.text)));
+    if (tested < 0) return fail("never tested the hand (no inversion twin, no Parsons' quotients read)");
+    const inverted = all.findIndex((c) => c.name === "invert_structure" && !c.isError);
+    if (inverted < 0) return fail("left the model in the hand the data reject");
+    const after = all.some((c, i) => i > inverted && c.name === "refine" && json(c.text)?.refined === true);
+    if (!after) return fail("inverted the model but never refined it again");
+    const s = scState(run);
+    if (!s?.inverted) return fail("ends with the model back in the hand the data reject");
+    // A remaining inversion twin's x must now read the model's hand.
+    const x = s.result?.parameters.twin_1;
+    const esd = s.result?.esd.twin_1;
+    if (s.twinLaws.length === 1 && x !== undefined && esd !== undefined && Math.abs(x) > 3 * esd + 0.05) return fail(`ends with x = ${x.toFixed(3)}(${esd.toFixed(3)}) after inverting`);
+    const said = asserted(run, /\b(invert|inverted|inversion of the model|enantiomer|enantiomorph|other hand)\b/i);
+    return said.length ? ok(`inverted the model, refined it again, and said so: "${said[0]!.slice(0, 80)}"`) : fail("inverted the model without saying so");
+  },
+};
+
+/**
+ * A disorder's two alternatives are tied as SHELXL ties them (the second
+ * occupancy one minus the first) before an occupancy refines (round 3: 1b's
+ * Al1/Ga1, 21/−21 with EADP).
+ */
+export const tiesDisorder: Check = {
+  name: "ties a disorder's occupancies to add up to one before refining them",
+  grade: (run) => {
+    const all = calls(run);
+    const tie = all.findIndex((c) => c.name === "tie_parameters" && !c.isError && Array.isArray(c.input.complement));
+    const occ = all.findIndex((c) => c.name === "refine" && json(c.text)?.refined === true && (c.free ?? []).some((id) => id.startsWith("occ_")));
+    if (occ < 0) return fail("never refined the split");
+    if (tie < 0 || tie > occ) return fail("refined the occupancies untied");
+    const s = scState(run);
+    return s?.parameters.some((p) => p.kind === "occupancy" && p.expression) ? ok("tied the split, then refined it") : fail("ends with the occupancies untied");
+  },
+};
+
+/**
+ * A hydride refined beside a heavy metal on X-ray data is held by distance
+ * restraints (round 3: 1b's five hydrides refined under 8 SADI).
+ */
+export const restrainsHydrides: Check = {
+  name: "restrains the hydrides whose positions refine",
+  grade: (run) => {
+    const all = calls(run);
+    const at = all.findIndex((c) => c.name === "refine" && json(c.text)?.refined === true && (c.free ?? []).some((id) => /^pos_H/.test(id)));
+    if (at < 0) return fail("never refined a hydrogen's position");
+    const freed = new Set((all[at]!.free ?? []).flatMap((id) => /^pos_(H.*)_[0-2]$/.exec(id)?.[1] ?? []));
+    // Every hydrogen whose position refines named in a restraint added before.
+    const held = new Set(all.slice(0, at)
+      .filter((c) => c.name === "restrain_distances" && !c.isError && Array.isArray(c.input.add))
+      .flatMap((c) => (c.input.add as { pairs?: unknown }[]).flatMap((r) => (Array.isArray(r.pairs) ? r.pairs : []).flatMap((p) => (Array.isArray(p) ? p.map(String) : [])))));
+    const loose = [...freed].filter((h) => !held.has(h));
+    return loose.length === 0 ? ok(`restrained ${[...freed].join(", ")}, then refined`) : fail(`refined ${loose.join(", ")} with no restraint on ${loose.length === 1 ? "it" : "them"}`);
+  },
+};

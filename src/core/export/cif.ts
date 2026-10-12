@@ -34,6 +34,7 @@ import { magneticCellGroup, type MagneticCellGroup } from "@/core/magnetic/super
 import { identifyMagneticGroupAnySetting } from "@/core/magnetic/bnsOg";
 import { classifyPropagation, describePropagation } from "@/core/magnetic/propagation";
 import { centringTranslations } from "@/core/crystal/symmetry";
+import { cellVolumeEsd } from "@/core/crystal/cellEsd";
 
 const EIGHT_PI2 = 8 * Math.PI * Math.PI;
 
@@ -55,6 +56,8 @@ export interface CifRefinementMeta {
   readonly nRestraints?: number;
   /** The Flack parameter with its esd, as printed (e.g. "0.435(15)"), → `_refine_ls_abs_structure_Flack`. */
   readonly flack?: string;
+  /** How the Flack x was determined, → `_refine_ls_abs_structure_details`. */
+  readonly absStructureDetails?: string;
 }
 
 export interface CifExportOptions {
@@ -77,6 +80,8 @@ export interface EsdMap {
   readonly occ: Map<string, number>;
   /** site label → [σx, σy, σz] on the fractional coordinates. */
   readonly pos: Map<string, [number, number, number]>;
+  /** site label → the su of U11, U22, U33, U12, U13, U23, from the refined U modes (taken as independent). */
+  readonly uAniso: Map<string, [number, number, number, number, number, number]>;
 }
 
 /**
@@ -93,10 +98,12 @@ export function buildEsdMap(params: readonly RefinementParameter[], bindings: re
   const bIso = new Map<string, number>();
   const occ = new Map<string, number>();
   const posVar = new Map<string, [number, number, number]>();
+  const uVar = new Map<string, [number, number, number, number, number, number]>();
 
   for (const b of bindings) {
     const p = byId.get(b.parameterId);
-    if (!p || p.fixed || p.esd === undefined || !(p.esd > 0)) continue;
+    // A tied row that carries an esd (its leader's, scaled) gives its site one, as SHELXL's Ga1 occupancy 0.156(2) under 21/−21.
+    if (!p || (p.fixed && !p.expression) || p.esd === undefined || !(p.esd > 0)) continue;
     const e = p.esd;
     if (b.kind === "cellLength" || b.kind === "cellAngle") {
       if (b.targetKey) cell[b.targetKey as keyof UnitCell] = e;
@@ -108,11 +115,17 @@ export function buildEsdMap(params: readonly RefinementParameter[], bindings: re
       const v = posVar.get(b.targetKey) ?? [0, 0, 0];
       for (let i = 0; i < 3; i++) v[i]! += (b.axis[i]! * e) ** 2;
       posVar.set(b.targetKey, v);
+    } else if (b.kind === "uAniso" && b.targetKey && b.uBasis) {
+      const v = uVar.get(b.targetKey) ?? [0, 0, 0, 0, 0, 0];
+      for (let i = 0; i < 6; i++) v[i]! += (b.uBasis[i]! * e) ** 2;
+      uVar.set(b.targetKey, v);
     }
   }
   const pos = new Map<string, [number, number, number]>();
   for (const [k, v] of posVar) pos.set(k, [Math.sqrt(v[0]!), Math.sqrt(v[1]!), Math.sqrt(v[2]!)]);
-  return { cell, bIso, occ, pos };
+  const uAniso = new Map<string, [number, number, number, number, number, number]>();
+  for (const [k, v] of uVar) uAniso.set(k, v.map(Math.sqrt) as [number, number, number, number, number, number]);
+  return { cell, bIso, occ, pos, uAniso };
 }
 
 /**
@@ -122,11 +135,13 @@ export function buildEsdMap(params: readonly RefinementParameter[], bindings: re
  */
 export function formatWithEsd(value: number, esd: number | undefined, decimals: number): string {
   if (esd === undefined || !Number.isFinite(esd) || esd <= 0) return value.toFixed(decimals);
-  let d = -Math.floor(Math.log10(esd)) + 1; // two significant figures of the su
+  // The convention SHELXL and the IUCr follow: two significant figures of the su
+  // when they read 10–19 in the last places, one otherwise (0.4293(9), 0.2400(10)).
+  let d = -Math.floor(Math.log10(esd)) + 1;
   if (d < 0) d = 0;
   let su = Math.round(esd * 10 ** d);
-  if (su >= 100) {
-    // Rounding pushed the su to three digits (e.g. 99.6 → 100); drop a place.
+  if (su >= 20) {
+    // One figure (a su of 9.5–9.9 rounds to 10: two figures again, which the convention allows).
     d = Math.max(0, d - 1);
     su = Math.round(esd * 10 ** d);
   }
@@ -201,21 +216,35 @@ function atomSiteBlocks(structure: StructureModel, esd: EsdMap): string {
     ],
     aniso.map((s) => {
       const u = (s.adp as { uAniso: readonly number[] }).uAniso;
-      return [s.label, ...u.map((v) => v.toFixed(5))];
+      const su = esd.uAniso.get(s.label);
+      return [s.label, ...u.map((v, i) => formatWithEsd(v, su?.[i], 5))];
     }),
   );
   return `${atomLoop}\n\n${anisoLoop}`;
 }
 
-function cellBlock(cell: UnitCell, esd: EsdMap): string {
+/**
+ * The cell's esds to print: the refined cell's, else the structure file's
+ * (SHELXL's ZERR, a CIF's su) for a cell held fixed, and the volume's from
+ * them, the lattice's equal lengths and angles moving together.
+ */
+export function cellEsdsOf(structure: StructureModel, esd: EsdMap): { readonly cell: Partial<Record<keyof UnitCell, number>>; readonly volume?: number } {
+  const cell = Object.keys(esd.cell).length > 0 ? esd.cell : structure.cellSu ?? {};
+  const volume = cellVolumeEsd(structure.cell, cell, structure.spaceGroup.operations);
+  return { cell, ...(volume !== undefined ? { volume } : {}) };
+}
+
+function cellBlock(structure: StructureModel, esd: EsdMap): string {
+  const cell = structure.cell;
+  const e = cellEsdsOf(structure, esd);
   return [
-    `_cell_length_a    ${formatWithEsd(cell.a, esd.cell.a, 5)}`,
-    `_cell_length_b    ${formatWithEsd(cell.b, esd.cell.b, 5)}`,
-    `_cell_length_c    ${formatWithEsd(cell.c, esd.cell.c, 5)}`,
-    `_cell_angle_alpha ${formatWithEsd(cell.alpha, esd.cell.alpha, 4)}`,
-    `_cell_angle_beta  ${formatWithEsd(cell.beta, esd.cell.beta, 4)}`,
-    `_cell_angle_gamma ${formatWithEsd(cell.gamma, esd.cell.gamma, 4)}`,
-    `_cell_volume      ${cellVolume(cell).toFixed(4)}`,
+    `_cell_length_a    ${formatWithEsd(cell.a, e.cell.a, 5)}`,
+    `_cell_length_b    ${formatWithEsd(cell.b, e.cell.b, 5)}`,
+    `_cell_length_c    ${formatWithEsd(cell.c, e.cell.c, 5)}`,
+    `_cell_angle_alpha ${formatWithEsd(cell.alpha, e.cell.alpha, 4)}`,
+    `_cell_angle_beta  ${formatWithEsd(cell.beta, e.cell.beta, 4)}`,
+    `_cell_angle_gamma ${formatWithEsd(cell.gamma, e.cell.gamma, 4)}`,
+    `_cell_volume      ${formatWithEsd(cellVolume(cell), e.volume, 4)}`,
   ].join("\n");
 }
 
@@ -236,6 +265,7 @@ function refinementBlock(meta: CifRefinementMeta | undefined): string {
   if (meta.nParam !== undefined) lines.push(`_refine_ls_number_parameters  ${meta.nParam}`);
   if (meta.nRestraints !== undefined) lines.push(`_refine_ls_number_restraints  ${meta.nRestraints}`);
   if (meta.flack !== undefined) lines.push(`_refine_ls_abs_structure_Flack ${meta.flack}`);
+  if (meta.absStructureDetails !== undefined) lines.push(`_refine_ls_abs_structure_details\n;\n${meta.absStructureDetails}\n;`);
   if (meta.rwp !== undefined) lines.push(`_refine_ls_wR_factor_obs      ${(meta.rwp / 100).toFixed(4)}`);
   if (meta.r1 !== undefined) lines.push(`_refine_ls_R_factor_gt        ${meta.r1.toFixed(4)}`);
   if (meta.wr2 !== undefined) lines.push(`_refine_ls_wR_factor_ref      ${meta.wr2.toFixed(4)}`);
@@ -257,7 +287,7 @@ export function structureToCif(structure: StructureModel, opts: CifExportOptions
     HEADER,
     `data_${block}`,
     `_pd_phase_name  '${structure.name}'`,
-    cellBlock(structure.cell, esd),
+    cellBlock(structure, esd),
     symmetryBlock(structure),
     refinementBlock(opts.refinement),
     atomSiteBlocks(structure, esd),
@@ -488,8 +518,10 @@ function mcifSupercell(
   }
   const labelOf = new Map<SupercellAtom, string>();
   for (const [parent, list] of byParent) list.forEach((a, i) => labelOf.set(a, list.length === 1 ? parent : `${parent}_${i + 1}`));
+  // The parent cell's esds do not carry to the supercell's lengths as given.
+  const { cellSu: _parentSu, ...parent } = structure;
   const supStructure: StructureModel = {
-    ...structure,
+    ...parent,
     cell: sup.cell,
     sites: group.asymmetricUnit.map((a) => ({ ...a.site, label: labelOf.get(a)! })),
     spaceGroup: { operations: group.operations },
@@ -512,7 +544,7 @@ function mcifSupercell(
     `data_${block}`,
     `_pd_phase_name  '${structure.name}'`,
     supercellProvenance(structure, k, sup.n),
-    cellBlock(sup.cell, noEsd),
+    cellBlock(supStructure, noEsd),
     magneticCellSymmetryBlock(group, sup.n),
     refinementBlock(opts.refinement),
     atomSiteBlocks(supStructure, noEsd),
@@ -557,7 +589,7 @@ export function magneticStructureToMcif(
       : []),
     `data_${block}`,
     `_pd_phase_name  '${structure.name}'`,
-    cellBlock(structure.cell, esd),
+    cellBlock(structure, esd),
     magneticSymopBlock(structure, magnetic, opts.magneticLabel),
     refinementBlock(opts.refinement),
     atomSiteBlocks(aug.structure, esd),

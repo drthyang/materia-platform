@@ -24,7 +24,7 @@ import { chiSquared, computeAgreementFactors } from "@/core/refinement/factors";
 import { resolveTies } from "@/core/refinement/constraints";
 import {
   pseudoInverseSymmetric,
-  solveSymmetricPseudoInverse,
+  shiftedPseudoInverseSolver,
   type Matrix,
   type SymmetricPseudoInverseResult,
 } from "@/core/math/linalg";
@@ -58,6 +58,15 @@ export interface RefinementProblem {
    * every observation.
    */
   readonly dataLength?: number;
+  /**
+   * Linear combinations of the free parameters whose esds the result reports
+   * (`combinationEsd`), from the full covariance: the esd of Σ cᵢpᵢ is
+   * √(cᵀ·C·c), not the cᵢσᵢ in quadrature — two fractions that trade against
+   * each other can sum to a far better determined value than either. The
+   * single-crystal problem names the Flack x of a twin with both hands (the
+   * inverted domains' fractions together). One with a fixed term is skipped.
+   */
+  readonly combinations?: readonly { readonly id: string; readonly terms: readonly { readonly id: string; readonly coefficient: number }[] }[];
 }
 
 const DEFAULT_OPTIONS: RefinementOptions = {
@@ -609,18 +618,16 @@ function* refineCore(
     }
 
     // LM damping on the (unit-diagonal) scaled system; retry with larger λ.
+    // Solve (D·JᵀJ·D + λI)·y = −D·Jᵀr with a truncated pseudo-inverse, then
+    // unscale Δp_j = y_j / s_j. The truncation removes near-null directions
+    // instead of letting a singular Hessian inject huge shifts. One
+    // eigen-decomposition serves every λ tried: A + λI has A's eigenvectors.
+    const solveDamped = shiftedPseudoInverseSolver(A, opts.svdTolerance ?? 1e-6);
+    const minusB = b.map((v) => -v);
     let stepAccepted = false;
     for (let attempt = 0; attempt < 15 && !stepAccepted; attempt++) {
       maxLambda = Math.max(maxLambda, lambda);
-      const damped: Matrix = A.map((row, i) => row.map((v, j) => (i === j ? v + lambda : v)));
-      // Solve (D·JᵀJ·D + λI)·y = −D·Jᵀr with a truncated pseudo-inverse,
-      // then unscale Δp_j = y_j / s_j. The truncation removes near-null
-      // directions instead of letting a singular Hessian inject huge shifts.
-      const { x: y, diagnostics: solveDiagnostics } = solveSymmetricPseudoInverse(
-        damped,
-        b.map((v) => -v),
-        opts.svdTolerance ?? 1e-6,
-      );
+      const { x: y, diagnostics: solveDiagnostics } = solveDamped(lambda, minusB);
       maxSolveZeroCount = Math.max(maxSolveZeroCount, solveDiagnostics.zeroCount);
       maxSolveConditionNumber = Math.max(maxSolveConditionNumber, solveDiagnostics.conditionNumber);
       for (const dropped of solveDiagnostics.droppedIndices) {
@@ -703,6 +710,15 @@ function* refineCore(
   );
   const esds = esdsFrom(covarianceBase, reducedChi);
   for (let j = 0; j < n; j++) esd[freeIds[j]!] = esds[j]!;
+  const combinationEsd: Record<string, number> = {};
+  for (const c of problem.combinations ?? []) {
+    const terms = c.terms.map((t) => ({ j: freeIds.indexOf(t.id), c: t.coefficient }));
+    if (terms.length === 0 || terms.some((t) => t.j < 0)) continue;
+    let variance = 0;
+    for (const a of terms) for (const b of terms) variance += a.c * b.c * covarianceBase[a.j]![b.j]!;
+    variance *= reducedChi;
+    if (variance > 0) combinationEsd[c.id] = Math.sqrt(variance);
+  }
   const agreement: AgreementFactors = dataAgreement(current.yCalc, n);
   // The last accepted step against the esds reported with it — unless the fit
   // is exact, where both are round-off and their ratio means nothing.
@@ -739,6 +755,7 @@ function* refineCore(
     status,
     parameters: finalValues,
     esd,
+    ...(Object.keys(combinationEsd).length > 0 ? { combinationEsd } : {}),
     agreement,
     history,
     diagnostics,

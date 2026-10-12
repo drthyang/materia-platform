@@ -27,6 +27,15 @@ import type {
 import { annotateExtraPeaks, detectExtraPeaks, type AnnotatedExtraPeak } from "@/core/magnetic/extraPeaks";
 import { correctionCorrelation } from "@/core/diffraction/corrections";
 
+/**
+ * The assembly of a twin's fractions when the twin has both hands (a
+ * merohedral law with the inversion, SHELXL's TWIN R −4): a domain and its
+ * inverse differ only by the anomalous signal, so their fractions trade by
+ * construction — SHELXL refines them together, and the sums (the Flack x, the
+ * law's fraction over both hands) are what the data determine.
+ */
+export const BOTH_HANDS = "\u0000both hands";
+
 export type Severity = "info" | "note" | "warning" | "critical";
 
 /** The order matters: higher index = more urgent, used for sorting findings. */
@@ -113,6 +122,10 @@ export interface AssessmentInput {
   /** The restraints the fit ran with: two parameters in one move together by
    *  construction, so their correlation is noted once, not warned about. */
   readonly restraints?: readonly LinearRestraint[];
+  /** Each parameter of a disordered site by its assembly (SHELXL's PART groups):
+   *  the alternatives of one disorder correlate by construction, noted once.
+   *  The fractions of a twin with both hands come as the assembly BOTH_HANDS. */
+  readonly disorder?: ReadonlyMap<string, string>;
   /** Displacement parameters of sites several atoms share (a mixed site): at a
    *  bound, the mixing is the first suspect. */
   readonly sharedSiteAdps?: readonly string[];
@@ -313,6 +326,8 @@ function verdictFrom(result: RefinementResult, mode: "powder" | "single-crystal"
   // Bands mirror the app's qualityInk (Toby 2006): GoF ≈ 1 is ideal; < 1 warns of
   // over-fitting or overestimated σ; the higher bands are progressively worse.
   if (gof < 0.8) return { band: "fair", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)} < 1: the fit is "too good" — σ's are likely overestimated or the model is over-parameterized. Not a green light.` };
+  // On F² the weighting scheme is refitted to the model, as SHELXL's suggestion is: a GooF below 1 says the weights expect more misfit than the model leaves.
+  if (mode === "single-crystal" && gof < 0.95) return { band: "good", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GooF ${gof.toFixed(2)}, below 1: the model leaves less misfit than the weights expect (their σ about ${Math.round(100 * (1 / gof - 1))} % too large) — refit the weighting scheme to the final model (SHELXL's suggestion).` };
   if (gof <= 1.5) return { band: "excellent", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)} is close to the statistical floor — the model explains the data to within its uncertainties.` };
   if (gof <= 2.5) return { band: "good", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)}: a reasonable fit with residual structure the model does not fully capture.` };
   if (gof <= 4) return { band: "fair", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)}: ${MISFIT_CAUSES[mode].fair}.` };
@@ -437,6 +452,21 @@ export function assessRefinement(input: AssessmentInput): RefinementAssessment {
   // --- at-bound parameters ----------------------------------------------
   for (const b of diag?.atBounds ?? []) {
     const p = byId.get(b.parameterId);
+    // A twin domain at 0 is a finding about the crystal, not a fault of the fit: it holds none of that domain.
+    if (p?.kind === "twinFraction" && b.bound === "min") {
+      const hands = input.disorder?.get(b.parameterId) === BOTH_HANDS;
+      findings.push({
+        category: "at-bound",
+        severity: "note",
+        summary: `${p.label} refines to 0: the crystal holds none of that domain.`,
+        detail: hands
+          ? "In a twin of both hands, a domain at 0 says which hand the crystal is not. The inverted domains all at 0: the crystal is the model's hand — drop the inversion (set_twin with the law alone) and refine, as SHELXL's final model would be. The model's own domains at 0 (its law's fraction, and the first domain's what the laws leave): the crystal is the other hand — invert the model (invert_structure). Read the Flack x (the inverted domains together) with its esd from the covariance."
+          : "A twin law whose fraction refines to 0 twins nothing: the crystal holds no such domain. Take the law away (set_twin remove) unless the data reading gave a reason to keep it, and say so.",
+        parameterIds: [b.parameterId],
+        evidence: { bound: b.bound, value: b.value },
+      });
+      continue;
+    }
     const isStructural = p && (ADP_KINDS.has(p.kind) || p.kind === "occupancy");
     findings.push({
       category: "at-bound",
@@ -469,6 +499,36 @@ export function assessRefinement(input: AssessmentInput): RefinementAssessment {
   const tiedBy = (c: { parameterIdA: string; parameterIdB: string }) =>
     restraints.find((r) => r.terms.some((t) => t.parameterId === c.parameterIdA) && r.terms.some((t) => t.parameterId === c.parameterIdB));
   const tiedPairs = (diag?.highCorrelations ?? []).filter((c) => !curveOf(c) && tiedBy(c));
+  // The alternatives of one disorder, a few tenths of an ångström apart, scatter almost as one.
+  const assemblyOf = (c: { parameterIdA: string; parameterIdB: string }): string | undefined => {
+    const a = input.disorder?.get(c.parameterIdA);
+    return a !== undefined && input.disorder?.get(c.parameterIdB) === a ? a : undefined;
+  };
+  const twinPairs = (diag?.highCorrelations ?? []).filter((c) => !curveOf(c) && !tiedBy(c) && assemblyOf(c) === BOTH_HANDS);
+  if (twinPairs.length > 0) {
+    const top = Math.max(...twinPairs.map((c) => Math.abs(c.coefficient)));
+    findings.push({
+      category: "correlation",
+      severity: "info",
+      summary: `The twin's fractions correlate (up to ${top.toFixed(3)}): a twin with both hands.`,
+      detail: "Expected: a domain and its inverse differ only by the anomalous signal, so their fractions trade by construction — SHELXL's TWIN R −4 refines them together. The sums are what the data determine: the Flack x (the inverted domains together) and the law's fraction over both hands, each with its esd from the full covariance; quote those, not each fraction's.",
+      parameterIds: [...new Set(twinPairs.flatMap((c) => [c.parameterIdA, c.parameterIdB]))],
+      evidence: { pairs: twinPairs.length, maxCoefficient: top },
+    });
+  }
+  const disorderPairs = (diag?.highCorrelations ?? []).filter((c) => !curveOf(c) && !tiedBy(c) && assemblyOf(c) !== undefined && assemblyOf(c) !== BOTH_HANDS);
+  if (disorderPairs.length > 0) {
+    const top = Math.max(...disorderPairs.map((c) => Math.abs(c.coefficient)));
+    const names = [...new Set(disorderPairs.map((c) => assemblyOf(c)!))].map((a) => (a ? `assembly ${a}` : "the disorder")).join(", ");
+    findings.push({
+      category: "correlation",
+      severity: "info",
+      summary: `One disorder's parameters correlate (up to ${top.toFixed(3)}): ${names}.`,
+      detail: "Expected: two alternatives a few tenths of an ångström apart scatter almost as one, so their positions and shared ADP trade off by construction. SHELXL refines them together, and the full covariance carries the correlation into their esds, which are what to quote; a split the data cannot resolve shows as a null direction.",
+      parameterIds: [...new Set(disorderPairs.flatMap((c) => [c.parameterIdA, c.parameterIdB]))],
+      evidence: { pairs: disorderPairs.length, maxCoefficient: top },
+    });
+  }
   if (tiedPairs.length > 0) {
     const top = Math.max(...tiedPairs.map((c) => Math.abs(c.coefficient)));
     findings.push({
@@ -494,7 +554,7 @@ export function assessRefinement(input: AssessmentInput): RefinementAssessment {
     });
   }
   for (const c of diag?.highCorrelations ?? []) {
-    if (curveOf(c) || tiedBy(c)) continue;
+    if (curveOf(c) || tiedBy(c) || assemblyOf(c) !== undefined) continue;
     const a = byId.get(c.parameterIdA);
     const b = byId.get(c.parameterIdB);
     const insight = a && b ? correlationInsight(a.kind, b.kind) : undefined;

@@ -34,7 +34,9 @@
  * the expert order scale → ADP → positions.
  */
 
-import type { AtomSite, RidingRule, StructureModel, UnitCell } from "@/core/crystal/types";
+import type { AtomSite, RidingRule, StructureModel, SymmetryOperation, UnitCell } from "@/core/crystal/types";
+import { isCentrosymmetric, mergeEquivalents } from "@/core/diffraction/merge";
+import { isReflectionAbsent } from "@/core/crystal/symmetry";
 import { isInversion, type OmittedMeasurement, type ResolutionRange, type SingleCrystalDataset, type SingleCrystalReflection } from "@/core/diffraction/types";
 import type { ParameterBinding, ParameterKind, RefinementOptions, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import { refine, type RefinementProblem } from "@/core/refinement/engine";
@@ -53,8 +55,10 @@ import {
 } from "@/core/diffraction/singleCrystalFactors";
 import { cellVolume, dSpacing } from "@/core/crystal/unitCell";
 import { EIGHT_PI_SQUARED, uEquivalent } from "@/core/crystal/adp";
-import { AFIX, isRotating, ridingDependence, torsionDerivatives } from "@/core/crystal/riding";
+import { AFIX, isRotating, ridingDependence, sharedUGroups, torsionDerivatives } from "@/core/crystal/riding";
 import { pairGeometry, restraintRows, restraintValues } from "@/core/crystal/restraints";
+import { floatingOrigins, originCoordinate, ORIGIN_RESTRAINT_SIGMA } from "@/core/crystal/polarOrigin";
+import { parsonsQuotients, type ParsonsEstimate } from "@/core/diagnostics/absoluteStructure";
 import { mulVec } from "@/core/math/mat3";
 import type { Mat3, Vec3 } from "@/core/math/types";
 
@@ -124,6 +128,12 @@ function describeMode(axis: readonly number[]): string {
   return parts.join("") || "·";
 }
 
+/** A twin law of determinant −1: its domain is of the other hand. */
+export function improper(m: readonly (readonly number[])[]): boolean {
+  const det = m[0]![0]! * (m[1]![1]! * m[2]![2]! - m[1]![2]! * m[2]![1]!) - m[0]![1]! * (m[1]![0]! * m[2]![2]! - m[1]![2]! * m[2]![0]!) + m[0]![2]! * (m[1]![0]! * m[2]![1]! - m[1]![1]! * m[2]![0]!);
+  return det < 0;
+}
+
 /**
  * Assemble the full symmetry-allowed single-crystal refinement parameter set.
  * Scale (and extinction) start free; structural rows start fixed, mirroring the
@@ -149,12 +159,13 @@ export function buildSingleCrystalSpec(
   const bindings: ParameterBinding[] = [];
 
   // Overall scale (on F²) — free on load.
-  params.push({ id: "scale", label: "scale (OSF)", kind: "scale", value: scale, initialValue: scale, min: 0, fixed: false });
+  params.push({ id: "scale", label: "scale k = OSF²", kind: "scale", value: scale, initialValue: scale, min: 0, fixed: false });
   bindings.push({ parameterId: "scale", kind: "scale", targetId: dataset.id });
 
-  // Secondary extinction (SHELXL EXTI) — free on load when present.
+  // Secondary extinction (SHELXL EXTI) — free on load when present; held at 0 against a
+  // refinement's listing, whose Fo² have that refinement's extinction divided out (LIST 4).
   if (extinction > 0 || opts.extinction !== undefined) {
-    params.push({ id: "extinction", label: EXTINCTION_PARAMETER_LABELS[dataset.extinctionModel ?? "shelx"], kind: "extinction", value: extinction, initialValue: extinction, min: 0, max: 100, fixed: false });
+    params.push({ id: "extinction", label: EXTINCTION_PARAMETER_LABELS[dataset.extinctionModel ?? "shelx"], kind: "extinction", value: extinction, initialValue: extinction, min: 0, max: 100, fixed: dataset.origin === "refinement-listing" });
     bindings.push({ parameterId: "extinction", kind: "extinction", targetId: dataset.id });
   }
 
@@ -173,10 +184,13 @@ export function buildSingleCrystalSpec(
   // Twin domains (SHELXL's TWIN/BASF): one fraction per law beyond the first
   // domain, free — the law is a decision already made. For the inversion twin
   // it is the Flack parameter.
-  (dataset.twinLaws ?? []).forEach((law, i) => {
+  const laws = dataset.twinLaws ?? [];
+  laws.forEach((law, i) => {
     const id = `twin_${i + 1}`;
     const start = opts.twinFractions?.[i] ?? 0.1;
-    params.push({ id, label: isInversion(law) ? "inversion twin fraction (Flack x)" : `twin fraction ${i + 1} (BASF)`, kind: "twinFraction", value: start, initialValue: start, min: 0, max: 1, fixed: false });
+    // Alone, the inversion's fraction is the Flack x; beside a merohedral law, each domain of the inverted hand holds part of it.
+    const label = laws.length === 1 && isInversion(law) ? "inversion twin fraction (Flack x)" : `twin domain ${i + 2} fraction (BASF ${i + 1})${improper(law.matrix) ? ", inverted hand" : ""}`;
+    params.push({ id, label, kind: "twinFraction", value: start, initialValue: start, min: 0, max: 1, fixed: false });
     bindings.push({ parameterId: id, kind: "twinFraction", targetId: dataset.id, targetKey: String(i + 1) });
   });
 
@@ -220,6 +234,21 @@ export function buildSingleCrystalSpec(
           for (const m of g.members) if (m.adp.kind === "anisotropic") bindings.push({ parameterId: id, kind: "uAniso", targetId: structure.id, targetKey: m.label, uBasis: mode.basis });
         });
       }
+    }
+  }
+
+  // Hydrogens whose U_iso refines in common (SHELXL's free variable on the U
+  // column, as 21.0): one B for each group, starting at their mean.
+  if (refineAdp) {
+    for (const [key, labels] of sharedUGroups(structure.riding ?? [])) {
+      const bs = labels.flatMap((label) => {
+        const adp = structure.sites.find((site) => site.label === label)?.adp;
+        return adp?.kind === "isotropic" ? [adp.bIso] : [];
+      });
+      const b0 = bs.length ? bs.reduce((t, b) => t + b, 0) / bs.length : startB ?? 4;
+      const id = `B_shared_${key}`;
+      params.push({ id, label: `${labels[0]}${labels.length > 1 ? `…${labels[labels.length - 1]}` : ""} shared B (${labels.length} H)`, kind: "bIso", value: b0, initialValue: b0, min: 0, max: 20, fixed: true });
+      for (const label of labels) bindings.push({ parameterId: id, kind: "bIso", targetId: structure.id, targetKey: label });
     }
   }
 
@@ -290,6 +319,32 @@ export const SINGLE_CRYSTAL_REFINE_OPTIONS = { maxIterations: 50, convergenceTol
 /** Whether a measurement is one of those left out by hand: the same indices, and the same batch when the omission names one. */
 export function isOmitted(r: Pick<SingleCrystalReflection, "h" | "k" | "l" | "batch">, omitted: readonly OmittedMeasurement[]): boolean {
   return omitted.some((o) => o.h === r.h && o.k === r.k && o.l === r.l && (o.batch === undefined || o.batch === r.batch));
+}
+
+/**
+ * The measurement merged as SHELXL's MERG 2 merges it before it refines: each
+ * set of equivalents becomes one reflection, their mean weighted by 1/σ², its
+ * σ the larger of the propagated one and the spread. In a non-centrosymmetric
+ * group the Friedel opposites stay apart — their difference is the anomalous
+ * signal an absolute structure rests on — and in a centrosymmetric one they
+ * merge with the rest. The systematic absences are left out, as SHELXL leaves
+ * them out of the refinement (the data reading still sees them). The batches
+ * and each measurement's own wavelength do not survive a merge.
+ */
+export function mergedDataset(dataset: SingleCrystalDataset, operations: readonly SymmetryOperation[]): SingleCrystalDataset {
+  const centric = isCentrosymmetric(operations);
+  const merged = mergeEquivalents(dataset.reflections.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.iObs, sigma: r.sigma ?? 0 })), operations, { friedel: centric });
+  const allowed = merged.reflections.filter((r) => !isReflectionAbsent(operations, r.h, r.k, r.l));
+  return {
+    ...dataset,
+    reflections: allowed.map((r) => ({ h: r.h, k: r.k, l: r.l, iObs: r.intensity, ...(r.sigma > 0 ? { sigma: r.sigma } : {}) })),
+    merged: {
+      from: dataset.reflections.length,
+      friedelApart: !centric,
+      absences: merged.reflections.length - allowed.length,
+      absentMeasurements: dataset.reflections.filter((r) => isReflectionAbsent(operations, r.h, r.k, r.l)).length,
+    },
+  };
 }
 
 /** The dataset without the measurements left out by hand. */
@@ -439,10 +494,11 @@ export function schemeSigma(structure: StructureModel, dataset: SingleCrystalDat
   for (const p of parameters) values[p.id] = p.value;
   const applied = applyParameters(structure, bindings, resolveTies(parameters, values));
   const fc2 = scIntensities(scPlans(structure, dataset), applied, dataset).fc2;
+  // WGHT's b is on the absolute scale: on these data, scale·b (see shelxWeights).
   return dataset.reflections.map((r, i) => {
     const p = (Math.max(r.iObs, 0) + 2 * Math.max(fc2[i]!, 0)) / 3;
     const s = r.sigma ?? 0;
-    return Math.sqrt(s * s + (a * p) ** 2 + b * p);
+    return Math.sqrt(s * s + (a * p) ** 2 + b * applied.scale * p);
   });
 }
 
@@ -508,11 +564,18 @@ export function buildSingleCrystalRefinementProblem(
 ): RefinementProblem {
   // The distance restraints (SHELXL's DFIX and SADI): rows after the data, each held at its target with weight 1/σ².
   const restrained = restraintRows(structure.restraints ?? []);
+  // A polar group's floating origin, held as SHELXL holds it: the weighted mean coordinate along each polar direction stays where it starts.
+  const origins = floatingOrigins(structure, parameters, bindings);
   const nData = dataset.reflections.length;
-  const observations = Float64Array.from([...dataset.reflections.map((r) => r.iObs), ...restrained.rows.map((r) => r.target)]);
+  const nRestraints = restrained.rows.length;
+  const observations = Float64Array.from([...dataset.reflections.map((r) => r.iObs), ...restrained.rows.map((r) => r.target), ...origins.map((o) => originCoordinate(o, structure))]);
   // Under a weighting scheme the weights follow Fc²: from the dataset's, or from the Fc² these parameters give.
   const fitSigma = dataset.fitSigma?.length === dataset.reflections.length ? dataset.fitSigma : schemeSigma(structure, dataset, parameters, bindings);
-  const weights = Float64Array.from([...weightsFromSigma(fitSigma ?? dataset.reflections.map((r) => r.sigma)), ...restrained.rows.map((r) => 1 / (r.sigma * r.sigma))]);
+  const weights = Float64Array.from([
+    ...weightsFromSigma(fitSigma ?? dataset.reflections.map((r) => r.sigma)),
+    ...restrained.rows.map((r) => 1 / (r.sigma * r.sigma)),
+    ...origins.map(() => 1 / (ORIGIN_RESTRAINT_SIGMA * ORIGIN_RESTRAINT_SIGMA)),
+  ]);
   const plans = scPlans(structure, dataset);
   const plan = plans.components[0]!;
   const siteIndex = new Map(structure.sites.map((site, j) => [site.label, j]));
@@ -526,10 +589,11 @@ export function buildSingleCrystalRefinementProblem(
   const calculate = (values: Readonly<Record<string, number>>): Float64Array => {
     const applied = appliedAt(values);
     const fc2 = scIntensities(plans, applied, dataset).fc2;
-    if (restrained.rows.length === 0) return fc2;
-    const out = new Float64Array(nData + restrained.rows.length);
+    if (nRestraints === 0 && origins.length === 0) return fc2;
+    const out = new Float64Array(nData + nRestraints + origins.length);
     out.set(fc2);
-    out.set(restraintValues(applied.model, restrained.pairs, restrained.rows), nData);
+    if (nRestraints) out.set(restraintValues(applied.model, restrained.pairs, restrained.rows), nData);
+    origins.forEach((o, k) => { out[nData + nRestraints + k] = originCoordinate(o, applied.model); });
     return out;
   };
 
@@ -610,7 +674,7 @@ export function buildSingleCrystalRefinementProblem(
         }
         for (const rider of ridersOf.get(b.targetKey!) ?? []) {
           const h = siteIndex.get(rider.site);
-          if (h === undefined) continue;
+          if (h === undefined || rider.uShared !== undefined) continue;
           let extra: ScDerivative | null = null;
           if (d.kind === "uMode") extra = { kind: "bIso", site: h, scale: f * EIGHT_PI_SQUARED * rider.uFactor * uEquivalent(d.basis, structure.cell) };
           else if (d.kind === "bIso") extra = { kind: "bIso", site: h, scale: f * rider.uFactor };
@@ -629,7 +693,19 @@ export function buildSingleCrystalRefinementProblem(
     const geometry = restrained.rows.length ? pairGeometry(applied.model, restrained.pairs) : [];
     return columnPlans.map((pl): Float64Array | null => {
       if (!pl) return null;
-      const col = new Float64Array(n + restrained.rows.length);
+      const col = new Float64Array(n + nRestraints + origins.length);
+      // The floating origins' coordinates move with every position the column moves, by each site's weight.
+      if (pl.kind === "structural" && origins.length) {
+        for (const r of pl.at) {
+          const q = requests[r]!;
+          if (q.kind !== "position") continue;
+          const label = structure.sites[q.site]?.label;
+          origins.forEach((o, k) => {
+            const w = label !== undefined ? o.weights.get(label) : undefined;
+            if (w !== undefined) col[n + nRestraints + k]! += w * (q.scale ?? 1) * (o.dual[0] * q.axis[0] + o.dual[1] * q.axis[1] + o.dual[2] * q.axis[2]);
+          });
+        }
+      }
       if (pl.kind === "structural" && restrained.rows.length) {
         const dd = new Float64Array(restrained.pairs.length);
         for (const r of pl.at) {
@@ -682,7 +758,17 @@ export function buildSingleCrystalRefinementProblem(
     });
   };
 
-  return { parameters, observations, weights, dataLength: nData, calculate, analyticColumns };
+  // A twin with both hands: the Flack x is what the inverted domains hold together, and the first
+  // domain what every law leaves; their esds come from the covariance, the fractions trading as they do.
+  const laws = dataset.twinLaws ?? [];
+  const fractionIds = laws.map((_, i) => parameters.find((p) => p.kind === "twinFraction" && bindings.some((b) => b.parameterId === p.id && b.targetKey === String(i + 1)))?.id);
+  const combinations = laws.length > 1 && fractionIds.every((id) => id !== undefined)
+    ? [
+        ...(laws.some((law) => improper(law.matrix)) ? [{ id: "flack", terms: laws.flatMap((law, i) => (improper(law.matrix) ? [{ id: fractionIds[i]!, coefficient: 1 }] : [])) }] : []),
+        { id: "twin_first", terms: fractionIds.map((id) => ({ id: id!, coefficient: -1 })) },
+      ]
+    : [];
+  return { parameters, observations, weights, dataLength: nData, calculate, analyticColumns, ...(combinations.length ? { combinations } : {}) };
 }
 
 export interface SingleCrystalRefinementComparison {
@@ -691,6 +777,8 @@ export interface SingleCrystalRefinementComparison {
     readonly foSq: number; readonly fcSq: number; readonly sigma: number;
     /** Standardized residual (Fo²−Fc²)/σ — flags outliers. */
     readonly deltaOverSigma: number;
+    /** Under a weighting scheme, (Fo²−Fc²)·√w: the residual in the scheme's esd, as SHELXL lists its most disagreeable reflections. */
+    readonly deltaOverEsd?: number;
     /** The extinction factor y in Fc² (1 without extinction). */
     readonly extinction: number;
     /** The batch and wavelength it was measured at, when the file gives them. */
@@ -698,6 +786,44 @@ export interface SingleCrystalRefinementComparison {
     readonly wavelength?: number;
   }[];
   readonly agreement: SingleCrystalAgreement;
+}
+
+/**
+ * Parsons' x for the model as fitted (see absoluteStructure.ts), on the
+ * reflections given: the Fc² of the same crystal with no inverted domain —
+ * each inverted domain's fraction folded onto its proper counterpart (−M onto
+ * M; the inversion onto the first domain), so a merohedral twin keeps its
+ * mixing. Null for a centrosymmetric group or when no Bijvoet pair was
+ * measured both ways.
+ */
+export function parsonsOfModel(
+  structure: StructureModel,
+  dataset: SingleCrystalDataset,
+  parameters: readonly RefinementParameter[],
+  bindings: readonly ParameterBinding[],
+): ParsonsEstimate | null {
+  if (isCentrosymmetric(structure.spaceGroup.operations)) return null;
+  const laws = dataset.twinLaws ?? [];
+  const fractionOf = (i: number): RefinementParameter | undefined => parameters.find((p) => p.kind === "twinFraction" && bindings.some((b) => b.parameterId === p.id && b.targetKey === String(i + 1)));
+  const sameMatrix = (a: Mat3, b: Mat3): boolean => a.every((row, r) => row.every((v, c) => Math.round(v) === Math.round(b[r]![c]!)));
+  const values = new Map<string, number>();
+  laws.forEach((law, i) => {
+    const p = fractionOf(i);
+    if (!p || !improper(law.matrix)) return;
+    // The proper domain this one inverts: −M among the laws (the first domain, for the inversion, takes it by itself).
+    const partner = laws.findIndex((other) => sameMatrix(other.matrix, law.matrix.map((row) => row.map((v) => -v)) as unknown as Mat3));
+    const q = partner >= 0 ? fractionOf(partner) : undefined;
+    if (q) values.set(q.id, (values.get(q.id) ?? q.value) + p.value);
+    values.set(p.id, 0);
+  });
+  const params = values.size ? parameters.map((p): RefinementParameter => {
+    const v = values.get(p.id);
+    if (v === undefined) return p;
+    const { expression: _, ...rest } = p;
+    return { ...rest, value: v };
+  }) : parameters;
+  const rows = singleCrystalRefinementComparison(structure, dataset, params, bindings).rows;
+  return parsonsQuotients(rows, structure.spaceGroup.operations);
 }
 
 /**
@@ -738,7 +864,8 @@ export function singleCrystalRefinementComparison(
   });
 
   const nFree = parameters.filter((p) => !p.fixed && !p.expression).length;
-  const weights = shelxWeights(foSq, fcSq, sigma, weightAB.a ?? 0, weightAB.b ?? 0);
+  const weights = shelxWeights(foSq, fcSq, sigma, weightAB.a ?? 0, weightAB.b ?? 0, applied.scale);
   const agreement = singleCrystalAgreement(foSq, fcSq, sigma, weights, nFree);
-  return { rows, agreement };
+  const scheme = (weightAB.a ?? 0) > 0 || (weightAB.b ?? 0) > 0;
+  return { rows: scheme ? rows.map((r, i) => ({ ...r, deltaOverEsd: (r.foSq - r.fcSq) * Math.sqrt(weights[i]!) })) : rows, agreement };
 }

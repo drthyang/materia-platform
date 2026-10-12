@@ -21,6 +21,7 @@ import { withConstants, type InstrumentParameters } from "@/core/diffraction/ins
 import { withAntisite } from "@/core/crystal/antisite";
 import { isHydrogen, withAdpModel } from "@/core/crystal/adp";
 import type { DistanceRestraint, RidingRule, StructureModel } from "@/core/crystal/types";
+import { inversionText, invertedModel, invertedRiding, invertedTwinFractions } from "@/core/crystal/inversion";
 import { ridingRules } from "@/core/crystal/riding";
 import { powderRestraints } from "@/app/powderSpec";
 import { runPowderRefinement } from "@/workers/runPowder";
@@ -35,8 +36,8 @@ import type { ProjectHistory, StepKind } from "@/core/project/history";
 import { pdfReportInput, powderReportInput, singleCrystalReportInput } from "@/app/reportInputs";
 import type { ExtinctionModel, OmittedMeasurement, Radiation, ResolutionRange, ShelxWeighting, SingleCrystalDataset, TwinLaw } from "@/core/diffraction/types";
 import { EXTINCTION_PARAMETER_LABELS } from "@/core/diffraction/singleCrystalFactors";
-import { mergeEquivalents } from "@/core/diffraction/merge";
-import { SINGLE_CRYSTAL_REFINE_OPTIONS, buildSingleCrystalRefinementProblem, buildSingleCrystalSpec, refineSingleCrystal, inResolution, isOmitted, optimalScale, singleCrystalRefinementComparison, withinResolution, withoutOmitted } from "@/core/workflow/singleCrystalRefinement";
+import { measurementMerge } from "@/core/diffraction/merge";
+import { SINGLE_CRYSTAL_REFINE_OPTIONS, buildSingleCrystalRefinementProblem, buildSingleCrystalSpec, mergedDataset, refineSingleCrystal, inResolution, isOmitted, optimalScale, singleCrystalRefinementComparison, withinResolution, withoutOmitted } from "@/core/workflow/singleCrystalRefinement";
 
 /**
  * A powder page without React: a session, the real curves and the real
@@ -454,6 +455,8 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
   let weighting: ShelxWeighting | null = loaded.weighting ?? null;
   let twinLaws: readonly TwinLaw[] = loaded.twinLaws ?? [];
   let restraints: readonly DistanceRestraint[] = start.restraints ?? [];
+  let merged = false;
+  let inverted = false;
   // The reflections with the extinction model, as the page's probed dataset.
   let dataset: SingleCrystalDataset = { ...loaded, extinctionModel };
   let spec = buildSingleCrystalSpec(model, dataset, { extinction: 0 });
@@ -474,12 +477,13 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
     const nKept = kept().reflections.length;
     const outside = withoutOmitted(dataset, omitted).reflections.length - nKept;
     const cmp = singleCrystalRefinementComparison(model, ds, params, spec.bindings);
-    const merge = mergeEquivalents(ds.reflections.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.iObs, sigma: r.sigma ?? 0 })), model.spaceGroup.operations);
+    const merge = measurementMerge((merged ? loaded : ds).reflections.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.iObs, sigma: r.sigma ?? 0 })), model.spaceGroup.operations);
     return {
       structure: model,
       refinedStructure: applyParameters(model, spec.bindings, values()).model,
       dataset,
-      totalReflections: dataset.reflections.length,
+      totalReflections: loaded.reflections.length,
+      measurement: loaded.reflections,
       probe: dataset.radiation.kind,
       parameters: params,
       bindings: spec.bindings,
@@ -498,6 +502,7 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
       distanceRestraints: restraints,
       extinctionModel,
       adpModel: adpModelOf(model),
+      ...(inverted ? { inverted: inversionText(start, invertedModel(start)), loadedAs: start } : {}),
       magnetic: false,
       observationCount: ds.reflections.length,
       source: dataset.name,
@@ -551,23 +556,70 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
     },
     setTwinLaws: (laws) => {
       calls.push(`twin ${laws.map((l) => JSON.stringify(l.matrix)).join(" ") || "none"}`);
+      const before = twinLaws;
       twinLaws = laws;
       const { twinLaws: _, ...rest } = dataset;
       dataset = laws.length ? { ...rest, twinLaws: laws } : rest;
       const old = new Map(params.map((p) => [p.id, p]));
       spec = buildSingleCrystalSpec(model, dataset, { extinction: 0 });
-      params = withValidUserTies(spec.params.map((p) => keptRow(p, p.kind === "twinFraction" ? undefined : old.get(p.id))));
+      // As the page: a law that stays where it was keeps its fraction.
+      const stays = (id: string): boolean => {
+        const i = Number(/^twin_(\d+)$/.exec(id)?.[1] ?? 0) - 1;
+        const a = before[i];
+        const b = laws[i];
+        return i >= 0 && !!a && !!b && a.matrix.every((row, r) => row.every((v, c) => Math.round(v) === Math.round(b.matrix[r]![c]!)));
+      };
+      params = withValidUserTies(spec.params.map((p) => keptRow(p, p.kind === "twinFraction" && !stays(p.id) ? undefined : old.get(p.id))));
       result = null;
     },
     setParameterTies: (update) => {
       calls.push(`ties ${JSON.stringify(update)}`);
       params = withValidUserTies(withEqualTies(params, update));
     },
+    // The page's handler: the merged equivalents (or every measurement) with the batch rows rebuilt, the omissions and the last fit cleared.
+    setMerged: (on) => {
+      calls.push(`merged ${on}`);
+      merged = on;
+      const set = on ? mergedDataset(loaded, model.spaceGroup.operations) : loaded;
+      base = { ...set, radiation: base.radiation };
+      dataset = { ...base, extinctionModel, ...(weighting ? { weighting } : {}), ...(twinLaws.length ? { twinLaws } : {}) };
+      const old = new Map(params.map((p) => [p.id, p]));
+      spec = buildSingleCrystalSpec(model, dataset, { extinction: 0 });
+      params = withValidUserTies(spec.params.map((p) => keptRow(p, old.get(p.id))));
+      omitted = [];
+      result = null;
+    },
     setDistanceRestraints: (next) => {
       calls.push(`restraints ${next.length}`);
       restraints = next;
       model = next.length ? { ...model, restraints: next } : (({ restraints: _, ...rest }) => rest)(model);
       result = null;
+    },
+    // The page's handler: the model inverted through the origin, the shifts negated, the riding groups placed afresh, a twin with both hands re-expressed.
+    invertStructure: () => {
+      calls.push("invert");
+      // As the page: one transform both ways, the one that takes the model as loaded to its inverse.
+      const forward = invertedModel(start);
+      const total = forward.shift.map((v, i) => v + forward.translation[i]!) as unknown as typeof forward.shift;
+      const flip = invertedModel(model, { total });
+      const nextRiding = riding ? invertedRiding(riding, invertedModel(applyParameters(model, spec.bindings, values()).model, { total }).structure) : null;
+      const lawOf = (id: string): number => Number(spec.bindings.find((b) => b.parameterId === id && b.kind === "twinFraction")?.targetKey ?? 0) - 1;
+      const twins = invertedTwinFractions(twinLaws, twinLaws.map((_, i) => params.find((p) => p.kind === "twinFraction" && lawOf(p.id) === i)?.value ?? 0));
+      riding = nextRiding;
+      restraints = flip.structure.restraints ?? [];
+      model = { ...flip.structure, ...(nextRiding ? { riding: nextRiding } : {}) };
+      const old = new Map(params.map((p) => [p.id, p]));
+      spec = buildSingleCrystalSpec(model, dataset, { extinction: 0 });
+      params = withValidUserTies(spec.params.map((p) => {
+        const row = keptRow(p, old.get(p.id));
+        if (p.kind === "positionShift") return { ...row, value: -(old.get(p.id)?.value ?? 0) };
+        if (p.kind === "ridingTorsion") return { ...row, value: p.value, initialValue: p.value };
+        if (p.kind === "twinFraction") return { ...row, value: twins[lawOf(p.id)] ?? row.value };
+        return row;
+      }));
+      inverted = !inverted;
+      result = null;
+      return inverted ? inversionText(start, invertedModel(start)) : "back to the model as loaded";
     },
     setWeighting: (next) => {
       calls.push(`weighting ${next ? `${next.a} ${next.b}` : "1/σ²"}`);
@@ -613,9 +665,10 @@ export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDa
     reportInput: () => {
       const st = state();
       return singleCrystalReportInput({
-        structure: st.refinedStructure, base: model, params, bindings: spec.bindings, result, dataset: active(), totalReflections: dataset.reflections.length,
+        structure: st.refinedStructure, base: model, params, bindings: spec.bindings, result, dataset: active(), totalReflections: loaded.reflections.length,
         excluded: st.outlierFilter.excluded, filterOn: filter.on, cutoffSigma: filter.cutoffSigma, minExtinction: filter.minExtinction ?? null, omitted, resolution: st.resolution, agreement: st.agreement, merge: st.merge,
         points: st.rows.map((r) => ({ obs: r.foSq, calc: r.fcSq })), magnetic: null, explored: null,
+        ...(st.inverted ? { inverted: st.inverted } : {}),
       });
     },
     cancel: () => calls.push("cancel"),

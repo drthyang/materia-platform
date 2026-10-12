@@ -8,7 +8,7 @@
  * orthogonal on a special position).
  */
 
-import type { StructureModel } from "@/core/crystal/types";
+import type { StructureModel, UnitCell } from "@/core/crystal/types";
 import { AFIX } from "@/core/crystal/riding";
 import type { RidingRule } from "@/core/crystal/types";
 
@@ -19,7 +19,8 @@ const PLACED: Readonly<Record<RidingRule["geometry"], string>> = {
 import type { ParameterBinding, RefinementParameter } from "@/core/refinement/types";
 import { parseTie } from "@/core/refinement/constraints";
 import { EIGHT_PI_SQUARED, uEquivalent } from "@/core/crystal/adp";
-import { orthogonalizationMatrix } from "@/core/crystal/unitCell";
+import { cellVolume, orthogonalizationMatrix } from "@/core/crystal/unitCell";
+import { cellVolumeEsd } from "@/core/crystal/cellEsd";
 import { mulVec } from "@/core/math/mat3";
 import type { Vec3 } from "@/core/math/types";
 
@@ -65,6 +66,17 @@ export interface StructureTable {
   readonly sites: readonly StructureTableSite[];
 }
 
+/** A site's esds as numbers, before they are printed: what a comparison with published su's reads. */
+interface SiteEsds {
+  readonly position: readonly (number | undefined)[];
+  /** U11, U22, U33, U12, U13, U23. */
+  readonly u?: readonly (number | undefined)[];
+  readonly occupancy?: number;
+}
+
+/** Each table's esds as numbers, by site label: kept beside the table, out of what the tool prints. */
+const RAW_ESDS = new WeakMap<StructureTable, ReadonlyMap<string, SiteEsds>>();
+
 export function structureTable(
   phase: StructureModel,
   phaseIndex: number,
@@ -98,19 +110,20 @@ export function structureTable(
     }
   }
   const c = phase.cell;
+  // A refined cell's esds, else those the structure file gives a cell held fixed (ZERR, a CIF's su).
+  const su: Partial<Record<keyof UnitCell, number>> = Object.keys(cellEsd).length > 0 ? cellEsd : phase.cellSu ?? {};
   const cell: Record<string, string> = {
-    a: withEsd(c.a, cellEsd.a),
-    b: withEsd(c.b, cellEsd.b),
-    c: withEsd(c.c, cellEsd.c),
-    alpha: withEsd(c.alpha, cellEsd.alpha, 4),
-    beta: withEsd(c.beta, cellEsd.beta, 4),
-    gamma: withEsd(c.gamma, cellEsd.gamma, 4),
+    a: withEsd(c.a, su.a),
+    b: withEsd(c.b, su.b),
+    c: withEsd(c.c, su.c),
+    alpha: withEsd(c.alpha, su.alpha, 4),
+    beta: withEsd(c.beta, su.beta, 4),
+    gamma: withEsd(c.gamma, su.gamma, 4),
   };
-  const rad = Math.PI / 180;
-  const [ca, cb, cg] = [Math.cos(c.alpha * rad), Math.cos(c.beta * rad), Math.cos(c.gamma * rad)];
-  const volume = c.a * c.b * c.c * Math.sqrt(Math.max(1 - ca * ca - cb * cb - cg * cg + 2 * ca * cb * cg, 0));
-  const relV = Math.sqrt(["a", "b", "c"].reduce((s, k) => s + ((cellEsd[k] ?? 0) / (c as unknown as Record<string, number>)[k]!) ** 2, 0));
+  const volume = cellVolume(c);
+  const volumeEsd = cellVolumeEsd(c, su, phase.spaceGroup.operations);
   const ridingOf = new Map((phase.riding ?? []).map((r) => [r.site, r]));
+  const raw = new Map<string, SiteEsds>();
   const sites = phase.sites.map((site): StructureTableSite => {
     const own = mine.filter((b) => b.targetKey === site.label && err(b.parameterId) !== undefined);
     const posVar = [0, 0, 0];
@@ -135,6 +148,7 @@ export function structureTable(
     }
     const pos = site.position.map((v, i) => withEsd(v, posVar[i]! > 0 ? Math.sqrt(posVar[i]!) : undefined));
     const sd = (v: number): number | undefined => (v > 0 ? Math.sqrt(v) : undefined);
+    raw.set(site.label, { position: posVar.map(sd), ...(site.adp.kind === "anisotropic" ? { u: uVar.map(sd) } : {}), ...(occEsd !== undefined ? { occupancy: occEsd } : {}) });
     const adp = site.adp.kind === "isotropic"
       ? `B ${withEsd(site.adp.bIso, adpEsd, 4)}`
       : `Ueq ${withEsd(uEquivalent(site.adp.uAniso, phase.cell), sd(uEqVar), 5)}`;
@@ -142,19 +156,21 @@ export function structureTable(
       ? Object.fromEntries((["U11", "U22", "U33", "U12", "U13", "U23"] as const).map((name, i) => [name, withEsd((site.adp as { uAniso: readonly number[] }).uAniso[i]!, sd(uVar[i]!), 5)])) as Record<"U11" | "U22" | "U33" | "U12" | "U13" | "U23", string>
       : undefined;
     const rule = ridingOf.get(site.label);
-    const uRides = rule ? `U_iso = ${rule.uFactor}·U_eq(${rule.parent})` : "";
+    const uRides = !rule ? "" : rule.uShared !== undefined ? `U_iso shared and refined (B_shared_${rule.uShared})` : `U_iso = ${rule.uFactor}·U_eq(${rule.parent})`;
     const riding = rule && rule.geometry !== "free" ? `rides on ${rule.parent} (AFIX ${AFIX[rule.geometry]}, ${PLACED[rule.geometry]}), ${uRides}` : undefined;
     // A hydrogen whose position refines on its own: only its U rides.
     const ridingU = rule?.geometry === "free" ? `${uRides}; the position refines` : undefined;
     return { label: site.label, type: site.element, x: pos[0]!, y: pos[1]!, z: pos[2]!, occupancy: withEsd(site.occupancy, occEsd, 4), adp, ...(u ? { u } : {}), ...(riding ? { riding } : {}), ...(ridingU ? { ridingU } : {}) };
   });
-  return {
+  const table: StructureTable = {
     phase: phase.name || phase.id,
     spaceGroup: phase.spaceGroup.hermannMauguin ?? String(phase.spaceGroup.number ?? "?"),
     cell,
-    volume: withEsd(volume, relV > 0 ? volume * relV : undefined, 3),
+    volume: withEsd(volume, volumeEsd, 3),
     sites,
   };
+  RAW_ESDS.set(table, raw);
+  return table;
 }
 
 /** A value(esd) as printed, back to numbers: "0.41020(7)" → 0.4102 ± 0.00007. */
@@ -179,6 +195,9 @@ export function compareWithLoaded(table: StructureTable, refined: StructureModel
     const was = byLabel.get(row.label);
     if (!was || row.riding) return [];
     const now = [parseEsd(row.x), parseEsd(row.y), parseEsd(row.z)];
+    // The esds as computed, not as printed: rounded to one or two digits they would add their rounding to every ratio.
+    const raw = RAW_ESDS.get(table)?.get(row.label);
+    const posEsd = [0, 1, 2].map((i) => raw?.position[i] ?? now[i]!.esd);
     const delta: Vec3 = [now[0]!.value - was.position[0], now[1]!.value - was.position[1], now[2]!.value - was.position[2]];
     const cart = mulVec(m, delta);
     const shift = Math.hypot(cart[0], cart[1], cart[2]);
@@ -186,19 +205,28 @@ export function compareWithLoaded(table: StructureTable, refined: StructureModel
     const unit = shift > 0 ? [cart[0] / shift, cart[1] / shift, cart[2] / shift] : [0, 0, 0];
     const shiftEsd = Math.sqrt([0, 1, 2].reduce((sum, i) => {
       const g = unit[0]! * m[0][i]! + unit[1]! * m[1][i]! + unit[2]! * m[2][i]!;
-      return sum + (g * (now[i]!.esd ?? 0)) ** 2;
+      return sum + (g * (posEsd[i] ?? 0)) ** 2;
     }, 0));
     const adp = parseEsd(row.adp.replace(/^(Ueq|B)\s+/, ""));
     const isU = row.adp.startsWith("Ueq");
     const wasAdp = isU
       ? (was.adp.kind === "anisotropic" ? uEquivalent(was.adp.uAniso, refined.cell) : was.adp.bIso / EIGHT_PI_SQUARED)
       : (was.adp.kind === "isotropic" ? was.adp.bIso : EIGHT_PI_SQUARED * uEquivalent(was.adp.uAniso, refined.cell));
+    // The refined esds against the published su's, where the CIF gave them.
+    // U_eq is left out: the CIF's su comes from the covariance of the U^ij, which this table does not carry.
+    const su = was.su;
+    const positionRatios = su ? [0, 1, 2].flatMap((i) => (posEsd[i] && su.position[i]! > 0 ? [posEsd[i]! / su.position[i]!] : [])) : [];
+    const keys = ["U11", "U22", "U33", "U12", "U13", "U23"] as const;
+    const uRatios = su?.uAniso && row.u ? keys.flatMap((k, i) => { const e = raw?.u?.[i] ?? parseEsd(row.u![k]).esd; return e && su.uAniso![i]! > 0 ? [e / su.uAniso![i]!] : []; }) : [];
+    const occEsd = raw?.occupancy ?? parseEsd(row.occupancy).esd;
+    const occRatio = su && occEsd && su.occupancy > 0 ? occEsd / su.occupancy : undefined;
     return [{
       label: row.label,
       shift, shiftEsds: shiftEsd > 0 ? shift / shiftEsd : undefined,
       adpText: row.adp, wasAdp, isU,
       adpEsds: adp.esd ? (adp.value - wasAdp) / adp.esd : undefined,
       ratio: wasAdp > 0 ? adp.value / wasAdp : undefined,
+      positionRatios, uRatios, occRatio,
     }];
   });
   if (rows.length === 0) return { note: "no site to compare: none of the refined sites is in the loaded structure" };
@@ -215,8 +243,34 @@ export function compareWithLoaded(table: StructureTable, refined: StructureModel
     ...(beyond.length ? {
       beyond2Esd: beyond.map((r) => `${r.label}: shift ${shift4(r.shift)} Å${r.shiftEsds !== undefined ? ` (${sig(r.shiftEsds, 1)} esd)` : ""}, ${r.adpText} against ${r.wasAdp.toPrecision(4)} loaded${r.adpEsds !== undefined ? ` (${sig(r.adpEsds, 1)} esd)` : ""}`),
     } : {}),
-    note: "The loaded structure is what the page started from (for a CIF from a published refinement, that refinement's values); its own esds are not known here, so differences are in the refined esds.",
+    ...(esdComparison(rows) ? { esds: esdComparison(rows) } : {}),
+    note: rows.some((r) => r.positionRatios.length > 0)
+      ? "The loaded structure is what the page started from (for a CIF from a published refinement, that refinement's values, with its su's); shifts are in the refined esds, and `esds` sets the refined esds against the published ones."
+      : "The loaded structure is what the page started from (for a CIF from a published refinement, that refinement's values); its own esds are not known here, so differences are in the refined esds.",
   };
+}
+
+/**
+ * The refined esds against the published su's, each kind as the ratio
+ * refined/published: its median and range over the parameters both give. The
+ * same data and model give the same esds; a ratio away from 1 says the two
+ * refinements differ in the weights, the model, or how the esds were scaled.
+ */
+function esdComparison(rows: readonly { positionRatios: readonly number[]; uRatios: readonly number[]; occRatio: number | undefined }[]): Record<string, string> | null {
+  const kinds: [string, number[]][] = [
+    ["positions", rows.flatMap((r) => r.positionRatios)],
+    ["uij", rows.flatMap((r) => r.uRatios)],
+    ["occupancies", rows.flatMap((r) => (r.occRatio !== undefined ? [r.occRatio] : []))],
+  ];
+  const out: Record<string, string> = {};
+  for (const [name, ratios] of kinds) {
+    if (ratios.length === 0) continue;
+    const sorted = [...ratios].sort((a, b) => a - b);
+    const median = sorted.length % 2 ? sorted[sorted.length >> 1]! : (sorted[(sorted.length >> 1) - 1]! + sorted[sorted.length >> 1]!) / 2;
+    out[name] = ratios.length === 1 ? `${median.toFixed(2)}` : `median ${median.toFixed(2)} (${sorted[0]!.toFixed(2)}–${sorted[sorted.length - 1]!.toFixed(2)}, ${ratios.length})`;
+  }
+  if (Object.keys(out).length === 0) return null;
+  return { reading: "refined esd / published su, each kind's median (range, count): 1 when both refinements weigh the same data and model alike. The published su is rounded to one or two digits (the rule of 19), so a single ratio is good to 5–25 %; the median is the reading", ...out };
 }
 
 const shift4 = (v: number): string => v.toFixed(4);
