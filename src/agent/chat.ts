@@ -353,16 +353,26 @@ export class AgentChat {
       // cached prompt prefix by themselves.
       const scoped = this.offered(config);
       const system = `${this.system}\n\n${autonomyNote(config.autonomy ?? "ask")}${scoped ? `\n\n${SCOPE_NOTE}` : ""}`;
-      const tools = scoped ?? this.tools;
+      let tools = scoped ?? this.tools;
       if (this.window === null) {
         // The window unknown: old tool results go from the copy it gets past a fixed budget.
         this.sent = null;
         return { model: config.model, max_tokens: 64000, system, tools, messages: pruneForLocal(this.messages) };
       }
-      const fixed = system.length + JSON.stringify(tools).length;
+      let fixed = system.length + JSON.stringify(tools).length;
       // OpenAI's own models take at most 16k (gpt-4o) to 32k tokens of reply: cap it there.
       const cap = config.transport === "openai-compatible" ? OPENAI_REPLY_CAP : 64000;
       let fit = fitWindow(this.messages, fixed, this.window, this.charsPerToken, cap);
+      if (fit.refusal !== null && scoped) {
+        // Every tool used stays offered, and a long session gathers many: when nothing else fits, the stage's tools only.
+        const lean = this.offered(config, true)!;
+        const leanFit = fitWindow(this.messages, system.length + JSON.stringify(lean).length, this.window, this.charsPerToken, cap);
+        if (leanFit.refusal === null || leanFit.estimate < fit.estimate) {
+          tools = lean;
+          fixed = system.length + JSON.stringify(lean).length;
+          fit = leanFit;
+        }
+      }
       if (fit.refusal !== null && config.transport === "ollama" && this.maxWindow !== null && this.window < this.maxWindow) {
         // Ollama can run the model with more: the smallest step of 8k that holds it (one reload), up to its maximum.
         const grown = Math.min(this.maxWindow, Math.ceil((fit.estimate + REPLY_RESERVE) / 8192) * 8192);
@@ -421,12 +431,13 @@ export class AgentChat {
    * a local model's default, and only when the runner says where the
    * analysis stands.
    */
-  private offered(config: ChatConfig): BetaTool[] | null {
+  private offered(config: ChatConfig, lean = false): BetaTool[] | null {
     // A local model's window is small; an OpenAI-compatible one's may be either: all the tools only when it is large.
     const scope = config.toolScope ?? (isLocal(config.transport) || (config.transport === "openai-compatible" && (this.window ?? 0) < LARGE_CONTEXT) ? "stage" : "all");
     if (scope === "all" || this.here === null) return null;
-    const asked = this.messages.filter((m) => m.role === "user" && typeof m.content === "string" && !m.content.startsWith(FROM_APP)).map((m) => m.content as string);
-    return scopedTools({ page: this.here.page, stage: this.here.stage, magnetic: this.here.magnetic, asked, called: this.called }).map(toBetaTool);
+    // Lean: the page's and the stage's tools only, for a prompt that otherwise cannot fit.
+    const asked = lean ? [] : this.messages.filter((m) => m.role === "user" && typeof m.content === "string" && !m.content.startsWith(FROM_APP)).map((m) => m.content as string);
+    return scopedTools({ page: this.here.page, stage: this.here.stage, magnetic: this.here.magnetic, asked, called: lean ? new Set<string>() : this.called }).map(toBetaTool);
   }
 
   /**
@@ -541,6 +552,8 @@ const MAX_SAME_CALL = 3;
 const MAX_REPEATS = 4;
 /** Calls in a row that change nothing: the model is told at the first count, and the turn stops at the second. */
 const STILL_NOTE = 12;
+/** Tools whose answer differs call to call at the same state (a fresh MCMC draw): a repeat is the same call at the same state. */
+const SAMPLERS: ReadonlySet<string> = new Set(["sample_posterior"]);
 /** Read tools that neither count toward STILL_STOP nor reset it: reading what is there, and writing notes and the report. */
 const STILL_NEUTRAL: ReadonlySet<string> = new Set(["read_ref", "read_skill", "write_note", "write_report"]);
 const STILL_STOP = 20;
@@ -593,7 +606,8 @@ export class LoopGuard {
     const key = callKey(name, input);
     const prev = this.seen.get(key);
     const answer = sameText(text);
-    const repeat = prev !== undefined && prev.text === answer && (before === null || prev.at === before);
+    // The same answer at the same state; for a sampler (a new draw each time) the same state is enough.
+    const repeat = prev !== undefined && (before === null ? prev.text === answer : prev.at === before && (prev.text === answer || SAMPLERS.has(name)));
     const count = repeat ? prev.count + 1 : 1;
     this.seen.set(key, { at: before, text: answer, count });
     // Only reads count toward a stall: a change attempt, a note or a report is work even when the fit

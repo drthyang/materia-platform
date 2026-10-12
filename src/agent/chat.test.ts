@@ -909,3 +909,33 @@ describe("a local model at work", () => {
     expect(notices.at(-1)).toBe('Stopped after 40 model turns for one message. Say "continue" to go on.');
   });
 });
+
+describe("a long local session's last resorts", () => {
+  it("calls a sampler at the same state with the same input a repeat, though each draw differs", () => {
+    const g = new LoopGuard({ countStill: true });
+    const input = { compare: [["mom_Co1_0", "mom_Co1_1"]] };
+    expect(g.record("sample_posterior", input, '{"p":0.61}', "s", "s").note).toBeNull();
+    expect(g.record("sample_posterior", input, '{"p":0.58}', "s", "s").note).toMatch(/You already made this call \(sample_posterior/);
+    expect(g.check("sample_posterior", input, "s")).not.toBeNull();
+    // A deterministic read whose answer changed is not one.
+    g.record("get_state", {}, '{"notes":1}', "s", "s");
+    expect(g.record("get_state", {}, '{"notes":2}', "s", "s").note).toBeNull();
+  });
+
+  it("offers only the stage's tools when every tool used no longer fits", async () => {
+    const powder = LIVE_TOOLS.filter((t) => t.pages.includes("powder")).map((t) => t.name);
+    // The model calls every powder tool once: each stays offered from then on.
+    const api = await fakeApi([ndjson(powder.map((name) => ({ type: "tool_use" as const, id: name, name, input: {} }))), ndjson([{ type: "text", text: "Done." }])], undefined, { model: "m", loaded: null, max: 20480 });
+    const runner = {
+      run: async () => ({ isError: false, text: "{}" }),
+      situation: () => ({ page: "powder", stage: "adp", stagesDone: [], magnetic: false, fingerprint: String(Math.random()), summary: "" }),
+    } as unknown as AgentExecutor;
+    const notices: string[] = [];
+    await new AgentChat(runner).send("Do everything.", { transport: "ollama", serverUrl: api.url, model: "m", effort: "high" }, { onAssistantStart: () => undefined, onText: () => undefined, onThinking: () => undefined, onNotice: (t) => notices.push(t), onUsage: () => undefined }, new AbortController().signal);
+    await new Promise<void>((r) => api.server.close(() => r()));
+    expect(api.requests).toHaveLength(2);
+    const offered = api.requests.map((r) => (r.body.tools as unknown[]).length);
+    expect(offered[1]).toBeLessThan(powder.length / 2);
+    expect(notices.filter((n) => /no longer fits/.test(n))).toEqual([]);
+  });
+});
