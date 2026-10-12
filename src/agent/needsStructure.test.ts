@@ -35,3 +35,18 @@ describe("the data's axis against the structure", () => {
     expect((await stateOf(mn3gaSwappedUnitsSession())).axisWarning).toMatch(/axis is likely in another unit .*Ask the user before refining/);
   });
 });
+
+describe("a wavelength the peaks contradict", () => {
+  it("is named by the cell check, with the wavelength the peaks imply; the demo at its own λ is not", async () => {
+    const { mn3gaSession, mn3gaWrongWavelengthSession } = await import("@/agent/evals/pages");
+    const { executor, fakeHost, sessionPort } = await import("@/testSupport/agentHeadless");
+    const readingOf = async (session: ReturnType<typeof mn3gaSession>): Promise<string> => {
+      const { port } = sessionPort(session);
+      const { ex } = executor(fakeHost(port).host, "auto");
+      const out = await ex.run("check_cell_symmetry", {});
+      return out.isError ? out.text : String((JSON.parse(out.text) as { reading: string }).reading);
+    };
+    expect(await readingOf(mn3gaWrongWavelengthSession())).toMatch(/every d × 1\.01\d\d .*the data would be at λ 1\.5[34]\d\d Å, not 1\.556 Å.*Ask the user to confirm/);
+    expect(await readingOf(mn3gaSession())).not.toMatch(/every d ×/);
+  });
+});

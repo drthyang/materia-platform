@@ -9,7 +9,7 @@ real chat loop, executor and tools run; only the model changes.
 - **In CI**, every scenario is replayed with a scripted model twice: once as the
   Agent should behave (every check passes) and once as it did when the failure
   was found (the checks written against it must fail). That shows each of
-  those checks catches its failure: 49 of the suite's 56 checks so far; the
+  those checks catches its failure: 50 of the suite's 57 checks so far; the
   rest (`noStall` among them) have no failing replay yet. The scripts are in
   [`src/agent/evals/evals.test.ts`](../src/agent/evals/evals.test.ts).
 - **On demand**, the same scenarios run against a real model
@@ -61,6 +61,7 @@ real chat loop, executor and tools run; only the model changes.
 | `fit-window-in-d` | sets a fit window given in d | axis units (#39) |
 | `magnetic-structure` | solves a magnetic structure on the magnetic step | a user |
 | `swapped-units` | questions a pattern whose axis cannot be what it says (d-spacings loaded as 2θ; get_state's `axisWarning`) rather than refining around it | THY-19 fault injection (held out) |
+| `wrong-wavelength` | puts a wavelength the peaks contradict to the user (λ 1.556 Å given, 1.54 measured: the cell check finds every d × 1.011 from the pattern's own peaks) instead of refining a cell that absorbs it | THY-19 fault injection (held out) |
 | `magnetic-step-first` | searches k before going back to the powder stages: the magnetic step's own sequence leads (get_state's `magneticStep.next`) | Track A2, Haiku's magnetic runs |
 | `pdf-method` | refines a PDF by its method | the PDF page (v0.3) |
 | `pdf-local-structure` | compares local and average structure with a boxcar scan | boxcar scans (#40) |
@@ -90,7 +91,7 @@ Some scenarios run on data no skill or knowledge note was written or tuned
 against (`HELD_OUT` in [`scenarios.ts`](../src/agent/evals/scenarios.ts); a
 test keeps their data's names out of `.claude/skills` and `knowledge`). A pass
 there is not the method recalling its own examples, so their passes are
-reported apart. Now: `swapped-units`. Real held-out data — public tutorial
+reported apart. Now: `swapped-units` and `wrong-wavelength`. Real held-out data — public tutorial
 patterns the rounds never used, gitignored here — join on the machine that
 has them.
 
@@ -204,7 +205,7 @@ after `96c4e45`):
   cache read, cache write); the live run prints the totals and writes them,
   per run and summed, to the `_OUT` report.
 - **Two new scenarios** from the user's feedback on the demo:
-  `instrument-thermal-apart` and `fit-range-edges` (fifteen then; 35 now).
+  `instrument-thermal-apart` and `fit-range-edges` (fifteen then; 36 now).
 
 ## Since the 2026-10-11 runs
 

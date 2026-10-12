@@ -196,6 +196,18 @@ const REPLAYS: Readonly<Record<string, Replay>> = {
     ],
     catches: ["questions the data's axis before refining"],
   },
+  "wrong-wavelength": {
+    good: [
+      { text: "The method, then the cell check.", calls: [RIETVELD, { name: "check_cell_symmetry" }] },
+      { text: "The peaks index Mn₃Ga with every d 1.1 % long: the data look measured at λ ≈ 1.539 Å, not 1.556 Å. Please confirm the wavelength before I refine anything." },
+    ],
+    bad: [
+      { text: "The method, then the cell check.", calls: [RIETVELD, { name: "check_cell_symmetry" }] },
+      { text: "Many peaks are unindexed: I refine the cell and the scale to bring them in.", calls: [{ name: "refine" }] },
+      { text: "Refined." },
+    ],
+    catches: ["questions the wavelength before refining"],
+  },
   "pdf-method": {
     good: [
       { calls: [PDF, { name: "refine" }] },

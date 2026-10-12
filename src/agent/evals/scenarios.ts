@@ -4,7 +4,7 @@
  * own data, with the checks that say whether it got it right this time.
  */
 
-import { BATCH_SCALES, BC_EXTINCTION, EDGE_STEP_AT, FAILED_PAIR, FAILED_REFLECTION, MAGNETIC_TRUTH, impurityD, scChiralPage, scDisorderPage, scHydridePage, scInvertedHandPage, scOrganicPage, scPage, scTwinnedPage, mn3gaEdgeSession, mn3gaFluoriteSession, mn3gaImpuritySession, mn3gaMagneticSession, mn3gaMisfitSession, mn3gaSession, mn3gaSwappedUnitsSession, pdfPage, powderPage } from "@/agent/evals/pages";
+import { BATCH_SCALES, BC_EXTINCTION, EDGE_STEP_AT, FAILED_PAIR, FAILED_REFLECTION, MAGNETIC_TRUTH, impurityD, scChiralPage, scDisorderPage, scHydridePage, scInvertedHandPage, scOrganicPage, scPage, scTwinnedPage, mn3gaEdgeSession, mn3gaFluoriteSession, mn3gaImpuritySession, mn3gaMagneticSession, mn3gaMisfitSession, mn3gaSession, mn3gaSwappedUnitsSession, mn3gaWrongWavelengthSession, pdfPage, powderPage } from "@/agent/evals/pages";
 import {
   mergesFirst,
   refinesFlack,
@@ -37,6 +37,7 @@ import {
   magneticGroupIs,
   magneticSequenceFirst,
   questionsAxis,
+  questionsWavelength,
   magneticKIs,
   mentionsD,
   noPhantomPeaks,
@@ -180,6 +181,15 @@ export const SCENARIOS: readonly EvalScenario[] = [
     messages: ["Refine this pattern."],
     autonomy: "auto",
     checks: [questionsAxis, noStall],
+  },
+  {
+    id: "wrong-wavelength",
+    title: "Puts a wavelength the peaks contradict to the user before refining",
+    origin: "THY-19 fault injection: a pattern loaded at λ 1.556 Å, measured at 1.54 — every d 1 % long; a refined cell would absorb it silently.",
+    page: () => powderPage(mn3gaWrongWavelengthSession()),
+    messages: ["Refine this pattern."],
+    autonomy: "auto",
+    checks: [questionsWavelength, noStall],
   },
   {
     id: "pdf-method",
@@ -388,4 +398,5 @@ export function scenario(id: string): EvalScenario {
  */
 export const HELD_OUT: Readonly<Record<string, readonly string[]>> = {
   "swapped-units": ["Mn3Ga", "Mn₃Ga"],
+  "wrong-wavelength": ["Mn3Ga", "Mn₃Ga"],
 };
