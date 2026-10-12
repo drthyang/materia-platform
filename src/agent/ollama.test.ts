@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
+import { messagesEvents, toOllamaChat } from "@/agent/ollamaNative";
 import { createServer, type Server } from "node:http";
 import { listOllamaModels, ollamaBase, unreachableHint } from "@/agent/ollama";
 import { plainFetch } from "@/agent/localServer";
@@ -85,5 +86,66 @@ describe("Ollama helpers", () => {
     expect(unreachableHint("", "http://localhost:5173")).not.toMatch(/OLLAMA_ORIGINS/);
     expect(unreachableHint("", "http://127.0.0.1:4173")).not.toMatch(/OLLAMA_ORIGINS/);
     expect(unreachableHint("", "https://drthyang.github.io")).toMatch(/OLLAMA_ORIGINS=https:\/\/drthyang\.github\.io/);
+  });
+});
+
+describe("Ollama's native chat as the Messages API", () => {
+  const types = (sse: string): string[] => [...sse.matchAll(/^event: (\w+)$/gm)].map((m) => m[1]!);
+
+  it("turns the stream into Messages events: thinking, text, each call, the stop reason and the counts", () => {
+    const s = messagesEvents("qwen3:32b");
+    const out = [
+      { message: { thinking: "Look." } },
+      { message: { thinking: " First." } },
+      { message: { content: "Reading." } },
+      { message: { content: "", tool_calls: [{ function: { name: "get_state", arguments: { parameters: ["*"] } } }] } },
+      { done: true, done_reason: "stop", prompt_eval_count: 21000, eval_count: 40 },
+    ].map((c) => s.feed(JSON.stringify(c))).join("");
+    expect(types(out)).toEqual([
+      "message_start",
+      "content_block_start", "content_block_delta", "content_block_delta", "content_block_stop",
+      "content_block_start", "content_block_delta", "content_block_stop",
+      "content_block_start", "content_block_delta", "content_block_stop",
+      "message_delta", "message_stop",
+    ]);
+    expect(out).toContain('"partial_json":"{\\"parameters\\":[\\"*\\"]}"');
+    expect(out).toContain('"delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"output_tokens":40,"input_tokens":21000}');
+    expect(s.end()).toBe("");
+  });
+
+  it("says when the reply ran out of room, failed, or stopped unfinished", () => {
+    const cut = messagesEvents("m");
+    expect(cut.feed(JSON.stringify({ message: { content: "Half" } })) + cut.feed(JSON.stringify({ done: true, done_reason: "length", eval_count: 9 }))).toContain('"stop_reason":"max_tokens"');
+    const failed = messagesEvents("m");
+    expect(failed.feed(JSON.stringify({ error: "model runner has unexpectedly stopped" }))).toMatch(/event: error\ndata: \{"type":"error","error":\{"type":"api_error","message":"model runner has unexpectedly stopped"\}\}/);
+    const unfinished = messagesEvents("m");
+    unfinished.feed(JSON.stringify({ message: { content: "Half" } }));
+    expect(unfinished.end()).toMatch(/Ollama ended the reply without finishing it\./);
+  });
+
+  it("sends the conversation as Ollama's messages: the system first, each result as its tool's message", () => {
+    const body = toOllamaChat({
+      model: "qwen3:32b",
+      system: "You are the agent.",
+      max_tokens: 64000,
+      tools: [{ name: "get_state", description: "The analysis.", input_schema: { type: "object", properties: {} } }],
+      messages: [
+        { role: "user", content: "Refine it." },
+        { role: "assistant", content: [{ type: "text", text: "Looking." }, { type: "tool_use", id: "c1", name: "get_state", input: {} }] },
+        { role: "user", content: [{ type: "tool_result", tool_use_id: "c1", content: "no analysis", is_error: true }] },
+      ],
+    }, { numCtx: 32768, numPredict: 9000 });
+    expect(body).toEqual({
+      model: "qwen3:32b",
+      stream: true,
+      messages: [
+        { role: "system", content: "You are the agent." },
+        { role: "user", content: "Refine it." },
+        { role: "assistant", content: "Looking.", tool_calls: [{ function: { name: "get_state", arguments: {} } }] },
+        { role: "tool", content: "Error: no analysis", tool_name: "get_state" },
+      ],
+      tools: [{ type: "function", function: { name: "get_state", description: "The analysis.", parameters: { type: "object", properties: {} } } }],
+      options: { num_ctx: 32768, num_predict: 9000 },
+    });
   });
 });

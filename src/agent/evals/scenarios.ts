@@ -4,7 +4,7 @@
  * own data, with the checks that say whether it got it right this time.
  */
 
-import { BATCH_SCALES, BC_EXTINCTION, EDGE_STEP_AT, FAILED_PAIR, FAILED_REFLECTION, MAGNETIC_TRUTH, impurityD, scChiralPage, scDisorderPage, scHydridePage, scInvertedHandPage, scOrganicPage, scPage, scTwinnedPage, mn3gaEdgeSession, mn3gaFluoriteSession, mn3gaImpuritySession, mn3gaMagneticSession, mn3gaMisfitSession, mn3gaSession, mn3gaSwappedUnitsSession, mn3gaWrongWavelengthSession, pdfPage, powderPage } from "@/agent/evals/pages";
+import { awo4UserFiles, awo4UserPage, BATCH_SCALES, BC_EXTINCTION, EDGE_STEP_AT, FAILED_PAIR, FAILED_REFLECTION, MAGNETIC_TRUTH, impurityD, scChiralPage, scDisorderPage, scHydridePage, scInvertedHandPage, scOrganicPage, scPage, scTwinnedPage, mn3gaEdgeSession, mn3gaFluoriteSession, mn3gaImpuritySession, mn3gaMagneticSession, mn3gaMisfitSession, mn3gaSession, mn3gaSwappedUnitsSession, mn3gaWrongWavelengthSession, pdfPage, powderPage } from "@/agent/evals/pages";
 import {
   mergesFirst,
   refinesFlack,
@@ -163,6 +163,19 @@ export const SCENARIOS: readonly EvalScenario[] = [
     messages: ["The nuclear structure is refined. Find the magnetic structure."],
     autonomy: "auto",
     checks: [readsMethodFirst, ran("search_propagation_vector"), magneticKIs([MAGNETIC_TRUTH.k[0], MAGNETIC_TRUTH.k[1], MAGNETIC_TRUTH.k[2]]), magneticGroupIs(MAGNETIC_TRUTH.id), ran("refine_moments"), noStall],
+  },
+  {
+    id: "awo4-user-flow",
+    title: "Refines the user's own powder data and looks for the magnetic k (local data only)",
+    origin: "The user, on qwen3.8-27b in LM Studio: the Agent re-read its method and get_state in a loop until the turn cap, its prompt cut by the server.",
+    page: awo4UserPage,
+    available: () => awo4UserFiles() !== null,
+    messages: [
+      "Can you refine the structure for me? It has magnetic peaks. After you refine the structure, can you determine the k-vector?",
+      "Write the report.",
+    ],
+    autonomy: "auto",
+    checks: [readsMethodFirst, refines(1), ran("search_propagation_vector"), ran("write_report"), noStall],
   },
   {
     id: "magnetic-step-first",

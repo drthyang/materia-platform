@@ -41,6 +41,8 @@ export interface ScriptedModel {
   readonly model: EvalModel;
   /** Requests past the end of the script (each answered with an empty final turn). */
   readonly overrun: () => number;
+  /** The tool names each request offered, in order. */
+  readonly offered: () => readonly (readonly string[])[];
   readonly close: () => Promise<void>;
 }
 
@@ -48,9 +50,16 @@ export interface ScriptedModel {
 export async function scriptedModel(turns: readonly ScriptTurn[]): Promise<ScriptedModel> {
   let served = 0;
   let overrun = 0;
+  const offered: string[][] = [];
   const server: Server = createServer((req, res) => {
-    req.on("data", () => undefined);
+    const chunks: Buffer[] = [];
+    req.on("data", (c: Buffer) => chunks.push(c));
     req.on("end", () => {
+      try {
+        offered.push(((JSON.parse(Buffer.concat(chunks).toString("utf8")) as { tools?: { name: string }[] }).tools ?? []).map((t) => t.name));
+      } catch {
+        offered.push([]);
+      }
       const turn = turns[served];
       served++;
       if (!turn) overrun++;
@@ -64,6 +73,7 @@ export async function scriptedModel(turns: readonly ScriptTurn[]): Promise<Scrip
   return {
     model: { transport: "api-key", apiKey: "scripted", baseURL: `http://127.0.0.1:${port}`, model: "scripted", effort: "low" },
     overrun: () => overrun,
+    offered: () => offered,
     close: () => new Promise<void>((r) => server.close(() => r())),
   };
 }

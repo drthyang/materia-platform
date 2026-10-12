@@ -9,8 +9,8 @@ real chat loop, executor and tools run; only the model changes.
 - **In CI**, every scenario is replayed with a scripted model twice: once as the
   Agent should behave (every check passes) and once as it did when the failure
   was found (the checks written against it must fail). That shows each of
-  those checks catches its failure: 50 of the suite's 57 checks so far; the
-  rest (`noStall` among them) have no failing replay yet. The scripts are in
+  those checks catches its failure: 53 of the suite's 57 checks so far; the
+  rest (`calls identify_peaks` among them) have no failing replay yet. The scripts are in
   [`src/agent/evals/evals.test.ts`](../src/agent/evals/evals.test.ts).
 - **On demand**, the same scenarios run against a real model
   ([`live.test.ts`](../src/agent/evals/live.test.ts)):
@@ -20,10 +20,14 @@ real chat loop, executor and tools run; only the model changes.
   ```
 
   `MATERIA_AGENT_EVAL_MODEL` (default `claude-opus-5-5`), `_EFFORT` (default
-  `high`), `_TRANSPORT` (`api-key`, `ollama` or `lmstudio`, with a local server
-  at `_SERVER`), `_ONLY` (scenario ids, comma-separated), `_REPEAT` (runs per
-  scenario) and `_OUT` (a JSON report) adjust it. A local
-  model needs no key:
+  `high`), `_TRANSPORT` (`api-key`, `ollama`, `lmstudio` or
+  `openai-compatible`, with a server at `_SERVER`, the last with its key in
+  `_API_KEY`), `_CONTEXT` (the context for a server that does not say its own,
+  or for Ollama to load a model with), `_ONLY` (scenario ids, comma-separated),
+  `_REPEAT` (runs per scenario), `_TIMEOUT_MIN` (minutes per run, default 20)
+  and `_OUT` (a JSON report) adjust it. A scenario whose data are not on the
+  machine (the user's own, git-ignored; `MATERIA_DATA_DIR` points a worktree
+  at a checkout's `data/`) is skipped and said so. A local model needs no key:
 
   ```bash
   MATERIA_AGENT_EVAL=1 MATERIA_AGENT_EVAL_TRANSPORT=ollama MATERIA_AGENT_EVAL_MODEL=gemma4:26b \
@@ -84,6 +88,52 @@ real chat loop, executor and tools run; only the model changes.
 | `sc-inverted-hand` | tests the hand, inverts a model of the wrong one (`invert_structure`), refines it again and says so | single-crystal round 4 (3a: SHELXL's P6₁ model is the other enantiomer, x = 1.08(6) by Parsons' quotients) |
 | `sc-twin-from-data` | reads the data, sets the merohedral twin law the H-test reads before refining the structure, and refines its fraction near the truth | single-crystal round 5 (2b: SHELXL's TWIN taken out; ⟨\|E²−1\|⟩ 0.652, the H-test's α 0.45 on k, h, −l, BASF 0.4965) |
 | `sc-weights-final-model` | sets the weighting scheme again after the last change of the model (the twin and the hand count), and refines with it | single-crystal round 4 (3a: the weights fitted to the P6₁ model kept for its inverse, GooF 0.889 where SHELXL's suggestion gives 0.977) |
+| `awo4-user-flow` | refines the user's own powder data to a converged fit, searches the magnetic k the user asked for, and writes the report (the data are unpublished and git-ignored: it runs only where they are) | the user, on qwen3.8-27b in LM Studio: the Agent re-read its method and the state 69 times each until the turn cap |
+
+## The local tier
+
+A local model (Ollama, LM Studio, or a server on this machine through the
+OpenAI-compatible provider) runs the same scenarios as Claude, with no key
+and no cost; nothing leaves the machine. What a local model gets differs from
+what Claude gets, so the tier also checks what Claude's server takes care of:
+
+- **The window.** The request is sized to the model's real context (LM
+  Studio's loaded context; Ollama's `num_ctx`, which the app sets through
+  Ollama's native chat; an OpenAI-compatible server's own figure, else the
+  one in the settings). Old tool results become digests, a skill read again
+  keeps its latest copy, and a prompt that still cannot fit is refused,
+  never sent cut (`contextWindow.ts`, `fitWindow` in `chat.ts`).
+- **The tools.** A local model is offered the page's tools, and on the
+  powder page those of the method's stage (`toolScope.ts`); every scenario's
+  good replay is also run in CI with the scope on, to show no stage lacks a
+  tool its replay calls.
+- **Loops.** The chat's loop guard notes a call repeated at the same state,
+  and stops the turn, saying where the analysis stands, at the third
+  (`LoopGuard` in `chat.ts`).
+
+Each run's report adds, beside the checks: whether the turn cap was hit,
+whether the loop guard stopped the turn, whether a chat error ended it,
+whether a prompt was refused or found cut, the most times one call was made,
+each turn's prompt size in tokens, and the run's time.
+
+**The acceptance level** (the user may change it), per model:
+
+- no run hits the turn cap, and none is stopped for going in circles;
+- no prompt is cut without a word (a refusal is said, not silent);
+- no chat error ends a run;
+- at least 80 % of the runs pass their checks across the scenarios;
+- `awo4-user-flow` reaches a converged fit with a report.
+
+```bash
+# LM Studio, the model loaded at 32k; MATERIA_DATA_DIR only if the data sit elsewhere
+MATERIA_AGENT_EVAL=1 MATERIA_AGENT_EVAL_TRANSPORT=lmstudio MATERIA_AGENT_EVAL_MODEL=qwen/qwen3.8-27b \
+  MATERIA_AGENT_EVAL_TIMEOUT_MIN=45 MATERIA_AGENT_EVAL_OUT=/tmp/materia-eval-out/lmstudio-qwen.json \
+  npm run eval:agent -- --reporter=verbose
+```
+
+Until a model passes this tier, the Agent on it is experimental: it is
+offered, and it is guarded, but it is not yet shown to follow the method as
+Claude does.
 
 ## Held out
 
@@ -105,6 +155,47 @@ passes them all can still be wrong on data the scenarios do not cover.
 Each row is what the run reported: the commit it ran at, the scenarios the suite
 held then, and how many runs passed. The runs were made from the "Fetch all
 repos" session and relayed here.
+
+### qwen3.8-27b in LM Studio (32k), the local tier, 2026-10-12 (partial)
+
+One stream at a time, on `fix/local-model-loops` (the runs span `af9710e` to
+`d24e5bb`; each scenario's latest run is counted). Not yet run: ten of the
+single-crystal scenarios, the before-sample on `main` beyond the AWO4 flow,
+the OpenAI-compatible smoke test, and gemma4:26b (9/10 on `main` before
+these fixes; it needs its own slot).
+
+**The user's AWO4 flow** (`awo4-user-flow`):
+
+| | before (`main`) | after |
+| --- | --- | --- |
+| result | fails: no refinement, no report | passes: 4 converged fits, the report, then the k-search |
+| turns | 80 (the cap, both messages) | 46 (40-turn cap) / 89 (80-turn cap) |
+| the same call | `get_state` 70×, `read_skill` 67× | at most 17× (refine, each time a changed free set) |
+| prompts cut by the server | 71 of 81 (TruncateMiddle, up to 516k tokens) | 0 (largest prompt 27.5k of 32k) |
+
+**The tier** (20 scenarios): 16 pass (80 %).
+
+| | pass | turn cap | loop stopped | refused (said) | cut silently | chat error |
+| --- | --- | --- | --- | --- | --- | --- |
+| powder (15) | 12 | 0 | 1 | 1 | 0 | 0 |
+| AWO4 (1) | 1 | 1 | 0 | 1 | 0 | 0 |
+| PDF (3) | 2 | 0 | 0 | 0 | 0 | 0 |
+| single crystal (1 of 8 run) | 1 | 0 | 0 | 0 | 0 | 0 |
+
+- The four failures are the model's: `analysis-report` and `pdf-local-geometry`
+  put numbers in the report that the engine did not give; `instrument-thermal-apart`
+  refined the two groups together (in both its runs); `magnetic-step-first`
+  refined the nuclear model before the k-search.
+- The loop stop: `magnetic-structure` sent the same report three times; the
+  guard stopped it after the report was written (it passes).
+- The refusals: `full-refinement` (38 turns) and the AWO4 flow's second
+  message no longer fitted the window; since then the method itself, and a
+  long session's tools, shrink last (`d24e5bb`, `575a390`).
+- The turn cap: the AWO4 flow in auto mode refined, ran the magnetic step,
+  sampled the posterior and rewrote its report for 80 turns, one call a
+  turn; no call ran three times at the same state.
+- Four scenarios that ran while another job loaded a model on the same GPU
+  (05:15–05:30) were run again: the same verdicts.
 
 ### Claude, 2026-10-11, at `2eec39d` (15 scenarios, 3 runs each, effort high)
 

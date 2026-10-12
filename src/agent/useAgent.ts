@@ -8,16 +8,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ActivityEntry, AgentExecutor, AgentHost, ToolRunner } from "@/agent/executor";
 import type { ChatConfig, ChatEffort, AgentChat } from "@/agent/chat";
-import { API_KEY_KEY, SETTINGS_KEY, migrateLegacyKeys } from "@/agent/storage";
+import { API_KEY_KEY, OPENAI_KEY_KEY, SETTINGS_KEY, migrateLegacyKeys } from "@/agent/storage";
+import { DEFAULT_OPENAI_CONTEXT, OPENAI_PRESETS, isMachineUrl, openaiBase, presetForUrl } from "@/agent/openaiCompat";
 import { DEFAULT_OLLAMA_URL } from "@/agent/ollama";
 import { DEFAULT_LMSTUDIO_URL } from "@/agent/lmstudio";
 import { TOOL_CARDS, cardsInReply, cardsInText, type AgentCard } from "@/agent/focus";
 import { CHAT_MODELS } from "@/agent/chat-models";
 import type { AgentReport } from "@/agent/report";
 
-/** How the Agent reaches a model: Claude two ways, or a local model on Ollama or LM Studio. */
-export type AgentMode = "api-key" | "proxy" | "ollama" | "lmstudio";
-export const AGENT_MODES: readonly AgentMode[] = ["api-key", "proxy", "ollama", "lmstudio"];
+/**
+ * How the Agent reaches a model: Anthropic two ways (an API key, or the dev
+ * server's proxy), a local model on Ollama or LM Studio, or any
+ * OpenAI-compatible server (OpenAI, Gemini, vLLM, llama.cpp, …).
+ */
+export type AgentMode = "api-key" | "proxy" | "ollama" | "lmstudio" | "openai-compatible";
+export const AGENT_MODES: readonly AgentMode[] = ["api-key", "proxy", "ollama", "lmstudio", "openai-compatible"];
+
+/** The provider a mode belongs to: one id per provider (Anthropic's two modes are one provider). */
+export type AgentProvider = "anthropic" | "ollama" | "lmstudio" | "openai-compatible";
+export const providerOf = (mode: AgentMode): AgentProvider => (mode === "api-key" || mode === "proxy" ? "anthropic" : mode);
 
 export interface AgentSettings {
   readonly mode: AgentMode;
@@ -37,6 +46,12 @@ export interface AgentSettings {
   /** The LM Studio server, and the model on it (its key). */
   readonly lmstudioUrl: string;
   readonly lmstudioModel: string;
+  /** The OpenAI-compatible server: its preset (OPENAI_PRESETS id, "custom" for another), base URL (with its /v1), model. */
+  readonly openaiPreset: string;
+  readonly openaiUrl: string;
+  readonly openaiModel: string;
+  /** The context the OpenAI-compatible model takes, in tokens, used when the server does not say (it sizes every request; 128k or more offers every tool). */
+  readonly openaiContext: number;
   /**
    * A recording that replays a live run this model took (a demo), "" in use:
    * every label names this model and the replay, never the server that
@@ -56,6 +71,9 @@ export interface AgentController {
   readonly updateSettings: (patch: Partial<AgentSettings>) => void;
   readonly apiKey: string;
   readonly setApiKey: (key: string) => void;
+  /** The OpenAI-compatible server's key ("" for a server that needs none). Kept as Anthropic's is: the tab, or Remember. */
+  readonly openaiKey: string;
+  readonly setOpenaiKey: (key: string) => void;
   readonly transcript: readonly TranscriptItem[];
   readonly activity: Readonly<Record<string, ActivityEntry>>;
   /** Changes waiting for the user's decision. */
@@ -94,6 +112,10 @@ const DEFAULTS: AgentSettings = {
   ollamaModel: "",
   lmstudioUrl: DEFAULT_LMSTUDIO_URL,
   lmstudioModel: "",
+  openaiPreset: OPENAI_PRESETS[0]!.id,
+  openaiUrl: OPENAI_PRESETS[0]!.baseUrl,
+  openaiModel: "",
+  openaiContext: DEFAULT_OPENAI_CONTEXT,
   replayOf: "",
 };
 
@@ -102,7 +124,8 @@ const itemId = (): string => `t${nextItem++}`;
 
 export function useAgent(host: AgentHost, onAttention: () => void): AgentController {
   const [settings, setSettings] = useState<AgentSettings>(readSettings);
-  const [apiKey, setApiKeyState] = useState<string>(readKey);
+  const [apiKey, setApiKeyState] = useState<string>(() => readKey(KEY_KEY));
+  const [openaiKey, setOpenaiKeyState] = useState<string>(() => readKey(OPENAI_KEY_KEY));
   const [transcript, setTranscript] = useState<TranscriptItem[]>([]);
   const [activity, setActivity] = useState<Record<string, ActivityEntry>>({});
   const [thinking, setThinking] = useState(false);
@@ -114,6 +137,8 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
   settingsRef.current = settings;
   const apiKeyRef = useRef(apiKey);
   apiKeyRef.current = apiKey;
+  const openaiKeyRef = useRef(openaiKey);
+  openaiKeyRef.current = openaiKey;
   const attention = useRef(onAttention);
   attention.current = onAttention;
 
@@ -121,15 +146,31 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
   // first call, so a session that never uses the Agent never downloads it.
   const executor = useMemo<ToolRunner>(() => {
     let loaded: Promise<AgentExecutor> | null = null;
+    // The executor once loaded, for what is read synchronously (the page open).
+    let instance: AgentExecutor | null = null;
+    // A chunk that failed to load is asked for again next time, not remembered as failed.
     const load = (): Promise<AgentExecutor> =>
       (loaded ??= import("@/agent/executor").then(
         (m) =>
-          new m.AgentExecutor(host, {
-            approve: (entry) => {
+          (instance = new m.AgentExecutor(host, {
+            approve: (entry, signal) => {
+              // After Stop nothing is approved, and no new card appears.
+              if (signal?.aborted) return Promise.resolve(false);
               // Auto approves every change but the ones only the user may make.
               if (settingsRef.current.autoApprove && !entry.alwaysAsk) return Promise.resolve(true);
               attention.current();
-              return new Promise<boolean>((resolve) => approvals.current.set(entry.id, resolve));
+              return new Promise<boolean>((resolve) => {
+                // Stop declines the card; a decision removes the listener (one per card would pile up).
+                const onAbort = (): void => {
+                  approvals.current.delete(entry.id);
+                  resolve(false);
+                };
+                approvals.current.set(entry.id, (ok) => {
+                  signal?.removeEventListener("abort", onAbort);
+                  resolve(ok);
+                });
+                signal?.addEventListener("abort", onAbort, { once: true });
+              });
             },
             onActivity: (entry) => {
               setActivity((a) => ({ ...a, [entry.id]: entry }));
@@ -143,12 +184,18 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
               setReport(r);
               setReportOpen(true);
             },
-          }),
+          })),
+        (e: unknown) => {
+          loaded = null;
+          throw e;
+        },
       ));
     return {
-      run: async (name, input) => (await load()).run(name, input),
+      run: async (name, input, signal) => (await load()).run(name, input, signal),
       newConversation: () => void loaded?.then((e) => e.newConversation()),
       heard: (text) => void load().then((e) => e.heard(text)),
+      situation: async () => (await load()).situation(),
+      page: () => instance?.page() ?? null,
     };
   }, [host]);
 
@@ -156,14 +203,22 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
     setSettings((s) => {
       const next = { ...s, ...patch };
       writeSettings(next);
-      if (patch.rememberKey !== undefined) moveKey(next.rememberKey);
+      if (patch.rememberKey !== undefined) {
+        moveKey(KEY_KEY, next.rememberKey);
+        moveKey(OPENAI_KEY_KEY, next.rememberKey);
+      }
       return next;
     });
   }, []);
 
   const setApiKey = useCallback((key: string) => {
     setApiKeyState(key);
-    storeKey(key, settingsRef.current.rememberKey);
+    storeKey(KEY_KEY, key, settingsRef.current.rememberKey);
+  }, []);
+
+  const setOpenaiKey = useCallback((key: string) => {
+    setOpenaiKeyState(key);
+    storeKey(OPENAI_KEY_KEY, key, settingsRef.current.rememberKey);
   }, []);
 
   const decide = useCallback((entryId: string, ok: boolean) => {
@@ -181,7 +236,7 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
     if (!message || turn.current) return;
     // The mode is read at every model turn, so switching Ask first / Auto
     // mid-run reaches the model as it reaches the approval cards.
-    const config: ChatConfig = Object.defineProperty({ ...chatConfig(settingsRef.current, apiKeyRef.current) }, "autonomy", {
+    const config: ChatConfig = Object.defineProperty({ ...chatConfig(settingsRef.current, settingsRef.current.mode === "openai-compatible" ? openaiKeyRef.current : apiKeyRef.current) }, "autonomy", {
       get: (): "auto" | "ask" => (settingsRef.current.autoApprove ? "auto" : "ask"),
       enumerable: true,
     });
@@ -196,9 +251,11 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
       setTranscript((t) => t.map((i) => (i.id === id && i.kind === "assistant" ? { ...i, ...fn(i) } : i)));
     };
     void (async () => {
-      // Loaded on first use: the SDK and the system prompt stay out of the main bundle.
-      const mod = await import("@/agent/chat");
+      let mod: typeof import("@/agent/chat") | null = null;
       try {
+        // Loaded on first use: the SDK and the system prompt stay out of the main bundle.
+        // Inside the try: a chunk that fails to load must not leave the turn running.
+        mod = await import("@/agent/chat");
         chat.current ??= new mod.AgentChat(executor);
         await chat.current.send(
           message,
@@ -222,7 +279,8 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
           ctrl.signal,
         );
       } catch (e) {
-        setTranscript((t) => [...t, { kind: "notice", id: itemId(), text: mod.describeChatError(e, config), tone: "error" }]);
+        const text = mod ? mod.describeChatError(e, config) : `The Agent could not load (${e instanceof Error ? e.message : String(e)}). Check the connection and send again.`;
+        setTranscript((t) => [...t, { kind: "notice", id: itemId(), text, tone: "error" }]);
       } finally {
         turn.current = null;
         setThinking(false);
@@ -285,7 +343,7 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
   const openReport = useCallback(() => setReportOpen(true), []);
   const closeReport = useCallback(() => setReportOpen(false), []);
 
-  return { settings, updateSettings, apiKey, setApiKey, transcript, activity, pending, decide, thinking, send, stop, clear, usage, focus, hoverReply, report, reportOpen, openReport, closeReport };
+  return { settings, updateSettings, apiKey, setApiKey, openaiKey, setOpenaiKey, transcript, activity, pending, decide, thinking, send, stop, clear, usage, focus, hoverReply, report, reportOpen, openReport, closeReport };
 }
 
 /** The model and how it is reached, as a report names it. */
@@ -293,6 +351,16 @@ export function modelLabel(s: AgentSettings): string {
   if (s.replayOf) return replayLabel(s.replayOf);
   if (s.mode === "ollama") return `${s.ollamaModel || "a local model"} · Ollama (local)`;
   if (s.mode === "lmstudio") return `${s.lmstudioModel || "a local model"} · LM Studio (local)`;
+  if (s.mode === "openai-compatible") {
+    const where = presetForUrl(s.openaiUrl)?.label ?? (() => {
+      try {
+        return new URL(openaiBase(s.openaiUrl)).host;
+      } catch {
+        return "an OpenAI-compatible server";
+      }
+    })();
+    return `${s.openaiModel || "a model"} · ${where}${isMachineUrl(s.openaiUrl) ? " (local)" : ""}`;
+  }
   const name = CHAT_MODELS.find((m) => m.id === s.model)?.label ?? s.model;
   return `${name} · ${s.mode === "proxy" ? "local proxy" : "Anthropic API"}`;
 }
@@ -305,6 +373,7 @@ function chatConfig(s: AgentSettings, apiKey: string): ChatConfig {
   const autonomy = s.autoApprove ? "auto" : "ask";
   if (s.mode === "ollama") return { transport: "ollama", serverUrl: s.ollamaUrl, model: s.ollamaModel, effort: s.effort, autonomy };
   if (s.mode === "lmstudio") return { transport: "lmstudio", serverUrl: s.lmstudioUrl, model: s.lmstudioModel, effort: s.effort, autonomy };
+  if (s.mode === "openai-compatible") return { transport: "openai-compatible", serverUrl: s.openaiUrl, ...(apiKey ? { apiKey } : {}), model: s.openaiModel, effort: s.effort, autonomy, context: s.openaiContext };
   return { transport: s.mode === "proxy" ? "proxy" : "api-key", apiKey, model: s.model, effort: s.effort, fallback: s.fallback, autonomy };
 }
 
@@ -313,7 +382,10 @@ function chatConfig(s: AgentSettings, apiKey: string): ChatConfig {
 function readSettings(): AgentSettings {
   try {
     migrateLegacyKeys(localStorage, sessionStorage);
-    return settingsFrom(localStorage.getItem(SETTINGS_KEY));
+    const s = settingsFrom(localStorage.getItem(SETTINGS_KEY));
+    // A replay's label is for this load only: taken out of storage once read.
+    if (s.replayOf) localStorage.setItem(SETTINGS_KEY, JSON.stringify(savedSettings(s)));
+    return s;
   } catch {
     return DEFAULTS;
   }
@@ -344,36 +416,45 @@ export function settingsFrom(raw: string | null): AgentSettings {
   return out as unknown as AgentSettings;
 }
 
+/**
+ * What is saved of the settings: neither auto-approve (a per-session choice)
+ * nor a replay's label (a recording sets it for one load; saved, it would
+ * call every later live run a replay).
+ */
+export function savedSettings(s: AgentSettings): Omit<AgentSettings, "autoApprove" | "replayOf"> {
+  const { autoApprove: _auto, replayOf: _replay, ...kept } = s;
+  return kept;
+}
+
 function writeSettings(s: AgentSettings): void {
   try {
-    const { autoApprove: _auto, ...kept } = s;
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(kept));
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(savedSettings(s)));
   } catch {
     // Not remembered; the session still uses it.
   }
 }
 
-function readKey(): string {
+function readKey(name: string): string {
   try {
     migrateLegacyKeys(localStorage, sessionStorage);
-    return sessionStorage.getItem(KEY_KEY) ?? localStorage.getItem(KEY_KEY) ?? "";
+    return sessionStorage.getItem(name) ?? localStorage.getItem(name) ?? "";
   } catch {
     return "";
   }
 }
 
-function storeKey(key: string, remember: boolean): void {
+function storeKey(name: string, key: string, remember: boolean): void {
   try {
-    sessionStorage.removeItem(KEY_KEY);
-    localStorage.removeItem(KEY_KEY);
+    sessionStorage.removeItem(name);
+    localStorage.removeItem(name);
     if (!key) return;
-    (remember ? localStorage : sessionStorage).setItem(KEY_KEY, key);
+    (remember ? localStorage : sessionStorage).setItem(name, key);
   } catch {
     // Kept in memory for this page only.
   }
 }
 
-function moveKey(remember: boolean): void {
-  const key = readKey();
-  if (key) storeKey(key, remember);
+function moveKey(name: string, remember: boolean): void {
+  const key = readKey(name);
+  if (key) storeKey(name, key, remember);
 }

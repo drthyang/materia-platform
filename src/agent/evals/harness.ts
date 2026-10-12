@@ -67,6 +67,10 @@ export interface EvalRun {
   readonly usage: EvalUsage;
   /** The reports written, in order. */
   readonly reports: readonly EvalReport[];
+  /** Each model turn's prompt (every input token, cached or not) and reply, in tokens, in order. */
+  readonly turns: readonly { readonly prompt: number; readonly output: number }[];
+  /** Wall-clock time of the run, in seconds. */
+  readonly seconds: number;
 }
 
 export interface Verdict {
@@ -85,6 +89,8 @@ export interface EvalScenario {
   /** What found the failure this scenario guards against. */
   readonly origin: string;
   readonly page: () => AgentPort;
+  /** False when the page's data are not on this machine (a scenario on git-ignored data): it is skipped, not failed. */
+  readonly available?: () => boolean;
   /** What the user says, one message per turn. */
   readonly messages: readonly string[];
   readonly autonomy: AgentAutonomy;
@@ -143,6 +149,8 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
   const notices: string[] = [];
   const reports: EvalReport[] = [];
   const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  const turns: { prompt: number; output: number }[] = [];
+  const started = Date.now();
   const executor = new AgentExecutor(host, {
     approve: async (entry) => {
       asked.push(entry);
@@ -152,9 +160,9 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
     onReport: (r) => reports.push({ title: r.title, markdown: withoutFigures(r.markdown), unverified: r.unverified, audit: r.audit }),
   });
   const runner: ToolRunner = {
-    run: async (name, input) => {
+    run: async (name, input, signal) => {
       const free = freeAtCall(name, input, port.state().parameters);
-      const out = await executor.run(name, input);
+      const out = await executor.run(name, input, signal);
       // The page records a refinement's step when it ends, as the Agent's.
       if (name === "refine" && !out.isError && /"refined":true/.test(out.text)) history.record("refine", "agent", "Refine");
       events.push({ kind: "call", name, input: (input ?? {}) as Record<string, unknown>, isError: out.isError, text: out.text, ...(free ? { free } : {}) });
@@ -162,6 +170,8 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
     },
     newConversation: () => executor.newConversation(),
     heard: (text) => executor.heard(text),
+    situation: () => executor.situation(),
+    page: () => executor.page(),
   };
   const chat = new AgentChat(runner);
   let reply: { kind: "reply"; text: string } | null = null;
@@ -183,13 +193,16 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
           usage.output += u.output_tokens ?? 0;
           usage.cacheRead += u.cache_read_input_tokens ?? 0;
           usage.cacheWrite += u.cache_creation_input_tokens ?? 0;
+          // Claude counts the cached part apart from the input; a local server's input is the whole prompt.
+          const whole = model.transport === "ollama" || model.transport === "lmstudio" || model.transport === "openai-compatible";
+          turns.push({ prompt: whole ? u.input_tokens ?? 0 : (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0), output: u.output_tokens ?? 0 });
         },
       }, signal);
     } catch (e) {
       notices.push(`chat error: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
-  const run: EvalRun = { events, port, records, asked, notices, usage, reports };
+  const run: EvalRun = { events, port, records, asked, notices, usage, reports, turns, seconds: (Date.now() - started) / 1000 };
   const grades = scenario.checks.map((c) => ({ check: c.name, ...c.grade(run) }));
   return { scenario: scenario.id, run, grades, passed: grades.every((g) => g.pass) };
 }
@@ -216,6 +229,9 @@ export interface SavedRun {
   readonly asked: readonly { readonly tool: string; readonly preview?: string; readonly alwaysAsk?: boolean }[];
   readonly notices: readonly string[];
   readonly reports: readonly EvalReport[];
+  /** Each turn's prompt and reply in tokens, and the run's time (runs saved before they were kept have none). */
+  readonly turns?: EvalRun["turns"];
+  readonly seconds?: number;
 }
 
 export function savedRun(r: EvalResult): SavedRun {
@@ -230,6 +246,8 @@ export function savedRun(r: EvalResult): SavedRun {
     asked: r.run.asked.map((e) => ({ tool: e.tool, ...(e.preview !== undefined ? { preview: e.preview } : {}), ...(e.alwaysAsk ? { alwaysAsk: true } : {}) })),
     notices: r.run.notices,
     reports: r.run.reports,
+    turns: r.run.turns,
+    seconds: r.run.seconds,
   };
 }
 
@@ -267,6 +285,8 @@ export function regrade(saved: SavedRun, scenario: EvalScenario): EvalResult {
     notices: saved.notices,
     usage: saved.usage,
     reports: saved.reports,
+    turns: saved.turns ?? [],
+    seconds: saved.seconds ?? 0,
   };
   const before = new Map(saved.grades.map((g) => [g.check, g]));
   const grades = scenario.checks.map((c) => {
@@ -289,4 +309,33 @@ export function transcript(run: EvalRun, max = 400): string {
       : e.kind === "reply" ? `AGENT: ${cut(e.text)}`
         : `  → ${e.name}(${JSON.stringify(e.input)})${e.isError ? " ✗" : ""} ${cut(e.text)}`,
   ).join("\n") + (run.notices.length ? `\nNOTICES: ${run.notices.join(" | ")}` : "");
+}
+
+/**
+ * What the local tier asks of every run besides its scenario's checks
+ * (docs/AGENT_EVALS.md): the conversation never hits the turn cap, the app
+ * never stops it for going in circles, no chat error, and no prompt the
+ * server cut. Also the most times one call (tool and input) was made.
+ */
+export interface TierFlags {
+  readonly turnCap: boolean;
+  readonly loopStopped: boolean;
+  readonly chatError: boolean;
+  readonly truncated: boolean;
+  readonly maxSameCall: number;
+}
+
+export function tierFlags(run: EvalRun): TierFlags {
+  const counts = new Map<string, number>();
+  for (const c of calls(run)) {
+    const key = `${c.name} ${JSON.stringify(c.input)}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return {
+    turnCap: run.notices.some((n) => /^Stopped after \d+ model turns/.test(n)),
+    loopStopped: run.notices.some((n) => /going in circles/.test(n)),
+    chatError: run.notices.some((n) => n.startsWith("chat error:")),
+    truncated: run.notices.some((n) => /cut the prompt|does not fit|no longer fits/i.test(n)),
+    maxSameCall: Math.max(0, ...counts.values()),
+  };
 }
