@@ -171,6 +171,20 @@ const REPLAYS: Readonly<Record<string, Replay>> = {
     ],
     catches: ["calls search_propagation_vector", "sets k = (0, 0, 0.5) on the magnetic step", "chooses the magnetic group G2", "calls refine_moments"],
   },
+  "magnetic-step-first": {
+    good: [
+      { text: "The magnetic step's sequence first.", calls: [{ name: "read_skill", input: { name: "magnetic-analysis" } }, { name: "get_state" }, { name: "magnetic_state" }] },
+      { calls: [{ name: "search_propagation_vector" }] },
+      { text: "k = (0 0 ½) indexes the three residual peaks; the groups are next." },
+    ],
+    bad: [
+      { text: "The method first.", calls: [RIETVELD, { name: "get_state" }] },
+      { text: "Going back to the start: the background and the cell.", calls: [{ name: "set_free", input: { free: ["bkg*"] } }, { name: "refine" }] },
+      { calls: [{ name: "search_propagation_vector" }] },
+      { text: "k = (0 0 ½)." },
+    ],
+    catches: ["searches k before going back to the powder stages"],
+  },
   "pdf-method": {
     good: [
       { calls: [PDF, { name: "refine" }] },

@@ -35,6 +35,7 @@ import {
   keepsGroupsApart,
   liftsNoRule,
   magneticGroupIs,
+  magneticSequenceFirst,
   magneticKIs,
   mentionsD,
   noPhantomPeaks,
@@ -160,6 +161,15 @@ export const SCENARIOS: readonly EvalScenario[] = [
     messages: ["The nuclear structure is refined. Find the magnetic structure."],
     autonomy: "auto",
     checks: [readsMethodFirst, ran("search_propagation_vector"), magneticKIs([MAGNETIC_TRUTH.k[0], MAGNETIC_TRUTH.k[1], MAGNETIC_TRUTH.k[2]]), magneticGroupIs(MAGNETIC_TRUTH.id), ran("refine_moments"), noStall],
+  },
+  {
+    id: "magnetic-step-first",
+    title: "Follows the magnetic step's sequence, not the powder checklist",
+    origin: "Track A2: Haiku's magnetic runs — the longer method read like a to-do list, and a model went back to the fit range and the stages before the k-search.",
+    page: () => powderPage(mn3gaMagneticSession()),
+    messages: ["The nuclear refinement is done. Is there magnetic order? Find the magnetic structure."],
+    autonomy: "auto",
+    checks: [magneticSequenceFirst, ran("search_propagation_vector"), noStall],
   },
   {
     id: "pdf-method",

@@ -44,6 +44,26 @@ export function asserted(run: EvalRun, what: RegExp, upTo = Infinity): string[] 
   return out;
 }
 
+/** The powder page's own changes: refining, freeing, the fit window and the corrections. */
+const POWDER_CHANGES = new Set(["refine", "set_free", "set_fit_range", "set_corrections", "set_background", "reset_parameters"]);
+
+/**
+ * On a magnetic question the magnetic step's sequence leads: the k-search
+ * comes before any refinement-step change (Track A2: a model that read only
+ * the powder checklist went back to the fit range and the stages, and the
+ * long method crowded out search_propagation_vector).
+ */
+export const magneticSequenceFirst: Check = {
+  name: "searches k before going back to the powder stages",
+  grade: (run) => {
+    const all = calls(run).filter((c) => !c.isError);
+    const search = all.findIndex((c) => c.name === "search_propagation_vector");
+    if (search < 0) return fail("never searched for k");
+    const before = all.slice(0, search).filter((c) => POWDER_CHANGES.has(c.name));
+    return before.length === 0 ? ok("searched k first") : fail(`went back to the powder stages first: ${before.map((c) => c.name).join(", ")}`);
+  },
+};
+
 /** Changes wait for the page's method skill (the skill loader: the method is read on demand). */
 export const readsMethodFirst: Check = {
   name: "reads the page's method before its first change",

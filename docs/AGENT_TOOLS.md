@@ -856,7 +856,7 @@ symmetry without negating it). In CI every scenario is replayed with a
 scripted model twice: as the Agent should behave, where every check passes,
 and as it behaved when the failure was found, where the checks written
 against it must fail. So those checks are shown to catch what they are for:
-47 of the 54 so far; the rest (`noStall` among them) have no failing replay yet.
+48 of the 55 so far; the rest (`noStall` among them) have no failing replay yet.
 
 Against a real model, `MATERIA_AGENT_EVAL=1 ANTHROPIC_API_KEY=… npm run
 eval:agent` runs every scenario and prints a pass count per scenario.
