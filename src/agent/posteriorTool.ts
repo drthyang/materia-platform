@@ -23,8 +23,8 @@ import { sig } from "@/agent/liveCommon";
 const NEARLY_RHAT = 1.1;
 /** Posterior width over the esd beyond which the esd understates the uncertainty. */
 const WIDER = 1.5;
-/** A 95 % interval ending within this fraction of the bounds' span of a bound is one-sided. */
-const AT_BOUND = 0.01;
+/** A 95 % interval ending within this fraction of its own width of a bound is one-sided. */
+const AT_BOUND = 0.05;
 /** Posterior correlations worth naming. */
 const STRONG = 0.8;
 /** Default and largest steps per call. */
@@ -98,9 +98,12 @@ export function readPosterior(result: SampleResult, parameters: readonly Refinem
   const rows: ParameterReading[] = result.posterior.parameters.map((q) => {
     const p = byId.get(q.id);
     const e = esd?.[q.id];
-    const span = p && p.min !== undefined && p.max !== undefined ? p.max - p.min : Math.max(Math.abs(q.q975 - q.q025), 1e-12);
-    const bound = p?.min !== undefined && q.q025 - p.min <= AT_BOUND * span ? "lower" as const
-      : p?.max !== undefined && p.max - q.q975 <= AT_BOUND * span ? "upper" as const : undefined;
+    // Against the posterior's own width: a posterior piled on a bound has its
+    // 2.5 % quantile a small part of its 95 % width from it (a half-normal's is
+    // 1.4 %). The bound range is no scale: B in [0, 20] would call 0.082 "at 0".
+    const width = Math.max(Math.abs(q.q975 - q.q025), 1e-12);
+    const bound = p?.min !== undefined && q.q025 - p.min <= AT_BOUND * width ? "lower" as const
+      : p?.max !== undefined && p.max - q.q975 <= AT_BOUND * width ? "upper" as const : undefined;
     const lo = q.median - q.q16;
     const hi = q.q84 - q.median;
     const skewed = Math.abs(hi - lo) > 0.5 * (hi + lo);
