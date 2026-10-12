@@ -177,13 +177,6 @@ html {
 .wb-agent-resize:focus-visible::after {
   background: #1f4fd8;
 }
-/* A narrow drawer: the key hint goes (the placeholder says what to do), so
- * the approval switch and Send keep the row. */
-@container agent (max-width: 400px) {
-  .wb-agent-hint {
-    display: none;
-  }
-}
 /* No room beside the page (a phone, a tablet held upright — dockModeFor in
  * drawerWidth.ts, SHEET_QUERY): the drawer is a bottom sheet under the page,
  * as tall as the user dragged it (--wb-sheet-h), never over it, so the plot
@@ -1161,3 +1154,161 @@ html {
 .wb-agent-outcome.is-partial strong { color: #a15c07; }
 .wb-agent-outcome.is-not-achieved { border-color: #efc1c3; background: #fdf0f0; }
 .wb-agent-outcome.is-not-achieved strong { color: #b4232a; }
+
+/* The header (RMC Copilot, NEBULA Pilot): the Beta pill; the connection's
+ * status as a dot and a word; the model inline. */
+.wb-agent-beta {
+  font-size: 10px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #b45309;
+  background: #fdf3e7;
+  border: 1px solid #f1d3ad;
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+.wb-agent-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--fz-micro);
+  color: #5f594f;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wb-agent-status-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #b3a993;
+}
+.wb-agent-status.is-ok .wb-agent-status-dot {
+  background: #4f8a2c;
+  box-shadow: 0 0 0 3px #e3eeda;
+}
+.wb-agent-model {
+  min-width: 0;
+  max-width: 11.5em;
+  font: inherit;
+  font-size: var(--fz-micro);
+  color: #2b2722;
+  background: #fff;
+  border: 1px solid #ddd5c7;
+  border-radius: 7px;
+  padding: 3px 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wb-agent-fold {
+  all: unset;
+  cursor: pointer;
+  font-weight: 600;
+  color: #5f594f;
+  white-space: nowrap;
+}
+.wb-agent-fold:focus-visible {
+  outline: 2px solid #1f4fd8;
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* The input: one rounded field with Send inside it, a hint line under it. */
+.wb-agent-input {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 6px 6px 6px 12px;
+  background: #fff;
+  border: 1px solid #d8d0c2;
+  border-radius: 16px;
+  box-shadow: 0 1px 2px rgb(40 30 10 / 4%);
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.wb-agent-input:focus-within {
+  border-color: #1f4fd8;
+  box-shadow: 0 0 0 3px #eaf0fe;
+}
+.wb-agent-input textarea {
+  flex: 1;
+  min-width: 0;
+  min-height: 2.6em;
+  max-height: 10em;
+  padding: 5px 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: #2b2722;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.wb-agent-send {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid #1f4fd8;
+  background: #1f4fd8;
+  color: #fff;
+  cursor: pointer;
+}
+.wb-agent-send:disabled {
+  background: #eaf0fe;
+  border-color: #d6e0fb;
+  color: #9fb2ec;
+  cursor: default;
+}
+.wb-agent-send.is-stop {
+  background: #fff;
+  border-color: #ddd5c7;
+  color: #2b2722;
+}
+.wb-agent-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 18px;
+  padding: 0 4px;
+}
+.wb-agent-hint {
+  flex: 1;
+  min-width: 0;
+  font-size: 10.5px;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  color: #94897a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wb-agent-link {
+  all: unset;
+  cursor: pointer;
+  font-size: var(--fz-micro);
+  color: #1f4fd8;
+  white-space: nowrap;
+}
+.wb-agent-link:hover,
+.wb-agent-link:focus-visible {
+  text-decoration: underline;
+}
+/* iOS zooms into a field under 16px on focus and stays zoomed. */
+@media (hover: none) and (pointer: coarse) {
+  .wb-agent-input textarea,
+  .wb-agent-model {
+    font-size: max(16px, 1em);
+  }
+}
+/* The sheet: a one-line input. */
+.wb-agent[data-mode="sheet"] .wb-agent-input textarea {
+  min-height: 1.5em;
+}

@@ -86,10 +86,14 @@ export function writeSheet(store: Pick<Storage, "setItem">, fraction: number): v
 /**
  * The sheet lowered (for now, not below its minimum) so a card the Agent
  * points at, `cardHeight` px tall, fits in the page above it: the share of a
- * `viewport` px window the sheet may then take.
+ * `viewport` px window the sheet may then take. A card that would not fit
+ * even with the sheet at its minimum (the plot on a phone) leaves the sheet
+ * where it is: lowering it would hide the conversation and still not show
+ * the card.
  */
 export function sheetFor(fraction: number, cardHeight: number, pageHeight: number, viewport: number): number {
   const short = cardHeight - pageHeight + 12;
   if (!(short > 0) || !(viewport > 0)) return clampSheet(fraction);
-  return clampSheet(fraction - short / viewport);
+  const lowered = fraction - short / viewport;
+  return lowered < SHEET_MIN ? clampSheet(fraction) : lowered;
 }

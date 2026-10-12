@@ -84,6 +84,8 @@ describe("where the drawer sits", () => {
     // A 500px card in a 400px page of a 1000px window: the sheet gives up 112px.
     expect(sheetFor(0.6, 500, 400, 1000)).toBeCloseTo(0.488, 6);
     expect(sheetFor(0.6, 300, 400, 1000)).toBe(0.6);
-    expect(sheetFor(0.35, 900, 400, 1000)).toBe(0.3);
+    // Too tall to fit even with the sheet at its minimum: the sheet stays (phone, the plot card).
+    expect(sheetFor(0.35, 900, 400, 1000)).toBe(0.35);
+    expect(sheetFor(0.46, 900, 400, 844)).toBe(0.46);
   });
 });
