@@ -35,6 +35,15 @@ describe("the number audit of a narrative", () => {
     expect(unverifiedNumbers("a = 4.57532 Å", engine)).toEqual(["4.57532"]);
   });
 
+  it("audits a number that ends a sentence, in the narrative and in the engine's text", () => {
+    expect(unverifiedNumbers("The wR2 is 9.99.", "wR2 4.12 %")).toEqual(["9.99"]);
+    expect(unverifiedNumbers("The wR2 is 4.12.", "wR2 4.12 %")).toEqual([]);
+    expect(unverifiedNumbers("The wR2 is 4.12 %.", "The refinement ended at wR2 4.12.")).toEqual([]);
+    expect(markNumbers("The wR2 is 9.99.", ["9.99"], (t) => `[${t}]`)).toBe("The wR2 is [9.99].");
+    // A version string is still not a number.
+    expect(unverifiedNumbers("Built with 1.2.3.", "")).toEqual([]);
+  });
+
   it("leaves integers, version strings and numbers inside words alone", () => {
     expect(unverifiedNumbers("Cr2WO6 at 4 K, 150 K and 300 K; reflections 0 0 1 and 1 0 2; MATERIA v1.2.3; P42/mnm", engine)).toEqual([]);
   });

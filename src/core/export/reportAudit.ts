@@ -16,11 +16,11 @@
  * counts, temperatures and hkl indices would only add noise.
  */
 
-/** A decimal number standing alone: not part of a word, a version string or a longer number. */
-export const NUMBER_TOKEN = /(?<![\w.])\d+\.\d+(?![.\d])/g;
+/** A decimal number standing alone: not part of a word, a version string or a longer number. A full stop after it ends the sentence. */
+export const NUMBER_TOKEN = /(?<![\w.])\d+\.\d+(?!\.?\d)/g;
 
 /** Any number in the engine's text, integers included (a narrative "2.0" may match an engine "2"). */
-const ANY_NUMBER = /(?<![\w.])\d+(?:\.\d+)?(?![.\d])/g;
+const ANY_NUMBER = /(?<![\w.])\d+(?:\.\d+)?(?!\.?\d)/g;
 
 interface Token {
   readonly text: string;
