@@ -43,8 +43,10 @@ import { SINGLE_CRYSTAL_REFINE_OPTIONS, buildSingleCrystalRefinementProblem, bui
  * A powder page without React: a session, the real curves and the real
  * engine behind the port, so the tools judge an actual fit.
  */
-export function sessionPort(start: Session, instrument: InstrumentParameters = DEFAULT_INSTRUMENT): { port: PowderAgentPort; calls: string[]; session: () => Session } {
+export function sessionPort(start: Session, instrument: InstrumentParameters = DEFAULT_INSTRUMENT, opts: { readonly instrumentOnPage?: boolean } = {}): { port: PowderAgentPort; calls: string[]; session: () => Session } {
   let s = start;
+  // The page shows its instrument as the app does (a TOF pattern needs it for d); off by default, as the older tests expect.
+  const shown = opts.instrumentOnPage ? instrument : undefined;
   let result: RefinementResult | null = null;
   let fitRange: { min: number; max: number } | null = null;
   const calls: string[] = [];
@@ -77,7 +79,7 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
       profile: s.powderProfile,
       magnetic: s.magnetic ?? null,
       result,
-      instrument: null,
+      instrument: shown ?? null,
       fitRange,
       extent: { min: Math.min(...xs), max: Math.max(...xs) },
       busy: false,
@@ -85,9 +87,9 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
       wR: Math.sqrt(num / den),
       settings: { backgroundTerms: s.backgroundTerms, backgroundType: "chebyshev", mustrain: "isotropic", anisotropicAdp: s.structure.sites.some((site) => site.adp.kind === "anisotropic"), siteTies: s.siteTies, corrections: s.corrections ?? {} },
       curves,
-      d: convertAxisArray(curves.x, s.pattern.xUnit, "dSpacing", axisContext(s.pattern, undefined, s.powderParams.find((p) => p.kind === "zeroShift")?.value)),
+      d: convertAxisArray(curves.x, s.pattern.xUnit, "dSpacing", axisContext(s.pattern, shown, s.powderParams.find((p) => p.kind === "zeroShift")?.value)),
       observationCount: n,
-      axis: axisContext(s.pattern, undefined, s.powderParams.find((p) => p.kind === "zeroShift")?.value),
+      axis: axisContext(s.pattern, shown, s.powderParams.find((p) => p.kind === "zeroShift")?.value),
       source: "test",
       restraints: powderRestraints([s.structure], s.siteTies, s.powderParams),
       ...(s.extraPhases.length > 0 ? { extraPhases: s.extraPhases } : {}),
@@ -250,7 +252,7 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
   const magnetic = magneticHandle(() => s, (next) => {
     s = next;
     result = null;
-  }, (step) => calls.push(`step ${step}`));
+  }, (step) => calls.push(`step ${step}`), shown);
   return { port, calls, session: () => s };
 }
 

@@ -53,6 +53,10 @@ export interface EvalRun {
   /** The chat's notices (errors, stalls, loops). */
   readonly notices: readonly string[];
   readonly usage: EvalUsage;
+  /** Each model turn's prompt (every input token, cached or not) and reply, in tokens, in order. */
+  readonly turns: readonly { readonly prompt: number; readonly output: number }[];
+  /** Wall-clock time of the run, in seconds. */
+  readonly seconds: number;
 }
 
 export interface Verdict {
@@ -71,6 +75,8 @@ export interface EvalScenario {
   /** What found the failure this scenario guards against. */
   readonly origin: string;
   readonly page: () => AgentPort;
+  /** False when the page's data are not on this machine (a scenario on git-ignored data): it is skipped, not failed. */
+  readonly available?: () => boolean;
   /** What the user says, one message per turn. */
   readonly messages: readonly string[];
   readonly autonomy: AgentAutonomy;
@@ -108,6 +114,8 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
   const events: EvalEvent[] = [];
   const notices: string[] = [];
   const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  const turns: { prompt: number; output: number }[] = [];
+  const started = Date.now();
   const executor = new AgentExecutor(host, {
     approve: async (entry) => {
       asked.push(entry);
@@ -145,13 +153,14 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
           usage.output += u.output_tokens ?? 0;
           usage.cacheRead += u.cache_read_input_tokens ?? 0;
           usage.cacheWrite += u.cache_creation_input_tokens ?? 0;
+          turns.push({ prompt: (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0), output: u.output_tokens ?? 0 });
         },
       }, signal);
     } catch (e) {
       notices.push(`chat error: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
-  const run: EvalRun = { events, port, records, asked, notices, usage };
+  const run: EvalRun = { events, port, records, asked, notices, usage, turns, seconds: (Date.now() - started) / 1000 };
   const grades = scenario.checks.map((c) => ({ check: c.name, ...c.grade(run) }));
   return { scenario: scenario.id, run, grades, passed: grades.every((g) => g.pass) };
 }
@@ -164,4 +173,33 @@ export function transcript(run: EvalRun, max = 400): string {
       : e.kind === "reply" ? `AGENT: ${cut(e.text)}`
         : `  → ${e.name}(${JSON.stringify(e.input)})${e.isError ? " ✗" : ""} ${cut(e.text)}`,
   ).join("\n") + (run.notices.length ? `\nNOTICES: ${run.notices.join(" | ")}` : "");
+}
+
+/**
+ * What the local tier asks of every run besides its scenario's checks
+ * (docs/AGENT_EVALS.md): the conversation never hits the turn cap, the app
+ * never stops it for going in circles, no chat error, and no prompt the
+ * server cut. Also the most times one call (tool and input) was made.
+ */
+export interface TierFlags {
+  readonly turnCap: boolean;
+  readonly loopStopped: boolean;
+  readonly chatError: boolean;
+  readonly truncated: boolean;
+  readonly maxSameCall: number;
+}
+
+export function tierFlags(run: EvalRun): TierFlags {
+  const counts = new Map<string, number>();
+  for (const c of calls(run)) {
+    const key = `${c.name} ${JSON.stringify(c.input)}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return {
+    turnCap: run.notices.some((n) => /^Stopped after \d+ model turns/.test(n)),
+    loopStopped: run.notices.some((n) => /going in circles/.test(n)),
+    chatError: run.notices.some((n) => n.startsWith("chat error:")),
+    truncated: run.notices.some((n) => /cut the prompt|does not fit|no longer fits/i.test(n)),
+    maxSameCall: Math.max(0, ...counts.values()),
+  };
 }

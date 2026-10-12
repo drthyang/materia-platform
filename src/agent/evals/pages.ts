@@ -5,7 +5,13 @@
  */
 
 import type { PdfAgentPort, PowderAgentPort, SingleCrystalAgentPort } from "@/agent/port";
-import { newSession, type Session } from "@/app/powderSession";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { basename, join } from "node:path";
+import { loadedSession, newSession, type Session } from "@/app/powderSession";
+import { parseCif } from "@/parsers/cif";
+import { parseInstrumentParameters } from "@/parsers/instrument";
+import { parseGsasHistogramPattern } from "@/parsers/gsasHistogram";
+import { dataDir } from "@/testSupport/data";
 import { exampleStructure } from "@/examples/mn3ga";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { powderPeakIntensities } from "@/core/diffraction/intensity";
@@ -202,6 +208,43 @@ export function mn3gaMagneticSession(): Session & { readonly truthGroup: string 
 
 export function powderPage(session: Session): PowderAgentPort {
   return sessionPort(session).port;
+}
+
+/**
+ * The user's own AWO₄ powder data, where they are: the structure's CIF, a
+ * POWGEN bank's GSAS histogram (TOF) and the instrument file of the same bank,
+ * found in the git-ignored data/AWO4 folder. The data are unpublished: the
+ * repository holds none of them, not even their file names, and the scenario
+ * on them runs only on a machine that has the folder. Null when it is absent.
+ */
+export function awo4UserFiles(): { readonly structure: string; readonly data: string; readonly instrument: string } | null {
+  const dir = dataDir("AWO4");
+  if (!existsSync(dir)) return null;
+  const files = readdirSync(dir).sort();
+  const cif = files.find((f) => /\.cif$/i.test(f));
+  const gsa = files.find((f) => /\.gsa$/i.test(f));
+  if (!cif || !gsa) return null;
+  const bank = /^BANK\s+(\d+)/m.exec(readFileSync(join(dir, gsa), "utf8"))?.[1];
+  const instruments = files.filter((f) => /\.instprm$/i.test(f));
+  const instrument = instruments.find((f) => bank !== undefined && new RegExp(`B${bank}(?!\\d)`).test(f)) ?? instruments[0];
+  if (!instrument) return null;
+  return { structure: join(dir, cif), data: join(dir, gsa), instrument: join(dir, instrument) };
+}
+
+/**
+ * The powder page as the app opens it on the user's AWO₄ files: the CIF, the
+ * histogram read as TOF, and the instrument's calibration and profile, the
+ * spec built as the data loader builds it (loadedSession) and the instrument
+ * shown on the page (the d axis needs it).
+ */
+export function awo4UserPage(): PowderAgentPort {
+  const files = awo4UserFiles();
+  if (!files) throw new Error("the AWO4 data are not on this machine (data/AWO4)");
+  const read = (path: string): string => readFileSync(path, "utf8");
+  const structure = parseCif(read(files.structure), "awo4");
+  const instrument = parseInstrumentParameters(read(files.instrument));
+  const pattern = parseGsasHistogramPattern(read(files.data), `${structure.id}-powder`, basename(files.data), { radiation: { kind: "neutron-tof" } });
+  return sessionPort(loadedSession(structure, pattern, instrument), instrument, { instrumentOnPage: true }).port;
 }
 
 export function pdfPage(): PdfAgentPort {

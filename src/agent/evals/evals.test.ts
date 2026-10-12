@@ -168,6 +168,24 @@ const REPLAYS: Readonly<Record<string, Replay>> = {
     ],
     catches: ["calls search_propagation_vector", "sets k = (0, 0, 0.5) on the magnetic step", "chooses the magnetic group G2", "calls refine_moments"],
   },
+  "awo4-user-flow": {
+    good: [
+      { text: "Your method first.", calls: [RIETVELD, { name: "get_state" }] },
+      { text: "The data's ends.", calls: [{ name: "check_fit_range" }] },
+      { text: "Scale, background and cell.", calls: [{ name: "refine" }] },
+      { text: "The peaks the nuclear model leaves: the k search.", calls: [{ name: "search_propagation_vector" }] },
+      { text: "The nuclear fit converged; the k search ranks the propagation vectors that index the peaks it leaves." },
+      { calls: [{ name: "write_report", input: { summary: "The nuclear structure refined to convergence; the peaks it leaves were searched for a propagation vector." } }] },
+      { text: "The report is open." },
+    ],
+    bad: [
+      // As the user saw it: the method and the state read again and again, nothing refined.
+      ...Array.from({ length: 6 }, () => ({ calls: [RIETVELD, { name: "get_state" }] })),
+      { text: "Let me check the state again." },
+      { text: "Moving on." },
+    ],
+    catches: ["runs at least 1 converged refinement", "calls search_propagation_vector", "calls write_report"],
+  },
   "pdf-method": {
     good: [
       { calls: [PDF, { name: "refine" }] },
@@ -470,7 +488,8 @@ describe("Agent evals, scripted", () => {
   });
 
   for (const s of SCENARIOS) {
-    describe(s.id, () => {
+    // A scenario on data only some machines have (the user's own) replays where they are.
+    describe.skipIf(!(s.available?.() ?? true))(s.id, () => {
       const r = REPLAYS[s.id]!;
       it("passes every check as the Agent should behave", async () => {
         const result = await replay(s.id, r.good);
