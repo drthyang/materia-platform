@@ -80,9 +80,12 @@ interface Call {
  *     line, and the replies around them to one sentence;
  *  3. then a method read before the latest one (the Rietveld method, once
  *     the magnetic step's is read) shrinks to its outline, its headings:
- *     read_skill gives it whole again.
+ *     read_skill gives it whole again;
+ *  4. last, in a session so long that nothing else is left to shorten, the
+ *     latest method too, to its outline, once the model has worked with it
+ *     for a dozen results or more (read_skill gives it whole).
  *
- * The user's messages, the calls made and the latest method are never cut. When even
+ * The user's messages and the calls made are never cut. When even
  * that does not fit, the most it can do; the chat measures the result and
  * refuses to send a prompt the model would lose.
  */
@@ -109,10 +112,12 @@ export function pruneForLocal(messages: readonly BetaMessageParam[], budget = LO
   // The skills read, latest last: all but the latest may shrink to an outline when nothing else is left.
   const skillsRead = results.filter((r) => KEEP_TOOLS.includes(r.name) && !staleSkills.has(r.id));
   const earlierSkills = new Set(skillsRead.slice(0, -1).map((r) => r.id));
+  // The latest method too, but only one the model has worked with for a while (a dozen results since).
+  const everySkill = new Set(skillsRead.filter((r) => results.length - 1 - results.indexOf(r) >= 2 * batch).map((r) => r.id));
 
-  /** `cut` oldest results digested, the `compact` oldest of them to one line (compact ≤ cut); `outline`: earlier skills to their outline. */
-  const prune = (cut: number, compact: number, outline = false): BetaMessageParam[] => {
-    const digested = new Set([...staleSkills, ...(outline ? earlierSkills : []), ...others.slice(0, cut).map((r) => r.id)]);
+  /** `cut` oldest results digested, the `compact` oldest of them to one line (compact ≤ cut); `outline`: these skills to their outline. */
+  const prune = (cut: number, compact: number, outline: ReadonlySet<string> = new Set()): BetaMessageParam[] => {
+    const digested = new Set([...staleSkills, ...outline, ...others.slice(0, cut).map((r) => r.id)]);
     const oneLine = new Set(others.slice(0, compact).map((r) => r.id));
     // What changed after each digested result, up to the last digested one: a digest depends only
     // on the batch, so it reads the same until the next batch; later changes are in the results kept whole.
@@ -137,7 +142,7 @@ export function pruneForLocal(messages: readonly BetaMessageParam[], budget = LO
           const call = callOf.get(b.tool_use_id) ?? { name: "a tool", input: {} };
           const text = staleSkills.has(b.tool_use_id)
             ? `[${call.name} ${skillName(call.input)}: read again later in this conversation, where it is in full.]`
-            : earlierSkills.has(b.tool_use_id)
+            : outline.has(b.tool_use_id)
               ? skillOutline(call.name, call.input, resultText(b))
               : oneLine.has(b.tool_use_id)
               ? compactResult(call.name, resultText(b), b.is_error === true)
@@ -160,13 +165,17 @@ export function pruneForLocal(messages: readonly BetaMessageParam[], budget = LO
     if (historyChars(pruned) <= budget) return pruned;
     if (compact >= most) break;
   }
-  return prune(most, most, earlierSkills.size > 0);
+  if (earlierSkills.size > 0) {
+    const pruned = prune(most, most, earlierSkills);
+    if (historyChars(pruned) <= budget) return pruned;
+  }
+  return prune(most, most, everySkill);
 }
 
 /** A method read before the latest one, as its outline: its title and headings. */
 function skillOutline(tool: string, input: Readonly<Record<string, unknown>>, text: string): string {
   const headings = text.split("\n").filter((l) => /^#{1,3} /.test(l)).map((l) => l.trim()).slice(0, 40);
-  return `[${tool} ${skillName(input)}: read earlier, shortened to its outline to fit the window (the latest method read is whole); read_skill gives it whole again.\n${headings.join("\n")}]`;
+  return `[${tool} ${skillName(input)}: shortened to its outline to fit the window; read_skill gives it whole again.\n${headings.join("\n")}]`;
 }
 
 /** What a reply keeps when its turn's results are digested (characters), and when they are one line. */

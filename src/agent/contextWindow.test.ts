@@ -158,11 +158,16 @@ describe("when even one-line digests are not enough", () => {
     const pruned = pruneForLocal(h, 10_000);
     expect(historyChars(pruned)).toBeLessThanOrEqual(10_000);
     const r = results(pruned);
-    expect(r[0]).toMatch(/^\[read_skill "my-rietveld-workflow": read earlier, shortened to its outline/);
+    expect(r[0]).toMatch(/^\[read_skill "my-rietveld-workflow": shortened to its outline/);
     expect(r[0]).toContain("## Stage 0 — the fit range\n## Stage 1 — refinement");
     expect(r[2]).toBe(magnetic);
-    // A single method is never shortened.
-    const one = session([{ name: "read_skill", input: { name: "my-rietveld-workflow" }, result: rietveld }, { name: "get_state", result: state(9, 1) }]);
+    // A single method stays whole while anything else can give…
+    const one = session([{ name: "read_skill", input: { name: "my-rietveld-workflow" }, result: rietveld }, { name: "get_state", result: state(9, 1) }, { name: "get_state", result: state(9, 2) }]);
+    expect(results(pruneForLocal(one, 21_000))[0]).toBe(rietveld);
+    // …and while the model has hardly used it, even when nothing else is left.
     expect(results(pruneForLocal(one, 5000))[0]).toBe(rietveld);
+    // After a dozen results it shrinks to its outline last, when nothing else is left.
+    const long = session([{ name: "read_skill", input: { name: "my-rietveld-workflow" }, result: rietveld }, ...Array.from({ length: 13 }, (_, i) => ({ name: "get_state", result: state(9, i + 1) }))]);
+    expect(results(pruneForLocal(long, 8000))[0]).toMatch(/^\[read_skill "my-rietveld-workflow": shortened to its outline to fit the window; read_skill gives it whole again\.\n# My Rietveld workflow/);
   });
 });
