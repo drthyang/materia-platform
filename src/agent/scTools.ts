@@ -929,10 +929,24 @@ function outliersView(s: SingleCrystalLiveState, count: number): string[] {
     .map((r) => `${hklOf(r)}${r.batch !== undefined ? ` (batch ${r.batch})` : ""}: Fo² ${sig(r.foSq, 4)}, Fc² ${sig(r.fcSq, 4)}, ${residual(r)} (d ${sig(dSpacing(s.structure.cell, r.h, r.k, r.l), 3)} Å) — ${equivalentsReading(s, r, keyOf)}`);
 }
 
+/** The least and greatest of `values`, by a loop: spreading a TOF file's 10⁵–10⁶ values into Math.min overflows the call stack. */
+export function extent(values: readonly number[]): [number, number] {
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const v of values) {
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
+  return [lo, hi];
+}
+
 /** How the reflections were measured, when the file says: each at its own wavelength (TOF Laue), in batches. */
 function measurementView(s: SingleCrystalLiveState): Record<string, unknown> | null {
   const refl = s.dataset.reflections;
-  const range = (values: number[], digits: number): string => `${sig(Math.min(...values), digits)}–${sig(Math.max(...values), digits)}`;
+  const range = (values: number[], digits: number): string => {
+    const [lo, hi] = extent(values);
+    return `${sig(lo, digits)}–${sig(hi, digits)}`;
+  };
   const wl = refl.flatMap((r) => (r.wavelength !== undefined ? [r.wavelength] : []));
   const tt = refl.flatMap((r) => (r.twoTheta !== undefined ? [r.twoTheta] : []));
   const tr = refl.flatMap((r) => (r.transmission !== undefined ? [r.transmission] : []));
@@ -967,7 +981,7 @@ function batchView(rows: readonly SingleCrystalRow[]): Record<string, unknown> |
   per.sort((a, b) => Math.abs(Math.log(b.k) - mean) - Math.abs(Math.log(a.k) - mean));
   return {
     batches: per.length,
-    K: `${sig(Math.min(...per.map((b) => b.k)), 3)}–${sig(Math.max(...per.map((b) => b.k)), 3)} (geometric mean ${sig(Math.exp(mean), 3)}, scatter ${pct(sd)} %)`,
+    K: `${sig(extent(per.map((b) => b.k))[0], 3)}–${sig(extent(per.map((b) => b.k))[1], 3)} (geometric mean ${sig(Math.exp(mean), 3)}, scatter ${pct(sd)} %)`,
     farthest: per.slice(0, 5).map((b) => `batch ${b.batch}: ${b.n} reflections, K ${sig(b.k, 3)}, R1 ${pct(b.r1)} %; worst ${hklOf(b.worst)} at ${sig(b.worst.deltaOverSigma, 3)}σ`),
     reading: "One scale serves every batch, so K should scatter about its mean by each batch's precision. A batch whose K stands apart has a scale of its own, or holds a reflection measured wrongly (an edge of the detector, a shadow): its worst reflection says which.",
   };
