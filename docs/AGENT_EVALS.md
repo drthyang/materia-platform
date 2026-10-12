@@ -9,7 +9,7 @@ real chat loop, executor and tools run; only the model changes.
 - **In CI**, every scenario is replayed with a scripted model twice: once as the
   Agent should behave (every check passes) and once as it did when the failure
   was found (the checks written against it must fail). That shows each of
-  those checks catches its failure: 48 of the suite's 55 checks so far; the
+  those checks catches its failure: 49 of the suite's 56 checks so far; the
   rest (`noStall` among them) have no failing replay yet. The scripts are in
   [`src/agent/evals/evals.test.ts`](../src/agent/evals/evals.test.ts).
 - **On demand**, the same scenarios run against a real model
@@ -60,6 +60,7 @@ real chat loop, executor and tools run; only the model changes.
 | `fit-range-edges` | reads the data's ends and leaves out what is not real data, before refining | the user, on the demo |
 | `fit-window-in-d` | sets a fit window given in d | axis units (#39) |
 | `magnetic-structure` | solves a magnetic structure on the magnetic step | a user |
+| `swapped-units` | questions a pattern whose axis cannot be what it says (d-spacings loaded as 2θ; get_state's `axisWarning`) rather than refining around it | THY-19 fault injection (held out) |
 | `magnetic-step-first` | searches k before going back to the powder stages: the magnetic step's own sequence leads (get_state's `magneticStep.next`) | Track A2, Haiku's magnetic runs |
 | `pdf-method` | refines a PDF by its method | the PDF page (v0.3) |
 | `pdf-local-structure` | compares local and average structure with a boxcar scan | boxcar scans (#40) |
@@ -82,6 +83,16 @@ real chat loop, executor and tools run; only the model changes.
 | `sc-inverted-hand` | tests the hand, inverts a model of the wrong one (`invert_structure`), refines it again and says so | single-crystal round 4 (3a: SHELXL's P6₁ model is the other enantiomer, x = 1.08(6) by Parsons' quotients) |
 | `sc-twin-from-data` | reads the data, sets the merohedral twin law the H-test reads before refining the structure, and refines its fraction near the truth | single-crystal round 5 (2b: SHELXL's TWIN taken out; ⟨\|E²−1\|⟩ 0.652, the H-test's α 0.45 on k, h, −l, BASF 0.4965) |
 | `sc-weights-final-model` | sets the weighting scheme again after the last change of the model (the twin and the hand count), and refines with it | single-crystal round 4 (3a: the weights fitted to the P6₁ model kept for its inverse, GooF 0.889 where SHELXL's suggestion gives 0.977) |
+
+## Held out
+
+Some scenarios run on data no skill or knowledge note was written or tuned
+against (`HELD_OUT` in [`scenarios.ts`](../src/agent/evals/scenarios.ts); a
+test keeps their data's names out of `.claude/skills` and `knowledge`). A pass
+there is not the method recalling its own examples, so their passes are
+reported apart. Now: `swapped-units`. Real held-out data — public tutorial
+patterns the rounds never used, gitignored here — join on the machine that
+has them.
 
 ## Results against real models
 
@@ -193,7 +204,7 @@ after `96c4e45`):
   cache read, cache write); the live run prints the totals and writes them,
   per run and summed, to the `_OUT` report.
 - **Two new scenarios** from the user's feedback on the demo:
-  `instrument-thermal-apart` and `fit-range-edges` (fifteen then; 34 now).
+  `instrument-thermal-apart` and `fit-range-edges` (fifteen then; 35 now).
 
 ## Since the 2026-10-11 runs
 

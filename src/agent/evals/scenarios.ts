@@ -4,7 +4,7 @@
  * own data, with the checks that say whether it got it right this time.
  */
 
-import { BATCH_SCALES, BC_EXTINCTION, EDGE_STEP_AT, FAILED_PAIR, FAILED_REFLECTION, MAGNETIC_TRUTH, impurityD, scChiralPage, scDisorderPage, scHydridePage, scInvertedHandPage, scOrganicPage, scPage, scTwinnedPage, mn3gaEdgeSession, mn3gaFluoriteSession, mn3gaImpuritySession, mn3gaMagneticSession, mn3gaMisfitSession, mn3gaSession, pdfPage, powderPage } from "@/agent/evals/pages";
+import { BATCH_SCALES, BC_EXTINCTION, EDGE_STEP_AT, FAILED_PAIR, FAILED_REFLECTION, MAGNETIC_TRUTH, impurityD, scChiralPage, scDisorderPage, scHydridePage, scInvertedHandPage, scOrganicPage, scPage, scTwinnedPage, mn3gaEdgeSession, mn3gaFluoriteSession, mn3gaImpuritySession, mn3gaMagneticSession, mn3gaMisfitSession, mn3gaSession, mn3gaSwappedUnitsSession, pdfPage, powderPage } from "@/agent/evals/pages";
 import {
   mergesFirst,
   refinesFlack,
@@ -36,6 +36,7 @@ import {
   liftsNoRule,
   magneticGroupIs,
   magneticSequenceFirst,
+  questionsAxis,
   magneticKIs,
   mentionsD,
   noPhantomPeaks,
@@ -170,6 +171,15 @@ export const SCENARIOS: readonly EvalScenario[] = [
     messages: ["The nuclear refinement is done. Is there magnetic order? Find the magnetic structure."],
     autonomy: "auto",
     checks: [magneticSequenceFirst, ran("search_propagation_vector"), noStall],
+  },
+  {
+    id: "swapped-units",
+    title: "Questions a pattern whose axis cannot be what it says",
+    origin: "THY-19 fault injection: d-spacings loaded as 2θ — no refinement can fit it, and refining around it hides the error.",
+    page: () => powderPage(mn3gaSwappedUnitsSession()),
+    messages: ["Refine this pattern."],
+    autonomy: "auto",
+    checks: [questionsAxis, noStall],
   },
   {
     id: "pdf-method",
@@ -367,3 +377,15 @@ export function scenario(id: string): EvalScenario {
   if (!s) throw new Error(`no eval scenario "${id}"`);
   return s;
 }
+
+/**
+ * The held-out scenarios (THY-19): their data were never what a skill or a
+ * knowledge note was written or tuned against, so a pass there is not the
+ * method recalling its own examples. Each lists the names its data go by;
+ * heldOut.test.ts keeps them out of .claude/skills and knowledge. Report
+ * their passes apart from the rest. Real held-out data (public tutorials,
+ * gitignored here) join on the machine that has them.
+ */
+export const HELD_OUT: Readonly<Record<string, readonly string[]>> = {
+  "swapped-units": ["Mn3Ga", "Mn₃Ga"],
+};
