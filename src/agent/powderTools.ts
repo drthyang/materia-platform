@@ -112,9 +112,11 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
         ...(input.dMin !== undefined ? { dMin: input.dMin } : {}),
         ...(input.significance !== undefined ? { significance: input.significance } : {}),
       });
-      // Each unindexed peak in d and Q too, and marked on the plot for the user.
+      // Each unindexed peak in d and Q too, and marked on the plot for the user:
+      // in 2θ with the check's own refined zero taken out, as its reflections were placed.
+      const axis = check.zero !== undefined ? { ...s.axis, zero: check.zero } : s.axis;
       const unindexed = check.unindexedPeaks.map((p) => {
-        const d = convertAxisValue(p.x, s.pattern.xUnit, "dSpacing", s.axis);
+        const d = convertAxisValue(p.x, s.pattern.xUnit, "dSpacing", axis);
         return { ...p, ...(Number.isFinite(d) ? { d: sig(d, 5), q: sig((2 * Math.PI) / d, 5) } : {}) };
       });
       const marks = unindexed.flatMap((p) => ("d" in p && p.d !== undefined ? [{ d: p.d, height: p.significance }] : []));
