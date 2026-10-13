@@ -50,6 +50,8 @@ shortest contact.
 
 ## Example 3 — a magnetic structure from the peaks the nuclear model leaves
 
+*Watch it replayed: [GIF](media/agent-example3.gif) · [MP4](media/agent-example3.mp4) (38 s; the same tool sequence through the MCP server, every number recomputed; made with `scripts/example3-demo.ts`).*
+
 **Prompt**
 
 > Using the MATERIA tools, fit the 30 K neutron pattern

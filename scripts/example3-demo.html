@@ -1,0 +1,236 @@
+<!doctype html>
+<!--
+  Example 3 of docs/AGENT_EXAMPLES.md as a 1280×720 animation. The data block is
+  filled by scripts/example3-demo-record.mjs from the replay that
+  scripts/example3-demo.ts runs through MATERIA's MCP server. render(t) draws
+  the frame at t seconds, so a recorder can step it frame by frame; opened
+  directly, the page plays on a loop.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<title>MATERIA · Example 3</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #fff; }
+  body { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; color: #1a1a1a; position: relative; }
+  .blue { color: #1d5fa8; }
+  #head { position: absolute; left: 28px; right: 28px; top: 14px; height: 40px; border-bottom: 2px solid #1d5fa8; display: flex; align-items: baseline; gap: 14px; }
+  #head .t { font-size: 22px; font-weight: 700; color: #1d5fa8; }
+  #head .s { font-size: 18px; color: #333; }
+  #head .r { margin-left: auto; font-size: 14px; color: #666; }
+  #left { position: absolute; left: 28px; top: 66px; width: 560px; height: 586px; }
+  #left h2 { font-size: 16px; font-weight: 700; color: #1d5fa8; margin-bottom: 6px; }
+  .row { position: absolute; left: 0; width: 560px; height: 38px; padding: 3px 8px 0 52px; border-radius: 4px; }
+  .row .n { position: absolute; left: 6px; top: 4px; width: 44px; font-size: 13px; white-space: nowrap; color: #888; font-variant-numeric: tabular-nums; }
+  .row .l1 { font-size: 14px; white-space: nowrap; overflow: hidden; }
+  .row .tool { font-weight: 700; }
+  .row .args { color: #666; margin-left: 8px; }
+  .row .l2 { font-size: 14px; color: #1d5fa8; white-space: nowrap; margin-top: 2px; }
+  .row.active { background: #e8f0fa; }
+  #right { position: absolute; left: 610px; top: 66px; width: 646px; height: 586px; }
+  .panel { position: absolute; left: 0; top: 0; width: 646px; height: 586px; }
+  .ptitle { font-size: 16px; font-weight: 700; color: #1a1a1a; height: 24px; }
+  .ptitle .fit { color: #1d5fa8; margin-left: 10px; }
+  svg text { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; }
+  .legend { font-size: 13px; color: #444; margin-top: 4px; display: flex; gap: 18px; }
+  .sw { display: inline-block; width: 18px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 5px; }
+  .note { font-size: 15px; color: #333; margin-top: 10px; line-height: 1.45; }
+  table { border-collapse: collapse; font-size: 17px; margin-top: 22px; width: 620px; }
+  th { text-align: left; font-size: 14px; color: #666; font-weight: 600; border-bottom: 2px solid #1d5fa8; padding: 8px 12px; }
+  td { padding: 12px 12px; border-bottom: 1px solid #ddd; font-variant-numeric: tabular-nums; }
+  td.num, th.num { text-align: right; }
+  tr.best td { background: #e8f0fa; font-weight: 700; color: #1d5fa8; }
+  tr.best td:first-child { box-shadow: inset 4px 0 0 #1d5fa8; }
+  #moments { margin-top: 6px; }
+  #moments table { font-size: 14px; margin-top: 4px; width: 640px; }
+  #moments td, #moments th { padding: 3px 10px; }
+  #moments .claim { font-size: 18px; font-weight: 700; color: #1d5fa8; margin-top: 6px; }
+  #moments .small { font-size: 12.5px; color: #666; margin-top: 2px; }
+  #caption { position: absolute; left: 28px; right: 28px; top: 664px; font-size: 14px; color: #333; border-top: 1px solid #ccc; padding-top: 8px; }
+  #copy { position: absolute; right: 14px; bottom: 6px; font-size: 13px; color: #555; background: rgba(255,255,255,0.85); padding: 1px 4px; }
+</style>
+</head>
+<body>
+<div id="head"><span class="t">MATERIA · Example 3</span><span class="s">a magnetic structure from the peaks the nuclear model leaves</span><span class="r">Mn<sub>3</sub>Ga, 30 K, neutrons (simulated)</span></div>
+<div id="left"><h2>Claude (Opus 5.5) → MATERIA MCP tools</h2></div>
+<div id="right">
+  <div class="panel" id="pA">
+    <div class="ptitle" id="tA">Simulated pattern <span class="fit" id="fitA"></span></div>
+    <svg id="svgA" width="646" height="420"></svg>
+    <div class="legend" id="legA"></div>
+    <div class="note" id="noteA"></div>
+  </div>
+  <div class="panel" id="pB">
+    <div class="ptitle">Each maximal magnetic group, fitted <span class="fit">free: scale, background, moments · 13 starts</span></div>
+    <table id="groups"></table>
+    <div class="note" id="noteB"></div>
+  </div>
+  <div class="panel" id="pC">
+    <div class="ptitle">Final joint fit, step 18 <span class="fit" id="fitC"></span></div>
+    <svg id="svgC" width="646" height="420"></svg>
+    <div id="moments"></div>
+  </div>
+</div>
+<div id="caption">Example 3: a real Claude run over MCP, replayed through MATERIA's MCP server; every number recomputed live. Simulated data from the 30 K Mn<sub>3</sub>Ga structure.</div>
+<div id="copy">© 2026 Tsung-Han Yang</div>
+<script>
+const DATA = /*DATA*/null;
+const BLUE = "#1d5fa8", ORANGE = "#d9822b";
+const sub = (s) => s.replace(/₁/g, "<sub>1</sub>").replace(/₃/g, "<sub>3</sub>");
+const clamp = (x) => Math.max(0, Math.min(1, x));
+const fade = (t, t0, dur = 0.45) => clamp((t - t0) / dur);
+const pct = (x) => (100 * x).toFixed(2) + " %";
+
+// Timeline (s). Rows appear one by one; holds of ≥3 s on the peaks, the table and the final fit.
+const ROW_T = [1.0, 1.8, 2.6, 3.6, 4.8, 8.0, 9.5, 13.5, 15.0, 17.0, 18.5, 20.0, 21.5, 26.0];
+const T = { obs: 1.9, nucFit: 5.0, peaks: 9.7, outA: 16.0, tableIn: 16.5, best: 22.6, outB: 25.6, finalIn: 26.0, finalFit: 26.6, moments: 29.6, end: 38.0 };
+
+// ---- left: the call list ----
+const left = document.getElementById("left");
+const rows = DATA.steps.map((s, i) => {
+  const el = document.createElement("div");
+  el.className = "row";
+  el.style.top = 30 + i * 39.5 + "px";
+  el.innerHTML = `<div class="n">${s.n}</div><div class="l1"><span class="tool">${s.tool}</span><span class="args">${sub(s.args)}</span></div><div class="l2">→ ${sub(s.result)}</div>`;
+  left.appendChild(el);
+  return el;
+});
+
+// ---- right: pattern plots ----
+const W = 646, X0 = 58, X1 = 636, YT = 14, YB = 286, RT = 300, RB = 378, XA = 384;
+const XMIN = 10, XMAX = 80;
+const px = (x) => X0 + ((x - XMIN) / (XMAX - XMIN)) * (X1 - X0);
+const yMax = Math.max(...DATA.nuclear.curves.yObs) * 1.08;
+const py = (y) => YB - (y / yMax) * (YB - YT);
+const dMax = Math.max(...DATA.nuclear.curves.diff.map(Math.abs)) * 1.05;
+const pr = (y) => (RT + RB) / 2 - (y / dMax) * ((RB - RT) / 2);
+// A per-pixel min/max envelope keeps every peak top in a short path.
+function envelope(x, y, fy) {
+  const cols = new Map();
+  x.forEach((xi, i) => {
+    if (xi < XMIN || xi > XMAX) return;
+    const c = Math.round(px(xi));
+    const v = cols.get(c);
+    if (!v) cols.set(c, [y[i], y[i]]); else { v[0] = Math.min(v[0], y[i]); v[1] = Math.max(v[1], y[i]); }
+  });
+  let d = "";
+  for (const [c, [lo, hi]] of [...cols].sort((a, b) => a[0] - b[0])) d += `${d ? "L" : "M"}${c},${fy(lo).toFixed(1)}L${c},${fy(hi).toFixed(1)}`;
+  return d;
+}
+const NS = "http://www.w3.org/2000/svg";
+function el(parent, tag, attrs, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (text !== undefined) e.textContent = text;
+  parent.appendChild(e);
+  return e;
+}
+function axes(svg) {
+  el(svg, "line", { x1: X0, x2: X1, y1: YB, y2: YB, stroke: "#999" });
+  el(svg, "line", { x1: X0, x2: X0, y1: YT, y2: RB, stroke: "#999" });
+  for (let x = XMIN; x <= XMAX; x += 10) {
+    el(svg, "line", { x1: px(x), x2: px(x), y1: RB, y2: RB + 5, stroke: "#999" });
+    el(svg, "text", { x: px(x), y: RB + 19, "text-anchor": "middle", "font-size": 13, fill: "#444" }, x);
+  }
+  el(svg, "line", { x1: X0, x2: X1, y1: RB, y2: RB, stroke: "#999" });
+  el(svg, "text", { x: (X0 + X1) / 2, y: RB + 37, "text-anchor": "middle", "font-size": 13, fill: "#444" }, "2θ (°)");
+  for (let y = 0; y <= yMax; y += 10000) {
+    el(svg, "line", { x1: X0 - 5, x2: X0, y1: py(y), y2: py(y), stroke: "#999" });
+    el(svg, "text", { x: X0 - 8, y: py(y) + 4, "text-anchor": "end", "font-size": 12, fill: "#444" }, y ? `${y / 1000}k` : "0");
+  }
+  el(svg, "text", { x: 14, y: (YT + YB) / 2, "text-anchor": "middle", "font-size": 13, fill: "#444", transform: `rotate(-90 14 ${(YT + YB) / 2})` }, "counts");
+  el(svg, "line", { x1: X0, x2: X1, y1: pr(0), y2: pr(0), stroke: "#ccc", "stroke-dasharray": "3 3" });
+  el(svg, "text", { x: X1, y: RT - 2, "text-anchor": "end", "font-size": 12, fill: "#666" }, "obs − calc (same scale in both fits)");
+}
+function plot(svg, curves, id) {
+  axes(svg);
+  const clip = el(el(svg, "defs", {}), "clipPath", { id: `clip${id}` });
+  const rect = el(clip, "rect", { x: X0, y: 0, width: 0, height: 420 });
+  const obs = el(svg, "path", { d: envelope(curves.x, curves.yObs, py), stroke: "#111", "stroke-width": 1, fill: "none" });
+  const g = el(svg, "g", { "clip-path": `url(#clip${id})` });
+  el(g, "path", { d: envelope(curves.x, curves.yCalc, py), stroke: BLUE, "stroke-width": 1.3, fill: "none", opacity: 0.9 });
+  el(g, "path", { d: envelope(curves.x, curves.diff, pr), stroke: "#777", "stroke-width": 1, fill: "none" });
+  return { obs, rect };
+}
+const A = plot(document.getElementById("svgA"), DATA.nuclear.curves, "A");
+const C = plot(document.getElementById("svgC"), DATA.final.curves, "C");
+// The three unexplained peaks, marked on the pattern and on the residual.
+const svgA = document.getElementById("svgA");
+const peakG = el(svgA, "g", {});
+const byX = [...DATA.peaks].sort((a, b) => a.x - b.x);
+byX.forEach((p, i) => {
+  const x = px(p.x);
+  const iy = DATA.nuclear.curves.x.findIndex((v) => v >= p.x);
+  const top = py(Math.max(...DATA.nuclear.curves.yObs.slice(Math.max(0, iy - 6), iy + 6)));
+  const ly = Math.max(YT + 26, top - 22 - (i % 2) * 26);
+  el(peakG, "line", { x1: x, x2: x, y1: ly + 4, y2: top - 4, stroke: ORANGE, "stroke-width": 2 });
+  el(peakG, "path", { d: `M${x - 5},${top - 11}L${x + 5},${top - 11}L${x},${top - 3}Z`, fill: ORANGE });
+  el(peakG, "text", { x: x + 6, y: ly, "font-size": 14, "font-weight": 700, fill: ORANGE }, `d = ${p.d.toFixed(3)} Å`);
+  const ir = DATA.nuclear.curves.diff.slice(Math.max(0, iy - 6), iy + 6);
+  el(peakG, "circle", { cx: x, cy: pr(Math.max(...ir)), r: 7, fill: "none", stroke: ORANGE, "stroke-width": 2 });
+});
+const legend = `<span><span class="sw" style="border-color:#111"></span>observed</span><span><span class="sw" style="border-color:${BLUE}"></span>calculated</span><span><span class="sw" style="border-color:#777"></span>obs − calc</span>`;
+document.getElementById("legA").innerHTML = legend;
+const nucA = DATA.nuclear;
+document.getElementById("fitA").textContent = "";
+const noteA = document.getElementById("noteA");
+noteA.innerHTML = `<div id="nA1">Nuclear model only (atoms held): wR ${pct(nucA.wR)}, GoF ${nucA.gof.toFixed(2)}.</div><div id="nA2"><b style="color:${ORANGE}">Three peaks the nuclear model leaves unexplained.</b></div><div id="nA3">k = (0 0 0) explains all three: the magnetic peaks sit on nuclear reflections.</div>`;
+
+// ---- the group table ----
+const allowed = (axes) => (axes.length === 1 ? `along ${axes[0]}` : `in the ${axes.join("")} plane`);
+const tbl = document.getElementById("groups");
+tbl.innerHTML = `<tr><th>Magnetic group</th><th>Moments allowed</th><th class="num">wR</th><th class="num">GoF</th></tr>` +
+  DATA.groups.map((g) => `<tr data-bns="${g.bns}"><td>${sub(g.bns)}</td><td>${allowed(g.axes)}</td><td class="num">${pct(g.wR)}</td><td class="num">${g.gof.toFixed(2)}</td></tr>`).join("");
+const gRows = [...tbl.querySelectorAll("tr")].slice(1);
+const bestRow = gRows.find((r) => r.dataset.bns === DATA.best);
+document.getElementById("noteB").innerHTML = `Only <b class="blue">${sub(DATA.best)}</b> reaches GoF ≈ 1.<br>Magnetic intensity is quadratic in the moments, so each group is fitted from 13 starts.`;
+
+// ---- the final fit and the moments ----
+document.getElementById("fitC").textContent = `wR ${pct(DATA.final.wR)}, GoF ${DATA.final.gof.toFixed(2)}`;
+const f2 = (v) => (v < 0 ? "−" : "") + Math.abs(v).toFixed(2);
+document.getElementById("moments").innerHTML =
+  `<div class="claim">Moments recovered within 0.06 μB of the truth</div>` +
+  `<table><tr><th>Mn site</th><th>Found (m<sub>a</sub>, m<sub>c</sub>) μB</th><th>Simulated from (m<sub>a</sub>, m<sub>c</sub>) μB</th></tr>` +
+  DATA.moments.map((m) => `<tr><td>${m.site}</td><td>${f2(m.found[0])}, ${f2(m.found[2])}</td><td>${f2(m.truth[0])}, ${f2(m.truth[2])}</td></tr>`).join("") +
+  `</table><div class="small">k = 0, ${sub(DATA.best)}, moments in the ac plane. This replay: largest |Δm| = ${DATA.maxDev.toFixed(3)} μB; global sign matched to the truth.</div>`;
+
+const op = (node, v) => { node.style.opacity = v; };
+function render(t) {
+  rows.forEach((r, i) => {
+    const a = fade(t, ROW_T[i], 0.4);
+    r.style.opacity = a;
+    r.style.transform = `translateY(${(1 - a) * 8}px)`;
+    r.classList.toggle("active", t >= ROW_T[i] && (i + 1 === ROW_T.length || t < ROW_T[i + 1]));
+  });
+  // Panel A: the data, then the nuclear-only fit, then the peaks.
+  op(document.getElementById("pA"), fade(t, T.obs) * (1 - fade(t, T.outA, 0.5)));
+  A.rect.setAttribute("width", (X1 - X0 + 2) * clamp((t - T.nucFit) / 1.8));
+  document.getElementById("fitA").textContent = t >= T.nucFit + 1.8 ? `wR ${pct(nucA.wR)}, GoF ${nucA.gof.toFixed(2)}` : "";
+  document.getElementById("tA").firstChild.textContent = t >= T.nucFit ? "Nuclear-only fit, step 5 " : "Simulated pattern, 6,251 points ";
+  op(document.getElementById("legA"), fade(t, T.nucFit));
+  op(document.getElementById("nA1"), fade(t, T.nucFit + 1.8));
+  op(peakG, fade(t, T.peaks, 0.6));
+  op(document.getElementById("nA2"), fade(t, T.peaks, 0.6));
+  op(document.getElementById("nA3"), fade(t, ROW_T[7]));
+  // Panel B: the groups, one row per fit, the best highlighted.
+  op(document.getElementById("pB"), fade(t, T.tableIn) * (1 - fade(t, T.outB, 0.4)));
+  gRows.forEach((r, i) => { r.style.opacity = fade(t, ROW_T[9 + i]); });
+  bestRow.classList.toggle("best", t >= T.best);
+  op(document.getElementById("noteB"), fade(t, T.best));
+  // Panel C: the final fit and the moments.
+  op(document.getElementById("pC"), fade(t, T.finalIn));
+  C.rect.setAttribute("width", (X1 - X0 + 2) * clamp((t - T.finalFit) / 1.8));
+  op(document.getElementById("fitC"), fade(t, T.finalFit + 1.8));
+  op(document.getElementById("moments"), fade(t, T.moments, 0.6));
+}
+window.render = render;
+window.DURATION = T.end;
+if (!window.__capture) {
+  const t0 = performance.now();
+  const loop = () => { render(((performance.now() - t0) / 1000) % T.end); requestAnimationFrame(loop); };
+  loop();
+}
+</script>
+</body>
+</html>
