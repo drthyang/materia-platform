@@ -1,38 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { parse_instrument, parse_powder_data, parse_structure } from "@/mcp/tools";
-import { loadedSession, type Session } from "@/app/powderSession";
-import { runPowderRefinement } from "@/workers/runPowder";
-import { powderRestraints } from "@/app/powderSpec";
-import { matchIds } from "@/agent/liveCommon";
+import { example3Session } from "@/agent/validation/example3";
 import { executor, fakeHost, sessionPort } from "@/testSupport/agentHeadless";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { exampleMagnetic } from "@/examples/mn3gaMagnetic";
-
-const DIR = resolve(__dirname, "../../examples/mcp");
-const read = (f: string): string => readFileSync(resolve(DIR, f), "utf8");
-
-/** Example 3's page after its nuclear fit (scale, background, cell, U V W; atoms held), as the MCP run's step 5. */
-export function example3Session(): Session {
-  const { structure } = parse_structure({ cif: read("mn3ga_30k_nuclear.cif"), id: "mn3ga30k" });
-  const instrument = parse_instrument({ text: read("mn3ga_30k.instprm") });
-  const { pattern } = parse_powder_data({ text: read("mn3ga_30k_sim.xye"), filename: "mn3ga_30k_sim.xye", instrument });
-  const s = loadedSession(structure, pattern, instrument);
-  const free = new Set(matchIds(s.powderParams, ["scale", "bkg*", "cell_*", "profU", "profV", "profW"]));
-  const r = runPowderRefinement({
-    type: "refinePowder",
-    requestId: 0,
-    structure: s.structure,
-    pattern: s.pattern,
-    parameters: s.powderParams.map((p) => ({ ...p, fixed: !free.has(p.id) })),
-    bindings: s.powderBindings,
-    shape: s.powderProfile.shape,
-    restraints: powderRestraints([s.structure], s.siteTies, s.powderParams),
-    options: { maxIterations: 30 },
-  });
-  return { ...s, powderParams: s.powderParams.map((p) => ({ ...p, value: r.parameters[p.id] ?? p.value })) };
-}
 
 /**
  * The in-app magnetic step on Example 3 (docs/AGENT_EXAMPLES.md): the nuclear

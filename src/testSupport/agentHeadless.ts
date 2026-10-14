@@ -25,6 +25,8 @@ import { inversionText, invertedModel, invertedRiding, invertedTwinFractions } f
 import { ridingRules } from "@/core/crystal/riding";
 import { powderRestraints } from "@/app/powderSpec";
 import { runPowderRefinement } from "@/workers/runPowder";
+import { leBailCellPrefit } from "@/core/workflow/leBailPrefit";
+import { refineMultiStart } from "@/core/refinement/multiStart";
 import { axisContext, convertAxisArray } from "@/visualization/axisUnits";
 import { excludedPointMask } from "@/core/refinement/factors";
 import type { RefinementOptions, RefinementResult } from "@/core/refinement/types";
@@ -96,45 +98,61 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
       ...(s.extraPhases.length > 0 ? { extraPhases: s.extraPhases } : {}),
     };
   };
-  /** The fit as the page runs it: nuclear + magnetic once a magnetic model is on the session. */
-  const fitOnce = (options: Partial<RefinementOptions>): RefinementResult =>
+  /** The fit as the page runs it, inside the fit window: nuclear + magnetic once a magnetic model is on the session. */
+  const fitFrom = (parameters: Session["powderParams"], options: Partial<RefinementOptions>): RefinementResult =>
     s.magnetic
-      ? refineProblem(buildMagneticPowderProblem(s.structure, s.magnetic, s.pattern, s.powderParams, s.powderBindings, { shape: s.powderProfile.shape, ...(s.powderProfile.eta !== undefined ? { eta: s.powderProfile.eta } : {}) }), options)
+      ? refineProblem(buildMagneticPowderProblem(s.structure, s.magnetic, s.pattern, parameters, s.powderBindings, { shape: s.powderProfile.shape, ...(s.powderProfile.eta !== undefined ? { eta: s.powderProfile.eta } : {}) }, fitRange ?? undefined), options)
       : runPowderRefinement({
         type: "refinePowder",
         requestId: 0,
         structure: s.structure,
         pattern: s.pattern,
-        parameters: s.powderParams,
+        parameters,
         bindings: s.powderBindings,
         shape: s.powderProfile.shape,
         restraints: powderRestraints([s.structure], s.siteTies, s.powderParams),
         ...(s.extraPhases.length > 0 ? { extraPhases: s.extraPhases } : {}),
+        ...(fitRange ? { fitRange: { ...fitRange } } : {}),
         options,
       });
+  const fitOnce = (options: Partial<RefinementOptions>): RefinementResult => fitFrom(s.powderParams, options);
   let sampled: SampleResult | null = null;
   const refine = async (): Promise<string | null> => {
     calls.push("refine");
-    if (s.magnetic) {
-      const r = fitOnce({ maxIterations: 20 });
-      s = { ...s, powderParams: s.powderParams.map((p) => ({ ...p, value: r.parameters[p.id] ?? p.value })) };
-      result = r;
-      return null;
-    }
-    const r = runPowderRefinement({
-      type: "refinePowder",
-      requestId: 0,
-      structure: s.structure,
-      pattern: s.pattern,
-      parameters: s.powderParams,
-      bindings: s.powderBindings,
-      shape: s.powderProfile.shape,
-      restraints: powderRestraints([s.structure], s.siteTies, s.powderParams),
-      ...(s.extraPhases.length > 0 ? { extraPhases: s.extraPhases } : {}),
-      options: { maxIterations: 20 },
-    });
+    const r = fitOnce({ maxIterations: 20 });
     s = { ...s, powderParams: s.powderParams.map((p) => ({ ...p, value: r.parameters[p.id] ?? p.value })) };
     result = r;
+    return null;
+  };
+  /**
+   * The Prefit / Escape-minimum button as the page runs it: with no fit yet,
+   * a Le Bail cell pre-fit (one phase, a cell row free; its zero seeds a free
+   * zero) and then a multi-start search of 8 restarts; after a fit, 3
+   * restarts with a tight kick.
+   */
+  const thorough = async (): Promise<string | null> => {
+    calls.push("thorough");
+    const prefit = result === null;
+    let start = s.powderParams;
+    const isCell = (kind: string): boolean => kind === "cellLength" || kind === "cellAngle";
+    if (prefit && !s.magnetic && s.extraPhases.length === 0 && s.pattern.xUnit === "twoTheta" && start.some((p) => isCell(p.kind) && !p.fixed && !p.expression)) {
+      const pre = leBailCellPrefit(s.structure, s.pattern, start.filter((p) => isCell(p.kind)), s.powderBindings.filter((b) => isCell(b.kind)), {
+        shape: s.powderProfile.shape,
+        ...(s.powderProfile.eta !== undefined ? { eta: s.powderProfile.eta } : {}),
+        ...(fitRange ? { fitRange: { ...fitRange } } : {}),
+      });
+      if (pre.refined) {
+        start = start.map((p) => (pre.cellValues[p.id] !== undefined
+          ? { ...p, value: pre.cellValues[p.id]! }
+          : p.kind === "zeroShift" && pre.zero !== undefined && !p.fixed && !p.expression ? { ...p, value: pre.zero } : p));
+      }
+    }
+    const ms = await refineMultiStart(start, (from) => {
+      const r = fitFrom([...from], { maxIterations: 20 });
+      return { parameters: from.map((p) => ({ ...p, value: r.parameters[p.id] ?? p.value })), final: r };
+    }, prefit ? { restarts: 8 } : { restarts: 3, escapeSigma: 1.5 });
+    s = { ...s, powderParams: s.powderParams.map((p) => ({ ...p, value: ms.final.parameters[p.id] ?? p.value })) };
+    result = ms.final;
     return null;
   };
   const port: PowderAgentPort = {
@@ -200,7 +218,7 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
     },
     showPeaks: (peaks) => calls.push(`showPeaks ${peaks.map((p) => p.d.toFixed(3)).join(",")}`),
     refine,
-    thorough: refine,
+    thorough,
     samplePosterior: async ({ continue: more, steps }) => {
       calls.push(`sample ${more ? "continue" : "start"} ${steps}`);
       if (more && !sampled) return "there is no posterior run to continue: sample first";

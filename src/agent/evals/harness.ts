@@ -139,7 +139,7 @@ export function freeAtCall(name: string, input: unknown, parameters: readonly Re
 }
 
 /** Run one scenario and grade it. Never throws for the model's behaviour; a chat error becomes a notice. */
-export async function runScenario(scenario: EvalScenario, model: EvalModel, signal: AbortSignal = new AbortController().signal): Promise<EvalResult> {
+export async function runScenario(scenario: EvalScenario, model: EvalModel, signal: AbortSignal = new AbortController().signal, onUsage?: (usage: EvalUsage) => void): Promise<EvalResult> {
   const port = scenario.page();
   // The History as the app keeps it: the report lists the steps the analysis took.
   const history = headlessHistory(port);
@@ -158,6 +158,8 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
     },
     onActivity: () => undefined,
     onReport: (r) => reports.push({ title: r.title, markdown: withoutFigures(r.markdown), unverified: r.unverified, audit: r.audit }),
+    // The ablation without skills (docs/VALIDATION.md, arm C) turns them off on both sides.
+    ...(model.skills === false ? { skills: false } : {}),
   });
   const runner: ToolRunner = {
     run: async (name, input, signal) => {
@@ -196,6 +198,8 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
           // Claude counts the cached part apart from the input; a local server's input is the whole prompt.
           const whole = model.transport === "ollama" || model.transport === "lmstudio" || model.transport === "openai-compatible";
           turns.push({ prompt: whole ? u.input_tokens ?? 0 : (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0), output: u.output_tokens ?? 0 });
+          // The spend tracker watches the running total (docs/VALIDATION.md: the API cap).
+          onUsage?.({ ...usage });
         },
       }, signal);
     } catch (e) {

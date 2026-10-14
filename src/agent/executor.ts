@@ -110,6 +110,12 @@ export interface ExecutorOptions {
   readonly modelLabel?: () => string;
   /** A report the Agent wrote (write_report), for the viewer. */
   readonly onReport?: (report: AgentReport) => void;
+  /**
+   * The skills (default on). Off is the validation's ablation arm
+   * (docs/VALIDATION.md): read_skill is refused and no change waits for a
+   * method to be read; every other rule still holds.
+   */
+  readonly skills?: boolean;
 }
 
 /** History step kind for a change that does not record its own step. */
@@ -242,6 +248,7 @@ export class AgentExecutor implements ToolRunner {
         return { isError: false, text: JSON.stringify(out) };
       }
       if (spec.name === "read_skill") {
+        if (this.opts.skills === false) throw new Error("there are no skills in this configuration: decide the method yourself");
         // Whole, as Markdown: a skill is read as written, not paged as a ref.
         const { name, reference } = input as { name: string; reference?: string };
         update({ preview: reference ? `${name} · ${reference}` : name });
@@ -311,7 +318,7 @@ export class AgentExecutor implements ToolRunner {
       // A change: only once the page's method has been read, never while a fit
       // runs; then ask, then act as the agent.
       const method = spec.skill ?? PAGE_METHOD[port.technique];
-      if (!this.skillsRead.has(method)) {
+      if (this.opts.skills !== false && !this.skillsRead.has(method)) {
         const what = spec.skill ? `it is how the user works on this step` : `it is how the user works on this page`;
         throw new Error(`read the method first: call read_skill with name "${method}" — ${what}, and changes wait until it has been read in this conversation`);
       }
