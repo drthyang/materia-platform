@@ -228,10 +228,13 @@ export function residualPeaks(residual: NonNullable<AssessmentInput["residual"]>
   const w = residual.lineWidth;
   const onTol = w !== undefined && w > 0 ? Math.min(ON_REFLECTION, Math.max(0.002, w)) : ON_REFLECTION;
   const besideTol = w !== undefined && w > 0 ? Math.min(BESIDE_REFLECTION, Math.max(0.006, 3 * w)) : BESIDE_REFLECTION;
+  // Every peak is classified first and the limit applied to each class after:
+  // cut before, the tallest residuals (usually misfits on strong reflections)
+  // crowded a weaker unexplained peak out of the list.
   const peaks = detectExtraPeaks(d, yObs, yCalc, {
     ...(sigma ? { pointSigma: sigma } : {}),
     ...(options.sigma !== undefined ? { sigma: options.sigma } : {}),
-    ...(options.limit !== undefined ? { limit: options.limit } : {}),
+    limit: Number.MAX_SAFE_INTEGER,
   });
   const annotated: AnnotatedExtraPeak[] = reflections ? annotateExtraPeaks(peaks, reflections, besideTol) : [...peaks];
   const rel = (p: AnnotatedExtraPeak): number => p.nearNuclear?.relDelta ?? Infinity;
@@ -246,12 +249,16 @@ export function residualPeaks(residual: NonNullable<AssessmentInput["residual"]>
     return yCalc[i]! - base >= TAIL_ON_LINE * p.height;
   };
   const beside = (p: AnnotatedExtraPeak): boolean => rel(p) > onTol && rel(p) <= besideTol;
+  const cap = <T>(list: T[]): T[] => (options.limit !== undefined ? list.slice(0, options.limit) : list.slice(0, DEFAULT_PEAK_LIMIT));
   return {
-    between: annotated.filter((p) => rel(p) > besideTol || (beside(p) && !onLine(p))),
-    beside: annotated.filter((p) => beside(p) && onLine(p)),
-    onReflection: annotated.filter((p) => rel(p) <= onTol),
+    between: cap(annotated.filter((p) => rel(p) > besideTol || (beside(p) && !onLine(p)))),
+    beside: cap(annotated.filter((p) => beside(p) && onLine(p))),
+    onReflection: cap(annotated.filter((p) => rel(p) <= onTol)),
   };
 }
+
+/** Most peaks of each class residualPeaks lists when no limit is given (detectExtraPeaks' own default). */
+const DEFAULT_PEAK_LIMIT = 40;
 
 /** A bump beside a line is its tail only where the line's calculated intensity is at least this fraction of the bump. */
 const TAIL_ON_LINE = 0.5;

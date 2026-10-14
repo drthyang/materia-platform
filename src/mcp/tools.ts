@@ -17,7 +17,7 @@ import type { StructureModel } from "@/core/crystal/types";
 import type { PdfPattern, PdfScatteringType, PowderPattern, SineTransformRecord } from "@/core/diffraction/types";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import { isMomentParameterKind, type LinearRestraint, type ParameterBinding, type RefinementParameter, type RefinementResult } from "@/core/refinement/types";
-import type { PowderProfile } from "@/core/workflow/powder";
+import type { FitRange, PowderProfile } from "@/core/workflow/powder";
 import type { MagneticModel } from "@/core/magnetic/types";
 import { parseMagneticCif } from "@/parsers/cif";
 import { parsePowderData } from "@/parsers/powderData";
@@ -1126,6 +1126,10 @@ export function rank_next_parameters(args: {
   bindings: ParameterBinding[];
   profile: PowderProfile;
   magnetic?: MagneticModel | null;
+  /** The occupancy restraints the fit runs with, so the probe ranks the problem the next refinement solves. */
+  restraints?: LinearRestraint[];
+  /** The fit window: the probe's wR and gains are over the points the fit uses. */
+  fitRange?: FitRange;
 }): {
   wrNow: number;
   chiSquared: number;
@@ -1140,8 +1144,8 @@ export function rank_next_parameters(args: {
     ? buildMagneticPowderProblem(args.structure, args.magnetic, args.pattern, args.parameters, args.bindings, {
         shape: args.profile.shape,
         ...(args.profile.eta !== undefined ? { eta: args.profile.eta } : {}),
-      })
-    : buildPowderProblem(args.structure, args.pattern, args.parameters, args.bindings, args.profile);
+      }, args.fitRange)
+    : buildPowderProblem(args.structure, args.pattern, args.parameters, args.bindings, args.profile, args.restraints ?? [], args.fitRange);
   const ranking = rankNextParameterGroups(problem);
   return {
     wrNow: ranking.wrNow,
