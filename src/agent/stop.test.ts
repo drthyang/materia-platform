@@ -118,7 +118,7 @@ describe("the step history", () => {
   });
 });
 
-describe("Agent settings saved", () => {
+describe("Copilot settings saved", () => {
   it("never save a replay's label, so a later live run is not called a replay", () => {
     const s = settingsFrom(JSON.stringify({ mode: "lmstudio", lmstudioModel: "claude-replay", replayOf: "Claude Opus 5.5" }));
     expect(s.replayOf).toBe("Claude Opus 5.5");

@@ -291,7 +291,7 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
           ctrl.signal,
         );
       } catch (e) {
-        const text = mod ? mod.describeChatError(e, config) : `The Agent could not load (${e instanceof Error ? e.message : String(e)}). Check the connection and send again.`;
+        const text = mod ? mod.describeChatError(e, config) : `The Copilot could not load (${e instanceof Error ? e.message : String(e)}). Check the connection and send again.`;
         setTranscript((t) => [...t, { kind: "notice", id: itemId(), text, tone: "error" }]);
       } finally {
         turn.current = null;

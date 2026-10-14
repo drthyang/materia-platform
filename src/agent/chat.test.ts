@@ -368,7 +368,7 @@ describe("AgentChat on Ollama", () => {
     const chat = new AgentChat({ run: async () => ({ isError: false, text: "{}" }) } as unknown as AgentExecutor);
     const config = { transport: "ollama" as const, serverUrl: api.url, model: "nope:1b", effort: "high" as const };
     const err = await chat.send("hi", config, quiet, new AbortController().signal).then(() => null, (e: unknown) => e);
-    expect(describeChatError(err, config)).toBe('Ollama has no model "nope:1b". Pull it (ollama pull nope:1b) or pick another in the Agent settings.');
+    expect(describeChatError(err, config)).toBe('Ollama has no model "nope:1b". Pull it (ollama pull nope:1b) or pick another in the Copilot settings.');
   });
 
   it("names a model that cannot call tools", async () => {
@@ -661,7 +661,7 @@ describe("the loop guard", () => {
     expect(ran).toEqual(["read_skill", "get_state", "read_skill", "get_state"]);
     expect(api.requests).toHaveLength(3);
     expect(notices).toEqual([
-      "The Agent was going in circles: it called read_skill 3 times with the same input, and nothing changed in between, so the app stopped it here. Where it stands: the powder page; done: Fit range; next: Scale, background, cell; no refinement on screen yet. Tell it the next step to take (for example \"free the atomic positions and refine\"), or start a new conversation if it has lost track.",
+      "The Copilot was going in circles: it called read_skill 3 times with the same input, and nothing changed in between, so the app stopped it here. Where it stands: the powder page; done: Fit range; next: Scale, background, cell; no refinement on screen yet. Tell it the next step to take (for example \"free the atomic positions and refine\"), or start a new conversation if it has lost track.",
     ]);
     // The second round's results said so; every call of the last round is answered, so the conversation goes on.
     const history = chat.history();
@@ -703,7 +703,7 @@ describe("the loop guard", () => {
     await chat.send("Refine it.", model(api.url), quiet(notices), new AbortController().signal);
     expect(api.requests).toHaveLength(3);
     expect(notices).toHaveLength(1);
-    expect(notices[0]).toMatch(/^The Agent was going in circles: it called get_state 3 times with the same input, and nothing changed in between, so the app stopped it here\. Where it stands: the powder page; done: nothing yet; next: Fit range; no refinement on screen yet\./);
+    expect(notices[0]).toMatch(/^The Copilot was going in circles: it called get_state 3 times with the same input, and nothing changed in between, so the app stopped it here\. Where it stands: the powder page; done: nothing yet; next: Fit range; no refinement on screen yet\./);
   });
 });
 

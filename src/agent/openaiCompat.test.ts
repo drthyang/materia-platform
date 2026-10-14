@@ -138,7 +138,7 @@ describe("the OpenAI-compatible provider", () => {
     const config = { transport: "openai-compatible" as const, serverUrl: api.url, model: "small", effort: "high" as const, context: 8192 };
     const err = await new AgentChat({ run: async () => ({ isError: false, text: "{}" }) } as unknown as AgentExecutor).send("hi", config, quiet(), new AbortController().signal).then(() => null, (e: unknown) => e);
     expect(chats(api.seen)).toHaveLength(0);
-    expect(describeChatError(err, config)).toMatch(/^This conversation no longer fits the 8k-token window used for small \(the server's own, or the context set in the Agent settings when the server does not say\), even with the old tool results shortened: it needs about \d+k .*Nothing was sent, so the model was not handed a cut prompt\./);
+    expect(describeChatError(err, config)).toMatch(/^This conversation no longer fits the 8k-token window used for small \(the server's own, or the context set in the Copilot settings when the server does not say\), even with the old tool results shortened: it needs about \d+k .*Nothing was sent, so the model was not handed a cut prompt\./);
   });
 
   it("explains a refused key and a missing model, and asks again without stream_options when a server refuses them", async () => {

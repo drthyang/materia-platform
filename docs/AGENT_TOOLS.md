@@ -393,7 +393,7 @@ external comparison records it.
 The Agent puts a model of your choice — local on Ollama or LM Studio, or a cloud model — beside the
 analysis open in the browser. It reads the
 live page, judges the fit with the tools above, and makes changes through the
-page's own controls. Open it with the **Agent** button in the header.
+page's own controls. Open it from the **Copilot** rail at the page's side.
 
 **Where it works.**
 - The powder page (Rietveld), single- and multi-phase, with or without an

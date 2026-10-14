@@ -141,7 +141,7 @@ function agentMarkdown(a: ReportAgent): string {
     a.steps.map((st, i) => [
       String(i + 1),
       st.stages ? `${st.label} · ${st.stages}` : st.label,
-      st.by === "agent" ? "Agent" : "user",
+      st.by === "agent" ? "Copilot" : "user",
       st.refined ?? "",
       String(st.free),
       pct(st.wR),
@@ -158,10 +158,10 @@ function agentMarkdown(a: ReportAgent): string {
   const checks = table(["Check", "Result", "Detail"], a.checks.map((c) => [c.name, label[c.status], c.detail]));
   const issues = a.openIssues.length > 0 ? a.openIssues.map((t) => `- ${t}`).join("\n") : "None: the engine's checks raised nothing left to settle.";
   const unverified = a.unverified ?? [];
-  const notes = a.notes.length > 0 ? `\n\n**The Agent's notes**\n\n${a.notes.map((t) => `- ${markNumbers(t, unverified, (n) => `${n}†`)}`).join("\n")}` : "";
+  const notes = a.notes.length > 0 ? `\n\n**The Copilot's notes**\n\n${a.notes.map((t) => `- ${markNumbers(t, unverified, (n) => `${n}†`)}`).join("\n")}` : "";
   const account = a.narrative?.trim() ? markNumbers(a.narrative.trim(), unverified, (t) => `${t}†`) : "";
   const narrative = account
-    ? `\n\n**The Agent's account**\n\n${account.split(/\n\s*\n/).map((p) => `> ${p.trim().replace(/\n/g, "\n> ")}`).join("\n>\n")}\n\n*Written by the Agent (${a.model}) in its own words, as are its notes. Every other number in this report — the steps, the checks, the parameters, the agreement factors and the figure — comes from the refinement engine and the project's History, not from the model.${unverified.length > 0 ? " Numbers marked † in the Agent's words are not among the values this report computed." : ""}*`
+    ? `\n\n**The Copilot's account**\n\n${account.split(/\n\s*\n/).map((p) => `> ${p.trim().replace(/\n/g, "\n> ")}`).join("\n>\n")}\n\n*Written by MATERIA Copilot (${a.model}) in its own words, as are its notes. Every other number in this report — the steps, the checks, the parameters, the agreement factors and the figure — comes from the refinement engine and the project's History, not from the model.${unverified.length > 0 ? " Numbers marked † in the Copilot's words are not among the values this report computed." : ""}*`
     : "";
   const posterior = a.posterior ? `\n\n${posteriorMarkdown(a.posterior)}` : "";
   return `**How the analysis was done** — ${a.steps.length} step${a.steps.length === 1 ? "" : "s"} from the History; model ${a.model}.\n\n${steps}${start}${stages}${branches}\n\n**Checks**\n\n${checks}\n\n**Open issues**\n\n${issues}${notes}${posterior}${narrative}`;
@@ -314,7 +314,7 @@ export function reportMarkdown(input: ReportInput): string {
   const stats = input.stats.length > 0 ? table(input.stats.map((s) => s.label), [input.stats.map((s) => s.value)], input.stats.map(() => "r" as const)) : "";
   const parts = [
     `# ${input.title}`,
-    `*MATERIA · ${technique} report${input.agent ? " · analysed with the Agent" : ""} · ${date}*`,
+    `*MATERIA · ${technique} report${input.agent ? " · analysed with MATERIA Copilot" : ""} · ${date}*`,
     input.subtitle ?? "",
     input.summary ?? "",
     stats,

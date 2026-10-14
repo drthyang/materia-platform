@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { modelLabel, providerOf, savedSettings, settingsFrom } from "@/agent/useAgent";
 
-describe("Agent settings from storage", () => {
+describe("Copilot settings from storage", () => {
   it("defaults to your own API key, with LM Studio and Ollama on their usual addresses", () => {
     const s = settingsFrom(null);
     expect(s.mode).toBe("api-key");

@@ -79,7 +79,7 @@ export async function listOpenAIModels(url: string, key: string | undefined, sig
     if (signal?.aborted) throw e;
     throw new Error(openaiUnreachableHint(base), { cause: e });
   }
-  if (res.status === 401 || res.status === 403) throw new Error(`${base} refused the API key (${res.status}). Check it in the Agent settings.`);
+  if (res.status === 401 || res.status === 403) throw new Error(`${base} refused the API key (${res.status}). Check it in the Copilot settings.`);
   if (!res.ok) throw new Error(`${base}/models answered ${res.status}: is this the server's OpenAI-compatible base URL (it usually ends in /v1)?`);
   const body = (await res.json()) as { data?: { id?: string; max_model_len?: number; context_length?: number; context_window?: number; meta?: { n_ctx?: number; n_ctx_train?: number } }[] };
   if (!Array.isArray(body.data)) throw new Error(`${base}/models did not list models as an OpenAI-compatible server does.`);
