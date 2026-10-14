@@ -259,9 +259,21 @@ html {
 }
 .wb-agent-rail-label {
   writing-mode: vertical-rl;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+/* The Copilot's name in spaced capitals, as the MATERIA logotype sets its own
+ * (the text stays "MATERIA Copilot", so a screen reader says a word). */
+.wb-agent-title {
+  font-family: "Space Grotesk", "IBM Plex Sans", system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #2b2722;
+  white-space: nowrap;
 }
 .wb-agent-dot {
   position: absolute;

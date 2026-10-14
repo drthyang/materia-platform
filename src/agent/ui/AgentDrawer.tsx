@@ -77,7 +77,7 @@ export function AgentDrawer({ agent, method = null, onClose }: Props): JSX.Eleme
         <div style={{ ...head, flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: "8px 12px" }}>
           <span style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
             <SparkIcon />
-            <b style={{ fontSize: 15, color: color.ink }}>MATERIA Copilot</b>
+            <b className="wb-agent-title">MATERIA Copilot</b>
             <span className="wb-agent-beta" title="A public beta: check what it does, as you would a new colleague's work">Beta</span>
             <StatusChip agent={agent} compact />
           </span>
@@ -93,7 +93,7 @@ export function AgentDrawer({ agent, method = null, onClose }: Props): JSX.Eleme
           <div style={headRow}>
             <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
               <SparkIcon />
-              <b style={{ fontSize: 15, color: color.ink }}>MATERIA Copilot</b>
+              <b className="wb-agent-title">MATERIA Copilot</b>
               <span className="wb-agent-beta" title="A public beta: check what it does, as you would a new colleague's work">Beta</span>
             </span>
             <span style={{ display: "flex", gap: 4 }}>
