@@ -11,6 +11,7 @@ import type { SingleCrystalAgentPort, SingleCrystalLiveState, SingleCrystalRow }
 import type { LiveToolSpec } from "@/agent/tools";
 import type { ProjectHistory } from "@/core/project/history";
 import { assess_refinement, bond_geometry } from "@/mcp/tools";
+import type { ReferenceEntry } from "@/agent/references";
 import { compareWithLoaded, structureTable, withEsd } from "@/agent/structureTable";
 import { applyFree, bondEsds, bondsOf, uniqueBonds, cellOf, describeFree, freeNoOp, goToStep, historyView, matchIds, parameterSummary, pct, sig, type ChangeResult, type LiveToolHost } from "@/agent/liveCommon";
 import type { RefinementResult } from "@/core/refinement/types";
@@ -1328,6 +1329,25 @@ function twinLawsView(read: readonly { h: number; k: number; l: number; intensit
     laws: laws.map((l) => ({ law: l.matrix, indices: l.indices, pairs: l.pairs, ...(l.pairs > 0 ? { meanH: sig(l.meanH, 3), alpha: sig(l.alpha, 3) } : { alpha: `no ${l.distribution} pair (h, R·h) measured above 3σ: the test has nothing to read for this law` }) })),
     reading: `Yeates' H-test, before any model: over the pairs (h, R·h) both measured above 3σ, ⟨H⟩ = ⟨|I₁ − I₂|/(I₁ + I₂)⟩ = ${laws[0]!.distribution === "centric" ? "(2/π)(1 − 2α) — the group is centrosymmetric, so every reflection is centric and I₁/(I₁ + I₂) follows the arcsine law" : "½ − α over the acentric pairs"}. A law with α well above the others' twins the crystal: set_twin with it, and refine its fraction (the test's α is an estimate; noise lowers it). A perfect twin by one law leaves the others near α ≈ 0.12 (each intensity then the mean of two), and pseudo-symmetry raises every α; all near 0: no merohedral twin.`,
   };
+}
+
+/** The numbers the Agent quotes by reference on the single-crystal page ({{R1}}, {{wR2}}, {{GooF}}, {{flack}}, {{verdict}}; {{p:ID}} for any row). */
+export function singleCrystalReferences(s: SingleCrystalLiveState): ReferenceEntry[] {
+  return [
+    { key: "R1", what: "R1 (%) over Fo² > 2σ", value: () => `${pct(s.agreement.r1)} %` },
+    { key: "wR2", what: "wR2 (%) over every reflection fitted", value: () => `${pct(s.agreement.wr2)} %` },
+    { key: "GooF", what: "the GooF", value: () => s.agreement.goof.toFixed(3) },
+    { key: "Nobs", what: "the reflections with Fo² > 2σ", value: () => String(s.agreement.observed) },
+    { key: "Nref", what: "the reflections fitted", value: () => String(s.agreement.total) },
+    { key: "flack", what: "the Flack x by Parsons' quotients, with its esd", value: () => {
+      const v = absoluteStructureView(s);
+      return v && typeof v.parsonsX === "string" && v.parsonsX !== "none" ? v.parsonsX : null;
+    } },
+    { key: "verdict", what: "the engine's verdict on the last refinement (its band)", value: () => {
+      if (!s.result) return null;
+      return assess_refinement({ result: s.result, parameters: [...s.parameters], observationCount: s.observationCount, mode: "single-crystal", restraints: s.restraints, disorder: disorderAssemblies(s.structure, s.bindings, s.twinLaws) }).verdict.band;
+    } },
+  ];
 }
 
 function assessment(s: SingleCrystalLiveState): Record<string, unknown> {

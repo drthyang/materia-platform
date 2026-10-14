@@ -179,6 +179,46 @@ describe("AgentChat", () => {
     expect((api.requests[1]!.body.messages as unknown[]).length).toBe(3);
   });
 
+  it("ends each message before its tool calls run, so its references are filled from the page as it stood", async () => {
+    const api = await fakeApi([
+      sse([{ type: "text", text: "At {{wR}} now; refining." }, { type: "tool_use", id: "tu_1", name: "refine", input: {} }], "tool_use"),
+      sse([{ type: "text", text: "Now {{wR}}." }], "end_turn"),
+    ]);
+    server = api.server;
+    const events: string[] = [];
+    const chat = new AgentChat({ run: async (name: string) => { events.push(`run ${name}`); return { isError: false, text: "{}" }; } } as unknown as AgentExecutor);
+    await chat.send(
+      "refine",
+      { transport: "api-key", apiKey: "sk-test", baseURL: api.url, model: "claude-opus-5-5", effort: "high" },
+      { onAssistantStart: () => events.push("start"), onText: () => undefined, onThinking: () => undefined, onNotice: () => undefined, onUsage: () => undefined, onAssistantEnd: () => events.push("end") },
+      new AbortController().signal,
+    );
+    expect(events).toEqual(["start", "end", "run refine", "start", "end"]);
+    // The model's own history keeps its references as it wrote them.
+    expect((chat.history()[1]!.content as { type: string; text?: string }[])[0]!.text).toBe("At {{wR}} now; refining.");
+  });
+
+  it("sends back a grade of the fit that contradicts the engine's verdict, once, with the verdict to quote", async () => {
+    const api = await fakeApi([
+      sse([{ type: "text", text: "An excellent fit: nothing left to do." }], "end_turn"),
+      sse([{ type: "text", text: "The engine calls it {{verdict}}: the residual still shows the impurity." }], "end_turn"),
+    ]);
+    server = api.server;
+    const notices: string[] = [];
+    const runner = { run: async () => ({ isError: false, text: "{}" }), page: () => "powder", fill: (t: string) => t.replace(/\{\{verdict\}\}/g, "poor") };
+    const chat = new AgentChat(runner as unknown as AgentExecutor);
+    await chat.send(
+      "How good is the fit?",
+      { transport: "api-key", apiKey: "sk-test", baseURL: api.url, model: "claude-opus-5-5", effort: "high" },
+      { onAssistantStart: () => undefined, onText: () => undefined, onThinking: () => undefined, onNotice: (n) => notices.push(n), onUsage: () => undefined },
+      new AbortController().signal,
+    );
+    expect(api.requests).toHaveLength(2);
+    expect(notices.join(" ")).toMatch(/"excellent".*"poor"/);
+    const nudge = (api.requests[1]!.body.messages as { role: string; content: unknown }[]).at(-1)!;
+    expect(String(nudge.content)).toContain("{{verdict}}");
+  });
+
   it("sends the fallback when opted in, and says when another model answered", async () => {
     const api = await fakeApi([sse([{ type: "fallback", from: "claude-opus-5-5", to: "claude-opus-4-8" }, { type: "text", text: "ok" }], "end_turn")]);
     server = api.server;
