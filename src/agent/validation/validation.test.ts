@@ -124,6 +124,9 @@ describe("arm A: the app without the Agent (the bar; docs/VALIDATION.md's table)
     "dev-mn3ga-wrong-wavelength": [false, false, "n/a", 1],
     "dev-mn3ga-swapped-units": [false, false, "n/a", 1],
     "dev-example3-magnetic": [false, false, "n/a", 1],
+    "dev-mn3ga-impurity-line": [true, true, "n/a", 2],
+    "dev-cscl-wrong-centring": [false, false, "n/a", 1],
+    "dev-mn3ga-cell-strained": [false, null, "0/2", 1],
   };
 
   for (const c of VALIDATION_CASES.filter((x) => x.available?.() ?? true)) {
@@ -136,9 +139,18 @@ describe("arm A: the app without the Agent (the bar; docs/VALIDATION.md's table)
       expect(got, `${c.id}: ${s.conclusion.why}`).toEqual(EXPECTED[c.id]);
       // The transcript a reviewer reads holds the case, the steps and the score.
       const md = transcriptMarkdown(rec, c);
-      for (const h of ["## What the user asked", "## Steps", "## Conclusion", "## Score"]) expect(md).toContain(h);
+      for (const h of ["## What the user asked", "## Steps", "## Conclusion (as the app shows it)", "## Score"]) expect(md).toContain(h);
     }, 60000);
   }
+
+  it("the dev analog of the strained cell is solvable the same way", async () => {
+    const c = caseById("dev-mn3ga-cell-strained")!;
+    const port = casePage(c);
+    await port.thorough();
+    port.setFixed(port.state().parameters.filter((p) => p.fixed && !p.expression).map((p) => ({ id: p.id, fixed: false })));
+    await port.refine();
+    expect(scoreRun(c, { state: port.state(), text: "", reports: [] }).recovery.pass).toBe(true);
+  });
 
   it("is deterministic: the same page gives the same score", async () => {
     const c = caseById("rutile-cell-strained")!;
@@ -197,11 +209,14 @@ describe("arms B and C, wired without a model", () => {
       { kind: "reply", text: "First the cell check." },
       { kind: "call", name: "check_cell_symmetry", input: {}, isError: false, text: JSON.stringify({ leBail: { rwp: 0.08312, a: 4.59371 } }) },
       { kind: "reply", text: "The Le Bail fit reaches Rwp 8.31 % with a = 4.5937 Å; the moment is 2.75 µB." },
+      { kind: "reply", text: "The fit ends at wR {{wR}}.", shown: "The fit ends at wR 4.61 %.", refs: { wR: "4.61 %" } },
     ];
     const d = decisionsOf({ events });
     expect(d).toEqual([expect.objectContaining({ step: 1, tool: "check_cell_symmetry", why: "First the cell check." })]);
     const n = traceNumbers({ events });
-    expect(n.map((x) => [x.text, x.source?.step ?? null])).toEqual([["8.31", 1], ["4.5937", 1], ["2.75", null]]);
+    const where = (x: (typeof n)[number]): unknown => (x.source === null ? null : "reference" in x.source ? `ref ${x.source.value}` : x.source.step);
+    // A number of the model's own is traced to the tool output it came from; a reference is the engine's by construction.
+    expect(n.map((x) => [x.text, where(x)])).toEqual([["8.31", 1], ["4.5937", 1], ["2.75", null], ["{{wR}}", "ref 4.61 %"]]);
   });
 });
 

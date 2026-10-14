@@ -281,6 +281,244 @@ not do was fixed:
 | 9 | LaMnO₃, NPDF neutron PDF (PDFgui tutorial) | PDFgetN files read as neutron data, and only their data; the PDF page's ADP model; bond lengths box by box in the boxcar scan and in the report; the Jahn–Teller distortion holds from the first box (1.5–6.5 Å) to the last |
 | 10 | NAC (Na₂Ca₃Al₂F₁₄), 11-BM synchrotron | fluorite found and added as a known phase (1.448(6) wt %); the instrument file's asymmetry read; size, strain and phase fractions in the report; the 2009 profile ~¼ too broad in its Gaussian part, the sample adding next to nothing |
 
+## Does the Agent help?
+
+The agent evals ([AGENT_EVALS.md](./AGENT_EVALS.md)) check that the Agent does what a
+failure once taught it. They do not say whether it helps: a model can pass every
+scripted check and still reach a worse answer than the app alone. This section
+is the protocol for that question. It compares the Agent with the app
+without it, on cases with a known answer, scored by fixed rules. The code is in
+[`src/agent/validation/`](../src/agent/validation/).
+
+### Arms
+
+| Arm | What runs | Model |
+| --- | --- | --- |
+| **A** | The app without the Agent, as a newcomer drives it: free every parameter, press Refine until wR settles (three presses at most), read the Validation tab's verdict. The verdict is arm A's conclusion. | none |
+| **B** | The Agent as it ships: skills, guardrails (the executor's firm rules, the correlation guard), auto mode. | each model below |
+| **C** | Ablation: B without the skills. There is no skill index, no `read_skill`, and changes do not wait for a method to be read. The guardrails stay, so C measures what the skills add. | each model below |
+| **D** | The truth: the structure each pattern was simulated from, or a published refinement. | — |
+
+Every arm sees the same page, built from the same seed. B and C get the same
+message, which names no fault: *"Refine this pattern against the loaded
+structure and report the result. Tell me if anything about the data or the
+model looks wrong."* The stand-in user approves every change and approves
+adding a phase the Agent proposes. It declines lifting a firm rule and setting
+an instrument's constants, which are the user's decisions.
+
+### Cases
+
+The **test set** is held out and gives the reported numbers. Its structures
+(rutile, calcite, ZnO, NiAl) are named in no skill, knowledge note, tool
+description, eval scenario or other file under `src/agent`, and a test enforces
+that. The **dev set** is where tools and skills may be improved: the eval pages
+the researcher rounds left, Example 3, and a dev analog of each test fault.
+
+All patterns are constant-wavelength neutron data simulated by the engine:
+λ 1.54 Å, Example 3's instrument file, 10–130° 2θ in 0.05° steps, 20,000 counts
+at the strongest peak, a 300-count background, and seeded counting noise. The
+page opens on a "literature CIF" that can differ from the sample.
+
+| Case | Split | What is wrong | The answer |
+| --- | --- | --- | --- |
+| `rutile-start-off` | test | nothing; the CIF is an older cell (−0.2 %), O is 0.02 Å off, B values are guessed | a, c, O x, B(Ti), B(O) |
+| `calcite-start-off` | test | nothing; the cell is 0.1 % small, O x is at ¼, B values are guessed | a, c, O x, three B |
+| `zno-wrong-wavelength` | test | λ given as 1.5554 Å; the data were measured at 1.54 Å | name the wavelength |
+| `rutile-swapped-units` | test | the x column holds d (Å) and was read as 2θ | name the axis |
+| `nial-wrong-centring` | test | ordered B2 NiAl (Pm-3m) offered a disordered bcc model (Im-3m) | name the centring or ordering |
+| `zno-nacl-impurity` | test | 4.0 wt % NaCl not in the model | name NaCl or add it; ZnO a, c, B; NaCl 4.0 wt % |
+| `calcite-unknown-line` | test | one line at d = 3.42 Å that no phase, known phase included, explains | report the line by its d; calcite values |
+| `rutile-cell-strained` | test | the CIF cell differs anisotropically (a −1.2 %, c +0.8 %), which no wavelength error can do; a fit from it falls into a false minimum | a, c, O x, B; GoF ≤ 1.5 |
+| `dev-mn3ga-misfit` | dev | the demo from a start off in ADPs, the Mn position and the width | the demo's values |
+| `dev-mn3ga-fluorite` | dev | CaF₂ lines (round 10) | name fluorite |
+| `dev-mn3ga-wrong-wavelength` | dev | λ 1.556 Å given | name the wavelength |
+| `dev-mn3ga-swapped-units` | dev | d loaded as 2θ | name the axis |
+| `dev-example3-magnetic` | dev | magnetic order at k = 0 (Example 3) | name P2₁'/m' |
+| `dev-mn3ga-impurity-line` | dev | one line of an unknown phase | report the line |
+| `dev-cscl-wrong-centring` | dev | CsCl offered Im-3m (the cell check's own development case) | name the centring |
+| `dev-mn3ga-cell-strained` | dev | the demo opened on a strained cell | a, c; GoF ≤ 1.5 |
+| `pbso4-d1a` | dev | public data with a published refinement (GSAS-II tutorial; Hill 1992); runs where `data/validation/pbso4-d1a/case.json` holds the files and the published values | the published values |
+
+The structures come from Burdett et al. (1987, rutile), Maslen et al. (1995,
+calcite) and Kisi & Elcombe (1989, ZnO). NiAl is B2 with a = 2.887 Å, and
+b(Ni) = 10.3 fm against b(Al) = 3.45 fm gives strong superstructure lines. The
+NaCl cell is the known-phase library's. No unpublished or user data are
+committed. Public data with a published refinement join the dev set through
+`data/validation/<id>/case.json`, which lists the files and the published
+values. The data themselves stay out of git.
+
+### Scoring, fixed before any run
+
+`scoring.ts` reads every arm the same way: arm A's verdict and the Agent's
+replies and reports go through the same functions. The tolerances live in
+`cases.ts`, and a test pins them, so a change is a reviewed edit.
+
+| Quantity | Tolerance | Why |
+| --- | --- | --- |
+| cell length | 2 × 10⁻⁴ relative | what a calibrated CW instrument gives (λ known to ~10⁻⁴); a 1 % wavelength error is 50× this |
+| atom position | 0.01 Å from the truth, nearest image | bonds are quoted to 0.01 Å; 0.01 Å moves a bond valence by < 3 % (b = 0.37 Å, Brese & O'Keeffe 1991) |
+| B_iso | 0.25 Å² | careful refinements of the same data scatter by a few tenths (the PbSO₄ round robin, Hill 1992) |
+| minor phase | 1.0 wt % absolute | the quantitative-phase-analysis round robin (Madsen et al. 2001) |
+| a good fit | GoF ≤ 1.5 | a correct model on counting noise gives GoF ≈ 1; 1.5 is the edge of `assess_refinement`'s "excellent" band (Toby 2006) |
+| a reported line | d within 0.5 % | a few line widths at mid angle |
+
+For each run:
+
+- **Recovery:** every truth value is within its tolerance. A fault that only the
+  user can fix (a wavelength, an axis, a model's space group) leaves nothing
+  to recover.
+- **Fault named:** a sentence names the fault and says something is wrong with
+  it. A sentence that denies it, or that only plans to look, does not count.
+  An impurity also counts as named when its phase is added. An unknown line
+  counts when the run gives its d.
+- **False alarms:** a fault asserted that the case does not have. Lines no
+  reflection explains are a symptom of every injected fault, so reporting them
+  is not a false alarm on a faulty case; naming the wrong cause is.
+- **Conclusion right:** the values are recovered, the fault is named, there is
+  no false alarm, and the fit is good where a correct model must give one.
+- **Unsafe outcomes (bar 0):**
+  - a final fit with a direction the data cannot determine, its values kept;
+  - a negative B or an occupancy outside 0–1, kept;
+  - a number in a report that the engine did not give;
+  - a phase added that the sample does not hold;
+  - a fit window that keeps under 75 % of the pattern.
+- **Reproducibility, over 3 runs:** every run reaches the same conclusion, and
+  each recovered value's spread is within its tolerance.
+
+The fault reading is sentence-level text matching. It is deliberately simple,
+the same for every arm, and each verdict quotes the sentence it rests on, so a
+reviewer can overrule it from the transcript.
+
+### What every run keeps
+
+`saveRecord` writes each run as JSON, which can be scored again for free, and as
+a self-contained Markdown transcript that a reviewer can read offline. The
+transcript holds:
+
+- the case, its injected fault and the message;
+- each decision: the tool, its input, the Agent's words before the call, and
+  what came back;
+- each reference the Agent wrote (`{{wR}}`, `{{p:…}}`) with the engine value
+  the app filled it with, and the reply as the model wrote it beside the
+  reply as the app shows it;
+- each number the Agent wrote itself, traced to the tool output it rounds from,
+  or marked **untraced**;
+- the reports, the score with the truth table, and the run's flags (turn cap,
+  loop stop, chat error, prompt cut).
+
+Runs are never retried or dropped. A run that fails stays in the table.
+
+**Findings.** A reviewer, whether the supervisor model or a person, files
+findings in the schema in `findings.ts`:
+`{case, run, step, kind: bug | missing-tool | skill-gap | orchestration | science-error, evidence: {refs, numbers}, proposed_fix, needs_user_approval}`.
+The rules are checked in code:
+
+- A new tool or a skill change always needs the user's approval.
+- A bug is fixed with a test and merged on green CI.
+- A finding on a test-set run proposes nothing until the same failure is
+  reproduced on a dev case (`reproduced_on`). This is what keeps the test set
+  held out.
+
+### Arm A: the bar
+
+Arm A ran at the commit that added this section, three runs per case. It is
+deterministic: the three runs agree exactly. A CI test pins these results
+(`validation.test.ts`).
+
+| Case | Recovered | Fault named | False alarm | GoF | Unsafe | Conclusion |
+| --- | --- | --- | --- | --- | --- | --- |
+| `rutile-start-off` | 6/6 | — | — | 1.02 | 1 | right |
+| `calcite-start-off` | 8/8 | — | — | 1.02 | 1 | right |
+| `zno-wrong-wavelength` | — | no | — | 3.71 | 1 | **wrong** |
+| `rutile-swapped-units` | — | no | impurity | 12.73 | 1 | **wrong** |
+| `nial-wrong-centring` | — | no | impurity | 4.27 | 1 | **wrong** |
+| `zno-nacl-impurity` | 4/5 | no | — | 3.61 | 1 | **wrong** |
+| `calcite-unknown-line` | 8/8 | yes (d 3.423 Å) | — | 1.43 | 1 | right |
+| `rutile-cell-strained` | 6/6 | — | — | 3.17 | 1 | **wrong** |
+| **test set** | | | | | **8 of 8 runs** | **3 of 8 right** |
+
+On the dev set, arm A is right on `dev-mn3ga-misfit` and `dev-mn3ga-impurity-line`
+and wrong on the other six available cases.
+
+Where the default workflow fails, and so where the Agent has room to help:
+
+- **Every run leaves values the data cannot determine.** Freeing everything
+  frees the occupancies with the scale. The verdict says "the data cannot
+  separate scale, O1 occ, Ti1 occ — fix or tie one", and a newcomer keeps the
+  values anyway. On the faulty cases the profile terms (U, V, W) also go
+  undetermined. This is why every run counts one unsafe outcome. The Agent's
+  guardrails refuse a bare occupancy, so arm B starts with an advantage here
+  that comes from the rules, not the model. Arm C keeps the same rules.
+- **A wrong wavelength passes unnoticed.** The cell absorbs it
+  (a = 3.282 Å against 3.2496 Å, 1 % long), the fit is merely "fair" (GoF 3.7),
+  and nothing on screen mentions the wavelength.
+- **Swapped units and a wrong centring are misdiagnosed.** The Validation
+  tab's only explanation for lines no reflection explains is "a missing phase
+  or an impurity?". On d-spacings read as 2θ, and on NiAl's h + k + l odd
+  lines, that points at the wrong cause.
+- **A known impurity is flagged but not identified.** The tab lists six
+  unindexed peaks. NaCl's 200 line is at d 1.993 Å. The phase is never named
+  or added, so there is no weight fraction.
+- **A false minimum is kept.** From the strained cell, Refine reaches the
+  right cell (a within 4 × 10⁻⁵), but the profile absorbs the early misfit:
+  wR 14.3 %, GoF 3.17, against 4.6 % and 1.02 from a good start. The app's own
+  Prefit (Le Bail cell, then restarts) solves it, and a CI test shows that, so
+  the case is fair. Arm A does not press Prefit.
+- **Where arm A is right**, the Agent can only match it: on the two clean
+  starts, and on the unknown line, which the Validation tab reports by its d.
+
+### Running arms B and C
+
+The arms run on a local server or the API, never in CI. Each run's record and
+transcript go to the output directory, and `summary.md` holds the tables:
+
+```bash
+# local models (no cost): test and dev sets, arms B and C, 3 runs per case
+MATERIA_VALIDATION=1 MATERIA_VALIDATION_MODEL=qwen MATERIA_VALIDATION_SPLIT=test \
+  npx vitest run src/agent/validation/live.test.ts --reporter=verbose
+#   MATERIA_VALIDATION_MODEL=gemma | glimmer; _ARMS=B,C (default); _REPEAT=3 (default);
+#   _ONLY=case ids; _SERVER=the local server's address; _OUT=/tmp/materia-validation/<model>
+
+# Claude Sonnet 5.5: the test set only, under a $15 cap (MATERIA's share of the cycle's $40)
+MATERIA_VALIDATION=1 MATERIA_VALIDATION_MODEL=sonnet ANTHROPIC_API_KEY=… \
+  MATERIA_VALIDATION_CAP_USD=15 npx vitest run src/agent/validation/live.test.ts
+```
+
+Runs go in rounds: run 1 of every case and arm, then run 2, then run 3. A cap
+reached part way therefore leaves every case with the same number of runs.
+
+For the API, a spend ledger (`/tmp/materia-validation/spend.json`, shared
+across invocations) prices each run with the model's prices. Before a run, it
+checks that the run's expected cost still fits; during a run, it aborts once
+the run passes $2 or the cap. Runs not made are listed in `summary.md`.
+
+The models are qwen3.8-27b (LM Studio, 32k), gemma4:26b (Ollama, 32k),
+meta/muse-glimmer (LM Studio) and Claude Sonnet 5.5. Each gets the same cases
+and the same scoring, and they are reported side by side.
+
+**Expected time on qwen3.8-27b.** This is an estimate, not a measurement. A
+full refinement on the local tier took about 40 turns, and only the long AWO₄
+flow reached the 80-turn cap. At the local tier's pace that is about 10 to 20
+minutes a run. Gemma4:26b took 2.2 minutes a scenario on the shorter eval
+scenarios.
+
+| Runs | Count | Time |
+| --- | --- | --- |
+| test set, arms B and C, 3 runs each | 48 | 8–16 h |
+| one run per test case and arm | 16 | 3–5 h |
+| dev set (8 cases), arms B and C, 3 runs each | 48 | 8–16 h |
+
+### Limits
+
+- The test set is simulated, from published structures, on one instrument.
+  Real data bring what simulation leaves out (absorption, texture, an
+  instrument the file does not describe). Public data with a published
+  refinement are wired in (`pbso4-d1a`) but are not on this machine yet.
+- The fault reading matches text. A reviewer reads the transcripts and can
+  overrule it; overrules are filed as findings.
+- Arm A is one way a newcomer uses the app. Pressing Prefit before Refine would
+  have solved `rutile-cell-strained`.
+
 ## Honesty rule
 
 If a number has not been checked against an independent source, the docs and UI

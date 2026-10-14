@@ -18,8 +18,10 @@ export interface Decision {
   readonly step: number;
   readonly tool: string;
   readonly input: Readonly<Record<string, unknown>>;
-  /** The Agent's own words before the call (arm A: the scripted reason). */
+  /** The Agent's own words before the call, as the app shows them (references filled; arm A: the scripted reason). */
   readonly why: string;
+  /** The references in those words and the engine values they were filled with. */
+  readonly refs?: Readonly<Record<string, string | null>>;
   /** What came back, shortened. */
   readonly outcome: string;
   readonly isError: boolean;
@@ -30,8 +32,12 @@ export interface ReportedNumber {
   readonly text: string;
   /** The sentence it is in. */
   readonly sentence: string;
-  /** The step whose tool output holds a value it rounds from, and that value; null when none does. */
-  readonly source: { readonly step: number; readonly tool: string; readonly value: number } | null;
+  /**
+   * Where it came from: the step whose tool output holds a value it rounds
+   * from, or the reference the app filled it from ({{wR}}: the engine's value
+   * by construction); null when neither.
+   */
+  readonly source: { readonly step: number; readonly tool: string; readonly value: number } | { readonly reference: string; readonly value: string | null } | null;
 }
 
 export type Arm = "A" | "B" | "C";
@@ -49,8 +55,10 @@ export interface ValidationRecord {
   readonly message: string;
   readonly decisions: readonly Decision[];
   readonly numbers: readonly ReportedNumber[];
-  /** The run's final word to the user (its last reply, or arm A's verdict). */
+  /** The run's final word to the user as the app shows it (its last reply, references filled; or arm A's verdict). */
   readonly conclusion: string;
+  /** The last reply as the model wrote it, when it held references. */
+  readonly conclusionAsWritten?: string;
   /** The reports written, as Markdown (the engine's numbers resolved in them). */
   readonly reports: readonly string[];
   readonly score: CaseScore;
@@ -67,12 +75,20 @@ const short = (text: string, max = 600): string => (text.length > max ? `${text.
 export function decisionsOf(run: Pick<EvalRun, "events">): Decision[] {
   const out: Decision[] = [];
   let said = "";
+  let refs: Readonly<Record<string, string | null>> | undefined;
   for (const e of run.events) {
-    if (e.kind === "user") said = "";
-    else if (e.kind === "reply") said = e.text.trim() || said;
-    else {
-      out.push({ step: out.length + 1, tool: e.name, input: e.input, why: said, outcome: short(e.text), isError: e.isError });
+    if (e.kind === "user") {
       said = "";
+      refs = undefined;
+    } else if (e.kind === "reply") {
+      if ((e.shown ?? e.text).trim()) {
+        said = (e.shown ?? e.text).trim();
+        refs = e.refs;
+      }
+    } else {
+      out.push({ step: out.length + 1, tool: e.name, input: e.input, why: said, ...(refs ? { refs } : {}), outcome: short(e.text), isError: e.isError });
+      said = "";
+      refs = undefined;
     }
   }
   return out;
@@ -106,7 +122,12 @@ export function traceNumbers(run: Pick<EvalRun, "events">): ReportedNumber[] {
       continue;
     }
     if (e.kind !== "reply") continue;
-    for (const s of sentences(e.text)) {
+    // A reference is the engine's value by construction: listed with what it was filled with.
+    for (const m of e.text.matchAll(/\{\{\s*([A-Za-z][\w:.+-]*)\s*\}\}/g)) {
+      out.push({ text: `{{${m[1]!}}}`, sentence: short(sentences(e.text).find((x) => x.includes(m[0])) ?? e.text, 240), source: { reference: m[1]!, value: e.refs?.[m[1]!] ?? null } });
+    }
+    // The model's own numbers, read from its words as written (a filled reference is not its number).
+    for (const s of sentences(e.text.replace(/\{\{[^}]*\}\}/g, "{ref}"))) {
       for (const m of s.matchAll(/(?<![\w.])-?\d+(?:\.\d+)?/g)) {
         const t = m[0];
         if (!t.includes(".") && Math.abs(Number(t)) < 100) continue;
@@ -125,7 +146,8 @@ export function agentRecord(args: {
   readonly message: string; readonly result: EvalRun; readonly score: CaseScore; readonly costUsd?: number;
 }): ValidationRecord {
   const { result: r } = args;
-  const replies = r.events.filter((e) => e.kind === "reply").map((e) => (e as { text: string }).text.trim()).filter(Boolean);
+  const replies = r.events.flatMap((e) => (e.kind === "reply" && e.text.trim() ? [e] : []));
+  const last = replies[replies.length - 1];
   return {
     case: args.c.id,
     split: args.c.split,
@@ -137,7 +159,8 @@ export function agentRecord(args: {
     message: args.message,
     decisions: decisionsOf(r),
     numbers: traceNumbers(r),
-    conclusion: replies[replies.length - 1] ?? "",
+    conclusion: last ? (last.shown ?? last.text).trim() : "",
+    ...(last?.shown !== undefined ? { conclusionAsWritten: last.text.trim() } : {}),
     reports: r.reports.map((x) => x.markdown),
     score: args.score,
     flags: tierFlags(r),
@@ -150,7 +173,7 @@ export function agentRecord(args: {
 
 /** Everything the Agent said, and its reports: the text its conclusion is scored on. */
 export function agentConclusionText(r: Pick<EvalRun, "events" | "reports">): string {
-  return [...r.events.filter((e) => e.kind === "reply").map((e) => (e as { text: string }).text), ...r.reports.map((x) => x.markdown)].join("\n");
+  return [...r.events.flatMap((e) => (e.kind === "reply" ? [e.shown ?? e.text] : [])), ...r.reports.map((x) => x.markdown)].join("\n");
 }
 
 const fmt = (v: number | null | undefined, digits = 4): string => (v === null || v === undefined || !Number.isFinite(v) ? "—" : Number(v.toPrecision(digits)).toString());
@@ -178,13 +201,18 @@ export function transcriptMarkdown(rec: ValidationRecord, c: ValidationCase): st
   for (const d of rec.decisions) {
     lines.push(`### Step ${d.step}: \`${d.tool}\`${Object.keys(d.input).length ? ` ${cell(short(JSON.stringify(d.input), 300))}` : ""}${d.isError ? " (refused or failed)" : ""}`, "");
     if (d.why) lines.push(`*Why:* ${short(d.why, 800)}`, "");
+    if (d.refs && Object.keys(d.refs).length) lines.push(`*References filled:* ${Object.entries(d.refs).map(([k, v]) => `{{${k}}} → ${v ?? "(none on the page)"}`).join(" · ")}`, "");
     lines.push("```", short(d.outcome, 600), "```", "");
   }
-  lines.push("## Conclusion", "", rec.conclusion || "(no final reply)", "");
+  lines.push("## Conclusion (as the app shows it)", "", rec.conclusion || "(no final reply)", "");
+  if (rec.conclusionAsWritten !== undefined && rec.conclusionAsWritten !== rec.conclusion) lines.push("*As the model wrote it:*", "", `> ${rec.conclusionAsWritten.replace(/\n/g, "\n> ")}`, "");
   for (const [i, r] of rec.reports.entries()) lines.push(`## Report ${i + 1} (as rendered, engine values resolved)`, "", r, "");
   if (rec.numbers.length) {
     lines.push("## Numbers told to the user", "", "| number | traced to | sentence |", "| --- | --- | --- |");
-    for (const n of rec.numbers) lines.push(`| ${n.text} | ${n.source ? `step ${n.source.step} \`${n.source.tool}\`: ${fmt(n.source.value, 6)}` : "**untraced**"} | ${cell(n.sentence)} |`);
+    const from = (n: ReportedNumber): string => !n.source ? "**untraced**"
+      : "reference" in n.source ? `reference, filled by the app: ${n.source.value ?? "**not filled**"}`
+        : `step ${n.source.step} \`${n.source.tool}\`: ${fmt(n.source.value, 6)}`;
+    for (const n of rec.numbers) lines.push(`| ${cell(n.text)} | ${from(n)} | ${cell(n.sentence)} |`);
     lines.push("");
   }
   lines.push("## Score", "", `**Conclusion: ${s.conclusion.pass ? "right" : "wrong"}** (${s.conclusion.why})`, "");

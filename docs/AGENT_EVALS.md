@@ -48,6 +48,10 @@ real chat loop, executor and tools run; only the model changes.
   set, the reflections left out) keeps the verdict the run had. CI replays
   every scripted run through that save and re-score.
 
+Whether the Agent *helps*, against the app without it and on held-out cases
+with a known answer, is a separate protocol:
+[VALIDATION.md, "Does the Agent help?"](./VALIDATION.md#does-the-agent-help).
+
 ## The scenarios
 
 | Scenario | What it checks | Found by |

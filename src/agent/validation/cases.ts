@@ -25,7 +25,7 @@ import { generateReflections } from "@/core/diffraction/reflections";
 import { exampleStructure } from "@/examples/mn3ga";
 import { parse_instrument, parse_powder_data, parse_structure } from "@/mcp/tools";
 import { example3Loaded } from "@/agent/validation/example3";
-import { mn3gaFluoriteSession, mn3gaMisfitSession, mn3gaSwappedUnitsSession, mn3gaWrongWavelengthSession } from "@/agent/evals/pages";
+import { impurityD, mn3gaFluoriteSession, mn3gaImpuritySession, mn3gaMisfitSession, mn3gaSession, mn3gaSwappedUnitsSession, mn3gaWrongWavelengthSession } from "@/agent/evals/pages";
 import {
   WAVELENGTH, asDSpacingsLabelledTwoTheta, atWavelength, cif, openedSession, simulatePowder, structureOf, validationInstrument, withLine,
 } from "@/agent/validation/simulate";
@@ -270,6 +270,17 @@ function publicCase(id: string, title: string, split: Split): ValidationCase {
   };
 }
 
+// CsCl, the cell check's own development case (mcp/cellSymmetry.test.ts: CsCl declared I-centred): the dev analog of the centring fault.
+const CSCL = cif("CsCl", [4.123, 4.123, 4.123, 90, 90, 90], "P m -3 m", ["Cs1 Cs 0 0 0 1 1.6", "Cl1 Cl 0.5 0.5 0.5 1 1.9"]);
+const CSCL_BCC = cif("CsCl", [4.123, 4.123, 4.123, 90, 90, 90], "I m -3 m", ["Cs1 Cs 0 0 0 0.5 1.7", "Cl1 Cl 0 0 0 0.5 1.7"]);
+
+/** The Mn₃Ga demo opened on a cell strained against the data's: a 1.2 % long, c 0.8 % short (the dev analog of the strained cell). */
+function mn3gaStrainedSession(): Session {
+  const s0 = mn3gaSession();
+  const factor: Record<string, number> = { cell_a: 1.012, cell_c: 0.992 };
+  return { ...s0, powderParams: s0.powderParams.map((p) => (p.id in factor ? { ...p, value: p.value * factor[p.id]!, initialValue: p.value * factor[p.id]! } : p)) };
+}
+
 const DEV: readonly ValidationCase[] = [
   {
     id: "dev-mn3ga-misfit",
@@ -321,6 +332,36 @@ const DEV: readonly ValidationCase[] = [
     fitMustBeGood: false,
     message: "Fit this 30 K neutron pattern with the loaded nuclear structure. If the nuclear model leaves intensity unexplained, find the magnetic order: the propagation vector, the magnetic space group and the Mn moments.",
     session: example3Loaded,
+  },
+  {
+    id: "dev-mn3ga-impurity-line",
+    split: "dev",
+    title: "The Mn₃Ga demo with one line of an unknown phase between its reflections",
+    source: "eval scenario impurity-line (pages.ts)",
+    fault: { kind: "unexplained-line", detail: "one line between the Mn₃Ga reflections", recoverable: false, lineD: impurityD() },
+    truth: [],
+    fitMustBeGood: false,
+    session: mn3gaImpuritySession,
+  },
+  {
+    id: "dev-cscl-wrong-centring",
+    split: "dev",
+    title: "Ordered CsCl offered a disordered body-centred model (the cell check's development case)",
+    source: "simulated as mcp/cellSymmetry.test.ts's CsCl declared I-centred",
+    fault: { kind: "centring", detail: "the data are primitive (Pm-3m); the model is I-centred", recoverable: false },
+    truth: [],
+    fitMustBeGood: false,
+    session: () => openedSession(s(CSCL_BCC, "cscl"), simulatePowder({ phases: [s(CSCL, "cscl")], seed: 205 })),
+  },
+  {
+    id: "dev-mn3ga-cell-strained",
+    split: "dev",
+    title: "The Mn₃Ga demo opened on a cell strained against the data (a +1.2 %, c −0.8 %)",
+    source: "the demo's pattern; the page's cell altered",
+    fault: null,
+    truth: truthOf(exampleStructure(), 0, { positions: false, b: false }),
+    fitMustBeGood: true,
+    session: mn3gaStrainedSession,
   },
   publicCase("pbso4-d1a", "PbSO₄ on D1A (GSAS-II tutorial; the IUCr round robin, Hill 1992)", "dev"),
 ];

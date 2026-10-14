@@ -19,13 +19,22 @@ import type { AgentPort } from "@/agent/port";
 import type { AgentAutonomy } from "@/agent/systemPrompt";
 import type { AgentRecord } from "@/agent/method";
 import { liveTool } from "@/agent/tools";
+import { REFERENCE } from "@/agent/references";
 import { unverifiedNumbers } from "@/core/export/reportAudit";
 import { fakeHost, headlessHistory } from "@/testSupport/agentHeadless";
 
 /** One thing that happened in the conversation, in order. */
 export type EvalEvent =
   | { readonly kind: "user"; readonly text: string }
-  | { readonly kind: "reply"; readonly text: string }
+  | {
+    readonly kind: "reply";
+    /** The model's words as it wrote them, references ({{wR}}, {{p:…}}) and all. */
+    readonly text: string;
+    /** The words as the app shows them: each reference filled from the page when the reply ended (absent when it had none). */
+    readonly shown?: string;
+    /** Each reference the reply used, with the value the page filled it with (null: the page had none). */
+    readonly refs?: Readonly<Record<string, string | null>>;
+  }
   | {
     readonly kind: "call";
     readonly name: string;
@@ -163,6 +172,7 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
   });
   const runner: ToolRunner = {
     run: async (name, input, signal) => {
+      settle();
       const free = freeAtCall(name, input, port.state().parameters);
       const out = await executor.run(name, input, signal);
       // The page records a refinement's step when it ends, as the Agent's.
@@ -176,12 +186,24 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
     page: () => executor.page(),
   };
   const chat = new AgentChat(runner);
-  let reply: { kind: "reply"; text: string } | null = null;
+  let reply: { kind: "reply"; text: string; shown?: string; refs?: Record<string, string | null> } | null = null;
+  // A reply's references are filled where the app shows it, from the page as it stands when the reply ends
+  // (before the call it asks for runs, or when the next reply or the turn ends).
+  const settle = (): void => {
+    const r = reply as { kind: "reply"; text: string; shown?: string; refs?: Record<string, string | null> } | null;
+    if (!r || r.shown !== undefined || !r.text.includes("{{")) return;
+    r.shown = executor.fill(r.text);
+    r.refs = Object.fromEntries([...r.text.matchAll(REFERENCE)].map((m) => {
+      const filled = executor.fill(`{{${m[1]!}}}`);
+      return [m[1]!, filled.includes("{{") ? null : filled];
+    }));
+  };
   for (const text of scenario.messages) {
     events.push({ kind: "user", text });
     try {
       await chat.send(text, { ...model, autonomy: scenario.autonomy }, {
         onAssistantStart: () => {
+          settle();
           reply = { kind: "reply", text: "" };
           events.push(reply);
         },
@@ -205,6 +227,7 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
     } catch (e) {
       notices.push(`chat error: ${e instanceof Error ? e.message : String(e)}`);
     }
+    settle();
   }
   const run: EvalRun = { events, port, records, asked, notices, usage, reports, turns, seconds: (Date.now() - started) / 1000 };
   const grades = scenario.checks.map((c) => ({ check: c.name, ...c.grade(run) }));

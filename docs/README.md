@@ -41,6 +41,7 @@ workbench? Start with the [user guide](./USER_GUIDE.md), and read
 | [AGENT_TOOLS.md](./AGENT_TOOLS.md) | The in-app Agent (its tools, skills, rules and eval suite) and the MCP agent tools |
 | [AGENT_EXAMPLES.md](./AGENT_EXAMPLES.md) | Worked examples of a language model driving the tools, with real runs |
 | [AGENT_EVALS.md](./AGENT_EVALS.md) | The Agent's eval scenarios, how to run them, and the results against real models |
+| [AGENT_REVIEW.md](./AGENT_REVIEW.md) | The Agent's analysis tools and skills reviewed: what each computes, what checks it, the gaps, and the fixes |
 
 ## Plans
 
