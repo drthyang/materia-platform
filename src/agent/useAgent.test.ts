@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { modelLabel, providerOf, savedSettings, settingsFrom } from "@/agent/useAgent";
+import { modelLabel, providerOf, savedSettings, settingsFrom, settingsReader } from "@/agent/useAgent";
+import { SETTINGS_KEY } from "@/agent/storage";
 
 describe("Copilot settings from storage", () => {
   it("defaults to your own API key, with LM Studio and Ollama on their usual addresses", () => {
@@ -52,5 +53,19 @@ describe("the OpenAI-compatible provider's settings", () => {
     expect(modelLabel(settingsFrom(JSON.stringify({ mode: "openai-compatible", openaiUrl: "http://localhost:8000/v1", openaiModel: "Qwen/Qwen3-32B" })))).toBe("Qwen/Qwen3-32B · vLLM (local)");
     expect(modelLabel(settingsFrom(JSON.stringify({ mode: "openai-compatible", openaiUrl: "https://generativelanguage.googleapis.com/v1beta/openai", openaiModel: "gemini-2.5-pro" })))).toBe("gemini-2.5-pro · Gemini (OpenAI-compatible)");
     expect(modelLabel(settingsFrom(JSON.stringify({ mode: "openai-compatible", openaiUrl: "https://gateway.example.org/v1", openaiModel: "m" })))).toBe("m · gateway.example.org");
+  });
+});
+
+describe("a replay's label, for one load", () => {
+  it("holds for every read in the load that set it (StrictMode reads twice), and is gone from storage", () => {
+    const store = new Map([[SETTINGS_KEY, JSON.stringify({ mode: "proxy", replayOf: "Scripted model (eval sc-data-first)" })]]);
+    const storage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) };
+    const read = settingsReader();
+    expect(read(storage).replayOf).toBe("Scripted model (eval sc-data-first)");
+    expect(read(storage).replayOf).toBe("Scripted model (eval sc-data-first)");
+    expect(JSON.parse(store.get(SETTINGS_KEY)!).mode).toBe("proxy");
+    expect(store.get(SETTINGS_KEY)).not.toContain("replayOf");
+    // The next load reads it no more: a live run is never called a replay.
+    expect(settingsReader()(storage).replayOf).toBe("");
   });
 });

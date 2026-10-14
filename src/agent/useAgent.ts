@@ -391,13 +391,31 @@ function chatConfig(s: AgentSettings, apiKey: string): ChatConfig {
 
 // ── storage (guarded: private windows and blocked site data throw) ─────────
 
+/**
+ * The stored settings, read as often as the page asks for them. A replay's
+ * label is for this load only: taken out of storage at the first read, and
+ * kept here for the reads after it in the same load (React's StrictMode reads
+ * the settings twice in development, where the replays run).
+ */
+export function settingsReader(): (store: Pick<Storage, "getItem" | "setItem">) => AgentSettings {
+  let replayThisLoad = "";
+  return (store) => {
+    const s = settingsFrom(store.getItem(SETTINGS_KEY));
+    if (s.replayOf) {
+      replayThisLoad = s.replayOf;
+      store.setItem(SETTINGS_KEY, JSON.stringify(savedSettings(s)));
+      return s;
+    }
+    return replayThisLoad ? { ...s, replayOf: replayThisLoad } : s;
+  };
+}
+
+const readStored = settingsReader();
+
 function readSettings(): AgentSettings {
   try {
     migrateLegacyKeys(localStorage, sessionStorage);
-    const s = settingsFrom(localStorage.getItem(SETTINGS_KEY));
-    // A replay's label is for this load only: taken out of storage once read.
-    if (s.replayOf) localStorage.setItem(SETTINGS_KEY, JSON.stringify(savedSettings(s)));
-    return s;
+    return readStored(localStorage);
   } catch {
     return DEFAULTS;
   }
