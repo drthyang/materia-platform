@@ -195,6 +195,7 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
       newConversation: () => void loaded?.then((e) => e.newConversation()),
       heard: (text) => void load().then((e) => e.heard(text)),
       situation: async () => (await load()).situation(),
+      fill: (text) => (instance ? instance.fill(text) : text),
       page: () => instance?.page() ?? null,
     };
   }, [host]);
@@ -245,6 +246,8 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
     setThinking(true);
     setTranscript((t) => [...t, { kind: "user", id: itemId(), text: message }]);
     let current: string | null = null;
+    // The reply as it streams, kept here too: its {{references}} are filled from the page when the message ends, before its tools run.
+    let currentText = "";
     const patchAssistant = (fn: (item: { text: string; thinking: string }) => { text: string; thinking: string }): void => {
       const id = current;
       if (!id) return;
@@ -264,9 +267,18 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
             onAssistantStart: () => {
               const id = itemId();
               current = id;
+              currentText = "";
               setTranscript((t) => [...t, { kind: "assistant", id, text: "", thinking: "" }]);
             },
-            onText: (d) => patchAssistant((i) => ({ text: i.text + d, thinking: i.thinking })),
+            onText: (d) => {
+              currentText += d;
+              patchAssistant((i) => ({ text: i.text + d, thinking: i.thinking }));
+            },
+            onAssistantEnd: () => {
+              // Numbers by reference: the values as they stand now, kept with the reply.
+              const filled = executor.fill ? executor.fill(currentText) : currentText;
+              if (filled !== currentText) patchAssistant((i) => ({ text: filled, thinking: i.thinking }));
+            },
             onThinking: (d) => patchAssistant((i) => ({ text: i.text, thinking: i.thinking + d })),
             onNotice: (msg, tone) => setTranscript((t) => [...t, { kind: "notice", id: itemId(), text: msg, tone }]),
             onUsage: (u) =>

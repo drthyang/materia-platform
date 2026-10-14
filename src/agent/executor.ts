@@ -18,6 +18,10 @@ import { changeSingleCrystal, describeSingleCrystalChange, readSingleCrystalTool
 import { samplePosteriorTool, type PosteriorRun } from "@/agent/posteriorTool";
 import { buildAgentReport, freeSummary, reportFileBase, type AgentReport } from "@/agent/report";
 import { matchIds, type LiveToolHost } from "@/agent/liveCommon";
+import { fillReferences, referenceCatalog, type ReferenceSource } from "@/agent/references";
+import { powderReferences } from "@/agent/powderTools";
+import { pdfReferences } from "@/agent/pdfTools";
+import { singleCrystalReferences } from "@/agent/scTools";
 import { PROBE_OPTIONS, carriedText, correlationRefusal, disorderAssemblies, pairText, readCorrelations, refusalLine } from "@/agent/correlationCheck";
 import { PAGE_METHOD, readSkill } from "@/agent/skills";
 import { RULES, advanceAlternation, alternationView, keyOfState, methodProgress, outOfOrder, ruleRefusal, stagesCovered, stagesLeft, type AgentRecord, type Alternation, type MethodRule } from "@/agent/method";
@@ -95,7 +99,9 @@ export interface ToolRunner {
   readonly heard?: (text: string) => void;
   /** Where the analysis stands now; null with nothing open. */
   readonly situation?: () => Promise<AgentSituation | null> | AgentSituation | null;
-  /** The page open (null: nothing loaded, or not known yet). */
+  /** The Agent's words with its {{references}} filled in from the page as it stands (numbers by reference). */
+  readonly fill?: (text: string) => string;
+  /** The page the analysis is on, for the checks on a final answer (evidence.ts); null with none open. */
   readonly page?: () => "powder" | "pdf" | "singleCrystal" | null;
 }
 
@@ -211,6 +217,33 @@ export class AgentExecutor implements ToolRunner {
     this.userText.push(text);
   }
 
+  /** What the page's references resolve against now; null with no analysis open. */
+  private referenceSource(): ReferenceSource | null {
+    const port = this.host.port();
+    if (!port) return null;
+    const s = port.state();
+    const entries = port.technique === "pdf" ? pdfReferences(s as PdfLiveState)
+      : port.technique === "singleCrystal" ? singleCrystalReferences(s as SingleCrystalLiveState)
+        : powderReferences(s as PowderLiveState);
+    return { entries, parameters: s.parameters, esd: s.result?.esd ?? {} };
+  }
+
+  /** The Agent's words with its references filled in from the page as it stands; a reference it cannot fill stays as written. */
+  fill(text: string): string {
+    if (!text.includes("{{")) return text;
+    return fillReferences(text, this.referenceSource()).text;
+  }
+
+  /** Filled, or refused when a reference names nothing the page has: the report and the notes keep no unfilled reference. */
+  private fillOrRefuse(text: string, where: string): string {
+    const source = this.referenceSource();
+    const out = fillReferences(text, source);
+    if (out.unknown.length > 0) {
+      throw new Error(`${where}: ${out.unknown.map((k) => `{{${k}}}`).join(", ")} ${out.unknown.length === 1 ? "names" : "name"} no value the page has now. The references here: ${source ? referenceCatalog(source) : "none (no analysis is open)"}. Use one of them, or write the number with the tool that gave it.`);
+    }
+    return out.text;
+  }
+
   /** Run one call. Never throws: failures come back as an error outcome the model can read. */
   run(name: string, input: unknown, signal?: AbortSignal): Promise<ToolOutcome> {
     const spec = liveTool(name);
@@ -265,7 +298,8 @@ export class AgentExecutor implements ToolRunner {
 
       if (spec.name === "write_note") {
         // The record's notes, not the page: no approval, no history step.
-        const text = (input as { text: string }).text.trim();
+        // Its numbers as they stand when it is written: the note keeps them.
+        const text = this.fillOrRefuse((input as { text: string }).text.trim(), "write_note");
         update({ preview: text });
         const key = keyOfState(port.technique, port.state());
         this.host.updateRecord(key, (r) => ({ ...r, notes: [...r.notes, { text, at: Date.now() }].slice(-MAX_NOTES) }));
@@ -277,7 +311,7 @@ export class AgentExecutor implements ToolRunner {
         update({});
         // Let the drawer paint "running" before the checks run.
         await new Promise((r) => setTimeout(r, 0));
-        return await this.writeReport(port, (input as { summary: string }).summary, update);
+        return await this.writeReport(port, this.fillOrRefuse((input as { summary: string }).summary, "write_report"), update);
       }
 
       if (spec.effect === "read") {
@@ -303,7 +337,10 @@ export class AgentExecutor implements ToolRunner {
         if (spec.name === "check_fit_range") this.noteRangeCheck(port, out as RangeAnswer);
         if (spec.name === "reflection_statistics") this.noteDataCheck(port, out as DataAnswer);
         if (spec.name === "review_symmetry") this.noteSymmetryReview(port, out as { observedForbidden?: unknown[]; candidates?: { name: string }[] });
-        if (spec.name === "get_state") out = { ...(out as object), method: this.methodView(port) };
+        if (spec.name === "get_state") {
+          const source = this.referenceSource();
+          out = { ...(out as object), method: this.methodView(port), ...(source ? { references: `Quote the engine's numbers by reference; the app fills them in where your words are shown and in the report: ${referenceCatalog(source)}.` } : {}) };
+        }
         update({ status: "done" });
         return this.respond(out);
       }

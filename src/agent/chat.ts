@@ -32,7 +32,7 @@ import type {
 } from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import { LIVE_TOOLS, inputJsonSchema, liveTool, type LiveToolSpec } from "@/agent/tools";
 import { SCOPE_NOTE, scopedTools } from "@/agent/toolScope";
-import { evidenceGate } from "@/agent/evidence";
+import { evidenceGate, gradeContradiction } from "@/agent/evidence";
 import type { AgentSituation, ToolRunner } from "@/agent/executor";
 import { agentSystemPrompt, autonomyNote, type AgentAutonomy } from "@/agent/systemPrompt";
 import { CONTEXT_EDITING, CONTEXT_EDITING_BETA, historyChars, pruneForLocal } from "@/agent/contextWindow";
@@ -88,6 +88,8 @@ export interface ChatCallbacks {
   readonly onThinking: (delta: string) => void;
   readonly onNotice: (text: string, tone: "info" | "error") => void;
   readonly onUsage: (usage: BetaUsage) => void;
+  /** The model's message is complete, before its tool calls run: its words can be read against the page as it stands. */
+  readonly onAssistantEnd?: () => void;
 }
 
 /** Most model turns one user message may run (each tool round is a turn). */
@@ -241,6 +243,7 @@ export class AgentChat {
       cb.onUsage(message.usage);
       this.messages.push({ role: "assistant", content: message.content });
       const cut = isSized(config.transport) ? this.readCount(message.usage) : null;
+      cb.onAssistantEnd?.();
       // Never a silent switch: say which model answered when a fallback did.
       for (const b of message.content) {
         if (b.type === "fallback") cb.onNotice(`${b.from.model} declined this turn; ${b.to.model} answered it.`, "info");
@@ -271,7 +274,7 @@ export class AgentChat {
           if (message.stop_reason === "max_tokens" && this.window !== null) cb.onNotice("The reply filled the room left in the model's window and was cut off. Ask it to go on, or clear the conversation to give it more room.", "error");
           if (!said.trim() && ran.length > 0) cb.onNotice(`The model gave no reply after the ${ran.at(-1)} result.${isLocal(config.transport) ? " Local models do this when the conversation no longer fits their context: clear the conversation, or use a longer context." : ""}`, "error");
           // An answer without the evidence its question needs goes back once, with what to run.
-          const gate = gated.size < MAX_GATES ? evidenceGate(said, text, ran, this.page(), gated) : null;
+          const gate = gated.size < MAX_GATES ? this.finalAnswerCheck(said, text, ran, gated) : null;
           if (gate === null) return;
           gated.add(gate.id);
           cb.onNotice(gate.notice, "info");
@@ -344,6 +347,25 @@ export class AgentChat {
       }
     }
     cb.onNotice(`Stopped after ${maxTurns} model turns for one message. Say "continue" to go on.`, "info");
+  }
+
+  /**
+   * A final answer the app sends back: a conclusion whose check did not run
+   * for this message, or a grade of the fit that contradicts the engine's
+   * verdict. Null for an answer that stands.
+   */
+  private finalAnswerCheck(reply: string, asked: string, ran: readonly string[], gated: ReadonlySet<string>): { id: string; notice: string; nudge: string } | null {
+    const rule = evidenceGate(reply, asked, ran, this.page(), gated);
+    if (rule) return { id: rule.id, notice: rule.notice, nudge: rule.nudge };
+    if (gated.has("verdict") || !this.executor.fill) return null;
+    const band = this.executor.fill("{{verdict}}");
+    const contradiction = band.includes("{{") ? null : gradeContradiction(reply, band);
+    if (contradiction === null) return null;
+    return {
+      id: "verdict",
+      notice: `The answer ${contradiction}; the app asked the model to quote the engine's verdict.`,
+      nudge: `${FROM_APP} Your answer ${contradiction}. The verdict is the engine's, not yours: quote it as {{verdict}} and explain what it rests on.`,
+    };
   }
 
   /** One turn's request: everything Claude reads, or only what a local server does. */
@@ -638,7 +660,7 @@ const REFUSED_HINT = 3;
 
 /** Most times one user message may ask a stalled model to go on. */
 const MAX_NUDGES = 2;
-/** Most evidence rules one user message may send back (evidence.ts). */
+/** Most times one user message's final answer may be sent back for its evidence or its verdict. */
 const MAX_GATES = 2;
 const FROM_APP = "(From the app, not the user.)";
 
