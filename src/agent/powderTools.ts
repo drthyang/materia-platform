@@ -45,6 +45,7 @@ import { dScaleSearch, observedPeaks, wrongScale } from "@/core/diagnostics/dSca
 import { satellitePositions } from "@/core/magnetic/kSearch";
 import { centringTranslations } from "@/core/crystal/symmetry";
 import { inspectDataRange, type DataEnd, type DataRangeReading } from "@/core/diagnostics/dataRange";
+import type { ReferenceEntry } from "@/agent/references";
 
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- inputs are validated against the spec's zod schema before a handler runs */
@@ -810,6 +811,21 @@ function residualOf(s: PowderLiveState): { d: number[]; yObs: number[]; yCalc: n
   // Constant wavelength: "on" and "beside" a reflection follow the lines' own width.
   const lineWidth = s.pattern.xUnit === "twoTheta" ? relativeLineWidth(d, yCalc) : undefined;
   return { d, yObs: pick(s.curves.yObs), yCalc, sigma: pick(sigma), reflections, magneticNeutron, ...(lineWidth !== undefined ? { lineWidth } : {}) };
+}
+
+/** The numbers the Agent quotes by reference on the powder page ({{Rwp}}, {{GoF}}, {{verdict}}; {{p:ID}} for any row). */
+export function powderReferences(s: PowderLiveState): ReferenceEntry[] {
+  const r = (): RefinementResult["agreement"] | null => s.result?.agreement ?? null;
+  const percent = (v: number | undefined): string | null => (v === undefined ? null : `${pct(v)} %`);
+  return [
+    { key: "Rwp", what: "Rwp (%) of the curves on screen", value: () => `${pct(s.wR)} %` },
+    { key: "wR", what: "the same Rwp (%)", value: () => `${pct(s.wR)} %` },
+    { key: "Rp", what: "Rp (%), the last refinement", value: () => percent(r()?.rFactor) },
+    { key: "Rexp", what: "the expected Rwp (%), the last refinement", value: () => percent(r()?.rExpected) },
+    { key: "GoF", what: "the goodness of fit Rwp/Rexp, the last refinement", value: () => (r()?.goodnessOfFit !== undefined ? String(sig(r()!.goodnessOfFit!, 3)) : null) },
+    { key: "chi2", what: "the reduced χ² (GoF²), the last refinement", value: () => (r()?.goodnessOfFit !== undefined ? String(sig(r()!.goodnessOfFit! ** 2, 3)) : null) },
+    { key: "verdict", what: "the engine's verdict on the last refinement (its band)", value: () => (s.result ? assessment(s).verdict.band : null) },
+  ];
 }
 
 function assessment(s: PowderLiveState): ReturnType<typeof assess_refinement> {

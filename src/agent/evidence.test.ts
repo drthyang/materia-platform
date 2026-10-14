@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { evidenceGate } from "@/agent/evidence";
+import { evidenceGate, gradeContradiction, gradeIn } from "@/agent/evidence";
 import { runScenario } from "@/agent/evals/harness";
 import { scenario } from "@/agent/evals/scenarios";
 import { scriptedModel } from "@/agent/evals/scripted";
@@ -33,4 +33,37 @@ describe("the evidence an answer needs", () => {
       await stand.close();
     }
   }, 60_000);
+});
+
+describe("THY-18: no verdict without its evidence, none the engine did not give", () => {
+  it("sends back a word on the hand with no absolute-structure reading after the last refinement", () => {
+    const hand = "The Flack parameter says the hand is right.";
+    expect(evidenceGate(hand, "Is the hand right?", ["get_state"], "singleCrystal", new Set())?.id).toBe("hand");
+    expect(evidenceGate(hand, "Is the hand right?", ["refine", "assess_refinement"], "singleCrystal", new Set())).toBeNull();
+    // The reading taken before the last refinement is of another fit.
+    expect(evidenceGate(hand, "Is the hand right?", ["assess_refinement", "invert_structure"], "singleCrystal", new Set())?.id).toBe("hand");
+    expect(evidenceGate(hand, "", ["get_state"], "powder", new Set())).toBeNull();
+  });
+
+  it("sends back a grade of a fit refined since its last assessment, on every page", () => {
+    const graded = "The fit is excellent now.";
+    for (const page of ["powder", "pdf", "singleCrystal"] as const) {
+      expect(evidenceGate(graded, "Refine it.", ["refine"], page, new Set())?.id).toBe("fit-grade");
+      expect(evidenceGate(graded, "Refine it.", ["refine", "assess_refinement"], page, new Set())).toBeNull();
+    }
+    // Nothing refined in this message: the grade needs no new assessment.
+    expect(evidenceGate(graded, "How is it?", ["get_state"], "powder", new Set())).toBeNull();
+    expect(evidenceGate(graded, "Refine it.", ["refine"], "powder", new Set(["fit-grade"]))).toBeNull();
+  });
+
+  it("reads the grade a reply gives, and calls one a contradiction only well away from the engine's", () => {
+    expect(gradeIn("An excellent fit.")).toBe("excellent");
+    expect(gradeIn("The refinement looks good.")).toBe("good");
+    expect(gradeIn("Refined to wR 4 %.")).toBeNull();
+    expect(gradeContradiction("An excellent fit.", "poor")).toMatch(/"excellent".*"poor"/);
+    expect(gradeContradiction("A good fit.", "fair")).not.toBeNull(); // across the line between fair and good
+    expect(gradeContradiction("An excellent fit.", "good")).toBeNull(); // neighbours on the same side
+    expect(gradeContradiction("A poor fit.", "poor")).toBeNull();
+    expect(gradeContradiction("An excellent fit.", null)).toBeNull();
+  });
 });

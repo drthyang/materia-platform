@@ -23,6 +23,7 @@ import type { ReportCheck } from "@/core/export/report";
 import { coordinationShells, type ShellBond } from "@/core/crystal/geometry";
 import { pdfPhaseBindingsFor } from "@/core/workflow/pdf";
 import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, correlationsCheck, findingChecks, noResultCheck } from "@/agent/reportChecks";
+import type { ReferenceEntry } from "@/agent/references";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- inputs are validated against the spec's zod schema before a handler runs */
 type Input = any;
@@ -198,6 +199,14 @@ function stateView(s: PdfLiveState, history: ProjectHistory | null, select: read
 }
 
 // ── analysis helpers ────────────────────────────────────────────────────────
+
+/** The numbers the Agent quotes by reference on the PDF page ({{Rw}}, {{verdict}}; {{p:ID}} for any row). */
+export function pdfReferences(s: PdfLiveState): ReferenceEntry[] {
+  return [
+    { key: "Rw", what: "Rw (%) of the curves on screen", value: () => `${pct(s.rw)} %` },
+    { key: "verdict", what: "the engine's verdict on the last refinement (its band: convergence, no GoF on a PDF)", value: () => (s.result ? assessment(s).verdict.band : null) },
+  ];
+}
 
 /**
  * The MCP assessment, read for real space: the GoF (and the expected R it is
