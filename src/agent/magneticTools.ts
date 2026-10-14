@@ -7,6 +7,7 @@
  * refined together on the refinement step.
  */
 
+import { RANK_RESTARTS } from "@/core/magnetic/momentRestarts";
 import type { Vec3 } from "@/core/math/types";
 import type { PowderAgentPort } from "@/agent/port";
 import type { MagneticAgentHandle, MagneticCandidateView, MagneticPanelState } from "@/agent/magneticPort";
@@ -160,9 +161,10 @@ export async function readMagneticTool(name: string, input: Input, port: PowderA
       const scope = (input.scope as "open" | "all" | undefined) ?? "open";
       port.openStep?.(1);
       await settle();
-      await handleOf(port).rank(scope);
+      const restarts = typeof input.restarts === "number" ? input.restarts : RANK_RESTARTS;
+      await handleOf(port).rank(scope, restarts);
       await settle();
-      return { ranked: scope, ...rankView(handleOf(port).state()) };
+      return { ranked: scope, restarts, ...rankView(handleOf(port).state()) };
     }
     default:
       throw new Error(`${name} is not a magnetic read tool`);

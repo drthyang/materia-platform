@@ -44,6 +44,7 @@ import type { MagneticModel } from "@/core/magnetic/types";
 import { buildMagneticPowderProblem } from "@/core/workflow/magneticPowder";
 import type { PowderPhase } from "@/core/workflow/multiPhase";
 import { refine } from "@/core/refinement/engine";
+import { fitMomentsWithRestarts, RANK_RESTARTS } from "@/core/magnetic/momentRestarts";
 import type { PowderCurves, PowderProfile } from "@/core/workflow/powder";
 import {
   magneticPhaseTicks,
@@ -838,7 +839,7 @@ export function KSearchPanel({
     return { id, wR: rank.results[id]!.wR! };
   }, [rank.results, reps, repMomentDims]);
   const bestRankedId = bestRanked?.id ?? null;
-  async function rankCandidates(scope: "open" | "all"): Promise<void> {
+  async function rankCandidates(scope: "open" | "all", restarts: number = RANK_RESTARTS): Promise<void> {
     const list = reps
       .map((r, i) => ({ r, i }))
       .filter(({ r, i }) => (repMomentDims[i] ?? 0) > 0 && (scope === "all" || openIndices.has(r.index)));
@@ -854,7 +855,8 @@ export function KSearchPanel({
         if (build.params.length === 0) {
           results[id] = { status: "forbidden", wR: null, values: {}, magnitudes: [] };
         } else {
-          const { values, agreement } = await fitMoments(build);
+          // Seeds, then kicked restarts (as the MCP path's moment search): one fit can stop with a sublattice switched off.
+          const { values, agreement } = await fitMomentsWithRestarts(build.params, (start) => fitMoments(build, start), { restarts, cancelled: () => rankCancel.current });
           const applied = applyMagneticMoments(build.magnetic, build.bindings, values);
           const magnitudes = applied.moments.map((m) => ({
             label: `${m.siteLabel}${m.orbitIndex !== undefined && m.orbitIndex > 1 ? `#${m.orbitIndex}` : ""}`,
@@ -975,9 +977,9 @@ export function KSearchPanel({
           if (t.magnitudes) setTieScope(t.magnitudes);
         }
       },
-      rank: async (scope) => {
+      rank: async (scope, restarts) => {
         if (!canFit) throw new Error(kUnsupported ?? "the moments cannot be fitted on this page (no refinable pattern)");
-        await rankCandidates(scope);
+        await rankCandidates(scope, restarts);
       },
       choose: (id) => {
         const i = candidateIndex(id, reps.length);
