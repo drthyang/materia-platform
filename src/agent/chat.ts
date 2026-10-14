@@ -78,6 +78,12 @@ export interface ChatConfig {
    * local model's default, its window being small.
    */
   readonly toolScope?: "stage" | "all";
+  /**
+   * The skills offered (default on). Off is the validation's ablation arm
+   * (docs/VALIDATION.md): no skill index in the prompt and no read_skill; the
+   * executor must be built with `skills: false` to match.
+   */
+  readonly skills?: boolean;
 }
 
 export interface ChatCallbacks {
@@ -121,7 +127,8 @@ export class AgentChat {
   private here: AgentSituation | null = null;
   /** Every tool called in this conversation: it stays offered. */
   private readonly called = new Set<string>();
-  private readonly system = agentSystemPrompt();
+  private readonly withSkills = agentSystemPrompt();
+  private readonly noSkills = agentSystemPrompt({ skills: false });
   /**
    * A local model's window, in tokens, as the server runs it (null: unknown,
    * then the history keeps to a fixed budget). Each request is sized to it.
@@ -374,8 +381,8 @@ export class AgentChat {
       // A thinking-capable model thinks by default, and the servers reuse the
       // cached prompt prefix by themselves.
       const scoped = this.offered(config);
-      const system = `${this.system}\n\n${autonomyNote(config.autonomy ?? "ask")}${scoped ? `\n\n${SCOPE_NOTE}` : ""}`;
-      let tools = scoped ?? this.tools;
+      const system = `${this.systemFor(config)}\n\n${autonomyNote(config.autonomy ?? "ask")}${scoped ? `\n\n${SCOPE_NOTE}` : ""}`;
+      let tools = this.skillsOff(config, scoped ?? this.tools);
       if (this.window === null) {
         // The window unknown: old tool results go from the copy it gets past a fixed budget.
         this.sent = null;
@@ -412,9 +419,9 @@ export class AgentChat {
       model: config.model,
       max_tokens: 64000,
       // The mode follows the cached prompt, so switching it keeps the cache.
-      system: [{ type: "text", text: this.system, cache_control: { type: "ephemeral" } }, { type: "text", text: `${autonomyNote(config.autonomy ?? "ask")}${this.offered(config) ? `\n\n${SCOPE_NOTE}` : ""}` }],
+      system: [{ type: "text", text: this.systemFor(config), cache_control: { type: "ephemeral" } }, { type: "text", text: `${autonomyNote(config.autonomy ?? "ask")}${this.offered(config) ? `\n\n${SCOPE_NOTE}` : ""}` }],
       // Inputs stream as generated; the executor validates each against its schema.
-      tools: (this.offered(config) ?? this.tools).map((t) => ({ ...t, eager_input_streaming: true })),
+      tools: this.skillsOff(config, this.offered(config) ?? this.tools).map((t) => ({ ...t, eager_input_streaming: true })),
       messages: this.messages,
       thinking: { type: "adaptive", display: "summarized" },
       output_config: { effort: config.effort },
@@ -446,6 +453,15 @@ export class AgentChat {
   /** Messages so far (for tests). */
   history(): readonly BetaMessageParam[] {
     return this.messages;
+  }
+
+  private systemFor(config: ChatConfig): string {
+    return config.skills === false ? this.noSkills : this.withSkills;
+  }
+
+  /** Without skills (the validation's ablation arm), read_skill is not offered. */
+  private skillsOff(config: ChatConfig, tools: BetaTool[]): BetaTool[] {
+    return config.skills === false ? tools.filter((t) => t.name !== "read_skill") : tools;
   }
 
   /**

@@ -19,13 +19,22 @@ import type { AgentPort } from "@/agent/port";
 import type { AgentAutonomy } from "@/agent/systemPrompt";
 import type { AgentRecord } from "@/agent/method";
 import { liveTool } from "@/agent/tools";
+import { REFERENCE } from "@/agent/references";
 import { unverifiedNumbers } from "@/core/export/reportAudit";
 import { fakeHost, headlessHistory } from "@/testSupport/agentHeadless";
 
 /** One thing that happened in the conversation, in order. */
 export type EvalEvent =
   | { readonly kind: "user"; readonly text: string }
-  | { readonly kind: "reply"; readonly text: string }
+  | {
+    readonly kind: "reply";
+    /** The model's words as it wrote them, references ({{wR}}, {{p:…}}) and all. */
+    readonly text: string;
+    /** The words as the app shows them: each reference filled from the page when the reply ended (absent when it had none). */
+    readonly shown?: string;
+    /** Each reference the reply used, with the value the page filled it with (null: the page had none). */
+    readonly refs?: Readonly<Record<string, string | null>>;
+  }
   | {
     readonly kind: "call";
     readonly name: string;
@@ -139,7 +148,7 @@ export function freeAtCall(name: string, input: unknown, parameters: readonly Re
 }
 
 /** Run one scenario and grade it. Never throws for the model's behaviour; a chat error becomes a notice. */
-export async function runScenario(scenario: EvalScenario, model: EvalModel, signal: AbortSignal = new AbortController().signal): Promise<EvalResult> {
+export async function runScenario(scenario: EvalScenario, model: EvalModel, signal: AbortSignal = new AbortController().signal, onUsage?: (usage: EvalUsage) => void): Promise<EvalResult> {
   const port = scenario.page();
   // The History as the app keeps it: the report lists the steps the analysis took.
   const history = headlessHistory(port);
@@ -158,9 +167,12 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
     },
     onActivity: () => undefined,
     onReport: (r) => reports.push({ title: r.title, markdown: withoutFigures(r.markdown), unverified: r.unverified, audit: r.audit }),
+    // The ablation without skills (docs/VALIDATION.md, arm C) turns them off on both sides.
+    ...(model.skills === false ? { skills: false } : {}),
   });
   const runner: ToolRunner = {
     run: async (name, input, signal) => {
+      settle();
       const free = freeAtCall(name, input, port.state().parameters);
       const out = await executor.run(name, input, signal);
       // The page records a refinement's step when it ends, as the Agent's.
@@ -174,12 +186,24 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
     page: () => executor.page(),
   };
   const chat = new AgentChat(runner);
-  let reply: { kind: "reply"; text: string } | null = null;
+  let reply: { kind: "reply"; text: string; shown?: string; refs?: Record<string, string | null> } | null = null;
+  // A reply's references are filled where the app shows it, from the page as it stands when the reply ends
+  // (before the call it asks for runs, or when the next reply or the turn ends).
+  const settle = (): void => {
+    const r = reply as { kind: "reply"; text: string; shown?: string; refs?: Record<string, string | null> } | null;
+    if (!r || r.shown !== undefined || !r.text.includes("{{")) return;
+    r.shown = executor.fill(r.text);
+    r.refs = Object.fromEntries([...r.text.matchAll(REFERENCE)].map((m) => {
+      const filled = executor.fill(`{{${m[1]!}}}`);
+      return [m[1]!, filled.includes("{{") ? null : filled];
+    }));
+  };
   for (const text of scenario.messages) {
     events.push({ kind: "user", text });
     try {
       await chat.send(text, { ...model, autonomy: scenario.autonomy }, {
         onAssistantStart: () => {
+          settle();
           reply = { kind: "reply", text: "" };
           events.push(reply);
         },
@@ -196,11 +220,14 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
           // Claude counts the cached part apart from the input; a local server's input is the whole prompt.
           const whole = model.transport === "ollama" || model.transport === "lmstudio" || model.transport === "openai-compatible";
           turns.push({ prompt: whole ? u.input_tokens ?? 0 : (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0), output: u.output_tokens ?? 0 });
+          // The spend tracker watches the running total (docs/VALIDATION.md: the API cap).
+          onUsage?.({ ...usage });
         },
       }, signal);
     } catch (e) {
       notices.push(`chat error: ${e instanceof Error ? e.message : String(e)}`);
     }
+    settle();
   }
   const run: EvalRun = { events, port, records, asked, notices, usage, reports, turns, seconds: (Date.now() - started) / 1000 };
   const grades = scenario.checks.map((c) => ({ check: c.name, ...c.grade(run) }));

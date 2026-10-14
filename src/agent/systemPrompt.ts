@@ -52,8 +52,22 @@ export function autonomyNote(mode: AgentAutonomy): string {
     : "Mode: ask. Every change waits for the user's approval. Do one stage, check it, then stop and tell the user what you found; do not run the whole sequence unasked. When the user asks for the whole refinement, run it stage by stage, each change with its approval card.";
 }
 
-/** The full system prompt (stable across turns, so it caches). */
-export function agentSystemPrompt(): string {
+/**
+ * The prompt with the skills taken out, for the validation's ablation arm
+ * (docs/VALIDATION.md, arm C): no skill index, no read_skill, no pointer to a
+ * page's written method. The rules the executor enforces (the guardrails) stay.
+ */
+function withoutSkills(role: string): string {
+  return role
+    .replace(/- Follow the user's method for the page, which is its skill \(below\)\. Read it with read_skill before your first change on the page; changes are refused until you have\. /, "- There is no written method for the pages: decide the order of the analysis yourself. ")
+    .replace(/; its method is the skill [a-z-]+/g, "")
+    .replace(/ Its method is the skill magnetic-analysis: read it before the step's first change\./, "")
+    .replace(/\n\nThe skills are written for MATERIA's MCP tools as well;[\s\S]*$/, "");
+}
+
+/** The full system prompt (stable across turns, so it caches); `skills: false` is the ablation without them. */
+export function agentSystemPrompt(opts: { readonly skills?: boolean } = {}): string {
+  if (opts.skills === false) return withoutSkills(ROLE);
   return [
     ROLE,
     "<skills>\nThe user's skills: their methods and the references behind them. Read one with read_skill when the task calls for it, and always the open page's method before your first change there. A skill's references are longer knowledge bases: read one only when the task needs it.\n" + skillIndex() + "\n</skills>",

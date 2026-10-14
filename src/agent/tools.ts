@@ -481,9 +481,10 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     name: "rank_magnetic_groups",
     title: "Rank the magnetic groups",
     description:
-      "Powder page only. Fit the moments of each magnetic group that allows a moment (the nuclear model held) and rank them by wR: `scope` \"open\" (default) fits the groups in the index sections open on the page (the maximal, index-2 groups at first: the top-down start), \"all\" every group. Returns the fitted groups, best first, with the best marked (ties go to the maximal group with the fewest moment parameters). Several seconds per group.",
+      "Powder page only. Fit the moments of each magnetic group that allows a moment (the nuclear model held) and rank them by wR: `scope` \"open\" (default) fits the groups in the index sections open on the page (the maximal, index-2 groups at first: the top-down start), \"all\" every group. Each group is fitted from its seed moments and from `restarts` kicked starts (default 12), the best kept: magnetic intensity is quadratic in the moments, so one fit can stop in a minimum with a sublattice switched off. Returns the fitted groups, best first, with the best marked (ties go to the maximal group with the fewest moment parameters). Several seconds per group.",
     inputSchema: {
       scope: z.enum(["open", "all"]).optional(),
+      restarts: z.number().int().min(0).max(32).optional().describe("Kicked restarts per group beyond the seeded fit (default 12; 0 = one fit)"),
     },
     effect: "read",
     pages: ["powder"],

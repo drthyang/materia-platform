@@ -88,6 +88,9 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
         bindings: [...s.bindings],
         profile: s.profile,
         magnetic: s.magnetic,
+        // The problem the next refinement solves: its restraints, and only the points in the fit window.
+        restraints: [...s.restraints],
+        ...(s.fitRange ? { fitRange: { ...s.fitRange } } : {}),
       });
       // A group the instrument–thermal rule would refuse next to the free set: say so with the ranking.
       const kindOf = new Map(s.parameters.map((p) => [p.id, p.kind]));
@@ -181,7 +184,7 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
       // reflection's misfit, which refining the model fixes.
       const residual = residualOf(s);
       const { between, beside, onReflection } = residualPeaks(residual, { ...(input.sigma !== undefined ? { sigma: input.sigma } : {}), limit: input.limit ?? 12 });
-      const misfits = [...onReflection, ...beside].sort((a, b) => b.height - a.height);
+      const misfits = [...onReflection, ...beside].sort((a, b) => b.height - a.height).slice(0, input.limit ?? 12);
       const isBeside = new Set(beside);
       const isExtra = new Set(between);
       const near = (p: (typeof misfits)[number]): string | undefined => {

@@ -22,6 +22,7 @@ import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { buildMagneticPowderProblem, magneticComponentCurve } from "@/core/workflow/magneticPowder";
 import { powderCurves } from "@/core/workflow/powder";
 import { refine } from "@/core/refinement/engine";
+import { fitMomentsWithRestarts } from "@/core/magnetic/momentRestarts";
 import { resolveTies } from "@/core/refinement/constraints";
 import { detectExtraPeaks, annotateExtraPeaks } from "@/core/magnetic/extraPeaks";
 import { generateReflections } from "@/core/diffraction/reflections";
@@ -182,7 +183,7 @@ export function magneticHandle(get: () => Session, set: (s: Session) => void, op
       ties = { sameSite: t.sameSite ?? ties.sameSite, magnitudes: t.magnitudes !== undefined ? t.magnitudes : ties.magnitudes };
       rank = {};
     },
-    rank: async (scope) => {
+    rank: async (scope, restarts) => {
       const list = reps();
       const d = dims(list);
       rank = {};
@@ -193,7 +194,7 @@ export function magneticHandle(get: () => Session, set: (s: Session) => void, op
           rank[r.candidate.id] = { status: "forbidden", wR: null, values: {}, magnitudes: [] };
           continue;
         }
-        const { values, agreement } = fit(b);
+        const { values, agreement } = await fitMomentsWithRestarts(b.params, (start) => fit(b, start), restarts !== undefined ? { restarts } : {});
         const applied = applyMagneticMoments(b.magnetic, b.bindings, values);
         rank[r.candidate.id] = { status: "ok", wR: agreement, values, magnitudes: applied.moments.map((m) => ({ label: m.siteLabel, value: Math.hypot(...momentCartesian(structure().cell, m)) })) };
       }

@@ -108,8 +108,8 @@ export interface MagneticAgentHandle {
   readonly setK: (k: Vec3) => void;
   readonly selectIons: (labels: readonly string[]) => void;
   readonly setTies: (ties: Partial<MomentTies>) => void;
-  /** Fit every candidate that allows a moment (scope "open": the index sections open on the page). */
-  readonly rank: (scope: "open" | "all") => Promise<void>;
+  /** Fit every candidate that allows a moment (scope "open": the index sections open on the page), each from its seeds and `restarts` kicked starts (default RANK_RESTARTS), the best kept. */
+  readonly rank: (scope: "open" | "all", restarts?: number) => Promise<void>;
   /** Choose a candidate by id; a ranked one starts from its fitted moments. */
   readonly choose: (id: string) => void;
   /** Fit the chosen group's moments, the nuclear model held; resolves to wR (fraction). */
