@@ -347,7 +347,7 @@ export class AgentChat {
         // Never a silent stop: say where the analysis stands and what the Agent needs.
         const where = (await this.situation())?.summary;
         cb.onNotice(
-          `The Agent was going in circles: ${circling}, so the app stopped it here.${where ? ` Where it stands: ${where}` : ""} ` +
+          `The Copilot was going in circles: ${circling}, so the app stopped it here.${where ? ` Where it stands: ${where}` : ""} ` +
             `Tell it the next step to take (for example "free the atomic positions and refine"), or start a new conversation if it has lost track.`,
           "error",
         );
@@ -587,7 +587,7 @@ export function fitWindow(messages: readonly BetaMessageParam[], fixedChars: num
       return config.transport === "lmstudio"
         ? `This conversation no longer fits the ${k(window)}-token context LM Studio runs ${config.model} with, even with the old tool results shortened: ${needs} Start a new conversation, or give the model a longer context (lms unload ${config.model} && lms load ${config.model} --context-length ${2 * window}).`
         : config.transport === "openai-compatible"
-          ? `This conversation no longer fits the ${k(window)}-token window used for ${config.model} (the server's own, or the context set in the Agent settings when the server does not say), even with the old tool results shortened: ${needs} Start a new conversation, or set a longer context if the model takes one.`
+          ? `This conversation no longer fits the ${k(window)}-token window used for ${config.model} (the server's own, or the context set in the Copilot settings when the server does not say), even with the old tool results shortened: ${needs} Start a new conversation, or set a longer context if the model takes one.`
           : `This conversation no longer fits ${config.model}'s ${k(window)}-token context on Ollama, even with the old tool results shortened: ${needs} Start a new conversation, or pick a model with a longer context.`;
     },
   };
@@ -824,7 +824,7 @@ function clientFor(config: ChatConfig, ollamaPlan: () => OllamaPlan | null): Ant
     // The proxy replaces this placeholder with the real key, server side.
     return new Anthropic({ apiKey: "proxy-holds-the-key", baseURL: base, dangerouslyAllowBrowser: true, maxRetries: 2 });
   }
-  if (!config.apiKey) throw new Error("No API key: add one in the Agent settings.");
+  if (!config.apiKey) throw new Error("No API key: add one in the Copilot settings.");
   return new Anthropic({ apiKey: config.apiKey, dangerouslyAllowBrowser: true, maxRetries: 2, ...(config.baseURL ? { baseURL: config.baseURL } : {}) });
 }
 
@@ -837,7 +837,7 @@ export function describeChatError(e: unknown, config: Pick<ChatConfig, "transpor
   if (e instanceof Anthropic.AuthenticationError) {
     return transport === "proxy"
       ? "The proxy's API key was rejected. Check ANTHROPIC_API_KEY where the dev server runs."
-      : "The API key was rejected. Check it in the Agent settings.";
+      : "The API key was rejected. Check it in the Copilot settings.";
   }
   if (e instanceof Anthropic.PermissionDeniedError) return "This API key is not allowed to use that model.";
   if (e instanceof Anthropic.RateLimitError) return "Rate limited by the API. Wait a moment and try again.";
@@ -862,10 +862,10 @@ function describeOllamaError(e: unknown, config: Pick<ChatConfig, "model" | "ser
     const body = e.error as { error?: { message?: string } } | undefined;
     const message = body?.error?.message ?? e.message;
     if (e.status === 404 && /not found/i.test(message)) {
-      return `Ollama has no model "${config.model}". Pull it (ollama pull ${config.model}) or pick another in the Agent settings.`;
+      return `Ollama has no model "${config.model}". Pull it (ollama pull ${config.model}) or pick another in the Copilot settings.`;
     }
     if (/does not support tools/i.test(message)) {
-      return `"${config.model}" cannot call tools, and the Agent works only through them. Pick a model marked "tools" in the Agent settings.`;
+      return `"${config.model}" cannot call tools, and the Copilot works only through them. Pick a model marked "tools" in the Copilot settings.`;
     }
     return `Ollama error ${e.status ?? ""}: ${message}`;
   }
@@ -878,13 +878,13 @@ function describeOpenAIError(e: unknown, config: Pick<ChatConfig, "model" | "ser
   if (e instanceof Anthropic.APIError) {
     const body = e.error as { error?: { message?: string } | string } | undefined;
     const message = (typeof body?.error === "string" ? body.error : body?.error?.message) ?? e.message;
-    if (e.status === 401 || e.status === 403) return `${base} refused the API key (${e.status}): ${message} Check the key in the Agent settings.`;
+    if (e.status === 401 || e.status === 403) return `${base} refused the API key (${e.status}): ${message} Check the key in the Copilot settings.`;
     if (e.status === 429) return `${base} is rate-limiting this key: ${message} Wait a moment and try again.`;
     if (/context|too long|maximum.*tokens|token limit/i.test(message) && /length|exceed|maximum|limit|long/i.test(message)) {
-      return `The server says the prompt is longer than ${config.model} takes: ${message} Set the context in the Agent settings to what the model takes (the Agent then shortens old results to fit), or start a new conversation.`;
+      return `The server says the prompt is longer than ${config.model} takes: ${message} Set the context in the Copilot settings to what the model takes (the Copilot then shortens old results to fit), or start a new conversation.`;
     }
-    if (e.status === 404 || /model.*(not found|does not exist)|unknown model/i.test(message)) return `${base} has no model "${config.model}": ${message} Pick another in the Agent settings.`;
-    if (/tool|function/i.test(message) && /support/i.test(message)) return `"${config.model}" cannot call tools on ${base}, and the Agent works only through them: ${message}`;
+    if (e.status === 404 || /model.*(not found|does not exist)|unknown model/i.test(message)) return `${base} has no model "${config.model}": ${message} Pick another in the Copilot settings.`;
+    if (/tool|function/i.test(message) && /support/i.test(message)) return `"${config.model}" cannot call tools on ${base}, and the Copilot works only through them: ${message}`;
     return `Server error ${e.status ?? ""} from ${base}: ${message}`;
   }
   return e instanceof Error ? e.message : String(e);
@@ -902,7 +902,7 @@ function describeLmStudioError(e: unknown, config: Pick<ChatConfig, "model" | "s
       return `The conversation no longer fits the context LM Studio loaded "${config.model}" with. Reload it with a context length of at least 32k (lms load ${config.model} --context-length 32768), or clear the conversation.`;
     }
     if (/not (found|loaded)|no model|does not exist/i.test(message)) {
-      return `LM Studio could not run "${config.model}": ${message} Load it in LM Studio, or pick another in the Agent settings.`;
+      return `LM Studio could not run "${config.model}": ${message} Load it in LM Studio, or pick another in the Copilot settings.`;
     }
     return `LM Studio error ${e.status ?? ""}: ${message}`;
   }

@@ -449,7 +449,8 @@ export function App(): JSX.Element {
   useEffect(() => {
     if (agentOpen) setSeenAnswers(answers);
   }, [agentOpen, answers]);
-  const agentRail = !agentOpen && agent.transcript.length > 0;
+  // Closed, the Copilot is the rail beside the page (the header has no button for it).
+  const agentRail = !agentOpen;
   useEffect(() => {
     const root = document.documentElement;
     if (agentFocus) root.dataset.agentFocus = agentFocus;
@@ -1238,7 +1239,6 @@ export function App(): JSX.Element {
         {...(hasContent ? { onSaveProject } : {})}
         gpu={{ enabled: gpuEnabled, onChange: setGpu }}
         {...(hasContent ? { history: stepHistory } : {})}
-        agent={{ open: agentOpen, onToggle: () => setAgentOpen((o) => !o), pending: agent.pending.length }}
       />
       {notice && (
         <div role="alert" style={noticeBar}>
@@ -1353,7 +1353,7 @@ export function App(): JSX.Element {
       </footer>
     </div>
     {agentOpen && <AgentDrawer agent={agent} method={agentMethod} onClose={() => setAgentOpen(false)} />}
-    {agentRail && <AgentRail unread={answers > seenAnswers} onOpen={() => setAgentOpen(true)} />}
+    {agentRail && <AgentRail unread={answers > seenAnswers} pending={agent.pending.length} onOpen={() => setAgentOpen(true)} />}
     {agent.reportOpen && agent.report && (
       <AgentReportViewer
         report={agent.report}

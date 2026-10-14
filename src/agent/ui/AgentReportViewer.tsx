@@ -46,10 +46,10 @@ export function AgentReportViewer({ report, onClose, onCif }: Props): JSX.Elemen
       <div role="dialog" aria-modal="true" aria-label="Analysis report" style={panel}>
         <div style={head}>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: fz.micro, letterSpacing: ".08em", textTransform: "uppercase", color: color.secondary }}>Analysis report · the Agent</div>
+            <div style={{ fontSize: fz.micro, letterSpacing: ".08em", textTransform: "uppercase", color: color.secondary }}>Analysis report · MATERIA Copilot</div>
             <div style={{ fontSize: 16, fontWeight: 650, color: color.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{report.title}</div>
             <div style={{ fontSize: fz.micro, color: color.faint }}>
-              Written {when} · every number from the engine and the History; only the Agent's account is its own words
+              Written {when} · every number from the engine and the History; only the Copilot's account is its own words
               {report.unverified.length > 0 && (
                 <span style={unverifiedChip} title={`Not among the values the report computed: ${report.unverified.join(", ")}`}>
                   {report.unverified.length} number{report.unverified.length === 1 ? "" : "s"} in its words unverified

@@ -259,9 +259,21 @@ html {
 }
 .wb-agent-rail-label {
   writing-mode: vertical-rl;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+/* The Copilot's name in spaced capitals, as the MATERIA logotype sets its own
+ * (the text stays "MATERIA Copilot", so a screen reader says a word). */
+.wb-agent-title {
+  font-family: "Space Grotesk", "IBM Plex Sans", system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #2b2722;
+  white-space: nowrap;
 }
 .wb-agent-dot {
   position: absolute;
@@ -271,6 +283,24 @@ html {
   height: 8px;
   border-radius: 50%;
   background: #d92d20;
+  box-shadow: 0 0 0 2px #fbf9f5;
+}
+/* Changes waiting for approval: their count, where the dot would sit. */
+.wb-agent-count {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: #1f4fd8;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
   box-shadow: 0 0 0 2px #fbf9f5;
 }
 @media (max-width: 899.98px), (max-width: 999.98px) and (orientation: portrait) {

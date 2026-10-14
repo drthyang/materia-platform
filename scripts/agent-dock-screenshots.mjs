@@ -81,7 +81,7 @@ async function closeReport(page, shot) {
 /** Send the replay's message, approve each change, and shoot the first approval card. */
 async function play(page, id, approvalShot) {
   const drawer = page.locator("aside.wb-agent");
-  await drawer.getByRole("textbox", { name: "Message the Agent" }).fill(REPLAYS[id].message);
+  await drawer.getByRole("textbox", { name: "Message the Copilot" }).fill(REPLAYS[id].message);
   await drawer.getByRole("button", { name: "Send", exact: true }).click();
   let shot = !approvalShot;
   let idle = 0;
@@ -113,7 +113,7 @@ async function open(browser, cfg, id) {
   await page.goto(`${BASE}?agentReplay=${id}`, { waitUntil: "networkidle" });
   await page.waitForSelector("header");
   await loadPage(page, REPLAYS[id].page);
-  await page.getByRole("button", { name: "Agent", exact: true }).click();
+  await page.getByRole("button", { name: /^Open the Copilot/ }).click();
   await page.waitForSelector("aside.wb-agent");
   return { context, page };
 }
@@ -155,7 +155,7 @@ async function main() {
     console.log(`${ok ? "ok  " : "FAIL"} ${name}: mode ${box.mode}, page ${Math.round(box.shell?.width ?? 0)} px wide, Agent ${Math.round(box.agent?.width ?? 0)}×${Math.round(box.agent?.height ?? 0)}`);
     await page.screenshot({ path: `${OUT}${name}.png` });
     if (name === "desktop-1440" || name === "phone") {
-      await page.getByRole("button", { name: "Close the Agent" }).click();
+      await page.getByRole("button", { name: "Close the Copilot" }).click();
       await page.waitForSelector("aside.wb-agent-rail");
       await page.waitForTimeout(300);
       await page.screenshot({ path: `${OUT}rail-${name}.png` });

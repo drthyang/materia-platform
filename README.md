@@ -53,7 +53,7 @@ neutron TOF Rietveld fit and a GaTa₄Se₈ X-ray PDF fit.
 
 ## The Agent
 
-The **Agent** button opens a model beside the analysis: one you run yourself on
+**MATERIA Copilot**, the rail at the page's side, opens a model beside the analysis: one you run yourself on
 Ollama or LM Studio, a cloud model (Anthropic's, through an API key or the
 local proxy), or any server that speaks OpenAI's API (OpenAI, Gemini, vLLM, a
 llama.cpp server). It reads the live page, judges the fit with the same tools
