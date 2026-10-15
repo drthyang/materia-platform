@@ -377,8 +377,11 @@ export function modelLabel(s: AgentSettings): string {
   return `${name} · ${s.mode === "proxy" ? "local proxy" : "Anthropic API"}`;
 }
 
-/** A replayed run's label: the model that took it live, and that this is its replay. */
-export const replayLabel = (model: string): string => `${model} · replay of a live run`;
+/** A scripted replay (the eval suite's turns, src/agent/replay/), named "Scripted model (eval …)": no model ran it live. */
+export const isScriptedReplay = (label: string): boolean => /^Scripted model\b/.test(label);
+
+/** A replayed run's label: the model that took it live and that this is its replay, or a scripted replay said to be one. */
+export const replayLabel = (model: string): string => (isScriptedReplay(model) ? `${model} · a scripted replay, not a live run` : `${model} · replay of a live run`);
 
 /** What one chat message runs on, from the settings. */
 function chatConfig(s: AgentSettings, apiKey: string): ChatConfig {
@@ -391,13 +394,31 @@ function chatConfig(s: AgentSettings, apiKey: string): ChatConfig {
 
 // ── storage (guarded: private windows and blocked site data throw) ─────────
 
+/**
+ * The stored settings, read as often as the page asks for them. A replay's
+ * label is for this load only: taken out of storage at the first read, and
+ * kept here for the reads after it in the same load (React's StrictMode reads
+ * the settings twice in development, where the replays run).
+ */
+export function settingsReader(): (store: Pick<Storage, "getItem" | "setItem">) => AgentSettings {
+  let replayThisLoad = "";
+  return (store) => {
+    const s = settingsFrom(store.getItem(SETTINGS_KEY));
+    if (s.replayOf) {
+      replayThisLoad = s.replayOf;
+      store.setItem(SETTINGS_KEY, JSON.stringify(savedSettings(s)));
+      return s;
+    }
+    return replayThisLoad ? { ...s, replayOf: replayThisLoad } : s;
+  };
+}
+
+const readStored = settingsReader();
+
 function readSettings(): AgentSettings {
   try {
     migrateLegacyKeys(localStorage, sessionStorage);
-    const s = settingsFrom(localStorage.getItem(SETTINGS_KEY));
-    // A replay's label is for this load only: taken out of storage once read.
-    if (s.replayOf) localStorage.setItem(SETTINGS_KEY, JSON.stringify(savedSettings(s)));
-    return s;
+    return readStored(localStorage);
   } catch {
     return DEFAULTS;
   }

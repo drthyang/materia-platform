@@ -9,7 +9,7 @@ import { color, fz, mono, radius } from "@/app/theme";
 import { tableRows } from "@/agent/ui/markdownTable";
 import type { ActivityEntry } from "@/agent/executor";
 import type { MethodProgress } from "@/agent/method";
-import { providerOf, replayLabel, type AgentController, type AgentMode, type AgentProvider, type AgentSettings, type TranscriptItem } from "@/agent/useAgent";
+import { isScriptedReplay, providerOf, replayLabel, type AgentController, type AgentMode, type AgentProvider, type AgentSettings, type TranscriptItem } from "@/agent/useAgent";
 import { OPENAI_PRESETS, isMachineUrl, listOpenAIModels, openaiBase, openaiUnreachableHint, presetForUrl, type OpenAIModel } from "@/agent/openaiCompat";
 import { CHAT_MODELS, hasRefusalFallback } from "@/agent/chat-models";
 import { listOllamaModels, unreachableHint, type OllamaModel } from "@/agent/ollama";
@@ -760,7 +760,7 @@ function Transcript({ agent, page }: { agent: AgentController; page: string | nu
 
 /** The model the Agent talks to, as the settings name it. */
 function modelName(s: AgentSettings): string {
-  if (s.replayOf) return `${s.replayOf} (a replay of a live run)`;
+  if (s.replayOf) return `${s.replayOf} (${isScriptedReplay(s.replayOf) ? "a scripted replay, not a live run" : "a replay of a live run"})`;
   if (s.mode === "ollama") return s.ollamaModel ? `${s.ollamaModel} (Ollama)` : "the Ollama model you pick";
   if (s.mode === "lmstudio") return s.lmstudioModel ? `${s.lmstudioModel} (LM Studio)` : "the LM Studio model you pick";
   if (s.mode === "openai-compatible") return s.openaiModel ? `${s.openaiModel} (${presetForUrl(s.openaiUrl)?.label ?? "OpenAI-compatible"})` : "the model you pick on your server";
