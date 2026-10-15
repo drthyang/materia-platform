@@ -7,6 +7,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { DEMO_REPLAYS } from "@/agent/replay/demoReplays";
 import { REPLAY_COOKIE, replayFrom, scriptedReplay, turnOf } from "@/agent/replay/server";
 import { armReplay, scriptedLabel } from "@/agent/replay/arm";
+import { modelLabel, replayLabel, settingsFrom } from "@/agent/useAgent";
 import { scenario } from "@/agent/evals/scenarios";
 import { calls, runScenario } from "@/agent/evals/harness";
 import { scriptedModel } from "@/agent/evals/scripted";
@@ -114,6 +115,17 @@ describe("arming a replay from the page's address", () => {
     expect(armReplay(env("", store, cookies))).toBeNull();
     expect(store.size).toBe(0);
     expect(cookies).toEqual([]);
+  });
+});
+
+describe("a scripted replay's name", () => {
+  it("is said to be scripted, never a replay of a live run, in the tooltip and the report", () => {
+    const label = scriptedLabel("full-refinement");
+    expect(replayLabel(label)).toBe("Scripted model (eval full-refinement) · a scripted replay, not a live run");
+    expect(modelLabel(settingsFrom(JSON.stringify({ mode: "proxy", replayOf: label })))).not.toContain("live run ");
+    expect(modelLabel(settingsFrom(JSON.stringify({ mode: "proxy", replayOf: label })))).toContain("scripted replay");
+    // A recording of a live run keeps its wording.
+    expect(replayLabel("Claude Opus 5.5")).toBe("Claude Opus 5.5 · replay of a live run");
   });
 });
 

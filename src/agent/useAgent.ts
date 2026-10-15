@@ -377,8 +377,11 @@ export function modelLabel(s: AgentSettings): string {
   return `${name} · ${s.mode === "proxy" ? "local proxy" : "Anthropic API"}`;
 }
 
-/** A replayed run's label: the model that took it live, and that this is its replay. */
-export const replayLabel = (model: string): string => `${model} · replay of a live run`;
+/** A scripted replay (the eval suite's turns, src/agent/replay/), named "Scripted model (eval …)": no model ran it live. */
+export const isScriptedReplay = (label: string): boolean => /^Scripted model\b/.test(label);
+
+/** A replayed run's label: the model that took it live and that this is its replay, or a scripted replay said to be one. */
+export const replayLabel = (model: string): string => (isScriptedReplay(model) ? `${model} · a scripted replay, not a live run` : `${model} · replay of a live run`);
 
 /** What one chat message runs on, from the settings. */
 function chatConfig(s: AgentSettings, apiKey: string): ChatConfig {
