@@ -67,6 +67,10 @@ describe("the validation's rules", () => {
     expect(files.some((f) => f.endsWith("src/agent/evals/evals.test.ts"))).toBe(true);
     expect(files.length).toBeGreaterThan(300);
     const terms = [...HELD_OUT_TERMS, ...TEST_CASES.map((c) => new RegExp(`\\b${c.id}\\b`))];
+    // A test case's impurity is in the known-phase library, as a lab's would be, but the text that teaches the Agent does not name it.
+    const taught = files.filter((f) => f.includes("/.claude/skills/") || f.includes("/knowledge/") || /src\/agent\/tools\.ts$|src\/mcp\/registry\.ts$/.test(f));
+    expect(taught.length).toBeGreaterThan(6);
+    expect(taught.filter((f) => /\bNaCl\b/.test(readFileSync(f, "utf8"))).map((f) => f.slice(ROOT.length + 1))).toEqual([]);
     const hits = files.flatMap((f) => {
       const text = readFileSync(f, "utf8");
       return terms.filter((t) => t.test(text)).map((t) => `${f.slice(ROOT.length + 1)}: ${t}`);

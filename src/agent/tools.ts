@@ -388,7 +388,7 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     name: "identify_peaks",
     title: "Identify extra peaks",
     description:
-      "Powder page only. Match peaks no phase of the model explains against phases a pattern often holds besides the sample: the sample environment (Al can or cryostat shields, V, Cu, steels, Nb heat shields, Pb shielding), holders (corundum, graphite), standards (Si, LaB₆, CeO₂) and common synthesis impurities (CaF₂, NaF, NaCl), their lines computed for this radiation. Each phase may scale its d-spacings by up to ±1.5 % (cooling; a part off the sample position shifts its lines). Returns the candidates with the lines they explain and the strong lines they should also show. Uses the residual's unexplained peaks (find_unexplained_peaks), or the d-spacings you pass (e.g. the cell check's unindexed peaks). A lead to put to the user, not an identification; add_known_phase then adds a matched phase to the model.",
+      "Powder page only. Match peaks no phase of the model explains against phases a pattern often holds besides the sample: the sample environment (Al can or cryostat shields, V, Cu, steels, Nb heat shields, Pb shielding), holders (corundum, graphite), standards (Si, LaB₆, CeO₂) and the synthesis impurities in its library, their lines computed for this radiation. Each phase may scale its d-spacings by up to ±1.5 % (cooling; a part off the sample position shifts its lines). Returns the candidates with the lines they explain and the strong lines they should also show. Uses the residual's unexplained peaks (find_unexplained_peaks), or the d-spacings you pass (e.g. the cell check's unindexed peaks). A lead to put to the user, not an identification; add_known_phase then adds a matched phase to the model.",
     inputSchema: {
       d: z.array(z.number().positive()).optional().describe("d-spacings (Å) to identify; default: the residual's unexplained peaks"),
     },
@@ -399,7 +399,7 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     name: "add_known_phase",
     title: "Add a known phase",
     description:
-      "Powder page only. Add one of identify_peaks' library phases (the sample environment, holders, line standards, and the impurities a synthesis leaves most often: CaF₂, NaF, NaCl) to the model as a further phase, with the library's room-temperature cell and positions and B ≈ 0.5 Å². Its scale and cell then refine with the others (free them with set_free; the cell first if identify_peaks found a d scale away from 1); report its weight fraction. Call it once identify_peaks has matched the unindexed peaks to it and the user agrees. A phase outside the library needs the user's CIF (Add CIF…). Always asks the user.",
+      "Powder page only. Add one of identify_peaks' library phases (the sample environment, holders, line standards, and the synthesis impurities in its library) to the model as a further phase, with the library's room-temperature cell and positions and B ≈ 0.5 Å². Its scale and cell then refine with the others (free them with set_free; the cell first if identify_peaks found a d scale away from 1); report its weight fraction. Call it once identify_peaks has matched the unindexed peaks to it and the user agrees. A phase outside the library needs the user's CIF (Add CIF…). Always asks the user.",
     inputSchema: {
       name: z.string().describe("The phase as identify_peaks names it, e.g. \"CaF₂\""),
     },
