@@ -183,6 +183,8 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
     newConversation: () => executor.newConversation(),
     heard: (text) => executor.heard(text),
     situation: () => executor.situation(),
+    // As the app's runner (useAgent.ts): the final-answer check reads the engine's {{verdict}} through it.
+    fill: (text) => executor.fill(text),
     page: () => executor.page(),
   };
   const chat = new AgentChat(runner);
