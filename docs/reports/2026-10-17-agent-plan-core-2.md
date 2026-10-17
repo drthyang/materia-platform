@@ -79,8 +79,9 @@ used: the test set stays unseen.
   reads right on both surfaces.
 - **`assess_refinement` on powder** can now warn that too few reflections
   support the structural parameters.
-- **The Agent's `find_unexplained_peaks`** adds `k0Magnetic` when it applies;
-  otherwise its answer is unchanged.
+- **The Agent's `find_unexplained_peaks`** keeps its shape, adds `k0Magnetic`
+  when it applies, lists the weak peaks the floor hid when the data carry σ,
+  and says when its σ is counting statistics.
 
 ## What it means for the validation
 
