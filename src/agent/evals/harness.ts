@@ -154,7 +154,7 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
   const port = scenario.page();
   // The History as the app keeps it: the report lists the steps the analysis took.
   const history = headlessHistory(port);
-  const { host, records } = fakeHost(port, history.history, (kind, agent) => history.record(kind, agent ? "agent" : undefined));
+  const { host, records } = fakeHost(port, history.history, (kind, agent) => history.record(kind, agent ? "agent" : undefined), history.goTo);
   const asked: ActivityEntry[] = [];
   const events: EvalEvent[] = [];
   const notices: string[] = [];
