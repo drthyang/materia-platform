@@ -14,7 +14,7 @@ import type { AgentPort, LiveState, PdfLiveState, PowderLiveState, SingleCrystal
 import { changePowder, describePowderChange, diagnosisText, powderNoOp, powderReportChecks, readPowderTool, requireStructure, type DiagnosisView } from "@/agent/powderTools";
 import { changeMagnetic, describeMagneticChange, isMagneticTool, magneticNext, magneticNoOp, magneticOutcome, readMagneticTool } from "@/agent/magneticTools";
 import { changePdf, describePdfChange, pdfNoOp, pdfReportChecks, readPdfTool } from "@/agent/pdfTools";
-import { changeSingleCrystal, describeSingleCrystalChange, readSingleCrystalTool, singleCrystalNoOp, singleCrystalReportChecks } from "@/agent/scTools";
+import { changeSingleCrystal, describeSingleCrystalChange, keptMeasurements, readSingleCrystalTool, singleCrystalNoOp, singleCrystalReportChecks } from "@/agent/scTools";
 import { samplePosteriorTool, type PosteriorRun } from "@/agent/posteriorTool";
 import { buildAgentReport, freeSummary, reportFileBase, type AgentReport } from "@/agent/report";
 import { matchIds, type LiveToolHost } from "@/agent/liveCommon";
@@ -24,7 +24,7 @@ import { pdfReferences } from "@/agent/pdfTools";
 import { singleCrystalReferences } from "@/agent/scTools";
 import { PROBE_OPTIONS, carriedText, correlationRefusal, disorderAssemblies, pairText, readCorrelations, refusalLine } from "@/agent/correlationCheck";
 import { PAGE_METHOD, readSkill } from "@/agent/skills";
-import { RULES, advanceAlternation, alternationView, keyOfState, methodProgress, outOfOrder, ruleRefusal, stagesCovered, stagesLeft, type AgentRecord, type Alternation, type MethodRule } from "@/agent/method";
+import { RULES, advanceAlternation, alternationView, keyOfState, methodProgress, outOfOrder, ruleRefusal, stagesCovered, stagesLeft, stagesOnPath, type AgentRecord, type Alternation, type MethodRule } from "@/agent/method";
 import { REF_KEY, RefStore, buildView } from "@/mcp/refs";
 import type { LinearRestraint, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { StepKind } from "@/core/project/history";
@@ -168,10 +168,17 @@ export class AgentExecutor implements ToolRunner {
 
   constructor(private readonly host: AgentHost, private readonly opts: ExecutorOptions) {}
 
+  /**
+   * A new conversation: the skills, the user's words and the refs to earlier
+   * answers belong to the last one. What belongs to the analysis stays: its
+   * record (saved with the project), the alternation, and the last posterior
+   * run, which the report places by the History step it sampled.
+   */
   newConversation(): void {
     this.skillsRead.clear();
     this.userText = [];
     this.magneticUsed = false;
+    this.refs.clear();
   }
 
   /** The magnetic step's tools ran in this conversation (its panel then counts in the fingerprint). */
@@ -380,7 +387,7 @@ export class AgentExecutor implements ToolRunner {
       const freeBefore = before.parameters.filter((p) => !p.fixed && !p.expression);
       let orderNote: string | null = null;
       if (spec.name === "refine" || spec.name === "boxcar_scan") {
-        const record = this.host.record(key);
+        const record = this.syncStages(port);
         // A scan given its own free set refines that set, not the page's.
         const scanFree = spec.name === "boxcar_scan" && Array.isArray(input.free) ? new Set(matchIds(before.parameters, input.free as string[])) : null;
         const ruleFree = scanFree ? before.parameters.filter((p) => scanFree.has(p.id) && !p.expression) : freeBefore;
@@ -553,7 +560,11 @@ export class AgentExecutor implements ToolRunner {
   private syncStages(port: AgentPort): AgentRecord {
     const s = port.state();
     const key = keyOfState(port.technique, s);
-    if (s.result?.status === "converged") {
+    // With a History, the stages follow it: undo, go_to_step and a reset take a stage back off the list.
+    const onPath = stagesOnPath(port.technique, this.host.history(), s);
+    if (onPath) {
+      this.host.updateRecord(key, (r) => (r.stagesDone.length === onPath.length && onPath.every((c) => r.stagesDone.includes(c)) ? r : { ...r, stagesDone: onPath }));
+    } else if (s.result?.status === "converged") {
       // What the fit on screen refined (its esds), not what is free now: a parameter freed since has not been refined.
       const refined = new Set(Object.keys(s.result.esd));
       const covered = stagesCovered(port.technique, s.parameters.filter((p) => refined.has(p.id)), s.parameters);
@@ -660,7 +671,7 @@ export class AgentExecutor implements ToolRunner {
       }
     }
     const checks = port.technique === "pdf" ? pdfReportChecks(s as PdfLiveState, probe)
-      : port.technique === "singleCrystal" ? singleCrystalReportChecks(s as SingleCrystalLiveState, probe)
+      : port.technique === "singleCrystal" ? singleCrystalReportChecks(s as SingleCrystalLiveState, probe, keptMeasurements(record))
         : powderReportChecks(s as PowderLiveState, probe);
     // The last run on this analysis: of the refinement on screen, or of an earlier one (a focused
     // set, before the final refinement), which the report labels with how far its values moved since.
