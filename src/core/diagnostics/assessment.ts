@@ -144,6 +144,8 @@ const SHIFT_MOVING = 1;
 
 /** Displacement-parameter kinds, for physical (negative-ADP) checks. */
 const ADP_KINDS: ReadonlySet<ParameterKind> = new Set(["bIso", "uAniso"]);
+/** What a powder pattern's integrated intensities determine: the structure (and a magnetic one), preferred orientation, extinction. */
+const INTENSITY_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>(["atomX", "atomY", "atomZ", "positionShift", "occupancy", "bIso", "uAniso", "momentX", "momentY", "momentZ", "momentMode", "magneticScale", "poRatio", "extinction"]);
 
 /**
  * Known dangerous correlation pairs → the physical reason they correlate.
@@ -598,16 +600,24 @@ export function assessRefinement(input: AssessmentInput): RefinementAssessment {
   }
 
   // --- parameterization (data support) -----------------------------------
-  const nFree = parameters.filter((p) => !p.fixed && !p.expression).length;
-  if (nFree > 0 && observationCount > 0) {
-    const ratio = observationCount / nFree;
+  // On powder the profile points far outnumber what determines the structure:
+  // the reflections inside the fitted range do, against the parameters their
+  // intensities determine (positions, occupancies, ADPs, moments, preferred
+  // orientation, extinction). Counting points, the check never fired.
+  const free = parameters.filter((p) => !p.fixed && !p.expression);
+  const reflectionsInRange = (input.mode ?? "powder") === "powder" ? input.residual?.reflections?.length : undefined;
+  const support = reflectionsInRange !== undefined
+    ? { n: free.filter((p) => INTENSITY_KINDS.has(p.kind)).length, data: reflectionsInRange, per: "reflections per free structural parameter", of: "structural", unit: "reflections in the fitted range" }
+    : { n: free.length, data: observationCount, per: "observations per free parameter", of: "", unit: "obs" };
+  if (support.n > 0 && support.data > 0) {
+    const ratio = support.data / support.n;
     if (ratio < DATA_PER_PARAMETER) {
       findings.push({
         category: "parameterization",
         severity: ratio < DATA_PER_PARAMETER / 2 ? "warning" : "note",
-        summary: `Only ${ratio.toFixed(1)} observations per free parameter (${nFree} free / ${observationCount} obs).`,
+        summary: `Only ${ratio.toFixed(1)} ${support.per} (${support.n} free${support.of ? ` ${support.of}` : ""} / ${support.data} ${support.unit}).`,
         detail: "Thin data-to-parameter support inflates esds and invites over-fitting. Free fewer parameters per stage, or acquire more data / a wider range.",
-        evidence: { freeParameters: nFree, observations: observationCount, ratio },
+        evidence: { freeParameters: support.n, observations: support.data, ratio },
       });
     }
   }

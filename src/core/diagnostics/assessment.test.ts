@@ -373,3 +373,18 @@ describe("suggestNextSteps", () => {
     expect(steps.some((s) => s.addresses.includes("residual"))).toBe(true);
   });
 });
+
+describe("data per parameter on powder", () => {
+  it("counts the reflections in the fitted range against the structural parameters, not the profile points", () => {
+    const p = (id: string, kind: RefinementParameter["kind"]): RefinementParameter => ({ id, label: id, kind, value: 0.1, initialValue: 0.1, fixed: false });
+    const structural = Array.from({ length: 12 }, (_, i) => p(`x${i}`, "atomX"));
+    const parameters = [p("scale", "scale"), p("bkg0", "background"), p("W", "profileW"), ...structural];
+    const result = { status: "converged", parameters: Object.fromEntries(parameters.map((q) => [q.id, q.value])), esd: {}, agreement: { rWeighted: 0.05, goodnessOfFit: 1.1 }, history: [], diagnostics: { svdZeroCount: 0, singularParameterIds: [], conditionNumber: 1e3, highCorrelations: [], maxLambda: 1, atBounds: [], maxShiftOverEsd: 0.01 } } as unknown as RefinementResult;
+    const residual = (reflections: number) => ({ d: [], yObs: [], yCalc: [], reflections: Array.from({ length: reflections }, (_, i) => ({ d: 1 + i * 0.01, hkl: `${i} 0 0`, phaseLabel: "P" })) });
+    const finding = (reflections: number) => assessRefinement({ result, parameters, observationCount: 5000, residual: residual(reflections) }).findings.find((f) => f.category === "parameterization");
+    // 5000 points but 30 reflections for 12 positions: 2.5 per parameter, a warning (points would say 333).
+    expect(finding(30)?.severity).toBe("warning");
+    expect(finding(30)?.summary).toMatch(/2\.5 reflections per free structural parameter \(12 free structural \/ 30 reflections/);
+    expect(finding(300)).toBeUndefined();
+  });
+});

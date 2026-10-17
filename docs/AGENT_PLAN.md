@@ -245,7 +245,7 @@ app only **(approval)**.
 | PR | Change | Size |
 | --- | --- | --- |
 | 3.1 | `LiveToolSpec` carries every per-tool fact: step kind, card, the stages it is offered at, kept in context, needs a structure, refits, samples, the skill it requires, and a corrected effect (`record` for notes and reports, `compute` for tools that only fill a panel). The side lists are derived from it, and a test fails if a consumer keeps its own list. | M |
-| 3.2 | `ToolOutcome` gains `status` (ok, refused, declined, unchanged, error), `data` and `refusal {rule, lift}`. The model's text is rendered from it unchanged. The chat loop, the context pruning and the harness read `status` instead of matching text. A shape contract per live tool, as `registry.test.ts` has for MCP. | M |
+| 3.2 | **Done** (the context pruning still reads the executor's own `declined`/`unchanged` JSON keys). `ToolOutcome` gains `status` (ok, refused, declined, unchanged, error), `data` and `refusal {rule, lift}`. The model's text is rendered from it unchanged. The chat loop, the context pruning and the harness read `status` instead of matching text. A shape contract per live tool, as `registry.test.ts` has for MCP. | M |
 | 3.3 | A page adapter per technique (agreement key and units, the reference catalogue, stages, rule wording, scoping, state shape) replaces the ternaries and duck typing in `executor.ts` and `method.ts`. | M |
 | 3.4 | `executor.ts` splits into dispatch, policy (firm rules, method gate, correlation guard) and record (notes, report, refs). `chat.ts` splits into transports, context budget, guards and the loop. No behaviour change; the existing tests are the net. | L |
 | 3.5 | Spread `Math.min/max` over patterns replaced; dead code removed (`AgentHost.technique`, `MAGNETIC_SKILL`); the copied helpers shared; stale comments fixed. | S |
@@ -261,8 +261,8 @@ are noted, since arm A reads it.
 
 | PR | Change | Size |
 | --- | --- | --- |
-| 4.1 | Residual peaks: drop the 8 % floor where every point has σ, after measuring the false-positive rate on Poisson noise and the dev and eval pages (gate: no more false peaks than today). Changes the Validation tab. | M |
-| 4.2 | Data per parameter counts reflections on powder. Changes the Validation tab. | S |
+| 4.1 | **Done.** Residual peaks: no 8 % floor where the file gives σ (counting σ keeps it). Measured first: no false peak on a correct model's counting noise either way, none on the dev misfit page, one more true line on the fluorite dev case. Changes the Validation tab's unindexed peaks. | M |
+| 4.2 | **Done.** Data per parameter on powder counts the reflections in the fitted range against the free structural parameters (positions, occupancies, ADPs, moments, preferred orientation, extinction), in `assess_refinement` on both surfaces. | S |
 | 4.3 | k-search: mixed-sign k for monoclinic and triclinic cells, the hkl range from the cell, and one `maxQ` policy. | M |
 | 4.4 | Magnetic ranking: the moment fit returns χ² and N; a Hamilton R-ratio test (or Δχ² per parameter) makes a group with more moments earn them; the scale is free at k = 0. The ★ and the skill's "within the noise" then mean the same thing. | M |
 | 4.5 | `boxcar_scan` returns per-box esds and each parameter's drift in esds; restarts reachable. | S |
