@@ -7,6 +7,9 @@ import { withMagneticModelRows } from "@/app/powderPage";
 import { executor, fakeHost, sessionPort } from "@/testSupport/agentHeadless";
 import { mn3gaImpuritySession } from "@/agent/evals/pages";
 import { find_unexplained_peaks } from "@/mcp/tools";
+import { residualPeaks } from "@/core/diagnostics/assessment";
+import { newSession } from "@/app/powderSession";
+import { exampleStructure } from "@/examples/mn3ga";
 import type { PowderLiveState } from "@/agent/port";
 
 /**
@@ -69,4 +72,24 @@ describe("find_unexplained_peaks on both surfaces", () => {
     expect(ds(mcp.unexplained)).toEqual(ds(live.unexplained));
     expect(ds(mcp.misfits)).toEqual(ds(live.misfits));
   }, 60_000);
+});
+
+describe("residual peaks without the floor, where the file gives σ", () => {
+  it("finds no peak on a correct model's counting noise (the floor once guarded against these)", () => {
+    const base = powderResidual(inputOf(sessionPort(newSession(exampleStructure())).port.state())).residual;
+    let max = 0;
+    for (const y of base.yCalc) max = Math.max(max, y);
+    let seed = 12345;
+    const uniform = (): number => ((seed = (seed * 1103515245 + 12345) % 2147483648) + 0.5) / 2147483648;
+    const normal = (): number => Math.sqrt(-2 * Math.log(uniform())) * Math.cos(2 * Math.PI * uniform());
+    for (const top of [2e3, 2e4, 2e5]) {
+      for (let run = 0; run < 40; run++) {
+        const yTrue = base.yCalc.map((y) => (y * top) / max + 300);
+        const sigma = yTrue.map((y) => Math.sqrt(y));
+        const yObs = yTrue.map((y, i) => y + sigma[i]! * normal());
+        const found = residualPeaks({ ...base, yObs, yCalc: yTrue, sigma, sigmaFrom: "file" });
+        expect([...found.between, ...found.beside, ...found.onReflection], `${top} counts, run ${run}`).toEqual([]);
+      }
+    }
+  });
 });

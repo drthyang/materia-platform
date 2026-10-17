@@ -104,6 +104,8 @@ export interface AssessmentInput {
     /** Each point's standard uncertainty: a residual peak must stand above its
      *  own counting noise, so a noisy low-count region does not read as peaks. */
     readonly sigma?: readonly number[];
+    /** Where σ came from (powderResidual): the file's own, or counting statistics where it gives none. */
+    readonly sigmaFrom?: "file" | "counting";
     /** Every phase's reflections (refined cells): a residual peak on one is a
      *  misfit of that reflection, not intensity no phase accounts for. */
     readonly reflections?: readonly { readonly d: number; readonly hkl: string; readonly phaseLabel: string }[];
@@ -219,7 +221,7 @@ const BESIDE_REFLECTION = 0.02;
  * nearby impurity peak), or between reflections (unexplained). With per-point
  * σ, a peak must also stand 5σ above its own counting noise.
  */
-export function residualPeaks(residual: NonNullable<AssessmentInput["residual"]>, options: { readonly sigma?: number; readonly limit?: number } = {}): {
+export function residualPeaks(residual: NonNullable<AssessmentInput["residual"]>, options: { readonly sigma?: number; readonly limit?: number; readonly minFraction?: number } = {}): {
   between: AnnotatedExtraPeak[];
   beside: AnnotatedExtraPeak[];
   onReflection: AnnotatedExtraPeak[];
@@ -231,9 +233,15 @@ export function residualPeaks(residual: NonNullable<AssessmentInput["residual"]>
   // Every peak is classified first and the limit applied to each class after:
   // cut before, the tallest residuals (usually misfits on strong reflections)
   // crowded a weaker unexplained peak out of the list.
+  // With the file's own σ, each peak's significance is tested against its own
+  // noise, so no floor at a fraction of the largest residual: one strong misfit
+  // would hide a weak line beside it. A correct model on counting noise gives
+  // no peak either way (200 seeds at 2·10³–2·10⁵ counts, powderResidual.test).
+  const minFraction = options.minFraction ?? (sigma && residual.sigmaFrom === "file" ? 0 : undefined);
   const peaks = detectExtraPeaks(d, yObs, yCalc, {
     ...(sigma ? { pointSigma: sigma } : {}),
     ...(options.sigma !== undefined ? { sigma: options.sigma } : {}),
+    ...(minFraction !== undefined ? { minFraction } : {}),
     limit: Number.MAX_SAFE_INTEGER,
   });
   const annotated: AnnotatedExtraPeak[] = reflections ? annotateExtraPeaks(peaks, reflections, besideTol) : [...peaks];

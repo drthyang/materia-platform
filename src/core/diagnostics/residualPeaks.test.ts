@@ -62,3 +62,19 @@ describe("an ADP at its bound, by technique", () => {
     expect(powder.findings[0]!.detail).toMatch(/over-damping high-angle intensity/);
   });
 });
+
+describe("the floor at a fraction of the largest residual", () => {
+  // A strong misfit on 1 0 1 (2000 counts high) and a weak line between reflections at d = 2.0
+  // (90 counts on a background of 100: 6.5σ), well under 8 % of the misfit.
+  const lines = [3.199, 2.709];
+  const reflections = [{ d: 3.199, hkl: "1 0 1", phaseLabel: "P" }, { d: 2.709, hkl: "1 1 0", phaseLabel: "P" }];
+  const { d, yObs, yCalc } = pattern([{ d: 3.199, height: 2000 }, { d: 2.0, height: 90 }], undefined, lines);
+  const sigma = yObs.map((y) => Math.sqrt(y));
+
+  it("no longer hides a weak line beside a strong misfit when the file gives σ", () => {
+    const withFileSigma = residualPeaks({ d, yObs, yCalc, sigma, sigmaFrom: "file", reflections });
+    expect(withFileSigma.between.map((p) => Number(p.d.toFixed(2)))).toEqual([2]);
+    // Counting σ (√y, the file gave none) keeps the floor: normalized data would make √y meaningless.
+    expect(residualPeaks({ d, yObs, yCalc, sigma, sigmaFrom: "counting", reflections }).between).toEqual([]);
+  });
+});
