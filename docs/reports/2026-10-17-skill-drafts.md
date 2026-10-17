@@ -1,6 +1,7 @@
 # The skill drafts: the skills brought into line with the tools
 
-Branch `claude/skill-drafts`, stacked on
+Pull request [#63](https://github.com/drthyang/web-refinement/pull/63), branch
+`claude/skill-drafts`, stacked on
 [#62](https://github.com/drthyang/web-refinement/pull/62), 2026-10-17. Plan:
 [AGENT_PLAN.md](../AGENT_PLAN.md), items 5.2–5.5. **A draft for the user's
 review:** the skills are the user's methods, so nothing here merges until they
