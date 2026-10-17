@@ -65,9 +65,34 @@ export interface ActivityEntry {
 }
 
 /** The answer a model gets: JSON text, flagged when it is an error. */
+/**
+ * What a call came to, for the code that runs the conversation (the chat
+ * loop, the context pruning, the eval harness) to read instead of the text:
+ * done, an error, refused by a rule or guard, declined by the user, a change
+ * that changed nothing, or stopped before it ran.
+ */
+export type ToolStatus = "ok" | "error" | "refused" | "declined" | "unchanged" | "stopped";
+
+/** Who refused a call: the method gate, a running fit, a firm rule, the correlation guard, the symmetry review's gate, or a page changed while the card waited. */
+export type RefusalKind = "method" | "busy" | "firm-rule" | "correlation" | "symmetry-gate" | "stale";
+
 export interface ToolOutcome {
   readonly isError: boolean;
+  /** What the model reads. */
   readonly text: string;
+  /** What happened (absent from a runner that does not say: read isError). */
+  readonly status?: ToolStatus;
+  /** A refused call: who refused it. */
+  readonly refusedBy?: RefusalKind;
+  /** A refinement ran to its end and its result is on the page (refine, Prefit). */
+  readonly refined?: boolean;
+}
+
+/** A call refused by a rule or a guard: an error to the model, `refused` to the loop. */
+class Refusal extends Error {
+  constructor(message: string, readonly by: RefusalKind) {
+    super(message);
+  }
 }
 
 /**
@@ -269,7 +294,7 @@ export class AgentExecutor implements ToolRunner {
   }
 
   private async execute(spec: LiveToolSpec, raw: unknown, signal?: AbortSignal): Promise<ToolOutcome> {
-    if (signal?.aborted) return error(STOPPED);
+    if (signal?.aborted) return stopped();
     if (isMagneticTool(spec.name)) this.magneticUsed = true;
     let entry: ActivityEntry = { id: `c${nextCallId++}`, tool: spec.name, title: spec.title, effect: spec.effect, at: Date.now(), status: "running", ...(spec.alwaysAsk ? { alwaysAsk: true } : {}) };
     const update = (patch: Partial<ActivityEntry>): void => {
@@ -285,7 +310,7 @@ export class AgentExecutor implements ToolRunner {
         update({});
         const out = this.readRef(input as { ref: string; start?: number; end?: number });
         update({ status: "done" });
-        return { isError: false, text: JSON.stringify(out) };
+        return { isError: false, text: JSON.stringify(out), status: "ok" };
       }
       if (spec.name === "read_skill") {
         if (this.opts.skills === false) throw new Error("there are no skills in this configuration: decide the method yourself");
@@ -295,7 +320,7 @@ export class AgentExecutor implements ToolRunner {
         const text = readSkill(name, reference);
         if (reference === undefined) this.skillsRead.add(name);
         update({ status: "done" });
-        return { isError: false, text };
+        return { isError: false, text, status: "ok" };
       }
 
       const port = this.requirePort();
@@ -336,7 +361,7 @@ export class AgentExecutor implements ToolRunner {
           const notYet = this.symmetryNotYet(port);
           if (notYet) {
             update({ status: "failed", outcome: notYet.line });
-            return error(notYet.message);
+            return refused(notYet.message, "symmetry-gate");
           }
         }
         // Let the drawer paint "running" before a heavy synchronous analysis.
@@ -364,11 +389,11 @@ export class AgentExecutor implements ToolRunner {
       const method = spec.skill ?? PAGE_METHOD[port.technique];
       if (this.opts.skills !== false && !this.skillsRead.has(method)) {
         const what = spec.skill ? `it is how the user works on this step` : `it is how the user works on this page`;
-        throw new Error(`read the method first: call read_skill with name "${method}" — ${what}, and changes wait until it has been read in this conversation`);
+        throw new Refusal(`read the method first: call read_skill with name "${method}" — ${what}, and changes wait until it has been read in this conversation`, "method");
       }
       if (spec.name === "allow_exception") return await this.allowException(port, input as { rule: MethodRule; reason: string }, entry, update);
       const before = port.state();
-      if (before.busy) throw new Error("a refinement is running — wait for it to finish, or call cancel_refinement");
+      if (before.busy) throw new Refusal("a refinement is running — wait for it to finish, or call cancel_refinement", "busy");
       const magnetic = port.technique === "powder" && isMagneticTool(spec.name);
       const noOp = port.technique === "pdf" ? pdfNoOp(spec, input, before as PdfLiveState)
         : port.technique === "singleCrystal" ? singleCrystalNoOp(spec, input, before as SingleCrystalLiveState)
@@ -376,7 +401,7 @@ export class AgentExecutor implements ToolRunner {
             : powderNoOp(spec, input, before as PowderLiveState);
       if (noOp) {
         update({ status: "done", outcome: "No change" });
-        return this.respond({ unchanged: true, note: noOp });
+        return { ...this.respond({ unchanged: true, note: noOp }), status: "unchanged" };
       }
       let preview = port.technique === "pdf" ? describePdfChange(spec, input, before as PdfLiveState)
         : port.technique === "singleCrystal" ? describeSingleCrystalChange(spec, input, before as SingleCrystalLiveState)
@@ -394,7 +419,7 @@ export class AgentExecutor implements ToolRunner {
         const rule = ruleRefusal(port.technique, ruleFree, restraintsOf(before), record, before.parameters);
         if (rule) {
           update({ status: "failed", preview, outcome: rule.line });
-          return error(rule.message);
+          return refused(rule.message, "firm-rule");
         }
         // The method's order is the skills' (arm C has none).
         if (spec.name === "refine" && this.opts.skills !== false) orderNote = outOfOrder(port.technique, freeBefore, record, before.parameters);
@@ -413,7 +438,7 @@ export class AgentExecutor implements ToolRunner {
         const refusal = correlationRefusal(check);
         if (refusal) {
           update({ status: "failed", preview, outcome: refusalLine(check) });
-          return error(refusal);
+          return refused(refusal, "correlation");
         }
         preview += check.carried.length > 0 ? ` · ${check.carried.map(carriedText).join("; ")}, carried by the other free parameters`
           : check.strongest ? ` · strongest correlation ${pairText(check.strongest)}` : " · no correlation above 0.5";
@@ -421,20 +446,20 @@ export class AgentExecutor implements ToolRunner {
       update({ status: "waiting", preview });
       if (!(await this.opts.approve(entry, signal))) {
         update({ status: "declined", outcome: signal?.aborted ? "Stopped" : "Declined" });
-        if (signal?.aborted) return error(STOPPED);
-        return this.respond({ declined: true, note: "The user declined this change. Ask what they would prefer, or propose something else." });
+        if (signal?.aborted) return stopped();
+        return { ...this.respond({ declined: true, note: "The user declined this change. Ask what they would prefer, or propose something else." }), status: "declined" };
       }
       // The card may have waited a long time: Stop, a running fit, or a page that changed since it was checked all hold the change back.
       if (signal?.aborted) {
         update({ status: "declined", outcome: "Stopped" });
-        return error(STOPPED);
+        return stopped();
       }
       // The page as it is now (a port is a render's view: ask the host again).
       const now = this.requirePort().state();
       if (now.busy || stateStamp(now) !== stateStamp(before)) {
         const why = now.busy ? "a refinement is running" : "the analysis changed while it waited for approval";
         update({ status: "failed", outcome: `Not run: ${why}` });
-        return error(`not run: ${why}, so what was checked and approved no longer describes it. Read the state again (get_state) and propose the change again if it still applies.`);
+        return refused(`not run: ${why}, so what was checked and approved no longer describes it. Read the state again (get_state) and propose the change again if it still applies.`, "stale");
       }
       update({ status: "running" });
       // The user's own unsaved edits become their step first, so the agent's
@@ -479,11 +504,12 @@ export class AgentExecutor implements ToolRunner {
         ...(magnetic ? magneticOutcome(spec.name, this.requirePort() as typeof port) : {}),
       };
       update({ status: "done", outcome: outcomeLine(spec.name, before, after, note) });
-      return this.respond(out);
+      // refine's own "refined" (changeOutcome): its result on the page, for the loop and the harness to read.
+      return { ...this.respond(out), ...(spec.name === "refine" ? { refined: !!after.result && after.result !== before.result } : {}) };
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       update({ status: "failed", outcome: message });
-      return error(message);
+      return e instanceof Refusal ? refused(message, e.by) : error(message);
     }
   }
 
@@ -731,7 +757,7 @@ export class AgentExecutor implements ToolRunner {
     update({ status: "waiting", preview: `${rule.title}, because: ${input.reason}` });
     if (!(await this.opts.approve({ ...entry, status: "waiting", preview: `${rule.title}, because: ${input.reason}`, alwaysAsk: true }))) {
       update({ status: "declined", outcome: "Declined" });
-      return this.respond({ declined: true, note: "The user keeps the rule. Work within it, or ask what they would prefer." });
+      return { ...this.respond({ declined: true, note: "The user keeps the rule. Work within it, or ask what they would prefer." }), status: "declined" };
     }
     const key = keyOfState(port.technique, port.state());
     this.host.updateRecord(key, (r) => ({ ...r, exceptions: [...r.exceptions.filter((e) => e.rule !== input.rule), { rule: input.rule, reason: input.reason, at: Date.now() }] }));
@@ -743,7 +769,7 @@ export class AgentExecutor implements ToolRunner {
     const ref = this.refs.put(out);
     const view = buildView(this.refs.get(ref), ref, this.opts.budget ?? 8000);
     const payload = view !== null && typeof view === "object" && !Array.isArray(view) ? { [REF_KEY]: ref, ...view } : view;
-    return { isError: false, text: JSON.stringify(payload) };
+    return { isError: false, text: JSON.stringify(payload), status: "ok" };
   }
 
   private readRef({ ref, start, end }: { ref: string; start?: number; end?: number }): unknown {
@@ -819,7 +845,16 @@ interface RangeAnswer {
 }
 
 function error(message: string): ToolOutcome {
-  return { isError: true, text: `Error: ${message}` };
+  return { isError: true, text: `Error: ${message}`, status: "error" };
+}
+
+/** Refused by a rule or a guard: the model reads it as an error with what to do. */
+function refused(message: string, by: RefusalKind): ToolOutcome {
+  return { isError: true, text: `Error: ${message}`, status: "refused", refusedBy: by };
+}
+
+function stopped(): ToolOutcome {
+  return { isError: true, text: `Error: ${STOPPED}`, status: "stopped" };
 }
 
 /**

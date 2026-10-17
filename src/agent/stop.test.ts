@@ -31,7 +31,7 @@ describe("Stop reaches the executor", () => {
     const { ex, asked } = executor(fakeHost(port).host, "auto");
     const before = free(port);
     const out = await ex.run("set_free", { free: ["width"] }, stopped());
-    expect(out).toEqual({ isError: true, text: "Error: Stopped by the user before this ran." });
+    expect(out).toEqual({ isError: true, text: "Error: Stopped by the user before this ran.", status: "stopped" });
     expect(asked).toEqual([]);
     expect(free(port)).toEqual(before);
   });

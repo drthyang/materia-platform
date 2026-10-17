@@ -33,7 +33,7 @@ import type {
 import { LIVE_TOOLS, inputJsonSchema, liveTool, type LiveToolSpec } from "@/agent/tools";
 import { scopeNote, scopedTools } from "@/agent/toolScope";
 import { evidenceGate, gradeContradiction } from "@/agent/evidence";
-import type { AgentSituation, ToolRunner } from "@/agent/executor";
+import type { AgentSituation, ToolOutcome, ToolRunner } from "@/agent/executor";
 import { agentSystemPrompt, autonomyNote, type AgentAutonomy } from "@/agent/systemPrompt";
 import { CONTEXT_EDITING, CONTEXT_EDITING_BETA, historyChars, pruneForLocal } from "@/agent/contextWindow";
 import { hasRefusalFallback } from "@/agent/chat-models";
@@ -322,12 +322,12 @@ export class AgentChat {
           continue;
         }
         this.called.add(call.name);
-        let out: { isError: boolean; text: string };
+        let out: ToolOutcome;
         try {
           out = await this.executor.run(call.name, call.input, signal);
         } catch (e) {
           // Never a call left without its answer: the conversation must stay valid.
-          out = { isError: true, text: `Error: the tool failed to run: ${e instanceof Error ? e.message : String(e)}` };
+          out = { isError: true, text: `Error: the tool failed to run: ${e instanceof Error ? e.message : String(e)}`, status: "error" };
         }
         ran.push(call.name);
         this.here = await this.situation();
@@ -337,7 +337,9 @@ export class AgentChat {
         if (seen.stop !== null) circling = seen.stop;
         let note = seen.note;
         if (call.name === "refine") {
-          refusedInARow = out.isError && /Not refined|refused|not run/i.test(out.text) ? refusedInARow + 1 : 0;
+          // A refinement a firm rule, the correlation guard or a changed page held back (a runner that does not say: its text).
+          const held = out.status !== undefined ? out.status === "refused" && (out.refusedBy === "firm-rule" || out.refusedBy === "correlation" || out.refusedBy === "stale") : out.isError && /Not refined|refused|not run/i.test(out.text);
+          refusedInARow = held ? refusedInARow + 1 : 0;
           if (refusedInARow === REFUSED_HINT && note === null) note = `${FROM_APP} ${REFUSED_HINT} refinements in a row were refused. Go back to the last free set that refined (fix what you freed since), then free one group more at a time and refine after each; hold one of each pair the refusal names. Instrument terms and B values refine in turn, never together.`;
         }
         const text = note === null ? out.text : `${out.text}\n\n${note}`;
