@@ -309,9 +309,10 @@ an instrument's constants, which are the user's decisions.
 ### Cases
 
 The **test set** is held out and gives the reported numbers. Its structures
-(rutile, calcite, ZnO, NiAl) are named in no skill, knowledge note, tool
-description, eval scenario or other file under `src/agent`, and a test enforces
-that. The **dev set** is where tools and skills may be improved: the eval pages
+(rutile, calcite, ZnO, NiAl) appear, by name, formula or common synonym, in
+no skill or knowledge note, no file under `src/agent` but the validation's own,
+and no source file that ships (the MCP tools, the diagnostics, the known-phase
+library, the app), and a test enforces that. The **dev set** is where tools and skills may be improved: the eval pages
 the researcher rounds left, Example 3, and a dev analog of each test fault.
 
 All patterns are constant-wavelength neutron data simulated by the engine:

@@ -48,17 +48,23 @@ describe("the validation's rules", () => {
   });
 
   it("never tunes on the test set: its structures and ids appear nowhere the Agent is taught or evaluated", () => {
+    // The skills and the knowledge they cite; everything under src/agent (tools, prompt, eval scenarios and their
+    // tests); and every source file that ships, since any of them can reach the model as a tool's text (the MCP
+    // tools, the diagnostics, the known-phase library, the app). A unit test elsewhere is seen by no model.
     const files: string[] = [];
-    const walk = (dir: string): void => {
+    const walk = (dir: string, tests: boolean): void => {
       for (const name of readdirSync(dir)) {
         const p = join(dir, name);
         if (statSync(p).isDirectory()) {
-          if (p !== join(ROOT, "src/agent/validation")) walk(p);
-        } else if (/\.(md|ts|tsx)$/.test(name)) files.push(p);
+          if (p !== join(ROOT, "src/agent/validation")) walk(p, tests || p === join(ROOT, "src/agent"));
+        } else if (/\.(md|ts|tsx)$/.test(name) && (tests || !/\.test\.tsx?$/.test(name))) files.push(p);
       }
     };
-    for (const dir of [".claude/skills", "knowledge", "src/agent"]) walk(join(ROOT, dir));
-    expect(files.length).toBeGreaterThan(50);
+    for (const dir of [".claude/skills", "knowledge"]) walk(join(ROOT, dir), true);
+    walk(join(ROOT, "src"), false);
+    expect(files.some((f) => f.includes("src/mcp/registry.ts")) && files.some((f) => f.includes("src/core/diagnostics/knownPhases.ts"))).toBe(true);
+    expect(files.some((f) => f.endsWith("src/agent/evals/evals.test.ts"))).toBe(true);
+    expect(files.length).toBeGreaterThan(300);
     const terms = [...HELD_OUT_TERMS, ...TEST_CASES.map((c) => new RegExp(`\\b${c.id}\\b`))];
     const hits = files.flatMap((f) => {
       const text = readFileSync(f, "utf8");
