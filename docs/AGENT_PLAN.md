@@ -17,8 +17,8 @@ It builds on [AGENT_REVIEW.md](./AGENT_REVIEW.md) (2026-10-14) and a survey of
   case until the freeze (phase 6). Arm A is deterministic and is re-run at the
   freeze, since several fixes change the Validation tab it reads.
 - **Approval.** A new tool, a skill change, and a tool description that
-  restates a skill all need the user's approval. Items that need it are marked
-  **(approval)**.
+  restates a skill all need the user's approval. Items still waiting for it are
+  marked **(approval)**; items the user has approved are marked **(approved)**.
 - **No API spend.** Local models and scripted CI only, until the user says
   otherwise.
 - **Each PR** passes CI (build, lint, tests), updates its docs, and leaves the
@@ -215,7 +215,7 @@ Beyond single contradictions:
 | --- | --- | --- |
 | 1.1 | The harness runner passes `fill`, so the verdict check runs in evals and validation as in the app. A scripted replay with a contradicting grade gets the nudge. | S |
 | 1.2 | **Page operations in one place.** Prefit, the boxcar scan, the posterior problem (window, phases, magnetic model, restraints), the observation count and the live wR become pure functions in `core/workflow`, with the solver passed in (worker pool in the app, in-thread in tests). The workbenches and the headless ports call the same functions, and the headless copies go. The setters the headless page only logs apply their change. Tests show that the headless page and the app compute the same result for each operation. | L |
-| 1.3 | **The ablation is structural** **(approval: what arm C removes).** The prompt is built from sections, not edited by regex. With skills off, the model sees no skill index, no `read_skill`, no method view in `get_state`, no skill names in refusals, and no stage-ordered scoping. A test runs a scripted arm-C session and finds no skill name or stage label in any prompt, description or result. | M |
+| 1.3 | **The ablation is structural** **(approved)**. The prompt is built from sections, not edited by regex. With skills off, the model sees no skill index, no `read_skill`, no method view in `get_state`, no skill names in refusals, and no stage-ordered scoping. A test runs a scripted arm-C session and finds no skill name or stage label in any prompt, description or result. | M |
 | 1.4 | **One run policy.** `RunPolicy` sets the turn cap, scoping, pruning, stall stops, temperature and reply cap. It is passed explicitly, written into each run's record, and the same for every model in the validation wherever the transport allows. Where the window forces scoping or pruning, the record says so. | M |
 | 1.5 | **State lifecycle.** Stages done are recomputed from the history after undo, `go_to_step` and reset. A new conversation clears the posterior, alternations and refs. `keep_reflections` becomes page state, undoable and saved. | M |
 | 1.6 | **Holdout scan widened** to all of `src` except `src/agent/validation` and the test files, with synonyms. Tool descriptions stop listing NaCl by name and say "the library's phases" instead **(approval)**. | S |
@@ -271,21 +271,20 @@ are noted, since arm A reads it.
 | 4.8 | Flack and Parsons use every measurement of unmerged data. | S |
 | 4.9 | Known-answer tests for `test_extinction`; a false-positive test for `identify_peaks` on random d-lists. | S |
 | 4.10 | `review_symmetry` orders candidates by index, as its text says. | S |
-| 4.11 | **Lost centring (approval: new capability).** When the cell check or the symmetry review finds violated absences, list the klassengleiche subgroups that drop the centring (index 2), as candidates to put to the user. Developed on `dev-cscl-wrong-centring` only. | M |
+| 4.11 | **Lost centring (approval: new capability).** Today the cell check flags forbidden reflections that carry intensity, and `review_symmetry` says a lost centring "is likelier" when no same-lattice subgroup explains them. No tool names the decentred groups or tests them. Proposed: `review_symmetry` also lists the klassengleiche subgroups that drop a centring vector (index 2; index 4 from F), each named and with the forbidden reflections it allows, as candidates to put to the user. Building the split-site model stays the user's step. Developed on `dev-cscl-wrong-centring` only. | M |
 
-The Le Bail carry-forward needs no new tool if the skill sends a bad start to
-Prefit (AGENT_REVIEW proposal 1). A change tool that applies the cell check's
-cell, zero and profile is the alternative **(approval)**.
+The Le Bail carry-forward needs no new tool: the skill sends a bad start to
+Prefit (AGENT_REVIEW proposal 1) **(approved)**.
 
 ### Phase 5 — Skills
 
 | PR | Change | Size |
 | --- | --- | --- |
 | 5.1 | **Skill lint in CI.** A `pages:` frontmatter field. Every tool a skill names exists on those pages, or is marked MCP-only in a two-column app/MCP table. Each gate number is bound to its constant in the thresholds module (2.5). Each method's stages match `method.ts`. It lands with an allow-list of today's violations, which 5.2 to 5.5 empty. | M |
-| 5.2 | **(approval)** AGENT_REVIEW proposals 1–5, and the contradictions in E. The tool descriptions that restate them change in the same PR. | M |
-| 5.3 | **(approval)** Order out of the tool descriptions, as the layer contract says ("no sequencing" in a tool). A description says what a tool does and when it applies; the order lives in the skill. This also cleans the ablation (1.3). | M |
-| 5.4 | **(approval)** Size for a 32k window. Each method gets a `## Gates` section (numbers, stopping rule, what to ask the user) that the outline keeps whole. MCP maps and long rationale move to references read on demand. A budget test per method. | M |
-| 5.5 | **(approval)** New guidance, written without the test set's structures or figures and tried on the dev analogs. A data and instrument stage in Stage 0 (the d-scale reading, the axis warning, violated absences read as a possible lost centring as well as an impurity, ask before an instrument constant). A false minimum goes to Prefit. The in-app stopping rule. | M |
+| 5.2 | **(approved; each draft goes to the user before it merges)** AGENT_REVIEW proposals 1–5, and the contradictions in E. The tool descriptions that restate them change in the same PR. | M |
+| 5.3 | **(approved; each draft goes to the user before it merges)** Order out of the tool descriptions, as the layer contract says ("no sequencing" in a tool). A description says what a tool does and when it applies; the order lives in the skill. This also cleans the ablation (1.3). | M |
+| 5.4 | **(approved; each draft goes to the user before it merges)** Size for a 32k window. Each method gets a `## Gates` section (numbers, stopping rule, what to ask the user) that the outline keeps whole. MCP maps and long rationale move to references read on demand. A budget test per method. | M |
+| 5.5 | **(approved; each draft goes to the user before it merges)** New guidance, written without the test set's structures or figures and tried on the dev analogs. A data and instrument stage in Stage 0 (the d-scale reading, the axis warning, violated absences read as a possible lost centring as well as an impurity, ask before an instrument constant). A false minimum goes to Prefit. The in-app stopping rule. | M |
 | 5.6 | SKILL_INTERVIEWS brought up to date: single crystal has a draft skill; bayesian-check joins the list. The validation report says which skills are the user's method and which are drafts. | S |
 
 ### Phase 6 — Freeze and re-baseline
@@ -309,9 +308,9 @@ Phase 3 can overlap phase 2 once 2.3 has moved the readings. Phase 4 needs
 phase 2, so each fix is made once. Phase 5's content (5.2 to 5.5) waits for
 phase 4, so the skills describe the final tools. Phase 6 is last.
 
-If the plan has to shrink, keep 1.1–1.6, 2.1–2.2, 2.5, 3.2, 4.1, 4.2 and 5.1–5.5:
-these change what the validation would find. The rest is upkeep that can
-follow it.
+The core goes first: 1.1–1.6, 2.1–2.2, 2.5, 3.2, 4.1, 4.2 and 5.1–5.5. These
+change what the validation would find. The rest is upkeep that follows, before
+or after the validation.
 
 ## Risks
 
