@@ -229,8 +229,8 @@ the behaviour it keeps and why, and a test pins it.
 
 | PR | Change | Size |
 | --- | --- | --- |
-| 2.1 | One powder residual: satellites, magnetic neutron weighting, and a σ policy that never makes σ up (without σ, the tool says the significance test is off). | M |
-| 2.2 | One residual-peak entry (`residualPeaks`, classified), used by MCP, the app and the magnetic step. Their differences become options. | M |
+| 2.1 | **Done.** One powder residual (`core/diagnostics/powderResidual.ts`) for both surfaces: the excluded plateau out, an applied magnetic model's satellites in, the magnetic-neutron flag, and each point's σ with where it came from. Where the file gives no σ, √y stands in, as it should for raw counts, and the residual says so (`sigmaFrom: "counting"`), so a significance test can say it assumed raw counts rather than switch itself off. | M |
+| 2.2 | **Done for both tool surfaces.** `find_unexplained_peaks` on MCP and in the app call `core/diagnostics/unexplainedPeaks.ts`: classified peaks (unexplained, misfits), a structured `k0Magnetic` flag, and one reading. The MCP output changed shape (`peaks` → `unexplained`, `misfits`); Example 3 now takes the misfits' d when `k0Magnetic` is set. The magnetic step's own peak search moves with the step (2.4). | M |
 | 2.3 | The readings move to `core/diagnostics`: fit range, cell scale and shifts, axis plausibility, shoulders, the fit diagnosis view, the peak-identification lead, the PDF assessment mode, the single-crystal statistics view, the posterior reading and the correlation guard. | M |
 | 2.4 | The magnetic step leaves `KSearchPanel.tsx`: the k-search, the moment fit, the ranking and the best-group pick move to `core/magnetic`. One option set, one restart scheme, and the full profile is passed. | L |
 | 2.5 | One thresholds module (correlation, GoF and GooF bands, R_int and completeness, extinction, the k tie window) and one `verdictFrom`, imported by the assessment, the Validation tab, the report checks, the guard, the posterior tool and the single-crystal tools. The skill lint (5.1) reads it. | M |

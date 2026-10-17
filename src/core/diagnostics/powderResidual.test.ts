@@ -4,7 +4,9 @@ import { MAGNETIC_TRUTH, mn3gaMagneticSession, mn3gaSession } from "@/agent/eval
 import { magneticSubgroupLattice, latticeRepresentatives } from "@/core/magnetic/subgroupLattice";
 import { buildMagneticModel } from "@/core/magnetic/momentModel";
 import { withMagneticModelRows } from "@/app/powderPage";
-import { sessionPort } from "@/testSupport/agentHeadless";
+import { executor, fakeHost, sessionPort } from "@/testSupport/agentHeadless";
+import { mn3gaImpuritySession } from "@/agent/evals/pages";
+import { find_unexplained_peaks } from "@/mcp/tools";
 import type { PowderLiveState } from "@/agent/port";
 
 /**
@@ -52,4 +54,19 @@ describe("the powder residual", () => {
     expect(magnetic.magneticNeutron).toBe(false);
     expect(magnetic.reflections.filter((r) => /magnetic/.test(r.phaseLabel)).length).toBeGreaterThan(0);
   });
+});
+
+describe("find_unexplained_peaks on both surfaces", () => {
+  it("gives the same unexplained peaks and misfits for the same fit (the MCP tool once returned them unclassified)", async () => {
+    const { port } = sessionPort(mn3gaImpuritySession());
+    const { ex } = executor(fakeHost(port).host, "auto");
+    await ex.run("refine", {});
+    const live = JSON.parse((await ex.run("find_unexplained_peaks", {})).text) as { count: number; unexplained: { d: number }[]; misfits: { d: number }[] };
+    const mcp = find_unexplained_peaks({ residual: powderResidual(inputOf(port.state())).residual });
+    expect(live.count).toBeGreaterThan(0);
+    expect(mcp.count).toBe(live.count);
+    const ds = (list: readonly { d: number }[]): string[] => list.map((p) => p.d.toPrecision(5));
+    expect(ds(mcp.unexplained)).toEqual(ds(live.unexplained));
+    expect(ds(mcp.misfits)).toEqual(ds(live.misfits));
+  }, 60_000);
 });

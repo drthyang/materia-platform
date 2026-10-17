@@ -200,7 +200,7 @@ const ONE_CURVE_NOTE = {
 
 /** Why excess intensity on nuclear reflections may be magnetic, for a neutron pattern of a phase with magnetic ions. */
 export const K0_MAGNETIC =
-  "This is a neutron pattern of a phase with magnetic ions, and the excess sits on nuclear reflections at large d: if the sample can be magnetically ordered at this temperature, that is the k = 0 magnetic signature (magnetic intensity on the nuclear positions, fading with the form factor at small d). Check it with the Magnetic analysis step before refining atoms or ADPs into it.";
+  "This is a neutron pattern of a phase with magnetic ions, and the excess sits on nuclear reflections at large d: if the sample can be magnetically ordered at this temperature, that is the k = 0 magnetic signature (magnetic intensity on the nuclear positions, fading with the form factor at small d). Check it with the magnetic analysis (a k-search on these peaks' d) before refining atoms or ADPs into it.";
 
 /** On-reflection excess that may be k = 0 magnetic: neutrons, magnetic ions, and most of it at d > 2.5 Å. */
 export function k0MagneticHint(magneticNeutron: boolean | undefined, onReflection: readonly { readonly d: number }[]): boolean {

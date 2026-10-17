@@ -201,7 +201,7 @@ const CONTRACTS: Record<string, { args: object; keys: string[] }> = {
         yCalc: Array.from({ length: 60 }, () => 5),
       },
     },
-    keys: ["count", "peaks"],
+    keys: ["count", "k0Magnetic", "misfits", "reading", "unexplained"],
   },
   review_symmetry: { args: { structure, residual: refined.residual }, keys: ["candidates", "limits", "observedForbidden", "reading", "tested", "untestable"] },
   search_propagation_vector: { args: { structure, peakD: [6.7, 3.35] }, keys: ["candidates"] },

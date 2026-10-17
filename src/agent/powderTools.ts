@@ -22,10 +22,11 @@ import type { BackgroundType } from "@/core/diffraction/background";
 import type { CorrectionsUpdate, MustrainModel, PeakCorrectionId, SiteTies } from "@/app/powderSpec";
 import type { PowderXUnit } from "@/core/diffraction/types";
 import { availableDisplayUnits, convertAxisValue, convertInterval } from "@/visualization/axisUnits";
-import { K0_MAGNETIC, k0MagneticHint, residualPeaks } from "@/core/diagnostics/assessment";
+import { residualPeaks } from "@/core/diagnostics/assessment";
 import { reviewSymmetry } from "@/core/diagnostics/symmetryReview";
 import { formatWt, fractionsOf } from "@/core/diagnostics/phaseFractions";
 import { powderResidual, type PowderResidual } from "@/core/diagnostics/powderResidual";
+import { unexplainedPeaks, type PeakReading } from "@/core/diagnostics/unexplainedPeaks";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { diagnoseFit, widthsComparable } from "@/core/diagnostics/fitDiagnosis";
 import { knownPhaseNames, knownPhaseStructure, matchKnownPhases } from "@/core/diagnostics/knownPhases";
@@ -180,45 +181,29 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
       // against every phase's reflections. Only a peak on no reflection is
       // unexplained (an extra peak); one on or beside a reflection is that
       // reflection's misfit, which refining the model fixes.
-      const residual = residualOf(s);
-      const { between, beside, onReflection } = residualPeaks(residual, { ...(input.sigma !== undefined ? { sigma: input.sigma } : {}), limit: input.limit ?? 12 });
-      const misfits = [...onReflection, ...beside].sort((a, b) => b.height - a.height).slice(0, input.limit ?? 12);
-      const isBeside = new Set(beside);
-      const isExtra = new Set(between);
-      const near = (p: (typeof misfits)[number]): string | undefined => {
-        if (!p.nearNuclear) return undefined;
-        const ref = `${p.nearNuclear.phaseLabel} ${p.nearNuclear.hkl}`;
-        const off = `${((p.d / p.nearNuclear.d - 1) * 100).toFixed(1)}% in d`;
-        // An extra peak near a line, but resolved from it: the model has no intensity there.
-        if (isExtra.has(p)) return `near ${ref} (${off}), resolved from it`;
-        return isBeside.has(p) ? `beside ${ref} (${off})` : `on ${ref}`;
-      };
+      const found = unexplainedPeaks(residualOf(s), { ...(input.sigma !== undefined ? { sigma: input.sigma } : {}), limit: input.limit ?? 12, identifyTool: "identify_peaks" });
+      const { unexplained: between, misfits } = found.raw;
       // Shown to the user too: ▽ marks with guide lines on the plot.
       const marked = input.showMisfits ? [...between, ...misfits].sort((a, b) => b.height - a.height) : between;
-      port.showPeaks(marked.map((p) => ({ d: p.d, height: p.height, ...(near(p) ? { near: near(p)! } : {}) })));
-      const view = (p: (typeof misfits)[number]): Record<string, unknown> => ({
+      port.showPeaks(marked.map((p) => {
+        const near = found.view(p).near;
+        return { d: p.d, height: p.height, ...(near ? { near } : {}) };
+      }));
+      // The tools' reading (core/diagnostics/unexplainedPeaks.ts), with the data's own axis (TOF or 2θ) from the page's calibration.
+      const view = (p: PeakReading): Record<string, unknown> => ({
         d: sig(p.d, 5),
         q: sig((2 * Math.PI) / p.d, 5),
-        // The data's own axis (TOF or 2θ), from the page's calibration.
         ...(s.pattern.xUnit !== "dSpacing" && s.pattern.xUnit !== "q" ? { [s.pattern.xUnit]: sig(convertAxisValue(p.d, "dSpacing", s.pattern.xUnit, s.axis), 6) } : {}),
         height: sig(p.height, 3),
-        ...(p.significance !== undefined ? { sigmas: sig(p.significance, 3) } : {}),
-        ...(near(p) ? { near: near(p) } : {}),
+        ...(p.sigmas !== undefined ? { sigmas: sig(p.sigmas, 3) } : {}),
+        ...(p.near ? { near: p.near } : {}),
       });
-      const misfitReading = misfits.length === 0 ? ""
-        : ` ${misfits.length} residual peak${misfits.length === 1 ? " sits" : "s sit"} on or beside a known reflection (misfits): ${misfits.length === 1 ? "a reflection" : "reflections"} the model has, with intensity or shape not matched yet. They are not extra peaks — don't call them so, and don't add a phase or change the symmetry for them. Refining the structure (positions, ADPs, occupancy), the profile and the corrections (preferred orientation, absorption) is what fixes them.`;
-      const reading = between.length === 0 && misfits.length === 0
-        ? "No residual peak stands 5σ above its own noise."
-        : (between.length === 0
-          ? "No extra peak: no residual peak sits away from the phases' reflections."
-          : `${between.length} peak${between.length === 1 ? "" : "s"} on no phase's reflection or its tail: intensity no phase accounts for (an impurity, the sample environment, magnetic order, or an unmodelled feature; identify_peaks checks the sample environment and common standards).`) +
-          misfitReading +
-          (k0MagneticHint(residual.magneticNeutron, onReflection) ? ` ${K0_MAGNETIC}` : "");
       return {
-        count: between.length,
-        unexplained: between.map(view),
-        misfits: misfits.map(view),
-        reading,
+        count: found.count,
+        unexplained: found.unexplained.map(view),
+        misfits: found.misfits.map(view),
+        ...(found.k0Magnetic ? { k0Magnetic: true } : {}),
+        reading: found.reading,
         ...(marked.length > 0
           ? { markedOnPlot: input.showMisfits ? "The user sees these marked on the plot (filled ▽ unexplained, hollow ▽ misfits on or beside a known reflection, listed under it); refer to them by d." : "The user sees the unexplained peaks marked on the plot (filled ▽, listed under it); refer to them by d." }
           : {}),

@@ -48,13 +48,13 @@ import { axisContext, convertAxisArray, convertAxisValue, tofCalibrationOf } fro
 import { inspectDataRange, type DataRangeReading } from "@/core/diagnostics/dataRange";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { powderResidual as corePowderResidual, type PowderResidual as CorePowderResidual } from "@/core/diagnostics/powderResidual";
+import { unexplainedPeaks, type PeakReading } from "@/core/diagnostics/unexplainedPeaks";
 import { abscissaFromD, radiationOf } from "@/core/diffraction/instrument";
 import { bondLengths } from "@/core/crystal/geometry";
 import { centringTranslations } from "@/core/crystal/symmetry";
 import { bondValenceReading, bondValenceSums, type BondValenceSum } from "@/core/crystal/bondValence";
 import { analyzeSiteSymmetry, type SiteSymmetry } from "@/core/crystal/siteSymmetry";
 import { classifyPointGroup } from "@/core/crystal/pointGroup";
-import { detectExtraPeaks, type ExtraPeakOptions } from "@/core/magnetic/extraPeaks";
 import { reviewSymmetry, type SymmetryReview } from "@/core/diagnostics/symmetryReview";
 import { isGsasHistogram, parseGsasHistogramPattern } from "@/parsers/gsasHistogram";
 import { cagliotiOf } from "@/core/workflow/leBail";
@@ -601,17 +601,20 @@ export function analyze_site_symmetry(args: { structure: StructureModel }): {
 }
 
 /**
- * Find unexplained residual peaks (obs − calc) after a nuclear refinement —
- * the "is there magnetic order / an impurity?" signal. Robust (MAD-based)
- * thresholding; a handful of peaks suggests satellites, dozens mean the
- * nuclear fit itself is poor.
+ * The residual's peaks, classified against the model's lines
+ * (core/diagnostics/unexplainedPeaks.ts, as the in-app tool): unexplained (on
+ * no phase's reflection: an impurity, the sample environment, magnetic order
+ * off the nuclear lines) and misfits (on or beside a known reflection: what
+ * refining the model fixes, or on a neutron pattern of magnetic ions, k = 0
+ * order). With per-point σ (refine_powder's residual carries it) a peak must
+ * stand 5σ above its own noise.
  */
 export function find_unexplained_peaks(args: {
-  residual: { d: number[]; yObs: number[]; yCalc: number[] };
-  options?: ExtraPeakOptions;
-}): { peaks: { d: number; height: number }[]; count: number } {
-  const peaks = detectExtraPeaks(args.residual.d, args.residual.yObs, args.residual.yCalc, args.options ?? {});
-  return { peaks: [...peaks], count: peaks.length };
+  residual: { d: number[]; yObs: number[]; yCalc: number[]; sigma?: number[]; sigmaFrom?: "file" | "counting"; reflections?: { d: number; hkl: string; phaseLabel: string }[]; magneticNeutron?: boolean; lineWidth?: number };
+  options?: { sigma?: number; limit?: number };
+}): { count: number; unexplained: PeakReading[]; misfits: PeakReading[]; k0Magnetic: boolean; reading: string } {
+  const found = unexplainedPeaks(args.residual, { ...(args.options?.sigma !== undefined ? { sigma: args.options.sigma } : {}), ...(args.options?.limit !== undefined ? { limit: args.options.limit } : {}) });
+  return { count: found.count, unexplained: [...found.unexplained], misfits: [...found.misfits], k0Magnetic: found.k0Magnetic, reading: found.reading };
 }
 
 /**
