@@ -7,6 +7,7 @@
  * refined together on the refinement step.
  */
 
+import { RANK_TIE_WR } from "@/core/diagnostics/thresholds";
 import { RANK_RESTARTS } from "@/core/magnetic/momentRestarts";
 import type { Vec3 } from "@/core/math/types";
 import type { PowderAgentPort } from "@/agent/port";
@@ -178,7 +179,7 @@ function rankView(s: MagneticPanelState): Record<string, unknown> {
     ...(s.best ? { best: s.best } : {}),
     ...(s.baselineAgreement !== null ? { nuclearOnlyWR: pct(s.baselineAgreement) } : {}),
     reading: s.best
-      ? `${s.best} fits best (ties go to the maximal group with the fewest moment parameters). A powder often cannot tell several groups apart: say which fit within the noise of the best, and choose the maximal one unless the data say otherwise.`
+      ? `${s.best} fits best: the lowest wR (a tie within ${100 * RANK_TIE_WR} % goes to the maximal group with the fewest moment parameters). That is no test that the others fit worse: a powder often cannot tell several groups apart. Say which fit about as well and whether each explains every magnetic peak, and choose the maximal one unless the data say otherwise.`
       : "No candidate could be fitted.",
   };
 }

@@ -201,7 +201,7 @@ full descriptions at the end are the text an agent reads when it picks a tool.
 
 **`find_unexplained_peaks`** — Find peaks in the residual (obs − calc), classified against the model's lines — the impurity / magnetic-order signal, kept apart from misfits. `unexplained`: peaks on no phase's reflection or its tail (an impurity, the sample environment, magnetic satellites). `misfits`: peaks on or beside a known reflection — that reflection's intensity or shape not matched yet, which refining the structure, profile and corrections fixes; never an extra peak and never a reason to lower the symmetry. `k0Magnetic` is true when a neutron pattern of magnetic ions has its excess on nuclear lines at large d: the misfits may then be k = 0 magnetic order (give their d to search_propagation_vector). With per-point σ (refine_powder's residual carries it) a peak must stand 5σ above its own noise. Each peak has d, height, sigmas and the line it sits on or near; `reading` says what they mean.
 
-**`review_symmetry`** — The LAST step of a Rietveld refinement, never the first: once scale, background, cell, positions, profile and ADPs are refined to convergence and the fit is still not good, read the refined residual at the reflections the primary phase's space group forbids. Returns the forbidden reflections that still carry intensity (`observedForbidden`), the same-lattice (translationengleiche) subgroups that allow them, smallest index first, with their domain counts (`candidates`), and a `reading`. Intensity that differs on allowed reflections is what refinement fixes, never evidence against the group. A lower group is a new model refined again from the start, kept only if it fits these reflections without the misfit moving elsewhere — the user decides. Lost centrings and larger cells are not enumerated (read `limits`).
+**`review_symmetry`** — The LAST step of a Rietveld refinement, never the first: once scale, background, cell, positions, profile and ADPs are refined to convergence and the fit is still not good, read the refined residual at the reflections the primary phase's space group forbids. Returns the forbidden reflections that still carry intensity (`observedForbidden`), the same-lattice (translationengleiche) subgroups that allow them, those allowing the most of them first and then the smallest index, with their domain counts (`candidates`), and a `reading`. Intensity that differs on allowed reflections is what refinement fixes, never evidence against the group. A lower group is a new model refined again from the start, kept only if it fits these reflections without the misfit moving elsewhere — the user decides. Lost centrings and larger cells are not enumerated (read `limits`).
 
 **`search_propagation_vector`** — Rank candidate commensurate propagation vectors k (denominators 2/3/4/6) by how many unexplained peak d-spacings their satellites G ± k explain. Feed the d values from find_unexplained_peaks; the winning k goes to list_magnetic_subgroups.
 
@@ -303,7 +303,7 @@ shape is pinned, and every registered tool appears on this page.
 
 ## Skills
 
-A skill composes tools into an expert procedure. Four ship in this repository:
+A skill composes tools into an expert procedure. These ship in this repository:
 
 - [`.claude/skills/my-rietveld-workflow/`](../.claude/skills/my-rietveld-workflow/SKILL.md),
   the maintainer's own powder Rietveld procedure: a sanity check of the cell, a
@@ -325,6 +325,12 @@ A skill composes tools into an expert procedure. Four ship in this repository:
   the last step of a Rietveld refinement, if at all: when the data ask for a
   lower space group, the alternatives to rule out, and how a lower group is
   tested — never before the structure is refined to the best its group allows.
+- [`.claude/skills/sc-workflow/`](../.claude/skills/sc-workflow/SKILL.md), the
+  single-crystal F² procedure: the data read before the model, the order of the
+  free parameters, the weights last. General practice, not yet the maintainer's.
+- [`.claude/skills/bayesian-check/`](../.claude/skills/bayesian-check/SKILL.md),
+  when and how to sample the posterior of a refined number that is not
+  convincing, and how to report its credible interval.
 
 New skills come from interviewing the user; [SKILL_INTERVIEWS.md](./SKILL_INTERVIEWS.md)
 is the guide (magnetic, PDF, single crystal, the symmetry review), and says where
@@ -335,10 +341,20 @@ repository; the in-app Agent reads them through
 [`src/agent/skills.ts`](../src/agent/skills.ts). Its system prompt carries only
 each skill's name and description, and the Agent reads a skill with
 `read_skill` when the task calls for it (progressive disclosure). A skill's
-**References** section lists longer knowledge bases as relative links
+**References** section lists longer knowledge bases, and notes beside the skill
+(its cases, its MCP tool map), as relative links
 (`- [\`name\`](../../../knowledge/file.md) — what it covers`): Claude Code follows
 the path, and the in-app Agent reads the reference by name. `skills.test.ts`
 checks that every skill parses and every reference resolves.
+
+A page's method opens with a **Gates** section: its numbers, its stopping rule
+and what to ask the user, in one place. The skill lint
+([`skillLint.test.ts`](../src/agent/skillLint.test.ts)) holds each skill to the
+code: every tool it names exists on its pages (or is marked as MCP-only), every
+gate number it quotes is the constant the code decides by
+([`thresholds.ts`](../src/core/diagnostics/thresholds.ts)), every stage of the
+page's method is named, and each method fits its share of a local model's
+window, with an outline that keeps its Gates.
 
 To add a skill, add a folder with a `SKILL.md` (frontmatter `name` and
 `description`, then the procedure, then References). Nothing else changes: both
@@ -861,7 +877,9 @@ tools and room for the reply (6k tokens) first; then the history, its old
 tool results turned into digests (the tool, its ref, its key values, and
 whether a change ran since; `read_ref` opens the whole) in batches, so the
 server's prompt cache keeps the conversation; a skill read again keeps only
-its latest copy. A prompt that still cannot fit is refused with why, never
+its latest copy; when nothing else is left, a method read before the latest
+shrinks to its outline, its headings with its Gates section whole
+(`read_skill` gives it whole again). A prompt that still cannot fit is refused with why, never
 sent cut, and the reply is capped at the room left. Tokens are first counted
 at 3 characters each, then measured from the server's own counts; once a
 server has counted a whole prompt, a count far below the estimate means it

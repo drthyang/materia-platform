@@ -47,6 +47,10 @@ export const POSTERIOR_NEARLY_RHAT = 1.1;
 
 /** The strongest reflections' Fo²/Fc² against the others' below this suggests extinction. */
 export const EXTINCTION_K = 0.95;
+/** An extinction factor y below this (the correction takes more than a fifth of |F|²) is large. */
+export const EXTINCTION_LARGE = 0.8;
+/** Below this (more than half) it is severe: the extinction model carries the reflection, and test_extinction leaves such reflections out. */
+export const EXTINCTION_SEVERE = 0.5;
 
 /** Single crystal: R_int above this, or completeness below the next, is noted in the report. */
 export const R_INT_NOTE = 0.1;
@@ -54,6 +58,21 @@ export const COMPLETENESS_NOTE = 0.95;
 
 /** A Flack or Parsons u below this determines the absolute structure (Flack & Bernardinelli). */
 export const FLACK_U_DETERMINED = 0.04;
+
+/**
+ * The cell check's Le Bail fit at or above this Rwp has not settled: its cell
+ * is not read as the data's, and the peaks it leaves unindexed may be the
+ * model's own lines with the start too far off for it to follow.
+ */
+export const LE_BAIL_UNSETTLED = 0.5;
+
+/**
+ * Forbidden reflections carrying intensity, all of the lattice centring's
+ * class (h+k+l odd under I, and so on): from this many the cell check reads
+ * them as a possible lost centring. One or two can be a stray line (an
+ * impurity, λ/2) landing there.
+ */
+export const LOST_CENTRING_MIN = 3;
 
 /** Magnetic groups whose wR is within this of the best are tied; the maximal one with the fewest moments then leads. */
 export const RANK_TIE_WR = 1e-4;

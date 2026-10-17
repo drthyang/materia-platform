@@ -36,7 +36,7 @@ import { dispersionLine } from "@/core/scattering/dispersion";
 import { checkEqualTies, type EqualTieUpdate } from "@/core/refinement/constraints";
 import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, correlationsCheck, findingChecks, noResultCheck, verdictCheck } from "@/agent/reportChecks";
 import { disorderAssemblies } from "@/agent/correlationCheck";
-import { COMPLETENESS_NOTE, FLACK_U_DETERMINED, R_INT_NOTE } from "@/core/diagnostics/thresholds";
+import { COMPLETENESS_NOTE, EXTINCTION_LARGE, EXTINCTION_SEVERE, FLACK_U_DETERMINED, R_INT_NOTE } from "@/core/diagnostics/thresholds";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- inputs are validated against the spec's zod schema before a handler runs */
 type Input = any;
@@ -94,7 +94,7 @@ export async function changeSingleCrystal(name: string, input: Input, port: Sing
       port.setOmitted(omitPlan(s, input).next);
       return undefined;
     case "test_extinction":
-      return extinctionTest(s, port, input.below ?? 0.5);
+      return extinctionTest(s, port, input.below ?? EXTINCTION_SEVERE);
     case "keep_reflections": {
       const failed = failedMeasurements(s);
       const asked = (input.reflections as { h: number; k: number; l: number; batch?: number }[]);
@@ -304,7 +304,7 @@ export function describeSingleCrystalChange(spec: LiveToolSpec, input: Input, s:
     case "keep_reflections":
       return `Keep in the fit, at your word, ${(input.reflections as { h: number; k: number; l: number; batch?: number }[]).map(measurementName).join(", ")} — read as failed measurements: ${String(input.reason)}`;
     case "test_extinction": {
-      const below = input.below ?? 0.5;
+      const below = input.below ?? EXTINCTION_SEVERE;
       return `Test the extinction: refine twice as probes, with and without the ${s.rows.filter((r) => (r.extinction ?? 1) < below).length} reflections of y < ${below}, and compare — the page stays as it is`;
     }
     case "set_free":
@@ -1146,9 +1146,9 @@ function extinctionView(rows: readonly SingleCrystalRow[]): Record<string, unkno
   const min = ys.reduce((m, r) => (r.extinction! < m.extinction! ? r : m));
   return {
     yMin: `${sig(min.extinction!, 3)} at ${hklOf(min)} (Fo² ${sig(min.foSq, 4)})`,
-    belowPoint8: ys.filter((r) => r.extinction! < 0.8).length,
-    belowPoint5: ys.filter((r) => r.extinction! < 0.5).length,
-    reading: "y multiplies |F|² in Fc²: y = 0.6 takes 40 % off. Below about 0.7–0.8 the correction is severe: the extinction model carries those reflections, and their Fo² say little about the structure.",
+    belowPoint8: ys.filter((r) => r.extinction! < EXTINCTION_LARGE).length,
+    belowPoint5: ys.filter((r) => r.extinction! < EXTINCTION_SEVERE).length,
+    reading: `y multiplies |F|² in Fc²: y = 0.6 takes 40 % off. Below ${EXTINCTION_LARGE} the correction is large; below ${EXTINCTION_SEVERE}, more than halving the intensity, it is severe: the extinction model carries those reflections, their Fo² say little about the structure, and test_extinction asks whether the structure rests on them.`,
   };
 }
 
@@ -1534,8 +1534,8 @@ function dataLine(s: SingleCrystalLiveState, v: ScValidation): string {
   return `${counts} (${rInt}, R_σ ${pct((apart ?? m).rSigma)} %), d_min ${sig(v.dMin, 4)} Å (sinθ/λ ${sig(v.sinThetaOverLambdaMax, 3)} Å⁻¹)${v.completeness !== undefined ? `, completeness ${pct(v.completeness)} %` : ""}; ${sig(v.reflectionsPerParameter, 3)} independent reflections per free parameter${pairs}.${s.dataset.origin === "refinement-listing" ? ` ${LISTING_NOTE}` : ""}`;
 }
 
-/** The correction's reach, for the report: the smallest y and how many reflections fall below 0.8. */
+/** The correction's reach, for the report: the smallest y and how many reflections fall below EXTINCTION_LARGE. */
 function extinctionLine(rows: readonly SingleCrystalRow[]): string {
   const ext = extinctionView(rows);
-  return ext ? ` The correction reaches y = ${String(ext.yMin)}; ${String(ext.belowPoint8)} reflections have y < 0.8.` : "";
+  return ext ? ` The correction reaches y = ${String(ext.yMin)}; ${String(ext.belowPoint8)} reflections have y < ${EXTINCTION_LARGE}.` : "";
 }

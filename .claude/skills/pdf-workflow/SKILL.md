@@ -22,26 +22,47 @@ window. Its agreement is **Rw**. The fit weights every point equally, so Rw is a
 measure (compare fits of the same data, never across datasets), there is **no GoF**, and
 the esds are not statistical — never quote them as Rietveld esds.
 
+## Gates
+
+The numbers and the stops in one place; each is explained at its stage below.
+
+- **The data and the instrument first.** A reduction or convention that looks wrong (Qmax,
+  the r range, a function other than G(r)): stop and ask. Qdamp and Qbroad come from a
+  standard and stay fixed unless the user says otherwise.
+- **A block is done** when it has converged — `assess_refinement`'s largest shift below
+  0.1 esd — and nothing sits at a bound. Only then free the next.
+- **Firm rules** (`refine` refuses; only the user lifts one, with `allow_exception`):
+  Qdamp and Qbroad never refine with the ADPs (alternate); no occupancy refines bare; no two
+  free parameters that correlate at |ρ| ≥ 0.95.
+- **One correlated-motion term**: δ1 or δ2, never both, never with `sratio`/`rcut`.
+- **Rw** compares fits of the same data and window only; there is no GoF, and the esds are
+  not statistical: a value that carries a conclusion gets its posterior.
+- **Ask the user** before refining Qdamp or Qbroad against the sample, before setting the
+  fit window, and on any judgment call this general practice does not settle.
+
 ## Stage 0 — Check the data and the instrument before the structure
 
 1. The reduction sets what the fit can see: Qmax (real-space resolution, termination
    ripples), the r range, and the convention (G(r) here; see the reference if a file is in
    another). If the data card or `get_state` shows something unexpected, stop and ask.
 2. **Qdamp and Qbroad describe the instrument**, not the sample. They come from a standard
-   measured on the same instrument (Ni, Si; `calibrate_qdamp`). Keep them fixed in the
-   sample fit unless the user says otherwise — refined against the sample they absorb
-   structure. Never refine them together with the ADPs (a firm rule in the app, as on the
-   powder page): Qbroad widens the peaks with r and Qdamp damps them with r, as the ADPs and
-   the correlated motion do, so each absorbs the other's error. If the user wants them
-   refined, alternate: Qdamp/Qbroad with the ADPs fixed, then the ADPs with them fixed.
-3. Choose the fit window deliberately: from just below the first peak to where the
-   signal or the model stops being trustworthy. Say what window you use.
+   measured on the same instrument (Ni, Si; over MCP, `calibrate_qdamp`; in the app the user
+   calibrates on the standard and loads its values). Keep them fixed in the sample fit unless
+   the user says otherwise — refined against the sample they absorb structure. Never refine
+   them together with the ADPs (a firm rule in the app, as on the powder page): Qbroad widens
+   the peaks with r and Qdamp damps them with r, as the ADPs do, so each absorbs the other's
+   error. If the user wants them refined, alternate: Qdamp/Qbroad with the ADPs fixed, then
+   the ADPs with them fixed. The correlated-motion terms damp the near peaks too; the rule
+   does not cover them, the correlation guardrail does (below).
+3. Choose the fit window deliberately (`set_fit_range`, which asks the user): from just below
+   the first peak to where the signal or the model stops being trustworthy. Say what window
+   you use and why.
 
 ## Stage 1 — Refine in the small-box order
 
-Refine (`refine_pdf`; in the app, `refine` after `set_free`) and check
-(`assess_refinement`) between blocks; free the next block only once the current one is
-stable and nothing sits at a bound.
+Free each block and refine (in the app, `set_free` then `refine`; over MCP, `refine_pdf`),
+and check (`assess_refinement`) between blocks; free the next block only once the current one
+has converged (the largest shift below 0.1 esd) and nothing sits at a bound.
 
 1. **Scale + cell.** Establish these first.
 2. **Displacement parameters**: one U per site (`get_state` gives the ADP model). A CIF
@@ -50,7 +71,8 @@ stable and nothing sits at a bound.
    reason and high-Qmax data that reach high r.
 3. **One correlated-motion term**: `delta2` at low temperature, `delta1` at high
    temperature. **Never both**, and never together with `sratio`/`rcut` — they describe the
-   same near-neighbour peak sharpening, and the correlation check refuses the pair.
+   same near-neighbour peak sharpening and trade against each other; `refine` refuses them
+   together when they correlate at |ρ| ≥ 0.95, and you free one even when they do not.
 4. **Positions** (in the app, the constrained atomic coordinates, or the symmetry-mode
    amplitudes in irreps mode).
 5. **Occupancies last**, under the same guardrail as Rietveld: never bare; only with a
@@ -65,7 +87,7 @@ rather than accept U = 0. Heed the warnings `get_state` lists.
 ## Local versus average structure
 
 To ask whether the local structure differs from the average one, run a **boxcar scan**
-(`refine_pdf_boxcar`; in the app, `boxcar_scan`): the free parameters refined box by box
+(in the app, `boxcar_scan`; over MCP, `refine_pdf_boxcar`): the free parameters refined box by box
 across r, each box seeded from the previous one. A parameter that drifts with r, or an Rw
 that rises at low r, is the local-structure signal. Do this rather than comparing
 hand-picked windows. Keep the free set small (scale, cell, ADPs, and the parameter in
@@ -94,23 +116,10 @@ In the app, `write_report` writes the analysis report once it is done: the page'
 the History's steps, the checks and open issues, and your account in your own words, which
 adds no number the tools did not give.
 
-## MCP tool map (quick reference)
-
-| Step | Tool |
-|------|------|
-| Load | `parse_structure`, `parse_pdf_data` |
-| Build the model | `build_pdf_model` |
-| Instrument resolution from a standard | `calibrate_qdamp` |
-| Run a refinement block | `refine_pdf` |
-| Local vs average | `refine_pdf_boxcar` |
-| Partial PDFs (which pairs make a peak) | `compute_partial_pdf` |
-| Judge a block / the fit | `assess_refinement` |
-| Geometry / bonds sanity | `bond_geometry`, `interpret_structure` |
-| The written report (in the app) | `write_report` |
-
 ## References
 
 Longer knowledge bases behind this method. Read one only when a question needs it.
 
+- [`pdf_mcp_tool_map`](./mcp-tools.md) — the method's steps on the MATERIA MCP tools, for a fit driven over MCP.
 - [`total_scattering_pdf_conventions`](../../../knowledge/total_scattering_pdf_conventions_knowledge.md) — which correlation function MATERIA fits (G(r)) and how it maps onto the other conventions in use, with the units, for importing and cross-checking data.
 - [`refinement_fitting_algorithms`](../../../knowledge/refinement_fitting_algorithms_knowledge.md) — the least-squares engine: Levenberg–Marquardt, convergence and shift/esd, correlations and the SVD, restraints and esds.

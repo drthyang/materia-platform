@@ -182,7 +182,7 @@ export function posteriorView(result: SampleResult, parameters: readonly Refinem
           ...(bounded.length ? [`${bounded.map((r) => r.label).join(", ")}: on a bound, only a limit is determined.`] : []),
         ].join(" "),
       ...(pairs.length ? [`Posterior correlations: ${pairs.slice(0, 5).map((x) => `${byId.get(x.a)?.label ?? x.a} ↔ ${byId.get(x.b)?.label ?? x.b} ${sig(x.rho, 2)}`).join("; ")} — the data fix their combination, not each alone (a tie or a restraint, or more data, separates them).`] : []),
-      "The intervals hold within this model and its noise model: a systematic misfit (Durbin–Watson well below 2) leaves them as overconfident as the esds.",
+      "The intervals hold within this model and its noise model: a systematic misfit (on powder, diagnose_fit's Durbin–Watson d below Q_D) leaves them as overconfident as the esds.",
     ].join(" ");
   const differences = compare.map(([a, b]) => posteriorDifference(result, a, b));
   const differenceReading = differenceSentences(result, parameters, compare);
@@ -236,5 +236,5 @@ export async function samplePosteriorTool(input: { continue?: boolean; steps?: n
   if (typeof run === "string") throw new Error(`the posterior run did not finish: ${run}`);
   const view = posteriorView(run, s.parameters, s.result.esd, compare);
   onRun?.({ run, result: s.result, parameters: s.parameters, compare });
-  return free.length > 12 ? { ...view, note: `${free.length} free parameters: each step costs ${2 * free.length + 2} pattern evaluations, and the chain mixes more slowly the more there are (expect ~10⁴ steps at 20). To ask about a few values, fix what does not correlate with them (the profile, the background, the cell and zero usually), refine that set, then sample it.` } : view;
+  return free.length > 12 ? { ...view, note: `${free.length} free parameters: each step costs ${2 * free.length + 2} pattern evaluations, and the chain mixes more slowly the more there are (expect ~10⁴ steps at 20). To ask about a few values, free them with their partners, fix the rest (the profile, the background, the cell and zero usually), refine that set, then sample it; the intervals are then conditional on what is held, which the report should say.` } : view;
 }

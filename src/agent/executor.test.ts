@@ -142,7 +142,7 @@ describe("AgentExecutor on a live powder fit", () => {
     expect((await ex.run("set_free", { free: ["scale"] })).isError).toBe(false);
     // A reference by name; an unknown one names the ones there are.
     expect((await ex.run("read_skill", { name: "my-rietveld-workflow", reference: "refinement_fitting_algorithms" })).text).toMatch(/^Reference "refinement_fitting_algorithms"/);
-    expect((await ex.run("read_skill", { name: "my-rietveld-workflow", reference: "nope" })).text).toMatch(/has no reference "nope" — it has powder_structural_refinement/);
+    expect((await ex.run("read_skill", { name: "my-rietveld-workflow", reference: "nope" })).text).toMatch(/has no reference "nope" — it has rietveld_notes, mcp_tool_map, powder_structural_refinement/);
     // A new conversation reads the method again, and the refs to the last one's answers are gone (not another call's).
     const before = parse((await ex.run("get_state", {})).text).ref as string;
     expect((await ex.run("read_ref", { ref: before })).isError).toBe(false);

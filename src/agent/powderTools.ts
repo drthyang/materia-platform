@@ -43,6 +43,8 @@ import { groupOf } from "@/agent/method";
 import { magneticNext } from "@/agent/magneticTools";
 import type { UnitCell } from "@/core/crystal/types";
 import { dScaleSearch, observedPeaks, wrongScale } from "@/core/diagnostics/dScale";
+import { lostCentring } from "@/core/diagnostics/lostCentring";
+import { LE_BAIL_UNSETTLED } from "@/core/diagnostics/thresholds";
 import { inspectDataRange, type DataEnd, type DataRangeReading } from "@/core/diagnostics/dataRange";
 import type { ReferenceEntry } from "@/agent/references";
 
@@ -149,12 +151,22 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
       const violated = check.absences.violated;
       const flags = violated.map((v) => `${v.h} ${v.k} ${v.l} at d ${v.d.toFixed(3)} Å`).join(", ");
       // The cell a good Le Bail fit found, against the structure's: one factor on every length reads as the wavelength.
-      const shift = scale ?? (check.leBail.rWeighted < 0.5 ? cellShiftReading(s.structure.cell, check.cell, s.pattern.xUnit) : null);
+      const unsettled = check.leBail.rWeighted >= LE_BAIL_UNSETTLED;
+      const shift = scale ?? (!unsettled ? cellShiftReading(s.structure.cell, check.cell, s.pattern.xUnit) : null);
+      // Every flagged absence of the class the model's centring forbids: the data's lattice may be primitive.
+      const lost = lostCentring((s.refinedPhases[0] ?? s.structure).spaceGroup, violated.map((v) => [v.h, v.k, v.l] as const));
+      const peaksText = `${unindexed.length} peak${unindexed.length === 1 ? "" : "s"}`;
       const readings = [
         ...(shift ? [shift] : []),
-        ...(unindexed.length > 0 ? [`${unindexed.length} peak${unindexed.length === 1 ? "" : "s"} no reflection of the cell indexes: a missing phase (most often) or a wrong cell. identify_peaks (with their d) checks the sample environment and common standards. Settle this with the user before refining the structure.`] : []),
+        ...(unindexed.length > 0
+          ? [unsettled && !scale
+            ? `The Le Bail fit did not settle (Rwp ${pct(check.leBail.rWeighted)} %): from this start it cannot follow the peaks, so the model's own lines are likely among the ${peaksText} it leaves unindexed — a start further off than the fit follows, more often than a missing phase. Run the Prefit (refine with mode "thorough": the Le Bail cell, then restarts from it${s.result ? "; with a fit on screen, go_to_step back to the start first, since after a fit the mode is the Escape minimum" : ""}), then this check again: the peaks it still leaves unindexed are a missing phase or a wrong cell.`
+            : `${peaksText} no reflection of the cell indexes: a missing phase (most often) or a wrong cell. identify_peaks (with their d) checks the sample environment and common standards. Settle this with the user before refining the structure.`]
+          : []),
         ...(check.shoulders.length > 0 ? [shoulderReading(check.shoulders, s.pattern.xUnit)] : []),
-        ...(violated.length > 0
+        ...(lost
+          ? [`${violated.length} forbidden reflections show leftover intensity (${flags}), every one of the class the ${lost.centring} centring forbids (${lost.condition}): the pattern of a lost centring — the data's lattice primitive where the model's is ${lost.centring}-centred, an order the model averages (two elements sharing one site that order onto two) — as well as of another phase whose lines land there. No refinement of this model puts intensity there. Note it (write_note) and put it to the user now, with these reflections and both readings; do not change the model yourself. The refinement can go on, but it cannot fit these lines.`]
+          : violated.length > 0
           ? [`${violated.length} forbidden reflection${violated.length === 1 ? "" : "s"} show${violated.length === 1 ? "s" : ""} leftover intensity (${flags}). This is a flag, not a verdict: before the structure is refined, profile misfit${unindexed.length > 0 ? ", or a line of the unindexed phase," : ""} reads the same way. Do not change the space group now: note it (write_note) and refine the structure to the best; review_symmetry reads the refined residual at the end.`]
           : []),
       ];
