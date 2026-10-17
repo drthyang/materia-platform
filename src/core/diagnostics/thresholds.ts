@@ -40,7 +40,9 @@ export const FORBIDDEN_OVERLAP = 0.02;
 export const POSTERIOR_WIDER = 1.5;
 /** Posterior correlations worth naming. */
 export const POSTERIOR_CORRELATION = 0.8;
-/** Below this R̂, with the ESS reached, an ensemble run is read as nearly converged (converged: R̂ < 1.05). */
+/** A posterior run has converged below this R̂, with its ESS reached (Vehtari et al. 2021's split-R̂ line). */
+export const POSTERIOR_RHAT = 1.05;
+/** Below this R̂, with the ESS reached, an ensemble run is read as nearly converged. */
 export const POSTERIOR_NEARLY_RHAT = 1.1;
 
 /** The strongest reflections' Fo²/Fc² against the others' below this suggests extinction. */

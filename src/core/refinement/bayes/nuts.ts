@@ -47,6 +47,7 @@ import {
   type PosteriorSummary,
   type SampleDiagnostics,
 } from "@/core/refinement/bayes/diagnostics";
+import { POSTERIOR_RHAT } from "@/core/diagnostics/thresholds";
 
 /** The scalar-gradient contract (PdfRefinementProblem.gradChi2). */
 export type GradChi2 = (
@@ -526,7 +527,7 @@ export function sampleNuts(
   const diagnostics = buildDiagnostics(keptChains, keptLogP, freeIds);
   const posterior = posteriorSummary(keptChains, freeIds, diagnostics, options.linearizedEsd);
   const converged =
-    diagnostics.maxRHat < 1.05 &&
+    diagnostics.maxRHat < POSTERIOR_RHAT &&
     diagnostics.minEss >= Math.max(100, 10 * n) &&
     divergences === 0;
 
