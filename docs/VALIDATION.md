@@ -296,7 +296,7 @@ without it, on cases with a known answer, scored by fixed rules. The code is in
 | --- | --- | --- |
 | **A** | The app without the Agent, as a newcomer drives it: free every parameter, press Refine until wR settles (three presses at most), read the Validation tab's verdict. The verdict is arm A's conclusion. | none |
 | **B** | The Agent as it ships: skills, guardrails (the executor's firm rules, the correlation guard), auto mode. | each model below |
-| **C** | Ablation: B without the skills. There is no skill index, no `read_skill`, and changes do not wait for a method to be read. The guardrails stay, so C measures what the skills add. | each model below |
+| **C** | Ablation: B without the skills. The model sees no skill index, no `read_skill` and no written method: no stage checklist in `get_state`, no method named in a refusal, a nudge or the report, and on a local model every tool of the page rather than the stage's. Changes do not wait for a method to be read. The guardrails stay (the firm rules, the correlation guard, and the symmetry review only on a converged fit), so C measures what the skills add. Both prompts are built from one list, and a test reads every request of a scripted arm-C session for a trace of the method. | each model below |
 | **D** | The truth: the structure each pattern was simulated from, or a published refinement. | — |
 
 Every arm sees the same page, built from the same seed. B and C get the same

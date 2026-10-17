@@ -10,7 +10,12 @@ import { findingProblems, type Finding } from "@/agent/validation/findings";
 import { agentSystemPrompt } from "@/agent/systemPrompt";
 import { AgentExecutor } from "@/agent/executor";
 import { fakeHost, sessionPort } from "@/testSupport/agentHeadless";
-import type { EvalEvent } from "@/agent/evals/harness";
+import { runScenario, type EvalEvent } from "@/agent/evals/harness";
+import { scenario } from "@/agent/evals/scenarios";
+import { scriptedModel, type ScriptTurn } from "@/agent/evals/scripted";
+import { RIETVELD } from "@/agent/evals/replays";
+import { allSkills } from "@/agent/skills";
+import { stagesFor } from "@/agent/method";
 import { openedSession, simulatePowder, structureOf, cif } from "@/agent/validation/simulate";
 
 /**
@@ -189,6 +194,41 @@ describe("arms B and C, wired without a model", () => {
     const on = new AgentExecutor(fakeHost(port).host, opts);
     expect((await on.run("set_free", { free: ["scale"] })).text).toMatch(/read the method first/);
   });
+
+  it("arm C sees no method anywhere the model reads: the prompt, the tools, and every answer and note", async () => {
+    // A session that touches every place the method shows: get_state, a refinement out of the
+    // method's order (the ADPs first), the symmetry review's gate, and the report.
+    const script = (skills: boolean): ScriptTurn[] => [
+      { calls: [...(skills ? [RIETVELD] : []), { name: "get_state" }] },
+      { calls: [{ name: "set_free", input: { free: ["B_Mn1", "B_Ga1"] } }, { name: "refine" }] },
+      { calls: [{ name: "review_symmetry" }] },
+      { calls: [{ name: "write_report", input: { summary: "The ADPs refined." } }] },
+      { text: "The ADPs refined." },
+    ];
+    const seen = async (skills: boolean, toolScope: "all" | "stage"): Promise<{ text: string; offered: readonly (readonly string[])[] }> => {
+      const stand = await scriptedModel(script(skills));
+      try {
+        await runScenario(scenario("full-refinement"), { ...stand.model, toolScope, ...(skills ? {} : { skills: false }) });
+        // What the model reads of each request: the instructions, the tools and the conversation (not the API's own settings).
+        const read = (stand.requests() as { system?: unknown; tools?: unknown; messages?: unknown }[]).map((r) => ({ system: r.system, tools: r.tools, messages: r.messages }));
+        return { text: JSON.stringify(read), offered: stand.offered() };
+      } finally {
+        await stand.close();
+      }
+    };
+    const labels = [...new Set((["powder", "pdf", "singleCrystal"] as const).flatMap((page) => stagesFor(page).map((st) => st.label)))];
+    const checklist = new RegExp(`[✓○] (${labels.map((l) => l.replace(/[()]/g, "\\$&")).join("|")})`);
+    const method = [...allSkills().map((k) => new RegExp(k.name)), /read_skill/, /"method":/, /methodNote/, checklist, /the method's|stages? of the method|method's (order|stages)/i];
+    const leaks = (text: string): string[] => method.filter((m) => m.test(text)).map(String);
+    for (const scope of ["all", "stage"] as const) {
+      const off = await seen(false, scope);
+      expect(leaks(off.text), scope).toEqual([]);
+      // No stage to scope by: a local model is offered every tool of the page (bar read_skill), on every request.
+      if (scope === "stage") for (const o of off.offered) expect(o.length).toBe(off.offered[0]!.length);
+    }
+    // The same probe finds the method where it is.
+    expect(leaks((await seen(true, "all")).text).length).toBeGreaterThan(3);
+  }, 60_000);
 
   it("prices the API runs and stops before the cap", () => {
     const sonnet = modelByKey("sonnet")!;

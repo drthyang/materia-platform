@@ -346,7 +346,7 @@ export class AgentExecutor implements ToolRunner {
         if (spec.name === "review_symmetry") this.noteSymmetryReview(port, out as { observedForbidden?: unknown[]; candidates?: { name: string }[] });
         if (spec.name === "get_state") {
           const source = this.referenceSource();
-          out = { ...(out as object), method: this.methodView(port), ...(source ? { references: `Quote the engine's numbers by reference; the app fills them in where your words are shown and in the report: ${referenceCatalog(source)}.` } : {}) };
+          out = { ...this.withoutMethod(out), ...this.recordView(port), ...(source ? { references: `Quote the engine's numbers by reference; the app fills them in where your words are shown and in the report: ${referenceCatalog(source)}.` } : {}) };
         }
         update({ status: "done" });
         return this.respond(out);
@@ -389,7 +389,8 @@ export class AgentExecutor implements ToolRunner {
           update({ status: "failed", preview, outcome: rule.line });
           return error(rule.message);
         }
-        if (spec.name === "refine") orderNote = outOfOrder(port.technique, freeBefore, record, before.parameters);
+        // The method's order is the skills' (arm C has none).
+        if (spec.name === "refine" && this.opts.skills !== false) orderNote = outOfOrder(port.technique, freeBefore, record, before.parameters);
       }
       if (spec.name === "refine") {
         // Correlated parameters are never refined together: measure the free
@@ -564,10 +565,11 @@ export class AgentExecutor implements ToolRunner {
   /**
    * Why the space group may not be questioned yet, or null: the method's
    * required stages must be refined, and the fit on screen converged.
+   * Without the skills (arm C) there are no stages: a converged fit only.
    */
   private symmetryNotYet(port: AgentPort): { message: string; line: string } | null {
     const record = this.syncStages(port);
-    const left = stagesLeft(port.technique, record);
+    const left = this.opts.skills === false ? [] : stagesLeft(port.technique, record);
     const why = "The space group is the last thing questioned: a structure is refined to the best its group allows first, and intensity that differs on the group's own reflections is what that refinement fixes, not evidence against the group.";
     if (left.length > 0) {
       return {
@@ -583,6 +585,31 @@ export class AgentExecutor implements ToolRunner {
       };
     }
     return null;
+  }
+
+  /**
+   * What get_state adds from the Agent's record: with the skills, `method`
+   * (methodView); without them (the validation's arm C), `record`, the same
+   * checks, exceptions and notes with no stage, skill or next step of a method.
+   */
+  private recordView(port: AgentPort): Record<string, unknown> {
+    if (this.opts.skills !== false) return { method: this.methodView(port) };
+    const record = this.syncStages(port);
+    const kept = {
+      ...(record.rangeCheck ? { rangeCheck: record.rangeCheck.summary } : {}),
+      ...(record.cellCheck ? { cellCheck: record.cellCheck.summary } : {}),
+      ...(record.symmetryReviewed ? { symmetryReview: record.symmetryReviewed.summary } : {}),
+      ...(record.exceptions.length > 0 ? { exceptions: record.exceptions.map((e) => `${e.rule}: ${e.reason}`) } : {}),
+      ...(record.notes.length > 0 ? { notes: record.notes.map((n) => n.text) } : {}),
+    };
+    return Object.keys(kept).length > 0 ? { record: kept } : {};
+  }
+
+  /** get_state's own answer, without the skills: its magnetic step's note refers to the method's stages. */
+  private withoutMethod(out: unknown): object {
+    const o = out as { magneticStep?: { next: unknown; note?: string } };
+    if (this.opts.skills !== false || !o.magneticStep) return out as object;
+    return { ...o, magneticStep: { next: o.magneticStep.next, note: "For the magnetic structure, magnetic_state reads where the magnetic step stands." } };
   }
 
   /**
@@ -646,6 +673,7 @@ export class AgentExecutor implements ToolRunner {
       checks,
       posterior: sampled ? { run: sampled.run, current: sampled.run.result === s.result, stepId: sampled.step?.id ?? null, parameters: s.parameters } : null,
       model: this.opts.modelLabel?.() ?? "the configured model",
+      ...(this.opts.skills === false ? { method: false } : {}),
       narrative: summary,
       userText: this.userText.join("\n\n"),
     });

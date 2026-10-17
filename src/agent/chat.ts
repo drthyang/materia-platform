@@ -31,7 +31,7 @@ import type {
   BetaUsage,
 } from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import { LIVE_TOOLS, inputJsonSchema, liveTool, type LiveToolSpec } from "@/agent/tools";
-import { SCOPE_NOTE, scopedTools } from "@/agent/toolScope";
+import { scopeNote, scopedTools } from "@/agent/toolScope";
 import { evidenceGate, gradeContradiction } from "@/agent/evidence";
 import type { AgentSituation, ToolRunner } from "@/agent/executor";
 import { agentSystemPrompt, autonomyNote, type AgentAutonomy } from "@/agent/systemPrompt";
@@ -122,7 +122,8 @@ const LARGE_CONTEXT = 131_072;
 export class AgentChat {
   private readonly messages: BetaMessageParam[] = [];
   private backend: Backend | null = null;
-  private readonly tools: BetaTool[] = LIVE_TOOLS.map(toBetaTool);
+  private readonly tools: BetaTool[] = LIVE_TOOLS.map((t) => toBetaTool(t));
+  private readonly toolsWithoutSkills: BetaTool[] = LIVE_TOOLS.filter((t) => t.name !== "read_skill").map((t) => toBetaTool(t, false));
   /** Where the analysis stood after the last call (the page, the stage), for the tools a request offers. */
   private here: AgentSituation | null = null;
   /** Every tool called in this conversation: it stays offered. */
@@ -201,7 +202,7 @@ export class AgentChat {
     const ran: string[] = [];
     // The same call at the same state, or call after call that changes nothing: a loop.
     // Calls that change nothing are counted on a local model only: Claude may read at length (a ref page by page).
-    const guard = new LoopGuard({ countStill: isSized(config.transport) });
+    const guard = new LoopGuard({ countStill: isSized(config.transport), method: config.skills !== false });
     this.here = await this.situation();
     let fingerprint = this.here?.fingerprint ?? null;
     const maxTurns = isSized(config.transport) ? MAX_TURNS_SIZED : MAX_TURNS;
@@ -277,7 +278,7 @@ export class AgentChat {
         // tool that already answered, or says nothing after a result) leaves
         // the user waiting on nothing. Ask the model to go on, twice at most.
         const said = message.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("\n");
-        const stall = nudges < MAX_NUDGES ? stalledReply(said, this.tools.map((t) => t.name), ran) : null;
+        const stall = nudges < MAX_NUDGES ? stalledReply(said, this.tools.map((t) => t.name), ran, config.skills !== false) : null;
         if (stall === null) {
           if (message.stop_reason === "max_tokens" && this.window !== null) cb.onNotice("The reply filled the room left in the model's window and was cut off. Ask it to go on, or clear the conversation to give it more room.", "error");
           if (!said.trim() && ran.length > 0) cb.onNotice(`The model gave no reply after the ${ran.at(-1)} result.${isLocal(config.transport) ? " Local models do this when the conversation no longer fits their context: clear the conversation, or use a longer context." : ""}`, "error");
@@ -382,8 +383,8 @@ export class AgentChat {
       // A thinking-capable model thinks by default, and the servers reuse the
       // cached prompt prefix by themselves.
       const scoped = this.offered(config);
-      const system = `${this.systemFor(config)}\n\n${autonomyNote(config.autonomy ?? "ask")}${scoped ? `\n\n${SCOPE_NOTE}` : ""}`;
-      let tools = this.skillsOff(config, scoped ?? this.tools);
+      const system = `${this.systemFor(config)}\n\n${autonomyNote(config.autonomy ?? "ask", { skills: config.skills !== false })}${scoped ? `\n\n${scopeNote(config.skills !== false)}` : ""}`;
+      let tools = scoped ?? this.allTools(config);
       if (this.window === null) {
         // The window unknown: old tool results go from the copy it gets past a fixed budget.
         this.sent = null;
@@ -426,9 +427,9 @@ export class AgentChat {
       model: config.model,
       max_tokens: 64000,
       // The mode follows the cached prompt, so switching it keeps the cache.
-      system: [{ type: "text", text: this.systemFor(config), cache_control: { type: "ephemeral" } }, { type: "text", text: `${autonomyNote(config.autonomy ?? "ask")}${this.offered(config) ? `\n\n${SCOPE_NOTE}` : ""}` }],
+      system: [{ type: "text", text: this.systemFor(config), cache_control: { type: "ephemeral" } }, { type: "text", text: `${autonomyNote(config.autonomy ?? "ask", { skills: config.skills !== false })}${this.offered(config) ? `\n\n${scopeNote(config.skills !== false)}` : ""}` }],
       // Inputs stream as generated; the executor validates each against its schema.
-      tools: this.skillsOff(config, this.offered(config) ?? this.tools).map((t) => ({ ...t, eager_input_streaming: true })),
+      tools: (this.offered(config) ?? this.allTools(config)).map((t) => ({ ...t, eager_input_streaming: true })),
       messages: this.messages,
       thinking: { type: "adaptive", display: "summarized" },
       output_config: { effort: config.effort },
@@ -466,9 +467,9 @@ export class AgentChat {
     return config.skills === false ? this.noSkills : this.withSkills;
   }
 
-  /** Without skills (the validation's ablation arm), read_skill is not offered. */
-  private skillsOff(config: ChatConfig, tools: BetaTool[]): BetaTool[] {
-    return config.skills === false ? tools.filter((t) => t.name !== "read_skill") : tools;
+  /** Every tool, as the model is offered it: without the skills (the validation's ablation arm), no read_skill, and each description in its form without them. */
+  private allTools(config: ChatConfig): BetaTool[] {
+    return config.skills === false ? this.toolsWithoutSkills : this.tools;
   }
 
   /**
@@ -482,7 +483,10 @@ export class AgentChat {
     if (scope === "all" || this.here === null) return null;
     // Lean: the page's and the stage's tools only, for a prompt that otherwise cannot fit.
     const asked = lean ? [] : this.messages.filter((m) => m.role === "user" && typeof m.content === "string" && !m.content.startsWith(FROM_APP)).map((m) => m.content as string);
-    return scopedTools({ page: this.here.page, stage: this.here.stage, magnetic: this.here.magnetic, asked, called: lean ? new Set<string>() : this.called }).map(toBetaTool);
+    const skills = config.skills !== false;
+    return scopedTools({ page: this.here.page, stage: this.here.stage, magnetic: this.here.magnetic, asked, called: lean ? new Set<string>() : this.called, method: skills })
+      .filter((t) => skills || t.name !== "read_skill")
+      .map((t) => toBetaTool(t, skills));
   }
 
   /**
@@ -636,7 +640,8 @@ export class LoopGuard {
   private still = 0;
   private toldStill = false;
 
-  constructor(private readonly opts: { readonly countStill?: boolean } = {}) {}
+  /** `method`: a page's written method is in play (false without the skills, the validation's arm C: the notes then name none). */
+  constructor(private readonly opts: { readonly countStill?: boolean; readonly method?: boolean } = {}) {}
 
   /** Before a call: why it must not run (it already ran twice at this very state), or null. */
   check(name: string, input: unknown, at: string | null): { readonly why: string; readonly nudge: string } | null {
@@ -667,14 +672,14 @@ export class LoopGuard {
       if (count >= MAX_SAME_CALL) return { note: null, stop: `it called ${name} ${count} times with the same input, and nothing changed in between` };
       if (this.repeats >= MAX_REPEATS) return { note: null, stop: `it repeated calls it had already made ${this.repeats} times, with nothing changed in between` };
       return {
-        note: `${FROM_APP} You already made this call (${name}, the same input) and nothing has changed since: this is the same result as before.${name === "read_skill" ? " The skill is already in this conversation." : ""} Do not call it again. Take the next step of the method with what you have, or stop and tell the user what you need.`,
+        note: `${FROM_APP} You already made this call (${name}, the same input) and nothing has changed since: this is the same result as before.${name === "read_skill" ? " The skill is already in this conversation." : ""} Do not call it again. Take the next step${this.opts.method === false ? "" : " of the method"} with what you have, or stop and tell the user what you need.`,
         stop: null,
       };
     }
     if (this.still >= STILL_STOP) return { note: null, stop: `it made ${this.still} tool calls in a row without changing the analysis` };
     if (this.still >= STILL_NOTE && !this.toldStill) {
       this.toldStill = true;
-      return { note: `${FROM_APP} ${this.still} tool calls in a row have not changed the analysis. Make the change the method calls for next, write the report if the work is done, or stop and ask the user.`, stop: null };
+      return { note: `${FROM_APP} ${this.still} tool calls in a row have not changed the analysis. Make the change ${this.opts.method === false ? "the analysis needs" : "the method calls for"} next, write the report if the work is done, or stop and ask the user.`, stop: null };
     }
     return { note: null, stop: null };
   }
@@ -694,13 +699,13 @@ const FROM_APP = "(From the app, not the user.)";
  * the app tells the model about it; null for an ordinary final reply. `ran`
  * holds the tools that already ran for this message, in order.
  */
-export function stalledReply(text: string, tools: readonly string[], ran: readonly string[]): { notice: string; nudge: string } | null {
+export function stalledReply(text: string, tools: readonly string[], ran: readonly string[], method = true): { notice: string; nudge: string } | null {
   const last = ran.at(-1);
   if (!text.trim()) {
     if (last === undefined) return null;
     return {
       notice: `The model said nothing after the ${last} result; the app asked it to go on.`,
-      nudge: `${FROM_APP} You replied with nothing after the ${last} result above. Say what it shows and take the next step your method calls for, or stop for the user and say why.`,
+      nudge: `${FROM_APP} You replied with nothing after the ${last} result above. Say what it shows and take the next step${method ? " your method calls for" : ""}, or stop for the user and say why.`,
     };
   }
   // "I was waiting for the check_cell_symmetry tool to complete" — about a
@@ -799,8 +804,8 @@ export function repeatingTail(text: string, run = 6, minUnit = 8, maxUnit = 400)
   return null;
 }
 
-function toBetaTool(t: LiveToolSpec): BetaTool {
-  return { name: t.name, description: t.description, input_schema: inputJsonSchema(t) as BetaTool["input_schema"] };
+function toBetaTool(t: LiveToolSpec, skills = true): BetaTool {
+  return { name: t.name, description: skills ? t.description : t.withoutSkills ?? t.description, input_schema: inputJsonSchema(t) as BetaTool["input_schema"] };
 }
 
 function toolError(id: string, text: string): BetaToolResultBlockParam {
