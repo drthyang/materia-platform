@@ -156,6 +156,9 @@ describe("the eval pages", () => {
     const graded = await replay("full-refinement", turns(contradicting));
     expect(graded.run.notices.some((n) => /quote the engine's verdict/.test(n)), why(graded)).toBe(true);
     expect(graded.overrun, why(graded)).toBe(0);
+    // Every run keeps the policy it ran under, through the saved run too.
+    expect(graded.run.policy).toMatchObject({ turnCap: 40, toolScope: "all", pruning: "server" });
+    expect((JSON.parse(JSON.stringify(savedRun(graded))) as SavedRun).policy).toEqual(graded.run.policy);
   }, 60_000);
 
   it("does not take a denial for a proposal: \"Neither is evidence for a lower group\"", async () => {

@@ -397,6 +397,7 @@ a self-contained Markdown transcript that a reviewer can read offline. The
 transcript holds:
 
 - the case, its injected fault and the message;
+- the run policy it ran under (see below);
 - each decision: the tool, its input, the Agent's words before the call, and
   what came back;
 - each reference the Agent wrote (`{{wR}}`, `{{p:…}}`) with the engine value
@@ -478,7 +479,8 @@ transcript go to the output directory, and `summary.md` holds the tables:
 MATERIA_VALIDATION=1 MATERIA_VALIDATION_MODEL=qwen MATERIA_VALIDATION_SPLIT=test \
   npx vitest run src/agent/validation/live.test.ts --reporter=verbose
 #   MATERIA_VALIDATION_MODEL=gemma | glimmer; _ARMS=B,C (default); _REPEAT=3 (default);
-#   _ONLY=case ids; _SERVER=the local server's address; _OUT=/tmp/materia-validation/<model>
+#   _ONLY=case ids; _SERVER=the local server's address; _OUT=/tmp/materia-validation/<model>;
+#   _TEMPERATURE=a temperature for a local model (default: the server's for the model)
 
 # Claude Sonnet 5.5: the test set only, under a $15 cap (MATERIA's share of the cycle's $40)
 MATERIA_VALIDATION=1 MATERIA_VALIDATION_MODEL=sonnet ANTHROPIC_API_KEY=… \
@@ -496,6 +498,22 @@ the run passes $2 or the cap. Runs not made are listed in `summary.md`.
 The models are qwen3.8-27b (LM Studio, 32k), gemma4:26b (Ollama, 32k),
 meta/muse-glimmer (LM Studio) and Claude Sonnet 5.5. Each gets the same cases
 and the same scoring, and they are reported side by side.
+
+**The run policy.** Arm B is the Agent as it ships, and it ships different
+settings for different ways of reaching a model (`runPolicy` in `chat.ts`):
+
+| | Claude | a local model (LM Studio, Ollama) |
+| --- | --- | --- |
+| turns per message | 40 | 80 (one call a turn, where Claude makes several) |
+| tools offered | every tool | the page's and the method stage's (arm C: the page's) |
+| old tool results | cleared by the API past 60k tokens | digested by the app to fit the window |
+| reads that change nothing | not counted | the turn stops after 20 in a row |
+| temperature | its own (adaptive thinking) | the server's for the model |
+
+Arms B and C on one model share the policy, so their comparison is clean. A
+comparison across models also compares these settings; each record and
+transcript states the policy its run had, and `_TEMPERATURE` fixes the local
+models' temperature where the server's default should not stand.
 
 **Expected time on qwen3.8-27b.** This is an estimate, not a measurement. A
 full refinement on the local tier took about 40 turns, and only the long AWO₄

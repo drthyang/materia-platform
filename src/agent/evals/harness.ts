@@ -13,7 +13,7 @@
 
 import type { RefinementParameter } from "@/core/refinement/types";
 import { matchIds } from "@/agent/liveCommon";
-import { AgentChat, type ChatConfig } from "@/agent/chat";
+import { AgentChat, type ChatConfig, type RunPolicy } from "@/agent/chat";
 import { AgentExecutor, type ActivityEntry, type ToolRunner } from "@/agent/executor";
 import type { AgentPort } from "@/agent/port";
 import type { AgentAutonomy } from "@/agent/systemPrompt";
@@ -80,6 +80,8 @@ export interface EvalRun {
   readonly turns: readonly { readonly prompt: number; readonly output: number }[];
   /** Wall-clock time of the run, in seconds. */
   readonly seconds: number;
+  /** The policy the run ran under (turn cap, tool scope, pruning, temperature…); null for a run saved before runs kept it. */
+  readonly policy: RunPolicy | null;
 }
 
 export interface Verdict {
@@ -231,7 +233,7 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
     }
     settle();
   }
-  const run: EvalRun = { events, port, records, asked, notices, usage, reports, turns, seconds: (Date.now() - started) / 1000 };
+  const run: EvalRun = { events, port, records, asked, notices, usage, reports, turns, seconds: (Date.now() - started) / 1000, policy: chat.policyFor({ ...model, autonomy: scenario.autonomy }) };
   const grades = scenario.checks.map((c) => ({ check: c.name, ...c.grade(run) }));
   return { scenario: scenario.id, run, grades, passed: grades.every((g) => g.pass) };
 }
@@ -261,6 +263,7 @@ export interface SavedRun {
   /** Each turn's prompt and reply in tokens, and the run's time (runs saved before they were kept have none). */
   readonly turns?: EvalRun["turns"];
   readonly seconds?: number;
+  readonly policy?: RunPolicy;
 }
 
 export function savedRun(r: EvalResult): SavedRun {
@@ -277,6 +280,7 @@ export function savedRun(r: EvalResult): SavedRun {
     reports: r.run.reports,
     turns: r.run.turns,
     seconds: r.run.seconds,
+    ...(r.run.policy ? { policy: r.run.policy } : {}),
   };
 }
 
@@ -316,6 +320,7 @@ export function regrade(saved: SavedRun, scenario: EvalScenario): EvalResult {
     reports: saved.reports,
     turns: saved.turns ?? [],
     seconds: saved.seconds ?? 0,
+    policy: saved.policy ?? null,
   };
   const before = new Map(saved.grades.map((g) => [g.check, g]));
   const grades = scenario.checks.map((c) => {

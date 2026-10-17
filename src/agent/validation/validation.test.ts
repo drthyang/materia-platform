@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { DEV_CASES, HELD_OUT_TERMS, MESSAGE, TEST_CASES, TOLERANCES, VALIDATION_CASES, caseById, casePage } from "@/agent/validation/cases";
 import { assertsFault, recovered, reproducibility, scoreRun, unsafeOutcomes, type CaseScore } from "@/agent/validation/scoring";
 import { SpendLedger, armARecord, costOf, modelByKey } from "@/agent/validation/run";
-import { decisionsOf, traceNumbers, transcriptMarkdown } from "@/agent/validation/record";
+import { decisionsOf, policyLine, traceNumbers, transcriptMarkdown } from "@/agent/validation/record";
+import { runPolicy } from "@/agent/chat";
 import { findingProblems, type Finding } from "@/agent/validation/findings";
 import { agentSystemPrompt } from "@/agent/systemPrompt";
 import { AgentExecutor } from "@/agent/executor";
@@ -235,6 +236,12 @@ describe("arms B and C, wired without a model", () => {
     // The same probe finds the method where it is.
     expect(leaks((await seen(true, "all")).text).length).toBeGreaterThan(3);
   }, 60_000);
+
+  it("says in each transcript the policy the run ran under", () => {
+    const local = runPolicy({ transport: "lmstudio", model: "m", effort: "high", policy: { temperature: 0.6 } }, 32768);
+    expect(policyLine(local)).toBe("turn cap 80 · tools by the page and the method's stage · old results digested to fit the window · stops after reads that change nothing · temperature 0.6 · replies up to 64000 tokens");
+    expect(policyLine(runPolicy({ transport: "api-key", model: "m", effort: "high" }, null))).toMatch(/^turn cap 40 · every tool · old results cleared by the API · no stop .* · adaptive thinking/);
+  });
 
   it("prices the API runs and stops before the cap", () => {
     const sonnet = modelByKey("sonnet")!;
