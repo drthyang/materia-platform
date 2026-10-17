@@ -22,10 +22,10 @@ import type { BackgroundType } from "@/core/diffraction/background";
 import type { CorrectionsUpdate, MustrainModel, PeakCorrectionId, SiteTies } from "@/app/powderSpec";
 import type { PowderXUnit } from "@/core/diffraction/types";
 import { availableDisplayUnits, convertAxisValue, convertInterval } from "@/visualization/axisUnits";
-import { K0_MAGNETIC, k0MagneticHint, relativeLineWidth, residualPeaks } from "@/core/diagnostics/assessment";
+import { K0_MAGNETIC, k0MagneticHint, residualPeaks } from "@/core/diagnostics/assessment";
 import { reviewSymmetry } from "@/core/diagnostics/symmetryReview";
 import { formatWt, fractionsOf } from "@/core/diagnostics/phaseFractions";
-import { magneticIonCandidates } from "@/core/magnetic/magneticIons";
+import { powderResidual, type PowderResidual } from "@/core/diagnostics/powderResidual";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { diagnoseFit, widthsComparable } from "@/core/diagnostics/fitDiagnosis";
 import { knownPhaseNames, knownPhaseStructure, matchKnownPhases } from "@/core/diagnostics/knownPhases";
@@ -42,8 +42,6 @@ import { groupOf } from "@/agent/method";
 import { magneticNext } from "@/agent/magneticTools";
 import type { UnitCell } from "@/core/crystal/types";
 import { dScaleSearch, observedPeaks, wrongScale } from "@/core/diagnostics/dScale";
-import { satellitePositions } from "@/core/magnetic/kSearch";
-import { centringTranslations } from "@/core/crystal/symmetry";
 import { inspectDataRange, type DataEnd, type DataRangeReading } from "@/core/diagnostics/dataRange";
 import type { ReferenceEntry } from "@/agent/references";
 
@@ -782,38 +780,10 @@ export function axisPlausibility(s: PowderLiveState): string | null {
   return `the ${UNIT[s.pattern.xUnit]} axis (${sig(s.extent.min, 4)}–${sig(s.extent.max, 4)}) spans d ${sig(lo, 3)}–${sig(hi, 3)} Å at this wavelength, where the structure has ${inside === 0 ? "no reflection" : `only ${inside} reflection${inside === 1 ? "" : "s"}`}: the axis is likely in another unit (d in Å or Q read as ${UNIT[s.pattern.xUnit]}), or the wavelength is wrong. Ask the user before refining: no refinement fixes it.`;
 }
 
-function residualOf(s: PowderLiveState): { d: number[]; yObs: number[]; yCalc: number[]; sigma: number[]; reflections: { d: number; hkl: string; phaseLabel: string }[]; magneticNeutron: boolean; lineWidth?: number } {
+/** The residual of the fit on screen (core/diagnostics/powderResidual.ts, as the MCP tools build it). */
+function residualOf(s: PowderLiveState): PowderResidual {
   if (!s.d) throw new Error("this pattern's axis cannot be converted to d-spacing (no wavelength or TOF calibration)");
-  // Inside the fit window only: outside it the model is not being fitted.
-  const keep = s.curves.x.map((x) => !s.fitRange || (x >= s.fitRange.min && x <= s.fitRange.max));
-  const pick = (a: readonly number[]): number[] => a.filter((_, i) => keep[i]);
-  // Each point's own σ (counting statistics when the file gives none).
-  const points = s.pattern.points.length === s.curves.x.length ? s.pattern.points : null;
-  const sigma = s.curves.yObs.map((y, i) => {
-    const given = points?.[i]?.sigma;
-    return given !== undefined && given > 0 ? given : Math.sqrt(Math.max(y, 1));
-  });
-  const d = pick(s.d);
-  const finite = d.filter((v) => Number.isFinite(v) && v > 0);
-  const dMin = Math.min(...finite) * 0.99;
-  const dMax = Math.max(...finite) * 1.01;
-  const reflections = s.refinedPhases.flatMap((ph) =>
-    generateReflections(ph.cell, ph.spaceGroup, dMin, dMax, { absences: true }).map((r) => ({ d: r.d, hkl: `${r.h} ${r.k} ${r.l}`, phaseLabel: ph.name || ph.id })),
-  );
-  // An applied magnetic model's satellites are lines of the model too: a residual on one is its misfit, not a missing phase.
-  if (s.magnetic) {
-    const parent = s.refinedPhases.find((ph) => ph.id === s.magnetic!.structureId) ?? s.refinedPhases[0]!;
-    const centring = centringTranslations(parent.spaceGroup.operations);
-    for (const k of s.magnetic.propagation) {
-      reflections.push(...satellitePositions(parent.cell, k, dMin, dMax, centring).map((r) => ({ ...r, phaseLabel: `${parent.name || parent.id} magnetic` })));
-    }
-  }
-  // Neutrons see magnetic order; a phase with magnetic ions may carry it.
-  const magneticNeutron = s.pattern.radiation.kind.startsWith("neutron") && s.magnetic === null && [s.structure, ...s.extraPhases].some((ph) => magneticIonCandidates(ph).length > 0);
-  const yCalc = pick(s.curves.yCalc);
-  // Constant wavelength: "on" and "beside" a reflection follow the lines' own width.
-  const lineWidth = s.pattern.xUnit === "twoTheta" ? relativeLineWidth(d, yCalc) : undefined;
-  return { d, yObs: pick(s.curves.yObs), yCalc, sigma: pick(sigma), reflections, magneticNeutron, ...(lineWidth !== undefined ? { lineWidth } : {}) };
+  return powderResidual({ curves: s.curves, d: s.d, pattern: s.pattern, phases: s.refinedPhases, fitRange: s.fitRange, magnetic: s.magnetic }).residual;
 }
 
 /** The numbers the Agent quotes by reference on the powder page ({{Rwp}}, {{GoF}}, {{verdict}}; {{p:ID}} for any row). */
