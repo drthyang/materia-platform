@@ -30,6 +30,7 @@ import { momentCartesian } from "@/core/magnetic/moment";
 import { isMagneticModelParameterKind } from "@/core/refinement/types";
 import { axisContext, convertAxisArray } from "@/visualization/axisUnits";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
+import { RANK_TIE_WR } from "@/core/diagnostics/thresholds";
 
 interface RankEntry {
   readonly status: "ok" | "failed" | "forbidden";
@@ -126,7 +127,7 @@ export function magneticHandle(get: () => Session, set: (s: Session) => void, op
     const ok = list.map((r, i) => ({ r, i, e: rank[r.candidate.id] })).filter((x) => x.e?.status === "ok" && x.e.wR !== null);
     if (ok.length === 0) return null;
     const bw = Math.min(...ok.map((x) => x.e!.wR!));
-    const tied = ok.filter((x) => x.e!.wR! <= bw + 1e-4).sort((a, b) => a.r.index - b.r.index || (d[a.i] ?? 99) - (d[b.i] ?? 99));
+    const tied = ok.filter((x) => x.e!.wR! <= bw + RANK_TIE_WR).sort((a, b) => a.r.index - b.r.index || (d[a.i] ?? 99) - (d[b.i] ?? 99));
     return candidateId(tied[0]!.i);
   };
 

@@ -59,9 +59,10 @@ import type { StructureModel } from "@/core/crystal/types";
 import type { TwinLaw } from "@/core/diffraction/types";
 import { improper } from "@/core/workflow/singleCrystalRefinement";
 import { BOTH_HANDS, correlationInsight, oneCurve } from "@/core/diagnostics/assessment";
+import { CORRELATION_LIMIT } from "@/core/diagnostics/thresholds";
 
 /** The line the engine and `assess_refinement` already draw for a high correlation. */
-export const CORRELATION_LIMIT = 0.95;
+export { CORRELATION_LIMIT };
 /** Below this conditional correlation (every other free parameter fixed), a pair's correlation is carried by a third. */
 export const CARRIED_BELOW = 0.9;
 /** A pair this correlated stops the refinement whatever carries it. */

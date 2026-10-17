@@ -16,7 +16,7 @@ import { bondValenceSums, type BondValenceSum } from "@/core/crystal/bondValence
 import { CORRELATION_LIMIT, readCorrelations } from "@/agent/correlationCheck";
 
 /** The engine's own threshold for the correlations a refinement keeps (engine.ts DEFAULT_OPTIONS). */
-export const CORRELATION_LISTED = 0.95;
+export const CORRELATION_LISTED = CORRELATION_LIMIT;
 
 /** No refinement on screen: the one check there is. */
 export function noResultCheck(): ReportCheck {

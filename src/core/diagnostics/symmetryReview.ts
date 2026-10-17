@@ -32,11 +32,12 @@ import { isReflectionAbsent } from "@/core/crystal/symmetry";
 import { structuralSubgroupLattice, subgroupClassRepresentatives } from "@/core/crystal/subgroupTree";
 import { identifySubgroup } from "@/core/crystal/isotropyTree";
 import { residualPeaks, type AssessmentInput } from "@/core/diagnostics/assessment";
+import { FORBIDDEN_OVERLAP } from "@/core/diagnostics/thresholds";
 
 /** A residual peak within this of a forbidden reflection (relative d) is that reflection. */
 const ON_FORBIDDEN = 0.005;
 /** A forbidden reflection this close to an allowed one (relative d) cannot be tested. */
-const OVERLAP = 0.02;
+const OVERLAP = FORBIDDEN_OVERLAP;
 /** Subgroups enumerated, by index in the parent. */
 const MAX_INDEX = 6;
 
