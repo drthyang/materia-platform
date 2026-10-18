@@ -95,6 +95,11 @@ src/
     absorption/      μ, transmission, crystal habit, face indexing
     project/         project file: types, readable serializer, validation, migration
   parsers/           CIF/mCIF, hkl, powder formats, instrument files, PDF data
+  agent/             the in-app Agent: tools.ts (the live tools), executor.ts
+                     (runs a call: gate, ask, act, answer), pages/ (what
+                     differs by page, one adapter each), the pages' handlers
+                     (powderTools, pdfTools, scTools, magneticTools), skills,
+                     the chat loop and its transports
   mcp/               agent tool layer: tools.ts (pure handlers),
                      registry.ts (single source of truth), host.ts + refs.ts
                      (refs, path, free, read_ref), server.ts (stdio),

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { withAdpModel } from "@/core/crystal/adp";
-import { emptyRecord, keyOfState } from "@/agent/method";
+import { emptyRecord } from "@/agent/method";
+import { analysisOf } from "@/agent/pages";
 import type { PowderAgentPort } from "@/agent/port";
 import { AgentLink } from "@/agent/link";
 import { freePlan } from "@/agent/liveCommon";
@@ -215,7 +216,7 @@ describe("AgentExecutor on a live powder fit", () => {
     const { host, records } = fakeHost(port);
     // The method's firm rules come first (see below); here the user allowed
     // the bare occupancies, so the correlations decide.
-    const key = keyOfState("powder", port.state());
+    const key = analysisOf(port);
     records.set(key, { ...emptyRecord(key), exceptions: [{ rule: "bare-occupancy", reason: "test", at: 0 }] });
     const { ex, asked, seen } = executor(host, true);
     const out = await ex.run("refine", {});
@@ -246,7 +247,7 @@ describe("AgentExecutor on a live powder fit", () => {
     expect(calls.slice(0, 2)).toEqual(["probe", "refine"]);
     expect(asked.map((e) => e.tool)).toEqual(["refine"]);
     expect(done.methodNote).toBeUndefined(); // the base block was free alongside
-    const key = keyOfState("powder", port.state());
+    const key = analysisOf(port);
     expect(records.get(key)!.stagesDone).toEqual(expect.arrayContaining(["base", "positions"]));
     // Where the fit started: the report gives it before the steps.
     expect(records.get(key)!.start!.agreement * 100).toBeCloseTo(done.wRBefore as number, 2);
@@ -300,7 +301,7 @@ describe("AgentExecutor on a live powder fit", () => {
     expect(seen.filter((e) => e.tool === "review_symmetry").at(-1)!.outcome).toBe("Not yet: 4 stages to refine first");
 
     // Every required stage covered, but nothing refined on screen: still not yet.
-    const key = keyOfState("powder", port.state());
+    const key = analysisOf(port);
     records.set(key, { ...emptyRecord(key), stagesDone: ["base", "positions", "profile", "adp"] });
     expect((await ex.run("review_symmetry", {})).text).toMatch(/^Error: Not yet: the review reads the refined residual, and the fit on screen is not refined\./);
 
@@ -324,7 +325,7 @@ describe("AgentExecutor on a live powder fit", () => {
     expect(asked).toEqual([]);
     expect(calls).toEqual([]);
     expect(steps).toEqual([]);
-    expect(records.get(keyOfState("powder", port.state()))!.notes.map((n) => n.text)).toEqual(["The minor phase is MnO (user)."]);
+    expect(records.get(analysisOf(port))!.notes.map((n) => n.text)).toEqual(["The minor phase is MnO (user)."]);
     expect((parse((await ex.run("get_state", {})).text).method as { notes: string[] }).notes).toEqual(["The minor phase is MnO (user)."]);
   });
 
@@ -332,7 +333,7 @@ describe("AgentExecutor on a live powder fit", () => {
     const start = newSession(exampleStructure());
     const { port } = sessionPort({ ...start, powderParams: start.powderParams.map((p) => ({ ...p, fixed: !["scale", "occ_Mn1"].includes(p.id) })) });
     const { host, records } = fakeHost(port);
-    const key = keyOfState("powder", port.state());
+    const key = analysisOf(port);
     const { ex, asked } = executor(host, "auto");
     const refused = await ex.run("refine", {});
     expect(refused.text).toMatch(/occ_Mn1 is a free occupancy with nothing but the scale to determine it.*Tie it \(set_site_ties/);

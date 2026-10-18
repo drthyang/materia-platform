@@ -13,7 +13,7 @@ import type { ProjectHistory } from "@/core/project/history";
 import { assess_refinement, bond_geometry } from "@/mcp/tools";
 import type { ReferenceEntry } from "@/agent/references";
 import { compareWithLoaded, structureTable, withEsd } from "@/agent/structureTable";
-import { keyOfState, type AgentRecord } from "@/agent/method";
+import { singleCrystalAnalysis, type AgentRecord } from "@/agent/method";
 import { applyFree, bondEsds, bondsOf, uniqueBonds, cellOf, describeFree, freeNoOp, goToStep, historyView, matchIds, parameterSummary, pct, sig, type ChangeResult, type LiveToolHost } from "@/agent/liveCommon";
 import type { RefinementResult } from "@/core/refinement/types";
 import type { ReportCheck } from "@/core/export/report";
@@ -52,7 +52,7 @@ export function readSingleCrystalTool(name: string, input: Input, port: SingleCr
     case "reflection_equivalents":
       return equivalentsView(s, input.h, input.k, input.l);
     case "assess_refinement":
-      return assessment(s, keptMeasurements(host.record(keyOfState("singleCrystal", s))));
+      return assessment(s, keptMeasurements(host.record(singleCrystalAnalysis(s))));
     case "structure_table": {
       const table = structureTable(s.refinedStructure, 0, s.parameters, s.bindings, s.result?.esd ?? {});
       return {
@@ -101,7 +101,7 @@ export async function changeSingleCrystal(name: string, input: Input, port: Sing
       const unknown = asked.filter((r) => !failed.some((f) => keptKey(f) === keptKey(r)));
       if (unknown.length) throw new Error(`${unknown.map(measurementName).join(", ")} ${unknown.length === 1 ? "is" : "are"} not on the failed list (assess_refinement \`failedMeasurements\`): only a listed failure needs keeping`);
       const at = Date.now();
-      host.updateRecord(keyOfState("singleCrystal", s), (rec) => {
+      host.updateRecord(singleCrystalAnalysis(s), (rec) => {
         const kept = new Map((rec.kept ?? []).map((k) => [k.measurement, k]));
         for (const r of asked) kept.set(keptKey(r), { measurement: keptKey(r), reason: String(input.reason), at });
         return { ...rec, kept: [...kept.values()] };
