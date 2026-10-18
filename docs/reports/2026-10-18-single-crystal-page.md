@@ -1,6 +1,7 @@
 # The single-crystal page's operations in one module
 
-Branch `claude/sc-page`, 2026-10-18. Plan: [AGENT_PLAN.md](../AGENT_PLAN.md),
+Pull request [#65](https://github.com/drthyang/web-refinement/pull/65),
+branch `claude/sc-page`, 2026-10-18. Plan: [AGENT_PLAN.md](../AGENT_PLAN.md),
 1.2. From the architecture review's first candidate (the PDF and single-crystal
 page modules); this is the first of its two changes, the PDF page the second.
 
