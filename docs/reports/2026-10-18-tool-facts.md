@@ -1,6 +1,7 @@
 # A tool's facts on its definition
 
-Branch `claude/tool-facts`, 2026-10-18. Plan: [AGENT_PLAN.md](../AGENT_PLAN.md),
+Pull request [#69](https://github.com/drthyang/web-refinement/pull/69),
+branch `claude/tool-facts`, 2026-10-18. Plan: [AGENT_PLAN.md](../AGENT_PLAN.md),
 3.1. The first half of the architecture review's #4 (one definition per live
 tool), built as the user answered its five questions. The second half, one
 plan per tool per page in place of the three switches, follows page by page,
