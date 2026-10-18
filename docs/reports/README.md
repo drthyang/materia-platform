@@ -27,3 +27,4 @@ Name a report by date and subject, and link it from its pull request.
 | Report | Change |
 | --- | --- |
 | [2026-10-17 · Agent plan, phase 1](./2026-10-17-agent-plan-phase-1.md) | The validation measures the Agent: the verdict check in evals, a structural arm C, one run policy, the record's lifecycle, the holdout scan, the powder page's operations shared ([#61](https://github.com/drthyang/web-refinement/pull/61)) |
+| [2026-10-17 · Agent plan, core of phases 2–5](./2026-10-17-agent-plan-core-2.md) | One analysis under both tool surfaces: one residual and one peak search, one thresholds module, structured tool outcomes, the residual-peak floor, data per parameter on powder, the skill lint |

@@ -43,17 +43,18 @@ import {
   PDF_STAGE_KINDS,
 } from "@/core/workflow/pdf";
 import { buildMpdfSpec, mpdfComponents, unsupportedMpdfModel, MPDF_STAGE_KINDS } from "@/core/workflow/mpdf";
-import { computeAgreementFactors, excludedPointMask, fitRangeMask, weightsFromSigma } from "@/core/refinement/factors";
+import { computeAgreementFactors, excludedPointMask, weightsFromSigma } from "@/core/refinement/factors";
 import { axisContext, convertAxisArray, convertAxisValue, tofCalibrationOf } from "@/visualization/axisUnits";
 import { inspectDataRange, type DataRangeReading } from "@/core/diagnostics/dataRange";
 import { generateReflections } from "@/core/diffraction/reflections";
+import { powderResidual as corePowderResidual, type PowderResidual as CorePowderResidual } from "@/core/diagnostics/powderResidual";
+import { unexplainedPeaks, type PeakReading } from "@/core/diagnostics/unexplainedPeaks";
 import { abscissaFromD, radiationOf } from "@/core/diffraction/instrument";
 import { bondLengths } from "@/core/crystal/geometry";
 import { centringTranslations } from "@/core/crystal/symmetry";
 import { bondValenceReading, bondValenceSums, type BondValenceSum } from "@/core/crystal/bondValence";
 import { analyzeSiteSymmetry, type SiteSymmetry } from "@/core/crystal/siteSymmetry";
 import { classifyPointGroup } from "@/core/crystal/pointGroup";
-import { detectExtraPeaks, type ExtraPeakOptions } from "@/core/magnetic/extraPeaks";
 import { reviewSymmetry, type SymmetryReview } from "@/core/diagnostics/symmetryReview";
 import { isGsasHistogram, parseGsasHistogramPattern } from "@/parsers/gsasHistogram";
 import { cagliotiOf } from "@/core/workflow/leBail";
@@ -113,7 +114,6 @@ import type { Vec3 } from "@/core/math/types";
 import type { PeakShape } from "@/core/diffraction/profile";
 import {
   assessRefinement,
-  relativeLineWidth,
   suggestNextSteps,
   type AssessmentInput,
   type RefinementAssessment,
@@ -382,23 +382,14 @@ export async function refine_powder(args: {
   return { result, parameters: refined, observationCount, residual, parallel };
 }
 
-/** The residual refine_powder hands assess_refinement: in d, inside the fit window, with σ and every phase's reflections. */
-export interface PowderResidual {
-  d: number[];
-  yObs: number[];
-  yCalc: number[];
-  sigma: number[];
-  reflections: { d: number; hkl: string; phaseLabel: string }[];
-  lineWidth?: number;
-}
+/** The residual refine_powder hands assess_refinement: in d, inside the fit window, with σ and every line of the model. */
+export type PowderResidual = CorePowderResidual;
 
 /**
- * The refined model's residual (obs − calc) as d-spacing arrays, so
- * assess_refinement can scan the positive residual for the missing-phase /
- * magnetic-order signal. Every phase's calculated pattern (the one the
- * refinement fitted), only the points it fitted (inside the fit range, not a
- * masked plateau), each point's σ, and the reflections of every phase in its
- * refined cell.
+ * The refined model's residual (core/diagnostics/powderResidual.ts, as the
+ * in-app Agent builds it): every phase's calculated pattern (the one the
+ * refinement fitted), in d with the refined zero taken out, the points it
+ * fitted, each point's σ, and every phase's reflections in its refined cell.
  */
 function powderResidual(
   args: { structure: StructureModel; pattern: PowderPattern; bindings: ParameterBinding[]; profile: PowderProfile; instrument?: InstrumentParameters; extraPhases?: StructureModel[]; fitRange?: { min: number; max: number } },
@@ -408,29 +399,11 @@ function powderResidual(
   const curves = phases.length > 1
     ? multiPhaseCurves(phases, args.pattern, refined, args.bindings, args.profile)
     : powderCurves(args.structure, args.pattern, refined, args.bindings, args.profile);
-  // d with the refined zero taken out, so residual peaks compare with the cell's reflections.
   const ctx = axisContext(args.pattern, args.instrument, refined.find((p) => p.kind === "zeroShift")?.value, tofCalibrationOf(refined));
-  const dAll = args.pattern.xUnit === "dSpacing" ? [...curves.x] : convertAxisArray(curves.x, args.pattern.xUnit, "dSpacing", ctx);
-  const plateau = excludedPointMask(curves.yObs);
-  const outside = fitRangeMask(curves.x, args.fitRange);
-  const keep = curves.x.map((_, i) => !plateau[i] && !outside[i]);
-  const pick = <T>(a: readonly T[]): T[] => a.filter((_, i) => keep[i]);
-  const sigma = args.pattern.points.map((p) => (p.sigma !== undefined && p.sigma > 0 ? p.sigma : Math.sqrt(Math.max(p.yObs, 1))));
-  const d = pick(dAll);
-  const yCalc = pick(curves.yCalc);
-  const finite = d.filter((v) => Number.isFinite(v) && v > 0);
+  const d = args.pattern.xUnit === "dSpacing" ? [...curves.x] : convertAxisArray(curves.x, args.pattern.xUnit, "dSpacing", ctx);
   const values = resolveTies(refined, Object.fromEntries(refined.map((p) => [p.id, p.value])));
-  const reflections = finite.length === 0 ? [] : phases.flatMap((ph) => {
-    const cell = applyParameters(ph.structure, phaseBindingsFor(args.bindings, ph.id), values).model;
-    return generateReflections(cell.cell, cell.spaceGroup, Math.min(...finite) * 0.99, Math.max(...finite) * 1.01, { absences: true })
-      .map((r) => ({ d: r.d, hkl: `${r.h} ${r.k} ${r.l}`, phaseLabel: ph.structure.name || ph.id }));
-  });
-  // Constant wavelength: assess_refinement reads "on" and "beside" a reflection by the lines' own width.
-  const lineWidth = args.pattern.xUnit === "twoTheta" ? relativeLineWidth(d, yCalc) : undefined;
-  return {
-    residual: { d, yObs: pick(curves.yObs), yCalc, sigma: pick(sigma), reflections, ...(lineWidth !== undefined ? { lineWidth } : {}) },
-    observationCount: keep.reduce((n, k) => n + (k ? 1 : 0), 0),
-  };
+  const refinedPhases = phases.map((ph) => applyParameters(ph.structure, phaseBindingsFor(args.bindings, ph.id), values).model);
+  return corePowderResidual({ curves, d, pattern: args.pattern, phases: refinedPhases, fitRange: args.fitRange ?? null });
 }
 
 /**
@@ -628,17 +601,20 @@ export function analyze_site_symmetry(args: { structure: StructureModel }): {
 }
 
 /**
- * Find unexplained residual peaks (obs − calc) after a nuclear refinement —
- * the "is there magnetic order / an impurity?" signal. Robust (MAD-based)
- * thresholding; a handful of peaks suggests satellites, dozens mean the
- * nuclear fit itself is poor.
+ * The residual's peaks, classified against the model's lines
+ * (core/diagnostics/unexplainedPeaks.ts, as the in-app tool): unexplained (on
+ * no phase's reflection: an impurity, the sample environment, magnetic order
+ * off the nuclear lines) and misfits (on or beside a known reflection: what
+ * refining the model fixes, or on a neutron pattern of magnetic ions, k = 0
+ * order). With per-point σ (refine_powder's residual carries it) a peak must
+ * stand 5σ above its own noise.
  */
 export function find_unexplained_peaks(args: {
-  residual: { d: number[]; yObs: number[]; yCalc: number[] };
-  options?: ExtraPeakOptions;
-}): { peaks: { d: number; height: number }[]; count: number } {
-  const peaks = detectExtraPeaks(args.residual.d, args.residual.yObs, args.residual.yCalc, args.options ?? {});
-  return { peaks: [...peaks], count: peaks.length };
+  residual: { d: number[]; yObs: number[]; yCalc: number[]; sigma?: number[]; sigmaFrom?: "file" | "counting"; reflections?: { d: number; hkl: string; phaseLabel: string }[]; magneticNeutron?: boolean; lineWidth?: number };
+  options?: { sigma?: number; limit?: number };
+}): { count: number; unexplained: PeakReading[]; misfits: PeakReading[]; k0Magnetic: boolean; reading: string } {
+  const found = unexplainedPeaks(args.residual, { ...(args.options?.sigma !== undefined ? { sigma: args.options.sigma } : {}), ...(args.options?.limit !== undefined ? { limit: args.options.limit } : {}) });
+  return { count: found.count, unexplained: [...found.unexplained], misfits: [...found.misfits], k0Magnetic: found.k0Magnetic, reading: found.reading };
 }
 
 /**

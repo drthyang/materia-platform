@@ -216,7 +216,10 @@ describe("worked examples, replayed through an MCP client", () => {
     expect(nuc.result.agreement.rWeighted).toBeGreaterThan(0.11);
     expect(nuc.result.agreement.rWeighted).toBeLessThan(0.13); // 12.4 %
     const peaks = await call("find_unexplained_peaks", { residual: nuc.residual });
-    const d = (peaks.peaks as { d: number }[]).map((x) => x.d);
+    // k = 0 order puts its intensity on the nuclear lines: the peaks are misfits, and the tool says they may be magnetic.
+    expect(peaks.k0Magnetic).toBe(true);
+    expect(peaks.unexplained).toEqual([]);
+    const d = ([...peaks.unexplained, ...peaks.misfits] as { d: number }[]).map((x) => x.d);
     expect(d[0]).toBeCloseTo(3.167, 2);
     const ks = await call("search_propagation_vector", { structure: s.structure, peakD: d });
     expect(ks.candidates[0]).toMatchObject({ label: "(0 0 0)", matched: d.length });

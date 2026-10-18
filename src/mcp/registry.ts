@@ -245,10 +245,17 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
   {
     name: "find_unexplained_peaks",
     title: "Find unexplained residual peaks",
-    description: "Find peaks in the residual (obs − calc) — the magnetic-order / impurity-phase signal. Robust MAD-based thresholding; returns d-spacings ranked by height. Check each against the phases' reflections (reflection_list) before calling it an extra peak: residual ON a known reflection is that reflection's intensity or shape misfit, which refining the structure, profile and corrections fixes — not a new phase and not a reason to lower the symmetry. A handful of peaks away from every reflection suggests magnetic satellites or one impurity; dozens mean the fit itself is poor.",
+    description: "Find peaks in the residual (obs − calc), classified against the model's lines — the impurity / magnetic-order signal, kept apart from misfits. `unexplained`: peaks on no phase's reflection or its tail (an impurity, the sample environment, magnetic satellites). `misfits`: peaks on or beside a known reflection — that reflection's intensity or shape not matched yet, which refining the structure, profile and corrections fixes; never an extra peak and never a reason to lower the symmetry. `k0Magnetic` is true when a neutron pattern of magnetic ions has its excess on nuclear lines at large d: the misfits may then be k = 0 magnetic order (give their d to search_propagation_vector). With per-point σ (refine_powder's residual carries it) a peak must stand 5σ above its own noise. Each peak has d, height, sigmas and the line it sits on or near; `reading` says what they mean.",
     inputSchema: {
-      residual: z.object({ d: z.array(z.number()), yObs: z.array(z.number()), yCalc: z.array(z.number()), lineWidth: z.number().optional() }).describe("From refine_powder"),
-      options: z.object({ sigma: z.number().positive().optional(), minFraction: z.number().positive().optional(), window: z.number().int().positive().optional(), mergeD: z.number().positive().optional(), limit: z.number().int().positive().optional() }).optional(),
+      residual: z.object({
+        d: z.array(z.number()), yObs: z.array(z.number()), yCalc: z.array(z.number()),
+        sigma: z.array(z.number()).optional(),
+        sigmaFrom: z.enum(["file", "counting"]).optional(),
+        reflections: z.array(z.object({ d: z.number(), hkl: z.string(), phaseLabel: z.string() })).optional(),
+        magneticNeutron: z.boolean().optional(),
+        lineWidth: z.number().optional(),
+      }).describe("From refine_powder (its residual: d, obs, calc, σ and every phase's reflections)"),
+      options: z.object({ sigma: z.number().positive().optional().describe("Peak height in robust noise σ (default 8)"), limit: z.number().int().positive().optional().describe("Most peaks of each kind (default 12)") }).optional(),
     },
     handler: tools.find_unexplained_peaks,
   },

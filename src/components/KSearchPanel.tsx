@@ -66,6 +66,7 @@ import { candidateId, candidateIndex, candidateView, selectionView, type KCandid
 const StructureView = lazy(() => import("@/app/ui/StructureView").then((m) => ({ default: m.StructureView })));
 // Type-only — erased at build, so it does not pull the viewer out of its chunk.
 import type { StructureExport } from "@/app/ui/StructureView";
+import { RANK_TIE_WR } from "@/core/diagnostics/thresholds";
 
 /**
  * Parse one k component, accepting fractions ("1/2", "-1/3") as well as
@@ -822,8 +823,6 @@ export function KSearchPanel({
     rankCancel.current = true;
     setRank((r) => (r.total === 0 && !r.running ? r : { running: false, done: 0, total: 0, results: {} }));
   }, [buildFor, pattern, fitRange?.min, fitRange?.max]);
-  /** Agreement ties within this much (absolute fraction, 0.01 %) are the same fit. */
-  const RANK_TIE = 1e-4;
   // The ★: lowest wR — and among candidates tied with it, the MAXIMAL subgroup
   // (lowest index) with the fewest moment parameters. Ties are the rule, not the
   // exception: a powder cannot tell several symmetry-distinct models apart
@@ -833,7 +832,8 @@ export function KSearchPanel({
     if (ok.length === 0) return null;
     const bw = Math.min(...ok.map(([, e]) => e.wR!));
     const meta = new Map(reps.map((r, i) => [r.candidate.id, { index: r.index, dof: repMomentDims[i] ?? 0 }]));
-    const tied = ok.filter(([, e]) => e.wR! <= bw + RANK_TIE).map(([id]) => id);
+    // Agreement ties within RANK_TIE_WR (absolute fraction, 0.01 %) are the same fit.
+    const tied = ok.filter(([, e]) => e.wR! <= bw + RANK_TIE_WR).map(([id]) => id);
     tied.sort((a, b) => (meta.get(a)?.index ?? 99) - (meta.get(b)?.index ?? 99) || (meta.get(a)?.dof ?? 99) - (meta.get(b)?.dof ?? 99));
     const id = tied[0]!;
     return { id, wR: rank.results[id]!.wR! };
@@ -1632,7 +1632,7 @@ export function KSearchPanel({
                       ? [...group].sort((A, B) => {
                           const a = wrOf(A), b = wrOf(B);
                           if (a === Infinity && b === Infinity) return bnsKey(A) - bnsKey(B);
-                          if (Math.abs(a - b) > RANK_TIE) return a - b;
+                          if (Math.abs(a - b) > RANK_TIE_WR) return a - b;
                           return (repMomentDims[A.i] ?? 0) - (repMomentDims[B.i] ?? 0) || bnsKey(A) - bnsKey(B);
                         })
                       : group;
@@ -1669,7 +1669,7 @@ export function KSearchPanel({
                         const dim = repMomentDims[i] ?? 0;
                         const entry = rank.results[r.candidate.id];
                         const isBest = r.candidate.id === bestRankedId;
-                        const isTie = !isBest && bestRanked !== null && entry?.status === "ok" && entry.wR != null && entry.wR <= bestRanked.wR + RANK_TIE;
+                        const isTie = !isBest && bestRanked !== null && entry?.status === "ok" && entry.wR != null && entry.wR <= bestRanked.wR + RANK_TIE_WR;
                         const delta = entry?.status === "ok" && entry.wR != null && baselineAgreement != null ? entry.wR - baselineAgreement : null;
                         return (
                           <button

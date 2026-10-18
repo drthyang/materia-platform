@@ -36,6 +36,7 @@ import { dispersionLine } from "@/core/scattering/dispersion";
 import { checkEqualTies, type EqualTieUpdate } from "@/core/refinement/constraints";
 import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, correlationsCheck, findingChecks, noResultCheck, verdictCheck } from "@/agent/reportChecks";
 import { disorderAssemblies } from "@/agent/correlationCheck";
+import { COMPLETENESS_NOTE, FLACK_U_DETERMINED, R_INT_NOTE } from "@/core/diagnostics/thresholds";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- inputs are validated against the spec's zod schema before a handler runs */
 type Input = any;
@@ -691,14 +692,14 @@ export function flackReading(x: number, u: number | undefined, line: string | nu
   if (u === undefined) return "not refined yet: refine it with the structure for its esd";
   if (u > 0.3) return `u = ${sig(u, 2)}: the anomalous signal is too weak to say anything about the absolute structure`;
   if (Math.abs(x) <= 2 * u) {
-    if (u < 0.04) return "the model's hand: the absolute structure is determined";
+    if (u < FLACK_U_DETERMINED) return "the model's hand: the absolute structure is determined";
     if (u < 0.1) return `the model's hand: x is 0 within 2u. With u = ${sig(u, 2)} (above 0.04) a few per cent of the other hand cannot be excluded for a compound of unknown enantiopurity; for one known to be enantiopure, u < 0.1 confirms the hand (Flack & Bernardinelli)`;
     return `x is 0 within 2u, but u = ${sig(u, 2)} is too large to determine the hand (u < 0.1 is needed even for a compound known to be enantiopure): compare the two hands' fits (invert_structure) and quote both`;
   }
   // Near 1 the bands are the same as near 0: the inverse model's x is 1 − x, with the same u.
   if (Math.abs(1 - x) <= 2 * u) {
     const invert = "invert the model (invert_structure: every coordinate to its negative, the space group to its enantiomorph if it has one) and refine again";
-    if (u < 0.04) return `the inverted hand: ${invert}`;
+    if (u < FLACK_U_DETERMINED) return `the inverted hand: ${invert}`;
     if (u < 0.1) return `the inverted hand: ${invert}. With u = ${sig(u, 2)} (above 0.04) a few per cent of this model's hand cannot be excluded for a compound of unknown enantiopurity (Flack & Bernardinelli)`;
     return `x is 1 within 2u, but u = ${sig(u, 2)} is too large to determine the hand (u < 0.1 is needed even for a compound known to be enantiopure): the data lean to the inverted model, no more — compare the two hands' fits (invert_structure) and quote both`;
   }
@@ -1458,7 +1459,7 @@ export function singleCrystalReportChecks(s: SingleCrystalLiveState, probe: Refi
     boundsCheck(s.result, s.parameters),
     {
       name: "Data",
-      status: (s.merge.friedelApart ?? s.merge).rInt > 0.1 || (v.completeness !== undefined && v.completeness < 0.95) ? "note" : "pass",
+      status: (s.merge.friedelApart ?? s.merge).rInt > R_INT_NOTE || (v.completeness !== undefined && v.completeness < COMPLETENESS_NOTE) ? "note" : "pass",
       detail: dataLine(s, v),
     },
     s.dataset.origin === "refinement-listing" ? {

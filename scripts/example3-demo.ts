@@ -69,7 +69,8 @@ const flagged = (assess.findings as { summary: string }[]).map((f) => /^(\d+) re
 log({ n: "6", tool: "assess_refinement", args: "the step 5 result", result: `"${assess.verdict.band as string}"; ${flagged ?? "no"} residual peaks flagged` });
 
 const peaks = await call("find_unexplained_peaks", { residual: nuc.residual });
-const d = (peaks.peaks as { d: number }[]).map((x) => x.d);
+// k = 0 order sits on the nuclear lines: the tool lists those peaks as misfits and flags k0Magnetic.
+const d = ([...peaks.unexplained, ...(peaks.k0Magnetic ? peaks.misfits : [])] as { d: number }[]).map((x) => x.d);
 log({ n: "7", tool: "find_unexplained_peaks", args: "the residual", result: `d = ${d.map((x) => x.toFixed(3)).join(", ")} Å` });
 
 const ks = await call("search_propagation_vector", { structure: s.structure, peakD: d });

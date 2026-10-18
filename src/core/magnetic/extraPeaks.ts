@@ -119,7 +119,9 @@ export function detectExtraPeaks(
   const res = new Array<number>(n);
   for (let i = 0; i < n; i++) res[i] = yObs[i]! - yCalc[i]!;
   const noise = madSigma(res);
-  const maxRes = Math.max(0, ...res);
+  // By a loop: a TOF file's 10⁵–10⁶ points overflow a spread into Math.max.
+  let maxRes = 0;
+  for (const r of res) if (r > maxRes) maxRes = r;
   const threshold = Math.max(sigma * noise, minFraction * maxRes);
 
   const found: ExtraPeak[] = [];

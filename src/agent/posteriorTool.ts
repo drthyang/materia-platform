@@ -18,15 +18,16 @@ import type { RefinementParameter, RefinementResult } from "@/core/refinement/ty
 import type { SampleResult } from "@/core/refinement/bayes/sampler";
 import type { PdfAgentPort, PowderAgentPort } from "@/agent/port";
 import { sig } from "@/agent/liveCommon";
+import { POSTERIOR_CORRELATION, POSTERIOR_NEARLY_RHAT, POSTERIOR_WIDER } from "@/core/diagnostics/thresholds";
 
 /** Below this R̂ (with the ESS reached) an unconverged ensemble run is read with a caveat. */
-const NEARLY_RHAT = 1.1;
+const NEARLY_RHAT = POSTERIOR_NEARLY_RHAT;
 /** Posterior width over the esd beyond which the esd understates the uncertainty. */
-const WIDER = 1.5;
+const WIDER = POSTERIOR_WIDER;
 /** A 95 % interval ending within this fraction of its own width of a bound is one-sided. */
 const AT_BOUND = 0.05;
 /** Posterior correlations worth naming. */
-const STRONG = 0.8;
+const STRONG = POSTERIOR_CORRELATION;
 /** Default and largest steps per call. */
 export const POSTERIOR_STEPS = 400;
 export const MAX_POSTERIOR_STEPS = 5000;

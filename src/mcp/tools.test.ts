@@ -281,7 +281,8 @@ describe("MCP analysis primitives (no data files needed)", () => {
     const dGrid = pattern.points.map((pt) => 1.54 / (2 * Math.sin(((pt.x / 2) * Math.PI) / 180)));
     const peaks = find_unexplained_peaks({ residual: { d: dGrid, yObs: nuclearOnly.curves.yObs, yCalc: nuclearOnly.curves.yCalc } });
     expect(peaks.count).toBeGreaterThan(0);
-    const ks = search_propagation_vector({ structure, peakD: peaks.peaks.map((p) => p.d) });
+    // No reflections passed: every peak is on no known line.
+    const ks = search_propagation_vector({ structure, peakD: peaks.unexplained.map((p) => p.d) });
     expect(ks.candidates.length).toBeGreaterThan(0);
     expect(ks.candidates[0]!.score).toBeGreaterThanOrEqual(ks.candidates[ks.candidates.length - 1]!.score);
   });

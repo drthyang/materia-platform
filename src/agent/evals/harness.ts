@@ -178,7 +178,7 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
       const free = freeAtCall(name, input, port.state().parameters);
       const out = await executor.run(name, input, signal);
       // The page records a refinement's step when it ends, as the Agent's.
-      if (name === "refine" && !out.isError && /"refined":true/.test(out.text)) history.record("refine", "agent", "Refine");
+      if (name === "refine" && out.refined) history.record("refine", "agent", "Refine");
       events.push({ kind: "call", name, input: (input ?? {}) as Record<string, unknown>, isError: out.isError, text: out.text, ...(free ? { free } : {}) });
       return out;
     },

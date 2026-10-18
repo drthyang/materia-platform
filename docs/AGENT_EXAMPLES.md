@@ -71,8 +71,8 @@ fits pass the nuclear and moment parameter sets as a list of two refs.
 | 1–3 | `parse_structure`, `parse_powder_data`, `parse_instrument` | `path` | P2₁/m with sites Mn1_0, Mn2_1, Mn3_2, Ga1; 6,251 points; neutron, λ = 1.54 Å |
 | 4 | `build_refinement` | structure, pattern, instrument | 31 symmetry-allowed parameters |
 | 5 | `refine_powder` | free: scale, background, cell, U V W | wR 12.4 %, GoF 2.89 |
-| 6 | `assess_refinement` | the step 5 result | "fair"; three unexplained peaks |
-| 7 | `find_unexplained_peaks` | the residual | d = 3.167, 2.710, 4.632 Å |
+| 6 | `assess_refinement` | the step 5 result | "fair"; three residual peaks on nuclear reflections |
+| 7 | `find_unexplained_peaks` | the residual | no unexplained peak; three misfits on nuclear lines, d = 3.167, 2.710, 4.632 Å, with `k0Magnetic`: on a neutron pattern of magnetic ions they may be k = 0 order |
 | 8 | `search_propagation_vector` | those d values | k = (0 0 0) matches all three, rmsd 0.0016 Å |
 | 9 | `list_magnetic_subgroups` | k = (0 0 0) | four maximal groups (index 2) and seven lower ones |
 | 10–17 | `build_magnetic_model`, `refine_magnetic_powder` | each maximal group, all three Mn sites; free: scale, background, moments; 12 restarts | the table below |
