@@ -1,6 +1,7 @@
 # One adapter per page for the Agent's executor
 
-Branch `claude/page-adapter`, 2026-10-18. Plan: [AGENT_PLAN.md](../AGENT_PLAN.md),
+Pull request [#67](https://github.com/drthyang/web-refinement/pull/67),
+branch `claude/page-adapter`, 2026-10-18. Plan: [AGENT_PLAN.md](../AGENT_PLAN.md),
 3.3. The third candidate of the architecture review, first in the order the
 user set (the page adapter, then the call log, one definition per live tool,
 the magnetic step, the powder state, the strategy drivers).
