@@ -423,7 +423,10 @@ handlers are [`powderTools.ts`](../src/agent/powderTools.ts),
 [`pdfTools.ts`](../src/agent/pdfTools.ts),
 [`scTools.ts`](../src/agent/scTools.ts) and
 [`magneticTools.ts`](../src/agent/magneticTools.ts); the analysis tools are the
-MCP handlers above, fed from what is on screen.
+MCP handlers above, fed from what is on screen. The executor reaches the
+handlers through one adapter per page ([`src/agent/pages/`](../src/agent/pages/)),
+which also holds what differs by page: the agreement it shows, the analysis
+the record is kept under, the references, the report's checks.
 
 How a tool runs: **at once** when it changes nothing on the page (the reads,
 and `write_note` and `write_report`, which change the record, not the
@@ -433,6 +436,10 @@ on reload); **always asks** for a change only the user may make, even in Auto.
 A declined change returns `{"declined": true}`. Every change is a step in
 History tagged `agent` (`HistoryStep.actor`), so ⌘Z or `go_to_step` undoes it,
 and each is the page's own handler: the Agent's `refine` is the Refine button.
+A change whose card was approved after the page moved under it (any setting
+the Agent can change there: each page's stamp in
+[`src/agent/pages/`](../src/agent/pages/)) is not run, and the model is told to
+read the state again.
 
 <!-- LIVE_TOOLS:BEGIN (generated — edit src/agent/tools.ts, then npm run gen:tooldoc) -->
 **Every page**
@@ -790,6 +797,24 @@ can change) and its answer: a call repeated at the same state with the same
 answer gets a note from the app; the third is not run, and the turn stops with
 where the analysis stands and what to tell the Agent; so do four repeats of any
 kind, and, on a local model, 20 read calls in a row that change nothing.
+
+### An answer without its evidence
+
+A final answer is sent back to the model once, with what to run, and the
+conversation says so ([`src/agent/evidence.ts`](../src/agent/evidence.ts)),
+when it concludes:
+- on the PDF page, about the local structure against the average one, with
+  no boxcar scan;
+- on the single-crystal page, about the hand, with no absolute-structure
+  reading (`assess_refinement` or the report) taken after the last change of
+  the fit;
+- on any page, a grade of a fit that changed in this message, with no
+  assessment after the change; or a grade two bands or more from the
+  engine's verdict, or across the line between fair and good.
+
+The rules read the message's calls with what each came to and whether the
+fit on screen changed. A refused or declined change changes nothing, and a
+reading or a scan counts only when it answered.
 
 ### Five ways to reach a model
 

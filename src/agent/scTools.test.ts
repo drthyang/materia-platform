@@ -1,6 +1,6 @@
 import { extent } from "@/agent/scTools";
 import { describe, it, expect } from "vitest";
-import { keyOfState } from "@/agent/method";
+import { analysisOf } from "@/agent/pages";
 import type { AgentReport } from "@/agent/report";
 import { executor, fakeHost, singleCrystalPort } from "@/testSupport/agentHeadless";
 import { singleCrystalReportChecks } from "@/agent/scTools";
@@ -49,7 +49,7 @@ describe("AgentExecutor on the single-crystal page", { timeout: 30_000 }, () => 
     expect(out.friedel).toMatch(/^centrosymmetric group/);
     expect(out.absences).toMatch(/no reflection the space group forbids/);
     expect(Array.isArray(out.shells)).toBe(true);
-    const record = records.get(keyOfState("singleCrystal", port.state()))!;
+    const record = records.get(analysisOf(port))!;
     expect(record.dataCheck?.summary).toMatch(/reflections, \d+ unique, R_int [\d.]+ %; d_min 0\.6/);
     const st = parse((await ex.run("get_state", {})).text);
     expect((st.method as { stages: string[] }).stages[0]).toMatch(/^✓ Data quality/);

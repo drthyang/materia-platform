@@ -31,7 +31,7 @@
 import type { LinearRestraint, ParameterKind, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { AgentRecordFile } from "@/core/project/types";
 import type { AgentPage } from "@/agent/tools";
-import type { LiveState } from "@/agent/port";
+import type { PdfLiveState, PowderLiveState, SingleCrystalLiveState } from "@/agent/port";
 import { PAGE_METHOD } from "@/agent/skills";
 import { parseTie } from "@/core/refinement/constraints";
 import { lineage, type ProjectHistory } from "@/core/project/history";
@@ -73,12 +73,19 @@ export function emptyRecord(key: string): AgentRecord {
   return { key, exceptions: [], stagesDone: [], notes: [] };
 }
 
-/** The analysis on a page, from its live state. */
-export function keyOfState(page: AgentPage, s: LiveState): string {
-  if ("phases" in s) return analysisKey(page, s.source, s.phases);
-  // An inverted model is the same analysis: keyed by the model as loaded.
-  if ("dataset" in s) return analysisKey(page, s.source, [s.loadedAs ?? s.structure]);
-  return analysisKey(page, s.source, [s.structure, ...s.extraPhases]);
+/** The analysis on the powder page: its data and every phase. */
+export function powderAnalysis(s: PowderLiveState): string {
+  return analysisKey("powder", s.source, [s.structure, ...s.extraPhases]);
+}
+
+/** The analysis on the PDF page: its data and every phase. */
+export function pdfAnalysis(s: PdfLiveState): string {
+  return analysisKey("pdf", s.source, s.phases);
+}
+
+/** The analysis on the single-crystal page. An inverted model is the same analysis: keyed by the model as loaded. */
+export function singleCrystalAnalysis(s: SingleCrystalLiveState): string {
+  return analysisKey("singleCrystal", s.source, [s.loadedAs ?? s.structure]);
 }
 
 /** What identifies an analysis: the page, the data, and the phases (name and space group). */

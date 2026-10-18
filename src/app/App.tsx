@@ -72,7 +72,8 @@ import type { AgentHost } from "@/agent/executor";
 import { useAgent } from "@/agent/useAgent";
 import { AgentDrawer, AgentRail, answersIn } from "@/agent/ui/AgentDrawer";
 import { AgentReportViewer } from "@/agent/ui/AgentReportViewer";
-import { emptyRecord, keyOfState, methodProgress, type AgentRecord } from "@/agent/method";
+import { emptyRecord, methodProgress, type AgentRecord } from "@/agent/method";
+import { analysisOf } from "@/agent/pages";
 
 // The header's refinement-target chips. "Nuclear" is the main refinement page
 // (the whole app refines, so no "Refinement" label needed); "Magnetic" is the
@@ -438,7 +439,7 @@ export function App(): JSX.Element {
   // The open page's method, as the drawer's checklist shows it.
   const agentPort = agentOpen ? agentLink.port() : null;
   const agentMethod = agentPort ? (() => {
-    const key = keyOfState(agentPort.technique, agentPort.state());
+    const key = analysisOf(agentPort);
     return methodProgress(agentPort.technique, agentRecords[key] ?? emptyRecord(key));
   })() : null;
   // The cards the agent is on breathe (workbench.css), while the Agent is open.
