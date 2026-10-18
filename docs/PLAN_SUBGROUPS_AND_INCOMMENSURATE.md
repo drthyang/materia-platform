@@ -89,8 +89,9 @@ relation to the parent irreps.
 
 **Surface debts to fix while we are in here.**
 
-- All subgroup/mode UI is **inline in `PdfWorkbench.tsx`** (~1819 lines); there
-  is no component for it in `src/app/ui/`.
+- All subgroup/mode UI is **inline in `PdfWorkbench.tsx`**; there is no
+  component for it in `src/app/ui/`. (Its operations, the activation and the
+  parent decomposition, are in `app/pdfPage.ts`.)
 - MCP exposes `build_distortion_modes` and `build_symmetry_modes` only — the
   subgroup lattice and activation are UI-only, so an agent cannot drive them.
 - [PDF_MPDF_ROADMAP.md](PDF_MPDF_ROADMAP.md) has **no distortion/subgroup

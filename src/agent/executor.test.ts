@@ -696,7 +696,9 @@ describe("AgentExecutor on a live PDF fit", () => {
   });
 
   it("restores the default r window and passes on why a run did not finish", async () => {
-    const { port, calls } = pdfPort();
+    const { port: page, calls } = pdfPort();
+    // A Prefit the user cancels: the page's run resolves to why it stopped.
+    const port = { ...page, thorough: async () => "cancelled" };
     const { ex, asked } = executor(fakeHost(port).host);
     await ex.run("set_fit_range", { min: 2, max: 5 });
     expect(calls.at(-1)).toBe("range 2-5");
