@@ -75,4 +75,5 @@ of its own (AGENT_PLAN 2.4), which takes `MAGNETIC_PLANS` with it.
 
 ## Checks
 
-`npm run build`, `npm run lint` and `npm test` pass at the branch head.
+`npm run build`, `npm run lint` and `npm test` pass at the branch head: 2345
+tests, 265 skipped (live runs and data-dependent suites).
