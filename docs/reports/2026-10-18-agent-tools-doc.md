@@ -1,6 +1,7 @@
 # AGENT_TOOLS.md checked against the code, and its repetition taken out
 
-Branch `claude/tidy-agent-doc`, stacked on
+Pull request [#64](https://github.com/drthyang/web-refinement/pull/64), branch
+`claude/tidy-agent-doc`, stacked on
 [#63](https://github.com/drthyang/web-refinement/pull/63), 2026-10-18. Asked
 for by the user: review the Agent's document, make sure it is correct, and
 remove what it says twice. The document is
