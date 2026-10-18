@@ -152,6 +152,7 @@ Paths are under `src/`. Nothing in `src/core` imports React.
 | `parsers/pdfData.ts`, `parsers/fgrData.ts` | `.gr`, `.sq` and `.fq`; PDFgui `.fgr` fits |
 | `workers/protocol.ts`, `workers/runPowder.ts` | The `pdf` and `mpdf` evaluator specs |
 | `app/PdfWorkbench.tsx`, `app/ui/PosteriorPanel.tsx`, `app/ui/BoxcarPanel.tsx`, `app/ui/ReciprocalPanel.tsx` | The PDF page and its views (S(Q) ± σ in the last) |
+| `app/pdfPage.ts` | What the PDF page's controls and fits do, for the page and the Agent's headless page |
 
 **Planned but not built:** `core/pdf/peakWidth.ts`, folded into the enumerator
 and forward model; `core/totalscattering/reduction.ts` and
