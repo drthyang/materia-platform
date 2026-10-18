@@ -1,6 +1,7 @@
 # The powder page's changes as plans
 
-Branch `claude/powder-plans`, stacked on `claude/sc-plans` ([#71](https://github.com/drthyang/web-refinement/pull/71)), 2026-10-18.
+Pull request [#72](https://github.com/drthyang/web-refinement/pull/72),
+branch `claude/powder-plans`, stacked on `claude/sc-plans` ([#71](https://github.com/drthyang/web-refinement/pull/71)), 2026-10-18.
 Plan: [AGENT_PLAN.md](../AGENT_PLAN.md), 3.1. The last page of the
 architecture review's #4: the shape #70 set on the PDF page and #71 followed
 on the single-crystal page, applied to the powder page's 14 change tools and
