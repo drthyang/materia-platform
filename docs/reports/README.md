@@ -28,3 +28,4 @@ Name a report by date and subject, and link it from its pull request.
 | --- | --- |
 | [2026-10-17 · Agent plan, phase 1](./2026-10-17-agent-plan-phase-1.md) | The validation measures the Agent: the verdict check in evals, a structural arm C, one run policy, the record's lifecycle, the holdout scan, the powder page's operations shared ([#61](https://github.com/drthyang/web-refinement/pull/61)) |
 | [2026-10-17 · Agent plan, core of phases 2–5](./2026-10-17-agent-plan-core-2.md) | One analysis under both tool surfaces: one residual and one peak search, one thresholds module, structured tool outcomes, the residual-peak floor, data per parameter on powder, the skill lint |
+| [2026-10-18 · The single-crystal page's operations](./2026-10-18-single-crystal-page.md) | One module for what the single-crystal page does, called by the workbench and the Agent's headless page; an ADP switch with riding hydrogens; another reflection file; the Reset button on every page |
