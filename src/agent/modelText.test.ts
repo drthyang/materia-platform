@@ -1,4 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { liveToolTable } from "@/agent/toolDoc";
 import { agentSystemPrompt, autonomyNote } from "@/agent/systemPrompt";
 import { LIVE_TOOLS, inputJsonSchema } from "@/agent/tools";
 
@@ -41,5 +44,14 @@ describe("the model-visible text", () => {
 
   it("without the skills (arm C) is as the snapshot holds it", async () => {
     await expect(modelText(false)).toMatchFileSnapshot("./__snapshots__/model-text.arm-c.md");
+  });
+});
+
+describe("the in-app tool table in docs/AGENT_TOOLS.md", () => {
+  it("is LIVE_TOOLS as toolDoc.ts renders it (npm run gen:tooldoc)", () => {
+    const doc = readFileSync(resolve(__dirname, "../../docs/AGENT_TOOLS.md"), "utf8");
+    const m = /<!-- LIVE_TOOLS:BEGIN[^>]*-->\n([\s\S]*?)\n<!-- LIVE_TOOLS:END -->/.exec(doc);
+    expect(m, "marker block <!-- LIVE_TOOLS:BEGIN --> … <!-- LIVE_TOOLS:END --> missing").toBeTruthy();
+    expect(m![1]).toBe(liveToolTable());
   });
 });
