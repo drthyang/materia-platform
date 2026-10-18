@@ -423,7 +423,10 @@ serves every way in, so a model sees the same names everywhere. Each tool names
 the pages it works on; on another page it answers with an error that says so.
 The page-specific handlers are [`powderTools.ts`](../src/agent/powderTools.ts),
 [`pdfTools.ts`](../src/agent/pdfTools.ts) and
-[`scTools.ts`](../src/agent/scTools.ts).
+[`scTools.ts`](../src/agent/scTools.ts). The executor reaches them through one
+adapter per page ([`src/agent/pages/`](../src/agent/pages/)), which also holds
+what differs by page: the agreement it shows, the analysis the record is kept
+under, the references, the report's checks.
 - Read tools run at once: `get_state`, `assess_refinement`,
   `suggest_next_steps`, `rank_next_parameters`, `check_cell_symmetry`,
   `find_unexplained_peaks`, `review_symmetry`, `diagnose_fit`,
@@ -710,7 +713,10 @@ The page-specific handlers are [`powderTools.ts`](../src/agent/powderTools.ts),
 **Approval and undo.** A change shows an approval card in the drawer; the
 model learns when the user declines. "Auto-approve" skips the cards for the
 rest of the session. Every change is a step in History tagged `agent`
-(`HistoryStep.actor`), so ⌘Z undoes it like any other step.
+(`HistoryStep.actor`), so ⌘Z undoes it like any other step. A change whose
+card was approved after the page moved under it (any setting the Agent can
+change there: each page's stamp in [`src/agent/pages/`](../src/agent/pages/))
+is not run, and the model is told to read the state again.
 
 **No correlated parameters refined together.** Before the Agent's `refine`
 runs, and before the approval card appears, the page runs its own fit of the
