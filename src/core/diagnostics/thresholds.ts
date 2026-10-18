@@ -21,8 +21,21 @@ export const CORRELATION_LIMIT = 0.95;
  */
 export const GOF_BANDS = { tooGood: 0.8, excellent: 1.5, good: 2.5, fair: 4 } as const;
 
-/** The Validation tab's single-crystal GooF it calls good without remark (SHELXL's weights bring a right model near 1). */
+/** The single-crystal GooF called good without remark (SHELXL's weights bring a right model near 1). */
 export const GOOF_SINGLE_CRYSTAL_OK = 1.3;
+
+/**
+ * The single-crystal GooF bands, for the Validation tab and the assessment
+ * alike: the powder bands' steps from the single-crystal line (excellent up
+ * to 1.3, good to 2.3, fair to 3.8). On F² the weighting scheme is refitted
+ * to the model, so a GooF the powder bands call excellent is a misfit here.
+ */
+export const GOOF_SINGLE_CRYSTAL_BANDS = {
+  tooGood: GOF_BANDS.tooGood,
+  excellent: GOOF_SINGLE_CRYSTAL_OK,
+  good: GOOF_SINGLE_CRYSTAL_OK + (GOF_BANDS.good - GOF_BANDS.excellent),
+  fair: GOOF_SINGLE_CRYSTAL_OK + (GOF_BANDS.fair - GOF_BANDS.excellent),
+} as const;
 
 /** A refinement has settled when its last cycle moved no parameter by more than this many esds. */
 export const SHIFT_SETTLED = 0.1;

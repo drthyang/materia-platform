@@ -26,7 +26,7 @@ import type {
 } from "@/core/refinement/types";
 import { annotateExtraPeaks, detectExtraPeaks, type AnnotatedExtraPeak } from "@/core/magnetic/extraPeaks";
 import { correctionCorrelation } from "@/core/diffraction/corrections";
-import { CORRELATION_LIMIT, DATA_PER_PARAMETER, GOF_BANDS, SHIFT_SETTLED } from "@/core/diagnostics/thresholds";
+import { CORRELATION_LIMIT, DATA_PER_PARAMETER, GOF_BANDS, GOOF_SINGLE_CRYSTAL_BANDS, SHIFT_SETTLED } from "@/core/diagnostics/thresholds";
 
 /**
  * The assembly of a twin's fractions when the twin has both hands (a
@@ -342,12 +342,14 @@ function verdictFrom(result: RefinementResult, mode: "powder" | "single-crystal"
   }
   // Bands mirror the app's qualityInk (Toby 2006): GoF ≈ 1 is ideal; < 1 warns of
   // over-fitting or overestimated σ; the higher bands are progressively worse.
-  if (gof < GOF_BANDS.tooGood) return { band: "fair", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)} < 1: the fit is "too good" — σ's are likely overestimated or the model is over-parameterized. Not a green light.` };
+  // On F² they start from the single-crystal line, as the Validation tab's do.
+  const bands = mode === "single-crystal" ? GOOF_SINGLE_CRYSTAL_BANDS : GOF_BANDS;
+  if (gof < bands.tooGood) return { band: "fair", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)} < 1: the fit is "too good" — σ's are likely overestimated or the model is over-parameterized. Not a green light.` };
   // On F² the weighting scheme is refitted to the model, as SHELXL's suggestion is: a GooF below 1 says the weights expect more misfit than the model leaves.
   if (mode === "single-crystal" && gof < 0.95) return { band: "good", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GooF ${gof.toFixed(2)}, below 1: the model leaves less misfit than the weights expect (their σ about ${Math.round(100 * (1 / gof - 1))} % too large) — refit the weighting scheme to the final model (SHELXL's suggestion).` };
-  if (gof <= GOF_BANDS.excellent) return { band: "excellent", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)} is close to the statistical floor — the model explains the data to within its uncertainties.` };
-  if (gof <= GOF_BANDS.good) return { band: "good", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)}: a reasonable fit with residual structure the model does not fully capture.` };
-  if (gof <= GOF_BANDS.fair) return { band: "fair", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)}: ${MISFIT_CAUSES[mode].fair}.` };
+  if (gof <= bands.excellent) return { band: "excellent", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)} is close to the statistical floor — the model explains the data to within its uncertainties.` };
+  if (gof <= bands.good) return { band: "good", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)}: a reasonable fit with residual structure the model does not fully capture.` };
+  if (gof <= bands.fair) return { band: "fair", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)}: ${MISFIT_CAUSES[mode].fair}.` };
   return { band: "poor", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)}: ${MISFIT_CAUSES[mode].poor}.` };
 }
 
