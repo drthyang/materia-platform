@@ -170,3 +170,28 @@ describe("the method view on the magnetic step", () => {
     expect(plain.next).not.toMatch(/magnetic/);
   });
 });
+
+describe("what a call says about the fit on screen", () => {
+  it("a refinement that ran changed it; a refused or declined one, a free set and a read did not", async () => {
+    const port = powderPage(mn3gaSession());
+    const { ex } = executor(fakeHost(port).host, "auto");
+    expect((await ex.run("refine", {})).fitChanged).toBe(true);
+    expect((await ex.run("get_state", {})).fitChanged).toBeFalsy();
+    expect((await ex.run("set_free", { free: ["occ_Mn1"] })).fitChanged).toBe(false);
+    // The bare occupancy: the firm rule refuses the refinement.
+    const refused = await ex.run("refine", {});
+    expect(refused.refusedBy).toBe("firm-rule");
+    expect(refused.fitChanged).toBeFalsy();
+    const declined = await executor(fakeHost(port).host, false).ex.run("set_free", { fix: ["occ_Mn1"] });
+    expect(declined.status).toBe("declined");
+    expect(declined.fitChanged).toBeFalsy();
+  });
+
+  it("a change that clears the fit changed it (the single-crystal weights)", async () => {
+    const port = scPage();
+    const { ex } = executor(fakeHost(port).host, "auto");
+    expect((await ex.run("refine", {})).fitChanged).toBe(true);
+    expect((await ex.run("set_weighting", { a: 0.05, b: 0.2 })).fitChanged).toBe(true);
+    expect(port.state().result).toBeNull();
+  });
+});

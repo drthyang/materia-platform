@@ -788,6 +788,22 @@ left alone. A reply (or its reasoning) that starts repeating one phrase over
 and over is stopped, keeping the text up to the first repeat so the
 conversation stays valid.
 
+**An answer without its evidence.** A final answer is sent back to the model
+once, with what to run, and the conversation says so
+([`src/agent/evidence.ts`](../src/agent/evidence.ts)), when it concludes:
+- on the PDF page, about the local structure against the average one, with
+  no boxcar scan;
+- on the single-crystal page, about the hand, with no absolute-structure
+  reading (`assess_refinement` or the report) taken after the last change of
+  the fit;
+- on any page, a grade of a fit that changed in this message, with no
+  assessment after the change; or a grade two bands or more from the
+  engine's verdict, or across the line between fair and good.
+
+The rules read the message's calls with what each came to and whether the
+fit on screen changed. A refused or declined change changes nothing, and a
+reading or a scan counts only when it answered.
+
 **Five ways to reach a model.**
 
 | Mode | Where the model runs | Credentials | Works on |

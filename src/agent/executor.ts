@@ -83,6 +83,12 @@ export interface ToolOutcome {
   readonly refusedBy?: RefusalKind;
   /** A refinement ran to its end and its result is on the page (refine, Prefit). */
   readonly refined?: boolean;
+  /**
+   * A change made: whether the fit on screen is another one after it (a
+   * refinement's result, a change that cleared it, a History step's put
+   * back). Absent for a call that changed nothing.
+   */
+  readonly fitChanged?: boolean;
 }
 
 /** A call refused by a rule or a guard: an error to the model, `refused` to the loop. */
@@ -518,7 +524,7 @@ export class AgentExecutor implements ToolRunner {
     };
     update({ status: "done", outcome: outcomeLine(page, spec.name, before, after, note) });
     // refine's own "refined" (changeOutcome): its result on the page, for the loop and the harness to read.
-    return { ...this.respond(out), ...(spec.name === "refine" ? { refined: !!after.result && after.result !== before.result } : {}) };
+    return { ...this.respond(out), ...(spec.name === "refine" ? { refined: !!after.result && after.result !== before.result } : {}), fitChanged: after.result !== before.result };
   }
 
   private requirePort(): AgentPort {
