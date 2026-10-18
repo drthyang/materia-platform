@@ -22,6 +22,7 @@
  */
 
 import type { ToolStatus } from "@/agent/executor";
+import { liveTool, type Evidence } from "@/agent/tools";
 
 export type EvidencePage = "powder" | "pdf" | "singleCrystal";
 
@@ -50,13 +51,16 @@ export interface EvidenceRule {
 /** The fit changed in this message. */
 const fitChanged = (log: readonly CallRecord[]): boolean => log.some((c) => c.fitChanged);
 
-/** One of `tools` answered after the last change of the fit in this message (anywhere in it, when the fit did not change). */
-function readSinceFitChanged(log: readonly CallRecord[], tools: readonly string[]): boolean {
+/** The call answered, and its tool gives this evidence (its definition's `evidence`). */
+const gives = (c: CallRecord, evidence: Evidence): boolean => c.status === "ok" && !!liveTool(c.name)?.evidence?.includes(evidence);
+
+/** A call that gives this evidence answered after the last change of the fit in this message (anywhere in it, when the fit did not change). */
+function givenSinceFitChanged(log: readonly CallRecord[], evidence: Evidence): boolean {
   let last = -1;
   log.forEach((c, i) => {
     if (c.fitChanged) last = i;
   });
-  return log.some((c, i) => i > last && c.status === "ok" && tools.includes(c.name));
+  return log.some((c, i) => i > last && gives(c, evidence));
 }
 
 /** The user asks about the local structure against the average (or how it depends on r). */
@@ -69,7 +73,7 @@ export const EVIDENCE_RULES: readonly EvidenceRule[] = [
     id: "local-structure",
     pages: ["pdf"],
     applies: (reply, asked) => LOCAL_QUESTION.test(asked) && LOCAL_CONCLUSION.test(reply),
-    satisfied: (log) => log.some((c) => c.name === "boxcar_scan" && c.status === "ok"),
+    satisfied: (log) => log.some((c) => gives(c, "localStructure")),
     nudge: "(From the app, not the user.) Your answer is about the local structure against the average one, but no boxcar scan ran for this question. The full fit over one window cannot tell them apart: run boxcar_scan (with `bonds` for the lengths the question is about), then answer from the boxes. If the scan cannot run, say why instead of answering.",
     notice: "The answer concluded about the local structure without a boxcar scan; the app asked for the scan first.",
   },
@@ -77,7 +81,7 @@ export const EVIDENCE_RULES: readonly EvidenceRule[] = [
     id: "hand",
     pages: ["singleCrystal"],
     applies: (reply) => /\b(absolute structure|the hand|enantiomer|enantiomorph|Flack x|Flack parameter|inverted (model|hand))\b/i.test(reply),
-    satisfied: (log) => readSinceFitChanged(log, ["assess_refinement", "write_report"]),
+    satisfied: (log) => givenSinceFitChanged(log, "absoluteStructure"),
     nudge: `(From the app, not the user.) Your answer speaks of the hand, but the absolute-structure reading (Parsons' x with its esd, the Bijvoet signs) was not taken on the refinement as it stands. Call assess_refinement and answer from its absoluteStructure reading, with its esd.`,
     notice: "The answer spoke of the hand without the absolute-structure reading of the refinement as it stands; the app asked for it first.",
   },
@@ -86,7 +90,7 @@ export const EVIDENCE_RULES: readonly EvidenceRule[] = [
     pages: ["powder", "pdf", "singleCrystal"],
     applies: (reply) => gradeIn(reply) !== null,
     // Only a fit that changed in this message needs its assessment before it is graded.
-    satisfied: (log) => !fitChanged(log) || readSinceFitChanged(log, ["assess_refinement", "write_report", "diagnose_fit"]),
+    satisfied: (log) => !fitChanged(log) || givenSinceFitChanged(log, "assessment"),
     nudge: `(From the app, not the user.) Your answer grades the fit, but it was refined after the last assessment. Call assess_refinement and quote its verdict ({{verdict}}); the grade is the engine's.`,
     notice: "The answer graded a fit refined since its last assessment; the app asked for the assessment first.",
   },

@@ -6,7 +6,7 @@
  */
 
 import type { InstrumentConstants, PowderAgentPort, PowderLiveState } from "@/agent/port";
-import type { LiveToolSpec } from "@/agent/tools";
+import { liveTool, type LiveToolSpec } from "@/agent/tools";
 import type { ProjectHistory } from "@/core/project/history";
 import {
   assess_refinement,
@@ -50,18 +50,15 @@ import type { ReferenceEntry } from "@/agent/references";
 /* eslint-disable @typescript-eslint/no-explicit-any -- inputs are validated against the spec's zod schema before a handler runs */
 type Input = any;
 
-/** Run a read or control tool. Returns the JSON result the model sees. */
-/** The tools that need a model with atoms: on the placeholder they would judge nothing. */
-// check_fit_range too: it cuts the window in the gaps between the reflections, and a placeholder has none.
-const NEEDS_STRUCTURE = new Set(["check_fit_range", "assess_refinement", "suggest_next_steps", "rank_next_parameters", "check_cell_symmetry", "find_unexplained_peaks", "review_symmetry", "diagnose_fit", "bond_geometry", "interpret_structure", "refine"]);
-
 /** Refuse a tool that needs a structure when only data are loaded. */
 export function requireStructure(name: string, s: PowderLiveState): void {
-  if (NEEDS_STRUCTURE.has(name) && s.structure.sites.length === 0) {
+  // On the placeholder they would judge nothing (check_fit_range cuts the window in the gaps between the reflections, and a placeholder has none).
+  if (liveTool(name)?.needsStructure && s.structure.sites.length === 0) {
     throw new Error("no structure is loaded: the data sit on an empty placeholder model (no atoms, no reflections). Ask the user to load the CIF of the phase (Load CIF…) before refining or judging anything");
   }
 }
 
+/** Run a read or control tool. Returns the JSON result the model sees. */
 export function readPowderTool(name: string, input: Input, port: PowderAgentPort, host: LiveToolHost): unknown {
   const s = port.state();
   requireStructure(name, s);
