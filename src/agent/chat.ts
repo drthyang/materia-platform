@@ -32,7 +32,7 @@ import type {
 } from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import { LIVE_TOOLS, inputJsonSchema, liveTool, type LiveToolSpec } from "@/agent/tools";
 import { scopeNote, scopedTools } from "@/agent/toolScope";
-import { evidenceGate, gradeContradiction } from "@/agent/evidence";
+import { evidenceGate, gradeContradiction, type CallRecord } from "@/agent/evidence";
 import type { AgentSituation, ToolOutcome, ToolRunner } from "@/agent/executor";
 import { agentSystemPrompt, autonomyNote, type AgentAutonomy } from "@/agent/systemPrompt";
 import { CONTEXT_EDITING, CONTEXT_EDITING_BETA, historyChars, pruneForLocal } from "@/agent/contextWindow";
@@ -201,7 +201,8 @@ export class AgentChat {
     let nudges = 0;
     // Evidence rules sent back for this message (evidence.ts): each at most once, and apart from the stall nudges.
     const gated = new Set<string>();
-    const ran: string[] = [];
+    // This message's calls: each with what it came to and whether the fit on screen changed (the evidence gate reads them).
+    const log: CallRecord[] = [];
     // The same call at the same state, or call after call that changes nothing (when the policy counts those): a loop.
     const policy = runPolicy(config, this.window);
     const guard = new LoopGuard({ countStill: policy.stallStop, method: config.skills !== false });
@@ -280,12 +281,12 @@ export class AgentChat {
         // tool that already answered, or says nothing after a result) leaves
         // the user waiting on nothing. Ask the model to go on, twice at most.
         const said = message.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("\n");
-        const stall = nudges < MAX_NUDGES ? stalledReply(said, this.tools.map((t) => t.name), ran, config.skills !== false) : null;
+        const stall = nudges < MAX_NUDGES ? stalledReply(said, this.tools.map((t) => t.name), log.map((c) => c.name), config.skills !== false) : null;
         if (stall === null) {
           if (message.stop_reason === "max_tokens" && this.window !== null) cb.onNotice("The reply filled the room left in the model's window and was cut off. Ask it to go on, or clear the conversation to give it more room.", "error");
-          if (!said.trim() && ran.length > 0) cb.onNotice(`The model gave no reply after the ${ran.at(-1)} result.${isLocal(config.transport) ? " Local models do this when the conversation no longer fits their context: clear the conversation, or use a longer context." : ""}`, "error");
+          if (!said.trim() && log.length > 0) cb.onNotice(`The model gave no reply after the ${log.at(-1)!.name} result.${isLocal(config.transport) ? " Local models do this when the conversation no longer fits their context: clear the conversation, or use a longer context." : ""}`, "error");
           // An answer without the evidence its question needs goes back once, with what to run.
-          const gate = gated.size < MAX_GATES ? this.finalAnswerCheck(said, text, ran, gated) : null;
+          const gate = gated.size < MAX_GATES ? this.finalAnswerCheck(said, text, log, gated) : null;
           if (gate === null) return;
           gated.add(gate.id);
           cb.onNotice(gate.notice, "info");
@@ -329,7 +330,7 @@ export class AgentChat {
           // Never a call left without its answer: the conversation must stay valid.
           out = { isError: true, text: `Error: the tool failed to run: ${e instanceof Error ? e.message : String(e)}`, status: "error" };
         }
-        ran.push(call.name);
+        log.push({ name: call.name, status: out.status ?? (out.isError ? "error" : "ok"), fitChanged: out.fitChanged === true });
         this.here = await this.situation();
         const after = this.here?.fingerprint ?? null;
         const seen = guard.record(call.name, call.input, out.text, fingerprint, after);
@@ -367,8 +368,8 @@ export class AgentChat {
    * for this message, or a grade of the fit that contradicts the engine's
    * verdict. Null for an answer that stands.
    */
-  private finalAnswerCheck(reply: string, asked: string, ran: readonly string[], gated: ReadonlySet<string>): { id: string; notice: string; nudge: string } | null {
-    const rule = evidenceGate(reply, asked, ran, this.page(), gated);
+  private finalAnswerCheck(reply: string, asked: string, log: readonly CallRecord[], gated: ReadonlySet<string>): { id: string; notice: string; nudge: string } | null {
+    const rule = evidenceGate(reply, asked, log, this.page(), gated);
     if (rule) return { id: rule.id, notice: rule.notice, nudge: rule.nudge };
     if (gated.has("verdict") || !this.executor.fill) return null;
     const band = this.executor.fill("{{verdict}}");
