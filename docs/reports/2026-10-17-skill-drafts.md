@@ -89,6 +89,18 @@ changed with them, in `check_cell_symmetry`'s live reading and description:
 **This is the one change here that reaches arm C as well:** a tool's reading is
 the same in both arms.
 
+### The single-crystal GooF line (the user's decision, 2026-10-18)
+
+The Validation tab called a single-crystal GooF good up to 1.3; the
+assessment's verdict, which the Agent's stopping rule reads, used the powder
+bands (excellent to 1.5, good to 2.5, fair to 4). A GooF of 1.4 read as a note
+on the tab and excellent to the Agent; 2.4 as a warning and good. Both now read
+one set of bands from the 1.3 line, the powder bands' steps from it
+(`GOOF_SINGLE_CRYSTAL_BANDS`: excellent to 1.3, good to 2.3, fair to 3.8, poor
+above): on F² the weighting scheme is refitted to the model, so SHELXL's
+weights bring a right model near 1. The powder bands are unchanged, and so is
+the reading below 0.95 (refit the weights).
+
 ## Evidence
 
 **The skill lint's allow-list is empty.** It held 13 failures (ten unmarked
@@ -151,6 +163,9 @@ and `dev-mn3ga-cell-strained` only.
   centring's class name a possible lost centring.
 - **The single-crystal extinction reading** gives one definition: large below
   y = 0.8, severe below 0.5.
+- **The single-crystal verdict** bands the GooF as the Validation tab does: a
+  GooF from 1.3 to 1.5 is good, not excellent, and from 2.3 to 2.5 fair, not
+  good, so the Agent's stopping rule asks a little more of a single crystal.
 - **Claude Code** reads the same skills; the Rietveld cases and MCP map are now
   notes beside it, linked from its References.
 - **MCP clients:** `review_symmetry`'s description states the candidates'
@@ -173,8 +188,6 @@ and `dev-mn3ga-cell-strained` only.
 - **Waiting on the user:** this review. Each skill's edits are in the diff; the
   Rietveld method's cases moved, unchanged, to
   `.claude/skills/my-rietveld-workflow/notes.md`.
-- The single-crystal GooF line (1.3 in the Validation tab, 1.5 in the
-  assessment's band) is still the user's decision.
 - 4.11, the lost-centring candidates in `review_symmetry`, comes next: the cell
   check now names a possible lost centring, and no tool yet lists the
   decentred groups.
@@ -185,5 +198,5 @@ and `dev-mn3ga-cell-strained` only.
 
 ## Checks
 
-`npm run build`, `npm run lint` and `npm test` pass at the branch head: 2324
+`npm run build`, `npm run lint` and `npm test` pass at the branch head: 2342
 tests, 265 skipped (live runs and data-dependent suites).

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { assessRefinement, relativeLineWidth, residualPeaks, suggestNextSteps } from "@/core/diagnostics/assessment";
+import { GOOF_SINGLE_CRYSTAL_BANDS } from "@/core/diagnostics/thresholds";
 import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import { refine, type RefinementProblem } from "@/core/refinement/engine";
 import { noisyPeakProblem } from "@/testSupport/noisyPeak";
@@ -41,6 +42,15 @@ describe("assessRefinement — fit verdict", () => {
     expect(a.verdict.rationale).toBe("GooF 0.89, below 1: the model leaves less misfit than the weights expect (their σ about 12 % too large) — refit the weighting scheme to the final model (SHELXL's suggestion).");
     // At 1 it is the floor.
     expect(assessRefinement({ result: result({ agreement: { goodnessOfFit: 1.02 } }), parameters: [param("scale", "scale", 1)], observationCount: 1465, mode: "single-crystal" }).verdict.band).toBe("excellent");
+  });
+
+  it("bands a single crystal's GooF from the Validation tab's 1.3 line, not the powder's 1.5", () => {
+    const band = (gof: number, mode: "powder" | "single-crystal"): string =>
+      assessRefinement({ result: result({ agreement: { goodnessOfFit: gof } }), parameters: [param("scale", "scale", 1)], observationCount: 1465, mode }).verdict.band;
+    expect([1.2, 1.4, 2.2, 2.4, 3.7, 3.9].map((g) => band(g, "single-crystal"))).toEqual(["excellent", "good", "good", "fair", "fair", "poor"]);
+    expect([1.2, 1.4, 2.4, 3.9].map((g) => band(g, "powder"))).toEqual(["excellent", "excellent", "good", "fair"]);
+    // The Validation tab reads the same lines: ok to 1.3, a note to 2.3, a warning to 3.8.
+    for (const [k, v] of Object.entries({ tooGood: 0.8, excellent: 1.3, good: 2.3, fair: 3.8 })) expect(GOOF_SINGLE_CRYSTAL_BANDS[k as keyof typeof GOOF_SINGLE_CRYSTAL_BANDS], k).toBeCloseTo(v, 12);
   });
 
   it("a high GoF reads as poor", () => {
