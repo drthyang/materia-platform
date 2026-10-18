@@ -8,6 +8,7 @@ import { disorderAssemblies } from "@/agent/correlationCheck";
 import { singleCrystalAnalysis } from "@/agent/method";
 import { pct } from "@/agent/liveCommon";
 import type { PageAdapter } from "@/agent/pages/types";
+import { switchedPlan } from "@/agent/pages/plans";
 import { stampOf } from "@/agent/pages/stamp";
 
 export const SINGLE_CRYSTAL_PAGE: PageAdapter<SingleCrystalAgentPort> = {
@@ -40,7 +41,10 @@ export const SINGLE_CRYSTAL_PAGE: PageAdapter<SingleCrystalAgentPort> = {
   // SHELXL's PART groups: pairs within one are listed, not stopped.
   assemblies: (s) => disorderAssemblies(s.structure, s.bindings, s.twinLaws),
   read: (name, input, port, host) => readSingleCrystalTool(name, input, port, host),
-  noOp: (spec, input, s) => singleCrystalNoOp(spec, input, s),
-  describe: (spec, input, s) => describeSingleCrystalChange(spec, input, s),
-  change: (name, input, port, host) => changeSingleCrystal(name, input, port, host),
+  // Its changes are three switches still (scTools.ts), until they become plans as the PDF page's are.
+  plan: switchedPlan<SingleCrystalAgentPort>(
+    (spec, input, s) => singleCrystalNoOp(spec, input, s),
+    (spec, input, s) => describeSingleCrystalChange(spec, input, s),
+    (name, input, port, host) => changeSingleCrystal(name, input, port, host),
+  ),
 };
