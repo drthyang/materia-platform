@@ -9,8 +9,9 @@ runs the app's own operations without React
 ([`src/app/powderPage.ts`](../src/app/powderPage.ts): the curves and agreement,
 what each control does, Refine, Prefit, the posterior, going back to a History
 step) through the app's compute client, in-thread, so a scenario's fit is the
-one the app would run. The PDF and single-crystal pages still keep their own
-copies ([AGENT_PLAN.md](./AGENT_PLAN.md), 1.2).
+one the app would run. A single-crystal page does the same
+([`src/app/singleCrystalPage.ts`](../src/app/singleCrystalPage.ts)). The PDF
+page still keeps its own copy ([AGENT_PLAN.md](./AGENT_PLAN.md), 1.2).
 
 - **In CI**, every scenario is replayed with a scripted model twice: once as the
   Agent should behave (every check passes) and once as it did when the failure

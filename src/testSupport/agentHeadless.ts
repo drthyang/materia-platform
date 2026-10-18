@@ -9,19 +9,16 @@ import { AgentExecutor, type ActivityEntry, type AgentHost } from "@/agent/execu
 import type { AgentReport } from "@/agent/report";
 import { PAGE_METHOD } from "@/agent/skills";
 import { emptyRecord, type AgentRecord } from "@/agent/method";
-import type { AgentPort, PdfAgentPort, PdfLiveState, PowderAgentPort, PowderLiveState, SingleCrystalAgentPort, SingleCrystalLiveState } from "@/agent/port";
+import type { AgentPort, PdfAgentPort, PdfLiveState, PowderAgentPort, PowderLiveState, SingleCrystalAgentPort } from "@/agent/port";
 import { gata4se8PdfExample } from "@/examples/gata4se8Pdf";
 import { buildPdfProblem, buildPdfSpec, pdfCurves } from "@/core/workflow/pdf";
 import { applyParameters } from "@/core/workflow/apply";
 import { refine as refineProblem } from "@/core/refinement/engine";
 import { boxcarTable, boxcarWindows, type BoxcarRun } from "@/core/workflow/pdfBoxcar";
-import { DEFAULT_INSTRUMENT, keptRow, withValidUserTies, type Session } from "@/app/powderSession";
-import { withEqualTies } from "@/core/refinement/constraints";
+import { DEFAULT_INSTRUMENT, type Session } from "@/app/powderSession";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import { isHydrogen, withAdpModel } from "@/core/crystal/adp";
-import type { DistanceRestraint, RidingRule, StructureModel } from "@/core/crystal/types";
-import { inversionText, invertedModel, invertedRiding, invertedTwinFractions } from "@/core/crystal/inversion";
-import { ridingRules } from "@/core/crystal/riding";
+import type { StructureModel } from "@/core/crystal/types";
 import { axisContext, convertAxisArray } from "@/visualization/axisUnits";
 import type { RefinementResult } from "@/core/refinement/types";
 import type { SampleOptions, SampleResult } from "@/core/refinement/bayes/sampler";
@@ -34,11 +31,13 @@ import {
 } from "@/app/powderPage";
 import { moveTo, recordStep, restoreStep, type ProjectHistory, type Snapshot, type StepActor, type StepKind } from "@/core/project/history";
 import type { Workspace } from "@/core/project/types";
-import { pdfReportInput, powderReportInput, singleCrystalReportInput } from "@/app/reportInputs";
-import type { ExtinctionModel, OmittedMeasurement, Radiation, ResolutionRange, ShelxWeighting, SingleCrystalDataset, TwinLaw } from "@/core/diffraction/types";
-import { EXTINCTION_PARAMETER_LABELS } from "@/core/diffraction/singleCrystalFactors";
-import { measurementMerge } from "@/core/diffraction/merge";
-import { SINGLE_CRYSTAL_REFINE_OPTIONS, buildSingleCrystalRefinementProblem, buildSingleCrystalSpec, mergedDataset, refineSingleCrystal, inResolution, isOmitted, optimalScale, singleCrystalRefinementComparison, withinResolution, withoutOmitted } from "@/core/workflow/singleCrystalRefinement";
+import { pdfReportInput, powderReportInput } from "@/app/reportInputs";
+import type { SingleCrystalDataset } from "@/core/diffraction/types";
+import {
+  liveStateOf, reportInputOf, singleCrystalFit, singleCrystalPage, singleCrystalProbe, singleCrystalThorough, withAdpModel as withScAdpModel, withExtinctionModel,
+  withFit, withFixed as withScFixed, withHand, withMerged, withOmitted, withOutlierFilter, withParameterTies as withScParameterTies, withRadiation,
+  withReset as withScReset, withResolution, withRestraints, withRiding, withThorough, withTwinLaws, withWeighting, type SingleCrystalCompute, type SingleCrystalPageModel,
+} from "@/app/singleCrystalPage";
 
 /**
  * What a headless page keeps of itself in a History step, and how it goes
@@ -478,250 +477,102 @@ export function pdfPort(): { port: PdfAgentPort; calls: string[] } {
 }
 
 /**
- * A single-crystal page without React: a structure and its reflections behind
- * the port, refined with the real engine, the outlier filter and the ADP
- * switch as the page has them.
+ * A single-crystal page without React: the page's model (singleCrystalPage.ts)
+ * in a variable, behind the page's own operations and the app's compute
+ * client, which runs in-thread here. So the Agent's tools change, fit and read
+ * this page as they do the workbench, and go_to_step puts a History step's
+ * page back.
  */
-export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDataset): { port: SingleCrystalAgentPort; calls: string[] } {
-  let model = start;
-  let base: SingleCrystalDataset = loaded;
-  let extinctionModel: ExtinctionModel = loaded.extinctionModel ?? "shelx";
-  let omitted: readonly OmittedMeasurement[] = [];
-  let resolution: ResolutionRange = {};
-  let riding: readonly RidingRule[] | null = start.riding?.length ? start.riding : null;
-  let weighting: ShelxWeighting | null = loaded.weighting ?? null;
-  let twinLaws: readonly TwinLaw[] = loaded.twinLaws ?? [];
-  let restraints: readonly DistanceRestraint[] = start.restraints ?? [];
-  let merged = false;
-  let inverted = false;
-  // The reflections with the extinction model, as the page's probed dataset.
-  let dataset: SingleCrystalDataset = { ...loaded, extinctionModel };
-  let spec = buildSingleCrystalSpec(model, dataset, { extinction: 0 });
-  let params = spec.params;
-  let result: RefinementResult | null = null;
-  let filter: { on: boolean; cutoffSigma: number; minExtinction?: number } = { on: false, cutoffSigma: 6 };
+export function singleCrystalPort(start: StructureModel, loaded: SingleCrystalDataset, opts: { readonly client?: SingleCrystalCompute } = {}): { port: SingleCrystalAgentPort; calls: string[] } {
+  let m = singleCrystalPage(start, loaded);
   const calls: string[] = [];
-  const values = (): Record<string, number> => Object.fromEntries(params.map((p) => [p.id, p.value]));
-  // The omitted measurements go first; the filter reads the residuals of the whole set against the current model, as the page's.
-  const kept = (): SingleCrystalDataset => withinResolution(withoutOmitted(dataset, omitted), model.cell, resolution);
-  const active = (): SingleCrystalDataset => {
-    if (!filter.on) return kept();
-    const full = singleCrystalRefinementComparison(model, dataset, params, spec.bindings);
-    return { ...dataset, reflections: dataset.reflections.filter((r, i) => !isOmitted(r, omitted) && inResolution(r, model.cell, resolution) && Math.abs(full.rows[i]?.deltaOverSigma ?? 0) <= filter.cutoffSigma && (filter.minExtinction === undefined || (full.rows[i]?.extinction ?? 1) >= filter.minExtinction)) };
-  };
-  const state = (): SingleCrystalLiveState => {
-    const ds = active();
-    const nKept = kept().reflections.length;
-    const outside = withoutOmitted(dataset, omitted).reflections.length - nKept;
-    const cmp = singleCrystalRefinementComparison(model, ds, params, spec.bindings);
-    const merge = measurementMerge((merged ? loaded : ds).reflections.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.iObs, sigma: r.sigma ?? 0 })), model.spaceGroup.operations);
-    return {
-      structure: model,
-      refinedStructure: applyParameters(model, spec.bindings, values()).model,
-      dataset,
-      totalReflections: loaded.reflections.length,
-      measurement: loaded.reflections,
-      probe: dataset.radiation.kind,
-      parameters: params,
-      bindings: spec.bindings,
-      result,
-      busy: false,
-      agreement: cmp.agreement,
-      merge: merge.statistics,
-      rows: cmp.rows,
-      allRows: ds.reflections.length < dataset.reflections.length ? singleCrystalRefinementComparison(model, dataset, params, spec.bindings).rows : cmp.rows,
-      outlierFilter: { ...filter, excluded: nKept - ds.reflections.length },
-      omitted,
-      resolution: { ...resolution, excluded: outside },
-      riding: riding ?? [],
-      weighting,
-      twinLaws,
-      distanceRestraints: restraints,
-      extinctionModel,
-      adpModel: adpModelOf(model),
-      ...(inverted ? { inverted: inversionText(start, invertedModel(start)), loadedAs: start } : {}),
-      magnetic: false,
-      observationCount: ds.reflections.length,
-      source: dataset.name,
-      restraints: [],
-    };
-  };
+  const client: SingleCrystalCompute = opts.client ?? new ComputeClient();
   const port: SingleCrystalAgentPort = {
     technique: "singleCrystal",
-    state,
+    state: () => liveStateOf(m, { busy: false }),
     setFixed: (changes) => {
       calls.push(`setFixed ${changes.map((c) => `${c.id}=${c.fixed}`).join(",")}`);
-      const m = new Map(changes.map((c) => [c.id, c.fixed]));
-      params = params.map((p) => (m.has(p.id) ? { ...p, fixed: m.get(p.id)! } : p));
+      m = withScFixed(m, changes);
     },
-    // The page's switch: the tensors (or spheres) seeded from the refined ADPs, entering fixed.
     setAdpModel: (anisotropic) => {
       calls.push(`adp ${anisotropic ? "anisotropic" : "isotropic"}`);
-      const refined = applyParameters(model, spec.bindings, values()).model;
-      const seeds = new Map(refined.sites.map((site) => [site.label, site.adp]));
-      const switched = withAdpModel({ ...start, sites: start.sites.map((site) => ({ ...site, adp: seeds.get(site.label) ?? site.adp })) }, anisotropic ? "anisotropic" : "isotropic", { hydrogensIsotropic: dataset.radiation.kind === "xray" });
-      model = riding ? { ...switched, riding } : switched;
-      const old = new Map(params.map((p) => [p.id, p]));
-      spec = buildSingleCrystalSpec(model, dataset, { extinction: 0 });
-      params = withValidUserTies(spec.params.map((p) => keptRow(p, p.kind === "bIso" || p.kind === "uAniso" ? undefined : old.get(p.id))));
-      result = null;
+      m = withScAdpModel(m, anisotropic);
     },
-    setExtinctionModel: (m) => {
-      calls.push(`extinction model ${m}`);
-      extinctionModel = m;
-      dataset = { ...base, extinctionModel, ...(weighting ? { weighting } : {}), ...(twinLaws.length ? { twinLaws } : {}) };
-      params = params.map((p) => (p.kind === "extinction" ? { ...p, label: EXTINCTION_PARAMETER_LABELS[m], value: 0, initialValue: 0 } : p));
-      result = null;
+    setExtinctionModel: (model) => {
+      calls.push(`extinction model ${model}`);
+      m = withExtinctionModel(m, model);
     },
     setRadiation: (update) => {
       calls.push(`radiation ${JSON.stringify(update)}`);
-      const probe = update.probe ?? base.radiation.kind;
-      const wl = update.wavelength ?? ("wavelength" in base.radiation ? base.radiation.wavelength : 1.54);
-      const radiation: Radiation = probe === "neutron-tof" ? { kind: "neutron-tof" } : probe === "xray" ? { kind: "xray", wavelength: wl, polarization: 0.5 } : { kind: "neutron", wavelength: wl };
-      base = { ...base, radiation };
-      dataset = { ...base, extinctionModel, ...(weighting ? { weighting } : {}), ...(twinLaws.length ? { twinLaws } : {}) };
-      const k = optimalScale(model, active(), params, spec.bindings);
-      if (k !== null) params = params.map((p) => (p.kind === "scale" ? { ...p, value: k } : p));
-      result = null;
+      m = withRadiation(m, update);
     },
     setResolution: (update) => {
       calls.push(`resolution ${JSON.stringify(update)}`);
-      const end = (v: number | null | undefined, was: number | undefined): number | undefined => (v === undefined ? was : v ?? undefined);
-      const dMin = end(update.dMin, resolution.dMin);
-      const dMax = end(update.dMax, resolution.dMax);
-      resolution = { ...(dMin !== undefined ? { dMin } : {}), ...(dMax !== undefined ? { dMax } : {}) };
+      m = withResolution(m, update);
     },
     setTwinLaws: (laws) => {
       calls.push(`twin ${laws.map((l) => JSON.stringify(l.matrix)).join(" ") || "none"}`);
-      const before = twinLaws;
-      twinLaws = laws;
-      const { twinLaws: _, ...rest } = dataset;
-      dataset = laws.length ? { ...rest, twinLaws: laws } : rest;
-      const old = new Map(params.map((p) => [p.id, p]));
-      spec = buildSingleCrystalSpec(model, dataset, { extinction: 0 });
-      // As the page: a law that stays where it was keeps its fraction.
-      const stays = (id: string): boolean => {
-        const i = Number(/^twin_(\d+)$/.exec(id)?.[1] ?? 0) - 1;
-        const a = before[i];
-        const b = laws[i];
-        return i >= 0 && !!a && !!b && a.matrix.every((row, r) => row.every((v, c) => Math.round(v) === Math.round(b.matrix[r]![c]!)));
-      };
-      params = withValidUserTies(spec.params.map((p) => keptRow(p, p.kind === "twinFraction" && !stays(p.id) ? undefined : old.get(p.id))));
-      result = null;
+      m = withTwinLaws(m, laws);
     },
     setParameterTies: (update) => {
       calls.push(`ties ${JSON.stringify(update)}`);
-      params = withValidUserTies(withEqualTies(params, update));
+      m = withScParameterTies(m, update);
     },
-    // The page's handler: the merged equivalents (or every measurement) with the batch rows rebuilt, the omissions and the last fit cleared.
     setMerged: (on) => {
       calls.push(`merged ${on}`);
-      merged = on;
-      const set = on ? mergedDataset(loaded, model.spaceGroup.operations) : loaded;
-      base = { ...set, radiation: base.radiation };
-      dataset = { ...base, extinctionModel, ...(weighting ? { weighting } : {}), ...(twinLaws.length ? { twinLaws } : {}) };
-      const old = new Map(params.map((p) => [p.id, p]));
-      spec = buildSingleCrystalSpec(model, dataset, { extinction: 0 });
-      params = withValidUserTies(spec.params.map((p) => keptRow(p, old.get(p.id))));
-      omitted = [];
-      result = null;
+      m = withMerged(m, on);
     },
     setDistanceRestraints: (next) => {
       calls.push(`restraints ${next.length}`);
-      restraints = next;
-      model = next.length ? { ...model, restraints: next } : (({ restraints: _, ...rest }) => rest)(model);
-      result = null;
+      m = withRestraints(m, next);
     },
-    // The page's handler: the model inverted through the origin, the shifts negated, the riding groups placed afresh, a twin with both hands re-expressed.
     invertStructure: () => {
       calls.push("invert");
-      // As the page: one transform both ways, the one that takes the model as loaded to its inverse.
-      const forward = invertedModel(start);
-      const total = forward.shift.map((v, i) => v + forward.translation[i]!) as unknown as typeof forward.shift;
-      const flip = invertedModel(model, { total });
-      const nextRiding = riding ? invertedRiding(riding, invertedModel(applyParameters(model, spec.bindings, values()).model, { total }).structure) : null;
-      const lawOf = (id: string): number => Number(spec.bindings.find((b) => b.parameterId === id && b.kind === "twinFraction")?.targetKey ?? 0) - 1;
-      const twins = invertedTwinFractions(twinLaws, twinLaws.map((_, i) => params.find((p) => p.kind === "twinFraction" && lawOf(p.id) === i)?.value ?? 0));
-      riding = nextRiding;
-      restraints = flip.structure.restraints ?? [];
-      model = { ...flip.structure, ...(nextRiding ? { riding: nextRiding } : {}) };
-      const old = new Map(params.map((p) => [p.id, p]));
-      spec = buildSingleCrystalSpec(model, dataset, { extinction: 0 });
-      params = withValidUserTies(spec.params.map((p) => {
-        const row = keptRow(p, old.get(p.id));
-        if (p.kind === "positionShift") return { ...row, value: -(old.get(p.id)?.value ?? 0) };
-        if (p.kind === "ridingTorsion") return { ...row, value: p.value, initialValue: p.value };
-        if (p.kind === "twinFraction") return { ...row, value: twins[lawOf(p.id)] ?? row.value };
-        return row;
-      }));
-      inverted = !inverted;
-      result = null;
-      return inverted ? inversionText(start, invertedModel(start)) : "back to the model as loaded";
+      const { model, text } = withHand(m);
+      m = model;
+      return text;
     },
     setWeighting: (next) => {
       calls.push(`weighting ${next ? `${next.a} ${next.b}` : "1/σ²"}`);
-      weighting = next && (next.a > 0 || next.b > 0) ? { a: next.a, b: next.b } : null;
-      const { weighting: _, ...rest } = dataset;
-      dataset = weighting ? { ...rest, weighting } : rest;
-      result = null;
+      m = withWeighting(m, next);
     },
-    // The page's handler: rules from the structure as refined now; the hydrogens' rows leave the fit (or come back).
     setRiding: (on, options) => {
       calls.push(`riding ${on ? "on" : "off"}${options ? ` ${JSON.stringify(options)}` : ""}`);
-      const rules = on ? ridingRules({ ...applyParameters(model, spec.bindings, values()).model, riding: [] }, options) : null;
-      if (rules && rules.rules.length === 0) return "no hydrogen is bonded to an atom of this model";
-      riding = rules ? rules.rules : null;
-      model = riding ? { ...model, riding } : (({ riding: _, ...rest }) => rest)(model);
-      const old = new Map(params.map((p) => [p.id, p]));
-      spec = buildSingleCrystalSpec(model, dataset, { extinction: 0 });
-      params = withValidUserTies(spec.params.map((p) => keptRow(p, old.get(p.id))));
-      result = null;
-      return rules && rules.unbonded.length ? `not riding (no parent in bonding distance): ${rules.unbonded.join(", ")}` : null;
+      const { model, message } = withRiding(m, on, options);
+      m = model;
+      return message;
     },
     setOmitted: (next) => {
       calls.push(`omit ${next.map((o) => `${o.h} ${o.k} ${o.l}${o.batch !== undefined ? `/${o.batch}` : ""}`).join(", ")}`);
-      omitted = next;
+      m = withOmitted(m, next);
     },
     setOutlierFilter: (update) => {
       calls.push(`filter ${JSON.stringify(update)}`);
-      const minExtinction = update.minExtinction === null ? undefined : update.minExtinction ?? filter.minExtinction;
-      filter = { on: update.on ?? filter.on, cutoffSigma: update.cutoffSigma ?? filter.cutoffSigma, ...(minExtinction !== undefined ? { minExtinction } : {}) };
+      m = withOutlierFilter(m, update);
     },
     refine: async () => {
       calls.push("refine");
-      const r = refineSingleCrystal(model, active(), params, spec.bindings, SINGLE_CRYSTAL_REFINE_OPTIONS);
-      params = params.map((p) => ({ ...p, value: r.parameters[p.id] ?? p.value }));
-      result = r;
+      m = withFit(m, await singleCrystalFit(client, m));
       return null;
     },
     thorough: async () => {
       calls.push("thorough");
-      return "cancelled";
+      m = withThorough(m, await singleCrystalThorough(client, m));
+      return null;
     },
-    probe: async (options, cut) => {
-      const data = active();
-      // As the page: the reflections whose y at the current model is below the cut leave the probe's data only.
-      const rows = cut ? singleCrystalRefinementComparison(model, dataset, params, spec.bindings).rows : [];
-      const yOf = new Map(dataset.reflections.map((r, i) => [r, rows[i]?.extinction ?? 1] as const));
-      const fitted = cut ? { ...data, reflections: data.reflections.filter((r) => (yOf.get(r) ?? 1) >= cut.minExtinction) } : data;
-      return refineProblem(buildSingleCrystalRefinementProblem(model, fitted, params, spec.bindings), { analyticDerivatives: true, ...options });
-    },
-    reportInput: () => {
-      const st = state();
-      return singleCrystalReportInput({
-        structure: st.refinedStructure, base: model, params, bindings: spec.bindings, result, dataset: active(), totalReflections: loaded.reflections.length,
-        excluded: st.outlierFilter.excluded, filterOn: filter.on, cutoffSigma: filter.cutoffSigma, minExtinction: filter.minExtinction ?? null, omitted, resolution: st.resolution, agreement: st.agreement, merge: st.merge,
-        points: st.rows.map((r) => ({ obs: r.foSq, calc: r.fcSq })), magnetic: null, explored: null,
-        ...(st.inverted ? { inverted: st.inverted } : {}),
-      });
-    },
+    probe: (options, cut) => singleCrystalProbe(client, m, options, cut),
+    reportInput: () => reportInputOf(m),
     cancel: () => calls.push("cancel"),
     reset: (ids) => {
       calls.push(`reset${ids ? ` ${ids.join(",")}` : ""}`);
-      const only = ids ? new Set(ids) : null;
-      params = params.map((p) => (only && !only.has(p.id) ? p : { ...p, value: p.initialValue }));
-      result = null;
+      m = withScReset(m, ids);
     },
   };
+  PAGE_STATE.set(port, {
+    capture: () => m,
+    restore: (captured) => {
+      m = captured as SingleCrystalPageModel;
+    },
+  });
   return { port, calls };
 }

@@ -190,7 +190,8 @@ export function ParameterPanel({ params, esd, onChange, onRefine, onThorough, th
         <button
           style={{ ...secondaryButton, padding: "3px 11px", fontSize: 11, ...(busy ? disabledStyle : {}) }}
           disabled={busy}
-          onClick={onReset}
+          // Called with nothing: the pages' reset takes the ids to reset, and the click event is not a list of them.
+          onClick={() => onReset()}
           title="Reset all parameters to their initial values"
         >
           Reset
