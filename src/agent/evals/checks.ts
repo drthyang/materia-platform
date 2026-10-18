@@ -7,7 +7,8 @@
  */
 
 import { PAGE_METHOD } from "@/agent/skills";
-import { groupOf, keyOfState, type ParameterGroup } from "@/agent/method";
+import { groupOf, type ParameterGroup } from "@/agent/method";
+import { analysisOf } from "@/agent/pages";
 import { announcedTool } from "@/agent/chat";
 import { LIVE_TOOLS, liveTool } from "@/agent/tools";
 import { convertInterval } from "@/visualization/axisUnits";
@@ -124,7 +125,7 @@ export function coversStages(ids: readonly string[]): Check {
   return {
     name: `covers the stages ${ids.join(", ")}`,
     grade: (run) => {
-      const record = run.records.get(keyOfState(run.port.technique, run.port.state()));
+      const record = run.records.get(analysisOf(run.port));
       const done = new Set(record?.stagesDone ?? []);
       const missing = ids.filter((id) => !done.has(id));
       return missing.length === 0 ? ok(`done: ${[...done].join(", ")}`) : fail(`not done: ${missing.join(", ")}`);
