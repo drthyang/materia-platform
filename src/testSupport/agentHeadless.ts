@@ -9,15 +9,10 @@ import { AgentExecutor, type ActivityEntry, type AgentHost } from "@/agent/execu
 import type { AgentReport } from "@/agent/report";
 import { PAGE_METHOD } from "@/agent/skills";
 import { emptyRecord, type AgentRecord } from "@/agent/method";
-import type { AgentPort, PdfAgentPort, PdfLiveState, PowderAgentPort, PowderLiveState, SingleCrystalAgentPort } from "@/agent/port";
+import type { AgentPort, PdfAgentPort, PowderAgentPort, PowderLiveState, SingleCrystalAgentPort } from "@/agent/port";
 import { gata4se8PdfExample } from "@/examples/gata4se8Pdf";
-import { buildPdfProblem, buildPdfSpec, pdfCurves } from "@/core/workflow/pdf";
-import { applyParameters } from "@/core/workflow/apply";
-import { refine as refineProblem } from "@/core/refinement/engine";
-import { boxcarTable, boxcarWindows, type BoxcarRun } from "@/core/workflow/pdfBoxcar";
 import { DEFAULT_INSTRUMENT, type Session } from "@/app/powderSession";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
-import { isHydrogen, withAdpModel } from "@/core/crystal/adp";
 import type { StructureModel } from "@/core/crystal/types";
 import { axisContext, convertAxisArray } from "@/visualization/axisUnits";
 import type { RefinementResult } from "@/core/refinement/types";
@@ -31,7 +26,11 @@ import {
 } from "@/app/powderPage";
 import { moveTo, recordStep, restoreStep, type ProjectHistory, type Snapshot, type StepActor, type StepKind } from "@/core/project/history";
 import type { Workspace } from "@/core/project/types";
-import { pdfReportInput, powderReportInput } from "@/app/reportInputs";
+import { powderReportInput } from "@/app/reportInputs";
+import {
+  liveStateOf as liveStateOfPdf, pdfBoxcar, pdfFit, pdfPage, pdfPosterior, pdfProbe, pdfThorough, reportInputOf as reportInputOfPdf, withAdpModel as withPdfAdpModel,
+  withBoxcarPlan, withBoxcarRun, withFit as withPdfFit, withFitRange, withFixed as withPdfFixed, withPosterior, withReset as withPdfReset, type PdfCompute, type PdfPageModel,
+} from "@/app/pdfPage";
 import type { SingleCrystalDataset } from "@/core/diffraction/types";
 import {
   liveStateOf, reportInputOf, singleCrystalFit, singleCrystalPage, singleCrystalProbe, singleCrystalThorough, withAdpModel as withScAdpModel, withExtinctionModel,
@@ -357,122 +356,72 @@ export function executor(
   return { ex, asked, seen };
 }
 
-/** What a structure's sites refine: one U each, the tensor, or both. */
-function adpModelOf(structure: StructureModel): "isotropic" | "anisotropic" | "mixed" {
-  // Hydrogens kept isotropic under an anisotropic model (X-ray) do not make it mixed.
-  const heavy = structure.sites.filter((site) => !isHydrogen(site));
-  const kinds = new Set((heavy.length ? heavy : structure.sites).map((site) => site.adp.kind));
-  return kinds.size === 1 ? [...kinds][0]! : "mixed";
-}
-
-/** The GaTa4Se8 PDF demo behind a PDF page's port, refined with the real engine. */
-export function pdfPort(): { port: PdfAgentPort; calls: string[] } {
+/**
+ * The GaTa4Se8 PDF demo as the app opens it (its converged values as the
+ * starting values), behind the PDF page's own operations (pdfPage.ts) and the
+ * app's compute client, in-thread: the app's fits, Prefit, boxcar scan and
+ * posterior. It opens on a 1.5–6 Å window, passed as the app passes the
+ * demo's own (1.5–28 Å, where one fit takes seconds), so an eval stays short.
+ */
+export function pdfPort(opts: { readonly client?: PdfCompute } = {}): { port: PdfAgentPort; calls: string[] } {
   const demo = gata4se8PdfExample();
-  let model: StructureModel = demo.structure;
-  let spec = buildPdfSpec(model, demo.pattern);
-  let params = spec.params.map((p) => ({ ...p, value: demo.refinedParams[p.id] ?? p.value }));
-  let result: RefinementResult | null = null;
-  let lastRun: BoxcarRun | null = null;
-  const defaultRange = { min: 1.5, max: 6 };
-  let fitRange = { ...defaultRange };
-  const rs = demo.pattern.points.map((p) => p.r);
+  let m = pdfPage(demo.structure, demo.pattern, { preset: { values: demo.refinedParams, fitRange: { min: 1.5, max: 6 } } });
   const calls: string[] = [];
-  const state = (): PdfLiveState => {
-    const curves = pdfCurves(model, demo.pattern, params, spec.bindings, fitRange);
-    let num = 0;
-    let den = 0;
-    let n = 0;
-    curves.x.forEach((r, i) => {
-      if (r < fitRange.min || r > fitRange.max) return;
-      n++;
-      num += (curves.yObs[i]! - curves.yCalc[i]!) ** 2;
-      den += curves.yObs[i]! ** 2;
-    });
-    const values: Record<string, number> = {};
-    for (const p of params) values[p.id] = p.value;
-    return {
-      phases: [model],
-      refinedPhases: [applyParameters(model, spec.bindings, values).model],
-      pattern: demo.pattern,
-      parameters: params,
-      bindings: spec.bindings,
-      result,
-      fitRange,
-      defaultRange,
-      extent: { min: rs[0]!, max: rs.at(-1)! },
-      busy: false,
-      rw: Math.sqrt(num / den),
-      curves,
-      observationCount: n,
-      positionMode: "atomic",
-      adpModel: adpModelOf(model),
-      spinModel: false,
-      warnings: [],
-      source: "test",
-      restraints: spec.restraints,
-    };
-  };
-  const refine = async (): Promise<string | null> => {
-    calls.push("refine");
-    const r = refineProblem(buildPdfProblem(model, demo.pattern, params, spec.bindings, spec.restraints, fitRange), { maxIterations: 4, analyticDerivatives: true });
-    params = params.map((p) => ({ ...p, value: r.parameters[p.id] ?? p.value }));
-    result = r;
-    return null;
-  };
+  const client: PdfCompute = opts.client ?? new ComputeClient();
   const port: PdfAgentPort = {
     technique: "pdf",
-    state,
+    state: () => liveStateOfPdf(m, { busy: false }),
     setFixed: (changes) => {
       calls.push(`setFixed ${changes.map((c) => `${c.id}=${c.fixed}`).join(",")}`);
-      const m = new Map(changes.map((c) => [c.id, c.fixed]));
-      params = params.map((p) => (m.has(p.id) ? { ...p, fixed: m.get(p.id)! } : p));
+      m = withPdfFixed(m, changes);
     },
-    // The ADPs box: the model rebuilt in the other ADP model, the other rows kept by id.
     setAdpModel: (anisotropic) => {
       calls.push(`adp ${anisotropic ? "anisotropic" : "isotropic"}`);
-      model = withAdpModel(model, anisotropic ? "anisotropic" : "isotropic");
-      const old = new Map(params.map((p) => [p.id, p]));
-      spec = buildPdfSpec(model, demo.pattern);
-      params = spec.params.map((p) => { const o = old.get(p.id); return o ? { ...p, value: o.value, fixed: o.fixed } : p; });
-      result = null;
+      m = withPdfAdpModel(m, anisotropic);
     },
     setFitRange: (r) => {
       calls.push(`range ${r ? `${r.min}-${r.max}` : "default"}`);
-      fitRange = r ? { ...r } : { ...defaultRange };
+      m = withFitRange(m, r);
     },
-    refine,
+    refine: async () => {
+      calls.push("refine");
+      m = withPdfFit(m, await pdfFit(client, m));
+      return null;
+    },
     thorough: async () => {
       calls.push("thorough");
-      return "cancelled";
+      m = withPdfFit(m, await pdfThorough(client, m));
+      return null;
     },
-    probe: async (options) => refineProblem(buildPdfProblem(model, demo.pattern, params, spec.bindings, spec.restraints, fitRange), { ...options, analyticDerivatives: true }),
-    // The Boxcar view's scan, one short refinement per box, the rows untouched.
+    probe: (options) => pdfProbe(client, m, options),
+    // The Boxcar view's scan: the Agent's plan becomes the panel's, the rows untouched.
     boxcar: async (plan) => {
       calls.push(`boxcar ${plan.width}/${plan.step}${plan.bonds?.length ? ` bonds ${plan.bonds.join(",")}` : ""}`);
-      const windows = boxcarWindows({ range: fitRange, width: plan.width, step: plan.step });
-      const own = plan.free ? new Set(plan.free) : null;
-      let seed = own ? params.map((p) => (p.expression ? p : { ...p, fixed: !own.has(p.id) })) : params;
-      const steps = windows.map((w) => {
-        const result = refineProblem(buildPdfProblem(model, demo.pattern, seed, spec.bindings, spec.restraints, { min: w.min, max: w.max }), { maxIterations: 2, analyticDerivatives: true });
-        seed = seed.map((p) => ({ ...p, value: result.parameters[p.id] ?? p.value }));
-        return { datasetId: String(w.center), result, parameters: seed, carried: true };
-      });
-      const freeIds = (own ? params.filter((p) => own.has(p.id)) : params).filter((p) => (own || !p.fixed) && !p.expression).map((p) => p.id);
-      lastRun = { windows, width: plan.width, restarts: 0, freeIds, series: [{ direction: "up" as const, result: { steps, evolution: [] } }], ...(plan.bonds?.length ? { bondSites: [...plan.bonds] } : {}) };
-      return lastRun;
+      m = withBoxcarPlan(m, { width: plan.width, step: plan.step, direction: plan.direction });
+      const out = await pdfBoxcar(client, m, { ...m.boxcarPlan, ...plan });
+      m = withBoxcarRun(m, out.run, out.key);
+      return out.stopped ? null : out.run;
     },
-    reportInput: () => {
-      const st = state();
-      return pdfReportInput({
-        phases: st.refinedPhases, params, bindings: spec.bindings, result, pattern: demo.pattern, rw: st.rw, fitRange,
-        curves: { x: st.curves.x, yObs: st.curves.yObs, yCalc: st.curves.yCalc, diff: st.curves.yObs.map((o, i) => o - st.curves.yCalc[i]!) },
-        positionMode: "atomic", spinModel: null, explored: null,
-        boxcar: lastRun ? boxcarTable(lastRun, model, spec.bindings, params) : null,
-      });
+    samplePosterior: async ({ continue: more, steps }) => {
+      calls.push(`sample ${more ? "continue" : "start"} ${steps}`);
+      if (more && !m.sample) return "there is no posterior run to continue: sample first";
+      const out = await pdfPosterior(client, m, more, steps);
+      m = withPosterior(m, out.sample, out.key);
+      return out.sample.result;
     },
+    reportInput: () => reportInputOfPdf(m),
     cancel: () => calls.push("cancel"),
-    reset: () => calls.push("reset"),
+    reset: (ids) => {
+      calls.push(ids ? `reset ${ids.join(",")}` : "reset");
+      m = withPdfReset(m, ids);
+    },
   };
+  PAGE_STATE.set(port, {
+    capture: () => m,
+    restore: (captured) => {
+      m = captured as PdfPageModel;
+    },
+  });
   return { port, calls };
 }
 
