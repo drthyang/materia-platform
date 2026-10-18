@@ -31,22 +31,6 @@ export function planFrom<P extends AgentPort>(plans: Plans<P>): (spec: LiveToolS
   };
 }
 
-/**
- * A page whose changes are still three switches (a no-op, the card's line,
- * the change): the plan they make. The change validates its input when it is
- * made, after the card, as it did.
- */
-export function switchedPlan<P extends AgentPort>(
-  noOp: (spec: LiveToolSpec, input: ToolInput, s: StateOf<P>, port: P) => string | null,
-  describe: (spec: LiveToolSpec, input: ToolInput, s: StateOf<P>, port: P) => string,
-  apply: (name: string, input: ToolInput, port: P, host: PageHost) => Promise<ChangeResult>,
-): (spec: LiveToolSpec, input: ToolInput, s: StateOf<P>, port: P) => Plan {
-  return (spec, input, s, port) => {
-    const why = noOp(spec, input, s, port);
-    return why ? nothing(why) : { preview: describe(spec, input, s, port), apply: (host) => apply(spec.name, input, port, host) };
-  };
-}
-
 // ── the plans every page shares ─────────────────────────────────────────────
 
 /** set_free: the parameter panel's check boxes. */

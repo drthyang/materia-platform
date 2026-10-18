@@ -6,7 +6,7 @@
  */
 
 import type { InstrumentConstants, PowderAgentPort, PowderLiveState } from "@/agent/port";
-import { liveTool, type LiveToolSpec } from "@/agent/tools";
+import { liveTool, type InputOf } from "@/agent/tools";
 import type { ProjectHistory } from "@/core/project/history";
 import {
   assess_refinement,
@@ -18,8 +18,7 @@ import {
 } from "@/mcp/tools";
 import type { StructureModel } from "@/core/crystal/types";
 import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
-import type { BackgroundType } from "@/core/diffraction/background";
-import type { CorrectionsUpdate, MustrainModel, PeakCorrectionId, SiteTies } from "@/app/powderSpec";
+import type { CorrectionsUpdate, SiteTies } from "@/app/powderSpec";
 import type { PowderXUnit } from "@/core/diffraction/types";
 import { availableDisplayUnits, convertAxisValue, convertInterval } from "@/visualization/axisUnits";
 import { residualPeaks } from "@/core/diagnostics/assessment";
@@ -35,12 +34,13 @@ import { structureTable } from "@/agent/structureTable";
 import { powderReflectionObsCalc } from "@/core/workflow/obsCalc";
 import { excludedPointMask } from "@/core/refinement/factors";
 import { checkEqualTies, type EqualTieUpdate } from "@/core/refinement/constraints";
-import { applyFree, bondsOf, cellOf, describeFree, freeNoOp, goToStep, historyView, matchIds, parameterSummary, pct, sig, type LiveToolHost } from "@/agent/liveCommon";
+import { bondsOf, cellOf, historyView, matchIds, parameterSummary, pct, sig, type LiveToolHost } from "@/agent/liveCommon";
+import { change, freePlan, goToPlan, nothing, refinePlan, resetPlan, type Plans } from "@/agent/pages/plans";
 import { powderValidation } from "@/core/diagnostics/powderValidation";
 import type { ReportCheck } from "@/core/export/report";
 import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, correlationsCheck, findingChecks, noResultCheck, verdictCheck } from "@/agent/reportChecks";
 import { groupOf } from "@/agent/method";
-import { magneticNext } from "@/agent/magneticTools";
+import { MAGNETIC_PLANS, magneticNext } from "@/agent/magneticTools";
 import type { UnitCell } from "@/core/crystal/types";
 import { dScaleSearch, observedPeaks, wrongScale } from "@/core/diagnostics/dScale";
 import { inspectDataRange, type DataEnd, type DataRangeReading } from "@/core/diagnostics/dataRange";
@@ -277,102 +277,50 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
 }
 
 /**
- * Make a change on the page. Returns a note for the model when the change
- * needed adjusting (tied parameters skipped). The caller records the step and
- * reports the outcome once the change has rendered.
+ * The page's changes, one plan each (pages/plans.ts): what the approval card
+ * says, and the change through the page's own handler. A change that cannot
+ * run on this page is refused here, before its card. The magnetic step's
+ * changes are the step's own (magneticTools.ts).
  */
-export async function changePowder(name: string, input: Input, port: PowderAgentPort, host: LiveToolHost): Promise<string | undefined> {
-  const s = port.state();
-  requireStructure(name, s);
-  switch (name) {
-    case "set_free":
-      return applyFree(s.parameters, input, port.setFixed);
-    case "set_background":
+export const POWDER_PLANS: Plans<PowderAgentPort> = {
+  ...MAGNETIC_PLANS,
+  set_free: freePlan,
+  set_background: (input, s, port) => {
+    // An empty change is an error before anyone is asked.
+    if (input.terms === undefined && input.type === undefined) throw new Error("pass `terms`, `type`, or both");
+    const preview = [
+      ...(input.terms !== undefined ? [`Background terms ${s.settings.backgroundTerms} → ${String(input.terms)}`] : []),
+      ...(input.type !== undefined ? [`Background basis ${s.settings.backgroundType} → ${input.type}`] : []),
+    ].join(" · ");
+    return change(preview, () => {
       if (input.terms !== undefined) port.setBackgroundTerms(input.terms);
-      if (input.type !== undefined) port.setBackgroundType(input.type as BackgroundType);
+      if (input.type !== undefined) port.setBackgroundType(input.type);
       return undefined;
-    case "set_microstrain":
-      port.setMustrain(input.model as MustrainModel);
-      return undefined;
-    case "set_adp_model":
-      port.setAnisotropicAdp(!!input.anisotropic);
-      return undefined;
-    case "set_site_ties":
-      port.setSiteTies(siteTieUpdate(input));
-      return undefined;
-    case "set_corrections": {
-      if (!port.setCorrections) throw new Error("this page has no corrections to set");
-      port.setCorrections(correctionUpdate(input));
-      return undefined;
-    }
-    case "add_antisite": {
-      if (!port.addAntisite) throw new Error("this page cannot change its structure");
-      port.addAntisite(String(input.siteA), String(input.siteB));
-      return undefined;
-    }
-    case "add_known_phase": {
-      if (!port.addPhase) throw new Error("this page cannot add a phase");
-      port.addPhase(knownPhaseStructure(String(input.name))!);
-      return undefined;
-    }
-    case "tie_parameters": {
-      if (!port.setParameterTies) throw new Error("this page cannot tie parameters");
-      port.setParameterTies(tieUpdate(s.parameters, input));
-      return undefined;
-    }
-    case "set_instrument_constants": {
-      if (!port.setInstrumentConstants) throw new Error("this page cannot change its instrument");
-      port.setInstrumentConstants(constantsUpdate(input));
-      return undefined;
-    }
-    case "set_fit_range": {
-      if (input.whole) {
-        port.setFitRange(null);
-        return undefined;
-      }
-      const { min, max } = requestedWindow(s, input);
-      if (max < s.extent.min || min > s.extent.max) throw new Error(`${sig(min, 6)}–${sig(max, 6)} ${UNIT[s.pattern.xUnit]} is outside the pattern (${sig(s.extent.min, 6)}–${sig(s.extent.max, 6)})`);
-      port.setFitRange({ min: Math.max(min, s.extent.min), max: Math.min(max, s.extent.max) });
-      return undefined;
-    }
-    case "refine":
-      if (s.viewOnly) throw new Error("this pattern is view-only (a TOF pattern without a TOF profile); load its instrument file to refine it");
-      if (!s.parameters.some((p) => !p.fixed && !p.expression)) throw new Error("no parameter is free — free some with set_free first");
-      {
-        const why = await (input.mode === "thorough" ? port.thorough() : port.refine());
-        return why ? `The refinement did not finish (${why}); the parameters keep their values from before it.` : undefined;
-      }
-    case "reset_parameters":
-      port.reset(input.parameters ? matchIds(s.parameters, input.parameters as string[]) : undefined);
-      return undefined;
-    case "go_to_step":
-      goToStep(host, input.step);
-      return undefined;
-    default:
-      throw new Error(`${name} is not a powder change tool`);
-  }
-}
-
-/**
- * Why a change would do nothing, or null when it would do something — a
- * no-op never asks the user for approval.
- */
-export function powderNoOp(spec: LiveToolSpec, input: Input, s: PowderLiveState): string | null {
-  // Checked before the correlation probe: on the placeholder it would misread.
-  requireStructure(spec.name, s);
-  // An empty change is an error before anyone is asked.
-  if (spec.name === "set_background" && input.terms === undefined && input.type === undefined) throw new Error("pass `terms`, `type`, or both");
-  if (spec.name === "set_adp_model") {
+    });
+  },
+  set_microstrain: (input, s, port) => change(`Microstrain ${s.settings.mustrain} → ${input.model}`, () => {
+    port.setMustrain(input.model);
+    return undefined;
+  }),
+  set_adp_model: (input, s, port) => {
     const want = input.anisotropic ? "anisotropic" : "isotropic";
-    return s.structure.sites.every((site) => site.adp.kind === want) ? `the ADPs are already ${want}` : null;
-  }
-  if (spec.name === "set_site_ties") {
+    if (s.structure.sites.every((site) => site.adp.kind === want)) return nothing(`the ADPs are already ${want}`);
+    return change(`ADPs ${s.settings.anisotropicAdp ? "anisotropic" : "isotropic"} → ${want}`, () => {
+      port.setAnisotropicAdp(input.anisotropic);
+      return undefined;
+    });
+  },
+  set_site_ties: (input, s, port) => {
     const update = siteTieUpdate(input);
     const keys = Object.keys(update) as (keyof SiteTies)[];
     if (keys.length === 0) throw new Error("pass at least one of `positions`, `adp`, `occupancyToUnity`, `composition`");
-    return keys.every((k) => tieOn(s.settings.siteTies, k) === update[k]) ? "the site ties are already set so" : null;
-  }
-  if (spec.name === "set_corrections") {
+    if (keys.every((k) => tieOn(s.settings.siteTies, k) === update[k])) return nothing("the site ties are already set so");
+    return change(keys.map((k) => `${SITE_TIE_NAMES[k]} ${update[k] ? "on" : "off"}`).join(" · "), () => {
+      port.setSiteTies(update);
+      return undefined;
+    });
+  },
+  set_corrections: (input, s, port) => {
     const update = correctionUpdate(input);
     if (Object.keys(update).length === 0) throw new Error("pass `asymmetry`, `preferredOrientation`, `peak`, or several");
     if (update.asymmetry && s.pattern.xUnit !== "twoTheta") throw new Error("peak asymmetry (FCJ) is for constant-wavelength 2θ data; a TOF peak's asymmetry is its back-to-back exponentials");
@@ -381,24 +329,56 @@ export function powderNoOp(spec: LiveToolSpec, input: Input, s: PowderLiveState)
     const same = (update.asymmetry === undefined || !!now.asymmetry === update.asymmetry)
       && (update.preferredOrientation === undefined || (update.preferredOrientation === null ? !now.preferredOrientation : now.preferredOrientation?.join() === update.preferredOrientation.join()))
       && (update.peak === undefined || [...update.peak].sort().join() === [...(now.peak ?? [])].sort().join());
-    return same ? "the corrections are already set so" : null;
-  }
-  if (spec.name === "add_known_phase") {
-    const name = String(input.name);
-    if (!knownPhaseStructure(name)) throw new Error(`"${name}" is not in the library — it holds ${knownPhaseNames().join(", ")}; for another phase the user loads its CIF (Add CIF…)`);
-    if ([s.structure, ...s.extraPhases].some((p) => p.name === name)) return `${name} is already a phase of the model`;
-  }
-  if (spec.name === "add_antisite") {
+    if (same) return nothing("the corrections are already set so");
+    const set = handler(port.setCorrections, "this page has no corrections to set");
+    const preview = [
+      ...(update.asymmetry !== undefined ? [`asymmetry ${update.asymmetry ? "on" : "off"}`] : []),
+      ...(update.preferredOrientation !== undefined ? [update.preferredOrientation ? `preferred orientation along ${update.preferredOrientation.join(" ")}` : "preferred orientation off"] : []),
+      ...(update.peak !== undefined ? [`peak corrections: ${update.peak.length ? update.peak.join(", ") : "none"}`] : []),
+    ].join(" · ");
+    return change(preview, () => {
+      set(update);
+      return undefined;
+    });
+  },
+  add_antisite: (input, s, port) => {
     if (s.extraPhases.length > 0) throw new Error("antisite disorder is added to a single-phase model");
     // Throws for an unknown site, two sites of one element, or a pair already exchanged.
-    withAntisite(s.structure, String(input.siteA), String(input.siteB));
-    return null;
-  }
-  if (spec.name === "tie_parameters") {
+    withAntisite(s.structure, input.siteA, input.siteB);
+    const add = handler(port.addAntisite, "this page cannot change its structure");
+    const a = s.structure.sites.find((x) => x.label === input.siteA);
+    const b = s.structure.sites.find((x) => x.label === input.siteB);
+    return change(`Antisite ${input.siteA} ⇄ ${input.siteB}: ${b?.element ?? "?"} on ${input.siteA}, ${a?.element ?? "?"} on ${input.siteB}, at occupancy 0 · Σ occ = 1 and hold composition on`, () => {
+      add(input.siteA, input.siteB);
+      return undefined;
+    });
+  },
+  add_known_phase: (input, s, port) => {
+    const phase = knownPhaseStructure(input.name);
+    if (!phase) throw new Error(`"${input.name}" is not in the library — it holds ${knownPhaseNames().join(", ")}; for another phase the user loads its CIF (Add CIF…)`);
+    if ([s.structure, ...s.extraPhases].some((p) => p.name === input.name)) return nothing(`${input.name} is already a phase of the model`);
+    const add = handler(port.addPhase, "this page cannot add a phase");
+    return change(`Add ${phase.name} (${phase.spaceGroup.hermannMauguin ?? "?"}, a = ${phase.cell.a} Å) as a further phase: its scale and cell refine with the others`, () => {
+      add(phase);
+      return undefined;
+    });
+  },
+  tie_parameters: (input, s, port) => {
     if (input.complement !== undefined || input.adp !== undefined) throw new Error("`complement` and `adp` are the single-crystal page's: here set_site_ties ties a shared site's occupancies (Σ occ = 1) and ADPs");
-    return checkEqualTies(s.parameters, tieUpdate(s.parameters, input)).unchanged ? "those parameters are already tied so" : null;
-  }
-  if (spec.name === "set_instrument_constants") {
+    const update = tieUpdate(s.parameters, input);
+    if (checkEqualTies(s.parameters, update).unchanged) return nothing("those parameters are already tied so");
+    const tie = handler(port.setParameterTies, "this page cannot tie parameters");
+    const kind = (id: string | undefined): string => (s.parameters.find((p) => p.id === id)?.kind === "occupancy" ? "occupancy" : "B");
+    const preview = [
+      ...(update.equal ? [`Tie ${update.equal.slice(1).join(", ")} = ${update.equal[0]} (one ${kind(update.equal[0])} refines)`] : []),
+      ...(update.release ? [`Release the tie on ${update.release.join(", ")}`] : []),
+    ].join(" · ");
+    return change(preview, () => {
+      tie(update);
+      return undefined;
+    });
+  },
+  set_instrument_constants: (input, s, port) => {
     const update = constantsUpdate(input);
     if (Object.keys(update).length === 0) throw new Error("pass `polarization`, `kAlpha2Ratio`, or both");
     const r = s.pattern.radiation;
@@ -406,32 +386,69 @@ export function powderNoOp(spec: LiveToolSpec, input: Input, s: PowderLiveState)
     if (update.kAlpha2Ratio !== undefined && !r.kAlpha2) throw new Error("this instrument has no Kα₂ line (a monochromatic beam): there is no ratio to set");
     const same = (update.polarization === undefined || Math.abs((r.polarization ?? 0.5) - update.polarization) < 1e-9)
       && (update.kAlpha2Ratio === undefined || Math.abs((r.kAlpha2?.ratio ?? 0) - update.kAlpha2Ratio) < 1e-9);
-    return same ? "the instrument constants are already so" : null;
-  }
-  return spec.name === "set_free" ? freeNoOp(s.parameters, input) : null;
+    if (same) return nothing("the instrument constants are already so");
+    const set = handler(port.setInstrumentConstants, "this page cannot change its instrument");
+    const preview = [
+      ...(update.polarization !== undefined ? [`Polarization ${r.polarization ?? 0.5} → ${update.polarization}`] : []),
+      ...(update.kAlpha2Ratio !== undefined ? [`Kα₂/Kα₁ ${r.kAlpha2?.ratio ?? "—"} → ${update.kAlpha2Ratio}`] : []),
+    ].join(" · ");
+    return change(preview, () => {
+      set(update);
+      return undefined;
+    });
+  },
+  set_fit_range: (input, s, port) => {
+    if (input.whole) {
+      return change("Fit the whole pattern", () => {
+        port.setFitRange(null);
+        return undefined;
+      });
+    }
+    const w = requestedWindow(s, input);
+    if (w.max < s.extent.min || w.min > s.extent.max) throw new Error(`${sig(w.min, 6)}–${sig(w.max, 6)} ${UNIT[s.pattern.xUnit]} is outside the pattern (${sig(s.extent.min, 6)}–${sig(s.extent.max, 6)})`);
+    const native = `${sig(w.min, 6)} – ${sig(w.max, 6)} ${UNIT[s.pattern.xUnit]}`;
+    const unit = input.unit ?? s.pattern.xUnit;
+    return change(unit === s.pattern.xUnit ? `Fit window ${native}` : `Fit window ${String(input.min ?? "edge")} – ${String(input.max ?? "edge")} ${UNIT[unit]} (${native})`, () => {
+      port.setFitRange({ min: Math.max(w.min, s.extent.min), max: Math.min(w.max, s.extent.max) });
+      return undefined;
+    });
+  },
+  refine: refinePlan<PowderAgentPort>({
+    refuse: (s) => (s.viewOnly ? "this pattern is view-only (a TOF pattern without a TOF profile); load its instrument file to refine it" : null),
+    fits: (_s, free) => `Refine ${free} free parameter${free === 1 ? "" : "s"}`,
+  }),
+  reset_parameters: resetPlan,
+  go_to_step: goToPlan,
+};
+
+/** A handler the page may not have: refused before the card when it is missing. */
+function handler<F>(f: F | undefined, missing: string): F {
+  if (!f) throw new Error(missing);
+  return f;
 }
 
 /** tie_parameters' globs expanded in the order given (so the leader stays first), each id once. */
-function tieUpdate(params: readonly RefinementParameter[], input: Input): EqualTieUpdate {
+function tieUpdate(params: readonly RefinementParameter[], input: InputOf<"tie_parameters">): EqualTieUpdate {
   const expand = (list: readonly string[]): string[] => [...new Set(list.flatMap((g) => matchIds(params, [g])))];
   return {
-    ...(Array.isArray(input.equal) ? { equal: expand(input.equal as string[]) } : {}),
-    ...(Array.isArray(input.release) ? { release: expand(input.release as string[]) } : {}),
+    ...(input.equal ? { equal: expand(input.equal) } : {}),
+    ...(input.release ? { release: expand(input.release) } : {}),
   };
 }
 
-function constantsUpdate(input: Input): InstrumentConstants {
+function constantsUpdate(input: InputOf<"set_instrument_constants">): InstrumentConstants {
   return {
-    ...(typeof input.polarization === "number" ? { polarization: input.polarization } : {}),
-    ...(typeof input.kAlpha2Ratio === "number" ? { kAlpha2Ratio: input.kAlpha2Ratio } : {}),
+    ...(input.polarization !== undefined ? { polarization: input.polarization } : {}),
+    ...(input.kAlpha2Ratio !== undefined ? { kAlpha2Ratio: input.kAlpha2Ratio } : {}),
   };
 }
 
-function correctionUpdate(input: Input): CorrectionsUpdate {
+function correctionUpdate(input: InputOf<"set_corrections">): CorrectionsUpdate {
   return {
-    ...(typeof input.asymmetry === "boolean" ? { asymmetry: input.asymmetry as boolean } : {}),
+    ...(input.asymmetry !== undefined ? { asymmetry: input.asymmetry } : {}),
+    // The schema holds it to three indices.
     ...(input.preferredOrientation !== undefined ? { preferredOrientation: input.preferredOrientation as [number, number, number] | null } : {}),
-    ...(Array.isArray(input.peak) ? { peak: input.peak as PeakCorrectionId[] } : {}),
+    ...(input.peak ? { peak: input.peak } : {}),
   };
 }
 
@@ -440,81 +457,13 @@ const SITE_TIE_NAMES: Record<keyof SiteTies, string> = { positions: "tie positio
 /** A tie's effective value: positions and ADPs are tied unless switched off. */
 const tieOn = (ties: SiteTies, k: keyof SiteTies): boolean => ties[k] ?? (k === "positions" || k === "adp");
 
-function siteTieUpdate(input: Input): Partial<Record<keyof SiteTies, boolean>> {
+function siteTieUpdate(input: InputOf<"set_site_ties">): Partial<Record<keyof SiteTies, boolean>> {
   const update: Partial<Record<keyof SiteTies, boolean>> = {};
-  for (const k of SITE_TIE_KEYS) if (typeof input[k] === "boolean") update[k] = input[k] as boolean;
-  return update;
-}
-
-/** One line for the approval card: what this change will do, in the page's terms. */
-export function describePowderChange(spec: LiveToolSpec, input: Input, s: PowderLiveState): string {
-  switch (spec.name) {
-    case "set_free":
-      return describeFree(s.parameters, input);
-    case "set_background":
-      return [
-        ...(input.terms !== undefined ? [`Background terms ${s.settings.backgroundTerms} → ${String(input.terms)}`] : []),
-        ...(input.type !== undefined ? [`Background basis ${s.settings.backgroundType} → ${String(input.type)}`] : []),
-      ].join(" · ");
-    case "set_microstrain":
-      return `Microstrain ${s.settings.mustrain} → ${String(input.model)}`;
-    case "set_adp_model":
-      return `ADPs ${s.settings.anisotropicAdp ? "anisotropic" : "isotropic"} → ${input.anisotropic ? "anisotropic" : "isotropic"}`;
-    case "set_site_ties":
-      return Object.entries(siteTieUpdate(input)).map(([k, v]) => `${SITE_TIE_NAMES[k as keyof SiteTies]} ${v ? "on" : "off"}`).join(" · ");
-    case "set_corrections": {
-      const u = correctionUpdate(input);
-      return [
-        ...(u.asymmetry !== undefined ? [`asymmetry ${u.asymmetry ? "on" : "off"}`] : []),
-        ...(u.preferredOrientation !== undefined ? [u.preferredOrientation ? `preferred orientation along ${u.preferredOrientation.join(" ")}` : "preferred orientation off"] : []),
-        ...(u.peak !== undefined ? [`peak corrections: ${u.peak.length ? u.peak.join(", ") : "none"}`] : []),
-      ].join(" · ");
-    }
-    case "add_known_phase": {
-      const p = knownPhaseStructure(String(input.name));
-      return p ? `Add ${p.name} (${p.spaceGroup.hermannMauguin ?? "?"}, a = ${p.cell.a} Å) as a further phase: its scale and cell refine with the others` : `Add ${String(input.name)}`;
-    }
-    case "add_antisite": {
-      const a = s.structure.sites.find((x) => x.label === input.siteA);
-      const b = s.structure.sites.find((x) => x.label === input.siteB);
-      return `Antisite ${String(input.siteA)} ⇄ ${String(input.siteB)}: ${b?.element ?? "?"} on ${String(input.siteA)}, ${a?.element ?? "?"} on ${String(input.siteB)}, at occupancy 0 · Σ occ = 1 and hold composition on`;
-    }
-    case "tie_parameters": {
-      const u = tieUpdate(s.parameters, input);
-      const kind = (id: string | undefined): string => (s.parameters.find((p) => p.id === id)?.kind === "occupancy" ? "occupancy" : "B");
-      return [
-        ...(u.equal ? [`Tie ${u.equal.slice(1).join(", ")} = ${u.equal[0]} (one ${kind(u.equal[0])} refines)`] : []),
-        ...(u.release ? [`Release the tie on ${u.release.join(", ")}`] : []),
-      ].join(" · ");
-    }
-    case "set_instrument_constants": {
-      const u = constantsUpdate(input);
-      const r = s.pattern.radiation;
-      return [
-        ...(u.polarization !== undefined ? [`Polarization ${r.kind === "xray" ? r.polarization ?? 0.5 : "—"} → ${u.polarization}`] : []),
-        ...(u.kAlpha2Ratio !== undefined ? [`Kα₂/Kα₁ ${r.kind === "xray" ? r.kAlpha2?.ratio ?? "—" : "—"} → ${u.kAlpha2Ratio}`] : []),
-      ].join(" · ");
-    }
-    case "set_fit_range": {
-      if (input.whole) return "Fit the whole pattern";
-      const w = requestedWindow(s, input);
-      const native = `${sig(w.min, 6)} – ${sig(w.max, 6)} ${UNIT[s.pattern.xUnit]}`;
-      const unit = (input.unit as PowderXUnit | undefined) ?? s.pattern.xUnit;
-      return unit === s.pattern.xUnit ? `Fit window ${native}` : `Fit window ${String(input.min ?? "edge")} – ${String(input.max ?? "edge")} ${UNIT[unit]} (${native})`;
-    }
-    case "refine": {
-      const free = s.parameters.filter((p) => !p.fixed && !p.expression).length;
-      return input.mode === "thorough"
-        ? `${s.result ? "Escape minimum" : "Prefit"} (multi-start) on ${free} free parameter${free === 1 ? "" : "s"}`
-        : `Refine ${free} free parameter${free === 1 ? "" : "s"}`;
-    }
-    case "reset_parameters":
-      return input.parameters ? `Reset ${matchIds(s.parameters, input.parameters as string[]).join(", ")} to the starting value` : "Reset every parameter to its starting value";
-    case "go_to_step":
-      return `Go to step ${String(input.step)}`;
-    default:
-      return spec.title;
+  for (const k of SITE_TIE_KEYS) {
+    const on = input[k];
+    if (on !== undefined) update[k] = on;
   }
+  return update;
 }
 
 // ── state view ──────────────────────────────────────────────────────────────
@@ -689,9 +638,9 @@ function fitRangeView(s: PowderLiveState, r: DataRangeReading): Record<string, u
  * come in any unit the page can convert to; a bound left out is the pattern's
  * edge. Conversions can reverse order (Q ↔ d), so the result is sorted.
  */
-function requestedWindow(s: PowderLiveState, input: Input): { min: number; max: number } {
+function requestedWindow(s: PowderLiveState, input: InputOf<"set_fit_range">): { min: number; max: number } {
   const native = s.pattern.xUnit;
-  const unit = (input.unit as PowderXUnit | undefined) ?? native;
+  const unit = input.unit ?? native;
   const units = availableDisplayUnits(s.axis);
   if (!units.includes(unit)) throw new Error(`this pattern cannot be read in ${unit}: it converts to ${units.join(", ")} (load the instrument file for its calibration)`);
   const edges = unit === native ? s.extent : convertInterval(s.extent, native, unit, s.axis);
