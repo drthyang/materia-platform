@@ -20,6 +20,7 @@ import { lineage, type HistoryStep, type ProjectHistory } from "@/core/project/h
 import type { ParameterBinding, ParameterKind, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { AgentPage } from "@/agent/tools";
 import { RULES, methodProgress, stagesCovered, stagesFor, stagesLeft, type AgentRecord } from "@/agent/method";
+import { PAGES } from "@/agent/pages";
 import { differenceSentences, readPosterior, type PosteriorRun } from "@/agent/posteriorTool";
 import type { UnitCell } from "@/core/crystal/types";
 import { isInversion, type ExtinctionModel, type OmittedMeasurement, type ResolutionRange, type TwinLaw } from "@/core/diffraction/types";
@@ -393,7 +394,7 @@ export function buildAgentReport(a: AgentReportArgs): { input: ReportInput; agen
     model: a.model,
     ...(method ? { method: { skill: progress.skill, stages: progress.stages.map((s) => ({ label: s.label, done: s.done, optional: s.optional })) } } : {}),
     steps,
-    agreementLabel: a.page === "pdf" ? "Rw" : a.page === "singleCrystal" ? "wR2" : "wR",
+    agreementLabel: PAGES[a.page].agreementKey,
     ...(otherBranches > 0 ? { otherBranches } : {}),
     ...(a.record.start ? { start: { agreement: a.record.start.agreement, ...(a.record.start.r1 !== undefined ? { r1: a.record.start.r1 } : {}) } } : {}),
     checks,

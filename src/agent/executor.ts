@@ -10,21 +10,18 @@
 
 import { z } from "zod";
 import { PAGE_LABEL, liveTool, type AgentPage, type LiveToolSpec, type ToolEffect } from "@/agent/tools";
-import type { AgentPort, LiveState, PdfLiveState, PowderLiveState, SingleCrystalLiveState } from "@/agent/port";
-import { changePowder, describePowderChange, diagnosisText, powderNoOp, powderReportChecks, readPowderTool, requireStructure, type DiagnosisView } from "@/agent/powderTools";
-import { changeMagnetic, describeMagneticChange, isMagneticTool, magneticNext, magneticNoOp, magneticOutcome, readMagneticTool } from "@/agent/magneticTools";
-import { changePdf, describePdfChange, pdfNoOp, pdfReportChecks, readPdfTool } from "@/agent/pdfTools";
-import { changeSingleCrystal, describeSingleCrystalChange, keptMeasurements, readSingleCrystalTool, singleCrystalNoOp, singleCrystalReportChecks } from "@/agent/scTools";
+import type { AgentPort } from "@/agent/port";
+import type { MagneticPanelState } from "@/agent/magneticPort";
+import { diagnosisText, type DiagnosisView } from "@/agent/powderTools";
+import { isMagneticTool, magneticNext } from "@/agent/magneticTools";
 import { samplePosteriorTool, type PosteriorRun } from "@/agent/posteriorTool";
 import { buildAgentReport, freeSummary, reportFileBase, type AgentReport } from "@/agent/report";
 import { matchIds, type LiveToolHost } from "@/agent/liveCommon";
 import { fillReferences, referenceCatalog, type ReferenceSource } from "@/agent/references";
-import { powderReferences } from "@/agent/powderTools";
-import { pdfReferences } from "@/agent/pdfTools";
-import { singleCrystalReferences } from "@/agent/scTools";
-import { PROBE_OPTIONS, carriedText, correlationRefusal, disorderAssemblies, pairText, readCorrelations, refusalLine } from "@/agent/correlationCheck";
+import { PROBE_OPTIONS, carriedText, correlationRefusal, pairText, readCorrelations, refusalLine } from "@/agent/correlationCheck";
 import { PAGE_METHOD, readSkill } from "@/agent/skills";
-import { RULES, advanceAlternation, alternationView, keyOfState, methodProgress, outOfOrder, ruleRefusal, stagesCovered, stagesLeft, stagesOnPath, type AgentRecord, type Alternation, type MethodRule } from "@/agent/method";
+import { RULES, advanceAlternation, alternationView, methodProgress, outOfOrder, ruleRefusal, stagesCovered, stagesLeft, stagesOnPath, type AgentRecord, type Alternation, type MethodRule } from "@/agent/method";
+import { analysisOf, hashText, onPage, type PageAdapter, type StateOf } from "@/agent/pages";
 import { REF_KEY, RefStore, buildView } from "@/mcp/refs";
 import type { LinearRestraint, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { StepKind } from "@/core/project/history";
@@ -218,34 +215,37 @@ export class AgentExecutor implements ToolRunner {
   situation(): AgentSituation | null {
     const port = this.host.port();
     if (!port) return null;
-    const s = port.state();
-    const record = this.syncStages(port);
-    const progress = methodProgress(port.technique, record);
-    const next = progress.stages.find((st) => !st.done && !st.optional) ?? null;
-    const powder = port.technique === "powder" ? (s as PowderLiveState) : null;
-    const panel = powder && this.magneticUsed ? (port as Extract<AgentPort, { technique: "powder" }>).magnetic?.()?.state() ?? null : null;
-    const sig = (v: number): number => (Number.isFinite(v) ? Number(v.toPrecision(6)) : v);
-    const fingerprint = hashText(JSON.stringify({
-      step: this.currentStep()?.id ?? null,
-      busy: s.busy,
-      parameters: s.parameters.map((p) => [p.id, p.fixed ? 0 : 1, p.expression ?? "", sig(p.value)]),
-      result: s.result ? [s.result.status, s.result.history.length, Object.keys(s.result.esd).sort()] : null,
-      fitRange: "fitRange" in s ? s.fitRange : null,
-      settings: "settings" in s ? s.settings : null,
-      magnetic: powder ? powder.magnetic !== null : null,
-      panel: panel ? [panel.k, panel.ions.filter((i) => i.selected).map((i) => i.label), panel.ties, panel.selected?.id ?? null, panel.kSearch?.length ?? null, panel.candidates.filter((c) => c.fit !== undefined).length] : null,
-      record: [record.stagesDone, record.exceptions.map((e) => e.rule), !!record.rangeCheck, !!record.cellCheck, !!record.dataCheck, !!record.symmetryReviewed],
-    }));
-    const done = progress.stages.filter((st) => st.done).map((st) => st.label);
-    const fit = s.result ? `the last refinement ${s.result.status}` : "no refinement on screen yet";
-    return {
-      page: port.technique,
-      stage: next?.id ?? null,
-      stagesDone: record.stagesDone,
-      magnetic: this.magneticUsed || (powder !== null && powder.magnetic !== null),
-      fingerprint,
-      summary: `the ${PAGE_LABEL[port.technique]} page; done: ${done.length ? done.join(", ") : "nothing yet"}; next: ${next?.label ?? "every required stage is done"}; ${fit}.`,
-    };
+    return onPage(port, (page, p) => {
+      const s = page.state(p);
+      const record = this.syncStages(p);
+      const progress = methodProgress(p.technique, record);
+      const next = progress.stages.find((st) => !st.done && !st.optional) ?? null;
+      const panel = this.stepOf(page, p);
+      const fingerprint = hashText(JSON.stringify({
+        step: this.currentStep()?.id ?? null,
+        busy: s.busy,
+        stamp: page.stamp(s, panel),
+        result: s.result ? [s.result.status, s.result.history.length, Object.keys(s.result.esd).sort()] : null,
+        // What the magnetic step's reads found: the k candidates, the groups fitted.
+        panel: panel ? [panel.kSearch?.length ?? null, panel.candidates.filter((c) => c.fit !== undefined).length] : null,
+        record: [record.stagesDone, record.exceptions.map((e) => e.rule), !!record.rangeCheck, !!record.cellCheck, !!record.dataCheck, !!record.symmetryReviewed],
+      }));
+      const done = progress.stages.filter((st) => st.done).map((st) => st.label);
+      const fit = s.result ? `the last refinement ${s.result.status}` : "no refinement on screen yet";
+      return {
+        page: p.technique,
+        stage: next?.id ?? null,
+        stagesDone: record.stagesDone,
+        magnetic: this.magneticUsed || (page.magneticModel?.(s) ?? false),
+        fingerprint,
+        summary: `the ${PAGE_LABEL[p.technique]} page; done: ${done.length ? done.join(", ") : "nothing yet"}; next: ${next?.label ?? "every required stage is done"}; ${fit}.`,
+      };
+    });
+  }
+
+  /** The magnetic step's panel once its tools are in use in this conversation: then the stamp and the fingerprint carry it. */
+  private stepOf<P extends AgentPort>(page: PageAdapter<P>, port: P): MagneticPanelState | null {
+    return this.magneticUsed ? page.magneticStep?.(port) ?? null : null;
   }
 
   /** The user's messages in this conversation: their numbers are theirs to quote, not the Agent's own. */
@@ -259,11 +259,10 @@ export class AgentExecutor implements ToolRunner {
   private referenceSource(): ReferenceSource | null {
     const port = this.host.port();
     if (!port) return null;
-    const s = port.state();
-    const entries = port.technique === "pdf" ? pdfReferences(s as PdfLiveState)
-      : port.technique === "singleCrystal" ? singleCrystalReferences(s as SingleCrystalLiveState)
-        : powderReferences(s as PowderLiveState);
-    return { entries, parameters: s.parameters, esd: s.result?.esd ?? {} };
+    return onPage(port, (page, p) => {
+      const s = page.state(p);
+      return { entries: page.references(s), parameters: s.parameters, esd: s.result?.esd ?? {} };
+    });
   }
 
   /** The Agent's words with its references filled in from the page as it stands; a reference it cannot fill stays as written. */
@@ -335,182 +334,191 @@ export class AgentExecutor implements ToolRunner {
         return this.respond({ cancelled: port.state().busy ? "requested" : "nothing was running" });
       }
 
-      if (spec.name === "write_note") {
-        // The record's notes, not the page: no approval, no history step.
-        // Its numbers as they stand when it is written: the note keeps them.
-        const text = this.fillOrRefuse((input as { text: string }).text.trim(), "write_note");
-        update({ preview: text });
-        const key = keyOfState(port.technique, port.state());
-        this.host.updateRecord(key, (r) => ({ ...r, notes: [...r.notes, { text, at: Date.now() }].slice(-MAX_NOTES) }));
-        update({ status: "done" });
-        return this.respond({ noted: true, notes: this.host.record(key).notes.length });
-      }
-
-      if (spec.name === "write_report") {
-        update({});
-        // Let the drawer paint "running" before the checks run.
-        await new Promise((r) => setTimeout(r, 0));
-        return await this.writeReport(port, this.fillOrRefuse((input as { summary: string }).summary, "write_report"), update);
-      }
-
-      if (spec.effect === "read") {
-        update({});
-        // The space group is questioned last: only once the method's stages
-        // are refined, on a converged fit.
-        if (spec.name === "review_symmetry") {
-          const notYet = this.symmetryNotYet(port);
-          if (notYet) {
-            update({ status: "failed", outcome: notYet.line });
-            return refused(notYet.message, "symmetry-gate");
-          }
-        }
-        // Let the drawer paint "running" before a heavy synchronous analysis.
-        await new Promise((r) => setTimeout(r, 0));
-        let out = port.technique === "singleCrystal" ? readSingleCrystalTool(spec.name, input, port, this.host)
-          : spec.name === "sample_posterior" ? await samplePosteriorTool(input as { continue?: boolean; steps?: number; compare?: [string, string][] }, port, (run) => { this.posterior = { run, key: keyOfState(port.technique, port.state()), step: this.currentStep() }; })
-            : port.technique === "pdf" ? readPdfTool(spec.name, input, port, this.host)
-              : isMagneticTool(spec.name) ? await readMagneticTool(spec.name, input, port, () => this.host.settle())
-                : readPowderTool(spec.name, input, port, this.host);
-        if (spec.name === "check_cell_symmetry") this.noteCellCheck(port, out as CellCheckAnswer);
-        if (spec.name === "diagnose_fit") this.noteDiagnosis(port, out);
-        if (spec.name === "check_fit_range") this.noteRangeCheck(port, out as RangeAnswer);
-        if (spec.name === "reflection_statistics") this.noteDataCheck(port, out as DataAnswer);
-        if (spec.name === "review_symmetry") this.noteSymmetryReview(port, out as { observedForbidden?: unknown[]; candidates?: { name: string }[] });
-        if (spec.name === "get_state") {
-          const source = this.referenceSource();
-          out = { ...this.withoutMethod(out), ...this.recordView(port), ...(source ? { references: `Quote the engine's numbers by reference; the app fills them in where your words are shown and in the report: ${referenceCatalog(source)}.` } : {}) };
-        }
-        update({ status: "done" });
-        return this.respond(out);
-      }
-
-      // A change: only once the page's method has been read, never while a fit
-      // runs; then ask, then act as the agent.
-      const method = spec.skill ?? PAGE_METHOD[port.technique];
-      if (this.opts.skills !== false && !this.skillsRead.has(method)) {
-        const what = spec.skill ? `it is how the user works on this step` : `it is how the user works on this page`;
-        throw new Refusal(`read the method first: call read_skill with name "${method}" — ${what}, and changes wait until it has been read in this conversation`, "method");
-      }
-      if (spec.name === "allow_exception") return await this.allowException(port, input as { rule: MethodRule; reason: string }, entry, update);
-      const before = port.state();
-      if (before.busy) throw new Refusal("a refinement is running — wait for it to finish, or call cancel_refinement", "busy");
-      const magnetic = port.technique === "powder" && isMagneticTool(spec.name);
-      const noOp = port.technique === "pdf" ? pdfNoOp(spec, input, before as PdfLiveState)
-        : port.technique === "singleCrystal" ? singleCrystalNoOp(spec, input, before as SingleCrystalLiveState)
-          : magnetic ? magneticNoOp(spec.name, input, port)
-            : powderNoOp(spec, input, before as PowderLiveState);
-      if (noOp) {
-        update({ status: "done", outcome: "No change" });
-        return { ...this.respond({ unchanged: true, note: noOp }), status: "unchanged" };
-      }
-      let preview = port.technique === "pdf" ? describePdfChange(spec, input, before as PdfLiveState)
-        : port.technique === "singleCrystal" ? describeSingleCrystalChange(spec, input, before as SingleCrystalLiveState)
-          : magnetic ? describeMagneticChange(spec.name, input, port)
-            : describePowderChange(spec, input, before as PowderLiveState);
-      // The method's firm rules, then its order (a note, not a refusal).
-      const key = keyOfState(port.technique, before);
-      const freeBefore = before.parameters.filter((p) => !p.fixed && !p.expression);
-      let orderNote: string | null = null;
-      if (spec.name === "refine" || spec.name === "boxcar_scan") {
-        const record = this.syncStages(port);
-        // A scan given its own free set refines that set, not the page's.
-        const scanFree = spec.name === "boxcar_scan" && Array.isArray(input.free) ? new Set(matchIds(before.parameters, input.free as string[])) : null;
-        const ruleFree = scanFree ? before.parameters.filter((p) => scanFree.has(p.id) && !p.expression) : freeBefore;
-        const rule = ruleRefusal(port.technique, ruleFree, restraintsOf(before), record, before.parameters);
-        if (rule) {
-          update({ status: "failed", preview, outcome: rule.line });
-          return refused(rule.message, "firm-rule");
-        }
-        // The method's order is the skills' (arm C has none).
-        if (spec.name === "refine" && this.opts.skills !== false) orderNote = outOfOrder(port.technique, freeBefore, record, before.parameters);
-      }
-      if (spec.name === "refine") {
-        // Correlated parameters are never refined together: measure the free
-        // set first, and ask the user only about a set that may run.
-        update({ preview: "Checking correlations…" });
-        let probe: RefinementResult;
-        try {
-          probe = await port.probe(PROBE_OPTIONS);
-        } catch (e) {
-          throw new Error(`could not check the free parameters' correlations before refining (${e instanceof Error ? e.message : String(e)}); nothing was refined`, { cause: e });
-        }
-        const check = readCorrelations(probe, before.parameters, restraintsOf(before), assembliesOf(before));
-        const refusal = correlationRefusal(check);
-        if (refusal) {
-          update({ status: "failed", preview, outcome: refusalLine(check) });
-          return refused(refusal, "correlation");
-        }
-        preview += check.carried.length > 0 ? ` · ${check.carried.map(carriedText).join("; ")}, carried by the other free parameters`
-          : check.strongest ? ` · strongest correlation ${pairText(check.strongest)}` : " · no correlation above 0.5";
-      }
-      update({ status: "waiting", preview });
-      if (!(await this.opts.approve(entry, signal))) {
-        update({ status: "declined", outcome: signal?.aborted ? "Stopped" : "Declined" });
-        if (signal?.aborted) return stopped();
-        return { ...this.respond({ declined: true, note: "The user declined this change. Ask what they would prefer, or propose something else." }), status: "declined" };
-      }
-      // The card may have waited a long time: Stop, a running fit, or a page that changed since it was checked all hold the change back.
-      if (signal?.aborted) {
-        update({ status: "declined", outcome: "Stopped" });
-        return stopped();
-      }
-      // The page as it is now (a port is a render's view: ask the host again).
-      const now = this.requirePort().state();
-      if (now.busy || stateStamp(now) !== stateStamp(before)) {
-        const why = now.busy ? "a refinement is running" : "the analysis changed while it waited for approval";
-        update({ status: "failed", outcome: `Not run: ${why}` });
-        return refused(`not run: ${why}, so what was checked and approved no longer describes it. Read the state again (get_state) and propose the change again if it still applies.`, "stale");
-      }
-      update({ status: "running" });
-      // The user's own unsaved edits become their step first, so the agent's
-      // step holds only what the agent changed.
-      this.host.recordNow("edit");
-      // Stop cancels a fit this change started.
-      const cancel = (): void => this.host.port()?.cancel();
-      signal?.addEventListener("abort", cancel);
-      const changed = await this.host.asAgent(async () => {
-        const n = port.technique === "pdf" ? await changePdf(spec.name, input, port, this.host)
-          : port.technique === "singleCrystal" ? await changeSingleCrystal(spec.name, input, port, this.host)
-            : magnetic ? await changeMagnetic(spec.name, input, port)
-              : await changePowder(spec.name, input, port, this.host);
-        await this.host.settle();
-        const kind = STEP_KIND[spec.name];
-        if (kind) {
-          this.host.recordNow(kind);
-          await this.host.settle();
-        }
-        return n;
-      }).finally(() => signal?.removeEventListener("abort", cancel));
-      const note = typeof changed === "object" ? changed.note : changed;
-      const after = this.requirePort().state();
-      // Where the fit started, once per analysis: the report gives it before the steps.
-      if (spec.name === "refine" && after.result && after.result !== before.result && !this.host.record(key).start) {
-        const r1 = "dataset" in before ? { r1: before.agreement.r1 } : {};
-        this.host.updateRecord(key, (r) => (r.start ? r : { ...r, start: { at: Date.now(), agreement: agreement(before).live, ...r1 } }));
-      }
-      let alternation: Record<string, unknown> | null = null;
-      if (spec.name === "refine" && after.result?.status === "converged" && after.result !== before.result) {
-        const covered = stagesCovered(port.technique, freeBefore, before.parameters);
-        this.host.updateRecord(key, (r) => ({ ...r, stagesDone: [...new Set([...r.stagesDone, ...covered])] }));
-        const step = advanceAlternation(this.alternations.get(key) ?? {}, freeBefore, after.parameters, after.result.esd);
-        this.alternations.set(key, step.memory);
-        alternation = alternationView(step.memory, step.refined, after.parameters);
-      }
-      const out = {
-        ...changeOutcome(spec.name, before, after, this.currentStep(), note),
-        ...(typeof changed === "object" ? changed.data : {}),
-        ...(orderNote ? { methodNote: orderNote } : {}),
-        ...(alternation ?? {}),
-        ...(magnetic ? magneticOutcome(spec.name, this.requirePort() as typeof port) : {}),
-      };
-      update({ status: "done", outcome: outcomeLine(spec.name, before, after, note) });
-      // refine's own "refined" (changeOutcome): its result on the page, for the loop and the harness to read.
-      return { ...this.respond(out), ...(spec.name === "refine" ? { refined: !!after.result && after.result !== before.result } : {}) };
+      return await onPage(port, (page, p) => this.executeOn(page, p, spec, input, () => entry, update, signal));
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       update({ status: "failed", outcome: message });
       return e instanceof Refusal ? refused(message, e.by) : error(message);
     }
+  }
+
+  /**
+   * A call on the page open, typed on that page through its adapter: the
+   * record's notes, the report, a read, or a change (gated, checked, asked,
+   * made as the agent, and answered).
+   */
+  private async executeOn<P extends AgentPort>(
+    page: PageAdapter<P>,
+    port: P,
+    spec: LiveToolSpec,
+    input: Record<string, unknown>,
+    entry: () => ActivityEntry,
+    update: (patch: Partial<ActivityEntry>) => void,
+    signal?: AbortSignal,
+  ): Promise<ToolOutcome> {
+    if (spec.name === "write_note") {
+      // The record's notes, not the page: no approval, no history step.
+      // Its numbers as they stand when it is written: the note keeps them.
+      const text = this.fillOrRefuse((input as { text: string }).text.trim(), "write_note");
+      update({ preview: text });
+      const key = page.analysis(page.state(port));
+      this.host.updateRecord(key, (r) => ({ ...r, notes: [...r.notes, { text, at: Date.now() }].slice(-MAX_NOTES) }));
+      update({ status: "done" });
+      return this.respond({ noted: true, notes: this.host.record(key).notes.length });
+    }
+
+    if (spec.name === "write_report") {
+      update({});
+      // Let the drawer paint "running" before the checks run.
+      await new Promise((r) => setTimeout(r, 0));
+      return await this.writeReport(page, port, this.fillOrRefuse((input as { summary: string }).summary, "write_report"), update);
+    }
+
+    if (spec.effect === "read") {
+      update({});
+      // The space group is questioned last: only once the method's stages
+      // are refined, on a converged fit.
+      if (spec.name === "review_symmetry") {
+        const notYet = this.symmetryNotYet(port);
+        if (notYet) {
+          update({ status: "failed", outcome: notYet.line });
+          return refused(notYet.message, "symmetry-gate");
+        }
+      }
+      // Let the drawer paint "running" before a heavy synchronous analysis.
+      await new Promise((r) => setTimeout(r, 0));
+      let out = spec.name === "sample_posterior"
+        ? await samplePosteriorTool(input as { continue?: boolean; steps?: number; compare?: [string, string][] }, port, (run) => { this.posterior = { run, key: page.analysis(page.state(port)), step: this.currentStep() }; })
+        : await page.read(spec.name, input, port, this.host);
+      if (spec.name === "check_cell_symmetry") this.noteCellCheck(port, out as CellCheckAnswer);
+      if (spec.name === "diagnose_fit") this.noteDiagnosis(port, out);
+      if (spec.name === "check_fit_range") this.noteRangeCheck(port, out as RangeAnswer);
+      if (spec.name === "reflection_statistics") this.noteDataCheck(port, out as DataAnswer);
+      if (spec.name === "review_symmetry") this.noteSymmetryReview(port, out as { observedForbidden?: unknown[]; candidates?: { name: string }[] });
+      if (spec.name === "get_state") {
+        const source = this.referenceSource();
+        out = { ...this.withoutMethod(out), ...this.recordView(port), ...(source ? { references: `Quote the engine's numbers by reference; the app fills them in where your words are shown and in the report: ${referenceCatalog(source)}.` } : {}) };
+      }
+      update({ status: "done" });
+      return this.respond(out);
+    }
+
+    // A change: only once the page's method has been read, never while a fit
+    // runs; then ask, then act as the agent.
+    const method = spec.skill ?? PAGE_METHOD[port.technique];
+    if (this.opts.skills !== false && !this.skillsRead.has(method)) {
+      const what = spec.skill ? `it is how the user works on this step` : `it is how the user works on this page`;
+      throw new Refusal(`read the method first: call read_skill with name "${method}" — ${what}, and changes wait until it has been read in this conversation`, "method");
+    }
+    if (spec.name === "allow_exception") return await this.allowException(port, input as { rule: MethodRule; reason: string }, entry(), update);
+    const before = page.state(port);
+    if (before.busy) throw new Refusal("a refinement is running — wait for it to finish, or call cancel_refinement", "busy");
+    // What the change is checked and approved against.
+    const stamp = page.stamp(before, this.stepOf(page, port));
+    const noOp = page.noOp(spec, input, before, port);
+    if (noOp) {
+      update({ status: "done", outcome: "No change" });
+      return { ...this.respond({ unchanged: true, note: noOp }), status: "unchanged" };
+    }
+    let preview = page.describe(spec, input, before, port);
+    // The method's firm rules, then its order (a note, not a refusal).
+    const key = page.analysis(before);
+    const freeBefore = before.parameters.filter((p) => !p.fixed && !p.expression);
+    let orderNote: string | null = null;
+    if (spec.name === "refine" || spec.name === "boxcar_scan") {
+      const record = this.syncStages(port);
+      // A scan given its own free set refines that set, not the page's.
+      const scanFree = spec.name === "boxcar_scan" && Array.isArray(input.free) ? new Set(matchIds(before.parameters, input.free as string[])) : null;
+      const ruleFree = scanFree ? before.parameters.filter((p) => scanFree.has(p.id) && !p.expression) : freeBefore;
+      const rule = ruleRefusal(port.technique, ruleFree, before.restraints, record, before.parameters);
+      if (rule) {
+        update({ status: "failed", preview, outcome: rule.line });
+        return refused(rule.message, "firm-rule");
+      }
+      // The method's order is the skills' (arm C has none).
+      if (spec.name === "refine" && this.opts.skills !== false) orderNote = outOfOrder(port.technique, freeBefore, record, before.parameters);
+    }
+    if (spec.name === "refine") {
+      // Correlated parameters are never refined together: measure the free
+      // set first, and ask the user only about a set that may run.
+      update({ preview: "Checking correlations…" });
+      let probe: RefinementResult;
+      try {
+        probe = await port.probe(PROBE_OPTIONS);
+      } catch (e) {
+        throw new Error(`could not check the free parameters' correlations before refining (${e instanceof Error ? e.message : String(e)}); nothing was refined`, { cause: e });
+      }
+      const check = readCorrelations(probe, before.parameters, before.restraints, page.assemblies(before));
+      const refusal = correlationRefusal(check);
+      if (refusal) {
+        update({ status: "failed", preview, outcome: refusalLine(check) });
+        return refused(refusal, "correlation");
+      }
+      preview += check.carried.length > 0 ? ` · ${check.carried.map(carriedText).join("; ")}, carried by the other free parameters`
+        : check.strongest ? ` · strongest correlation ${pairText(check.strongest)}` : " · no correlation above 0.5";
+    }
+    update({ status: "waiting", preview });
+    if (!(await this.opts.approve(entry(), signal))) {
+      update({ status: "declined", outcome: signal?.aborted ? "Stopped" : "Declined" });
+      if (signal?.aborted) return stopped();
+      return { ...this.respond({ declined: true, note: "The user declined this change. Ask what they would prefer, or propose something else." }), status: "declined" };
+    }
+    // The card may have waited a long time: Stop, a running fit, or a page that changed since it was checked all hold the change back.
+    if (signal?.aborted) {
+      update({ status: "declined", outcome: "Stopped" });
+      return stopped();
+    }
+    // The page as it is now (a port is a render's view: ask the host again); another page open is a page changed.
+    const nowPort = page.own(this.requirePort());
+    const now = nowPort ? page.state(nowPort) : null;
+    if (!nowPort || !now || now.busy || page.stamp(now, this.stepOf(page, nowPort)) !== stamp) {
+      const why = now?.busy ? "a refinement is running" : "the analysis changed while it waited for approval";
+      update({ status: "failed", outcome: `Not run: ${why}` });
+      return refused(`not run: ${why}, so what was checked and approved no longer describes it. Read the state again (get_state) and propose the change again if it still applies.`, "stale");
+    }
+    update({ status: "running" });
+    // The user's own unsaved edits become their step first, so the agent's
+    // step holds only what the agent changed.
+    this.host.recordNow("edit");
+    // Stop cancels a fit this change started.
+    const cancel = (): void => this.host.port()?.cancel();
+    signal?.addEventListener("abort", cancel);
+    const changed = await this.host.asAgent(async () => {
+      const n = await page.change(spec.name, input, port, this.host);
+      await this.host.settle();
+      const kind = STEP_KIND[spec.name];
+      if (kind) {
+        this.host.recordNow(kind);
+        await this.host.settle();
+      }
+      return n;
+    }).finally(() => signal?.removeEventListener("abort", cancel));
+    const note = typeof changed === "object" ? changed.note : changed;
+    const afterPort = page.own(this.requirePort());
+    if (!afterPort) throw new Error(`the ${PAGE_LABEL[page.page]} page was closed while the change ran`);
+    const after = page.state(afterPort);
+    // Where the fit started, once per analysis: the report gives it before the steps.
+    if (spec.name === "refine" && after.result && after.result !== before.result && !this.host.record(key).start) {
+      this.host.updateRecord(key, (r) => (r.start ? r : { ...r, start: { at: Date.now(), agreement: page.agreement(before), ...page.start(before) } }));
+    }
+    let alternation: Record<string, unknown> | null = null;
+    if (spec.name === "refine" && after.result?.status === "converged" && after.result !== before.result) {
+      const covered = stagesCovered(port.technique, freeBefore, before.parameters);
+      this.host.updateRecord(key, (r) => ({ ...r, stagesDone: [...new Set([...r.stagesDone, ...covered])] }));
+      const step = advanceAlternation(this.alternations.get(key) ?? {}, freeBefore, after.parameters, after.result.esd);
+      this.alternations.set(key, step.memory);
+      alternation = alternationView(step.memory, step.refined, after.parameters);
+    }
+    const out = {
+      ...changeOutcome(page, spec.name, before, after, this.currentStep(), note),
+      ...(typeof changed === "object" ? changed.data : {}),
+      ...(orderNote ? { methodNote: orderNote } : {}),
+      ...(alternation ?? {}),
+      ...page.outcome?.(spec.name, afterPort),
+    };
+    update({ status: "done", outcome: outcomeLine(page, spec.name, before, after, note) });
+    // refine's own "refined" (changeOutcome): its result on the page, for the loop and the harness to read.
+    return { ...this.respond(out), ...(spec.name === "refine" ? { refined: !!after.result && after.result !== before.result } : {}) };
   }
 
   private requirePort(): AgentPort {
@@ -527,7 +535,7 @@ export class AgentExecutor implements ToolRunner {
 
   /** The cell check's outcome, kept for the analysis it ran on. A record, not a gate. */
   private noteCellCheck(port: AgentPort, out: CellCheckAnswer): void {
-    this.host.updateRecord(keyOfState(port.technique, port.state()), (r) => ({ ...r, cellCheck: { passed: !!out.passed, at: Date.now(), summary: cellCheckSummary(out, port.state().parameters) } }));
+    this.host.updateRecord(analysisOf(port), (r) => ({ ...r, cellCheck: { passed: !!out.passed, at: Date.now(), summary: cellCheckSummary(out, port.state().parameters) } }));
   }
 
   /**
@@ -541,7 +549,7 @@ export class AgentExecutor implements ToolRunner {
     if (typeof dx.reading !== "string" || !Array.isArray(dx.causes)) return;
     const step = this.currentStep()?.id;
     const entry = { at: Date.now(), ...(step ? { step } : {}), summary: diagnosisText(dx as DiagnosisView) };
-    this.host.updateRecord(keyOfState(port.technique, port.state()), (r) => ({
+    this.host.updateRecord(analysisOf(port), (r) => ({
       ...r,
       diagnoses: [...(r.diagnoses ?? []).filter((d) => d.step !== entry.step), entry].slice(-MAX_DIAGNOSES),
     }));
@@ -553,7 +561,7 @@ export class AgentExecutor implements ToolRunner {
     const end = (e: RangeAnswer["low"]): string => e.verdict === "trim" ? `${e.end}: trim to ${e.cut} (${causes(e)})` : e.outside ? `${e.end}: left out by the window (${causes(e)})` : `${e.end}: keep`;
     const proposed = typeof out.proposed === "object" ? `; proposed window ${out.proposed.min}–${out.proposed.max} ${out.unit}` : Array.isArray(out.window) ? `; window ${out.window[0]}–${out.window[1]} ${out.unit}` : "";
     const summary = `${end(out.low)}; ${end(out.high)}${proposed}`;
-    this.host.updateRecord(keyOfState(port.technique, port.state()), (r) => ({ ...r, rangeCheck: { at: Date.now(), summary } }));
+    this.host.updateRecord(analysisOf(port), (r) => ({ ...r, rangeCheck: { at: Date.now(), summary } }));
   }
 
   /** The data's reading before the model (single crystal), kept for the analysis. A record, not a gate. */
@@ -571,7 +579,7 @@ export class AgentExecutor implements ToolRunner {
       ...(typeof out.absences === "object" ? [`${out.absences.atThreeSigma} of ${out.absences.measured} forbidden reflections at ≥ 3σ${out.absences.strongest?.[0] ? `, the strongest ${out.absences.strongest[0]}` : ""}`] : []),
       ...(out.friedel.startsWith("centrosymmetric") ? [] : [out.friedel.split(":")[0]!]),
     ];
-    this.host.updateRecord(keyOfState(port.technique, port.state()), (rec) => ({ ...rec, dataCheck: { at: Date.now(), summary: parts.join("; ") } }));
+    this.host.updateRecord(analysisOf(port), (rec) => ({ ...rec, dataCheck: { at: Date.now(), summary: parts.join("; ") } }));
   }
 
   /** The symmetry review's outcome, kept for the analysis. */
@@ -579,13 +587,13 @@ export class AgentExecutor implements ToolRunner {
     const n = out.observedForbidden?.length ?? 0;
     const top = out.candidates?.slice(0, 3).map((c) => c.name) ?? [];
     const summary = n === 0 ? "no forbidden reflection carries intensity in the refined fit" : `${n} forbidden reflection${n === 1 ? "" : "s"} with intensity${top.length ? `; subgroups allowing them: ${top.join(", ")}` : ""}`;
-    this.host.updateRecord(keyOfState(port.technique, port.state()), (r) => ({ ...r, symmetryReviewed: { at: Date.now(), summary } }));
+    this.host.updateRecord(analysisOf(port), (r) => ({ ...r, symmetryReviewed: { at: Date.now(), summary } }));
   }
 
   /** A converged refinement on screen counts its free blocks as done, whoever ran it. */
   private syncStages(port: AgentPort): AgentRecord {
     const s = port.state();
-    const key = keyOfState(port.technique, s);
+    const key = analysisOf(port);
     // With a History, the stages follow it: undo, go_to_step and a reset take a stage back off the list.
     const onPath = stagesOnPath(port.technique, this.host.history(), s);
     if (onPath) {
@@ -657,14 +665,14 @@ export class AgentExecutor implements ToolRunner {
     const record = this.syncStages(port);
     const progress = methodProgress(port.technique, record);
     // Where the magnetic step has something to work on, its own next step leads (as get_state's magneticStep): the stages are the refinement step's.
-    const panel = port.technique === "powder" ? port.magnetic?.()?.state() ?? null : null;
+    const panel = onPage(port, (page, p) => page.magneticStep?.(p) ?? null);
     const magnetic = panel !== null && (panel.peaks.some((p) => p.included) || panel.kSearch !== null || panel.selected !== null);
     return {
       skill: magnetic ? "magnetic-analysis" : progress.skill,
       stages: progress.stages.map((st) => `${st.done ? "✓" : "○"} ${st.label}${st.optional ? " (if needed)" : ""}`),
       next: magnetic
         ? `the magnetic step: ${magneticNext(panel)} (the stages above are the refinement step's)`
-        : progress.next ?? `every required stage done: check the acceptance bar${port.technique === "powder" ? "; only if the fit is still not good, review_symmetry" : ""}`,
+        : progress.next ?? `every required stage done: check the acceptance bar${liveTool("review_symmetry")?.pages.includes(port.technique) ? "; only if the fit is still not good, review_symmetry" : ""}`,
       ...(record.rangeCheck ? { rangeCheck: record.rangeCheck.summary } : {}),
       ...(record.cellCheck ? { cellCheck: record.cellCheck.summary } : {}),
       ...(record.symmetryReviewed ? { symmetryReview: record.symmetryReviewed.summary } : {}),
@@ -678,11 +686,11 @@ export class AgentExecutor implements ToolRunner {
    * its account, opened in the viewer. The answer lists the checks, the open
    * issues and any number in the account the report did not compute.
    */
-  private async writeReport(port: AgentPort, summary: string, update: (patch: Partial<ActivityEntry>) => void): Promise<ToolOutcome> {
+  private async writeReport<P extends AgentPort>(page: PageAdapter<P>, port: P, summary: string, update: (patch: Partial<ActivityEntry>) => void): Promise<ToolOutcome> {
     if (!port.reportInput) throw new Error("this page cannot build a report");
-    const s = port.state();
+    const s = page.state(port);
     if (s.busy) throw new Error("a refinement is running — wait for it to finish, then write the report");
-    if (port.technique === "powder") requireStructure("refine", s as PowderLiveState);
+    page.reportable?.(s);
     const record = this.syncStages(port);
     // The correlations at the refined values, every pair from |ρ| 0.5 as refine measures them (the
     // refinement itself keeps only those at 0.95): for the free set the refinement on screen had.
@@ -696,12 +704,10 @@ export class AgentExecutor implements ToolRunner {
         probe = null;
       }
     }
-    const checks = port.technique === "pdf" ? pdfReportChecks(s as PdfLiveState, probe)
-      : port.technique === "singleCrystal" ? singleCrystalReportChecks(s as SingleCrystalLiveState, probe, keptMeasurements(record))
-        : powderReportChecks(s as PowderLiveState, probe);
+    const checks = page.reportChecks(s, probe, record);
     // The last run on this analysis: of the refinement on screen, or of an earlier one (a focused
     // set, before the final refinement), which the report labels with how far its values moved since.
-    const sampled = this.posterior && this.posterior.key === keyOfState(port.technique, s) ? this.posterior : null;
+    const sampled = this.posterior && this.posterior.key === page.analysis(s) ? this.posterior : null;
     const built = buildAgentReport({
       page: port.technique,
       input: port.reportInput(),
@@ -759,7 +765,7 @@ export class AgentExecutor implements ToolRunner {
       update({ status: "declined", outcome: "Declined" });
       return { ...this.respond({ declined: true, note: "The user keeps the rule. Work within it, or ask what they would prefer." }), status: "declined" };
     }
-    const key = keyOfState(port.technique, port.state());
+    const key = analysisOf(port);
     this.host.updateRecord(key, (r) => ({ ...r, exceptions: [...r.exceptions.filter((e) => e.rule !== input.rule), { rule: input.rule, reason: input.reason, at: Date.now() }] }));
     update({ status: "done", outcome: "Allowed for this analysis" });
     return this.respond({ allowed: input.rule, until: "the data or the phases change" });
@@ -857,24 +863,16 @@ function stopped(): ToolOutcome {
   return { isError: true, text: `Error: ${STOPPED}`, status: "stopped" };
 }
 
-/**
- * A page's agreement: wR on powder; Rw on PDF, which has no GoF (uniform
- * weights); wR2 on F² on the single-crystal page, with R1 beside it. The
- * model sees the name the page shows.
- */
-function agreement(s: LiveState): { key: "wR" | "Rw" | "wR2"; live: number } {
-  return "rw" in s ? { key: "Rw", live: s.rw } : "dataset" in s ? { key: "wR2", live: s.agreement.wr2 } : { key: "wR", live: s.wR };
-}
-
-/** What the model learns after a change: the effect on the fit and the step it became. */
-function changeOutcome(
+/** What the model learns after a change: the effect on the fit (by the agreement the page shows) and the step it became. */
+function changeOutcome<P extends AgentPort>(
+  page: PageAdapter<P>,
   name: string,
-  before: LiveState,
-  after: LiveState,
+  before: StateOf<P>,
+  after: StateOf<P>,
   step: { id: string; label: string } | null,
   note: string | undefined,
 ): Record<string, unknown> {
-  const { key } = agreement(after);
+  const key = page.agreementKey;
   const free = after.parameters.filter((p) => !p.fixed && !p.expression).map((p) => p.id);
   const base = { step, ...(note ? { note } : {}), freeCount: free.length };
   if (name === "refine") {
@@ -887,18 +885,17 @@ function changeOutcome(
       refined: true,
       status: r.status,
       [key]: pct(r.agreement.rWeighted ?? 0),
-      [`${key}Before`]: pct(agreement(before).live),
-      ...(key === "wR" ? { gof: r.agreement.goodnessOfFit !== undefined ? Number(r.agreement.goodnessOfFit.toPrecision(4)) : null } : {}),
-      ...("dataset" in after && "dataset" in before ? { R1: pct(after.agreement.r1), R1Before: pct(before.agreement.r1), GooF: Number(after.agreement.goof.toPrecision(4)) } : {}),
+      [`${key}Before`]: pct(page.agreement(before)),
+      ...page.figures(before, after, r),
       iterations: r.history.length,
       ...(r.diagnostics ? { atBounds: r.diagnostics.atBounds.map((b) => b.parameterId), maxShiftOverEsd: Number(r.diagnostics.maxShiftOverEsd.toPrecision(3)) } : {}),
-      ...developedCorrelations(r, after.parameters, restraintsOf(after), assembliesOf(after)),
+      ...developedCorrelations(r, after.parameters, after.restraints, page.assemblies(after)),
       ...(r.message ? { message: r.message } : {}),
     };
   }
   // A long free set by kind, as the History's rows give it (a structure of 567 parameters would fill the context with ids).
   if (name === "set_free") return { ...base, free: free.length > 40 ? freeSummary(after.parameters) : free };
-  return { ...base, [key]: pct(agreement(after).live), lastResultCleared: before.result !== null && after.result === null };
+  return { ...base, [key]: pct(page.agreement(after)), lastResultCleared: before.result !== null && after.result === null };
 }
 
 /**
@@ -920,16 +917,11 @@ function developedCorrelations(r: RefinementResult, parameters: readonly Refinem
   };
 }
 
-/** The restraints the page fits with (site ties, a shared site's Σ). */
-const restraintsOf = (s: LiveState): readonly LinearRestraint[] => s.restraints;
-/** The single-crystal page's disorder assemblies (SHELXL's PART groups): pairs within one are listed, not stopped. */
-const assembliesOf = (s: LiveState): ReadonlyMap<string, string> => ("dataset" in s ? disorderAssemblies(s.structure, s.bindings, s.twinLaws) : new Map());
-
-function outcomeLine(name: string, before: LiveState, after: LiveState, note: string | undefined): string {
+function outcomeLine<P extends AgentPort>(page: PageAdapter<P>, name: string, before: StateOf<P>, after: StateOf<P>, note: string | undefined): string {
   if (name === "refine") {
     const r = after.result;
     if (!r || r === before.result) return "Did not finish";
-    return `${r.status} · ${agreement(after).key} ${pct(r.agreement.rWeighted ?? 0).toFixed(2)}%`;
+    return `${r.status} · ${page.agreementKey} ${pct(r.agreement.rWeighted ?? 0).toFixed(2)}%`;
   }
   return note ?? "Done";
 }
@@ -938,29 +930,5 @@ function pct(f: number): number {
   return Math.round(f * 10000) / 100;
 }
 
-/** A short, stable hash of a string (FNV-1a, 32 bits, as hex): the situation's fingerprint. */
-export function hashText(text: string): string {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < text.length; i++) {
-    h ^= text.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return (h >>> 0).toString(16).padStart(8, "0");
-}
-
 /** What a stopped call answers. */
 const STOPPED = "Stopped by the user before this ran.";
-
-/**
- * What a change was checked against: the parameters (free, tied, values),
- * the fit window and the settings. A change approved after any of them moved
- * is not run (the approval card described another state).
- */
-export function stateStamp(s: LiveState): string {
-  const sig = (v: number): number => (Number.isFinite(v) ? Number(v.toPrecision(6)) : v);
-  return hashText(JSON.stringify({
-    parameters: s.parameters.map((p) => [p.id, p.fixed ? 0 : 1, p.expression ?? "", sig(p.value)]),
-    fitRange: "fitRange" in s ? s.fitRange : null,
-    settings: "settings" in s ? s.settings : null,
-  }));
-}

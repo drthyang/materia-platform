@@ -16,7 +16,7 @@
 
 import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { SampleResult } from "@/core/refinement/bayes/sampler";
-import type { PdfAgentPort, PowderAgentPort } from "@/agent/port";
+import type { LiveState, PosteriorSampler } from "@/agent/port";
 import { sig } from "@/agent/liveCommon";
 import { POSTERIOR_CORRELATION, POSTERIOR_NEARLY_RHAT, POSTERIOR_WIDER } from "@/core/diagnostics/thresholds";
 
@@ -211,8 +211,14 @@ export interface PosteriorRun {
   readonly compare: readonly (readonly [string, string])[];
 }
 
+/** A page's port as the sampler reads it: the powder and PDF pages have a sampler. */
+interface SampledPort {
+  readonly state: () => LiveState;
+  readonly samplePosterior?: PosteriorSampler;
+}
+
 /** Run the page's sampler and read the result. `onRun` receives every finished run. */
-export async function samplePosteriorTool(input: { continue?: boolean; steps?: number; compare?: readonly (readonly [string, string])[] }, port: PowderAgentPort | PdfAgentPort, onRun?: (run: PosteriorRun) => void): Promise<Record<string, unknown>> {
+export async function samplePosteriorTool(input: { continue?: boolean; steps?: number; compare?: readonly (readonly [string, string])[] }, port: SampledPort, onRun?: (run: PosteriorRun) => void): Promise<Record<string, unknown>> {
   if (!port.samplePosterior) throw new Error("this page has no posterior sampler");
   const s = port.state();
   if (s.busy) throw new Error("a refinement is running — wait for it to finish");
