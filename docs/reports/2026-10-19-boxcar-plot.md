@@ -1,6 +1,7 @@
 # The boxcar plot gets the card
 
-Branch `claude/tender-clarke-dov72x`, on `main`, 2026-10-19. A user report:
+Pull request [#85](https://github.com/drthyang/web-refinement/pull/85),
+branch `claude/tender-clarke-dov72x`, on `main`, 2026-10-19. A user report:
 the boxcar result figure is squeezed and hard to see, and then that the
 layout is broken on a phone in portrait. Phases 1, 2 and 4 of the plan made
 for it: free height for the figure, use the figure's height better, and the
