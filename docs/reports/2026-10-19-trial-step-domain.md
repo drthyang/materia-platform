@@ -1,6 +1,7 @@
 # A trial step outside the model's domain is rejected, not the refinement
 
-Branch `claude/charming-feynman-lyhjw0`, on `main` (75c3765), 2026-10-19.
+Pull request [#80](https://github.com/drthyang/web-refinement/pull/80),
+branch `claude/charming-feynman-lyhjw0`, on `main` (75c3765), 2026-10-19.
 A crash a user can reach from the Agent's own tools: the Mn₃Ga demo
 (`mn3gaSession()`) with CaF₂ added as a second phase (`withPhase`), CaF₂'s cell
 row `p1_cell_a` free, a fit window of 20–100° and Refine. The demo contains no
@@ -122,4 +123,6 @@ read.
 
 ## Checks
 
-`npm run build`, `npm run lint` and `npm test` pass at the branch head.
+`npm run build`, `npm run lint` and `npm test` pass at the branch head:
+2383 tests, 6 of them new, and 265 skipped (live runs and data-dependent
+suites).
