@@ -25,7 +25,7 @@ import { existsSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const BASE = process.argv[2] ?? "http://localhost:5173/web-refinement/";
+const BASE = process.argv[2] ?? "http://localhost:5173/materia-platform/";
 const OUT = process.argv[3] ?? new URL("../docs/screenshots/dock/", import.meta.url).pathname;
 
 const SIZES = {

@@ -1,9 +1,9 @@
 # MATERIA Workbench
 
-[![Live demo](https://img.shields.io/badge/demo-live-2563eb)](https://drthyang.github.io/web-refinement/)
+[![Live demo](https://img.shields.io/badge/demo-live-2563eb)](https://drthyang.github.io/materia-platform/)
 [![Status: beta](https://img.shields.io/badge/status-public%20beta-d97706)](docs/LIMITATIONS.md)
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-3c8c3c)](LICENSE)
-[![Runs in the browser](https://img.shields.io/badge/runs-in%20your%20browser-6b6b6b)](https://drthyang.github.io/web-refinement/)
+[![Runs in the browser](https://img.shields.io/badge/runs-in%20your%20browser-6b6b6b)](https://drthyang.github.io/materia-platform/)
 
 **Crystal and magnetic structure refinement that runs entirely in your browser,
 built to be driven by people and by AI agents.**
@@ -17,7 +17,7 @@ works through the stages on its own in Auto. Its methods are skills it reads on
 demand, its firm rules are code, and an eval suite replays the failures it once
 had in CI. [How it works ↓](#the-agent)
 
-**▶ Try it: [drthyang.github.io/web-refinement](https://drthyang.github.io/web-refinement/)** —
+**▶ Try it: [drthyang.github.io/materia-platform](https://drthyang.github.io/materia-platform/)** —
 nothing to install, and the analysis runs on your machine (the Agent sends its
 conversation only to the model you choose: nowhere else for a local model, to
 the provider's API for a cloud one). Two demos open already converged: a two-phase Mn₃Ga

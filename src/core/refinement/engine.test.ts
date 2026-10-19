@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import type { RefinementParameter } from "@/core/refinement/types";
-import { refine, type RefinementProblem } from "@/core/refinement/engine";
+import { ModelDomainError, type RefinementParameter } from "@/core/refinement/types";
+import { refine, refineParallel, type RefinementProblem } from "@/core/refinement/engine";
 import { invertMatrix } from "@/core/math/linalg";
 import { parseTie, resolveTies, applyEqualValueGroups } from "@/core/refinement/constraints";
 import { noisyPeakProblem } from "@/testSupport/noisyPeak";
@@ -560,6 +560,57 @@ describe("dead-column guard (zero-leverage parameters)", () => {
     expect(result.parameters.s).toBeCloseTo(trueS, 6);
     expect(Math.abs(result.parameters.p!)).toBeLessThan(1e-6);
     expect(result.diagnostics?.singularParameterIds ?? []).toContain("p");
+  });
+});
+
+/**
+ * y = √p·x on data at p = 0.01, from p = 1: the undamped Gauss–Newton step from
+ * any p > 0.04 lands below 0, where the model is not defined — as a free cell
+ * length of a phase the data do not contain is driven below 0 by a trial step.
+ */
+function outsideDomainProblem(start: number, outside: (p: number) => Error = (p) => new ModelDomainError(`p = ${p} is not positive`)): RefinementProblem {
+  const x = [1, 2, 3, 4, 5, 6];
+  return {
+    parameters: [{ id: "p", label: "p", kind: "bIso", value: start, initialValue: start, fixed: false }],
+    observations: Float64Array.from(x, (xi) => 0.1 * xi),
+    weights: new Float64Array(x.length).fill(1),
+    calculate: (v) => {
+      if (!(v.p! > 0)) throw outside(v.p!);
+      return Float64Array.from(x, (xi) => Math.sqrt(v.p!) * xi);
+    },
+  };
+}
+
+describe("a trial step outside the model's domain", () => {
+  it("is rejected as an uphill step is (larger damping), and the fit goes on (it ended the refinement)", () => {
+    const result = refine(outsideDomainProblem(1), { maxIterations: 100, convergenceTolerance: 1e-10 });
+    expect(result.parameters.p).toBeCloseTo(0.01, 6);
+    expect(result.diagnostics!.maxLambda).toBeGreaterThan(1e-3);
+    expect(result.message).toMatch(/; \d+ trial step\(s\) rejected outside the model's domain \(p = -[\d.]+ is not positive\)$/);
+  });
+
+  it("is rejected the same way by the parallel driver: the same trajectory", async () => {
+    const replica = outsideDomainProblem(1);
+    const serial = refine(outsideDomainProblem(1), { maxIterations: 100, convergenceTolerance: 1e-10 });
+    const parallel = await refineParallel(outsideDomainProblem(1), { maxIterations: 100, convergenceTolerance: 1e-10 }, {
+      evaluate: async (sets) => sets.map((values) => replica.calculate(values)),
+    });
+    expect(parallel.parameters).toEqual(serial.parameters);
+    expect(parallel.history.map((h) => h.chiSquared)).toEqual(serial.history.map((h) => h.chiSquared));
+    expect(parallel.message).toBe(serial.message);
+  });
+
+  it("ends the refinement when the starting point is outside the domain: no step to reject, the error is the model's", async () => {
+    expect(() => refine(outsideDomainProblem(-1))).toThrow(ModelDomainError);
+    const replica = outsideDomainProblem(-1);
+    await expect(refineParallel(outsideDomainProblem(-1), {}, { evaluate: async (sets) => sets.map((v) => replica.calculate(v)) })).rejects.toThrow(ModelDomainError);
+  });
+
+  it("ends the refinement on any other error a trial step throws: a fault is not a rejected step", async () => {
+    const fault = (): Error => new TypeError("a fault in the model");
+    expect(() => refine(outsideDomainProblem(1, fault))).toThrow(TypeError);
+    const replica = outsideDomainProblem(1, fault);
+    await expect(refineParallel(outsideDomainProblem(1, fault), {}, { evaluate: async (sets) => sets.map((v) => replica.calculate(v)) })).rejects.toThrow(TypeError);
   });
 });
 

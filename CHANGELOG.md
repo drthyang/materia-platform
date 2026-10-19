@@ -430,6 +430,23 @@ release fixes bugs.
 
 ### Changed
 
+- **The repository is `materia-platform`.** The published app moves to
+  [drthyang.github.io/materia-platform](https://drthyang.github.io/materia-platform/)
+  (the build's base path, the README and user guide, the app's links to the
+  repository, the package name). GitHub redirects the old repository and git
+  URLs; the old Pages address does not redirect. Projects saved in the
+  browser stay: they belong to the site's origin, not its path.
+
+- **The boxcar plot gets the card.** After a run the plan folds into a
+  one-line summary in the toolbar, the caption moves to the chip row, and the
+  per-box table opens on demand, so on a 1280×800 window the figure is about
+  twice as tall (150 → 313 px) and the track itself about four times (≈50 →
+  194 px). The two panels share one r axis with gridlines through both, the Rw
+  strip scales with the figure and has a scale, and Rw bars widen with the box
+  spacing. Point at a box for its window, value ± esd and Rw; click it (or step
+  with ← →) to pick it, shading its r-window, and adopt it from the line under
+  the plot.
+
 - **Single-crystal structure factors with analytic derivatives.** A kernel
   computes F for a fixed reflection list and, in the same pass, ∂F for every
   position mode, U mode, B and occupancy, so the Jacobian costs about two
@@ -504,6 +521,57 @@ release fixes bugs.
 
 ### Fixed
 
+- **The local proxy says when the page has none.** On the published site
+  (GitHub Pages) there is no proxy, and choosing it ended every message in a
+  raw "API error 405" with nginx's HTML. The settings now ask the proxy's
+  health check and say whether it runs, runs without a key, or is absent;
+  and a 404, 405 or 501 in proxy mode reads as "This page has no proxy",
+  with how to run it locally or to use an API key instead.
+
+- **A powder page with a second phase uses its own background basis.** Its
+  curve, wR, Refine, Prefit and posterior used the Chebyshev basis and the
+  Lorentz factor whatever the page had set: the cosine, power-series and
+  interpolated bases, and the Lorentz factor off, applied with one phase
+  only. The magnetic step's moments fit, which did use them, then disagreed
+  with the page's wR (6.793 against 6.781 on the magnetic Mn₃Ga demo with
+  CaF₂ added and a cosine background).
+
+- **The MCP magnetic tools draw the pattern the fit solves.** With a
+  magnetic model, `evaluate_pattern`, `simulate_pattern` and
+  `rank_next_parameters` (the Agent's too) kept only the profile's shape
+  and η: a cosine (or other) background was drawn on Chebyshev, and the
+  Lorentz factor was on whatever the profile said. The components
+  `refine_magnetic_powder` returns dropped η, and drew an extra phase with
+  the Lorentz factor on. Their curves and wR are now the fitted problem's.
+
+- **A phase the data do not contain no longer ends the refinement.** With its
+  cell free, its scale fell to 0 and a trial step drove its cell length below
+  0, where the reflection list threw `RangeError: Invalid typed array length`
+  and Refine stopped (the Mn₃Ga demo with CaF₂ added). Such a step is now
+  rejected like an uphill one, the fit goes on, and its message says how many
+  steps were rejected and why. A cell length that is not positive and finite
+  is refused with a message that names it, wherever a reflection list is made.
+
+
+- **A fit with a second phase or a magnetic model leaves out the excluded
+  plateau**, a GSAS export's constant −3 outside its fit range, as a
+  single-phase fit and the page's wR already did. It fitted those points:
+  on the magnetic Mn₃Ga demo with its first 60 points at −3, the
+  co-refinement reported wR 28.44 % where the page showed 9.12 %, and took
+  the moment to 2.30 µB for a true 2.5. It now reports the page's 0.30 % at
+  2.50 µB. This holds for Refine, Prefit, the posterior, the magnetic step's
+  moments fit and ranking, and MCP's `refine_powder` with extra phases,
+  `refine_magnetic_powder`, `rank_next_parameters` and `sample_posterior`.
+  MCP's `evaluate_pattern` scored the plateau too: 30.10 % for that model's
+  0.30 %.
+
+- **The page on a phone in portrait.** The content column could shrink below
+  its cards while the page scrolled, so the footer was drawn across them (on
+  every page) and the PDF page's plot card was held to 380 px with its plot
+  running over the parameter card. The column now grows to its content. On
+  the Boxcar tab, stacked, the figure has a height of its own (293 px on a
+  390 px phone, against its 160 px floor) and an open box table its natural
+  height; a view switcher that wraps fills the card's width.
 - **A local model no longer loops, its prompt cut.** On qwen3.8-27b in LM
   Studio the Agent re-read its method and the state until the turn cap: the
   instructions and every tool took 18.8k of the model's 32k tokens, LM Studio

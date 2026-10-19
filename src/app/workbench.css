@@ -478,6 +478,19 @@ html {
   .wb-work2 > :last-child {
     height: auto !important;
   }
+  /* The boxcar figure: a stacked card takes its content's height, so the plot
+     has no leftover to grow into and needs a height of its own — roughly
+     square on a phone, capped on a tablet and on a short landscape window. */
+  .wb-boxcar-plot {
+    flex: 0 0 auto !important;
+    height: clamp(220px, min(75vw, 80vh), 440px);
+  }
+  /* An open box table at its natural height: the page scrolls, not a table
+     inside a card inside a scrolling page. */
+  .wb-boxcar-table {
+    flex: 0 0 auto !important;
+    overflow: visible !important;
+  }
 }
 /* The same stacking where the window itself is short or portrait. */
 @media (max-height: 540px), (max-width: 1100px) and (orientation: portrait) {
@@ -504,6 +517,19 @@ html {
      card inside a scrolling page. */
   .wb-work2 > :last-child {
     height: auto !important;
+  }
+  /* The boxcar figure: a stacked card takes its content's height, so the plot
+     has no leftover to grow into and needs a height of its own — roughly
+     square on a phone, capped on a tablet and on a short landscape window. */
+  .wb-boxcar-plot {
+    flex: 0 0 auto !important;
+    height: clamp(220px, min(75vw, 80vh), 440px);
+  }
+  /* An open box table at its natural height: the page scrolls, not a table
+     inside a card inside a scrolling page. */
+  .wb-boxcar-table {
+    flex: 0 0 auto !important;
+    overflow: visible !important;
   }
 }
 
@@ -674,8 +700,13 @@ html {
     min-height: calc(100dvh / var(--ui-zoom));
     overflow: visible;
   }
+  /* The column grows to its content, never shrinks below it: the shell is what
+     scrolls here, and a column held to the shell's leftover (its desktop
+     `min-height: 0`) let its cards spill past it, so the footer, which follows
+     the column's box, was drawn across the plot card on a phone. */
   .wb-main {
     overflow: visible;
+    min-height: auto;
   }
 }
 /* A short but wide window keeps the magnetic page's two columns: give the row
@@ -946,6 +977,15 @@ html {
   .wb-seg > button {
     padding: 3px 6px !important;
     font-size: 10px !important;
+  }
+  /* A view switcher (four views or more) is what wraps: at the full width,
+     with segments that grow, it reads as a two-row control instead of one
+     view left alone on a second row. Two-option toggles keep their size. */
+  .wb-seg:has(> :nth-child(4)) {
+    width: 100%;
+  }
+  .wb-seg:has(> :nth-child(4)) > button {
+    flex: 1 1 auto;
   }
 }
 

@@ -175,6 +175,8 @@ export type EvaluatorSpec =
       readonly restraints?: readonly LinearRestraint[];
       readonly shape: PeakShape;
       readonly eta?: number;
+      readonly lorentz?: boolean;
+      readonly backgroundType?: BackgroundType;
       readonly fitRange?: { readonly min?: number; readonly max?: number };
     }
   | {

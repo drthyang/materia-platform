@@ -12,9 +12,10 @@ import type { MethodProgress } from "@/agent/method";
 import { isScriptedReplay, providerOf, replayLabel, type AgentController, type AgentMode, type AgentProvider, type AgentSettings, type TranscriptItem } from "@/agent/useAgent";
 import { OPENAI_PRESETS, isMachineUrl, listOpenAIModels, openaiBase, openaiUnreachableHint, presetForUrl, type OpenAIModel } from "@/agent/openaiCompat";
 import { CHAT_MODELS, hasRefusalFallback } from "@/agent/chat-models";
+import { NO_PROXY, proxyStatus, type ProxyStatus } from "@/agent/proxyStatus";
 import { listOllamaModels, unreachableHint, type OllamaModel } from "@/agent/ollama";
 import { listLmStudioModels, lmstudioUnreachableHint, type LmStudioModel } from "@/agent/lmstudio";
-import { MIN_AGENT_CONTEXT } from "@/agent/localServer";
+import { MIN_AGENT_CONTEXT, kTokens } from "@/agent/localServer";
 import { cardsInReply, type AgentCard } from "@/agent/focus";
 import { MATH_SPAN_SOURCE, mathInside, texPieces } from "@/agent/ui/texText";
 import { DRAWER_MAX, DRAWER_MIN, KEY_STEP, SHEET_DEFAULT, SHEET_MAX, SHEET_MIN, SHEET_QUERY, clampDrawerWidth, clampSheet, readDrawerWidth, readSheet, sheetFor, writeDrawerWidth, writeSheet } from "@/agent/ui/drawerWidth";
@@ -427,6 +428,7 @@ function Settings({ agent }: { agent: AgentController }): JSX.Element {
               </label>
             </>
           )}
+          {settings.mode === "proxy" && <ProxyCheck />}
           <p style={note}>{cloudNote("Anthropic")}</p>
         </>
       )}
@@ -458,6 +460,21 @@ function Settings({ agent }: { agent: AgentController }): JSX.Element {
       <HowToConnect mode={settings.mode} />
     </div>
   );
+}
+
+/** Whether this page has the local proxy: the published site has none, and says so before a message fails. */
+function ProxyCheck(): JSX.Element | null {
+  const [status, setStatus] = useState<ProxyStatus | null>(null);
+  useEffect(() => {
+    let live = true;
+    void proxyStatus(import.meta.env.BASE_URL).then((s) => { if (live) setStatus(s); });
+    return () => { live = false; };
+  }, []);
+  if (status === null) return null;
+  const text = status === "ready" ? "The proxy is running, with a key." : status === "no-key"
+    ? "The proxy is running but has no key: start the dev server with ANTHROPIC_API_KEY set (in the shell, or in .env.local)."
+    : NO_PROXY;
+  return <p role="status" style={{ ...note, color: status === "ready" ? color.secondary : color.warnInk }}>{text}</p>;
 }
 
 /** The longer how-to for the chosen connection, folded away. */
@@ -535,7 +552,6 @@ function useModelList<T>(url: string, list: (url: string, signal: AbortSignal) =
   return { list: state, refresh: () => setRound((n) => n + 1) };
 }
 
-const kTokens = (n: number): string => `${Math.round(n / 1024)}k`;
 
 /** The Ollama server and a model on it, listed from the server itself. */
 function OllamaSettings({ agent }: { agent: AgentController }): JSX.Element {
@@ -1147,7 +1163,6 @@ function IconButton({ children, title, onClick, active, disabled }: { children: 
   );
 }
 
-/** The Agent mark: a four-point spark. */
 /** The answers in a conversation: what the collapsed rail's dot counts. */
 export function answersIn(transcript: readonly TranscriptItem[]): number {
   return transcript.filter((t) => t.kind === "assistant" && t.text.trim() !== "").length;
@@ -1178,6 +1193,7 @@ export function AgentRail({ unread, pending = 0, onOpen }: { unread: boolean; pe
   );
 }
 
+/** The Agent mark: a four-point spark. */
 export function SparkIcon({ size = 16 }: { size?: number }): JSX.Element {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden style={{ display: "block", flex: "none" }}>

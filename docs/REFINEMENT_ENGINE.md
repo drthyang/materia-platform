@@ -98,6 +98,14 @@ where `r_i = √w_i · (y_obs,i − y_calc,i)` and `J_ij = ∂r_i/∂p_j`.
   ends on a bound is reported in `atBounds`. Each shift is also capped at 5× the
   parameter's current magnitude, so one ill-conditioned step cannot throw the
   model out of its basin.
+- **A trial point the model cannot evaluate.** A trial step whose χ² is not
+  finite, or whose `calculate` throws a `ModelDomainError`, is rejected like an
+  uphill one and λ grows. A cell length driven to 0 or below is such a point:
+  `generateReflections` refuses it with a `ReflectionLimitError`, as it refuses
+  a list too large to enumerate. The result's message counts these steps and
+  gives the first one's reason. An error at the starting point, or at a
+  Jacobian point beside an accepted one, still ends the refinement, and so does
+  any other error a `calculate` throws: that is a fault, not a long step.
 - **Fixed parameters** are removed from `p` entirely, not just given zero
   weight, so the normal matrix stays well-conditioned.
 - **Convergence.** A fit converges when the relative change in χ² falls below
