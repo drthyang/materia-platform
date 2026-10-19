@@ -26,7 +26,7 @@ const CONTRACTS: Readonly<Record<AgentPage, Readonly<Record<string, readonly str
     identify_peaks: ["candidates", "peaks", "reading"],
     structure_table: ["phases"],
     magnetic_state: ["canFitMoments", "canRefineK", "candidates", "groups", "ions", "k", "kKind", "next", "nuclearOnlyWR", "residualPeaks", "ties"],
-    rank_magnetic_groups: ["best", "groups", "nuclearOnlyWR", "ranked", "reading", "restarts"],
+    rank_magnetic_groups: ["best", "groups", "nuclearOnlyWR", "ranked", "reading", "restarts", "withinNoise"],
     bond_geometry: ["bonds", "name", "phase", "shortest"],
     interpret_structure: ["findings", "summary"],
   },

@@ -174,9 +174,10 @@ function rankView(s: MagneticPanelState): Record<string, unknown> {
   return {
     groups: fitted.map(candidateRow),
     ...(s.best ? { best: s.best } : {}),
+    ...(s.withinNoise.length ? { withinNoise: s.withinNoise } : {}),
     ...(s.baselineAgreement !== null ? { nuclearOnlyWR: pct(s.baselineAgreement) } : {}),
     reading: s.best
-      ? `${s.best} fits best (ties go to the maximal group with the fewest moment parameters). A powder often cannot tell several groups apart: say which fit within the noise of the best, and choose the maximal one unless the data say otherwise.`
+      ? `${s.withinNoise.length > 1 ? `${s.withinNoise.length} groups fit within the noise of the best (${s.withinNoise.join(", ")}: a group with more moment parameters must lower χ² beyond the noise, Hamilton's test at 5 %), and ${s.best} is the maximal one with the fewest moment parameters among them.` : `${s.best} fits best, beyond the noise of every other group.`} A powder often cannot tell several groups apart: say which fit within the noise of the best, and choose ${s.best} unless the data say otherwise.`
       : "No candidate could be fitted.",
   };
 }

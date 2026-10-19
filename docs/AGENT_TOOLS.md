@@ -571,8 +571,10 @@ under, the references, the report's checks.
   read the residual peaks the k-search uses (`magnetic_state`), search k and
   set it (several k often explain a few satellites: the search names the
   simplest), choose the magnetic ions, rank the magnetic space groups of the
-  little group of k by a moments-only fit (maximal groups first; ties go to the
-  maximal group with the fewest moment parameters), choose one (by its id, G1,
+  little group of k by a moments-only fit (maximal groups first; at k = 0 with
+  the nuclear scale free; the ★ goes to the maximal group with the fewest moment
+  parameters among those within the noise of the best, by Hamilton's test),
+  choose one (by its id, G1,
   G2, … in the page's order), fit its moments, and either show it on the
   refinement pattern with its moments held or hand its moment rows (and k's
   free components) to the refinement step, where `refine` fits nuclear and

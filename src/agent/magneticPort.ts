@@ -88,8 +88,10 @@ export interface MagneticPanelState {
   readonly ties: { readonly sameSite: boolean; readonly magnitudes: false | "element" | "all" };
   /** The nuclear-only wR (fraction) a candidate's fit is compared with. */
   readonly baselineAgreement: number | null;
-  /** The ranked candidate with the lowest wR (ties: the maximal group, fewest moment parameters). */
+  /** The ★: among the ranked groups within the noise of the best fit, the maximal one with the fewest moment parameters. */
   readonly best: string | null;
+  /** The ranked groups within the noise of the best fit (Hamilton's test where the fit reports χ²). */
+  readonly withinNoise: readonly string[];
   /** Moments can be fitted against the data on this page. */
   readonly canFit: boolean;
   /** The chosen model lets k refine with the moments (Continue with refineK). */

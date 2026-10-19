@@ -1143,7 +1143,7 @@ Powder page only. How the moment amplitudes are tied in the model built for a gr
 
 ### rank_magnetic_groups
 
-Powder page only. Fit the moments of each magnetic group that allows a moment (the nuclear model held) and rank them by wR: `scope` "open" (default) fits the groups in the index sections open on the page (the maximal, index-2 groups at first: the top-down start), "all" every group. Each group is fitted from its seed moments and from `restarts` kicked starts (default 12), the best kept: magnetic intensity is quadratic in the moments, so one fit can stop in a minimum with a sublattice switched off. Returns the fitted groups, best first, with the best marked (ties go to the maximal group with the fewest moment parameters). Several seconds per group.
+Powder page only. Fit the moments of each magnetic group that allows a moment (the nuclear model held) and rank them by wR: `scope` "open" (default) fits the groups in the index sections open on the page (the maximal, index-2 groups at first: the top-down start), "all" every group. Each group is fitted from its seed moments and from `restarts` kicked starts (default 12), the best kept: magnetic intensity is quadratic in the moments, so one fit can stop in a minimum with a sublattice switched off. Returns the fitted groups, best first, the groups within the noise of the best (Hamilton's test: a group with more moment parameters must lower χ² beyond the noise), and the ★, the maximal one with the fewest moment parameters among them. At k = 0 the nuclear scale refines with the moments. Several seconds per group.
 
 ```json
 {
