@@ -33,6 +33,7 @@
 import type { SpaceGroup, UnitCell } from "@/core/crystal/types";
 import type { ReflectionObsCalc } from "@/core/workflow/obsCalc";
 import { misfitSignature, powderValidation, type PowderValidation } from "@/core/diagnostics/powderValidation";
+import { minMax } from "@/core/math/extent";
 import { TEXTURE_CHANCE, textureTest, type TextureTest } from "@/core/diagnostics/textureTest";
 
 export interface FitDiagnosisInput {
@@ -171,7 +172,7 @@ export function diagnoseFit(input: FitDiagnosisInput): FitDiagnosis {
   // ── the reflections that carry the χ² ────────────────────────────────────
   const nuclear = input.reflections.filter((r) => r.kind === "nuclear" && r.chi2 !== undefined);
   const xs = input.x.filter((_, i) => input.include[i]);
-  const xLo = Math.min(...xs), xHi = Math.max(...xs);
+  const { min: xLo, max: xHi } = minMax(xs);
   const third = (x: number): 0 | 1 | 2 => (x < xLo + (xHi - xLo) / 3 ? 0 : x < xLo + (2 * (xHi - xLo)) / 3 ? 1 : 2);
   const rows = nuclear.map((r) => {
     const signature = misfitSignature(r.misfitMean ?? 0, r.misfitLobe ?? 0);

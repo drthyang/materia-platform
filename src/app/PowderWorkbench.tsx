@@ -1,14 +1,15 @@
 /**
- * Powder (Rietveld) refinement engine page — the peer of SingleCrystalWorkbench
- * behind the WorkbenchEngine contract. Owns all powder view state (fit range,
- * display unit, plot mode, highlight, live refinement preview), the refinement
- * orchestration against the shared compute worker, the powder exports, and both
- * step pages (setup & refinement · magnetic symmetry analysis).
+ * Powder (Rietveld) refinement engine page — a peer of SingleCrystalWorkbench
+ * and PdfWorkbench behind the WorkbenchEngine contract. Owns all powder view
+ * state (fit range, display unit, plot mode, highlight, live refinement
+ * preview), the powder exports, and both step pages (setup & refinement ·
+ * magnetic symmetry analysis); the fits it runs are the page's own
+ * (powderPage.ts: powderFit, thoroughFit, posteriorRun).
  *
- * The session (structure + pattern + parameter spec) lives in the app shell —
- * whose data loaders create it — and is passed down with its setter; the
- * engine's controls (background basis/terms, ADP model, site ties, Mustrain)
- * rebuild the spec through it.
+ * The page itself (session, instrument, last result) lives in the app shell
+ * and is passed down with its setter; the engine's controls change it through
+ * the page's functions (powderPage.ts: `changed`, `withFit` and the with*
+ * controls), which clear the result when a change makes it out of date.
  *
  * Per the WorkbenchEngine boundary (see workbenchEngine.ts), the quality panel
  * and every agreement factor here are the powder community's own: Rwp over the
@@ -607,8 +608,6 @@ export function PowderWorkbench({
     stepHistory?.requestStep("edit", only ? `Reset ${[...only].join(", ")}` : "Reset to starting values");
   }
 
-  /** Flat co-refinement of the currently-freed parameters. Resolves to why it
-   *  did not finish (cancelled, failed), or null when it did. */
   /**
    * The Refine button's fit of the current free set: with an applied magnetic
    * model, nuclear + magnetic on the shared scale; otherwise the nuclear
@@ -619,6 +618,8 @@ export function PowderWorkbench({
     return powderFitOn(client, pageModel(), options, gpu, onProgress);
   }
 
+  /** Flat co-refinement of the currently-freed parameters. Resolves to why it
+   *  did not finish (cancelled, failed), or null when it did. */
   async function runPowder(): Promise<string | null> {
     // The starting point (freed parameters, edited values, settings) is a step
     // of its own, so going back lands before this refinement, not after it.
@@ -978,7 +979,7 @@ export function PowderWorkbench({
   }
 
   // Publish this engine's header exports while it is the active mode; cleared on
-  // unmount (the shell's other ref serves single-crystal mode).
+  // unmount (the shell's other refs serve the single-crystal and PDF modes).
   useEffect(() => {
     if (active) exportsRef.current = {
       report: exportReport,

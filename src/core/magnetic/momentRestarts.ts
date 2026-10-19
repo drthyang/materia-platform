@@ -22,6 +22,9 @@ export interface MomentFit {
   readonly values: Record<string, number>;
   /** The fit's agreement (wR, R1, Rw): lower is better; null when the fit did not run. */
   readonly agreement: number | null;
+  /** Its χ² and degrees of freedom, where the fit is weighted by the data's σ (powder, single crystal): the ranking's noise. */
+  readonly chi2?: number;
+  readonly dof?: number;
 }
 
 export interface MomentSearch extends MomentFit {
@@ -79,5 +82,13 @@ export async function fitMomentsWithRestarts(
       bestStart = k;
     }
   }
-  return { values: best.values, agreement: best.agreement, restartsRun: run, bestStart, agreements };
+  return { values: best.values, agreement: best.agreement, ...(best.chi2 !== undefined ? { chi2: best.chi2 } : {}), ...(best.dof !== undefined ? { dof: best.dof } : {}), restartsRun: run, bestStart, agreements };
+}
+
+/** A refinement's χ² and degrees of freedom (from its last iteration and its GoF, √(χ²/ν)), where it has them. */
+export function noiseOf(result: { readonly history?: readonly { readonly chiSquared: number }[]; readonly agreement: { readonly goodnessOfFit?: number } }): { chi2?: number; dof?: number } {
+  const chi2 = result.history?.at(-1)?.chiSquared;
+  const gof = result.agreement.goodnessOfFit;
+  if (chi2 === undefined || !(chi2 > 0) || gof === undefined || !(gof > 0)) return {};
+  return { chi2, dof: Math.round(chi2 / (gof * gof)) };
 }

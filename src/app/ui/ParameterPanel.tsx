@@ -90,7 +90,6 @@ const CATEGORY: Record<ParameterKind, string> = {
 
 const ORDER = ["Scale", "Background", "Lattice", "Instrument / profile", "Instrument", "Correlated motion", "Particle shape", "ADPs (thermal)", "Positions", "Occupancy", "Microstructure", "Corrections", "Magnetic", "Propagation vector", "mPDF"];
 
-/** difC/difA/difB come from instrument calibration — shown but not togglable. */
 /** Rows the user cannot free: instrument calibration, and parameters derived
  *  from others by a tie expression (their value follows the tie). */
 const isLocked = (p: RefinementParameter): boolean => p.kind === "tofCalibration" || !!p.expression;

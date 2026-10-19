@@ -35,6 +35,7 @@ import type { PdfLiveState, PowderLiveState, SingleCrystalLiveState } from "@/ag
 import { PAGE_METHOD } from "@/agent/skills";
 import { parseTie } from "@/core/refinement/constraints";
 import { lineage, type ProjectHistory } from "@/core/project/history";
+import { listOf } from "@/agent/liveCommon";
 
 export type MethodRule = "bare-occupancy" | "instrument-with-thermal";
 
@@ -314,7 +315,7 @@ export function ruleRefusal(page: AgentPage, free: readonly RefinementParameter[
     const instrument = free.filter((p) => INSTRUMENT_KINDS.has(p.kind));
     const thermal = free.filter((p) => THERMAL_KINDS.has(p.kind));
     if (instrument.length > 0 && thermal.length > 0) {
-      const ids = (ps: readonly RefinementParameter[]): string => ps.length <= 6 ? ps.map((p) => p.id).join(", ") : `${ps.slice(0, 6).map((p) => p.id).join(", ")} and ${ps.length - 6} more`;
+      const ids = (ps: readonly RefinementParameter[]): string => listOf(ps.map((p) => p.id), 6);
       const trade = page === "pdf"
         ? "Qbroad widens the peaks with r and Qdamp damps them with r, as the ADPs and the correlated motion do: refined together, each absorbs the other's error and the esds hide it. Keep Qdamp and Qbroad from the standard measured on the same instrument (Ni, Si); if they must be refined"
         : "Wider or more Lorentzian peaks put intensity into tails the background takes up at high angle, and the B values' fall-off with angle gives it back; the zero and the asymmetry shape the low-angle lines that fix the scale the B values are measured against. Refined together, each absorbs the other's error (a B gone negative, a profile gone wide) and the esds hide it. Keep an instrument file's terms from its standard where they fit; where they must be refined";
