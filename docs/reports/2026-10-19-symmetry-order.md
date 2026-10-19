@@ -1,6 +1,6 @@
 # The symmetry review's candidates by index
 
-Pull request [#PR](https://github.com/drthyang/web-refinement/pull/PR),
+Pull request [#83](https://github.com/drthyang/web-refinement/pull/83),
 branch `claude/plan-4-10`, on `main`, 2026-10-19. Plan:
 [AGENT_PLAN.md](../AGENT_PLAN.md), 4.10.
 
