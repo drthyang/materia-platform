@@ -196,7 +196,8 @@ approximate, however plausible its output looks.
 - Backgrounds: Chebyshev, cosine (Fourier) or power series, or linear or
   logarithmic interpolation between evenly spaced points, with an adjustable
   number of terms.
-- Corrections: March–Dollase preferred orientation; sample displacement and
+- Corrections: March–Dollase preferred orientation (averaged over each
+  family's Laue equivalents, as GSAS-II); sample displacement and
   transparency, Debye–Scherrer absorption, and Suortti surface roughness
   (opt-in); crystallite size (isotropic, with uniaxial in the core only) and
   microstrain (isotropic,

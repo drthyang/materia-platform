@@ -16,7 +16,7 @@ import { weightsFromSigma, excludedPointMask, applyExclusionMask, fitRangeMask }
 import { resolveTies, tieReferences } from "@/core/refinement/constraints";
 import { applyParameters, type AppliedModel } from "@/core/workflow/apply";
 import { generateReflections } from "@/core/diffraction/reflections";
-import { powderPeakIntensities, lorentzPolarization, marchDollase } from "@/core/diffraction/intensity";
+import { powderPeakIntensities, lorentzPolarization, marchDollaseFamily } from "@/core/diffraction/intensity";
 import { correctionsForPattern } from "@/core/diffraction/corrections";
 import { nuclearStructureFactorPartials } from "@/core/diffraction/structureFactor";
 import { braggTheta } from "@/core/crystal/unitCell";
@@ -383,7 +383,7 @@ function derivativeReflections(applied: AppliedModel, pattern: PowderPattern, ap
   const radiation = pattern.radiation;
   return reflections.map((r) => {
     const lp = applyLorentz ? lorentzPolarization(radiation, r.d) : 1;
-    const poFactor = applied.po ? marchDollase(applied.model.cell, applied.po.axis, r.h, r.k, r.l, applied.po.ratio) : 1;
+    const poFactor = applied.po ? marchDollaseFamily(applied.model.cell, applied.model.spaceGroup, applied.po.axis, r.h, r.k, r.l, applied.po.ratio) : 1;
     return {
       d: r.d, h: r.h, k: r.k, l: r.l,
       prefactor: r.multiplicity * lp * poFactor * applied.scale,

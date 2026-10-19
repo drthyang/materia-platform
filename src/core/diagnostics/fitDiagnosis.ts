@@ -20,9 +20,9 @@
  *  - Intensity falling off with angle wrongly: ln(I_obs/I_calc) linear in
  *    s² = 1/(4d²) is a Wilson-type slope — the ADPs off by ΔB = −slope/2, or an
  *    absorption/roughness correction missing.
- *  - Texture: ln(I_obs/I_calc) correlated with cos² of the angle between the
- *    reflection's normal and one low-index direction is preferred orientation
- *    along it (March–Dollase).
+ *  - Texture: what the fall-off leaves, fitted by March–Dollase averaged over
+ *    each family's equivalents, on each symmetry-distinct low-index axis, and
+ *    named only if shuffled misfits rarely fit as well (textureTest.ts).
  *  - What is left in intensity is the structure: positions, ADPs, occupancies.
  *
  * Built on the Validation view's statistics (powderValidation.ts: Durbin–
@@ -30,10 +30,11 @@
  * partition's χ² attribution per reflection (obsCalc.ts).
  */
 
-import type { UnitCell } from "@/core/crystal/types";
+import type { SpaceGroup, UnitCell } from "@/core/crystal/types";
 import type { ReflectionObsCalc } from "@/core/workflow/obsCalc";
 import { misfitSignature, powderValidation, type PowderValidation } from "@/core/diagnostics/powderValidation";
 import { minMax } from "@/core/math/extent";
+import { TEXTURE_CHANCE, textureTest, type TextureTest } from "@/core/diagnostics/textureTest";
 
 export interface FitDiagnosisInput {
   readonly x: readonly number[];
@@ -47,8 +48,8 @@ export interface FitDiagnosisInput {
   readonly d: readonly number[];
   /** The Rietveld partition with χ² attribution (powderReflectionObsCalc with `misfit`). */
   readonly reflections: readonly ReflectionObsCalc[];
-  /** Each phase's cell, by phase index (primary first), for the texture test. */
-  readonly cells: readonly UnitCell[];
+  /** Each phase's cell and space group, by phase index (primary first), for the texture test. */
+  readonly phases: readonly { readonly cell: UnitCell; readonly spaceGroup: SpaceGroup }[];
   /** Constant-wavelength 2θ data: asymmetry is read at low angle. */
   readonly twoTheta: boolean;
   /** The position of a reflection at d on the pattern's axis. */
@@ -101,37 +102,12 @@ export interface FitDiagnosis {
   readonly worst: readonly WorstReflection[];
   /** ln(I_obs/I_calc) against s² = 1/(4d²): ΔB = −slope/2 (Å²). */
   readonly wilson?: { readonly deltaB: number; readonly r: number; readonly n: number };
-  readonly texture?: { readonly axis: readonly [number, number, number]; readonly r: number; readonly n: number; readonly enhancedAlongAxis: boolean };
+  readonly texture?: TextureTest;
   readonly causes: readonly FitCause[];
   readonly reading: string;
 }
 
 const hklText = (r: { h: number; k: number; l: number }): string => `${r.h} ${r.k} ${r.l}`;
-
-/** The reciprocal metric tensor G* of a cell. */
-export function reciprocalMetric(cell: UnitCell): number[][] {
-  const rad = Math.PI / 180;
-  const ca = Math.cos(cell.alpha * rad), cb = Math.cos(cell.beta * rad), cg = Math.cos(cell.gamma * rad);
-  const g = [
-    [cell.a * cell.a, cell.a * cell.b * cg, cell.a * cell.c * cb],
-    [cell.a * cell.b * cg, cell.b * cell.b, cell.b * cell.c * ca],
-    [cell.a * cell.c * cb, cell.b * cell.c * ca, cell.c * cell.c],
-  ];
-  const det = g[0]![0]! * (g[1]![1]! * g[2]![2]! - g[1]![2]! * g[2]![1]!) - g[0]![1]! * (g[1]![0]! * g[2]![2]! - g[1]![2]! * g[2]![0]!) + g[0]![2]! * (g[1]![0]! * g[2]![1]! - g[1]![1]! * g[2]![0]!);
-  const inv = (r: number, c: number): number => {
-    const m = g.filter((_, i) => i !== c).map((row) => row.filter((_, j) => j !== r));
-    const minor = m[0]![0]! * m[1]![1]! - m[0]![1]! * m[1]![0]!;
-    return ((r + c) % 2 === 0 ? 1 : -1) * minor / det;
-  };
-  return [0, 1, 2].map((r) => [0, 1, 2].map((c) => inv(r, c)));
-}
-
-/** cos of the angle between two reciprocal-lattice vectors. */
-function cosBetween(gs: number[][], h: readonly number[], k: readonly number[]): number {
-  const dot = (u: readonly number[], v: readonly number[]): number => u.reduce((s, ui, i) => s + ui * gs[i]!.reduce((t, gij, j) => t + gij * v[j]!, 0), 0);
-  const n = Math.sqrt(dot(h, h) * dot(k, k));
-  return n > 0 ? dot(h, k) / n : 0;
-}
 
 /** Weighted Pearson correlation and slope of y on x. */
 function regress(x: readonly number[], y: readonly number[], w: readonly number[]): { slope: number; r: number } {
@@ -147,8 +123,6 @@ function regress(x: readonly number[], y: readonly number[], w: readonly number[
   });
   return { slope: sxx > 0 ? sxy / sxx : 0, r: sxx > 0 && syy > 0 ? sxy / Math.sqrt(sxx * syy) : 0 };
 }
-
-const AXES: readonly (readonly [number, number, number])[] = [[1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 1, 0], [1, 0, 1], [0, 1, 1], [1, 1, 1]];
 
 export function diagnoseFit(input: FitDiagnosisInput): FitDiagnosis {
   const validation = powderValidation({
@@ -313,27 +287,19 @@ export function diagnoseFit(input: FitDiagnosisInput): FitDiagnosis {
         action: "Free the ADPs if they are held; if they are free, an absorption (Debye–Scherrer μR) or surface-roughness correction is missing (set_corrections), or the data need a different Lorentz-polarization.",
       });
     }
-    // Texture: what the fall-off leaves, against each low-index direction.
+    // Texture: what the fall-off leaves, fitted by March–Dollase on each distinct axis.
     const resid = y.map((yi, i) => yi - (fit.r !== 0 ? fit.slope * (s2[i]! - s2.reduce((a, b) => a + b, 0) / s2.length) : 0));
-    const byPhase = new Map<number, number[]>();
-    usable.forEach((r, i) => byPhase.set(r.phaseIndex ?? 0, [...(byPhase.get(r.phaseIndex ?? 0) ?? []), i]));
-    const idx = byPhase.get(0) ?? [];
-    const cell = input.cells[0];
-    if (cell && idx.length >= 12) {
-      const gs = reciprocalMetric(cell);
-      let best: FitDiagnosis["texture"];
-      for (const axis of AXES) {
-        const c2 = idx.map((i) => cosBetween(gs, [usable[i]!.h, usable[i]!.k, usable[i]!.l], axis) ** 2);
-        const t = regress(c2, idx.map((i) => resid[i]!), idx.map((i) => w[i]!));
-        if (!best || Math.abs(t.r) > Math.abs(best.r)) best = { axis, r: t.r, n: idx.length, enhancedAlongAxis: t.slope > 0 };
-      }
-      texture = best;
-      if (best && Math.abs(best.r) > 0.5) {
+    const idx = usable.flatMap((r, i) => ((r.phaseIndex ?? 0) === 0 ? [i] : []));
+    const phase = input.phases[0];
+    if (phase && idx.length >= 12) {
+      texture = textureTest(idx.map((i) => ({ h: usable[i]!.h, k: usable[i]!.k, l: usable[i]!.l, misfit: resid[i]!, weight: w[i]! })), phase);
+      if (texture && texture.chance < TEXTURE_CHANCE && Math.abs(Math.log(texture.ratio)) >= Math.log(1.05)) {
+        const t = texture;
         causes.push({
           id: "texture",
-          share: intensityShare * Math.min(1, best.r * best.r),
-          evidence: `the intensity misfit follows the angle to [${best.axis.join(" ")}]* (r = ${best.r.toFixed(2)}, ${best.n} reflections): reflections near it are ${best.enhancedAlongAxis ? "stronger" : "weaker"} than calculated`,
-          action: `Preferred orientation along ${best.axis.join(" ")}: add March–Dollase (set_corrections preferredOrientation [${best.axis.join(", ")}]) and refine its ratio — after the structure, and only if the sample can be textured (a capillary rarely is).`,
+          share: intensityShare * Math.min(1, t.explained),
+          evidence: `March–Dollase along [${t.axis.join(" ")}]* at r ${t.atLimit ? (t.ratio < 1 ? "≤ " : "≥ ") : "≈ "}${t.ratio.toFixed(2)} explains ${(100 * t.explained).toFixed(0)}% of the intensity misfit (${t.n} reflections, averaged over their equivalents; best of ${t.axes} distinct axes, chance ${t.chance < 0.005 ? "< 0.5%" : `${(100 * t.chance).toFixed(1)}%`} on shuffled misfits): reflections near it are ${t.enhancedAlongAxis ? "stronger" : "weaker"} than calculated`,
+          action: `Preferred orientation along ${t.axis.join(" ")}: add March–Dollase (set_corrections preferredOrientation [${t.axis.join(", ")}]) and refine its ratio — after the structure, and only if the sample can be textured (a capillary rarely is).`,
         });
       }
     }
