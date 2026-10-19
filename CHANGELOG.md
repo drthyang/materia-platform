@@ -430,6 +430,16 @@ release fixes bugs.
 
 ### Changed
 
+- **The boxcar plot gets the card.** After a run the plan folds into a
+  one-line summary beside Run, the caption moves to the chip row, and the
+  per-box table opens on demand, so on a 1280×800 window the figure is about
+  twice as tall (150 → 313 px) and the track itself about four times (≈50 →
+  194 px). The two panels share one r axis with gridlines through both, the Rw
+  strip scales with the figure and has a scale, and Rw bars widen with the box
+  spacing. Point at a box for its window, value ± esd and Rw; click it (or step
+  with ← →) to pick it, shading its r-window, and adopt it from the line under
+  the plot.
+
 - **Single-crystal structure factors with analytic derivatives.** A kernel
   computes F for a fixed reflection list and, in the same pass, ∂F for every
   position mode, U mode, B and occupancy, so the Jacobian costs about two
