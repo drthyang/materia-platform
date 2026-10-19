@@ -41,8 +41,7 @@ import type { ReportCheck } from "@/core/export/report";
 import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, correlationsCheck, findingChecks, noResultCheck, verdictCheck } from "@/agent/reportChecks";
 import { groupOf } from "@/agent/method";
 import { MAGNETIC_PLANS, magneticNext } from "@/agent/magneticTools";
-import type { UnitCell } from "@/core/crystal/types";
-import { dScaleSearch, observedPeaks, wrongScale } from "@/core/diagnostics/dScale";
+import { cellCheckReading, dScaleReading } from "@/core/diagnostics/cellReading";
 import { inspectDataRange, type DataEnd, type DataRangeReading } from "@/core/diagnostics/dataRange";
 import type { ReferenceEntry } from "@/agent/references";
 
@@ -143,19 +142,7 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
       if (marks.length > 0) port.showPeaks(marks);
       // A check, not a gate: an absence flag is recorded and revisited at the
       // end (review_symmetry), never acted on before the structure is refined.
-      const violated = check.absences.violated;
-      const flags = violated.map((v) => `${v.h} ${v.k} ${v.l} at d ${v.d.toFixed(3)} Å`).join(", ");
-      // The cell a good Le Bail fit found, against the structure's: one factor on every length reads as the wavelength.
-      const shift = scale ?? (check.leBail.rWeighted < 0.5 ? cellShiftReading(s.structure.cell, check.cell, s.pattern.xUnit) : null);
-      const readings = [
-        ...(shift ? [shift] : []),
-        ...(unindexed.length > 0 ? [`${unindexed.length} peak${unindexed.length === 1 ? "" : "s"} no reflection of the cell indexes: a missing phase (most often) or a wrong cell. identify_peaks (with their d) checks the sample environment and common standards. Settle this with the user before refining the structure.`] : []),
-        ...(check.shoulders.length > 0 ? [shoulderReading(check.shoulders, s.pattern.xUnit)] : []),
-        ...(violated.length > 0
-          ? [`${violated.length} forbidden reflection${violated.length === 1 ? "" : "s"} show${violated.length === 1 ? "s" : ""} leftover intensity (${flags}). This is a flag, not a verdict: before the structure is refined, profile misfit${unindexed.length > 0 ? ", or a line of the unindexed phase," : ""} reads the same way. Do not change the space group now: note it (write_note) and refine the structure to the best; review_symmetry reads the refined residual at the end.`]
-          : []),
-      ];
-      const reading = readings.length > 0 ? readings.join(" ") : "Every peak indexes and no forbidden reflection shows intensity: refine the structure.";
+      const reading = cellCheckReading(check, { loaded: s.structure.cell, unit: s.pattern.xUnit, scale, tools: { identify: "identify_peaks", note: "write_note", review: "review_symmetry" } });
       // Shoulders in the pattern's own unit, rounded.
       const shoulders = check.shoulders.map((sh) => ({ x: sig(sh.x, 6), significance: sig(sh.significance, 3), of: sh.of, offset: sig(sh.offset, 3), relativeHeight: sig(sh.relativeHeight, 2) }));
       // The Le Bail fit as the report gives it (cellCheckSummary): the cell to six figures, Rwp in per cent.
@@ -653,45 +640,9 @@ function requestedWindow(s: PowderLiveState, input: InputOf<"set_fit_range">): {
   return w;
 }
 
-/**
- * The pattern's strongest peaks against the structure's reflections: one
- * factor on every d that indexes them where 1 does not is a wrong wavelength
- * (or TOF difC), named with the value it implies. Null when 1 indexes them.
- */
+/** The d-scale reading (core/diagnostics/cellReading.ts) of the page's pattern. */
 export function scaleReading(s: PowderLiveState): string | null {
-  if (!s.d || s.structure.sites.length === 0) return null;
-  const peaks = observedPeaks(s.d, s.pattern.points.map((p) => p.yObs), s.pattern.points.map((p) => p.sigma ?? 0));
-  const r = dScaleSearch(peaks, generateReflections(s.structure.cell, s.structure.spaceGroup, 0.4, 50).map((x) => x.d));
-  if (!wrongScale(r)) return null;
-  const f = r.factor;
-  const pctOf = (v: number): string => `${Math.round(100 * v)} %`;
-  const lambda = s.pattern.xUnit === "twoTheta" ? (s.instrument?.kind === "constantWavelength" ? s.instrument.wavelength : s.pattern.radiation.kind !== "neutron-tof" ? s.pattern.radiation.wavelength : undefined) : undefined;
-  const cause = s.pattern.xUnit === "tof"
-    ? `a wrong difC (the calibration would be difC × ${(1 / f).toFixed(4)})`
-    : lambda !== undefined
-      ? `a wrong wavelength: the data would be at λ ${(lambda / f).toFixed(4)} Å, not ${lambda} Å`
-      : "a wrong wavelength or calibration";
-  return `The pattern's ${r.peaks} strongest peaks index the structure's cell with every d × ${f.toFixed(4)} (${pctOf(r.indexed)} of their height; at × 1, ${pctOf(r.indexedAtOne)}): one factor on every line is ${cause} — or the wrong cell for this phase. Ask the user to confirm before anything else: no refinement fixes it, and a refined cell would absorb it.`;
-}
-
-/**
- * The cell the peaks give against the structure's. Every length scaled by
- * one factor is what a wrong wavelength (or a wrong TOF difC) does to every
- * d, more often than a wrong cell; lengths moving apart are the phase, its
- * temperature or its composition. Null when the cell agrees within 0.5 %.
- */
-export function cellShiftReading(loaded: UnitCell, found: UnitCell, unit: PowderLiveState["pattern"]["xUnit"]): string | null {
-  const rel = (["a", "b", "c"] as const).map((k) => found[k] / loaded[k] - 1);
-  const worst = Math.max(...rel.map(Math.abs));
-  if (worst <= 0.005) return null;
-  const spread = Math.max(...rel) - Math.min(...rel);
-  const pctText = (v: number): string => `${v > 0 ? "+" : ""}${(100 * v).toFixed(2)} %`;
-  const what = unit === "tof" ? "the TOF calibration (difC)" : unit === "twoTheta" ? "the wavelength" : "the d scale";
-  if (spread <= 0.1 * worst) {
-    const mean = rel.reduce((t, v) => t + v, 0) / 3;
-    return `The peaks give a cell ${pctText(mean)} off the structure's in every length alike (a ${pctText(rel[0]!)}, b ${pctText(rel[1]!)}, c ${pctText(rel[2]!)}): one factor on every d is what a wrong ${unit === "twoTheta" ? "wavelength" : "calibration"} does. Ask the user to confirm ${what} before refining: a refined cell would absorb it silently.`;
-  }
-  return `The peaks give a cell up to ${pctText(rel[rel.map(Math.abs).indexOf(worst)]!)} off the structure's (a ${pctText(rel[0]!)}, b ${pctText(rel[1]!)}, c ${pctText(rel[2]!)}), unevenly: the phase at another temperature or composition, or another phase. Say so before refining.`;
+  return s.d ? dScaleReading(s.d, s.pattern, s.structure, s.instrument ?? undefined) : null;
 }
 
 /**
@@ -885,18 +836,3 @@ export function powderReportChecks(s: PowderLiveState, probe: RefinementResult |
   return checks;
 }
 
-/**
- * What the cell check's shoulders mean: tails of a profile the Le Bail fit
- * draws simply, not a phase. Shoulders at one common offset from their lines
- * are the instrument's; the Rietveld profile is the place to fit them.
- */
-export function shoulderReading(shoulders: readonly { x: number; of: string; offset: number; relativeHeight: number }[], unit: string): string {
-  const n = shoulders.length;
-  const at = (x: number): string => (unit === "twoTheta" ? `${x.toFixed(2)}°` : `${x.toFixed(4)} ${unit}`);
-  const list = shoulders.slice(0, 4).map((sh) => `${at(sh.x)} beside ${sh.of}, ${(100 * sh.relativeHeight).toFixed(1)} %`).join("; ");
-  const offsets = shoulders.map((sh) => sh.offset);
-  const mean = offsets.reduce((a, b) => a + b, 0) / n;
-  const spread = Math.max(...offsets) - Math.min(...offsets);
-  const common = n >= 2 && spread <= 0.25 * Math.abs(mean);
-  return `${n} shoulder${n === 1 ? "" : "s"} on the flank of a strong line (${list}): the tail of a peak profile the Le Bail fit draws simply, not a missing phase${common ? `; ${n === 2 ? "both sit" : "they sit"} at one offset from their lines (${mean < 0 ? "−" : "+"}${Math.abs(mean).toFixed(2)}${unit === "twoTheta" ? "°" : ` ${unit}`}), an instrumental feature` : ""}. They do not count against the cell. The Rietveld profile (asymmetry, Lorentzian X and Y) fits such tails; look at them again on the refined residual, and name them to the user only if they outlive it.`;
-}

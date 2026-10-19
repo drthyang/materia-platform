@@ -173,15 +173,14 @@ export function pdfReferences(s: PdfLiveState): ReferenceEntry[] {
 }
 
 /**
- * The MCP assessment, read for real space: the GoF (and the expected R it is
- * formed from) is dropped, since uniform weights make it meaningless, and no
- * residual is passed — its peak scan works in d-spacing, on Bragg peaks.
+ * The assessment in real space (its PDF mode leaves out the GoF, which uniform
+ * weights make meaningless), with no residual passed: its peak scan works in
+ * d-spacing, on Bragg peaks.
  */
 function assessment(s: PdfLiveState): ReturnType<typeof assess_refinement> & { convention: string } {
   if (!s.result) throw new Error("there is no refinement result on screen — refine first (a model change clears the last result)");
-  const { goodnessOfFit: _gof, rExpected: _rExp, ...agreement } = s.result.agreement;
   const out = assess_refinement({
-    result: { ...s.result, agreement },
+    result: s.result,
     parameters: [...s.parameters],
     observationCount: s.observationCount,
     mode: "pdf",
