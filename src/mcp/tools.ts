@@ -1765,6 +1765,8 @@ function powderSampleSpec(args: {
     bindings: args.bindings,
     shape: profile.shape,
     ...(profile.eta !== undefined ? { eta: profile.eta } : {}),
+    ...(profile.lorentz !== undefined ? { lorentz: profile.lorentz } : {}),
+    ...(profile.backgroundType !== undefined ? { backgroundType: profile.backgroundType } : {}),
     ...(args.fitRange ? { fitRange: args.fitRange } : {}),
   };
   const extra = args.extraPhases ?? [];
@@ -1772,18 +1774,12 @@ function powderSampleSpec(args: {
     return {
       kind: "magneticPowder", structure: args.structure, magnetic: args.magnetic, ...shared,
       ...(extra.length ? { extraPhases: extra.map((st) => ({ structure: st, id: st.id })) } : {}),
-      ...(profile.lorentz !== undefined ? { lorentz: profile.lorentz } : {}),
-      ...(profile.backgroundType !== undefined ? { backgroundType: profile.backgroundType } : {}),
     };
   }
   const restraints = args.restraints && args.restraints.length ? { restraints: args.restraints } : {};
   return extra.length
     ? { kind: "multiPhasePowder", phases: [{ structure: args.structure, id: args.structure.id }, ...extra.map((st) => ({ structure: st, id: st.id }))], ...shared, ...restraints }
-    : {
-        kind: "powder", structure: args.structure, ...shared, ...restraints,
-        ...(profile.lorentz !== undefined ? { lorentz: profile.lorentz } : {}),
-        ...(profile.backgroundType !== undefined ? { backgroundType: profile.backgroundType } : {}),
-      };
+    : { kind: "powder", structure: args.structure, ...shared, ...restraints };
 }
 
 export async function sample_posterior(args: {

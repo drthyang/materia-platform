@@ -504,6 +504,13 @@ release fixes bugs.
 
 ### Fixed
 
+- **A powder page with a second phase uses its own background basis.** Its
+  curve, wR, Refine, Prefit and posterior used the Chebyshev basis and the
+  Lorentz factor whatever the page had set: the cosine, power-series and
+  interpolated bases, and the Lorentz factor off, applied with one phase
+  only. The magnetic step's moments fit, which did use them, then disagreed
+  with the page's wR (6.793 against 6.781 on the magnetic Mn₃Ga demo with
+  CaF₂ added and a cosine background).
 - **A local model no longer loops, its prompt cut.** On qwen3.8-27b in LM
   Studio the Agent re-read its method and the state until the turn cap: the
   instructions and every tool took 18.8k of the model's 32k tokens, LM Studio

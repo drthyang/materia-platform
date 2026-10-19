@@ -115,6 +115,17 @@ describe("the magnetic step on the Agent's page, as on the app's", () => {
     expect(step!).toBeCloseTo(page, 6);
   }, 60000);
 
+  it("fits the moments against every phase and the page's background basis together", async () => {
+    // The page's multi-phase curves once drew the default Chebyshev basis while the fit used the page's (7.536 against 7.522 here).
+    const { step, page } = await fittedOn((port) => {
+      port.setFitRange({ min: 20, max: 100 });
+      port.addPhase!(knownPhaseStructure("CaF₂")!);
+      port.setBackgroundType("cosine");
+    });
+    expect(step).not.toBeNull();
+    expect(step!).toBeCloseTo(page, 6);
+  }, 60000);
+
   it("compares the groups with the page's own nuclear-only wR", () => {
     const { port, session } = sessionPort(mn3gaMagneticSession());
     port.setFitRange({ min: 20, max: 100 });
