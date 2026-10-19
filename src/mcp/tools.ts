@@ -73,7 +73,7 @@ import { applyParameters } from "@/core/workflow/apply";
 import { resolveTies } from "@/core/refinement/constraints";
 import { buildDistortionModes, buildSymmetryModes } from "@/core/crystal/distortionModes";
 import { refine, refineParallel } from "@/core/refinement/engine";
-import { refineSequentialAsync } from "@/core/refinement/sequential";
+import { boxcarScan, poolSolver } from "@/workers/strategy";
 import { refineMultiStart } from "@/core/refinement/multiStart";
 import { canonicalizeMomentValues, momentDegeneracies, momentKickFloor, type MomentDegeneracy } from "@/core/magnetic/canonicalize";
 import {
@@ -1375,6 +1375,7 @@ export async function refine_pdf(args: {
  */
 export async function refine_pdf_boxcar(args: {
   structure: StructureModel;
+  extraPhases?: StructureModel[];
   pattern: PdfPattern;
   parameters: RefinementParameter[];
   bindings: ParameterBinding[];
@@ -1427,67 +1428,26 @@ export async function refine_pdf_boxcar(args: {
   }
   const windows = boxcarWindows(plan);
 
-  // Analytic PDF columns for every box (see refine_pdf): exact, and one fused
-  // pass per iteration instead of two evaluations per supported column.
-  const options = { maxIterations: args.maxIterations ?? 20, analyticDerivatives: true };
-  const restarts = Math.max(0, Math.floor(args.restarts ?? 0));
-  const baseSpec: EvaluatorSpec = {
+  const baseSpec: Extract<EvaluatorSpec, { kind: "pdf" }> = {
     kind: "pdf",
     structure: args.structure,
+    ...(args.extraPhases && args.extraPhases.length ? { extraPhases: args.extraPhases } : {}),
     pattern: args.pattern,
     parameters: args.parameters,
     bindings: args.bindings,
     ...(args.restraints && args.restraints.length ? { restraints: args.restraints } : {}),
   };
-  // ONE pool for the whole series, re-initialized per box: `fitRange` is baked
-  // into a replica's problem, so a pool held across windows without re-init
-  // would evaluate the wrong window's Jacobian — silently, since the shape
-  // still matches. Re-init rebuilds the replicas in place; spawning a pool per
-  // box would instead re-execute the bundle in every worker, every box.
+  // One pool for the whole series, its replicas rebuilt for every box (the fit
+  // range is part of the problem); the scan is the app's (workers/strategy.ts).
   const first = windows[0]!;
   const pool = await createNodeEvaluatorPool({ ...baseSpec, fitRange: { min: first.min, max: first.max } });
   let series;
   try {
-    series = await refineSequentialAsync(
-      args.parameters,
-      windows.map((w, i) => ({
-        id: `box_${i}`,
-        label: `${w.center.toFixed(2)} A`,
-        buildProblem: (parameters) =>
-          buildProblemForSpec({ ...baseSpec, parameters: [...parameters], fitRange: { min: w.min, max: w.max } }),
-      })),
-      {
-        refineOptions: options,
-        ...(args.seedFromPrevious !== undefined ? { seedFromPrevious: args.seedFromPrevious } : {}),
-      },
-      async (problem, refineOptions, _dataset, index) => {
-        const w = windows[index]!;
-        const fitRange = { min: w.min, max: w.max };
-        await pool?.init({ ...baseSpec, fitRange });
-        // One start, solved on the pool when there is one. `problem.parameters`
-        // is the box's SEEDED set, so the restart baseline is exactly the
-        // seed-only answer — restarts can improve a box, never move it for free.
-        const solve = async (params: readonly RefinementParameter[]): Promise<RefinementResult> => {
-          const p = buildProblemForSpec({ ...baseSpec, parameters: [...params], fitRange });
-          // Analytic PDF columns on the driver (no UI thread in node), FD on the pool.
-          return pool
-            ? refineParallel(p, refineOptions, pool, { analyticOnDriver: true })
-            : refine(p, refineOptions);
-        };
-        if (restarts === 0) return solve(problem.parameters);
-        // A per-box seed: one shared seed would draw the identical perturbation
-        // pattern in every box, imprinting its own r-dependence on the series.
-        const ms = await refineMultiStart(
-          problem.parameters,
-          async (start) => {
-            const result = await solve(start);
-            return { parameters: start.map((p) => ({ ...p, value: result.parameters[p.id] ?? p.value })), final: result };
-          },
-          { restarts, seed: 0xb0 + Math.round(w.center * 1000) },
-        );
-        return ms.final;
-      },
-    );
+    series = await boxcarScan(baseSpec, windows, poolSolver(pool), {
+      refineOptions: { maxIterations: args.maxIterations ?? 20 },
+      ...(args.seedFromPrevious !== undefined ? { seedFromPrevious: args.seedFromPrevious } : {}),
+      ...(args.restarts !== undefined ? { restarts: args.restarts } : {}),
+    });
   } finally {
     await pool?.dispose();
   }

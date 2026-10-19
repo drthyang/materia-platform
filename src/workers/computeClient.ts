@@ -27,19 +27,15 @@ import type {
 import type { MagneticModel } from "@/core/magnetic/types";
 import { leBailCellPrefit, type LeBailPrefitResult } from "@/core/workflow/leBailPrefit";
 import type { RefinementResult, RefinementOptions, AgreementFactors, RefinementParameter } from "@/core/refinement/types";
-import { refine, refineParallel, type BatchEvaluator, type ParallelDriverCapabilities, type RefinementProblem } from "@/core/refinement/engine";
+import { refine, refineParallel, type BatchEvaluator } from "@/core/refinement/engine";
+import { analyticDriverPolicy, applyResultToParams, boxcarScan, poolSolver } from "@/workers/strategy";
 import { refineSingleCrystal, withFitWeights } from "@/core/workflow/singleCrystalRefinement";
 import { buildMagneticSingleCrystalProblem, applyMagneticMoments } from "@/core/workflow/magnetic";
 import { runPowderRefinement, runPdfRefinement, runMpdfRefinement, buildProblemForSpec, type PowderProgress } from "@/workers/runPowder";
 import { refineStagedAsync } from "@/core/refinement/staged";
 import { stagesFromKindGroups } from "@/core/workflow/structureRefinement";
 import { refineMultiStart, type MultiStartOptions, type MultiStartResult } from "@/core/refinement/multiStart";
-import {
-  refineSequentialAsync,
-  type SequentialDataset,
-  type SequentialOptions,
-  type SequentialResult,
-} from "@/core/refinement/sequential";
+import type { SequentialOptions, SequentialResult } from "@/core/refinement/sequential";
 import type { BoxcarWindow } from "@/core/workflow/pdfBoxcar";
 import {
   samplePosterior,
@@ -68,37 +64,6 @@ function spawnWorker(): Worker {
  *  (same browser), used to decide whether to try the GPU |F|² evaluator. */
 function hasWebGpu(): boolean {
   return typeof navigator !== "undefined" && !!(navigator as Navigator & { gpu?: unknown }).gpu;
-}
-
-/**
- * Whether the PARALLEL driver may compute this spec's analytic Jacobian columns
- * on the driver thread — which in the browser is the UI thread. True for the
- * real-space PDF problem only: its analytic layer is a FUSED pass (one pair-loop
- * traversal yields G(r) and every requested ∂G/∂p), so the driver pays about one
- * extra `calculate` per iteration — the same order as the baseline/trial
- * evaluations it already runs there — and the pool is spared TWO evaluations per
- * analytic column. The powder template computes a full pattern synthesis per
- * column, which would drag exactly the work the pool exists for back onto the
- * main thread, so powder (and every other spec) keeps its columns on the pool.
- */
-function analyticDriverPolicy(
-  spec: EvaluatorSpec,
-  options: Partial<RefinementOptions>,
-): { opts: Partial<RefinementOptions>; driver: ParallelDriverCapabilities } {
-  if (spec.kind !== "pdf") return { opts: options, driver: {} };
-  return { opts: { analyticDerivatives: true, ...options }, driver: { analyticOnDriver: true } };
-}
-
-/** Write a refinement result's converged values + esds back onto a copy of the
- *  starting parameters (for the multi-start driver to perturb the next start). */
-function applyResultToParams(
-  start: readonly RefinementParameter[],
-  result: RefinementResult,
-): RefinementParameter[] {
-  return start.map((p) => {
-    const e = result.esd[p.id];
-    return { ...p, value: result.parameters[p.id] ?? p.value, ...(e !== undefined ? { esd: e } : {}) };
-  });
 }
 
 /**
@@ -579,70 +544,21 @@ export class ComputeClient {
           ...(req.restraints ? { restraints: req.restraints } : {}),
         })
       : this.pdfSpec(req);
-    const datasets: SequentialDataset[] = windows.map((w, i) => ({
-      id: `box_${i}`,
-      label: `${w.center.toFixed(2)} Å`,
-      buildProblem: (params) =>
-        buildProblemForSpec({ ...base, parameters: [...params], fitRange: { min: w.min, max: w.max } }),
-    }));
-    const seqOptions: SequentialOptions = {
-      refineOptions: req.options ?? {},
-      ...(boxcar.seedFromPrevious !== undefined ? { seedFromPrevious: boxcar.seedFromPrevious } : {}),
-      ...(boxcar.rejectDiverged !== undefined ? { rejectDiverged: boxcar.rejectDiverged } : {}),
-      ...(boxcar.onStep ? { onStep: boxcar.onStep } : {}),
-    };
-
-    const restarts = Math.max(0, Math.floor(boxcar.restarts ?? 0));
-    /** The winning result for one box, from a solver that refines one start.
-     *  `problem.parameters` is the box's SEEDED set, so the multi-start's
-     *  baseline candidate is exactly what the seed-only path would have fitted
-     *  — restarts can only improve a box, never move it for no reason. */
-    const solveBox = async (
-      problem: RefinementProblem,
-      window: BoxcarWindow,
-      solve: (params: readonly RefinementParameter[]) => Promise<RefinementResult>,
-    ): Promise<RefinementResult> => {
-      if (restarts === 0) return solve(problem.parameters);
-      const ms = await refineMultiStart(
-        problem.parameters,
-        async (start) => {
-          const result = await solve(start);
-          return { parameters: applyResultToParams(start, result), final: result };
-        },
-        // Each box gets its OWN deterministic seed: identical seeds would draw
-        // the identical perturbation pattern in every box, turning the search
-        // into a systematic offset that could imprint its own r-dependence.
-        { restarts, seed: 0xb0 + Math.round(window.center * 1000) },
-      );
-      return ms.final;
-    };
-
-    if (this.poolSize() < 2) {
-      return refineSequentialAsync(req.parameters, datasets, seqOptions, async (problem, options, _dataset, index) =>
-        solveBox(problem, windows[index]!, async (params) =>
-          refine(buildProblemForSpec({ ...base, parameters: [...params], fitRange: { min: windows[index]!.min, max: windows[index]!.max } }), options),
-        ),
-      );
-    }
-    const pool = new EvaluatorPool(this.poolSize());
-    this.activePool = pool;
+    const pool = this.poolSize() >= 2 ? new EvaluatorPool(this.poolSize()) : null;
+    if (pool) this.activePool = pool;
     try {
-      return await refineSequentialAsync(req.parameters, datasets, seqOptions, async (problem, options, _dataset, index) => {
-        const w = windows[index]!;
-        await pool.init({ ...base, fitRange: { min: w.min, max: w.max } });
-        const policy = analyticDriverPolicy(base, options);
-        return solveBox(problem, w, async (params) =>
-          refineParallel(
-            buildProblemForSpec({ ...base, parameters: [...params], fitRange: { min: w.min, max: w.max } }),
-            policy.opts,
-            pool,
-            policy.driver,
-          ),
-        );
+      return await boxcarScan(base, windows, poolSolver(pool), {
+        refineOptions: req.options ?? {},
+        ...(boxcar.seedFromPrevious !== undefined ? { seedFromPrevious: boxcar.seedFromPrevious } : {}),
+        ...(boxcar.rejectDiverged !== undefined ? { rejectDiverged: boxcar.rejectDiverged } : {}),
+        ...(boxcar.restarts !== undefined ? { restarts: boxcar.restarts } : {}),
+        ...(boxcar.onStep ? { onStep: boxcar.onStep } : {}),
       });
     } finally {
-      pool.dispose();
-      if (this.activePool === pool) this.activePool = null;
+      if (pool) {
+        pool.dispose();
+        if (this.activePool === pool) this.activePool = null;
+      }
     }
   }
 

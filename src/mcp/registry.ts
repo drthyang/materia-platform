@@ -453,6 +453,7 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
     description: "Run a BOXCAR (sliding-window) PDF refinement: refit the freed parameters inside a fixed-width r-window slid across the data, each box seeded from the previous one, and report how every parameter drifts with the box center. This is the r-resolved read of a structure — a value that changes with the box center means the LOCAL structure (low r) differs from the AVERAGE one (high r), which a single whole-range fit averages away. Every box has exactly `width`; a trailing span too short for a full box is not fitted (reported in `warnings`). Each box is seeded from the previous one, which makes the series PATH-DEPENDENT — set `restarts` to re-search each box from randomly perturbed starts and keep the best, so a drift is not one box's local minimum inherited by the rest. Read a value only where its box fitted well (`boxes[].rWeighted`, `boxes[].status`) and where the esd is small compared with the drift — narrow boxes hold few points, so esds grow as the box shrinks. Hold Qdamp/Qbroad fixed: they are instrument constants, not functions of r.",
     inputSchema: {
       structure: anyObj, pattern: anyObj,
+      extraPhases: anyArr.optional().describe("Additional crystallographic phases (multi-phase G(r) sum), as for refine_pdf"),
       parameters: anyArr.describe("RefinementParameter[] (set fixed:true/false to choose what is tracked)"),
       bindings: anyArr,
       restraints: anyArr.optional(),
