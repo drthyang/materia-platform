@@ -524,7 +524,7 @@ meta/muse-glimmer (LM Studio) and Claude Sonnet 5.5. Each gets the same cases
 and the same scoring, and they are reported side by side.
 
 **The run policy.** Arm B is the Agent as it ships, and it ships different
-settings for different ways of reaching a model (`runPolicy` in `chat.ts`):
+settings for different ways of reaching a model (`runPolicy` in `chatBudget.ts`):
 
 | | Claude | a local model (LM Studio, Ollama) |
 | --- | --- | --- |

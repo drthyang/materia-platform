@@ -796,7 +796,7 @@ editing), keeping the last six and every `read_skill` result; server-side
 clearing is not an edit of the history the model's thinking is bound to. A
 local server instead cuts a prompt longer than its window without a word, so
 for Ollama, LM Studio and the OpenAI API every request is sized to the model's
-window (`fitWindow` in [`chat.ts`](../src/agent/chat.ts)): the instructions,
+window (`fitWindow` in [`chatBudget.ts`](../src/agent/chatBudget.ts)): the instructions,
 the tools and room for the reply first; then the history, its old tool results
 turned into digests (the tool, its ref, its key values, and whether a change
 ran since; `read_ref` opens the whole) in batches, so the server's prompt cache

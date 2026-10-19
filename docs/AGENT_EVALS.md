@@ -115,14 +115,14 @@ what Claude gets, so the tier also checks what Claude's server takes care of:
   Ollama's native chat; an OpenAI-compatible server's own figure, else the
   one in the settings). Old tool results become digests, a skill read again
   keeps its latest copy, and a prompt that still cannot fit is refused,
-  never sent cut (`contextWindow.ts`, `fitWindow` in `chat.ts`).
+  never sent cut (`contextWindow.ts`, `fitWindow` in `chatBudget.ts`).
 - **The tools.** A local model is offered the page's tools, and on the
   powder page those of the method's stage (`toolScope.ts`); every scenario's
   good replay is also run in CI with the scope on, to show no stage lacks a
   tool its replay calls.
 - **Loops.** The chat's loop guard notes a call repeated at the same state,
   and stops the turn, saying where the analysis stands, at the third
-  (`LoopGuard` in `chat.ts`).
+  (`LoopGuard` in `chatGuards.ts`).
 
 Each run's report adds, beside the checks: whether the turn cap was hit,
 whether the loop guard stopped the turn, whether a chat error ended it,
