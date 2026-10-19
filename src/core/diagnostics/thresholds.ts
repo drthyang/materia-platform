@@ -64,6 +64,19 @@ export const DATA_PER_PARAMETER = 10;
 /** A fit-window cut that leaves out more than this fraction of the points is the user's call, not the Agent's (check_fit_range). */
 export const LARGE_CUT = 0.15;
 
+/**
+ * Fewer of the structure's reflections than this inside a powder pattern's d
+ * range: the axis is likely in another unit, or the wavelength wrong (axisReading.ts).
+ */
+export const AXIS_REFLECTIONS_MIN = 3;
+
+/**
+ * Observed over calculated line width within this of 1: the widths agree, so
+ * with the Caglioti terms free a peak-shape misfit is a shape, not a width
+ * (fitDiagnosis.ts).
+ */
+export const WIDTHS_AGREE = 0.1;
+
 /** Two reflections closer than this (relative d) overlap, so an absence between them cannot be tested. */
 export const FORBIDDEN_OVERLAP = 0.02;
 

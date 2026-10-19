@@ -12,7 +12,7 @@ import { z } from "zod";
 import { PAGE_LABEL, liveTool, type AgentPage, type LiveToolSpec, type ToolEffect } from "@/agent/tools";
 import type { AgentPort } from "@/agent/port";
 import type { MagneticPanelState } from "@/agent/magneticPort";
-import { diagnosisText, type DiagnosisView } from "@/agent/powderTools";
+import { diagnosisText, type DiagnosisView } from "@/core/diagnostics/fitDiagnosis";
 import { magneticNext } from "@/agent/magneticTools";
 import { samplePosteriorTool, type PosteriorRun } from "@/agent/posteriorTool";
 import { buildAgentReport, freeSummary, reportFileBase, type AgentReport } from "@/agent/report";
@@ -552,7 +552,7 @@ export class AgentExecutor implements ToolRunner {
     const parts = [
       r.listed !== undefined
         ? `${r.listed} reflections from a refinement's listing, each once: no R_int`
-        : `${r.measured} reflections, ${r.unique} unique, ${typeof r.rInt === "number" ? `R_int ${r.rInt} %${r.rIntFriedelApart !== undefined ? ` (${r.rIntFriedelApart} % with the Friedel mates apart, as SHELXL reports it)` : ""}` : "merged (one value per reflection)"}`,
+        : `${r.measured} reflections, ${r.unique} unique, ${typeof r.rInt === "number" ? `R_int ${r.rInt} %${r.rIntLaue !== undefined ? ` with the Friedel mates apart, as SHELXL reports it (${r.rIntLaue} % in the Laue class)` : ""}` : "merged (one value per reflection)"}`,
       `d_min ${out.resolution.dMin} Å${out.resolution.sinThetaOverLambdaMax !== undefined ? ` (sinθ/λ ${out.resolution.sinThetaOverLambdaMax} Å⁻¹)` : ""}${out.resolution.completeness !== undefined ? `, completeness ${out.resolution.completeness} %` : ""}`,
       ...(typeof e === "object" ? [`⟨|E²−1|⟩ ${e.meanAbsE2Minus1}: ${e.reading}`] : []),
       // The strongest merohedral law the H-test reads, when it reads one.
@@ -781,7 +781,7 @@ export class AgentExecutor implements ToolRunner {
 /** reflection_statistics' answer, as the record reads it. */
 interface DataAnswer {
   /** `listed` for a refinement's listing (each reflection once), `measured` for a measurement. */
-  readonly reflections: { readonly measured?: number; readonly listed?: number; readonly unique: number; readonly rInt: number | string; readonly rIntFriedelApart?: number };
+  readonly reflections: { readonly measured?: number; readonly listed?: number; readonly unique: number; readonly rInt: number | string; readonly rIntLaue?: number };
   readonly resolution: { readonly dMin: number; readonly sinThetaOverLambdaMax?: number; readonly completeness?: number };
   readonly friedel: string;
   readonly absences: { readonly measured: number; readonly atThreeSigma: number; readonly strongest?: readonly string[] } | string;

@@ -170,8 +170,14 @@ export interface PosteriorReading {
   readonly reading: string;
 }
 
+/** The tools a surface has that the reading names (MCP has no diagnose_fit). */
+export interface PosteriorReadingTools {
+  /** The tool that reads a powder fit's serial correlation (diagnose_fit). */
+  readonly diagnose?: string;
+}
+
 /** The run read whole: each parameter (readPosterior), the strong correlations, and the reading, with the compared pairs' differences. */
-export function posteriorReading(result: PosteriorRunRead, parameters: readonly RefinementParameter[], esd: Readonly<Record<string, number>> | undefined, compare: readonly (readonly [string, string])[], resume: PosteriorResume): PosteriorReading {
+export function posteriorReading(result: PosteriorRunRead, parameters: readonly RefinementParameter[], esd: Readonly<Record<string, number>> | undefined, compare: readonly (readonly [string, string])[], resume: PosteriorResume, tools: PosteriorReadingTools = {}): PosteriorReading {
   const byId = new Map(parameters.map((p) => [p.id, p]));
   const { converged, nearly, essWanted, rows } = readPosterior(result, parameters, esd);
   const ids = result.freeIds;
@@ -198,7 +204,7 @@ export function posteriorReading(result: PosteriorRunRead, parameters: readonly 
           ...(bounded.length ? [`${bounded.map((r) => r.label).join(", ")}: on a bound, only a limit is determined.`] : []),
         ].join(" "),
       ...(pairs.length ? [`Posterior correlations: ${pairs.slice(0, 5).map((x) => `${byId.get(x.a)?.label ?? x.a} ↔ ${byId.get(x.b)?.label ?? x.b} ${sig(x.rho, 2)}`).join("; ")} — the data fix their combination, not each alone (a tie or a restraint, or more data, separates them).`] : []),
-      "The intervals hold within this model and its noise model: a systematic misfit (on powder, diagnose_fit's Durbin–Watson d below Q_D) leaves them as overconfident as the esds.",
+      `The intervals hold within this model and its noise model: a systematic misfit (${tools.diagnose ? `on powder, ${tools.diagnose}'s Durbin–Watson d below Q_D` : "a Durbin–Watson d of the residual below Q_D"}) leaves them as overconfident as the esds.`,
     ].join(" ");
   const differences = differenceSentences(result, parameters, compare);
   return { converged, nearly, essWanted, rows, correlations: pairs, reading: differences.length && (converged || nearly) ? `${text} ${differences.join(" ")}` : text };

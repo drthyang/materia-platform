@@ -27,7 +27,7 @@ describe.skipIf(!dataExists(CIF))("1b refined by the Agent's tools, as round 3 r
 
     // The data: R_int as SHELXL reports it for this group, beside the Laue class's.
     const stats = parse((await ex.run("reflection_statistics", {})).text);
-    expect(stats.reflections).toMatchObject({ measured: 13169, rInt: 3.04, rIntFriedelApart: 2.93 });
+    expect(stats.reflections).toMatchObject({ measured: 13169, rInt: 2.93, rIntLaue: 3.04 });
     expect(String(parse((await ex.run("merge_equivalents", { on: true })).text).note)).toMatch(/13169 measurements merged into 2482 reflections, the Friedel opposites kept apart .*, 21 systematic absences left out \(60 measurements\)\. R_int 2\.93 % for this merge, as SHELXL reports it \(3\.04 % in the Laue class, the mates merged\); the data reading keeps the measurement as loaded/);
     expect(port.state().dataset.reflections).toHaveLength(2482);
 

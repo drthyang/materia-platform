@@ -4,8 +4,7 @@ import { dataExists, dataPath } from "@/testSupport/data";
 import { parseCif } from "@/parsers/cif";
 import { loadReflectionDataset } from "@/app/loadData";
 import { mergedDataset } from "@/core/workflow/singleCrystalRefinement";
-import { canonicalKey, mergeEquivalents, pointGroupRotations } from "@/core/diffraction/merge";
-import { reflectionStatistics } from "@/core/diagnostics/reflectionStatistics";
+import { canonicalKey, measurementMerge, mergeEquivalents, pointGroupRotations } from "@/core/diffraction/merge";
 import { singleCrystalValidation } from "@/core/diagnostics/singleCrystalValidation";
 
 /**
@@ -40,9 +39,8 @@ describe.skipIf(!dataExists(CIF))("1b, from the CIF's own measurement", () => {
 
   it("reads R_int as SHELXL reports it: the Friedel mates apart, the absences out", () => {
     const rows = loaded.dataset.reflections.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.iObs, sigma: r.sigma ?? 0 }));
-    const st = reflectionStatistics(rows, structure.cell, structure.spaceGroup);
     // SHELXL: _diffrn_reflns_av_R_equivalents 0.0293. In the Laue class, the Bijvoet pairs merged, 3.04 %.
-    expect(st.friedel.rIntApart).toBeCloseTo(0.0293, 4);
+    expect(measurementMerge(rows, structure.spaceGroup.operations).statistics.friedelApart!.rInt).toBeCloseTo(0.0293, 4);
     expect(mergeEquivalents(rows, structure.spaceGroup.operations).statistics.rInt).toBeCloseTo(0.0304, 4);
   });
 

@@ -659,6 +659,24 @@ describe("AgentExecutor on the single-crystal page", { timeout: 30_000 }, () => 
     expect((await executor(fakeHost(tof).host, "auto").ex.run("merge_equivalents", { on: true })).text).toMatch(/time-of-flight Laue measurement is not merged/);
   });
 
+  it("quotes one R_int, SHELXL's, in reflection_statistics, get_state and the report", async () => {
+    // Acentric, each reflection measured twice and its Friedel mate too: the Laue class merges the Bijvoet pairs.
+    const chiral = chiralPage({ equivalents: 2 });
+    const { port } = singleCrystalPort(chiral.structure, chiral.dataset);
+    const { ex } = executor(fakeHost(port).host, "auto");
+    const stats = parse((await ex.run("reflection_statistics", {})).text).reflections as { unique: number; rInt: number; rIntLaue?: number };
+    const merging = (parse((await ex.run("get_state", {})).text).data as { merging: { unique: number; rInt: number } }).merging;
+    expect(stats.rInt).toBe(merging.rInt);
+    expect(stats.unique).toBe(merging.unique);
+    // The Laue class's figure second, larger by the Bijvoet pairs' anomalous difference.
+    expect(stats.rIntLaue).toBeGreaterThan(stats.rInt);
+    // The report's data line, once there is a fit to report (the equivalents merged as SHELXL merges them).
+    await ex.run("merge_equivalents", { on: true });
+    await ex.run("refine", {});
+    const line = singleCrystalReportChecks(port.state()).find((ch) => ch.name === "Data")!.detail;
+    expect(line).toContain(`R_int ${stats.rInt} % with the Friedel mates apart, as SHELXL reports it (${stats.rIntLaue} % in the Laue class)`);
+  });
+
   it("reads a merged reflection's outlier against the measurements behind it, and each shell's R_int from the measurement", async () => {
     // 1 0 4 measured three times, once at 3 % of its intensity: merged, it reads low.
     const c = corundumPage({ extinction: 20, batches: [1, 1, 1], failed: [{ h: 1, k: 0, l: 4, factor: 0.03 }] });

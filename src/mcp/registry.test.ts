@@ -168,7 +168,7 @@ const CONTRACTS: Record<string, { args: object; keys: string[] }> = {
   build_refinement: { args: { structure, pattern }, keys: ["bindings", "freeCount", "parameters", "profile"] },
   check_fit_range: {
     args: { structure, pattern, parameters: refined.parameters, bindings: built.bindings, profile: built.profile, result: refined.result },
-    keys: ["basis", "extent", "high", "interior", "low", "proposed", "proposedD"],
+    keys: ["basis", "extent", "high", "interior", "low", "proposed", "proposedD", "reading"],
   },
   check_cell_symmetry: {
     args: { structure, pattern },

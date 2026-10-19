@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { CHANCE_LIMIT, identifyPeaks, knownPhaseNames, knownPhaseStructure, matchKnownPhases } from "@/core/diagnostics/knownPhases";
+import { CHANCE_LIMIT, identifyPeaks, identifyReading, knownPhaseNames, knownPhaseStructure, matchKnownPhases } from "@/core/diagnostics/knownPhases";
 
 /**
  * Extra peaks matched against the sample environment. The case behind it:
@@ -137,5 +137,26 @@ describe("naming a phase only where random peaks would not match as well", () =>
     const peaks = randomPeaks(5, { dMin: 0.8, dMax: 6 }, 99);
     const radiation = { kind: "neutron" as const, wavelength: 1.54 };
     expect(identifyPeaks(peaks, radiation, { dMin: 0.8, dMax: 6 })).toEqual(identifyPeaks(peaks, radiation, { dMin: 0.8, dMax: 6 }));
+  });
+});
+
+describe("the identification's reading", () => {
+  const xray = { kind: "xray" as const, wavelength: 1.5406 };
+
+  it("names a phase in words, and the tool that adds it only where the surface has one", () => {
+    const peaks = [3.1356, 1.9201, 1.6375].map((d) => ({ d, height: 100 }));
+    const r = identifyPeaks(peaks, xray, { dMin: 0.9, dMax: 6 });
+    const app = identifyReading(peaks.length, r, { add: "add_known_phase" });
+    expect(app).toMatch(/^3 of 3 peaks match Si \(1 1 1, 2 2 0, 3 1 1\), with its d-spacings × 1\.0000/);
+    expect(app).toMatch(/add the phase \(add_known_phase\)/);
+    const bare = identifyReading(peaks.length, r);
+    expect(bare).not.toMatch(/add_known_phase/);
+    expect(bare).toMatch(/add the phase to the model/);
+  });
+
+  it("says so when nothing matches", () => {
+    const peaks = [2.871, 2.013].map((d) => ({ d, height: 100 }));
+    const r = identifyPeaks(peaks, xray, { dMin: 0.9, dMax: 6 });
+    expect(identifyReading(peaks.length, r, { add: "add_known_phase" })).toMatch(/^(None of the 2 peaks matches|Only weak or single matches|Not enough to name a phase)/);
   });
 });

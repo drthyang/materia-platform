@@ -47,9 +47,11 @@ import { applyExclusionMask, computeAgreementFactors, excludedPointMask, weights
 import { axisContext, convertAxisArray, convertAxisValue, tofCalibrationOf } from "@/visualization/axisUnits";
 import { posteriorReading, type ParameterReading } from "@/core/diagnostics/posteriorReading";
 import { cellCheckReading, dScaleReading } from "@/core/diagnostics/cellReading";
-import { inspectDataRange, type DataRangeReading } from "@/core/diagnostics/dataRange";
+import type { DataRangeReading } from "@/core/diagnostics/dataRange";
+import { fitRangeSentence, readFitRange } from "@/core/diagnostics/fitRangeReading";
+import { axisPlausibility } from "@/core/diagnostics/axisReading";
 import { generateReflections } from "@/core/diffraction/reflections";
-import { powderResidual as corePowderResidual, type PowderResidual as CorePowderResidual } from "@/core/diagnostics/powderResidual";
+import { pointSigma, powderResidual as corePowderResidual, type PowderResidual as CorePowderResidual } from "@/core/diagnostics/powderResidual";
 import { unexplainedPeaks, type PeakReading } from "@/core/diagnostics/unexplainedPeaks";
 import { abscissaFromD, radiationOf } from "@/core/diffraction/instrument";
 import { bondLengths } from "@/core/crystal/geometry";
@@ -224,7 +226,7 @@ export function check_fit_range(args: {
   profile?: PowderProfile;
   result?: RefinementResult;
   fitRange?: { min: number; max: number };
-}): DataRangeReading & { readonly proposedD: readonly [number, number] | null } {
+}): DataRangeReading & { readonly proposedD: readonly [number, number] | null; readonly reading: string; readonly axisWarning?: string } {
   const instrument = args.instrument ?? DEFAULT_INSTRUMENT;
   if (args.pattern.xUnit === "tof" && instrument.kind !== "tof") {
     throw new Error("check_fit_range: a time-of-flight pattern needs its TOF instrument (difC) to place reflections");
@@ -235,28 +237,37 @@ export function check_fit_range(args: {
   const zero = (args.parameters ?? []).find((p) => p.kind === "zeroShift")?.value;
   const ctx = axisContext(args.pattern, args.instrument, zero, tofCalibrationOf(args.parameters ?? []));
   const unit = args.pattern.xUnit;
-  const ds = args.pattern.points.map((p) => convertAxisValue(p.x, unit, "dSpacing", ctx)).filter((d) => Number.isFinite(d) && d > 0);
-  const dSpan = minMax(ds);
-  const dMin = dSpan.min * 0.98;
-  const dMax = Math.min(50, dSpan.max * 1.02);
-  const reflections = [args.structure, ...(args.extraPhases ?? [])]
-    .flatMap((ph) => generateReflections(ph.cell, ph.spaceGroup, dMin, dMax, { absences: true }).map((r) => convertAxisValue(r.d, "dSpacing", unit, ctx)))
-    .filter(Number.isFinite);
+  const x = args.pattern.points.map((p) => p.x);
   const yObs = args.pattern.points.map((p) => p.yObs);
-  const reading = inspectDataRange({
-    x: args.pattern.points.map((p) => p.x),
+  const d = x.map((v) => convertAxisValue(v, unit, "dSpacing", ctx));
+  const reading = readFitRange({
+    unit,
+    x,
     yObs,
-    sigma: args.pattern.points.map((p) => (p.sigma !== undefined && p.sigma > 0 ? p.sigma : Math.sqrt(Math.max(p.yObs, 1)))),
+    sigma: pointSigma(yObs, args.pattern.points),
     yCalc: curves.yCalc,
     ...(curves.yBackground ? { yBackground: curves.yBackground } : {}),
+    // The residual is a fit's only when the curve is drawn at the refined values.
     fitted: args.result?.status === "converged" && !!args.parameters,
-    reflections,
-    shortD: unit === "tof" || unit === "dSpacing" ? "low" : "high",
-    excluded: excludedPointMask(yObs),
+    d,
+    phases: [args.structure, ...(args.extraPhases ?? [])],
+    xOf: (v) => convertAxisValue(v, "dSpacing", unit, ctx),
     window: args.fitRange ?? null,
   });
+  const words = {
+    unit,
+    dOf: (v: number) => convertAxisValue(v, unit, "dSpacing", ctx),
+    apply: "pass it on as `fitRange` to refine_powder and check_cell_symmetry",
+  };
   const p = reading.proposed;
-  return { ...reading, proposedD: p ? [convertAxisValue(p.min, unit, "dSpacing", ctx), convertAxisValue(p.max, unit, "dSpacing", ctx)] : null };
+  const extent = minMax(x);
+  const axisWarning = axisPlausibility({ unit, extent, d, structure: args.structure });
+  return {
+    ...reading,
+    proposedD: p ? [convertAxisValue(p.min, unit, "dSpacing", ctx), convertAxisValue(p.max, unit, "dSpacing", ctx)] : null,
+    reading: fitRangeSentence(reading, words),
+    ...(axisWarning ? { axisWarning } : {}),
+  };
 }
 
 export function check_cell_symmetry(args: {

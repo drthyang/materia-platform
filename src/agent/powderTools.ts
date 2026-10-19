@@ -19,21 +19,18 @@ import {
 import type { StructureModel } from "@/core/crystal/types";
 import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { CorrectionsUpdate, SiteTies } from "@/app/powderSpec";
-import type { PowderXUnit } from "@/core/diffraction/types";
 import { availableDisplayUnits, convertAxisValue, convertInterval } from "@/visualization/axisUnits";
 import { oneCurve, physicalFindings, residualPeaks } from "@/core/diagnostics/assessment";
 import { structureChecks } from "@/core/diagnostics/structureChecks";
 import { reviewSymmetry } from "@/core/diagnostics/symmetryReview";
 import { formatWt, fractionsOf } from "@/core/diagnostics/phaseFractions";
-import { powderResidual, type PowderResidual } from "@/core/diagnostics/powderResidual";
+import { fittedPoints, pointSigma, powderResidual, type PowderResidual } from "@/core/diagnostics/powderResidual";
 import { unexplainedPeaks, type PeakReading } from "@/core/diagnostics/unexplainedPeaks";
-import { generateReflections } from "@/core/diffraction/reflections";
-import { diagnoseFit, widthsComparable } from "@/core/diagnostics/fitDiagnosis";
-import { CHANCE_DRAWS, identifyPeaks, knownPhaseNames, knownPhaseStructure } from "@/core/diagnostics/knownPhases";
+import { diagnoseFit, diagnosisText, durbinWatsonSentence, fitDiagnosisView } from "@/core/diagnostics/fitDiagnosis";
+import { identifyPeaks, identifyReading, knownPhaseNames, knownPhaseStructure } from "@/core/diagnostics/knownPhases";
 import { withAntisite } from "@/core/crystal/antisite";
 import { structureTable } from "@/agent/structureTable";
 import { powderReflectionObsCalc } from "@/core/workflow/obsCalc";
-import { excludedPointMask } from "@/core/refinement/factors";
 import { checkEqualTies, type EqualTieUpdate } from "@/core/refinement/constraints";
 import { bondsOf, cellOf, historyView, labelOf, matchIds, parameterSummary, pct, sig, type LiveToolHost } from "@/agent/liveCommon";
 import { change, freePlan, goToPlan, nothing, refinePlan, resetPlan, type Plans } from "@/agent/pages/plans";
@@ -43,7 +40,9 @@ import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, co
 import { groupOf } from "@/agent/method";
 import { MAGNETIC_PLANS, magneticNext } from "@/agent/magneticTools";
 import { cellCheckReading, dScaleReading } from "@/core/diagnostics/cellReading";
-import { inspectDataRange, type DataEnd, type DataRangeReading } from "@/core/diagnostics/dataRange";
+import type { DataRangeReading } from "@/core/diagnostics/dataRange";
+import { fitRangeView, readFitRange, type FitRangeWords } from "@/core/diagnostics/fitRangeReading";
+import { X_UNIT_LABEL, axisPlausibility as axisReading } from "@/core/diagnostics/axisReading";
 import type { ReferenceEntry } from "@/agent/references";
 import { minMax } from "@/core/math/extent";
 
@@ -113,7 +112,7 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
       };
     }
     case "check_fit_range":
-      return fitRangeView(s, fitRangeReading(s));
+      return fitRangeView(fitRangeReading(s), fitRangeWords(s), s.fitRange);
     case "check_cell_symmetry": {
       // One factor on every d (a wrong λ or difC) first, from the pattern's own peaks: the Le Bail fit cannot follow it.
       const scale = scaleReading(s);
@@ -204,22 +203,9 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
       if (peaks.length === 0) return { peaks: [], candidates: [], reading: "No unexplained peak to identify: every residual peak sits on or beside a reflection of the model's phases." };
       const finite = residual.d.filter((v) => Number.isFinite(v) && v > 0);
       const span = minMax(finite);
-      const { candidates, verdict, strongestMissing, chance } = identifyPeaks(peaks, s.pattern.radiation, { dMin: span.min, dMax: span.max });
-      const lead = candidates[0];
-      const of = `${peaks.length} peak${peaks.length === 1 ? "" : "s"}`;
-      const lines = lead ? lead.explains.map((e) => e.hkl).filter((h, i, all) => all.indexOf(h) === i).join(", ") : "";
-      const chanceText = chance === undefined ? "" : chance === 0
-        ? `random peaks never match a library phase as well (${CHANCE_DRAWS} draws of ${peaks.length} over this range)`
-        : `random peaks match a library phase as well in ${pct(chance)} % of draws (${CHANCE_DRAWS} draws of ${peaks.length} over this range)`;
-      const reading = !lead || verdict === "none"
-        ? `None of the ${of} matches a common sample-environment phase or standard: an impurity of the sample, magnetic order, or a feature to put to the user.`
-        : verdict === "strongLineMissing" && strongestMissing
-          ? `No convincing match: ${lead.phase} would explain ${lead.explains.length} of ${peaks.length} (${lines}), but its strongest line ${strongestMissing.hkl} at d ${strongestMissing.d.toFixed(3)} Å is not among the peaks. Unless that line hides under one of the sample's, report the peaks as unexplained.`
-        : verdict === "named"
-          ? `${lead.explains.length} of ${of} match ${lead.phase} (${lines}), with its d-spacings × ${lead.dScale.toFixed(4)} — usually ${lead.source}; ${chanceText}.${lead.alsoExpected.length ? ` Its strong lines ${lead.alsoExpected.map((e) => `${e.hkl} at d ${e.d.toFixed(3)} Å`).join(", ")} should also be seen (they may hide under the sample's lines).` : ""}${lead.impurity ? " An impurity of the sample: put it to the user, and add it (add_known_phase) so its lines are modelled and its weight fraction refines." : " Put it to the user: add the phase (add_known_phase) or leave the lines unmodelled and say so; it is not part of the sample."}`
-        : verdict === "chance"
-          ? `Not enough to name a phase: ${lead.phase} would explain ${lead.explains.length} of ${of} (${lines}), but ${chanceText}. Report the peaks to the user as unexplained, ${lead.phase} a possibility to check.`
-          : `Only weak or single matches (best: ${lead.phase} ${lines}): not enough to name a phase. Report the peaks to the user as unexplained.`;
+      const id = identifyPeaks(peaks, s.pattern.radiation, { dMin: span.min, dMax: span.max });
+      const { candidates } = id;
+      const reading = identifyReading(peaks.length, id, { add: "add_known_phase" });
       return {
         peaks: peaks.map((p) => ({ d: sig(p.d, 5), ...(s.pattern.xUnit !== "dSpacing" && s.pattern.xUnit !== "q" ? { [s.pattern.xUnit]: sig(convertAxisValue(p.d, "dSpacing", s.pattern.xUnit, s.axis), 6) } : {}) })),
         candidates: candidates.slice(0, 4).map((c) => ({
@@ -248,7 +234,7 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
       };
     }
     case "diagnose_fit":
-      return fitDiagnosisView(s);
+      return fitDiagnosisOf(s);
     case "structure_table":
       if (input.against !== undefined) throw new Error("`against` is on the single-crystal page only, for now");
       return { phases: s.refinedPhases.map((ph, i) => structureTable(ph, i, s.parameters, s.bindings, s.result?.esd ?? {})), ...(s.result ? {} : { note: "No refinement on screen: the values carry no esds." }) };
@@ -560,70 +546,32 @@ function phaseFractionView(s: PowderLiveState): Record<string, unknown> {
   };
 }
 
-const UNIT: Record<PowderXUnit, string> = { tof: "µs (TOF)", twoTheta: "° 2θ", dSpacing: "Å (d)", q: "Å⁻¹ (Q)" };
+const UNIT = X_UNIT_LABEL;
 
 /** The data's ends read on the page's curves: every phase's reflections placed on the pattern's own axis. */
 export function fitRangeReading(s: PowderLiveState): DataRangeReading {
-  const unit = s.pattern.xUnit;
-  const x = s.curves.x;
-  const points = s.pattern.points.length === x.length ? s.pattern.points : null;
-  const sigma = s.curves.yObs.map((y, i) => {
-    const given = points?.[i]?.sigma;
-    return given !== undefined && given > 0 ? given : Math.sqrt(Math.max(y, 1));
-  });
-  let reflections: number[] = [];
-  if (s.d) {
-    const finite = s.d.filter((v) => Number.isFinite(v) && v > 0);
-    const span = minMax(finite);
-    const dMin = span.min * 0.98;
-    const dMax = span.max * 1.02;
-    reflections = s.refinedPhases.flatMap((ph) => generateReflections(ph.cell, ph.spaceGroup, dMin, Math.min(dMax, 50), { absences: true }).map((r) => convertAxisValue(r.d, "dSpacing", unit, s.axis)));
-  }
-  return inspectDataRange({
-    x,
+  return readFitRange({
+    unit: s.pattern.xUnit,
+    x: s.curves.x,
     yObs: s.curves.yObs,
-    sigma,
+    sigma: pointSigma(s.curves.yObs, s.pattern.points),
     yCalc: s.curves.yCalc,
     ...(s.curves.yBackground ? { yBackground: s.curves.yBackground } : {}),
     fitted: s.result?.status === "converged",
-    reflections: reflections.filter(Number.isFinite),
-    shortD: unit === "tof" || unit === "dSpacing" ? "low" : "high",
-    excluded: excludedPointMask(s.curves.yObs),
+    d: s.d,
+    phases: s.refinedPhases,
+    xOf: (d) => convertAxisValue(d, "dSpacing", s.pattern.xUnit, s.axis),
     window: s.fitRange,
   });
 }
 
-/** check_fit_range's answer: each end with its evidence, and the window to propose, in the data's unit and in d. */
-function fitRangeView(s: PowderLiveState, r: DataRangeReading): Record<string, unknown> {
+/** How check_fit_range's answer is worded on the page: the window applied with set_fit_range. */
+function fitRangeWords(s: PowderLiveState): FitRangeWords {
   const unit = s.pattern.xUnit;
-  const dOf = (v: number): number | null => {
-    if (unit === "dSpacing") return sig(v, 4);
-    const d = convertAxisValue(v, unit, "dSpacing", s.axis);
-    return Number.isFinite(d) ? sig(d, 4) : null;
-  };
-  // Which end is which on this axis, in words a crystallographer uses.
-  const name = (end: "low" | "high"): string => (unit === "tof" ? (end === "low" ? "short-TOF end (short d)" : "long-TOF end (long d)") : unit === "twoTheta" ? (end === "low" ? "low-angle end" : "high-angle end") : `${end} end`);
-  const endView = (e: DataEnd): Record<string, unknown> => ({
-    end: name(e.end),
-    verdict: e.verdict === "trim" ? "trim" : e.alreadyOutside ? "keep: the fit window already leaves the stretch out" : "keep",
-    ...(e.alreadyOutside ? { outside: true } : {}),
-    ...(e.cut !== undefined ? { cut: sig(e.cut, 6), cutD: dOf(e.cut), pointsLeftOut: e.dropped } : {}),
-    ...(e.large ? { large: "a large cut: put it to the user before applying it" } : {}),
-    findings: e.findings.map((f) => `${f.cause}: ${sig(Math.min(f.from, f.to), 6)}–${sig(Math.max(f.from, f.to), 6)} (${f.points} points): ${f.detail}`),
-    ...(e.notes.length ? { notes: e.notes } : {}),
-  });
-  const p = r.proposed;
   return {
-    unit: UNIT[unit],
-    extent: [sig(r.extent.min, 6), sig(r.extent.max, 6)],
-    window: s.fitRange ? [sig(s.fitRange.min, 6), sig(s.fitRange.max, 6)] : "the whole pattern",
-    basis: r.basis === "the data" ? "the data alone (no converged fit yet: run this again after the first refinement, when the residual can show more)" : "the data and the converged fit's residual",
-    low: endView(r.low),
-    high: endView(r.high),
-    proposed: p
-      ? { min: sig(p.min, 6), max: sig(p.max, 6), unit, d: [dOf(p.min), dOf(p.max)], apply: "set_fit_range with this min and max (and unit) — it shows the user an approval card; say why, end by end" }
-      : "keep the current window: neither end needs trimming",
-    ...(r.interior.length ? { interior: r.interior, interiorNote: "The page fits one window; it cannot leave out a stretch inside the pattern. Tell the user if one matters." } : {}),
+    unit,
+    dOf: (x) => (unit === "dSpacing" ? x : convertAxisValue(x, unit, "dSpacing", s.axis)),
+    apply: "set_fit_range with this min and max (and unit) — it shows the user an approval card; say why, end by end",
   };
 }
 
@@ -652,20 +600,9 @@ export function scaleReading(s: PowderLiveState): string | null {
   return s.d ? dScaleReading(s.d, s.pattern, s.structure, s.instrument ?? undefined) : null;
 }
 
-/**
- * Whether the data's axis can be what the file says: the structure's
- * reflections against the extent. A 2θ axis that holds next to none of them
- * (d-spacings, or Q, read as degrees: 0.6–5 "°") is the commonest swapped
- * unit; null when the axis holds the reflections a pattern of it should.
- */
+/** Whether the data's axis can be what the file says (core/diagnostics/axisReading.ts). */
 export function axisPlausibility(s: PowderLiveState): string | null {
-  if (s.structure.sites.length === 0 || s.pattern.points.length === 0 || !s.d) return null;
-  const finite = s.d.filter((v) => Number.isFinite(v) && v > 0);
-  if (finite.length === 0) return `the ${UNIT[s.pattern.xUnit]} axis (${sig(s.extent.min, 4)}–${sig(s.extent.max, 4)}) converts to no d-spacing at this wavelength: is the axis in another unit (d in Å, or Q)? Ask the user before anything else.`;
-  const { min: lo, max: hi } = minMax(finite);
-  const inside = generateReflections(s.structure.cell, s.structure.spaceGroup, lo, Math.min(hi, 50)).length;
-  if (inside >= 3) return null;
-  return `the ${UNIT[s.pattern.xUnit]} axis (${sig(s.extent.min, 4)}–${sig(s.extent.max, 4)}) spans d ${sig(lo, 3)}–${sig(hi, 3)} Å at this wavelength, where the structure has ${inside === 0 ? "no reflection" : `only ${inside} reflection${inside === 1 ? "" : "s"}`}: the axis is likely in another unit (d in Å or Q read as ${UNIT[s.pattern.xUnit]}), or the wavelength is wrong. Ask the user before refining: no refinement fixes it.`;
+  return s.pattern.points.length === 0 ? null : axisReading({ unit: s.pattern.xUnit, extent: s.extent, d: s.d, structure: s.structure });
 }
 
 /** The residual of the fit on screen (core/diagnostics/powderResidual.ts, as the MCP tools build it). */
@@ -740,27 +677,21 @@ function sharedSiteAdps(s: PowderLiveState): string[] {
   return [...sites].filter(([, set]) => set.size > 1).map(([id]) => id);
 }
 
-/** diagnose_fit: the residual read cause by cause (core/diagnostics/fitDiagnosis.ts). */
+/** The Caglioti terms and the Lorentzian X: diagnose_fit reads the shape, not the width, once those present are all free. */
 const WIDTH_KINDS = ["profileU", "profileV", "profileW", "profileX"] as const;
 
-/** diagnose_fit's action for ± lobes once the width terms are free and the widths agree. */
-function shapeLeft(ratio: number, lorentzian: boolean): string {
-  return `The Caglioti U, V, W${lorentzian ? " and the Lorentzian X" : ""} are already free and the line widths agree (observed/calculated ${sig(ratio, 3)}): what is left is a shape the profile does not follow, not a width. Read the worst reflections: lobes on one side at low angle are axial-divergence asymmetry (set_corrections asymmetry); some hkl broader than others are anisotropic broadening (set_microstrain); lobes that change side from peak to peak, at a few % of the peak, are the limit of the profile function — say so, and read the esds as too small by the Durbin–Watson factor rather than adding parameters.`;
-}
-
-function fitDiagnosisView(s: PowderLiveState): Record<string, unknown> {
+/** diagnose_fit: the residual read cause by cause (core/diagnostics/fitDiagnosis.ts), on the page's curves. */
+function fitDiagnosisOf(s: PowderLiveState): ReturnType<typeof fitDiagnosisView> {
   if (!s.d) throw new Error("this pattern's axis cannot be converted to d-spacing (no wavelength or TOF calibration)");
   const curves = s.curves;
-  const points = s.pattern.points.length === curves.x.length ? s.pattern.points : null;
-  const sigma = curves.yObs.map((y, i) => {
-    const given = points?.[i]?.sigma;
-    return given !== undefined && given > 0 ? given : Math.sqrt(Math.max(y, 1));
-  });
-  const excluded = excludedPointMask(curves.yObs);
-  const include = curves.x.map((x, i) => !excluded[i] && (!s.fitRange || (x >= s.fitRange.min && x <= s.fitRange.max)));
+  const sigma = pointSigma(curves.yObs, s.pattern.points);
+  const include = fittedPoints(curves.x, curves.yObs, s.fitRange);
   const reflections = powderReflectionObsCalc(s.structure, s.pattern, [...s.parameters], [...s.bindings], s.profile, s.magnetic, s.fitRange, s.extraPhases, "rietveld", {
     yCalc: [...curves.yCalc], sigma, include,
   });
+  const freeKinds = new Set(s.parameters.filter((p) => !p.fixed && !p.expression).map((p) => p.kind));
+  const present = WIDTH_KINDS.filter((k) => s.parameters.some((p) => p.kind === k));
+  const widthsFree = present.includes("profileU") && present.every((k) => freeKinds.has(k));
   const dx = diagnoseFit({
     x: curves.x, yObs: curves.yObs, yCalc: curves.yCalc,
     ...(curves.yBackground && curves.yBackground.length === curves.x.length ? { yBackground: curves.yBackground } : {}),
@@ -771,52 +702,9 @@ function fitDiagnosisView(s: PowderLiveState): Record<string, unknown> {
     phases: s.refinedPhases,
     twoTheta: s.pattern.xUnit === "twoTheta",
     xOf: (d) => convertAxisValue(d, "dSpacing", s.pattern.xUnit, s.axis),
+    ...(widthsFree ? { widthsFree: { lorentzian: present.includes("profileX") } } : {}),
   });
-  const v = dx.validation;
-  // "Free the widths" is no advice once they are free and the widths agree: what is left is the shape.
-  const freeKinds = new Set(s.parameters.filter((p) => !p.fixed && !p.expression).map((p) => p.kind));
-  const present = WIDTH_KINDS.filter((k) => s.parameters.some((p) => p.kind === k));
-  const widthsDone = present.includes("profileU") && present.every((k) => freeKinds.has(k)) && !!dx.width && Math.abs(dx.width.median - 1) <= 0.1;
-  return {
-    reading: dx.reading,
-    causes: dx.causes.map((c) => ({
-      cause: c.id, chi2Share: pct(c.share), evidence: c.evidence,
-      action: c.id === "peak-shape" && widthsDone ? shapeLeft(dx.width!.median, present.includes("profileX")) : c.action,
-    })),
-    agreement: {
-      rwp: pct(v.agreement.rwp), rexp: pct(v.agreement.rexp), gof: sig(v.agreement.gof, 3),
-      ...(v.agreement.rwpBkg !== undefined ? { rwpBackgroundSubtracted: pct(v.agreement.rwpBkg) } : {}),
-      ...(v.durbinWatson ? { durbinWatson: sig(v.durbinWatson.d, 3), durbinWatsonCritical: sig(v.durbinWatson.qd, 3) } : {}),
-    },
-    ...(dx.betweenPeaks ? { betweenPeaks: { chi2Share: pct(dx.betweenPeaks.share), chi2PerPoint: sig(dx.betweenPeaks.chi2PerPoint, 3), points: dx.betweenPeaks.points } } : {}),
-    ...(dx.width ? { lineWidths: { observedOverCalculated: sig(dx.width.median, 3), lowerThird: sig(dx.width.low, 3), upperThird: sig(dx.width.high, 3), isolatedLines: dx.width.lines, ...(dx.width.etaObs !== undefined && dx.width.etaCalc !== undefined && widthsComparable(dx.width) ? { lorentzianFraction: { observed: sig(dx.width.etaObs, 2), calculated: sig(dx.width.etaCalc, 2), lines: dx.width.shapeLines } } : {}) } } : {}),
-    dShells: v.shells.map((sh) => ({ d: `${sig(Math.min(sh.lo, sh.hi), 3)}–${sig(Math.max(sh.lo, sh.hi), 3)} Å`, chi2PerPoint: sig(sh.chi2PerPoint, 3), chi2Share: pct(sh.share) })),
-    worstReflections: dx.worst.map((w) => ({
-      hkl: `${w.phase ? `${w.phase} ` : ""}${w.hkl}`, d: sig(w.d, 4), [s.pattern.xUnit]: sig(w.x, 5), chi2Share: pct(w.share),
-      misfit: w.signature === "shape" ? `shape (residual ${w.lobe > 0 ? "on the high" : "on the low"}-${s.pattern.xUnit === "twoTheta" ? "angle" : "x"} side)` : w.signature === "under" ? "calculated too weak" : "calculated too strong",
-    })),
-    ...(dx.wilson ? { intensityFalloff: { deltaB: sig(dx.wilson.deltaB, 3), r: sig(dx.wilson.r, 2), reflections: dx.wilson.n } } : {}),
-    ...(dx.texture ? { textureTest: { axis: dx.texture.axis.join(" "), ratio: sig(dx.texture.ratio, 2), explained: pct(dx.texture.explained), chance: sig(dx.texture.chance, 2), reflections: dx.texture.n, axesSearched: dx.texture.axes } } : {}),
-  };
-}
-
-/** What diagnosisText reads of diagnose_fit's answer. */
-export interface DiagnosisView {
-  readonly reading: string;
-  readonly causes: readonly { readonly cause: string; readonly chi2Share: number; readonly evidence: string }[];
-  readonly worstReflections?: readonly { readonly hkl: string; readonly d: number; readonly chi2Share: number; readonly misfit: string }[];
-}
-
-/**
- * diagnose_fit's answer as the report gives it: the reading, each cause with
- * its share of χ² and its evidence, and the three worst reflections. The
- * report's check on the fit on screen, and the record of each earlier
- * diagnosis (by the step it read).
- */
-export function diagnosisText(dx: DiagnosisView): string {
-  const worst = (dx.worstReflections ?? []).slice(0, 3);
-  return `${dx.reading}${dx.causes.map((c) => ` ${c.cause} (${c.chi2Share} % of χ²): ${c.evidence}.`).join("")}` +
-    (worst.length > 0 ? ` Worst reflections: ${worst.map((w) => `${w.hkl} (d ${w.d} Å, ${w.chi2Share} % of χ², ${w.misfit})`).join("; ")}.` : "");
+  return fitDiagnosisView(dx, s.pattern.xUnit);
 }
 
 /**
@@ -845,26 +733,19 @@ export function powderReportChecks(s: PowderLiveState, probe: RefinementResult |
         : { name: "Residual peaks", status: "pass", detail: "No residual peak stands 5σ above its own noise." });
   }
   // The serial correlation of the residual: a systematic misfit makes the esds optimistic.
-  const points = s.pattern.points.length === s.curves.x.length ? s.pattern.points : null;
-  const sigma = s.curves.yObs.map((y, i) => {
-    const given = points?.[i]?.sigma;
-    return given !== undefined && given > 0 ? given : Math.sqrt(Math.max(y, 1));
-  });
-  const excluded = excludedPointMask(s.curves.yObs);
-  const include = s.curves.x.map((x, i) => !excluded[i] && (!s.fitRange || (x >= s.fitRange.min && x <= s.fitRange.max)));
+  const sigma = pointSigma(s.curves.yObs, s.pattern.points);
+  const include = fittedPoints(s.curves.x, s.curves.yObs, s.fitRange);
   const v = powderValidation({ x: s.curves.x, yObs: s.curves.yObs, yCalc: s.curves.yCalc, sigma, include, nParams: s.parameters.filter((p) => !p.fixed && !p.expression).length });
   if (v.durbinWatson) {
     const dw = v.durbinWatson;
-    checks.push(dw.correlated
-      ? { name: "Serial correlation", status: "note", detail: `Durbin–Watson d = ${dw.d.toFixed(2)}, below Q_D = ${dw.qd.toFixed(2)}: neighbouring residuals correlate (a systematic misfit of the profile or the model), so the esds — and a posterior's intervals — are optimistic.` }
-      : { name: "Serial correlation", status: "pass", detail: `Durbin–Watson d = ${dw.d.toFixed(2)} (Q_D = ${dw.qd.toFixed(2)}): no significant serial correlation of the residuals.` });
+    checks.push({ name: "Serial correlation", status: dw.correlated ? "note" : "pass", detail: durbinWatsonSentence(dw) });
   }
   const bv = bondValenceCheck(s.refinedPhases);
   if (bv) checks.push(bv);
   // The fit's diagnosis, as diagnose_fit gives it on the fit on screen: an
   // account that cites it ("the lines are 2.45× broader") cites the report.
   if (s.d) {
-    const dx = fitDiagnosisView(s) as unknown as DiagnosisView;
+    const dx = fitDiagnosisOf(s);
     checks.push({ name: "Fit diagnosis", status: dx.causes.length > 0 ? "note" : "pass", detail: diagnosisText(dx) });
   }
   checks.push(...findingChecks(a));

@@ -3,7 +3,7 @@ import { buildPowderSpec } from "@/app/powderSpec";
 import { exampleStructure } from "@/examples/mn3ga";
 import { powderCurves } from "@/core/workflow/powder";
 import { powderReflectionObsCalc } from "@/core/workflow/obsCalc";
-import { diagnoseFit } from "@/core/diagnostics/fitDiagnosis";
+import { diagnoseFit, peakShapeAction } from "@/core/diagnostics/fitDiagnosis";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import type { PowderPattern } from "@/core/diffraction/types";
 import type { RefinementParameter } from "@/core/refinement/types";
@@ -101,5 +101,16 @@ describe("the fit diagnosis", () => {
     expect(dx.width?.median).toBeCloseTo(1, 1);
     expect(Math.abs(dx.width!.etaObs! - dx.width!.etaCalc!)).toBeLessThan(0.1);
     expect(dx.validation.agreement.gof).toBeLessThan(1.3);
+  });
+});
+
+describe("the peak-shape action", () => {
+  it("frees the widths while they are fixed, and reads the shape once they are free and agree", () => {
+    expect(peakShapeAction(1.02, undefined)).toMatch(/^A width or shape mismatch: free the Caglioti U, V, W together/);
+    expect(peakShapeAction(1.02, { lorentzian: true })).toMatch(/^The Caglioti U, V, W and the Lorentzian X are already free and the line widths agree \(observed\/calculated 1\.02\).*set_corrections asymmetry.*set_microstrain/);
+    expect(peakShapeAction(1.02, { lorentzian: false })).toMatch(/^The Caglioti U, V, W are already free/);
+    // Free but disagreeing widths: the width is still the advice.
+    expect(peakShapeAction(1.3, { lorentzian: false })).toMatch(/^A width or shape mismatch/);
+    expect(peakShapeAction(undefined, { lorentzian: false })).toMatch(/^A width or shape mismatch/);
   });
 });
