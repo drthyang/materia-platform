@@ -3,6 +3,7 @@ import { ComputeClient } from "@/workers/computeClient";
 import { mn3gaSession } from "@/agent/evals/pages";
 import { executor, fakeHost, headlessHistory, sessionPort } from "@/testSupport/agentHeadless";
 import { powderRestraints } from "@/app/powderSpec";
+import { knownPhaseStructure } from "@/core/diagnostics/knownPhases";
 import { DEFAULT_INSTRUMENT, type Session } from "@/app/powderSession";
 import { posteriorRun, powderFit, thoroughFit, withBackgroundType, withPhase, type PowderCompute, type PowderPageModel } from "@/app/powderPage";
 
@@ -71,6 +72,28 @@ describe("the powder page's fits", () => {
     expect(requests[0]!.req.fitRange).toEqual({ min: 15, max: 110 });
     expect(out.mode).toBe("prefit");
     expect(out.message).toMatch(/^Prefit/);
+  }, 120_000);
+});
+
+describe("a phase the data do not contain, its cell free", () => {
+  it("Refine completes when a trial step drives the cell negative (it threw a RangeError and ended the refinement)", async () => {
+    // The demo has no CaF₂: its scale goes to 0 and its free cell drifts until
+    // a trial step makes it negative, where no reflections can be listed.
+    const { port } = sessionPort(mn3gaSession());
+    port.setFitRange({ min: 20, max: 100 });
+    port.addPhase!(knownPhaseStructure("CaF₂")!);
+    port.setFixed([{ id: "p1_cell_a", fixed: false }]);
+    const seed = port.state().parameters.find((p) => p.id === "p1_scale")!.value;
+    await port.refine();
+    const result = port.state().result!;
+    expect(result.message).toMatch(/trial step\(s\) rejected outside the model's domain \(Cell length a = -[\d.]+ Å is not a positive, finite length/);
+    expect(result.parameters.p1_cell_a).toBeGreaterThan(0);
+    // The fit says what the data say: no CaF₂, and the demo's own fit.
+    expect(result.parameters.p1_scale).toBeLessThan(1e-3 * seed);
+    const { port: alone } = sessionPort(mn3gaSession());
+    alone.setFitRange({ min: 20, max: 100 });
+    await alone.refine();
+    expect(port.state().wR).toBeCloseTo(alone.state().wR, 5);
   }, 120_000);
 });
 

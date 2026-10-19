@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { SpaceGroup, UnitCell } from "@/core/crystal/types";
 import { parseSymmetryOperation } from "@/core/crystal/symmetry";
 import { generateReflections, ReflectionLimitError } from "@/core/diffraction/reflections";
+import { ModelDomainError } from "@/core/refinement/types";
 import { reciprocalTensorA } from "@/core/crystal/unitCell";
 
 const P63MMC_XYZ = [
@@ -30,6 +31,19 @@ describe("reflection generation (P6₃/mmc)", () => {
     expect(() => generateReflections(huge, sg, 0.5, 6.0)).toThrow(ReflectionLimitError);
     expect(() => generateReflections(huge, sg, 0.5, 6.0)).toThrow(/a = 5000.*Check the cell, or raise d_min/);
     expect(Date.now() - t0).toBeLessThan(500);
+  });
+
+  it("refuses a cell length that is not positive and finite, naming it (a negative one threw a RangeError from the bit array)", () => {
+    // A refinement's trial step drove a free cell length negative: the Miller
+    // box's span went negative and `new Uint8Array` threw. Two negative
+    // lengths listed no reflections, 0 threw "Matrix is singular", and NaN
+    // read as a list "too large".
+    for (const bad of [-5.4, -1e-3, 0, NaN, Infinity]) {
+      expect(() => generateReflections({ ...cell, c: bad }, sg, 1.0, 6.0), `c = ${bad}`).toThrow(ReflectionLimitError);
+    }
+    expect(() => generateReflections({ ...cell, a: -5.4, b: -5.4 }, sg, 1.0, 6.0)).toThrow(/^Cell length a = -5\.4 Å/);
+    // The engine's contract: a refinement rejects a trial step that throws this, rather than ending.
+    expect(() => generateReflections({ ...cell, c: -1 }, sg, 1.0, 6.0)).toThrow(ModelDomainError);
   });
 
   it("excludes the 6₃ screw-absent (0 0 1) but keeps (0 0 2)", () => {

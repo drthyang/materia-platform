@@ -8,6 +8,7 @@ import type { UnitCell, SpaceGroup } from "@/core/crystal/types";
 import type { Mat3, Vec3 } from "@/core/math/types";
 import { reciprocalTensorA } from "@/core/crystal/unitCell";
 import { isReflectionAbsent } from "@/core/crystal/symmetry";
+import { ModelDomainError } from "@/core/refinement/types";
 
 export interface Reflection {
   readonly h: number;
@@ -83,12 +84,15 @@ export const MAX_INDEX_BOX = 60_000_000;
 export const MAX_REFLECTION_FAMILIES = 300_000;
 
 /**
- * The reflection list would be too large to enumerate — a cell or d-range
- * that is wrong (a typo such as 54.2 → 542 Å, a diverged refinement) or far
- * outside what this tool targets. The list is never truncated instead: a
- * truncated list silently drops reflections and gives a wrong pattern.
+ * The reflection list cannot be listed for this cell and range: a cell length
+ * that is not positive and finite, or a list too large to enumerate — a cell
+ * or d-range that is wrong (a typo such as 54.2 → 542 Å, a diverged
+ * refinement) or far outside what this tool targets. The list is never
+ * truncated instead: a truncated list silently drops reflections and gives a
+ * wrong pattern. A {@link ModelDomainError}: a refinement's trial step that
+ * reaches such a cell is rejected, not the refinement.
  */
-export class ReflectionLimitError extends Error {
+export class ReflectionLimitError extends ModelDomainError {
   constructor(message: string) {
     super(message);
     this.name = "ReflectionLimitError";
@@ -115,7 +119,8 @@ export class ReflectionLimitError extends Error {
  * |h| ≤ ⌊a/dMin⌋ (and likewise k, l). The list is never truncated: a cell and
  * range needing more than {@link MAX_INDEX_BOX} index cells, an index of 2048
  * or more, or more than {@link MAX_REFLECTION_FAMILIES} families throw a
- * {@link ReflectionLimitError}.
+ * {@link ReflectionLimitError}, as does a cell length that is not positive and
+ * finite (no lattice: its index box would have a negative or NaN size).
  */
 export function generateReflections(
   cell: UnitCell,
@@ -128,6 +133,13 @@ export function generateReflections(
   const cacheKey = reflectionCacheKey(cell, sg, dMin, dMax, absences);
   const cached = reflCache.get(cacheKey);
   if (cached) return cached;
+
+  for (const axis of ["a", "b", "c"] as const) {
+    const length = cell[axis];
+    if (!(length > 0 && Number.isFinite(length))) {
+      throw new ReflectionLimitError(`Cell length ${axis} = ${+length.toPrecision(6)} Å is not a positive, finite length: there is no lattice to list reflections for. Check the cell.`);
+    }
+  }
 
   // Precompute the reciprocal tensor once: 1/d² = A11 h² + A22 k² + A33 l²
   // + A12 hk + A13 hl + A23 kl. Avoids a 3×3 inversion per candidate hkl.

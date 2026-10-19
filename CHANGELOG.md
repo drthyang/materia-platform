@@ -504,6 +504,14 @@ release fixes bugs.
 
 ### Fixed
 
+- **A phase the data do not contain no longer ends the refinement.** With its
+  cell free, its scale fell to 0 and a trial step drove its cell length below
+  0, where the reflection list threw `RangeError: Invalid typed array length`
+  and Refine stopped (the Mn₃Ga demo with CaF₂ added). Such a step is now
+  rejected like an uphill one, the fit goes on, and its message says how many
+  steps were rejected and why. A cell length that is not positive and finite
+  is refused with a message that names it, wherever a reflection list is made.
+
 - **A local model no longer loops, its prompt cut.** On qwen3.8-27b in LM
   Studio the Agent re-read its method and the state until the turn cap: the
   instructions and every tool took 18.8k of the model's 32k tokens, LM Studio

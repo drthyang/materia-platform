@@ -335,6 +335,21 @@ export interface RefinementResult {
   readonly message?: string;
 }
 
+/**
+ * Thrown by a problem's `calculate` when the values lie outside the model's
+ * domain: no pattern exists there (a cell length ≤ 0). At a trial step the
+ * engine rejects the step as it rejects a non-finite χ², with larger damping,
+ * and the fit goes on; at the starting point, or at a Jacobian point beside an
+ * accepted one, it ends the refinement with this message. Any other error a
+ * `calculate` throws is a fault and always ends the refinement.
+ */
+export class ModelDomainError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ModelDomainError";
+  }
+}
+
 /** Tuning knobs for the least-squares driver. */
 /**
  * Optional per-call hints to a problem's `calculate`. A forward model may reuse
