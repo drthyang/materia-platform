@@ -17,7 +17,7 @@ remainder.
 
 | Change | What it answers |
 | --- | --- |
-| **The plan folds after a run** into a one-line summary beside Run (`5 Å box · 1 Å step · low → high r · 22 boxes`), which opens the plan bar again. It stays open before the first run and while the plan cannot run | A two-line plan bar above every result, though it describes the next scan, not the one on screen |
+| **The plan folds after a run** into a one-line summary in the toolbar (`5 Å box · 1 Å step · low → high r · 22 boxes`), which opens the plan bar again. It stays open before the first run and while the plan cannot run | A two-line plan bar above every result, though it describes the next scan, not the one on screen |
 | **The run's caption moves into the chip row**, beside the legend | A line of its own under the table |
 | **The per-box table opens on demand** (`▸ box table`); closed, the plot takes the whole region | The plot and the table split 3 : 2 whatever the card's height |
 | **A box is picked on the plot**: point at it for a card with its window, value ± esd, Rw and status; click it (or step with ← →, Esc to clear) to pick it. The line under the plot reads the picked box with its **Adopt** buttons; its row is highlighted in the table, and a table row picks it too | Adopt only in the table; the values only in the table or a slow native tooltip on a 3 px dot |
