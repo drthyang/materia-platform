@@ -129,5 +129,6 @@ warning.
 
 ## Checks
 
-Full suite: 2483 passed, 265 skipped. `tsc -b`, eslint and the build are
+Full suite (with `main`, which now runs the 350 K golden tests): 2497 passed,
+253 skipped. `tsc -b`, eslint and the build are
 clean.
