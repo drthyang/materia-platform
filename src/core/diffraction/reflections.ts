@@ -54,6 +54,15 @@ function equivalentPacked(sg: SpaceGroup, h: number, k: number, l: number): Set<
   return set;
 }
 
+/** The Laue-group equivalents of (hkl), Friedel mates included, each once. */
+export function lauEquivalents(sg: SpaceGroup, h: number, k: number, l: number): Vec3[] {
+  return [...equivalentPacked(sg, h, k, l)].map((p): Vec3 => [
+    Math.floor(p / (PACK_BASE * PACK_BASE)) - PACK_OFFSET,
+    (Math.floor(p / PACK_BASE) % PACK_BASE) - PACK_OFFSET,
+    (p % PACK_BASE) - PACK_OFFSET,
+  ]);
+}
+
 /** Canonical representative (lexicographically greatest) from packed indices. */
 function canonicalPacked(indices: Set<number>): { h: number; k: number; l: number } {
   let bh = -Infinity, bk = -Infinity, bl = -Infinity;

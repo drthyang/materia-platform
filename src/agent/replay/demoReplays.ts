@@ -30,7 +30,7 @@ export const DEMO_REPLAYS: Readonly<Record<string, DemoReplay>> = {
       { text: "First your method.", calls: [RIETVELD, { name: "get_state" }] },
       { text: "Stage 1: scale, background and cell.", calls: [{ name: "refine" }] },
       { text: "Positions next.", calls: [{ name: "set_free", input: { free: ["p0_pos_Mn1_0"] } }, { name: "refine" }] },
-      { text: "Now the profile.", calls: [{ name: "set_free", input: { free: ["tof_sig2"] } }, { name: "refine" }] },
+      { text: "Now the profile, with the position fixed.", calls: [{ name: "set_free", input: { free: ["tof_sig2"], fix: ["p0_pos_Mn1_0"] } }, { name: "refine" }] },
       { text: "Then the ADPs, with the peak width fixed.", calls: [{ name: "set_free", input: { free: ["p0_B_Mn1", "p0_B_Ga1"], fix: ["tof_sig2"] } }, { name: "refine" }] },
       { text: "Done: scale, background, cell, the Mn position, the peak width and both B_iso of Mn₃Ga refined.\n\nThe fit improved at every stage; the residual is in the pattern, and the refined values with their esds are in the parameters." },
     ],

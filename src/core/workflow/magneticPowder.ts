@@ -287,21 +287,28 @@ export function magneticPowderComponents(
   for (const p of parameters) values[p.id] = p.value;
   const resolved = resolveTies(parameters, values);
   const xValues = pattern.points.map((p) => p.x);
+  // The profile buildMagneticPowderProblem fits — η, the Lorentz factor on
+  // every phase, the background basis — so yCalc is the pattern it fitted.
+  const applyLorentz = profile.lorentz ?? true;
   const primaryBindings = extraPhases.length > 0 ? magneticPhaseBindings(bindings, structure.id) : bindings;
   const applied = applyParameters(structure, primaryBindings, resolved);
-  const { nuclear, magnetic: magPeaks } = buildCombinedPeaks(structure, magnetic, pattern, resolved, primaryBindings, profile.lorentz ?? true);
+  const { nuclear, magnetic: magPeaks } = buildCombinedPeaks(structure, magnetic, pattern, resolved, primaryBindings, applyLorentz);
   const nuclearPeaks: ProfilePeak[] = [...nuclear];
   for (const phase of extraPhases) {
     const appliedExtra = applyParameters(phase.structure, phaseBindingsFor(bindings, phase.id), resolved);
-    nuclearPeaks.push(...buildPeaks(pattern, appliedExtra));
+    nuclearPeaks.push(...buildPeaks(pattern, appliedExtra, applyLorentz));
   }
-  const bkgOpts: ProfileOptions = {
+  const peakOpts: ProfileOptions = {
     shape: profile.shape,
+    ...(profile.eta !== undefined ? { eta: profile.eta } : {}),
+  };
+  const bkgOpts: ProfileOptions = {
+    ...peakOpts,
     ...(applied.background.length ? { background: applied.background } : {}),
     ...(profile.backgroundType !== undefined ? { backgroundType: profile.backgroundType } : {}),
   };
   const yNuclear = Array.from(synthesizePattern(xValues, nuclearPeaks, bkgOpts));
-  const yMagnetic = Array.from(synthesizePattern(xValues, magPeaks, { shape: profile.shape }));
+  const yMagnetic = Array.from(synthesizePattern(xValues, magPeaks, peakOpts));
   const yObs = pattern.points.map((p) => p.yObs);
   const yCalc = yNuclear.map((n, i) => n + (yMagnetic[i] ?? 0));
   return {

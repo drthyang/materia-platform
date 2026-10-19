@@ -23,6 +23,7 @@ import {
 } from "@/core/refinement/types";
 import { chiSquared, computeAgreementFactors } from "@/core/refinement/factors";
 import { resolveTies } from "@/core/refinement/constraints";
+import { CORRELATION_REPORTED } from "@/core/diagnostics/thresholds";
 import {
   pseudoInverseSymmetric,
   shiftedPseudoInverseSolver,
@@ -801,13 +802,13 @@ function* refineCore(
     singularParameterIds,
     ...(nullDirections.length > 0 ? { nullDirections } : {}),
     conditionNumber: Math.max(covDiagnostics.conditionNumber, maxSolveConditionNumber),
-    highCorrelations: highCorrelations(
-      covarianceBase,
-      finalJtj,
-      freeIds,
-      opts.correlationThreshold ?? 0.95,
-      opts.maxReportedCorrelations ?? 12,
-    ),
+    ...(() => {
+      const threshold = opts.correlationThreshold ?? 0.95;
+      const max = opts.maxReportedCorrelations ?? 12;
+      const all = highCorrelations(covarianceBase, finalJtj, freeIds, Math.min(threshold, CORRELATION_REPORTED), Number.POSITIVE_INFINITY);
+      const moderate = all.filter((c) => Math.abs(c.coefficient) < threshold).slice(0, max);
+      return { highCorrelations: all.filter((c) => Math.abs(c.coefficient) >= threshold).slice(0, max), ...(moderate.length > 0 ? { moderateCorrelations: moderate } : {}) };
+    })(),
     maxLambda,
     atBounds: boundActiveParameters(freeParams, freeValues),
     maxShiftOverEsd: lastShift.value,

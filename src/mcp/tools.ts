@@ -45,6 +45,8 @@ import {
 import { buildMpdfSpec, mpdfComponents, unsupportedMpdfModel, MPDF_STAGE_KINDS } from "@/core/workflow/mpdf";
 import { computeAgreementFactors, excludedPointMask, weightsFromSigma } from "@/core/refinement/factors";
 import { axisContext, convertAxisArray, convertAxisValue, tofCalibrationOf } from "@/visualization/axisUnits";
+import { posteriorReading, type ParameterReading } from "@/core/diagnostics/posteriorReading";
+import { cellCheckReading, dScaleReading } from "@/core/diagnostics/cellReading";
 import { inspectDataRange, type DataRangeReading } from "@/core/diagnostics/dataRange";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { powderResidual as corePowderResidual, type PowderResidual as CorePowderResidual } from "@/core/diagnostics/powderResidual";
@@ -118,6 +120,7 @@ import {
   type RefinementAssessment,
 } from "@/core/diagnostics/assessment";
 import { interpretStructure } from "@/core/diagnostics/interpret";
+import { minMax } from "@/core/math/extent";
 
 const DEFAULT_INSTRUMENT: InstrumentParameters = { kind: "constantWavelength", wavelength: 1.54 };
 
@@ -158,7 +161,7 @@ export function parse_powder_data(args: { text: string; filename?: string; instr
   return {
     detected: { dataType: fmt.dataType, ...(fmt.xUnit ? { xUnit: fmt.xUnit } : {}), source: fmt.source, confidence: fmt.confidence, ...(fmt.note ? { note: fmt.note } : {}) },
     pattern,
-    summary: { points: pattern.points.length, xUnit: pattern.xUnit, xMin: Math.min(...xs), xMax: Math.max(...xs), radiation: pattern.radiation.kind },
+    summary: { points: pattern.points.length, xUnit: pattern.xUnit, xMin: minMax(xs).min, xMax: minMax(xs).max, radiation: pattern.radiation.kind },
   };
 }
 
@@ -233,8 +236,9 @@ export function check_fit_range(args: {
   const ctx = axisContext(args.pattern, args.instrument, zero, tofCalibrationOf(args.parameters ?? []));
   const unit = args.pattern.xUnit;
   const ds = args.pattern.points.map((p) => convertAxisValue(p.x, unit, "dSpacing", ctx)).filter((d) => Number.isFinite(d) && d > 0);
-  const dMin = Math.min(...ds) * 0.98;
-  const dMax = Math.min(50, Math.max(...ds) * 1.02);
+  const dSpan = minMax(ds);
+  const dMin = dSpan.min * 0.98;
+  const dMax = Math.min(50, dSpan.max * 1.02);
   const reflections = [args.structure, ...(args.extraPhases ?? [])]
     .flatMap((ph) => generateReflections(ph.cell, ph.spaceGroup, dMin, dMax, { absences: true }).map((r) => convertAxisValue(r.d, "dSpacing", unit, ctx)))
     .filter(Number.isFinite);
@@ -263,7 +267,7 @@ export function check_cell_symmetry(args: {
   fitRange?: { min: number; max: number };
   dMin?: number;
   significance?: number;
-}): CellSymmetryCheck {
+}): CellSymmetryCheck & { reading: string } {
   const instrument = args.instrument ?? DEFAULT_INSTRUMENT;
   if (args.pattern.xUnit === "tof" && instrument.kind !== "tof") {
     throw new Error("check_cell_symmetry: a time-of-flight pattern needs its TOF instrument (difC) to place reflections");
@@ -287,7 +291,7 @@ export function check_cell_symmetry(args: {
   // A loaded instrument's resolution curve shapes the Le Bail widths (the
   // default instrument's generic one would mislead).
   const caglioti = args.instrument ? cagliotiOf(args.instrument) : undefined;
-  return checkCellSymmetry(
+  const check = checkCellSymmetry(
     args.structure,
     args.pattern,
     spec.params.filter((p) => isCell(p.kind)),
@@ -302,6 +306,11 @@ export function check_cell_symmetry(args: {
       ...(args.significance !== undefined ? { significance: args.significance } : {}),
     },
   );
+  // The app's reading (core/diagnostics/cellReading.ts): the d scale from the pattern's own peaks first.
+  const ctx = axisContext(args.pattern, args.instrument);
+  const d = args.pattern.points.map((p) => convertAxisValue(p.x, args.pattern.xUnit, "dSpacing", ctx));
+  const scale = dScaleReading(d, args.pattern, args.structure, args.instrument);
+  return { ...check, reading: cellCheckReading(check, { loaded: args.structure.cell, unit: args.pattern.xUnit, scale, tools: { review: "review_symmetry" } }) };
 }
 
 /**
@@ -423,6 +432,8 @@ export function assess_refinement(args: {
   sharedSiteAdps?: AssessmentInput["sharedSiteAdps"];
   /** The disorder assemblies of the parameters (see AssessmentInput). */
   disorder?: AssessmentInput["disorder"];
+  /** The refined structures, for the physical checks (see AssessmentInput). */
+  structures?: AssessmentInput["structures"];
 }): RefinementAssessment {
   return assessRefinement({
     result: args.result,
@@ -433,6 +444,7 @@ export function assess_refinement(args: {
     ...(args.restraints?.length ? { restraints: args.restraints } : {}),
     ...(args.sharedSiteAdps?.length ? { sharedSiteAdps: args.sharedSiteAdps } : {}),
     ...(args.disorder?.size ? { disorder: args.disorder } : {}),
+    ...(args.structures?.length ? { structures: args.structures } : {}),
   });
 }
 
@@ -460,7 +472,7 @@ export function evaluate_pattern(args: {
   observationCount: number;
 } {
   const curves = args.magnetic
-    ? magneticPowderComponents(args.structure, args.magnetic, args.pattern, args.parameters, args.bindings, { shape: args.profile.shape, ...(args.profile.eta !== undefined ? { eta: args.profile.eta } : {}) })
+    ? magneticPowderComponents(args.structure, args.magnetic, args.pattern, args.parameters, args.bindings, args.profile)
     : powderCurves(args.structure, args.pattern, args.parameters, args.bindings, args.profile);
   // Poisson fallback with the standard 1-count floor: σ = √max(N, 1). Without
   // the floor a near-zero intensity (e.g. the background of a simulated
@@ -523,7 +535,7 @@ export function simulate_pattern(args: {
     p.kind === "scale" ? { ...p, value: args.scale ?? 1 } : p.kind === "background" ? { ...p, value: 0 } : p,
   );
   const curves = args.magnetic
-    ? magneticPowderComponents(args.structure, args.magnetic, pattern, params, spec.bindings, { shape: spec.profile.shape, ...(spec.profile.eta !== undefined ? { eta: spec.profile.eta } : {}) })
+    ? magneticPowderComponents(args.structure, args.magnetic, pattern, params, spec.bindings, spec.profile)
     : powderCurves(args.structure, pattern, params, spec.bindings, spec.profile);
   return {
     xUnit: pattern.xUnit,
@@ -630,8 +642,9 @@ export function review_symmetry(args: {
 }): SymmetryReview {
   const phases = [args.structure, ...(args.extraPhases ?? [])];
   const finite = args.residual.d.filter((v) => Number.isFinite(v) && v > 0);
-  const dMin = Math.min(...finite) * 0.99;
-  const dMax = Math.max(...finite) * 1.01;
+  const dSpan = minMax(finite);
+  const dMin = dSpan.min * 0.99;
+  const dMax = dSpan.max * 1.01;
   const reflections = phases.flatMap((ph) =>
     generateReflections(ph.cell, ph.spaceGroup, dMin, dMax).map((r) => ({ d: r.d, hkl: `${r.h} ${r.k} ${r.l}`, phaseLabel: ph.name || ph.id })));
   return reviewSymmetry(phases, { ...args.residual, reflections });
@@ -647,9 +660,9 @@ export function search_propagation_vector(args: {
   peakD: number[];
   options?: KSearchOptions;
 }): { candidates: { k: Vec3; label: string; matched: number; total: number; rmsd: number; score: number }[] } {
-  // A line's width in d grows with d: match within 0.5 % of d where that is wider than the Å tolerance.
-  // Satellites about the lattice's own reflections: a centred lattice's absences carry none.
-  const candidates = searchPropagationVector(args.structure.cell, args.peakD, { relativeTolerance: 0.005, centring: centringTranslations(args.structure.spaceGroup.operations), ...(args.options ?? {}) });
+  // The app's options (K_SEARCH_DEFAULTS: 0.02 Å or 0.5 % of d, no Q cut), about the lattice's own
+  // reflections: a centred lattice's absences carry none.
+  const candidates = searchPropagationVector(args.structure.cell, args.peakD, { centring: centringTranslations(args.structure.spaceGroup.operations), ...(args.options ?? {}) });
   return { candidates: candidates.map((c) => ({ ...c })) };
 }
 
@@ -1108,10 +1121,7 @@ export function rank_next_parameters(args: {
   }[];
 } {
   const problem = args.magnetic
-    ? buildMagneticPowderProblem(args.structure, args.magnetic, args.pattern, args.parameters, args.bindings, {
-        shape: args.profile.shape,
-        ...(args.profile.eta !== undefined ? { eta: args.profile.eta } : {}),
-      }, args.fitRange)
+    ? buildMagneticPowderProblem(args.structure, args.magnetic, args.pattern, args.parameters, args.bindings, args.profile, args.fitRange)
     : buildPowderProblem(args.structure, args.pattern, args.parameters, args.bindings, args.profile, args.restraints ?? [], args.fitRange);
   const ranking = rankNextParameterGroups(problem);
   return {
@@ -1752,6 +1762,8 @@ function powderSampleSpec(args: {
     bindings: args.bindings,
     shape: profile.shape,
     ...(profile.eta !== undefined ? { eta: profile.eta } : {}),
+    ...(profile.lorentz !== undefined ? { lorentz: profile.lorentz } : {}),
+    ...(profile.backgroundType !== undefined ? { backgroundType: profile.backgroundType } : {}),
     ...(args.fitRange ? { fitRange: args.fitRange } : {}),
   };
   const extra = args.extraPhases ?? [];
@@ -1759,18 +1771,12 @@ function powderSampleSpec(args: {
     return {
       kind: "magneticPowder", structure: args.structure, magnetic: args.magnetic, ...shared,
       ...(extra.length ? { extraPhases: extra.map((st) => ({ structure: st, id: st.id })) } : {}),
-      ...(profile.lorentz !== undefined ? { lorentz: profile.lorentz } : {}),
-      ...(profile.backgroundType !== undefined ? { backgroundType: profile.backgroundType } : {}),
     };
   }
   const restraints = args.restraints && args.restraints.length ? { restraints: args.restraints } : {};
   return extra.length
     ? { kind: "multiPhasePowder", phases: [{ structure: args.structure, id: args.structure.id }, ...extra.map((st) => ({ structure: st, id: st.id }))], ...shared, ...restraints }
-    : {
-        kind: "powder", structure: args.structure, ...shared, ...restraints,
-        ...(profile.lorentz !== undefined ? { lorentz: profile.lorentz } : {}),
-        ...(profile.backgroundType !== undefined ? { backgroundType: profile.backgroundType } : {}),
-      };
+    : { kind: "powder", structure: args.structure, ...shared, ...restraints };
 }
 
 export async function sample_posterior(args: {
@@ -1810,6 +1816,10 @@ export async function sample_posterior(args: {
   message?: string;
   nSamples: number;
   freeIds: string[];
+  /** Each free parameter's interval read against its esd (`linearizedEsd`), as the app reads it. */
+  intervals: ParameterReading[];
+  /** The run read whole: converged or not, the esds confirmed or not, the bounds, the correlations. */
+  reading: string;
   resume: WalkerState | NutsState;
   chains?: number[][][];
   nuts?: { divergences: number; maxTreeDepthHits: number; gradEvals: number; stepSize: number[] };
@@ -1898,6 +1908,8 @@ export async function sample_posterior(args: {
     }
   }
   correlations.sort((a, b) => Math.abs(b.coefficient) - Math.abs(a.coefficient));
+  // The app's reading (core/diagnostics/posteriorReading.ts), resumed MCP's way.
+  const read = posteriorReading(result, args.parameters, args.linearizedEsd, [], { again: "call sample_posterior again with `resume` (this result's)", brief: "`resume`" });
 
   return {
     sampler,
@@ -1909,6 +1921,8 @@ export async function sample_posterior(args: {
     ...(result.message !== undefined ? { message: result.message } : {}),
     nSamples: result.diagnostics.nSamples,
     freeIds: [...ids],
+    intervals: read.rows,
+    reading: read.reading,
     resume: result.resume,
     ...(args.includeChains ? { chains: result.chains.map((w) => w.map((r) => [...r])) } : {}),
     ...(nutsInfo ? { nuts: nutsInfo } : {}),
