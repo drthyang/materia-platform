@@ -67,7 +67,9 @@ thin, so adding a surface never adds science:
   powder page's (`app/powderPage.ts`), the single-crystal page's
   (`app/singleCrystalPage.ts`), the PDF page's (`app/pdfPage.ts`) and the
   magnetic step's (`app/magneticStep.ts`) are shared with the Agent's test
-  pages.
+  pages. The shell (`app/App.tsx`) parses files and routes them; what a
+  structure, a pattern or an instrument does to the powder page is the page's
+  (`withStructure`, `withPattern`, `withInstrument`).
 - **MCP server:** a registry of the same functions behind a stdio transport.
   The transport keeps bulky data server-side and passes refs
   ([AGENT_TOOLS.md](./AGENT_TOOLS.md)).
@@ -185,6 +187,12 @@ decides only where they run.
   the two drivers to identical trajectories.
 - **Posterior sampling.** The ensemble sampler fans its walker batches out over
   the same pools.
+- **Strategies.** A strategy that runs many fits (the PDF boxcar scan, the
+  moment search of a magnetic Prefit) is written once, in [`workers/strategy.ts`](../src/workers/strategy.ts), over a
+  `Solver`: the problem set on the evaluators, then one start refined at a
+  time. The browser's client hands it its worker pool, the MCP server its worker
+  threads, and either runs it in-thread without one; the Jacobian rule (a PDF
+  problem's analytic columns on the driver) is the same for all three.
 
 The protocol is a typed request/response message set
 ([`workers/protocol.ts`](../src/workers/protocol.ts)). Data types cross the
