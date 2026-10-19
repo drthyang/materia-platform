@@ -1,6 +1,6 @@
 # The H-test's direction of bias
 
-Pull request [#PR](https://github.com/drthyang/web-refinement/pull/PR),
+Pull request [#84](https://github.com/drthyang/web-refinement/pull/84),
 branch `claude/plan-4-6`, on `main`, 2026-10-19. Plan:
 [AGENT_PLAN.md](../AGENT_PLAN.md), 4.6 (the stated direction now; the
 unbiased estimator later). AGENT_REVIEW item 7.
