@@ -1034,12 +1034,12 @@ describe("the local proxy on a page that has none", () => {
 
   it("reads the proxy's health check: ready, no key, or absent", async () => {
     const answer = (status: number, body: unknown) => async () => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
-    expect(await proxyStatus("/web-refinement/", answer(200, { proxy: true, key: true }))).toBe("ready");
-    expect(await proxyStatus("/web-refinement/", answer(200, { proxy: true, key: false }))).toBe("no-key");
-    expect(await proxyStatus("/web-refinement/", async () => new Response("<html>404</html>", { status: 404 }))).toBe("absent");
+    expect(await proxyStatus("/materia-platform/", answer(200, { proxy: true, key: true }))).toBe("ready");
+    expect(await proxyStatus("/materia-platform/", answer(200, { proxy: true, key: false }))).toBe("no-key");
+    expect(await proxyStatus("/materia-platform/", async () => new Response("<html>404</html>", { status: 404 }))).toBe("absent");
     // A static host that serves its index.html for any path: a 200, but not the proxy's answer.
-    expect(await proxyStatus("/web-refinement/", async () => new Response("<!doctype html>", { status: 200, headers: { "content-type": "text/html" } }))).toBe("absent");
-    expect(await proxyStatus("/web-refinement/", async () => { throw new TypeError("Failed to fetch"); })).toBe("absent");
+    expect(await proxyStatus("/materia-platform/", async () => new Response("<!doctype html>", { status: 200, headers: { "content-type": "text/html" } }))).toBe("absent");
+    expect(await proxyStatus("/materia-platform/", async () => { throw new TypeError("Failed to fetch"); })).toBe("absent");
   });
 });
 

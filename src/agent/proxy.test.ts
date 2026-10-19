@@ -75,7 +75,7 @@ describe("Agent API proxy", () => {
     for (const key of ["sk-test", undefined]) {
       const s = await serve(key);
       server = s.server;
-      const r = await realFetch(`${s.url}/web-refinement/api/anthropic/health`);
+      const r = await realFetch(`${s.url}/materia-platform/api/anthropic/health`);
       expect(r.status).toBe(200);
       expect(await r.json()).toEqual({ proxy: true, key: key !== undefined });
       await new Promise<void>((done) => s.server.close(() => done()));
