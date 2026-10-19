@@ -111,7 +111,7 @@ describe("MCP magnetic tools on the whole powder profile", () => {
 
   describe("refine_magnetic_powder", () => {
     const free = (ps: RefinementParameter[]): RefinementParameter[] =>
-      ps.map((p) => (["scale", "background"].includes(p.kind) || p.kind === "momentMode" ? { ...p, fixed: !!p.expression } : { ...p, fixed: true }));
+      ps.map((p) => ({ ...p, fixed: !["scale", "background", "momentMode"].includes(p.kind) || !!p.expression }));
 
     it("returns the components of the pattern it fitted on a cosine background", async () => {
       const profile: PowderProfile = { ...single.profile, backgroundType: "cosine" };
