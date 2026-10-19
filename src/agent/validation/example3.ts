@@ -10,7 +10,8 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parse_instrument, parse_powder_data, parse_structure } from "@/mcp/tools";
-import { loadedSession, type Session } from "@/app/powderSession";
+import type { Session } from "@/app/powderSession";
+import { openedPage } from "@/app/powderPage";
 import { runPowderRefinement } from "@/workers/runPowder";
 import { powderRestraints } from "@/app/powderSpec";
 import { matchIds } from "@/agent/liveCommon";
@@ -21,9 +22,11 @@ const read = (f: string): string => readFileSync(resolve(DIR, f), "utf8");
 /** The page as the app opens Example 3's three files, before any fit. */
 export function example3Loaded(): Session {
   const { structure } = parse_structure({ cif: read("mn3ga_30k_nuclear.cif"), id: "mn3ga30k" });
-  const instrument = parse_instrument({ text: read("mn3ga_30k.instprm") });
-  const { pattern } = parse_powder_data({ text: read("mn3ga_30k_sim.xye"), filename: "mn3ga_30k_sim.xye", instrument });
-  return loadedSession(structure, pattern, instrument);
+  const instrumentFile = { name: "mn3ga_30k.instprm", text: read("mn3ga_30k.instprm") };
+  const instrument = parse_instrument({ text: instrumentFile.text });
+  const data = { name: "mn3ga_30k_sim.xye", text: read("mn3ga_30k_sim.xye") };
+  const { pattern } = parse_powder_data({ text: data.text, filename: data.name, instrument });
+  return openedPage(structure, instrument, pattern, { instrument: instrumentFile, data }).session;
 }
 
 export function example3Session(): Session {

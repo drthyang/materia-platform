@@ -22,7 +22,7 @@ import { withEqualTies, type EqualTieUpdate } from "@/core/refinement/constraint
 import type { PeakShape } from "@/core/diffraction/profile";
 import type { BackgroundType } from "@/core/diffraction/background";
 import { excludedPointMask } from "@/core/refinement/factors";
-import { withConstants, type InstrumentConstants, type InstrumentParameters } from "@/core/diffraction/instrument";
+import { radiationOf, withConstants, type InstrumentConstants, type InstrumentParameters } from "@/core/diffraction/instrument";
 import { withAntisite } from "@/core/crystal/antisite";
 import { withAdpModel } from "@/core/crystal/adp";
 import { momentKickFloor } from "@/core/magnetic/canonicalize";
@@ -30,8 +30,14 @@ import type { SampleOptions, SampleResult } from "@/core/refinement/bayes/sample
 import type { ComputeClient, MagneticMultiStartResult } from "@/workers/computeClient";
 import type { PowderProgress } from "@/workers/runPowder";
 import type { MultiStartResult } from "@/core/refinement/multiStart";
-import { powderRestraints, type CorrectionsUpdate, type MustrainModel, type SampleCorrections, type SiteTies } from "@/app/powderSpec";
-import { buildSpecFor, keptBindings, keptRow, keptRows, withMagneticRows, withValidUserTies, type Session } from "@/app/powderSession";
+import { buildPowderSpec, powderRestraints, type CorrectionsUpdate, type MustrainModel, type SampleCorrections, type SiteTies } from "@/app/powderSpec";
+import {
+  buildSpecFor, carryRefinedStructure, DEFAULT_INSTRUMENT, EMPTY_SOURCE, emptySession, keptBindings, keptRow, keptRows, newSession, SYNTHETIC_SOURCE,
+  withMagneticRows, withValidUserTies, type Session,
+} from "@/app/powderSession";
+import { startingPowderParams } from "@/app/loadData";
+import { powderBindings } from "@/examples/synthetic";
+import type { PowderPattern } from "@/core/diffraction/types";
 import type { MagneticFit, ResidualPeak } from "@/app/magneticStep";
 import type { MagneticModel } from "@/core/magnetic/types";
 import { refine } from "@/core/refinement/engine";
@@ -54,6 +60,40 @@ export interface PowderPageModel {
   readonly fitRange: FitWindow | null;
   /** The last refinement's result; null before the first fit or after a model change. */
   readonly result: RefinementResult | null;
+}
+
+/**
+ * The powder page as the shell holds it: the session, the instrument, and the
+ * last fit's result. The shell parses files and routes them here; what a load
+ * or a control does to the page, the result included, is this module's.
+ */
+export interface PowderPage {
+  readonly session: Session;
+  /** The instrument file loaded, or the default while none is. */
+  readonly instrument: InstrumentParameters;
+  readonly instrumentLoaded: boolean;
+  /** The last refinement's result; null before the first fit and after any change that makes it out of date. */
+  readonly result: RefinementResult | null;
+}
+
+/** The clean, data-less page the app opens on. */
+export function emptyPage(): PowderPage {
+  return { session: emptySession(), instrument: DEFAULT_INSTRUMENT, instrumentLoaded: false, result: null };
+}
+
+/** The instrument the page's rows are built with: the loaded one, or the default. */
+export function specInstrumentOf(p: PowderPage): InstrumentParameters {
+  return p.instrumentLoaded ? p.instrument : DEFAULT_INSTRUMENT;
+}
+
+/** A change of the model, the data or a setting: the last fit's result no longer describes the page, so it goes. */
+export function changed(p: PowderPage, session: Session): PowderPage {
+  return { ...p, session, result: null };
+}
+
+/** A fit on the page: its values on the rows, its result on the page. */
+export function withFit(p: PowderPage, result: RefinementResult): PowderPage {
+  return { ...p, session: withFitResult(p.session, result), result };
 }
 
 /** The compute client's calls the page makes. */
@@ -129,7 +169,8 @@ export function withoutPhase(s: Session, id: string, instrument: InstrumentParam
   return withPhases(s, s.extraPhases.filter((p) => p.id !== id), instrument);
 }
 
-function withPhases(s: Session, extraPhases: readonly StructureModel[], instrument: InstrumentParameters): Session {
+/** The added phases set to these, the spec rebuilt for them. */
+export function withPhases(s: Session, extraPhases: readonly StructureModel[], instrument: InstrumentParameters): Session {
   const spec = buildSpecFor(s.structure, extraPhases, s.pattern, instrument, s.powderProfile.lorentz ?? true, s.backgroundTerms, s.siteTies, s.mustrain ?? "isotropic", s.corrections);
   return {
     ...s,
@@ -138,11 +179,6 @@ function withPhases(s: Session, extraPhases: readonly StructureModel[], instrume
     powderBindings: keptBindings(spec.bindings, s.powderBindings),
     powderProfile: { ...spec.profile, ...(s.powderProfile.backgroundType ? { backgroundType: s.powderProfile.backgroundType } : {}) },
   };
-}
-
-/** An X-ray instrument's constants (polarization, Kα₂ ratio) on the pattern's radiation; a neutron pattern has none. */
-export function withInstrumentConstants(s: Session, update: InstrumentConstants): Session {
-  return s.pattern.radiation.kind === "xray" ? { ...s, pattern: { ...s.pattern, radiation: withConstants(s.pattern.radiation, update) } } : s;
 }
 
 /**
@@ -255,6 +291,151 @@ export function withReset(s: Session, ids?: readonly string[]): Session {
 export function withFixed(s: Session, changes: readonly { readonly id: string; readonly fixed: boolean }[]): Session {
   const fixed = new Map(changes.map((c) => [c.id, c.fixed]));
   return { ...s, powderParams: s.powderParams.map((p) => (fixed.has(p.id) ? { ...p, fixed: fixed.get(p.id)! } : p)) };
+}
+
+// ── files loaded onto the page ─────────────────────────────────────────────
+
+/** A file as the page keeps it, verbatim (bundles ship it as the original). */
+export interface LoadedFile {
+  readonly name: string;
+  readonly text: string;
+}
+
+/** GSAS-II's own calc and background, shown with a view-only TOF pattern. */
+export type PatternOverlay = NonNullable<Session["powderOverlay"]>;
+
+/** The page holds data: a file's or a demo's, not the landing's placeholder or a structure's synthetic pattern. */
+function hasData(s: Session): boolean {
+  return s.powderSource !== EMPTY_SOURCE && s.powderSource !== SYNTHETIC_SOURCE;
+}
+
+/**
+ * The rows of a structure on a pattern: the spec the page refines, or, for
+ * TOF data the page cannot refine (no TOF calibration loaded, or GSAS-II's
+ * own calc shown with it), the view-only rows. Constant-wavelength data take
+ * a constant-wavelength instrument when one is loaded, else the default.
+ */
+function rowsOn(
+  p: PowderPage,
+  structure: StructureModel,
+  pattern: PowderPattern,
+  settings: { readonly lorentz: boolean; readonly backgroundTerms: number; readonly siteTies: SiteTies },
+  overlay: boolean,
+): { params: RefinementParameter[]; bindings: ParameterBinding[]; profile: Session["powderProfile"]; viewOnly: boolean } {
+  const { lorentz, backgroundTerms, siteTies } = settings;
+  if (pattern.xUnit === "tof") {
+    const tof = p.instrumentLoaded && p.instrument.kind === "tof" ? p.instrument : null;
+    if (overlay || !tof) {
+      const bindings = powderBindings(structure, pattern.id);
+      return { params: startingPowderParams(structure, pattern, bindings), bindings, profile: { shape: "gaussian" }, viewOnly: true };
+    }
+    return { ...buildPowderSpec(structure, pattern, tof, lorentz, backgroundTerms, siteTies), viewOnly: false };
+  }
+  const cw = p.instrumentLoaded && p.instrument.kind === "constantWavelength" ? p.instrument : DEFAULT_INSTRUMENT;
+  return { ...buildPowderSpec(structure, pattern, cw, lorentz, backgroundTerms, siteTies), viewOnly: false };
+}
+
+/**
+ * A structure file (a CIF, a magnetic CIF, a SHELX .ins) as the page's model.
+ * On data, its rows are built on those data with the page's instrument;
+ * without, on a synthetic pattern of it. Either way the model starts afresh:
+ * one phase, the default settings, its own magnetic model or none. The
+ * instrument file stays with the instrument.
+ */
+export function withStructure(p: PowderPage, structure: StructureModel, magnetic?: MagneticModel): PowderPage {
+  const s = p.session;
+  const fresh: Session = {
+    ...newSession(structure, p.instrument),
+    ...(magnetic ? { magnetic } : {}),
+    ...(p.instrumentLoaded && s.rawInstrument ? { rawInstrument: s.rawInstrument } : {}),
+  };
+  if (!hasData(s)) return changed(p, fresh);
+  const rows = rowsOn(p, structure, s.pattern, { lorentz: s.powderProfile.lorentz ?? true, backgroundTerms: fresh.backgroundTerms, siteTies: fresh.siteTies }, !!s.powderOverlay);
+  return changed(p, {
+    ...fresh,
+    pattern: s.pattern,
+    powderParams: rows.params,
+    powderBindings: rows.bindings,
+    powderProfile: rows.profile,
+    powderOverlay: s.powderOverlay ?? null,
+    powderSource: s.powderSource,
+    ...(s.rawData ? { rawData: s.rawData } : {}),
+  });
+}
+
+/** The session's rows under the ids the primary phase has on its own (a multi-phase spec prefixes them `p0_`). */
+function primaryOnly(s: Session): Session {
+  if (s.extraPhases.length === 0) return s;
+  return { ...s, powderParams: s.powderParams.filter((r) => r.id.startsWith("p0_")).map((r) => ({ ...r, id: r.id.slice(3) })) };
+}
+
+/**
+ * New data on the page. The structure starts where the last fit left it (a
+ * temperature series: carryRefinedStructure); the data's own scale,
+ * background and profile start afresh, with Lorentz on. The added phases, the
+ * corrections and the microstrain model go; a magnetic model stays on show
+ * without its rows; a TOF instrument goes for constant-wavelength data, which
+ * it cannot place.
+ */
+export function withPattern(p: PowderPage, pattern: PowderPattern, file?: LoadedFile, overlay?: PatternOverlay): PowderPage {
+  const page = pattern.xUnit !== "tof" && p.instrument.kind === "tof" ? { ...p, instrument: DEFAULT_INSTRUMENT, instrumentLoaded: false } : p;
+  const s = p.session;
+  const rows = rowsOn(page, s.structure, pattern, { lorentz: true, backgroundTerms: s.backgroundTerms, siteTies: s.siteTies }, !!overlay);
+  const { corrections: _corrections, mustrain: _mustrain, rawData: _rawData, ...rest } = s;
+  return changed(page, {
+    ...rest,
+    extraPhases: [],
+    pattern,
+    powderParams: rows.viewOnly ? rows.params : carryRefinedStructure(primaryOnly(s), rows.params).params,
+    powderBindings: rows.bindings,
+    powderProfile: rows.profile,
+    powderOverlay: overlay ?? null,
+    powderSource: file?.name ?? pattern.name,
+    ...(file ? { rawData: { name: file.name, text: file.text } } : {}),
+  });
+}
+
+/**
+ * An instrument file on the page. The rows are built again from it (the
+ * profile, the zero, the diffractometer constants, the scale and background
+ * seeded afresh), the structure where the last fit left it, as with new
+ * data, and the magnetic model's rows as they were. A constant-wavelength
+ * instrument sets the radiation and λ of non-TOF data, whichever came first.
+ * On a page with nothing loaded, it waits for the next load.
+ */
+export function withInstrument(p: PowderPage, instrument: InstrumentParameters, file?: LoadedFile): PowderPage {
+  const s = p.session;
+  const page = { ...p, instrument, instrumentLoaded: true };
+  const raw = file ? { rawInstrument: { name: file.name, text: file.text } } : {};
+  if (s.powderSource === EMPTY_SOURCE) return changed(page, { ...s, ...raw });
+  const pattern = instrument.kind === "constantWavelength" && s.pattern.xUnit !== "tof"
+    ? { ...s.pattern, radiation: radiationOf(instrument), wavelength: instrument.wavelength }
+    : s.pattern;
+  const spec = buildSpecFor(s.structure, s.extraPhases, pattern, instrument, s.powderProfile.lorentz ?? true, s.backgroundTerms, s.siteTies, s.mustrain ?? "isotropic", s.corrections);
+  return changed(page, {
+    ...s,
+    ...raw,
+    pattern,
+    powderParams: withMagneticRows(carryRefinedStructure(s, spec.params).params, s.powderParams),
+    powderBindings: keptBindings(spec.bindings, s.powderBindings),
+    powderProfile: spec.profile,
+  });
+}
+
+/**
+ * A page opened from its files as a user loads them: the structure, the
+ * instrument, then the data (read with the instrument). The evals and the
+ * validation open their pages this way.
+ */
+export function openedPage(structure: StructureModel, instrument: InstrumentParameters, pattern: PowderPattern, files: { readonly instrument?: LoadedFile; readonly data?: LoadedFile } = {}): PowderPage {
+  return withPattern(withInstrument(withStructure(emptyPage(), structure), instrument, files.instrument), pattern, files.data);
+}
+
+/** An X-ray instrument's constants (polarization, Kα₂ ratio): set on the instrument and on the pattern's radiation, which the model reads; a neutron pattern has none. */
+export function withInstrumentConstants(p: PowderPage, update: InstrumentConstants): PowderPage {
+  const s = p.session;
+  const instrument = p.instrument.kind === "constantWavelength" ? withConstants(p.instrument, update) : p.instrument;
+  return changed({ ...p, instrument }, s.pattern.radiation.kind === "xray" ? { ...s, pattern: { ...s.pattern, radiation: withConstants(s.pattern.radiation, update) } } : s);
 }
 
 // ── what the page shows ────────────────────────────────────────────────────

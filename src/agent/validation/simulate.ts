@@ -18,6 +18,7 @@ import type { StructureModel } from "@/core/crystal/types";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import type { PowderPattern } from "@/core/diffraction/types";
 import { loadedSession, type Session } from "@/app/powderSession";
+import { openedPage } from "@/app/powderPage";
 import { parseCif } from "@/parsers/cif";
 import { parseInstrumentParameters } from "@/parsers/instrument";
 import { sessionCurves } from "@/testSupport/magneticHeadless";
@@ -127,7 +128,7 @@ export function simulatePowder(spec: SimulationSpec): PowderPattern {
 
 /** The page as the app opens it: the model's CIF, the pattern and the instrument. */
 export function openedSession(model: StructureModel, pattern: PowderPattern): Session {
-  return loadedSession(model, pattern, validationInstrument());
+  return openedPage(model, validationInstrument(), pattern).session;
 }
 
 /** Fault: the pattern loaded at a wavelength it was not measured at. */

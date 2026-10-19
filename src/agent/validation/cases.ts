@@ -17,7 +17,7 @@ import type { StructureModel } from "@/core/crystal/types";
 import type { Vec3 } from "@/core/math/types";
 import type { PowderAgentPort } from "@/agent/port";
 import type { Session } from "@/app/powderSession";
-import { loadedSession } from "@/app/powderSession";
+import { openedPage } from "@/app/powderPage";
 import { sessionPort } from "@/testSupport/agentHeadless";
 import { dataDir } from "@/testSupport/data";
 import { knownPhaseStructure } from "@/core/diagnostics/knownPhases";
@@ -262,10 +262,12 @@ function publicCase(id: string, title: string, split: Split): ValidationCase {
     session: () => {
       const c = spec();
       const read = (f: string): string => readFileSync(join(dir(), f), "utf8");
-      const instrument = parse_instrument({ text: read(c.files.instrument) });
+      const instrumentFile = { name: c.files.instrument, text: read(c.files.instrument) };
+      const instrument = parse_instrument({ text: instrumentFile.text });
       const { structure } = parse_structure({ cif: read(c.files.structure), id });
-      const { pattern } = parse_powder_data({ text: read(c.files.data), filename: c.files.data, instrument });
-      return loadedSession(structure, pattern, instrument);
+      const data = { name: c.files.data, text: read(c.files.data) };
+      const { pattern } = parse_powder_data({ text: data.text, filename: data.name, instrument });
+      return openedPage(structure, instrument, pattern, { instrument: instrumentFile, data }).session;
     },
   };
 }
