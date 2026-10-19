@@ -7,7 +7,8 @@
  * strategy a `Solver` over it. (Before, each strategy was written once per
  * runtime, and the copies drifted: the MCP boxcar took no extra phases, kicked
  * its restarts without the esds and differentiated another way than the
- * app's in-thread one.)
+ * app's in-thread one; the MCP moment search fitted the whole pattern on
+ * Chebyshev whatever it was given.)
  *
  * The strategies work on the evaluator spec (protocol.ts), the serializable
  * problem every runtime builds the same way (buildProblemForSpec); core does
@@ -18,7 +19,10 @@ import type { EvaluatorSpec } from "@/workers/protocol";
 import { buildProblemForSpec } from "@/workers/runPowder";
 import type { RefinementOptions, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import { refine, refineParallel, type BatchEvaluator, type ParallelDriverCapabilities } from "@/core/refinement/engine";
-import { refineMultiStart } from "@/core/refinement/multiStart";
+import { refineMultiStart, type MultiStartOptions, type MultiStartResult } from "@/core/refinement/multiStart";
+import { isMomentParameterKind } from "@/core/refinement/types";
+import { applyMagneticMoments } from "@/core/workflow/magnetic";
+import { canonicalizeMomentValues, momentDegeneracies, type MomentDegeneracy } from "@/core/magnetic/canonicalize";
 import { refineSequentialAsync, type SequentialDataset, type SequentialOptions, type SequentialResult } from "@/core/refinement/sequential";
 import type { BoxcarWindow } from "@/core/workflow/pdfBoxcar";
 
@@ -136,4 +140,68 @@ export async function boxcarScan(
     );
     return ms.final;
   });
+}
+
+/** The problems that carry a magnetic model: powder, the magnetic PDF, a single crystal. */
+export type MagneticSpec = Extract<EvaluatorSpec, { kind: "magneticPowder" | "mpdf" | "magneticSingleCrystal" }>;
+
+/** A moment search's outcome: the multi-start report, and the moment directions the data leave undetermined. */
+export interface MomentSearchResult extends MultiStartResult {
+  readonly degeneracies: MomentDegeneracy[];
+}
+
+/**
+ * The moment search (a magnetic Prefit or Escape minimum). The magnetic
+ * intensity is quadratic in the moments, so a moment partition has several
+ * local minima and m = 0 is a stationary point an unkicked fit never leaves:
+ *
+ * 1. the moments alone are restarted from kicked starts on the frozen nuclear
+ *    scaffold (µB-scale kicks by default: `escapeSigma` 6, `relFraction` 1;
+ *    the caller's options win);
+ * 2. the best start's moments seed one joint fit over the caller's free set;
+ * 3. the global ±m sign is canonicalized, and the data-limited directions are
+ *    read off that fit.
+ *
+ * With no free moment there is nothing to search (a model shown without its
+ * rows): the joint fit runs alone and reports no restarts. The solver is set
+ * once: the replicas evaluate the whole values record, so the frozen search
+ * and the joint fit share them. `jointOptions` lets a runtime watch the joint
+ * fit (its progress).
+ */
+export async function momentMultiStart(
+  spec: MagneticSpec,
+  solver: Solver,
+  multiStart: MultiStartOptions,
+  options: Partial<RefinementOptions>,
+  jointOptions: Partial<RefinementOptions> = options,
+): Promise<MomentSearchResult> {
+  const params = spec.parameters;
+  const isMoment = (p: RefinementParameter): boolean => isMomentParameterKind(p.kind);
+  const frozen = params.map((p) => (!isMoment(p) && !p.fixed && !p.expression ? { ...p, fixed: true } : { ...p }));
+  await solver.init({ ...spec, parameters: frozen });
+  const searchable = params.some((p) => isMoment(p) && !p.fixed && !p.expression);
+  const ms = searchable
+    ? await refineMultiStart(
+        frozen,
+        async (start) => {
+          const result = await solver.solve(start, options);
+          return { parameters: applyResultToParams(start, result), final: result };
+        },
+        { escapeSigma: 6, relFraction: 1, ...multiStart, shouldPerturb: isMoment },
+      )
+    : { parameters: frozen, restartsRun: 0, bestStartIndex: 0, improved: false, costByStart: [] };
+  const best = new Map(ms.parameters.map((p) => [p.id, p.value]));
+  const jointStart = params.map((p) => (isMoment(p) && best.has(p.id) ? { ...p, value: best.get(p.id)! } : { ...p }));
+  const joint = await solver.solve(jointStart, jointOptions);
+  const refined = applyMagneticMoments(spec.magnetic, spec.bindings, joint.parameters);
+  const final: RefinementResult = { ...joint, parameters: canonicalizeMomentValues(joint.parameters, refined, spec.structure.cell, params) };
+  return {
+    final,
+    parameters: applyResultToParams(jointStart, final),
+    restartsRun: ms.restartsRun,
+    bestStartIndex: ms.bestStartIndex,
+    improved: ms.improved,
+    costByStart: ms.costByStart,
+    degeneracies: momentDegeneracies(joint.diagnostics, params),
+  };
 }

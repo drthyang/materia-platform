@@ -28,9 +28,9 @@ import type { MagneticModel } from "@/core/magnetic/types";
 import { leBailCellPrefit, type LeBailPrefitResult } from "@/core/workflow/leBailPrefit";
 import type { RefinementResult, RefinementOptions, AgreementFactors, RefinementParameter } from "@/core/refinement/types";
 import { refine, refineParallel, type BatchEvaluator } from "@/core/refinement/engine";
-import { analyticDriverPolicy, applyResultToParams, boxcarScan, poolSolver } from "@/workers/strategy";
+import { analyticDriverPolicy, applyResultToParams, boxcarScan, momentMultiStart, poolSolver, type MomentSearchResult } from "@/workers/strategy";
 import { refineSingleCrystal, withFitWeights } from "@/core/workflow/singleCrystalRefinement";
-import { buildMagneticSingleCrystalProblem, applyMagneticMoments } from "@/core/workflow/magnetic";
+import { buildMagneticSingleCrystalProblem } from "@/core/workflow/magnetic";
 import { runPowderRefinement, runPdfRefinement, runMpdfRefinement, buildProblemForSpec, type PowderProgress } from "@/workers/runPowder";
 import { refineStagedAsync } from "@/core/refinement/staged";
 import { stagesFromKindGroups } from "@/core/workflow/structureRefinement";
@@ -43,8 +43,6 @@ import {
   type SampleOptions,
   type SampleResult,
 } from "@/core/refinement/bayes/sampler";
-import { isMomentParameterKind } from "@/core/refinement/types";
-import { canonicalizeMomentValues, momentDegeneracies, type MomentDegeneracy } from "@/core/magnetic/canonicalize";
 
 type Pending = (response: ComputeResponse) => void;
 
@@ -217,10 +215,8 @@ class EvaluatorPool implements BatchEvaluator {
 
 /** Result of {@link ComputeClient.refineMagneticPowderMultiStart}: the standard
  *  multi-start report plus the magnetic degeneracies (flat directions / ±m sign)
- *  detected at the final converged state. */
-export interface MagneticMultiStartResult extends MultiStartResult {
-  readonly degeneracies: MomentDegeneracy[];
-}
+ *  detected at the final converged state (workers/strategy.ts). */
+export type MagneticMultiStartResult = MomentSearchResult;
 
 /** The evaluator specs that carry a magnetic model over a fitted pattern — the
  *  reciprocal-space powder co-refinement and its real-space mPDF twin. Both
@@ -544,22 +540,13 @@ export class ComputeClient {
           ...(req.restraints ? { restraints: req.restraints } : {}),
         })
       : this.pdfSpec(req);
-    const pool = this.poolSize() >= 2 ? new EvaluatorPool(this.poolSize()) : null;
-    if (pool) this.activePool = pool;
-    try {
-      return await boxcarScan(base, windows, poolSolver(pool), {
-        refineOptions: req.options ?? {},
-        ...(boxcar.seedFromPrevious !== undefined ? { seedFromPrevious: boxcar.seedFromPrevious } : {}),
-        ...(boxcar.rejectDiverged !== undefined ? { rejectDiverged: boxcar.rejectDiverged } : {}),
-        ...(boxcar.restarts !== undefined ? { restarts: boxcar.restarts } : {}),
-        ...(boxcar.onStep ? { onStep: boxcar.onStep } : {}),
-      });
-    } finally {
-      if (pool) {
-        pool.dispose();
-        if (this.activePool === pool) this.activePool = null;
-      }
-    }
+    return this.withPool((pool) => boxcarScan(base, windows, poolSolver(pool), {
+      refineOptions: req.options ?? {},
+      ...(boxcar.seedFromPrevious !== undefined ? { seedFromPrevious: boxcar.seedFromPrevious } : {}),
+      ...(boxcar.rejectDiverged !== undefined ? { rejectDiverged: boxcar.rejectDiverged } : {}),
+      ...(boxcar.restarts !== undefined ? { restarts: boxcar.restarts } : {}),
+      ...(boxcar.onStep ? { onStep: boxcar.onStep } : {}),
+    }));
   }
 
   /**
@@ -764,100 +751,30 @@ export class ComputeClient {
     options: Partial<RefinementOptions>,
     onProgress?: PowderProgress,
   ): Promise<MagneticMultiStartResult> {
-    const params = spec.parameters;
-    const isMoment = (p: RefinementParameter): boolean => isMomentParameterKind(p.kind);
-    const specWith = (parameters: readonly RefinementParameter[]): MagneticEvaluatorSpec =>
-      ({ ...spec, parameters: [...parameters] });
+    // The search itself is the strategy module's (workers/strategy.ts). Each
+    // restart is a moment-only solve; a real-space mPDF evaluation is not cheap
+    // (it re-sums the spin pairs over an extended grid), and eight restarts of
+    // it in this thread froze the browser for about a minute, so every solve
+    // runs on one pool whenever workers exist. The joint fit streams its
+    // progress.
+    const patternLen = spec.pattern.points.length;
+    const jointOptions = onProgress
+      ? { ...options, onIteration: (yCalc: Float64Array, agreement: AgreementFactors): void => onProgress(Array.from(yCalc.subarray(0, patternLen)), agreement.rWeighted ?? 0) }
+      : options;
+    return this.withPool((pool) => momentMultiStart(spec, poolSolver(pool), multiStart, options, jointOptions));
+  }
 
-    // (1) Freeze the nuclear scaffold for the restart search: only the moment
-    // modes move. Fixed/tied parameters are left as-is.
-    const frozenNuclear = params.map((p) =>
-      !isMoment(p) && !p.fixed && !p.expression ? { ...p, fixed: true } : { ...p },
-    );
-    // With no free moment parameter there is no moment subspace to search: the
-    // magnetic model is then a FIXED contribution to the calculated pattern (the
-    // "Show on refinement pattern" preview, which applies a model without its
-    // moment rows). Restarts over an empty free set would re-solve the identical
-    // problem `restarts` times, so skip straight to the joint solve — and report
-    // restartsRun 0, so the caller does not claim a search that never ran.
-    const searchable = params.some((p) => isMoment(p) && !p.fixed && !p.expression);
-
-    // Each restart is a moment-only solve. The moment subspace is a handful of
-    // columns, so on a CHEAP observable (a powder profile) an in-thread solve
-    // beats paying for a pool. A real-space mPDF evaluation is not cheap — it
-    // re-sums the spin pairs and convolves over an extended grid — and eight
-    // restarts of it froze the browser for ~a minute. So the restarts run on ONE
-    // pool (init once, reused across every start, as refinePdfMultiStart does)
-    // whenever workers exist, and in-thread otherwise. This does not change the
-    // search: `refineParallel` reproduces `refine` bit-for-bit (the pooled ≡
-    // serial contract), and the RNG lives in the multi-start driver either way.
-    const restartOptions: MultiStartOptions = {
-      // Cold moment search: kick modes (often seeded at 0) by a µ_B-scale
-      // amount. d(r)/I_mag are QUADRATIC in the moments, so m = 0 is a
-      // stationary point an unkicked LM can never leave.
-      escapeSigma: 6,
-      relFraction: 1,
-      ...multiStart,
-      shouldPerturb: isMoment,
-    };
-    // ONE pool serves the restart search AND the joint solve below. Re-initing
-    // between them would double the worker spin-up for nothing: replicas
-    // evaluate from the full values record and never read a parameter's `fixed`
-    // flag, so the frozen-nuclear restart spec and the un-frozen joint spec need
-    // the same replica — exactly the invariant `runStagedParallel` relies on.
+  /** A strategy on one evaluator pool when workers exist (cancel disposes it), or in this thread. */
+  private async withPool<T>(run: (pool: EvaluatorPool | null) => Promise<T>): Promise<T> {
     const pool = this.poolSize() >= 2 ? new EvaluatorPool(this.poolSize()) : null;
+    if (pool) this.activePool = pool;
     try {
-      if (pool) {
-        this.activePool = pool;
-        await pool.init(specWith(frozenNuclear));
-      }
-      const ms = !searchable
-        ? { parameters: frozenNuclear, restartsRun: 0, bestStartIndex: 0, improved: false, costByStart: [] }
-        : pool
-        ? await refineMultiStart(frozenNuclear, async (start) => {
-            const result = await refineParallel(buildProblemForSpec(specWith(start)), options, pool);
-            return { parameters: applyResultToParams(start, result), final: result };
-          }, restartOptions)
-        : await refineMultiStart(frozenNuclear, (start) => {
-            const result = refine(buildProblemForSpec(specWith(start)), options);
-            return { parameters: applyResultToParams(start, result), final: result };
-          }, restartOptions);
-
-      // (2) Final joint LM from the best moment partition over the caller's full
-      // freed set (nuclear un-frozen). Pool-accelerated when workers are present —
-      // this is the one solve with many nuclear columns.
-      const jointStart = params.map((p) => {
-        const best = ms.parameters.find((q) => q.id === p.id);
-        return isMoment(p) && best ? { ...p, value: best.value } : { ...p };
-      });
-      const jointSpec = specWith(jointStart);
-      const patternLen = spec.pattern.points.length;
-      const onIteration = onProgress
-        ? (yCalc: Float64Array, agreement: AgreementFactors): void =>
-            onProgress(Array.from(yCalc.subarray(0, patternLen)), agreement.rWeighted ?? 0)
-        : undefined;
-      const jointOptions = { ...options, ...(onIteration ? { onIteration } : {}) };
-      const joint = pool
-        ? await refineParallel(buildProblemForSpec(jointSpec), jointOptions, pool)
-        : refine(buildProblemForSpec(jointSpec), jointOptions);
-
-      // (3) Canonicalize the global sign and collect degeneracies from the final
-      // diagnostics (built on the engine's existing SVD/correlation output).
-      const refinedMag = applyMagneticMoments(spec.magnetic, spec.bindings, joint.parameters);
-      const canonValues = canonicalizeMomentValues(joint.parameters, refinedMag, spec.structure.cell, params);
-      const finalResult: RefinementResult = { ...joint, parameters: canonValues };
-      return {
-        final: finalResult,
-        parameters: applyResultToParams(jointStart, finalResult),
-        restartsRun: ms.restartsRun,
-        bestStartIndex: ms.bestStartIndex,
-        improved: ms.improved,
-        costByStart: ms.costByStart,
-        degeneracies: momentDegeneracies(joint.diagnostics, params),
-      };
+      return await run(pool);
     } finally {
-      pool?.dispose();
-      if (this.activePool === pool) this.activePool = null;
+      if (pool) {
+        pool.dispose();
+        if (this.activePool === pool) this.activePool = null;
+      }
     }
   }
 
@@ -1003,44 +920,8 @@ export class ComputeClient {
     multiStart: MultiStartOptions = {},
     options: Partial<RefinementOptions> = {},
   ): Promise<MagneticMultiStartResult> {
-    const params = spec.parameters;
-    const isMoment = (p: RefinementParameter): boolean => isMomentParameterKind(p.kind);
-    const specWith = (parameters: readonly RefinementParameter[]): Extract<EvaluatorSpec, { kind: "magneticSingleCrystal" }> =>
-      ({ kind: "magneticSingleCrystal", ...spec, parameters: [...parameters] });
-
-    const frozenNuclear = params.map((p) => (!isMoment(p) && !p.fixed && !p.expression ? { ...p, fixed: true } : { ...p }));
-    const runOnce = (start: readonly RefinementParameter[]): { parameters: RefinementParameter[]; final: RefinementResult } => {
-      const r = refine(buildProblemForSpec(specWith(start)), options);
-      return { parameters: applyResultToParams(start, r), final: r };
-    };
-    const ms = await refineMultiStart(frozenNuclear, runOnce, {
-      escapeSigma: 6,
-      relFraction: 1,
-      ...multiStart,
-      shouldPerturb: isMoment,
-    });
-
-    const jointStart = params.map((p) => {
-      const best = ms.parameters.find((q) => q.id === p.id);
-      return isMoment(p) && best ? { ...p, value: best.value } : { ...p };
-    });
-    // Forward the caller's options to the FINAL LM (the solve that produces the
-    // reported values/e.s.d.s) — the powder/joint siblings do; without it this
-    // result-producing step silently runs at the engine defaults.
-    const joint = await this.refineMagneticParallel({ ...spec, parameters: jointStart, options });
-
-    const refinedMag = applyMagneticMoments(spec.magnetic, spec.bindings, joint.parameters);
-    const canonValues = canonicalizeMomentValues(joint.parameters, refinedMag, spec.structure.cell, params);
-    const finalResult: RefinementResult = { ...joint, parameters: canonValues };
-    return {
-      final: finalResult,
-      parameters: applyResultToParams(jointStart, finalResult),
-      restartsRun: ms.restartsRun,
-      bestStartIndex: ms.bestStartIndex,
-      improved: ms.improved,
-      costByStart: ms.costByStart,
-      degeneracies: momentDegeneracies(joint.diagnostics, params),
-    };
+    // The powder search's own strategy (workers/strategy.ts), on the pool when workers exist.
+    return this.withPool((pool) => momentMultiStart({ kind: "magneticSingleCrystal", ...spec }, poolSolver(pool), multiStart, options));
   }
 
   /** Abort any in-flight refinement: terminate the worker(s) (fresh ones are

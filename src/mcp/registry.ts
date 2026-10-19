@@ -338,7 +338,9 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
     inputSchema: {
       structure: anyObj, magnetic: anyObj, pattern: anyObj,
       parameters: anyArr.describe("Nuclear + moment parameters (set fixed:false on what refines)"),
-      bindings: anyArr, profile: anyObj,
+      bindings: anyArr, profile: anyObj.describe("From build_refinement: the peak shape, η, the Lorentz factor and the background basis"),
+      extraPhases: anyArr.optional().describe("Additional (non-magnetic) crystallographic phases, as for refine_powder"),
+      fitRange: z.object({ min: z.number(), max: z.number() }).optional().describe("Window on the pattern's own axis, as for refine_powder"),
       staged: z.boolean().optional(),
       maxIterations: z.number().int().min(1).max(200).optional(),
       restarts: z.number().int().min(0).max(40).optional().describe("Moment restarts before the joint solve (default 0). Use it when choosing between magnetic groups or when the moments look odd: one LM run lands in the nearest of several moment minima"),

@@ -8,7 +8,11 @@ import { refineSequential } from "@/core/refinement/sequential";
 import { buildPdfProblem, buildPdfSpec } from "@/core/workflow/pdf";
 import { boxcarWindows } from "@/core/workflow/pdfBoxcar";
 import { ComputeClient } from "@/workers/computeClient";
-import { build_pdf_model, refine_pdf_boxcar } from "@/mcp/tools";
+import { build_magnetic_model, build_pdf_model, list_magnetic_subgroups, refine_magnetic_powder, refine_pdf_boxcar } from "@/mcp/tools";
+import { example3Session } from "@/agent/validation/example3";
+import { momentKickFloor } from "@/core/magnetic/canonicalize";
+import { isMomentParameterKind } from "@/core/refinement/types";
+import { buildMagneticDataset, exampleMagnetic, magneticBindings, magneticParameters } from "@/examples/mn3gaMagnetic";
 import { boxcarScan, poolSolver } from "@/workers/strategy";
 
 /**
@@ -106,5 +110,62 @@ describe("the boxcar scan, one driver for both runtimes", () => {
       expect(b).toBeLessThanOrEqual(a * 1.001);
     }
     expect((await scan()).evolution).toEqual(restarted.evolution);
+  });
+});
+
+/**
+ * The moment search (a magnetic Prefit): the moments restarted on the frozen
+ * nuclear scaffold, the best seeding one joint fit. It was written in the
+ * browser's client twice (powder and mPDF; single crystal) and once in the MCP
+ * tool. The MCP copy fitted the whole pattern on Chebyshev whatever the page's
+ * window and basis, and kicked its restarts without the esds; the
+ * single-crystal copy searched in the UI thread and re-solved one problem
+ * `restarts` times when no moment was free.
+ */
+describe("the moment search, one driver for both runtimes", () => {
+  /** Example 3 after its nuclear fit, with P2₁'/m''s moment model on it: scale, background and moments free. */
+  function example3Magnetic() {
+    const s = example3Session();
+    const subs = list_magnetic_subgroups({ structure: s.structure, k: [0, 0, 0] });
+    const ops = subs.candidates.find((c) => c.bns === "P2_1'/m'")!.operations;
+    const mm = build_magnetic_model({ structure: s.structure, ionLabels: ["Mn1_0", "Mn2_1", "Mn3_2"], operations: ops, k: [0, 0, 0], moment: 2 });
+    const nuclear = s.powderParams.map((p) => ({ ...p, fixed: !(p.kind === "scale" || p.kind === "background") }));
+    const moments = mm.parameters.map((p) => (isMomentParameterKind(p.kind) && !p.expression ? { ...p, fixed: false } : p));
+    return { s, mm, parameters: [...nuclear, ...moments], bindings: [...s.powderBindings, ...mm.bindings] };
+  }
+
+  it("gives the app's Prefit and the MCP tool the same moments, in the page's window and on its basis", async () => {
+    const { s, mm, parameters, bindings } = example3Magnetic();
+    const fitRange = { min: 12, max: 140 };
+    const profile = { ...s.powderProfile, backgroundType: "cosine" as const };
+    const app = await new ComputeClient().refineMagneticPowderMultiStart(
+      {
+        structure: s.structure, magnetic: mm.magnetic, pattern: s.pattern, parameters, bindings,
+        shape: profile.shape, ...(profile.eta !== undefined ? { eta: profile.eta } : {}), lorentz: profile.lorentz ?? true, backgroundType: profile.backgroundType, fitRange,
+      },
+      { restarts: 3, minKick: momentKickFloor(parameters) },
+      { maxIterations: 20 },
+    );
+    const mcp = await refine_magnetic_powder({
+      structure: s.structure, magnetic: mm.magnetic, pattern: s.pattern, parameters, bindings, profile, fitRange,
+      staged: false, restarts: 3, maxIterations: 20,
+    });
+    expect(app.restartsRun).toBe(3);
+    expect(mcp.multiStart?.restartsRun).toBe(3);
+    expect(mcp.result.agreement.rWeighted).toBe(app.final.agreement.rWeighted);
+    const moments = (values: Record<string, number>) => mm.parameters.map((p) => values[p.id]);
+    expect(moments(mcp.result.parameters)).toEqual(moments(app.final.parameters));
+  }, 120000);
+
+  it("on a single crystal, searches nothing when no moment is free", async () => {
+    const ex = exampleMagnetic();
+    const dataset = buildMagneticDataset(ex);
+    const parameters = magneticParameters(ex.magnetic).map((p) => ({ ...p, fixed: p.kind !== "scale" }));
+    const out = await new ComputeClient().refineMagneticSingleCrystalMultiStart(
+      { structure: ex.structure, magnetic: ex.magnetic, dataset, parameters, bindings: magneticBindings(ex.magnetic) },
+      { restarts: 4 },
+      { maxIterations: 10 },
+    );
+    expect(out.restartsRun).toBe(0);
   });
 });
