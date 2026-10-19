@@ -112,5 +112,13 @@ Nothing: no computation changed.
 
 ## Checks
 
-`npm run build`, `npm run lint`, `npm run typecheck` and `npm test` pass at the
-branch head: 2371 tests, 265 skipped (live runs and data-dependent suites).
+Before merging `main` (#75): `npm run build`, `npm run lint`, `npm run
+typecheck` and `npm test` pass, 2371 tests, 265 skipped (live runs and
+data-dependent suites).
+
+With `main` merged: build, lint and typecheck pass. `npm test`: 2380 passed,
+265 skipped, and 3 timed out on a loaded machine (the suite took 20 min, not
+3.5, and the build inside one test 3 min, not 6 s). Each passes when run
+again: the loop guard (1.8 s), the production build (33 s), and the
+`vite.config` import (1.9 s here, 0.5 s on `main`). None of them touches this
+change's files.
