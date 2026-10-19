@@ -1,12 +1,12 @@
 /**
- * Regenerate the MCP tool table in docs/AGENT_TOOLS.md from the registry —
- * the registry (src/mcp/registry.ts) is the single source of truth, and
- * src/mcp/registry.test.ts fails when the doc drifts, so run this after any
- * registry change:
+ * Regenerate the tool tables in docs/AGENT_TOOLS.md: the MCP tools from the
+ * registry (src/mcp/registry.ts; registry.test.ts fails when the doc drifts),
+ * and the in-app Agent's from LIVE_TOOLS (src/agent/toolDoc.ts;
+ * modelText.test.ts fails when it drifts). Run it after a change to either:
  *
  *   npm run gen:tooldoc
  *
- * The registry uses the Vite `@/` alias, so it is esbuild-bundled to a temp
+ * The sources use the Vite `@/` alias, so each is esbuild-bundled to a temp
  * file first (same approach as scripts/build-mcp.mjs).
  */
 
@@ -16,21 +16,30 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, resolve } from "node:path";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const tmp = resolve(root, "dist/.tooldoc-registry.mjs");
+/** One module of the source, bundled to a temp file and imported. */
+async function load(entry, name) {
+  const tmp = resolve(root, `dist/.tooldoc-${name}.mjs`);
+  await build({
+    entryPoints: [resolve(root, entry)],
+    outfile: tmp,
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    target: "node20",
+    alias: { "@": resolve(root, "src") },
+    // The skills and knowledge notes come in as text, as Vite's ?raw does.
+    loader: { ".md": "text" },
+    logLevel: "silent",
+  });
+  try {
+    return await import(pathToFileURL(tmp).href);
+  } finally {
+    rmSync(tmp, { force: true });
+  }
+}
 
-await build({
-  entryPoints: [resolve(root, "src/mcp/registry.ts")],
-  outfile: tmp,
-  bundle: true,
-  platform: "node",
-  format: "esm",
-  target: "node20",
-  alias: { "@": resolve(root, "src") },
-  logLevel: "silent",
-});
-
-const { TOOL_REGISTRY } = await import(pathToFileURL(tmp).href);
-rmSync(tmp, { force: true });
+const { TOOL_REGISTRY } = await load("src/mcp/registry.ts", "registry");
+const { liveToolTable } = await load("src/agent/toolDoc.ts", "live");
 
 // Human-facing layout: one short table per workflow (name + title), then the
 // full agent-facing descriptions folded into a <details> block. A tool missing
@@ -77,11 +86,14 @@ const table = [
 ].join("\n");
 
 const docPath = resolve(root, "docs/AGENT_TOOLS.md");
-const doc = readFileSync(docPath, "utf8");
-const marked = /(<!-- TOOLS:BEGIN[^>]*-->)[\s\S]*?(<!-- TOOLS:END -->)/;
-if (!marked.test(doc)) {
-  console.error("docs/AGENT_TOOLS.md is missing the <!-- TOOLS:BEGIN --> … <!-- TOOLS:END --> markers");
-  process.exit(1);
+let doc = readFileSync(docPath, "utf8");
+for (const [begin, end, body] of [["TOOLS:BEGIN", "TOOLS:END", table], ["LIVE_TOOLS:BEGIN", "LIVE_TOOLS:END", liveToolTable()]]) {
+  const marked = new RegExp(`(<!-- ${begin}[^>]*-->)[\\s\\S]*?(<!-- ${end} -->)`);
+  if (!marked.test(doc)) {
+    console.error(`docs/AGENT_TOOLS.md is missing the <!-- ${begin} --> … <!-- ${end} --> markers`);
+    process.exit(1);
+  }
+  doc = doc.replace(marked, (_, a, b) => `${a}\n${body}\n${b}`);
 }
-writeFileSync(docPath, doc.replace(marked, `$1\n${table}\n$2`));
-console.log(`regenerated tool table (${TOOL_REGISTRY.length} tools) in docs/AGENT_TOOLS.md`);
+writeFileSync(docPath, doc);
+console.log(`regenerated the MCP tool table (${TOOL_REGISTRY.length} tools) and the in-app tool table in docs/AGENT_TOOLS.md`);

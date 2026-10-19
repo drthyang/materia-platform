@@ -84,5 +84,6 @@ Kept for their detail; each names the document that replaced it.
 - Every change that improves the code ships with a report in
   [reports/](./reports/), linked from its pull request; the other documents
   describe the state the change leaves.
-- The tool tables in AGENT_TOOLS.md are generated: edit `src/mcp/registry.ts`,
-  then run `npm run gen:tooldoc`.
+- The tool tables in AGENT_TOOLS.md are generated: edit `src/mcp/registry.ts`
+  (the MCP tools) or `src/agent/tools.ts` (the in-app Agent's), then run
+  `npm run gen:tooldoc`.
