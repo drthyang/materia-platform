@@ -50,7 +50,7 @@ describe("Agent API proxy", () => {
     globalThis.fetch = fetchSpy as unknown as typeof fetch;
     const { request } = await import("node:http");
     const status = await new Promise<number>((resolve, reject) => {
-      const r = request(`${s.url}/web-refinement/api/anthropic/v1/messages`, { method: "POST", headers: { Host: rebound.host, Origin: rebound.origin, "content-type": "application/json" } }, (res) => {
+      const r = request(`${s.url}/materia-platform/api/anthropic/v1/messages`, { method: "POST", headers: { Host: rebound.host, Origin: rebound.origin, "content-type": "application/json" } }, (res) => {
         res.resume();
         resolve(res.statusCode ?? 0);
       });
@@ -64,7 +64,7 @@ describe("Agent API proxy", () => {
   it("says how to configure it when there is no key", async () => {
     const s = await serve(undefined);
     server = s.server;
-    const r = await realFetch(`${s.url}/web-refinement/api/anthropic/v1/messages`, { method: "POST", body: "{}" });
+    const r = await realFetch(`${s.url}/materia-platform/api/anthropic/v1/messages`, { method: "POST", body: "{}" });
     expect(r.status).toBe(503);
     const body = (await r.json()) as { error: { type: string; message: string } };
     expect(body.error.type).toBe("proxy_not_configured");
@@ -74,7 +74,7 @@ describe("Agent API proxy", () => {
   it("leaves other paths to the next handler", async () => {
     const s = await serve("k");
     server = s.server;
-    expect(await (await realFetch(`${s.url}/web-refinement/data/x.txt`)).text()).toBe("next");
+    expect(await (await realFetch(`${s.url}/materia-platform/data/x.txt`)).text()).toBe("next");
   });
 
   it("forwards with the server's key, never the page's, and streams the answer back", async () => {
@@ -87,7 +87,7 @@ describe("Agent API proxy", () => {
       seen = { url, headers: new Headers(init?.headers), body: new TextDecoder().decode(init?.body as Uint8Array) };
       return new Response("event: message_stop\ndata: {}\n\n", { status: 200, headers: { "content-type": "text/event-stream", "request-id": "req_1" } });
     }) as typeof fetch;
-    const r = await realFetch(`${s.url}/web-refinement/api/anthropic/v1/messages`, {
+    const r = await realFetch(`${s.url}/materia-platform/api/anthropic/v1/messages`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-api-key": "page-placeholder", "anthropic-version": "2023-06-01", cookie: "secret=1", origin: s.url },
       body: JSON.stringify({ model: "m" }),
@@ -106,7 +106,7 @@ describe("Agent API proxy", () => {
   it("refuses another site's page", async () => {
     const s = await serve("k");
     server = s.server;
-    const r = await realFetch(`${s.url}/web-refinement/api/anthropic/v1/messages`, { method: "POST", headers: { origin: "https://evil.example" }, body: "{}" });
+    const r = await realFetch(`${s.url}/materia-platform/api/anthropic/v1/messages`, { method: "POST", headers: { origin: "https://evil.example" }, body: "{}" });
     expect(r.status).toBe(403);
   });
 });

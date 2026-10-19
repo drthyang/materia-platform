@@ -16,7 +16,7 @@ app does not do is in [LIMITATIONS.md](./LIMITATIONS.md).
 
 ## 2. Open the app and try a demo
 
-Open [drthyang.github.io/web-refinement](https://drthyang.github.io/web-refinement/).
+Open [drthyang.github.io/materia-platform](https://drthyang.github.io/materia-platform/).
 The start page shows the **Structure**, **Data** and **Instrument** cards above
 **Start with a demo**.
 
