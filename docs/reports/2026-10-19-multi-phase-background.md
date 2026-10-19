@@ -1,6 +1,6 @@
 # A multi-phase page on its own background basis
 
-Pull request [#PR](PR_URL), branch `claude/bold-planck-xm4ci3`, on `main`,
+Pull request [#76](https://github.com/drthyang/web-refinement/pull/76), branch `claude/bold-planck-xm4ci3`, on `main`,
 2026-10-19. Found by the magnetic step's test in
 [#73](https://github.com/drthyang/web-refinement/pull/73) (its report's
 "Found, not fixed"). On a powder page with a second phase, the curves and the
