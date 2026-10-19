@@ -67,7 +67,9 @@ thin, so adding a surface never adds science:
   powder page's (`app/powderPage.ts`), the single-crystal page's
   (`app/singleCrystalPage.ts`), the PDF page's (`app/pdfPage.ts`) and the
   magnetic step's (`app/magneticStep.ts`) are shared with the Agent's test
-  pages.
+  pages. The shell (`app/App.tsx`) parses files and routes them; what a
+  structure, a pattern or an instrument does to the powder page is the page's
+  (`withStructure`, `withPattern`, `withInstrument`).
 - **MCP server:** a registry of the same functions behind a stdio transport.
   The transport keeps bulky data server-side and passes refs
   ([AGENT_TOOLS.md](./AGENT_TOOLS.md)).

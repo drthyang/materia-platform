@@ -15,14 +15,13 @@ import { DEFAULT_INSTRUMENT, type Session } from "@/app/powderSession";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import type { StructureModel } from "@/core/crystal/types";
 import { convertAxisArray } from "@/visualization/axisUnits";
-import type { RefinementResult } from "@/core/refinement/types";
 import type { SampleOptions, SampleResult } from "@/core/refinement/bayes/sampler";
 import { magneticHandle } from "@/testSupport/magneticHeadless";
 import { ComputeClient } from "@/workers/computeClient";
 import {
   extentOf, hasTensorAdp, observationsIn, pageAxis, posteriorRun, powderFit, powderPageCurves, refinedPhasesOf, restraintRequest, thoroughFit, weightedR,
-  withAnisotropicAdp, withAntisitePair, withBackgroundTerms, withBackgroundType, withCorrections, withFitResult, withFixed, withInstrumentConstants,
-  withMustrain, withParameterTies, withPhase, withReset, withSiteTies, type FitWindow, type PowderCompute, type PowderPageModel,
+  withAnisotropicAdp, withAntisitePair, withBackgroundTerms, withBackgroundType, withCorrections, withFit as withPowderFit, withFixed, withInstrumentConstants,
+  withMustrain, withParameterTies, withPhase, withReset, withSiteTies, changed, specInstrumentOf, type FitWindow, type PowderCompute, type PowderPage, type PowderPageModel,
 } from "@/app/powderPage";
 import { moveTo, recordStep, restoreStep, type ProjectHistory, type Snapshot, type StepActor, type StepKind } from "@/core/project/history";
 import type { Workspace } from "@/core/project/types";
@@ -53,10 +52,10 @@ const PAGE_STATE = new WeakMap<AgentPort, { readonly capture: () => unknown; rea
  * requests.
  */
 export function sessionPort(start: Session, instrument: InstrumentParameters = DEFAULT_INSTRUMENT, opts: { readonly instrumentOnPage?: boolean; readonly client?: PowderCompute } = {}): { port: PowderAgentPort; calls: string[]; session: () => Session } {
-  let s = start;
+  // The page as the shell holds it (powderPage.ts): the session, the instrument, the last fit's result.
+  let held: PowderPage = { session: start, instrument, instrumentLoaded: true, result: null };
   // The page shows its instrument as the app does (a TOF pattern needs it for d); off by default, as the older tests expect.
   const shown = opts.instrumentOnPage ? instrument : undefined;
-  let result: RefinementResult | null = null;
   let fitRange: FitWindow | null = null;
   const calls: string[] = [];
   // The app's compute client: without a Worker (here) it runs each request in-thread. A test may watch the requests.
@@ -64,15 +63,16 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
   /** The window as the app applies it: only when it narrows the pattern. */
   const activeWindow = (): FitWindow | null => {
     if (!fitRange) return null;
-    const extent = extentOf(powderPageCurves(s).curves.x);
+    const extent = extentOf(powderPageCurves(held.session).curves.x);
     return fitRange.min > extent.min || fitRange.max < extent.max ? { ...fitRange } : null;
   };
-  const page = (): PowderPageModel => ({ session: s, instrument, fitRange: activeWindow(), result });
-  const changed = (next: Session): void => {
-    s = next;
-    result = null;
+  const page = (): PowderPageModel => ({ session: held.session, instrument: specInstrumentOf(held), fitRange: activeWindow(), result: held.result });
+  /** A change of the model or a setting, the rows built with the page's instrument: the result goes (changed). */
+  const change = (next: (s: Session, instrument: InstrumentParameters) => Session): void => {
+    held = changed(held, next(held.session, specInstrumentOf(held)));
   };
   const state = (): PowderLiveState => {
+    const { session: s, result } = held;
     const { curves } = powderPageCurves(s);
     const window = activeWindow();
     return {
@@ -114,47 +114,47 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
     state,
     setFixed: (changes) => {
       calls.push(`setFixed ${changes.map((c) => `${c.id}=${c.fixed}`).join(",")}`);
-      s = withFixed(s, changes);
+      held = { ...held, session: withFixed(held.session, changes) };
     },
     setBackgroundTerms: (n) => {
       calls.push(`terms ${n}`);
-      changed(withBackgroundTerms(s, n, instrument));
+      change((s, inst) => withBackgroundTerms(s, n, inst));
     },
     setBackgroundType: (t) => {
       calls.push(`type ${t}`);
-      changed(withBackgroundType(s, t));
+      change((s) => withBackgroundType(s, t));
     },
     setMustrain: (m) => {
       calls.push(`mustrain ${m}`);
-      changed(withMustrain(s, m, instrument));
+      change((s, inst) => withMustrain(s, m, inst));
     },
     setAnisotropicAdp: (on) => {
       calls.push(`adp ${on}`);
-      changed(withAnisotropicAdp(s, on, instrument));
+      change((s, inst) => withAnisotropicAdp(s, on, inst));
     },
     setSiteTies: (update) => {
       calls.push(`ties ${JSON.stringify(update)}`);
-      changed(withSiteTies(s, update, instrument));
+      change((s, inst) => withSiteTies(s, update, inst));
     },
     addAntisite: (a, b) => {
       calls.push(`antisite ${a} ${b}`);
-      changed(withAntisitePair(s, a, b, instrument));
+      change((s, inst) => withAntisitePair(s, a, b, inst));
     },
     addPhase: (structure) => {
       calls.push(`add phase ${structure.name}`);
-      changed(withPhase(s, structure, instrument));
+      change((s, inst) => withPhase(s, structure, inst));
     },
     setParameterTies: (update) => {
       calls.push(`ties ${JSON.stringify(update)}`);
-      changed(withParameterTies(s, update));
+      change((s) => withParameterTies(s, update));
     },
     setInstrumentConstants: (update) => {
       calls.push(`constants ${JSON.stringify(update)}`);
-      changed(withInstrumentConstants(s, update));
+      held = withInstrumentConstants(held, update);
     },
     setCorrections: (update) => {
       calls.push(`corrections ${JSON.stringify(update)}`);
-      changed(withCorrections(s, update, instrument));
+      change((s, inst) => withCorrections(s, update, inst));
     },
     setFitRange: (r) => {
       calls.push(`range ${r ? `${r.min}-${r.max}` : "whole"}`);
@@ -164,15 +164,13 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
     refine: async () => {
       calls.push("refine");
       const r = await powderFit(client, page(), { maxIterations: 20 });
-      s = withFitResult(s, r);
-      result = r;
+      held = withPowderFit(held, r);
       return null;
     },
     thorough: async () => {
       calls.push("thorough");
       const out = await thoroughFit(client, page());
-      s = out.session;
-      result = out.result;
+      held = { ...held, session: out.session, result: out.result };
       return null;
     },
     samplePosterior: async ({ continue: more, steps }) => {
@@ -191,13 +189,14 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
     // The page's report (Export ▾ → Report) from the same state.
     reportInput: () => {
       const st = state();
+      const { session: s, result } = held;
       return powderReportInput({
         session: s,
         refinedPhases: st.refinedPhases,
         params: s.powderParams,
         bindings: s.powderBindings,
         result,
-        instrument,
+        instrument: held.instrument,
         instrumentLoaded: true,
         wR: st.wR,
         rExp: result?.agreement.rExpected ?? null,
@@ -214,25 +213,23 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
     cancel: () => calls.push("cancel"),
     reset: (ids) => {
       calls.push(ids ? `reset ${ids.join(",")}` : "reset");
-      changed(withReset(s, ids));
+      change((s) => withReset(s, ids));
     },
     magnetic: () => magnetic,
     openStep: (step) => calls.push(`step ${step}`),
   };
-  const magnetic = magneticHandle(() => ({ session: s, window: activeWindow() }), (next) => {
-    s = next;
-    result = null;
+  const magnetic = magneticHandle(() => ({ session: held.session, window: activeWindow() }), (next) => {
+    held = changed(held, next);
   }, (step) => calls.push(`step ${step}`), { ...(shown ? { instrument: shown } : {}), client });
   PAGE_STATE.set(port, {
-    capture: () => ({ session: s, result, fitRange }),
+    capture: () => ({ held, fitRange }),
     restore: (captured) => {
-      const at = captured as { session: Session; result: RefinementResult | null; fitRange: FitWindow | null };
-      s = at.session;
-      result = at.result;
+      const at = captured as { held: PowderPage; fitRange: FitWindow | null };
+      held = at.held;
       fitRange = at.fitRange;
     },
   });
-  return { port, calls, session: () => s };
+  return { port, calls, session: () => held.session };
 }
 
 /**
