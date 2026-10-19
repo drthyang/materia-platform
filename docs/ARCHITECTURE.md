@@ -97,7 +97,8 @@ src/
   parsers/           CIF/mCIF, hkl, powder formats, instrument files, PDF data
   agent/             the in-app Agent: tools.ts (the live tools), executor.ts
                      (runs a call: gate, ask, act, answer), pages/ (what
-                     differs by page, one adapter each), the pages' handlers
+                     differs by page, one adapter each; plans.ts, a change
+                     planned before its card), the pages' handlers
                      (powderTools, pdfTools, scTools, magneticTools), skills,
                      the chat loop and its transports
   mcp/               agent tool layer: tools.ts (pure handlers),

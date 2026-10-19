@@ -12,11 +12,11 @@
  */
 
 import type { PdfAgentPort, PdfLiveState } from "@/agent/port";
-import type { LiveToolSpec } from "@/agent/tools";
 import type { ProjectHistory } from "@/core/project/history";
 import { assess_refinement, bond_geometry, interpret_structure, suggest_next_steps } from "@/mcp/tools";
 import { structureTable } from "@/agent/structureTable";
-import { applyFree, bondsOf, cellOf, describeFree, freeNoOp, goToStep, historyView, matchIds, parameterSummary, pct, sig, type ChangeResult, type LiveToolHost } from "@/agent/liveCommon";
+import { bondsOf, cellOf, historyView, matchIds, parameterSummary, pct, sig, type LiveToolHost } from "@/agent/liveCommon";
+import { change, freePlan, goToPlan, nothing, refinePlan, resetPlan, type Plans } from "@/agent/pages/plans";
 import { boxShell, boxcarStepIndex, boxcarWindows, followBond, type BoxcarRun } from "@/core/workflow/pdfBoxcar";
 import type { RefinementResult } from "@/core/refinement/types";
 import type { ReportCheck } from "@/core/export/report";
@@ -60,101 +60,65 @@ export function readPdfTool(name: string, input: Input, port: PdfAgentPort, host
 }
 
 /**
- * Make a change on the page. Returns a note for the model when the change
- * needed adjusting (tied parameters skipped) or did not finish.
+ * The page's changes, one plan each (pages/plans.ts): what the approval card
+ * says, and the change through the page's own handler. A change that cannot
+ * run on this page is refused here, before its card.
  */
-export async function changePdf(name: string, input: Input, port: PdfAgentPort, host: LiveToolHost): Promise<ChangeResult> {
-  const s = port.state();
-  switch (name) {
-    case "set_free":
-      return applyFree(s.parameters, input, port.setFixed);
-    case "set_adp_model":
+export const PDF_PLANS: Plans<PdfAgentPort> = {
+  set_free: freePlan,
+  set_adp_model: (input, s, port) => {
+    if (s.adpModel === (input.anisotropic ? "anisotropic" : "isotropic")) return nothing(`the ADPs are already ${s.adpModel}`);
+    return change(`ADPs ${s.adpModel} → ${input.anisotropic ? "anisotropic (U tensor per site)" : "isotropic (one U per site)"}`, () => {
       port.setAdpModel(!!input.anisotropic);
       return undefined;
-    case "set_fit_range": {
-      if (input.unit !== undefined) throw new Error("the PDF page fits a window in r (Å); leave out `unit`");
-      if (input.whole) {
+    });
+  },
+  set_fit_range: (input, s, port) => {
+    if (input.unit !== undefined) throw new Error("the PDF page fits a window in r (Å); leave out `unit`");
+    if (input.whole) {
+      return change(`Fit the default window, r ${sig(s.defaultRange.min, 4)} – ${sig(s.defaultRange.max, 4)} Å`, () => {
         port.setFitRange(null);
         return undefined;
-      }
-      const min = input.min ?? s.fitRange.min;
-      const max = input.max ?? s.fitRange.max;
-      if (!(max > min)) throw new Error(`the window needs max > min (got ${min}–${max} Å)`);
-      if (max < s.extent.min || min > s.extent.max) throw new Error(`${min}–${max} Å is outside the data (${sig(s.extent.min, 5)}–${sig(s.extent.max, 5)} Å)`);
+      });
+    }
+    const min = input.min ?? s.fitRange.min;
+    const max = input.max ?? s.fitRange.max;
+    if (!(max > min)) throw new Error(`the window needs max > min (got ${min}–${max} Å)`);
+    if (max < s.extent.min || min > s.extent.max) throw new Error(`${min}–${max} Å is outside the data (${sig(s.extent.min, 5)}–${sig(s.extent.max, 5)} Å)`);
+    return change(`Fit window r ${String(input.min ?? sig(s.fitRange.min, 4))} – ${String(input.max ?? sig(s.fitRange.max, 4))} Å`, () => {
       port.setFitRange({ min: Math.max(min, s.extent.min), max: Math.min(max, s.extent.max) });
       return undefined;
-    }
-    case "refine": {
-      if (!s.parameters.some((p) => !p.fixed && !p.expression)) throw new Error("no parameter is free — free some with set_free first");
-      const why = await (input.mode === "thorough" ? port.thorough() : port.refine());
-      return why ? `The refinement did not finish (${why}); the parameters keep their values from before it.` : undefined;
-    }
-    case "boxcar_scan": {
-      // matchIds refuses a pattern that matches nothing; tied rows follow their tie and are not offered.
-      const free = input.free ? matchIds(s.parameters.filter((p) => !p.expression), input.free as string[]) : null;
-      if (!free && !s.parameters.some((p) => !p.fixed && !p.expression)) throw new Error("no parameter is free — free the ones to track with set_free first, or pass `free`");
-      const sites = (input.bonds as string[] | undefined) ?? [];
-      const phase = s.phases[0]!;
-      const labels = phase.sites.map((site) => site.label);
-      const unknown = sites.filter((l) => !labels.includes(l));
-      if (unknown.length) throw new Error(`no site ${unknown.join(", ")} in ${phase.name || "the primary phase"} — its sites: ${labels.join(", ")}`);
-      const cations = coordinationShells(s.refinedPhases[0]!).map((sh) => sh.site);
-      const anion = sites.filter((l) => !cations.includes(l));
-      if (anion.length) throw new Error(`${anion.join(", ")} has no coordination shell of its own (an anion): name the cation whose bonds to track — ${cations.join(", ")}`);
-      const run = await port.boxcar({ width: input.width ?? 5, step: input.step ?? 1, direction: input.direction ?? "up", ...(sites.length ? { bonds: sites } : {}), ...(free ? { free } : {}) });
+    });
+  },
+  refine: refinePlan<PdfAgentPort>({
+    fits: (s, free) => `Refine ${s.spinModel ? "nuclear + magnetic G(r)" : "G(r)"}, ${free} free parameter${free === 1 ? "" : "s"}`,
+  }),
+  boxcar_scan: (input, s, port) => {
+    // matchIds refuses a pattern that matches nothing; tied rows follow their tie and are not offered.
+    const free = input.free ? matchIds(s.parameters.filter((p) => !p.expression), input.free) : null;
+    if (!free && !s.parameters.some((p) => !p.fixed && !p.expression)) throw new Error("no parameter is free — free the ones to track with set_free first, or pass `free`");
+    const sites = input.bonds ?? [];
+    const phase = s.phases[0]!;
+    const labels = phase.sites.map((site) => site.label);
+    const unknown = sites.filter((l) => !labels.includes(l));
+    if (unknown.length) throw new Error(`no site ${unknown.join(", ")} in ${phase.name || "the primary phase"} — its sites: ${labels.join(", ")}`);
+    const cations = coordinationShells(s.refinedPhases[0]!).map((sh) => sh.site);
+    const anion = sites.filter((l) => !cations.includes(l));
+    if (anion.length) throw new Error(`${anion.join(", ")} has no coordination shell of its own (an anion): name the cation whose bonds to track — ${cations.join(", ")}`);
+    const width = input.width ?? 5;
+    const step = input.step ?? 1;
+    const boxes = boxcarWindows({ range: s.fitRange, width, step }).length;
+    const count = free ? free.length : s.parameters.filter((p) => !p.fixed && !p.expression).length;
+    const preview = `Boxcar scan: ${boxes} boxes of ${width} Å every ${step} Å across r ${sig(s.fitRange.min, 4)} – ${sig(s.fitRange.max, 4)} Å, ${count} free parameters${input.direction === "both" ? ", both directions" : input.direction === "down" ? ", high → low r" : ""}`;
+    return change(preview, async () => {
+      const run = await port.boxcar({ width, step, direction: input.direction ?? "up", ...(sites.length ? { bonds: sites } : {}), ...(free ? { free } : {}) });
       if (!run) return "The scan did not finish (cancelled, failed, or the model changed while it ran).";
       return { note: boxcarLine(run), data: boxcarView(run, s, sites) };
-    }
-    case "reset_parameters":
-      port.reset(input.parameters ? matchIds(s.parameters, input.parameters as string[]) : undefined);
-      return undefined;
-    case "go_to_step":
-      goToStep(host, input.step);
-      return undefined;
-    default:
-      throw new Error(`${name} is not a PDF change tool`);
-  }
-}
-
-/** Why a change would do nothing, or null when it would do something. */
-export function pdfNoOp(spec: LiveToolSpec, input: Input, s: PdfLiveState): string | null {
-  if (spec.name === "set_adp_model") return s.adpModel === (input.anisotropic ? "anisotropic" : "isotropic") ? `the ADPs are already ${s.adpModel}` : null;
-  return spec.name === "set_free" ? freeNoOp(s.parameters, input) : null;
-}
-
-/** One line for the approval card: what this change will do, in the page's terms. */
-export function describePdfChange(spec: LiveToolSpec, input: Input, s: PdfLiveState): string {
-  switch (spec.name) {
-    case "boxcar_scan": {
-      const width = input.width ?? 5;
-      const step = input.step ?? 1;
-      const boxes = boxcarWindows({ range: s.fitRange, width, step }).length;
-      const free = input.free ? matchIds(s.parameters.filter((p) => !p.expression), input.free as string[]).length : s.parameters.filter((p) => !p.fixed && !p.expression).length;
-      return `Boxcar scan: ${boxes} boxes of ${width} Å every ${step} Å across r ${sig(s.fitRange.min, 4)} – ${sig(s.fitRange.max, 4)} Å, ${free} free parameters${input.direction === "both" ? ", both directions" : input.direction === "down" ? ", high → low r" : ""}`;
-    }
-    case "set_free":
-      return describeFree(s.parameters, input);
-    case "set_adp_model":
-      return `ADPs ${s.adpModel} → ${input.anisotropic ? "anisotropic (U tensor per site)" : "isotropic (one U per site)"}`;
-    case "set_fit_range":
-      return input.whole
-        ? `Fit the default window, r ${sig(s.defaultRange.min, 4)} – ${sig(s.defaultRange.max, 4)} Å`
-        : `Fit window r ${String(input.min ?? sig(s.fitRange.min, 4))} – ${String(input.max ?? sig(s.fitRange.max, 4))} Å`;
-    case "refine": {
-      const free = s.parameters.filter((p) => !p.fixed && !p.expression).length;
-      const what = s.spinModel ? "nuclear + magnetic G(r)" : "G(r)";
-      return input.mode === "thorough"
-        ? `${s.result ? "Escape minimum" : "Prefit"} (multi-start) on ${free} free parameter${free === 1 ? "" : "s"}`
-        : `Refine ${what}, ${free} free parameter${free === 1 ? "" : "s"}`;
-    }
-    case "reset_parameters":
-      return input.parameters ? `Reset ${matchIds(s.parameters, input.parameters as string[]).join(", ")} to the starting value` : "Reset every parameter to its starting value";
-    case "go_to_step":
-      return `Go to step ${String(input.step)}`;
-    default:
-      return spec.title;
-  }
-}
+    });
+  },
+  reset_parameters: resetPlan,
+  go_to_step: goToPlan,
+};
 
 // ── state view ──────────────────────────────────────────────────────────────
 

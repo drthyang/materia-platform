@@ -106,7 +106,8 @@ export interface LiveToolSpec {
 
 const ids = z.array(z.string().min(1)).describe("Parameter ids, or globs such as \"bkg*\" or \"*Fe1*\"");
 
-export const LIVE_TOOLS: readonly LiveToolSpec[] = [
+/** The definitions with their own literal types: what types a tool's input by its name (InputOf). */
+const TOOLS = [
   {
     name: "get_state",
     title: "Read the analysis",
@@ -956,9 +957,26 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     cards: [],
     offer: { core: true },
   },
-];
+] as const satisfies readonly LiveToolSpec[];
+
+export const LIVE_TOOLS: readonly LiveToolSpec[] = TOOLS;
 
 export const PAGE_LABEL: Readonly<Record<AgentPage, string>> = { powder: "powder", pdf: "PDF", singleCrystal: "single-crystal" };
+
+/** A live tool's name. */
+export type ToolName = (typeof TOOLS)[number]["name"];
+
+/** A tool's definition, by name, with its schema's own types. */
+type SpecOf<N extends ToolName> = Extract<(typeof TOOLS)[number], { readonly name: N }>;
+
+/** A tool's input as its schema parses it: what a handler receives once the executor has validated the call. */
+export type InputOf<N extends ToolName> = z.infer<z.ZodObject<SpecOf<N>["inputSchema"]>>;
+
+/** The change tools that work on a page, but `allow_exception`, which the executor runs itself (it lifts a rule, it changes no page). */
+export type PageChangeTool<P extends AgentPage> = Exclude<
+  (typeof TOOLS)[number] extends infer T ? (T extends { readonly name: infer N; readonly effect: "change"; readonly pages: readonly (infer G)[] } ? (P extends G ? N : never) : never) : never,
+  "allow_exception"
+>;
 
 export function liveTool(name: string): LiveToolSpec | undefined {
   return LIVE_TOOLS.find((t) => t.name === name);

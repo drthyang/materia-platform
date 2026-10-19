@@ -400,12 +400,13 @@ export class AgentExecutor implements ToolRunner {
     if (before.busy) throw new Refusal("a refinement is running — wait for it to finish, or call cancel_refinement", "busy");
     // What the change is checked and approved against.
     const stamp = page.stamp(before, this.stepOf(page, port));
-    const noOp = page.noOp(spec, input, before, port);
-    if (noOp) {
+    // The change, planned on the state it is checked against: nothing to do, or the card's line and the change.
+    const plan = page.plan(spec, input, before, port);
+    if ("noOp" in plan) {
       update({ status: "done", outcome: "No change" });
-      return { ...this.respond({ unchanged: true, note: noOp }), status: "unchanged" };
+      return { ...this.respond({ unchanged: true, note: plan.noOp }), status: "unchanged" };
     }
-    let preview = page.describe(spec, input, before, port);
+    let preview = plan.preview;
     // The method's firm rules, then its order (a note, not a refusal).
     const key = page.analysis(before);
     const freeBefore = before.parameters.filter((p) => !p.fixed && !p.expression);
@@ -469,7 +470,7 @@ export class AgentExecutor implements ToolRunner {
     const cancel = (): void => this.host.port()?.cancel();
     signal?.addEventListener("abort", cancel);
     const changed = await this.host.asAgent(async () => {
-      const n = await page.change(spec.name, input, port, this.host);
+      const n = await plan.apply(this.host);
       await this.host.settle();
       if (spec.historyStep) {
         this.host.recordNow(spec.historyStep);

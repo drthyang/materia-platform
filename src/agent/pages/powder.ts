@@ -10,6 +10,7 @@ import { changePowder, describePowderChange, powderNoOp, powderReferences, powde
 import { changeMagnetic, describeMagneticChange, isMagneticTool, magneticNoOp, magneticOutcome, readMagneticTool } from "@/agent/magneticTools";
 import { powderAnalysis } from "@/agent/method";
 import type { PageAdapter } from "@/agent/pages/types";
+import { switchedPlan } from "@/agent/pages/plans";
 import { sig6, stampOf } from "@/agent/pages/stamp";
 
 /** The magnetic step's settings: k, the ions, the moment ties, the group chosen and its moments. */
@@ -44,8 +45,11 @@ export const POWDER_PAGE: PageAdapter<PowderAgentPort> = {
   magneticStep: (port) => port.magnetic?.()?.state() ?? null,
   magneticModel: (s) => s.magnetic !== null,
   read: (name, input, port, host) => (isMagneticTool(name) ? readMagneticTool(name, input, port, () => host.settle()) : readPowderTool(name, input, port, host)),
-  noOp: (spec, input, s, port) => (isMagneticTool(spec.name) ? magneticNoOp(spec.name, input, port) : powderNoOp(spec, input, s)),
-  describe: (spec, input, s, port) => (isMagneticTool(spec.name) ? describeMagneticChange(spec.name, input, port) : describePowderChange(spec, input, s)),
-  change: (name, input, port, host) => (isMagneticTool(name) ? changeMagnetic(name, input, port) : changePowder(name, input, port, host)),
+  // Its changes are three switches still (powderTools.ts, magneticTools.ts), until they become plans as the PDF page's are.
+  plan: switchedPlan<PowderAgentPort>(
+    (spec, input, s, port) => (isMagneticTool(spec.name) ? magneticNoOp(spec.name, input, port) : powderNoOp(spec, input, s)),
+    (spec, input, s, port) => (isMagneticTool(spec.name) ? describeMagneticChange(spec.name, input, port) : describePowderChange(spec, input, s)),
+    (name, input, port, host) => (isMagneticTool(name) ? changeMagnetic(name, input, port) : changePowder(name, input, port, host)),
+  ),
   outcome: (name, port) => (isMagneticTool(name) ? magneticOutcome(name, port) : {}),
 };

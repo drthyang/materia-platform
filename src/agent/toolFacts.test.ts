@@ -34,6 +34,8 @@ function toolLists(src: string): string[] {
     if (items.every((i) => NAMES.has(i))) found.push(`line ${line(m.index)}: [${items.join(", ")}]`);
   }
   for (const m of src.matchAll(/\{((?:\s*[a-z]+_[a-z_]+:\s*[^,\n]+,){2,})/g)) {
+    // A page's plan table is keyed by its change tools, and its type (Plans) holds it to the definitions.
+    if (/:\s*Plans<[^>]+>\s*=\s*$/.test(src.slice(Math.max(0, m.index - 80), m.index))) continue;
     const keys = [...m[1]!.matchAll(/([a-z]+_[a-z_]+):/g)].map((x) => x[1]!).filter((k) => NAMES.has(k));
     if (keys.length >= 2) found.push(`line ${line(m.index)}: {${keys.join(", ")}}`);
   }
