@@ -32,6 +32,13 @@ export function anthropicProxy(apiKey: string | undefined, mount = "/api/anthrop
     const at = url.indexOf(mount + "/");
     if (at < 0) return next();
     if (!trustedHost(req.headers.host, allowedHosts())) return fail(res, 403, "forbidden", "The proxy answers only on this machine's own names (localhost, a loopback address) or a host the server's allowedHosts names.");
+    // The page asks whether a proxy serves it before relying on one: a static host has none.
+    if (url.slice(at + mount.length).split("?")[0] === "/health") {
+      res.statusCode = 200;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ proxy: true, key: !!apiKey }));
+      return;
+    }
     void forward(req, res, url.slice(at + mount.length), apiKey).catch((e) => {
       if (!res.headersSent) fail(res, 502, "proxy_error", `The proxy could not reach the API: ${e instanceof Error ? e.message : String(e)}`);
       else res.end();

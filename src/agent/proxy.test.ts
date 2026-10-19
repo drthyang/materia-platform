@@ -71,6 +71,18 @@ describe("Agent API proxy", () => {
     expect(body.error.message).toMatch(/ANTHROPIC_API_KEY/);
   });
 
+  it("answers a health check, saying whether it holds a key (the page asks before it relies on it)", async () => {
+    for (const key of ["sk-test", undefined]) {
+      const s = await serve(key);
+      server = s.server;
+      const r = await realFetch(`${s.url}/web-refinement/api/anthropic/health`);
+      expect(r.status).toBe(200);
+      expect(await r.json()).toEqual({ proxy: true, key: key !== undefined });
+      await new Promise<void>((done) => s.server.close(() => done()));
+      server = null;
+    }
+  });
+
   it("leaves other paths to the next handler", async () => {
     const s = await serve("k");
     server = s.server;

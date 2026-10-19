@@ -514,6 +514,13 @@ release fixes bugs.
 
 ### Fixed
 
+- **The local proxy says when the page has none.** On the published site
+  (GitHub Pages) there is no proxy, and choosing it ended every message in a
+  raw "API error 405" with nginx's HTML. The settings now ask the proxy's
+  health check and say whether it runs, runs without a key, or is absent;
+  and a 404, 405 or 501 in proxy mode reads as "This page has no proxy",
+  with how to run it locally or to use an API key instead.
+
 - **A powder page with a second phase uses its own background basis.** Its
   curve, wR, Refine, Prefit and posterior used the Chebyshev basis and the
   Lorentz factor whatever the page had set: the cosine, power-series and
