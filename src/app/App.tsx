@@ -1246,7 +1246,7 @@ export function App(): JSX.Element {
       <footer className="wb-footer" style={copyrightBar}>
         <span>© 2026 Tsung-Han Yang</span>
         <span aria-hidden style={{ color: theme.faintest }}>·</span>
-        <a href="https://github.com/drthyang/web-refinement#readme" target="_blank" rel="noopener noreferrer" style={footerLink}>
+        <a href="https://github.com/drthyang/materia-platform#readme" target="_blank" rel="noopener noreferrer" style={footerLink}>
           About &amp; documentation
         </a>
       </footer>
@@ -1287,7 +1287,7 @@ function crossCheckTargets(technique: "rietveld" | "pdf" | "sc"): string {
   }
 }
 
-const LIMITATIONS_URL = "https://github.com/drthyang/web-refinement/blob/main/docs/LIMITATIONS.md";
+const LIMITATIONS_URL = "https://github.com/drthyang/materia-platform/blob/main/docs/LIMITATIONS.md";
 
 const noticeBar: React.CSSProperties = { display: "flex", alignItems: "center", gap: 12, padding: `8px ${space.edge}`, fontSize: 12.5, background: theme.warnBg, borderBottom: `1px solid ${theme.warnBorder}`, color: theme.warnInk, lineHeight: 1.45 };
 const noticeAction: React.CSSProperties = { border: `1px solid ${theme.warnBorder}`, background: "transparent", color: theme.warnInk, cursor: "pointer", fontSize: 12, padding: "3px 8px", borderRadius: 4, whiteSpace: "nowrap" };

@@ -430,6 +430,13 @@ release fixes bugs.
 
 ### Changed
 
+- **The repository is `materia-platform`.** The published app moves to
+  [drthyang.github.io/materia-platform](https://drthyang.github.io/materia-platform/)
+  (the build's base path, the README and user guide, the app's links to the
+  repository, the package name). GitHub redirects the old repository and git
+  URLs; the old Pages address does not redirect. Projects saved in the
+  browser stay: they belong to the site's origin, not its path.
+
 - **The boxcar plot gets the card.** After a run the plan folds into a
   one-line summary in the toolbar, the caption moves to the chip row, and the
   per-box table opens on demand, so on a 1280×800 window the figure is about

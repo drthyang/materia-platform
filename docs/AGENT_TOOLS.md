@@ -30,8 +30,8 @@ servers in `/` or the home folder, so name the data folder too:
   "mcpServers": {
     "materia": {
       "command": "node",
-      "args": ["/abs/path/web-refinement/scripts/build-mcp.mjs", "--serve"],
-      "env": { "MATERIA_ROOTS": "/abs/path/web-refinement" }
+      "args": ["/abs/path/materia-platform/scripts/build-mcp.mjs", "--serve"],
+      "env": { "MATERIA_ROOTS": "/abs/path/materia-platform" }
     }
   }
 }

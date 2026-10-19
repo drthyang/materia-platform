@@ -75,13 +75,13 @@ describe("the dock's scripted replays", () => {
 
   it("answer the proxy route with the turn the conversation is at", async () => {
     const body = JSON.stringify({ messages: [{ role: "user" }, { role: "assistant" }, { role: "user" }] });
-    const out = await request("/web-refinement/api/anthropic/v1/messages?beta=true", `${REPLAY_COOKIE}=sc-data-first`, body).done;
+    const out = await request("/materia-platform/api/anthropic/v1/messages?beta=true", `${REPLAY_COOKIE}=sc-data-first`, body).done;
     expect(out).toContain("Scale and extinction first.");
     expect(out).toContain('"stop_reason":"tool_use"');
   });
 
   it("pass the request on to the proxy without the cookie", async () => {
-    expect(await request("/web-refinement/api/anthropic/v1/messages", undefined, "{}").done).toBe("next");
+    expect(await request("/materia-platform/api/anthropic/v1/messages", undefined, "{}").done).toBe("next");
   });
 });
 
