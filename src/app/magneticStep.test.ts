@@ -1,9 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { parse_structure, simulate_pattern } from "@/mcp/tools";
 import { loadedSession } from "@/app/powderSession";
-import { powderPageCurves, weightedR } from "@/app/powderPage";
+import { powderMomentFit, powderPageCurves, refinedPhasesOf, residualPeaksOf, weightedR } from "@/app/powderPage";
+import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { momentFit as singleCrystalMomentFit, singleCrystalPage, type SingleCrystalCompute } from "@/app/singleCrystalPage";
-import { candidatesOf, momentDims, buildFor, rankCandidates, type MagneticFit } from "@/app/magneticStep";
+import { MagneticStep, candidatesOf, momentDims, buildFor, rankCandidates, stepView, type MagneticFit, type StepInputs } from "@/app/magneticStep";
 import { sessionPort } from "@/testSupport/agentHeadless";
 import { corundumPage } from "@/testSupport/scPages";
 import { mn3gaMagneticSession } from "@/agent/evals/pages";
@@ -221,4 +222,113 @@ describe("one restart scheme", () => {
     expect(asked).toEqual([8, 0]);
   });
 
+});
+
+describe("the step's state, as the panel keeps it", () => {
+  /** A step over the magnetic Mn₃Ga page, its inputs as the workbench gives them; `set` changes them as a render would. */
+  function stepOn(): { step: MagneticStep; set: (change: Partial<StepInputs>) => void; at: () => StepInputs } {
+    const s = mn3gaMagneticSession();
+    let at: StepInputs = {
+      structure: refinedPhasesOf(s)[0]!,
+      residualPeaks: residualPeaksOf(s, undefined),
+      fit: powderMomentFit(new ComputeClient(), s, null),
+      baselineAgreement: null,
+      allowRefineK: true,
+      fitContext: "data|all",
+      preselect: null,
+    };
+    const step = new MagneticStep(() => at);
+    return { step, at: () => at, set: (change) => { at = { ...at, ...change }; step.sync(); } };
+  }
+  const view = (step: MagneticStep): ReturnType<typeof stepView> => step.view();
+
+  it("keeps the ranking when the page shows the model (the structure rebuilt, equal); drops it for another structure, window or k", async () => {
+    const { step, set, at } = stepOn();
+    step.setK([0, 0, 0.5]);
+    await step.rank("open", 0);
+    const ranked = Object.keys(view(step).rankResults).length;
+    expect(ranked).toBeGreaterThan(1);
+    // Show strips the model's rows, so the refined structure is made again, equal.
+    set({ structure: structuredClone(at().structure) });
+    expect(Object.keys(view(step).rankResults)).toHaveLength(ranked);
+    set({ fitContext: "data|20–100" });
+    expect(view(step).rankResults).toEqual({});
+    // It does not come back with the window it ran on.
+    set({ fitContext: "data|all" });
+    expect(view(step).rankResults).toEqual({});
+    await step.rank("open", 0);
+    const st = at().structure;
+    set({ structure: { ...st, sites: st.sites.map((x, i) => (i === 0 ? { ...x, position: [x.position[0], x.position[1], x.position[2] + 0.01] as Vec3 } : x)) } });
+    expect(view(step).rankResults).toEqual({});
+  }, 60000);
+
+  it("drops the per-peak picks with a new criterion, and keeps those of the peaks still detected", () => {
+    const { step, set, at } = stepOn();
+    const rows = view(step).rows;
+    expect(rows.length).toBeGreaterThan(2);
+    step.setOverride(rows[0]!.key, false);
+    step.setCriteria({ minSig: 4 });
+    expect(step.state().overrides).toEqual({});
+    step.setOverride(rows[0]!.key, false);
+    step.setOverride(rows[1]!.key, false);
+    set({ residualPeaks: at().residualPeaks.filter((p) => Math.abs(p.d - rows[1]!.d) > 1e-6) });
+    expect(step.state().overrides).toEqual({ [rows[0]!.key]: false });
+  });
+
+  it("keeps the k-search's candidates for the peaks it ran on", () => {
+    const { step } = stepOn();
+    step.search();
+    expect(view(step).results?.length).toBeGreaterThan(0);
+    const first = view(step).rows.find((r) => r.included)!;
+    step.setOverride(first.key, false);
+    expect(view(step).results).toBeNull();
+    step.setOverride(first.key, true);
+    expect(view(step).results).toBeNull();
+  });
+
+  it("starts a ranked group from its fitted moments, and keeps an amplitude through a rebuild of the same model", async () => {
+    const { step } = stepOn();
+    step.setK([0, 0, 0.5]);
+    await step.rank("open", 0);
+    const v = view(step);
+    const g2 = v.reps[1]!;
+    step.choose(1);
+    const entry = view(step).rankResults[g2.candidate.id]!;
+    expect(entry.status).toBe("ok");
+    for (const p of view(step).build!.params) expect(step.state().amps[p.id]).toBeCloseTo(entry.values[p.id]!, 12);
+    const id = view(step).build!.params[0]!.id;
+    step.setAmp(id, 1.7);
+    step.setIons(["Mn1"]);
+    expect(step.state().amps[id]).toBe(1.7);
+    // A second click on the chosen row clears the choice.
+    step.choose(null);
+    expect(step.state().chosen).toBeNull();
+  }, 60000);
+
+  it("opens on a model: its k, its group chosen, its amplitudes fitted to its moments", () => {
+    const { step, set, at } = stepOn();
+    const k: Vec3 = [0, 0, 0.5];
+    const reps = candidatesOf(at().structure, k);
+    const build = buildFor(at().structure, k, ["Mn1"], reps[1]!.candidate.operations, { sameSite: true, magnitudes: false, flippedUnits: [] });
+    const model = applyMagneticMoments(build.magnetic, build.bindings, Object.fromEntries(build.params.map((p) => [p.id, 2.5])));
+    set({ preselect: model });
+    expect(step.state().k).toEqual(k);
+    expect(step.state().chosen).toBe(1);
+    expect(step.state().open.has(reps[1]!.index)).toBe(true);
+    for (const p of view(step).build!.params) expect(view(step).resolvedAmps[p.id]).toBeCloseTo(2.5, 6);
+  });
+
+  it("drops the moments fit's readout for good when the group or the data change", async () => {
+    const { step, set } = stepOn();
+    step.setK([0, 0, 0.5]);
+    step.choose(1);
+    expect(await step.refineMoments()).not.toBeNull();
+    expect(view(step).fitWR).not.toBeNull();
+    step.choose(2);
+    step.choose(1);
+    expect(view(step).fitWR).toBeNull();
+    await step.refineMoments();
+    set({ fitContext: "other data|all" });
+    expect(view(step).fitWR).toBeNull();
+  }, 60000);
 });
