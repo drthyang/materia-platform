@@ -1,6 +1,6 @@
 # Four readings moved into core, one per surface (2.3a)
 
-Pull request [#PR](https://github.com/drthyang/web-refinement/pull/PR),
+Pull request [#89](https://github.com/drthyang/web-refinement/pull/89),
 branch `claude/plan-2-3`, on `main`, 2026-10-19. Plan:
 [AGENT_PLAN.md](../AGENT_PLAN.md), 2.3. The phase's rule: MCP handlers and live
 handlers become thin adapters over the same pure functions. Where two copies
