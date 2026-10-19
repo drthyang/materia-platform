@@ -273,7 +273,7 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
   {
     name: "search_propagation_vector",
     title: "Search propagation vector k",
-    description: "Rank candidate commensurate propagation vectors k (denominators 2/3/4/6) by how many unexplained peak d-spacings their satellites G ± k explain. Feed the d values from find_unexplained_peaks; the winning k goes to list_magnetic_subgroups.",
+    description: "Rank candidate commensurate propagation vectors k (denominators 2/3/4/6; in a monoclinic or triclinic cell the mixed-sign ones too, such as (¼ 0 −¼)) by how many unexplained peak d-spacings their satellites G ± k explain, each within 0.02 Å or 0.5 % of d, the hkl range sized from the cell. Every peak given counts: `maxQ` drops those above a |Q| only when passed. Feed the d values from find_unexplained_peaks; the winning k goes to list_magnetic_subgroups.",
     inputSchema: {
       structure: anyObj,
       peakD: z.array(z.number().positive()).describe("Unexplained peak d-spacings (Å)"),

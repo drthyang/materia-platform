@@ -103,14 +103,6 @@ export const NO_PEAK_INCLUDED = "no residual peak is included for the k-search �
 // ── k ───────────────────────────────────────────────────────────────────────
 
 /**
- * The k-search's one option set. No Q cut: the checked peaks are the
- * criterion, and a hidden low-Q cut would drop peaks the user ticked. A line's
- * width grows with d, so a peak matches within 0.5 % of d where that is wider
- * than 0.02 Å.
- */
-export const K_SEARCH = { tolerance: 0.02, relativeTolerance: 0.005, maxQ: 0 } as const;
-
-/**
  * Candidate k from the included peaks: satellites about the lattice's own
  * reflections (a centred lattice's absences carry none), weighted by
  * significance where the data give one, capped so one strong peak does not
@@ -119,8 +111,8 @@ export const K_SEARCH = { tolerance: 0.02, relativeTolerance: 0.005, maxQ: 0 } a
 export function searchK(structure: StructureModel, rows: readonly PeakRow[]): KCandidate[] {
   const included = rows.filter((r) => r.included);
   const weighted = rows.some((r) => r.significance !== undefined);
+  // The search's own defaults (K_SEARCH_DEFAULTS): the ticked peaks are the criterion, with no Q cut.
   return searchPropagationVector(structure.cell, included.map((r) => r.d), {
-    ...K_SEARCH,
     centring: centringTranslations(structure.spaceGroup.operations),
     ...(weighted ? { weights: included.map((r) => Math.min(r.significance ?? 1, 20)) } : {}),
   });
