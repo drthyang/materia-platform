@@ -4,6 +4,8 @@
  * The `data/` folder is git-ignored (large, local-only), so these tests must
  * skip gracefully when it is absent — e.g. on a fresh CI checkout — rather than
  * fail. Use `dataExists(rel)` with `describe.skipIf` and read only when present.
+ * A dataset that is published is also committed under `examples/` (COMMITTED),
+ * so its tests run everywhere.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -25,15 +27,27 @@ const DIR_ALIASES: Record<string, readonly string[]> = {
 };
 
 /**
- * Absolute path of a dataset directory, trying each known alias in order.
- * Falls back to the canonical name when none is present, so callers still get a
- * sensible path to report in an error message.
+ * Published datasets committed to the repository (path from the checkout's
+ * root), read when the local folder is absent: the Mn₃Ga 350 K POWGEN data and
+ * refined structure, kept locally as `Mn3Ga_POWGEN_350K/` or `350K/`.
+ */
+const COMMITTED: Record<string, string> = {
+  Mn3Ga_POWGEN_350K: "examples/mn3ga-350k",
+  "350K": "examples/mn3ga-350k",
+};
+
+/**
+ * Absolute path of a dataset directory, trying each known alias in order, then
+ * the committed copy. Falls back to the canonical name when none is present, so
+ * callers still get a sensible path to report in an error message.
  */
 export function dataDir(name: string): string {
   for (const alias of DIR_ALIASES[name] ?? [name]) {
     const dir = resolve(DATA_DIR, alias);
     if (existsSync(dir)) return dir;
   }
+  const committed = COMMITTED[name];
+  if (committed !== undefined && existsSync(resolve(process.cwd(), committed))) return resolve(process.cwd(), committed);
   return resolve(DATA_DIR, name);
 }
 

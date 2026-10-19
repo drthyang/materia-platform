@@ -30,8 +30,8 @@ import type { UnitCell } from "@/core/crystal/types";
  *
  * Part A pins the magnetic symmetry machinery to GSAS-II's site-symmetry
  * analysis; part B refines the moments against the real histogram and checks
- * the result is consistent with the golden structure. Skips when the
- * git-ignored data/ folder is absent.
+ * the result is consistent with the golden structure. Reads data/ when it
+ * holds the set, else the published copy in examples/mn3ga-350k.
  */
 const DIR = "Mn3Ga_POWGEN_350K";
 const hasCif = dataExists(`${DIR}/Mn3Ga-mag_53_350K_Final_ortho.cif`);
@@ -154,7 +154,7 @@ describe.skipIf(!hasData)("Mn3Ga 350K golden — moment refinement against the P
   const TOF_MIN = 12158.9;
   const TOF_MAX = 118441.4;
 
-  it("refines the moments to a structure consistent with the golden mCIF", { timeout: 60000 }, () => {
+  it("refines the moments to a structure consistent with the golden mCIF", { timeout: 180000 }, () => {
     const { structure } = parseMagneticCif(readData(`${DIR}/Mn3Ga-mag_53_350K_Final_ortho.cif`), "mn3ga350");
     const inst = parseInstrumentParameters(readData(`${DIR}/PG3_45598_Bank1.instprm`));
     const full = parseGsasHistogramPattern(readData(`${DIR}/PG3_45598_Bank1.fxye`), "pg45598", "Mn3Ga 350K", { radiation: { kind: "neutron-tof" } });

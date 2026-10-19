@@ -16,9 +16,10 @@ import { dataExists, readData } from "@/testSupport/data";
 
 /**
  * Phase 1c ACCEPTANCE (Improvement Plan) — the magnetic multi-start / escape path
- * on the real Mn₃Ga 350 K POWGEN histogram. Gate to Phase 2. Skips when the
- * git-ignored data/ folder is absent (CI). ComputeClient runs in-thread under
- * vitest (no Worker), so this is deterministic.
+ * on the real Mn₃Ga 350 K POWGEN histogram. Gate to Phase 2. Reads data/ when
+ * it holds the set, else the published copy in examples/mn3ga-350k (as in CI).
+ * ComputeClient runs in-thread under vitest (no Worker), so this is
+ * deterministic.
  */
 const DIR = "Mn3Ga_POWGEN_350K";
 const hasData =
