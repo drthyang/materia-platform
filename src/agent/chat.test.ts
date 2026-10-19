@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createServer, type Server } from "node:http";
-import { AgentChat, CHARS_PER_TOKEN, LoopGuard, MIN_REPLY, REPLY_RESERVE, announcedTool, describeChatError, fitWindow, repeatingTail, runPolicy, stalledReply } from "@/agent/chat";
+import { AgentChat, CHARS_PER_TOKEN, LoopGuard, MIN_REPLY, REPLY_RESERVE, announcedTool, describeChatError, fitWindow, proxyStatus, repeatingTail, runPolicy, stalledReply } from "@/agent/chat";
+import Anthropic from "@anthropic-ai/sdk";
 import type { BetaMessageParam } from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import type { AgentExecutor } from "@/agent/executor";
 import { LIVE_TOOLS } from "@/agent/tools";
@@ -1016,3 +1017,29 @@ describe("the run policy", () => {
     expect(runPolicy({ transport: "api-key", model: "m", effort: "high", policy: { temperature: 0.6 } }, null).temperature).toBeNull();
   });
 });
+
+describe("the local proxy on a page that has none", () => {
+  // The published site (GitHub Pages) has no proxy: its static server answers the
+  // POST with an nginx "405 Not Allowed" page, which the chat showed raw.
+  it("says so instead of a raw 404 or 405", () => {
+    const config = { transport: "proxy" as const, model: "claude-x" };
+    for (const status of [404, 405, 501]) {
+      const err = new Anthropic.APIError(status, undefined, `${status} <html><head><title>${status} Not Allowed</title></head></html>`, new Headers());
+      expect(describeChatError(err, config)).toMatch(/^This page has no proxy: .*npm run dev.*ANTHROPIC_API_KEY.*use an API key/);
+    }
+    // The proxy's own refusals keep their words.
+    const own = new Anthropic.APIError(404, { error: { type: "not_found", message: "The proxy forwards /v1/ API paths only." } }, "404", new Headers());
+    expect(describeChatError(own, config)).not.toMatch(/has no proxy/);
+  });
+
+  it("reads the proxy's health check: ready, no key, or absent", async () => {
+    const answer = (status: number, body: unknown) => async () => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+    expect(await proxyStatus("/web-refinement/", answer(200, { proxy: true, key: true }))).toBe("ready");
+    expect(await proxyStatus("/web-refinement/", answer(200, { proxy: true, key: false }))).toBe("no-key");
+    expect(await proxyStatus("/web-refinement/", async () => new Response("<html>404</html>", { status: 404 }))).toBe("absent");
+    // A static host that serves its index.html for any path: a 200, but not the proxy's answer.
+    expect(await proxyStatus("/web-refinement/", async () => new Response("<!doctype html>", { status: 200, headers: { "content-type": "text/html" } }))).toBe("absent");
+    expect(await proxyStatus("/web-refinement/", async () => { throw new TypeError("Failed to fetch"); })).toBe("absent");
+  });
+});
+
