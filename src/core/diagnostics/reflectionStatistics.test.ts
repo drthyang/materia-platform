@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { parseCif } from "@/parsers/cif";
-import { mergeEquivalents } from "@/core/diffraction/merge";
+import { measurementMerge, mergeEquivalents } from "@/core/diffraction/merge";
 import { reflectionStatistics, type StatisticsRow } from "@/core/diagnostics/reflectionStatistics";
 
 function crystal(group: string) {
@@ -44,13 +44,14 @@ describe("reflection statistics", () => {
     const st = reflectionStatistics(rows, c.cell, c.spaceGroup);
     expect(st.friedel.centrosymmetric).toBe(false);
     expect(st.friedel.fraction).toBe(1);
-    expect(st.friedel.rIntApart).toBeCloseTo(0, 12);
+    // The one Friedel-apart merge, the one get_state, reflection_statistics and the report quote.
+    expect(measurementMerge(rows, c.spaceGroup.operations).statistics.friedelApart!.rInt).toBeCloseTo(0, 12);
     // Merged in the Laue class the mates average: each 2 % off their mean, R_int 0.08/4.08.
     expect(mergeEquivalents(rows, c.spaceGroup.operations).statistics.rInt).toBeCloseTo(0.08 / 4.08, 12);
   });
 
   it("has no Friedel-apart R_int for a centrosymmetric group, whose mates are equivalent", () => {
     const c = crystal("P 1 21/c 1");
-    expect(reflectionStatistics(bijvoetRows(), c.cell, c.spaceGroup).friedel.rIntApart).toBeUndefined();
+    expect(measurementMerge(bijvoetRows(), c.spaceGroup.operations).statistics.friedelApart).toBeUndefined();
   });
 });

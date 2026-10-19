@@ -65,12 +65,25 @@ function positiveExtent(values: readonly number[]): [number, number] | null {
   return lo <= hi ? [lo, hi] : null;
 }
 
+/** Each point's σ: the file's where it gives one, counting statistics (√max(y, 1)) where it does not. */
+export function pointSigma(yObs: readonly number[], points: readonly { readonly sigma?: number }[] | null): number[] {
+  const given = points && points.length === yObs.length ? points : null;
+  return yObs.map((y, i) => {
+    const s = given?.[i]?.sigma;
+    return s !== undefined && s > 0 ? s : Math.sqrt(Math.max(y, 1));
+  });
+}
+
+/** The points a refinement fits: inside the window and off the excluded plateau. */
+export function fittedPoints(x: readonly number[], yObs: readonly number[], window: { readonly min: number; readonly max: number } | null | undefined): boolean[] {
+  const plateau = excludedPointMask(yObs);
+  return x.map((v, i) => !plateau[i] && !(window && (v < window.min || v > window.max)));
+}
+
 /** The residual of the points a refinement fits (inside the window, not on the excluded plateau), and how many there are. */
 export function powderResidual(input: PowderResidualInput): { residual: PowderResidual; observationCount: number } {
   const { curves, pattern } = input;
-  const plateau = excludedPointMask(curves.yObs);
-  const window = input.fitRange;
-  const keep = curves.x.map((x, i) => !plateau[i] && !(window && (x < window.min || x > window.max)));
+  const keep = fittedPoints(curves.x, curves.yObs, input.fitRange);
   const pick = <T>(a: readonly T[]): T[] => a.filter((_, i) => keep[i]);
   // Each point's own σ; counting statistics where the file gives none.
   const points = pattern.points.length === curves.x.length ? pattern.points : null;

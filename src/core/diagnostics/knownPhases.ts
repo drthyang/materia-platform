@@ -18,6 +18,7 @@ import { generateReflections } from "@/core/diffraction/reflections";
 import { powderPeakIntensities } from "@/core/diffraction/intensity";
 import type { Radiation } from "@/core/diffraction/types";
 import type { StructureModel } from "@/core/crystal/types";
+import { pct } from "@/core/math/precision";
 
 interface KnownPhase {
   readonly name: string;
@@ -333,4 +334,39 @@ export function identifyPeaks(peaks: readonly PeakToMatch[], radiation: Radiatio
   }
   const chance = asRare / CHANCE_DRAWS;
   return { candidates, verdict: chance < CHANCE_LIMIT ? "named" : "chance", chance };
+}
+
+/** The tools a surface has that the identification's reading names. */
+export interface IdentifyReadingTools {
+  /** The tool that adds a library phase to the model (add_known_phase). */
+  readonly add?: string;
+}
+
+/**
+ * identify_peaks' lead in words: the phase named, with the lines it explains,
+ * its d scale, where it usually comes from and the chance of so good a match
+ * by accident; or why none is named. `count` is the number of peaks read.
+ */
+export function identifyReading(count: number, id: PeakIdentification, tools: IdentifyReadingTools = {}): string {
+  const { candidates, verdict, strongestMissing, chance } = id;
+  const lead = candidates[0];
+  const of = `${count} peak${count === 1 ? "" : "s"}`;
+  if (!lead || verdict === "none") return `None of the ${of} matches a common sample-environment phase or standard: an impurity of the sample, magnetic order, or a feature to put to the user.`;
+  const lines = lead.explains.map((e) => e.hkl).filter((h, i, all) => all.indexOf(h) === i).join(", ");
+  const chanceText = chance === undefined ? "" : chance === 0
+    ? `random peaks never match a library phase as well (${CHANCE_DRAWS} draws of ${count} over this range)`
+    : `random peaks match a library phase as well in ${pct(chance)} % of draws (${CHANCE_DRAWS} draws of ${count} over this range)`;
+  const add = (what: string): string => (tools.add ? `add ${what} (${tools.add})` : `add ${what} to the model`);
+  if (verdict === "strongLineMissing" && strongestMissing) {
+    return `No convincing match: ${lead.phase} would explain ${lead.explains.length} of ${count} (${lines}), but its strongest line ${strongestMissing.hkl} at d ${strongestMissing.d.toFixed(3)} Å is not among the peaks. Unless that line hides under one of the sample's, report the peaks as unexplained.`;
+  }
+  if (verdict === "named") {
+    const also = lead.alsoExpected.length ? ` Its strong lines ${lead.alsoExpected.map((e) => `${e.hkl} at d ${e.d.toFixed(3)} Å`).join(", ")} should also be seen (they may hide under the sample's lines).` : "";
+    const next = lead.impurity
+      ? ` An impurity of the sample: put it to the user, and ${add("it")} so its lines are modelled and its weight fraction refines.`
+      : ` Put it to the user: ${add("the phase")} or leave the lines unmodelled and say so; it is not part of the sample.`;
+    return `${lead.explains.length} of ${of} match ${lead.phase} (${lines}), with its d-spacings × ${lead.dScale.toFixed(4)} — usually ${lead.source}; ${chanceText}.${also}${next}`;
+  }
+  if (verdict === "chance") return `Not enough to name a phase: ${lead.phase} would explain ${lead.explains.length} of ${of} (${lines}), but ${chanceText}. Report the peaks to the user as unexplained, ${lead.phase} a possibility to check.`;
+  return `Only weak or single matches (best: ${lead.phase} ${lines}): not enough to name a phase. Report the peaks to the user as unexplained.`;
 }

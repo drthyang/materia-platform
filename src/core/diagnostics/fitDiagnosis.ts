@@ -32,7 +32,10 @@
 
 import type { SpaceGroup, UnitCell } from "@/core/crystal/types";
 import type { ReflectionObsCalc } from "@/core/workflow/obsCalc";
-import { misfitSignature, powderValidation, type PowderValidation } from "@/core/diagnostics/powderValidation";
+import { misfitSignature, powderValidation, type DurbinWatson, type PowderValidation } from "@/core/diagnostics/powderValidation";
+import type { PowderXUnit } from "@/core/diffraction/types";
+import { pct, sig } from "@/core/math/precision";
+import { WIDTHS_AGREE } from "@/core/diagnostics/thresholds";
 import { minMax } from "@/core/math/extent";
 import { TEXTURE_CHANCE, textureTest, type TextureTest } from "@/core/diagnostics/textureTest";
 
@@ -54,6 +57,8 @@ export interface FitDiagnosisInput {
   readonly twoTheta: boolean;
   /** The position of a reflection at d on the pattern's axis. */
   readonly xOf: (d: number) => number;
+  /** The Caglioti U, V, W (and X, when the profile has it) are all free: once the widths agree, a shape misfit gets no width advice. */
+  readonly widthsFree?: { readonly lorentzian: boolean };
 }
 
 export type CauseId = "background" | "peak-width" | "peak-tails" | "peak-position" | "asymmetry" | "peak-shape" | "intensity-falloff" | "texture" | "structure";
@@ -261,7 +266,7 @@ export function diagnoseFit(input: FitDiagnosisInput): FitDiagnosis {
         id: "peak-shape",
         share: shapeShare,
         evidence: `± residual lobes on both sides of peaks across the pattern carry ${(100 * shapeShare).toFixed(0)}% of χ²`,
-        action: "A width or shape mismatch: free the Caglioti U, V, W together, then the Lorentzian X (size) and Y (strain); anisotropic broadening if some hkl are broader (Microstructure).",
+        action: peakShapeAction(width?.median, input.widthsFree),
       });
     }
   }
@@ -321,7 +326,7 @@ export function diagnoseFit(input: FitDiagnosisInput): FitDiagnosis {
   const ag = validation.agreement;
   const reading = [
     `GoF ${ag.gof.toFixed(2)} (Rwp ${(100 * ag.rwp).toFixed(2)}%, Rexp ${(100 * ag.rexp).toFixed(2)}%${ag.rwpBkg !== undefined ? `; background-subtracted Rwp′ ${(100 * ag.rwpBkg).toFixed(2)}%` : ""}).`,
-    ...(dw ? [dw.correlated ? `Durbin–Watson d = ${dw.d.toFixed(2)} < ${dw.qd.toFixed(2)}: neighbouring residuals miss together — a systematic misfit, and the esds are underestimated.` : `Durbin–Watson d = ${dw.d.toFixed(2)}: residuals uncorrelated.`] : []),
+    ...(dw ? [durbinWatsonSentence(dw)] : []),
     causes.length === 0
       ? "No dominant cause: the misfit is spread thin. If GoF is still well above 1, look at the worst reflections one by one."
       : `Most of the misfit: ${causes.slice(0, 3).map((c) => `${c.id} (~${(100 * c.share).toFixed(0)}% of χ²)`).join(", ")}. Address the largest first.`,
@@ -469,4 +474,64 @@ function interpolator(points: readonly (readonly [number, number])[]): (x: numbe
     const [x1, y1] = points[i]!;
     return y0 + ((y1 - y0) * (x - x0)) / (x1 - x0 || 1);
   };
+}
+
+/**
+ * The peak-shape cause's action: free the widths while they are fixed; once
+ * the Caglioti terms are free and the observed and calculated widths agree
+ * (within WIDTHS_AGREE), what is left is a shape the profile does not follow.
+ */
+export function peakShapeAction(widthRatio: number | undefined, widthsFree: { readonly lorentzian: boolean } | undefined): string {
+  if (!widthsFree || widthRatio === undefined || Math.abs(widthRatio - 1) > WIDTHS_AGREE) {
+    return "A width or shape mismatch: free the Caglioti U, V, W together, then the Lorentzian X (size) and Y (strain); anisotropic broadening if some hkl are broader (Microstructure).";
+  }
+  return `The Caglioti U, V, W${widthsFree.lorentzian ? " and the Lorentzian X" : ""} are already free and the line widths agree (observed/calculated ${sig(widthRatio, 3)}): what is left is a shape the profile does not follow, not a width. Read the worst reflections: lobes on one side at low angle are axial-divergence asymmetry (set_corrections asymmetry); some hkl broader than others are anisotropic broadening (set_microstrain); lobes that change side from peak to peak, at a few % of the peak, are the limit of the profile function — say so, and read the esds as too small by the Durbin–Watson factor rather than adding parameters.`;
+}
+
+/** The serial correlation of the residual in one sentence: the diagnosis's reading and the report's check give the same. */
+export function durbinWatsonSentence(dw: DurbinWatson): string {
+  return dw.correlated
+    ? `Durbin–Watson d = ${dw.d.toFixed(2)}, below Q_D = ${dw.qd.toFixed(2)}: neighbouring residuals correlate (a systematic misfit of the profile or the model), so the esds — and a posterior's intervals — are optimistic.`
+    : `Durbin–Watson d = ${dw.d.toFixed(2)} (Q_D = ${dw.qd.toFixed(2)}): no significant serial correlation of the residuals.`;
+}
+
+/** What diagnosisText reads of a diagnosis view. */
+export interface DiagnosisView {
+  readonly reading: string;
+  readonly causes: readonly { readonly cause: string; readonly chi2Share: number; readonly evidence: string }[];
+  readonly worstReflections?: readonly { readonly hkl: string; readonly d: number; readonly chi2Share: number; readonly misfit: string }[];
+}
+
+/** diagnose_fit's answer: the diagnosis rounded, each worst reflection's misfit in words, on the pattern's own axis. */
+export function fitDiagnosisView(dx: FitDiagnosis, unit: PowderXUnit): Record<string, unknown> & DiagnosisView {
+  const v = dx.validation;
+  return {
+    reading: dx.reading,
+    causes: dx.causes.map((c) => ({ cause: c.id, chi2Share: pct(c.share), evidence: c.evidence, action: c.action })),
+    agreement: {
+      rwp: pct(v.agreement.rwp), rexp: pct(v.agreement.rexp), gof: sig(v.agreement.gof, 3),
+      ...(v.agreement.rwpBkg !== undefined ? { rwpBackgroundSubtracted: pct(v.agreement.rwpBkg) } : {}),
+      ...(v.durbinWatson ? { durbinWatson: sig(v.durbinWatson.d, 3), durbinWatsonCritical: sig(v.durbinWatson.qd, 3) } : {}),
+    },
+    ...(dx.betweenPeaks ? { betweenPeaks: { chi2Share: pct(dx.betweenPeaks.share), chi2PerPoint: sig(dx.betweenPeaks.chi2PerPoint, 3), points: dx.betweenPeaks.points } } : {}),
+    ...(dx.width ? { lineWidths: { observedOverCalculated: sig(dx.width.median, 3), lowerThird: sig(dx.width.low, 3), upperThird: sig(dx.width.high, 3), isolatedLines: dx.width.lines, ...(dx.width.etaObs !== undefined && dx.width.etaCalc !== undefined && widthsComparable(dx.width) ? { lorentzianFraction: { observed: sig(dx.width.etaObs, 2), calculated: sig(dx.width.etaCalc, 2), lines: dx.width.shapeLines } } : {}) } } : {}),
+    dShells: v.shells.map((sh) => ({ d: `${sig(Math.min(sh.lo, sh.hi), 3)}–${sig(Math.max(sh.lo, sh.hi), 3)} Å`, chi2PerPoint: sig(sh.chi2PerPoint, 3), chi2Share: pct(sh.share) })),
+    worstReflections: dx.worst.map((w) => ({
+      hkl: `${w.phase ? `${w.phase} ` : ""}${w.hkl}`, d: sig(w.d, 4), [unit]: sig(w.x, 5), chi2Share: pct(w.share),
+      misfit: w.signature === "shape" ? `shape (residual ${w.lobe > 0 ? "on the high" : "on the low"}-${unit === "twoTheta" ? "angle" : "x"} side)` : w.signature === "under" ? "calculated too weak" : "calculated too strong",
+    })),
+    ...(dx.wilson ? { intensityFalloff: { deltaB: sig(dx.wilson.deltaB, 3), r: sig(dx.wilson.r, 2), reflections: dx.wilson.n } } : {}),
+    ...(dx.texture ? { textureTest: { axis: dx.texture.axis.join(" "), ratio: sig(dx.texture.ratio, 2), explained: pct(dx.texture.explained), chance: sig(dx.texture.chance, 2), reflections: dx.texture.n, axesSearched: dx.texture.axes } } : {}),
+  };
+}
+
+/**
+ * A diagnosis as the report gives it: the reading, each cause with its share
+ * of χ² and its evidence, and the three worst reflections. The report's check
+ * on the fit on screen, and the record of each earlier diagnosis.
+ */
+export function diagnosisText(dx: DiagnosisView): string {
+  const worst = (dx.worstReflections ?? []).slice(0, 3);
+  return `${dx.reading}${dx.causes.map((c) => ` ${c.cause} (${c.chi2Share} % of χ²): ${c.evidence}.`).join("")}` +
+    (worst.length > 0 ? ` Worst reflections: ${worst.map((w) => `${w.hkl} (d ${w.d} Å, ${w.chi2Share} % of χ², ${w.misfit})`).join("; ")}.` : "");
 }

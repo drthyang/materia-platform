@@ -1,14 +1,16 @@
 import { describe, it, expect } from "vitest";
-import { build_refinement, check_cell_symmetry, parse_structure, refine_powder, sample_posterior, simulate_pattern } from "@/mcp/tools";
+import { build_refinement, check_cell_symmetry, check_fit_range, parse_structure, refine_powder, sample_posterior, simulate_pattern } from "@/mcp/tools";
 import { executor, fakeHost } from "@/testSupport/agentHeadless";
-import { mn3gaWrongWavelengthSession, powderPage } from "@/agent/evals/pages";
+import { mn3gaEdgeSession, mn3gaMisfitSession, mn3gaSession, mn3gaSwappedUnitsSession, mn3gaWrongWavelengthSession, powderPage } from "@/agent/evals/pages";
+import { powderReportChecks } from "@/agent/powderTools";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import type { PowderPattern } from "@/core/diffraction/types";
 
 /**
- * One reading under both surfaces (plan 2.3): the cell check's and the
- * posterior's, which the app's tools gave and MCP's raw outputs left to the
- * client, now the same core functions in both.
+ * One reading under both surfaces (plan 2.3): the cell check's, the
+ * posterior's, the fit range's and the axis check's, which the app's tools
+ * gave and MCP's raw outputs left to the client, now the same core functions
+ * in both.
  */
 
 describe("the cell check's reading on MCP and in the app", () => {
@@ -24,6 +26,49 @@ describe("the cell check's reading on MCP and in the app", () => {
     const first = (t: string): string => t.slice(0, t.indexOf("absorb it.") + "absorb it.".length);
     expect(first(mcp.reading)).toBe(first(live.reading));
   });
+});
+
+describe("the fit range on MCP and in the app", () => {
+  it("reads the ends in the same words on both", async () => {
+    const port = powderPage(mn3gaEdgeSession());
+    const s = port.state();
+    type End = { end: string; verdict: string; cut?: number };
+    const live = JSON.parse((await executor(fakeHost(port).host).ex.run("check_fit_range", {})).text) as { basis: string; low: End; high: End };
+    const mcp = check_fit_range({ structure: s.structure, pattern: s.pattern, ...(s.instrument ? { instrument: s.instrument } : {}) });
+    expect(live.high.end).toBe("high-angle end");
+    expect(live.high.verdict).toBe("trim");
+    expect(mcp.high.verdict).toBe("trim");
+    // MCP's reading gives the app's words: each end by name with its verdict and cut, and what the reading rests on.
+    expect(mcp.reading).toContain(`The ${live.high.end}: trim at ${live.high.cut}`);
+    expect(mcp.reading).toContain(`The ${live.low.end}: ${live.low.verdict}`);
+    expect(mcp.reading).toContain(live.basis);
+    // Each surface names its own way to apply the window.
+    expect(mcp.reading).toMatch(/as `fitRange` to refine_powder/);
+    expect(mcp.reading).not.toMatch(/set_fit_range/);
+  });
+
+  it("warns of an axis in another unit on both, in one sentence, and not on the demo", async () => {
+    const port = powderPage(mn3gaSwappedUnitsSession());
+    const s = port.state();
+    const live = JSON.parse((await executor(fakeHost(port).host).ex.run("get_state", {})).text) as { axisWarning?: string };
+    const mcp = check_fit_range({ structure: s.structure, pattern: s.pattern, ...(s.instrument ? { instrument: s.instrument } : {}) });
+    expect(live.axisWarning).toMatch(/axis is likely in another unit/);
+    expect(mcp.axisWarning).toBe(live.axisWarning);
+    const demo = powderPage(mn3gaSession()).state();
+    expect(check_fit_range({ structure: demo.structure, pattern: demo.pattern, ...(demo.instrument ? { instrument: demo.instrument } : {}) }).axisWarning).toBeUndefined();
+  });
+});
+
+describe("one Durbin–Watson sentence", () => {
+  it("says the same in diagnose_fit's reading and the report's check", async () => {
+    const port = powderPage(mn3gaMisfitSession());
+    const { ex } = executor(fakeHost(port).host, "auto");
+    await ex.run("refine", {});
+    const dx = JSON.parse((await ex.run("diagnose_fit", {})).text) as { reading: string };
+    const check = powderReportChecks(port.state()).find((c) => c.name === "Serial correlation");
+    expect(check).toBeDefined();
+    expect(dx.reading).toContain(check!.detail);
+  }, 60_000);
 });
 
 const CIF = `data_t

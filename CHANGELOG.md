@@ -430,6 +430,15 @@ release fixes bugs.
 
 ### Changed
 
+- **Five more readings in one place for the app and MCP.** MCP's
+  `check_fit_range` returns the app's reading in words (`reading`) and warns
+  when the axis cannot be what the file says (`axisWarning`).
+  `reflection_statistics` quotes SHELXL's R_int (the Friedel mates apart in a
+  non-centrosymmetric group), as `get_state` and the report do, with the Laue
+  class's as `rIntLaue` (in place of `rIntFriedelApart`). `diagnose_fit` and
+  the report give the same Durbin–Watson sentence. MCP's posterior reading no
+  longer names `diagnose_fit`, which MCP does not have.
+
 - **The repository is `materia-platform`.** The published app moves to
   [drthyang.github.io/materia-platform](https://drthyang.github.io/materia-platform/)
   (the build's base path, the README and user guide, the app's links to the

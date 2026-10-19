@@ -177,7 +177,7 @@ reads when it picks a tool.
 
 **`build_refinement`** — Build the SYMMETRY-ALLOWED parameter set, bindings, and profile for a structure + pattern. Only symmetry-allowed parameters are created, so an agent cannot free a forbidden one. Feed `parameters`/`bindings`/`profile` to refine_powder.
 
-**`check_fit_range`** — The first step of a refinement: read the pattern's two ends and propose the fit window, as the GSAS-II tutorials do. The long-d end starts just below the first reflection (background only) unless the data hold peaks there no phase explains — magnetic order or another phase, which stay in. The far end stops in a gap below what is not real data: counts that step up and stay at the last points (a detector's or scan's edge), points with no counts, a line cut by the last point, the short-d stretch where no peak stands out of the noise, or (with a converged `result`) a stretch the model misses more than anywhere just inside. Every cut lies in a gap between reflections; a cut of more than 15 % of the points is flagged `large` — the user's call. Returns `low` and `high` (verdict, `cut`, findings with the evidence, notes on the counting σ), `proposed` (the window on the pattern's axis, or null), `proposedD` (Å) and `interior` (spikes, missing points no window removes). Pass the window on as `fitRange` to refine_powder and check_cell_symmetry.
+**`check_fit_range`** — The first step of a refinement: read the pattern's two ends and propose the fit window, as the GSAS-II tutorials do. The long-d end starts just below the first reflection (background only) unless the data hold peaks there no phase explains — magnetic order or another phase, which stay in. The far end stops in a gap below what is not real data: counts that step up and stay at the last points (a detector's or scan's edge), points with no counts, a line cut by the last point, the short-d stretch where no peak stands out of the noise, or (with a converged `result`) a stretch the model misses more than anywhere just inside. Every cut lies in a gap between reflections; a cut of more than 15 % of the points is flagged `large` — the user's call. Returns `low` and `high` (verdict, `cut`, findings with the evidence, notes on the counting σ), `proposed` (the window on the pattern's axis, or null), `proposedD` (Å), `interior` (spikes, missing points no window removes), `reading` (the same in words, each end named) and, when the structure has next to no reflection in the axis's d range, `axisWarning` (the axis is likely in another unit, or the wavelength wrong: ask the user before refining). Pass the window on as `fitRange` to refine_powder and check_cell_symmetry.
 
 **`check_cell_symmetry`** — A sanity check at the START of a refinement, not a gate: does the cell index every peak, and does the data respect the space group's systematic absences? A Le Bail fit refines the cell from peak positions alone (free intensities), with back-to-back-exponential peaks that widen with d on time-of-flight data; then it reads the leftover (≥ `significance` σ counts). On 2θ data it also refines a zero shift and the axial-divergence asymmetry, and draws a lab tube's Kα₂. `reading` says what the check found in the app's words (first a wrong wavelength or difC, from the pattern's own peaks: one factor on every d, which the Le Bail fit cannot follow). `unindexedPeaks` mean a wrong cell or lattice, or a missing phase — settle these first; pass known impurities as `extraPhases`. `shoulders` are small bumps (≤ 3 %) within a few widths of a strong line: a profile tail the simple Le Bail shape misses, not a phase, and not counted against the cell. `absences.violated` is a FLAG, not a verdict: before the structure is refined, profile misfit or an impurity line reads the same way. Do not change the space group on it — note it, refine the structure to the best, and question the group last with review_symmetry on the refined residual. `absences.untestable` lists forbidden reflections too close to an allowed one to judge. Only d ≥ `dMin` (0.7 Å) is read. It cannot catch a too-LARGE cell (a supercell indexes anything) or a group with too FEW absences — read `limits`. `passed` and `cell` (the Le Bail cell) are the result.
 
@@ -653,7 +653,9 @@ current.
   low-index axis; named only when shuffled misfits fit as well under 1 % of
   the time), and what is left for the structure; with the
   background-subtracted Rwp′, Durbin–Watson, χ² by d shell and the worst
-  reflections.
+  reflections. Once the Caglioti terms (and X) are all free and the widths
+  agree within 10 %, a width/shape misfit is read as shape, not width. Its
+  Durbin–Watson sentence is the report's.
 - **`identify_peaks`** matches extra peaks against the sample environment (Al,
   V, Cu, steels, Nb, Pb), common holders and standards, and the impurities a
   synthesis leaves most often, each phase's lines computed for the pattern's
@@ -705,7 +707,9 @@ current.
   residual scan.
 - **On the single-crystal page**, the tools follow SHELXL's conventions:
   - *The data.* `reflection_statistics` reads merging (R_int, R_σ,
-    redundancy), resolution and completeness by shell, whether the Friedel
+    redundancy, as SHELXL reports them and as `get_state` and the report
+    quote them: in a non-centrosymmetric group the Friedel mates apart and the
+    absences left out, the Laue class's R_int beside it), resolution and completeness by shell, whether the Friedel
     pairs were measured apart, the forbidden reflections measured at ≥ 3σ, and
     ⟨|E² − 1|⟩ (0.968 centrosymmetric, 0.736 not, lower for a twin; no test for
     a few sites on special positions), and how

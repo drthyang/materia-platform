@@ -20,7 +20,7 @@ const RESUME = { again: "call sample_posterior again with continue: true", brief
 
 /** The posterior as the Agent reads it. */
 export function posteriorView(result: SampleResult, parameters: readonly RefinementParameter[], esd: Readonly<Record<string, number>> | undefined, compare: readonly (readonly [string, string])[] = []): Record<string, unknown> {
-  const { converged, nearly, rows, correlations, reading } = posteriorReading(result, parameters, esd, compare, RESUME);
+  const { converged, nearly, rows, correlations, reading } = posteriorReading(result, parameters, esd, compare, RESUME, { diagnose: "diagnose_fit" });
   const differences = compare.map(([a, b]) => posteriorDifference(result, a, b));
   return {
     status: result.status,

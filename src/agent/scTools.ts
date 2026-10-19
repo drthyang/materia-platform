@@ -21,6 +21,7 @@ import { singleCrystalValidation, type ScValidation } from "@/core/diagnostics/s
 import { reflectionStatistics } from "@/core/diagnostics/reflectionStatistics";
 import { canonicalKey, isCentrosymmetric, laueRotations, pointGroupRotations } from "@/core/diffraction/merge";
 import { merohedralTwinLaws } from "@/core/diagnostics/twinLaws";
+import { absencesView, friedelSentence, hasRepeats, intensityView, quotedMerge as quotedMergeOf, rIntLaue, rIntQuoted, twinLawsView, type QuotedMerge } from "@/core/diagnostics/statisticsReading";
 import { floatingOrigins, polarDirections } from "@/core/crystal/polarOrigin";
 import { invertedModel } from "@/core/crystal/inversion";
 import { isHydrogen, nonPositiveDefiniteSites } from "@/core/crystal/adp";
@@ -729,31 +730,11 @@ function weightingAfter(s: SingleCrystalLiveState, input: Input): ShelxWeighting
   return a > 0 || b > 0 ? { a, b } : null;
 }
 
-/**
- * The merge a crystallographer quotes: in an acentric group the Friedel mates
- * kept apart and the absences left out, as SHELXL merges it (MERG 2); in a
- * centrosymmetric one, the Laue class.
- */
-const quotedMerge = (s: SingleCrystalLiveState): { readonly unique: number; readonly redundancy: number; readonly rInt: number; readonly rSigma: number } => s.merge.friedelApart ?? s.merge;
+/** The merge a crystallographer quotes (core/diagnostics/statisticsReading.ts): SHELXL's, the Friedel mates apart in an acentric group. */
+const quotedMerge = (s: SingleCrystalLiveState): QuotedMerge => quotedMergeOf(s.merge);
 
-/**
- * R_int, or why there is none: data holding each reflection once (merged, or
- * a refinement's listing) have no equivalents to compare. In an acentric group
- * each reflection's Friedel mate is another reflection: merged in the Laue
- * class, a listing's Bijvoet pairs would differ by their anomalous signal,
- * which is no R_int.
- */
-const rIntOf = (s: SingleCrystalLiveState): number | string => {
-  const m = quotedMerge(s);
-  if (m.redundancy > 1 + 1e-9) return pct(m.rInt);
-  if (!(s.merge.friedelApart && s.merge.redundancy > 1 + 1e-9)) return "n/a (each reflection once: merged data)";
-  // What the Bijvoet pairs differ by: the anomalous signal the model gives them, and the measurements' noise. The model says which.
-  const model = modelBijvoetSpread(s);
-  const which = model === null ? ""
-    : model >= 0.5 * s.merge.rInt ? `, mostly their anomalous signal (the model's own Bijvoet differences give ${pct(model)} %)`
-      : `; the model's anomalous differences give ${pct(model)} %, so the rest is the measurements' disagreement`;
-  return `n/a (each reflection once, its Friedel mate apart; merged with them the Bijvoet pairs differ by ${pct(s.merge.rInt)} %${which})`;
-};
+/** R_int as quoted, or why there is none; the model's Bijvoet differences say what a listing's pairs differ by. */
+const rIntOf = (s: SingleCrystalLiveState): number | string => rIntQuoted(s.merge, () => modelBijvoetSpread(s));
 
 /** Σ|Fc²(h) − Fc²(−h)| / Σ(Fc²(h) + Fc²(−h)) over the Bijvoet pairs fitted: the anomalous difference the model gives them, as an R_int would read it. */
 function modelBijvoetSpread(s: SingleCrystalLiveState): number | null {
@@ -1195,18 +1176,16 @@ function statisticsView(s: SingleCrystalLiveState): Record<string, unknown> {
   // The data as measured: with the fit on the merged set, the measurement as loaded (its absences, its Friedel pairs).
   const read = s.dataset.merged ? s.measurement.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.iObs, sigma: r.sigma ?? 0 })) : s.rows.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.foSq, sigma: r.sigma }));
   const st = reflectionStatistics(read, s.structure.cell, s.structure.spaceGroup, { sites: s.structure.sites.length, special, twinned: s.twinLaws.some((l) => !isInversion(l)) });
-  const f = st.friedel;
-  const hkl = (x: { h: number; k: number; l: number }): string => `${x.h} ${x.k} ${x.l}`;
+  const quoted = quotedMerge(s);
   return {
     reflections: {
       [s.dataset.origin === "refinement-listing" ? "listed" : "measured"]: s.dataset.merged ? s.totalReflections : s.observationCount,
-      // Data holding each reflection once (a listing, or merged) count as the merge that keeps the Friedel mates apart: a mate is not a repeat.
-      unique: quotedMerge(s).redundancy > 1 + 1e-9 ? s.merge.unique : quotedMerge(s).unique,
-      redundancy: sig(quotedMerge(s).redundancy > 1 + 1e-9 ? s.merge.redundancy : quotedMerge(s).redundancy, 3),
-      // A listing (or merged data) holds each reflection once: its Laue-class "R_int" is only the Bijvoet pairs' anomalous difference.
-      rInt: quotedMerge(s).redundancy > 1 + 1e-9 ? pct(s.merge.rInt) : rIntOf(s),
-      ...(f.rIntApart !== undefined && quotedMerge(s).redundancy > 1 + 1e-9 ? { rIntFriedelApart: pct(f.rIntApart), rIntNote: "rInt merges each reflection's Laue-class equivalents, the Friedel mates among them; rIntFriedelApart keeps the mates apart and leaves the absences out, as SHELXL merges a non-centrosymmetric group and reports it. The difference is what the mates differ by: the anomalous signal." } : {}),
-      rSigma: pct(quotedMerge(s).redundancy > 1 + 1e-9 ? s.merge.rSigma : quotedMerge(s).rSigma),
+      // The merge SHELXL reports, as get_state and the report quote it; data holding each reflection once count each once.
+      unique: quoted.unique,
+      redundancy: sig(quoted.redundancy, 3),
+      rInt: rIntOf(s),
+      ...(rIntLaue(s.merge) ?? {}),
+      rSigma: pct(quoted.rSigma),
       ...(s.dataset.merged ? { fitted: mergedText(s) } : {}),
     },
     ...(s.dataset.origin === "refinement-listing" ? { origin: LISTING_NOTE } : {}),
@@ -1217,42 +1196,14 @@ function statisticsView(s: SingleCrystalLiveState): Record<string, unknown> {
       unique: sh.unique,
       ...(sh.completeness !== undefined ? { completeness: pct(sh.completeness) } : {}),
       iOverSigma: sig(sh.iOverSigma, 3),
-      ...(sh.rInt !== undefined && quotedMerge(s).redundancy > 1 + 1e-9 ? { rInt: pct(sh.rInt) } : {}),
+      ...(sh.rInt !== undefined && hasRepeats(quoted) ? { rInt: pct(sh.rInt) } : {}),
     })),
-    friedel: f.centrosymmetric
-      ? "centrosymmetric group: Friedel mates are equivalent; no absolute structure to determine"
-      : `${f.withMate} of the ${f.unique - f.centric} acentric reflections unique under the point group have their Friedel mate measured (${pct(f.fraction)} %)${f.centric ? `; ${f.centric} more are centric (no Bijvoet pair)` : ""}${f.fraction < 0.2 ? ": the Friedel pairs were merged (or never measured) — the absolute structure cannot be determined from these data" : ""}`,
-    absences: st.absences.measured === 0
-      ? "no reflection the space group forbids was measured (or the file left them out)"
-      : {
-          measured: st.absences.measured,
-          atThreeSigma: st.absences.violated.length,
-          strongest: st.absences.violated.slice(0, 8).map((a) => `${hkl(a)} (d ${sig(a.d, 4)} Å, ${sig(a.iOverSigma, 3)}σ${a.ofAllowed !== undefined ? `, ${pct(a.ofAllowed)} % of the mean allowed intensity at that d` : ""})`),
-          reading: "A few weak ones, at a small fraction of the allowed intensity, are what multiple diffraction (Renninger) gives in a good crystal, or λ/2; a whole class of strong ones questions the group.",
-        },
-    intensityStatistics: !Number.isFinite(st.intensities.meanAbsE2Minus1) ? "too few reflections"
-      : !st.intensities.applies ? { meanAbsE2Minus1: sig(st.intensities.meanAbsE2Minus1, 3), reading: st.intensities.reading }
-        : {
-            meanAbsE2Minus1: sig(st.intensities.meanAbsE2Minus1, 3),
-            fractionWeak: sig(st.intensities.fractionWeak, 3),
-            reading: st.intensities.reading,
-            expected: "0.968 centrosymmetric, 0.736 non-centrosymmetric, 0.541 for a perfect twin of a non-centrosymmetric crystal (each intensity the mean of two); E² < 0.1 for 24.8 % or 9.5 % of reflections",
-            group: v.centrosymmetric ? "the space group is centrosymmetric" : "the space group is non-centrosymmetric",
-            note: "From the measured intensities: strong extinction lowers the strong end, and the value with it.",
-          },
-    twinLaws: twinLawsView(read, s),
+    friedel: friedelSentence(st.friedel),
+    absences: absencesView(st.absences),
+    intensityStatistics: intensityView(st.intensities, v.centrosymmetric),
+    twinLaws: twinLawsView(merohedralTwinLaws(read, s.structure.cell, s.structure.spaceGroup), { twin: "set_twin" }),
     reflectionsPerParameter: sig(v.reflectionsPerParameter, 3),
     ...(measurementView(s) ? { measurement: measurementView(s) } : {}),
-  };
-}
-
-/** The lattice's merohedral twin laws, each with the fraction Yeates' H-test reads for it from the data alone. */
-function twinLawsView(read: readonly { h: number; k: number; l: number; intensity: number; sigma: number }[], s: SingleCrystalLiveState): Record<string, unknown> | string {
-  const laws = merohedralTwinLaws(read, s.structure.cell, s.structure.spaceGroup);
-  if (laws.length === 0) return "none: the lattice holds no symmetry beyond the Laue class, so no merohedral twin (a pseudo-merohedral one needs a cell that nearly holds more)";
-  return {
-    laws: laws.map((l) => ({ law: l.matrix, indices: l.indices, pairs: l.pairs, ...(l.pairs > 0 ? { meanH: sig(l.meanH, 3), alpha: sig(l.alpha, 3) } : { alpha: `no ${l.distribution} pair (h, R·h) measured above 3σ: the test has nothing to read for this law` }) })),
-    reading: `Yeates' H-test, before any model: over the pairs (h, R·h) both measured above 3σ, ⟨H⟩ = ⟨|I₁ − I₂|/(I₁ + I₂)⟩ = ${laws[0]!.distribution === "centric" ? "(2/π)(1 − 2α) — the group is centrosymmetric, so every reflection is centric and I₁/(I₁ + I₂) follows the arcsine law" : "½ − α over the acentric pairs"}. A law with α well above the others' twins the crystal: set_twin with it, and refine its fraction. The test's α is an estimate, and on weak data a high one: keeping only the pairs both above 3σ drops those with one weak member, which raises α, so with few pairs an untwinned crystal can read 0.1–0.3 (the refined fraction decides). A perfect twin by one law leaves the others near α ≈ 0.12 (each intensity then the mean of two), and pseudo-symmetry raises every α; all near 0: no merohedral twin.`,
   };
 }
 
