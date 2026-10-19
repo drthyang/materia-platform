@@ -66,4 +66,5 @@ runs the step's rules as the app does.
 
 ## Checks
 
-`npm run build`, `npm run lint` and `npm test` pass at the branch head.
+`npm run build`, `npm run lint` and `npm test` pass at the branch head: 2361
+tests, 265 skipped (live runs and data-dependent suites).
