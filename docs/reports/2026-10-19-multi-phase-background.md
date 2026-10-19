@@ -122,5 +122,5 @@ basis on a page with a second phase now refines on it.
 ## Checks
 
 `npm run build`, `npm run lint` and `npm test` pass at the branch head, with
-`main` at #75 merged in: 2377 tests, 265 skipped (live runs and
+`main` at #78 merged in: 2381 tests, 265 skipped (live runs and
 data-dependent suites).

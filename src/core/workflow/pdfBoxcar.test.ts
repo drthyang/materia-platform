@@ -208,50 +208,7 @@ describe("boxcar refinement through the sequential controller", () => {
     expect(seen.every((s) => s.total === windows.length)).toBe(true);
   });
 
-  it("per-box random restarts never lose to the seed-only fit, and repeat exactly", async () => {
-    // The boxcar's characteristic risk is path dependence: every box is seeded
-    // from the last, so one box's local minimum propagates. Restarts re-search
-    // each box around its seed — with the seeded start kept as the baseline
-    // candidate, so a box can only improve.
-    const datasets = boxcarDatasets(structure, pattern, spec.bindings, windows);
-    const { refine } = await import("@/core/refinement/engine");
-    const { refineMultiStart } = await import("@/core/refinement/multiStart");
-
-    const withRestarts = (): Promise<import("@/core/refinement/sequential").SequentialResult> =>
-      refineSequentialAsync(
-        spec.params,
-        datasets,
-        { refineOptions: { maxIterations: 20 } },
-        async (problem, options, _dataset, index) => {
-          const w = windows[index]!;
-          const ms = await refineMultiStart(
-            problem.parameters,
-            (start) => {
-              const result = refine(
-                buildPdfProblem(structure, pattern, start, spec.bindings, [], { min: w.min, max: w.max }),
-                options,
-              );
-              return { parameters: start.map((p) => ({ ...p, value: result.parameters[p.id] ?? p.value })), final: result };
-            },
-            { restarts: 3, seed: 0xb0 + Math.round(w.center * 1000) },
-          );
-          return ms.final;
-        },
-      );
-
-    const seedOnly = refineSequential(spec.params, datasets, { refineOptions: { maxIterations: 20 } });
-    const restarted = await withRestarts();
-    for (let i = 0; i < windows.length; i++) {
-      const a = seedOnly.steps[i]!.result.agreement.rWeighted ?? Infinity;
-      const b = restarted.steps[i]!.result.agreement.rWeighted ?? Infinity;
-      // Same data, same window: keeping the best of (seed + restarts) can only
-      // match or beat the seed alone (a hair of LM path noise allowed).
-      expect(b).toBeLessThanOrEqual(a * 1.001);
-    }
-    // Deterministic RNG per box → a rerun reproduces the series exactly.
-    const again = await withRestarts();
-    expect(again.evolution).toEqual(restarted.evolution);
-  });
+  // Per-box restarts are the boxcar driver's (workers/strategy.ts), tested there.
 
   it("maps a down pass's scan order back onto the ascending plan", () => {
     // A "down" pass fits the LAST box first, so its step k is window n-1-k.
