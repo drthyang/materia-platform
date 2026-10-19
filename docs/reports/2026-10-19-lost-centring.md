@@ -1,6 +1,6 @@
 # The symmetry review names a lost centring
 
-Pull request [#PR](https://github.com/drthyang/web-refinement/pull/PR),
+Pull request [#92](https://github.com/drthyang/web-refinement/pull/92),
 branch `claude/plan-4-11`, stacked on #83 (4.10, the candidates' order),
 2026-10-19. Plan: [AGENT_PLAN.md](../AGENT_PLAN.md), 4.11 (approved, after
 the core). Developed on the dev case `dev-cscl-wrong-centring` only.
