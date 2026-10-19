@@ -504,6 +504,14 @@ release fixes bugs.
 
 ### Fixed
 
+- **The MCP magnetic tools draw the pattern the fit solves.** With a
+  magnetic model, `evaluate_pattern`, `simulate_pattern` and
+  `rank_next_parameters` (the Agent's too) kept only the profile's shape
+  and η: a cosine (or other) background was drawn on Chebyshev, and the
+  Lorentz factor was on whatever the profile said. The components
+  `refine_magnetic_powder` returns dropped η, and drew an extra phase with
+  the Lorentz factor on. Their curves and wR are now the fitted problem's.
+
 - **A local model no longer loops, its prompt cut.** On qwen3.8-27b in LM
   Studio the Agent re-read its method and the state until the turn cap: the
   instructions and every tool took 18.8k of the model's 32k tokens, LM Studio
