@@ -109,9 +109,10 @@ export const PDF_PLANS: Plans<PdfAgentPort> = {
     const step = input.step ?? 1;
     const boxes = boxcarWindows({ range: s.fitRange, width, step }).length;
     const count = free ? free.length : s.parameters.filter((p) => !p.fixed && !p.expression).length;
-    const preview = `Boxcar scan: ${boxes} boxes of ${width} Å every ${step} Å across r ${sig(s.fitRange.min, 4)} – ${sig(s.fitRange.max, 4)} Å, ${count} free parameters${input.direction === "both" ? ", both directions" : input.direction === "down" ? ", high → low r" : ""}`;
+    const restarts = input.restarts ?? 0;
+    const preview = `Boxcar scan: ${boxes} boxes of ${width} Å every ${step} Å across r ${sig(s.fitRange.min, 4)} – ${sig(s.fitRange.max, 4)} Å, ${count} free parameters${input.direction === "both" ? ", both directions" : input.direction === "down" ? ", high → low r" : ""}${restarts > 0 ? `, best of ${restarts + 1} starts per box` : ""}`;
     return change(preview, async () => {
-      const run = await port.boxcar({ width, step, direction: input.direction ?? "up", ...(sites.length ? { bonds: sites } : {}), ...(free ? { free } : {}) });
+      const run = await port.boxcar({ width, step, direction: input.direction ?? "up", restarts, ...(sites.length ? { bonds: sites } : {}), ...(free ? { free } : {}) });
       if (!run) return "The scan did not finish (cancelled, failed, or the model changed while it ran).";
       return { note: boxcarLine(run), data: boxcarView(run, s, sites) };
     });
@@ -173,15 +174,14 @@ export function pdfReferences(s: PdfLiveState): ReferenceEntry[] {
 }
 
 /**
- * The MCP assessment, read for real space: the GoF (and the expected R it is
- * formed from) is dropped, since uniform weights make it meaningless, and no
- * residual is passed — its peak scan works in d-spacing, on Bragg peaks.
+ * The assessment in real space (its PDF mode leaves out the GoF, which uniform
+ * weights make meaningless), with no residual passed: its peak scan works in
+ * d-spacing, on Bragg peaks.
  */
 function assessment(s: PdfLiveState): ReturnType<typeof assess_refinement> & { convention: string } {
   if (!s.result) throw new Error("there is no refinement result on screen — refine first (a model change clears the last result)");
-  const { goodnessOfFit: _gof, rExpected: _rExp, ...agreement } = s.result.agreement;
   const out = assess_refinement({
-    result: { ...s.result, agreement },
+    result: s.result,
     parameters: [...s.parameters],
     observationCount: s.observationCount,
     mode: "pdf",
@@ -239,6 +239,9 @@ function boxcarView(run: BoxcarRun, s: PdfLiveState, sites: readonly string[]): 
         Rw: pct(step.result.agreement.rWeighted ?? NaN),
         ...(step.carried ? {} : { diverged: true }),
         values: Object.fromEntries(run.freeIds.map((id) => [id, sig(step.result.parameters[id] ?? NaN, 5)])),
+        esds: Object.fromEntries(run.freeIds.map((id) => [id, sig(step.result.esd[id] ?? NaN, 2)])),
+        _esd: step.result.esd,
+        _values: step.result.parameters,
         ...(bonds ? { bonds: Object.fromEntries(Object.entries(bonds).map(([site, list]) => [site, list.map((b) => `${b.to} ${b.distance.toFixed(4)}${b.count > 1 ? ` ×${b.count}` : ""}`)])) } : {}),
         _bonds: bonds,
       };
@@ -247,7 +250,11 @@ function boxcarView(run: BoxcarRun, s: PdfLiveState, sites: readonly string[]): 
       const v = boxes.map((b) => b.values[id] as number).filter(Number.isFinite);
       const lo = Math.min(...v);
       const hi = Math.max(...v);
-      return [id, { label: label.get(id) ?? id, first: v[0], last: v.at(-1), min: lo, max: hi }];
+      // The first box against the last, in the esd of their difference (apart, they share no data).
+      const [a, b] = [boxes[0], boxes.at(-1)];
+      const sd = a && b ? Math.hypot(a._esd[id] ?? NaN, b._esd[id] ?? NaN) : NaN;
+      const drift = a && b && sd > 0 ? ((b._values[id] ?? NaN) - (a._values[id] ?? NaN)) / sd : NaN;
+      return [id, { label: label.get(id) ?? id, first: v[0], last: v.at(-1), min: lo, max: hi, ...(Number.isFinite(drift) ? { driftInEsds: sig(drift, 2) } : {}) }];
     }));
     // Each bond of the first box, followed through the boxes by its rank in the site's list.
     const bondSpread: Record<string, { first: number; last: number; min: number; max: number }> = {};
@@ -259,12 +266,13 @@ function boxcarView(run: BoxcarRun, s: PdfLiveState, sites: readonly string[]): 
         bondSpread[`${site}–${b.to}${b.count > 1 ? ` ×${b.count}` : ""} #${k + 1}`] = { first: sig(v[0]!, 5), last: sig(v.at(-1)!, 5), min: sig(Math.min(...v), 5), max: sig(Math.max(...v), 5) };
       });
     }
-    return { direction: series.direction, boxes: boxes.map(({ _bonds: _drop, ...box }) => box), spread, ...(sites.length ? { bondSpread } : {}) };
+    return { direction: series.direction, boxes: boxes.map(({ _bonds: _b, _esd: _e, _values: _v, ...box }) => box), spread, ...(sites.length ? { bondSpread } : {}) };
   });
   return {
-    boxcar: { width: run.width, boxes: run.windows.length, passes },
-    reading: "Rw and a parameter that drift together across r mean the model fits some length scales and not others: compare the low-r boxes (the local structure) with the high-r ones (the average)." +
-      (sites.length ? " The bond lengths are each box's refined structure (Å); the scan gives no esds, so judge a drift against the spread from box to box." : ""),
+    boxcar: { width: run.width, boxes: run.windows.length, restarts: run.restarts, passes },
+    reading: "Rw and a parameter that drift together across r mean the model fits some length scales and not others: compare the low-r boxes (the local structure) with the high-r ones (the average). Each box's values carry its fit's esds (`esds`), and `driftInEsds` is a parameter's change from the first box to the last over the esd of that difference. A PDF's points are correlated and it has no GoF, so these esds understate the uncertainty: read a drift of a few esds against the scatter from box to box as well, and a drift of tens as real." +
+      (run.restarts > 0 ? ` Each box kept the best of ${run.restarts + 1} starts.` : "") +
+      (sites.length ? " The bond lengths are each box's refined structure (Å) and carry no esds: judge their drift against the spread from box to box." : ""),
   };
 }
 

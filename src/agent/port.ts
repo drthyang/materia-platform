@@ -188,7 +188,7 @@ export interface PdfAgentPort {
    *  view opens): the free set — or the plan's own `free` ids — refined in each
    *  box across the fit window. The parameter rows are left as they are. Null
    *  when it was cancelled or failed. */
-  readonly boxcar: (plan: { readonly width: number; readonly step: number; readonly direction: BoxcarDirectionChoice; readonly bonds?: readonly string[]; readonly free?: readonly string[] }) => Promise<BoxcarRun | null>;
+  readonly boxcar: (plan: { readonly width: number; readonly step: number; readonly direction: BoxcarDirectionChoice; readonly bonds?: readonly string[]; readonly free?: readonly string[]; readonly restarts?: number }) => Promise<BoxcarRun | null>;
   /** Sample the Bayesian posterior of the free parameters (the Posterior tab's Sample / Continue). */
   readonly samplePosterior?: PosteriorSampler;
   /** The page's report of what is on screen (Export ▾ → Report): the engine's numbers, ready to render. */

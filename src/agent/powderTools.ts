@@ -29,7 +29,7 @@ import { powderResidual, type PowderResidual } from "@/core/diagnostics/powderRe
 import { unexplainedPeaks, type PeakReading } from "@/core/diagnostics/unexplainedPeaks";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { diagnoseFit, widthsComparable } from "@/core/diagnostics/fitDiagnosis";
-import { knownPhaseNames, knownPhaseStructure, matchKnownPhases } from "@/core/diagnostics/knownPhases";
+import { CHANCE_DRAWS, identifyPeaks, knownPhaseNames, knownPhaseStructure } from "@/core/diagnostics/knownPhases";
 import { withAntisite } from "@/core/crystal/antisite";
 import { structureTable } from "@/agent/structureTable";
 import { powderReflectionObsCalc } from "@/core/workflow/obsCalc";
@@ -42,12 +42,10 @@ import type { ReportCheck } from "@/core/export/report";
 import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, correlationsCheck, findingChecks, noResultCheck, verdictCheck } from "@/agent/reportChecks";
 import { groupOf } from "@/agent/method";
 import { MAGNETIC_PLANS, magneticNext } from "@/agent/magneticTools";
-import type { UnitCell } from "@/core/crystal/types";
-import { dScaleSearch, observedPeaks, wrongScale } from "@/core/diagnostics/dScale";
-import { lostCentring } from "@/core/diagnostics/lostCentring";
-import { LE_BAIL_UNSETTLED } from "@/core/diagnostics/thresholds";
+import { cellCheckReading, dScaleReading } from "@/core/diagnostics/cellReading";
 import { inspectDataRange, type DataEnd, type DataRangeReading } from "@/core/diagnostics/dataRange";
 import type { ReferenceEntry } from "@/agent/references";
+import { minMax } from "@/core/math/extent";
 
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- inputs are validated against the spec's zod schema before a handler runs */
@@ -146,29 +144,7 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
       if (marks.length > 0) port.showPeaks(marks);
       // A check, not a gate: an absence flag is recorded and revisited at the
       // end (review_symmetry), never acted on before the structure is refined.
-      const violated = check.absences.violated;
-      const flags = violated.map((v) => `${v.h} ${v.k} ${v.l} at d ${v.d.toFixed(3)} Å`).join(", ");
-      // The cell a good Le Bail fit found, against the structure's: one factor on every length reads as the wavelength.
-      const unsettled = check.leBail.rWeighted >= LE_BAIL_UNSETTLED;
-      const shift = scale ?? (!unsettled ? cellShiftReading(s.structure.cell, check.cell, s.pattern.xUnit) : null);
-      // Every flagged absence of the class the model's centring forbids: the data's lattice may be primitive.
-      const lost = lostCentring((s.refinedPhases[0] ?? s.structure).spaceGroup, violated.map((v) => [v.h, v.k, v.l] as const));
-      const peaksText = `${unindexed.length} peak${unindexed.length === 1 ? "" : "s"}`;
-      const readings = [
-        ...(shift ? [shift] : []),
-        ...(unindexed.length > 0
-          ? [unsettled && !scale
-            ? `The Le Bail fit did not settle (Rwp ${pct(check.leBail.rWeighted)} %): from this start it cannot follow the peaks, so the model's own lines are likely among the ${peaksText} it leaves unindexed — a start further off than the fit follows, more often than a missing phase. Run the Prefit (refine with mode "thorough": the Le Bail cell, then restarts from it${s.result ? "; with a fit on screen, go_to_step back to the start first, since after a fit the mode is the Escape minimum" : ""}), then this check again: the peaks it still leaves unindexed are a missing phase or a wrong cell.`
-            : `${peaksText} no reflection of the cell indexes: a missing phase (most often) or a wrong cell. identify_peaks (with their d) checks the sample environment and common standards. Settle this with the user before refining the structure.`]
-          : []),
-        ...(check.shoulders.length > 0 ? [shoulderReading(check.shoulders, s.pattern.xUnit)] : []),
-        ...(lost
-          ? [`${violated.length} forbidden reflections show leftover intensity (${flags}), every one of the class the ${lost.centring} centring forbids (${lost.condition}): the pattern of a lost centring — the data's lattice primitive where the model's is ${lost.centring}-centred, an order the model averages (two elements sharing one site that order onto two) — as well as of another phase whose lines land there. No refinement of this model puts intensity there. Note it (write_note) and put it to the user now, with these reflections and both readings; do not change the model yourself. The refinement can go on, but it cannot fit these lines.`]
-          : violated.length > 0
-          ? [`${violated.length} forbidden reflection${violated.length === 1 ? "" : "s"} show${violated.length === 1 ? "s" : ""} leftover intensity (${flags}). This is a flag, not a verdict: before the structure is refined, profile misfit${unindexed.length > 0 ? ", or a line of the unindexed phase," : ""} reads the same way. Do not change the space group now: note it (write_note) and refine the structure to the best; review_symmetry reads the refined residual at the end.`]
-          : []),
-      ];
-      const reading = readings.length > 0 ? readings.join(" ") : "Every peak indexes and no forbidden reflection shows intensity: refine the structure.";
+      const reading = cellCheckReading(check, { loaded: s.structure.cell, unit: s.pattern.xUnit, scale, tools: { identify: "identify_peaks", note: "write_note", review: "review_symmetry", prefit: 'refine with mode "thorough"' }, spaceGroup: (s.refinedPhases[0] ?? s.structure).spaceGroup, fitOnScreen: !!s.result });
       // Shoulders in the pattern's own unit, rounded.
       const shoulders = check.shoulders.map((sh) => ({ x: sig(sh.x, 6), significance: sig(sh.significance, 3), of: sh.of, offset: sig(sh.offset, 3), relativeHeight: sig(sh.relativeHeight, 2) }));
       // The Le Bail fit as the report gives it (cellCheckSummary): the cell to six figures, Rwp in per cent.
@@ -227,19 +203,23 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
         : residualPeaks(residual, { limit: 12 }).between.map((p) => ({ d: p.d, height: p.height }));
       if (peaks.length === 0) return { peaks: [], candidates: [], reading: "No unexplained peak to identify: every residual peak sits on or beside a reflection of the model's phases." };
       const finite = residual.d.filter((v) => Number.isFinite(v) && v > 0);
-      const candidates = matchKnownPhases(peaks, s.pattern.radiation, { dMin: Math.min(...finite), dMax: Math.max(...finite) });
+      const span = minMax(finite);
+      const { candidates, verdict, strongestMissing, chance } = identifyPeaks(peaks, s.pattern.radiation, { dMin: span.min, dMax: span.max });
       const lead = candidates[0];
-      // A phase whose strongest line is missing is a doubtful match, however many weak lines it explains
-      // (round 10: graphite offered for two weak NAC lines without its 002).
-      const strongestMissing = lead?.alsoExpected.find((e) => e.relativeIntensity >= 0.8);
-      const strongLead = lead && !strongestMissing && (lead.explains.length >= 2 || (lead.explains.length === 1 && lead.explains[0]!.relativeIntensity >= 0.8 && lead.alsoExpected.length === 0));
-      const reading = !lead
-        ? `None of the ${peaks.length} peak${peaks.length === 1 ? "" : "s"} matches a common sample-environment phase or standard: an impurity of the sample, magnetic order, or a feature to put to the user.`
-        : strongestMissing
-          ? `No convincing match: ${lead.phase} would explain ${lead.explains.length} of ${peaks.length} (${lead.explains.map((e) => e.hkl).join(", ")}), but its strongest line ${strongestMissing.hkl} at d ${strongestMissing.d.toFixed(3)} Å is not among the peaks. Unless that line hides under one of the sample's, report the peaks as unexplained.`
-        : strongLead
-          ? `${lead.explains.length} of ${peaks.length} peak${peaks.length === 1 ? "" : "s"} match ${lead.phase} (${lead.explains.map((e) => e.hkl).join(", ")}), with its d-spacings × ${lead.dScale.toFixed(4)} — usually ${lead.source}.${lead.alsoExpected.length ? ` Its strong lines ${lead.alsoExpected.map((e) => `${e.hkl} at d ${e.d.toFixed(3)} Å`).join(", ")} should also be seen (they may hide under the sample's lines).` : ""}${lead.impurity ? " An impurity of the sample: put it to the user, and add it (add_known_phase) so its lines are modelled and its weight fraction refines." : " Put it to the user: add the phase (add_known_phase) or leave the lines unmodelled and say so; it is not part of the sample."}`
-          : `Only weak or single matches (best: ${lead.phase} ${lead.explains.map((e) => e.hkl).join(", ")}): not enough to name a phase. Report the peaks to the user as unexplained.`;
+      const of = `${peaks.length} peak${peaks.length === 1 ? "" : "s"}`;
+      const lines = lead ? lead.explains.map((e) => e.hkl).filter((h, i, all) => all.indexOf(h) === i).join(", ") : "";
+      const chanceText = chance === undefined ? "" : chance === 0
+        ? `random peaks never match a library phase as well (${CHANCE_DRAWS} draws of ${peaks.length} over this range)`
+        : `random peaks match a library phase as well in ${pct(chance)} % of draws (${CHANCE_DRAWS} draws of ${peaks.length} over this range)`;
+      const reading = !lead || verdict === "none"
+        ? `None of the ${of} matches a common sample-environment phase or standard: an impurity of the sample, magnetic order, or a feature to put to the user.`
+        : verdict === "strongLineMissing" && strongestMissing
+          ? `No convincing match: ${lead.phase} would explain ${lead.explains.length} of ${peaks.length} (${lines}), but its strongest line ${strongestMissing.hkl} at d ${strongestMissing.d.toFixed(3)} Å is not among the peaks. Unless that line hides under one of the sample's, report the peaks as unexplained.`
+        : verdict === "named"
+          ? `${lead.explains.length} of ${of} match ${lead.phase} (${lines}), with its d-spacings × ${lead.dScale.toFixed(4)} — usually ${lead.source}; ${chanceText}.${lead.alsoExpected.length ? ` Its strong lines ${lead.alsoExpected.map((e) => `${e.hkl} at d ${e.d.toFixed(3)} Å`).join(", ")} should also be seen (they may hide under the sample's lines).` : ""}${lead.impurity ? " An impurity of the sample: put it to the user, and add it (add_known_phase) so its lines are modelled and its weight fraction refines." : " Put it to the user: add the phase (add_known_phase) or leave the lines unmodelled and say so; it is not part of the sample."}`
+        : verdict === "chance"
+          ? `Not enough to name a phase: ${lead.phase} would explain ${lead.explains.length} of ${of} (${lines}), but ${chanceText}. Report the peaks to the user as unexplained, ${lead.phase} a possibility to check.`
+          : `Only weak or single matches (best: ${lead.phase} ${lines}): not enough to name a phase. Report the peaks to the user as unexplained.`;
       return {
         peaks: peaks.map((p) => ({ d: sig(p.d, 5), ...(s.pattern.xUnit !== "dSpacing" && s.pattern.xUnit !== "q" ? { [s.pattern.xUnit]: sig(convertAxisValue(p.d, "dSpacing", s.pattern.xUnit, s.axis), 6) } : {}) })),
         candidates: candidates.slice(0, 4).map((c) => ({
@@ -594,8 +574,9 @@ export function fitRangeReading(s: PowderLiveState): DataRangeReading {
   let reflections: number[] = [];
   if (s.d) {
     const finite = s.d.filter((v) => Number.isFinite(v) && v > 0);
-    const dMin = Math.min(...finite) * 0.98;
-    const dMax = Math.max(...finite) * 1.02;
+    const span = minMax(finite);
+    const dMin = span.min * 0.98;
+    const dMax = span.max * 1.02;
     reflections = s.refinedPhases.flatMap((ph) => generateReflections(ph.cell, ph.spaceGroup, dMin, Math.min(dMax, 50), { absences: true }).map((r) => convertAxisValue(r.d, "dSpacing", unit, s.axis)));
   }
   return inspectDataRange({
@@ -666,45 +647,9 @@ function requestedWindow(s: PowderLiveState, input: InputOf<"set_fit_range">): {
   return w;
 }
 
-/**
- * The pattern's strongest peaks against the structure's reflections: one
- * factor on every d that indexes them where 1 does not is a wrong wavelength
- * (or TOF difC), named with the value it implies. Null when 1 indexes them.
- */
+/** The d-scale reading (core/diagnostics/cellReading.ts) of the page's pattern. */
 export function scaleReading(s: PowderLiveState): string | null {
-  if (!s.d || s.structure.sites.length === 0) return null;
-  const peaks = observedPeaks(s.d, s.pattern.points.map((p) => p.yObs), s.pattern.points.map((p) => p.sigma ?? 0));
-  const r = dScaleSearch(peaks, generateReflections(s.structure.cell, s.structure.spaceGroup, 0.4, 50).map((x) => x.d));
-  if (!wrongScale(r)) return null;
-  const f = r.factor;
-  const pctOf = (v: number): string => `${Math.round(100 * v)} %`;
-  const lambda = s.pattern.xUnit === "twoTheta" ? (s.instrument?.kind === "constantWavelength" ? s.instrument.wavelength : s.pattern.radiation.kind !== "neutron-tof" ? s.pattern.radiation.wavelength : undefined) : undefined;
-  const cause = s.pattern.xUnit === "tof"
-    ? `a wrong difC (the calibration would be difC × ${(1 / f).toFixed(4)})`
-    : lambda !== undefined
-      ? `a wrong wavelength: the data would be at λ ${(lambda / f).toFixed(4)} Å, not ${lambda} Å`
-      : "a wrong wavelength or calibration";
-  return `The pattern's ${r.peaks} strongest peaks index the structure's cell with every d × ${f.toFixed(4)} (${pctOf(r.indexed)} of their height; at × 1, ${pctOf(r.indexedAtOne)}): one factor on every line is ${cause} — or the wrong cell for this phase. Ask the user to confirm before anything else: no refinement fixes it, and a refined cell would absorb it.`;
-}
-
-/**
- * The cell the peaks give against the structure's. Every length scaled by
- * one factor is what a wrong wavelength (or a wrong TOF difC) does to every
- * d, more often than a wrong cell; lengths moving apart are the phase, its
- * temperature or its composition. Null when the cell agrees within 0.5 %.
- */
-export function cellShiftReading(loaded: UnitCell, found: UnitCell, unit: PowderLiveState["pattern"]["xUnit"]): string | null {
-  const rel = (["a", "b", "c"] as const).map((k) => found[k] / loaded[k] - 1);
-  const worst = Math.max(...rel.map(Math.abs));
-  if (worst <= 0.005) return null;
-  const spread = Math.max(...rel) - Math.min(...rel);
-  const pctText = (v: number): string => `${v > 0 ? "+" : ""}${(100 * v).toFixed(2)} %`;
-  const what = unit === "tof" ? "the TOF calibration (difC)" : unit === "twoTheta" ? "the wavelength" : "the d scale";
-  if (spread <= 0.1 * worst) {
-    const mean = rel.reduce((t, v) => t + v, 0) / 3;
-    return `The peaks give a cell ${pctText(mean)} off the structure's in every length alike (a ${pctText(rel[0]!)}, b ${pctText(rel[1]!)}, c ${pctText(rel[2]!)}): one factor on every d is what a wrong ${unit === "twoTheta" ? "wavelength" : "calibration"} does. Ask the user to confirm ${what} before refining: a refined cell would absorb it silently.`;
-  }
-  return `The peaks give a cell up to ${pctText(rel[rel.map(Math.abs).indexOf(worst)]!)} off the structure's (a ${pctText(rel[0]!)}, b ${pctText(rel[1]!)}, c ${pctText(rel[2]!)}), unevenly: the phase at another temperature or composition, or another phase. Say so before refining.`;
+  return s.d ? dScaleReading(s.d, s.pattern, s.structure, s.instrument ?? undefined) : null;
 }
 
 /**
@@ -717,8 +662,7 @@ export function axisPlausibility(s: PowderLiveState): string | null {
   if (s.structure.sites.length === 0 || s.pattern.points.length === 0 || !s.d) return null;
   const finite = s.d.filter((v) => Number.isFinite(v) && v > 0);
   if (finite.length === 0) return `the ${UNIT[s.pattern.xUnit]} axis (${sig(s.extent.min, 4)}–${sig(s.extent.max, 4)}) converts to no d-spacing at this wavelength: is the axis in another unit (d in Å, or Q)? Ask the user before anything else.`;
-  const lo = Math.min(...finite);
-  const hi = Math.max(...finite);
+  const { min: lo, max: hi } = minMax(finite);
   const inside = generateReflections(s.structure.cell, s.structure.spaceGroup, lo, Math.min(hi, 50)).length;
   if (inside >= 3) return null;
   return `the ${UNIT[s.pattern.xUnit]} axis (${sig(s.extent.min, 4)}–${sig(s.extent.max, 4)}) spans d ${sig(lo, 3)}–${sig(hi, 3)} Å at this wavelength, where the structure has ${inside === 0 ? "no reflection" : `only ${inside} reflection${inside === 1 ? "" : "s"}`}: the axis is likely in another unit (d in Å or Q read as ${UNIT[s.pattern.xUnit]}), or the wavelength is wrong. Ask the user before refining: no refinement fixes it.`;
@@ -824,7 +768,7 @@ function fitDiagnosisView(s: PowderLiveState): Record<string, unknown> {
     nParams: s.parameters.filter((p) => !p.fixed && !p.expression).length,
     d: s.d,
     reflections,
-    cells: s.refinedPhases.map((p) => p.cell),
+    phases: s.refinedPhases,
     twoTheta: s.pattern.xUnit === "twoTheta",
     xOf: (d) => convertAxisValue(d, "dSpacing", s.pattern.xUnit, s.axis),
   });
@@ -852,7 +796,7 @@ function fitDiagnosisView(s: PowderLiveState): Record<string, unknown> {
       misfit: w.signature === "shape" ? `shape (residual ${w.lobe > 0 ? "on the high" : "on the low"}-${s.pattern.xUnit === "twoTheta" ? "angle" : "x"} side)` : w.signature === "under" ? "calculated too weak" : "calculated too strong",
     })),
     ...(dx.wilson ? { intensityFalloff: { deltaB: sig(dx.wilson.deltaB, 3), r: sig(dx.wilson.r, 2), reflections: dx.wilson.n } } : {}),
-    ...(dx.texture ? { textureTest: { axis: dx.texture.axis.join(" "), r: sig(dx.texture.r, 2), reflections: dx.texture.n } } : {}),
+    ...(dx.texture ? { textureTest: { axis: dx.texture.axis.join(" "), ratio: sig(dx.texture.ratio, 2), explained: pct(dx.texture.explained), chance: sig(dx.texture.chance, 2), reflections: dx.texture.n, axesSearched: dx.texture.axes } } : {}),
   };
 }
 
@@ -927,18 +871,3 @@ export function powderReportChecks(s: PowderLiveState, probe: RefinementResult |
   return checks;
 }
 
-/**
- * What the cell check's shoulders mean: tails of a profile the Le Bail fit
- * draws simply, not a phase. Shoulders at one common offset from their lines
- * are the instrument's; the Rietveld profile is the place to fit them.
- */
-export function shoulderReading(shoulders: readonly { x: number; of: string; offset: number; relativeHeight: number }[], unit: string): string {
-  const n = shoulders.length;
-  const at = (x: number): string => (unit === "twoTheta" ? `${x.toFixed(2)}°` : `${x.toFixed(4)} ${unit}`);
-  const list = shoulders.slice(0, 4).map((sh) => `${at(sh.x)} beside ${sh.of}, ${(100 * sh.relativeHeight).toFixed(1)} %`).join("; ");
-  const offsets = shoulders.map((sh) => sh.offset);
-  const mean = offsets.reduce((a, b) => a + b, 0) / n;
-  const spread = Math.max(...offsets) - Math.min(...offsets);
-  const common = n >= 2 && spread <= 0.25 * Math.abs(mean);
-  return `${n} shoulder${n === 1 ? "" : "s"} on the flank of a strong line (${list}): the tail of a peak profile the Le Bail fit draws simply, not a missing phase${common ? `; ${n === 2 ? "both sit" : "they sit"} at one offset from their lines (${mean < 0 ? "−" : "+"}${Math.abs(mean).toFixed(2)}${unit === "twoTheta" ? "°" : ` ${unit}`}), an instrumental feature` : ""}. They do not count against the cell. The Rietveld profile (asymmetry, Lorentzian X and Y) fits such tails; look at them again on the refined residual, and name them to the user only if they outlive it.`;
-}

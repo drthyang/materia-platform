@@ -28,7 +28,7 @@ import { annotateExtraPeaks, detectExtraPeaks, type AnnotatedExtraPeak } from "@
 import { correctionCorrelation } from "@/core/diffraction/corrections";
 import type { StructureModel } from "@/core/crystal/types";
 import { structureChecks } from "@/core/diagnostics/structureChecks";
-import { CORRELATION_LIMIT, CORRELATION_REPORTED, DATA_PER_PARAMETER, GOF_BANDS, GOOF_SINGLE_CRYSTAL_BANDS, SHIFT_SETTLED } from "@/core/diagnostics/thresholds";
+import { CARRIED_BELOW, CARRIED_MAX, CORRELATION_LIMIT, CORRELATION_REPORTED, DATA_PER_PARAMETER, GOF_BANDS, GOOF_SINGLE_CRYSTAL_BANDS, SHIFT_SETTLED } from "@/core/diagnostics/thresholds";
 
 /**
  * The assembly of a twin's fractions when the twin has both hands (a
@@ -199,6 +199,25 @@ export function oneCurve(a: ParameterKind | undefined, b: ParameterKind | undefi
   return null;
 }
 
+/** The overall intensity terms of a single-crystal fit (SHELXL's OSF, EXTI, BASF), refined together as a matter of course. */
+const INTENSITY_TERMS: ReadonlySet<ParameterKind> = new Set<ParameterKind>(["scale", "extinction", "batchScale"]);
+
+/**
+ * Two overall intensity terms (scale, extinction, batch scales). On a single
+ * crystal they are refined together whatever their correlation: the
+ * extinction is told from the scale by how the misfit grows with intensity,
+ * which a pair's correlation does not see (synthetic corundum, strong
+ * extinction: scale ↔ extinction 0.989, the extinction back within 3 %).
+ */
+export function intensityTerms(a: ParameterKind | undefined, b: ParameterKind | undefined): boolean {
+  return a !== undefined && b !== undefined && INTENSITY_TERMS.has(a) && INTENSITY_TERMS.has(b);
+}
+
+/** A correlation a third free parameter carries: under CARRIED_BELOW with every other free parameter fixed, and under CARRIED_MAX itself. */
+export function carriedByThird(c: { readonly coefficient: number; readonly conditional?: number }): boolean {
+  return c.conditional !== undefined && Math.abs(c.conditional) < CARRIED_BELOW && Math.abs(c.coefficient) < CARRIED_MAX;
+}
+
 const ONE_CURVE_NOTE = {
   background: {
     summary: (top: string) => `The background coefficients correlate among themselves (up to ${top}).`,
@@ -318,8 +337,8 @@ export function relativeLineWidth(d: readonly number[], yCalc: readonly number[]
   return widths[widths.length >> 1];
 }
 
-/** The usual causes of a fair or poor fit, by technique: what the verdict tells the user to look at. */
-const MISFIT_CAUSES: Record<"powder" | "single-crystal" | "pdf", { readonly fair: string; readonly poor: string }> = {
+/** The usual causes of a fair or poor fit, by technique: what the verdict tells the user to look at (a PDF fit has no GoF band). */
+const MISFIT_CAUSES: Record<"powder" | "single-crystal", { readonly fair: string; readonly poor: string }> = {
   powder: {
     fair: "significant unmodelled features — background, profile, or a missing phase are the usual causes",
     poor: "the model is far from the data — revisit the starting cell, background, and phase content before trusting any parameter",
@@ -328,17 +347,14 @@ const MISFIT_CAUSES: Record<"powder" | "single-crystal" | "pdf", { readonly fair
     fair: "significant unmodelled features — extinction on the strongest reflections, a few badly measured reflections, ADPs that should be anisotropic, or σ's that are too small are the usual causes",
     poor: "the model is far from the data — on integrated F² look first at extinction (the strongest reflections reading weak), then the model and the space group, before trusting any parameter",
   },
-  pdf: {
-    fair: "significant unmodelled features — the r window, the correlated motion, or a local structure the model does not hold are the usual causes",
-    poor: "the model is far from the data — revisit the structure, the r window and the instrument's Qdamp and Qbroad before trusting any parameter",
-  },
 };
 
 /** Toby 2006: the ratio wR/R_exp (the GoF) is what's meaningful, not absolute wR. */
 function verdictFrom(result: RefinementResult, mode: "powder" | "single-crystal" | "pdf" = "powder"): FitVerdict {
   const ag = result.agreement;
   const wRPercent = ag.rWeighted !== undefined ? 100 * ag.rWeighted : undefined;
-  const gof = ag.goodnessOfFit;
+  // A PDF fit weights G(r) uniformly: the engine's GoF over it is no goodness of fit.
+  const gof = mode === "pdf" ? undefined : ag.goodnessOfFit;
   if (result.status === "diverged") {
     return { band: "unreliable", ...(wRPercent !== undefined ? { wRPercent } : {}), ...(gof !== undefined ? { gof } : {}), rationale: "The refinement diverged — the parameters and esds are not meaningful." };
   }
@@ -346,7 +362,13 @@ function verdictFrom(result: RefinementResult, mode: "powder" | "single-crystal"
     return { band: "poor", ...(wRPercent !== undefined ? { wRPercent } : {}), ...(gof !== undefined ? { gof } : {}), rationale: `The refinement stopped as "${result.status}" rather than converging; treat the values as provisional.` };
   }
   if (gof === undefined) {
-    return { band: "fair", ...(wRPercent !== undefined ? { wRPercent } : {}), rationale: "Converged, but no expected-R was available to form a goodness of fit — judge from the residual shape instead of wR alone." };
+    return {
+      band: "fair",
+      ...(wRPercent !== undefined ? { wRPercent } : {}),
+      rationale: mode === "pdf"
+        ? "Converged. A PDF fit has no goodness of fit (uniform weights over G(r), so Rw is a relative measure): judge it from the difference curve and from Rw against fits of the same data and window."
+        : "Converged, but no expected-R was available to form a goodness of fit — judge from the residual shape instead of wR alone.",
+    };
   }
   // Bands mirror the app's qualityInk (Toby 2006): GoF ≈ 1 is ideal; < 1 warns of
   // over-fitting or overestimated σ; the higher bands are progressively worse.
@@ -357,8 +379,8 @@ function verdictFrom(result: RefinementResult, mode: "powder" | "single-crystal"
   if (mode === "single-crystal" && gof < 0.95) return { band: "good", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GooF ${gof.toFixed(2)}, below 1: the model leaves less misfit than the weights expect (their σ about ${Math.round(100 * (1 / gof - 1))} % too large) — refit the weighting scheme to the final model (SHELXL's suggestion).` };
   if (gof <= bands.excellent) return { band: "excellent", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)} is close to the statistical floor — the model explains the data to within its uncertainties.` };
   if (gof <= bands.good) return { band: "good", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)}: a reasonable fit with residual structure the model does not fully capture.` };
-  if (gof <= bands.fair) return { band: "fair", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)}: ${MISFIT_CAUSES[mode].fair}.` };
-  return { band: "poor", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)}: ${MISFIT_CAUSES[mode].poor}.` };
+  if (gof <= bands.fair) return { band: "fair", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)}: ${MISFIT_CAUSES[mode === "single-crystal" ? "single-crystal" : "powder"].fair}.` };
+  return { band: "poor", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)}: ${MISFIT_CAUSES[mode === "single-crystal" ? "single-crystal" : "powder"].poor}.` };
 }
 
 /**
@@ -444,7 +466,9 @@ export function assessRefinement(input: AssessmentInput): RefinementAssessment {
   const byId = new Map(parameters.map((p) => [p.id, p]));
   const findings: AssessmentFinding[] = [];
 
-  const verdict = verdictFrom(result, input.mode);
+  // A PDF fit's parameters name it (refine_pdf's result read without a mode is read as one).
+  const mode = input.mode ?? (parameters.some((p) => p.kind === "pdfScale") ? "pdf" : "powder");
+  const verdict = verdictFrom(result, mode);
 
   // --- convergence -------------------------------------------------------
   // Shift/esd of the last accepted step. The χ² test alone bounds it only by
@@ -502,9 +526,9 @@ export function assessRefinement(input: AssessmentInput): RefinementAssessment {
       detail: p && ADP_KINDS.has(p.kind)
         ? input.sharedSiteAdps?.includes(b.parameterId)
           ? `This displacement parameter belongs to a site several atoms share, so the site's scattering power is the first suspect: ${b.bound === "min" ? "B → 0 makes up for a site that scatters more than the model puts on it" : "a large B makes up for a site that scatters less than the model puts on it"}, i.e. the mixing is off (anti-site disorder, spinel inversion). Refine the site's occupancies with its Σ held (and the composition, when the formula is known) before trusting the ADP.`
-          : input.mode === "pdf"
+          : mode === "pdf"
           ? "In real space a displacement parameter at 0 usually means the near-neighbour peaks are sharper than the model's: correlated motion sharpens them, and with δ1/δ2 (or sratio) held, U takes up the sharpening. Free one correlated-motion term (δ2 at low temperature, δ1 at high), or fit a window long enough to pin U, rather than trusting the value. In a short low-r window it can also mean the local structure differs from the model."
-          : input.mode === "single-crystal"
+          : mode === "single-crystal"
           ? "On integrated F² a displacement parameter at 0 usually means unmodelled extinction (the strongest low-angle reflections read weak, and a smaller B flattens the model's fall-off to meet them), absorption left in the data, or a wrong element or occupancy: refine the extinction first, rather than trusting the value."
           : "A displacement parameter pinned at a bound (often B→0) usually means the model is over-damping high-angle intensity — check the background, an absorption/extinction effect, or a correlation, rather than trusting the value."
         : "A free parameter at a bound has a meaningless esd and signals the fit wanted to go where physics forbids — hold it fixed and find the upstream cause (correlation, wrong background, bad starting value).",
@@ -588,12 +612,19 @@ export function assessRefinement(input: AssessmentInput): RefinementAssessment {
     const b = byId.get(c.parameterIdB);
     const insight = a && b ? correlationInsight(a.kind, b.kind) : undefined;
     const abs = Math.abs(c.coefficient);
+    // What the correlation guard refines together is noted, not warned about (correlationGuard.ts).
+    const overall = mode === "single-crystal" && intensityTerms(a?.kind, b?.kind);
+    const carried = !overall && carriedByThird(c);
     findings.push({
       category: "correlation",
-      severity: abs >= CORRELATION_LIMIT ? "warning" : "note",
+      severity: abs >= CORRELATION_LIMIT && !overall && !carried ? "warning" : "note",
       // Three places near ±1, where two would round 0.995 up to a perfect 1.00.
       summary: `${a?.label ?? c.parameterIdA} ↔ ${b?.label ?? c.parameterIdB} correlate at ${c.coefficient.toFixed(abs >= 0.99 ? 3 : 2)}.`,
-      ...(insight ? { detail: insight } : { detail: "Strongly correlated parameters share information the data cannot separate; their individual esds are inflated. Consider refining them in separate stages or fixing one." }),
+      detail: overall
+        ? "The overall intensity terms (scale, extinction, batch scales), refined together as SHELXL refines OSF, EXTI and BASF: the extinction is told from the scale by how the misfit grows with intensity, which their correlation does not see. An extinction the data do not determine shows as an esd as large as its value, or a bound."
+        : carried
+          ? `Carried by a third free parameter: with every other free parameter held fixed they correlate at ${c.conditional!.toFixed(2)}. Each trades with a common one (often the overall fall-off of the intensities), not with the other, so they refine together and the full covariance carries the correlation into their esds.`
+          : insight ?? "Strongly correlated parameters share information the data cannot separate; their individual esds are inflated. Consider refining them in separate stages or fixing one.",
       parameterIds: [c.parameterIdA, c.parameterIdB],
       evidence: { coefficient: c.coefficient },
     });
@@ -630,7 +661,7 @@ export function assessRefinement(input: AssessmentInput): RefinementAssessment {
   // intensities determine (positions, occupancies, ADPs, moments, preferred
   // orientation, extinction). Counting points, the check never fired.
   const free = parameters.filter((p) => !p.fixed && !p.expression);
-  const reflectionsInRange = (input.mode ?? "powder") === "powder" ? input.residual?.reflections?.length : undefined;
+  const reflectionsInRange = mode === "powder" ? input.residual?.reflections?.length : undefined;
   const support = reflectionsInRange !== undefined
     ? { n: free.filter((p) => INTENSITY_KINDS.has(p.kind)).length, data: reflectionsInRange, per: "reflections per free structural parameter", of: "structural", unit: "reflections in the fitted range" }
     : { n: free.length, data: observationCount, per: "observations per free parameter", of: "", unit: "obs" };

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { CORRELATION_LIMIT, carriedText, correlationRefusal, disorderAssemblies, readCorrelations, refusalLine } from "@/agent/correlationCheck";
+import { correlationRefusal, refusalLine } from "@/agent/correlationCheck";
+import { CORRELATION_LIMIT, carriedText, disorderAssemblies, readCorrelations } from "@/core/diagnostics/correlationGuard";
 import { disorderPage } from "@/testSupport/scPages";
 import { buildSingleCrystalSpec } from "@/core/workflow/singleCrystalRefinement";
 import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
