@@ -74,7 +74,7 @@ above, not a CI test.
 
 ## Checks
 
-`npm run build`, `npm run lint` and `npm test` pass at the branch head: 2385
-tests (`main`'s 2377 and 8 new ones), 265 skipped (live runs and
+`npm run build`, `npm run lint` and `npm test` pass at the branch head: 2384
+tests (`main`'s 2377 and 7 new ones), 265 skipped (live runs and
 data-dependent suites). The live contract pins `rank_magnetic_groups`'
 `withinNoise`. The model-text snapshots change by its description.
