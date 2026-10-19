@@ -46,7 +46,7 @@ export const POWDER_PAGE: PageAdapter<PowderAgentPort> = {
   assemblies: () => new Map(),
   magneticStep: (port) => port.magnetic?.()?.state() ?? null,
   magneticModel: (s) => s.magnetic !== null,
-  read: (name, input, port, host) => (isMagneticTool(name) ? readMagneticTool(name, input, port, () => host.settle()) : readPowderTool(name, input, port, host)),
+  read: (name, input, port, host) => (isMagneticTool(name) ? readMagneticTool(name, input, port) : readPowderTool(name, input, port, host)),
   // A change that needs a structure is refused on the placeholder before it is planned.
   plan: (spec, input, s, port) => {
     requireStructure(spec.name, s);

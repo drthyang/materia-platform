@@ -21,27 +21,21 @@ function page() {
 }
 
 describe("the magnetic analysis step through the Agent", () => {
-  it("reads the ranking through a handle taken after it, as the page publishes a new handle each render", async () => {
-    // The page's handle is a new object each render, its state() fixed at that
-    // render: one taken before the ranking never sees its fits (round 8, Cr₂WO₆
-    // at 4 K: "No candidate could be fitted" while the panel had fitted them).
+  it("reads the ranking through the step's one handle, taken before it", async () => {
+    // The step's handle is one object for its life (app/magneticStep.ts). A
+    // handle the page republished each render, its state() fixed at that
+    // render, never saw the fits of a ranking it started (round 8, Cr₂WO₆ at
+    // 4 K: "No candidate could be fitted" while the panel had fitted them).
     const { port } = sessionPort(mn3gaMagneticSession());
-    const live = port.magnetic!;
-    const renders: typeof port = {
-      ...port,
-      magnetic: () => {
-        const h = live();
-        if (!h) return null;
-        const atRender = h.state();
-        return { ...h, state: () => atRender };
-      },
-    };
-    const { ex } = executor(fakeHost(renders).host, true);
+    const before = port.magnetic!()!;
+    const { ex } = executor(fakeHost(port).host, true);
     await ex.run("read_skill", { name: "magnetic-analysis" });
     await ex.run("set_propagation_vector", { k: [0, 0, "1/2"] });
     const ranked = parse((await ex.run("rank_magnetic_groups", {})).text);
     expect(ranked.best).toBe(MAGNETIC_TRUTH.id);
     expect((ranked.groups as unknown[]).length).toBeGreaterThan(1);
+    expect(port.magnetic!()).toBe(before);
+    expect(before.state().best).toBe(MAGNETIC_TRUTH.id);
   }, 60000);
 
   it("finds k, ranks the groups, fits the moments, and hands the model to the refinement", async () => {
