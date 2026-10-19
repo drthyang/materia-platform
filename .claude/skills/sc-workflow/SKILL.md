@@ -14,10 +14,33 @@ a careful small-molecule and inorganic crystallographer uses. When the user stat
 preference that differs, follow them, and say so.
 
 The fit is least squares against the measured intensities (∝ Fo²), weighted w = 1/σ²(Fo²)
-until SHELXL's weighting scheme is set, last (Stage 6). The agreement is SHELX's: **R1** over the reflections with Fo² > 2σ, **wR2** and **GooF**
+until SHELXL's weighting scheme is set, last (the weights, below). The agreement is SHELX's: **R1** over the reflections with Fo² > 2σ, **wR2** and **GooF**
 over every reflection fitted. The **cell is fixed**: it comes from indexing, and integrated
 intensities carry no peak positions. A low R1 is necessary, not sufficient: the ADPs, the
 geometry and the GooF must all be sane.
+
+## Gates
+
+The numbers and the stops in one place; each is explained at its stage below.
+
+- **The data before the model.** The radiation and wavelength (`set_radiation`) when the
+  file cannot say; monochromatic equivalents merged (never a time-of-flight Laue file); a
+  merohedral twin the H-test reads, set before the first refinement. The report notes an
+  R_int above 10 % and a completeness below 95 %.
+- **Data per parameter**: at least 10 reflections per refined parameter; below that, keep
+  the model isotropic or restrained.
+- **A stage is done** when the largest shift is below 0.1 esd and nothing sits at a bound.
+- **Firm rules** (`refine` refuses; only the user lifts one, with `allow_exception`): no
+  occupancy refines bare (tie the alternatives); no two free parameters that correlate at
+  |ρ| ≥ 0.95.
+- **Extinction**: the strongest reflections' K below 0.95 of the others' asks for it; y
+  below 0.5 is severe, and `test_extinction` asks whether the structure rests on them.
+- **The hand**: Flack x within 2u of 0 with u below 0.04, the model's; within 2u of 1, the
+  inverted one; more than 2u from both, an inversion twin.
+- **The weights last**, once the model is complete; the GooF is then a little above 1 by
+  construction.
+- **Ask the user**: the radiation when nothing says it; a measurement left out (with the
+  reason); a vacancy on a lone site; any change of space group or hand.
 
 ## Stage 0 — Read the data before the model
 
@@ -33,8 +56,9 @@ as that measurement, at the radiation the CIF names.
 numbers, before the first refinement:
 
 1. **Merging.** R_int (agreement of symmetry equivalents) and R_σ. X-ray data reduced
-   with a multi-scan correction usually give R_int < 5 %; much higher means a wrong Laue
-   class, an absorption or scaling problem, or a poor crystal. Neutron time-of-flight
+   with a multi-scan correction usually give an R_int below 5 %; much higher means a wrong
+   Laue class, an absorption or scaling problem, or a poor crystal, and the report notes an
+   R_int above 10 %. Neutron time-of-flight
    Laue data (one wavelength band per orientation) run higher, and its equivalents were
    measured at different wavelengths: R_int there also carries the λ-dependent
    corrections (extinction, absorption). Monochromatic data holding every equivalent (a
@@ -44,7 +68,8 @@ numbers, before the first refinement:
    systematic absences are left out, and R1, wR2 and GooF are then SHELXL's; the data
    reading keeps the measurement as loaded. Never merge a time-of-flight Laue file.
 2. **Resolution and completeness.** d_min (sinθ/λ max): about 0.83 Å (0.6 Å⁻¹) is the
-   least for anisotropic ADPs; completeness to that resolution should be ≥ 98–99 %.
+   least for anisotropic ADPs; completeness to that resolution should be 98–99 %, and the
+   report notes a completeness below 95 %.
 3. **The space group.** Forbidden reflections measured at ≥ 3σ: a few weak ones are
    usually multiple diffraction (Renninger) or λ/2; a systematic class of strong ones
    questions the group. ⟨|E² − 1|⟩: 0.968 centrosymmetric, 0.736 non-centrosymmetric;
@@ -67,12 +92,12 @@ numbers, before the first refinement:
    from the first refinement on, with the scale and then the structure, as SHELXL
    refines BASF: its fraction is the Flack x. A crystal twinned by a merohedral law
    too: the law `withInversion` (SHELXL's TWIN R −4), the inverted domains together
-   holding x — their fractions trade by construction; read the sum. x near 0 with a
-   small esd (≲ 0.04): the hand is right; near 1: the inverted hand — `invert_structure`
+   holding x — their fractions trade by construction; read the sum. x within 2u of 0 with a
+   small esd (≲ 0.04): the hand is right; within 2u of 1: the inverted hand — `invert_structure`
    (in an enantiomorphic group the space group changes too: P6₁ ↔ P6₅, P4₁ ↔ P4₃, P3₁ ↔
    P3₂), refine again, and compare wR2 and x with the other hand's (a published model
-   can be the wrong one: say which hand the data choose, by how much); clearly between:
-   the crystal is an inversion twin, and the report says so with x and its esd.
+   can be the wrong one: say which hand the data choose, by how much); more than 2u from
+   both: the crystal is an inversion twin, and the report says so with x and its esd.
    `assess_refinement`'s `absoluteStructure` gives Parsons' x from the Bijvoet pairs
    (the scale and most systematic errors cancel in its quotients): quote it beside
    the refined x.
@@ -98,21 +123,23 @@ numbers, before the first refinement:
 
 Refine the **scale** alone from the starting model, then check (`assess_refinement`): the
 analysis of variance by intensity tells you whether **extinction** is needed. K =
-ΣFo²/ΣFc² below 1 on the strongest reflections, with the strongest low-angle reflections
-weaker than calculated, is extinction: refine it with the scale. Extinction is larger for
-good, large crystals and for neutrons; a correction that reduces the strongest intensities
-by more than about 20–30 % is severe: say so, and do not trust those reflections' detail.
-Absorption is corrected at data reduction (the file's intensities are corrected): do not
-correct it again in the model.
+ΣFo²/ΣFc² of the strongest reflections below 0.95 of the others', with the strongest
+low-angle reflections weaker than calculated, is extinction (`assess_refinement` flags it):
+refine it with the scale. Extinction is larger for good, large crystals and for neutrons.
+Its factor y multiplies |F|²: a correction that takes more than a fifth off (y below 0.8)
+is large, and one that more than halves the intensity (y below 0.5) is severe: say so, and
+do not trust those reflections' detail. Absorption is corrected at data reduction (the
+file's intensities are corrected): do not correct it again in the model.
 
 When the correction is severe, test whether the structure rests on the reflections it
-carries: refine once more with `set_outlier_filter`'s `minExtinction` (0.5 leaves out the
-reflections whose intensity extinction more than halves), compare the positions and ADPs
-with their esds, then remove the cut. If they hold, quote the fit to all the data and say
-the test was made; if they move, the ADPs are not worth quoting.
+carries: `test_extinction` refines twice as probes, with all the data and without the
+reflections of y below 0.5, and names every free parameter that moves by more than 2 esd
+between them; the page stays as it is. If none moves, quote the fit to all the data and say
+the test was made; if the positions or ADPs move, they are not worth quoting as they stand:
+try the other extinction model (below).
 
 **The extinction model.** SHELXL's EXTI is an empirical formula. Where the extinction is
-severe (y well below 0.5) and the strongest low-angle reflections are what remains in the
+severe (y below 0.5) and the strongest low-angle reflections are what remains in the
 residual (the lowest resolution shell's GooF well above the rest), try Becker–Coppens
 (`set_extinction_model`): type I, where the mosaic spread limits the extinction, is the
 usual choice for a neutron crystal (Lorentzian or Gaussian mosaic; GSAS-II's tutorials use
@@ -138,7 +165,7 @@ fit improved for the parameters they cost.
 ## Stage 2 — Positions, the hydrogens riding
 
 Free the coordinates (the page's symmetry-allowed position shifts; special positions are
-already fixed or coupled). The shifts should converge to well below their esds.
+already fixed or coupled). The shifts should converge: the largest below 0.1 esd.
 
 **Hydrogens on X-ray data ride** before the positions are refined: X-rays see a hydrogen's one
 electron, displaced into its bond, so a free hydrogen comes out short and scattered and its U
@@ -183,8 +210,13 @@ positions are never reported as internuclear geometry.
 ## Stage 5 — Occupancy and disorder (only for a reason)
 
 Only for a site with a reason to be partial or mixed (disorder, a vacancy, a substitution
-the chemistry allows), never to improve R. Occupancy correlates with the ADP of the site:
-refine it with that ADP fixed, or with a composition tied.
+the chemistry allows), never to improve R. An occupancy trades with the scale and with the
+site's ADP, so it never refines bare (a firm rule: `refine` refuses it): tie the
+alternatives to add up to one (`tie_parameters` `complement`, below), and the contrast
+between them measures the split. A lone site's vacancy has no partner to tie: only the
+user can allow it (`allow_exception`, rule `bare-occupancy`, with their reason, e.g. a
+second contrast); then refine it, holding the site's ADP if the two correlate at |ρ| ≥ 0.95
+(`refine` refuses them together), and report how they trade.
 
 **A disorder** (get_state's `disorder`: SHELXL's PART 1 and PART 2 of an assembly, as the CIF
 gives them; no bond joins two alternatives). Tie the alternatives' occupancies to add up to one
@@ -194,7 +226,7 @@ ADP (`adp`, SHELXL's EADP); then free the leading occupancy with the rest and re
 with its esd. The contrast between the alternatives (Al against Ga, a heavy against a light
 atom, or the positions themselves) is what measures it.
 
-## Stage 6 — The weights, last
+## The weights, last
 
 SHELXL weights a finished refinement with WGHT a b: w = 1/[σ²(Fo²) + (aP)² + bP], P = (Fo² +
 2Fc²)/3, for the errors the σ do not carry (absorption, scaling, what no model describes). Its a
@@ -233,7 +265,7 @@ and they stay.
 
 ## When it's done
 
-- Converged: the largest shift well below its esd; nothing at a bound; no correlation
+- Converged: the largest shift below 0.1 esd; nothing at a bound; no correlation
   refused or developed.
 - R1, wR2 and GooF with the weights stated: with w = 1/σ², a GooF above 1 means the σ are
   underestimated or the model misses something (say which the analysis of variance points at:

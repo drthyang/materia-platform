@@ -1,11 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { allSkills } from "@/agent/skills";
+import { allSkills, PAGE_METHOD, readSkill } from "@/agent/skills";
 import { LIVE_TOOLS, type AgentPage } from "@/agent/tools";
 import { TOOL_REGISTRY } from "@/mcp/registry";
 import { stagesFor } from "@/agent/method";
 import { ALTERNATION_SETTLED } from "@/agent/method";
+import { LOCAL_BUDGET_CHARS, skillOutline } from "@/agent/contextWindow";
 import {
-  COMPLETENESS_NOTE, CORRELATION_LIMIT, DATA_PER_PARAMETER, FLACK_U_DETERMINED, FORBIDDEN_OVERLAP, LARGE_CUT, POSTERIOR_NEARLY_RHAT, POSTERIOR_RHAT, R_INT_NOTE,
+  COMPLETENESS_NOTE, CORRELATION_LIMIT, DATA_PER_PARAMETER, EXTINCTION_K, EXTINCTION_LARGE, EXTINCTION_SEVERE, FLACK_U_DETERMINED, FORBIDDEN_OVERLAP, GOF_BANDS, LARGE_CUT,
+  LE_BAIL_UNSETTLED, POSTERIOR_CORRELATION, POSTERIOR_NEARLY_RHAT, POSTERIOR_RHAT, R_INT_NOTE, RANK_TIE_WR, SHIFT_SETTLED,
+  BOND_SHORT, CORRELATION_REPORTED, DISTANCE_HARD, DISTANCE_WARN, U_HARD, U_LARGE, U_ORDER_RATIO, U_SMALL,
 } from "@/core/diagnostics/thresholds";
 
 /**
@@ -16,8 +19,10 @@ import {
  *  - every gate number a skill quotes is the constant the code decides by;
  *  - every stage of a page's method (method.ts) is named in its skill, and
  *    each "## Stage" heading of the skill is one of them or a check.
- * What fails today is listed in KNOWN, each with what it is; a skill edit
- * (5.2–5.5) that fixes one removes it, and a new one fails here.
+ * KNOWN lists what fails and is accepted for now, each with what it is; a
+ * fixed one comes off the list, and a new failure fails here.
+ * And the budget (5.4): each method fits a local model's window beside the
+ * results it is read with, and its outline keeps its Gates.
  */
 
 /** The pages each skill drives in the app. */
@@ -41,8 +46,8 @@ const METHOD_STAGES: Readonly<Record<string, { readonly page: AgentPage; readonl
   "pdf-workflow": {
     page: "pdf",
     stage: { base: /scale/i, adp: /\bADPs?\b/, motion: /correlated motion|δ1|delta1/i, positions: /positions/i, occupancy: /occupanc/i, size: /particle size|spdiameter/i },
-    // Stage 1 holds the structural stages in the small-box order.
-    checks: [/Check the data and the instrument/, /small-box order/],
+    // The user's three windows: the long range, the correlated motion, the local fit.
+    checks: [/Check the data and the instrument/, /The long range/, /The local fit/],
   },
   "sc-workflow": {
     page: "singleCrystal",
@@ -55,34 +60,41 @@ const QUOTED: readonly { readonly skill: string; readonly what: string; readonly
   { skill: "my-rietveld-workflow", what: "the fit-window cut that is the user's call (%)", pattern: /more than\s+(\d+(?:\.\d+)?) % of the points/, value: 100 * LARGE_CUT },
   { skill: "my-rietveld-workflow", what: "the alternation settled (esd)", pattern: /by more than (\d+(?:\.\d+)?) esd/, value: ALTERNATION_SETTLED },
   { skill: "my-rietveld-workflow", what: "the correlation limit", pattern: /correlate at \|ρ\| ≥ (\d\.\d+)/, value: CORRELATION_LIMIT },
+  { skill: "my-rietveld-workflow", what: "a block converged (esd)", pattern: /largest shift below\s+(\d\.\d+) esd/, value: SHIFT_SETTLED },
+  { skill: "my-rietveld-workflow", what: "the GoF band excellent", pattern: /excellent up to\s+(\d\.\d+)/, value: GOF_BANDS.excellent },
+  { skill: "my-rietveld-workflow", what: "the GoF band good", pattern: /good to (\d\.\d+)/, value: GOF_BANDS.good },
+  { skill: "my-rietveld-workflow", what: "the GoF band fair", pattern: /fair to (\d+)/, value: GOF_BANDS.fair },
+  { skill: "my-rietveld-workflow", what: "a GoF too good", pattern: /below (\d\.\d+) the fit is "too good"/, value: GOF_BANDS.tooGood },
+  { skill: "my-rietveld-workflow", what: "a Le Bail fit that did not settle (Rwp %)", pattern: /Rwp of (\d+) % or more/, value: 100 * LE_BAIL_UNSETTLED },
+  { skill: "my-rietveld-workflow", what: "two atoms that cannot be closer (Å)", pattern: /two atoms closer than (\d\.\d+) Å/, value: DISTANCE_HARD },
+  { skill: "my-rietveld-workflow", what: "a distance rarely shorter (Å)", pattern: /atoms closer than\s+(\d\.\d+) Å, a bond/, value: DISTANCE_WARN },
+  { skill: "my-rietveld-workflow", what: "a bond short of its bond-valence length (%)", pattern: /more than (\d+) % shorter than its bond-valence/, value: 100 * BOND_SHORT },
+  { skill: "my-rietveld-workflow", what: "the hard U limit (Å²)", pattern: /a U_iso above (\d\.\d+) Å², a negative/, value: U_HARD },
+  { skill: "my-rietveld-workflow", what: "a large U (Å²)", pattern: /a U_iso above (\d\.\d+) Å²\s+or below/, value: U_LARGE },
+  { skill: "my-rietveld-workflow", what: "a small U (Å²)", pattern: /or below (\d\.\d+) Å² \(room/, value: U_SMALL },
+  { skill: "my-rietveld-workflow", what: "a heavier atom's U against a lighter one's", pattern: /more than (\d\.\d+)× a lighter/, value: U_ORDER_RATIO },
+  { skill: "my-rietveld-workflow", what: "correlations reported from", pattern: /\*\*Correlations\*\* from (\d\.\d+) to/, value: CORRELATION_REPORTED },
+  { skill: "pdf-workflow", what: "a block converged (esd)", pattern: /largest shift below\s+(\d\.\d+) esd/, value: SHIFT_SETTLED },
+  { skill: "pdf-workflow", what: "the correlation limit", pattern: /correlate at \|ρ\| ≥ (\d\.\d+)/, value: CORRELATION_LIMIT },
+  { skill: "magnetic-analysis", what: "the ranking's tie (%)", pattern: /a tie within (\d\.\d+) %/, value: 100 * RANK_TIE_WR },
   { skill: "bayesian-check", what: "a converged posterior's R̂", pattern: /converged run: R̂ < (\d\.\d+)/, value: POSTERIOR_RHAT },
   { skill: "bayesian-check", what: "a nearly converged posterior's R̂", pattern: /close to converged" \(R̂ < (\d\.\d+)\)/, value: POSTERIOR_NEARLY_RHAT },
+  { skill: "bayesian-check", what: "the correlation limit", pattern: /below the (\d\.\d+) at which `refine` refuses/, value: CORRELATION_LIMIT },
+  { skill: "bayesian-check", what: "the posterior correlations named", pattern: /names those at \|ρ\| ≥ (\d\.\d+)/, value: POSTERIOR_CORRELATION },
   { skill: "symmetry-review", what: "the absence overlap (%)", pattern: /at least (\d+(?:\.\d+)?)% in d/, value: 100 * FORBIDDEN_OVERLAP },
   { skill: "sc-workflow", what: "reflections per parameter", pattern: /at least (\d+) reflections per refined parameter/, value: DATA_PER_PARAMETER },
   { skill: "sc-workflow", what: "Flack u that determines the hand", pattern: /small esd \(≲ (\d\.\d+)\)/, value: FLACK_U_DETERMINED },
-  { skill: "sc-workflow", what: "R_int the report notes above (%)", pattern: /R_int < (\d+(?:\.\d+)?) %/, value: 100 * R_INT_NOTE },
-  { skill: "sc-workflow", what: "completeness the report notes below (%)", pattern: /completeness to that resolution should be ≥ (\d+(?:\.\d+)?)/, value: 100 * COMPLETENESS_NOTE },
+  { skill: "sc-workflow", what: "R_int the report notes above (%)", pattern: /notes an R_int above (\d+(?:\.\d+)?) %/, value: 100 * R_INT_NOTE },
+  { skill: "sc-workflow", what: "completeness the report notes below (%)", pattern: /notes a completeness below (\d+(?:\.\d+)?) %/, value: 100 * COMPLETENESS_NOTE },
+  { skill: "sc-workflow", what: "a stage converged (esd)", pattern: /largest shift is below (\d\.\d+) esd/, value: SHIFT_SETTLED },
+  { skill: "sc-workflow", what: "the extinction K", pattern: /K below (\d\.\d+) of the others'/, value: EXTINCTION_K },
+  { skill: "sc-workflow", what: "a large extinction (y)", pattern: /\(y below (\d\.\d+)\) is large/, value: EXTINCTION_LARGE },
+  { skill: "sc-workflow", what: "a severe extinction (y)", pattern: /y below (\d\.\d+) is severe/, value: EXTINCTION_SEVERE },
+  { skill: "sc-workflow", what: "the correlation limit", pattern: /correlate at \|ρ\| ≥ (\d\.\d+)/, value: CORRELATION_LIMIT },
 ];
 
-/** What fails today, each a finding of docs/AGENT_REVIEW.md or the plan, cleared by the skill drafts (5.2–5.5). */
-const KNOWN: readonly string[] = [
-  // MCP-only names used as if in the app, unmarked (AGENT_REVIEW: Stage 0 and 1 drive the MCP tools).
-  "my-rietveld-workflow: parse_structure is MCP-only, not marked so",
-  "my-rietveld-workflow: parse_powder_data is MCP-only, not marked so",
-  "my-rietveld-workflow: parse_instrument is MCP-only, not marked so",
-  "my-rietveld-workflow: build_refinement is MCP-only, not marked so",
-  "my-rietveld-workflow: refine_powder is MCP-only, not marked so",
-  "my-rietveld-workflow: export_bundle is MCP-only, not marked so",
-  "symmetry-review: build_distortion_modes is MCP-only, not marked so",
-  "pdf-workflow: calibrate_qdamp is MCP-only, not marked so",
-  "pdf-workflow: refine_pdf is MCP-only, not marked so",
-  "pdf-workflow: refine_pdf_boxcar is MCP-only, not marked so",
-  // Numbers that differ from the code.
-  "sc-workflow: R_int the report notes above (%) is 5, the code's 10",
-  "sc-workflow: completeness the report notes below (%) is 98, the code's 95",
-  // A stage the skill has and the method does not.
-  "sc-workflow: \"## Stage 6 — The weights, last\" is no stage of the method",
-];
+/** What fails and is accepted for now: nothing, since the skill drafts (5.2–5.5). A new entry needs its reason. */
+const KNOWN: readonly string[] = [];
 
 /** How a page is named in prose: a tool named beside its own page is attributed, not offered here. */
 const PAGE_NAMES: Readonly<Record<AgentPage, RegExp>> = { powder: /\b(Rietveld|powder) page\b/i, pdf: /\bPDF page\b/, singleCrystal: /\bsingle-crystal page\b/i };
@@ -177,5 +189,30 @@ describe("the skill lint", () => {
 
   it("lists as known only what still fails (a fixed one comes off the list)", () => {
     expect(KNOWN.filter((p) => !found.includes(p))).toEqual([]);
+  });
+});
+
+/**
+ * The budget (docs/AGENT_PLAN.md, 5.4). A local model's history holds
+ * LOCAL_BUDGET_CHARS; a page's method is read whole with the results of a
+ * stage or two beside it, so it takes at most 40 % of that, any other skill a
+ * sixth. When the window fills, a method shrinks to its outline: its headings
+ * and its Gates, the numbers and the stops, in a twentieth.
+ */
+describe("the skills' budget for a 32k window", () => {
+  const methods = new Set(Object.values(PAGE_METHOD));
+
+  it.each(allSkills().map((k) => [k.name, k] as const))("%s fits its share of the window", (_name, k) => {
+    const limit = methods.has(k.name) ? 0.4 * LOCAL_BUDGET_CHARS : LOCAL_BUDGET_CHARS / 6;
+    expect(k.body.length).toBeLessThanOrEqual(limit);
+  });
+
+  it.each([...methods].map((m) => [m]))("%s has Gates, which its outline keeps whole and small", (name) => {
+    const text = readSkill(name);
+    const gates = /^## Gates\s*\n([\s\S]*?)(?=^## )/m.exec(text);
+    expect(gates, `${name} has no "## Gates" section`).not.toBeNull();
+    const outline = skillOutline("read_skill", { name }, text);
+    for (const line of gates![1]!.split("\n").filter((l) => l.trim())) expect(outline).toContain(line);
+    expect(outline.length).toBeLessThanOrEqual(LOCAL_BUDGET_CHARS / 20);
   });
 });

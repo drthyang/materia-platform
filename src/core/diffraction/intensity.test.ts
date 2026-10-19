@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { cylinderAbsorption, marchDollase, surfaceRoughness } from "@/core/diffraction/intensity";
-import type { UnitCell } from "@/core/crystal/types";
+import { cylinderAbsorption, marchDollase, marchDollaseFamily, powderPeakIntensities, surfaceRoughness } from "@/core/diffraction/intensity";
+import type { StructureModel, UnitCell } from "@/core/crystal/types";
+import { buildSpaceGroup } from "@/core/crystal/spaceGroups";
+import { generateReflections } from "@/core/diffraction/reflections";
 
 describe("cylinderAbsorption (GSAS-II Debye–Scherrer)", () => {
   it("is unity with no absorber and decreases as μR grows", () => {
@@ -70,5 +72,23 @@ describe("marchDollase preferred orientation", () => {
     const perpendicular = marchDollase(cubic, [0, 0, 1], 2, 0, 0, 0.7);
     expect(parallel).toBeGreaterThan(1);
     expect(perpendicular).toBeLessThan(1);
+  });
+});
+
+describe("March–Dollase on a powder family", () => {
+  const cubic: UnitCell = { a: 5, b: 5, c: 5, alpha: 90, beta: 90, gamma: 90 };
+  const r = 0.7;
+  it("averages over the family's members: cubic (100) on [001] has two along the axis, four across", () => {
+    const sg = buildSpaceGroup(221);
+    expect(marchDollaseFamily(cubic, sg, [0, 0, 1], 2, 0, 0, r)).toBeCloseTo((2 * r ** -3 + 4 * r ** 1.5) / 6, 12);
+  });
+  it("is the powder intensity's correction", () => {
+    const sg = buildSpaceGroup(221);
+    const model = { id: "x", name: "x", cell: cubic, spaceGroup: sg, sites: [{ label: "A", element: "Fe", position: [0, 0, 0], occupancy: 1, adp: { kind: "isotropic", bIso: 0.4 } }] } as StructureModel;
+    const refl = generateReflections(cubic, sg, 2, 3).filter((x) => x.h === 2 && x.k === 0 && x.l === 0);
+    const radiation = { kind: "neutron", wavelength: 1.5 } as const;
+    const [plain] = powderPeakIntensities(model, radiation, refl, 1, undefined);
+    const [textured] = powderPeakIntensities(model, radiation, refl, 1, { axis: [0, 0, 1], ratio: r });
+    expect(textured!.intensity / plain!.intensity).toBeCloseTo((2 * r ** -3 + 4 * r ** 1.5) / 6, 10);
   });
 });

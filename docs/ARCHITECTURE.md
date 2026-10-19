@@ -176,7 +176,9 @@ design is in [REFINEMENT_ENGINE.md](./REFINEMENT_ENGINE.md), and the gates are i
 
 The bulk of the evaluation runs in workers. The Levenberg–Marquardt core is a
 sans-io generator (`refineCore`) that yields batches of evaluations, so a driver
-decides only where they run.
+decides only where they run. An evaluation that throws is handed back to the
+core, which decides whether that point may fail (a trial step outside the
+model's domain is rejected; anything else ends the fit).
 
 - **Single-worker path.** A whole refinement runs inside the compute worker.
 - **Parallel path.** The driver keeps the LM loop and the single baseline and

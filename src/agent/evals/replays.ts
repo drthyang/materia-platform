@@ -27,7 +27,7 @@ export const REPLAYS: Readonly<Record<string, Replay>> = {
       { text: "First your method.", calls: [RIETVELD, { name: "get_state" }] },
       { text: "Stage 1: scale, background and cell.", calls: [{ name: "refine" }] },
       { text: "Positions next.", calls: [{ name: "set_free", input: { free: ["pos_Mn1_0"] } }, { name: "refine" }] },
-      { text: "Now the profile.", calls: [{ name: "set_free", input: { free: ["width"] } }, { name: "refine" }] },
+      { text: "Now the profile, with the position fixed.", calls: [{ name: "set_free", input: { free: ["width"], fix: ["pos_Mn1_0"] } }, { name: "refine" }] },
       { text: "Then the ADPs, with the peak width fixed.", calls: [{ name: "set_free", input: { free: ["B_Mn1", "B_Ga1"], fix: ["width"] } }, { name: "refine" }] },
       { text: "Done: scale, background, cell, the Mn position, the peak width and both B_iso refined; the fit improved at every stage." },
     ],
