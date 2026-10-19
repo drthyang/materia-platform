@@ -23,7 +23,7 @@ import { lstat, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promi
 import { homedir } from "node:os";
 import { basename, delimiter, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { TOOL_REGISTRY, type ToolDefinition } from "@/mcp/registry";
-import { REF_KEY, RefStore, buildView, resolveRefs } from "@/mcp/refs";
+import { REF_KEY, RefStore, buildView, isPlainObject, resolveRefs } from "@/mcp/refs";
 import { APP_VERSION } from "@/app/constants";
 
 export interface HostOptions {
@@ -153,10 +153,6 @@ function guarded<A>(fn: (args: A) => Promise<CallResult>): (args: A) => Promise<
       return { content: [{ type: "text", text: `Error: ${e instanceof Error ? e.message : String(e)}` }], isError: true };
     }
   };
-}
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
 }
 
 function describe(tool: ToolDefinition): string {

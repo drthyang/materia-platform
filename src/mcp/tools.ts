@@ -118,6 +118,7 @@ import {
   type RefinementAssessment,
 } from "@/core/diagnostics/assessment";
 import { interpretStructure } from "@/core/diagnostics/interpret";
+import { minMax } from "@/core/math/extent";
 
 const DEFAULT_INSTRUMENT: InstrumentParameters = { kind: "constantWavelength", wavelength: 1.54 };
 
@@ -158,7 +159,7 @@ export function parse_powder_data(args: { text: string; filename?: string; instr
   return {
     detected: { dataType: fmt.dataType, ...(fmt.xUnit ? { xUnit: fmt.xUnit } : {}), source: fmt.source, confidence: fmt.confidence, ...(fmt.note ? { note: fmt.note } : {}) },
     pattern,
-    summary: { points: pattern.points.length, xUnit: pattern.xUnit, xMin: Math.min(...xs), xMax: Math.max(...xs), radiation: pattern.radiation.kind },
+    summary: { points: pattern.points.length, xUnit: pattern.xUnit, xMin: minMax(xs).min, xMax: minMax(xs).max, radiation: pattern.radiation.kind },
   };
 }
 
@@ -233,8 +234,9 @@ export function check_fit_range(args: {
   const ctx = axisContext(args.pattern, args.instrument, zero, tofCalibrationOf(args.parameters ?? []));
   const unit = args.pattern.xUnit;
   const ds = args.pattern.points.map((p) => convertAxisValue(p.x, unit, "dSpacing", ctx)).filter((d) => Number.isFinite(d) && d > 0);
-  const dMin = Math.min(...ds) * 0.98;
-  const dMax = Math.min(50, Math.max(...ds) * 1.02);
+  const dSpan = minMax(ds);
+  const dMin = dSpan.min * 0.98;
+  const dMax = Math.min(50, dSpan.max * 1.02);
   const reflections = [args.structure, ...(args.extraPhases ?? [])]
     .flatMap((ph) => generateReflections(ph.cell, ph.spaceGroup, dMin, dMax, { absences: true }).map((r) => convertAxisValue(r.d, "dSpacing", unit, ctx)))
     .filter(Number.isFinite);
@@ -630,8 +632,9 @@ export function review_symmetry(args: {
 }): SymmetryReview {
   const phases = [args.structure, ...(args.extraPhases ?? [])];
   const finite = args.residual.d.filter((v) => Number.isFinite(v) && v > 0);
-  const dMin = Math.min(...finite) * 0.99;
-  const dMax = Math.max(...finite) * 1.01;
+  const dSpan = minMax(finite);
+  const dMin = dSpan.min * 0.99;
+  const dMax = dSpan.max * 1.01;
   const reflections = phases.flatMap((ph) =>
     generateReflections(ph.cell, ph.spaceGroup, dMin, dMax).map((r) => ({ d: r.d, hkl: `${r.h} ${r.k} ${r.l}`, phaseLabel: ph.name || ph.id })));
   return reviewSymmetry(phases, { ...args.residual, reflections });

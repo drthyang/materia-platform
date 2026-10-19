@@ -40,7 +40,7 @@ export interface Solver {
 }
 
 /**
- * The Jacobian, one rule for every runtime: a PDF problem's analytic columns
+ * The Jacobian of the strategies here, one rule for every runtime: a PDF problem's analytic columns
  * are computed on the driver — its analytic layer is one fused pass (one
  * pair-loop traversal yields G(r) and every supported ∂G/∂p), about one extra
  * `calculate` per iteration, and spares the evaluators two evaluations per
