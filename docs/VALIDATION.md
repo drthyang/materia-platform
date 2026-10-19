@@ -306,6 +306,28 @@ model looks wrong."* The stand-in user approves every change and approves
 adding a phase the Agent proposes. It declines lifting a firm rule and setting
 an instrument's constants, which are the user's decisions.
 
+### Skills arm B reads
+
+Arm B measures the skills as they stand, and only one of them is the user's
+method in full. Every case is a powder pattern. Arm B must read the powder
+page's method before it changes anything (the executor enforces it), and may
+read any other skill its index lists. The ones a powder case calls for:
+
+| Skill | Status | What a B result on it means |
+| --- | --- | --- |
+| `my-rietveld-workflow` | The user's method, from their interview; the page's method, always read | The user's method, as written |
+| `symmetry-review` | The user's rule (the space group last, on evidence); the detail is drafted | The user's rule; the evidence and tests it asks for are general practice |
+| `bayesian-check` | Draft, general practice; read only when the Agent judges a number unconvincing | General practice |
+
+The PDF, single-crystal and magnetic skills (`pdf-workflow`, `sc-workflow`,
+`magnetic-analysis`) are drafts. No case runs on the PDF or single-crystal
+page, and none has a magnetic phase. A result that rests on one of them,
+whenever a case calls for it, measures general practice, not the user's
+method, and is reported as such. A skill moves to "the user's method"
+when its interview in [SKILL_INTERVIEWS.md](./SKILL_INTERVIEWS.md) is done;
+results scored before that change stay labelled with the status they ran
+under.
+
 ### Cases
 
 The **test set** is held out and gives the reported numbers. Its structures
