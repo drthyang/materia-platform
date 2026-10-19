@@ -33,6 +33,7 @@ import { structuralSubgroupLattice, subgroupClassRepresentatives } from "@/core/
 import { identifySubgroup } from "@/core/crystal/isotropyTree";
 import { residualPeaks, type AssessmentInput } from "@/core/diagnostics/assessment";
 import { FORBIDDEN_OVERLAP } from "@/core/diagnostics/thresholds";
+import { minMax } from "@/core/math/extent";
 
 /** A residual peak within this of a forbidden reflection (relative d) is that reflection. */
 const ON_FORBIDDEN = 0.005;
@@ -92,8 +93,7 @@ export function reviewSymmetry(
   const primary = phases[0];
   if (!primary) throw new Error("no phase to review");
   const ds = residual.d.filter((d) => Number.isFinite(d) && d > 0);
-  const dMin = Math.min(...ds);
-  const dMax = Math.max(...ds);
+  const { min: dMin, max: dMax } = minMax(ds);
   const allowed = residual.reflections ?? [];
   const allowedKeys = new Set(generateReflections(primary.cell, primary.spaceGroup, dMin, dMax).map(hklOf));
   const forbidden = generateReflections(primary.cell, primary.spaceGroup, dMin, dMax, { absences: false }).filter((r) => !allowedKeys.has(hklOf(r)));
@@ -135,12 +135,23 @@ export function reviewSymmetry(
       const id = n.identity.number !== undefined ? n.identity : identifySubgroup(ops, parentOps, { originShifts: true });
       const name = id.hermannMauguin ?? `${n.pointGroup ?? "?"} (point group; index ${n.index})`;
       return { name, ...(id.number !== undefined ? { number: id.number } : {}), index: n.index, domains: n.domainCount, allows };
-    })
-    .sort((a, b) => b.allows.length - a.allows.length || a.index - b.index);
-  const all = candidates.filter((c) => c.allows.length === observed.length);
+    });
+  const ordered = orderCandidates(candidates, observed.length);
+  const all = ordered.filter((c) => c.allows.length === observed.length);
   const list = observed.map((o) => `${o.hkl} (d ${o.d.toFixed(4)} Å)`).join(", ");
   const reading = all.length > 0
     ? `The refined fit leaves intensity at ${observed.length} reflection${observed.length === 1 ? "" : "s"} ${primary.spaceGroup.hermannMauguin ?? "the group"} forbids: ${list}. ${all.length} subgroup${all.length === 1 ? "" : "s"} of the same lattice allow${all.length === 1 ? "s" : ""} ${observed.length === 1 ? "it" : "them all"}, smallest index first. Put this to the user: a lower symmetry is a new model, refined again from the start, and is justified only if it fits these reflections without the misfit moving elsewhere.`
     : `The refined fit leaves intensity at ${observed.length} forbidden reflection${observed.length === 1 ? "" : "s"} (${list}), but no subgroup of the same lattice up to index ${MAX_INDEX} allows ${observed.length === 1 ? "it" : "them all"}${candidates.length ? ` (some allow part: listed)` : ""}. A lost centring, a larger cell, or a second phase whose lines fall there is likelier; check find_unexplained_peaks and ask the user.`;
-  return { observedForbidden: observed, tested: testable.length, untestable: forbidden.length - testable.length, candidates: candidates.slice(0, 8), reading, limits };
+  return { observedForbidden: observed, tested: testable.length, untestable: forbidden.length - testable.length, candidates: ordered.slice(0, 8), reading, limits };
+}
+
+/**
+ * The candidates as the review lists them: those that allow every observed
+ * forbidden reflection first, then those that allow some, each smallest index
+ * first (the smallest step down from the group; more domains come with a
+ * larger index). Among equal indices, the one allowing more comes first.
+ */
+export function orderCandidates(candidates: readonly SubgroupCandidate[], observed: number): SubgroupCandidate[] {
+  const allowsAll = (c: SubgroupCandidate): number => (c.allows.length === observed ? 0 : 1);
+  return [...candidates].sort((a, b) => allowsAll(a) - allowsAll(b) || a.index - b.index || b.allows.length - a.allows.length);
 }

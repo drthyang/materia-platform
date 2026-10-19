@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import type { PowderCurves } from "@/core/workflow/powder";
 import type { PhaseTicks } from "@/visualization/reflectionTicks";
 import { color, mono } from "@/app/theme";
+import { minMax } from "@/core/math/extent";
 
 export interface FitRangeSelection {
   readonly min: number;
@@ -219,8 +220,7 @@ export function WorkbenchPlot({
   const draggingGrip = useRef(false);
 
   const xs = curves.x;
-  const fullMin = xs.length ? Math.min(...xs) : 0;
-  const fullMax = xs.length ? Math.max(...xs) : 1;
+  const { min: fullMin, max: fullMax } = xs.length ? minMax(xs) : { min: 0, max: 1 };
 
   const [view, setView] = useState<{ min: number; max: number } | null>(null);
   const [rubber, setRubber] = useState<{ x0: number; x1: number } | null>(null);

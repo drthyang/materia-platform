@@ -37,6 +37,7 @@ import { checkEqualTies, type EqualTieUpdate } from "@/core/refinement/constrain
 import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, correlationsCheck, findingChecks, noResultCheck, verdictCheck } from "@/agent/reportChecks";
 import { disorderAssemblies } from "@/agent/correlationCheck";
 import { COMPLETENESS_NOTE, FLACK_U_DETERMINED, R_INT_NOTE } from "@/core/diagnostics/thresholds";
+import { minMax } from "@/core/math/extent";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- inputs are validated against the spec's zod schema before a handler runs */
 type Input = any;
@@ -723,7 +724,6 @@ function weightingAfter(s: SingleCrystalLiveState, input: Input): ShelxWeighting
   return a > 0 || b > 0 ? { a, b } : null;
 }
 
-/** R_int, or why there is none: data merged already have one value per reflection. */
 /**
  * The merge a crystallographer quotes: in an acentric group the Friedel mates
  * kept apart and the absences left out, as SHELXL merges it (MERG 2); in a
@@ -840,16 +840,6 @@ const median = (values: readonly number[]): number => {
 const measurementKey = (r: SingleCrystalRow): string => `${r.h},${r.k},${r.l},${r.batch ?? ""},${r.foSq},${r.sigma}`;
 
 /**
- * What a misfit measurement's equivalents say: the other measurements of the
- * same reflection (the Laue class), each against its own Fc² (the extinction
- * differs with wavelength), as the ratio Fo²/Fc². One far from the others'
- * median while they agree among themselves failed — whatever the model, so it
- * holds when that one failure drags the whole fit. All of them off the same
- * way is the model's misfit, which no omission should hide; equivalents that
- * scatter among themselves are a correction that differs between them
- * (extinction at different wavelengths, before it is refined) or the model.
- */
-/**
  * What the measurements behind a merged reflection say: each of them against
  * the reflection's Fc² (symmetry-equivalent under the merge, so one Fc²). One
  * far from the rest, which agree, is a measurement that failed inside the
@@ -882,6 +872,16 @@ function mergedReading(s: SingleCrystalLiveState, row: SingleCrystalRow): string
   return `${n}: they scatter about the merged value as their σ allow`;
 }
 
+/**
+ * What a misfit measurement's equivalents say: the other measurements of the
+ * same reflection (the Laue class), each against its own Fc² (the extinction
+ * differs with wavelength), as the ratio Fo²/Fc². One far from the others'
+ * median while they agree among themselves failed — whatever the model, so it
+ * holds when that one failure drags the whole fit. All of them off the same
+ * way is the model's misfit, which no omission should hide; equivalents that
+ * scatter among themselves are a correction that differs between them
+ * (extinction at different wavelengths, before it is refined) or the model.
+ */
 function equivalentsReading(s: SingleCrystalLiveState, row: SingleCrystalRow, keyOf: (r: { h: number; k: number; l: number }) => string): string {
   if (s.dataset.merged) return mergedReading(s, row);
   return againstOthers(s, row, keyOf, s.dataset.origin === "refinement-listing" ? "a listing's value, merged by the refinement that wrote it from equivalents this file does not hold" : "no equivalent measured");
@@ -969,23 +969,12 @@ export function failedMeasurements(s: SingleCrystalLiveState): SingleCrystalRow[
   return s.rows.filter((r) => r.sigma > 0 && Math.abs(r.deltaOverSigma) >= 6 && /: a failed measurement$/.test(equivalentsReading(s, r, keyOf)));
 }
 
-/** The least and greatest of `values`, by a loop: spreading a TOF file's 10⁵–10⁶ values into Math.min overflows the call stack. */
-export function extent(values: readonly number[]): [number, number] {
-  let lo = Infinity;
-  let hi = -Infinity;
-  for (const v of values) {
-    if (v < lo) lo = v;
-    if (v > hi) hi = v;
-  }
-  return [lo, hi];
-}
-
 /** How the reflections were measured, when the file says: each at its own wavelength (TOF Laue), in batches. */
 function measurementView(s: SingleCrystalLiveState): Record<string, unknown> | null {
   const refl = s.dataset.reflections;
   const range = (values: number[], digits: number): string => {
-    const [lo, hi] = extent(values);
-    return `${sig(lo, digits)}–${sig(hi, digits)}`;
+    const { min, max } = minMax(values);
+    return `${sig(min, digits)}–${sig(max, digits)}`;
   };
   const wl = refl.flatMap((r) => (r.wavelength !== undefined ? [r.wavelength] : []));
   const tt = refl.flatMap((r) => (r.twoTheta !== undefined ? [r.twoTheta] : []));
@@ -1021,7 +1010,7 @@ function batchView(rows: readonly SingleCrystalRow[]): Record<string, unknown> |
   per.sort((a, b) => Math.abs(Math.log(b.k) - mean) - Math.abs(Math.log(a.k) - mean));
   return {
     batches: per.length,
-    K: `${sig(extent(per.map((b) => b.k))[0], 3)}–${sig(extent(per.map((b) => b.k))[1], 3)} (geometric mean ${sig(Math.exp(mean), 3)}, scatter ${pct(sd)} %)`,
+    K: `${sig(minMax(per.map((b) => b.k)).min, 3)}–${sig(minMax(per.map((b) => b.k)).max, 3)} (geometric mean ${sig(Math.exp(mean), 3)}, scatter ${pct(sd)} %)`,
     farthest: per.slice(0, 5).map((b) => `batch ${b.batch}: ${b.n} reflections, K ${sig(b.k, 3)}, R1 ${pct(b.r1)} %; worst ${hklOf(b.worst)} at ${sig(b.worst.deltaOverSigma, 3)}σ`),
     reading: "One scale serves every batch, so K should scatter about its mean by each batch's precision. A batch whose K stands apart has a scale of its own, or holds a reflection measured wrongly (an edge of the detector, a shadow): its worst reflection says which.",
   };
@@ -1326,7 +1315,6 @@ function assessment(s: SingleCrystalLiveState, kept: ReadonlyMap<string, string>
   };
 }
 
-/** The restraints as the fit left them: each one's distances and deviation in σ, and the GooF with them counted. */
 /** The restraints in force, as SHELXL counts them: the distance restraints' rows and a polar group's floating origin, one per direction. */
 function restraintsLine(s: SingleCrystalLiveState): string {
   const origins = floatingOrigins(s.refinedStructure, s.parameters, s.bindings);
@@ -1348,6 +1336,7 @@ function extinctionLabel(s: SingleCrystalLiveState): string {
   return EXTINCTION_MODEL_LABELS[s.extinctionModel];
 }
 
+/** The restraints as the fit left them: each one's distances and deviation in σ, and the GooF with them counted. */
 function restraintsView(s: SingleCrystalLiveState): Record<string, unknown> {
   const report = restraintReport(s.refinedStructure, s.distanceRestraints);
   const { pairs, rows } = restraintRows(s.distanceRestraints);

@@ -1,4 +1,3 @@
-import { extent } from "@/agent/scTools";
 import { describe, it, expect } from "vitest";
 import { analysisOf } from "@/agent/pages";
 import type { AgentReport } from "@/agent/report";
@@ -689,14 +688,6 @@ describe("AgentExecutor on the single-crystal page", { timeout: 30_000 }, () => 
     expect(out.unverifiedNumbers).toBeUndefined();
     expect(reports).toHaveLength(1);
     expect(reports[0]!.markdown).toMatch(/\| wR2 \|/);
-  });
-});
-
-describe("the range of a large file's values", () => {
-  it("is read by a loop: 500 000 wavelengths do not overflow the stack", () => {
-    const values = Array.from({ length: 500_000 }, (_, i) => 0.4 + (i % 1000) * 0.003);
-    expect(() => Math.min(...values)).toThrow(RangeError);
-    expect(extent(values)).toEqual([0.4, 0.4 + 999 * 0.003]);
   });
 });
 
