@@ -73,9 +73,8 @@ import { applyParameters } from "@/core/workflow/apply";
 import { resolveTies } from "@/core/refinement/constraints";
 import { buildDistortionModes, buildSymmetryModes } from "@/core/crystal/distortionModes";
 import { refine, refineParallel } from "@/core/refinement/engine";
-import { boxcarScan, poolSolver } from "@/workers/strategy";
-import { refineMultiStart } from "@/core/refinement/multiStart";
-import { canonicalizeMomentValues, momentDegeneracies, momentKickFloor, type MomentDegeneracy } from "@/core/magnetic/canonicalize";
+import { boxcarScan, momentMultiStart, poolSolver } from "@/workers/strategy";
+import { momentKickFloor, type MomentDegeneracy } from "@/core/magnetic/canonicalize";
 import {
   boxcarPlanIssue,
   boxcarScannedMax,
@@ -801,6 +800,8 @@ export async function refine_magnetic_powder(args: {
   parameters: RefinementParameter[];
   bindings: ParameterBinding[];
   profile: PowderProfile;
+  extraPhases?: StructureModel[];
+  fitRange?: { min: number; max: number };
   staged?: boolean;
   maxIterations?: number;
   restarts?: number;
@@ -814,74 +815,64 @@ export async function refine_magnetic_powder(args: {
   parallel: { workers: number } | null;
   multiStart?: { restartsRun: number; bestStartIndex: number; improved: boolean; costByStart: number[]; degeneracies: MomentDegeneracy[] };
 }> {
-  const prof = { shape: args.profile.shape, ...(args.profile.eta !== undefined ? { eta: args.profile.eta } : {}) };
   const maxIterations = args.maxIterations ?? 25;
   let params = args.parameters.map((p) => ({ ...p }));
-
-  // Node evaluator pool when the runtime supports it (one init serves both
-  // passes — replicas evaluate from the full values record). Serial otherwise;
-  // trajectories are bit-identical either way.
-  const spec: EvaluatorSpec = {
+  const phases = (args.extraPhases ?? []).map((s) => ({ structure: s, id: s.id }));
+  // The problem the app's page fits: the whole profile (shape, η, Lorentz, the
+  // background basis), the window and every phase.
+  const spec: Extract<EvaluatorSpec, { kind: "magneticPowder" }> = {
     kind: "magneticPowder",
     structure: args.structure,
     magnetic: args.magnetic,
     pattern: args.pattern,
     parameters: args.parameters,
     bindings: args.bindings,
+    ...(phases.length > 0 ? { extraPhases: phases } : {}),
     shape: args.profile.shape,
     ...(args.profile.eta !== undefined ? { eta: args.profile.eta } : {}),
+    ...(args.profile.lorentz !== undefined ? { lorentz: args.profile.lorentz } : {}),
+    ...(args.profile.backgroundType !== undefined ? { backgroundType: args.profile.backgroundType } : {}),
+    ...(args.fitRange ? { fitRange: args.fitRange } : {}),
   };
+  // Node evaluator pool when the runtime supports it (one init serves every
+  // pass: replicas evaluate from the full values record). Serial otherwise;
+  // trajectories are bit-identical either way.
   const pool = await createNodeEvaluatorPool(spec);
-  const solve = (ps: RefinementParameter[], opts: { maxIterations: number }): Promise<RefinementResult> | RefinementResult => {
-    const problem = buildMagneticPowderProblem(args.structure, args.magnetic, args.pattern, ps, args.bindings, prof);
-    return pool ? refineParallel(problem, opts, pool) : refine(problem, opts);
-  };
+  const solver = poolSolver(pool);
   try {
+    await solver.init(spec);
     if (args.staged ?? true) {
-      const pass1 = magneticStage1Parameters(params);
-      const r1 = await solve(pass1, { maxIterations: Math.min(maxIterations, 20) });
+      const r1 = await solver.solve(magneticStage1Parameters(params), { maxIterations: Math.min(maxIterations, 20) });
       params = params.map((p) => ({ ...p, value: r1.parameters[p.id] ?? p.value }));
     }
-
-    const isMoment = (p: RefinementParameter): boolean => isMomentParameterKind(p.kind);
-    let search: Awaited<ReturnType<typeof refineMultiStart>> | null = null;
-    if ((args.restarts ?? 0) > 0 && params.some((p) => isMoment(p) && !p.fixed && !p.expression)) {
-      // Moment-only restarts on the frozen nuclear scaffold. Kicks are µ_B-scale:
-      // m = 0 is a stationary point an unkicked LM never leaves, and a mode the
-      // baseline switched off must be able to turn back on (momentKickFloor).
-      const frozen = params.map((p) => (!isMoment(p) && !p.fixed && !p.expression ? { ...p, fixed: true } : { ...p }));
-      search = await refineMultiStart(frozen, async (start) => {
-        const r = await solve([...start], { maxIterations });
-        return { parameters: start.map((p) => ({ ...p, value: r.parameters[p.id] ?? p.value })), final: r };
-      }, {
-        restarts: args.restarts!, escapeSigma: 6, relFraction: 1, shouldPerturb: isMoment, minKick: momentKickFloor(frozen),
-        ...(args.seed !== undefined ? { seed: args.seed } : {}),
-      });
-      const best = new Map(search.parameters.map((p) => [p.id, p.value]));
-      params = params.map((p) => (isMoment(p) && best.has(p.id) ? { ...p, value: best.get(p.id)! } : p));
-    }
-
-    const joint = await solve(params, { maxIterations });
-    // One ±m twin, deterministically — and only when a search asked for it, so a
-    // plain call reproduces exactly what it always has.
-    const result: RefinementResult = search
-      ? { ...joint, parameters: canonicalizeMomentValues(joint.parameters, applyMagneticMoments(args.magnetic, args.bindings, joint.parameters), args.structure.cell, params) }
-      : joint;
+    // The app's moment search (workers/strategy.ts) when asked for: kicks are
+    // µB-scale, since m = 0 is a stationary point an unkicked LM never leaves,
+    // and a mode the first pass switched off must be able to turn back on
+    // (momentKickFloor). A plain call, no search, reproduces what it always has:
+    // one joint solve, no ±m canonicalization.
+    const searchable = params.some((p) => isMomentParameterKind(p.kind) && !p.fixed && !p.expression);
+    const search = (args.restarts ?? 0) > 0 && searchable
+      ? await momentMultiStart({ ...spec, parameters: params }, solver, {
+          restarts: args.restarts!, minKick: momentKickFloor(params), ...(args.seed !== undefined ? { seed: args.seed } : {}),
+        }, { maxIterations })
+      : null;
+    const result = search ? search.final : await solver.solve(params, { maxIterations });
     const refined = params.map((p) => ({ ...p, value: result.parameters[p.id] ?? p.value }));
     const refinedMagnetic = applyMagneticMoments(args.magnetic, args.bindings, Object.fromEntries(refined.map((p) => [p.id, p.value])));
-    const c = magneticPowderComponents(args.structure, refinedMagnetic, args.pattern, refined, args.bindings, prof);
+    const c = magneticPowderComponents(args.structure, refinedMagnetic, args.pattern, refined, args.bindings, args.profile, phases);
     const excluded = excludedPointMask(c.yObs);
+    const inWindow = (x: number): boolean => !args.fitRange || (x >= args.fitRange.min && x <= args.fitRange.max);
     return {
       result,
       parameters: refined,
       magnetic: refinedMagnetic,
-      observationCount: excluded.reduce((n, ex) => n + (ex ? 0 : 1), 0),
+      observationCount: excluded.reduce((n, ex, i) => n + (ex || !inWindow(c.x[i]!) ? 0 : 1), 0),
       components: { x: c.x, yObs: c.yObs, yNuclear: c.yNuclear, yMagnetic: c.yMagnetic, yCalc: c.yCalc },
       parallel: pool ? { workers: pool.size } : null,
       ...(search ? {
         multiStart: {
           restartsRun: search.restartsRun, bestStartIndex: search.bestStartIndex, improved: search.improved,
-          costByStart: [...search.costByStart], degeneracies: momentDegeneracies(joint.diagnostics, params),
+          costByStart: [...search.costByStart], degeneracies: search.degeneracies,
         },
       } : {}),
     };
