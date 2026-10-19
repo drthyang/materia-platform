@@ -1,6 +1,6 @@
 # The boxcar scan's esds, drift and restarts
 
-Pull request [#PR](https://github.com/drthyang/web-refinement/pull/PR),
+Pull request [#88](https://github.com/drthyang/web-refinement/pull/88),
 branch `claude/plan-4-5`, on `main`, 2026-10-19. Plan:
 [AGENT_PLAN.md](../AGENT_PLAN.md), 4.5 (`boxcar_scan` returns per-box esds
 and each parameter's drift in esds; restarts reachable). AGENT_REVIEW's tool
