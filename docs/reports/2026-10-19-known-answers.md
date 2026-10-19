@@ -1,6 +1,6 @@
 # Known answers for the extinction test and the peak identification
 
-Pull request [#PR](https://github.com/drthyang/web-refinement/pull/PR),
+Pull request [#86](https://github.com/drthyang/web-refinement/pull/86),
 branch `claude/plan-4-9`, on `main`, 2026-10-19. Plan:
 [AGENT_PLAN.md](../AGENT_PLAN.md), 4.9 (known-answer tests for
 `test_extinction`; a false-positive test for `identify_peaks` on random
