@@ -1,6 +1,7 @@
 /**
- * The Agent tools of the powder page's magnetic analysis step: each one the
- * panel's own control, through its handle (magneticPort.ts). The step's
+ * The Agent tools of the powder page's magnetic analysis step: each one a
+ * change of the step's store, the one the panel renders, through its handle
+ * (magneticPort.ts). The step's
  * method is the magnetic-analysis skill: the nuclear structure refined first,
  * k from the peaks the nuclear model leaves, the magnetic groups of the
  * little group of k top-down, the moments fitted, then nuclear and magnetic
@@ -12,13 +13,12 @@ import type { Vec3 } from "@/core/math/types";
 import type { PowderAgentPort } from "@/agent/port";
 import { liveTool, type MagneticChangeTool } from "@/agent/tools";
 import type { MagneticAgentHandle, MagneticCandidateView, MagneticPanelState } from "@/agent/magneticPort";
-import { sig, type ChangeResult } from "@/agent/liveCommon";
+import { pct, sig, type ChangeResult } from "@/agent/liveCommon";
 import { change, nothing, type Plans } from "@/agent/pages/plans";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- inputs are validated against the spec's zod schema before a handler runs */
 type Input = any;
 
-export const MAGNETIC_SKILL = "magnetic-analysis";
 /** A tool of the magnetic step (its definition says so). */
 export const isMagneticTool = (name: string): boolean => !!liveTool(name)?.magneticStep;
 
@@ -62,7 +62,6 @@ function candidateRow(c: MagneticCandidateView): Record<string, unknown> {
   };
 }
 
-const pct = (f: number): number => Math.round(f * 10000) / 100;
 
 /**
  * The magnetic analysis's own next step, from where the step stands: the
@@ -174,14 +173,15 @@ function rankView(s: MagneticPanelState): Record<string, unknown> {
   return {
     groups: fitted.map(candidateRow),
     ...(s.best ? { best: s.best } : {}),
+    ...(s.withinNoise.length ? { withinNoise: s.withinNoise } : {}),
     ...(s.baselineAgreement !== null ? { nuclearOnlyWR: pct(s.baselineAgreement) } : {}),
     reading: s.best
-      ? `${s.best} fits best (ties go to the maximal group with the fewest moment parameters). A powder often cannot tell several groups apart: say which fit within the noise of the best, and choose the maximal one unless the data say otherwise.`
+      ? `${s.withinNoise.length > 1 ? `${s.withinNoise.length} groups fit within the noise of the best (${s.withinNoise.join(", ")}: a group with more moment parameters must lower χ² beyond the noise, Hamilton's test at 5 %), and ${s.best} is the maximal one with the fewest moment parameters among them.` : `${s.best} fits best, beyond the noise of every other group.`} A powder often cannot tell several groups apart: say which fit within the noise of the best, and choose ${s.best} unless the data say otherwise.`
       : "No candidate could be fitted.",
   };
 }
 
-/** A change on the step, through the handle the step publishes when it is made, with the step's tab open. */
+/** A change on the step, through its handle (one for the step's life), with the step's tab open. */
 function onStep(port: PowderAgentPort, make: (h: MagneticAgentHandle) => ChangeResult | Promise<ChangeResult>): () => ChangeResult | Promise<ChangeResult> {
   return () => {
     const h = handleOf(port);
@@ -193,7 +193,7 @@ function onStep(port: PowderAgentPort, make: (h: MagneticAgentHandle) => ChangeR
 /**
  * The step's changes, one plan each (pages/plans.ts), on the powder page's
  * table (powderTools.ts): what the approval card says, read off the step as
- * it stands, and the change through the panel's own control.
+ * it stands, and the change through the step's store.
  */
 export const MAGNETIC_PLANS: Pick<Plans<PowderAgentPort>, MagneticChangeTool> = {
   set_propagation_vector: (input, _s, port) => {

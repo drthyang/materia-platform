@@ -196,7 +196,8 @@ approximate, however plausible its output looks.
 - Backgrounds: Chebyshev, cosine (Fourier) or power series, or linear or
   logarithmic interpolation between evenly spaced points, with an adjustable
   number of terms.
-- Corrections: March–Dollase preferred orientation; sample displacement and
+- Corrections: March–Dollase preferred orientation (averaged over each
+  family's Laue equivalents, as GSAS-II); sample displacement and
   transparency, Debye–Scherrer absorption, and Suortti surface roughness
   (opt-in); crystallite size (isotropic, with uniaxial in the core only) and
   microstrain (isotropic,
@@ -306,8 +307,12 @@ approximate, however plausible its output looks.
   no weight. Each family's |F_M|² is evaluated at one of its arm members, not
   averaged over the family.
 - The k-search ranks candidates by peak positions, not intensities, and it
-  proposes commensurate k only (denominators 2, 3, 4 and 6). Type an
-  incommensurate k in by hand.
+  proposes commensurate k only (denominators 2, 3, 4 and 6; in a cell with an
+  angle off 90° the mixed-sign ones too, such as (¼ 0 −¼)). Type an
+  incommensurate k in by hand. It predicts satellites out to the smallest d
+  given, up to index ±24 along an axis, so on a cell over about 15 Å the
+  satellites below d ≈ a/24 are not all predicted; that close, they crowd
+  too densely to tell one k from another anyway.
 - An incommensurate model exports as an mCIF of the parent cell, with the cosine
   amplitudes in the moment loop and the sine amplitudes as comments — not as a
   superspace mCIF. (A commensurate k ≠ 0 exports as the magnetic supercell in its

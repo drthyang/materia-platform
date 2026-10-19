@@ -294,6 +294,12 @@ export interface RefinementDiagnostics {
   readonly conditionNumber: number;
   /** Strong parameter correlations, sorted by absolute coefficient. */
   readonly highCorrelations: readonly RefinementCorrelation[];
+  /**
+   * The correlations below that threshold down to CORRELATION_REPORTED
+   * (thresholds.ts), sorted the same way: reported, never silent. Absent on
+   * results made before it was kept.
+   */
+  readonly moderateCorrelations?: readonly RefinementCorrelation[];
   /** Largest LM damping value reached while searching for accepted steps. */
   readonly maxLambda: number;
   /**
@@ -333,6 +339,21 @@ export interface RefinementResult {
   readonly diagnostics?: RefinementDiagnostics;
   /** Human-readable notes, warnings, or failure reason. */
   readonly message?: string;
+}
+
+/**
+ * Thrown by a problem's `calculate` when the values lie outside the model's
+ * domain: no pattern exists there (a cell length ≤ 0). At a trial step the
+ * engine rejects the step as it rejects a non-finite χ², with larger damping,
+ * and the fit goes on; at the starting point, or at a Jacobian point beside an
+ * accepted one, it ends the refinement with this message. Any other error a
+ * `calculate` throws is a fault and always ends the refinement.
+ */
+export class ModelDomainError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ModelDomainError";
+  }
 }
 
 /** Tuning knobs for the least-squares driver. */

@@ -38,6 +38,7 @@ import type { ReportInput } from "@/core/export/report";
 import { singleCrystalReportInput, type MagneticExploration } from "@/app/reportInputs";
 import type { SingleCrystalLiveState } from "@/agent/port";
 import type { FitOptions } from "@/app/magneticStep";
+import { noiseOf, type MomentFit } from "@/core/magnetic/momentRestarts";
 
 /** The probe the reflections were measured with: a bare reflection file cannot say, so the user picks it. */
 export type Probe = "xray" | "neutron" | "neutron-tof";
@@ -802,9 +803,10 @@ export function singleCrystalProbe(client: SingleCrystalCompute, m: SingleCrysta
  * measurement, so the magnetic scale is tied to the nuclear one, which also
  * pins |m| uniquely.
  */
-export async function momentFit(client: SingleCrystalCompute, m: SingleCrystalPageModel, magnetic: MagneticModel, momentParams: readonly RefinementParameter[], momentBindings: readonly ParameterBinding[], options: FitOptions = {}): Promise<{ readonly values: Record<string, number>; readonly agreement: number | null }> {
+export async function momentFit(client: SingleCrystalCompute, m: SingleCrystalPageModel, magnetic: MagneticModel, momentParams: readonly RefinementParameter[], momentBindings: readonly ParameterBinding[], options: FitOptions = {}): Promise<MomentFit> {
   const v = pageView(m);
-  const nuclearFixed = m.params.map((p) => ({ ...p, fixed: true }));
+  // At k = 0 (options.freeScale) the scale refines with the moments; the magnetic scale follows it.
+  const nuclearFixed = m.params.map((p) => ({ ...p, fixed: !(options.freeScale && p.kind === "scale" && !p.expression) }));
   const nuclearScale = m.params.find((p) => p.kind === "scale")?.value ?? 1;
   const scaleTie: RefinementParameter = { id: "magScale", label: "magnetic scale (= nuclear)", kind: "magneticScale", value: nuclearScale, initialValue: nuclearScale, fixed: true, expression: "= scale" };
   const scaleTieBinding: ParameterBinding = { parameterId: "magScale", kind: "magneticScale", targetId: v.activeDataset.id };
@@ -814,7 +816,7 @@ export async function momentFit(client: SingleCrystalCompute, m: SingleCrystalPa
   );
   const values: Record<string, number> = {};
   for (const p of momentParams) values[p.id] = ms.final.parameters[p.id] ?? p.value;
-  return { values, agreement: ms.final.agreement.rWeighted ?? null };
+  return { values, agreement: ms.final.agreement.rWeighted ?? null, ...noiseOf(ms.final) };
 }
 
 // ── what the page shows the Agent and the report ─────────────────────────────

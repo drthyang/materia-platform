@@ -3,9 +3,11 @@ import { ComputeClient } from "@/workers/computeClient";
 import { MAGNETIC_TRUTH, mn3gaFluoriteSession, mn3gaMagneticSession, mn3gaSession } from "@/agent/evals/pages";
 import { executor, fakeHost, headlessHistory, sessionPort } from "@/testSupport/agentHeadless";
 import { powderRestraints } from "@/app/powderSpec";
-import { DEFAULT_INSTRUMENT, type Session } from "@/app/powderSession";
-import { posteriorRun, powderFit, profileRequest, thoroughFit, withBackgroundType, withPhase, type PowderCompute, type PowderPageModel } from "@/app/powderPage";
 import { knownPhaseStructure } from "@/core/diagnostics/knownPhases";
+import { DEFAULT_INSTRUMENT, type Session } from "@/app/powderSession";
+import { extentOf, posteriorRun, powderFit, powderPageCurves, profileRequest, thoroughFit, withBackgroundType, withPhase, type PowderCompute, type PowderPageModel } from "@/app/powderPage";
+import { evaluateBackground, type BackgroundType } from "@/core/diffraction/background";
+import type { PowderCurves } from "@/core/workflow/powder";
 import { buildMultiPhasePowderProblem } from "@/core/workflow/multiPhase";
 import { buildMagneticPowderProblem } from "@/core/workflow/magneticPowder";
 
@@ -74,6 +76,68 @@ describe("the powder page's fits", () => {
     expect(requests[0]!.req.fitRange).toEqual({ min: 15, max: 110 });
     expect(out.mode).toBe("prefit");
     expect(out.message).toMatch(/^Prefit/);
+  }, 120_000);
+});
+
+describe("a page with a second phase, on the background basis chosen", () => {
+  // The multi-phase curves and fits once drew and refined the default Chebyshev
+  // basis whatever the page had chosen; the magnetic step's moments fit, which
+  // used the page's, then disagreed with the page's wR (6.793 against 6.781).
+  /** The demo with CaF₂ added, its four background coefficients read on the basis given. */
+  const twoPhase = (basis: BackgroundType): Session => withBackgroundType(withPhase(mn3gaSession(), knownPhaseStructure("CaF₂")!, DEFAULT_INSTRUMENT), basis);
+  const largest = (a: readonly number[], b: readonly number[]): number => a.reduce((m, v, i) => Math.max(m, Math.abs(v - b[i]!)), 0);
+
+  it("draws the basis chosen under the same peaks", () => {
+    const s = twoPhase("cosine");
+    const cosine = powderPageCurves(s).curves;
+    const chebyshev = powderPageCurves(twoPhase("chebyshev")).curves;
+    const coefficients = s.powderParams.filter((p) => p.kind === "background").map((p) => p.value);
+    const { min, max } = extentOf(cosine.x);
+    expect(largest(cosine.yBackground!, cosine.x.map((x) => evaluateBackground(x, coefficients, "cosine", min, max)))).toBeLessThan(1e-9);
+    expect(largest(cosine.yBackground!, chebyshev.yBackground!)).toBeGreaterThan(1);
+    const peaks = (c: PowderCurves): number[] => c.yCalc.map((y, i) => y - c.yBackground![i]!);
+    expect(largest(peaks(cosine), peaks(chebyshev))).toBeLessThan(1e-9);
+  });
+
+  it("refines on it (in the page's thread and through the evaluator spec), to the wR the page shows", async () => {
+    for (const fit of ["refine", "thorough"] as const) {
+      const coefficients: Partial<Record<BackgroundType, number[]>> = {};
+      for (const basis of ["cosine", "chebyshev"] as const) {
+        const { port } = sessionPort(twoPhase(basis));
+        // The demo holds no CaF₂: its scale goes to nothing, and a free cell with it runs away.
+        port.setFixed([{ id: "p1_cell_a", fixed: true }]);
+        port.setFitRange({ min: 20, max: 100 });
+        await port[fit]();
+        const { result, wR, parameters } = port.state();
+        expect(result!.status, `${fit} ${basis}`).toBe("converged");
+        expect(result!.agreement.rWeighted, `${fit} ${basis}`).toBeCloseTo(wR, 9);
+        coefficients[basis] = parameters.filter((p) => p.kind === "background").map((p) => p.value);
+      }
+      // Four terms of either basis follow this smooth background about as well (the wR's within 10⁻⁶), each with its own coefficients.
+      expect(largest(coefficients.cosine!, coefficients.chebyshev!), fit).toBeGreaterThan(5);
+    }
+  }, 120_000);
+});
+
+describe("a phase the data do not contain, its cell free", () => {
+  it("Refine completes when a trial step drives the cell negative (it threw a RangeError and ended the refinement)", async () => {
+    // The demo has no CaF₂: its scale goes to 0 and its free cell drifts until
+    // a trial step makes it negative, where no reflections can be listed.
+    const { port } = sessionPort(mn3gaSession());
+    port.setFitRange({ min: 20, max: 100 });
+    port.addPhase!(knownPhaseStructure("CaF₂")!);
+    port.setFixed([{ id: "p1_cell_a", fixed: false }]);
+    const seed = port.state().parameters.find((p) => p.id === "p1_scale")!.value;
+    await port.refine();
+    const result = port.state().result!;
+    expect(result.message).toMatch(/trial step\(s\) rejected outside the model's domain \(Cell length a = -[\d.]+ Å is not a positive, finite length/);
+    expect(result.parameters.p1_cell_a).toBeGreaterThan(0);
+    // The fit says what the data say: no CaF₂, and the demo's own fit.
+    expect(result.parameters.p1_scale).toBeLessThan(1e-3 * seed);
+    const { port: alone } = sessionPort(mn3gaSession());
+    alone.setFitRange({ min: 20, max: 100 });
+    await alone.refine();
+    expect(port.state().wR).toBeCloseTo(alone.state().wR, 5);
   }, 120_000);
 });
 

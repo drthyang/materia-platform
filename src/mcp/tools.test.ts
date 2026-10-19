@@ -287,6 +287,15 @@ describe("MCP analysis primitives (no data files needed)", () => {
     expect(ks.candidates[0]!.score).toBeGreaterThanOrEqual(ks.candidates[ks.candidates.length - 1]!.score);
   });
 
+  it("search_propagation_vector counts every peak it is given, as the app's search does", () => {
+    // One policy (K_SEARCH_DEFAULTS): MCP's search cut every peak above |Q| = 6 Å⁻¹ (d < 1.05 Å),
+    // which the app's never did; now a cut is asked for, with `maxQ`.
+    const structure = exampleStructure();
+    const peakD = [5.2, 3.1, 0.95];
+    expect(search_propagation_vector({ structure, peakD }).candidates[0]!.total).toBe(3);
+    expect(search_propagation_vector({ structure, peakD, options: { maxQ: 6 } }).candidates[0]!.total).toBe(2);
+  });
+
   it("evaluate_pattern with a magnetic model separates nuclear and magnetic components", () => {
     const ex = exampleMagnetic();
     const grid = Array.from({ length: 500 }, (_, i) => 10 + (i * 80) / 499);

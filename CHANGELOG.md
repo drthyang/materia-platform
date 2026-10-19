@@ -504,6 +504,31 @@ release fixes bugs.
 
 ### Fixed
 
+- **A powder page with a second phase uses its own background basis.** Its
+  curve, wR, Refine, Prefit and posterior used the Chebyshev basis and the
+  Lorentz factor whatever the page had set: the cosine, power-series and
+  interpolated bases, and the Lorentz factor off, applied with one phase
+  only. The magnetic step's moments fit, which did use them, then disagreed
+  with the page's wR (6.793 against 6.781 on the magnetic Mn₃Ga demo with
+  CaF₂ added and a cosine background).
+
+- **The MCP magnetic tools draw the pattern the fit solves.** With a
+  magnetic model, `evaluate_pattern`, `simulate_pattern` and
+  `rank_next_parameters` (the Agent's too) kept only the profile's shape
+  and η: a cosine (or other) background was drawn on Chebyshev, and the
+  Lorentz factor was on whatever the profile said. The components
+  `refine_magnetic_powder` returns dropped η, and drew an extra phase with
+  the Lorentz factor on. Their curves and wR are now the fitted problem's.
+
+- **A phase the data do not contain no longer ends the refinement.** With its
+  cell free, its scale fell to 0 and a trial step drove its cell length below
+  0, where the reflection list threw `RangeError: Invalid typed array length`
+  and Refine stopped (the Mn₃Ga demo with CaF₂ added). Such a step is now
+  rejected like an uphill one, the fit goes on, and its message says how many
+  steps were rejected and why. A cell length that is not positive and finite
+  is refused with a message that names it, wherever a reflection list is made.
+
+
 - **A fit with a second phase or a magnetic model leaves out the excluded
   plateau**, a GSAS export's constant −3 outside its fit range, as a
   single-phase fit and the page's wR already did. It fitted those points:

@@ -5,6 +5,7 @@
  * sees the same shapes whichever page is open.
  */
 
+import { sig } from "@/core/math/precision";
 import type { RefinementParameter } from "@/core/refinement/types";
 import type { ProjectHistory } from "@/core/project/history";
 import type { AgentRecord } from "@/agent/method";
@@ -296,6 +297,4 @@ export function pct(f: number): number {
   return Math.round(f * 10000) / 100;
 }
 
-export function sig(v: number, digits = 6): number {
-  return Number.isFinite(v) ? Number(v.toPrecision(digits)) : v;
-}
+export { sig };

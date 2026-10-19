@@ -214,7 +214,7 @@ function GpuBadge({ control }: { readonly control?: { readonly enabled: boolean;
   );
 }
 
-/**
+/*
  * The header nav is six chips in three groups — sample form (Powder | Crystal),
  * technique (Rietveld | PDF) and refinement target (Nuclear | Magnetic) — so
  * "what am I fitting, and in which space" is one glance. The first two only
@@ -728,8 +728,6 @@ const brandMark: CSSProperties = {
 };
 
 
-/** Engine-mode badge (Rietveld / PDF / single crystal): primary-tinted pill so
- *  the active engine is always one glance away, next to the workflow steps. */
 /**
  * The meta pills beside the wordmark (release + build, GPU). They share one
  * geometry — same height, radius, type scale and optical padding — so they read

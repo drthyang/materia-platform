@@ -14,7 +14,7 @@ import type { RefinementParameter, RefinementResult } from "@/core/refinement/ty
 import { physicalFindings } from "@/core/diagnostics/assessment";
 import type { PowderValidation, UnindexedPeak } from "@/core/diagnostics/powderValidation";
 import type { ScValidation } from "@/core/diagnostics/singleCrystalValidation";
-import { COMPLETENESS_NOTE, CORRELATION_LIMIT, GOF_BANDS, GOOF_SINGLE_CRYSTAL_OK, SHIFT_SETTLED } from "@/core/diagnostics/thresholds";
+import { COMPLETENESS_NOTE, CORRELATION_LIMIT, GOF_BANDS, GOOF_SINGLE_CRYSTAL_BANDS, SHIFT_SETTLED } from "@/core/diagnostics/thresholds";
 
 export type CheckStatus = "ok" | "note" | "warn" | "critical" | "info";
 
@@ -63,22 +63,21 @@ function labelOf(parameters: readonly RefinementParameter[], id: string): string
 
 /**
  * The goodness-of-fit line, banded per Toby (2006) as the assessment bands it
- * (GOF_BANDS: ok is excellent, note good, warn fair, critical poor); the
- * single-crystal GooF from its own ok line, with the same steps. Below 1 is a
- * warning sign, not a win.
+ * (ok is excellent, note good, warn fair, critical poor): GOF_BANDS on
+ * powder, GOOF_SINGLE_CRYSTAL_BANDS on F². Below 1 is a warning sign, not a win.
  */
-function gofCheck(gof: number, name: string, okMax: number, extra?: string): ValidationCheck {
+function gofCheck(gof: number, name: string, bands: { readonly tooGood: number; readonly excellent: number; readonly good: number; readonly fair: number }, extra?: string): ValidationCheck {
   const value = `${name} ${fmt(gof)}`;
   if (!(gof > 0)) return { id: "gof", status: "info", title: `${name} —`, detail: "no fitted points" };
-  if (gof < GOF_BANDS.tooGood || (gof < 1 && name === "GoF")) {
+  if (gof < bands.tooGood || (gof < 1 && name === "GoF")) {
     return {
       id: "gof", status: "note", title: value,
       detail: "below 1: the σ's are over-estimated or the model has more parameters than the data support, so the esds are optimistic",
     };
   }
-  if (gof <= okMax) return { id: "gof", status: "ok", title: value, detail: extra ?? "close to the statistical floor" };
-  if (gof <= okMax + (GOF_BANDS.good - GOF_BANDS.excellent)) return { id: "gof", status: "note", title: value, detail: extra ?? "residual structure the model does not capture" };
-  if (gof <= okMax + (GOF_BANDS.fair - GOF_BANDS.excellent)) return { id: "gof", status: "warn", title: value, detail: extra ?? "significant unmodelled features" };
+  if (gof <= bands.excellent) return { id: "gof", status: "ok", title: value, detail: extra ?? "close to the statistical floor" };
+  if (gof <= bands.good) return { id: "gof", status: "note", title: value, detail: extra ?? "residual structure the model does not capture" };
+  if (gof <= bands.fair) return { id: "gof", status: "warn", title: value, detail: extra ?? "significant unmodelled features" };
   return { id: "gof", status: "critical", title: value, detail: extra ?? "the model is far from the data" };
 }
 
@@ -172,7 +171,7 @@ export interface PowderCheckInput {
 export function powderChecks(input: PowderCheckInput): ValidationVerdict {
   const { validation: v, unindexed, result, parameters } = input;
   const checks: ValidationCheck[] = [];
-  checks.push(gofCheck(v.agreement.gof, "GoF", GOF_BANDS.excellent, undefined));
+  checks.push(gofCheck(v.agreement.gof, "GoF", GOF_BANDS, undefined));
   if (checks[0]!.status === "ok") checks[0] = { ...checks[0]!, detail: `close to the statistical floor (χ²ᵥ ${fmt(v.agreement.chi2nu)})` };
   checks.push(convergenceCheck(result, parameters));
   checks.push(physicalCheck(result, parameters));
@@ -235,7 +234,7 @@ export function singleCrystalChecks(input: SingleCrystalCheckInput): ValidationV
   }
   // With extinction, say how much of the GooF the strong reflections carry.
   const drivenByStrong = ext.suspected && v.goofWithoutStrongest !== undefined && goof - v.goofWithoutStrongest > 0.1;
-  checks.push(gofCheck(goof, "GooF", GOOF_SINGLE_CRYSTAL_OK, drivenByStrong ? `driven by the strongest reflections — ${fmt(v.goofWithoutStrongest!)} without them` : undefined));
+  checks.push(gofCheck(goof, "GooF", GOOF_SINGLE_CRYSTAL_BANDS, drivenByStrong ? `driven by the strongest reflections — ${fmt(v.goofWithoutStrongest!)} without them` : undefined));
   checks.push(convergenceCheck(result, parameters));
 
   const need = v.centrosymmetric ? 10 : 8;
