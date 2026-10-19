@@ -472,7 +472,7 @@ export function evaluate_pattern(args: {
   observationCount: number;
 } {
   const curves = args.magnetic
-    ? magneticPowderComponents(args.structure, args.magnetic, args.pattern, args.parameters, args.bindings, { shape: args.profile.shape, ...(args.profile.eta !== undefined ? { eta: args.profile.eta } : {}) })
+    ? magneticPowderComponents(args.structure, args.magnetic, args.pattern, args.parameters, args.bindings, args.profile)
     : powderCurves(args.structure, args.pattern, args.parameters, args.bindings, args.profile);
   // Poisson fallback with the standard 1-count floor: σ = √max(N, 1). Without
   // the floor a near-zero intensity (e.g. the background of a simulated
@@ -535,7 +535,7 @@ export function simulate_pattern(args: {
     p.kind === "scale" ? { ...p, value: args.scale ?? 1 } : p.kind === "background" ? { ...p, value: 0 } : p,
   );
   const curves = args.magnetic
-    ? magneticPowderComponents(args.structure, args.magnetic, pattern, params, spec.bindings, { shape: spec.profile.shape, ...(spec.profile.eta !== undefined ? { eta: spec.profile.eta } : {}) })
+    ? magneticPowderComponents(args.structure, args.magnetic, pattern, params, spec.bindings, spec.profile)
     : powderCurves(args.structure, pattern, params, spec.bindings, spec.profile);
   return {
     xUnit: pattern.xUnit,
@@ -1121,10 +1121,7 @@ export function rank_next_parameters(args: {
   }[];
 } {
   const problem = args.magnetic
-    ? buildMagneticPowderProblem(args.structure, args.magnetic, args.pattern, args.parameters, args.bindings, {
-        shape: args.profile.shape,
-        ...(args.profile.eta !== undefined ? { eta: args.profile.eta } : {}),
-      }, args.fitRange)
+    ? buildMagneticPowderProblem(args.structure, args.magnetic, args.pattern, args.parameters, args.bindings, args.profile, args.fitRange)
     : buildPowderProblem(args.structure, args.pattern, args.parameters, args.bindings, args.profile, args.restraints ?? [], args.fitRange);
   const ranking = rankNextParameterGroups(problem);
   return {
