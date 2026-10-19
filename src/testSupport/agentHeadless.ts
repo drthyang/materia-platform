@@ -14,13 +14,13 @@ import { gata4se8PdfExample } from "@/examples/gata4se8Pdf";
 import { DEFAULT_INSTRUMENT, type Session } from "@/app/powderSession";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import type { StructureModel } from "@/core/crystal/types";
-import { axisContext, convertAxisArray } from "@/visualization/axisUnits";
+import { convertAxisArray } from "@/visualization/axisUnits";
 import type { RefinementResult } from "@/core/refinement/types";
 import type { SampleOptions, SampleResult } from "@/core/refinement/bayes/sampler";
 import { magneticHandle } from "@/testSupport/magneticHeadless";
 import { ComputeClient } from "@/workers/computeClient";
 import {
-  extentOf, hasTensorAdp, observationsIn, posteriorRun, powderFit, powderPageCurves, refinedPhasesOf, restraintRequest, thoroughFit, weightedR,
+  extentOf, hasTensorAdp, observationsIn, pageAxis, posteriorRun, powderFit, powderPageCurves, refinedPhasesOf, restraintRequest, thoroughFit, weightedR,
   withAnisotropicAdp, withAntisitePair, withBackgroundTerms, withBackgroundType, withCorrections, withFitResult, withFixed, withInstrumentConstants,
   withMustrain, withParameterTies, withPhase, withReset, withSiteTies, type FitWindow, type PowderCompute, type PowderPageModel,
 } from "@/app/powderPage";
@@ -75,7 +75,6 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
   const state = (): PowderLiveState => {
     const { curves } = powderPageCurves(s);
     const window = activeWindow();
-    const zero = s.powderParams.find((p) => p.kind === "zeroShift")?.value;
     return {
       structure: s.structure,
       extraPhases: s.extraPhases,
@@ -101,9 +100,9 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
         corrections: s.corrections ?? {},
       },
       curves,
-      d: s.pattern.xUnit === "dSpacing" ? curves.x : convertAxisArray(curves.x, s.pattern.xUnit, "dSpacing", axisContext(s.pattern, shown, zero)),
+      d: s.pattern.xUnit === "dSpacing" ? curves.x : convertAxisArray(curves.x, s.pattern.xUnit, "dSpacing", pageAxis(s, shown)),
       observationCount: observationsIn(curves, window),
-      axis: axisContext(s.pattern, shown, zero),
+      axis: pageAxis(s, shown),
       source: "test",
       restraints: restraintRequest(s).restraints ?? [],
     };
@@ -220,10 +219,10 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
     magnetic: () => magnetic,
     openStep: (step) => calls.push(`step ${step}`),
   };
-  const magnetic = magneticHandle(() => s, (next) => {
+  const magnetic = magneticHandle(() => ({ session: s, window: activeWindow() }), (next) => {
     s = next;
     result = null;
-  }, (step) => calls.push(`step ${step}`), shown);
+  }, (step) => calls.push(`step ${step}`), { ...(shown ? { instrument: shown } : {}), client });
   PAGE_STATE.set(port, {
     capture: () => ({ session: s, result, fitRange }),
     restore: (captured) => {

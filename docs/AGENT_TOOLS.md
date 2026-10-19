@@ -418,7 +418,10 @@ Each page's method is one of the skills above (`my-rietveld-workflow`,
 
 One list ([`src/agent/tools.ts`](../src/agent/tools.ts)) serves every way in,
 so a model sees the same names everywhere. Each tool names the pages it works
-on; on another page it answers with an error that says so. The page-specific
+on; on another page it answers with an error that says so. Each definition
+also holds the tool's facts (the History step it records, the cards it acts
+on, where a local model is offered it, the evidence it gives a final answer),
+and no other module keeps a list of tool names. The page-specific
 handlers are [`powderTools.ts`](../src/agent/powderTools.ts),
 [`pdfTools.ts`](../src/agent/pdfTools.ts),
 [`scTools.ts`](../src/agent/scTools.ts) and
@@ -428,9 +431,10 @@ handlers through one adapter per page ([`src/agent/pages/`](../src/agent/pages/)
 which also holds what differs by page: the agreement it shows, the analysis
 the record is kept under, the references, the report's checks.
 
-How a tool runs: **at once** when it changes nothing on the page (the reads,
-and `write_note` and `write_report`, which change the record, not the
-analysis); **asks first** for a change, which shows an approval card unless
+How a tool runs: **at once** when it changes nothing on the page (the reads;
+`write_note` and `write_report`, which change the record, not the analysis;
+and the magnetic step's `search_propagation_vector` and `rank_magnetic_groups`,
+which fill its panel and change no fit); **asks first** for a change, which shows an approval card unless
 the user switched the drawer from *Ask first* to *Auto* (back to *Ask first*
 on reload); **always asks** for a change only the user may make, even in Auto.
 A declined change returns `{"declined": true}`. Every change is a step in
@@ -439,7 +443,12 @@ and each is the page's own handler: the Agent's `refine` is the Refine button.
 A change whose card was approved after the page moved under it (any setting
 the Agent can change there: each page's stamp in
 [`src/agent/pages/`](../src/agent/pages/)) is not run, and the model is told to
-read the state again.
+read the state again. Each change is planned before its card
+([`src/agent/pages/plans.ts`](../src/agent/pages/plans.ts)): one that cannot run
+(a window with max below min or outside the data, a scan of an anion's bonds,
+a reflection kept that is not on the failed list, a refinement with nothing
+free or of a view-only pattern) is refused before the card, not after the user
+approved it.
 
 <!-- LIVE_TOOLS:BEGIN (generated — edit src/agent/tools.ts, then npm run gen:tooldoc) -->
 **Every page**

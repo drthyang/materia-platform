@@ -24,7 +24,8 @@ import { pdfPartialCurves, pdfPhaseCurves } from "@/core/workflow/pdf";
 import { unsupportedMpdfK } from "@/core/workflow/mpdf";
 import type { MagneticModel } from "@/core/magnetic/types";
 import { isMomentParameterKind } from "@/core/refinement/types";
-import { KSearchPanel, type MagneticFit } from "@/components/KSearchPanel";
+import { KSearchPanel } from "@/components/KSearchPanel";
+import type { MagneticFit } from "@/app/magneticStep";
 import { decomposeDisplacementRepresentation, type DisplaciveIrrepTerm } from "@/core/crystal/displaciveModes";
 import {
   projectIsotypicModes,
@@ -751,6 +752,8 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
     // to sum over. The panel disables the moment fit, the ranking run, Apply and
     // Continue, and shows this reason instead of a number.
     unsupportedK: unsupportedMpdfK,
+    // Each of the ranking's starts keeps this fit's own seeded restarts: the mPDF needs them to find a group's minimum.
+    nestedStarts: true,
     refine: (mag, momentParams, mBindings) => momentFit(client, model, mag, momentParams, mBindings),
   };
 
@@ -762,7 +765,9 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
     momentParams: readonly RefinementParameter[],
     momentBindings: readonly ParameterBinding[],
   ): void {
-    const adopted = withSpinModel(model, { magnetic, params: momentParams, bindings: momentBindings });
+    // The step hands its rows free as a fit frees them (magneticStep.ts, handoff); this page has taken them held, as built.
+    const held = momentParams.map((p) => ({ ...p, fixed: true }));
+    const adopted = withSpinModel(model, { magnetic, params: held, bindings: momentBindings });
     if (adopted.message) {
       console.info(`[status] spin model NOT applied to the PDF fit — ${adopted.message}`);
       return;
@@ -1352,7 +1357,6 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
         </div>
         <KSearchPanel
           structure={magneticStructure}
-          fitStructure={fitStructure}
           magneticFit={magneticFit}
           // "Apply" is a PREVIEW: the model's own moment values drive the spin
           // field so the magnetic curve appears on the fit plot, but no

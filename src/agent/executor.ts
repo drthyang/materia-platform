@@ -13,7 +13,7 @@ import { PAGE_LABEL, liveTool, type AgentPage, type LiveToolSpec, type ToolEffec
 import type { AgentPort } from "@/agent/port";
 import type { MagneticPanelState } from "@/agent/magneticPort";
 import { diagnosisText, type DiagnosisView } from "@/agent/powderTools";
-import { isMagneticTool, magneticNext } from "@/agent/magneticTools";
+import { magneticNext } from "@/agent/magneticTools";
 import { samplePosteriorTool, type PosteriorRun } from "@/agent/posteriorTool";
 import { buildAgentReport, freeSummary, reportFileBase, type AgentReport } from "@/agent/report";
 import { matchIds, type LiveToolHost } from "@/agent/liveCommon";
@@ -152,27 +152,6 @@ export interface ExecutorOptions {
   readonly skills?: boolean;
 }
 
-/** History step kind for a change that does not record its own step. */
-const STEP_KIND: Readonly<Record<string, StepKind>> = {
-  set_free: "edit",
-  set_background: "settings",
-  set_microstrain: "settings",
-  set_adp_model: "settings",
-  set_site_ties: "settings",
-  set_fit_range: "settings",
-  set_outlier_filter: "settings",
-  omit_reflections: "settings",
-  set_resolution_range: "settings",
-  set_radiation: "settings",
-  set_extinction_model: "settings",
-  set_riding_hydrogens: "settings",
-  set_weighting: "settings",
-  set_twin: "settings",
-  invert_structure: "settings",
-  restrain_distances: "settings",
-  merge_equivalents: "settings",
-};
-
 let nextCallId = 1;
 
 /** Notes kept per analysis; the oldest go first. */
@@ -300,7 +279,7 @@ export class AgentExecutor implements ToolRunner {
 
   private async execute(spec: LiveToolSpec, raw: unknown, signal?: AbortSignal): Promise<ToolOutcome> {
     if (signal?.aborted) return stopped();
-    if (isMagneticTool(spec.name)) this.magneticUsed = true;
+    if (spec.magneticStep) this.magneticUsed = true;
     let entry: ActivityEntry = { id: `c${nextCallId++}`, tool: spec.name, title: spec.title, effect: spec.effect, at: Date.now(), status: "running", ...(spec.alwaysAsk ? { alwaysAsk: true } : {}) };
     const update = (patch: Partial<ActivityEntry>): void => {
       entry = { ...entry, ...patch };
@@ -380,7 +359,7 @@ export class AgentExecutor implements ToolRunner {
       return await this.writeReport(page, port, this.fillOrRefuse((input as { summary: string }).summary, "write_report"), update);
     }
 
-    if (spec.effect === "read") {
+    if (spec.effect === "read" || spec.effect === "compute") {
       update({});
       // The space group is questioned last: only once the method's stages
       // are refined, on a converged fit.
@@ -421,12 +400,13 @@ export class AgentExecutor implements ToolRunner {
     if (before.busy) throw new Refusal("a refinement is running — wait for it to finish, or call cancel_refinement", "busy");
     // What the change is checked and approved against.
     const stamp = page.stamp(before, this.stepOf(page, port));
-    const noOp = page.noOp(spec, input, before, port);
-    if (noOp) {
+    // The change, planned on the state it is checked against: nothing to do, or the card's line and the change.
+    const plan = page.plan(spec, input, before, port);
+    if ("noOp" in plan) {
       update({ status: "done", outcome: "No change" });
-      return { ...this.respond({ unchanged: true, note: noOp }), status: "unchanged" };
+      return { ...this.respond({ unchanged: true, note: plan.noOp }), status: "unchanged" };
     }
-    let preview = page.describe(spec, input, before, port);
+    let preview = plan.preview;
     // The method's firm rules, then its order (a note, not a refusal).
     const key = page.analysis(before);
     const freeBefore = before.parameters.filter((p) => !p.fixed && !p.expression);
@@ -490,11 +470,10 @@ export class AgentExecutor implements ToolRunner {
     const cancel = (): void => this.host.port()?.cancel();
     signal?.addEventListener("abort", cancel);
     const changed = await this.host.asAgent(async () => {
-      const n = await page.change(spec.name, input, port, this.host);
+      const n = await plan.apply(this.host);
       await this.host.settle();
-      const kind = STEP_KIND[spec.name];
-      if (kind) {
-        this.host.recordNow(kind);
+      if (spec.historyStep) {
+        this.host.recordNow(spec.historyStep);
         await this.host.settle();
       }
       return n;

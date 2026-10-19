@@ -5,71 +5,12 @@
  * breathe, so the user sees where the agent is looking.
  */
 
-export type AgentCard = "structure" | "data" | "instrument" | "pattern" | "parameters" | "result";
+import { LIVE_TOOLS, type AgentCard } from "@/agent/tools";
 
-/** The cards each tool reads or changes (none for the whole-page reads). */
-export const TOOL_CARDS: Readonly<Record<string, readonly AgentCard[]>> = {
-  get_state: [],
-  read_ref: [],
-  read_skill: [],
-  allow_exception: [],
-  write_note: [],
-  write_report: ["result"],
-  go_to_step: [],
-  cancel_refinement: [],
-  assess_refinement: ["result", "pattern"],
-  suggest_next_steps: ["result"],
-  rank_next_parameters: ["parameters"],
-  check_cell_symmetry: ["structure", "pattern"],
-  check_fit_range: ["data", "pattern"],
-  reflection_statistics: ["data"],
-  reflection_equivalents: ["data", "result"],
-  set_outlier_filter: ["data", "result"],
-  omit_reflections: ["data", "result"],
-  test_extinction: ["data", "result"],
-  keep_reflections: ["data", "result"],
-  set_resolution_range: ["data", "result"],
-  set_radiation: ["data", "result"],
-  set_extinction_model: ["data", "parameters"],
-  set_riding_hydrogens: ["structure", "parameters"],
-  set_weighting: ["result"],
-  set_twin: ["parameters", "result"],
-  invert_structure: ["structure", "parameters"],
-  restrain_distances: ["structure", "result"],
-  merge_equivalents: ["data", "result"],
-  find_unexplained_peaks: ["pattern"],
-  review_symmetry: ["structure", "pattern"],
-  diagnose_fit: ["pattern", "result"],
-  structure_table: ["structure"],
-  set_corrections: ["parameters"],
-  set_instrument_constants: ["instrument"],
-  identify_peaks: ["pattern"],
-  add_antisite: ["structure", "parameters"],
-  add_known_phase: ["structure", "parameters"],
-  tie_parameters: ["parameters"],
-  sample_posterior: ["parameters"],
-  magnetic_state: [],
-  search_propagation_vector: [],
-  set_propagation_vector: [],
-  select_magnetic_ions: [],
-  set_moment_ties: [],
-  rank_magnetic_groups: [],
-  choose_magnetic_group: [],
-  refine_moments: [],
-  show_magnetic_model: ["pattern"],
-  continue_magnetic_refinement: ["parameters"],
-  bond_geometry: ["structure"],
-  interpret_structure: ["structure"],
-  set_free: ["parameters"],
-  set_background: ["parameters", "pattern"],
-  set_microstrain: ["parameters"],
-  set_adp_model: ["parameters"],
-  set_site_ties: ["parameters"],
-  set_fit_range: ["pattern"],
-  refine: ["parameters", "pattern"],
-  reset_parameters: ["parameters"],
-  boxcar_scan: ["pattern"],
-};
+export type { AgentCard };
+
+/** The cards each tool reads or changes (its definition's), by name. */
+export const TOOL_CARDS: Readonly<Record<string, readonly AgentCard[]>> = Object.fromEntries(LIVE_TOOLS.map((t) => [t.name, t.cards]));
 
 /** Words that name a card, conservatively: each must point at one place on the page. */
 const CARD_WORDS: readonly [AgentCard, RegExp][] = [

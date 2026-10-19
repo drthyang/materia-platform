@@ -42,8 +42,9 @@ const score = (f: MomentFit): number => (f.agreement !== null && Number.isFinite
 
 /**
  * Fit from the seeds, then `restarts` kicked starts; return the best. `params`
- * are the model's amplitude rows (a derived one, with an `expression`, is never
- * kicked); `fitOnce` runs one fit from a start (undefined: the seeds).
+ * are the model's amplitude rows as the fit refines them (a row it holds, the
+ * phase gauge or a derived one with an `expression`, is never kicked);
+ * `fitOnce` runs one fit from a start (undefined: the seeds).
  */
 export async function fitMomentsWithRestarts(
   params: readonly RefinementParameter[],
@@ -52,7 +53,7 @@ export async function fitMomentsWithRestarts(
 ): Promise<MomentSearch> {
   const restarts = Math.max(0, Math.floor(opts.restarts ?? RANK_RESTARTS));
   const rng = mulberry32((opts.seed ?? SEED) >>> 0);
-  const free = params.filter((p) => !p.expression);
+  const free = params.filter((p) => !p.fixed && !p.expression);
   const floor = Math.max(0, ...free.map((p) => Math.abs(p.value)));
   const base = await fitOnce();
   let best = base;

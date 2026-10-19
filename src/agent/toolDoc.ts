@@ -21,9 +21,9 @@ const GROUPS: readonly { readonly heading: string; readonly test: (t: LiveToolSp
   { heading: "Single-crystal page", test: (t) => t.pages.length === 1 && t.pages[0] === "singleCrystal" },
 ];
 
-/** How the tool runs: at once (it changes nothing on the page), after an approval card (none in Auto), always after one, or never asking. */
+/** How the tool runs: at once (it changes nothing on the page: a read, the record, a computation that fills a panel), after an approval card (none in Auto), always after one, or never asking. */
 function runs(t: LiveToolSpec): string {
-  if (t.effect === "read") return "at once";
+  if (t.effect === "read" || t.effect === "record" || t.effect === "compute") return "at once";
   if (t.effect === "control") return "never asks";
   return t.alwaysAsk ? "always asks" : "asks first";
 }

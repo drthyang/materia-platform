@@ -40,7 +40,8 @@ import {
   withOutlierFilter, withParameter, withParameterTies, withRadiation, withReset, withResolution, withRestraints, withRiding, withThorough, withTwinLaws, withWeighting,
   workspaceOf, type Probe,
 } from "@/app/singleCrystalPage";
-import { KSearchPanel, type MagneticFit } from "@/components/KSearchPanel";
+import { KSearchPanel } from "@/components/KSearchPanel";
+import type { MagneticFit } from "@/app/magneticStep";
 import { FobsFcalc } from "@/app/ui/QualityPlots";
 import { SingleCrystalValidationView } from "@/app/ui/SingleCrystalValidation";
 import { SegmentedToggle } from "@/app/ui/SegmentedToggle";
@@ -225,7 +226,7 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
   // through the same worker. This is single-crystal magnetic refinement.
   const magneticFit: MagneticFit = {
     agreementLabel: "wR2",
-    refine: (mag, momentParams, mBindings) => momentFit(client, model, mag, momentParams, mBindings),
+    refine: (mag, momentParams, mBindings, options) => momentFit(client, model, mag, momentParams, mBindings, options),
   };
 
   // ── Magnetic single-k supercell refinement (modulated moments) ───────────────

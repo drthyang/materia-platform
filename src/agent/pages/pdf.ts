@@ -3,7 +3,8 @@
  */
 
 import type { PdfAgentPort } from "@/agent/port";
-import { changePdf, describePdfChange, pdfNoOp, pdfReferences, pdfReportChecks, readPdfTool } from "@/agent/pdfTools";
+import { PDF_PLANS, pdfReferences, pdfReportChecks, readPdfTool } from "@/agent/pdfTools";
+import { planFrom } from "@/agent/pages/plans";
 import { pdfAnalysis } from "@/agent/method";
 import type { PageAdapter } from "@/agent/pages/types";
 import { stampOf } from "@/agent/pages/stamp";
@@ -23,7 +24,5 @@ export const PDF_PAGE: PageAdapter<PdfAgentPort> = {
   reportChecks: (s, probe) => pdfReportChecks(s, probe),
   assemblies: () => new Map(),
   read: (name, input, port, host) => readPdfTool(name, input, port, host),
-  noOp: (spec, input, s) => pdfNoOp(spec, input, s),
-  describe: (spec, input, s) => describePdfChange(spec, input, s),
-  change: (name, input, port, host) => changePdf(name, input, port, host),
+  plan: planFrom(PDF_PLANS),
 };

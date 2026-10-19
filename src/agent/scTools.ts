@@ -8,13 +8,13 @@
  */
 
 import type { SingleCrystalAgentPort, SingleCrystalLiveState, SingleCrystalRow } from "@/agent/port";
-import type { LiveToolSpec } from "@/agent/tools";
 import type { ProjectHistory } from "@/core/project/history";
 import { assess_refinement, bond_geometry } from "@/mcp/tools";
 import type { ReferenceEntry } from "@/agent/references";
 import { compareWithLoaded, structureTable, withEsd } from "@/agent/structureTable";
 import { singleCrystalAnalysis, type AgentRecord } from "@/agent/method";
-import { applyFree, bondEsds, bondsOf, uniqueBonds, cellOf, describeFree, freeNoOp, goToStep, historyView, matchIds, parameterSummary, pct, sig, type ChangeResult, type LiveToolHost } from "@/agent/liveCommon";
+import { bondEsds, bondsOf, uniqueBonds, cellOf, historyView, matchIds, parameterSummary, pct, sig, type ChangeResult, type LiveToolHost } from "@/agent/liveCommon";
+import { change, freePlan, goToPlan, nothing, refinePlan, resetPlan, type Plans } from "@/agent/pages/plans";
 import type { RefinementResult } from "@/core/refinement/types";
 import type { ReportCheck } from "@/core/export/report";
 import { singleCrystalValidation, type ScValidation } from "@/core/diagnostics/singleCrystalValidation";
@@ -71,35 +71,65 @@ export function readSingleCrystalTool(name: string, input: Input, port: SingleCr
   }
 }
 
-/** Make a change on the page. Returns a note for the model when the change needed adjusting or did not finish. */
-export async function changeSingleCrystal(name: string, input: Input, port: SingleCrystalAgentPort, host: LiveToolHost): Promise<ChangeResult> {
-  const s = port.state();
-  switch (name) {
-    case "set_free":
-      return applyFree(s.parameters, input, port.setFixed);
-    case "set_adp_model": {
+/**
+ * The page's changes, one plan each (pages/plans.ts): why one would do
+ * nothing, what its approval card says, and the change through the page's
+ * own handler, with the note the model reads after it.
+ */
+export const SC_PLANS: Plans<SingleCrystalAgentPort> = {
+  set_free: freePlan,
+  set_adp_model: (input, s, port) => {
+    if (s.adpModel === (input.anisotropic ? "anisotropic" : "isotropic")) return nothing(`the ADPs are already ${s.adpModel}`);
+    return change(`ADPs ${s.adpModel} → ${input.anisotropic ? "anisotropic (U tensor per site, seeded from the refined B)" : "isotropic (one B per site)"}`, () => {
       port.setAdpModel(!!input.anisotropic);
       const hydrogens = s.structure.sites.filter((site) => isHydrogen(site)).length;
       if (!input.anisotropic || s.probe !== "xray" || hydrogens === 0) return undefined;
       return `The ${hydrogens} hydrogen${hydrogens === 1 ? " stays" : "s stay"} isotropic: X-ray data cannot give a hydrogen a tensor.${s.riding.length === 0 ? " Ride them (set_riding_hydrogens) unless the data can place them on their own." : ""}`;
+    });
+  },
+  set_outlier_filter: (input, s, port) => {
+    const on = input.on ?? s.outlierFilter.on;
+    const cutoff = input.cutoffSigma ?? s.outlierFilter.cutoffSigma;
+    const minY: number | undefined = input.minExtinction === undefined ? s.outlierFilter.minExtinction : input.minExtinction ?? undefined;
+    if (on === s.outlierFilter.on && cutoff === s.outlierFilter.cutoffSigma && minY === s.outlierFilter.minExtinction) {
+      return nothing(`the filter is already ${on ? `on at ${cutoff}σ${minY !== undefined ? `, y ≥ ${minY}` : ""}` : "off"}`);
     }
-    case "set_outlier_filter":
+    // Counted on every reflection in the file, against the current model, as the page's filter cuts.
+    const left = s.allRows.filter((r) => !isOmitted(r, s.omitted) && inResolution(r, s.structure.cell, s.resolution) && (Math.abs(r.deltaOverSigma) > cutoff || (minY !== undefined && (r.extinction ?? 1) < minY))).length;
+    const preview = !on ? "Outlier filter off: every reflection fitted" : `Outlier filter on at ${cutoff}σ${minY !== undefined ? ` and y ≥ ${minY}` : ""}: leaves out ${left} reflection${left === 1 ? "" : "s"} against the current model`;
+    return change(preview, () => {
       port.setOutlierFilter({
         ...(input.on !== undefined ? { on: !!input.on } : {}),
         ...(input.cutoffSigma !== undefined ? { cutoffSigma: input.cutoffSigma } : {}),
         ...(input.minExtinction !== undefined ? { minExtinction: input.minExtinction } : {}),
       });
       return undefined;
-    case "omit_reflections":
-      port.setOmitted(omitPlan(s, input).next);
+    });
+  },
+  omit_reflections: (input, s, port) => {
+    const plan = omitPlan(s, input);
+    if (plan.added.length === 0 && plan.restored.length === 0) {
+      return nothing(s.omitted.length === 0 ? "nothing is omitted, and nothing new was named" : `already as asked: ${s.omitted.map(omittedText).join(", ")} omitted`);
+    }
+    const parts = [
+      ...(plan.added.length ? [`Omit ${plan.added.map(omittedText).join(", ")}${input.reason ? ` (${String(input.reason)})` : ""}`] : []),
+      ...(plan.restored.length ? [`restore ${plan.restored.map(omittedText).join(", ")}`] : []),
+    ];
+    return change(`${parts.join("; ")} — ${plan.next.length} measurement${plan.next.length === 1 ? "" : "s"} omitted in all`, () => {
+      port.setOmitted(plan.next);
       return undefined;
-    case "test_extinction":
-      return extinctionTest(s, port, input.below ?? EXTINCTION_SEVERE);
-    case "keep_reflections": {
-      const failed = failedMeasurements(s);
-      const asked = (input.reflections as { h: number; k: number; l: number; batch?: number }[]);
-      const unknown = asked.filter((r) => !failed.some((f) => keptKey(f) === keptKey(r)));
-      if (unknown.length) throw new Error(`${unknown.map(measurementName).join(", ")} ${unknown.length === 1 ? "is" : "are"} not on the failed list (assess_refinement \`failedMeasurements\`): only a listed failure needs keeping`);
+    });
+  },
+  test_extinction: (input, s, port) => {
+    const below = input.below ?? EXTINCTION_SEVERE;
+    return change(`Test the extinction: refine twice as probes, with and without the ${s.rows.filter((r) => (r.extinction ?? 1) < below).length} reflections of y < ${below}, and compare — the page stays as it is`, () => extinctionTest(s, port, below));
+  },
+  keep_reflections: (input, s) => {
+    const failed = failedMeasurements(s);
+    const asked = input.reflections as { h: number; k: number; l: number; batch?: number }[];
+    const unknown = asked.filter((r) => !failed.some((f) => keptKey(f) === keptKey(r)));
+    if (unknown.length) throw new Error(`${unknown.map(measurementName).join(", ")} ${unknown.length === 1 ? "is" : "are"} not on the failed list (assess_refinement \`failedMeasurements\`): only a listed failure needs keeping`);
+    return change(`Keep in the fit, at your word, ${asked.map(measurementName).join(", ")} — read as failed measurements: ${String(input.reason)}`, (host) => {
       const at = Date.now();
       host.updateRecord(singleCrystalAnalysis(s), (rec) => {
         const kept = new Map((rec.kept ?? []).map((k) => [k.measurement, k]));
@@ -107,19 +137,46 @@ export async function changeSingleCrystal(name: string, input: Input, port: Sing
         return { ...rec, kept: [...kept.values()] };
       });
       return `Kept in the fit at the user's word (${input.reason}): ${asked.map(measurementName).join(", ")}. The report says so; a change of the data starts the list again.`;
-    }
-    case "set_resolution_range":
+    });
+  },
+  set_resolution_range: (input, s, port) => {
+    const next = resolutionAfter(s, input);
+    if (next.dMin !== undefined && next.dMax !== undefined && next.dMin >= next.dMax) throw new Error(`dMin ${next.dMin} Å must lie below dMax ${next.dMax} Å`);
+    if (next.dMin === s.resolution.dMin && next.dMax === s.resolution.dMax) return nothing(`the range is already ${rangeText(next)}`);
+    const outside = s.allRows.filter((r) => !inResolution(r, s.structure.cell, next) && !isOmitted(r, s.omitted)).length;
+    return change(`Resolution ${rangeText(next)}: ${outside === 0 ? "every reflection in range" : `leaves out ${outside} reflection${outside === 1 ? "" : "s"}`}`, () => {
       port.setResolution({ ...(input.dMin !== undefined ? { dMin: input.dMin } : {}), ...(input.dMax !== undefined ? { dMax: input.dMax } : {}) });
       return undefined;
-    case "set_radiation":
+    });
+  },
+  set_radiation: (input, s, port) => {
+    const probe = input.probe ?? s.probe;
+    if (probe === "neutron-tof" && input.wavelength !== undefined) throw new Error("a time-of-flight measurement has no single wavelength: each reflection has its own");
+    const was = "wavelength" in s.dataset.radiation ? s.dataset.radiation.wavelength : undefined;
+    if (probe === s.probe && (input.wavelength === undefined || input.wavelength === was)) return nothing(`the radiation is already ${radiationText(probe, was)}`);
+    const wl = input.wavelength ?? was;
+    return change(`Radiation: ${radiationText(probe, wl)}, in place of ${radiationText(s.probe, was)} — every Fc changes; the scale restarts from its best value`, () => {
       port.setRadiation({ ...(input.probe !== undefined ? { probe: input.probe } : {}), ...(input.wavelength !== undefined ? { wavelength: input.wavelength } : {}) });
       return "Every Fc changed with the radiation: the scale restarted from its best value and the last fit is cleared. Refine the scale (and what was free) again before comparing.";
-    case "set_extinction_model":
-      port.setExtinctionModel(input.model as ExtinctionModel);
+    });
+  },
+  set_extinction_model: (input, s, port) => {
+    const model = input.model as ExtinctionModel;
+    if (model === s.extinctionModel) return nothing(`the extinction model is already ${EXTINCTION_MODEL_LABELS[s.extinctionModel]}`);
+    return change(`Extinction model: ${EXTINCTION_MODEL_LABELS[model]}, in place of ${EXTINCTION_MODEL_LABELS[s.extinctionModel]} — its parameter restarts at 0`, () => {
+      port.setExtinctionModel(model);
       return "The extinction parameter restarted at 0 under the new model: refine it with the scale (and what was free before) to convergence before comparing the fit.";
-    case "set_twin": {
-      const next = twinAfter(s, input);
-      const starts = twinStarts(s, next);
+    });
+  },
+  set_twin: (input, s, port) => {
+    const next = twinAfter(s, input);
+    if (sameLaws(next, s.twinLaws)) return nothing(next.length ? `the twin law is already ${twinText(next[0]!)}` : "the crystal is already untwinned");
+    const starts = twinStarts(s, next);
+    const leaving = s.twinLaws.length > next.length ? `, the other ${s.twinLaws.length - next.length} domain${s.twinLaws.length - next.length === 1 ? "" : "s"} leaving the fit` : "";
+    const preview = next.length > 1 ? `Twin law: ${twinText(next[0]!)} with the inversion — four domains (TWIN R −4): ${startsText(starts)}`
+      : next.length === 0 ? `Untwinned: the twin fraction${s.twinLaws.length ? "" : "s"} leave the fit`
+        : `Twin law: ${twinText(next[0]!)} — its fraction${isInversion(next[0]!) ? " (the Flack x)" : " (BASF)"} ${starts[0]!.kept ? `kept at ${sig(starts[0]!.value, 4)}${leaving}` : "refines from 0.1"}`;
+    return change(preview, () => {
       port.setTwinLaws(next);
       if (next.length === 0) return "Untwinned again: the twin fraction left the fit, and the last fit is cleared.";
       const signal = isInversion(next[0]!) && !anomalousLine(s) ? " No anomalous scattering at this radiation (X-rays at a tabulated line give it): the inversion fraction is undetermined." : "";
@@ -127,8 +184,18 @@ export async function changeSingleCrystal(name: string, input: Input, port: Sing
       if (next.length > 1) return `Four domains, as SHELXL's TWIN R −4: the law (twin_1), the inversion (twin_2) and the two together (twin_3) — ${startsText(starts)}. The inverted domains (twin_2 + twin_3) hold the Flack x: refine them with the structure.${anomalousLine(s) ? "" : " No anomalous scattering at this radiation: their split between the hands is undetermined."} The last fit is cleared.`;
       if (starts[0]!.kept) return `The law stays, its fraction kept at ${sig(starts[0]!.value, 4)} (twin_1)${dropped}: refine it with the structure.${signal} The last fit is cleared.`;
       return `${isInversion(next[0]!) ? "The inversion twin's fraction, the Flack x (twin_1)," : "The twin fraction (twin_1, BASF)"} is free from 0.1: refine it with the structure.${signal} The last fit is cleared.`;
-    }
-    case "invert_structure": {
+    });
+  },
+  invert_structure: (_input, s, port) => {
+    if (isCentrosymmetric(s.structure.spaceGroup.operations)) throw new Error(`${s.structure.spaceGroup.hermannMauguin ?? "the space group"} is centrosymmetric: the inverted model is the same model`);
+    if (s.magnetic) throw new Error("a magnetic model is applied: invert the structure before applying it");
+    const inv = invertedModel(s.structure);
+    const shifted = inv.shift.some((v) => v !== 0);
+    const moved = inv.translation.some((v) => v !== 0);
+    const preview = s.inverted
+      ? `Back to the hand as loaded: the model as it was loaded, in ${inv.enantiomorph ?? s.structure.spaceGroup.hermannMauguin ?? "its space group"}${s.twinLaws.length ? "; the twin fractions re-expressed" : ""}${s.riding.length ? "; the riding groups placed afresh" : ""}`
+      : `Invert the model: every coordinate x → ${shifted ? `(${inv.shift.join(", ")}) − x` : "−x"}${moved ? `, moved into the cell by (${inv.translation.join(", ")})` : ""}; ${inv.enantiomorph ? `the space group ${s.structure.spaceGroup.hermannMauguin ?? "?"} → ${inv.enantiomorph}` : `the space group ${s.structure.spaceGroup.hermannMauguin ?? "?"} kept`}${s.twinLaws.length ? "; the twin fractions re-expressed" : ""}${s.riding.length ? "; the riding groups placed afresh" : ""}`;
+    return change(preview, () => {
       const was = s.structure.spaceGroup.hermannMauguin ?? "the space group";
       const text = port.invertStructure();
       const twins = s.twinLaws.length === 0 ? ""
@@ -136,18 +203,50 @@ export async function changeSingleCrystal(name: string, input: Input, port: Sing
           : s.twinLaws.some((law) => improper(law.matrix)) ? " The twin keeps its fit: each domain took the fraction of its inverse."
             : " The twin law keeps its fraction: the crystal is now modelled with the other hand.";
       return `${text[0]!.toUpperCase()}${text.slice(1)} (was ${was}).${twins}${s.riding.length ? " The riding groups were placed afresh on the inverted atoms." : ""} The last fit is cleared: refine again, and compare wR2 and the Flack x with the other hand's.`;
-    }
-    case "set_weighting": {
-      const next = weightingAfter(s, input);
+    });
+  },
+  set_weighting: (input, s, port) => {
+    const next = weightingAfter(s, input);
+    if (next?.a === s.weighting?.a && next?.b === s.weighting?.b) return nothing(`the weights are already ${weightingText(next)}`);
+    const why = input.use === "suggested" ? (() => {
+      const sug = suggestionOf(s);
+      return ` (suggested for the model as refined now: GooF ${sig(sug.goof, 3)}, by intensity bin ${sug.bins.map((g) => sig(g, 3)).join(", ")})`;
+    })() : "";
+    return change(`Weights: ${weightingText(next)}${why}, in place of ${weightingText(s.weighting)} — wR2 and GooF change, R1 does not`, () => {
       port.setWeighting(next);
       return `${next ? `WGHT ${next.a} ${next.b}` : "w = 1/σ²"} weights the next refinement: refine again before reading wR2 and GooF.`;
+    });
+  },
+  set_riding_hydrogens: (input, s, port) => {
+    const hydrogens = new Set(s.structure.sites.filter((site) => isHydrogen(site)).map((site) => site.label));
+    if (input.on && hydrogens.size === 0) throw new Error("the model has no hydrogen atoms: nothing to ride");
+    if (!input.on) {
+      if (s.riding.length === 0) return nothing("no hydrogen rides: each refines on its own already");
+      return change(`Hydrogens refine on their own again: ${hydrogens.size} hydrogen${hydrogens.size === 1 ? "" : "s"} get their own position and B rows (fixed, at the loaded positions)`, () => {
+        const note = port.setRiding(false, ridingOptionsOf(input));
+        return `The hydrogens have their own rows again, fixed at the loaded positions${note ? `; ${note}` : ""}. The last fit is cleared.`;
+      });
     }
-    case "set_riding_hydrogens": {
-      const options = ridingOptionsOf(input);
-      const note = port.setRiding(!!input.on, options);
-      if (!input.on) return `The hydrogens have their own rows again, fixed at the loaded positions${note ? `; ${note}` : ""}. The last fit is cleared.`;
+    const named = input.refine ?? [];
+    const unknown = named.filter((label) => !s.structure.sites.some((site) => site.label === label && isHydrogen(site)));
+    if (unknown.length) throw new Error(`no hydrogen ${unknown.join(", ")} in the model`);
+    const shared = input.sharedU ?? [];
+    const words = new Set(["all", ...Object.keys(AFIX)]);
+    const strange = shared.flat().filter((name) => !words.has(name) && !s.structure.sites.some((site) => site.label === name && isHydrogen(site)));
+    if (strange.length) throw new Error(`sharedU names ${strange.join(", ")}: neither a hydrogen of the model nor a geometry (${[...words].join(", ")})`);
+    const options = ridingOptionsOf(input);
+    const rules = ridingRules({ ...s.refinedStructure, riding: [] }, options).rules;
+    const keys = new Set(rules.flatMap((r) => (r.uShared !== undefined ? [r.uShared] : [])));
+    const empty = shared.flatMap((names, k) => (keys.has(String(k + 1)) ? [] : [`[${names.join(", ")}]`]));
+    if (empty.length) throw new Error(`sharedU ${empty.join(", ")} names no hydrogen that rides here${empty.length === shared.length ? "" : " (or only hydrogens an earlier list took)"}`);
+    const same = s.riding.length === rules.length && rules.every((r) => {
+      const was = s.riding.find((x) => x.site === r.site);
+      return was && was.parent === r.parent && was.geometry === r.geometry && was.uFactor === r.uFactor && was.uShared === r.uShared && Math.abs((was.distance ?? 0) - (r.distance ?? 0)) < 5e-4;
+    });
+    if (same) return nothing(`the hydrogens ride already: ${ridingSummary(s.refinedStructure)}`);
+    return change(ridingPreview(s, input, rules, hydrogens), () => {
+      const note = port.setRiding(true, options);
       // What the page did, computed as it computes it: the port in hand shows the page as it was before the change.
-      const rules = ridingRules({ ...s.refinedStructure, riding: [] }, options).rules;
       if (rules.length === 0) throw new Error(note ?? "no hydrogen rides");
       const sites = s.refinedStructure.sites.map((site) => ({ ...site }));
       const placed = { ...s.refinedStructure, riding: rules, sites };
@@ -155,26 +254,50 @@ export async function changeSingleCrystal(name: string, input: Input, port: Sing
       const odd = oddHydrogenDistances(s.probe, placed);
       const torsions = [...new Set(rules.filter(isRotating).map((r) => r.parent))];
       const free = rules.filter((r) => r.geometry === "free").map((r) => r.site);
-      const shared = [...sharedUGroups(rules).keys()].map((key) => `B_shared_${key}`);
+      const sharedKeys = [...sharedUGroups(rules).keys()].map((key) => `B_shared_${key}`);
       const rows = [
         ...(torsions.length ? [`the torsion${torsions.length === 1 ? "" : "s"} ${torsions.map((p) => `rot_${p}`).join(", ")} (fixed) refine${torsions.length === 1 ? "s" : ""} with the positions`] : []),
         ...(free.length ? [`${free.join(", ")} keep${free.length === 1 ? "s" : ""} ${free.length === 1 ? "its" : "their"} position rows (fixed), to refine — restrained where the data are weak`] : []),
-        ...(shared.length ? [`the shared U_iso ${shared.join(", ")} (fixed, at the hydrogens' present mean) refine${shared.length === 1 ? "s" : ""} with the ADPs`] : []),
+        ...(sharedKeys.length ? [`the shared U_iso ${sharedKeys.join(", ")} (fixed, at the hydrogens' present mean) refine${sharedKeys.length === 1 ? "s" : ""} with the ADPs`] : []),
       ];
       // A hydrogen whose position refines rides by its U only: counted apart, as SHELXL's −1.2 is not an AFIX.
       const riders = rules.length - free.length;
       const head = `${riders} hydrogen${riders === 1 ? " rides" : "s ride"}${free.length ? `, ${free.length} refine${free.length === 1 ? "s its position" : " their positions"} with U riding` : ""}`;
       return `${head}: ${ridingSummary(placed)}${note ? `; ${note}` : ""}.${odd ? ` ${odd}` : ""}${rows.length ? ` Free with set_free: ${rows.join("; ")}.` : ""} The last fit is cleared: refine again.`;
+    });
+  },
+  tie_parameters: (input, s, port) => {
+    const u = scTieUpdate(s, input);
+    if (checkEqualTies(s.parameters, u).unchanged) return nothing("those parameters are already tied so");
+    const kind = (id: string | undefined): string => {
+      const k = s.parameters.find((p) => p.id === id)?.kind;
+      return k === "occupancy" ? "occupancy" : k === "uAniso" ? "U" : "B";
+    };
+    const preview = [
+      ...(u.equal ? [`Tie ${u.equal.slice(1).join(", ")} = ${u.equal[0]} (one ${kind(u.equal[0])} refines)`] : []),
+      ...(u.groups?.length ? [`${(input.adp as string[]).slice(1).join(", ")} take${(input.adp as string[]).length > 2 ? "" : "s"} the ADP of ${String((input.adp as string[])[0])} (EADP: ${u.groups.length} row${u.groups.length === 1 ? "" : "s"} each)`] : []),
+      ...(u.complement ? [`${u.complement[1]} = 1 − ${u.complement[0]}: the two alternatives add up to one, and the split refines as one fraction`] : []),
+      ...(u.release ? [`Release the tie on ${u.release.join(", ")}`] : []),
+    ].join(" · ");
+    return change(preview, () => {
+      port.setParameterTies(u);
+      return tieNote(s, u);
+    });
+  },
+  merge_equivalents: (input, s, port) => {
+    if (input.on && s.probe === "neutron-tof") throw new Error("a time-of-flight Laue measurement is not merged: each reflection has its own wavelength, extinction and batch, which a merge would lose");
+    if (input.on && s.dataset.origin === "refinement-listing") throw new Error("a refinement's listing is merged already: each reflection is there once");
+    const on = !!s.dataset.merged;
+    if (!!input.on === on) return nothing(on ? "the equivalents are merged already" : "every measurement is fitted already");
+    if (!input.on) {
+      return change(`Fit every measurement again (${s.totalReflections}), not the merged equivalents`, () => {
+        port.setMerged(false);
+        return `Every measurement is fitted again: ${s.totalReflections} reflections. The omissions and the last fit are cleared.`;
+      });
     }
-    case "tie_parameters": {
-      const update = scTieUpdate(s, input);
-      port.setParameterTies(update);
-      return tieNote(s, update);
-    }
-    case "merge_equivalents": {
-      port.setMerged(!!input.on);
-      if (!input.on) return `Every measurement is fitted again: ${s.totalReflections} reflections. The omissions and the last fit are cleared.`;
-      const m = mergedDataset(s.dataset, s.structure.spaceGroup.operations);
+    const m = mergedDataset(s.dataset, s.structure.spaceGroup.operations);
+    return change(`Merge the equivalents as SHELXL's MERG 2: ${s.totalReflections} measurements → ${m.reflections.length} reflections, ${m.merged!.friedelApart ? "Friedel opposites apart" : "Friedel opposites merged (centrosymmetric)"}`, () => {
+      port.setMerged(true);
       const apart = s.merge.friedelApart;
       const absent = m.merged!.absences ? `, ${m.merged!.absences} systematic absence${m.merged!.absences === 1 ? "" : "s"} left out${m.merged!.absentMeasurements ? ` (${m.merged!.absentMeasurements} measurements)` : ""}` : "";
       // A file the data reduction merged already holds each reflection once: the merge only leaves out the absences, and gives no R_int.
@@ -185,246 +308,50 @@ export async function changeSingleCrystal(name: string, input: Input, port: Sing
         ? `R_int ${pct(apart.rInt)} % for this merge, as SHELXL reports it (${pct(s.merge.rInt)} % in the Laue class, the mates merged)`
         : `R_int ${rIntOf(s)}${typeof rIntOf(s) === "number" ? " %" : ""}`;
       return `${s.totalReflections} measurements merged into ${m.reflections.length} reflections, ${m.merged!.friedelApart ? "the Friedel opposites kept apart (a non-centrosymmetric group: they differ by the anomalous signal)" : "the Friedel opposites merged too (a centrosymmetric group)"}${absent}. ${rInt}; the data reading keeps the measurement as loaded. The omissions and the last fit are cleared: refine again.`;
-    }
-    case "restrain_distances": {
-      const next = restraintsAfter(s, input);
+    });
+  },
+  restrain_distances: (input, s, port) => {
+    const next = restraintsAfter(s, input);
+    if (JSON.stringify(next) === JSON.stringify(s.distanceRestraints)) return nothing(next.length ? `the restraints are already so (${restraintCount(next)})` : "there is no restraint to remove");
+    const placed = { ...s.refinedStructure, restraints: next };
+    const added = next.filter((r) => !s.distanceRestraints.some((w) => JSON.stringify(w) === JSON.stringify(r)));
+    const removed = s.distanceRestraints.length - (next.length - added.length);
+    const preview = [
+      ...(added.length ? [`Restrain ${restraintReport(placed, added).map((r) => r.text.replace(/ — the largest deviation.*$/, "")).join("; ")}`] : []),
+      ...(removed > 0 ? [`drop ${removed} restraint${removed === 1 ? "" : "s"}`] : []),
+    ].join(" · ") + ` — ${restraintCount(next)} restraint${restraintCount(next) === 1 ? "" : "s"} in all`;
+    return change(preview, () => {
       port.setDistanceRestraints(next);
       if (next.length === 0) return "No restraints: the fit is the data's alone again. The last fit is cleared.";
-      const placed = { ...s.refinedStructure, restraints: next };
       const far = restraintReport(placed, next).filter((r) => r.worst > 3);
       return `${restraintCount(next)} restraint${restraintCount(next) === 1 ? "" : "s"} in all (as SHELXL counts them). As the model stands: ${restraintReport(placed, next).map((r) => r.text).join("; ")}.${far.length ? " One or more sits beyond 3σ now: the refinement will pull the atoms toward it." : ""} The last fit is cleared: refine again.`;
-    }
-    case "refine": {
-      if (!s.parameters.some((p) => !p.fixed && !p.expression)) throw new Error("no parameter is free — free some with set_free first");
-      const why = await (input.mode === "thorough" ? port.thorough() : port.refine());
-      if (why) return `The refinement did not finish (${why}); the parameters keep their values from before it.`;
-      const notes = [freeHydrogenNote(s), listingExtinctionNote(s)].filter((n): n is string => n !== null);
-      return notes.length ? notes.join(" ") : undefined;
-    }
-    case "reset_parameters":
-      port.reset(input.parameters ? matchIds(s.parameters, input.parameters as string[]) : undefined);
-      return undefined;
-    case "go_to_step":
-      goToStep(host, input.step);
-      return undefined;
-    default:
-      throw new Error(`${name} is not a single-crystal change tool`);
-  }
-}
+    });
+  },
+  refine: refinePlan<SingleCrystalAgentPort>({
+    fits: (s, free) => `Refine F², ${free} free parameter${free === 1 ? "" : "s"} against ${s.observationCount} reflections`,
+    after: (s) => [freeHydrogenNote(s), listingExtinctionNote(s)].filter((n): n is string => n !== null),
+  }),
+  reset_parameters: resetPlan,
+  go_to_step: goToPlan,
+};
 
-/** Why a change would do nothing, or null when it would do something. */
-export function singleCrystalNoOp(spec: LiveToolSpec, input: Input, s: SingleCrystalLiveState): string | null {
-  switch (spec.name) {
-    case "set_free":
-      return freeNoOp(s.parameters, input);
-    case "set_adp_model":
-      return s.adpModel === (input.anisotropic ? "anisotropic" : "isotropic") ? `the ADPs are already ${s.adpModel}` : null;
-    case "set_outlier_filter": {
-      const on = input.on ?? s.outlierFilter.on;
-      const cutoff = input.cutoffSigma ?? s.outlierFilter.cutoffSigma;
-      const minY = input.minExtinction === undefined ? s.outlierFilter.minExtinction : input.minExtinction ?? undefined;
-      return on === s.outlierFilter.on && cutoff === s.outlierFilter.cutoffSigma && minY === s.outlierFilter.minExtinction
-        ? `the filter is already ${on ? `on at ${cutoff}σ${minY !== undefined ? `, y ≥ ${minY}` : ""}` : "off"}`
-        : null;
-    }
-    case "omit_reflections": {
-      const plan = omitPlan(s, input);
-      return plan.added.length === 0 && plan.restored.length === 0
-        ? s.omitted.length === 0 ? "nothing is omitted, and nothing new was named" : `already as asked: ${s.omitted.map(omittedText).join(", ")} omitted`
-        : null;
-    }
-    case "set_extinction_model":
-      return input.model === s.extinctionModel ? `the extinction model is already ${EXTINCTION_MODEL_LABELS[s.extinctionModel]}` : null;
-    case "set_weighting": {
-      const next = weightingAfter(s, input);
-      return next?.a === s.weighting?.a && next?.b === s.weighting?.b ? `the weights are already ${weightingText(next)}` : null;
-    }
-    case "invert_structure": {
-      if (isCentrosymmetric(s.structure.spaceGroup.operations)) throw new Error(`${s.structure.spaceGroup.hermannMauguin ?? "the space group"} is centrosymmetric: the inverted model is the same model`);
-      if (s.magnetic) throw new Error("a magnetic model is applied: invert the structure before applying it");
-      invertedModel(s.structure);
-      return null;
-    }
-    case "set_twin": {
-      const next = twinAfter(s, input);
-      return sameLaws(next, s.twinLaws) ? (next.length ? `the twin law is already ${twinText(next[0]!)}` : "the crystal is already untwinned") : null;
-    }
-    case "tie_parameters":
-      return checkEqualTies(s.parameters, scTieUpdate(s, input)).unchanged ? "those parameters are already tied so" : null;
-    case "merge_equivalents": {
-      if (input.on && s.probe === "neutron-tof") throw new Error("a time-of-flight Laue measurement is not merged: each reflection has its own wavelength, extinction and batch, which a merge would lose");
-      if (input.on && s.dataset.origin === "refinement-listing") throw new Error("a refinement's listing is merged already: each reflection is there once");
-      const on = !!s.dataset.merged;
-      return !!input.on === on ? (on ? "the equivalents are merged already" : "every measurement is fitted already") : null;
-    }
-    case "restrain_distances": {
-      const next = restraintsAfter(s, input);
-      return JSON.stringify(next) === JSON.stringify(s.distanceRestraints) ? (next.length ? `the restraints are already so (${restraintCount(next)})` : "there is no restraint to remove") : null;
-    }
-    case "set_riding_hydrogens": {
-      const hydrogens = s.structure.sites.filter((site) => isHydrogen(site)).length;
-      if (input.on && hydrogens === 0) throw new Error("the model has no hydrogen atoms: nothing to ride");
-      if (!input.on) return s.riding.length === 0 ? "no hydrogen rides: each refines on its own already" : null;
-      const named = (input.refine as string[] | undefined) ?? [];
-      const unknown = named.filter((label) => !s.structure.sites.some((site) => site.label === label && isHydrogen(site)));
-      if (unknown.length) throw new Error(`no hydrogen ${unknown.join(", ")} in the model`);
-      const shared = (input.sharedU as string[][] | undefined) ?? [];
-      const words = new Set(["all", ...Object.keys(AFIX)]);
-      const strange = shared.flat().filter((name) => !words.has(name) && !s.structure.sites.some((site) => site.label === name && isHydrogen(site)));
-      if (strange.length) throw new Error(`sharedU names ${strange.join(", ")}: neither a hydrogen of the model nor a geometry (${[...words].join(", ")})`);
-      const next = ridingRules({ ...s.refinedStructure, riding: [] }, ridingOptionsOf(input)).rules;
-      const keys = new Set(next.flatMap((r) => (r.uShared !== undefined ? [r.uShared] : [])));
-      const empty = shared.flatMap((names, k) => (keys.has(String(k + 1)) ? [] : [`[${names.join(", ")}]`]));
-      if (empty.length) throw new Error(`sharedU ${empty.join(", ")} names no hydrogen that rides here${empty.length === shared.length ? "" : " (or only hydrogens an earlier list took)"}`);
-      const same = s.riding.length === next.length && next.every((r) => {
-        const was = s.riding.find((x) => x.site === r.site);
-        return was && was.parent === r.parent && was.geometry === r.geometry && was.uFactor === r.uFactor && was.uShared === r.uShared && Math.abs((was.distance ?? 0) - (r.distance ?? 0)) < 5e-4;
-      });
-      return same ? `the hydrogens ride already: ${ridingSummary(s.refinedStructure)}` : null;
-    }
-    case "set_resolution_range": {
-      const next = resolutionAfter(s, input);
-      if (next.dMin !== undefined && next.dMax !== undefined && next.dMin >= next.dMax) throw new Error(`dMin ${next.dMin} Å must lie below dMax ${next.dMax} Å`);
-      return next.dMin === s.resolution.dMin && next.dMax === s.resolution.dMax ? `the range is already ${rangeText(next)}` : null;
-    }
-    case "set_radiation": {
-      const probe = input.probe ?? s.probe;
-      if (probe === "neutron-tof" && input.wavelength !== undefined) throw new Error("a time-of-flight measurement has no single wavelength: each reflection has its own");
-      const wl = "wavelength" in s.dataset.radiation ? s.dataset.radiation.wavelength : undefined;
-      return probe === s.probe && (input.wavelength === undefined || input.wavelength === wl) ? `the radiation is already ${radiationText(probe, wl)}` : null;
-    }
-    default:
-      return null;
-  }
-}
-
-/** One line for the approval card: what this change will do, in the page's terms. */
-export function describeSingleCrystalChange(spec: LiveToolSpec, input: Input, s: SingleCrystalLiveState): string {
-  switch (spec.name) {
-    case "keep_reflections":
-      return `Keep in the fit, at your word, ${(input.reflections as { h: number; k: number; l: number; batch?: number }[]).map(measurementName).join(", ")} — read as failed measurements: ${String(input.reason)}`;
-    case "test_extinction": {
-      const below = input.below ?? EXTINCTION_SEVERE;
-      return `Test the extinction: refine twice as probes, with and without the ${s.rows.filter((r) => (r.extinction ?? 1) < below).length} reflections of y < ${below}, and compare — the page stays as it is`;
-    }
-    case "set_free":
-      return describeFree(s.parameters, input);
-    case "set_adp_model":
-      return `ADPs ${s.adpModel} → ${input.anisotropic ? "anisotropic (U tensor per site, seeded from the refined B)" : "isotropic (one B per site)"}`;
-    case "set_outlier_filter": {
-      const on = input.on ?? s.outlierFilter.on;
-      const cutoff = input.cutoffSigma ?? s.outlierFilter.cutoffSigma;
-      const minY: number | undefined = input.minExtinction === undefined ? s.outlierFilter.minExtinction : input.minExtinction ?? undefined;
-      if (!on) return "Outlier filter off: every reflection fitted";
-      // Counted on every reflection in the file, against the current model, as the page's filter cuts.
-      const left = s.allRows.filter((r) => !isOmitted(r, s.omitted) && inResolution(r, s.structure.cell, s.resolution) && (Math.abs(r.deltaOverSigma) > cutoff || (minY !== undefined && (r.extinction ?? 1) < minY))).length;
-      return `Outlier filter on at ${cutoff}σ${minY !== undefined ? ` and y ≥ ${minY}` : ""}: leaves out ${left} reflection${left === 1 ? "" : "s"} against the current model`;
-    }
-    case "omit_reflections": {
-      const plan = omitPlan(s, input);
-      const parts = [
-        ...(plan.added.length ? [`Omit ${plan.added.map(omittedText).join(", ")}${input.reason ? ` (${String(input.reason)})` : ""}`] : []),
-        ...(plan.restored.length ? [`restore ${plan.restored.map(omittedText).join(", ")}`] : []),
-      ];
-      return `${parts.join("; ")} — ${plan.next.length} measurement${plan.next.length === 1 ? "" : "s"} omitted in all`;
-    }
-    case "set_extinction_model":
-      return `Extinction model: ${EXTINCTION_MODEL_LABELS[input.model as ExtinctionModel]}, in place of ${EXTINCTION_MODEL_LABELS[s.extinctionModel]} — its parameter restarts at 0`;
-    case "set_weighting": {
-      const next = weightingAfter(s, input);
-      const why = input.use === "suggested" ? (() => {
-        const sug = suggestionOf(s);
-        return ` (suggested for the model as refined now: GooF ${sig(sug.goof, 3)}, by intensity bin ${sug.bins.map((g) => sig(g, 3)).join(", ")})`;
-      })() : "";
-      return `Weights: ${weightingText(next)}${why}, in place of ${weightingText(s.weighting)} — wR2 and GooF change, R1 does not`;
-    }
-    case "invert_structure": {
-      const inv = invertedModel(s.structure);
-      const shifted = inv.shift.some((v) => v !== 0);
-      if (s.inverted) return `Back to the hand as loaded: the model as it was loaded, in ${inv.enantiomorph ?? s.structure.spaceGroup.hermannMauguin ?? "its space group"}${s.twinLaws.length ? "; the twin fractions re-expressed" : ""}${s.riding.length ? "; the riding groups placed afresh" : ""}`;
-      const moved = inv.translation.some((v) => v !== 0);
-      return `Invert the model: every coordinate x → ${shifted ? `(${inv.shift.join(", ")}) − x` : "−x"}${moved ? `, moved into the cell by (${inv.translation.join(", ")})` : ""}; ${inv.enantiomorph ? `the space group ${s.structure.spaceGroup.hermannMauguin ?? "?"} → ${inv.enantiomorph}` : `the space group ${s.structure.spaceGroup.hermannMauguin ?? "?"} kept`}${s.twinLaws.length ? "; the twin fractions re-expressed" : ""}${s.riding.length ? "; the riding groups placed afresh" : ""}`;
-    }
-    case "set_twin": {
-      const next = twinAfter(s, input);
-      const starts = twinStarts(s, next);
-      if (next.length > 1) return `Twin law: ${twinText(next[0]!)} with the inversion — four domains (TWIN R −4): ${startsText(starts)}`;
-      if (next.length === 0) return `Untwinned: the twin fraction${s.twinLaws.length ? "" : "s"} leave the fit`;
-      const leaving = s.twinLaws.length > next.length ? `, the other ${s.twinLaws.length - next.length} domain${s.twinLaws.length - next.length === 1 ? "" : "s"} leaving the fit` : "";
-      return `Twin law: ${twinText(next[0]!)} — its fraction${isInversion(next[0]!) ? " (the Flack x)" : " (BASF)"} ${starts[0]!.kept ? `kept at ${sig(starts[0]!.value, 4)}${leaving}` : "refines from 0.1"}`;
-    }
-    case "merge_equivalents": {
-      if (!input.on) return `Fit every measurement again (${s.totalReflections}), not the merged equivalents`;
-      const m = mergedDataset(s.dataset, s.structure.spaceGroup.operations);
-      return `Merge the equivalents as SHELXL's MERG 2: ${s.totalReflections} measurements → ${m.reflections.length} reflections, ${m.merged!.friedelApart ? "Friedel opposites apart" : "Friedel opposites merged (centrosymmetric)"}`;
-    }
-    case "restrain_distances": {
-      const next = restraintsAfter(s, input);
-      const placed = { ...s.refinedStructure, restraints: next };
-      const added = next.filter((r) => !s.distanceRestraints.some((w) => JSON.stringify(w) === JSON.stringify(r)));
-      const removed = s.distanceRestraints.length - (next.length - added.length);
-      return [
-        ...(added.length ? [`Restrain ${restraintReport(placed, added).map((r) => r.text.replace(/ — the largest deviation.*$/, "")).join("; ")}`] : []),
-        ...(removed > 0 ? [`drop ${removed} restraint${removed === 1 ? "" : "s"}`] : []),
-      ].join(" · ") + ` — ${restraintCount(next)} restraint${restraintCount(next) === 1 ? "" : "s"} in all`;
-    }
-    case "tie_parameters": {
-      const u = scTieUpdate(s, input);
-      const kind = (id: string | undefined): string => {
-        const k = s.parameters.find((p) => p.id === id)?.kind;
-        return k === "occupancy" ? "occupancy" : k === "uAniso" ? "U" : "B";
-      };
-      return [
-        ...(u.equal ? [`Tie ${u.equal.slice(1).join(", ")} = ${u.equal[0]} (one ${kind(u.equal[0])} refines)`] : []),
-        ...(u.groups?.length ? [`${(input.adp as string[]).slice(1).join(", ")} take${(input.adp as string[]).length > 2 ? "" : "s"} the ADP of ${String((input.adp as string[])[0])} (EADP: ${u.groups.length} row${u.groups.length === 1 ? "" : "s"} each)`] : []),
-        ...(u.complement ? [`${u.complement[1]} = 1 − ${u.complement[0]}: the two alternatives add up to one, and the split refines as one fraction`] : []),
-        ...(u.release ? [`Release the tie on ${u.release.join(", ")}`] : []),
-      ].join(" · ");
-    }
-    case "set_riding_hydrogens": {
-      const hydrogens = new Set(s.structure.sites.filter((site) => isHydrogen(site)).map((site) => site.label));
-      if (!input.on) return `Hydrogens refine on their own again: ${hydrogens.size} hydrogen${hydrogens.size === 1 ? "" : "s"} get their own position and B rows (fixed, at the loaded positions)`;
-      const rules = ridingRules({ ...s.refinedStructure, riding: [] }, ridingOptionsOf(input)).rules;
-      // A hydrogen whose position refines keeps its position rows: only its U leaves.
-      const placed = new Set(rules.filter((r) => r.geometry === "free").map((r) => r.site));
-      const positional = new Set(["positionShift", "atomX", "atomY", "atomZ"]);
-      const rows = new Set(s.bindings.filter((b) => b.targetKey !== undefined && hydrogens.has(b.targetKey) && !(placed.has(b.targetKey) && positional.has(b.kind))).map((b) => b.parameterId)).size;
-      const counts = (Object.keys(AFIX) as RidingRule["geometry"][]).flatMap((g) => {
-        const n = rules.filter((r) => r.geometry === g).length;
-        return n ? [`${n} ${g === "free" ? "with their positions refined" : `AFIX ${AFIX[g]}`}`] : [];
-      });
-      const groups = sharedUGroups(rules);
-      const sharing = [...groups.values()].reduce((t, g) => t + g.length, 0);
-      const u = `${input.uFactor !== undefined ? `${input.uFactor}·U_eq of the parent` : "1.2·U_eq of the parent (1.5 for methyl and hydroxyl)"}${sharing ? `; ${sharing === rules.length ? "every one's" : `${sharing}'s`} refined instead, shared: ${[...groups].map(([key, labels]) => `B_shared_${key} for ${labels.length}`).join(", ")}` : ""}`;
-      const d = input.distance !== undefined ? `, X–H ${input.distance} Å` : input.temperature !== undefined ? `, SHELXL's X–H at ${input.temperature} K` : "";
-      const torsions = new Set(rules.filter(isRotating).map((r) => r.parent)).size;
-      const joining = [torsions ? `${torsions} torsion${torsions === 1 ? "" : "s"}` : "", groups.size ? `${groups.size} shared U_iso` : ""].filter(Boolean).join(" and ");
-      return `Ride ${rules.length} hydrogen${rules.length === 1 ? "" : "s"} on ${rules.length === 1 ? "its parent" : "their parents"} (SHELXL AFIX: ${counts.join(", ")}${d}; U_iso = ${u})${rows ? ` — ${rows} parameter${rows === 1 ? "" : "s"} leave the fit` : ""}${joining ? `, ${joining} join${torsions + groups.size === 1 ? "s" : ""} it` : ""}`;
-    }
-    case "set_resolution_range": {
-      const next = resolutionAfter(s, input);
-      const outside = s.allRows.filter((r) => !inResolution(r, s.structure.cell, next) && !isOmitted(r, s.omitted)).length;
-      return `Resolution ${rangeText(next)}: ${outside === 0 ? "every reflection in range" : `leaves out ${outside} reflection${outside === 1 ? "" : "s"}`}`;
-    }
-    case "set_radiation": {
-      const probe = input.probe ?? s.probe;
-      const wl = input.wavelength ?? ("wavelength" in s.dataset.radiation ? s.dataset.radiation.wavelength : undefined);
-      const was = "wavelength" in s.dataset.radiation ? s.dataset.radiation.wavelength : undefined;
-      return `Radiation: ${radiationText(probe, wl)}, in place of ${radiationText(s.probe, was)} — every Fc changes; the scale restarts from its best value`;
-    }
-    case "refine": {
-      const free = s.parameters.filter((p) => !p.fixed && !p.expression).length;
-      return input.mode === "thorough"
-        ? `${s.result ? "Escape minimum" : "Prefit"} (multi-start) on ${free} free parameter${free === 1 ? "" : "s"}`
-        : `Refine F², ${free} free parameter${free === 1 ? "" : "s"} against ${s.observationCount} reflections`;
-    }
-    case "reset_parameters":
-      return input.parameters ? `Reset ${matchIds(s.parameters, input.parameters as string[]).join(", ")} to the starting value` : "Reset every parameter to its starting value";
-    case "go_to_step":
-      return `Go to step ${String(input.step)}`;
-    default:
-      return spec.title;
-  }
+/** The card's line for riding hydrogens on: what rides and how, and the rows that leave the fit or join it. */
+function ridingPreview(s: SingleCrystalLiveState, input: Input, rules: readonly RidingRule[], hydrogens: ReadonlySet<string>): string {
+  // A hydrogen whose position refines keeps its position rows: only its U leaves.
+  const placed = new Set(rules.filter((r) => r.geometry === "free").map((r) => r.site));
+  const positional = new Set(["positionShift", "atomX", "atomY", "atomZ"]);
+  const rows = new Set(s.bindings.filter((b) => b.targetKey !== undefined && hydrogens.has(b.targetKey) && !(placed.has(b.targetKey) && positional.has(b.kind))).map((b) => b.parameterId)).size;
+  const counts = (Object.keys(AFIX) as RidingRule["geometry"][]).flatMap((g) => {
+    const n = rules.filter((r) => r.geometry === g).length;
+    return n ? [`${n} ${g === "free" ? "with their positions refined" : `AFIX ${AFIX[g]}`}`] : [];
+  });
+  const groups = sharedUGroups(rules);
+  const sharing = [...groups.values()].reduce((t, g) => t + g.length, 0);
+  const u = `${input.uFactor !== undefined ? `${input.uFactor}·U_eq of the parent` : "1.2·U_eq of the parent (1.5 for methyl and hydroxyl)"}${sharing ? `; ${sharing === rules.length ? "every one's" : `${sharing}'s`} refined instead, shared: ${[...groups].map(([key, labels]) => `B_shared_${key} for ${labels.length}`).join(", ")}` : ""}`;
+  const d = input.distance !== undefined ? `, X–H ${input.distance} Å` : input.temperature !== undefined ? `, SHELXL's X–H at ${input.temperature} K` : "";
+  const torsions = new Set(rules.filter(isRotating).map((r) => r.parent)).size;
+  const joining = [torsions ? `${torsions} torsion${torsions === 1 ? "" : "s"}` : "", groups.size ? `${groups.size} shared U_iso` : ""].filter(Boolean).join(" and ");
+  return `Ride ${rules.length} hydrogen${rules.length === 1 ? "" : "s"} on ${rules.length === 1 ? "its parent" : "their parents"} (SHELXL AFIX: ${counts.join(", ")}${d}; U_iso = ${u})${rows ? ` — ${rows} parameter${rows === 1 ? "" : "s"} leave the fit` : ""}${joining ? `, ${joining} join${torsions + groups.size === 1 ? "s" : ""} it` : ""}`;
 }
 
 /**
