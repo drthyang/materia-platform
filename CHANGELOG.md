@@ -436,6 +436,11 @@ release fixes bugs.
 
 ### Changed
 
+- **The Agent's executor and chat code split by what each part does**
+  (internal; no behaviour change): the executor's dispatch, policy and
+  record, and the chat's loop, transports, context budget and guards, each in
+  its own file.
+
 - **Five more readings in one place for the app and MCP.** MCP's
   `check_fit_range` returns the app's reading in words (`reading`) and warns
   when the axis cannot be what the file says (`axisWarning`).

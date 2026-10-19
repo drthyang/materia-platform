@@ -99,11 +99,16 @@ src/
     project/         project file: types, readable serializer, validation, migration
   parsers/           CIF/mCIF, hkl, powder formats, instrument files, PDF data
   agent/             the in-app Agent: tools.ts (the live tools), executor.ts
-                     (runs a call: gate, ask, act, answer), pages/ (what
-                     differs by page, one adapter each; plans.ts, a change
-                     planned before its card), the pages' handlers
+                     (runs a call: gate, ask, act, answer) with its policy
+                     (executorPolicy.ts: the method gate, the firm rules, the
+                     correlation guard) and its record (executorRecord.ts:
+                     the notes, get_state's view, the report, the refs),
+                     pages/ (what differs by page, one adapter each; plans.ts,
+                     a change planned before its card), the pages' handlers
                      (powderTools, pdfTools, scTools, magneticTools), skills,
-                     the chat loop and its transports
+                     the chat loop (chat.ts) with its transports
+                     (chatTransport.ts), its context budget (chatBudget.ts)
+                     and its guards (chatGuards.ts)
   mcp/               agent tool layer: tools.ts (pure handlers),
                      registry.ts (single source of truth), host.ts + refs.ts
                      (refs, path, free, read_ref), server.ts (stdio),
