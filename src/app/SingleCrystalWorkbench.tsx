@@ -1005,8 +1005,6 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
   );
 }
 
-/** Segmented X-ray / Neutron / TOF control for the single-crystal Data card.
- *  A bare reflection file carries no probe, so this is the authoritative source. */
 /**
  * Source × mode picker for the probe. The reflection file cannot report its
  * own radiation, so the user states it the way an experiment is described:
@@ -1047,7 +1045,6 @@ function ProbeToggle({ probe, onChange }: { probe: Probe; onChange: (p: Probe) =
   );
 }
 
-/** One labelled segmented group of the probe picker. */
 /** The resolution range fitted, SHELXL's SHEL: d from … to … Å, either end open (blank). */
 function ResolutionRow({ range, excluded, onChange }: {
   range: ResolutionRange;
@@ -1113,6 +1110,7 @@ function OmittedRow({ omitted, count, batches, onChange }: {
   );
 }
 
+/** One labelled segmented group of the probe picker. */
 function ProbeSegment<T extends string>({ label, hint, options, value, onChange, disabled = false }: {
   label: string;
   hint: string;
