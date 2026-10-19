@@ -1,6 +1,6 @@
 # One boxcar scan for the app and MCP
 
-Pull request [#76](https://github.com/drthyang/web-refinement/pull/76),
+Pull request [#77](https://github.com/drthyang/web-refinement/pull/77),
 branch `claude/strategy-drivers`, on `main`, 2026-10-19. Plan:
 [AGENT_PLAN.md](../AGENT_PLAN.md), 2.6 (in part). The first half of the
 architecture review's #6, "strategy drivers behind the solver seam", on the
