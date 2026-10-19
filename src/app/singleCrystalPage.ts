@@ -37,6 +37,7 @@ import { applyParameters } from "@/core/workflow/apply";
 import type { ReportInput } from "@/core/export/report";
 import { singleCrystalReportInput, type MagneticExploration } from "@/app/reportInputs";
 import type { SingleCrystalLiveState } from "@/agent/port";
+import type { FitOptions } from "@/app/magneticStep";
 
 /** The probe the reflections were measured with: a bare reflection file cannot say, so the user picks it. */
 export type Probe = "xray" | "neutron" | "neutron-tof";
@@ -620,8 +621,9 @@ export function withOutlierFilter(m: SingleCrystalPageModel, update: { readonly 
 
 /**
  * A magnetic model from the symmetry step, or none: its bindings kept and its
- * (freed) moment rows put in place of any earlier magnetic rows, so the fit
- * and the parameter panel carry them with the nuclear ones.
+ * moment rows (free as the step's fit frees them: magneticStep.ts, handoff)
+ * put in place of any earlier magnetic rows, so the fit and the parameter
+ * panel carry them with the nuclear ones.
  */
 export function withMagneticModel(m: SingleCrystalPageModel, magnetic: MagneticModel | null, momentParams: readonly RefinementParameter[] = [], momentBindings: readonly ParameterBinding[] = []): SingleCrystalPageModel {
   return {
@@ -629,7 +631,7 @@ export function withMagneticModel(m: SingleCrystalPageModel, magnetic: MagneticM
     magnetic,
     momentBindings: magnetic ? momentBindings : [],
     // The whole magnetic model is replaced — k rows included, never orphaned.
-    params: [...m.params.filter((p) => !isMagneticModelParameterKind(p.kind)), ...(magnetic ? momentParams.map((p) => ({ ...p, fixed: !!p.expression })) : [])],
+    params: [...m.params.filter((p) => !isMagneticModelParameterKind(p.kind)), ...(magnetic ? momentParams : [])],
   };
 }
 
@@ -794,11 +796,13 @@ export function singleCrystalProbe(client: SingleCrystalCompute, m: SingleCrysta
 
 /**
  * The symmetry step's moment fit on this dataset's F², the nuclear model held:
- * a seeded moment multi-start, then a final fit and the ±m canonicalization.
- * One scale: nuclear and magnetic Bragg peaks are the same measurement, so the
- * magnetic scale is tied to the nuclear one, which also pins |m| uniquely.
+ * a seeded moment multi-start (8 restarts, or `options.restarts`: the
+ * ranking's starts ask for none), then a final fit and the ±m
+ * canonicalization. One scale: nuclear and magnetic Bragg peaks are the same
+ * measurement, so the magnetic scale is tied to the nuclear one, which also
+ * pins |m| uniquely.
  */
-export async function momentFit(client: SingleCrystalCompute, m: SingleCrystalPageModel, magnetic: MagneticModel, momentParams: readonly RefinementParameter[], momentBindings: readonly ParameterBinding[]): Promise<{ readonly values: Record<string, number>; readonly agreement: number | null }> {
+export async function momentFit(client: SingleCrystalCompute, m: SingleCrystalPageModel, magnetic: MagneticModel, momentParams: readonly RefinementParameter[], momentBindings: readonly ParameterBinding[], options: FitOptions = {}): Promise<{ readonly values: Record<string, number>; readonly agreement: number | null }> {
   const v = pageView(m);
   const nuclearFixed = m.params.map((p) => ({ ...p, fixed: true }));
   const nuclearScale = m.params.find((p) => p.kind === "scale")?.value ?? 1;
@@ -806,7 +810,7 @@ export async function momentFit(client: SingleCrystalCompute, m: SingleCrystalPa
   const scaleTieBinding: ParameterBinding = { parameterId: "magScale", kind: "magneticScale", targetId: v.activeDataset.id };
   const ms = await client.refineMagneticSingleCrystalMultiStart(
     { structure: v.fitStructure, magnetic, dataset: v.activeDataset, parameters: [...nuclearFixed, scaleTie, ...momentParams], bindings: [...v.bindings, scaleTieBinding, ...momentBindings] },
-    { restarts: 8 }, { maxIterations: 20 },
+    { restarts: options.restarts ?? 8 }, { maxIterations: 20 },
   );
   const values: Record<string, number> = {};
   for (const p of momentParams) values[p.id] = ms.final.parameters[p.id] ?? p.value;

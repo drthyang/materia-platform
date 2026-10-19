@@ -15,37 +15,24 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type
 import type { StructureModel, SymmetryOperation } from "@/core/crystal/types";
 import type { Vec3 } from "@/core/math/types";
 import type { PowderPattern } from "@/core/diffraction/types";
-import { isMagneticModelParameterKind, type ParameterBinding, type RefinementParameter } from "@/core/refinement/types";
-import { resolveTies } from "@/core/refinement/constraints";
+import type { ParameterBinding, RefinementParameter } from "@/core/refinement/types";
 import { magneticIonCandidates } from "@/core/magnetic/magneticIons";
-import { searchPropagationVector, satelliteMatchDeltas, kLabel, type KCandidate } from "@/core/magnetic/kSearch";
+import { satelliteMatchDeltas, kLabel, type KCandidate } from "@/core/magnetic/kSearch";
 import { classifyPropagation, describePropagation } from "@/core/magnetic/propagation";
-import type { AnnotatedExtraPeak } from "@/core/magnetic/extraPeaks";
 import { littleGroup } from "@/core/magnetic/magneticGroups";
 import { centringTranslations } from "@/core/crystal/symmetry";
 import { magneticOperationSignature as magOpsSignature } from "@/core/magnetic/operationSignature";
-import {
-  magneticSubgroupLattice,
-  latticeRepresentatives,
-  latticeCandidateLabel as latticeLabel,
-  type LatticeCandidate,
-} from "@/core/magnetic/subgroupLattice";
+import { latticeCandidateLabel as latticeLabel, type LatticeCandidate } from "@/core/magnetic/subgroupLattice";
 import { decomposeMagneticRepresentation, projectIrrepModes } from "@/core/magnetic/irreps";
 import { isotropySubgroup, type IrrepSelection, type IsotropyFailure } from "@/core/magnetic/isotropy";
-import { allowedMomentDirections } from "@/core/magnetic/allowedMoments";
 import { formatMagneticSymbol } from "@/core/magnetic/bnsOg";
 import { describeMomentMode } from "@/core/magnetic/momentModel";
-import { buildMagneticModel, type MagneticModelBuild } from "@/core/magnetic/momentModel";
+import type { MagneticModelBuild } from "@/core/magnetic/momentModel";
 import { propagationKParameters } from "@/core/magnetic/refinableK";
 import { fitAmplitudesToMoments } from "@/core/magnetic/amplitudeFit";
-import { momentCartesian } from "@/core/magnetic/moment";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import type { MagneticModel } from "@/core/magnetic/types";
-import { buildMagneticPowderProblem } from "@/core/workflow/magneticPowder";
-import type { PowderPhase } from "@/core/workflow/multiPhase";
-import { refine } from "@/core/refinement/engine";
-import { fitMomentsWithRestarts, RANK_RESTARTS } from "@/core/magnetic/momentRestarts";
-import type { PowderCurves, PowderProfile } from "@/core/workflow/powder";
+import type { PowderCurves } from "@/core/workflow/powder";
 import {
   magneticPhaseTicks,
   satellitePositionTicks,
@@ -61,6 +48,10 @@ import { structureToCif, magneticStructureToMcif } from "@/core/export/cif";
 import { downloadText } from "@/app/download";
 import { card as themeCard, color as theme, mono as themeMono, uppercaseLabel as themeLabel, resetRangeBtn, space, toolbarBtn } from "@/app/theme";
 import { candidateId, candidateIndex, candidateView, selectionView, type KCandidateView, type MagneticAgentHandle } from "@/agent/magneticPort";
+import {
+  NO_PEAK_INCLUDED, bestRanked as bestOf, buildFor as buildModel, candidatesOf, fitMoments as fitStep, handoff, momentDims, peakKey, peakRows as peakRowsOf, pickedRows, rankCandidates as rankStep,
+  rankedGroups, resolvedAmplitudes, searchK, type MagneticFit, type PeakRow, type RankEntry, type ResidualPeak,
+} from "@/app/magneticStep";
 
 // Lazy so three.js stays in its own chunk (only loaded when a group is previewed).
 const StructureView = lazy(() => import("@/app/ui/StructureView").then((m) => ({ default: m.StructureView })));
@@ -89,13 +80,6 @@ const FRAMEWORKS: readonly { id: "msg" | "irrep"; label: string }[] = [
   { id: "irrep", label: "Representation analysis" },
 ];
 
-/** A residual peak as this panel consumes it: detected (annotated) or manually
- *  added by clicking the pattern — manual picks bypass the inclusion criteria
- *  (explicit user intent) and are removable from the table. */
-export interface ResidualPeak extends AnnotatedExtraPeak {
-  readonly manual?: boolean;
-}
-
 /** Stable default for the residualPeaks prop — an inline `= []` would mint a
  *  fresh array on every render and retrigger every effect keyed on it (a
  *  render loop when the prop is absent, e.g. single-crystal mode). */
@@ -109,33 +93,6 @@ const ISOTROPY_FAILURE_TEXT: Record<IsotropyFailure, string> = {
   "complex-phase": "This k gives complex phase factors e^{2πik·L}: naming needs the type-IV / star-of-k treatment (see docs/MAGNETIC_SYMMETRY.md).",
   "primed-translation": "The stabilizer contains a primed pure translation — a type-IV magnetic group, outside the bundled type-I/III table.",
 };
-
-/**
- * Pluggable moment-refinement backend. The symmetry workflow is structure-driven
- * and identical for powder and single crystal; only the "refine moments" fit
- * differs (a powder pattern vs single-crystal reflections). Single-crystal mode
- * injects this so the same panel fits moments against F² data; powder keeps its
- * built-in pattern path (used when this is absent).
- */
-export interface MagneticFit {
-  /** Refine the freed moment amplitudes (nuclear model held fixed). Returns the
-   *  refined values by param id and an agreement fraction for the readout. */
-  refine: (
-    magnetic: MagneticModel,
-    momentParams: readonly RefinementParameter[],
-    momentBindings: readonly ParameterBinding[],
-  ) => Promise<{ values: Record<string, number>; agreement: number | null }>;
-  /** Agreement readout label, e.g. "wR" (powder) or "R1" (single crystal). */
-  agreementLabel: string;
-  /**
-   * Why this backend cannot model the applied k, or null when it can. The
-   * panel then disables every action that would produce a number — the moment
-   * fit, the ranking run, "show on pattern", "continue" — and shows the reason
-   * instead. Bragg-data backends accept any k; the mPDF backend uses this to
-   * refuse an incommensurate one, whose spin field has no periodic box.
-   */
-  unsupportedK?: (k: Vec3) => string | null;
-}
 
 /**
  * Everything the powder-pattern preview needs, prepared by the powder
@@ -173,21 +130,8 @@ export interface MagneticPatternView {
   readonly magneticComponent?: (magnetic: MagneticModel) => number[];
 }
 
-/** One candidate's result in the "rank against the data" table. */
-interface RankEntry {
-  readonly status: "ok" | "failed" | "forbidden";
-  /** Agreement (fraction) of the moments-only fit; null when not fitted. */
-  readonly wR: number | null;
-  /** Refined amplitudes by parameter id — the seed when the row is selected. */
-  readonly values: Record<string, number>;
-  /** Refined moment magnitude per sublattice (µ_B, Cartesian). */
-  readonly magnitudes: readonly { readonly label: string; readonly value: number }[];
-}
-
 export function KSearchPanel({
   structure,
-  fitStructure,
-  extraPhases = [],
   residualPeaks = NO_PEAKS,
   onAddManualPeak,
   onRemoveManualPeak,
@@ -198,9 +142,6 @@ export function KSearchPanel({
   patternFitChip,
   onFocusFit,
   focusFitToken = 0,
-  nuclearParams,
-  nuclearBindings,
-  profile,
   magneticFit,
   onApply,
   onContinue,
@@ -210,14 +151,6 @@ export function KSearchPanel({
   agentHandleRef,
 }: {
   structure: StructureModel;
-  /** The BASE (as-loaded) primary structure for the powder moments fit — the
-   *  nuclear parameter values are re-applied onto it, so passing the refined
-   *  `structure` would double-apply delta-style bindings (position shifts).
-   *  Defaults to `structure` (correct when no structural deltas are refined). */
-  fitStructure?: StructureModel;
-  /** Additional (non-magnetic) crystallographic phases of the sample — their
-   *  nuclear peaks join the moments-fit profile, with bindings routed per phase. */
-  extraPhases?: readonly PowderPhase[];
   /** Candidate magnetic peaks auto-detected from the pattern residual (permissive
    *  base cut), annotated with significance and nearby nuclear reflections —
    *  plus any manually added picks (flagged `manual`). The panel's own criteria
@@ -227,10 +160,9 @@ export function KSearchPanel({
   onAddManualPeak?: (d: number) => void;
   /** Remove a manually added peak (by its d). */
   onRemoveManualPeak?: (d: number) => void;
-  /** The observed pattern + refined nuclear model, for running a moment refinement. */
+  /** The observed pattern: new data invalidate the fits shown. */
   pattern?: PowderPattern;
-  /** Active refinement window in the pattern's native x-unit — the moments fit
-   *  masks points outside it, matching the refinement page. */
+  /** Active refinement window in the pattern's native x-unit: a new window invalidates the fits shown (the page's fit applies it). */
   fitRange?: { readonly min: number; readonly max: number };
   /** Curves + d→x mapping for the pattern preview with satellite/allowed tick
    *  rows — the visual check that the chosen k and magnetic space group can
@@ -247,11 +179,7 @@ export function KSearchPanel({
    *  focus token, so the refinement plot re-frames identically). */
   onFocusFit?: () => void;
   focusFitToken?: number;
-  nuclearParams?: readonly RefinementParameter[];
-  nuclearBindings?: readonly ParameterBinding[];
-  profile?: PowderProfile;
-  /** Single-crystal moment-fit backend; when present it drives "Refine moments"
-   *  instead of the built-in powder-pattern path. */
+  /** The page's moments-only fit (magneticStep.ts): without it nothing is fitted. */
   magneticFit?: MagneticFit;
   /** Push the current magnetic model onto the session so the refinement plot
    *  shows the magnetic pattern + satellite ticks (null clears it). */
@@ -313,24 +241,13 @@ export function KSearchPanel({
   // Display rows: sorted by d descending (low Q first — left-to-right in
   // d-spacing, where magnetic peaks live) and numbered to match the ticks the
   // pattern preview draws for them.
-  const peakRows = useMemo(() => {
-    return [...residualPeaks]
-      .sort((a, b) => b.d - a.d)
-      .map((p, i) => {
-        const key = p.d.toFixed(5);
-        const passSig = p.significance === undefined || p.significance >= minSig;
-        const passNuclear = allowNearNuclear || !p.nearNuclear;
-        // Manual picks bypass the criteria — adding one IS the inclusion decision.
-        const byDefault = p.manual ? true : passSig && passNuclear;
-        return { ...p, idx: i + 1, key, included: peakOverrides[key] ?? byDefault };
-      });
-  }, [residualPeaks, minSig, allowNearNuclear, peakOverrides]);
+  const peakRows = useMemo(() => peakRowsOf(residualPeaks, { minSig, allowNearNuclear }, peakOverrides), [residualPeaks, minSig, allowNearNuclear, peakOverrides]);
   const includedPeaks = useMemo(() => peakRows.filter((r) => r.included), [peakRows]);
   // Content signature of the DETECTED set: residualPeaks is re-minted (fresh
   // array) by unrelated re-renders upstream (axis toggles, applying a model),
   // which must not wipe the user's curation — only a real change of the peak
   // set does.
-  const peakSignature = useMemo(() => residualPeaks.map((p) => p.d.toFixed(5)).sort().join("|"), [residualPeaks]);
+  const peakSignature = useMemo(() => residualPeaks.map((p) => peakKey(p.d)).sort().join("|"), [residualPeaks]);
   // The candidate list scores a specific included-peak set; changing the
   // criteria, the overrides, or the detections invalidates it.
   const includedSignature = useMemo(() => includedPeaks.map((r) => r.key).join("|"), [includedPeaks]);
@@ -364,26 +281,17 @@ export function KSearchPanel({
   // its domain count), k-SUBGROUPSMAG-style. See subgroupLattice.ts for theory.
   const { reps, lgSize } = useMemo(() => {
     const ops = structure.spaceGroup.operations;
-    if (ops.length === 0) return { reps: [] as LatticeCandidate[], lgSize: 0 };
-    const lattice = magneticSubgroupLattice(ops, k);
-    return { reps: latticeRepresentatives(lattice), lgSize: littleGroup(ops, k).length };
+    return { reps: candidatesOf(structure, k), lgSize: ops.length === 0 ? 0 : littleGroup(ops, k).length };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [structure, k[0], k[1], k[2]]);
 
   // Allowed-moment dimension per candidate at the selected sites' positions —
   // the quick "does this group even permit a moment here" badge.
-  const repMomentDims = useMemo(() => {
-    const sites = [...selected]
-      .map((l) => structure.sites.find((s) => s.label === l))
-      .filter((s): s is NonNullable<typeof s> => s !== undefined);
-    return reps.map((r) =>
-      sites.reduce(
-        (sum, s) => sum + allowedMomentDirections(r.candidate.operations, s.position, k).dimension,
-        0,
-      ),
-    );
+  const repMomentDims = useMemo(
+    () => momentDims(structure, reps, selected, k),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reps, selected, structure, k[0], k[1], k[2]]);
+    [reps, selected, structure, k[0], k[1], k[2]],
+  );
 
   // Representation-analysis (irrep) route: decompose Γ_mag over G(k) into the
   // irreps of its (abelian) little co-group and project the basis modes each one
@@ -491,12 +399,7 @@ export function KSearchPanel({
    *  ranked wR describes exactly the model a click on the row previews. */
   const buildFor = useCallback(
     (ops: readonly SymmetryOperation[]): MagneticModelBuild =>
-      buildMagneticModel(structure, k, [...selected], [...ops], {
-        moment: 2,
-        tieSameSite: tieMoments,
-        tieEqualMagnitude: tieMagnitudes ? tieScope : false,
-        flippedUnits: [...flippedUnits],
-      }),
+      buildModel(structure, k, selected, ops, { sameSite: tieMoments, magnitudes: tieMagnitudes ? tieScope : false, flippedUnits: [...flippedUnits] }),
     [structure, k, selected, tieMoments, tieMagnitudes, tieScope, flippedUnits],
   );
   const magBuild = useMemo(() => (chosenOps ? buildFor(chosenOps) : null), [chosenOps, buildFor]);
@@ -508,12 +411,7 @@ export function KSearchPanel({
   // ("= ±hypot(…)") follows its reference wherever the amplitudes are applied
   // — preview, 3D arrows, handoff, report. Every parameter gets a value
   // (edited, else its seed) so a tie never reads a missing reference.
-  const resolvedAmps = useMemo(() => {
-    if (!magBuild) return amps;
-    const base: Record<string, number> = {};
-    for (const p of magBuild.params) base[p.id] = amps[p.id] ?? p.value;
-    return resolveTies(magBuild.params, base);
-  }, [magBuild, amps]);
+  const resolvedAmps = useMemo(() => (magBuild ? resolvedAmplitudes(magBuild, amps) : amps), [magBuild, amps]);
 
   // Whether an |M| tie could apply: ≥2 magnetic sites (the all-sites scope
   // ties across elements), or a split orbit (two sublattices of one site) —
@@ -701,7 +599,7 @@ export function KSearchPanel({
     setPeakOverrides((o) => {
       const keys = Object.keys(o);
       if (keys.length === 0) return o;
-      const valid = new Set(residualPeaks.map((p) => p.d.toFixed(5)));
+      const valid = new Set(residualPeaks.map((p) => peakKey(p.d)));
       const kept = keys.filter((kk) => valid.has(kk));
       if (kept.length === keys.length) return o;
       return Object.fromEntries(kept.map((kk) => [kk, o[kk]!]));
@@ -724,12 +622,11 @@ export function KSearchPanel({
   useEffect(() => {
     setRefineWR(null);
   }, [fitRange?.min, fitRange?.max, pattern]);
-  const canPowderRefine = !!(pattern && nuclearParams && nuclearBindings && profile);
   // A k the fit backend cannot model at all (mPDF: incommensurate). Everything
   // that would report a number against the data is held back — the symmetry
   // analysis above stays live, since it is valid for any k.
   const kUnsupported = magneticFit?.unsupportedK?.(k) ?? null;
-  const canRefine = !!(magBuild && magBuild.params.length > 0 && (magneticFit || canPowderRefine)) && !kUnsupported;
+  const canRefine = !!(magBuild && magBuild.params.length > 0 && magneticFit) && !kUnsupported;
   const agreementLabel = magneticFit?.agreementLabel ?? "wR";
 
   // What this page shows right now, for the header's report (Export ▾ →
@@ -776,38 +673,15 @@ export function KSearchPanel({
   // Unmount (or a page switch that remounts the panel) withdraws the candidate.
   useEffect(() => () => onReportModel?.(null), [onReportModel]);
 
-  /**
-   * Fit a build's moment amplitudes against the data with the nuclear model
-   * held fixed. The injected backend (powder / single crystal / PDF pages all
-   * provide one, off the main thread) does the work; the in-thread powder
-   * solve remains as the fallback for a page that supplies data but no backend.
-   * Starting values default to the build's seeds.
-   */
+  /** Fit a build's moments with the page's fit (magneticStep.ts: free but the derived rows and the phase gauge), from a start (absent: the seeds). */
   const fitMoments = useCallback(
-    async (build: MagneticModelBuild, start?: Record<string, number>): Promise<{ values: Record<string, number>; agreement: number | null }> => {
-      // Free every amplitude except a derived one (a |M| tie's "= ±hypot(…)"):
-      // that value follows its reference inside the problem's tie resolution.
-      const moments = build.params.map((p) => {
-        const v = start?.[p.id] ?? p.value;
-        return { ...p, value: v, initialValue: v, fixed: !!p.expression };
-      });
-      if (magneticFit) return magneticFit.refine(build.magnetic, moments, build.bindings);
-      if (!(pattern && nuclearParams && nuclearBindings && profile)) throw new Error("no data to fit the moments against");
-      await new Promise((r) => setTimeout(r, 30)); // let the busy state paint
-      const nuclearFixed = nuclearParams.filter((p) => !isMagneticModelParameterKind(p.kind)).map((p) => ({ ...p, fixed: true }));
-      const bindings = [...nuclearBindings.filter((b) => !isMagneticModelParameterKind(b.kind)), ...build.bindings];
-      const problem = buildMagneticPowderProblem(fitStructure ?? structure, build.magnetic, pattern, [...nuclearFixed, ...moments], bindings, {
-        shape: profile.shape,
-        ...(profile.eta !== undefined ? { eta: profile.eta } : {}),
-      }, fitRange, extraPhases);
-      const result = refine(problem, { maxIterations: 20 });
-      const values: Record<string, number> = {};
-      for (const p of build.params) values[p.id] = result.parameters[p.id] ?? p.value;
-      return { values, agreement: result.agreement.rWeighted ?? null };
+    (build: MagneticModelBuild, start?: Record<string, number>): Promise<{ values: Record<string, number>; agreement: number | null }> => {
+      if (!magneticFit) throw new Error("no data to fit the moments against");
+      return fitStep(magneticFit, build, start);
     },
-    [magneticFit, pattern, nuclearParams, nuclearBindings, profile, fitStructure, structure, fitRange, extraPhases],
+    [magneticFit],
   );
-  const canFit = (!!magneticFit || canPowderRefine) && !kUnsupported;
+  const canFit = !!magneticFit && !kUnsupported;
 
   // ── Rank the candidates against the data ─────────────────────────────────
   // Every moment-allowing candidate is fitted the same way "Refine moments"
@@ -827,49 +701,19 @@ export function KSearchPanel({
   // (lowest index) with the fewest moment parameters. Ties are the rule, not the
   // exception: a powder cannot tell several symmetry-distinct models apart
   // (direction ambiguity), and the top-down Landau prescription breaks them.
-  const bestRanked = useMemo<{ id: string; wR: number } | null>(() => {
-    const ok = Object.entries(rank.results).filter(([, e]) => e.status === "ok" && e.wR != null);
-    if (ok.length === 0) return null;
-    const bw = Math.min(...ok.map(([, e]) => e.wR!));
-    const meta = new Map(reps.map((r, i) => [r.candidate.id, { index: r.index, dof: repMomentDims[i] ?? 0 }]));
-    // Agreement ties within RANK_TIE_WR (absolute fraction, 0.01 %) are the same fit.
-    const tied = ok.filter(([, e]) => e.wR! <= bw + RANK_TIE_WR).map(([id]) => id);
-    tied.sort((a, b) => (meta.get(a)?.index ?? 99) - (meta.get(b)?.index ?? 99) || (meta.get(a)?.dof ?? 99) - (meta.get(b)?.dof ?? 99));
-    const id = tied[0]!;
-    return { id, wR: rank.results[id]!.wR! };
-  }, [rank.results, reps, repMomentDims]);
+  const bestRanked = useMemo(() => bestOf(rank.results, reps, repMomentDims), [rank.results, reps, repMomentDims]);
   const bestRankedId = bestRanked?.id ?? null;
-  async function rankCandidates(scope: "open" | "all", restarts: number = RANK_RESTARTS): Promise<void> {
-    const list = reps
-      .map((r, i) => ({ r, i }))
-      .filter(({ r, i }) => (repMomentDims[i] ?? 0) > 0 && (scope === "all" || openIndices.has(r.index)));
-    if (list.length === 0 || !canFit) return;
+  async function rankCandidates(scope: "open" | "all", restarts?: number): Promise<void> {
+    const total = rankedGroups(reps, repMomentDims, scope, openIndices).length;
+    if (total === 0 || !canFit || !magneticFit) return;
     rankCancel.current = false;
-    setRank({ running: true, done: 0, total: list.length, results: {} });
-    const results: Record<string, RankEntry> = {};
-    for (const { r } of list) {
-      if (rankCancel.current) break;
-      const id = r.candidate.id;
-      try {
-        const build = buildFor(r.candidate.operations);
-        if (build.params.length === 0) {
-          results[id] = { status: "forbidden", wR: null, values: {}, magnitudes: [] };
-        } else {
-          // Seeds, then kicked restarts (as the MCP path's moment search): one fit can stop with a sublattice switched off.
-          const { values, agreement } = await fitMomentsWithRestarts(build.params, (start) => fitMoments(build, start), { restarts, cancelled: () => rankCancel.current });
-          const applied = applyMagneticMoments(build.magnetic, build.bindings, values);
-          const magnitudes = applied.moments.map((m) => ({
-            label: `${m.siteLabel}${m.orbitIndex !== undefined && m.orbitIndex > 1 ? `#${m.orbitIndex}` : ""}`,
-            value: Math.hypot(...momentCartesian(structure.cell, m)),
-          }));
-          results[id] = { status: "ok", wR: agreement, values, magnitudes };
-        }
-      } catch {
-        results[id] = { status: "failed", wR: null, values: {}, magnitudes: [] };
-      }
-      if (rankCancel.current) break;
-      setRank((s) => ({ ...s, done: s.done + 1, results: { ...results } }));
-    }
+    setRank({ running: true, done: 0, total, results: {} });
+    await rankStep({
+      structure, reps, dims: repMomentDims, scope, open: openIndices, build: buildFor, fit: magneticFit,
+      ...(restarts !== undefined ? { restarts } : {}),
+      cancelled: () => rankCancel.current,
+      onEntry: (results) => setRank((s) => ({ ...s, done: s.done + 1, results })),
+    });
     setRank((s) => ({ ...s, running: false }));
   }
 
@@ -891,20 +735,9 @@ export function KSearchPanel({
     }
   }
 
-  /** Search candidate k-vectors from the INCLUDED residual peaks, weighted by
-   *  significance (capped so one very strong peak doesn't drown the rest).
-   *  maxQ is disabled: the curated checkbox list is now the authoritative
-   *  criterion — a hidden low-Q cut would silently drop peaks the user ticked
-   *  and desynchronize the matched counts from the "N used" chip. */
-  function runKSearch(peaks: readonly (typeof includedPeaks)[number][] = includedPeaks): KCandidate[] {
-    const weights = hasSignificance ? peaks.map((p) => Math.min(p.significance ?? 1, 20)) : undefined;
-    const found = searchPropagationVector(structure.cell, peaks.map((p) => p.d), {
-      tolerance: 0.02,
-      relativeTolerance: 0.005,
-      maxQ: 0,
-      centring: centringTranslations(structure.spaceGroup.operations),
-      ...(weights ? { weights } : {}),
-    });
+  /** Search candidate k-vectors from the INCLUDED rows (magneticStep.ts: one option set). */
+  function runKSearch(rows: readonly PeakRow[] = peakRows): KCandidate[] {
+    const found = searchK(structure, rows);
     setResults(found);
     return found;
   }
@@ -951,17 +784,10 @@ export function KSearchPanel({
       searchK: (choice) => {
         // The Agent's picks, as the table's check boxes: applied now (the search
         // reads them in this call) and kept as overrides (the table shows them).
-        const out = new Set(choice?.exclude ?? []);
-        const into = new Set(choice?.include ?? []);
-        const unknown = [...out, ...into].filter((n) => !peakRows.some((r) => r.idx === n));
-        if (unknown.length > 0) throw new Error(`no residual peak ${unknown.join(", ")} — the peaks are 1–${peakRows.length} (magnetic_state lists them)`);
-        const rows = peakRows.map((r) => (out.has(r.idx) ? { ...r, included: false } : into.has(r.idx) ? { ...r, included: true } : r));
-        if (out.size + into.size > 0) {
-          setPeakOverrides((o) => ({ ...o, ...Object.fromEntries(rows.filter((r) => out.has(r.idx) || into.has(r.idx)).map((r) => [r.key, r.included])) }));
-        }
-        const included = rows.filter((r) => r.included);
-        if (included.length === 0) throw new Error("no residual peak is included for the k-search — the nuclear fit leaves none, or every one sits on a nuclear reflection");
-        return runKSearch(included).slice(0, 8).map(kView);
+        const picked = pickedRows(peakRows, peakOverrides, choice);
+        if (picked.overrides !== peakOverrides) setPeakOverrides(picked.overrides);
+        if (!picked.rows.some((r) => r.included)) throw new Error(NO_PEAK_INCLUDED);
+        return runKSearch(picked.rows).slice(0, 8).map(kView);
       },
       setK: (kk) => applyK([kk[0], kk[1], kk[2]]),
       selectIons: (labels) => {
@@ -1010,14 +836,8 @@ export function KSearchPanel({
         if (!magBuild) throw new Error("choose a magnetic group first");
         if (kUnsupported) throw new Error(kUnsupported);
         if (withK && !canRefineK) throw new Error(kRows?.notes.join(" ") || "k cannot refine with this model");
-        onContinue(
-          applyMagneticMoments(magBuild.magnetic, magBuild.bindings, resolvedAmps),
-          [
-            ...magBuild.params.map((p) => ({ ...p, value: resolvedAmps[p.id] ?? p.value, initialValue: resolvedAmps[p.id] ?? p.value })),
-            ...(withK ? kRows!.params : []),
-          ],
-          [...magBuild.bindings, ...(withK ? kRows!.bindings : [])],
-        );
+        const out = handoff(magBuild, resolvedAmps, withK ? kRows : null);
+        onContinue(out.magnetic, out.params, out.bindings);
       },
     };
   });
@@ -2004,14 +1824,10 @@ export function KSearchPanel({
                 {onContinue && (
                   <button
                     style={{ ...btn, marginTop: 0, ...(kUnsupported ? { opacity: 0.5 } : {}) }}
-                    onClick={() => onContinue(
-                      applyMagneticMoments(magBuild.magnetic, magBuild.bindings, resolvedAmps),
-                      [
-                        ...magBuild.params.map((p) => ({ ...p, value: resolvedAmps[p.id] ?? p.value, initialValue: resolvedAmps[p.id] ?? p.value })),
-                        ...(refineK && canRefineK ? kRows!.params : []),
-                      ],
-                      [...magBuild.bindings, ...(refineK && canRefineK ? kRows!.bindings : [])],
-                    )}
+                    onClick={() => {
+                      const out = handoff(magBuild, resolvedAmps, refineK && canRefineK ? kRows : null);
+                      onContinue(out.magnetic, out.params, out.bindings);
+                    }}
                     disabled={!!kUnsupported}
                     {...(kUnsupported ? { title: kUnsupported } : {})}
                   >

@@ -14,7 +14,7 @@ import type { StructureModel } from "@/core/crystal/types";
 import type { ParameterBinding, RefinementOptions, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import { isMagneticModelParameterKind, isMomentParameterKind } from "@/core/refinement/types";
 import { powderCurves, type PowderCurves } from "@/core/workflow/powder";
-import { magneticComponentCurve } from "@/core/workflow/magneticPowder";
+import { buildMagneticPowderProblem, magneticComponentCurve } from "@/core/workflow/magneticPowder";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { multiPhaseCurves } from "@/core/workflow/multiPhase";
 import { applyParameters } from "@/core/workflow/apply";
@@ -32,6 +32,12 @@ import type { PowderProgress } from "@/workers/runPowder";
 import type { MultiStartResult } from "@/core/refinement/multiStart";
 import { powderRestraints, type CorrectionsUpdate, type MustrainModel, type SampleCorrections, type SiteTies } from "@/app/powderSpec";
 import { buildSpecFor, keptBindings, keptRow, keptRows, withMagneticRows, withValidUserTies, type Session } from "@/app/powderSession";
+import type { MagneticFit, ResidualPeak } from "@/app/magneticStep";
+import type { MagneticModel } from "@/core/magnetic/types";
+import { refine } from "@/core/refinement/engine";
+import { generateReflections } from "@/core/diffraction/reflections";
+import { annotateExtraPeaks, detectExtraPeaks } from "@/core/magnetic/extraPeaks";
+import { axisContext, availableDisplayUnits, convertAxisArray, convertAxisValue, tofCalibrationOf, type AxisContext } from "@/visualization/axisUnits";
 
 /** The fit window on the pattern's own axis. */
 export interface FitWindow {
@@ -513,12 +519,124 @@ export function posteriorRun(client: PowderCompute, page: PowderPageModel): (opt
   return (o) => client.samplePowderPosterior(req, { ...o, ...(esd ? { linearizedEsd: esd } : {}) });
 }
 
-/** The rows a magnetic model hands the refinement page replace any earlier model's. */
+// ── the magnetic step's view of the page ────────────────────────────────────
+
+/** The page's axis: the data's own unit, the instrument shown (a TOF pattern reaches d through it), the refined zero and TOF calibration. */
+export function pageAxis(s: Session, instrument: InstrumentParameters | undefined): AxisContext {
+  const zero = s.powderParams.find((p) => p.kind === "zeroShift")?.value;
+  const { difC, difA, difB } = tofCalibrationOf(s.powderParams);
+  return axisContext(s.pattern, instrument, zero, { ...(difC !== undefined ? { difC } : {}), ...(difA !== undefined ? { difA } : {}), ...(difB !== undefined ? { difB } : {}) });
+}
+
+/** Every phase's reflections over the pattern (refined cells, d from 0.4 Å), for the residual peaks' nuclear neighbours. */
+function nuclearReflections(s: Session, axis: AxisContext, x: readonly number[]): { d: number; hkl: string; phaseLabel: string }[] {
+  const extent = extentOf(x);
+  const dA = convertAxisValue(extent.min, s.pattern.xUnit, "dSpacing", axis);
+  const dB = convertAxisValue(extent.max, s.pattern.xUnit, "dSpacing", axis);
+  if (!Number.isFinite(dA) || !Number.isFinite(dB)) return [];
+  const dMin = Math.max(Math.min(dA, dB), 0.4);
+  const dMax = Math.max(dA, dB);
+  const refined = refinedPhasesOf(s);
+  const labels = [s.structure.name || "nuclear", ...s.extraPhases.map((ph, i) => ph.name || `phase ${i + 2}`)];
+  return refined.flatMap((ph, i) => generateReflections(ph.cell, ph.spaceGroup, dMin, dMax).map((r) => ({ d: r.d, hkl: `${r.h} ${r.k} ${r.l}`, phaseLabel: labels[i]! })));
+}
+
+/**
+ * The magnetic step's residual peaks: positive residual the model on the
+ * page leaves (above 3σ where the data carry σ: the step's own criteria
+ * decide which feed the k-search), and the user's own picks at these d, each
+ * annotated with any nuclear reflection of any phase beside it (a residual on
+ * a nuclear position is usually profile misfit, not magnetic).
+ */
+export function residualPeaksOf(s: Session, instrument: InstrumentParameters | undefined, manualD: readonly number[] = []): ResidualPeak[] {
+  const axis = pageAxis(s, instrument);
+  if (!availableDisplayUnits(axis).includes("dSpacing")) return [];
+  const { curves } = powderPageCurves(s);
+  const d = s.pattern.xUnit === "dSpacing" ? curves.x : convertAxisArray(curves.x, s.pattern.xUnit, "dSpacing", axis);
+  // Only data that carry σ: √yObs is valid for raw counts only, and on a normalized pattern it would exceed any residual.
+  const hasSigma = s.pattern.points.length > 0 && s.pattern.points.every((p) => p.sigma !== undefined);
+  const pointSigma = hasSigma ? s.pattern.points.map((p) => p.sigma!) : undefined;
+  const detected = detectExtraPeaks(d, curves.yObs, curves.yCalc, { ...(pointSigma ? { pointSigma, minSignificance: 3 } : {}), limit: 24 });
+  // A pick carries the residual at the nearest point; one on a detected apex is that peak.
+  const manual = manualD.map((at) => {
+    let bi = 0;
+    let bestErr = Infinity;
+    for (let i = 0; i < d.length; i++) {
+      const e = Math.abs(d[i]! - at);
+      if (e < bestErr) {
+        bestErr = e;
+        bi = i;
+      }
+    }
+    const height = (curves.yObs[bi] ?? 0) - (curves.yCalc[bi] ?? 0);
+    const sigma = hasSigma ? s.pattern.points[bi]!.sigma! : undefined;
+    return { d: at, height, ...(sigma !== undefined && sigma > 0 ? { significance: height / sigma } : {}) };
+  }).filter((m) => !detected.some((p) => Math.abs(p.d - m.d) < 0.01));
+  if (detected.length + manual.length === 0) return [];
+  const refs = nuclearReflections(s, axis, curves.x);
+  return [...annotateExtraPeaks(detected, refs), ...annotateExtraPeaks(manual, refs).map((p) => ({ ...p, manual: true as const }))];
+}
+
+/** The step's moments-only fit, as the page refines: the nuclear model held, its full profile, every phase, the window. */
+export function momentFitRequest(s: Session, window: FitWindow | null, magnetic: MagneticModel, momentParams: readonly RefinementParameter[], momentBindings: readonly ParameterBinding[]) {
+  return {
+    structure: s.structure, magnetic, pattern: s.pattern,
+    parameters: [...s.powderParams.filter((p) => !isMagneticModelParameterKind(p.kind)).map((p) => ({ ...p, fixed: true })), ...momentParams],
+    bindings: [...s.powderBindings.filter((b) => !isMagneticModelParameterKind(b.kind)), ...momentBindings],
+    ...(s.extraPhases.length > 0 ? { extraPhases: phaseListOf(s) } : {}),
+    ...profileRequest(s),
+    ...(window ? { fitRange: { min: window.min, max: window.max } } : {}),
+  };
+}
+
+/**
+ * The step's fit on the powder page: through the compute client, or (a
+ * view-only TOF page, which the client does not refine) in this thread. A
+ * row of a previously applied model is dropped: the model handed in brings
+ * its own.
+ */
+export function powderMomentFit(client: PowderCompute | null, s: Session, window: FitWindow | null): MagneticFit {
+  return {
+    agreementLabel: "wR",
+    refine: async (magnetic, momentParams, momentBindings) => {
+      const spec = momentFitRequest(s, window, magnetic, momentParams, momentBindings);
+      let result: RefinementResult;
+      if (client) {
+        result = await client.refineMagneticPowderParallel(spec, { maxIterations: 20 });
+      } else {
+        await new Promise((r) => setTimeout(r, 30)); // let the busy state paint
+        result = refine(buildMagneticPowderProblem(spec.structure, magnetic, spec.pattern, spec.parameters, spec.bindings, profileRequest(s), spec.fitRange, spec.extraPhases ?? []), { maxIterations: 20 });
+      }
+      const values: Record<string, number> = {};
+      for (const p of momentParams) values[p.id] = result.parameters[p.id] ?? p.value;
+      return { values, agreement: result.agreement.rWeighted ?? null };
+    },
+  };
+}
+
+/**
+ * "Show on refinement pattern": a model on the session without its rows (or
+ * none), so the refinement page plots nuclear + this model and refines the
+ * nuclear set against it with the moments held; Continue is what adds the
+ * rows. Rows an earlier Continue left are dropped: they would drive a model
+ * they do not belong to.
+ */
+export function withMagneticPreview(s: Session, magnetic: NonNullable<Session["magnetic"]> | null): Session {
+  const { magnetic: _previous, ...rest } = s;
+  return {
+    ...rest,
+    ...(magnetic ? { magnetic } : {}),
+    powderParams: s.powderParams.filter((p) => !isMagneticModelParameterKind(p.kind)),
+    powderBindings: s.powderBindings.filter((b) => !isMagneticModelParameterKind(b.kind)),
+  };
+}
+
+/** The rows a magnetic model hands the refinement page (magneticStep.ts, handoff: free as a fit frees them) replace any earlier model's. */
 export function withMagneticModelRows(s: Session, magnetic: NonNullable<Session["magnetic"]>, momentParams: readonly RefinementParameter[], momentBindings: readonly ParameterBinding[]): Session {
   return {
     ...s,
     magnetic,
-    powderParams: [...s.powderParams.filter((p) => !isMagneticModelParameterKind(p.kind)), ...momentParams.map((p) => ({ ...p, fixed: !!p.expression }))],
+    powderParams: [...s.powderParams.filter((p) => !isMagneticModelParameterKind(p.kind)), ...momentParams],
     powderBindings: [...s.powderBindings.filter((b) => !isMagneticModelParameterKind(b.kind)), ...momentBindings],
   };
 }
