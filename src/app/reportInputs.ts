@@ -40,6 +40,7 @@ import type { ReportBond, ReportBoxcar, ReportGroup, ReportInput, ReportMagnetic
 import type { FigureCurves, FigureTickRow, FobsFcalcPoint } from "@/core/export/reportFigures";
 import type { Session } from "@/app/powderSession";
 import { APP_VERSION } from "@/app/constants";
+import { minMax } from "@/core/math/extent";
 
 /** What the magnetic page is showing right now, as published by KSearchPanel. */
 export interface MagneticExploration {
@@ -324,8 +325,7 @@ export function powderReportInput(o: {
   const free = params.filter((p) => !p.fixed && !p.expression).length;
   const pattern = session.pattern;
   const xs = pattern.points.map((p) => p.x);
-  const xmin = xs.length ? Math.min(...xs) : 0;
-  const xmax = xs.length ? Math.max(...xs) : 0;
+  const { min: xmin, max: xmax } = xs.length ? minMax(xs) : { min: 0, max: 0 };
   const unit = X_UNIT_NAME[pattern.xUnit] ?? pattern.xUnit;
 
   const magnetic = magneticReportSection({

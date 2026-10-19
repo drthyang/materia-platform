@@ -21,6 +21,7 @@ import { generateReflections } from "@/core/diffraction/reflections";
 import { braggTheta } from "@/core/crystal/unitCell";
 import { fcjSubPeaks, gaussian, pseudoVoigt, supportTaper, tofBackToBack, type AxialDivergence, type PeakShape, type TofShape } from "@/core/diffraction/profile";
 import { secondLine, secondLineTwoTheta } from "@/core/diffraction/instrument";
+import { minMax } from "@/core/math/extent";
 
 export interface LeBailReflection {
   readonly h: number;
@@ -182,9 +183,7 @@ export function dToX(pattern: PowderPattern, d: number, tof?: TofCalibration): n
 
 /** The d-spacing span a pattern covers. */
 export function dRange(pattern: PowderPattern, tof?: TofCalibration): { dMin: number; dMax: number } {
-  const xs = pattern.points.map((p) => p.x);
-  const xMin = Math.min(...xs);
-  const xMax = Math.max(...xs);
+  const { min: xMin, max: xMax } = minMax(pattern.points.map((p) => p.x));
   const wl = pattern.wavelength ?? (pattern.radiation.kind !== "neutron-tof" ? pattern.radiation.wavelength : 1.54);
   switch (pattern.xUnit) {
     case "twoTheta": {

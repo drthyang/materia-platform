@@ -27,6 +27,7 @@ import { magneticComponentCurve } from "@/core/workflow/magneticPowder";
 import { powderCurves } from "@/core/workflow/powder";
 import type { Vec3 } from "@/core/math/types";
 import { powderRestraints } from "@/app/powderSpec";
+import { minMax } from "@/core/math/extent";
 
 const WAVELENGTH = 1.54;
 const twoThetaOf = (d: number): number => (2 * Math.asin(WAVELENGTH / (2 * d)) * 180) / Math.PI;
@@ -118,8 +119,9 @@ export function impurityD(): number {
   const s = mn3gaSession();
   const xs = s.pattern.points.map((p) => p.x);
   const dOf = (tt: number): number => WAVELENGTH / (2 * Math.sin((tt * Math.PI) / 360));
-  const dMax = dOf(Math.min(...xs) + 5);
-  const dMin = dOf(Math.max(...xs) - 5);
+  const span = minMax(xs);
+  const dMax = dOf(span.min + 5);
+  const dMin = dOf(span.max - 5);
   const ds = [...new Set(generateReflections(s.structure.cell, s.structure.spaceGroup, Math.max(dMin, 1.2), dMax).map((r) => +r.d.toFixed(5)))].sort((a, b) => b - a);
   let best = { gap: 0, d: 0 };
   for (let i = 0; i + 1 < ds.length; i++) {
@@ -138,7 +140,7 @@ export function mn3gaImpuritySession(): Session {
   const s0 = mn3gaSession();
   const s = { ...s0, powderParams: s0.powderParams.map((p) => (p.id === "width" ? { ...p, value: TRUE_WIDTH } : p)) };
   const at = twoThetaOf(impurityD());
-  const top = Math.max(...s.pattern.points.map((p) => p.yObs));
+  const top = minMax(s.pattern.points.map((p) => p.yObs)).max;
   const height = 0.04 * top;
   const sigma = TRUE_WIDTH / 2.355;
   const points = s.pattern.points.map((p) => {
@@ -162,10 +164,11 @@ export function mn3gaFluoriteSession(): Session {
   const caf2 = knownPhaseStructure("CaF₂")!;
   const xs = s.pattern.points.map((p) => p.x);
   const dOf = (tt: number): number => WAVELENGTH / (2 * Math.sin((tt * Math.PI) / 360));
-  const reflections = generateReflections(caf2.cell, caf2.spaceGroup, dOf(Math.max(...xs)), dOf(Math.min(...xs)));
+  const xSpan = minMax(xs);
+  const reflections = generateReflections(caf2.cell, caf2.spaceGroup, dOf(xSpan.max), dOf(xSpan.min));
   const intensities = powderPeakIntensities(caf2, s.pattern.radiation, reflections, 1, undefined, true).map((p) => p.intensity);
   const strongest = Math.max(...intensities);
-  const top = Math.max(...s.pattern.points.map((p) => p.yObs));
+  const top = minMax(s.pattern.points.map((p) => p.yObs)).max;
   const sigma = TRUE_WIDTH / 2.355;
   const lines = reflections.map((r, i) => ({ at: twoThetaOf(r.d), height: 0.05 * top * intensities[i]! / strongest }));
   const points = s.pattern.points.map((p) => {
