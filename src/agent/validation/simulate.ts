@@ -24,6 +24,7 @@ import { parseInstrumentParameters } from "@/parsers/instrument";
 import { sessionCurves } from "@/testSupport/magneticHeadless";
 import { cellContentsMass } from "@/core/crystal/atomicMass";
 import { cellVolume } from "@/core/crystal/unitCell";
+import { minMax } from "@/core/math/extent";
 
 export const WAVELENGTH = 1.54;
 const X_MIN = 10;
@@ -112,7 +113,7 @@ export function simulatePowder(spec: SimulationSpec): PowderPattern {
   });
   const unit = sessionCurves(withValues(relative, 0)).yCalc;
   const flat = sessionCurves(withValues(relative.map(() => 0), 1)).yCalc;
-  const k = (spec.peakCounts ?? 20000) / Math.max(...unit);
+  const k = (spec.peakCounts ?? 20000) / minMax(unit).max;
   const flatMean = flat.reduce((a, b) => a + b, 0) / flat.length || 1;
   const b = (spec.background ?? 300) / flatMean;
   const noise = gaussian(spec.seed);
@@ -154,5 +155,3 @@ export function withLine(pattern: PowderPattern, d: number, height: number, fwhm
   });
   return { ...pattern, points };
 }
-
-export const twoThetaOf = (d: number): number => (2 * Math.asin(WAVELENGTH / (2 * d)) * 180) / Math.PI;

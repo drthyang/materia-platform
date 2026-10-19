@@ -11,9 +11,9 @@
  */
 
 import type { Radiation } from "@/core/diffraction/types";
-import type { StructureModel, UnitCell } from "@/core/crystal/types";
+import type { SpaceGroup, StructureModel, UnitCell } from "@/core/crystal/types";
 import type { Vec3 } from "@/core/math/types";
-import type { Reflection } from "@/core/diffraction/reflections";
+import { lauEquivalents, type Reflection } from "@/core/diffraction/reflections";
 import { braggTheta, reciprocalMetricTensor } from "@/core/crystal/unitCell";
 import { mulVec } from "@/core/math/mat3";
 import { nuclearStructureFactorSquared } from "@/core/diffraction/structureFactor";
@@ -47,6 +47,37 @@ export function marchDollase(
   const cos2 = cosA * cosA;
   const sin2 = 1 - cos2;
   return Math.pow(ratio * ratio * cos2 + sin2 / ratio, -1.5);
+}
+
+/** Each space group's Laue orbits, memoized: the refinement asks for them on every evaluation. */
+const orbits = new WeakMap<SpaceGroup, Map<string, Vec3[]>>();
+
+function orbitOf(sg: SpaceGroup, h: number, k: number, l: number): Vec3[] {
+  let byHkl = orbits.get(sg);
+  if (!byHkl) orbits.set(sg, (byHkl = new Map()));
+  const key = `${h},${k},${l}`;
+  let orbit = byHkl.get(key);
+  if (!orbit) byHkl.set(key, (orbit = lauEquivalents(sg, h, k, l)));
+  return orbit;
+}
+
+/**
+ * March–Dollase for a powder reflection: the mean of P(α) over the family's
+ * Laue equivalents, which lie at different angles to the axis (as GSAS-II's
+ * GetPrefOri). Cubic (100) on [001]: two members along the axis, four across.
+ */
+export function marchDollaseFamily(
+  cell: UnitCell,
+  spaceGroup: SpaceGroup,
+  poAxis: Vec3,
+  h: number,
+  k: number,
+  l: number,
+  ratio: number,
+): number {
+  if (ratio === 1) return 1;
+  const orbit = orbitOf(spaceGroup, h, k, l);
+  return orbit.reduce((s, [eh, ek, el]) => s + marchDollase(cell, poAxis, eh, ek, el, ratio), 0) / orbit.length;
 }
 
 export interface PreferredOrientation {
@@ -169,7 +200,7 @@ export function powderPeakIntensities(
     // Lorentz-corrected; re-applying the 2θ factor double-corrects and wildly
     // over-weights low Q. `applyLorentz=false` skips it for such data.
     const lp = applyLorentz ? lorentzPolarization(radiation, r.d) : 1;
-    const poFactor = po ? marchDollase(model.cell, po.axis, r.h, r.k, r.l, po.ratio) : 1;
+    const poFactor = po ? marchDollaseFamily(model.cell, model.spaceGroup, po.axis, r.h, r.k, r.l, po.ratio) : 1;
     // Scale multiplies LAST so unit-scale intensities scaled afterwards are
     // bit-identical to computing at the target scale directly — the invariant
     // the geometry cache in workflow/powder.ts relies on.

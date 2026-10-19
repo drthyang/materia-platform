@@ -12,7 +12,7 @@ describe("tools that need a structure", () => {
 
 describe("the cell the peaks give, against the structure's", () => {
   it("reads one factor on every length as the wavelength, uneven shifts as the phase, and less than 0.5 % as nothing", async () => {
-    const { cellShiftReading } = await import("@/agent/powderTools");
+    const { cellShiftReading } = await import("@/core/diagnostics/cellReading");
     const cell = { a: 5.42, b: 5.42, c: 4.376, alpha: 90, beta: 90, gamma: 120 };
     const scaled = (f: number, g = f) => ({ ...cell, a: cell.a * f, b: cell.b * f, c: cell.c * g });
     expect(cellShiftReading(cell, scaled(1.002), "twoTheta")).toBeNull();

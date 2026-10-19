@@ -16,13 +16,14 @@ import { diagnosisText, type DiagnosisView } from "@/agent/powderTools";
 import { magneticNext } from "@/agent/magneticTools";
 import { samplePosteriorTool, type PosteriorRun } from "@/agent/posteriorTool";
 import { buildAgentReport, freeSummary, reportFileBase, type AgentReport } from "@/agent/report";
-import { matchIds, type LiveToolHost } from "@/agent/liveCommon";
+import { matchIds, pct, type LiveToolHost } from "@/agent/liveCommon";
 import { fillReferences, referenceCatalog, type ReferenceSource } from "@/agent/references";
-import { PROBE_OPTIONS, carriedText, correlationRefusal, pairText, readCorrelations, refusalLine } from "@/agent/correlationCheck";
+import { correlationRefusal, refusalLine } from "@/agent/correlationCheck";
+import { PROBE_OPTIONS, carriedText, pairText, readCorrelations } from "@/core/diagnostics/correlationGuard";
 import { PAGE_METHOD, readSkill } from "@/agent/skills";
 import { RULES, advanceAlternation, alternationView, methodProgress, outOfOrder, ruleRefusal, stagesCovered, stagesLeft, stagesOnPath, type AgentRecord, type Alternation, type MethodRule } from "@/agent/method";
 import { analysisOf, hashText, onPage, type PageAdapter, type StateOf } from "@/agent/pages";
-import { REF_KEY, RefStore, buildView } from "@/mcp/refs";
+import { REF_KEY, RefStore, buildView, isPlainObject } from "@/mcp/refs";
 import type { LinearRestraint, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { StepKind } from "@/core/project/history";
 
@@ -30,17 +31,12 @@ import type { StepKind } from "@/core/project/history";
 export interface AgentHost extends LiveToolHost {
   /** The active engine's port; null with nothing loaded. */
   readonly port: () => AgentPort | null;
-  /** The page on screen, to explain why a tool is unavailable there. */
-  readonly technique: () => "powder" | "singleCrystal" | "pdf" | null;
   /** Resolves once the state an action set has rendered and any step it requested is recorded. */
   readonly settle: () => Promise<void>;
   /** Run `fn` with every history step it records tagged as the agent's. */
   readonly asAgent: <T>(fn: () => Promise<T>) => Promise<T>;
   /** Record the live state as a step now (a no-op when nothing changed). */
   readonly recordNow: (kind: StepKind, label?: string) => void;
-  /** The Agent's record of an analysis (method.ts): kept by the shell, saved with the project. */
-  readonly record: (key: string) => AgentRecord;
-  readonly updateRecord: (key: string, update: (record: AgentRecord) => AgentRecord) => void;
 }
 
 export type ActivityStatus = "waiting" | "running" | "done" | "declined" | "failed";
@@ -61,7 +57,6 @@ export interface ActivityEntry {
   readonly alwaysAsk?: boolean;
 }
 
-/** The answer a model gets: JSON text, flagged when it is an error. */
 /**
  * What a call came to, for the code that runs the conversation (the chat
  * loop, the context pruning, the eval harness) to read instead of the text:
@@ -73,6 +68,7 @@ export type ToolStatus = "ok" | "error" | "refused" | "declined" | "unchanged" |
 /** Who refused a call: the method gate, a running fit, a firm rule, the correlation guard, the symmetry review's gate, or a page changed while the card waited. */
 export type RefusalKind = "method" | "busy" | "firm-rule" | "correlation" | "symmetry-gate" | "stale";
 
+/** The answer a model gets: JSON text, flagged when it is an error. */
 export interface ToolOutcome {
   readonly isError: boolean;
   /** What the model reads. */
@@ -759,7 +755,7 @@ export class AgentExecutor implements ToolRunner {
   private respond(out: unknown): ToolOutcome {
     const ref = this.refs.put(out);
     const view = buildView(this.refs.get(ref), ref, this.opts.budget ?? 8000);
-    const payload = view !== null && typeof view === "object" && !Array.isArray(view) ? { [REF_KEY]: ref, ...view } : view;
+    const payload = isPlainObject(view) ? { [REF_KEY]: ref, ...view } : view;
     return { isError: false, text: JSON.stringify(payload), status: "ok" };
   }
 
@@ -909,10 +905,6 @@ function outcomeLine<P extends AgentPort>(page: PageAdapter<P>, name: string, be
     return `${r.status} · ${page.agreementKey} ${pct(r.agreement.rWeighted ?? 0).toFixed(2)}%`;
   }
   return note ?? "Done";
-}
-
-function pct(f: number): number {
-  return Math.round(f * 10000) / 100;
 }
 
 /** What a stopped call answers. */
