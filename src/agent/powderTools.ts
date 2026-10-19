@@ -28,7 +28,7 @@ import { powderResidual, type PowderResidual } from "@/core/diagnostics/powderRe
 import { unexplainedPeaks, type PeakReading } from "@/core/diagnostics/unexplainedPeaks";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { diagnoseFit, widthsComparable } from "@/core/diagnostics/fitDiagnosis";
-import { knownPhaseNames, knownPhaseStructure, matchKnownPhases } from "@/core/diagnostics/knownPhases";
+import { CHANCE_DRAWS, identifyPeaks, knownPhaseNames, knownPhaseStructure } from "@/core/diagnostics/knownPhases";
 import { withAntisite } from "@/core/crystal/antisite";
 import { structureTable } from "@/agent/structureTable";
 import { powderReflectionObsCalc } from "@/core/workflow/obsCalc";
@@ -44,6 +44,7 @@ import { MAGNETIC_PLANS, magneticNext } from "@/agent/magneticTools";
 import { cellCheckReading, dScaleReading } from "@/core/diagnostics/cellReading";
 import { inspectDataRange, type DataEnd, type DataRangeReading } from "@/core/diagnostics/dataRange";
 import type { ReferenceEntry } from "@/agent/references";
+import { minMax } from "@/core/math/extent";
 
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- inputs are validated against the spec's zod schema before a handler runs */
@@ -201,19 +202,23 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
         : residualPeaks(residual, { limit: 12 }).between.map((p) => ({ d: p.d, height: p.height }));
       if (peaks.length === 0) return { peaks: [], candidates: [], reading: "No unexplained peak to identify: every residual peak sits on or beside a reflection of the model's phases." };
       const finite = residual.d.filter((v) => Number.isFinite(v) && v > 0);
-      const candidates = matchKnownPhases(peaks, s.pattern.radiation, { dMin: Math.min(...finite), dMax: Math.max(...finite) });
+      const span = minMax(finite);
+      const { candidates, verdict, strongestMissing, chance } = identifyPeaks(peaks, s.pattern.radiation, { dMin: span.min, dMax: span.max });
       const lead = candidates[0];
-      // A phase whose strongest line is missing is a doubtful match, however many weak lines it explains
-      // (round 10: graphite offered for two weak NAC lines without its 002).
-      const strongestMissing = lead?.alsoExpected.find((e) => e.relativeIntensity >= 0.8);
-      const strongLead = lead && !strongestMissing && (lead.explains.length >= 2 || (lead.explains.length === 1 && lead.explains[0]!.relativeIntensity >= 0.8 && lead.alsoExpected.length === 0));
-      const reading = !lead
-        ? `None of the ${peaks.length} peak${peaks.length === 1 ? "" : "s"} matches a common sample-environment phase or standard: an impurity of the sample, magnetic order, or a feature to put to the user.`
-        : strongestMissing
-          ? `No convincing match: ${lead.phase} would explain ${lead.explains.length} of ${peaks.length} (${lead.explains.map((e) => e.hkl).join(", ")}), but its strongest line ${strongestMissing.hkl} at d ${strongestMissing.d.toFixed(3)} Å is not among the peaks. Unless that line hides under one of the sample's, report the peaks as unexplained.`
-        : strongLead
-          ? `${lead.explains.length} of ${peaks.length} peak${peaks.length === 1 ? "" : "s"} match ${lead.phase} (${lead.explains.map((e) => e.hkl).join(", ")}), with its d-spacings × ${lead.dScale.toFixed(4)} — usually ${lead.source}.${lead.alsoExpected.length ? ` Its strong lines ${lead.alsoExpected.map((e) => `${e.hkl} at d ${e.d.toFixed(3)} Å`).join(", ")} should also be seen (they may hide under the sample's lines).` : ""}${lead.impurity ? " An impurity of the sample: put it to the user, and add it (add_known_phase) so its lines are modelled and its weight fraction refines." : " Put it to the user: add the phase (add_known_phase) or leave the lines unmodelled and say so; it is not part of the sample."}`
-          : `Only weak or single matches (best: ${lead.phase} ${lead.explains.map((e) => e.hkl).join(", ")}): not enough to name a phase. Report the peaks to the user as unexplained.`;
+      const of = `${peaks.length} peak${peaks.length === 1 ? "" : "s"}`;
+      const lines = lead ? lead.explains.map((e) => e.hkl).filter((h, i, all) => all.indexOf(h) === i).join(", ") : "";
+      const chanceText = chance === undefined ? "" : chance === 0
+        ? `random peaks never match a library phase as well (${CHANCE_DRAWS} draws of ${peaks.length} over this range)`
+        : `random peaks match a library phase as well in ${pct(chance)} % of draws (${CHANCE_DRAWS} draws of ${peaks.length} over this range)`;
+      const reading = !lead || verdict === "none"
+        ? `None of the ${of} matches a common sample-environment phase or standard: an impurity of the sample, magnetic order, or a feature to put to the user.`
+        : verdict === "strongLineMissing" && strongestMissing
+          ? `No convincing match: ${lead.phase} would explain ${lead.explains.length} of ${peaks.length} (${lines}), but its strongest line ${strongestMissing.hkl} at d ${strongestMissing.d.toFixed(3)} Å is not among the peaks. Unless that line hides under one of the sample's, report the peaks as unexplained.`
+        : verdict === "named"
+          ? `${lead.explains.length} of ${of} match ${lead.phase} (${lines}), with its d-spacings × ${lead.dScale.toFixed(4)} — usually ${lead.source}; ${chanceText}.${lead.alsoExpected.length ? ` Its strong lines ${lead.alsoExpected.map((e) => `${e.hkl} at d ${e.d.toFixed(3)} Å`).join(", ")} should also be seen (they may hide under the sample's lines).` : ""}${lead.impurity ? " An impurity of the sample: put it to the user, and add it (add_known_phase) so its lines are modelled and its weight fraction refines." : " Put it to the user: add the phase (add_known_phase) or leave the lines unmodelled and say so; it is not part of the sample."}`
+        : verdict === "chance"
+          ? `Not enough to name a phase: ${lead.phase} would explain ${lead.explains.length} of ${of} (${lines}), but ${chanceText}. Report the peaks to the user as unexplained, ${lead.phase} a possibility to check.`
+          : `Only weak or single matches (best: ${lead.phase} ${lines}): not enough to name a phase. Report the peaks to the user as unexplained.`;
       return {
         peaks: peaks.map((p) => ({ d: sig(p.d, 5), ...(s.pattern.xUnit !== "dSpacing" && s.pattern.xUnit !== "q" ? { [s.pattern.xUnit]: sig(convertAxisValue(p.d, "dSpacing", s.pattern.xUnit, s.axis), 6) } : {}) })),
         candidates: candidates.slice(0, 4).map((c) => ({
@@ -568,8 +573,9 @@ export function fitRangeReading(s: PowderLiveState): DataRangeReading {
   let reflections: number[] = [];
   if (s.d) {
     const finite = s.d.filter((v) => Number.isFinite(v) && v > 0);
-    const dMin = Math.min(...finite) * 0.98;
-    const dMax = Math.max(...finite) * 1.02;
+    const span = minMax(finite);
+    const dMin = span.min * 0.98;
+    const dMax = span.max * 1.02;
     reflections = s.refinedPhases.flatMap((ph) => generateReflections(ph.cell, ph.spaceGroup, dMin, Math.min(dMax, 50), { absences: true }).map((r) => convertAxisValue(r.d, "dSpacing", unit, s.axis)));
   }
   return inspectDataRange({
@@ -655,8 +661,7 @@ export function axisPlausibility(s: PowderLiveState): string | null {
   if (s.structure.sites.length === 0 || s.pattern.points.length === 0 || !s.d) return null;
   const finite = s.d.filter((v) => Number.isFinite(v) && v > 0);
   if (finite.length === 0) return `the ${UNIT[s.pattern.xUnit]} axis (${sig(s.extent.min, 4)}–${sig(s.extent.max, 4)}) converts to no d-spacing at this wavelength: is the axis in another unit (d in Å, or Q)? Ask the user before anything else.`;
-  const lo = Math.min(...finite);
-  const hi = Math.max(...finite);
+  const { min: lo, max: hi } = minMax(finite);
   const inside = generateReflections(s.structure.cell, s.structure.spaceGroup, lo, Math.min(hi, 50)).length;
   if (inside >= 3) return null;
   return `the ${UNIT[s.pattern.xUnit]} axis (${sig(s.extent.min, 4)}–${sig(s.extent.max, 4)}) spans d ${sig(lo, 3)}–${sig(hi, 3)} Å at this wavelength, where the structure has ${inside === 0 ? "no reflection" : `only ${inside} reflection${inside === 1 ? "" : "s"}`}: the axis is likely in another unit (d in Å or Q read as ${UNIT[s.pattern.xUnit]}), or the wavelength is wrong. Ask the user before refining: no refinement fixes it.`;

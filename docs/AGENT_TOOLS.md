@@ -529,8 +529,12 @@ under, the references, the report's checks.
   V, Cu, steels, Nb, Pb), common holders and standards, and the impurities a
   synthesis leaves most often (CaF₂, NaF, NaCl), each phase's lines computed
   for the pattern's radiation and allowed one d scale; candidates rank by the
-  peaks they explain, weighed by how plausible their cell is, and one whose
-  strongest line is missing is called doubtful. `add_known_phase` adds a
+  lines they explain (a line once, however many peaks sit on it), weighed by
+  how plausible their cell is, and one whose strongest line is missing is
+  called doubtful. A lead is named only when random peaks over the same range
+  match a library phase as well less than 1 % of the time: 500 draws of as
+  many peaks, each phase held to its own draws so a dense phase (corundum)
+  needs more lines than a sparse one. `add_known_phase` adds a
   matched library phase to the model as a further phase (its cell, positions
   and B ≈ 0.5 Å²) and always asks the user; another phase needs the user's
   CIF. A glob without a phase prefix (`pos_*`) matches every phase's rows of
@@ -582,8 +586,11 @@ under, the references, the report's checks.
   or the scan's own `free` set, which leaves the page's free set and fit as
   they are — are refined box by box across the fit window, seeded from the
   previous box, and the parameter rows are left as they are. It returns each
-  box's r range, Rw and values, and each parameter's spread, to tell the local
-  structure from the average; with `bonds` (cation sites), each box's
+  box's r range, Rw, values and esds, and each parameter's spread and its
+  drift from the first box to the last in esds of that difference, to tell
+  the local structure from the average; `restarts` refines each box from that
+  many perturbed starts as well, the seeded one kept (none unless asked,
+  whatever the panel's setting). With `bonds` (cation sites), each box's
   coordination shell in the structure it refined, so a distortion is compared
   as lengths. The last scan goes into the report.
 - `set_adp_model` switches the primary phase between one U per site and the U
@@ -612,7 +619,8 @@ under, the references, the report's checks.
   test; its approval card counts what it leaves out. `test_extinction` runs
   that test with the page left as it is: two probe fits, with and without the
   reflections of y below the cut (0.5 by default), and every free parameter
-  that moves by more than 2 esd between them. `set_resolution_range`
+  that moves by more than 2 esd between them, the esd of the fit without
+  them (leaving data out widens every esd). `set_resolution_range`
   limits the fit to a d range (SHELXL's SHEL), for a high-order refinement.
   `set_extinction_model` switches between SHELXL's EXTI and Becker–Coppens
   type I or II (Gaussian or Lorentzian mosaic), as GSAS-II computes it; the
@@ -644,7 +652,8 @@ under, the references, the report's checks.
   where the group needs it), keeping the refined values and the twin's fit;
   called again it returns to the hand as loaded. `assess_refinement`'s
   `absoluteStructure` gives Parsons' x from the Bijvoet pairs fitted both
-  ways. In a polar group (P6₁, P2₁, Pc, P1) the fit holds the floating origin
+  ways, each side every measurement of the reflection and its equivalents
+  merged (the Friedel opposites apart, SHELXL's MERG 2). In a polar group (P6₁, P2₁, Pc, P1) the fit holds the floating origin
   by SHELXL's restraint. `set_riding_hydrogens` rides the hydrogens on their
   parents as SHELXL's AFIX does: sp² on the bisector (43), a methyl or NH₃
   rotating with its torsion refined (137), a hydroxyl likewise (147), a CH₂

@@ -98,7 +98,10 @@ export function lawIndices(r: Mat3): string {
  * strongest first; empty when the lattice holds no symmetry beyond the Laue
  * class (an orthorhombic, monoclinic or rhombohedral lattice of its own class).
  * `minIOverSigma` keeps the pairs both above it (default 3): the noise of a
- * weak pair raises ⟨H⟩.
+ * weak pair would raise ⟨H⟩ and lower α. The cut is not neutral either: it
+ * drops the pairs with one weak member, whose H is large, so on weak data it
+ * lowers ⟨H⟩ and raises α — an untwinned crystal measured at ⟨I/σ⟩ ≈ 20
+ * reads α ≈ 0.1, at ⟨I/σ⟩ ≈ 5 about 0.2. Few pairs above the cut is the sign.
  */
 export function merohedralTwinLaws(rows: readonly TwinLawRow[], cell: UnitCell, spaceGroup: SpaceGroup, options: { readonly minIOverSigma?: number } = {}): TwinLawTest[] {
   const ops = spaceGroup.operations;

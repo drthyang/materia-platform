@@ -11,6 +11,7 @@ import { exampleStructure } from "@/examples/mn3ga";
 import type { RefinementParameter } from "@/core/refinement/types";
 import { executor, fakeHost, pdfPort, sessionPort } from "@/testSupport/agentHeadless";
 import { shoulderReading } from "@/core/diagnostics/cellReading";
+import { mn3gaFluoriteSession, powderPage } from "@/agent/evals/pages";
 
 const parse = (text: string): Record<string, unknown> => JSON.parse(text) as Record<string, unknown>;
 
@@ -501,6 +502,17 @@ describe("AgentExecutor on a live powder fit", () => {
     expect((await ex.run("bond_geometry", { phase: "nope" })).text).toMatch(/no phase "nope"/);
   });
 
+  it("names fluorite among the residual's peaks, and no phase for peaks at random", async () => {
+    const fluorite = parse((await executor(fakeHost(powderPage(mn3gaFluoriteSession())).host).ex.run("identify_peaks", {})).text);
+    expect(String(fluorite.reading)).toMatch(/^4 of 5 peaks match CaF₂ \(2 2 0, 4 0 0, 4 2 0, 5 1 1\), .*; random peaks never match a library phase as well \(500 draws of 5 over this range\)\..* add it \(add_known_phase\)/);
+    // Four d-spacings drawn at random over the demo's range: three sit on corundum lines, which
+    // the reading named before it asked how often random peaks do as well.
+    const { port } = sessionPort(newSession(exampleStructure()));
+    const random = parse((await executor(fakeHost(port).host).ex.run("identify_peaks", { d: [1.3978, 2.0745, 2.1631, 1.9143] })).text);
+    expect(String(random.reading)).toMatch(/^Not enough to name a phase: corundum Al₂O₃ would explain 3 of 4 peaks \(3 -1 4, 2 -1 3, 0 0 6\), but random peaks match a library phase as well in [\d.]+ % of draws/);
+    expect((random.candidates as { phase: string }[])[0]?.phase).toBe("corundum Al₂O₃");
+  });
+
   it("takes a fit window in d or Q and converts it with the page's own calibration", async () => {
     const { port, calls } = sessionPort(newSession(exampleStructure()));
     const { ex, asked } = executor(fakeHost(port).host, true);
@@ -670,6 +682,39 @@ describe("AgentExecutor on a live PDF fit", () => {
     expect(port.state().parameters.filter((p) => !p.fixed && !p.expression).map((p) => p.id)).toEqual(freeBefore);
     expect(port.state().result).toBe(resultBefore);
     expect((await ex.run("boxcar_scan", { free: ["nothing*"] })).text).toMatch(/nothing matches "nothing\*"/);
+  });
+
+  it("gives each box's esds, and each parameter's drift from the first box to the last in esds", async () => {
+    const { port } = pdfPort();
+    const { ex } = executor(fakeHost(port).host, true);
+    const out = parse((await ex.run("boxcar_scan", { width: 2, step: 1, free: ["pdfScale", "pos_*"] })).text);
+    type Box = { values: Record<string, number>; esds: Record<string, number> };
+    const pass = (out.boxcar as { passes: { boxes: Box[]; spread: Record<string, { first: number; last: number; driftInEsds: number }> }[] }).passes[0]!;
+    const ids = Object.keys(pass.boxes[0]!.values);
+    expect(ids.length).toBeGreaterThan(1);
+    for (const box of pass.boxes) {
+      expect(Object.keys(box.esds)).toEqual(ids);
+      for (const id of ids) expect(box.esds[id]).toBeGreaterThan(0);
+    }
+    const [first, last] = [pass.boxes[0]!, pass.boxes.at(-1)!];
+    for (const id of ids) {
+      const drift = (last.values[id]! - first.values[id]!) / Math.hypot(first.esds[id]!, last.esds[id]!);
+      expect(pass.spread[id]!.driftInEsds).toBeCloseTo(drift, 0);
+    }
+    expect(String(out.reading)).toMatch(/driftInEsds/);
+    expect(String(out.reading)).toMatch(/understate/);
+  });
+
+  it("runs restarts in each box when asked, and says so", async () => {
+    const { port, calls } = pdfPort();
+    const { ex, asked } = executor(fakeHost(port).host, true);
+    const out = parse((await ex.run("boxcar_scan", { width: 2, step: 1, free: ["pdfScale"], restarts: 2 })).text);
+    expect(asked.at(-1)!.preview).toMatch(/, best of 3 starts per box$/);
+    expect(calls).toContain("boxcar 2/1 restarts 2");
+    expect((out.boxcar as { restarts: number }).restarts).toBe(2);
+    // Without `restarts`, the scan runs from the seeded start alone.
+    const seedOnly = parse((await ex.run("boxcar_scan", { width: 2, step: 1, free: ["pdfScale"] })).text);
+    expect((seedOnly.boxcar as { restarts: number }).restarts).toBe(0);
   });
 
   it("gives a site's bond lengths box by box, from each box's refined structure", async () => {
