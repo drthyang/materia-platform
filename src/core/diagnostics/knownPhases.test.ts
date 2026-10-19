@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { knownPhaseNames, knownPhaseStructure, matchKnownPhases } from "@/core/diagnostics/knownPhases";
+import { CHANCE_LIMIT, identifyPeaks, knownPhaseNames, knownPhaseStructure, matchKnownPhases } from "@/core/diagnostics/knownPhases";
 
 /**
  * Extra peaks matched against the sample environment. The case behind it:
@@ -63,5 +63,79 @@ describe("matching extra peaks to the sample environment", () => {
 
   it("matches nothing when there is nothing to match", () => {
     expect(matchKnownPhases([], NEUTRON, RANGE)).toEqual([]);
+    expect(identifyPeaks([], NEUTRON, RANGE).verdict).toBe("none");
+  });
+});
+
+/** Peaks at random over the range, uniform in 1/d as peaks spread over a scan. */
+function randomPeaks(n: number, range: { dMin: number; dMax: number }, seed: number): { d: number; height: number }[] {
+  let a = seed;
+  const next = (): number => {
+    a = (a * 16807) % 2147483647;
+    return a / 2147483647;
+  };
+  const qMin = 1 / range.dMax;
+  const qMax = 1 / range.dMin;
+  return Array.from({ length: n }, () => ({ d: 1 / (qMin + next() * (qMax - qMin)), height: 0 }));
+}
+
+describe("naming a phase only where random peaks would not match as well", () => {
+  it("names a library phase in about 1 % of random d-lists, where the rules alone passed one in up to 12 %", () => {
+    const setups = [
+      { radiation: { kind: "neutron" as const, wavelength: 1.54 }, range: { dMin: 0.8, dMax: 6 } },
+      { radiation: NEUTRON, range: { dMin: 1.33, dMax: 17 } },
+      { radiation: { kind: "xray" as const, wavelength: 1.5406 }, range: { dMin: 0.9, dMax: 8.8 } },
+      { radiation: { kind: "xray" as const, wavelength: 0.4139 }, range: { dMin: 0.5, dMax: 10 } },
+    ];
+    let lists = 0;
+    let named = 0;
+    let rulesAlone = 0;
+    let seed = 1;
+    for (const { radiation, range } of setups) {
+      for (const n of [2, 3, 5, 8, 12]) {
+        for (let i = 0; i < 30; i++) {
+          const { verdict } = identifyPeaks(randomPeaks(n, range, seed++), radiation, range);
+          lists++;
+          if (verdict === "named") named++;
+          if (verdict === "named" || verdict === "chance") rulesAlone++;
+        }
+      }
+    }
+    expect(named / lists).toBeLessThan(0.015);
+    // What the chance takes away: the rules without it named a phase several times as often.
+    expect(rulesAlone).toBeGreaterThan(4 * named);
+  });
+
+  it("still names Si, fluorite in NAC and a cryostat's aluminium", () => {
+    const xray = { kind: "xray" as const, wavelength: 1.5406 };
+    const si = identifyPeaks([3.1356, 1.9201, 1.6375].map((d) => ({ d, height: 100 })), xray, { dMin: 0.9, dMax: 6 });
+    expect(si.verdict).toBe("named");
+    expect(si.candidates[0]?.phase).toBe("Si");
+    const twoLines = identifyPeaks([3.1356, 1.9201].map((d) => ({ d, height: 100 })), xray, { dMin: 0.9, dMax: 6 });
+    expect(twoLines.verdict).toBe("named");
+    const nac = [3.155, 1.9322, 1.6477, 1.3661, 1.2537, 1.1154, 1.0517, 0.96603, 0.92371, 0.86401, 0.83333, 0.8238, 0.76522, 0.75777, 0.71143];
+    const fluorite = identifyPeaks(nac.map((d) => ({ d, height: 100 })), { kind: "xray" as const, wavelength: 0.413909 }, { dMin: 0.414, dMax: 47 });
+    expect([fluorite.verdict, fluorite.candidates[0]?.phase]).toEqual(["named", "CaF₂"]);
+    // Al 111, 200, 220, 311 and 331 from a cooled can (d × 0.996), among four peaks of something else.
+    const can = [2.338, 2.0248, 1.4317, 1.221, 0.929, 3.3, 1.77, 1.11, 0.85].map((d) => ({ d: d * 0.996, height: 1 }));
+    const al = identifyPeaks(can, { kind: "neutron" as const, wavelength: 1.54 }, { dMin: 0.8, dMax: 6 });
+    expect([al.verdict, al.candidates[0]?.phase]).toEqual(["named", "Al"]);
+    expect(al.chance).toBeLessThan(CHANCE_LIMIT);
+  });
+
+  it("counts a line once, however many peaks sit on it", () => {
+    // Two peaks 0.2 % apart on CeO₂ 111 (Cu Kα), its 220 and 311 not among them: one line, not a
+    // match, and no better than Si's 111 under one of them. Counted by peak, CeO₂ led and was named.
+    const xray = { kind: "xray" as const, wavelength: 1.5406 };
+    const id = identifyPeaks([3.1242, 3.1305].map((d) => ({ d, height: 1 })), xray, { dMin: 0.9, dMax: 8.8 });
+    expect(id.candidates.find((c) => c.phase === "CeO₂")?.explains.map((e) => e.hkl)).toEqual(["1 1 1", "1 1 1"]);
+    expect(id.candidates[0]?.phase).toBe("Si");
+    expect(id.verdict).toBe("weak");
+  });
+
+  it("reads the same peaks the same way each time", () => {
+    const peaks = randomPeaks(5, { dMin: 0.8, dMax: 6 }, 99);
+    const radiation = { kind: "neutron" as const, wavelength: 1.54 };
+    expect(identifyPeaks(peaks, radiation, { dMin: 0.8, dMax: 6 })).toEqual(identifyPeaks(peaks, radiation, { dMin: 0.8, dMax: 6 }));
   });
 });
