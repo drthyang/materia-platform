@@ -9,6 +9,12 @@ release fixes bugs.
 
 ### Added
 
+- **The published Mn₃Ga 350 K POWGEN data** in `examples/mn3ga-350k`: the
+  histogram and instrument parameters, the GSAS-II magnetic structure
+  (C m′c m′), MATERIA's refinement of it, and a nuclear starting model. The
+  350 K golden tests read them when the git-ignored `data/` folder has no
+  copy, so the GSAS-II magnetic comparison runs in CI.
+
 - **The Agent on any server that speaks OpenAI's API**: OpenAI, Gemini's
   OpenAI-compatible endpoint, vLLM, a llama.cpp server. A base URL, a key if
   the server needs one (kept as Anthropic's is), a model from the server's
