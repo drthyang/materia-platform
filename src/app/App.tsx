@@ -7,13 +7,15 @@
  * (see workbenchEngine.ts): `PowderWorkbench` and `SingleCrystalWorkbench`
  * each own their view state, refinement orchestration, exports, and — per the
  * ratified boundary — their own community's quality panel and agreement
- * factors. The shell owns the *data*: the powder session (which also carries
- * the structure the single-crystal engine refines) and the instrument.
+ * factors. The shell holds the powder page (powderPage.ts, PowderPage: the
+ * session, which also carries the structure the single-crystal engine
+ * refines, the instrument and the last fit's result). It parses files and
+ * routes them to the page; what a load does to the page is the page's
+ * (withStructure, withPattern, withInstrument).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { APP_VERSION } from "@/app/constants";
-import type { RefinementResult } from "@/core/refinement/types";
 import type { StructureModel } from "@/core/crystal/types";
 import { TECHNIQUE_LABEL, type PdfWorkspace, type ProjectFile, type SingleCrystalWorkspace, type Workspace } from "@/core/project/types";
 import { looksLikeProjectFile, parseProject, projectFileName, restoreHistoryStep, serializeProject } from "@/core/project/io";
@@ -24,8 +26,7 @@ import { defaultProjectTitle, projectFileFor, sessionFromPowderWorkspace, type P
 import { downloadText } from "@/app/download";
 import type { MagneticModel } from "@/core/magnetic/types";
 import type { PdfPattern, PdfScatteringType, SingleCrystalDataset } from "@/core/diffraction/types";
-import { radiationOf, withConstants, type InstrumentConstants, type InstrumentParameters } from "@/core/diffraction/instrument";
-import { buildPowderSpec } from "@/app/powderSpec";
+import type { InstrumentConstants } from "@/core/diffraction/instrument";
 import { parseMagneticCif, parseCif } from "@/parsers/cif";
 import { looksLikeShelxIns, parseShelxIns, shelxNotes } from "@/parsers/shelxIns";
 import { SpaceGroupSettingError, type SpaceGroupSettingInfo } from "@/core/crystal/spaceGroups";
@@ -39,8 +40,7 @@ import type { PowderXUnit } from "@/core/diffraction/types";
 import { parsePdfData } from "@/parsers/pdfData";
 import { looksLikeFgr, parseFgr, fgrToPattern } from "@/parsers/fgrData";
 import { parseInstrumentParameters } from "@/parsers/instrument";
-import { startingPowderParams, loadReflectionDataset, describeDrops } from "@/app/loadData";
-import { powderBindings } from "@/examples/synthetic";
+import { loadReflectionDataset, describeDrops } from "@/app/loadData";
 import { mn3gaPowgenExample } from "@/examples/mn3gaPowgen";
 import { awo4MagneticDemoAvailable, loadAwo4MagneticExample } from "@/examples/awo4Magnetic";
 import { DEMOS, type DemoId } from "@/app/demos";
@@ -52,20 +52,10 @@ import { PdfWorkbench } from "@/app/PdfWorkbench";
 import { WorkbenchHeader, type Step, type ExportAction } from "@/app/ui/WorkbenchHeader";
 import { WorkbenchErrorBoundary } from "@/app/ui/WorkbenchErrorBoundary";
 import { color as theme, space } from "@/app/theme";
+import { newSession, loadedSession, emptySession, structureCarried, EMPTY_SOURCE } from "@/app/powderSession";
 import {
-  type Session,
-  newSession,
-  loadedSession,
-  emptySession,
-  buildSpecFor,
-  withoutCorrections,
-  carryRefinedStructure,
-  keptBindings,
-  withMagneticRows,
-  DEFAULT_INSTRUMENT,
-  EMPTY_SOURCE,
-} from "@/app/powderSession";
-import { withInstrumentConstants, withPhase, withoutPhase } from "@/app/powderPage";
+  changed, emptyPage, specInstrumentOf, withInstrument, withInstrumentConstants, withPattern, withPhase, withPhases, withoutPhase, withStructure, type PowderPage,
+} from "@/app/powderPage";
 import type { WorkbenchExports } from "@/app/workbenchEngine";
 import { AgentLink } from "@/agent/link";
 import type { AgentHost } from "@/agent/executor";
@@ -182,8 +172,11 @@ export function App(): JSX.Element {
   // user loads the bundled Mn₃Ga POWGEN demo (the header "Demo" toggle) or their
   // own CIF. The demo is embedded in the build, so it works on the deployed site
   // with no runtime fetch or local data/ folder.
-  const [session, setSession] = useState<Session>(() => emptySession());
-  const [powderResult, setPowderResult] = useState<RefinementResult | null>(null);
+  // The powder page (powderPage.ts): its session, instrument and last fit's
+  // result as one value, changed through the page's own functions. The shell
+  // parses files and routes them there.
+  const [page, setPage] = useState<PowderPage>(() => emptyPage());
+  const { session, instrument, instrumentLoaded } = page;
   // Single-crystal mode: set when hkl/fcf reflection data is loaded; the app
   // then renders the single-crystal workbench instead of the powder panels.
   // Cleared when powder data is loaded (auto-switch back).
@@ -202,8 +195,6 @@ export function App(): JSX.Element {
   // powder data is loaded (auto-switch back), mirroring scDataset.
   const [pdfDataset, setPdfDataset] = useState<PdfPattern | null>(null);
   const [step, setStep] = useState(0);
-  const [instrument, setInstrument] = useState<InstrumentParameters>(DEFAULT_INSTRUMENT);
-  const [instrumentLoaded, setInstrumentLoaded] = useState(false);
   // Which bundled demo is the loaded content (null = user's own / nothing) —
   // drives the header Demos menu and is cleared once the user loads their own.
   const [demo, setDemo] = useState<DemoId | null>(null);
@@ -515,6 +506,11 @@ export function App(): JSX.Element {
     setSettingChoice(null);
   }
 
+  /** A structure file as the page's model (withStructure: on the user's data, its rows are built on them). A demo's data are not the user's: a structure loaded on a demo starts the user's own page. */
+  function structurePage(structure: StructureModel, magnetic?: MagneticModel): PowderPage {
+    return withStructure(demo ? { ...page, session: emptySession() } : page, structure, magnetic);
+  }
+
   function onLoadCif(file: File, spaceGroupSetting?: string): void {
     file.text().then((text) => {
       try {
@@ -523,10 +519,9 @@ export function App(): JSX.Element {
           const { structure: parsed, instructions } = parseShelxIns(text, "loaded");
           clearCifNotice();
           setStructureFile({ name: file.name, wavelength: instructions.wavelength, ...(instructions.hklf !== undefined ? { hklf: instructions.hklf } : {}), notes: shelxNotes(instructions) });
-          setSession(newSession({ ...parsed, id: "loaded" }, instrument));
+          setPage(structurePage({ ...parsed, id: "loaded" }));
           setOwnStructure(true);
           setDemoActive(false);
-          setPowderResult(null);
           setMessage(`Loaded SHELX ${file.name}: ${parsed.name} (${parsed.sites.length} sites, ${parsed.spaceGroup.hermannMauguin ?? "the file's symmetry"}) · λ ${instructions.wavelength} Å${instructions.twin ? " · TWIN" : ""}. A reflection file without a radiation of its own is read as X-ray at this λ.`);
           requestStep("load", `Loaded ${parsed.name}`, true);
           return;
@@ -538,18 +533,16 @@ export function App(): JSX.Element {
           // Drive the powder view from the magnetic structure so the plot shows
           // the nuclear + magnetic pattern and reflection ticks.
           const magStructure = { ...parsed, id: "loaded" };
-          setSession({ ...newSession(magStructure, instrument), magnetic: { ...magnetic, structureId: "loaded" } as MagneticModel });
+          setPage(structurePage(magStructure, { ...magnetic, structureId: "loaded" } as MagneticModel));
           setOwnStructure(true);
           setDemoActive(false);
-          setPowderResult(null);
           setMessage(`Loaded magnetic CIF: ${parsed.name} · ${magnetic.moments.length} moments · ${parsed.spaceGroup.hermannMauguin ?? "BNS"}. Nuclear + magnetic pattern shown.`);
           requestStep("load", `Loaded ${parsed.name} (magnetic CIF)`, true);
           return;
         }
-        setSession(newSession({ ...parsed, id: "loaded" }, instrument));
+        setPage(structurePage({ ...parsed, id: "loaded" }));
         setOwnStructure(true);
         setDemoActive(false);
-        setPowderResult(null);
         setMessage(`Loaded CIF: ${parsed.name} (${parsed.sites.length} sites, ${parsed.spaceGroup.operations.length} symmetry ops). Load button is now "Add CIF…" to add impurity/secondary phases.`);
         requestStep("load", `Loaded ${parsed.name}`, true);
       } catch (e) {
@@ -563,13 +556,10 @@ export function App(): JSX.Element {
   function clearWorkbench(): void {
     setRadiationNotice(null);
     setStructureFile(null);
-    setSession(emptySession());
-    setInstrument(DEFAULT_INSTRUMENT);
-    setInstrumentLoaded(false);
+    setPage(emptyPage());
     setOwnStructure(false);
     setScNuclearDataset(null);
     setPdfDataset(null);
-    setPowderResult(null);
     setDemoActive(false);
     setStep(0);
     setProjectMeta(null);
@@ -599,20 +589,22 @@ export function App(): JSX.Element {
       loadAwo4MagneticExample().then(
         (ex) => {
           const base = loadedSession(ex.structure, ex.pattern, ex.instrument, [], ex.refinedParams, ex.backgroundTerms);
-          setSession({
-            ...base,
-            magnetic: ex.magnetic,
-            powderParams: [...base.powderParams, ...ex.momentParams],
-            powderBindings: [...base.powderBindings, ...ex.momentBindings],
-            rawData: ex.rawData,
-            rawInstrument: ex.rawInstrument,
+          setPage({
+            session: {
+              ...base,
+              magnetic: ex.magnetic,
+              powderParams: [...base.powderParams, ...ex.momentParams],
+              powderBindings: [...base.powderBindings, ...ex.momentBindings],
+              rawData: ex.rawData,
+              rawInstrument: ex.rawInstrument,
+            },
+            instrument: ex.instrument,
+            instrumentLoaded: true,
+            result: null,
           });
-          setInstrument(ex.instrument);
-          setInstrumentLoaded(true);
           setOwnStructure(false);
           setScNuclearDataset(null);
           setPdfDataset(null);
-          setPowderResult(null);
           setStep(1);
           setDemo("magnetic");
           setNotice(null);
@@ -628,13 +620,10 @@ export function App(): JSX.Element {
     }
     if (kind === "rietveld") {
       const ex = mn3gaPowgenExample();
-      setSession(loadedSession(ex.structure, ex.pattern, ex.instrument, ex.extraPhases, ex.refinedParams));
-      setInstrument(ex.instrument);
-      setInstrumentLoaded(true);
+      setPage({ session: loadedSession(ex.structure, ex.pattern, ex.instrument, ex.extraPhases, ex.refinedParams), instrument: ex.instrument, instrumentLoaded: true, result: null });
       setOwnStructure(false);
       setScNuclearDataset(null);
       setPdfDataset(null);
-      setPowderResult(null);
       // The demo's fit window rides the project-open view restore, which the
       // powder page applies after its pattern-change reset.
       setRestore((prev) => {
@@ -648,13 +637,10 @@ export function App(): JSX.Element {
       return;
     }
     const ex = gata4se8PdfExample();
-    setSession(newSession(ex.structure, DEFAULT_INSTRUMENT));
-    setInstrument(DEFAULT_INSTRUMENT);
-    setInstrumentLoaded(false);
+    setPage(withStructure(emptyPage(), ex.structure));
     setOwnStructure(true); // "Add CIF…" appends phases, as after a user CIF load
     setScNuclearDataset(null);
     setPdfDataset(ex.pattern);
-    setPowderResult(null);
     setStep(0);
     setDemo("pdf");
     setMessage("Loaded the bundled GaTa4Se8 299 K X-ray PDF demo (cubic lacunar spinel, converged fit).");
@@ -687,8 +673,7 @@ export function App(): JSX.Element {
 
   /** Add a further phase (a parsed CIF, or a known phase the Agent adds) and rebuild the spec. */
   function addPhaseStructure(parsed: StructureModel): void {
-    setSession((s) => withPhase(s, parsed, instrumentLoaded ? instrument : DEFAULT_INSTRUMENT));
-    setPowderResult(null);
+    setPage((p) => changed(p, withPhase(p.session, parsed, specInstrumentOf(p))));
     setMessage(`Added phase "${parsed.name}" (${parsed.spaceGroup.hermannMauguin ?? "?"}). Refine to fit its scale/cell.`);
     requestStep("load", `Added phase ${parsed.name}`);
   }
@@ -697,8 +682,7 @@ export function App(): JSX.Element {
   function onRemovePhase(id: string): void {
     const removed = session.extraPhases.find((p) => p.id === id);
     requestStep("load", `Removed phase ${removed?.name || id}`);
-    setSession((s) => withoutPhase(s, id, instrumentLoaded ? instrument : DEFAULT_INSTRUMENT));
-    setPowderResult(null);
+    setPage((p) => changed(p, withoutPhase(p.session, id, specInstrumentOf(p))));
   }
 
   // ── Project save / open ─────────────────────────────────────────────────
@@ -788,10 +772,7 @@ export function App(): JSX.Element {
     switch (ws.technique) {
       case "powder": {
         const r = sessionFromPowderWorkspace(ws, structures);
-        setSession(r.session);
-        setInstrument(r.instrument);
-        setInstrumentLoaded(r.instrumentLoaded);
-        setPowderResult(r.result);
+        setPage({ session: r.session, instrument: r.instrument, instrumentLoaded: r.instrumentLoaded, result: r.result });
         setScNuclearDataset(null);
         setPdfDataset(null);
         setRestore((prev) => {
@@ -802,8 +783,7 @@ export function App(): JSX.Element {
       }
       case "singleCrystal": {
         // The dormant powder session just carries the structure (as onLoadCif does).
-        setSession(newSession(primary, instrument));
-        setPowderResult(null);
+        setPage((p) => changed(p, newSession(primary, p.instrument)));
         setPdfDataset(null);
         setScDataset(ws.dataset);
         setScMagneticDataset(ws.magneticDataset ?? null);
@@ -813,11 +793,7 @@ export function App(): JSX.Element {
       case "pdf": {
         // Same dormant powder session, but with the file's extra phases so the
         // PDF page (which reads them from the session) sums every phase.
-        const extraPhases = structures.slice(1);
-        const base = newSession(primary, instrument);
-        const spec = buildSpecFor(primary, extraPhases, base.pattern, instrument, true, base.backgroundTerms, base.siteTies, "isotropic");
-        setSession({ ...base, extraPhases: [...extraPhases], powderParams: spec.params, powderBindings: spec.bindings, powderProfile: spec.profile });
-        setPowderResult(null);
+        setPage((p) => changed(p, withPhases(newSession(primary, p.instrument), structures.slice(1), p.instrument)));
         setScNuclearDataset(null);
         setPdfDataset(ws.pattern);
         setRestore((prev) => ({ token: prev.token + 1, pdf: ws }));
@@ -943,10 +919,9 @@ export function App(): JSX.Element {
   // Caglioti widths when its .irf is loaded).
   function applyInstrm6Powder(text: string, filename: string): void {
     setDetection(null); // this reader knows the format from the header itself
-    const id = `${structure.id}-powder`;
     const cw = instrumentLoaded && instrument.kind === "constantWavelength" ? instrument : null;
     const parsed = parseFullProfInstrm6(text, {
-      id, name: filename,
+      id: `${structure.id}-powder`, name: filename,
       radiation: { kind: "neutron", wavelength: cw?.wavelength ?? 2.5 },
       ...(cw ? { wavelength: cw.wavelength } : {}),
     });
@@ -954,36 +929,27 @@ export function App(): JSX.Element {
     setScNuclearDataset(null);
     setPdfDataset(null);
     const wavelength = parsed.wavelength ?? cw?.wavelength ?? 2.5;
-    const inst: InstrumentParameters = cw ?? { kind: "constantWavelength", radiationKind: "neutron", wavelength };
-    const spec = buildPowderSpec(structure, parsed, inst, session.powderProfile.lorentz, session.backgroundTerms, session.siteTies);
-    const kept = carryRefinedStructure(session, spec.params);
-    setSession((s) => ({ ...withoutCorrections(s), extraPhases: [], pattern: parsed, powderParams: kept.params, powderBindings: spec.bindings, powderProfile: spec.profile, powderOverlay: null, powderSource: filename, rawData: { name: filename, text } }));
-    if (instrument.kind === "tof") { setInstrument(DEFAULT_INSTRUMENT); setInstrumentLoaded(false); }
-    setPowderResult(null);
+    const next = withPattern(page, parsed, { name: filename, text });
+    setPage(next);
     const last = parsed.points[parsed.points.length - 1]!;
-    setMessage(`Loaded FullProf INSTRM=6 powder “${filename}” · ${parsed.points.length} pts · 2θ ${parsed.points[0]!.x.toFixed(2)}–${last.x.toFixed(2)}° · neutron λ=${wavelength} Å${carriedNote(kept.carried)}.`);
+    setMessage(`Loaded FullProf INSTRM=6 powder “${filename}” · ${parsed.points.length} pts · 2θ ${parsed.points[0]!.x.toFixed(2)}–${last.x.toFixed(2)}° · neutron λ=${wavelength} Å${carriedNote(structureCarried(next.session))}.`);
     requestStep("load", `Loaded data ${filename}`);
   }
 
   function applyIllPowder(text: string, filename: string): void {
     setDetection(null); // this reader knows the format from the header itself
-    const id = `${structure.id}-powder`;
     const cw = instrumentLoaded && instrument.kind === "constantWavelength" ? instrument : null;
     const wavelength = cw?.wavelength ?? 2.52; // D1B graphite λ
-    const parsed = parseIllD1b(text, { id, name: filename, radiation: { kind: "neutron", wavelength }, wavelength });
+    const parsed = parseIllD1b(text, { id: `${structure.id}-powder`, name: filename, radiation: { kind: "neutron", wavelength }, wavelength });
     if (parsed.points.length < 3) throw new Error("fewer than 3 usable data rows");
     setScNuclearDataset(null);
     setPdfDataset(null);
-    const inst: InstrumentParameters = cw ?? { kind: "constantWavelength", radiationKind: "neutron", wavelength };
-    const spec = buildPowderSpec(structure, parsed, inst, session.powderProfile.lorentz, session.backgroundTerms, session.siteTies);
-    const kept = carryRefinedStructure(session, spec.params);
-    setSession((s) => ({ ...withoutCorrections(s), extraPhases: [], pattern: parsed, powderParams: kept.params, powderBindings: spec.bindings, powderProfile: spec.profile, powderOverlay: null, powderSource: filename, rawData: { name: filename, text } }));
-    if (instrument.kind === "tof") { setInstrument(DEFAULT_INSTRUMENT); setInstrumentLoaded(false); }
-    setPowderResult(null);
+    const next = withPattern(page, parsed, { name: filename, text });
+    setPage(next);
     const last = parsed.points[parsed.points.length - 1]!;
     setMessage(
       `Loaded ILL powder “${filename}” · ${parsed.points.length} pts · 2θ ${parsed.points[0]!.x.toFixed(2)}–${last.x.toFixed(2)}° · neutron λ=${wavelength} Å` +
-      `${cw ? " (Caglioti widths from instrument)" : " — load the .irf for Caglioti widths"}${carriedNote(kept.carried)}.`,
+      `${cw ? " (Caglioti widths from instrument)" : " — load the .irf for Caglioti widths"}${carriedNote(structureCarried(next.session))}.`,
     );
     requestStep("load", `Loaded data ${filename}`);
   }
@@ -1016,6 +982,7 @@ export function App(): JSX.Element {
     const id = `${structure.id}-powder`;
     const isGsasCsv = /(^|,)\s*"?obs"?\s*,/i.test(text) && /calc/i.test(text);
     const isGsasHist = isGsasHistogram(text);
+    const file = { name: filename, text };
     if (fmt.xUnit === "tof") {
       const overlay = isGsasCsv ? parseGsasCsvPattern(text, id, filename) : null;
       const parsed = overlay
@@ -1024,25 +991,13 @@ export function App(): JSX.Element {
           ? parseGsasHistogramPattern(text, id, filename, { radiation: { kind: "neutron-tof" } })
           : parsePowderData(text, { id, name: filename, xUnit: "tof", radiation: { kind: "neutron-tof" } });
       if (parsed.points.length < 3) throw new Error("fewer than 3 usable data rows");
-      const tofInstrument = instrumentLoaded && instrument.kind === "tof" ? instrument : null;
       // A GSAS-II CSV carries its own calc/background (shown as a reference
-      // overlay); and without a TOF calibration (difC) we cannot place peaks —
+      // overlay), and without a TOF calibration (difC) peaks cannot be placed:
       // both stay view-only. A plain TOF pattern with a loaded TOF instrument is
-      // refined with the back-to-back-exponential profile.
-      if (overlay || !tofInstrument) {
-        const tofBindings = powderBindings(structure, id);
-        setSession((s) => ({
-          ...s,
-          extraPhases: [],
-          pattern: parsed,
-          powderParams: startingPowderParams(structure, parsed, tofBindings),
-          powderBindings: tofBindings,
-          powderProfile: { shape: "gaussian" },
-          powderOverlay: overlay ? { calc: overlay.calc, background: overlay.background } : null,
-          powderSource: filename,
-          rawData: { name: filename, text },
-        }));
-        setPowderResult(null);
+      // refined with the back-to-back-exponential profile (withPattern).
+      const next = withPattern(page, parsed, file, overlay ? { calc: overlay.calc, background: overlay.background } : undefined);
+      setPage(next);
+      if (next.session.powderProfile.shape !== "tof") {
         setMessage(
           overlay
             ? `Loaded powder “${filename}” · ${parsed.points.length} pts · TOF ${tag} with GSAS-II calc overlay (reference). ${fmt.note}`
@@ -1050,59 +1005,29 @@ export function App(): JSX.Element {
         );
         return;
       }
-      const spec = buildPowderSpec(structure, parsed, tofInstrument, true, session.backgroundTerms, session.siteTies);
-      const kept = carryRefinedStructure(session, spec.params);
-      setSession((s) => ({ ...withoutCorrections(s), extraPhases: [], pattern: parsed, powderParams: kept.params, powderBindings: spec.bindings, powderProfile: spec.profile, powderOverlay: null, powderSource: filename, rawData: { name: filename, text } }));
-      setPowderResult(null);
-      setMessage(`Loaded powder “${filename}” · ${parsed.points.length} pts · TOF ${tag}. ${spec.params.length} parameters, back-to-back-exponential profile${carriedNote(kept.carried)} — click “Refine”. ${fmt.note}`);
+      setMessage(`Loaded powder “${filename}” · ${parsed.points.length} pts · TOF ${tag}. ${next.session.powderParams.length} parameters, back-to-back-exponential profile${carriedNote(structureCarried(next.session))} — click “Refine”. ${fmt.note}`);
       return;
     }
     const parsed = isGsasHist
       ? parseGsasHistogramPattern(text, id, filename, { radiation: fmt.radiation })
       : parsePowderData(text, { id, name: filename, xUnit: fmt.xUnit, radiation: fmt.radiation, ...(fmt.radiation.kind !== "neutron-tof" ? { wavelength: fmt.radiation.wavelength } : {}) });
     if (parsed.points.length < 3) throw new Error("fewer than 3 usable data rows");
-    // Constant-wavelength data: a still-selected TOF instrument (e.g. the bundled
-    // default) doesn't apply, so fall back to a constant-wavelength default and
-    // reset the instrument — loading a different dataset type auto-switches the
+    // Constant-wavelength data: a still-selected TOF instrument (e.g. the
+    // bundled demo's) doesn't apply, so the page goes back to the default
+    // instrument (withPattern): loading a different dataset type switches the
     // workbench into the matching mode instead of staying view-only.
-    const cwInstrument = instrumentLoaded && instrument.kind === "constantWavelength" ? instrument : DEFAULT_INSTRUMENT;
-    const spec = buildPowderSpec(structure, parsed, cwInstrument, session.powderProfile.lorentz, session.backgroundTerms, session.siteTies);
-    const kept = carryRefinedStructure(session, spec.params);
-    setSession((s) => ({ ...withoutCorrections(s), extraPhases: [], pattern: parsed, powderParams: kept.params, powderBindings: spec.bindings, powderProfile: spec.profile, powderOverlay: null, powderSource: filename, rawData: { name: filename, text } }));
-    if (instrument.kind === "tof") {
-      setInstrument(DEFAULT_INSTRUMENT);
-      setInstrumentLoaded(false);
-    }
-    setPowderResult(null);
-    const nParams = spec.params.length;
-    setMessage(`Loaded powder “${filename}” · ${parsed.points.length} pts · unit=${fmt.xUnit} ${tag}. ${nParams} symmetry-allowed parameters${carriedNote(kept.carried)}. Scale auto-estimated — click “Refine”. ${fmt.note}`);
+    const next = withPattern(page, parsed, file);
+    setPage(next);
+    setMessage(`Loaded powder “${filename}” · ${parsed.points.length} pts · unit=${fmt.xUnit} ${tag}. ${next.session.powderParams.length} symmetry-allowed parameters${carriedNote(structureCarried(next.session))}. Scale auto-estimated — click “Refine”. ${fmt.note}`);
   }
 
   function onLoadInstrument(file: File): void {
     file.text().then((text) => {
       try {
         const parsed = parseInstrumentParameters(text);
-        setInstrument(parsed);
-        setInstrumentLoaded(true);
-        // Rebuild the powder spec so the profile reflects the new instrument —
-        // otherwise loading structure-then-instrument would leave the old
-        // (default) profile in place, making load order matter.
-        setSession((s) => {
-          // Nothing loaded yet: there is no model to rebuild (the placeholder
-          // has no pattern to seed from). The next CIF or data load uses the
-          // instrument.
-          if (s.powderSource === EMPTY_SOURCE) return { ...s, rawInstrument: { name: file.name, text } };
-          // For a constant-wavelength instrument on a non-TOF pattern, adopt its
-          // radiation (X-ray vs neutron) and wavelength so the physics is correct
-          // regardless of whether the data or the instrument was loaded first.
-          const pattern =
-            parsed.kind === "constantWavelength" && s.pattern.xUnit !== "tof"
-              ? { ...s.pattern, radiation: radiationOf(parsed), wavelength: parsed.wavelength }
-              : s.pattern;
-          const spec = buildSpecFor(s.structure, s.extraPhases, pattern, parsed, s.powderProfile.lorentz ?? true, s.backgroundTerms, s.siteTies, s.mustrain ?? "isotropic", s.corrections);
-          return { ...s, pattern, powderParams: withMagneticRows(spec.params, s.powderParams), powderBindings: keptBindings(spec.bindings, s.powderBindings), powderProfile: spec.profile, rawInstrument: { name: file.name, text } };
-        });
-        setPowderResult(null);
+        // The rows built again from the new instrument (withInstrument), so the
+        // profile reflects it whichever of the files came first.
+        setPage((p) => withInstrument(p, parsed, { name: file.name, text }));
         setMessage(
           parsed.kind === "tof"
             ? `Loaded TOF instrument: difC=${parsed.difC.toFixed(2)}, Zero=${(parsed.zero ?? 0).toFixed(3)}. Profile re-seeded.`
@@ -1119,9 +1044,7 @@ export function App(): JSX.Element {
    *  the pattern's radiation (which the model reads): constants the fit cannot
    *  determine, so they are set, never refined. */
   function onInstrumentConstants(update: InstrumentConstants): void {
-    setInstrument((inst) => (inst.kind === "constantWavelength" ? withConstants(inst, update) : inst));
-    setSession((s) => withInstrumentConstants(s, update));
-    setPowderResult(null);
+    setPage((p) => withInstrumentConstants(p, update));
     requestStep("settings", "Instrument constants changed");
   }
 
@@ -1275,12 +1198,8 @@ export function App(): JSX.Element {
           On a clean start it renders its load cards + an empty-state placeholder. */}
       <WorkbenchErrorBoundary resetKeys={[session]} visible={!scDataset && !pdfDataset} onClear={clearWorkbench}>
       <PowderWorkbench
-        session={session}
-        setSession={setSession}
-        powderResult={powderResult}
-        setPowderResult={setPowderResult}
-        instrument={instrument}
-        instrumentLoaded={instrumentLoaded}
+        page={page}
+        setPage={setPage}
         ownStructure={ownStructure}
         client={client.current}
         active={!scDataset && !pdfDataset}
