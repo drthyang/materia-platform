@@ -570,8 +570,8 @@ export class MagneticStep {
 
   /**
    * The new state, with what no longer holds dropped: a ranking or a fit
-   * readout once the model or data it ran on have changed (as the panel drops
-   * them), so neither comes back when the page returns to the same content.
+   * readout once the model or data it ran on have changed, so neither comes
+   * back when the page returns to the same content.
    */
   private commit(next: StepState): void {
     next = this.holding(next);

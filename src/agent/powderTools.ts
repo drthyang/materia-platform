@@ -45,6 +45,7 @@ import type { UnitCell } from "@/core/crystal/types";
 import { dScaleSearch, observedPeaks, wrongScale } from "@/core/diagnostics/dScale";
 import { inspectDataRange, type DataEnd, type DataRangeReading } from "@/core/diagnostics/dataRange";
 import type { ReferenceEntry } from "@/agent/references";
+import { minMax } from "@/core/math/extent";
 
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- inputs are validated against the spec's zod schema before a handler runs */
@@ -214,7 +215,8 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
         : residualPeaks(residual, { limit: 12 }).between.map((p) => ({ d: p.d, height: p.height }));
       if (peaks.length === 0) return { peaks: [], candidates: [], reading: "No unexplained peak to identify: every residual peak sits on or beside a reflection of the model's phases." };
       const finite = residual.d.filter((v) => Number.isFinite(v) && v > 0);
-      const { candidates, verdict, strongestMissing, chance } = identifyPeaks(peaks, s.pattern.radiation, { dMin: Math.min(...finite), dMax: Math.max(...finite) });
+      const span = minMax(finite);
+      const { candidates, verdict, strongestMissing, chance } = identifyPeaks(peaks, s.pattern.radiation, { dMin: span.min, dMax: span.max });
       const lead = candidates[0];
       const of = `${peaks.length} peak${peaks.length === 1 ? "" : "s"}`;
       const lines = lead ? lead.explains.map((e) => e.hkl).filter((h, i, all) => all.indexOf(h) === i).join(", ") : "";
@@ -584,8 +586,9 @@ export function fitRangeReading(s: PowderLiveState): DataRangeReading {
   let reflections: number[] = [];
   if (s.d) {
     const finite = s.d.filter((v) => Number.isFinite(v) && v > 0);
-    const dMin = Math.min(...finite) * 0.98;
-    const dMax = Math.max(...finite) * 1.02;
+    const span = minMax(finite);
+    const dMin = span.min * 0.98;
+    const dMax = span.max * 1.02;
     reflections = s.refinedPhases.flatMap((ph) => generateReflections(ph.cell, ph.spaceGroup, dMin, Math.min(dMax, 50), { absences: true }).map((r) => convertAxisValue(r.d, "dSpacing", unit, s.axis)));
   }
   return inspectDataRange({
@@ -707,8 +710,7 @@ export function axisPlausibility(s: PowderLiveState): string | null {
   if (s.structure.sites.length === 0 || s.pattern.points.length === 0 || !s.d) return null;
   const finite = s.d.filter((v) => Number.isFinite(v) && v > 0);
   if (finite.length === 0) return `the ${UNIT[s.pattern.xUnit]} axis (${sig(s.extent.min, 4)}–${sig(s.extent.max, 4)}) converts to no d-spacing at this wavelength: is the axis in another unit (d in Å, or Q)? Ask the user before anything else.`;
-  const lo = Math.min(...finite);
-  const hi = Math.max(...finite);
+  const { min: lo, max: hi } = minMax(finite);
   const inside = generateReflections(s.structure.cell, s.structure.spaceGroup, lo, Math.min(hi, 50)).length;
   if (inside >= 3) return null;
   return `the ${UNIT[s.pattern.xUnit]} axis (${sig(s.extent.min, 4)}–${sig(s.extent.max, 4)}) spans d ${sig(lo, 3)}–${sig(hi, 3)} Å at this wavelength, where the structure has ${inside === 0 ? "no reflection" : `only ${inside} reflection${inside === 1 ? "" : "s"}`}: the axis is likely in another unit (d in Å or Q read as ${UNIT[s.pattern.xUnit]}), or the wavelength is wrong. Ask the user before refining: no refinement fixes it.`;

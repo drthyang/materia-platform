@@ -40,6 +40,7 @@ import type { ReportBond, ReportBoxcar, ReportGroup, ReportInput, ReportMagnetic
 import type { FigureCurves, FigureTickRow, FobsFcalcPoint } from "@/core/export/reportFigures";
 import type { Session } from "@/app/powderSession";
 import { APP_VERSION } from "@/app/constants";
+import { minMax } from "@/core/math/extent";
 
 /** What the magnetic page is showing right now, as published by KSearchPanel. */
 export interface MagneticExploration {
@@ -113,7 +114,6 @@ function instrumentProfileRow(instrument: InstrumentParameters, loaded: boolean)
   return [{ label: "Instrument profile (file)", value: `${g}${l}${a}` }];
 }
 
-/** A value with its esd in the last digits, e.g. 19.8(4); the value alone without one. */
 /** The cell's esds as the structure file gives them, in a few words: "a 12.7506(1), c 27.6245(3) Å", the lengths the lattice holds equal given once. */
 function cellSuText(structure: StructureModel): string {
   const su = structure.cellSu ?? {};
@@ -127,6 +127,7 @@ function cellSuText(structure: StructureModel): string {
   ].join("; ");
 }
 
+/** A value with its esd in the last digits, e.g. 19.8(4); the value alone without one. */
 function withEsdText(v: number, esd: number | undefined, decimals: number): string {
   if (esd === undefined || !(esd > 0)) return v.toFixed(decimals);
   const d = Math.min(Math.max(-Math.floor(Math.log10(esd)) + (esd < 2 * 10 ** Math.floor(Math.log10(esd)) ? 1 : 0), 0), 6);
@@ -324,8 +325,7 @@ export function powderReportInput(o: {
   const free = params.filter((p) => !p.fixed && !p.expression).length;
   const pattern = session.pattern;
   const xs = pattern.points.map((p) => p.x);
-  const xmin = xs.length ? Math.min(...xs) : 0;
-  const xmax = xs.length ? Math.max(...xs) : 0;
+  const { min: xmin, max: xmax } = xs.length ? minMax(xs) : { min: 0, max: 0 };
   const unit = X_UNIT_NAME[pattern.xUnit] ?? pattern.xUnit;
 
   const magnetic = magneticReportSection({

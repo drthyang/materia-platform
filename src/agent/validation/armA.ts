@@ -20,6 +20,7 @@ import { powderValidation, unindexedPeaks } from "@/core/diagnostics/powderValid
 import { powderChecks, type ValidationVerdict } from "@/core/diagnostics/validationChecks";
 import { excludedPointMask } from "@/core/refinement/factors";
 import type { Decision } from "@/agent/validation/record";
+import { minMax } from "@/core/math/extent";
 
 export interface ArmARun {
   readonly port: PowderAgentPort;
@@ -40,8 +41,9 @@ export function onScreenVerdict(s: PowderLiveState): ValidationVerdict {
   const d = s.d ? [...s.d] : undefined;
   const validation = powderValidation({ x, yObs, yCalc, ...(yBackground ? { yBackground } : {}), sigma, include, nParams, ...(d ? { d } : {}) });
   const finite = (d ?? []).filter((v) => Number.isFinite(v) && v > 0);
+  const span = minMax(finite);
   const indexed = finite.length === 0 ? [] : s.refinedPhases.flatMap((ph) =>
-    generateReflections(ph.cell, ph.spaceGroup, Math.min(...finite), Math.max(...finite)).map((r) => ({ d: r.d, hkl: `${r.h} ${r.k} ${r.l}`, phaseLabel: ph.name || ph.id })));
+    generateReflections(ph.cell, ph.spaceGroup, span.min, span.max).map((r) => ({ d: r.d, hkl: `${r.h} ${r.k} ${r.l}`, phaseLabel: ph.name || ph.id })));
   const hasSigma = s.pattern.points.every((p) => p.sigma !== undefined);
   const unindexed = d ? unindexedPeaks(d, yObs, yCalc, validation, indexed, hasSigma ? { pointSigma: sigma } : {}) : [];
   return powderChecks({ validation, unindexed, result: s.result, parameters: s.parameters });
