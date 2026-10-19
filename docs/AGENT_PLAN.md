@@ -268,7 +268,7 @@ are noted, since arm A reads it.
 | 4.5 | `boxcar_scan` returns per-box esds and each parameter's drift in esds; restarts reachable. | S |
 | 4.6 | The H-test's stated direction of bias fixed now; the unbiased estimator later. | S |
 | 4.7 | Texture: averaged over Laue equivalents, symmetry-distinct axes, corrected for choosing the best axis; a false-positive test over many seeds. | M |
-| 4.8 | Flack and Parsons use every measurement of unmerged data. | S |
+| 4.8 | **Done.** Parsons' quotients took each Bijvoet side's first measurement and dropped the rest; each side is now every measurement of the reflection and its equivalents merged, the Friedel opposites apart (SHELXL's MERG 2, σ as `mergeEquivalents` gives it). Four measurements a side halve the esd; merged data (a SHELXL listing) read as before. The refined Flack x (the inversion twin) already used every measurement ([report](./reports/2026-10-19-parsons-unmerged.md)). | S |
 | 4.9 | Known-answer tests for `test_extinction`; a false-positive test for `identify_peaks` on random d-lists. | S |
 | 4.10 | `review_symmetry` orders candidates by index, as its text says. | S |
 | 4.11 | **Lost centring (approved; after the core).** Today the cell check flags forbidden reflections that carry intensity, and `review_symmetry` says a lost centring "is likelier" when no same-lattice subgroup explains them. No tool names the decentred groups or tests them. Proposed: `review_symmetry` also lists the klassengleiche subgroups that drop a centring vector (index 2; index 4 from F), each named and with the forbidden reflections it allows, as candidates to put to the user. Building the split-site model stays the user's step. Developed on `dev-cscl-wrong-centring` only. | M |
