@@ -382,6 +382,8 @@ export class ComputeClient {
           ...(req.restraints ? { restraints: req.restraints } : {}),
           shape: req.shape,
           ...(req.eta !== undefined ? { eta: req.eta } : {}),
+          ...(req.lorentz !== undefined ? { lorentz: req.lorentz } : {}),
+          ...(req.backgroundType !== undefined ? { backgroundType: req.backgroundType } : {}),
           ...(req.fitRange ? { fitRange: req.fitRange } : {}),
         }
       : {
