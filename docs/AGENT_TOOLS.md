@@ -179,11 +179,11 @@ full descriptions at the end are the text an agent reads when it picks a tool.
 
 **`check_fit_range`** — The first step of a refinement: read the pattern's two ends and propose the fit window, as the GSAS-II tutorials do. The long-d end starts just below the first reflection (background only) unless the data hold peaks there no phase explains — magnetic order or another phase, which stay in. The far end stops in a gap below what is not real data: counts that step up and stay at the last points (a detector's or scan's edge), points with no counts, a line cut by the last point, the short-d stretch where no peak stands out of the noise, or (with a converged `result`) a stretch the model misses more than anywhere just inside. Every cut lies in a gap between reflections; a cut of more than 15 % of the points is flagged `large` — the user's call. Returns `low` and `high` (verdict, `cut`, findings with the evidence, notes on the counting σ), `proposed` (the window on the pattern's axis, or null), `proposedD` (Å) and `interior` (spikes, missing points no window removes). Pass the window on as `fitRange` to refine_powder and check_cell_symmetry.
 
-**`check_cell_symmetry`** — A sanity check at the START of a refinement, not a gate: does the cell index every peak, and does the data respect the space group's systematic absences? A Le Bail fit refines the cell from peak positions alone (free intensities), with back-to-back-exponential peaks that widen with d on time-of-flight data; then it reads the leftover (≥ `significance` σ counts). On 2θ data it also refines a zero shift and the axial-divergence asymmetry, and draws a lab tube's Kα₂. `unindexedPeaks` mean a wrong cell or lattice, or a missing phase — settle these first; pass known impurities as `extraPhases`. `shoulders` are small bumps (≤ 3 %) within a few widths of a strong line: a profile tail the simple Le Bail shape misses, not a phase, and not counted against the cell. `absences.violated` is a FLAG, not a verdict: before the structure is refined, profile misfit or an impurity line reads the same way. Do not change the space group on it — note it, refine the structure to the best, and question the group last with review_symmetry on the refined residual. `absences.untestable` lists forbidden reflections too close to an allowed one to judge. Only d ≥ `dMin` (0.7 Å) is read. It cannot catch a too-LARGE cell (a supercell indexes anything) or a group with too FEW absences — read `limits`. `passed` and `cell` (the Le Bail cell) are the result.
+**`check_cell_symmetry`** — A sanity check at the START of a refinement, not a gate: does the cell index every peak, and does the data respect the space group's systematic absences? A Le Bail fit refines the cell from peak positions alone (free intensities), with back-to-back-exponential peaks that widen with d on time-of-flight data; then it reads the leftover (≥ `significance` σ counts). On 2θ data it also refines a zero shift and the axial-divergence asymmetry, and draws a lab tube's Kα₂. `reading` says what the check found in the app's words (first a wrong wavelength or difC, from the pattern's own peaks: one factor on every d, which the Le Bail fit cannot follow). `unindexedPeaks` mean a wrong cell or lattice, or a missing phase — settle these first; pass known impurities as `extraPhases`. `shoulders` are small bumps (≤ 3 %) within a few widths of a strong line: a profile tail the simple Le Bail shape misses, not a phase, and not counted against the cell. `absences.violated` is a FLAG, not a verdict: before the structure is refined, profile misfit or an impurity line reads the same way. Do not change the space group on it — note it, refine the structure to the best, and question the group last with review_symmetry on the refined residual. `absences.untestable` lists forbidden reflections too close to an allowed one to judge. Only d ≥ `dMin` (0.7 Å) is read. It cannot catch a too-LARGE cell (a supercell indexes anything) or a group with too FEW absences — read `limits`. `passed` and `cell` (the Le Bail cell) are the result.
 
 **`refine_powder`** — Run the deterministic Levenberg–Marquardt refinement of the FREED parameters (fix a parameter by setting its `fixed:true`). Returns refined values, esds, agreement (wR/GoF), the SVD/correlation/at-bound diagnostics, the observation count, and the residual — everything assess_refinement needs — plus `parameters`: the input set carrying the refined values, ready for the next block. The agent decides what to free; it never sets values.
 
-**`assess_refinement`** — The judgment tool. Turn a refinement result into a structured expert read: a trust VERDICT (Toby GoF bands) plus ranked FINDINGS — dangerous correlations (with the physical reason), at-bound/unphysical parameters, ill-conditioning, over/under-parameterization, and UNEXPLAINED RESIDUAL PEAKS (the missing-phase / magnetic-order signal). Pass the refine_powder outputs straight in.
+**`assess_refinement`** — The judgment tool. Turn a refinement result into a structured expert read: a trust VERDICT (Toby GoF bands) plus ranked FINDINGS — dangerous correlations (with the physical reason), at-bound/unphysical parameters, ill-conditioning, over/under-parameterization, and UNEXPLAINED RESIDUAL PEAKS (the missing-phase / magnetic-order signal). Pass the refine_powder outputs straight in; a refine_pdf result is read in real space, without the GoF.
 
 **`suggest_next_steps`** — The decision tool. Given an assessment, return ranked next ACTIONS (sequencing the constrained refinement — never inventing values): fix an unphysical value, hold an at-bound parameter, break a correlation, hunt an impurity/magnetic phase, or validate a good fit before extending it.
 
@@ -239,7 +239,7 @@ full descriptions at the end are the text an agent reads when it picks a tool.
 
 **`compute_mpdf_components`** — Split the calculated G(r) into its nuclear and magnetic parts at the CURRENT parameter values, without refining. Use it to check whether a candidate spin model produces enough magnetic signal to fit. `magneticFraction` is the RATIO peak|magnetic| / peak|nuclear| — 0.01 is 1%, and below about that the moments are effectively unconstrained by the data (a strongly magnetic neutron PDF runs 0.1–1). Always read it with `nuclearPeak`/`magneticPeak`: the ratio is reported as 0 when the nuclear peak is zero, which means a degenerate nuclear model, not weak magnetism.
 
-**`sample_posterior`** — Draw Bayesian posterior samples over the FREED parameters of a PDF fit, or of a powder fit (pass build_refinement's `profile`, and `magnetic` for a nuclear + magnetic co-refinement), with an affine-invariant ensemble MCMC sampler — the full parameter distribution where refine_pdf / refine_powder give a point estimate. Run it when a refined value is not convincing: an esd as large as the value, a parameter on a bound, a strongly correlated pair, a value that moves between refinement paths at the same wR. Reports per-parameter median / 68% / 95% credible intervals, convergence diagnostics (R-hat, ESS, acceptance), sample correlations, and — when `linearizedEsd` from a prior refine_pdf is supplied — `esdRatio` (posterior std / least-squares esd: ≈1 validates the esds, ≫1 means they were overconfident from correlation or non-Gaussianity). The default `marginalized` noise model integrates out the unknown G(r) error scale (uniform weights are not honest sigmas), so widths are meaningful. Run refine_pdf / refine_powder FIRST and seed `parameters` at the converged values. Bounded per call: if `converged` is false, pass the returned `resume` token to a follow-up call to continue the same chain.
+**`sample_posterior`** — Draw Bayesian posterior samples over the FREED parameters of a PDF fit, or of a powder fit (pass build_refinement's `profile`, and `magnetic` for a nuclear + magnetic co-refinement), with an affine-invariant ensemble MCMC sampler — the full parameter distribution where refine_pdf / refine_powder give a point estimate. Run it when a refined value is not convincing: an esd as large as the value, a parameter on a bound, a strongly correlated pair, a value that moves between refinement paths at the same wR. Reports per-parameter median / 68% / 95% credible intervals, convergence diagnostics (R-hat, ESS, acceptance), sample correlations, `intervals` and `reading` (each parameter's verdict and the run read whole, as the app reads it: wait for convergence, the esds confirmed or not, a bound, a strong correlation), and — when `linearizedEsd` from a prior refine_pdf is supplied — `esdRatio` (posterior std / least-squares esd: ≈1 validates the esds, ≫1 means they were overconfident from correlation or non-Gaussianity). The default `marginalized` noise model integrates out the unknown G(r) error scale (uniform weights are not honest sigmas), so widths are meaningful. Run refine_pdf / refine_powder FIRST and seed `parameters` at the converged values. Bounded per call: if `converged` is false, pass the returned `resume` token to a follow-up call to continue the same chain.
 
 **`compute_partial_pdf`** — Decompose the calculated G(r) for interpretation — which chemistry (element pair) or which phase makes which peak. Single phase → Faber–Ziman element-pair partials; with extraPhases → per-phase contributions. The curves sum exactly to the total calc.
 
@@ -529,8 +529,12 @@ under, the references, the report's checks.
   V, Cu, steels, Nb, Pb), common holders and standards, and the impurities a
   synthesis leaves most often (CaF₂, NaF, NaCl), each phase's lines computed
   for the pattern's radiation and allowed one d scale; candidates rank by the
-  peaks they explain, weighed by how plausible their cell is, and one whose
-  strongest line is missing is called doubtful. `add_known_phase` adds a
+  lines they explain (a line once, however many peaks sit on it), weighed by
+  how plausible their cell is, and one whose strongest line is missing is
+  called doubtful. A lead is named only when random peaks over the same range
+  match a library phase as well less than 1 % of the time: 500 draws of as
+  many peaks, each phase held to its own draws so a dense phase (corundum)
+  needs more lines than a sparse one. `add_known_phase` adds a
   matched library phase to the model as a further phase (its cell, positions
   and B ≈ 0.5 Å²) and always asks the user; another phase needs the user's
   CIF. A glob without a phase prefix (`pos_*`) matches every phase's rows of
@@ -582,8 +586,11 @@ under, the references, the report's checks.
   or the scan's own `free` set, which leaves the page's free set and fit as
   they are — are refined box by box across the fit window, seeded from the
   previous box, and the parameter rows are left as they are. It returns each
-  box's r range, Rw and values, and each parameter's spread, to tell the local
-  structure from the average; with `bonds` (cation sites), each box's
+  box's r range, Rw, values and esds, and each parameter's spread and its
+  drift from the first box to the last in esds of that difference, to tell
+  the local structure from the average; `restarts` refines each box from that
+  many perturbed starts as well, the seeded one kept (none unless asked,
+  whatever the panel's setting). With `bonds` (cation sites), each box's
   coordination shell in the structure it refined, so a distortion is compared
   as lengths. The last scan goes into the report.
 - `set_adp_model` switches the primary phase between one U per site and the U
@@ -612,7 +619,8 @@ under, the references, the report's checks.
   test; its approval card counts what it leaves out. `test_extinction` runs
   that test with the page left as it is: two probe fits, with and without the
   reflections of y below the cut (0.5 by default), and every free parameter
-  that moves by more than 2 esd between them. `set_resolution_range`
+  that moves by more than 2 esd between them, the esd of the fit without
+  them (leaving data out widens every esd). `set_resolution_range`
   limits the fit to a d range (SHELXL's SHEL), for a high-order refinement.
   `set_extinction_model` switches between SHELXL's EXTI and Becker–Coppens
   type I or II (Gaussian or Lorentzian mosaic), as GSAS-II computes it; the
@@ -644,7 +652,8 @@ under, the references, the report's checks.
   where the group needs it), keeping the refined values and the twin's fit;
   called again it returns to the hand as loaded. `assess_refinement`'s
   `absoluteStructure` gives Parsons' x from the Bijvoet pairs fitted both
-  ways. In a polar group (P6₁, P2₁, Pc, P1) the fit holds the floating origin
+  ways, each side every measurement of the reflection and its equivalents
+  merged (the Friedel opposites apart, SHELXL's MERG 2). In a polar group (P6₁, P2₁, Pc, P1) the fit holds the floating origin
   by SHELXL's restraint. `set_riding_hydrogens` rides the hydrogens on their
   parents as SHELXL's AFIX does: sp² on the bisector (43), a methyl or NH₃
   rotating with its torsion refined (137), a hydroxyl likewise (147), a CH₂
@@ -734,7 +743,7 @@ runs, and before the approval card appears, the page runs its own fit of the
 free set with no iterations (the port's `probe`): the normal matrix at the
 current values, over the same fit window, which gives the covariance the
 refinement would report without moving anything
-([`src/agent/correlationCheck.ts`](../src/agent/correlationCheck.ts)). If
+([`src/core/diagnostics/correlationGuard.ts`](../src/core/diagnostics/correlationGuard.ts); the refusal's wording is [`src/agent/correlationCheck.ts`](../src/agent/correlationCheck.ts)). If
 two free parameters correlate at |ρ| ≥ 0.95 (the line the engine and
 `assess_refinement` already draw), or the data cannot determine a combination
 of them at all (an SVD null direction, such as scale with every site
@@ -755,7 +764,11 @@ among themselves (SHELXL's PART 1 and 2 of an assembly: the alternatives'
 positions, their shared ADP and the split), which sit a few tenths of an
 ångström apart and correlate at −0.99 by construction; SHELXL refines them
 together and the full covariance carries the correlation into their esds. A
-passing check puts the strongest remaining pair on the approval card.
+pair whose correlation a third free parameter carries (under 0.9 with every
+other free parameter held fixed, under 0.99 itself) is listed too.
+`assess_refinement`, in the app and over MCP, notes rather than warns about
+the pairs the check lets through. A passing check puts the strongest
+remaining pair on the approval card.
 The check is measured on this data, so a pair the range separates (cell and
 zero over a wide 2θ range) is not refused. Pairs that tighten during the fit
 are listed in the outcome, and the next `refine` refuses them. The page's own

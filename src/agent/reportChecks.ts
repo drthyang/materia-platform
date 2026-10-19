@@ -13,7 +13,7 @@ import type { StructureModel } from "@/core/crystal/types";
 import type { LinearRestraint, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { RefinementAssessment, FindingCategory } from "@/core/diagnostics/assessment";
 import { bondValenceSums, type BondValenceSum } from "@/core/crystal/bondValence";
-import { CORRELATION_LIMIT, readCorrelations } from "@/agent/correlationCheck";
+import { CORRELATION_LIMIT, readCorrelations } from "@/core/diagnostics/correlationGuard";
 
 /** The engine's own threshold for the correlations a refinement keeps (engine.ts DEFAULT_OPTIONS). */
 export const CORRELATION_LISTED = CORRELATION_LIMIT;

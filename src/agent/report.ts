@@ -21,7 +21,8 @@ import type { ParameterBinding, ParameterKind, RefinementParameter, RefinementRe
 import type { AgentPage } from "@/agent/tools";
 import { RULES, methodProgress, stagesCovered, stagesFor, stagesLeft, type AgentRecord } from "@/agent/method";
 import { PAGES } from "@/agent/pages";
-import { differenceSentences, readPosterior, type PosteriorRun } from "@/agent/posteriorTool";
+import type { PosteriorRun } from "@/agent/posteriorTool";
+import { differenceSentences, readPosterior } from "@/core/diagnostics/posteriorReading";
 import type { UnitCell } from "@/core/crystal/types";
 import { isInversion, type ExtinctionModel, type OmittedMeasurement, type ResolutionRange, type TwinLaw } from "@/core/diffraction/types";
 import { improper } from "@/core/workflow/singleCrystalRefinement";

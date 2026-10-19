@@ -4,7 +4,7 @@
 
 import type { SingleCrystalAgentPort } from "@/agent/port";
 import { SC_PLANS, keptMeasurements, readSingleCrystalTool, singleCrystalReferences, singleCrystalReportChecks } from "@/agent/scTools";
-import { disorderAssemblies } from "@/agent/correlationCheck";
+import { disorderAssemblies } from "@/core/diagnostics/correlationGuard";
 import { singleCrystalAnalysis } from "@/agent/method";
 import { pct } from "@/agent/liveCommon";
 import type { PageAdapter } from "@/agent/pages/types";

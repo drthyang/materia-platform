@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { parse_structure } from "@/mcp/tools";
 import { generateReflections } from "@/core/diffraction/reflections";
-import { reviewSymmetry } from "@/core/diagnostics/symmetryReview";
+import { orderCandidates, reviewSymmetry } from "@/core/diagnostics/symmetryReview";
 
 /**
  * The symmetry review (the method's last step) on a refined residual: a
@@ -67,5 +67,18 @@ describe("the symmetry review", () => {
     expect(review.candidates).toEqual([]);
     expect(review.tested).toBeGreaterThan(5);
     expect(review.reading).toMatch(/^No forbidden reflection of .* carries intensity in the refined fit .*Nothing in the data asks for a lower symmetry/);
+  });
+});
+
+describe("the order of the candidates", () => {
+  const c = (name: string, index: number, allows: string[]) => ({ name, index, domains: index, allows });
+  it("puts those that allow every observed reflection first, then those that allow some, each by smallest index", () => {
+    const order = orderCandidates([
+      c("H4 (all, index 4)", 4, ["1 0 0", "0 0 1"]),
+      c("P3 (some, index 3, allows two)", 3, ["1 0 0", "2 0 0"]),
+      c("H2 (all, index 2)", 2, ["1 0 0", "0 0 1"]),
+      c("P2 (some, index 2, allows one)", 2, ["1 0 0"]),
+    ].map((x) => ({ ...x, allows: x.name.includes("(all") ? ["1 0 0", "0 0 1", "2 0 0"] : x.allows })), 3);
+    expect(order.map((x) => x.name)).toEqual(["H2 (all, index 2)", "H4 (all, index 4)", "P2 (some, index 2, allows one)", "P3 (some, index 3, allows two)"]);
   });
 });

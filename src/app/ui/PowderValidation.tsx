@@ -41,6 +41,7 @@ import {
   td,
   th,
 } from "@/app/ui/ValidationParts";
+import { minMax } from "@/core/math/extent";
 
 const AGREEMENT_INFO = "Rwp is judged against Rexp: their ratio is the GoF (Toby 2006). With the background subtracted (Rwp′, Rexp′) the same misfit is measured against the peaks alone. Durbin–Watson d ≈ 2 for uncorrelated residuals; below Q_D (Hill & Flack 1987) neighbouring points miss together — a profile misfit, and esds that are too small. R_Bragg and R_F come from the Rietveld split of I_obs, so overlapped reflections lean toward the model: compare phases with them, don't quote them as proof.";
 const STRIP_INFO = "Top: (y_obs − y_calc)/σ per point, the ±3σ band shaded. Bottom: the running χ² as a share of the total. Noise alone climbs as a straight ramp; steps are where the model misses, and the numbered steps are the rows of Worst peaks. Click the strip to open that spot in the Refinement view.";
@@ -348,8 +349,7 @@ function ResidualStrip({ x, validation, include, toDisplay, displayLabel, phaseT
       dx.push(v);
     }
     if (idx.length === 0) return null;
-    const lo = Math.min(...dx);
-    const hi = Math.max(...dx);
+    const { min: lo, max: hi } = minMax(dx);
     const span = hi - lo || 1;
     const px = (v: number): number => X0 + ((v - lo) / span) * (X1 - X0);
     const cols = X1 - X0;

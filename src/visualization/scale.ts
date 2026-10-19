@@ -32,20 +32,6 @@ export function linearScale(
   return fn;
 }
 
-export function extent(values: readonly number[]): [number, number] {
-  if (values.length === 0) return [0, 1];
-  let min = Infinity;
-  let max = -Infinity;
-  for (const v of values) {
-    if (v < min) min = v;
-    if (v > max) max = v;
-  }
-  if (min === max) {
-    return [min - 1, max + 1];
-  }
-  return [min, max];
-}
-
 /** Build an SVG polyline "x,y x,y …" path string from data arrays. */
 export function polylinePoints(
   xs: readonly number[],

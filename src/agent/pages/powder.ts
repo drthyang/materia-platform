@@ -11,12 +11,13 @@ import { isMagneticTool, magneticOutcome, readMagneticTool } from "@/agent/magne
 import { powderAnalysis } from "@/agent/method";
 import type { PageAdapter } from "@/agent/pages/types";
 import { planFrom } from "@/agent/pages/plans";
-import { sig6, stampOf } from "@/agent/pages/stamp";
+import { stampOf } from "@/agent/pages/stamp";
+import { sig } from "@/agent/liveCommon";
 
 /** The magnetic step's settings: k, the ions, the moment ties, the group chosen and its moments. */
 function stepSettings(step: MagneticPanelState | null): unknown {
   if (!step) return null;
-  const selected = step.selected ? [step.selected.id, step.selected.parameters.map((p) => [p.id, sig6(p.value), p.tiedTo ?? ""])] : null;
+  const selected = step.selected ? [step.selected.id, step.selected.parameters.map((p) => [p.id, sig(p.value), p.tiedTo ?? ""])] : null;
   return [step.k, step.ions.filter((i) => i.selected).map((i) => i.label), step.ties, selected];
 }
 
@@ -33,7 +34,7 @@ export const POWDER_PAGE: PageAdapter<PowderAgentPort> = {
     // The X-ray constants (polarization, Kα₂ ratio) live on the radiation.
     radiation: s.pattern.radiation,
     phases: [s.structure, ...s.extraPhases].map((p) => p.id),
-    magnetic: s.magnetic ? [s.magnetic.id, s.magnetic.propagation, s.magnetic.moments.map((m) => [m.siteLabel, m.components.map(sig6)])] : null,
+    magnetic: s.magnetic ? [s.magnetic.id, s.magnetic.propagation, s.magnetic.moments.map((m) => [m.siteLabel, m.components.map((c) => sig(c))])] : null,
     step: stepSettings(step),
   }),
   agreementKey: "wR",

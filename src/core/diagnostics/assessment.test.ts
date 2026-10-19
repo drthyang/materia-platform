@@ -159,6 +159,49 @@ describe("assessRefinement — findings", () => {
     expect(f?.detail).toMatch(/background/i);
   });
 
+  it("notes, not warns about, a pair the correlation guard refines together", () => {
+    // The guard's rule (correlationGuard.ts): a pair a third free parameter carries, and on a single
+    // crystal the overall intensity terms among themselves. The assessment warned about both, and told
+    // the model to refine apart what the guard had just refined together.
+    const diagnostics = (highCorrelations: NonNullable<RefinementResult["diagnostics"]>["highCorrelations"]): NonNullable<RefinementResult["diagnostics"]> => ({
+      svdZeroCount: 0, singularParameterIds: [], conditionNumber: 100, maxLambda: 1, atBounds: [], maxShiftOverEsd: 0, highCorrelations,
+    });
+    const sc = [param("scale", "scale", 1), param("extinction", "extinction", 20), param("B_O1", "bIso", 0.3), param("occ_O1", "occupancy", 1)];
+    const a = assessRefinement({
+      result: result({ diagnostics: diagnostics([
+        { parameterIdA: "scale", parameterIdB: "B_O1", coefficient: 0.976, conditional: 0.722 },
+        { parameterIdA: "scale", parameterIdB: "extinction", coefficient: 0.989, conditional: 0.95 },
+        { parameterIdA: "B_O1", parameterIdB: "occ_O1", coefficient: 0.97, conditional: 0.95 },
+      ]) }),
+      parameters: sc,
+      observationCount: 400,
+      mode: "single-crystal",
+    });
+    const of = (a1: string, b1: string) => a.findings.find((x) => x.category === "correlation" && x.parameterIds?.join() === `${a1},${b1}`)!;
+    expect([of("scale", "B_O1").severity, of("scale", "extinction").severity, of("B_O1", "occ_O1").severity]).toEqual(["note", "note", "warning"]);
+    expect(of("scale", "B_O1").detail).toMatch(/carried by a third free parameter: with every other free parameter held fixed they correlate at 0\.72/i);
+    expect(of("scale", "extinction").detail).toMatch(/overall intensity terms/);
+    // On powder the scale and the extinction are not exempt: two phases' scales at −0.99 are a real problem there.
+    const powder = assessRefinement({
+      result: result({ diagnostics: diagnostics([{ parameterIdA: "scale", parameterIdB: "extinction", coefficient: 0.989, conditional: 0.95 }]) }),
+      parameters: sc,
+      observationCount: 4000,
+    });
+    expect(powder.findings.find((x) => x.category === "correlation")?.severity).toBe("warning");
+  });
+
+  it("reads a PDF fit without a GoF band, the mode taken from its parameters when not given", () => {
+    // MCP could not ask for the PDF mode, so assess_refinement on a refine_pdf result read the
+    // engine's GoF with the powder bands; the app's page stripped it before calling.
+    const pdf = [param("pdfScale", "pdfScale", 1), param("qdamp", "qdamp", 0.03)];
+    for (const mode of ["pdf", undefined] as const) {
+      const a = assessRefinement({ result: result({ agreement: { goodnessOfFit: 4.2, rWeighted: 0.12 } }), parameters: pdf, observationCount: 2000, ...(mode ? { mode } : {}) });
+      expect(a.verdict.gof).toBeUndefined();
+      expect(a.verdict.band).toBe("fair");
+      expect(a.verdict.rationale).toMatch(/^Converged\. A PDF fit has no goodness of fit/);
+    }
+  });
+
   it("flags an at-bound ADP as critical with expert context", () => {
     const a = assessRefinement({
       result: result({
