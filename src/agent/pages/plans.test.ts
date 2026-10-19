@@ -2,13 +2,15 @@ import { describe, it, expect } from "vitest";
 import { LIVE_TOOLS } from "@/agent/tools";
 import { PDF_PLANS } from "@/agent/pdfTools";
 import { SC_PLANS } from "@/agent/scTools";
-import { executor, fakeHost, pdfPort } from "@/testSupport/agentHeadless";
-import { scPage } from "@/agent/evals/pages";
+import { POWDER_PLANS } from "@/agent/powderTools";
+import { executor, fakeHost, pdfPort, sessionPort } from "@/testSupport/agentHeadless";
+import { mn3gaSession, powderPage, scPage } from "@/agent/evals/pages";
 
 /**
  * A page's changes as plans (pages/plans.ts): one per change tool of the
  * page, each saying what its card will say and making the change, or why
- * there is nothing to do. The PDF and single-crystal pages are on plans.
+ * there is nothing to do. Every page is on plans, the powder page's magnetic
+ * step too.
  */
 
 describe("the PDF page's changes, planned", () => {
@@ -50,5 +52,33 @@ describe("the single-crystal page's changes, planned", () => {
     const refine = await ex.run("refine", {});
     expect(refine.text).toMatch(/no parameter is free/);
     expect(asked.map((a) => a.tool)).toEqual(["set_free"]);
+  });
+});
+
+describe("the powder page's changes, planned", () => {
+  it("has a plan for every change tool of the page, the magnetic step's among them", () => {
+    const tools = LIVE_TOOLS.filter((t) => t.effect === "change" && t.pages.includes("powder") && t.name !== "allow_exception").map((t) => t.name).sort();
+    expect(Object.keys(POWDER_PLANS).sort()).toEqual(tools);
+  });
+
+  it("refuses a change that cannot run before its card", async () => {
+    const port = powderPage(mn3gaSession());
+    const { ex, asked } = executor(fakeHost(port).host, "auto");
+    // The demo's pattern ends below 120° 2θ.
+    const window = await ex.run("set_fit_range", { min: 130, max: 140 });
+    expect(window.text).toMatch(/is outside the pattern/);
+    await ex.run("set_free", { fix: ["*"] });
+    const refine = await ex.run("refine", {});
+    expect(refine.text).toMatch(/no parameter is free/);
+    expect(asked.map((a) => a.tool)).toEqual(["set_free"]);
+  });
+
+  it("refuses to refine a view-only pattern before its card", async () => {
+    // A TOF pattern without a TOF profile.
+    const start = mn3gaSession();
+    const { port } = sessionPort({ ...start, pattern: { ...start.pattern, xUnit: "tof" } });
+    const { ex, asked } = executor(fakeHost(port).host, "auto");
+    expect((await ex.run("refine", {})).text).toMatch(/this pattern is view-only/);
+    expect(asked).toEqual([]);
   });
 });

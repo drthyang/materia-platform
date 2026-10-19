@@ -721,12 +721,13 @@ rest of the session. Every change is a step in History tagged `agent`
 (`HistoryStep.actor`), so ⌘Z undoes it like any other step. A change whose
 card was approved after the page moved under it (any setting the Agent can
 change there: each page's stamp in [`src/agent/pages/`](../src/agent/pages/))
-is not run, and the model is told to read the state again. On the PDF and
-single-crystal pages each change is planned before its card
-([`src/agent/pages/plans.ts`](../src/agent/pages/plans.ts)): one that cannot run
-(a window with max below min, a scan of an anion's bonds, a reflection kept
-that is not on the failed list, a refinement with nothing free) is refused
-before the card, not after the user approved it.
+is not run, and the model is told to read the state again. On every page,
+the powder page's magnetic step included, each change is planned before its
+card ([`src/agent/pages/plans.ts`](../src/agent/pages/plans.ts)): one that
+cannot run (a window with max below min or outside the data, a scan of an
+anion's bonds, a reflection kept that is not on the failed list, a
+refinement with nothing free or of a view-only pattern) is refused before the
+card, not after the user approved it.
 
 **No correlated parameters refined together.** Before the Agent's `refine`
 runs, and before the approval card appears, the page runs its own fit of the

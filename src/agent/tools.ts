@@ -978,6 +978,11 @@ export type PageChangeTool<P extends AgentPage> = Exclude<
   "allow_exception"
 >;
 
+/** The magnetic step's change tools: their definitions say magneticStep. */
+export type MagneticChangeTool = (typeof TOOLS)[number] extends infer T
+  ? (T extends { readonly name: infer N; readonly effect: "change"; readonly magneticStep: true } ? N : never)
+  : never;
+
 export function liveTool(name: string): LiveToolSpec | undefined {
   return LIVE_TOOLS.find((t) => t.name === name);
 }
