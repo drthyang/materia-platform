@@ -303,7 +303,7 @@ shape is pinned, and every registered tool appears on this page.
 
 ## Skills
 
-A skill composes tools into an expert procedure. Four ship in this repository:
+A skill composes tools into an expert procedure. These ship in this repository:
 
 - [`.claude/skills/my-rietveld-workflow/`](../.claude/skills/my-rietveld-workflow/SKILL.md),
   the maintainer's own powder Rietveld procedure: a sanity check of the cell, a
@@ -325,6 +325,12 @@ A skill composes tools into an expert procedure. Four ship in this repository:
   the last step of a Rietveld refinement, if at all: when the data ask for a
   lower space group, the alternatives to rule out, and how a lower group is
   tested — never before the structure is refined to the best its group allows.
+- [`.claude/skills/sc-workflow/`](../.claude/skills/sc-workflow/SKILL.md), the
+  single-crystal F² procedure: the data read before the model, the order of the
+  free parameters, the weights last. General practice, not yet the maintainer's.
+- [`.claude/skills/bayesian-check/`](../.claude/skills/bayesian-check/SKILL.md),
+  when and how to sample the posterior of a refined number that is not
+  convincing, and how to report its credible interval.
 
 New skills come from interviewing the user; [SKILL_INTERVIEWS.md](./SKILL_INTERVIEWS.md)
 is the guide (magnetic, PDF, single crystal, the symmetry review), and says where
@@ -335,10 +341,20 @@ repository; the in-app Agent reads them through
 [`src/agent/skills.ts`](../src/agent/skills.ts). Its system prompt carries only
 each skill's name and description, and the Agent reads a skill with
 `read_skill` when the task calls for it (progressive disclosure). A skill's
-**References** section lists longer knowledge bases as relative links
+**References** section lists longer knowledge bases, and notes beside the skill
+(its cases, its MCP tool map), as relative links
 (`- [\`name\`](../../../knowledge/file.md) — what it covers`): Claude Code follows
 the path, and the in-app Agent reads the reference by name. `skills.test.ts`
 checks that every skill parses and every reference resolves.
+
+A page's method opens with a **Gates** section: its numbers, its stopping rule
+and what to ask the user, in one place. The skill lint
+([`skillLint.test.ts`](../src/agent/skillLint.test.ts)) holds each skill to the
+code: every tool it names exists on its pages (or is marked as MCP-only), every
+gate number it quotes is the constant the code decides by
+([`thresholds.ts`](../src/core/diagnostics/thresholds.ts)), every stage of the
+page's method is named, and each method fits its share of a local model's
+window, with an outline that keeps its Gates.
 
 To add a skill, add a folder with a `SKILL.md` (frontmatter `name` and
 `description`, then the procedure, then References). Nothing else changes: both
@@ -911,7 +927,9 @@ tools and room for the reply (6k tokens) first; then the history, its old
 tool results turned into digests (the tool, its ref, its key values, and
 whether a change ran since; `read_ref` opens the whole) in batches, so the
 server's prompt cache keeps the conversation; a skill read again keeps only
-its latest copy. A prompt that still cannot fit is refused with why, never
+its latest copy; when nothing else is left, a method read before the latest
+shrinks to its outline, its headings with its Gates section whole
+(`read_skill` gives it whole again). A prompt that still cannot fit is refused with why, never
 sent cut, and the reply is capped at the room left. Tokens are first counted
 at 3 characters each, then measured from the server's own counts; once a
 server has counted a whole prompt, a count far below the estimate means it

@@ -198,7 +198,7 @@ export function posteriorReading(result: PosteriorRunRead, parameters: readonly 
           ...(bounded.length ? [`${bounded.map((r) => r.label).join(", ")}: on a bound, only a limit is determined.`] : []),
         ].join(" "),
       ...(pairs.length ? [`Posterior correlations: ${pairs.slice(0, 5).map((x) => `${byId.get(x.a)?.label ?? x.a} ↔ ${byId.get(x.b)?.label ?? x.b} ${sig(x.rho, 2)}`).join("; ")} — the data fix their combination, not each alone (a tie or a restraint, or more data, separates them).`] : []),
-      "The intervals hold within this model and its noise model: a systematic misfit (Durbin–Watson well below 2) leaves them as overconfident as the esds.",
+      "The intervals hold within this model and its noise model: a systematic misfit (on powder, diagnose_fit's Durbin–Watson d below Q_D) leaves them as overconfident as the esds.",
     ].join(" ");
   const differences = differenceSentences(result, parameters, compare);
   return { converged, nearly, essWanted, rows, correlations: pairs, reading: differences.length && (converged || nearly) ? `${text} ${differences.join(" ")}` : text };

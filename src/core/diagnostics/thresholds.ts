@@ -26,14 +26,34 @@ export const CARRIED_BELOW = 0.9;
 export const CARRIED_MAX = 0.99;
 
 /**
+ * Correlations from this up to CORRELATION_LIMIT are reported, never silent
+ * (the user's rule): the pair is refined, and the report says how strongly
+ * the data couple it.
+ */
+export const CORRELATION_REPORTED = 0.8;
+
+/**
  * GoF (√χ²ν = Rwp/Rexp) bands after Toby (2006), for a powder fit:
  * excellent up to 1.5, good to 2.5, fair to 4, poor above; below 0.8 the fit
  * is "too good" (σ overestimated or the model over-parameterized).
  */
 export const GOF_BANDS = { tooGood: 0.8, excellent: 1.5, good: 2.5, fair: 4 } as const;
 
-/** The Validation tab's single-crystal GooF it calls good without remark (SHELXL's weights bring a right model near 1). */
+/** The single-crystal GooF called good without remark (SHELXL's weights bring a right model near 1). */
 export const GOOF_SINGLE_CRYSTAL_OK = 1.3;
+
+/**
+ * The single-crystal GooF bands, for the Validation tab and the assessment
+ * alike: the powder bands' steps from the single-crystal line (excellent up
+ * to 1.3, good to 2.3, fair to 3.8). On F² the weighting scheme is refitted
+ * to the model, so a GooF the powder bands call excellent is a misfit here.
+ */
+export const GOOF_SINGLE_CRYSTAL_BANDS = {
+  tooGood: GOF_BANDS.tooGood,
+  excellent: GOOF_SINGLE_CRYSTAL_OK,
+  good: GOOF_SINGLE_CRYSTAL_OK + (GOF_BANDS.good - GOF_BANDS.excellent),
+  fair: GOOF_SINGLE_CRYSTAL_OK + (GOF_BANDS.fair - GOF_BANDS.excellent),
+} as const;
 
 /** A refinement has settled when its last cycle moved no parameter by more than this many esds. */
 export const SHIFT_SETTLED = 0.1;
@@ -58,6 +78,10 @@ export const POSTERIOR_NEARLY_RHAT = 1.1;
 
 /** The strongest reflections' Fo²/Fc² against the others' below this suggests extinction. */
 export const EXTINCTION_K = 0.95;
+/** An extinction factor y below this (the correction takes more than a fifth of |F|²) is large. */
+export const EXTINCTION_LARGE = 0.8;
+/** Below this (more than half) it is severe: the extinction model carries the reflection, and test_extinction leaves such reflections out. */
+export const EXTINCTION_SEVERE = 0.5;
 
 /** Single crystal: R_int above this, or completeness below the next, is noted in the report. */
 export const R_INT_NOTE = 0.1;
@@ -65,6 +89,21 @@ export const COMPLETENESS_NOTE = 0.95;
 
 /** A Flack or Parsons u below this determines the absolute structure (Flack & Bernardinelli). */
 export const FLACK_U_DETERMINED = 0.04;
+
+/**
+ * The cell check's Le Bail fit at or above this Rwp has not settled: its cell
+ * is not read as the data's, and the peaks it leaves unindexed may be the
+ * model's own lines with the start too far off for it to follow.
+ */
+export const LE_BAIL_UNSETTLED = 0.5;
+
+/**
+ * Forbidden reflections carrying intensity, all of the lattice centring's
+ * class (h+k+l odd under I, and so on): from this many the cell check reads
+ * them as a possible lost centring. One or two can be a stray line (an
+ * impurity, λ/2) landing there.
+ */
+export const LOST_CENTRING_MIN = 3;
 
 /** Magnetic groups whose wR is within this of the best are tied, where the fit reports no χ² (the mPDF's, on uniform weights); the maximal one with the fewest moments then leads. */
 export const RANK_TIE_WR = 1e-4;
@@ -77,3 +116,36 @@ export const RANK_TIE_WR = 1e-4;
  * best's by less than one parameter's worth at the same level.
  */
 export const RANK_NOISE_ALPHA = 0.05;
+
+/**
+ * The physical checks after every refinement (the user's rules, 2026-10-19).
+ * Two atoms closer than DISTANCE_HARD (Å) cannot both be there: a hard
+ * failure (the run is taken back and put to the user). Closer than
+ * DISTANCE_WARN is unusual for any bond: a warning. Bonds to H and pairs that
+ * are never present together (alternatives of one disorder, partly occupied
+ * sites whose occupancies add to at most 1) are not checked.
+ */
+export const DISTANCE_HARD = 1.0;
+export const DISTANCE_WARN = 1.5;
+
+/** A cation–anion bond this much shorter than its bond-valence length (a fraction) is a warning. */
+export const BOND_SHORT = 0.1;
+
+/**
+ * U_iso (Å²) of a fully occupied site, read at room temperature: above
+ * U_LARGE a warning (it can be right: a rattling atom, a high temperature),
+ * above U_HARD a hard failure put to the user; below U_SMALL a warning (a U
+ * that small is a low-temperature value). A negative U is always a hard
+ * failure (assessment.ts).
+ */
+export const U_LARGE = 0.05;
+export const U_HARD = 0.1;
+export const U_SMALL = 0.001;
+
+/**
+ * A heavier atom's U above a lighter one's by this factor, and by at least
+ * U_ORDER_MIN Å², is a warning: heavier atoms usually vibrate less.
+ */
+export const U_ORDER_RATIO = 1.5;
+export const U_ORDER_MIN = 0.005;
+

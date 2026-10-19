@@ -30,7 +30,9 @@ k = 0, where magnetic intensity sits on nuclear reflections. So:
    has one: fix it, and refine only the magnetic parameters on the ordered data.
 3. Know what the residual is. `find_unexplained_peaks` separates peaks on no reflection
    (candidate magnetic satellites, or an impurity) from misfits on known reflections (which
-   refinement fixes; for k = 0 on neutron data they may also be magnetic).
+   refinement fixes; for k = 0 on neutron data they may also be magnetic: its `k0Magnetic`
+   flag, and the same hint in `assess_refinement`, say when a neutron pattern of magnetic
+   ions has its excess on nuclear lines at large d).
 
 ## Stage 1 — the propagation vector k
 
@@ -42,7 +44,8 @@ k = 0, where magnetic intensity sits on nuclear reflections. So:
    the simplest fractions; an impurity's lines will not fit any k — check them against a
    second phase first.
 3. Set it (`set_propagation_vector`). k = 0 when the magnetic intensity sits on the nuclear
-   reflections (and the sample is below its ordering temperature on neutron data).
+   reflections (the `k0Magnetic` hint, and the sample below its ordering temperature on
+   neutron data); the k-search on the misfits' d confirms it.
 4. Choose the magnetic ions (`select_magnetic_ions`): the sites whose ions carry a moment.
 
 ## Stage 2 — the magnetic space group, top-down
@@ -58,10 +61,12 @@ a single irreducible representation — a maximal group — so start there:
    line the best maximal group leaves in the residual asks for an in-plane component,
    which may only a lower group allow (Cr₂WO₆ at 4 K: the maximal P4₂'/m'nm', moments
    along c, left 0 0 1 at 32σ; the in-plane groups of index 4 took wR from 18.9 to 12 %).
-2. Read the ranking honestly. A powder often cannot tell several groups apart (the
-   direction ambiguity below): groups within the noise of the best are equally good fits.
-   Among them prefer the maximal group with the fewest moment parameters (the ★), and say
-   which others fit as well.
+2. Read the ranking honestly. The ★ marks the lowest wR (a tie within 0.01 % goes to the
+   maximal group with the fewest moment parameters); it is no test that the others fit
+   worse. A powder often cannot tell several groups apart (the direction ambiguity below):
+   a group whose wR is close to the ★'s and which explains every magnetic peak is an
+   equally good fit. Among those prefer the maximal group with the fewest moment
+   parameters, and say which others fit as well.
 3. A group that puts no moment on the chosen ions (0 moment components) cannot be it.
 
 ## Stage 3 — the moments
@@ -76,8 +81,8 @@ a single irreducible representation — a maximal group — so start there:
    - Reduced moments are expected and meaningful (covalency, fluctuations, crystal field).
    - The magnetic peaks are fitted, and the wR gain over the nuclear-only fit is real.
    - A component that starts at exactly zero has no gradient (intensity is quadratic in
-     the moment): the fit cannot move it, and refine refuses it as undetermined. Hold it
-     and say it was not tested — not that the data put it at zero.
+     the moment): `refine_moments` cannot move it, and `refine` (Stage 4) refuses it as
+     undetermined. Hold it and say it was not tested — not that the data put it at zero.
 
 ## Stage 4 — nuclear and magnetic together
 

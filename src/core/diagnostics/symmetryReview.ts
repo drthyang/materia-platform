@@ -17,7 +17,8 @@
  *  - each observed forbidden reflection is checked against the group's
  *    translationengleiche subgroups (same lattice, lost rotations — the glides
  *    and screws whose loss lifts an absence), and the subgroups that allow
- *    them are listed, smallest index first.
+ *    them are listed, those allowing the most of them first and then the
+ *    smallest index.
  *
  *  - a centred group's klassengleiche subgroups that drop a centring vector
  *    (index 2; 4 from F to P; 3 from R) are listed the same way: a lost

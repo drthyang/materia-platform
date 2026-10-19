@@ -78,5 +78,5 @@ export async function samplePosteriorTool(input: { continue?: boolean; steps?: n
   if (typeof run === "string") throw new Error(`the posterior run did not finish: ${run}`);
   const view = posteriorView(run, s.parameters, s.result.esd, compare);
   onRun?.({ run, result: s.result, parameters: s.parameters, compare });
-  return free.length > 12 ? { ...view, note: `${free.length} free parameters: each step costs ${2 * free.length + 2} pattern evaluations, and the chain mixes more slowly the more there are (expect ~10⁴ steps at 20). To ask about a few values, fix what does not correlate with them (the profile, the background, the cell and zero usually), refine that set, then sample it.` } : view;
+  return free.length > 12 ? { ...view, note: `${free.length} free parameters: each step costs ${2 * free.length + 2} pattern evaluations, and the chain mixes more slowly the more there are (expect ~10⁴ steps at 20). To ask about a few values, free them with their partners, fix the rest (the profile, the background, the cell and zero usually), refine that set, then sample it; the intervals are then conditional on what is held, which the report should say.` } : view;
 }

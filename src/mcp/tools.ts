@@ -432,6 +432,8 @@ export function assess_refinement(args: {
   sharedSiteAdps?: AssessmentInput["sharedSiteAdps"];
   /** The disorder assemblies of the parameters (see AssessmentInput). */
   disorder?: AssessmentInput["disorder"];
+  /** The refined structures, for the physical checks (see AssessmentInput). */
+  structures?: AssessmentInput["structures"];
 }): RefinementAssessment {
   return assessRefinement({
     result: args.result,
@@ -442,6 +444,7 @@ export function assess_refinement(args: {
     ...(args.restraints?.length ? { restraints: args.restraints } : {}),
     ...(args.sharedSiteAdps?.length ? { sharedSiteAdps: args.sharedSiteAdps } : {}),
     ...(args.disorder?.size ? { disorder: args.disorder } : {}),
+    ...(args.structures?.length ? { structures: args.structures } : {}),
   });
 }
 

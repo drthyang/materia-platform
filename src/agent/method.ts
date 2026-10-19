@@ -37,11 +37,12 @@ import { parseTie } from "@/core/refinement/constraints";
 import { lineage, type ProjectHistory } from "@/core/project/history";
 import { listOf } from "@/agent/liveCommon";
 
-export type MethodRule = "bare-occupancy" | "instrument-with-thermal";
+export type MethodRule = "bare-occupancy" | "instrument-with-thermal" | "instrument-with-positions";
 
 export const RULES: Readonly<Record<MethodRule, { readonly title: string; readonly pages: readonly AgentPage[] }>> = {
   "bare-occupancy": { title: "Refine an occupancy with no tie or second contrast", pages: ["powder", "pdf", "singleCrystal"] },
   "instrument-with-thermal": { title: "Refine instrument and thermal parameters together", pages: ["powder", "pdf"] },
+  "instrument-with-positions": { title: "Refine instrument terms and atom positions together", pages: ["powder"] },
 };
 
 /**
@@ -53,6 +54,9 @@ export const RULES: Readonly<Record<MethodRule, { readonly title: string; readon
 export const INSTRUMENT_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>([
   "zeroShift", "tofCalibration", "peakWidth", "profileU", "profileV", "profileW", "profileX", "profileY", "asymSL", "asymHL", "tofProfile", "qdamp", "qbroad",
 ]);
+
+/** The atom positions: coordinates and position shifts. */
+export const POSITION_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>(["atomX", "atomY", "atomZ", "positionShift"]);
 
 /** The thermal parameters: B_iso and the anisotropic U's. */
 export const THERMAL_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>(["bIso", "uAniso"]);
@@ -118,12 +122,16 @@ const POWDER_STAGES: readonly MethodStage[] = [
   { id: "symmetry", label: "Symmetry review (last)", kinds: [], optional: true },
 ];
 
-/** pdf-workflow: scale and cell, ADPs, one correlated-motion term, positions, occupancy, particle size. */
+/**
+ * pdf-workflow, the user's order (2026-10-19): on the long range scale and
+ * cell, then the ADPs and positions; the correlated-motion term once the
+ * window reaches the first peak; then occupancy, particle size.
+ */
 const PDF_STAGES: readonly MethodStage[] = [
   { id: "base", label: "Scale, cell", kinds: ["pdfScale", "cellLength", "cellAngle"] },
   { id: "adp", label: "ADPs", kinds: ["bIso", "uAniso"] },
-  { id: "motion", label: "Correlated motion", kinds: ["delta1", "delta2", "sratio", "rcut"] },
   { id: "positions", label: "Positions", kinds: ["atomX", "atomY", "atomZ", "positionShift"] },
+  { id: "motion", label: "Correlated motion", kinds: ["delta1", "delta2", "sratio", "rcut"] },
   { id: "occupancy", label: "Occupancy", kinds: ["occupancy"], optional: true },
   { id: "size", label: "Particle size", kinds: ["spdiameter"], optional: true },
 ];
@@ -323,6 +331,18 @@ export function ruleRefusal(page: AgentPage, free: readonly RefinementParameter[
         rule: "instrument-with-thermal",
         line: `Not run: instrument terms (${ids(instrument)}) free with thermal (${ids(thermal)})`,
         why: `the instrument's terms (${ids(instrument)}) and the thermal parameters (${ids(thermal)}) are free together — the user's method never refines them together. ${trade}, alternate the two groups: fix the thermal parameters and refine the instrument terms, then fix those and refine the thermal ones, and repeat until a cycle moves neither by more than ${ALTERNATION_SETTLED} esd (refine's \`alternation\` gives the shifts). If the user wants them refined together, call allow_exception with rule "instrument-with-thermal" and their reason — they approve it themselves.`,
+      });
+    }
+  }
+  if (page === "powder" && !hasException(record, "instrument-with-positions")) {
+    const instrument = free.filter((p) => INSTRUMENT_KINDS.has(p.kind));
+    const positions = free.filter((p) => POSITION_KINDS.has(p.kind));
+    if (instrument.length > 0 && positions.length > 0) {
+      const ids = (ps: readonly RefinementParameter[]): string => ps.length <= 6 ? ps.map((p) => p.id).join(", ") : `${ps.slice(0, 6).map((p) => p.id).join(", ")} and ${ps.length - 6} more`;
+      broken.push({
+        rule: "instrument-with-positions",
+        line: `Not run: instrument terms (${ids(instrument)}) free with positions (${ids(positions)})`,
+        why: `the instrument's terms (${ids(instrument)}) and the atom positions (${ids(positions)}) are free together — the user's method never refines them together. A peak shape or zero gone wrong moves intensity between neighbouring lines, which the positions can follow, and each then absorbs the other's error. Fix the positions and refine the instrument terms, then fix those and refine the positions. If the user wants them refined together, call allow_exception with rule "instrument-with-positions" and their reason — they approve it themselves.`,
       });
     }
   }

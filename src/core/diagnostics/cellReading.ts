@@ -8,7 +8,9 @@
  * each names its own tools.
  */
 
-import type { StructureModel, UnitCell } from "@/core/crystal/types";
+import type { SpaceGroup, StructureModel, UnitCell } from "@/core/crystal/types";
+import { lostCentring } from "@/core/diagnostics/lostCentring";
+import { LE_BAIL_UNSETTLED } from "@/core/diagnostics/thresholds";
 import type { PowderPattern } from "@/core/diffraction/types";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import { generateReflections } from "@/core/diffraction/reflections";
@@ -78,6 +80,8 @@ export interface CellReadingTools {
   readonly identify?: string;
   readonly note?: string;
   readonly review?: string;
+  /** The Prefit, as the surface runs it (`refine with mode "thorough"`): an unsettled Le Bail start is sent there. */
+  readonly prefit?: string;
 }
 
 /**
@@ -86,20 +90,30 @@ export interface CellReadingTools {
  * peaks, the shoulders and the forbidden reflections with intensity, or that
  * none of these is there.
  */
-export function cellCheckReading(check: CellSymmetryCheck, o: { readonly loaded: UnitCell; readonly unit: PowderPattern["xUnit"]; readonly scale: string | null; readonly tools?: CellReadingTools }): string {
+export function cellCheckReading(check: CellSymmetryCheck, o: { readonly loaded: UnitCell; readonly unit: PowderPattern["xUnit"]; readonly scale: string | null; readonly tools?: CellReadingTools; readonly spaceGroup?: SpaceGroup; readonly fitOnScreen?: boolean }): string {
   const tools = o.tools ?? {};
   const violated = check.absences.violated;
   const unindexed = check.unindexedPeaks.length;
   const flags = violated.map((v) => `${v.h} ${v.k} ${v.l} at d ${v.d.toFixed(3)} Å`).join(", ");
   // The cell a good Le Bail fit found, against the structure's: one factor on every length reads as the wavelength.
-  const shift = o.scale ?? (check.leBail.rWeighted < 0.5 ? cellShiftReading(o.loaded, check.cell, o.unit) : null);
+  const unsettled = check.leBail.rWeighted >= LE_BAIL_UNSETTLED;
+  const shift = o.scale ?? (!unsettled ? cellShiftReading(o.loaded, check.cell, o.unit) : null);
+  // Every flagged absence of the class the model's centring forbids: the data's lattice may be primitive.
+  const lost = o.spaceGroup ? lostCentring(o.spaceGroup, violated.map((v) => [v.h, v.k, v.l] as const)) : null;
+  const peaksText = `${unindexed} peak${unindexed === 1 ? "" : "s"}`;
   const readings = [
     ...(shift ? [shift] : []),
-    ...(unindexed > 0 ? [`${unindexed} peak${unindexed === 1 ? "" : "s"} no reflection of the cell indexes: a missing phase (most often) or a wrong cell.${tools.identify ? ` ${tools.identify} (with their d) checks the sample environment and common standards.` : ""} Settle this with the user before refining the structure.`] : []),
-    ...(check.shoulders.length > 0 ? [shoulderReading(check.shoulders, o.unit)] : []),
-    ...(violated.length > 0
-      ? [`${violated.length} forbidden reflection${violated.length === 1 ? "" : "s"} show${violated.length === 1 ? "s" : ""} leftover intensity (${flags}). This is a flag, not a verdict: before the structure is refined, profile misfit${unindexed > 0 ? ", or a line of the unindexed phase," : ""} reads the same way. Do not change the space group now: note it${tools.note ? ` (${tools.note})` : ""} and refine the structure to the best; ${tools.review ?? "the symmetry review"} reads the refined residual at the end.`]
+    ...(unindexed > 0
+      ? [unsettled && !o.scale && tools.prefit
+        ? `The Le Bail fit did not settle (Rwp ${Math.round(check.leBail.rWeighted * 10000) / 100} %): from this start it cannot follow the peaks, so the model's own lines are likely among the ${peaksText} it leaves unindexed — a start further off than the fit follows, more often than a missing phase. Run the Prefit (${tools.prefit}: the Le Bail cell, then restarts from it${o.fitOnScreen ? "; with a fit on screen, go_to_step back to the start first, since after a fit the mode is the Escape minimum" : ""}), then this check again: the peaks it still leaves unindexed are a missing phase or a wrong cell.`
+        : `${peaksText} no reflection of the cell indexes: a missing phase (most often) or a wrong cell.${tools.identify ? ` ${tools.identify} (with their d) checks the sample environment and common standards.` : ""} Settle this with the user before refining the structure.`]
       : []),
+    ...(check.shoulders.length > 0 ? [shoulderReading(check.shoulders, o.unit)] : []),
+    ...(lost
+      ? [`${violated.length} forbidden reflections show leftover intensity (${flags}), every one of the class the ${lost.centring} centring forbids (${lost.condition}): the pattern of a lost centring — the data's lattice primitive where the model's is ${lost.centring}-centred, an order the model averages (two elements sharing one site that order onto two) — as well as of another phase whose lines land there. No refinement of this model puts intensity there.${tools.note ? ` Note it (${tools.note}) and put` : " Put"} it to the user now, with these reflections and both readings; do not change the model yourself. The refinement can go on, but it cannot fit these lines.`]
+      : violated.length > 0
+        ? [`${violated.length} forbidden reflection${violated.length === 1 ? "" : "s"} show${violated.length === 1 ? "s" : ""} leftover intensity (${flags}). This is a flag, not a verdict: before the structure is refined, profile misfit${unindexed > 0 ? ", or a line of the unindexed phase," : ""} reads the same way. Do not change the space group now: note it${tools.note ? ` (${tools.note})` : ""} and refine the structure to the best; ${tools.review ?? "the symmetry review"} reads the refined residual at the end.`]
+        : []),
   ];
   return readings.length > 0 ? readings.join(" ") : "Every peak indexes and no forbidden reflection shows intensity: refine the structure.";
 }
