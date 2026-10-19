@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { RefinementParameter } from "@/core/refinement/types";
-import { USER_TIE_GROUP, checkEqualTies, complementOf, isUserTie, parseTie, resolveTies, tieReferences, tieStepLabel, withEqualTies } from "@/core/refinement/constraints";
+import { USER_TIE_GROUP, checkEqualTies, complementOf, isUserTie, parseTie, renamedTie, resolveTies, tieReferences, tieStepLabel, withEqualTies } from "@/core/refinement/constraints";
 
 const p = (id: string, value: number, expression?: string): RefinementParameter =>
   ({ id, label: id, kind: "momentMode", value, initialValue: value, fixed: !!expression, ...(expression ? { expression } : {}) });
@@ -33,6 +33,15 @@ describe("tie expressions", () => {
     expect(out.n).toBe(-5);
     expect(out.a).toBe(3); // free values pass through
     expect(() => resolveTies([p("m", 0, "= hypot(a,zz)")], { a: 1, m: 0 })).toThrow(/unknown parameter "zz"/);
+  });
+
+  it("reads its rows under new ids, the factor and constant kept (a complement still reads as one)", () => {
+    const rename = (id: string): string => `p0_${id}`;
+    expect(renamedTie("= a", rename)).toBe("= p0_a");
+    expect(renamedTie(complementOf("occ_Fe1"), rename)).toBe(complementOf("p0_occ_Fe1"));
+    expect(parseTie(renamedTie("= 0.5*a+2", rename))).toEqual({ kind: "linear", factor: 0.5, refId: "p0_a", constant: 2 });
+    expect(parseTie(renamedTie("= -hypot(a, b)", rename))).toEqual({ kind: "norm", factor: -1, refIds: ["p0_a", "p0_b"] });
+    expect(renamedTie("= 1*a+0.5", (id) => id)).toBe("= 1*a+0.5");
   });
 });
 
