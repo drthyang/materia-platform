@@ -69,6 +69,14 @@ the magnetic eval scenario ran on a separate 253-line copy
 
   So the mPDF's fit keeps its seeded restarts in each of the ranking's
   starts, as it did, and the single-crystal and powder pages run one loop.
+- **In the browser**, on the Mn₃Ga TOF demo's Magnetic tab (paramagnetic at
+  600 K, so every group ties with the nuclear fit), the panel gave the same
+  text on the base branch and here, with no page error:
+  - the 24 residual peaks, with their nuclear neighbours;
+  - the six maximal groups ranked at k = (0 0 ½), with the ★ and the ties;
+  - the chosen group's moments fit.
+
+  The three committed demo replays gave the same drawer text as on #72.
 - **Nothing else changed.** The Agent's magnetic tools and their ranking
   test (Example 3: with restarts the in-app path reaches the true minimum),
   the stamp, Stop, the live tools' contracts and the snapshot of the text
@@ -114,4 +122,5 @@ rendering only, and one persistent handle for the Agent. That removes the
 
 ## Checks
 
-`npm run build`, `npm run lint` and `npm test` pass at the branch head.
+`npm run build`, `npm run lint` and `npm test` pass at the branch head: 2355
+tests, 265 skipped (live runs and data-dependent suites).
