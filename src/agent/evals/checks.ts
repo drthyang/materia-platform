@@ -465,7 +465,6 @@ export const extinctionBeforeStructure: Check = {
   },
 };
 
-/** A misfit reflection is compared with its equivalents before any is left out, and only the failed measurement goes (round 1: 5 4 1 in batch 24). */
 /**
  * Failed measurements left out, and nothing else (round 1: sapphire's 5 4 1
  * and 3 4 2 in batch 24): the equivalents read before the first omission —

@@ -219,9 +219,8 @@ class EvaluatorPool implements BatchEvaluator {
 export type MagneticMultiStartResult = MomentSearchResult;
 
 /** The evaluator specs that carry a magnetic model over a fitted pattern — the
- *  reciprocal-space powder co-refinement and its real-space mPDF twin. Both
- *  expose `structure`/`magnetic`/`bindings`/`pattern.points`, which is all the
- *  shared moment-degeneracy multi-start needs. */
+ *  reciprocal-space powder co-refinement and its real-space mPDF twin; the
+ *  pattern's points are what the joint fit's progress streams. */
 type MagneticEvaluatorSpec = Extract<EvaluatorSpec, { kind: "magneticPowder" | "mpdf" }>;
 
 export class ComputeClient {
@@ -323,13 +322,6 @@ export class ComputeClient {
     return Math.max(0, Math.min(6, cores - 1));
   }
 
-  /**
-   * Flat powder refinement with the Jacobian parallelized over an evaluator
-   * pool. Bit-identical to `refinePowder` (same generator core, replica
-   * problems from the same builder); falls back to it when pooling is
-   * unavailable or the request needs paths the pool does not cover
-   * (staged sequences, multi-phase).
-   */
   /** The evaluator spec for a powder request (single-phase or multi-phase). */
   private powderSpec(req: Omit<RefinePowderRequest, "requestId" | "type">): EvaluatorSpec {
     const multiPhase = req.extraPhases && req.extraPhases.length > 0;
@@ -601,6 +593,13 @@ export class ComputeClient {
     return this.sampleForSpec({ kind: "magneticPowder", ...spec }, options);
   }
 
+  /**
+   * Flat powder refinement with the Jacobian parallelized over an evaluator
+   * pool. Bit-identical to `refinePowder` (same generator core, replica
+   * problems from the same builder); falls back to it when pooling is
+   * unavailable or the request needs paths the pool does not cover
+   * (staged sequences, multi-phase).
+   */
   async refinePowderParallel(
     req: Omit<RefinePowderRequest, "requestId" | "type">,
     onProgress?: PowderProgress,
@@ -712,10 +711,11 @@ export class ComputeClient {
 
   /**
    * Local-minimum-resistant magnetic powder refinement — the "Escape min" path
-   * for magnetic structures (GAP #1). Phase 1a on Mn₃Ga showed the instability is
-   * NOT distinct deep minima but a near-flat "sublattice-partition" valley plus
-   * the global time-reversal (±m) degeneracy (docs/REFINEMENT_NOTES.md). So the
-   * strategy is, cheapest-sufficient-first:
+   * for magnetic structures (GAP #1), the moment search of workers/strategy.ts
+   * (momentMultiStart) on this client's pool. Phase 1a on Mn₃Ga showed the
+   * instability is NOT distinct deep minima but a near-flat "sublattice-partition"
+   * valley plus the global time-reversal (±m) degeneracy
+   * (docs/REFINEMENT_NOTES.md). So the strategy is, cheapest-sufficient-first:
    *
    *  1. FREEZE the nuclear scaffold and search ONLY the moment subspace with the
    *     existing seeded multi-start — leaving the TOF profile free during the
@@ -740,12 +740,11 @@ export class ComputeClient {
   }
 
   /**
-   * The moment-degeneracy-aware multi-start shared by every magnetic engine
-   * (reciprocal-space powder and real-space mPDF). Both observables see the same
-   * ±m sign and sublattice-partition flat directions, because those live in the
-   * magnetic MODEL — so the strategy documented on
-   * {@link refineMagneticPowderMultiStart} is applied once, here, over whichever
-   * evaluator spec carries a magnetic model.
+   * The moment search for the pattern engines (reciprocal-space powder and
+   * real-space mPDF), with the joint fit's progress streamed. Every observable
+   * sees the same ±m sign and sublattice-partition flat directions, because
+   * those live in the magnetic MODEL — so one strategy (workers/strategy.ts,
+   * momentMultiStart) serves these and the single crystal alike.
    */
   private async magneticMultiStartForSpec(
     spec: MagneticEvaluatorSpec,

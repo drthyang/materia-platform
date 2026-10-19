@@ -22,7 +22,9 @@ fixed:
 
 1. Refine everything the method refines, each block to convergence
    (`my-rietveld-workflow`, Stages 1 and the corrections).
-2. Judge the fit (`assess_refinement`). If it is acceptable, stop: the symmetry is fine.
+2. Judge the fit (`assess_refinement`). If it meets the acceptance bar (`my-rietveld-workflow`'s
+   Gates: the verdict good or excellent, nothing at a bound or unphysical), stop: the symmetry
+   is fine.
 3. Only if it is not, and the remaining misfit is not on the group's allowed reflections,
    review the symmetry.
 
@@ -69,7 +71,8 @@ Intensity at a forbidden position has other causes. Check each, and say what you
   One weak reflection is a hint; several, consistently, at the positions one lost
   symmetry element would open, is a case.
 - `candidates`: the subgroups of the same lattice (translationengleiche) that allow them,
-  smallest index first, with how many domains each has. A subgroup is named where it can be
+  those allowing the most of them first and then the smallest index, with how many domains
+  each has. A subgroup is named where it can be
   identified; otherwise its point group and index are given. Prefer the **smallest index**
   (the least symmetry lost) that explains *all* the observed reflections.
 - `domains` > 1 means the lower-symmetry crystal grows as twin domains (orientations
@@ -77,8 +80,9 @@ Intensity at a forbidden position has other causes. Check each, and say what you
   must be refined as twins.
 - `limits`: lost centrings and larger cells are not enumerated. If no t-subgroup explains
   the reflections, the answer may be a supercell (new reflections between the old ones —
-  `find_unexplained_peaks` sees them as unexplained peaks) or a lost centring; say so
-  rather than forcing a candidate.
+  `find_unexplained_peaks` sees them as unexplained peaks) or a lost centring (all of them of
+  the class the model's centring forbids; the cell check says so when it sees that pattern);
+  say so rather than forcing a candidate.
 
 ## Proposing it to the user
 
@@ -86,15 +90,17 @@ Put the evidence, not a conclusion:
 
 - the stages refined and the fit reached (GoF, the key values);
 - the forbidden reflections with intensity, how many σ, and what you ruled out;
-- the candidate subgroups (smallest index first) and what each would add — free
+- the candidate subgroups (the smallest index that explains them all first) and what each
+  would add — free
   coordinates that split, ADPs, the domain count.
 
 The decision is the user's. Never change the model yourself. If they want to try it:
 
 1. They load the lower-symmetry model (its CIF). On the page, that is a new analysis.
-2. It is refined again **from the start of the method** — the cell check, then each block
-   — not from where the high-symmetry fit stopped with everything free.
-3. A distortion-mode parameterisation (`build_distortion_modes`, parent and child CIF)
+2. It is refined again **from the start of the method** — the fit range, the cell check,
+   then each block — not from where the high-symmetry fit stopped with everything free.
+3. A distortion-mode parameterisation (over MCP only: `build_distortion_modes`, parent and
+   child CIF)
    refines the few symmetry-breaking mode amplitudes instead of every split coordinate;
    modes that stay at zero within their esd say the symmetry is not really broken.
 4. Compare the two fits on the same data and the same fit range, and keep the lower group
@@ -117,7 +123,7 @@ question rather than "fixed" by lower symmetry.
 | Is everything refined? | `get_state` (`method` stages), `assess_refinement` |
 | The review | `review_symmetry` |
 | An impurity instead? | `find_unexplained_peaks` |
-| A lower-symmetry model as modes | `build_distortion_modes` |
+| A lower-symmetry model as modes | `build_distortion_modes` (over MCP only) |
 | Record the outcome | `write_note` |
 
 ## References

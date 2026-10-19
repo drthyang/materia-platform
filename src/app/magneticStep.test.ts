@@ -4,7 +4,8 @@ import { loadedSession } from "@/app/powderSession";
 import { powderMomentFit, powderPageCurves, refinedPhasesOf, residualPeaksOf, weightedR } from "@/app/powderPage";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { momentFit as singleCrystalMomentFit, singleCrystalPage, type SingleCrystalCompute } from "@/app/singleCrystalPage";
-import { MagneticStep, candidatesOf, momentDims, buildFor, rankCandidates, stepView, type MagneticFit, type StepInputs } from "@/app/magneticStep";
+import { MagneticStep, bestRanked, candidatesOf, momentDims, buildFor, rankCandidates, stepView, type MagneticFit, type RankEntry, type StepInputs } from "@/app/magneticStep";
+import type { LatticeCandidate } from "@/core/magnetic/subgroupLattice";
 import { sessionPort } from "@/testSupport/agentHeadless";
 import { corundumPage } from "@/testSupport/scPages";
 import { mn3gaMagneticSession } from "@/agent/evals/pages";
@@ -181,6 +182,41 @@ describe("the magnetic step on the Agent's page, as on the app's", () => {
     expect(ranked.some((c) => c.index === 4)).toBe(true);
     expect(ranked.every((c) => c.index === 2 || c.index === 4)).toBe(true);
   }, 120000);
+});
+
+describe("the ★ and the noise", () => {
+  // A maximal group with one moment parameter, and an index-12 group with three that fits a little lower.
+  const reps = [{ index: 2, candidate: { id: "maximal" } }, { index: 12, candidate: { id: "lower" } }] as unknown as LatticeCandidate[];
+  const dims = [1, 3];
+  const entry = (wR: number, chi2?: number, dof?: number): RankEntry => ({ status: "ok", wR, values: {}, magnitudes: [], ...(chi2 !== undefined && dof !== undefined ? { chi2, dof } : {}) });
+
+  it("keeps the maximal group when the lower one's extra moments fit the noise only", () => {
+    // wR 5.00 → 4.98 %: beyond the old tie of 10⁻⁴, within the noise (χ² 1000 → 994 on 500 points).
+    expect(bestRanked({ maximal: entry(0.05, 1000, 499), lower: entry(0.0498, 994, 497) }, reps, dims)?.id).toBe("maximal");
+  });
+
+  it("takes the lower group when its moments earn their place", () => {
+    expect(bestRanked({ maximal: entry(0.05, 1000, 499), lower: entry(0.045, 810, 497) }, reps, dims)?.id).toBe("lower");
+  });
+
+  it("falls back to the tie on a fit that reports no χ² (the mPDF's)", () => {
+    expect(bestRanked({ maximal: entry(0.05), lower: entry(0.0498) }, reps, dims)?.id).toBe("lower");
+    expect(bestRanked({ maximal: entry(0.05), lower: entry(0.04995) }, reps, dims)?.id).toBe("maximal");
+  });
+
+  it("refines the nuclear scale with the moments at k = 0, and holds it elsewhere", async () => {
+    // At k = 0 the magnetic peaks sit on the nuclear ones: a scale refined without the moments
+    // has taken part of their intensity (on Mn₃Ga, 26–29 for a true 24.4, and every ★ wrong).
+    const scaleFree = async (k: Vec3): Promise<boolean> => {
+      const { client, fits } = recordingClient();
+      const { port } = sessionPort(mn3gaMagneticSession(), undefined, { client });
+      port.magnetic!()!.setK(k);
+      await port.magnetic!()!.rank("open", 0);
+      return fits.length > 0 && fits.every((f) => f.some((p) => p.kind === "scale" && !p.fixed));
+    };
+    expect(await scaleFree([0, 0, 0])).toBe(true);
+    expect(await scaleFree([0, 0, 0.5])).toBe(false);
+  }, 60000);
 });
 
 describe("one restart scheme", () => {

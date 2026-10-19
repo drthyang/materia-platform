@@ -16,17 +16,20 @@ describe("the Agent's skills", () => {
   it("resolves every reference a skill cites to a bundled file", () => {
     const rietveld = allSkills().find((s) => s.name === "my-rietveld-workflow")!;
     expect(rietveld.references.map((r) => [r.name, r.path])).toEqual([
+      ["rietveld_notes", ".claude/skills/my-rietveld-workflow/notes.md"],
+      ["mcp_tool_map", ".claude/skills/my-rietveld-workflow/mcp-tools.md"],
       ["powder_structural_refinement", "knowledge/powder_structural_refinement_knowledge.md"],
       ["refinement_fitting_algorithms", "knowledge/refinement_fitting_algorithms_knowledge.md"],
       ["powder_background_texture", "knowledge/powder_background_texture_knowledge.md"],
       ["magnetic_structure_symmetry", "knowledge/magnetic_structure_symmetry_knowledge.md"],
     ]);
     for (const s of allSkills()) for (const r of s.references) {
-      expect(r.text.length).toBeGreaterThan(1000);
+      // A knowledge base, or a note beside the skill (its cases, its MCP map): text, not a stub.
+      expect(r.text.length).toBeGreaterThan(r.path.startsWith("knowledge/") ? 1000 : 500);
       expect(r.description.length).toBeGreaterThan(20);
     }
     const pdf = allSkills().find((s) => s.name === "pdf-workflow")!;
-    expect(pdf.references.map((r) => r.name)).toContain("total_scattering_pdf_conventions");
+    expect(pdf.references.map((r) => r.name)).toEqual(["pdf_mcp_tool_map", "total_scattering_pdf_conventions", "refinement_fitting_algorithms"]);
   });
 
   it("reads a folded description, quoted values, and literal blocks", () => {

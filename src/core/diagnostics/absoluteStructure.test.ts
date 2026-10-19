@@ -4,7 +4,8 @@ import type { StructureModel } from "@/core/crystal/types";
 import { INVERSION_TWIN, type SingleCrystalDataset } from "@/core/diffraction/types";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { buildSingleCrystalSpec, parsonsOfModel, singleCrystalRefinementComparison } from "@/core/workflow/singleCrystalRefinement";
-import { parsonsQuotients } from "@/core/diagnostics/absoluteStructure";
+import { parsonsQuotients, type BijvoetRow } from "@/core/diagnostics/absoluteStructure";
+import { mergeEquivalents } from "@/core/diffraction/merge";
 
 const iso = { kind: "isotropic", bIso: 1.2 } as const;
 /** P2₁ with a bromine: Mo Kα gives it f″ ≈ 2.5 e, a clear Bijvoet signal. */
@@ -59,5 +60,42 @@ describe("Parsons' quotients", () => {
     const rows = singleCrystalRefinementComparison(structure, { ...data, reflections: oneHand }, spec.params, spec.bindings).rows;
     expect(parsonsQuotients(rows, structure.spaceGroup.operations)).toBeNull();
     expect(parsonsOfModel({ ...structure, spaceGroup: buildSpaceGroup(14) }, data, spec.params, spec.bindings)).toBeNull();
+  });
+
+  it("use every measurement of unmerged data: the quotients of the equivalents merged, the Friedel opposites apart", () => {
+    // Each reflection and its 2-fold equivalent measured twice, both hands, with counting noise.
+    let seed = 3;
+    const normal = (): number => {
+      const u = (): number => {
+        seed = (seed * 16807) % 2147483647;
+        return seed / 2147483647;
+      };
+      return Math.sqrt(-2 * Math.log(u())) * Math.cos(2 * Math.PI * u());
+    };
+    const measuredAt = base.reflections.flatMap((r) => [r, r, { ...r, h: -r.h, l: -r.l }, { ...r, h: -r.h, l: -r.l }]);
+    const many: SingleCrystalDataset = { ...base, reflections: measuredAt };
+    const truth = singleCrystalRefinementComparison(structure, { ...many, twinLaws: [INVERSION_TWIN] }, truthSpec.params, truthSpec.bindings).rows;
+    const noisy: SingleCrystalDataset = { ...many, reflections: truth.map((r) => {
+      const sigma = 0.03 * r.fcSq + 0.5;
+      return { h: r.h, k: r.k, l: r.l, iObs: r.fcSq + sigma * normal(), sigma };
+    }) };
+    const spec = buildSingleCrystalSpec(structure, noisy, { scale: 3 });
+    const rows = singleCrystalRefinementComparison(structure, noisy, spec.params, spec.bindings).rows;
+    const ops = structure.spaceGroup.operations;
+    const est = parsonsQuotients(rows, ops)!;
+    // The same as on the data merged first (SHELXL's MERG 2), each model Fc² at its representative.
+    const fcOf = new Map(rows.map((r) => [`${r.h},${r.k},${r.l}`, r.fcSq]));
+    const merged = mergeEquivalents(rows.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.foSq, sigma: r.sigma })), ops, { friedel: false }).reflections;
+    const mergedRows: BijvoetRow[] = merged.map((m) => ({ h: m.h, k: m.k, l: m.l, foSq: m.intensity, sigma: m.sigma, fcSq: fcOf.get(`${m.h},${m.k},${m.l}`)! }));
+    const first = parsonsQuotients(mergedRows, ops)!;
+    expect(est.x).toBeCloseTo(first.x, 10);
+    expect(est.esd).toBeCloseTo(first.esd, 10);
+    expect(est.quotients).toBe(first.quotients);
+    // Four measurements of each side: the esd about half what one measurement of each gives.
+    const once = new Map<string, BijvoetRow>();
+    for (const r of rows) if (!once.has(`${r.h},${r.k},${r.l}`) && !once.has(`${-r.h},${r.k},${-r.l}`)) once.set(`${r.h},${r.k},${r.l}`, r);
+    const single = parsonsQuotients([...once.values()], ops)!;
+    expect(est.esd).toBeLessThan(0.65 * single.esd);
+    expect(Math.abs(est.x - 0.3)).toBeLessThan(3 * est.esd);
   });
 });
