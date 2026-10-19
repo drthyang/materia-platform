@@ -16,7 +16,7 @@ import { weightsFromSigma, excludedPointMask, applyExclusionMask, fitRangeMask }
 import { resolveTies, tieReferences } from "@/core/refinement/constraints";
 import { applyParameters, type AppliedModel } from "@/core/workflow/apply";
 import { generateReflections } from "@/core/diffraction/reflections";
-import { powderPeakIntensities, lorentzPolarization, marchDollase } from "@/core/diffraction/intensity";
+import { powderPeakIntensities, lorentzPolarization, marchDollaseFamily } from "@/core/diffraction/intensity";
 import { correctionsForPattern } from "@/core/diffraction/corrections";
 import { nuclearStructureFactorPartials } from "@/core/diffraction/structureFactor";
 import { braggTheta } from "@/core/crystal/unitCell";
@@ -25,6 +25,7 @@ import { synthesizePattern, cagliotiFwhm, lorentzianFwhm, tchPseudoVoigt, fcjSub
 import { evaluateBackground, type BackgroundType } from "@/core/diffraction/background";
 import { quarticStrainInvariants, stephensStrainFwhmDeg, stephensStrainSigmaTof, isotropicStrainSigmaTof, uniaxialStrainFwhmDeg, type QuarticInvariant } from "@/core/diffraction/anisoStrain";
 import { uniaxialSizeFwhmDeg } from "@/core/diffraction/anisoSize";
+import { minMax } from "@/core/math/extent";
 
 /** Inclusive abscissa window that restricts refinement to a sub-range of the
  * pattern. Either bound may be omitted to leave that side unrestricted. */
@@ -63,9 +64,7 @@ function dToX(pattern: PowderPattern, d: number): number {
 }
 
 function dRange(pattern: PowderPattern): { dMin: number; dMax: number } {
-  const xs = pattern.points.map((p) => p.x);
-  const xMin = Math.min(...xs);
-  const xMax = Math.max(...xs);
+  const { min: xMin, max: xMax } = minMax(pattern.points.map((p) => p.x));
   const wl = pattern.wavelength ?? (pattern.radiation.kind !== "neutron-tof" ? pattern.radiation.wavelength : 1.54);
   switch (pattern.xUnit) {
     case "twoTheta": {
@@ -95,8 +94,9 @@ function tofDRange(
   const xs = pattern.points.map((p) => p.x);
   const p = { kind: "tof" as const, difC: cal.difC, difA: cal.difA, difB: cal.difB, zero };
   // TOF increases monotonically with d, so min/max TOF map to min/max d.
-  const dLo = dFromTof(p, Math.min(...xs));
-  const dHi = dFromTof(p, Math.max(...xs));
+  const span = minMax(xs);
+  const dLo = dFromTof(p, span.min);
+  const dHi = dFromTof(p, span.max);
   return { dMin: Math.max(Math.min(dLo, dHi), TOF_DMIN_FLOOR), dMax: Math.max(dLo, dHi) };
 }
 
@@ -383,7 +383,7 @@ function derivativeReflections(applied: AppliedModel, pattern: PowderPattern, ap
   const radiation = pattern.radiation;
   return reflections.map((r) => {
     const lp = applyLorentz ? lorentzPolarization(radiation, r.d) : 1;
-    const poFactor = applied.po ? marchDollase(applied.model.cell, applied.po.axis, r.h, r.k, r.l, applied.po.ratio) : 1;
+    const poFactor = applied.po ? marchDollaseFamily(applied.model.cell, applied.model.spaceGroup, applied.po.axis, r.h, r.k, r.l, applied.po.ratio) : 1;
     return {
       d: r.d, h: r.h, k: r.k, l: r.l,
       prefactor: r.multiplicity * lp * poFactor * applied.scale,
@@ -554,8 +554,7 @@ export function powderCurves(
   const yObs = pattern.points.map((p) => p.yObs);
   const resolved = resolveTies(parameters, values);
   const applied = applyParameters(structure, bindings, resolved);
-  const xMin = Math.min(...x);
-  const xMax = Math.max(...x);
+  const { min: xMin, max: xMax } = minMax(x);
   const bgType = profile.backgroundType ?? "chebyshev";
   const yBackground = x.map((xv) => evaluateBackground(xv, applied.background, bgType, xMin, xMax));
   const diff = yObs.map((o, i) => o - (yCalc[i] ?? 0));

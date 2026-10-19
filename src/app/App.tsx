@@ -1,11 +1,11 @@
 /**
  * App shell: data loading (structure / pattern / instrument, with format
- * auto-detection), engine routing (powder ↔ single crystal), and the fixed
+ * auto-detection), engine routing (powder, single crystal, PDF), and the fixed
  * chrome (header with mode-aware steps + exports, disclaimer, footer).
  *
- * The two refinement engines are peers behind the WorkbenchEngine contract
- * (see workbenchEngine.ts): `PowderWorkbench` and `SingleCrystalWorkbench`
- * each own their view state, refinement orchestration, exports, and — per the
+ * The three refinement engines are peers behind the WorkbenchEngine contract
+ * (see workbenchEngine.ts): `PowderWorkbench`, `SingleCrystalWorkbench` and
+ * `PdfWorkbench` each own their view state, refinement orchestration, exports, and — per the
  * ratified boundary — their own community's quality panel and agreement
  * factors. The shell holds the powder page (powderPage.ts, PowderPage: the
  * session, which also carries the structure the single-crystal engine
@@ -388,14 +388,13 @@ export function App(): JSX.Element {
   // What the Agent's executor needs from the shell (agent/executor.ts). It
   // reads the latest render's functions through a ref, so the host object is
   // made once and every call sees the current history and page.
-  const agentLatest = useRef({ recordNow, goToStep, history, technique: null as "powder" | "singleCrystal" | "pdf" | null });
+  const agentLatest = useRef({ recordNow, goToStep, history });
   useEffect(() => {
-    agentLatest.current = { recordNow, goToStep, history, technique: pdfDataset ? "pdf" : scDataset ? "singleCrystal" : session.powderSource !== EMPTY_SOURCE ? "powder" : null };
+    agentLatest.current = { recordNow, goToStep, history };
     agentLink.notify();
   });
   const agentHost = useMemo<AgentHost>(() => ({
     port: () => agentLink.port(),
-    technique: () => agentLatest.current.technique,
     settle: async () => {
       await agentLink.settle();
       // A slow render (a long pattern after a refinement) can outlast settle's
@@ -1082,10 +1081,6 @@ export function App(): JSX.Element {
   // hides the workflow steps, exports, and disclaimer.
   const hasContent = session.powderSource !== EMPTY_SOURCE || scDataset !== null || pdfDataset !== null;
 
-  // Does the CURRENT model include magnetic moments? The shell owns the powder
-  // session, so it reads that directly; the single-crystal and PDF engines own
-  // theirs and report it (one flag each — both can be mounted at once, and the
-  // active technique decides which counts).
   // GPU acceleration preference, owned by the shell because the header chip is
   // its control and the powder engine is its consumer. On by default where a
   // WebGPU adapter exists (the kernel is validated far below esd and falls back
@@ -1097,6 +1092,10 @@ export function App(): JSX.Element {
     setGpuEnabled(on);
     writeGpuPreference(on);
   }, []);
+  // Does the CURRENT model include magnetic moments? The shell owns the powder
+  // session, so it reads that directly; the single-crystal and PDF engines own
+  // theirs and report it (one flag each — both can be mounted at once, and the
+  // active technique decides which counts).
   const [scMagnetic, setScMagnetic] = useState(false);
   const [pdfMagnetic, setPdfMagnetic] = useState(false);
   const magneticInModel = pdfDataset
@@ -1193,7 +1192,7 @@ export function App(): JSX.Element {
           .
         </div>
       )}
-      {/* The powder engine stays mounted in single-crystal mode (hidden) so all
+      {/* The powder engine stays mounted in single-crystal and PDF mode (hidden) so all
           its state — fit range, plot mode, k-search picks — survives switching.
           On a clean start it renders its load cards + an empty-state placeholder. */}
       <WorkbenchErrorBoundary resetKeys={[session]} visible={!scDataset && !pdfDataset} onClear={clearWorkbench}>

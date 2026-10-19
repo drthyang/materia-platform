@@ -504,6 +504,14 @@ release fixes bugs.
 
 ### Fixed
 
+- **A powder page with a second phase uses its own background basis.** Its
+  curve, wR, Refine, Prefit and posterior used the Chebyshev basis and the
+  Lorentz factor whatever the page had set: the cosine, power-series and
+  interpolated bases, and the Lorentz factor off, applied with one phase
+  only. The magnetic step's moments fit, which did use them, then disagreed
+  with the page's wR (6.793 against 6.781 on the magnetic Mn₃Ga demo with
+  CaF₂ added and a cosine background).
+
 - **The MCP magnetic tools draw the pattern the fit solves.** With a
   magnetic model, `evaluate_pattern`, `simulate_pattern` and
   `rank_next_parameters` (the Agent's too) kept only the profile's shape
