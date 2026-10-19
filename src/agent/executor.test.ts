@@ -684,6 +684,39 @@ describe("AgentExecutor on a live PDF fit", () => {
     expect((await ex.run("boxcar_scan", { free: ["nothing*"] })).text).toMatch(/nothing matches "nothing\*"/);
   });
 
+  it("gives each box's esds, and each parameter's drift from the first box to the last in esds", async () => {
+    const { port } = pdfPort();
+    const { ex } = executor(fakeHost(port).host, true);
+    const out = parse((await ex.run("boxcar_scan", { width: 2, step: 1, free: ["pdfScale", "pos_*"] })).text);
+    type Box = { values: Record<string, number>; esds: Record<string, number> };
+    const pass = (out.boxcar as { passes: { boxes: Box[]; spread: Record<string, { first: number; last: number; driftInEsds: number }> }[] }).passes[0]!;
+    const ids = Object.keys(pass.boxes[0]!.values);
+    expect(ids.length).toBeGreaterThan(1);
+    for (const box of pass.boxes) {
+      expect(Object.keys(box.esds)).toEqual(ids);
+      for (const id of ids) expect(box.esds[id]).toBeGreaterThan(0);
+    }
+    const [first, last] = [pass.boxes[0]!, pass.boxes.at(-1)!];
+    for (const id of ids) {
+      const drift = (last.values[id]! - first.values[id]!) / Math.hypot(first.esds[id]!, last.esds[id]!);
+      expect(pass.spread[id]!.driftInEsds).toBeCloseTo(drift, 0);
+    }
+    expect(String(out.reading)).toMatch(/driftInEsds/);
+    expect(String(out.reading)).toMatch(/understate/);
+  });
+
+  it("runs restarts in each box when asked, and says so", async () => {
+    const { port, calls } = pdfPort();
+    const { ex, asked } = executor(fakeHost(port).host, true);
+    const out = parse((await ex.run("boxcar_scan", { width: 2, step: 1, free: ["pdfScale"], restarts: 2 })).text);
+    expect(asked.at(-1)!.preview).toMatch(/, best of 3 starts per box$/);
+    expect(calls).toContain("boxcar 2/1 restarts 2");
+    expect((out.boxcar as { restarts: number }).restarts).toBe(2);
+    // Without `restarts`, the scan runs from the seeded start alone.
+    const seedOnly = parse((await ex.run("boxcar_scan", { width: 2, step: 1, free: ["pdfScale"] })).text);
+    expect((seedOnly.boxcar as { restarts: number }).restarts).toBe(0);
+  });
+
   it("gives a site's bond lengths box by box, from each box's refined structure", async () => {
     // Round 9 (LaMnO₃): whether the Jahn–Teller distortion holds at low r was a
     // question about Mn–O lengths, and the scan gave only coordinate shifts.

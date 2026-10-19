@@ -42,9 +42,9 @@ import {
 } from "@/core/crystal/subgroupTree";
 import { parseCif } from "@/parsers/cif";
 import {
-  ACTIVATION_KICK, SAMPLE_STEPS, boxcarSummary, landsOn, liveStateOf, momentFit, pageView, pdfBoxcar, pdfFit, pdfPage, pdfPosterior, pdfProbe, pdfThorough, reportInputOf, rwOf, specKeyOf,
+  ACTIVATION_KICK, SAMPLE_STEPS, agentBoxcarPlan, boxcarSummary, landsOn, liveStateOf, momentFit, pageView, pdfBoxcar, pdfFit, pdfPage, pdfPosterior, pdfProbe, pdfThorough, reportInputOf, rwOf, specKeyOf,
   withActivatedMode, withAdpModel, withBoxcarPlan, withBoxcarRun, withBoxcarStep, withExtraPhases, withFit, withFitRange, withFixed, withLoadedStructure, withoutModes,
-  withParameter, withParentModes, withPattern, withPositionMode, withPosterior, withReset, withSpinModel, withSubgroup, workspaceOf,
+  withParameter, withParentModes, withPattern, withPositionMode, withPosterior, withReset, withSpinModel, withSubgroup, workspaceOf, type AgentBoxcarPlan,
 } from "@/app/pdfPage";
 
 // Lazy so three.js stays out of the main bundle until the 3D view is opened.
@@ -53,7 +53,7 @@ import { ParameterPanel } from "@/app/ui/ParameterPanel";
 import { PosteriorPanel } from "@/app/ui/PosteriorPanel";
 import { ReciprocalPanel } from "@/app/ui/ReciprocalPanel";
 import { BoxcarPanel, stepIndexFor, type BoxcarRun } from "@/app/ui/BoxcarPanel";
-import { boxcarPlanIssue, boxcarScannedMax, boxcarWindows, type BoxcarDirection, type BoxcarDirectionChoice } from "@/core/workflow/pdfBoxcar";
+import { boxcarPlanIssue, boxcarScannedMax, boxcarWindows, type BoxcarDirection } from "@/core/workflow/pdfBoxcar";
 import type { SampleResult } from "@/core/refinement/bayes/sampler";
 import { SummaryCards, type SummaryCardData } from "@/app/ui/SummaryCards";
 import { WorkbenchPlot } from "@/app/ui/WorkbenchPlot";
@@ -331,15 +331,15 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
    * in box by box. A cancelled scan keeps the boxes already fitted. Resolves
    * to the finished run, or null when it stopped or the page changed under it.
    */
-  async function runBoxcar(override?: { readonly width: number; readonly step: number; readonly direction: BoxcarDirectionChoice; readonly bonds?: readonly string[]; readonly free?: readonly string[] }): Promise<BoxcarRun | null> {
+  async function runBoxcar(override?: AgentBoxcarPlan): Promise<BoxcarRun | null> {
     // The Agent passes its own plan: it becomes the panel's plan, and the
     // Boxcar view opens so the user watches the scan fill in.
-    const plan = override ? { ...boxcarPlanState, ...override } : boxcarPlanState;
+    const plan = override ? agentBoxcarPlan(boxcarPlanState, override) : boxcarPlanState;
     const windows = boxcarWindows({ range: { min: fitRange.min, max: fitRange.max }, width: plan.width, step: plan.step });
     if (override) {
       const issue = boxcarPlanIssue({ range: { min: fitRange.min, max: fitRange.max }, width: override.width, step: override.step });
       if (issue) throw new Error(issue);
-      setModel((m) => withBoxcarPlan(m, { width: override.width, step: override.step, direction: override.direction }));
+      setModel((m) => withBoxcarPlan(m, { width: plan.width, step: plan.step, direction: plan.direction, randomStart: plan.randomStart, restarts: plan.restarts }));
       setViewTab("boxcar");
     }
     if (windows.length === 0) return null;

@@ -1598,7 +1598,7 @@ Run the refinement of the free parameters, as the Refine button does, and wait f
 
 ### boxcar_scan
 
-PDF page only. The way to answer whether the local structure differs from the average one — not the full fit, nor bond_geometry, which give the average only. The r-resolved view of the current model: a box of fixed width slid across the fit window, the FREE parameters refined in each box (seeded from the previous one), as the page's Boxcar view does — the user watches it there. It answers whether the local structure differs from the average: Rw and parameters that drift between low and high r. The parameter rows are left as they are (a diagnostic, not a fit). Returns, per box, its r range, Rw and the free parameters' values, and each parameter's spread; with `bonds`, also those sites' bond lengths per box and each bond's spread — a distortion read as lengths, not coordinate shifts. Takes about one refinement per box. Pass `free` for a scan's own small set (scale, cell, the parameters in question): the page keeps its free set and its fit, so the report that follows still matches them.
+PDF page only. The way to answer whether the local structure differs from the average one — not the full fit, nor bond_geometry, which give the average only. The r-resolved view of the current model: a box of fixed width slid across the fit window, the FREE parameters refined in each box (seeded from the previous one), as the page's Boxcar view does — the user watches it there. It answers whether the local structure differs from the average: Rw and parameters that drift between low and high r. The parameter rows are left as they are (a diagnostic, not a fit). Returns, per box, its r range, Rw and the free parameters' values with their esds, and each parameter's spread and its drift from the first box to the last in esds; with `bonds`, also those sites' bond lengths per box and each bond's spread — a distortion read as lengths, not coordinate shifts. Takes about one refinement per box. Pass `free` for a scan's own small set (scale, cell, the parameters in question): the page keeps its free set and its fit, so the report that follows still matches them.
 
 ```json
 {
@@ -1638,6 +1638,12 @@ PDF page only. The way to answer whether the local structure differs from the av
       "items": {
         "type": "string"
       }
+    },
+    "restarts": {
+      "description": "Randomly perturbed starts each box also refines from, the seeded start kept (default 0): for a track that may have inherited one box's local minimum",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 16
     }
   },
   "additionalProperties": false

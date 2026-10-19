@@ -586,8 +586,11 @@ under, the references, the report's checks.
   or the scan's own `free` set, which leaves the page's free set and fit as
   they are — are refined box by box across the fit window, seeded from the
   previous box, and the parameter rows are left as they are. It returns each
-  box's r range, Rw and values, and each parameter's spread, to tell the local
-  structure from the average; with `bonds` (cation sites), each box's
+  box's r range, Rw, values and esds, and each parameter's spread and its
+  drift from the first box to the last in esds of that difference, to tell
+  the local structure from the average; `restarts` refines each box from that
+  many perturbed starts as well, the seeded one kept (none unless asked,
+  whatever the panel's setting). With `bonds` (cation sites), each box's
   coordination shell in the structure it refined, so a distortion is compared
   as lengths. The last scan goes into the report.
 - `set_adp_model` switches the primary phase between one U per site and the U
