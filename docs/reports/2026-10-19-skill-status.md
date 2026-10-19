@@ -37,6 +37,15 @@ drafts).
   - Results keep the status they ran under when a skill later becomes the
     user's.
 
+## After the interviews (2026-10-19, same day)
+
+The user answered the Rietveld review and the PDF interview before this
+merged. They are in #63's skills. The status above changes for two skills:
+`my-rietveld-workflow` was reviewed (the checks after every run, the
+instrument terms apart from the positions), and `pdf-workflow` became the
+user's method. The PDF section of the interviews keeps only the questions
+still open.
+
 ## Evidence
 
 - The statuses are taken from:

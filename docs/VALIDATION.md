@@ -319,7 +319,8 @@ read any other skill its index lists. The ones a powder case calls for:
 | `symmetry-review` | The user's rule (the space group last, on evidence); the detail is drafted | The user's rule; the evidence and tests it asks for are general practice |
 | `bayesian-check` | Draft, general practice; read only when the Agent judges a number unconvincing | General practice |
 
-The PDF, single-crystal and magnetic skills (`pdf-workflow`, `sc-workflow`,
+The PDF skill (`pdf-workflow`) is the user's method since their interview of
+2026-10-19; the single-crystal and magnetic skills (`sc-workflow`,
 `magnetic-analysis`) are drafts. No case runs on the PDF or single-crystal
 page, and none has a magnetic phase. A result that rests on one of them,
 whenever a case calls for it, measures general practice, not the user's

@@ -16,10 +16,10 @@ Where each skill stands:
 
 | Skill | Status | Interview |
 | --- | --- | --- |
-| `my-rietveld-workflow` | The user's method, from their interview | done |
+| `my-rietveld-workflow` | The user's method, from their interview; reviewed 2026-10-19 (the checks after every run, the instrument terms apart from the positions) | done |
 | `symmetry-review` | The user's rule (the space group last, on evidence); the detail is drafted | [§4](#4-symmetry-review-symmetry-review-the-users-rule-drafted-detail) |
 | `magnetic-analysis` | Draft from the app's workflow and the knowledge base | [§1](#1-powder-magnetic-structure-magnetic-analysis-draft) |
-| `pdf-workflow` | Draft: general small-box practice | [§2](#2-pdf-pdf-workflow-draft) |
+| `pdf-workflow` | The user's method, from their interview (2026-10-19); occupancies, particle size and the ADP tensor still general practice | [§2](#2-pdf-pdf-workflow-the-users-method) |
 | `sc-workflow` | Draft: general single-crystal practice | [§3](#3-single-crystal-sc-workflow-draft) |
 | `bayesian-check` | Draft: general practice, with the dev runs' examples; its text does not yet say it is a draft | [§5](#5-the-bayesian-check-bayesian-check-draft) |
 
@@ -62,19 +62,19 @@ The draft follows the app's workflow and the knowledge base. To confirm:
    cannot fix; a domain population).
 9. Firm rules: anything the Agent must never do on this step without asking you?
 
-## 2. PDF (`pdf-workflow`, draft)
+## 2. PDF (`pdf-workflow`, the user's method)
 
-1. Instrument resolution: always Qdamp/Qbroad from a standard measured that
-   day (Ni, Si), or refined on the sample when no standard exists?
-2. The r range you fit by default, and when you fit a short range only.
-3. One correlated-motion term: δ2 at low temperature, δ1 at high — your rule,
-   or do you decide from the fit?
-4. ADPs: isotropic first, anisotropic when? The same ADP for one element?
-5. Boxcar scans: box width and step you use; what spread counts as the local
-   structure differing from the average?
-6. Nanoparticles: when do you free spdiameter, and with which shape?
-7. What makes a PDF fit "done" for you (Rw alone is relative)?
-8. Firm rules for the PDF page.
+Interviewed 2026-10-19: the long range first as the average baseline, then
+the correlated motion, then the local fit, and the symmetry last; the answers
+are in the skill (Qdamp and Qbroad from a standard, held; the three windows;
+one correlated-motion term by default; done when the local structure is
+known to differ or not). Still open, for a later round:
+
+1. ADPs: anisotropic when? The same ADP for one element?
+2. Boxcar scans: box width and step; what spread counts as the local structure
+   differing from the average?
+3. Nanoparticles: when do you free spdiameter, and with which shape?
+4. Firm rules for the PDF page beyond the instrument–ADP one.
 
 ## 3. Single crystal (`sc-workflow`, draft)
 
