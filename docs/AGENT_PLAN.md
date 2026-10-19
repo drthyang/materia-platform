@@ -270,7 +270,7 @@ are noted, since arm A reads it.
 | 4.7 | Texture: averaged over Laue equivalents, symmetry-distinct axes, corrected for choosing the best axis; a false-positive test over many seeds. | M |
 | 4.8 | Flack and Parsons use every measurement of unmerged data. | S |
 | 4.9 | Known-answer tests for `test_extinction`; a false-positive test for `identify_peaks` on random d-lists. | S |
-| 4.10 | `review_symmetry` orders candidates by index, as its text says. | S |
+| 4.10 | **Done.** `review_symmetry` orders its candidates by index, as its text says: those that allow every observed forbidden reflection first, then those that allow some, each smallest index first (`orderCandidates`); before, the partial ones came by how many they allow ([report](./reports/2026-10-19-symmetry-order.md)). | S |
 | 4.11 | **Lost centring (approved; after the core).** Today the cell check flags forbidden reflections that carry intensity, and `review_symmetry` says a lost centring "is likelier" when no same-lattice subgroup explains them. No tool names the decentred groups or tests them. Proposed: `review_symmetry` also lists the klassengleiche subgroups that drop a centring vector (index 2; index 4 from F), each named and with the forbidden reflections it allows, as candidates to put to the user. Building the split-site model stays the user's step. Developed on `dev-cscl-wrong-centring` only. | M |
 
 The Le Bail carry-forward needs no new tool: the skill sends a bad start to
