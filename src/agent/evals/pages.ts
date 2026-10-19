@@ -7,7 +7,8 @@
 import type { PdfAgentPort, PowderAgentPort, SingleCrystalAgentPort } from "@/agent/port";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { loadedSession, newSession, type Session } from "@/app/powderSession";
+import { newSession, type Session } from "@/app/powderSession";
+import { openedPage } from "@/app/powderPage";
 import { parseCif } from "@/parsers/cif";
 import { parseInstrumentParameters } from "@/parsers/instrument";
 import { parseGsasHistogramPattern } from "@/parsers/gsasHistogram";
@@ -257,7 +258,7 @@ export function awo4UserFiles(): { readonly structure: string; readonly data: st
 /**
  * The powder page as the app opens it on the user's AWO₄ files: the CIF, the
  * histogram read as TOF, and the instrument's calibration and profile, the
- * spec built as the data loader builds it (loadedSession) and the instrument
+ * page opened as the app opens the files (openedPage) and the instrument
  * shown on the page (the d axis needs it).
  */
 export function awo4UserPage(): PowderAgentPort {
@@ -265,9 +266,11 @@ export function awo4UserPage(): PowderAgentPort {
   if (!files) throw new Error("the AWO4 data are not on this machine (data/AWO4)");
   const read = (path: string): string => readFileSync(path, "utf8");
   const structure = parseCif(read(files.structure), "awo4");
-  const instrument = parseInstrumentParameters(read(files.instrument));
-  const pattern = parseGsasHistogramPattern(read(files.data), `${structure.id}-powder`, basename(files.data), { radiation: { kind: "neutron-tof" } });
-  return sessionPort(loadedSession(structure, pattern, instrument), instrument, { instrumentOnPage: true }).port;
+  const instrumentFile = { name: basename(files.instrument), text: read(files.instrument) };
+  const instrument = parseInstrumentParameters(instrumentFile.text);
+  const data = { name: basename(files.data), text: read(files.data) };
+  const pattern = parseGsasHistogramPattern(data.text, `${structure.id}-powder`, data.name, { radiation: { kind: "neutron-tof" } });
+  return sessionPort(openedPage(structure, instrument, pattern, { instrument: instrumentFile, data }).session, instrument, { instrumentOnPage: true }).port;
 }
 
 export function pdfPage(): PdfAgentPort {
