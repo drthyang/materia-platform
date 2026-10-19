@@ -15,6 +15,13 @@
 export const CORRELATION_LIMIT = 0.95;
 
 /**
+ * Correlations from this up to CORRELATION_LIMIT are reported, never silent
+ * (the user's rule): the pair is refined, and the report says how strongly
+ * the data couple it.
+ */
+export const CORRELATION_REPORTED = 0.8;
+
+/**
  * GoF (√χ²ν = Rwp/Rexp) bands after Toby (2006), for a powder fit:
  * excellent up to 1.5, good to 2.5, fair to 4, poor above; below 0.8 the fit
  * is "too good" (σ overestimated or the model over-parameterized).
@@ -89,3 +96,36 @@ export const LOST_CENTRING_MIN = 3;
 
 /** Magnetic groups whose wR is within this of the best are tied; the maximal one with the fewest moments then leads. */
 export const RANK_TIE_WR = 1e-4;
+
+/**
+ * The physical checks after every refinement (the user's rules, 2026-10-19).
+ * Two atoms closer than DISTANCE_HARD (Å) cannot both be there: a hard
+ * failure (the run is taken back and put to the user). Closer than
+ * DISTANCE_WARN is unusual for any bond: a warning. Bonds to H and pairs that
+ * are never present together (alternatives of one disorder, partly occupied
+ * sites whose occupancies add to at most 1) are not checked.
+ */
+export const DISTANCE_HARD = 1.0;
+export const DISTANCE_WARN = 1.5;
+
+/** A cation–anion bond this much shorter than its bond-valence length (a fraction) is a warning. */
+export const BOND_SHORT = 0.1;
+
+/**
+ * U_iso (Å²) of a fully occupied site, read at room temperature: above
+ * U_LARGE a warning (it can be right: a rattling atom, a high temperature),
+ * above U_HARD a hard failure put to the user; below U_SMALL a warning (a U
+ * that small is a low-temperature value). A negative U is always a hard
+ * failure (assessment.ts).
+ */
+export const U_LARGE = 0.05;
+export const U_HARD = 0.1;
+export const U_SMALL = 0.001;
+
+/**
+ * A heavier atom's U above a lighter one's by this factor, and by at least
+ * U_ORDER_MIN Å², is a warning: heavier atoms usually vibrate less.
+ */
+export const U_ORDER_RATIO = 1.5;
+export const U_ORDER_MIN = 0.005;
+

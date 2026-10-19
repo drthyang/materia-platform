@@ -21,7 +21,8 @@ import type { RefinementParameter, RefinementResult } from "@/core/refinement/ty
 import type { CorrectionsUpdate, SiteTies } from "@/app/powderSpec";
 import type { PowderXUnit } from "@/core/diffraction/types";
 import { availableDisplayUnits, convertAxisValue, convertInterval } from "@/visualization/axisUnits";
-import { residualPeaks } from "@/core/diagnostics/assessment";
+import { oneCurve, physicalFindings, residualPeaks } from "@/core/diagnostics/assessment";
+import { structureChecks } from "@/core/diagnostics/structureChecks";
 import { reviewSymmetry } from "@/core/diagnostics/symmetryReview";
 import { formatWt, fractionsOf } from "@/core/diagnostics/phaseFractions";
 import { powderResidual, type PowderResidual } from "@/core/diagnostics/powderResidual";
@@ -34,7 +35,7 @@ import { structureTable } from "@/agent/structureTable";
 import { powderReflectionObsCalc } from "@/core/workflow/obsCalc";
 import { excludedPointMask } from "@/core/refinement/factors";
 import { checkEqualTies, type EqualTieUpdate } from "@/core/refinement/constraints";
-import { bondsOf, cellOf, historyView, matchIds, parameterSummary, pct, sig, type LiveToolHost } from "@/agent/liveCommon";
+import { bondsOf, cellOf, historyView, labelOf, matchIds, parameterSummary, pct, sig, type LiveToolHost } from "@/agent/liveCommon";
 import { change, freePlan, goToPlan, nothing, refinePlan, resetPlan, type Plans } from "@/agent/pages/plans";
 import { powderValidation } from "@/core/diagnostics/powderValidation";
 import type { ReportCheck } from "@/core/export/report";
@@ -754,7 +755,36 @@ function assessment(s: PowderLiveState): ReturnType<typeof assess_refinement> {
     mode: "powder",
     restraints: s.restraints,
     sharedSiteAdps: sharedSiteAdps(s),
+    structures: s.refinedPhases,
   });
+}
+
+/**
+ * The physical checks after a refinement (the user's rule: every run with
+ * free parameters is assessed): the structures (distances, bond-valence
+ * lengths, U's range and order), the parameters (a negative U), and the
+ * correlations below the refusal limit, which are reported, never silent.
+ * A hard failure is put to the user before anything else.
+ */
+export function refineChecks(s: PowderLiveState): Record<string, unknown> {
+  if (!s.result) return {};
+  const many = s.refinedPhases.length > 1;
+  const found = [...physicalFindings(s.parameters), ...s.refinedPhases.flatMap((m) => structureChecks(m, many ? m.name || m.id : undefined))];
+  const hard = found.filter((f) => f.severity === "critical").map((f) => f.summary);
+  const warnings = found.filter((f) => f.severity === "warning").map((f) => f.summary);
+  const kind = new Map(s.parameters.map((p) => [p.id, p.kind]));
+  const correlations = (s.result.diagnostics?.moderateCorrelations ?? [])
+    .filter((c) => !oneCurve(kind.get(c.parameterIdA), kind.get(c.parameterIdB)))
+    .slice(0, 4)
+    .map((c) => `${labelOf(s.parameters, c.parameterIdA)} ↔ ${labelOf(s.parameters, c.parameterIdB)} ${sig(c.coefficient, 2)}`);
+  if (hard.length === 0 && warnings.length === 0 && correlations.length === 0) return { checks: "distances, bonds and U within the limits" };
+  return {
+    checks: {
+      ...(hard.length ? { hard, action: "A hard failure: take this run back (go_to_step to the step before it) and put it to the user before going on." } : {}),
+      ...(warnings.length ? { warnings } : {}),
+      ...(correlations.length ? { correlations, note: "below the refusal limit: refined, and reported with their coefficients" } : {}),
+    },
+  };
 }
 
 /** ADP parameters bound to two or more sites: a shared (mixed) site's tied ADP. */

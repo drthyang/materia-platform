@@ -101,6 +101,40 @@ above): on F² the weighting scheme is refitted to the model, so SHELXL's
 weights bring a right model near 1. The powder bands are unchanged, and so is
 the reading below 0.95 (refit the weights).
 
+### The user's review of their Rietveld method (2026-10-19)
+
+The user's rules, asked and answered in the review, now in `my-rietveld-workflow` and in
+the code that enforces them:
+
+- **Every run is assessed.** After each refinement, the Agent's `refine` returns its
+  `checks` (`refineChecks` in `powderTools.ts`), and `assess_refinement` reads the same
+  checks from the refined structures (`structureChecks.ts`, new).
+- **Hard failures** are taken back (`go_to_step`) and put to the user:
+  - two atoms under 1.0 Å apart;
+  - a U_iso above 0.1 Å² on a fully occupied site;
+  - a negative U (already critical).
+- **Warnings** are reported:
+  - atoms under 1.5 Å apart;
+  - a cation–anion bond more than 10 % shorter than its bond-valence length;
+  - a U_iso above 0.05 Å² or below 0.001 Å², read at room temperature;
+  - a heavier atom's U more than 1.5× a lighter one's, and at least 0.005 Å² more.
+
+  A large U can be right (the user's words), so the text says so. Bonds to H, and sites
+  never present together (one disorder's alternatives, partly occupied sites whose
+  occupancies add to at most 1), are not read.
+- **Correlations from 0.8 to 0.95** are reported, never silent. The engine now keeps them
+  (`moderateCorrelations`, `CORRELATION_REPORTED`). The assessment lists them as a note,
+  and `refine`'s checks give them with their coefficients. At 0.95 and above, the refusal
+  is unchanged.
+- **A new firm rule, `instrument-with-positions`** (powder page): the instrument's terms
+  are never refined with the atom positions, as they were not with the B values. The
+  user's fix is to fix one of the pair. `allow_exception` takes the new rule, the project
+  file accepts it, and the scripted replays now fix the position before the profile
+  refines.
+- **The numbers** are in the thresholds module, each held to the skill's text by the
+  lint. The method still fits its share of a 32k window, after the stopping rule and a
+  few sentences were tightened.
+
 ## Evidence
 
 **The skill lint's allow-list is empty.** It held 13 failures (ten unmarked
@@ -184,6 +218,11 @@ and `dev-mn3ga-cell-strained` only.
 - Arm A's pinned results are unchanged.
 
 ## Not done
+
+- Over MCP, `assess_refinement` takes no structure in its schema, so the physical checks
+  after a run are the app's. The skill tells an MCP client to read `bond_geometry` and the
+  B values against the same limits.
+- The U limits read isotropic U only. An anisotropic site's U_eq is not checked yet.
 
 - **Waiting on the user:** this review. Each skill's edits are in the diff; the
   Rietveld method's cases moved, unchanged, to

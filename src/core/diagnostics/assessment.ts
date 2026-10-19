@@ -26,7 +26,9 @@ import type {
 } from "@/core/refinement/types";
 import { annotateExtraPeaks, detectExtraPeaks, type AnnotatedExtraPeak } from "@/core/magnetic/extraPeaks";
 import { correctionCorrelation } from "@/core/diffraction/corrections";
-import { CORRELATION_LIMIT, DATA_PER_PARAMETER, GOF_BANDS, GOOF_SINGLE_CRYSTAL_BANDS, SHIFT_SETTLED } from "@/core/diagnostics/thresholds";
+import type { StructureModel } from "@/core/crystal/types";
+import { structureChecks } from "@/core/diagnostics/structureChecks";
+import { CORRELATION_LIMIT, CORRELATION_REPORTED, DATA_PER_PARAMETER, GOF_BANDS, GOOF_SINGLE_CRYSTAL_BANDS, SHIFT_SETTLED } from "@/core/diagnostics/thresholds";
 
 /**
  * The assembly of a twin's fractions when the twin has both hands (a
@@ -86,6 +88,12 @@ export interface RefinementAssessment {
 }
 
 export interface AssessmentInput {
+  /**
+   * The refined structures (primary phase first): the physical checks after
+   * every run read them — distances, bond-valence lengths, U_iso's range and
+   * order (structureChecks.ts).
+   */
+  readonly structures?: readonly StructureModel[];
   readonly result: RefinementResult;
   /** The parameter set the fit ran on (for kinds, bounds, and physical checks). */
   readonly parameters: readonly RefinementParameter[];
@@ -507,6 +515,8 @@ export function assessRefinement(input: AssessmentInput): RefinementAssessment {
 
   // --- physical sanity of the values ------------------------------------
   findings.push(...physicalFindings(parameters));
+  const structures = input.structures ?? [];
+  for (const model of structures) findings.push(...structureChecks(model, structures.length > 1 ? model.name || model.id : undefined));
 
   // --- correlations ------------------------------------------------------
   // The terms of one curve (the background, the Caglioti width) trade off by
@@ -586,6 +596,19 @@ export function assessRefinement(input: AssessmentInput): RefinementAssessment {
       ...(insight ? { detail: insight } : { detail: "Strongly correlated parameters share information the data cannot separate; their individual esds are inflated. Consider refining them in separate stages or fixing one." }),
       parameterIds: [c.parameterIdA, c.parameterIdB],
       evidence: { coefficient: c.coefficient },
+    });
+  }
+
+  // Below the limit, down to CORRELATION_REPORTED: refined, and reported (the user's rule: never silent).
+  const moderate = (diag?.moderateCorrelations ?? []).filter((c) => !curveOf(c) && !tiedBy(c) && assemblyOf(c) === undefined);
+  if (moderate.length > 0) {
+    findings.push({
+      category: "correlation",
+      severity: "note",
+      summary: `${moderate.length} pair${moderate.length === 1 ? "" : "s"} correlate${moderate.length === 1 ? "s" : ""} at |ρ| ${CORRELATION_REPORTED}–${CORRELATION_LIMIT}: ${moderate.slice(0, 4).map((c) => `${byId.get(c.parameterIdA)?.label ?? c.parameterIdA} ↔ ${byId.get(c.parameterIdB)?.label ?? c.parameterIdB} ${c.coefficient.toFixed(2)}`).join("; ")}${moderate.length > 4 ? "; …" : ""}.`,
+      detail: `Below the ${CORRELATION_LIMIT} at which a pair is not refined together, so refined; but the data couple them, and their esds carry it. Report each with its coefficient; if one of them is a claim, fix its partner and refine again to see how far it moves.`,
+      parameterIds: [...new Set(moderate.flatMap((c) => [c.parameterIdA, c.parameterIdB]))],
+      evidence: { pairs: moderate.length, maxCoefficient: Math.max(...moderate.map((c) => Math.abs(c.coefficient))) },
     });
   }
 

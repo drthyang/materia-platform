@@ -169,6 +169,23 @@ describe("assessRefinement — findings", () => {
     expect(f?.detail).toMatch(/background/i);
   });
 
+  it("reports the correlations below the refusal limit, never silently (the user's rule)", () => {
+    const a = assessRefinement({
+      result: result({
+        diagnostics: {
+          svdZeroCount: 0, singularParameterIds: [], conditionNumber: 100, maxLambda: 1,
+          atBounds: [], maxShiftOverEsd: 0, highCorrelations: [],
+          moderateCorrelations: [{ parameterIdA: "scale", parameterIdB: "B1", coefficient: 0.87 }],
+        },
+      }),
+      parameters: [param("scale", "scale", 1), param("B1", "bIso", 0.5)],
+      observationCount: 4000,
+    });
+    const f = a.findings.find((x) => x.category === "correlation");
+    expect(f?.severity).toBe("note");
+    expect(f?.summary).toMatch(/1 pair correlates at \|ρ\| 0\.8–0\.95: scale ↔ B1 0\.87/);
+  });
+
   it("flags an at-bound ADP as critical with expert context", () => {
     const a = assessRefinement({
       result: result({

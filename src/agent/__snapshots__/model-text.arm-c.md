@@ -1276,7 +1276,7 @@ Read the refined primary phase for materials signals: crystallite size and micro
 
 ### allow_exception
 
-Ask the user to lift one of their method's firm rules for this analysis, when refine refused on it and the user wants to go on regardless: "bare-occupancy" (refine an occupancy with no tie, because a second contrast — anomalous X-ray, isotopic neutron — determines it), or "instrument-with-thermal" (refine the instrument's terms — the zero, the peak shape and asymmetry, Qdamp/Qbroad — together with the B values or ADPs, which the user's method alternates). Only when the user asks for it, never to get past a refusal. Always shows the user an approval card, even in Auto; only they can approve it. Give their reason in `reason`. Lasts until the data or the phases change.
+Ask the user to lift one of their method's firm rules for this analysis, when refine refused on it and the user wants to go on regardless: "bare-occupancy" (refine an occupancy with no tie, because a second contrast — anomalous X-ray, isotopic neutron — determines it), or "instrument-with-thermal" (refine the instrument's terms — the zero, the peak shape and asymmetry, Qdamp/Qbroad — together with the B values or ADPs, which the user's method alternates), or "instrument-with-positions" (on the powder page, the instrument's terms together with the atom positions, which it alternates too). Only when the user asks for it, never to get past a refusal. Always shows the user an approval card, even in Auto; only they can approve it. Give their reason in `reason`. Lasts until the data or the phases change.
 
 ```json
 {
@@ -1286,7 +1286,8 @@ Ask the user to lift one of their method's firm rules for this analysis, when re
       "type": "string",
       "enum": [
         "bare-occupancy",
-        "instrument-with-thermal"
+        "instrument-with-thermal",
+        "instrument-with-positions"
       ]
     },
     "reason": {

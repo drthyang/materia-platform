@@ -6,7 +6,7 @@
 
 import type { PowderAgentPort } from "@/agent/port";
 import type { MagneticPanelState } from "@/agent/magneticPort";
-import { POWDER_PLANS, powderReferences, powderReportChecks, readPowderTool, requireStructure } from "@/agent/powderTools";
+import { POWDER_PLANS, powderReferences, powderReportChecks, readPowderTool, refineChecks, requireStructure } from "@/agent/powderTools";
 import { isMagneticTool, magneticOutcome, readMagneticTool } from "@/agent/magneticTools";
 import { powderAnalysis } from "@/agent/method";
 import type { PageAdapter } from "@/agent/pages/types";
@@ -52,5 +52,5 @@ export const POWDER_PAGE: PageAdapter<PowderAgentPort> = {
     requireStructure(spec.name, s);
     return powderPlan(spec, input, s, port);
   },
-  outcome: (name, port) => (isMagneticTool(name) ? magneticOutcome(name, port) : {}),
+  outcome: (name, port) => (isMagneticTool(name) ? magneticOutcome(name, port) : name === "refine" ? refineChecks(port.state()) : {}),
 };
