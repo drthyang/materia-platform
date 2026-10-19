@@ -423,6 +423,24 @@ function nuclearDerivativeIntensities(
   });
 }
 
+/**
+ * The weights of a powder pattern's points, as every powder problem fits them
+ * (single-phase, multi-phase, nuclear + magnetic): 1/σ², with σ = √y_obs where
+ * the file gives none (1 at a count ≤ 0), and zero on an excluded sentinel
+ * plateau (a GSAS export's constant −3 outside its fit range) and outside the
+ * fit range. The page's wR and point count (powderPage.ts `weightedR`,
+ * `observationsIn`) select the same points.
+ */
+export function powderPointWeights(pattern: PowderPattern, fitRange?: FitRange): Float64Array {
+  return applyExclusionMask(
+    applyExclusionMask(
+      weightsFromSigma(pattern.points.map((p) => p.sigma ?? (p.yObs > 0 ? Math.sqrt(p.yObs) : 1))),
+      excludedPointMask(pattern.points.map((p) => p.yObs)),
+    ),
+    fitRangeMask(pattern.points.map((p) => p.x), fitRange),
+  );
+}
+
 export function buildPowderProblem(
   structure: StructureModel,
   pattern: PowderPattern,
@@ -433,17 +451,9 @@ export function buildPowderProblem(
   fitRange?: FitRange,
 ): RefinementProblem {
   const xValues = pattern.points.map((p) => p.x);
-  const yObs = pattern.points.map((p) => p.yObs);
-  const observations = Float64Array.from([...yObs, ...restraints.map((r) => r.target)]);
-  const diffractionWeights = applyExclusionMask(
-    applyExclusionMask(
-      weightsFromSigma(pattern.points.map((p) => p.sigma ?? (p.yObs > 0 ? Math.sqrt(p.yObs) : 1))),
-      excludedPointMask(yObs),
-    ),
-    fitRangeMask(xValues, fitRange),
-  );
+  const observations = Float64Array.from([...pattern.points.map((p) => p.yObs), ...restraints.map((r) => r.target)]);
   const weights = new Float64Array(observations.length);
-  weights.set(diffractionWeights, 0);
+  weights.set(powderPointWeights(pattern, fitRange), 0);
   for (let i = 0; i < restraints.length; i++) {
     const sigma = Math.max(restraints[i]!.sigma, 1e-12);
     weights[xValues.length + i] = 1 / (sigma * sigma);

@@ -528,6 +528,18 @@ release fixes bugs.
   steps were rejected and why. A cell length that is not positive and finite
   is refused with a message that names it, wherever a reflection list is made.
 
+
+- **A fit with a second phase or a magnetic model leaves out the excluded
+  plateau**, a GSAS export's constant −3 outside its fit range, as a
+  single-phase fit and the page's wR already did. It fitted those points:
+  on the magnetic Mn₃Ga demo with its first 60 points at −3, the
+  co-refinement reported wR 28.44 % where the page showed 9.12 %, and took
+  the moment to 2.30 µB for a true 2.5. It now reports the page's 0.30 % at
+  2.50 µB. This holds for Refine, Prefit, the posterior, the magnetic step's
+  moments fit and ranking, and MCP's `refine_powder` with extra phases,
+  `refine_magnetic_powder`, `rank_next_parameters` and `sample_posterior`.
+  MCP's `evaluate_pattern` scored the plateau too: 30.10 % for that model's
+  0.30 %.
 - **A local model no longer loops, its prompt cut.** On qwen3.8-27b in LM
   Studio the Agent re-read its method and the state until the turn cap: the
   instructions and every tool took 18.8k of the model's 32k tokens, LM Studio

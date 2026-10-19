@@ -43,7 +43,7 @@ import {
   PDF_STAGE_KINDS,
 } from "@/core/workflow/pdf";
 import { buildMpdfSpec, mpdfComponents, unsupportedMpdfModel, MPDF_STAGE_KINDS } from "@/core/workflow/mpdf";
-import { computeAgreementFactors, excludedPointMask, weightsFromSigma } from "@/core/refinement/factors";
+import { applyExclusionMask, computeAgreementFactors, excludedPointMask, weightsFromSigma } from "@/core/refinement/factors";
 import { axisContext, convertAxisArray, convertAxisValue, tofCalibrationOf } from "@/visualization/axisUnits";
 import { posteriorReading, type ParameterReading } from "@/core/diagnostics/posteriorReading";
 import { cellCheckReading, dScaleReading } from "@/core/diagnostics/cellReading";
@@ -476,11 +476,12 @@ export function evaluate_pattern(args: {
     : powderCurves(args.structure, args.pattern, args.parameters, args.bindings, args.profile);
   // Poisson fallback with the standard 1-count floor: σ = √max(N, 1). Without
   // the floor a near-zero intensity (e.g. the background of a simulated
-  // pattern) gets an exploding weight and poisons the agreement sums.
-  const weights = weightsFromSigma(args.pattern.points.map((p) => p.sigma ?? Math.sqrt(Math.max(p.yObs, 1))));
+  // pattern) gets an exploding weight and poisons the agreement sums. An
+  // excluded plateau scores nothing, as in a refinement and observationCount.
+  const excluded = excludedPointMask(curves.yObs);
+  const weights = applyExclusionMask(weightsFromSigma(args.pattern.points.map((p) => p.sigma ?? Math.sqrt(Math.max(p.yObs, 1)))), excluded);
   const nFree = args.parameters.filter((p) => !p.fixed && !p.expression).length;
   const a = computeAgreementFactors(Float64Array.from(curves.yObs), Float64Array.from(curves.yCalc), weights, nFree);
-  const excluded = excludedPointMask(curves.yObs);
   return {
     curves: {
       x: [...curves.x],
