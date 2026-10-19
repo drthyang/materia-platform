@@ -1,6 +1,7 @@
 # The magnetic step's state as one store (second half)
 
-Branch `claude/magnetic-store`, on `main`, 2026-10-19. Plan:
+Pull request [#74](https://github.com/drthyang/web-refinement/pull/74),
+branch `claude/magnetic-store`, on `main`, 2026-10-19. Plan:
 [AGENT_PLAN.md](../AGENT_PLAN.md), 2.4. The second half of the architecture
 review's #2, as the user answered its Q5 (b): the panel's state moves into the
 step's module, the panel renders it, and the Agent has one handle for the
