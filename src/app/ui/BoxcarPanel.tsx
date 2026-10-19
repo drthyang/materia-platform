@@ -292,8 +292,15 @@ export function BoxcarPanel({
             box {progress.done}/{progress.total}
           </span>
         ) : null}
+        {run && !busy ? (
+          <button style={secondaryButton} onClick={onExportCsv} title="Download every parameter's value and esd against the box center as CSV">
+            Export CSV
+          </button>
+        ) : null}
         {/* The plan, folded: what the NEXT scan will do. The run on screen
-            carries its own settings (its caption is in the chip row below). */}
+            carries its own settings (its caption is in the chip row below).
+            After Export, so on a phone it wraps to a row of its own rather
+            than pushing Export to a third. */}
         {hasRun && planInfo.issue === null && (
           <button
             style={{ ...planToggle, ...(showPlan ? planToggleOpen : {}) }}
@@ -306,11 +313,6 @@ export function BoxcarPanel({
             <span aria-hidden style={{ color: color.faint }}>{showPlan ? "▴" : "▾"}</span>
           </button>
         )}
-        {run && !busy ? (
-          <button style={secondaryButton} onClick={onExportCsv} title="Download every parameter's value and esd against the box center as CSV">
-            Export CSV
-          </button>
-        ) : null}
         <span style={{ flex: 1 }} />
         <InfoBadge
           width={340}
@@ -476,7 +478,9 @@ export function BoxcarPanel({
               share once opened. */}
           {aligned && shownId !== null && (
             <div style={{ flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column", gap: 8 }}>
-              <div style={{ flex: tableOpen ? "3 1 0" : "1 1 0", minHeight: 160 }}>
+              {/* Stacked (phone, portrait tablet) the plot gets a height of
+                  its own instead (workbench.css, .wb-boxcar-plot). */}
+              <div className="wb-boxcar-plot" style={{ flex: tableOpen ? "3 1 0" : "1 1 0", minHeight: 160 }}>
                 <TrackPlot passes={aligned.passes} label={shownLabel} selected={selected} onSelect={setSelected} />
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 10, rowGap: 4, flexWrap: "wrap", flex: "0 0 auto" }}>
@@ -498,7 +502,7 @@ export function BoxcarPanel({
                 />
               </div>
               {tableOpen && (
-                <div ref={tableRef} style={{ flex: "2 1 0", minHeight: 74, overflow: "auto" }}>
+                <div ref={tableRef} className="wb-boxcar-table" style={{ flex: "2 1 0", minHeight: 74, overflow: "auto" }}>
                   <StepTable
                     run={run}
                     aligned={aligned}
@@ -1118,6 +1122,8 @@ const planToggle: CSSProperties = {
   fontFamily: mono,
   fontSize: fz.micro,
   color: color.secondary,
+  // Wrapped on a narrow card, the summary reads as text, not a centred label.
+  textAlign: "left",
   cursor: "pointer",
 };
 const planToggleOpen: CSSProperties = {
@@ -1193,9 +1199,9 @@ const readout: CSSProperties = {
   gap: 10,
   rowGap: 4,
   flexWrap: "wrap",
-  // A zero basis keeps the readout on the table toggle's line, wrapping
-  // within itself, instead of dropping under it whole.
-  flex: "1 1 0",
+  // Beside the table toggle where the card has room for both (wrapping within
+  // itself), on a line of its own on a phone instead of a narrow column.
+  flex: "1 1 280px",
   minWidth: 0,
   fontFamily: mono,
   fontSize: fz.micro,

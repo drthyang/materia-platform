@@ -384,7 +384,7 @@ differs from the average one.
    **low → high r**, **high → low r** or **both**, and optionally
    **random restarts**.
 3. Click **Run boxcar scan**. **Cancel** keeps the boxes already fitted. After
-   a run the plan folds into one line beside the button; click it to edit the
+   a run the plan folds into one line in the toolbar; click it to edit the
    next scan's plan.
 4. Click a parameter chip to plot it against the box centre, above an Rw strip.
    Point at a box to read it; click it (or step with ← →) to pick it.

@@ -1,10 +1,10 @@
 # The boxcar plot gets the card
 
 Branch `claude/tender-clarke-dov72x`, on `main`, 2026-10-19. A user report:
-the boxcar result figure is squeezed and hard to see. Phases 1 and 2 of the
-plan made for it: free height for the figure, then use the figure's height
-better. Phase 3 (an expanded view) and phase 4 (the stacked phone layout) are
-not in this change.
+the boxcar result figure is squeezed and hard to see, and then that the
+layout is broken on a phone in portrait. Phases 1, 2 and 4 of the plan made
+for it: free height for the figure, use the figure's height better, and the
+stacked layout. Phase 3 (an expanded view) is not in this change.
 
 ## What changed, and why
 
@@ -21,6 +21,7 @@ remainder.
 | **The run's caption moves into the chip row**, beside the legend | A line of its own under the table |
 | **The per-box table opens on demand** (`▸ box table`); closed, the plot takes the whole region | The plot and the table split 3 : 2 whatever the card's height |
 | **A box is picked on the plot**: point at it for a card with its window, value ± esd, Rw and status; click it (or step with ← →, Esc to clear) to pick it. The line under the plot reads the picked box with its **Adopt** buttons; its row is highlighted in the table, and a table row picks it too | Adopt only in the table; the values only in the table or a slow native tooltip on a 3 px dot |
+| **Export CSV beside Run**, the folded plan after it | On a phone the plan's summary took Run's row and pushed Export to a third |
 | **One r axis** under the Rw strip, with r gridlines through both panels; the end boxes sit 10 px inside the axes | r ticks between the panels and the r title under the strip, 34 px of margin for it in the value panel |
 | **The Rw strip scales** with the figure (20 % of it, 40–84 px) and has a labelled scale (`positiveTicks`); bars widen with the box spacing (4–16 px) and flag a diverged box | A fixed 54 px strip with no scale, 6 px bars whatever the spacing |
 | **Ticks follow the room**: one y gridline per ~45 px, one r tick per ~80 px | Four y ticks and five r ticks at any size |
@@ -28,6 +29,25 @@ remainder.
 
 The layout math is `app/ui/boxcarLayout.ts`, pure and tested; the panel is
 `app/ui/BoxcarPanel.tsx`.
+
+### On a phone in portrait
+
+Measured before the change on a 390×844 phone (Playwright, touch, the
+Copilot rail frame): the shell scrolls, but the content column (`.wb-main`)
+kept its desktop `min-height: 0` and was held to the shell's leftover (565 px
+for 1065 px of content). The cards ran past it, and the footer, which follows
+the column's box, sat at 769 px, across the PDF plot card (and between the
+powder page's cards). On the PDF page the working row sits in the step's
+`auto 1fr` grid, so its 1fr row was that leftover too: the plot card stayed at
+its 380 px floor with 130–156 px of its content over the parameter card.
+
+| Change | What it answers |
+| --- | --- |
+| **The column grows to its content** where the page scrolls as one document (`min-height: auto` in the whole-page scrolling query) | The footer across the cards on every page; the PDF plot card held to 380 px |
+| **The boxcar figure gets a height of its own** when the cards stack: `clamp(220px, min(75vw, 80vh), 440px)` (`.wb-boxcar-plot`) | A stacked card takes its content's height, so the plot had no leftover to grow into and sat at its 160 px floor |
+| **An open box table at its natural height** when stacked (`.wb-boxcar-table`) | A table scrolling inside a card inside a scrolling page |
+| **The picked-box line wraps whole** to its own row on a phone (`flex: 1 1 280px`) | Squeezed beside the table toggle into a column a few words wide |
+| **A view switcher that wraps fills the card's width**, its segments growing (`.wb-seg` with four or more segments, at a shell ≤ 520 px) | At 360 px, Boxcar alone on a second row of the card's view tabs |
 
 ## Evidence
 
@@ -50,6 +70,20 @@ The layout math is `app/ui/boxcarLayout.ts`, pure and tested; the panel is
   highlighted and its header kept in view; the plan summary opens the plan bar.
   Both directions show paired bars, both passes in the card and the readout,
   an Adopt per pass and the gap in σ. No page error.
+- **On phones and tablets** (touch, after a scan; card, figure, footer):
+
+  | Window | Figure | Card overflow | Footer below the content |
+  | --- | --- | --- | --- |
+  | 390×844 portrait | 160 → 293 px | 130 → 0 px | yes (was across the card) |
+  | 360×780 portrait | 270 px | 0 | yes |
+  | 820×1180 iPad portrait | 440 px | 0 | yes |
+  | 844×390 landscape | 312 px | 0 | yes |
+
+  With the table open the card grows to hold it (0 overflow), and no page
+  scrolls sideways. The PDF Refinement tab's card now holds its plot (547 px,
+  0 overflow, was 380 px with 156 px over), and the powder page's footer
+  follows its parameter card. The desktop measurements above are unchanged
+  after these rules.
 - **The layout's rules** (`app/ui/boxcarLayout.test.ts`): the panels never
   overlap; the value panel keeps ≥ 60 px at the 160 px minimum and ≥ 160 px at
   the laptop height; the strip's bounds; tick counts by size; the spacing,
@@ -58,10 +92,12 @@ The layout math is `app/ui/boxcarLayout.ts`, pure and tested; the panel is
 
 ## What changes for users
 
-After a run the plan is a summary beside Run (click it to edit the next scan),
-the table is behind `▸ box table`, and Adopt is under the plot for the picked
-box (still in the table too). The scan, its results, the CSV, the project file
-and the Agent's tools are unchanged.
+After a run the plan is a summary in the toolbar (click it to edit the next
+scan), the table is behind `▸ box table`, and Adopt is under the plot for the
+picked box (still in the table too). On a phone the footer follows the cards
+on every page, the Boxcar figure is a readable size, and the PDF Refinement
+tab's plot no longer runs over the parameters. The scan, its results, the CSV,
+the project file and the Agent's tools are unchanged.
 
 ## What it means for the validation
 
@@ -70,10 +106,9 @@ Nothing: no computation changed.
 ## Not done
 
 - **Phase 3**, an expanded view of the figure.
-- **Phase 4**, the stacked layout (phones, portrait tablets). The card there is
-  capped at 380 px and the panel's content still runs past it (178 px on a
-  390×844 phone, about as before): the card should grow to its content when
-  the page stacks.
+- On a phone the "?" of the Boxcar toolbar can take a row of its own, and the
+  PDF Refinement tab's G(r) plot is cramped (the shared plot component, not
+  this change).
 
 ## Checks
 
