@@ -135,6 +135,37 @@ the code that enforces them:
   lint. The method still fits its share of a 32k window, after the stopping rule and a
   few sentences were tightened.
 
+### The user's PDF method (2026-10-19)
+
+`pdf-workflow` is now the user's method, from their interview. It was general small-box
+practice: one window, Qdamp and Qbroad always held, δ before the positions. The new
+order:
+
+1. **The long range** (about 20–50 Å) is the average baseline, refined one block at a
+   time: scale and cell, then the ADPs and positions, then Qdamp and Qbroad (only when no
+   standard gives them).
+2. **Down to the first peak** (about 2–20 or 2–50 Å), one correlated-motion term with the
+   scale. δ1 or δ2 by default; both only when the user asks.
+3. **The local fit** (about 2–10 or 2–15 Å) holds the cell, the δ term and the ADPs (freed
+   last, a little, if the fit asks) and refines the positions. A local distortion shows as
+   extra peaks in the low-r residual or positions moving from the baseline; a boxcar scan
+   tells where it sets in.
+4. **The symmetry**, only then, is a question for the user.
+
+The rest of the method:
+
+- **Qdamp and Qbroad from a standard** stay held, refined at most at the very end for a
+  small gain; a large change goes to the user.
+- **Never all the blocks together**: the user's strong advice, not a rule `refine`
+  enforces.
+- **Done** when the question is answered: does the local structure differ from the
+  average one?
+- **In the code:** the PDF page's method stages follow the new order (positions before
+  the correlated motion), so the out-of-order note reads it, and the lint's stage
+  headings follow the new sections.
+- **Still general practice, and marked so:** occupancies, particle size and the ADP
+  tensor.
+
 ## Evidence
 
 **The skill lint's allow-list is empty.** It held 13 failures (ten unmarked

@@ -121,12 +121,16 @@ const POWDER_STAGES: readonly MethodStage[] = [
   { id: "symmetry", label: "Symmetry review (last)", kinds: [], optional: true },
 ];
 
-/** pdf-workflow: scale and cell, ADPs, one correlated-motion term, positions, occupancy, particle size. */
+/**
+ * pdf-workflow, the user's order (2026-10-19): on the long range scale and
+ * cell, then the ADPs and positions; the correlated-motion term once the
+ * window reaches the first peak; then occupancy, particle size.
+ */
 const PDF_STAGES: readonly MethodStage[] = [
   { id: "base", label: "Scale, cell", kinds: ["pdfScale", "cellLength", "cellAngle"] },
   { id: "adp", label: "ADPs", kinds: ["bIso", "uAniso"] },
-  { id: "motion", label: "Correlated motion", kinds: ["delta1", "delta2", "sratio", "rcut"] },
   { id: "positions", label: "Positions", kinds: ["atomX", "atomY", "atomZ", "positionShift"] },
+  { id: "motion", label: "Correlated motion", kinds: ["delta1", "delta2", "sratio", "rcut"] },
   { id: "occupancy", label: "Occupancy", kinds: ["occupancy"], optional: true },
   { id: "size", label: "Particle size", kinds: ["spdiameter"], optional: true },
 ];

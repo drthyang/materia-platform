@@ -46,8 +46,8 @@ const METHOD_STAGES: Readonly<Record<string, { readonly page: AgentPage; readonl
   "pdf-workflow": {
     page: "pdf",
     stage: { base: /scale/i, adp: /\bADPs?\b/, motion: /correlated motion|δ1|delta1/i, positions: /positions/i, occupancy: /occupanc/i, size: /particle size|spdiameter/i },
-    // Stage 1 holds the structural stages in the small-box order.
-    checks: [/Check the data and the instrument/, /small-box order/],
+    // The user's three windows: the long range, the correlated motion, the local fit.
+    checks: [/Check the data and the instrument/, /The long range/, /The local fit/],
   },
   "sc-workflow": {
     page: "singleCrystal",
