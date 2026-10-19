@@ -42,6 +42,8 @@ import { ollamaNativeFetch, ollamaWindow, type OllamaPlan } from "@/agent/ollama
 import { DEFAULT_OPENAI_CONTEXT, openaiBase, openaiCompatFetch, openaiUnreachableHint, openaiWindow } from "@/agent/openaiCompat";
 import { ensureLmStudioContext, lmstudioBase, lmstudioUnreachableHint } from "@/agent/lmstudio";
 import { MIN_AGENT_CONTEXT, contextAdvice, kTokens, plainFetch } from "@/agent/localServer";
+export { NO_PROXY, PROXY_PATH, proxyStatus, type ProxyStatus } from "@/agent/proxyStatus";
+import { NO_PROXY, PROXY_PATH } from "@/agent/proxyStatus";
 
 export type ChatTransport = "api-key" | "proxy" | "ollama" | "lmstudio" | "openai-compatible";
 export type ChatEffort = "low" | "medium" | "high" | "xhigh" | "max";
@@ -109,7 +111,6 @@ const MAX_TURNS = 40;
  */
 const MAX_TURNS_SIZED = 80;
 /** The proxy route's path under the app's base URL (vite.config.ts serves it). */
-export const PROXY_PATH = "api/anthropic";
 
 
 /** Which API the history was written for: Claude's thinking is signed, another server's is not. */
@@ -904,6 +905,8 @@ export function describeChatError(e: unknown, config: Pick<ChatConfig, "transpor
   if (e instanceof Anthropic.APIError) {
     const body = e.error as { error?: { type?: string; message?: string } } | undefined;
     if (body?.error?.type === "proxy_not_configured") return body.error.message ?? "The proxy has no API key.";
+    // A static host answers the proxy's path itself: 404, or 405 (GitHub Pages' nginx) or 501 for the POST.
+    if (transport === "proxy" && (e.status === 404 || e.status === 405 || e.status === 501) && !body?.error?.type) return NO_PROXY;
     return `API error ${e.status ?? ""}: ${e.message}`;
   }
   return e instanceof Error ? e.message : String(e);

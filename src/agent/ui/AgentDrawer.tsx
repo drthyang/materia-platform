@@ -12,6 +12,7 @@ import type { MethodProgress } from "@/agent/method";
 import { isScriptedReplay, providerOf, replayLabel, type AgentController, type AgentMode, type AgentProvider, type AgentSettings, type TranscriptItem } from "@/agent/useAgent";
 import { OPENAI_PRESETS, isMachineUrl, listOpenAIModels, openaiBase, openaiUnreachableHint, presetForUrl, type OpenAIModel } from "@/agent/openaiCompat";
 import { CHAT_MODELS, hasRefusalFallback } from "@/agent/chat-models";
+import { NO_PROXY, proxyStatus, type ProxyStatus } from "@/agent/proxyStatus";
 import { listOllamaModels, unreachableHint, type OllamaModel } from "@/agent/ollama";
 import { listLmStudioModels, lmstudioUnreachableHint, type LmStudioModel } from "@/agent/lmstudio";
 import { MIN_AGENT_CONTEXT, kTokens } from "@/agent/localServer";
@@ -427,6 +428,7 @@ function Settings({ agent }: { agent: AgentController }): JSX.Element {
               </label>
             </>
           )}
+          {settings.mode === "proxy" && <ProxyCheck />}
           <p style={note}>{cloudNote("Anthropic")}</p>
         </>
       )}
@@ -458,6 +460,21 @@ function Settings({ agent }: { agent: AgentController }): JSX.Element {
       <HowToConnect mode={settings.mode} />
     </div>
   );
+}
+
+/** Whether this page has the local proxy: the published site has none, and says so before a message fails. */
+function ProxyCheck(): JSX.Element | null {
+  const [status, setStatus] = useState<ProxyStatus | null>(null);
+  useEffect(() => {
+    let live = true;
+    void proxyStatus(import.meta.env.BASE_URL).then((s) => { if (live) setStatus(s); });
+    return () => { live = false; };
+  }, []);
+  if (status === null) return null;
+  const text = status === "ready" ? "The proxy is running, with a key." : status === "no-key"
+    ? "The proxy is running but has no key: start the dev server with ANTHROPIC_API_KEY set (in the shell, or in .env.local)."
+    : NO_PROXY;
+  return <p role="status" style={{ ...note, color: status === "ready" ? color.secondary : color.warnInk }}>{text}</p>;
 }
 
 /** The longer how-to for the chosen connection, folded away. */
