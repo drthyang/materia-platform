@@ -657,9 +657,9 @@ export function search_propagation_vector(args: {
   peakD: number[];
   options?: KSearchOptions;
 }): { candidates: { k: Vec3; label: string; matched: number; total: number; rmsd: number; score: number }[] } {
-  // A line's width in d grows with d: match within 0.5 % of d where that is wider than the Å tolerance.
-  // Satellites about the lattice's own reflections: a centred lattice's absences carry none.
-  const candidates = searchPropagationVector(args.structure.cell, args.peakD, { relativeTolerance: 0.005, centring: centringTranslations(args.structure.spaceGroup.operations), ...(args.options ?? {}) });
+  // The app's options (K_SEARCH_DEFAULTS: 0.02 Å or 0.5 % of d, no Q cut), about the lattice's own
+  // reflections: a centred lattice's absences carry none.
+  const candidates = searchPropagationVector(args.structure.cell, args.peakD, { centring: centringTranslations(args.structure.spaceGroup.operations), ...(args.options ?? {}) });
   return { candidates: candidates.map((c) => ({ ...c })) };
 }
 
