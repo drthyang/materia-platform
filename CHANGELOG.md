@@ -430,6 +430,16 @@ release fixes bugs.
 
 ### Changed
 
+- **The boxcar plot gets the card.** After a run the plan folds into a
+  one-line summary in the toolbar, the caption moves to the chip row, and the
+  per-box table opens on demand, so on a 1280×800 window the figure is about
+  twice as tall (150 → 313 px) and the track itself about four times (≈50 →
+  194 px). The two panels share one r axis with gridlines through both, the Rw
+  strip scales with the figure and has a scale, and Rw bars widen with the box
+  spacing. Point at a box for its window, value ± esd and Rw; click it (or step
+  with ← →) to pick it, shading its r-window, and adopt it from the line under
+  the plot.
+
 - **Single-crystal structure factors with analytic derivatives.** A kernel
   computes F for a fixed reflection list and, in the same pass, ∂F for every
   position mode, U mode, B and occupancy, so the Jacobian costs about two
@@ -540,6 +550,14 @@ release fixes bugs.
   `refine_magnetic_powder`, `rank_next_parameters` and `sample_posterior`.
   MCP's `evaluate_pattern` scored the plateau too: 30.10 % for that model's
   0.30 %.
+
+- **The page on a phone in portrait.** The content column could shrink below
+  its cards while the page scrolled, so the footer was drawn across them (on
+  every page) and the PDF page's plot card was held to 380 px with its plot
+  running over the parameter card. The column now grows to its content. On
+  the Boxcar tab, stacked, the figure has a height of its own (293 px on a
+  390 px phone, against its 160 px floor) and an open box table its natural
+  height; a view switcher that wraps fills the card's width.
 - **A local model no longer loops, its prompt cut.** On qwen3.8-27b in LM
   Studio the Agent re-read its method and the state until the turn cap: the
   instructions and every tool took 18.8k of the model's 32k tokens, LM Studio

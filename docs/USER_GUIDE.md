@@ -383,10 +383,13 @@ differs from the average one.
 2. In the **Boxcar** view, set **box** and **step** in Å. Pick
    **low → high r**, **high → low r** or **both**, and optionally
    **random restarts**.
-3. Click **Run boxcar scan**. **Cancel** keeps the boxes already fitted.
+3. Click **Run boxcar scan**. **Cancel** keeps the boxes already fitted. After
+   a run the plan folds into one line in the toolbar; click it to edit the
+   next scan's plan.
 4. Click a parameter chip to plot it against the box centre, above an Rw strip.
-5. **Adopt** loads one box's values into the panel. **Export CSV** saves the
-   scan.
+   Point at a box to read it; click it (or step with ← →) to pick it.
+5. **Adopt**, under the plot, loads the picked box's values into the panel.
+   **box table** lists every box, and **Export CSV** saves the scan.
 
 The scan itself changes neither the fit window nor the parameters. With
 **both**, **The two directions agree** means the drift is in the data.
