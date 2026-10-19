@@ -120,7 +120,9 @@ docs/
 
 Tests live next to the code as `*.test.ts`. Suites that read the git-ignored
 `data/` folder go through `src/testSupport` and skip when it is absent, as in CI
-or a fresh clone ([VALIDATION.md](./VALIDATION.md)).
+or a fresh clone ([VALIDATION.md](./VALIDATION.md)). A published dataset is also
+committed under `examples/` and read from there when `data/` has no copy (the
+Mn₃Ga 350 K POWGEN set, `examples/mn3ga-350k`), so its tests run in CI.
 
 ## Core scientific data model
 

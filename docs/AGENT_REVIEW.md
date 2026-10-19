@@ -17,7 +17,8 @@ This page covers the parts those results depend on. It was reviewed on
 result, a simulation whose truth is known, or a reference program. Tests marked
 *data* read the git-ignored `data/` folder. They are skipped in CI, so CI does
 not hold the GSAS-II, SHELXL and FullProf comparisons; only a machine with the
-data does.
+data does. The exception is the published Mn₃Ga 350 K POWGEN set, committed
+under `examples/mn3ga-350k`: its GSAS-II magnetic comparison runs in CI.
 
 | Tool | What it computes | Known answer | Gaps |
 | --- | --- | --- | --- |
@@ -60,7 +61,8 @@ data does.
 
 1. **CI runs none of the external comparisons.** The GSAS-II, SHELXL, FullProf
    and WinGX tests read git-ignored data. Committing small public reference
-   fixtures, as `pdffit2Golden.ts` does, would put them in CI.
+   fixtures, as `pdffit2Golden.ts` does, would put them in CI. Done for the
+   Mn₃Ga 350 K magnetic structure (GSAS-II), whose data are published.
 2. **The 8 %-of-largest floor** in residual-peak detection. Drop it when every
    point has a σ, and rely on the 5σ test. This needs a check of the
    false-positive rate on the eval pages first.
