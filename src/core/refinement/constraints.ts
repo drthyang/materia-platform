@@ -63,6 +63,19 @@ export function tieReferences(expression: string): string[] {
   return tie.kind === "linear" ? [tie.refId] : [...tie.refIds];
 }
 
+/** A tie expression reading the same rows under new ids (its factor and constant kept); unchanged when none is renamed. */
+export function renamedTie(expression: string, rename: (id: string) => string): string {
+  const tie = parseTie(expression);
+  if ((tie.kind === "linear" ? [tie.refId] : tie.refIds).every((id) => rename(id) === id)) return expression;
+  if (tie.kind === "norm") {
+    const sign = tie.factor === 1 ? "" : tie.factor === -1 ? "-" : `${tie.factor}*`;
+    return `= ${sign}hypot(${tie.refIds.map(rename).join(", ")})`;
+  }
+  const factor = tie.factor === 1 ? "" : `${tie.factor}*`;
+  const constant = tie.constant === 0 ? "" : `${tie.constant > 0 ? "+" : ""}${tie.constant}`;
+  return `= ${factor}${rename(tie.refId)}${constant}`;
+}
+
 /**
  * Resolve tie expressions: return an id→value record where every tied parameter
  * takes its computed value. Ties may reference other (untied) parameters; a
