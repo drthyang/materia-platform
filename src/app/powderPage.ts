@@ -39,6 +39,7 @@ import { startingPowderParams } from "@/app/loadData";
 import { powderBindings } from "@/examples/synthetic";
 import type { PowderPattern } from "@/core/diffraction/types";
 import type { MagneticFit, ResidualPeak } from "@/app/magneticStep";
+import { noiseOf } from "@/core/magnetic/momentRestarts";
 import type { MagneticModel } from "@/core/magnetic/types";
 import { refine } from "@/core/refinement/engine";
 import { generateReflections } from "@/core/diffraction/reflections";
@@ -753,10 +754,10 @@ export function residualPeaksOf(s: Session, instrument: InstrumentParameters | u
 }
 
 /** The step's moments-only fit, as the page refines: the nuclear model held, its full profile, every phase, the window. */
-export function momentFitRequest(s: Session, window: FitWindow | null, magnetic: MagneticModel, momentParams: readonly RefinementParameter[], momentBindings: readonly ParameterBinding[]) {
+export function momentFitRequest(s: Session, window: FitWindow | null, magnetic: MagneticModel, momentParams: readonly RefinementParameter[], momentBindings: readonly ParameterBinding[], freeScale = false) {
   return {
     structure: s.structure, magnetic, pattern: s.pattern,
-    parameters: [...s.powderParams.filter((p) => !isMagneticModelParameterKind(p.kind)).map((p) => ({ ...p, fixed: true })), ...momentParams],
+    parameters: [...s.powderParams.filter((p) => !isMagneticModelParameterKind(p.kind)).map((p) => ({ ...p, fixed: !(freeScale && p.kind === "scale" && !p.expression) })), ...momentParams],
     bindings: [...s.powderBindings.filter((b) => !isMagneticModelParameterKind(b.kind)), ...momentBindings],
     ...(s.extraPhases.length > 0 ? { extraPhases: phaseListOf(s) } : {}),
     ...profileRequest(s),
@@ -773,8 +774,8 @@ export function momentFitRequest(s: Session, window: FitWindow | null, magnetic:
 export function powderMomentFit(client: PowderCompute | null, s: Session, window: FitWindow | null): MagneticFit {
   return {
     agreementLabel: "wR",
-    refine: async (magnetic, momentParams, momentBindings) => {
-      const spec = momentFitRequest(s, window, magnetic, momentParams, momentBindings);
+    refine: async (magnetic, momentParams, momentBindings, options) => {
+      const spec = momentFitRequest(s, window, magnetic, momentParams, momentBindings, options?.freeScale);
       let result: RefinementResult;
       if (client) {
         result = await client.refineMagneticPowderParallel(spec, { maxIterations: 20 });
@@ -784,7 +785,7 @@ export function powderMomentFit(client: PowderCompute | null, s: Session, window
       }
       const values: Record<string, number> = {};
       for (const p of momentParams) values[p.id] = result.parameters[p.id] ?? p.value;
-      return { values, agreement: result.agreement.rWeighted ?? null };
+      return { values, agreement: result.agreement.rWeighted ?? null, ...noiseOf(result) };
     },
   };
 }

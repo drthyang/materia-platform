@@ -26,6 +26,7 @@ import { momentCartesian } from "@/core/magnetic/moment";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { resolveTies } from "@/core/refinement/constraints";
 import { RANK_TIE_WR } from "@/core/diagnostics/thresholds";
+import { withinNoiseOfBest } from "@/core/diagnostics/hamilton";
 import { magneticIonCandidates } from "@/core/magnetic/magneticIons";
 import { classifyPropagation, describePropagation } from "@/core/magnetic/propagation";
 import { littleGroup } from "@/core/magnetic/magneticGroups";
@@ -161,6 +162,12 @@ export function resolvedAmplitudes(build: MagneticModelBuild, amps: Readonly<Rec
 /** How a fit runs: `restarts`, the page's own multi-start inside the fit (absent: the page's default). */
 export interface FitOptions {
   readonly restarts?: number;
+  /**
+   * Refine the nuclear scale with the moments: at k = 0 the magnetic peaks
+   * sit on the nuclear ones, and a scale refined without the moments has
+   * taken up part of their intensity.
+   */
+  readonly freeScale?: boolean;
 }
 
 /**
@@ -223,6 +230,9 @@ export interface RankEntry {
   readonly values: Record<string, number>;
   /** The refined moment per sublattice (µ_B), a split orbit's as site#orbit. */
   readonly magnitudes: readonly { readonly label: string; readonly value: number }[];
+  /** The fit's χ² and degrees of freedom, where it is weighted by the data's σ: Hamilton's test reads them. */
+  readonly chi2?: number;
+  readonly dof?: number;
 }
 
 export interface RankRun {
@@ -235,6 +245,8 @@ export interface RankRun {
   readonly build: (ops: readonly SymmetryOperation[]) => MagneticModelBuild;
   readonly fit: MagneticFit;
   readonly restarts?: number;
+  /** Refine the nuclear scale with each group's moments (k = 0). */
+  readonly freeScale?: boolean;
   readonly cancelled?: () => boolean;
   /** Each group as it is fitted, with the results so far. */
   readonly onEntry?: (results: Readonly<Record<string, RankEntry>>) => void;
@@ -262,8 +274,8 @@ export async function rankCandidates(run: RankRun): Promise<Record<string, RankE
       if (build.params.length === 0) {
         results[id] = { status: "forbidden", wR: null, values: {}, magnitudes: [] };
       } else {
-        const once = run.fit.nestedStarts ? undefined : { restarts: 0 };
-        const { values, agreement } = await fitMomentsWithRestarts(fitRows(build), (start) => fitMoments(run.fit, build, start, once), {
+        const once = { ...(run.fit.nestedStarts ? {} : { restarts: 0 }), ...(run.freeScale ? { freeScale: true } : {}) };
+        const { values, agreement, chi2, dof } = await fitMomentsWithRestarts(fitRows(build), (start) => fitMoments(run.fit, build, start, once), {
           restarts: run.restarts ?? RANK_RESTARTS,
           ...(run.cancelled ? { cancelled: run.cancelled } : {}),
         });
@@ -272,7 +284,7 @@ export async function rankCandidates(run: RankRun): Promise<Record<string, RankE
           label: `${m.siteLabel}${m.orbitIndex !== undefined && m.orbitIndex > 1 ? `#${m.orbitIndex}` : ""}`,
           value: Math.hypot(...momentCartesian(run.structure.cell, m)),
         }));
-        results[id] = { status: "ok", wR: agreement, values, magnitudes };
+        results[id] = { status: "ok", wR: agreement, values, magnitudes, ...(chi2 !== undefined && dof !== undefined ? { chi2, dof } : {}) };
       }
     } catch {
       results[id] = { status: "failed", wR: null, values: {}, magnitudes: [] };
@@ -284,18 +296,35 @@ export async function rankCandidates(run: RankRun): Promise<Record<string, RankE
 }
 
 /**
- * The ★: the lowest agreement, and among the groups tied with it (within
- * RANK_TIE_WR, the same fit) the maximal one (lowest index) with the fewest
- * moment parameters. Ties are the rule: a powder often cannot tell several
+ * The groups within the noise of the best fit: by Hamilton's test where every
+ * fit reports its χ² (a group with more moment parameters must lower χ²
+ * beyond the noise to beat one with fewer), else the groups within
+ * RANK_TIE_WR of the lowest agreement (the same fit). The skill's "groups
+ * within the noise of the best are equally good fits".
+ */
+export function withinNoise(results: Readonly<Record<string, RankEntry>>, reps: readonly LatticeCandidate[], dims: readonly number[]): string[] {
+  const ok = Object.entries(results).filter(([, e]) => e.status === "ok" && e.wR != null);
+  if (ok.length === 0) return [];
+  const moments = new Map(reps.map((r, i) => [r.candidate.id, dims[i] ?? 0]));
+  if (ok.every(([, e]) => e.chi2 !== undefined && e.dof !== undefined)) {
+    const set = withinNoiseOfBest(ok.map(([id, e]) => ({ id, chi2: e.chi2!, dof: e.dof!, parameters: moments.get(id) ?? 0 })));
+    return ok.filter(([id]) => set.has(id)).map(([id]) => id);
+  }
+  const bw = Math.min(...ok.map(([, e]) => e.wR!));
+  return ok.filter(([, e]) => e.wR! <= bw + RANK_TIE_WR).map(([id]) => id);
+}
+
+/**
+ * The ★: among the groups within the noise of the best fit (withinNoise),
+ * the maximal one (lowest index) with the fewest moment parameters, then the
+ * lowest agreement. Ties are the rule: a powder often cannot tell several
  * groups apart, and the top-down prescription breaks them.
  */
 export function bestRanked(results: Readonly<Record<string, RankEntry>>, reps: readonly LatticeCandidate[], dims: readonly number[]): { readonly id: string; readonly wR: number } | null {
-  const ok = Object.entries(results).filter(([, e]) => e.status === "ok" && e.wR != null);
-  if (ok.length === 0) return null;
-  const bw = Math.min(...ok.map(([, e]) => e.wR!));
+  const tied = withinNoise(results, reps, dims);
+  if (tied.length === 0) return null;
   const meta = new Map(reps.map((r, i) => [r.candidate.id, { index: r.index, dof: dims[i] ?? 0 }]));
-  const tied = ok.filter(([, e]) => e.wR! <= bw + RANK_TIE_WR).map(([id]) => id);
-  tied.sort((a, b) => (meta.get(a)?.index ?? 99) - (meta.get(b)?.index ?? 99) || (meta.get(a)?.dof ?? 99) - (meta.get(b)?.dof ?? 99));
+  tied.sort((a, b) => (meta.get(a)?.index ?? 99) - (meta.get(b)?.index ?? 99) || (meta.get(a)?.dof ?? 99) - (meta.get(b)?.dof ?? 99) || results[a]!.wR! - results[b]!.wR!);
   const id = tied[0]!;
   return { id, wR: results[id]!.wR! };
 }
@@ -769,6 +798,8 @@ export class MagneticStep {
       structure: at.structure, reps: v.reps, dims: v.dims, scope, open: this.s.open, fit: at.fit,
       build: (ops) => buildFor(at.structure, this.s.k, this.s.ions, ops, v.options),
       ...(restarts !== undefined ? { restarts } : {}),
+      // At k = 0 the magnetic peaks sit on the nuclear ones: the scale refines with the moments.
+      ...(this.s.k.every((v) => Math.abs(v) < 1e-9) ? { freeScale: true } : {}),
       cancelled: stopped,
       onEntry: (results) => {
         if (this.s.rank.on === on) this.commit({ ...this.s, rank: { ...this.s.rank, done: this.s.rank.done + 1, results } });
@@ -852,6 +883,7 @@ export class MagneticStep {
           ties: { sameSite: s.ties.sameSite, magnitudes: v.options.magnitudes },
           baselineAgreement: at.baselineAgreement,
           best: v.best ? candidateId(v.reps.findIndex((r) => r.candidate.id === v.best!.id)) : null,
+          withinNoise: withinNoise(v.rankResults, v.reps, v.dims).map((id) => candidateId(v.reps.findIndex((r) => r.candidate.id === id))),
           canFit: v.canFit,
           canRefineK: v.canRefineK,
         };
