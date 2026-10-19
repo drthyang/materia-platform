@@ -1,6 +1,7 @@
 # The magnetic step as one module (first half)
 
-Branch `claude/magnetic-step`, stacked on `claude/powder-plans` ([#72](https://github.com/drthyang/web-refinement/pull/72)), 2026-10-19.
+Pull request [#73](https://github.com/drthyang/web-refinement/pull/73),
+branch `claude/magnetic-step`, stacked on `claude/powder-plans` ([#72](https://github.com/drthyang/web-refinement/pull/72)), 2026-10-19.
 Plan: [AGENT_PLAN.md](../AGENT_PLAN.md), 2.4. The architecture review's #2,
 built as the user answered its six questions: the step's operations in one
 module, `app/magneticStep.ts` (Q1). Where the panel and the headless copy
