@@ -33,8 +33,8 @@ demos open converged: a two-phase Mn₃Ga neutron TOF Rietveld fit and a GaTa₄
   every change, each one undoable. It reports with esds, and every number comes from the engine.
   Ten rounds with a crystallographer on real data shaped it
   ([researcher rounds](docs/VALIDATION.md#researcher-rounds)).
-- **Agent-ready science.** 41 MCP tools expose the engine to any agent: parse → build → refine →
-  assess → interpret ([agent tools](docs/AGENT_TOOLS.md)).
+- **Agent-ready science.** An MCP server (41 tools) exposes the engine to any agent: parse → build →
+  refine → assess → interpret ([agent tools](docs/AGENT_TOOLS.md)).
 
 ## What it does
 
@@ -49,8 +49,8 @@ demos open converged: a two-phase Mn₃Ga neutron TOF Rietveld fit and a GaTa₄
 ## The Copilot
 
 **MATERIA Copilot** runs a model beside the analysis: a local one on Ollama or LM Studio, a cloud
-model, or any OpenAI-compatible server. It has 60 tools across the powder, magnetic, single-crystal
-and PDF pages. Your method lives in
+model, or any OpenAI-compatible server.
+It has 60 tools across the powder page, its magnetic step, the single-crystal page and the PDF page. Your method lives in
 skills it reads on demand, and its firm rules are code. 37 eval scenarios replay its past failures in
 CI ([evals](docs/AGENT_EVALS.md)). A controlled study of whether it beats the app alone is in progress
 ([protocol](docs/VALIDATION.md#does-the-agent-help)).
