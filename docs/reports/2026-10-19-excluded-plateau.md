@@ -1,6 +1,6 @@
 # The excluded plateau out of every powder fit
 
-Pull request (to be linked), branch `claude/zen-archimedes-wf92da`, on `main` (#78),
+Pull request [#81](https://github.com/drthyang/web-refinement/pull/81), branch `claude/zen-archimedes-wf92da`, on `main` (#78),
 2026-10-19. Found by [#76](https://github.com/drthyang/web-refinement/pull/76)
 (its report's "Found, not fixed").
 
@@ -102,4 +102,6 @@ out.
 
 ## Checks
 
-`npm run build`, `npm run lint` and `npm test` pass at the branch head.
+`npm run build`, `npm run lint` and `npm test` pass at the branch head: 2381
+tests (`main`'s 2377 and the four new), 265 skipped (live runs and
+data-dependent suites).
