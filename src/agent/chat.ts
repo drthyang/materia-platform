@@ -41,7 +41,7 @@ import { ollamaBase, unreachableHint } from "@/agent/ollama";
 import { ollamaNativeFetch, ollamaWindow, type OllamaPlan } from "@/agent/ollamaNative";
 import { DEFAULT_OPENAI_CONTEXT, openaiBase, openaiCompatFetch, openaiUnreachableHint, openaiWindow } from "@/agent/openaiCompat";
 import { ensureLmStudioContext, lmstudioBase, lmstudioUnreachableHint } from "@/agent/lmstudio";
-import { MIN_AGENT_CONTEXT, contextAdvice, plainFetch } from "@/agent/localServer";
+import { MIN_AGENT_CONTEXT, contextAdvice, kTokens, plainFetch } from "@/agent/localServer";
 
 export type ChatTransport = "api-key" | "proxy" | "ollama" | "lmstudio" | "openai-compatible";
 export type ChatEffort = "low" | "medium" | "high" | "xhigh" | "max";
@@ -604,7 +604,6 @@ const MESSAGE_TOKENS = 8;
 /** A prompt the server counts below this share of the estimate was cut. */
 const CUT_SHARE = 0.4;
 
-const k = (n: number): string => `${Math.round(n / 1024)}k`;
 
 const withoutThinking = (messages: readonly BetaMessageParam[]): BetaMessageParam[] =>
   messages.map((m) => (m.role !== "assistant" || typeof m.content === "string" ? m : { ...m, content: m.content.filter((b) => b.type !== "thinking" && b.type !== "redacted_thinking") }));
@@ -640,13 +639,13 @@ export function fitWindow(messages: readonly BetaMessageParam[], fixedChars: num
     estimate,
     maxTokens: 0,
     refusal: (config, advice) => {
-      const needs = `it needs about ${k(estimate + MIN_REPLY)} (the instructions and tools alone about ${k(fixedChars / charsPerToken)}). Nothing was sent, so the model was not handed a cut prompt.`;
-      if (advice) return `This conversation no longer fits the ${k(window)}-token context ${config.transport === "lmstudio" ? "LM Studio" : "Ollama"} runs ${config.model} with, even with the old tool results shortened. Nothing was sent, so the model was not handed a cut prompt. ${advice}`;
+      const needs = `it needs about ${kTokens(estimate + MIN_REPLY)} (the instructions and tools alone about ${kTokens(fixedChars / charsPerToken)}). Nothing was sent, so the model was not handed a cut prompt.`;
+      if (advice) return `This conversation no longer fits the ${kTokens(window)}-token context ${config.transport === "lmstudio" ? "LM Studio" : "Ollama"} runs ${config.model} with, even with the old tool results shortened. Nothing was sent, so the model was not handed a cut prompt. ${advice}`;
       return config.transport === "lmstudio"
-        ? `This conversation no longer fits the ${k(window)}-token context LM Studio runs ${config.model} with, even with the old tool results shortened: ${needs} Start a new conversation, or give the model a longer context (lms unload ${config.model} && lms load ${config.model} --context-length ${2 * window}).`
+        ? `This conversation no longer fits the ${kTokens(window)}-token context LM Studio runs ${config.model} with, even with the old tool results shortened: ${needs} Start a new conversation, or give the model a longer context (lms unload ${config.model} && lms load ${config.model} --context-length ${2 * window}).`
         : config.transport === "openai-compatible"
-          ? `This conversation no longer fits the ${k(window)}-token window used for ${config.model} (the server's own, or the context set in the Copilot settings when the server does not say), even with the old tool results shortened: ${needs} Start a new conversation, or set a longer context if the model takes one.`
-          : `This conversation no longer fits ${config.model}'s ${k(window)}-token context on Ollama, even with the old tool results shortened: ${needs} Start a new conversation, or pick a model with a longer context.`;
+          ? `This conversation no longer fits the ${kTokens(window)}-token window used for ${config.model} (the server's own, or the context set in the Copilot settings when the server does not say), even with the old tool results shortened: ${needs} Start a new conversation, or set a longer context if the model takes one.`
+          : `This conversation no longer fits ${config.model}'s ${kTokens(window)}-token context on Ollama, even with the old tool results shortened: ${needs} Start a new conversation, or pick a model with a longer context.`;
     },
   };
 }

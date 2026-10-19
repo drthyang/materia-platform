@@ -15,6 +15,17 @@
 export const CORRELATION_LIMIT = 0.95;
 
 /**
+ * A pair over CORRELATION_LIMIT whose correlation a third free parameter
+ * carries: with every other free parameter held fixed the two correlate below
+ * CARRIED_BELOW (the engine's `conditional`), and their own correlation stays
+ * under CARRIED_MAX. On synthetic corundum to d = 0.4 Å, scale ↔ B(O) reads
+ * 0.976 with 0.72 conditional, and both B's come back within 0.002 Å² of the
+ * truth. The guard refines such a pair; the assessment notes it.
+ */
+export const CARRIED_BELOW = 0.9;
+export const CARRIED_MAX = 0.99;
+
+/**
  * GoF (√χ²ν = Rwp/Rexp) bands after Toby (2006), for a powder fit:
  * excellent up to 1.5, good to 2.5, fair to 4, poor above; below 0.8 the fit
  * is "too good" (σ overestimated or the model over-parameterized).
@@ -55,5 +66,14 @@ export const COMPLETENESS_NOTE = 0.95;
 /** A Flack or Parsons u below this determines the absolute structure (Flack & Bernardinelli). */
 export const FLACK_U_DETERMINED = 0.04;
 
-/** Magnetic groups whose wR is within this of the best are tied; the maximal one with the fewest moments then leads. */
+/** Magnetic groups whose wR is within this of the best are tied, where the fit reports no χ² (the mPDF's, on uniform weights); the maximal one with the fewest moments then leads. */
 export const RANK_TIE_WR = 1e-4;
+
+/**
+ * Hamilton's test of the magnetic ranking (Hamilton, Acta Cryst. 18 (1965)
+ * 502): a group with more moment parameters fits "within the noise" of one
+ * with fewer unless its χ² is lower beyond the F distribution's 5 % point; a
+ * group with as many or more is within the noise when its χ² exceeds the
+ * best's by less than one parameter's worth at the same level.
+ */
+export const RANK_NOISE_ALPHA = 0.05;

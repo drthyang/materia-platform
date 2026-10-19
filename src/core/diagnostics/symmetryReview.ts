@@ -38,6 +38,7 @@ import { structuralSubgroupLattice, subgroupClassRepresentatives } from "@/core/
 import { identifySubgroup } from "@/core/crystal/isotropyTree";
 import { residualPeaks, type AssessmentInput } from "@/core/diagnostics/assessment";
 import { FORBIDDEN_OVERLAP } from "@/core/diagnostics/thresholds";
+import { minMax } from "@/core/math/extent";
 
 /** A residual peak within this of a forbidden reflection (relative d) is that reflection. */
 const ON_FORBIDDEN = 0.005;
@@ -198,8 +199,7 @@ export function reviewSymmetry(
   const primary = phases[0];
   if (!primary) throw new Error("no phase to review");
   const ds = residual.d.filter((d) => Number.isFinite(d) && d > 0);
-  const dMin = Math.min(...ds);
-  const dMax = Math.max(...ds);
+  const { min: dMin, max: dMax } = minMax(ds);
   const allowed = residual.reflections ?? [];
   const allowedKeys = new Set(generateReflections(primary.cell, primary.spaceGroup, dMin, dMax).map(hklOf));
   const forbidden = generateReflections(primary.cell, primary.spaceGroup, dMin, dMax, { absences: false }).filter((r) => !allowedKeys.has(hklOf(r)));

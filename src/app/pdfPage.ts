@@ -817,6 +817,36 @@ export interface BoxcarScanPlan {
   readonly free?: readonly string[];
 }
 
+/** The plan the Agent asks a scan for (PdfAgentPort's `boxcar`). */
+export interface AgentBoxcarPlan {
+  readonly width: number;
+  readonly step: number;
+  readonly direction: BoxcarPlan["direction"];
+  readonly bonds?: readonly string[];
+  readonly free?: readonly string[];
+  /** Perturbed starts per box beyond the seeded one; none unless the Agent asks. */
+  readonly restarts?: number;
+}
+
+/**
+ * The Agent's scan on the panel's plan: its box, direction and restarts
+ * (the seeded start alone unless it asks, whatever the panel's tick; the
+ * panel's count kept when it asks for none), and its own bonds and free set.
+ * The panel then shows this plan.
+ */
+export function agentBoxcarPlan(panel: BoxcarPlan, agent: AgentBoxcarPlan): BoxcarScanPlan {
+  const restarts = agent.restarts ?? 0;
+  return {
+    width: agent.width,
+    step: agent.step,
+    direction: agent.direction,
+    randomStart: restarts > 0,
+    restarts: restarts > 0 ? restarts : panel.restarts,
+    ...(agent.bonds ? { bonds: agent.bonds } : {}),
+    ...(agent.free ? { free: agent.free } : {}),
+  };
+}
+
 /** How a scan went: complete, or stopped with the boxes already fitted kept (`partial`). */
 export interface BoxcarOutcome {
   readonly run: BoxcarRun | null;

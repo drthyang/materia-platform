@@ -257,8 +257,8 @@ export function KSearchPanel({
   const includedPeaks = useMemo(() => peakRows.filter((r) => r.included), [peakRows]);
   // Content signature of the DETECTED set: residualPeaks is re-minted (fresh
   // array) by unrelated re-renders upstream (axis toggles, applying a model),
-  // which must not wipe the user's curation — only a real change of the peak
-  // set does.
+  // which must not drop the spotlight — only a real change of the peak set
+  // does (the step's store keeps the curation: MagneticStep.sync).
   const peakSignature = useMemo(() => residualPeaks.map((p) => peakKey(p.d)).sort().join("|"), [residualPeaks]);
 
   // k is confirmed explicitly ("Set k") so the symmetry analysis below does not
