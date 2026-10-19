@@ -660,7 +660,12 @@ const startsText = (starts: readonly { id: string; kept: boolean; value: number 
  * The extinction test as two probes, the page untouched: the fit on all the
  * data fitted, and on them less the reflections whose y is below `below`.
  * What moves by more than 2 esd between them rests on the reflections the
- * extinction correction carries.
+ * extinction correction carries. The esd is the fit's without them: leaving
+ * most of the data out widens every esd, and on the full fit's a correct
+ * model failed (corundum, EXTI 20: the B's 3 esd at y < 0.5, the extinction
+ * 107 esd at y < 0.8, in 12 and 20 of 20 seeds). The shift of a correct
+ * model has an esd of √(σ_without² − σ_all²), less than σ_without, so the
+ * test errs towards keeping the data.
  */
 async function extinctionTest(s: SingleCrystalLiveState, port: SingleCrystalAgentPort, below: number): Promise<ChangeResult> {
   if (!s.result) throw new Error("refine first: the test starts from the converged fit, and reads the shifts against its esds");
@@ -678,15 +683,15 @@ async function extinctionTest(s: SingleCrystalLiveState, port: SingleCrystalAgen
   const moved = free.flatMap((p) => {
     const a = all.parameters[p.id];
     const b = without.parameters[p.id];
-    const e = all.esd[p.id];
+    const e = without.esd[p.id];
     if (a === undefined || b === undefined || !(e !== undefined && e > 0)) return [];
     const shift = (b - a) / e;
     return Math.abs(shift) > 2 ? [{ id: p.id, all: a, without: b, esds: shift }] : [];
   }).sort((x, y) => Math.abs(y.esds) - Math.abs(x.esds));
   const wr = (r: typeof all): string => (r.agreement.rWeighted !== undefined ? `${pct(r.agreement.rWeighted)} %` : "—");
   const reading = moved.length === 0
-    ? `No free parameter moves by more than 2 esd without the ${cut} reflections of y < ${below}: the structure does not rest on what the extinction correction carries. Keep all the data, and report the test.`
-    : `${moved.length} free parameter${moved.length === 1 ? " moves" : "s move"} by more than 2 esd without them (${moved.slice(0, 4).map((m) => `${m.id} ${sig(m.esds, 2)} esd`).join(", ")}): the model leans on the reflections the extinction correction carries. Try the other extinction model (set_extinction_model), refine, and test again; report which holds.`;
+    ? `No free parameter moves by more than 2 esd without the ${cut} reflections of y < ${below} (each shift against its esd in the fit without them): the structure does not rest on what the extinction correction carries. Keep all the data, and report the test.`
+    : `${moved.length} free parameter${moved.length === 1 ? " moves" : "s move"} by more than 2 esd without them, each against its esd in the fit without them (${moved.slice(0, 4).map((m) => `${m.id} ${sig(m.esds, 2)} esd`).join(", ")}): the model leans on the reflections the extinction correction carries. Try the other extinction model (set_extinction_model), refine, and test again; report which holds.`;
   return {
     note: `${reading} The page is unchanged: both fits were probes.`,
     data: {

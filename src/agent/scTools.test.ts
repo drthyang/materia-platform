@@ -184,6 +184,46 @@ describe("AgentExecutor on the single-crystal page", { timeout: 30_000 }, () => 
     expect(calls.slice(steps)).toEqual([]);
   });
 
+  // The extinction test's known answers. The structure, the scale and the
+  // extinction refined together, as the test is meant to follow them.
+  const refinedWithExtinction = async (ex: ReturnType<typeof executor>["ex"]): Promise<void> => {
+    await ex.run("set_free", { free: ["scale", "extinction"] });
+    await ex.run("refine", {});
+    await ex.run("set_free", { free: ["scale", "extinction", "B_Al1", "B_O1", "pos_Al1_0", "pos_O1_0"] });
+    await ex.run("refine", {});
+  };
+
+  it("reads a correct model under severe extinction as not leaning on the extinguished reflections", async () => {
+    // Computed and fitted with SHELXL's EXTI 20: most reflections have y < 0.5.
+    // Leaving them out widens every esd; against the full fit's esds the B's
+    // moved 3 esd at y < 0.5 and the extinction 107 at y < 0.8.
+    const { port } = page({ extinction: 20 });
+    const { ex } = executor(fakeHost(port).host, "auto");
+    await refinedWithExtinction(ex);
+    for (const below of [0.5, 0.8]) {
+      const out = parse((await ex.run("test_extinction", { below })).text);
+      expect(Number.parseInt(String(out.leftOut), 10)).toBeGreaterThan(300);
+      expect(out.movedBeyond2Esd).toEqual([]);
+      expect(String(out.note)).toMatch(/^No free parameter moves by more than 2 esd/);
+    }
+  });
+
+  it("finds the lean of the wrong extinction model, and none once the right one is refined", async () => {
+    // A mosaic crystal (Becker–Coppens type I, Gaussian) fitted with SHELXL's
+    // EXTI: the B's take up what the wrong model misses on the extinguished
+    // reflections, and move once those are left out.
+    const { port } = page({ extinction: 1e-4, extinctionModel: "bc-1-gaussian" });
+    const { ex } = executor(fakeHost(port).host, "auto");
+    await refinedWithExtinction(ex);
+    const wrong = parse((await ex.run("test_extinction", {})).text);
+    expect((wrong.movedBeyond2Esd as string[]).map((m) => m.split(":")[0])).toEqual(expect.arrayContaining(["B_Al1", "B_O1"]));
+    expect(String(wrong.note)).toMatch(/the model leans on the reflections the extinction correction carries\. Try the other extinction model/);
+    await ex.run("set_extinction_model", { model: "bc-1-gaussian" });
+    await refinedWithExtinction(ex);
+    const right = parse((await ex.run("test_extinction", {})).text);
+    expect(right.movedBeyond2Esd).toEqual([]);
+  });
+
   it("refuses the extinction test before a refinement", async () => {
     const { port } = page({ extinction: 20 });
     const { ex } = executor(fakeHost(port).host, "auto");

@@ -11,6 +11,7 @@ import { exampleStructure } from "@/examples/mn3ga";
 import type { RefinementParameter } from "@/core/refinement/types";
 import { executor, fakeHost, pdfPort, sessionPort } from "@/testSupport/agentHeadless";
 import { shoulderReading } from "@/agent/powderTools";
+import { mn3gaFluoriteSession, powderPage } from "@/agent/evals/pages";
 
 const parse = (text: string): Record<string, unknown> => JSON.parse(text) as Record<string, unknown>;
 
@@ -499,6 +500,17 @@ describe("AgentExecutor on a live powder fit", () => {
     const bonds = parse((await ex.run("bond_geometry", { cutoff: 3 })).text);
     expect(bonds.phase).toBe(port.state().structure.id);
     expect((await ex.run("bond_geometry", { phase: "nope" })).text).toMatch(/no phase "nope"/);
+  });
+
+  it("names fluorite among the residual's peaks, and no phase for peaks at random", async () => {
+    const fluorite = parse((await executor(fakeHost(powderPage(mn3gaFluoriteSession())).host).ex.run("identify_peaks", {})).text);
+    expect(String(fluorite.reading)).toMatch(/^4 of 5 peaks match CaF₂ \(2 2 0, 4 0 0, 4 2 0, 5 1 1\), .*; random peaks never match a library phase as well \(500 draws of 5 over this range\)\..* add it \(add_known_phase\)/);
+    // Four d-spacings drawn at random over the demo's range: three sit on corundum lines, which
+    // the reading named before it asked how often random peaks do as well.
+    const { port } = sessionPort(newSession(exampleStructure()));
+    const random = parse((await executor(fakeHost(port).host).ex.run("identify_peaks", { d: [1.3978, 2.0745, 2.1631, 1.9143] })).text);
+    expect(String(random.reading)).toMatch(/^Not enough to name a phase: corundum Al₂O₃ would explain 3 of 4 peaks \(3 -1 4, 2 -1 3, 0 0 6\), but random peaks match a library phase as well in [\d.]+ % of draws/);
+    expect((random.candidates as { phase: string }[])[0]?.phase).toBe("corundum Al₂O₃");
   });
 
   it("takes a fit window in d or Q and converts it with the page's own calibration", async () => {

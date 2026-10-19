@@ -284,7 +284,7 @@ Single-crystal page only. Keep in the fit measurements assess_refinement lists a
 
 ### test_extinction
 
-Single-crystal page only. The extinction test, with the page left as it is: the fit on screen refined twice as probes (the free set and start as they are), once on all the data fitted and once without the reflections whose extinction factor y is below `below` (default 0.5). Answers how many that leaves out, wR2 and the extinction parameter each way, and every free parameter that moves by more than 2 esd between them. None moving: the structure does not rest on the reflections the correction carries; one moving (an ADP, an occupancy): the model leans on them — try the other extinction model (set_extinction_model) and compare. Nothing on the page changes: no filter, no values, no step. Refine first: it starts from the converged fit.
+Single-crystal page only. The extinction test, with the page left as it is: the fit on screen refined twice as probes (the free set and start as they are), once on all the data fitted and once without the reflections whose extinction factor y is below `below` (default 0.5). Answers how many that leaves out, wR2 and the extinction parameter each way, and every free parameter that moves by more than 2 esd between them (the esd of the fit without them, which leaving data out widens). None moving: the structure does not rest on the reflections the correction carries; one moving (an ADP, an occupancy): the model leans on them — try the other extinction model (set_extinction_model) and compare. Nothing on the page changes: no filter, no values, no step. Refine first: it starts from the converged fit.
 
 ```json
 {
@@ -946,7 +946,7 @@ Powder and PDF pages. The Bayesian check of a converged refinement: an ensemble 
 
 ### identify_peaks
 
-Powder page only. Match peaks no phase of the model explains against phases a pattern often holds besides the sample: the sample environment (Al can or cryostat shields, V, Cu, steels, Nb heat shields, Pb shielding), holders (corundum, graphite), standards (Si, LaB₆, CeO₂) and the synthesis impurities in its library, their lines computed for this radiation. Each phase may scale its d-spacings by up to ±1.5 % (cooling; a part off the sample position shifts its lines). Returns the candidates with the lines they explain and the strong lines they should also show. Uses the residual's unexplained peaks (find_unexplained_peaks), or the d-spacings you pass (e.g. the cell check's unindexed peaks). A lead to put to the user, not an identification; add_known_phase then adds a matched phase to the model.
+Powder page only. Match peaks no phase of the model explains against phases a pattern often holds besides the sample: the sample environment (Al can or cryostat shields, V, Cu, steels, Nb heat shields, Pb shielding), holders (corundum, graphite), standards (Si, LaB₆, CeO₂) and the synthesis impurities in its library, their lines computed for this radiation. Each phase may scale its d-spacings by up to ±1.5 % (cooling; a part off the sample position shifts its lines). Returns the candidates with the lines they explain and the strong lines they should also show; a lead is named only when random peaks over the same range match a library phase as well less than 1 % of the time. Uses the residual's unexplained peaks (find_unexplained_peaks), or the d-spacings you pass (e.g. the cell check's unindexed peaks). A lead to put to the user, not an identification; add_known_phase then adds a matched phase to the model.
 
 ```json
 {
