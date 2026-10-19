@@ -131,6 +131,11 @@ export function carryRefinedStructure(previous: Session, params: readonly Refine
   return { params: out, carried };
 }
 
+/** How many of the structure's rows start where a previous fit left them, away from the CIF's values (right after a load: the rows carryRefinedStructure carried). */
+export function structureCarried(s: Session): number {
+  return s.powderParams.filter((p) => STRUCTURAL_KINDS.has(p.kind) && p.value !== p.initialValue).length;
+}
+
 /**
  * A rebuilt row keeping the previous row's value and free state. A tie the
  * user made rides along (the spec only regenerates its own ties); rows the
