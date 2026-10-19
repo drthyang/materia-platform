@@ -266,7 +266,7 @@ are noted, since arm A reads it.
 | 4.3 | k-search: mixed-sign k for monoclinic and triclinic cells, the hkl range from the cell, and one `maxQ` policy. | M |
 | 4.4 | Magnetic ranking: the moment fit returns χ² and N; a Hamilton R-ratio test (or Δχ² per parameter) makes a group with more moments earn them; the scale is free at k = 0. The ★ and the skill's "within the noise" then mean the same thing. | M |
 | 4.5 | `boxcar_scan` returns per-box esds and each parameter's drift in esds; restarts reachable. | S |
-| 4.6 | The H-test's stated direction of bias fixed now; the unbiased estimator later. | S |
+| 4.6 | **Stated direction done** (the unbiased estimator later). Measured on synthetic Wilson data: the 3σ cut keeps only pairs both strong, so on weak data it raises α (an untwinned crystal reads 0.10 at ⟨I/σ⟩ = 20, 0.23 at 5); noise lowers a twin's α only with every pair kept. The reading and the core doc say so, and a known-answer test pins it ([report](./reports/2026-10-19-h-test-bias.md)). | S |
 | 4.7 | Texture: averaged over Laue equivalents, symmetry-distinct axes, corrected for choosing the best axis; a false-positive test over many seeds. | M |
 | 4.8 | Flack and Parsons use every measurement of unmerged data. | S |
 | 4.9 | Known-answer tests for `test_extinction`; a false-positive test for `identify_peaks` on random d-lists. | S |
