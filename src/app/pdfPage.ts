@@ -789,7 +789,8 @@ export function pdfProbe(client: PdfCompute, m: PdfPageModel, options: Partial<R
  * The magnetic page's moment fit against this G(r): only the moments move —
  * the nuclear scaffold and the mPDF envelope rows (the ordered scale is
  * degenerate with |m|) are frozen — from a few seeded restarts, since m = 0 is
- * a stationary point (d(r) is quadratic in the moments).
+ * a stationary point (d(r) is quadratic in the moments). The ranking keeps
+ * them in each of its starts (magneticStep.ts, nestedStarts).
  */
 export async function momentFit(client: PdfCompute, m: PdfPageModel, magnetic: MagneticModel, momentParams: readonly RefinementParameter[], momentBindings: readonly ParameterBinding[]): Promise<{ readonly values: Record<string, number>; readonly agreement: number | null }> {
   const v = pageView(m);

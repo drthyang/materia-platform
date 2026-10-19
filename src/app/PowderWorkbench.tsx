@@ -46,17 +46,15 @@ import type { PowderProgress } from "@/workers/runPowder";
 import { formatWt, fractionsOf } from "@/core/diagnostics/phaseFractions";
 import { PosteriorPanel } from "@/app/ui/PosteriorPanel";
 import type { SampleOptions, SampleResult } from "@/core/refinement/bayes/sampler";
-import { KSearchPanel, type MagneticFit, type MagneticPatternView, type ResidualPeak } from "@/components/KSearchPanel";
+import { KSearchPanel, type MagneticPatternView } from "@/components/KSearchPanel";
 import type { DemoEntry, DemoId } from "@/app/demos";
 import { useOnChange } from "@/app/useOnChange";
 import { momentEntriesFrom } from "@/app/ui/cellModel";
-import { detectExtraPeaks, annotateExtraPeaks, type ExtraPeak } from "@/core/magnetic/extraPeaks";
 import { powderReflectionObsCalc, type ReflectionObsCalc } from "@/core/workflow/obsCalc";
 import { PowderValidationView } from "@/app/ui/PowderValidation";
 import type { CheckAction } from "@/core/diagnostics/validationChecks";
 import type { MagneticModel } from "@/core/magnetic/types";
 import {
-  axisContext,
   tofCalibrationOf,
   availableDisplayUnits,
   convertAxisArray,
@@ -85,7 +83,7 @@ import { type Session, DEFAULT_INSTRUMENT, SYNTHETIC_SOURCE, EMPTY_SOURCE } from
 import {
   extentOf, hasTensorAdp, magneticApplied as magneticAppliedOn, magneticProfileOf, momentRowsFree as momentRowsFreeOn, observationsIn, posteriorRun, powderFit as powderFitOn,
   powderPageCurves, refinedPhasesOf, restraintRequest, thoroughFit, weightedR as weightedROf, withAnisotropicAdp, withAntisitePair, withBackgroundTerms,
-  withBackgroundType, withCorrections, withFitResult, withMagneticModelRows, withMustrain, withParameterTies, withReset, withSiteTies, type PowderPageModel,
+  withBackgroundType, withCorrections, withFitResult, withMagneticModelRows, withMagneticPreview, withMustrain, withParameterTies, withReset, withSiteTies, pageAxis, powderMomentFit, residualPeaksOf, type PowderPageModel,
 } from "@/app/powderPage";
 import type { EngineExportsRef } from "@/app/workbenchEngine";
 import type { AgentLink } from "@/agent/link";
@@ -351,7 +349,8 @@ export function PowderWorkbench({
   // The refined TOF calibration too: a d read off the plot sits where the refinement puts the reflections.
   const { difC, difA, difB } = tofCalibrationOf(powderParams);
   const axisCtx = useMemo(
-    () => axisContext(pattern, instrumentLoaded ? instrument : undefined, zeroShift, { ...(difC !== undefined ? { difC } : {}), ...(difA !== undefined ? { difA } : {}), ...(difB !== undefined ? { difB } : {}) }),
+    () => pageAxis(session, instrumentLoaded ? instrument : undefined),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- of the session it reads the pattern, the zero and the TOF constants
     [pattern, instrument, instrumentLoaded, zeroShift, difC, difA, difB],
   );
 
@@ -361,28 +360,6 @@ export function PowderWorkbench({
     [structure],
   );
   const displayUnits = useMemo(() => availableDisplayUnits(axisCtx), [axisCtx]);
-  // Candidate magnetic peaks = positive residual the nuclear model can't explain,
-  // as d-spacings, ready for the k-search (so the user needn't read them off the
-  // plot). Requires a d-convertible axis; assumes the nuclear fit is refined.
-  const residualPeakD = useMemo<ExtraPeak[]>(() => {
-    if (!displayUnits.includes("dSpacing")) return [];
-    const dArr = pattern.xUnit === "dSpacing"
-      ? curves.x
-      : convertAxisArray(curves.x, pattern.xUnit, "dSpacing", axisCtx);
-    // Per-point σ so low-precision regions don't spray noise "peaks" into the
-    // k-search once the nuclear fit has converged — but only when the data
-    // actually carries uncertainties. Fabricating √yObs is valid for raw counts
-    // only; on a normalized pattern (max ≈ 1) it exceeds any possible residual
-    // and would silently disable detection altogether. The base cut is a
-    // permissive 3σ: the k-panel's own criteria (user-adjustable) decide which
-    // detections feed the search.
-    const hasSigma = pattern.points.length > 0 && pattern.points.every((p) => p.sigma !== undefined);
-    const pointSigma = hasSigma ? pattern.points.map((p) => p.sigma!) : undefined;
-    return detectExtraPeaks(dArr, curves.yObs, curves.yCalc, {
-      ...(pointSigma ? { pointSigma, minSignificance: 3 } : {}),
-      limit: 24,
-    });
-  }, [curves, pattern.points, pattern.xUnit, axisCtx, displayUnits]);
   const effectiveUnit: DisplayUnit = displayUnit ?? pattern.xUnit;
   const displayCurves = useMemo(
     () => (effectiveUnit === pattern.xUnit ? curves : { ...curves, x: convertAxisArray(curves.x, pattern.xUnit, effectiveUnit, axisCtx) }),
@@ -494,43 +471,13 @@ export function PowderWorkbench({
   const removeManualPeak = useCallback((d: number): void => {
     setManualPeakD((list) => list.filter((v) => Math.abs(v - d) > 1e-9));
   }, []);
-  const manualResidualPeaks = useMemo<ExtraPeak[]>(() => {
-    if (manualPeakD.length === 0 || !displayUnits.includes("dSpacing")) return [];
-    const dArr = pattern.xUnit === "dSpacing"
-      ? curves.x
-      : convertAxisArray(curves.x, pattern.xUnit, "dSpacing", axisCtx);
-    const hasSigma = pattern.points.length > 0 && pattern.points.every((p) => p.sigma !== undefined);
-    return manualPeakD.map((d) => {
-      let bi = 0;
-      let bestErr = Infinity;
-      for (let i = 0; i < dArr.length; i++) {
-        const e = Math.abs(dArr[i]! - d);
-        if (e < bestErr) { bestErr = e; bi = i; }
-      }
-      const height = (curves.yObs[bi] ?? 0) - (curves.yCalc[bi] ?? 0);
-      const si = hasSigma ? pattern.points[bi]!.sigma! : undefined;
-      return { d, height, ...(si !== undefined && si > 0 ? { significance: height / si } : {}) };
-    });
-  }, [manualPeakD, curves, pattern.points, pattern.xUnit, axisCtx, displayUnits]);
-
-  // Detected + manual residual peaks annotated against every phase's nuclear
-  // reflections (refined cells, from the tick rows): a residual apex on a
-  // nuclear position is usually profile misfit (e.g. an impurity shoulder),
-  // not magnetic — the k-panel shows the flag and excludes such peaks from the
-  // search by default. Manual picks are flagged so the panel can mark and
-  // remove them (and include them regardless of the criteria).
-  const residualPeaks = useMemo<ResidualPeak[]>(() => {
-    // A manual pick right on a detected apex is the same peak — don't list twice.
-    const manual = manualResidualPeaks.filter((m) => !residualPeakD.some((p) => Math.abs(p.d - m.d) < 0.01));
-    if (residualPeakD.length + manual.length === 0) return [];
-    const nuclearRefs = phaseTicks
-      .filter((p) => p.kind === "nuclear")
-      .flatMap((p) => p.ticks.map((t) => ({ d: t.d, hkl: t.hkl, phaseLabel: p.label })));
-    return [
-      ...annotateExtraPeaks(residualPeakD, nuclearRefs),
-      ...annotateExtraPeaks(manual, nuclearRefs).map((p) => ({ ...p, manual: true as const })),
-    ];
-  }, [residualPeakD, manualResidualPeaks, phaseTicks]);
+  // Detected + manual residual peaks, each annotated with any nuclear reflection
+  // of any phase beside it (powderPage.ts): the k-panel flags those and leaves
+  // them out of the search by default; manual picks are included regardless.
+  const residualPeaks = useMemo(
+    () => residualPeaksOf(session, instrumentLoaded ? instrument : undefined, manualPeakD),
+    [session, instrument, instrumentLoaded, manualPeakD],
+  );
 
   // Refined moment entries (per site / split orbit) for the 3D structure view.
   const sessionMoments = useMemo(
@@ -864,28 +811,14 @@ export function PowderWorkbench({
     };
   }, [pattern.points.length, pattern.xUnit, displayUnits, displayNuclearCurves, magneticComponentFor, displayXLabel, phaseTicks, displayFitRange, setFitRangeFromDisplay, tofViewOnly, effectiveUnit, axisCtx, patternExtent]);
 
-  // The magnetic page's moments-fit backend: nuclear model held fixed, moment
-  // amplitudes freed, solved through the evaluator-worker pool like every other
-  // refinement here — off the main thread, per-phase binding routing included.
-  // Moment rows of a previously applied model are dropped: the model handed in
-  // brings its own.
-  const powderMagneticFit = useMemo<MagneticFit>(() => ({
-    agreementLabel: "wR",
-    refine: async (magnetic, momentParams, momentBindings) => {
-      const nuclearFixed = powderParams.filter((p) => !isMagneticModelParameterKind(p.kind)).map((p) => ({ ...p, fixed: true }));
-      const result = await client.refineMagneticPowderParallel({
-        structure, magnetic, pattern,
-        parameters: [...nuclearFixed, ...momentParams.map((p) => ({ ...p, fixed: !!p.expression }))],
-        bindings: [...pBindings.filter((b) => !isMagneticModelParameterKind(b.kind)), ...momentBindings],
-        ...(phaseList.length > 0 ? { extraPhases: phaseList } : {}),
-        ...magneticProfile,
-        ...(fitRangeActive ? { fitRange: { min: fitRange!.min, max: fitRange!.max } } : {}),
-      }, { maxIterations: 20 });
-      const values: Record<string, number> = {};
-      for (const p of momentParams) values[p.id] = result.parameters[p.id] ?? p.value;
-      return { values, agreement: result.agreement.rWeighted ?? null };
-    },
-  }), [client, structure, pattern, powderParams, pBindings, phaseList, magneticProfile, fitRangeActive, fitRange]);
+  // The magnetic page's moments fit (powderPage.ts): the nuclear model held, as
+  // the page refines (its profile, every phase, the window), off the main
+  // thread; a view-only TOF page, which the worker does not refine, in this one.
+  const powderMagneticFit = useMemo(
+    () => powderMomentFit(tofViewOnly ? null : client, session, activeWindow),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the window's ends stand for activeWindow
+    [client, session, tofViewOnly, activeWindow?.min, activeWindow?.max],
+  );
 
   /** "Show on refinement pattern": put a candidate model on the session WITHOUT
    *  its parameter rows — the refinement page then plots nuclear + this model
@@ -894,15 +827,7 @@ export function PowderWorkbench({
    *  previous Continue left behind are dropped so they cannot drive a model they
    *  do not belong to. */
   function applyMagneticPreview(mag: MagneticModel | null): void {
-    setSession((s) => {
-      const { magnetic: _previous, ...rest } = s;
-      return {
-        ...rest,
-        ...(mag ? { magnetic: mag } : {}),
-        powderParams: s.powderParams.filter((p) => !isMagneticModelParameterKind(p.kind)),
-        powderBindings: s.powderBindings.filter((b) => !isMagneticModelParameterKind(b.kind)),
-      };
-    });
+    setSession((s) => withMagneticPreview(s, mag));
     setPowderResult(null);
     stepHistory?.requestStep("magnetic", mag ? "Magnetic model shown on the pattern" : "Magnetic model removed");
   }
@@ -1643,8 +1568,6 @@ export function PowderWorkbench({
             <KSearchPanel
               key={structureGeneration}
               structure={refinedStructure}
-              fitStructure={structure}
-              extraPhases={session.extraPhases.map((s) => ({ structure: s, id: s.id }))}
               residualPeaks={residualPeaks}
               onAddManualPeak={addManualPeak}
               onRemoveManualPeak={removeManualPeak}
@@ -1655,10 +1578,7 @@ export function PowderWorkbench({
               {...(magneticFitChip ? { patternFitChip: magneticFitChip } : {})}
               {...(tofViewOnly ? {} : { onFocusFit: () => setFocusFitToken((t) => t + 1) })}
               focusFitToken={focusFitToken}
-              nuclearParams={powderParams}
-              nuclearBindings={pBindings}
-              profile={session.powderProfile}
-              {...(tofViewOnly ? {} : { magneticFit: powderMagneticFit })}
+              magneticFit={powderMagneticFit}
               baselineAgreement={nuclearWr}
               preselect={session.magnetic ?? null}
               onApply={applyMagneticPreview}

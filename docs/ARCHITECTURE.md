@@ -65,8 +65,9 @@ thin, so adding a surface never adds science:
 - **Web app:** React state over core functions. What a page's controls and
   fits do is plain functions too where a second surface needs them: the
   powder page's (`app/powderPage.ts`), the single-crystal page's
-  (`app/singleCrystalPage.ts`) and the PDF page's (`app/pdfPage.ts`) are
-  shared with the Agent's test pages.
+  (`app/singleCrystalPage.ts`), the PDF page's (`app/pdfPage.ts`) and the
+  magnetic step's (`app/magneticStep.ts`) are shared with the Agent's test
+  pages.
 - **MCP server:** a registry of the same functions behind a stdio transport.
   The transport keeps bulky data server-side and passes refs
   ([AGENT_TOOLS.md](./AGENT_TOOLS.md)).
