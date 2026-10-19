@@ -19,13 +19,12 @@ import type { MagneticModel } from "@/core/magnetic/types";
 import type { ParameterBinding, ParameterKind, RefinementParameter } from "@/core/refinement/types";
 import type { RefinementProblem } from "@/core/refinement/engine";
 import type { ProfilePeak, ProfileOptions } from "@/core/diffraction/profile";
-import { weightsFromSigma, applyExclusionMask, fitRangeMask } from "@/core/refinement/factors";
 import type { FitRange, PowderProfile } from "@/core/workflow/powder";
 import { resolveTies } from "@/core/refinement/constraints";
 import { applyParameters } from "@/core/workflow/apply";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { phaseBindingsFor, type PowderPhase } from "@/core/workflow/multiPhase";
-import { buildPeaks, createPeakBuilder, placePeaks, reflectionDRange } from "@/core/workflow/powder";
+import { buildPeaks, createPeakBuilder, placePeaks, powderPointWeights, reflectionDRange } from "@/core/workflow/powder";
 import { magneticSatellites } from "@/core/magnetic/satellites";
 import { lorentzPolarization } from "@/core/diffraction/intensity";
 import { magneticStructureFactor } from "@/core/magnetic/structureFactor";
@@ -232,13 +231,10 @@ export function buildMagneticPowderProblem(
 ): RefinementProblem {
   const xValues = pattern.points.map((p) => p.x);
   const observations = Float64Array.from(pattern.points.map((p) => p.yObs));
-  // A fit range zeroes the weight of every point outside it, so the nuclear +
-  // magnetic co-refinement optimizes only the selected window (same masking as
-  // the single-phase nuclear problem).
-  const weights = applyExclusionMask(
-    weightsFromSigma(pattern.points.map((p) => p.sigma ?? (p.yObs > 0 ? Math.sqrt(p.yObs) : 1))),
-    fitRangeMask(xValues, fitRange),
-  );
+  // The pattern's points weighted as in the single-phase nuclear problem: none
+  // on an excluded plateau or outside the fit range, so the nuclear + magnetic
+  // co-refinement optimizes the points the page scores.
+  const weights = powderPointWeights(pattern, fitRange);
 
   // Multi-phase: the magnetic (primary) phase sees only its own + shared +
   // magnetic bindings, and each extra phase contributes its nuclear peaks

@@ -10,11 +10,10 @@ import type { PowderPattern } from "@/core/diffraction/types";
 import type { LinearRestraint, ParameterBinding, ParameterKind, RefinementParameter } from "@/core/refinement/types";
 import type { RefinementProblem } from "@/core/refinement/engine";
 import type { ProfilePeak, ProfileOptions, PeakShape } from "@/core/diffraction/profile";
-import { weightsFromSigma, applyExclusionMask, fitRangeMask } from "@/core/refinement/factors";
 import type { FitRange } from "@/core/workflow/powder";
 import { resolveTies } from "@/core/refinement/constraints";
 import { applyParameters } from "@/core/workflow/apply";
-import { buildPeaks, createPeakBuilder } from "@/core/workflow/powder";
+import { buildPeaks, createPeakBuilder, powderPointWeights } from "@/core/workflow/powder";
 import { SHARED_CORRECTION_KINDS } from "@/core/diffraction/corrections";
 import { synthesizePattern } from "@/core/diffraction/profile";
 
@@ -90,13 +89,11 @@ export function buildMultiPhasePowderProblem(
   // Restraints (occupancy ties, phase-prefixed ids) are pseudo-observations
   // after the pattern, as in the single-phase problem.
   const observations = Float64Array.from([...pattern.points.map((p) => p.yObs), ...restraints.map((r) => r.target)]);
-  // A fit range zeroes the weight of every point outside it, so a multi-phase
-  // refinement optimizes only the selected window.
+  // The pattern's points weighted as in the single-phase problem: none on an
+  // excluded plateau or outside the fit range, so a multi-phase refinement
+  // optimizes the points the page scores.
   const weights = new Float64Array(observations.length);
-  weights.set(applyExclusionMask(
-    weightsFromSigma(pattern.points.map((p) => p.sigma ?? (p.yObs > 0 ? Math.sqrt(p.yObs) : 1))),
-    fitRangeMask(xValues, fitRange),
-  ), 0);
+  weights.set(powderPointWeights(pattern, fitRange), 0);
   restraints.forEach((r, i) => { weights[xValues.length + i] = 1 / Math.max(r.sigma, 1e-12) ** 2; });
   // Per-phase cached peak builders (see createPeakBuilder): each phase's
   // structure factors are reused whenever none of ITS geometry parameters

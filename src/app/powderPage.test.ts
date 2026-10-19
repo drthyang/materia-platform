@@ -1,10 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { ComputeClient } from "@/workers/computeClient";
-import { mn3gaSession } from "@/agent/evals/pages";
+import { MAGNETIC_TRUTH, mn3gaFluoriteSession, mn3gaMagneticSession, mn3gaSession } from "@/agent/evals/pages";
 import { executor, fakeHost, headlessHistory, sessionPort } from "@/testSupport/agentHeadless";
 import { powderRestraints } from "@/app/powderSpec";
 import { DEFAULT_INSTRUMENT, type Session } from "@/app/powderSession";
-import { posteriorRun, powderFit, thoroughFit, withBackgroundType, withPhase, type PowderCompute, type PowderPageModel } from "@/app/powderPage";
+import { posteriorRun, powderFit, profileRequest, thoroughFit, withBackgroundType, withPhase, type PowderCompute, type PowderPageModel } from "@/app/powderPage";
+import { knownPhaseStructure } from "@/core/diagnostics/knownPhases";
+import { buildMultiPhasePowderProblem } from "@/core/workflow/multiPhase";
+import { buildMagneticPowderProblem } from "@/core/workflow/magneticPowder";
 
 /**
  * The powder page's operations, which the workbench and the Agent's headless
@@ -119,5 +122,63 @@ describe("the Agent's headless page and the History", () => {
     expect(history.history()!.current).toBe(first);
     expect(port.state().parameters.map((p) => p.value)).toEqual(after1);
     expect(port.state().parameters.filter((p) => p.kind === "bIso" && !p.fixed)).toEqual([]);
+  }, 120_000);
+});
+
+describe("a pattern with an excluded plateau, fitted with a second phase or a magnetic model", () => {
+  // A GSAS export writes a constant −3 outside its fit range. The single-phase
+  // problem gave those points no weight, and the page's wR and point count
+  // skip them; the multi-phase and nuclear + magnetic problems fitted them, so
+  // their wR was not the page's and the plateau pulled the fit.
+  const PLATEAU = 60;
+  const withPlateau = <S extends Session>(s: S): S => ({ ...s, pattern: { ...s.pattern, points: s.pattern.points.map((p, i) => (i < PLATEAU ? { ...p, yObs: -3 } : p)) } });
+  const onPlateau = (weights: Float64Array): number[] => Array.from(weights.subarray(0, PLATEAU));
+
+  it("two phases: the plateau carries no weight, the fit's wR is the page's, and its scales the pattern's without the plateau", async () => {
+    const twoPhases = (s: Session): ReturnType<typeof sessionPort> => {
+      const page = sessionPort(s);
+      page.port.addPhase!(knownPhaseStructure("CaF₂")!);
+      return page;
+    };
+    const { port, session } = twoPhases(withPlateau(mn3gaFluoriteSession()));
+    const s = session();
+    const phases = [s.structure, ...s.extraPhases].map((st) => ({ structure: st, id: st.id }));
+    const weights = buildMultiPhasePowderProblem(phases, s.pattern, s.powderParams, s.powderBindings, profileRequest(s)).weights;
+    expect(onPlateau(weights)).toEqual(new Array(PLATEAU).fill(0));
+    expect(weights.subarray(PLATEAU).every((w) => w > 0)).toBe(true);
+    await port.refine();
+    const { result, wR, observationCount, parameters } = port.state();
+    expect(result!.status).toBe("converged");
+    expect(observationCount).toBe(s.pattern.points.length - PLATEAU);
+    expect(result!.agreement.rWeighted).toBeCloseTo(wR, 9);
+    // Fitting the plateau took the Mn₃Ga scale from 79.98 to 74.56.
+    const plain = twoPhases(mn3gaFluoriteSession()).port;
+    await plain.refine();
+    const scales = (ps: readonly { kind: string; value: number }[]): number[] => ps.filter((p) => p.kind === "scale").map((p) => p.value);
+    const expected = scales(plain.state().parameters);
+    scales(parameters).forEach((v, i) => expect(v).toBeCloseTo(expected[i]!, 1));
+  }, 120_000);
+
+  it("nuclear + magnetic: the plateau carries no weight, the moments fit's and the co-refinement's wR are the page's, and the moment the true one", async () => {
+    const { port, session } = sessionPort(withPlateau(mn3gaMagneticSession()));
+    const h = (): NonNullable<ReturnType<NonNullable<typeof port.magnetic>>> => port.magnetic!()!;
+    h().setK([0, 0, 0.5]);
+    h().choose("G2");
+    const moments = await h().refineMoments();
+    // Handed over with the moments free, so the co-refinement moves them too.
+    h().continueToRefinement(false);
+    expect(moments!).toBeCloseTo(port.state().wR, 9);
+    const s = session();
+    const weights = buildMagneticPowderProblem(s.structure, s.magnetic!, s.pattern, s.powderParams, s.powderBindings, profileRequest(s)).weights;
+    expect(onPlateau(weights)).toEqual(new Array(PLATEAU).fill(0));
+    expect(weights.subarray(PLATEAU).every((w) => w > 0)).toBe(true);
+    await port.refine();
+    const { result, wR, parameters } = port.state();
+    expect(result!.status).toBe("converged");
+    expect(result!.agreement.rWeighted).toBeCloseTo(wR, 9);
+    // Fitting the plateau took the moment to 2.30 µB.
+    const moment = parameters.filter((p) => p.kind === "momentMode" && !p.fixed);
+    expect(moment).toHaveLength(1);
+    expect(Math.abs(moment[0]!.value)).toBeCloseTo(MAGNETIC_TRUTH.moment, 2);
   }, 120_000);
 });
