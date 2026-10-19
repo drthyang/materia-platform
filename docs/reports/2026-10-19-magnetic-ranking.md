@@ -1,6 +1,6 @@
 # The magnetic ranking: within the noise, and the scale at k = 0
 
-Pull request [#PR](https://github.com/drthyang/web-refinement/pull/PR),
+Pull request [#91](https://github.com/drthyang/web-refinement/pull/91),
 branch `claude/plan-4-4`, on `main`, 2026-10-19. Plan:
 [AGENT_PLAN.md](../AGENT_PLAN.md), 4.4. AGENT_REVIEW proposal 4: "add a
 Hamilton R-factor ratio test (or Δχ² per parameter) so a lower group with more
