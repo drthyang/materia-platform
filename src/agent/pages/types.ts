@@ -7,8 +7,8 @@
  *   approved against, the analysis it holds, the references the Agent quotes,
  *   the report's checks, the groups the correlation check lists and does not
  *   stop;
- * - where its tools run: read, noOp, describe and change in the page's own
- *   tools module (powderTools, pdfTools, scTools, magneticTools).
+ * - where its tools run: a read in the page's own tools module (powderTools,
+ *   pdfTools, scTools, magneticTools); a change by its plan (plans.ts).
  *
  * One adapter per page (powder.ts, pdf.ts, singleCrystal.ts), typed on that
  * page's port and state; index.ts finds the adapter for a port.
@@ -28,6 +28,16 @@ export type StateOf<P extends AgentPort> = { readonly powder: PowderLiveState; r
 
 /** A tool's input, validated against its schema before a page sees it. */
 export type ToolInput = Record<string, unknown>;
+
+/**
+ * A change, planned before it is asked for: nothing to do (and why), or the
+ * line the approval card shows and the change itself, made once approved on
+ * the state it was planned on (the executor holds back a change whose page
+ * moved meanwhile). A change that cannot run is refused here, before its card.
+ */
+export type Plan =
+  | { readonly noOp: string }
+  | { readonly preview: string; readonly apply: (host: PageHost) => Promise<ChangeResult> };
 
 /** What a page's tools need of the shell: the History, the records, and a wait for the page to render (the magnetic step reads after its fits). */
 export interface PageHost extends LiveToolHost {
@@ -73,12 +83,8 @@ export interface PageAdapter<P extends AgentPort> {
   readonly magneticModel?: (s: StateOf<P>) => boolean;
   /** Run a read tool. */
   readonly read: (name: string, input: ToolInput, port: P, host: PageHost) => unknown;
-  /** Why a change would do nothing, or null. */
-  readonly noOp: (spec: LiveToolSpec, input: ToolInput, s: StateOf<P>, port: P) => string | null;
-  /** The approval card's line. */
-  readonly describe: (spec: LiveToolSpec, input: ToolInput, s: StateOf<P>, port: P) => string;
-  /** Make the change through the port. */
-  readonly change: (name: string, input: ToolInput, port: P, host: PageHost) => Promise<ChangeResult>;
+  /** A change's plan on the state the card is checked against: nothing to do, or the card's line and the change. */
+  readonly plan: (spec: LiveToolSpec, input: ToolInput, s: StateOf<P>, port: P) => Plan;
   /** What a change's answer adds from the page after it (the magnetic step's view). */
   readonly outcome?: (name: string, port: P) => Record<string, unknown>;
 }

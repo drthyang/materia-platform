@@ -437,20 +437,25 @@ method serves both.
 **Its tools.** One list ([`src/agent/tools.ts`](../src/agent/tools.ts))
 serves every way in, so a model sees the same names everywhere. Each tool names
 the pages it works on; on another page it answers with an error that says so.
+Each definition also holds the tool's facts (the History step it records, the
+cards it acts on, where a local model is offered it, the evidence it gives a
+final answer), and no other module keeps a list of tool names.
 The page-specific handlers are [`powderTools.ts`](../src/agent/powderTools.ts),
 [`pdfTools.ts`](../src/agent/pdfTools.ts) and
 [`scTools.ts`](../src/agent/scTools.ts). The executor reaches them through one
 adapter per page ([`src/agent/pages/`](../src/agent/pages/)), which also holds
 what differs by page: the agreement it shows, the analysis the record is kept
 under, the references, the report's checks.
-- Read tools run at once: `get_state`, `assess_refinement`,
-  `suggest_next_steps`, `rank_next_parameters`, `check_cell_symmetry`,
-  `find_unexplained_peaks`, `review_symmetry`, `diagnose_fit`,
-  `structure_table`, `bond_geometry`, `interpret_structure`, `identify_peaks`,
-  `sample_posterior` (powder and PDF), `write_report`, `read_skill`,
-  `read_ref`, and on the magnetic step
-  `magnetic_state`, `search_propagation_vector`, `rank_magnetic_groups`. The analysis tools are the MCP handlers above, fed
-  from what is on screen.
+- What changes nothing on the page runs at once: the reads (`get_state`,
+  `assess_refinement`, `suggest_next_steps`, `rank_next_parameters`,
+  `check_cell_symmetry`, `find_unexplained_peaks`, `review_symmetry`,
+  `diagnose_fit`, `structure_table`, `bond_geometry`, `interpret_structure`,
+  `identify_peaks`, `sample_posterior` on powder and PDF, `read_skill`,
+  `read_ref`, and the magnetic step's `magnetic_state`); the record
+  (`write_note`, `write_report`), which writes the Agent's notes and report,
+  not the analysis; and the magnetic step's `search_propagation_vector` and
+  `rank_magnetic_groups`, which fill its panel and change no fit. The analysis
+  tools are the MCP handlers above, fed from what is on screen.
 - `read_skill` returns a skill whole, as Markdown (not cut to the ref budget),
   with the names of its references; with `reference` it returns one of them.
   Before its first change on a page, the Agent must have read that page's
@@ -732,7 +737,13 @@ rest of the session. Every change is a step in History tagged `agent`
 (`HistoryStep.actor`), so ⌘Z undoes it like any other step. A change whose
 card was approved after the page moved under it (any setting the Agent can
 change there: each page's stamp in [`src/agent/pages/`](../src/agent/pages/))
-is not run, and the model is told to read the state again.
+is not run, and the model is told to read the state again. On every page,
+the powder page's magnetic step included, each change is planned before its
+card ([`src/agent/pages/plans.ts`](../src/agent/pages/plans.ts)): one that
+cannot run (a window with max below min or outside the data, a scan of an
+anion's bonds, a reflection kept that is not on the failed list, a
+refinement with nothing free or of a view-only pattern) is refused before the
+card, not after the user approved it.
 
 **No correlated parameters refined together.** Before the Agent's `refine`
 runs, and before the approval card appears, the page runs its own fit of the

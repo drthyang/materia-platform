@@ -30,10 +30,10 @@
  */
 
 import type { BetaContentBlockParam, BetaContextManagementConfig, BetaMessageParam, BetaToolResultBlockParam } from "@anthropic-ai/sdk/resources/beta/messages/messages";
-import { liveTool } from "@/agent/tools";
+import { LIVE_TOOLS, liveTool } from "@/agent/tools";
 
-/** Results never cleared: a skill is the method the Agent works by. */
-export const KEEP_TOOLS: readonly string[] = ["read_skill"];
+/** Results never cleared (the tools that keep them): a skill is the method the Agent works by. */
+export const KEEP_TOOLS: readonly string[] = LIVE_TOOLS.filter((t) => t.keep).map((t) => t.name);
 
 /** Claude: clear old tool results past 60k input tokens, in batches of 15k or more, keeping the last 6. */
 export const CONTEXT_EDITING: BetaContextManagementConfig = {

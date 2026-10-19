@@ -1,9 +1,10 @@
 /**
  * The powder page's magnetic analysis step without React, for tests and the
- * eval suite: the same core calls KSearchPanel makes (residual peaks, the
- * k-search, the magnetic subgroup lattice, the moment model, the moments-only
- * fit), behind the handle the panel publishes (agent/magneticPort.ts), over a
- * headless session.
+ * eval suite: the step's operations (app/magneticStep.ts) and the powder
+ * page's view of them (app/powderPage.ts: the residual peaks, the moments
+ * fit, Show and Continue), as the panel runs them, behind the handle the
+ * panel publishes (agent/magneticPort.ts), over a headless session. What it
+ * holds is the panel's state, reset where the panel resets it.
  */
 
 import { multiPhaseCurves } from "@/core/workflow/multiPhase";
@@ -11,33 +12,20 @@ import type { Vec3 } from "@/core/math/types";
 import type { Session } from "@/app/powderSession";
 import { candidateId, candidateIndex, candidateView, selectionView, type KCandidateView, type MagneticAgentHandle, type MomentTies } from "@/agent/magneticPort";
 import { magneticIonCandidates } from "@/core/magnetic/magneticIons";
-import { searchPropagationVector, type KCandidate } from "@/core/magnetic/kSearch";
+import type { KCandidate } from "@/core/magnetic/kSearch";
 import { classifyPropagation, describePropagation } from "@/core/magnetic/propagation";
 import { centringTranslations } from "@/core/crystal/symmetry";
-import { magneticSubgroupLattice, latticeRepresentatives, type LatticeCandidate } from "@/core/magnetic/subgroupLattice";
-import { allowedMomentDirections } from "@/core/magnetic/allowedMoments";
-import { buildMagneticModel, type MagneticModelBuild } from "@/core/magnetic/momentModel";
 import { propagationKParameters } from "@/core/magnetic/refinableK";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
-import { buildMagneticPowderProblem, magneticComponentCurve } from "@/core/workflow/magneticPowder";
+import { magneticComponentCurve } from "@/core/workflow/magneticPowder";
 import { powderCurves } from "@/core/workflow/powder";
-import { refine } from "@/core/refinement/engine";
-import { fitMomentsWithRestarts } from "@/core/magnetic/momentRestarts";
-import { resolveTies } from "@/core/refinement/constraints";
-import { detectExtraPeaks, annotateExtraPeaks } from "@/core/magnetic/extraPeaks";
-import { generateReflections } from "@/core/diffraction/reflections";
-import { momentCartesian } from "@/core/magnetic/moment";
 import { isMagneticModelParameterKind } from "@/core/refinement/types";
-import { axisContext, convertAxisArray } from "@/visualization/axisUnits";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
-import { RANK_TIE_WR } from "@/core/diagnostics/thresholds";
-
-interface RankEntry {
-  readonly status: "ok" | "failed" | "forbidden";
-  readonly wR: number | null;
-  readonly values: Record<string, number>;
-  readonly magnitudes: readonly { readonly label: string; readonly value: number }[];
-}
+import {
+  NO_PEAK_INCLUDED, PEAK_CRITERIA, bestRanked, buildFor, candidatesOf, fitMoments, handoff, momentDims, peakRows, pickedRows, rankCandidates, resolvedAmplitudes, searchK,
+  type MagneticFit, type ModelOptions, type RankEntry,
+} from "@/app/magneticStep";
+import { powderMomentFit, powderPageCurves, refinedPhasesOf, residualPeaksOf, weightedR, withMagneticModelRows, withMagneticPreview, type FitWindow, type PowderCompute } from "@/app/powderPage";
 
 /** The curves of a session, the magnetic model's contribution included. */
 export function sessionCurves(s: Session): ReturnType<typeof powderCurves> {
@@ -51,202 +39,167 @@ export function sessionCurves(s: Session): ReturnType<typeof powderCurves> {
   return { ...curves, yCalc, diff: curves.yObs.map((o, i) => o - yCalc[i]!) };
 }
 
-/** The handle over a session the caller owns (`get` / `set`), as the panel's. */
-export function magneticHandle(get: () => Session, set: (s: Session) => void, openStep: (step: 0 | 1) => void, instrument?: InstrumentParameters): MagneticAgentHandle {
+/** What the step reads off the page: the session and the fit window it applies. */
+export interface StepPage {
+  readonly session: Session;
+  readonly window: FitWindow | null;
+}
+
+/** The handle over a page the caller owns (`page` / `set`), as the panel's. */
+export function magneticHandle(
+  page: () => StepPage,
+  set: (s: Session) => void,
+  openStep: (step: 0 | 1) => void,
+  opts: { readonly instrument?: InstrumentParameters; readonly client?: PowderCompute } = {},
+): MagneticAgentHandle {
   let selected: Set<string> | null = null;
   let k: Vec3 = [0, 0, 0];
-  let results: KCandidate[] | null = null;
+  // The k-search's candidates, for the included peaks they were found from.
+  let results: { readonly peaks: string; readonly found: KCandidate[] } | null = null;
   let selIdx: number | null = null;
   let amps: Record<string, number> = {};
   let ties: MomentTies = { sameSite: true, magnitudes: false };
-  let rank: Record<string, RankEntry> = {};
-  let fitWR: number | null = null;
+  // The index sections open: the maximal groups', and each one a choice opened.
+  let open = new Set([2]);
+  // The ranking and the moments fit's readout, for the page they were made on.
+  let rank: { readonly on: string; readonly results: Record<string, RankEntry> } | null = null;
+  let fitWR: { readonly on: string; readonly wR: number | null } | null = null;
+  // The Agent's picks of peaks into or out of the search, by the peak's d (the table's check boxes).
+  let overrides: Readonly<Record<string, boolean>> = {};
 
-  const structure = () => get().structure;
+  // The panel works on the refined phase (the moments fit re-applies the rows onto the loaded one).
+  const structure = () => refinedPhasesOf(page().session)[0]!;
   const ions = () => magneticIonCandidates(structure());
   const chosenIons = (): string[] => [...(selected ?? new Set(ions().map((i) => i.siteLabel)))];
-  const reps = (): LatticeCandidate[] => latticeRepresentatives(magneticSubgroupLattice(structure().spaceGroup.operations, k));
-  const dims = (list: readonly LatticeCandidate[]): number[] => {
-    const sites = chosenIons().map((l) => structure().sites.find((x) => x.label === l)).filter((x): x is NonNullable<typeof x> => !!x);
-    return list.map((r) => sites.reduce((n, site) => n + allowedMomentDirections(r.candidate.operations, site.position, k).dimension, 0));
+  const options = (): ModelOptions => ({ sameSite: ties.sameSite, magnitudes: ties.magnitudes, flippedUnits: [] });
+  const reps = () => candidatesOf(structure(), k);
+  const build = (ops: Parameters<typeof buildFor>[3]) => buildFor(structure(), k, chosenIons(), ops, options());
+  const rows = () => peakRows(residualPeaksOf(page().session, opts.instrument), PEAK_CRITERIA, overrides);
+  const signature = (list: ReturnType<typeof rows>): string => list.filter((r) => r.included).map((r) => r.key).join("|");
+  /** What a fit means: the model's structure and rows, the data and the window (the panel drops its ranking and readout when one changes). */
+  const fitContext = (): string => {
+    const { session: s, window } = page();
+    const nuclear = s.powderParams.filter((p) => !isMagneticModelParameterKind(p.kind)).map((p) => `${p.id}=${p.value}`).join(";");
+    return `${s.pattern.id}|${s.pattern.points.length}|${window ? `${window.min}–${window.max}` : "all"}|${nuclear}|${k.join(",")}|${chosenIons().join(",")}|${ties.sameSite}|${ties.magnitudes}`;
   };
-  const build = (r: LatticeCandidate): MagneticModelBuild =>
-    buildMagneticModel(structure(), k, chosenIons(), [...r.candidate.operations], { moment: 2, tieSameSite: ties.sameSite, tieEqualMagnitude: ties.magnitudes, flippedUnits: [] });
-  const resolved = (b: MagneticModelBuild): Record<string, number> => {
-    const base: Record<string, number> = {};
-    for (const p of b.params) base[p.id] = amps[p.id] ?? p.value;
-    return resolveTies(b.params, base);
+  const ranked = (): Record<string, RankEntry> => (rank && rank.on === fitContext() ? rank.results : {});
+  const fitAgreement = (): number | null => (fitWR && fitWR.on === `${fitContext()}|${selIdx}` ? fitWR.wR : null);
+  /** The page's own fit: through the compute client, in this thread for a view-only TOF page (the client does not refine it). */
+  const fit = (): MagneticFit => {
+    const { session: s, window } = page();
+    const viewOnly = s.pattern.xUnit === "tof" && s.powderProfile.shape !== "tof";
+    return powderMomentFit(viewOnly ? null : opts.client ?? null, s, window);
   };
-
-  // The Agent's picks of peaks into or out of the search, by number (the table's check boxes).
-  const overrides = new Map<number, boolean>();
-  const peaks = () => {
-    const s = get();
-    const curves = sessionCurves(s);
-    // A TOF pattern reaches d through the instrument's calibration.
-    const d = convertAxisArray(curves.x, s.pattern.xUnit, "dSpacing", axisContext(s.pattern, instrument, s.powderParams.find((p) => p.kind === "zeroShift")?.value));
-    const pointSigma = s.pattern.points.every((p) => p.sigma !== undefined) ? s.pattern.points.map((p) => p.sigma!) : undefined;
-    const found = detectExtraPeaks(d, curves.yObs, curves.yCalc, { ...(pointSigma ? { pointSigma, minSignificance: 3 } : {}), limit: 24 });
-    const finite = d.filter((v) => Number.isFinite(v) && v > 0);
-    const refs = generateReflections(s.structure.cell, s.structure.spaceGroup, Math.min(...finite), Math.max(...finite))
-      .map((r) => ({ d: r.d, hkl: `${r.h} ${r.k} ${r.l}`, phaseLabel: s.structure.name || s.structure.id }));
-    return annotateExtraPeaks(found, refs)
-      .sort((a, b) => b.d - a.d)
-      .map((p, i) => ({ ...p, n: i + 1, included: overrides.get(i + 1) ?? ((p.significance === undefined || p.significance >= 5) && !p.nearNuclear) }));
-  };
-
-  const fit = (b: MagneticModelBuild, start?: Record<string, number>): { values: Record<string, number>; agreement: number | null } => {
-    const s = get();
-    const moments = b.params.map((p) => {
-      const v = start?.[p.id] ?? p.value;
-      return { ...p, value: v, initialValue: v, fixed: !!p.expression };
-    });
-    const nuclearFixed = s.powderParams.filter((p) => !isMagneticModelParameterKind(p.kind)).map((p) => ({ ...p, fixed: true }));
-    const problem = buildMagneticPowderProblem(s.structure, b.magnetic, s.pattern, [...nuclearFixed, ...moments],
-      [...s.powderBindings.filter((x) => !isMagneticModelParameterKind(x.kind)), ...b.bindings], { shape: s.powderProfile.shape, ...(s.powderProfile.eta !== undefined ? { eta: s.powderProfile.eta } : {}) });
-    const result = refine(problem, { maxIterations: 20 });
-    const values: Record<string, number> = {};
-    for (const p of b.params) values[p.id] = result.parameters[p.id] ?? p.value;
-    return { values, agreement: result.agreement.rWeighted ?? null };
-  };
-
-  const baseline = (): number | null => {
-    const s = get();
-    const c = powderCurves(s.structure, s.pattern, s.powderParams.filter((p) => !isMagneticModelParameterKind(p.kind)), s.powderBindings.filter((b) => !isMagneticModelParameterKind(b.kind)), s.powderProfile);
-    let num = 0;
-    let den = 0;
-    c.yObs.forEach((o, i) => {
-      const w = 1 / Math.max(s.pattern.points[i]?.sigma ?? Math.sqrt(Math.max(o, 1)), 1e-9) ** 2;
-      num += w * (o - c.yCalc[i]!) ** 2;
-      den += w * o * o;
-    });
-    return den > 0 ? Math.sqrt(num / den) : null;
-  };
-
-  const bestId = (list: readonly LatticeCandidate[], d: readonly number[]): string | null => {
-    const ok = list.map((r, i) => ({ r, i, e: rank[r.candidate.id] })).filter((x) => x.e?.status === "ok" && x.e.wR !== null);
-    if (ok.length === 0) return null;
-    const bw = Math.min(...ok.map((x) => x.e!.wR!));
-    const tied = ok.filter((x) => x.e!.wR! <= bw + RANK_TIE_WR).sort((a, b) => a.r.index - b.r.index || (d[a.i] ?? 99) - (d[b.i] ?? 99));
-    return candidateId(tied[0]!.i);
+  /** The chosen group's amplitudes for a new build: a seed when there is one, else the values kept by row id. */
+  const seeded = (b: ReturnType<typeof build>, seed?: Readonly<Record<string, number>>): Record<string, number> => {
+    const init: Record<string, number> = {};
+    for (const p of b.params) init[p.id] = (seed ?? amps)[p.id] ?? p.value;
+    return init;
   };
 
   const kView = (c: KCandidate): KCandidateView => ({ k: [c.k[0], c.k[1], c.k[2]], label: c.label, matched: c.matched, total: c.total, rmsd: c.rmsd });
 
   return {
     state: () => {
+      const st = structure();
       const list = reps();
-      const d = dims(list);
+      const d = momentDims(st, list, chosenIons(), k);
       const chosen = selIdx !== null ? list[selIdx] : undefined;
-      const b = chosen ? build(chosen) : null;
-      const values = b ? resolved(b) : {};
-      const kRows = b ? propagationKParameters(structure(), b.magnetic) : null;
+      const b = chosen ? build(chosen.candidate.operations) : null;
+      const values = b ? resolvedAmplitudes(b, amps) : {};
+      const kRows = b ? propagationKParameters(st, b.magnetic) : null;
+      const table = rows();
+      const entries = ranked();
+      const best = bestRanked(entries, list, d);
+      const { session: s, window } = page();
       return {
         ions: ions().map((i) => ({ label: i.siteLabel, element: i.element, selected: chosenIons().includes(i.siteLabel) })),
-        peaks: peaks().map((p) => ({ n: p.n, d: p.d, ...(p.significance !== undefined ? { sigmas: p.significance } : {}), ...(p.nearNuclear ? { near: `${p.nearNuclear.phaseLabel} ${p.nearNuclear.hkl}` } : {}), included: p.included, manual: false })),
-        kSearch: results ? results.slice(0, 8).map(kView) : null,
+        peaks: table.map((p) => ({ n: p.idx, d: p.d, ...(p.significance !== undefined ? { sigmas: p.significance } : {}), ...(p.nearNuclear ? { near: `${p.nearNuclear.phaseLabel} ${p.nearNuclear.hkl}` } : {}), included: p.included, manual: !!p.manual })),
+        kSearch: results && results.peaks === signature(table) ? results.found.slice(0, 8).map(kView) : null,
         k: [k[0], k[1], k[2]],
-        kDescription: describePropagation(classifyPropagation(k, { centrings: centringTranslations(structure().spaceGroup.operations) })),
+        kDescription: describePropagation(classifyPropagation(k, { centrings: centringTranslations(st.spaceGroup.operations) })),
         kUnsupported: null,
-        candidates: list.map((r, i) => candidateView(r, i, d[i] ?? 0, rank[r.candidate.id])),
-        selected: chosen && b ? selectionView(chosen, selIdx!, structure(), b.params, values, applyMagneticMoments(b.magnetic, b.bindings, values), fitWR) : null,
+        candidates: list.map((r, i) => candidateView(r, i, d[i] ?? 0, entries[r.candidate.id])),
+        selected: chosen && b ? selectionView(chosen, selIdx!, st, b.params, values, applyMagneticMoments(b.magnetic, b.bindings, values), fitAgreement()) : null,
         ties,
-        baselineAgreement: baseline(),
-        best: bestId(list, d),
+        baselineAgreement: s.pattern.points.length > 0 ? weightedR(s, powderPageCurves(s).nuclear, window) : null,
+        best: best ? candidateId(list.findIndex((r) => r.candidate.id === best.id)) : null,
         canFit: true,
         canRefineK: !!kRows && kRows.params.length > 0,
       };
     },
     searchK: (choice) => {
-      for (const n of choice?.exclude ?? []) overrides.set(n, false);
-      for (const n of choice?.include ?? []) overrides.set(n, true);
-      const included = peaks().filter((p) => p.included);
-      if (included.length === 0) throw new Error("no residual peak is included for the k-search");
-      const weights = included.some((p) => p.significance !== undefined) ? included.map((p) => Math.min(p.significance ?? 1, 20)) : undefined;
-      results = searchPropagationVector(structure().cell, included.map((p) => p.d), { tolerance: 0.02, relativeTolerance: 0.005, maxQ: 0, ...(weights ? { weights } : {}) });
+      const picked = pickedRows(rows(), overrides, choice);
+      overrides = picked.overrides;
+      if (!picked.rows.some((r) => r.included)) throw new Error(NO_PEAK_INCLUDED);
+      results = { peaks: signature(picked.rows), found: searchK(structure(), picked.rows) };
       openStep(1);
-      return results.slice(0, 8).map(kView);
+      return results.found.slice(0, 8).map(kView);
     },
     setK: (kk) => {
       k = [kk[0], kk[1], kk[2]];
       selIdx = null;
-      rank = {};
-      fitWR = null;
+      open = new Set([2]);
     },
     selectIons: (labels) => {
       const known = new Set(ions().map((i) => i.siteLabel));
       const unknown = labels.filter((l) => !known.has(l));
-      if (unknown.length > 0) throw new Error(`not a magnetic ion site: ${unknown.join(", ")}`);
+      if (unknown.length > 0) throw new Error(`not a magnetic ion site: ${unknown.join(", ")} — the sites are ${[...known].join(", ")}`);
       selected = new Set(labels);
-      rank = {};
     },
     setTies: (t) => {
       ties = { sameSite: t.sameSite ?? ties.sameSite, magnitudes: t.magnitudes !== undefined ? t.magnitudes : ties.magnitudes };
-      rank = {};
     },
     rank: async (scope, restarts) => {
+      const st = structure();
       const list = reps();
-      const d = dims(list);
-      rank = {};
-      for (const [i, r] of list.entries()) {
-        if ((d[i] ?? 0) === 0 || (scope === "open" && r.index !== 2)) continue;
-        const b = build(r);
-        if (b.params.length === 0) {
-          rank[r.candidate.id] = { status: "forbidden", wR: null, values: {}, magnitudes: [] };
-          continue;
-        }
-        const { values, agreement } = await fitMomentsWithRestarts(b.params, (start) => fit(b, start), restarts !== undefined ? { restarts } : {});
-        const applied = applyMagneticMoments(b.magnetic, b.bindings, values);
-        rank[r.candidate.id] = { status: "ok", wR: agreement, values, magnitudes: applied.moments.map((m) => ({ label: m.siteLabel, value: Math.hypot(...momentCartesian(structure().cell, m)) })) };
-      }
+      const on = fitContext();
+      rank = { on, results: {} };
+      const entries = await rankCandidates({
+        structure: st, reps: list, dims: momentDims(st, list, chosenIons(), k), scope, open, build, fit: fit(),
+        ...(restarts !== undefined ? { restarts } : {}),
+      });
+      rank = { on, results: entries };
     },
     choose: (id) => {
       const list = reps();
       const i = candidateIndex(id, list.length);
-      const entry = rank[list[i]!.candidate.id];
+      const r = list[i]!;
+      const entry = ranked()[r.candidate.id];
+      amps = seeded(build(r.candidate.operations), entry?.status === "ok" ? entry.values : undefined);
       selIdx = i;
-      amps = entry?.status === "ok" ? { ...entry.values } : {};
-      fitWR = null;
+      open = new Set([...open, r.index]);
     },
     refineMoments: async () => {
       const list = reps();
       if (selIdx === null) throw new Error("choose a magnetic group first");
-      const b = build(list[selIdx]!);
+      const b = build(list[selIdx]!.candidate.operations);
       if (b.params.length === 0) throw new Error("the chosen group allows no moment on the chosen ions");
-      const { values, agreement } = fit(b, resolved(b));
-      amps = { ...amps, ...values };
-      fitWR = agreement;
+      const on = `${fitContext()}|${selIdx}`;
+      const { values, agreement } = await fitMoments(fit(), b, resolvedAmplitudes(b, amps));
+      const next = { ...amps };
+      for (const p of b.params) next[p.id] = values[p.id] ?? next[p.id]!;
+      amps = next;
+      fitWR = { on, wR: agreement };
       return agreement;
     },
     apply: (show) => {
-      const s = get();
-      const rest = { ...s, powderParams: s.powderParams.filter((p) => !isMagneticModelParameterKind(p.kind)), powderBindings: s.powderBindings.filter((b) => !isMagneticModelParameterKind(b.kind)) };
+      const s = page().session;
       if (!show) {
-        const { magnetic: _gone, ...without } = rest;
-        set(without);
+        set(withMagneticPreview(s, null));
         return;
       }
       if (selIdx === null) throw new Error("choose a magnetic group first");
-      const b = build(reps()[selIdx]!);
-      set({ ...rest, magnetic: applyMagneticMoments(b.magnetic, b.bindings, resolved(b)) });
+      const b = build(reps()[selIdx]!.candidate.operations);
+      set(withMagneticPreview(s, applyMagneticMoments(b.magnetic, b.bindings, resolvedAmplitudes(b, amps))));
     },
     continueToRefinement: (withK) => {
       if (selIdx === null) throw new Error("choose a magnetic group first");
-      const b = build(reps()[selIdx]!);
-      const values = resolved(b);
+      const b = build(reps()[selIdx]!.candidate.operations);
       const kRows = withK ? propagationKParameters(structure(), b.magnetic) : null;
       if (withK && (!kRows || kRows.params.length === 0)) throw new Error(kRows?.notes.join(" ") || "k cannot refine with this model");
-      const s = get();
-      set({
-        ...s,
-        magnetic: applyMagneticMoments(b.magnetic, b.bindings, values),
-        powderParams: [
-          ...s.powderParams.filter((p) => !isMagneticModelParameterKind(p.kind)),
-          ...b.params.map((p) => ({ ...p, value: values[p.id] ?? p.value, initialValue: values[p.id] ?? p.value, fixed: !!p.expression })),
-          ...(kRows ? kRows.params : []),
-        ],
-        powderBindings: [...s.powderBindings.filter((x) => !isMagneticModelParameterKind(x.kind)), ...b.bindings, ...(kRows ? kRows.bindings : [])],
-      });
+      const out = handoff(b, resolvedAmplitudes(b, amps), kRows);
+      set(withMagneticModelRows(page().session, out.magnetic, out.params, out.bindings));
       openStep(0);
     },
   };
