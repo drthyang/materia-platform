@@ -4,8 +4,14 @@
  * One list serves every way a model reaches the app (API key, local proxy,
  * Ollama, LM Studio), so the names, descriptions and schemas a model sees are
  * the same everywhere. This file is declarations only (no browser code); the
- * handlers live in powderTools.ts and pdfTools.ts and run in the page. Every tool names the pages it works on; on another page it
- * answers with an error that says so.
+ * handlers live in the pages' tool modules (powderTools.ts, pdfTools.ts,
+ * scTools.ts, magneticTools.ts) and run in the page. Every tool names the
+ * pages it works on; on another page it answers with an error that says so.
+ *
+ * Each definition also holds the tool's facts: the History step it records,
+ * the cards it acts on, where a local model is offered it, the evidence it
+ * gives a final answer, and so on. Every other module derives what it needs
+ * from here and keeps no list of tool names of its own (toolFacts.test.ts).
  *
  * Unlike the MATERIA MCP tools (src/mcp/registry.ts), which are pure functions
  * over data the caller passes, these act on what is on screen: the model never
@@ -19,13 +25,41 @@
  */
 
 import { z } from "zod";
+import type { StepKind } from "@/core/project/history";
 
 /**
- * What a tool does to the analysis. `read` tools run freely; `change` tools
- * alter the model or the fit and need the user's approval unless the Agent
- * is in auto mode; `control` tools (stopping a run) never need it.
+ * What a tool does. A `read` reads the page; a `compute` fills a panel of the
+ * page and changes no fit (the magnetic step's k-search and group ranking);
+ * a `record` writes the Agent's record, not the analysis (a note, the
+ * report). These three run at once. A `change` alters the model or the fit
+ * and needs the user's approval unless the Agent is in auto mode; a
+ * `control` (stopping a run) never needs it.
  */
-export type ToolEffect = "read" | "change" | "control";
+export type ToolEffect = "read" | "compute" | "record" | "change" | "control";
+
+/** A card of the page a tool acts on: its edges breathe while the tool runs (focus.ts). */
+export type AgentCard = "structure" | "data" | "instrument" | "pattern" | "parameters" | "result";
+
+/** The powder method's stages (method.ts), by id. */
+export type PowderStageId = "range" | "check" | "base" | "positions" | "profile" | "adp" | "occupancy" | "corrections" | "symmetry";
+
+/** What the user's words may ask for, each a set of phrases (toolScope.ts). */
+export type AskTopic = "magnetic" | "impurity" | "symmetry" | "occupancy" | "posterior" | "geometry" | "report" | "background" | "strain" | "adp" | "corrections" | "xray" | "tie" | "cellCheck";
+
+/** Where a local model is offered a tool (toolScope.ts); every tool is offered on its pages once it has been called. */
+export interface ToolOffer {
+  /** On every page, at every stage. */
+  readonly core?: true;
+  /** On the powder page: at every stage ("always"), at these stages of the method, or once every required stage is done ("finish"). */
+  readonly powder?: readonly (PowderStageId | "always" | "finish")[];
+  /** With the powder page's magnetic step, once it is under way. */
+  readonly magnetic?: true;
+  /** When the user's words ask for one of these. */
+  readonly asked?: readonly AskTopic[];
+}
+
+/** What a call may give a final answer that concludes something (evidence.ts). */
+export type Evidence = "assessment" | "absoluteStructure" | "localStructure";
 
 /** The pages the Agent works on. Each publishes its own port (port.ts). */
 export type AgentPage = "powder" | "pdf" | "singleCrystal";
@@ -50,6 +84,24 @@ export interface LiveToolSpec {
   readonly alwaysAsk?: boolean;
   /** The skill to have read before a change with this tool (default: the page's method). */
   readonly skill?: string;
+  /** The cards of the page it reads or changes (none for a read of the whole page). */
+  readonly cards: readonly AgentCard[];
+  /** The History step a change records once it is made; absent for one that records its own (a refinement) or none. */
+  readonly historyStep?: StepKind;
+  /** Where a local model is offered it beyond its page's list; absent: on the PDF and single-crystal pages (every tool of the page), or once called. */
+  readonly offer?: ToolOffer;
+  /** Refuses on a powder page with no structure (a pattern loaded alone). */
+  readonly needsStructure?: true;
+  /** Each call draws anew: the same call at the same state is not a repeat (the loop guard). */
+  readonly sampler?: true;
+  /** Reads what is there (a ref, a skill): it never counts toward a stall. */
+  readonly stallNeutral?: true;
+  /** Its results stay whole when a long session's old results are cleared: the method is read once. */
+  readonly keep?: true;
+  /** A tool of the powder page's magnetic analysis step (magneticTools.ts). */
+  readonly magneticStep?: true;
+  /** What it gives a final answer, when it answered (evidence.ts). */
+  readonly evidence?: readonly Evidence[];
 }
 
 const ids = z.array(z.string().min(1)).describe("Parameter ids, or globs such as \"bkg*\" or \"*Fe1*\"");
@@ -65,6 +117,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "read",
     pages: ["powder", "pdf", "singleCrystal"],
+    cards: [],
+    offer: { core: true },
   },
   {
     name: "assess_refinement",
@@ -74,6 +128,10 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     inputSchema: {},
     effect: "read",
     pages: ["powder", "pdf", "singleCrystal"],
+    cards: ["result", "pattern"],
+    offer: { core: true },
+    needsStructure: true,
+    evidence: ["assessment", "absoluteStructure"],
   },
   {
     name: "suggest_next_steps",
@@ -83,6 +141,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     inputSchema: {},
     effect: "read",
     pages: ["powder", "pdf"],
+    cards: ["result"],
+    offer: { powder: ["always"] },
+    needsStructure: true,
   },
   {
     name: "rank_next_parameters",
@@ -92,6 +153,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     inputSchema: {},
     effect: "read",
     pages: ["powder"],
+    cards: ["parameters"],
+    offer: { powder: ["always"] },
+    needsStructure: true,
   },
   {
     name: "check_cell_symmetry",
@@ -104,6 +168,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "read",
     pages: ["powder"],
+    cards: ["structure", "pattern"],
+    offer: { powder: ["check"], asked: ["impurity", "symmetry", "cellCheck"] },
+    needsStructure: true,
   },
   {
     name: "check_fit_range",
@@ -115,6 +182,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     inputSchema: {},
     effect: "read",
     pages: ["powder"],
+    cards: ["data", "pattern"],
+    offer: { powder: ["always"] },
+    needsStructure: true,
   },
   {
     name: "reflection_statistics",
@@ -126,6 +196,7 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     inputSchema: {},
     effect: "read",
     pages: ["singleCrystal"],
+    cards: ["data"],
   },
   {
     name: "reflection_equivalents",
@@ -135,6 +206,7 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     inputSchema: { h: z.number().int(), k: z.number().int(), l: z.number().int() },
     effect: "read",
     pages: ["singleCrystal"],
+    cards: ["data", "result"],
   },
   {
     name: "set_outlier_filter",
@@ -148,6 +220,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["singleCrystal"],
+    cards: ["data", "result"],
+    historyStep: "settings",
   },
   {
     name: "keep_reflections",
@@ -160,6 +234,7 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["singleCrystal"],
+    cards: ["data", "result"],
     alwaysAsk: true,
   },
   {
@@ -172,6 +247,7 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["singleCrystal"],
+    cards: ["data", "result"],
   },
   {
     name: "omit_reflections",
@@ -185,6 +261,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["singleCrystal"],
+    cards: ["data", "result"],
+    historyStep: "settings",
   },
   {
     name: "set_radiation",
@@ -197,6 +275,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["singleCrystal"],
+    cards: ["data", "result"],
+    historyStep: "settings",
   },
   {
     name: "set_resolution_range",
@@ -209,6 +289,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["singleCrystal"],
+    cards: ["data", "result"],
+    historyStep: "settings",
   },
   {
     name: "set_extinction_model",
@@ -218,6 +300,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     inputSchema: { model: z.enum(["shelx", "bc-1-lorentzian", "bc-1-gaussian", "bc-2-lorentzian", "bc-2-gaussian"]) },
     effect: "change",
     pages: ["singleCrystal"],
+    cards: ["data", "parameters"],
+    historyStep: "settings",
   },
   {
     name: "set_riding_hydrogens",
@@ -234,6 +318,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["singleCrystal"],
+    cards: ["structure", "parameters"],
+    historyStep: "settings",
   },
   {
     name: "merge_equivalents",
@@ -245,6 +331,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["singleCrystal"],
+    cards: ["data", "result"],
+    historyStep: "settings",
   },
   {
     name: "restrain_distances",
@@ -262,6 +350,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["singleCrystal"],
+    cards: ["structure", "result"],
+    historyStep: "settings",
   },
   {
     name: "set_weighting",
@@ -275,6 +365,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["singleCrystal"],
+    cards: ["result"],
+    historyStep: "settings",
   },
   {
     name: "set_twin",
@@ -288,6 +380,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["singleCrystal"],
+    cards: ["parameters", "result"],
+    historyStep: "settings",
   },
   {
     name: "invert_structure",
@@ -297,6 +391,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     inputSchema: {},
     effect: "change",
     pages: ["singleCrystal"],
+    cards: ["structure", "parameters"],
+    historyStep: "settings",
   },
   {
     name: "find_unexplained_peaks",
@@ -310,6 +406,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "read",
     pages: ["powder"],
+    cards: ["pattern"],
+    offer: { powder: ["check", "finish"], asked: ["impurity"] },
+    needsStructure: true,
   },
   {
     name: "review_symmetry",
@@ -321,6 +420,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     inputSchema: {},
     effect: "read",
     pages: ["powder"],
+    cards: ["structure", "pattern"],
+    offer: { powder: ["symmetry", "finish"], asked: ["symmetry"] },
+    needsStructure: true,
   },
   {
     name: "diagnose_fit",
@@ -330,6 +432,10 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     inputSchema: {},
     effect: "read",
     pages: ["powder"],
+    cards: ["pattern", "result"],
+    offer: { powder: ["always"] },
+    needsStructure: true,
+    evidence: ["assessment"],
   },
   {
     name: "set_corrections",
@@ -343,6 +449,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["powder"],
+    cards: ["parameters"],
+    offer: { powder: ["profile", "corrections", "finish"], asked: ["corrections"] },
   },
   {
     name: "add_antisite",
@@ -355,6 +463,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["powder"],
+    cards: ["structure", "parameters"],
+    offer: { powder: ["occupancy"], asked: ["occupancy"] },
     alwaysAsk: true,
   },
   {
@@ -370,6 +480,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["powder", "singleCrystal"],
+    cards: ["parameters"],
+    offer: { powder: ["positions", "adp", "occupancy", "finish"], asked: ["occupancy", "adp", "tie"] },
   },
   {
     name: "sample_posterior",
@@ -383,6 +495,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "read",
     pages: ["powder", "pdf"],
+    cards: ["parameters"],
+    offer: { powder: ["finish"], asked: ["posterior"] },
+    sampler: true,
   },
   {
     name: "identify_peaks",
@@ -394,6 +509,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "read",
     pages: ["powder"],
+    cards: ["pattern"],
+    offer: { powder: ["check", "base", "finish"], asked: ["impurity"] },
   },
   {
     name: "add_known_phase",
@@ -405,6 +522,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["powder"],
+    cards: ["structure", "parameters"],
+    offer: { powder: ["check", "base"], asked: ["impurity"] },
     alwaysAsk: true,
   },
   {
@@ -418,6 +537,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["powder"],
+    cards: ["instrument"],
+    offer: { powder: ["base"], asked: ["xray"] },
     alwaysAsk: true,
   },
   {
@@ -430,6 +551,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "read",
     pages: ["powder", "pdf", "singleCrystal"],
+    cards: ["structure"],
+    offer: { powder: ["finish"], asked: ["geometry", "report"] },
   },
   {
     name: "magnetic_state",
@@ -439,6 +562,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     inputSchema: {},
     effect: "read",
     pages: ["powder"],
+    cards: [],
+    offer: { powder: ["finish"], magnetic: true, asked: ["magnetic"] },
+    magneticStep: true,
   },
   {
     name: "search_propagation_vector",
@@ -449,8 +575,11 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
       exclude: z.array(z.number().int().positive()).optional().describe("Numbers of residual peaks to leave out of the search (magnetic_state's residualPeaks n)"),
       include: z.array(z.number().int().positive()).optional().describe("Numbers of residual peaks to put into the search"),
     },
-    effect: "read",
+    effect: "compute",
     pages: ["powder"],
+    cards: [],
+    offer: { powder: ["finish"], magnetic: true, asked: ["magnetic"] },
+    magneticStep: true,
   },
   {
     name: "set_propagation_vector",
@@ -462,6 +591,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["powder"],
+    cards: [],
+    offer: { magnetic: true, asked: ["magnetic"] },
+    magneticStep: true,
     skill: "magnetic-analysis",
   },
   {
@@ -473,6 +605,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["powder"],
+    cards: [],
+    offer: { magnetic: true, asked: ["magnetic"] },
+    magneticStep: true,
     skill: "magnetic-analysis",
   },
   {
@@ -486,6 +621,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["powder"],
+    cards: [],
+    offer: { magnetic: true, asked: ["magnetic"] },
+    magneticStep: true,
     skill: "magnetic-analysis",
   },
   {
@@ -497,8 +635,11 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
       scope: z.enum(["open", "all"]).optional(),
       restarts: z.number().int().min(0).max(32).optional().describe("Kicked restarts per group beyond the seeded fit (default 12; 0 = one fit)"),
     },
-    effect: "read",
+    effect: "compute",
     pages: ["powder"],
+    cards: [],
+    offer: { magnetic: true, asked: ["magnetic"] },
+    magneticStep: true,
   },
   {
     name: "choose_magnetic_group",
@@ -510,6 +651,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["powder"],
+    cards: [],
+    offer: { magnetic: true, asked: ["magnetic"] },
+    magneticStep: true,
     skill: "magnetic-analysis",
   },
   {
@@ -519,6 +663,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     inputSchema: {},
     effect: "change",
     pages: ["powder"],
+    cards: [],
+    offer: { magnetic: true, asked: ["magnetic"] },
+    magneticStep: true,
     skill: "magnetic-analysis",
   },
   {
@@ -531,6 +678,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["powder"],
+    cards: ["pattern"],
+    offer: { magnetic: true, asked: ["magnetic"] },
+    magneticStep: true,
     skill: "magnetic-analysis",
   },
   {
@@ -543,6 +693,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["powder"],
+    cards: ["parameters"],
+    offer: { magnetic: true, asked: ["magnetic"] },
+    magneticStep: true,
     skill: "magnetic-analysis",
   },
   {
@@ -557,6 +710,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "read",
     pages: ["powder", "pdf", "singleCrystal"],
+    cards: ["structure"],
+    offer: { asked: ["geometry"] },
+    needsStructure: true,
   },
   {
     name: "interpret_structure",
@@ -566,6 +722,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     inputSchema: {},
     effect: "read",
     pages: ["powder", "pdf"],
+    cards: ["structure"],
+    offer: { asked: ["geometry", "report"] },
+    needsStructure: true,
   },
   {
     name: "read_skill",
@@ -578,6 +737,10 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "read",
     pages: ["powder", "pdf", "singleCrystal"],
+    cards: [],
+    offer: { core: true },
+    stallNeutral: true,
+    keep: true,
   },
   {
     name: "allow_exception",
@@ -590,6 +753,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["powder", "pdf", "singleCrystal"],
+    cards: [],
+    offer: { core: true },
     alwaysAsk: true,
   },
   {
@@ -600,8 +765,10 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     inputSchema: {
       text: z.string().min(3).max(400).describe("The note, in a sentence or two"),
     },
-    effect: "read",
+    effect: "record",
     pages: ["powder", "pdf", "singleCrystal"],
+    cards: [],
+    offer: { core: true },
   },
   {
     name: "write_report",
@@ -615,8 +782,11 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
         "Your account, in plain prose, one to four short paragraphs separated by blank lines: what you did and why, what the result shows about the structure, its caveats, and what is left open. The engine's numbers by reference ({{wR2}}, {{p:ID}}); any other number exactly as the tools gave it (or rounded from it); add none of your own.",
       ),
     },
-    effect: "read",
+    effect: "record",
     pages: ["powder", "pdf", "singleCrystal"],
+    cards: ["result"],
+    offer: { core: true },
+    evidence: ["assessment", "absoluteStructure"],
   },
   {
     name: "read_ref",
@@ -630,6 +800,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "read",
     pages: ["powder", "pdf", "singleCrystal"],
+    cards: [],
+    offer: { core: true },
+    stallNeutral: true,
   },
   {
     name: "set_free",
@@ -642,6 +815,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["powder", "pdf", "singleCrystal"],
+    cards: ["parameters"],
+    historyStep: "edit",
+    offer: { core: true },
   },
   {
     name: "set_background",
@@ -654,6 +830,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["powder"],
+    cards: ["parameters", "pattern"],
+    historyStep: "settings",
+    offer: { powder: ["base"], asked: ["background"] },
   },
   {
     name: "set_microstrain",
@@ -663,6 +842,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     inputSchema: { model: z.enum(["isotropic", "uniaxial", "generalized"]) },
     effect: "change",
     pages: ["powder"],
+    cards: ["parameters"],
+    historyStep: "settings",
+    offer: { powder: ["profile"], asked: ["strain"] },
   },
   {
     name: "set_adp_model",
@@ -672,6 +854,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     inputSchema: { anisotropic: z.boolean() },
     effect: "change",
     pages: ["powder", "pdf", "singleCrystal"],
+    cards: ["parameters"],
+    historyStep: "settings",
+    offer: { powder: ["adp"], asked: ["adp"] },
   },
   {
     name: "set_site_ties",
@@ -686,6 +871,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["powder"],
+    cards: ["parameters"],
+    historyStep: "settings",
+    offer: { powder: ["positions", "occupancy"], asked: ["occupancy", "tie"] },
   },
   {
     name: "set_fit_range",
@@ -700,6 +888,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["powder", "pdf"],
+    cards: ["pattern"],
+    historyStep: "settings",
+    offer: { powder: ["always"] },
   },
   {
     name: "refine",
@@ -711,6 +902,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["powder", "pdf", "singleCrystal"],
+    cards: ["parameters", "pattern"],
+    offer: { core: true },
+    needsStructure: true,
   },
   {
     name: "boxcar_scan",
@@ -726,6 +920,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["pdf"],
+    cards: ["pattern"],
+    evidence: ["localStructure"],
   },
   {
     name: "reset_parameters",
@@ -736,6 +932,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["powder", "pdf", "singleCrystal"],
+    cards: ["parameters"],
+    offer: { core: true },
   },
   {
     name: "go_to_step",
@@ -745,6 +943,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     inputSchema: { step: z.string().regex(/^s\d+$/).describe("Step id, e.g. \"s7\"") },
     effect: "change",
     pages: ["powder", "pdf", "singleCrystal"],
+    cards: [],
+    offer: { core: true },
   },
   {
     name: "cancel_refinement",
@@ -753,6 +953,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     inputSchema: {},
     effect: "control",
     pages: ["powder", "pdf", "singleCrystal"],
+    cards: [],
+    offer: { core: true },
   },
 ];
 

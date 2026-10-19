@@ -913,7 +913,7 @@ export function turnOutcomes(items: readonly TranscriptItem[], activity: Readonl
   turns.forEach((turn, t) => {
     if (thinking && t === turns.length - 1) return;
     const entries = turn.flatMap((i) => (i.kind === "tool" && activity[i.entryId] ? [activity[i.entryId]!] : []));
-    const changes = entries.filter((e) => e.effect !== "read");
+    const changes = entries.filter((e) => e.effect === "change" || e.effect === "control");
     if (changes.length === 0) return;
     const last = turn[turn.length - 1]!;
     const failed = changes.filter((e) => e.status === "failed");

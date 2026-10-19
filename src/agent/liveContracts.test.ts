@@ -61,7 +61,7 @@ describe("the live tools' output shapes", () => {
       expect(refined.refined, refined.text).toBe(true);
       const seen: Record<string, string[]> = {};
       for (const t of LIVE_TOOLS) {
-        if (t.effect !== "read" || !t.pages.includes(page) || t.name === "sample_posterior" || !z.object(t.inputSchema).strict().safeParse({}).success) continue;
+        if ((t.effect !== "read" && t.effect !== "compute") || !t.pages.includes(page) || t.name === "sample_posterior" || !z.object(t.inputSchema).strict().safeParse({}).success) continue;
         const out = await ex.run(t.name, {});
         if (out.isError) continue;
         seen[t.name] = Object.keys(JSON.parse(out.text) as object).filter((k) => k !== "ref").sort();

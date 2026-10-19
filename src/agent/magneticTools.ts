@@ -10,6 +10,7 @@
 import { RANK_RESTARTS } from "@/core/magnetic/momentRestarts";
 import type { Vec3 } from "@/core/math/types";
 import type { PowderAgentPort } from "@/agent/port";
+import { liveTool } from "@/agent/tools";
 import type { MagneticAgentHandle, MagneticCandidateView, MagneticPanelState } from "@/agent/magneticPort";
 import { sig } from "@/agent/liveCommon";
 
@@ -17,9 +18,8 @@ import { sig } from "@/agent/liveCommon";
 type Input = any;
 
 export const MAGNETIC_SKILL = "magnetic-analysis";
-const READS = new Set(["magnetic_state", "search_propagation_vector", "rank_magnetic_groups"]);
-const CHANGES = new Set(["set_propagation_vector", "select_magnetic_ions", "set_moment_ties", "choose_magnetic_group", "refine_moments", "show_magnetic_model", "continue_magnetic_refinement"]);
-export const isMagneticTool = (name: string): boolean => READS.has(name) || CHANGES.has(name);
+/** A tool of the magnetic step (its definition says so). */
+export const isMagneticTool = (name: string): boolean => !!liveTool(name)?.magneticStep;
 
 function handleOf(port: PowderAgentPort): MagneticAgentHandle {
   const h = port.magnetic?.();
