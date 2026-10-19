@@ -35,7 +35,7 @@ import { INVERSION_TWIN, isInversion, mergedOnlyAbsences, type ExtinctionModel, 
 import { dispersionLine } from "@/core/scattering/dispersion";
 import { checkEqualTies, type EqualTieUpdate } from "@/core/refinement/constraints";
 import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, correlationsCheck, findingChecks, noResultCheck, verdictCheck } from "@/agent/reportChecks";
-import { disorderAssemblies } from "@/agent/correlationCheck";
+import { disorderAssemblies } from "@/core/diagnostics/correlationGuard";
 import { COMPLETENESS_NOTE, FLACK_U_DETERMINED, R_INT_NOTE } from "@/core/diagnostics/thresholds";
 import { minMax } from "@/core/math/extent";
 

@@ -45,6 +45,8 @@ import {
 import { buildMpdfSpec, mpdfComponents, unsupportedMpdfModel, MPDF_STAGE_KINDS } from "@/core/workflow/mpdf";
 import { computeAgreementFactors, excludedPointMask, weightsFromSigma } from "@/core/refinement/factors";
 import { axisContext, convertAxisArray, convertAxisValue, tofCalibrationOf } from "@/visualization/axisUnits";
+import { posteriorReading, type ParameterReading } from "@/core/diagnostics/posteriorReading";
+import { cellCheckReading, dScaleReading } from "@/core/diagnostics/cellReading";
 import { inspectDataRange, type DataRangeReading } from "@/core/diagnostics/dataRange";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { powderResidual as corePowderResidual, type PowderResidual as CorePowderResidual } from "@/core/diagnostics/powderResidual";
@@ -265,7 +267,7 @@ export function check_cell_symmetry(args: {
   fitRange?: { min: number; max: number };
   dMin?: number;
   significance?: number;
-}): CellSymmetryCheck {
+}): CellSymmetryCheck & { reading: string } {
   const instrument = args.instrument ?? DEFAULT_INSTRUMENT;
   if (args.pattern.xUnit === "tof" && instrument.kind !== "tof") {
     throw new Error("check_cell_symmetry: a time-of-flight pattern needs its TOF instrument (difC) to place reflections");
@@ -289,7 +291,7 @@ export function check_cell_symmetry(args: {
   // A loaded instrument's resolution curve shapes the Le Bail widths (the
   // default instrument's generic one would mislead).
   const caglioti = args.instrument ? cagliotiOf(args.instrument) : undefined;
-  return checkCellSymmetry(
+  const check = checkCellSymmetry(
     args.structure,
     args.pattern,
     spec.params.filter((p) => isCell(p.kind)),
@@ -304,6 +306,11 @@ export function check_cell_symmetry(args: {
       ...(args.significance !== undefined ? { significance: args.significance } : {}),
     },
   );
+  // The app's reading (core/diagnostics/cellReading.ts): the d scale from the pattern's own peaks first.
+  const ctx = axisContext(args.pattern, args.instrument);
+  const d = args.pattern.points.map((p) => convertAxisValue(p.x, args.pattern.xUnit, "dSpacing", ctx));
+  const scale = dScaleReading(d, args.pattern, args.structure, args.instrument);
+  return { ...check, reading: cellCheckReading(check, { loaded: args.structure.cell, unit: args.pattern.xUnit, scale, tools: { review: "review_symmetry" } }) };
 }
 
 /**
@@ -1813,6 +1820,10 @@ export async function sample_posterior(args: {
   message?: string;
   nSamples: number;
   freeIds: string[];
+  /** Each free parameter's interval read against its esd (`linearizedEsd`), as the app reads it. */
+  intervals: ParameterReading[];
+  /** The run read whole: converged or not, the esds confirmed or not, the bounds, the correlations. */
+  reading: string;
   resume: WalkerState | NutsState;
   chains?: number[][][];
   nuts?: { divergences: number; maxTreeDepthHits: number; gradEvals: number; stepSize: number[] };
@@ -1901,6 +1912,8 @@ export async function sample_posterior(args: {
     }
   }
   correlations.sort((a, b) => Math.abs(b.coefficient) - Math.abs(a.coefficient));
+  // The app's reading (core/diagnostics/posteriorReading.ts), resumed MCP's way.
+  const read = posteriorReading(result, args.parameters, args.linearizedEsd, [], { again: "call sample_posterior again with `resume` (this result's)", brief: "`resume`" });
 
   return {
     sampler,
@@ -1912,6 +1925,8 @@ export async function sample_posterior(args: {
     ...(result.message !== undefined ? { message: result.message } : {}),
     nSamples: result.diagnostics.nSamples,
     freeIds: [...ids],
+    intervals: read.rows,
+    reading: read.reading,
     resume: result.resume,
     ...(args.includeChains ? { chains: result.chains.map((w) => w.map((r) => [...r])) } : {}),
     ...(nutsInfo ? { nuts: nutsInfo } : {}),

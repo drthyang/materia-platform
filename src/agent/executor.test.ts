@@ -10,7 +10,7 @@ import { newSession, type Session } from "@/app/powderSession";
 import { exampleStructure } from "@/examples/mn3ga";
 import type { RefinementParameter } from "@/core/refinement/types";
 import { executor, fakeHost, pdfPort, sessionPort } from "@/testSupport/agentHeadless";
-import { shoulderReading } from "@/agent/powderTools";
+import { shoulderReading } from "@/core/diagnostics/cellReading";
 import { mn3gaFluoriteSession, powderPage } from "@/agent/evals/pages";
 
 const parse = (text: string): Record<string, unknown> => JSON.parse(text) as Record<string, unknown>;
