@@ -27,7 +27,7 @@ export const REPLAYS: Readonly<Record<string, Replay>> = {
       { text: "First your method.", calls: [RIETVELD, { name: "get_state" }] },
       { text: "Stage 1: scale, background and cell.", calls: [{ name: "refine" }] },
       { text: "Positions next.", calls: [{ name: "set_free", input: { free: ["pos_Mn1_0"] } }, { name: "refine" }] },
-      { text: "Now the profile.", calls: [{ name: "set_free", input: { free: ["width"] } }, { name: "refine" }] },
+      { text: "Now the profile, with the position fixed.", calls: [{ name: "set_free", input: { free: ["width"], fix: ["pos_Mn1_0"] } }, { name: "refine" }] },
       { text: "Then the ADPs, with the peak width fixed.", calls: [{ name: "set_free", input: { free: ["B_Mn1", "B_Ga1"], fix: ["width"] } }, { name: "refine" }] },
       { text: "Done: scale, background, cell, the Mn position, the peak width and both B_iso refined; the fit improved at every stage." },
     ],
@@ -416,6 +416,7 @@ export const REPLAYS: Readonly<Record<string, Replay>> = {
     good: [
       { text: "The method, then the data: are the Friedel pairs measured apart?", calls: [SC, { name: "reflection_statistics" }] },
       { text: "They are, and Ga scatters anomalously at Mo Kα: the inversion twin, its fraction the Flack x, refined with the positions.", calls: [{ name: "set_twin", input: { law: "inversion" } }, { name: "set_free", input: { free: ["pos_*"] } }, { name: "refine" }] },
+      { text: "The absolute-structure reading of this refinement.", calls: [{ name: "assess_refinement" }] },
       { text: "The Flack x refines to 0.305(4): an inversion twin, 30 % of the crystal of the inverted hand. The absolute structure is determined, as a twin of both hands." },
     ],
     bad: [
@@ -454,6 +455,7 @@ export const REPLAYS: Readonly<Record<string, Replay>> = {
       { text: "The method, then the data: are the Friedel pairs measured apart?", calls: [SC, { name: "reflection_statistics" }] },
       { text: "They are, and Ga scatters anomalously at Mo Kα: the inversion twin, its fraction the Flack x, refined with the positions.", calls: [{ name: "set_twin", input: { law: "inversion" } }, { name: "set_free", input: { free: ["pos_*"] } }, { name: "refine" }] },
       { text: "x refines to 1: the crystal is the other hand of the model. I invert the model and refine it again.", calls: [{ name: "invert_structure" }, { name: "refine" }] },
+      { text: "The absolute-structure reading of the inverted model.", calls: [{ name: "assess_refinement" }] },
       { text: "The model is now inverted from the one loaded, and x reads 0 within its esd: the absolute structure is determined, the enantiomer opposite to the one loaded." },
     ],
     bad: [

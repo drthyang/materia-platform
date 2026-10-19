@@ -14,6 +14,7 @@ import type { RefinementParameter, RefinementResult } from "@/core/refinement/ty
 import { physicalFindings } from "@/core/diagnostics/assessment";
 import type { PowderValidation, UnindexedPeak } from "@/core/diagnostics/powderValidation";
 import type { ScValidation } from "@/core/diagnostics/singleCrystalValidation";
+import { COMPLETENESS_NOTE, CORRELATION_LIMIT, GOF_BANDS, GOOF_SINGLE_CRYSTAL_BANDS, SHIFT_SETTLED } from "@/core/diagnostics/thresholds";
 
 export type CheckStatus = "ok" | "note" | "warn" | "critical" | "info";
 
@@ -40,8 +41,6 @@ export interface ValidationVerdict {
 
 const RANK: Record<CheckStatus, number> = { info: 0, ok: 1, note: 2, warn: 3, critical: 4 };
 
-/** Above this |r| a correlation is worth naming (the engine reports from 0.95 by default). */
-const CORRELATION_NOTE = 0.95;
 
 function fmt(v: number, digits = 2): string {
   return Number.isFinite(v) ? v.toFixed(digits) : "—";
@@ -62,19 +61,23 @@ function labelOf(parameters: readonly RefinementParameter[], id: string): string
   return parameters.find((p) => p.id === id)?.label ?? id;
 }
 
-/** The goodness-of-fit line, banded per Toby (2006); below 1 is a warning sign, not a win. */
-function gofCheck(gof: number, name: string, okMax: number, extra?: string): ValidationCheck {
+/**
+ * The goodness-of-fit line, banded per Toby (2006) as the assessment bands it
+ * (ok is excellent, note good, warn fair, critical poor): GOF_BANDS on
+ * powder, GOOF_SINGLE_CRYSTAL_BANDS on F². Below 1 is a warning sign, not a win.
+ */
+function gofCheck(gof: number, name: string, bands: { readonly tooGood: number; readonly excellent: number; readonly good: number; readonly fair: number }, extra?: string): ValidationCheck {
   const value = `${name} ${fmt(gof)}`;
   if (!(gof > 0)) return { id: "gof", status: "info", title: `${name} —`, detail: "no fitted points" };
-  if (gof < 0.8 || (gof < 1 && name === "GoF")) {
+  if (gof < bands.tooGood || (gof < 1 && name === "GoF")) {
     return {
       id: "gof", status: "note", title: value,
       detail: "below 1: the σ's are over-estimated or the model has more parameters than the data support, so the esds are optimistic",
     };
   }
-  if (gof <= okMax) return { id: "gof", status: "ok", title: value, detail: extra ?? "close to the statistical floor" };
-  if (gof <= okMax + 1) return { id: "gof", status: "note", title: value, detail: extra ?? "residual structure the model does not capture" };
-  if (gof <= okMax + 2.5) return { id: "gof", status: "warn", title: value, detail: extra ?? "significant unmodelled features" };
+  if (gof <= bands.excellent) return { id: "gof", status: "ok", title: value, detail: extra ?? "close to the statistical floor" };
+  if (gof <= bands.good) return { id: "gof", status: "note", title: value, detail: extra ?? "residual structure the model does not capture" };
+  if (gof <= bands.fair) return { id: "gof", status: "warn", title: value, detail: extra ?? "significant unmodelled features" };
   return { id: "gof", status: "critical", title: value, detail: extra ?? "the model is far from the data" };
 }
 
@@ -93,7 +96,7 @@ function convergenceCheck(result: RefinementResult | null, parameters: readonly 
   const who = result.diagnostics?.maxShiftParameterId ? ` (${labelOf(parameters, result.diagnostics.maxShiftParameterId)})` : "";
   const cycles = `${result.history.length} cycle${result.history.length === 1 ? "" : "s"}`;
   if (shift > 1) return { id: "convergence", status: "warn", title: `Still moving — max shift/esd ${fmt(shift)}${who}`, detail: "refine more cycles; the value ± esd is not yet the minimum" };
-  if (shift > 0.1) return { id: "convergence", status: "note", title: `Nearly settled — max shift/esd ${fmt(shift)}${who}`, detail: "settled is below 0.1; refine a few more cycles" };
+  if (shift > SHIFT_SETTLED) return { id: "convergence", status: "note", title: `Nearly settled — max shift/esd ${fmt(shift)}${who}`, detail: `settled is below ${SHIFT_SETTLED}; refine a few more cycles` };
   return { id: "convergence", status: "ok", title: "Converged", detail: `max shift/esd ${fmt(shift, shift < 0.01 ? 3 : 2)}${who}, ${cycles}` };
 }
 
@@ -121,13 +124,14 @@ function correlationChecks(result: RefinementResult | null, parameters: readonly
   const d = result.diagnostics;
   if (!d) return [];
   const out: ValidationCheck[] = [];
-  const pairs = d.highCorrelations.filter((c) => Math.abs(c.coefficient) >= CORRELATION_NOTE);
+  // The pairs the Agent's guard would not refine together: a warning here too, at the same line.
+  const pairs = d.highCorrelations.filter((c) => Math.abs(c.coefficient) >= CORRELATION_LIMIT);
   if (pairs.length > 0) {
     const shown = pairs.slice(0, 2).map((c) => `${labelOf(parameters, c.parameterIdA)} / ${labelOf(parameters, c.parameterIdB)} ${fmt(c.coefficient)}`);
     out.push({
       id: "correlation",
-      status: pairs.some((c) => Math.abs(c.coefficient) > 0.98) ? "warn" : "note",
-      title: `${pairs.length} correlation${pairs.length === 1 ? "" : "s"} above ${CORRELATION_NOTE}`,
+      status: "warn",
+      title: `${pairs.length} correlation${pairs.length === 1 ? "" : "s"} at or above ${CORRELATION_LIMIT}`,
       detail: shown.join(" · ") + (pairs.length > 2 ? " …" : ""),
     });
   }
@@ -167,7 +171,7 @@ export interface PowderCheckInput {
 export function powderChecks(input: PowderCheckInput): ValidationVerdict {
   const { validation: v, unindexed, result, parameters } = input;
   const checks: ValidationCheck[] = [];
-  checks.push(gofCheck(v.agreement.gof, "GoF", 1.5, undefined));
+  checks.push(gofCheck(v.agreement.gof, "GoF", GOF_BANDS, undefined));
   if (checks[0]!.status === "ok") checks[0] = { ...checks[0]!, detail: `close to the statistical floor (χ²ᵥ ${fmt(v.agreement.chi2nu)})` };
   checks.push(convergenceCheck(result, parameters));
   checks.push(physicalCheck(result, parameters));
@@ -230,7 +234,7 @@ export function singleCrystalChecks(input: SingleCrystalCheckInput): ValidationV
   }
   // With extinction, say how much of the GooF the strong reflections carry.
   const drivenByStrong = ext.suspected && v.goofWithoutStrongest !== undefined && goof - v.goofWithoutStrongest > 0.1;
-  checks.push(gofCheck(goof, "GooF", 1.3, drivenByStrong ? `driven by the strongest reflections — ${fmt(v.goofWithoutStrongest!)} without them` : undefined));
+  checks.push(gofCheck(goof, "GooF", GOOF_SINGLE_CRYSTAL_BANDS, drivenByStrong ? `driven by the strongest reflections — ${fmt(v.goofWithoutStrongest!)} without them` : undefined));
   checks.push(convergenceCheck(result, parameters));
 
   const need = v.centrosymmetric ? 10 : 8;
@@ -242,7 +246,7 @@ export function singleCrystalChecks(input: SingleCrystalCheckInput): ValidationV
   if (v.completeness !== undefined) {
     const c = v.completeness;
     const where = `to sinθ/λ ${fmt(v.sinThetaOverLambdaMax, 2)} Å⁻¹ (d ${fmt(v.dMin, 2)} Å)`;
-    checks.push(c >= 0.95
+    checks.push(c >= COMPLETENESS_NOTE
       ? { id: "completeness", status: "ok", title: `${fmt(100 * c, 1)}% complete`, detail: where }
       : { id: "completeness", status: c >= 0.9 ? "note" : "warn", title: `Only ${fmt(100 * c, 1)}% complete`, detail: `${where}; missing reflections bias the ADPs and hide systematic errors` });
   }

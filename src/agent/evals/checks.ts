@@ -7,7 +7,8 @@
  */
 
 import { PAGE_METHOD } from "@/agent/skills";
-import { groupOf, keyOfState, type ParameterGroup } from "@/agent/method";
+import { groupOf, type ParameterGroup } from "@/agent/method";
+import { analysisOf } from "@/agent/pages";
 import { announcedTool } from "@/agent/chat";
 import { LIVE_TOOLS, liveTool } from "@/agent/tools";
 import { convertInterval } from "@/visualization/axisUnits";
@@ -124,7 +125,7 @@ export function coversStages(ids: readonly string[]): Check {
   return {
     name: `covers the stages ${ids.join(", ")}`,
     grade: (run) => {
-      const record = run.records.get(keyOfState(run.port.technique, run.port.state()));
+      const record = run.records.get(analysisOf(run.port));
       const done = new Set(record?.stagesDone ?? []);
       const missing = ids.filter((id) => !done.has(id));
       return missing.length === 0 ? ok(`done: ${[...done].join(", ")}`) : fail(`not done: ${missing.join(", ")}`);
@@ -464,7 +465,6 @@ export const extinctionBeforeStructure: Check = {
   },
 };
 
-/** A misfit reflection is compared with its equivalents before any is left out, and only the failed measurement goes (round 1: 5 4 1 in batch 24). */
 /**
  * Failed measurements left out, and nothing else (round 1: sapphire's 5 4 1
  * and 3 4 2 in batch 24): the equivalents read before the first omission —

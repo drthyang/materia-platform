@@ -9,7 +9,7 @@ import { anthropicProxy } from "./src/agent/proxy";
 import { scriptedReplay } from "./src/agent/replay/server";
 
 // GitHub Pages serves from a repo subpath; override with VITE_BASE if needed.
-const base = process.env.VITE_BASE ?? "/web-refinement/";
+const base = process.env.VITE_BASE ?? "/materia-platform/";
 
 /**
  * Dev-only static server for the git-ignored `data/` folder, so the app can

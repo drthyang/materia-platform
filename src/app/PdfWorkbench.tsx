@@ -2,11 +2,12 @@
  * PDF (pair distribution function) refinement page — "real-space Rietveld"
  * (PDF_MPDF_ROADMAP P0/P1). Shares the workbench design language — SummaryCards
  * row, quality strip, the collapsible ParameterPanel, and the shared plot in its
- * signed-y mode (G(r) oscillates about zero) — and drives the real-space core
- * (`buildPdfSpec` / `buildPdfProblem` via the compute worker).
+ * signed-y mode (G(r) oscillates about zero). What its controls and fits do is
+ * in pdfPage.ts, which the Agent's headless page runs too: this component holds
+ * the page in one state value and renders it.
  *
- * Self-contained: owns its parameter/result state and its CSV export. The app
- * shell mounts it (keyed on the dataset) whenever a reduced `.gr` PDF is loaded.
+ * Self-contained: owns its page state and its CSV export. The app shell mounts
+ * it (keyed on the dataset) whenever a reduced `.gr` PDF is loaded.
  */
 
 import type { HistoryBinding } from "@/app/historyBinding";
@@ -14,40 +15,23 @@ import type { AgentLink } from "@/agent/link";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EngineExportsRef } from "@/app/workbenchEngine";
 import type { PdfWorkspace } from "@/core/project/types";
-import { overlaySavedParameters, pdfWorkspaceFrom } from "@/app/projectIo";
 import { useOnChange } from "@/app/useOnChange";
-import type { AtomSite, StructureModel } from "@/core/crystal/types";
-import { withAdpModel } from "@/core/crystal/adp";
+import type { StructureModel } from "@/core/crystal/types";
 import type { PdfPattern } from "@/core/diffraction/types";
-import type { RefinementResult } from "@/core/refinement/types";
 import type { ParameterBinding, RefinementParameter } from "@/core/refinement/types";
 import { CANCELLED, type ComputeClient } from "@/workers/computeClient";
-import {
-  buildPdfSpec,
-  buildMultiPhasePdfSpec,
-  pdfCurves,
-  multiPhasePdfCurves,
-  pdfPartialCurves,
-  pdfPhaseCurves,
-  pdfPhaseBindingsFor,
-  optimalPdfScale,
-  correlatedMotionConflict,
-  zeroAdpWarning,
-} from "@/core/workflow/pdf";
-import { buildMpdfSpec, mpdfComponents, unsupportedMpdfK, unsupportedMpdfModel } from "@/core/workflow/mpdf";
-import { applyMagneticMoments } from "@/core/workflow/magnetic";
+import { pdfPartialCurves, pdfPhaseCurves } from "@/core/workflow/pdf";
+import { unsupportedMpdfK } from "@/core/workflow/mpdf";
 import type { MagneticModel } from "@/core/magnetic/types";
-import { isMagneticModelParameterKind, isMomentParameterKind } from "@/core/refinement/types";
-import { KSearchPanel, type MagneticFit } from "@/components/KSearchPanel";
-import { buildDistortionModes, buildSymmetryModes, positionShiftValuesFor, withDistortionModes, type DistortionModeSet } from "@/core/crystal/distortionModes";
+import { isMomentParameterKind } from "@/core/refinement/types";
+import { KSearchPanel } from "@/components/KSearchPanel";
+import type { MagneticFit } from "@/app/magneticStep";
 import { decomposeDisplacementRepresentation, type DisplaciveIrrepTerm } from "@/core/crystal/displaciveModes";
 import {
   projectIsotypicModes,
   stabilizerOfField,
   identifySubgroup,
   subgroupTypeKey,
-  activateDisplacementMode,
-  realizeSubgroup,
   type DisplacementField,
   type SubgroupIdentity,
 } from "@/core/crystal/isotropyTree";
@@ -57,42 +41,32 @@ import {
   type SubgroupNode,
 } from "@/core/crystal/subgroupTree";
 import { parseCif } from "@/parsers/cif";
-import { applyParameters } from "@/core/workflow/apply";
+import {
+  ACTIVATION_KICK, SAMPLE_STEPS, agentBoxcarPlan, boxcarSummary, landsOn, liveStateOf, momentFit, pageView, pdfBoxcar, pdfFit, pdfPage, pdfPosterior, pdfProbe, pdfThorough, reportInputOf, rwOf, specKeyOf,
+  withActivatedMode, withAdpModel, withBoxcarPlan, withBoxcarRun, withBoxcarStep, withExtraPhases, withFit, withFitRange, withFixed, withLoadedStructure, withoutModes,
+  withParameter, withParentModes, withPattern, withPositionMode, withPosterior, withReset, withSpinModel, withSubgroup, workspaceOf, type AgentBoxcarPlan,
+} from "@/app/pdfPage";
 
 // Lazy so three.js stays out of the main bundle until the 3D view is opened.
 const StructureView = lazy(() => import("@/app/ui/StructureView").then((m) => ({ default: m.StructureView })));
 import { ParameterPanel } from "@/app/ui/ParameterPanel";
 import { PosteriorPanel } from "@/app/ui/PosteriorPanel";
 import { ReciprocalPanel } from "@/app/ui/ReciprocalPanel";
-import { BoxcarPanel, stepIndexFor, type BoxcarPlan, type BoxcarRun, type BoxcarSeries } from "@/app/ui/BoxcarPanel";
-import { boxcarPlanIssue, boxcarScannedMax, boxcarTable, boxcarWindows, type BoxcarDirection, type BoxcarDirectionChoice } from "@/core/workflow/pdfBoxcar";
-
-/** One finished (or interrupted) pass, accumulated while a run is in flight. */
-type BoxcarSeriesState = BoxcarSeries;
-import type { SequentialResult, SequentialStep } from "@/core/refinement/sequential";
+import { BoxcarPanel, stepIndexFor, type BoxcarRun } from "@/app/ui/BoxcarPanel";
+import { boxcarPlanIssue, boxcarScannedMax, boxcarWindows, type BoxcarDirection } from "@/core/workflow/pdfBoxcar";
 import type { SampleResult } from "@/core/refinement/bayes/sampler";
 import { SummaryCards, type SummaryCardData } from "@/app/ui/SummaryCards";
-import { WorkbenchPlot, type FitRangeSelection } from "@/app/ui/WorkbenchPlot";
+import { WorkbenchPlot } from "@/app/ui/WorkbenchPlot";
 import { SegmentedToggle } from "@/app/ui/SegmentedToggle";
 import { downloadText } from "@/app/download";
 import { structureToCif, magneticStructureToMcif } from "@/core/export/cif";
 import { reportHtml, type ReportInput } from "@/core/export/report";
-import { pdfReportInput, type MagneticExploration } from "@/app/reportInputs";
+import type { MagneticExploration } from "@/app/reportInputs";
 import { card as themeCard, color, mono, secondaryButton, uppercaseLabel, fz, toolbarBtn, resetRangeBtn, space } from "@/app/theme";
 
 const DATA_ACCEPT = ".gr,.sgr,.fgr,.sq,.fq,.dat,.txt,text/plain";
 const noop = (): void => {};
 const pct = (x: number): string => `${(x * 100).toFixed(2)}%`;
-
-/** The request shape a posterior-sampling run poses (and Continue re-poses).
- *  The magnetic variant additionally carries the spin model, so the presence of
- *  `magnetic` is what routes Continue back to the same sampler. */
-type SamplePdfRequest = Parameters<ComputeClient["samplePdfPosterior"]>[0];
-type SampleMpdfRequest = Parameters<ComputeClient["sampleMpdfPosterior"]>[0];
-type SampleRequest = SamplePdfRequest | SampleMpdfRequest;
-
-/** Ensemble steps per posterior run/continue (each = one proposal per walker). */
-const SAMPLE_STEPS = 400;
 
 /** Rw quality bands for a PDF (fraction): <15 % good · <30 % mediocre · else
  *  poor. PDF Rw runs much higher than Bragg Rwp for equally good fits — and with
@@ -139,165 +113,37 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   /** Where this page publishes its Agent port (agent/port.ts). */
   agentLink?: AgentLink;
 }): JSX.Element {
-  const multiPhase = extraPhases.length > 0;
-  // The workspace this page was mounted to reopen, read once. It applies only
-  // while `structure` and `pattern` are the very objects the file carried —
-  // identity, not id — so the shell may drop the prop without the page losing
-  // its restored state, and a later CIF or data load can never re-stamp the
-  // saved rows onto a different model.
-  const mounted = useRef({ restore, structure, pattern }).current;
-  const restoring = mounted.restore && mounted.structure === structure && mounted.pattern === pattern ? mounted.restore : undefined;
-  // Position parameterization (single-phase only): "atomic" refines the
-  // symmetry-constrained per-coordinate shifts; "irreps" refines symmetry-
-  // adapted distortion-mode AMPLITUDES (AMPLIMODES/ISODISTORT paradigm). The
-  // mode set comes from the structure's OWN space group (`buildSymmetryModes`,
-  // no second CIF needed — amplitudes seed at 0, rigid-translation gauge
-  // excluded); loading a high-symmetry PARENT cif upgrades it to the observed
-  // decomposition, whose mode 1 is the frozen order parameter (Å).
-  const [positionMode, setPositionMode] = useState<"atomic" | "irreps">(restoring?.positionMode ?? "atomic");
-  const [modes, setModes] = useState<{ set: DistortionModeSet; parentName: string; fromActivation?: boolean } | null>(() => {
-    const dm = restoring?.distortionModes;
-    return dm ? { set: dm.set, parentName: dm.parentName, ...(dm.fromActivation ? { fromActivation: true } : {}) } : null;
-  });
-  useOnChange(structure, () => setModes(null));
-  // The primary phase's ADP model. A CIF's U_aniso columns load anisotropic (a
-  // tensor per site); a small-box fit usually refines one U per site. Null
-  // keeps the structure's own model. A switch seeds the new rows from the
-  // current (refined) ADPs, as the powder page's does.
-  const [adp, setAdp] = useState<{ readonly model: "isotropic" | "anisotropic"; readonly seeds: Readonly<Record<string, AtomSite["adp"]>> } | null>(
-    () => (restoring?.adpModel ? { model: restoring.adpModel, seeds: {} } : null),
+  // The page: what was loaded and every setting that is saved with a project
+  // or changes the fit (pdfPage.ts, whose operations the Agent's headless page
+  // runs too). Each change returns the next page with its rows already
+  // rebuilt, so no render pairs the old rows with a new spec. A reopened
+  // project seeds it once, on mount: the shell remounts this page with a fresh
+  // key when it opens one.
+  const [model, setModel] = useState(() =>
+    pdfPage(structure, pattern, {
+      extraPhases,
+      preset: { ...(presetValues ? { values: presetValues } : {}), ...(presetFitRange ? { fitRange: presetFitRange } : {}) },
+      ...(restore ? { restore } : {}),
+    }),
   );
-  useOnChange(structure, () => setAdp(null));
-  // ---- Magnetic PDF (mPDF, roadmap P4) -----------------------------------
-  // The spin model handed over from the magnetic page (step 1). Model AND its
-  // moment rows travel together: they must enter the `spec` memo as one unit,
-  // because `activeParams` (below) silently falls back to `spec.params` if the
-  // params state and the spec ever disagree — bolting moments onto the params
-  // state alone would drop them without an error.
-  const [spinModel, setSpinModel] = useState<{
-    magnetic: MagneticModel;
-    params: readonly RefinementParameter[];
-    bindings: readonly ParameterBinding[];
-  } | null>(() => {
-    const sm = restoring?.spinModel;
-    return sm ? { magnetic: sm.magnetic, params: [...sm.parameters], bindings: [...sm.bindings] } : null;
-  });
-  useOnChange(structure, () => setSpinModel(null));
-  // The magnetic term exists only for neutron data (no X-ray dipole coupling),
-  // and `buildMpdfSpec` is single-phase (it wraps `buildPdfSpec`, not the
-  // multi-phase builder). Outside those conditions the page stays purely nuclear.
-  const magneticCapable = !multiPhase && pattern.scatteringType === "neutron";
-  // A model the mPDF spin field cannot represent (an incommensurate k) is held
-  // OUT of the fit entirely rather than fitted approximately: `expandSpinField`
-  // would fall back to the parent cell and return a wrong magnetic G(r). The
-  // check is here, not only at adoption, because a reopened project or an mCIF
-  // load can put such a model into this state directly.
-  const spinBlockedReason = spinModel ? unsupportedMpdfModel(spinModel.magnetic) : null;
-  const spinFit = magneticCapable && !spinBlockedReason ? spinModel : null;
-  const symModes = useMemo(() => (multiPhase ? null : buildSymmetryModes(structure)), [structure, multiPhase]);
-  // An empty symmetry set (every site pinned by symmetry) cannot replace the
-  // position rows — fall back to atomic (the toggle is disabled in that case).
-  const modeSet =
-    !multiPhase && positionMode === "irreps"
-      ? modes?.set ?? (symModes && symModes.modes.length > 0 ? symModes : null)
-      : null;
-  // The mode parameters are anchored on the parentized structure; everything
-  // downstream (spec, curves, worker refine, 3D view, CIF export) uses it.
-  const modeBase = modeSet ? modeSet.parentized : structure;
-  const fitStructure = useMemo(
-    () => (adp ? withAdpModel({ ...modeBase, sites: modeBase.sites.map((site) => ({ ...site, adp: adp.seeds[site.label] ?? site.adp })) }, adp.model) : modeBase),
-    [modeBase, adp],
-  );
-  // What the fitted primary phase refines: one U per site, a tensor, or both.
-  const adpModel = useMemo((): "isotropic" | "anisotropic" | "mixed" => {
-    const kinds = new Set(fitStructure.sites.map((site) => site.adp.kind));
-    return kinds.size === 1 ? [...kinds][0]! : "mixed";
-  }, [fitStructure]);
+  // The page as it is now, for a fit or scan that lands after a change.
+  const modelRef = useRef(model);
+  modelRef.current = model;
+  const view = useMemo(() => pageView(model), [model]);
+  const { positionMode, modes, params, result, fitRange, boxcarPlan: boxcarPlanState, boxcarRun, sample } = model;
+  const { multiPhase, spinFit, symModes, modeSet, fitStructure, adpModel, phases, spec, refinedMagnetic, mpdfCurves, curves, motionConflict, adpWarning, radiationWarning } = view;
+  // Another structure, other phases or another G(r) on this page (it is keyed
+  // on the data's id): the rows are built afresh (on change only — the mount
+  // render may carry a restored state).
+  useOnChange(structure, () => setModel((m) => withLoadedStructure(m, structure)));
+  useOnChange(extraPhases, () => setModel((m) => withExtraPhases(m, extraPhases)));
+  useOnChange(pattern, () => setModel((m) => withPattern(m, pattern)));
   // Mode selected in the 3D card's table: its eigenvector (unit-amplitude
   // displacement field) is drawn as green arrows on the 3D model. Click the
   // row to toggle; any mode-set change invalidates the selection.
   const [shownModeId, setShownModeId] = useState<string | null>(null);
   useEffect(() => setShownModeId(null), [modeSet]);
   const shownMode = (shownModeId !== null ? modeSet?.modes.find((m) => m.id === shownModeId) : undefined) ?? null;
-  const phases = useMemo(
-    () => [{ structure: fitStructure, id: fitStructure.id }, ...extraPhases.map((s) => ({ structure: s, id: s.id }))],
-    [fitStructure, extraPhases],
-  );
-  // Default fit window: above the reduction's low-r validity limit, and capped
-  // at 30 Å — files often carry G(r) to 100 Å, and modeling the whole grid on
-  // load would hang the page (the model is only ever computed in the window;
-  // drag the right handle out to fit further).
-  const defaultRange = useMemo((): FitRangeSelection => {
-    const rFirst0 = pattern.points[0]?.r ?? 0;
-    const rLast0 = pattern.points[pattern.points.length - 1]?.r ?? 1;
-    const preset = restoring?.fitRange ?? presetFitRange;
-    if (preset) {
-      return { min: Math.max(preset.min, rFirst0), max: Math.min(preset.max, rLast0) };
-    }
-    return {
-      min: Math.min(Math.max(pattern.rpoly ?? 1.5, rFirst0), rLast0),
-      max: Math.min(rLast0, 30),
-    };
-  }, [pattern, presetFitRange, restoring]);
-  // Parameter spec: PDF scale/envelope + the symmetry-reduced structural set,
-  // with the phase scale(s) seeded from the least-squares optimum of the
-  // starting model (exact for one linear scale; split evenly across phases).
-  const spec = useMemo(() => {
-    const base = multiPhase
-      ? buildMultiPhasePdfSpec([fitStructure, ...extraPhases], pattern)
-      : spinFit
-        // The magnetic build's rows join the nuclear ones here, inside the memo,
-        // so `spec.params` grows with them and every downstream consumer
-        // (activeParams, curves, refine, exports, posterior) sees the spin model.
-        ? buildMpdfSpec(fitStructure, pattern, { magnetic: spinFit.magnetic, params: [...spinFit.params], bindings: [...spinFit.bindings] })
-        : buildPdfSpec(fitStructure, pattern);
-    // Swap per-coordinate position rows for mode amplitudes when a parent has
-    // been decomposed (fixed on entry except the frozen mode, per core policy).
-    const raw = modeSet
-      ? { ...base, ...withDistortionModes({ params: base.params, bindings: base.bindings }, modeSet) }
-      : base;
-    // Demo preset values are keyed by the PARENT-setting parameter ids. After
-    // a subgroup-tree activation the spec lives in the CHILD setting, where
-    // colliding ids (U modes, cell rows) mean different symmetry modes —
-    // stamping the parent values would silently corrupt the fit. The child
-    // self-seeds from the refined (baked) anchor instead; setting-independent
-    // values carry over by id in the spec-swap effect.
-    const preset = modeSet !== null && modes?.fromActivation ? undefined : presetValues;
-    // κ-seeding the phase scale(s) costs a full forward G(r) calculation —
-    // skip it when a preset (demo snapshot) or a reopened project supplies
-    // every scale anyway.
-    const savedIds = restoring ? new Set(restoring.refinement.parameters.map((p) => p.id)) : null;
-    const presetCoversScale = raw.params.every(
-      (p) => p.kind !== "pdfScale" || (preset !== undefined && preset[p.id] !== undefined) || (savedIds !== null && savedIds.has(p.id)),
-    );
-    let params = raw.params;
-    if (!presetCoversScale) {
-      const start = multiPhase
-        ? multiPhasePdfCurves(phases, pattern, raw.params, raw.bindings, defaultRange)
-        : pdfCurves(fitStructure, pattern, raw.params, raw.bindings, defaultRange);
-      const kappa = optimalPdfScale(
-        start.yObs.filter((_, i) => start.x[i]! >= defaultRange.min && start.x[i]! <= defaultRange.max),
-        start.yCalc.filter((_, i) => start.x[i]! >= defaultRange.min && start.x[i]! <= defaultRange.max),
-      ) / (multiPhase ? phases.length : 1);
-      params = params.map((p) =>
-        p.kind === "pdfScale" ? { ...p, value: kappa, initialValue: kappa } : p,
-      );
-    }
-    // Demo snapshots open converged: preset values win over the κ seed, and
-    // become the reset anchor too. (Suppressed for activation specs — see
-    // `preset` above.)
-    if (preset) {
-      params = params.map((p) => (preset[p.id] !== undefined ? { ...p, value: preset[p.id]!, initialValue: preset[p.id]! } : p));
-    }
-    // Project open: the saved rows ARE the state being reopened (values,
-    // initial values, free flags, esds) — they win over the κ seed and any
-    // preset. Rows the file does not know keep the spec's defaults.
-    if (restoring) params = overlaySavedParameters(params, restoring.refinement.parameters);
-    return { ...raw, params };
-  }, [fitStructure, modeSet, modes?.fromActivation, extraPhases, multiPhase, phases, pattern, defaultRange, presetValues, spinFit, restoring]);
-
-  const [params, setParams] = useState<readonly RefinementParameter[]>(spec.params);
-  const [result, setResult] = useState<RefinementResult | null>(restoring?.refinement.lastResult ?? null);
   const [busy, setBusy] = useState(false);
   // Live calculated curve streamed from the worker during a refinement.
   const [live, setLive] = useState<number[] | null>(null);
@@ -316,131 +162,16 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
     [pattern],
   );
   const [showGSigma, setShowGSigma] = useState(true);
-  // Posterior sampling state: the last run's result plus the exact request it
-  // sampled (Continue must re-pose the IDENTICAL problem or the chain's resume
-  // token would silently target a different posterior).
-  const [sample, setSample] = useState<{ result: SampleResult; req: SampleRequest } | null>(null);
   const [sampleBusy, setSampleBusy] = useState(false);
   const [sampleProgress, setSampleProgress] = useState<{ step: number; total: number } | null>(null);
   const [viewPhase, setViewPhase] = useState(0);
   const [focusFitToken, setFocusFitToken] = useState(0);
-  // Spec-swap reset, with FIT PRESERVATION across a position-parameterization
-  // flip: when the same structure+pattern merely changed parameterization
-  // (atomic ↔ irreps, or a parent-CIF decomposition arriving), the current
-  // geometry is realized under the OLD bindings and re-seeded EXACTLY onto the
-  // new position parameters (`positionShiftValuesFor` — an interpolation, not
-  // a fit), and every non-position value/free-flag carries over by id. Any
-  // other spec change (new structure, new data, phases) is a full reset.
-  const paramsRef = useRef<readonly RefinementParameter[]>(params);
-  paramsRef.current = params;
-  // Latest spec, for staleness checks: a worker refinement that resolves AFTER
-  // a parameterization flip must be discarded — its parameter ids belong to
-  // the old spec and would stamp garbage onto (or silently miss) the new rows.
-  const specRef = useRef(spec);
-  specRef.current = spec;
-  const prevSpecCtx = useRef<{
-    structure: StructureModel;
-    pattern: PdfPattern;
-    multiPhase: boolean;
-    anchor: StructureModel;
-    bindings: readonly ParameterBinding[];
-    /** The spin model the previous spec was built from. A NEW one means the
-     *  magnetic page just handed over a different (or newly refined) spin
-     *  model, whose moment values must win over the id-keyed carryover below. */
-    spinFit: typeof spinFit;
-  } | null>(null);
-  // Set by actions that deliberately CHANGE the model geometry (subgroup-tree
-  // activation with its starting kick): the next spec swap keeps the spec's
-  // own POSITION seeds (the kick) instead of re-deriving them from the
-  // previous fit's geometry, while the id-keyed carryover of non-position
-  // values (scale, δ, Qdamp/Qbroad, occupancies, matching cell rows) still
-  // runs — those hold the live refined state and their ids are
-  // setting-independent.
-  const skipPositionCarryoverOnce = useRef(false);
-  // The spec this effect last handled. React's StrictMode runs a mount effect
-  // twice in development; without this the second run took the mount spec for
-  // a swap and dropped a reopened project's result (the step history showed it
-  // as phantom "No change" steps).
-  const specHandled = useRef<typeof spec | null>(null);
-  useEffect(() => {
-    if (specHandled.current === spec) return;
-    specHandled.current = spec;
-    const prev = prevSpecCtx.current;
-    const prevParams = paramsRef.current;
-    const skipPos = skipPositionCarryoverOnce.current;
-    skipPositionCarryoverOnce.current = false;
-    const spinChanged = prev !== null && prev.spinFit !== spinFit;
-    let next = spec.params;
-    if (prev && prev.structure === structure && prev.pattern === pattern && !multiPhase && !prev.multiPhase) {
-      const values: Record<string, number> = {};
-      for (const p of prevParams) values[p.id] = p.value;
-      const realized = skipPos ? null : applyParameters(prev.anchor, prev.bindings, values).model;
-      const posSeed = realized ? positionShiftValuesFor(fitStructure, spec.bindings, realized) : null;
-      const prevById = new Map(prevParams.map((p) => [p.id, p]));
-      // On an activation swap (skipPos) the parameter SETTING changed: ids of
-      // setting-dependent kinds (U modes, cell rows) collide across settings
-      // while meaning different symmetry modes — carrying them by id would
-      // stamp parent-mode amplitudes onto different child modes. Carry only
-      // the setting-independent problem-level kinds; the child spec already
-      // seeds the structural ones from the refined (baked) anchor.
-      const settingFree = new Set([
-        "pdfScale", "qdamp", "qbroad", "delta1", "delta2", "sratio", "rcut", "spdiameter", "occupancy", "scale",
-        // The mPDF envelope rows are problem-level, not setting-dependent, so
-        // they carry across a parameterization flip like the nuclear envelope.
-        // (`momentMode` is deliberately absent: mode ids ARE setting-dependent.)
-        "mpdfOrdScale", "mpdfParaScale", "mpdfPsigma", "corrLength",
-      ]);
-      next = spec.params.map((p) => {
-        if (p.kind === "positionShift") {
-          if (!posSeed) return p; // activation: keep the spec's seed (the kick)
-          const v = posSeed[p.id] ?? 0;
-          // Rows carrying real displacement enter free (they hold the fit);
-          // the rest keep the spec's deliberate-activation default.
-          return { ...p, value: v, fixed: Math.abs(v) > 1e-8 ? false : p.fixed };
-        }
-        if (skipPos && !settingFree.has(p.kind)) return p;
-        // A fresh spin model replaces the moment rows WHOLESALE. Moment ids are
-        // stable across magnetic space groups (mom_<site>_<n>), so the id-keyed
-        // carryover would otherwise stamp the PREVIOUS model's amplitudes over
-        // the ones the magnetic page just refined and handed across.
-        if (spinChanged && isMagneticModelParameterKind(p.kind)) return p;
-        const old = prevById.get(p.id);
-        return old ? { ...p, value: old.value, fixed: old.fixed } : p;
-      });
-    }
-    setParams(next);
-    // The first spec of a mount may carry a reopened project's result; every
-    // later swap is a real model change and invalidates the result.
-    if (prev !== null) setResult(null);
-    setLive(null);
-    prevSpecCtx.current = { structure, pattern, multiPhase, anchor: fitStructure, bindings: spec.bindings, spinFit };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- spec is the sole trigger; the rest is read-at-fire context
-  }, [spec]);
 
-  // A spec swap (new structure / new mode set) resets `params` in the effect
-  // above — one render AFTER the memos below run. Mixing the stale params with
-  // the new spec's bindings would stamp the previous structure's values onto
-  // the new one — worst case the 1 Å placeholder cell onto a real structure,
-  // whose 30 Å pair enumeration then hangs the page for good. Until the state
-  // catches up, every consumer pairs spec.bindings with the spec's own params.
-  const specParamIds = useMemo(() => new Set(spec.params.map((p) => p.id)), [spec]);
-  const activeParams =
-    params.length === spec.params.length && params.every((p) => specParamIds.has(p.id))
-      ? params
-      : spec.params;
-
-  // The 3D view tracks the refinement: apply the current parameter values so
-  // the viewer shows the refined cell/positions/ADPs, not the loaded CIF.
-  const viewStructure = useMemo(() => {
-    const phase = phases[Math.min(viewPhase, phases.length - 1)]!;
-    const values: Record<string, number> = {};
-    for (const p of activeParams) values[p.id] = p.value;
-    const phaseBindings = multiPhase ? pdfPhaseBindingsFor(spec.bindings, phase.id) : spec.bindings;
-    return applyParameters(phase.structure, phaseBindings, values).model;
-  }, [phases, viewPhase, activeParams, spec.bindings, multiPhase]);
+  // The 3D view tracks the refinement: the refined cell/positions/ADPs of the phase shown.
+  const viewStructure = view.refinedPhases[Math.min(viewPhase, phases.length - 1)]!;
 
   // The structure the magnetic page analyses: `viewStructure` re-mints on every
-  // parameter edit, and KSearchPanel keys its heavy symmetry enumerations (the
+  // parameter edit, and the magnetic step (app/magneticStep.ts) keys its heavy symmetry enumerations (the
   // magnetic subgroup lattice, the irrep decomposition) on structure IDENTITY —
   // so feeding it directly would re-run the whole enumeration on every
   // keystroke in the refinement panel, while the magnetic page is not even
@@ -452,31 +183,8 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
     if (step === 1) setMagneticStructure(viewStructure);
   }, [step, viewStructure]);
 
-  // Fit window over r (drag the plot handles). Starts at the default window;
-  // the model is only computed inside it, so widening it costs compute.
   const rFirst = pattern.points[0]?.r ?? 0;
   const rLast = pattern.points[pattern.points.length - 1]?.r ?? 1;
-  const [fitRange, setFitRange] = useState<FitRangeSelection>(defaultRange);
-  useEffect(() => setFitRange(defaultRange), [defaultRange]);
-
-  // With a spin model applied the fit IS the mPDF co-refinement, so the plotted
-  // calc / Rw / CSV must include the magnetic term — computing them from the
-  // nuclear-only `pdfCurves` would show (and export, and score) a different
-  // model than the one being refined. `mpdfComponents` returns the total AND
-  // the separable parts, so one call serves both the curves and the overlay.
-  const mpdfCurves = useMemo(
-    () => (spinFit ? mpdfComponents(fitStructure, spinFit.magnetic, pattern, activeParams, spec.bindings, fitRange) : null),
-    [spinFit, fitStructure, pattern, activeParams, spec.bindings, fitRange],
-  );
-  const curves = useMemo(
-    () =>
-      mpdfCurves
-        ? { x: mpdfCurves.x, yObs: mpdfCurves.yObs, yCalc: mpdfCurves.yCalc, diff: mpdfCurves.diff }
-        : multiPhase
-          ? multiPhasePdfCurves(phases, pattern, activeParams, spec.bindings, fitRange)
-          : pdfCurves(fitStructure, pattern, activeParams, spec.bindings, fitRange),
-    [mpdfCurves, multiPhase, phases, fitStructure, pattern, activeParams, spec.bindings, fitRange],
-  );
 
   // Decomposition overlays (P3): per-phase contributions on a multi-phase fit,
   // element-pair (Faber–Ziman) partials on a single-phase fit with ≥2 elements.
@@ -486,14 +194,14 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   const partials = useMemo(() => {
     if (!showPartials || !canOverlay) return null;
     return multiPhase
-      ? pdfPhaseCurves(phases, pattern, activeParams, spec.bindings, fitRange)
-      : pdfPartialCurves(fitStructure, pattern, activeParams, spec.bindings, fitRange);
-  }, [showPartials, canOverlay, multiPhase, phases, fitStructure, pattern, activeParams, spec.bindings, fitRange]);
+      ? pdfPhaseCurves(phases, pattern, params, spec.bindings, fitRange)
+      : pdfPartialCurves(fitStructure, pattern, params, spec.bindings, fitRange);
+  }, [showPartials, canOverlay, multiPhase, phases, fitStructure, pattern, params, spec.bindings, fitRange]);
 
   // Separable nuclear/magnetic overlay — the real-space analog of the powder
   // page's magnetic component curve. Always on when a spin model is applied:
   // seeing how much of G(r) the spins carry is the whole point of the page.
-  // Free (no extra evaluation): the parts come from the same `mpdfCurves` call
+  // Free (no extra evaluation): the parts come from the same mPDF evaluation
   // that produced the total.
   const magneticOverlay = useMemo(
     () =>
@@ -511,73 +219,20 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
 
   // Rw over G(r) inside the fit window — computed from the PLOTTED curves so
   // it ticks live while a refinement streams its per-cycle calc. Uniform
-  // weights, Rw = √(Σ(o−c)² / Σo²): a relative indicator only (correlated
-  // G(r) errors; see core/workflow/pdf.ts).
-  const rw = useMemo(() => {
-    let num = 0;
-    let den = 0;
-    for (let i = 0; i < plotCurves.x.length; i++) {
-      const r = plotCurves.x[i]!;
-      if (r < fitRange.min || r > fitRange.max) continue;
-      const d = plotCurves.yObs[i]! - plotCurves.yCalc[i]!;
-      num += d * d;
-      den += plotCurves.yObs[i]! * plotCurves.yObs[i]!;
-    }
-    return den > 0 ? Math.sqrt(num / den) : NaN;
-  }, [plotCurves, fitRange]);
+  // weights: a relative indicator only (correlated G(r) errors; see core/workflow/pdf.ts).
+  const rw = useMemo(() => rwOf(plotCurves, fitRange), [plotCurves, fitRange]);
 
   const nFree = params.filter((p) => !p.fixed && !p.expression).length;
-  const motionConflict = useMemo(() => correlatedMotionConflict(params), [params]);
-  // A CIF with no U_iso/B_iso column loads every site at B_iso = 0, which in
-  // real space wrecks the fit silently (delta-sharp peaks, collapsed scale) —
-  // say so on the plot card rather than letting it converge on nonsense.
-  const adpWarning = useMemo(() => zeroAdpWarning(phases.map((p) => p.structure)), [phases]);
-  // A file that names no radiation is read as X-ray data. Neutrons weight the
-  // pairs differently (Mn, Ti, V, Li and H scatter with a negative length), so
-  // the fit holds only if that default is right.
-  const radiationWarning = pattern.radiationAssumed
-    ? "The data file names no radiation, so it is read as X-ray data. Neutrons weight the pairs differently (Mn, Ti, V, Li and H scatter with negative lengths): confirm the radiation before reading the fit."
-    : null;
 
-  /**
-   * Switch the primary phase's ADP model: one U per site, or the symmetry-
-   * allowed tensor. The new rows are seeded from the ADPs as refined so far
-   * (a tensor's equivalent U, or a sphere), and enter fixed.
-   */
+  /** Switch the primary phase's ADP model (withAdpModel): the new rows seeded from the ADPs as refined so far, entering fixed. */
   function switchAdpModel(anisotropic: boolean): void {
-    if ((anisotropic ? "anisotropic" : "isotropic") === adpModel) return;
-    const values: Record<string, number> = {};
-    for (const p of activeParams) values[p.id] = p.value;
-    const refined = applyParameters(fitStructure, multiPhase ? pdfPhaseBindingsFor(spec.bindings, fitStructure.id) : spec.bindings, values).model;
-    setAdp({ model: anisotropic ? "anisotropic" : "isotropic", seeds: Object.fromEntries(refined.sites.map((site) => [site.label, site.adp])) });
+    const next = withAdpModel(model, anisotropic);
+    if (next === model) return;
+    setModel(next);
+    setLive(null);
     stepHistory?.requestStep("settings", anisotropic ? "Anisotropic ADPs" : "Isotropic ADPs");
   }
 
-  /** The refine request shared by the nuclear and magnetic paths. */
-  function refineRequest(start: readonly RefinementParameter[], maxIterations: number) {
-    return {
-      structure: fitStructure,
-      pattern,
-      parameters: [...start],
-      bindings: [...spec.bindings],
-      restraints: spec.restraints,
-      fitRange,
-      options: { maxIterations },
-    };
-  }
-
-  /**
-   * The refined magnetic model, derived on demand from the current values —
-   * NOT stored back into `spinModel`.
-   *
-   * Storing it would be both redundant and harmful: `buildMpdfProblem` already
-   * re-applies the moment parameters onto the base model on every evaluation,
-   * so the stored model only ever needs to be the base. And because
-   * `applyMagneticMoments` returns a fresh object, writing it back would give
-   * `spinModel` — hence `spinFit`, hence the `spec` memo — a new identity after
-   * every refine, firing the spec-swap effect that clears `result`, `live` and
-   * the posterior. The fit would visibly lose its esds the moment it converged.
-   */
   // Tell the shell whether a spin model is in the fit (the header's Magnetic
   // chip lights up from the nuclear page); withdrawn when this engine unmounts.
   useEffect(() => {
@@ -585,35 +240,20 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   }, [onMagneticPresent, spinFit]);
   useEffect(() => () => onMagneticPresent?.(false), [onMagneticPresent]);
 
-  const refinedMagnetic = useMemo(() => {
-    if (!spinFit) return null;
-    const values: Record<string, number> = {};
-    for (const p of activeParams) values[p.id] = p.value;
-    return applyMagneticMoments(spinFit.magnetic, spec.bindings, values);
-  }, [spinFit, activeParams, spec.bindings]);
-
   /** The Refine button. Resolves to why it did not finish, or null when it did (the Agent reads it). */
   async function runRefine(): Promise<string | null> {
     stepHistory?.recordNow("edit");
     setBusy(true);
-    const specAtCall = specRef.current;
     try {
-      const req = refineRequest(params, 30);
-      const res = spinFit
-        ? await client.refineMpdfParallel({ ...req, magnetic: spinFit.magnetic }, (yCalc) => setLive(yCalc))
-        : await client.refinePdfParallel(
-            { ...req, ...(multiPhase ? { extraPhases: [...extraPhases] } : {}) },
-            (yCalc) => setLive(yCalc),
-          );
-      if (specRef.current !== specAtCall) {
+      const outcome = await pdfFit(client, model, (yCalc) => setLive(yCalc));
+      if (!landsOn(modelRef.current, outcome.key)) {
         // The parameterization (or the whole problem) changed mid-run; the
         // result's ids belong to the old spec — drop it rather than mixing.
         console.info("[status] refinement result discarded — the parameter spec changed while it ran");
         return "the parameter set changed while it ran, so its result was dropped";
       }
-      setParams((ps) => ps.map((p) => ({ ...p, value: res.parameters[p.id] ?? p.value })));
-      setResult(res);
-      stepHistory?.requestStep("refine", spinFit ? "Refine nuclear + magnetic G(r)" : "Refine");
+      setModel((m) => withFit(m, outcome));
+      stepHistory?.requestStep("refine", outcome.label);
       return null;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -631,36 +271,19 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
 
   // Multi-start (one engine, two faces, as powder): a cold start gets the wide
   // "Prefit" search; once a fit exists it's a lighter "Escape min" nudge out of
-  // the current basin. Keeps the lowest-χ² of baseline + restarts.
+  // the current basin (pdfThorough).
   async function runMultiStart(): Promise<string | null> {
     stepHistory?.recordNow("edit");
     setBusy(true);
-    const specAtCall = specRef.current;
     try {
-      const escape = result !== null;
-      const req = refineRequest(params, 25);
-      const restarts = escape ? { restarts: 4, escapeSigma: 2 } : { restarts: 8 };
-      // With a spin model the multi-start is the MAGNETIC one: it freezes the
-      // nuclear scaffold, searches the moment subspace, then runs one joint LM
-      // and canonicalizes the ±m twin — the real-space twin of the powder path.
-      const ms = spinFit
-        ? await client.refineMpdfMultiStart({ ...req, magnetic: spinFit.magnetic }, restarts, (yCalc) => setLive(yCalc))
-        : await client.refinePdfMultiStart(
-            { ...req, ...(multiPhase ? { extraPhases: [...extraPhases] } : {}) },
-            restarts,
-            (yCalc) => setLive(yCalc),
-          );
-      if (specRef.current !== specAtCall) {
+      const outcome = await pdfThorough(client, model, (yCalc) => setLive(yCalc));
+      if (!landsOn(modelRef.current, outcome.key)) {
         console.info("[status] multi-start result discarded — the parameter spec changed while it ran");
         return "the parameter set changed while it ran, so its result was dropped";
       }
-      setParams((ps) => ps.map((p) => ({ ...p, value: ms.final.parameters[p.id] ?? p.value })));
-      setResult(ms.final);
-      stepHistory?.requestStep("refine", escape ? "Escape minimum" : "Prefit");
-      console.info(
-        `[status] PDF multi-start (${escape ? "escape" : "prefit"}): best of ${ms.restartsRun + 1} starts` +
-        `${ms.bestStartIndex > 0 ? ` (restart ${ms.bestStartIndex} won)` : " (baseline held)"} · Rw ${(100 * (ms.final.agreement.rWeighted ?? 0)).toFixed(2)}%`,
-      );
+      setModel((m) => withFit(m, outcome));
+      stepHistory?.requestStep("refine", outcome.label);
+      console.info(`[status] PDF multi-start (${outcome.label === "Prefit" ? "prefit" : "escape"}): ${outcome.summary}`);
       return null;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -676,44 +299,20 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
     }
   }
 
-  // A spec swap (new structure/data/parameterization) invalidates a posterior:
-  // its free-parameter ids and resume token belong to the old problem.
-  useEffect(() => {
-    setSample(null);
-  }, [spec]);
-
   // ---- Boxcar (sliding r-window) scan --------------------------------------
   // A fixed-width box slid across the fit window, refined at each position and
   // seeded from the previous one: the r-resolved view of the SAME model, which
   // is how a local structure that differs from the average one shows up. The
-  // plan is edited in the Boxcar tab (it shapes that view and nothing else);
-  // only the state lives here, because `runBoxcar` and the fit window do.
+  // plan is edited in the Boxcar tab (it shapes that view and nothing else).
   // `randomStart` guards `restarts`: seeding every box from the previous one
   // makes the series path-dependent, so one box that falls into a local
   // minimum hands it to every box after it — restarts re-search each box
   // around its seed and keep the best, at (restarts + 1)× the cost.
-  const [boxcarPlanState, setBoxcarPlanState] = useState<BoxcarPlan>(
-    restoring?.boxcar?.plan ?? { width: 5, step: 1, direction: "up", randomStart: false, restarts: 4 },
-  );
-  const { width: boxWidthSetting, step: boxStep, direction: boxDirectionSetting, randomStart: boxRandomStart, restarts: boxRestarts } =
-    boxcarPlanState;
-  const [boxcarRun, setBoxcarRun] = useState<BoxcarRun | null>(restoring?.boxcar?.lastRun ?? null);
   const [boxcarBusy, setBoxcarBusy] = useState(false);
   const [boxcarProgress, setBoxcarProgress] = useState<{ done: number; total: number } | null>(null);
-  // Set while a scan is being cancelled, so the loop's rejection is reported as
-  // a deliberate stop rather than a failure.
-  const boxcarCancelled = useRef(false);
-  // Boxes delivered by `onStep` so far. A cancelled scan resolves nothing, so
-  // without this the boxes already fitted would be thrown away — which the
-  // Cancel button explicitly promises not to do.
-  const boxcarSteps = useRef<SequentialStep[]>([]);
-
-  // The plan is enumerated ASCENDING once; a "down" (or the second "both") pass
-  // walks the same boxes reversed. Keeping one canonical list is what lets the
-  // panel align two passes box-for-box.
   const boxcarPlan = useMemo(
-    () => ({ range: { min: fitRange.min, max: fitRange.max }, width: boxWidthSetting, step: boxStep }),
-    [fitRange, boxWidthSetting, boxStep],
+    () => ({ range: { min: fitRange.min, max: fitRange.max }, width: boxcarPlanState.width, step: boxcarPlanState.step }),
+    [fitRange, boxcarPlanState.width, boxcarPlanState.step],
   );
   const boxcarWindowList = useMemo(() => boxcarWindows(boxcarPlan), [boxcarPlan]);
   const boxcarIssue = useMemo(() => boxcarPlanIssue(boxcarPlan), [boxcarPlan]);
@@ -726,186 +325,68 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
       ? "No free parameters — free the rows you want tracked before scanning."
       : null);
 
-  // The scan's tracks are keyed by parameter id, so a spec swap invalidates
-  // them exactly as it does the posterior.
-  useEffect(() => {
-    setBoxcarRun(null);
-  }, [spec]);
-
   /**
-   * Run the scan. Every box refines the CURRENT free set inside its own window
-   * (the page's `fitRange` is never touched — the user's plot window and the
-   * scan must not fight), seeded from the previous box, and the panel's own
-   * parameter values are left where they were: a boxcar is a diagnostic, and
-   * the last box is not a better answer than the first. "Adopt" moves one box's
-   * values into the panel deliberately.
+   * Run the scan (pdfBoxcar): every box refines the current free set inside
+   * its own window, the page's window and rows untouched, and the plot fills
+   * in box by box. A cancelled scan keeps the boxes already fitted. Resolves
+   * to the finished run, or null when it stopped or the page changed under it.
    */
-  async function runBoxcar(override?: { readonly width: number; readonly step: number; readonly direction: BoxcarDirectionChoice; readonly bonds?: readonly string[]; readonly free?: readonly string[] }): Promise<BoxcarRun | null> {
+  async function runBoxcar(override?: AgentBoxcarPlan): Promise<BoxcarRun | null> {
     // The Agent passes its own plan: it becomes the panel's plan, and the
     // Boxcar view opens so the user watches the scan fill in.
-    const boxWidth = override?.width ?? boxWidthSetting;
-    const boxDirection = override?.direction ?? boxDirectionSetting;
-    const windows = override ? boxcarWindows({ range: { min: fitRange.min, max: fitRange.max }, width: override.width, step: override.step }) : boxcarWindowList;
+    const plan = override ? agentBoxcarPlan(boxcarPlanState, override) : boxcarPlanState;
+    const windows = boxcarWindows({ range: { min: fitRange.min, max: fitRange.max }, width: plan.width, step: plan.step });
     if (override) {
       const issue = boxcarPlanIssue({ range: { min: fitRange.min, max: fitRange.max }, width: override.width, step: override.step });
       if (issue) throw new Error(issue);
-      setBoxcarPlanState((p) => ({ ...p, width: override.width, step: override.step, direction: override.direction }));
+      setModel((m) => withBoxcarPlan(m, { width: plan.width, step: plan.step, direction: plan.direction, randomStart: plan.randomStart, restarts: plan.restarts }));
       setViewTab("boxcar");
     }
     if (windows.length === 0) return null;
-    const specAtCall = specRef.current;
-    const restarts = boxRandomStart ? boxRestarts : 0;
-    let final: BoxcarRun | null = null;
-    // The Agent may name the scan's own free set: each box refines those, and
-    // the panel keeps its free flags (and the fit they match) as they are.
-    const own = override?.free ? new Set(override.free) : null;
-    const scanParams = own ? params.map((p) => (p.expression ? p : { ...p, fixed: !own.has(p.id) })) : params;
-    // Frozen with the run, not held as separate state: the panel's free flags
-    // may change before the scan ends, and the tracks belong to the parameter
-    // set that produced them.
-    const freeIds = scanParams.filter((p) => !p.fixed && !p.expression).map((p) => p.id);
-    // "both" is two passes over the SAME boxes, each starting from the SAME
-    // model — that is what makes their separation a property of the fit rather
-    // than of two different starting points.
-    const directions: BoxcarDirection[] = boxDirection === "both" ? ["up", "down"] : [boxDirection];
-    const plan = { windows, width: boxWidth, restarts, freeIds, ...(override?.bonds?.length ? { bondSites: [...override.bonds] } : {}) };
-    const totalBoxes = windows.length * directions.length;
-    const done: BoxcarSeriesState[] = [];
-    /** The evolution table for a pass's completed boxes — rebuilt per box while
-     *  the scan streams, which is cheap next to one windowed refinement. */
-    const evolutionOf = (steps: readonly SequentialStep[]): SequentialResult["evolution"] =>
-      params.map((p) => ({
-        parameterId: p.id,
-        values: steps.map((s) => s.result.parameters[p.id]),
-        esd: steps.map((s) => s.result.esd[p.id]),
-      }));
-    /**
-     * Publish what exists so far: every finished pass plus the boxes the
-     * in-flight pass has delivered. Called after each box, so the plot fills in
-     * as the scan walks rather than appearing whole at the end — a long scan is
-     * then readable (and abandonable) while it runs. `partial` is what the run
-     * carries once it stops early; while `boxcarBusy` is set the panel reads it
-     * as "still scanning" instead.
-     */
-    const publish = (inFlight: BoxcarDirection | null, partial: boolean): void => {
-      const streaming = inFlight !== null && boxcarSteps.current.length > 0
-        ? [{ direction: inFlight, result: { steps: [...boxcarSteps.current], evolution: evolutionOf(boxcarSteps.current) } }]
-        : [];
-      const series = [...done, ...streaming];
-      if (series.length === 0) return;
-      const run: BoxcarRun = { ...plan, series, ...(partial ? { partial: true } : {}) };
-      if (!partial) final = run;
-      setBoxcarRun(run);
-    };
-
+    const key = specKeyOf(model);
     setBoxcarBusy(true);
-    boxcarCancelled.current = false;
-    boxcarSteps.current = [];
     // Clear the previous run: leaving it on screen while a new scan streams in
     // would show two different scans' numbers in one plot.
-    setBoxcarRun(null);
-    setBoxcarProgress({ done: 0, total: totalBoxes });
+    setModel((m) => withBoxcarRun(m, null, key));
     try {
-      for (const direction of directions) {
-        boxcarSteps.current = [];
-        const ordered = direction === "up" ? windows : [...windows].reverse();
-        const completedBefore = done.reduce((n, d) => n + d.result.steps.length, 0);
-        const res = await client.refinePdfBoxcar(
-          {
-            structure: fitStructure,
-            pattern,
-            parameters: [...scanParams],
-            bindings: [...spec.bindings],
-            restraints: spec.restraints,
-            options: { maxIterations: 20 },
-            ...(spinFit ? {} : multiPhase ? { extraPhases: [...extraPhases] } : {}),
-          },
-          ordered,
-          {
-            ...(spinFit ? { magnetic: spinFit.magnetic } : {}),
-            ...(restarts > 0 ? { restarts } : {}),
-            onStep: (step, index) => {
-              boxcarSteps.current.push(step);
-              setBoxcarProgress({ done: completedBefore + index + 1, total: totalBoxes });
-              // A result arriving after a spec swap belongs to the old problem;
-              // publishing it would plot the previous structure's numbers under
-              // the new one's parameter ids.
-              if (specRef.current === specAtCall) publish(direction, true);
-            },
-          },
-        );
-        if (specRef.current !== specAtCall) {
-          console.info("[status] boxcar result discarded — the parameter spec changed while it ran");
-          return null;
-        }
-        done.push({ direction, result: res });
-        // Replace the streamed prefix with the pass's own result before the
-        // next pass starts streaming its boxes.
-        boxcarSteps.current = [];
-        publish(null, true);
+      const out = await pdfBoxcar(client, model, plan, {
+        onRun: (run) => setModel((m) => withBoxcarRun(m, run, key)),
+        onProgress: (done, total) => setBoxcarProgress({ done, total }),
+      });
+      if (!landsOn(modelRef.current, out.key)) {
+        console.info("[status] boxcar result discarded — the parameter spec changed while it ran");
+        return null;
       }
-      publish(null, false);
-      const bad = done.reduce((n, d) => n + d.result.steps.filter((s) => !s.carried).length, 0);
-      console.info(
-        `[status] boxcar: ${windows.length} boxes of ${boxWidth} Å across ${fitRange.min.toFixed(2)}–${(boxcarScanned ?? fitRange.max).toFixed(2)} Å` +
-        `${directions.length > 1 ? " · both directions" : ` · ${boxDirection === "down" ? "high → low r" : "low → high r"}`}` +
-        `${restarts > 0 ? ` · best of ${restarts + 1} starts per box` : ""}` +
-        `${bad > 0 ? ` · ${bad} box(es) diverged and were not carried forward` : ""}`,
-      );
+      if (out.stopped) {
+        const kept = out.run ? out.run.series.reduce((n, d) => n + d.result.steps.length, 0) : 0;
+        const keptNote = kept > 0 ? ` — keeping the ${kept} box${kept === 1 ? "" : "es"} already fitted` : "";
+        if (out.stopped === "cancelled") console.info(`[status] boxcar scan cancelled${keptNote}`);
+        else console.error(`[status] boxcar scan failed: ${out.stopped.failed}${keptNote}`);
+        return null;
+      }
+      if (out.run) console.info(`[status] boxcar: ${boxcarSummary(model, out.run, plan.direction)}`);
+      return out.run;
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      const stopped = boxcarCancelled.current || msg.includes(CANCELLED);
-      // A cancelled (or failed) scan still fitted boxes, and Cancel promises to
-      // keep them: fold the interrupted pass's completed boxes in beside any
-      // pass that finished, and mark the whole run partial.
-      const interrupted = boxcarSteps.current;
-      const inFlight = directions[done.length] ?? null;
-      if (specRef.current === specAtCall) publish(inFlight, true);
-      const kept = done.reduce((n, d) => n + d.result.steps.length, 0) + interrupted.length;
-      const keptNote = kept > 0 ? ` — keeping the ${kept} box${kept === 1 ? "" : "es"} already fitted` : "";
-      if (stopped) console.info(`[status] boxcar scan cancelled${keptNote}`);
-      else console.error(`[status] boxcar scan failed: ${msg}${keptNote}`);
+      console.error(`[status] boxcar scan failed: ${e instanceof Error ? e.message : String(e)}`);
+      return null;
     } finally {
       setBoxcarProgress(null);
       setBoxcarBusy(false);
     }
-    return final;
   }
 
   function cancelBoxcar(): void {
-    boxcarCancelled.current = true;
     client.cancel();
   }
 
-  /**
-   * Load one box's refined values onto the parameter rows (an explicit act —
-   * the scan itself never moves the panel).
-   *
-   * Values only: the page-level `result` is CLEARED rather than set to the
-   * box's. That result belongs to a narrow window, and the page uses `result`
-   * as the whole-window fit — its esds feed the panel's esd column, the CIF
-   * export's uncertainties, and the posterior's esdRatio reference, all of
-   * which describe the full fit range. Stamping a 5 Å box's esds there would
-   * label the wrong window's uncertainty as the fit's. The box's own numbers
-   * stay visible in the boxcar table, where their window is named.
-   */
+  /** Load one box's refined values onto the parameter rows (withBoxcarStep): the last fit is cleared, its esds being the whole window's. */
   function adoptBoxcarStep(seriesIndex: number, windowIndex: number): void {
-    const run = boxcarRun;
-    const series = run?.series[seriesIndex];
-    const w = run?.windows[windowIndex];
-    if (!run || !series || !w) return;
-    const si = stepIndexFor(series, windowIndex, run.windows.length);
-    const step = si >= 0 ? series.result.steps[si] : undefined;
-    if (!step) return;
-    setParams((ps) => ps.map((p) => ({ ...p, value: step.result.parameters[p.id] ?? p.value })));
-    setResult(null);
+    const adopted = withBoxcarStep(model, seriesIndex, windowIndex);
+    if (!adopted) return;
+    setModel(adopted.model);
     setLive(null);
-    stepHistory?.requestStep("edit", `Adopted the ${w.center.toFixed(2)} Å box's values`);
-    console.info(
-      `[status] adopted the ${w.center.toFixed(2)} Å box's values from the ${series.direction === "up" ? "low → high r" : "high → low r"} pass ` +
-      `(${w.min.toFixed(2)}–${w.max.toFixed(2)} Å, Rw ${(100 * (step.result.agreement.rWeighted ?? 0)).toFixed(2)}%) — ` +
-      "the fit window is unchanged; refine to get esds for the full window",
-    );
+    stepHistory?.requestStep("edit", `Adopted the ${adopted.center.toFixed(2)} Å box's values`);
+    console.info(`[status] ${adopted.note}`);
   }
 
   /** One row per box; a compared run repeats the value columns per direction,
@@ -941,51 +422,27 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   }
 
   /**
-   * Sample the Bayesian posterior of the free parameters. A fresh run poses the
-   * CURRENT problem (seeded at the refined values, LM esds as the esdRatio
-   * reference); Continue re-poses the run's own stored request with the resume
-   * token, so the chain keeps targeting the identical posterior even if the
-   * user edited parameters meanwhile.
+   * Sample the Bayesian posterior of the free parameters (pdfPosterior): a
+   * fresh run poses the current problem; Continue re-poses the run's own
+   * request with its resume token, so the chain keeps targeting the same
+   * posterior even if the user edited parameters meanwhile.
    */
   async function runSample(continueRun: boolean, steps = SAMPLE_STEPS): Promise<SampleResult | string> {
     setSampleBusy(true);
-    const specAtCall = specRef.current;
-    const prior = continueRun ? sample : null;
-    const req: SampleRequest = prior
-      ? prior.req
-      : {
-          structure: fitStructure,
-          ...(spinFit ? { magnetic: spinFit.magnetic } : multiPhase ? { extraPhases: [...extraPhases] } : {}),
-          pattern,
-          parameters: [...params],
-          bindings: [...spec.bindings],
-          restraints: spec.restraints,
-          fitRange,
-        };
-    const total = (prior ? prior.result.resume.stepIndex : 0) + steps;
-    setSampleProgress({ step: prior ? prior.result.resume.stepIndex : 0, total });
+    const from = continueRun && sample ? sample.result.resume.stepIndex : 0;
+    setSampleProgress({ step: from, total: from + steps });
     try {
-      const options = {
-        nSteps: steps,
-        seed: 0xbae5,
-        ...(prior ? { init: prior.result.resume } : {}),
-        ...(result?.esd ? { linearizedEsd: result.esd } : {}),
-        onStep: (s: number) => {
-          if (s % 5 === 0 || s === total) setSampleProgress({ step: s, total });
-        },
-      };
-      // mPDF has no analytic gradient, so this is the gradient-free ensemble
-      // sampler either way — the two differ only in the problem they pose.
-      const res = "magnetic" in req
-        ? await client.sampleMpdfPosterior(req, options)
-        : await client.samplePdfPosterior(req, options);
-      if (specRef.current !== specAtCall) {
+      const out = await pdfPosterior(client, model, continueRun, steps, (s, total) => {
+        if (s % 5 === 0 || s === total) setSampleProgress({ step: s, total });
+      });
+      if (!landsOn(modelRef.current, out.key)) {
         console.info("[status] posterior result discarded — the parameter spec changed while it ran");
         return "discarded: the parameters changed while it ran";
       }
-      setSample({ result: res, req });
+      setModel((m) => withPosterior(m, out.sample, out.key));
+      const res = out.sample.result;
       console.info(
-        `[status] posterior ${prior ? "continued" : "sampled"}: ${res.status} · R̂max ${res.diagnostics.maxRHat.toFixed(3)} · ESSmin ${Math.round(res.diagnostics.minEss)} · ${res.diagnostics.nSamples} samples`,
+        `[status] posterior ${continueRun && sample ? "continued" : "sampled"}: ${res.status} · R̂max ${res.diagnostics.maxRHat.toFixed(3)} · ESSmin ${Math.round(res.diagnostics.minEss)} · ${res.diagnostics.nSamples} samples`,
       );
       return res;
     } catch (e) {
@@ -999,9 +456,8 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   }
 
   function onParamChange(id: string, patch: Partial<RefinementParameter>): void {
-    setParams((ps) => ps.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+    setModel((m) => withParameter(m, id, patch));
   }
-
   // ---- Subgroup tree (Γ potential distortion modes, requirement 3) --------
   // The displacive decomposition of the LOADED structure's own space group:
   // which irreps could carry a symmetry-breaking distortion, and — per irrep —
@@ -1063,95 +519,35 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   }, [subgroupLattice]);
 
   // Activate a chosen SUBGROUP (subgroup-driven, the inverse of the irrep-driven
-  // path): realize the child (split Wyckoff orbits) from the current refined
-  // geometry, then load the full symmetry-allowed displacement catalog of that
-  // child — every Γ distortion the subgroup permits — as amplitudes seeded at 0
-  // and fixed. The user frees the ones to refine (a polar mode needs a nudge off
-  // its χ² stationary point — Prefit escapes it).
+  // path; withSubgroup): the child realized from the current refined geometry,
+  // with every distortion it permits as an amplitude seeded at 0 and fixed. The
+  // user frees the ones to refine (a polar mode needs a nudge off its χ²
+  // stationary point — Prefit escapes it).
   function onActivateSubgroup(node: SubgroupNode): void {
-    const name = node.identity.hermannMauguin ?? node.identity.pointGroup ?? "subgroup";
-    const label = node.identity.number !== undefined ? `${name} #${node.identity.number}` : `${name} (index ${node.index})`;
-    const values: Record<string, number> = {};
-    for (const p of paramsRef.current) values[p.id] = p.value;
-    const refined = applyParameters(fitStructure, spec.bindings, values).model;
-    const child = realizeSubgroup(refined, node.operations, node.identity);
-    const set = buildSymmetryModes(child);
-    if (set.modes.length === 0) {
-      console.error(`[status] ${label}: this subgroup leaves every site symmetry-pinned — no refinable distortion modes`);
+    const activated = withSubgroup(model, node);
+    if (activated.model === model) {
+      console.error(`[status] ${activated.message}`);
       return;
     }
-    skipPositionCarryoverOnce.current = true; // fresh child setting — carry nothing
-    setModes({ set, parentName: label, fromActivation: true });
-    setPositionMode("irreps");
-    stepHistory?.requestStep("settings", `Distortion modes: ${label}`);
-    console.info(
-      `[status] lowered to ${label}: ${child.sites.length} child site(s) · ${set.modes.length} distortion mode(s) — free the rows to refine (Positions group)`,
-    );
+    setModel(activated.model);
+    setLive(null);
+    stepHistory?.requestStep("settings", `Distortion modes: ${activated.label}`);
+    console.info(`[status] ${activated.message}`);
   }
 
-  // Activate one symmetry-breaking mode: realize the isotropy-subgroup child
-  // (split Wyckoff orbits — parent ops would re-symmetrize the displacement
-  // into a wrong orbit) and enter irreps mode with the activated field as the
-  // leading free amplitude. The amplitude gets a small starting KICK: for an
-  // inversion-odd (polar) mode of a centrosymmetric parent, amplitude 0 is an
-  // exact stationary point of χ² (±a are inversion domains with identical
-  // G(r)), so a gradient refinement could never leave it.
-  const ACTIVATION_KICK = 0.05; // Å whole-cell starting amplitude
+  // Activate one symmetry-breaking mode (withActivatedMode): the isotropy
+  // subgroup's child realized, the activated field the leading free amplitude
+  // with a small starting kick.
   function onActivateMode(term: DisplaciveIrrepTerm, sub: { identity: SubgroupIdentity; field: DisplacementField }): void {
-    const subName = sub.identity.hermannMauguin ?? sub.identity.pointGroup ?? "subgroup";
-    const label = `${term.irrep.label} → ${subName}`;
-    // Activate from the CURRENT refined geometry, not the loaded CIF: baking
-    // the refined cell/ADPs/positions into the anchor means the child spec
-    // self-seeds the refined values in ITS OWN setting — the parent-setting
-    // preset/param ids (U modes, cell rows) do not survive a symmetry change,
-    // so re-seeding from ids alone would silently revert the fit.
-    const values: Record<string, number> = {};
-    for (const p of paramsRef.current) values[p.id] = p.value;
-    const refined = applyParameters(fitStructure, spec.bindings, values).model;
-    // Re-derive the chosen field on the refined anchor (atom positions moved
-    // with the fit, so the display tree's field cannot be reused verbatim):
-    // match by irrep label, then by the resulting subgroup identity.
-    const dec = decomposeDisplacementRepresentation(refined);
-    const termNow = dec.terms.find((t) => t.irrep.label === term.irrep.label && !t.trivial);
-    let fieldNow: DisplacementField | null = null;
-    if (termNow) {
-      for (const f of projectIsotypicModes(refined, undefined, termNow, refined.spaceGroup.operations)) {
-        const id = identifySubgroup(stabilizerOfField(f, refined.spaceGroup.operations), refined.spaceGroup.operations);
-        const sameName = id.number !== undefined ? id.number === sub.identity.number : id.pointGroup === sub.identity.pointGroup && id.index === sub.identity.index;
-        if (sameName) {
-          fieldNow = f;
-          break;
-        }
-      }
-    }
-    if (!fieldNow) {
-      console.error(`[status] activation failed: ${label} not found on the refined structure (did the fit lower the effective symmetry?)`);
+    const activated = withActivatedMode(model, term, sub);
+    if (activated.model === model) {
+      console.error(`[status] ${activated.message}`);
       return;
     }
-    const act = activateDisplacementMode(refined, fieldNow, label);
-    // The seed survives only if it has optic (non-gauge) content — a pure
-    // acoustic field is projected away by buildSymmetryModes. Target the kick
-    // by the ACTIVE mode's id, never by index: with a dropped seed, index 0
-    // would be an unrelated fixed complement mode.
-    const activeId = act.modeSet.modes.find((m) => m.active)?.id;
-    if (activeId === undefined) {
-      console.error(`[status] activation of ${label} produced no refinable mode (the field is pure rigid translation) — nothing to do`);
-      return;
-    }
-    const set: DistortionModeSet = {
-      ...act.modeSet,
-      parameters: act.modeSet.parameters.map((p) =>
-        p.id === activeId ? { ...p, value: ACTIVATION_KICK, initialValue: ACTIVATION_KICK, fixed: false } : p,
-      ),
-    };
-    skipPositionCarryoverOnce.current = true; // keep the kick; carry the rest by id
-    setModes({ set, parentName: label, fromActivation: true });
-    setPositionMode("irreps");
-    stepHistory?.requestStep("settings", `Distortion modes: ${label}`);
-    console.info(
-      `[status] activated ${label}${sub.identity.number !== undefined ? ` (#${sub.identity.number})` : ""}: ` +
-      `${act.child.sites.length} child site(s) · starting amplitude ${ACTIVATION_KICK} Å`,
-    );
+    setModel(activated.model);
+    setLive(null);
+    stepHistory?.requestStep("settings", `Distortion modes: ${activated.label}`);
+    console.info(`[status] ${activated.message}`);
   }
 
   // Decompose the current (child) structure against a HIGH-SYMMETRY parent CIF
@@ -1161,15 +557,15 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
     try {
       const text = await file.text();
       const parent = parseCif(text, `parent-${Date.now().toString(36)}`);
-      const set = buildDistortionModes(parent, structure);
-      if (set.modes.length === 0) {
-        console.error("[status] distortion modes: no child site could be paired with the parent structure — check that both CIFs share the same lattice/setting.");
+      const decomposed = withParentModes(modelRef.current, parent, parent.name || file.name.replace(/\.[^.]+$/, ""));
+      if (decomposed.model === modelRef.current) {
+        console.error(`[status] distortion modes: ${decomposed.message}.`);
         return;
       }
-      setModes({ set, parentName: parent.name || file.name.replace(/\.[^.]+$/, "") });
-      setPositionMode("irreps");
+      setModel(decomposed.model);
+      setLive(null);
       stepHistory?.requestStep("settings", `Distortion modes against ${parent.name || file.name}`);
-      console.info(`[status] distortion modes: ${set.modes.length} mode(s), total |A| = ${set.totalAmplitude.toFixed(4)} Å${set.unpaired.length ? ` · unpaired: ${set.unpaired.join(", ")}` : ""}`);
+      console.info(`[status] distortion modes: ${decomposed.message}`);
     } catch (e) {
       console.error(`[status] parent CIF failed to parse: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -1177,18 +573,15 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
 
   /** Values back to their starting values, every row and free/fixed choice kept — as on the powder page. */
   function reset(ids?: readonly string[]): void {
-    const only = ids ? new Set(ids) : null;
-    setParams((prev) => prev.map((p) => (only && !only.has(p.id) ? p : { ...p, value: p.initialValue })));
-    setResult(null);
+    setModel((m) => withReset(m, ids));
     setLive(null);
-    stepHistory?.requestStep("edit", only ? `Reset ${[...only].join(", ")}` : "Reset to starting values");
+    stepHistory?.requestStep("edit", ids ? `Reset ${[...new Set(ids)].join(", ")}` : "Reset to starting values");
   }
 
   /** Stop the running refinement or multi-start; the parameters keep their values. */
   function cancelRefine(): void {
     client.cancel();
   }
-
   // The mPDF page's current candidate, for the report — published by KSearchPanel;
   // null when nothing is selected there. The same contract the powder and
   // single-crystal pages use, so "report: Export ▾" means the same on all three.
@@ -1198,29 +591,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   }, []);
 
   const reportInputRef = useRef<() => ReportInput>(() => { throw new Error("PdfWorkbench: not mounted"); });
-  reportInputRef.current = (): ReportInput => {
-    // Every phase AS REFINED, each through its own bindings (as the CIF export).
-    const values: Record<string, number> = {};
-    for (const p of activeParams) values[p.id] = p.value;
-    const refined = phases.map((phase) =>
-      applyParameters(phase.structure, multiPhase ? pdfPhaseBindingsFor(spec.bindings, phase.id) : spec.bindings, values).model,
-    );
-    return pdfReportInput({
-      phases: refined,
-      params: activeParams,
-      bindings: spec.bindings,
-      result,
-      pattern,
-      rw,
-      fitRange,
-      curves,
-      positionMode,
-      spinModel: spinFit ? refinedMagnetic ?? spinFit.magnetic : null,
-      explored: exploredMagnetic.current,
-      ...(motionConflict || radiationWarning ? { warnings: [motionConflict, radiationWarning].filter((w): w is string => w !== null) } : {}),
-      boxcar: boxcarRun ? boxcarTable(boxcarRun, fitStructure, multiPhase ? pdfPhaseBindingsFor(spec.bindings, fitStructure.id) : spec.bindings, activeParams) : null,
-    });
-  };
+  reportInputRef.current = (): ReportInput => reportInputOf(model, { explored: exploredMagnetic.current, rw });
   // Publish the Agent port (agent/port.ts): the live state, read lazily, and
   // this page's own handlers — the Agent's `refine` is the Refine button.
   // Republished every render, so a call always sees the state on screen.
@@ -1228,37 +599,10 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
     if (!agentLink) return;
     agentLink.publish({
       technique: "pdf",
-      state: () => {
-        const values: Record<string, number> = {};
-        for (const p of activeParams) values[p.id] = p.value;
-        return {
-          phases: phases.map((ph) => ph.structure),
-          refinedPhases: phases.map((ph) => applyParameters(ph.structure, multiPhase ? pdfPhaseBindingsFor(spec.bindings, ph.id) : spec.bindings, values).model),
-          pattern,
-          parameters: activeParams,
-          bindings: spec.bindings,
-          result,
-          fitRange: { min: fitRange.min, max: fitRange.max },
-          defaultRange: { min: defaultRange.min, max: defaultRange.max },
-          extent: { min: rFirst, max: rLast },
-          busy: busy || boxcarBusy || sampleBusy,
-          rw,
-          curves,
-          observationCount: curves.x.filter((r) => r >= fitRange.min && r <= fitRange.max).length,
-          positionMode,
-          adpModel,
-          spinModel: spinFit !== null,
-          warnings: [radiationWarning, motionConflict, adpWarning].filter((w): w is string => w !== null),
-          source: pattern.name,
-          restraints: spec.restraints,
-        };
-      },
-      setFixed: (changes) => {
-        const fixed = new Map(changes.map((c) => [c.id, c.fixed]));
-        setParams((ps) => ps.map((p) => (fixed.has(p.id) ? { ...p, fixed: fixed.get(p.id)! } : p)));
-      },
+      state: () => liveStateOf(model, { busy: busy || boxcarBusy || sampleBusy, rw }),
+      setFixed: (changes) => setModel((m) => withFixed(m, changes)),
       setAdpModel: switchAdpModel,
-      setFitRange: (range) => setFitRange(range ? { min: range.min, max: range.max } : defaultRange),
+      setFitRange: (range) => setModel((m) => withFitRange(m, range)),
       refine: runRefine,
       thorough: runMultiStart,
       boxcar: (plan) => runBoxcar(plan),
@@ -1270,18 +614,12 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
       },
       reportInput: () => reportInputRef.current(),
       // The Refine button's request with the Agent's options; the result is only read.
-      probe: (options) => {
-        const req = { ...refineRequest(params, 0), options };
-        return spinFit
-          ? client.refineMpdfParallel({ ...req, magnetic: spinFit.magnetic })
-          : client.refinePdfParallel({ ...req, ...(multiPhase ? { extraPhases: [...extraPhases] } : {}) });
-      },
+      probe: (options) => pdfProbe(client, model, options),
       cancel: cancelRefine,
       reset,
     });
   });
   useEffect(() => () => agentLink?.release("pdf"), [agentLink]);
-
   // Exports published to the app header (engine contract): the output triple —
   // refined curves (CSV), refined structure(s) (CIF with esds + Rw meta), and
   // the markdown report.
@@ -1326,12 +664,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   exportCifRef.current = (): void => {
     // The header export writes every phase; each one needs its own bindings so
     // a multi-phase fit does not cross-apply another phase's cell.
-    const values: Record<string, number> = {};
-    for (const p of activeParams) values[p.id] = p.value;
-    for (const phase of phases) {
-      const b = multiPhase ? pdfPhaseBindingsFor(spec.bindings, phase.id) : spec.bindings;
-      exportPhaseCifRef.current(applyParameters(phase.structure, b, values).model, phase.id, phaseMagnetic(phase.structure));
-    }
+    phases.forEach((phase, i) => exportPhaseCifRef.current(view.refinedPhases[i]!, phase.id, phaseMagnetic(phase.structure)));
   };
   const exportReportRef = useRef<() => void>(noop);
   exportReportRef.current = (): void => {
@@ -1340,11 +673,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   // The project snapshot reads the live state through a ref (like the exports
   // above), so the shell's stable handler always sees the current page.
   const projectWorkspaceRef = useRef<() => PdfWorkspace>(() => { throw new Error("PdfWorkbench: not mounted"); });
-  projectWorkspaceRef.current = () =>
-    pdfWorkspaceFrom({
-      pattern, params: activeParams, bindings: spec.bindings, result, fitRange, positionMode, modes, spinModel,
-      boxcarPlan: boxcarPlanState, boxcarRun, adpModel: adp?.model ?? null,
-    });
+  projectWorkspaceRef.current = () => workspaceOf(model);
   useEffect(() => {
     if (!exportsRef) return;
     exportsRef.current = {
@@ -1416,62 +745,35 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
 
   // Moment-fit backend handed to the (shared) symmetry panel: it fits the freed
   // moment amplitudes against this G(r) with the nuclear model held fixed — the
-  // real-space sibling of the single-crystal F² backend.
+  // real-space sibling of the single-crystal F² backend (momentFit).
   const magneticFit: MagneticFit = {
     agreementLabel: "Rw",
     // The mPDF spin field is a periodic box, so an incommensurate k has nothing
     // to sum over. The panel disables the moment fit, the ranking run, Apply and
     // Continue, and shows this reason instead of a number.
     unsupportedK: unsupportedMpdfK,
-    refine: async (mag, momentParams, mBindings) => {
-      // Only the moments move: the nuclear scaffold (and the mPDF envelope
-      // rows, which include the ordScale that is exactly degenerate with |m|)
-      // is frozen, so the moment subspace is read cleanly.
-      const nuclearFixed = activeParams
-        .filter((p) => !isMagneticModelParameterKind(p.kind))
-        .map((p) => ({ ...p, fixed: true }));
-      // The applied model's k rows would write ITS k onto every candidate.
-      const nuclearBindings = spec.bindings.filter((b) => !isMagneticModelParameterKind(b.kind));
-      const ms = await client.refineMpdfMultiStart(
-        {
-          structure: fitStructure,
-          magnetic: mag,
-          pattern,
-          parameters: [...nuclearFixed, ...momentParams],
-          bindings: [...nuclearBindings, ...mBindings],
-          fitRange,
-          options: { maxIterations: 20 },
-        },
-        // Fewer restarts than the powder/single-crystal panels use. Restarts
-        // are needed at all because d(r) is QUADRATIC in the moments, so m = 0
-        // is a stationary point an unkicked LM cannot leave — but one mPDF
-        // evaluation costs far more than one powder profile (it re-sums the
-        // spin pairs and convolves against the form-factor envelope over the
-        // whole extended grid), so eight of them is a minute of waiting. This
-        // is the exploratory fit; the refinement page's Prefit ↻ runs the wide
-        // search when the user asks for it.
-        { restarts: 3 },
-      );
-      const values: Record<string, number> = {};
-      for (const p of momentParams) values[p.id] = ms.final.parameters[p.id] ?? p.value;
-      return { values, agreement: ms.final.agreement.rWeighted ?? null };
-    },
+    // Each of the ranking's starts keeps this fit's own seeded restarts: the mPDF needs them to find a group's minimum.
+    nestedStarts: true,
+    refine: (mag, momentParams, mBindings) => momentFit(client, model, mag, momentParams, mBindings),
   };
 
   /** Adopt a spin model from the magnetic page. Replaced wholesale (never
    *  merged) so a second pass through the panel cannot leave stale moment rows
-   *  behind; the spec memo rebuilds the whole parameter set from it. */
+   *  behind (withSpinModel). */
   function adoptSpinModel(
     magnetic: MagneticModel,
     momentParams: readonly RefinementParameter[],
     momentBindings: readonly ParameterBinding[],
   ): void {
-    const unsupported = unsupportedMpdfModel(magnetic);
-    if (unsupported) {
-      console.info(`[status] spin model NOT applied to the PDF fit — ${unsupported}`);
+    // The step hands its rows free as a fit frees them (magneticStep.ts, handoff); this page has taken them held, as built.
+    const held = momentParams.map((p) => ({ ...p, fixed: true }));
+    const adopted = withSpinModel(model, { magnetic, params: held, bindings: momentBindings });
+    if (adopted.message) {
+      console.info(`[status] spin model NOT applied to the PDF fit — ${adopted.message}`);
       return;
     }
-    setSpinModel({ magnetic, params: momentParams, bindings: momentBindings });
+    setModel(adopted.model);
+    setLive(null);
     stepHistory?.requestStep("magnetic", "Spin model added to the fit");
     const nMoment = momentParams.filter((p) => isMomentParameterKind(p.kind)).length;
     console.info(
@@ -1483,22 +785,21 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   /** "Show on refinement pattern" — a preview of the model's own moments (no
    *  refinable rows). Same commensurability gate as {@link adoptSpinModel}. */
   function previewSpinModel(magnetic: MagneticModel | null): void {
-    if (magnetic) {
-      const unsupported = unsupportedMpdfModel(magnetic);
-      if (unsupported) {
-        console.info(`[status] spin model NOT shown on the PDF fit — ${unsupported}`);
-        return;
-      }
+    const shown = withSpinModel(model, magnetic ? { magnetic, params: [], bindings: [] } : null);
+    if (shown.message) {
+      console.info(`[status] spin model NOT shown on the PDF fit — ${shown.message}`);
+      return;
     }
-    setSpinModel(magnetic ? { magnetic, params: [], bindings: [] } : null);
+    setModel(shown.model);
+    setLive(null);
     stepHistory?.requestStep("magnetic", magnetic ? "Spin model shown on the fit" : "Spin model removed");
   }
-
   return (
     <>
       {/* Step 0 — setup + real-space refinement. Both step panels stay MOUNTED
-          (display:none) rather than being swapped: KSearchPanel owns the ion
-          selection, k, framework and subgroup picks, and unmounting loses them. */}
+          (display:none) rather than being swapped: the magnetic step's store, which
+          KSearchPanel makes, holds the ion selection, k, framework and subgroup
+          picks, and unmounting loses them. */}
       {/* The step wrapper carries the page's own vertical gutter: it sits
           between `.wb-main` and its children, so without a gap of its own the
           rows inside it would butt together while every other page's rows are
@@ -1533,7 +834,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
             {viewTab === "fit" && (
               <span style={{ display: "inline-flex", alignItems: "center", gap: 7, fontFamily: mono, fontSize: fz.micro, color: color.secondary }} title="The r window used for refinement (set with the blue handles). Low r below r_poly is reduction artifact.">
                 fit {fitRange.min.toFixed(2)}–{fitRange.max.toFixed(2)} Å
-                <button style={resetRangeBtn} onClick={() => setFitRange(defaultRange)} title="Reset to the default window">Reset range</button>
+                <button style={resetRangeBtn} onClick={() => setModel((m) => withFitRange(m, null))} title="Reset to the default window">Reset range</button>
               </span>
             )}
             <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, rowGap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -1594,7 +895,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                 signedY
                 showBackground={false}
                 fitRange={fitRange}
-                onFitRangeChange={setFitRange}
+                onFitRangeChange={(range) => setModel((m) => withFitRange(m, range))}
                 focusFitToken={focusFitToken}
                 {...(overlays ? { overlays } : {})}
                 {...(gSigma && showGSigma ? { obsSigma: gSigma, obsSigmaLabel: pattern.transform ? "±σ propagated" : "±σ (file)" } : {})}
@@ -1690,10 +991,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                         )}
                         <button
                           style={resetRangeBtn}
-                          onClick={() => {
-                            setModes(null);
-                            setPositionMode("atomic");
-                          }}
+                          onClick={() => setModel((m) => withoutModes(m))}
                           title="Back to per-coordinate position parameters"
                         >
                           ✕ clear
@@ -1832,7 +1130,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                 range: { min: fitRange.min, max: fitRange.max },
                 scannedMax: boxcarScanned,
               }}
-              onPlanChange={(patch) => setBoxcarPlanState((p) => ({ ...p, ...patch }))}
+              onPlanChange={(patch) => setModel((m) => withBoxcarPlan(m, patch))}
               labels={new Map(params.map((p) => [p.id, p.label]))}
               onExportCsv={exportBoxcarCsv}
               onAdoptStep={adoptBoxcarStep}
@@ -1872,7 +1170,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                       </span>
                       <button
                         style={{ ...resetRangeBtn, marginLeft: "auto" }}
-                        onClick={() => { setModes(null); setPositionMode("atomic"); }}
+                        onClick={() => setModel((m) => withoutModes(m))}
                         title="Discard the distortion and return to the parent's per-coordinate positions"
                       >
                         ✕ clear
@@ -2022,7 +1320,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                       // the in-flight result (which the staleness check in
                       // runRefine would then discard — better not to invite it).
                       onChange={(id) => {
-                        if (!busy) setPositionMode(id);
+                        if (!busy) setModel((m) => withPositionMode(m, id));
                       }}
                     />
                     {positionMode === "irreps" && modeSet && (
@@ -2060,7 +1358,6 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
         </div>
         <KSearchPanel
           structure={magneticStructure}
-          fitStructure={fitStructure}
           magneticFit={magneticFit}
           // "Apply" is a PREVIEW: the model's own moment values drive the spin
           // field so the magnetic curve appears on the fit plot, but no

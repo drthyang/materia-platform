@@ -44,6 +44,21 @@ const R0_FLUORIDE: Readonly<Record<string, Readonly<Record<number, number>>>> = 
 
 const ANIONS: Readonly<Record<string, Readonly<Record<string, Readonly<Record<number, number>>>>>> = { O: R0_OXIDE, F: R0_FLUORIDE };
 
+/**
+ * The bond-valence length of one cation–anion bond: the length at which each
+ * of a site's `coordination` bonds carries an equal share of its valence,
+ * R₀ − b·ln(V/N). Undefined when no R₀ is tabulated for the pair.
+ */
+export function expectedBondLength(cation: string, valence: number, anion: string, coordination: number): number | undefined {
+  const r0 = ANIONS[anion]?.[cation]?.[valence];
+  return r0 === undefined || !(coordination > 0) ? undefined : r0 - B * Math.log(valence / coordination);
+}
+
+/** R₀ of a cation–anion pair at this valence, when tabulated. */
+export function bondValenceR0(cation: string, valence: number, anion: string): number | undefined {
+  return ANIONS[anion]?.[cation]?.[valence];
+}
+
 export interface BondValenceSum {
   readonly site: string;
   readonly element: string;

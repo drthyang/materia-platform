@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createServer, type Server } from "node:http";
-import { AgentChat, CHARS_PER_TOKEN, LoopGuard, MIN_REPLY, REPLY_RESERVE, announcedTool, describeChatError, fitWindow, repeatingTail, stalledReply } from "@/agent/chat";
+import { AgentChat, CHARS_PER_TOKEN, LoopGuard, MIN_REPLY, REPLY_RESERVE, announcedTool, describeChatError, fitWindow, proxyStatus, repeatingTail, runPolicy, stalledReply } from "@/agent/chat";
+import Anthropic from "@anthropic-ai/sdk";
 import type { BetaMessageParam } from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import type { AgentExecutor } from "@/agent/executor";
 import { LIVE_TOOLS } from "@/agent/tools";
@@ -179,6 +180,46 @@ describe("AgentChat", () => {
     expect((api.requests[1]!.body.messages as unknown[]).length).toBe(3);
   });
 
+  it("ends each message before its tool calls run, so its references are filled from the page as it stood", async () => {
+    const api = await fakeApi([
+      sse([{ type: "text", text: "At {{wR}} now; refining." }, { type: "tool_use", id: "tu_1", name: "refine", input: {} }], "tool_use"),
+      sse([{ type: "text", text: "Now {{wR}}." }], "end_turn"),
+    ]);
+    server = api.server;
+    const events: string[] = [];
+    const chat = new AgentChat({ run: async (name: string) => { events.push(`run ${name}`); return { isError: false, text: "{}" }; } } as unknown as AgentExecutor);
+    await chat.send(
+      "refine",
+      { transport: "api-key", apiKey: "sk-test", baseURL: api.url, model: "claude-opus-5-5", effort: "high" },
+      { onAssistantStart: () => events.push("start"), onText: () => undefined, onThinking: () => undefined, onNotice: () => undefined, onUsage: () => undefined, onAssistantEnd: () => events.push("end") },
+      new AbortController().signal,
+    );
+    expect(events).toEqual(["start", "end", "run refine", "start", "end"]);
+    // The model's own history keeps its references as it wrote them.
+    expect((chat.history()[1]!.content as { type: string; text?: string }[])[0]!.text).toBe("At {{wR}} now; refining.");
+  });
+
+  it("sends back a grade of the fit that contradicts the engine's verdict, once, with the verdict to quote", async () => {
+    const api = await fakeApi([
+      sse([{ type: "text", text: "An excellent fit: nothing left to do." }], "end_turn"),
+      sse([{ type: "text", text: "The engine calls it {{verdict}}: the residual still shows the impurity." }], "end_turn"),
+    ]);
+    server = api.server;
+    const notices: string[] = [];
+    const runner = { run: async () => ({ isError: false, text: "{}" }), page: () => "powder", fill: (t: string) => t.replace(/\{\{verdict\}\}/g, "poor") };
+    const chat = new AgentChat(runner as unknown as AgentExecutor);
+    await chat.send(
+      "How good is the fit?",
+      { transport: "api-key", apiKey: "sk-test", baseURL: api.url, model: "claude-opus-5-5", effort: "high" },
+      { onAssistantStart: () => undefined, onText: () => undefined, onThinking: () => undefined, onNotice: (n) => notices.push(n), onUsage: () => undefined },
+      new AbortController().signal,
+    );
+    expect(api.requests).toHaveLength(2);
+    expect(notices.join(" ")).toMatch(/"excellent".*"poor"/);
+    const nudge = (api.requests[1]!.body.messages as { role: string; content: unknown }[]).at(-1)!;
+    expect(String(nudge.content)).toContain("{{verdict}}");
+  });
+
   it("sends the fallback when opted in, and says when another model answered", async () => {
     const api = await fakeApi([sse([{ type: "fallback", from: "claude-opus-5-5", to: "claude-opus-4-8" }, { type: "text", text: "ok" }], "end_turn")]);
     server = api.server;
@@ -281,6 +322,15 @@ describe("AgentChat on Ollama", () => {
     ]);
   });
 
+  it("sends the policy's temperature to a local model, and none by default (the server's)", async () => {
+    const api = await fakeApi([ndjson([{ type: "text", text: "Fine." }]), ndjson([{ type: "text", text: "Fine." }])], undefined, qwen(40960));
+    server = api.server;
+    const chat = new AgentChat({ run: async () => ({ isError: false, text: "{}" }) } as unknown as AgentExecutor);
+    await chat.send("hi", { transport: "ollama", serverUrl: api.url, model: "qwen3:32b", effort: "high" }, quiet, new AbortController().signal);
+    await chat.send("hi", { transport: "ollama", serverUrl: api.url, model: "qwen3:32b", effort: "high", policy: { temperature: 0.6 } }, quiet, new AbortController().signal);
+    expect(api.requests.map((r) => (r.body.options as { temperature?: number }).temperature)).toEqual([undefined, 0.6]);
+  });
+
   it("runs at the context the model is loaded with, when it holds the Agent: no reload", async () => {
     const api = await fakeApi([ndjson([{ type: "text", text: "Fine." }])], undefined, qwen(40960));
     server = api.server;
@@ -304,7 +354,7 @@ describe("AgentChat on Ollama", () => {
     const chat = new AgentChat({ run } as unknown as AgentExecutor);
     const err = await chat.send("Read your method.", { transport: "ollama", serverUrl: small.url, model: "qwen3:32b", effort: "high" }, quiet, new AbortController().signal).then(() => null, (e: unknown) => e);
     expect(small.requests).toHaveLength(1);
-    expect((err as Error).message).toMatch(/^This conversation no longer fits qwen3:32b's 40k-token context on Ollama, even with the old tool results shortened: it needs about \d+k .*Nothing was sent, so the model was not handed a cut prompt\. Start a new conversation, or pick a model with a longer context\.$/);
+    expect((err as Error).message).toMatch(/^This conversation no longer fits the 40k-token context Ollama runs qwen3:32b with, even with the old tool results shortened\. Nothing was sent, so the model was not handed a cut prompt\. This conversation needs about \d+k tokens; qwen3:32b takes at most 40k\. Start a new conversation \(the analysis stays as it is\), or pick a model with a longer context\.$/);
   });
 
   it("moving the conversation to Claude drops Ollama's unsigned thinking from earlier replies", async () => {
@@ -328,7 +378,7 @@ describe("AgentChat on Ollama", () => {
     const chat = new AgentChat({ run: async () => ({ isError: false, text: "{}" }) } as unknown as AgentExecutor);
     const config = { transport: "ollama" as const, serverUrl: api.url, model: "nope:1b", effort: "high" as const };
     const err = await chat.send("hi", config, quiet, new AbortController().signal).then(() => null, (e: unknown) => e);
-    expect(describeChatError(err, config)).toBe('Ollama has no model "nope:1b". Pull it (ollama pull nope:1b) or pick another in the Agent settings.');
+    expect(describeChatError(err, config)).toBe('Ollama has no model "nope:1b". Pull it (ollama pull nope:1b) or pick another in the Copilot settings.');
   });
 
   it("names a model that cannot call tools", async () => {
@@ -337,7 +387,7 @@ describe("AgentChat on Ollama", () => {
     const config = { transport: "ollama" as const, serverUrl: api.url, model: "gemma:2b", effort: "high" as const };
     const err = await new AgentChat({ run: async () => ({ isError: false, text: "{}" }) } as unknown as AgentExecutor).send("hi", config, quiet, new AbortController().signal).then(() => null, (e: unknown) => e);
     // 8k cannot hold the Agent: refused before anything is sent.
-    expect((err as Error).message).toMatch(/no longer fits gemma:2b's 8k-token context on Ollama/);
+    expect((err as Error).message).toMatch(/no longer fits the 8k-token context Ollama runs gemma:2b with.*gemma:2b takes at most 8k/);
     expect(api.requests).toHaveLength(0);
   });
 });
@@ -621,7 +671,7 @@ describe("the loop guard", () => {
     expect(ran).toEqual(["read_skill", "get_state", "read_skill", "get_state"]);
     expect(api.requests).toHaveLength(3);
     expect(notices).toEqual([
-      "The Agent was going in circles: it called read_skill 3 times with the same input, and nothing changed in between, so the app stopped it here. Where it stands: the powder page; done: Fit range; next: Scale, background, cell; no refinement on screen yet. Tell it the next step to take (for example \"free the atomic positions and refine\"), or start a new conversation if it has lost track.",
+      "The Copilot was going in circles: it called read_skill 3 times with the same input, and nothing changed in between, so the app stopped it here. Where it stands: the powder page; done: Fit range; next: Scale, background, cell; no refinement on screen yet. Tell it the next step to take (for example \"free the atomic positions and refine\"), or start a new conversation if it has lost track.",
     ]);
     // The second round's results said so; every call of the last round is answered, so the conversation goes on.
     const history = chat.history();
@@ -663,7 +713,7 @@ describe("the loop guard", () => {
     await chat.send("Refine it.", model(api.url), quiet(notices), new AbortController().signal);
     expect(api.requests).toHaveLength(3);
     expect(notices).toHaveLength(1);
-    expect(notices[0]).toMatch(/^The Agent was going in circles: it called get_state 3 times with the same input, and nothing changed in between, so the app stopped it here\. Where it stands: the powder page; done: nothing yet; next: Fit range; no refinement on screen yet\./);
+    expect(notices[0]).toMatch(/^The Copilot was going in circles: it called get_state 3 times with the same input, and nothing changed in between, so the app stopped it here\. Where it stands: the powder page; done: nothing yet; next: Fit range; no refinement on screen yet\./);
   });
 });
 
@@ -939,3 +989,57 @@ describe("a long local session's last resorts", () => {
     expect(notices.filter((n) => /no longer fits/.test(n))).toEqual([]);
   });
 });
+
+describe("a refusal that says what would fit", () => {
+  it("names the reload LM Studio's model takes, with nothing sent", async () => {
+    const side = lmModels({ "qwen/qwen3.8-27b": 32768 });
+    const api = await fakeApi([sse([{ type: "tool_use", id: "s", name: "read_skill", input: { name: "my-rietveld-workflow" } }], "tool_use"), sse([{ type: "text", text: "never" }], "end_turn")], side);
+    const config = { transport: "lmstudio" as const, serverUrl: api.url, model: "qwen/qwen3.8-27b", effort: "high" as const };
+    const runner = { run: async () => ({ isError: false, text: "m".repeat(90_000) }) } as unknown as AgentExecutor;
+    const err = await new AgentChat(runner).send("Read your method.", config, { onAssistantStart: () => undefined, onText: () => undefined, onThinking: () => undefined, onNotice: () => undefined, onUsage: () => undefined }, new AbortController().signal).then(() => null, (e: unknown) => e);
+    await new Promise<void>((r) => api.server.close(() => r()));
+    expect(api.requests).toHaveLength(1);
+    expect(describeChatError(err, config)).toMatch(/^This conversation no longer fits the 32k-token context LM Studio runs qwen\/qwen3\.8-27b with, even with the old tool results shortened\. Nothing was sent, so the model was not handed a cut prompt\. This conversation needs about \d+k tokens; qwen\/qwen3\.8-27b takes up to 128k, if this machine has the memory for it\. Reload it at \d+k in LM Studio/);
+  });
+});
+
+describe("the run policy", () => {
+  it("is the app's choice for each transport, said in full, and takes the overrides a run sets", () => {
+    const claude = runPolicy({ transport: "api-key", model: "m", effort: "high" }, null);
+    expect(claude).toEqual({ turnCap: 40, toolScope: "all", pruning: "server", stallStop: false, temperature: null, replyCap: 64000, thinking: "adaptive" });
+    const local = runPolicy({ transport: "lmstudio", model: "m", effort: "high" }, 32768);
+    expect(local).toEqual({ turnCap: 80, toolScope: "stage", pruning: "digest", stallStop: true, temperature: null, replyCap: 64000, thinking: "model" });
+    // An OpenAI-compatible server: every tool only in a large window, and its replies capped.
+    expect(runPolicy({ transport: "openai-compatible", model: "m", effort: "high" }, 200_000)).toMatchObject({ toolScope: "all", replyCap: 16384 });
+    expect(runPolicy({ transport: "openai-compatible", model: "m", effort: "high" }, 32768).toolScope).toBe("stage");
+    expect(runPolicy({ transport: "ollama", model: "m", effort: "high", toolScope: "all", policy: { turnCap: 60, stallStop: false, temperature: 0.6 } }, 32768)).toMatchObject({ turnCap: 60, toolScope: "all", stallStop: false, temperature: 0.6 });
+    // Claude thinks adaptively, which takes its own temperature: none is sent.
+    expect(runPolicy({ transport: "api-key", model: "m", effort: "high", policy: { temperature: 0.6 } }, null).temperature).toBeNull();
+  });
+});
+
+describe("the local proxy on a page that has none", () => {
+  // The published site (GitHub Pages) has no proxy: its static server answers the
+  // POST with an nginx "405 Not Allowed" page, which the chat showed raw.
+  it("says so instead of a raw 404 or 405", () => {
+    const config = { transport: "proxy" as const, model: "claude-x" };
+    for (const status of [404, 405, 501]) {
+      const err = new Anthropic.APIError(status, undefined, `${status} <html><head><title>${status} Not Allowed</title></head></html>`, new Headers());
+      expect(describeChatError(err, config)).toMatch(/^This page has no proxy: .*npm run dev.*ANTHROPIC_API_KEY.*use an API key/);
+    }
+    // The proxy's own refusals keep their words.
+    const own = new Anthropic.APIError(404, { error: { type: "not_found", message: "The proxy forwards /v1/ API paths only." } }, "404", new Headers());
+    expect(describeChatError(own, config)).not.toMatch(/has no proxy/);
+  });
+
+  it("reads the proxy's health check: ready, no key, or absent", async () => {
+    const answer = (status: number, body: unknown) => async () => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+    expect(await proxyStatus("/materia-platform/", answer(200, { proxy: true, key: true }))).toBe("ready");
+    expect(await proxyStatus("/materia-platform/", answer(200, { proxy: true, key: false }))).toBe("no-key");
+    expect(await proxyStatus("/materia-platform/", async () => new Response("<html>404</html>", { status: 404 }))).toBe("absent");
+    // A static host that serves its index.html for any path: a 200, but not the proxy's answer.
+    expect(await proxyStatus("/materia-platform/", async () => new Response("<!doctype html>", { status: 200, headers: { "content-type": "text/html" } }))).toBe("absent");
+    expect(await proxyStatus("/materia-platform/", async () => { throw new TypeError("Failed to fetch"); })).toBe("absent");
+  });
+});
+

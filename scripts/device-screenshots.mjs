@@ -14,7 +14,7 @@
 import { chromium } from "playwright-core";
 import { mkdirSync } from "node:fs";
 
-const BASE = process.argv[2] ?? "http://localhost:5173/web-refinement/";
+const BASE = process.argv[2] ?? "http://localhost:5173/materia-platform/";
 const OUT = new URL("../docs/screenshots/", import.meta.url).pathname;
 
 /** Full-HD desktop in CSS px; 2x scale for crisp README rendering. */

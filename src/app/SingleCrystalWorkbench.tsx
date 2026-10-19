@@ -2,59 +2,46 @@
  * Single-crystal F² refinement page (Roadmap M7 UI). Shares the powder
  * workbench's design language — SummaryCards row, a themed quality rail, and the
  * collapsible ParameterPanel — but drives the single-crystal core against
- * integrated Bragg intensities (`buildSingleCrystalSpec`,
- * `buildSingleCrystalRefinementProblem`, `singleCrystalRefinementComparison`).
+ * integrated Bragg intensities. What its controls and fits do is in
+ * singleCrystalPage.ts, which the Agent's headless page runs too: this
+ * component holds the page in one state value and renders it.
  *
- * Self-contained: it owns its parameter/result state and its own CIF export, so
- * the powder path in App is untouched. The root mounts it (keyed on the dataset)
- * whenever single-crystal data is loaded.
+ * Self-contained: it owns its page state and its own CIF export, so the powder
+ * path in App is untouched. The root mounts it (keyed on the dataset) whenever
+ * single-crystal data is loaded.
  */
 
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties, useCallback } from "react";
 import type { HistoryBinding } from "@/app/historyBinding";
 import type { EngineExportsRef } from "@/app/workbenchEngine";
 import type { SingleCrystalWorkspace } from "@/core/project/types";
-import { modulatedInputsFrom, restoreMomentBindings, restoreSingleCrystalParameters, singleCrystalWorkspaceFrom } from "@/app/projectIo";
+import { modulatedInputsFrom } from "@/app/projectIo";
 import { useOnChange } from "@/app/useOnChange";
-import type { AtomSite, DistanceRestraint, RidingRule, StructureModel } from "@/core/crystal/types";
+import type { DistanceRestraint, StructureModel } from "@/core/crystal/types";
 import { restraintCount } from "@/core/crystal/restraints";
 import { withEsd as withEsdText } from "@/agent/structureTable";
 import type { AgentLink } from "@/agent/link";
-import { isInversion, mergedOnlyAbsences, type ExtinctionModel, type OmittedMeasurement, type Radiation, type ResolutionRange, type ShelxWeighting, type SingleCrystalDataset, type TwinLaw } from "@/core/diffraction/types";
+import { isInversion, mergedOnlyAbsences, type ExtinctionModel, type OmittedMeasurement, type ResolutionRange, type ShelxWeighting, type SingleCrystalDataset, type TwinLaw } from "@/core/diffraction/types";
 import type { Vec3 } from "@/core/math/types";
 import type { ReflectionObsCalc } from "@/core/workflow/obsCalc";
-import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
+import type { ParameterBinding, RefinementParameter } from "@/core/refinement/types";
 import { CANCELLED, type ComputeClient } from "@/workers/computeClient";
-import { measurementMerge } from "@/core/diffraction/merge";
-import {
-  SINGLE_CRYSTAL_REFINE_OPTIONS,
-  buildSingleCrystalSpec,
-  mergedDataset,
-  optimalScale,
-  guidedSingleCrystalParams,
-  inResolution,
-  isOmitted,
-  improper,
-  parsonsOfModel,
-  singleCrystalRefinementComparison,
-  withinResolution,
-  withoutOmitted,
-} from "@/core/workflow/singleCrystalRefinement";
+import { improper, parsonsOfModel, singleCrystalRefinementComparison } from "@/core/workflow/singleCrystalRefinement";
 import { floatingOrigins } from "@/core/crystal/polarOrigin";
 import { dispersionLine } from "@/core/scattering/dispersion";
-import { EXTINCTION_MODELS, EXTINCTION_MODEL_LABELS, EXTINCTION_PARAMETER_LABELS, suggestShelxWeighting, type WeightingSuggestion } from "@/core/diffraction/singleCrystalFactors";
-import { isHydrogen, nonPositiveDefiniteSites, withAdpModel } from "@/core/crystal/adp";
-import { ridingRules, ridingStepLabel, type RidingOptions } from "@/core/crystal/riding";
-import { inversionText, invertedModel, invertedRiding, invertedTwinFractions } from "@/core/crystal/inversion";
-import { tieStepLabel, withEqualTies, type EqualTieUpdate } from "@/core/refinement/constraints";
-import { keptRow, withValidUserTies } from "@/app/powderSession";
-import { dSpacing } from "@/core/crystal/unitCell";
-import { isMagneticModelParameterKind } from "@/core/refinement/types";
-import type { ParameterBinding } from "@/core/refinement/types";
+import { EXTINCTION_MODELS, EXTINCTION_MODEL_LABELS } from "@/core/diffraction/singleCrystalFactors";
+import { nonPositiveDefiniteSites } from "@/core/crystal/adp";
+import { ridingStepLabel, type RidingOptions } from "@/core/crystal/riding";
+import { tieStepLabel, type EqualTieUpdate } from "@/core/refinement/constraints";
 import type { MagneticModel } from "@/core/magnetic/types";
-import { applyMagneticMoments, magneticComparison } from "@/core/workflow/magnetic";
-import { applyParameters } from "@/core/workflow/apply";
-import { KSearchPanel, type MagneticFit } from "@/components/KSearchPanel";
+import {
+  liveStateOf, momentFit, pageView, reportInputOf, singleCrystalFit, singleCrystalPage, singleCrystalProbe, singleCrystalThorough, suggestedWeighting as suggestedWeightingOf,
+  twinStepLabel, withAdpModel, withDataset, withExtinctionModel, withFit, withFixed, withHand, withLoadedStructure, withMagneticModel, withMerged, withOmitted,
+  withOutlierFilter, withParameter, withParameterTies, withRadiation, withReset, withResolution, withRestraints, withRiding, withThorough, withTwinLaws, withWeighting,
+  workspaceOf, type Probe,
+} from "@/app/singleCrystalPage";
+import { KSearchPanel } from "@/components/KSearchPanel";
+import type { MagneticFit } from "@/app/magneticStep";
 import { FobsFcalc } from "@/app/ui/QualityPlots";
 import { SingleCrystalValidationView } from "@/app/ui/SingleCrystalValidation";
 import { SegmentedToggle } from "@/app/ui/SegmentedToggle";
@@ -67,7 +54,7 @@ import { expandStructureToSupercell, buildModulatedMomentModel, mergeToMagneticS
 import type { MomentDegeneracy } from "@/core/magnetic/canonicalize";
 import { downloadText } from "@/app/download";
 import { reportHtml, type ReportInput } from "@/core/export/report";
-import { singleCrystalCifText, singleCrystalReportInput, reportFileName, type MagneticExploration } from "@/app/reportInputs";
+import { singleCrystalCifText, reportFileName, type MagneticExploration } from "@/app/reportInputs";
 import { card as themeCard, color, mono, fz, uppercaseLabel, secondaryButton, space } from "@/app/theme";
 
 // Lazy so three.js stays out of the main bundle until the 3D view is opened.
@@ -86,19 +73,6 @@ function parseKComponent(s: string): number {
 }
 
 /** R1 quality bands (fraction): <8 % good · <15 % mediocre · else poor. */
-/** Whether two twin laws are the same matrix. */
-function sameTwinLaw(a: TwinLaw | undefined, b: TwinLaw | undefined): boolean {
-  return !!a && !!b && a.matrix.every((row, i) => row.every((v, j) => Math.round(v) === Math.round(b.matrix[i]![j]!)));
-}
-
-/** The ADP model of a structure's sites, as the Agent reads it. */
-function adpModelOf(s: StructureModel): "isotropic" | "anisotropic" | "mixed" {
-  // Hydrogens that stay isotropic under an anisotropic model (X-ray) do not make it mixed.
-  const heavy = s.sites.filter((site) => !isHydrogen(site));
-  const aniso = heavy.filter((site) => site.adp.kind === "anisotropic").length;
-  return aniso === 0 ? (s.sites.some((site) => site.adp.kind === "anisotropic") ? "mixed" : "isotropic") : aniso === heavy.length ? "anisotropic" : "mixed";
-}
-
 function r1Ink(r1: number): string {
   if (!Number.isFinite(r1)) return color.ink;
   if (r1 < 0.08) return color.okInk;
@@ -109,13 +83,6 @@ function r1Ink(r1: number): string {
 /** F-plot ↔ list selection: which reflection is spotlighted (shared with the
  *  QualityPlots' FobsFcalc so a click there highlights the matching list row). */
 type Selection = { hkl: string; kind: ReflectionObsCalc["kind"]; phaseId?: string };
-
-/** Probe the reflections were measured with. A bare .hkl / reflection list can't
- *  carry this, so the user picks it (seeded from the loaded instrument). The UI
- *  presents it as source × mode — X-ray (always constant-wavelength), neutron
- *  constant-wavelength, neutron time-of-flight — which collapses to this
- *  three-way value; the project file stores the same value. */
-type Probe = "xray" | "neutron" | "neutron-tof";
 
 export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, magneticDataset, client, step, onStep, onMagneticPresent, instrumentProbe, exportsRef, onLoadData, onLoadMagneticData, onLoadCif, restore, structureFileNotes, structureFileName, stepHistory, agentLink }: {
   structure: StructureModel;
@@ -163,70 +130,16 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
   // losing what it restored.
   const restoring = useRef(restore).current;
   const restoredModulated = restoring?.modulated ? modulatedInputsFrom(restoring.modulated) : null;
-  // The model inverted through the origin (invert_structure: the other hand, the space group to its
-  // enantiomorph where it has one); the page works on it in place of the one loaded.
-  const [inverted, setInverted] = useState<boolean>(restoring?.inverted ?? false);
-  const inversion = useMemo(() => (inverted ? invertedModel(loadedStructure) : null), [inverted, loadedStructure]);
-  const structure = inversion?.structure ?? loadedStructure;
-  const handText = inversion ? inversionText(loadedStructure, inversion) : undefined;
-  // Probe selection. The reflection file is hardcoded to neutron on load (it can't
-  // report its own source), so the user can switch here — and the choice changes
-  // the physics (neutron b vs X-ray form factors f(Q)), rebuilding F_calc and the
-  // agreement factors live. Seeded from the instrument when known.
-  // The wavelength the user or the Agent set; else the file's, else 1.54 Å (a
-  // SHELX file carries none). It moves the extinction's angle, not |F|².
-  const [wavelengthOverride, setWavelengthOverride] = useState<number | null>(restoring?.wavelength ?? null);
-  const baseWavelength = wavelengthOverride ?? ("wavelength" in dataset.radiation ? dataset.radiation.wavelength : undefined) ?? 1.54;
-  const [probe, setProbe] = useState<Probe>(() => restoring?.probe ?? instrumentProbe ?? dataset.radiation.kind);
-  const effectiveRadiation: Radiation = useMemo(() => {
-    if (probe === "neutron-tof") return { kind: "neutron-tof" };
-    if (probe === "xray") return { kind: "xray", wavelength: baseWavelength, polarization: 0.5 };
-    return { kind: "neutron", wavelength: baseWavelength };
-  }, [probe, baseWavelength]);
-  // The extinction model: SHELXL's EXTI unless switched. GSAS-II keeps it with
-  // the histogram, so it travels with the dataset the fit runs against.
-  const [extinctionModel, setExtinctionModel] = useState<ExtinctionModel>(restoring?.extinctionModel ?? "shelx");
-  // SHELXL's weighting scheme (WGHT a b); null for w = 1/σ².
-  const [weighting, setWeighting] = useState<ShelxWeighting | null>(restoring?.weighting ?? null);
-  // Twin laws (SHELXL's TWIN), each with its fraction row; empty when untwinned.
-  const [twinLaws, setTwinLaws] = useState<readonly TwinLaw[]>(restoring?.twinLaws ?? []);
-  // The equivalents merged as SHELXL's MERG 2 (Friedel opposites apart in a non-centrosymmetric group), or every measurement.
-  const [merged, setMerged] = useState<boolean>(restoring?.merged ?? false);
-  const fittedSet = useMemo(() => (merged ? mergedDataset(dataset, structure.spaceGroup.operations) : dataset), [dataset, merged, structure]);
-  // The dataset the physics runs against — the reflections fitted, user-chosen radiation, extinction model, weights and twin laws.
-  const probedDataset = useMemo(
-    () => ({ ...fittedSet, radiation: effectiveRadiation, extinctionModel, ...(weighting ? { weighting } : {}), ...(twinLaws.length ? { twinLaws } : {}) }),
-    [fittedSet, effectiveRadiation, extinctionModel, weighting, twinLaws],
-  );
-
-  // The ADP model the fit uses: the CIF's (null), or the one switched to,
-  // seeded per site from the ADPs as refined so far.
-  const [adp, setAdp] = useState<{ readonly model: "isotropic" | "anisotropic"; readonly seeds: Readonly<Record<string, AtomSite["adp"]>>; readonly hydrogensIsotropic: boolean } | null>(
-    () => (restoring?.adpModel ? { model: restoring.adpModel, seeds: {}, hydrogensIsotropic: restoring.probe === "xray" } : null),
-  );
-  // Riding hydrogens (SHELXL's riding model): set by the Agent or restored; null when every atom refines on its own.
-  const [riding, setRiding] = useState<readonly RidingRule[] | null>(restoring?.riding ?? null);
-  // Distance restraints (SHELXL's DFIX and SADI): set by the Agent or restored; empty for none.
-  const [restraints, setRestraints] = useState<readonly DistanceRestraint[]>(restoring?.restraints ?? []);
-  const fitStructure = useMemo(() => {
-    const withAdp = adp ? withAdpModel({ ...structure, sites: structure.sites.map((site) => ({ ...site, adp: adp.seeds[site.label] ?? site.adp })) }, adp.model, { hydrogensIsotropic: adp.hydrogensIsotropic }) : structure;
-    return { ...withAdp, ...(riding ? { riding } : {}), ...(restraints.length ? { restraints } : {}) };
-  }, [structure, adp, riding, restraints]);
-
-  const spec = useMemo(() => buildSingleCrystalSpec(fitStructure, probedDataset, { extinction: 0 }), [fitStructure, probedDataset]);
-  const bindings = spec.bindings;
-  // Nuclear rows come from the fresh spec (with the saved state overlaid by
-  // id); the saved moment rows, which no builder can regenerate, are appended.
-  const [params, setParams] = useState(() => (restoring ? restoreSingleCrystalParameters(spec.params, restoring) : spec.params));
-  // The 3D model tracks the refinement: apply the current parameters (cell,
-  // positions, ADPs) to the structure so the viewer shows the refined cell, not
-  // the loaded starting structure.
-  const refinedStructure = useMemo(() => {
-    const values: Record<string, number> = {};
-    for (const p of params) values[p.id] = p.value;
-    return applyParameters(fitStructure, bindings, values).model;
-  }, [fitStructure, params, bindings]);
-  const [result, setResult] = useState<RefinementResult | null>(restoring?.refinement.lastResult ?? null);
+  // The page: the structure and the reflections as loaded, and every setting
+  // that is saved with a project or changes the fit (singleCrystalPage.ts,
+  // whose operations the Agent's headless page runs too). The probe is seeded
+  // from the loaded instrument when there is one: a bare reflection file
+  // cannot say what measured it.
+  const [model, setModel] = useState(() => singleCrystalPage(loadedStructure, dataset, { ...(instrumentProbe ? { instrumentProbe } : {}), ...(restoring ? { restore: restoring } : {}) }));
+  const view = useMemo(() => pageView(model), [model]);
+  const { probe, extinctionModel, weighting, twinLaws, restraints, params, result, magnetic, omitted, resolution } = model;
+  const { on: filterOn, cutoffSigma, minExtinction } = model.filter;
+  const { structure, handText, baseWavelength, radiation: effectiveRadiation, probedDataset, fitStructure, bindings, refinedStructure, activeDataset, omittedCount, outsideRange, excluded, merge, comparison, obsCalc } = view;
   const [busy, setBusy] = useState(false);
   // Outcome of the last Prefit / Escape-min run, shown beside the refine actions.
   const [thoroughNote, setThoroughNote] = useState<string | null>(null);
@@ -236,99 +149,13 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
   // Reflection spotlighted by a click in the F_obs/F_calc plot (or null).
   const [selected, setSelected] = useState<Selection | null>(null);
 
-  // Magnetic model applied from the (shared) symmetry analysis, with its moment
-  // bindings. When present, refinement fits nuclear + moments against F² together
-  // and the F_obs/F_calc plot shows the total (nuclear + magnetic) intensity.
-  const [magnetic, setMagnetic] = useState<MagneticModel | null>(restoring?.magnetic ?? null);
-  const [momentBindings, setMomentBindings] = useState<readonly ParameterBinding[]>(() => (restoring ? restoreMomentBindings(restoring) : []));
+  // A new structure (CIF load) keeps this page mounted (keyed on the dataset),
+  // and so does another reflection file for the same structure: the page
+  // follows (withLoadedStructure, withDataset). On change only — the mount
+  // render may carry a restored state.
+  useOnChange(loadedStructure, () => setModel((m) => withLoadedStructure(m, loadedStructure)));
+  useOnChange(dataset, () => setModel((m) => withDataset(m, dataset)));
 
-  // Outlier filter: reject reflections whose standardized residual |Fo²−Fc²|/σ
-  // exceeds `cutoffSigma` (SHELX-style OMIT). Off by default. The threshold is
-  // applied against the *current* model, so it stays live as the fit changes.
-  const [filterOn, setFilterOn] = useState(restoring?.outlierFilter?.on ?? false);
-  const [cutoffSigma, setCutoffSigma] = useState(restoring?.outlierFilter?.cutoffSigma ?? 6);
-  // The filter's extinction cut (GSAS-II's "Min extinct."): reflections whose
-  // extinction factor y falls below it are left out while the filter is on.
-  const [minExtinction, setMinExtinction] = useState<number | null>(restoring?.outlierFilter?.minExtinction ?? null);
-  // Measurements left out by hand (SHELXL's OMIT h k l), each by its indices
-  // and batch, with the reason: a failed measurement its equivalents expose.
-  const [omitted, setOmitted] = useState<readonly OmittedMeasurement[]>(restoring?.omitted ?? []);
-  // The resolution range fitted (SHELXL's SHEL): a high-order refinement, or a range the data cannot support left out.
-  const [resolution, setResolution] = useState<ResolutionRange>(restoring?.resolution ?? {});
-
-  // A new structure (CIF load) keeps this page mounted (keyed on the dataset):
-  // the rows become the new spec's, and the last fit, the ADP switch, the
-  // riding rules, the restraints and the magnetic model go with the old model. (On change only — the mount render may
-  // carry a restored state.)
-  useOnChange(loadedStructure, () => {
-    setAdp(null);
-    setInverted(false);
-    // The riding rules and the restraints name the old model's atoms.
-    setRiding(null);
-    setRestraints([]);
-    setParams(buildSingleCrystalSpec(loadedStructure, probedDataset, { extinction: 0 }).params);
-    setResult(null);
-    setMagnetic(null);
-    setMomentBindings([]);
-  });
-
-  // Comparison over the *full* dataset — the residuals that drive the filter.
-  const fullComparison = useMemo(
-    () => singleCrystalRefinementComparison(fitStructure, probedDataset, params, bindings),
-    [fitStructure, probedDataset, params, bindings],
-  );
-  // The measurements omitted by hand and the resolution range go first; the filter cuts what is left.
-  const omittedDataset = useMemo(() => withoutOmitted(probedDataset, omitted), [probedDataset, omitted]);
-  const keptDataset = useMemo(() => withinResolution(omittedDataset, structure.cell, resolution), [omittedDataset, structure, resolution]);
-  const activeDataset = useMemo(() => {
-    if (!filterOn || (cutoffSigma <= 0 && minExtinction === null)) return keptDataset;
-    const keep = probedDataset.reflections.filter((r, i) => {
-      if (isOmitted(r, omitted) || !inResolution(r, structure.cell, resolution)) return false;
-      const row = fullComparison.rows[i];
-      return (cutoffSigma <= 0 || Math.abs(row?.deltaOverSigma ?? 0) <= cutoffSigma) && (minExtinction === null || (row?.extinction ?? 1) >= minExtinction);
-    });
-    return { ...probedDataset, reflections: keep };
-  }, [probedDataset, keptDataset, omitted, structure, resolution, filterOn, cutoffSigma, minExtinction, fullComparison]);
-  const omittedCount = probedDataset.reflections.length - omittedDataset.reflections.length;
-  const outsideRange = omittedDataset.reflections.length - keptDataset.reflections.length;
-  const excluded = keptDataset.reflections.length - activeDataset.reflections.length;
-
-  // Laue-equivalent merge report (data quality — R_int, redundancy) on the active set, or on the measurement as loaded when the fit runs on its merge.
-  const merge = useMemo(
-    () => measurementMerge(
-      (merged ? dataset : activeDataset).reflections.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.iObs, sigma: r.sigma ?? 0 })),
-      structure.spaceGroup.operations,
-    ),
-    [merged, dataset, activeDataset, structure],
-  );
-
-  // Live obs/calc comparison + SHELX agreement for the current parameters.
-  const comparison = useMemo(
-    () => ((filterOn && excluded > 0) || omittedCount > 0 || outsideRange > 0 ? singleCrystalRefinementComparison(fitStructure, activeDataset, params, bindings) : fullComparison),
-    [fitStructure, activeDataset, params, bindings, filterOn, excluded, omittedCount, outsideRange, fullComparison],
-  );
-
-  // Observed vs calculated per reflection (Fo², Fc², σ) for the F plot and the
-  // validation analysis. With a magnetic model applied, the calc is the total
-  // (nuclear + magnetic) intensity.
-  const obsCalc: ReflectionObsCalc[] = useMemo(() => {
-    if (magnetic) {
-      return magneticComparison(fitStructure, magnetic, activeDataset, params, [...bindings, ...momentBindings]).map((r) => ({
-        kind: r.iMagnetic > r.iNuclear ? ("magnetic" as const) : ("nuclear" as const),
-        h: r.h, k: r.k, l: r.l,
-        d: dSpacing(structure.cell, r.h, r.k, r.l),
-        iObs: r.iObs, iCalc: r.iTotal,
-        ...(r.sigma !== undefined && r.sigma > 0 ? { sigma: r.sigma } : {}),
-      }));
-    }
-    return comparison.rows.map((r) => ({
-      kind: "nuclear" as const,
-      h: r.h, k: r.k, l: r.l,
-      d: dSpacing(structure.cell, r.h, r.k, r.l),
-      iObs: r.foSq, iCalc: r.fcSq,
-      ...(r.sigma > 0 ? { sigma: r.sigma } : {}),
-    }));
-  }, [magnetic, structure, fitStructure, activeDataset, params, bindings, momentBindings, comparison]);
   // Anisotropic sites whose refined U is not positive-definite (validation).
   const nonPositiveDefinite = useMemo(() => nonPositiveDefiniteSites(refinedStructure), [refinedStructure]);
   const outliers = useMemo(
@@ -343,21 +170,11 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
     stepHistory?.recordNow("edit");
     setBusy(true);
     try {
-      const start = guided ? guidedSingleCrystalParams(params) : params;
       // Solve off the main thread (shared worker) so the UI stays responsive,
-      // matching the powder path; the σ-filtered `activeDataset` is refined.
-      // With a magnetic model applied, fit nuclear + moments together (F² total).
-      const res = magnetic
-        ? await client.refineMagneticParallel({
-            structure: fitStructure, magnetic, dataset: activeDataset, parameters: start, bindings: [...bindings, ...momentBindings], options: SINGLE_CRYSTAL_REFINE_OPTIONS,
-          })
-        : await client.refineSingleCrystalParallel({
-            structure: fitStructure, dataset: activeDataset, parameters: start, bindings, options: SINGLE_CRYSTAL_REFINE_OPTIONS,
-          });
-      setParams(start.map((p) => ({ ...p, value: res.parameters[p.id] ?? p.value, ...(guided ? { fixed: false } : {}) })));
-      setResult(res);
-      if (magnetic) setMagnetic(applyMagneticMoments(magnetic, momentBindings, res.parameters));
-      stepHistory?.requestStep("refine", guided ? "Guided refine" : magnetic ? "Refine nuclear + magnetic" : "Refine");
+      // matching the powder path; with a magnetic model, nuclear + moments together.
+      const outcome = await singleCrystalFit(client, model, guided);
+      setModel((m) => withFit(m, outcome));
+      stepHistory?.requestStep("refine", outcome.label);
       return null;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -374,68 +191,21 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
 
   /**
    * Thorough refine — the local-minimum-resistant path the powder and PDF pages
-   * have: one baseline fit plus perturbed restarts, keeping the lowest χ². One
-   * engine, two faces: with no fit yet it is "Prefit" (a broad cold-start
-   * search); once a fit exists it is a lighter "Escape min" nudge out of the
-   * current basin. An F² surface traps LM readily — a positional mode driven
-   * onto its ±bound, or an atom settled into a neighbour's basin, converges
-   * cleanly to a wrong answer with a plausible wR2 — and the esd- and
-   * value-relative kicks both vanish for a mode sitting at 0, so the kicks carry
-   * an absolute floor in the parameter's own units (fractional shift, Å²).
-   * With a magnetic model applied the multi-start is the MAGNETIC one: it
-   * freezes the nuclear scaffold, searches the moment subspace, then runs one
-   * joint LM over everything freed (nuclear minima are not searched there).
+   * have (singleCrystalThorough): with no fit yet it is "Prefit" (a broad
+   * cold-start search); once a fit exists it is a lighter "Escape min" nudge
+   * out of the current basin.
    */
   async function runThorough(): Promise<string | null> {
-    const mode: "prefit" | "escape" = result ? "escape" : "prefit";
-    const wide = mode === "prefit";
+    const wide = !result;
     stepHistory?.recordNow("edit");
     setBusy(true);
     setThoroughNote(null);
     try {
       await new Promise((r) => setTimeout(r, 30)); // let the busy state paint
-      let ms;
-      if (magnetic) {
-        ms = await client.refineMagneticSingleCrystalMultiStart(
-          { structure: fitStructure, magnetic, dataset: activeDataset, parameters: [...params], bindings: [...bindings, ...momentBindings] },
-          wide ? { restarts: 12 } : { restarts: 6, escapeSigma: 3 },
-          { maxIterations: 25 },
-        );
-        setMagnetic(applyMagneticMoments(magnetic, momentBindings, ms.final.parameters));
-      } else {
-        // Kick floors: 0.15 in fractional coordinates (~0.9 Å in a 6 Å cell)
-        // for a positional mode, with 50 iterations per start — a seed sweep
-        // on a synthetic bound-trapped start recovered 8/10 so, 2–5/10 with 25
-        // iterations, and fewer with the 0.05 or 0.2 floor — and a basin-sized
-        // step for the displacement parameters. Prefit casts the wider net
-        // (more restarts, ~4σ kicks), Escape a tighter one.
-        const minKick = (p: RefinementParameter): number | undefined => {
-          switch (p.kind) {
-            case "positionShift": return 0.15;
-            case "bIso": return wide ? 1 : 0.5;
-            case "uAniso": return wide ? 0.01 : 0.005;
-            case "occupancy": return wide ? 0.2 : 0.1;
-            case "extinction": return 0.01;
-            default: return undefined; // scale: the esd-relative kick is right
-          }
-        };
-        ms = await client.refineSingleCrystalMultiStart(
-          { structure: fitStructure, dataset: activeDataset, parameters: [...params], bindings, options: { maxIterations: 50, analyticDerivatives: true } },
-          wide ? { restarts: 12, escapeSigma: 4, relFraction: 0.5, minKick } : { restarts: 6, escapeSigma: 2, relFraction: 0.5, minKick },
-        );
-      }
-      setParams((prev) => prev.map((p) => ({ ...p, value: ms.final.parameters[p.id] ?? p.value })));
-      setResult(ms.final);
-      const wr = (100 * (ms.final.agreement.rWeighted ?? 0)).toFixed(2);
-      const starts = ms.restartsRun + 1;
-      setThoroughNote(wide
-        ? (ms.improved
-            ? `Prefit found a lower minimum (restart ${ms.bestStartIndex} of ${ms.restartsRun}) — wR2 ${wr}%, best of ${starts} starts. Refine to polish.`
-            : `Prefit: the starting model was already best of ${starts} starts — wR2 ${wr}%. Refine to polish.`)
-        : (ms.improved
-            ? `Escaped a local minimum (restart ${ms.bestStartIndex} of ${ms.restartsRun}) — wR2 ${wr}%, best of ${starts} starts.`
-            : `Already at the best minimum — the baseline beat all ${starts} starts, wR2 ${wr}%.`));
-      stepHistory?.requestStep("refine", wide ? "Prefit" : "Escape minimum");
+      const outcome = await singleCrystalThorough(client, model);
+      setModel((m) => withThorough(m, outcome));
+      setThoroughNote(outcome.note);
+      stepHistory?.requestStep("refine", outcome.label);
       return null;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -444,7 +214,7 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
         return "cancelled";
       }
       setThoroughNote(`${wide ? "Prefit" : "Escape min"} failed: ${msg}`);
-      console.error(`[status] Single-crystal ${mode} failed: ${msg}`);
+      console.error(`[status] Single-crystal ${wide ? "prefit" : "escape"} failed: ${msg}`);
       return `failed: ${msg}`;
     } finally {
       setBusy(false);
@@ -456,27 +226,7 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
   // through the same worker. This is single-crystal magnetic refinement.
   const magneticFit: MagneticFit = {
     agreementLabel: "wR2",
-    refine: async (mag, momentParams, mBindings) => {
-      // Local-minimum-resistant: seeded moment multi-start with the nuclear
-      // scaffold frozen, then a final LM + ±m canonicalization (the merged
-      // magnetic-supercell dataset and any single magnetic set benefit from it).
-      const nuclearFixed = params.map((p) => ({ ...p, fixed: true }));
-      // ONE scale: nuclear and magnetic Bragg peaks are the same measurement, so
-      // the magnetic scale is tied to the nuclear scale (k_M = k_N). Without this
-      // the magnetic block would use the default k_M = 1 while nuclear uses the
-      // refined k, and the moments would come out wrong by √k. Tying it also pins
-      // the moment magnitude uniquely (no k_M·|m|² degeneracy).
-      const nuclearScale = params.find((p) => p.kind === "scale")?.value ?? 1;
-      const scaleTie: RefinementParameter = { id: "magScale", label: "magnetic scale (= nuclear)", kind: "magneticScale", value: nuclearScale, initialValue: nuclearScale, fixed: true, expression: "= scale" };
-      const scaleTieBinding: ParameterBinding = { parameterId: "magScale", kind: "magneticScale", targetId: activeDataset.id };
-      const ms = await client.refineMagneticSingleCrystalMultiStart(
-        { structure: fitStructure, magnetic: mag, dataset: activeDataset, parameters: [...nuclearFixed, scaleTie, ...momentParams], bindings: [...bindings, scaleTieBinding, ...mBindings] },
-        { restarts: 8 }, { maxIterations: 20 },
-      );
-      const values: Record<string, number> = {};
-      for (const p of momentParams) values[p.id] = ms.final.parameters[p.id] ?? p.value;
-      return { values, agreement: ms.final.agreement.rWeighted ?? null };
-    },
+    refine: (mag, momentParams, mBindings, options) => momentFit(client, model, mag, momentParams, mBindings, options),
   };
 
   // ── Magnetic single-k supercell refinement (modulated moments) ───────────────
@@ -590,18 +340,12 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
   // bindings and merge the (freed) moment parameters into the F² parameter set
   // so the refinement and parameter panel show them alongside the nuclear ones.
   function applyMagneticModel(mag: MagneticModel | null, momentParams: readonly RefinementParameter[] = [], mBindings: readonly ParameterBinding[] = []): void {
-    setMagnetic(mag);
-    setMomentBindings(mag ? mBindings : []);
-    setParams((prev) => [
-      // The whole magnetic model is replaced — k rows included, never orphaned.
-      ...prev.filter((p) => !isMagneticModelParameterKind(p.kind)),
-      ...(mag ? momentParams.map((p) => ({ ...p, fixed: !!p.expression })) : []),
-    ]);
+    setModel((m) => withMagneticModel(m, mag, momentParams, mBindings));
     stepHistory?.requestStep("magnetic", mag ? "Magnetic model applied" : "Magnetic model removed");
   }
 
   function onParamChange(id: string, patch: Partial<RefinementParameter>): void {
-    setParams((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+    setModel((m) => withParameter(m, id, patch));
   }
 
   /**
@@ -611,113 +355,49 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
    * reopened project.)
    */
   function reset(ids?: readonly string[]): void {
-    const only = ids ? new Set(ids) : null;
-    setParams((prev) => prev.map((p) => (only && !only.has(p.id) ? p : { ...p, value: p.initialValue })));
-    setResult(null);
+    setModel((m) => withReset(m, ids));
     setThoroughNote(null);
-    stepHistory?.requestStep("edit", only ? `Reset ${[...only].join(", ")}` : "Reset to starting values");
+    stepHistory?.requestStep("edit", ids ? `Reset ${[...new Set(ids)].join(", ")}` : "Reset to starting values");
   }
 
-  /**
-   * Switch every site's ADP model: one B per site, or the symmetry-allowed U
-   * tensor. The new rows are seeded from the ADPs as refined so far (a
-   * tensor's equivalent B, or a sphere) and enter fixed; the other rows keep
-   * their values and free/fixed choices.
-   */
+  /** Switch every site's ADP model (withAdpModel): the new rows seeded from the ADPs as refined so far, entering fixed. */
   function switchAdpModel(anisotropic: boolean): void {
-    const model = anisotropic ? "anisotropic" : "isotropic";
-    if (model === adpModelOf(fitStructure)) return;
-    // On X-ray data the hydrogens stay isotropic; neutrons see them as well as any atom.
-    const next = { model, seeds: Object.fromEntries(refinedStructure.sites.map((site) => [site.label, site.adp])), hydrogensIsotropic: probe === "xray" } as const;
-    const nextStructure = withAdpModel({ ...structure, sites: structure.sites.map((site) => ({ ...site, adp: next.seeds[site.label] ?? site.adp })) }, model, { hydrogensIsotropic: next.hydrogensIsotropic });
-    const fresh = buildSingleCrystalSpec(nextStructure, probedDataset, { extinction: 0 }).params;
-    const kept = new Map(params.map((p) => [p.id, p]));
-    setParams(withValidUserTies([
-      // The new ADP rows start (and reset) at the refined values, their ties gone; the rest are kept as they are.
-      ...fresh.map((p) => keptRow(p, p.kind === "bIso" || p.kind === "uAniso" ? undefined : kept.get(p.id))),
-      ...params.filter((p) => isMagneticModelParameterKind(p.kind)),
-    ]));
-    setAdp(next);
-    setResult(null);
+    const next = withAdpModel(model, anisotropic);
+    if (next === model) return;
+    setModel(next);
     stepHistory?.requestStep("settings", anisotropic ? "Anisotropic ADPs" : "Isotropic ADPs");
   }
 
-  /**
-   * Another probe or wavelength: every F_calc changes (form factors against
-   * scattering lengths) or the extinction's angle does, so the scale restarts
-   * from its best value under the new physics and the last fit is cleared.
-   */
+  /** Another probe or wavelength (withRadiation): the scale restarts from its best value under the new physics. */
   function changeRadiation(update: { readonly probe?: Probe; readonly wavelength?: number }): void {
-    const nextProbe = update.probe ?? probe;
-    const nextWl = update.wavelength ?? baseWavelength;
-    if (nextProbe === probe && nextWl === baseWavelength) return;
-    const radiation: Radiation = nextProbe === "neutron-tof" ? { kind: "neutron-tof" }
-      : nextProbe === "xray" ? { kind: "xray", wavelength: nextWl, polarization: 0.5 }
-        : { kind: "neutron", wavelength: nextWl };
-    const k = optimalScale(fitStructure, { ...activeDataset, radiation }, params, bindings);
-    if (k !== null) setParams((ps) => ps.map((p) => (p.kind === "scale" ? { ...p, value: k } : p)));
-    setProbe(nextProbe);
-    if (update.wavelength !== undefined) setWavelengthOverride(update.wavelength);
-    setResult(null);
-    stepHistory?.requestStep("settings", `${nextProbe === "xray" ? "X-ray" : nextProbe === "neutron" ? "Neutron CW" : "Neutron TOF"}${nextProbe !== "neutron-tof" ? `, λ ${nextWl} Å` : ""}`);
+    const next = withRadiation(model, update);
+    if (next === model) return;
+    setModel(next);
+    const wl = pageView(next).baseWavelength;
+    stepHistory?.requestStep("settings", `${next.probe === "xray" ? "X-ray" : next.probe === "neutron" ? "Neutron CW" : "Neutron TOF"}${next.probe !== "neutron-tof" ? `, λ ${wl} Å` : ""}`);
   }
 
-  /**
-   * The hydrogens ride on their parents, or refine on their own again. The
-   * rules are set from the structure as refined now; the hydrogens' own rows
-   * leave the fit (or come back, fixed, at the loaded positions).
-   */
+  /** The hydrogens ride on their parents, or refine on their own again (withRiding). */
   function changeRiding(on: boolean, options?: RidingOptions): string | null {
-    const rules = on ? ridingRules({ ...refinedStructure, riding: [] }, options) : null;
-    if (on && rules!.rules.length === 0) return "no hydrogen is bonded to an atom of this model";
-    const nextRiding = rules ? rules.rules : null;
-    const nextStructure = nextRiding ? { ...fitStructure, riding: nextRiding } : (({ riding: _, ...rest }) => rest)(fitStructure);
-    const fresh = buildSingleCrystalSpec(nextStructure, probedDataset, { extinction: 0 }).params;
-    const kept = new Map(params.map((p) => [p.id, p]));
-    setParams(withValidUserTies([
-      ...fresh.map((p) => keptRow(p, kept.get(p.id))),
-      ...params.filter((p) => isMagneticModelParameterKind(p.kind)),
-    ]));
-    setRiding(nextRiding);
-    setResult(null);
-    stepHistory?.requestStep("settings", nextRiding ? ridingStepLabel(nextRiding) : "Hydrogens refined on their own");
-    return rules && rules.unbonded.length ? `not riding (no parent in bonding distance): ${rules.unbonded.join(", ")}` : null;
+    const { model: next, message } = withRiding(model, on, options);
+    if (next === model) return message;
+    setModel(next);
+    stepHistory?.requestStep("settings", next.riding ? ridingStepLabel(next.riding) : "Hydrogens refined on their own");
+    return message;
   }
 
-  /**
-   * SHELXL's weighting scheme, w = 1/[σ² + (aP)² + bP]; null (or 0 0) for
-   * w = 1/σ². The fit's weights change, so the last one is cleared.
-   */
-  function changeWeighting(next: ShelxWeighting | null): void {
-    const scheme = next && (next.a > 0 || next.b > 0) ? { a: next.a, b: next.b } : null;
-    if (scheme?.a === weighting?.a && scheme?.b === weighting?.b) return;
-    setWeighting(scheme);
-    setResult(null);
-    stepHistory?.requestStep("settings", scheme ? `WGHT ${scheme.a} ${scheme.b}` : "Weights 1/σ²");
+  /** SHELXL's weighting scheme, w = 1/[σ² + (aP)² + bP]; null (or 0 0) for w = 1/σ². */
+  function changeWeighting(scheme: ShelxWeighting | null): void {
+    const next = withWeighting(model, scheme);
+    if (next === model) return;
+    setModel(next);
+    stepHistory?.requestStep("settings", next.weighting ? `WGHT ${next.weighting.a} ${next.weighting.b}` : "Weights 1/σ²");
   }
 
-  /**
-   * The twin laws (SHELXL's TWIN): each brings its fraction row (BASF; the
-   * Flack x for the inversion twin), free at 0.1; the other rows keep their
-   * values. The last fit is cleared.
-   */
+  /** The twin laws (SHELXL's TWIN), each with its fraction row (withTwinLaws). */
   function changeTwinLaws(next: readonly TwinLaw[]): void {
-    const nextDataset = { ...probedDataset, ...(next.length ? { twinLaws: next } : {}) };
-    if (!next.length) delete (nextDataset as { twinLaws?: unknown }).twinLaws;
-    const fresh = buildSingleCrystalSpec(fitStructure, nextDataset, { extinction: 0 }).params;
-    const kept = new Map(params.map((p) => [p.id, p]));
-    // A law that stays where it was keeps its fraction (and its free or fixed state); a new one starts at 0.1.
-    const stays = (id: string): boolean => {
-      const i = Number(/^twin_(\d+)$/.exec(id)?.[1] ?? 0) - 1;
-      return i >= 0 && sameTwinLaw(twinLaws[i], next[i]);
-    };
-    setParams(withValidUserTies([
-      ...fresh.map((p) => keptRow(p, p.kind === "twinFraction" && !stays(p.id) ? undefined : kept.get(p.id))),
-      ...params.filter((p) => isMagneticModelParameterKind(p.kind)),
-    ]));
-    setTwinLaws(next);
-    setResult(null);
-    stepHistory?.requestStep("settings", next.length === 0 ? "Untwinned" : next.length === 1 && isInversion(next[0]!) ? "Inversion twin" : next.length > 1 && next.some((law) => improper(law.matrix)) ? `Twin law with the inversion (${next.length + 1} domains)` : `${next.length} twin law${next.length === 1 ? "" : "s"}`);
+    setModel(withTwinLaws(model, next));
+    stepHistory?.requestStep("settings", twinStepLabel(next));
   }
 
   /**
@@ -726,112 +406,63 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
    * tied rows leave the fit; their values follow at once.
    */
   function changeParameterTies(update: EqualTieUpdate): void {
-    setParams((ps) => withValidUserTies(withEqualTies(ps, update)));
+    setModel((m) => withParameterTies(m, update));
     stepHistory?.requestStep("edit", tieStepLabel(update));
   }
 
-  /**
-   * The model inverted through the origin, as SHELXL's MOVE 1 1 1 −1 with the
-   * space group changed to its enantiomorph: the positions as refined go to
-   * s − x (their shifts change sign), the riding groups are placed afresh, the
-   * restraints follow their atoms' images, and a twin with both hands keeps
-   * its fit (each domain takes the place of its inverse). The last fit is cleared.
-   */
+  /** The model inverted through the origin (withHand); called again, back to the hand as loaded. */
   function changeHand(): string {
-    if (magnetic) throw new Error("a magnetic model is applied: invert the structure before applying it");
-    // One transform both ways, the one that takes the model as loaded to its inverse: the round trip is exact.
-    const forward = invertedModel(loadedStructure);
-    const total = forward.shift.map((v, i) => v + forward.translation[i]!) as unknown as typeof forward.shift;
-    const flip = invertedModel(fitStructure, { total });
-    const nextRiding = riding ? invertedRiding(riding, invertedModel(refinedStructure, { total }).structure) : null;
-    const nextFit = { ...flip.structure, ...(nextRiding ? { riding: nextRiding } : {}) };
-    const fresh = buildSingleCrystalSpec(nextFit, probedDataset, { extinction: 0 }).params;
-    const kept = new Map(params.map((p) => [p.id, p]));
-    const lawOf = (id: string): number => Number(bindings.find((b) => b.parameterId === id && b.kind === "twinFraction")?.targetKey ?? 0) - 1;
-    const fractions = twinLaws.map((_, i) => params.find((p) => p.kind === "twinFraction" && lawOf(p.id) === i)?.value ?? 0);
-    const twins = invertedTwinFractions(twinLaws, fractions);
-    setParams(withValidUserTies([
-      ...fresh.map((p) => {
-        const row = keptRow(p, kept.get(p.id));
-        // A shift moves the inverted site the other way; a torsion and a twin fraction take their new values.
-        if (p.kind === "positionShift") return { ...row, value: -(kept.get(p.id)?.value ?? 0) };
-        if (p.kind === "ridingTorsion") return { ...row, value: p.value, initialValue: p.value };
-        if (p.kind === "twinFraction") return { ...row, value: twins[lawOf(p.id)] ?? row.value };
-        return row;
-      }),
-      ...params.filter((p) => isMagneticModelParameterKind(p.kind)),
-    ]));
-    setRiding(nextRiding);
-    setRestraints(flip.structure.restraints ?? []);
-    setInverted(!inverted);
-    setResult(null);
-    const text = inverted ? "back to the model as loaded" : inversionText(loadedStructure, forward);
-    stepHistory?.requestStep("settings", inverted ? "Hand as loaded" : `Inverted${flip.enantiomorph ? ` (${flip.enantiomorph})` : ""}`);
+    const { model: next, text } = withHand(model);
+    setModel(next);
+    const enantiomorph = pageView(next).inversion?.enantiomorph;
+    stepHistory?.requestStep("settings", next.inverted ? `Inverted${enantiomorph ? ` (${enantiomorph})` : ""}` : "Hand as loaded");
     return text;
   }
 
   /** The distance restraints, replaced as a whole: they change what the fit minimizes, so the last fit is cleared. */
   function changeRestraints(next: readonly DistanceRestraint[]): void {
-    setRestraints(next);
-    setResult(null);
+    setModel((m) => withRestraints(m, next));
     stepHistory?.requestStep("settings", next.length ? `${restraintCount(next)} restraint${restraintCount(next) === 1 ? "" : "s"}` : "No restraints");
   }
 
-  /**
-   * Fit the merged equivalents (SHELXL's MERG 2) or every measurement. The
-   * reflections change, so the batch rows follow them, the omissions (which
-   * named the other set's reflections) are cleared, and so is the last fit.
-   */
+  /** Fit the merged equivalents (SHELXL's MERG 2) or every measurement (withMerged). */
   function changeMerged(on: boolean): void {
-    if (on === merged) return;
-    const nextSet = on ? mergedDataset(dataset, structure.spaceGroup.operations) : dataset;
-    const fresh = buildSingleCrystalSpec(fitStructure, { ...probedDataset, reflections: nextSet.reflections }, { extinction: 0 }).params;
-    const kept = new Map(params.map((p) => [p.id, p]));
-    setParams(withValidUserTies([
-      ...fresh.map((p) => keptRow(p, kept.get(p.id))),
-      ...params.filter((p) => isMagneticModelParameterKind(p.kind)),
-    ]));
-    setMerged(on);
-    setOmitted([]);
-    setResult(null);
+    const next = withMerged(model, on);
+    if (next === model) return;
+    setModel(next);
+    const nextSet = pageView(next).fittedSet;
     // A file merged by its data reduction loses only its absences: say so, not "merged".
     const onlyAbsences = on && nextSet.merged ? mergedOnlyAbsences(nextSet.merged, nextSet.reflections.length) : false;
     stepHistory?.requestStep("settings", on ? (onlyAbsences ? `${dataset.reflections.length - nextSet.reflections.length} absences left out: ${nextSet.reflections.length} reflections` : `Merged: ${dataset.reflections.length} → ${nextSet.reflections.length} reflections`) : "Every measurement");
   }
 
-  /** The scheme SHELXL would suggest for the model as refined now. */
-  function suggestedWeighting(): WeightingSuggestion {
-    const rows = comparison.rows;
-    // WGHT's b is on the absolute scale: the suggestion reads the data at the overall scale.
-    return suggestShelxWeighting(rows.map((r) => r.foSq), rows.map((r) => r.fcSq), rows.map((r) => r.sigma), params.filter((p) => !p.fixed && !p.expression).length, 10, params.find((p) => p.kind === "scale")?.value ?? 1);
-  }
-
   /** Another extinction model: its parameter is another quantity, so it restarts at 0 (none), as on load. */
-  function switchExtinctionModel(model: ExtinctionModel): void {
-    if (model === extinctionModel) return;
-    setParams((ps) => ps.map((p) => (p.kind === "extinction" ? { ...p, label: EXTINCTION_PARAMETER_LABELS[model], value: 0, initialValue: 0 } : p)));
-    setExtinctionModel(model);
-    setResult(null);
-    stepHistory?.requestStep("settings", `Extinction: ${EXTINCTION_MODEL_LABELS[model]}`);
+  function switchExtinctionModel(next: ExtinctionModel): void {
+    if (next === extinctionModel) return;
+    setModel((m) => withExtinctionModel(m, next));
+    stepHistory?.requestStep("settings", `Extinction: ${EXTINCTION_MODEL_LABELS[next]}`);
   }
 
   /** The resolution range fitted; a limit given as null opens that end. */
   function changeResolution(update: { readonly dMin?: number | null; readonly dMax?: number | null }): void {
-    const next: ResolutionRange = {
-      ...(update.dMin === undefined ? (resolution.dMin !== undefined ? { dMin: resolution.dMin } : {}) : update.dMin !== null ? { dMin: update.dMin } : {}),
-      ...(update.dMax === undefined ? (resolution.dMax !== undefined ? { dMax: resolution.dMax } : {}) : update.dMax !== null ? { dMax: update.dMax } : {}),
-    };
-    setResolution(next);
-    stepHistory?.requestStep("settings", next.dMin === undefined && next.dMax === undefined
+    const next = withResolution(model, update);
+    setModel(next);
+    const range = next.resolution;
+    stepHistory?.requestStep("settings", range.dMin === undefined && range.dMax === undefined
       ? "Full resolution range"
-      : `Resolution d ${[next.dMax !== undefined ? `≤ ${next.dMax}` : "", next.dMin !== undefined ? `≥ ${next.dMin}` : ""].filter(Boolean).join(" and ")} Å`);
+      : `Resolution d ${[range.dMax !== undefined ? `≤ ${range.dMax}` : "", range.dMin !== undefined ? `≥ ${range.dMin}` : ""].filter(Boolean).join(" and ")} Å`);
   }
 
   /** The measurements left out by hand, replaced as a whole. */
   function changeOmitted(next: readonly OmittedMeasurement[]): void {
     const was = omitted.length;
-    setOmitted(next);
+    setModel((m) => withOmitted(m, next));
     stepHistory?.requestStep("settings", next.length > was ? `Omitted ${next.length - was} measurement${next.length - was === 1 ? "" : "s"}` : `${next.length} measurement${next.length === 1 ? "" : "s"} omitted`);
+  }
+
+  /** The OMIT filter's controls: on or off, its cutoff in σ, its extinction cut. */
+  function changeOutlierFilter(update: { readonly on?: boolean; readonly cutoffSigma?: number; readonly minExtinction?: number | null }): void {
+    setModel((m) => withOutlierFilter(m, update));
   }
 
   /**
@@ -906,28 +537,11 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
   // the F_obs/F_calc figure, SHELX agreement, the refined structure with esds,
   // the magnetic model (applied or under exploration), every parameter.
   const reportInputRef = useRef<() => ReportInput>(() => { throw new Error("SingleCrystalWorkbench: not mounted"); });
-  reportInputRef.current = (): ReportInput => singleCrystalReportInput({
-      structure: refinedStructure,
-      base: fitStructure,
-      params,
-      bindings: [...bindings, ...momentBindings],
-      result,
-      dataset: activeDataset,
-      totalReflections: dataset.reflections.length,
-      excluded,
-      filterOn,
-      cutoffSigma,
-      minExtinction,
-      omitted,
-      resolution: { ...resolution, excluded: outsideRange },
-      agreement: comparison.agreement,
-      merge: merge.statistics,
-      points: obsCalc.map((r) => ({ obs: r.iObs, calc: r.iCalc, ...(r.kind === "magnetic" ? { magnetic: true } : {}) })),
-      magnetic,
-      explored: exploredMagnetic.current,
-      ...(handText ? { inverted: handText } : {}),
-      ...(structureFileNotes?.length ? { structureFile: structureFileNotes, ...(structureFileName ? { structureFileName } : {}) } : {}),
-    });
+  reportInputRef.current = (): ReportInput => reportInputOf(model, {
+    explored: exploredMagnetic.current,
+    ...(structureFileNotes ? { structureFile: structureFileNotes } : {}),
+    ...(structureFileName ? { structureFileName } : {}),
+  });
   function exportReport(): void {
     downloadText(reportFileName(structure), reportHtml(reportInputRef.current()), "text/html");
   }
@@ -939,44 +553,8 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
     if (!agentLink) return;
     agentLink.publish({
       technique: "singleCrystal",
-      state: () => ({
-        structure: fitStructure,
-        refinedStructure,
-        dataset: probedDataset,
-        totalReflections: dataset.reflections.length,
-        measurement: dataset.reflections,
-        ...(structureFileNotes ? { structureFile: structureFileNotes } : {}),
-        ...(handText ? { inverted: handText, loadedAs: loadedStructure } : {}),
-        probe,
-        parameters: params,
-        bindings: [...bindings, ...momentBindings],
-        result,
-        busy,
-        agreement: comparison.agreement,
-        merge: merge.statistics,
-        // With a magnetic model, the total (nuclear + magnetic) intensity; else the comparison's rows, with y and the batch.
-        rows: magnetic
-          ? obsCalc.map((r) => ({ h: r.h, k: r.k, l: r.l, foSq: r.iObs, fcSq: r.iCalc, sigma: r.sigma ?? 0, deltaOverSigma: r.sigma ? (r.iObs - r.iCalc) / r.sigma : 0 }))
-          : comparison.rows,
-        allRows: fullComparison.rows,
-        outlierFilter: { on: filterOn, cutoffSigma, excluded, ...(minExtinction !== null ? { minExtinction } : {}) },
-        omitted,
-        resolution: { ...resolution, excluded: outsideRange },
-        riding: riding ?? [],
-        weighting,
-        twinLaws,
-        distanceRestraints: restraints,
-        extinctionModel,
-        adpModel: adpModelOf(fitStructure),
-        magnetic: magnetic !== null,
-        observationCount: activeDataset.reflections.length,
-        source: dataset.name,
-        restraints: [],
-      }),
-      setFixed: (changes) => {
-        const fixed = new Map(changes.map((c) => [c.id, c.fixed]));
-        setParams((ps) => ps.map((p) => (fixed.has(p.id) ? { ...p, fixed: fixed.get(p.id)! } : p)));
-      },
+      state: () => liveStateOf(model, { busy, ...(structureFileNotes ? { structureFile: structureFileNotes } : {}) }),
+      setFixed: (changes) => setModel((m) => withFixed(m, changes)),
       setAdpModel: switchAdpModel,
       setExtinctionModel: switchExtinctionModel,
       setRadiation: changeRadiation,
@@ -989,22 +567,11 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
       setMerged: changeMerged,
       setOmitted: changeOmitted,
       setResolution: changeResolution,
-      setOutlierFilter: ({ on, cutoffSigma: cutoff, minExtinction: minY }) => {
-        if (on !== undefined) setFilterOn(on);
-        if (cutoff !== undefined) setCutoffSigma(cutoff);
-        if (minY !== undefined) setMinExtinction(minY);
-      },
+      setOutlierFilter: changeOutlierFilter,
       refine: () => runRefine(false),
       thorough: runThorough,
       // The Refine button's request with the Agent's options; the result is only read.
-      probe: (options, cut) => {
-        // The extinction test's data: the fitted set less the reflections whose y (at the current model) is below the cut; the page's filter untouched.
-        const yOf = cut ? new Map(probedDataset.reflections.map((r, i) => [r, fullComparison.rows[i]?.extinction ?? 1] as const)) : null;
-        const data = yOf && cut ? { ...activeDataset, reflections: activeDataset.reflections.filter((r) => (yOf.get(r) ?? 1) >= cut.minExtinction) } : activeDataset;
-        return magnetic
-          ? client.refineMagneticParallel({ structure: fitStructure, magnetic, dataset: data, parameters: params, bindings: [...bindings, ...momentBindings], options })
-          : client.refineSingleCrystalParallel({ structure: fitStructure, dataset: data, parameters: params, bindings, options: { analyticDerivatives: true, ...options } });
-      },
+      probe: (options, cut) => singleCrystalProbe(client, model, options, cut),
       reportInput: () => reportInputRef.current(),
       cancel: () => client.cancel(),
       reset,
@@ -1020,19 +587,9 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
       report: exportReport,
       cif: exportCif,
       scInt: exportInt,
-      projectWorkspace: () => singleCrystalWorkspaceFrom({
-        dataset, magneticDataset: magneticDataset ?? null, probe,
-        params, bindings: [...bindings, ...momentBindings], result, magnetic,
-        filterOn, cutoffSigma, minExtinction, omitted, extinctionModel, resolution,
-        ...(wavelengthOverride !== null ? { wavelength: wavelengthOverride } : {}),
-        ...(riding ? { riding } : {}),
-        ...(weighting ? { weighting } : {}),
-        ...(twinLaws.length ? { twinLaws } : {}),
-        ...(restraints.length ? { restraints } : {}),
-        ...(merged ? { merged } : {}),
-        ...(inverted ? { inverted } : {}),
+      projectWorkspace: () => workspaceOf(model, {
+        magneticDataset: magneticDataset ?? null,
         modulated: { kText, ionState, moment: modMoment, seed: modSeed, restarts: modRestarts },
-        adpModel: adp?.model ?? null,
       }),
     };
     return () => { exportsRef.current = null; };
@@ -1044,12 +601,12 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
   const outlierFilter = (
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
     <label style={filterRow} title="Reject reflections whose |Fo²−Fc²|/σ exceeds the threshold against the current model (SHELX-style OMIT)">
-      <input type="checkbox" checked={filterOn} onChange={(e) => setFilterOn(e.target.checked)} style={{ accentColor: color.primary }} />
+      <input type="checkbox" checked={filterOn} onChange={(e) => changeOutlierFilter({ on: e.target.checked })} style={{ accentColor: color.primary }} />
       <span style={{ color: color.secondary }}>Reject reflections with |Δ|/σ &gt;</span>
       <input
         type="number" min={2} step={0.5} value={cutoffSigma}
         disabled={!filterOn}
-        onChange={(e) => setCutoffSigma(Math.max(0, Number(e.target.value) || 0))}
+        onChange={(e) => changeOutlierFilter({ cutoffSigma: Math.max(0, Number(e.target.value) || 0) })}
         style={{ ...numInput, ...(filterOn ? {} : { opacity: 0.5 }) }}
       />
       <span style={{ color: color.secondary }}>σ</span>
@@ -1058,7 +615,7 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
       <input
         type="number" min={0.05} max={0.95} step={0.05} value={minExtinction ?? ""} placeholder="—"
         disabled={!filterOn}
-        onChange={(e) => { const v = Number(e.target.value); setMinExtinction(e.target.value === "" || !(v > 0 && v < 1) ? null : v); }}
+        onChange={(e) => { const v = Number(e.target.value); changeOutlierFilter({ minExtinction: e.target.value === "" || !(v > 0 && v < 1) ? null : v }); }}
         style={{ ...numInput, ...(filterOn ? {} : { opacity: 0.5 }) }}
       />
       {filterOn && (
@@ -1141,7 +698,7 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
             ))}
             <button
               style={{ ...secondaryButton, padding: "1px 8px", fontSize: 11.5 }}
-              onClick={() => { const w = suggestedWeighting(); changeWeighting({ a: w.a, b: w.b }); }}
+              onClick={() => { const w = suggestedWeightingOf(model); changeWeighting({ a: w.a, b: w.b }); }}
               title="Use the scheme SHELXL would suggest for the model as refined now: the a and b that make the GooF flat across the intensity bins, and 1 overall"
             >
               suggest
@@ -1448,8 +1005,6 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
   );
 }
 
-/** Segmented X-ray / Neutron / TOF control for the single-crystal Data card.
- *  A bare reflection file carries no probe, so this is the authoritative source. */
 /**
  * Source × mode picker for the probe. The reflection file cannot report its
  * own radiation, so the user states it the way an experiment is described:
@@ -1490,7 +1045,6 @@ function ProbeToggle({ probe, onChange }: { probe: Probe; onChange: (p: Probe) =
   );
 }
 
-/** One labelled segmented group of the probe picker. */
 /** The resolution range fitted, SHELXL's SHEL: d from … to … Å, either end open (blank). */
 function ResolutionRow({ range, excluded, onChange }: {
   range: ResolutionRange;
@@ -1556,6 +1110,7 @@ function OmittedRow({ omitted, count, batches, onChange }: {
   );
 }
 
+/** One labelled segmented group of the probe picker. */
 function ProbeSegment<T extends string>({ label, hint, options, value, onChange, disabled = false }: {
   label: string;
   hint: string;

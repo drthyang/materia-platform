@@ -128,7 +128,7 @@ describe("the analysis from the History", () => {
     // 3.71 is the engine's; 2.2012 only the Agent's own note says; 8.4807 is nowhere.
     expect(built.unverified).toEqual(["2.2012", "8.4807"]);
     expect(built.agent.openIssues).toEqual(["Method stages not yet refined to convergence: Scale, background, cell, Positions, Profile, ADPs."]);
-    expect(built.html).toContain("analysed with the Agent");
+    expect(built.html).toContain("analysed with MATERIA Copilot");
     expect(built.markdown).toContain("a = 8.4807† Å");
     // A number the user gave (a published refinement's) is theirs to quote.
     const quoted = buildAgentReport({ page: "powder", input, history: null, record: emptyRecord("k"), checks: [], posterior: null, model: "M", narrative: "wR 3.71 % against the published 3.92 %; a = 8.4807 Å.", userText: "Compare with the published wR of 3.92 %." });
@@ -156,7 +156,7 @@ describe("the analysis from the History", () => {
       narrative: "From wR 16.48 % to 4.12 %. The Le Bail fit gave a = 8.48072 Å at Rwp 1.51 %; before the profile the lines were 2.45× too broad (Durbin–Watson 0.41).",
     });
     expect(built.unverified).toEqual([]);
-    expect(built.markdown).toContain("Before the Agent's first refinement: wR 16.48 %.");
+    expect(built.markdown).toContain("Before the Copilot's first refinement: wR 16.48 %.");
     expect(built.agent.checks.find((c) => c.name === "Earlier fit diagnoses")?.detail).toBe(
       "At step 2 (Refine): GoF 3.1 (Rwp 12.03%, Rexp 3.88%). Durbin–Watson d = 0.41 < 1.75. peak-width (61.2 % of χ²): the observed lines are 2.45× broader than calculated at half maximum (median of 31 isolated lines).",
     );
@@ -244,7 +244,7 @@ O2 O2- 0.3075 0.3075 0.3400 1 0.6
     const r = reports[0]!;
     expect(r.technique).toBe("powder");
     expect(r.fileBase).toBe(`${r.title}_agent_report`);
-    expect(r.html).toContain("Rietveld refinement report · analysed with the Agent");
+    expect(r.html).toContain("Rietveld refinement report · analysed with MATERIA Copilot");
     expect(r.html).toContain("model Test model · headless");
     expect(r.html).toContain("Bond valence");
     expect(r.html).toContain(`wR ${wR.toFixed(2)} %.</p>`);
@@ -294,7 +294,7 @@ O2 O2- 0.3075 0.3075 0.3400 1 0.6
     await ex.run("refine", {});
     const out = parse((await ex.run("write_report", { summary: "Refined the scale of the GaTa4Se8 G(r) over the default window." })).text) as { checks: string[] };
     expect(out.checks.some((c) => /^note: Agreement — Rw = \d+\.\d\d %/.test(c))).toBe(true);
-    expect(reports[0]!.html).toContain("PDF refinement report · analysed with the Agent");
+    expect(reports[0]!.html).toContain("PDF refinement report · analysed with MATERIA Copilot");
     expect(reports[0]!.html).toContain('<th class="num">Rw</th>');
     expect(reports[0]!.html).not.toContain('<th class="num">GoF</th>');
 

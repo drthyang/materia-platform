@@ -207,9 +207,9 @@ export interface ReportAgent {
   readonly unverified?: readonly string[];
 }
 
-/** "Before the Agent's first refinement: wR2 25.61 %, R1 12.34 %." */
+/** "Before the Copilot's first refinement: wR2 25.61 %, R1 12.34 %." */
 export function startText(start: NonNullable<ReportAgent["start"]>, label: string): string {
-  return `Before the Agent's first refinement: ${label} ${(100 * start.agreement).toFixed(2)} %${start.r1 !== undefined ? `, R1 ${(100 * start.r1).toFixed(2)} %` : ""}.`;
+  return `Before the Copilot's first refinement: ${label} ${(100 * start.agreement).toFixed(2)} %${start.r1 !== undefined ? `, R1 ${(100 * start.r1).toFixed(2)} %` : ""}.`;
 }
 
 /**
@@ -698,7 +698,7 @@ function agentHtml(a: ReportAgent): string {
   const anyGof = a.steps.some((st) => st.gof !== undefined);
   const steps = a.steps.map((st, i) =>
     `<tr${st.by === "agent" ? ' class="byagent"' : ""}><td class="num">${i + 1}</td><td>${esc(st.label)}${st.stages ? `<div class="muted small">${esc(st.stages)}</div>` : ""}</td>` +
-    `<td>${st.by === "agent" ? '<span class="pill agent">Agent</span>' : '<span class="muted">user</span>'}</td>` +
+    `<td>${st.by === "agent" ? '<span class="pill agent">Copilot</span>' : '<span class="muted">user</span>'}</td>` +
     `<td class="muted small">${st.refined ? esc(st.refined) : ""}</td>` +
     `<td class="num">${st.free}</td><td class="num">${pctOf(st.wR)}</td>${anyGof ? `<td class="num">${st.gof !== undefined ? st.gof.toFixed(2) : ""}</td>` : ""}</tr>`,
   ).join("\n");
@@ -715,9 +715,9 @@ function agentHtml(a: ReportAgent): string {
     : `<p class="note">None: the engine's checks raised nothing left to settle.</p>`;
   const unverified = a.unverified ?? [];
   const mark = UNVERIFIED;
-  const notes = a.notes.length > 0 ? `<h4 style="margin-top:14px">The Agent's notes</h4><ul class="notes">${a.notes.map((t) => `<li>${markNumbers(esc(t), unverified, mark)}</li>`).join("")}</ul>` : "";
+  const notes = a.notes.length > 0 ? `<h4 style="margin-top:14px">The Copilot's notes</h4><ul class="notes">${a.notes.map((t) => `<li>${markNumbers(esc(t), unverified, mark)}</li>`).join("")}</ul>` : "";
   const narrative = a.narrative?.trim()
-    ? `<div class="card narrative" style="margin-top:14px"><h4>The Agent's account</h4>${paragraphs(a.narrative, unverified)}<p class="note">Written by the Agent (${esc(a.model)}) in its own words, as are its notes. Every other number in this report — the steps, the checks, the parameters, the agreement factors and the figure — comes from the refinement engine and the project's History, not from the model.${unverified.length > 0 ? ` <span class="unverified">Underlined</span> numbers in the Agent's words are not among the values this report computed.` : ""}</p></div>`
+    ? `<div class="card narrative" style="margin-top:14px"><h4>The Copilot's account</h4>${paragraphs(a.narrative, unverified)}<p class="note">Written by MATERIA Copilot (${esc(a.model)}) in its own words, as are its notes. Every other number in this report — the steps, the checks, the parameters, the agreement factors and the figure — comes from the refinement engine and the project's History, not from the model.${unverified.length > 0 ? ` <span class="unverified">Underlined</span> numbers in the Copilot's words are not among the values this report computed.` : ""}</p></div>`
     : "";
   const branches = a.otherBranches ? ` The table follows the path to the result; ${a.otherBranches} step${a.otherBranches === 1 ? "" : "s"} on branches the analysis left ${a.otherBranches === 1 ? "is" : "are"} kept in the History, not shown.` : "";
   const start = a.start ? `<p class="note">${esc(startText(a.start, a.agreementLabel ?? "wR"))}</p>` : "";
@@ -919,7 +919,7 @@ export function reportHtml(input: ReportInput): string {
 <body>
 <div class="wrap">
   <header class="masthead">
-    <p class="eyebrow">MATERIA · ${esc(technique)} report${input.agent ? " · analysed with the Agent" : ""} · ${esc(date)}</p>
+    <p class="eyebrow">MATERIA · ${esc(technique)} report${input.agent ? " · analysed with MATERIA Copilot" : ""} · ${esc(date)}</p>
     <h1>${esc(input.title)}</h1>
     ${input.subtitle ? `<p class="sub">${esc(input.subtitle)}</p>` : ""}
     ${input.summary ? `<p class="summary">${esc(input.summary)}</p>` : ""}

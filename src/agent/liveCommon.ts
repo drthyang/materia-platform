@@ -5,8 +5,10 @@
  * sees the same shapes whichever page is open.
  */
 
+import { sig } from "@/core/math/precision";
 import type { RefinementParameter } from "@/core/refinement/types";
 import type { ProjectHistory } from "@/core/project/history";
+import type { AgentRecord } from "@/agent/method";
 import { lineage } from "@/core/project/history";
 import type { StructureModel } from "@/core/crystal/types";
 import { bondValenceReading, bondValenceSums } from "@/core/crystal/bondValence";
@@ -23,6 +25,9 @@ export type ChangeResult = string | { readonly note?: string; readonly data: Rec
 export interface LiveToolHost {
   readonly history: () => ProjectHistory | null;
   readonly goToStep: (id: string) => void;
+  /** The Agent's record of an analysis (method.ts), and a change to it: kept with the project. */
+  readonly record: (key: string) => AgentRecord;
+  readonly updateRecord: (key: string, update: (record: AgentRecord) => AgentRecord) => void;
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- inputs are validated against the spec's zod schema before a handler runs */
@@ -292,6 +297,4 @@ export function pct(f: number): number {
   return Math.round(f * 10000) / 100;
 }
 
-export function sig(v: number, digits = 6): number {
-  return Number.isFinite(v) ? Number(v.toPrecision(digits)) : v;
-}
+export { sig };

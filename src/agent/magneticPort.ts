@@ -1,11 +1,11 @@
 /**
  * The powder page's magnetic analysis step, as the Agent drives it: the same
- * controls the user has there (KSearchPanel) — the magnetic ions, the
- * propagation vector k (searched from the residual peaks, or set), the
- * magnetic space groups of the little group of k, their fit against the data,
- * the moments of the one chosen — published by the panel as a handle on the
- * powder port. The views here are plain data, built the same way by the panel
- * and by the headless page the tests use.
+ * changes the user makes there — the magnetic ions, the propagation vector k
+ * (searched from the residual peaks, or set), the magnetic space groups of the
+ * little group of k, their fit against the data, the moments of the one
+ * chosen — as a handle on the step's store (app/magneticStep.ts,
+ * MagneticStep), which the panel renders and publishes on the powder port and
+ * the headless page holds. The views here are plain data, built by the store.
  */
 
 import type { Vec3 } from "@/core/math/types";
@@ -88,8 +88,10 @@ export interface MagneticPanelState {
   readonly ties: { readonly sameSite: boolean; readonly magnitudes: false | "element" | "all" };
   /** The nuclear-only wR (fraction) a candidate's fit is compared with. */
   readonly baselineAgreement: number | null;
-  /** The ranked candidate with the lowest wR (ties: the maximal group, fewest moment parameters). */
+  /** The ★: among the ranked groups within the noise of the best fit, the maximal one with the fewest moment parameters. */
   readonly best: string | null;
+  /** The ranked groups within the noise of the best fit (Hamilton's test where the fit reports χ²). */
+  readonly withinNoise: readonly string[];
   /** Moments can be fitted against the data on this page. */
   readonly canFit: boolean;
   /** The chosen model lets k refine with the moments (Continue with refineK). */
@@ -108,8 +110,8 @@ export interface MagneticAgentHandle {
   readonly setK: (k: Vec3) => void;
   readonly selectIons: (labels: readonly string[]) => void;
   readonly setTies: (ties: Partial<MomentTies>) => void;
-  /** Fit every candidate that allows a moment (scope "open": the index sections open on the page). */
-  readonly rank: (scope: "open" | "all") => Promise<void>;
+  /** Fit every candidate that allows a moment (scope "open": the index sections open on the page), each from its seeds and `restarts` kicked starts (default RANK_RESTARTS), the best kept. */
+  readonly rank: (scope: "open" | "all", restarts?: number) => Promise<void>;
   /** Choose a candidate by id; a ranked one starts from its fitted moments. */
   readonly choose: (id: string) => void;
   /** Fit the chosen group's moments, the nuclear model held; resolves to wR (fraction). */

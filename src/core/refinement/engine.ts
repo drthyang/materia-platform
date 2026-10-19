@@ -8,20 +8,22 @@
  * supplied by the active workflow. It knows nothing about crystallography.
  */
 
-import type {
-  AgreementFactors,
-  BoundActiveParameter,
-  CalculateOptions,
-  ParameterKind,
-  RefinementIteration,
-  RefinementOptions,
-  RefinementParameter,
-  RefinementCorrelation,
-  RefinementResult,
-  RefinementStatus,
+import {
+  ModelDomainError,
+  type AgreementFactors,
+  type BoundActiveParameter,
+  type CalculateOptions,
+  type ParameterKind,
+  type RefinementIteration,
+  type RefinementOptions,
+  type RefinementParameter,
+  type RefinementCorrelation,
+  type RefinementResult,
+  type RefinementStatus,
 } from "@/core/refinement/types";
 import { chiSquared, computeAgreementFactors } from "@/core/refinement/factors";
 import { resolveTies } from "@/core/refinement/constraints";
+import { CORRELATION_REPORTED } from "@/core/diagnostics/thresholds";
 import {
   pseudoInverseSymmetric,
   shiftedPseudoInverseSolver,
@@ -549,7 +551,9 @@ function highCorrelations(
  * algorithm runs under the synchronous driver (`refine`) or the parallel one
  * (`refineParallel`) — a driver only decides WHERE evaluations happen, never
  * what happens next. Evaluations are pure, so any faithful driver produces a
- * bit-identical trajectory.
+ * bit-identical trajectory. A driver whose evaluation throws hands the error
+ * back with `throw()`, at the batch it came from: the core decides whether the
+ * point it asked for may fail (a trial step outside the model's domain).
  */
 function* refineCore(
   problem: RefinementProblem,
@@ -619,6 +623,9 @@ function* refineCore(
   const solveDropped = new Set<string>();
   let maxSolveZeroCount = 0;
   let maxSolveConditionNumber = 0;
+  // Trial steps that left the model's domain (ModelDomainError), and the first one's reason.
+  let outsideDomain = 0;
+  let outsideDomainReason = "";
 
   for (let iter = 0; iter < opts.maxIterations; iter++) {
     const r = weightedResiduals(problem.observations, current.yCalc, problem.weights);
@@ -677,10 +684,20 @@ function* refineCore(
       }
 
       const trial = freeValues.map((v, j) => clamp(v + delta[j]!, freeParams[j]!));
-      const trialEval = withChi((yield [valuesRecord(problem.parameters, freeIds, trial)])[0]!);
+      let trialEval: { yCalc: Float64Array; chi: number } | null = null;
+      try {
+        trialEval = withChi((yield [valuesRecord(problem.parameters, freeIds, trial)])[0]!);
+      } catch (e) {
+        // A point where the model has no pattern (a free cell length driven
+        // below 0): the step is too long, not the refinement wrong. Any other
+        // error is a fault, and ends the refinement.
+        if (!(e instanceof ModelDomainError)) throw e;
+        if (outsideDomain++ === 0) outsideDomainReason = e.message;
+      }
 
-      // Reject non-finite objectives (overflow/NaN) as well as uphill steps.
-      if (Number.isFinite(trialEval.chi) && trialEval.chi < current.chi) {
+      // Reject a point outside the model's domain and non-finite objectives
+      // (overflow/NaN) as well as uphill steps.
+      if (trialEval && Number.isFinite(trialEval.chi) && trialEval.chi < current.chi) {
         // The step actually taken, after clamping, against the pre-step values.
         lastStep = trial.map((v, j) => v - freeValues[j]!);
         freeValues = trial;
@@ -785,13 +802,13 @@ function* refineCore(
     singularParameterIds,
     ...(nullDirections.length > 0 ? { nullDirections } : {}),
     conditionNumber: Math.max(covDiagnostics.conditionNumber, maxSolveConditionNumber),
-    highCorrelations: highCorrelations(
-      covarianceBase,
-      finalJtj,
-      freeIds,
-      opts.correlationThreshold ?? 0.95,
-      opts.maxReportedCorrelations ?? 12,
-    ),
+    ...(() => {
+      const threshold = opts.correlationThreshold ?? 0.95;
+      const max = opts.maxReportedCorrelations ?? 12;
+      const all = highCorrelations(covarianceBase, finalJtj, freeIds, Math.min(threshold, CORRELATION_REPORTED), Number.POSITIVE_INFINITY);
+      const moderate = all.filter((c) => Math.abs(c.coefficient) < threshold).slice(0, max);
+      return { highCorrelations: all.filter((c) => Math.abs(c.coefficient) >= threshold).slice(0, max), ...(moderate.length > 0 ? { moderateCorrelations: moderate } : {}) };
+    })(),
     maxLambda,
     atBounds: boundActiveParameters(freeParams, freeValues),
     maxShiftOverEsd: lastShift.value,
@@ -810,7 +827,7 @@ function* refineCore(
     diagnostics,
     message: `${status} after ${history.length} iteration(s)${
       diagnostics.svdZeroCount > 0 ? `; SVD dropped ${diagnostics.svdZeroCount} near-null direction(s)` : ""
-    }`,
+    }${outsideDomain > 0 ? `; ${outsideDomain} trial step(s) rejected outside the model's domain (${outsideDomainReason})` : ""}`,
   };
 }
 
@@ -824,7 +841,14 @@ export function refine(
   const gen = refineCore(problem, options, true);
   let step = gen.next();
   while (!step.done) {
-    step = gen.next(step.value.map((values) => problem.calculate(values)));
+    let results: Float64Array[];
+    try {
+      results = step.value.map((values) => problem.calculate(values));
+    } catch (e) {
+      step = gen.throw(e);
+      continue;
+    }
+    step = gen.next(results);
   }
   return step.value;
 }
@@ -879,9 +903,15 @@ export async function refineParallel(
   let step = gen.next();
   while (!step.done) {
     const sets = step.value;
-    const results = sets.length === 1
-      ? [problem.calculate(sets[0]!)]
-      : await evaluator.evaluate(sets);
+    let results: Float64Array[];
+    try {
+      results = sets.length === 1
+        ? [problem.calculate(sets[0]!)]
+        : await evaluator.evaluate(sets);
+    } catch (e) {
+      step = gen.throw(e);
+      continue;
+    }
     step = gen.next(results);
   }
   return step.value;

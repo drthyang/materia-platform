@@ -302,14 +302,17 @@ Both paths then apply parameters with
 ### 2.6 The page
 
 **Supported**
-([SingleCrystalWorkbench.tsx](../src/app/SingleCrystalWorkbench.tsx))
+([SingleCrystalWorkbench.tsx](../src/app/SingleCrystalWorkbench.tsx); what
+its controls and fits do is in
+[singleCrystalPage.ts](../src/app/singleCrystalPage.ts), which the Agent's
+test pages run too)
 - The supercell panel runs §2.5 without changing the loaded structure. The
   magnetic-symmetry panel fits moments to the loaded set, nuclear model fixed.
 - Projects save the datasets, probe and wavelength, parameters, magnetic model,
   OMIT filter and omitted measurements, extinction model, resolution range,
-  riding hydrogens, weighting scheme, twin law, restraints, whether the
-  equivalents are merged, and supercell-panel inputs, but not the panel's
-  result.
+  riding hydrogens, weighting scheme, twin law, restraints, the ADP model,
+  the hand, whether the equivalents are merged, and supercell-panel inputs,
+  but not the panel's result.
 
 ### 2.7 Next
 

@@ -9,12 +9,11 @@ import type { StructureModel } from "@/core/crystal/types";
 import type { PowderPattern } from "@/core/diffraction/types";
 import type { LinearRestraint, ParameterBinding, ParameterKind, RefinementParameter } from "@/core/refinement/types";
 import type { RefinementProblem } from "@/core/refinement/engine";
-import type { ProfilePeak, ProfileOptions, PeakShape } from "@/core/diffraction/profile";
-import { weightsFromSigma, applyExclusionMask, fitRangeMask } from "@/core/refinement/factors";
-import type { FitRange } from "@/core/workflow/powder";
+import type { ProfilePeak, ProfileOptions } from "@/core/diffraction/profile";
+import type { FitRange, PowderProfile } from "@/core/workflow/powder";
 import { resolveTies } from "@/core/refinement/constraints";
 import { applyParameters } from "@/core/workflow/apply";
-import { buildPeaks, createPeakBuilder } from "@/core/workflow/powder";
+import { createPeakBuilder, powderPointWeights } from "@/core/workflow/powder";
 import { SHARED_CORRECTION_KINDS } from "@/core/diffraction/corrections";
 import { synthesizePattern } from "@/core/diffraction/profile";
 
@@ -53,28 +52,14 @@ export function phaseBindingsFor(
   return bindings.filter((b) => b.targetId === phaseId || isSharedBinding(b));
 }
 
-/** Compute the combined multi-phase calculated pattern for given parameter values. */
-function computePattern(
-  phases: readonly PowderPhase[],
-  pattern: PowderPattern,
-  bindings: readonly ParameterBinding[],
-  values: Readonly<Record<string, number>>,
-  xValues: readonly number[],
-  profile: Pick<ProfileOptions, "shape" | "eta">,
-): Float64Array {
-  const allPeaks: ProfilePeak[] = [];
-  let background: number[] = [];
-  for (const phase of phases) {
-    const applied = applyParameters(phase.structure, phaseBindingsFor(bindings, phase.id), values);
-    allPeaks.push(...buildPeaks(pattern, applied));
-    if (applied.background.length) background = applied.background;
-  }
-  const opts: ProfileOptions = {
+/** The synthesis options of the summed pattern: the profile's shape and background basis, on the shared background. */
+function synthesisOptions(profile: PowderProfile, background: readonly number[]): ProfileOptions {
+  return {
     shape: profile.shape,
     ...(profile.eta !== undefined ? { eta: profile.eta } : {}),
     ...(background.length ? { background } : {}),
+    ...(profile.backgroundType !== undefined ? { backgroundType: profile.backgroundType } : {}),
   };
-  return synthesizePattern(xValues, allPeaks, opts);
 }
 
 export function buildMultiPhasePowderProblem(
@@ -82,7 +67,7 @@ export function buildMultiPhasePowderProblem(
   pattern: PowderPattern,
   parameters: readonly RefinementParameter[],
   bindings: readonly ParameterBinding[],
-  profile: { shape: PeakShape; eta?: number } = { shape: "gaussian" },
+  profile: PowderProfile = { shape: "gaussian" },
   fitRange?: FitRange,
   restraints: readonly LinearRestraint[] = [],
 ): RefinementProblem {
@@ -90,21 +75,20 @@ export function buildMultiPhasePowderProblem(
   // Restraints (occupancy ties, phase-prefixed ids) are pseudo-observations
   // after the pattern, as in the single-phase problem.
   const observations = Float64Array.from([...pattern.points.map((p) => p.yObs), ...restraints.map((r) => r.target)]);
-  // A fit range zeroes the weight of every point outside it, so a multi-phase
-  // refinement optimizes only the selected window.
+  // The pattern's points weighted as in the single-phase problem: none on an
+  // excluded plateau or outside the fit range, so a multi-phase refinement
+  // optimizes the points the page scores.
   const weights = new Float64Array(observations.length);
-  weights.set(applyExclusionMask(
-    weightsFromSigma(pattern.points.map((p) => p.sigma ?? (p.yObs > 0 ? Math.sqrt(p.yObs) : 1))),
-    fitRangeMask(xValues, fitRange),
-  ), 0);
+  weights.set(powderPointWeights(pattern, fitRange), 0);
   restraints.forEach((r, i) => { weights[xValues.length + i] = 1 / Math.max(r.sigma, 1e-12) ** 2; });
   // Per-phase cached peak builders (see createPeakBuilder): each phase's
   // structure factors are reused whenever none of ITS geometry parameters
   // moved — a derivative column for phase A's cell leaves phase B's peaks
   // cached, and profile/scale/background columns reuse both.
+  const applyLorentz = profile.lorentz ?? true;
   const phaseBuilders = phases.map((phase) => {
     const phaseBindings = phaseBindingsFor(bindings, phase.id);
-    return { phase, phaseBindings, peaksFor: createPeakBuilder(pattern, phaseBindings, true) };
+    return { phase, phaseBindings, peaksFor: createPeakBuilder(pattern, phaseBindings, applyLorentz) };
   });
   const calculate = (values: Readonly<Record<string, number>>): Float64Array => {
     const resolved = resolveTies(parameters, values);
@@ -115,12 +99,7 @@ export function buildMultiPhasePowderProblem(
       allPeaks.push(...b.peaksFor(applied, resolved));
       if (applied.background.length) background = applied.background;
     }
-    const opts: ProfileOptions = {
-      shape: profile.shape,
-      ...(profile.eta !== undefined ? { eta: profile.eta } : {}),
-      ...(background.length ? { background } : {}),
-    };
-    const yCalc = synthesizePattern(xValues, allPeaks, opts);
+    const yCalc = synthesizePattern(xValues, allPeaks, synthesisOptions(profile, background));
     if (restraints.length === 0) return yCalc;
     const withRestraints = new Float64Array(yCalc.length + restraints.length);
     withRestraints.set(yCalc, 0);
@@ -146,22 +125,23 @@ export function multiPhaseCurves(
   pattern: PowderPattern,
   parameters: readonly RefinementParameter[],
   bindings: readonly ParameterBinding[],
-  profile: { shape: PeakShape; eta?: number } = { shape: "gaussian" },
+  profile: PowderProfile = { shape: "gaussian" },
 ): MultiPhaseCurves {
   const values: Record<string, number> = {};
   for (const p of parameters) values[p.id] = p.value;
   const xValues = pattern.points.map((p) => p.x);
-  const resolved = resolveTies(parameters, values);
-  const yCalc = computePattern(phases, pattern, bindings, resolved, xValues, profile);
+  // The refinement's own pattern, so what is drawn and scored is what a fit minimizes.
+  const yCalc = buildMultiPhasePowderProblem(phases, pattern, parameters, bindings, profile).calculate(values);
   const yObs = pattern.points.map((p) => p.yObs);
-  // The shared background as computePattern applies it (the last phase that
+  // The shared background as the problem applies it (the last phase that
   // carries background terms), drawn with no peaks.
+  const resolved = resolveTies(parameters, values);
   let background: number[] = [];
   for (const phase of phases) {
     const applied = applyParameters(phase.structure, phaseBindingsFor(bindings, phase.id), resolved);
     if (applied.background.length) background = applied.background;
   }
-  const yBackground = background.length ? Array.from(synthesizePattern(xValues, [], { shape: profile.shape, background })) : undefined;
+  const yBackground = background.length ? Array.from(synthesizePattern(xValues, [], synthesisOptions(profile, background))) : undefined;
   return {
     x: [...xValues],
     yObs,

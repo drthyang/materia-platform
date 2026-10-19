@@ -22,6 +22,8 @@
  * a reading out, on the pattern's own axis (2θ, TOF, …), ascending.
  */
 
+import { LARGE_CUT } from "@/core/diagnostics/thresholds";
+
 export type End = "low" | "high";
 
 export interface DataRangeInput {
@@ -105,7 +107,7 @@ const RESIDUAL_RUN = 6;
 /** The window starts this many line widths short of the first reflection (and at least 1 % of the axis). */
 const MARGIN_WIDTHS = 3;
 /** A cut dropping more than this fraction of the points is the user's call. */
-export const LARGE_CUT = 0.15;
+export { LARGE_CUT };
 
 export function inspectDataRange(input: DataRangeInput): DataRangeReading {
   const { x, yObs, sigma } = input;

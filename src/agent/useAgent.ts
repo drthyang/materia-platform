@@ -195,6 +195,7 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
       newConversation: () => void loaded?.then((e) => e.newConversation()),
       heard: (text) => void load().then((e) => e.heard(text)),
       situation: async () => (await load()).situation(),
+      fill: (text) => (instance ? instance.fill(text) : text),
       page: () => instance?.page() ?? null,
     };
   }, [host]);
@@ -245,6 +246,8 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
     setThinking(true);
     setTranscript((t) => [...t, { kind: "user", id: itemId(), text: message }]);
     let current: string | null = null;
+    // The reply as it streams, kept here too: its {{references}} are filled from the page when the message ends, before its tools run.
+    let currentText = "";
     const patchAssistant = (fn: (item: { text: string; thinking: string }) => { text: string; thinking: string }): void => {
       const id = current;
       if (!id) return;
@@ -264,9 +267,18 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
             onAssistantStart: () => {
               const id = itemId();
               current = id;
+              currentText = "";
               setTranscript((t) => [...t, { kind: "assistant", id, text: "", thinking: "" }]);
             },
-            onText: (d) => patchAssistant((i) => ({ text: i.text + d, thinking: i.thinking })),
+            onText: (d) => {
+              currentText += d;
+              patchAssistant((i) => ({ text: i.text + d, thinking: i.thinking }));
+            },
+            onAssistantEnd: () => {
+              // Numbers by reference: the values as they stand now, kept with the reply.
+              const filled = executor.fill ? executor.fill(currentText) : currentText;
+              if (filled !== currentText) patchAssistant((i) => ({ text: filled, thinking: i.thinking }));
+            },
             onThinking: (d) => patchAssistant((i) => ({ text: i.text, thinking: i.thinking + d })),
             onNotice: (msg, tone) => setTranscript((t) => [...t, { kind: "notice", id: itemId(), text: msg, tone }]),
             onUsage: (u) =>
@@ -279,7 +291,7 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
           ctrl.signal,
         );
       } catch (e) {
-        const text = mod ? mod.describeChatError(e, config) : `The Agent could not load (${e instanceof Error ? e.message : String(e)}). Check the connection and send again.`;
+        const text = mod ? mod.describeChatError(e, config) : `The Copilot could not load (${e instanceof Error ? e.message : String(e)}). Check the connection and send again.`;
         setTranscript((t) => [...t, { kind: "notice", id: itemId(), text, tone: "error" }]);
       } finally {
         turn.current = null;
@@ -365,8 +377,11 @@ export function modelLabel(s: AgentSettings): string {
   return `${name} · ${s.mode === "proxy" ? "local proxy" : "Anthropic API"}`;
 }
 
-/** A replayed run's label: the model that took it live, and that this is its replay. */
-export const replayLabel = (model: string): string => `${model} · replay of a live run`;
+/** A scripted replay (the eval suite's turns, src/agent/replay/), named "Scripted model (eval …)": no model ran it live. */
+export const isScriptedReplay = (label: string): boolean => /^Scripted model\b/.test(label);
+
+/** A replayed run's label: the model that took it live and that this is its replay, or a scripted replay said to be one. */
+export const replayLabel = (model: string): string => (isScriptedReplay(model) ? `${model} · a scripted replay, not a live run` : `${model} · replay of a live run`);
 
 /** What one chat message runs on, from the settings. */
 function chatConfig(s: AgentSettings, apiKey: string): ChatConfig {
@@ -379,13 +394,31 @@ function chatConfig(s: AgentSettings, apiKey: string): ChatConfig {
 
 // ── storage (guarded: private windows and blocked site data throw) ─────────
 
+/**
+ * The stored settings, read as often as the page asks for them. A replay's
+ * label is for this load only: taken out of storage at the first read, and
+ * kept here for the reads after it in the same load (React's StrictMode reads
+ * the settings twice in development, where the replays run).
+ */
+export function settingsReader(): (store: Pick<Storage, "getItem" | "setItem">) => AgentSettings {
+  let replayThisLoad = "";
+  return (store) => {
+    const s = settingsFrom(store.getItem(SETTINGS_KEY));
+    if (s.replayOf) {
+      replayThisLoad = s.replayOf;
+      store.setItem(SETTINGS_KEY, JSON.stringify(savedSettings(s)));
+      return s;
+    }
+    return replayThisLoad ? { ...s, replayOf: replayThisLoad } : s;
+  };
+}
+
+const readStored = settingsReader();
+
 function readSettings(): AgentSettings {
   try {
     migrateLegacyKeys(localStorage, sessionStorage);
-    const s = settingsFrom(localStorage.getItem(SETTINGS_KEY));
-    // A replay's label is for this load only: taken out of storage once read.
-    if (s.replayOf) localStorage.setItem(SETTINGS_KEY, JSON.stringify(savedSettings(s)));
-    return s;
+    return readStored(localStorage);
   } catch {
     return DEFAULTS;
   }

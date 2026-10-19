@@ -215,11 +215,11 @@ describe("the analysis as the Agent ran it", () => {
 
   it("puts the analysis first: the steps, the method, the checks, the Bayesian check, the account", () => {
     const html = reportHtml(withAgent());
-    expect(html).toContain("Rietveld refinement report · analysed with the Agent · 2026-09-16");
+    expect(html).toContain("Rietveld refinement report · analysed with MATERIA Copilot · 2026-09-16");
     const order = ["The analysis", "Data &amp; model", "Fit", "Atomic structure"].map((t) => html.indexOf(t));
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(html).toContain("3 steps from the History · model Claude Opus 5.5 · Anthropic API");
-    expect(html).toContain('<span class="pill agent">Agent</span>');
+    expect(html).toContain('<span class="pill agent">Copilot</span>');
     expect(html).toContain("positions ×8, B ×5, scale");
     expect(html).toContain("12.03 %");
     expect(html).toContain('<th class="num">GoF</th>');
@@ -239,11 +239,11 @@ describe("the analysis as the Agent ran it", () => {
     expect(html).toContain("not final values to quote");
     expect(html).toContain("P(B_Mn1 &gt; B_Ga1) = 0.98");
     // The account: the Agent's words, labelled, two paragraphs, its unverified numbers marked (and its notes').
-    expect(html).toContain("The Agent's account");
+    expect(html).toContain("The Copilot's account");
     expect(html).toContain("<p>I refined the structure stage by stage.</p>");
     expect(html).toContain('<span class="unverified" title="Not among the values this report computed">7.77</span>');
     expect(html).not.toContain('>3.86</span>');
-    expect(html).toContain("The Agent's notes");
+    expect(html).toContain("The Copilot's notes");
     expect(html).toContain('pattern &amp; at <span class="unverified" title="Not among the values this report computed">9.99</span> Å');
     expect(html).toContain("in its own words, as are its notes");
   });
@@ -253,24 +253,24 @@ describe("the analysis as the Agent ran it", () => {
     expect(html).toContain('<th class="num">Rw</th>');
     expect(html).not.toContain('<th class="num">GoF</th>');
     expect(html).not.toContain("Bayesian check");
-    expect(html).not.toContain("The Agent's account");
+    expect(html).not.toContain("The Copilot's account");
   });
 
   it("carries the same content as Markdown, the figure embedded and the unverified numbers marked †", () => {
     const md = reportMarkdown(withAgent());
     expect(md.startsWith("# Mn<3>Ga <test>\n")).toBe(true);
-    expect(md).toContain("*MATERIA · Rietveld refinement report · analysed with the Agent · 2026-09-16*");
+    expect(md).toContain("*MATERIA · Rietveld refinement report · analysed with MATERIA Copilot · 2026-09-16*");
     const order = ["## 1. The analysis", "## 2. Data & model", "## 3. Fit", "## 4. Atomic structure", "## 5. Parameters", "## 6. Refinement details"].map((t) => md.indexOf(t));
     expect(order.every((i) => i > 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(md).toContain("| # | Step | By | Refined | Free | wR | GoF |");
-    expect(md).toContain("| 3 | Refine · Positions · ADPs | Agent | positions ×8, B ×5, scale | 14 | 3.86 % | 1.40 |");
+    expect(md).toContain("| 3 | Refine · Positions · ADPs | Copilot | positions ×8, B ×5, scale | 14 | 3.86 % | 1.40 |");
     expect(md).toContain("| Residual peaks | attention | 1 peak on no phase's reflection: d = 2.2012 Å <unexplained>. |");
     expect(md).toContain("**Bayesian check** — ensemble MCMC, 12 walkers × 2300 steps");
     expect(md).toContain("| B_iso Mn1 | 0.62(5) | 0.621 | 0.571–0.672 | 0.520–0.720 | 1.02 | the posterior confirms the esd |");
     expect(md).toContain("> I refined the structure stage by stage.\n>\n> The fit reaches wR 3.86 % with B = 0.62(5) Å²; the extra line at 7.77† Å is open.");
     expect(md).toContain("- The 2.2012 Å line is also in the 300 K pattern & at 9.99† Å.");
-    expect(md).toContain("Numbers marked † in the Agent's words are not among the values this report computed.");
+    expect(md).toContain("Numbers marked † in the Copilot's words are not among the values this report computed.");
     // The figure: an SVG data URI with its own style; the cell and sites with esds.
     expect(md).toMatch(/!\[Observed, calculated and difference pattern\]\(data:image\/svg\+xml;base64,[A-Za-z0-9+/=]+\)/);
     const svg = new TextDecoder().decode(Uint8Array.from(atob(md.match(/base64,([A-Za-z0-9+/=]+)\)/)![1]!), (c) => c.charCodeAt(0)));

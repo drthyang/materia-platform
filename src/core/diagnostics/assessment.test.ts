@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { assessRefinement, relativeLineWidth, residualPeaks, suggestNextSteps } from "@/core/diagnostics/assessment";
+import { GOOF_SINGLE_CRYSTAL_BANDS } from "@/core/diagnostics/thresholds";
 import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import { refine, type RefinementProblem } from "@/core/refinement/engine";
 import { noisyPeakProblem } from "@/testSupport/noisyPeak";
@@ -41,6 +42,15 @@ describe("assessRefinement — fit verdict", () => {
     expect(a.verdict.rationale).toBe("GooF 0.89, below 1: the model leaves less misfit than the weights expect (their σ about 12 % too large) — refit the weighting scheme to the final model (SHELXL's suggestion).");
     // At 1 it is the floor.
     expect(assessRefinement({ result: result({ agreement: { goodnessOfFit: 1.02 } }), parameters: [param("scale", "scale", 1)], observationCount: 1465, mode: "single-crystal" }).verdict.band).toBe("excellent");
+  });
+
+  it("bands a single crystal's GooF from the Validation tab's 1.3 line, not the powder's 1.5", () => {
+    const band = (gof: number, mode: "powder" | "single-crystal"): string =>
+      assessRefinement({ result: result({ agreement: { goodnessOfFit: gof } }), parameters: [param("scale", "scale", 1)], observationCount: 1465, mode }).verdict.band;
+    expect([1.2, 1.4, 2.2, 2.4, 3.7, 3.9].map((g) => band(g, "single-crystal"))).toEqual(["excellent", "good", "good", "fair", "fair", "poor"]);
+    expect([1.2, 1.4, 2.4, 3.9].map((g) => band(g, "powder"))).toEqual(["excellent", "excellent", "good", "fair"]);
+    // The Validation tab reads the same lines: ok to 1.3, a note to 2.3, a warning to 3.8.
+    for (const [k, v] of Object.entries({ tooGood: 0.8, excellent: 1.3, good: 2.3, fair: 3.8 })) expect(GOOF_SINGLE_CRYSTAL_BANDS[k as keyof typeof GOOF_SINGLE_CRYSTAL_BANDS], k).toBeCloseTo(v, 12);
   });
 
   it("a high GoF reads as poor", () => {
@@ -157,6 +167,66 @@ describe("assessRefinement — findings", () => {
     const f = a.findings.find((x) => x.category === "correlation");
     expect(f?.severity).toBe("warning");
     expect(f?.detail).toMatch(/background/i);
+  });
+
+  it("notes, not warns about, a pair the correlation guard refines together", () => {
+    // The guard's rule (correlationGuard.ts): a pair a third free parameter carries, and on a single
+    // crystal the overall intensity terms among themselves. The assessment warned about both, and told
+    // the model to refine apart what the guard had just refined together.
+    const diagnostics = (highCorrelations: NonNullable<RefinementResult["diagnostics"]>["highCorrelations"]): NonNullable<RefinementResult["diagnostics"]> => ({
+      svdZeroCount: 0, singularParameterIds: [], conditionNumber: 100, maxLambda: 1, atBounds: [], maxShiftOverEsd: 0, highCorrelations,
+    });
+    const sc = [param("scale", "scale", 1), param("extinction", "extinction", 20), param("B_O1", "bIso", 0.3), param("occ_O1", "occupancy", 1)];
+    const a = assessRefinement({
+      result: result({ diagnostics: diagnostics([
+        { parameterIdA: "scale", parameterIdB: "B_O1", coefficient: 0.976, conditional: 0.722 },
+        { parameterIdA: "scale", parameterIdB: "extinction", coefficient: 0.989, conditional: 0.95 },
+        { parameterIdA: "B_O1", parameterIdB: "occ_O1", coefficient: 0.97, conditional: 0.95 },
+      ]) }),
+      parameters: sc,
+      observationCount: 400,
+      mode: "single-crystal",
+    });
+    const of = (a1: string, b1: string) => a.findings.find((x) => x.category === "correlation" && x.parameterIds?.join() === `${a1},${b1}`)!;
+    expect([of("scale", "B_O1").severity, of("scale", "extinction").severity, of("B_O1", "occ_O1").severity]).toEqual(["note", "note", "warning"]);
+    expect(of("scale", "B_O1").detail).toMatch(/carried by a third free parameter: with every other free parameter held fixed they correlate at 0\.72/i);
+    expect(of("scale", "extinction").detail).toMatch(/overall intensity terms/);
+    // On powder the scale and the extinction are not exempt: two phases' scales at −0.99 are a real problem there.
+    const powder = assessRefinement({
+      result: result({ diagnostics: diagnostics([{ parameterIdA: "scale", parameterIdB: "extinction", coefficient: 0.989, conditional: 0.95 }]) }),
+      parameters: sc,
+      observationCount: 4000,
+    });
+    expect(powder.findings.find((x) => x.category === "correlation")?.severity).toBe("warning");
+  });
+
+  it("reads a PDF fit without a GoF band, the mode taken from its parameters when not given", () => {
+    // MCP could not ask for the PDF mode, so assess_refinement on a refine_pdf result read the
+    // engine's GoF with the powder bands; the app's page stripped it before calling.
+    const pdf = [param("pdfScale", "pdfScale", 1), param("qdamp", "qdamp", 0.03)];
+    for (const mode of ["pdf", undefined] as const) {
+      const a = assessRefinement({ result: result({ agreement: { goodnessOfFit: 4.2, rWeighted: 0.12 } }), parameters: pdf, observationCount: 2000, ...(mode ? { mode } : {}) });
+      expect(a.verdict.gof).toBeUndefined();
+      expect(a.verdict.band).toBe("fair");
+      expect(a.verdict.rationale).toMatch(/^Converged\. A PDF fit has no goodness of fit/);
+    }
+  });
+
+  it("reports the correlations below the refusal limit, never silently (the user's rule)", () => {
+    const a = assessRefinement({
+      result: result({
+        diagnostics: {
+          svdZeroCount: 0, singularParameterIds: [], conditionNumber: 100, maxLambda: 1,
+          atBounds: [], maxShiftOverEsd: 0, highCorrelations: [],
+          moderateCorrelations: [{ parameterIdA: "scale", parameterIdB: "B1", coefficient: 0.87 }],
+        },
+      }),
+      parameters: [param("scale", "scale", 1), param("B1", "bIso", 0.5)],
+      observationCount: 4000,
+    });
+    const f = a.findings.find((x) => x.category === "correlation");
+    expect(f?.severity).toBe("note");
+    expect(f?.summary).toMatch(/1 pair correlates at \|ρ\| 0\.8–0\.95: scale ↔ B1 0\.87/);
   });
 
   it("flags an at-bound ADP as critical with expert context", () => {
@@ -371,5 +441,20 @@ describe("suggestNextSteps", () => {
     const a = assessRefinement({ result: result(), parameters: [param("scale", "scale", 1)], observationCount: n, residual: { d, yObs, yCalc } });
     const steps = suggestNextSteps(a);
     expect(steps.some((s) => s.addresses.includes("residual"))).toBe(true);
+  });
+});
+
+describe("data per parameter on powder", () => {
+  it("counts the reflections in the fitted range against the structural parameters, not the profile points", () => {
+    const p = (id: string, kind: RefinementParameter["kind"]): RefinementParameter => ({ id, label: id, kind, value: 0.1, initialValue: 0.1, fixed: false });
+    const structural = Array.from({ length: 12 }, (_, i) => p(`x${i}`, "atomX"));
+    const parameters = [p("scale", "scale"), p("bkg0", "background"), p("W", "profileW"), ...structural];
+    const result = { status: "converged", parameters: Object.fromEntries(parameters.map((q) => [q.id, q.value])), esd: {}, agreement: { rWeighted: 0.05, goodnessOfFit: 1.1 }, history: [], diagnostics: { svdZeroCount: 0, singularParameterIds: [], conditionNumber: 1e3, highCorrelations: [], maxLambda: 1, atBounds: [], maxShiftOverEsd: 0.01 } } as unknown as RefinementResult;
+    const residual = (reflections: number) => ({ d: [], yObs: [], yCalc: [], reflections: Array.from({ length: reflections }, (_, i) => ({ d: 1 + i * 0.01, hkl: `${i} 0 0`, phaseLabel: "P" })) });
+    const finding = (reflections: number) => assessRefinement({ result, parameters, observationCount: 5000, residual: residual(reflections) }).findings.find((f) => f.category === "parameterization");
+    // 5000 points but 30 reflections for 12 positions: 2.5 per parameter, a warning (points would say 333).
+    expect(finding(30)?.severity).toBe("warning");
+    expect(finding(30)?.summary).toMatch(/2\.5 reflections per free structural parameter \(12 free structural \/ 30 reflections/);
+    expect(finding(300)).toBeUndefined();
   });
 });

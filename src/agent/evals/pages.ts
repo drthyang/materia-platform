@@ -7,7 +7,8 @@
 import type { PdfAgentPort, PowderAgentPort, SingleCrystalAgentPort } from "@/agent/port";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { loadedSession, newSession, type Session } from "@/app/powderSession";
+import { newSession, type Session } from "@/app/powderSession";
+import { openedPage } from "@/app/powderPage";
 import { parseCif } from "@/parsers/cif";
 import { parseInstrumentParameters } from "@/parsers/instrument";
 import { parseGsasHistogramPattern } from "@/parsers/gsasHistogram";
@@ -26,6 +27,7 @@ import { magneticComponentCurve } from "@/core/workflow/magneticPowder";
 import { powderCurves } from "@/core/workflow/powder";
 import type { Vec3 } from "@/core/math/types";
 import { powderRestraints } from "@/app/powderSpec";
+import { minMax } from "@/core/math/extent";
 
 const WAVELENGTH = 1.54;
 const twoThetaOf = (d: number): number => (2 * Math.asin(WAVELENGTH / (2 * d)) * 180) / Math.PI;
@@ -117,8 +119,9 @@ export function impurityD(): number {
   const s = mn3gaSession();
   const xs = s.pattern.points.map((p) => p.x);
   const dOf = (tt: number): number => WAVELENGTH / (2 * Math.sin((tt * Math.PI) / 360));
-  const dMax = dOf(Math.min(...xs) + 5);
-  const dMin = dOf(Math.max(...xs) - 5);
+  const span = minMax(xs);
+  const dMax = dOf(span.min + 5);
+  const dMin = dOf(span.max - 5);
   const ds = [...new Set(generateReflections(s.structure.cell, s.structure.spaceGroup, Math.max(dMin, 1.2), dMax).map((r) => +r.d.toFixed(5)))].sort((a, b) => b - a);
   let best = { gap: 0, d: 0 };
   for (let i = 0; i + 1 < ds.length; i++) {
@@ -137,7 +140,7 @@ export function mn3gaImpuritySession(): Session {
   const s0 = mn3gaSession();
   const s = { ...s0, powderParams: s0.powderParams.map((p) => (p.id === "width" ? { ...p, value: TRUE_WIDTH } : p)) };
   const at = twoThetaOf(impurityD());
-  const top = Math.max(...s.pattern.points.map((p) => p.yObs));
+  const top = minMax(s.pattern.points.map((p) => p.yObs)).max;
   const height = 0.04 * top;
   const sigma = TRUE_WIDTH / 2.355;
   const points = s.pattern.points.map((p) => {
@@ -161,10 +164,11 @@ export function mn3gaFluoriteSession(): Session {
   const caf2 = knownPhaseStructure("CaF₂")!;
   const xs = s.pattern.points.map((p) => p.x);
   const dOf = (tt: number): number => WAVELENGTH / (2 * Math.sin((tt * Math.PI) / 360));
-  const reflections = generateReflections(caf2.cell, caf2.spaceGroup, dOf(Math.max(...xs)), dOf(Math.min(...xs)));
+  const xSpan = minMax(xs);
+  const reflections = generateReflections(caf2.cell, caf2.spaceGroup, dOf(xSpan.max), dOf(xSpan.min));
   const intensities = powderPeakIntensities(caf2, s.pattern.radiation, reflections, 1, undefined, true).map((p) => p.intensity);
   const strongest = Math.max(...intensities);
-  const top = Math.max(...s.pattern.points.map((p) => p.yObs));
+  const top = minMax(s.pattern.points.map((p) => p.yObs)).max;
   const sigma = TRUE_WIDTH / 2.355;
   const lines = reflections.map((r, i) => ({ at: twoThetaOf(r.d), height: 0.05 * top * intensities[i]! / strongest }));
   const points = s.pattern.points.map((p) => {
@@ -257,7 +261,7 @@ export function awo4UserFiles(): { readonly structure: string; readonly data: st
 /**
  * The powder page as the app opens it on the user's AWO₄ files: the CIF, the
  * histogram read as TOF, and the instrument's calibration and profile, the
- * spec built as the data loader builds it (loadedSession) and the instrument
+ * page opened as the app opens the files (openedPage) and the instrument
  * shown on the page (the d axis needs it).
  */
 export function awo4UserPage(): PowderAgentPort {
@@ -265,9 +269,11 @@ export function awo4UserPage(): PowderAgentPort {
   if (!files) throw new Error("the AWO4 data are not on this machine (data/AWO4)");
   const read = (path: string): string => readFileSync(path, "utf8");
   const structure = parseCif(read(files.structure), "awo4");
-  const instrument = parseInstrumentParameters(read(files.instrument));
-  const pattern = parseGsasHistogramPattern(read(files.data), `${structure.id}-powder`, basename(files.data), { radiation: { kind: "neutron-tof" } });
-  return sessionPort(loadedSession(structure, pattern, instrument), instrument, { instrumentOnPage: true }).port;
+  const instrumentFile = { name: basename(files.instrument), text: read(files.instrument) };
+  const instrument = parseInstrumentParameters(instrumentFile.text);
+  const data = { name: basename(files.data), text: read(files.data) };
+  const pattern = parseGsasHistogramPattern(data.text, `${structure.id}-powder`, data.name, { radiation: { kind: "neutron-tof" } });
+  return sessionPort(openedPage(structure, instrument, pattern, { instrument: instrumentFile, data }).session, instrument, { instrumentOnPage: true }).port;
 }
 
 export function pdfPage(): PdfAgentPort {
@@ -334,13 +340,13 @@ export function scChiralPage(opts: { readonly equivalents?: number } = {}): Sing
   return singleCrystalPort(c.structure, c.dataset).port;
 }
 
-/** The chiral Ga framework measured from a crystal of the other hand (Flack x = 1): the model as loaded is the wrong enantiomer, as round 4's 3a was. */
 /** A light-atom molecule in P3₂, its crystal twinned by h, k, l → k, h, −l at 0.45, each reflection once (round 5's 2b in small). */
 export function scTwinnedPage(): SingleCrystalAgentPort {
   const t = twinnedTrigonalPage();
   return singleCrystalPort(t.structure, t.dataset).port;
 }
 
+/** The chiral Ga framework measured from a crystal of the other hand (Flack x = 1): the model as loaded is the wrong enantiomer, as round 4's 3a was. */
 export function scInvertedHandPage(): SingleCrystalAgentPort {
   const c = chiralPage({ flack: 1 });
   return singleCrystalPort(c.structure, c.dataset).port;

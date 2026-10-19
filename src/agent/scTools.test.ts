@@ -1,6 +1,5 @@
-import { extent } from "@/agent/scTools";
 import { describe, it, expect } from "vitest";
-import { keyOfState } from "@/agent/method";
+import { analysisOf } from "@/agent/pages";
 import type { AgentReport } from "@/agent/report";
 import { executor, fakeHost, singleCrystalPort } from "@/testSupport/agentHeadless";
 import { singleCrystalReportChecks } from "@/agent/scTools";
@@ -49,7 +48,7 @@ describe("AgentExecutor on the single-crystal page", { timeout: 30_000 }, () => 
     expect(out.friedel).toMatch(/^centrosymmetric group/);
     expect(out.absences).toMatch(/no reflection the space group forbids/);
     expect(Array.isArray(out.shells)).toBe(true);
-    const record = records.get(keyOfState("singleCrystal", port.state()))!;
+    const record = records.get(analysisOf(port))!;
     expect(record.dataCheck?.summary).toMatch(/reflections, \d+ unique, R_int [\d.]+ %; d_min 0\.6/);
     const st = parse((await ex.run("get_state", {})).text);
     expect((st.method as { stages: string[] }).stages[0]).toMatch(/^✓ Data quality/);
@@ -184,6 +183,46 @@ describe("AgentExecutor on the single-crystal page", { timeout: 30_000 }, () => 
     expect(calls.slice(steps)).toEqual([]);
   });
 
+  // The extinction test's known answers. The structure, the scale and the
+  // extinction refined together, as the test is meant to follow them.
+  const refinedWithExtinction = async (ex: ReturnType<typeof executor>["ex"]): Promise<void> => {
+    await ex.run("set_free", { free: ["scale", "extinction"] });
+    await ex.run("refine", {});
+    await ex.run("set_free", { free: ["scale", "extinction", "B_Al1", "B_O1", "pos_Al1_0", "pos_O1_0"] });
+    await ex.run("refine", {});
+  };
+
+  it("reads a correct model under severe extinction as not leaning on the extinguished reflections", async () => {
+    // Computed and fitted with SHELXL's EXTI 20: most reflections have y < 0.5.
+    // Leaving them out widens every esd; against the full fit's esds the B's
+    // moved 3 esd at y < 0.5 and the extinction 107 at y < 0.8.
+    const { port } = page({ extinction: 20 });
+    const { ex } = executor(fakeHost(port).host, "auto");
+    await refinedWithExtinction(ex);
+    for (const below of [0.5, 0.8]) {
+      const out = parse((await ex.run("test_extinction", { below })).text);
+      expect(Number.parseInt(String(out.leftOut), 10)).toBeGreaterThan(300);
+      expect(out.movedBeyond2Esd).toEqual([]);
+      expect(String(out.note)).toMatch(/^No free parameter moves by more than 2 esd/);
+    }
+  });
+
+  it("finds the lean of the wrong extinction model, and none once the right one is refined", async () => {
+    // A mosaic crystal (Becker–Coppens type I, Gaussian) fitted with SHELXL's
+    // EXTI: the B's take up what the wrong model misses on the extinguished
+    // reflections, and move once those are left out.
+    const { port } = page({ extinction: 1e-4, extinctionModel: "bc-1-gaussian" });
+    const { ex } = executor(fakeHost(port).host, "auto");
+    await refinedWithExtinction(ex);
+    const wrong = parse((await ex.run("test_extinction", {})).text);
+    expect((wrong.movedBeyond2Esd as string[]).map((m) => m.split(":")[0])).toEqual(expect.arrayContaining(["B_Al1", "B_O1"]));
+    expect(String(wrong.note)).toMatch(/the model leans on the reflections the extinction correction carries\. Try the other extinction model/);
+    await ex.run("set_extinction_model", { model: "bc-1-gaussian" });
+    await refinedWithExtinction(ex);
+    const right = parse((await ex.run("test_extinction", {})).text);
+    expect(right.movedBeyond2Esd).toEqual([]);
+  });
+
   it("refuses the extinction test before a refinement", async () => {
     const { port } = page({ extinction: 20 });
     const { ex } = executor(fakeHost(port).host, "auto");
@@ -196,7 +235,8 @@ describe("AgentExecutor on the single-crystal page", { timeout: 30_000 }, () => 
     const failedPage = (): ReturnType<typeof page> => page({ extinction: 20, failed: { h: 1, k: 0, l: 4, factor: 0.03 } });
     for (const way of ["omit", "keep"] as const) {
       const { port } = failedPage();
-      const { ex, asked } = executor(fakeHost(port).host, "auto");
+      const { host, records } = fakeHost(port);
+      const { ex, asked } = executor(host, "auto");
       await ex.run("refine", {});
       const listed = parse((await ex.run("assess_refinement", {})).text).failedMeasurements as string[];
       expect(listed).toEqual(["1 0 4"]);
@@ -211,6 +251,8 @@ describe("AgentExecutor on the single-crystal page", { timeout: 30_000 }, () => 
         expect((await ex.run("keep_reflections", { reflections: [{ h: 2, k: 0, l: 4 }], reason: "the user trusts it" })).isError).toBe(true);
         await ex.run("keep_reflections", { reflections: [{ h: 1, k: 0, l: 4 }], reason: "the user re-measured it and the value stands" });
         expect(asked.some((e) => e.tool === "keep_reflections")).toBe(true);
+        // Kept in the analysis' record, so it is saved with the project (not in the page's memory).
+        expect([...records.values()].flatMap((r) => r.kept ?? []).map((k) => [k.measurement, k.reason])).toEqual([["1,0,4,", "the user re-measured it and the value stands"]]);
       }
       const written = await ex.run("write_report", { summary: "Refined; R1 as listed." });
       expect(written.isError, written.text).toBe(false);
@@ -686,14 +728,6 @@ describe("AgentExecutor on the single-crystal page", { timeout: 30_000 }, () => 
     expect(out.unverifiedNumbers).toBeUndefined();
     expect(reports).toHaveLength(1);
     expect(reports[0]!.markdown).toMatch(/\| wR2 \|/);
-  });
-});
-
-describe("the range of a large file's values", () => {
-  it("is read by a loop: 500 000 wavelengths do not overflow the stack", () => {
-    const values = Array.from({ length: 500_000 }, (_, i) => 0.4 + (i % 1000) * 0.003);
-    expect(() => Math.min(...values)).toThrow(RangeError);
-    expect(extent(values)).toEqual([0.4, 0.4 + 999 * 0.003]);
   });
 });
 

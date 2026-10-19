@@ -4,7 +4,16 @@ The in-app Agent is tested on what it does. Each eval scenario is a request a
 user or a researcher round made that the Agent once got wrong: a page built from
 the repository's own data, the message the user typed, what the stand-in user
 approves, and the checks that say whether the Agent got it right this time. The
-real chat loop, executor and tools run; only the model changes.
+real chat loop, executor and tools run; only the model changes. A powder page
+runs the app's own operations without React
+([`src/app/powderPage.ts`](../src/app/powderPage.ts): the curves and agreement,
+what each control does, Refine, Prefit, the posterior, going back to a History
+step) through the app's compute client, in-thread, so a scenario's fit is the
+one the app would run. The single-crystal and PDF pages do the same
+([`src/app/singleCrystalPage.ts`](../src/app/singleCrystalPage.ts),
+[`src/app/pdfPage.ts`](../src/app/pdfPage.ts)); the PDF page is the GaTa₄Se₈
+demo as the app opens it, on a 1.5–6 Å window (the app's demo fits 1.5–28 Å,
+where one fit takes seconds).
 
 - **In CI**, every scenario is replayed with a scripted model twice: once as the
   Agent should behave (every check passes) and once as it did when the failure
@@ -47,6 +56,10 @@ real chat loop, executor and tools run; only the model changes.
   re-scored report. A check that reads the page's final state (the window
   set, the reflections left out) keeps the verdict the run had. CI replays
   every scripted run through that save and re-score.
+
+Whether the Agent *helps*, against the app without it and on held-out cases
+with a known answer, is a separate protocol:
+[VALIDATION.md, "Does the Agent help?"](./VALIDATION.md#does-the-agent-help).
 
 ## The scenarios
 

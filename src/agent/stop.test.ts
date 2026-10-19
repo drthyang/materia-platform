@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { AgentExecutor, type ActivityEntry } from "@/agent/executor";
 import { executor, fakeHost, sessionPort } from "@/testSupport/agentHeadless";
-import { mn3gaMagneticSession, mn3gaSession, powderPage } from "@/agent/evals/pages";
+import { MAGNETIC_TRUTH, mn3gaMagneticSession, mn3gaSession, powderPage, scPage } from "@/agent/evals/pages";
 import { PAGE_METHOD } from "@/agent/skills";
-import { keyOfState } from "@/agent/method";
-import type { PowderAgentPort } from "@/agent/port";
+import { analysisOf } from "@/agent/pages";
+import type { AgentPort, PowderAgentPort } from "@/agent/port";
 import { recordOnLatest } from "@/app/historyBinding";
 import type { ProjectHistory } from "@/core/project/history";
 import { makeExamplePowderProject } from "@/core/project/fixture";
@@ -18,10 +18,10 @@ const stopped = (): AbortSignal => {
   return c.signal;
 };
 
-/** An executor over `port` with an approval the test controls. */
-function withApproval(port: PowderAgentPort, approve: (entry: ActivityEntry, signal?: AbortSignal) => Promise<boolean>): AgentExecutor {
+/** An executor over `port` with an approval the test controls, the page's method read. */
+function withApproval(port: AgentPort, approve: (entry: ActivityEntry, signal?: AbortSignal) => Promise<boolean>): AgentExecutor {
   const ex = new AgentExecutor(fakeHost(port).host, { approve, onActivity: () => undefined });
-  void ex.run("read_skill", { name: PAGE_METHOD.powder });
+  void ex.run("read_skill", { name: PAGE_METHOD[port.technique] });
   return ex;
 }
 
@@ -31,7 +31,7 @@ describe("Stop reaches the executor", () => {
     const { ex, asked } = executor(fakeHost(port).host, "auto");
     const before = free(port);
     const out = await ex.run("set_free", { free: ["width"] }, stopped());
-    expect(out).toEqual({ isError: true, text: "Error: Stopped by the user before this ran." });
+    expect(out).toEqual({ isError: true, text: "Error: Stopped by the user before this ran.", status: "stopped" });
     expect(asked).toEqual([]);
     expect(free(port)).toEqual(before);
   });
@@ -79,6 +79,33 @@ describe("a change re-checked after its approval", () => {
     expect(out.text).toMatch(/not run: the analysis changed while it waited for approval/);
     expect(free(port)).not.toContain("B_Mn1");
   });
+
+  it("is not run when a single-crystal setting moved while its card waited (the check once read only the rows)", async () => {
+    const port = scPage();
+    const ex = withApproval(port, async () => {
+      // The user switches the OMIT filter before approving new weights.
+      port.setOutlierFilter({ on: !port.state().outlierFilter.on, cutoffSigma: 5 });
+      return true;
+    });
+    const out = await ex.run("set_weighting", { a: 0.05, b: 0.2 });
+    expect(out.refusedBy).toBe("stale");
+    expect(port.state().weighting).toBeNull();
+  });
+
+  it("is not run when the magnetic step's k moved while a group's card waited", async () => {
+    const page = sessionPort(mn3gaMagneticSession());
+    const step = page.port.magnetic!()!;
+    step.setK([...MAGNETIC_TRUTH.k]);
+    const ex = withApproval(page.port, async () => {
+      // The user sets another k on the panel: "G2" now names another group.
+      step.setK([0, 0, 0]);
+      return true;
+    });
+    await ex.run("read_skill", { name: "magnetic-analysis" });
+    const out = await ex.run("choose_magnetic_group", { id: MAGNETIC_TRUTH.id });
+    expect(out.refusedBy).toBe("stale");
+    expect(step.state().selected).toBeNull();
+  });
 });
 
 describe("the method's checklist", () => {
@@ -92,7 +119,7 @@ describe("the method's checklist", () => {
     // The positions freed after the fit, and not refined.
     await ex.run("set_free", { free: ["pos_*"] });
     await ex.run("get_state", {});
-    const record = host.records.get(keyOfState("powder", port.state()));
+    const record = host.records.get(analysisOf(port));
     expect(record?.stagesDone).toContain("base");
     expect(record?.stagesDone).not.toContain("positions");
   });
@@ -118,7 +145,7 @@ describe("the step history", () => {
   });
 });
 
-describe("Agent settings saved", () => {
+describe("Copilot settings saved", () => {
   it("never save a replay's label, so a later live run is not called a replay", () => {
     const s = settingsFrom(JSON.stringify({ mode: "lmstudio", lmstudioModel: "claude-replay", replayOf: "Claude Opus 5.5" }));
     expect(s.replayOf).toBe("Claude Opus 5.5");
@@ -141,5 +168,30 @@ describe("the method view on the magnetic step", () => {
     const plain = (JSON.parse((await executor(fakeHost(powderPage(mn3gaSession())).host).ex.run("get_state", {})).text) as { method: { skill: string; next: string } }).method;
     expect(plain.skill).toBe("my-rietveld-workflow");
     expect(plain.next).not.toMatch(/magnetic/);
+  });
+});
+
+describe("what a call says about the fit on screen", () => {
+  it("a refinement that ran changed it; a refused or declined one, a free set and a read did not", async () => {
+    const port = powderPage(mn3gaSession());
+    const { ex } = executor(fakeHost(port).host, "auto");
+    expect((await ex.run("refine", {})).fitChanged).toBe(true);
+    expect((await ex.run("get_state", {})).fitChanged).toBeFalsy();
+    expect((await ex.run("set_free", { free: ["occ_Mn1"] })).fitChanged).toBe(false);
+    // The bare occupancy: the firm rule refuses the refinement.
+    const refused = await ex.run("refine", {});
+    expect(refused.refusedBy).toBe("firm-rule");
+    expect(refused.fitChanged).toBeFalsy();
+    const declined = await executor(fakeHost(port).host, false).ex.run("set_free", { fix: ["occ_Mn1"] });
+    expect(declined.status).toBe("declined");
+    expect(declined.fitChanged).toBeFalsy();
+  });
+
+  it("a change that clears the fit changed it (the single-crystal weights)", async () => {
+    const port = scPage();
+    const { ex } = executor(fakeHost(port).host, "auto");
+    expect((await ex.run("refine", {})).fitChanged).toBe(true);
+    expect((await ex.run("set_weighting", { a: 0.05, b: 0.2 })).fitChanged).toBe(true);
+    expect(port.state().result).toBeNull();
   });
 });

@@ -125,7 +125,7 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
   {
     name: "check_cell_symmetry",
     title: "Check cell & space group (Le Bail sanity check)",
-    description: "A sanity check at the START of a refinement, not a gate: does the cell index every peak, and does the data respect the space group's systematic absences? A Le Bail fit refines the cell from peak positions alone (free intensities), with back-to-back-exponential peaks that widen with d on time-of-flight data; then it reads the leftover (≥ `significance` σ counts). On 2θ data it also refines a zero shift and the axial-divergence asymmetry, and draws a lab tube's Kα₂. `unindexedPeaks` mean a wrong cell or lattice, or a missing phase — settle these first; pass known impurities as `extraPhases`. `shoulders` are small bumps (≤ 3 %) within a few widths of a strong line: a profile tail the simple Le Bail shape misses, not a phase, and not counted against the cell. `absences.violated` is a FLAG, not a verdict: before the structure is refined, profile misfit or an impurity line reads the same way. Do not change the space group on it — note it, refine the structure to the best, and question the group last with review_symmetry on the refined residual. `absences.untestable` lists forbidden reflections too close to an allowed one to judge. Only d ≥ `dMin` (0.7 Å) is read. It cannot catch a too-LARGE cell (a supercell indexes anything) or a group with too FEW absences — read `limits`. `passed` and `cell` (the Le Bail cell) are the result.",
+    description: "A sanity check at the START of a refinement, not a gate: does the cell index every peak, and does the data respect the space group's systematic absences? A Le Bail fit refines the cell from peak positions alone (free intensities), with back-to-back-exponential peaks that widen with d on time-of-flight data; then it reads the leftover (≥ `significance` σ counts). On 2θ data it also refines a zero shift and the axial-divergence asymmetry, and draws a lab tube's Kα₂. `reading` says what the check found in the app's words (first a wrong wavelength or difC, from the pattern's own peaks: one factor on every d, which the Le Bail fit cannot follow). `unindexedPeaks` mean a wrong cell or lattice, or a missing phase — settle these first; pass known impurities as `extraPhases`. `shoulders` are small bumps (≤ 3 %) within a few widths of a strong line: a profile tail the simple Le Bail shape misses, not a phase, and not counted against the cell. `absences.violated` is a FLAG, not a verdict: before the structure is refined, profile misfit or an impurity line reads the same way. Do not change the space group on it — note it, refine the structure to the best, and question the group last with review_symmetry on the refined residual. `absences.untestable` lists forbidden reflections too close to an allowed one to judge. Only d ≥ `dMin` (0.7 Å) is read. It cannot catch a too-LARGE cell (a supercell indexes anything) or a group with too FEW absences — read `limits`. `passed` and `cell` (the Le Bail cell) are the result.",
     inputSchema: {
       structure: anyObj.describe("StructureModel: its cell and space group are what is checked"),
       pattern: anyObj.describe("PowderPattern from parse_powder_data"),
@@ -157,7 +157,7 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
   {
     name: "assess_refinement",
     title: "Assess refinement (expert judgment)",
-    description: "The judgment tool. Turn a refinement result into a structured expert read: a trust VERDICT (Toby GoF bands) plus ranked FINDINGS — dangerous correlations (with the physical reason), at-bound/unphysical parameters, ill-conditioning, over/under-parameterization, and UNEXPLAINED RESIDUAL PEAKS (the missing-phase / magnetic-order signal). Pass the refine_powder outputs straight in.",
+    description: "The judgment tool. Turn a refinement result into a structured expert read: a trust VERDICT (Toby GoF bands) plus ranked FINDINGS — dangerous correlations (with the physical reason), at-bound/unphysical parameters, ill-conditioning, over/under-parameterization, and UNEXPLAINED RESIDUAL PEAKS (the missing-phase / magnetic-order signal). Pass the refine_powder outputs straight in; a refine_pdf result is read in real space, without the GoF.",
     inputSchema: {
       result: anyObj.describe("RefinementResult from refine_powder"),
       parameters: anyArr,
@@ -169,7 +169,7 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
         magneticNeutron: z.boolean().optional(),
         lineWidth: z.number().optional(),
       }).optional().describe("From refine_powder; enables missing-peak detection"),
-      mode: z.enum(["powder", "single-crystal"]).optional(),
+      mode: z.enum(["powder", "single-crystal", "pdf"]).optional().describe("The fit's technique; default powder, or pdf when the parameters hold a PDF scale (a refine_pdf result): a PDF fit has no GoF band"),
     },
     handler: tools.assess_refinement,
   },
@@ -245,17 +245,24 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
   {
     name: "find_unexplained_peaks",
     title: "Find unexplained residual peaks",
-    description: "Find peaks in the residual (obs − calc) — the magnetic-order / impurity-phase signal. Robust MAD-based thresholding; returns d-spacings ranked by height. Check each against the phases' reflections (reflection_list) before calling it an extra peak: residual ON a known reflection is that reflection's intensity or shape misfit, which refining the structure, profile and corrections fixes — not a new phase and not a reason to lower the symmetry. A handful of peaks away from every reflection suggests magnetic satellites or one impurity; dozens mean the fit itself is poor.",
+    description: "Find peaks in the residual (obs − calc), classified against the model's lines — the impurity / magnetic-order signal, kept apart from misfits. `unexplained`: peaks on no phase's reflection or its tail (an impurity, the sample environment, magnetic satellites). `misfits`: peaks on or beside a known reflection — that reflection's intensity or shape not matched yet, which refining the structure, profile and corrections fixes; never an extra peak and never a reason to lower the symmetry. `k0Magnetic` is true when a neutron pattern of magnetic ions has its excess on nuclear lines at large d: the misfits may then be k = 0 magnetic order (give their d to search_propagation_vector). With per-point σ (refine_powder's residual carries it) a peak must stand 5σ above its own noise. Each peak has d, height, sigmas and the line it sits on or near; `reading` says what they mean.",
     inputSchema: {
-      residual: z.object({ d: z.array(z.number()), yObs: z.array(z.number()), yCalc: z.array(z.number()), lineWidth: z.number().optional() }).describe("From refine_powder"),
-      options: z.object({ sigma: z.number().positive().optional(), minFraction: z.number().positive().optional(), window: z.number().int().positive().optional(), mergeD: z.number().positive().optional(), limit: z.number().int().positive().optional() }).optional(),
+      residual: z.object({
+        d: z.array(z.number()), yObs: z.array(z.number()), yCalc: z.array(z.number()),
+        sigma: z.array(z.number()).optional(),
+        sigmaFrom: z.enum(["file", "counting"]).optional(),
+        reflections: z.array(z.object({ d: z.number(), hkl: z.string(), phaseLabel: z.string() })).optional(),
+        magneticNeutron: z.boolean().optional(),
+        lineWidth: z.number().optional(),
+      }).describe("From refine_powder (its residual: d, obs, calc, σ and every phase's reflections)"),
+      options: z.object({ sigma: z.number().positive().optional().describe("Peak height in robust noise σ (default 8)"), limit: z.number().int().positive().optional().describe("Most peaks of each kind (default 12)") }).optional(),
     },
     handler: tools.find_unexplained_peaks,
   },
   {
     name: "review_symmetry",
     title: "Review the space group (last step)",
-    description: "The LAST step of a Rietveld refinement, never the first: once scale, background, cell, positions, profile and ADPs are refined to convergence and the fit is still not good, read the refined residual at the reflections the primary phase's space group forbids. Returns the forbidden reflections that still carry intensity (`observedForbidden`), the same-lattice (translationengleiche) subgroups that allow them, smallest index first, with their domain counts (`candidates`), and a `reading`. Intensity that differs on allowed reflections is what refinement fixes, never evidence against the group. A lower group is a new model refined again from the start, kept only if it fits these reflections without the misfit moving elsewhere — the user decides. Lost centrings and larger cells are not enumerated (read `limits`).",
+    description: "The LAST step of a Rietveld refinement, never the first: once scale, background, cell, positions, profile and ADPs are refined to convergence and the fit is still not good, read the refined residual at the reflections the primary phase's space group forbids. Returns the forbidden reflections that still carry intensity (`observedForbidden`), the same-lattice (translationengleiche) subgroups that allow them, smallest index first, with their domain counts (`candidates`), in a centred group the subgroups that drop a centring vector (`decentred`: an order the model averages, CsCl read as body-centred), and a `reading`. Intensity that differs on allowed reflections is what refinement fixes, never evidence against the group. A lower group is a new model refined again from the start, kept only if it fits these reflections without the misfit moving elsewhere — the user decides. A larger cell is not enumerated (read `limits`).",
     inputSchema: {
       structure: anyObj.describe("The refined primary phase (StructureModel)"),
       extraPhases: anyArr.optional().describe("Other refined phases: their reflections count as allowed"),
@@ -266,7 +273,7 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
   {
     name: "search_propagation_vector",
     title: "Search propagation vector k",
-    description: "Rank candidate commensurate propagation vectors k (denominators 2/3/4/6) by how many unexplained peak d-spacings their satellites G ± k explain. Feed the d values from find_unexplained_peaks; the winning k goes to list_magnetic_subgroups.",
+    description: "Rank candidate commensurate propagation vectors k (denominators 2/3/4/6; in a monoclinic or triclinic cell the mixed-sign ones too, such as (¼ 0 −¼)) by how many unexplained peak d-spacings their satellites G ± k explain, each within 0.02 Å or 0.5 % of d, the hkl range sized from the cell. Every peak given counts: `maxQ` drops those above a |Q| only when passed. Feed the d values from find_unexplained_peaks; the winning k goes to list_magnetic_subgroups.",
     inputSchema: {
       structure: anyObj,
       peakD: z.array(z.number().positive()).describe("Unexplained peak d-spacings (Å)"),
@@ -331,7 +338,9 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
     inputSchema: {
       structure: anyObj, magnetic: anyObj, pattern: anyObj,
       parameters: anyArr.describe("Nuclear + moment parameters (set fixed:false on what refines)"),
-      bindings: anyArr, profile: anyObj,
+      bindings: anyArr, profile: anyObj.describe("From build_refinement: the peak shape, η, the Lorentz factor and the background basis"),
+      extraPhases: anyArr.optional().describe("Additional (non-magnetic) crystallographic phases, as for refine_powder"),
+      fitRange: z.object({ min: z.number(), max: z.number() }).optional().describe("Window on the pattern's own axis, as for refine_powder"),
       staged: z.boolean().optional(),
       maxIterations: z.number().int().min(1).max(200).optional(),
       restarts: z.number().int().min(0).max(40).optional().describe("Moment restarts before the joint solve (default 0). Use it when choosing between magnetic groups or when the moments look odd: one LM run lands in the nearest of several moment minima"),
@@ -446,6 +455,7 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
     description: "Run a BOXCAR (sliding-window) PDF refinement: refit the freed parameters inside a fixed-width r-window slid across the data, each box seeded from the previous one, and report how every parameter drifts with the box center. This is the r-resolved read of a structure — a value that changes with the box center means the LOCAL structure (low r) differs from the AVERAGE one (high r), which a single whole-range fit averages away. Every box has exactly `width`; a trailing span too short for a full box is not fitted (reported in `warnings`). Each box is seeded from the previous one, which makes the series PATH-DEPENDENT — set `restarts` to re-search each box from randomly perturbed starts and keep the best, so a drift is not one box's local minimum inherited by the rest. Read a value only where its box fitted well (`boxes[].rWeighted`, `boxes[].status`) and where the esd is small compared with the drift — narrow boxes hold few points, so esds grow as the box shrinks. Hold Qdamp/Qbroad fixed: they are instrument constants, not functions of r.",
     inputSchema: {
       structure: anyObj, pattern: anyObj,
+      extraPhases: anyArr.optional().describe("Additional crystallographic phases (multi-phase G(r) sum), as for refine_pdf"),
       parameters: anyArr.describe("RefinementParameter[] (set fixed:true/false to choose what is tracked)"),
       bindings: anyArr,
       restraints: anyArr.optional(),
@@ -504,7 +514,7 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
   {
     name: "sample_posterior",
     title: "Sample Bayesian posterior (MCMC)",
-    description: "Draw Bayesian posterior samples over the FREED parameters of a PDF fit, or of a powder fit (pass build_refinement's `profile`, and `magnetic` for a nuclear + magnetic co-refinement), with an affine-invariant ensemble MCMC sampler — the full parameter distribution where refine_pdf / refine_powder give a point estimate. Run it when a refined value is not convincing: an esd as large as the value, a parameter on a bound, a strongly correlated pair, a value that moves between refinement paths at the same wR. Reports per-parameter median / 68% / 95% credible intervals, convergence diagnostics (R-hat, ESS, acceptance), sample correlations, and — when `linearizedEsd` from a prior refine_pdf is supplied — `esdRatio` (posterior std / least-squares esd: ≈1 validates the esds, ≫1 means they were overconfident from correlation or non-Gaussianity). The default `marginalized` noise model integrates out the unknown G(r) error scale (uniform weights are not honest sigmas), so widths are meaningful. Run refine_pdf / refine_powder FIRST and seed `parameters` at the converged values. Bounded per call: if `converged` is false, pass the returned `resume` token to a follow-up call to continue the same chain.",
+    description: "Draw Bayesian posterior samples over the FREED parameters of a PDF fit, or of a powder fit (pass build_refinement's `profile`, and `magnetic` for a nuclear + magnetic co-refinement), with an affine-invariant ensemble MCMC sampler — the full parameter distribution where refine_pdf / refine_powder give a point estimate. Run it when a refined value is not convincing: an esd as large as the value, a parameter on a bound, a strongly correlated pair, a value that moves between refinement paths at the same wR. Reports per-parameter median / 68% / 95% credible intervals, convergence diagnostics (R-hat, ESS, acceptance), sample correlations, `intervals` and `reading` (each parameter's verdict and the run read whole, as the app reads it: wait for convergence, the esds confirmed or not, a bound, a strong correlation), and — when `linearizedEsd` from a prior refine_pdf is supplied — `esdRatio` (posterior std / least-squares esd: ≈1 validates the esds, ≫1 means they were overconfident from correlation or non-Gaussianity). The default `marginalized` noise model integrates out the unknown G(r) error scale (uniform weights are not honest sigmas), so widths are meaningful. Run refine_pdf / refine_powder FIRST and seed `parameters` at the converged values. Bounded per call: if `converged` is false, pass the returned `resume` token to a follow-up call to continue the same chain.",
     inputSchema: {
       structure: anyObj, pattern: anyObj.describe("The PDF G(r), or the powder pattern"),
       parameters: anyArr.describe("RefinementParameter[] seeded at the refine_pdf / refine_powder optimum (fixed:true excludes from sampling)"),

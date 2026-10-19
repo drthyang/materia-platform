@@ -5,6 +5,9 @@ import type { ParameterBinding, RefinementParameter } from "@/core/refinement/ty
 import { parseSymmetryOperation } from "@/core/crystal/symmetry";
 import { refine } from "@/core/refinement/engine";
 import { buildMultiPhasePowderProblem, multiPhaseCurves, type PowderPhase } from "@/core/workflow/multiPhase";
+import { powderCurves, type PowderProfile } from "@/core/workflow/powder";
+import { buildProblemForSpec } from "@/workers/runPowder";
+import type { EvaluatorSpec } from "@/workers/protocol";
 import { exampleStructure } from "@/examples/mn3ga";
 
 // Second phase: rock-salt MnO (F-centred cubic, reduced op set for the test).
@@ -119,5 +122,44 @@ describe("multiPhaseCurves — shared background", () => {
     for (let i = 0; i < grid.length; i++) expect(c.yCalc[i]!).toBeGreaterThanOrEqual(c.yBackground![i]! - 1e-9);
     // Without background terms there is no background curve.
     expect(multiPhaseCurves(phases, pattern(grid.map((x) => ({ x, yObs: 0 }))), params.slice(0, 3), bindings).yBackground).toBeUndefined();
+  });
+});
+
+// The multi-phase curves and problem once read only the profile's shape and η:
+// a page on another background basis, or with the Lorentz factor off, was drawn
+// and fitted on the Chebyshev basis with the Lorentz factor on.
+describe("multi-phase powder — the whole profile", () => {
+  const one: PowderPhase[] = [phases[0]!];
+  const withBkg: ParameterBinding[] = [
+    { parameterId: "scale1", kind: "scale", targetId: "mn3ga" },
+    { parameterId: "width", kind: "peakWidth", targetId: "pat" },
+    ...[0, 1, 2, 3].map((n) => ({ parameterId: `bkg${n}`, kind: "background" as const, targetId: "pat", targetKey: String(n) })),
+  ];
+  const params: RefinementParameter[] = [
+    { id: "scale1", label: "s1", kind: "scale", value: 60, initialValue: 60, fixed: false },
+    { id: "width", label: "w", kind: "peakWidth", value: 0.5, initialValue: 0.5, fixed: true },
+    ...[120, 40, 15, 8].map((v, n) => ({ id: `bkg${n}`, label: `b${n}`, kind: "background" as const, value: v, initialValue: v, fixed: false })),
+  ];
+  const values = Object.fromEntries(params.map((p) => [p.id, p.value]));
+  const obs = pattern(grid.map((x) => ({ x, yObs: 0 })));
+  const largest = (a: ArrayLike<number>, b: ArrayLike<number>): number => Array.from(a).reduce((m, v, i) => Math.max(m, Math.abs(v - b[i]!)), 0);
+  const profiles: PowderProfile[] = [
+    { shape: "gaussian", backgroundType: "cosine" },
+    { shape: "pseudoVoigt", eta: 0.4, backgroundType: "powerSeries", lorentz: false },
+    { shape: "gaussian", backgroundType: "logInterpolate", lorentz: false },
+  ];
+
+  it("one phase alone is the single-phase pattern, on each basis and with the Lorentz factor off", () => {
+    for (const profile of profiles) {
+      const single = powderCurves(exampleStructure(), obs, params, withBkg, profile);
+      const at = JSON.stringify(profile);
+      const multi = multiPhaseCurves(one, obs, params, withBkg, profile);
+      expect(largest(multi.yCalc, single.yCalc), at).toBeLessThan(1e-9);
+      expect(largest(multi.yBackground!, single.yBackground!), at).toBeLessThan(1e-9);
+      expect(largest(buildMultiPhasePowderProblem(one, obs, params, withBkg, profile).calculate(values), single.yCalc), at).toBeLessThan(1e-9);
+      // The worker's replica, from the evaluator spec the compute client sends.
+      const spec: EvaluatorSpec = { kind: "multiPhasePowder", phases: one, pattern: obs, parameters: params, bindings: withBkg, ...profile };
+      expect(largest(buildProblemForSpec(spec).calculate(values), single.yCalc), at).toBeLessThan(1e-9);
+    }
   });
 });

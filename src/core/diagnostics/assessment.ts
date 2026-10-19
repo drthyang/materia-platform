@@ -26,6 +26,9 @@ import type {
 } from "@/core/refinement/types";
 import { annotateExtraPeaks, detectExtraPeaks, type AnnotatedExtraPeak } from "@/core/magnetic/extraPeaks";
 import { correctionCorrelation } from "@/core/diffraction/corrections";
+import type { StructureModel } from "@/core/crystal/types";
+import { structureChecks } from "@/core/diagnostics/structureChecks";
+import { CARRIED_BELOW, CARRIED_MAX, CORRELATION_LIMIT, CORRELATION_REPORTED, DATA_PER_PARAMETER, GOF_BANDS, GOOF_SINGLE_CRYSTAL_BANDS, SHIFT_SETTLED } from "@/core/diagnostics/thresholds";
 
 /**
  * The assembly of a twin's fractions when the twin has both hands (a
@@ -85,6 +88,12 @@ export interface RefinementAssessment {
 }
 
 export interface AssessmentInput {
+  /**
+   * The refined structures (primary phase first): the physical checks after
+   * every run read them — distances, bond-valence lengths, U_iso's range and
+   * order (structureChecks.ts).
+   */
+  readonly structures?: readonly StructureModel[];
   readonly result: RefinementResult;
   /** The parameter set the fit ran on (for kinds, bounds, and physical checks). */
   readonly parameters: readonly RefinementParameter[];
@@ -103,6 +112,8 @@ export interface AssessmentInput {
     /** Each point's standard uncertainty: a residual peak must stand above its
      *  own counting noise, so a noisy low-count region does not read as peaks. */
     readonly sigma?: readonly number[];
+    /** Where σ came from (powderResidual): the file's own, or counting statistics where it gives none. */
+    readonly sigmaFrom?: "file" | "counting";
     /** Every phase's reflections (refined cells): a residual peak on one is a
      *  misfit of that reflection, not intensity no phase accounts for. */
     readonly reflections?: readonly { readonly d: number; readonly hkl: string; readonly phaseLabel: string }[];
@@ -137,11 +148,12 @@ export interface AssessmentInput {
  * SHIFT_MOVING a parameter moved by more than its own esd, so its quoted value
  * is not yet the minimum.
  */
-const SHIFT_SETTLED = 0.1;
 const SHIFT_MOVING = 1;
 
 /** Displacement-parameter kinds, for physical (negative-ADP) checks. */
 const ADP_KINDS: ReadonlySet<ParameterKind> = new Set(["bIso", "uAniso"]);
+/** What a powder pattern's integrated intensities determine: the structure (and a magnetic one), preferred orientation, extinction. */
+const INTENSITY_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>(["atomX", "atomY", "atomZ", "positionShift", "occupancy", "bIso", "uAniso", "momentX", "momentY", "momentZ", "momentMode", "magneticScale", "poRatio", "extinction"]);
 
 /**
  * Known dangerous correlation pairs → the physical reason they correlate.
@@ -187,6 +199,25 @@ export function oneCurve(a: ParameterKind | undefined, b: ParameterKind | undefi
   return null;
 }
 
+/** The overall intensity terms of a single-crystal fit (SHELXL's OSF, EXTI, BASF), refined together as a matter of course. */
+const INTENSITY_TERMS: ReadonlySet<ParameterKind> = new Set<ParameterKind>(["scale", "extinction", "batchScale"]);
+
+/**
+ * Two overall intensity terms (scale, extinction, batch scales). On a single
+ * crystal they are refined together whatever their correlation: the
+ * extinction is told from the scale by how the misfit grows with intensity,
+ * which a pair's correlation does not see (synthetic corundum, strong
+ * extinction: scale ↔ extinction 0.989, the extinction back within 3 %).
+ */
+export function intensityTerms(a: ParameterKind | undefined, b: ParameterKind | undefined): boolean {
+  return a !== undefined && b !== undefined && INTENSITY_TERMS.has(a) && INTENSITY_TERMS.has(b);
+}
+
+/** A correlation a third free parameter carries: under CARRIED_BELOW with every other free parameter fixed, and under CARRIED_MAX itself. */
+export function carriedByThird(c: { readonly coefficient: number; readonly conditional?: number }): boolean {
+  return c.conditional !== undefined && Math.abs(c.conditional) < CARRIED_BELOW && Math.abs(c.coefficient) < CARRIED_MAX;
+}
+
 const ONE_CURVE_NOTE = {
   background: {
     summary: (top: string) => `The background coefficients correlate among themselves (up to ${top}).`,
@@ -200,7 +231,7 @@ const ONE_CURVE_NOTE = {
 
 /** Why excess intensity on nuclear reflections may be magnetic, for a neutron pattern of a phase with magnetic ions. */
 export const K0_MAGNETIC =
-  "This is a neutron pattern of a phase with magnetic ions, and the excess sits on nuclear reflections at large d: if the sample can be magnetically ordered at this temperature, that is the k = 0 magnetic signature (magnetic intensity on the nuclear positions, fading with the form factor at small d). Check it with the Magnetic analysis step before refining atoms or ADPs into it.";
+  "This is a neutron pattern of a phase with magnetic ions, and the excess sits on nuclear reflections at large d: if the sample can be magnetically ordered at this temperature, that is the k = 0 magnetic signature (magnetic intensity on the nuclear positions, fading with the form factor at small d). Check it with the magnetic analysis (a k-search on these peaks' d) before refining atoms or ADPs into it.";
 
 /** On-reflection excess that may be k = 0 magnetic: neutrons, magnetic ions, and most of it at d > 2.5 Å. */
 export function k0MagneticHint(magneticNeutron: boolean | undefined, onReflection: readonly { readonly d: number }[]): boolean {
@@ -219,7 +250,7 @@ const BESIDE_REFLECTION = 0.02;
  * nearby impurity peak), or between reflections (unexplained). With per-point
  * σ, a peak must also stand 5σ above its own counting noise.
  */
-export function residualPeaks(residual: NonNullable<AssessmentInput["residual"]>, options: { readonly sigma?: number; readonly limit?: number } = {}): {
+export function residualPeaks(residual: NonNullable<AssessmentInput["residual"]>, options: { readonly sigma?: number; readonly limit?: number; readonly minFraction?: number } = {}): {
   between: AnnotatedExtraPeak[];
   beside: AnnotatedExtraPeak[];
   onReflection: AnnotatedExtraPeak[];
@@ -228,10 +259,19 @@ export function residualPeaks(residual: NonNullable<AssessmentInput["residual"]>
   const w = residual.lineWidth;
   const onTol = w !== undefined && w > 0 ? Math.min(ON_REFLECTION, Math.max(0.002, w)) : ON_REFLECTION;
   const besideTol = w !== undefined && w > 0 ? Math.min(BESIDE_REFLECTION, Math.max(0.006, 3 * w)) : BESIDE_REFLECTION;
+  // Every peak is classified first and the limit applied to each class after:
+  // cut before, the tallest residuals (usually misfits on strong reflections)
+  // crowded a weaker unexplained peak out of the list.
+  // With the file's own σ, each peak's significance is tested against its own
+  // noise, so no floor at a fraction of the largest residual: one strong misfit
+  // would hide a weak line beside it. A correct model on counting noise gives
+  // no peak either way (200 seeds at 2·10³–2·10⁵ counts, powderResidual.test).
+  const minFraction = options.minFraction ?? (sigma && residual.sigmaFrom === "file" ? 0 : undefined);
   const peaks = detectExtraPeaks(d, yObs, yCalc, {
     ...(sigma ? { pointSigma: sigma } : {}),
     ...(options.sigma !== undefined ? { sigma: options.sigma } : {}),
-    ...(options.limit !== undefined ? { limit: options.limit } : {}),
+    ...(minFraction !== undefined ? { minFraction } : {}),
+    limit: Number.MAX_SAFE_INTEGER,
   });
   const annotated: AnnotatedExtraPeak[] = reflections ? annotateExtraPeaks(peaks, reflections, besideTol) : [...peaks];
   const rel = (p: AnnotatedExtraPeak): number => p.nearNuclear?.relDelta ?? Infinity;
@@ -246,12 +286,16 @@ export function residualPeaks(residual: NonNullable<AssessmentInput["residual"]>
     return yCalc[i]! - base >= TAIL_ON_LINE * p.height;
   };
   const beside = (p: AnnotatedExtraPeak): boolean => rel(p) > onTol && rel(p) <= besideTol;
+  const cap = <T>(list: T[]): T[] => (options.limit !== undefined ? list.slice(0, options.limit) : list.slice(0, DEFAULT_PEAK_LIMIT));
   return {
-    between: annotated.filter((p) => rel(p) > besideTol || (beside(p) && !onLine(p))),
-    beside: annotated.filter((p) => beside(p) && onLine(p)),
-    onReflection: annotated.filter((p) => rel(p) <= onTol),
+    between: cap(annotated.filter((p) => rel(p) > besideTol || (beside(p) && !onLine(p)))),
+    beside: cap(annotated.filter((p) => beside(p) && onLine(p))),
+    onReflection: cap(annotated.filter((p) => rel(p) <= onTol)),
   };
 }
+
+/** Most peaks of each class residualPeaks lists when no limit is given (detectExtraPeaks' own default). */
+const DEFAULT_PEAK_LIMIT = 40;
 
 /** A bump beside a line is its tail only where the line's calculated intensity is at least this fraction of the bump. */
 const TAIL_ON_LINE = 0.5;
@@ -293,8 +337,8 @@ export function relativeLineWidth(d: readonly number[], yCalc: readonly number[]
   return widths[widths.length >> 1];
 }
 
-/** The usual causes of a fair or poor fit, by technique: what the verdict tells the user to look at. */
-const MISFIT_CAUSES: Record<"powder" | "single-crystal" | "pdf", { readonly fair: string; readonly poor: string }> = {
+/** The usual causes of a fair or poor fit, by technique: what the verdict tells the user to look at (a PDF fit has no GoF band). */
+const MISFIT_CAUSES: Record<"powder" | "single-crystal", { readonly fair: string; readonly poor: string }> = {
   powder: {
     fair: "significant unmodelled features — background, profile, or a missing phase are the usual causes",
     poor: "the model is far from the data — revisit the starting cell, background, and phase content before trusting any parameter",
@@ -303,17 +347,14 @@ const MISFIT_CAUSES: Record<"powder" | "single-crystal" | "pdf", { readonly fair
     fair: "significant unmodelled features — extinction on the strongest reflections, a few badly measured reflections, ADPs that should be anisotropic, or σ's that are too small are the usual causes",
     poor: "the model is far from the data — on integrated F² look first at extinction (the strongest reflections reading weak), then the model and the space group, before trusting any parameter",
   },
-  pdf: {
-    fair: "significant unmodelled features — the r window, the correlated motion, or a local structure the model does not hold are the usual causes",
-    poor: "the model is far from the data — revisit the structure, the r window and the instrument's Qdamp and Qbroad before trusting any parameter",
-  },
 };
 
 /** Toby 2006: the ratio wR/R_exp (the GoF) is what's meaningful, not absolute wR. */
 function verdictFrom(result: RefinementResult, mode: "powder" | "single-crystal" | "pdf" = "powder"): FitVerdict {
   const ag = result.agreement;
   const wRPercent = ag.rWeighted !== undefined ? 100 * ag.rWeighted : undefined;
-  const gof = ag.goodnessOfFit;
+  // A PDF fit weights G(r) uniformly: the engine's GoF over it is no goodness of fit.
+  const gof = mode === "pdf" ? undefined : ag.goodnessOfFit;
   if (result.status === "diverged") {
     return { band: "unreliable", ...(wRPercent !== undefined ? { wRPercent } : {}), ...(gof !== undefined ? { gof } : {}), rationale: "The refinement diverged — the parameters and esds are not meaningful." };
   }
@@ -321,17 +362,25 @@ function verdictFrom(result: RefinementResult, mode: "powder" | "single-crystal"
     return { band: "poor", ...(wRPercent !== undefined ? { wRPercent } : {}), ...(gof !== undefined ? { gof } : {}), rationale: `The refinement stopped as "${result.status}" rather than converging; treat the values as provisional.` };
   }
   if (gof === undefined) {
-    return { band: "fair", ...(wRPercent !== undefined ? { wRPercent } : {}), rationale: "Converged, but no expected-R was available to form a goodness of fit — judge from the residual shape instead of wR alone." };
+    return {
+      band: "fair",
+      ...(wRPercent !== undefined ? { wRPercent } : {}),
+      rationale: mode === "pdf"
+        ? "Converged. A PDF fit has no goodness of fit (uniform weights over G(r), so Rw is a relative measure): judge it from the difference curve and from Rw against fits of the same data and window."
+        : "Converged, but no expected-R was available to form a goodness of fit — judge from the residual shape instead of wR alone.",
+    };
   }
   // Bands mirror the app's qualityInk (Toby 2006): GoF ≈ 1 is ideal; < 1 warns of
   // over-fitting or overestimated σ; the higher bands are progressively worse.
-  if (gof < 0.8) return { band: "fair", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)} < 1: the fit is "too good" — σ's are likely overestimated or the model is over-parameterized. Not a green light.` };
+  // On F² they start from the single-crystal line, as the Validation tab's do.
+  const bands = mode === "single-crystal" ? GOOF_SINGLE_CRYSTAL_BANDS : GOF_BANDS;
+  if (gof < bands.tooGood) return { band: "fair", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)} < 1: the fit is "too good" — σ's are likely overestimated or the model is over-parameterized. Not a green light.` };
   // On F² the weighting scheme is refitted to the model, as SHELXL's suggestion is: a GooF below 1 says the weights expect more misfit than the model leaves.
   if (mode === "single-crystal" && gof < 0.95) return { band: "good", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GooF ${gof.toFixed(2)}, below 1: the model leaves less misfit than the weights expect (their σ about ${Math.round(100 * (1 / gof - 1))} % too large) — refit the weighting scheme to the final model (SHELXL's suggestion).` };
-  if (gof <= 1.5) return { band: "excellent", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)} is close to the statistical floor — the model explains the data to within its uncertainties.` };
-  if (gof <= 2.5) return { band: "good", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)}: a reasonable fit with residual structure the model does not fully capture.` };
-  if (gof <= 4) return { band: "fair", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)}: ${MISFIT_CAUSES[mode].fair}.` };
-  return { band: "poor", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)}: ${MISFIT_CAUSES[mode].poor}.` };
+  if (gof <= bands.excellent) return { band: "excellent", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)} is close to the statistical floor — the model explains the data to within its uncertainties.` };
+  if (gof <= bands.good) return { band: "good", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)}: a reasonable fit with residual structure the model does not fully capture.` };
+  if (gof <= bands.fair) return { band: "fair", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)}: ${MISFIT_CAUSES[mode === "single-crystal" ? "single-crystal" : "powder"].fair}.` };
+  return { band: "poor", ...(wRPercent !== undefined ? { wRPercent } : {}), gof, rationale: `GoF ${gof.toFixed(2)}: ${MISFIT_CAUSES[mode === "single-crystal" ? "single-crystal" : "powder"].poor}.` };
 }
 
 /**
@@ -417,7 +466,9 @@ export function assessRefinement(input: AssessmentInput): RefinementAssessment {
   const byId = new Map(parameters.map((p) => [p.id, p]));
   const findings: AssessmentFinding[] = [];
 
-  const verdict = verdictFrom(result, input.mode);
+  // A PDF fit's parameters name it (refine_pdf's result read without a mode is read as one).
+  const mode = input.mode ?? (parameters.some((p) => p.kind === "pdfScale") ? "pdf" : "powder");
+  const verdict = verdictFrom(result, mode);
 
   // --- convergence -------------------------------------------------------
   // Shift/esd of the last accepted step. The χ² test alone bounds it only by
@@ -475,9 +526,9 @@ export function assessRefinement(input: AssessmentInput): RefinementAssessment {
       detail: p && ADP_KINDS.has(p.kind)
         ? input.sharedSiteAdps?.includes(b.parameterId)
           ? `This displacement parameter belongs to a site several atoms share, so the site's scattering power is the first suspect: ${b.bound === "min" ? "B → 0 makes up for a site that scatters more than the model puts on it" : "a large B makes up for a site that scatters less than the model puts on it"}, i.e. the mixing is off (anti-site disorder, spinel inversion). Refine the site's occupancies with its Σ held (and the composition, when the formula is known) before trusting the ADP.`
-          : input.mode === "pdf"
+          : mode === "pdf"
           ? "In real space a displacement parameter at 0 usually means the near-neighbour peaks are sharper than the model's: correlated motion sharpens them, and with δ1/δ2 (or sratio) held, U takes up the sharpening. Free one correlated-motion term (δ2 at low temperature, δ1 at high), or fit a window long enough to pin U, rather than trusting the value. In a short low-r window it can also mean the local structure differs from the model."
-          : input.mode === "single-crystal"
+          : mode === "single-crystal"
           ? "On integrated F² a displacement parameter at 0 usually means unmodelled extinction (the strongest low-angle reflections read weak, and a smaller B flattens the model's fall-off to meet them), absorption left in the data, or a wrong element or occupancy: refine the extinction first, rather than trusting the value."
           : "A displacement parameter pinned at a bound (often B→0) usually means the model is over-damping high-angle intensity — check the background, an absorption/extinction effect, or a correlation, rather than trusting the value."
         : "A free parameter at a bound has a meaningless esd and signals the fit wanted to go where physics forbids — hold it fixed and find the upstream cause (correlation, wrong background, bad starting value).",
@@ -488,6 +539,8 @@ export function assessRefinement(input: AssessmentInput): RefinementAssessment {
 
   // --- physical sanity of the values ------------------------------------
   findings.push(...physicalFindings(parameters));
+  const structures = input.structures ?? [];
+  for (const model of structures) findings.push(...structureChecks(model, structures.length > 1 ? model.name || model.id : undefined));
 
   // --- correlations ------------------------------------------------------
   // The terms of one curve (the background, the Caglioti width) trade off by
@@ -559,14 +612,34 @@ export function assessRefinement(input: AssessmentInput): RefinementAssessment {
     const b = byId.get(c.parameterIdB);
     const insight = a && b ? correlationInsight(a.kind, b.kind) : undefined;
     const abs = Math.abs(c.coefficient);
+    // What the correlation guard refines together is noted, not warned about (correlationGuard.ts).
+    const overall = mode === "single-crystal" && intensityTerms(a?.kind, b?.kind);
+    const carried = !overall && carriedByThird(c);
     findings.push({
       category: "correlation",
-      severity: abs > 0.95 ? "warning" : "note",
+      severity: abs >= CORRELATION_LIMIT && !overall && !carried ? "warning" : "note",
       // Three places near ±1, where two would round 0.995 up to a perfect 1.00.
       summary: `${a?.label ?? c.parameterIdA} ↔ ${b?.label ?? c.parameterIdB} correlate at ${c.coefficient.toFixed(abs >= 0.99 ? 3 : 2)}.`,
-      ...(insight ? { detail: insight } : { detail: "Strongly correlated parameters share information the data cannot separate; their individual esds are inflated. Consider refining them in separate stages or fixing one." }),
+      detail: overall
+        ? "The overall intensity terms (scale, extinction, batch scales), refined together as SHELXL refines OSF, EXTI and BASF: the extinction is told from the scale by how the misfit grows with intensity, which their correlation does not see. An extinction the data do not determine shows as an esd as large as its value, or a bound."
+        : carried
+          ? `Carried by a third free parameter: with every other free parameter held fixed they correlate at ${c.conditional!.toFixed(2)}. Each trades with a common one (often the overall fall-off of the intensities), not with the other, so they refine together and the full covariance carries the correlation into their esds.`
+          : insight ?? "Strongly correlated parameters share information the data cannot separate; their individual esds are inflated. Consider refining them in separate stages or fixing one.",
       parameterIds: [c.parameterIdA, c.parameterIdB],
       evidence: { coefficient: c.coefficient },
+    });
+  }
+
+  // Below the limit, down to CORRELATION_REPORTED: refined, and reported (the user's rule: never silent).
+  const moderate = (diag?.moderateCorrelations ?? []).filter((c) => !curveOf(c) && !tiedBy(c) && assemblyOf(c) === undefined);
+  if (moderate.length > 0) {
+    findings.push({
+      category: "correlation",
+      severity: "note",
+      summary: `${moderate.length} pair${moderate.length === 1 ? "" : "s"} correlate${moderate.length === 1 ? "s" : ""} at |ρ| ${CORRELATION_REPORTED}–${CORRELATION_LIMIT}: ${moderate.slice(0, 4).map((c) => `${byId.get(c.parameterIdA)?.label ?? c.parameterIdA} ↔ ${byId.get(c.parameterIdB)?.label ?? c.parameterIdB} ${c.coefficient.toFixed(2)}`).join("; ")}${moderate.length > 4 ? "; …" : ""}.`,
+      detail: `Below the ${CORRELATION_LIMIT} at which a pair is not refined together, so refined; but the data couple them, and their esds carry it. Report each with its coefficient; if one of them is a claim, fix its partner and refine again to see how far it moves.`,
+      parameterIds: [...new Set(moderate.flatMap((c) => [c.parameterIdA, c.parameterIdB]))],
+      evidence: { pairs: moderate.length, maxCoefficient: Math.max(...moderate.map((c) => Math.abs(c.coefficient))) },
     });
   }
 
@@ -583,16 +656,24 @@ export function assessRefinement(input: AssessmentInput): RefinementAssessment {
   }
 
   // --- parameterization (data support) -----------------------------------
-  const nFree = parameters.filter((p) => !p.fixed && !p.expression).length;
-  if (nFree > 0 && observationCount > 0) {
-    const ratio = observationCount / nFree;
-    if (ratio < 10) {
+  // On powder the profile points far outnumber what determines the structure:
+  // the reflections inside the fitted range do, against the parameters their
+  // intensities determine (positions, occupancies, ADPs, moments, preferred
+  // orientation, extinction). Counting points, the check never fired.
+  const free = parameters.filter((p) => !p.fixed && !p.expression);
+  const reflectionsInRange = mode === "powder" ? input.residual?.reflections?.length : undefined;
+  const support = reflectionsInRange !== undefined
+    ? { n: free.filter((p) => INTENSITY_KINDS.has(p.kind)).length, data: reflectionsInRange, per: "reflections per free structural parameter", of: "structural", unit: "reflections in the fitted range" }
+    : { n: free.length, data: observationCount, per: "observations per free parameter", of: "", unit: "obs" };
+  if (support.n > 0 && support.data > 0) {
+    const ratio = support.data / support.n;
+    if (ratio < DATA_PER_PARAMETER) {
       findings.push({
         category: "parameterization",
-        severity: ratio < 5 ? "warning" : "note",
-        summary: `Only ${ratio.toFixed(1)} observations per free parameter (${nFree} free / ${observationCount} obs).`,
+        severity: ratio < DATA_PER_PARAMETER / 2 ? "warning" : "note",
+        summary: `Only ${ratio.toFixed(1)} ${support.per} (${support.n} free${support.of ? ` ${support.of}` : ""} / ${support.data} ${support.unit}).`,
         detail: "Thin data-to-parameter support inflates esds and invites over-fitting. Free fewer parameters per stage, or acquire more data / a wider range.",
-        evidence: { freeParameters: nFree, observations: observationCount, ratio },
+        evidence: { freeParameters: support.n, observations: support.data, ratio },
       });
     }
   }
