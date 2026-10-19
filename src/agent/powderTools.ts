@@ -782,7 +782,7 @@ function fitDiagnosisView(s: PowderLiveState): Record<string, unknown> {
     nParams: s.parameters.filter((p) => !p.fixed && !p.expression).length,
     d: s.d,
     reflections,
-    cells: s.refinedPhases.map((p) => p.cell),
+    phases: s.refinedPhases,
     twoTheta: s.pattern.xUnit === "twoTheta",
     xOf: (d) => convertAxisValue(d, "dSpacing", s.pattern.xUnit, s.axis),
   });
@@ -810,7 +810,7 @@ function fitDiagnosisView(s: PowderLiveState): Record<string, unknown> {
       misfit: w.signature === "shape" ? `shape (residual ${w.lobe > 0 ? "on the high" : "on the low"}-${s.pattern.xUnit === "twoTheta" ? "angle" : "x"} side)` : w.signature === "under" ? "calculated too weak" : "calculated too strong",
     })),
     ...(dx.wilson ? { intensityFalloff: { deltaB: sig(dx.wilson.deltaB, 3), r: sig(dx.wilson.r, 2), reflections: dx.wilson.n } } : {}),
-    ...(dx.texture ? { textureTest: { axis: dx.texture.axis.join(" "), r: sig(dx.texture.r, 2), reflections: dx.texture.n } } : {}),
+    ...(dx.texture ? { textureTest: { axis: dx.texture.axis.join(" "), ratio: sig(dx.texture.ratio, 2), explained: pct(dx.texture.explained), chance: sig(dx.texture.chance, 2), reflections: dx.texture.n, axesSearched: dx.texture.axes } } : {}),
   };
 }
 

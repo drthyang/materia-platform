@@ -510,8 +510,10 @@ under, the references, the report's checks.
   the observed width puts less than half a σ), peak positions
   (residual on one side of every peak), asymmetry (one-sided at low angle),
   width/shape (± lobes everywhere), intensity falling off with angle wrongly
-  (ln(I_obs/I_calc) against sin²θ/λ²: a ΔB), texture (the intensity misfit
-  against the angle to a low-index direction), and what is left for the
+  (ln(I_obs/I_calc) against sin²θ/λ²: a ΔB), texture (March–Dollase,
+  averaged over each family's equivalents, fitted to the intensity misfit on
+  each symmetry-distinct low-index axis; named only when shuffled misfits
+  fit as well under 1 % of the time), and what is left for the
   structure; with the background-subtracted Rwp′, Durbin–Watson, χ² by d
   shell and the worst reflections. `set_corrections` switches on what it
   names — FCJ asymmetry (S/L, H/L tied), March–Dollase texture along h k l,

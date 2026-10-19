@@ -267,7 +267,7 @@ are noted, since arm A reads it.
 | 4.4 | Magnetic ranking: the moment fit returns χ² and N; a Hamilton R-ratio test (or Δχ² per parameter) makes a group with more moments earn them; the scale is free at k = 0. The ★ and the skill's "within the noise" then mean the same thing. | M |
 | 4.5 | `boxcar_scan` returns per-box esds and each parameter's drift in esds; restarts reachable. | S |
 | 4.6 | The H-test's stated direction of bias fixed now; the unbiased estimator later. | S |
-| 4.7 | Texture: averaged over Laue equivalents, symmetry-distinct axes, corrected for choosing the best axis; a false-positive test over many seeds. | M |
+| 4.7 | **Done.** The texture test named texture on noise in 40 % of 12-reflection fits (5.5 % at 30). It now fits the misfit by March–Dollase averaged over each family's Laue equivalents, on one axis per class of equivalent directions, and names texture only when shuffled misfits explain as much under 1 % of the time (about 1 % of noise lists). The model's own March–Dollase used one member per family too and now averages over the family, as GSAS-II does ([report](./reports/2026-10-19-texture-test.md)). | M |
 | 4.8 | Flack and Parsons use every measurement of unmerged data. | S |
 | 4.9 | Known-answer tests for `test_extinction`; a false-positive test for `identify_peaks` on random d-lists. | S |
 | 4.10 | `review_symmetry` orders candidates by index, as its text says. | S |
