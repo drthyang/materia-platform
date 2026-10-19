@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { parse_structure } from "@/mcp/tools";
 import { generateReflections } from "@/core/diffraction/reflections";
-import { reviewSymmetry } from "@/core/diagnostics/symmetryReview";
+import { orderCandidates, reviewSymmetry } from "@/core/diagnostics/symmetryReview";
 
 /**
  * The symmetry review (the method's last step) on a refined residual: a
@@ -67,5 +67,44 @@ describe("the symmetry review", () => {
     expect(review.candidates).toEqual([]);
     expect(review.tested).toBeGreaterThan(5);
     expect(review.reading).toMatch(/^No forbidden reflection of .* carries intensity in the refined fit .*Nothing in the data asks for a lower symmetry/);
+  });
+});
+
+describe("the order of the candidates", () => {
+  const c = (name: string, index: number, allows: string[]) => ({ name, index, domains: index, allows });
+  it("puts those that allow every observed reflection first, then those that allow some, each by smallest index", () => {
+    const order = orderCandidates([
+      c("H4 (all, index 4)", 4, ["1 0 0", "0 0 1"]),
+      c("P3 (some, index 3, allows two)", 3, ["1 0 0", "2 0 0"]),
+      c("H2 (all, index 2)", 2, ["1 0 0", "0 0 1"]),
+      c("P2 (some, index 2, allows one)", 2, ["1 0 0"]),
+    ].map((x) => ({ ...x, allows: x.name.includes("(all") ? ["1 0 0", "0 0 1", "2 0 0"] : x.allows })), 3);
+    expect(order.map((x) => x.name)).toEqual(["H2 (all, index 2)", "H4 (all, index 4)", "P2 (some, index 2, allows one)", "P3 (some, index 3, allows two)"]);
+  });
+
+  it("names the subgroup a lost centring gives: CsCl read as body-centred leaves intensity at h + k + l odd", () => {
+    // The development case (dev-cscl-wrong-centring): Cs and Cl averaged on one site of Im-3m.
+    const bcc = parse_structure({ cif: SPINEL.replace(/8\.08/g, "4.123").replace("F d -3 m:2", "I m -3 m").replace("Mg1 Mg 0.125 0.125 0.125", "Cs1 Cs 0 0 0") }).structure;
+    const n = 4000;
+    const d = Array.from({ length: n }, (_, i) => 1.1 + (3.4 * i) / (n - 1));
+    const odd = [4.123, 4.123 / Math.sqrt(3), 4.123 / Math.sqrt(5)]; // 1 0 0, 1 1 1, 2 1 0
+    const residualOf = {
+      d,
+      yCalc: d.map(() => 1000),
+      yObs: d.map((di, i) => 1000 + 8 * Math.sin(i * 1.7) + odd.reduce((sum, p) => sum + 400 * Math.exp(-0.5 * ((di - p) / 0.004) ** 2), 0)),
+      sigma: d.map(() => Math.sqrt(1000)),
+      reflections: generateReflections(bcc.cell, bcc.spaceGroup, 1.1, 4.5).map((r) => ({ d: r.d, hkl: `${r.h} ${r.k} ${r.l}`, phaseLabel: "cscl" })),
+    };
+    const review = reviewSymmetry([bcc], residualOf);
+    expect(review.observedForbidden.map((o) => family(o.hkl)).sort()).toEqual(["001", "012", "111"]);
+    // No subgroup of the body-centred lattice allows them: every one keeps the centring.
+    expect(review.candidates.filter((c) => c.allows.length === 3)).toEqual([]);
+    // Dropping it gives Im-3m's four primitive subgroups; Pm-3m alone allows all three.
+    expect(review.decentred.every((c) => c.index === 2 && c.allows.length > 0)).toBe(true);
+    expect(review.decentred.map((c) => c.number)).toContain(221);
+    const all = review.decentred.filter((c) => c.allows.length === 3);
+    expect(all.map((c) => [c.name, c.number, c.index, c.lost])).toEqual([["P m -3 m", 221, 2, "(½ ½ ½)"]]);
+    expect(review.reading).toMatch(/a lost centring explains: P m -3 m \(the centring \(½ ½ ½\) dropped, index 2\) allows them all\. Its model orders what this one averages/);
+    expect(review.limits.join(" ")).not.toMatch(/lost centring .* not enumerated/);
   });
 });

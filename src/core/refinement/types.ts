@@ -294,6 +294,12 @@ export interface RefinementDiagnostics {
   readonly conditionNumber: number;
   /** Strong parameter correlations, sorted by absolute coefficient. */
   readonly highCorrelations: readonly RefinementCorrelation[];
+  /**
+   * The correlations below that threshold down to CORRELATION_REPORTED
+   * (thresholds.ts), sorted the same way: reported, never silent. Absent on
+   * results made before it was kept.
+   */
+  readonly moderateCorrelations?: readonly RefinementCorrelation[];
   /** Largest LM damping value reached while searching for accepted steps. */
   readonly maxLambda: number;
   /**

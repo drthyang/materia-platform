@@ -271,7 +271,7 @@ Single-crystal page only. Keep in the fit measurements assess_refinement lists a
 
 ### test_extinction
 
-Single-crystal page only. The extinction test, with the page left as it is: the fit on screen refined twice as probes (the free set and start as they are), once on all the data fitted and once without the reflections whose extinction factor y is below `below` (default 0.5). Answers how many that leaves out, wR2 and the extinction parameter each way, and every free parameter that moves by more than 2 esd between them. None moving: the structure does not rest on the reflections the correction carries; one moving (an ADP, an occupancy): the model leans on them — try the other extinction model (set_extinction_model) and compare. Nothing on the page changes: no filter, no values, no step. Refine first: it starts from the converged fit.
+Single-crystal page only. The extinction test, with the page left as it is: the fit on screen refined twice as probes (the free set and start as they are), once on all the data fitted and once without the reflections whose extinction factor y is below `below` (default 0.5). Answers how many that leaves out, wR2 and the extinction parameter each way, and every free parameter that moves by more than 2 esd between them (the esd of the fit without them, which leaving data out widens). None moving: the structure does not rest on the reflections the correction carries; one moving (an ADP, an occupancy): the model leans on them — try the other extinction model (set_extinction_model) and compare. Nothing on the page changes: no filter, no values, no step. Refine first: it starts from the converged fit.
 
 ```json
 {
@@ -750,7 +750,7 @@ Powder page only. Peaks in the residual (obs − calc) of the curves on screen t
 
 ### review_symmetry
 
-Powder page only. For a fit refined to the best its space group allows that is still not good: reads the REFINED residual at the reflections the space group forbids. Lists the forbidden reflections that still carry intensity and the subgroups of the same lattice that allow them (those allowing the most of them first, then the smallest index; each with its domain count). Refuses until a refinement has converged: intensity differences on known reflections are what refinement fixes, so lowering the symmetry before refining to the best is wrong. The result is a proposal for the user: a lower group is a new model (its CIF), refined again from the start.
+Powder page only. For a fit refined to the best its space group allows that is still not good: reads the REFINED residual at the reflections the space group forbids. Lists the forbidden reflections that still carry intensity, the subgroups of the same lattice that allow them (smallest index first, with their domain counts), and in a centred group those that drop a centring vector (a lost centring: an order the model averages, its sites split in the new model). Refuses until a refinement has converged: intensity differences on known reflections are what refinement fixes, so lowering the symmetry before refining to the best is wrong. The result is a proposal for the user: a lower group is a new model (its CIF), refined again from the start.
 
 ```json
 {
@@ -933,7 +933,7 @@ Powder and PDF pages. The Bayesian check of a converged refinement: an ensemble 
 
 ### identify_peaks
 
-Powder page only. Match peaks no phase of the model explains against phases a pattern often holds besides the sample: the sample environment (Al can or cryostat shields, V, Cu, steels, Nb heat shields, Pb shielding), holders (corundum, graphite), standards (Si, LaB₆, CeO₂) and the synthesis impurities in its library, their lines computed for this radiation. Each phase may scale its d-spacings by up to ±1.5 % (cooling; a part off the sample position shifts its lines). Returns the candidates with the lines they explain and the strong lines they should also show. Uses the residual's unexplained peaks (find_unexplained_peaks), or the d-spacings you pass (e.g. the cell check's unindexed peaks). A lead to put to the user, not an identification; add_known_phase then adds a matched phase to the model.
+Powder page only. Match peaks no phase of the model explains against phases a pattern often holds besides the sample: the sample environment (Al can or cryostat shields, V, Cu, steels, Nb heat shields, Pb shielding), holders (corundum, graphite), standards (Si, LaB₆, CeO₂) and the synthesis impurities in its library, their lines computed for this radiation. Each phase may scale its d-spacings by up to ±1.5 % (cooling; a part off the sample position shifts its lines). Returns the candidates with the lines they explain and the strong lines they should also show; a lead is named only when random peaks over the same range match a library phase as well less than 1 % of the time. Uses the residual's unexplained peaks (find_unexplained_peaks), or the d-spacings you pass (e.g. the cell check's unindexed peaks). A lead to put to the user, not an identification; add_known_phase then adds a matched phase to the model.
 
 ```json
 {
@@ -1031,7 +1031,7 @@ Powder page only. The magnetic analysis step as it stands: the magnetic ions (�
 
 ### search_propagation_vector
 
-Powder page only. Search commensurate propagation vectors k (denominators 2, 3, 4, 6, and k = 0, whose magnetic peaks can sit on reflections the space group forbids) that put magnetic reflections G ± k on the residual peaks the k-search uses (magnetic_state lists them, numbered; peaks on allowed nuclear reflections are left out). Ranked by how many peaks each explains and how closely. Leave out lines already identified as not magnetic — the sample environment, an impurity, a line present above the ordering temperature — with `exclude` (their numbers), as the peak table's check boxes do; `include` puts a peak in. Shows the list on the magnetic step. It does not set k: set_propagation_vector does.
+Powder page only. Search commensurate propagation vectors k (denominators 2, 3, 4, 6, in a monoclinic or triclinic cell the mixed-sign ones too such as (¼ 0 −¼), and k = 0, whose magnetic peaks can sit on reflections the space group forbids) that put magnetic reflections G ± k on the residual peaks the k-search uses (magnetic_state lists them, numbered; peaks on allowed nuclear reflections are left out). Ranked by how many peaks each explains and how closely. Leave out lines already identified as not magnetic — the sample environment, an impurity, a line present above the ordering temperature — with `exclude` (their numbers), as the peak table's check boxes do; `include` puts a peak in. Shows the list on the magnetic step. It does not set k: set_propagation_vector does.
 
 ```json
 {
@@ -1143,7 +1143,7 @@ Powder page only. How the moment amplitudes are tied in the model built for a gr
 
 ### rank_magnetic_groups
 
-Powder page only. Fit the moments of each magnetic group that allows a moment (the nuclear model held) and rank them by wR: `scope` "open" (default) fits the groups in the index sections open on the page (the maximal, index-2 groups at first: the top-down start), "all" every group. Each group is fitted from its seed moments and from `restarts` kicked starts (default 12), the best kept: magnetic intensity is quadratic in the moments, so one fit can stop in a minimum with a sublattice switched off. Returns the fitted groups, best first, with the best marked (ties go to the maximal group with the fewest moment parameters). Several seconds per group.
+Powder page only. Fit the moments of each magnetic group that allows a moment (the nuclear model held) and rank them by wR: `scope` "open" (default) fits the groups in the index sections open on the page (the maximal, index-2 groups at first: the top-down start), "all" every group. Each group is fitted from its seed moments and from `restarts` kicked starts (default 12), the best kept: magnetic intensity is quadratic in the moments, so one fit can stop in a minimum with a sublattice switched off. Returns the fitted groups, best first, the groups within the noise of the best (Hamilton's test: a group with more moment parameters must lower χ² beyond the noise), and the ★, the maximal one with the fewest moment parameters among them. At k = 0 the nuclear scale refines with the moments. Several seconds per group.
 
 ```json
 {
@@ -1276,7 +1276,7 @@ Read the refined primary phase for materials signals: crystallite size and micro
 
 ### allow_exception
 
-Ask the user to lift one of their method's firm rules for this analysis, when refine refused on it and the user wants to go on regardless: "bare-occupancy" (refine an occupancy with no tie, because a second contrast — anomalous X-ray, isotopic neutron — determines it), or "instrument-with-thermal" (refine the instrument's terms — the zero, the peak shape and asymmetry, Qdamp/Qbroad — together with the B values or ADPs, which the user's method alternates). Only when the user asks for it, never to get past a refusal. Always shows the user an approval card, even in Auto; only they can approve it. Give their reason in `reason`. Lasts until the data or the phases change.
+Ask the user to lift one of their method's firm rules for this analysis, when refine refused on it and the user wants to go on regardless: "bare-occupancy" (refine an occupancy with no tie, because a second contrast — anomalous X-ray, isotopic neutron — determines it), or "instrument-with-thermal" (refine the instrument's terms — the zero, the peak shape and asymmetry, Qdamp/Qbroad — together with the B values or ADPs, which the user's method alternates), or "instrument-with-positions" (on the powder page, the instrument's terms together with the atom positions, which it alternates too). Only when the user asks for it, never to get past a refusal. Always shows the user an approval card, even in Auto; only they can approve it. Give their reason in `reason`. Lasts until the data or the phases change.
 
 ```json
 {
@@ -1286,7 +1286,8 @@ Ask the user to lift one of their method's firm rules for this analysis, when re
       "type": "string",
       "enum": [
         "bare-occupancy",
-        "instrument-with-thermal"
+        "instrument-with-thermal",
+        "instrument-with-positions"
       ]
     },
     "reason": {
@@ -1559,7 +1560,7 @@ Run the refinement of the free parameters, as the Refine button does, and wait f
 
 ### boxcar_scan
 
-PDF page only. The way to answer whether the local structure differs from the average one — not the full fit, nor bond_geometry, which give the average only. The r-resolved view of the current model: a box of fixed width slid across the fit window, the FREE parameters refined in each box (seeded from the previous one), as the page's Boxcar view does — the user watches it there. It answers whether the local structure differs from the average: Rw and parameters that drift between low and high r. The parameter rows are left as they are (a diagnostic, not a fit). Returns, per box, its r range, Rw and the free parameters' values, and each parameter's spread; with `bonds`, also those sites' bond lengths per box and each bond's spread — a distortion read as lengths, not coordinate shifts. Takes about one refinement per box. Pass `free` for a scan's own small set (scale, cell, the parameters in question): the page keeps its free set and its fit, so the report that follows still matches them.
+PDF page only. The way to answer whether the local structure differs from the average one — not the full fit, nor bond_geometry, which give the average only. The r-resolved view of the current model: a box of fixed width slid across the fit window, the FREE parameters refined in each box (seeded from the previous one), as the page's Boxcar view does — the user watches it there. It answers whether the local structure differs from the average: Rw and parameters that drift between low and high r. The parameter rows are left as they are (a diagnostic, not a fit). Returns, per box, its r range, Rw and the free parameters' values with their esds, and each parameter's spread and its drift from the first box to the last in esds; with `bonds`, also those sites' bond lengths per box and each bond's spread — a distortion read as lengths, not coordinate shifts. Takes about one refinement per box. Pass `free` for a scan's own small set (scale, cell, the parameters in question): the page keeps its free set and its fit, so the report that follows still matches them.
 
 ```json
 {
@@ -1599,6 +1600,12 @@ PDF page only. The way to answer whether the local structure differs from the av
       "items": {
         "type": "string"
       }
+    },
+    "restarts": {
+      "description": "Randomly perturbed starts each box also refines from, the seeded start kept (default 0): for a track that may have inherited one box's local minimum",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 16
     }
   },
   "additionalProperties": false

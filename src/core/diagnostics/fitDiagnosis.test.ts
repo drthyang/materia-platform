@@ -3,7 +3,7 @@ import { buildPowderSpec } from "@/app/powderSpec";
 import { exampleStructure } from "@/examples/mn3ga";
 import { powderCurves } from "@/core/workflow/powder";
 import { powderReflectionObsCalc } from "@/core/workflow/obsCalc";
-import { diagnoseFit, reciprocalMetric } from "@/core/diagnostics/fitDiagnosis";
+import { diagnoseFit } from "@/core/diagnostics/fitDiagnosis";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import type { PowderPattern } from "@/core/diffraction/types";
 import type { RefinementParameter } from "@/core/refinement/types";
@@ -29,14 +29,14 @@ function gaussian(seed = 11): () => number {
 }
 
 /** Observed: the model with this correction (at these values) plus noise; calculated: the same model without it. */
-function judge(corrections: SampleCorrections, values: Record<string, number>) {
+function judge(corrections: SampleCorrections, values: Record<string, number>, seed = 11) {
   const truthSpec = buildPowderSpec(structure, grid, D1A, true, 4, {}, "isotropic", corrections);
   const set = (params: readonly RefinementParameter[], v: Record<string, number>): RefinementParameter[] => params.map((p) => (p.id in v ? { ...p, value: v[p.id]! } : p));
   const truth = set(truthSpec.params, { scale: 1, bkg0: 50, bkg1: 0, bkg2: 0, bkg3: 0, ...values });
   const yTrue = powderCurves(structure, grid, truth, truthSpec.bindings, truthSpec.profile).yCalc;
   const top = Math.max(...yTrue);
   const k = 20000 / top;
-  const noise = gaussian();
+  const noise = gaussian(seed);
   const pattern: PowderPattern = { ...grid, points: grid.points.map((p, i) => {
     const y = k * yTrue[i]!;
     return { ...p, yObs: y + Math.sqrt(Math.max(y, 1)) * noise(), sigma: Math.sqrt(Math.max(y, 1)) };
@@ -50,7 +50,7 @@ function judge(corrections: SampleCorrections, values: Record<string, number>) {
   const d = pattern.points.map((p) => 1.909 / (2 * Math.sin((p.x * Math.PI) / 360)));
   return diagnoseFit({
     x: curves.x, yObs: curves.yObs, yCalc: curves.yCalc, ...(curves.yBackground ? { yBackground: curves.yBackground } : {}),
-    sigma, include, nParams: 8, d, reflections, cells: [structure.cell], twoTheta: true,
+    sigma, include, nParams: 8, d, reflections, phases: [structure], twoTheta: true,
     xOf: (dd) => (2 * Math.asin(1.909 / (2 * dd)) * 180) / Math.PI,
   });
 }
@@ -69,6 +69,11 @@ describe("the fit diagnosis", () => {
     expect(texture, JSON.stringify(dx.causes)).toBeDefined();
     expect(dx.texture?.axis).toEqual([0, 0, 1]);
     expect(texture!.action).toMatch(/preferredOrientation \[0, 0, 1\]/);
+  });
+
+  it("names no texture on a correct model, over many noise seeds", () => {
+    const named = Array.from({ length: 12 }, (_, i) => judge({}, {}, 101 + i)).filter((dx) => dx.causes.some((c) => c.id === "texture"));
+    expect(named.map((dx) => dx.texture)).toEqual([]);
   });
 
   it("measures peaks broader than calculated, and does not bill their flanks to the background", () => {
@@ -96,13 +101,5 @@ describe("the fit diagnosis", () => {
     expect(dx.width?.median).toBeCloseTo(1, 1);
     expect(Math.abs(dx.width!.etaObs! - dx.width!.etaCalc!)).toBeLessThan(0.1);
     expect(dx.validation.agreement.gof).toBeLessThan(1.3);
-  });
-
-  it("builds the reciprocal metric of a hexagonal cell", () => {
-    const g = reciprocalMetric({ a: 2, b: 2, c: 3, alpha: 90, beta: 90, gamma: 120 });
-    // a* = 2/(a√3), c* = 1/c; a*·b* = a*² cos 60°.
-    expect(g[0]![0]).toBeCloseTo(1 / 3, 10);
-    expect(g[2]![2]).toBeCloseTo(1 / 9, 10);
-    expect(g[0]![1]).toBeCloseTo(1 / 6, 10);
   });
 });

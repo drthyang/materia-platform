@@ -30,12 +30,11 @@ behind each rule are in `rietveld_notes`.
 
 **Refine the model to the best its space group allows before questioning the space
 group.** Changing the symmetry is the *last* step, taken only when everything in this
-method has been refined and the fit is still not good — never at the beginning, and never
-to explain a misfit that refinement has not yet had a chance to fix.
+method has been refined and the fit is still not good — never to explain a misfit that
+refinement has not yet had a chance to fix.
 
-At the start, observed and calculated intensities differ on many reflections. That is
-normal: it is exactly what refining the atoms, ADPs, occupancies, the profile and the
-corrections fixes. A reflection the model has, with more or less intensity than calculated,
+At the start, observed and calculated intensities differ on many reflections: that is what
+refining the atoms, ADPs, occupancies, profile and corrections fixes. A reflection the model has, with more or less intensity than calculated,
 is a **misfit to refine**, never an "extra peak" and never evidence for a lower symmetry.
 Only a peak that sits on no reflection of any phase is an extra peak
 (`find_unexplained_peaks` lists the two apart).
@@ -53,8 +52,14 @@ The numbers and the stops in one place; each is explained at its stage below.
   0.1 esd — and nothing has railed to a bound. Only then free the next.
 - **Firm rules** (`refine` refuses; only the user lifts one, with `allow_exception`): no
   occupancy refines bare; the instrument's terms never refine with the B values (alternate
-  the two; settled once a cycle moves neither group by more than 0.3 esd); no two free
-  parameters that correlate at |ρ| ≥ 0.95.
+  the two; settled once a cycle moves neither group by more than 0.3 esd), nor with the atom
+  positions; no two free parameters that correlate at |ρ| ≥ 0.95.
+- **After every run**, assess it (`refine`'s `checks`; over MCP `bond_geometry` and the B
+  values). **Hard** — two atoms closer than 1.0 Å, a U_iso above 0.1 Å², a negative U: take
+  the run back (`go_to_step`) and ask the user. **Warn** and report — atoms closer than
+  1.5 Å, a bond more than 10 % shorter than its bond-valence length, a U_iso above 0.05 Å²
+  or below 0.001 Å² (room temperature), a heavier atom's U more than 1.5× a lighter one's;
+  each can be right. **Correlations** from 0.8 to 0.95: reported, never silent.
 - **GoF** = Rwp/Rexp = √χ²ν, in `assess_refinement`'s bands (Toby 2006): excellent up to
   1.5, good to 2.5, fair to 4, poor above; below 0.8 the fit is "too good" — the σ
   overestimated or the model over-parameterized.
@@ -212,24 +217,23 @@ values, and a large esd is the honest result. If it refines to zero, the ADP con
 not disorder: return to the ordered model and, unless the contrast is significant and
 stable, tie the two cation B's.
 
-## The instrument–thermal guardrail (do not skip)
+## The instrument guardrail (do not skip)
 
-**Never refine the instrument's terms together with the thermal parameters.** The
+**Never refine the instrument's terms together with the thermal parameters, nor with the
+atom positions.** The
 instrument's terms are GSAS-II's Instrument Parameters: the **zero** (or the TOF
 calibration), the **peak shape** (Caglioti `U V W`, Lorentzian `X Y`, the TOF α β σ) and its
 **asymmetry** (S/L, H/L). The thermal parameters are the **B values or ADPs**. They trade
-through the background at high angle and the scale the low-angle lines fix: refined
-together, each absorbs the other's error — a B gone negative while the profile widens —
-and the esds hide it.
+through the background at high angle and the low-angle scale: refined together, each
+absorbs the other's error (a B gone negative while the profile widens).
 
 **Alternate the two groups instead.** Refine the instrument terms with the B values fixed,
 then fix them and refine the B values; repeat. In the app, `refine` reports the
 `alternation` after each step: the group refined, its largest shift since its last
 refinement (in esd), and `settled` once a cycle moves neither group by more than 0.3 esd —
 stop there. If the shifts shrink slowly (each cycle more than two-thirds of the last), the
-groups are coupled: tell the user, and report the B values as conditional on the
-instrument terms unless they allow one joint refinement. Either way, each group's esds are
-conditional on the other held fixed — say so in the report.
+groups are coupled: tell the user. Each group's esds are conditional on the other held
+fixed — say so in the report.
 
 **With an instrument file from a standard**, keep its terms fixed where they fit, and
 refine only what the sample adds; when it does not describe the data, refine its terms,
@@ -237,6 +241,9 @@ alternating as above. A microstrain model (`set_microstrain`) is the sample's br
 outside this rule; `X` and `Y` are inside it (they hold the instrument's Lorentzian part
 too). Only the user lifts the rule (`allow_exception`, rule `instrument-with-thermal`),
 for instance for one last joint cycle once the alternation has settled.
+
+**The positions likewise** (rule `instrument-with-positions`): a wrong peak shape or zero
+moves intensity between lines, which the positions follow. Alternate them the same way.
 
 ## The correlation guardrail (do not skip)
 
@@ -247,10 +254,12 @@ In the app `refine` measures the free set at the current values and refuses a co
 set; over MCP, read the correlations `refine_powder` and `assess_refinement` report. Fix
 one of a pair — usually the one this sequence frees later (occupancy against scale, B
 against scale, the zero against the cell) — or refine them in separate stages, and free it
-again only once the other is stable. A combination the data cannot determine at all (a null
-direction) is the same rule at its limit. When a pair has to stay free together, or a value
+again only once the other is stable. When a pair has to stay free together, or a value
 stays unconvincing after the method has run, sample the posterior before reporting it
 (`bayesian-check`, `sample_posterior`).
+
+**From 0.8 to 0.95 the pair refines, and is reported** with its coefficient (`checks`,
+`assess_refinement`, the report).
 
 What does **not** count: the terms of one curve among themselves (the background
 coefficients; the Caglioti `U, V, W` of one FWHM²(θ), free together on a wide range), and
@@ -272,8 +281,8 @@ them, then refine):
 - a systematic hkl-family intensity mismatch (`diagnose_fit`: texture along one direction)
   → **preferred orientation** (March–Dollase, `preferredOrientation` [h, k, l]).
 
-Displacement correlates with the cell and the zero, roughness SRA/SRB with each other and
-the scale: free at most what the angular range can separate.
+Displacement correlates with the cell and zero, roughness SRA/SRB with each other and the
+scale: free only what the angular range can separate.
 
 ## The symmetry review — the last step, if at all
 
@@ -294,10 +303,11 @@ The user does **not** chase absolute Rwp. A fit is acceptable when all of:
    (below 0.8, too good): the σ's are over-estimated or the model over-parameterized, so
    the ESDs are optimistic — suggest checking the weighting or the free-parameter count
    rather than celebrating.
-2. **Physical sanity holds** — `B_iso > 0`, occupancy sums chemically sensible, bond
-   lengths/angles reasonable (`bond_geometry` gives the bond-valence sums).
+2. **Physical sanity holds** — the checks after every run (Gates) clear or explained,
+   `B_iso > 0`, occupancy sums chemically sensible, bond lengths/angles reasonable
+   (`bond_geometry` gives the bond-valence sums).
    `assess_refinement` surfaces at-bounds and unphysical parameters; treat any as a
-   blocker, not a rounding detail. A weakly determined parameter the result rests on gets
+   blocker. A weakly determined parameter the result rests on gets
    its credible interval (`bayesian-check`), not only its esd.
 3. **External cross-check agrees** — re-run in **both GSAS-II and FullProf** and confirm
    the parameters and ESDs are consistent. Over MCP, `export_bundle` writes both bundles
@@ -305,22 +315,15 @@ The user does **not** chase absolute Rwp. A fit is acceptable when all of:
    peak shape from seeds, to be freed in FullProf — say so); in the app the user writes
    them from the Export menu.
 
-**Stopping rule.** Levenberg–Marquardt converging is necessary but not sufficient.
+**Stopping rule.** Levenberg–Marquardt converging is necessary but not sufficient: stop at
+the Gates' "Done". In the app, report then and offer the cross-check as the user's next
+step. Over MCP the cross-check is the terminator, not an internal Δχ² threshold: until
+GSAS-II and FullProf reproduce each reported parameter within 2 combined esds
+(|Δ| ≤ 2√(σ₁² + σ₂²)), the fit is not finished, however good the GoF looks.
 
-- **In the app**, where the Agent cannot run the other packages: the refinement is done
-  when the alternation has settled (`refine`'s `alternation`), the last refinement's
-  largest shift is below 0.1 esd, and the verdict holds — good or excellent, with nothing
-  at a bound, unphysical or refused. Report then, and offer the cross-check as the user's
-  next step.
-- **Over MCP, the external cross-check is the terminator**, not an internal Δχ²
-  threshold: keep iterating (and re-examining the model) until GSAS-II and FullProf
-  reproduce the parameters and ESDs on the same data — each reported parameter within 2
-  combined esds (|Δ| ≤ 2√(σ₁² + σ₂²)). If the packages disagree, the fit isn't finished,
-  however good the internal GoF looks: resolve the discrepancy before calling it.
-
-Report GoF + the key refined values with ESDs (`structure_table`) + which corrections were
-on + any correlations/at-bounds worth knowing — not just "converged, wR = X%" — and compare
-with a published structure when there is one. On lab X-ray data, give the P the B values
+Report GoF, the key refined values with esds (`structure_table`), the corrections on, the
+correlations and anything at a bound — not just "converged, wR = X%" — and compare with a
+published structure when there is one. On lab X-ray data, give the P the B values
 assume.
 
 **The written report.** In the app, `write_report` once the analysis is done and reported:

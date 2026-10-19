@@ -122,7 +122,6 @@ describe("the method as code", () => {
 
   it("never refines the instrument's terms with the thermal parameters, and names every broken rule at once", () => {
     const none = emptyRecord("k");
-    expect(ruleRefusal("powder", [p("zero", "zeroShift"), p("pos", "atomX")], [], none)).toBeNull();
     expect(ruleRefusal("powder", [p("B_Pb1", "bIso"), p("pos", "atomX")], [], none)).toBeNull();
     // A microstrain model is the sample's broadening, not the instrument's.
     expect(ruleRefusal("powder", [p("mustrain", "mustrainIso"), p("B_Pb1", "bIso")], [], none)).toBeNull();
@@ -139,6 +138,21 @@ describe("the method as code", () => {
     expect(both.line).toBe("Not run: occ_A free with no tie; Not run: instrument terms (zero) free with thermal (B)");
     const allowed = { ...none, exceptions: [{ rule: "instrument-with-thermal" as const, reason: "one joint cycle for the esds", at: 0 }] };
     expect(ruleRefusal("powder", [p("W", "profileW"), p("B", "bIso")], [], allowed)).toBeNull();
+  });
+
+  it("never refines the instrument's terms with the atom positions on the powder page (the user's rule, 2026-10-19)", () => {
+    const none = emptyRecord("k");
+    const r = ruleRefusal("powder", [p("zero", "zeroShift"), p("W", "profileW"), p("x_Pb1", "atomX")], [], none)!;
+    expect(r.rule).toBe("instrument-with-positions");
+    expect(r.line).toBe("Not run: instrument terms (zero, W) free with positions (x_Pb1)");
+    expect(r.message).toMatch(/Fix the positions and refine the instrument terms, then fix those and refine the positions/);
+    expect(r.message).toMatch(/call allow_exception with rule "instrument-with-positions" and their reason/);
+    expect(ruleRefusal("powder", [p("zero", "zeroShift"), p("shift", "positionShift")], [], none)?.rule).toBe("instrument-with-positions");
+    // The cell and the scale are not the instrument's; the PDF page has its own method.
+    expect(ruleRefusal("powder", [p("a", "cellLength"), p("x_Pb1", "atomX")], [], none)).toBeNull();
+    expect(ruleRefusal("pdf", [p("qdamp", "qdamp"), p("x_Pb1", "atomX")], [], none)).toBeNull();
+    const allowed = { ...none, exceptions: [{ rule: "instrument-with-positions" as const, reason: "the last joint cycle", at: 0 }] };
+    expect(ruleRefusal("powder", [p("zero", "zeroShift"), p("x_Pb1", "atomX")], [], allowed)).toBeNull();
   });
 
   it("follows the alternation: each group's shift since its last refinement, settled once neither moves", () => {

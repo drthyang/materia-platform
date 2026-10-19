@@ -8,6 +8,7 @@ import { LOCAL_BUDGET_CHARS, skillOutline } from "@/agent/contextWindow";
 import {
   COMPLETENESS_NOTE, CORRELATION_LIMIT, DATA_PER_PARAMETER, EXTINCTION_K, EXTINCTION_LARGE, EXTINCTION_SEVERE, FLACK_U_DETERMINED, FORBIDDEN_OVERLAP, GOF_BANDS, LARGE_CUT,
   LE_BAIL_UNSETTLED, POSTERIOR_CORRELATION, POSTERIOR_NEARLY_RHAT, POSTERIOR_RHAT, R_INT_NOTE, RANK_TIE_WR, SHIFT_SETTLED,
+  BOND_SHORT, CORRELATION_REPORTED, DISTANCE_HARD, DISTANCE_WARN, U_HARD, U_LARGE, U_ORDER_RATIO, U_SMALL,
 } from "@/core/diagnostics/thresholds";
 
 /**
@@ -45,8 +46,8 @@ const METHOD_STAGES: Readonly<Record<string, { readonly page: AgentPage; readonl
   "pdf-workflow": {
     page: "pdf",
     stage: { base: /scale/i, adp: /\bADPs?\b/, motion: /correlated motion|δ1|delta1/i, positions: /positions/i, occupancy: /occupanc/i, size: /particle size|spdiameter/i },
-    // Stage 1 holds the structural stages in the small-box order.
-    checks: [/Check the data and the instrument/, /small-box order/],
+    // The user's three windows: the long range, the correlated motion, the local fit.
+    checks: [/Check the data and the instrument/, /The long range/, /The local fit/],
   },
   "sc-workflow": {
     page: "singleCrystal",
@@ -65,6 +66,14 @@ const QUOTED: readonly { readonly skill: string; readonly what: string; readonly
   { skill: "my-rietveld-workflow", what: "the GoF band fair", pattern: /fair to (\d+)/, value: GOF_BANDS.fair },
   { skill: "my-rietveld-workflow", what: "a GoF too good", pattern: /below (\d\.\d+) the fit is "too good"/, value: GOF_BANDS.tooGood },
   { skill: "my-rietveld-workflow", what: "a Le Bail fit that did not settle (Rwp %)", pattern: /Rwp of (\d+) % or more/, value: 100 * LE_BAIL_UNSETTLED },
+  { skill: "my-rietveld-workflow", what: "two atoms that cannot be closer (Å)", pattern: /two atoms closer than (\d\.\d+) Å/, value: DISTANCE_HARD },
+  { skill: "my-rietveld-workflow", what: "a distance rarely shorter (Å)", pattern: /atoms closer than\s+(\d\.\d+) Å, a bond/, value: DISTANCE_WARN },
+  { skill: "my-rietveld-workflow", what: "a bond short of its bond-valence length (%)", pattern: /more than (\d+) % shorter than its bond-valence/, value: 100 * BOND_SHORT },
+  { skill: "my-rietveld-workflow", what: "the hard U limit (Å²)", pattern: /a U_iso above (\d\.\d+) Å², a negative/, value: U_HARD },
+  { skill: "my-rietveld-workflow", what: "a large U (Å²)", pattern: /a U_iso above (\d\.\d+) Å²\s+or below/, value: U_LARGE },
+  { skill: "my-rietveld-workflow", what: "a small U (Å²)", pattern: /or below (\d\.\d+) Å² \(room/, value: U_SMALL },
+  { skill: "my-rietveld-workflow", what: "a heavier atom's U against a lighter one's", pattern: /more than (\d\.\d+)× a lighter/, value: U_ORDER_RATIO },
+  { skill: "my-rietveld-workflow", what: "correlations reported from", pattern: /\*\*Correlations\*\* from (\d\.\d+) to/, value: CORRELATION_REPORTED },
   { skill: "pdf-workflow", what: "a block converged (esd)", pattern: /largest shift below\s+(\d\.\d+) esd/, value: SHIFT_SETTLED },
   { skill: "pdf-workflow", what: "the correlation limit", pattern: /correlate at \|ρ\| ≥ (\d\.\d+)/, value: CORRELATION_LIMIT },
   { skill: "magnetic-analysis", what: "the ranking's tie (%)", pattern: /a tie within (\d\.\d+) %/, value: 100 * RANK_TIE_WR },

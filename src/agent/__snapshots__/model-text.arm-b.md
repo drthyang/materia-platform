@@ -41,7 +41,7 @@ The user's skills: their methods and the references behind them. Read one with r
 - bayesian-check: The Bayesian check of a converged refinement in MATERIA: sampling the posterior of the free parameters (ensemble MCMC, sample_posterior) when a refined number is not convincing — an esd as large as the value, a parameter on a bound (B at 0, an occupancy at 1), a strongly correlated pair, values that move between refinement paths at the same wR, or a physical claim resting on one parameter (an exchange fraction, a moment, a vacancy, a small distortion). Covers when to run it, what to free, how to read esdRatio, bounds and posterior correlations, convergence, and how to report credible intervals. Powder (nuclear, multi-phase, nuclear + magnetic) and PDF pages. NOT a way to choose between models, and NOT a fix for a misfit: it measures uncertainty within the model.
 - magnetic-analysis: The powder magnetic structure workflow in MATERIA, after the nuclear structure is refined: the propagation vector k from the peaks the nuclear model leaves, the magnetic space groups of the little group of k (top-down from the maximal ones), their moments fitted against the data, then nuclear and magnetic refined together, with the powder's limits stated. Use it whenever the user asks for the magnetic structure, to find k, to pick or compare magnetic groups, to refine moments, or why there are peaks below an ordering temperature — even if they don't name the skill. Drives the powder page's magnetic analysis step (in the app) or the magnetic MCP tools. NOT for the magnetic PDF (mPDF). A first draft, not yet confirmed as the user's own method.
 - my-rietveld-workflow (the Powder page's method): The user's personal powder Rietveld refinement methodology for MATERIA — a sanity check of the cell, a fixed freeing sequence, acceptance criteria, and the space group questioned last, only once everything else is refined — driving the MATERIA MCP tools. Use this whenever the user asks to refine a loaded powder pattern, run "my refinement", do a Rietveld refinement, stage or free parameters on a powder dataset, decide what to refine next, or asks why a fit is stuck — even if they don't name the skill. Covers constant-wavelength and time-of-flight, single- and multi-phase; hands off to the magnetic-analysis flow for magnetic structures. NOT for single-crystal integrated-intensity refinement, and NOT for ab-initio structure solution / indexing an unknown cell.
-- pdf-workflow (the PDF page's method): Real-space (small-box) refinement of a reduced pair distribution function G(r) in MATERIA — what to free in what order, the gates, and how to judge and report the fit — driving the MATERIA PDF tools and the in-app Agent's PDF page. Use when the user asks to refine a PDF / G(r) dataset, decide what to free next on a PDF fit, or ask whether the local structure differs from the average one (boxcar scans). General small-box practice: the user's own PDF method has not been written down yet, so ask before a judgment call it does not settle. NOT for Rietveld (my-rietveld-workflow), magnetic PDF (mPDF), or big-box (RMC) modelling.
+- pdf-workflow (the PDF page's method): The user's real-space (small-box) refinement of a reduced pair distribution function G(r) in MATERIA: the long range first as the average baseline, then the correlated motion, then a local fit for a local distortion, and the symmetry last — driving the MATERIA PDF tools and the in-app Agent's PDF page. Use when the user asks to refine a PDF / G(r) dataset, decide what to free next on a PDF fit, or ask whether the local structure differs from the average one (boxcar scans). NOT for Rietveld (my-rietveld-workflow), magnetic PDF (mPDF), or big-box (RMC) modelling.
 - sc-workflow (the Single-crystal page's method): Single-crystal refinement against integrated F² in MATERIA (SHELX R1, wR2, GooF): the data read before the model, the order of the free parameters, the checks at each stage, and the report. The in-app Agent's single-crystal page. NOT for powder or PDF. General practice, not yet the user's own method.
 - symmetry-review: The last step of a powder Rietveld refinement, taken only if needed: deciding whether the data ask for a lower space group, after the structure has been refined to the best its group allows (scale, background, cell, positions, profile, ADPs; occupancy and corrections where the data call for them) and the fit is still not good. Use it when the user asks whether the symmetry is right, when review_symmetry finds intensity at forbidden reflections, or when someone proposes lowering the symmetry — to check the proposal comes at the right time and on the right evidence. NOT for the start of a refinement: intensity misfit on allowed reflections, or a Le Bail absence flag before the structure is refined, is never a reason to change the space group.
 </skills>
@@ -284,7 +284,7 @@ Single-crystal page only. Keep in the fit measurements assess_refinement lists a
 
 ### test_extinction
 
-Single-crystal page only. The extinction test, with the page left as it is: the fit on screen refined twice as probes (the free set and start as they are), once on all the data fitted and once without the reflections whose extinction factor y is below `below` (default 0.5). Answers how many that leaves out, wR2 and the extinction parameter each way, and every free parameter that moves by more than 2 esd between them. None moving: the structure does not rest on the reflections the correction carries; one moving (an ADP, an occupancy): the model leans on them — try the other extinction model (set_extinction_model) and compare. Nothing on the page changes: no filter, no values, no step. Refine first: it starts from the converged fit.
+Single-crystal page only. The extinction test, with the page left as it is: the fit on screen refined twice as probes (the free set and start as they are), once on all the data fitted and once without the reflections whose extinction factor y is below `below` (default 0.5). Answers how many that leaves out, wR2 and the extinction parameter each way, and every free parameter that moves by more than 2 esd between them (the esd of the fit without them, which leaving data out widens). None moving: the structure does not rest on the reflections the correction carries; one moving (an ADP, an occupancy): the model leans on them — try the other extinction model (set_extinction_model) and compare. Nothing on the page changes: no filter, no values, no step. Refine first: it starts from the converged fit.
 
 ```json
 {
@@ -763,7 +763,7 @@ Powder page only. Peaks in the residual (obs − calc) of the curves on screen t
 
 ### review_symmetry
 
-Powder page only. For a fit refined to the best its space group allows that is still not good: reads the REFINED residual at the reflections the space group forbids. Lists the forbidden reflections that still carry intensity and the subgroups of the same lattice that allow them (those allowing the most of them first, then the smallest index; each with its domain count). Refuses, naming the stages left, until the method's stages (scale, background, cell, positions, profile, ADPs) are done: intensity differences on known reflections are what refinement fixes, so lowering the symmetry before refining to the best is wrong. The result is a proposal for the user: a lower group is a new model (its CIF), refined again from the start.
+Powder page only. For a fit refined to the best its space group allows that is still not good: reads the REFINED residual at the reflections the space group forbids. Lists the forbidden reflections that still carry intensity, the subgroups of the same lattice that allow them (smallest index first, with their domain counts), and in a centred group those that drop a centring vector (a lost centring: an order the model averages, its sites split in the new model). Refuses, naming the stages left, until the method's stages (scale, background, cell, positions, profile, ADPs) are done: intensity differences on known reflections are what refinement fixes, so lowering the symmetry before refining to the best is wrong. The result is a proposal for the user: a lower group is a new model (its CIF), refined again from the start.
 
 ```json
 {
@@ -946,7 +946,7 @@ Powder and PDF pages. The Bayesian check of a converged refinement: an ensemble 
 
 ### identify_peaks
 
-Powder page only. Match peaks no phase of the model explains against phases a pattern often holds besides the sample: the sample environment (Al can or cryostat shields, V, Cu, steels, Nb heat shields, Pb shielding), holders (corundum, graphite), standards (Si, LaB₆, CeO₂) and the synthesis impurities in its library, their lines computed for this radiation. Each phase may scale its d-spacings by up to ±1.5 % (cooling; a part off the sample position shifts its lines). Returns the candidates with the lines they explain and the strong lines they should also show. Uses the residual's unexplained peaks (find_unexplained_peaks), or the d-spacings you pass (e.g. the cell check's unindexed peaks). A lead to put to the user, not an identification; add_known_phase then adds a matched phase to the model.
+Powder page only. Match peaks no phase of the model explains against phases a pattern often holds besides the sample: the sample environment (Al can or cryostat shields, V, Cu, steels, Nb heat shields, Pb shielding), holders (corundum, graphite), standards (Si, LaB₆, CeO₂) and the synthesis impurities in its library, their lines computed for this radiation. Each phase may scale its d-spacings by up to ±1.5 % (cooling; a part off the sample position shifts its lines). Returns the candidates with the lines they explain and the strong lines they should also show; a lead is named only when random peaks over the same range match a library phase as well less than 1 % of the time. Uses the residual's unexplained peaks (find_unexplained_peaks), or the d-spacings you pass (e.g. the cell check's unindexed peaks). A lead to put to the user, not an identification; add_known_phase then adds a matched phase to the model.
 
 ```json
 {
@@ -1044,7 +1044,7 @@ Powder page only. The magnetic analysis step as it stands: the magnetic ions (�
 
 ### search_propagation_vector
 
-Powder page only. Search commensurate propagation vectors k (denominators 2, 3, 4, 6, and k = 0, whose magnetic peaks can sit on reflections the space group forbids) that put magnetic reflections G ± k on the residual peaks the k-search uses (magnetic_state lists them, numbered; peaks on allowed nuclear reflections are left out). Ranked by how many peaks each explains and how closely. Leave out lines already identified as not magnetic — the sample environment, an impurity, a line present above the ordering temperature — with `exclude` (their numbers), as the peak table's check boxes do; `include` puts a peak in. Shows the list on the magnetic step. It does not set k: set_propagation_vector does.
+Powder page only. Search commensurate propagation vectors k (denominators 2, 3, 4, 6, in a monoclinic or triclinic cell the mixed-sign ones too such as (¼ 0 −¼), and k = 0, whose magnetic peaks can sit on reflections the space group forbids) that put magnetic reflections G ± k on the residual peaks the k-search uses (magnetic_state lists them, numbered; peaks on allowed nuclear reflections are left out). Ranked by how many peaks each explains and how closely. Leave out lines already identified as not magnetic — the sample environment, an impurity, a line present above the ordering temperature — with `exclude` (their numbers), as the peak table's check boxes do; `include` puts a peak in. Shows the list on the magnetic step. It does not set k: set_propagation_vector does.
 
 ```json
 {
@@ -1156,7 +1156,7 @@ Powder page only. How the moment amplitudes are tied in the model built for a gr
 
 ### rank_magnetic_groups
 
-Powder page only. Fit the moments of each magnetic group that allows a moment (the nuclear model held) and rank them by wR: `scope` "open" (default) fits the groups in the index sections open on the page (the maximal, index-2 groups at first: the top-down start), "all" every group. Each group is fitted from its seed moments and from `restarts` kicked starts (default 12), the best kept: magnetic intensity is quadratic in the moments, so one fit can stop in a minimum with a sublattice switched off. Returns the fitted groups, best first, with the best marked (ties go to the maximal group with the fewest moment parameters). Several seconds per group.
+Powder page only. Fit the moments of each magnetic group that allows a moment (the nuclear model held) and rank them by wR: `scope` "open" (default) fits the groups in the index sections open on the page (the maximal, index-2 groups at first: the top-down start), "all" every group. Each group is fitted from its seed moments and from `restarts` kicked starts (default 12), the best kept: magnetic intensity is quadratic in the moments, so one fit can stop in a minimum with a sublattice switched off. Returns the fitted groups, best first, the groups within the noise of the best (Hamilton's test: a group with more moment parameters must lower χ² beyond the noise), and the ★, the maximal one with the fewest moment parameters among them. At k = 0 the nuclear scale refines with the moments. Several seconds per group.
 
 ```json
 {
@@ -1315,7 +1315,7 @@ Read one of the user's skills (the system prompt lists them): the method you fol
 
 ### allow_exception
 
-Ask the user to lift one of their method's firm rules for this analysis, when refine refused on it and the user wants to go on regardless: "bare-occupancy" (refine an occupancy with no tie, because a second contrast — anomalous X-ray, isotopic neutron — determines it), or "instrument-with-thermal" (refine the instrument's terms — the zero, the peak shape and asymmetry, Qdamp/Qbroad — together with the B values or ADPs, which the user's method alternates). Only when the user asks for it, never to get past a refusal. Always shows the user an approval card, even in Auto; only they can approve it. Give their reason in `reason`. Lasts until the data or the phases change.
+Ask the user to lift one of their method's firm rules for this analysis, when refine refused on it and the user wants to go on regardless: "bare-occupancy" (refine an occupancy with no tie, because a second contrast — anomalous X-ray, isotopic neutron — determines it), or "instrument-with-thermal" (refine the instrument's terms — the zero, the peak shape and asymmetry, Qdamp/Qbroad — together with the B values or ADPs, which the user's method alternates), or "instrument-with-positions" (on the powder page, the instrument's terms together with the atom positions, which it alternates too). Only when the user asks for it, never to get past a refusal. Always shows the user an approval card, even in Auto; only they can approve it. Give their reason in `reason`. Lasts until the data or the phases change.
 
 ```json
 {
@@ -1325,7 +1325,8 @@ Ask the user to lift one of their method's firm rules for this analysis, when re
       "type": "string",
       "enum": [
         "bare-occupancy",
-        "instrument-with-thermal"
+        "instrument-with-thermal",
+        "instrument-with-positions"
       ]
     },
     "reason": {
@@ -1598,7 +1599,7 @@ Run the refinement of the free parameters, as the Refine button does, and wait f
 
 ### boxcar_scan
 
-PDF page only. The way to answer whether the local structure differs from the average one — not the full fit, nor bond_geometry, which give the average only. The r-resolved view of the current model: a box of fixed width slid across the fit window, the FREE parameters refined in each box (seeded from the previous one), as the page's Boxcar view does — the user watches it there. It answers whether the local structure differs from the average: Rw and parameters that drift between low and high r. The parameter rows are left as they are (a diagnostic, not a fit). Returns, per box, its r range, Rw and the free parameters' values, and each parameter's spread; with `bonds`, also those sites' bond lengths per box and each bond's spread — a distortion read as lengths, not coordinate shifts. Takes about one refinement per box. Pass `free` for a scan's own small set (scale, cell, the parameters in question): the page keeps its free set and its fit, so the report that follows still matches them.
+PDF page only. The way to answer whether the local structure differs from the average one — not the full fit, nor bond_geometry, which give the average only. The r-resolved view of the current model: a box of fixed width slid across the fit window, the FREE parameters refined in each box (seeded from the previous one), as the page's Boxcar view does — the user watches it there. It answers whether the local structure differs from the average: Rw and parameters that drift between low and high r. The parameter rows are left as they are (a diagnostic, not a fit). Returns, per box, its r range, Rw and the free parameters' values with their esds, and each parameter's spread and its drift from the first box to the last in esds; with `bonds`, also those sites' bond lengths per box and each bond's spread — a distortion read as lengths, not coordinate shifts. Takes about one refinement per box. Pass `free` for a scan's own small set (scale, cell, the parameters in question): the page keeps its free set and its fit, so the report that follows still matches them.
 
 ```json
 {
@@ -1638,6 +1639,12 @@ PDF page only. The way to answer whether the local structure differs from the av
       "items": {
         "type": "string"
       }
+    },
+    "restarts": {
+      "description": "Randomly perturbed starts each box also refines from, the seeded start kept (default 0): for a track that may have inherited one box's local minimum",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 16
     }
   },
   "additionalProperties": false
