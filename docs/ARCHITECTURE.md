@@ -187,6 +187,12 @@ decides only where they run.
   the two drivers to identical trajectories.
 - **Posterior sampling.** The ensemble sampler fans its walker batches out over
   the same pools.
+- **Strategies.** A strategy that runs many fits (the PDF boxcar scan) is
+  written once, in [`workers/strategy.ts`](../src/workers/strategy.ts), over a
+  `Solver`: the problem set on the evaluators, then one start refined at a
+  time. The browser's client hands it its worker pool, the MCP server its worker
+  threads, and either runs it in-thread without one; the Jacobian rule (a PDF
+  problem's analytic columns on the driver) is the same for all three.
 
 The protocol is a typed request/response message set
 ([`workers/protocol.ts`](../src/workers/protocol.ts)). Data types cross the
