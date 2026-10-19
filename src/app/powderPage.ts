@@ -35,6 +35,7 @@ import {
   buildSpecFor, carryRefinedStructure, DEFAULT_INSTRUMENT, EMPTY_SOURCE, emptySession, keptBindings, keptRow, keptRows, newSession, SYNTHETIC_SOURCE,
   withMagneticRows, withValidUserTies, type Session,
 } from "@/app/powderSession";
+import { rowsForPhases } from "@/app/multiPhaseSpec";
 import { startingPowderParams } from "@/app/loadData";
 import { powderBindings } from "@/examples/synthetic";
 import type { PowderPattern } from "@/core/diffraction/types";
@@ -159,23 +160,28 @@ export function withAntisitePair(s: Session, siteA: string, siteB: string, instr
   return rebuilt(s, instrument, { structure: withAntisite(s.structure, siteA, siteB), siteTies: { ...s.siteTies, occupancyToUnity: true, composition: true } });
 }
 
-/** Another phase in the model (an impurity, the sample environment): its rows come in as the spec seeds them. */
+/** Another phase in the model (an impurity, the sample environment): its rows come in as the spec seeds them, every other row keeps its value, state and tie. */
 export function withPhase(s: Session, phase: StructureModel, instrument: InstrumentParameters): Session {
   return withPhases(s, [...s.extraPhases, phase], instrument);
 }
 
-/** An added phase taken out again (by id), the spec rebuilt back down. */
+/** An added phase taken out again (by id), the spec rebuilt back down: its rows go, every other row keeps its value, state and tie. */
 export function withoutPhase(s: Session, id: string, instrument: InstrumentParameters): Session {
   return withPhases(s, s.extraPhases.filter((p) => p.id !== id), instrument);
 }
 
-/** The added phases set to these, the spec rebuilt for them. */
+/**
+ * The added phases set to these, the spec rebuilt for them. Each phase's rows
+ * follow it to its new ids first (`scale` on one phase is `p0_scale` on
+ * several, and a phase after one taken out moves up), so they keep their
+ * values: matched by id alone, the main phase came back at the CIF's seeds.
+ */
 export function withPhases(s: Session, extraPhases: readonly StructureModel[], instrument: InstrumentParameters): Session {
   const spec = buildSpecFor(s.structure, extraPhases, s.pattern, instrument, s.powderProfile.lorentz ?? true, s.backgroundTerms, s.siteTies, s.mustrain ?? "isotropic", s.corrections);
   return {
     ...s,
     extraPhases: [...extraPhases],
-    powderParams: keptRows(spec.params, s.powderParams),
+    powderParams: keptRows(spec.params, rowsForPhases(s.powderParams, [s.structure, ...s.extraPhases], [s.structure, ...extraPhases])),
     powderBindings: keptBindings(spec.bindings, s.powderBindings),
     powderProfile: { ...spec.profile, ...(s.powderProfile.backgroundType ? { backgroundType: s.powderProfile.backgroundType } : {}) },
   };
@@ -363,10 +369,9 @@ export function withStructure(p: PowderPage, structure: StructureModel, magnetic
   });
 }
 
-/** The session's rows under the ids the primary phase has on its own (a multi-phase spec prefixes them `p0_`). */
+/** The session's rows under the ids the primary phase has on its own (a multi-phase spec prefixes them `p0_`), the added phases' left out. */
 function primaryOnly(s: Session): Session {
-  if (s.extraPhases.length === 0) return s;
-  return { ...s, powderParams: s.powderParams.filter((r) => r.id.startsWith("p0_")).map((r) => ({ ...r, id: r.id.slice(3) })) };
+  return { ...s, powderParams: rowsForPhases(s.powderParams, [s.structure, ...s.extraPhases], [s.structure]) };
 }
 
 /**

@@ -15,11 +15,12 @@
 import type { StructureModel } from "@/core/crystal/types";
 import type { PowderPattern } from "@/core/diffraction/types";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
-import type { ParameterBinding, ParameterKind, RefinementParameter } from "@/core/refinement/types";
+import { isMagneticModelParameterKind, type ParameterBinding, type ParameterKind, type RefinementParameter } from "@/core/refinement/types";
 import type { PowderProfile } from "@/core/workflow/powder";
 import type { PowderPhase } from "@/core/workflow/multiPhase";
 import { buildPowderSpec, type SiteTies, type MustrainModel, type SampleCorrections } from "@/app/powderSpec";
 import { SHARED_CORRECTION_KINDS } from "@/core/diffraction/corrections";
+import { isUserTie, renamedTie, tieReferences } from "@/core/refinement/constraints";
 
 /** Instrument rows shared across phases (one beam illuminates every phase). The
  *  isotropic size/strain (profileX/Y, tofProfile, isotropic TOF Mustrain) is
@@ -80,4 +81,46 @@ export function buildMultiPhaseSpec(
     bindings,
     profile: profile ?? { shape: "gaussian" },
   };
+}
+
+/** A row of one phase (its scale, cell, atoms, …), which the spec prefixes `p{i}_` on several phases; the shared instrument rows and the magnetic model's are not. */
+const phaseOwn = (p: RefinementParameter): boolean => !SHARED_KINDS.has(p.kind) && !isMagneticModelParameterKind(p.kind);
+
+/**
+ * Rows built for one list of phases under the ids the spec gives them on
+ * another: each phase's own rows follow it (by structure id) to its place in
+ * the new list, bare on one phase and `p{i}_` on several, the shared and
+ * magnetic rows keep their ids, and a user tie reads its rows under their new
+ * ids. A phase not in the new list takes its rows with it, and a user tie
+ * that read one is released (fixed at its value). So a rebuild matching rows
+ * by id (keptRows) keeps every phase's values, free states and ties when a
+ * phase comes in or goes.
+ */
+export function rowsForPhases(rows: readonly RefinementParameter[], from: readonly StructureModel[], to: readonly StructureModel[]): RefinementParameter[] {
+  // Each phase's place in the new list (-1: gone); a repeated id is matched in order.
+  const taken = new Set<number>();
+  const place = from.map((f) => {
+    const j = to.findIndex((t, k) => t.id === f.id && !taken.has(k));
+    if (j >= 0) taken.add(j);
+    return j;
+  });
+  const renamed = new Map<string, string | null>();
+  for (const p of rows) {
+    if (!phaseOwn(p)) continue;
+    const m = from.length > 1 ? /^p(\d+)_(.+)$/.exec(p.id) : null;
+    if (from.length > 1 && !m) continue;
+    const [i, id] = m ? [Number(m[1]), m[2]!] : [0, p.id];
+    const j = place[i] ?? -1;
+    renamed.set(p.id, j < 0 ? null : to.length > 1 ? `p${j}_${id}` : id);
+  }
+  return rows.flatMap((p) => {
+    const id = renamed.has(p.id) ? renamed.get(p.id)! : p.id;
+    if (id === null) return [];
+    if (!isUserTie(p)) return [{ ...p, id }];
+    if (tieReferences(p.expression!).some((ref) => renamed.get(ref) === null)) {
+      const { expression: _e, group: _g, ...rest } = p;
+      return [{ ...rest, id, fixed: true }];
+    }
+    return [{ ...p, id, expression: renamedTie(p.expression!, (ref) => renamed.get(ref) ?? ref) }];
+  });
 }

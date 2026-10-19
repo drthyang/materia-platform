@@ -4,7 +4,9 @@ import { mn3gaSession } from "@/agent/evals/pages";
 import { executor, fakeHost, headlessHistory, sessionPort } from "@/testSupport/agentHeadless";
 import { powderRestraints } from "@/app/powderSpec";
 import { DEFAULT_INSTRUMENT, type Session } from "@/app/powderSession";
-import { posteriorRun, powderFit, thoroughFit, withBackgroundType, withPhase, type PowderCompute, type PowderPageModel } from "@/app/powderPage";
+import { USER_TIE_GROUP } from "@/core/refinement/constraints";
+import type { StructureModel } from "@/core/crystal/types";
+import { posteriorRun, powderFit, thoroughFit, withBackgroundType, withParameterTies, withPhase, withoutPhase, type PowderCompute, type PowderPageModel } from "@/app/powderPage";
 
 /**
  * The powder page's operations, which the workbench and the Agent's headless
@@ -42,6 +44,46 @@ function busySession(): Session {
   const s1 = withBackgroundType(withPhase({ ...s0, siteTies: { ...s0.siteTies, occupancyToUnity: true } }, second, DEFAULT_INSTRUMENT), "logInterpolate");
   return { ...s1, powderParams: s1.powderParams.map((p) => (p.kind === "cellLength" ? { ...p, fixed: false } : p)) };
 }
+
+/** The demo as a fit leaves it: every row the spec does not tie moved off its seed and its free state flipped, B_Ga1 tied to B_Mn1. */
+function fittedSession(): Session {
+  const s = mn3gaSession();
+  const moved = { ...s, powderParams: s.powderParams.map((p) => (p.expression ? p : { ...p, value: p.value * 1.01 + 1e-3, fixed: !p.fixed })) };
+  return withParameterTies(moved, { equal: ["B_Mn1", "B_Ga1"] });
+}
+
+/** One phase's rows and the shared ones under their single-phase ids (`p{i}_` dropped): each row's value, free state and tie. */
+function phaseRows(s: Session, i: number): Record<string, { value: number; fixed: boolean; expression: string | undefined; group: string | undefined }> {
+  const own = new RegExp(`\\bp${i}_`, "g");
+  return Object.fromEntries(s.powderParams
+    .filter((p) => !/^p\d+_/.test(p.id) || p.id.startsWith(`p${i}_`))
+    .map((p) => [p.id.replace(own, ""), { value: p.value, fixed: p.fixed, expression: p.expression?.replace(own, ""), group: p.group }]));
+}
+
+describe("the powder page's phases", () => {
+  const second = (s: Session, id: string): StructureModel => ({ ...s.structure, id, name: id });
+
+  it("a fitted single-phase page keeps every row of its phase through an added phase, and back (the p0_ rows came in at the CIF's seeds)", () => {
+    const fitted = fittedSession();
+    const two = withPhase(fitted, second(fitted, "second"), DEFAULT_INSTRUMENT);
+    expect(phaseRows(two, 0)).toEqual(phaseRows(fitted, 0));
+    expect(two.powderParams.find((p) => p.id === "p0_B_Ga1")).toMatchObject({ expression: "= p0_B_Mn1", group: USER_TIE_GROUP });
+    expect(two.powderParams.some((p) => p.id === "p1_scale")).toBe(true);
+    const one = withoutPhase(two, "second", DEFAULT_INSTRUMENT);
+    expect(one.powderParams.map((p) => p.id)).toEqual(fitted.powderParams.map((p) => p.id));
+    expect(phaseRows(one, 0)).toEqual(phaseRows(fitted, 0));
+  });
+
+  it("an added phase keeps its rows when one added before it is taken out (it took that one's)", () => {
+    const fitted = fittedSession();
+    const three = withPhase(withPhase(fitted, second(fitted, "A"), DEFAULT_INSTRUMENT), second(fitted, "B"), DEFAULT_INSTRUMENT);
+    const moved = { ...three, powderParams: three.powderParams.map((p) => (p.id.startsWith("p2_") ? { ...p, value: p.value * 1.02 + 2e-3, fixed: !p.fixed } : p)) };
+    const two = withoutPhase(moved, "A", DEFAULT_INSTRUMENT);
+    expect(two.extraPhases.map((p) => p.id)).toEqual(["B"]);
+    expect(phaseRows(two, 1)).toEqual(phaseRows(moved, 2));
+    expect(phaseRows(two, 0)).toEqual(phaseRows(fitted, 0));
+  });
+});
 
 describe("the powder page's fits", () => {
   it("every request carries the window, every phase, every phase's restraints and the whole profile", async () => {
