@@ -114,7 +114,6 @@ function instrumentProfileRow(instrument: InstrumentParameters, loaded: boolean)
   return [{ label: "Instrument profile (file)", value: `${g}${l}${a}` }];
 }
 
-/** A value with its esd in the last digits, e.g. 19.8(4); the value alone without one. */
 /** The cell's esds as the structure file gives them, in a few words: "a 12.7506(1), c 27.6245(3) Å", the lengths the lattice holds equal given once. */
 function cellSuText(structure: StructureModel): string {
   const su = structure.cellSu ?? {};
@@ -128,6 +127,7 @@ function cellSuText(structure: StructureModel): string {
   ].join("; ");
 }
 
+/** A value with its esd in the last digits, e.g. 19.8(4); the value alone without one. */
 function withEsdText(v: number, esd: number | undefined, decimals: number): string {
   if (esd === undefined || !(esd > 0)) return v.toFixed(decimals);
   const d = Math.min(Math.max(-Math.floor(Math.log10(esd)) + (esd < 2 * 10 ** Math.floor(Math.log10(esd)) ? 1 : 0), 0), 6);

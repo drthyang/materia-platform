@@ -155,5 +155,3 @@ export function withLine(pattern: PowderPattern, d: number, height: number, fwhm
   });
   return { ...pattern, points };
 }
-
-export const twoThetaOf = (d: number): number => (2 * Math.asin(WAVELENGTH / (2 * d)) * 180) / Math.PI;

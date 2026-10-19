@@ -340,13 +340,13 @@ export function scChiralPage(opts: { readonly equivalents?: number } = {}): Sing
   return singleCrystalPort(c.structure, c.dataset).port;
 }
 
-/** The chiral Ga framework measured from a crystal of the other hand (Flack x = 1): the model as loaded is the wrong enantiomer, as round 4's 3a was. */
 /** A light-atom molecule in P3₂, its crystal twinned by h, k, l → k, h, −l at 0.45, each reflection once (round 5's 2b in small). */
 export function scTwinnedPage(): SingleCrystalAgentPort {
   const t = twinnedTrigonalPage();
   return singleCrystalPort(t.structure, t.dataset).port;
 }
 
+/** The chiral Ga framework measured from a crystal of the other hand (Flack x = 1): the model as loaded is the wrong enantiomer, as round 4's 3a was. */
 export function scInvertedHandPage(): SingleCrystalAgentPort {
   const c = chiralPage({ flack: 1 });
   return singleCrystalPort(c.structure, c.dataset).port;
