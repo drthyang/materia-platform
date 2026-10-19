@@ -11,7 +11,7 @@
  */
 
 import type { SymmetryOperation } from "@/core/crystal/types";
-import { canonicalKey, pointGroupRotations } from "@/core/diffraction/merge";
+import { canonicalKey, mergeEquivalents, pointGroupRotations } from "@/core/diffraction/merge";
 
 export interface BijvoetRow {
   readonly h: number;
@@ -36,16 +36,36 @@ export interface ParsonsEstimate {
 }
 
 /**
- * Parsons' x from the reflections fitted (each once, the Friedel opposites
- * apart: SHELXL's MERG 2), paired by the point group; null when no pair was
- * measured both ways, or the model gives the pairs no anomalous difference.
+ * Parsons' x from the reflections fitted, paired by the point group; null
+ * when no pair was measured both ways, or the model gives the pairs no
+ * anomalous difference. Unmerged data are merged first, the Friedel
+ * opposites apart (SHELXL's MERG 2): each side of a pair is every
+ * measurement of the reflection and its equivalents, Fo² and Fc² their means
+ * weighted by 1/σ², σ as `mergeEquivalents` gives it. (Each side's first
+ * measurement alone left the esd √n too large for n measurements.)
  */
 export function parsonsQuotients(rows: readonly BijvoetRow[], operations: readonly SymmetryOperation[]): ParsonsEstimate | null {
   const rotations = pointGroupRotations(operations);
-  const byKey = new Map<string, BijvoetRow>();
+  const groups = new Map<string, BijvoetRow[]>();
   for (const r of rows) {
     const key = canonicalKey(rotations, r.h, r.k, r.l);
-    if (!byKey.has(key)) byKey.set(key, r);
+    const g = groups.get(key);
+    if (g) g.push(r);
+    else groups.set(key, [r]);
+  }
+  const fo = mergeEquivalents(rows.map((r) => ({ h: r.h, k: r.k, l: r.l, intensity: r.foSq, sigma: r.sigma })), operations, { friedel: false }).reflections;
+  const byKey = new Map<string, BijvoetRow>();
+  for (const m of fo) {
+    const key = `${m.h},${m.k},${m.l}`;
+    const members = groups.get(key)!;
+    let w = 0;
+    let wc = 0;
+    for (const r of members) {
+      const wi = r.sigma > 0 ? 1 / (r.sigma * r.sigma) : 1;
+      w += wi;
+      wc += wi * r.fcSq;
+    }
+    byKey.set(key, { h: m.h, k: m.k, l: m.l, foSq: m.intensity, sigma: m.sigma, fcSq: wc / w });
   }
   let sxy = 0;
   let sxx = 0;

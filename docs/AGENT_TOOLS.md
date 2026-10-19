@@ -649,7 +649,8 @@ under, the references, the report's checks.
   where the group needs it), keeping the refined values and the twin's fit;
   called again it returns to the hand as loaded. `assess_refinement`'s
   `absoluteStructure` gives Parsons' x from the Bijvoet pairs fitted both
-  ways. In a polar group (P6₁, P2₁, Pc, P1) the fit holds the floating origin
+  ways, each side every measurement of the reflection and its equivalents
+  merged (the Friedel opposites apart, SHELXL's MERG 2). In a polar group (P6₁, P2₁, Pc, P1) the fit holds the floating origin
   by SHELXL's restraint. `set_riding_hydrogens` rides the hydrogens on their
   parents as SHELXL's AFIX does: sp² on the bisector (43), a methyl or NH₃
   rotating with its torsion refined (137), a hydroxyl likewise (147), a CH₂
