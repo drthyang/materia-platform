@@ -171,7 +171,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   const viewStructure = view.refinedPhases[Math.min(viewPhase, phases.length - 1)]!;
 
   // The structure the magnetic page analyses: `viewStructure` re-mints on every
-  // parameter edit, and KSearchPanel keys its heavy symmetry enumerations (the
+  // parameter edit, and the magnetic step (app/magneticStep.ts) keys its heavy symmetry enumerations (the
   // magnetic subgroup lattice, the irrep decomposition) on structure IDENTITY —
   // so feeding it directly would re-run the whole enumeration on every
   // keystroke in the refinement panel, while the magnetic page is not even
@@ -797,8 +797,9 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   return (
     <>
       {/* Step 0 — setup + real-space refinement. Both step panels stay MOUNTED
-          (display:none) rather than being swapped: KSearchPanel owns the ion
-          selection, k, framework and subgroup picks, and unmounting loses them. */}
+          (display:none) rather than being swapped: the magnetic step's store, which
+          KSearchPanel makes, holds the ion selection, k, framework and subgroup
+          picks, and unmounting loses them. */}
       {/* The step wrapper carries the page's own vertical gutter: it sits
           between `.wb-main` and its children, so without a gap of its own the
           rows inside it would butt together while every other page's rows are

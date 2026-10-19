@@ -21,7 +21,7 @@
  * Kept free of the SDK so the drawer can list models without loading it.
  */
 
-import { HttpError, MIN_AGENT_CONTEXT, getJson, serverBase } from "@/agent/localServer";
+import { HttpError, MIN_AGENT_CONTEXT, getJson, kTokens, serverBase } from "@/agent/localServer";
 
 export const DEFAULT_LMSTUDIO_URL = "http://localhost:1234";
 
@@ -110,12 +110,11 @@ export async function ensureLmStudioContext(url: string, model: string, signal?:
   const m = models.find((x) => x.key === model);
   if (!m) return { notice: null, context: null, maxContext: null };
   const needed = Math.min(MIN_AGENT_CONTEXT, m.maxContext ?? MIN_AGENT_CONTEXT);
-  const k = (n: number): string => `${Math.round(n / 1024)}k`;
   if (m.loadedContext !== null) {
     if (m.loadedContext >= needed) return { notice: null, context: m.loadedContext, maxContext: m.maxContext };
     throw new Error(
-      `LM Studio has ${model} loaded with ${k(m.loadedContext)} tokens of context, and the Agent's instructions alone are about 15k, so the model would lose them. ` +
-        `Reload it with ${k(needed)}: eject it in LM Studio, then pick it again here (the Agent loads it with ${k(needed)}), or run lms unload ${model} && lms load ${model} --context-length ${needed}.`,
+      `LM Studio has ${model} loaded with ${kTokens(m.loadedContext)} tokens of context, and the Agent's instructions alone are about 15k, so the model would lose them. ` +
+        `Reload it with ${kTokens(needed)}: eject it in LM Studio, then pick it again here (the Agent loads it with ${kTokens(needed)}), or run lms unload ${model} && lms load ${model} --context-length ${needed}.`,
     );
   }
   const init: RequestInit = { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model, context_length: needed }) };
@@ -124,7 +123,7 @@ export async function ensureLmStudioContext(url: string, model: string, signal?:
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } | string; message?: string };
     const why = (typeof body.error === "string" ? body.error : body.error?.message) ?? body.message ?? `it answered ${res.status}`;
-    throw new Error(`LM Studio could not load ${model} with a ${k(needed)} context: ${why}`);
+    throw new Error(`LM Studio could not load ${model} with a ${kTokens(needed)} context: ${why}`);
   }
-  return { notice: `Loaded ${model} in LM Studio with a ${k(needed)} context.`, context: needed, maxContext: m.maxContext };
+  return { notice: `Loaded ${model} in LM Studio with a ${kTokens(needed)} context.`, context: needed, maxContext: m.maxContext };
 }

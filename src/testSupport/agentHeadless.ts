@@ -254,7 +254,6 @@ export function fakeHost(
   let agent = false;
   const host: AgentHost = {
     port: () => (port ? renderSnapshot(port) : null),
-    technique: () => port?.technique ?? null,
     settle: async () => undefined,
     asAgent: async (fn) => {
       agent = true;
