@@ -172,7 +172,7 @@ const CONTRACTS: Record<string, { args: object; keys: string[] }> = {
   },
   check_cell_symmetry: {
     args: { structure, pattern },
-    keys: ["absences", "absencesConsistent", "cell", "cellValues", "everyPeakIndexes", "leBail", "limits", "passed", "shoulders", "unindexedPeaks"],
+    keys: ["absences", "absencesConsistent", "cell", "cellValues", "everyPeakIndexes", "leBail", "limits", "passed", "reading", "shoulders", "unindexedPeaks"],
   },
   refine_powder: {
     args: { structure, pattern, parameters: built.parameters, bindings: built.bindings, profile: built.profile, maxIterations: 2 },
@@ -272,7 +272,7 @@ const CONTRACTS: Record<string, { args: object; keys: string[] }> = {
     // itself part of the contract). The default ensemble sampler; the NUTS
     // variant is exercised in pdfPosterior.test.ts / nuts.test.ts.
     args: { structure, pattern: pdfPattern, parameters: pdfBuilt.parameters, bindings: pdfBuilt.bindings, nSteps: 5, nWalkers: 4, burnIn: 1, seed: 7 },
-    keys: ["acceptanceFraction", "converged", "correlations", "freeIds", "message", "nSamples", "parallel", "posterior", "resume", "sampler", "status"],
+    keys: ["acceptanceFraction", "converged", "correlations", "freeIds", "intervals", "message", "nSamples", "parallel", "posterior", "reading", "resume", "sampler", "status"],
   },
   compute_partial_pdf: {
     args: { structure, pattern: pdfPattern, parameters: pdfBuilt.parameters, bindings: pdfBuilt.bindings },

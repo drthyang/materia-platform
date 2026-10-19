@@ -1,11 +1,11 @@
 /**
  * The powder page's magnetic analysis step, as the Agent drives it: the same
- * controls the user has there (KSearchPanel) — the magnetic ions, the
- * propagation vector k (searched from the residual peaks, or set), the
- * magnetic space groups of the little group of k, their fit against the data,
- * the moments of the one chosen — published by the panel as a handle on the
- * powder port. The views here are plain data, built the same way by the panel
- * and by the headless page the tests use.
+ * changes the user makes there — the magnetic ions, the propagation vector k
+ * (searched from the residual peaks, or set), the magnetic space groups of the
+ * little group of k, their fit against the data, the moments of the one
+ * chosen — as a handle on the step's store (app/magneticStep.ts,
+ * MagneticStep), which the panel renders and publishes on the powder port and
+ * the headless page holds. The views here are plain data, built by the store.
  */
 
 import type { Vec3 } from "@/core/math/types";

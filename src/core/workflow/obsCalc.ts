@@ -37,6 +37,7 @@ import { magneticStructureFactor } from "@/core/magnetic/structureFactor";
 import { magneticSatellites } from "@/core/magnetic/satellites";
 import { evaluateBackground } from "@/core/diffraction/background";
 import { gaussian, pseudoVoigt, tofBackToBack, type ProfilePeak } from "@/core/diffraction/profile";
+import { minMax } from "@/core/math/extent";
 
 export interface ReflectionObsCalc {
   /** Nuclear Bragg reflection, or a magnetic satellite at G ± k. */
@@ -170,8 +171,7 @@ export function powderReflectionObsCalc(
   const applyLorentz = profile.lorentz ?? true;
   const x = pattern.points.map((p) => p.x);
   const yObs = pattern.points.map((p) => p.yObs);
-  const xMin = Math.min(...x);
-  const xMax = Math.max(...x);
+  const { min: xMin, max: xMax } = minMax(x);
   const bgType = profile.backgroundType ?? "chebyshev";
 
   // Primary applied model — carries the shared background + the shared d-range,

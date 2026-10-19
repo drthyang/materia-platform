@@ -45,6 +45,7 @@ import { refine } from "@/core/refinement/engine";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { annotateExtraPeaks, detectExtraPeaks } from "@/core/magnetic/extraPeaks";
 import { axisContext, availableDisplayUnits, convertAxisArray, convertAxisValue, tofCalibrationOf, type AxisContext } from "@/visualization/axisUnits";
+import { minMax } from "@/core/math/extent";
 
 /** The fit window on the pattern's own axis. */
 export interface FitWindow {
@@ -546,16 +547,9 @@ export function observationsIn(c: { readonly x: readonly number[]; readonly yObs
   return n;
 }
 
-/** The pattern's full extent on its own axis, by a loop (a TOF file's 10⁵–10⁶ points overflow a spread into Math.min). */
+/** The pattern's full extent on its own axis (0–0 with no points). */
 export function extentOf(xs: readonly number[]): FitWindow {
-  if (xs.length === 0) return { min: 0, max: 0 };
-  let min = Infinity;
-  let max = -Infinity;
-  for (const x of xs) {
-    if (x < min) min = x;
-    if (x > max) max = x;
-  }
-  return { min, max };
+  return xs.length === 0 ? { min: 0, max: 0 } : minMax(xs);
 }
 
 // ── the fits the page runs ─────────────────────────────────────────────────
