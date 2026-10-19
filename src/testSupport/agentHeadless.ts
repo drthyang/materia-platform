@@ -27,7 +27,7 @@ import { moveTo, recordStep, restoreStep, type ProjectHistory, type Snapshot, ty
 import type { Workspace } from "@/core/project/types";
 import { powderReportInput } from "@/app/reportInputs";
 import {
-  liveStateOf as liveStateOfPdf, pdfBoxcar, pdfFit, pdfPage, pdfPosterior, pdfProbe, pdfThorough, reportInputOf as reportInputOfPdf, withAdpModel as withPdfAdpModel,
+  agentBoxcarPlan, liveStateOf as liveStateOfPdf, pdfBoxcar, pdfFit, pdfPage, pdfPosterior, pdfProbe, pdfThorough, reportInputOf as reportInputOfPdf, withAdpModel as withPdfAdpModel,
   withBoxcarPlan, withBoxcarRun, withFit as withPdfFit, withFitRange, withFixed as withPdfFixed, withPosterior, withReset as withPdfReset, type PdfCompute, type PdfPageModel,
 } from "@/app/pdfPage";
 import type { SingleCrystalDataset } from "@/core/diffraction/types";
@@ -359,9 +359,9 @@ export function executor(
  * posterior. It opens on a 1.5–6 Å window, passed as the app passes the
  * demo's own (1.5–28 Å, where one fit takes seconds), so an eval stays short.
  */
-export function pdfPort(opts: { readonly client?: PdfCompute } = {}): { port: PdfAgentPort; calls: string[] } {
+export function pdfPort(opts: { readonly client?: PdfCompute; readonly page?: PdfPageModel } = {}): { port: PdfAgentPort; calls: string[] } {
   const demo = gata4se8PdfExample();
-  let m = pdfPage(demo.structure, demo.pattern, { preset: { values: demo.refinedParams, fitRange: { min: 1.5, max: 6 } } });
+  let m = opts.page ?? pdfPage(demo.structure, demo.pattern, { preset: { values: demo.refinedParams, fitRange: { min: 1.5, max: 6 } } });
   const calls: string[] = [];
   const client: PdfCompute = opts.client ?? new ComputeClient();
   const port: PdfAgentPort = {
@@ -391,10 +391,11 @@ export function pdfPort(opts: { readonly client?: PdfCompute } = {}): { port: Pd
     },
     probe: (options) => pdfProbe(client, m, options),
     // The Boxcar view's scan: the Agent's plan becomes the panel's, the rows untouched.
-    boxcar: async (plan) => {
-      calls.push(`boxcar ${plan.width}/${plan.step}${plan.bonds?.length ? ` bonds ${plan.bonds.join(",")}` : ""}`);
-      m = withBoxcarPlan(m, { width: plan.width, step: plan.step, direction: plan.direction });
-      const out = await pdfBoxcar(client, m, { ...m.boxcarPlan, ...plan });
+    boxcar: async (asked) => {
+      calls.push(`boxcar ${asked.width}/${asked.step}${asked.bonds?.length ? ` bonds ${asked.bonds.join(",")}` : ""}${asked.restarts ? ` restarts ${asked.restarts}` : ""}`);
+      const plan = agentBoxcarPlan(m.boxcarPlan, asked);
+      m = withBoxcarPlan(m, { width: plan.width, step: plan.step, direction: plan.direction, randomStart: plan.randomStart, restarts: plan.restarts });
+      const out = await pdfBoxcar(client, m, plan);
       m = withBoxcarRun(m, out.run, out.key);
       return out.stopped ? null : out.run;
     },

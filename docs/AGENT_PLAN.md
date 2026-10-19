@@ -265,7 +265,7 @@ are noted, since arm A reads it.
 | 4.2 | **Done.** Data per parameter on powder counts the reflections in the fitted range against the free structural parameters (positions, occupancies, ADPs, moments, preferred orientation, extinction), in `assess_refinement` on both surfaces. | S |
 | 4.3 | k-search: mixed-sign k for monoclinic and triclinic cells, the hkl range from the cell, and one `maxQ` policy. | M |
 | 4.4 | Magnetic ranking: the moment fit returns χ² and N; a Hamilton R-ratio test (or Δχ² per parameter) makes a group with more moments earn them; the scale is free at k = 0. The ★ and the skill's "within the noise" then mean the same thing. | M |
-| 4.5 | `boxcar_scan` returns per-box esds and each parameter's drift in esds; restarts reachable. | S |
+| 4.5 | **Done.** `boxcar_scan` gives each box's esds and each parameter's `driftInEsds`, the first box against the last over the esd of their difference; the reading says a PDF's esds understate the uncertainty. Its `restarts` reaches the scan's perturbed starts (none unless asked; the panel shows the plan). Known answer: nickel's G(r) with one cell reads a drift under 2 esd, with the cell 1 % short below 6 Å about 60 ([report](./reports/2026-10-19-boxcar-esds.md)). | S |
 | 4.6 | The H-test's stated direction of bias fixed now; the unbiased estimator later. | S |
 | 4.7 | Texture: averaged over Laue equivalents, symmetry-distinct axes, corrected for choosing the best axis; a false-positive test over many seeds. | M |
 | 4.8 | Flack and Parsons use every measurement of unmerged data. | S |
