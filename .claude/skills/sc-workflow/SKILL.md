@@ -40,7 +40,8 @@ The numbers and the stops in one place; each is explained at its stage below.
 - **The weights last**, once the model is complete; the GooF is then a little above 1 by
   construction.
 - **Ask the user**: the radiation when nothing says it; a measurement left out (with the
-  reason); a vacancy on a lone site; any change of space group or hand.
+  reason); a vacancy on a lone site; any change of space group or hand. In the app, put such a decision
+  with `ask_user`: one question, the options as you would say them; the change itself still asks.
 
 ## Stage 0 — Read the data before the model
 

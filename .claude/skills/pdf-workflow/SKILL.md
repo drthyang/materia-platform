@@ -50,7 +50,8 @@ The numbers and the stops in one place; each is explained at its stage below.
   or where it differs — then report.
 - **Ask the user** before refining Qdamp or Qbroad against the sample, before a window
   this plan does not give, before lowering the symmetry, and on any judgment call this
-  method does not settle.
+  method does not settle. In the app, put such a decision
+  with `ask_user`: one question, the options as you would say them; the change itself still asks.
 
 ## Stage 0 — Check the data and the instrument before the structure
 
