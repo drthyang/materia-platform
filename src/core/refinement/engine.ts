@@ -22,7 +22,7 @@ import {
   type RefinementStatus,
 } from "@/core/refinement/types";
 import { chiSquared, computeAgreementFactors } from "@/core/refinement/factors";
-import { resolveTies } from "@/core/refinement/constraints";
+import { parseTie, resolveTies } from "@/core/refinement/constraints";
 import { CORRELATION_REPORTED } from "@/core/diagnostics/thresholds";
 import {
   pseudoInverseSymmetric,
@@ -784,6 +784,25 @@ function* refineCore(
     for (const a of terms) for (const b of terms) variance += a.c * b.c * covarianceBase[a.j]![b.j]!;
     variance *= reducedChi;
     if (variance > 0) combinationEsd[c.id] = Math.sqrt(variance);
+  }
+  // A row tied to a sum of free ones ("= c ± f·sum(a, b, …)": a shared site's
+  // last occupancy, one minus the others'): its esd from the full covariance,
+  // as a named combination's, by the row's id. A fixed reference adds nothing.
+  for (const p of problem.parameters) {
+    if (!p.fixed || !p.expression) continue;
+    let tie: ReturnType<typeof parseTie>;
+    try {
+      tie = parseTie(p.expression);
+    } catch {
+      continue;
+    }
+    if (tie.kind !== "sum") continue;
+    const js = tie.refIds.map((id) => freeIds.indexOf(id)).filter((j) => j >= 0);
+    if (js.length === 0) continue;
+    let variance = 0;
+    for (const a of js) for (const b of js) variance += covarianceBase[a]![b]!;
+    variance *= tie.factor * tie.factor * reducedChi;
+    if (variance > 0) combinationEsd[p.id] = Math.sqrt(variance);
   }
   const agreement: AgreementFactors = dataAgreement(current.yCalc, n);
   // The last accepted step against the esds reported with it — unless the fit
