@@ -42,7 +42,7 @@ import { structureToCif, magneticStructureToMcif } from "@/core/export/cif";
 import { downloadText } from "@/app/download";
 import { card as themeCard, color as theme, mono as themeMono, uppercaseLabel as themeLabel, resetRangeBtn, space, toolbarBtn } from "@/app/theme";
 import type { MagneticAgentHandle } from "@/agent/magneticPort";
-import { MagneticStep, NO_RANK, handoff, peakKey, stepView, type MagneticFit, type ResidualPeak, type StepInputs } from "@/app/magneticStep";
+import { MagneticStep, NO_RANK, handoff, peakKey, type MagneticFit, type ResidualPeak, type StepInputs } from "@/app/magneticStep";
 
 // Lazy so three.js stays in its own chunk (only loaded when a group is previewed).
 const StructureView = lazy(() => import("@/app/ui/StructureView").then((m) => ({ default: m.StructureView })));
@@ -223,7 +223,7 @@ export function KSearchPanel({
   });
   const [step] = useState(() => new MagneticStep(() => latestInputs.current));
   const s = useSyncExternalStore(step.subscribe, step.state);
-  const view = useMemo(() => stepView(s, inputs), [s, inputs]);
+  const view = useMemo(() => step.view(s, inputs), [step, s, inputs]);
   // A new model to open on, or a new peak set, once the page has rendered with it.
   useEffect(() => step.sync());
 

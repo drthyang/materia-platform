@@ -25,8 +25,8 @@
 import type { UnitCell } from "@/core/crystal/types";
 import type { ExpandedAtom } from "@/core/diffraction/structureFactor";
 import type { PdfScatteringType } from "@/core/diffraction/types";
-import { compositionWeights, numberDensity, pairWeight } from "@/core/totalscattering/weights";
-import { enumeratePairs, type PdfPair } from "@/core/pdf/pairEnumerator";
+import { compositionWeights, groupedWeights, numberDensity, pairWeight } from "@/core/totalscattering/weights";
+import { enumeratePairs, type ColocatedGroups, type PdfPair } from "@/core/pdf/pairEnumerator";
 
 export interface PdfModelParams {
   readonly scatteringType: PdfScatteringType;
@@ -80,6 +80,10 @@ export const PAIR_REACH_MARGIN = 1.0;
  * evaluating many envelope-only parameter sets (scale, Qdamp, δ1/δ2 — the bulk
  * of a Jacobian) can skip the periodic-image enumeration. Passing the pairs a
  * fresh enumeration would produce is bit-identical to omitting them.
+ *
+ * `groups` (pairEnumerator `colocatedGroups`) sums each mixed site's species
+ * onto one representative: `pairs` must then be enumerated over the
+ * representatives with the same groups. The sum is the same up to rounding.
  */
 export function computeGofR(
   cell: UnitCell,
@@ -87,6 +91,7 @@ export function computeGofR(
   rGrid: ArrayLike<number>,
   params: PdfModelParams,
   pairs?: readonly PdfPair[],
+  groups?: ColocatedGroups | null,
 ): Float64Array {
   const n = rGrid.length;
   const g = new Float64Array(n);
@@ -96,7 +101,8 @@ export function computeGofR(
   const step = n > 1 ? rGrid[1]! - rGrid[0]! : 1;
   const rMaxGrid = rGrid[n - 1]!;
 
-  const weights = compositionWeights(atoms, params.scatteringType);
+  const cellWeights = compositionWeights(atoms, params.scatteringType);
+  const weights = groups ? groupedWeights(cellWeights, groups.rep) : cellWeights;
   const rho0 = numberDensity(weights.nEff, cell);
   const norm = 1 / (weights.bAvgAbs2 * weights.nEff);
 
@@ -108,7 +114,7 @@ export function computeGofR(
   const qb2 = params.qbroad * params.qbroad;
 
   // Enumerate a little beyond the grid so peak tails just outside still land.
-  const pairList = pairs ?? enumeratePairs(cell, atoms, rMaxGrid + PAIR_REACH_MARGIN);
+  const pairList = pairs ?? enumeratePairs(cell, atoms, rMaxGrid + PAIR_REACH_MARGIN, groups);
 
   const INV_SQRT_2PI = 1 / Math.sqrt(2 * Math.PI);
   for (const pair of pairList) {
