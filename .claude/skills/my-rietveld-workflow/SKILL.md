@@ -134,13 +134,12 @@ The numbers and the stops; each is explained at its stage below.
    cell first. When the start is far off — the Le Bail fit did not settle, or the first
    refinement leaves the lines visibly misplaced — run the Prefit (`refine` with mode
    `thorough` before any fit; with a fit on screen, `go_to_step` back to the start first):
-   a Le Bail cell, then restarts from it. When the user asks for a refinement, refine: the
-   check informs the refinement, it does not stand in its way.
+   a Le Bail cell, then restarts from it. When the user asks for a refinement, refine.
 
 ## Stage 1 — Structural refinement, in the fixed order
 
-The sequence is **atoms before profile**. Free parameters in this order — in the app
-`set_free` then `refine`; over MCP `build_refinement` once, then `refine_powder` — and check
+The sequence is **atoms before profile**. Free parameters in this order — over MCP
+`build_refinement` once, then `refine_powder` — and check
 (`assess_refinement`) between blocks, freeing the next only once a block is done (Gates).
 
 1. **Scale + background + cell** — first, so intensity has somewhere sane to go. **Refine
@@ -198,8 +197,7 @@ somewhere chemically meaningless. Free an occupancy only when one of these break
 - a **genuine second contrast** — anomalous (X-ray near an edge) or isotopic (neutron) —
   that makes occupancy separately determined.
 
-If none is present, keep occupancy fixed and say why. This is a firm rule: in the app a
-refinement with a bare occupancy is refused; only the user can allow one
+If none is present, keep occupancy fixed and say why. This is a firm rule (Gates): only the user can allow one
 (`allow_exception`), for a genuine second contrast.
 
 In the app the first two are the Shared site ties (`set_site_ties`): **Σ occ = 1** holds a
@@ -318,6 +316,8 @@ The user does **not** chase absolute Rwp. A fit is acceptable when all of:
 the Gates' "Done". In the app, report then and offer the cross-check as the user's next
 step. Over MCP the cross-check is the terminator, not an internal Δχ² threshold: until
 it agrees within 2 combined esds (|Δ| ≤ 2√(σ₁² + σ₂²)), the fit is not finished, however good the GoF looks.
+Esds understate the uncertainty when GoF ≫ 1, when parameters correlate strongly or sit on
+a bound; judge those with `bayesian-check` and the physics, not the esd alone.
 
 Report GoF, the key refined values with esds (`structure_table`), the corrections on, the
 correlations and anything at a bound — not just "converged, wR = X%" — and compare with a
