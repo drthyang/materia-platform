@@ -9,6 +9,22 @@ release fixes bugs.
 
 ### Added
 
+- **Strong k = 0 magnetic peaks are taken to the magnetic step, not into the
+  ADPs.** On a neutron pattern of magnetic ions whose misfits sit on nuclear
+  reflections at large d (the k = 0 signature), the Agent's `magnetic_state`
+  now names those peaks to include in the k-search instead of "nothing
+  magnetic to find", `diagnose_fit` puts the k = 0 check before its advice to
+  free the ADPs, and `refine` cautions on its card while B's or positions are
+  free against the signature with no magnetic model on the page. On the
+  simulated Mn₃Ga 30 K pattern the method's ADP stage on the nuclear model
+  alone left the B's 3–6× and the scale 1.5× too large at a "good" GoF of 2.1,
+  and the true group's moments-only fit 0.7–1.7 µB short; with the B's and
+  positions held until the moments are in, every parameter lands within 1.3σ
+  of the simulated values. The k = 0 signature is now weighted by each peak's
+  significance (it was a count, which weak small-d misfits outvoted), and
+  `diagnose_fit`'s unexplained-peak cause routes lines on a neutron pattern of
+  magnetic ions to the k-search.
+
 - **The background is kept off the peaks the model lacks.** Excess between
   the lines that no reflection explains — a run of background points whose
   residual stands above the noise on a line's scale (1–8 line widths, 1 %

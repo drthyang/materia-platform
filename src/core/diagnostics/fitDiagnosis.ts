@@ -63,7 +63,22 @@ export interface FitDiagnosisInput {
   readonly widthsFree?: { readonly lorentzian: boolean };
   /** The page's background, so a background misfit names the count its points justify (backgroundTerms.ts). */
   readonly background?: { readonly type: BackgroundType; readonly terms: number };
+  /**
+   * A neutron pattern of a phase with magnetic ions and no magnetic model on
+   * the page: a line the model lacks may be magnetic (the k-search reads it),
+   * and `k0` says the misfits on nuclear reflections carry the k = 0 signature
+   * (k0MagneticHint) — magnetic intensity the ADPs and positions would take up.
+   */
+  readonly magneticNeutron?: { readonly k0: boolean };
 }
+
+/** The ADP and structure advice on a k = 0 residual: the magnetic step first (docs/LIMITATIONS.md, strong magnetic peaks). */
+export const K0_DIAGNOSIS =
+  "First the k = 0 check: on this neutron pattern of magnetic ions the misfits on nuclear reflections sit at large d, the k = 0 magnetic signature (find_unexplained_peaks' k0Magnetic). Take them to the magnetic step (magnetic_state; include those peaks in the k-search, or set k = 0) and hold the B's and positions until the moments are in: refined against the nuclear model alone they take up the magnetic intensity (on a simulated k = 0 pattern the B's came out 3–6× too large and the scale half again too large). If the sample is not ordered:";
+
+/** The unexplained-peak advice on a neutron pattern of magnetic ions: the magnetic step's k-search reads the lines. */
+const MAGNETIC_LINES =
+  " On this neutron pattern of magnetic ions, give the lines to the magnetic step first (magnetic_state, search_propagation_vector): lines that index to a propagation vector are magnetic order, modelled there and then refined together with the nuclear model.";
 
 export type CauseId = "background" | "unexplained-peak" | "peak-width" | "peak-tails" | "peak-position" | "asymmetry" | "peak-shape" | "intensity-falloff" | "texture" | "structure";
 
@@ -186,7 +201,7 @@ export function diagnoseFit(input: FitDiagnosisInput): FitDiagnosis {
         id: "unexplained-peak",
         share: chiExcess / total,
         evidence: `between the lines, ${unexplained.length === 1 ? "an excess" : `${unexplained.length} excesses`} that no reflection of the model explains, each standing above the noise over a line's width: ${list}`,
-        action: "Not background: intensity no phase in the model has — magnetic order (neutrons, below the ordering temperature), an impurity or the sample environment (find_unexplained_peaks, identify_peaks). Explain it before adding background terms: a more flexible background absorbs it, and the structure is then refined against a pattern without it.",
+        action: "Not background: intensity no phase in the model has — magnetic order (neutrons, below the ordering temperature), an impurity or the sample environment (find_unexplained_peaks, identify_peaks). Explain it before adding background terms: a more flexible background absorbs it, and the structure is then refined against a pattern without it." + (input.magneticNeutron ? MAGNETIC_LINES : ""),
       });
     }
     if (input.background) termsReading = backgroundTermsReading({ ...points, type: input.background.type }, base, excess);
@@ -349,6 +364,12 @@ export function diagnoseFit(input: FitDiagnosisInput): FitDiagnosis {
       evidence: `reflections calculated too strong or too weak, with no trend in angle or direction, carry ${(100 * (intensityShare - explainedIntensity)).toFixed(0)}% of χ²`,
       action: "The structure: positions, ADPs (anisotropic if the data support it), occupancies under their ties; check bond lengths after.",
     });
+  }
+  // k = 0 magnetic intensity on the nuclear lines reads as a falloff or an intensity misfit: the magnetic step comes first.
+  if (input.magneticNeutron?.k0) {
+    for (const [i, c] of causes.entries()) {
+      if (c.id === "intensity-falloff" || c.id === "structure") causes[i] = { ...c, action: `${K0_DIAGNOSIS} ${c.action}` };
+    }
   }
   causes.sort((a, b) => b.share - a.share);
 
