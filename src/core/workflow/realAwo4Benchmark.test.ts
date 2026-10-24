@@ -380,7 +380,7 @@ describe.skipIf(!has)("AWO₄ 8 K benchmark — nuclear vs the 100 K CIF, k, and
 
   // Known not met on the local data: B_iso values rail to their bound at 0. The 8 K reference
   // refines one shared U_iso (R0c), so it gives no per-site target. The B-at-0 rule (M10) gives each
-  // a warned proposal (C5b), and with them applied no tied B is left on its bound (C5c); C5 is read
+  // a warned proposal with ranked options (C5b); with the preferred tie applied it is off its bound (C5c); C5 is read
   // on the fit as refined, with nothing applied, and stays as written.
   it.fails("C5: every B_iso positive and off its bound", () => {
     const bounded = new Set(b.joint.diagnostics?.atBounds.map((x) => x.parameterId) ?? []);
@@ -405,30 +405,47 @@ describe.skipIf(!has)("AWO₄ 8 K benchmark — nuclear vs the 100 K CIF, k, and
       expect(p.warning).toMatch(/the Bayesian check on it \(sample_posterior\)/);
       expect(p.source.startsWith(`rule ${p.rule}`)).toBe(true);
     }
-    // O2 has a sensible partner of its own element (O1): the tie, rule A.
-    expect(proposals.find((p) => p.parameterId === "B_O2")).toMatchObject({ rule: "A", leader: "B_O1" });
+    // O2 has a sensible partner of its own element (O1): that tie is offered first, as the preferred option.
+    expect(proposals.find((p) => p.parameterId === "B_O2")!.options[0]).toMatchObject({ rule: "A", rank: "preferred", leader: "B_O1" });
+    // W1 has no other W: any tie to another cation is only a labelled alternative, with its caution; nothing is preferred.
+    const w1 = proposals.find((p) => p.parameterId === "B_W1")!;
+    expect(w1.options.length).toBeGreaterThan(0);
+    expect(w1.options.every((o) => o.rank === "alternative")).toBe(true);
+    for (const o of w1.options.filter((x) => x.rule === "A")) expect(o.caution).toMatch(/^a different cation \(W.* vs .*\): check it is physically sensible$/);
     // Computing a proposal changes no row.
     expect(rows.filter((p) => p.kind === "bIso").every((p) => p.value === (b.jointValues[p.id] ?? p.value))).toBe(true);
-    console.log(`[awo4-bench] B at 0: ${proposals.map((p) => `${p.parameterId} → rule ${p.rule}${p.leader ? ` tie ${p.leader}` : ""} (${p.source})`).join(" | ")}`);
+    console.log(`[awo4-bench] B at 0: ${proposals.map((p) => `${p.parameterId} → ${p.options.map((o, i) => `${i + 1}) ${o.rank} ${o.rule === "A" ? `tie ${o.leader}` : `hold ${o.value!.toFixed(3)}`} [${o.label}]`).join(" ")}`).join(" | ")}`);
   });
 
-  // With the proposals applied (what the user gets on Apply), the joint fit refined again: an
-  // observation for the record — C5 above stays as written, on the fit as refined.
-  it("C5c: with the proposals applied and the joint fit refined again, no tied B is left on its bound", () => {
+  // With options applied (what the user gets on Apply), the joint fit refined again: an observation
+  // for the record — C5 above stays as written, on the fit as refined. Two choices: the preferred
+  // tie alone; and the preferred tie with each other B held at its starting value, where it has one.
+  it("C5c: with the preferred tie applied and the joint fit refined again, its leader is off its bound", () => {
     const rows = b.nuclear.map((p) => ({ ...p, value: b.jointValues[p.id] ?? p.value }));
     const proposals = zeroAdpProposals({ parameters: rows, bindings: b.bindings, result: b.joint, structures: [b.structure], refined: [b.jointModel] });
-    let applied = rows;
-    for (const p of proposals) applied = withZeroAdpProposal(applied, p);
     const moments = b.build.params.map((p) => ({ ...p, value: b.jointValues[p.id] ?? p.value, initialValue: b.jointValues[p.id] ?? p.value, fixed: !!p.expression }));
-    const again = refine(buildMagneticPowderProblem(b.structure, b.build.magnetic, b.pattern, [...applied, ...moments], [...b.bindings, ...b.build.bindings], b.profile, b.fitRange), { maxIterations: 20 });
-    const bounded = new Set((again.diagnostics?.atBounds ?? []).map((x) => x.parameterId));
-    const leaders = proposals.filter((p) => p.rule === "A").map((p) => p.leader!);
     const ag = (r: RefinementResult) => `wR ${(100 * (r.agreement.rWeighted ?? NaN)).toFixed(3)}% GoF ${(r.agreement.goodnessOfFit ?? NaN).toFixed(2)}`;
-    console.log(`[awo4-bench] proposals applied, joint again: ${ag(again)} (was ${ag(b.joint)}) · ${again.status} · B ${applied.filter((p) => p.kind === "bIso").map((p) => `${p.id} ${(again.parameters[p.id] ?? p.value).toFixed(3)}${again.esd?.[p.id] ? `±${again.esd[p.id]!.toFixed(3)}` : p.expression ? ` (${p.expression})` : " (held)"}`).join(" ")} · at bounds ${[...bounded].join(",") || "none"}`);
-    for (const id of leaders) {
-      expect(bounded.has(id)).toBe(false);
-      expect(again.parameters[id]!).toBeGreaterThan(0);
+    const run = (choice: (p: (typeof proposals)[number]) => number, name: string) => {
+      let applied = rows;
+      for (const p of proposals) {
+        const i = choice(p);
+        if (i >= 0) applied = withZeroAdpProposal(applied, p, i);
+      }
+      const again = refine(buildMagneticPowderProblem(b.structure, b.build.magnetic, b.pattern, [...applied, ...moments], [...b.bindings, ...b.build.bindings], b.profile, b.fitRange), { maxIterations: 20 });
+      const bounded = new Set((again.diagnostics?.atBounds ?? []).map((x) => x.parameterId));
+      console.log(`[awo4-bench] ${name}, joint again: ${ag(again)} (was ${ag(b.joint)}) · ${again.status} · B ${applied.filter((p) => p.kind === "bIso").map((p) => `${p.id} ${(again.parameters[p.id] ?? p.value).toFixed(3)}${again.esd?.[p.id] ? `±${again.esd[p.id]!.toFixed(3)}` : p.expression ? ` (${p.expression})` : " (held)"}`).join(" ")} · at bounds ${[...bounded].join(",") || "none"}`);
+      return { again, bounded };
+    };
+    const preferred = (p: (typeof proposals)[number]) => p.options.findIndex((o) => o.rank === "preferred");
+    const { again, bounded } = run(preferred, "preferred tie only");
+    for (const p of proposals) {
+      const i = preferred(p);
+      if (i < 0) continue;
+      const leader = p.options[i]!.leader!;
+      expect(bounded.has(leader)).toBe(false);
+      expect(again.parameters[leader]!).toBeGreaterThan(0);
     }
+    run((p) => (preferred(p) >= 0 ? preferred(p) : p.options.findIndex((o) => o.rule === "B")), "preferred tie, the rest at their starting value");
   }, LONG);
 
   it("C6: k = (½ 0 0) from the nuclear-model residual alone: first, every included peak, a clear margin", () => {

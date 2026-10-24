@@ -80,7 +80,7 @@ const POWDER: Table<PowderAgentPort> = {
       p.setFixed(p.state().parameters.map((q) => ({ id: q.id, fixed: !(q.kind === "scale" || q.kind === "background" || q.id.startsWith("B_O")) })));
       await p.refine();
     },
-    act: (p) => p.applyZeroAdp!(["B_O1"]),
+    act: (p) => p.applyZeroAdp!([{ parameterId: "B_O1", option: 0 }]),
   },
   setFitRange: {
     act: (p) => {

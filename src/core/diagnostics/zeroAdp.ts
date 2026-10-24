@@ -1,41 +1,63 @@
 /**
- * An isotropic B that refines to 0 (its lower bound): what to hold it at, and
- * why — the owner's rule (issue M10), as a proposal the user applies, never a
- * silent change.
+ * An isotropic B that refines to 0 (its lower bound): what it could be held
+ * at, and why — the owner's rule (issue M10), as ranked options the user
+ * chooses from, never a silent change.
  *
  * A B on its bound has no esd worth the name and usually absorbs an error
- * elsewhere (assessment.ts says what to look at). When the fit is otherwise
- * settled, the B is fixed at a reasonable value with a warning, from the first
- * rule that applies:
+ * elsewhere (assessment.ts says what to look at). The options, in order:
  *
- * - **A. A tie** to the B of a chemically similar site that refined sensibly
- *   (free, off its bounds, positive, at least twice its esd): the same element
- *   first, then the same role and coordination (a cation with as many of the
- *   same ligands, from coordinationShells). It is a constraint, so the common
- *   B still refines from the data (the existing user tie, constraints.ts).
- * - **B. The starting structure's B** for that site (a CIF's U_iso is read as
- *   B = 8π²U), held fixed. The app has no temperature model for B, so the value
- *   is used as it stands and the warning says so.
- * - **C. A documented typical value** for the element at the measurement
- *   temperature. The repository holds no such table from a citable source, so
- *   rule C proposes nothing: the warning says so and leaves the choice to the
- *   user. No arbitrary small floor is ever proposed.
+ * 1. **A tie to a site of the same element** that refined sensibly (free, off
+ *    its bounds, positive, at least twice its esd): the preferred option. It
+ *    is a constraint, so the common B still refines (the existing user tie,
+ *    constraints.ts).
+ * 2. **A tie to another similar site**, a cation with the same coordination (as
+ *    many of the same ligands, from coordinationShells): weaker alternatives,
+ *    each labelled with both sites' species and a caution — tying two different
+ *    cations is often not physically sensible, and the user judges it.
+ * 3. **The starting structure's B** for that site (a CIF's U_iso is read as
+ *    B = 8π²U), held fixed: a further alternative beside the ties. The app has
+ *    no temperature model for B, so the value is used as it stands.
+ *
+ * With none of these, nothing is proposed (rule C): the repository holds no
+ * documented table of typical B values by element and temperature, and no
+ * arbitrary small floor is ever proposed.
  *
  * Pure functions over the rows, the bindings and the structures; the pages
- * show the proposals (a notice with Apply, the Agent's approval card) and keep
- * what was applied (`ZeroAdpFix`) beside their rows.
+ * show every option (a notice with an Apply per option, the Agent's approval
+ * card) and keep what was applied (`ZeroAdpFix`) beside their rows.
  */
 
 import type { ParameterBinding, RefinementParameter, RefinementResult } from "@/core/refinement/types";
-import type { StructureModel } from "@/core/crystal/types";
+import type { AtomSite, StructureModel } from "@/core/crystal/types";
 import { ANION_ELEMENTS, coordinationShells } from "@/core/crystal/geometry";
 import { isUserTie, withEqualTies } from "@/core/refinement/constraints";
 import { formatWithEsd } from "@/core/export/cif";
 
-/** Which rule gave the proposal: A a tie, B the starting structure's value, C none (no documented table). */
+/** A: a tie; B: the starting structure's value; C: nothing to propose (no documented table). */
 export type ZeroAdpRule = "A" | "B" | "C";
 
-/** One B at 0 and what is proposed for it. */
+/** One way to hold a B at 0: a tie or the starting structure's value, ranked. */
+export interface ZeroAdpOption {
+  /** Stable within its proposal: "tie:B_O1" for a tie to that row, "start" for the starting structure's value. */
+  readonly id: string;
+  readonly rule: "A" | "B";
+  /** "preferred": a tie to a site of the same element; every other option is an alternative. */
+  readonly rank: "preferred" | "alternative";
+  /** Rule A: the row it follows. */
+  readonly leader?: string;
+  /** Rule B: the value it is held at (Å²). */
+  readonly value?: number;
+  /** What kind of option it is: "same element (O²⁻)", "same coordination (6 O), different cation (W⁶⁺ vs Co²⁺)", "the starting structure's B". */
+  readonly label: string;
+  /** What the user should check before choosing it. */
+  readonly caution?: string;
+  /** Where the tie or the value comes from, in words. */
+  readonly source: string;
+  /** The option in a sentence: "tie it to B(O1), …". */
+  readonly text: string;
+}
+
+/** One B at 0 and the options for it, the preferred first. */
 export interface ZeroAdpProposal {
   readonly parameterId: string;
   /** The sites the row drives (one, or a shared site's atoms). */
@@ -44,16 +66,15 @@ export interface ZeroAdpProposal {
   readonly atom: string;
   /** The value it reached (its lower bound). */
   readonly reached: number;
+  /** The first option's rule, or C when there is none. */
   readonly rule: ZeroAdpRule;
-  /** Rule A: the row it follows. */
-  readonly leader?: string;
-  /** Rule B: the value it is held at (Å²). */
-  readonly value?: number;
-  /** Where the tie or the value comes from, in words. */
+  /** Every option, ranked: same-element ties, then same-coordination ties, then the starting structure's value. Empty for rule C. */
+  readonly options: readonly ZeroAdpOption[];
+  /** The first option's source, or why nothing is proposed. */
   readonly source: string;
-  /** The proposal and its source, then the Bayesian caution: the warning after its first sentence. */
+  /** The options and their sources, then the Bayesian caution: the warning after its first sentence. */
   readonly advice: string;
-  /** The whole warning: the atom, the B it reached, the proposal and its source. */
+  /** The whole warning: the atom, the B it reached, every option with its source. */
   readonly warning: string;
 }
 
@@ -66,6 +87,21 @@ export interface ZeroAdpFix {
   readonly leader?: string;
   readonly value?: number;
   readonly source: string;
+  /** Who chose it: the user (the page's notice, or the Agent's card), or the Agent in auto mode with no card. Absent: the user. */
+  readonly chosenBy?: "user" | "agent-auto";
+  /** The Agent's reason for its choice, when it gave one. */
+  readonly reason?: string;
+  /** The options not taken, in words. */
+  readonly alternatives?: readonly string[];
+}
+
+/** Who applies an option and why: the page's notice and the Agent's card are the user's choice; auto mode is the Agent's. */
+export interface ZeroAdpChoice {
+  readonly parameterId: string;
+  /** The option's index in the proposal's ranked options. */
+  readonly option: number;
+  readonly chosenBy?: "user" | "agent-auto";
+  readonly reason?: string;
 }
 
 export interface ZeroAdpInput {
@@ -124,8 +160,23 @@ function coordinationOf(model: StructureModel | undefined, label: string, cache:
 
 const sameSet = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && [...a].sort().join() === [...b].sort().join();
 
+const SUPERSCRIPT: Readonly<Record<string, string>> = { "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹", "+": "⁺", "-": "⁻" };
+
+/** "W⁶⁺", "O²⁻", or "W site" when the structure gives no oxidation state. */
+function speciesOf(site: AtomSite): string {
+  const q = site.oxidationState;
+  if (q === undefined || q === 0) return `${site.element} site`;
+  return `${site.element}${`${Math.abs(q)}${q > 0 ? "+" : "-"}`.split("").map((c) => SUPERSCRIPT[c] ?? c).join("")}`;
+}
+
+/** A row's species, "Co²⁺/Cu²⁺/Fe²⁺/…" for a shared site. */
+function speciesText(model: StructureModel | undefined, labels: readonly string[]): string {
+  const all = [...new Set(labels.map((l) => model?.sites.find((s) => s.label === l)).filter((s): s is AtomSite => !!s).map(speciesOf))];
+  return all.length <= 3 ? all.join("/") : `${all.slice(0, 3).join("/")}/…`;
+}
+
 /**
- * The proposals for every free isotropic B the last refinement left on its
+ * The options for every free isotropic B the last refinement left on its
  * lower bound. Empty when there is no result, or no B on its bound.
  */
 export function zeroAdpProposals(input: ZeroAdpInput): ZeroAdpProposal[] {
@@ -144,7 +195,7 @@ export function zeroAdpProposals(input: ZeroAdpInput): ZeroAdpProposal[] {
     return [...new Set(rs.labels.map((l) => model?.sites.find((s) => s.label === l)?.element ?? "?"))];
   };
 
-  // The partners rule A may tie to: free B rows of the last fit, off every bound, positive and at least twice their esd.
+  // The partners a tie may follow: free B rows of the last fit, off every bound, positive and at least twice their esd.
   const partners = parameters.filter((p) => {
     if (p.kind !== "bIso" || !refinedFree(p, result) || atAny.has(p.id)) return false;
     const v = result.parameters[p.id]!;
@@ -158,14 +209,10 @@ export function zeroAdpProposals(input: ZeroAdpInput): ZeroAdpProposal[] {
     const atom = adpAtom(sites, p.label);
     const reached = result.parameters[p.id] ?? atMin.get(p.id)!;
     const head = `${atom} refined to ${fmt(reached)} Å² (its lower bound).`;
-    const done = (rule: ZeroAdpRule, source: string, proposal: string, extra: { leader?: string; value?: number }): ZeroAdpProposal => ({
-      parameterId: p.id, sites, atom, reached, rule, ...extra, source,
-      advice: `${proposal} ${ZERO_ADP_BAYES}`,
-      warning: `${head} ${proposal} ${ZERO_ADP_BAYES}`,
-    });
+    const options: ZeroAdpOption[] = [];
 
-    // A — a tie to a chemically similar site that refined sensibly.
     if (rs) {
+      // Ties: the same element first (preferred), then cations of the same coordination (alternatives).
       const els = elementsOf(rs);
       const model = refined.get(rs.structureId) ?? loaded.get(rs.structureId);
       const anionic = !!model && model.sites.some((s) => ANION_ELEMENTS.has(s.element));
@@ -174,69 +221,93 @@ export function zeroAdpProposals(input: ZeroAdpInput): ZeroAdpProposal[] {
         const el = model.sites.find((s) => s.label === labels[0])?.element;
         return el === undefined ? null : ANION_ELEMENTS.has(el) ? "anion" : "cation";
       };
-      const mine = { role: role(sites), shell: coordinationOf(model, sites[0]!, cache) };
-      const candidates = partners.flatMap((q) => {
+      const mineSpecies = speciesText(loaded.get(rs.structureId), rs.labels);
+      const shell = role(sites) === "cation" ? coordinationOf(model, sites[0]!, cache) : null;
+      const rel = (q: RefinementParameter): number => (result.esd?.[q.id] ?? 0) / result.parameters[q.id]!;
+      const ties = partners.flatMap((q) => {
         const qs = sitesOf(bindings, q.id);
         if (!qs || qs.structureId !== rs.structureId) return [];
-        const qEls = elementsOf(qs);
-        if (sameSet(qEls, els)) return [{ q, qs, tier: 0, why: `same element (${els.join("/")})` }];
-        // Same role and coordination: two cations with as many of the same ligands.
-        if (mine.role === "cation" && role(qs.labels) === "cation" && mine.shell && mine.shell === coordinationOf(model, qs.labels[0]!, cache)) {
-          return [{ q, qs, tier: 1, why: `same role and coordination (a cation with ${mine.shell} neighbours, as ${qs.labels.join("/")} has)` }];
+        const theirs = speciesText(loaded.get(rs.structureId), qs.labels);
+        if (sameSet(elementsOf(qs), els)) {
+          return [{ q, qs, tier: 0, label: `same element (${theirs})`, ...(theirs !== mineSpecies ? { caution: `a different oxidation state (${mineSpecies} vs ${theirs}): check it is physically sensible` } : {}) }];
+        }
+        if (shell && role(qs.labels) === "cation" && shell === coordinationOf(model, qs.labels[0]!, cache)) {
+          return [{ q, qs, tier: 1, label: `same coordination (${shell}), different cation (${mineSpecies} vs ${theirs})`, caution: `a different cation (${mineSpecies} vs ${theirs}): check it is physically sensible` }];
         }
         return [];
-      });
-      const rel = (q: RefinementParameter): number => (result.esd?.[q.id] ?? 0) / result.parameters[q.id]!;
-      candidates.sort((a, b) => a.tier - b.tier || rel(a.q) - rel(b.q));
-      const best = candidates[0];
-      if (best) {
-        const v = result.parameters[best.q.id]!;
-        const leaderAtom = adpAtom(best.qs.labels, best.q.label);
-        const source = `rule A: ${leaderAtom} (${best.q.id}), ${best.why}, refined to ${formatWithEsd(v, result.esd![best.q.id]!, 4)} Å²`;
-        return done("A", source, `Proposed (rule A): tie it to ${leaderAtom}, ${best.why}, which refined to ${formatWithEsd(v, result.esd![best.q.id]!, 4)} Å² — a constraint, so the common B still refines from the data.`, { leader: best.q.id });
+      }).sort((x, y) => x.tier - y.tier || rel(x.q) - rel(y.q));
+      for (const t of ties) {
+        const v = formatWithEsd(result.parameters[t.q.id]!, result.esd![t.q.id]!, 4);
+        const leaderAtom = adpAtom(t.qs.labels, t.q.label);
+        options.push({
+          id: `tie:${t.q.id}`, rule: "A", rank: t.tier === 0 ? "preferred" : "alternative", leader: t.q.id, label: t.label, ...(t.caution ? { caution: t.caution } : {}),
+          source: `rule A: ${leaderAtom} (${t.q.id}), ${t.label}, refined to ${v} Å²`,
+          text: `tie it to ${leaderAtom}, ${t.label}, which refined to ${v} Å² (a constraint: the common B still refines)${t.caution ? ` — ${t.caution}` : ""}`,
+        });
       }
-    }
+      // Rank: only the first same-element tie is the preferred option.
+      for (let i = 1; i < options.length; i++) if (options[i]!.rank === "preferred") options[i] = { ...options[i]!, rank: "alternative" };
 
-    // B — the starting structure's value for the site, as it stands.
-    if (rs) {
-      const model = loaded.get(rs.structureId);
+      // The starting structure's value for the site, as it stands: an alternative beside the ties.
+      const start = loaded.get(rs.structureId);
       const values = rs.labels.map((l) => {
-        const adp = model?.sites.find((s) => s.label === l)?.adp;
+        const adp = start?.sites.find((s) => s.label === l)?.adp;
         return adp?.kind === "isotropic" ? adp.bIso : NaN;
       });
       const v = values[0]!;
       if (Number.isFinite(v) && v > 0 && values.every((x) => Math.abs(x - v) <= 1e-6)) {
-        const name = model?.name || model?.id || "the loaded structure";
-        const source = `rule B: the B of ${sites.join("/")} in the loaded starting structure "${name}" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature`;
-        return done("B", source, `Proposed (rule B): hold it at ${fmt(v)} Å², ${source.slice("rule B: ".length)}.`, { value: v });
+        const name = start?.name || start?.id || "the loaded structure";
+        const from = `the B of ${sites.join("/")} in the loaded starting structure "${name}" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature`;
+        options.push({ id: "start", rule: "B", rank: "alternative", value: v, label: "the starting structure's B", source: `rule B: ${from}`, text: `hold it at ${fmt(v)} Å², ${from}` });
       }
     }
 
-    // C — no documented table of typical B values: nothing is proposed.
-    const why = "no chemically similar site refined sensibly to tie it to, the starting structure gives it no B, and the app holds no documented table of typical B values by element and temperature";
-    return done("C", `rule C: no value (${why})`, `No value is proposed (${why}). Find the cause first (the background, absorption or a correlation: diagnose_fit), or hold it at a value you can cite.`, {});
+    if (options.length === 0) {
+      // C — no documented table of typical B values: nothing is proposed.
+      const why = "no chemically similar site refined sensibly to tie it to, the starting structure gives it no B, and the app holds no documented table of typical B values by element and temperature";
+      const advice = `No value is proposed (${why}). Find the cause first (the background, absorption or a correlation: diagnose_fit), or hold it at a value you can cite. ${ZERO_ADP_BAYES}`;
+      return { parameterId: p.id, sites, atom, reached, rule: "C" as const, options, source: `rule C: no value (${why})`, advice, warning: `${head} ${advice}` };
+    }
+    const list = options.map((o, i) => `${i + 1}) ${o.rank} — ${o.text}.`).join(" ");
+    const advice = `${options.length === 1 ? "One option" : `${options.length} options`}, none applied until you choose one: ${list} ${ZERO_ADP_BAYES}`;
+    return { parameterId: p.id, sites, atom, reached, rule: options[0]!.rule, options, source: options[0]!.source, advice, warning: `${head} ${advice}` };
   });
 }
 
-/** The rows with a proposal applied: rule A ties the row to its leader (a user tie), rule B holds it fixed at the value. Rule C changes nothing. */
-export function withZeroAdpProposal(params: readonly RefinementParameter[], proposal: ZeroAdpProposal): RefinementParameter[] {
-  if (proposal.rule === "A" && proposal.leader) return withEqualTies(params, { equal: [proposal.leader, proposal.parameterId] });
-  if (proposal.rule === "B" && proposal.value !== undefined) {
-    const value = proposal.value;
-    return params.map((p) => (p.id === proposal.parameterId ? { ...p, value, fixed: true } : p));
-  }
-  return [...params];
+/** The option of a proposal, by its index (the preferred one, 0, by default). Throws for rule C or an index out of range. */
+export function zeroAdpOption(proposal: ZeroAdpProposal, index = 0): ZeroAdpOption {
+  const o = proposal.options[index];
+  if (!o) throw new Error(proposal.options.length === 0 ? `${proposal.atom}: no value is proposed (rule C), so there is nothing to apply` : `${proposal.atom} has ${proposal.options.length} option${proposal.options.length === 1 ? "" : "s"}; there is no option ${index + 1}`);
+  return o;
 }
 
-/** The record of an applied proposal. Throws for rule C, which has nothing to apply. */
-export function zeroAdpFix(proposal: ZeroAdpProposal): ZeroAdpFix {
-  if (proposal.rule === "C") throw new Error(`${proposal.atom}: no value is proposed (rule C), so there is nothing to apply`);
+/** The rows with an option applied: a tie makes the row follow its leader (a user tie), the starting value holds it fixed. */
+export function withZeroAdpProposal(params: readonly RefinementParameter[], proposal: ZeroAdpProposal, index = 0): RefinementParameter[] {
+  const o = proposal.options[index];
+  if (!o) return [...params];
+  if (o.rule === "A" && o.leader) return withEqualTies(params, { equal: [o.leader, proposal.parameterId] });
+  const value = o.value!;
+  return params.map((p) => (p.id === proposal.parameterId ? { ...p, value, fixed: true } : p));
+}
+
+/** The record of an applied option, with who chose it and the options not taken. Throws for rule C, which has nothing to apply. */
+export function zeroAdpFix(proposal: ZeroAdpProposal, index = 0, how: { readonly chosenBy?: "user" | "agent-auto"; readonly reason?: string } = {}): ZeroAdpFix {
+  const o = zeroAdpOption(proposal, index);
+  const others = proposal.options.filter((_, i) => i !== index).map((x) => `${x.rank}: ${x.rule === "A" ? `tie to ${x.leader} (${x.label})` : `hold at ${fmt(x.value!)} Å² (${x.label})`}`);
   return {
-    parameterId: proposal.parameterId, atom: proposal.atom, reached: proposal.reached, rule: proposal.rule,
-    ...(proposal.leader ? { leader: proposal.leader } : {}),
-    ...(proposal.value !== undefined ? { value: proposal.value } : {}),
-    source: proposal.source,
+    parameterId: proposal.parameterId, atom: proposal.atom, reached: proposal.reached, rule: o.rule,
+    ...(o.leader ? { leader: o.leader } : {}),
+    ...(o.value !== undefined ? { value: o.value } : {}),
+    source: `${o.rank}: ${o.source}${o.caution ? ` (${o.caution})` : ""}`,
+    ...(how.chosenBy === "agent-auto" ? { chosenBy: "agent-auto" as const } : {}),
+    ...(how.reason ? { reason: how.reason } : {}),
+    ...(others.length > 0 ? { alternatives: others } : {}),
   };
+}
+
+/** The index of the option with this id in a proposal, or −1. */
+export function zeroAdpOptionIndex(proposal: ZeroAdpProposal, id: string): number {
+  return proposal.options.findIndex((o) => o.id === id);
 }
 
 /** The fixes the rows still carry: a tie still to its leader, a value still held. One the user overrode (released, freed, retyped) drops out. */
@@ -259,12 +330,16 @@ export function withFixRecorded(fixes: readonly ZeroAdpFix[] | undefined, fix: Z
 /** What a fix in force says: the report's limitation, the Agent's note, the History's label. */
 export function zeroAdpFixText(fix: ZeroAdpFix): string {
   const what = fix.rule === "A" ? `tied to ${fix.leader}` : `held at ${fmt(fix.value!)} Å²`;
-  return `${fix.atom} refined to ${fmt(fix.reached)} Å² (its lower bound) and is ${what} by the B-at-0 rule (${fix.source}). ${fix.rule === "A" ? "Its value follows the tie; it is not measured on its own." : "It is held, not refined: its value is an input, with no esd."}`;
+  const who = fix.chosenBy === "agent-auto" ? ` Chosen by the Agent in auto mode, without a card${fix.reason ? ` (its reason: ${fix.reason})` : ""}: release it or undo the step if you would choose otherwise.` : fix.reason ? ` Reason given: ${fix.reason}.` : "";
+  const rest = fix.alternatives?.length ? ` Not taken: ${fix.alternatives.join("; ")}.` : "";
+  return `${fix.atom} refined to ${fmt(fix.reached)} Å² (its lower bound) and is ${what} by the B-at-0 rule (${fix.source}). ${fix.rule === "A" ? "Its value follows the tie; it is not measured on its own." : "It is held, not refined: its value is an input, with no esd."}${who}${rest}`;
 }
 
-/** A History step's label for an applied proposal. */
-export function zeroAdpStepLabel(proposal: ZeroAdpProposal): string {
-  return proposal.rule === "A" ? `B at 0: tie ${proposal.parameterId} = ${proposal.leader} (rule A)` : `B at 0: hold ${proposal.parameterId} at ${fmt(proposal.value ?? NaN)} Å² (rule B)`;
+/** A History step's label for an applied option. */
+export function zeroAdpStepLabel(proposal: ZeroAdpProposal, index = 0, chosenBy?: "user" | "agent-auto"): string {
+  const o = zeroAdpOption(proposal, index);
+  const by = chosenBy === "agent-auto" ? ", the Agent's choice in auto mode" : "";
+  return o.rule === "A" ? `B at 0: tie ${proposal.parameterId} = ${o.leader} (${o.rank}${by})` : `B at 0: hold ${proposal.parameterId} at ${fmt(o.value ?? NaN)} Å² (starting structure${by})`;
 }
 
 function fmt(v: number): string {

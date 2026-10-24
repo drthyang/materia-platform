@@ -9,19 +9,31 @@ release fixes bugs.
 
 ### Added
 
-- **A B that refines to 0 gets a warned proposal, never a silent change.**
+- **A B that refines to 0 gets ranked options, never a silent change.**
   When a powder refinement leaves an isotropic B on its lower bound, the page
   shows a notice over the parameters naming the atom, the B it reached, and
-  what to hold it at, with the source: a tie to a chemically similar site that
-  refined sensibly (rule A: the same element, else a cation of the same
-  coordination), else the starting structure's B as it stands (rule B). With
-  neither, no value is proposed: the repository has no documented table of
-  typical B values (rule C), and no arbitrary floor is used. Apply makes it a
-  tie or a held value like any other (Release or ⌘Z undoes it); the report
-  lists it under Limitations, `assess_refinement` and `get_state` show it to
-  the Agent, and the Agent applies one with `apply_adp_proposal`, which always
-  asks. Projects save the record beside the rows (`zeroAdpFixes`); files
-  without it open unchanged.
+  the options with their sources: a tie to a site of the same element that
+  refined sensibly (preferred), ties to other cations of the same
+  coordination (alternatives, labelled with both species and a caution), and
+  the starting structure's B as it stands (an alternative). With none, no
+  value is proposed: the repository has no documented table of typical B
+  values, and no arbitrary floor is used. Each option has its own Apply; it
+  becomes a tie or a held value like any other (Release or ⌘Z undoes it); the
+  report lists it under Limitations, and `assess_refinement` and `get_state`
+  show it to the Agent. Projects save the record beside the rows
+  (`zeroAdpFixes`); files without it open unchanged.
+
+- **The Agent chooses a B-at-0 option (`apply_adp_proposal`).** It picks one
+  of the app's ranked options per row by id (it cannot name a partner or a
+  value outside them), preferring the same-element tie, taking a
+  cross-element one only with a reason, and otherwise the starting value or
+  none. Asking first, the card shows every option with its pick preselected
+  (choice buttons on the approval card), and the user's pick is applied, or
+  nothing on Decline. In auto mode its pick applies without a card, and the
+  result, the History, the notice and the report record it as the Agent's
+  choice in auto mode, with the options not taken. Added at the owner's
+  decision, although it changes the model-visible tool list before the
+  validation freeze (docs/AGENT_PLAN.md).
 
 - **Strong k = 0 magnetic peaks are taken to the magnetic step, not into the
   ADPs.** On a neutron pattern of magnetic ions whose misfits sit on nuclear

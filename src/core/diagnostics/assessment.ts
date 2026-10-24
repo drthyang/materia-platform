@@ -539,13 +539,13 @@ export function assessRefinement(input: AssessmentInput): RefinementAssessment {
     // A B on its lower bound: the B-at-0 rule's proposal, with its source, after the reading of the cause.
     const proposal = b.bound === "min" ? input.zeroAdp?.proposals.find((z) => z.parameterId === b.parameterId) : undefined;
     const proposed = proposal
-      ? ` The B-at-0 rule: ${proposal.advice}${proposal.rule === "C" ? "" : " apply_adp_proposal applies it (the user approves the card); it stays a tie or a held value they can release."}`
+      ? ` The B-at-0 rule: ${proposal.advice}${proposal.rule === "C" ? "" : " apply_adp_proposal applies the option you choose by its id (prefer the same-element tie; a cross-element one only when physically sensible, with the reason; in doubt the starting value, or leave the B and report it): asking first, the card shows the user every option with yours preselected; in auto mode yours applies and is recorded as yours. Applied, it stays a tie or a held value that can be released."}`
       : "";
     findings.push({
       category: "at-bound",
       severity: isStructural ? "critical" : "warning",
       summary: `${p?.label ?? b.parameterId} is resting on its ${b.bound} bound (${b.value}).`,
-      ...(proposal ? { evidence: { bound: b.bound, value: b.value, proposal: proposal.rule, ...(proposal.leader ? { tieTo: proposal.leader } : {}), ...(proposal.value !== undefined ? { holdAt: proposal.value } : {}), source: proposal.source } } : {}),
+      ...(proposal ? { evidence: { bound: b.bound, value: b.value, proposal: proposal.rule, options: proposal.options.map((o, i) => `${i + 1}) "${o.id}" ${o.rank}: ${o.rule === "A" ? `tie to ${o.leader}` : `hold at ${o.value}`} — ${o.label}${o.caution ? ` (${o.caution})` : ""}`).join("; "), source: proposal.source } } : {}),
       detail: (p && ADP_KINDS.has(p.kind)
         ? input.sharedSiteAdps?.includes(b.parameterId)
           ? `This displacement parameter belongs to a site several atoms share, so the site's scattering power is the first suspect: ${b.bound === "min" ? "B → 0 makes up for a site that scatters more than the model puts on it" : "a large B makes up for a site that scatters less than the model puts on it"}, i.e. the mixing is off (anti-site disorder, spinel inversion). Refine the site's occupancies with its Σ held (and the composition, when the formula is known) before trusting the ADP.`

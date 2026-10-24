@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { parse_structure } from "@/mcp/tools";
 import type { ParameterBinding, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { StructureModel } from "@/core/crystal/types";
-import { activeZeroAdpFixes, withFixRecorded, withZeroAdpProposal, zeroAdpFix, zeroAdpFixText, zeroAdpProposals, ZERO_ADP_BAYES } from "@/core/diagnostics/zeroAdp";
+import { activeZeroAdpFixes, zeroAdpStepLabel, withFixRecorded, withZeroAdpProposal, zeroAdpFix, zeroAdpFixText, zeroAdpProposals, ZERO_ADP_BAYES } from "@/core/diagnostics/zeroAdp";
 import { withEqualTies } from "@/core/refinement/constraints";
 
 /**
@@ -59,35 +59,44 @@ describe("the B-at-0 rule: which proposal", () => {
   const structure = parse_structure({ cif: cif(true), id: "cwo" }).structure;
   const bare = parse_structure({ cif: cif(false), id: "cwo" }).structure;
 
-  it("A, same element: O2 at 0 ties to O1, which refined sensibly; the warning names the atom, the B, the tie and its source", () => {
-    const v = { B_W1: 0.3, B_Cr1: 0.4, B_O1: 0.62, B_O2: 0 };
+  it("an AWO₄-like case (W1 and O2 both at 0): O2 → O1 is offered first and preferred; W1 → Cr1 only as a labelled alternative, beside the starting value", () => {
+    const v = { B_W1: 0, B_Cr1: 0.4, B_O1: 0.62, B_O2: 0 };
     const { params, bindings } = rows(structure, v);
-    const [p, ...more] = zeroAdpProposals({ parameters: params, bindings, result: result(v, { B_W1: 0.03, B_Cr1: 0.04, B_O1: 0.05, B_O2: 0.05 }, ["B_O2"]), structures: [structure] });
-    expect(more).toHaveLength(0);
-    expect(p).toMatchObject({ parameterId: "B_O2", atom: "B(O2)", reached: 0, rule: "A", leader: "B_O1" });
-    expect(p!.warning).toMatch(/^B\(O2\) refined to 0 Å² \(its lower bound\)\. Proposed \(rule A\): tie it to B\(O1\), same element \(O\), which refined to 0.62\(5\) Å²/);
-    expect(p!.source).toMatch(/rule A: B\(O1\) \(B_O1\), same element/);
-    expect(p!.warning).toContain(ZERO_ADP_BAYES);
-    expect(p!.warning).toMatch(/the Bayesian check on it \(sample_posterior\)/);
+    const ps = zeroAdpProposals({ parameters: params, bindings, result: result(v, { B_W1: 0.03, B_Cr1: 0.04, B_O1: 0.05, B_O2: 0.05 }, ["B_W1", "B_O2"]), structures: [structure] });
+    const o2 = ps.find((p) => p.parameterId === "B_O2")!;
+    expect(o2.options.map((o) => [o.rank, o.rule, o.leader ?? o.value])).toEqual([["preferred", "A", "B_O1"], ["alternative", "B", expect.closeTo(0.6, 3)]]);
+    expect(o2.options[0]!.label).toBe("same element (O²⁻)");
+    expect(o2.options[0]!.caution).toBeUndefined();
+    expect(o2.warning).toMatch(/^B\(O2\) refined to 0 Å² \(its lower bound\)\. 2 options, none applied until you choose one: 1\) preferred — tie it to B\(O1\), same element \(O²⁻\), which refined to 0\.62\(5\) Å² \(a constraint: the common B still refines\)\. 2\) alternative — hold it at 0\.600 Å², the B of O2 in the loaded starting structure "cr2wo6"/);
+    expect(o2.warning).toContain(ZERO_ADP_BAYES);
+    expect(o2.warning).toMatch(/the Bayesian check on it \(sample_posterior\)/);
+
+    // W1: no other W refined. The same-coordination cation is an alternative, labelled with both species and a caution; never an anion.
+    const w1 = ps.find((p) => p.parameterId === "B_W1")!;
+    expect(w1.options.map((o) => [o.rank, o.rule, o.leader ?? o.value])).toEqual([["alternative", "A", "B_Cr1"], ["alternative", "B", expect.closeTo(8 * Math.PI ** 2 * 0.004, 6)]]);
+    expect(w1.options.some((o) => o.rank === "preferred")).toBe(false);
+    expect(w1.options[0]!.label).toBe("same coordination (6 O), different cation (W⁶⁺ vs Cr³⁺)");
+    expect(w1.options[0]!.caution).toBe("a different cation (W⁶⁺ vs Cr³⁺): check it is physically sensible");
+    expect(w1.warning).toMatch(/1\) alternative — tie it to B\(Cr1\), same coordination \(6 O\), different cation \(W⁶⁺ vs Cr³⁺\), which refined to 0\.40\(4\) Å² \(a constraint: the common B still refines\) — a different cation \(W⁶⁺ vs Cr³⁺\): check it is physically sensible\. 2\) alternative — hold it at 0\.316 Å²/);
+    expect(w1.options.some((o) => o.leader === "B_O1")).toBe(false);
   });
 
-  it("A, same role and coordination: W1 at 0 ties to Cr1 (both cations with 6 O neighbours) when no other W refined", () => {
-    const v = { B_W1: 0, B_Cr1: 0.4, B_O1: 0.62, B_O2: 0.6 };
+  it("every sensible same-element site is offered, the best determined first and preferred, the others alternatives", () => {
+    const v = { B_W1: 0.3, B_Cr1: 0.4, B_O1: 0, B_O2: 0.6 };
     const { params, bindings } = rows(structure, v);
-    const [p] = zeroAdpProposals({ parameters: params, bindings, result: result(v, { B_W1: 0.03, B_Cr1: 0.04, B_O1: 0.05, B_O2: 0.05 }, ["B_W1"]), structures: [structure] });
-    expect(p).toMatchObject({ parameterId: "B_W1", rule: "A", leader: "B_Cr1" });
-    expect(p!.source).toMatch(/same role and coordination \(a cation with 6 O neighbours, as Cr1 has\)/);
-    // Never an anion for a cation: O1 has a smaller relative esd than Cr1, and is not proposed.
+    const [o1] = zeroAdpProposals({ parameters: params, bindings, result: result(v, { B_W1: 0.03, B_Cr1: 0.04, B_O1: 0.05, B_O2: 0.05 }, ["B_O1"]), structures: [structure] });
+    expect(o1!.options.map((o) => [o.rank, o.leader ?? "value"])).toEqual([["preferred", "B_O2"], ["alternative", "value"]]);
   });
 
-  it("no sensible partner (O1 also on its bound, Cr1 undetermined): B, the starting structure's B with its source and no temperature adjustment", () => {
+  it("no sensible partner (O1 also on its bound, Cr1 undetermined): the starting structure's B alone, with its source and no temperature adjustment", () => {
     const v = { B_W1: 0, B_Cr1: 0.05, B_O1: 0, B_O2: 0 };
     const { params, bindings } = rows(structure, v);
     const ps = zeroAdpProposals({ parameters: params, bindings, result: result(v, { B_W1: 0.03, B_Cr1: 0.04, B_O1: 0.05, B_O2: 0.05 }, ["B_W1", "B_O1", "B_O2"]), structures: [structure] });
-    expect(ps.map((p) => [p.parameterId, p.rule])).toEqual([["B_W1", "B"], ["B_O1", "B"], ["B_O2", "B"]]);
+    expect(ps.map((p) => [p.parameterId, p.rule, p.options.length])).toEqual([["B_W1", "B", 1], ["B_O1", "B", 1], ["B_O2", "B", 1]]);
     const o2 = ps.find((p) => p.parameterId === "B_O2")!;
-    expect(o2.value).toBeCloseTo(8 * Math.PI ** 2 * 0.0076, 10);
-    expect(o2.warning).toMatch(/Proposed \(rule B\): hold it at 0\.600 Å², the B of O2 in the loaded starting structure "cr2wo6" \(a CIF's U_iso is read as B = 8π²U\), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature/);
+    expect(o2.options[0]).toMatchObject({ rank: "alternative", label: "the starting structure's B" });
+    expect(o2.options[0]!.value).toBeCloseTo(8 * Math.PI ** 2 * 0.0076, 10);
+    expect(o2.warning).toMatch(/One option, none applied until you choose one: 1\) alternative — hold it at 0\.600 Å², the B of O2 in the loaded starting structure "cr2wo6" \(a CIF's U_iso is read as B = 8π²U\), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature/);
   });
 
   it("neither a partner nor a reference B: C proposes no value and says why — never a floor", () => {
@@ -95,8 +104,7 @@ describe("the B-at-0 rule: which proposal", () => {
     const { params, bindings } = rows(bare, v);
     const ps = zeroAdpProposals({ parameters: params, bindings, result: result(v, { B_W1: 0.03, B_Cr1: 0.04, B_O1: 0.05, B_O2: 0.05 }, ["B_O1", "B_O2"]), structures: [bare] });
     expect(ps.map((p) => p.rule)).toEqual(["C", "C"]);
-    expect(ps[0]!.value).toBeUndefined();
-    expect(ps[0]!.leader).toBeUndefined();
+    expect(ps[0]!.options).toEqual([]);
     expect(ps[0]!.warning).toMatch(/B\(O1\) refined to 0 Å² \(its lower bound\)\. No value is proposed \(no chemically similar site refined sensibly to tie it to, the starting structure gives it no B, and the app holds no documented table of typical B values by element and temperature\)/);
     expect(() => zeroAdpFix(ps[0]!)).toThrow(/nothing to apply/);
     expect(withZeroAdpProposal(params, ps[0]!)).toEqual(params);
@@ -114,11 +122,12 @@ describe("the B-at-0 rule: which proposal", () => {
     expect(zeroAdpProposals({ parameters: params, bindings, result: { ...top, diagnostics: { ...top.diagnostics!, atBounds: [{ parameterId: "B_O2", bound: "max", value: 10 }] } }, structures: [structure] })).toEqual([]);
   });
 
-  it("a partner whose esd is as large as half its value is not sensible: the next rule applies", () => {
+  it("a partner whose esd is as large as half its value is not sensible: it is not offered", () => {
     const v = { B_W1: 0.3, B_Cr1: 0.4, B_O1: 0.08, B_O2: 0 };
     const { params, bindings } = rows(structure, v);
     const [p] = zeroAdpProposals({ parameters: params, bindings, result: result(v, { B_W1: 0.03, B_Cr1: 0.04, B_O1: 0.05, B_O2: 0.05 }, ["B_O2"]), structures: [structure] });
     expect(p!.rule).toBe("B");
+    expect(p!.options.map((o) => o.rule)).toEqual(["B"]);
   });
 });
 
@@ -133,11 +142,25 @@ describe("the B-at-0 rule: applied, overridden, undone", () => {
     expect(applied.find((q) => q.id === "B_O2")).toMatchObject({ fixed: true, expression: "= B_O1", group: "user-tie", value: 0.62 });
     const fixes = withFixRecorded([], zeroAdpFix(p!));
     expect(activeZeroAdpFixes(applied, fixes)).toHaveLength(1);
-    expect(zeroAdpFixText(fixes[0]!)).toMatch(/^B\(O2\) refined to 0 Å² \(its lower bound\) and is tied to B_O1 by the B-at-0 rule \(rule A: /);
+    expect(zeroAdpFixText(fixes[0]!)).toMatch(/^B\(O2\) refined to 0 Å² \(its lower bound\) and is tied to B_O1 by the B-at-0 rule \(preferred: rule A: /);
     // Released: the user's override; the fix no longer stands.
     expect(activeZeroAdpFixes(withEqualTies(applied, { release: ["B_O2"] }), fixes)).toEqual([]);
     // Applied again: one record per row.
     expect(withFixRecorded(fixes, zeroAdpFix(p!))).toHaveLength(1);
+    // The user may choose an alternative instead: option 2, the starting structure's value.
+    const held = withZeroAdpProposal(params, p!, 1).find((q) => q.id === "B_O2")!;
+    expect(held).toMatchObject({ fixed: true });
+    expect(held.expression).toBeUndefined();
+    expect(held.value).toBeCloseTo(0.6, 3);
+    expect(zeroAdpFix(p!, 1)).toMatchObject({ rule: "B", source: expect.stringMatching(/^alternative: rule B: /) });
+    expect(() => zeroAdpFix(p!, 5)).toThrow(/has 2 options; there is no option 6/);
+    // The Agent's choice in auto mode is recorded as its own, with its reason and the options not taken, in the fix and the History's label.
+    const auto = zeroAdpFix(p!, 0, { chosenBy: "agent-auto", reason: "the oxide's oxygens" });
+    expect(auto).toMatchObject({ chosenBy: "agent-auto", reason: "the oxide's oxygens", alternatives: [expect.stringMatching(/^alternative: hold at 0\.600 Å² \(the starting structure's B\)$/)] });
+    expect(zeroAdpFixText(auto)).toMatch(/Chosen by the Agent in auto mode, without a card \(its reason: the oxide's oxygens\): release it or undo the step if you would choose otherwise\. Not taken: alternative: hold at 0\.600 Å²/);
+    expect(zeroAdpStepLabel(p!, 0, "agent-auto")).toBe("B at 0: tie B_O2 = B_O1 (preferred, the Agent's choice in auto mode)");
+    expect(zeroAdpStepLabel(p!, 1)).toBe("B at 0: hold B_O2 at 0.600 Å² (starting structure)");
+    expect(zeroAdpFix(p!, 1).chosenBy).toBeUndefined();
   });
 
   it("B holds the row fixed at the value; freeing it or typing another value takes the fix out of force", () => {
@@ -153,6 +176,6 @@ describe("the B-at-0 rule: applied, overridden, undone", () => {
     expect(activeZeroAdpFixes(applied, fixes)).toHaveLength(1);
     expect(activeZeroAdpFixes(applied.map((q) => (q.id === "B_O2" ? { ...q, fixed: false } : q)), fixes)).toEqual([]);
     expect(activeZeroAdpFixes(applied.map((q) => (q.id === "B_O2" ? { ...q, value: 0.3 } : q)), fixes)).toEqual([]);
-    expect(zeroAdpFixText(fixes[0]!)).toMatch(/held at 0\.600 Å² by the B-at-0 rule \(rule B: .*\)\. It is held, not refined/);
+    expect(zeroAdpFixText(fixes[0]!)).toMatch(/held at 0\.600 Å² by the B-at-0 rule \(alternative: rule B: .*\)\. It is held, not refined/);
   });
 });

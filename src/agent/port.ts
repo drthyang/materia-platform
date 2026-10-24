@@ -21,7 +21,7 @@ import type { MergeStatistics } from "@/core/diffraction/merge";
 import type { InstrumentConstants, InstrumentParameters } from "@/core/diffraction/instrument";
 import type { LinearRestraint, ParameterBinding, RefinementOptions, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { EqualTieUpdate } from "@/core/refinement/constraints";
-import type { ZeroAdpFix, ZeroAdpProposal } from "@/core/diagnostics/zeroAdp";
+import type { ZeroAdpChoice, ZeroAdpFix, ZeroAdpProposal } from "@/core/diagnostics/zeroAdp";
 import type { SampleResult } from "@/core/refinement/bayes/sampler";
 import type { PowderProfile } from "@/core/workflow/powder";
 import type { MagneticModel } from "@/core/magnetic/types";
@@ -103,8 +103,8 @@ export interface PowderAgentPort {
   readonly addPhase?: (structure: StructureModel) => void;
   /** Tie parameters of one kind to one refined value (the leader first), or release such ties. */
   readonly setParameterTies?: (update: EqualTieUpdate) => void;
-  /** Apply the B-at-0 rule's proposal for these rows (the notice's Apply): rule A's tie or rule B's held value, recorded as a step. */
-  readonly applyZeroAdp?: (parameterIds: readonly string[]) => void;
+  /** Apply B-at-0 options (the notice's Apply): each row's chosen tie or held value and who chose it, recorded as a step. */
+  readonly applyZeroAdp?: (choices: readonly ZeroAdpChoice[]) => void;
   /** Sample the Bayesian posterior of the free parameters (the Posterior view's Sample / Continue). */
   readonly samplePosterior?: PosteriorSampler;
   /** An X-ray instrument's constants the fit cannot determine: the polarization

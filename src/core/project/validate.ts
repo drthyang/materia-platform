@@ -362,6 +362,9 @@ function checkZeroAdpFix(v: unknown, path: string): void {
   if (rule === "A") str(f.leader, `${path}.leader`);
   if (rule === "B") num(f.value, `${path}.value`);
   str(f.source, `${path}.source`);
+  opt(f.chosenBy, `${path}.chosenBy`, oneOf(["user", "agent-auto"] as const));
+  opt(f.reason, `${path}.reason`, str);
+  if (f.alternatives !== undefined && f.alternatives !== null) each(f.alternatives, `${path}.alternatives`, (x, q) => str(x, q));
 }
 
 function checkScDataset(v: unknown, path: string): void {

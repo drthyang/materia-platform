@@ -5,6 +5,7 @@
  * `onAttention` opens it.
  */
 
+import type { CardDecision } from "@/agent/cardOptions";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ActivityEntry, AgentExecutor, AgentHost, ToolRunner } from "@/agent/executor";
 import type { ChatConfig, ChatEffort, AgentChat } from "@/agent/chat";
@@ -79,7 +80,8 @@ export interface AgentController {
   readonly activity: Readonly<Record<string, ActivityEntry>>;
   /** Changes waiting for the user's decision. */
   readonly pending: readonly ActivityEntry[];
-  readonly decide: (entryId: string, approve: boolean) => void;
+  /** The card's answer: approve or decline; on a card with options, the option picked in each group (cardOptions.ts). */
+  readonly decide: (entryId: string, approve: boolean, selected?: Readonly<Record<string, string>>) => void;
   /** A chat turn is running. */
   readonly thinking: boolean;
   readonly send: (text: string) => void;
@@ -142,7 +144,7 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
   const [usage, setUsage] = useState({ input: 0, output: 0, cacheRead: 0 });
   const [report, setReport] = useState<AgentReport | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
-  const approvals = useRef(new Map<string, (ok: boolean) => void>());
+  const approvals = useRef(new Map<string, (ok: boolean | CardDecision) => void>());
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const apiKeyRef = useRef(apiKey);
@@ -169,7 +171,7 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
               // Auto approves every change but the ones only the user may make.
               if (settingsRef.current.autoApprove && !entry.alwaysAsk) return Promise.resolve(true);
               attention.current();
-              return new Promise<boolean>((resolve) => {
+              return new Promise<boolean | CardDecision>((resolve) => {
                 // Stop declines the card; a decision removes the listener (one per card would pile up).
                 const onAbort = (): void => {
                   approvals.current.delete(entry.id);
@@ -233,10 +235,11 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
     storeKey(OPENAI_KEY_KEY, key, settingsRef.current.rememberKey);
   }, []);
 
-  const decide = useCallback((entryId: string, ok: boolean) => {
+  const decide = useCallback((entryId: string, ok: boolean, selected?: Readonly<Record<string, string>>) => {
     const resolve = approvals.current.get(entryId);
     approvals.current.delete(entryId);
-    resolve?.(ok);
+    // A card with options answers with the user's picks: what the change applies.
+    resolve?.(ok && selected ? { selected } : ok);
   }, []);
 
   // ── the in-app chat ─────────────────────────────────────────────────────

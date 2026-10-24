@@ -536,7 +536,7 @@ is an MCP tool, and an MCP client asks its user in its own UI.
 | `diagnose_fit` | at once | Diagnose the fit |
 | `set_corrections` | asks first | Set the corrections |
 | `add_antisite` | always asks | Add antisite disorder |
-| `apply_adp_proposal` | always asks | Hold a B that refined to 0 |
+| `apply_adp_proposal` | asks first | Hold a B that refined to 0 |
 | `identify_peaks` | at once | Identify extra peaks |
 | `add_known_phase` | always asks | Add a known phase |
 | `set_instrument_constants` | always asks | Set X-ray instrument constants |

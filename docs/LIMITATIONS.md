@@ -46,17 +46,20 @@ approximate, however plausible its output looks.
   a staged sequence that fixes a newly freed parameter again when it makes the
   fit degenerate.
 
-- An isotropic B that refines to its lower bound (0) on the powder page gets a
-  warned proposal, never a silent change: a tie to a chemically similar site
-  that refined sensibly (rule A), else the starting structure's B (rule B).
-  The user applies it (the notice's Apply, or the Agent's `apply_adp_proposal`,
-  which always asks); it is then a tie or a held value like any other, listed
-  under Limitations in the report and reported by `assess_refinement`.
+- An isotropic B that refines to its lower bound (0) on the powder page gets
+  ranked options with a warning, never a silent change: a tie to a site of the
+  same element that refined sensibly (preferred), ties to other cations of the
+  same coordination (labelled alternatives with a caution), and the starting
+  structure's B (an alternative). The user picks one in the notice; the
+  Agent's `apply_adp_proposal` picks one from the list, shown on its card for
+  the user to change or decline, or applied as the Agent's recorded choice in
+  auto mode. Applied, it is a tie or a held value like any other, listed under
+  Limitations in the report and reported by `assess_refinement`.
 
 **Approximate**
 - The B-at-0 rule's starting-structure value (rule B) is used as it stands,
   with no temperature adjustment: the app has no model of B against
-  temperature. Its coordination match (rule A) counts a cation's ligands
+  temperature. Its coordination match (a cross-cation tie) counts a cation's ligands
   within the coordination shell (`coordinationShells`), not bond valences.
 - Fits fall back to central finite differences for every non-linear parameter
   with no validated analytic column — powder coordinates, cell, profile, zero

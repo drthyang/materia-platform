@@ -282,6 +282,19 @@ so a choice the model would otherwise write only in prose gets the drawer's
 buttons. It changes the model-visible tool list (both arms' snapshots) before
 the freeze; the owner decided to add it all the same. In-app only.
 
+**The B-at-0 option tool (approved, 2026-10-24).** `apply_adp_proposal`
+applies one of the app's ranked options for a B the last fit left on its
+lower bound (issue M10): the preferred same-element tie, a labelled
+cross-cation alternative (with the Agent's reason), or the starting
+structure's value, chosen by id from the app's list. The owner: "I kind of
+want to keep it but provide users to select what to do when it is in the
+interactive mode. So the agent can judge it while in auto mode." So, asking
+first, its card shows every option with the Agent's pick preselected and the
+user's pick is applied; in auto mode the Agent's pick applies, recorded as its
+choice in the result, the History, the notice and the report. It changes the
+model-visible tool list (both arms' snapshots) before the freeze; the owner
+decided to add it all the same. In-app only.
+
 ### Phase 5 — Skills
 
 | PR | Change | Size |

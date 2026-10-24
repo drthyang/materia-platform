@@ -6,6 +6,7 @@
  */
 
 import { AgentExecutor, type ActivityEntry, type AgentHost } from "@/agent/executor";
+import type { CardDecision } from "@/agent/cardOptions";
 import type { AgentReport } from "@/agent/report";
 import { PAGE_METHOD } from "@/agent/skills";
 import { emptyRecord, type AgentRecord } from "@/agent/method";
@@ -149,10 +150,13 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
       calls.push(`ties ${JSON.stringify(update)}`);
       change((s) => withParameterTies(s, update));
     },
-    applyZeroAdp: (ids) => {
-      calls.push(`zeroAdp ${ids.join(",")}`);
-      const chosen = zeroAdpOf(held).proposals.filter((p) => ids.includes(p.parameterId) && p.rule !== "C");
-      change((s) => chosen.reduce(withZeroAdpApplied, s));
+    applyZeroAdp: (choices) => {
+      calls.push(`zeroAdp ${choices.map((c) => `${c.parameterId}:${c.option}${c.chosenBy ? `:${c.chosenBy}` : ""}`).join(",")}`);
+      const proposals = zeroAdpOf(held).proposals;
+      change((s) => choices.reduce((acc, c) => {
+        const p = proposals.find((z) => z.parameterId === c.parameterId);
+        return p && p.options[c.option] ? withZeroAdpApplied(acc, p, c.option, { ...(c.chosenBy ? { chosenBy: c.chosenBy } : {}), ...(c.reason ? { reason: c.reason } : {}) }) : acc;
+      }, s));
     },
     setInstrumentConstants: (update) => {
       calls.push(`constants ${JSON.stringify(update)}`);
@@ -333,7 +337,7 @@ export function headlessHistory(port: AgentPort): { history: () => ProjectHistor
  */
 export function executor(
   host: AgentHost,
-  decision: boolean | "auto" = true,
+  decision: boolean | "auto" | ((entry: ActivityEntry) => boolean | CardDecision) = true,
   { readMethods = true, onReport }: { readMethods?: boolean; onReport?: (report: AgentReport) => void } = {},
 ): { ex: AgentExecutor; asked: ActivityEntry[]; seen: ActivityEntry[] } {
   const asked: ActivityEntry[] = [];
@@ -342,7 +346,7 @@ export function executor(
   const ex = new AgentExecutor(host, {
     approve: async (entry) => {
       asked.push(entry);
-      return decision === "auto" ? true : decision;
+      return typeof decision === "function" ? decision(entry) : decision === "auto" ? true : decision;
     },
     onActivity: (e) => {
       if (recording) seen.push(e);

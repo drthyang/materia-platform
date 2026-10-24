@@ -34,7 +34,8 @@ import { withAntisite } from "@/core/crystal/antisite";
 import { structureTable } from "@/agent/structureTable";
 import { powderReflectionObsCalc } from "@/core/workflow/obsCalc";
 import { checkEqualTies, type EqualTieUpdate } from "@/core/refinement/constraints";
-import { ZERO_ADP_BAYES, zeroAdpFixText } from "@/core/diagnostics/zeroAdp";
+import { zeroAdpFixText, zeroAdpOptionIndex } from "@/core/diagnostics/zeroAdp";
+import type { CardOptionGroup } from "@/agent/cardOptions";
 import { bondsOf, cellOf, historyView, labelOf, matchIds, parameterSummary, pct, sig, type LiveToolHost } from "@/agent/liveCommon";
 import { change, freePlan, goToPlan, nothing, refinePlan, resetPlan, type Plans } from "@/agent/pages/plans";
 import { powderValidation } from "@/core/diagnostics/powderValidation";
@@ -363,19 +364,54 @@ export const POWDER_PLANS: Plans<PowderAgentPort> = {
     });
   },
   apply_adp_proposal: (input, s, port) => {
-    if (!s.result) throw new Error("there is no refinement result on screen — refine first: a proposal is read off the last fit's bounds");
-    const ids = matchIds(s.parameters, input.parameters);
-    const proposals = ids.map((id) => {
-      const p = s.zeroAdp?.proposals.find((z) => z.parameterId === id);
-      if (!p) throw new Error(`${id} is not a free B the last fit left on its lower bound (assess_refinement lists the B-at-0 proposals)`);
-      if (p.rule === "C") throw new Error(`${p.atom}: no value is proposed (rule C) — ${p.source.replace(/^rule C: no value /, "")}. Find the cause, or ask the user for a value they can cite`);
-      return p;
+    if (!s.result) throw new Error("there is no refinement result on screen — refine first: the options are read off the last fit's bounds");
+    const seen = new Set<string>();
+    const picks = input.choose.map((c) => {
+      if (seen.has(c.parameter)) throw new Error(`${c.parameter} is chosen twice: one option per row`);
+      seen.add(c.parameter);
+      const p = s.zeroAdp?.proposals.find((z) => z.parameterId === c.parameter);
+      if (!p) throw new Error(`${c.parameter} is not a free B the last fit left on its lower bound (get_state's bAtZero and assess_refinement list the B-at-0 options)`);
+      if (p.rule === "C") throw new Error(`${p.atom}: no value is proposed (rule C) — ${p.source.replace(/^rule C: no value /, "")}. Leave it and report it, or ask the user for a value they can cite`);
+      const i = zeroAdpOptionIndex(p, c.option);
+      if (i < 0) throw new Error(`${p.atom} has no option "${c.option}": its options are ${p.options.map((o) => `"${o.id}" (${o.rank}, ${o.label})`).join(", ")}`);
+      const o = p.options[i]!;
+      if (o.caution && !c.reason?.trim()) throw new Error(`option "${o.id}" for ${p.atom} ties it to ${o.label.replace(/^same coordination \([^)]*\), /, "a ")}: take it only when it is physically sensible, and say why in \`reason\`; otherwise choose "start" (the starting structure's value) if offered, or leave the B and report it`);
+      return { p, i, ...(c.reason?.trim() ? { reason: c.reason.trim() } : {}) };
     });
     const apply = handler(port.applyZeroAdp, "this page cannot apply the B-at-0 rule");
-    return change(proposals.map((p) => p.warning.replace(` ${ZERO_ADP_BAYES}`, "")).join(" · "), () => {
-      apply(ids);
-      return "Applied as a tie or a held value (the History records it): refine next. The report lists it under its limitations; tie_parameters release or set_free undoes it.";
-    });
+    // The card: every ranked option, the Agent's pick preselected; the user picks another or declines (cardOptions.ts).
+    const groups: CardOptionGroup[] = picks.map(({ p, i }) => ({
+      id: p.parameterId,
+      title: `${p.atom} refined to 0 Å² (its lower bound)`,
+      options: p.options.map((o, k) => ({ id: o.id, label: `${k + 1} · ${o.rank}`, detail: o.text })),
+      selected: p.options[i]!.id,
+    }));
+    const preview = picks.map(({ p, i, reason }) => `${p.atom} refined to 0 Å² (its lower bound). The Agent chose option ${i + 1} (${p.options[i]!.rank}): ${p.options[i]!.text}${reason ? ` — its reason: ${reason}` : ""}.${p.options.length > 1 ? ` Other options: ${p.options.map((o, k) => (k === i ? null : `${k + 1}) ${o.rank} — ${o.text}`)).filter(Boolean).join("; ")}.` : ""}`).join(" · ");
+    return change(preview, (_host, decision) => {
+      // No decision: approved without a card (auto mode), so the Agent's picks apply, recorded as its choice.
+      const auto = !decision;
+      const chosen = picks.map(({ p, i, reason }) => {
+        const picked = decision ? zeroAdpOptionIndex(p, decision.selected[p.parameterId] ?? p.options[i]!.id) : i;
+        const j = picked >= 0 ? picked : i;
+        return { p, j, choice: { parameterId: p.parameterId, option: j, chosenBy: auto ? ("agent-auto" as const) : ("user" as const), ...(reason && j === i ? { reason } : {}) } };
+      });
+      apply(chosen.map((c) => c.choice));
+      return {
+        note: auto ? "Applied in auto mode without a card: the Agent's choice, recorded as such in the History, the notice and the report." : "Applied: the user's selection on the card.",
+        data: {
+          applied: chosen.map(({ p, j, choice }) => ({
+            parameter: p.parameterId,
+            option: p.options[j]!.id,
+            rank: p.options[j]!.rank,
+            applied: p.options[j]!.text,
+            chosenBy: auto ? "the Agent, in auto mode (no card)" : "the user, on the card",
+            ...(choice.reason ? { reason: choice.reason } : {}),
+            notTaken: p.options.filter((_, k) => k !== j).map((o) => `${o.id} (${o.rank}, ${o.label})`),
+          })),
+          next: "Refine next, and say it in the report (its limitations list it). tie_parameters release or set_free frees the row again; go_to_step undoes it.",
+        },
+      };
+    }, groups);
   },
   set_instrument_constants: (input, s, port) => {
     const update = constantsUpdate(input);
@@ -567,7 +603,7 @@ function zeroAdpView(s: PowderLiveState): Record<string, unknown> {
   if (!z || (z.proposals.length === 0 && z.applied.length === 0)) return {};
   return {
     bAtZero: {
-      ...(z.proposals.length > 0 ? { proposed: z.proposals.map((p) => ({ parameter: p.parameterId, rule: p.rule, warning: p.warning })), apply: "apply_adp_proposal with the row's id (the user approves the card); rule C has nothing to apply" } : {}),
+      ...(z.proposals.length > 0 ? { proposed: z.proposals.map((p) => ({ parameter: p.parameterId, rule: p.rule, options: p.options.map((o, i) => ({ option: i + 1, rank: o.rank, ...(o.leader ? { tieTo: o.leader } : {}), ...(o.value !== undefined ? { holdAt: o.value } : {}), label: o.label, ...(o.caution ? { caution: o.caution } : {}) })), warning: p.warning })), choose: "apply_adp_proposal with the option's id per row (\"tie:<row>\" or \"start\"): prefer the same-element tie; a cross-element tie only when physically sensible, with your reason; in doubt the starting value, or leave the B and report it. Asking first, the user sees every option on the card and may pick another or decline; in auto mode your choice applies and is recorded as yours. Rule C has nothing to apply" } : {}),
       ...(z.applied.length > 0 ? { applied: z.applied.map((f) => zeroAdpFixText(f)) } : {}),
     },
   };

@@ -332,10 +332,10 @@ export function zeroAdpOf(p: Pick<PowderPage, "session" | "result">): { proposal
   };
 }
 
-/** A B-at-0 proposal applied: rule A's tie or rule B's held value on the row, and its record. Rule C has none to apply. */
-export function withZeroAdpApplied(s: Session, proposal: ZeroAdpProposal): Session {
-  const fix = zeroAdpFix(proposal);
-  return { ...s, powderParams: withZeroAdpProposal(s.powderParams, proposal), zeroAdpFixes: withFixRecorded(activeZeroAdpFixes(s.powderParams, s.zeroAdpFixes), fix) };
+/** A B-at-0 option the user chose (the preferred one, 0, by default): its tie or held value on the row, and its record. Rule C has none to apply. */
+export function withZeroAdpApplied(s: Session, proposal: ZeroAdpProposal, option = 0, how: { readonly chosenBy?: "user" | "agent-auto"; readonly reason?: string } = {}): Session {
+  const fix = zeroAdpFix(proposal, option, how);
+  return { ...s, powderParams: withZeroAdpProposal(s.powderParams, proposal, option), zeroAdpFixes: withFixRecorded(activeZeroAdpFixes(s.powderParams, s.zeroAdpFixes), fix) };
 }
 
 /** The B-at-0 records the rows still carry: one the user overrode (a tie released, the row freed or retyped) goes, so a later tie of their own is never claimed by the rule. */

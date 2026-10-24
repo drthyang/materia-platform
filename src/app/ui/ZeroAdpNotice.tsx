@@ -13,33 +13,31 @@ interface Props {
   readonly proposals: readonly ZeroAdpProposal[];
   readonly applied: readonly ZeroAdpFix[];
   readonly busy: boolean;
-  readonly onApply: (parameterIds: readonly string[]) => void;
+  /** Apply the option the user picked (its index in the proposal's ranked options). */
+  readonly onApply: (choices: readonly { readonly parameterId: string; readonly option: number }[]) => void;
   readonly onRelease: (parameterId: string) => void;
 }
 
 export function ZeroAdpNotice({ proposals, applied, busy, onApply, onRelease }: Props): JSX.Element | null {
   if (proposals.length === 0 && applied.length === 0) return null;
-  const applicable = proposals.filter((p) => p.rule !== "C");
   return (
     <div data-agent-card="parameters" role="status" style={wrap}>
       {proposals.length > 0 && (
         <div style={{ ...box, ...warnTone }}>
-          <div style={head}>
-            <span>⚠ B at its lower bound</span>
-            {applicable.length > 1 && (
-              <button style={{ ...button, marginLeft: "auto" }} disabled={busy} onClick={() => onApply(applicable.map((p) => p.parameterId))} title="Apply every proposal below (one History step)">
-                Apply all
-              </button>
-            )}
-          </div>
+          <div style={head}>⚠ B at its lower bound — choose an option, or none</div>
           {proposals.map((p) => (
-            <div key={p.parameterId} style={row}>
-              <span style={{ flex: 1, minWidth: 0 }}>{p.warning.replace(` ${ZERO_ADP_BAYES}`, "")}</span>
-              {p.rule !== "C" && (
-                <button style={button} disabled={busy} onClick={() => onApply([p.parameterId])} title={p.rule === "A" ? `Tie ${p.parameterId} to ${p.leader} (a constraint: the common B refines)` : `Hold ${p.parameterId} fixed at the starting structure's value`}>
-                  Apply
-                </button>
-              )}
+            <div key={p.parameterId} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              <span style={{ fontWeight: 600 }}>{p.atom} refined to 0 Å² (its lower bound).</span>
+              {p.options.length === 0 && <span>{p.advice.replace(` ${ZERO_ADP_BAYES}`, "")}</span>}
+              {p.options.map((o, i) => (
+                <div key={i} style={row}>
+                  <span style={{ ...rankTag, ...(o.rank === "preferred" ? preferredTag : {}) }}>{i + 1} · {o.rank}</span>
+                  <span style={{ flex: 1, minWidth: 0 }}>{o.text}</span>
+                  <button style={button} disabled={busy} onClick={() => onApply([{ parameterId: p.parameterId, option: i }])} title={o.rule === "A" ? `Tie ${p.parameterId} to ${o.leader} (a constraint: the common B refines)` : `Hold ${p.parameterId} fixed at the starting structure's value`}>
+                    Apply
+                  </button>
+                </div>
+              ))}
             </div>
           ))}
           <div style={foot}>If a B carries physical meaning (a conclusion rests on it), sample its posterior (the Posterior view) before quoting it: a parameter on its bound is not convincing, and its esd means nothing.</div>
@@ -65,6 +63,8 @@ const wrap: CSSProperties = { display: "flex", flexDirection: "column", gap: 6, 
 const box: CSSProperties = { borderRadius: 8, padding: "6px 10px", fontSize: 12, display: "flex", flexDirection: "column", gap: 5 };
 const head: CSSProperties = { display: "flex", alignItems: "center", gap: 8, fontWeight: 650 };
 const row: CSSProperties = { display: "flex", alignItems: "flex-start", gap: 8 };
+const rankTag: CSSProperties = { flex: "0 0 auto", fontSize: 10.5, padding: "0 6px", borderRadius: 999, border: `1px solid ${color.warnBorder}`, whiteSpace: "nowrap" };
+const preferredTag: CSSProperties = { fontWeight: 700 };
 const foot: CSSProperties = { fontSize: 11, opacity: 0.85 };
 const button: CSSProperties = { ...secondaryButton, flex: "0 0 auto", padding: "2px 10px", fontSize: 11 };
 const warnTone: CSSProperties = { background: color.warnBg, border: `1px solid ${color.warnBorder}`, color: color.warnInk };

@@ -88,7 +88,7 @@ import {
   withBackgroundType, withCorrections, withMagneticModelRows, withMagneticPreview, withMustrain, withParameterTies, withReset, withSiteTies, pageAxis, powderMomentFit, residualPeaksOf,
   changed, specInstrumentOf, withFit, withFixed, withZeroAdpApplied, withZeroAdpPruned, withZeroAdpReleased, zeroAdpOf, type PowderPage, type PowderPageModel,
 } from "@/app/powderPage";
-import { zeroAdpStepLabel } from "@/core/diagnostics/zeroAdp";
+import { zeroAdpStepLabel, type ZeroAdpChoice } from "@/core/diagnostics/zeroAdp";
 import { ZeroAdpNotice } from "@/app/ui/ZeroAdpNotice";
 import type { EngineExportsRef } from "@/app/workbenchEngine";
 import type { AgentLink } from "@/agent/link";
@@ -565,12 +565,15 @@ export function PowderWorkbench({
    * release a fix (the row free again). Never applied without the notice's
    * click or the Agent's approved card.
    */
-  function applyZeroAdp(ids: readonly string[]): void {
-    const chosen = zeroAdp.proposals.filter((p) => ids.includes(p.parameterId) && p.rule !== "C");
+  function applyZeroAdp(choices: readonly ZeroAdpChoice[]): void {
+    const chosen = choices.flatMap((c) => {
+      const p = zeroAdp.proposals.find((z) => z.parameterId === c.parameterId);
+      return p && p.options[c.option] ? [{ p, i: c.option, c }] : [];
+    });
     if (chosen.length === 0) return;
-    change((s) => chosen.reduce(withZeroAdpApplied, s));
-    stepHistory?.requestStep("settings", chosen.map(zeroAdpStepLabel).join("; "));
-    setMessage(`${chosen.map((p) => `${p.atom}: ${p.rule === "A" ? `tied to ${p.leader}` : "held at the starting structure's value"}`).join("; ")} (the B-at-0 rule). Refine next; Release (or ⌘Z) undoes it.`);
+    change((s) => chosen.reduce((acc, { p, i, c }) => withZeroAdpApplied(acc, p, i, { ...(c.chosenBy ? { chosenBy: c.chosenBy } : {}), ...(c.reason ? { reason: c.reason } : {}) }), s));
+    stepHistory?.requestStep("settings", chosen.map(({ p, i, c }) => zeroAdpStepLabel(p, i, c.chosenBy)).join("; "));
+    setMessage(`${chosen.map(({ p, i }) => `${p.atom}: ${p.options[i]!.rule === "A" ? `tied to ${p.options[i]!.leader}` : "held at the starting structure's value"}`).join("; ")} (the B-at-0 rule). Refine next; Release (or ⌘Z) undoes it.`);
   }
   function releaseZeroAdp(id: string): void {
     change((s) => withZeroAdpReleased(s, id));

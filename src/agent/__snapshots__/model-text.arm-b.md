@@ -908,23 +908,45 @@ Powder and single-crystal pages. Constrain parameters to one refined value, as a
 
 ### apply_adp_proposal
 
-Powder page only. The B-at-0 rule: when the last refinement left an isotropic B on its lower bound (0), assess_refinement's at-bound finding gives a proposal with its source — rule A, a tie to the B of a chemically similar site that refined sensibly (the same element, else a cation of the same coordination), so the common B still refines; rule B, the B the loaded starting structure gives the site, held fixed as it stands (the app has no temperature model for B); rule C, none: the app has no documented table of typical B values, so it proposes no value, and never a small floor. This applies the app's proposal for the rows you name: you choose which, never the value. The card shows the user the atom, the B it reached, the tie or value and its source. Applied, it is a tie or a held value like any other: tie_parameters `release` or set_free frees the row again, and go_to_step undoes it. Refine after it, and say it in the report (its limitations list it). Find the cause first when diagnose_fit names one (the background, absorption, a correlation); and when the B carries physical meaning, run the Bayesian check (the bayesian-check skill, sample_posterior) rather than quote a held value.
+Powder page only. For a B the last fit left on its lower bound (0), apply one of the app's ranked options (get_state's bAtZero) by its id: "tie:<row>" — a same-element site (preferred), or another cation of the same coordination (an alternative, with a caution) — or "start", the starting structure's B as it stands. No partner or value outside that list. Prefer the same-element tie; take a cross-element one only when physically sensible, with `reason` (required for it); in doubt take "start", or leave the B and report it. Asking first, the card shows the user every option with yours preselected; they may pick another or decline. In auto mode yours applies, recorded as yours (result, History, notice, report) with the options not taken. Undo: tie_parameters `release`, set_free or go_to_step. Refine after it. If the B carries physical meaning, run the Bayesian check (bayesian-check) instead of quoting a held value.
 
 ```json
 {
   "type": "object",
   "properties": {
-    "parameters": {
+    "choose": {
+      "minItems": 1,
       "type": "array",
       "items": {
-        "type": "string",
-        "minLength": 1
+        "type": "object",
+        "properties": {
+          "parameter": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The B row the last fit left on its lower bound, e.g. \"B_O2\""
+          },
+          "option": {
+            "type": "string",
+            "pattern": "^(tie:[A-Za-z0-9_.+-]+|start)$",
+            "description": "One of that row's option ids: \"tie:<row>\" (a tie the app offers) or \"start\" (the starting structure's value)"
+          },
+          "reason": {
+            "description": "Why the choice is physically sensible; required for a cross-element tie",
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "parameter",
+          "option"
+        ],
+        "additionalProperties": false
       },
-      "description": "The B rows the last fit left on their lower bound (ids or globs, e.g. [\"B_O2\"])"
+      "description": "One option per row"
     }
   },
   "required": [
-    "parameters"
+    "choose"
   ],
   "additionalProperties": false
 }
