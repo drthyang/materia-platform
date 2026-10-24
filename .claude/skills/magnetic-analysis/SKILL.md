@@ -26,6 +26,15 @@ k = 0, where magnetic intensity sits on nuclear reflections. So:
 
 1. The nuclear refinement is converged (`my-rietveld-workflow`, at least its required
    stages). If it is not, do that first.
+
+   **k = 0 order on neutron data is the exception.** When `find_unexplained_peaks` sets
+   `k0Magnetic` (the misfits sit on nuclear reflections at large d, the sample below its
+   ordering temperature), the nuclear model alone takes up the magnetic intensity: the ADPs
+   and the scale grow (Mn₃Ga 30 K, simulated: B 3–6× too large, the scale ×1.5, at a "good"
+   GoF of 2.1). Refine the scale, background, cell and profile, then go to k: include the
+   misfit peaks in the k-search (they sit on nuclear lines and are left out by default) or
+   set k = 0, and hold the positions and B's until the moments are in; Stage 4 refines them
+   with the moments.
 2. Prefer the nuclear structure from a dataset above the ordering temperature when the user
    has one: fix it, and refine only the magnetic parameters on the ordered data.
 3. Know what the residual is. `find_unexplained_peaks` separates peaks on no reflection
