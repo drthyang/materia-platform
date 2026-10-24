@@ -13,7 +13,7 @@ import type { StructureModel } from "@/core/crystal/types";
 import type { PowderPattern } from "@/core/diffraction/types";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import type { LinearRestraint, ParameterBinding, ParameterKind, RefinementParameter } from "@/core/refinement/types";
-import { estimateBackground, evaluateBackground } from "@/core/diffraction/background";
+import { estimateBackground, evaluateBackground, type BackgroundType } from "@/core/diffraction/background";
 import { estimateZeroShift } from "@/core/workflow/startingValues";
 import { buildStructureRefinement, siteTieRestraints } from "@/core/workflow/structureRefinement";
 import { powderCurves, type PowderProfile } from "@/core/workflow/powder";
@@ -173,7 +173,10 @@ export function buildPowderSpec(
   ties: SiteTies = {},
   mustrain: MustrainModel = "isotropic",
   corrections?: SampleCorrections,
+  /** The background basis, which the seeds are estimated in; omitted: Chebyshev (the profile then names none). */
+  backgroundType?: BackgroundType,
 ): PowderSpec {
+  const basis = backgroundType !== undefined ? { backgroundType } : {};
   const tieOpts = {
     tieSharedPositions: ties.positions ?? true,
     tieSharedAdp: ties.adp ?? true,
@@ -216,7 +219,7 @@ export function buildPowderSpec(
       : useIsoMustrain ? { mustrainIso: resolution * 1e6 } // µstrain seed (×10⁻⁶)
       : {};
     const zero = instrument.zero ?? 0;
-    const profile: PowderProfile = { shape: "tof" };
+    const profile: PowderProfile = { shape: "tof", ...basis };
     const corr = correctionOptions(corrections, pattern, false);
     const seed = buildStructureRefinement(structure, pattern, { scale: 1, backgroundTerms, zero, tof, ...microOpt, refineOccupancy: true, ...tieOpts });
     const seeds = seedStartingValues(structure, pattern, seed.params, seed.bindings, profile, backgroundTerms, false);
@@ -234,6 +237,7 @@ export function buildPowderSpec(
     shape: caglioti ? "pseudoVoigt" : "gaussian",
     ...(caglioti ? { eta: 0.5 } : {}),
     lorentz,
+    ...basis,
   };
 
   // For a proper CW instrument, refine a Thompson–Cox–Hastings pseudo-Voigt:

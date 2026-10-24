@@ -10,6 +10,7 @@ import type { PowderPattern } from "@/core/diffraction/types";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import { isMagneticModelParameterKind, type ParameterBinding, type RefinementParameter } from "@/core/refinement/types";
 import type { PowderProfile } from "@/core/workflow/powder";
+import type { BackgroundType } from "@/core/diffraction/background";
 import type { MagneticModel } from "@/core/magnetic/types";
 import { buildPowderSpec, type SiteTies, type PowderSpec, type MustrainModel, type SampleCorrections } from "@/app/powderSpec";
 import { buildMultiPhaseSpec } from "@/app/multiPhaseSpec";
@@ -18,7 +19,7 @@ import { parseSymmetryOperation } from "@/core/crystal/symmetry";
 import { isUserTie, tieReferences } from "@/core/refinement/constraints";
 
 export const DEFAULT_INSTRUMENT: InstrumentParameters = { kind: "constantWavelength", wavelength: 1.54 };
-const DEFAULT_BACKGROUND_TERMS = 4;
+export const DEFAULT_BACKGROUND_TERMS = 4;
 const DEFAULT_TIES: SiteTies = { positions: true, adp: true };
 export const SYNTHETIC_SOURCE = "synthetic (self-consistent demo)";
 /** Provenance marker for a clean, data-less workbench — the app's first-run
@@ -37,7 +38,7 @@ export interface Session {
   powderBindings: ParameterBinding[];
   /** Peak-shape / Lorentz / background settings for display and refinement. */
   powderProfile: PowderProfile;
-  /** Number of Chebyshev background coefficients in the powder model. */
+  /** Number of background coefficients in the powder model (in `powderProfile.backgroundType`'s basis). */
   backgroundTerms: number;
   /** Tie position/ADP of atoms sharing a crystallographic site (disorder). */
   siteTies: SiteTies;
@@ -191,10 +192,10 @@ export function withoutCorrections(s: Session): Session {
 
 /** Build the powder spec for a session, branching to the multi-phase builder when
  *  the session carries extra phases (so every rebuild preserves all phases). */
-export function buildSpecFor(structure: StructureModel, extraPhases: readonly StructureModel[], pattern: PowderPattern, instrument: InstrumentParameters, lorentz: boolean, backgroundTerms: number, ties: SiteTies, mustrain: MustrainModel, corrections?: SampleCorrections): PowderSpec {
+export function buildSpecFor(structure: StructureModel, extraPhases: readonly StructureModel[], pattern: PowderPattern, instrument: InstrumentParameters, lorentz: boolean, backgroundTerms: number, ties: SiteTies, mustrain: MustrainModel, corrections?: SampleCorrections, backgroundType?: BackgroundType): PowderSpec {
   return extraPhases.length > 0
-    ? buildMultiPhaseSpec([structure, ...extraPhases], pattern, instrument, backgroundTerms, ties, mustrain, corrections)
-    : buildPowderSpec(structure, pattern, instrument, lorentz, backgroundTerms, ties, mustrain, corrections);
+    ? buildMultiPhaseSpec([structure, ...extraPhases], pattern, instrument, backgroundTerms, ties, mustrain, corrections, backgroundType)
+    : buildPowderSpec(structure, pattern, instrument, lorentz, backgroundTerms, ties, mustrain, corrections, backgroundType);
 }
 
 /**

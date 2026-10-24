@@ -24,8 +24,21 @@ Magnetic intensity is judged against the nuclear model. If the scale, background
 positions and ADPs are not refined first, the moments absorb their error — above all for
 k = 0, where magnetic intensity sits on nuclear reflections. So:
 
-1. The nuclear refinement is converged (`my-rietveld-workflow`, at least its required
-   stages). If it is not, do that first.
+1. The nuclear structure is refined as fully as the data allow, in `my-rietveld-workflow`'s
+   usual order, before the magnetic structure: that is the standard. If it is not, do that
+   first.
+
+   **The exception: magnetic Bragg intensity comparable to the nuclear, on nuclear
+   reflections.** The magnetic signal is usually orders of magnitude weaker, but large
+   moments (Tb-based compounds, for one) can give k = 0 magnetic peaks as strong as the
+   nuclear ones. The app's signal is `find_unexplained_peaks`' `k0Magnetic` (neutron data:
+   the misfits sit on nuclear reflections at large d, the sample below its ordering
+   temperature). The nuclear model alone then takes up the magnetic intensity: the ADPs and
+   the scale grow (a simulated k = 0 test: B 3–6× too large, the scale ×1.5, at a "good" GoF
+   of 2.1). Only then, follow the usual order up to, not including, the positions and ADPs
+   (the scale, background and cell), then go to k: include the misfit peaks in the k-search
+   (they sit on nuclear lines and are left out by default) or set k = 0. Stage 4 refines the
+   positions, the profile and the B's with the moments, in the usual order.
 2. Prefer the nuclear structure from a dataset above the ordering temperature when the user
    has one: fix it, and refine only the magnetic parameters on the ordered data.
 3. Know what the residual is. `find_unexplained_peaks` separates peaks on no reflection

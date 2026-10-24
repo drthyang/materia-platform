@@ -175,7 +175,7 @@ reads when it picks a tool.
 
 **`parse_instrument`** — Parse an instrument-parameter file (GSAS-II .instprm, classic GSAS .prm, FullProf .irf) into a CW or TOF calibration. Pass the result to build_refinement/refine_powder so the wavelength and profile are right.
 
-**`build_refinement`** — Build the SYMMETRY-ALLOWED parameter set, bindings, and profile for a structure + pattern. Only symmetry-allowed parameters are created, so an agent cannot free a forbidden one. Feed `parameters`/`bindings`/`profile` to refine_powder.
+**`build_refinement`** — Build the SYMMETRY-ALLOWED parameter set, bindings, and profile for a structure + pattern. Only symmetry-allowed parameters are created, so an agent cannot free a forbidden one. Feed `parameters`/`bindings`/`profile` to refine_powder. The background is Chebyshev with 4 terms, except on POWGEN time-of-flight data (an instrument file that names POWGEN or PG3, or a data file named PG3_… with an instrument file naming no instrument): log interpolation with 3 points; `profile.backgroundType` says which, so pass it on to export_bundle.
 
 **`check_fit_range`** — The first step of a refinement: read the pattern's two ends and propose the fit window, as the GSAS-II tutorials do. The long-d end starts just below the first reflection (background only) unless the data hold peaks there no phase explains — magnetic order or another phase, which stay in. The far end stops in a gap below what is not real data: counts that step up and stay at the last points (a detector's or scan's edge), points with no counts, a line cut by the last point, the short-d stretch where no peak stands out of the noise, or (with a converged `result`) a stretch the model misses more than anywhere just inside. Every cut lies in a gap between reflections; a cut of more than 15 % of the points is flagged `large` — the user's call. Returns `low` and `high` (verdict, `cut`, findings with the evidence, notes on the counting σ), `proposed` (the window on the pattern's axis, or null), `proposedD` (Å), `interior` (spikes, missing points no window removes), `reading` (the same in words, each end named) and, when the structure has next to no reflection in the axis's d range, `axisWarning` (the axis is likely in another unit, or the wavelength wrong: ask the user before refining). Pass the window on as `fitRange` to refine_powder and check_cell_symmetry.
 
@@ -452,6 +452,46 @@ a reflection kept that is not on the failed list, a refinement with nothing
 free or of a view-only pattern) is refused before the card, not after the user
 approved it.
 
+**Choices to click.** Where a read hands the user a decision the method
+leaves to them, the drawer shows its options as buttons under the turn,
+made from the tool's result, not from the reply's words
+([`src/agent/choices.ts`](../src/agent/choices.ts)): the k the
+`search_propagation_vector` found (those that explain every included peak
+first, the simplest ★), the groups `rank_magnetic_groups` fitted (best wR
+first, the ★ its best), and the actions `suggest_next_steps` ranks. A click
+sends the option's message as the user's, as if typed ("Set the propagation
+vector to k = (1/2, 0, 0)."); the model acts on it as on a typed message, and
+a change still asks first. Another… puts a template in the message box to
+edit. The k are in reciprocal-lattice units of the structure's cell as
+loaded (in a centred lattice the conventional cell, not the primitive one),
+which the set says, with the cell; the button shows the panel's label, never
+rounded ((0 0 4/3), not (0 0 1.333)), and the message plain fractions that
+`set_propagation_vector` reads back to the engine's value. A set is for the
+page as it was when its tool ran: once a message follows it, it is
+superseded, and a click after the page changed (its stamp, as for an approved
+change) sends nothing and says so.
+
+**Its own questions.** Where the decision is one no tool's result lists, the
+Agent asks with `ask_user` (added at the owner's decision, 2026-10-24: a new
+tool changes what the model reads before the validation freeze, so it needed
+their approval): a question and 2 to 6 options, each a button label and the
+exact message a click sends, and optionally a hint for an answer in the
+user's own words. The input is checked like any tool's (lengths, no label
+twice, 2–6 options); `{{references}}` are filled from the engine, and one
+that names nothing is refused, as in a note. The question ends the model's
+turn the way the chat already ends one after tool calls: every call of that
+reply is answered in one message, those after the question are not run, and
+no further request is made; the user's click (or their own words) is their
+next message. The buttons are the ones above, with the same supersede and
+stamp rules; "Something else…" focuses an empty message box that shows the
+hint, so nothing of the model's is sent as the user's. A clicked option is the
+Agent's words: the report's number audit does not count its numbers as the
+user's, and a turn that ends on a question is read by the checks on a final
+answer (below) with the question's words, a gated question not shown. An
+option that asks for a change is an ordinary request: the model calls the
+change tool, which asks first. The MCP server does not have it: no live tool
+is an MCP tool, and an MCP client asks its user in its own UI.
+
 <!-- LIVE_TOOLS:BEGIN (generated — edit src/agent/tools.ts, then npm run gen:tooldoc) -->
 **Every page**
 
@@ -465,6 +505,7 @@ approved it.
 | `allow_exception` | always asks | Allow an exception to the method |
 | `write_note` | at once | Note it for this analysis |
 | `write_report` | at once | Write the analysis report |
+| `ask_user` | at once | Ask you a question |
 | `read_ref` | at once | Read a stored value |
 | `set_free` | asks first | Free or fix parameters |
 | `set_adp_model` | asks first | Change the ADP model |
@@ -671,11 +712,13 @@ current.
   MCMC of the Posterior view, over the free parameters of a converged fit;
   `continue: true` resumes the chain.
 - **`write_report`** ([`report.ts`](../src/agent/report.ts)) builds the page's
-  own report (Export ▾ → Report) with the analysis as it went: the History's
-  steps on the path to the result, the method's checklist, the engine's checks
-  ([`reportChecks.ts`](../src/agent/reportChecks.ts)) with the issues left
-  open, the Bayesian check of the refinement on screen when one ran, and the
-  Agent's notes. The Agent writes only `summary`; its decimal numbers are
+  own report (Export ▾ → Report) with the analysis as it went. The summary
+  leads with the Agent's account, the issues left open, the engine's checks
+  ([`reportChecks.ts`](../src/agent/reportChecks.ts)) that bear on trust (the
+  others named as passed) and the Bayesian check of the refinement on screen
+  when one ran. A collapsed appendix holds the History's steps on the path to
+  the result, the method's checklist, every check with its numbers, the
+  Agent's notes, every parameter and the software. The Agent writes only `summary`; its decimal numbers are
   checked against the numbers the report computed
   ([`reportAudit.ts`](../src/core/export/reportAudit.ts)), and any that match
   none are underlined (HTML) or marked † (Markdown) and returned, so the Agent
@@ -840,6 +883,10 @@ when it concludes:
 - on any page, a grade of a fit that changed in this message, with no
   assessment after the change; or a grade two bands or more from the
   engine's verdict, or across the line between fair and good.
+
+A turn that ends on an `ask_user` question is a final answer too: the
+reply's words and the question's are read before the question is shown, and
+a question the rules send back is not shown.
 
 The rules read the message's calls with what each came to and whether the
 fit on screen changed. A refused or declined change changes nothing, and a

@@ -9,6 +9,71 @@ release fixes bugs.
 
 ### Added
 
+- **Strong k = 0 magnetic peaks are taken to the magnetic step, not into the
+  ADPs.** On a neutron pattern of magnetic ions whose misfits sit on nuclear
+  reflections at large d (the k = 0 signature), the Agent's `magnetic_state`
+  now names those peaks to include in the k-search instead of "nothing
+  magnetic to find", `diagnose_fit` puts the k = 0 check before its advice to
+  free the ADPs, and `refine` cautions on its card while B's or positions are
+  free against the signature with no magnetic model on the page. On the
+  simulated Mn₃Ga 30 K pattern the method's ADP stage on the nuclear model
+  alone left the B's 3–6× and the scale 1.5× too large at a "good" GoF of 2.1,
+  and the true group's moments-only fit 0.7–1.7 µB short; with the B's and
+  positions held until the moments are in, every parameter lands within 1.3σ
+  of the simulated values. The k = 0 signature is now weighted by each peak's
+  significance (it was a count, which weak small-d misfits outvoted), and
+  `diagnose_fit`'s unexplained-peak cause routes lines on a neutron pattern of
+  magnetic ions to the k-search.
+
+- **The background is kept off the peaks the model lacks.** Excess between
+  the lines that no reflection explains — a run of background points whose
+  residual stands above the noise on a line's scale (1–8 line widths, 1 %
+  false alarms on pure noise) — is now a cause of its own in the Agent's
+  `diagnose_fit` ("unexplained-peak": explain it, never fit it with the
+  background), and is left out of the points the background is judged on.
+  The background cause names the count those points justify (BIC of the
+  background alone), and `set_background` cautions on its card when more
+  terms would absorb such excess or exceed that count. Before, a line the
+  model lacked was billed to the background as "more terms": on a simulated
+  POWGEN pattern a broad line at d = 5.3 Å loses 18 % of its intensity to 4
+  Chebyshev terms, 62 % to 12 and 97 % to 24, and an information criterion
+  over every point the model leaves to the background asked for 16 (79 %);
+  with the line left out it asks for the 4 the line-free pattern gets.
+
+- **POWGEN data start on a logarithmic background**: GSAS-II's log
+  interpolation with 3 points (at the TOF range's ends and their geometric
+  mean), where the instrument file names POWGEN or PG3, or names no known
+  instrument and the data file's name hints at POWGEN (`PG3_…`; `NOM_…` hints
+  at NOMAD, which has no default of its own), and the pattern is
+  time-of-flight. The hint is a guess, labelled as such, never saved. On the 350 K Mn₃Ga bank it fits as well as the 4-term
+  Chebyshev default with one parameter fewer (wR 8.90 % against 9.00 %, scale,
+  background and cell refined). The basis and the count stay the user's (the
+  Background group, the Agent's `set_background`, MCP `build_refinement`'s new
+  `backgroundType`), and a saved project keeps its own. Log- and
+  linear-interpolation backgrounds are now seeded at their own points, keep
+  their curve when the number of points changes, and the report names the
+  basis refined instead of always "Chebyshev".
+
+- **The Agent asks with buttons (`ask_user`).** Where the next decision is the
+  user's and no tool's result lists it, the Agent puts a question with 2 to 6
+  options; each shows as a button under the turn and sends exactly its
+  message, as the k, group and next-step choices do, and the question ends
+  the model's turn. A change an option asks for still goes through its change
+  tool and approval card; a clicked option's numbers are not counted as the
+  user's by the report's number audit, and the checks on a final answer read
+  the question too. In-app only (not an MCP tool). Added at the owner's
+  decision, although it changes the model-visible tool list before the
+  validation freeze (docs/AGENT_PLAN.md).
+
+- **Choices to click in the Agent's conversation.** The k the k-search found,
+  the magnetic groups the ranking fitted and the next steps the assessment
+  suggests show as buttons under the turn, from the tool's result: a click
+  sends the message the user could have typed ("Set the propagation vector to
+  k = (1/2, 0, 0)."), "Another…" puts a template in the message box, and a set
+  stops sending once the conversation or the page moves on. Keyboard
+  accessible. The k set says what k is in: reciprocal-lattice units of the
+  cell as loaded (a centred lattice's conventional cell).
+
 - **The published Mn₃Ga 350 K POWGEN data** in `examples/mn3ga-350k`: the
   histogram and instrument parameters, the GSAS-II magnetic structure
   (C m′c m′), MATERIA's refinement of it, and a nuclear starting model. The
@@ -540,6 +605,12 @@ release fixes bugs.
   analysis of variance gives them.
 
 ### Fixed
+
+- **A propagation vector's label reads back as itself.** A centred lattice's k
+  above 1 was labelled to three decimals ((0 0 1.333) for 4/3, which sets
+  another k when copied); it is now the exact fraction, (0 0 4/3).
+  `set_propagation_vector` now also reads every glyph a k label prints
+  (⅔, ¾, ⅙, ⅚ and the minus sign of (¼ 0 −¼)), which it refused.
 
 - **The local proxy says when the page has none.** On the published site
   (GitHub Pages) there is no proxy, and choosing it ended every message in a

@@ -233,10 +233,20 @@ const ONE_CURVE_NOTE = {
 export const K0_MAGNETIC =
   "This is a neutron pattern of a phase with magnetic ions, and the excess sits on nuclear reflections at large d: if the sample can be magnetically ordered at this temperature, that is the k = 0 magnetic signature (magnetic intensity on the nuclear positions, fading with the form factor at small d). Check it with the magnetic analysis (a k-search on these peaks' d) before refining atoms or ADPs into it.";
 
-/** On-reflection excess that may be k = 0 magnetic: neutrons, magnetic ions, and most of it at d > 2.5 Å. */
-export function k0MagneticHint(magneticNeutron: boolean | undefined, onReflection: readonly { readonly d: number }[]): boolean {
+/** Where the k = 0 signature's excess sits: at d above this (Å), where the magnetic form factor is still large. */
+export const K0_MIN_D = 2.5;
+
+/**
+ * On-reflection excess that may be k = 0 magnetic: neutrons, magnetic ions, and
+ * most of it at d > 2.5 Å — weighted by each peak's significance where the
+ * residual has σ (else counted): once ADPs have taken up part of a k = 0
+ * pattern, weak misfits at small d outnumber the strong magnetic ones.
+ */
+export function k0MagneticHint(magneticNeutron: boolean | undefined, onReflection: readonly { readonly d: number; readonly significance?: number }[]): boolean {
   if (!magneticNeutron || onReflection.length === 0) return false;
-  return onReflection.filter((p) => p.d > 2.5).length * 2 >= onReflection.length;
+  const w = (p: (typeof onReflection)[number]): number => (p.significance !== undefined && p.significance > 0 ? p.significance : 1);
+  const total = onReflection.reduce((sum, p) => sum + w(p), 0);
+  return onReflection.filter((p) => p.d > K0_MIN_D).reduce((sum, p) => sum + w(p), 0) * 2 >= total;
 }
 
 /** Within this of a reflection (relative d), a residual peak is that reflection's misfit. */

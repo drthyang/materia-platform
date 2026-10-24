@@ -111,9 +111,19 @@ const FRAC_LABEL: ReadonlyMap<string, string> = new Map([
   ["1.0000", "1"],
 ]);
 
+/** A fraction with a denominator up to 12 that is x (4/3, 3/2 in a centred lattice's coset), or null. */
+function exactFraction(x: number): string | null {
+  for (const d of [2, 3, 4, 6, 8, 12]) {
+    const n = Math.round(x * d);
+    if (Math.abs(n / d - x) < 1e-9) return `${n}/${d}`;
+  }
+  return null;
+}
+
 function comp(x: number): string {
   if (x < -1e-9) return `−${comp(-x)}`;
-  return FRAC_LABEL.get(x.toFixed(4)) ?? x.toFixed(3);
+  // Exact, never rounded: (0 0 4/3), not (0 0 1.333), which would read back as another k.
+  return FRAC_LABEL.get(x.toFixed(4)) ?? exactFraction(x) ?? x.toFixed(3);
 }
 
 export function kLabel(k: Vec3): string {

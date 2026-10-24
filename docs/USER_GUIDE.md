@@ -120,6 +120,13 @@ keeps every row and its free or fixed choice (on every page).
 Open a group for its model controls:
 
 - **Background**: the **function** (such as **Chebyshev**) and its **terms**.
+  New data start on Chebyshev with 4 terms; POWGEN time-of-flight data (an
+  instrument file that names POWGEN or PG3, or a data file named `PG3_…`
+  with an instrument file that names no instrument; the Instrument card then
+  reads "POWGEN (guessed from the file name)") start on
+  **Log interpolate** with
+  3 points. Either is a starting choice: change it here, and a saved project
+  keeps the one it was saved with.
 - **ADPs (thermal)**: **anisotropic (U tensor)**, once an isotropic fit
   converges.
 - **Microstructure**: set **model** to **isotropic**, **uniaxial** (2θ data
@@ -514,11 +521,22 @@ them in FullProf before comparing.
 
 ### The report
 
-**Report** writes one HTML page: the data and model, the fit figure, the atomic
-and magnetic structures, every parameter and the refinement details. Its
-magnetic section gives k and the magnetic space group, named as on the magnetic
-page. It adds a projected figure, the moments with esds and a sublattice table.
-It states where the model came from:
+**Report** writes one HTML page. It opens on the summary: the data and model,
+the fit figure, the atomic and magnetic structures with esds, the other refined
+values, and the fit quality with the correlations and warnings. An appendix
+follows, collapsed until you open it: every parameter, fixed or refined, the
+conventions and the software. Printing opens it. A report the Copilot writes
+adds its account, the open issues and the checks that bear on trust to the
+summary. Its appendix also holds the History's steps, the method's checklist,
+every check with its numbers, and the notes. The Markdown file has the same
+parts, the appendix last.
+
+The magnetic section gives k and the magnetic space group, named as on the
+magnetic page. It adds a projected figure, the moments with esds and a
+sublattice table. On a powder it says what the pattern cannot fix: the moment
+direction among the symmetry-equivalent ones. A cubic crystal gives only |m|.
+A uniaxial crystal gives only the angle to the unique axis. It states where
+the model came from:
 
 - **Refined jointly**: refined with the atomic structure in this session.
 - **Included in the model**: applied, but loaded or set on the magnetic page.

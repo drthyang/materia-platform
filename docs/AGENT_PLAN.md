@@ -276,6 +276,12 @@ are noted, since arm A reads it.
 The Le Bail carry-forward needs no new tool: the skill sends a bad start to
 Prefit (AGENT_REVIEW proposal 1) **(approved)**.
 
+**A generic "ask the user" tool (approved, 2026-10-24).** `ask_user` puts a
+question with 2–6 clickable options to the user and ends the model's turn,
+so a choice the model would otherwise write only in prose gets the drawer's
+buttons. It changes the model-visible tool list (both arms' snapshots) before
+the freeze; the owner decided to add it all the same. In-app only.
+
 ### Phase 5 — Skills
 
 | PR | Change | Size |

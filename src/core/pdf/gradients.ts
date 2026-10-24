@@ -36,8 +36,8 @@
 import type { Mat3, Vec3 } from "@/core/math/types";
 import type { UnitCell } from "@/core/crystal/types";
 import type { ExpandedAtom } from "@/core/diffraction/structureFactor";
-import { compositionWeights, numberDensity, pairWeight, speciesAmplitude } from "@/core/totalscattering/weights";
-import { cartesianAdpTensor, type PdfPair } from "@/core/pdf/pairEnumerator";
+import { compositionWeights, groupedWeights, numberDensity, pairWeight, speciesAmplitude } from "@/core/totalscattering/weights";
+import { cartesianAdpTensor, type ColocatedGroups, type PdfPair } from "@/core/pdf/pairEnumerator";
 import { sphereEnvelope, type PdfModelParams } from "@/core/pdf/forwardModel";
 
 /**
@@ -94,6 +94,10 @@ function msdDeriv(req: { constant: Float64Array; tensors: readonly (Mat3 | null)
  * Fused value + analytic-columns pass. `atoms`/`pairs` must be the same lists
  * a `computeGofR` call would use (the workflow's cached pairs). Every request
  * yields one column, index-aligned with `requests`.
+ *
+ * With `groups` (the pairs over each mixed site's representative, as for
+ * `computeGofR`), every request must be the same on each atom of a group
+ * (`requestsUniformOver`): only occupancy may differ, which is summed.
  */
 export function computeGofRWithColumns(
   cell: UnitCell,
@@ -102,6 +106,7 @@ export function computeGofRWithColumns(
   params: PdfModelParams,
   pairs: readonly PdfPair[],
   requests: readonly PdfColumnRequest[],
+  groups?: ColocatedGroups | null,
 ): PdfGradResult {
   const n = rGrid.length;
   const g = new Float64Array(n);
@@ -111,7 +116,8 @@ export function computeGofRWithColumns(
   const r0 = rGrid[0]!;
   const step = n > 1 ? rGrid[1]! - rGrid[0]! : 1;
 
-  const weights = compositionWeights(atoms, params.scatteringType);
+  const cellWeights = compositionWeights(atoms, params.scatteringType);
+  const weights = groups ? groupedWeights(cellWeights, groups.rep) : cellWeights;
   const rho0 = numberDensity(weights.nEff, cell);
   const norm = 1 / (weights.bAvgAbs2 * weights.nEff);
 
@@ -150,6 +156,17 @@ export function computeGofRWithColumns(
     const S1 = weights.bAvg * weights.nEff;
     // d(norm)/norm = dN/N − 2·Re(S1*·dS1)/|S1|² (norm = N/|S1|²).
     const S1Im = weights.bAvgIm * weights.nEff;
+    if (groups) {
+      // Each species' weight derivative onto its group's representative, as the weights are.
+      const g = new Float64Array(atoms.length);
+      for (let a = 0; a < atoms.length; a++) g[groups.rep[a]!] = g[groups.rep[a]!]! + dPer[a]!;
+      dPer.set(g);
+      if (dPerIm) {
+        g.fill(0);
+        for (let a = 0; a < atoms.length; a++) g[groups.rep[a]!] = g[groups.rep[a]!]! + dPerIm[a]!;
+        dPerIm.set(g);
+      }
+    }
     const dLnS1Sq = dPerIm
       ? (S1 !== 0 || S1Im !== 0 ? (2 * (S1 * dS1 + S1Im * dS1Im)) / (S1 * S1 + S1Im * S1Im) : 0)
       : (S1 !== 0 ? (2 * dS1) / S1 : 0);
@@ -168,6 +185,9 @@ export function computeGofRWithColumns(
   const q1 = new Float64Array(requests.length);
   const q2 = new Float64Array(requests.length);
   const active: number[] = [];
+  // Scratch: one pair's Gaussian window (e and dr per grid point).
+  let eWin = new Float64Array(256);
+  let drWin = new Float64Array(256);
 
   const INV_SQRT_2PI = 1 / Math.sqrt(2 * Math.PI);
   for (const pair of pairs) {
@@ -297,13 +317,31 @@ export function computeGofRWithColumns(
         g[k] = g[k]! + peak * Math.exp(-dr * dr * invTwoSig2);
       }
     } else {
+      // The window's e and dr once, then one tight loop per active column. Each
+      // column point receives the same terms in the same pair order as a
+      // point-outer loop, so the result is bit-identical; walking one column
+      // at a time is about twice as fast.
+      const span = hi - lo + 1;
+      if (span > eWin.length) {
+        eWin = new Float64Array(2 * span);
+        drWin = new Float64Array(2 * span);
+      }
       for (let k = lo; k <= hi; k++) {
         const dr = r0 + k * step - r;
         const e = Math.exp(-dr * dr * invTwoSig2);
         g[k] = g[k]! + peak * e;
-        for (const c of active) {
-          const col = columns[c]!;
-          col[k] = col[k]! + (q0[c]! + dr * (q1[c]! + dr * q2[c]!)) * e;
+        eWin[k - lo] = e;
+        drWin[k - lo] = dr;
+      }
+      for (let a = 0; a < active.length; a++) {
+        const c = active[a]!;
+        const col = columns[c]!;
+        const c0 = q0[c]!;
+        const c1 = q1[c]!;
+        const c2 = q2[c]!;
+        for (let k = lo; k <= hi; k++) {
+          const dr = drWin[k - lo]!;
+          col[k] = col[k]! + (c0 + dr * (c1 + dr * c2)) * eWin[k - lo]!;
         }
       }
     }
@@ -369,3 +407,31 @@ export function computeGofRWithColumns(
 
 /** d(u_iso)/d(B_iso) = 1/8π² — the bIso "constant" msd-request entry. */
 export const DUISO_DBISO = 1 / EIGHT_PI_SQ;
+
+/**
+ * Whether every request is the same on each atom of a co-located group, so the
+ * group's pairs may be summed through its representative: the ADP derivative
+ * (constant and tensor) and the position velocity per atom. Occupancy, the
+ * width and envelope kinds hold on any grouping.
+ */
+export function requestsUniformOver(requests: readonly PdfColumnRequest[], groups: ColocatedGroups): boolean {
+  const rep = groups.rep;
+  const same3 = (a: readonly number[] | null, b: readonly number[] | null): boolean =>
+    a === b || (a !== null && b !== null && a[0] === b[0] && a[1] === b[1] && a[2] === b[2]);
+  for (const req of requests) {
+    for (let a = 0; a < rep.length; a++) {
+      const r = rep[a]!;
+      if (r === a) continue;
+      if (req.kind === "msd") {
+        if (req.constant[a] !== req.constant[r]) return false;
+        const ta = req.tensors[a] ?? null;
+        const tr = req.tensors[r] ?? null;
+        if ((ta === null) !== (tr === null)) return false;
+        if (ta && tr && !(same3(ta[0], tr[0]) && same3(ta[1], tr[1]) && same3(ta[2], tr[2]))) return false;
+      } else if (req.kind === "position") {
+        if (!same3(req.velocity[a] ?? null, req.velocity[r] ?? null)) return false;
+      }
+    }
+  }
+  return true;
+}

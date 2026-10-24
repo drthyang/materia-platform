@@ -387,7 +387,7 @@ The pair sum costs O(N_cell · N_images) per phase and grows as rmax³.
 
 | Rung | Status | Notes |
 | --- | --- | --- |
-| 1. f64 CPU in a Web Worker | ✅ caching · ⬜ binning | The reference path. The pair list is cached on cell, positions and ADPs, so other steps skip enumeration. Neighbour binning of the images is not built. |
+| 1. f64 CPU in a Web Worker | ✅ caching · ✅ mixed sites · ⬜ binning | The reference path. The pair list is cached on cell, positions and ADPs, so other steps skip enumeration. The species of a mixed site (same position, same ADP) pair once, through one representative with their summed weight, in the single-phase problem: the same sum up to rounding, from a third of the pairs for the six-cation (Co,Cu,Fe,Mn,Ni,Zn)WO₄ A site (`colocatedGroups`). A gradient that moves one species alone falls back to the per-atom pairs. Neighbour binning of the images is not built. |
 | 2. Evaluator pool for the Jacobian | ✅ | `pdf` and `mpdf` specs. Multi-start, staged and boxcar runs each reuse one pool. |
 | 3. Opt-in WebGPU pair-sum kernel | ⬜ | f32, gated like the structure-factor kernels: WGSL field count equals the JS stride, and an f64 twin matches CPU G(r) to 1e-6. Many small Gaussians may be more f32-sensitive than a reflection sum. |
 | 4. Analytic gradients | ✅ PDF · ⬜ mPDF | Cell, sratio/rcut, ties and multi-phase or multi-dataset problems fall back to finite differences ([REFINEMENT_ENGINE.md](./REFINEMENT_ENGINE.md)). Every mPDF column is a finite difference. |

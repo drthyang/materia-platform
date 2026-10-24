@@ -195,7 +195,18 @@ approximate, however plausible its output looks.
   Constant per-bank prefactors are absorbed into the scale.
 - Backgrounds: Chebyshev, cosine (Fourier) or power series, or linear or
   logarithmic interpolation between evenly spaced points, with an adjustable
-  number of terms.
+  number of terms. POWGEN time-of-flight data start on log interpolation with
+  3 points, recognized from the instrument file's text (POWGEN or PG3 in it)
+  or, when that names no known instrument, a guess from the data file's name
+  (`PG3_…` POWGEN, `NOM_…` NOMAD, any case; NOMAD has no default of its own,
+  so its guess only labels the Instrument card). An instrument file naming an
+  instrument wins; the guess is never saved or reported as the instrument.
+  Other data start on 4 Chebyshev terms. The Agent's `diagnose_fit` reads the
+  count the points between the lines justify (BIC), with any excess there
+  that no reflection explains left out as a line, not background; a hump wider
+  than 24 line widths counts as background, and the points under the lines
+  (a short-d stretch of overlapping TOF lines) say nothing of it. The
+  Background group's own terms box does not warn.
 - Corrections: March–Dollase preferred orientation (averaged over each
   family's Laue equivalents, as GSAS-II); sample displacement and
   transparency, Debye–Scherrer absorption, and Suortti surface roughness
@@ -288,7 +299,9 @@ approximate, however plausible its output looks.
   against FullProf on DyMn₆Ge₆ (γ = 0.1648(7) vs 0.16509(43)). Single-crystal
   and magnetic-PDF refinements keep k fixed.
 - mCIF (BNS) import and export. Moment components are given along the
-  normalized crystal axes.
+  normalized crystal axes. The older magCIF spellings Jana2006 writes
+  (`_space_group_symop.magn_operation_xyz`, `_atom_site_moment_label`) read
+  like the DDLm ones.
 - Checks: the cosine/sine formalism reproduces a brute-force sum over the
   magnetic supercell, for primitive and for C-, I- and F-centred parents; a
   simple antiferromagnet at k = (0, 0, ½) is recovered end to end; MnO
@@ -296,7 +309,26 @@ approximate, however plausible its output looks.
   F-centred satellites; at k = 0 the moment sizes match GSAS-II; and |F_M|²
   matches GSAS-II reflection by reflection on the Mn₃Ga 350 K data.
 
+- Strong magnetic peaks on the nuclear lines (k = 0). The nuclear model alone
+  takes up k = 0 magnetic intensity: on the simulated Mn₃Ga 30 K pattern
+  (Example 3) the B's of a nuclear-only ADP stage came out 3–6× too large and
+  the scale 50 % too large, at a "good" GoF of 2.1. The Agent's tools read the
+  signature (a neutron pattern of magnetic ions with its misfits on nuclear
+  reflections at large d, weighted by significance; `find_unexplained_peaks`'
+  `k0Magnetic`): `magnetic_state` names the peaks to include in the k-search
+  (they sit on nuclear lines, which the search leaves out by default),
+  `diagnose_fit` puts the k = 0 check before its ADP and structure advice, and
+  `refine` cautions while B's or positions are free against it with no magnetic
+  model on the page. Held until the moments are in and then refined with them,
+  the B's, positions, scale and moments land within 1.3σ of the simulated
+  values. Lines that sit between the nuclear ones (k ≠ 0) are routed to the
+  k-search by `diagnose_fit`'s unexplained-peak cause.
+
 **Approximate**
+- The k = 0 guard is advice, not a rule: the method's order (ADPs before the
+  magnetic step) is the user's. It does not apply to k ≠ 0 satellites that
+  overlap nuclear lines by accident in d, where a nuclear-first fit can still
+  pull the positions toward the magnetic intensity on those lines.
 - The magnetic form factor is spin-only ⟨j0⟩ everywhere: structure factors,
   the GPU kernel and magnetic PDF. The dipole correction with ⟨j2⟩, needed when
   the orbital moment matters (g ≠ 2), is not applied yet.
@@ -434,6 +466,10 @@ Conventions are pinned in
   follows GSAS-II's reader and is covered by synthetic tests only.
 - A `CONST` bank is read as constant wavelength. A rare constant-step TOF
   `CONST` bank needs its unit set by hand.
+- Mantid `XYDATA` exports (`SaveFocusedXYE`, POWGEN `.dat`) are read as plain
+  x y σ columns, the TOF unit taken from their `#` header. Their abscissa is
+  the focused TOF (difC·d), and the file carries no calibration: load the
+  frame's `.instprm` with it. Checked on one real POWGEN file (local data).
 
 **Not yet**
 - CIF: DDLm-style dotted names for the cell and atom sites

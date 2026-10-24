@@ -26,6 +26,7 @@
 
 import { z } from "zod";
 import type { StepKind } from "@/core/project/history";
+import { MAX_OPTIONS } from "@/agent/choices";
 
 /**
  * What a tool does. A `read` reads the page; a `compute` fills a panel of the
@@ -102,6 +103,8 @@ export interface LiveToolSpec {
   readonly magneticStep?: true;
   /** What it gives a final answer, when it answered (evidence.ts). */
   readonly evidence?: readonly Evidence[];
+  /** A call that answered ends the model's turn: the user answers in their next message (chat.ts). */
+  readonly endsTurn?: true;
 }
 
 const ids = z.array(z.string().min(1)).describe("Parameter ids, or globs such as \"bkg*\" or \"*Fe1*\"");
@@ -425,7 +428,7 @@ const TOOLS = [
     name: "diagnose_fit",
     title: "Diagnose the fit",
     description:
-      "Powder page only. Why the fit on screen is not good, cause by cause, each with the share of χ² it carries and what to do: background (misfit between the peaks), peak positions (residual on one side of every peak: zero, cell, displacement), asymmetry (one-sided residual at low angle), peak width/shape (± lobes everywhere), intensity falling off with angle wrongly (a Wilson-type ΔB: ADPs, absorption, roughness), texture (intensity misfit following the angle to a low-index direction: preferred orientation), and what is left for the structure. Also the background-subtracted Rwp′, the Durbin–Watson statistic, χ² by d shell, and the reflections that carry the most χ². Call it when assess_refinement says the fit is poor or fair and you need to know what to free next; it reads the curves on screen, refined or not.",
+      "Powder page only. Why the fit on screen is not good, cause by cause, each with the share of χ² it carries and what to do: background (misfit between the peaks, with the number of terms the points there justify), an unexplained peak (excess between the lines that no reflection explains: to explain, never to fit with the background), peak positions (residual on one side of every peak: zero, cell, displacement), asymmetry (one-sided residual at low angle), peak width/shape (± lobes everywhere), intensity falling off with angle wrongly (a Wilson-type ΔB: ADPs, absorption, roughness), texture (intensity misfit following the angle to a low-index direction: preferred orientation), and what is left for the structure. Also the background-subtracted Rwp′, the Durbin–Watson statistic, χ² by d shell, and the reflections that carry the most χ². Call it when assess_refinement says the fit is poor or fair and you need to know what to free next; it reads the curves on screen, refined or not.",
     inputSchema: {},
     effect: "read",
     pages: ["powder"],
@@ -771,9 +774,9 @@ const TOOLS = [
     name: "write_report",
     title: "Write the analysis report",
     description:
-      "Write the analysis report and open it for the user, who can save it as HTML, Markdown or PDF, with the CIF. It holds what the page's own report holds — the data and the model, the fit figure, the refined structure with esds, every parameter, the agreement factors and the diagnostics — and the analysis as you ran it: the History's steps on the path to the result (what each refinement freed, and the method stage that is the reason), the method's checklist, the engine's checks (convergence, agreement, correlations, bounds, residual peaks, serial correlation, bond valences, the cell check and symmetry review) with the issues left open, the Bayesian check if you ran sample_posterior on this refinement, and your notes. Every number in it comes from the engine and the History. You write only `summary`, your own account, which the report labels as yours. Quote the engine's numbers by reference ({{wR2}}, {{Rwp}}, {{verdict}}, {{p:ID}}; get_state lists them): the app fills them in from the engine, and refuses a reference that names nothing the page has. Any decimal number you type yourself is checked against the numbers the report computed: one that matches none is underlined in the report and listed in the answer — correct it (get_state, structure_table) and call again, or leave it out. Call it when the analysis is done and you have reported, or when the user asks for the report.",
+      "Write the analysis report and open it for the user, who can save it as HTML, Markdown or PDF, with the CIF. It holds what the page's own report holds — the data and the model, the fit figure, the refined structure with esds, every parameter, the agreement factors and the diagnostics — and the analysis as you ran it: the History's steps on the path to the result (what each refinement freed, and the method stage that is the reason), the method's checklist, the engine's checks (convergence, agreement, correlations, bounds, residual peaks, serial correlation, bond valences, the cell check and symmetry review) with the issues left open, the Bayesian check if you ran sample_posterior on this refinement, and your notes. Every number in it comes from the engine and the History. You write only `summary`, your own account, which the report labels as yours. It leads the report, beside the open issues and the checks that bear on trust; the steps, every check, every parameter and the software follow in a collapsed appendix. So keep it short and do not retell the steps: the result, how far to trust it (its uncertainties, what limits it) and what is left open, the approach in a sentence. Quote the engine's numbers by reference ({{wR2}}, {{Rwp}}, {{verdict}}, {{p:ID}}; get_state lists them): the app fills them in from the engine, and refuses a reference that names nothing the page has. Any decimal number you type yourself is checked against the numbers the report computed: one that matches none is underlined in the report and listed in the answer — correct it (get_state, structure_table) and call again, or leave it out. Call it when the analysis is done and you have reported, or when the user asks for the report.",
     withoutSkills:
-      "Write the analysis report and open it for the user, who can save it as HTML, Markdown or PDF, with the CIF. It holds what the page's own report holds — the data and the model, the fit figure, the refined structure with esds, every parameter, the agreement factors and the diagnostics — and the analysis as you ran it: the History's steps on the path to the result (what each refinement freed), the engine's checks (convergence, agreement, correlations, bounds, residual peaks, serial correlation, bond valences, the cell check and symmetry review) with the issues left open, the Bayesian check if you ran sample_posterior on this refinement, and your notes. Every number in it comes from the engine and the History. You write only `summary`, your own account, which the report labels as yours. Quote the engine's numbers by reference ({{wR2}}, {{Rwp}}, {{verdict}}, {{p:ID}}; get_state lists them): the app fills them in from the engine, and refuses a reference that names nothing the page has. Any decimal number you type yourself is checked against the numbers the report computed: one that matches none is underlined in the report and listed in the answer — correct it (get_state, structure_table) and call again, or leave it out. Call it when the analysis is done and you have reported, or when the user asks for the report.",
+      "Write the analysis report and open it for the user, who can save it as HTML, Markdown or PDF, with the CIF. It holds what the page's own report holds — the data and the model, the fit figure, the refined structure with esds, every parameter, the agreement factors and the diagnostics — and the analysis as you ran it: the History's steps on the path to the result (what each refinement freed), the engine's checks (convergence, agreement, correlations, bounds, residual peaks, serial correlation, bond valences, the cell check and symmetry review) with the issues left open, the Bayesian check if you ran sample_posterior on this refinement, and your notes. Every number in it comes from the engine and the History. You write only `summary`, your own account, which the report labels as yours. It leads the report, beside the open issues and the checks that bear on trust; the steps, every check, every parameter and the software follow in a collapsed appendix. So keep it short and do not retell the steps: the result, how far to trust it (its uncertainties, what limits it) and what is left open, the approach in a sentence. Quote the engine's numbers by reference ({{wR2}}, {{Rwp}}, {{verdict}}, {{p:ID}}; get_state lists them): the app fills them in from the engine, and refuses a reference that names nothing the page has. Any decimal number you type yourself is checked against the numbers the report computed: one that matches none is underlined in the report and listed in the answer — correct it (get_state, structure_table) and call again, or leave it out. Call it when the analysis is done and you have reported, or when the user asks for the report.",
     inputSchema: {
       summary: z.string().min(20).max(6000).describe(
         "Your account, in plain prose, one to four short paragraphs separated by blank lines: what you did and why, what the result shows about the structure, its caveats, and what is left open. The engine's numbers by reference ({{wR2}}, {{p:ID}}); any other number exactly as the tools gave it (or rounded from it); add none of your own.",
@@ -784,6 +787,32 @@ const TOOLS = [
     cards: ["result"],
     offer: { core: true },
     evidence: ["assessment", "absoluteStructure"],
+  },
+  {
+    name: "ask_user",
+    title: "Ask you a question",
+    description:
+      "Put a question to the user with 2 to 6 answers to click, when the next step is theirs to decide (which block to free next, whether to add a phase, which of two readings to follow). The drawer shows the question with one button per option; a click sends that option's `message` as the user's next message, exactly as written, and they may answer in their own words instead. Your turn ends with this call: say what the decision rests on in your reply before it, and call nothing after it. Write each `message` as the user would type it (\"Free the B values and refine.\"), one decision per question. An answer is a request like any other: a change it asks for still goes through its change tool, which asks the user as every change does. Not for asking leave to make a change (call the change tool: it asks them), nor for a choice a tool already shows as buttons (the k-search's k, rank_magnetic_groups's groups, suggest_next_steps's steps). Engine numbers by reference ({{wR}}, {{p:ID}}), as in your replies.",
+    inputSchema: {
+      question: z.string().trim().min(3).max(300).describe("The question, in a sentence or two"),
+      options: z
+        .array(
+          z.object({
+            label: z.string().trim().min(1).max(60).describe("The button's text, a few words"),
+            message: z.string().trim().min(1).max(300).describe("What a click sends as the user's message, as they would type it"),
+          }).strict(),
+        )
+        .min(2)
+        .max(MAX_OPTIONS)
+        .refine((os) => new Set(os.map((o) => o.label.toLowerCase().replace(/\s+/g, " "))).size === os.length, { message: "each option needs its own label" })
+        .describe(`The answers, 2 to ${MAX_OPTIONS}, one button each`),
+      other: z.string().trim().min(1).max(120).optional().describe("A hint shown in the empty message box when the user answers in their own words"),
+    },
+    effect: "read",
+    pages: ["powder", "pdf", "singleCrystal"],
+    cards: [],
+    offer: { core: true },
+    endsTurn: true,
   },
   {
     name: "read_ref",
@@ -820,7 +849,7 @@ const TOOLS = [
     name: "set_background",
     title: "Change the background",
     description:
-      "Powder page only. Change the background model: the number of coefficients (rebuilds the parameter set, keeping every other value and free state) and/or the basis. Changing the basis between a polynomial and an interpolation type reseeds the coefficients. Clears the last result.",
+      "Powder page only. Change the background model: the number of coefficients (rebuilds the parameter set, keeping every other value and free state) and/or the basis. Changing the basis between a polynomial and an interpolation type reseeds the coefficients; a new count on an interpolation basis keeps the curve. More terms: the card cautions when they would absorb an excess no reflection explains, or exceed what the points between the lines justify (BIC). Clears the last result.",
     inputSchema: {
       terms: z.number().int().min(0).max(24).optional().describe("Number of background coefficients"),
       type: z.enum(["chebyshev", "cosine", "powerSeries", "linInterpolate", "logInterpolate"]).optional(),

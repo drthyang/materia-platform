@@ -28,6 +28,19 @@ export type BackgroundType =
   | "logInterpolate"
   | "polynomial";
 
+/** A background as a report names it: the basis and its number of coefficients. */
+export function backgroundLabel(type: BackgroundType | undefined, n: number): string {
+  const plural = (w: string): string => `${n} ${w}${n === 1 ? "" : "s"}`;
+  switch (type ?? "chebyshev") {
+    case "chebyshev": return `Chebyshev polynomial, ${plural("term")}`;
+    case "cosine": return `cosine (Fourier) series, ${plural("term")}`;
+    case "powerSeries": return `power series in the normalized axis, ${plural("term")}`;
+    case "linInterpolate": return `linear interpolation, ${plural("point")} evenly spaced`;
+    case "logInterpolate": return `log interpolation, ${plural("point")} evenly spaced in log x`;
+    case "polynomial": return `raw-power polynomial, ${plural("term")}`;
+  }
+}
+
 /** Map an abscissa value onto the Chebyshev domain t ∈ [−1, 1]. */
 function toChebyshevT(x: number, xMin: number, xMax: number): number {
   const span = xMax - xMin;
@@ -95,10 +108,11 @@ export function powerSeriesBackground(
  * Interpolation-background anchor positions (GSAS-II style): the N coefficients
  * are background *values* at N points spanning [xMin, xMax], spaced evenly in x
  * (linear) or in log(x) (log). Endpoints are pinned to xMin/xMax. Memoized on the
- * last (n, range, log) since a whole pattern shares one set of anchors.
+ * last (n, range, log) since a whole pattern shares one set of anchors; the
+ * returned array is the cache's — read it, do not change it.
  */
 let anchorCache: { key: string; pos: number[] } | null = null;
-function interpAnchors(n: number, xMin: number, xMax: number, log: boolean): number[] {
+export function interpAnchors(n: number, xMin: number, xMax: number, log: boolean): number[] {
   const useLog = log && xMin > 0 && xMax > xMin;
   const key = `${n}|${xMin}|${xMax}|${useLog ? 1 : 0}`;
   if (anchorCache && anchorCache.key === key) return anchorCache.pos;
@@ -143,7 +157,15 @@ export function linInterpolateBackground(
 }
 
 /** GSAS-II "log interpolate": as lin interpolate, but the points are evenly
- *  spaced in log(x) — denser at low x, better for a wide TOF/Q abscissa. */
+ *  spaced in log(x) — denser at low x, better for a wide TOF/Q abscissa:
+ *
+ *    X_j = exp(ln x_min + j·(ln x_max − ln x_min)/(N − 1)),  j = 0 … N − 1
+ *    b(x) = c_j + (c_{j+1} − c_j)·(x − X_j)/(X_{j+1} − X_j)  for X_j ≤ x ≤ X_{j+1}
+ *
+ *  linear in x between the points, each c_j the height at X_j. N = 1 is a
+ *  constant and N = 2 a straight line from x_min to x_max (the same as lin
+ *  interpolate); from N = 3 the inner points sit at the geometric means. The
+ *  POWGEN default (core/workflow/backgroundDefaults.ts) is N = 3. */
 export function logInterpolateBackground(
   x: number,
   coeffs: readonly number[],
@@ -238,11 +260,12 @@ export function estimateBackground(
   if (anchors.length === 0) return new Array<number>(nTerms).fill(0);
 
   if (type === "linInterpolate" || type === "logInterpolate") {
-    // Interpolation coefficients ARE background heights at n equidistant
-    // anchor points: read the envelope at those positions directly.
+    // Interpolation coefficients ARE background heights at the basis's own
+    // anchor points (evenly spaced in x, or in log x): read the envelope there.
+    const pos = interpAnchors(nTerms, xMin, xMax, type === "logInterpolate");
     const out: number[] = [];
     for (let k = 0; k < nTerms; k++) {
-      const xk = nTerms === 1 ? (xMin + xMax) / 2 : xMin + (k * (xMax - xMin)) / (nTerms - 1);
+      const xk = nTerms === 1 ? (xMin + xMax) / 2 : pos[k]!;
       let best = anchors[0]!;
       for (const a of anchors) if (Math.abs(a.x - xk) < Math.abs(best.x - xk)) best = a;
       out.push(type === "logInterpolate" ? Math.max(best.y, 1e-6) : best.y);

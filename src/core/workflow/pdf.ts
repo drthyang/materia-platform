@@ -37,9 +37,9 @@ import {
   expandStructureAtomsWithProvenance,
   type ExpandedAtom,
 } from "@/core/diffraction/structureFactor";
-import { cartesianAdpTensor, enumeratePairs } from "@/core/pdf/pairEnumerator";
+import { cartesianAdpTensor, colocatedGroups, enumeratePairs, type ColocatedGroups } from "@/core/pdf/pairEnumerator";
 import { computeGofR, PAIR_REACH_MARGIN, type PdfModelParams } from "@/core/pdf/forwardModel";
-import { computeGofRWithColumns, DUISO_DBISO, type PdfColumnRequest } from "@/core/pdf/gradients";
+import { computeGofRWithColumns, DUISO_DBISO, requestsUniformOver, type PdfColumnRequest } from "@/core/pdf/gradients";
 import { rotateUAniso, toIsotropic } from "@/core/crystal/adp";
 import { orthogonalizationMatrix } from "@/core/crystal/unitCell";
 import { mulVec } from "@/core/math/mat3";
@@ -151,24 +151,36 @@ export function buildPdfProblem(
   const rMaxModel = modelGrid.length ? modelGrid[modelGrid.length - 1]! : 0;
   let lastKey: string | null = null;
   let cachedPairs: PdfPair[] = [];
+  // A mixed site's species (same position, same ADP) pair once, through one
+  // representative carrying their summed weight: a third of the pairs for a
+  // six-cation site. Null when no atoms coincide, and the sum is per atom.
+  let cachedGroups: ColocatedGroups | null = null;
+  // The per-atom pairs at the same geometry, for a gradient request that tells
+  // a group's atoms apart (built only then).
+  let atomPairs: { key: string; pairs: PdfPair[] } | null = null;
 
-  const pairsFor = (cell: UnitCell, atoms: readonly ExpandedAtom[], resolved: Readonly<Record<string, number>>): PdfPair[] => {
+  const geometryKey = (resolved: Readonly<Record<string, number>>): string => {
     let key = "";
     for (const id of geomIds) key += `|${resolved[id]}`;
+    return key;
+  };
+  const pairsFor = (cell: UnitCell, atoms: readonly ExpandedAtom[], resolved: Readonly<Record<string, number>>): { pairs: PdfPair[]; groups: ColocatedGroups | null } => {
+    const key = geometryKey(resolved);
     if (key !== lastKey) {
-      cachedPairs = enumeratePairs(cell, atoms, rMaxModel + PAIR_REACH_MARGIN);
+      cachedGroups = colocatedGroups(atoms);
+      cachedPairs = enumeratePairs(cell, atoms, rMaxModel + PAIR_REACH_MARGIN, cachedGroups);
       lastKey = key;
     }
-    return cachedPairs;
+    return { pairs: cachedPairs, groups: cachedGroups };
   };
 
   const calculate = (values: Readonly<Record<string, number>>): Float64Array => {
     const resolved = resolveTies(parameters, values);
     const applied = applyParameters(structure, bindings, resolved);
     const atoms = expandStructureAtoms(applied.model);
-    const pairs = pairsFor(applied.model.cell, atoms, resolved);
+    const { pairs, groups } = pairsFor(applied.model.cell, atoms, resolved);
     const params: PdfModelParams = { scatteringType: pattern.scatteringType, ...(applied.pdf ?? PDF_DEFAULTS) };
-    const gModel = computeGofR(applied.model.cell, atoms, modelGrid, params, pairs);
+    const gModel = computeGofR(applied.model.cell, atoms, modelGrid, params, pairs, groups);
     const gWindow = terminate
       ? bandLimit(gModel, modelGrid[0]!, step, qmax).subarray(sliceOffset, sliceOffset + rWindow.length)
       : gModel;
@@ -211,7 +223,7 @@ export function buildPdfProblem(
     const applied = applyParameters(structure, bindings, resolved);
     const { atoms, provenance } = expandStructureAtomsWithProvenance(applied.model);
     const cell = applied.model.cell;
-    const pairs = pairsFor(cell, atoms, resolved);
+    const grouped = pairsFor(cell, atoms, resolved);
     const M = orthogonalizationMatrix(cell);
     const pdf = applied.pdf ?? PDF_DEFAULTS;
 
@@ -321,7 +333,14 @@ export function buildPdfProblem(
     if (activeReqs.length === 0) return out;
 
     const params: PdfModelParams = { scatteringType: pattern.scatteringType, ...pdf };
-    const { columns } = computeGofRWithColumns(cell, atoms, modelGrid, params, pairs, activeReqs);
+    let { pairs, groups } = grouped;
+    if (groups && !requestsUniformOver(activeReqs, groups)) {
+      const key = geometryKey(resolved);
+      if (atomPairs?.key !== key) atomPairs = { key, pairs: enumeratePairs(cell, atoms, rMaxModel + PAIR_REACH_MARGIN) };
+      pairs = atomPairs.pairs;
+      groups = null;
+    }
+    const { columns } = computeGofRWithColumns(cell, atoms, modelGrid, params, pairs, activeReqs, groups);
     for (let c = 0; c < activeIdx.length; c++) {
       const j = activeIdx[c]!;
       const col = columns[c]!;
