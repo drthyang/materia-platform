@@ -8,6 +8,7 @@ import { Fragment, useEffect, useLayoutEffect, useRef, useState, type CSSPropert
 import { color, fz, mono, radius } from "@/app/theme";
 import { tableRows } from "@/agent/ui/markdownTable";
 import type { ActivityEntry } from "@/agent/executor";
+import type { ChoiceSet } from "@/agent/choices";
 import type { MethodProgress } from "@/agent/method";
 import { isScriptedReplay, providerOf, replayLabel, type AgentController, type AgentMode, type AgentProvider, type AgentSettings, type TranscriptItem } from "@/agent/useAgent";
 import { OPENAI_PRESETS, isMachineUrl, listOpenAIModels, openaiBase, openaiUnreachableHint, presetForUrl, type OpenAIModel } from "@/agent/openaiCompat";
@@ -69,6 +70,19 @@ export function AgentDrawer({ agent, method = null, onClose }: Props): JSX.Eleme
   const sheetMode = useMediaQuery(SHEET_QUERY);
   const lowered = useSheetForFocus(sheetMode, sheet, agent.focus);
   const aside = useRef<HTMLElement>(null);
+  // The message box's text, here so a choice's "Other…" can put a template in it to edit.
+  const [draft, setDraft] = useState("");
+  const input = useRef<HTMLTextAreaElement>(null);
+  const editDraft = (template: string): void => {
+    setDraft(template);
+    // After the render that puts the text in: the caret at its end, ready to type.
+    setTimeout(() => {
+      const box = input.current;
+      if (!box) return;
+      box.focus();
+      box.setSelectionRange(box.value.length, box.value.length);
+    }, 0);
+  };
   const sized: CSSProperties = { ...drawer, ...(width === null ? {} : { ["--wb-agent-w" as string]: `${width}px` }), ["--wb-sheet-h" as string]: `calc(${((lowered ?? sheet) * 100).toFixed(1)}dvh / var(--ui-zoom))` };
   return (
     <aside ref={aside} className="wb-agent" data-mode={sheetMode ? "sheet" : "docked"} style={sized} aria-label="MATERIA Copilot">
@@ -114,8 +128,8 @@ export function AgentDrawer({ agent, method = null, onClose }: Props): JSX.Eleme
       )}
       {method && <MethodChecklist key={sheetMode ? "sheet" : "docked"} method={method} folded={sheetMode} />}
       {showSettings && <Settings agent={agent} />}
-      <Transcript agent={agent} page={method?.skill ?? null} />
-      <Composer agent={agent} disabled={needsSetup} compact={sheetMode} />
+      <Transcript agent={agent} page={method?.skill ?? null} onOther={editDraft} />
+      <Composer agent={agent} disabled={needsSetup} compact={sheetMode} text={draft} setText={setDraft} input={input} />
     </aside>
   );
 }
@@ -750,7 +764,7 @@ function ModelPicker<T>({ label, list, value, onChange, onRefresh, children }: {
 
 // ── transcript ──────────────────────────────────────────────────────────────
 
-function Transcript({ agent, page }: { agent: AgentController; page: string | null }): JSX.Element {
+function Transcript({ agent, page, onOther }: { agent: AgentController; page: string | null; onOther: (template: string) => void }): JSX.Element {
   const end = useRef<HTMLDivElement>(null);
   const items = agent.transcript;
   useEffect(() => {
@@ -759,6 +773,8 @@ function Transcript({ agent, page }: { agent: AgentController; page: string | nu
   const ended = useEndTimes(agent.activity);
   // Each finished turn's verdict, after its last item: what its tools computed.
   const outcomes = turnOutcomes(items, agent.activity, agent.thinking);
+  // Each turn's choices, after its outcome: live on the last finished turn only.
+  const offered = turnChoices(items, agent.activity, agent.thinking);
   return (
     <div style={transcriptBox} aria-live="polite">
       {items.length === 0 && <EmptyState settings={agent.settings} page={page} />}
@@ -766,6 +782,7 @@ function Transcript({ agent, page }: { agent: AgentController; page: string | nu
         <Fragment key={item.id}>
           <Item item={item} agent={agent} ended={ended} />
           {outcomes.get(item.id) && <OutcomePill outcome={outcomes.get(item.id)!} />}
+          {offered.get(item.id) && <Choices shown={offered.get(item.id)!} agent={agent} onOther={onOther} />}
         </Fragment>
       ))}
       {agent.thinking && <div style={{ fontSize: 12.5, color: color.faint, padding: "0 2px" }}>Working…</div>}
@@ -825,7 +842,7 @@ export function EmptyState({ settings, page }: { settings: AgentSettings; page: 
 function Item({ item, agent, ended }: { item: TranscriptItem; agent: AgentController; ended: ReadonlyMap<string, number> }): JSX.Element | null {
   switch (item.kind) {
     case "user":
-      return <div style={userBubble}>{item.text}</div>;
+      return <div style={userBubble} data-transcript-user>{item.text}</div>;
     case "assistant":
       return (
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -954,6 +971,90 @@ function OutcomePill({ outcome }: { outcome: TurnOutcome }): JSX.Element {
   );
 }
 
+// ── choices ─────────────────────────────────────────────────────────────────
+
+/** A turn's choice set as the drawer shows it: live on the last finished turn, superseded once a message follows it. */
+export interface ShownChoices {
+  readonly entryId: string;
+  readonly set: ChoiceSet;
+  readonly state: "live" | "superseded";
+}
+
+/**
+ * The choices each turn offers, keyed by the turn's last item: its last call
+ * that carries a set (ActivityEntry.choices), unless a change made later in
+ * the same turn acted on the page (the agent went on, in Auto). The last turn
+ * shows none while it runs; an earlier turn's set is superseded.
+ */
+export function turnChoices(items: readonly TranscriptItem[], activity: Readonly<Record<string, ActivityEntry>>, thinking: boolean): Map<string, ShownChoices> {
+  const out = new Map<string, ShownChoices>();
+  const turns: TranscriptItem[][] = [];
+  for (const item of items) {
+    if (item.kind === "user" || turns.length === 0) turns.push([]);
+    turns[turns.length - 1]!.push(item);
+  }
+  turns.forEach((turn, t) => {
+    const last = t === turns.length - 1;
+    if (thinking && last) return;
+    const entries = turn.flatMap((i) => (i.kind === "tool" && activity[i.entryId] ? [activity[i.entryId]!] : []));
+    let at = entries.length - 1;
+    while (at >= 0 && !(entries[at]!.choices !== undefined && entries[at]!.status === "done")) at--;
+    if (at < 0) return;
+    if (entries.slice(at + 1).some((e) => (e.effect === "change" || e.effect === "control") && e.status === "done")) return;
+    const entry = entries[at]!;
+    out.set(turn[turn.length - 1]!.id, { entryId: entry.id, set: entry.choices!, state: last ? "live" : "superseded" });
+  });
+  return out;
+}
+
+const CHOICE_STATE_NOTE = {
+  superseded: "Superseded: the conversation has moved on.",
+  stale: "The page has changed since this list: ask again, or type your choice.",
+} as const;
+
+/**
+ * A set of options as buttons: a click sends the option's message as the
+ * user's, through the same send as typing. "Other…" puts a template in the
+ * message box to edit. Only the live set sends, and only while the page is
+ * as it was when the set was made (checked again at the click).
+ */
+function Choices({ shown, agent, onOther }: { shown: ShownChoices; agent: AgentController; onOther: (template: string) => void }): JSX.Element {
+  const { set } = shown;
+  const state = shown.state === "superseded" ? "superseded" : agent.choiceCurrent(set) ? "live" : "stale";
+  const live = state === "live" && !agent.thinking;
+  const noteId = `choices-${shown.entryId}-note`;
+  return (
+    <div className="wb-agent-choices" role="group" aria-label={set.title} aria-describedby={set.note || state !== "live" ? noteId : undefined} data-choices={set.kind} data-state={state}>
+      <div className="wb-agent-choices-head">{set.title}</div>
+      {(set.note || state !== "live") && (
+        <div id={noteId} className="wb-agent-choices-note">
+          {state !== "live" && <span className="wb-agent-choices-state">{CHOICE_STATE_NOTE[state]} </span>}
+          {set.note}
+        </div>
+      )}
+      <div className="wb-agent-choices-list">
+        {set.options.map((o) => (
+          <button
+            key={o.id}
+            type="button"
+            className={`wb-agent-choice${o.recommended ? " is-recommended" : ""}`}
+            disabled={!live}
+            data-message={o.message}
+            title={`Sends: ${o.message}`}
+            onClick={() => agent.choose(shown.entryId, o.id)}
+          >
+            <span className="wb-agent-choice-label">{o.recommended && <span aria-label="recommended">★ </span>}{o.label}</span>
+            {o.detail && <span className="wb-agent-choice-detail">{o.detail}</span>}
+          </button>
+        ))}
+        <button type="button" className="wb-agent-choice is-other" disabled={!live} title="Type your own answer: puts a template in the message box, sends nothing" onClick={() => onOther(set.other.template)}>
+          <span className="wb-agent-choice-label">{set.other.label}</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── card chips ──────────────────────────────────────────────────────────────
 
 const CARD_LABEL: Record<AgentCard, string> = { structure: "Structure", data: "Data", instrument: "Instrument", pattern: "Plot", parameters: "Parameters", result: "Result" };
@@ -987,8 +1088,7 @@ function CardChips({ text, onHover }: { text: string; onHover: (card: AgentCard 
 
 // ── input ───────────────────────────────────────────────────────────────────
 
-function Composer({ agent, disabled, compact }: { agent: AgentController; disabled: boolean; compact: boolean }): JSX.Element {
-  const [text, setText] = useState("");
+function Composer({ agent, disabled, compact, text, setText, input }: { agent: AgentController; disabled: boolean; compact: boolean; text: string; setText: (text: string) => void; input: RefObject<HTMLTextAreaElement> }): JSX.Element {
   const submit = (): void => {
     if (!text.trim() || agent.thinking || disabled) return;
     agent.send(text);
@@ -1000,6 +1100,7 @@ function Composer({ agent, disabled, compact }: { agent: AgentController; disabl
     <div style={composer}>
       <div className="wb-agent-input">
         <textarea
+          ref={input}
           aria-label="Message the Copilot"
           rows={compact ? 1 : 2}
           placeholder={disabled ? (localModel(agent.settings) !== null ? "Pick a model in the settings first" : "Add your API key in the settings first") : "Ask anything, or ask it to run the analysis…"}

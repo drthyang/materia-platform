@@ -15,6 +15,7 @@ import { DEFAULT_LMSTUDIO_URL } from "@/agent/lmstudio";
 import { TOOL_CARDS, cardsInReply, cardsInText, type AgentCard } from "@/agent/focus";
 import { CHAT_MODELS } from "@/agent/chat-models";
 import type { AgentReport } from "@/agent/report";
+import type { ChoiceSet } from "@/agent/choices";
 
 /**
  * How the Agent reaches a model: Anthropic two ways (an API key, or the dev
@@ -82,6 +83,15 @@ export interface AgentController {
   /** A chat turn is running. */
   readonly thinking: boolean;
   readonly send: (text: string) => void;
+  /**
+   * Click an option a tool's result offered (ActivityEntry.choices): sends its
+   * message, as if typed. Only while no turn runs, the conversation has not
+   * moved past the set, and the page is as it was when the set was made;
+   * otherwise nothing is sent (a stale page says so). Returns whether it sent.
+   */
+  readonly choose: (entryId: string, optionId: string) => boolean;
+  /** The page is still as it was when the set was made (its stamp). */
+  readonly choiceCurrent: (set: ChoiceSet) => boolean;
   readonly stop: () => void;
   readonly clear: () => void;
   readonly usage: { readonly input: number; readonly output: number; readonly cacheRead: number };
@@ -197,6 +207,7 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
       situation: async () => (await load()).situation(),
       fill: (text) => (instance ? instance.fill(text) : text),
       page: () => instance?.page() ?? null,
+      stamp: () => instance?.stamp() ?? null,
     };
   }, [host]);
 
@@ -302,6 +313,31 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
     })();
   }, [executor]);
 
+  // What a click is checked against, as it stands at the click (not at the last render).
+  const transcriptRef = useRef(transcript);
+  transcriptRef.current = transcript;
+  const activityRef = useRef(activity);
+  activityRef.current = activity;
+
+  const choiceCurrent = useCallback((set: ChoiceSet) => set.stamp !== null && executor.stamp?.() === set.stamp, [executor]);
+
+  const choose = useCallback((entryId: string, optionId: string): boolean => {
+    if (turn.current) return false;
+    const set = activityRef.current[entryId]?.choices;
+    const option = set?.options.find((o) => o.id === optionId);
+    if (!set || !option) return false;
+    // A set the conversation has moved past (a message after it) is history, not a question.
+    const items = transcriptRef.current;
+    const at = items.findIndex((i) => i.kind === "tool" && i.entryId === entryId);
+    if (at < 0 || items.slice(at + 1).some((i) => i.kind === "user")) return false;
+    if (!choiceCurrent(set)) {
+      setTranscript((t) => [...t, { kind: "notice", id: itemId(), text: `The page has changed since these options were listed, so “${option.message}” was not sent. Ask again, or type your choice.`, tone: "info" }]);
+      return false;
+    }
+    send(option.message);
+    return true;
+  }, [choiceCurrent, send]);
+
   const stop = useCallback(() => {
     turn.current?.abort();
     // A stopped turn declines what it was waiting on.
@@ -355,7 +391,7 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
   const openReport = useCallback(() => setReportOpen(true), []);
   const closeReport = useCallback(() => setReportOpen(false), []);
 
-  return { settings, updateSettings, apiKey, setApiKey, openaiKey, setOpenaiKey, transcript, activity, pending, decide, thinking, send, stop, clear, usage, focus, hoverReply, report, reportOpen, openReport, closeReport };
+  return { settings, updateSettings, apiKey, setApiKey, openaiKey, setOpenaiKey, transcript, activity, pending, decide, thinking, send, choose, choiceCurrent, stop, clear, usage, focus, hoverReply, report, reportOpen, openReport, closeReport };
 }
 
 /** The model and how it is reached, as a report names it. */

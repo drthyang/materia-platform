@@ -27,6 +27,7 @@ import { analysisOf, hashText, onPage, type PageAdapter, type StateOf } from "@/
 import type { StepKind } from "@/core/project/history";
 import { Refusal, correlationGate, developedCorrelations, firmRules, methodGate, staleReason, symmetryNotYet, type RefusalKind } from "@/agent/executorPolicy";
 import { Answers, addNote, noteRead, recordView, syncStages, withoutMethod, writeReport, type SampledPosterior } from "@/agent/executorRecord";
+import { choicesFor, type ChoiceContext, type ChoiceSet } from "@/agent/choices";
 
 export type { RefusalKind } from "@/agent/executorPolicy";
 
@@ -58,6 +59,8 @@ export interface ActivityEntry {
   readonly outcome?: string;
   /** Only the user may approve it: asked even in Auto. */
   readonly alwaysAsk?: boolean;
+  /** The decision a read's result hands the user (the k-search's k, the ranked groups, the next steps), as options to click (choices.ts). */
+  readonly choices?: ChoiceSet;
 }
 
 /**
@@ -120,6 +123,8 @@ export interface ToolRunner {
   readonly fill?: (text: string) => string;
   /** The page the analysis is on, for the checks on a final answer (evidence.ts); null with none open. */
   readonly page?: () => "powder" | "pdf" | "singleCrystal" | null;
+  /** The page's stamp now (what a change is approved against); null with none open. A choice set holds while it is the same. */
+  readonly stamp?: () => string | null;
 }
 
 export interface ExecutorOptions {
@@ -215,6 +220,12 @@ export class AgentExecutor implements ToolRunner {
         summary: `the ${PAGE_LABEL[p.technique]} page; done: ${done.length ? done.join(", ") : "nothing yet"}; next: ${next?.label ?? "every required stage is done"}; ${fit}.`,
       };
     });
+  }
+
+  /** The page's stamp now, as a change is checked against it: a choice set made at another one no longer describes the page. */
+  stamp(): string | null {
+    const port = this.host.port();
+    return port ? onPage(port, (page, p) => page.stamp(page.state(p), this.stepOf(page, p))) : null;
   }
 
   /** The magnetic step's panel once its tools are in use in this conversation: then the stamp and the fingerprint carry it. */
@@ -370,7 +381,9 @@ export class AgentExecutor implements ToolRunner {
         const source = this.referenceSource();
         out = { ...withoutMethod(out, this.skills), ...recordView(this.host, port, this.skills), ...(source ? { references: `Quote the engine's numbers by reference; the app fills them in where your words are shown and in the report: ${referenceCatalog(source)}.` } : {}) };
       }
-      update({ status: "done" });
+      // A decision the result hands the user, as options for the drawer, for the page as it stands now.
+      const offered = choicesFor(spec.name, out, choiceContext(page.state(port)));
+      update({ status: "done", ...(offered ? { choices: { ...offered, stamp: page.stamp(page.state(port), this.stepOf(page, port)) } } : {}) });
       return this.respond(out);
     }
 
@@ -502,6 +515,15 @@ export class AgentExecutor implements ToolRunner {
   private respond(out: unknown): ToolOutcome {
     return this.answers.respond(out);
   }
+}
+
+/** What a choice set's values are in: the structure's cell and space group as loaded (k is in its reciprocal-lattice units). */
+function choiceContext(state: unknown): ChoiceContext {
+  const structure = (state as { structure?: { cell?: ChoiceContext["cell"]; spaceGroup?: { hermannMauguin?: string } } }).structure;
+  return {
+    ...(structure?.cell ? { cell: structure.cell } : {}),
+    ...(structure?.spaceGroup?.hermannMauguin ? { spaceGroup: structure.spaceGroup.hermannMauguin } : {}),
+  };
 }
 
 function error(message: string): ToolOutcome {

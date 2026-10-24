@@ -452,6 +452,25 @@ a reflection kept that is not on the failed list, a refinement with nothing
 free or of a view-only pattern) is refused before the card, not after the user
 approved it.
 
+**Choices to click.** Where a read hands the user a decision the method
+leaves to them, the drawer shows its options as buttons under the turn,
+made from the tool's result, not from the reply's words
+([`src/agent/choices.ts`](../src/agent/choices.ts)): the k the
+`search_propagation_vector` found (those that explain every included peak
+first, the simplest ★), the groups `rank_magnetic_groups` fitted (best wR
+first, the ★ its best), and the actions `suggest_next_steps` ranks. A click
+sends the option's message as the user's, as if typed ("Set the propagation
+vector to k = (1/2, 0, 0)."); the model acts on it as on a typed message, and
+a change still asks first. Another… puts a template in the message box to
+edit. The k are in reciprocal-lattice units of the structure's cell as
+loaded (in a centred lattice the conventional cell, not the primitive one),
+which the set says, with the cell; the button shows the panel's label, never
+rounded ((0 0 4/3), not (0 0 1.333)), and the message plain fractions that
+`set_propagation_vector` reads back to the engine's value. A set is for the
+page as it was when its tool ran: once a message follows it, it is
+superseded, and a click after the page changed (its stamp, as for an approved
+change) sends nothing and says so.
+
 <!-- LIVE_TOOLS:BEGIN (generated — edit src/agent/tools.ts, then npm run gen:tooldoc) -->
 **Every page**
 

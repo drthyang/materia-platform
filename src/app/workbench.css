@@ -1194,6 +1194,67 @@ html {
   outline: none;
 }
 
+/* The options a tool's result hands the user (choices.ts): a click sends the
+ * option's message as the user's. Disabled once superseded or stale. */
+.wb-agent-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 10px;
+  border: 1px solid #c9d6fb;
+  border-radius: 10px;
+  background: #f7f9ff;
+  font-size: 12px;
+}
+.wb-agent-choices[data-state="superseded"],
+.wb-agent-choices[data-state="stale"] {
+  border-color: #e3e1dc;
+  background: #faf9f7;
+}
+.wb-agent-choices-head {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #4a5f9c;
+}
+.wb-agent-choices-note { color: #5b5a55; line-height: 1.4; overflow-wrap: anywhere; }
+.wb-agent-choices-state { font-weight: 600; color: #8a5a07; }
+.wb-agent-choices-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.wb-agent-choice {
+  all: unset;
+  box-sizing: border-box;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  max-width: 100%;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid #c9d6fb;
+  background: #fff;
+  color: #1f4fd8;
+}
+.wb-agent-choice-label { font-weight: 600; overflow-wrap: anywhere; }
+.wb-agent-choice-detail { font-size: 11px; color: #5b5a55; overflow-wrap: anywhere; }
+.wb-agent-choice.is-recommended { border-color: #1f4fd8; }
+.wb-agent-choice.is-other { border-style: dashed; color: #3b3a36; }
+.wb-agent-choice:hover:not(:disabled) { background: #eef3ff; }
+.wb-agent-choice:focus-visible {
+  outline: 2px solid #1f4fd8;
+  outline-offset: 1px;
+}
+.wb-agent-choice:disabled {
+  cursor: default;
+  color: #8a8478;
+  border-color: #e3e1dc;
+  background: #faf9f7;
+}
+
 /* A turn's verdict from what its tools computed. */
 .wb-agent-outcome {
   align-self: flex-start;
