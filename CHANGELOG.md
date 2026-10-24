@@ -27,8 +27,9 @@ release fixes bugs.
 - **POWGEN data start on a logarithmic background**: GSAS-II's log
   interpolation with 3 points (at the TOF range's ends and their geometric
   mean), where the instrument file names POWGEN or PG3, or names no known
-  instrument and the data file's name starts with `PG3_`, and the pattern is
-  time-of-flight. On the 350 K Mn₃Ga bank it fits as well as the 4-term
+  instrument and the data file's name hints at POWGEN (`PG3_…`; `NOM_…` hints
+  at NOMAD, which has no default of its own), and the pattern is
+  time-of-flight. The hint is a guess, labelled as such, never saved. On the 350 K Mn₃Ga bank it fits as well as the 4-term
   Chebyshev default with one parameter fewer (wR 8.90 % against 9.00 %, scale,
   background and cell refined). The basis and the count stay the user's (the
   Background group, the Agent's `set_background`, MCP `build_refinement`'s new

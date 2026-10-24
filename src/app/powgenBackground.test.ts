@@ -10,7 +10,8 @@ import type { StructureModel } from "@/core/crystal/types";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import type { PowderPattern } from "@/core/diffraction/types";
 import { backgroundLabel, estimateBackground, evaluateBackground, interpAnchors } from "@/core/diffraction/background";
-import { isPowgenFileName, isPowgenTof, POWGEN_BACKGROUND } from "@/core/workflow/backgroundDefaults";
+import { isPowgenTof, pageInstrument, POWGEN_BACKGROUND } from "@/core/workflow/backgroundDefaults";
+import { instrumentHintFromFileName } from "@/parsers/instrumentRegistry";
 import { buildPowderProblem } from "@/core/workflow/powder";
 import { refine } from "@/core/refinement/engine";
 import { minMax } from "@/core/math/extent";
@@ -96,10 +97,12 @@ describe("recognizing POWGEN", () => {
 
   it("names POWGEN from a data file named PG3_…: the base name's start, in any case, nothing looser", () => {
     for (const name of ["PG3_45598_Bank1.fxye", "PG3_61113-3.dat", "PG3_61115.gsa", "pg3_61115.gsa", "Pg3_1.dat", "/data/run/PG3_1.gsa", "C:\\runs\\PG3_1.gsa", "runs/PG3_45598_Bank1.fxye"]) {
-      expect(isPowgenFileName(name), name).toBe(true);
+      expect(instrumentHintFromFileName(name)?.name, name).toBe("POWGEN");
     }
-    for (const name of ["PG3-1.gsa", "PG31.gsa", "PG3.gsa", "xPG3_1.gsa", "my_PG3_1.gsa", " PG3_1.gsa", "PG3_dir/sample.dat", "C:\\PG3_runs\\sample.dat", "data", "bank1.fxye", "", undefined]) {
-      expect(isPowgenFileName(name), String(name)).toBe(false);
+    for (const name of ["NOM_12345.dat", "nom_12345.dat", "/sns/NOM_1.gsa"]) expect(instrumentHintFromFileName(name)?.name, name).toBe("NOMAD");
+    for (const name of ["PG3-1.gsa", "PG31.gsa", "PG3.gsa", "xPG3_1.gsa", "my_PG3_1.gsa", " PG3_1.gsa", "PG3_dir/sample.dat", "C:\\PG3_runs\\sample.dat",
+      "NOM-1.dat", "NOMAD_1.dat", "xNOM_1.dat", "NOM_dir/sample.dat", "HRP_1.dat", "data", "bank1.fxye", "", undefined]) {
+      expect(instrumentHintFromFileName(name), String(name)).toBeUndefined();
     }
   });
 
@@ -231,6 +234,71 @@ describe("the instrument file's own name wins over the PG3_ data name", () => {
     const r = build_refinement({ structure: pg3Structure(), pattern: pg3Pattern(), instrument: nomad() });
     expect(r.profile.backgroundType).toBeUndefined();
     expect(r.parameters.filter((p) => p.kind === "background")).toHaveLength(4);
+  });
+});
+
+describe("the data file's name as a soft instrument hint (PG3_ → POWGEN, NOM_ → NOMAD)", () => {
+  const named = (name: string) => parseInstrumentParameters(PG3_INSTRUMENT.text.replaceAll("PG3", name));
+  const page = (inst: InstrumentParameters, data: PowderPattern, order: Load[] = ["cif", "instrument", "data"]) => order.reduce((p: PowderPage, what: Load) =>
+    what === "cif" ? withStructure(p, pg3Structure()) : what === "data" ? withPattern(p, data, { ...PG3_DATA, name: data.name }) : withInstrument(p, inst, { ...PG3_INSTRUMENT, name: "bank1.instprm" }), emptyPage());
+
+  it.each(ORDERS)("NOM_ data with an unnamed instrument file: guessed NOMAD, which has no default of its own — Chebyshev, four terms (order %s, %s, %s)", (...order) => {
+    const data = renamed("NOM_12345.dat");
+    expect(pageInstrument(data, unnamedInstrument())).toEqual({ name: "NOMAD", guessed: true });
+    const s = page(unnamedInstrument(), data, order).session;
+    expect(s.powderProfile.shape).toBe("tof");
+    expect(s.powderProfile.backgroundType).toBeUndefined();
+    expect(s.backgroundTerms).toBe(4);
+    const r = build_refinement({ structure: pg3Structure(), pattern: data, instrument: unnamedInstrument() });
+    expect(r.profile.backgroundType).toBeUndefined();
+    expect(r.parameters.filter((p) => p.kind === "background")).toHaveLength(4);
+  });
+
+  it("NOM_ data with a POWGEN-named instrument file: POWGEN, log interpolation with three points", () => {
+    const data = renamed("NOM_12345.dat");
+    expect(pageInstrument(data, pg3Instrument())).toEqual({ name: "POWGEN", guessed: false });
+    const s = page(pg3Instrument(), data).session;
+    expect(s.powderProfile.backgroundType).toBe("logInterpolate");
+    expect(s.backgroundTerms).toBe(3);
+  });
+
+  it("PG3_ data with a NOMAD-named instrument file: NOMAD, the general default", () => {
+    expect(pageInstrument(pg3Pattern(), named("NOMAD"))).toEqual({ name: "NOMAD", guessed: false });
+    const s = page(named("NOMAD"), pg3Pattern()).session;
+    expect(s.powderProfile.backgroundType).toBeUndefined();
+    expect(s.backgroundTerms).toBe(4);
+  });
+
+  it("PG3_ data with an unnamed instrument file: guessed POWGEN; an unknown prefix: no guess, the general default", () => {
+    expect(pageInstrument(pg3Pattern(), unnamedInstrument())).toEqual({ name: "POWGEN", guessed: true });
+    for (const name of ["bank1.fxye", "HRP_1.dat"]) {
+      expect(pageInstrument(renamed(name), unnamedInstrument())).toBeNull();
+      const s = page(unnamedInstrument(), renamed(name)).session;
+      expect(s.powderProfile.backgroundType).toBeUndefined();
+      expect(s.backgroundTerms).toBe(4);
+    }
+  });
+
+  it("no guess against a constant-wavelength calibration", () => {
+    const cw = parseInstrumentParameters(CW_INSTRUMENT.text);
+    expect(pageInstrument({ name: "PG3_30k.xye" }, cw)).toBeNull();
+    expect(pageInstrument({ name: "NOM_30k.xye" }, cw)).toBeNull();
+  });
+
+  it("the guess is not saved as the instrument file's: the project keeps the instrument unnamed and the page's background as it was", () => {
+    const p = page(unnamedInstrument(), pg3Pattern());
+    expect(p.instrument.name).toBeUndefined();
+    expect(p.instrument.facility).toBeUndefined();
+    const ws = powderWorkspaceFrom(p.session, null, p.instrument, true, { fitRange: null, displayUnit: null, manualPeakD: [] });
+    const file = parseProject(serializeProject(projectFileFor({ structures: [p.session.structure], workspace: ws, title: "t" })));
+    if (file.workspace.technique !== "powder") throw new Error("technique");
+    expect(file.workspace.instrument.name).toBeUndefined();
+    expect(file.workspace.instrument.facility).toBeUndefined();
+    const back = sessionFromPowderWorkspace(file.workspace, file.structures);
+    expect(back.instrument.name).toBeUndefined();
+    expect(back.instrument).toEqual(p.instrument);
+    expect(back.session.powderProfile.backgroundType).toBe("logInterpolate");
+    expect(back.session.powderParams).toEqual(p.session.powderParams);
   });
 });
 

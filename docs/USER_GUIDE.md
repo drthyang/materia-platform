@@ -122,7 +122,8 @@ Open a group for its model controls:
 - **Background**: the **function** (such as **Chebyshev**) and its **terms**.
   New data start on Chebyshev with 4 terms; POWGEN time-of-flight data (an
   instrument file that names POWGEN or PG3, or a data file named `PG3_…`
-  with an instrument file that names no other instrument) start on
+  with an instrument file that names no instrument; the Instrument card then
+  reads "POWGEN (guessed from the file name)") start on
   **Log interpolate** with
   3 points. Either is a starting choice: change it here, and a saved project
   keeps the one it was saved with.

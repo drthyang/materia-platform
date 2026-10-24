@@ -99,3 +99,21 @@ export function facilityLabel(inst: FacilityInstrument): string {
   return `${site}, ${inst.country}`;
 }
 
+
+/**
+ * Run-file name prefixes that hint at the instrument (SNS: "PG3_45598.gsa" is a
+ * POWGEN run, "NOM_12345.dat" a NOMAD one). A soft hint for a page's starting
+ * defaults when the instrument file names no instrument — never stored as the
+ * instrument's name, which stays what the file declares.
+ */
+export const FILE_NAME_HINTS: readonly { readonly prefix: string; readonly instrument: string }[] = [
+  { prefix: "PG3_", instrument: "POWGEN" },
+  { prefix: "NOM_", instrument: "NOMAD" },
+];
+
+/** The instrument a data file's name hints at: a prefix at the start of its base name (after the last / or \), in any case; nothing looser. */
+export function instrumentHintFromFileName(name: string | undefined): FacilityInstrument | undefined {
+  const base = (name ?? "").split(/[/\\]/).pop()!.toUpperCase();
+  const hint = FILE_NAME_HINTS.find((h) => base.startsWith(h.prefix.toUpperCase()));
+  return hint ? INSTRUMENTS.find((i) => i.name === hint.instrument) : undefined;
+}
