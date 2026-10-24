@@ -420,7 +420,9 @@ describe.skipIf(!has)("AWO₄ 8 K benchmark — nuclear vs the 100 K CIF, k, and
   });
 
   // Known not met on the local data: a line the magnetic model leaves unchanged (not yet identified).
-  // The 8 K reference has the same k and group, so it indexes no reflection there either.
+  // The 8 K reference has the same k and group, so it indexes no reflection there either. Not the
+  // vanadium can: bcc V at its 8 K cell puts 110 well outside the calibration's reach of the line, and
+  // a V phase added to the joint fit leaves it (identify_peaks' ±1.5 % d scale names V anyway).
   it.fails("C11: no residual peak ≥ 5σ off every nuclear and magnetic reflection after the joint fit", () => {
     expect(postResidual(b).unexplained).toHaveLength(0);
   });
