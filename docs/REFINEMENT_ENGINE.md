@@ -139,7 +139,12 @@ The real-space PDF model supplies a much larger set through a fused pass
 
 - **Fused single pass.** One traversal of the pair list produces G(r) and every
   requested ∂G/∂p column. The value path is bit-identical to `computeGofR`,
-  pinned by test, so enabling gradients cannot change a fit.
+  pinned by test, so enabling gradients cannot change a fit. Each pair's
+  Gaussian window is evaluated once and the columns are then filled one at a
+  time, which keeps every column's sum in the same order. The pass still costs
+  several forward evaluations when many columns are free (each occupancy
+  column touches every pair, through the normalization), and the parallel
+  driver runs it on the UI thread in the browser.
 - **Geometry-aware pairs.** Each `PdfPair` carries the bond unit vector n̂.
   Atoms are expanded with provenance: the site index and the generating
   rotation `R` (`expandStructureAtomsWithProvenance`). A symmetry-mode

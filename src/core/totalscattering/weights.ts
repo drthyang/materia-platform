@@ -66,6 +66,22 @@ export function pairWeight(weights: CompositionWeights, i: number, j: number): n
 }
 
 /**
+ * The weights with each co-located group's per-atom weights summed onto its
+ * representative (`rep[a]`, pdf/pairEnumerator `colocatedGroups`), for a pair
+ * sum over the representatives. The averages and N are the cell's, unchanged.
+ */
+export function groupedWeights(weights: CompositionWeights, rep: Int32Array): CompositionWeights {
+  const perAtom = new Float64Array(weights.perAtom.length);
+  for (let a = 0; a < perAtom.length; a++) perAtom[rep[a]!] = perAtom[rep[a]!]! + weights.perAtom[a]!;
+  let perAtomIm: Float64Array | null = null;
+  if (weights.perAtomIm) {
+    perAtomIm = new Float64Array(perAtom.length);
+    for (let a = 0; a < perAtom.length; a++) perAtomIm[rep[a]!] = perAtomIm[rep[a]!]! + weights.perAtomIm[a]!;
+  }
+  return { ...weights, perAtom, perAtomIm };
+}
+
+/**
  * Composition averages over one unit cell's atoms. `perAtom[i] = o_i · b_i` is the
  * occupancy-folded weight used directly in the pair amplitude; |⟨b⟩|² and N give
  * the `1/(N|⟨b⟩|²)` normalization and, with the cell volume, the ρ₀ baseline.

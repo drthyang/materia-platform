@@ -80,8 +80,46 @@ function dotv(a: Vec3, b: Vec3): number {
   return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
 
-/** Enumerate all ordered atom pairs within `rMax` (Å) over periodic images. */
-export function enumeratePairs(cell: UnitCell, atoms: readonly ExpandedAtom[], rMax: number): PdfPair[] {
+/**
+ * Atoms at exactly the same position with exactly the same ADP: the species of
+ * a mixed or shared site, such as the six cations on one wolframite A site.
+ * Their pairs differ only in the species weight, and the pair term is bilinear
+ * in the weights, so a pair sum may run over one representative per group
+ * carrying the group's summed weight (`groupedWeights`) — for (Co,Cu,Fe,Mn,Ni,Zn)WO₄
+ * a third of the pairs. `rep[a]` is atom a's representative, the group's first
+ * atom.
+ */
+export interface ColocatedGroups {
+  readonly rep: Int32Array;
+}
+
+/** The co-located groups of `atoms`, or null when no two atoms coincide (the per-atom sum is then unchanged). */
+export function colocatedGroups(atoms: readonly ExpandedAtom[]): ColocatedGroups | null {
+  const rep = new Int32Array(atoms.length);
+  const first = new Map<string, number>();
+  let merged = false;
+  for (let a = 0; a < atoms.length; a++) {
+    const atom = atoms[a]!;
+    const adp = atom.adp.kind === "isotropic" ? `i${atom.adp.bIso}` : `a${atom.adp.uAniso.join(",")}`;
+    const key = `${atom.position[0]},${atom.position[1]},${atom.position[2]}|${adp}`;
+    const r = first.get(key);
+    if (r === undefined) {
+      first.set(key, a);
+      rep[a] = a;
+    } else {
+      rep[a] = r;
+      merged = true;
+    }
+  }
+  return merged ? { rep } : null;
+}
+
+/**
+ * Enumerate all ordered atom pairs within `rMax` (Å) over periodic images.
+ * With `groups`, only the representatives pair (indices stay those of `atoms`),
+ * for a sum weighted by `groupedWeights`.
+ */
+export function enumeratePairs(cell: UnitCell, atoms: readonly ExpandedAtom[], rMax: number, groups?: ColocatedGroups | null): PdfPair[] {
   const M = orthogonalizationMatrix(cell);
   const cart: Vec3[] = atoms.map((a) => fractionalToCartesian(cell, a.position));
   const uCart: Mat3[] = atoms.map((a) => cartesianAdpTensor(cell, a.adp));
@@ -106,13 +144,15 @@ export function enumeratePairs(cell: UnitCell, atoms: readonly ExpandedAtom[], r
 
   const pairs: PdfPair[] = [];
   const rMaxSq = rMax * rMax;
+  const members: number[] = [];
+  for (let a = 0; a < atoms.length; a++) if (!groups || groups.rep[a] === a) members.push(a);
   for (let t1 = -n1; t1 <= n1; t1++) {
     for (let t2 = -n2; t2 <= n2; t2++) {
       for (let t3 = -n3; t3 <= n3; t3++) {
         const T = mulVec(M, [t1, t2, t3]);
-        for (let i = 0; i < atoms.length; i++) {
+        for (const i of members) {
           const ci = cart[i]!;
-          for (let j = 0; j < atoms.length; j++) {
+          for (const j of members) {
             const cj = cart[j]!;
             const dx = cj[0] + T[0] - ci[0];
             const dy = cj[1] + T[1] - ci[1];
