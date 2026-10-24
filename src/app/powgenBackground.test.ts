@@ -10,7 +10,7 @@ import type { StructureModel } from "@/core/crystal/types";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import type { PowderPattern } from "@/core/diffraction/types";
 import { backgroundLabel, estimateBackground, evaluateBackground, interpAnchors } from "@/core/diffraction/background";
-import { isPowgenTof, POWGEN_BACKGROUND } from "@/core/workflow/backgroundDefaults";
+import { isPowgenFileName, isPowgenTof, POWGEN_BACKGROUND } from "@/core/workflow/backgroundDefaults";
 import { buildPowderProblem } from "@/core/workflow/powder";
 import { refine } from "@/core/refinement/engine";
 import { minMax } from "@/core/math/extent";
@@ -42,6 +42,10 @@ const CW_INSTRUMENT = read(CW, "mn3ga_30k.instprm");
 const pg3Structure = (): StructureModel => ({ ...parseCif(PG3_CIF.text, "loaded"), id: "loaded" });
 const pg3Pattern = (): PowderPattern => parseGsasHistogramPattern(PG3_DATA.text, "loaded-powder", PG3_DATA.name, { radiation: { kind: "neutron-tof" } });
 const pg3Instrument = (): InstrumentParameters => parseInstrumentParameters(PG3_INSTRUMENT.text);
+/** The POWGEN .instprm without its header comments: its text names neither POWGEN nor PG3. */
+const unnamedInstrument = (): InstrumentParameters => parseInstrumentParameters(PG3_INSTRUMENT.text.split("\n").filter((l) => !l.startsWith("#")).join("\n"));
+/** The POWGEN bank under another file name. */
+const renamed = (name: string): PowderPattern => ({ ...pg3Pattern(), name });
 
 type Load = "cif" | "data" | "instrument";
 const pg3Load = (p: PowderPage, what: Load): PowderPage =>
@@ -77,8 +81,9 @@ describe("recognizing POWGEN", () => {
   });
 
   it("is not POWGEN without the name, on another TOF instrument, with a CW instrument, or on a 2θ pattern", () => {
-    const pattern = pg3Pattern();
-    const unnamed = parseInstrumentParameters(PG3_INSTRUMENT.text.split("\n").filter((l) => !l.startsWith("#")).join("\n"));
+    // Data under a name that is not a POWGEN run file's, so only the instrument file can name it.
+    const pattern = renamed("bank1.fxye");
+    const unnamed = unnamedInstrument();
     expect(unnamed.name).toBeUndefined();
     expect(isPowgenTof(pattern, unnamed)).toBe(false);
     const nomad = parseInstrumentParameters(PG3_INSTRUMENT.text.replaceAll("PG3", "NOMAD"));
@@ -87,6 +92,27 @@ describe("recognizing POWGEN", () => {
     expect(isPowgenTof(pattern, parseInstrumentParameters(CW_INSTRUMENT.text))).toBe(false);
     expect(isPowgenTof({ xUnit: "twoTheta" }, pg3Instrument())).toBe(false);
     expect(isPowgenTof(pattern, null)).toBe(false);
+  });
+
+  it("names POWGEN from a data file named PG3_…: the base name's start, in any case, nothing looser", () => {
+    for (const name of ["PG3_45598_Bank1.fxye", "PG3_61113-3.dat", "PG3_61115.gsa", "pg3_61115.gsa", "Pg3_1.dat", "/data/run/PG3_1.gsa", "C:\\runs\\PG3_1.gsa", "runs/PG3_45598_Bank1.fxye"]) {
+      expect(isPowgenFileName(name), name).toBe(true);
+    }
+    for (const name of ["PG3-1.gsa", "PG31.gsa", "PG3.gsa", "xPG3_1.gsa", "my_PG3_1.gsa", " PG3_1.gsa", "PG3_dir/sample.dat", "C:\\PG3_runs\\sample.dat", "data", "bank1.fxye", "", undefined]) {
+      expect(isPowgenFileName(name), String(name)).toBe(false);
+    }
+  });
+
+  it("a PG3_ data file is POWGEN with an instrument file that names neither POWGEN nor PG3 — TOF data on a TOF calibration only", () => {
+    const unnamed = unnamedInstrument();
+    expect(isPowgenTof(pg3Pattern(), unnamed)).toBe(true);
+    expect(isPowgenTof(renamed("pg3_45598_bank1.fxye"), unnamed)).toBe(true);
+    // The user's rule: a file that names neither counts; one naming another instrument does not veto the run file's name.
+    expect(isPowgenTof(pg3Pattern(), parseInstrumentParameters(PG3_INSTRUMENT.text.replaceAll("PG3", "NOMAD")))).toBe(true);
+    expect(isPowgenTof({ xUnit: "twoTheta", name: "PG3_45598_Bank1.fxye" }, unnamed)).toBe(false);
+    expect(isPowgenTof({ xUnit: "dSpacing", name: "PG3_45598_Bank1.fxye" }, unnamed)).toBe(false);
+    expect(isPowgenTof(pg3Pattern(), parseInstrumentParameters(CW_INSTRUMENT.text))).toBe(false);
+    expect(isPowgenTof(pg3Pattern(), null)).toBe(false);
   });
 });
 
@@ -123,6 +149,54 @@ describe("the POWGEN page starts on log interpolation with three points", () => 
   });
 });
 
+describe("a PG3_ data file with an instrument file that names neither POWGEN nor PG3", () => {
+  const load = (name: string) => (p: PowderPage, what: Load): PowderPage =>
+    what === "cif" ? withStructure(p, pg3Structure()) : what === "data" ? withPattern(p, renamed(name), { ...PG3_DATA, name }) : withInstrument(p, unnamedInstrument(), { ...PG3_INSTRUMENT, name: "bank1.instprm" });
+
+  it.each(ORDERS)("starts on log interpolation with three points, loaded in the order %s, %s, %s", (...order) => {
+    const s = order.reduce(load("PG3_45598_Bank1.fxye"), emptyPage()).session;
+    expect(s.powderProfile.shape).toBe("tof");
+    expect(s.powderProfile.backgroundType).toBe("logInterpolate");
+    expect(s.backgroundTerms).toBe(3);
+    expect(backgroundRows(s)).toHaveLength(3);
+  });
+
+  it("in lower case too (pg3_…)", () => {
+    const s = (["cif", "instrument", "data"] as Load[]).reduce(load("pg3_45598_bank1.fxye"), emptyPage()).session;
+    expect(s.powderProfile.backgroundType).toBe("logInterpolate");
+    expect(s.backgroundTerms).toBe(3);
+  });
+
+  it("the user's basis and count stay through rebuilds that keep the data", () => {
+    const page = (["cif", "instrument", "data"] as Load[]).reduce(load("PG3_45598_Bank1.fxye"), emptyPage());
+    const chosen = withBackgroundTerms(withBackgroundType(page.session, "chebyshev"), 6, page.instrument);
+    const rebuilt = withCorrections(withPhase(chosen, { ...pg3Structure(), id: "second", name: "second" }, page.instrument), { peak: ["absorption"] }, page.instrument);
+    expect(rebuilt.powderProfile.backgroundType).toBe("chebyshev");
+    expect(rebuilt.backgroundTerms).toBe(6);
+    expect(backgroundRows(rebuilt)).toHaveLength(6);
+  });
+
+  it("MCP build_refinement: POWGEN's default from the data's name (a path's base name too), unless the call names a basis or a count", () => {
+    const count = (r: ReturnType<typeof build_refinement>) => r.parameters.filter((p) => p.kind === "background").length;
+    const args = { structure: pg3Structure(), pattern: pg3Pattern(), instrument: unnamedInstrument() };
+    const own = build_refinement(args);
+    expect(own.profile.backgroundType).toBe("logInterpolate");
+    expect(count(own)).toBe(3);
+    const path = build_refinement({ ...args, pattern: renamed("runs/PG3_45598_Bank1.fxye") });
+    expect(path.profile.backgroundType).toBe("logInterpolate");
+    expect(count(path)).toBe(3);
+    const cheb = build_refinement({ ...args, backgroundType: "chebyshev" });
+    expect(cheb.profile.backgroundType).toBe("chebyshev");
+    expect(count(cheb)).toBe(4);
+    const five = build_refinement({ ...args, backgroundTerms: 5 });
+    expect(five.profile.backgroundType).toBe("logInterpolate");
+    expect(count(five)).toBe(5);
+    const other = build_refinement({ ...args, pattern: renamed("bank1.fxye") });
+    expect(other.profile.backgroundType).toBeUndefined();
+    expect(count(other)).toBe(4);
+  });
+});
+
 describe("every other page keeps the general default", () => {
   it.each(ORDERS)("constant-wavelength data, loaded in the order %s, %s, %s: Chebyshev, four terms", (...order) => {
     const s = order.reduce(cwLoad, emptyPage()).session;
@@ -131,11 +205,21 @@ describe("every other page keeps the general default", () => {
     expect(backgroundRows(s)).toHaveLength(4);
   });
 
-  it("POWGEN data read with an instrument file that does not name it: Chebyshev, four terms", () => {
-    const unnamed = parseInstrumentParameters(PG3_INSTRUMENT.text.split("\n").filter((l) => !l.startsWith("#")).join("\n"));
-    const s = withPattern(withInstrument(withStructure(emptyPage(), pg3Structure()), unnamed), pg3Pattern(), PG3_DATA).session;
+  it("TOF data not named PG3_ read with an instrument file that does not name POWGEN: Chebyshev, four terms", () => {
+    const s = withPattern(withInstrument(withStructure(emptyPage(), pg3Structure()), unnamedInstrument()), renamed("bank1.fxye"), { ...PG3_DATA, name: "bank1.fxye" }).session;
     expect(s.powderProfile.backgroundType).toBeUndefined();
     expect(s.backgroundTerms).toBe(4);
+    expect(backgroundRows(s)).toHaveLength(4);
+  });
+
+  it.each(ORDERS)("constant-wavelength data named PG3_…, loaded in the order %s, %s, %s: Chebyshev, four terms", (...order) => {
+    const load = (p: PowderPage, what: Load): PowderPage => what === "data" ? withPattern(p, { ...cwPattern(p), name: "PG3_30k.xye" }, { ...CW_DATA, name: "PG3_30k.xye" }) : cwLoad(p, what);
+    const s = order.reduce(load, emptyPage()).session;
+    expect(s.pattern.name).toBe("PG3_30k.xye");
+    expect(s.pattern.xUnit).not.toBe("tof");
+    expect(s.powderProfile.backgroundType).toBeUndefined();
+    expect(s.backgroundTerms).toBe(4);
+    expect(backgroundRows(s)).toHaveLength(4);
   });
 
   it("other data after POWGEN's go back to the general count, not POWGEN's three", () => {

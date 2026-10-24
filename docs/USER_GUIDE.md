@@ -121,7 +121,8 @@ Open a group for its model controls:
 
 - **Background**: the **function** (such as **Chebyshev**) and its **terms**.
   New data start on Chebyshev with 4 terms; POWGEN time-of-flight data (an
-  instrument file that names POWGEN or PG3) start on **Log interpolate** with
+  instrument file that names POWGEN or PG3, or a data file named `PG3_…`)
+  start on **Log interpolate** with
   3 points. Either is a starting choice: change it here, and a saved project
   keeps the one it was saved with.
 - **ADPs (thermal)**: **anisotropic (U tensor)**, once an isotropic fit

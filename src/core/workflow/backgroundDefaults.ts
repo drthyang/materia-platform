@@ -14,8 +14,10 @@
  * POWGEN is recognized the way the Instrument card names it: from the
  * instrument file's text (instrumentRegistry.ts, alias "POWGEN" or "PG3"; a
  * GSAS-II .instprm extracted from a POWGEN project carries "PG3_<run>" in its
- * header), and only for a TOF pattern with a TOF calibration. Every other page
- * keeps the general default (Chebyshev, the session's term count).
+ * header), or from the data file's name when it starts with POWGEN's run-file
+ * prefix "PG3_" (PG3_45598_Bank1.fxye, PG3_61113-3.dat, PG3_61115.gsa) — and
+ * only for a TOF pattern with a TOF calibration. Every other page keeps the
+ * general default (Chebyshev, the session's term count).
  *
  * A default only: the basis and the count stay the user's (the Background
  * group's controls, the Agent's set_background, MCP build_refinement's
@@ -29,14 +31,27 @@ import type { PowderPattern } from "@/core/diffraction/types";
 /** The POWGEN default: log interpolate with three points. */
 export const POWGEN_BACKGROUND: { readonly type: BackgroundType; readonly terms: number } = { type: "logInterpolate", terms: 3 };
 
-/** A POWGEN time-of-flight page: a TOF pattern with a TOF calibration whose file names POWGEN. */
-export function isPowgenTof(pattern: Pick<PowderPattern, "xUnit">, instrument: InstrumentParameters | null | undefined): boolean {
-  return pattern.xUnit === "tof" && instrument?.kind === "tof" && instrument.name === "POWGEN";
+/**
+ * A POWGEN run file's name: "PG3_" at the start of its base name (the text
+ * after the last / or \), in any case. Not a looser match: "PG3" elsewhere in
+ * the name, or a folder named PG3_…, does not count.
+ */
+export function isPowgenFileName(name: string | undefined): boolean {
+  return /^PG3_/i.test((name ?? "").split(/[/\\]/).pop()!);
+}
+
+/**
+ * A POWGEN time-of-flight page: a TOF pattern with a TOF calibration, where the
+ * instrument file names POWGEN or the data file (the pattern's name, which a
+ * loaded file takes) is a POWGEN run file.
+ */
+export function isPowgenTof(pattern: Pick<PowderPattern, "xUnit"> & { readonly name?: string }, instrument: InstrumentParameters | null | undefined): boolean {
+  return pattern.xUnit === "tof" && instrument?.kind === "tof" && (instrument.name === "POWGEN" || isPowgenFileName(pattern.name));
 }
 
 /** The instrument's default background for new data, or null for the general default. */
 export function instrumentBackgroundDefault(
-  pattern: Pick<PowderPattern, "xUnit">,
+  pattern: Pick<PowderPattern, "xUnit"> & { readonly name?: string },
   instrument: InstrumentParameters | null | undefined,
 ): { readonly type: BackgroundType; readonly terms: number } | null {
   return isPowgenTof(pattern, instrument) ? POWGEN_BACKGROUND : null;
