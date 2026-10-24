@@ -387,6 +387,9 @@ export function PowderWorkbench({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- tick-gated ref read
   }, [displayCurves, busy, liveTick]);
   const displayXLabel = axisLabel(effectiveUnit);
+  // The plot keeps its zoom until the dataset or the x unit changes — not when a
+  // refinement moves a converted axis (a refined zero or difC in a d display).
+  const plotViewKey = useMemo(() => ({ pattern, unit: effectiveUnit }), [pattern, effectiveUnit]);
   // For the Validation view: native x → display x, every point's d-spacing
   // (when the axis converts), and the points the fit uses — the same selection
   // as `weightedR` below (masked plateau, TOF calc > 0, the fit range).
@@ -1397,6 +1400,8 @@ export function PowderWorkbench({
                     <WorkbenchPlot
                       curves={plotCurves}
                       xLabel={displayXLabel}
+                      viewKey={plotViewKey}
+                      ariaLabel="Powder pattern: observed, calculated and difference"
                       fitRange={displayFitRange}
                       phases={phaseTicks}
                       focusFitToken={focusFitToken}
@@ -1436,7 +1441,7 @@ export function PowderWorkbench({
                         ? session.powderOverlay
                           ? "Observed (points) with GSAS-II fit overlay."
                           : "Observed TOF pattern — view-only (load a TOF instrument with difC to refine)."
-                        : "Drag across the plot to zoom, blue handles to set the fit range."}
+                        : "Drag to pan, Ctrl/⌘ + scroll or pinch to zoom, Shift + drag to box-zoom, double-click to reset; blue handles set the fit range."}
                     </p>
                     {!tofViewOnly && mustrainReadout && (mustrainReadout.strainPpm.value > 0 || mustrainReadout.sampleY !== 0) && (
                       <div style={{ display: "flex", alignItems: "center", gap: 14, rowGap: 5, marginTop: 6, fontSize: 12, color: theme.secondary, fontFamily: themeMono, flexWrap: "wrap" }} title="Derived from the refined Lorentzian X (size) and Y (microstrain), with the instrument seed deconvoluted (GSAS-II microstrain = LY·π/72000·10⁶ ppm).">

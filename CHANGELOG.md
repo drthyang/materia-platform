@@ -9,6 +9,23 @@ release fixes bugs.
 
 ### Added
 
+- **Plot interactions: a cursor readout, map-style zoom, pan, keyboard and
+  touch.** The pattern, G(r), magnetic-step and S(Q) plots share one
+  interaction module (`usePlotInteraction`, `visualization/plotView`). Hover
+  for a cursor line and a readout of x in the axis unit (to the data step),
+  obs, calc, diff and the reflections under the cursor. Ctrl/⌘ + scroll and
+  pinch zoom about the cursor; a plain scroll scrolls a scrolling page (with a
+  hint) and zooms where nothing scrolls. Drag pans (clamped to the data),
+  Shift + drag box-zooms (a tall box also fixes y), double-click, **Reset** or
+  0 resets; +, −, arrows and Shift + arrows work when the plot has focus, and
+  the readout reaches screen readers. On a phone one finger scrolls the page
+  and two pinch. The zoom now survives a refinement that moves a converted
+  axis (a refined zero or difC in a d display). The series and tick rows are
+  drawn on a canvas, decimated per pixel column: a zoom on a 100 000-point
+  pattern took 2–3 s and now fits a frame. Drag no longer rubber-band zooms
+  (that is Shift + drag), and a zoomed line no longer runs under the y-axis
+  labels.
+
 - **Strong k = 0 magnetic peaks are taken to the magnetic step, not into the
   ADPs.** On a neutron pattern of magnetic ions whose misfits sit on nuclear
   reflections at large d (the k = 0 signature), the Agent's `magnetic_state`

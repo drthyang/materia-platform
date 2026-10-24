@@ -175,12 +175,44 @@ magnetic model are steps too. Loading a new dataset starts a new history.
 
 - Drag the blue handles on the plot to set the fit window. **Reset range**
   returns to the whole pattern, and **optimize view** zooms onto the window.
-- Drag across the plot to zoom, and double-click to zoom out. Click a Bragg
-  tick for its (hkl). The unit buttons (**2θ**, **d**, **Q**, **TOF**) change
-  the axis only.
+- Click a Bragg tick to spotlight its (hkl). The unit buttons (**2θ**,
+  **d**, **Q**, **TOF**) change the axis only.
 - To add a phase, load the data, then click **Add CIF…**. Each phase gets its
   own scale, cell, atoms and tick row; the profile and background are shared.
   Click **×** on a phase badge to remove it.
+
+### Zoom, pan and the cursor readout
+
+The pattern, the G(r) plot, the magnetic page's pattern and the S(Q) view all
+work the same way.
+
+- **Cursor.** Hover the plot. A vertical line marks the data point under the
+  pointer. The readout gives x in the axis unit (2θ °, TOF µs, d Å, Q Å⁻¹ or
+  r Å) to the precision of the data step, then obs (± σ when the file has
+  one), calc, diff, the background and any partial curves at that point.
+  Calc and diff are shown inside the fit window only, as they are drawn. On a
+  diffraction pattern it also lists the reflections within about 4 pixels of
+  the cursor, with phase, (hkl) and d. The readout only reads the data.
+- **Zoom.** Ctrl + scroll (⌘ + scroll on a Mac) or a trackpad pinch zooms x
+  about the cursor. Where the page around the plot scrolls, a plain scroll
+  scrolls the page, and the plot shows "Use Ctrl + scroll to zoom". Where the
+  plot fills a view that does not scroll, a plain scroll zooms. **+** and
+  **−** under the plot zoom about the centre.
+- **y.** y follows the data in view. **Shift + drag** a box to zoom to it: a
+  flat box (under 20 px tall) zooms x only, a taller box also fixes y to the
+  box. **y auto** fixes the y range shown, and **y fixed** releases it.
+- **Pan.** Drag the plot, or scroll sideways on a trackpad (Shift + scroll
+  with a mouse). Panning stops at the ends of the data.
+- **Reset.** **Reset**, a double-click, or the **0** key shows the whole
+  range with y automatic.
+- **Keyboard.** Tab to the plot (it shows a blue focus ring). **+** and **−**
+  zoom, **←** and **→** pan a tenth of the view, **Shift + ←/→** step the
+  cursor one data point, **0** resets and **Esc** hides the cursor. A screen
+  reader announces the readout.
+- **Touch.** One finger scrolls the page up and down and pans the plot
+  sideways. Two fingers pinch-zoom. A tap shows the readout there.
+- The zoom is kept through refinements and recalculations. It resets when
+  you load other data or change the x unit. It is not saved in the project.
 
 ## 5. Magnetic structures
 
