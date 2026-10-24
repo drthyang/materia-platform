@@ -1,9 +1,11 @@
 /**
  * The refinement report as Markdown — the same content as `reportHtml`, for a
- * lab notebook, a repository or an e-mail: the analysis (when the Agent ran
- * it), the data and model, the fit figure, the refined structures with
- * standard uncertainties, the magnetic structure, every parameter and the
- * refinement's diagnostics. The figure is an SVG data URI carrying its own
+ * lab notebook, a repository or an e-mail: the summary (the analysis' account
+ * and open issues when the Agent ran it, the data and model, the fit figure,
+ * the refined structures with standard uncertainties, the magnetic structure
+ * and what a powder cannot fix, the other refined values, the refinement's
+ * diagnostics), then an appendix with the record behind it (the steps, every
+ * check, every parameter, the conventions and the software). The figure is an SVG data URI carrying its own
  * style, so the file stands alone (Markdown viewers that block data URIs show
  * its alt text; the HTML report always has the figure).
  *
@@ -21,6 +23,8 @@ import { magneticSupercell, momentAnchorPosition } from "@/core/crystal/cellExpa
 import { fobsFcalcSvg, patternFigureSvg } from "@/core/export/reportFigures";
 import { markNumbers } from "@/core/export/reportAudit";
 import {
+  ACCOUNT_NOTE,
+  APPENDIX_NOTE,
   BONDS_NOTE,
   COVALENT_BONDS_NOTE,
   HBOND_NOTE,
@@ -34,10 +38,16 @@ import {
   parameterStatus,
   posteriorCaveat,
   posteriorStatus,
+  passedText,
   shownParameter,
+  softwareRows,
   startText,
+  summaryChecks,
+  summaryParameters,
+  SUMMARY_PARAMETERS_NOTE,
   type ReportAgent,
   type ReportBoxcar,
+  type ReportCheck,
   type ReportPosterior,
   type ReportFigure,
   type ReportInput,
@@ -133,7 +143,28 @@ function posteriorMarkdown(p: ReportPosterior): string {
   return `**Bayesian check** — ${posteriorStatus(p)}\n\n${rows}${diffs}\n\n*${posteriorCaveat(p)}*`;
 }
 
-function agentMarkdown(a: ReportAgent): string {
+const CHECK_LABEL = { pass: "pass", note: "note", warn: "attention" } as const;
+
+function checksTable(checks: readonly ReportCheck[]): string {
+  return table(["Check", "Result", "Detail"], checks.map((c) => [c.name, CHECK_LABEL[c.status], c.detail]));
+}
+
+/** The analysis in the summary: the account, the open issues, the checks to note, the Bayesian check. */
+function agentSummaryMarkdown(a: ReportAgent): string {
+  const unverified = a.unverified ?? [];
+  const account = a.narrative?.trim() ? markNumbers(a.narrative.trim(), unverified, (t) => `${t}†`) : "";
+  const narrative = account
+    ? `**The Copilot's account**\n\n${account.split(/\n\s*\n/).map((p) => `> ${p.trim().replace(/\n/g, "\n> ")}`).join("\n>\n")}\n\n*${ACCOUNT_NOTE}${unverified.length > 0 ? " Numbers marked † in the Copilot's words are not among the values this report computed." : ""}*\n\n`
+    : "";
+  const issues = a.openIssues.length > 0 ? a.openIssues.map((t) => `- ${t}`).join("\n") : "None: the engine's checks raised nothing left to settle.";
+  const { noted, passed } = summaryChecks(a.checks);
+  const checks = `${noted.length > 0 ? checksTable(noted) : "No check calls for a note."}${passed.length > 0 ? `\n\n${passedText(passed)}` : ""}`;
+  const posterior = a.posterior ? `\n\n${posteriorMarkdown(a.posterior)}` : "";
+  return `${narrative}**Open issues**\n\n${issues}\n\n**Checks to note**\n\n${checks}${posterior}`;
+}
+
+/** The analysis as it went, for the appendix: the steps, the method, every check, the notes. */
+function agentRecordMarkdown(a: ReportAgent): string {
   const pct = (v: number | undefined): string => (v === undefined ? "" : `${(100 * v).toFixed(2)} %`);
   const anyGof = a.steps.some((st) => st.gof !== undefined);
   const steps = table(
@@ -154,17 +185,9 @@ function agentMarkdown(a: ReportAgent): string {
   const stages = a.method
     ? `\n\nMethod (the skill \`${a.method.skill}\`): ${a.method.stages.map((st) => `${st.done ? "✓" : "○"} ${st.label}${st.optional && !st.done ? ", if needed" : ""}`).join(" · ")}`
     : "";
-  const label = { pass: "pass", note: "note", warn: "attention" } as const;
-  const checks = table(["Check", "Result", "Detail"], a.checks.map((c) => [c.name, label[c.status], c.detail]));
-  const issues = a.openIssues.length > 0 ? a.openIssues.map((t) => `- ${t}`).join("\n") : "None: the engine's checks raised nothing left to settle.";
   const unverified = a.unverified ?? [];
   const notes = a.notes.length > 0 ? `\n\n**The Copilot's notes**\n\n${a.notes.map((t) => `- ${markNumbers(t, unverified, (n) => `${n}†`)}`).join("\n")}` : "";
-  const account = a.narrative?.trim() ? markNumbers(a.narrative.trim(), unverified, (t) => `${t}†`) : "";
-  const narrative = account
-    ? `\n\n**The Copilot's account**\n\n${account.split(/\n\s*\n/).map((p) => `> ${p.trim().replace(/\n/g, "\n> ")}`).join("\n>\n")}\n\n*Written by MATERIA Copilot (${a.model}) in its own words, as are its notes. Every other number in this report — the steps, the checks, the parameters, the agreement factors and the figure — comes from the refinement engine and the project's History, not from the model.${unverified.length > 0 ? " Numbers marked † in the Copilot's words are not among the values this report computed." : ""}*`
-    : "";
-  const posterior = a.posterior ? `\n\n${posteriorMarkdown(a.posterior)}` : "";
-  return `**How the analysis was done** — ${a.steps.length} step${a.steps.length === 1 ? "" : "s"} from the History; model ${a.model}.\n\n${steps}${start}${stages}${branches}\n\n**Checks**\n\n${checks}\n\n**Open issues**\n\n${issues}${notes}${posterior}${narrative}`;
+  return `**How the analysis was done** — ${a.steps.length} step${a.steps.length === 1 ? "" : "s"} from the History; model ${a.model}.\n\n${steps}${start}${stages}${branches}\n\n**Every check**\n\n${checksTable(a.checks)}${notes}`;
 }
 
 function phaseMarkdown(phase: ReportPhase, index: number, total: number, technique: ReportInput["technique"]): string {
@@ -249,7 +272,8 @@ function magneticMarkdown(m: ReportMagnetic, fallback: StructureModel | undefine
   const params = m.params.length > 0
     ? `\n\n${table(["Moment parameter", "Value (µB)", "Status"], m.params.map((p) => [p.label, formatParameterValue(p), parameterStatus(p)]), ["l", "r", "l"])}`
     : "";
-  return `*${m.status}*\n\n${kvTable(facts)}${params}\n\n${moments}`;
+  const limits = (m.limits ?? []).map((t) => `> ⚠ ${t}`).join("\n>\n");
+  return `*${m.status}*${limits ? `\n\n${limits}` : ""}\n\n${kvTable(facts)}${params}\n\n${moments}`;
 }
 
 function parametersMarkdown(params: readonly RefinementParameter[], technique: ReportInput["technique"]): string {
@@ -258,7 +282,7 @@ function parametersMarkdown(params: readonly RefinementParameter[], technique: R
   const blocks: string[] = [];
   const block = (title: string, rows: readonly RefinementParameter[]): string => {
     const free = rows.filter((p) => !p.fixed && !p.expression).length;
-    return `### ${title} · ${rows.length} parameter${rows.length === 1 ? "" : "s"}, ${free} refined\n\n${table(
+    return `#### ${title} · ${rows.length} parameter${rows.length === 1 ? "" : "s"}, ${free} refined\n\n${table(
       ["Parameter", "Value", "Unit", "Status"],
       rows.map((p) => shownParameter(p, technique)).map(({ parameter: p, value }) => [p.label, value, KIND_UNIT[p.kind] ?? "", parameterStatus(p)]),
       ["l", "r", "l", "l"],
@@ -300,33 +324,57 @@ function detailsMarkdown(input: ReportInput): string {
     rows.push({ label: "Engine", value: "no refinement run in this session — values are as loaded or set" });
   }
   const warnings = (input.warnings ?? []).map((w) => `> ⚠ ${w}`).join("\n");
-  const notes = (input.notes ?? []).map((n) => `- ${n}`).join("\n");
-  return `${kvTable(rows)}${warnings ? `\n\n${warnings}` : ""}${notes ? `\n\n**Conventions**\n\n${notes}` : ""}`;
+  return `${kvTable(rows)}${warnings ? `\n\n${warnings}` : ""}`;
 }
 
-/** Build the report as a Markdown document. */
+/** The summary's other refined values: the free parameters the tables above do not carry. */
+function summaryParametersMarkdown(params: readonly RefinementParameter[], technique: ReportInput["technique"]): string {
+  const rows = summaryParameters(params, technique);
+  if (rows.length === 0) return "";
+  return `${table(
+    ["Parameter", "Value", "Unit"],
+    rows.map((p) => shownParameter(p, technique)).map(({ parameter: p, value }) => [p.label, value, KIND_UNIT[p.kind] ?? ""]),
+    ["l", "r", "l"],
+  )}\n\n*${SUMMARY_PARAMETERS_NOTE}*`;
+}
+
+/** The appendix's conventions and software. */
+function conventionsMarkdown(input: ReportInput, date: string): string {
+  const notes = (input.notes ?? []).map((n) => `- ${n}`).join("\n");
+  return `${notes ? `**Conventions**\n\n${notes}\n\n` : ""}**Software**\n\n${kvTable(softwareRows(input, date))}`;
+}
+
+/** Build the report as a Markdown document: the summary, then the appendix with the record behind it. */
 export function reportMarkdown(input: ReportInput): string {
   const date = (input.date ?? new Date()).toISOString().slice(0, 10);
   const technique = TECHNIQUE_TITLE[input.technique];
   const primary = input.phases[0]?.structure;
   let n = 0;
   const section = (title: string, body: string): string => (body ? `## ${++n}. ${title}\n\n${body}` : "");
+  let letter = 0;
+  const part = (title: string, body: string): string => (body ? `### ${String.fromCharCode(65 + letter++)}. ${title}\n\n${body}` : "");
   const stats = input.stats.length > 0 ? table(input.stats.map((s) => s.label), [input.stats.map((s) => s.value)], input.stats.map(() => "r" as const)) : "";
+  const free = input.parameters.filter((p) => !p.fixed && !p.expression).length;
   const parts = [
     `# ${input.title}`,
     `*MATERIA · ${technique} report${input.agent ? " · analysed with MATERIA Copilot" : ""} · ${date}*`,
     input.subtitle ?? "",
     input.summary ?? "",
     stats,
-    section("The analysis", input.agent ? agentMarkdown(input.agent) : ""),
+    section("The analysis", input.agent ? agentSummaryMarkdown(input.agent) : ""),
     section("Data & model", input.data.length > 0 ? kvTable(input.data) : ""),
     section("Fit", input.figure ? figureMarkdown(input.figure) : ""),
     section("Local versus average", input.boxcar ? boxcarMarkdown(input.boxcar) : ""),
     section(input.phases.length > 1 ? "Atomic structures" : "Atomic structure", input.phases.map((p, i) => phaseMarkdown(p, i, input.phases.length, input.technique)).join("\n\n")),
     section("Magnetic structure", input.magnetic ? magneticMarkdown(input.magnetic, primary) : ""),
-    section("Parameters", parametersMarkdown(input.parameters, input.technique)),
+    section("Other refined values", summaryParametersMarkdown(input.parameters, input.technique)),
     section("Refinement details", detailsMarkdown(input)),
-    `---\n\n*Generated by MATERIA Workbench${input.appVersion ? ` v${input.appVersion}` : ""} on ${date}. Values in parentheses are standard uncertainties in the last digit(s), from the least-squares covariance of this fit; a value without one was fixed, set by a constraint, or not part of the last refinement; a tied value carries its leader's. MATERIA is in public beta — reproduce results you intend to publish in an established package.*`,
+    // How to read the summary's numbers, before the appendix: a reader may stop there.
+    `*Generated by MATERIA Workbench on ${date}. Values in parentheses are standard uncertainties in the last digit(s), from the least-squares covariance of this fit; a value without one was fixed, set by a constraint, or not part of the last refinement; a tied value carries its leader's. MATERIA is in public beta — reproduce results you intend to publish in an established package.*`,
+    `---\n\n## Appendix — the full record\n\n*${APPENDIX_NOTE}*`,
+    input.agent ? part(`The analysis step by step`, agentRecordMarkdown(input.agent)) : "",
+    part(`Every parameter · ${input.parameters.length} parameter${input.parameters.length === 1 ? "" : "s"}, ${free} refined`, parametersMarkdown(input.parameters, input.technique)),
+    part("Conventions and software", conventionsMarkdown(input, date)),
   ];
   return `${parts.filter((p) => p.trim().length > 0).join("\n\n")}\n`;
 }

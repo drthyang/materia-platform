@@ -514,11 +514,22 @@ them in FullProf before comparing.
 
 ### The report
 
-**Report** writes one HTML page: the data and model, the fit figure, the atomic
-and magnetic structures, every parameter and the refinement details. Its
-magnetic section gives k and the magnetic space group, named as on the magnetic
-page. It adds a projected figure, the moments with esds and a sublattice table.
-It states where the model came from:
+**Report** writes one HTML page. It opens on the summary: the data and model,
+the fit figure, the atomic and magnetic structures with esds, the other refined
+values, and the fit quality with the correlations and warnings. An appendix
+follows, collapsed until you open it: every parameter, fixed or refined, the
+conventions and the software. Printing opens it. A report the Copilot writes
+adds its account, the open issues and the checks that bear on trust to the
+summary. Its appendix also holds the History's steps, the method's checklist,
+every check with its numbers, and the notes. The Markdown file has the same
+parts, the appendix last.
+
+The magnetic section gives k and the magnetic space group, named as on the
+magnetic page. It adds a projected figure, the moments with esds and a
+sublattice table. On a powder it says what the pattern cannot fix: the moment
+direction among the symmetry-equivalent ones. A cubic crystal gives only |m|.
+A uniaxial crystal gives only the angle to the unique axis. It states where
+the model came from:
 
 - **Refined jointly**: refined with the atomic structure in this session.
 - **Included in the model**: applied, but loaded or set on the magnetic page.

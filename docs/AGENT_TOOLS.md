@@ -671,11 +671,13 @@ current.
   MCMC of the Posterior view, over the free parameters of a converged fit;
   `continue: true` resumes the chain.
 - **`write_report`** ([`report.ts`](../src/agent/report.ts)) builds the page's
-  own report (Export ▾ → Report) with the analysis as it went: the History's
-  steps on the path to the result, the method's checklist, the engine's checks
-  ([`reportChecks.ts`](../src/agent/reportChecks.ts)) with the issues left
-  open, the Bayesian check of the refinement on screen when one ran, and the
-  Agent's notes. The Agent writes only `summary`; its decimal numbers are
+  own report (Export ▾ → Report) with the analysis as it went. The summary
+  leads with the Agent's account, the issues left open, the engine's checks
+  ([`reportChecks.ts`](../src/agent/reportChecks.ts)) that bear on trust (the
+  others named as passed) and the Bayesian check of the refinement on screen
+  when one ran. A collapsed appendix holds the History's steps on the path to
+  the result, the method's checklist, every check with its numbers, the
+  Agent's notes, every parameter and the software. The Agent writes only `summary`; its decimal numbers are
   checked against the numbers the report computed
   ([`reportAudit.ts`](../src/core/export/reportAudit.ts)), and any that match
   none are underlined (HTML) or marked † (Markdown) and returned, so the Agent
