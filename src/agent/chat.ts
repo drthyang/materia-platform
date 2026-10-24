@@ -34,7 +34,7 @@ import type {
   BetaToolUseBlock,
   BetaUsage,
 } from "@anthropic-ai/sdk/resources/beta/messages/messages";
-import { LIVE_TOOLS, inputJsonSchema, type LiveToolSpec } from "@/agent/tools";
+import { LIVE_TOOLS, inputJsonSchema, liveTool, type LiveToolSpec } from "@/agent/tools";
 import { scopeNote, scopedTools } from "@/agent/toolScope";
 import { evidenceGate, gradeContradiction, type CallRecord } from "@/agent/evidence";
 import type { AgentSituation, ToolOutcome, ToolRunner } from "@/agent/executor";
@@ -234,6 +234,8 @@ export class AgentChat {
       }
       const results: BetaToolResultBlockParam[] = [];
       let circling: string | null = null;
+      // A question put to the user (a tool that ends the turn, ask_user): the turn stops with it, as it does for circling.
+      let asked = false;
       for (const call of calls) {
         if (signal.aborted) {
           results.push(toolError(call.id, "Stopped by the user before this ran."));
@@ -242,6 +244,22 @@ export class AgentChat {
         if (circling !== null) {
           results.push(toolError(call.id, `${FROM_APP} Not run: the app stopped this turn because the conversation was going in circles.`));
           continue;
+        }
+        if (asked) {
+          results.push(toolError(call.id, `${FROM_APP} Not run: your turn ended with the question to the user. Call it after their answer if it still applies.`));
+          continue;
+        }
+        const endsTurn = liveTool(call.name)?.endsTurn === true;
+        if (endsTurn && gated.size < MAX_GATES) {
+          // The turn ends with this question, so it is read as a final answer is: the reply and the question's words.
+          const said = [...message.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text), questionWords(call.input)].join("\n");
+          const gate = this.finalAnswerCheck(said, text, log, gated);
+          if (gate !== null) {
+            gated.add(gate.id);
+            cb.onNotice(gate.notice, "info");
+            results.push(toolError(call.id, `${gate.nudge} (The question was not shown.)`));
+            continue;
+          }
         }
         const refused = guard.check(call.name, call.input, fingerprint);
         if (refused !== null) {
@@ -258,6 +276,7 @@ export class AgentChat {
           out = { isError: true, text: `Error: the tool failed to run: ${e instanceof Error ? e.message : String(e)}`, status: "error" };
         }
         log.push({ name: call.name, status: out.status ?? (out.isError ? "error" : "ok"), fitChanged: out.fitChanged === true });
+        if (endsTurn && !out.isError) asked = true;
         this.here = await this.situation();
         const after = this.here?.fingerprint ?? null;
         const seen = guard.record(call.name, call.input, out.text, fingerprint, after);
@@ -270,12 +289,14 @@ export class AgentChat {
           refusedInARow = held ? refusedInARow + 1 : 0;
           if (refusedInARow === REFUSED_HINT && note === null) note = `${FROM_APP} ${REFUSED_HINT} refinements in a row were refused. Go back to the last free set that refined (fix what you freed since), then free one group more at a time and refine after each; hold one of each pair the refusal names. Instrument terms and B values refine in turn, never together.`;
         }
-        const text = note === null ? out.text : `${out.text}\n\n${note}`;
-        results.push({ type: "tool_result", tool_use_id: call.id, content: text, ...(out.isError ? { is_error: true } : {}) });
+        const answer = note === null ? out.text : `${out.text}\n\n${note}`;
+        results.push({ type: "tool_result", tool_use_id: call.id, content: answer, ...(out.isError ? { is_error: true } : {}) });
       }
       // Every tool call is answered in ONE user message, even when stopped.
       this.messages.push({ role: "user", content: results });
       if (signal.aborted) return;
+      // The question is the user's now: their answer is their next message.
+      if (asked) return;
       if (circling !== null) {
         // Never a silent stop: say where the analysis stands and what the Agent needs.
         const where = (await this.situation())?.summary;
@@ -445,6 +466,13 @@ export class AgentChat {
 
 function toBetaTool(t: LiveToolSpec, skills = true): BetaTool {
   return { name: t.name, description: skills ? t.description : t.withoutSkills ?? t.description, input_schema: inputJsonSchema(t) as BetaTool["input_schema"] };
+}
+
+/** A question's words as the user sees them (ask_user's question and options), for the checks on a final answer. */
+function questionWords(input: unknown): string {
+  const q = (typeof input === "object" && input !== null ? input : {}) as { question?: unknown; options?: unknown };
+  const options = Array.isArray(q.options) ? q.options.flatMap((o) => (typeof o === "object" && o !== null ? [(o as { label?: unknown }).label, (o as { message?: unknown }).message] : [])) : [];
+  return [q.question, ...options].filter((w): w is string => typeof w === "string").join("\n");
 }
 
 function toolError(id: string, text: string): BetaToolResultBlockParam {

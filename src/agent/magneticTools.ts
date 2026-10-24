@@ -28,10 +28,13 @@ function handleOf(port: PowderAgentPort): MagneticAgentHandle {
   return h;
 }
 
-/** A k component as written: a number, or a fraction such as "1/2". */
+/** The fraction glyphs a k label prints (kSearch.ts kLabel), as fractions. */
+const K_GLYPH: Readonly<Record<string, string>> = { "½": "1/2", "⅓": "1/3", "⅔": "2/3", "¼": "1/4", "¾": "3/4", "⅙": "1/6", "⅚": "5/6" };
+
+/** A k component as written: a number, or a fraction such as "1/2" — and whatever a k label prints ("−¼", "⅔", "4/3"). */
 export function kComponent(v: number | string): number {
   if (typeof v === "number") return v;
-  const t = v.trim().replace("½", "1/2").replace("⅓", "1/3").replace("¼", "1/4");
+  const t = v.trim().replace(/[−–]/g, "-").replace(/[½⅓⅔¼¾⅙⅚]/g, (g) => K_GLYPH[g]!);
   const frac = /^(-?\d+)\s*\/\s*(\d+)$/.exec(t);
   const x = frac ? Number(frac[1]) / Number(frac[2]) : Number(t);
   if (!Number.isFinite(x)) throw new Error(`"${v}" is not a k component (a number or a fraction such as 1/2)`);

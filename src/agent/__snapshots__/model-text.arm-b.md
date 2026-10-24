@@ -1387,6 +1387,63 @@ Write the analysis report and open it for the user, who can save it as HTML, Mar
 }
 ```
 
+### ask_user
+
+Put a question to the user with 2 to 6 answers to click, when the next step is theirs to decide (which block to free next, whether to add a phase, which of two readings to follow). The drawer shows the question with one button per option; a click sends that option's `message` as the user's next message, exactly as written, and they may answer in their own words instead. Your turn ends with this call: say what the decision rests on in your reply before it, and call nothing after it. Write each `message` as the user would type it ("Free the B values and refine."), one decision per question. An answer is a request like any other: a change it asks for still goes through its change tool, which asks the user as every change does. Not for asking leave to make a change (call the change tool: it asks them), nor for a choice a tool already shows as buttons (the k-search's k, rank_magnetic_groups's groups, suggest_next_steps's steps). Engine numbers by reference ({{wR}}, {{p:ID}}), as in your replies.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "question": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 300,
+      "description": "The question, in a sentence or two"
+    },
+    "options": {
+      "minItems": 2,
+      "maxItems": 6,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60,
+            "description": "The button's text, a few words"
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "What a click sends as the user's message, as they would type it"
+          }
+        },
+        "required": [
+          "label",
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "description": "The answers, 2 to 6, one button each"
+    },
+    "other": {
+      "description": "A hint shown in the empty message box when the user answers in their own words",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    }
+  },
+  "required": [
+    "question",
+    "options"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### read_ref
 
 Show the value behind a ref from an earlier result of these tools, e.g. "#3/findings". For a long array, pass start/end (end exclusive) to read a window.

@@ -38,6 +38,26 @@ release fixes bugs.
   their curve when the number of points changes, and the report names the
   basis refined instead of always "Chebyshev".
 
+- **The Agent asks with buttons (`ask_user`).** Where the next decision is the
+  user's and no tool's result lists it, the Agent puts a question with 2 to 6
+  options; each shows as a button under the turn and sends exactly its
+  message, as the k, group and next-step choices do, and the question ends
+  the model's turn. A change an option asks for still goes through its change
+  tool and approval card; a clicked option's numbers are not counted as the
+  user's by the report's number audit, and the checks on a final answer read
+  the question too. In-app only (not an MCP tool). Added at the owner's
+  decision, although it changes the model-visible tool list before the
+  validation freeze (docs/AGENT_PLAN.md).
+
+- **Choices to click in the Agent's conversation.** The k the k-search found,
+  the magnetic groups the ranking fitted and the next steps the assessment
+  suggests show as buttons under the turn, from the tool's result: a click
+  sends the message the user could have typed ("Set the propagation vector to
+  k = (1/2, 0, 0)."), "Another…" puts a template in the message box, and a set
+  stops sending once the conversation or the page moves on. Keyboard
+  accessible. The k set says what k is in: reciprocal-lattice units of the
+  cell as loaded (a centred lattice's conventional cell).
+
 - **The published Mn₃Ga 350 K POWGEN data** in `examples/mn3ga-350k`: the
   histogram and instrument parameters, the GSAS-II magnetic structure
   (C m′c m′), MATERIA's refinement of it, and a nuclear starting model. The
@@ -569,6 +589,12 @@ release fixes bugs.
   analysis of variance gives them.
 
 ### Fixed
+
+- **A propagation vector's label reads back as itself.** A centred lattice's k
+  above 1 was labelled to three decimals ((0 0 1.333) for 4/3, which sets
+  another k when copied); it is now the exact fraction, (0 0 4/3).
+  `set_propagation_vector` now also reads every glyph a k label prints
+  (⅔, ¾, ⅙, ⅚ and the minus sign of (¼ 0 −¼)), which it refused.
 
 - **The local proxy says when the page has none.** On the published site
   (GitHub Pages) there is no proxy, and choosing it ended every message in a

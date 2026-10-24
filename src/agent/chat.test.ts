@@ -973,7 +973,8 @@ describe("a long local session's last resorts", () => {
   });
 
   it("offers only the stage's tools when every tool used no longer fits", async () => {
-    const powder = LIVE_TOOLS.filter((t) => t.pages.includes("powder")).map((t) => t.name);
+    // A question to the user (ask_user) would end the turn there: the rest are called.
+    const powder = LIVE_TOOLS.filter((t) => t.pages.includes("powder") && !t.endsTurn).map((t) => t.name);
     // The model calls every powder tool once: each stays offered from then on.
     const api = await fakeApi([ndjson(powder.map((name) => ({ type: "tool_use" as const, id: name, name, input: {} }))), ndjson([{ type: "text", text: "Done." }])], undefined, { model: "m", loaded: null, max: 20480 });
     const runner = {

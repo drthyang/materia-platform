@@ -26,6 +26,7 @@
 
 import { z } from "zod";
 import type { StepKind } from "@/core/project/history";
+import { MAX_OPTIONS } from "@/agent/choices";
 
 /**
  * What a tool does. A `read` reads the page; a `compute` fills a panel of the
@@ -102,6 +103,8 @@ export interface LiveToolSpec {
   readonly magneticStep?: true;
   /** What it gives a final answer, when it answered (evidence.ts). */
   readonly evidence?: readonly Evidence[];
+  /** A call that answered ends the model's turn: the user answers in their next message (chat.ts). */
+  readonly endsTurn?: true;
 }
 
 const ids = z.array(z.string().min(1)).describe("Parameter ids, or globs such as \"bkg*\" or \"*Fe1*\"");
@@ -784,6 +787,32 @@ const TOOLS = [
     cards: ["result"],
     offer: { core: true },
     evidence: ["assessment", "absoluteStructure"],
+  },
+  {
+    name: "ask_user",
+    title: "Ask you a question",
+    description:
+      "Put a question to the user with 2 to 6 answers to click, when the next step is theirs to decide (which block to free next, whether to add a phase, which of two readings to follow). The drawer shows the question with one button per option; a click sends that option's `message` as the user's next message, exactly as written, and they may answer in their own words instead. Your turn ends with this call: say what the decision rests on in your reply before it, and call nothing after it. Write each `message` as the user would type it (\"Free the B values and refine.\"), one decision per question. An answer is a request like any other: a change it asks for still goes through its change tool, which asks the user as every change does. Not for asking leave to make a change (call the change tool: it asks them), nor for a choice a tool already shows as buttons (the k-search's k, rank_magnetic_groups's groups, suggest_next_steps's steps). Engine numbers by reference ({{wR}}, {{p:ID}}), as in your replies.",
+    inputSchema: {
+      question: z.string().trim().min(3).max(300).describe("The question, in a sentence or two"),
+      options: z
+        .array(
+          z.object({
+            label: z.string().trim().min(1).max(60).describe("The button's text, a few words"),
+            message: z.string().trim().min(1).max(300).describe("What a click sends as the user's message, as they would type it"),
+          }).strict(),
+        )
+        .min(2)
+        .max(MAX_OPTIONS)
+        .refine((os) => new Set(os.map((o) => o.label.toLowerCase().replace(/\s+/g, " "))).size === os.length, { message: "each option needs its own label" })
+        .describe(`The answers, 2 to ${MAX_OPTIONS}, one button each`),
+      other: z.string().trim().min(1).max(120).optional().describe("A hint shown in the empty message box when the user answers in their own words"),
+    },
+    effect: "read",
+    pages: ["powder", "pdf", "singleCrystal"],
+    cards: [],
+    offer: { core: true },
+    endsTurn: true,
   },
   {
     name: "read_ref",

@@ -452,6 +452,46 @@ a reflection kept that is not on the failed list, a refinement with nothing
 free or of a view-only pattern) is refused before the card, not after the user
 approved it.
 
+**Choices to click.** Where a read hands the user a decision the method
+leaves to them, the drawer shows its options as buttons under the turn,
+made from the tool's result, not from the reply's words
+([`src/agent/choices.ts`](../src/agent/choices.ts)): the k the
+`search_propagation_vector` found (those that explain every included peak
+first, the simplest ★), the groups `rank_magnetic_groups` fitted (best wR
+first, the ★ its best), and the actions `suggest_next_steps` ranks. A click
+sends the option's message as the user's, as if typed ("Set the propagation
+vector to k = (1/2, 0, 0)."); the model acts on it as on a typed message, and
+a change still asks first. Another… puts a template in the message box to
+edit. The k are in reciprocal-lattice units of the structure's cell as
+loaded (in a centred lattice the conventional cell, not the primitive one),
+which the set says, with the cell; the button shows the panel's label, never
+rounded ((0 0 4/3), not (0 0 1.333)), and the message plain fractions that
+`set_propagation_vector` reads back to the engine's value. A set is for the
+page as it was when its tool ran: once a message follows it, it is
+superseded, and a click after the page changed (its stamp, as for an approved
+change) sends nothing and says so.
+
+**Its own questions.** Where the decision is one no tool's result lists, the
+Agent asks with `ask_user` (added at the owner's decision, 2026-10-24: a new
+tool changes what the model reads before the validation freeze, so it needed
+their approval): a question and 2 to 6 options, each a button label and the
+exact message a click sends, and optionally a hint for an answer in the
+user's own words. The input is checked like any tool's (lengths, no label
+twice, 2–6 options); `{{references}}` are filled from the engine, and one
+that names nothing is refused, as in a note. The question ends the model's
+turn the way the chat already ends one after tool calls: every call of that
+reply is answered in one message, those after the question are not run, and
+no further request is made; the user's click (or their own words) is their
+next message. The buttons are the ones above, with the same supersede and
+stamp rules; "Something else…" focuses an empty message box that shows the
+hint, so nothing of the model's is sent as the user's. A clicked option is the
+Agent's words: the report's number audit does not count its numbers as the
+user's, and a turn that ends on a question is read by the checks on a final
+answer (below) with the question's words, a gated question not shown. An
+option that asks for a change is an ordinary request: the model calls the
+change tool, which asks first. The MCP server does not have it: no live tool
+is an MCP tool, and an MCP client asks its user in its own UI.
+
 <!-- LIVE_TOOLS:BEGIN (generated — edit src/agent/tools.ts, then npm run gen:tooldoc) -->
 **Every page**
 
@@ -465,6 +505,7 @@ approved it.
 | `allow_exception` | always asks | Allow an exception to the method |
 | `write_note` | at once | Note it for this analysis |
 | `write_report` | at once | Write the analysis report |
+| `ask_user` | at once | Ask you a question |
 | `read_ref` | at once | Read a stored value |
 | `set_free` | asks first | Free or fix parameters |
 | `set_adp_model` | asks first | Change the ADP model |
@@ -842,6 +883,10 @@ when it concludes:
 - on any page, a grade of a fit that changed in this message, with no
   assessment after the change; or a grade two bands or more from the
   engine's verdict, or across the line between fair and good.
+
+A turn that ends on an `ask_user` question is a final answer too: the
+reply's words and the question's are read before the question is shown, and
+a question the rules send back is not shown.
 
 The rules read the message's calls with what each came to and whether the
 fit on screen changed. A refused or declined change changes nothing, and a

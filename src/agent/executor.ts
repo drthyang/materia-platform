@@ -27,6 +27,7 @@ import { analysisOf, hashText, onPage, type PageAdapter, type StateOf } from "@/
 import type { StepKind } from "@/core/project/history";
 import { Refusal, correlationGate, developedCorrelations, firmRules, methodGate, staleReason, symmetryNotYet, type RefusalKind } from "@/agent/executorPolicy";
 import { Answers, addNote, noteRead, recordView, syncStages, withoutMethod, writeReport, type SampledPosterior } from "@/agent/executorRecord";
+import { choicesFor, questionChoices, type ChoiceContext, type ChoiceSet } from "@/agent/choices";
 
 export type { RefusalKind } from "@/agent/executorPolicy";
 
@@ -58,6 +59,8 @@ export interface ActivityEntry {
   readonly outcome?: string;
   /** Only the user may approve it: asked even in Auto. */
   readonly alwaysAsk?: boolean;
+  /** The decision a read's result hands the user (the k-search's k, the ranked groups, the next steps), as options to click (choices.ts). */
+  readonly choices?: ChoiceSet;
 }
 
 /**
@@ -120,6 +123,8 @@ export interface ToolRunner {
   readonly fill?: (text: string) => string;
   /** The page the analysis is on, for the checks on a final answer (evidence.ts); null with none open. */
   readonly page?: () => "powder" | "pdf" | "singleCrystal" | null;
+  /** The page's stamp now (what a change is approved against); null with none open. A choice set holds while it is the same. */
+  readonly stamp?: () => string | null;
 }
 
 export interface ExecutorOptions {
@@ -173,6 +178,7 @@ export class AgentExecutor implements ToolRunner {
   newConversation(): void {
     this.skillsRead.clear();
     this.userText = [];
+    this.asked = null;
     this.magneticUsed = false;
     this.answers.clear();
   }
@@ -217,6 +223,12 @@ export class AgentExecutor implements ToolRunner {
     });
   }
 
+  /** The page's stamp now, as a change is checked against it: a choice set made at another one no longer describes the page. */
+  stamp(): string | null {
+    const port = this.host.port();
+    return port ? onPage(port, (page, p) => page.stamp(page.state(p), this.stepOf(page, p))) : null;
+  }
+
   /** The magnetic step's panel once its tools are in use in this conversation: then the stamp and the fingerprint carry it. */
   private stepOf<P extends AgentPort>(page: PageAdapter<P>, port: P): MagneticPanelState | null {
     return this.magneticUsed ? page.magneticStep?.(port) ?? null : null;
@@ -224,9 +236,14 @@ export class AgentExecutor implements ToolRunner {
 
   /** The user's messages in this conversation: their numbers are theirs to quote, not the Agent's own. */
   private userText: string[] = [];
+  /** The messages the options of the Agent's open question send (ask_user): the Agent's words, not the user's. */
+  private asked: ReadonlySet<string> | null = null;
 
   heard(text: string): void {
-    this.userText.push(text);
+    // A clicked option sends the Agent's own words: its numbers are not the user's to vouch for (the report's audit).
+    const echoed = this.asked?.has(text.trim()) ?? false;
+    this.asked = null;
+    if (!echoed) this.userText.push(text);
   }
 
   /** What the page's references resolve against now; null with no analysis open. */
@@ -340,6 +357,18 @@ export class AgentExecutor implements ToolRunner {
       return this.respond({ noted: true, notes });
     }
 
+    if (spec.name === "ask_user") {
+      // A question for the user, as buttons under the turn (choices.ts); the chat ends the turn on it.
+      // Its words are the Agent's: references filled as in a note, and an option clicked is not the user's numbers.
+      const q = input as { question: string; options: { label: string; message: string }[]; other?: string };
+      const fill = (text: string): string => this.fillOrRefuse(text, "ask_user");
+      const options = q.options.map((o) => ({ label: fill(o.label), message: fill(o.message) }));
+      const set = questionChoices(fill(q.question), options, q.other === undefined ? undefined : fill(q.other));
+      this.asked = new Set(options.map((o) => o.message));
+      update({ preview: set.title, status: "done", outcome: `Asked, with ${options.length} options`, choices: { ...set, stamp: page.stamp(page.state(port), this.stepOf(page, port)) } });
+      return this.respond({ asked: true, options: options.length, note: "Shown to the user; your turn ends here. Their answer comes as their next message: an option's message, or their own words." });
+    }
+
     if (spec.name === "write_report") {
       update({});
       // Let the drawer paint "running" before the checks run.
@@ -370,7 +399,9 @@ export class AgentExecutor implements ToolRunner {
         const source = this.referenceSource();
         out = { ...withoutMethod(out, this.skills), ...recordView(this.host, port, this.skills), ...(source ? { references: `Quote the engine's numbers by reference; the app fills them in where your words are shown and in the report: ${referenceCatalog(source)}.` } : {}) };
       }
-      update({ status: "done" });
+      // A decision the result hands the user, as options for the drawer, for the page as it stands now.
+      const offered = choicesFor(spec.name, out, choiceContext(page.state(port)));
+      update({ status: "done", ...(offered ? { choices: { ...offered, stamp: page.stamp(page.state(port), this.stepOf(page, port)) } } : {}) });
       return this.respond(out);
     }
 
@@ -502,6 +533,15 @@ export class AgentExecutor implements ToolRunner {
   private respond(out: unknown): ToolOutcome {
     return this.answers.respond(out);
   }
+}
+
+/** What a choice set's values are in: the structure's cell and space group as loaded (k is in its reciprocal-lattice units). */
+function choiceContext(state: unknown): ChoiceContext {
+  const structure = (state as { structure?: { cell?: ChoiceContext["cell"]; spaceGroup?: { hermannMauguin?: string } } }).structure;
+  return {
+    ...(structure?.cell ? { cell: structure.cell } : {}),
+    ...(structure?.spaceGroup?.hermannMauguin ? { spaceGroup: structure.spaceGroup.hermannMauguin } : {}),
+  };
 }
 
 function error(message: string): ToolOutcome {
