@@ -9,6 +9,18 @@ release fixes bugs.
 
 ### Added
 
+- **POWGEN data start on a logarithmic background**: GSAS-II's log
+  interpolation with 3 points (at the TOF range's ends and their geometric
+  mean), where the instrument file names POWGEN or PG3 and the pattern is
+  time-of-flight. On the 350 K Mn₃Ga bank it fits as well as the 4-term
+  Chebyshev default with one parameter fewer (wR 8.90 % against 9.00 %, scale,
+  background and cell refined). The basis and the count stay the user's (the
+  Background group, the Agent's `set_background`, MCP `build_refinement`'s new
+  `backgroundType`), and a saved project keeps its own. Log- and
+  linear-interpolation backgrounds are now seeded at their own points, keep
+  their curve when the number of points changes, and the report names the
+  basis refined instead of always "Chebyshev".
+
 - **The published Mn₃Ga 350 K POWGEN data** in `examples/mn3ga-350k`: the
   histogram and instrument parameters, the GSAS-II magnetic structure
   (C m′c m′), MATERIA's refinement of it, and a nuclear starting model. The

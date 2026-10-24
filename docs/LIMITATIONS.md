@@ -195,7 +195,9 @@ approximate, however plausible its output looks.
   Constant per-bank prefactors are absorbed into the scale.
 - Backgrounds: Chebyshev, cosine (Fourier) or power series, or linear or
   logarithmic interpolation between evenly spaced points, with an adjustable
-  number of terms.
+  number of terms. POWGEN time-of-flight data start on log interpolation with
+  3 points, recognized from the instrument file's text only (POWGEN or PG3 in
+  it); other data on 4 Chebyshev terms.
 - Corrections: March–Dollase preferred orientation (averaged over each
   family's Laue equivalents, as GSAS-II); sample displacement and
   transparency, Debye–Scherrer absorption, and Suortti surface roughness

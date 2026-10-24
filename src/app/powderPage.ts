@@ -20,7 +20,8 @@ import { multiPhaseCurves } from "@/core/workflow/multiPhase";
 import { applyParameters } from "@/core/workflow/apply";
 import { withEqualTies, type EqualTieUpdate } from "@/core/refinement/constraints";
 import type { PeakShape } from "@/core/diffraction/profile";
-import type { BackgroundType } from "@/core/diffraction/background";
+import { evaluateBackground, interpAnchors, type BackgroundType } from "@/core/diffraction/background";
+import { instrumentBackgroundDefault } from "@/core/workflow/backgroundDefaults";
 import { excludedPointMask } from "@/core/refinement/factors";
 import { radiationOf, withConstants, type InstrumentConstants, type InstrumentParameters } from "@/core/diffraction/instrument";
 import { withAntisite } from "@/core/crystal/antisite";
@@ -32,7 +33,7 @@ import type { PowderProgress } from "@/workers/runPowder";
 import type { MultiStartResult } from "@/core/refinement/multiStart";
 import { buildPowderSpec, powderRestraints, type CorrectionsUpdate, type MustrainModel, type SampleCorrections, type SiteTies } from "@/app/powderSpec";
 import {
-  buildSpecFor, carryRefinedStructure, DEFAULT_INSTRUMENT, EMPTY_SOURCE, emptySession, keptBindings, keptRow, keptRows, newSession, SYNTHETIC_SOURCE,
+  buildSpecFor, carryRefinedStructure, DEFAULT_BACKGROUND_TERMS, DEFAULT_INSTRUMENT, EMPTY_SOURCE, emptySession, keptBindings, keptRow, keptRows, newSession, SYNTHETIC_SOURCE,
   withMagneticRows, withValidUserTies, type Session,
 } from "@/app/powderSession";
 import { rowsForPhases } from "@/app/multiPhaseSpec";
@@ -113,7 +114,7 @@ function rebuilt(s: Session, instrument: InstrumentParameters, change: { structu
   const backgroundTerms = change.backgroundTerms ?? s.backgroundTerms;
   const siteTies = change.siteTies ?? s.siteTies;
   const mustrain = change.mustrain ?? s.mustrain ?? "isotropic";
-  const spec = buildSpecFor(structure, s.extraPhases, s.pattern, instrument, s.powderProfile.lorentz ?? true, backgroundTerms, siteTies, mustrain, s.corrections);
+  const spec = buildSpecFor(structure, s.extraPhases, s.pattern, instrument, s.powderProfile.lorentz ?? true, backgroundTerms, siteTies, mustrain, s.corrections, s.powderProfile.backgroundType);
   return {
     ...s,
     structure,
@@ -147,9 +148,31 @@ export function withBackgroundType(s: Session, backgroundType: BackgroundType): 
   return { ...s, powderParams, powderProfile: { ...s.powderProfile, backgroundType } };
 }
 
-/** Change the number of background coefficients (0–24), keeping every other row and the background type. */
+/**
+ * Change the number of background coefficients (0–24), keeping every other row
+ * and the background type. An interpolation basis's coefficients are heights at
+ * points that move with their number, so they are read off the current curve at
+ * the new points: the background keeps its shape instead of each height landing
+ * at another point.
+ */
 export function withBackgroundTerms(s: Session, n: number, instrument: InstrumentParameters): Session {
-  return rebuilt(s, instrument, { backgroundTerms: Math.max(0, Math.min(24, Math.trunc(n))) });
+  const next = rebuilt(s, instrument, { backgroundTerms: Math.max(0, Math.min(24, Math.trunc(n))) });
+  const type = s.powderProfile.backgroundType;
+  if ((type !== "linInterpolate" && type !== "logInterpolate") || next.backgroundTerms === s.backgroundTerms) return next;
+  const old = s.powderParams.filter((p) => p.kind === "background").map((p) => p.value);
+  const { min: xMin, max: xMax } = minMax(s.pattern.points.map((p) => p.x));
+  if (old.length === 0 || !(xMax > xMin)) return next;
+  const anchors = interpAnchors(next.backgroundTerms, xMin, xMax, type === "logInterpolate");
+  let k = 0;
+  return {
+    ...next,
+    powderParams: next.powderParams.map((p) => {
+      if (p.kind !== "background") return p;
+      const v = evaluateBackground(next.backgroundTerms === 1 ? (xMin + xMax) / 2 : anchors[k]!, old, type, xMin, xMax);
+      k++;
+      return { ...p, value: v, initialValue: v };
+    }),
+  };
 }
 
 /**
@@ -327,20 +350,35 @@ function rowsOn(
   p: PowderPage,
   structure: StructureModel,
   pattern: PowderPattern,
-  settings: { readonly lorentz: boolean; readonly backgroundTerms: number; readonly siteTies: SiteTies },
+  settings: { readonly lorentz: boolean; readonly backgroundTerms: number; readonly backgroundType?: BackgroundType; readonly siteTies: SiteTies },
   overlay: boolean,
 ): { params: RefinementParameter[]; bindings: ParameterBinding[]; profile: Session["powderProfile"]; viewOnly: boolean } {
-  const { lorentz, backgroundTerms, siteTies } = settings;
+  const { lorentz, backgroundTerms, backgroundType, siteTies } = settings;
   if (pattern.xUnit === "tof") {
     const tof = p.instrumentLoaded && p.instrument.kind === "tof" ? p.instrument : null;
     if (overlay || !tof) {
       const bindings = powderBindings(structure, pattern.id);
       return { params: startingPowderParams(structure, pattern, bindings), bindings, profile: { shape: "gaussian" }, viewOnly: true };
     }
-    return { ...buildPowderSpec(structure, pattern, tof, lorentz, backgroundTerms, siteTies), viewOnly: false };
+    return { ...buildPowderSpec(structure, pattern, tof, lorentz, backgroundTerms, siteTies, undefined, undefined, backgroundType), viewOnly: false };
   }
   const cw = p.instrumentLoaded && p.instrument.kind === "constantWavelength" ? p.instrument : DEFAULT_INSTRUMENT;
-  return { ...buildPowderSpec(structure, pattern, cw, lorentz, backgroundTerms, siteTies), viewOnly: false };
+  return { ...buildPowderSpec(structure, pattern, cw, lorentz, backgroundTerms, siteTies, undefined, undefined, backgroundType), viewOnly: false };
+}
+
+/**
+ * The background new data, a new instrument or a new model start on: the
+ * instrument's default where it has one (backgroundDefaults.ts: POWGEN TOF,
+ * log interpolate with three points), else the general one, Chebyshev with the
+ * page's count — the general default's count when the page was on POWGEN's.
+ * The rebuilds that keep the data (a term count, a phase, a correction) keep
+ * the page's own background instead, so do a saved project and the demos.
+ */
+function startingBackground(pattern: PowderPattern, p: PowderPage, previous: { readonly pattern: PowderPattern; readonly page: PowderPage; readonly terms: number }): { readonly type?: BackgroundType; readonly terms: number } {
+  const own = instrumentBackgroundDefault(pattern, p.instrumentLoaded ? p.instrument : null);
+  if (own) return own;
+  const wasOwn = instrumentBackgroundDefault(previous.pattern, previous.page.instrumentLoaded ? previous.page.instrument : null);
+  return { terms: wasOwn ? DEFAULT_BACKGROUND_TERMS : previous.terms };
 }
 
 /**
@@ -358,9 +396,11 @@ export function withStructure(p: PowderPage, structure: StructureModel, magnetic
     ...(p.instrumentLoaded && s.rawInstrument ? { rawInstrument: s.rawInstrument } : {}),
   };
   if (!hasData(s)) return changed(p, fresh);
-  const rows = rowsOn(p, structure, s.pattern, { lorentz: s.powderProfile.lorentz ?? true, backgroundTerms: fresh.backgroundTerms, siteTies: fresh.siteTies }, !!s.powderOverlay);
+  const background = startingBackground(s.pattern, p, { pattern: s.pattern, page: p, terms: fresh.backgroundTerms });
+  const rows = rowsOn(p, structure, s.pattern, { lorentz: s.powderProfile.lorentz ?? true, backgroundTerms: background.terms, ...(background.type ? { backgroundType: background.type } : {}), siteTies: fresh.siteTies }, !!s.powderOverlay);
   return changed(p, {
     ...fresh,
+    backgroundTerms: background.terms,
     pattern: s.pattern,
     powderParams: rows.params,
     powderBindings: rows.bindings,
@@ -387,10 +427,12 @@ function primaryOnly(s: Session): Session {
 export function withPattern(p: PowderPage, pattern: PowderPattern, file?: LoadedFile, overlay?: PatternOverlay): PowderPage {
   const page = pattern.xUnit !== "tof" && p.instrument.kind === "tof" ? { ...p, instrument: DEFAULT_INSTRUMENT, instrumentLoaded: false } : p;
   const s = p.session;
-  const rows = rowsOn(page, s.structure, pattern, { lorentz: true, backgroundTerms: s.backgroundTerms, siteTies: s.siteTies }, !!overlay);
+  const background = startingBackground(pattern, page, { pattern: s.pattern, page: p, terms: s.backgroundTerms });
+  const rows = rowsOn(page, s.structure, pattern, { lorentz: true, backgroundTerms: background.terms, ...(background.type ? { backgroundType: background.type } : {}), siteTies: s.siteTies }, !!overlay);
   const { corrections: _corrections, mustrain: _mustrain, rawData: _rawData, ...rest } = s;
   return changed(page, {
     ...rest,
+    backgroundTerms: background.terms,
     extraPhases: [],
     pattern,
     powderParams: rows.viewOnly ? rows.params : carryRefinedStructure(primaryOnly(s), rows.params).params,
@@ -418,10 +460,12 @@ export function withInstrument(p: PowderPage, instrument: InstrumentParameters, 
   const pattern = instrument.kind === "constantWavelength" && s.pattern.xUnit !== "tof"
     ? { ...s.pattern, radiation: radiationOf(instrument), wavelength: instrument.wavelength }
     : s.pattern;
-  const spec = buildSpecFor(s.structure, s.extraPhases, pattern, instrument, s.powderProfile.lorentz ?? true, s.backgroundTerms, s.siteTies, s.mustrain ?? "isotropic", s.corrections);
+  const background = startingBackground(pattern, page, { pattern: s.pattern, page: p, terms: s.backgroundTerms });
+  const spec = buildSpecFor(s.structure, s.extraPhases, pattern, instrument, s.powderProfile.lorentz ?? true, background.terms, s.siteTies, s.mustrain ?? "isotropic", s.corrections, background.type);
   return changed(page, {
     ...s,
     ...raw,
+    backgroundTerms: background.terms,
     pattern,
     powderParams: withMagneticRows(carryRefinedStructure(s, spec.params).params, s.powderParams),
     powderBindings: keptBindings(spec.bindings, s.powderBindings),

@@ -15,6 +15,7 @@
 import type { StructureModel } from "@/core/crystal/types";
 import type { PowderPattern } from "@/core/diffraction/types";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
+import type { BackgroundType } from "@/core/diffraction/background";
 import { isMagneticModelParameterKind, type ParameterBinding, type ParameterKind, type RefinementParameter } from "@/core/refinement/types";
 import type { PowderProfile } from "@/core/workflow/powder";
 import type { PowderPhase } from "@/core/workflow/multiPhase";
@@ -47,6 +48,8 @@ export function buildMultiPhaseSpec(
   ties: SiteTies = {},
   mustrain: MustrainModel = "isotropic",
   corrections?: SampleCorrections,
+  /** The shared background's basis (seeds and profile), as buildPowderSpec's. */
+  backgroundType?: BackgroundType,
 ): MultiPhaseSpec {
   const params: RefinementParameter[] = [];
   const bindings: ParameterBinding[] = [];
@@ -55,7 +58,7 @@ export function buildMultiPhaseSpec(
     // Preferred orientation is the primary phase's (a per-phase ratio; the
     // axis is given in its lattice); the sample corrections are shared.
     const own = i === 0 || !corrections ? corrections : (({ preferredOrientation: _po, ...shared }) => shared)(corrections);
-    const spec = buildPowderSpec(structure, pattern, instrument, true, backgroundTerms, ties, mustrain, own);
+    const spec = buildPowderSpec(structure, pattern, instrument, true, backgroundTerms, ties, mustrain, own, backgroundType);
     if (i === 0) profile = spec.profile;
     for (const p of spec.params) {
       if (SHARED_KINDS.has(p.kind)) { if (i === 0) params.push(p); continue; }
