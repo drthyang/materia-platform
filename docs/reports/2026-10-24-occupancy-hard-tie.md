@@ -1,6 +1,6 @@
 # A shared site's occupancies sum to exactly 1 on the PDF page
 
-Pull request [#PR](https://github.com/drthyang/materia-platform/pull/PR),
+Pull request [#106](https://github.com/drthyang/materia-platform/pull/106),
 branch `claude/occupancy-hard-tie`, 2026-10-24. The owner's decision: on the
 PDF page, the occupancies of a site shared by several species (the
 high-entropy tungstate's six cations on one site) sum to 1 by a hard
