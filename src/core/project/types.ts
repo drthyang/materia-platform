@@ -47,6 +47,7 @@
  * Versioning and migration policy: see `io.ts` and docs/PROJECT_FORMAT.md.
  */
 
+import type { ZeroAdpFix } from "@/core/diagnostics/zeroAdp";
 import type { DistanceRestraint, RidingRule, StructureModel } from "@/core/crystal/types";
 import type { DistortionModeSet } from "@/core/crystal/distortionModes";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
@@ -148,6 +149,12 @@ export interface PowderWorkspace {
   readonly displayUnit?: PowderXUnit;
   /** Residual peaks the user added by hand on the magnetic page (d-spacings, Å). */
   readonly manualPeaks?: readonly number[];
+  /**
+   * The B-at-0 proposals the user applied (core/diagnostics/zeroAdp.ts): why a
+   * B row is tied or held. The tie or value itself is in `refinement`, as any
+   * other; a record its row no longer carries is ignored. Absent ⇒ none.
+   */
+  readonly zeroAdpFixes?: readonly ZeroAdpFix[];
 }
 
 // ---------------------------------------------------------------------------

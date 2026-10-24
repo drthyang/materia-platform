@@ -134,6 +134,29 @@ Open a group for its model controls:
 - **Shared site**, under the plot when atoms share a site: **tie position**,
   **tie ADP** and **Σ occ = 1**.
 
+### When a B refines to 0
+
+A B_iso that ends on its lower bound (0) has no meaningful esd, and usually
+absorbs an error elsewhere: check the background, absorption and the
+correlations first ([Judge a fit](#8-judge-a-fit)). The powder page then shows
+a ⚠ **B at its lower bound** notice over the parameter list. It names the atom,
+the B it reached, and a proposal with its source:
+
+- **Rule A, a tie** to the B of a chemically similar site that refined
+  sensibly: the same element first (O2 → O1), else a cation with the same
+  coordination (as many of the same ligands). The common B still refines.
+- **Rule B, the starting structure's B** for that site (a CIF's U_iso is read
+  as B = 8π²U), held fixed. It is used as it stands: the app has no
+  temperature model for B.
+- **Rule C, no value**, when neither applies. The app has no documented table
+  of typical B values, so it proposes none, and never an arbitrary floor.
+
+Nothing changes until you click **Apply** (or approve the Agent's card).
+Applied, the row is an ordinary **= tied** or fixed row, saved like any other,
+and listed under **Limitations** in the report. **Release** (or ⌘Z) frees it
+again. If a conclusion rests on that B, sample its posterior first
+(**Posterior** view).
+
 ### When the fit is stuck
 
 The engine is local and needs a reasonable start

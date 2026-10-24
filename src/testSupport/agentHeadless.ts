@@ -21,7 +21,7 @@ import { ComputeClient } from "@/workers/computeClient";
 import {
   extentOf, hasTensorAdp, observationsIn, pageAxis, posteriorRun, powderFit, powderPageCurves, refinedPhasesOf, restraintRequest, thoroughFit, weightedR,
   withAnisotropicAdp, withAntisitePair, withBackgroundTerms, withBackgroundType, withCorrections, withFit as withPowderFit, withFixed, withInstrumentConstants,
-  withMustrain, withParameterTies, withPhase, withReset, withSiteTies, changed, specInstrumentOf, type FitWindow, type PowderCompute, type PowderPage, type PowderPageModel,
+  withMustrain, withParameterTies, withPhase, withReset, withSiteTies, withZeroAdpApplied, zeroAdpOf, changed, specInstrumentOf, type FitWindow, type PowderCompute, type PowderPage, type PowderPageModel,
 } from "@/app/powderPage";
 import { moveTo, recordStep, restoreStep, type ProjectHistory, type Snapshot, type StepActor, type StepKind } from "@/core/project/history";
 import type { Workspace } from "@/core/project/types";
@@ -105,6 +105,7 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
       axis: pageAxis(s, shown),
       source: "test",
       restraints: restraintRequest(s).restraints ?? [],
+      zeroAdp: zeroAdpOf(held),
     };
   };
   /** The posterior run to continue: its closure keeps the problem it sampled, as the page's. */
@@ -147,6 +148,11 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
     setParameterTies: (update) => {
       calls.push(`ties ${JSON.stringify(update)}`);
       change((s) => withParameterTies(s, update));
+    },
+    applyZeroAdp: (ids) => {
+      calls.push(`zeroAdp ${ids.join(",")}`);
+      const chosen = zeroAdpOf(held).proposals.filter((p) => ids.includes(p.parameterId) && p.rule !== "C");
+      change((s) => chosen.reduce(withZeroAdpApplied, s));
     },
     setInstrumentConstants: (update) => {
       calls.push(`constants ${JSON.stringify(update)}`);

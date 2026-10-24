@@ -349,6 +349,19 @@ function checkPowderWorkspace(ws: Rec, path: string, ctx: PhaseContext): void {
   opt(ws.fitRange, `${path}.fitRange`, checkWindow);
   opt(ws.displayUnit, `${path}.displayUnit`, oneOf(X_UNITS));
   if (ws.manualPeaks !== undefined && ws.manualPeaks !== null) each(ws.manualPeaks, `${path}.manualPeaks`, (d, p) => num(d, p));
+  if (ws.zeroAdpFixes !== undefined && ws.zeroAdpFixes !== null) each(ws.zeroAdpFixes, `${path}.zeroAdpFixes`, checkZeroAdpFix);
+}
+
+/** A B-at-0 fix the user applied (core/diagnostics/zeroAdp.ts): its row, the B it reached, rule A's leader or rule B's value, the source. */
+function checkZeroAdpFix(v: unknown, path: string): void {
+  const f = rec(v, path);
+  str(f.parameterId, `${path}.parameterId`);
+  str(f.atom, `${path}.atom`);
+  num(f.reached, `${path}.reached`);
+  const rule = oneOf(["A", "B"] as const)(f.rule, `${path}.rule`);
+  if (rule === "A") str(f.leader, `${path}.leader`);
+  if (rule === "B") num(f.value, `${path}.value`);
+  str(f.source, `${path}.source`);
 }
 
 function checkScDataset(v: unknown, path: string): void {

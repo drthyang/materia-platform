@@ -90,6 +90,7 @@ own. Bindings must reference parameters present in the file; ids must be unique.
 | `fitRange?` | `{min, max}` | Refinement window in the pattern's native unit. Absent ⇒ whole pattern. |
 | `displayUnit?` | `PowderXUnit` | Display-only axis choice. |
 | `manualPeaks?` | number[] | Hand-picked residual peaks (d, Å) from the magnetic page. |
+| `zeroAdpFixes?` | `{parameterId, atom, reached, rule, leader?, value?, source}[]` | The B-at-0 proposals the user applied: why a B row is tied (`rule` A, `leader`) or held (`rule` B, `value`). The tie or the held value itself is in `refinement`, like any other; a record its row no longer carries is ignored. Absent ⇒ none (files written before it open unchanged). |
 
 ### `"singleCrystal"` — integrated intensities (F²)
 

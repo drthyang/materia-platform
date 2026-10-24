@@ -34,6 +34,7 @@ import { withAntisite } from "@/core/crystal/antisite";
 import { structureTable } from "@/agent/structureTable";
 import { powderReflectionObsCalc } from "@/core/workflow/obsCalc";
 import { checkEqualTies, type EqualTieUpdate } from "@/core/refinement/constraints";
+import { ZERO_ADP_BAYES, zeroAdpFixText } from "@/core/diagnostics/zeroAdp";
 import { bondsOf, cellOf, historyView, labelOf, matchIds, parameterSummary, pct, sig, type LiveToolHost } from "@/agent/liveCommon";
 import { change, freePlan, goToPlan, nothing, refinePlan, resetPlan, type Plans } from "@/agent/pages/plans";
 import { powderValidation } from "@/core/diagnostics/powderValidation";
@@ -361,6 +362,21 @@ export const POWDER_PLANS: Plans<PowderAgentPort> = {
       return undefined;
     });
   },
+  apply_adp_proposal: (input, s, port) => {
+    if (!s.result) throw new Error("there is no refinement result on screen — refine first: a proposal is read off the last fit's bounds");
+    const ids = matchIds(s.parameters, input.parameters);
+    const proposals = ids.map((id) => {
+      const p = s.zeroAdp?.proposals.find((z) => z.parameterId === id);
+      if (!p) throw new Error(`${id} is not a free B the last fit left on its lower bound (assess_refinement lists the B-at-0 proposals)`);
+      if (p.rule === "C") throw new Error(`${p.atom}: no value is proposed (rule C) — ${p.source.replace(/^rule C: no value /, "")}. Find the cause, or ask the user for a value they can cite`);
+      return p;
+    });
+    const apply = handler(port.applyZeroAdp, "this page cannot apply the B-at-0 rule");
+    return change(proposals.map((p) => p.warning.replace(` ${ZERO_ADP_BAYES}`, "")).join(" · "), () => {
+      apply(ids);
+      return "Applied as a tie or a held value (the History records it): refine next. The report lists it under its limitations; tie_parameters release or set_free undoes it.";
+    });
+  },
   set_instrument_constants: (input, s, port) => {
     const update = constantsUpdate(input);
     if (Object.keys(update).length === 0) throw new Error("pass `polarization`, `kAlpha2Ratio`, or both");
@@ -537,12 +553,25 @@ function stateView(s: PowderLiveState, history: ProjectHistory | null, select: r
           ...(s.result.message ? { message: s.result.message } : {}),
         }
       : null,
+    ...zeroAdpView(s),
     ...parameterSummary(s.parameters, s.result?.esd, select),
     history: historyView(history),
   };
 }
 
 // ── analysis helpers ────────────────────────────────────────────────────────
+
+/** The B-at-0 rule on the page: the proposals for B's on their bound (apply_adp_proposal), and the fixes in force. */
+function zeroAdpView(s: PowderLiveState): Record<string, unknown> {
+  const z = s.zeroAdp;
+  if (!z || (z.proposals.length === 0 && z.applied.length === 0)) return {};
+  return {
+    bAtZero: {
+      ...(z.proposals.length > 0 ? { proposed: z.proposals.map((p) => ({ parameter: p.parameterId, rule: p.rule, warning: p.warning })), apply: "apply_adp_proposal with the row's id (the user approves the card); rule C has nothing to apply" } : {}),
+      ...(z.applied.length > 0 ? { applied: z.applied.map((f) => zeroAdpFixText(f)) } : {}),
+    },
+  };
+}
 
 /** Multi-phase, after a refinement: each phase's weight fraction from its scale. */
 function phaseFractionView(s: PowderLiveState): Record<string, unknown> {
@@ -648,6 +677,7 @@ function assessment(s: PowderLiveState): ReturnType<typeof assess_refinement> {
     restraints: s.restraints,
     sharedSiteAdps: sharedSiteAdps(s),
     structures: s.refinedPhases,
+    ...(s.zeroAdp ? { zeroAdp: s.zeroAdp } : {}),
   });
 }
 
@@ -663,7 +693,8 @@ export function refineChecks(s: PowderLiveState): Record<string, unknown> {
   const many = s.refinedPhases.length > 1;
   const found = [...physicalFindings(s.parameters), ...s.refinedPhases.flatMap((m) => structureChecks(m, many ? m.name || m.id : undefined))];
   const hard = found.filter((f) => f.severity === "critical").map((f) => f.summary);
-  const warnings = found.filter((f) => f.severity === "warning").map((f) => f.summary);
+  // A B the fit left on its bound: the B-at-0 rule's proposal, never applied without the user (apply_adp_proposal).
+  const warnings = [...found.filter((f) => f.severity === "warning").map((f) => f.summary), ...(s.zeroAdp?.proposals ?? []).map((p) => p.warning)];
   const kind = new Map(s.parameters.map((p) => [p.id, p.kind]));
   const correlations = (s.result.diagnostics?.moderateCorrelations ?? [])
     .filter((c) => !oneCurve(kind.get(c.parameterIdA), kind.get(c.parameterIdB)))

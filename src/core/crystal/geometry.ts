@@ -424,7 +424,7 @@ export interface CoordinationShell {
 }
 
 /** Elements that make the polyhedra around the cations. */
-const ANION_ELEMENTS: ReadonlySet<string> = new Set(["O", "F", "Cl", "Br", "I", "S", "Se", "Te", "N"]);
+export const ANION_ELEMENTS: ReadonlySet<string> = new Set(["O", "F", "Cl", "Br", "I", "S", "Se", "Te", "N"]);
 
 /** A shell reaches at least this far (Å), so a long Jahn–Teller bond (Cu²⁺–O ≈ 2.7 Å) stays in it. */
 const SHELL_REACH = 3.2;

@@ -893,6 +893,30 @@ Powder and single-crystal pages. Constrain parameters to one refined value, as a
 }
 ```
 
+### apply_adp_proposal
+
+Powder page only. The B-at-0 rule: when the last refinement left an isotropic B on its lower bound (0), assess_refinement's at-bound finding gives a proposal with its source — rule A, a tie to the B of a chemically similar site that refined sensibly (the same element, else a cation of the same coordination), so the common B still refines; rule B, the B the loaded starting structure gives the site, held fixed as it stands (the app has no temperature model for B); rule C, none: the app has no documented table of typical B values, so it proposes no value, and never a small floor. This applies the app's proposal for the rows you name: you choose which, never the value. The card shows the user the atom, the B it reached, the tie or value and its source. Applied, it is a tie or a held value like any other: tie_parameters `release` or set_free frees the row again, and go_to_step undoes it. Refine after it, and say it in the report (its limitations list it). Find the cause first when diagnose_fit names one (the background, absorption, a correlation); and when the B carries physical meaning, sample its posterior (sample_posterior) rather than quote a held value.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "parameters": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "The B rows the last fit left on their lower bound (ids or globs, e.g. [\"B_O2\"])"
+    }
+  },
+  "required": [
+    "parameters"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### sample_posterior
 
 Powder and PDF pages. The Bayesian check of a converged refinement: an ensemble MCMC (Goodman–Weare stretch moves over the worker pool) samples the posterior of the FREE parameters around the refined values and returns, per parameter, the median with 68 % and 95 % credible intervals, the posterior width over the least-squares esd (esdRatio), whether the interval ends on a bound, and the convergence (split-R̂, effective sample size); with the posterior correlations the data leave. Use it when a number is not convincing: an esd as large as the value, a parameter on a bound (B = 0, an occupancy at 1: the posterior gives a one-sided limit where the esd means nothing), a pair the correlation check flags, values that move between refinement paths at the same wR, or a physical claim resting on one parameter (an exchange fraction, a moment, a small distortion). esdRatio ≈ 1 confirms the esds; > 1.5 means they understate the uncertainty: quote the credible interval. `compare` gives the posterior of a difference (two B's, two occupancies, two moments) and the probability one is the larger: whether the data tell them apart. It quantifies uncertainty within the model and cannot fix a wrong one; with a systematic misfit (on powder, diagnose_fit's Durbin–Watson d below its critical Q_D) it is as overconfident as the esds. Cost: each step evaluates the pattern 2·nFree+2 times, and the chain mixes more slowly with more free parameters (about 10⁴ steps at 20 free; a few thousand at 8–10): free the values in question with their partners (the scale with occupancies and B's, the B's with the positions, the moments with the scale), fix the rest (usually the profile, the background, the cell and zero), refine that set — the posterior is read against that refinement's esds — then sample. The intervals are conditional on what is held: the profile and the background trade with the B values, so say so when quoting them. Not converged: call again with continue: true. Changes nothing in the model; the page shows the marginals in its Posterior view.

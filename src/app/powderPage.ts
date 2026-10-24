@@ -18,7 +18,8 @@ import { buildMagneticPowderProblem, magneticComponentCurve } from "@/core/workf
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { multiPhaseCurves } from "@/core/workflow/multiPhase";
 import { applyParameters } from "@/core/workflow/apply";
-import { withEqualTies, type EqualTieUpdate } from "@/core/refinement/constraints";
+import { isUserTie, withEqualTies, type EqualTieUpdate } from "@/core/refinement/constraints";
+import { activeZeroAdpFixes, withFixRecorded, withZeroAdpProposal, zeroAdpFix, zeroAdpProposals, type ZeroAdpFix, type ZeroAdpProposal } from "@/core/diagnostics/zeroAdp";
 import type { PeakShape } from "@/core/diffraction/profile";
 import { evaluateBackground, interpAnchors, type BackgroundType } from "@/core/diffraction/background";
 import { instrumentBackgroundDefault } from "@/core/workflow/backgroundDefaults";
@@ -223,7 +224,7 @@ export function hasTensorAdp(structure: StructureModel): boolean {
 
 /** Tie parameters of one kind to one refined value, or release such ties (the rows come back fixed at their value). */
 export function withParameterTies(s: Session, update: EqualTieUpdate): Session {
-  return { ...s, powderParams: withEqualTies(s.powderParams, update) };
+  return withZeroAdpPruned({ ...s, powderParams: withEqualTies(s.powderParams, update) });
 }
 
 /** Toggle tying position/ADP across shared (disordered) sites. */
@@ -318,10 +319,49 @@ export function withReset(s: Session, ids?: readonly string[]): Session {
   };
 }
 
+/**
+ * The B-at-0 rule on the page (core/diagnostics/zeroAdp.ts): a proposal for
+ * each free B the fit on the page left on its lower bound, and the fixes the
+ * user applied that the rows still carry.
+ */
+export function zeroAdpOf(p: Pick<PowderPage, "session" | "result">): { proposals: ZeroAdpProposal[]; applied: ZeroAdpFix[] } {
+  const s = p.session;
+  return {
+    proposals: zeroAdpProposals({ parameters: s.powderParams, bindings: s.powderBindings, result: p.result, structures: [s.structure, ...s.extraPhases], refined: refinedPhasesOf(s) }),
+    applied: activeZeroAdpFixes(s.powderParams, s.zeroAdpFixes),
+  };
+}
+
+/** A B-at-0 proposal applied: rule A's tie or rule B's held value on the row, and its record. Rule C has none to apply. */
+export function withZeroAdpApplied(s: Session, proposal: ZeroAdpProposal): Session {
+  const fix = zeroAdpFix(proposal);
+  return { ...s, powderParams: withZeroAdpProposal(s.powderParams, proposal), zeroAdpFixes: withFixRecorded(activeZeroAdpFixes(s.powderParams, s.zeroAdpFixes), fix) };
+}
+
+/** The B-at-0 records the rows still carry: one the user overrode (a tie released, the row freed or retyped) goes, so a later tie of their own is never claimed by the rule. */
+export function withZeroAdpPruned(s: Session): Session {
+  if (!s.zeroAdpFixes?.length) return s;
+  const kept = activeZeroAdpFixes(s.powderParams, s.zeroAdpFixes);
+  if (kept.length === s.zeroAdpFixes.length) return s;
+  const { zeroAdpFixes: _drop, ...rest } = s;
+  return kept.length > 0 ? { ...rest, zeroAdpFixes: kept } : rest;
+}
+
+/** A B-at-0 fix released: the row free again (a tie released first), at the value it holds now; its record goes. */
+export function withZeroAdpReleased(s: Session, parameterId: string): Session {
+  const row = s.powderParams.find((p) => p.id === parameterId);
+  const untied = row && isUserTie(row) ? withEqualTies(s.powderParams, { release: [parameterId] }) : s.powderParams;
+  return {
+    ...s,
+    powderParams: untied.map((p) => (p.id === parameterId ? { ...p, fixed: false } : p)),
+    zeroAdpFixes: (s.zeroAdpFixes ?? []).filter((f) => f.parameterId !== parameterId),
+  };
+}
+
 /** Free or fix rows by id. */
 export function withFixed(s: Session, changes: readonly { readonly id: string; readonly fixed: boolean }[]): Session {
   const fixed = new Map(changes.map((c) => [c.id, c.fixed]));
-  return { ...s, powderParams: s.powderParams.map((p) => (fixed.has(p.id) ? { ...p, fixed: fixed.get(p.id)! } : p)) };
+  return withZeroAdpPruned({ ...s, powderParams: s.powderParams.map((p) => (fixed.has(p.id) ? { ...p, fixed: fixed.get(p.id)! } : p)) });
 }
 
 // ── files loaded onto the page ─────────────────────────────────────────────

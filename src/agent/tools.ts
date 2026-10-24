@@ -484,6 +484,20 @@ const TOOLS = [
     offer: { powder: ["positions", "adp", "occupancy", "finish"], asked: ["occupancy", "adp", "tie"] },
   },
   {
+    name: "apply_adp_proposal",
+    title: "Hold a B that refined to 0",
+    description:
+      "Powder page only. The B-at-0 rule: when the last refinement left an isotropic B on its lower bound (0), assess_refinement's at-bound finding gives a proposal with its source — rule A, a tie to the B of a chemically similar site that refined sensibly (the same element, else a cation of the same coordination), so the common B still refines; rule B, the B the loaded starting structure gives the site, held fixed as it stands (the app has no temperature model for B); rule C, none: the app has no documented table of typical B values, so it proposes no value, and never a small floor. This applies the app's proposal for the rows you name: you choose which, never the value. The card shows the user the atom, the B it reached, the tie or value and its source. Applied, it is a tie or a held value like any other: tie_parameters `release` or set_free frees the row again, and go_to_step undoes it. Refine after it, and say it in the report (its limitations list it). Find the cause first when diagnose_fit names one (the background, absorption, a correlation); and when the B carries physical meaning, run the Bayesian check (the bayesian-check skill, sample_posterior) rather than quote a held value.",
+    withoutSkills:
+      "Powder page only. The B-at-0 rule: when the last refinement left an isotropic B on its lower bound (0), assess_refinement's at-bound finding gives a proposal with its source — rule A, a tie to the B of a chemically similar site that refined sensibly (the same element, else a cation of the same coordination), so the common B still refines; rule B, the B the loaded starting structure gives the site, held fixed as it stands (the app has no temperature model for B); rule C, none: the app has no documented table of typical B values, so it proposes no value, and never a small floor. This applies the app's proposal for the rows you name: you choose which, never the value. The card shows the user the atom, the B it reached, the tie or value and its source. Applied, it is a tie or a held value like any other: tie_parameters `release` or set_free frees the row again, and go_to_step undoes it. Refine after it, and say it in the report (its limitations list it). Find the cause first when diagnose_fit names one (the background, absorption, a correlation); and when the B carries physical meaning, sample its posterior (sample_posterior) rather than quote a held value.",
+    inputSchema: { parameters: ids.describe("The B rows the last fit left on their lower bound (ids or globs, e.g. [\"B_O2\"])") },
+    effect: "change",
+    pages: ["powder"],
+    alwaysAsk: true,
+    cards: ["parameters"],
+    offer: { powder: ["adp", "finish"], asked: ["adp", "tie"] },
+  },
+  {
     name: "sample_posterior",
     title: "Sample the Bayesian posterior",
     description:

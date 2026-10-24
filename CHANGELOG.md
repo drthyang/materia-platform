@@ -9,6 +9,20 @@ release fixes bugs.
 
 ### Added
 
+- **A B that refines to 0 gets a warned proposal, never a silent change.**
+  When a powder refinement leaves an isotropic B on its lower bound, the page
+  shows a notice over the parameters naming the atom, the B it reached, and
+  what to hold it at, with the source: a tie to a chemically similar site that
+  refined sensibly (rule A: the same element, else a cation of the same
+  coordination), else the starting structure's B as it stands (rule B). With
+  neither, no value is proposed: the repository has no documented table of
+  typical B values (rule C), and no arbitrary floor is used. Apply makes it a
+  tie or a held value like any other (Release or ⌘Z undoes it); the report
+  lists it under Limitations, `assess_refinement` and `get_state` show it to
+  the Agent, and the Agent applies one with `apply_adp_proposal`, which always
+  asks. Projects save the record beside the rows (`zeroAdpFixes`); files
+  without it open unchanged.
+
 - **Strong k = 0 magnetic peaks are taken to the magnetic step, not into the
   ADPs.** On a neutron pattern of magnetic ions whose misfits sit on nuclear
   reflections at large d (the k = 0 signature), the Agent's `magnetic_state`
