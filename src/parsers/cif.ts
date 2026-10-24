@@ -588,22 +588,33 @@ const IDENTITY_OPERATION: SymmetryOperation = {
   rotation: IDENTITY3, translation: [0, 0, 0], xyz: "x,y,z", timeReversal: 1,
 };
 
+/**
+ * A magCIF tag with its dots read as underscores. One item has several
+ * spellings: the DDLm `_space_group_symop_magn_operation.xyz` and
+ * `_atom_site_moment.label`, and the older ones Jana2006 and early exports
+ * write, `_space_group_symop.magn_operation_xyz` and `_atom_site_moment_label`.
+ * Matching only the DDLm form read such a file with no magnetic model, its
+ * atoms expanded by the H-M symbol alone: no anti-centring, often another
+ * origin, half the atoms of a site missing — and no error.
+ */
+const magTag = (tag: string): string => tag.toLowerCase().replace(/\./g, "_");
+
 function parseMagneticSpaceGroup(items: Map<string, string>, loops: Loop[]): SpaceGroup | null {
   const magLoop = findLoop(loops, (h) =>
-    h.some((k) => k.includes("space_group_symop_magn_operation.xyz")),
+    h.some((k) => magTag(k).includes("space_group_symop_magn_operation_xyz")),
   );
   if (!magLoop) return null;
-  const idx = magLoop.headers.findIndex((h) => h.toLowerCase().includes("magn_operation.xyz"));
+  const idx = magLoop.headers.findIndex((h) => magTag(h).includes("magn_operation_xyz"));
   const representatives = magLoop.rows.map((row) =>
     parseMagneticSymmetryOperation(row[idx >= 0 ? idx : row.length - 1]!),
   );
 
   const centLoop = findLoop(loops, (h) =>
-    h.some((k) => k.includes("space_group_symop_magn_centering.xyz")),
+    h.some((k) => magTag(k).includes("space_group_symop_magn_centering_xyz")),
   );
   const centerings = centLoop
     ? centLoop.rows.map((row) => {
-        const ci = centLoop.headers.findIndex((h) => h.toLowerCase().includes("magn_centering.xyz"));
+        const ci = centLoop.headers.findIndex((h) => magTag(h).includes("magn_centering_xyz"));
         return parseMagneticSymmetryOperation(row[ci >= 0 ? ci : row.length - 1]!);
       })
     : [];
@@ -633,11 +644,11 @@ function parseMagneticSpaceGroup(items: Map<string, string>, loops: Loop[]): Spa
 
 /** Parse the `_atom_site_moment` loop into magnetic moments (μ_B, crystal axes). */
 function parseMoments(loops: Loop[]): MagneticMoment[] {
-  const momLoop = findLoop(loops, (h) => h.some((k) => k.includes("atom_site_moment.label")));
+  const momLoop = findLoop(loops, (h) => h.some((k) => magTag(k).includes("atom_site_moment_label")));
   if (!momLoop) return [];
   const col = (needle: string): number =>
-    momLoop.headers.findIndex((h) => h.toLowerCase().includes(needle));
-  const iLabel = col("atom_site_moment.label");
+    momLoop.headers.findIndex((h) => magTag(h).includes(needle));
+  const iLabel = col("atom_site_moment_label");
   const iX = col("crystalaxis_x");
   const iY = col("crystalaxis_y");
   const iZ = col("crystalaxis_z");

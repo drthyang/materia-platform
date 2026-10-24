@@ -299,7 +299,9 @@ approximate, however plausible its output looks.
   against FullProf on DyMn₆Ge₆ (γ = 0.1648(7) vs 0.16509(43)). Single-crystal
   and magnetic-PDF refinements keep k fixed.
 - mCIF (BNS) import and export. Moment components are given along the
-  normalized crystal axes.
+  normalized crystal axes. The older magCIF spellings Jana2006 writes
+  (`_space_group_symop.magn_operation_xyz`, `_atom_site_moment_label`) read
+  like the DDLm ones.
 - Checks: the cosine/sine formalism reproduces a brute-force sum over the
   magnetic supercell, for primitive and for C-, I- and F-centred parents; a
   simple antiferromagnet at k = (0, 0, ½) is recovered end to end; MnO

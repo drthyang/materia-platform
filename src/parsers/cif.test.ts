@@ -585,6 +585,62 @@ Mn1 1.5 0 0
     expect(magnetic?.moments[0]?.components).toEqual([1.5, 0, 0]);
   });
 
+  it("reads the older (Jana) magCIF spellings of the operation, centring and moment loops like the DDLm ones", () => {
+    // Invented numbers. A doubled monoclinic cell whose listed operators put the
+    // inversion at (¼,0,0) — not the origin its Hall symbol implies — with one
+    // anti-centring, as Jana2006 writes a k = (½,0,0) structure.
+    const mcif = (op: string, centring: string, moment: string): string => `data_jana
+_cell_length_a 10.2
+_cell_length_b 6.1
+_cell_length_c 5.3
+_cell_angle_alpha 90
+_cell_angle_beta 95.5
+_cell_angle_gamma 90
+_symmetry_space_group_name_H-M 'P 1 2/n 1'
+_symmetry_space_group_name_Hall '-P 2yac'
+loop_
+${op}id
+${op}xyz
+1 x,y,z,+1
+2 -x,y,-z+1/2,+1
+3 -x+1/2,-y,-z,+1
+4 x+1/2,-y,z+1/2,+1
+loop_
+${centring}id
+${centring}xyz
+1 x,y,z,+1
+2 x+1/2,y,z,-1
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_occupancy
+Fe1 Fe 0.25 0.6 0.25 1
+O1 O 0.11 0.13 0.9 1
+loop_
+${moment}label
+${moment}crystalaxis_x
+${moment}crystalaxis_y
+${moment}crystalaxis_z
+Fe1 1.2(3) 0 0.8(2)
+`;
+    const jana = parseMagneticCif(mcif("_space_group_symop.magn_operation_", "_space_group_symop.magn_centering_", "_atom_site_moment_"));
+    const ddlm = parseMagneticCif(mcif("_space_group_symop_magn_operation.", "_space_group_symop_magn_centering.", "_atom_site_moment."));
+    const ops = (r: typeof jana) => r.structure.spaceGroup.operations.map((o) => `${o.xyz},${o.timeReversal}`).sort();
+    expect(ops(jana)).toEqual(ops(ddlm));
+    // The listed operators times the centrings, θ carried: 4 × 2.
+    expect(ops(jana)).toHaveLength(8);
+    expect(ops(jana)).toEqual(expect.arrayContaining(["-x+1/2,-y,-z,1", "-x,-y,-z,-1", "x+1/2,y,z,-1"]));
+    expect(jana.magnetic?.moments).toEqual([{ siteLabel: "Fe1", frame: "crystallographic", components: [1.2, 0, 0.8] }]);
+    expect(jana.magnetic?.operations).toHaveLength(8);
+    // Every atom of the doubled cell, not the half the H-M symbol alone gives.
+    const [fe, o] = jana.structure.sites;
+    expect(siteMultiplicity(jana.structure.spaceGroup.operations, fe!.position)).toBe(4);
+    expect(siteMultiplicity(jana.structure.spaceGroup.operations, o!.position)).toBe(8);
+  });
+
   it("skips any whitespace between tokens, including a byte-order mark", () => {
     const model = parseCif(`\uFEFF${CELL}_symmetry_space_group_name_H-M\u00A0'P 1'\n${ATOM_TAGS}Fe1\fFe 0 0 0\n`);
     expect(model.sites.map((s) => [s.label, s.element])).toEqual([["Fe1", "Fe"]]);
