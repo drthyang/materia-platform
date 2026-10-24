@@ -16,7 +16,7 @@ description: >-
 # My Rietveld workflow (MATERIA)
 
 This encodes **how the user runs a powder refinement** — the order, the checks, and the
-bar for calling it done. It is deliberately opinionated: it is their method, not a generic
+bar for calling it done. It is their method, not a generic
 "free everything and hope" Rietveld. Follow the sequence, but explain what you are doing
 and why at each stage so they can steer — they judge the fit, you drive the mechanics.
 
@@ -41,7 +41,7 @@ Only a peak that sits on no reflection of any phase is an extra peak
 
 ## Gates
 
-The numbers and the stops in one place; each is explained at its stage below.
+The numbers and the stops; each is explained at its stage below.
 
 - **The data before the model.** An axis in another unit than the file says, one factor on
   every d (a wrong wavelength or TOF calibration), or an instrument constant that does not
@@ -68,7 +68,8 @@ The numbers and the stops in one place; each is explained at its stage below.
   correlation refused. **Over MCP** the cross-check must agree as well: GSAS-II and
   FullProf give each reported parameter within 2 combined esds.
 - **Ask the user** before a large fit-range cut, adding a phase, an instrument constant, an
-  exception to a firm rule, and any change of space group (which you never make yourself).
+  exception to a firm rule, and any change of space group (which you never make yourself). In the app, put such a decision
+  with `ask_user`: one question, the options as you would say them; the change itself still asks.
 
 ## Stage 0 — Load, set the fit range, and sanity-check the cell
 
@@ -76,7 +77,7 @@ The numbers and the stops in one place; each is explained at its stage below.
    (CIF), `parse_powder_data` (pattern) and `parse_instrument`; in the app the user loads
    them, and `get_state` shows the page. Confirm the radiation/geometry (CW vs TOF;
    capillary, flat-plate, or cylindrical) — it decides which corrections mean anything
-   later. Then check the data are what the files say (no refinement fixes these):
+   later. Then check the data are what the files say:
    - **The axis.** `get_state`'s `axisWarning`: the axis holds next to none of the
      structure's reflections (d or Q read as 2θ). Ask the user its unit.
    - **The d scale.** The cell check (step 3) first reads the pattern's own peaks: one
@@ -140,23 +141,21 @@ The numbers and the stops in one place; each is explained at its stage below.
 
 The sequence is **atoms before profile**. Free parameters in this order — in the app
 `set_free` then `refine`; over MCP `build_refinement` once, then `refine_powder` — and check
-(`assess_refinement`) between blocks. Free the next block only once the current one has
-converged (the largest shift below 0.1 esd) and hasn't railed to a bound.
+(`assess_refinement`) between blocks, freeing the next only once a block is done (Gates).
 
 1. **Scale + background + cell** — first, so intensity has somewhere sane to go. **Refine
-   the cell here** (with the zero): the check's Le Bail cell does not carry over. (Watch the
+   the cell here** (with the zero). (Watch the
    cell↔zero↔displacement correlation — `assess_refinement` flags it; free the zero from a
    standard or on a wide range.)
 2. **Atomic positions** — freed *early*, against a roughly correct profile (the instrument
    file's; when it is far off, see below), so the profile cannot later absorb structural
-   misfit as fake broadening. A *quick* pass, not a fight: the positional gain is often
-   small and the profile the bigger lever; converge fast and move on.
+   misfit as fake broadening. A *quick* pass: the positional gain is often
+   small and the profile the bigger lever.
 3. **Profile** — now the peak shape: Caglioti `W` → `U, V` → the Lorentzian size/strain
    `X, Y` is a reasonable order, *not* a rigid one: free what the residual needs. `U`
    correlates strongly with sample broadening and is often held on a narrow 2θ range, but
    free it when a genuine width mismatch demands it.
-4. **ADPs** — with the instrument's terms fixed (the zero, `U V W X Y`, the asymmetry: the
-   guardrail below), then the two groups alternate. `B_iso` first; **anisotropic only if
+4. **ADPs** — with the instrument's terms fixed (the guardrail below), then the two groups alternate. `B_iso` first; **anisotropic only if
    the data clearly support it** (high real-space resolution / low temperature). `B_iso`
    railing toward 0 usually means the background or a correction is stealing high-angle
    intensity, not a rigid atom. When B values are not *determined* — they swap
@@ -270,7 +269,7 @@ describe is determined. Each against anything else still counts, and so does `X`
 ## Corrections are polish, not a crutch
 
 Add sample/intensity corrections **only after the structure has converged**, to clean up a
-residual — never early, and never to rescue a bad structural model. Match the correction to
+residual — never to rescue a bad structural model. Match the correction to
 the geometry and the residual's signature (`set_corrections`; their rows come in fixed: free
 them, then refine):
 
@@ -297,10 +296,10 @@ Stage 0 flag the refined residual no longer shows.
 
 The user does **not** chase absolute Rwp. A fit is acceptable when all of:
 
-1. **GoF (= Rwp/Rexp = √χ²ν, the square root of the reduced χ²) is reasonable** — good or
+1. **GoF is reasonable** — good or
    excellent in `assess_refinement`'s bands: close to the statistical floor, not just
-   numerically small. Report GoF, not Rwp alone. **Flag a GoF meaningfully below 1**
-   (below 0.8, too good): the σ's are over-estimated or the model over-parameterized, so
+   numerically small. **Flag a GoF below 0.8**
+   (too good): the σ's are over-estimated or the model over-parameterized, so
    the ESDs are optimistic — suggest checking the weighting or the free-parameter count
    rather than celebrating.
 2. **Physical sanity holds** — the checks after every run (Gates) clear or explained,
@@ -318,8 +317,7 @@ The user does **not** chase absolute Rwp. A fit is acceptable when all of:
 **Stopping rule.** Levenberg–Marquardt converging is necessary but not sufficient: stop at
 the Gates' "Done". In the app, report then and offer the cross-check as the user's next
 step. Over MCP the cross-check is the terminator, not an internal Δχ² threshold: until
-GSAS-II and FullProf reproduce each reported parameter within 2 combined esds
-(|Δ| ≤ 2√(σ₁² + σ₂²)), the fit is not finished, however good the GoF looks.
+it agrees within 2 combined esds (|Δ| ≤ 2√(σ₁² + σ₂²)), the fit is not finished, however good the GoF looks.
 
 Report GoF, the key refined values with esds (`structure_table`), the corrections on, the
 correlations and anything at a bound — not just "converged, wR = X%" — and compare with a
@@ -342,7 +340,10 @@ comes from `export_bundle` and the tools.
 - **Magnetic**: once the nuclear structure is converged, hand off to the `magnetic-analysis`
   skill (in the app, the powder page's magnetic analysis step; over MCP,
   `search_propagation_vector`, `list_magnetic_subgroups`, `build_magnetic_model`,
-  `refine_magnetic_powder`) — a separate method, not this one.
+  `refine_magnetic_powder`) — a separate method, not this one. At k = 0 on neutron data
+  (`k0Magnetic`), hand off after the profile, before the positions and ADPs: they are
+  refined in the joint step, by this method's rules (alternating with the instrument
+  terms). A nuclear-only fit of such data is not judged by the acceptance bar.
 
 ## References
 
