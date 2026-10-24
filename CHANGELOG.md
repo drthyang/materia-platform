@@ -518,6 +518,20 @@ release fixes bugs.
 
 ### Changed
 
+- **A shared site's occupancies sum to exactly 1 on the PDF page.** They
+  were separate free rows held by a soft Σ restraint (σ 0.01, its target the
+  starting sum, 1.002 for the bundled high-entropy tungstate). Now the site's
+  last member follows one minus the others: `= -1*occ_A+1` for two species
+  (the complement tie the single-crystal page makes), `= 1 - sum(occ_A,
+  occ_B, …)` for more, a new form of tie. The others refine; the last is
+  held, and its esd comes from their full covariance. The parameter panel,
+  the CIF, the report (a "Shared sites" row) and the Agent's `get_state`,
+  `refine` and `structure_table` give it. A project saved before opens with
+  the tie: its values are kept, and the last occupancy, even if it was saved
+  free, becomes one minus the others. A site deliberately below full
+  occupancy can no longer be held at its starting sum on this page. The
+  powder page keeps its soft restraint and its "Σ occ = 1" setting.
+
 - **The Agent's executor and chat code split by what each part does**
   (internal; no behaviour change): the executor's dispatch, policy and
   record, and the chat's loop, transports, context budget and guards, each in

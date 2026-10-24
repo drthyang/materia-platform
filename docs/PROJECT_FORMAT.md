@@ -108,7 +108,7 @@ own. Bindings must reference parameters present in the file; ids must be unique.
 | Field | Type | Notes |
 | --- | --- | --- |
 | `pattern` | `PdfPattern` | `scatteringType` ∈ neutron · xray; points `{r, gObs, sigma?}`; Qmax/Qdamp/Qbroad/rpoly… from the header. A pattern transformed from S(Q)/F(Q) also carries `reciprocal` `{kind: sq·fq, q[], y[], sigma?[]}` (the original data, equal-length columns, σ ≥ 0) and `transform` `{qmin, qmax, modification: none·lorch, lowQ: none·linear}`; both optional, no schema bump. |
-| `refinement` | see above | Includes mode-amplitude rows (irreps) and moment rows (mPDF) when in use. |
+| `refinement` | see above | Includes mode-amplitude rows (irreps) and moment rows (mPDF) when in use. A shared site's last occupancy row carries its tie (`= 1 - sum(…)`, or the complement for two species); the spec rebuilds it on open, so a file saved before the tie opens with it, that row held at one minus the others. |
 | `fitRange` | `{min, max}` | The r window the model is computed and fitted in (Å). Required. |
 | `positionMode` | atomic · irreps | Per-coordinate shifts vs. symmetry-adapted mode amplitudes. |
 | `distortionModes?` | `{set: DistortionModeSet, parentName, fromActivation?}` | The parameterization built from a parent CIF or a subgroup activation — stored whole, since it cannot be regenerated from the child structure alone. |
