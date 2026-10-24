@@ -297,9 +297,7 @@ The user does **not** chase absolute Rwp. A fit is acceptable when all of:
 1. **GoF is reasonable** — good or
    excellent in `assess_refinement`'s bands: close to the statistical floor, not just
    numerically small. **Flag a GoF below 0.8**
-   (too good): the σ's are over-estimated or the model over-parameterized, so
-   the ESDs are optimistic — suggest checking the weighting or the free-parameter count
-   rather than celebrating.
+   (too good): the ESDs are optimistic — suggest checking the weighting or the free-parameter count.
 2. **Physical sanity holds** — the checks after every run (Gates) clear or explained,
    `B_iso > 0`, occupancy sums chemically sensible, bond lengths/angles reasonable
    (`bond_geometry` gives the bond-valence sums).
@@ -316,8 +314,9 @@ The user does **not** chase absolute Rwp. A fit is acceptable when all of:
 the Gates' "Done". In the app, report then and offer the cross-check as the user's next
 step. Over MCP the cross-check is the terminator, not an internal Δχ² threshold: until
 it agrees within 2 combined esds (|Δ| ≤ 2√(σ₁² + σ₂²)), the fit is not finished, however good the GoF looks.
-Esds understate the uncertainty when GoF ≫ 1, when parameters correlate strongly or sit on
-a bound; judge those with `bayesian-check` and the physics, not the esd alone.
+Esds understate the uncertainty when the residuals are serially correlated or the model is
+incomplete (GoF ≫ 1), and mean little for a parameter on a bound or in a strongly correlated
+pair; judge those with `bayesian-check` and the physics, not the esd alone.
 
 Report GoF, the key refined values with esds (`structure_table`), the corrections on, the
 correlations and anything at a bound — not just "converged, wR = X%" — and compare with a
