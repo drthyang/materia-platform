@@ -20,7 +20,7 @@ import type { StructureModel } from "@/core/crystal/types";
 import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { CorrectionsUpdate, SiteTies } from "@/app/powderSpec";
 import { availableDisplayUnits, convertAxisValue, convertInterval } from "@/visualization/axisUnits";
-import { oneCurve, physicalFindings, residualPeaks } from "@/core/diagnostics/assessment";
+import { k0MagneticHint, oneCurve, physicalFindings, residualPeaks } from "@/core/diagnostics/assessment";
 import { structureChecks } from "@/core/diagnostics/structureChecks";
 import { reviewSymmetry } from "@/core/diagnostics/symmetryReview";
 import { formatWt, fractionsOf } from "@/core/diagnostics/phaseFractions";
@@ -39,7 +39,7 @@ import { change, freePlan, goToPlan, nothing, refinePlan, resetPlan, type Plans 
 import { powderValidation } from "@/core/diagnostics/powderValidation";
 import type { ReportCheck } from "@/core/export/report";
 import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, correlationsCheck, findingChecks, noResultCheck, verdictCheck } from "@/agent/reportChecks";
-import { groupOf } from "@/agent/method";
+import { groupOf, POSITION_KINDS, THERMAL_KINDS } from "@/agent/method";
 import { MAGNETIC_PLANS, magneticNext } from "@/agent/magneticTools";
 import { cellCheckReading, dScaleReading } from "@/core/diagnostics/cellReading";
 import type { DataRangeReading } from "@/core/diagnostics/dataRange";
@@ -398,7 +398,14 @@ export const POWDER_PLANS: Plans<PowderAgentPort> = {
   },
   refine: refinePlan<PowderAgentPort>({
     refuse: (s) => (s.viewOnly ? "this pattern is view-only (a TOF pattern without a TOF profile); load its instrument file to refine it" : null),
-    fits: (_s, free) => `Refine ${free} free parameter${free === 1 ? "" : "s"}`,
+    fits: (s, free) => {
+      const caution = k0RefineCaution(s);
+      return `Refine ${free} free parameter${free === 1 ? "" : "s"}${caution ? ` · ${caution}` : ""}`;
+    },
+    after: (s) => {
+      const caution = k0RefineCaution(s);
+      return caution ? [caution] : [];
+    },
   }),
   reset_parameters: resetPlan,
   go_to_step: goToPlan,
@@ -705,6 +712,29 @@ function backgroundTermsCaution(s: PowderLiveState, type: BackgroundType, terms:
   return parts.length > 0 ? `Caution: ${parts.join("; ")}` : null;
 }
 
+/**
+ * The k = 0 magnetic signature on the fit on screen, as find_unexplained_peaks
+ * reads it (k0Magnetic): a neutron pattern of magnetic ions with no magnetic
+ * model, whose misfits on nuclear reflections sit at large d.
+ */
+function k0Signature(residual: PowderResidual): boolean {
+  return k0MagneticHint(residual.magneticNeutron, residualPeaks(residual, { limit: 12 }).onReflection);
+}
+
+/**
+ * refine's caution when it frees B's or positions against a k = 0 signature:
+ * on a simulated k = 0 pattern (Mn₃Ga 30 K, Example 3) the method's ADP stage
+ * on the nuclear model alone left the B's 3–6× too large and the scale 50 %
+ * too large, and its verdict "good" (docs/LIMITATIONS.md). A caution, not a
+ * refusal: the order is the user's method.
+ */
+function k0RefineCaution(s: PowderLiveState): string | null {
+  if (!s.result || s.magnetic) return null;
+  const atoms = s.parameters.some((p) => !p.fixed && !p.expression && (THERMAL_KINDS.has(p.kind) || POSITION_KINDS.has(p.kind)));
+  if (!atoms || !s.d || !k0Signature(residualOf(s))) return null;
+  return "Caution: the residual carries the k = 0 magnetic signature (a neutron pattern of magnetic ions, its misfits on nuclear reflections at large d: find_unexplained_peaks' k0Magnetic) and no magnetic model is on the page. B's and positions refined now take up the magnetic intensity (on a simulated k = 0 pattern the B's came out 3–6× too large). Unless the sample is not ordered, check k = 0 in the magnetic step first (magnetic_state) and refine them with the moments.";
+}
+
 /** The Caglioti terms and the Lorentzian X: diagnose_fit reads the shape, not the width, once those present are all free. */
 const WIDTH_KINDS = ["profileU", "profileV", "profileW", "profileX"] as const;
 
@@ -719,6 +749,7 @@ function fitDiagnosisOf(s: PowderLiveState): ReturnType<typeof fitDiagnosisView>
   });
   const freeKinds = new Set(s.parameters.filter((p) => !p.fixed && !p.expression).map((p) => p.kind));
   const present = WIDTH_KINDS.filter((k) => s.parameters.some((p) => p.kind === k));
+  const residual = residualOf(s);
   const widthsFree = present.includes("profileU") && present.every((k) => freeKinds.has(k));
   const dx = diagnoseFit({
     x: curves.x, yObs: curves.yObs, yCalc: curves.yCalc,
@@ -732,6 +763,7 @@ function fitDiagnosisOf(s: PowderLiveState): ReturnType<typeof fitDiagnosisView>
     xOf: (d) => convertAxisValue(d, "dSpacing", s.pattern.xUnit, s.axis),
     ...(widthsFree ? { widthsFree: { lorentzian: present.includes("profileX") } } : {}),
     background: { type: s.settings.backgroundType, terms: s.settings.backgroundTerms },
+    ...(residual.magneticNeutron ? { magneticNeutron: { k0: k0Signature(residual) } } : {}),
   });
   return fitDiagnosisView(dx, s.pattern.xUnit);
 }

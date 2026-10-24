@@ -199,6 +199,13 @@ describe("diagnose_fit and set_background on a line the model lacks", () => {
     expect(dx.backgroundTerms!.justified).toBeLessThan(naive);
   });
 
+  it("on a neutron pattern of magnetic ions, routes the line to the magnetic step's k-search", () => {
+    const input = fit(simulate(lineAt(BROAD_LONG), 7, 20).pattern, "chebyshev", 4, 20).input;
+    const magnetic = diagnoseFit({ ...input, nParams: 5, reflections: [], phases: [structure], twoTheta: false, xOf: (d) => d * difC, background: { type: "chebyshev", terms: 4 }, magneticNeutron: { k0: false } });
+    expect(magnetic.causes.find((c) => c.id === "unexplained-peak")?.action).toMatch(/give the lines to the magnetic step first \(magnetic_state, search_propagation_vector\)/);
+    expect(diagnosis(input, "chebyshev", 4).causes.find((c) => c.id === "unexplained-peak")?.action).not.toMatch(/search_propagation_vector/);
+  });
+
   it("with a line and a background that misses too, asks for the line to be explained before a count", () => {
     const dx = diagnosis(fit(simulate(lineAt(BROAD_LONG), 7, 20).pattern, "chebyshev", 1, 20).input, "chebyshev", 1);
     expect(dx.causes.some((c) => c.id === "unexplained-peak")).toBe(true);

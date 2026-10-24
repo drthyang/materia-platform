@@ -99,7 +99,7 @@ export function pickedRows(
   return { rows: picked, overrides: { ...overrides, ...Object.fromEntries(picked.filter((r) => out.has(r.idx) || into.has(r.idx)).map((r) => [r.key, r.included])) } };
 }
 
-export const NO_PEAK_INCLUDED = "no residual peak is included for the k-search — the nuclear fit leaves none, or every one sits on a nuclear reflection";
+export const NO_PEAK_INCLUDED = "no residual peak is included for the k-search — the nuclear fit leaves none, or every one sits on a nuclear reflection (left out by default: include them by number, `include`, when they may be magnetic — at k = 0 the magnetic intensity sits on the nuclear lines; magnetic_state lists the peaks)";
 
 // ── k ───────────────────────────────────────────────────────────────────────
 

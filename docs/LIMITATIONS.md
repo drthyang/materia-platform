@@ -307,7 +307,26 @@ approximate, however plausible its output looks.
   F-centred satellites; at k = 0 the moment sizes match GSAS-II; and |F_M|²
   matches GSAS-II reflection by reflection on the Mn₃Ga 350 K data.
 
+- Strong magnetic peaks on the nuclear lines (k = 0). The nuclear model alone
+  takes up k = 0 magnetic intensity: on the simulated Mn₃Ga 30 K pattern
+  (Example 3) the B's of a nuclear-only ADP stage came out 3–6× too large and
+  the scale 50 % too large, at a "good" GoF of 2.1. The Agent's tools read the
+  signature (a neutron pattern of magnetic ions with its misfits on nuclear
+  reflections at large d, weighted by significance; `find_unexplained_peaks`'
+  `k0Magnetic`): `magnetic_state` names the peaks to include in the k-search
+  (they sit on nuclear lines, which the search leaves out by default),
+  `diagnose_fit` puts the k = 0 check before its ADP and structure advice, and
+  `refine` cautions while B's or positions are free against it with no magnetic
+  model on the page. Held until the moments are in and then refined with them,
+  the B's, positions, scale and moments land within 1.3σ of the simulated
+  values. Lines that sit between the nuclear ones (k ≠ 0) are routed to the
+  k-search by `diagnose_fit`'s unexplained-peak cause.
+
 **Approximate**
+- The k = 0 guard is advice, not a rule: the method's order (ADPs before the
+  magnetic step) is the user's. It does not apply to k ≠ 0 satellites that
+  overlap nuclear lines by accident in d, where a nuclear-first fit can still
+  pull the positions toward the magnetic intensity on those lines.
 - The magnetic form factor is spin-only ⟨j0⟩ everywhere: structure factors,
   the GPU kernel and magnetic PDF. The dipole correction with ⟨j2⟩, needed when
   the orbital moment matters (g ≠ 2), is not applied yet.

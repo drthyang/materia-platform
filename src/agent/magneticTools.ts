@@ -15,6 +15,8 @@ import { liveTool, type MagneticChangeTool } from "@/agent/tools";
 import type { MagneticAgentHandle, MagneticCandidateView, MagneticPanelState } from "@/agent/magneticPort";
 import { pct, sig, type ChangeResult } from "@/agent/liveCommon";
 import { change, nothing, type Plans } from "@/agent/pages/plans";
+import { PEAK_CRITERIA } from "@/app/magneticStep";
+import { k0MagneticHint } from "@/core/diagnostics/assessment";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- inputs are validated against the spec's zod schema before a handler runs */
 type Input = any;
@@ -73,13 +75,32 @@ function candidateRow(c: MagneticCandidateView): Record<string, unknown> {
  * that read only get_state's powder checklist went back to the fit range).
  */
 export function magneticNext(s: MagneticPanelState): string {
-  if (!s.peaks.some((p) => p.included)) return "no residual peak is used for the k-search: include the magnetic peaks (search_propagation_vector `include`), or the nuclear fit leaves none and there is nothing magnetic to find";
+  if (!s.peaks.some((p) => p.included)) {
+    const k0 = k0Peaks(s);
+    if (k0) {
+      return `no residual peak is used for the k-search, and the strong ones sit on nuclear reflections, most of their excess at large d (#${k0.join(", #")}): on neutron data that is the k = 0 signature, magnetic intensity on the nuclear lines (find_unexplained_peaks' k0Magnetic). Include them (search_propagation_vector include [${k0.join(", ")}]) or set_propagation_vector [0, 0, 0], then rank_magnetic_groups (at k = 0 the scale refines with the moments). Hold the B's and positions until the moments are in: refined against the nuclear model alone they take up the magnetic intensity`;
+    }
+    return "no residual peak is used for the k-search: include the magnetic peaks (search_propagation_vector `include`), or the nuclear fit leaves none and there is nothing magnetic to find";
+  }
   if (!s.kSearch) return "search_propagation_vector: the k that indexes the residual peaks";
   if (!s.selected) return s.best === null
     ? "set_propagation_vector to the k the search supports (the simplest of equal fits), then rank_magnetic_groups"
     : `choose_magnetic_group (the ranking's best: ${s.best}), then refine_moments`;
   if (s.selected.fitAgreement === null) return "refine_moments: fit the chosen group's moments, the nuclear model held";
   return "the moments are fitted: refine the nuclear and magnetic models together on the refinement step, then report the group, k and the moments with what the powder cannot tell";
+}
+
+/**
+ * The k = 0 signature in the step's peak table: no peak is included, and the
+ * ones left out only for sitting on a nuclear reflection (5σ or more) carry
+ * most of their excess at large d (k0MagneticHint's rule). Their row numbers,
+ * or null.
+ */
+export function k0Peaks(s: MagneticPanelState): number[] | null {
+  if (s.peaks.some((p) => p.included)) return null;
+  const onNuclear = s.peaks.filter((p) => !p.manual && p.near !== undefined && (p.sigmas === undefined || p.sigmas >= PEAK_CRITERIA.minSig));
+  // The step exists for magnetic ions; neutron data is the reading's premise (the text says so).
+  return k0MagneticHint(true, onNuclear.map((p) => ({ d: p.d, ...(p.sigmas !== undefined ? { significance: p.sigmas } : {}) }))) ? onNuclear.map((p) => p.n) : null;
 }
 
 /** The step as the model reads it: compact, the candidates that can carry a moment first. */
