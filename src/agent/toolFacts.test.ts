@@ -61,6 +61,8 @@ describe("a tool's facts, on its definition", () => {
       if (t.historyStep) expect(t.effect, t.name).toBe("change");
       if (t.magneticStep) expect(t.pages, t.name).toEqual(["powder"]);
       if (t.stallNeutral) expect(t.effect, t.name).toBe("read");
+      // A tool that ends the turn changes nothing: what follows is the user's.
+      if (t.endsTurn) expect(t.effect, t.name).toBe("read");
     }
   });
 });

@@ -9,6 +9,17 @@ release fixes bugs.
 
 ### Added
 
+- **The Agent asks with buttons (`ask_user`).** Where the next decision is the
+  user's and no tool's result lists it, the Agent puts a question with 2 to 6
+  options; each shows as a button under the turn and sends exactly its
+  message, as the k, group and next-step choices do, and the question ends
+  the model's turn. A change an option asks for still goes through its change
+  tool and approval card; a clicked option's numbers are not counted as the
+  user's by the report's number audit, and the checks on a final answer read
+  the question too. In-app only (not an MCP tool). Added at the owner's
+  decision, although it changes the model-visible tool list before the
+  validation freeze (docs/AGENT_PLAN.md).
+
 - **Choices to click in the Agent's conversation.** The k the k-search found,
   the magnetic groups the ranking fitted and the next steps the assessment
   suggests show as buttons under the turn, from the tool's result: a click

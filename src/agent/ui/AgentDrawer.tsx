@@ -72,9 +72,15 @@ export function AgentDrawer({ agent, method = null, onClose }: Props): JSX.Eleme
   const aside = useRef<HTMLElement>(null);
   // The message box's text, here so a choice's "Other…" can put a template in it to edit.
   const [draft, setDraft] = useState("");
+  // A question's hint for an answer in the user's own words (ask_user): shown in the empty box, never sent.
+  const [hint, setHint] = useState<string | null>(null);
+  useEffect(() => {
+    if (agent.thinking) setHint(null);
+  }, [agent.thinking]);
   const input = useRef<HTMLTextAreaElement>(null);
-  const editDraft = (template: string): void => {
+  const editDraft = (template: string, placeholder?: string): void => {
     setDraft(template);
+    setHint(placeholder ?? null);
     // After the render that puts the text in: the caret at its end, ready to type.
     setTimeout(() => {
       const box = input.current;
@@ -129,7 +135,7 @@ export function AgentDrawer({ agent, method = null, onClose }: Props): JSX.Eleme
       {method && <MethodChecklist key={sheetMode ? "sheet" : "docked"} method={method} folded={sheetMode} />}
       {showSettings && <Settings agent={agent} />}
       <Transcript agent={agent} page={method?.skill ?? null} onOther={editDraft} />
-      <Composer agent={agent} disabled={needsSetup} compact={sheetMode} text={draft} setText={setDraft} input={input} />
+      <Composer agent={agent} disabled={needsSetup} compact={sheetMode} text={draft} setText={setDraft} input={input} hint={hint} />
     </aside>
   );
 }
@@ -764,7 +770,7 @@ function ModelPicker<T>({ label, list, value, onChange, onRefresh, children }: {
 
 // ── transcript ──────────────────────────────────────────────────────────────
 
-function Transcript({ agent, page, onOther }: { agent: AgentController; page: string | null; onOther: (template: string) => void }): JSX.Element {
+function Transcript({ agent, page, onOther }: { agent: AgentController; page: string | null; onOther: (template: string, placeholder?: string) => void }): JSX.Element {
   const end = useRef<HTMLDivElement>(null);
   const items = agent.transcript;
   useEffect(() => {
@@ -1018,7 +1024,7 @@ const CHOICE_STATE_NOTE = {
  * message box to edit. Only the live set sends, and only while the page is
  * as it was when the set was made (checked again at the click).
  */
-function Choices({ shown, agent, onOther }: { shown: ShownChoices; agent: AgentController; onOther: (template: string) => void }): JSX.Element {
+function Choices({ shown, agent, onOther }: { shown: ShownChoices; agent: AgentController; onOther: (template: string, placeholder?: string) => void }): JSX.Element {
   const { set } = shown;
   const state = shown.state === "superseded" ? "superseded" : agent.choiceCurrent(set) ? "live" : "stale";
   const live = state === "live" && !agent.thinking;
@@ -1047,7 +1053,7 @@ function Choices({ shown, agent, onOther }: { shown: ShownChoices; agent: AgentC
             {o.detail && <span className="wb-agent-choice-detail">{o.detail}</span>}
           </button>
         ))}
-        <button type="button" className="wb-agent-choice is-other" disabled={!live} title="Type your own answer: puts a template in the message box, sends nothing" onClick={() => onOther(set.other.template)}>
+        <button type="button" className="wb-agent-choice is-other" disabled={!live} title={set.other.template ? "Type your own answer: puts a template in the message box, sends nothing" : "Type your own answer in the message box: sends nothing"} onClick={() => onOther(set.other.template, set.other.placeholder)}>
           <span className="wb-agent-choice-label">{set.other.label}</span>
         </button>
       </div>
@@ -1088,7 +1094,7 @@ function CardChips({ text, onHover }: { text: string; onHover: (card: AgentCard 
 
 // ── input ───────────────────────────────────────────────────────────────────
 
-function Composer({ agent, disabled, compact, text, setText, input }: { agent: AgentController; disabled: boolean; compact: boolean; text: string; setText: (text: string) => void; input: RefObject<HTMLTextAreaElement> }): JSX.Element {
+function Composer({ agent, disabled, compact, text, setText, input, hint }: { agent: AgentController; disabled: boolean; compact: boolean; text: string; setText: (text: string) => void; input: RefObject<HTMLTextAreaElement>; hint: string | null }): JSX.Element {
   const submit = (): void => {
     if (!text.trim() || agent.thinking || disabled) return;
     agent.send(text);
@@ -1103,7 +1109,7 @@ function Composer({ agent, disabled, compact, text, setText, input }: { agent: A
           ref={input}
           aria-label="Message the Copilot"
           rows={compact ? 1 : 2}
-          placeholder={disabled ? (localModel(agent.settings) !== null ? "Pick a model in the settings first" : "Add your API key in the settings first") : "Ask anything, or ask it to run the analysis…"}
+          placeholder={disabled ? (localModel(agent.settings) !== null ? "Pick a model in the settings first" : "Add your API key in the settings first") : hint ?? "Ask anything, or ask it to run the analysis…"}
           value={text}
           disabled={disabled}
           onChange={(e) => setText(e.target.value)}

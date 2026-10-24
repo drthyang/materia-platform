@@ -27,7 +27,7 @@ import { analysisOf, hashText, onPage, type PageAdapter, type StateOf } from "@/
 import type { StepKind } from "@/core/project/history";
 import { Refusal, correlationGate, developedCorrelations, firmRules, methodGate, staleReason, symmetryNotYet, type RefusalKind } from "@/agent/executorPolicy";
 import { Answers, addNote, noteRead, recordView, syncStages, withoutMethod, writeReport, type SampledPosterior } from "@/agent/executorRecord";
-import { choicesFor, type ChoiceContext, type ChoiceSet } from "@/agent/choices";
+import { choicesFor, questionChoices, type ChoiceContext, type ChoiceSet } from "@/agent/choices";
 
 export type { RefusalKind } from "@/agent/executorPolicy";
 
@@ -178,6 +178,7 @@ export class AgentExecutor implements ToolRunner {
   newConversation(): void {
     this.skillsRead.clear();
     this.userText = [];
+    this.asked = null;
     this.magneticUsed = false;
     this.answers.clear();
   }
@@ -235,9 +236,14 @@ export class AgentExecutor implements ToolRunner {
 
   /** The user's messages in this conversation: their numbers are theirs to quote, not the Agent's own. */
   private userText: string[] = [];
+  /** The messages the options of the Agent's open question send (ask_user): the Agent's words, not the user's. */
+  private asked: ReadonlySet<string> | null = null;
 
   heard(text: string): void {
-    this.userText.push(text);
+    // A clicked option sends the Agent's own words: its numbers are not the user's to vouch for (the report's audit).
+    const echoed = this.asked?.has(text.trim()) ?? false;
+    this.asked = null;
+    if (!echoed) this.userText.push(text);
   }
 
   /** What the page's references resolve against now; null with no analysis open. */
@@ -349,6 +355,18 @@ export class AgentExecutor implements ToolRunner {
       const notes = addNote(this.host, page.analysis(page.state(port)), text);
       update({ status: "done" });
       return this.respond({ noted: true, notes });
+    }
+
+    if (spec.name === "ask_user") {
+      // A question for the user, as buttons under the turn (choices.ts); the chat ends the turn on it.
+      // Its words are the Agent's: references filled as in a note, and an option clicked is not the user's numbers.
+      const q = input as { question: string; options: { label: string; message: string }[]; other?: string };
+      const fill = (text: string): string => this.fillOrRefuse(text, "ask_user");
+      const options = q.options.map((o) => ({ label: fill(o.label), message: fill(o.message) }));
+      const set = questionChoices(fill(q.question), options, q.other === undefined ? undefined : fill(q.other));
+      this.asked = new Set(options.map((o) => o.message));
+      update({ preview: set.title, status: "done", outcome: `Asked, with ${options.length} options`, choices: { ...set, stamp: page.stamp(page.state(port), this.stepOf(page, port)) } });
+      return this.respond({ asked: true, options: options.length, note: "Shown to the user; your turn ends here. Their answer comes as their next message: an option's message, or their own words." });
     }
 
     if (spec.name === "write_report") {

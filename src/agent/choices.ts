@@ -12,11 +12,16 @@
  * page adapter's): once the page or the conversation moves on, its buttons
  * no longer send (useAgent.ts checks the stamp again on a click).
  *
+ * The Agent may also put a question of its own (ask_user): its options are
+ * the model's words, shown and sent the same way, the question ending its
+ * turn. Nothing of the model's goes into the message box: its hint for an
+ * answer in the user's own words is a placeholder, not text to send.
+ *
  * Plain functions and types, no tool or engine imports: the drawer reads them.
  */
 
 /** What a set of choices is about. */
-export type ChoiceKind = "k" | "group" | "step";
+export type ChoiceKind = "k" | "group" | "step" | "question";
 
 export interface ChoiceOption {
   /** Stable within its set (the k's components, a group's id, a step's rank). */
@@ -40,8 +45,11 @@ export interface ChoiceSet {
   /** What the values mean (k's units and cell), when the label alone could be read two ways. */
   readonly note?: string;
   readonly options: readonly ChoiceOption[];
-  /** The way to answer otherwise: a template put in the message box to edit, never sent by itself. */
-  readonly other: { readonly label: string; readonly template: string };
+  /**
+   * The way to answer otherwise: a template put in the message box to edit,
+   * never sent by itself, and a hint the empty box shows (ask_user's).
+   */
+  readonly other: { readonly label: string; readonly template: string; readonly placeholder?: string };
   /** The page's stamp when the tool ran: the options hold for that page only. */
   readonly stamp: string | null;
 }
@@ -202,6 +210,20 @@ function stepChoices(out: Row): Omit<ChoiceSet, "stamp"> | null {
       ...(i === 0 ? { recommended: true } : {}),
     })),
     other: { label: "Something else…", template: "" },
+  };
+}
+
+/**
+ * A question the Agent puts to the user (ask_user): its options as given,
+ * in order, each sending exactly its message. No ★: the choice is the user's.
+ */
+export function questionChoices(question: string, options: readonly { readonly label: string; readonly message: string }[], placeholder?: string): Omit<ChoiceSet, "stamp"> {
+  return {
+    kind: "question",
+    tool: "ask_user",
+    title: question,
+    options: options.map((o, i) => ({ id: String(i + 1), label: o.label, message: o.message })),
+    other: { label: "Something else…", template: "", ...(placeholder ? { placeholder } : {}) },
   };
 }
 
