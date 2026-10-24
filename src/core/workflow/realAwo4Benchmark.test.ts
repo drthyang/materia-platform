@@ -23,7 +23,7 @@ import type { MagneticModel } from "@/core/magnetic/types";
 import { expandMagneticSupercell } from "@/core/crystal/cellExpansion";
 import { magneticCellGroup } from "@/core/magnetic/supercellGroup";
 import { operationKey, siteMultiplicity } from "@/core/crystal/symmetry";
-import { cifSu } from "@/parsers/cif";
+import { cifSu, parseTypeSymbol } from "@/parsers/cif";
 import { dot, norm, normalize, scale, sub } from "@/core/math/vec3";
 import type { StructureModel, SymmetryOperation, UnitCell } from "@/core/crystal/types";
 import type { PowderPattern } from "@/core/diffraction/types";
@@ -39,15 +39,17 @@ import { dataExists, readData } from "@/testSupport/data";
  * number derived from them — only the criteria. Skips when the files are absent.
  *
  * Reference status. The nuclear model is checked against the user's GSAS-II
- * refinement at 100 K (trusted). The magnetic model and the 8 K cell are checked
- * against the owner's own refinement of this run, `AWO4_8K_n.mcif` (a Jana-style
- * mCIF in the doubled cell; trusted, unpublished): its values are read at runtime
- * from data/ and that block skips without it. The app-generated demo solution is
- * not used.
- *
- * The 8 K reference also showed that the cell criterion (C3) was first set
- * against the wrong target: its own 8 K cell lies outside the thermal bounds of
- * the 100 K CIF (checked below as "C3-premise"), so C3 now compares with it.
+ * refinement at 100 K (trusted). The magnetic structure is checked against the
+ * owner's own refinement of this run, `AWO4_8K_n.mcif` (a Jana-style mCIF in the
+ * doubled cell; unpublished), read at runtime from data/ — that block skips
+ * without it. Only its magnetic content is trusted (k, the group and its
+ * operators, the moment components, its ⟨j0⟩ ions); its cell is not. The cell
+ * enters only as the basis of the doubled cell, the moment components are
+ * converted with the app's refined 8 K metric, and the like-for-like joint fit
+ * uses the reference's ⟨j0⟩ ions through the sites' oxidation states (the app's
+ * default, 2+, drives C1–C13). No trusted 8 K cell exists: the cell (C3) is
+ * compared only with the 100 K CIF, within thermal-contraction bounds. The
+ * app-generated demo solution is not used.
  *
  * Instrument file: the 60 Hz frame at CWL 2.665 Å (B3). The file's abscissa is
  * the focused TOF (difC·d of a virtual 90° detector), so it spans a d range,
@@ -87,14 +89,6 @@ const THERMAL_PER_AXIS = 5e-4;
 const THERMAL_BETA = 0.01;
 /** Coordinates move ≪ 0.01 Å between 100 and 8 K without a transition; 0.02 Å allows for the CIF's unstated esds. */
 const POSITION_TOL_A = 0.02;
-/**
- * Against the 8 K reference (same data, same temperature) the thermal allowances
- * above become those for the reference's unstated calibration and profile model:
- * 5e-4 per length (another frame's calibration scales every length alike) and
- * 0.01° on β (no calibration moves β).
- */
-const CALIBRATION_PER_AXIS = THERMAL_PER_AXIS;
-const PROFILE_BETA = THERMAL_BETA;
 /** Spin-only moments (µB) of the 2+ 3d ions of the A site (W⁶⁺O₄²⁻ fixes A²⁺). */
 const SPIN_ONLY: Readonly<Record<string, number>> = { Mn: 5, Fe: 4, Co: 3, Ni: 2, Cu: 1 };
 const LONG = 20 * 60 * 1000;
@@ -131,6 +125,8 @@ interface Bench {
   readonly inst: Extract<InstrumentParameters, { kind: "tof" }>;
   readonly cif: string;
   readonly bindings: readonly ParameterBinding[];
+  readonly profile: ReturnType<typeof buildPowderSpec>["profile"];
+  readonly fitRange: { min: number; max: number };
   readonly nuclear: RefinementParameter[];
   readonly nuclearResult: RefinementResult;
   readonly rows: PeakRow[];
@@ -247,7 +243,7 @@ async function runBenchmark(): Promise<Bench> {
   ];
 
   const bench: Bench = {
-    structure, pattern, inst, cif, bindings: spec.bindings, nuclear, nuclearResult, rows, kRanking, reps, dims, ranking, best, tied, joint, jointValues,
+    structure, pattern, inst, cif, bindings: spec.bindings, profile: spec.profile, fitRange, nuclear, nuclearResult, rows, kRanking, reps, dims, ranking, best, tied, joint, jointValues,
     momentIds: moments.filter((q) => !q.fixed).map((q) => q.id),
     moment: { value: size, esd: Math.sqrt(var2) },
     ionBound: spins.reduce((a, b) => a + b, 0) / spins.length,
@@ -340,8 +336,36 @@ describe.skipIf(!has)("AWO₄ 8 K benchmark — nuclear vs the 100 K CIF, k, and
   beforeAll(async () => {
     b = await benchmark();
   }, LONG);
+  const value = (id: string) => b.nuclear.find((p) => p.id === id)!;
 
-  // The cell (C3) is compared with the 8 K reference in the next block.
+  // No trusted 8 K cell exists (the reference mCIF's cell is not one): the cell is compared with the
+  // 100 K CIF, within the thermal-contraction bounds.
+  it("C3a: β within the thermal bound of the 100 K CIF", () => {
+    const beta = cifValue(b.cif, "_cell_angle_beta");
+    expect(Math.abs(value("cell_beta").value - beta.value)).toBeLessThanOrEqual(THERMAL_BETA + 2 * Math.hypot(beta.esd, value("cell_beta").esd ?? 0));
+  });
+
+  // Known not met on the local data (one length, with every calibration file). Candidate causes —
+  // magnetostriction below T_N, another calibration behind the 100 K cell, the app's profile
+  // fit — are open; the benchmark record has the numbers.
+  it.fails("C3b: each lattice length within the thermal bound of the 100 K CIF", () => {
+    for (const x of ["a", "b", "c"]) {
+      const ref = cifValue(b.cif, `_cell_length_${x}`);
+      const p = value(`cell_${x}`);
+      expect(Math.abs(p.value / ref.value - 1)).toBeLessThanOrEqual(THERMAL_PER_AXIS + 2 * Math.hypot(ref.esd / ref.value, (p.esd ?? 0) / p.value));
+    }
+  });
+
+  it("C3c: the volume within the thermal bounds of the 100 K CIF (it may only shrink on cooling)", () => {
+    const beta = cifValue(b.cif, "_cell_angle_beta");
+    const vol = (a: number, bb: number, c: number, be: number) => a * bb * c * Math.sin((be * Math.PI) / 180);
+    const [a0, b0, c0] = ["a", "b", "c"].map((x) => cifValue(b.cif, `_cell_length_${x}`).value);
+    const v0 = vol(a0!, b0!, c0!, beta.value);
+    const v = vol(value("cell_a").value, value("cell_b").value, value("cell_c").value, value("cell_beta").value);
+    const sigV = Math.hypot(...["a", "b", "c"].flatMap((x) => [cifValue(b.cif, `_cell_length_${x}`).esd / cifValue(b.cif, `_cell_length_${x}`).value, (value(`cell_${x}`).esd ?? 0) / value(`cell_${x}`).value]));
+    expect(v / v0 - 1).toBeLessThanOrEqual(2 * sigV);
+    expect(v / v0 - 1).toBeGreaterThanOrEqual(-(3 * THERMAL_PER_AXIS + 2 * sigV));
+  });
 
   // Known not met on the local data, after the staged nuclear fit and unchanged by the joint one.
   // The 8 K reference keeps the 100 K positions (R0b), so it gives no other target.
@@ -396,7 +420,7 @@ describe.skipIf(!has)("AWO₄ 8 K benchmark — nuclear vs the 100 K CIF, k, and
   });
 
   // Known not met on the local data: a line the magnetic model leaves unchanged (not yet identified).
-  // The 8 K reference has the same k and group and nearly the same cell, so no reflection of its own there either.
+  // The 8 K reference has the same k and group, so it indexes no reflection there either.
   it.fails("C11: no residual peak ≥ 5σ off every nuclear and magnetic reflection after the joint fit", () => {
     expect(postResidual(b).unexplained).toHaveLength(0);
   });
@@ -427,6 +451,29 @@ interface Reference {
   readonly n: [number, number, number];
   /** Moment su's (µB) per label, as the file prints them. */
   readonly sus: Map<string, Vec3>;
+  /** The ⟨j0⟩ ion's oxidation state the reference names per element. */
+  readonly ions: Map<string, number>;
+}
+
+/** The ⟨j0⟩ ions the reference names in its atom_type loop, per element ("Fe3+" → Fe: 3; "." none). */
+function referenceIons(text: string): Map<string, number> {
+  const lines = text.split(/\r?\n/).map((l) => l.trim());
+  let i = lines.findIndex((l) => /^_atom_type[._]magn_oxidation_number$/i.test(l));
+  const out = new Map<string, number>();
+  if (i < 0) return out;
+  while (i > 0 && lines[i - 1]!.startsWith("_")) i--;
+  const tags: string[] = [];
+  while (i < lines.length && lines[i]!.startsWith("_")) tags.push(lines[i++]!.toLowerCase().replace(/\./g, "_"));
+  const iSymbol = tags.findIndex((t) => t.endsWith("atom_type_symbol"));
+  const iIon = tags.findIndex((t) => t.endsWith("magn_oxidation_number"));
+  for (; i < lines.length && lines[i] !== "" && !lines[i]!.startsWith("_") && lines[i]!.toLowerCase() !== "loop_"; i++) {
+    const t = lines[i]!.split(/\s+/);
+    const ion = t[iIon];
+    if (!ion || ion === "." || ion === "?") continue;
+    const typed = parseTypeSymbol(ion);
+    if (typed.oxidationState !== undefined) out.set(t[iSymbol]!, typed.oxidationState);
+  }
+  return out;
 }
 
 /** The moment loop's su's per label ("0.83(5)" → 0.05; a value printed without one → 0). */
@@ -477,62 +524,91 @@ function axisDelta(p: number, q: number): number {
 const opKey = (o: SymmetryOperation): string => `${operationKey(o)}|${o.timeReversal ?? 1}`;
 const isPureTranslation = (o: SymmetryOperation): boolean => o.rotation.every((row, i) => row.every((v, j) => v === (i === j ? 1 : 0)));
 
+
+/** An app joint fit as the reference block compares it. */
+interface AppFit {
+  readonly build: MagneticModelBuild;
+  readonly values: Record<string, number>;
+  readonly esd: Record<string, number>;
+  readonly result: RefinementResult;
+  /** The structure with the fit's nuclear values applied (its cell is the app's 8 K metric). */
+  readonly model: StructureModel;
+  readonly magnetic: MagneticModel;
+}
+
 describe.skipIf(!hasRef)("AWO₄ 8 K benchmark — against the owner's reference refinement (AWO4_8K_n.mcif)", () => {
   let b: Bench;
   let ref: Reference;
-  /** The app's ★ moments at their joint values. */
-  let appMag: MagneticModel;
+  /** The default pipeline's joint fit (2+ ⟨j0⟩, the app's default). */
+  let plain: AppFit;
+  /** Like for like: the same joint fit with the reference's ⟨j0⟩ ions, set as the sites' oxidation states. */
+  let like: AppFit;
   beforeAll(async () => {
     b = await benchmark();
     const text = readData(REF);
     const { structure, magnetic } = parse_structure({ cif: text, id: "awo4-ref" });
     if (!magnetic) throw new Error(`${REF}: read with no magnetic model`);
     const n = (["a", "b", "c"] as const).map((x) => Math.round(structure.cell[x] / b.structure.cell[x])) as [number, number, number];
-    ref = { text, structure, magnetic, n, sus: momentSus(text) };
-    appMag = applyMagneticMoments(b.build.magnetic, b.build.bindings, b.jointValues);
+    ref = { text, structure, magnetic, n, sus: momentSus(text), ions: referenceIons(text) };
+    plain = { build: b.build, values: b.jointValues, esd: b.joint.esd ?? {}, result: b.joint, model: b.jointModel, magnetic: applyMagneticMoments(b.build.magnetic, b.build.bindings, b.jointValues) };
+    like = jointWithIons(ref.ions);
     reportReference();
   }, LONG);
 
-  const joint = (id: string) => ({ value: b.jointValues[id]!, esd: b.joint.esd?.[id] ?? 0 });
-  /** The reference cell on the parent's axes, with the su the file gives (none: 0). */
-  const refCell = (x: "a" | "b" | "c" | "beta") => {
-    const div = x === "beta" ? 1 : ref.n["abc".indexOf(x)]!;
-    const v = cifValue(ref.text, x === "beta" ? "_cell_angle_beta" : `_cell_length_${x}`);
-    return { value: v.value / div, esd: v.esd / div };
-  };
-  /** σ_ref when the reference gives one, else the app's own (same data and statistics). */
-  const refSu = (su: number, fallback: number) => (su > 0 ? su : fallback);
+  /**
+   * The ★ group's two steps of the default pipeline again, with each ion's oxidation state from `ions`
+   * (which picks its ⟨j0⟩ ion): the moments with the staged nuclear model held, from the ranked values,
+   * then the joint fit with the same free rows.
+   */
+  function jointWithIons(ions: ReadonlyMap<string, number>): AppFit {
+    const structure: StructureModel = {
+      ...b.structure,
+      sites: b.structure.sites.map((s) => (b.ions.includes(s.label) && ions.has(s.element) ? { ...s, oxidationState: ions.get(s.element)! } : s)),
+    };
+    const ops = b.reps.find((r) => r.candidate.id === b.best.id)!.candidate.operations;
+    const build = buildFor(structure, K, b.ions, ops, { sameSite: true, magnitudes: false, flippedUnits: [] });
+    const problem = (params: RefinementParameter[]) => buildMagneticPowderProblem(structure, build.magnetic, b.pattern, params, [...b.bindings, ...build.bindings], b.profile, b.fitRange);
+    const seed = (p: RefinementParameter, v: number | undefined) => ({ ...p, value: v ?? p.value, initialValue: v ?? p.value, fixed: !!p.expression });
+    const ranked = b.ranking[b.best.id]!.values;
+    const momentsOnly = refine(problem([...b.nuclear.map((p) => ({ ...p, fixed: true })), ...build.params.map((p) => seed(p, ranked[p.id]))]), { maxIterations: 20 });
+    const params = [...b.nuclear.map((p) => ({ ...p })), ...build.params.map((p) => seed(p, momentsOnly.parameters[p.id]))];
+    const result = refine(problem(params), { maxIterations: 20 });
+    const values: Record<string, number> = Object.fromEntries(params.map((p) => [p.id, result.parameters[p.id] ?? p.value]));
+    return { build, values, esd: result.esd ?? {}, result, model: applyParameters(structure, b.bindings, values).model, magnetic: applyMagneticMoments(build.magnetic, build.bindings, values) };
+  }
+
   const label = () => ref.magnetic.moments[0]!.siteLabel;
-  const appSide = () => {
+  /** |M| and φ of an app fit with their esds, in the fit's own refined 8 K metric. */
+  const appSide = (f: AppFit) => {
     const ids = b.momentIds;
     const comps = (v: readonly number[]) => {
-      const values = { ...b.jointValues, ...Object.fromEntries(ids.map((id, i) => [id, v[i]!])) };
-      return applyMagneticMoments(b.build.magnetic, b.build.bindings, values).moments.find((m) => m.siteLabel === label())!.components;
+      const values = { ...f.values, ...Object.fromEntries(ids.map((id, i) => [id, v[i]!])) };
+      return applyMagneticMoments(f.build.magnetic, f.build.bindings, values).moments.find((m) => m.siteLabel === label())!.components;
     };
-    const v = ids.map((id) => b.jointValues[id]!);
-    const su = ids.map((id) => b.joint.esd?.[id] ?? NaN);
-    const at = (w: readonly number[]) => sizeAndAngle(b.jointModel.cell, comps(w));
+    const v = ids.map((id) => f.values[id]!);
+    const su = ids.map((id) => f.esd[id] ?? NaN);
+    const at = (w: readonly number[]) => sizeAndAngle(f.model.cell, comps(w));
     return { ...at(v), sizeSu: propagated((w) => at(w).size, v, su), phiSu: propagated((w) => at(w).phi, v, su) };
   };
-  const refSide = () => {
+  /** The reference's |M| and φ with their esds, its components read in the given metric (the app's 8 K cell, not the mCIF's). */
+  const refSide = (cell: UnitCell) => {
     const v = [...ref.magnetic.moments.find((m) => m.siteLabel === label())!.components];
     const su = [...ref.sus.get(label())!];
-    const at = (w: readonly number[]) => sizeAndAngle(ref.structure.cell, w);
+    const at = (w: readonly number[]) => sizeAndAngle(cell, w);
     return { ...at(v), sizeSu: propagated((w) => at(w).size, v, su), phiSu: propagated((w) => at(w).phi, v, su) };
   };
-  const cellOf = (side: "app" | "ref") => {
-    const get = (x: "a" | "b" | "c" | "beta") => (side === "app" ? joint(`cell_${x}`) : refCell(x));
-    return { a: get("a"), b: get("b"), c: get("c"), beta: get("beta") };
-  };
-  const volume = (c: ReturnType<typeof cellOf>) => c.a.value * c.b.value * c.c.value * Math.sin((c.beta.value * Math.PI) / 180);
 
-  /** The comparison's numbers, for the local record (stdout only). */
+  /** The comparison's numbers, for the local record (stdout only; asserts nothing). */
   function reportReference(): void {
-    const app = appSide();
-    const r = refSide();
-    const cells = (["a", "b", "c"] as const).map((x) => `${x} ${((joint(`cell_${x}`).value / refCell(x).value - 1) * 1e4).toFixed(2)}e-4`);
-    console.log(`[awo4-ref] n ${ref.n.join("×")} · |M| app ${app.size.toFixed(3)}(${app.sizeSu.toFixed(3)}) ref ${r.size.toFixed(3)}(${r.sizeSu.toFixed(3)}) µB · φ app ${app.phi.toFixed(2)}(${app.phiSu.toFixed(2)})° ref ${r.phi.toFixed(2)}(${r.phiSu.toFixed(2)})° · Δφ ${axisDelta(app.phi, r.phi).toFixed(2)}°`);
-    console.log(`[awo4-ref] joint cell a ${joint("cell_a").value.toFixed(5)}(${joint("cell_a").esd.toPrecision(2)}) b ${joint("cell_b").value.toFixed(5)}(${joint("cell_b").esd.toPrecision(2)}) c ${joint("cell_c").value.toFixed(5)}(${joint("cell_c").esd.toPrecision(2)}) β ${joint("cell_beta").value.toFixed(4)}(${joint("cell_beta").esd.toPrecision(2)}) vs ref: ${cells.join(" ")} Δβ ${(joint("cell_beta").value - refCell("beta").value).toFixed(4)}° ΔV/V ${((volume(cellOf("app")) / volume(cellOf("ref")) - 1) * 1e4).toFixed(2)}e-4`);
+    for (const [name, f] of [["2+ (default)", plain], ["reference ⟨j0⟩", like]] as const) {
+      const app = appSide(f);
+      const r = refSide(f.model.cell);
+      const r0 = refSide(ref.structure.cell);
+      console.log(`[awo4-ref] ${name}: joint wR ${(100 * (f.result.agreement.rWeighted ?? NaN)).toFixed(3)}% GoF ${(f.result.agreement.goodnessOfFit ?? NaN).toFixed(2)} · ${f.result.status} · |M| app ${app.size.toFixed(3)}(${app.sizeSu.toFixed(3)}) ref ${r.size.toFixed(3)}(${r.sizeSu.toFixed(3)}) µB [mCIF metric ${r0.size.toFixed(4)}] · φ app ${app.phi.toFixed(2)}(${app.phiSu.toFixed(2)})° ref ${r.phi.toFixed(2)}(${r.phiSu.toFixed(2)})° [mCIF metric ${r0.phi.toFixed(3)}] · Δ|M| ${(app.size - r.size).toFixed(3)} (2σ ${(2 * Math.hypot(app.sizeSu, r.sizeSu)).toFixed(3)}) · Δφ ${axisDelta(app.phi, r.phi).toFixed(2)}° (2σ ${(2 * Math.hypot(app.phiSu, r.phiSu)).toFixed(2)}°) · comps ${f.magnetic.moments.find((m) => m.siteLabel === label())!.components.map((x) => x.toFixed(3)).join(",")} · ff ${f.build.magnetic.moments.map((m) => m.formFactorId).join(",")}`);
+    }
+    // A note only: the mCIF's cell is not a reference (the owner: it may not be accurate).
+    const cells = (["a", "b", "c"] as const).map((x, i) => `${x} ${((like.model.cell[x] / (ref.structure.cell[x] / ref.n[i]!) - 1) * 1e4).toFixed(2)}e-4`);
+    console.log(`[awo4-ref] note, mCIF cell (not a reference) vs the app's 8 K cell: ${cells.join(" ")} Δβ ${(like.model.cell.beta - ref.structure.cell.beta).toFixed(4)}°`);
   }
 
   it("R0a: the reference mCIF reads as a magnetic structure: every atom of its cell, an anti-centring, the moments", () => {
@@ -551,7 +627,7 @@ describe.skipIf(!hasRef)("AWO₄ 8 K benchmark — against the owner's reference
     expect(ref.magnetic.moments.every((m) => m.frame === "crystallographic")).toBe(true);
   });
 
-  it("R0b: the reference is the 100 K nuclear model in an (n·a, b, c) cell at the same origin", () => {
+  it("R0b: the reference is the 100 K nuclear model in an (n·a, b, c) cell at the same origin (its cell used for the basis only)", () => {
     (["a", "b", "c"] as const).forEach((x, i) => {
       expect(ref.n[i]!).toBeGreaterThanOrEqual(1);
       expect(Math.abs(ref.structure.cell[x] / (ref.n[i]! * b.structure.cell[x]) - 1)).toBeLessThanOrEqual(0.01);
@@ -570,7 +646,7 @@ describe.skipIf(!hasRef)("AWO₄ 8 K benchmark — against the owner's reference
     }
   });
 
-  it("R0c: the shared A site is modelled alike — the same magnetic species, one moment for them, none on the rest, one U_iso", () => {
+  it("R0c: the shared A site is modelled alike — the same magnetic species and ⟨j0⟩ ions, one moment for them, none on the rest, one U_iso", () => {
     const labels = ref.magnetic.moments.map((m) => m.siteLabel).sort();
     expect(labels).toEqual([...b.ions].sort());
     for (const m of ref.magnetic.moments) expect(m.components).toEqual(ref.magnetic.moments[0]!.components);
@@ -579,7 +655,13 @@ describe.skipIf(!hasRef)("AWO₄ 8 K benchmark — against the owner's reference
     const bare = cosited.filter((s) => !labels.includes(s.label));
     expect(bare.length).toBeGreaterThan(0);
     for (const s of bare) expect(b.ions).not.toContain(s.label);
-    const app = appMag.moments.filter((m) => labels.includes(m.siteLabel));
+    // The like-for-like model carries the reference's ⟨j0⟩ ion on every magnetic species.
+    for (const m of like.build.magnetic.moments) {
+      const element = b.structure.sites.find((s) => s.label === m.siteLabel)!.element;
+      expect(ref.ions.has(element), element).toBe(true);
+      expect(m.formFactorId).toBe(`${element}${ref.ions.get(element)}`);
+    }
+    const app = like.magnetic.moments.filter((m) => labels.includes(m.siteLabel));
     expect(app.map((m) => m.siteLabel).sort()).toEqual(labels);
     for (const m of app) expect(m.components).toEqual(app[0]!.components);
     expect(new Set(ref.structure.sites.map((s) => (s.adp.kind === "isotropic" ? s.adp.bIso : NaN))).size).toBe(1);
@@ -595,14 +677,16 @@ describe.skipIf(!hasRef)("AWO₄ 8 K benchmark — against the owner's reference
   });
 
   it("R2: the ★ group is the reference's magnetic group — the same operations, θ included, in the same cell and origin", () => {
+    // Fractional operators on both sides: the mCIF's cell enters only as the basis (n); any metric is the app's.
     const refKeys = new Set((ref.magnetic.operations ?? []).map(opKey));
-    const groupKeys = (mag: MagneticModel) => {
-      const sup = expandMagneticSupercell(b.jointModel, mag)!;
+    const groupKeys = (model: StructureModel, mag: MagneticModel) => {
+      const sup = expandMagneticSupercell(model, mag)!;
       expect(sup.n).toEqual(ref.n);
-      return new Set(magneticCellGroup(b.jointModel, sup).operations.map(opKey));
+      return new Set(magneticCellGroup(model, sup).operations.map(opKey));
     };
     const same = (s: Set<string>) => s.size === refKeys.size && [...s].every((x) => refKeys.has(x));
-    expect(same(groupKeys(appMag))).toBe(true);
+    expect(same(groupKeys(like.model, like.magnetic))).toBe(true);
+    expect(same(groupKeys(plain.model, plain.magnetic))).toBe(true);
     // Discriminating: the other maximal candidates are the same group type at another origin or basis.
     const ties = { sameSite: true, magnitudes: false as const, flippedUnits: [] };
     let others = 0;
@@ -610,7 +694,7 @@ describe.skipIf(!hasRef)("AWO₄ 8 K benchmark — against the owner's reference
       if (r.index !== 2 || r.candidate.id === b.best.id || b.dims[i] === 0) continue;
       const build = buildFor(b.structure, K, b.ions, r.candidate.operations, ties);
       const generic = Object.fromEntries(build.params.map((p, j) => [p.id, 0.7 + 0.31 * j]));
-      expect(same(groupKeys(applyMagneticMoments(build.magnetic, build.bindings, generic))), r.candidate.label).toBe(false);
+      expect(same(groupKeys(b.jointModel, applyMagneticMoments(build.magnetic, build.bindings, generic))), r.candidate.label).toBe(false);
       others++;
     }
     expect(others).toBeGreaterThan(0);
@@ -621,61 +705,21 @@ describe.skipIf(!hasRef)("AWO₄ 8 K benchmark — against the owner's reference
       expect(Math.abs(m.components[1]), m.siteLabel).toBeLessThanOrEqual(1e-9);
       expect(ref.sus.get(m.siteLabel)![1]).toBe(0);
     }
-    for (const m of appMag.moments) expect(Math.abs(m.components[1]), m.siteLabel).toBeLessThanOrEqual(1e-9);
+    for (const m of [...like.magnetic.moments, ...plain.magnetic.moments]) expect(Math.abs(m.components[1]), m.siteLabel).toBeLessThanOrEqual(1e-9);
   });
 
-  it("R3b: the moment's axis in the a–c plane agrees within 2σ combined", () => {
+  it("R3b: the moment's axis in the a–c plane agrees within 2σ combined (reference ⟨j0⟩, the app's 8 K metric)", () => {
     // The same anchor: the reference's and the app's moment sit on the site itself (orbit 1).
-    expect(appMag.moments.find((m) => m.siteLabel === label())!.orbitIndex ?? 1).toBe(1);
-    const app = appSide();
-    const r = refSide();
+    expect(like.magnetic.moments.find((m) => m.siteLabel === label())!.orbitIndex ?? 1).toBe(1);
+    const app = appSide(like);
+    const r = refSide(like.model.cell);
     expect(Math.abs(axisDelta(app.phi, r.phi))).toBeLessThanOrEqual(2 * Math.hypot(app.phiSu, r.phiSu));
   });
 
-  it("R4: |M| per magnetic ion agrees within 2σ combined, each with its own cell's metric", () => {
-    const app = appSide();
-    const r = refSide();
+  it("R4: |M| per magnetic ion agrees within 2σ combined (reference ⟨j0⟩, the app's 8 K metric)", () => {
+    const app = appSide(like);
+    const r = refSide(like.model.cell);
     expect(r.sizeSu).toBeGreaterThan(0);
     expect(Math.abs(app.size - r.size)).toBeLessThanOrEqual(2 * Math.hypot(app.sizeSu, r.sizeSu));
-  });
-
-  it("C3-premise: the reference's 8 K cell is itself outside the thermal bounds of the 100 K CIF (why C3 compares with it)", () => {
-    const out: string[] = [];
-    for (const x of ["a", "b", "c"] as const) {
-      const r = refCell(x);
-      const old = cifValue(b.cif, `_cell_length_${x}`);
-      if (Math.abs(r.value / old.value - 1) > THERMAL_PER_AXIS + 2 * Math.hypot(old.esd / old.value, r.esd / r.value)) out.push(x);
-    }
-    const old = cifValue(b.cif, "_cell_angle_beta");
-    if (Math.abs(refCell("beta").value - old.value) > THERMAL_BETA + 2 * Math.hypot(old.esd, refCell("beta").esd)) out.push("beta");
-    expect(out.length).toBeGreaterThan(0);
-  });
-
-  // Known not met on the local data. Cause open: the reference states neither its calibration nor its
-  // profile, and no calibration moves β.
-  it.fails("C3a: β within 0.01° + 2σ combined of the reference's 8 K cell", () => {
-    const app = joint("cell_beta");
-    const r = refCell("beta");
-    expect(Math.abs(app.value - r.value)).toBeLessThanOrEqual(PROFILE_BETA + 2 * Math.hypot(app.esd, refSu(r.esd, app.esd)));
-  });
-
-  // Known not met on the local data, by b only (a and c within). Same open cause as C3a.
-  it.fails("C3b: each lattice length within 5e-4 + 2σ combined of the reference's 8 K cell", () => {
-    for (const x of ["a", "b", "c"] as const) {
-      const app = joint(`cell_${x}`);
-      const r = refCell(x);
-      const rel = app.esd / app.value;
-      expect(Math.abs(app.value / r.value - 1), x).toBeLessThanOrEqual(CALIBRATION_PER_AXIS + 2 * Math.hypot(rel, refSu(r.esd / r.value, rel)));
-    }
-  });
-
-  it("C3c: the volume within 1.5e-3 + 2σ of the reference's 8 K cell", () => {
-    const app = cellOf("app");
-    const r = cellOf("ref");
-    const sigV = Math.hypot(...(["a", "b", "c"] as const).flatMap((x) => {
-      const rel = app[x].esd / app[x].value;
-      return [rel, refSu(r[x].esd / r[x].value, rel)];
-    }));
-    expect(Math.abs(volume(app) / volume(r) - 1)).toBeLessThanOrEqual(3 * CALIBRATION_PER_AXIS + 2 * sigV);
   });
 });
