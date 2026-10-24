@@ -95,7 +95,7 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
   {
     name: "build_refinement",
     title: "Build refinement parameter set",
-    description: "Build the SYMMETRY-ALLOWED parameter set, bindings, and profile for a structure + pattern. Only symmetry-allowed parameters are created, so an agent cannot free a forbidden one. Feed `parameters`/`bindings`/`profile` to refine_powder. The background is Chebyshev with 4 terms, except on POWGEN time-of-flight data (an instrument file that names POWGEN or PG3, or a data file named PG3_…): log interpolation with 3 points; `profile.backgroundType` says which, so pass it on to export_bundle.",
+    description: "Build the SYMMETRY-ALLOWED parameter set, bindings, and profile for a structure + pattern. Only symmetry-allowed parameters are created, so an agent cannot free a forbidden one. Feed `parameters`/`bindings`/`profile` to refine_powder. The background is Chebyshev with 4 terms, except on POWGEN time-of-flight data (an instrument file that names POWGEN or PG3, or a data file named PG3_… with an instrument file naming no other instrument): log interpolation with 3 points; `profile.backgroundType` says which, so pass it on to export_bundle.",
     inputSchema: {
       structure: anyObj.describe("StructureModel from parse_structure"),
       pattern: anyObj.describe("PowderPattern from parse_powder_data"),

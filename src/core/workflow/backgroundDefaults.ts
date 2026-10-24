@@ -14,9 +14,11 @@
  * POWGEN is recognized the way the Instrument card names it: from the
  * instrument file's text (instrumentRegistry.ts, alias "POWGEN" or "PG3"; a
  * GSAS-II .instprm extracted from a POWGEN project carries "PG3_<run>" in its
- * header), or from the data file's name when it starts with POWGEN's run-file
- * prefix "PG3_" (PG3_45598_Bank1.fxye, PG3_61113-3.dat, PG3_61115.gsa) — and
- * only for a TOF pattern with a TOF calibration. Every other page keeps the
+ * header), or, when the instrument file names no instrument the registry
+ * knows, from the data file's name when it starts with POWGEN's run-file
+ * prefix "PG3_" (PG3_45598_Bank1.fxye, PG3_61113-3.dat, PG3_61115.gsa). An
+ * instrument file naming another instrument (NOMAD, …) wins over the file
+ * name. Only for a TOF pattern with a TOF calibration. Every other page keeps the
  * general default (Chebyshev, the session's term count).
  *
  * A default only: the basis and the count stay the user's (the Background
@@ -42,11 +44,12 @@ export function isPowgenFileName(name: string | undefined): boolean {
 
 /**
  * A POWGEN time-of-flight page: a TOF pattern with a TOF calibration, where the
- * instrument file names POWGEN or the data file (the pattern's name, which a
- * loaded file takes) is a POWGEN run file.
+ * instrument file names POWGEN, or names no known instrument (`name` is set
+ * only by the registry) and the data file (the pattern's name, which a loaded
+ * file takes) is a POWGEN run file.
  */
 export function isPowgenTof(pattern: Pick<PowderPattern, "xUnit"> & { readonly name?: string }, instrument: InstrumentParameters | null | undefined): boolean {
-  return pattern.xUnit === "tof" && instrument?.kind === "tof" && (instrument.name === "POWGEN" || isPowgenFileName(pattern.name));
+  return pattern.xUnit === "tof" && instrument?.kind === "tof" && (instrument.name === "POWGEN" || (instrument.name === undefined && isPowgenFileName(pattern.name)));
 }
 
 /** The instrument's default background for new data, or null for the general default. */

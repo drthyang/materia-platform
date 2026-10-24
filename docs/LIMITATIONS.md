@@ -197,8 +197,9 @@ approximate, however plausible its output looks.
   logarithmic interpolation between evenly spaced points, with an adjustable
   number of terms. POWGEN time-of-flight data start on log interpolation with
   3 points, recognized from the instrument file's text (POWGEN or PG3 in it)
-  or the data file's name (`PG3_` at its start, any case); other data on 4
-  Chebyshev terms. The Agent's `diagnose_fit` reads the
+  or, when that names no known instrument, the data file's name (`PG3_` at
+  its start, any case); an instrument file naming another instrument wins.
+  Other data start on 4 Chebyshev terms. The Agent's `diagnose_fit` reads the
   count the points between the lines justify (BIC), with any excess there
   that no reflection explains left out as a line, not background; a hump wider
   than 24 line widths counts as background, and the points under the lines

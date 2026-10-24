@@ -107,8 +107,6 @@ describe("recognizing POWGEN", () => {
     const unnamed = unnamedInstrument();
     expect(isPowgenTof(pg3Pattern(), unnamed)).toBe(true);
     expect(isPowgenTof(renamed("pg3_45598_bank1.fxye"), unnamed)).toBe(true);
-    // The user's rule: a file that names neither counts; one naming another instrument does not veto the run file's name.
-    expect(isPowgenTof(pg3Pattern(), parseInstrumentParameters(PG3_INSTRUMENT.text.replaceAll("PG3", "NOMAD")))).toBe(true);
     expect(isPowgenTof({ xUnit: "twoTheta", name: "PG3_45598_Bank1.fxye" }, unnamed)).toBe(false);
     expect(isPowgenTof({ xUnit: "dSpacing", name: "PG3_45598_Bank1.fxye" }, unnamed)).toBe(false);
     expect(isPowgenTof(pg3Pattern(), parseInstrumentParameters(CW_INSTRUMENT.text))).toBe(false);
@@ -194,6 +192,45 @@ describe("a PG3_ data file with an instrument file that names neither POWGEN nor
     const other = build_refinement({ ...args, pattern: renamed("bank1.fxye") });
     expect(other.profile.backgroundType).toBeUndefined();
     expect(count(other)).toBe(4);
+  });
+});
+
+describe("the instrument file's own name wins over the PG3_ data name", () => {
+  const nomad = (): InstrumentParameters => parseInstrumentParameters(PG3_INSTRUMENT.text.replaceAll("PG3", "NOMAD"));
+  const vulcan = (): InstrumentParameters => parseInstrumentParameters(PG3_INSTRUMENT.text.replaceAll("PG3", "VULCAN"));
+  const page = (inst: InstrumentParameters, data: PowderPattern, order: Load[]) => order.reduce((p: PowderPage, what: Load) =>
+    what === "cif" ? withStructure(p, pg3Structure()) : what === "data" ? withPattern(p, data, { ...PG3_DATA, name: data.name }) : withInstrument(p, inst, { ...PG3_INSTRUMENT, name: "bank1.instprm" }), emptyPage()).session;
+
+  it.each([["cif", "instrument", "data"], ["data", "instrument", "cif"]] as Load[][])("PG3_ data with an instrument file naming NOMAD or VULCAN: Chebyshev, four terms (order %s, %s, %s)", (...order) => {
+    for (const inst of [nomad(), vulcan()]) {
+      expect(inst.kind).toBe("tof");
+      expect(isPowgenTof(pg3Pattern(), inst)).toBe(false);
+      const s = page(inst, pg3Pattern(), order);
+      expect(s.powderProfile.shape).toBe("tof");
+      expect(s.powderProfile.backgroundType).toBeUndefined();
+      expect(s.backgroundTerms).toBe(4);
+      expect(backgroundRows(s)).toHaveLength(4);
+    }
+  });
+
+  it("PG3_ data with an instrument file naming POWGEN, or naming none: log interpolation, three points", () => {
+    for (const inst of [pg3Instrument(), unnamedInstrument()]) {
+      const s = page(inst, pg3Pattern(), ["cif", "instrument", "data"]);
+      expect(s.powderProfile.backgroundType).toBe("logInterpolate");
+      expect(backgroundRows(s)).toHaveLength(3);
+    }
+  });
+
+  it("other data with an instrument file naming POWGEN: log interpolation, three points", () => {
+    const s = page(pg3Instrument(), renamed("bank1.fxye"), ["cif", "instrument", "data"]);
+    expect(s.powderProfile.backgroundType).toBe("logInterpolate");
+    expect(backgroundRows(s)).toHaveLength(3);
+  });
+
+  it("MCP build_refinement: PG3_ data with a NOMAD-named instrument file gets the general default", () => {
+    const r = build_refinement({ structure: pg3Structure(), pattern: pg3Pattern(), instrument: nomad() });
+    expect(r.profile.backgroundType).toBeUndefined();
+    expect(r.parameters.filter((p) => p.kind === "background")).toHaveLength(4);
   });
 });
 
