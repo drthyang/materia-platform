@@ -31,6 +31,7 @@ import { EXTINCTION_MODEL_LABELS } from "@/core/diffraction/singleCrystalFactors
 import { isMomentParameterKind, type ParameterBinding, type RefinementParameter, type RefinementResult } from "@/core/refinement/types";
 import { parseTie, resolveTies } from "@/core/refinement/constraints";
 import type { PowderProfile } from "@/core/workflow/powder";
+import { backgroundLabel } from "@/core/diffraction/background";
 import { formatMagneticSymbol, identifyMagneticGroupAnySetting } from "@/core/magnetic/bnsOg";
 import { magneticOperationSignature } from "@/core/magnetic/operationSignature";
 import { latticeCandidateLabel, latticeRepresentatives, magneticSubgroupLattice } from "@/core/magnetic/subgroupLattice";
@@ -100,6 +101,7 @@ export function singleCrystalCifText(o: { structure: StructureModel; params: rea
 
 const pct = (v: number | null | undefined, d = 2): string => (v === null || v === undefined || !Number.isFinite(v) ? "—" : `${(100 * v).toFixed(d)} %`);
 const num = (v: number, d: number): string => v.toFixed(d);
+const capitalized = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 
 /**
  * The profile the instrument file was calibrated with, beside the refined one
@@ -360,7 +362,7 @@ export function powderReportInput(o: {
     ...instrumentProfileRow(o.instrument, o.instrumentLoaded),
     { label: "Range", value: `${num(xmin, pattern.xUnit === "tof" ? 0 : 3)} – ${num(xmax, pattern.xUnit === "tof" ? 0 : 3)} ${unit} · ${pattern.points.length} points` },
     ...(o.fitRange ? [{ label: "Fit window", value: `${num(o.fitRange.min, 3)} – ${num(o.fitRange.max, 3)} (${o.xLabel}) · ${o.pointsInWindow} points` }] : []),
-    { label: "Background", value: `Chebyshev polynomial, ${session.backgroundTerms} terms` },
+    { label: "Background", value: capitalized(backgroundLabel(session.powderProfile.backgroundType, session.backgroundTerms)) },
     { label: "Peak shape", value: o.tofViewOnly ? "View only — GSAS-II's calculated curve is shown; MATERIA did not refine this TOF pattern" : `${peakShapeLabel(session.powderProfile)}${session.corrections?.asymmetry ? " · Finger–Cox–Jephcoat axial-divergence asymmetry (S/L, H/L)" : ""}` },
     { label: "Lorentz factor", value: session.powderProfile.lorentz === false ? "off (pre-reduced intensities)" : "applied" },
     ...(session.mustrain && session.mustrain !== "isotropic" ? [{ label: "Microstrain model", value: session.mustrain }] : []),
@@ -379,7 +381,7 @@ export function powderReportInput(o: {
 
   const notes = [
     "wR = √(Σ w (y_obs − y_calc)² / Σ w y_obs²) with w = 1/σ² over the fit window; R_exp = √((N − P) / Σ w y_obs²); S = wR / R_exp (GSAS-II's GoF; reduced χ² = S²).",
-    `Background: Chebyshev polynomial with ${session.backgroundTerms} terms, refined with the model.`,
+    `Background: ${backgroundLabel(session.powderProfile.backgroundType, session.backgroundTerms)}, refined with the model.`,
     `Peak shape: ${peakShapeLabel(session.powderProfile)}${pattern.xUnit === "tof" ? "; d = (TOF − zero) / difC." : "."}`,
     ...(magnetic.section
       ? ["Magnetic intensities use the dipole ⟨j0⟩ form factor of the tabulated ion, with the moments expanded over the magnetic space-group operations (time-reversal-signed axial transforms, k-phase over the magnetic supercell). Components are crystal-axis µB; |m| through the cell metric. A powder pattern cannot fix the absolute moment direction within a set of symmetry-equivalent directions."]

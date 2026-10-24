@@ -27,6 +27,8 @@ import { formatWt, fractionsOf } from "@/core/diagnostics/phaseFractions";
 import { fittedPoints, pointSigma, powderResidual, type PowderResidual } from "@/core/diagnostics/powderResidual";
 import { unexplainedPeaks, type PeakReading } from "@/core/diagnostics/unexplainedPeaks";
 import { diagnoseFit, diagnosisText, durbinWatsonSentence, fitDiagnosisView } from "@/core/diagnostics/fitDiagnosis";
+import { backgroundTermsReading } from "@/core/diagnostics/backgroundTerms";
+import type { BackgroundType } from "@/core/diffraction/background";
 import { identifyPeaks, identifyReading, knownPhaseNames, knownPhaseStructure } from "@/core/diagnostics/knownPhases";
 import { withAntisite } from "@/core/crystal/antisite";
 import { structureTable } from "@/agent/structureTable";
@@ -267,14 +269,16 @@ export const POWDER_PLANS: Plans<PowderAgentPort> = {
   set_background: (input, s, port) => {
     // An empty change is an error before anyone is asked.
     if (input.terms === undefined && input.type === undefined) throw new Error("pass `terms`, `type`, or both");
+    const caution = input.terms !== undefined ? backgroundTermsCaution(s, input.type ?? s.settings.backgroundType, input.terms) : null;
     const preview = [
       ...(input.terms !== undefined ? [`Background terms ${s.settings.backgroundTerms} → ${String(input.terms)}`] : []),
       ...(input.type !== undefined ? [`Background basis ${s.settings.backgroundType} → ${input.type}`] : []),
+      ...(caution ? [caution] : []),
     ].join(" · ");
     return change(preview, () => {
       if (input.terms !== undefined) port.setBackgroundTerms(input.terms);
       if (input.type !== undefined) port.setBackgroundType(input.type);
-      return undefined;
+      return caution ?? undefined;
     });
   },
   set_microstrain: (input, s, port) => change(`Microstrain ${s.settings.mustrain} → ${input.model}`, () => {
@@ -677,6 +681,30 @@ function sharedSiteAdps(s: PowderLiveState): string[] {
   return [...sites].filter(([, set]) => set.size > 1).map(([id]) => id);
 }
 
+/**
+ * set_background's caution on more terms, read on the fit on screen
+ * (backgroundTerms.ts): the excess between the lines no reflection explains,
+ * which a more flexible background would absorb, and the count the points
+ * between the lines justify. Null when the count does not grow, or nothing
+ * stands against it.
+ */
+function backgroundTermsCaution(s: PowderLiveState, type: BackgroundType, terms: number): string | null {
+  const c = s.curves;
+  if (!s.d || terms <= s.settings.backgroundTerms || !c.yBackground || c.yBackground.length !== c.x.length) return null;
+  const reading = backgroundTermsReading({
+    x: c.x, yObs: c.yObs, yCalc: c.yCalc, yBackground: c.yBackground,
+    sigma: pointSigma(c.yObs, s.pattern.points), include: fittedPoints(c.x, c.yObs, s.fitRange), d: s.d, type,
+  });
+  if (!reading) return null;
+  const parts = [
+    ...(reading.excess.length > 0
+      ? [`more terms can absorb the excess between the lines that no reflection explains, at d = ${reading.excess.slice(0, 4).map((e) => e.d.toFixed(3)).join(", ")} Å (find_unexplained_peaks)`]
+      : []),
+    ...(terms > reading.justified ? [`the ${reading.points} points between the lines justify ${reading.justified} (BIC${reading.excess.length > 0 ? ", the excess left out" : ""})`] : []),
+  ];
+  return parts.length > 0 ? `Caution: ${parts.join("; ")}` : null;
+}
+
 /** The Caglioti terms and the Lorentzian X: diagnose_fit reads the shape, not the width, once those present are all free. */
 const WIDTH_KINDS = ["profileU", "profileV", "profileW", "profileX"] as const;
 
@@ -703,6 +731,7 @@ function fitDiagnosisOf(s: PowderLiveState): ReturnType<typeof fitDiagnosisView>
     twoTheta: s.pattern.xUnit === "twoTheta",
     xOf: (d) => convertAxisValue(d, "dSpacing", s.pattern.xUnit, s.axis),
     ...(widthsFree ? { widthsFree: { lorentzian: present.includes("profileX") } } : {}),
+    background: { type: s.settings.backgroundType, terms: s.settings.backgroundTerms },
   });
   return fitDiagnosisView(dx, s.pattern.xUnit);
 }

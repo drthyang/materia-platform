@@ -775,7 +775,7 @@ Powder page only. For a fit refined to the best its space group allows that is s
 
 ### diagnose_fit
 
-Powder page only. Why the fit on screen is not good, cause by cause, each with the share of χ² it carries and what to do: background (misfit between the peaks), peak positions (residual on one side of every peak: zero, cell, displacement), asymmetry (one-sided residual at low angle), peak width/shape (± lobes everywhere), intensity falling off with angle wrongly (a Wilson-type ΔB: ADPs, absorption, roughness), texture (intensity misfit following the angle to a low-index direction: preferred orientation), and what is left for the structure. Also the background-subtracted Rwp′, the Durbin–Watson statistic, χ² by d shell, and the reflections that carry the most χ². Call it when assess_refinement says the fit is poor or fair and you need to know what to free next; it reads the curves on screen, refined or not.
+Powder page only. Why the fit on screen is not good, cause by cause, each with the share of χ² it carries and what to do: background (misfit between the peaks, with the number of terms the points there justify), an unexplained peak (excess between the lines that no reflection explains: to explain, never to fit with the background), peak positions (residual on one side of every peak: zero, cell, displacement), asymmetry (one-sided residual at low angle), peak width/shape (± lobes everywhere), intensity falling off with angle wrongly (a Wilson-type ΔB: ADPs, absorption, roughness), texture (intensity misfit following the angle to a low-index direction: preferred orientation), and what is left for the structure. Also the background-subtracted Rwp′, the Durbin–Watson statistic, χ² by d shell, and the reflections that carry the most χ². Call it when assess_refinement says the fit is poor or fair and you need to know what to free next; it reads the curves on screen, refined or not.
 
 ```json
 {
@@ -1448,7 +1448,7 @@ Free (refine) or fix (hold) parameters, as the check boxes in the parameter pane
 
 ### set_background
 
-Powder page only. Change the background model: the number of coefficients (rebuilds the parameter set, keeping every other value and free state) and/or the basis. Changing the basis between a polynomial and an interpolation type reseeds the coefficients. Clears the last result.
+Powder page only. Change the background model: the number of coefficients (rebuilds the parameter set, keeping every other value and free state) and/or the basis. Changing the basis between a polynomial and an interpolation type reseeds the coefficients; a new count on an interpolation basis keeps the curve. More terms: the card cautions when they would absorb an excess no reflection explains, or exceed what the points between the lines justify (BIC). Clears the last result.
 
 ```json
 {

@@ -30,6 +30,7 @@ import { cellVolume } from "@/core/crystal/unitCell";
 import type { PowderProfile } from "@/core/workflow/powder";
 import { magneticComponentCurve } from "@/core/workflow/magneticPowder";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
+import { pageInstrument } from "@/core/workflow/backgroundDefaults";
 import { resolveTies, type EqualTieUpdate } from "@/core/refinement/constraints";
 import type { BackgroundType } from "@/core/diffraction/background";
 import { extractSizeStrain } from "@/core/diffraction/microstructure";
@@ -1133,8 +1134,11 @@ export function PowderWorkbench({
   const instBeamline = instrumentLoaded ? instrument.name : undefined;
   const instFacility = instrumentLoaded ? instrument.facility : undefined;
   const instIdentified = !!(instBeamline || instFacility);
+  // A file that names no beamline: the data file's name may hint at one (PG3_…, NOM_…), shown as a guess.
+  const instGuess = instrumentLoaded && !instIdentified ? pageInstrument(pattern, instrument) : null;
   const instTitle = instIdentified
     ? [instBeamline, instFacility].filter(Boolean).join(" · ")
+    : instGuess?.guessed ? `${instGuess.name} (guessed from the file name)`
     : instrument.kind === "tof" ? "Time-of-flight" : "Constant wavelength";
   // Title carries the identity ("Beamline · Facility" or the mode); the meta line
   // always shows the key calibration actually loaded — the wavelength for CW

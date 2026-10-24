@@ -91,6 +91,7 @@ import { looksLikeSnsTofHkl, parseSnsTofHkl } from "@/parsers/snsTofHkl";
 import { writeFullProfInt } from "@/core/export/fullprofInt";
 import { refinementBundle, type BundleTarget } from "@/core/export/bundle";
 import type { BackgroundType } from "@/core/diffraction/background";
+import { instrumentBackgroundDefault } from "@/core/workflow/backgroundDefaults";
 import type { CifRefinementMeta } from "@/core/export/cif";
 import { parseHklRows } from "@/parsers/hkl";
 import { isCifReflectionLoop, isRefinementListing, parseFcf, parseShelxHkl } from "@/parsers/shelxHkl";
@@ -182,16 +183,25 @@ export function build_refinement(args: {
   pattern: PowderPattern;
   instrument?: InstrumentParameters;
   backgroundTerms?: number;
+  backgroundType?: BackgroundType;
   mustrain?: MustrainModel;
 }): { parameters: RefinementParameter[]; bindings: ParameterBinding[]; profile: PowderProfile; freeCount: number } {
+  const instrument = args.instrument ?? DEFAULT_INSTRUMENT;
+  // The instrument's default background (POWGEN TOF: log interpolate, 3
+  // points) for what the call leaves out; the count follows the basis.
+  const own = instrumentBackgroundDefault(args.pattern, instrument);
+  const backgroundType = args.backgroundType ?? own?.type;
+  const backgroundTerms = args.backgroundTerms ?? (own && backgroundType === own.type ? own.terms : 4);
   const spec = buildPowderSpec(
     args.structure,
     args.pattern,
-    args.instrument ?? DEFAULT_INSTRUMENT,
+    instrument,
     true,
-    args.backgroundTerms ?? 4,
+    backgroundTerms,
     {},
     args.mustrain ?? "isotropic",
+    undefined,
+    backgroundType,
   );
   return {
     parameters: spec.params,

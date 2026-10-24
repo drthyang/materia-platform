@@ -195,7 +195,18 @@ approximate, however plausible its output looks.
   Constant per-bank prefactors are absorbed into the scale.
 - Backgrounds: Chebyshev, cosine (Fourier) or power series, or linear or
   logarithmic interpolation between evenly spaced points, with an adjustable
-  number of terms.
+  number of terms. POWGEN time-of-flight data start on log interpolation with
+  3 points, recognized from the instrument file's text (POWGEN or PG3 in it)
+  or, when that names no known instrument, a guess from the data file's name
+  (`PG3_…` POWGEN, `NOM_…` NOMAD, any case; NOMAD has no default of its own,
+  so its guess only labels the Instrument card). An instrument file naming an
+  instrument wins; the guess is never saved or reported as the instrument.
+  Other data start on 4 Chebyshev terms. The Agent's `diagnose_fit` reads the
+  count the points between the lines justify (BIC), with any excess there
+  that no reflection explains left out as a line, not background; a hump wider
+  than 24 line widths counts as background, and the points under the lines
+  (a short-d stretch of overlapping TOF lines) say nothing of it. The
+  Background group's own terms box does not warn.
 - Corrections: March–Dollase preferred orientation (averaged over each
   family's Laue equivalents, as GSAS-II); sample displacement and
   transparency, Debye–Scherrer absorption, and Suortti surface roughness

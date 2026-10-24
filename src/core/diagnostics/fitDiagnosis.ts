@@ -38,6 +38,8 @@ import { pct, sig } from "@/core/math/precision";
 import { WIDTHS_AGREE } from "@/core/diagnostics/thresholds";
 import { minMax } from "@/core/math/extent";
 import { TEXTURE_CHANCE, textureTest, type TextureTest } from "@/core/diagnostics/textureTest";
+import { BACKGROUND_ALONE_SIGMA, backgroundTermsReading, unexplainedExcess, type BackgroundExcess, type BackgroundTermsReading } from "@/core/diagnostics/backgroundTerms";
+import type { BackgroundType } from "@/core/diffraction/background";
 
 export interface FitDiagnosisInput {
   readonly x: readonly number[];
@@ -59,9 +61,11 @@ export interface FitDiagnosisInput {
   readonly xOf: (d: number) => number;
   /** The Caglioti U, V, W (and X, when the profile has it) are all free: once the widths agree, a shape misfit gets no width advice. */
   readonly widthsFree?: { readonly lorentzian: boolean };
+  /** The page's background, so a background misfit names the count its points justify (backgroundTerms.ts). */
+  readonly background?: { readonly type: BackgroundType; readonly terms: number };
 }
 
-export type CauseId = "background" | "peak-width" | "peak-tails" | "peak-position" | "asymmetry" | "peak-shape" | "intensity-falloff" | "texture" | "structure";
+export type CauseId = "background" | "unexplained-peak" | "peak-width" | "peak-tails" | "peak-position" | "asymmetry" | "peak-shape" | "intensity-falloff" | "texture" | "structure";
 
 export interface FitCause {
   readonly id: CauseId;
@@ -103,6 +107,10 @@ export interface WidthRatio {
 export interface FitDiagnosis {
   readonly validation: PowderValidation;
   readonly betweenPeaks?: { readonly share: number; readonly chi2PerPoint: number; readonly points: number };
+  /** Excess between the lines that no reflection explains, left out of the background's points (backgroundTerms.ts). */
+  readonly unexplained?: readonly BackgroundExcess[];
+  /** The background count the points between the lines justify (with `background` in the input). */
+  readonly backgroundTerms?: BackgroundTermsReading;
   readonly width?: WidthRatio;
   readonly worst: readonly WorstReflection[];
   /** ln(I_obs/I_calc) against s² = 1/(4d²): ΔB = −slope/2 (Å²). */
@@ -148,27 +156,49 @@ export function diagnoseFit(input: FitDiagnosisInput): FitDiagnosis {
   const reach = widths.length >= 3 ? lineReach(input, interpolator(widths.map((w) => [w.x, Math.max(w.obs, w.calc)] as const))) : null;
 
   // ── background: χ² where the model is background alone ───────────────────
+  // Excess there that stands above the noise on a line's scale is a line the
+  // model lacks, not background: it is read apart, and kept out of the points
+  // the background is judged on, so the advice never asks for the terms that
+  // would absorb it (backgroundTerms.ts).
   let betweenPeaks: FitDiagnosis["betweenPeaks"];
+  let unexplained: BackgroundExcess[] = [];
+  let termsReading: BackgroundTermsReading | null = null;
   if (input.yBackground) {
-    let chi = 0, n = 0, nAll = 0;
+    const yBackground = input.yBackground;
+    const base = input.x.map((_, i) => input.include[i]! && input.yCalc[i]! - yBackground[i]! <= BACKGROUND_ALONE_SIGMA * input.sigma[i]!
+      && !(reach && reach.envelope[i]! > 0.5 * input.sigma[i]!));
+    const points = { x: input.x, yObs: input.yObs, yCalc: input.yCalc, yBackground, sigma: input.sigma, include: input.include, d: input.d };
+    const excess = unexplainedExcess(points, base);
+    unexplained = excess.features;
+    let chi = 0, n = 0, nAll = 0, chiExcess = 0;
     input.x.forEach((_, i) => {
       if (!input.include[i]) return;
       nAll++;
-      const peak = input.yCalc[i]! - input.yBackground![i]!;
-      if (peak > 0.5 * input.sigma[i]!) return;
-      if (reach && reach.envelope[i]! > 0.5 * input.sigma[i]!) return;
+      if (!base[i]) return;
       const dl = (input.yObs[i]! - input.yCalc[i]!) / input.sigma[i]!;
+      if (excess.mask[i]) { chiExcess += dl * dl; return; }
       chi += dl * dl;
       n++;
     });
+    if (unexplained.length > 0 && total > 0) {
+      const list = unexplained.slice(0, 4).map((e) => `d = ${e.d.toFixed(3)} Å (${e.significance.toFixed(0)}σ)`).join(", ") + (unexplained.length > 4 ? ", …" : "");
+      causes.push({
+        id: "unexplained-peak",
+        share: chiExcess / total,
+        evidence: `between the lines, ${unexplained.length === 1 ? "an excess" : `${unexplained.length} excesses`} that no reflection of the model explains, each standing above the noise over a line's width: ${list}`,
+        action: "Not background: intensity no phase in the model has — magnetic order (neutrons, below the ordering temperature), an impurity or the sample environment (find_unexplained_peaks, identify_peaks). Explain it before adding background terms: a more flexible background absorbs it, and the structure is then refined against a pattern without it.",
+      });
+    }
+    if (input.background) termsReading = backgroundTermsReading({ ...points, type: input.background.type }, base, excess);
     if (n > 0 && total > 0) {
       betweenPeaks = { share: chi / total, chi2PerPoint: chi / n, points: n };
       if (betweenPeaks.chi2PerPoint > 2 && betweenPeaks.share > 0.15) {
+        const left = unexplained.length > 0 ? `, the unexplained excess left out` : "";
         causes.push({
           id: "background",
           share: betweenPeaks.share,
-          evidence: `between the peaks (${n} of ${nAll} points) the residual carries ${(100 * betweenPeaks.share).toFixed(0)}% of χ² at ${betweenPeaks.chi2PerPoint.toFixed(1)} per point (noise alone gives 1)`,
-          action: "The background function misses: more terms or another basis (set_background), then refine the background alone.",
+          evidence: `between the peaks (${n} of ${nAll} points${left}) the residual carries ${(100 * betweenPeaks.share).toFixed(0)}% of χ² at ${betweenPeaks.chi2PerPoint.toFixed(1)} per point (noise alone gives 1)`,
+          action: backgroundAction(input.background, termsReading),
         });
       }
     }
@@ -331,7 +361,27 @@ export function diagnoseFit(input: FitDiagnosisInput): FitDiagnosis {
       ? "No dominant cause: the misfit is spread thin. If GoF is still well above 1, look at the worst reflections one by one."
       : `Most of the misfit: ${causes.slice(0, 3).map((c) => `${c.id} (~${(100 * c.share).toFixed(0)}% of χ²)`).join(", ")}. Address the largest first.`,
   ].join(" ");
-  return { validation, ...(betweenPeaks ? { betweenPeaks } : {}), ...(width ? { width } : {}), worst, ...(wilson ? { wilson } : {}), ...(texture ? { texture } : {}), causes, reading };
+  return {
+    validation, ...(betweenPeaks ? { betweenPeaks } : {}), ...(unexplained.length > 0 ? { unexplained } : {}), ...(termsReading ? { backgroundTerms: termsReading } : {}),
+    ...(width ? { width } : {}), worst, ...(wilson ? { wilson } : {}), ...(texture ? { texture } : {}), causes, reading,
+  };
+}
+
+/**
+ * What to do when the background misses between the lines: the count the
+ * points there justify (BIC, backgroundTerms.ts), or, when it is no more than
+ * the page has, another basis rather than more terms.
+ */
+export function backgroundAction(background: FitDiagnosisInput["background"], reading: BackgroundTermsReading | null): string {
+  if (!background || !reading) return "The background function misses: more terms or another basis (set_background), then refine the background alone.";
+  const on = `BIC on the ${reading.points} points between the lines${reading.excess.length > 0 ? ", the unexplained excess left out" : ""}`;
+  if (reading.justified <= background.terms) {
+    return `The background misses, but more terms are not justified (${on}: ${reading.justified}, the page has ${background.terms}): another basis (set_background type), or scattering the model lacks.`;
+  }
+  // A count read on the residual of a model that lacks lines is that model's: explain them first.
+  return reading.excess.length > 0
+    ? `The background misses between the lines, but the model also lacks lines there (unexplained-peak): explain them first, then read the count again (${on}: ${reading.justified} terms of this basis, the page has ${background.terms}).`
+    : `The background function misses: ${reading.justified} terms of this basis (${on}) instead of ${background.terms} — set_background terms ${reading.justified} — then refine the background alone.`;
 }
 
 /** Observed/calculated widths this far from 1 are a cause. */
@@ -514,6 +564,8 @@ export function fitDiagnosisView(dx: FitDiagnosis, unit: PowderXUnit): Record<st
       ...(v.durbinWatson ? { durbinWatson: sig(v.durbinWatson.d, 3), durbinWatsonCritical: sig(v.durbinWatson.qd, 3) } : {}),
     },
     ...(dx.betweenPeaks ? { betweenPeaks: { chi2Share: pct(dx.betweenPeaks.share), chi2PerPoint: sig(dx.betweenPeaks.chi2PerPoint, 3), points: dx.betweenPeaks.points } } : {}),
+    ...(dx.unexplained ? { unexplainedExcess: dx.unexplained.slice(0, 8).map((e) => ({ d: sig(e.d, 4), [unit]: sig(e.x, 5), significance: sig(e.significance, 3) })) } : {}),
+    ...(dx.backgroundTerms ? { backgroundTermsJustified: { terms: dx.backgroundTerms.justified, points: dx.backgroundTerms.points, criterion: "BIC of the background alone on the points between the lines, the unexplained excess left out" } } : {}),
     ...(dx.width ? { lineWidths: { observedOverCalculated: sig(dx.width.median, 3), lowerThird: sig(dx.width.low, 3), upperThird: sig(dx.width.high, 3), isolatedLines: dx.width.lines, ...(dx.width.etaObs !== undefined && dx.width.etaCalc !== undefined && widthsComparable(dx.width) ? { lorentzianFraction: { observed: sig(dx.width.etaObs, 2), calculated: sig(dx.width.etaCalc, 2), lines: dx.width.shapeLines } } : {}) } } : {}),
     dShells: v.shells.map((sh) => ({ d: `${sig(Math.min(sh.lo, sh.hi), 3)}–${sig(Math.max(sh.lo, sh.hi), 3)} Å`, chi2PerPoint: sig(sh.chi2PerPoint, 3), chi2Share: pct(sh.share) })),
     worstReflections: dx.worst.map((w) => ({
