@@ -434,6 +434,10 @@ Conventions are pinned in
   follows GSAS-II's reader and is covered by synthetic tests only.
 - A `CONST` bank is read as constant wavelength. A rare constant-step TOF
   `CONST` bank needs its unit set by hand.
+- Mantid `XYDATA` exports (`SaveFocusedXYE`, POWGEN `.dat`) are read as plain
+  x y σ columns, the TOF unit taken from their `#` header. Their abscissa is
+  the focused TOF (difC·d), and the file carries no calibration: load the
+  frame's `.instprm` with it. Checked on one real POWGEN file (local data).
 
 **Not yet**
 - CIF: DDLm-style dotted names for the cell and atom sites
