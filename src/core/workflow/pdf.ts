@@ -29,9 +29,9 @@ import type { StageKinds } from "@/core/workflow/structureRefinement";
 import type { FitRange } from "@/core/workflow/powder";
 import type { PdfPair } from "@/core/pdf/pairEnumerator";
 import { applyExclusionMask, fitRangeMask } from "@/core/refinement/factors";
-import { tieReferences, resolveTies } from "@/core/refinement/constraints";
+import { parseTie, renamedTie, resolveTies } from "@/core/refinement/constraints";
 import { applyParameters } from "@/core/workflow/apply";
-import { buildStructureRefinement } from "@/core/workflow/structureRefinement";
+import { buildStructureRefinement, sharedOccupancyTies } from "@/core/workflow/structureRefinement";
 import {
   expandStructureAtoms,
   expandStructureAtomsWithProvenance,
@@ -197,12 +197,25 @@ export function buildPdfProblem(
 
   // Free parameters referenced BY a tie expression: moving them moves the tied
   // parameter too — an indirect model path the analytic columns don't carry, so
-  // those fall back to finite differences (null).
+  // those fall back to finite differences (null). Except an occupancy that an
+  // occupancy follows linearly (a shared site's last one, 1 − Σ the others):
+  // its column carries the follower's sites with the tie's factor, as the
+  // single-crystal problem's columns carry a complement.
   const tieReferencedIds = new Set<string>();
+  const occupancyFollowers = new Map<string, { readonly id: string; readonly factor: number }[]>();
+  const kindOf = new Map(parameters.map((p) => [p.id, p.kind] as const));
   for (const p of parameters) {
     if (!p.expression) continue;
     try {
-      for (const id of tieReferences(p.expression)) tieReferencedIds.add(id);
+      const tie = parseTie(p.expression);
+      const refs = tie.kind === "linear" ? [tie.refId] : tie.refIds;
+      for (const id of refs) {
+        if (tie.kind !== "norm" && p.kind === "occupancy" && kindOf.get(id) === "occupancy") {
+          occupancyFollowers.set(id, [...(occupancyFollowers.get(id) ?? []), { id: p.id, factor: tie.factor }]);
+        } else {
+          tieReferencedIds.add(id);
+        }
+      }
     } catch {
       // An unparsable tie fails loudly in resolveTies; nothing to guard here.
     }
@@ -256,6 +269,14 @@ export function buildPdfProblem(
             const si = b.targetKey !== undefined ? siteIndexByLabel.get(b.targetKey) : undefined;
             if (si === undefined) return null;
             for (const a of orbit[si]!) dOcc[a] = dOcc[a]! + 1;
+          }
+          for (const f of occupancyFollowers.get(p.id) ?? []) {
+            for (const b of bindings) {
+              if (b.parameterId !== f.id) continue;
+              const si = b.kind === "occupancy" && b.targetKey !== undefined ? siteIndexByLabel.get(b.targetKey) : undefined;
+              if (si === undefined) return null;
+              for (const a of orbit[si]!) dOcc[a] = dOcc[a]! + f.factor;
+            }
           }
           return { kind: "occupancy", dOcc };
         }
@@ -599,7 +620,7 @@ export function buildMultiPhasePdfSpec(
         if (i === 0) params.push(p);
         continue;
       }
-      params.push({ ...p, id: prefix(p.id), label: `${structure.name || structure.id}: ${p.label}` });
+      params.push({ ...p, id: prefix(p.id), label: `${structure.name || structure.id}: ${p.label}`, ...(p.expression ? { expression: renamedTie(p.expression, prefix) } : {}) });
     }
     for (const b of spec.bindings) {
       if (PDF_SHARED_KINDS.has(b.kind)) {
@@ -806,11 +827,14 @@ export const PDF_STAGE_KINDS: readonly StageKinds[] = [
   { name: "occupancy", kinds: ["occupancy"] },
 ];
 
-/** Whether atoms sharing a crystallographic site are tied (mirrors `SiteTies`). */
+/**
+ * Whether atoms sharing a crystallographic site are tied (mirrors `SiteTies`).
+ * Their occupancies always sum to exactly 1 on the PDF page (a hard tie), so
+ * there is no `occupancyToUnity`.
+ */
 export interface PdfSiteTies {
   readonly positions?: boolean;
   readonly adp?: boolean;
-  readonly occupancyToUnity?: boolean;
   readonly composition?: boolean;
 }
 
@@ -833,6 +857,11 @@ export interface PdfSpec {
  * occupancy restraints) is reused rather than duplicated. Its reciprocal-space
  * leftovers (Rietveld `scale`, single `peakWidth`) are filtered out.
  *
+ * A shared site's occupancies sum to exactly 1: its last member's row follows
+ * one minus the others' (`sharedOccupancyTies`), held fixed, so n − 1 refine
+ * and the engine gives the follower its esd from the covariance. No soft Σ
+ * restraint is emitted (the powder page keeps that one).
+ *
  * Free on load: `pdfScale` and the cell — the safe first fit. ADPs, δ1/δ2,
  * positions, and occupancies start fixed (freed per row or by the guided
  * sequence); Qdamp/Qbroad start fixed at the header/calibration values.
@@ -853,9 +882,11 @@ export function buildPdfSpec(structure: StructureModel, pattern: PdfPattern, tie
     refineOccupancy: true,
     tieSharedPositions: ties.positions ?? true,
     tieSharedAdp: ties.adp ?? true,
-    constrainOccupancyToUnity: ties.occupancyToUnity ?? false,
+    // A shared site's Σ occupancy is the hard tie below, not the soft restraint.
+    restrainSharedOccupancy: false,
     holdComposition: ties.composition ?? false,
   });
+  const occupancyTies = new Map(sharedOccupancyTies(structure.sites).map((t) => [t.id, t] as const));
   const drop = new Set<ParameterKind>(["scale", "peakWidth"]);
   const keptIds = new Set(structural.params.filter((p) => !drop.has(p.kind)).map((p) => p.id));
 
@@ -889,12 +920,39 @@ export function buildPdfSpec(structure: StructureModel, pattern: PdfPattern, tie
   const structuralFixed = new Set<ParameterKind>(["bIso", "uAniso", "positionShift", "atomX", "atomY", "atomZ", "occupancy"]);
   for (const p of structural.params) {
     if (!keptIds.has(p.id)) continue;
-    params.push(structuralFixed.has(p.kind) ? { ...p, fixed: true } : p);
+    // A shared site's last occupancy follows one minus the others', held (it never refines itself).
+    const tie = occupancyTies.get(p.id);
+    params.push(tie ? { ...p, value: tie.value, initialValue: tie.value, fixed: true, expression: tie.expression }
+      : structuralFixed.has(p.kind) ? { ...p, fixed: true } : p);
   }
   for (const b of structural.bindings) {
     if (keptIds.has(b.parameterId)) bindings.push(b);
   }
   return { params, bindings, restraints: structural.restraints };
+}
+
+/**
+ * The shared sites' occupancy constraints, read off the rows: each occupancy
+ * row that follows one minus other occupancies (`sharedOccupancyTies`), with
+ * the rows it follows. Each site's occupancies sum to exactly 1.
+ */
+export function siteSumConstraints(params: readonly RefinementParameter[]): { readonly follower: string; readonly leaders: readonly string[] }[] {
+  const kind = new Map(params.map((p) => [p.id, p.kind] as const));
+  const out: { follower: string; leaders: string[] }[] = [];
+  for (const p of params) {
+    if (p.kind !== "occupancy" || !p.expression) continue;
+    let tie: ReturnType<typeof parseTie>;
+    try {
+      tie = parseTie(p.expression);
+    } catch {
+      continue;
+    }
+    const leaders = tie.kind === "linear" && tie.factor === -1 && tie.constant === 1 ? [tie.refId]
+      : tie.kind === "sum" && tie.factor === -1 && tie.constant === 1 ? [...tie.refIds]
+        : null;
+    if (leaders && leaders.every((id) => kind.get(id) === "occupancy")) out.push({ follower: p.id, leaders });
+  }
+  return out;
 }
 
 /**

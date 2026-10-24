@@ -30,7 +30,8 @@ import { isInversion, mergedOnlyAbsences, type OmittedMeasurement, type PdfPatte
 import { dispersionLine } from "@/core/scattering/dispersion";
 import { EXTINCTION_MODEL_LABELS } from "@/core/diffraction/singleCrystalFactors";
 import { isMomentParameterKind, type ParameterBinding, type RefinementParameter, type RefinementResult } from "@/core/refinement/types";
-import { parseTie, resolveTies } from "@/core/refinement/constraints";
+import { esdsWithTies, parseTie, resolveTies } from "@/core/refinement/constraints";
+import { siteSumConstraints } from "@/core/workflow/pdf";
 import type { PowderProfile } from "@/core/workflow/powder";
 import { backgroundLabel } from "@/core/diffraction/background";
 import { formatMagneticSymbol, identifyMagneticGroupAnySetting } from "@/core/magnetic/bnsOg";
@@ -72,20 +73,11 @@ export function withEsds(params: readonly RefinementParameter[], result: Refinem
     for (const p of params) values[p.id] = p.value;
     try { resolved = resolveTies(params, values); } catch { resolved = null; }
   }
-  // A row tied linearly to a free one ("= f·leader + c") carries |f| times the leader's esd.
-  const esdOf = (p: RefinementParameter): number | undefined => {
-    const own = result?.esd[p.id];
-    if (own !== undefined || !p.expression) return own;
-    try {
-      const tie = parseTie(p.expression);
-      const lead = tie.kind === "linear" ? result?.esd[tie.refId] : undefined;
-      return tie.kind === "linear" && lead !== undefined ? Math.abs(tie.factor) * lead : undefined;
-    } catch {
-      return undefined;
-    }
-  };
+  // A row tied linearly to a free one ("= f·leader + c") carries |f| times the leader's esd, one
+  // tied to a sum of free ones (a shared site's last occupancy) the sum's, from the covariance.
+  const esds = esdsWithTies(params, result);
   return params.map((p) => {
-    const e = esdOf(p);
+    const e = esds[p.id];
     const value = p.expression && resolved ? resolved[p.id] ?? p.value : p.value;
     return { ...p, value, ...(e !== undefined && Number.isFinite(e) ? { esd: e } : {}) };
   });
@@ -484,6 +476,16 @@ function twinRow(laws: readonly TwinLaw[], params: readonly RefinementParameter[
   return `${laws.length + 1} domains: ${rows.join("; ")}`;
 }
 
+/** The shared sites of a PDF fit: who shares each, and that their occupancies sum to exactly 1 by a constraint. */
+function siteSumRow(params: readonly RefinementParameter[], bindings: readonly ParameterBinding[]): ReportRow[] {
+  const site = (id: string): string => bindings.find((b) => b.parameterId === id && b.kind === "occupancy")?.targetKey ?? id;
+  const value = siteSumConstraints(params).map((c) => {
+    const members = [...c.leaders, c.follower].map(site);
+    return `${members.slice(0, -1).join(", ")} and ${members[members.length - 1]} share one site (one position, one ADP), their occupancies summing to exactly 1: ${site(c.follower)} = 1 − ${c.leaders.length === 1 ? site(c.leaders[0]!) : "the others"}, a constraint (its esd from the others' covariance)`;
+  }).join("; ");
+  return value ? [{ label: "Shared sites", value }] : [];
+}
+
 /** Each disorder assembly: its alternatives' occupancies, and how they were tied. */
 function disorderRow(structure: StructureModel, params: readonly RefinementParameter[], bindings: readonly ParameterBinding[]): ReportRow[] {
   const sites = structure.sites.filter((site) => site.disorder);
@@ -775,6 +777,7 @@ export function pdfReportInput(o: {
     ...(meta.length ? [{ label: "Reduction", value: meta.join(" · ") }] : []),
     ...(pattern.composition ? [{ label: "Composition", value: pattern.composition }] : []),
     { label: "Positions", value: o.positionMode === "irreps" ? "symmetry-adapted distortion modes (irreps of the parent group)" : "atomic coordinates (symmetry-allowed shifts)" },
+    ...siteSumRow(o.params, o.bindings),
     ...(multi ? [{ label: "Phases", value: o.phases.map((s) => s.name || s.id).join(" · ") }] : []),
   ];
   const summary =

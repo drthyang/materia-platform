@@ -302,10 +302,12 @@ export function ruleRefusal(page: AgentPage, free: readonly RefinementParameter[
   if (!hasException(record, "bare-occupancy")) {
     const tied = new Set(restraints.flatMap((r) => r.terms.map((t) => t.parameterId)));
     // An occupancy whose complement follows it (a disorder's alternatives, one minus the other) holds the site's sum: their contrast measures the split.
+    // So do the occupancies a shared site's last one follows (one minus their sum, the PDF page's).
     for (const q of all) {
       if (q.kind !== "occupancy" || !q.expression) continue;
       const tie = parseTie(q.expression);
       if (tie.kind === "linear" && tie.factor < 0) tied.add(tie.refId);
+      if (tie.kind === "sum" && tie.factor < 0) for (const id of tie.refIds) tied.add(id);
     }
     const bare = free.filter((p) => p.kind === "occupancy" && !tied.has(p.id));
     if (bare.length > 0) {

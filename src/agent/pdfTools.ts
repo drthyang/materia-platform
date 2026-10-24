@@ -21,7 +21,8 @@ import { boxShell, boxcarStepIndex, boxcarWindows, followBond, type BoxcarRun } 
 import type { RefinementResult } from "@/core/refinement/types";
 import type { ReportCheck } from "@/core/export/report";
 import { coordinationShells, type ShellBond } from "@/core/crystal/geometry";
-import { pdfPhaseBindingsFor } from "@/core/workflow/pdf";
+import { pdfPhaseBindingsFor, siteSumConstraints } from "@/core/workflow/pdf";
+import { esdsWithTies } from "@/core/refinement/constraints";
 import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, correlationsCheck, findingChecks, noResultCheck } from "@/agent/reportChecks";
 import type { ReferenceEntry } from "@/agent/references";
 
@@ -44,7 +45,7 @@ export function readPdfTool(name: string, input: Input, port: PdfAgentPort, host
       return { steps: suggest_next_steps({ assessment: assessment(s) }) };
     case "structure_table":
       if (input.against !== undefined) throw new Error("`against` is on the single-crystal page only, for now");
-      return { phases: s.refinedPhases.map((ph, k) => structureTable(ph, k, s.parameters, s.bindings, s.result?.esd ?? {})), ...(s.result ? {} : { note: "No refinement on screen: the values carry no esds." }) };
+      return { phases: s.refinedPhases.map((ph, k) => structureTable(ph, k, s.parameters, s.bindings, esdsWithTies(s.parameters, s.result))), ...(s.result ? {} : { note: "No refinement on screen: the values carry no esds." }) };
     case "bond_geometry":
       return bondsOf(s.refinedPhases, input, bond_geometry);
     case "interpret_structure":
@@ -92,6 +93,10 @@ export const PDF_PLANS: Plans<PdfAgentPort> = {
   },
   refine: refinePlan<PdfAgentPort>({
     fits: (s, free) => `Refine ${s.spinModel ? "nuclear + magnetic G(r)" : "G(r)"}, ${free} free parameter${free === 1 ? "" : "s"}`,
+    // A shared site's occupancies refined: say that their sum is held exactly, and where the last one's esd is.
+    after: (s) => siteSumConstraints(s.parameters)
+      .filter((c) => c.leaders.some((id) => s.parameters.some((p) => p.id === id && !p.fixed)))
+      .map((c) => `${siteSumText(c)}; get_state gives its value and esd.`),
   }),
   boxcar_scan: (input, s, port) => {
     // matchIds refuses a pattern that matches nothing; tied rows follow their tie and are not offered.
@@ -146,6 +151,7 @@ function stateView(s: PdfLiveState, history: ProjectHistory | null, select: read
     positions: s.positionMode === "irreps" ? "symmetry-mode amplitudes (irreps)" : "constrained atomic coordinates",
     adp: s.adpModel === "anisotropic" ? "anisotropic (U tensor per site)" : s.adpModel === "isotropic" ? "isotropic (one U per site)" : "mixed (isotropic and anisotropic sites)",
     spinModel: s.spinModel ? "applied: refine fits nuclear + magnetic G(r)" : null,
+    ...occupancyConstraintsView(s),
     Rw: pct(s.rw),
     lastRefinement: s.result
       ? {
@@ -158,9 +164,21 @@ function stateView(s: PdfLiveState, history: ProjectHistory | null, select: read
       : null,
     ...(s.warnings.length ? { warnings: s.warnings } : {}),
     convention: PDF_CONVENTION,
-    ...parameterSummary(s.parameters, s.result?.esd, select),
+    ...parameterSummary(s.parameters, s.result ? esdsWithTies(s.parameters, s.result) : undefined, select),
     history: historyView(history),
   };
+}
+
+/** A shared site's occupancy constraint in words: the row that follows, and the rows it follows. */
+function siteSumText(c: { readonly follower: string; readonly leaders: readonly string[] }): string {
+  const others = c.leaders.length === 1 ? c.leaders[0]! : `(${c.leaders.join(" + ")})`;
+  return `${c.follower} = 1 − ${others}: one site's occupancies, summing to exactly 1 (a constraint, not a restraint); ${c.leaders.length === 1 ? "the other refines" : `the other ${c.leaders.length} refine`} and ${c.follower} follows, its esd from their covariance`;
+}
+
+/** get_state's shared-site occupancy constraints, when the page has any. */
+function occupancyConstraintsView(s: PdfLiveState): Record<string, unknown> {
+  const constraints = siteSumConstraints(s.parameters);
+  return constraints.length ? { occupancyConstraints: constraints.map(siteSumText) } : {};
 }
 
 // ── analysis helpers ────────────────────────────────────────────────────────

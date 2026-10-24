@@ -62,6 +62,7 @@ import { downloadText } from "@/app/download";
 import { structureToCif, magneticStructureToMcif } from "@/core/export/cif";
 import { reportHtml, type ReportInput } from "@/core/export/report";
 import type { MagneticExploration } from "@/app/reportInputs";
+import { esdsWithTies } from "@/core/refinement/constraints";
 import { card as themeCard, color, mono, secondaryButton, uppercaseLabel, fz, toolbarBtn, resetRangeBtn, space } from "@/app/theme";
 
 const DATA_ACCEPT = ".gr,.sgr,.fgr,.sq,.fq,.dat,.txt,text/plain";
@@ -643,8 +644,10 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   // once here for both flavours.
   const exportPhaseCifRef = useRef<(target: StructureModel, id: string, magnetic?: MagneticModel | null) => void>(() => {});
   exportPhaseCifRef.current = (target: StructureModel, id: string, magnetic?: MagneticModel | null): void => {
+    // A tied row (a shared site's last occupancy) carries its tie's esd, as the report does.
+    const esds = esdsWithTies(params, result);
     const withEsd = params.map((p) => {
-      const esd = result?.esd[p.id] ?? p.esd;
+      const esd = esds[p.id] ?? p.esd;
       return esd !== undefined ? { ...p, esd } : { ...p };
     });
     const meta = {
@@ -1230,7 +1233,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
 
         <ParameterPanel
           params={params}
-          esd={result?.esd}
+          esd={result ? esdsWithTies(params, result) : undefined}
           onChange={onParamChange}
           onRefine={() => void runRefine()}
           onThorough={() => void runMultiStart()}

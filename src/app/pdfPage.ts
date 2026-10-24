@@ -19,6 +19,7 @@ import { withAdpModel as structureWithAdpModel } from "@/core/crystal/adp";
 import type { PdfPattern } from "@/core/diffraction/types";
 import { isMagneticModelParameterKind, type ParameterBinding, type RefinementOptions, type RefinementParameter, type RefinementResult } from "@/core/refinement/types";
 import { CANCELLED, type ComputeClient } from "@/workers/computeClient";
+import { resolveTies } from "@/core/refinement/constraints";
 import {
   buildMultiPhasePdfSpec, buildPdfSpec, correlatedMotionConflict, multiPhasePdfCurves, optimalPdfScale, pdfCurves, pdfPhaseBindingsFor, zeroAdpWarning,
 } from "@/core/workflow/pdf";
@@ -196,7 +197,16 @@ function freshRows(m: PdfPageModel, restore?: PdfWorkspace): RefinementParameter
   }
   if (preset) params = params.map((p) => (preset[p.id] !== undefined ? { ...p, value: preset[p.id]!, initialValue: preset[p.id]! } : p));
   // A reopened project's rows are the state being reopened: they win over the seed and the snapshot.
-  if (restore) params = overlaySavedParameters(params, restore.refinement.parameters);
+  if (restore) {
+    const saved = restore.refinement.parameters;
+    params = overlaySavedParameters(params, saved);
+    // The spec's ties win over the file: a row the spec ties and the file did not (a shared
+    // site's last occupancy, in a project saved before that tie, possibly free) is held at what
+    // its tie gives, from the others' saved values.
+    const untiedInFile = new Set(saved.filter((p) => !p.expression).map((p) => p.id));
+    const newlyTied = new Set(params.filter((p) => p.expression && untiedInFile.has(p.id)).map((p) => p.id));
+    if (newlyTied.size > 0) params = withTiedRows(params, newlyTied);
+  }
   return params;
 }
 
@@ -534,9 +544,26 @@ export function withFixed(m: PdfPageModel, changes: readonly { readonly id: stri
   return { ...m, params: m.params.map((p) => (fixed.has(p.id) ? { ...p, fixed: fixed.get(p.id)! } : p)) };
 }
 
-/** One row edited in the parameter panel. */
+/** One row edited in the parameter panel; the rows tied to it follow. */
 export function withParameter(m: PdfPageModel, id: string, patch: Partial<RefinementParameter>): PdfPageModel {
-  return { ...m, params: m.params.map((p) => (p.id === id ? { ...p, ...patch } : p)) };
+  return { ...m, params: withTiedRows(m.params.map((p) => (p.id === id ? { ...p, ...patch } : p))) };
+}
+
+/**
+ * The rows with each tied row at the value its tie gives. `reopened` names
+ * rows a project file left untied: they also take their starting value from
+ * the others' and are held fixed (a tied row never refines itself).
+ * Unchanged without a tie.
+ */
+function withTiedRows(params: RefinementParameter[], reopened?: ReadonlySet<string>): RefinementParameter[] {
+  if (!params.some((p) => p.expression)) return params;
+  const now = resolveTies(params, valuesOf(params));
+  const start = reopened ? resolveTies(params, Object.fromEntries(params.map((p) => [p.id, p.initialValue]))) : null;
+  return params.map((p) => {
+    if (!p.expression) return p;
+    if (start && reopened!.has(p.id)) return { ...p, value: now[p.id]!, initialValue: start[p.id]!, fixed: true };
+    return now[p.id] === p.value ? p : { ...p, value: now[p.id]! };
+  });
 }
 
 /** Values back to their starting values (these ids, or every one), every row and free choice kept; the last fit cleared. */

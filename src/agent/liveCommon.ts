@@ -51,7 +51,7 @@ export function parameterSummary(
   const patterns = select?.map((f) => ({ f, test: idMatcher(params, f) }));
   const unmatched = patterns?.filter(({ test }) => !params.some((p) => test(p.id))).map(({ f }) => f) ?? [];
   const rows = (patterns ? params.filter((p) => patterns.some(({ test }) => test(p.id))) : params.filter(isFree))
-    .map((p) => parameterRow(p, esd?.[p.id] ?? p.esd));
+    .map((p) => parameterRow(p, esd?.[p.id] ?? (p.expression ? undefined : p.esd)));
   return { parameterGroups: [...groups.values()], parameterRows: rows, ...(unmatched.length ? { unmatched } : {}) };
 }
 
@@ -206,7 +206,8 @@ export function parameterRow(p: RefinementParameter, esd: number | undefined): R
     label: p.label,
     kind: p.kind,
     value: sig(p.value, 6),
-    ...(esd !== undefined && !p.fixed ? { esd: sig(esd, 2) } : {}),
+    // A tied row's esd is its tie's, from the free rows it follows, when the page passes it (esdsWithTies).
+    ...(esd !== undefined && (!p.fixed || p.expression) ? { esd: sig(esd, 2) } : {}),
     state: p.expression ? `tied ${p.expression}` : p.fixed ? "fixed" : "free",
     ...(p.min !== undefined ? { min: p.min } : {}),
     ...(p.max !== undefined ? { max: p.max } : {}),

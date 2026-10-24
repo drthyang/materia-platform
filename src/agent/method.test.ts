@@ -116,6 +116,11 @@ describe("the method as code", () => {
     const tie = { id: "t", label: "Σ", target: 1, sigma: 0.01, terms: [{ parameterId: "occ_A", coefficient: 1 }, { parameterId: "occ_B", coefficient: 1 }] };
     expect(ruleRefusal("powder", [p("occ_A", "occupancy"), p("occ_B", "occupancy")], [tie], none)).toBeNull();
     expect(ruleRefusal("pdf", [p("occ_A", "occupancy")], [], none)?.message).toMatch(/a shared site holds its Σ occupancy/);
+    // The PDF page's shared site: the last occupancy follows one minus the others (complement for two), which are then not bare.
+    const sum = { ...p("occ_C", "occupancy"), fixed: true, expression: "= 1 - sum(occ_A, occ_B)" };
+    expect(ruleRefusal("pdf", [p("occ_A", "occupancy"), p("occ_B", "occupancy")], [], none, [p("occ_A", "occupancy"), p("occ_B", "occupancy"), sum])).toBeNull();
+    const complement = { ...p("occ_B", "occupancy"), fixed: true, expression: "= -1*occ_A+1" };
+    expect(ruleRefusal("pdf", [p("occ_A", "occupancy")], [], none, [p("occ_A", "occupancy"), complement])).toBeNull();
     const allowed = { ...none, exceptions: [{ rule: "bare-occupancy" as const, reason: "isotope contrast", at: 0 }] };
     expect(ruleRefusal("powder", [p("occ_A", "occupancy")], [], allowed)).toBeNull();
   });

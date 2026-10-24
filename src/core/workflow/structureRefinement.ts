@@ -23,6 +23,7 @@ import { allowedAnisotropicAdpModes } from "@/core/crystal/adpConstraints";
 import { siteMultiplicity } from "@/core/crystal/symmetry";
 import { quarticStrainInvariants } from "@/core/diffraction/anisoStrain";
 import { correctionById, CORRECTION_KINDS, type CorrectionRequest } from "@/core/diffraction/corrections";
+import { remainderOf } from "@/core/refinement/constraints";
 
 export interface StructureRefinementOptions {
   /** Starting scale factor (seed with `optimalScale` for real data). Default 1. */
@@ -631,6 +632,27 @@ export function sharedOccupancyRestraints(sites: readonly AtomSite[], toUnity = 
       target: toUnity ? 1 : startSum,
       sigma: 0.01,
       terms: g.members.map((m) => ({ parameterId: `occ_${m.label}`, coefficient: 1 })),
+    });
+  }
+  return out;
+}
+
+/**
+ * The hard form of the shared-site Σ (the PDF page's): on each site with ≥ 2
+ * members the last member's occupancy follows one minus the others'
+ * (`remainderOf`: the complement for two, SHELXL's 21/−21), so the site's
+ * occupancies sum to exactly 1 and the others refine. Each tied row's id, its
+ * expression and the value the tie gives at the starting occupancies.
+ */
+export function sharedOccupancyTies(sites: readonly AtomSite[]): { readonly id: string; readonly expression: string; readonly value: number }[] {
+  const out: { id: string; expression: string; value: number }[] = [];
+  for (const g of siteGroups(sites, true)) {
+    if (g.members.length < 2) continue;
+    const others = g.members.slice(0, -1);
+    out.push({
+      id: `occ_${g.members[g.members.length - 1]!.label}`,
+      expression: remainderOf(others.map((m) => `occ_${m.label}`)),
+      value: 1 - others.reduce((acc, m) => acc + m.occupancy, 0),
     });
   }
   return out;

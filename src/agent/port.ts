@@ -164,7 +164,7 @@ export interface PdfLiveState {
   /** The page's own warnings (correlated-motion conflict, zero ADPs). */
   readonly warnings: readonly string[];
   readonly source: string;
-  /** The restraints the fit runs with (a shared site's Σ occupancy). */
+  /** The restraints the fit runs with (a shared site's Σ occupancy is not one: its last occupancy row follows one minus the others'). */
   readonly restraints: readonly LinearRestraint[];
 }
 

@@ -63,6 +63,7 @@ import type { TwinLaw } from "@/core/diffraction/types";
 import { improper } from "@/core/workflow/singleCrystalRefinement";
 import { BOTH_HANDS, carriedByThird, correlationInsight, intensityTerms, oneCurve } from "@/core/diagnostics/assessment";
 import { CORRELATION_LIMIT } from "@/core/diagnostics/thresholds";
+import { parseTie } from "@/core/refinement/constraints";
 
 /** The line the engine and `assess_refinement` already draw for a high correlation. */
 export { CORRELATION_LIMIT };
@@ -131,7 +132,18 @@ export function disorderAssemblies(structure: StructureModel, bindings: readonly
 export function readCorrelations(result: RefinementResult, parameters: readonly RefinementParameter[], restraints: readonly LinearRestraint[] = [], assemblies: ReadonlyMap<string, string> = new Map(), singleCrystal = isSingleCrystalSet(parameters)): CorrelationCheck {
   const kind = new Map<string, ParameterKind>(parameters.map((p) => [p.id, p.kind]));
   const sameCurve = (a: string, b: string): boolean => oneCurve(kind.get(a), kind.get(b)) !== null;
-  const tied = (a: string, b: string): boolean => restraints.some((r) => r.terms.some((t) => t.parameterId === a) && r.terms.some((t) => t.parameterId === b));
+  // Two rows one restraint holds together, or one sum tie reads (a shared site's occupancies, whose last follows one minus the others).
+  const sums = parameters.flatMap((p) => {
+    if (!p.expression) return [];
+    try {
+      const tie = parseTie(p.expression);
+      return tie.kind === "sum" ? [tie.refIds] : [];
+    } catch {
+      return [];
+    }
+  });
+  const tied = (a: string, b: string): boolean =>
+    restraints.some((r) => r.terms.some((t) => t.parameterId === a) && r.terms.some((t) => t.parameterId === b)) || sums.some((ids) => ids.includes(a) && ids.includes(b));
   const pairs = (result.diagnostics?.highCorrelations ?? []).filter((c) => !sameCurve(c.parameterIdA, c.parameterIdB) && !tied(c.parameterIdA, c.parameterIdB)).map((c): CorrelatedPair => {
     const ka = kind.get(c.parameterIdA);
     const kb = kind.get(c.parameterIdB);
