@@ -34,7 +34,7 @@ k = 0, where magnetic intensity sits on nuclear reflections. So:
    nuclear ones. The app's signal is `find_unexplained_peaks`' `k0Magnetic` (neutron data:
    the misfits sit on nuclear reflections at large d, the sample below its ordering
    temperature). The nuclear model alone then takes up the magnetic intensity: the ADPs and
-   the scale grow (Mn₃Ga 30 K, simulated: B 3–6× too large, the scale ×1.5, at a "good" GoF
+   the scale grow (a simulated k = 0 test: B 3–6× too large, the scale ×1.5, at a "good" GoF
    of 2.1). Only then, follow the usual order up to, not including, the positions and ADPs
    (the scale, background and cell), then go to k: include the misfit peaks in the k-search
    (they sit on nuclear lines and are left out by default) or set k = 0. Stage 4 refines the
