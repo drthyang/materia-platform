@@ -1,6 +1,7 @@
 # Generic names for the unpublished AWO₄ data
 
-Branch `claude/generic-data-names`, from `main`, 2026-10-24. The owner's
+Pull request [#104](https://github.com/drthyang/materia-platform/pull/104),
+branch `claude/generic-data-names`, from `main`, 2026-10-24. The owner's
 decision: the public files refer to the owner's unpublished AWO₄ data by
 generic names only.
 
