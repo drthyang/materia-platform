@@ -23,8 +23,7 @@ and why at each stage so they can steer — they judge the fit, you drive the me
 The heuristics live in the app already (`suggest_next_steps`, `rank_next_parameters`,
 `assess_refinement`, the staged plan). This skill's job is to apply **their** ordering and
 **their** stopping rules on top of them. In the app, choose what refines with `set_free`,
-then `refine`; over MCP, the `mcp_tool_map` reference maps the steps. The user's cases
-behind each rule are in `rietveld_notes`.
+then `refine`; over MCP, the `mcp_tool_map` reference maps the steps.
 
 ## The rule that comes before everything: doubt the model before the symmetry
 
@@ -283,11 +282,10 @@ scale: free only what the angular range can separate.
 
 ## The symmetry review — the last step, if at all
 
-Only when every block above has been refined to convergence and the fit is still not
+Only when every block above has converged and the fit is still not
 acceptable may the space group be questioned, and only on evidence in the **refined**
 residual: `review_symmetry` (in the app it refuses, naming the stages left, until they are
-done), then the `symmetry-review` skill. The decision is the user's; never change the
-model yourself. Not evidence: misfit on allowed reflections, a poor GoF on its own, a
+done), then the `symmetry-review` skill. Not evidence: misfit on allowed reflections, a poor GoF on its own, a
 Stage 0 flag the refined residual no longer shows.
 
 ## When it's done — the acceptance bar
@@ -336,13 +334,15 @@ comes from `export_bundle` and the tools.
   collapsing, divergence, runaway cross-phase correlations). Report each **weight fraction**
   (`get_state`'s `phaseFractions`, Hill–Howard, with esds): the model's crystalline phases
   only, no microabsorption correction.
-- **Magnetic**: once the nuclear structure is converged, hand off to the `magnetic-analysis`
-  skill (in the app, the powder page's magnetic analysis step; over MCP,
-  `search_propagation_vector`, `list_magnetic_subgroups`, `build_magnetic_model`,
-  `refine_magnetic_powder`) — a separate method, not this one. At k = 0 on neutron data
-  (`k0Magnetic`), hand off after the profile, before the positions and ADPs: they are
-  refined in the joint step, by this method's rules (alternating with the instrument
-  terms). A nuclear-only fit of such data is not judged by the acceptance bar.
+- **Magnetic**: once the nuclear structure is refined as fully as the data allow, hand off
+  to the `magnetic-analysis` skill (in the app, the powder page's magnetic analysis step;
+  over MCP, `search_propagation_vector`, `list_magnetic_subgroups`, `build_magnetic_model`,
+  `refine_magnetic_powder`) — a separate method, not this one. The exception is magnetic
+  Bragg intensity comparable to the nuclear, on nuclear reflections (large moments;
+  `k0Magnetic` on neutron data): hand off before the positions; they, the profile and the
+  ADPs refine with the moments in the joint step, by this method's order and rules
+  (alternating with the instrument terms). A nuclear-only fit of such data is not judged by
+  the acceptance bar.
 
 ## References
 
