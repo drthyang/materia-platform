@@ -14,11 +14,18 @@ import { peakRows, PEAK_CRITERIA, searchK, candidatesOf, momentDims, rankCandida
 import { magneticIonCandidates } from "@/core/magnetic/magneticIons";
 import { buildMagneticPowderProblem } from "@/core/workflow/magneticPowder";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
-import { momentCartesian } from "@/core/magnetic/moment";
+import { crystalComponentsToCartesian, momentCartesian } from "@/core/magnetic/moment";
 import { noiseOf } from "@/core/magnetic/momentRestarts";
 import { formatMagneticSymbol } from "@/core/magnetic/bnsOg";
 import type { LatticeCandidate } from "@/core/magnetic/subgroupLattice";
-import type { StructureModel, UnitCell } from "@/core/crystal/types";
+import type { MagneticModelBuild } from "@/core/magnetic/momentModel";
+import type { MagneticModel } from "@/core/magnetic/types";
+import { expandMagneticSupercell } from "@/core/crystal/cellExpansion";
+import { magneticCellGroup } from "@/core/magnetic/supercellGroup";
+import { operationKey, siteMultiplicity } from "@/core/crystal/symmetry";
+import { cifSu } from "@/parsers/cif";
+import { dot, norm, normalize, scale, sub } from "@/core/math/vec3";
+import type { StructureModel, SymmetryOperation, UnitCell } from "@/core/crystal/types";
 import type { PowderPattern } from "@/core/diffraction/types";
 import type { ParameterBinding, ParameterKind, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { Vec3 } from "@/core/math/types";
@@ -32,10 +39,15 @@ import { dataExists, readData } from "@/testSupport/data";
  * number derived from them — only the criteria. Skips when the files are absent.
  *
  * Reference status. The nuclear model is checked against the user's GSAS-II
- * refinement at 100 K (trusted). For the magnetic part there is NO independent
- * reference (no magnetic group, moment or R values from another program): it is
- * checked for internal consistency only and is UNVERIFIED against an
- * independent result. The app-generated demo solution is not used.
+ * refinement at 100 K (trusted). The magnetic model and the 8 K cell are checked
+ * against the owner's own refinement of this run, `AWO4_8K_n.mcif` (a Jana-style
+ * mCIF in the doubled cell; trusted, unpublished): its values are read at runtime
+ * from data/ and that block skips without it. The app-generated demo solution is
+ * not used.
+ *
+ * The 8 K reference also showed that the cell criterion (C3) was first set
+ * against the wrong target: its own 8 K cell lies outside the thermal bounds of
+ * the 100 K CIF (checked below as "C3-premise"), so C3 now compares with it.
  *
  * Instrument file: the 60 Hz frame at CWL 2.665 Å (B3). The file's abscissa is
  * the focused TOF (difC·d of a virtual 90° detector), so it spans a d range,
@@ -60,6 +72,9 @@ const INST = {
   B3: `${DIR}/GSAS-II_2025B_HR/2025B_HighRes_60HzB3_CWL2p665.instprm`,
 } as const;
 const has = dataExists(DATA) && dataExists(CIF) && Object.values(INST).every((f) => dataExists(f));
+/** The owner's refined 8 K magnetic structure (Jana mCIF, doubled cell). */
+const REF = `${DIR}/AWO4_8K_n.mcif`;
+const hasRef = has && dataExists(REF);
 
 const K: Vec3 = [0.5, 0, 0];
 /** Fit window's long-d end: a gap past the model's last line (nuclear d ≤ b, satellites d ≤ 2a). */
@@ -72,6 +87,14 @@ const THERMAL_PER_AXIS = 5e-4;
 const THERMAL_BETA = 0.01;
 /** Coordinates move ≪ 0.01 Å between 100 and 8 K without a transition; 0.02 Å allows for the CIF's unstated esds. */
 const POSITION_TOL_A = 0.02;
+/**
+ * Against the 8 K reference (same data, same temperature) the thermal allowances
+ * above become those for the reference's unstated calibration and profile model:
+ * 5e-4 per length (another frame's calibration scales every length alike) and
+ * 0.01° on β (no calibration moves β).
+ */
+const CALIBRATION_PER_AXIS = THERMAL_PER_AXIS;
+const PROFILE_BETA = THERMAL_BETA;
 /** Spin-only moments (µB) of the 2+ 3d ions of the A site (W⁶⁺O₄²⁻ fixes A²⁺). */
 const SPIN_ONLY: Readonly<Record<string, number>> = { Mn: 5, Fe: 4, Co: 3, Ni: 2, Cu: 1 };
 const LONG = 20 * 60 * 1000;
@@ -129,6 +152,11 @@ interface Bench {
   readonly sigma: number[];
   readonly reflections: { d: number; hkl: string; phaseLabel: string }[];
   readonly yJoint: Float64Array;
+  readonly ions: string[];
+  /** The ★ group's moment model (its amplitudes are in jointValues). */
+  readonly build: MagneticModelBuild;
+  /** The structure with the joint nuclear values applied. */
+  readonly jointModel: StructureModel;
 }
 
 async function runBenchmark(): Promise<Bench> {
@@ -225,7 +253,7 @@ async function runBenchmark(): Promise<Bench> {
     ionBound: spins.reduce((a, b) => a + b, 0) / spins.length,
     before: included.map((r) => apex(curves.yCalc, r.d)),
     after: included.map((r) => apex(yJoint, r.d)),
-    window, dArr, sigma, reflections, yJoint,
+    window, dArr, sigma, reflections, yJoint, ions, build, jointModel,
   };
   report(bench);
   return bench;
@@ -303,37 +331,20 @@ describe.skipIf(!has)("AWO₄ 8 K benchmark — the file and its frame (POWGEN 6
   });
 });
 
-describe.skipIf(!has)("AWO₄ 8 K benchmark — nuclear vs the 100 K CIF, k, and the magnetic model (UNVERIFIED: no independent magnetic reference)", () => {
+/** One benchmark run (≈ 90 s), shared by the blocks below. */
+let pending: Promise<Bench> | undefined;
+const benchmark = (): Promise<Bench> => (pending ??= runBenchmark());
+
+describe.skipIf(!has)("AWO₄ 8 K benchmark — nuclear vs the 100 K CIF, k, and the magnetic model", () => {
   let b: Bench;
   beforeAll(async () => {
-    b = await runBenchmark();
+    b = await benchmark();
   }, LONG);
-  const value = (id: string) => b.nuclear.find((p) => p.id === id)!;
 
-  it("C3a: β and the volume within the thermal bounds of the 100 K CIF", () => {
-    const beta = cifValue(b.cif, "_cell_angle_beta");
-    expect(Math.abs(value("cell_beta").value - beta.value)).toBeLessThanOrEqual(THERMAL_BETA + 2 * Math.hypot(beta.esd, value("cell_beta").esd ?? 0));
-    const vol = (a: number, bb: number, c: number, be: number) => a * bb * c * Math.sin((be * Math.PI) / 180);
-    const [a0, b0, c0] = ["a", "b", "c"].map((x) => cifValue(b.cif, `_cell_length_${x}`).value);
-    const v0 = vol(a0!, b0!, c0!, beta.value);
-    const v = vol(value("cell_a").value, value("cell_b").value, value("cell_c").value, value("cell_beta").value);
-    const sigV = Math.hypot(...["a", "b", "c"].flatMap((x) => [cifValue(b.cif, `_cell_length_${x}`).esd / cifValue(b.cif, `_cell_length_${x}`).value, (value(`cell_${x}`).esd ?? 0) / value(`cell_${x}`).value]));
-    expect(v / v0 - 1).toBeLessThanOrEqual(2 * sigV);
-    expect(v / v0 - 1).toBeGreaterThanOrEqual(-(3 * THERMAL_PER_AXIS + 2 * sigV));
-  });
-
-  // Known not met on the local data (one length, with every calibration file). Candidate causes —
-  // magnetostriction below T_N, another calibration behind the 100 K cell, the app's profile
-  // fit — are open; the benchmark record has the numbers.
-  it.fails("C3b: each lattice length within the thermal bound of the 100 K CIF", () => {
-    for (const x of ["a", "b", "c"]) {
-      const ref = cifValue(b.cif, `_cell_length_${x}`);
-      const p = value(`cell_${x}`);
-      expect(Math.abs(p.value / ref.value - 1)).toBeLessThanOrEqual(THERMAL_PER_AXIS + 2 * Math.hypot(ref.esd / ref.value, (p.esd ?? 0) / p.value));
-    }
-  });
+  // The cell (C3) is compared with the 8 K reference in the next block.
 
   // Known not met on the local data, after the staged nuclear fit and unchanged by the joint one.
+  // The 8 K reference keeps the 100 K positions (R0b), so it gives no other target.
   it.fails("C4: refined positions within 0.02 Å + 3σ of the 100 K CIF", () => {
     for (const p of b.nuclear.filter((q) => q.kind === "positionShift" && !q.fixed)) {
       const axis = b.bindings.find((x) => x.parameterId === p.id)!.axis!;
@@ -342,7 +353,8 @@ describe.skipIf(!has)("AWO₄ 8 K benchmark — nuclear vs the 100 K CIF, k, and
     }
   });
 
-  // Known not met on the local data: B_iso values rail to their bound at 0.
+  // Known not met on the local data: B_iso values rail to their bound at 0. The 8 K reference
+  // refines one shared U_iso (R0c), so it gives no per-site target.
   it.fails("C5: every B_iso positive and off its bound", () => {
     const bounded = new Set(b.joint.diagnostics?.atBounds.map((x) => x.parameterId) ?? []);
     for (const p of b.nuclear.filter((q) => q.kind === "bIso" && !q.fixed)) {
@@ -384,6 +396,7 @@ describe.skipIf(!has)("AWO₄ 8 K benchmark — nuclear vs the 100 K CIF, k, and
   });
 
   // Known not met on the local data: a line the magnetic model leaves unchanged (not yet identified).
+  // The 8 K reference has the same k and group and nearly the same cell, so no reflection of its own there either.
   it.fails("C11: no residual peak ≥ 5σ off every nuclear and magnetic reflection after the joint fit", () => {
     expect(postResidual(b).unexplained).toHaveLength(0);
   });
@@ -398,8 +411,271 @@ describe.skipIf(!has)("AWO₄ 8 K benchmark — nuclear vs the 100 K CIF, k, and
     expect(b.joint.diagnostics!.maxShiftOverEsd).toBeLessThan(0.1);
   });
 
-  // Known not met on the local data.
+  // Known not met on the local data. The 8 K reference gives no R values to compare.
   it.fails("C13: joint GoF at most 2.5 (the acceptance bar)", () => {
     expect(b.joint.agreement.goodnessOfFit!).toBeLessThanOrEqual(2.5);
+  });
+});
+
+// ── against the owner's 8 K reference refinement (AWO4_8K_n.mcif) ────────────
+
+interface Reference {
+  readonly text: string;
+  readonly structure: StructureModel;
+  readonly magnetic: MagneticModel;
+  /** Supercell multipliers of the reference cell over the parent's. */
+  readonly n: [number, number, number];
+  /** Moment su's (µB) per label, as the file prints them. */
+  readonly sus: Map<string, Vec3>;
+}
+
+/** The moment loop's su's per label ("0.83(5)" → 0.05; a value printed without one → 0). */
+function momentSus(text: string): Map<string, Vec3> {
+  const lines = text.split(/\r?\n/).map((l) => l.trim());
+  let i = lines.findIndex((l) => /^_atom_site_moment[._]label$/i.test(l));
+  while (i > 0 && lines[i - 1]!.startsWith("_")) i--;
+  const tags: string[] = [];
+  while (i >= 0 && i < lines.length && lines[i]!.startsWith("_")) tags.push(lines[i++]!.toLowerCase().replace(/\./g, "_"));
+  const [iL, iX, iY, iZ] = ["moment_label", "crystalaxis_x", "crystalaxis_y", "crystalaxis_z"].map((s) => tags.findIndex((t) => t.endsWith(s)));
+  const out = new Map<string, Vec3>();
+  for (; i >= 0 && i < lines.length && lines[i] !== "" && !lines[i]!.startsWith("_") && lines[i]!.toLowerCase() !== "loop_"; i++) {
+    const t = lines[i]!.split(/\s+/);
+    out.set(t[iL!]!, [cifSu(t[iX!]), cifSu(t[iY!]), cifSu(t[iZ!])]);
+  }
+  return out;
+}
+
+/** |M| (µB) and its direction φ in the a–c plane (degrees, from +a toward +c) for crystal-axis components on a cell. */
+function sizeAndAngle(cell: UnitCell, comps: readonly number[]): { size: number; phi: number } {
+  const m = crystalComponentsToCartesian(cell, [comps[0]!, comps[1]!, comps[2]!]);
+  const a = crystalComponentsToCartesian(cell, [1, 0, 0]);
+  const c = crystalComponentsToCartesian(cell, [0, 0, 1]);
+  const n = normalize(sub(c, scale(a, dot(c, a))));
+  return { size: norm(m), phi: (Math.atan2(dot(m, n), dot(m, a)) * 180) / Math.PI };
+}
+
+/** Linear propagation of independent esds through f (covariances neglected: the mCIF gives none). */
+function propagated(f: (v: readonly number[]) => number, v: readonly number[], su: readonly number[]): number {
+  const f0 = f(v);
+  let var2 = 0;
+  v.forEach((x, i) => {
+    if (!(su[i]! > 0)) return;
+    const h = 1e-6 * Math.max(1, Math.abs(x));
+    const w = [...v];
+    w[i] = x + h;
+    var2 += (((f(w) - f0) / h) * su[i]!) ** 2;
+  });
+  return Math.sqrt(var2);
+}
+
+/** The difference of two axes in degrees, in (−90°, 90°]: a moment and its reverse are one axis (the anti-translation's two domains). */
+function axisDelta(p: number, q: number): number {
+  const d = (((p - q) % 180) + 180) % 180;
+  return d > 90 ? d - 180 : d;
+}
+
+const opKey = (o: SymmetryOperation): string => `${operationKey(o)}|${o.timeReversal ?? 1}`;
+const isPureTranslation = (o: SymmetryOperation): boolean => o.rotation.every((row, i) => row.every((v, j) => v === (i === j ? 1 : 0)));
+
+describe.skipIf(!hasRef)("AWO₄ 8 K benchmark — against the owner's reference refinement (AWO4_8K_n.mcif)", () => {
+  let b: Bench;
+  let ref: Reference;
+  /** The app's ★ moments at their joint values. */
+  let appMag: MagneticModel;
+  beforeAll(async () => {
+    b = await benchmark();
+    const text = readData(REF);
+    const { structure, magnetic } = parse_structure({ cif: text, id: "awo4-ref" });
+    if (!magnetic) throw new Error(`${REF}: read with no magnetic model`);
+    const n = (["a", "b", "c"] as const).map((x) => Math.round(structure.cell[x] / b.structure.cell[x])) as [number, number, number];
+    ref = { text, structure, magnetic, n, sus: momentSus(text) };
+    appMag = applyMagneticMoments(b.build.magnetic, b.build.bindings, b.jointValues);
+    reportReference();
+  }, LONG);
+
+  const joint = (id: string) => ({ value: b.jointValues[id]!, esd: b.joint.esd?.[id] ?? 0 });
+  /** The reference cell on the parent's axes, with the su the file gives (none: 0). */
+  const refCell = (x: "a" | "b" | "c" | "beta") => {
+    const div = x === "beta" ? 1 : ref.n["abc".indexOf(x)]!;
+    const v = cifValue(ref.text, x === "beta" ? "_cell_angle_beta" : `_cell_length_${x}`);
+    return { value: v.value / div, esd: v.esd / div };
+  };
+  /** σ_ref when the reference gives one, else the app's own (same data and statistics). */
+  const refSu = (su: number, fallback: number) => (su > 0 ? su : fallback);
+  const label = () => ref.magnetic.moments[0]!.siteLabel;
+  const appSide = () => {
+    const ids = b.momentIds;
+    const comps = (v: readonly number[]) => {
+      const values = { ...b.jointValues, ...Object.fromEntries(ids.map((id, i) => [id, v[i]!])) };
+      return applyMagneticMoments(b.build.magnetic, b.build.bindings, values).moments.find((m) => m.siteLabel === label())!.components;
+    };
+    const v = ids.map((id) => b.jointValues[id]!);
+    const su = ids.map((id) => b.joint.esd?.[id] ?? NaN);
+    const at = (w: readonly number[]) => sizeAndAngle(b.jointModel.cell, comps(w));
+    return { ...at(v), sizeSu: propagated((w) => at(w).size, v, su), phiSu: propagated((w) => at(w).phi, v, su) };
+  };
+  const refSide = () => {
+    const v = [...ref.magnetic.moments.find((m) => m.siteLabel === label())!.components];
+    const su = [...ref.sus.get(label())!];
+    const at = (w: readonly number[]) => sizeAndAngle(ref.structure.cell, w);
+    return { ...at(v), sizeSu: propagated((w) => at(w).size, v, su), phiSu: propagated((w) => at(w).phi, v, su) };
+  };
+  const cellOf = (side: "app" | "ref") => {
+    const get = (x: "a" | "b" | "c" | "beta") => (side === "app" ? joint(`cell_${x}`) : refCell(x));
+    return { a: get("a"), b: get("b"), c: get("c"), beta: get("beta") };
+  };
+  const volume = (c: ReturnType<typeof cellOf>) => c.a.value * c.b.value * c.c.value * Math.sin((c.beta.value * Math.PI) / 180);
+
+  /** The comparison's numbers, for the local record (stdout only). */
+  function reportReference(): void {
+    const app = appSide();
+    const r = refSide();
+    const cells = (["a", "b", "c"] as const).map((x) => `${x} ${((joint(`cell_${x}`).value / refCell(x).value - 1) * 1e4).toFixed(2)}e-4`);
+    console.log(`[awo4-ref] n ${ref.n.join("×")} · |M| app ${app.size.toFixed(3)}(${app.sizeSu.toFixed(3)}) ref ${r.size.toFixed(3)}(${r.sizeSu.toFixed(3)}) µB · φ app ${app.phi.toFixed(2)}(${app.phiSu.toFixed(2)})° ref ${r.phi.toFixed(2)}(${r.phiSu.toFixed(2)})° · Δφ ${axisDelta(app.phi, r.phi).toFixed(2)}°`);
+    console.log(`[awo4-ref] joint cell a ${joint("cell_a").value.toFixed(5)}(${joint("cell_a").esd.toPrecision(2)}) b ${joint("cell_b").value.toFixed(5)}(${joint("cell_b").esd.toPrecision(2)}) c ${joint("cell_c").value.toFixed(5)}(${joint("cell_c").esd.toPrecision(2)}) β ${joint("cell_beta").value.toFixed(4)}(${joint("cell_beta").esd.toPrecision(2)}) vs ref: ${cells.join(" ")} Δβ ${(joint("cell_beta").value - refCell("beta").value).toFixed(4)}° ΔV/V ${((volume(cellOf("app")) / volume(cellOf("ref")) - 1) * 1e4).toFixed(2)}e-4`);
+  }
+
+  it("R0a: the reference mCIF reads as a magnetic structure: every atom of its cell, an anti-centring, the moments", () => {
+    const ops = ref.magnetic.operations ?? [];
+    const centrings = ops.filter(isPureTranslation);
+    const anti = centrings.filter((c) => c.timeReversal === -1);
+    expect(anti.length).toBeGreaterThan(0);
+    expect(anti.length).toBe(centrings.length - anti.length);
+    // Each site expands to n_a·n_b·n_c times its parent orbit: no atom lost to a symbol-built group.
+    const cells = ref.n[0] * ref.n[1] * ref.n[2];
+    for (const s of ref.structure.sites) {
+      const p = b.structure.sites.find((q) => q.label === s.label)!;
+      expect(siteMultiplicity(ref.structure.spaceGroup.operations, s.position), s.label).toBe(cells * siteMultiplicity(b.structure.spaceGroup.operations, p.position));
+    }
+    expect(ref.magnetic.moments.length).toBeGreaterThan(0);
+    expect(ref.magnetic.moments.every((m) => m.frame === "crystallographic")).toBe(true);
+  });
+
+  it("R0b: the reference is the 100 K nuclear model in an (n·a, b, c) cell at the same origin", () => {
+    (["a", "b", "c"] as const).forEach((x, i) => {
+      expect(ref.n[i]!).toBeGreaterThanOrEqual(1);
+      expect(Math.abs(ref.structure.cell[x] / (ref.n[i]! * b.structure.cell[x]) - 1)).toBeLessThanOrEqual(0.01);
+    });
+    // Another basis would change an angle by degrees.
+    for (const x of ["alpha", "beta", "gamma"] as const) expect(Math.abs(ref.structure.cell[x] - b.structure.cell[x])).toBeLessThanOrEqual(1);
+    expect(ref.structure.sites.map((s) => s.label).sort()).toEqual(b.structure.sites.map((s) => s.label).sort());
+    for (const s of ref.structure.sites) {
+      const p = b.structure.sites.find((q) => q.label === s.label)!;
+      expect(s.element, s.label).toBe(p.element);
+      expect(Math.abs(s.occupancy - p.occupancy), s.label).toBeLessThanOrEqual(1e-3);
+      s.position.forEach((x, i) => {
+        const d = Math.abs(x * ref.n[i]! - p.position[i]!) % 1;
+        expect(Math.min(d, 1 - d), `${s.label} ${"xyz"[i]}`).toBeLessThanOrEqual(1e-4);
+      });
+    }
+  });
+
+  it("R0c: the shared A site is modelled alike — the same magnetic species, one moment for them, none on the rest, one U_iso", () => {
+    const labels = ref.magnetic.moments.map((m) => m.siteLabel).sort();
+    expect(labels).toEqual([...b.ions].sort());
+    for (const m of ref.magnetic.moments) expect(m.components).toEqual(ref.magnetic.moments[0]!.components);
+    const at = ref.structure.sites.find((s) => s.label === labels[0])!.position;
+    const cosited = ref.structure.sites.filter((s) => s.position.every((x, i) => Math.abs(x - at[i]!) < 1e-6));
+    const bare = cosited.filter((s) => !labels.includes(s.label));
+    expect(bare.length).toBeGreaterThan(0);
+    for (const s of bare) expect(b.ions).not.toContain(s.label);
+    const app = appMag.moments.filter((m) => labels.includes(m.siteLabel));
+    expect(app.map((m) => m.siteLabel).sort()).toEqual(labels);
+    for (const m of app) expect(m.components).toEqual(app[0]!.components);
+    expect(new Set(ref.structure.sites.map((s) => (s.adp.kind === "isotropic" ? s.adp.bIso : NaN))).size).toBe(1);
+  });
+
+  it("R1: k — the app's first k is the reference's: e^{2πi k·T} = θ for each centring T of the reference cell, 1 for its axes", () => {
+    const k = b.kRanking[0]!.k;
+    const phase = (T: readonly number[]) => Math.cos(2 * Math.PI * (k[0]! * T[0]! + k[1]! * T[1]! + k[2]! * T[2]!));
+    const centrings = (ref.magnetic.operations ?? []).filter(isPureTranslation);
+    expect(centrings.some((c) => c.timeReversal === -1)).toBe(true);
+    for (const c of centrings) expect(Math.abs(phase(c.translation.map((t, i) => t * ref.n[i]!)) - (c.timeReversal ?? 1))).toBeLessThanOrEqual(1e-9);
+    for (let i = 0; i < 3; i++) expect(Math.abs(phase([0, 1, 2].map((j) => (j === i ? ref.n[i]! : 0))) - 1)).toBeLessThanOrEqual(1e-9);
+  });
+
+  it("R2: the ★ group is the reference's magnetic group — the same operations, θ included, in the same cell and origin", () => {
+    const refKeys = new Set((ref.magnetic.operations ?? []).map(opKey));
+    const groupKeys = (mag: MagneticModel) => {
+      const sup = expandMagneticSupercell(b.jointModel, mag)!;
+      expect(sup.n).toEqual(ref.n);
+      return new Set(magneticCellGroup(b.jointModel, sup).operations.map(opKey));
+    };
+    const same = (s: Set<string>) => s.size === refKeys.size && [...s].every((x) => refKeys.has(x));
+    expect(same(groupKeys(appMag))).toBe(true);
+    // Discriminating: the other maximal candidates are the same group type at another origin or basis.
+    const ties = { sameSite: true, magnitudes: false as const, flippedUnits: [] };
+    let others = 0;
+    for (const [i, r] of b.reps.entries()) {
+      if (r.index !== 2 || r.candidate.id === b.best.id || b.dims[i] === 0) continue;
+      const build = buildFor(b.structure, K, b.ions, r.candidate.operations, ties);
+      const generic = Object.fromEntries(build.params.map((p, j) => [p.id, 0.7 + 0.31 * j]));
+      expect(same(groupKeys(applyMagneticMoments(build.magnetic, build.bindings, generic))), r.candidate.label).toBe(false);
+      others++;
+    }
+    expect(others).toBeGreaterThan(0);
+  });
+
+  it("R3a: no b component, in the app and in the reference (symmetry-fixed, printed without an su)", () => {
+    for (const m of ref.magnetic.moments) {
+      expect(Math.abs(m.components[1]), m.siteLabel).toBeLessThanOrEqual(1e-9);
+      expect(ref.sus.get(m.siteLabel)![1]).toBe(0);
+    }
+    for (const m of appMag.moments) expect(Math.abs(m.components[1]), m.siteLabel).toBeLessThanOrEqual(1e-9);
+  });
+
+  it("R3b: the moment's axis in the a–c plane agrees within 2σ combined", () => {
+    // The same anchor: the reference's and the app's moment sit on the site itself (orbit 1).
+    expect(appMag.moments.find((m) => m.siteLabel === label())!.orbitIndex ?? 1).toBe(1);
+    const app = appSide();
+    const r = refSide();
+    expect(Math.abs(axisDelta(app.phi, r.phi))).toBeLessThanOrEqual(2 * Math.hypot(app.phiSu, r.phiSu));
+  });
+
+  it("R4: |M| per magnetic ion agrees within 2σ combined, each with its own cell's metric", () => {
+    const app = appSide();
+    const r = refSide();
+    expect(r.sizeSu).toBeGreaterThan(0);
+    expect(Math.abs(app.size - r.size)).toBeLessThanOrEqual(2 * Math.hypot(app.sizeSu, r.sizeSu));
+  });
+
+  it("C3-premise: the reference's 8 K cell is itself outside the thermal bounds of the 100 K CIF (why C3 compares with it)", () => {
+    const out: string[] = [];
+    for (const x of ["a", "b", "c"] as const) {
+      const r = refCell(x);
+      const old = cifValue(b.cif, `_cell_length_${x}`);
+      if (Math.abs(r.value / old.value - 1) > THERMAL_PER_AXIS + 2 * Math.hypot(old.esd / old.value, r.esd / r.value)) out.push(x);
+    }
+    const old = cifValue(b.cif, "_cell_angle_beta");
+    if (Math.abs(refCell("beta").value - old.value) > THERMAL_BETA + 2 * Math.hypot(old.esd, refCell("beta").esd)) out.push("beta");
+    expect(out.length).toBeGreaterThan(0);
+  });
+
+  // Known not met on the local data. Cause open: the reference states neither its calibration nor its
+  // profile, and no calibration moves β.
+  it.fails("C3a: β within 0.01° + 2σ combined of the reference's 8 K cell", () => {
+    const app = joint("cell_beta");
+    const r = refCell("beta");
+    expect(Math.abs(app.value - r.value)).toBeLessThanOrEqual(PROFILE_BETA + 2 * Math.hypot(app.esd, refSu(r.esd, app.esd)));
+  });
+
+  // Known not met on the local data, by b only (a and c within). Same open cause as C3a.
+  it.fails("C3b: each lattice length within 5e-4 + 2σ combined of the reference's 8 K cell", () => {
+    for (const x of ["a", "b", "c"] as const) {
+      const app = joint(`cell_${x}`);
+      const r = refCell(x);
+      const rel = app.esd / app.value;
+      expect(Math.abs(app.value / r.value - 1), x).toBeLessThanOrEqual(CALIBRATION_PER_AXIS + 2 * Math.hypot(rel, refSu(r.esd / r.value, rel)));
+    }
+  });
+
+  it("C3c: the volume within 1.5e-3 + 2σ of the reference's 8 K cell", () => {
+    const app = cellOf("app");
+    const r = cellOf("ref");
+    const sigV = Math.hypot(...(["a", "b", "c"] as const).flatMap((x) => {
+      const rel = app[x].esd / app[x].value;
+      return [rel, refSu(r[x].esd / r[x].value, rel)];
+    }));
+    expect(Math.abs(volume(app) / volume(r) - 1)).toBeLessThanOrEqual(3 * CALIBRATION_PER_AXIS + 2 * sigV);
   });
 });
