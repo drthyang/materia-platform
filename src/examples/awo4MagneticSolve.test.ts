@@ -48,9 +48,9 @@ import type { Vec3 } from "@/core/math/types";
  * AWO4_SOLVE=1. Ordinary CI never executes it.
  */
 
-const CIF = "AWO4/AWO4_HE_100K_refined.cif";
-const INST = "AWO4/GSAS-II_2025B_HR/2025B_HighRes_60HzB3_CWL2p665.instprm";
-const GSA = "AWO4/autoreduced/PG3_61115.gsa";
+const CIF = "AWO4/structure_100K.cif";
+const INST = "AWO4/instrument_bank3.instprm";
+const GSA = "AWO4/powder_6K.gsa";
 const has = !!process.env.AWO4_SOLVE && dataExists(CIF) && dataExists(INST) && dataExists(GSA);
 const K: Vec3 = [0.5, 0, 0];
 

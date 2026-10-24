@@ -22,12 +22,12 @@ import type { RefinementParameter } from "@/core/refinement/types";
  */
 
 const DIR = "AWO4";
-const CIF = `${DIR}/AWO4_HE_100K_refined.cif`;
-const INSTPRM = `${DIR}/GSAS-II_2025B_HR/2025B_HighRes_60HzB3_CWL2p665.instprm`;
+const CIF = `${DIR}/structure_100K.cif`;
+const INSTPRM = `${DIR}/instrument_bank3.instprm`;
 const GSA = {
-  bank1: `${DIR}/autoreduced/PG3_61114.gsa`,
-  bank2: `${DIR}/autoreduced/PG3_61102.gsa`,
-  bank3: `${DIR}/autoreduced/PG3_61115.gsa`,
+  bank1: `${DIR}/powder_bank1.gsa`,
+  bank2: `${DIR}/powder_bank2.gsa`,
+  bank3: `${DIR}/powder_6K.gsa`,
 };
 const has = dataExists(CIF) && dataExists(GSA.bank1);
 const CATIONS = ["Co1", "Fe1", "Ni1", "Mn1", "Cu8", "Zn1"];
@@ -100,7 +100,7 @@ describe.skipIf(!has)("real AWO₄ — POWGEN neutron TOF, raw .gsa histograms",
   it("detects a .gsa as TOF from its BANK record, beating a mismatched instrument", () => {
     const fmt = detectDataFormat({
       text: readData(GSA.bank1),
-      filename: "PG3_61114.gsa",
+      filename: "powder_bank1.gsa",
       instrument: { kind: "constantWavelength", wavelength: 1.54 },
     });
     expect(fmt.xUnit).toBe("tof");
