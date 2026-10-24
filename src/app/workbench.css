@@ -1454,3 +1454,24 @@ html {
 .wb-agent[data-mode="sheet"] .wb-agent-input textarea {
   min-height: 1.5em;
 }
+
+/* Interactive plots (usePlotInteraction): a visible keyboard focus ring, and the
+   readout's screen-reader copy. */
+.wb-plot {
+  outline: none;
+}
+.wb-plot:focus-visible {
+  outline: 2px solid #1f4fd8;
+  outline-offset: -2px;
+}
+.wb-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

@@ -12,6 +12,9 @@
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { usePlotInteraction, useThrottledText } from "@/app/ui/usePlotInteraction";
+import { PlotHint, PlotZoomControls, plotReadoutBox } from "@/app/ui/PlotControls";
+import { decimalsForStep, formatReadoutValue, localStep, minimumSpan, nearestIndex } from "@/visualization/plotView";
 import type { PdfPattern } from "@/core/diffraction/types";
 import { grUncertaintySummary } from "@/core/totalscattering/grErrors";
 import { SegmentedToggle } from "@/app/ui/SegmentedToggle";
@@ -20,6 +23,7 @@ import { color, fz, mono } from "@/app/theme";
 type Ordinate = "sq" | "fq";
 
 const PAD = { left: 58, right: 14, top: 30, bottom: 40 };
+const EMPTY: readonly number[] = [];
 
 function useElementSize<T extends HTMLElement>(): [React.RefObject<T>, { width: number; height: number }] {
   const ref = useRef<T>(null);
@@ -58,14 +62,27 @@ export function ReciprocalPanel({ pattern, fitRange }: { pattern: PdfPattern; fi
   const rec = pattern.reciprocal;
   const [ordinate, setOrdinate] = useState<Ordinate>(rec?.kind ?? "sq");
   const [showSigma, setShowSigma] = useState(true);
-  const [view, setView] = useState<{ min: number; max: number } | null>(null);
-  const [rubber, setRubber] = useState<{ x0: number; x1: number } | null>(null);
   const [boxRef, { width: W, height: H }] = useElementSize<HTMLDivElement>();
+  const svgRef = useRef<SVGSVGElement>(null);
+  const qs = rec?.q ?? EMPTY;
+  const domain = useMemo(() => ({ min: qs[0] ?? 0, max: qs.length > 1 ? qs[qs.length - 1]! : (qs[0] ?? 0) + 1 }), [qs]);
+  const minSpan = useMemo(() => minimumSpan(qs), [qs]);
+  const yScale = useRef({ yLo: 0, yHi: 1 });
+  // The same zoom / pan / keyboard / readout mechanics as the G(r) plot.
+  const ix = usePlotInteraction({
+    svgRef,
+    domain,
+    minSpan,
+    xs: qs,
+    geometry: { boxW: W, x0: PAD.left, x1: W - PAD.right, yTop: PAD.top, yBottom: H - PAD.bottom },
+    yAt: (uy) => yScale.current.yLo + ((H - PAD.bottom - uy) / (H - PAD.bottom - PAD.top || 1)) * (yScale.current.yHi - yScale.current.yLo),
+  });
   // A new file starts on its own ordinate at full range — a zoom window from
   // the previous file could lie entirely outside this one's Q range.
   useEffect(() => {
     setOrdinate(rec?.kind ?? "sq");
-    setView(null);
+    ix.reset();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new file only
   }, [rec]);
 
   // Both ordinates from the retained data, whichever the file held:
@@ -84,6 +101,16 @@ export function ReciprocalPanel({ pattern, fitRange }: { pattern: PdfPattern; fi
   // window's points (the participation ratio streams the covariance), so it is
   // computed here — only while this tab is open — not on the fit page.
   const summary = useMemo(() => grUncertaintySummary(pattern, fitRange), [pattern, fitRange]);
+  const readoutText = useMemo(() => {
+    const c = ix.cursor;
+    if (!c || !series) return "";
+    const i = nearestIndex(series.q, c.x);
+    if (i < 0) return "";
+    const y = ordinate === "sq" ? series.s : series.f;
+    const sg = ordinate === "sq" ? series.sigS : series.sigF;
+    return `Q ${series.q[i]!.toFixed(decimalsForStep(localStep(series.q, i)))} Å⁻¹, ${ordinate === "sq" ? "S(Q)" : "F(Q)"} ${formatReadoutValue(y[i]!)}${sg ? ` ± ${formatReadoutValue(sg[i]!)}` : ""}`;
+  }, [ix.cursor, series, ordinate]);
+  const spoken = useThrottledText(readoutText, 600);
 
   if (!rec || !series) {
     return <div style={{ flex: 1, display: "grid", placeItems: "center", color: color.secondary, fontSize: fz.small }}>This pattern was loaded as G(r) — there is no S(Q) to show.</div>;
@@ -94,8 +121,8 @@ export function ReciprocalPanel({ pattern, fitRange }: { pattern: PdfPattern; fi
   const sig = showSigma ? (ordinate === "sq" ? series.sigS : series.sigF) : null;
   const qLo = q[0]!;
   const qHi = q[q.length - 1]!;
-  const vlo = view?.min ?? qLo;
-  const vhi = view?.max ?? qHi;
+  const vlo = ix.view.min;
+  const vhi = ix.view.max;
 
   let yLo = Infinity;
   let yHi = -Infinity;
@@ -109,6 +136,11 @@ export function ReciprocalPanel({ pattern, fitRange }: { pattern: PdfPattern; fi
   const yPad = 0.06 * (yHi - yLo || 1);
   yLo -= yPad;
   yHi += yPad;
+  if (ix.yLock) {
+    yLo = ix.yLock.lo;
+    yHi = ix.yLock.hi;
+  }
+  yScale.current = { yLo, yHi };
 
   const X0 = PAD.left;
   const X1 = W - PAD.right;
@@ -116,7 +148,6 @@ export function ReciprocalPanel({ pattern, fitRange }: { pattern: PdfPattern; fi
   const Y1 = H - PAD.bottom;
   const sx = (v: number): number => X0 + ((v - vlo) / (vhi - vlo || 1)) * (X1 - X0);
   const sy = (v: number): number => Y1 - ((v - yLo) / (yHi - yLo || 1)) * (Y1 - Y0);
-  const invX = (px: number): number => vlo + ((px - X0) / (X1 - X0)) * (vhi - vlo);
 
   const line: string[] = [];
   const upper: string[] = [];
@@ -139,10 +170,8 @@ export function ReciprocalPanel({ pattern, fitRange }: { pattern: PdfPattern; fi
   const baseline = ordinate === "sq" ? 1 : 0;
   const tr = pattern.transform;
 
-  const svgX = (e: React.PointerEvent<SVGSVGElement>): number => {
-    const box = e.currentTarget.getBoundingClientRect();
-    return ((e.clientX - box.left) / box.width) * W;
-  };
+  const ci = ix.cursor ? nearestIndex(q, ix.cursor.x) : -1;
+  const cursorQ = ci >= 0 && q[ci]! >= vlo && q[ci]! <= vhi ? q[ci]! : null;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, gap: 8 }}>
@@ -161,11 +190,6 @@ export function ReciprocalPanel({ pattern, fitRange }: { pattern: PdfPattern; fi
             ±σ ribbon
           </label>
         )}
-        {view && (
-          <button onClick={() => setView(null)} style={{ border: `1px solid ${color.control}`, background: "#fff", borderRadius: 7, padding: "1px 9px", fontSize: 11, cursor: "pointer" }}>
-            reset zoom
-          </button>
-        )}
         <span style={{ marginLeft: "auto", fontFamily: mono, fontSize: fz.micro, color: color.faint }}>
           {q.length} pts · Q {qLo.toFixed(2)}–{qHi.toFixed(2)} Å⁻¹
         </span>
@@ -173,27 +197,17 @@ export function ReciprocalPanel({ pattern, fitRange }: { pattern: PdfPattern; fi
 
       <div ref={boxRef} style={{ position: "relative", flex: 1, minHeight: 240 }}>
         <svg
+          ref={svgRef}
+          className="wb-plot"
           viewBox={`0 0 ${W} ${H}`}
           preserveAspectRatio="none"
-          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", display: "block", touchAction: "none", cursor: "crosshair", userSelect: "none" }}
-          role="img"
-          aria-label={`${ordinate === "sq" ? "S(Q)" : "F(Q)"} against Q${sig ? " with a ±σ error ribbon" : ""}`}
-          onPointerDown={(e) => {
-            const x = svgX(e);
-            if (x < X0 || x > X1) return;
-            e.currentTarget.setPointerCapture(e.pointerId);
-            setRubber({ x0: x, x1: x });
-          }}
-          onPointerMove={(e) => rubber && setRubber({ ...rubber, x1: Math.min(X1, Math.max(X0, svgX(e))) })}
-          onPointerUp={() => {
-            if (rubber && Math.abs(rubber.x1 - rubber.x0) > 6) {
-              const a = invX(Math.min(rubber.x0, rubber.x1));
-              const b = invX(Math.max(rubber.x0, rubber.x1));
-              setView({ min: a, max: b });
-            }
-            setRubber(null);
-          }}
-          onDoubleClick={() => setView(null)}
+          tabIndex={0}
+          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", display: "block", touchAction: "pan-y", cursor: ix.panning ? "grabbing" : "crosshair", userSelect: "none" }}
+          role="application"
+          aria-roledescription="interactive plot"
+          aria-label={`${ordinate === "sq" ? "S(Q)" : "F(Q)"} against Q${sig ? " with a ±σ error ribbon" : ""}. Drag to pan, Shift + drag to box-zoom, Ctrl + scroll or pinch to zoom, double-click to reset. Keys: plus and minus zoom, left and right arrows pan, Shift + arrows step the cursor one point, 0 resets.`}
+          {...ix.handlers}
+          {...{ "data-vmin": vlo, "data-vmax": vhi, "data-dmin": qLo, "data-dmax": qHi, "data-ylock": ix.yLock ? 1 : 0, "data-frame": [X0, X1, W, H, Y0, Y1].join(",") }}
         >
           <rect x={0} y={0} width={W} height={H} fill={color.raised} />
           {yT.map((t) => (
@@ -239,7 +253,17 @@ export function ReciprocalPanel({ pattern, fitRange }: { pattern: PdfPattern; fi
           {ribbon && <path d={ribbon} fill={color.obs} fillOpacity={0.22} stroke="none" />}
           {line.length > 1 && <polyline points={line.join(" ")} fill="none" stroke={color.obs} strokeWidth={1.2} />}
 
-          {rubber && <rect x={Math.min(rubber.x0, rubber.x1)} y={Y0} width={Math.abs(rubber.x1 - rubber.x0)} height={Y1 - Y0} fill={color.primary} opacity={0.08} />}
+          {ix.box && (
+            <rect
+              x={Math.min(ix.box.x0, ix.box.x1)}
+              y={ix.box.xOnly ? Y0 : Math.min(ix.box.y0, ix.box.y1)}
+              width={Math.abs(ix.box.x1 - ix.box.x0)}
+              height={ix.box.xOnly ? Y1 - Y0 : Math.abs(ix.box.y1 - ix.box.y0)}
+              fill={color.primary}
+              opacity={0.08}
+            />
+          )}
+          {cursorQ !== null && <line x1={sx(cursorQ)} x2={sx(cursorQ)} y1={Y0} y2={Y1} stroke={color.ink} strokeWidth={1} opacity={0.45} pointerEvents="none" />}
 
           <text x={(X0 + X1) / 2} y={H - 8} textAnchor="middle" fontSize={11} fontFamily={mono} fill={color.faint}>Q (Å⁻¹)</text>
           <text x={14} y={(Y0 + Y1) / 2} textAnchor="middle" fontSize={10} fontFamily={mono} fill={color.faint} transform={`rotate(-90 14 ${(Y0 + Y1) / 2})`}>
@@ -256,6 +280,20 @@ export function ReciprocalPanel({ pattern, fitRange }: { pattern: PdfPattern; fi
             )}
           </g>
         </svg>
+        {cursorQ !== null && readoutText && !ix.panning && (
+          <div
+            className="wb-plot-readout"
+            data-x={cursorQ}
+            data-step={localStep(q, ci)}
+            aria-hidden
+            style={{ ...plotReadoutBox, left: `${(sx(cursorQ) / W) * 100}%`, top: `${((Y0 + 18) / H) * 100}%`, transform: sx(cursorQ) > (X0 + X1) / 2 ? "translateX(calc(-100% - 10px))" : "translateX(10px)" }}
+          >
+            {readoutText}
+          </div>
+        )}
+        <div role="status" aria-live="polite" aria-atomic="true" className="wb-sr-only">{spoken}</div>
+        <PlotHint text={ix.hint} />
+        <PlotZoomControls ix={ix} yRange={{ lo: yLo, hi: yHi }} style={{ bottom: 4 }} />
       </div>
 
       <div style={{ fontSize: fz.micro, color: color.secondary, lineHeight: 1.55 }}>

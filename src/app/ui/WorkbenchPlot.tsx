@@ -2,8 +2,15 @@
  * Powder-pattern chart, rebuilt to the design handoff spec: a custom SVG plot
  * with auto-scaled y/x "nice" ticks, obs/calc/bkg/diff series, a difference
  * band, a Bragg-reflection tick row (coloured per phase), excluded-region
- * scrims, draggable fit-range handles, and drag-to-zoom on the x-axis. Fed by
- * the real refinement curves.
+ * scrims, draggable fit-range handles, and the shared zoom / pan / cursor
+ * readout of `usePlotInteraction`. Fed by the real refinement curves.
+ *
+ * The data series (obs markers, ±σ ribbon, calc, background, overlays, the
+ * difference) and the Bragg tick rows are painted on a canvas under the SVG,
+ * decimated per pixel column when the view holds more points than pixels, so
+ * a pan or zoom costs the plot's width rather than its point count. Axes,
+ * labels, the picked and hovered ticks, the
+ * legend and the handles stay SVG on top.
  *
  * The viewBox is the element's own measured size, so one user unit is one CSS
  * pixel: labels keep the same readable size on a phone, a 1080p laptop and a 4K
@@ -12,11 +19,17 @@
  * card height — ~5px labels on an iPad, ~30px on a 4K screen.)
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { PowderCurves } from "@/core/workflow/powder";
 import type { PhaseTicks } from "@/visualization/reflectionTicks";
 import { color, mono } from "@/app/theme";
 import { minMax } from "@/core/math/extent";
+import { cssZoom } from "@/app/ui/cssZoom";
+import { usePlotInteraction, useThrottledText, type PlotTap } from "@/app/ui/usePlotInteraction";
+import { PlotHint, PlotZoomControls, plotReadoutBox } from "@/app/ui/PlotControls";
+import {
+  decimalsForStep, decimateByColumn, formatReadoutValue, localStep, minimumSpan, nearestIndex, splitAxisLabel, ticksNear, visibleIndexRange,
+} from "@/visualization/plotView";
 
 export interface FitRangeSelection {
   readonly min: number;
@@ -104,6 +117,16 @@ interface Props {
   readonly obsSigma?: readonly number[];
   /** Legend label for the ribbon (e.g. "±σ propagated"); default "±σ". */
   readonly obsSigmaLabel?: string;
+  /**
+   * The zoom is kept until this changes (compared by identity): pass a value
+   * that changes with the dataset and the x unit, so a refinement — even one
+   * that moves a converted axis (a refined zero or difC in a d display) —
+   * keeps the view. Omitted, the view resets when the x label, the point count
+   * or the x range changes.
+   */
+  readonly viewKey?: unknown;
+  /** Accessible name of the plot (the keyboard help is appended). */
+  readonly ariaLabel?: string;
 }
 
 /** Muted overlay palette — distinct from the obs/calc/diff/bkg series inks. */
@@ -195,6 +218,9 @@ function formatHkl(hkl: string): string {
     .join(" ");
 }
 
+/** Pixel tolerance for "the reflection under the cursor" (readout and tick click). */
+const TICK_TOL_PX = 4.5;
+
 export function WorkbenchPlot({
   curves,
   xLabel,
@@ -215,15 +241,18 @@ export function WorkbenchPlot({
   overlays,
   obsSigma,
   obsSigmaLabel = "±σ",
+  viewKey,
+  ariaLabel,
 }: Props): JSX.Element {
   const svgRef = useRef<SVGSVGElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const draggingGrip = useRef(false);
+  const onTapRef = useRef<(tap: PlotTap) => void>(() => {});
 
   const xs = curves.x;
   const { min: fullMin, max: fullMax } = xs.length ? minMax(xs) : { min: 0, max: 1 };
-
-  const [view, setView] = useState<{ min: number; max: number } | null>(null);
-  const [rubber, setRubber] = useState<{ x0: number; x1: number } | null>(null);
+  const domain = useMemo(() => ({ min: fullMin, max: fullMax > fullMin ? fullMax : fullMin + 1 }), [fullMin, fullMax]);
+  const minSpan = useMemo(() => minimumSpan(xs), [xs]);
 
   // A Bragg tick click is the *same* selection as an F_obs/F_calc point click:
   // both flow through `onHighlight` into one shared spotlight (`highlightSel`),
@@ -254,19 +283,72 @@ export function WorkbenchPlot({
   const ts = plotTypeScale();
   const fsTick = 10 * ts; // axis tick labels
   const fsLabel = 11 * ts; // axis titles, legend, spotlight label
-  // When the domain changes (new data, or an x-axis unit switch), default the
-  // zoom to the active fit range — switching units lands on the region being
-  // fitted — or to the full range when no window is set. Keyed only on the
-  // domain, so dragging the fit handles doesn't fight the user by re-zooming.
+
+  // y range of the observed data (±σ) over [lo, hi], padded as the axis shows it.
+  const yObs = curves.yObs;
+  const yRangeOver = (lo: number, hi: number): { yTop: number; yLo: number } => {
+    let top = signedY ? -Infinity : 1;
+    let bot = 0;
+    const [i0, i1] = visibleIndexRange(xs, lo, hi);
+    for (let i = i0; i < i1; i++) {
+      if (xs[i]! >= lo && xs[i]! <= hi) {
+        const sd = obsSigma?.[i] ?? 0;
+        top = Math.max(top, yObs[i]! + sd);
+        if (signedY) bot = Math.min(bot, yObs[i]! - sd);
+      }
+    }
+    if (!Number.isFinite(top)) top = 1;
+    if (signedY) {
+      const pad = 0.06 * (top - bot || 1);
+      return { yTop: top + pad, yLo: bot - pad };
+    }
+    return { yTop: top * 1.06, yLo: bot };
+  };
+  // The whole-range y ticks fix the left margin's minimum, so zooming into a
+  // region with shorter y labels does not shift the frame under the cursor.
+  const fullYChars = useMemo(() => {
+    const { yTop: t, yLo: b } = yRangeOver(domain.min, domain.max);
+    const step = niceNum((t - b) / 4, true);
+    let n = 1;
+    for (let v = Math.ceil(b / step) * step; v <= t + 1e-6 * step; v += step) n = Math.max(n, formatY(v, step).length);
+    return n;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- of the data only
+  }, [xs, yObs, obsSigma, signedY, domain]);
+
+  // --- interaction (zoom / pan / cursor), shared with the other curve plots ---
+  // The frame needs the y-label width, which needs the view's y range: the
+  // margin is computed from the hook's view below, and fed back next render.
+  const [frame, setFrame] = useState({ x0: X0_MIN, x1: boxW - RIGHT_PAD });
+  const yScaleRef = useRef<{ yLo: number; ySpan: number }>({ yLo: 0, ySpan: 1 });
+  const ix = usePlotInteraction({
+    svgRef,
+    domain,
+    minSpan,
+    xs,
+    geometry: { boxW, x0: frame.x0, x1: frame.x1, yTop: TOP, yBottom: BASE },
+    yAt: (uy) => yScaleRef.current.yLo + ((BASE - uy) / MAINH) * yScaleRef.current.ySpan,
+    onTap: (tap) => onTapRef.current(tap),
+  });
+  const { view, setView } = ix;
+  const vlo = view.min;
+  const vhi = view.max;
+  const vspan = vhi - vlo || 1;
+
+  // The view resets when the data or the x unit changes (viewKey, or the
+  // domain and label when no key is given) — never on a refinement. It
+  // defaults to the active fit range, so switching units lands on the region
+  // being fitted, or to the full range when no window is set.
+  const resetKey = viewKey !== undefined ? viewKey : `${xLabel}|${xs.length}|${fullMin}|${fullMax}`;
   useEffect(() => {
+    ix.setYLock(null);
     if (fitRange && (fitRange.min > fullMin + 1e-9 || fitRange.max < fullMax - 1e-9)) {
       const pad = (fitRange.max - fitRange.min) * 0.08;
       setView({ min: Math.max(fullMin, fitRange.min - pad), max: Math.min(fullMax, fitRange.max + pad) });
     } else {
       setView(null);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to the domain
-  }, [fullMin, fullMax]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to the data / unit
+  }, [resetKey]);
 
   // Explicit "focus the fit range" command from the toolbar: zoom onto the
   // active fit window (small pad), same framing the unit-switch default uses.
@@ -279,10 +361,6 @@ export function WorkbenchPlot({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire on the command token only
   }, [focusFitToken]);
 
-  const vlo = view ? view.min : fullMin;
-  const vhi = view ? view.max : fullMax;
-  const vspan = vhi - vlo || 1;
-
   // Fit window (defaults to full domain) clips the calc/diff curves.
   const fitLo = fitRange ? fitRange.min : fullMin;
   const fitHi = fitRange ? fitRange.max : fullMax;
@@ -292,25 +370,14 @@ export function WorkbenchPlot({
   // would make the axis (and every marker) rescale on every refinement cycle;
   // observed peaks dominate the height anyway, so this keeps the frame stable.
   // Signed mode (G(r)): the floor follows the data's minimum instead of 0.
-  const yObs = curves.yObs;
-  let yTop = signedY ? -Infinity : 1;
-  let yLo = 0;
-  for (let i = 0; i < xs.length; i++) {
-    if (xs[i]! >= vlo && xs[i]! <= vhi) {
-      const sd = obsSigma?.[i] ?? 0;
-      yTop = Math.max(yTop, yObs[i]! + sd);
-      if (signedY) yLo = Math.min(yLo, yObs[i]! - sd);
-    }
-  }
-  if (!Number.isFinite(yTop)) yTop = 1;
-  if (signedY) {
-    const pad = 0.06 * (yTop - yLo || 1);
-    yTop += pad;
-    yLo -= pad;
-  } else {
-    yTop *= 1.06;
-  }
+  // A y lock (a tall box zoom, or Lock y) holds the range instead.
+  const auto = useMemo(() => yRangeOver(vlo, vhi),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- of the data and the window
+    [xs, yObs, obsSigma, signedY, vlo, vhi]);
+  const yTop = ix.yLock ? ix.yLock.hi : auto.yTop;
+  const yLo = ix.yLock ? ix.yLock.lo : auto.yLo;
   const ySpan = yTop - yLo || 1;
+  yScaleRef.current = { yLo, ySpan };
   const sy = (y: number): number => BASE - ((Math.min(Math.max(y, yLo), yTop) - yLo) / ySpan) * MAINH;
 
   // Y nice ticks. The signed scale starts at the first step at/above yLo.
@@ -319,10 +386,13 @@ export function WorkbenchPlot({
   for (let v = Math.ceil(yLo / yStep) * yStep; v <= yTop + 1e-6 * yStep; v += yStep) yTicks.push(v);
   // The left margin fits the widest y label beside the rotated axis title
   // (which occupies x ≈ 16 ± 0.75 em), so neither collides as the type grows.
-  const yLabelChars = Math.max(...yTicks.map((v) => formatY(v, yStep).length), 1);
+  const yLabelChars = Math.max(...yTicks.map((v) => formatY(v, yStep).length), fullYChars, 1);
   const X0 = Math.max(X0_MIN, Math.ceil(16 + 0.25 * fsLabel + 13 + yLabelChars * MONO_ADVANCE * fsTick));
   const X1 = boxW - RIGHT_PAD;
   const XW = X1 - X0;
+  useLayoutEffect(() => {
+    if (frame.x0 !== X0 || frame.x1 !== X1) setFrame({ x0: X0, x1: X1 });
+  }, [X0, X1, frame.x0, frame.x1]);
   const sx = (x: number): number => X0 + ((x - vlo) / vspan) * XW;
   // X nice ticks: as many as the width holds without labels crowding (six on a
   // desktop plot, fewer on a phone).
@@ -335,62 +405,196 @@ export function WorkbenchPlot({
   // fills the band instead of clipping flat against its edge; a floor keeps a
   // near-perfect fit from blowing up noise. It rescales as the fit converges,
   // which reads as the residual shrinking — the intended Rietveld behaviour.
-  let dPeak = 0;
-  for (let i = 0; i < xs.length; i++) {
-    if (xs[i]! >= vlo && xs[i]! <= vhi) dPeak = Math.max(dPeak, Math.abs(curves.diff[i] ?? 0));
-  }
-  const dm = Math.max(dPeak * 1.1, yTop * 0.02, 1e-9);
+  const dm = useMemo(() => {
+    let dPeak = 0;
+    const [i0, i1] = visibleIndexRange(xs, vlo, vhi);
+    for (let i = i0; i < i1; i++) {
+      if (xs[i]! >= vlo && xs[i]! <= vhi) dPeak = Math.max(dPeak, Math.abs(curves.diff[i] ?? 0));
+    }
+    return Math.max(dPeak * 1.1, yTop * 0.02, 1e-9);
+  }, [xs, curves.diff, vlo, vhi, yTop]);
   const sdiff = (d: number): number => DIFF_Y - (Math.min(Math.max(d, -dm), dm) / dm) * DIFF_A;
 
-  const poly = (ys: readonly number[], map: (y: number) => number, lo: number, hi: number): string => {
-    const parts: string[] = [];
-    for (let i = 0; i < xs.length; i++) {
-      const x = xs[i]!;
-      if (x < lo || x > hi) continue;
-      parts.push(`${sx(x).toFixed(1)},${map(ys[i]!).toFixed(1)}`);
-    }
-    return parts.join(" ");
-  };
+  // Row geometry: at up to three phase rows the fixed spacing applies; more
+  // rows (e.g. two nuclear phases + the magnetic-analysis rows) compress the
+  // spacing and tick height so the band stays above the difference band.
+  const nRows = phases?.length ?? 0;
+  const tickStep = nRows > 3 ? Math.min(TICK_ROW, Math.floor((TICK_MAX_BOT - TICK_TOP - TICK_H) / (nRows - 1))) : TICK_ROW;
+  const tickH = tickStep < TICK_ROW ? Math.max(5, tickStep - 2) : TICK_H;
 
-  const calcLine = poly(curves.yCalc, sy, fitLo, fitHi);
-  const bkgLine = curves.yBackground ? poly(curves.yBackground, sy, fitLo, fitHi) : "";
-  const diffLine = poly(curves.diff, sdiff, fitLo, fitHi);
-
-  // Observed markers are the heaviest part of the SVG (thousands of circles) and
-  // do not change while the calculated curve animates during a refinement, so
-  // memoize them on their stable inputs — React then skips re-rendering them
-  // every cycle, keeping the live update cheap and flicker-free.
-  const obsMarkers = useMemo(() => {
+  // --- the data layer (canvas) ---------------------------------------------
+  // Painted in a layout effect, so it lands in the same frame as the SVG.
+  // Same marks as the former SVG series: obs dots (every 2nd point, r 1.3,
+  // 50 %), the ±σ ribbon, overlays, the dashed background, the calc line, the
+  // difference line on its dashed zero. Clipped to the data area, so a zoomed
+  // line no longer runs under the y-axis labels.
+  const showBkg = showBackground && !!curves.yBackground;
+  useLayoutEffect(() => {
+    const cv = canvasRef.current;
+    if (!cv) return;
+    const scale = (typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1) * cssZoom();
+    const W = Math.max(1, Math.round(boxW * scale));
+    const H = Math.max(1, Math.round(VB_H * scale));
+    if (cv.width !== W) cv.width = W;
+    if (cv.height !== H) cv.height = H;
+    let ctx: CanvasRenderingContext2D | null = null;
+    try { ctx = cv.getContext("2d"); } catch { ctx = null; }
+    if (!ctx) return;
+    ctx.setTransform(W / boxW, 0, 0, H / VB_H, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.setLineDash([]);
+    ctx.fillStyle = color.raised;
+    ctx.fillRect(0, 0, boxW, VB_H);
     const mx = (x: number): number => X0 + ((x - vlo) / vspan) * XW;
-    const my = (y: number): number => BASE - ((Math.min(Math.max(y, yLo), yTop) - yLo) / (yTop - yLo || 1)) * MAINH;
-    const out: JSX.Element[] = [];
-    for (let i = 0; i < xs.length; i += 2) {
-      const x = xs[i]!;
-      if (x < vlo || x > vhi) continue;
-      out.push(<circle key={i} cx={mx(x)} cy={my(yObs[i]!)} r={1.3} fill={color.obs} opacity={0.5} />);
-    }
-    return out;
-  }, [xs, yObs, vlo, vhi, vspan, yTop, yLo, X0, XW, BASE, MAINH]);
+    const [v0, v1] = visibleIndexRange(xs, vlo, vhi);
+    // One point past each edge so a line reaches the frame; the clip trims it.
+    const e0 = Math.max(0, v0 - 1);
+    const e1 = Math.min(xs.length, v1 + 1);
+    const nVisible = v1 - v0;
 
-  // The ±σ ribbon: one closed path, upper edge left→right then lower edge back.
-  // Memoized on the same stable inputs as the markers (σ never changes during
-  // a refinement), so the live calc update never rebuilds it.
-  const sigmaRibbon = useMemo(() => {
-    if (!obsSigma || obsSigma.length !== xs.length) return null;
-    const mx = (x: number): number => X0 + ((x - vlo) / vspan) * XW;
-    const my = (y: number): number => BASE - ((Math.min(Math.max(y, yLo), yTop) - yLo) / (yTop - yLo || 1)) * MAINH;
-    const upper: string[] = [];
-    const lower: string[] = [];
-    for (let i = 0; i < xs.length; i++) {
-      const x = xs[i]!;
-      if (x < vlo || x > vhi) continue;
-      const sd = obsSigma[i] ?? 0;
-      upper.push(`${mx(x).toFixed(1)},${my(yObs[i]! + sd).toFixed(1)}`);
-      lower.push(`${mx(x).toFixed(1)},${my(yObs[i]! - sd).toFixed(1)}`);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(X0, 0, XW, VB_H);
+    ctx.clip();
+
+    // zero line for a signed ordinate (G(r) oscillates about 0)
+    if (signedY && yLo < 0) {
+      ctx.strokeStyle = "#c9c0b0";
+      ctx.globalAlpha = 0.6;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(X0, sy(0));
+      ctx.lineTo(X1, sy(0));
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
     }
-    if (upper.length < 2) return null;
-    return `M ${upper.join(" L ")} L ${lower.reverse().join(" L ")} Z`;
-  }, [obsSigma, xs, yObs, vlo, vhi, vspan, yTop, yLo, X0, XW, BASE, MAINH]);
+
+    // ±σ ribbon (upper edge left→right, lower edge back), under the markers.
+    if (obsSigma && obsSigma.length === xs.length) {
+      const idx: number[] = [];
+      for (let i = v0; i < v1; i++) idx.push(i);
+      if (idx.length >= 2) {
+        ctx.fillStyle = color.obs;
+        ctx.globalAlpha = 0.18;
+        ctx.beginPath();
+        idx.forEach((i, k) => (k === 0 ? ctx!.moveTo(mx(xs[i]!), sy(yObs[i]! + (obsSigma[i] ?? 0))) : ctx!.lineTo(mx(xs[i]!), sy(yObs[i]! + (obsSigma[i] ?? 0)))));
+        for (let k = idx.length - 1; k >= 0; k--) ctx.lineTo(mx(xs[idx[k]!]!), sy(yObs[idx[k]!]! - (obsSigma[idx[k]!] ?? 0)));
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // Observed markers: every 2nd point (by index, so a pan keeps the same
+    // dots). Past ~6 dots per pixel the dots are a solid smear; draw each
+    // pixel column's min–max as one dot-wide bar instead (same ink, a fraction
+    // of the cost).
+    ctx.fillStyle = color.obs;
+    ctx.globalAlpha = 0.5;
+    if (nVisible / 2 <= 6 * XW) {
+      for (let i = v0 + (v0 % 2); i < v1; i += 2) {
+        ctx.beginPath();
+        ctx.arc(mx(xs[i]!), sy(yObs[i]!), 1.3, 0, 2 * Math.PI);
+        ctx.fill();
+      }
+    } else {
+      let col = NaN;
+      let a = 0;
+      let b = 0;
+      const bar = (): void => {
+        if (Number.isNaN(col)) return;
+        ctx!.fillRect(col + 0.5 - 1.3, a - 1.3, 2.6, b - a + 2.6);
+      };
+      for (let i = v0; i < v1; i++) {
+        const c = Math.floor(mx(xs[i]!));
+        const y = sy(yObs[i]!);
+        if (c !== col) { bar(); col = c; a = b = y; } else { if (y < a) a = y; if (y > b) b = y; }
+      }
+      bar();
+    }
+    ctx.globalAlpha = 1;
+
+    const line = (ys: readonly number[], map: (y: number) => number): void => {
+      const lo = fitLo;
+      const hi = fitHi;
+      const dense = nVisible > 3 * XW;
+      ctx!.beginPath();
+      let first = true;
+      const put = (i: number): void => {
+        const X = mx(xs[i]!);
+        const Y = map(ys[i]!);
+        if (first) { ctx!.moveTo(X, Y); first = false; } else ctx!.lineTo(X, Y);
+      };
+      if (dense) {
+        for (const i of decimateByColumn(xs, ys, e0, e1, lo, hi, mx, map)) put(i);
+      } else {
+        for (let i = e0; i < e1; i++) {
+          const x = xs[i]!;
+          if (x < lo || x > hi) continue;
+          put(i);
+        }
+      }
+      ctx!.stroke();
+    };
+
+    // decomposition overlays (e.g. partial PDFs), under the calc line
+    (overlays ?? []).forEach((o, i) => {
+      ctx!.strokeStyle = OVERLAY_COLORS[i % OVERLAY_COLORS.length]!;
+      ctx!.lineWidth = 1;
+      ctx!.globalAlpha = 0.85;
+      line(o.y, sy);
+    });
+    ctx.globalAlpha = 1;
+    if (showBkg) {
+      ctx.strokeStyle = color.bkg;
+      ctx.lineWidth = 1.2;
+      ctx.globalAlpha = 0.9;
+      ctx.setLineDash([5, 3]);
+      line(curves.yBackground!, sy);
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+    }
+    ctx.strokeStyle = color.calc;
+    ctx.lineWidth = 1.4;
+    line(curves.yCalc, sy);
+
+    // difference band: dashed zero line, then the difference
+    ctx.strokeStyle = "#e0d8c9";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath();
+    ctx.moveTo(X0, DIFF_Y);
+    ctx.lineTo(X1, DIFF_Y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.strokeStyle = color.diff;
+    ctx.lineWidth = 1;
+    line(curves.diff, sdiff);
+
+    // Bragg reflection ticks, one coloured row per phase, each tick its own
+    // 70 % stroke (so a dense cluster darkens as the SVG ticks did). A click
+    // is hit-tested (`tickAt`); the ticks at the cursor and the picked one are
+    // drawn bold in the SVG on top.
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.7;
+    (phases ?? []).forEach((phase, row) => {
+      const y1 = TICK_TOP + row * tickStep;
+      ctx!.strokeStyle = phase.color;
+      for (const t of phase.ticks) {
+        if (t.x < vlo || t.x > vhi) continue;
+        const X = mx(t.x);
+        ctx!.beginPath();
+        ctx!.moveTo(X, y1);
+        ctx!.lineTo(X, y1 + tickH);
+        ctx!.stroke();
+      }
+    });
+    ctx.globalAlpha = 1;
+    ctx.restore();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the scales are derived from these
+  }, [xs, yObs, curves.yCalc, curves.diff, curves.yBackground, showBkg, overlays, obsSigma, vlo, vhi, yLo, yTop, dm, boxW, VB_H, X0, X1, BASE, MAINH, DIFF_Y, DIFF_A, fitLo, fitHi, signedY, phases, TICK_TOP, tickStep, tickH]);
 
   // The single selected reflection (from a scatter-point OR a Bragg-tick click):
   // locate its Bragg tick so we can spotlight that peak. Prefer the row whose
@@ -421,47 +625,38 @@ export function WorkbenchPlot({
     return best;
   }, [highlightSel, phases]);
 
-  // Row geometry: at up to three phase rows the fixed spacing applies; more
-  // rows (e.g. two nuclear phases + the magnetic-analysis rows) compress the
-  // spacing and tick height so the band stays above the difference band.
-  const nRows = phases?.length ?? 0;
-  const tickStep = nRows > 3 ? Math.min(TICK_ROW, Math.floor((TICK_MAX_BOT - TICK_TOP - TICK_H) / (nRows - 1))) : TICK_ROW;
-  const tickH = tickStep < TICK_ROW ? Math.max(5, tickStep - 2) : TICK_H;
 
-  // Bragg tick rows are also static during a refinement (positions depend on the
-  // structure, not the fit) and there can be hundreds — memoize them too. A tick
-  // click toggles the shared selection through `onHighlight`, exactly like an
-  // F_obs/F_calc point (the emphasised tick is the resolved `highlight`).
-  const braggTicks = useMemo(() => {
-    const mx = (x: number): number => X0 + ((x - vlo) / vspan) * XW;
-    return (phases ?? []).map((phase, row) => {
-      const y1 = TICK_TOP + row * tickStep;
-      const y2 = y1 + tickH;
-      return (
-        <g key={phase.id} stroke={phase.color}>
-          {phase.ticks.map((t, i) => {
-            if (t.x < vlo || t.x > vhi) return null;
-            const picked = !!highlight && highlight.row === row && highlight.hkl === t.hkl;
-            const toggle = (): void =>
-              onHighlight?.(picked ? null : { hkl: t.hkl, kind: phase.kind, phaseId: phase.id });
-            return (
-              <g key={i} className="wb-tick" style={{ cursor: "pointer" }} onClick={toggle}>
-                <line
-                  className="wb-mark"
-                  x1={mx(t.x)} y1={picked ? y1 - 3 : y1} x2={mx(t.x)} y2={picked ? y2 + 3 : y2}
-                  strokeWidth={1}
-                  {...(picked ? { style: { strokeWidth: 2.6, strokeOpacity: 1 } } : {})}
-                />
-                <line x1={mx(t.x)} y1={y1 - 4} x2={mx(t.x)} y2={y2 + 4} stroke="transparent" strokeWidth={9}>
-                  <title>{`${phase.label}  (${formatHkl(t.hkl)})  d ${t.d.toFixed(3)} Å`}</title>
-                </line>
-              </g>
-            );
-          })}
-        </g>
-      );
-    });
-  }, [phases, vlo, vhi, vspan, X0, XW, TICK_TOP, highlight, onHighlight, tickStep, tickH]);
+  /** The tick a press at (userX, userY) lands on: the nearest within the tolerance on that row. */
+  const tickAt = (userX: number, userY: number): { hkl: string; kind: "nuclear" | "magnetic"; phaseId: string; picked: boolean } | null => {
+    if (!phases || phases.length === 0) return null;
+    const top = TICK_TOP - 4;
+    const bottom = TICK_TOP + (phases.length - 1) * tickStep + tickH + 4;
+    if (userY < top || userY > bottom) return null;
+    const row = Math.min(phases.length - 1, Math.max(0, Math.round((userY - TICK_TOP - tickH / 2) / tickStep)));
+    const phase = phases[row]!;
+    const x = vlo + ((userX - X0) / XW) * vspan;
+    const tol = (TICK_TOL_PX / XW) * vspan;
+    let best: (typeof phase.ticks)[number] | null = null;
+    for (const t of phase.ticks) {
+      if (Math.abs(t.x - x) <= tol && (!best || Math.abs(t.x - x) < Math.abs(best.x - x))) best = t;
+    }
+    if (!best) return null;
+    const picked = !!highlight && highlight.row === row && highlight.hkl === best.hkl;
+    return { hkl: best.hkl, kind: phase.kind, phaseId: phase.id, picked };
+  };
+
+  // A click (press and release without a drag): a Bragg tick toggles the
+  // spotlight; elsewhere in the data area it is the page's plot click (e.g.
+  // the magnetic page's "add a residual peak here").
+  onTapRef.current = (tap: PlotTap): void => {
+    if (draggingGrip.current) return;
+    const tick = tickAt(tap.userX, tap.userY);
+    if (tick) {
+      onHighlight?.(tick.picked ? null : { hkl: tick.hkl, kind: tick.kind, phaseId: tick.phaseId });
+      return;
+    }
+    if (tap.x >= vlo && tap.x <= vhi) onPlotClick?.(tap.x);
+  };
 
   // Pan to reveal a freshly-spotlighted peak when it sits outside the zoom
   // window — keyed on the pick only, so re-zooming/panning doesn't fight the user.
@@ -500,15 +695,12 @@ export function WorkbenchPlot({
   }, [focusPoint?.token]);
 
   // --- pointer helpers -------------------------------------------------------
-  const clientToX = useCallback(
-    (clientX: number): number => {
-      const rect = svgRef.current?.getBoundingClientRect();
-      if (!rect) return vlo;
-      const px = ((clientX - rect.left) / rect.width) * boxW; // user-space px
-      return vlo + ((px - X0) / XW) * vspan;
-    },
-    [vlo, vspan, boxW, X0, XW],
-  );
+  const clientToX = (clientX: number): number => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect) return vlo;
+    const px = ((clientX - rect.left) / rect.width) * boxW; // user-space px
+    return vlo + ((px - X0) / XW) * vspan;
+  };
 
   const startGrip = (which: "min" | "max") => (e: React.PointerEvent): void => {
     if (!onFitRangeChange || !fitRange) return;
@@ -530,47 +722,51 @@ export function WorkbenchPlot({
     window.addEventListener("pointerup", up);
   };
 
-  const startZoom = (e: React.PointerEvent): void => {
-    if (draggingGrip.current) return;
-    // A press on a Bragg tick is that tick's own click (spotlight toggle) — it
-    // must not double as a data-area click.
-    const onTick = (e.target as Element).closest?.(".wb-tick") != null;
-    const x0 = clientToX(e.clientX);
-    setRubber({ x0, x1: x0 });
-    const move = (ev: PointerEvent): void => setRubber({ x0, x1: clientToX(ev.clientX) });
-    const up = (ev: PointerEvent): void => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      const x1 = clientToX(ev.clientX);
-      const lo = Math.min(x0, x1);
-      const hi = Math.max(x0, x1);
-      setRubber(null);
-      if (hi - lo > vspan * 0.02) {
-        setView({ min: Math.max(lo, fullMin), max: Math.min(hi, fullMax) });
-      } else if (!onTick && x1 >= vlo && x1 <= vhi) {
-        // Press-and-release without a drag: a plain click in the data area.
-        onPlotClick?.(x1);
-      }
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  };
-
-  const zoomed = view !== null;
-  const zoomOut = (): void => {
-    const span = vhi - vlo;
-    const c = (vlo + vhi) / 2;
-    const ns = Math.min(span * 2, fullMax - fullMin);
-    if (ns >= (fullMax - fullMin) * 0.999) return setView(null);
-    setView({ min: Math.max(c - ns / 2, fullMin), max: Math.min(c + ns / 2, fullMax) });
-  };
+  // --- the cursor readout ----------------------------------------------------
+  // Reads the data at the point nearest the cursor: x in the axis unit to the
+  // data step's precision, obs / calc / diff (calc and diff only inside the fit
+  // window, as drawn), the overlays, and the reflection ticks within a few
+  // pixels. Read-only: it changes nothing.
+  const readout = useMemo(() => {
+    const c = ix.cursor;
+    if (!c || xs.length === 0) return null;
+    const i = nearestIndex(xs, c.x);
+    if (i < 0) return null;
+    const x = xs[i]!;
+    if (x < vlo || x > vhi) return null;
+    const dec = decimalsForStep(localStep(xs, i));
+    const inFit = x >= fitLo && x <= fitHi;
+    const near = ticksNear(phases, c.source === "pointer" ? c.x : x, (TICK_TOL_PX / XW) * vspan, 4);
+    return { i, x, dec, inFit, near };
+  }, [ix.cursor, xs, vlo, vhi, vspan, XW, fitLo, fitHi, phases]);
+  const axis = splitAxisLabel(xLabel);
+  const readoutLines = useMemo(() => {
+    if (!readout) return null;
+    const { i, x, dec, inFit, near } = readout;
+    const xText = `${axis.name} ${x.toFixed(dec)}${axis.unit ? ` ${axis.unit}` : ""}`;
+    const sd = obsSigma?.[i];
+    const ys: { label: string; value: string; color: string }[] = [
+      { label: "obs", value: `${formatReadoutValue(yObs[i]!)}${sd !== undefined && obsSigma ? ` ± ${formatReadoutValue(sd)}` : ""}`, color: color.obs },
+    ];
+    if (inFit) {
+      ys.push({ label: "calc", value: formatReadoutValue(curves.yCalc[i]!), color: color.calc });
+      ys.push({ label: "diff", value: formatReadoutValue(curves.diff[i]!), color: color.diff });
+      if (showBkg) ys.push({ label: "bkg", value: formatReadoutValue(curves.yBackground![i]!), color: color.bkg });
+      (overlays ?? []).forEach((o, k) => ys.push({ label: o.label, value: formatReadoutValue(o.y[i]!), color: OVERLAY_COLORS[k % OVERLAY_COLORS.length]! }));
+    }
+    const ticks = near.map((t) => ({ text: `${t.phaseLabel} (${formatHkl(t.hkl)}) d ${t.d.toFixed(4)} Å`, color: t.color }));
+    const speech = [xText, ...ys.map((y) => `${y.label} ${y.value}`), inFit ? "" : "outside the fit window", ...ticks.map((t) => t.text)].filter(Boolean).join(", ");
+    return { xText, ys, ticks, inFit, speech };
+  }, [readout, axis.name, axis.unit, yObs, obsSigma, curves.yCalc, curves.diff, curves.yBackground, showBkg, overlays]);
+  const spoken = useThrottledText(readoutLines?.speech ?? "", 600);
 
   // Legend layout (see the render): measured from the label widths, wrapping
   // onto extra rows on a narrow plot. The found-peak markers sit below it.
+  const hasSigma = !!obsSigma && obsSigma.length === xs.length;
   const legend = layoutLegend(
     [
       { color: color.obs, label: "obs", shape: "dot" },
-      ...(sigmaRibbon ? [{ color: color.obs, label: obsSigmaLabel, shape: "band" as const }] : []),
+      ...(hasSigma ? [{ color: color.obs, label: obsSigmaLabel, shape: "band" as const }] : []),
       { color: color.calc, label: "calc", shape: "line" },
       { color: color.diff, label: "diff", shape: "line" },
       { color: color.bkg, label: "bkg", shape: "dashline" },
@@ -596,19 +792,29 @@ export function WorkbenchPlot({
 
   const minPx = sx(Math.min(fullMax, Math.max(fullMin, fitLo)));
   const maxPx = sx(Math.min(fullMax, Math.max(fullMin, fitHi)));
+  const cursorPx = readout ? sx(readout.x) : null;
+  const plotName = ariaLabel ?? `${yLabel} against ${xLabel}`;
 
   return (
     <div style={{ position: "relative", width: "100%", flex: 1, minHeight: 320 }}>
+      <canvas ref={canvasRef} aria-hidden style={{ position: "absolute", inset: 0, display: "block", width: "100%", height: "100%", pointerEvents: "none" }} />
       <svg
         ref={svgRef}
+        className="wb-plot"
         viewBox={`0 0 ${boxW} ${VB_H}`}
         preserveAspectRatio="none"
-        onPointerDown={startZoom}
-        onDoubleClick={() => setView(null)}
-        style={{ position: "absolute", inset: 0, display: "block", width: "100%", height: "100%", touchAction: "none", cursor: "crosshair" }}
+        tabIndex={0}
+        role="application"
+        aria-roledescription="interactive plot"
+        aria-label={`${plotName}. Drag to pan, Shift + drag to box-zoom, Ctrl + scroll or pinch to zoom, double-click to reset. Keys: plus and minus zoom, left and right arrows pan, Shift + arrows step the cursor one point, 0 resets.`}
+        {...ix.handlers}
+        {...{
+          // The frame and the window, for the headless interaction checks.
+          "data-vmin": vlo, "data-vmax": vhi, "data-dmin": fullMin, "data-dmax": fullMax, "data-ylock": ix.yLock ? 1 : 0,
+          "data-frame": [X0, X1, boxW, VB_H, TOP, BASE, DIFF_Y, DIFF_A, TICK_TOP, tickStep, tickH].join(","),
+        }}
+        style={{ position: "absolute", inset: 0, display: "block", width: "100%", height: "100%", touchAction: "pan-y", cursor: ix.panning ? "grabbing" : "crosshair", userSelect: "none", WebkitUserSelect: "none" }}
       >
-        <rect x={0} y={0} width={boxW} height={VB_H} fill={color.raised} />
-
         {/* axes */}
         <line x1={X0} y1={TOP} x2={X0} y2={BASE} stroke="#c9c0b0" />
         <line x1={X0} y1={BASE} x2={X1} y2={BASE} stroke="#c9c0b0" />
@@ -622,10 +828,6 @@ export function WorkbenchPlot({
             </text>
           </g>
         ))}
-        {/* zero line for a signed ordinate (G(r) oscillates about 0) */}
-        {signedY && yLo < 0 && (
-          <line x1={X0} y1={sy(0)} x2={X1} y2={sy(0)} stroke="#c9c0b0" strokeDasharray="4 4" opacity={0.6} />
-        )}
         <text x={16} y={(TOP + BASE) / 2} fontSize={fsTick} fontFamily={mono} fill={color.faint} textAnchor="middle" transform={`rotate(-90 16 ${(TOP + BASE) / 2})`}>
           {yLabel}
         </text>
@@ -650,36 +852,22 @@ export function WorkbenchPlot({
           {xLabel}
         </text>
 
-        {/* ±σ error ribbon, under the observed markers */}
-        {sigmaRibbon && <path d={sigmaRibbon} fill={color.obs} fillOpacity={0.18} stroke="none" />}
-        {/* observed markers (memoized — see obsMarkers) */}
-        {obsMarkers}
-        {/* decomposition overlays (e.g. partial PDFs), under the calc line */}
-        {overlays?.map((o, i) => (
-          <polyline
-            key={o.label}
-            points={poly(o.y, sy, fitLo, fitHi)}
-            fill="none"
-            stroke={OVERLAY_COLORS[i % OVERLAY_COLORS.length]}
-            strokeWidth={1}
-            opacity={0.85}
-          />
-        ))}
-        {/* background, calc */}
-        {showBackground && curves.yBackground && <polyline points={bkgLine} fill="none" stroke={color.bkg} strokeWidth={1.2} strokeDasharray="5 3" opacity={0.9} />}
-        <polyline points={calcLine} fill="none" stroke={color.calc} strokeWidth={1.4} />
-
-        {/* difference band */}
-        <line x1={X0} y1={DIFF_Y} x2={X1} y2={DIFF_Y} stroke="#e0d8c9" strokeDasharray="4 3" />
-        <polyline points={diffLine} fill="none" stroke={color.diff} strokeWidth={1} />
+        {/* The series (obs, ±σ, overlays, bkg, calc, diff) are on the canvas below. */}
         <text x={16} y={DIFF_Y} fontSize={fsTick} fontFamily={mono} fill={color.faint} textAnchor="middle" transform={`rotate(-90 16 ${DIFF_Y})`}>
           Difference
         </text>
 
-        {/* Bragg reflection ticks, one coloured row per phase. Each tick has a
-            wide transparent hit line so it brightens on hover (see <style>). */}
-        <style>{".wb-tick .wb-mark{stroke-opacity:.7}.wb-tick:hover .wb-mark{stroke-opacity:1;stroke-width:2}"}</style>
-        {braggTicks}
+        {/* Bragg reflection ticks: the rows are on the canvas; the ticks at
+            the cursor and the picked one are drawn bold here. */}
+        {readout?.near.map((t) => {
+          if (highlight && highlight.row === t.row && highlight.hkl === t.hkl) return null;
+          const y1 = TICK_TOP + t.row * tickStep;
+          return <line key={`n${t.row}|${t.hkl}`} x1={sx(t.x)} y1={y1} x2={sx(t.x)} y2={y1 + tickH} stroke={t.color} strokeWidth={2} pointerEvents="none" />;
+        })}
+        {highlight && highlight.x >= vlo && highlight.x <= vhi && (() => {
+          const y1 = TICK_TOP + highlight.row * tickStep;
+          return <line x1={sx(highlight.x)} y1={y1 - 3} x2={sx(highlight.x)} y2={y1 + tickH + 3} stroke={highlight.color} strokeWidth={2.6} pointerEvents="none" />;
+        })()}
 
         {/* Found-peak markers: downward ▽ triangles above the pattern at each
             detected (unexplained-residual) peak — a distinct mark from the
@@ -762,6 +950,12 @@ export function WorkbenchPlot({
           </>
         )}
 
+        {/* the cursor: a vertical line at the data point under the pointer,
+            through the pattern, the tick rows and the difference band */}
+        {cursorPx !== null && (
+          <line x1={cursorPx} y1={TOP} x2={cursorPx} y2={DIFF_Y + DIFF_A} stroke={color.ink} strokeWidth={1} opacity={0.45} pointerEvents="none" />
+        )}
+
         {/* fit-range handles */}
         {onFitRangeChange && fitRange && (
           <>
@@ -778,13 +972,13 @@ export function WorkbenchPlot({
           </>
         )}
 
-        {/* rubber-band zoom selection */}
-        {rubber && (
+        {/* box-zoom selection (Shift + drag): a flat box is an x band */}
+        {ix.box && (
           <rect
-            x={sx(Math.min(rubber.x0, rubber.x1))}
-            y={TOP}
-            width={Math.abs(sx(rubber.x1) - sx(rubber.x0))}
-            height={BASE - TOP}
+            x={Math.min(ix.box.x0, ix.box.x1)}
+            y={ix.box.xOnly ? TOP : Math.min(ix.box.y0, ix.box.y1)}
+            width={Math.abs(ix.box.x1 - ix.box.x0)}
+            height={ix.box.xOnly ? BASE - TOP : Math.abs(ix.box.y1 - ix.box.y0)}
             fill={color.primary}
             opacity={0.14}
             stroke={color.primary}
@@ -829,12 +1023,39 @@ export function WorkbenchPlot({
           <span style={{ fontSize: 11, color: color.secondary }}>{highlight.label}</span>
         </div>
       )}
-      {zoomed && (
-        <div style={zoomOverlay}>
-          <SmallButton onClick={zoomOut}>Zoom out</SmallButton>
-          <SmallButton onClick={() => setView(null)}>Reset zoom</SmallButton>
+      {readoutLines && cursorPx !== null && !ix.panning && (
+        <div
+          className="wb-plot-readout"
+          data-x={readout!.x}
+          data-index={readout!.i}
+          data-step={localStep(xs, readout!.i)}
+          aria-hidden
+          style={{
+            ...plotReadoutBox,
+            left: `${(cursorPx / boxW) * 100}%`,
+            top: `${((foundTop + FOUND_H + 6) / VB_H) * 100}%`,
+            transform: cursorPx > (X0 + X1) / 2 ? "translateX(calc(-100% - 10px))" : "translateX(10px)",
+          }}
+        >
+          <div style={{ color: color.ink, fontWeight: 600 }}>{readoutLines.xText}</div>
+          {readoutLines.ys.map((y) => (
+            <div key={y.label} style={{ display: "flex", gap: 8, justifyContent: "space-between" }}>
+              <span style={{ color: y.color }}>{y.label}</span>
+              <span style={{ color: color.ink }}>{y.value}</span>
+            </div>
+          ))}
+          {!readoutLines.inFit && <div style={{ color: color.faint }}>outside the fit window</div>}
+          {readoutLines.ticks.map((t) => (
+            <div key={t.text} style={{ color: color.ink, display: "flex", gap: 5, alignItems: "center" }}>
+              <span style={{ width: 2, height: 10, background: t.color, display: "inline-block" }} />
+              {t.text}
+            </div>
+          ))}
         </div>
       )}
+      <div role="status" aria-live="polite" aria-atomic="true" className="wb-sr-only">{spoken}</div>
+      <PlotHint text={ix.hint} />
+      <PlotZoomControls ix={ix} yRange={{ lo: yLo, hi: yTop }} />
     </div>
   );
 }
@@ -870,19 +1091,4 @@ function layoutLegend(
   });
 }
 
-function SmallButton({ children, onClick }: { children: React.ReactNode; onClick: () => void }): JSX.Element {
-  const [hover, setHover] = useState(false);
-  return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{ border: `1px solid ${color.control}`, background: hover ? "#f5f0e7" : "#fff", borderRadius: 7, padding: "1px 9px", fontSize: 11, cursor: "pointer" }}
-    >
-      {children}
-    </button>
-  );
-}
-
-const zoomOverlay: CSSProperties = { position: "absolute", bottom: 6, right: 8, display: "flex", alignItems: "center", gap: 6, background: "rgba(255,253,249,0.85)", borderRadius: 8, padding: "3px 6px" };
 const tickPickOverlay: CSSProperties = { position: "absolute", top: 6, right: 8, display: "flex", alignItems: "center", gap: 7, background: "rgba(255,253,249,0.92)", border: `1px solid ${color.border}`, borderRadius: 8, padding: "3px 9px", cursor: "pointer" };

@@ -114,7 +114,8 @@ src/
                      (refs, path, free, read_ref), server.ts (stdio),
                      nodeEvaluator.ts (worker_threads pool)
   workers/           compute worker, typed protocol and client, WebGPU kernels
-  visualization/     plot helpers: scales, axis units, reflection ticks, hit testing
+  visualization/     plot helpers: scales, axis units, reflection ticks, hit testing,
+                     plot view maths (zoom, pan, readout, decimation; plotView.ts)
   examples/          bundled demo structures and datasets
   testSupport/       helpers for tests over the git-ignored data/ folder
 docs/
