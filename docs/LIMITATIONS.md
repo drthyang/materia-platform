@@ -197,7 +197,12 @@ approximate, however plausible its output looks.
   logarithmic interpolation between evenly spaced points, with an adjustable
   number of terms. POWGEN time-of-flight data start on log interpolation with
   3 points, recognized from the instrument file's text only (POWGEN or PG3 in
-  it); other data on 4 Chebyshev terms.
+  it); other data on 4 Chebyshev terms. The Agent's `diagnose_fit` reads the
+  count the points between the lines justify (BIC), with any excess there
+  that no reflection explains left out as a line, not background; a hump wider
+  than 24 line widths counts as background, and the points under the lines
+  (a short-d stretch of overlapping TOF lines) say nothing of it. The
+  Background group's own terms box does not warn.
 - Corrections: March–Dollase preferred orientation (averaged over each
   family's Laue equivalents, as GSAS-II); sample displacement and
   transparency, Debye–Scherrer absorption, and Suortti surface roughness

@@ -9,6 +9,21 @@ release fixes bugs.
 
 ### Added
 
+- **The background is kept off the peaks the model lacks.** Excess between
+  the lines that no reflection explains — a run of background points whose
+  residual stands above the noise on a line's scale (1–8 line widths, 1 %
+  false alarms on pure noise) — is now a cause of its own in the Agent's
+  `diagnose_fit` ("unexplained-peak": explain it, never fit it with the
+  background), and is left out of the points the background is judged on.
+  The background cause names the count those points justify (BIC of the
+  background alone), and `set_background` cautions on its card when more
+  terms would absorb such excess or exceed that count. Before, a line the
+  model lacked was billed to the background as "more terms": on a simulated
+  POWGEN pattern a broad line at d = 5.3 Å loses 18 % of its intensity to 4
+  Chebyshev terms, 62 % to 12 and 97 % to 24, and an information criterion
+  over every point the model leaves to the background asked for 16 (79 %);
+  with the line left out it asks for the 4 the line-free pattern gets.
+
 - **POWGEN data start on a logarithmic background**: GSAS-II's log
   interpolation with 3 points (at the TOF range's ends and their geometric
   mean), where the instrument file names POWGEN or PG3 and the pattern is
