@@ -5,7 +5,12 @@
  * would: what was measured and modelled, how well the model fits (figure and
  * agreement factors), the refined atomic structure with standard uncertainties,
  * the magnetic structure when there is one (k, magnetic space group, moments,
- * projected figure), every parameter, and the refinement's own diagnostics.
+ * projected figure, what a powder cannot fix), the other refined values, and
+ * what limits the result (the open issues, the checks that bear on trust, the
+ * correlations and warnings). The record behind it — the History's steps, the
+ * method's checklist, every check, every parameter, the conventions and the
+ * software — follows in a collapsed appendix (`<details>`, opened for print),
+ * so nothing is lost for reproducing the study.
  *
  * Pure data → string, in the exporters.ts convention: the workbenches assemble
  * a `ReportInput` from their state (`src/app/reportInputs.ts`) and save the
@@ -107,6 +112,8 @@ export interface ReportMagnetic {
   readonly params: readonly RefinementParameter[];
   /** Provenance sentence: refined jointly · moments-only fit · candidate. */
   readonly status: string;
+  /** What the data cannot determine about the moments (a powder's averaging), shown with them. */
+  readonly limits?: readonly string[];
   /** The parent structure the moments decorate; defaults to the primary phase. */
   readonly structure?: StructureModel;
 }
@@ -372,6 +379,65 @@ function statusOf(p: RefinementParameter): string {
   return esc(parameterStatus(p));
 }
 
+/** Kinds the summary shows in its own tables (the atoms, the cell, the moments), or leaves to the appendix (the background coefficients). */
+const KINDS_SHOWN_ELSEWHERE: ReadonlySet<ParameterKind> = new Set<ParameterKind>([
+  "cellLength", "cellAngle", "atomX", "atomY", "atomZ", "positionShift", "occupancy", "bIso", "uAniso",
+  "momentX", "momentY", "momentZ", "momentMode", "background",
+]);
+
+/**
+ * The refined values the summary lists beside the structure: every free
+ * parameter (not fixed, not tied) the atom, cell and moment tables do not
+ * already carry, background coefficients aside — the scales, the profile, the
+ * extinction, the twin fractions, the PDF envelope. Every parameter, fixed or
+ * not, is in the appendix.
+ */
+export function summaryParameters(params: readonly RefinementParameter[], technique: ReportTechnique): RefinementParameter[] {
+  const groups = parameterGroups(technique);
+  const order = (p: RefinementParameter): number => {
+    const i = groups.findIndex((g) => g.kinds.includes(p.kind));
+    return i < 0 ? groups.length : i;
+  };
+  return params
+    .filter((p) => !p.fixed && !p.expression && !KINDS_SHOWN_ELSEWHERE.has(p.kind))
+    .map((p, i) => ({ p, i }))
+    .sort((a, b) => order(a.p) - order(b.p) || a.i - b.i)
+    .map(({ p }) => p);
+}
+
+/**
+ * Checks whose rows are diagnostic listings — the record of how the data and
+ * the fit were read, not a limit on the result: in the appendix's full table
+ * unless one needs attention (then it is among the open issues too).
+ */
+export const DETAIL_CHECKS: ReadonlySet<string> = new Set([
+  "Resolution shells", "Analysis of variance", "Data reading", "Batches", "Weights",
+  "Fit diagnosis", "Earlier fit diagnoses", "Refinements compared", "Fit range",
+]);
+
+/** Checks the summary shows in full whatever their status: the single-crystal data's numbers (reflections, R_int, d_min, completeness). */
+const ALWAYS_SHOWN_CHECKS: ReadonlySet<string> = new Set(["Data"]);
+
+/**
+ * The checks as the summary shows them: `noted`, the rows that bear on how
+ * far to trust the result (each note, and the data's numbers); `passed`, the
+ * names of the others that passed. Checks needing attention are the open
+ * issues'; every check, with its detail, is in the appendix.
+ */
+export function summaryChecks(checks: readonly ReportCheck[]): { readonly noted: readonly ReportCheck[]; readonly passed: readonly string[] } {
+  const noted = checks.filter((c) => ALWAYS_SHOWN_CHECKS.has(c.name) || (c.status === "note" && !DETAIL_CHECKS.has(c.name)));
+  const passed = [...new Set(checks.filter((c) => c.status === "pass" && !ALWAYS_SHOWN_CHECKS.has(c.name)).map((c) => c.name))];
+  return { noted, passed };
+}
+
+/** The summary's line under the noted checks. */
+export function passedText(passed: readonly string[]): string {
+  return passed.length > 0 ? `Passed: ${passed.join(", ")} (each with its numbers in the appendix).` : "";
+}
+
+/** What the appendix holds, under its heading. */
+export const APPENDIX_NOTE = "The record behind the summary above, for reproducing it: how the analysis went step by step, every check with its numbers, every parameter (fixed or refined), the conventions and the software.";
+
 // ---------------------------------------------------------------------------
 // Sections
 
@@ -607,7 +673,8 @@ function magneticHtml(m: ReportMagnetic, fallbackStructure: StructureModel | und
     { label: "Ordered sublattices", value: `${carried.length} of ${m.magnetic.moments.length}` },
   ];
 
-  return `<p class="status">${esc(m.status)}</p>
+  const limits = (m.limits ?? []).map((t) => `<p class="warn">⚠ ${esc(t)}</p>`).join("");
+  return `<p class="status">${esc(m.status)}</p>${limits ? `\n<div class="limits">${limits}</div>` : ""}
 <div class="two">
   <figure class="card fig">${svg}<figcaption class="cap">${isSuper ? `Magnetic supercell ${supercell.join(" × ")} of the nuclear cell` : "One unit cell"}, projected down c* (a–b plane). Arrows: in-plane moment component, length ∝ |m|; ⊙ / ⊗ marks a component out of / into the page. Filled atoms lie in the lower half of the cell (depth), outlined in the upper half; thin lines join nearest-neighbour magnetic atoms.</figcaption></figure>
   <div>
@@ -624,27 +691,41 @@ function magneticHtml(m: ReportMagnetic, fallbackStructure: StructureModel | und
 </div>`;
 }
 
-function parametersHtml(params: readonly RefinementParameter[], technique: ReportTechnique): string {
-  if (params.length === 0) return `<p class="note">No parameters.</p>`;
-  const seen = new Set<string>();
-  const blocks: string[] = [];
-  const table = (title: string, rows: readonly RefinementParameter[]): string => {
-    const free = rows.filter((p) => !p.fixed && !p.expression).length;
-    return `<div class="card pgroup"><h4>${esc(title)} <span class="muted">· ${rows.length} parameter${rows.length === 1 ? "" : "s"}, ${free} refined</span></h4>
+function parameterTableHtml(title: string, rows: readonly RefinementParameter[], technique: ReportTechnique): string {
+  const free = rows.filter((p) => !p.fixed && !p.expression).length;
+  return `<div class="card pgroup"><h4>${esc(title)} <span class="muted">· ${rows.length} parameter${rows.length === 1 ? "" : "s"}, ${free} refined</span></h4>
 <table>
 <tr><th>Parameter</th><th class="num">Value</th><th>Unit</th><th>Status</th></tr>
 ${rows.map((p) => shownParameter(p, technique)).map(({ parameter: p, value }) => `<tr><td>${esc(p.label)}</td><td class="num">${value}</td><td class="muted">${KIND_UNIT[p.kind] ?? ""}</td><td class="muted">${statusOf(p)}</td></tr>`).join("\n")}
 </table></div>`;
-  };
+}
+
+function parametersHtml(params: readonly RefinementParameter[], technique: ReportTechnique): string {
+  if (params.length === 0) return `<p class="note">No parameters.</p>`;
+  const seen = new Set<string>();
+  const blocks: string[] = [];
   for (const g of parameterGroups(technique)) {
     const rows = params.filter((p) => g.kinds.includes(p.kind));
     if (rows.length === 0) continue;
     rows.forEach((p) => seen.add(p.id));
-    blocks.push(table(g.title, rows));
+    blocks.push(parameterTableHtml(g.title, rows, technique));
   }
   const rest = params.filter((p) => !seen.has(p.id));
-  if (rest.length > 0) blocks.push(table("Other parameters", rest));
+  if (rest.length > 0) blocks.push(parameterTableHtml("Other parameters", rest, technique));
   return blocks.join("\n");
+}
+
+/** What the summary's table of the other refined values says. */
+export const SUMMARY_PARAMETERS_NOTE = "The refined values the tables above do not carry, with their esds. The background coefficients and every fixed or tied value are in the appendix.";
+
+/** The summary's other refined values, one table in the parameter groups' order. */
+function summaryParametersHtml(params: readonly RefinementParameter[], technique: ReportTechnique): string {
+  const rows = summaryParameters(params, technique);
+  if (rows.length === 0) return "";
+  return `<div class="card"><table>
+<tr><th>Parameter</th><th class="num">Value</th><th>Unit</th></tr>
+${rows.map((p) => shownParameter(p, technique)).map(({ parameter: p, value }) => `<tr><td>${esc(p.label)}</td><td class="num">${value}</td><td class="muted">${KIND_UNIT[p.kind] ?? ""}</td></tr>`).join("\n")}
+</table><p class="note">${esc(SUMMARY_PARAMETERS_NOTE)}</p></div>`;
 }
 
 const CHECK_LABEL: Record<ReportCheck["status"], string> = { pass: "pass", note: "note", warn: "attention" };
@@ -693,7 +774,42 @@ function posteriorHtml(p: ReportPosterior): string {
 </div>`;
 }
 
-function agentHtml(a: ReportAgent): string {
+function checksTableHtml(checks: readonly ReportCheck[]): string {
+  const rows = checks.map((c) =>
+    `<tr><td>${esc(c.name)}</td><td><span class="pill ${c.status}">${CHECK_LABEL[c.status]}</span></td><td>${esc(c.detail)}</td></tr>`,
+  ).join("\n");
+  return `<table><tr><th>Check</th><th>Result</th><th>Detail</th></tr>${rows}</table>`;
+}
+
+/** What the account's footnote says about whose words are whose. */
+export const ACCOUNT_NOTE = "Written by MATERIA Copilot in its own words, as are its notes (in the appendix, with the model that wrote them). Every other number in this report — the steps, the checks, the parameters, the agreement factors and the figure — comes from the refinement engine and the project's History, not from the model.";
+
+/**
+ * The analysis in the summary: the Copilot's account, the open issues, the
+ * checks that bear on trusting the result (the others named as passed), and
+ * the Bayesian check's intervals.
+ */
+function agentSummaryHtml(a: ReportAgent): string {
+  const unverified = a.unverified ?? [];
+  const issues = a.openIssues.length > 0
+    ? `<ul class="issues">${a.openIssues.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>`
+    : `<p class="note">None: the engine's checks raised nothing left to settle.</p>`;
+  const { noted, passed } = summaryChecks(a.checks);
+  const checks = `${noted.length > 0 ? checksTableHtml(noted) : `<p class="note">No check calls for a note.</p>`}${passed.length > 0 ? `<p class="note">${esc(passedText(passed))}</p>` : ""}`;
+  const note = `${esc(ACCOUNT_NOTE)}${unverified.length > 0 ? ` <span class="unverified">Underlined</span> numbers in the Copilot's words are not among the values this report computed.` : ""}`;
+  const narrative = a.narrative?.trim()
+    ? `<div class="card narrative"><h4>The Copilot's account</h4>${paragraphs(a.narrative, unverified)}<p class="note">${note}</p></div>`
+    : "";
+  return `${narrative}
+<div class="two"${narrative ? ' style="margin-top:14px"' : ""}>
+  <div class="card"><h4>Open issues</h4>${issues}</div>
+  <div class="card scroll"><h4>Checks to note</h4>${checks}</div>
+</div>
+${a.posterior ? posteriorHtml(a.posterior) : ""}`;
+}
+
+/** The analysis as it went, for the appendix: the History's steps, the method's checklist, every check, the Copilot's notes. */
+function agentRecordHtml(a: ReportAgent): string {
   const pctOf = (v: number | undefined): string => (v === undefined ? "" : `${(100 * v).toFixed(2)} %`);
   const anyGof = a.steps.some((st) => st.gof !== undefined);
   const steps = a.steps.map((st, i) =>
@@ -707,18 +823,9 @@ function agentHtml(a: ReportAgent): string {
       .map((st) => `<span class="stage${st.done ? " done" : ""}">${st.done ? "✓" : "○"} ${esc(st.label)}${st.optional && !st.done ? ", if needed" : ""}</span>`)
       .join(" ")}</p>`
     : "";
-  const checks = a.checks.map((c) =>
-    `<tr><td>${esc(c.name)}</td><td><span class="pill ${c.status}">${CHECK_LABEL[c.status]}</span></td><td>${esc(c.detail)}</td></tr>`,
-  ).join("\n");
-  const issues = a.openIssues.length > 0
-    ? `<ul class="issues">${a.openIssues.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>`
-    : `<p class="note">None: the engine's checks raised nothing left to settle.</p>`;
   const unverified = a.unverified ?? [];
   const mark = UNVERIFIED;
-  const notes = a.notes.length > 0 ? `<h4 style="margin-top:14px">The Copilot's notes</h4><ul class="notes">${a.notes.map((t) => `<li>${markNumbers(esc(t), unverified, mark)}</li>`).join("")}</ul>` : "";
-  const narrative = a.narrative?.trim()
-    ? `<div class="card narrative" style="margin-top:14px"><h4>The Copilot's account</h4>${paragraphs(a.narrative, unverified)}<p class="note">Written by MATERIA Copilot (${esc(a.model)}) in its own words, as are its notes. Every other number in this report — the steps, the checks, the parameters, the agreement factors and the figure — comes from the refinement engine and the project's History, not from the model.${unverified.length > 0 ? ` <span class="unverified">Underlined</span> numbers in the Copilot's words are not among the values this report computed.` : ""}</p></div>`
-    : "";
+  const notes = a.notes.length > 0 ? `<div class="card" style="margin-top:14px"><h4>The Copilot's notes</h4><ul class="notes">${a.notes.map((t) => `<li>${markNumbers(esc(t), unverified, mark)}</li>`).join("")}</ul></div>` : "";
   const branches = a.otherBranches ? ` The table follows the path to the result; ${a.otherBranches} step${a.otherBranches === 1 ? "" : "s"} on branches the analysis left ${a.otherBranches === 1 ? "is" : "are"} kept in the History, not shown.` : "";
   const start = a.start ? `<p class="note">${esc(startText(a.start, a.agreementLabel ?? "wR"))}</p>` : "";
   return `<div class="card scroll">
@@ -729,12 +836,8 @@ function agentHtml(a: ReportAgent): string {
   </table>
   ${start}${stages}${branches ? `<p class="note">${esc(branches.trim())}</p>` : ""}
 </div>
-<div class="two" style="margin-top:14px">
-  <div class="card scroll"><h4>Checks</h4><table><tr><th>Check</th><th>Result</th><th>Detail</th></tr>${checks}</table></div>
-  <div class="card"><h4>Open issues</h4>${issues}${notes}</div>
-</div>
-${a.posterior ? posteriorHtml(a.posterior) : ""}
-${narrative}`;
+<div class="card scroll" style="margin-top:14px"><h4>Every check</h4>${checksTableHtml(a.checks)}</div>
+${notes}`;
 }
 
 function detailsHtml(input: ReportInput): string {
@@ -768,8 +871,23 @@ function detailsHtml(input: ReportInput): string {
     rows.push({ label: "Engine", value: "no refinement run in this session — values are as loaded or set" });
   }
   const warnings = (input.warnings ?? []).map((w) => `<p class="warn">⚠ ${esc(w)}</p>`).join("");
+  return `<div class="card">${kvHtml(rows)}${warnings}</div>`;
+}
+
+/** The software and the date behind the report, for the appendix. */
+export function softwareRows(input: ReportInput, date: string): ReportRow[] {
+  return [
+    { label: "Program", value: `MATERIA Workbench${input.appVersion ? ` v${input.appVersion}` : ""}` },
+    { label: "Report written", value: date },
+    ...(input.agent ? [{ label: "Analysed with", value: `MATERIA Copilot · ${input.agent.model}` }] : []),
+    ...(input.result ? [{ label: "Engine", value: `${input.result.status}${input.result.history.length > 0 ? ` after ${input.result.history.length} cycle${input.result.history.length === 1 ? "" : "s"}` : ""}` }] : []),
+  ];
+}
+
+/** The appendix's conventions (how the agreement factors, weights and models are defined) and the software. */
+function conventionsHtml(input: ReportInput, date: string): string {
   const notes = (input.notes ?? []).map((n) => `<li>${esc(n)}</li>`).join("");
-  return `<div class="card">${kvHtml(rows)}${warnings}${notes ? `<h4 style="margin-top:14px">Conventions</h4><ul class="notes">${notes}</ul>` : ""}</div>`;
+  return `<div class="card">${notes ? `<h4>Conventions</h4><ul class="notes">${notes}</ul>` : ""}<h4${notes ? ' style="margin-top:14px"' : ""}>Software</h4>${kvHtml(softwareRows(input, date))}</div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -851,6 +969,14 @@ const CSS = `
   .unverified { text-decoration: underline dotted var(--warn); text-underline-offset: 3px; cursor: help; }
   td.reading { min-width: 150px; }
   code { font-family: var(--mono); font-size: 12px; }
+  .limits { margin: -4px 0 12px; }
+  .limits .warn { margin: 4px 0 0; }
+  .appendix { border-top: 1px solid var(--hair); padding-top: 18px; }
+  .appendix details { border: 1px solid var(--hair); border-radius: 10px; background: var(--panel); margin-top: 10px; }
+  .appendix summary { cursor: pointer; padding: 10px 16px; font-size: 13.5px; font-weight: 600; display: flex; align-items: baseline; gap: 10px; }
+  .appendix summary .n { font-family: var(--mono); color: var(--accent); font-size: 12.5px; }
+  .appendix .part { padding: 0 16px 14px; }
+  .appendix .part > .card { border-color: var(--hair); }
   footer { margin-top: 40px; padding-top: 12px; border-top: 1px solid var(--hair); font-size: 12px; color: var(--soft); line-height: 1.5; }
   /* figures */
   .frame { fill: none; stroke: var(--hair); stroke-width: 1; }
@@ -886,6 +1012,9 @@ const CSS = `
     th, td { padding: 5px 8px 5px 0; }
     .num { font-size: 11px; }
     h2, h3, h4 { break-after: avoid; }
+    /* The appendix prints in full: every part open. */
+    details::details-content { content-visibility: visible; display: block; }
+    details > summary { list-style: none; }
     .stats { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
   }
 `;
@@ -898,15 +1027,25 @@ export function reportHtml(input: ReportInput): string {
   let n = 0;
   const section = (id: string, title: string, body: string): string =>
     body ? `<section id="${id}"><h2><span class="n">${++n}</span>${esc(title)}</h2>\n${body}\n</section>` : "";
+  let letter = 0;
+  // A part of the appendix: collapsed on screen, open in print.
+  const part = (id: string, title: string, body: string): string =>
+    body ? `<details id="${id}"><summary><span class="n">${String.fromCharCode(65 + letter++)}</span>${esc(title)}</summary>\n<div class="part">${body}</div>\n</details>` : "";
 
   const data = input.data.length > 0 ? `<div class="card">${kvHtml(input.data)}</div>` : "";
   const fit = input.figure ? figureHtml(input.figure) : "";
   const boxcar = input.boxcar ? boxcarHtml(input.boxcar) : "";
   const phases = input.phases.map((p, i) => phaseHtml(p, i, input.phases.length, input.technique)).join("\n");
   const magnetic = input.magnetic ? magneticHtml(input.magnetic, primary) : "";
+  const refined = summaryParametersHtml(input.parameters, input.technique);
   const params = parametersHtml(input.parameters, input.technique);
   const details = detailsHtml(input);
-  const agent = input.agent ? agentHtml(input.agent) : "";
+  const free = input.parameters.filter((p) => !p.fixed && !p.expression).length;
+  const appendix = [
+    input.agent ? part("record", `The analysis step by step · ${input.agent.steps.length} step${input.agent.steps.length === 1 ? "" : "s"}, the method, every check${input.agent.notes.length > 0 ? ", the notes" : ""}`, agentRecordHtml(input.agent)) : "",
+    part("parameters", `Every parameter · ${input.parameters.length} parameter${input.parameters.length === 1 ? "" : "s"}, ${free} refined`, params),
+    part("conventions", "Conventions and software", conventionsHtml(input, date)),
+  ].join("\n");
 
   return `<!doctype html>
 <html lang="en">
@@ -925,16 +1064,20 @@ export function reportHtml(input: ReportInput): string {
     ${input.summary ? `<p class="summary">${esc(input.summary)}</p>` : ""}
   </header>
   ${statsHtml(input.stats)}
-  ${section("analysis", "The analysis", agent)}
+  ${section("analysis", "The analysis", input.agent ? agentSummaryHtml(input.agent) : "")}
   ${section("data", "Data & model", data)}
   ${section("fit", "Fit", fit)}
   ${section("local", "Local versus average", boxcar)}
   ${section("structure", input.phases.length > 1 ? "Atomic structures" : "Atomic structure", phases)}
   ${section("magnetic", "Magnetic structure", magnetic)}
-  ${section("parameters", "Parameters", params)}
+  ${section("refined", "Other refined values", refined)}
   ${section("details", "Refinement details", details)}
+  <section id="appendix" class="appendix"><h2>Appendix · the full record</h2>
+  <p class="note">${esc(APPENDIX_NOTE)} Open a part to read it; printing opens them all.</p>
+  ${appendix}
+  </section>
   <footer>
-    Generated by MATERIA Workbench${input.appVersion ? ` v${esc(input.appVersion)}` : ""} on ${esc(date)}.
+    Generated by MATERIA Workbench on ${esc(date)}.
     Values in parentheses are standard uncertainties in the last digit(s), from the least-squares covariance of this fit;
     a value without one was fixed, set by a constraint, or not part of the last refinement; a tied value carries its leader's.
     MATERIA is in public beta — reproduce results you intend to publish in an established package (the Export menu offers GSAS-II and FullProf bundles).

@@ -9,6 +9,7 @@
  */
 
 import type { StructureModel } from "@/core/crystal/types";
+import { crystalSystem } from "@/core/crystal/cellConstraints";
 import { structureToCif, type CifRefinementMeta } from "@/core/export/cif";
 import { formatWithEsd } from "@/core/export/cif";
 import { EIGHT_PI_SQUARED, isHydrogen } from "@/core/crystal/adp";
@@ -251,6 +252,24 @@ export function magneticReportSection(o: {
   return { section: null, summary: "No magnetic model is included." };
 }
 
+/**
+ * What a powder pattern cannot fix about the moments, shown beside them: it
+ * averages over the crystallites' orientations, so the moment direction is
+ * determined only up to the symmetry-equivalent directions — in a cubic
+ * crystal not at all (only |m|), in a uniaxial one only as the angle to the
+ * unique axis (Shirane 1959). By the parent's crystal system (its space-group
+ * number, else its cell metric).
+ */
+export function powderMomentLimits(parent: StructureModel): string[] {
+  const system = crystalSystem(parent.spaceGroup, parent.cell);
+  const general = "A powder pattern averages over the crystallites' orientations (and the magnetic domains): it cannot fix the absolute moment direction within a set of symmetry-equivalent directions.";
+  if (system === "cubic") return [general, "In this cubic crystal it fixes only the size of each moment, |m|: the direction shown is the model's, not one the data determine."];
+  if (system === "hexagonal" || system === "trigonal" || system === "rhombohedral" || system === "tetragonal") {
+    return [general, "In this uniaxial crystal it fixes each moment's size and its angle to the unique axis (the c axis of a hexagonal or tetragonal cell) only: where a moment has a component perpendicular to that axis, the component's direction within the plane is the model's, not one the data determine."];
+  }
+  return [general];
+}
+
 function probeLabel(r: Radiation): string {
   if (r.kind === "neutron-tof") return "Neutron, time-of-flight";
   if (r.kind === "neutron") return `Neutron, constant wavelength λ = ${num(r.wavelength, 5)} Å`;
@@ -384,7 +403,7 @@ export function powderReportInput(o: {
     `Background: ${backgroundLabel(session.powderProfile.backgroundType, session.backgroundTerms)}, refined with the model.`,
     `Peak shape: ${peakShapeLabel(session.powderProfile)}${pattern.xUnit === "tof" ? "; d = (TOF − zero) / difC." : "."}`,
     ...(magnetic.section
-      ? ["Magnetic intensities use the dipole ⟨j0⟩ form factor of the tabulated ion, with the moments expanded over the magnetic space-group operations (time-reversal-signed axial transforms, k-phase over the magnetic supercell). Components are crystal-axis µB; |m| through the cell metric. A powder pattern cannot fix the absolute moment direction within a set of symmetry-equivalent directions."]
+      ? ["Magnetic intensities use the dipole ⟨j0⟩ form factor of the tabulated ion, with the moments expanded over the magnetic space-group operations (time-reversal-signed axial transforms, k-phase over the magnetic supercell). Components are crystal-axis µB; |m| through the cell metric."]
       : []),
   ];
 
@@ -397,7 +416,7 @@ export function powderReportInput(o: {
     stats,
     data,
     phases,
-    magnetic: magnetic.section,
+    magnetic: magnetic.section ? { ...magnetic.section, limits: powderMomentLimits(magnetic.section.structure ?? structure) } : null,
     figure: o.curves.x.length > 0
       ? {
           kind: "pattern",

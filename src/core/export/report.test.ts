@@ -10,7 +10,7 @@ import { reportMarkdown } from "@/core/export/reportMarkdown";
 import { formatWithEsd } from "@/core/export/cif";
 import { uEquivalent } from "@/core/crystal/adp";
 import { niceTicks, patternFigureSvg } from "@/core/export/reportFigures";
-import { groupOfOperations, magneticReportSection, pdfReportInput, reportFileName } from "@/app/reportInputs";
+import { groupOfOperations, magneticReportSection, pdfReportInput, powderMomentLimits, reportFileName } from "@/app/reportInputs";
 import type { PdfPattern } from "@/core/diffraction/types";
 
 const DATE = new Date("2026-09-16T00:00:00Z");
@@ -92,7 +92,8 @@ describe("refinement report (HTML)", () => {
     expect(html).toContain("<title>Mn&lt;3&gt;Ga &lt;test&gt; · Rietveld refinement report</title>");
     expect(html).not.toContain("Mn<3>Ga");
     expect(html).toContain("Rietveld refinement report · 2026-09-16");
-    const order = ["Data &amp; model", "Fit", "Atomic structure", "Parameters", "Refinement details"].map((t) => html.indexOf(t));
+    // The summary's sections in order, then the appendix with every parameter and the conventions.
+    const order = ["Data &amp; model</h2>", "Fit</h2>", "Atomic structure</h2>", "Other refined values</h2>", "Refinement details</h2>", "Appendix · the full record</h2>", "Every parameter · ", "Conventions and software"].map((t) => html.indexOf(t));
     expect(order.every((i) => i > 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(html).not.toContain("Magnetic structure</h2>"); // no magnetic model → no section
@@ -260,7 +261,7 @@ describe("the analysis as the Agent ran it", () => {
     const md = reportMarkdown(withAgent());
     expect(md.startsWith("# Mn<3>Ga <test>\n")).toBe(true);
     expect(md).toContain("*MATERIA · Rietveld refinement report · analysed with MATERIA Copilot · 2026-09-16*");
-    const order = ["## 1. The analysis", "## 2. Data & model", "## 3. Fit", "## 4. Atomic structure", "## 5. Parameters", "## 6. Refinement details"].map((t) => md.indexOf(t));
+    const order = ["## 1. The analysis", "## 2. Data & model", "## 3. Fit", "## 4. Atomic structure", "## 5. Other refined values", "## 6. Refinement details", "## Appendix — the full record", "### A. The analysis step by step", "### B. Every parameter", "### C. Conventions and software"].map((t) => md.indexOf(t));
     expect(order.every((i) => i > 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(md).toContain("| # | Step | By | Refined | Free | wR | GoF |");
@@ -281,6 +282,125 @@ describe("the analysis as the Agent ran it", () => {
     expect(md).toContain("| b (= a) | 5.43210 | Å | tied · = cell_a |");
     // A table cell with a pipe stays one cell.
     expect(reportMarkdown({ ...powderInput(), data: [{ label: "Data | file", value: "a|b" }] })).toContain("| **Data \\| file** | a\\|b |");
+  });
+});
+
+/** The report as a reader opens it: the summary, and the appendix after it (whose parts are collapsed). */
+function parts(html: string): { summary: string; appendix: string } {
+  const i = html.indexOf('<section id="appendix"');
+  expect(i).toBeGreaterThan(0);
+  return { summary: html.slice(0, i), appendix: html.slice(i) };
+}
+function mdParts(md: string): { summary: string; appendix: string } {
+  const i = md.indexOf("## Appendix — the full record");
+  expect(i).toBeGreaterThan(0);
+  return { summary: md.slice(0, i), appendix: md.slice(i) };
+}
+
+describe("the summary and its appendix", () => {
+  const agent: ReportAgent = {
+    model: "Model X · API key",
+    method: { skill: "my-rietveld-workflow", stages: [{ label: "Cell check", done: true, optional: false }, { label: "Occupancy", done: false, optional: true }] },
+    steps: [
+      { label: "Loaded PbSO4.cif", by: "user", kind: "load", free: 0 },
+      { label: "Refine", by: "agent", kind: "refine", wR: 0.0386, gof: 1.4, free: 6, refined: "scale, background ×4, B", stages: "Scale, background, cell" },
+    ],
+    agreementLabel: "wR",
+    checks: [
+      { name: "Convergence", status: "pass", detail: "Converged in 7 cycles; largest final shift/esd 0.0012." },
+      { name: "Correlations", status: "note", detail: "Correlated at |ρ| ≥ 0.95, refined together: scale ↔ B_iso Mn1 0.962 (overall intensity terms)." },
+      { name: "Bounds", status: "warn", detail: "On a bound (its esd means nothing there): B_iso Ga1 at its lower bound 0." },
+      { name: "Residual peaks", status: "warn", detail: "1 peak on no phase's reflection: d = 2.2012 Å." },
+      { name: "Resolution shells", status: "note", detail: "3.48–1.19 Å: 53 reflections, R1 0.99 %." },
+      { name: "Fit diagnosis", status: "note", detail: "Most of the misfit: peak-tails (~85% of χ²)." },
+    ],
+    posterior: {
+      convergence: "converged", walkers: 12, steps: 2000, samples: 12000, maxRHat: 1.01, minEss: 900,
+      rows: [{ label: "B_iso Mn1", refined: 0.62, esd: 0.05, median: 0.6213, ci68: [0.571, 0.672], ci95: [0.52, 0.72], esdRatio: 1.02, verdict: "the posterior confirms the esd" }],
+      differences: [],
+    },
+    openIssues: ["Bounds: On a bound (its esd means nothing there): B_iso Ga1 at its lower bound 0.", "Residual peaks: 1 peak on no phase's reflection: d = 2.2012 Å."],
+    notes: ["Kept for the record: the 2.2012 Å line."],
+    narrative: "The structure refines to wR 3.86 % with B = 0.62(5) Å².",
+    unverified: [],
+  };
+  const input = (): ReportInput => {
+    const base = powderInput();
+    const { structure, k, cand, params, magnetic } = cmcm();
+    return {
+      ...base,
+      data: [...base.data, { label: "Phase fractions", value: "Mn3Ga 96.62(7) wt% · MnO 3.38(7) wt% — Hill & Howard" }],
+      magnetic: {
+        magnetic, k, group: { symbol: "Cm′cm′", numbers: "BNS 63.462", index: cand.index },
+        params: params.map((p) => ({ ...p, esd: 0.04 })), status: "Refined jointly with the atomic structure against the powder pattern.", structure,
+        limits: ["A powder pattern averages over the crystallites' orientations: it cannot fix the absolute moment direction."],
+      },
+      agent,
+    };
+  };
+
+  it("keeps the results, their uncertainties, the fit quality and every consequential limit in the summary", () => {
+    const html = reportHtml(input());
+    const { summary } = parts(html);
+    const md = mdParts(reportMarkdown(input())).summary;
+    const required = [
+      formatWithEsd(exampleStructure().cell.a, 0.00031, 5), // the cell with its esd
+      "0.62(5)", // a refined ADP with its esd
+      "0.01234(12)", // another refined value (the scale) with its esd
+      "3.86 %", "1.40", "1234.50", "Goodness of fit S", // the fit quality: wR, GoF, χ²
+      "Mn3Ga 96.62(7) wt%", // the phase fractions
+      "Cm′cm′", formatWithEsd(2.5, 0.04, 3), // the magnetic group and a moment with its esd
+      "cannot fix the absolute moment direction", // the powder's limit on the direction
+      "B_iso Ga1 at its lower bound 0", "d = 2.2012 Å", // the open issues: a bound, an unexplained peak
+      "scale ↔ B_iso Mn1 0.962", // a strong correlation (a note)
+      "scale / B_iso Mn1 0.93", "Scale and B_iso are strongly correlated.", // the engine's correlations and the page's warnings
+      "0.571–0.672", // the credible interval
+      "The structure refines to wR 3.86 %", // the account
+    ];
+    const esc = (t: string): string => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    for (const item of required) {
+      expect(summary, item).toContain(esc(item));
+      expect(md, item).toContain(item);
+    }
+    // The checks that passed are named, their numbers left to the appendix.
+    expect(summary).toContain("Passed: Convergence");
+    expect(summary).not.toContain("Converged in 7 cycles");
+  });
+
+  it("moves the record out of the summary into the appendix, collapsed but complete", () => {
+    const html = reportHtml(input());
+    const { summary, appendix } = parts(html);
+    const md = mdParts(reportMarkdown(input()));
+    const moved = [
+      "2 steps from the History", "Model X · API key", // the step-by-step log, the model that ran it
+      "✓ Cell check", // the method's checklist
+      "Converged in 7 cycles; largest final shift/esd 0.0012.", // a passed check's numbers
+      "3.48–1.19 Å: 53 reflections", "peak-tails (~85% of χ²)", // the diagnostic listings
+      "Kept for the record: the 2.2012 Å line.", // the notes
+      "bkg c0", "tied · = cell_a", // every parameter: a background coefficient, a tied one
+      "wR definition note.", // the conventions
+      "MATERIA Workbench v0.1.0", // the software
+    ];
+    for (const item of moved) {
+      expect(summary, item).not.toContain(item);
+      expect(appendix, item).toContain(item);
+      expect(md.summary, item).not.toContain(item);
+      expect(md.appendix, item).toContain(item);
+    }
+    // Every part of the appendix is collapsed on screen and opened for print.
+    const details = appendix.match(/<details[^>]*>/g) ?? [];
+    expect(details.length).toBe(3);
+    for (const d of details) expect(d).not.toMatch(/\bopen\b/);
+    expect(html).toMatch(/@media print \{[^]*details::details-content \{ content-visibility: visible; display: block; \}/);
+  });
+
+  it("states the powder's limits on the moment direction by the crystal system", () => {
+    const hexagonal = exampleStructure(); // P6₃/mmc
+    expect(powderMomentLimits(hexagonal)).toEqual([expect.stringMatching(/cannot fix the absolute moment direction/), expect.stringMatching(/angle to the unique axis/)]);
+    const cubic = { ...hexagonal, spaceGroup: { ...hexagonal.spaceGroup, number: 225 } };
+    expect(powderMomentLimits(cubic)[1]).toMatch(/only the size of each moment, \|m\|/);
+    const orthorhombic = { ...hexagonal, spaceGroup: { ...hexagonal.spaceGroup, number: 63 } };
+    expect(powderMomentLimits(orthorhombic)).toHaveLength(1);
   });
 });
 
