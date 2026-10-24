@@ -153,6 +153,8 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   // The S(Q) tab exists only for a pattern transformed from Q-space data; a
   // later G(r) load must not strand the page on a view it no longer offers.
   const hasReciprocal = pattern.reciprocal !== undefined;
+  // The G(r) plot keeps its zoom until another dataset loads.
+  const plotViewKey = useMemo(() => ({ pattern }), [pattern]);
   useEffect(() => {
     if (!hasReciprocal && viewTab === "reciprocal") setViewTab("fit");
   }, [hasReciprocal, viewTab]);
@@ -891,6 +893,8 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
               <WorkbenchPlot
                 curves={plotCurves}
                 xLabel="r (Å)"
+                viewKey={plotViewKey}
+                ariaLabel="G(r): observed, calculated and difference"
                 yLabel="G(r) (Å⁻²)"
                 signedY
                 showBackground={false}
@@ -901,7 +905,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                 {...(gSigma && showGSigma ? { obsSigma: gSigma, obsSigmaLabel: pattern.transform ? "±σ propagated" : "±σ (file)" } : {})}
               />
               <p style={{ marginTop: 8, marginBottom: 0, fontSize: 12, color: color.secondary }}>
-                Drag across the plot to zoom, blue handles to set the fit window. Qdamp/Qbroad are instrument constants — hold them fixed once calibrated on a standard.
+                Drag to pan, Ctrl/⌘ + scroll to zoom, handles set the fit window. Qdamp/Qbroad are instrument constants — hold them fixed once calibrated on a standard.
               </p>
               {radiationWarning && (
                 <div style={{ marginTop: 6, fontSize: 12, color: color.warnInk }}>⚠ {radiationWarning}</div>
