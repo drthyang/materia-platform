@@ -471,20 +471,23 @@ function sameDeps(a: readonly unknown[], b: readonly unknown[]): boolean {
 
 /**
  * The step's derived values, one slot each, kept while what it is made from
- * (by identity) stays: a slot can serve any step, since a value is reused only
- * for the same state and inputs.
+ * (by identity) stays. Each step holds its own slots: the app mounts several
+ * steps at once (the powder page's stays mounted, hidden, beside the PDF or
+ * single-crystal page's), and slots shared between them made each evict the
+ * other's on every render, re-enumerating the magnetic subgroup lattice each
+ * time (about half a second for GaTa₄Se₈'s 96 operations, on the UI thread).
  */
-const slots = new Map<string, { readonly deps: readonly unknown[]; readonly value: unknown }>();
-function memo<T>(key: string, deps: readonly unknown[], make: () => T): T {
-  const slot = slots.get(key);
-  if (slot && sameDeps(slot.deps, deps)) return slot.value as T;
-  const value = make();
-  slots.set(key, { deps, value });
-  return value;
-}
+export type StepSlots = Map<string, { readonly deps: readonly unknown[]; readonly value: unknown }>;
 
-/** What the step derives from a state on its page's inputs. */
-export function stepView(s: StepState, at: StepInputs): StepView {
+/** What the step derives from a state on its page's inputs, in its own slots. */
+export function stepView(s: StepState, at: StepInputs, slots: StepSlots): StepView {
+  const memo = <T,>(key: string, deps: readonly unknown[], make: () => T): T => {
+    const slot = slots.get(key);
+    if (slot && sameDeps(slot.deps, deps)) return slot.value as T;
+    const value = make();
+    slots.set(key, { deps, value });
+    return value;
+  };
   const { structure } = at;
   const rows = memo("rows", [at.residualPeaks, s.criteria, s.overrides], () => peakRows(at.residualPeaks, s.criteria, s.overrides));
   const includedSignature = memo("included", [rows], () => rows.filter((r) => r.included).map((r) => r.key).join("|"));
@@ -554,6 +557,7 @@ export class MagneticStep {
   private cancelRequested = false;
   private seenPreselect: MagneticModel | null = null;
   private seenPeaks = "";
+  private readonly slots: StepSlots = new Map();
   readonly handle: MagneticAgentHandle;
 
   constructor(private readonly inputs: () => StepInputs) {
@@ -603,7 +607,7 @@ export class MagneticStep {
 
   /** A state without what no longer holds on the page's inputs; the same state when all of it holds. */
   private holding(next: StepState): StepState {
-    const v = stepView(next, this.inputs());
+    const v = this.view(next);
     if (next.search && next.search.peaks !== v.includedSignature) next = { ...next, search: null };
     if (next.rank !== NO_RANK && next.rank.on !== v.rankKey) {
       this.cancelRequested = true;
@@ -654,7 +658,7 @@ export class MagneticStep {
 
   /** The derived view of a state (this one by default) on the page's current inputs (or these). */
   view(s: StepState = this.s, at: StepInputs = this.inputs()): StepView {
-    return stepView(s, at);
+    return stepView(s, at, this.slots);
   }
 
   // ── the changes ──

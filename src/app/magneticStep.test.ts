@@ -309,6 +309,19 @@ describe("the step's state, as the panel keeps it", () => {
     expect(view(step).rankResults).toEqual({});
   }, 60000);
 
+  it("keeps each step's derived values while another step on another structure renders (the hidden powder page beside the PDF page)", () => {
+    const a = stepOn();
+    const b = stepOn();
+    // Another structure object, as the powder and PDF pages each hold their own.
+    b.set({ structure: structuredClone(b.at().structure) });
+    const repsA = view(a.step).reps;
+    const repsB = view(b.step).reps;
+    expect(repsB).not.toBe(repsA);
+    // Shared slots made these two evict each other, re-enumerating the subgroup lattice on every render.
+    expect(view(a.step).reps).toBe(repsA);
+    expect(view(b.step).reps).toBe(repsB);
+  });
+
   it("drops the per-peak picks with a new criterion, and keeps those of the peaks still detected", () => {
     const { step, set, at } = stepOn();
     const rows = view(step).rows;
