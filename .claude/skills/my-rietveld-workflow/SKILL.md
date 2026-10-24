@@ -327,9 +327,9 @@ published structure when there is one. On lab X-ray data, give the P the B value
 assume.
 
 **The written report.** In the app, `write_report` once the analysis is done and reported:
-its `summary` is your account (the approach, what the result says, the caveats, what is
-left open), with no number the tools did not give. Over MCP, the same content comes from
-`export_bundle` and the tools' results.
+its `summary` is your brief account (the approach in a sentence, what the result says, the
+caveats, what is left open), with no number the tools did not give. Over MCP, the same
+comes from `export_bundle` and the tools.
 
 ## Multi-phase and magnetic
 
