@@ -6,6 +6,7 @@
  */
 
 import { AgentExecutor, type ActivityEntry, type AgentHost } from "@/agent/executor";
+import type { CardDecision } from "@/agent/cardOptions";
 import type { AgentReport } from "@/agent/report";
 import { PAGE_METHOD } from "@/agent/skills";
 import { emptyRecord, type AgentRecord } from "@/agent/method";
@@ -21,7 +22,7 @@ import { ComputeClient } from "@/workers/computeClient";
 import {
   extentOf, hasTensorAdp, observationsIn, pageAxis, posteriorRun, powderFit, powderPageCurves, refinedPhasesOf, restraintRequest, thoroughFit, weightedR,
   withAnisotropicAdp, withAntisitePair, withBackgroundTerms, withBackgroundType, withCorrections, withFit as withPowderFit, withFixed, withInstrumentConstants,
-  withMustrain, withParameterTies, withPhase, withReset, withSiteTies, changed, specInstrumentOf, type FitWindow, type PowderCompute, type PowderPage, type PowderPageModel,
+  withMustrain, withParameterTies, withPhase, withReset, withSiteTies, withZeroAdpApplied, zeroAdpOf, changed, specInstrumentOf, type FitWindow, type PowderCompute, type PowderPage, type PowderPageModel,
 } from "@/app/powderPage";
 import { moveTo, recordStep, restoreStep, type ProjectHistory, type Snapshot, type StepActor, type StepKind } from "@/core/project/history";
 import type { Workspace } from "@/core/project/types";
@@ -105,6 +106,7 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
       axis: pageAxis(s, shown),
       source: "test",
       restraints: restraintRequest(s).restraints ?? [],
+      zeroAdp: zeroAdpOf(held),
     };
   };
   /** The posterior run to continue: its closure keeps the problem it sampled, as the page's. */
@@ -147,6 +149,14 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
     setParameterTies: (update) => {
       calls.push(`ties ${JSON.stringify(update)}`);
       change((s) => withParameterTies(s, update));
+    },
+    applyZeroAdp: (choices) => {
+      calls.push(`zeroAdp ${choices.map((c) => `${c.parameterId}:${c.option}${c.chosenBy ? `:${c.chosenBy}` : ""}`).join(",")}`);
+      const proposals = zeroAdpOf(held).proposals;
+      change((s) => choices.reduce((acc, c) => {
+        const p = proposals.find((z) => z.parameterId === c.parameterId);
+        return p && p.options[c.option] ? withZeroAdpApplied(acc, p, c.option, { ...(c.chosenBy ? { chosenBy: c.chosenBy } : {}), ...(c.reason ? { reason: c.reason } : {}) }) : acc;
+      }, s));
     },
     setInstrumentConstants: (update) => {
       calls.push(`constants ${JSON.stringify(update)}`);
@@ -327,7 +337,7 @@ export function headlessHistory(port: AgentPort): { history: () => ProjectHistor
  */
 export function executor(
   host: AgentHost,
-  decision: boolean | "auto" = true,
+  decision: boolean | "auto" | ((entry: ActivityEntry) => boolean | CardDecision) = true,
   { readMethods = true, onReport }: { readMethods?: boolean; onReport?: (report: AgentReport) => void } = {},
 ): { ex: AgentExecutor; asked: ActivityEntry[]; seen: ActivityEntry[] } {
   const asked: ActivityEntry[] = [];
@@ -336,7 +346,7 @@ export function executor(
   const ex = new AgentExecutor(host, {
     approve: async (entry) => {
       asked.push(entry);
-      return decision === "auto" ? true : decision;
+      return typeof decision === "function" ? decision(entry) : decision === "auto" ? true : decision;
     },
     onActivity: (e) => {
       if (recording) seen.push(e);

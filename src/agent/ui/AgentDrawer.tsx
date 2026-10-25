@@ -4,6 +4,7 @@
  * it, so the plot and the parameter panel stay in view while the model works.
  */
 
+import type { CardOptionGroup } from "@/agent/cardOptions";
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from "react";
 import { color, fz, mono, radius } from "@/app/theme";
 import { tableRows } from "@/agent/ui/markdownTable";
@@ -889,8 +890,11 @@ export function formatDuration(ms: number | undefined): string | null {
  * took, and the one line that matters (the preview while it waits, the
  * outcome after). A change waiting for approval keeps its Approve / Decline.
  */
-function ToolCard({ entry, endedAt, onDecide, onOpenReport }: { entry: ActivityEntry; endedAt: number | undefined; onDecide: (id: string, ok: boolean) => void; onOpenReport?: () => void }): JSX.Element {
+function ToolCard({ entry, endedAt, onDecide, onOpenReport }: { entry: ActivityEntry; endedAt: number | undefined; onDecide: (id: string, ok: boolean, selected?: Readonly<Record<string, string>>) => void; onOpenReport?: () => void }): JSX.Element {
   const waiting = entry.status === "waiting";
+  // A card with options: the Agent's pick preselected, the user's pick what Approve applies (cardOptions.ts).
+  const [picked, setPicked] = useState<Readonly<Record<string, string>>>({});
+  const selected = entry.options ? Object.fromEntries(entry.options.map((g) => [g.id, picked[g.id] ?? g.selected])) : undefined;
   const took = endedAt !== undefined && entry.status !== "running" && !waiting ? formatDuration(endedAt - entry.at) : null;
   const meta = [STATUS_TEXT[entry.status], took].filter(Boolean).join(" · ");
   const line = waiting ? entry.preview : entry.outcome ?? entry.preview;
@@ -907,13 +911,47 @@ function ToolCard({ entry, endedAt, onDecide, onOpenReport }: { entry: ActivityE
           <button style={secondaryButton} onClick={onOpenReport}>Open the report</button>
         </div>
       )}
+      {waiting && entry.options && selected && <CardOptions groups={entry.options} selected={selected} onPick={(group, id) => setPicked((p) => ({ ...p, [group]: id }))} />}
       {waiting && (
         <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-          <button style={primaryButton} onClick={() => onDecide(entry.id, true)}>Approve</button>
+          <button style={primaryButton} onClick={() => onDecide(entry.id, true, selected)}>{entry.options ? "Apply the selected" : "Approve"}</button>
           <button style={secondaryButton} onClick={() => onDecide(entry.id, false)}>Decline</button>
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * A change's options on its card, as the drawer's choice buttons: one group
+ * per row, the Agent's pick preselected (★), the user's pick marked. A click
+ * only selects; the card's Apply sends the selection, Decline sends nothing.
+ */
+function CardOptions({ groups, selected, onPick }: { groups: readonly CardOptionGroup[]; selected: Readonly<Record<string, string>>; onPick: (group: string, id: string) => void }): JSX.Element {
+  return (
+    <>
+      {groups.map((g) => (
+        <div key={g.id} className="wb-agent-choices" role="radiogroup" aria-label={g.title} data-choices="card" data-state="live">
+          <div className="wb-agent-choices-head">{g.title}</div>
+          <div className="wb-agent-choices-list">
+            {g.options.map((o) => (
+              <button
+                key={o.id}
+                type="button"
+                role="radio"
+                aria-checked={selected[g.id] === o.id}
+                className={`wb-agent-choice${o.id === g.selected ? " is-recommended" : ""}${selected[g.id] === o.id ? " is-selected" : ""}`}
+                onClick={() => onPick(g.id, o.id)}
+                title={o.id === g.selected ? "The Agent's choice" : "Choose this option instead"}
+              >
+                <span className="wb-agent-choice-label">{selected[g.id] === o.id ? "● " : "○ "}{o.label}{o.id === g.selected && <span aria-label="the Agent's choice"> ★</span>}</span>
+                {o.detail && <span className="wb-agent-choice-detail">{o.detail}</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </>
   );
 }
 

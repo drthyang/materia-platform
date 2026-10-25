@@ -146,9 +146,14 @@ interface Props {
    * switch reshapes the whole refinement, unlike the per-group `groupControls`.
    */
   readonly frameworkControls?: ReactNode;
+  /**
+   * A notice the page puts over the parameter list, always visible while it
+   * has something to say (the powder page's B-at-0 proposals, ZeroAdpNotice).
+   */
+  readonly notice?: ReactNode;
 }
 
-export function ParameterPanel({ params, esd, onChange, onRefine, onThorough, thoroughMode = "prefit", prefitTitle, onCancel, onReset, onMagnetic, busy, result, disabled, title, extraActions, groupControls, groupInfo, frameworkControls }: Props): JSX.Element {
+export function ParameterPanel({ params, esd, onChange, onRefine, onThorough, thoroughMode = "prefit", prefitTitle, onCancel, onReset, onMagnetic, busy, result, disabled, title, extraActions, groupControls, groupInfo, frameworkControls, notice }: Props): JSX.Element {
   const groups = useMemo(() => {
     const byGroup = new Map<string, RefinementParameter[]>();
     for (const p of params) {
@@ -235,6 +240,7 @@ export function ParameterPanel({ params, esd, onChange, onRefine, onThorough, th
         {extraActions}
       </div>
       {frameworkControls && <div style={frameworkBar}>{frameworkControls}</div>}
+      {notice}
       <div style={{ ...colHeader }}>
         <span>Parameter</span>
         <span>Value</span>

@@ -324,7 +324,7 @@ function detailsMarkdown(input: ReportInput): string {
     rows.push({ label: "Engine", value: "no refinement run in this session — values are as loaded or set" });
   }
   const warnings = (input.warnings ?? []).map((w) => `> ⚠ ${w}`).join("\n");
-  return `${kvTable(rows)}${warnings ? `\n\n${warnings}` : ""}`;
+  return `${kvTable(rows)}${warnings ? `\n\n**Limitations**\n\n${warnings}` : ""}`;
 }
 
 /** The summary's other refined values: the free parameters the tables above do not carry. */
