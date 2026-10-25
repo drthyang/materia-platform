@@ -75,7 +75,9 @@ both are left for a decision on speed.
 
 ## Evidence
 
-**Equivalence with `main`** (node, the same inputs through each tree's code;
+**Equivalence with `main`** (`main` after #106, whose shared-site occupancy
+tie changes the multi-element site's results by design; node, the same inputs
+through each tree's code;
 serial `refine` with analytic columns, as the worker and MCP paths run it, and
 `refineParallel` over an in-process split evaluator with 3 shards, as the
 browser pool runs it). Required: G(r), every analytic column, the refined
@@ -90,7 +92,7 @@ values, esds, Rw, the χ² history, status and iteration count all
 | GaTa₄Se₈ synthetic, 12 parameters, 1.5–50 Å | 12 | bit-identical | bit-identical |
 | Multi-element site, cell and scale, 1.5–30 Å | 5 | bit-identical | bit-identical |
 | Multi-element site, 17 parameters, 1.5–30 Å | 17 | bit-identical | bit-identical |
-| Multi-element site, 17 + 6 occupancies, 1.5–30 Å | 23 | bit-identical | bit-identical |
+| Multi-element site, 17 + 5 occupancies (the 6th tied), 1.5–30 Å | 22 | bit-identical | bit-identical |
 | Multi-element site, cell and scale, 1.5–50 Å | 5 | bit-identical | bit-identical |
 | Multi-element site, 17 parameters, 1.5–50 Å | 17 | bit-identical | bit-identical |
 
@@ -113,15 +115,16 @@ values, esds, Rw, the χ² history, status and iteration count all
 - `workflow/realPdfLongRange.test.ts` (2, data-gated, skips without the local
   data): on the measured grid, 3 shards are bit-identical to the whole
   evaluation and its columns, and the full range's list fits the budget at
-  under two bytes a pair. It names no file and holds no number from the data.
+  under two bytes a pair. It reads the data by the generic name `pdf.gr`
+  (VALIDATION's layout) and holds no number from them.
 
 **The full range in the browser** (production builds, the user's flow: Load
 CIF…, Load data…, drag the window to 100 Å, Refine with cell and scale free).
 - `main`: the renderer crashes with a V8 OOM.
 - This branch: the fit converges in every run (5 of 5), to the cycle count
   and Rw of a serial node refinement of the same fit. The renderer's peak RSS
-  is under a tenth of where `main` crashed; the page isolate holds tens of MB
-  and each worker a few MB of JS heap.
+  is under a tenth of where `main` crashed; no isolate holds more than a few
+  tens of MB of JS heap.
 
 **G(r) at 1.5–100 Å against independent calculations.**
 - A direct double-precision pair sum written for this check in numpy, sharing
@@ -145,37 +148,39 @@ CIF…, Load data…, drag the window to 100 Å, Refine with cell and scale free
 
 | Workload (cell and scale free unless stated) | This branch against `main` |
 | --- | --- |
-| Multi-element site, 1.5–50 Å | renderer peak RSS 5.7× lower; worker JS heaps ~100× smaller; `main` already used half the tab's shared heap |
-| Multi-element site, 1.5–50 Å, 17 parameters | renderer peak RSS 4.5× lower; isolate heaps ~10–75× smaller |
-| Multi-element site, 1.5–100 Å | completes, where `main` crashes; the isolates together peak at under 1/70 of the heap `main` held when it crashed |
+| Multi-element site, 1.5–50 Å | renderer peak RSS 5.3× lower; worker JS heaps 60–75× smaller; on `main` the isolates already filled over a third of the tab's shared heap |
+| Multi-element site, 1.5–50 Å, 17 parameters | renderer peak RSS 4.3× lower; isolate heaps 8–90× smaller |
+| Multi-element site, 1.5–100 Å | completes, where `main` crashes; the isolates together peak at under 1/50 of the heap `main` held when it crashed |
 
-**Speed.** Production builds of `main` and of this branch were alternated
-within each round, with the order reversed on alternate rounds. Each row is a
-median of 5 rounds (3 for the 17-parameter fit to 50 Å). The load was 1.5–6.7.
-"Longest task" is the longest main-thread task (`PerformanceObserver`
-longtask).
+**Speed.** Production builds of `main` (after #106) and of this branch were
+alternated within each round, with the order reversed on alternate rounds.
+Each row is a median of 5 rounds (3 for the 17-parameter fit to 50 Å), at
+load 0.7–2.8. "Longest task" is the longest main-thread task
+(`PerformanceObserver` longtask).
 
 | Workload | Wall | Longest UI-thread task |
 | --- | --- | --- |
-| GaTa₄Se₈, scale and a | 6.35 → 4.66 s | 0.68 → 0.57 s |
-| GaTa₄Se₈, 12 parameters | 10.93 → 8.77 s | 1.74 → 0.61 s |
-| Multi-element site, cell and scale, to 20 Å | 1.20× faster | about equal |
-| Multi-element site, 17 parameters, to 20 Å | 1.17× faster | 8× shorter |
-| Multi-element site, cell and scale, to 30 Å | 1.15× faster | equal (the post-fit curve) |
-| Multi-element site, 17 parameters, to 30 Å | 1.37× faster | 10× shorter; M6's 2.5 s target met |
-| Multi-element site, cell and scale, to 50 Å | 1.37× faster | 4.3× shorter |
-| Multi-element site, 17 parameters, to 50 Å | 1.24× faster | 8× shorter |
+| GaTa₄Se₈, scale and a | 5.05 → 3.70 s (1.36×) | 0.68 → 0.57 s |
+| GaTa₄Se₈, 12 parameters | 10.92 → 6.72 s (1.63×) | 1.86 → 0.58 s |
+| Multi-element site, cell and scale, to 20 Å | 1.18× faster | about equal |
+| Multi-element site, 17 parameters, to 20 Å | 1.32× faster | 8× shorter |
+| Multi-element site, cell and scale, to 30 Å | 1.22× faster | about equal (the post-fit curve) |
+| Multi-element site, 17 parameters, to 30 Å | 1.41× faster | 9× shorter; M6's 2.5 s target met |
+| Multi-element site, cell and scale, to 50 Å | 1.39× faster | 4× shorter |
+| Multi-element site, 17 parameters, to 50 Å | 1.44× faster | 8.6× shorter |
 
-Every run on both builds ended with the same status, cycle count and Rw. On
-the serial node path (MCP), 5 interleaved runs: an evaluation after a
-geometry change is 13–19 % faster (no object allocation). An evaluation on
-cached pairs and the analytic pass are within noise (at most +4 %, inside
+In every row the branch's slowest run beat `main`'s fastest, and every run on
+both builds ended with the same status, cycle count and Rw. On the serial
+node path (MCP), in 5 interleaved runs, an evaluation after a geometry change
+is 8–12 % faster because no objects are allocated. An evaluation on cached
+pairs and the analytic pass are within noise (−4 to +7 %, every median inside
 `main`'s range), because the pairs' values are recomputed on every read.
 
 The split pool's other users were checked in the browser on GaTa₄Se₈:
-Escape minimum, the boxcar scan (22 boxes, the pool set up again for each)
-and the posterior run, with the same results as `main` and no new console
-error. Posterior throughput is the same within the step counter's resolution.
+Escape minimum (60 s against 90 s), the boxcar scan (22 boxes, the pool set
+up again for each; 16 s against 22 s) and the posterior run, with the same
+results as `main` and no new console error. Posterior throughput is the same
+within the step counter's resolution.
 
 ## What changes for users
 
@@ -201,7 +206,7 @@ and the snapshots are unchanged.
 - **The driver itself still runs on the UI thread** (step 5 of the plan). It
   was not moved: with every evaluation and analytic pass on the pool, the UI
   thread keeps only the LM step and the per-set termination. The longest
-  task during the 17-parameter fit at 30 Å is now 0.25 s, and that task is the
+  task during the 17-parameter fit at 30 Å is now 0.26 s, and that task is the
   post-fit curve above.
 - **Each unordered pair once, and space-group multiplicity.** Not taken (see
   above). Either would halve or further cut the pair work, but would change
@@ -212,12 +217,15 @@ and the snapshots are unchanged.
 
 ## Checks
 
-At the branch's head (rebased on `main` after #104 and #105): typecheck,
-lint, `npm run build` and `build:mcp` pass. `npm test` (`--maxWorkers=2`):
-318 files passed and 30 skipped; 2661 tests passed and 278 skipped, none
-failed. The 15 new tests are included. Before the change, the same run on its
-base had one failure: a 5 s timeout in `agent/needsStructure.test.ts` at load
-17, which passed when run alone. The PDFfit2 and diffpy.mpdf goldens, the
-analytic-Jacobian gate, pooled = serial and the PDF page's tests pass
-unchanged. The browser measurements were taken on this change before the
-rebase; #104 and #105 touch neither the PDF engine nor the workers.
+At the merged tip (this change merged with `main` after #104, #105 and #106):
+typecheck, lint, `npm run build` and `build:mcp` pass. `npm test`
+(`--maxWorkers=2`): 321 files passed and 30 skipped; 2691 tests passed and
+279 skipped, none failed. That includes the 15 new tests. The PDFfit2 and
+diffpy.mpdf goldens, the analytic-Jacobian gate, pooled = serial, the
+shared-site tie's tests (`pdfOccupancyTie.test.ts`) and the PDF page's tests
+pass unchanged. Every comparison above was taken against `main` after #106,
+on builds of the merged tip.
+
+Before the change, the full suite on its original base had one failure: a
+5 s timeout in `agent/needsStructure.test.ts` at load 17, which passed when
+run alone.
