@@ -544,6 +544,30 @@ release fixes bugs.
 
 ### Changed
 
+- **The powder Validation tab reads the fit against your acceptance bar.**
+  It opened on a verdict of mixed-weight lines beside eight agreement
+  numbers, with diagnoses but no actions, and called the demo's converged fit
+  "Not refined yet". It now reads top down. One line says where the fit
+  stands, beside the state of the fit (a demo's converged snapshot says so,
+  and that it has no esds until you refine). Your method's acceptance bar
+  follows as three checks, green, amber or red: the goodness of fit in the
+  assessment's bands; physical sanity, scaled (a negative B or a structural
+  value on its bound is a blocker, a held occupancy 0.5 % over 1 a note);
+  and the GSAS-II/FullProf cross-check, with why the esds may not hold.
+  **What limits the fit** lists the causes the Agent's `diagnose_fit` reads,
+  largest share of χ² first, each with its evidence and what to do in the
+  method's order (a misfit of the cell, zero or background first);
+  **Open …** opens the parameter group (nothing is freed), **Show on
+  pattern** the spot. The evidence is collapsed below: the residual strip,
+  χ² by d-shell, the worst peaks, and every agreement number with R_Bragg
+  and R_F per phase and Durbin–Watson. The causes and findings are built
+  from the page as the Agent's tools build them, so the tab no longer warns
+  of a background's own coefficients correlating, nor says "every residual
+  peak indexes" where the Agent finds lines no phase explains. Without a
+  refinement that describes the values on screen, the card's GoF is that of
+  the curves on screen. The Agent's tools and text are unchanged, and the
+  validation's arm A still reads the old verdict.
+
 - **On the PDF page, the symmetry is chosen on the Subgroups view and the
   modes are inspected on the 3D Model view.** The Γ irrep tree (each irrep's
   label, dimension, optic and acoustic counts, with its **Activate →**

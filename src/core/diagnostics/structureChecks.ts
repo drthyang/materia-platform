@@ -16,11 +16,11 @@ import { bondLengths } from "@/core/crystal/geometry";
 import { bondValenceR0, bondValenceSums, expectedBondLength } from "@/core/crystal/bondValence";
 import { atomicWeight } from "@/core/crystal/atomicMass";
 import type { AssessmentFinding } from "@/core/diagnostics/assessment";
-import { BOND_SHORT, DISTANCE_HARD, DISTANCE_WARN, U_HARD, U_LARGE, U_ORDER_MIN, U_ORDER_RATIO, U_SMALL } from "@/core/diagnostics/thresholds";
+import { BOND_SHORT, DISTANCE_HARD, DISTANCE_WARN, OCCUPANCY_FULL, U_HARD, U_LARGE, U_ORDER_MIN, U_ORDER_RATIO, U_SMALL } from "@/core/diagnostics/thresholds";
 
 const EIGHT_PI2 = 8 * Math.PI * Math.PI;
 /** A site at or above this occupancy counts as fully occupied. */
-const FULL = 0.99;
+const FULL = OCCUPANCY_FULL;
 /** The anions the bond-valence lengths are tabulated against. */
 const ANIONS = new Set(["O", "F"]);
 /** Anions within R₀ + this (Å) of a cation are its first shell, for the bond-valence length. */

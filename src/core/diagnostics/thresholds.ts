@@ -162,3 +162,12 @@ export const U_SMALL = 0.001;
 export const U_ORDER_RATIO = 1.5;
 export const U_ORDER_MIN = 0.005;
 
+/**
+ * A site at or above this occupancy counts as fully occupied (the physical
+ * checks' distances: two partly occupied sites need never be present
+ * together). The Validation view reads a held occupancy within the same 1 %
+ * outside [0, 1] as an input to correct, a note rather than a fault of the
+ * fit (powderAcceptance.ts).
+ */
+export const OCCUPANCY_FULL = 0.99;
+

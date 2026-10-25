@@ -81,6 +81,31 @@ export interface PowderPage {
   readonly instrumentLoaded: boolean;
   /** The last refinement's result; null before the first fit and after any change that makes it out of date. */
   readonly result: RefinementResult | null;
+  /**
+   * A converged fit the page opened on without a result of its own (a bundled
+   * demo's snapshot): every row's value as it opened. The Validation view reads
+   * the fit as converged while the rows still hold these values; a change of
+   * the model (`changed`) or a fit (`withFit`) drops it.
+   */
+  readonly snapshot?: PowderSnapshot;
+}
+
+/** The values a converged snapshot opened with, by parameter id. */
+export interface PowderSnapshot {
+  readonly values: Readonly<Record<string, number>>;
+}
+
+/** The page's rows as a converged snapshot: what a demo that opens on a finished fit records. */
+export function snapshotOf(s: Session): PowderSnapshot {
+  return { values: Object.fromEntries(s.powderParams.map((p) => [p.id, p.value])) };
+}
+
+/** The page still shows its snapshot: the same rows, each at the value it opened with. */
+export function snapshotHolds(p: Pick<PowderPage, "session" | "snapshot">): boolean {
+  const snap = p.snapshot;
+  if (!snap) return false;
+  const rows = p.session.powderParams;
+  return rows.length === Object.keys(snap.values).length && rows.every((r) => snap.values[r.id] === r.value);
 }
 
 /** The clean, data-less page the app opens on. */
@@ -93,14 +118,16 @@ export function specInstrumentOf(p: PowderPage): InstrumentParameters {
   return p.instrumentLoaded ? p.instrument : DEFAULT_INSTRUMENT;
 }
 
-/** A change of the model, the data or a setting: the last fit's result no longer describes the page, so it goes. */
+/** A change of the model, the data or a setting: the last fit's result (and a snapshot the page opened on) no longer describes the page, so it goes. */
 export function changed(p: PowderPage, session: Session): PowderPage {
-  return { ...p, session, result: null };
+  const { snapshot: _snapshot, ...rest } = p;
+  return { ...rest, session, result: null };
 }
 
-/** A fit on the page: its values on the rows, its result on the page. */
+/** A fit on the page: its values on the rows, its result on the page (in place of a snapshot it opened on). */
 export function withFit(p: PowderPage, result: RefinementResult): PowderPage {
-  return { ...p, session: withFitResult(p.session, result), result };
+  const { snapshot: _snapshot, ...rest } = p;
+  return { ...rest, session: withFitResult(p.session, result), result };
 }
 
 /** The compute client's calls the page makes. */
@@ -658,6 +685,31 @@ export function weightedR(s: Session, c: { readonly x: readonly number[]; readon
     den += w * o * o;
   }
   return Math.sqrt(num / Math.max(den, 1e-12));
+}
+
+/**
+ * The goodness of fit of the curves on screen, √[Σw(y_o − y_c)² / (N − P)]
+ * over `weightedR`'s points, P the free rows: wR/R_exp as a refinement reports
+ * it, for a page with no refinement of its own (a demo opened on its converged
+ * snapshot), so the card's GoF and the Validation view's agree.
+ */
+export function curvesGoodnessOfFit(s: Session, c: { readonly x: readonly number[]; readonly yObs: readonly number[]; readonly yCalc: readonly number[] }, window: FitWindow | null): number {
+  const tof = s.pattern.xUnit === "tof";
+  const excluded = excludedPointMask(c.yObs);
+  let chi2 = 0, n = 0;
+  for (let i = 0; i < c.yObs.length; i++) {
+    const calc = c.yCalc[i] ?? 0;
+    if (excluded[i]) continue;
+    if (tof && calc <= 0) continue;
+    if (window && (c.x[i]! < window.min || c.x[i]! > window.max)) continue;
+    const o = c.yObs[i]!;
+    const sigma = s.pattern.points[i]?.sigma ?? (o > 0 ? Math.sqrt(o) : 1);
+    if (!(sigma > 0)) continue;
+    chi2 += ((o - calc) * (o - calc)) / (sigma * sigma);
+    n++;
+  }
+  const free = s.powderParams.filter((p) => !p.fixed && !p.expression).length;
+  return n > 0 ? Math.sqrt(chi2 / Math.max(n - free, 1)) : 0;
 }
 
 /** The points a fit uses: not excluded, inside the window. */
