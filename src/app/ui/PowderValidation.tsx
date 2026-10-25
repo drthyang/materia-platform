@@ -376,7 +376,7 @@ function CheckCard({ check, onAction }: { check: AcceptanceCheck; onAction: (a: 
           <span style={{ fontSize: fz.small, fontFamily: mono, fontWeight: 600, color: check.tone === "grey" ? color.secondary : t.ink }}>{check.value}</span>
           {!check.sentence ? help : null}
         </div>
-        {check.sentence ? <span title={check.detail} style={{ fontSize: fz.small, lineHeight: 1.45, color: color.secondary }}>{check.sentence}{help}</span> : null}
+        {check.sentence ? <span title={check.detail} style={{ fontSize: fz.small, lineHeight: 1.45, color: color.secondary }}><WithBadge text={check.sentence} badge={help} /></span> : null}
         {shown.length > 0 ? (
           <ul style={{ listStyle: "none", margin: "2px 0 0", padding: 0, display: "flex", flexDirection: "column", gap: 3 }}>
             {shown.map((item, i) => (
@@ -404,6 +404,13 @@ function CheckCard({ check, onAction }: { check: AcceptanceCheck; onAction: (a: 
       </div>
     </li>
   );
+}
+
+/** A line ending in a "?" that wraps with its last word, never alone onto a line of its own. */
+function WithBadge({ text, badge }: { text: string; badge: ReactNode }): JSX.Element {
+  if (!badge) return <>{text}</>;
+  const cut = text.lastIndexOf(" ");
+  return <>{text.slice(0, cut + 1)}<span style={{ whiteSpace: "nowrap" }}>{text.slice(cut + 1)}{badge}</span></>;
 }
 
 /** Lines of a "?" tooltip, each its own paragraph. */
