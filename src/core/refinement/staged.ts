@@ -17,8 +17,9 @@
  * converged values back onto the parameter objects.
  */
 
-import type { RefinementOptions, RefinementParameter, RefinementResult } from "@/core/refinement/types";
+import type { RefinementCorrelation, RefinementOptions, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import { refine, type RefinementProblem } from "@/core/refinement/engine";
+import { CORRELATION_REPORTED } from "@/core/diagnostics/thresholds";
 
 /** One stage: a name and a predicate selecting the parameters it unlocks. */
 export interface RefinementStage {
@@ -62,15 +63,29 @@ export interface StagedRefinementResult {
  *
  * STAGE-level rejection (revert everything the stage did) only for genuine
  * divergence: the wR worsened (freeing parameters can only ever lower χ² at
- * the optimum), or freeing the new group INFLATED the esds of previously
- * determined parameters (the classic "adding X destabilizes everything").
+ * the optimum), or freeing the new group INFLATED the esd of a previously
+ * determined parameter with no newcomer to blame (the classic "adding X
+ * destabilizes everything").
  *
  * PARAMETER-level refixing (keep the stage, re-fix the culprit at its
- * pre-stage value) for solver-proven pathologies of individual newly-freed
- * parameters: a singular direction, or a near-perfect correlation. One weak
- * parameter must not discard its well-behaved siblings' gains. The stage is
- * then RE-RUN from its pre-stage values without the culprits, and that run is
- * the one kept: the values carried forward are always ones a fit produced.
+ * pre-stage value) for pathologies of individual newly-freed parameters: a
+ * singular direction, a near-perfect correlation, or an earlier parameter's
+ * esd inflated through its correlation with the newcomer. One weak parameter
+ * must not discard its well-behaved siblings' gains. The stage is then RE-RUN
+ * from its pre-stage values without the culprits, and that run is the one
+ * kept: the values carried forward are always ones a fit produced.
+ *
+ * An inflated esd is the esd of the full covariance growing as a newcomer that
+ * correlates with the parameter joins the fit: by 1/√(1 − ρ²) for one partner,
+ * the TOF zero against the cell lengths (ρ ≈ −0.98, several-fold). That is the
+ * pair the data cannot separate, not a diverging fit — the stage's other
+ * newcomers (the TOF peak shape) improve it — so the newcomer the parameter
+ * correlates with most strongly is re-fixed, the member of the pair that this
+ * sequence frees later, as the user's method fixes the zero against the cell.
+ * Only an inflation that no reported correlation (|ρ| ≥ CORRELATION_REPORTED)
+ * ties to a newcomer still rejects the stage. While the engine's eigen-solver
+ * stopped short (its esds near the conditional ones) the rule never fired on
+ * such a pair; with the full inverse it rejected the whole TOF profile stage.
  *
  * A singular direction is a combination the data cannot see, so re-fixing one
  * member removes it: of k mutually degenerate newcomers, k − 1 are re-fixed
@@ -86,8 +101,9 @@ export interface StageGuardOptions {
   /** Max tolerated relative wR increase vs the last accepted stage — and what
    *  re-fixing a degenerate newcomer may cost before it stays free. Default 1e-3. */
   readonly maxWrIncrease?: number;
-  /** Reject the stage when a previously-free parameter's esd grows by ≥ this
-   *  factor after the addition. Default 5. */
+  /** A previously-free parameter whose esd grows by more than this factor
+   *  after the addition re-fixes the newcomer it correlates with most strongly;
+   *  with none to blame, the stage is rejected. Default 5. */
   readonly maxEsdInflation?: number;
   /** Re-fix a newly-freed parameter sitting in |ρ| ≥ this. Default 0.998. */
   readonly maxCorrelation?: number;
@@ -102,7 +118,16 @@ interface StageGuardVerdict {
   readonly singular: Refix[];
   /** Newcomers in a near-perfect correlation outside those directions. */
   readonly correlated: Refix[];
+  /** For each earlier parameter whose esd inflated, the newcomer it
+   *  correlates with most strongly. */
+  readonly inflating: Refix[];
+  /** An earlier parameter's esd inflated and no newcomer correlates with it:
+   *  rejects the stage once the rules above have nothing left to re-fix. */
+  readonly unattributedInflation: string | null;
 }
+
+/** A verdict that re-fixes nothing: the stage stands, or (with a reason) is rejected. */
+const wholeStage = (stageReason: string | null): StageGuardVerdict => ({ stageReason, singular: [], correlated: [], inflating: [], unattributedInflation: null });
 
 /** Component (of a unit null direction) below which a parameter does not
  *  take part in it. */
@@ -122,24 +147,12 @@ function stageGuardVerdict(
   keptFree: ReadonlySet<string>,
   guards: StageGuardOptions,
 ): StageGuardVerdict {
-  if (guards.enabled === false) return { stageReason: null, singular: [], correlated: [] };
+  if (guards.enabled === false) return wholeStage(null);
 
   const wr = result.agreement.rWeighted;
   const maxInc = guards.maxWrIncrease ?? 1e-3;
   if (prev.wr !== undefined && wr !== undefined && wr > prev.wr * (1 + maxInc) + 1e-12) {
-    return { stageReason: `wR worsened: ${pct(prev.wr)} → ${pct(wr)}`, singular: [], correlated: [] };
-  }
-  const maxInfl = guards.maxEsdInflation ?? 5;
-  for (const id of previouslyFree) {
-    const before = prev.esd.get(id);
-    const after = result.esd[id];
-    if (before !== undefined && before > 0 && after !== undefined && after > maxInfl * before && after > 1e-8) {
-      return {
-        stageReason: `freeing ${newcomers.join(", ")} inflated esd(${id}) ${(after / before).toFixed(1)}×`,
-        singular: [],
-        correlated: [],
-      };
-    }
+    return wholeStage(`wR worsened: ${pct(prev.wr)} → ${pct(wr)}`);
   }
 
   const candidates = newcomers.filter((id) => !keptFree.has(id));
@@ -161,7 +174,49 @@ function stageGuardVerdict(
       correlated.push({ id: target, reason: `|ρ|=${Math.abs(c.coefficient).toFixed(4)} with ${target === c.parameterIdA ? c.parameterIdB : c.parameterIdA}` });
     }
   }
-  return { stageReason: null, singular, correlated };
+
+  // An earlier parameter's esd inflated: blame the newcomer it correlates with
+  // most strongly (see the guards' note above), or, with none, the stage.
+  const pairs = [...(result.diagnostics?.highCorrelations ?? []), ...(result.diagnostics?.moderateCorrelations ?? [])];
+  const maxInfl = guards.maxEsdInflation ?? 5;
+  const inflating: Refix[] = [];
+  let unattributedInflation: string | null = null;
+  for (const id of previouslyFree) {
+    const before = prev.esd.get(id);
+    const after = result.esd[id];
+    if (!(before !== undefined && before > 0 && after !== undefined && after > maxInfl * before && after > 1e-8)) continue;
+    const factor = `${(after / before).toFixed(1)}×`;
+    const partner = inNull.has(id) ? null : strongestNewcomer(id, pairs, fresh, inNull);
+    if (partner === null) {
+      unattributedInflation ??= `freeing ${newcomers.join(", ")} inflated esd(${id}) ${factor}`;
+    } else if (!inflating.some((r) => r.id === partner.id)) {
+      inflating.push({ id: partner.id, reason: `inflated esd(${id}) ${factor}, |ρ|=${Math.abs(partner.coefficient).toFixed(3)} with ${id}` });
+    }
+  }
+  return { stageReason: null, singular, correlated, inflating, unattributedInflation };
+}
+
+/**
+ * The newcomer `id` correlates with most strongly among the reported pairs
+ * (|ρ| ≥ CORRELATION_REPORTED; the engine lists them by |ρ|), outside the
+ * dropped directions, whose correlations are truncation artifacts. Fixing a
+ * newcomer j alone leaves var(id) × (1 − ρ²): the strongest partner removes
+ * the most of the inflation.
+ */
+function strongestNewcomer(
+  id: string,
+  pairs: readonly RefinementCorrelation[],
+  fresh: ReadonlySet<string>,
+  inNull: ReadonlySet<string>,
+): { id: string; coefficient: number } | null {
+  let best: { id: string; coefficient: number } | null = null;
+  for (const c of pairs) {
+    if (Math.abs(c.coefficient) < CORRELATION_REPORTED) continue;
+    const other = c.parameterIdA === id ? c.parameterIdB : c.parameterIdB === id ? c.parameterIdA : null;
+    if (other === null || !fresh.has(other) || inNull.has(other)) continue;
+    if (best === null || Math.abs(c.coefficient) > Math.abs(best.coefficient)) best = { id: other, coefficient: c.coefficient };
+  }
+  return best;
 }
 
 /**
@@ -305,6 +360,17 @@ function* stagedCore(
         refixed.push(...verdict.correlated);
         result = yield restart();
         continue;
+      }
+      // After the rules above, which may already remove the cause.
+      if (verdict.inflating.length > 0) {
+        for (const r of verdict.inflating) freed.delete(r.id);
+        refixed.push(...verdict.inflating);
+        result = yield restart();
+        continue;
+      }
+      if (verdict.unattributedInflation !== null) {
+        rejected = verdict.unattributedInflation;
+        break;
       }
       break;
     }

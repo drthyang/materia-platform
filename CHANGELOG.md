@@ -683,6 +683,21 @@ release fixes bugs.
 
 ### Fixed
 
+- **A staged fit keeps a profile stage whose zero trades with the cell.** The
+  staged sequence rejected a whole stage when freeing it grew an earlier
+  parameter's esd more than fivefold. Since the engine's esds are those of the
+  full inverse (the eigen-decomposition entry below), freeing the TOF zero
+  with the peak shape grows the cell lengths' esds several-fold, as a pair the
+  data cannot separate does, and the guard threw the peak shape (α, β, σ) away
+  with it: every later stage fitted with the shape at its calibration, and the
+  local AWO₄ magnetic demo's solve ended far from its own earlier fit. The
+  newcomer the inflated esd correlates with most strongly (|ρ| ≥ 0.8, here the
+  zero) is now re-fixed and the stage re-run without it, as the singular and
+  correlation rules already did; an inflation no newcomer accounts for still
+  rejects the stage. The staged sequence runs in `refinePowderStructure`, the
+  MCP PDF and mPDF fits with `staged`, and the demo's solve; the page's Refine
+  and the Agent's `refine` do not use it.
+
 - **The Background group stays on the parameter panel at 0 terms.** Emptying
   the background's terms field to retype the count read as 0, and 0 terms
   removed every background row, and with them the Background group and its
