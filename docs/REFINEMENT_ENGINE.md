@@ -97,7 +97,12 @@ where `r_i = √w_i · (y_obs,i − y_calc,i)` and `J_ij = ∂r_i/∂p_j`.
 - **Bounds.** A trial step is clamped into `[min, max]`, and a parameter that
   ends on a bound is reported in `atBounds`. Each shift is also capped at 5× the
   parameter's current magnitude, so one ill-conditioned step cannot throw the
-  model out of its basin.
+  model out of its basin. An isotropic B is bounded below at 0: the engine
+  never lets it go negative, so a B the data push below 0 ends on that bound.
+  The engine does not change it; on the powder page the B-at-0 rule
+  ([`diagnostics/zeroAdp.ts`](../src/core/diagnostics/zeroAdp.ts)) proposes a
+  tie or a held value with a warning, which the user applies
+  ([USER_GUIDE.md](./USER_GUIDE.md#when-a-b-refines-to-0)).
 - **A trial point the model cannot evaluate.** A trial step whose χ² is not
   finite, or whose `calculate` throws a `ModelDomainError`, is rejected like an
   uphill one and λ grows. A cell length driven to 0 or below is such a point:

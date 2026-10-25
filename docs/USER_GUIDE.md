@@ -134,6 +134,36 @@ Open a group for its model controls:
 - **Shared site**, under the plot when atoms share a site: **tie position**,
   **tie ADP** and **Σ occ = 1**.
 
+### When a B refines to 0
+
+A B_iso that ends on its lower bound (0) has no meaningful esd, and usually
+absorbs an error elsewhere: check the background, absorption and the
+correlations first ([Judge a fit](#8-judge-a-fit)). The powder page then shows
+a ⚠ **B at its lower bound** notice over the parameter list. It names the atom,
+the B it reached, and the options, ranked, each with its source and its own
+**Apply**:
+
+- **Preferred: a tie to a site of the same element** that refined sensibly
+  (O2 → O1). The common B still refines.
+- **Alternatives: a tie to another cation with the same coordination** (as many
+  of the same ligands), labelled with both species and a caution such as
+  "a different cation (W⁶⁺ vs Co²⁺): check it is physically sensible".
+- **Alternative: the starting structure's B** for that site (a CIF's U_iso is
+  read as B = 8π²U), held fixed. It is used as it stands: the app has no
+  temperature model for B.
+- **No value**, when there is none of these. The app has no documented table
+  of typical B values, so it proposes none, and never an arbitrary floor.
+
+Nothing changes until you choose. The Agent's `apply_adp_proposal` picks an
+option of this list: asking first, its card shows every option with its pick
+preselected, and you may pick another or decline. In auto mode its pick
+applies without a card, and the notice, the History and the report say it was
+the Agent's choice in auto mode, with the options not taken.
+Applied, the row is an ordinary **= tied** or fixed row, saved like any other,
+and listed under **Limitations** in the report. **Release** (or ⌘Z) frees it
+again. If a conclusion rests on that B, sample its posterior first
+(**Posterior** view).
+
 ### When the fit is stuck
 
 The engine is local and needs a reasonable start

@@ -484,6 +484,25 @@ const TOOLS = [
     offer: { powder: ["positions", "adp", "occupancy", "finish"], asked: ["occupancy", "adp", "tie"] },
   },
   {
+    name: "apply_adp_proposal",
+    title: "Hold a B that refined to 0",
+    description:
+      "Powder page only. For a B the last fit left on its lower bound (0), apply one of the app's ranked options (get_state's bAtZero) by its id: \"tie:<row>\" — a same-element site (preferred), or another cation of the same coordination (an alternative, with a caution) — or \"start\", the starting structure's B as it stands. No partner or value outside that list. Prefer the same-element tie; take a cross-element one only when physically sensible, with `reason` (required for it); in doubt take \"start\", or leave the B and report it. Asking first, the card shows the user every option with yours preselected; they may pick another or decline. In auto mode yours applies, recorded as yours (result, History, notice, report) with the options not taken. Undo: tie_parameters `release`, set_free or go_to_step. Refine after it. If the B carries physical meaning, run the Bayesian check (bayesian-check) instead of quoting a held value.",
+    withoutSkills:
+      "Powder page only. For a B the last fit left on its lower bound (0), apply one of the app's ranked options (get_state's bAtZero) by its id: \"tie:<row>\" — a same-element site (preferred), or another cation of the same coordination (an alternative, with a caution) — or \"start\", the starting structure's B as it stands. No partner or value outside that list. Prefer the same-element tie; take a cross-element one only when physically sensible, with `reason` (required for it); in doubt take \"start\", or leave the B and report it. Asking first, the card shows the user every option with yours preselected; they may pick another or decline. In auto mode yours applies, recorded as yours (result, History, notice, report) with the options not taken. Undo: tie_parameters `release`, set_free or go_to_step. Refine after it. If the B carries physical meaning, sample its posterior (sample_posterior) instead of quoting a held value.",
+    inputSchema: {
+      choose: z.array(z.object({
+        parameter: z.string().min(1).describe("The B row the last fit left on its lower bound, e.g. \"B_O2\""),
+        option: z.string().regex(/^(tie:[A-Za-z0-9_.+-]+|start)$/).describe("One of that row's option ids: \"tie:<row>\" (a tie the app offers) or \"start\" (the starting structure's value)"),
+        reason: z.string().min(1).optional().describe("Why the choice is physically sensible; required for a cross-element tie"),
+      }).strict()).min(1).describe("One option per row"),
+    },
+    effect: "change",
+    pages: ["powder"],
+    cards: ["parameters"],
+    offer: { powder: ["adp", "finish"], asked: ["adp", "tie"] },
+  },
+  {
     name: "sample_posterior",
     title: "Sample the Bayesian posterior",
     description:

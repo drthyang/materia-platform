@@ -871,7 +871,7 @@ function detailsHtml(input: ReportInput): string {
     rows.push({ label: "Engine", value: "no refinement run in this session — values are as loaded or set" });
   }
   const warnings = (input.warnings ?? []).map((w) => `<p class="warn">⚠ ${esc(w)}</p>`).join("");
-  return `<div class="card">${kvHtml(rows)}${warnings}</div>`;
+  return `<div class="card">${kvHtml(rows)}${warnings ? `<h4 style="margin-top:14px">Limitations</h4>${warnings}` : ""}</div>`;
 }
 
 /** The software and the date behind the report, for the appendix. */

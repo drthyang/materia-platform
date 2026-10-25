@@ -46,7 +46,21 @@ approximate, however plausible its output looks.
   a staged sequence that fixes a newly freed parameter again when it makes the
   fit degenerate.
 
+- An isotropic B that refines to its lower bound (0) on the powder page gets
+  ranked options with a warning, never a silent change: a tie to a site of the
+  same element that refined sensibly (preferred), ties to other cations of the
+  same coordination (labelled alternatives with a caution), and the starting
+  structure's B (an alternative). The user picks one in the notice; the
+  Agent's `apply_adp_proposal` picks one from the list, shown on its card for
+  the user to change or decline, or applied as the Agent's recorded choice in
+  auto mode. Applied, it is a tie or a held value like any other, listed under
+  Limitations in the report and reported by `assess_refinement`.
+
 **Approximate**
+- The B-at-0 rule's starting-structure value (rule B) is used as it stands,
+  with no temperature adjustment: the app has no model of B against
+  temperature. Its coordination match (a cross-cation tie) counts a cation's ligands
+  within the coordination shell (`coordinationShells`), not bond valences.
 - Fits fall back to central finite differences for every non-linear parameter
   with no validated analytic column — powder coordinates, cell, profile, zero
   shift and moments among them.
@@ -61,6 +75,14 @@ approximate, however plausible its output looks.
 **Not yet**
 - Global optimization. The engine is local, so it needs a reasonable starting
   model.
+- The B-at-0 rule's last step (rule C), a documented typical B for the element
+  at the measurement temperature: the repository holds no such table from a
+  citable source, so no value is proposed (and no arbitrary floor). The rule
+  also runs on the powder page only: a single-crystal B at 0 gets the
+  existing at-bound reading, a single-crystal tensor that is not positive
+  definite stays a hard flag, and on the PDF page a U at 0 points first at a
+  correlated-motion term (δ1/δ2), as before. The MCP `assess_refinement` takes
+  no proposals yet.
 
 ## Uncertainty and posterior sampling
 

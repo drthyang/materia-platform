@@ -455,6 +455,8 @@ export function assess_refinement(args: {
   disorder?: AssessmentInput["disorder"];
   /** The refined structures, for the physical checks (see AssessmentInput). */
   structures?: AssessmentInput["structures"];
+  /** The B-at-0 rule's proposals and applied fixes (see AssessmentInput). */
+  zeroAdp?: AssessmentInput["zeroAdp"];
 }): RefinementAssessment {
   return assessRefinement({
     result: args.result,
@@ -466,6 +468,7 @@ export function assess_refinement(args: {
     ...(args.sharedSiteAdps?.length ? { sharedSiteAdps: args.sharedSiteAdps } : {}),
     ...(args.disorder?.size ? { disorder: args.disorder } : {}),
     ...(args.structures?.length ? { structures: args.structures } : {}),
+    ...(args.zeroAdp && (args.zeroAdp.proposals.length > 0 || args.zeroAdp.applied.length > 0) ? { zeroAdp: args.zeroAdp } : {}),
   });
 }
 
