@@ -544,6 +544,37 @@ release fixes bugs.
 
 ### Changed
 
+- **One short zoom hint on every plot and 3D view.** The pattern, G(r), the
+  magnetic page's pattern and S(Q) each carry one line under the plot in the
+  gestures of the device: "⌘ + scroll to zoom · drag to pan · double-click to
+  reset" on a Mac, the same with Ctrl elsewhere, and "Pinch to zoom · drag to
+  pan" on a touch screen. Every 3D model (powder, PDF, magnetic, single
+  crystal) says "Scroll to zoom · drag to rotate" (on a touch screen, "Pinch
+  to zoom") beside its View a / b / c chip. The rest (Shift + drag box zoom,
+  the keys, a trackpad's pinch and swipe, the fit-range handles, the
+  reflection ticks; panning the 3D model) is in the line's tooltip: hover it,
+  focus it, or tap it. The hint replaces the long captions under the powder
+  and PDF plots and the 3D views; the PDF Qdamp/Qbroad note keeps its own
+  line. On a touch screen it shares the row of the zoom buttons, so the
+  phone layout gains no row. The magnetic page's pattern card grows by the
+  hint's line on a desktop instead of letting it run past the card.
+
+- **The powder Validation tab says each thing in one short line.** About
+  half the words on the demo (as it opens, after Refine, and with its cell
+  off by 0.3 %). Each line leads with what to do: "Fair fit: misfit mostly in
+  the peak tails", "Above your bar (good ≤ 2.5)", "Mn3Ga: Ga1 occ held at
+  1.005 → set to 1", "In GSAS-II / FullProf, once the bar is met", "Model's
+  tails too short → Refine TOF σ and β (keep α), after the atom positions".
+  Where refining is the next step, the state line says why and **Refine**
+  follows it. The full sentences, the statistic, the method's reasons and
+  `diagnose_fit`'s own words are behind a **?** beside each check and cause
+  (and on hover), so nothing is dropped. What was said twice is said once:
+  the physical card no longer restates "nothing unphysical", the cross-check
+  no longer repeats the state line's "no esds yet", the headline leaves the
+  GoF to its card, and the footer leaves the worst peaks' share to their
+  summary below. Same numbers and advice as before; the Agent's tools, their
+  text and the validation's arm A are unchanged.
+
 - **Phones and tablets: layouts fitted to iPhone and iPad Pro screens.**
   Tuned on the iPhone 18 Pro and Pro Max and the iPad Pro 11" and 13", upright
   and sideways; a desktop window looks as it did. On a phone held sideways the

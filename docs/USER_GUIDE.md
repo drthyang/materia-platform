@@ -217,7 +217,11 @@ magnetic model are steps too. Loading a new dataset starts a new history.
 ### Zoom, pan and the cursor readout
 
 The pattern, the G(r) plot, the magnetic page's pattern and the S(Q) view all
-work the same way.
+work the same way. The line under each plot names the main gestures for your
+device (⌘ on a Mac, Ctrl elsewhere, a pinch on a touch screen); hover, focus
+or tap it for the rest. The 3D models carry the same kind of line beside
+their View a / b / c chip: scroll or pinch to zoom, drag to rotate, and
+right-drag, Shift + drag or two fingers to pan.
 
 - **Cursor.** Hover the plot. A vertical line marks the data point under the
   pointer. The readout gives x in the axis unit (2θ °, TOF µs, d Å, Q Å⁻¹ or
@@ -508,12 +512,16 @@ Never judge a fit by its R value alone. The definitions are in
   a warning too), convergence (max shift/esd below 0.1), physical values, the
   correlations and undetermined directions of the last refinement, and the
   tests below.
-- On **powder** it reads the fit against your acceptance bar, top down:
+- On **powder** it reads the fit against your acceptance bar, top down.
+  Each item is one short line that leads with what to do; the **?** beside
+  it (or a hover) holds the longer account: why, the numbers behind it, and
+  your method's reasons.
   - One line on where the fit stands, and the state of the fit it judges:
     converged; a demo's converged snapshot, which has no esds until you
     refine; values edited since the last refinement; or not refined yet,
-    with what to do. **Refine** appears when refining is the next step.
-  - **Your acceptance bar**, three checks, each green, amber or red. The
+    with what to do. **Refine** follows the line when refining is the next
+    step.
+  - **Acceptance bar**, three checks, each green, amber or red. The
     **goodness of fit** in the assessment's bands (excellent up to 1.5, good
     up to 2.5; below 0.8 the esds are optimistic). **Physical sanity**:
     negative B values, occupancies outside [0, 1], values on a bound,
@@ -524,11 +532,11 @@ Never judge a fit by its R value alone. The definitions are in
     a value on its bound, or a correlated pair, which the **Posterior**
     judges.
   - **What limits the fit**: the causes the Agent's `diagnose_fit` reads,
-    largest share of χ² first (three shown; **show all**), each with its
-    evidence and what to do in your method's order. **Open …** opens that
-    parameter group in the panel; nothing is freed for you. **Show on
-    pattern** opens the Refinement view there. A line below says how much
-    of χ² the worst reflections carry, and where half of it sits in d.
+    largest share of χ² first (three shown; **show all**), each with what
+    the residual shows and what to do in your method's order, in a few words
+    each. **Open …** opens that parameter group in the panel; nothing is
+    freed for you. **Show on pattern** opens the Refinement view there. A
+    line below says where half of χ² sits in d.
   - **Evidence**, collapsed: the normalized residual (y_obs − y_calc)/σ with
     the **cumulative χ²** below it (click it to open that spot in the
     Refinement view); χ² per point in d-shells; the **Worst peaks**, the

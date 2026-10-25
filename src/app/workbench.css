@@ -607,9 +607,9 @@ html {
 
 /* Magnetic page: pattern check + 3D model (left rail) | workflow controls (right).
  * The row fills the window (rule 4) and both columns end on one bottom edge.
- * The single-crystal page (no pattern) keeps the long side, steps 1–5,
- * scrolling INSIDE its card; the powder page's desktop row (.wb-mag2-rail,
- * below) scrolls as a whole instead, with the rail pinned. */
+ * The pages without a pattern (single crystal, mPDF) keep the long side,
+ * steps 1–5, scrolling INSIDE its card; the powder page's desktop row
+ * (.wb-mag2-rail, below) scrolls as a whole instead, with the rail pinned. */
 .wb-mag2 {
   display: grid;
   grid-template-columns: minmax(400px, 6fr) minmax(380px, 5fr);
@@ -634,8 +634,15 @@ html {
   flex: 1 1 auto;
   min-height: 0;
 }
+/* The pattern check: at least the secondary plot height, and taller by the
+ * row under the plot (the gesture hint, and the zoom buttons where they take
+ * a row), rather than a fixed band that row overflowed, past the card's edge. */
+.wb-mag2-plot {
+  min-height: var(--wb-plot-h-sm);
+}
 
-/* Workflow steps: the card is the scroll region, not the page. */
+/* Workflow steps: the card is the scroll region, not the page (but see
+ * .wb-mag2-rail below). */
 .wb-mag2-steps {
   overflow-y: auto;
   min-height: 0;
@@ -678,8 +685,8 @@ html {
       flex: 1.25 1 0;
     }
     .wb-mag2-rail .wb-mag2-plot {
-      height: auto !important;
       flex: 1 1 0;
+      min-height: auto;
     }
     .wb-mag2-rail .wb-plot-box {
       min-height: 240px !important;
@@ -695,19 +702,7 @@ html {
       min-height: 140px !important;
       contain: size;
     }
-    /* The 3D card's chrome, tightened so the canvas keeps the room: the a/b/c
-       presets ride on the canvas's corner instead of a row of their own (only
-       the button group takes the pointer, not the row across the canvas), and
-       the toolbar and the legend pack closer. */
-    .wb-mag2-rail .wb-3d-presets {
-      position: relative;
-      z-index: 1;
-      margin: -32px 6px 6px 0 !important;
-      pointer-events: none;
-    }
-    .wb-mag2-rail .wb-3d-presets > * {
-      pointer-events: auto;
-    }
+    /* The 3D card's toolbar and legend pack closer, so the canvas keeps the room. */
     .wb-mag2-rail .wb-3d-toolbar,
     .wb-mag2-rail .wb-3d-legend {
       column-gap: 12px !important;
@@ -1704,23 +1699,6 @@ html {
     min-height: 0 !important;
     overflow: visible !important;
     flex: none !important;
-  }
-}
-
-/* The magnetic page's pattern check: its own content's height (the plot and,
- * on a touch screen or a narrow plot, the zoom row under it) wherever the page
- * stacks or the screen is touch, rather than a fixed band the 320px plot
- * overflowed (past the card's edge on a phone). */
-@container shell (max-width: 1120px) {
-  .wb-mag2-plot {
-    height: auto !important;
-    min-height: var(--wb-plot-h-sm);
-  }
-}
-@media (pointer: coarse) {
-  .wb-mag2-plot {
-    height: auto !important;
-    min-height: var(--wb-plot-h-sm);
   }
 }
 

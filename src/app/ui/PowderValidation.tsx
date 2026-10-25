@@ -5,11 +5,16 @@
  *     judged (converged, a converged snapshot, edited since, not refined),
  *     and the user's acceptance bar as three checks — the goodness of fit,
  *     physical sanity, the external cross-check — each green, amber or red
- *     with one plain sentence (core/diagnostics/powderAcceptance.ts).
+ *     with one short line (core/diagnostics/powderAcceptance.ts).
  *  2. What limits the fit: diagnose_fit's causes, largest share of χ² first,
- *     each with its evidence and what to do, in the order of the user's method
- *     (fitCauses.ts). An action opens the parameter group the cause is about,
- *     or the pattern where it shows; the rows are the user's to free.
+ *     each with what the residual shows and what to do in a few words, in the
+ *     order of the user's method (fitCauses.ts). An action opens the parameter
+ *     group the cause is about, or the pattern where it shows; the rows are
+ *     the user's to free.
+ *
+ * Every line is short and leads with what to do. The longer account — the
+ * statistic, the method's reasons, diagnose_fit's own words — is in a "?"
+ * beside it (a tooltip on hover as well): nothing is dropped, only moved.
  *  3. The evidence, collapsed: the normalized residual with the cumulative χ²,
  *     χ² by d-shell, the worst peaks, and every agreement number (Rp, Rwp,
  *     Rexp, the background-subtracted pair, Durbin–Watson, R_Bragg and R_F
@@ -192,7 +197,7 @@ export function PowderValidationView(props: PowderValidationProps): JSX.Element 
     return phaseTicks.find((p) => p.id === id)?.ticks.find((t) => t.hkl === hkl)?.x;
   };
   const markers = worst.map((w, i) => ({ n: i + 1, x: reflectionX(w.row) }));
-  const where = useMemo(() => whereSummary(validation, worst), [validation, worst]);
+  const where = useMemo(() => whereSummary(validation), [validation]);
 
   const ag = validation.agreement;
   const dw = validation.durbinWatson;
@@ -218,8 +223,8 @@ export function PowderValidationView(props: PowderValidationProps): JSX.Element 
         <span style={{ ...uppercaseLabel, paddingBottom: 2 }}>Evidence</span>
         <Disclosure
           id="residual"
-          title="Residual along the pattern"
-          summary={`(y_obs − y_calc)/σ and cumulative χ²${dw ? ` · Durbin–Watson ${dw.d.toFixed(2)}` : ""}`}
+          title="Residual"
+          summary={`Δ/σ and cumulative χ²${dw ? ` · DW ${dw.d.toFixed(2)}` : ""}`}
           info={STRIP_INFO}
           open={open.has("residual")}
           onToggle={() => toggle("residual")}
@@ -238,7 +243,7 @@ export function PowderValidationView(props: PowderValidationProps): JSX.Element 
         <Disclosure
           id="shells"
           title={validation.shellAxis === "d" ? "χ² by d-shell" : "χ² by shell"}
-          summary={peakShell ? `highest ${peakShell.chi2PerPoint.toFixed(1)} per point at ${validation.shellAxis === "d" ? "d " : ""}${Math.min(peakShell.lo, peakShell.hi).toFixed(shellDigits)}–${Math.max(peakShell.lo, peakShell.hi).toFixed(shellDigits)}${validation.shellAxis === "d" ? " Å" : ""} · noise gives 1` : undefined}
+          summary={peakShell ? `highest ${peakShell.chi2PerPoint.toFixed(1)}/point at ${validation.shellAxis === "d" ? "d " : ""}${Math.min(peakShell.lo, peakShell.hi).toFixed(shellDigits)}–${Math.max(peakShell.lo, peakShell.hi).toFixed(shellDigits)}${validation.shellAxis === "d" ? " Å" : ""} (noise 1)` : undefined}
           info={SHELL_INFO}
           open={open.has("shells")}
           onToggle={() => toggle("shells")}
@@ -260,7 +265,7 @@ export function PowderValidationView(props: PowderValidationProps): JSX.Element 
         <Disclosure
           id="worst"
           title="Worst peaks"
-          summary={worst.length > 0 ? `the ${worst.length} worst carry ${pct(worstShare, 0)} of χ²` : "no reflection list to attribute the misfit to"}
+          summary={worst.length > 0 ? `${worst.length} worst: ${pct(worstShare, 0)} of χ²` : "no reflection list"}
           info={WORST_INFO}
           open={open.has("worst")}
           onToggle={() => toggle("worst")}
@@ -269,7 +274,7 @@ export function PowderValidationView(props: PowderValidationProps): JSX.Element 
         </Disclosure>
         <Disclosure
           id="agreement"
-          title="Agreement numbers"
+          title="Agreement"
           summary={`Rwp ${pct(ag.rwp)} · Rexp ${pct(ag.rexp)} · ${ag.n.toLocaleString()} points · ${refCount} refl · ${nParams} free`}
           info={AGREEMENT_INFO}
           open={open.has("agreement")}
@@ -324,17 +329,17 @@ function Verdict({ acceptance, canRefine, onAction }: { acceptance: Acceptance; 
       <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
         <span style={{ marginTop: 1 }}><StatusIcon status={STATUS[acceptance.tone]} size={21} /></span>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <p data-testid="verdict-headline" style={{ margin: 0, fontSize: fz.body, fontWeight: 650, lineHeight: 1.4, color: acceptance.tone === "red" ? color.warnInk : color.ink }}>
+          <p data-testid="verdict-headline" title={acceptance.headlineDetail} style={{ margin: 0, fontSize: fz.body, fontWeight: 650, lineHeight: 1.4, color: acceptance.tone === "red" ? color.warnInk : color.ink }}>
             {acceptance.headline}
           </p>
-          <p data-testid="fit-state" style={{ margin: "2px 0 0", fontSize: fz.small, lineHeight: 1.45, color: state.tone === "amber" || state.tone === "red" ? toneInk(state.tone) : color.secondary }}>
+          <p data-testid="fit-state" title={state.detail} style={{ margin: "2px 0 0", fontSize: fz.small, lineHeight: 1.45, color: state.tone === "amber" || state.tone === "red" ? toneInk(state.tone) : color.secondary }}>
             {state.text}
             {state.refine && canRefine ? <button type="button" style={linkButton} onClick={() => onAction({ kind: "refine" })}>Refine</button> : null}
           </p>
         </div>
       </div>
       <div>
-        <span style={uppercaseLabel}>Your acceptance bar</span>
+        <span style={uppercaseLabel}>Acceptance bar</span>
         <ul style={{ listStyle: "none", margin: "6px 0 0", padding: 0, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 8 }}>
           {acceptance.checks.map((c) => <CheckCard key={c.id} check={c} onAction={onAction} />)}
         </ul>
@@ -357,6 +362,11 @@ function CheckCard({ check, onAction }: { check: AcceptanceCheck; onAction: (a: 
   const t = TONES[STATUS[check.tone]];
   const items = check.items ?? [];
   const shown = all ? items : items.slice(0, ITEMS_SHOWN);
+  // The longer accounts behind the short lines, for the "?" (a tooltip does not show on a touch screen).
+  const info = [check.detail, ...(check.esd ?? []).map((e) => e.detail)].filter((s): s is string => !!s);
+  const help = info.length > 0 ? (
+    <span style={{ display: "inline-flex", marginLeft: 6, verticalAlign: -2 }}><InfoBadge text={info.length === 1 ? info[0] : <Paragraphs lines={info} />} width={280} /></span>
+  ) : null;
   return (
     <li data-check={check.id} data-tone={check.tone} style={{ display: "flex", gap: 8, alignItems: "flex-start", border: `1px solid ${check.tone === "grey" ? color.border : t.border}`, background: check.tone === "grey" ? color.surface : t.bg, borderRadius: 8, padding: "8px 10px", minWidth: 0 }}>
       <span style={{ marginTop: 1 }}><StatusIcon status={STATUS[check.tone]} /></span>
@@ -364,8 +374,9 @@ function CheckCard({ check, onAction }: { check: AcceptanceCheck; onAction: (a: 
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", columnGap: 8, rowGap: 0 }}>
           <span style={{ fontSize: fz.small, fontWeight: 650, color: color.ink }}>{check.label}</span>
           <span style={{ fontSize: fz.small, fontFamily: mono, fontWeight: 600, color: check.tone === "grey" ? color.secondary : t.ink }}>{check.value}</span>
+          {!check.sentence ? help : null}
         </div>
-        <span style={{ fontSize: fz.small, lineHeight: 1.45, color: color.secondary }}>{check.sentence}</span>
+        {check.sentence ? <span title={check.detail} style={{ fontSize: fz.small, lineHeight: 1.45, color: color.secondary }}><WithBadge text={check.sentence} badge={help} /></span> : null}
         {shown.length > 0 ? (
           <ul style={{ listStyle: "none", margin: "2px 0 0", padding: 0, display: "flex", flexDirection: "column", gap: 3 }}>
             {shown.map((item, i) => (
@@ -381,7 +392,7 @@ function CheckCard({ check, onAction }: { check: AcceptanceCheck; onAction: (a: 
           </button>
         ) : null}
         {check.esd?.map((e, i) => (
-          <span key={i} style={{ fontSize: fz.micro, lineHeight: 1.45, color: color.secondary }}>{e.text}</span>
+          <span key={i} title={e.detail} style={{ fontSize: fz.micro, lineHeight: 1.45, color: color.secondary }}>{e.text}</span>
         ))}
         {check.actions && check.actions.length > 0 ? (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 2 }}>
@@ -393,6 +404,18 @@ function CheckCard({ check, onAction }: { check: AcceptanceCheck; onAction: (a: 
       </div>
     </li>
   );
+}
+
+/** A line ending in a "?" that wraps with its last word, never alone onto a line of its own. */
+function WithBadge({ text, badge }: { text: string; badge: ReactNode }): JSX.Element {
+  if (!badge) return <>{text}</>;
+  const cut = text.lastIndexOf(" ");
+  return <>{text.slice(0, cut + 1)}<span style={{ whiteSpace: "nowrap" }}>{text.slice(cut + 1)}{badge}</span></>;
+}
+
+/** Lines of a "?" tooltip, each its own paragraph. */
+function Paragraphs({ lines }: { lines: readonly ReactNode[] }): JSX.Element {
+  return <>{lines.map((l, i) => <span key={i} style={{ display: "block", marginTop: i > 0 ? 6 : 0 }}>{l}</span>)}</>;
 }
 
 function SeverityChip({ severity }: { severity: PhysicalItem["severity"] }): JSX.Element {
@@ -418,14 +441,14 @@ function Causes({ causes, state, band, where, diagnosable, onAction }: {
   const [all, setAll] = useState(false);
   const shown = all ? causes : causes.slice(0, CAUSES_SHOWN);
   const body = ((): ReactNode => {
-    if (state === "none") return <p style={note}>The causes are read once the first block is refined: until then every reflection misfits, and each is a misfit to refine, not a cause.</p>;
-    if (!diagnosable) return <p style={note}>The causes need the pattern in d-spacing: a wavelength or a TOF calibration.</p>;
+    if (state === "none") return <p style={note} title="Until then every reflection misfits, and each is a misfit to refine, not a cause.">Causes are read once the first block is refined</p>;
+    if (!diagnosable) return <p style={note}>Causes need the pattern in d-spacing: a wavelength or a TOF calibration</p>;
     if (causes.length === 0) {
       const look = band === "fair" || band === "poor";
       return (
         <p style={note}>
-          No single cause stands out: the misfit is spread thin.{look ? " Read the worst peaks one by one." : ""}
-          {look ? <button type="button" style={linkButton} onClick={() => onAction({ kind: "evidence", section: "worst" })}>Worst peaks</button> : null}
+          No single cause: the misfit is spread thin
+          {look ? <button type="button" style={linkButton} title="Read the worst peaks one by one" onClick={() => onAction({ kind: "evidence", section: "worst" })}>Read the worst peaks</button> : null}
         </p>
       );
     }
@@ -441,8 +464,8 @@ function Causes({ causes, state, band, where, diagnosable, onAction }: {
         <h3 style={{ margin: 0, fontSize: fz.body, fontWeight: 700, color: color.ink }}>What limits the fit</h3>
         <InfoBadge text={CAUSES_INFO} width={320} />
         {causes.length > 0 && state !== "none" ? (
-          <span style={{ fontSize: fz.micro, color: color.secondary }}>
-            largest share of χ² first{causes.reduce((a, c) => a + c.share, 0) > 1 ? " · the shares overlap" : ""}
+          <span style={{ fontSize: fz.micro, color: color.secondary }} title="Largest share of χ² first; shares are approximate, and causes can overlap">
+            largest first{causes.reduce((a, c) => a + c.share, 0) > 1 ? " · shares overlap" : ""}
           </span>
         ) : null}
         {causes.length > CAUSES_SHOWN && state !== "none" ? (
@@ -458,20 +481,21 @@ function Causes({ causes, state, band, where, diagnosable, onAction }: {
 }
 
 function CauseItem({ cause, rank, onAction }: { cause: CauseRow; rank: number; onAction: (a: ValidationAction) => void }): JSX.Element {
+  const evidence = `${cause.evidence}${cause.statistic ? ` (${cause.statistic})` : ""}`;
   return (
     <li data-cause={cause.id} style={{ display: "flex", gap: 9, alignItems: "flex-start", padding: "8px 0", borderTop: rank > 1 ? `1px solid ${color.subtle2}` : "none" }}>
       <span aria-hidden style={rankBadge}>{rank}</span>
       <div style={{ minWidth: 0, flex: 1, display: "flex", flexDirection: "column", gap: 3 }}>
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", columnGap: 12, rowGap: 3 }}>
-          <span style={{ fontSize: fz.small, fontWeight: 650, color: color.ink }} title={`diagnose_fit: ${cause.detail}`}>{cause.title}</span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <span style={{ fontSize: fz.small, fontWeight: 650, color: color.ink }} title={`diagnose_fit: ${cause.detail}`}>{cause.title}</span>
+            <InfoBadge text={<Paragraphs lines={[evidence, `→ ${cause.action}`, `diagnose_fit: ${cause.detail}`]} />} width={320} />
+          </span>
           <ShareBar share={cause.share} />
         </div>
-        <span style={{ fontSize: fz.small, lineHeight: 1.45, color: color.ink }}>
-          {cause.evidence}
-          {cause.statistic ? <span style={{ color: color.faint, fontSize: fz.micro }}> ({cause.statistic})</span> : null}
-        </span>
-        <span style={{ fontSize: fz.small, lineHeight: 1.45, color: color.secondary }}>
-          <span aria-hidden style={{ color: color.primary, fontWeight: 600 }}>→ </span>{cause.action}
+        <span title={evidence} style={{ fontSize: fz.small, lineHeight: 1.45, color: color.ink }}>{cause.summary}</span>
+        <span title={cause.action} style={{ fontSize: fz.small, lineHeight: 1.45, color: color.secondary }}>
+          <span aria-hidden style={{ color: color.primary, fontWeight: 600 }}>→ </span>{cause.todo}
         </span>
         {cause.buttons.length > 0 ? (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 2 }}>
