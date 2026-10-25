@@ -602,10 +602,10 @@ release fixes bugs.
   1000 px) at their natural height, and the row scrolls as a whole beside a
   rail pinned to it: the pattern check over the 3D model, both in view while
   candidates are clicked. The 3D view fits the cell to its canvas with a mouse
-  too, its a/b/c presets sit on the canvas's corner, and nothing runs past a
-  card at 1440, 1920 or 2560 px. The residual-peak table shows its six
-  strongest peaks (and every peak in the k-search) until "Show all", and its
-  "near" column gives the reflection's hkl, with the phase only when the
+  too, and nothing runs past a card at 1440, 1920 or 2560 px; a window under
+  ~800 px tall runs the rail past the fold. The residual-peak table shows its
+  six strongest peaks (and every peak in the k-search) until "Show all", and
+  its "near" column gives the reflection's hkl, with the phase only when the
   pattern has several; a single phase's tick row is "nuclear" in the legend.
   "Set k" is a quiet button while the fields hold the k in use, not a faded
   primary one that read as broken. Phones and tablets keep their layouts.
