@@ -151,9 +151,11 @@ interface Props {
    * has something to say (the powder page's B-at-0 proposals, ZeroAdpNotice).
    */
   readonly notice?: ReactNode;
+  /** Warnings about the rows as they stand (a shared site's last occupancy outside [0, 1]), shown above the result. */
+  readonly warnings?: readonly string[];
 }
 
-export function ParameterPanel({ params, esd, onChange, onRefine, onThorough, thoroughMode = "prefit", prefitTitle, onCancel, onReset, onMagnetic, busy, result, disabled, title, extraActions, groupControls, groupInfo, frameworkControls, notice }: Props): JSX.Element {
+export function ParameterPanel({ params, esd, onChange, onRefine, onThorough, thoroughMode = "prefit", prefitTitle, onCancel, onReset, onMagnetic, busy, result, disabled, title, extraActions, groupControls, groupInfo, frameworkControls, notice, warnings }: Props): JSX.Element {
   const groups = useMemo(() => {
     const byGroup = new Map<string, RefinementParameter[]>();
     for (const p of params) {
@@ -280,6 +282,9 @@ export function ParameterPanel({ params, esd, onChange, onRefine, onThorough, th
           );
         })}
       </div>
+      {warnings?.map((w) => (
+        <div key={w} role="alert" style={{ padding: "6px 10px", fontSize: 11.5, lineHeight: 1.4, color: color.warnInk, borderTop: `1px solid ${color.subtle}` }}>⚠ {w}</div>
+      ))}
       {result && <ResultSection result={result} open={resultOpen} onToggle={() => setResultOpen((o) => !o)} />}
     </div>
   );

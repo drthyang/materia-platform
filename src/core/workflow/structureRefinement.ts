@@ -23,6 +23,8 @@ import { allowedAnisotropicAdpModes } from "@/core/crystal/adpConstraints";
 import { siteMultiplicity } from "@/core/crystal/symmetry";
 import { quarticStrainInvariants } from "@/core/diffraction/anisoStrain";
 import { correctionById, CORRECTION_KINDS, type CorrectionRequest } from "@/core/diffraction/corrections";
+import { parseTie, remainderOf } from "@/core/refinement/constraints";
+import { isSiteTotal } from "@/core/workflow/powderModelOptions";
 
 export interface StructureRefinementOptions {
   /** Starting scale factor (seed with `optimalScale` for real data). Default 1. */
@@ -110,6 +112,15 @@ export interface StructureRefinementOptions {
    * mixed site) instead of the starting-model sum. Default false (keep the sum).
    */
   readonly constrainOccupancyToUnity?: boolean;
+  /**
+   * Hold each shared site's Σ(occupancy) by a hard tie instead of the soft
+   * restraint: the last member's row follows the site's total minus the
+   * others' (`sharedOccupancyTies`), held fixed, and no Σ restraint is added.
+   * The PDF and powder pages' choice. Default false.
+   */
+  readonly tieSharedOccupancy?: boolean;
+  /** With `tieSharedOccupancy`: each shared site's total by its key (first member's label); 1 where absent. */
+  readonly occupancyTotals?: Readonly<Record<string, number>>;
   /**
    * Soft linear restraints on occupancies. Use coefficients to express total
    * occupancy, sublattice totals, or charge-balance terms. Targets default to
@@ -281,6 +292,8 @@ export function buildStructureRefinement(
     tieSharedAdp = true,
     restrainSharedOccupancy = true,
     constrainOccupancyToUnity = false,
+    tieSharedOccupancy = false,
+    occupancyTotals = {},
     occupancyRestraints = [],
     holdComposition = false,
     positionBound = 0.2,
@@ -468,13 +481,18 @@ export function buildStructureRefinement(
 
   // Occupancies (optional; off by default — correlates strongly with scale/ADP).
   if (refineOccupancy) {
+    // A shared site's last occupancy follows its total minus the others', held (it never refines itself).
+    const ties = new Map(tieSharedOccupancy ? sharedOccupancyTies(structure.sites, occupancyTotals).map((t) => [t.id, t] as const) : []);
     for (const site of structure.sites) {
       const id = `occ_${site.label}`;
-      params.push({ id, label: `${site.label} occ`, kind: "occupancy", value: site.occupancy, initialValue: site.occupancy, min: 0, max: 1, fixed: false });
+      const tie = ties.get(id);
+      params.push(tie
+        ? { id, label: `${site.label} occ`, kind: "occupancy", value: tie.value, initialValue: tie.value, min: 0, max: 1, fixed: true, expression: tie.expression }
+        : { id, label: `${site.label} occ`, kind: "occupancy", value: site.occupancy, initialValue: site.occupancy, min: 0, max: 1, fixed: false });
       bindings.push({ parameterId: id, kind: "occupancy", targetId: structure.id, targetKey: site.label });
     }
     restraints.push(...buildOccupancyRestraints(structure, occupancyRestraints));
-    if (restrainSharedOccupancy) restraints.push(...sharedOccupancyRestraints(structure.sites, constrainOccupancyToUnity));
+    if (restrainSharedOccupancy && !tieSharedOccupancy) restraints.push(...sharedOccupancyRestraints(structure.sites, constrainOccupancyToUnity));
     if (holdComposition) restraints.push(...compositionRestraints(structure));
   }
 
@@ -637,6 +655,76 @@ export function sharedOccupancyRestraints(sites: readonly AtomSite[], toUnity = 
 }
 
 /**
+ * The hard form of the shared-site Σ (the PDF and powder pages'): on each site
+ * with ≥ 2 members the last member's occupancy follows the site's total minus
+ * the others' (`remainderOf`: the complement for two, SHELXL's 21/−21), so the
+ * site's occupancies sum to exactly that total and the others refine. The
+ * totals are by the site's key (its first member's label, as `B_<key>` and
+ * `pos_<key>_i`), 1 where none is set: a total below 1 leaves vacancies. Each
+ * tied row's id, its expression and the value the tie gives at the starting
+ * occupancies.
+ */
+export function sharedOccupancyTies(sites: readonly AtomSite[], totals: Readonly<Record<string, number>> = {}): { readonly id: string; readonly expression: string; readonly value: number }[] {
+  const out: { id: string; expression: string; value: number }[] = [];
+  for (const g of siteGroups(sites, true)) {
+    if (g.members.length < 2) continue;
+    const others = g.members.slice(0, -1);
+    const total = totals[g.key] ?? 1;
+    out.push({
+      id: `occ_${g.members[g.members.length - 1]!.label}`,
+      expression: remainderOf(others.map((m) => `occ_${m.label}`), total),
+      value: total - others.reduce((acc, m) => acc + m.occupancy, 0),
+    });
+  }
+  return out;
+}
+
+/** The sites shared by two or more atoms: each one's key (its first member's label, the key `sharedOccupancyTies` reads its total by) and its members' labels. */
+export function sharedSites(sites: readonly AtomSite[]): { readonly key: string; readonly labels: readonly string[] }[] {
+  return siteGroups(sites, true).filter((g) => g.members.length > 1).map((g) => ({ key: g.key, labels: g.members.map((m) => m.label) }));
+}
+
+/**
+ * The shared sites' occupancy constraints, read off the rows: each occupancy
+ * row that follows a total minus other occupancies (`sharedOccupancyTies`),
+ * with the rows it follows and the total they sum to with it.
+ */
+export function siteSumConstraints(params: readonly RefinementParameter[]): { readonly follower: string; readonly leaders: readonly string[]; readonly total: number }[] {
+  const kind = new Map(params.map((p) => [p.id, p.kind] as const));
+  const out: { follower: string; leaders: string[]; total: number }[] = [];
+  for (const p of params) {
+    if (p.kind !== "occupancy" || !p.expression) continue;
+    let tie: ReturnType<typeof parseTie>;
+    try {
+      tie = parseTie(p.expression);
+    } catch {
+      continue;
+    }
+    if (tie.kind === "norm" || tie.factor !== -1 || !isSiteTotal(tie.constant)) continue;
+    const leaders = tie.kind === "linear" ? [tie.refId] : [...tie.refIds];
+    if (leaders.every((id) => kind.get(id) === "occupancy")) out.push({ follower: p.id, leaders, total: tie.constant });
+  }
+  return out;
+}
+
+/** Below this past a bound a tied occupancy is round-off, not out of range. */
+const RANGE_SLACK = 1e-9;
+
+/**
+ * Each shared site's last occupancy that has left [0, 1] (its total minus the
+ * others' is negative, or above 1), in words: the tie never clamps it, so the
+ * model holds a negative or overfull occupancy. Empty when every one is in range.
+ */
+export function siteSumRangeWarnings(params: readonly RefinementParameter[]): string[] {
+  const value = new Map(params.map((p) => [p.id, p.value] as const));
+  return siteSumConstraints(params).flatMap((c) => {
+    const v = value.get(c.follower)!;
+    if (v >= -RANGE_SLACK && v <= 1 + RANGE_SLACK) return [];
+    return [`${c.follower} = ${v.toFixed(4)} is outside [0, 1]: it follows ${c.total} − (${c.leaders.join(" + ")}), and the others ${v < 0 ? `sum to more than the site's total ${c.total}` : "sum to less than 0"}. The tie does not clamp it: fix some of them, refine fewer, or check the model.`];
+  });
+}
+
+/**
  * Hold the composition: each element on two or more sites keeps its total in
  * the cell, Σ multiplicity × occupancy over its sites, at the starting model's
  * value. Atoms can then exchange between sites (anti-site disorder, spinel
@@ -667,13 +755,12 @@ export function compositionRestraints(structure: StructureModel): LinearRestrain
 }
 
 /**
- * The occupancy restraints a structure's site ties ask for: the shared-site Σ
- * (to 1 with `occupancyToUnity`) and, with `composition`, the composition.
- * The same set `buildStructureRefinement` adds when occupancies refine.
+ * The occupancy restraints a structure's site ties ask for on the powder page:
+ * with `composition`, the composition. A shared site's Σ is not one: its last
+ * occupancy follows the site's total by a tie (`tieSharedOccupancy`).
  */
-export function siteTieRestraints(structure: StructureModel, ties: { readonly occupancyToUnity?: boolean; readonly composition?: boolean }): LinearRestraint[] {
+export function siteTieRestraints(structure: StructureModel, ties: { readonly composition?: boolean }): LinearRestraint[] {
   return [
-    ...sharedOccupancyRestraints(structure.sites, ties.occupancyToUnity ?? false),
     ...(ties.composition ? compositionRestraints(structure) : []),
   ];
 }

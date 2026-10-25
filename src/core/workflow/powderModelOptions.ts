@@ -5,15 +5,22 @@
  * one definition without the core importing the app layer.
  */
 
-/** Whether atoms sharing a crystallographic site are tied (see structureRefinement). */
+/**
+ * Whether atoms sharing a crystallographic site are tied (see
+ * structureRefinement). A shared site's occupancies always sum to exactly its
+ * total, by a tie: the last member follows the total minus the others.
+ */
 export interface SiteTies {
   readonly positions?: boolean;
   readonly adp?: boolean;
-  /** Constrain Σ(occupancy) on a shared site to exactly 1 (vs. the starting sum). */
-  readonly occupancyToUnity?: boolean;
   /** Hold the composition: each element on two or more sites keeps its total in the cell. */
   readonly composition?: boolean;
+  /** Each shared site's total occupancy by the site's key (its first member's label); 1 where absent, below 1 for vacancies. */
+  readonly totals?: Readonly<Record<string, number>>;
 }
+
+/** Whether a value is a site's total occupancy the tie takes: a fraction in [0.001, 1]. */
+export const isSiteTotal = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v >= 0.001 && v <= 1;
 
 /**
  * Sample microstrain (Mustrain) model, GSAS-II-style:

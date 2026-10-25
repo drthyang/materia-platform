@@ -13,6 +13,7 @@
  * it, the report and the answers kept by ref are the record (executorRecord.ts).
  */
 
+import { siteSumRangeWarnings } from "@/core/workflow/structureRefinement";
 import type { CardDecision, CardOptionGroup } from "@/agent/cardOptions";
 import { z } from "zod";
 import { PAGE_LABEL, liveTool, type AgentPage, type LiveToolSpec, type ToolEffect } from "@/agent/tools";
@@ -592,6 +593,8 @@ function changeOutcome<P extends AgentPort>(
       iterations: r.history.length,
       ...(r.diagnostics ? { atBounds: r.diagnostics.atBounds.map((b) => b.parameterId), maxShiftOverEsd: Number(r.diagnostics.maxShiftOverEsd.toPrecision(3)) } : {}),
       ...developedCorrelations(r, after.parameters, after.restraints, page.assemblies(after)),
+      // A shared site's last occupancy that left [0, 1]: the tie never clamps it.
+      ...(siteSumRangeWarnings(after.parameters).length > 0 ? { occupancyWarnings: siteSumRangeWarnings(after.parameters) } : {}),
       ...(r.message ? { message: r.message } : {}),
     };
   }

@@ -44,8 +44,10 @@ import { parseCif } from "@/parsers/cif";
 import {
   ACTIVATION_KICK, SAMPLE_STEPS, agentBoxcarPlan, boxcarSummary, landsOn, liveStateOf, momentFit, pageView, pdfBoxcar, pdfFit, pdfPage, pdfPosterior, pdfProbe, pdfThorough, reportInputOf, rwOf, specKeyOf,
   withActivatedMode, withAdpModel, withBoxcarPlan, withBoxcarRun, withBoxcarStep, withExtraPhases, withFit, withFitRange, withFixed, withLoadedStructure, withoutModes,
-  withParameter, withParentModes, withPattern, withPositionMode, withPosterior, withReset, withSpinModel, withSubgroup, workspaceOf, type AgentBoxcarPlan,
+  withParameter, withParentModes, withPattern, withPositionMode, withPosterior, withReset, withSiteTotal, withSpinModel, withSubgroup, workspaceOf, type AgentBoxcarPlan,
 } from "@/app/pdfPage";
+import { SiteTotals } from "@/app/ui/SiteTotals";
+import { sharedSites, siteSumRangeWarnings } from "@/core/workflow/structureRefinement";
 
 // Lazy so three.js stays out of the main bundle until the 3D view is opened.
 const StructureView = lazy(() => import("@/app/ui/StructureView").then((m) => ({ default: m.StructureView })));
@@ -62,6 +64,7 @@ import { downloadText } from "@/app/download";
 import { structureToCif, magneticStructureToMcif } from "@/core/export/cif";
 import { reportHtml, type ReportInput } from "@/core/export/report";
 import type { MagneticExploration } from "@/app/reportInputs";
+import { esdsWithTies } from "@/core/refinement/constraints";
 import { card as themeCard, color, mono, secondaryButton, uppercaseLabel, fz, toolbarBtn, resetRangeBtn, space } from "@/app/theme";
 
 const DATA_ACCEPT = ".gr,.sgr,.fgr,.sq,.fq,.dat,.txt,text/plain";
@@ -136,6 +139,11 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   // on the data's id): the rows are built afresh (on change only — the mount
   // render may carry a restored state).
   useOnChange(structure, () => setModel((m) => withLoadedStructure(m, structure)));
+  // Every phase's shared sites (one per site key), for their totals in the Occupancy group.
+  const pdfSharedSites = useMemo(() => {
+    const seen = new Set<string>();
+    return [model.loaded, ...model.extraPhases].flatMap((ph) => sharedSites(ph.sites)).filter((site) => !seen.has(site.key) && (seen.add(site.key), true));
+  }, [model.loaded, model.extraPhases]);
   useOnChange(extraPhases, () => setModel((m) => withExtraPhases(m, extraPhases)));
   useOnChange(pattern, () => setModel((m) => withPattern(m, pattern)));
   // Mode selected in the 3D card's table: its eigenvector (unit-amplitude
@@ -643,8 +651,10 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   // once here for both flavours.
   const exportPhaseCifRef = useRef<(target: StructureModel, id: string, magnetic?: MagneticModel | null) => void>(() => {});
   exportPhaseCifRef.current = (target: StructureModel, id: string, magnetic?: MagneticModel | null): void => {
+    // A tied row (a shared site's last occupancy) carries its tie's esd, as the report does.
+    const esds = esdsWithTies(params, result);
     const withEsd = params.map((p) => {
-      const esd = result?.esd[p.id] ?? p.esd;
+      const esd = esds[p.id] ?? p.esd;
       return esd !== undefined ? { ...p, esd } : { ...p };
     });
     const meta = {
@@ -1230,7 +1240,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
 
         <ParameterPanel
           params={params}
-          esd={result?.esd}
+          esd={result ? esdsWithTies(params, result) : undefined}
           onChange={onParamChange}
           onRefine={() => void runRefine()}
           onThorough={() => void runMultiStart()}
@@ -1247,7 +1257,12 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
           result={result}
           title="PDF parameters"
           extraActions={refineActions}
+          warnings={siteSumRangeWarnings(params)}
           groupControls={{
+            // Each shared site's occupancies sum to its total by a tie (the last follows the others).
+            ...(pdfSharedSites.length > 0 ? {
+              Occupancy: <SiteTotals sites={pdfSharedSites} totals={model.siteTotals} onChange={(key, total) => setModel((m) => withSiteTotal(m, key, total))} disabled={busy} />,
+            } : {}),
             "ADPs (thermal)": (
               <label style={{ display: "inline-flex", alignItems: "center", gap: 5, cursor: busy ? "default" : "pointer" }} title="Refine the symmetry-allowed U tensor of each site instead of one U per site. Each site's tensor is seeded from its current U; a CIF with U_aniso columns loads anisotropic. A small-box fit usually refines one U per site.">
                 <input type="checkbox" checked={adpModel === "anisotropic"} disabled={busy} onChange={(e) => switchAdpModel(e.target.checked)} />

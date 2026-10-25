@@ -10,14 +10,18 @@
  *                               magnitude tie: a moment amplitude equal to the
  *                               size of another sublattice's moment, whose
  *                               amplitudes a, b, … lie along orthonormal modes
+ *   "= c ± [factor*]sum(a,b,…)" → value equals c ± (factor ×) (a + b + …) — the
+ *                               sum tie: a shared site's last occupancy, its
+ *                               total minus the others' (`remainderOf`)
  * Anything else throws, so silent misparses cannot happen.
  */
 
-import type { RefinementParameter } from "@/core/refinement/types";
+import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
 
 export type ParsedTie =
   | { readonly kind: "linear"; readonly factor: number; readonly refId: string; readonly constant: number }
-  | { readonly kind: "norm"; readonly factor: number; readonly refIds: readonly string[] };
+  | { readonly kind: "norm"; readonly factor: number; readonly refIds: readonly string[] }
+  | { readonly kind: "sum"; readonly constant: number; readonly factor: number; readonly refIds: readonly string[] };
 
 const ID = "[A-Za-z_][\\w:-]*";
 
@@ -32,6 +36,12 @@ export function parseTie(expression: string): ParsedTie {
   if (h) {
     const factor = h[1] !== undefined ? parseFloat(h[1]) : h[2] === "-" ? -1 : 1;
     return { kind: "norm", factor, refIds: h[3]!.split(",") };
+  }
+  // Sum tie: [c±][factor*]sum(id, id, …) — a constant needs the sign that follows it.
+  const t = body.match(new RegExp(`^(?:([+-]?\\d*\\.?\\d+)(?=[+-]))?([+-])?(?:(\\d*\\.?\\d+)\\*)?sum\\((${ID}(?:,${ID})*)\\)$`));
+  if (t) {
+    const factor = (t[2] === "-" ? -1 : 1) * (t[3] !== undefined ? parseFloat(t[3]) : 1);
+    return { kind: "sum", constant: t[1] !== undefined ? parseFloat(t[1]) : 0, factor, refIds: t[4]!.split(",") };
   }
   // Linear tie: [factor*]id[+const] or [factor*]id[-const]
   const m = body.match(/^(?:([+-]?\d*\.?\d+)\*)?([A-Za-z_][\w:-]*)(?:([+-]\d*\.?\d+))?$/);
@@ -71,6 +81,7 @@ export function renamedTie(expression: string, rename: (id: string) => string): 
     const sign = tie.factor === 1 ? "" : tie.factor === -1 ? "-" : `${tie.factor}*`;
     return `= ${sign}hypot(${tie.refIds.map(rename).join(", ")})`;
   }
+  if (tie.kind === "sum") return sumTie(tie.constant, tie.factor, tie.refIds.map(rename));
   const factor = tie.factor === 1 ? "" : `${tie.factor}*`;
   const constant = tie.constant === 0 ? "" : `${tie.constant > 0 ? "+" : ""}${tie.constant}`;
   return `= ${factor}${rename(tie.refId)}${constant}`;
@@ -99,11 +110,46 @@ export function resolveTies(
       out[p.id] = tie.factor * Math.sqrt(sum);
       continue;
     }
+    if (tie.kind === "sum") {
+      let sum = 0;
+      for (const id of tie.refIds) {
+        const v = out[id];
+        if (v === undefined) throw new Error(`Tie for "${p.id}" references unknown parameter "${id}"`);
+        sum += v;
+      }
+      out[p.id] = tie.constant + tie.factor * sum;
+      continue;
+    }
     const ref = out[tie.refId];
     if (ref === undefined) {
       throw new Error(`Tie for "${p.id}" references unknown parameter "${tie.refId}"`);
     }
     out[p.id] = tie.factor * ref + tie.constant;
+  }
+  return out;
+}
+
+/**
+ * Every row's esd from a refinement, a tied row's included: a free row's own;
+ * a row tied linearly to one other |f| times that row's (exact: a complement
+ * occupancy carries its leader's); a row tied to a sum of free rows the
+ * combination's, which the engine works out from the full covariance
+ * (`combinationEsd`, by the row's id). A row with none is absent.
+ */
+export function esdsWithTies(params: readonly RefinementParameter[], result: RefinementResult | null | undefined): Record<string, number> {
+  const out: Record<string, number> = { ...(result?.esd ?? {}) };
+  if (!result) return out;
+  for (const p of params) {
+    if (!p.expression || out[p.id] !== undefined) continue;
+    try {
+      const tie = parseTie(p.expression);
+      const e = tie.kind === "linear" ? (result.esd[tie.refId] !== undefined ? Math.abs(tie.factor) * result.esd[tie.refId]! : undefined)
+        : tie.kind === "sum" ? result.combinationEsd?.[p.id]
+          : undefined;
+      if (e !== undefined && Number.isFinite(e)) out[p.id] = e;
+    } catch {
+      // An unparsable tie has no esd; resolveTies reports it.
+    }
   }
   return out;
 }
@@ -158,6 +204,39 @@ const TIEABLE_KINDS: ReadonlySet<RefinementParameter["kind"]> = new Set<Refineme
 
 /** The tie of the second of two occupancies to one minus the first. */
 export const complementOf = (leader: string): string => `= -1*${leader}+1`;
+
+/** A sum tie as written: `= c - f*sum(a, b, …)`, the constant and the factor left out when 0 and 1. */
+function sumTie(constant: number, factor: number, refIds: readonly string[]): string {
+  const f = Math.abs(factor) === 1 ? "" : `${Math.abs(factor)}*`;
+  const sign = factor < 0 ? "-" : constant !== 0 ? "+" : "";
+  return `= ${constant !== 0 ? `${constant} ` : ""}${sign}${constant !== 0 ? " " : ""}${f}sum(${refIds.join(", ")})`;
+}
+
+/**
+ * The tie of a shared site's last occupancy to the site's total (1 unless a
+ * vacancy is set) minus the others', so the site's occupancies sum to exactly
+ * that total and the others refine: for one other the complement
+ * (`= -1*a+1`, or `+0.95`), for more `= 1 - sum(a, b, …)`.
+ */
+export const remainderOf = (others: readonly string[], total = 1): string =>
+  others.length === 1 ? (total === 1 ? complementOf(others[0]!) : `= -1*${others[0]!}+${total}`) : sumTie(total, -1, others);
+
+/**
+ * The rows with each of `ids`, a tied row, at the value its tie gives now.
+ * `reopened` (rows a project file left untied): they also take their starting
+ * value from the others' and are held fixed, as a tied row never refines.
+ * The same array when nothing changes.
+ */
+export function withTieValues(params: readonly RefinementParameter[], ids: ReadonlySet<string>, reopened = false): RefinementParameter[] {
+  if (!params.some((p) => p.expression && ids.has(p.id))) return [...params];
+  const now = resolveTies(params, Object.fromEntries(params.map((p) => [p.id, p.value])));
+  const start = reopened ? resolveTies(params, Object.fromEntries(params.map((p) => [p.id, p.initialValue]))) : null;
+  return params.map((p) => {
+    if (!p.expression || !ids.has(p.id)) return p;
+    if (start) return { ...p, value: now[p.id]!, initialValue: start[p.id]!, fixed: true };
+    return now[p.id] === p.value ? p : { ...p, value: now[p.id]! };
+  });
+}
 
 const equalGroups = (update: EqualTieUpdate): (readonly string[])[] => [...(update.equal ? [update.equal] : []), ...(update.groups ?? [])];
 

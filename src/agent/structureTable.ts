@@ -86,11 +86,12 @@ export function structureTable(
   const mine = bindings.filter((b) => b.targetId === phase.id || (phaseIndex === 0 && !/^p\d+_/.test(b.parameterId)));
   const free = new Set(parameters.filter((p) => !p.fixed && !p.expression).map((p) => p.id));
   const byId = new Map(parameters.map((p) => [p.id, p]));
-  // A free row's esd; a row tied to a free one ("= f·leader") carries |f| × the leader's.
+  // A free row's esd; a tied row the one the page passes (esdsWithTies), else, tied to a free one ("= f·leader"), |f| × the leader's.
   const err = (id: string): number | undefined => {
     if (free.has(id)) return esd[id];
     const p = byId.get(id);
     if (!p?.expression) return undefined;
+    if (esd[id] !== undefined) return esd[id];
     try {
       const tie = parseTie(p.expression);
       if (tie.kind !== "linear" || !free.has(tie.refId)) return undefined;

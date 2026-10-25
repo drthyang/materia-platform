@@ -29,7 +29,7 @@ import type { StageKinds } from "@/core/workflow/structureRefinement";
 import type { FitRange } from "@/core/workflow/powder";
 import type { PairShell, PairSource } from "@/core/pdf/pairEnumerator";
 import { applyExclusionMask, fitRangeMask } from "@/core/refinement/factors";
-import { tieReferences, resolveTies } from "@/core/refinement/constraints";
+import { parseTie, renamedTie, resolveTies } from "@/core/refinement/constraints";
 import { applyParameters } from "@/core/workflow/apply";
 import { buildStructureRefinement } from "@/core/workflow/structureRefinement";
 import {
@@ -330,12 +330,25 @@ export function buildPdfProblem(
 
   // Free parameters referenced BY a tie expression: moving them moves the tied
   // parameter too — an indirect model path the analytic columns don't carry, so
-  // those fall back to finite differences (null).
+  // those fall back to finite differences (null). Except an occupancy that an
+  // occupancy follows linearly (a shared site's last one, 1 − Σ the others):
+  // its column carries the follower's sites with the tie's factor, as the
+  // single-crystal problem's columns carry a complement.
   const tieReferencedIds = new Set<string>();
+  const occupancyFollowers = new Map<string, { readonly id: string; readonly factor: number }[]>();
+  const kindOf = new Map(parameters.map((p) => [p.id, p.kind] as const));
   for (const p of parameters) {
     if (!p.expression) continue;
     try {
-      for (const id of tieReferences(p.expression)) tieReferencedIds.add(id);
+      const tie = parseTie(p.expression);
+      const refs = tie.kind === "linear" ? [tie.refId] : tie.refIds;
+      for (const id of refs) {
+        if (tie.kind !== "norm" && p.kind === "occupancy" && kindOf.get(id) === "occupancy") {
+          occupancyFollowers.set(id, [...(occupancyFollowers.get(id) ?? []), { id: p.id, factor: tie.factor }]);
+        } else {
+          tieReferencedIds.add(id);
+        }
+      }
     } catch {
       // An unparsable tie fails loudly in resolveTies; nothing to guard here.
     }
@@ -390,6 +403,14 @@ export function buildPdfProblem(
             const si = b.targetKey !== undefined ? siteIndexByLabel.get(b.targetKey) : undefined;
             if (si === undefined) return null;
             for (const a of orbit[si]!) dOcc[a] = dOcc[a]! + 1;
+          }
+          for (const f of occupancyFollowers.get(p.id) ?? []) {
+            for (const b of bindings) {
+              if (b.parameterId !== f.id) continue;
+              const si = b.kind === "occupancy" && b.targetKey !== undefined ? siteIndexByLabel.get(b.targetKey) : undefined;
+              if (si === undefined) return null;
+              for (const a of orbit[si]!) dOcc[a] = dOcc[a]! + f.factor;
+            }
           }
           return { kind: "occupancy", dOcc };
         }
@@ -760,7 +781,7 @@ export function buildMultiPhasePdfSpec(
         if (i === 0) params.push(p);
         continue;
       }
-      params.push({ ...p, id: prefix(p.id), label: `${structure.name || structure.id}: ${p.label}` });
+      params.push({ ...p, id: prefix(p.id), label: `${structure.name || structure.id}: ${p.label}`, ...(p.expression ? { expression: renamedTie(p.expression, prefix) } : {}) });
     }
     for (const b of spec.bindings) {
       if (PDF_SHARED_KINDS.has(b.kind)) {
@@ -967,12 +988,16 @@ export const PDF_STAGE_KINDS: readonly StageKinds[] = [
   { name: "occupancy", kinds: ["occupancy"] },
 ];
 
-/** Whether atoms sharing a crystallographic site are tied (mirrors `SiteTies`). */
+/**
+ * Whether atoms sharing a crystallographic site are tied (mirrors `SiteTies`).
+ * Their occupancies always sum to exactly the site's total by a hard tie:
+ * `totals` by the site's key (its first member's label), 1 where absent.
+ */
 export interface PdfSiteTies {
   readonly positions?: boolean;
   readonly adp?: boolean;
-  readonly occupancyToUnity?: boolean;
   readonly composition?: boolean;
+  readonly totals?: Readonly<Record<string, number>>;
 }
 
 export interface PdfSpec {
@@ -994,6 +1019,11 @@ export interface PdfSpec {
  * occupancy restraints) is reused rather than duplicated. Its reciprocal-space
  * leftovers (Rietveld `scale`, single `peakWidth`) are filtered out.
  *
+ * A shared site's occupancies sum to exactly its total (1 unless `ties.totals`
+ * sets one): its last member's row follows the total minus the others'
+ * (`sharedOccupancyTies`), held fixed, so n − 1 refine and the engine gives
+ * the follower its esd from the covariance. No soft Σ restraint is emitted.
+ *
  * Free on load: `pdfScale` and the cell — the safe first fit. ADPs, δ1/δ2,
  * positions, and occupancies start fixed (freed per row or by the guided
  * sequence); Qdamp/Qbroad start fixed at the header/calibration values.
@@ -1014,7 +1044,9 @@ export function buildPdfSpec(structure: StructureModel, pattern: PdfPattern, tie
     refineOccupancy: true,
     tieSharedPositions: ties.positions ?? true,
     tieSharedAdp: ties.adp ?? true,
-    constrainOccupancyToUnity: ties.occupancyToUnity ?? false,
+    // A shared site's Σ occupancy is a hard tie to its total, not the soft restraint.
+    tieSharedOccupancy: true,
+    ...(ties.totals ? { occupancyTotals: ties.totals } : {}),
     holdComposition: ties.composition ?? false,
   });
   const drop = new Set<ParameterKind>(["scale", "peakWidth"]);

@@ -203,15 +203,15 @@ somewhere chemically meaningless. Free an occupancy only when one of these break
 If none is present, keep occupancy fixed and say why. This is a firm rule (Gates): only the user can allow one
 (`allow_exception`), for a genuine second contrast.
 
-In the app the first two are the Shared site ties (`set_site_ties`): **Σ occ = 1** holds a
-mixed site full, and **hold composition** keeps each element's total, so anti-site disorder
-or spinel inversion refines as one exchange fraction. Report that fraction with its esd,
-not every occupancy.
+In the app a mixed site's occupancies sum to its total (1; `set_site_ties` `totals` for
+vacancies) by a tie, and **hold composition** keeps each element's total, so anti-site
+disorder or spinel inversion refines as one exchange fraction. Report that fraction with
+its esd, not every occupancy.
 
 **Antisite disorder has a signature in the ADPs**: after the ADP stage, one cation site's
 B rails toward 0 while another's is high. With contrast between the two elements (neutron
-b, or X-ray Z), `add_antisite` puts each on the other's site under Σ occ = 1 and hold
-composition (it asks the user); free the four occupancies, refine, and report the exchange
+b, or X-ray Z), `add_antisite` puts each on the other's site under hold composition (it
+asks the user); free the hosts' occupancies (the added ones follow), refine, and report the exchange
 and how the B values moved. To a modest Q the exchange trades with the B
 values, and a large esd is the honest result. If it refines to zero, the ADP contrast is
 not disorder: return to the ordered model and, unless the contrast is significant and

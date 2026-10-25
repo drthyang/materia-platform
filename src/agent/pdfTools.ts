@@ -15,14 +15,15 @@ import type { PdfAgentPort, PdfLiveState } from "@/agent/port";
 import type { ProjectHistory } from "@/core/project/history";
 import { assess_refinement, bond_geometry, interpret_structure, suggest_next_steps } from "@/mcp/tools";
 import { structureTable } from "@/agent/structureTable";
-import { bondsOf, cellOf, historyView, matchIds, parameterSummary, pct, sig, type LiveToolHost } from "@/agent/liveCommon";
+import { bondsOf, cellOf, historyView, matchIds, occupancyConstraintsView, parameterSummary, pct, sig, siteSumNotes, type LiveToolHost } from "@/agent/liveCommon";
 import { change, freePlan, goToPlan, nothing, refinePlan, resetPlan, type Plans } from "@/agent/pages/plans";
 import { boxShell, boxcarStepIndex, boxcarWindows, followBond, type BoxcarRun } from "@/core/workflow/pdfBoxcar";
 import type { RefinementResult } from "@/core/refinement/types";
 import type { ReportCheck } from "@/core/export/report";
 import { coordinationShells, type ShellBond } from "@/core/crystal/geometry";
 import { pdfPhaseBindingsFor } from "@/core/workflow/pdf";
-import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, correlationsCheck, findingChecks, noResultCheck } from "@/agent/reportChecks";
+import { esdsWithTies } from "@/core/refinement/constraints";
+import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, correlationsCheck, findingChecks, noResultCheck, siteSumChecks } from "@/agent/reportChecks";
 import type { ReferenceEntry } from "@/agent/references";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- inputs are validated against the spec's zod schema before a handler runs */
@@ -44,7 +45,7 @@ export function readPdfTool(name: string, input: Input, port: PdfAgentPort, host
       return { steps: suggest_next_steps({ assessment: assessment(s) }) };
     case "structure_table":
       if (input.against !== undefined) throw new Error("`against` is on the single-crystal page only, for now");
-      return { phases: s.refinedPhases.map((ph, k) => structureTable(ph, k, s.parameters, s.bindings, s.result?.esd ?? {})), ...(s.result ? {} : { note: "No refinement on screen: the values carry no esds." }) };
+      return { phases: s.refinedPhases.map((ph, k) => structureTable(ph, k, s.parameters, s.bindings, esdsWithTies(s.parameters, s.result))), ...(s.result ? {} : { note: "No refinement on screen: the values carry no esds." }) };
     case "bond_geometry":
       return bondsOf(s.refinedPhases, input, bond_geometry);
     case "interpret_structure":
@@ -92,6 +93,8 @@ export const PDF_PLANS: Plans<PdfAgentPort> = {
   },
   refine: refinePlan<PdfAgentPort>({
     fits: (s, free) => `Refine ${s.spinModel ? "nuclear + magnetic G(r)" : "G(r)"}, ${free} free parameter${free === 1 ? "" : "s"}`,
+    // A shared site's occupancies refined: say that their sum is held exactly, and where the last one's esd is.
+    after: (s) => siteSumNotes(s.parameters),
   }),
   boxcar_scan: (input, s, port) => {
     // matchIds refuses a pattern that matches nothing; tied rows follow their tie and are not offered.
@@ -146,6 +149,7 @@ function stateView(s: PdfLiveState, history: ProjectHistory | null, select: read
     positions: s.positionMode === "irreps" ? "symmetry-mode amplitudes (irreps)" : "constrained atomic coordinates",
     adp: s.adpModel === "anisotropic" ? "anisotropic (U tensor per site)" : s.adpModel === "isotropic" ? "isotropic (one U per site)" : "mixed (isotropic and anisotropic sites)",
     spinModel: s.spinModel ? "applied: refine fits nuclear + magnetic G(r)" : null,
+    ...occupancyConstraintsView(s.parameters),
     Rw: pct(s.rw),
     lastRefinement: s.result
       ? {
@@ -158,7 +162,7 @@ function stateView(s: PdfLiveState, history: ProjectHistory | null, select: read
       : null,
     ...(s.warnings.length ? { warnings: s.warnings } : {}),
     convention: PDF_CONVENTION,
-    ...parameterSummary(s.parameters, s.result?.esd, select),
+    ...parameterSummary(s.parameters, s.result ? esdsWithTies(s.parameters, s.result) : undefined, select),
     history: historyView(history),
   };
 }
@@ -203,6 +207,7 @@ export function pdfReportChecks(s: PdfLiveState, probe: RefinementResult | null 
     { name: "Agreement", status: "note", detail: `Rw = ${(100 * s.rw).toFixed(2)} % over r ${s.fitRange.min.toFixed(2)}–${s.fitRange.max.toFixed(2)} Å. ${PDF_CONVENTION}` },
     probe ? correlationsCheck(probe, s.parameters, s.restraints) : correlationsCheck(s.result, s.parameters, s.restraints, CORRELATION_LISTED),
     boundsCheck(s.result, s.parameters),
+    ...siteSumChecks(s.parameters),
   ];
   const bv = bondValenceCheck(s.refinedPhases);
   if (bv) checks.push(bv);
