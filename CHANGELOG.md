@@ -544,6 +544,22 @@ release fixes bugs.
 
 ### Changed
 
+- **The powder Validation tab says each thing in one short line.** About
+  half the words on the demo (as it opens, after Refine, and with its cell
+  off by 0.3 %). Each line leads with what to do: "Fair fit: misfit mostly in
+  the peak tails", "Above your bar (good ≤ 2.5)", "Mn3Ga: Ga1 occ held at
+  1.005 → set to 1", "In GSAS-II and FullProf, once the bar is met", "Model's
+  tails too short → Refine TOF σ and β (keep α), after the atom positions".
+  Where refining is the next step, the state line says why and **Refine**
+  follows it. The full sentences, the statistic, the method's reasons and
+  `diagnose_fit`'s own words are behind a **?** beside each check and cause
+  (and on hover), so nothing is dropped. What was said twice is said once:
+  the physical card no longer restates "nothing unphysical", the cross-check
+  no longer repeats the state line's "no esds yet", the headline leaves the
+  GoF to its card, and the footer leaves the worst peaks' share to their
+  summary below. Same numbers and advice as before; the Agent's tools, their
+  text and the validation's arm A are unchanged.
+
 - **Phones and tablets: layouts fitted to iPhone and iPad Pro screens.**
   Tuned on the iPhone 18 Pro and Pro Max and the iPad Pro 11" and 13", upright
   and sideways; a desktop window looks as it did. On a phone held sideways the
