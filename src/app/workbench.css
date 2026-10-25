@@ -606,12 +606,10 @@ html {
 }
 
 /* Magnetic page: pattern check + 3D model (left rail) | workflow controls (right).
- * The same model as the powder/PDF working rows (rule 4): the row fills the
- * window, both columns stretch to one bottom edge, and the long side (steps
- * 1–5) scrolls INSIDE its card. The pattern check and 3D model therefore stay
- * in view while candidate groups are clicked — what the earlier sticky rail
- * was for, without its misalignments (it stuck at --wb-gap while the page's
- * edge is --wb-pad, and its bottom ran past the right card's into the gutter). */
+ * The row fills the window (rule 4) and both columns end on one bottom edge.
+ * The single-crystal page (no pattern) keeps the long side, steps 1–5,
+ * scrolling INSIDE its card; the powder page's desktop row (.wb-mag2-rail,
+ * below) scrolls as a whole instead, with the rail pinned. */
 .wb-mag2 {
   display: grid;
   grid-template-columns: minmax(400px, 6fr) minmax(380px, 5fr);
@@ -641,6 +639,73 @@ html {
 .wb-mag2-steps {
   overflow-y: auto;
   min-height: 0;
+}
+
+/* Powder page on a desktop: the steps lead. They take their natural height
+ * (1100–1600px on the bundled examples), so the row below the title is the one
+ * thing that scrolls — the page column itself does not — and the rail (pattern
+ * check over the 3D model) is pinned to the row's full height beside them: the
+ * pattern and the model stay in view while candidate groups are clicked, and
+ * no step sits in a box of its own. A flex row, not the grid: a percentage
+ * height resolves against the row (definite: it fills the window), where a grid
+ * item's would resolve against its own area, as tall as the steps. Not on touch
+ * screens or short windows, which scroll the whole page (#113). */
+@media (min-height: 540.02px) and (not ((pointer: coarse) and (max-height: 1000px))) {
+  @container shell (min-width: 1121px) {
+    .wb-mag2-rail {
+      display: flex;
+      align-items: flex-start;
+      overflow-y: auto;
+    }
+    .wb-mag2-rail > .wb-mag2-left {
+      flex: 1 1 0;
+      height: 100%;
+      position: sticky;
+      top: 0;
+    }
+    /* Half the row, short of a width that only spreads its tables thin. */
+    .wb-mag2-rail > .wb-mag2-steps {
+      flex: 0 0 min(calc(50% - var(--wb-gap) / 2), 1000px);
+      overflow: visible;
+      min-height: 100%;
+    }
+    /* The rail's height is shared: the pattern a little more than the model. */
+    .wb-mag2-rail .wb-mag2-pattern {
+      flex: 1.25 1 0;
+      min-height: 0;
+    }
+    .wb-mag2-rail .wb-mag2-plot {
+      height: auto !important;
+      flex: 1 1 0;
+      min-height: 0;
+    }
+    .wb-mag2-rail .wb-plot-box {
+      min-height: 240px !important;
+    }
+    .wb-mag2-rail .wb-mag2-model {
+      flex: 1 1 0;
+    }
+    .wb-mag2-rail .wb-3d-canvas {
+      min-height: 140px !important;
+    }
+    /* The 3D card's chrome, tightened so the canvas keeps the room: the a/b/c
+       presets ride on the canvas's corner instead of a row of their own (only
+       the button group takes the pointer, not the row across the canvas), and
+       the toolbar and the legend pack closer. */
+    .wb-mag2-rail .wb-3d-presets {
+      position: relative;
+      z-index: 1;
+      margin: -32px 6px 6px 0 !important;
+      pointer-events: none;
+    }
+    .wb-mag2-rail .wb-3d-presets > * {
+      pointer-events: auto;
+    }
+    .wb-mag2-rail .wb-3d-toolbar,
+    .wb-mag2-rail .wb-3d-legend {
+      column-gap: 12px !important;
+    }
+  }
 }
 
 /* Narrow: stack, pattern check first; cards auto-size and the page scrolls.
@@ -1746,3 +1811,4 @@ html {
     display: none;
   }
 }
+

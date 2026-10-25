@@ -37,6 +37,7 @@ import { WorkbenchPlot, type FitRangeSelection } from "@/app/ui/WorkbenchPlot";
 import { InfoBadge } from "@/app/ui/InfoBadge";
 import { gestureHint, useCoarsePointer } from "@/app/ui/touchInput";
 import { momentEntriesFrom } from "@/app/ui/cellModel";
+import { nearReflectionLabel, visiblePeakRows } from "@/app/ui/peakTable";
 import type { ReportGroup } from "@/core/export/report";
 import type { MagneticExploration } from "@/app/reportInputs";
 import { structureToCif, magneticStructureToMcif } from "@/core/export/cif";
@@ -398,8 +399,13 @@ export function KSearchPanel({
   const previewTicks = useMemo<PhaseTicks[]>(() => {
     if (!patternView) return [];
     const { dRange, dToX } = patternView;
+    // One phase: its row is "nuclear" — the phase's name (a long formula on a
+    // mixed-site sample) wrapped the legend, and the page's title names it.
+    const nuclear = patternView.nuclearTicks.length === 1
+      ? [{ ...patternView.nuclearTicks[0]!, label: "nuclear" }]
+      : patternView.nuclearTicks;
     const rows: PhaseTicks[] = [
-      ...patternView.nuclearTicks,
+      ...nuclear,
       satellitePositionTicks(structure, k, dRange.min, dRange.max, dToX, {
         id: "k-positions",
         label: "G ± k",
@@ -453,6 +459,16 @@ export function KSearchPanel({
     setPatternPick({ hkl, kind: "magnetic", phaseId: "residual" });
     setPeakFocusToken((t) => t + 1);
   }
+
+  // A long peak table shows its first rows (and every row the search reads)
+  // until "Show all": 24 rows put step 4 two screens down.
+  const [allPeaksShown, setAllPeaksShown] = useState(false);
+  const spotlitIdx = patternPick?.phaseId === "residual" ? Number(patternPick.hkl.slice(1)) : null;
+  const collapsedPeakRows = visiblePeakRows(peakRows, false, spotlitIdx);
+  const shownPeakRows = allPeaksShown ? peakRows : collapsedPeakRows;
+  const hiddenPeaks = peakRows.length - collapsedPeakRows.length;
+  // The near cell names the phase only when the pattern has several.
+  const multiPhase = (patternView?.nuclearTicks.length ?? 1) > 1;
 
   // A k the fit backend cannot model at all (mPDF: incommensurate). Everything
   // that would report a number against the data is held back — the symmetry
@@ -566,20 +582,20 @@ export function KSearchPanel({
   const hint3d = gestureHint("model-3d", coarse).replace(/^d/, "D");
 
   return (
-    <div className="wb-mag2">
+    <div className={patternView ? "wb-mag2 wb-mag2-rail" : "wb-mag2"}>
       {/* Left rail: in powder mode the refined pattern first — the judging
           tool while clicking candidate groups on the right — then the 3D model
           (magnetic (super)cell; arrows once a group is selected), which fills
-          the rest of the row. The row fills the window and the steps card on
-          the right scrolls inside itself, so this rail stays in view without
-          being sticky (layout rule, workbench.css). */}
+          the rest of the rail. On a desktop the powder row scrolls as a whole
+          beside this rail, which is pinned to the row's height; without a
+          pattern the steps card scrolls inside itself (workbench.css). */}
       <div className="wb-mag2-left">
       {/* Pattern check: is the k / magnetic-space-group choice consistent
           with where the unexplained intensity actually sits? The same view as
           the refinement plot (refined curves, fit range, unit toggle), plus
           the satellite / allowed / residual tick rows. */}
       {patternView && (
-        <section style={{ ...themeCard, padding: space.inset, display: "flex", flexDirection: "column" }}>
+        <section className="wb-mag2-pattern" style={{ ...themeCard, padding: space.inset, display: "flex", flexDirection: "column" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, rowGap: 6, flexWrap: "wrap", marginBottom: 8 }}>
             <span style={themeLabel}>Powder pattern</span>
             <InfoBadge
@@ -685,14 +701,15 @@ export function KSearchPanel({
             {...(momentEntries ? { moments: momentEntries } : {})}
             {...(standardCell ? { standardCell } : {})}
             minCanvasHeight={240}
+            fit
             exports={[viewerCifExport]}
           />
         </Suspense>
       </section>
       </div>
 
-      {/* Right panel: the workflow controls (steps 1–5). Stretched to the row's
-          height; its content scrolls inside the card, not the page. */}
+      {/* Right panel: the workflow controls (steps 1–5), at least the row's
+          height (see the rail above for what scrolls). */}
       <div className="wb-mag2-steps" style={{ ...themeCard, padding: space.inset, display: "grid", gap: 14, alignContent: "start", minWidth: 0 }}>
       {/* 1. Which sites carry a moment */}
       <section>
@@ -760,11 +777,15 @@ export function KSearchPanel({
             />
           ))}
           <span style={{ fontFamily: themeMono, fontSize: 13, color: theme.secondary }}>)</span>
+          {/* Idle (the fields hold the k in use), a quiet button of the same
+              size rather than a faded primary one, which read as broken. */}
           <button
-            style={{ ...btn, marginTop: 0, opacity: draftPending ? 1 : 0.45 }}
+            style={draftPending ? { ...btn, marginTop: 0 } : setKIdle}
             onClick={() => applyK(draftK)}
             disabled={!draftPending}
-            title="Use this propagation vector — the symmetry analysis below re-runs on it"
+            title={draftPending
+              ? "Use this propagation vector — the symmetry analysis below re-runs on it"
+              : "This k is in use — edit a component to set another"}
           >
             Set k
           </button>
@@ -860,8 +881,8 @@ export function KSearchPanel({
                   </tr>
                 </thead>
                 <tbody>
-                  {peakRows.map((row, i) => {
-                    const delta = kDeltas[i];
+                  {shownPeakRows.map((row) => {
+                    const delta = kDeltas[row.idx - 1];
                     const explained = delta !== undefined && Number.isFinite(delta) && delta <= 0.02;
                     const picked = patternPick?.hkl === `#${row.idx}` && patternPick.phaseId === "residual";
                     return (
@@ -901,7 +922,7 @@ export function KSearchPanel({
                           )}
                           {row.nearNuclear
                             ? <span title={`Within ${(100 * row.nearNuclear.relDelta).toFixed(2)}% of ${row.nearNuclear.phaseLabel} (${row.nearNuclear.hkl}), d = ${row.nearNuclear.d.toFixed(4)} Å`}>
-                                {row.nearNuclear.phaseLabel} ({row.nearNuclear.hkl})
+                                {nearReflectionLabel(row.nearNuclear, multiPhase)}
                               </span>
                             : ""}
                         </td>
@@ -921,6 +942,15 @@ export function KSearchPanel({
                   })}
                 </tbody>
               </table>
+              {hiddenPeaks > 0 && (
+                <button
+                  style={moreRowsBtn}
+                  onClick={() => setAllPeaksShown((v) => !v)}
+                  title={allPeaksShown ? "Show the first peaks only (and every peak in the k-search)" : "Show every detected peak"}
+                >
+                  {allPeaksShown ? "Show fewer peaks" : `Show all ${peakRows.length} peaks (${hiddenPeaks} more)`}
+                </button>
+              )}
               {allOnNuclear && !allowNearNuclear && (
                 <div style={kZeroNote}>
                   <b>Every residual peak sits on a nuclear reflection.</b> That is what a <b>k = 0</b> ordering
@@ -1576,6 +1606,10 @@ const kZeroNote: React.CSSProperties = {
 };
 const kInput: React.CSSProperties = { width: 64, border: `1px solid ${theme.control}`, borderRadius: 7, padding: "3px 7px", fontSize: 13, fontFamily: themeMono };
 const btn: React.CSSProperties = { marginTop: 6, border: "none", background: theme.primary, color: "#fff", borderRadius: 7, padding: "4px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" };
+/** "Set k" while the fields hold the k in use: btn's size, nothing to press. */
+const setKIdle: React.CSSProperties = { ...btn, marginTop: 0, background: theme.chipBg, color: theme.secondary, cursor: "default" };
+/** The peak table's "Show all" footer: a text button under the last row. */
+const moreRowsBtn: React.CSSProperties = { border: "none", background: "transparent", padding: "5px 0 0", fontSize: 12, color: theme.primary, cursor: "pointer" };
 const ghostBtn: React.CSSProperties = { border: `1px solid ${theme.control}`, background: "#fff", borderRadius: 7, padding: "3px 12px", fontSize: 12, color: theme.ink, cursor: "pointer" };
 const th: React.CSSProperties = { padding: "2px 10px 4px 0", fontWeight: 600 };
 const td: React.CSSProperties = { padding: "4px 10px 4px 0" };

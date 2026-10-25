@@ -563,6 +563,22 @@ release fixes bugs.
   screen (pinch to zoom, drag to pan or rotate). The header, the Copilot's
   rail and drawer and the cards stay out of the iPhone's safe-area insets.
 
+- **The magnetic page on a desktop: the steps lead, and the pattern and the
+  model stay in view.** The workflow (steps 1–5) sat in the narrower right
+  column as a box scrolling inside its card, with step 4's candidate list
+  below its fold, beside a 3D card whose model filled a fraction of its canvas
+  and whose legend ran past the card. The steps now take half the row (up to
+  1000 px) at their natural height, and the row scrolls as a whole beside a
+  rail pinned to it: the pattern check over the 3D model, both in view while
+  candidates are clicked. The 3D view fits the cell to its canvas with a mouse
+  too, its a/b/c presets sit on the canvas's corner, and nothing runs past a
+  card at 1440, 1920 or 2560 px. The residual-peak table shows its six
+  strongest peaks (and every peak in the k-search) until "Show all", and its
+  "near" column gives the reflection's hkl, with the phase only when the
+  pattern has several; a single phase's tick row is "nuclear" in the legend.
+  "Set k" is a quiet button while the fields hold the k in use, not a faded
+  primary one that read as broken. Phones and tablets keep their layouts.
+
 - **The powder Validation tab reads the fit against your acceptance bar.**
   It opened on a verdict of mixed-weight lines beside eight agreement
   numbers, with diagnoses but no actions, and called the demo's converged fit
