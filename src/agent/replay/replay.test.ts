@@ -11,7 +11,7 @@ import { modelLabel, replayLabel, settingsFrom } from "@/agent/useAgent";
 import { scenario } from "@/agent/evals/scenarios";
 import { calls, runScenario } from "@/agent/evals/harness";
 import { scriptedModel } from "@/agent/evals/scripted";
-import { scPage } from "@/agent/evals/pages";
+import { mn3ga30kPage, scPage } from "@/agent/evals/pages";
 import { pdfPort, sessionPort } from "@/testSupport/agentHeadless";
 import { loadedSession } from "@/app/powderSession";
 import { mn3gaPowgenExample } from "@/examples/mn3gaPowgen";
@@ -25,6 +25,7 @@ const APP_PAGE = {
   },
   pdf: () => pdfPort().port,
   "single-crystal": () => scPage(),
+  "mn3ga-30k": () => mn3ga30kPage(),
 };
 
 describe("the dock's scripted replays", () => {
@@ -39,8 +40,11 @@ describe("the dock's scripted replays", () => {
         const result = await runScenario({ ...scenario(id), page: APP_PAGE[r.page] }, stand.model);
         expect(stand.overrun()).toBe(0);
         expect(result.grades.filter((g) => !g.pass).map((g) => `${g.check}: ${g.detail}`)).toEqual([]);
-        const failed = calls(result.run).filter((c) => c.isError).map((c) => `${c.name}: ${c.text}`);
+        const refusals = r.refusals ?? [];
+        const failed = calls(result.run).filter((c) => c.isError && !refusals.includes(c.name)).map((c) => `${c.name}: ${c.text}`);
         expect(failed).toEqual([]);
+        // A refusal the replay is meant to show happens, as a refusal.
+        for (const name of refusals) expect(calls(result.run).some((c) => c.name === name && c.isError), `${name} refused`).toBe(true);
       } finally {
         await stand.close();
       }
@@ -51,6 +55,9 @@ describe("the dock's scripted replays", () => {
     expect(replayFrom(`a=1; ${REPLAY_COOKIE}=sc-data-first`)).toBe("sc-data-first");
     expect(replayFrom(`${REPLAY_COOKIE}=no-such-replay`)).toBeNull();
     expect(replayFrom(`${REPLAY_COOKIE}=toString`)).toBeNull();
+    // A local replay counts only when its file is there; nothing outside the folder is reachable.
+    expect(replayFrom(`${REPLAY_COOKIE}=local-no-such-run`)).toBeNull();
+    expect(replayFrom(`${REPLAY_COOKIE}=local-..%2Fsecrets`)).toBeNull();
     expect(replayFrom(undefined)).toBeNull();
   });
 

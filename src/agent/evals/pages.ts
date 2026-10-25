@@ -6,12 +6,14 @@
 
 import type { PdfAgentPort, PowderAgentPort, SingleCrystalAgentPort } from "@/agent/port";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { basename, join } from "node:path";
-import { newSession, type Session } from "@/app/powderSession";
+import { basename, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { loadedSession, newSession, type Session } from "@/app/powderSession";
 import { openedPage } from "@/app/powderPage";
 import { parseCif } from "@/parsers/cif";
 import { parseInstrumentParameters } from "@/parsers/instrument";
 import { parseGsasHistogramPattern } from "@/parsers/gsasHistogram";
+import { parsePowderData } from "@/parsers/powderData";
 import { dataDir } from "@/testSupport/data";
 import { exampleStructure } from "@/examples/mn3ga";
 import { generateReflections } from "@/core/diffraction/reflections";
@@ -231,6 +233,24 @@ export function mn3gaMagneticSession(): Session & { readonly truthGroup: string 
     return { ...p, yObs: y + sigma * noise(), sigma };
   });
   return { ...s0, powderParams: params, pattern: { ...s0.pattern, points }, truthGroup: latticeCandidateLabel(truth).symbol };
+}
+
+/** The magnetic structure the Mn₃Ga 30 K pattern was simulated from (examples/mcp/mn3ga_30k_sim.xye): k, its group's id on the page. */
+export const MN3GA_30K_TRUTH = { k: [0, 0, 0] as Vec3, id: "G4", wavelength: 1.54 } as const;
+
+/**
+ * The Mn₃Ga 30 K files in examples/mcp as the app loads them: the nuclear
+ * P2₁/m structure, the GSAS-II instrument and the simulated neutron pattern
+ * (P2₁'/m', k = 0, moments on all three Mn sites). The nuclear model is the
+ * CIF's, unrefined, as a user's own files open.
+ */
+export function mn3ga30kPage(): PowderAgentPort {
+  const dir = join(dirname(fileURLToPath(import.meta.url)), "../../../examples/mcp");
+  const read = (name: string): string => readFileSync(join(dir, name), "utf8");
+  const structure = parseCif(read("mn3ga_30k_nuclear.cif"));
+  const instrument = parseInstrumentParameters(read("mn3ga_30k.instprm"));
+  const pattern = parsePowderData(read("mn3ga_30k_sim.xye"), { id: "mn3ga_30k", name: "mn3ga_30k_sim.xye", xUnit: "twoTheta", radiation: { kind: "neutron", wavelength: MN3GA_30K_TRUTH.wavelength } });
+  return sessionPort(loadedSession(structure, pattern, instrument), instrument, { instrumentOnPage: true }).port;
 }
 
 export function powderPage(session: Session): PowderAgentPort {

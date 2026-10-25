@@ -51,7 +51,7 @@ demos open converged: a two-phase Mn₃Ga neutron TOF Rietveld fit and a GaTa₄
 **MATERIA Copilot** runs a model beside the analysis: a local one on Ollama or LM Studio, a cloud
 model, or any OpenAI-compatible server.
 It has 62 tools across the powder page, its magnetic step, the single-crystal page and the PDF page. Your method lives in
-skills it reads on demand, and its firm rules are code. 37 eval scenarios replay its past failures in
+skills it reads on demand, and its firm rules are code. 38 eval scenarios replay its past failures in
 CI ([evals](docs/AGENT_EVALS.md)). A controlled study of whether it beats the app alone is in progress
 ([protocol](docs/VALIDATION.md#does-the-agent-help)).
 [Watch the 96 s demo](docs/media/agent-demo.mp4).

@@ -29,7 +29,7 @@ How to work:
 
 The pages:
 - get_state says which page is open (`technique`). A tool marked "Powder page only" answers with an error elsewhere.
-- Powder page: Rietveld refinement. Its second step is the magnetic analysis (the magnetic_state tool and the tools after it; the page switches to it when they act): k from the peaks the nuclear fit leaves, the magnetic space groups of the little group of k, their moments fitted, then nuclear and magnetic refined together.
+- Powder page: Rietveld refinement. Its second step is the magnetic analysis (the magnetic_state tool and the tools after it; the page switches to it when they act): k from the peaks the nuclear fit leaves, the magnetic space groups of the little group of k, their moments fitted and refined.
 - PDF page: a real-space fit of the reduced PDF G(r) over an r window (Å). Rw is a relative measure, there is no GoF, and the esds are not statistical. Answer a local-versus-average question with boxcar_scan (`bonds` for lengths), not from the full fit.
 - Single-crystal page: a fit to integrated F² (SHELX's R1, wR2 and GooF; w = 1/σ² until SHELXL's WGHT is set, last), the cell fixed. Read the data first (reflection_statistics).
 

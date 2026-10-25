@@ -9,6 +9,7 @@
 import type { ScriptTurn } from "@/agent/evals/scripted";
 import { impurityD } from "@/agent/evals/pages";
 import { SCENARIOS } from "@/agent/evals/scenarios";
+import { DEMO_REPLAYS } from "@/agent/replay/demoReplays";
 
 export const RIETVELD = { name: "read_skill", input: { name: "my-rietveld-workflow" } };
 export const PDF = { name: "read_skill", input: { name: "pdf-workflow" } };
@@ -152,6 +153,20 @@ export const REPLAYS: Readonly<Record<string, Replay>> = {
       { text: "Done." },
     ],
     catches: ["sets the fit window to 1.2–3 (dSpacing)"],
+  },
+  "magnetic-30k": {
+    // The dev server's replay of this run, without the refusal it stages.
+    good: DEMO_REPLAYS["magnetic-30k"]!.turns.filter((t) => !t.calls?.some((c) => DEMO_REPLAYS["magnetic-30k"]!.refusals?.includes(c.name))),
+    bad: [
+      { calls: [RIETVELD, { name: "get_state" }] },
+      { calls: [{ name: "set_free", input: { free: ["profU", "profV", "profW"] } }, { name: "refine" }] },
+      { calls: [{ name: "find_unexplained_peaks" }, { name: "read_skill", input: { name: "magnetic-analysis" } }, { name: "magnetic_state" }] },
+      { calls: [{ name: "search_propagation_vector", input: { include: [1, 2, 3] } }] },
+      { calls: [{ name: "rank_magnetic_groups" }] },
+      { calls: [{ name: "choose_magnetic_group", input: { id: "G4" } }, { name: "continue_magnetic_refinement" }, { name: "refine" }] },
+      { text: "k = 0, P2₁′/m′: nuclear and magnetic refined together over the whole pattern." },
+    ],
+    catches: ["refines the nuclear model at d ≤ 1.5 Å before the magnetic step", "refines only the moments once the magnetic model is on the page"],
   },
   "magnetic-structure": {
     good: [

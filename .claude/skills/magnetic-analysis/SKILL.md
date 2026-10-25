@@ -4,8 +4,8 @@ description: >-
   The powder magnetic structure workflow in MATERIA, after the nuclear structure is
   refined: the propagation vector k from the peaks the nuclear model leaves, the magnetic
   space groups of the little group of k (top-down from the maximal ones), their moments
-  fitted against the data, then nuclear and magnetic refined together, with the powder's
-  limits stated. Use it whenever the user asks for the magnetic structure, to find k, to
+  fitted against the data, then refined with only the magnetic parameters free (the nuclear
+  model held), with the powder's limits stated. Use it whenever the user asks for the magnetic structure, to find k, to
   pick or compare magnetic groups, to refine moments, or why there are peaks below an
   ordering temperature — even if they don't name the skill. Drives the powder page's
   magnetic analysis step (in the app) or the magnetic MCP tools. NOT for the magnetic PDF
@@ -41,7 +41,12 @@ k = 0, where magnetic intensity sits on nuclear reflections. So:
    positions, the profile and the B's with the moments, in the usual order.
 2. Prefer the nuclear structure from a dataset above the ordering temperature when the user
    has one: fix it, and refine only the magnetic parameters on the ordered data.
-3. Know what the residual is. `find_unexplained_peaks` separates peaks on no reflection
+3. With k = 0 and no dataset above the ordering temperature, refine the nuclear model at
+   high angle, where the magnetic form factor has faded (`set_fit_range` to d ≤ 1.5 Å for
+   3d ions), then `set_fit_range` `whole` before the magnetic step: a whole-pattern nuclear
+   scale takes the magnetic intensity on the nuclear lines, and the moments come out small.
+   Check the peak widths still fit the low-angle lines; say which window you used.
+4. Know what the residual is. `find_unexplained_peaks` separates peaks on no reflection
    (candidate magnetic satellites, or an impurity) from misfits on known reflections (which
    refinement fixes; for k = 0 on neutron data they may also be magnetic: its `k0Magnetic`
    flag, and the same hint in `assess_refinement`, say when a neutron pattern of magnetic
@@ -97,22 +102,19 @@ a single irreducible representation — a maximal group — so start there:
      the moment): `refine_moments` cannot move it, and `refine` (Stage 4) refuses it as
      undetermined. Hold it and say it was not tested — not that the data put it at zero.
 
-## Stage 4 — nuclear and magnetic together
+## Stage 4 — the magnetic refinement: only the magnetic parameters free
 
-1. `continue_magnetic_refinement` adds the moment amplitudes as parameter rows on the
-   refinement step (and k's free components with `refineK`, for an incommensurate or
-   two-arm k the little group lets move). `show_magnetic_model` instead keeps the moments
-   held while the nuclear model refines against nuclear + magnetic.
-2. Refine there by `my-rietveld-workflow`'s rules: the moments with the scale fixed first,
-   then together, watching the correlations (moment ↔ scale; for k = 0, moment ↔ the ADPs
-   and occupancies of the magnetic site).
-3. `assess_refinement` and the acceptance bar as for the nuclear fit.
-4. With k = 0 the magnetic and nuclear intensities share reflections, and the nuclear
-   positions can follow the magnetic model. Compare the refined positions and bond-valence
-   sums with a refinement above the ordering temperature: positions that drift by several
-   esds and strain the bond valences are absorbing magnetic misfit. Compare candidate
-   groups on one structure (positions held) before choosing, and report the tension if
-   the magnetic intensities and the nuclear structure want different positions.
+The user's rule: the moments refine against the nuclear model as a fixed reference. The
+scale, background, cell, instrument terms, positions, ADPs and occupancies stay at their
+nuclear values: freed, they trade with the moments, and the esds hide it.
+
+1. `continue_magnetic_refinement` adds the moment rows (and k's free components with
+   `refineK`); then `set_free` `fix` every nuclear row it left free, so only the moments
+   (and k) refine. `show_magnetic_model` instead holds the moments.
+2. `refine`, checking the free set is the moments alone; the Stage 3 checks;
+   `assess_refinement`.
+3. A residual left on the nuclear lines is the nuclear model's: say so, leave it to the
+   user, and say which nuclear model the moments were measured against.
 
 ## What to report — and what not
 
@@ -130,7 +132,7 @@ a single irreducible representation — a maximal group — so start there:
   at 0: before you report a moment whose esd is a large part of it, sample the posterior
   (`bayesian-check`, `sample_posterior` with the moments, the scale and the B's free) and
   quote its credible interval.
-- The written report (`write_report`, once the joint refinement is done) carries the
+- The written report (`write_report`, once the magnetic refinement is done) carries the
   magnetic section from the engine — k, the group, the moments with esds — and the Bayesian
   check of that refinement; your account adds the powder's limits above in words.
 
@@ -144,7 +146,7 @@ a single irreducible representation — a maximal group — so start there:
 | Ions | `select_magnetic_ions` | `build_magnetic_model` (`ionLabels`) |
 | Groups | `magnetic_state`, `rank_magnetic_groups`, `choose_magnetic_group` | `list_magnetic_subgroups`, `allowed_moments` |
 | Moments | `set_moment_ties`, `refine_moments` | `build_magnetic_model`, `refine_magnetic_powder` |
-| Together | `continue_magnetic_refinement`, then `refine` | `refine_magnetic_powder` |
+| Magnetic refinement | `continue_magnetic_refinement`, `set_free` (fix the rest), then `refine` | `refine_magnetic_powder` (free: the moments) |
 
 ## References
 
@@ -152,3 +154,4 @@ Longer knowledge bases behind this method. Read one only when a question needs i
 
 - [`magnetic_structure_symmetry`](../../../knowledge/magnetic_structure_symmetry_knowledge.md) — magnetic scattering, k, representation analysis and magnetic space groups, allowed moments, physical moments, the powder's direction ambiguity, nuclear–magnetic overlap, and the non-negotiable rules.
 - [`refinement_fitting_algorithms`](../../../knowledge/refinement_fitting_algorithms_knowledge.md) — the least-squares engine: correlations and the SVD, restraints, esds and the GoF.
+- [`magnetic_notes`](./notes.md) — the reasoning behind the k = 0 high-angle window and the moments-only refinement, with the case that set them.
