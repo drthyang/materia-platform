@@ -341,6 +341,14 @@ const LATER_BLOCKS: ReadonlySet<CauseId> = new Set<CauseId>(["peak-width", "peak
  * shares can overlap (a position misfit sits under the lines too), so a large
  * later share does not move the first block down the method.
  */
+/** The cause a headline names: a misfit of the method's first block when one is listed, else the largest. */
+export function headlineCause(rows: readonly CauseRow[]): { phrase: string; share: number; first: boolean } | undefined {
+  const base = rows.find((r) => r.id === "peak-position" || r.id === "background");
+  const top = rows[0];
+  if (base && base !== top) return { phrase: base.phrase, share: base.share, first: true };
+  return top ? { phrase: top.phrase, share: top.share, first: false } : undefined;
+}
+
 export function causeRows(dx: FitDiagnosis, ctx: CauseContext): CauseRow[] {
   const rows = dx.causes.map((c) => causeRow(c, dx, ctx));
   const base = rows.find((r) => r.id === "peak-position" || r.id === "background");

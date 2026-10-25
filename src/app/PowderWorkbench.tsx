@@ -56,6 +56,7 @@ import { momentEntriesFrom } from "@/app/ui/cellModel";
 import { powderReflectionObsCalc, type ReflectionObsCalc } from "@/core/workflow/obsCalc";
 import { PowderValidationView } from "@/app/ui/PowderValidation";
 import type { EvidenceSection, ValidationAction } from "@/app/ui/fitCauses";
+import { parametersChangedSince } from "@/core/diagnostics/validationChecks";
 import type { JudgedPage } from "@/app/powderJudgment";
 import { stagesCovered, stagesOnPath } from "@/agent/method";
 import type { ProjectHistory } from "@/core/project/history";
@@ -818,18 +819,20 @@ export function PowderWorkbench({
   const rExp = powderResult?.agreement.rExpected;
   const liveGof = rExp && rExp > 0 ? Number(liveWr) / (100 * rExp) : null;
   const refinedGof = powderResult ? (powderResult.agreement.goodnessOfFit ?? null) : null;
-  // With no refinement of its own (a demo opened on its converged snapshot, a
-  // model just loaded), the GoF of the curves on screen: the card's header and
-  // the Validation view's verdict then read the same number.
+  // With no refinement describing the values on screen (a demo opened on its
+  // converged snapshot, a model just loaded, values edited since the last
+  // fit), the GoF of the curves on screen, as wR is: the card's header and the
+  // Validation view's verdict then read the same number, and never a stale one.
+  const resultDescribesRows = powderResult !== null && !parametersChangedSince(powderResult, powderParams);
   const curvesGof = useMemo(
-    () => (powderResult || pattern.points.length === 0 ? null : curvesGoodnessOfFit(session, curves, activeWindow)),
+    () => (resultDescribesRows || pattern.points.length === 0 ? null : curvesGoodnessOfFit(session, curves, activeWindow)),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the window's ends stand for activeWindow
-    [powderResult, session, curves, activeWindow?.min, activeWindow?.max],
+    [resultDescribesRows, session, curves, activeWindow?.min, activeWindow?.max],
   );
-  const shownGof = refinedGof ?? curvesGof;
-  const gofTitle = refinedGof !== null
+  const shownGof = (resultDescribesRows ? refinedGof : null) ?? curvesGof;
+  const gofTitle = resultDescribesRows && refinedGof !== null
     ? "Goodness of fit = wR/R_exp at the last refinement; ≈1 = consistent with the data uncertainties"
-    : "Goodness of fit = wR/R_exp of the curves on screen (no refinement has given one yet); ≈1 = consistent with the data uncertainties";
+    : "Goodness of fit = wR/R_exp of the curves on screen (no refinement describes these values yet); ≈1 = consistent with the data uncertainties";
 
   // Pattern preview for the Magnetic tab — the SAME view as the refinement
   // plot: refined curves in the current display unit, the fit-range window,

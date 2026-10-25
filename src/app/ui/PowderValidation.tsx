@@ -40,7 +40,7 @@ import {
 import { parametersChangedSince, type CheckStatus } from "@/core/diagnostics/validationChecks";
 import { powderAcceptance, type Acceptance, type AcceptanceCheck, type PhysicalItem, type Tone } from "@/core/diagnostics/powderAcceptance";
 import { pageAssessment, pageFitDiagnosis, type JudgedPage } from "@/app/powderJudgment";
-import { causeRows, whereSummary, type ActionButton, type CauseRow, type EvidenceSection, type ValidationAction } from "@/app/ui/fitCauses";
+import { causeRows, headlineCause, whereSummary, type ActionButton, type CauseRow, type EvidenceSection, type ValidationAction } from "@/app/ui/fitCauses";
 import { color, fz, mono, uppercaseLabel } from "@/app/theme";
 import { InfoBadge } from "@/app/ui/InfoBadge";
 import {
@@ -163,7 +163,7 @@ export function PowderValidationView(props: PowderValidationProps): JSX.Element 
     structures: page?.refinedPhases ?? [],
     assessment,
     snapshot: props.snapshot ?? false,
-    topCause: causes[0] ? { phrase: causes[0].phrase, share: causes[0].share } : undefined,
+    topCause: headlineCause(causes),
     canExport: props.canExport ?? false,
   }), [props.gof, validation, result, parameters, page, assessment, props.snapshot, causes, props.canExport]);
 
@@ -494,7 +494,7 @@ function ShareBar({ share }: { share: number }): JSX.Element {
       <span style={{ flex: 1, height: 6, borderRadius: 3, background: color.chipBg, overflow: "hidden" }}>
         <span style={{ display: "block", width: `${Math.max(2, 100 * f)}%`, height: "100%", background: color.primary, borderRadius: 3 }} />
       </span>
-      <span style={{ fontFamily: mono, fontSize: fz.small, color: color.ink, minWidth: 34, textAlign: "right" }}>{Math.round(100 * share)}%</span>
+      <span style={{ fontFamily: mono, fontSize: fz.small, color: color.ink, minWidth: 34, textAlign: "right" }}>{share < 0.005 ? "<1%" : `${Math.round(100 * share)}%`}</span>
     </span>
   );
 }
@@ -521,7 +521,7 @@ function Disclosure({ id, title, summary, info, open, onToggle, last, children }
           onClick={onToggle}
           style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "baseline", flexWrap: "wrap", columnGap: 8, rowGap: 0, padding: "8px 0", border: "none", background: "none", cursor: "pointer", textAlign: "left", fontFamily: "inherit", color: color.ink }}
         >
-          <span aria-hidden style={{ color: color.primary, fontSize: 10, width: 10 }}>{open ? "▾" : "▸"}</span>
+          <span aria-hidden style={{ color: color.primary, fontSize: 12, width: 12 }}>{open ? "▾" : "▸"}</span>
           <span style={{ fontSize: fz.small, fontWeight: 650 }}>{title}</span>
           {summary ? <span style={{ fontSize: fz.micro, color: color.secondary, minWidth: 0 }}>{summary}</span> : null}
         </button>

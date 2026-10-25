@@ -258,7 +258,11 @@ function crossCheck(input: CrossCheckInput): AcceptanceCheck {
   const { state, band, durbinWatson: dw } = input;
   const esd: EsdNote[] = [];
   if (!state.current) {
-    esd.push({ text: state.kind === "snapshot" ? "No esds yet: the opened fit carries none." : "No esds yet: refine to get them.", posterior: false });
+    const text = state.kind === "snapshot" ? "No esds yet: the opened fit carries none."
+      : state.kind === "edited" ? "The esds on screen are the last refinement's, not these values': refine again."
+        : state.kind === "diverged" ? "The last refinement's esds mean nothing."
+          : "No esds yet: refine to get them.";
+    esd.push({ text, posterior: false });
   } else {
     // Serially correlated residuals, or a model that leaves systematic misfit: the esds understate the uncertainty (the method's stopping rule).
     const why = [
@@ -310,8 +314,12 @@ export interface AcceptanceInput {
   readonly assessment?: RefinementAssessment | null | undefined;
   /** The page shows a converged snapshot it opened on (a demo), not a refinement of its own. */
   readonly snapshot?: boolean;
-  /** The largest cause of misfit, as the view names it ("the peak tails"), and its share of χ². */
-  readonly topCause?: { readonly phrase: string; readonly share: number } | undefined;
+  /**
+   * The cause the headline names, as the view names it ("the peak tails"), and
+   * its share of χ². `first`: a misfit of the method's first block (the peak
+   * positions, the background), which comes first whatever its share.
+   */
+  readonly topCause?: { readonly phrase: string; readonly share: number; readonly first?: boolean } | undefined;
   /** Offer the cross-check bundles. */
   readonly canExport?: boolean;
 }
@@ -336,7 +344,10 @@ export function powderAcceptance(input: AcceptanceInput): Acceptance {
   const passes = state.kind === "converged" && (band === "excellent" || band === "good") && physical.tone === "green";
   const cross = crossCheck({ passes, state, gof: input.gof, band, durbinWatson: input.durbinWatson, assessment: input.assessment, parameters: input.parameters, canExport: input.canExport ?? false });
   const g = `GoF ${fmt(input.gof)}`;
-  const cause = input.topCause ? ` — ${input.topCause.share >= 0.5 ? "most of the misfit is in" : "the largest part of the misfit is"} ${input.topCause.phrase}` : "";
+  const top = input.topCause;
+  const cause = !top ? ""
+    : top.first ? ` — start with ${top.phrase}, your method's first block`
+      : ` — ${top.share >= 0.5 ? "most of the misfit is in" : "the largest part of the misfit is"} ${top.phrase}`;
   const blockers = items.filter((i) => i.severity === "blocker").length;
   const issues = items.filter((i) => i.severity === "issue").length;
   const verdict = ((): { tone: Tone; headline: string } => {

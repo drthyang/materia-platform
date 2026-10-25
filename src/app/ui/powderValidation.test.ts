@@ -125,6 +125,18 @@ describe("the powder Validation view", () => {
     expect(stateLine(html(props(demoPort(), { snapshot: true })))).toContain(">Refine</button>");
   }, 120_000);
 
+  it("with the cell put off by hand: a poor fit, and the peak positions first, as the method orders them", () => {
+    const demo = mn3gaPowgenExample();
+    const start = loadedSession(demo.structure, demo.pattern, demo.instrument, demo.extraPhases, demo.refinedParams);
+    const off = { ...start, powderParams: start.powderParams.map((p) => (p.id === "p0_cell_a" ? { ...p, value: p.value * 1.003 } : p)) };
+    const out = html(props(demoPort(off)));
+    const t = text(out);
+    expect(t).toMatch(/Poor fit \(GoF \d+\.\d\d\): far from the data — start with the peak positions, your method's first block\./);
+    expect(t).toContain("The model changed since its last refinement: refine to bring the values, esds and correlations up to date.");
+    expect([...out.matchAll(/data-cause="([^"]+)"/g)].map((m) => m[1]).slice(0, 2)).toEqual(["peak-tails", "peak-position"]);
+    expect(t).toContain("Fix the peak positions first: your method refines the cell, zero and background before the rest.");
+  });
+
   it("with nothing refined, says what to do instead of reading causes", () => {
     const demo = mn3gaPowgenExample();
     const out = html(props(demoPort(loadedSession(demo.structure, demo.pattern, demo.instrument, demo.extraPhases))));

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { causeRows, whereSummary, type CauseContext } from "@/app/ui/fitCauses";
+import { causeRows, headlineCause, whereSummary, type CauseContext } from "@/app/ui/fitCauses";
 import type { FitCause, FitDiagnosis } from "@/core/diagnostics/fitDiagnosis";
 import type { PowderValidation, ReflectionMisfit } from "@/core/diagnostics/powderValidation";
 import type { RefinementParameter } from "@/core/refinement/types";
@@ -112,6 +112,10 @@ describe("what limits the fit, in the page's words", () => {
     expect(rows[1]!.evidence).toBe("The observed peaks sit on the high-TOF side of the model's, across the pattern.");
     expect(rows[1]!.statistic).toBe("83% one-sided");
     expect(rows[1]!.action).toBe("A position error: refine the zero with the cell (the diffractometer constants stay the instrument's).");
+    // The headline names the first block's misfit, not the larger share it overlaps.
+    expect(headlineCause(rows)).toEqual({ phrase: "the peak positions", share: 0.21, first: true });
+    expect(headlineCause(rows.slice(0, 1))).toEqual({ phrase: "the peak tails", share: 0.97, first: false });
+    expect(headlineCause([])).toBeUndefined();
   });
 
   it("the background: the count the points between the lines support, or another function", () => {
