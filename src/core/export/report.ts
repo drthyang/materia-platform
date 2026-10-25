@@ -618,9 +618,10 @@ function table(cols: readonly Col[], rows: readonly (readonly string[])[], cls =
     const [a, b] = splitAtPoint(minus(text));
     return `<td class="n"><span class="ip" style="min-width:${w.int}ch">${esc(a)}</span><span class="fp" style="min-width:${w.frac}ch">${esc(b)}</span></td>`;
   };
-  return `<table class="bt${cls ? ` ${cls}` : ""}"><thead><tr>${cols.map((c) => `<th${c.num ? ' class="n"' : ""}>${c.head}</th>`).join("")}</tr></thead><tbody>
+  // Each table scrolls in its own box at a narrow width, so the page never does.
+  return `<div class="tw"><table class="bt${cls ? ` ${cls}` : ""}"><thead><tr>${cols.map((c) => `<th${c.num ? ' class="n"' : ""}>${c.head}</th>`).join("")}</tr></thead><tbody>
 ${rows.map((r) => `<tr>${r.map(cell).join("")}</tr>`).join("\n")}
-</tbody></table>`;
+</tbody></table></div>`;
 }
 
 /** A label / value list (the appendix's records). */
@@ -1001,7 +1002,11 @@ const CSS = `
   table.mini { margin: 0; font-size: var(--fs-4); }
   td.lbl { white-space: nowrap; }
   .bonds { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s5); align-items: flex-start; margin: var(--s2) 0 var(--s3); }
-  .scroll { overflow-x: auto; }
+  .scroll, .tw { overflow-x: auto; max-width: 100%; }
+  .tw > table.bt { margin: 0; }
+  .tw { margin: var(--s2) 0 var(--s3); }
+  .bonds .tw, .pair .tw { margin: 0; }
+  p, li, dd, figcaption, h1, h3 { overflow-wrap: break-word; }
   .kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--s1) var(--s4); margin: 0; font-size: var(--fs-4); }
   .kv dt { color: var(--soft); }
   .kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
@@ -1078,7 +1083,7 @@ const CSS = `
     table.bt, figure, .phase > p.cell, ul.caveats li, .pair { break-inside: avoid; page-break-inside: avoid; }
     .appendix table.bt { break-inside: auto; }
     tr { break-inside: avoid; }
-    .scroll { overflow: visible; }
+    .scroll, .tw { overflow: visible; }
     a { color: inherit; text-decoration: none; }
     /* The appendix prints in full: every part open. */
     details::details-content { content-visibility: visible; display: block; }
