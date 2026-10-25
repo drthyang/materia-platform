@@ -44,6 +44,7 @@ import type { FigureCurves, FigureTickRow, FobsFcalcPoint } from "@/core/export/
 import type { Session } from "@/app/powderSession";
 import { APP_VERSION } from "@/app/constants";
 import { minMax } from "@/core/math/extent";
+import { activeZeroAdpFixes, zeroAdpFixText, zeroAdpProposals, ZERO_ADP_BAYES } from "@/core/diagnostics/zeroAdp";
 
 /** What the magnetic page is showing right now, as published by KSearchPanel. */
 export interface MagneticExploration {
@@ -327,6 +328,7 @@ export function powderReportInput(o: {
 }): ReportInput {
   const { session, result } = o;
   const params = withEsds(o.params, result);
+  const limitations = zeroAdpLimitations(session, o.params, o.bindings, result, o.refinedPhases);
   const structure = o.refinedPhases[0] ?? session.structure;
   const multi = session.extraPhases.length > 0;
   const phases: ReportPhase[] = o.refinedPhases.map((st, i) => ({
@@ -424,9 +426,21 @@ export function powderReportInput(o: {
     parameters: params,
     result,
     notes,
-    // A shared site's last occupancy outside [0, 1]: the tie does not clamp it.
-    ...(siteSumRangeWarnings(params).length > 0 ? { warnings: siteSumRangeWarnings(params) } : {}),
+    // The B-at-0 limitations, and a shared site's last occupancy outside [0, 1] (the tie does not clamp it).
+    ...(limitations.length + siteSumRangeWarnings(params).length > 0 ? { warnings: [...limitations, ...siteSumRangeWarnings(params)] } : {}),
   };
+}
+
+/**
+ * The B-at-0 rule in the report's limitations: each fix the user applied that
+ * the rows still carry (a B that is tied or held, not measured), and each B
+ * the fit left on its bound with no fix applied.
+ */
+function zeroAdpLimitations(session: Session, params: readonly RefinementParameter[], bindings: readonly ParameterBinding[], result: RefinementResult | null, refined: readonly StructureModel[]): string[] {
+  const applied = activeZeroAdpFixes(params, session.zeroAdpFixes).map(zeroAdpFixText);
+  const open = zeroAdpProposals({ parameters: params, bindings, result, structures: [session.structure, ...session.extraPhases], refined })
+    .map((p) => `${p.warning.replace(` ${ZERO_ADP_BAYES}`, "")} Not applied: the B is reported on its bound, where its esd means nothing.`);
+  return [...applied, ...open];
 }
 
 // ---------------------------------------------------------------------------

@@ -14,6 +14,7 @@
  */
 
 import { siteSumRangeWarnings } from "@/core/workflow/structureRefinement";
+import type { CardDecision, CardOptionGroup } from "@/agent/cardOptions";
 import { z } from "zod";
 import { PAGE_LABEL, liveTool, type AgentPage, type LiveToolSpec, type ToolEffect } from "@/agent/tools";
 import type { AgentPort } from "@/agent/port";
@@ -62,6 +63,8 @@ export interface ActivityEntry {
   readonly alwaysAsk?: boolean;
   /** The decision a read's result hands the user (the k-search's k, the ranked groups, the next steps), as options to click (choices.ts). */
   readonly choices?: ChoiceSet;
+  /** A change's options on its approval card, the Agent's pick preselected (cardOptions.ts). */
+  readonly options?: readonly CardOptionGroup[];
 }
 
 /**
@@ -129,8 +132,12 @@ export interface ToolRunner {
 }
 
 export interface ExecutorOptions {
-  /** Ask the user to approve a change. Resolves false when they decline. */
-  readonly approve: (entry: ActivityEntry, signal?: AbortSignal) => Promise<boolean>;
+  /**
+   * Ask the user to approve a change. Resolves false when they decline; on a
+   * card with options, to their picks (a CardDecision). True without a card
+   * (auto mode) applies the Agent's own picks.
+   */
+  readonly approve: (entry: ActivityEntry, signal?: AbortSignal) => Promise<boolean | CardDecision>;
   /** Every status change of every call, for the drawer. */
   readonly onActivity: (entry: ActivityEntry) => void;
   /** Largest answer, in characters of compact JSON (default 8000, as the MCP server). */
@@ -441,8 +448,9 @@ export class AgentExecutor implements ToolRunner {
       }
       preview += check.note;
     }
-    update({ status: "waiting", preview });
-    if (!(await this.opts.approve(entry(), signal))) {
+    update({ status: "waiting", preview, ...(plan.options ? { options: plan.options } : {}) });
+    const decision = await this.opts.approve(entry(), signal);
+    if (!decision) {
       update({ status: "declined", outcome: signal?.aborted ? "Stopped" : "Declined" });
       if (signal?.aborted) return stopped();
       return { ...this.respond({ declined: true, note: "The user declined this change. Ask what they would prefer, or propose something else." }), status: "declined" };
@@ -468,7 +476,7 @@ export class AgentExecutor implements ToolRunner {
     const cancel = (): void => this.host.port()?.cancel();
     signal?.addEventListener("abort", cancel);
     const changed = await this.host.asAgent(async () => {
-      const n = await plan.apply(this.host);
+      const n = await plan.apply(this.host, typeof decision === "object" ? decision : undefined);
       await this.host.settle();
       if (spec.historyStep) {
         this.host.recordNow(spec.historyStep);

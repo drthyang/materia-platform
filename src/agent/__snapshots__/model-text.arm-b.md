@@ -906,6 +906,52 @@ Powder and single-crystal pages. Constrain parameters to one refined value, as a
 }
 ```
 
+### apply_adp_proposal
+
+Powder page only. For a B the last fit left on its lower bound (0), apply one of the app's ranked options (get_state's bAtZero) by its id: "tie:<row>" — a same-element site (preferred), or another cation of the same coordination (an alternative, with a caution) — or "start", the starting structure's B as it stands. No partner or value outside that list. Prefer the same-element tie; take a cross-element one only when physically sensible, with `reason` (required for it); in doubt take "start", or leave the B and report it. Asking first, the card shows the user every option with yours preselected; they may pick another or decline. In auto mode yours applies, recorded as yours (result, History, notice, report) with the options not taken. Undo: tie_parameters `release`, set_free or go_to_step. Refine after it. If the B carries physical meaning, run the Bayesian check (bayesian-check) instead of quoting a held value.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "choose": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "parameter": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The B row the last fit left on its lower bound, e.g. \"B_O2\""
+          },
+          "option": {
+            "type": "string",
+            "pattern": "^(tie:[A-Za-z0-9_.+-]+|start)$",
+            "description": "One of that row's option ids: \"tie:<row>\" (a tie the app offers) or \"start\" (the starting structure's value)"
+          },
+          "reason": {
+            "description": "Why the choice is physically sensible; required for a cross-element tie",
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "parameter",
+          "option"
+        ],
+        "additionalProperties": false
+      },
+      "description": "One option per row"
+    }
+  },
+  "required": [
+    "choose"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### sample_posterior
 
 Powder and PDF pages. The Bayesian check of a converged refinement: an ensemble MCMC (Goodman–Weare stretch moves over the worker pool) samples the posterior of the FREE parameters around the refined values and returns, per parameter, the median with 68 % and 95 % credible intervals, the posterior width over the least-squares esd (esdRatio), whether the interval ends on a bound, and the convergence (split-R̂, effective sample size); with the posterior correlations the data leave. Use it when a number is not convincing: an esd as large as the value, a parameter on a bound (B = 0, an occupancy at 1: the posterior gives a one-sided limit where the esd means nothing), a pair the correlation check flags, values that move between refinement paths at the same wR, or a physical claim resting on one parameter (an exchange fraction, a moment, a small distortion). esdRatio ≈ 1 confirms the esds; > 1.5 means they understate the uncertainty: quote the credible interval. `compare` gives the posterior of a difference (two B's, two occupancies, two moments) and the probability one is the larger: whether the data tell them apart. It quantifies uncertainty within the model and cannot fix a wrong one; with a systematic misfit (on powder, diagnose_fit's Durbin–Watson d below its critical Q_D) it is as overconfident as the esds. Cost: each step evaluates the pattern 2·nFree+2 times, and the chain mixes more slowly with more free parameters (about 10⁴ steps at 20 free; a few thousand at 8–10): free the values in question with their partners (the scale with occupancies and B's, the B's with the positions, the moments with the scale), fix the rest (usually the profile, the background, the cell and zero), refine that set — the posterior is read against that refinement's esds — then sample. The intervals are conditional on what is held: the profile and the background trade with the B values, so say so when quoting them. Not converged: call again with continue: true. Changes nothing in the model; the page shows the marginals in its Posterior view.

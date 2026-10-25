@@ -28,6 +28,7 @@ import { annotateExtraPeaks, detectExtraPeaks, type AnnotatedExtraPeak } from "@
 import { correctionCorrelation } from "@/core/diffraction/corrections";
 import type { StructureModel } from "@/core/crystal/types";
 import { structureChecks } from "@/core/diagnostics/structureChecks";
+import { zeroAdpFixText, type ZeroAdpFix, type ZeroAdpProposal } from "@/core/diagnostics/zeroAdp";
 import { CARRIED_BELOW, CARRIED_MAX, CORRELATION_LIMIT, CORRELATION_REPORTED, DATA_PER_PARAMETER, GOF_BANDS, GOOF_SINGLE_CRYSTAL_BANDS, SHIFT_SETTLED } from "@/core/diagnostics/thresholds";
 
 /**
@@ -140,6 +141,12 @@ export interface AssessmentInput {
   /** Displacement parameters of sites several atoms share (a mixed site): at a
    *  bound, the mixing is the first suspect. */
   readonly sharedSiteAdps?: readonly string[];
+  /**
+   * The B-at-0 rule (zeroAdp.ts): the page's proposals for the B's on their
+   * lower bound, joined to their at-bound findings, and the fixes the user
+   * applied that the rows still carry, each reported as a note.
+   */
+  readonly zeroAdp?: { readonly proposals: readonly ZeroAdpProposal[]; readonly applied: readonly ZeroAdpFix[] };
 }
 
 /**
@@ -529,11 +536,17 @@ export function assessRefinement(input: AssessmentInput): RefinementAssessment {
       continue;
     }
     const isStructural = p && (ADP_KINDS.has(p.kind) || p.kind === "occupancy");
+    // A B on its lower bound: the B-at-0 rule's proposal, with its source, after the reading of the cause.
+    const proposal = b.bound === "min" ? input.zeroAdp?.proposals.find((z) => z.parameterId === b.parameterId) : undefined;
+    const proposed = proposal
+      ? ` The B-at-0 rule: ${proposal.advice}${proposal.rule === "C" ? "" : " apply_adp_proposal applies the option you choose by its id (prefer the same-element tie; a cross-element one only when physically sensible, with the reason; in doubt the starting value, or leave the B and report it): asking first, the card shows the user every option with yours preselected; in auto mode yours applies and is recorded as yours. Applied, it stays a tie or a held value that can be released."}`
+      : "";
     findings.push({
       category: "at-bound",
       severity: isStructural ? "critical" : "warning",
       summary: `${p?.label ?? b.parameterId} is resting on its ${b.bound} bound (${b.value}).`,
-      detail: p && ADP_KINDS.has(p.kind)
+      ...(proposal ? { evidence: { bound: b.bound, value: b.value, proposal: proposal.rule, options: proposal.options.map((o, i) => `${i + 1}) "${o.id}" ${o.rank}: ${o.rule === "A" ? `tie to ${o.leader}` : `hold at ${o.value}`} — ${o.label}${o.caution ? ` (${o.caution})` : ""}`).join("; "), source: proposal.source } } : {}),
+      detail: (p && ADP_KINDS.has(p.kind)
         ? input.sharedSiteAdps?.includes(b.parameterId)
           ? `This displacement parameter belongs to a site several atoms share, so the site's scattering power is the first suspect: ${b.bound === "min" ? "B → 0 makes up for a site that scatters more than the model puts on it" : "a large B makes up for a site that scatters less than the model puts on it"}, i.e. the mixing is off (anti-site disorder, spinel inversion). Refine the site's occupancies with its Σ held (and the composition, when the formula is known) before trusting the ADP.`
           : mode === "pdf"
@@ -541,9 +554,20 @@ export function assessRefinement(input: AssessmentInput): RefinementAssessment {
           : mode === "single-crystal"
           ? "On integrated F² a displacement parameter at 0 usually means unmodelled extinction (the strongest low-angle reflections read weak, and a smaller B flattens the model's fall-off to meet them), absorption left in the data, or a wrong element or occupancy: refine the extinction first, rather than trusting the value."
           : "A displacement parameter pinned at a bound (often B→0) usually means the model is over-damping high-angle intensity — check the background, an absorption/extinction effect, or a correlation, rather than trusting the value."
-        : "A free parameter at a bound has a meaningless esd and signals the fit wanted to go where physics forbids — hold it fixed and find the upstream cause (correlation, wrong background, bad starting value).",
+        : "A free parameter at a bound has a meaningless esd and signals the fit wanted to go where physics forbids — hold it fixed and find the upstream cause (correlation, wrong background, bad starting value).") + proposed,
       parameterIds: [b.parameterId],
-      evidence: { bound: b.bound, value: b.value },
+      ...(proposal ? {} : { evidence: { bound: b.bound, value: b.value } }),
+    });
+  }
+  // The B-at-0 fixes in force: a tie or a held value the user applied, never silent.
+  for (const fix of input.zeroAdp?.applied ?? []) {
+    findings.push({
+      category: "at-bound",
+      severity: "note",
+      summary: zeroAdpFixText(fix),
+      detail: "Applied with the user's approval. It is a constraint or a held value like any other: release the tie (tie_parameters `release`) or free the row (set_free) to refine it again; go_to_step undoes it. Say it in the report.",
+      parameterIds: [fix.parameterId],
+      evidence: { rule: fix.rule, reached: fix.reached, ...(fix.leader ? { tiedTo: fix.leader } : {}), ...(fix.value !== undefined ? { heldAt: fix.value } : {}) },
     });
   }
 

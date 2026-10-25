@@ -34,6 +34,8 @@ import { withAntisite } from "@/core/crystal/antisite";
 import { structureTable } from "@/agent/structureTable";
 import { powderReflectionObsCalc } from "@/core/workflow/obsCalc";
 import { checkEqualTies, esdsWithTies, type EqualTieUpdate } from "@/core/refinement/constraints";
+import { zeroAdpFixText, zeroAdpOptionIndex } from "@/core/diagnostics/zeroAdp";
+import type { CardOptionGroup } from "@/agent/cardOptions";
 import { bondsOf, cellOf, historyView, labelOf, matchIds, occupancyConstraintsView, parameterSummary, pct, sig, siteSumNotes, type LiveToolHost } from "@/agent/liveCommon";
 import { sharedSites } from "@/core/workflow/structureRefinement";
 import { isSiteTotal } from "@/core/workflow/powderModelOptions";
@@ -370,6 +372,56 @@ export const POWDER_PLANS: Plans<PowderAgentPort> = {
       return undefined;
     });
   },
+  apply_adp_proposal: (input, s, port) => {
+    if (!s.result) throw new Error("there is no refinement result on screen — refine first: the options are read off the last fit's bounds");
+    const seen = new Set<string>();
+    const picks = input.choose.map((c) => {
+      if (seen.has(c.parameter)) throw new Error(`${c.parameter} is chosen twice: one option per row`);
+      seen.add(c.parameter);
+      const p = s.zeroAdp?.proposals.find((z) => z.parameterId === c.parameter);
+      if (!p) throw new Error(`${c.parameter} is not a free B the last fit left on its lower bound (get_state's bAtZero and assess_refinement list the B-at-0 options)`);
+      if (p.rule === "C") throw new Error(`${p.atom}: no value is proposed (rule C) — ${p.source.replace(/^rule C: no value /, "")}. Leave it and report it, or ask the user for a value they can cite`);
+      const i = zeroAdpOptionIndex(p, c.option);
+      if (i < 0) throw new Error(`${p.atom} has no option "${c.option}": its options are ${p.options.map((o) => `"${o.id}" (${o.rank}, ${o.label})`).join(", ")}`);
+      const o = p.options[i]!;
+      if (o.caution && !c.reason?.trim()) throw new Error(`option "${o.id}" for ${p.atom} ties it to ${o.label.replace(/^same coordination \([^)]*\), /, "a ")}: take it only when it is physically sensible, and say why in \`reason\`; otherwise choose "start" (the starting structure's value) if offered, or leave the B and report it`);
+      return { p, i, ...(c.reason?.trim() ? { reason: c.reason.trim() } : {}) };
+    });
+    const apply = handler(port.applyZeroAdp, "this page cannot apply the B-at-0 rule");
+    // The card: every ranked option, the Agent's pick preselected; the user picks another or declines (cardOptions.ts).
+    const groups: CardOptionGroup[] = picks.map(({ p, i }) => ({
+      id: p.parameterId,
+      title: `${p.atom} refined to 0 Å² (its lower bound)`,
+      options: p.options.map((o, k) => ({ id: o.id, label: `${k + 1} · ${o.rank}`, detail: o.text })),
+      selected: p.options[i]!.id,
+    }));
+    const preview = picks.map(({ p, i, reason }) => `${p.atom} refined to 0 Å² (its lower bound). The Agent chose option ${i + 1} (${p.options[i]!.rank}): ${p.options[i]!.text}${reason ? ` — its reason: ${reason}` : ""}.${p.options.length > 1 ? ` Other options: ${p.options.map((o, k) => (k === i ? null : `${k + 1}) ${o.rank} — ${o.text}`)).filter(Boolean).join("; ")}.` : ""}`).join(" · ");
+    return change(preview, (_host, decision) => {
+      // No decision: approved without a card (auto mode), so the Agent's picks apply, recorded as its choice.
+      const auto = !decision;
+      const chosen = picks.map(({ p, i, reason }) => {
+        const picked = decision ? zeroAdpOptionIndex(p, decision.selected[p.parameterId] ?? p.options[i]!.id) : i;
+        const j = picked >= 0 ? picked : i;
+        return { p, j, choice: { parameterId: p.parameterId, option: j, chosenBy: auto ? ("agent-auto" as const) : ("user" as const), ...(reason && j === i ? { reason } : {}) } };
+      });
+      apply(chosen.map((c) => c.choice));
+      return {
+        note: auto ? "Applied in auto mode without a card: the Agent's choice, recorded as such in the History, the notice and the report." : "Applied: the user's selection on the card.",
+        data: {
+          applied: chosen.map(({ p, j, choice }) => ({
+            parameter: p.parameterId,
+            option: p.options[j]!.id,
+            rank: p.options[j]!.rank,
+            applied: p.options[j]!.text,
+            chosenBy: auto ? "the Agent, in auto mode (no card)" : "the user, on the card",
+            ...(choice.reason ? { reason: choice.reason } : {}),
+            notTaken: p.options.filter((_, k) => k !== j).map((o) => `${o.id} (${o.rank}, ${o.label})`),
+          })),
+          next: "Refine next, and say it in the report (its limitations list it). tie_parameters release or set_free frees the row again; go_to_step undoes it.",
+        },
+      };
+    }, groups);
+  },
   set_instrument_constants: (input, s, port) => {
     const update = constantsUpdate(input);
     if (Object.keys(update).length === 0) throw new Error("pass `polarization`, `kAlpha2Ratio`, or both");
@@ -558,6 +610,7 @@ function stateView(s: PowderLiveState, history: ProjectHistory | null, select: r
           ...(s.result.message ? { message: s.result.message } : {}),
         }
       : null,
+    ...zeroAdpView(s),
     ...occupancyConstraintsView(s.parameters),
     ...parameterSummary(s.parameters, s.result ? esdsWithTies(s.parameters, s.result) : undefined, select),
     history: historyView(history),
@@ -565,6 +618,18 @@ function stateView(s: PowderLiveState, history: ProjectHistory | null, select: r
 }
 
 // ── analysis helpers ────────────────────────────────────────────────────────
+
+/** The B-at-0 rule on the page: the proposals for B's on their bound (apply_adp_proposal), and the fixes in force. */
+function zeroAdpView(s: PowderLiveState): Record<string, unknown> {
+  const z = s.zeroAdp;
+  if (!z || (z.proposals.length === 0 && z.applied.length === 0)) return {};
+  return {
+    bAtZero: {
+      ...(z.proposals.length > 0 ? { proposed: z.proposals.map((p) => ({ parameter: p.parameterId, rule: p.rule, options: p.options.map((o, i) => ({ option: i + 1, rank: o.rank, ...(o.leader ? { tieTo: o.leader } : {}), ...(o.value !== undefined ? { holdAt: o.value } : {}), label: o.label, ...(o.caution ? { caution: o.caution } : {}) })), warning: p.warning })), choose: "apply_adp_proposal with the option's id per row (\"tie:<row>\" or \"start\"): prefer the same-element tie; a cross-element tie only when physically sensible, with your reason; in doubt the starting value, or leave the B and report it. Asking first, the user sees every option on the card and may pick another or decline; in auto mode your choice applies and is recorded as yours. Rule C has nothing to apply" } : {}),
+      ...(z.applied.length > 0 ? { applied: z.applied.map((f) => zeroAdpFixText(f)) } : {}),
+    },
+  };
+}
 
 /** Multi-phase, after a refinement: each phase's weight fraction from its scale. */
 function phaseFractionView(s: PowderLiveState): Record<string, unknown> {
@@ -670,6 +735,7 @@ function assessment(s: PowderLiveState): ReturnType<typeof assess_refinement> {
     restraints: s.restraints,
     sharedSiteAdps: sharedSiteAdps(s),
     structures: s.refinedPhases,
+    ...(s.zeroAdp ? { zeroAdp: s.zeroAdp } : {}),
   });
 }
 
@@ -685,7 +751,8 @@ export function refineChecks(s: PowderLiveState): Record<string, unknown> {
   const many = s.refinedPhases.length > 1;
   const found = [...physicalFindings(s.parameters), ...s.refinedPhases.flatMap((m) => structureChecks(m, many ? m.name || m.id : undefined))];
   const hard = found.filter((f) => f.severity === "critical").map((f) => f.summary);
-  const warnings = found.filter((f) => f.severity === "warning").map((f) => f.summary);
+  // A B the fit left on its bound: the B-at-0 rule's proposal, never applied without the user (apply_adp_proposal).
+  const warnings = [...found.filter((f) => f.severity === "warning").map((f) => f.summary), ...(s.zeroAdp?.proposals ?? []).map((p) => p.warning)];
   const kind = new Map(s.parameters.map((p) => [p.id, p.kind]));
   const correlations = (s.result.diagnostics?.moderateCorrelations ?? [])
     .filter((c) => !oneCurve(kind.get(c.parameterIdA), kind.get(c.parameterIdB)))

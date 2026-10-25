@@ -1252,6 +1252,7 @@ html {
 .wb-agent-choice-label { font-weight: 600; overflow-wrap: anywhere; }
 .wb-agent-choice-detail { font-size: 11px; color: #5b5a55; overflow-wrap: anywhere; }
 .wb-agent-choice.is-recommended { border-color: #1f4fd8; }
+.wb-agent-choice.is-selected { background: #eef3ff; }
 .wb-agent-choice.is-other { border-style: dashed; color: #3b3a36; }
 .wb-agent-choice:hover:not(:disabled) { background: #eef3ff; }
 .wb-agent-choice:focus-visible {

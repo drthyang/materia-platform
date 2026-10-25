@@ -14,6 +14,7 @@
  * page's port and state; index.ts finds the adapter for a port.
  */
 
+import type { CardDecision, CardOptionGroup } from "@/agent/cardOptions";
 import type { AgentPort, PdfLiveState, PowderLiveState, SingleCrystalLiveState } from "@/agent/port";
 import type { LiveToolSpec } from "@/agent/tools";
 import type { ChangeResult, LiveToolHost } from "@/agent/liveCommon";
@@ -37,7 +38,13 @@ export type ToolInput = Record<string, unknown>;
  */
 export type Plan =
   | { readonly noOp: string }
-  | { readonly preview: string; readonly apply: (host: PageHost) => Promise<ChangeResult> };
+  | {
+      readonly preview: string;
+      /** `decision`: the user's picks on a card with options; absent when approved without one (auto mode, or a card with none). */
+      readonly apply: (host: PageHost, decision?: CardDecision) => Promise<ChangeResult>;
+      /** Options the card shows, the Agent's pick preselected (cardOptions.ts). */
+      readonly options?: readonly CardOptionGroup[];
+    };
 
 /** What a page's tools need of the shell: the History, the records, and a wait for the page to render (the magnetic step reads after its fits). */
 export interface PageHost extends LiveToolHost {

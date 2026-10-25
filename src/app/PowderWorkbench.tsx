@@ -87,8 +87,10 @@ import {
   extentOf, hasTensorAdp, magneticApplied as magneticAppliedOn, magneticProfileOf, momentRowsFree as momentRowsFreeOn, observationsIn, posteriorRun, powderFit as powderFitOn,
   powderPageCurves, refinedPhasesOf, restraintRequest, thoroughFit, weightedR as weightedROf, withAnisotropicAdp, withAntisitePair, withBackgroundTerms,
   withBackgroundType, withCorrections, withMagneticModelRows, withMagneticPreview, withMustrain, withParameterTies, withReset, withSiteTies, withSiteTotal, withParameter, pageAxis, powderMomentFit, residualPeaksOf,
-  changed, specInstrumentOf, withFit, withFixed, type PowderPage, type PowderPageModel,
+  changed, specInstrumentOf, withFit, withFixed, withZeroAdpApplied, withZeroAdpPruned, withZeroAdpReleased, zeroAdpOf, type PowderPage, type PowderPageModel,
 } from "@/app/powderPage";
+import { zeroAdpStepLabel, type ZeroAdpChoice } from "@/core/diagnostics/zeroAdp";
+import { ZeroAdpNotice } from "@/app/ui/ZeroAdpNotice";
 import type { EngineExportsRef } from "@/app/workbenchEngine";
 import type { AgentLink } from "@/agent/link";
 import type { MagneticAgentHandle } from "@/agent/magneticPort";
@@ -306,6 +308,8 @@ export function PowderWorkbench({
     [structure, session.extraPhases, paramValuesKey, pBindings],
   );
   const refinedStructure = refinedPhases[0]!;
+  // The B-at-0 rule: proposals for the B's the fit on the page left on their bound, and the fixes in force.
+  const zeroAdp = useMemo(() => zeroAdpOf({ session, result: powderResult }), [session, powderResult]);
 
   // The profile shape the magnetic component is synthesized with (the
   // background basis is the nuclear curve's business).
@@ -501,7 +505,7 @@ export function PowderWorkbench({
   );
 
   function patchPowder(id: string, patch: Partial<RefinementParameter>): void {
-    editRows((s) => withParameter(s, id, patch));
+    editRows((s) => withZeroAdpPruned(withParameter(s, id, patch)));
   }
 
   /** Hand the magnetic model + moment parameters to the refinement page: add the
@@ -563,6 +567,27 @@ export function PowderWorkbench({
       ? `Tie ${update.equal.slice(1).join(", ")} = ${update.equal[0]}`
       : `Release ${(update.release ?? []).join(", ")}`;
     stepHistory?.requestStep("settings", label);
+  }
+
+  /**
+   * The B-at-0 rule (core/diagnostics/zeroAdp.ts): apply the proposals for
+   * these rows — rule A's tie, rule B's held value — as one History step, or
+   * release a fix (the row free again). Never applied without the notice's
+   * click or the Agent's approved card.
+   */
+  function applyZeroAdp(choices: readonly ZeroAdpChoice[]): void {
+    const chosen = choices.flatMap((c) => {
+      const p = zeroAdp.proposals.find((z) => z.parameterId === c.parameterId);
+      return p && p.options[c.option] ? [{ p, i: c.option, c }] : [];
+    });
+    if (chosen.length === 0) return;
+    change((s) => chosen.reduce((acc, { p, i, c }) => withZeroAdpApplied(acc, p, i, { ...(c.chosenBy ? { chosenBy: c.chosenBy } : {}), ...(c.reason ? { reason: c.reason } : {}) }), s));
+    stepHistory?.requestStep("settings", chosen.map(({ p, i, c }) => zeroAdpStepLabel(p, i, c.chosenBy)).join("; "));
+    setMessage(`${chosen.map(({ p, i }) => `${p.atom}: ${p.options[i]!.rule === "A" ? `tied to ${p.options[i]!.leader}` : "held at the starting structure's value"}`).join("; ")} (the B-at-0 rule). Refine next; Release (or ⌘Z) undoes it.`);
+  }
+  function releaseZeroAdp(id: string): void {
+    change((s) => withZeroAdpReleased(s, id));
+    stepHistory?.requestStep("settings", `B at 0: released ${id}`);
   }
 
   /** Toggle tying position/ADP across shared (disordered) sites; rebuilds the spec. */
@@ -1053,6 +1078,7 @@ export function PowderWorkbench({
           axis: axisCtx,
           source: session.rawData?.name ?? powderSource,
           restraints: restraintReq.restraints ?? [],
+          zeroAdp,
         };
       },
       setFixed: (changes) => editRows((s) => withFixed(s, changes)),
@@ -1065,6 +1091,7 @@ export function PowderWorkbench({
       addAntisite,
       ...(onAddStructure ? { addPhase: onAddStructure } : {}),
       setParameterTies,
+      applyZeroAdp,
       ...(onInstrumentConstants ? { setInstrumentConstants: onInstrumentConstants } : {}),
       setFitRange: (range) => setFitRange(range ? { min: range.min, max: range.max } : null),
       showPeaks: (peaks) => {
@@ -1502,6 +1529,7 @@ export function PowderWorkbench({
                 result={powderResult}
                 disabled={tofViewOnly}
                 warnings={occupancyWarnings}
+                notice={<ZeroAdpNotice proposals={zeroAdp.proposals} applied={zeroAdp.applied} busy={busy} onApply={applyZeroAdp} onRelease={releaseZeroAdp} />}
                 groupControls={tofViewOnly ? undefined : {
                   "Instrument / profile": (
                     <CorrectionControls corrections={session.corrections} twoTheta={session.pattern.xUnit === "twoTheta"} onChange={setCorrections} />

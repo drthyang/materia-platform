@@ -105,7 +105,7 @@ const FIELD_LABEL: Readonly<Record<string, string>> = {
   pattern: "data", dataset: "data", magneticDataset: "magnetic data", instrument: "instrument",
   instrumentLoaded: "instrument", profile: "profile", backgroundTerms: "background terms",
   siteTies: "site ties", anisotropicAdp: "ADP model", adpModel: "ADP model", mustrain: "microstrain model",
-  magnetic: "magnetic model", fitRange: "fit range", manualPeaks: "marked peaks",
+  magnetic: "magnetic model", fitRange: "fit range", manualPeaks: "marked peaks", zeroAdpFixes: "B-at-0 fixes",
   probe: "probe", outlierFilter: "outlier filter", modulated: "modulated model",
   positionMode: "position mode", distortionModes: "distortion modes", spinModel: "spin model",
   boxcar: "boxcar", overlay: "overlay", rawData: "data", rawInstrument: "instrument", source: "data",

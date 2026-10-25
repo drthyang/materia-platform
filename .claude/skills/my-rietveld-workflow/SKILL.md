@@ -21,26 +21,25 @@ bar for calling it done. It is their method, not a generic
 and why at each stage so they can steer — they judge the fit, you drive the mechanics.
 
 The heuristics live in the app already (`suggest_next_steps`, `rank_next_parameters`,
-`assess_refinement`, the staged plan). This skill's job is to apply **their** ordering and
-**their** stopping rules on top of them. In the app, choose what refines with `set_free`,
+`assess_refinement`, the staged plan). This skill applies **their** ordering and stopping
+rules on top of them. In the app, choose what refines with `set_free`,
 then `refine`; over MCP, the `mcp_tool_map` reference maps the steps.
 
-## The rule that comes before everything: doubt the model before the symmetry
+## First: doubt the model before the symmetry
 
 **Refine the model to the best its space group allows before questioning the space
 group.** Changing the symmetry is the *last* step, taken only when everything in this
 method has been refined and the fit is still not good — never to explain a misfit that
 refinement has not yet had a chance to fix.
 
-At the start, observed and calculated intensities differ on many reflections: that is what
-refining the atoms, ADPs, occupancies, profile and corrections fixes. A reflection the model has, with more or less intensity than calculated,
-is a **misfit to refine**, never an "extra peak" and never evidence for a lower symmetry.
+At the start, observed and calculated intensities differ on many reflections: each is a
+**misfit to refine** (the atoms, ADPs, occupancies, profile and corrections fix it), never an "extra peak" and never evidence for a lower symmetry.
 Only a peak that sits on no reflection of any phase is an extra peak
 (`find_unexplained_peaks` lists the two apart).
 
 ## Gates
 
-The numbers and the stops; each is explained at its stage below.
+Each is explained at its stage below.
 
 - **The data before the model.** An axis in another unit than the file says, one factor on
   every d (a wrong wavelength or TOF calibration), or an instrument constant that does not
@@ -57,8 +56,8 @@ The numbers and the stops; each is explained at its stage below.
   values). **Hard** — two atoms closer than 1.0 Å, a U_iso above 0.1 Å², a negative U: take
   the run back (`go_to_step`) and ask the user. **Warn** and report — atoms closer than
   1.5 Å, a bond more than 10 % shorter than its bond-valence length, a U_iso above 0.05 Å²
-  or below 0.001 Å² (room temperature), a heavier atom's U more than 1.5× a lighter one's;
-  each can be right. **Correlations** from 0.8 to 0.95: reported, never silent.
+  or below 0.001 Å² (room temperature), a heavier atom's U more than 1.5× a lighter one's,
+  a B on its bound at 0 (`apply_adp_proposal`'s options); each can be right. **Correlations** from 0.8 to 0.95: reported, never silent.
 - **GoF** = Rwp/Rexp = √χ²ν, in `assess_refinement`'s bands (Toby 2006): excellent up to
   1.5, good to 2.5, fair to 4, poor above; below 0.8 the fit is "too good" — the σ
   overestimated or the model over-parameterized.
@@ -87,7 +86,7 @@ The numbers and the stops; each is explained at its stage below.
    - **The instrument constants** — the wavelength, a TOF calibration, the polarization P,
      the Kα₂ ratio — are the instrument's, not the fit's (P moves every B at the same wR).
      When one does not fit the setup the user describes, propose `set_instrument_constants`
-     (it always asks); never change one on your own. A Kα₂ peak is never an extra peak.
+     (it always asks). A Kα₂ peak is never an extra peak.
 2. **Set the fit range: read the data's ends** (`check_fit_range`) before anything is
    fitted: a model that fits ends that are not data bends its background, which then
    trades with the B values. The user's practice, as the GSAS-II tutorials': start **just
@@ -97,14 +96,13 @@ The numbers and the stops; each is explained at its stage below.
    the noise**, or, on a converged fit, an end the model misses by more than anywhere next
    to it. **Keep** what holds information: peaks below the first reflection that no phase
    explains are magnetic order (neutrons, below the ordering temperature) or another phase,
-   to explain; both ends when peaks are clear to the last point. Every cut in a gap between
-   reflections, never through a line. Apply the proposal with `set_fit_range` (it asks the
+   to explain; both ends when peaks are clear to the last point. Apply the proposal with `set_fit_range` (it asks the
    user) and say why, end by end; read the ends again after the first refinement. The page
    fits one window: a stretch inside the pattern (a spike) cannot be left out — say so.
 3. Run the **free-intensity (Le Bail) check**: `check_cell_symmetry` (over MCP, pass known
    impurity phases as `extraPhases`; in the app it reads every phase on the page). It
-   refines the cell by a Le Bail fit and reads what is left over — a sanity check, not a
-   gate; it never holds a refinement:
+   refines the cell by a Le Bail fit and reads what is left over — a sanity check that never
+   holds a refinement:
    - **unindexed peaks** (`unindexedPeaks`) — a peak no reflection of the cell can place:
      most often a missing phase (an impurity), sometimes a wrong cell. Settle it with the
      user before the structure is refined: it is the one thing refinement cannot fix. On
@@ -114,7 +112,7 @@ The numbers and the stops; each is explained at its stage below.
      CIF. Small bumps on a strong line's flank are `shoulders` — a profile tail, not a phase.
    - **a Le Bail fit that did not settle** (Rwp of 50 % or more, many peaks unindexed): the
      start is further off than the fit can follow, usually in the cell, and the model's own
-     lines are among the unindexed ones — not a phase to add. Prefit (step 4) and check
+     lines are among the unindexed ones. Prefit (step 4) and check
      again; only what is still unindexed is a missing phase.
    - **absence flags** (`absences.violated`) — leftover intensity at a reflection the
      space group forbids. A flag, not a verdict: before the structure is refined, a strong
@@ -154,19 +152,25 @@ The sequence is **atoms before profile**. Free parameters in this order — over
    correlates strongly with sample broadening and is often held on a narrow 2θ range, but
    free it when a genuine width mismatch demands it.
 4. **ADPs** — with the instrument's terms fixed (the guardrail below), then the two groups alternate. `B_iso` first; **anisotropic only if
-   the data clearly support it** (high real-space resolution / low temperature). `B_iso`
-   railing toward 0 usually means the background or a correction is stealing high-angle
-   intensity, not a rigid atom. When B values are not *determined* — they swap
+   the data clearly support it** (high real-space resolution / low temperature). When B values are not *determined* — they swap
    between refinement paths at the same wR, an esd is as large as the value, or one rails
    at 0 as its partner climbs (common below Q ≈ 6 Å⁻¹) — `tie_parameters` constrains
    chemically alike atoms to one B (the cations of an oxide, all the oxygens). Say in the
    report which B's are tied and why.
+
+   A B that ends on its bound at 0 is not a result. Find the cause first
+   (`diagnose_fit`: the background or absorption taking high-angle intensity, a correlation). If it stays at 0, the app ranks options
+   (`assess_refinement`'s at-bound finding): a tie to a same-element site (preferred) or to
+   a cation of the same coordination (labelled, with a caution), or the starting
+   structure's B. Choose with `apply_adp_proposal` (asking first, the user picks; in auto
+   mode yours applies; a cautioned option needs your `reason`), refine,
+   and say it in the report. A held B is an input, not a measurement: when a conclusion
+   rests on it, run `bayesian-check`.
 5. **Occupancy** — see the guardrail below. Usually near-last.
 6. **Corrections** — end-stage polish only; see below.
 
 If the fit stalls between blocks, `rank_next_parameters` / `assess_refinement` show what
-limits it, but keep the block order — don't jump ahead to occupancy or corrections to
-chase a number. When the verdict is poor or fair, `diagnose_fit` reads the residual cause
+limits it, but keep the block order. When the verdict is poor or fair, `diagnose_fit` reads the residual cause
 by cause, with each cause's share of χ² and the action: act on the largest first, and
 re-run it after each change. A fit that converges poor while
 `diagnose_fit` names nothing the next block fixes may sit in a **false minimum**: `refine`
@@ -208,15 +212,14 @@ its esd, not every occupancy.
 B rails toward 0 while another's is high. With contrast between the two elements (neutron
 b, or X-ray Z), `add_antisite` puts each on the other's site under hold composition (it
 asks the user); free the hosts' occupancies (the added ones follow), refine, and report the exchange
-with its esd and how the B values moved. To a modest Q the exchange trades with the B
+and how the B values moved. To a modest Q the exchange trades with the B
 values, and a large esd is the honest result. If it refines to zero, the ADP contrast is
 not disorder: return to the ordered model and, unless the contrast is significant and
 stable, tie the two cation B's.
 
 ## The instrument guardrail (do not skip)
 
-**Never refine the instrument's terms together with the thermal parameters, nor with the
-atom positions.** The
+**Never refine the instrument's terms together with the thermal parameters.** The
 instrument's terms are GSAS-II's Instrument Parameters: the **zero** (or the TOF
 calibration), the **peak shape** (Caglioti `U V W`, Lorentzian `X Y`, the TOF α β σ) and its
 **asymmetry** (S/L, H/L). The thermal parameters are the **B values or ADPs**. They trade
@@ -246,8 +249,7 @@ moves intensity between lines, which the positions follow. Alternate them the sa
 **Never refine strongly correlated parameters together.** Two free parameters that
 correlate at |ρ| ≥ 0.95 carry information the data cannot separate: the fit trades one
 against the other along a valley, their esds inflate, and either can land anywhere on it.
-In the app `refine` measures the free set at the current values and refuses a correlated
-set; over MCP, read the correlations `refine_powder` and `assess_refinement` report. Fix
+In the app `refine` refuses a correlated free set (measured at the current values); over MCP, read the correlations `refine_powder` and `assess_refinement` report. Fix
 one of a pair — usually the one this sequence frees later (occupancy against scale, B
 against scale, the zero against the cell) — or refine them in separate stages, and free it
 again only once the other is stable. When a pair has to stay free together, or a value
@@ -266,7 +268,7 @@ describe is determined. Each against anything else still counts, and so does `X`
 ## Corrections are polish, not a crutch
 
 Add sample/intensity corrections **only after the structure has converged**, to clean up a
-residual — never to rescue a bad structural model. Match the correction to
+residual. Match the correction to
 the geometry and the residual's signature (`set_corrections`; their rows come in fixed: free
 them, then refine):
 
@@ -282,8 +284,7 @@ scale: free only what the angular range can separate.
 
 ## The symmetry review — the last step, if at all
 
-Only when every block above has converged and the fit is still not
-acceptable may the space group be questioned, and only on evidence in the **refined**
+Question the space group only once every block has converged and the fit is still not acceptable, and only on evidence in the **refined**
 residual: `review_symmetry` (in the app it refuses, naming the stages left, until they are
 done), then the `symmetry-review` skill. Not evidence: misfit on allowed reflections, a poor GoF on its own, a
 Stage 0 flag the refined residual no longer shows.
@@ -300,10 +301,9 @@ The user does **not** chase absolute Rwp. A fit is acceptable when all of:
    `B_iso > 0`, occupancy sums chemically sensible, bond lengths/angles reasonable
    (`bond_geometry` gives the bond-valence sums).
    `assess_refinement` surfaces at-bounds and unphysical parameters; treat any as a
-   blocker. A weakly determined parameter the result rests on gets
-   its credible interval (`bayesian-check`), not only its esd.
+   blocker.
 3. **External cross-check agrees** — re-run in **both GSAS-II and FullProf** and confirm
-   the parameters and ESDs are consistent. Over MCP, `export_bundle` writes both bundles
+   the parameters and ESDs agree. Over MCP, `export_bundle` writes both bundles
    (the `mcp_tool_map` reference says how; the `.pcr` starts scale, background and the CW
    peak shape from seeds, to be freed in FullProf — say so); in the app the user writes
    them from the Export menu.

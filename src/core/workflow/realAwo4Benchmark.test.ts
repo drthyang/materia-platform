@@ -30,17 +30,18 @@ import type { PowderPattern } from "@/core/diffraction/types";
 import type { ParameterBinding, ParameterKind, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { Vec3 } from "@/core/math/types";
 import { dataExists, readData } from "@/testSupport/data";
+import { withZeroAdpProposal, zeroAdpProposals } from "@/core/diagnostics/zeroAdp";
 
 /**
  * BENCHMARK — magnetic refinement of the high-entropy tungstate AWO₄
- * ((Co,Cu,Fe,Mn,Ni,Zn)WO₄, P2/c) on POWGEN run 61113 at 8 K, bank 3, read
- * from the Mantid XYDATA export (`PG3_61113-3.dat`). The data are UNPUBLISHED:
+ * ((Co,Cu,Fe,Mn,Ni,Zn)WO₄, P2/c) on the 8 K bank-3 POWGEN pattern, read
+ * from its Mantid XYDATA export (`PG3_powder_8K.dat`). The data are UNPUBLISHED:
  * they are read from the git-ignored data/ folder only, and this file holds no
  * number derived from them — only the criteria. Skips when the files are absent.
  *
  * Reference status. The nuclear model is checked against the user's GSAS-II
  * refinement at 100 K (trusted). The magnetic structure is checked against the
- * owner's own refinement of this run, `AWO4_8K_n.mcif` (a Jana-style mCIF in the
+ * owner's own refinement of this pattern, `magnetic_8K.mcif` (a Jana-style mCIF in the
  * doubled cell; unpublished), read at runtime from data/ — that block skips
  * without it. Only its magnetic content is trusted (k, the group and its
  * operators, the moment components, its ⟨j0⟩ ions); its cell is not. The cell
@@ -51,7 +52,7 @@ import { dataExists, readData } from "@/testSupport/data";
  * compared only with the 100 K CIF, within thermal-contraction bounds. The
  * app-generated demo solution is not used.
  *
- * Instrument file: the 60 Hz frame at CWL 2.665 Å (B3). The file's abscissa is
+ * Instrument file: the bank-3 frame's calibration (B3). The file's abscissa is
  * the focused TOF (difC·d of a virtual 90° detector), so it spans a d range,
  * not one 16.7 ms frame: the first point sits at the backscattering limit
  * d = λ_min/2 of the B3 band only (C2). The full evidence, the plan and the
@@ -66,16 +67,20 @@ import { dataExists, readData } from "@/testSupport/data";
  */
 
 const DIR = "AWO4";
-const DATA = `${DIR}/autoreduced/PG3_61113-3.dat`;
-const CIF = `${DIR}/AWO4_HE_100K_refined.cif`;
+/** The data file's name, as the loaders are given it (the layout is in docs/VALIDATION.md). */
+const DATA_NAME = "PG3_powder_8K.dat";
+const DATA = `${DIR}/${DATA_NAME}`;
+const CIF = `${DIR}/structure_100K.cif`;
 const INST = {
-  B1: `${DIR}/GSAS-II_2025B_HR/2025B_HighRes_60HzB1_CWL0p8.instprm`,
-  B2: `${DIR}/GSAS-II_2025B_HR/2025B_HighRes_60HzB2_CWL1p5.instprm`,
-  B3: `${DIR}/GSAS-II_2025B_HR/2025B_HighRes_60HzB3_CWL2p665.instprm`,
+  B1: `${DIR}/instrument_bank1.instprm`,
+  B2: `${DIR}/instrument_bank2.instprm`,
+  B3: `${DIR}/instrument_bank3.instprm`,
 } as const;
+/** Each bank's frame: its centre wavelength (Å). A .instprm does not carry it. */
+const BAND_CENTRE_A: Readonly<Record<keyof typeof INST, number>> = { B1: 0.8, B2: 1.5, B3: 2.665 };
 const has = dataExists(DATA) && dataExists(CIF) && Object.values(INST).every((f) => dataExists(f));
 /** The owner's refined 8 K magnetic structure (Jana mCIF, doubled cell). */
-const REF = `${DIR}/AWO4_8K_n.mcif`;
+const REF = `${DIR}/magnetic_8K.mcif`;
 const hasRef = has && dataExists(REF);
 
 const K: Vec3 = [0.5, 0, 0];
@@ -102,13 +107,11 @@ function cifValue(cif: string, tag: string): { value: number; esd: number } {
   return { value: Number(text), esd: m[2] ? Number(m[2]) * 10 ** -decimals : 0 };
 }
 
-/** The 60 Hz band's shortest wavelength: CWL from the file name, minus half a frame. */
-function lambdaMin(file: string, instText: string): number {
-  const cwl = file.match(/CWL(\d+)p(\d+)/);
+/** The 60 Hz band's shortest wavelength: the bank's centre wavelength, minus half a frame. */
+function lambdaMin(bank: keyof typeof INST, instText: string): number {
   const L = instText.match(/^fltPath:\s*([\d.]+)/m);
-  if (!cwl || !L) throw new Error(`${file}: no CWL or flight path`);
-  const centre = Number(`${cwl[1]}.${cwl[2]}`);
-  return centre - FRAME_US / (252.78 * Number(L[1])) / 2;
+  if (!L) throw new Error(`${bank}: no flight path`);
+  return BAND_CENTRE_A[bank] - FRAME_US / (252.78 * Number(L[1])) / 2;
 }
 
 /** |Δ| in Å of a fractional displacement, through the cell's metric. */
@@ -160,7 +163,7 @@ async function runBenchmark(): Promise<Bench> {
   const { structure } = parse_structure({ cif, id: "awo4" });
   const inst = parse_instrument({ text: readData(INST.B3) });
   if (inst.kind !== "tof") throw new Error("the B3 .instprm should be TOF");
-  const pattern = parse_powder_data({ text: readData(DATA), filename: "PG3_61113-3.dat", instrument: inst }).pattern;
+  const pattern = parse_powder_data({ text: readData(DATA), filename: DATA_NAME, instrument: inst }).pattern;
   const fitRange = { min: pattern.points[0]!.x, max: tofFromD(inst, D_MAX) };
   const spec = buildPowderSpec(structure, pattern, inst, true, 6, { positions: true, adp: true });
 
@@ -297,10 +300,10 @@ function postResidual(b: Bench) {
   });
 }
 
-describe.skipIf(!has)("AWO₄ 8 K benchmark — the file and its frame (POWGEN 61113, Mantid XYDATA)", () => {
+describe.skipIf(!has)("AWO₄ 8 K benchmark — the file and its frame (POWGEN bank 3, Mantid XYDATA)", () => {
   it("C1: reads the Mantid XYDATA export as a log-binned TOF pattern with σ", () => {
     const text = readData(DATA);
-    const { detected, pattern } = parse_powder_data({ text, filename: "PG3_61113-3.dat" });
+    const { detected, pattern } = parse_powder_data({ text, filename: DATA_NAME });
     expect(detected).toMatchObject({ dataType: "powder", xUnit: "tof", source: "header", confidence: "high" });
     expect(pattern.radiation).toEqual({ kind: "neutron-tof" });
     // One point per data row: every line but the XYDATA tag and the # header.
@@ -313,12 +316,12 @@ describe.skipIf(!has)("AWO₄ 8 K benchmark — the file and its frame (POWGEN 6
 
   it("C2: the first point sits at the B3 band's backscattering limit λ_min/2, not B1's or B2's", () => {
     const ratio: Record<string, number> = {};
-    for (const [bank, file] of Object.entries(INST)) {
+    for (const [bank, file] of Object.entries(INST) as [keyof typeof INST, string][]) {
       const text = readData(file);
       const inst = parse_instrument({ text });
       if (inst.kind !== "tof") throw new Error(`${file} should be TOF`);
-      const { pattern } = parse_powder_data({ text: readData(DATA), filename: "PG3_61113-3.dat", instrument: inst });
-      ratio[bank] = dFromTof(inst, pattern.points[0]!.x) / (lambdaMin(file, text) / 2);
+      const { pattern } = parse_powder_data({ text: readData(DATA), filename: DATA_NAME, instrument: inst });
+      ratio[bank] = dFromTof(inst, pattern.points[0]!.x) / (lambdaMin(bank, text) / 2);
     }
     expect(ratio.B3).toBeGreaterThanOrEqual(1);
     expect(ratio.B3).toBeLessThanOrEqual(1.05);
@@ -378,7 +381,9 @@ describe.skipIf(!has)("AWO₄ 8 K benchmark — nuclear vs the 100 K CIF, k, and
   });
 
   // Known not met on the local data: B_iso values rail to their bound at 0. The 8 K reference
-  // refines one shared U_iso (R0c), so it gives no per-site target.
+  // refines one shared U_iso (R0c), so it gives no per-site target. The B-at-0 rule (M10) gives each
+  // a warned proposal with ranked options (C5b); with the preferred tie applied it is off its bound (C5c); C5 is read
+  // on the fit as refined, with nothing applied, and stays as written.
   it.fails("C5: every B_iso positive and off its bound", () => {
     const bounded = new Set(b.joint.diagnostics?.atBounds.map((x) => x.parameterId) ?? []);
     for (const p of b.nuclear.filter((q) => q.kind === "bIso" && !q.fixed)) {
@@ -386,6 +391,64 @@ describe.skipIf(!has)("AWO₄ 8 K benchmark — nuclear vs the 100 K CIF, k, and
       expect(bounded.has(p.id)).toBe(false);
     }
   });
+
+  // The B-at-0 rule (M10): each B the joint fit leaves on its bound gets a proposal with a warning,
+  // and nothing is applied behind the user's back — C5 above is read on the fit as refined.
+  it("C5b: each B on its lower bound gets a warned proposal, applied to nothing", () => {
+    const rows = b.nuclear.map((p) => ({ ...p, value: b.jointValues[p.id] ?? p.value }));
+    const kind = new Map(rows.map((p) => [p.id, p.kind]));
+    const bounded = (b.joint.diagnostics?.atBounds ?? []).filter((x) => x.bound === "min" && kind.get(x.parameterId) === "bIso").map((x) => x.parameterId).sort();
+    expect(bounded).toEqual(expect.arrayContaining(["B_O2", "B_W1"]));
+    const proposals = zeroAdpProposals({ parameters: rows, bindings: b.bindings, result: b.joint, structures: [b.structure], refined: [b.jointModel] });
+    expect(proposals.map((p) => p.parameterId).sort()).toEqual(bounded);
+    for (const p of proposals) {
+      expect(p.warning.startsWith(`${p.atom} refined to`)).toBe(true);
+      expect(p.warning).toMatch(/its lower bound/);
+      expect(p.warning).toMatch(/the Bayesian check on it \(sample_posterior\)/);
+      expect(p.source.startsWith(`rule ${p.rule}`)).toBe(true);
+    }
+    // O2 has a sensible partner of its own element (O1): that tie is offered first, as the preferred option.
+    expect(proposals.find((p) => p.parameterId === "B_O2")!.options[0]).toMatchObject({ rule: "A", rank: "preferred", leader: "B_O1" });
+    // W1 has no other W: any tie to another cation is only a labelled alternative, with its caution; nothing is preferred.
+    const w1 = proposals.find((p) => p.parameterId === "B_W1")!;
+    expect(w1.options.length).toBeGreaterThan(0);
+    expect(w1.options.every((o) => o.rank === "alternative")).toBe(true);
+    for (const o of w1.options.filter((x) => x.rule === "A")) expect(o.caution).toMatch(/^a different cation \(W.* vs .*\): check it is physically sensible$/);
+    // Computing a proposal changes no row.
+    expect(rows.filter((p) => p.kind === "bIso").every((p) => p.value === (b.jointValues[p.id] ?? p.value))).toBe(true);
+    console.log(`[awo4-bench] B at 0: ${proposals.map((p) => `${p.parameterId} → ${p.options.map((o, i) => `${i + 1}) ${o.rank} ${o.rule === "A" ? `tie ${o.leader}` : `hold ${o.value!.toFixed(3)}`} [${o.label}]`).join(" ")}`).join(" | ")}`);
+  });
+
+  // With options applied (what the user gets on Apply), the joint fit refined again: an observation
+  // for the record — C5 above stays as written, on the fit as refined. Two choices: the preferred
+  // tie alone; and the preferred tie with each other B held at its starting value, where it has one.
+  it("C5c: with the preferred tie applied and the joint fit refined again, its leader is off its bound", () => {
+    const rows = b.nuclear.map((p) => ({ ...p, value: b.jointValues[p.id] ?? p.value }));
+    const proposals = zeroAdpProposals({ parameters: rows, bindings: b.bindings, result: b.joint, structures: [b.structure], refined: [b.jointModel] });
+    const moments = b.build.params.map((p) => ({ ...p, value: b.jointValues[p.id] ?? p.value, initialValue: b.jointValues[p.id] ?? p.value, fixed: !!p.expression }));
+    const ag = (r: RefinementResult) => `wR ${(100 * (r.agreement.rWeighted ?? NaN)).toFixed(3)}% GoF ${(r.agreement.goodnessOfFit ?? NaN).toFixed(2)}`;
+    const run = (choice: (p: (typeof proposals)[number]) => number, name: string) => {
+      let applied = rows;
+      for (const p of proposals) {
+        const i = choice(p);
+        if (i >= 0) applied = withZeroAdpProposal(applied, p, i);
+      }
+      const again = refine(buildMagneticPowderProblem(b.structure, b.build.magnetic, b.pattern, [...applied, ...moments], [...b.bindings, ...b.build.bindings], b.profile, b.fitRange), { maxIterations: 20 });
+      const bounded = new Set((again.diagnostics?.atBounds ?? []).map((x) => x.parameterId));
+      console.log(`[awo4-bench] ${name}, joint again: ${ag(again)} (was ${ag(b.joint)}) · ${again.status} · B ${applied.filter((p) => p.kind === "bIso").map((p) => `${p.id} ${(again.parameters[p.id] ?? p.value).toFixed(3)}${again.esd?.[p.id] ? `±${again.esd[p.id]!.toFixed(3)}` : p.expression ? ` (${p.expression})` : " (held)"}`).join(" ")} · at bounds ${[...bounded].join(",") || "none"}`);
+      return { again, bounded };
+    };
+    const preferred = (p: (typeof proposals)[number]) => p.options.findIndex((o) => o.rank === "preferred");
+    const { again, bounded } = run(preferred, "preferred tie only");
+    for (const p of proposals) {
+      const i = preferred(p);
+      if (i < 0) continue;
+      const leader = p.options[i]!.leader!;
+      expect(bounded.has(leader)).toBe(false);
+      expect(again.parameters[leader]!).toBeGreaterThan(0);
+    }
+    run((p) => (preferred(p) >= 0 ? preferred(p) : p.options.findIndex((o) => o.rule === "B")), "preferred tie, the rest at their starting value");
+  }, LONG);
 
   it("C6: k = (½ 0 0) from the nuclear-model residual alone: first, every included peak, a clear margin", () => {
     const included = b.rows.filter((r) => r.included);
@@ -443,7 +506,7 @@ describe.skipIf(!has)("AWO₄ 8 K benchmark — nuclear vs the 100 K CIF, k, and
   });
 });
 
-// ── against the owner's 8 K reference refinement (AWO4_8K_n.mcif) ────────────
+// ── against the owner's 8 K reference refinement (magnetic_8K.mcif) ─────────
 
 interface Reference {
   readonly text: string;
@@ -538,7 +601,7 @@ interface AppFit {
   readonly magnetic: MagneticModel;
 }
 
-describe.skipIf(!hasRef)("AWO₄ 8 K benchmark — against the owner's reference refinement (AWO4_8K_n.mcif)", () => {
+describe.skipIf(!hasRef)("AWO₄ 8 K benchmark — against the owner's reference refinement (magnetic_8K.mcif)", () => {
   let b: Bench;
   let ref: Reference;
   /** The default pipeline's joint fit (2+ ⟨j0⟩, the app's default). */

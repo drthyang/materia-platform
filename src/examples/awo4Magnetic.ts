@@ -9,9 +9,11 @@
  * folder, which the dev server exposes under `/data/…` (vite.config.ts,
  * `serveLocalData`, dev only):
  *
- *   data/AWO4/autoreduced/PG3_61115.gsa                    the 6 K bank-3 histogram
- *   data/AWO4/GSAS-II_2025B_HR/2025B_HighRes_60HzB3_CWL2p665.instprm
- *   data/AWO4/awo4_demo_solution.json                       the solved structure
+ *   data/AWO4/PG3_powder_6K.gsa         the 6 K bank-3 histogram
+ *   data/AWO4/instrument_bank3.instprm  its bank's calibration
+ *   data/AWO4/awo4_demo_solution.json   the solved structure
+ *
+ * (The whole folder's layout is in docs/VALIDATION.md.)
  *
  * The solution file is written by `awo4MagneticSolve.test.ts` (run with
  * AWO4_SOLVE=1): staged nuclear refinement → residual k-search → every
@@ -39,14 +41,14 @@ import { applyMagneticMoments } from "@/core/workflow/magnetic";
 
 /** Where the demo's files live under the (git-ignored) data folder. */
 export const AWO4_DEMO_FILES = {
-  data: "AWO4/autoreduced/PG3_61115.gsa",
-  instrument: "AWO4/GSAS-II_2025B_HR/2025B_HighRes_60HzB3_CWL2p665.instprm",
+  data: "AWO4/PG3_powder_6K.gsa",
+  instrument: "AWO4/instrument_bank3.instprm",
   solution: "AWO4/awo4_demo_solution.json",
 } as const;
 
 const STRUCTURE_ID = "awo4";
 const PATTERN_ID = `${STRUCTURE_ID}-powder`;
-const PATTERN_NAME = "AWO₄ POWGEN 6 K bank 3 (TOF, λ=2.665 Å) · local data";
+const PATTERN_NAME = "AWO₄ POWGEN 6 K bank 3 (TOF) · local data";
 
 /** The solved magnetic structure, as `awo4MagneticSolve.test.ts` writes it. */
 export interface Awo4Solution {

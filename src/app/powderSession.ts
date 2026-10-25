@@ -18,6 +18,7 @@ import { buildSyntheticPowder } from "@/examples/synthetic";
 import { parseSymmetryOperation } from "@/core/crystal/symmetry";
 import { isUserTie, renamedTie, tieReferences, withTieValues } from "@/core/refinement/constraints";
 import { sharedOccupancyTies, siteSumConstraints } from "@/core/workflow/structureRefinement";
+import type { ZeroAdpFix } from "@/core/diagnostics/zeroAdp";
 
 export const DEFAULT_INSTRUMENT: InstrumentParameters = { kind: "constantWavelength", wavelength: 1.54 };
 export const DEFAULT_BACKGROUND_TERMS = 4;
@@ -63,6 +64,8 @@ export interface Session {
   rawData?: { name: string; text: string };
   /** Optional magnetic model over `structure`, for magnetic reflection ticks. */
   magnetic?: MagneticModel;
+  /** The B-at-0 proposals the user applied (core/diagnostics/zeroAdp.ts): the rows carry the tie or the held value; this says why. */
+  zeroAdpFixes?: ZeroAdpFix[];
 }
 
 /** A valid but data-less placeholder structure (P1, unit cell, no sites). The

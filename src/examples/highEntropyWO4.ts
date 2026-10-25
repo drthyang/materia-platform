@@ -1,16 +1,14 @@
 /**
  * Bundled default structure: the high-entropy tungstate (Co,Cu,Fe,Mn,Ni,Zn)WO₄,
  * wolframite-type, monoclinic P2/c — the atomic model that accompanies the
- * POWGEN 100 K time-of-flight neutron dataset in
- * `data/POWGEN_HighEntropy_100K/`.
+ * POWGEN 100 K time-of-flight neutron dataset in the git-ignored `data/AWO4/`
+ * (`structure_100K.cif`; the layout is in docs/VALIDATION.md).
  *
  * The six 3d cations are disordered on a single 2f site at occupancy ≈ 1/6 each
  * (the "high-entropy" A-site); W and the two O sites are ordered. This CIF is
  * embedded as text so the deployed static app always starts from a *real*
  * structure — never the self-consistent Mn₃Ga demo — even when the git-ignored
- * `data/` folder (which holds the observed pattern) is absent. When `data/` is
- * present, the app replaces this with the full POWGEN structure + pattern at
- * runtime (see `app/powgenData.ts`).
+ * `data/` folder (which holds the observed pattern) is absent.
  */
 
 import { parseCif } from "@/parsers/cif";

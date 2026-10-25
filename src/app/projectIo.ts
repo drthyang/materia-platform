@@ -43,6 +43,7 @@ import {
 } from "@/core/project/types";
 import { isMomentParameterKind, type ParameterBinding, type RefinementParameter, type RefinementResult } from "@/core/refinement/types";
 import { isUserTie } from "@/core/refinement/constraints";
+import { activeZeroAdpFixes } from "@/core/diagnostics/zeroAdp";
 import type { ProjectHistory } from "@/core/project/history";
 import type { BoxcarPlan, BoxcarRun } from "@/core/workflow/pdfBoxcar";
 
@@ -163,6 +164,10 @@ export function powderWorkspaceFrom(
     ...(view.fitRange ? { fitRange: view.fitRange } : {}),
     ...(view.displayUnit ? { displayUnit: view.displayUnit } : {}),
     ...(view.manualPeakD.length > 0 ? { manualPeaks: [...view.manualPeakD] } : {}),
+    // Only the fixes the rows still carry: an overridden one is not saved as the rule's.
+    ...(session.zeroAdpFixes && session.zeroAdpFixes.length > 0 && activeZeroAdpFixes(session.powderParams, session.zeroAdpFixes).length > 0
+      ? { zeroAdpFixes: activeZeroAdpFixes(session.powderParams, session.zeroAdpFixes).map((f) => ({ ...f })) }
+      : {}),
   };
 }
 
@@ -209,6 +214,7 @@ export function sessionFromPowderWorkspace(ws: PowderWorkspace, structures: read
     ...(ws.rawInstrument ? { rawInstrument: ws.rawInstrument } : {}),
     ...(ws.rawData ? { rawData: ws.rawData } : {}),
     ...(ws.magnetic ? { magnetic: ws.magnetic } : {}),
+    ...(ws.zeroAdpFixes && ws.zeroAdpFixes.length > 0 ? { zeroAdpFixes: ws.zeroAdpFixes.map((f) => ({ ...f })) } : {}),
   };
   return {
     session,

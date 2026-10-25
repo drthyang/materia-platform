@@ -5,7 +5,8 @@ import { onPage } from "@/agent/pages";
 import { MAGNETIC_TRUTH, mn3gaMagneticSession, mn3gaSession } from "@/agent/evals/pages";
 import { pdfPort, sessionPort, singleCrystalPort } from "@/testSupport/agentHeadless";
 import { chiralPage, corundumPage, pyridylPage } from "@/testSupport/scPages";
-import type { Session } from "@/app/powderSession";
+import { loadedSession, type Session } from "@/app/powderSession";
+import { ZERO_ADP_INSTRUMENT, zeroAdpSimulated } from "@/testSupport/zeroAdpCase";
 
 /**
  * What a change was checked and approved against (the stamp): a change whose
@@ -69,6 +70,18 @@ const POWDER: Table<PowderAgentPort> = {
     act: (p) => p.setParameterTies!({ equal: p.state().parameters.filter((q) => q.kind === "bIso").map((q) => q.id) }),
   },
   setInstrumentConstants: { act: (p) => p.setInstrumentConstants!({ polarization: 0.5 }) },
+  applyZeroAdp: {
+    // A fit that leaves B(O1) on 0 with a same-element partner: the proposal is a tie.
+    page: () => {
+      const { pattern, structure } = zeroAdpSimulated(600, 17);
+      return sessionPort(loadedSession(structure, pattern, ZERO_ADP_INSTRUMENT), ZERO_ADP_INSTRUMENT).port;
+    },
+    prepare: async (p) => {
+      p.setFixed(p.state().parameters.map((q) => ({ id: q.id, fixed: !(q.kind === "scale" || q.kind === "background" || q.id.startsWith("B_O")) })));
+      await p.refine();
+    },
+    act: (p) => p.applyZeroAdp!([{ parameterId: "B_O1", option: 0 }]),
+  },
   setFitRange: {
     act: (p) => {
       const { min, max } = p.state().extent;

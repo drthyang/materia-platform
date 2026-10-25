@@ -240,20 +240,22 @@ export function powderPage(session: Session): PowderAgentPort {
 /**
  * The user's own AWO₄ powder data, where they are: the structure's CIF, a
  * POWGEN bank's GSAS histogram (TOF) and the instrument file of the same bank,
- * found in the git-ignored data/AWO4 folder. The data are unpublished: the
- * repository holds none of them, not even their file names, and the scenario
- * on them runs only on a machine that has the folder. Null when it is absent.
+ * found in the git-ignored data/AWO4 folder under the generic names of
+ * docs/VALIDATION.md (the ordered pattern, `PG3_powder_6K.gsa`, before any other
+ * histogram; `instrument_bank<N>.instprm` for its bank). The data are
+ * unpublished: the repository holds none of them, and the scenario on them
+ * runs only on a machine that has the folder. Null when it is absent.
  */
 export function awo4UserFiles(): { readonly structure: string; readonly data: string; readonly instrument: string } | null {
   const dir = dataDir("AWO4");
   if (!existsSync(dir)) return null;
   const files = readdirSync(dir).sort();
   const cif = files.find((f) => /\.cif$/i.test(f));
-  const gsa = files.find((f) => /\.gsa$/i.test(f));
+  const gsa = files.find((f) => f === "PG3_powder_6K.gsa") ?? files.find((f) => /\.gsa$/i.test(f));
   if (!cif || !gsa) return null;
   const bank = /^BANK\s+(\d+)/m.exec(readFileSync(join(dir, gsa), "utf8"))?.[1];
   const instruments = files.filter((f) => /\.instprm$/i.test(f));
-  const instrument = instruments.find((f) => bank !== undefined && new RegExp(`B${bank}(?!\\d)`).test(f)) ?? instruments[0];
+  const instrument = instruments.find((f) => bank !== undefined && new RegExp(`(?:bank|B)${bank}(?!\\d)`, "i").test(f)) ?? instruments[0];
   if (!instrument) return null;
   return { structure: join(dir, cif), data: join(dir, gsa), instrument: join(dir, instrument) };
 }

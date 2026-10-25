@@ -10,12 +10,13 @@ import type { AgentPort } from "@/agent/port";
 import type { InputOf, LiveToolSpec, PageChangeTool } from "@/agent/tools";
 import { applyFree, describeFree, freeNoOp, goToStep, matchIds, type ChangeResult } from "@/agent/liveCommon";
 import type { PageHost, Plan, StateOf, ToolInput } from "@/agent/pages/types";
+import type { CardDecision, CardOptionGroup } from "@/agent/cardOptions";
 
 /** Nothing to do, and why. */
 export const nothing = (why: string): Plan => ({ noOp: why });
 
 /** The card's line, and the change it asks for. */
-export const change = (preview: string, apply: (host: PageHost) => ChangeResult | Promise<ChangeResult>): Plan => ({ preview, apply: async (host) => apply(host) });
+export const change = (preview: string, apply: (host: PageHost, decision?: CardDecision) => ChangeResult | Promise<ChangeResult>, options?: readonly CardOptionGroup[]): Plan => ({ preview, apply: async (host, decision) => apply(host, decision), ...(options ? { options } : {}) });
 
 /** One plan per change tool of the page, each on its tool's input as the schema parses it. */
 export type Plans<P extends AgentPort> = { readonly [N in PageChangeTool<P["technique"]>]: (input: InputOf<N>, s: StateOf<P>, port: P) => Plan };
