@@ -1,97 +1,96 @@
 /**
- * The refinement report as Markdown — the same content as `reportHtml`, for a
- * lab notebook, a repository or an e-mail: the summary (the analysis' account
- * and open issues when the Agent ran it, the data and model, the fit figure,
- * the refined structures with standard uncertainties, the magnetic structure
- * and what a powder cannot fix, the other refined values, the refinement's
- * diagnostics), then an appendix with the record behind it (the steps, every
- * check, every parameter, the conventions and the software). The figure is an SVG data URI carrying its own
- * style, so the file stands alone (Markdown viewers that block data URIs show
- * its alt text; the HTML report always has the figure).
+ * The refinement report as Markdown — the same report as `reportHtml`, in the
+ * same order, for a lab notebook, a repository or an e-mail: the Result, the
+ * structure per phase (the cell as its independent parameters, the atoms with
+ * standard uncertainties, the distances), the magnetic structure, the fit
+ * (figure, agreement indices, the other refined values), the quality and
+ * caveats, then the appendix with the record behind it. The figure is an SVG
+ * data URI carrying its own style, so the file stands alone (Markdown viewers
+ * that block data URIs show its alt text; the HTML report always has it).
  *
  * Pure data → string, like the HTML report; the numbers come from the same
- * `ReportInput` and the same formatting (`formatWithEsd`, IUCr convention).
+ * `ReportInput` and the same tables (reportTables.ts, `formatWithEsd`).
+ *
+ * Not the text the Agent's number audit or the validation read: that is the
+ * frozen layout (reportMarkdownFrozen.ts).
  */
 
 import type { StructureModel } from "@/core/crystal/types";
 import type { RefinementParameter } from "@/core/refinement/types";
-import { buildEsdMap, cellEsdsOf, cellVolume, formatWithEsd } from "@/core/export/cif";
-import { spaceGroupSymbol } from "@/core/crystal/spaceGroups";
-import { crystalComponentsToCartesian } from "@/core/magnetic/moment";
-import { kLabel } from "@/core/magnetic/kSearch";
-import { magneticSupercell, momentAnchorPosition } from "@/core/crystal/cellExpansion";
+import { formatWithEsd } from "@/core/export/cif";
 import { fobsFcalcSvg, patternFigureSvg } from "@/core/export/reportFigures";
 import { markNumbers } from "@/core/export/reportAudit";
+import { atomTable, atomTableNote, cellLineText, cellTerms, shellTables, SHELL_NOTE, type AtomTable } from "@/core/export/reportTables";
+import { formulasText, formulaText, minus, spaceGroupText, symbolText } from "@/core/export/reportTypeset";
 import {
   ACCOUNT_NOTE,
   APPENDIX_NOTE,
-  BONDS_NOTE,
+  COMPOSED_NOTE,
   COVALENT_BONDS_NOTE,
+  endSentence,
   HBOND_NOTE,
   RING_NOTE,
-  covalentBondRows,
+  TECHNIQUE_TITLE,
+  anchorCoordinate,
   boxcarNote,
-  displacementColumn,
+  fixed,
   formatParameterValue,
+  indicesOf,
   KIND_UNIT,
+  magneticFacts,
+  momentRows,
   parameterGroups,
   parameterStatus,
+  phaseRole,
+  phaseSymmetry,
   posteriorCaveat,
   posteriorStatus,
-  passedText,
+  qualityItems,
   shownParameter,
+  sig,
   softwareRows,
   startText,
-  summaryChecks,
+  statisticsRows,
   summaryParameters,
-  SUMMARY_PARAMETERS_NOTE,
   type ReportAgent,
   type ReportBoxcar,
   type ReportCheck,
-  type ReportPosterior,
   type ReportFigure,
+  type ReportIndex,
   type ReportInput,
   type ReportMagnetic,
   type ReportPhase,
+  type ReportPosterior,
   type ReportRow,
-  shellRows,
 } from "@/core/export/report";
-
-const TECHNIQUE_TITLE: Record<ReportInput["technique"], string> = {
-  powder: "Rietveld refinement",
-  singleCrystal: "Single-crystal refinement",
-  pdf: "PDF refinement",
-};
 
 /** A table cell: no pipes or line breaks to break the row. */
 const cell = (s: string): string => s.replace(/\|/g, "\\|").replace(/\s*\n\s*/g, " ").trim();
 
 function table(head: readonly string[], rows: readonly (readonly string[])[], align?: readonly ("l" | "r")[]): string {
   const sep = head.map((_, i) => (align?.[i] === "r" ? "---:" : "---"));
-  return [`| ${head.map(cell).join(" | ")} |`, `| ${sep.join(" | ")} |`, ...rows.map((r) => `| ${r.map(cell).join(" | ")} |`)].join("\n");
+  return [`| ${head.map(cell).join(" | ")} |`, `| ${sep.join(" | ")} |`, ...rows.map((r) => `| ${r.map((c) => cell(minus(c))).join(" | ")} |`)].join("\n");
 }
 
 function kvTable(rows: readonly ReportRow[]): string {
   return table(["", ""], rows.map((r) => [`**${r.label}**`, r.value]));
 }
 
-const fixed = (v: number, d: number): string => {
-  const s = v.toFixed(d);
-  return /^-0(\.0*)?$/.test(s) ? s.slice(1) : s;
-};
+/** Engine prose with its symbols in plain text ({{R_wp}} → Rwp) and minus signs. */
+const prose = (text: string): string => formulasText(minus(text)).replace(/\{\{([^}]+)\}\}/g, (_m, s: string) => symbolText(s));
 
 // ---------------------------------------------------------------------------
 // Figure: the report's SVG with its own (light) style, as a data URI
 
 const FIGURE_STYLE = `
-.frame{fill:none;stroke:#e1e5ea;stroke-width:1}.grid{stroke:#e1e5ea;stroke-width:1;stroke-dasharray:2 4}.zero{stroke:#8e98a3;stroke-width:1}
-.tickmark{stroke:#5a6572;stroke-width:1}.excl{fill:rgba(110,120,132,.10)}
-.axistext{font-family:Menlo,Consolas,monospace;font-size:11px;fill:#5a6572}.axistitle,.legend{font-family:system-ui,sans-serif;font-size:12px;fill:#5a6572}
-.ticklabel{font-family:Menlo,Consolas,monospace;font-size:10.5px}
-.obs{stroke:#23486f;stroke-width:2.6;stroke-linecap:round;fill:none}.obsline{stroke:#23486f;stroke-width:1.4;fill:none}
-.calc{stroke:#c8352e;stroke-width:1.5;fill:none}.diff{stroke:#4f7a33;stroke-width:1.2;fill:none}.bkg{stroke:#98a3ae;stroke-width:1.1;stroke-dasharray:5 4;fill:none}
-.unity{stroke:#8e98a3;stroke-width:1;stroke-dasharray:4 4}.pt{stroke:#23486f;stroke-width:4.2;stroke-linecap:round;opacity:.7;fill:none}
-.ptmag{stroke:#c8352e;stroke-width:4.6;stroke-linecap:round;opacity:.8;fill:none}`;
+.frame{fill:none;stroke:#c9d1d9;stroke-width:1}.grid{stroke:#e3e7eb;stroke-width:1}.zero{stroke:#8b949e;stroke-width:.8}
+.tickmark{stroke:#59636e;stroke-width:1}.excl{fill:rgba(110,119,129,.09)}
+.axistext{font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;font-size:12px;fill:#59636e}.axistitle,.legend{font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;font-size:13px;fill:#59636e}
+.ticklabel{font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;font-size:11.5px}
+.obs{stroke:#1f4e79;stroke-width:2.4;stroke-linecap:round;fill:none}.obsline{stroke:#1f4e79;stroke-width:1.3;fill:none}
+.calc{stroke:#c23b2e;stroke-width:1.3;fill:none}.diff{stroke:#6e7781;stroke-width:1.1;fill:none}.bkg{stroke:#a3acb6;stroke-width:1;stroke-dasharray:5 4;fill:none}
+.unity{stroke:#8b949e;stroke-width:1;stroke-dasharray:4 4}.pt{stroke:#1f4e79;stroke-width:4;stroke-linecap:round;opacity:.7;fill:none}
+.ptmag{stroke:#c23b2e;stroke-width:4.4;stroke-linecap:round;opacity:.8;fill:none}`;
 
 function utf8Base64(text: string): string {
   const bytes = new TextEncoder().encode(text);
@@ -120,13 +119,109 @@ function figureMarkdown(fig: ReportFigure): string {
 // ---------------------------------------------------------------------------
 // Sections
 
-/** Significant figures, without exponents for ordinary values (as the HTML report). */
-function sig(v: number, digits = 4): string {
-  if (!Number.isFinite(v)) return "—";
-  if (v === 0) return "0";
-  const a = Math.abs(v);
-  if (a >= 1e6 || a < 1e-4) return v.toExponential(Math.max(1, digits - 1));
-  return fixed(v, Math.min(Math.max(0, digits - 1 - Math.floor(Math.log10(a))), 8));
+function resultMarkdown(input: ReportInput): string {
+  const a = input.agent;
+  if (a?.narrative?.trim()) {
+    const unverified = a.unverified ?? [];
+    const account = markNumbers(a.narrative.trim(), unverified, (t) => `${t}†`);
+    return `*The Copilot's account:*\n\n${account.split(/\n\s*\n/).map((p) => `> ${p.trim().replace(/\n/g, "\n> ")}`).join("\n>\n")}\n\n*${ACCOUNT_NOTE}${unverified.length > 0 ? " Numbers marked † in the Copilot's words are not among the values this report computed." : ""}*`;
+  }
+  if (input.assessment?.result) return `${prose(input.assessment.result)}\n\n*${COMPOSED_NOTE}*`;
+  return input.summary ?? "";
+}
+
+function atomTableMarkdown(t: AtomTable): string {
+  const head = ["Site", ...(t.type ? ["Type"] : []), ...(t.wyckoff ? ["Wyckoff"] : []), "x", "y", "z", "Occ.", `${t.adp.symbol}_${t.adp.sub} (Å²)`, ...(t.aniso ? ["ADP"] : [])];
+  const align: ("l" | "r")[] = ["l", ...(t.type ? ["l" as const] : []), ...(t.wyckoff ? ["l" as const] : []), "r", "r", "r", "r", "r", ...(t.aniso ? ["l" as const] : [])];
+  return table(head, t.rows.map((r) => [r.label, ...(t.type ? [r.type] : []), ...(t.wyckoff ? [r.wyckoff ?? ""] : []), r.x, r.y, r.z, r.occupancy, r.adp, ...(t.aniso ? [r.adpKind] : [])]), align);
+}
+
+function distancesMarkdown(phase: ReportPhase): string {
+  if (phase.bonds) {
+    if (phase.bonds.length === 0) return "";
+    return table(["Bond", "d (Å)"], phase.bonds.map((b) => [`${b.from}–${b.to}${b.image ? ` [${b.image}]` : ""}`, b.length]), ["l", "r"]);
+  }
+  const shells = shellTables(phase.structure);
+  if (shells.length === 0) return "";
+  return table(["Bond", "d (Å)", "×"], shells.flatMap((sh) => [...sh.bonds.map((b) => [`${sh.site}–${b.to}`, b.distance, b.count > 1 ? String(b.count) : ""]), [`${sh.site} mean`, sh.mean, ""]]), ["l", "r", "r"]);
+}
+
+function phaseMarkdown(phase: ReportPhase, index: number, total: number, technique: ReportInput["technique"]): { md: string; table: AtomTable } {
+  const st = phase.structure;
+  const { symbol, number } = phaseSymmetry(st);
+  const role = phaseRole(phase, index, total);
+  const t = atomTable(phase, technique);
+  const meta = [number !== undefined ? `No. ${number}` : "", role ?? "", phase.fraction ?? ""].filter(Boolean).join(" · ");
+  const rings = phase.rings && phase.rings.contacts.length > 0 ? `\n\n**Ring centroids.** ${phase.rings.rings.join("; ")}. ${phase.rings.contacts.join(" · ")}.` : "";
+  const hbonds = phase.hydrogenBonds && phase.hydrogenBonds.length > 0 ? `\n\n**Hydrogen bonds.** ${phase.hydrogenBonds.join(" · ")}.` : "";
+  const distances = distancesMarkdown(phase);
+  return {
+    md: `### ${formulaText(st.name || st.id)} — ${symbol ? spaceGroupText(symbol) : "no symbol"}${meta ? ` (${meta})` : ""}\n\n${minus(cellLineText(cellTerms(phase)))}\n\n${atomTableMarkdown(t)}${distances ? `\n\n${distances}` : ""}${rings}${hbonds}`,
+    table: t,
+  };
+}
+
+function structureMarkdown(input: ReportInput): string {
+  if (input.phases.length === 0) return "";
+  const built = input.phases.map((p, i) => phaseMarkdown(p, i, input.phases.length, input.technique));
+  const flags: AtomTable = { ...built[0]!.table, symmetryFixed: built.some((b) => b.table.symmetryFixed), held: built.some((b) => b.table.held) };
+  const molecule = input.phases.find((p) => p.rings?.contacts.length || p.hydrogenBonds?.length);
+  const notes = [
+    atomTableNote(flags),
+    ...(input.phases.some((p) => !p.bonds && shellTables(p.structure).length > 0) ? [SHELL_NOTE] : []),
+    ...(input.phases.some((p) => p.bonds && p.bonds.length > 0) ? [COVALENT_BONDS_NOTE] : []),
+    ...(molecule?.rings?.contacts.length ? [RING_NOTE] : []),
+    ...(molecule?.hydrogenBonds?.length ? [HBOND_NOTE] : []),
+  ];
+  return `${built.map((b) => b.md).join("\n\n")}\n\n*${notes.join(" ")}*`;
+}
+
+function magneticMarkdown(m: ReportMagnetic, fallback: StructureModel | undefined): string {
+  const structure = m.structure ?? fallback;
+  if (!structure) return "";
+  const f = magneticFacts(m, structure);
+  const facts = [
+    `k = ${f.k}`,
+    `magnetic space group ${f.group}${f.numbers ? ` (${f.numbers})` : ""}`,
+    ...(f.setting ? [`setting ${f.setting}`] : []),
+    ...(f.index !== undefined ? [`index ${f.index}`] : []),
+    ...(f.parent ? [`parent ${spaceGroupText(f.parent)}`] : []),
+    `magnetic cell: ${f.cell}`,
+    f.ordered,
+  ].join(" · ");
+  const moments = table(
+    ["Site", "x", "y", "z", "m_a", "m_b", "m_c", "|m| (µB)"],
+    momentRows(m, structure).map((r) => [`${r.site}${r.orbit > 1 ? ` (orbit ${r.orbit})` : ""}`, ...r.position.map(anchorCoordinate), ...r.components.map((c) => fixed(c, 3)), fixed(r.magnitude, 3)]),
+    ["l", "r", "r", "r", "r", "r", "r", "r"],
+  );
+  const params = m.params.length > 0
+    ? `\n\n${table(["Moment parameter", "Value (µB)", "Status"], m.params.map((p) => [p.label, formatParameterValue(p), parameterStatus(p)]), ["l", "r", "l"])}`
+    : "";
+  const limits = (m.limits ?? []).map((t) => `- ${t}`).join("\n");
+  return `${facts}\n\n${m.status}\n\n${moments}${params}${limits ? `\n\n${limits}` : ""}\n\n*Components along a, b, c in µB per unit cell length; |m| through the cell metric.*`;
+}
+
+function indicesMarkdown(indices: readonly ReportIndex[]): string {
+  const values = indices.filter((i) => !i.count).map((i) => `${symbolText(i.symbol)} = ${i.value}`);
+  const counts = indices.filter((i) => i.count).map((i) => `${i.value} ${i.symbol}`);
+  return minus(`${values.join(", ")}${counts.length ? `${values.length ? " · " : ""}${counts.join(" · ")}` : ""}`);
+}
+
+function boxcarMarkdown(b: ReportBoxcar): string {
+  const rows = b.rows.map((row) => [`${fixed(row.r[0], 2)}–${fixed(row.r[1], 2)}`, fixed(100 * row.rw, 2), ...row.values.map((v) => (Number.isFinite(v) ? fixed(v, b.decimals) : "—"))]);
+  return `**Local versus average: boxcar scan**\n\n${table(["r (Å)", "Rw (%)", ...b.columns], rows, ["r", "r", ...b.columns.map(() => "r" as const)])}\n\n*${boxcarNote(b)}*`;
+}
+
+function fitMarkdown(input: ReportInput): string {
+  const other = summaryParameters(input.parameters, input.technique);
+  return [
+    input.figure ? figureMarkdown(input.figure) : "",
+    indicesMarkdown(indicesOf(input)),
+    other.length > 0
+      ? `**Other refined values**\n\n${table(["Parameter", "Value", "Unit"], other.map((p) => shownParameter(p, input.technique)).map(({ parameter: p, value }) => [p.label, value, KIND_UNIT[p.kind] ?? ""]), ["l", "r", "l"])}`
+      : "",
+    input.boxcar ? boxcarMarkdown(input.boxcar) : "",
+  ].filter(Boolean).join("\n\n");
 }
 
 function posteriorMarkdown(p: ReportPosterior): string {
@@ -143,32 +238,26 @@ function posteriorMarkdown(p: ReportPosterior): string {
   return `**Bayesian check** — ${posteriorStatus(p)}\n\n${rows}${diffs}\n\n*${posteriorCaveat(p)}*`;
 }
 
+function qualityMarkdown(input: ReportInput): string {
+  const items = qualityItems(input).map((c) => `- **${c.label}:** ${prose(endSentence(c.text))}`).join("\n");
+  const posterior = input.agent?.posterior ? posteriorMarkdown(input.agent.posterior) : "";
+  return [items, posterior].filter(Boolean).join("\n\n");
+}
+
+// ---------------------------------------------------------------------------
+// The appendix
+
 const CHECK_LABEL = { pass: "pass", note: "note", warn: "attention" } as const;
 
 function checksTable(checks: readonly ReportCheck[]): string {
   return table(["Check", "Result", "Detail"], checks.map((c) => [c.name, CHECK_LABEL[c.status], c.detail]));
 }
 
-/** The analysis in the summary: the account, the open issues, the checks to note, the Bayesian check. */
-function agentSummaryMarkdown(a: ReportAgent): string {
-  const unverified = a.unverified ?? [];
-  const account = a.narrative?.trim() ? markNumbers(a.narrative.trim(), unverified, (t) => `${t}†`) : "";
-  const narrative = account
-    ? `**The Copilot's account**\n\n${account.split(/\n\s*\n/).map((p) => `> ${p.trim().replace(/\n/g, "\n> ")}`).join("\n>\n")}\n\n*${ACCOUNT_NOTE}${unverified.length > 0 ? " Numbers marked † in the Copilot's words are not among the values this report computed." : ""}*\n\n`
-    : "";
-  const issues = a.openIssues.length > 0 ? a.openIssues.map((t) => `- ${t}`).join("\n") : "None: the engine's checks raised nothing left to settle.";
-  const { noted, passed } = summaryChecks(a.checks);
-  const checks = `${noted.length > 0 ? checksTable(noted) : "No check calls for a note."}${passed.length > 0 ? `\n\n${passedText(passed)}` : ""}`;
-  const posterior = a.posterior ? `\n\n${posteriorMarkdown(a.posterior)}` : "";
-  return `${narrative}**Open issues**\n\n${issues}\n\n**Checks to note**\n\n${checks}${posterior}`;
-}
-
-/** The analysis as it went, for the appendix: the steps, the method, every check, the notes. */
 function agentRecordMarkdown(a: ReportAgent): string {
-  const pct = (v: number | undefined): string => (v === undefined ? "" : `${(100 * v).toFixed(2)} %`);
+  const pct = (v: number | undefined): string => (v === undefined ? "" : (100 * v).toFixed(2));
   const anyGof = a.steps.some((st) => st.gof !== undefined);
   const steps = table(
-    ["#", "Step", "By", "Refined", "Free", a.agreementLabel ?? "wR", ...(anyGof ? ["GoF"] : [])],
+    ["#", "Step", "By", "Refined", "Free", `${a.agreementLabel ?? "wR"} (%)`, ...(anyGof ? ["GoF"] : [])],
     a.steps.map((st, i) => [
       String(i + 1),
       st.stages ? `${st.label} · ${st.stages}` : st.label,
@@ -187,93 +276,7 @@ function agentRecordMarkdown(a: ReportAgent): string {
     : "";
   const unverified = a.unverified ?? [];
   const notes = a.notes.length > 0 ? `\n\n**The Copilot's notes**\n\n${a.notes.map((t) => `- ${markNumbers(t, unverified, (n) => `${n}†`)}`).join("\n")}` : "";
-  return `**How the analysis was done** — ${a.steps.length} step${a.steps.length === 1 ? "" : "s"} from the History; model ${a.model}.\n\n${steps}${start}${stages}${branches}\n\n**Every check**\n\n${checksTable(a.checks)}${notes}`;
-}
-
-function phaseMarkdown(phase: ReportPhase, index: number, total: number, technique: ReportInput["technique"]): string {
-  const st = phase.structure;
-  const esd = buildEsdMap(phase.params, phase.bindings);
-  const sg = st.spaceGroup;
-  const sgText = `${spaceGroupSymbol(sg) ?? "no symbol"}${sg.number !== undefined ? ` (No. ${sg.number})` : ""}`;
-  const role = phase.role ?? (total > 1 ? (index === 0 ? "primary phase" : `phase ${index + 1}`) : undefined);
-  const adp = displacementColumn(phase, technique);
-  const sites = table(
-    ["Site", "Type", "x", "y", "z", "Occ.", `${adp.symbol}_${adp.sub} (Å²)`],
-    st.sites.map((s) => {
-      const pe = esd.pos.get(s.label);
-      return [
-        s.label, s.element,
-        formatWithEsd(s.position[0], pe?.[0], 5), formatWithEsd(s.position[1], pe?.[1], 5), formatWithEsd(s.position[2], pe?.[2], 5),
-        formatWithEsd(s.occupancy, esd.occ.get(s.label), 4), adp.value(s),
-      ];
-    }),
-    ["l", "l", "r", "r", "r", "r", "r"],
-  );
-  const c = st.cell;
-  const ce = cellEsdsOf(st, esd);
-  const cellRow = table(
-    ["a (Å)", "b (Å)", "c (Å)", "α (°)", "β (°)", "γ (°)", "V (Å³)"],
-    [[
-      formatWithEsd(c.a, ce.cell.a, 5), formatWithEsd(c.b, ce.cell.b, 5), formatWithEsd(c.c, ce.cell.c, 5),
-      formatWithEsd(c.alpha, ce.cell.alpha, 4), formatWithEsd(c.beta, ce.cell.beta, 4), formatWithEsd(c.gamma, ce.cell.gamma, 4),
-      ce.volume !== undefined ? formatWithEsd(cellVolume(c), ce.volume, 3) : fixed(cellVolume(c), 3),
-    ]],
-    ["r", "r", "r", "r", "r", "r", "r"],
-  );
-  const shells = shellRows(st);
-  const covalent = phase.bonds ? covalentBondRows(phase.bonds) : [];
-  const bonds = covalent.length > 0
-    ? `\n\n${table(["Site", "Bonds (Å)"], covalent.map((r) => [r.site, r.bonds]), ["l", "l"])}\n\n*${COVALENT_BONDS_NOTE}*`
-    : !phase.bonds && shells.length > 0
-      ? `\n\n${table(["Site", "Bonds (Å)", "Mean (Å)"], shells.map((r) => [r.site, r.bonds, r.mean]), ["l", "l", "r"])}\n\n*${BONDS_NOTE}*`
-      : "";
-  // The ring centroids and hydrogen bonds under a molecule's bond table.
-  const rings = phase.rings && phase.rings.contacts.length > 0 ? `\n\n**Ring centroids.** ${phase.rings.rings.join("; ")}. ${phase.rings.contacts.join(" · ")}.\n\n*${RING_NOTE}*` : "";
-  const hbonds = phase.hydrogenBonds && phase.hydrogenBonds.length > 0 ? `\n\n**Hydrogen bonds.** ${phase.hydrogenBonds.join(" · ")}.\n\n*${HBOND_NOTE}*` : "";
-  return `### ${st.name || st.id} — ${sgText}${role ? ` · ${role}` : ""}\n\n${cellRow}\n\n${sites}${bonds}${rings}${hbonds}`;
-}
-
-function boxcarMarkdown(b: ReportBoxcar): string {
-  const rows = b.rows.map((row) => [`${fixed(row.r[0], 2)}–${fixed(row.r[1], 2)}`, fixed(100 * row.rw, 2), ...row.values.map((v) => (Number.isFinite(v) ? fixed(v, b.decimals) : "—"))]);
-  return `${table(["r (Å)", "Rw (%)", ...b.columns], rows, ["r", "r", ...b.columns.map(() => "r" as const)])}\n\n*${boxcarNote(b)}*`;
-}
-
-function magneticMarkdown(m: ReportMagnetic, fallback: StructureModel | undefined): string {
-  const structure = m.structure ?? fallback;
-  if (!structure) return "";
-  const supercell = magneticSupercell(m.k);
-  const isSuper = supercell.some((n) => n > 1);
-  const facts: ReportRow[] = [
-    { label: "Propagation vector", value: `k = ${kLabel(m.k)}` },
-    { label: "Magnetic space group", value: m.group.symbol },
-    ...(m.group.numbers ? [{ label: "Numbers", value: m.group.numbers }] : []),
-    ...(m.group.setting ? [{ label: "Setting", value: m.group.setting }] : []),
-    ...(m.group.index !== undefined ? [{ label: "Index in the grey group", value: String(m.group.index) }] : []),
-    { label: "Parent space group", value: structure.spaceGroup.hermannMauguin ?? "—" },
-    { label: "Magnetic cell", value: isSuper ? `${supercell.join(" × ")} supercell of the nuclear cell` : "the nuclear cell (k = 0)" },
-  ];
-  const moments = table(
-    ["Site · orbit", "Position (fractional)", "m along a, b, c (µB)", "|m| (µB)"],
-    m.magnetic.moments.map((mm) => {
-      const site = structure.sites.find((s) => s.label === mm.siteLabel);
-      const pos = site
-        ? momentAnchorPosition(structure.spaceGroup.operations, m.magnetic.operations ?? structure.spaceGroup.operations, site.position, mm.orbitIndex, mm.position)
-        : mm.position ?? [0, 0, 0];
-      const cart = crystalComponentsToCartesian(structure.cell, mm.components);
-      return [
-        `${mm.siteLabel} · orbit ${mm.orbitIndex && mm.orbitIndex > 1 ? mm.orbitIndex : 1}`,
-        `${fixed(pos[0]!, 4)}, ${fixed(pos[1]!, 4)}, ${fixed(pos[2]!, 4)}`,
-        `${fixed(mm.components[0]!, 3)}, ${fixed(mm.components[1]!, 3)}, ${fixed(mm.components[2]!, 3)}`,
-        fixed(Math.hypot(cart[0]!, cart[1]!, cart[2]!), 3),
-      ];
-    }),
-    ["l", "r", "r", "r"],
-  );
-  const params = m.params.length > 0
-    ? `\n\n${table(["Moment parameter", "Value (µB)", "Status"], m.params.map((p) => [p.label, formatParameterValue(p), parameterStatus(p)]), ["l", "r", "l"])}`
-    : "";
-  const limits = (m.limits ?? []).map((t) => `> ⚠ ${t}`).join("\n>\n");
-  return `*${m.status}*${limits ? `\n\n${limits}` : ""}\n\n${kvTable(facts)}${params}\n\n${moments}`;
+  return `${a.steps.length} step${a.steps.length === 1 ? "" : "s"} from the History; model ${a.model}.\n\n${steps}${start}${stages}${branches}\n\n**Every check**\n\n${checksTable(a.checks)}${notes}`;
 }
 
 function parametersMarkdown(params: readonly RefinementParameter[], technique: ReportInput["technique"]): string {
@@ -282,7 +285,7 @@ function parametersMarkdown(params: readonly RefinementParameter[], technique: R
   const blocks: string[] = [];
   const block = (title: string, rows: readonly RefinementParameter[]): string => {
     const free = rows.filter((p) => !p.fixed && !p.expression).length;
-    return `#### ${title} · ${rows.length} parameter${rows.length === 1 ? "" : "s"}, ${free} refined\n\n${table(
+    return `**${title}** — ${rows.length} parameter${rows.length === 1 ? "" : "s"}, ${free} refined\n\n${table(
       ["Parameter", "Value", "Unit", "Status"],
       rows.map((p) => shownParameter(p, technique)).map(({ parameter: p, value }) => [p.label, value, KIND_UNIT[p.kind] ?? "", parameterStatus(p)]),
       ["l", "r", "l", "l"],
@@ -299,80 +302,35 @@ function parametersMarkdown(params: readonly RefinementParameter[], technique: R
   return blocks.join("\n\n");
 }
 
-function detailsMarkdown(input: ReportInput): string {
-  const r = input.result;
-  const labelOf = new Map(input.parameters.map((p) => [p.id, p.label]));
-  const free = input.parameters.filter((p) => !p.fixed && !p.expression).length;
-  const rows: ReportRow[] = [{ label: "Free parameters", value: `${free} of ${input.parameters.length}` }];
-  if (r) {
-    rows.push({ label: "Engine", value: `${r.status}${r.history.length > 0 ? ` after ${r.history.length} cycle${r.history.length === 1 ? "" : "s"}` : ""}` });
-    const last = r.history[r.history.length - 1];
-    if (last) rows.push({ label: "Final χ² (Σ w Δ²)", value: last.chiSquared.toPrecision(6) });
-    if (r.agreement.rWeighted !== undefined) rows.push({ label: "Weighted R", value: `${(100 * r.agreement.rWeighted).toFixed(3)} %` });
-    if (r.agreement.rExpected !== undefined) rows.push({ label: "Expected R", value: `${(100 * r.agreement.rExpected).toFixed(3)} %` });
-    if (r.agreement.goodnessOfFit !== undefined) rows.push({ label: "Goodness of fit S", value: r.agreement.goodnessOfFit.toFixed(3) });
-    const diag = r.diagnostics;
-    if (diag && diag.svdZeroCount > 0) rows.push({ label: "Null directions", value: `${diag.svdZeroCount} dropped by SVD — esds on the involved parameters are not meaningful` });
-    if (diag && diag.highCorrelations.length > 0) {
-      rows.push({
-        label: "Strong correlations",
-        value: diag.highCorrelations.slice(0, 6).map((c) => `${labelOf.get(c.parameterIdA) ?? c.parameterIdA} / ${labelOf.get(c.parameterIdB) ?? c.parameterIdB} ${c.coefficient.toFixed(3)}`).join("; "),
-      });
-    }
-    if (r.message) rows.push({ label: "Engine note", value: r.message });
-  } else {
-    rows.push({ label: "Engine", value: "no refinement run in this session — values are as loaded or set" });
-  }
-  const warnings = (input.warnings ?? []).map((w) => `> ⚠ ${w}`).join("\n");
-  return `${kvTable(rows)}${warnings ? `\n\n**Limitations**\n\n${warnings}` : ""}`;
-}
-
-/** The summary's other refined values: the free parameters the tables above do not carry. */
-function summaryParametersMarkdown(params: readonly RefinementParameter[], technique: ReportInput["technique"]): string {
-  const rows = summaryParameters(params, technique);
-  if (rows.length === 0) return "";
-  return `${table(
-    ["Parameter", "Value", "Unit"],
-    rows.map((p) => shownParameter(p, technique)).map(({ parameter: p, value }) => [p.label, value, KIND_UNIT[p.kind] ?? ""]),
-    ["l", "r", "l"],
-  )}\n\n*${SUMMARY_PARAMETERS_NOTE}*`;
-}
-
-/** The appendix's conventions and software. */
 function conventionsMarkdown(input: ReportInput, date: string): string {
   const notes = (input.notes ?? []).map((n) => `- ${n}`).join("\n");
   return `${notes ? `**Conventions**\n\n${notes}\n\n` : ""}**Software**\n\n${kvTable(softwareRows(input, date))}`;
 }
 
-/** Build the report as a Markdown document: the summary, then the appendix with the record behind it. */
+/** Build the report as a Markdown document: the report, then the appendix with the record behind it. */
 export function reportMarkdown(input: ReportInput): string {
   const date = (input.date ?? new Date()).toISOString().slice(0, 10);
   const technique = TECHNIQUE_TITLE[input.technique];
   const primary = input.phases[0]?.structure;
-  let n = 0;
-  const section = (title: string, body: string): string => (body ? `## ${++n}. ${title}\n\n${body}` : "");
+  const section = (title: string, body: string): string => (body ? `## ${title}\n\n${body}` : "");
   let letter = 0;
   const part = (title: string, body: string): string => (body ? `### ${String.fromCharCode(65 + letter++)}. ${title}\n\n${body}` : "");
-  const stats = input.stats.length > 0 ? table(input.stats.map((s) => s.label), [input.stats.map((s) => s.value)], input.stats.map(() => "r" as const)) : "";
   const free = input.parameters.filter((p) => !p.fixed && !p.expression).length;
   const parts = [
-    `# ${input.title}`,
-    `*MATERIA · ${technique} report${input.agent ? " · analysed with MATERIA Copilot" : ""} · ${date}*`,
+    `# ${formulaText(input.title)}`,
+    `*MATERIA · ${technique}${input.agent ? " · analysed with MATERIA Copilot" : ""} · ${date}*`,
     input.subtitle ?? "",
-    input.summary ?? "",
-    stats,
-    section("The analysis", input.agent ? agentSummaryMarkdown(input.agent) : ""),
-    section("Data & model", input.data.length > 0 ? kvTable(input.data) : ""),
-    section("Fit", input.figure ? figureMarkdown(input.figure) : ""),
-    section("Local versus average", input.boxcar ? boxcarMarkdown(input.boxcar) : ""),
-    section(input.phases.length > 1 ? "Atomic structures" : "Atomic structure", input.phases.map((p, i) => phaseMarkdown(p, i, input.phases.length, input.technique)).join("\n\n")),
+    section("Result", resultMarkdown(input)),
+    section(input.phases.length > 1 ? "Structures" : "Structure", structureMarkdown(input)),
     section("Magnetic structure", input.magnetic ? magneticMarkdown(input.magnetic, primary) : ""),
-    section("Other refined values", summaryParametersMarkdown(input.parameters, input.technique)),
-    section("Refinement details", detailsMarkdown(input)),
-    // How to read the summary's numbers, before the appendix: a reader may stop there.
-    `*Generated by MATERIA Workbench on ${date}. Values in parentheses are standard uncertainties in the last digit(s), from the least-squares covariance of this fit; a value without one was fixed, set by a constraint, or not part of the last refinement; a tied value carries its leader's. MATERIA is in public beta — reproduce results you intend to publish in an established package.*`,
-    `---\n\n## Appendix — the full record\n\n*${APPENDIX_NOTE}*`,
-    input.agent ? part(`The analysis step by step`, agentRecordMarkdown(input.agent)) : "",
+    section("Fit", fitMarkdown(input)),
+    section("Quality and caveats", qualityMarkdown(input)),
+    // How to read the numbers, before the appendix: a reader may stop there.
+    `*Generated by MATERIA Workbench${input.appVersion ? ` v${input.appVersion}` : ""} on ${date}. Values in parentheses are standard uncertainties in the last digit(s), from the least-squares covariance of this fit; a value without one was fixed, set by a constraint, or not part of the last refinement; a tied value carries its leader's. MATERIA is in public beta — reproduce results you intend to publish in an established package.*`,
+    `---\n\n## Appendix\n\n*${APPENDIX_NOTE}*`,
+    part("Data and model", input.data.length > 0 ? kvTable(input.data) : ""),
+    part("Refinement statistics", kvTable(statisticsRows(input))),
+    input.agent ? part("The analysis step by step", agentRecordMarkdown(input.agent)) : "",
     part(`Every parameter · ${input.parameters.length} parameter${input.parameters.length === 1 ? "" : "s"}, ${free} refined`, parametersMarkdown(input.parameters, input.technique)),
     part("Conventions and software", conventionsMarkdown(input, date)),
   ];

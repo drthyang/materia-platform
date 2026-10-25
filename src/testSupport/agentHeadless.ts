@@ -27,6 +27,7 @@ import {
 import { moveTo, recordStep, restoreStep, type ProjectHistory, type Snapshot, type StepActor, type StepKind } from "@/core/project/history";
 import type { Workspace } from "@/core/project/types";
 import { powderReportInput } from "@/app/reportInputs";
+import { powderJudgment } from "@/app/reportJudgment";
 import {
   agentBoxcarPlan, liveStateOf as liveStateOfPdf, pdfBoxcar, pdfFit, pdfPage, pdfPosterior, pdfProbe, pdfThorough, reportInputOf as reportInputOfPdf, withAdpModel as withPdfAdpModel,
   withBoxcarPlan, withBoxcarRun, withFit as withPdfFit, withFitRange, withFixed as withPdfFixed, withPosterior, withReset as withPdfReset, type PdfCompute, type PdfPageModel,
@@ -218,6 +219,8 @@ export function sessionPort(start: Session, instrument: InstrumentParameters = D
         pointsInWindow: st.observationCount,
         tofViewOnly: false,
         explored: null,
+        // The Validation tab's verdict and causes, as the workbench passes them.
+        judgment: st.structure.sites.length > 0 ? powderJudgment(st, { gof: result?.agreement.goodnessOfFit ?? null, snapshot: false }) : null,
       });
     },
     cancel: () => calls.push("cancel"),

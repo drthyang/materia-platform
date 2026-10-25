@@ -37,6 +37,9 @@ import type { SequentialResult, SequentialStep } from "@/core/refinement/sequent
 import type { SampleOptions, SampleResult } from "@/core/refinement/bayes/sampler";
 import type { ReportInput } from "@/core/export/report";
 import { pdfReportInput, type MagneticExploration } from "@/app/reportInputs";
+import { assess_refinement } from "@/mcp/tools";
+import { parametersChangedSince } from "@/core/diagnostics/validationChecks";
+import type { RefinementAssessment } from "@/core/diagnostics/assessment";
 import type { PdfLiveState } from "@/agent/port";
 
 /** The r window the model is computed and fitted in (Å). */
@@ -1060,5 +1063,18 @@ export function reportInputOf(m: PdfPageModel, extra: { readonly explored?: Magn
     explored: extra.explored ?? null,
     ...(v.motionConflict || v.radiationWarning || siteSumRangeWarnings(m.params).length > 0 ? { warnings: [v.motionConflict, v.radiationWarning, ...siteSumRangeWarnings(m.params)].filter((w): w is string => w !== null) } : {}),
     boxcar: m.boxcarRun ? boxcarTable(m.boxcarRun, v.fitStructure, v.primaryBindings, m.params) : null,
+    // assess_refinement in real space, as the Agent reads it (pdfTools.ts): only off a result that describes the values.
+    ...findingsOf(m, v),
   });
+}
+
+/** The assessment of the fit on screen for the report, and whether a result describes it. */
+function findingsOf(m: PdfPageModel, v: ReturnType<typeof pageView>): { findings: RefinementAssessment | null; current: boolean } {
+  const current = m.result !== null && !parametersChangedSince(m.result, m.params);
+  if (!m.result || !current) return { findings: null, current };
+  try {
+    return { findings: assess_refinement({ result: m.result, parameters: [...m.params], observationCount: v.observationCount, mode: "pdf", restraints: v.spec.restraints }), current };
+  } catch {
+    return { findings: null, current };
+  }
 }

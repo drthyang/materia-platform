@@ -100,7 +100,7 @@ describe("the B-at-0 rule through the Agent", () => {
     expect((parse((await ex.run("get_state", {})).text).bAtZero as { applied: string[] }).applied).toHaveLength(1);
     const report = port.reportInput!();
     expect(report.warnings?.some((w) => /^B\(O1\) refined to 0 Å² .* tied to B_O2 by the B-at-0 rule/.test(w))).toBe(true);
-    expect(reportHtml(report)).toMatch(/<h4[^>]*>Limitations<\/h4><p class="warn">⚠ B\(O1\) refined to 0/);
+    expect(reportHtml(report)).toMatch(/<span class="lbl">Limitation<\/span> B\(O1\) refined to 0/);
     expect(history.history()!.steps.some((s) => s.label === "B at 0: tie B_O1 = B_O2 (rule A)")).toBe(true);
 
     // Override: releasing the tie takes the fix out of force — the Agent and the report stop claiming it.

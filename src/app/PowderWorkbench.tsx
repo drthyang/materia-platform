@@ -42,6 +42,7 @@ import { powderWorkspaceFrom, type PowderViewState } from "@/app/projectIo";
 import { structureToCif, magneticStructureToMcif, type CifRefinementMeta } from "@/core/export/cif";
 import { reportHtml, type ReportInput } from "@/core/export/report";
 import { powderReportInput, reportFileName, type MagneticExploration } from "@/app/reportInputs";
+import { powderJudgment } from "@/app/reportJudgment";
 import { isMagneticModelParameterKind, isMomentParameterKind } from "@/core/refinement/types";
 import type { ComputeClient } from "@/workers/computeClient";
 import { CANCELLED } from "@/workers/computeClient";
@@ -58,6 +59,7 @@ import { PowderValidationView } from "@/app/ui/PowderValidation";
 import type { EvidenceSection, ValidationAction } from "@/app/ui/fitCauses";
 import { parametersChangedSince } from "@/core/diagnostics/validationChecks";
 import type { JudgedPage } from "@/app/powderJudgment";
+import type { PowderLiveState } from "@/agent/port";
 import { stagesCovered, stagesOnPath } from "@/agent/method";
 import type { ProjectHistory } from "@/core/project/history";
 import type { MagneticModel } from "@/core/magnetic/types";
@@ -1015,6 +1017,46 @@ export function PowderWorkbench({
     exploredMagnetic.current = m;
   }, []);
 
+  // The page as the Agent's tools read it (agent/port.ts PowderLiveState): the
+  // Agent port's state, and what the report's judgment reads (reportJudgment.ts).
+  const liveState = (): PowderLiveState => {
+    const observations = observationsIn(curves, activeWindow);
+    return {
+      structure,
+      extraPhases: session.extraPhases,
+      refinedPhases,
+      pattern,
+      parameters: powderParams,
+      bindings: pBindings,
+      profile: session.powderProfile,
+      magnetic: session.magnetic ?? null,
+      result: powderResult,
+      instrument: instrumentLoaded ? instrument : null,
+      fitRange: fitRangeActive ? { min: fitRange!.min, max: fitRange!.max } : null,
+      extent: { min: patternExtent.min, max: patternExtent.max },
+      busy,
+      viewOnly: tofViewOnly,
+      wR: weightedR(curves),
+      settings: {
+        backgroundTerms: session.backgroundTerms,
+        backgroundType: session.powderProfile.backgroundType ?? "chebyshev",
+        mustrain: session.mustrain ?? "isotropic",
+        anisotropicAdp: hasTensorAdp(session.structure),
+        siteTies: session.siteTies,
+        corrections: session.corrections ?? {},
+      },
+      curves,
+      d: displayUnits.includes("dSpacing")
+        ? (pattern.xUnit === "dSpacing" ? curves.x : convertAxisArray(curves.x, pattern.xUnit, "dSpacing", axisCtx))
+        : null,
+      observationCount: observations,
+      axis: axisCtx,
+      source: session.rawData?.name ?? powderSource,
+      restraints: restraintReq.restraints ?? [],
+      zeroAdp,
+    };
+  };
+
   // Self-contained HTML report of the whole study (Export ▾ → Report): data
   // and model, the fit as plotted (display unit, ticks, window), agreement,
   // the refined phases with esds, the magnetic structure (applied model, or
@@ -1039,6 +1081,8 @@ export function PowderWorkbench({
       pointsInWindow: inWindow,
       tofViewOnly,
       explored: exploredMagnetic.current,
+      // The Validation tab's verdict and causes, for the Result paragraph and the caveats.
+      judgment: hasContent && structure.sites.length > 0 ? powderJudgment(liveState(), { gof: refinedGof, snapshot: snapshotHolds(page) }) : null,
     });
   }
   function exportReport(): void {
@@ -1073,43 +1117,7 @@ export function PowderWorkbench({
     }
     agentLink.publish({
       technique: "powder",
-      state: () => {
-        const observations = observationsIn(curves, activeWindow);
-        return {
-          structure,
-          extraPhases: session.extraPhases,
-          refinedPhases,
-          pattern,
-          parameters: powderParams,
-          bindings: pBindings,
-          profile: session.powderProfile,
-          magnetic: session.magnetic ?? null,
-          result: powderResult,
-          instrument: instrumentLoaded ? instrument : null,
-          fitRange: fitRangeActive ? { min: fitRange!.min, max: fitRange!.max } : null,
-          extent: { min: patternExtent.min, max: patternExtent.max },
-          busy,
-          viewOnly: tofViewOnly,
-          wR: weightedR(curves),
-          settings: {
-            backgroundTerms: session.backgroundTerms,
-            backgroundType: session.powderProfile.backgroundType ?? "chebyshev",
-            mustrain: session.mustrain ?? "isotropic",
-            anisotropicAdp: hasTensorAdp(session.structure),
-            siteTies: session.siteTies,
-            corrections: session.corrections ?? {},
-          },
-          curves,
-          d: displayUnits.includes("dSpacing")
-            ? (pattern.xUnit === "dSpacing" ? curves.x : convertAxisArray(curves.x, pattern.xUnit, "dSpacing", axisCtx))
-            : null,
-          observationCount: observations,
-          axis: axisCtx,
-          source: session.rawData?.name ?? powderSource,
-          restraints: restraintReq.restraints ?? [],
-          zeroAdp,
-        };
-      },
+      state: liveState,
       setFixed: (changes) => editRows((s) => withFixed(s, changes)),
       setBackgroundTerms,
       setBackgroundType,
