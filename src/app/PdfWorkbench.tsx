@@ -878,7 +878,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                 {...(gSigma && showGSigma ? { obsSigma: gSigma, obsSigmaLabel: pattern.transform ? "±σ propagated" : "±σ (file)" } : {})}
               />
               <p style={{ marginTop: 8, marginBottom: 0, fontSize: 12, color: color.secondary }}>
-                {gestureHint("pdf-plot", coarse)} Qdamp/Qbroad are instrument constants — hold them fixed once calibrated on a standard.
+                {`${gestureHint("pdf-plot", coarse)} Qdamp/Qbroad are instrument constants — hold them fixed once calibrated on a standard.`}
               </p>
               {radiationWarning && (
                 <div style={{ marginTop: 6, fontSize: 12, color: color.warnInk }}>⚠ {radiationWarning}</div>
