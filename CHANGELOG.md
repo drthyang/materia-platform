@@ -544,6 +544,33 @@ release fixes bugs.
 
 ### Changed
 
+- **The refinement report reads as a paper's results section.** Export ▸
+  Report (and the Copilot's report) now opens on a short **Result**
+  paragraph: what was refined against which data, the outcome with its key
+  numbers, the verdict against the acceptance bar and the main limitation.
+  It restates the app's own judgment (on a powder the Validation tab's
+  verdict and causes of misfit; on a single crystal its Validation checks;
+  on a PDF the assessment's findings); where the Copilot wrote an account,
+  its account takes that place. **Structure** gives per phase the space
+  group, the phase fraction and the cell as its independent parameters
+  ("a = b = 5.41964(5) Å, c = 4.37366(7) Å, V = 111.254(3) Å³", no angle the
+  symmetry fixes), an atom table with Wyckoff positions, esds where refined
+  and fractions where the site symmetry fixes a coordinate, and the
+  distances as small tables. **Fit** has the figure, the agreement indices in
+  one line and the other refined values; **Quality and caveats** one line
+  per acceptance check, cause of misfit and limitation, with only the
+  correlations worth reading (a background's coefficients among themselves
+  left out, as the Validation tab leaves them out). The tiles, the repeated
+  statistics and the data-and-model list are gone from the body: the data
+  and model, the refinement's statistics, every parameter and the record go
+  to the collapsed appendix, which printing opens. The page is set like a
+  journal's: white, booktabs tables with numbers aligned on the decimal
+  point, one typeface with tabular figures, sentence-case headings, one
+  accent color, italic symbols, typeset space groups and formulas, and the
+  minus sign. The Markdown the Copilot's viewer saves follows the same
+  order. The text the Agent's number audit and the validation read keeps
+  its earlier layout, frozen, so neither moves.
+
 - **The powder Validation tab says each thing in one short line.** About
   half the words on the demo (as it opens, after Refine, and with its cell
   off by 0.3 %). Each line leads with what to do: "Fair fit: misfit mostly in
