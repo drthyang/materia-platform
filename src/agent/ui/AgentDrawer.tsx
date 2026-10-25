@@ -20,7 +20,7 @@ import { listLmStudioModels, lmstudioUnreachableHint, type LmStudioModel } from 
 import { MIN_AGENT_CONTEXT, kTokens } from "@/agent/localServer";
 import { cardsInReply, type AgentCard } from "@/agent/focus";
 import { MATH_SPAN_SOURCE, mathInside, texPieces } from "@/agent/ui/texText";
-import { DRAWER_MAX, DRAWER_MIN, KEY_STEP, SHEET_DEFAULT, SHEET_MAX, SHEET_MIN, SHEET_QUERY, clampDrawerWidth, clampSheet, readDrawerWidth, readSheet, sheetFor, writeDrawerWidth, writeSheet } from "@/agent/ui/drawerWidth";
+import { DRAWER_MAX, DRAWER_MIN, KEY_STEP, SHEET_DEFAULT, SHEET_MAX, SHEET_MIN, SHEET_QUERY, SHORT_LANDSCAPE, clampDrawerWidth, clampSheet, readDrawerWidth, readSheet, sheetFor, writeDrawerWidth, writeSheet } from "@/agent/ui/drawerWidth";
 import { cssZoom } from "@/app/ui/cssZoom";
 
 interface Props {
@@ -69,6 +69,9 @@ export function AgentDrawer({ agent, method = null, onClose }: Props): JSX.Eleme
   const [width, setWidth] = useDrawerWidth();
   const [sheet, setSheet] = useSheetHeight();
   const sheetMode = useMediaQuery(SHEET_QUERY);
+  // A phone on its side docks the drawer beside the page, ~370 px tall: the
+  // method folds to one line there too, so the conversation keeps the height.
+  const shortWindow = useMediaQuery(`(max-height: ${SHORT_LANDSCAPE}px)`);
   const lowered = useSheetForFocus(sheetMode, sheet, agent.focus);
   const aside = useRef<HTMLElement>(null);
   // The message box's text, here so a choice's "Other…" can put a template in it to edit.
@@ -96,15 +99,19 @@ export function AgentDrawer({ agent, method = null, onClose }: Props): JSX.Eleme
       {sheetMode ? <SheetHandle fraction={sheet} onResize={setSheet} /> : <ResizeHandle drawer={aside} width={width} onResize={setWidth} />}
       {sheetMode ? (
         // The sheet is short: one row, the status a dot (its words in the tooltip), the model in the settings.
-        <div style={{ ...head, flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: "8px 12px" }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+        // Too narrow for one row (a phone held upright), the approval switch takes a second row
+        // (.wb-agent-sheethead in workbench.css) rather than run over the name.
+        <div className="wb-agent-sheethead" style={{ ...head, flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: "6px 8px", padding: "8px 12px" }}>
+          <span className="wb-agent-sheethead-brand">
             <SparkIcon />
             <b className="wb-agent-title">MATERIA Copilot</b>
             <span className="wb-agent-beta" title="A public beta: check what it does, as you would a new colleague's work">Beta</span>
             <StatusChip agent={agent} compact />
           </span>
-          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span className="wb-agent-sheethead-switch">
             <AutonomySwitch agent={agent} />
+          </span>
+          <span className="wb-agent-sheethead-icons">
             {agent.report && <IconButton title="Open the analysis report" onClick={agent.openReport}><ReportIcon /></IconButton>}
             <IconButton title="Settings" active={showSettings} onClick={() => setShowSettings((v) => !v)}>⚙</IconButton>
             <IconButton title="Close the Copilot" onClick={onClose}>✕</IconButton>
@@ -133,7 +140,7 @@ export function AgentDrawer({ agent, method = null, onClose }: Props): JSX.Eleme
           </div>
         </div>
       )}
-      {method && <MethodChecklist key={sheetMode ? "sheet" : "docked"} method={method} folded={sheetMode} />}
+      {method && <MethodChecklist key={sheetMode ? "sheet" : shortWindow ? "short" : "docked"} method={method} folded={sheetMode || shortWindow} />}
       {showSettings && <Settings agent={agent} />}
       <Transcript agent={agent} page={method?.skill ?? null} onOther={editDraft} />
       <Composer agent={agent} disabled={needsSetup} compact={sheetMode} text={draft} setText={setDraft} input={input} hint={hint} />

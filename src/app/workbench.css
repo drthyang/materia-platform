@@ -177,12 +177,13 @@ html {
 .wb-agent-resize:focus-visible::after {
   background: #1f4fd8;
 }
-/* No room beside the page (a phone, a tablet held upright — dockModeFor in
- * drawerWidth.ts, SHEET_QUERY): the drawer is a bottom sheet under the page,
+/* No room beside the page (a phone or a tablet held upright — dockModeFor in
+ * drawerWidth.ts, SHEET_QUERY, which this query and the rail's below must
+ * equal; a phone on its side docks): the drawer is a bottom sheet under the page,
  * as tall as the user dragged it (--wb-sheet-h), never over it, so the plot
  * and the cards the Agent works on stay in view above the conversation. The
  * page scrolls inside its share. */
-@media (max-width: 899.98px), (max-width: 999.98px) and (orientation: portrait) {
+@media (max-width: 999.98px) and (orientation: portrait), (max-width: 899.98px) and (min-height: 540.02px) {
   .wb-frame-agent {
     flex-direction: column;
     height: calc(100vh / var(--ui-zoom));
@@ -303,7 +304,7 @@ html {
   text-align: center;
   box-shadow: 0 0 0 2px #fbf9f5;
 }
-@media (max-width: 899.98px), (max-width: 999.98px) and (orientation: portrait) {
+@media (max-width: 999.98px) and (orientation: portrait), (max-width: 899.98px) and (min-height: 540.02px) {
   .wb-frame-rail {
     flex-direction: column;
     height: calc(100vh / var(--ui-zoom));
@@ -1358,6 +1359,36 @@ html {
   outline: 2px solid #1f4fd8;
   outline-offset: 2px;
   border-radius: 3px;
+}
+
+/* The sheet's header (AgentDrawer): the name and status, the approval switch,
+ * the icons — one row where it fits. In a drawer too narrow for that (a phone
+ * held upright, ~400 px) the switch drops to a row of its own under the name
+ * instead of running over it, and the icons stay at the top right. */
+.wb-agent-sheethead-brand {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.wb-agent-sheethead-switch {
+  display: flex;
+  align-items: center;
+}
+.wb-agent-sheethead-icons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+@container agent (max-width: 559px) {
+  .wb-agent-sheethead-icons {
+    order: 1;
+  }
+  .wb-agent-sheethead-switch {
+    order: 2;
+    flex: 1 0 100%;
+  }
 }
 
 /* The input: one rounded field with Send inside it, a hint line under it. */

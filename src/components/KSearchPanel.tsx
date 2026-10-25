@@ -35,6 +35,7 @@ import {
 } from "@/visualization/reflectionTicks";
 import { WorkbenchPlot, type FitRangeSelection } from "@/app/ui/WorkbenchPlot";
 import { InfoBadge } from "@/app/ui/InfoBadge";
+import { gestureHint, useCoarsePointer } from "@/app/ui/touchInput";
 import { momentEntriesFrom } from "@/app/ui/cellModel";
 import type { ReportGroup } from "@/core/export/report";
 import type { MagneticExploration } from "@/app/reportInputs";
@@ -560,6 +561,9 @@ export function KSearchPanel({
   const kIsZero = k.every((c) => Math.abs(c) < 1e-12);
   const nearNuclearCount = peakRows.filter((r) => r.nearNuclear).length;
   const allOnNuclear = peakRows.length > 0 && nearNuclearCount === peakRows.length;
+  // The 3D model's gestures in the user's terms: a finger pinches, a mouse scrolls.
+  const coarse = useCoarsePointer();
+  const hint3d = gestureHint("model-3d", coarse).replace(/^d/, "D");
 
   return (
     <div className="wb-mag2">
@@ -629,7 +633,7 @@ export function KSearchPanel({
               {patternView.unitToggle}
             </div>
           </div>
-          <div style={{ height: space.plotHeightSm, display: "flex", flexDirection: "column" }}>
+          <div className="wb-mag2-plot" style={{ height: space.plotHeightSm, display: "flex", flexDirection: "column" }}>
             <WorkbenchPlot
               curves={previewCurves ?? patternView.curves}
               xLabel={patternView.xLabel}
@@ -668,8 +672,8 @@ export function KSearchPanel({
           <InfoBadge
             width={280}
             text={magBuild
-              ? "The magnetic unit cell with the selected group's symmetry-allowed moments (red arrows) — atoms without an arrow are moment-forbidden under this group. Directions and relative sizes are well defined; the absolute arrow length carries a display convention. Drag to rotate, scroll to zoom."
-              : "The refined nuclear structure over the magnetic (super)cell of the current k. Pick a magnetic space group in step 4 to preview its symmetry-allowed moments here. Drag to rotate, scroll to zoom."}
+              ? `The magnetic unit cell with the selected group's symmetry-allowed moments (red arrows) — atoms without an arrow are moment-forbidden under this group. Directions and relative sizes are well defined; the absolute arrow length carries a display convention. ${hint3d}.`
+              : `The refined nuclear structure over the magnetic (super)cell of the current k. Pick a magnetic space group in step 4 to preview its symmetry-allowed moments here. ${hint3d}.`}
           />
           <span style={{ marginLeft: "auto", color: theme.secondary, fontFamily: themeMono, fontSize: 12 }}>k = {kLabel(k)}</span>
         </div>

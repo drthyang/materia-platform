@@ -51,6 +51,7 @@ import type { SampleResult } from "@/core/refinement/bayes/sampler";
 import { SummaryCards, type SummaryCardData } from "@/app/ui/SummaryCards";
 import { WorkbenchPlot } from "@/app/ui/WorkbenchPlot";
 import { SegmentedToggle } from "@/app/ui/SegmentedToggle";
+import { gestureHint, useCoarsePointer } from "@/app/ui/touchInput";
 import { downloadText } from "@/app/download";
 import { structureToCif, magneticStructureToMcif } from "@/core/export/cif";
 import { reportHtml, type ReportInput } from "@/core/export/report";
@@ -142,6 +143,8 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   // on the 3D model. Click the row to toggle; any mode-set change invalidates
   // the selection.
   const [shownModeId, setShownModeId] = useState<string | null>(null);
+  // Touch screens get touch wording under the plot and the 3D model.
+  const coarse = useCoarsePointer();
   useEffect(() => setShownModeId(null), [modeSet]);
   const shownMode = (shownModeId !== null ? modeSet?.modes.find((m) => m.id === shownModeId) : undefined) ?? null;
   const [busy, setBusy] = useState(false);
@@ -875,7 +878,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                 {...(gSigma && showGSigma ? { obsSigma: gSigma, obsSigmaLabel: pattern.transform ? "±σ propagated" : "±σ (file)" } : {})}
               />
               <p style={{ marginTop: 8, marginBottom: 0, fontSize: 12, color: color.secondary }}>
-                Drag to pan, Ctrl/⌘ + scroll to zoom, handles set the fit window. Qdamp/Qbroad are instrument constants — hold them fixed once calibrated on a standard.
+                {gestureHint("pdf-plot", coarse)} Qdamp/Qbroad are instrument constants — hold them fixed once calibrated on a standard.
               </p>
               {radiationWarning && (
                 <div style={{ marginTop: 6, fontSize: 12, color: color.warnInk }}>⚠ {radiationWarning}</div>
@@ -960,7 +963,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
               <p style={{ marginTop: 4, fontSize: 12, color: color.secondary }}>
                 {viewStructure.name || "Structure"}
                 {viewStructure.spaceGroup.hermannMauguin ? ` · ${viewStructure.spaceGroup.hermannMauguin}` : ""}
-                {` · ${viewStructure.sites.length} site${viewStructure.sites.length === 1 ? "" : "s"} · refined values applied · drag to rotate, scroll to zoom.`}
+                {` · ${viewStructure.sites.length} site${viewStructure.sites.length === 1 ? "" : "s"} · refined values applied · ${gestureHint("model-3d", coarse)}.`}
               </p>
             </>
           ) : viewTab === "boxcar" ? (

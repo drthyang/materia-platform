@@ -28,6 +28,7 @@ import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { ReflectionObsCalc } from "@/core/workflow/obsCalc";
 import type { PhaseTicks } from "@/visualization/reflectionTicks";
+import { tickCountFor } from "@/visualization/axisTicks";
 import { clientToSvgUser } from "@/visualization/hitTest";
 import {
   phaseAgreement,
@@ -725,7 +726,7 @@ function ResidualStrip({ x, validation, include, toDisplay, displayLabel, phaseT
   };
 
   // As many axis labels as fit: a phone-wide strip would print them over each other.
-  const ticks = niceTicks(lo, hi, Math.max(2, Math.min(8, Math.floor((X1 - X0) / TICK_SPACING))));
+  const ticks = niceTicks(lo, hi, tickCountFor(X1 - X0, TICK_SPACING, 2, 8));
 
   return (
     <div ref={boxRef}>

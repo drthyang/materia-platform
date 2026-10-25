@@ -26,7 +26,9 @@ import { color, mono } from "@/app/theme";
 import { minMax } from "@/core/math/extent";
 import { cssZoom } from "@/app/ui/cssZoom";
 import { usePlotInteraction, useThrottledText, type PlotTap } from "@/app/ui/usePlotInteraction";
-import { PlotHint, PlotZoomControls, plotReadoutBox } from "@/app/ui/PlotControls";
+import { PlotHint, PlotZoomControls, plotReadoutBox, zoomControlsInline } from "@/app/ui/PlotControls";
+import { gripHitWidth, trackPointerDrag, useCoarsePointer } from "@/app/ui/touchInput";
+import { tickCountFor, yTickCount } from "@/visualization/axisTicks";
 import {
   decimalsForStep, decimateByColumn, formatReadoutValue, localStep, minimumSpan, nearestIndex, splitAxisLabel, ticksNear, visibleIndexRange,
 } from "@/visualization/plotView";
@@ -141,7 +143,9 @@ const OVERLAY_COLORS = ["#b0812f", "#7a5ea8", "#2f8f8a", "#c05575", "#5d7f34", "
 const X0_MIN = 58; // left margin: y tick labels + the rotated axis title
 const RIGHT_PAD = 14; // right margin; the drawable width fills to boxW − RIGHT_PAD
 const MIN_W = 240; // narrowest drawing width (a phone card is ~330px)
-const MIN_H = 300; // the plot box is at least 320px tall (see the wrapper)
+// The plot box is at least 320px tall (see the wrapper), except where the page
+// fits it to a short window (a phone on its side: .wb-plot-box in workbench.css).
+const MIN_H = 200;
 const TOP = 14;
 const TICK_H = 9; // tick mark height at the default row spacing
 const TICK_ROW = 13; // vertical step per phase row (> tick height so rows never overlap)
@@ -156,7 +160,9 @@ const LEGEND_ROW = 16; // extra legend rows (a narrow plot wraps its legend)
 /** Vertical layout for a plot `h` px tall (bottom-up; see the constants above). */
 function plotLayout(h: number) {
   const capY = h - 38; // fit-handle caps, below the difference band
-  const diffA = Math.round(Math.min(110, Math.max(26, h * 0.082))); // difference half-height
+  // Difference half-height. A plot under 300px tall (only a phone on its side
+  // makes one) takes a slimmer floor, so the pattern keeps most of the height.
+  const diffA = Math.round(Math.min(110, Math.max(h < 300 ? 18 : 26, h * 0.082)));
   const diffY = capY - 6 - diffA; // difference-band zero line
   const tickMaxBot = diffY - diffA - 4; // tick band floor (just above the difference band)
   const tickTop = tickMaxBot - 38; // Bragg tick band (below the x-axis labels)
@@ -247,6 +253,8 @@ export function WorkbenchPlot({
   const svgRef = useRef<SVGSVGElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const draggingGrip = useRef(false);
+  const coarse = useCoarsePointer();
+  const gripW = gripHitWidth(coarse);
   const onTapRef = useRef<(tap: PlotTap) => void>(() => {});
 
   const xs = curves.x;
@@ -380,8 +388,9 @@ export function WorkbenchPlot({
   yScaleRef.current = { yLo, ySpan };
   const sy = (y: number): number => BASE - ((Math.min(Math.max(y, yLo), yTop) - yLo) / ySpan) * MAINH;
 
-  // Y nice ticks. The signed scale starts at the first step at/above yLo.
-  const yStep = niceNum((yTop - yLo) / 4, true);
+  // Y nice ticks: four, fewer on a short panel (a phone on its side). The
+  // signed scale starts at the first step at/above yLo.
+  const yStep = niceNum((yTop - yLo) / yTickCount(MAINH), true);
   const yTicks: number[] = [];
   for (let v = Math.ceil(yLo / yStep) * yStep; v <= yTop + 1e-6 * yStep; v += yStep) yTicks.push(v);
   // The left margin fits the widest y label beside the rotated axis title
@@ -397,7 +406,7 @@ export function WorkbenchPlot({
   // X nice ticks: as many as the width holds without labels crowding (six on a
   // desktop plot, fewer on a phone).
   const xLabelW = Math.max(formatX(vlo, vspan).length, formatX(vhi, vspan).length) * MONO_ADVANCE * fsTick;
-  const xStep = niceNum(vspan / Math.max(2, Math.min(6, Math.floor(XW / (xLabelW * 1.8)))), true);
+  const xStep = niceNum(vspan / tickCountFor(XW, xLabelW * 1.8, 2, 6), true);
   const xTicks: number[] = [];
   for (let v = Math.ceil(vlo / xStep) * xStep; v <= vhi + 1e-6; v += xStep) xTicks.push(v);
 
@@ -707,19 +716,17 @@ export function WorkbenchPlot({
     e.stopPropagation();
     e.preventDefault();
     draggingGrip.current = true;
-    (e.target as Element).setPointerCapture?.(e.pointerId);
+    try { (e.target as Element).setPointerCapture?.(e.pointerId); } catch { /* the pointer is already gone */ }
     const move = (ev: PointerEvent): void => {
       const v = Math.min(fullMax, Math.max(fullMin, clientToX(ev.clientX)));
       if (which === "min") onFitRangeChange({ min: Math.min(v, fitRange.max), max: fitRange.max });
       else onFitRangeChange({ min: fitRange.min, max: Math.max(v, fitRange.min) });
     };
-    const up = (): void => {
+    // Ends on a lift, and on a cancel too (the browser took a touch over to
+    // scroll): left set, the flag made the plot ignore every later tap.
+    trackPointerDrag(window, e.pointerId, move, () => {
       draggingGrip.current = false;
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    });
   };
 
   // --- the cursor readout ----------------------------------------------------
@@ -794,9 +801,11 @@ export function WorkbenchPlot({
   const maxPx = sx(Math.min(fullMax, Math.max(fullMin, fitHi)));
   const cursorPx = readout ? sx(readout.x) : null;
   const plotName = ariaLabel ?? `${yLabel} against ${xLabel}`;
+  const zoomInline = zoomControlsInline(coarse, boxW);
 
   return (
-    <div style={{ position: "relative", width: "100%", flex: 1, minHeight: 320 }}>
+    <>
+    <div className="wb-plot-box" style={{ position: "relative", width: "100%", flex: 1, minHeight: 320 }}>
       <canvas ref={canvasRef} aria-hidden style={{ position: "absolute", inset: 0, display: "block", width: "100%", height: "100%", pointerEvents: "none" }} />
       <svg
         ref={svgRef}
@@ -961,11 +970,15 @@ export function WorkbenchPlot({
           <>
             {(["min", "max"] as const).map((which) => {
               const px = which === "min" ? minPx : maxPx;
+              // touch-action none: a finger on a handle drags it rather than
+              // scrolling the page (the plot itself lets vertical drags scroll).
+              const grip = { cursor: "ew-resize", touchAction: "none" } as const;
               return (
-                <g key={which}>
+                <g key={which} data-fit-handle={which}>
                   <line x1={px} y1={TOP} x2={px} y2={CAP_Y} stroke={color.primary} strokeWidth={1.5} />
-                  <rect x={px - 6} y={TOP} width={12} height={CAP_Y - TOP} fill="transparent" style={{ cursor: "ew-resize" }} onPointerDown={startGrip(which)} />
-                  <rect x={px - 4.5} y={CAP_Y} width={9} height={14} rx={3} fill={color.primary} style={{ cursor: "ew-resize" }} onPointerDown={startGrip(which)} />
+                  <rect x={px - gripW / 2} y={TOP} width={gripW} height={CAP_Y - TOP} fill="transparent" style={grip} onPointerDown={startGrip(which)} />
+                  {coarse && <rect x={px - gripW / 2} y={CAP_Y - 4} width={gripW} height={22} fill="transparent" style={grip} onPointerDown={startGrip(which)} />}
+                  <rect x={px - 4.5} y={CAP_Y} width={9} height={14} rx={3} fill={color.primary} style={grip} onPointerDown={startGrip(which)} />
                 </g>
               );
             })}
@@ -1055,8 +1068,10 @@ export function WorkbenchPlot({
       )}
       <div role="status" aria-live="polite" aria-atomic="true" className="wb-sr-only">{spoken}</div>
       <PlotHint text={ix.hint} />
-      <PlotZoomControls ix={ix} yRange={{ lo: yLo, hi: yTop }} />
+      {!zoomInline && <PlotZoomControls ix={ix} yRange={{ lo: yLo, hi: yTop }} />}
     </div>
+    {zoomInline && <PlotZoomControls ix={ix} yRange={{ lo: yLo, hi: yTop }} inline />}
+    </>
   );
 }
 
