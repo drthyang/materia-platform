@@ -606,12 +606,10 @@ html {
 }
 
 /* Magnetic page: pattern check + 3D model (left rail) | workflow controls (right).
- * The same model as the powder/PDF working rows (rule 4): the row fills the
- * window, both columns stretch to one bottom edge, and the long side (steps
- * 1–5) scrolls INSIDE its card. The pattern check and 3D model therefore stay
- * in view while candidate groups are clicked — what the earlier sticky rail
- * was for, without its misalignments (it stuck at --wb-gap while the page's
- * edge is --wb-pad, and its bottom ran past the right card's into the gutter). */
+ * The row fills the window (rule 4) and both columns end on one bottom edge.
+ * The pages without a pattern (single crystal, mPDF) keep the long side,
+ * steps 1–5, scrolling INSIDE its card; the powder page's desktop row
+ * (.wb-mag2-rail, below) scrolls as a whole instead, with the rail pinned. */
 .wb-mag2 {
   display: grid;
   grid-template-columns: minmax(400px, 6fr) minmax(380px, 5fr);
@@ -636,11 +634,80 @@ html {
   flex: 1 1 auto;
   min-height: 0;
 }
+/* The pattern check: at least the secondary plot height, and taller by the
+ * row under the plot (the gesture hint, and the zoom buttons where they take
+ * a row), rather than a fixed band that row overflowed, past the card's edge. */
+.wb-mag2-plot {
+  min-height: var(--wb-plot-h-sm);
+}
 
-/* Workflow steps: the card is the scroll region, not the page. */
+/* Workflow steps: the card is the scroll region, not the page (but see
+ * .wb-mag2-rail below). */
 .wb-mag2-steps {
   overflow-y: auto;
   min-height: 0;
+}
+
+/* Powder page on a desktop: the steps lead. They take their natural height
+ * (1100–1600px on the bundled examples), so the row below the title is the one
+ * thing that scrolls — the page column itself does not — and the rail (pattern
+ * check over the 3D model) is pinned to the row's full height beside them: the
+ * pattern and the model stay in view while candidate groups are clicked, and
+ * no step sits in a box of its own. A flex row, not the grid: a percentage
+ * height resolves against the row (definite: it fills the window), where a grid
+ * item's would resolve against its own area, as tall as the steps. Not on touch
+ * screens or short windows, which scroll the whole page (#113). */
+@media (min-height: 540.02px) and (not ((pointer: coarse) and (max-height: 1000px))) {
+  @container shell (min-width: 1121px) {
+    .wb-mag2-rail {
+      display: flex;
+      align-items: flex-start;
+      overflow-y: auto;
+    }
+    /* At least the row's height, and never less than its cards need: on a
+       short window (under ~800px) the rail runs past the fold instead of its
+       cards spilling, and the row scrolls to it. */
+    .wb-mag2-rail > .wb-mag2-left {
+      flex: 1 1 0;
+      min-height: 100%;
+      position: sticky;
+      top: 0;
+    }
+    /* Half the row, short of a width that only spreads its tables thin. */
+    .wb-mag2-rail > .wb-mag2-steps {
+      flex: 0 0 min(calc(50% - var(--wb-gap) / 2), 1000px);
+      overflow: visible;
+      min-height: 100%;
+    }
+    /* The rail's height is shared: the pattern a little more than the model,
+       neither below its content's floor. */
+    .wb-mag2-rail .wb-mag2-pattern {
+      flex: 1.25 1 0;
+    }
+    .wb-mag2-rail .wb-mag2-plot {
+      flex: 1 1 0;
+      min-height: auto;
+    }
+    .wb-mag2-rail .wb-plot-box {
+      min-height: 240px !important;
+    }
+    .wb-mag2-rail .wb-mag2-model {
+      flex: 1 1 0;
+      min-height: auto;
+    }
+    /* Size containment: the WebGL canvas inside keeps the size it was last
+       drawn at until the resize observer catches up, and would otherwise hold
+       the card's floor at that size (360px at first paint). */
+    .wb-mag2-rail .wb-3d-canvas {
+      min-height: 140px !important;
+      contain: size;
+    }
+    /* The 3D card's toolbar and legend pack closer, so the canvas keeps the room. */
+    .wb-mag2-rail .wb-3d-toolbar,
+    .wb-mag2-rail .wb-3d-legend {
+      column-gap: 12px !important;
+    }
+  }
 }
 
 /* Narrow: stack, pattern check first; cards auto-size and the page scrolls.
@@ -1635,23 +1702,6 @@ html {
   }
 }
 
-/* The magnetic page's pattern check: its own content's height (the plot and,
- * on a touch screen or a narrow plot, the zoom row under it) wherever the page
- * stacks or the screen is touch, rather than a fixed band the 320px plot
- * overflowed (past the card's edge on a phone). */
-@container shell (max-width: 1120px) {
-  .wb-mag2-plot {
-    height: auto !important;
-    min-height: var(--wb-plot-h-sm);
-  }
-}
-@media (pointer: coarse) {
-  .wb-mag2-plot {
-    height: auto !important;
-    min-height: var(--wb-plot-h-sm);
-  }
-}
-
 /* Tablets held landscape up to 1000px tall (iPad Pro 11" and 13"): the page
  * scrolls (see "Whole-page scrolling"), and each working row takes a screen's
  * height of its own instead of what the fixed chrome left it (~380px on the
@@ -1746,3 +1796,4 @@ html {
     display: none;
   }
 }
+

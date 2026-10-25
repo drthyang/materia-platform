@@ -9,7 +9,8 @@
  * covalent-radius cylinders, and the cell edges are drawn as a wireframe.
  *
  * Controls: bond-length labels, perspective vs orthographic projection, and an
- * a/b/c coordinate-axis triad. Interaction: drag to rotate, scroll to zoom.
+ * a/b/c coordinate-axis triad. Interaction: drag to rotate, scroll to zoom
+ * (OrbitControls; the hint under the canvas is GestureHintLine).
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -17,6 +18,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { orthoHalfHeight, screenExtent } from "@/app/ui/structureFrame";
 import { useCoarsePointer } from "@/app/ui/touchInput";
+import { GestureHintLine } from "@/app/ui/GestureHintLine";
 import type { StructureModel, SymmetryOperation } from "@/core/crystal/types";
 import type { Vec3 } from "@/core/math/types";
 import { fractionalToCartesian } from "@/core/crystal/unitCell";
@@ -179,6 +181,7 @@ export function StructureView({
   displacements,
   exports,
   minCanvasHeight = 360,
+  fit = false,
 }: {
   structure: StructureModel;
   /** Magnetic moment entries to overlay as arrows (one per site — or per split
@@ -214,14 +217,19 @@ export function StructureView({
   /** Canvas minimum height (px) — hosts that stack panels below the viewer in
    *  a fixed-height card pass a smaller value so the layout can settle. */
   minCanvasHeight?: number;
+  /** Fit the cell to the canvas with a mouse too, as every touch screen does
+   *  (structureFrame.ts): a host whose canvas is far from square (a short card
+   *  beside a long column) would otherwise show a small model in a wide field. */
+  fit?: boolean;
 }): JSX.Element {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const [showBondLengths, setShowBondLengths] = useState(false);
   const [showAtomLabels, setShowAtomLabels] = useState(false);
   const [perspective, setPerspective] = useState(false);
   // On a touch screen the orthographic frame fits the cell to the canvas (a
-  // phone's canvas is short and wide, or narrow); a desktop keeps its frame.
-  const fitToCanvas = useCoarsePointer();
+  // phone's canvas is short and wide, or narrow); a desktop keeps its frame
+  // unless the host asks for the fit.
+  const fitToCanvas = useCoarsePointer() || fit;
   const [showAxes, setShowAxes] = useState(true);
   // Which unit cell to show — mutually exclusive, never two frames at once:
   //  "atomic"   the parent nuclear cell,
@@ -774,7 +782,7 @@ export function StructureView({
     // Fill whatever the host card gives us (flex column); in an unconstrained
     // context the canvas keeps its 360 px minimum.
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", marginBottom: 6, fontSize: 12, color: theme.secondary, fontFamily: themeMono, alignItems: "center" }}>
+      <div className="wb-3d-toolbar" style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", marginBottom: 6, fontSize: 12, color: theme.secondary, fontFamily: themeMono, alignItems: "center" }}>
         <ViewerToggle label="Bond lengths" checked={showBondLengths} onChange={setShowBondLengths} />
         <ViewerToggle label="Atom labels" checked={showAtomLabels} onChange={setShowAtomLabels} />
         <ViewerToggle label="Axes" checked={showAxes} onChange={setShowAxes} />
@@ -836,9 +844,11 @@ export function StructureView({
         )}
       </div>
       <div ref={mountRef} className="wb-3d-canvas" style={{ width: "100%", flex: 1, minHeight: minCanvasHeight, cursor: "grab", borderRadius: 10, overflow: "hidden" }} />
-      {/* View presets (bottom-right, above the legend): look straight down an axis. */}
-      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6, fontSize: 12, fontFamily: themeMono, color: theme.secondary }}>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 9px", borderRadius: 8, background: theme.chipBg }} title="Look straight down a crystallographic axis (keeps your zoom)">
+      {/* The gesture hint (left) and the view presets (right, above the
+          legend): look straight down an axis. */}
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "4px 10px", marginTop: 6, fontSize: 12, fontFamily: themeMono, color: theme.secondary }}>
+        <GestureHintLine view="model-3d" style={{ flex: "1 1 150px" }} />
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 9px", borderRadius: 8, background: theme.chipBg, marginLeft: "auto" }} title="Look straight down a crystallographic axis (keeps your zoom)">
           View
           <span style={{ display: "inline-flex", border: `1px solid ${theme.border}`, borderRadius: 6, overflow: "hidden" }}>
             {(["a", "b", "c"] as const).map((ax) => (
@@ -855,7 +865,7 @@ export function StructureView({
         </span>
       </div>
       {/* Atom legend + appearance controls (light / finish shape the swatches too). */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 16px", marginTop: 6, fontSize: 12, fontFamily: themeMono, color: theme.secondary, alignItems: "center" }}>
+      <div className="wb-3d-legend" style={{ display: "flex", flexWrap: "wrap", gap: "6px 16px", marginTop: 6, fontSize: 12, fontFamily: themeMono, color: theme.secondary, alignItems: "center" }}>
         {uniqueElements.map((el) => (
           <span key={el} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
             {atomSwatches[el] ? (

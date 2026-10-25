@@ -13,8 +13,8 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { usePlotInteraction, useThrottledText } from "@/app/ui/usePlotInteraction";
-import { PlotHint, PlotZoomControls, plotReadoutBox, zoomControlsInline } from "@/app/ui/PlotControls";
-import { useCoarsePointer } from "@/app/ui/touchInput";
+import { PlotFooter, PlotHint, PlotZoomControls, plotReadoutBox, zoomControlsInline } from "@/app/ui/PlotControls";
+import { isMac, plotGestureDescription, useCoarsePointer } from "@/app/ui/touchInput";
 import { decimalsForStep, formatReadoutValue, localStep, minimumSpan, nearestIndex } from "@/visualization/plotView";
 import type { PdfPattern } from "@/core/diffraction/types";
 import { grUncertaintySummary } from "@/core/totalscattering/grErrors";
@@ -208,7 +208,7 @@ export function ReciprocalPanel({ pattern, fitRange }: { pattern: PdfPattern; fi
           style={{ position: "absolute", inset: 0, width: "100%", height: "100%", display: "block", touchAction: "pan-y", cursor: ix.panning ? "grabbing" : "crosshair", userSelect: "none" }}
           role="application"
           aria-roledescription="interactive plot"
-          aria-label={`${ordinate === "sq" ? "S(Q)" : "F(Q)"} against Q${sig ? " with a ±σ error ribbon" : ""}. Drag to pan, Shift + drag to box-zoom, Ctrl + scroll or pinch to zoom, double-click to reset. Keys: plus and minus zoom, left and right arrows pan, Shift + arrows step the cursor one point, 0 resets.`}
+          aria-label={`${ordinate === "sq" ? "S(Q)" : "F(Q)"} against Q${sig ? " with a ±σ error ribbon" : ""}. ${plotGestureDescription(isMac())}`}
           {...ix.handlers}
           {...{ "data-vmin": vlo, "data-vmax": vhi, "data-dmin": qLo, "data-dmax": qHi, "data-ylock": ix.yLock ? 1 : 0, "data-frame": [X0, X1, W, H, Y0, Y1].join(",") }}
         >
@@ -298,7 +298,7 @@ export function ReciprocalPanel({ pattern, fitRange }: { pattern: PdfPattern; fi
         <PlotHint text={ix.hint} />
         {!zoomInline && <PlotZoomControls ix={ix} yRange={{ lo: yLo, hi: yHi }} style={{ bottom: 4 }} />}
       </div>
-      {zoomInline && <PlotZoomControls ix={ix} yRange={{ lo: yLo, hi: yHi }} inline />}
+      <PlotFooter ix={ix} yRange={{ lo: yLo, hi: yHi }} inline={zoomInline} style={{ marginTop: -3 }} />
 
       <div style={{ fontSize: fz.micro, color: color.secondary, lineHeight: 1.55 }}>
         {tr && (

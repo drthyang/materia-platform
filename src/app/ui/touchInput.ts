@@ -1,7 +1,7 @@
 /**
  * Touch-aware pieces shared by the plots and the 3D views: whether the main
- * pointer is a finger, the gesture wording that matches it, and a drag that
- * ends however the pointer goes away. The pure parts are tested without a
+ * pointer is a finger, whether the zoom key is ⌘ or Ctrl, the gesture wording
+ * that matches both, and a drag that ends however the pointer goes away. The pure parts are tested without a
  * browser (touchInput.test.ts).
  */
 
@@ -26,23 +26,70 @@ export function useCoarsePointer(): boolean {
 }
 
 /**
- * The how-to line under a view, in the gestures the user has: a mouse or
- * trackpad scrolls, Shift-drags and double-clicks; a finger pinches and drags
- * (Ctrl/⌘ + scroll and Shift + drag do not exist on a phone).
+ * Whether the zoom key is ⌘ rather than Ctrl: macOS, and iPadOS / iOS with a
+ * keyboard (an iPad reports itself as a Mac).
  */
-export function gestureHint(view: "powder-plot" | "pdf-plot" | "model-3d", coarse: boolean): string {
-  switch (view) {
-    case "powder-plot":
-      return coarse
-        ? "Pinch to zoom, drag sideways to pan, Reset to see it all; drag the blue handles to set the fit range."
-        : "Drag to pan, Ctrl/⌘ + scroll or pinch to zoom, Shift + drag to box-zoom, double-click to reset; blue handles set the fit range.";
-    case "pdf-plot":
-      return coarse
-        ? "Pinch to zoom, drag sideways to pan, drag the handles to set the fit window."
-        : "Drag to pan, Ctrl/⌘ + scroll to zoom, handles set the fit window.";
-    case "model-3d":
-      return coarse ? "drag to rotate, pinch to zoom" : "drag to rotate, scroll to zoom";
+export function isMac(nav: { readonly platform?: string; readonly userAgent?: string } | undefined = typeof navigator === "undefined" ? undefined : navigator): boolean {
+  return nav !== undefined && /Mac|iPhone|iPad|iPod/i.test(nav.platform || nav.userAgent || "");
+}
+
+/** A view the hint describes: a 1-D plot (usePlotInteraction) or the 3D model (StructureView). */
+export type GestureView = "plot" | "model-3d";
+
+export interface GestureInput {
+  /** The main pointer is a finger (`useCoarsePointer`). */
+  readonly coarse: boolean;
+  /** ⌘ rather than Ctrl (`isMac`). */
+  readonly mac: boolean;
+  /** The plot has fit-range handles to drag. */
+  readonly fitHandles?: boolean;
+  /** The plot has reflection ticks that name their indices on a click. */
+  readonly ticks?: boolean;
+}
+
+export interface GestureHint {
+  /** The one line shown with the view: how to zoom first, then pan or rotate. */
+  readonly text: string;
+  /** The secondary gestures, for the hint's tooltip, one sentence each. */
+  readonly more: readonly string[];
+}
+
+/**
+ * The how-to line with a view, in the gestures the user has: a mouse or
+ * trackpad scrolls with ⌘ (a Mac) or Ctrl, drags and double-clicks; a finger
+ * pinches and drags (a key + scroll and Shift + drag do not exist on a phone).
+ * The line stays short; the rest goes in `more`, the hint's tooltip. The 3D
+ * gestures are OrbitControls' defaults.
+ */
+export function gestureHint(view: GestureView, { coarse, mac, fitHandles = false, ticks = false }: GestureInput): GestureHint {
+  if (view === "model-3d") {
+    return coarse
+      ? { text: "Pinch to zoom · drag to rotate", more: ["Drag two fingers to pan.", "View a, b or c looks down that axis."] }
+      : { text: "Scroll to zoom · drag to rotate", more: ["Right-drag or Shift + drag to pan.", "View a, b or c looks down that axis."] };
   }
+  const shared = [
+    ...(ticks ? [`${coarse ? "Tap" : "Click"} a reflection tick for its indices.`] : []),
+    ...(fitHandles ? ["Drag the blue handles to set the fit range."] : []),
+  ];
+  return coarse
+    ? { text: "Pinch to zoom · drag to pan", more: ["Tap the plot to read the values there.", "Reset shows the whole range.", ...shared] }
+    : {
+        text: `${mac ? "⌘" : "Ctrl"} + scroll to zoom · drag to pan · double-click to reset`,
+        more: [
+          "Shift + drag a box to zoom to it.",
+          "A trackpad pinch also zooms; a sideways swipe or Shift + scroll pans.",
+          "Keys, once the plot has focus: + and − zoom, ← and → pan, 0 resets.",
+          ...shared,
+        ],
+      };
+}
+
+/**
+ * A plot's accessible description: every gesture and key, whatever the
+ * pointer (a screen reader user may have any of them).
+ */
+export function plotGestureDescription(mac: boolean): string {
+  return `Drag to pan, Shift + drag to box-zoom, ${mac ? "⌘" : "Ctrl"} + scroll or pinch to zoom, double-click to reset. Keys: plus and minus zoom, left and right arrows pan, Shift + arrows step the cursor one point, 0 resets.`;
 }
 
 /**

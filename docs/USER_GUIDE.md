@@ -217,7 +217,11 @@ magnetic model are steps too. Loading a new dataset starts a new history.
 ### Zoom, pan and the cursor readout
 
 The pattern, the G(r) plot, the magnetic page's pattern and the S(Q) view all
-work the same way.
+work the same way. The line under each plot names the main gestures for your
+device (⌘ on a Mac, Ctrl elsewhere, a pinch on a touch screen); hover, focus
+or tap it for the rest. The 3D models carry the same kind of line beside
+their View a / b / c chip: scroll or pinch to zoom, drag to rotate, and
+right-drag, Shift + drag or two fingers to pan.
 
 - **Cursor.** Hover the plot. A vertical line marks the data point under the
   pointer. The readout gives x in the axis unit (2θ °, TOF µs, d Å, Q Å⁻¹ or
@@ -255,7 +259,9 @@ and refines the symmetry-allowed moments
 powder; [Single crystal and PDF](#single-crystal-and-pdf) lists what differs.
 
 Refine the nuclear structure first, so the residual isolates the magnetic
-intensity. Then click **Magnetic analysis →** or the **Magnetic** chip.
+intensity. Then click **Magnetic analysis →** or the **Magnetic** chip. On a
+desktop the steps scroll beside the pattern and the 3D model, which stay in
+view.
 
 ### Steps 1 and 2: magnetic ions and k
 
@@ -263,7 +269,9 @@ In **Magnetic ions**, click a site to include or exclude it. In
 **Propagation vector k**:
 
 1. Read **Detected residual peaks**. Each peak is numbered #n in the table and
-   on the pattern.
+   on the pattern. A long table shows its six strongest peaks and every peak
+   in the search; **Show all … peaks** lists the rest. **near** gives the
+   nuclear reflection a peak sits on, with its phase when there are several.
 2. Choose the peaks for the search with **I/σ ≥**,
    **include peaks at nuclear positions** and each peak's **use** box. To add a
    missed peak, click **+ Add peak from plot**, then the pattern.
@@ -311,8 +319,9 @@ residual before you trust any moments.
 
 The **Powder pattern** card draws the nuclear fit plus the selected candidate's
 magnetic intensity, which also appears alone as the **magnetic** curve. Tick
-rows mark where k allows satellites (**G ± k**), where the group keeps them
-(**allowed**) and the unexplained peaks (**residual**). A plausible k puts a
+rows mark each phase's reflections (**nuclear** for a single phase), where k
+allows satellites (**G ± k**), where the group keeps them (**allowed**) and the
+unexplained peaks (**residual**). A plausible k puts a
 **G ± k** tick under every residual peak. A plausible group keeps those peaks in
 the **allowed** row.
 

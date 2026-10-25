@@ -571,6 +571,21 @@ release fixes bugs.
   order. The text the Agent's number audit and the validation read keeps
   its earlier layout, frozen, so neither moves.
 
+- **One short zoom hint on every plot and 3D view.** The pattern, G(r), the
+  magnetic page's pattern and S(Q) each carry one line under the plot in the
+  gestures of the device: "⌘ + scroll to zoom · drag to pan · double-click to
+  reset" on a Mac, the same with Ctrl elsewhere, and "Pinch to zoom · drag to
+  pan" on a touch screen. Every 3D model (powder, PDF, magnetic, single
+  crystal) says "Scroll to zoom · drag to rotate" (on a touch screen, "Pinch
+  to zoom") beside its View a / b / c chip. The rest (Shift + drag box zoom,
+  the keys, a trackpad's pinch and swipe, the fit-range handles, the
+  reflection ticks; panning the 3D model) is in the line's tooltip: hover it,
+  focus it, or tap it. The hint replaces the long captions under the powder
+  and PDF plots and the 3D views; the PDF Qdamp/Qbroad note keeps its own
+  line. On a touch screen it shares the row of the zoom buttons, so the
+  phone layout gains no row. The magnetic page's pattern card grows by the
+  hint's line on a desktop instead of letting it run past the card.
+
 - **The powder Validation tab says each thing in one short line.** About
   half the words on the demo (as it opens, after Refine, and with its cell
   off by 0.3 %). Each line leads with what to do: "Fair fit: misfit mostly in
@@ -605,6 +620,22 @@ release fixes bugs.
   Ask first / Auto off its name. Captions name finger gestures on a touch
   screen (pinch to zoom, drag to pan or rotate). The header, the Copilot's
   rail and drawer and the cards stay out of the iPhone's safe-area insets.
+
+- **The magnetic page on a desktop: the steps lead, and the pattern and the
+  model stay in view.** The workflow (steps 1–5) sat in the narrower right
+  column as a box scrolling inside its card, with step 4's candidate list
+  below its fold, beside a 3D card whose model filled a fraction of its canvas
+  and whose legend ran past the card. The steps now take half the row (up to
+  1000 px) at their natural height, and the row scrolls as a whole beside a
+  rail pinned to it: the pattern check over the 3D model, both in view while
+  candidates are clicked. The 3D view fits the cell to its canvas with a mouse
+  too, and nothing runs past a card at 1440, 1920 or 2560 px; a window under
+  ~800 px tall runs the rail past the fold. The residual-peak table shows its
+  six strongest peaks (and every peak in the k-search) until "Show all", and
+  its "near" column gives the reflection's hkl, with the phase only when the
+  pattern has several; a single phase's tick row is "nuclear" in the legend.
+  "Set k" is a quiet button while the fields hold the k in use, not a faded
+  primary one that read as broken. Phones and tablets keep their layouts.
 
 - **The powder Validation tab reads the fit against your acceptance bar.**
   It opened on a verdict of mixed-weight lines beside eight agreement
