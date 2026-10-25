@@ -544,6 +544,21 @@ release fixes bugs.
 
 ### Changed
 
+- **On the PDF page, the symmetry is chosen on the Subgroups view and the
+  modes are inspected on the 3D Model view.** The Γ irrep tree (each irrep's
+  label, dimension, optic and acoustic counts, with its **Activate →**
+  buttons), **Load parent CIF…** and **✕ clear** moved from the 3D Model view
+  to the Subgroups view, beside the subgroup lattice. The Subgroups view shows
+  the choice in force, a parent-CIF decomposition as well as an activation,
+  with **✕ clear** and a link to the 3D Model view; its pickers wait while one
+  is in force or a fit runs. The 3D Model view keeps the mode table (amplitude,
+  esd, free/fixed, total |A|, the acoustic combinations excluded; a row click
+  draws the mode as green arrows) and names the parent or subgroup the modes
+  lower to. With no modes, it says in one line that the symmetry is lowered on
+  the Subgroups view, with a link there, and points to Positions →
+  “Irreps (modes)” for the structure's own symmetry-conserving modes. The
+  Agent's tools and text are unchanged.
+
 - **A shared site's occupancies sum to exactly its total, on the powder and
   PDF pages.** They were separate free rows held by a soft Σ restraint (σ
   0.01, its target the starting sum: 1.002 for the bundled high-entropy

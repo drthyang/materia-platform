@@ -429,18 +429,28 @@ workbench fits reduced data; it does not reduce raw intensities.
 
 ### Symmetry modes and subgroups
 
-- Under **Parameterization**, switch **Constrained atomic** to
-  **Irreps (modes)**. The mode amplitudes come from the structure's own space
-  group and start at 0.
-- In the **3D Model** view, **Load parent CIF…** decomposes the structure
-  against a high-symmetry parent. Click a **Distortion modes** row to draw the
-  mode as green arrows; **✕ clear** returns to coordinates.
-- **Potential Γ modes · subgroup tree**, in the same view, lists the
-  symmetry-breaking irreps. **Activate → …** lowers to that isotropy subgroup
-  and frees the mode with a small starting amplitude.
-- The **Subgroups** view lists the translationengleiche subgroups.
-  **Activate ↓** lowers to one and loads its modes, fixed at 0, into
-  **Positions**. A polar mode needs **Prefit ↻** to leave zero.
+The **Subgroups** view is where you choose the symmetry; the **3D Model** view
+shows the modes being refined.
+
+- To keep the structure's symmetry, switch **Constrained atomic** to
+  **Irreps (modes)** under **Parameterization**. The mode amplitudes come from
+  the structure's own space group and start at 0.
+- To lower it, open the **Subgroups** view. Each choice loads the distortion
+  modes it permits into **Positions**:
+  - **Potential Γ modes · irreps** lists the symmetry-breaking irreps, with
+    their dimension and optic and acoustic mode counts. **Activate → …**
+    lowers to that isotropy subgroup and frees the mode with a small starting
+    amplitude.
+  - **Subgroup lattice** lists the translationengleiche subgroups.
+    **Activate ↓** lowers to one and loads its modes, fixed at 0. A polar mode
+    needs **Prefit ↻** to leave zero.
+  - **Load parent CIF…** decomposes a structure that is already the distorted
+    child against a high-symmetry parent.
+- The choice shows at the top of the **Subgroups** view. **✕ clear** returns
+  to coordinates; clear one choice before making another.
+- The **3D Model** view lists the modes with their amplitudes, esds and
+  free/fixed state, and names the parent or subgroup they lower to. Click a
+  **Distortion modes** row to draw the mode as green arrows.
 
 These tools need a single phase, and offer cell-preserving (Γ) modes only
 ([LIMITATIONS.md](./LIMITATIONS.md#real-space-pdf-and-magnetic-pdf)).

@@ -26,27 +26,18 @@ import type { MagneticModel } from "@/core/magnetic/types";
 import { isMomentParameterKind } from "@/core/refinement/types";
 import { KSearchPanel } from "@/components/KSearchPanel";
 import type { MagneticFit } from "@/app/magneticStep";
-import { decomposeDisplacementRepresentation, type DisplaciveIrrepTerm } from "@/core/crystal/displaciveModes";
-import {
-  projectIsotypicModes,
-  stabilizerOfField,
-  identifySubgroup,
-  subgroupTypeKey,
-  type DisplacementField,
-  type SubgroupIdentity,
-} from "@/core/crystal/isotropyTree";
-import {
-  structuralSubgroupLattice,
-  subgroupClassRepresentatives,
-  type SubgroupNode,
-} from "@/core/crystal/subgroupTree";
+import type { DisplaciveIrrepTerm } from "@/core/crystal/displaciveModes";
+import type { DisplacementField, SubgroupIdentity } from "@/core/crystal/isotropyTree";
+import { structuralSubgroupLattice, type SubgroupNode } from "@/core/crystal/subgroupTree";
 import { parseCif } from "@/parsers/cif";
 import {
-  ACTIVATION_KICK, SAMPLE_STEPS, agentBoxcarPlan, boxcarSummary, landsOn, liveStateOf, momentFit, pageView, pdfBoxcar, pdfFit, pdfPage, pdfPosterior, pdfProbe, pdfThorough, reportInputOf, rwOf, specKeyOf,
+  SAMPLE_STEPS, agentBoxcarPlan, boxcarSummary, landsOn, liveStateOf, momentFit, pageView, pdfBoxcar, pdfFit, pdfPage, pdfPosterior, pdfProbe, pdfThorough, reportInputOf, rwOf, specKeyOf,
   withActivatedMode, withAdpModel, withBoxcarPlan, withBoxcarRun, withBoxcarStep, withExtraPhases, withFit, withFitRange, withFixed, withLoadedStructure, withoutModes,
   withParameter, withParentModes, withPattern, withPositionMode, withPosterior, withReset, withSiteTotal, withSpinModel, withSubgroup, workspaceOf, type AgentBoxcarPlan,
 } from "@/app/pdfPage";
 import { SiteTotals } from "@/app/ui/SiteTotals";
+import { DistortionModesPanel } from "@/app/ui/DistortionModesPanel";
+import { SubgroupsPanel, gammaIrrepTree } from "@/app/ui/SubgroupsPanel";
 import { sharedSites, siteSumRangeWarnings } from "@/core/workflow/structureRefinement";
 
 // Lazy so three.js stays out of the main bundle until the 3D view is opened.
@@ -146,17 +137,19 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   }, [model.loaded, model.extraPhases]);
   useOnChange(extraPhases, () => setModel((m) => withExtraPhases(m, extraPhases)));
   useOnChange(pattern, () => setModel((m) => withPattern(m, pattern)));
-  // Mode selected in the 3D card's table: its eigenvector (unit-amplitude
-  // displacement field) is drawn as green arrows on the 3D model. Click the
-  // row to toggle; any mode-set change invalidates the selection.
+  // Mode selected in the 3D card's table (DistortionModesPanel): its
+  // eigenvector (unit-amplitude displacement field) is drawn as green arrows
+  // on the 3D model. Click the row to toggle; any mode-set change invalidates
+  // the selection.
   const [shownModeId, setShownModeId] = useState<string | null>(null);
   useEffect(() => setShownModeId(null), [modeSet]);
   const shownMode = (shownModeId !== null ? modeSet?.modes.find((m) => m.id === shownModeId) : undefined) ?? null;
   const [busy, setBusy] = useState(false);
   // Live calculated curve streamed from the worker during a refinement.
   const [live, setLive] = useState<number[] | null>(null);
-  // Plot-card view: the fit, the refined 3D structure (per phase), the
-  // subgroup tree, the Bayesian posterior, or the boxcar (r-resolved) scan.
+  // Plot-card view: the fit, the refined 3D structure (per phase) with the
+  // distortion modes being refined, the subgroup page where the symmetry is
+  // lowered, the Bayesian posterior, or the boxcar (r-resolved) scan.
   const [viewTab, setViewTab] = useState<"fit" | "reciprocal" | "model3d" | "subgroups" | "posterior" | "boxcar">("fit");
   // The S(Q) tab exists only for a pattern transformed from Q-space data; a
   // later G(r) load must not strand the page on a view it no longer offers.
@@ -468,65 +461,32 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   function onParamChange(id: string, patch: Partial<RefinementParameter>): void {
     setModel((m) => withParameter(m, id, patch));
   }
-  // ---- Subgroup tree (Γ potential distortion modes, requirement 3) --------
-  // The displacive decomposition of the LOADED structure's own space group:
-  // which irreps could carry a symmetry-breaking distortion, and — per irrep —
-  // which isotropy subgroups its modes lead to. Computed only when the 3D
-  // Model card (which hosts the tree) is visible; single-phase only.
-  // The tree enumerates the PARENT's irreps, so it is only offered from the
-  // pristine parent state — an active mode set (activation or parent-CIF)
-  // lives in a different setting whose irreps/labels would not match; the
-  // user clears it (✕) first. Acoustic-only terms (optic = 0) are dropped:
-  // their entire content is a rigid translation the gauge projection would
-  // discard, making activation a guaranteed no-op.
-  const subgroupTree = useMemo(() => {
-    if (multiPhase || viewTab !== "model3d" || modes !== null) return null;
-    const dec = decomposeDisplacementRepresentation(structure);
-    if (!dec.available) return null;
-    const terms = dec.terms
-      .filter((t) => !t.trivial && t.multiplicity - t.acoustic > 0)
-      .map((term) => {
-        const fields = projectIsotypicModes(structure, undefined, term, structure.spaceGroup.operations);
-        // Group candidate modes by the subgroup they lead to — the tree view.
-        // The key must distinguish subgroups that share point group and index
-        // but differ in translation content (Pm vs Pc), hence the
-        // setting-invariant op-set key fallback.
-        const bySub = new Map<string, { identity: SubgroupIdentity; field: DisplacementField; count: number }>();
-        for (const f of fields) {
-          const subOps = stabilizerOfField(f, structure.spaceGroup.operations);
-          const id = identifySubgroup(subOps, structure.spaceGroup.operations);
-          const key = id.number !== undefined ? `#${id.number}` : subgroupTypeKey(subOps);
-          const e = bySub.get(key);
-          if (e) e.count++;
-          else bySub.set(key, { identity: id, field: f, count: 1 });
-        }
-        return { term, subgroups: [...bySub.values()] };
-      });
-    return { dec, terms };
-  }, [multiPhase, viewTab, structure, modes]);
+  // ---- The Subgroups page: where the symmetry is lowered -------------------
+  // Both trees are the LOADED structure's, computed only while the Subgroups
+  // tab is visible; single-phase only (SubgroupsPanel renders them).
+  //
+  // Γ irrep tree (potential distortion modes, requirement 3): which irreps of
+  // the loaded group could carry a symmetry-breaking distortion, and — per
+  // irrep — which isotropy subgroups its modes lead to (gammaIrrepTree). It
+  // enumerates the PARENT's irreps, so it is only offered from the pristine
+  // parent state — an active mode set (activation or parent-CIF) lives in a
+  // different setting whose irreps/labels would not match; the user clears it
+  // (✕) first.
+  const subgroupTree = useMemo(
+    () => (multiPhase || viewTab !== "subgroups" || modes !== null ? null : gammaIrrepTree(structure)),
+    [multiPhase, viewTab, structure, modes],
+  );
 
-  // ---- Structural subgroup lattice (the "Subgroups" page) ------------------
-  // The full translationengleiche group–subgroup tree of the loaded space group
-  // (every t-subgroup named, with covering/Bärnighausen edges and conjugacy
-  // grouping) — the "search for subgroups" step: pick a target subgroup and
-  // activate the distortion modes it permits. Computed only when the Subgroups
-  // tab is visible; single-phase. Independent of `modes` (it is the parent's
-  // lattice, unchanged by an active distortion).
+  // Structural subgroup lattice: the full translationengleiche group–subgroup
+  // tree of the loaded space group (every t-subgroup named, with
+  // covering/Bärnighausen edges and conjugacy grouping) — the "search for
+  // subgroups" step: pick a target subgroup and activate the distortion modes
+  // it permits. Independent of `modes` (it is the parent's lattice, unchanged
+  // by an active distortion).
   const subgroupLattice = useMemo(
     () => (multiPhase || viewTab !== "subgroups" ? null : structuralSubgroupLattice(structure)),
     [multiPhase, viewTab, structure],
   );
-  const subgroupLevels = useMemo(() => {
-    if (!subgroupLattice) return [];
-    const reps = subgroupClassRepresentatives(subgroupLattice);
-    const byIndex = new Map<number, SubgroupNode[]>();
-    for (const n of reps) {
-      const list = byIndex.get(n.index);
-      if (list) list.push(n);
-      else byIndex.set(n.index, [n]);
-    }
-    return [...byIndex.entries()].sort((a, b) => a[0] - b[0]).map(([index, nodes]) => ({ index, nodes }));
-  }, [subgroupLattice]);
 
   // Activate a chosen SUBGROUP (subgroup-driven, the inverse of the irrep-driven
   // path; withSubgroup): the child realized from the current refined geometry,
@@ -834,7 +794,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                     ? "Bayesian posterior — free parameters"
                     : viewTab === "boxcar"
                       ? "Boxcar scan — parameters vs box center r"
-                      : "Group–subgroup tree"}
+                      : "Lower the symmetry — group–subgroup tree"}
             </span>
             {viewTab === "fit" && (
               <span style={{ display: "flex", gap: 14, fontFamily: mono, fontSize: 12.5 }}>
@@ -888,8 +848,8 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                   ...(hasReciprocal
                     ? [{ id: "reciprocal" as const, label: "S(Q)", title: "The S(Q)/F(Q) this G(r) was transformed from, with its ±σ error ribbon, and what that error becomes in G(r) over the fit window" }]
                     : []),
-                  { id: "model3d", label: "3D Model", title: "3D crystal-structure model" },
-                  { id: "subgroups", label: "Subgroups", title: "Group–subgroup tree — pick a target subgroup to activate the distortion modes it permits" },
+                  { id: "model3d", label: "3D Model", title: "3D crystal-structure model, with the distortion modes being refined — click a mode to draw its displacement pattern" },
+                  { id: "subgroups", label: "Subgroups", title: "Lower the symmetry here: pick a subgroup, a Γ irrep's isotropy subgroup, or a parent CIF — the distortion modes it permits load into the Positions group" },
                   { id: "posterior", label: "Posterior", title: "Bayesian posterior of the free parameters (ensemble MCMC) — credible intervals, convergence diagnostics, and the posterior-vs-esd check" },
                   { id: "boxcar", label: "Boxcar", title: "Boxcar scan — refine inside a fixed-width r-window slid across G(r) and plot each parameter against the box center: how the structure changes with length scale" },
                 ] as const}
@@ -980,147 +940,21 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                   />
                 </Suspense>
               </div>
+              {/* The modes being refined; the symmetry they lower to is
+                  chosen (and cleared) on the Subgroups page. */}
               {!multiPhase && (
-                <div style={{ flex: "0 1 auto", minHeight: 90, maxHeight: 300, overflowY: "auto", marginTop: 6 }}>
-                  {modeSet ? (
-                    <>
-                      <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-                        <span style={uppercaseLabel}>Distortion modes</span>
-                        <span style={{ fontFamily: mono, fontSize: fz.micro, color: color.secondary }}>
-                          {modes ? `vs ${modes.parentName}` : `from ${structure.spaceGroup.hermannMauguin ?? "own space group"}`}
-                          {" · total |A| = "}
-                          {Math.sqrt(
-                            modeSet.modes.reduce((s, m) => {
-                              const v = params.find((p) => p.id === m.id)?.value ?? 0;
-                              return s + v * v;
-                            }, 0),
-                          ).toFixed(4)}{" "}
-                          Å
-                          {(modeSet.acousticExcluded ?? 0) > 0 ? ` · ${modeSet.acousticExcluded} acoustic excluded` : ""}
-                        </span>
-                        {shownMode && (
-                          <span style={{ fontFamily: mono, fontSize: fz.micro, color: "#15803d" }}>
-                            ▸ green arrows: {shownMode.label}
-                          </span>
-                        )}
-                        <button
-                          style={resetRangeBtn}
-                          onClick={() => setModel((m) => withoutModes(m))}
-                          title="Back to per-coordinate position parameters"
-                        >
-                          ✕ clear
-                        </button>
-                      </div>
-                      <div style={{ marginTop: 4, border: `1px solid ${color.border}`, borderRadius: 6 }}>
-                        <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: mono, fontSize: fz.micro }}>
-                          <thead>
-                            <tr style={{ color: color.secondary, textAlign: "left" }}>
-                              <th style={{ padding: "3px 8px", fontWeight: 500 }}>mode</th>
-                              <th style={{ padding: "3px 8px", fontWeight: 500, textAlign: "right" }}>A (Å)</th>
-                              <th style={{ padding: "3px 8px", fontWeight: 500, textAlign: "right" }}>esd</th>
-                              <th style={{ padding: "3px 8px", fontWeight: 500 }}>state</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {modeSet.modes.map((m, i) => {
-                              const p = params.find((q) => q.id === m.id);
-                              const esd = result?.esd[m.id] ?? p?.esd;
-                              const shown = m.id === shownModeId;
-                              return (
-                                <tr
-                                  key={m.id}
-                                  onClick={() => setShownModeId(shown ? null : m.id)}
-                                  title="Click to show/hide this mode's displacement pattern in the 3D model (green arrows, unit amplitude — the eigenvector, not the refined magnitude)"
-                                  style={{
-                                    borderTop: `1px solid ${color.border}`,
-                                    cursor: "pointer",
-                                    background: shown ? "rgba(22, 163, 74, 0.1)" : i === 0 ? "rgba(90, 130, 255, 0.06)" : "transparent",
-                                  }}
-                                >
-                                  <td style={{ padding: "3px 8px", color: shown ? "#15803d" : i === 0 ? color.primary : color.ink }}>
-                                    {shown ? "▸ " : ""}{m.label}
-                                  </td>
-                                  <td style={{ padding: "3px 8px", textAlign: "right" }}>{(p?.value ?? 0).toFixed(5)}</td>
-                                  <td style={{ padding: "3px 8px", textAlign: "right", color: color.secondary }}>{esd !== undefined ? esd.toFixed(5) : "—"}</td>
-                                  <td style={{ padding: "3px 8px", color: color.secondary }}>{p?.fixed ? "fixed" : "free"}</td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                      <p style={{ marginTop: 4, marginBottom: 0, fontSize: 12, color: color.secondary }}>
-                        {modes
-                          ? "Amplitudes are whole-cell displacement norms (Å); mode 1 is the frozen distortion — its fitted amplitude is the order parameter. Free/fix rows in the parameter panel (Positions group)."
-                          : "Amplitudes are whole-cell displacement norms (Å), enumerated from the structure's own space group (symmetry-conserving Γ modes; rigid-translation gauge excluded). All seed at 0 — free the rows you want active in the parameter panel (Positions group), or load a parent CIF for the observed order-parameter decomposition."}
-                        {" Click a row to draw the mode's eigenvector on the 3D model (green arrows)."}
-                      </p>
-                    </>
-                  ) : (
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                      <span style={uppercaseLabel}>Distortion modes</span>
-                      <label
-                        style={{ border: `1px solid ${color.border}`, borderRadius: 6, padding: "2px 10px", fontSize: fz.micro, color: color.ink, cursor: "pointer" }}
-                        title="Decompose this structure against a high-symmetry parent CIF (same lattice/setting) into refinable symmetry-mode amplitudes — refine one order parameter instead of many coordinates"
-                      >
-                        Load parent CIF…
-                        <input
-                          type="file"
-                          accept=".cif,text/plain"
-                          style={{ display: "none" }}
-                          onChange={(e) => {
-                            const f = e.target.files?.[0];
-                            if (f) void onLoadParentCif(f);
-                            e.target.value = "";
-                          }}
-                        />
-                      </label>
-                      <span style={{ fontSize: fz.micro, color: color.secondary }}>
-                        or flip Positions → “Irreps (modes)” in the parameter panel — modes come from the loaded space group, no second CIF needed
-                      </span>
-                    </div>
-                  )}
-                  {subgroupTree && subgroupTree.terms.length > 0 && (
-                    <div style={{ marginTop: 10 }}>
-                      <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-                        <span style={uppercaseLabel}>Potential Γ modes · subgroup tree</span>
-                        <span style={{ fontFamily: mono, fontSize: fz.micro, color: color.secondary }}>
-                          {structure.spaceGroup.hermannMauguin ?? "parent"} ·{" "}
-                          {subgroupTree.terms.length} symmetry-breaking irrep{subgroupTree.terms.length === 1 ? "" : "s"}
-                        </span>
-                      </div>
-                      <div style={{ marginTop: 4, border: `1px solid ${color.border}`, borderRadius: 6 }}>
-                        {subgroupTree.terms.map(({ term, subgroups }) => {
-                          const dim = term.irrep.dim ?? 1;
-                          const optic = term.multiplicity - term.acoustic;
-                          return (
-                            <div key={term.irrep.label} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "5px 8px", borderTop: `1px solid ${color.subtle2}` }}>
-                              <span style={{ fontFamily: mono, fontSize: fz.micro, color: color.ink, minWidth: 128 }}>
-                                {term.irrep.label} · dim {dim} · {optic} optic mode{optic === 1 ? "" : "s"}
-                                {term.acoustic > 0 ? ` (+${term.acoustic} acoustic)` : ""}
-                              </span>
-                              {subgroups.map((sub, si) => (
-                                <button
-                                  key={si}
-                                  style={{ ...resetRangeBtn, ...(busy ? { opacity: 0.55, cursor: "not-allowed" } : {}) }}
-                                  disabled={busy}
-                                  onClick={() => onActivateMode(term, sub)}
-                                  title={`Activate this distortion: the space group lowers to the isotropy subgroup (Wyckoff orbits split), the mode enters the Positions group free with a ${ACTIVATION_KICK} Å starting amplitude — a polar mode of a centrosymmetric parent sits at an exact χ² stationary point at amplitude 0, so it must start off zero.`}
-                                >
-                                  Activate → {sub.identity.hermannMauguin ?? sub.identity.pointGroup ?? "?"}
-                                  {sub.identity.number !== undefined ? ` #${sub.identity.number}` : ` (index ${sub.identity.index})`}
-                                  {sub.count > 1 ? ` ·${sub.count}` : ""}
-                                </button>
-                              ))}
-                            </div>
-                          );
-                        })}
-                      </div>
-                      <p style={{ marginTop: 4, marginBottom: 0, fontSize: 12, color: color.secondary }}>
-                        Cell-preserving (Γ) distortions of the loaded group only — zone-boundary (cell-multiplying) modes need projective small representations and are deliberately not enumerated. Oblique order-parameter directions arrive via a parent-CIF decomposition.
-                      </p>
-                    </div>
-                  )}
+                <div style={{ flex: "0 1 auto", minHeight: modeSet ? 90 : 0, maxHeight: 300, overflowY: "auto", marginTop: 6 }}>
+                  <DistortionModesPanel
+                    modeSet={modeSet}
+                    modes={modes}
+                    params={params}
+                    result={result}
+                    spaceGroup={structure.spaceGroup.hermannMauguin}
+                    ownModes={(symModes?.modes.length ?? 0) > 0}
+                    shownModeId={shownModeId}
+                    onShowMode={setShownModeId}
+                    onOpenSubgroups={() => setViewTab("subgroups")}
+                  />
                 </div>
               )}
               <p style={{ marginTop: 4, fontSize: 12, color: color.secondary }}>
@@ -1169,70 +1003,19 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                   No space-group operations to analyze.
                 </div>
               ) : (
-                <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", marginBottom: 6 }}>
-                    <span style={{ fontFamily: mono, fontSize: fz.micro, color: color.secondary }}>
-                      {structure.spaceGroup.hermannMauguin ?? "parent"} · {subgroupLattice.nodes.length} translationengleiche subgroups ·{" "}
-                      {subgroupLevels.reduce((s, l) => s + l.nodes.length, 0)} distinct types
-                    </span>
-                  </div>
-                  {modes?.fromActivation && (
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6, padding: "5px 9px", borderRadius: 6, background: "rgba(90, 130, 255, 0.08)", border: `1px solid ${color.border}`, fontSize: fz.micro }}>
-                      <span style={{ color: color.primary, fontFamily: mono }}>▼ lowered to {modes.parentName}</span>
-                      <span style={{ color: color.secondary }}>
-                        {modeSet?.modes.length ?? 0} distortion mode{(modeSet?.modes.length ?? 0) === 1 ? "" : "s"} in the Positions group — free the rows to refine
-                      </span>
-                      <button
-                        style={{ ...resetRangeBtn, marginLeft: "auto" }}
-                        onClick={() => setModel((m) => withoutModes(m))}
-                        title="Discard the distortion and return to the parent's per-coordinate positions"
-                      >
-                        ✕ clear
-                      </button>
-                    </div>
-                  )}
-                  <div style={{ overflowY: "auto", border: `1px solid ${color.border}`, borderRadius: 6, flex: 1, minHeight: 120 }}>
-                    {subgroupLevels.map(({ index, nodes }) => (
-                      <div key={index}>
-                        <div style={{ position: "sticky", top: 0, padding: "3px 8px", background: color.subtle, borderTop: `1px solid ${color.border}`, borderBottom: `1px solid ${color.subtle2}`, fontFamily: mono, fontSize: fz.micro, color: color.secondary }}>
-                          index {index}{index === 1 ? " · parent group" : ""}
-                        </div>
-                        {nodes.map((n) => (
-                          <div key={n.id} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "4px 8px", borderTop: `1px solid ${color.subtle2}` }}>
-                            <span style={{ fontFamily: mono, fontSize: fz.micro, color: color.ink, minWidth: 140 }}>
-                              {n.identity.hermannMauguin ?? n.pointGroup ?? "?"}
-                              {n.identity.hermannMauguin && n.pointGroup ? <span style={{ color: color.secondary }}> ({n.pointGroup})</span> : null}
-                              {n.identity.number !== undefined ? <span style={{ color: color.secondary }}> #{n.identity.number}</span> : null}
-                            </span>
-                            {n.domainCount > 1 && (
-                              <span style={{ fontFamily: mono, fontSize: fz.micro, color: color.secondary }} title="symmetry-equivalent domains (conjugate subgroups of the same type)">
-                                ×{n.domainCount} domains
-                              </span>
-                            )}
-                            {n.identity.number === undefined && !n.isTrivial && (
-                              <span style={{ fontSize: fz.micro, color: color.secondary }} title="named by point group only — the origin-shifted/translation setting is not resolved yet">
-                                approx.
-                              </span>
-                            )}
-                            {!n.isParent && !n.isTrivial && (
-                              <button
-                                style={{ ...resetRangeBtn, marginLeft: "auto", ...(busy || modes !== null ? { opacity: 0.5, cursor: "not-allowed" } : {}) }}
-                                disabled={busy || modes !== null}
-                                onClick={() => onActivateSubgroup(n)}
-                                title={modes !== null ? "Clear the active distortion first" : "Lower to this subgroup: split the Wyckoff orbits and load the Γ distortion modes it permits into the Positions group as refinable amplitudes."}
-                              >
-                                Activate ↓
-                              </button>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                  <p style={{ marginTop: 6, marginBottom: 0, fontSize: 12, color: color.secondary }}>
-                    Translationengleiche (lattice-preserving) subgroups only. Activating one splits the Wyckoff orbits and exposes the Γ distortion modes that subgroup allows as amplitudes (all seed at 0 — a polar mode sits at a χ² stationary point, so free it and use Prefit to escape zero). Cell-multiplying (klassengleiche) subgroups arrive with the zone-boundary engine.
-                  </p>
-                </div>
+                <SubgroupsPanel
+                  spaceGroup={structure.spaceGroup.hermannMauguin}
+                  lattice={subgroupLattice}
+                  irrepTree={subgroupTree}
+                  modes={modes}
+                  modeCount={modeSet ? modeSet.modes.length : null}
+                  busy={busy}
+                  onLoadParentCif={(file) => void onLoadParentCif(file)}
+                  onActivateMode={onActivateMode}
+                  onActivateSubgroup={onActivateSubgroup}
+                  onClear={() => setModel((m) => withoutModes(m))}
+                  onOpenModel={() => setViewTab("model3d")}
+                />
               )}
             </>
           )}
