@@ -82,7 +82,8 @@ export function fitState(result: RefinementResult | null, parameters: readonly R
       return { kind: "edited", tone: "grey", text: "Values edited since the last refinement: refine again before quoting values or esds.", refine: true, current: false };
     }
     if (result.status !== "converged") {
-      return { kind: "stopped", tone: "amber", text: `The last refinement stopped (${result.status}) before it converged: the values are provisional — refine again.`, refine: true, current: true };
+      const why = result.status === "maxIterations" ? "at its cycle limit" : result.status === "stalled" ? "stalled" : "failed";
+      return { kind: "stopped", tone: "amber", text: `The last refinement stopped (${why}) before it converged: the values are provisional — refine again.`, refine: true, current: true };
     }
     const shift = result.diagnostics?.maxShiftOverEsd ?? 0;
     const id = result.diagnostics?.maxShiftParameterId;
@@ -340,8 +341,10 @@ export function powderAcceptance(input: AcceptanceInput): Acceptance {
   const issues = items.filter((i) => i.severity === "issue").length;
   const verdict = ((): { tone: Tone; headline: string } => {
     if (state.kind === "diverged") return { tone: "red", headline: "The refinement diverged: its values are not meaningful." };
+    if (blockers > 0) {
+      return { tone: "red", headline: state.kind === "none" ? `${plural(blockers, "physical problem")} to fix before refining.` : `Not acceptable: ${plural(blockers, "physical problem")} to fix first.` };
+    }
     if (state.kind === "none") return { tone: "grey", headline: "Not refined yet." };
-    if (blockers > 0) return { tone: "red", headline: `Not acceptable: ${plural(blockers, "physical problem")} to fix first.` };
     switch (band) {
       case null: return { tone: "grey", headline: "No fitted points to judge." };
       case "poor": return { tone: "red", headline: `Poor fit (${g}): far from the data${cause}.` };
