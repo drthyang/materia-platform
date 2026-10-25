@@ -167,7 +167,14 @@ export interface PowderCheckInput {
   readonly canExport?: boolean;
 }
 
-/** The powder verdict, most important first. */
+/**
+ * The powder verdict, most important first: what the powder Validation tab
+ * showed until it read the fit against the user's acceptance bar
+ * (powderAcceptance.ts). Kept as it was because the validation's arm A
+ * (agent/validation/armA.ts) reads it as "the app without the Agent", and a
+ * CI test pins those results (docs/VALIDATION.md, Arm A): moving arm A to the
+ * new verdict is a change of the frozen protocol, the user's call.
+ */
 export function powderChecks(input: PowderCheckInput): ValidationVerdict {
   const { validation: v, unindexed, result, parameters } = input;
   const checks: ValidationCheck[] = [];

@@ -47,7 +47,7 @@ export function col(grow: number, basis: number): CSSProperties {
   return { flex: `${grow} 1 ${basis}px`, minWidth: 0 };
 }
 
-const TONES: Record<CheckStatus, { bg: string; border: string; ink: string }> = {
+export const TONES: Record<CheckStatus, { bg: string; border: string; ink: string }> = {
   ok: { bg: color.okBg, border: color.okBorder, ink: color.okInk },
   note: { bg: color.noteBg, border: color.noteBorder, ink: color.noteInk },
   warn: { bg: color.warnBg, border: color.warnBorder, ink: color.warnInk },
@@ -55,7 +55,7 @@ const TONES: Record<CheckStatus, { bg: string; border: string; ink: string }> = 
   info: { bg: color.chipBg, border: color.control, ink: color.secondary },
 };
 
-function StatusIcon({ status, size = 17 }: { status: CheckStatus; size?: number }): JSX.Element {
+export function StatusIcon({ status, size = 17 }: { status: CheckStatus; size?: number }): JSX.Element {
   const t = TONES[status];
   const label = status === "ok" ? "passes" : status === "info" ? "information" : status === "note" ? "worth a look" : status === "warn" ? "warning" : "critical";
   return (
@@ -67,7 +67,7 @@ function StatusIcon({ status, size = 17 }: { status: CheckStatus; size?: number 
   );
 }
 
-const ACTION_LABEL: Record<CheckAction, string> = {
+export const ACTION_LABEL: Record<CheckAction, string> = {
   "show-unindexed": "show",
   "export-gsas2": "GSAS-II bundle",
   "export-fullprof": "FullProf bundle",

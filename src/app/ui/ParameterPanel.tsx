@@ -8,87 +8,12 @@
  * diagnostics, cycle history). Driven by the real refinement params.
  */
 
-import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
-import type { ParameterKind, RefinementParameter, RefinementResult } from "@/core/refinement/types";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import { card, color, mono, primaryButton, secondaryButton, space, uppercaseLabel } from "@/app/theme";
 import { InfoBadge } from "@/app/ui/InfoBadge";
 import { resolveTies } from "@/core/refinement/constraints";
-
-const CATEGORY: Record<ParameterKind, string> = {
-  scale: "Scale",
-  background: "Background",
-  cellLength: "Lattice",
-  cellAngle: "Lattice",
-  peakWidth: "Instrument / profile",
-  profileU: "Instrument / profile",
-  profileV: "Instrument / profile",
-  profileW: "Instrument / profile",
-  profileX: "Microstructure",
-  profileY: "Microstructure",
-  asymSL: "Instrument / profile",
-  asymHL: "Instrument / profile",
-  zeroShift: "Instrument / profile",
-  sampleDisplacement: "Corrections",
-  sampleTransparency: "Corrections",
-  tofCalibration: "Instrument / profile",
-  tofProfile: "Instrument / profile",
-  bIso: "ADPs (thermal)",
-  uAniso: "ADPs (thermal)",
-  atomX: "Positions",
-  atomY: "Positions",
-  atomZ: "Positions",
-  positionShift: "Positions",
-  occupancy: "Occupancy",
-  poRatio: "Corrections",
-  absorption: "Corrections",
-  surfaceRoughA: "Corrections",
-  surfaceRoughB: "Corrections",
-  extinction: "Corrections",
-  batchScale: "Scale",
-  twinFraction: "Twinning",
-  ridingTorsion: "Positions",
-  stephensStrain: "Microstructure",
-  anisoSizePerp: "Microstructure",
-  anisoSizePar: "Microstructure",
-  mustrainPerp: "Microstructure",
-  mustrainPar: "Microstructure",
-  mustrainIso: "Microstructure",
-  magneticScale: "Magnetic",
-  momentX: "Magnetic",
-  momentY: "Magnetic",
-  momentZ: "Magnetic",
-  momentMode: "Magnetic",
-  // Its own group: freeing "all Magnetic" must not also move k — refining the
-  // propagation vector is a deliberate step, not a side effect of the moments.
-  propagationK: "Propagation vector",
-  // Real-space PDF fit: the G(r) scale joins "Scale"; the remaining PDF terms
-  // split by PHYSICS — they are independent effects that happen to share a page,
-  // so they get separate groups rather than one catch-all "PDF" bucket:
-  //   · instrument Q-resolution envelope (Qdamp/Qbroad) — calibrated, held fixed;
-  //   · near-neighbor correlated motion (δ1/δ2, or sratio/rcut) — sharpens low-r;
-  //   · finite-particle shape envelope (spdiameter) — nanoparticle size.
-  // "Instrument" only ever co-exists with the powder "Instrument / profile" in
-  // CATEGORY, never on one page — qdamp/qbroad appear only in PDF specs.
-  pdfScale: "Scale",
-  qdamp: "Instrument",
-  qbroad: "Instrument",
-  delta1: "Correlated motion",
-  delta2: "Correlated motion",
-  sratio: "Correlated motion",
-  rcut: "Correlated motion",
-  spdiameter: "Particle shape",
-  // Magnetic-PDF envelope rows get their OWN group rather than joining the
-  // moments in "Magnetic": mpdfOrdScale scales d_mag(r) exactly as the moment
-  // magnitude does, so the two are perfectly degenerate. Sharing a group would
-  // let one click of the group's "all free" checkbox free the degenerate pair
-  // and fit a flat valley.
-  mpdfOrdScale: "mPDF",
-  mpdfParaScale: "mPDF",
-  mpdfPsigma: "mPDF",
-  corrLength: "mPDF",
-};
-
-const ORDER = ["Scale", "Background", "Lattice", "Instrument / profile", "Instrument", "Correlated motion", "Particle shape", "ADPs (thermal)", "Positions", "Occupancy", "Microstructure", "Corrections", "Magnetic", "Propagation vector", "mPDF"];
+import { GROUP_ORDER, parameterGroupOf } from "@/app/ui/parameterGroups";
 
 /** Rows the user cannot free: instrument calibration, and parameters derived
  *  from others by a tie expression (their value follows the tie). */
@@ -153,23 +78,57 @@ interface Props {
   readonly notice?: ReactNode;
   /** Warnings about the rows as they stand (a shared site's last occupancy outside [0, 1]), shown above the result. */
   readonly warnings?: readonly string[];
+  /**
+   * A group to bring into view (the Validation view's "Open …" actions): each
+   * new token opens the group, scrolls it into view and marks it for a moment.
+   * Nothing is freed or changed: the rows are the user's to set.
+   */
+  readonly reveal?: { readonly group: string; readonly token: number } | null;
 }
 
-export function ParameterPanel({ params, esd, onChange, onRefine, onThorough, thoroughMode = "prefit", prefitTitle, onCancel, onReset, onMagnetic, busy, result, disabled, title, extraActions, groupControls, groupInfo, frameworkControls, notice, warnings }: Props): JSX.Element {
+export function ParameterPanel({ params, esd, onChange, onRefine, onThorough, thoroughMode = "prefit", prefitTitle, onCancel, onReset, onMagnetic, busy, result, disabled, title, extraActions, groupControls, groupInfo, frameworkControls, notice, warnings, reveal }: Props): JSX.Element {
   const groups = useMemo(() => {
     const byGroup = new Map<string, RefinementParameter[]>();
     for (const p of params) {
-      const g = CATEGORY[p.kind] ?? "Other";
+      const g = parameterGroupOf(p.kind);
       (byGroup.get(g) ?? byGroup.set(g, []).get(g)!).push(p);
     }
-    // Groups outside ORDER still render (after it) — a new CATEGORY must never
-    // make its rows silently invisible.
-    const names = [...ORDER.filter((g) => byGroup.has(g)), ...[...byGroup.keys()].filter((g) => !ORDER.includes(g))];
+    // Groups outside GROUP_ORDER still render (after it) — a new group must
+    // never make its rows silently invisible.
+    const names = [...GROUP_ORDER.filter((g) => byGroup.has(g)), ...[...byGroup.keys()].filter((g) => !GROUP_ORDER.includes(g))];
     return names.map((g) => ({ name: g, rows: byGroup.get(g)! }));
   }, [params]);
 
   // All parameter groups start collapsed; the user expands the ones they need.
   const [open, setOpen] = useState<Record<string, boolean>>({});
+  // A group the page asked to bring into view: opened, scrolled to, and marked.
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const groupRefs = useRef(new Map<string, HTMLDivElement>());
+  const [marked, setMarked] = useState<string | null>(null);
+  useEffect(() => {
+    if (!reveal) return;
+    setOpen((o) => (o[reveal.group] ? o : { ...o, [reveal.group]: true }));
+    setMarked(reveal.group);
+    // Scroll once the opened rows have rendered: the panel's own list first,
+    // then the page when the group is off screen (a phone's stacked layout).
+    const frame = setTimeout(() => {
+      const el = groupRefs.current.get(reveal.group);
+      const list = listRef.current;
+      if (!el) return;
+      if (list && list.scrollHeight > list.clientHeight) {
+        list.scrollBy({ top: el.getBoundingClientRect().top - list.getBoundingClientRect().top, behavior: "smooth" });
+      }
+      const top = el.getBoundingClientRect().top;
+      if (typeof window !== "undefined" && (top < 0 || top > window.innerHeight - 96)) el.scrollIntoView({ block: "start", behavior: "smooth" });
+    }, 30);
+    const unmark = setTimeout(() => setMarked(null), 1800);
+    return () => {
+      clearTimeout(frame);
+      clearTimeout(unmark);
+    };
+    // A new token is a new request; the group name rides with it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reveal?.token]);
   // The result section likewise rests collapsed. Held here, not in the section,
   // so a user who opened it keeps it open across refinements and resets.
   const [resultOpen, setResultOpen] = useState(false);
@@ -249,14 +208,21 @@ export function ParameterPanel({ params, esd, onChange, onRefine, onThorough, th
         <span>esd</span>
         <span>Refine</span>
       </div>
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+      <div ref={listRef} style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
         {groups.map((g) => {
           const togglable = g.rows.filter((p) => !isLocked(p));
           const groupFree = togglable.filter((p) => !p.fixed).length;
           const allFree = togglable.length > 0 && groupFree === togglable.length;
           return (
-            <div key={g.name}>
-              <div style={groupHeader} onClick={() => setOpen((o) => ({ ...o, [g.name]: !o[g.name] }))}>
+            <div
+              key={g.name}
+              data-group={g.name}
+              ref={(el) => {
+                if (el) groupRefs.current.set(g.name, el);
+                else groupRefs.current.delete(g.name);
+              }}
+            >
+              <div style={{ ...groupHeader, ...(marked === g.name ? markedHeader : {}) }} onClick={() => setOpen((o) => ({ ...o, [g.name]: !o[g.name] }))}>
                 <span style={{ color: color.primary, fontSize: 10 }}>{open[g.name] ? "▾" : "▸"}</span>
                 <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>{g.name}</span>
                 {groupInfo?.[g.name] && (
@@ -397,7 +363,9 @@ function ResultSection({ result, open, onToggle }: { result: RefinementResult; o
 }
 
 const colHeader: CSSProperties = { display: "grid", gridTemplateColumns: "1fr 104px 62px 62px", padding: `6px ${space.inset}`, borderBottom: `1px solid ${color.border}`, ...uppercaseLabel };
-const groupHeader: CSSProperties = { display: "flex", alignItems: "center", gap: 8, background: color.groupBg, borderTop: `1px solid ${color.subtle}`, padding: `8px ${space.inset}`, cursor: "pointer" };
+const groupHeader: CSSProperties = { display: "flex", alignItems: "center", gap: 8, background: color.groupBg, borderTop: `1px solid ${color.subtle}`, padding: `8px ${space.inset}`, cursor: "pointer", transition: "background 400ms, box-shadow 400ms" };
+/** A group the page just brought into view (the Validation view's "Open …"). */
+const markedHeader: CSSProperties = { background: color.primaryTintBg, boxShadow: `inset 3px 0 0 ${color.primary}` };
 const paramRow: CSSProperties = { display: "grid", gridTemplateColumns: "1fr 104px 62px 62px", alignItems: "center", padding: `4px ${space.inset} 4px calc(${space.inset} + 12px)`, borderTop: `1px solid ${color.subtle2}` };
 const groupControlRow: CSSProperties = { display: "flex", alignItems: "center", gap: 8, rowGap: 5, flexWrap: "wrap", padding: `7px ${space.inset} 7px calc(${space.inset} + 12px)`, borderTop: `1px solid ${color.subtle2}`, fontSize: 12, color: color.secondary };
 const valueInput: CSSProperties = { width: 88, border: `1px solid ${color.input}`, borderRadius: 7, fontSize: 12, fontFamily: mono, padding: "2px 6px", background: "#fff" };
