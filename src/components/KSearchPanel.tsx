@@ -879,12 +879,15 @@ export function KSearchPanel({
                         title="Show this peak in the pattern"
                       >
                         <td style={td} onClick={(e) => e.stopPropagation()}>
-                          <input
-                            type="checkbox"
-                            checked={row.included}
-                            onChange={() => step.setOverride(row.key, !row.included)}
-                            title={row.included ? "Exclude from the k-search" : "Include in the k-search"}
-                          />
+                          {/* The label is the hit area (44px tall on a touch screen, workbench.css). */}
+                          <label style={{ display: "flex", alignItems: "center", cursor: "pointer" }}>
+                            <input
+                              type="checkbox"
+                              checked={row.included}
+                              onChange={() => step.setOverride(row.key, !row.included)}
+                              title={row.included ? "Exclude from the k-search" : "Include in the k-search"}
+                            />
+                          </label>
                         </td>
                         <td style={{ ...td, fontFamily: themeMono, color: theme.obs, fontWeight: 600 }}>#{row.idx}</td>
                         <td style={{ ...td, fontFamily: themeMono }}>{row.d.toFixed(4)}</td>

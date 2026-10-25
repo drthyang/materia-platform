@@ -57,6 +57,9 @@ function localModel(s: AgentSettings): string | null {
 /** The OpenAI-compatible server needs a key the user has not given. */
 const missingOpenAIKey = (s: AgentSettings, key: string): boolean => s.mode === "openai-compatible" && !key && (presetForUrl(s.openaiUrl)?.needsKey ?? false);
 
+/** The share of the window the sheet takes at least while the settings are open in it. */
+const SETTINGS_SHEET = 0.75;
+
 export function AgentDrawer({ agent, method = null, onClose }: Props): JSX.Element {
   const { settings } = agent;
   const [showSettings, setShowSettings] = useState(false);
@@ -93,19 +96,25 @@ export function AgentDrawer({ agent, method = null, onClose }: Props): JSX.Eleme
       box.setSelectionRange(box.value.length, box.value.length);
     }, 0);
   };
-  const sized: CSSProperties = { ...drawer, ...(width === null ? {} : { ["--wb-agent-w" as string]: `${width}px` }), ["--wb-sheet-h" as string]: `calc(${((lowered ?? sheet) * 100).toFixed(1)}dvh / var(--ui-zoom))` };
+  // The settings open in the sheet: it rises, for now, so they have room (the
+  // user's height comes back when they close).
+  const shown = sheetMode && showSettings ? Math.max(sheet, SETTINGS_SHEET) : (lowered ?? sheet);
+  const sized: CSSProperties = { ...drawer, ...(width === null ? {} : { ["--wb-agent-w" as string]: `${width}px` }), ["--wb-sheet-h" as string]: `calc(${(shown * 100).toFixed(1)}dvh / var(--ui-zoom))` };
   return (
     <aside ref={aside} className="wb-agent" data-mode={sheetMode ? "sheet" : "docked"} style={sized} aria-label="MATERIA Copilot">
       {sheetMode ? <SheetHandle fraction={sheet} onResize={setSheet} /> : <ResizeHandle drawer={aside} width={width} onResize={setWidth} />}
-      {sheetMode ? (
+      {sheetMode || shortWindow ? (
         // The sheet is short: one row, the status a dot (its words in the tooltip), the model in the settings.
+        // So is the drawer beside the page on a phone held sideways (~370 px tall).
         // Too narrow for one row (a phone held upright), the approval switch takes a second row
         // (.wb-agent-sheethead in workbench.css) rather than run over the name.
-        <div className="wb-agent-sheethead" style={{ ...head, flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: "6px 8px", padding: "8px 12px" }}>
+        <div className="wb-agent-sheethead" style={{ ...head, flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: "6px 7px", padding: "8px 12px" }}>
           <span className="wb-agent-sheethead-brand">
             <SparkIcon />
             <b className="wb-agent-title">MATERIA Copilot</b>
-            <span className="wb-agent-beta" title="A public beta: check what it does, as you would a new colleague's work">Beta</span>
+          </span>
+          <span className="wb-agent-beta wb-agent-sheethead-beta" title="A public beta: check what it does, as you would a new colleague's work">Beta</span>
+          <span className="wb-agent-sheethead-status">
             <StatusChip agent={agent} compact />
           </span>
           <span className="wb-agent-sheethead-switch">
@@ -166,7 +175,7 @@ export function methodSummary(method: MethodProgress): string {
 function MethodChecklist({ method, folded: foldedAtFirst }: { method: MethodProgress; folded: boolean }): JSX.Element {
   const [folded, setFolded] = useState(foldedAtFirst);
   return (
-    <div style={checklist} aria-label="Method progress">
+    <div className="wb-agent-method" style={checklist} aria-label="Method progress">
       <button type="button" className="wb-agent-fold" aria-expanded={!folded} onClick={() => setFolded((f) => !f)} title={`The page's method: the skill ${method.skill}. ${folded ? "Show" : "Hide"} the stages`}>
         <span aria-hidden="true">{folded ? "▸" : "▾"}</span> Method
       </button>
@@ -1170,7 +1179,7 @@ function Composer({ agent, disabled, compact, text, setText, input, hint }: { ag
           : <button type="button" className="wb-agent-send" onClick={submit} disabled={disabled || !text.trim()} aria-label="Send" title="Send (Enter)"><ArrowGlyph /></button>}
       </div>
       <div className="wb-agent-foot">
-        <span className="wb-agent-hint" title={used ? `${usage.input} input tokens (${usage.cacheRead} read from the cache) and ${usage.output} output tokens this session` : undefined}>
+        <span className="wb-agent-hint" data-keys={used ? undefined : ""} title={used ? `${usage.input} input tokens (${usage.cacheRead} read from the cache) and ${usage.output} output tokens this session` : undefined}>
           {used ? `${fmtTokens(usage.input)} in · ${fmtTokens(usage.cacheRead)} cached · ${fmtTokens(usage.output)} out` : "Enter to send · Shift+Enter for a new line"}
         </span>
         {agent.transcript.length > 0 && !agent.thinking && (
@@ -1306,6 +1315,7 @@ function IconButton({ children, title, onClick, active, disabled }: { children: 
     <button
       title={title}
       aria-label={title}
+      className="wb-agent-icon"
       onClick={onClick}
       disabled={disabled}
       style={{ border: `1px solid ${active ? color.primaryTintBorder : "transparent"}`, background: active ? color.primaryTintBg : "transparent", color: disabled ? color.faintest : color.secondary, borderRadius: 6, width: 28, height: 28, cursor: disabled ? "default" : "pointer", fontSize: 14, lineHeight: 1 }}
