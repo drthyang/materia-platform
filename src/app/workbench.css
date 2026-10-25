@@ -1465,6 +1465,13 @@ html {
   }
 }
 
+/* The Copilot's settings scroll inside a short drawer; their rows never shrink
+ * to make room (a segmented toggle, overflow hidden, has no content minimum and
+ * collapsed to its border on a phone). */
+.wb-agent-settings > * {
+  flex-shrink: 0;
+}
+
 /* The input: one rounded field with Send inside it, a hint line under it. */
 .wb-agent-input {
   display: flex;

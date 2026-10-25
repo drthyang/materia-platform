@@ -434,7 +434,7 @@ function Settings({ agent }: { agent: AgentController }): JSX.Element {
   const provider = providerOf(settings.mode);
   const cloud = settings.mode === "api-key" || settings.mode === "proxy";
   return (
-    <div style={settingsBox}>
+    <div className="wb-agent-settings" style={settingsBox}>
       <div style={segmented} role="radiogroup" aria-label="Model provider">
         {PROVIDERS.map((p) => (
           <button
@@ -1384,6 +1384,8 @@ const head: CSSProperties = { display: "flex", flexDirection: "column", gap: 8, 
 const headRow: CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, minWidth: 0 };
 // It scrolls on its own when the drawer is too short for it (a phone: the sheet,
 // or the drawer beside the page held sideways), rather than running out of the drawer.
+// Its rows keep their height (.wb-agent-settings in workbench.css): squeezed, the
+// segmented toggles (overflow hidden, so no content minimum) shrank to their borders.
 const settingsBox: CSSProperties = { display: "flex", flexDirection: "column", gap: 10, padding: "12px 14px", borderBottom: `1px solid ${color.border}`, background: color.muted2, flex: "0 1 auto", minHeight: 0, overflowY: "auto" };
 const transcriptBox: CSSProperties = { flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 };
 const composer: CSSProperties = { display: "flex", flexDirection: "column", gap: 5, padding: "10px 12px 10px", borderTop: `1px solid ${color.border}`, background: color.raised };
