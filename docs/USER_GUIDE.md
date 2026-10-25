@@ -497,29 +497,49 @@ Never judge a fit by its R value alone. The definitions are in
 
 | Page | Readout | How to read it |
 | --- | --- | --- |
-| Powder | wR and GoF | GoF = wR / R_exp, after a refinement. Near 1 matches the uncertainties; below 1 is also a warning. |
+| Powder | wR and GoF | GoF = wR / R_exp: the last refinement's while it describes the values on screen, else that of the curves on screen. Near 1 matches the uncertainties; below 1 is also a warning. |
 | Single crystal | R1, wR2, GooF | SHELX-style agreement factors on F² |
 | PDF | Rw | A relative measure: a PDF Rw runs higher than a Bragg wR for an equally good fit |
 
-- **Validation**, a view of the powder plot card and of the single-crystal
-  quality card, opens with a **Verdict**: what needs a look or a fix comes
-  first, one line each; passing checks follow as green chips (hover for the
-  detail). The checks are the goodness of fit (below 1 is a
-  warning too), convergence (max shift/esd below 0.1), physical values, the
+- **Validation** is a view of the powder plot card and of the single-crystal
+  quality card. On single crystal it opens with a **Verdict**: what needs a
+  look or a fix comes first, one line each; passing checks follow as green
+  chips (hover for the detail). The checks are the goodness of fit (below 1 is
+  a warning too), convergence (max shift/esd below 0.1), physical values, the
   correlations and undetermined directions of the last refinement, and the
-  technique's own tests below.
-- On **powder**: the agreement set (Rp, Rwp, Rexp, GoF, and Rwp′/Rexp′ with
-  the background subtracted, which judge the peaks rather than the
-  background); the **Durbin–Watson** d against its critical value Q_D (d
-  below Q_D means neighbouring points miss together: a profile misfit, and
-  esds that are too small); R_Bragg and R_F per phase; the normalized residual
-  (y_obs − y_calc)/σ along the pattern with the **cumulative χ²** below it;
-  χ² per point in d-shells; and the **Worst peaks**, the reflections carrying
-  the most χ² with whether the residual under each is a shape or an intensity
-  error (four shown; **all** lists eight). A residual peak where no reflection
-  of any phase lies is listed as **unindexed**. Click the strip or a
-  **view →** to open that spot in the Refinement view. The **?** beside each
-  panel title explains how to read it.
+  tests below.
+- On **powder** it reads the fit against your acceptance bar, top down:
+  - One line on where the fit stands, and the state of the fit it judges:
+    converged; a demo's converged snapshot, which has no esds until you
+    refine; values edited since the last refinement; or not refined yet,
+    with what to do. **Refine** appears when refining is the next step.
+  - **Your acceptance bar**, three checks, each green, amber or red. The
+    **goodness of fit** in the assessment's bands (excellent up to 1.5, good
+    up to 2.5; below 0.8 the esds are optimistic). **Physical sanity**:
+    negative B values, occupancies outside [0, 1], values on a bound,
+    distances and U values; a negative B or a structural value on its bound
+    is a blocker, a held occupancy within 1 % outside its range a note (an
+    input to correct). The **cross-check** in GSAS-II and FullProf (the
+    bundles), with why the esds may not hold: serially correlated residuals,
+    a value on its bound, or a correlated pair, which the **Posterior**
+    judges.
+  - **What limits the fit**: the causes the Agent's `diagnose_fit` reads,
+    largest share of χ² first (three shown; **show all**), each with its
+    evidence and what to do in your method's order. **Open …** opens that
+    parameter group in the panel; nothing is freed for you. **Show on
+    pattern** opens the Refinement view there. A line below says how much
+    of χ² the worst reflections carry, and where half of it sits in d.
+  - **Evidence**, collapsed: the normalized residual (y_obs − y_calc)/σ with
+    the **cumulative χ²** below it (click it to open that spot in the
+    Refinement view); χ² per point in d-shells; the **Worst peaks**, the
+    reflections carrying the most χ², with whether the residual under each
+    is a shape or an intensity error (four shown, **all** lists eight,
+    **view →** opens one); and every agreement number: Rp, Rwp, Rexp, GoF,
+    Rwp′/Rexp′ with the background subtracted (they judge the peaks rather
+    than the background), the **Durbin–Watson** d against Q_D (below it,
+    neighbouring points miss together: a profile misfit, and esds that are
+    too small), and R_Bragg and R_F per phase. The **?** beside each title
+    explains how to read it.
 - On **single crystal**: R1 (I > 2σ and all), wR2, GooF, reflections per
   parameter and completeness beside R_int and R_σ; **Fo² vs Fc²** (log axes by
   default; switch to linear or |F|), coloured by |Δ|/σ; K = ⟨Fo²⟩/⟨Fc²⟩ and

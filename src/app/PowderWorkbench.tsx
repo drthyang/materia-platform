@@ -174,6 +174,9 @@ export interface PowderWorkbenchProps {
 /** Ensemble steps per posterior run or continue (each one proposal per walker). */
 const SAMPLE_STEPS = 400;
 
+/** No occupancy restraints: one array, so the Validation view's readings of the page are not recomputed every render. */
+const NO_RESTRAINTS: readonly LinearRestraint[] = [];
+
 export function PowderWorkbench({
   page, setPage, ownStructure,
   client, active, step, onStep, setMessage, exportsRef,
@@ -1465,7 +1468,7 @@ export function PowderWorkbench({
                       fitRange={fitRangeActive ? { min: fitRange!.min, max: fitRange!.max } : null}
                       refinedPhases={refinedPhases}
                       axis={axisCtx}
-                      restraints={restraintReq.restraints ?? []}
+                      restraints={restraintReq.restraints ?? NO_RESTRAINTS}
                       zeroAdp={zeroAdp}
                       backgroundTerms={session.backgroundTerms}
                       backgroundType={session.powderProfile.backgroundType ?? "chebyshev"}
