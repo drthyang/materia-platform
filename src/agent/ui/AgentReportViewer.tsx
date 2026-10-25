@@ -59,7 +59,7 @@ export function AgentReportViewer({ report, onClose, onCif }: Props): JSX.Elemen
           </div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center" }}>
             <button style={primaryButton} onClick={() => downloadText(`${report.fileBase}.html`, report.html, "text/html")} title="The report as one self-contained HTML file">Save HTML</button>
-            <button style={secondaryButton} onClick={() => downloadText(`${report.fileBase}.md`, report.markdown, "text/markdown")} title="The report as Markdown, the figure embedded">Markdown</button>
+            <button style={secondaryButton} onClick={() => downloadText(`${report.fileBase}.md`, report.markdownFile, "text/markdown")} title="The report as Markdown, the figure embedded">Markdown</button>
             <button style={secondaryButton} onClick={print} title="Print the report, or save it as PDF from the print dialog">Print / PDF</button>
             {onCif && <button style={secondaryButton} onClick={onCif} title="The refined structure as CIF, with esds">CIF</button>}
             <button ref={close} style={closeButton} onClick={onClose} aria-label="Close the report" title="Close (Esc)">✕</button>

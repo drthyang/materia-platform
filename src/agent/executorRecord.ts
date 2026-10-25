@@ -227,6 +227,7 @@ export async function writeReport<P extends AgentPort>(ctx: ReportContext, page:
     technique: port.technique,
     html: built.html,
     markdown: built.markdown,
+    markdownFile: built.markdownFile,
     fileBase: reportFileBase(built.input.title),
     at: Date.now(),
     unverified: built.unverified,

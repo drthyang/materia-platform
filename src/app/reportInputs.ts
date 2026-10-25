@@ -39,7 +39,12 @@ import { magneticOperationSignature } from "@/core/magnetic/operationSignature";
 import { latticeCandidateLabel, latticeRepresentatives, magneticSubgroupLattice } from "@/core/magnetic/subgroupLattice";
 import { crystalComponentsToCartesian } from "@/core/magnetic/moment";
 import { kLabel } from "@/core/magnetic/kSearch";
-import type { ReportBond, ReportBoxcar, ReportGroup, ReportInput, ReportMagnetic, ReportPhase, ReportRow, ReportStat } from "@/core/export/report";
+import type { ReportBond, ReportBoxcar, ReportGroup, ReportIndex, ReportInput, ReportMagnetic, ReportPhase, ReportRow, ReportStat } from "@/core/export/report";
+import { pdfCaveats, pdfResultParagraph, powderCaveats, powderResultParagraph, singleCrystalCaveats, singleCrystalResultParagraph, type ReportAssessment } from "@/core/export/reportResult";
+import { formulaText, spaceGroupText } from "@/core/export/reportTypeset";
+import { parametersChangedSince, type ValidationVerdict } from "@/core/diagnostics/validationChecks";
+import type { RefinementAssessment } from "@/core/diagnostics/assessment";
+import type { PowderJudgment } from "@/app/reportJudgment";
 import type { FigureCurves, FigureTickRow, FobsFcalcPoint } from "@/core/export/reportFigures";
 import type { Session } from "@/app/powderSession";
 import { APP_VERSION } from "@/app/constants";
@@ -275,6 +280,27 @@ function probeInSentence(r: Radiation): string {
   return label.startsWith("X-ray") ? label : label.charAt(0).toLowerCase() + label.slice(1);
 }
 
+/** The data in the Result paragraph's words: "neutron time-of-flight data", "X-ray data (λ = 1.54059 Å)". */
+function dataPhrase(r: Radiation): string {
+  if (r.kind === "neutron-tof") return "neutron time-of-flight data";
+  if (r.kind === "neutron") return `constant-wavelength neutron data (λ = ${num(r.wavelength, 5)} Å)`;
+  return `X-ray data (λ = ${num(r.wavelength, 5)} Å)`;
+}
+
+/** What was refined, as the Result paragraph names it: "Mn₃Ga (P6₃/mmc), with MnO (Fm-3m) as a second phase," (a second phase set off by commas). */
+export function subjectOf(phases: readonly StructureModel[]): string {
+  const one = (st: StructureModel): string => `${formulaText(st.name || st.id)}${st.spaceGroup.hermannMauguin ? ` (${spaceGroupText(st.spaceGroup.hermannMauguin)})` : ""}`;
+  const [first, ...rest] = phases;
+  if (!first) return "the model";
+  if (rest.length === 0) return one(first);
+  return `${one(first)}, with ${rest.length === 1 ? `${one(rest[0]!)} as a second phase` : `${rest.length} further phases (${rest.map(one).join("; ")})`},`;
+}
+
+const countIndex = (n: number, one: string, many = `${one}s`): ReportIndex => ({ symbol: n === 1 ? one : many, value: String(n), count: true });
+
+/** A magnetic group's time reversal as the prime it is, in a sentence that names the group: "P2/c'" → "P2/c′". */
+const primes = (s: string, symbol: string | undefined): string => (symbol && symbol.includes("'") ? s.split(symbol).join(symbol.replace(/'/g, "′")) : s);
+
 function instrumentLabel(inst: InstrumentParameters, loaded: boolean): string {
   const name = [inst.name, inst.facility].filter(Boolean).join(" · ");
   const bits: string[] = [];
@@ -325,17 +351,24 @@ export function powderReportInput(o: {
   readonly pointsInWindow: number;
   readonly tofViewOnly: boolean;
   readonly explored: MagneticExploration | null;
+  /** The Validation tab's verdict and causes of misfit (reportJudgment.ts), for the Result paragraph and the caveats. */
+  readonly judgment?: PowderJudgment | null;
 }): ReportInput {
   const { session, result } = o;
   const params = withEsds(o.params, result);
   const limitations = zeroAdpLimitations(session, o.params, o.bindings, result, o.refinedPhases);
   const structure = o.refinedPhases[0] ?? session.structure;
   const multi = session.extraPhases.length > 0;
+  // The phases' weight fractions, and what the refined Lorentzian adds to the
+  // instrument's: rows of their own, so an account that cites them cites the
+  // report (round 10, NAC with fluorite on 11-BM).
+  const fractions = multi && result ? fractionsOf(o.refinedPhases, params, result) : null;
   const phases: ReportPhase[] = o.refinedPhases.map((st, i) => ({
     structure: st,
     params,
     bindings: multi ? o.bindings.filter((b) => b.targetId === st.id) : o.bindings,
     ...(multi ? { role: i === 0 ? "primary phase" : "additional phase" } : {}),
+    ...(fractions?.[i] ? { fraction: formatWt(fractions[i]!) } : {}),
   }));
   const free = params.filter((p) => !p.fixed && !p.expression).length;
   const pattern = session.pattern;
@@ -362,10 +395,6 @@ export function powderReportInput(o: {
     ...(multi ? [{ label: "Phases", value: String(o.refinedPhases.length) }] : []),
   ];
 
-  // The phases' weight fractions, and what the refined Lorentzian adds to the
-  // instrument's: rows of their own, so an account that cites them cites the
-  // report (round 10, NAC with fluorite on 11-BM).
-  const fractions = multi && result ? fractionsOf(o.refinedPhases, params, result) : null;
   const micro = pattern.xUnit === "twoTheta" && result && "wavelength" in pattern.radiation ? microstructureRows(params, result, pattern.radiation.wavelength) : [];
 
   const data: ReportRow[] = [
@@ -386,6 +415,30 @@ export function powderReportInput(o: {
   ];
 
   const inst = [o.instrument.name, o.instrument.facility].filter(Boolean).join(" · ");
+  // Without a refinement of its own (a converged snapshot), the curves' agreement as the Validation tab reads it.
+  const fromCurves = o.gof === null && !!o.judgment;
+  const gof = o.gof ?? o.judgment?.agreement.gof ?? null;
+  const rExp = o.rExp ?? (fromCurves ? o.judgment!.agreement.rexp : null);
+  const curvesHint = fromCurves ? " (of the curves shown: no refinement in this session)" : "";
+  const indices: ReportIndex[] = [
+    { symbol: "R_wp", value: pct(o.wR), hint: "Weighted profile R over the fit window, w = 1/σ²" },
+    ...(rExp !== null ? [{ symbol: "R_exp", value: pct(rExp), hint: `Expected R: the statistical floor √((N − P) / Σ w y²)${curvesHint}` }] : []),
+    ...(gof !== null ? [{ symbol: "χ^2", value: num(gof * gof, 2), hint: `Reduced χ² = GoF²${curvesHint}` }, { symbol: "GoF", value: num(gof, 2), hint: `GoF = R_wp / R_exp (GSAS-II's GoF)${curvesHint}` }] : []),
+    countIndex(o.pointsInWindow, "point"),
+    countIndex(free, "free parameter"),
+  ];
+  const assessment: ReportAssessment | null = o.judgment
+    ? (() => {
+        const facts = {
+          subject: subjectOf(o.refinedPhases),
+          against: `${dataPhrase(pattern.radiation)}${inst && o.instrumentLoaded ? ` from ${inst}` : ""}`,
+          free, points: o.pointsInWindow, rwp: o.wR, rexp: rExp, gof, result, parameters: params,
+          acceptance: o.judgment.acceptance, headlineCause: o.judgment.headlineCause, causes: o.judgment.causes, restraints: o.judgment.restraints,
+          magnetic: magnetic.section ? primes(magnetic.summary, magnetic.section.group.symbol) : undefined,
+        };
+        return { result: powderResultParagraph(facts), caveats: powderCaveats(facts) };
+      })()
+    : null;
   const summary =
     `Rietveld refinement of ${structure.name || structure.id}${structure.spaceGroup.hermannMauguin ? ` (${structure.spaceGroup.hermannMauguin})` : ""}` +
     `${multi ? ` with ${session.extraPhases.length} additional phase${session.extraPhases.length === 1 ? "" : "s"}` : ""}` +
@@ -404,6 +457,8 @@ export function powderReportInput(o: {
 
   return {
     technique: "powder",
+    indices,
+    assessment,
     title: structure.name || structure.id,
     subtitle: `${probeLabel(pattern.radiation)}${inst && o.instrumentLoaded ? ` · ${inst}` : ""} · ${session.rawData?.name ?? pattern.name}`,
     summary,
@@ -635,6 +690,8 @@ export function singleCrystalReportInput(o: {
   readonly structureFile?: readonly string[];
   /** That file's name. */
   readonly structureFileName?: string;
+  /** The Validation view's checks (validationChecks.ts singleCrystalChecks), for the Result paragraph and the caveats. */
+  readonly verdict?: ValidationVerdict | null;
 }): ReportInput {
   const params = withEsds(o.params, o.result);
   const free = params.filter((p) => !p.fixed && !p.expression).length;
@@ -698,6 +755,31 @@ export function singleCrystalReportInput(o: {
     `Single-crystal F² refinement of ${o.structure.name || o.structure.id}${o.structure.spaceGroup.hermannMauguin ? ` (${o.structure.spaceGroup.hermannMauguin})` : ""} against ${probeInSentence(o.dataset.radiation)} data: ` +
     `R1 = ${pct(ag.r1)}, wR2 = ${pct(ag.wr2)}, GooF = ${num(ag.goof, 2)} with ${free} free parameter${free === 1 ? "" : "s"} over ${o.dataset.reflections.length} reflections (${o.dataset.merged ? mergedOnlyAbsences(o.dataset.merged, o.dataset.reflections.length) ? `${o.totalReflections} in the file, each once${o.dataset.merged.absences ? `, the ${o.dataset.merged.absences} systematic absences left out` : ""}` : `${o.totalReflections} measurements merged as SHELXL's MERG 2` : apart ? `${apart.unique} unique, the Friedel mates apart` : `${st.unique} unique`}). ` +
     magnetic.summary;
+  const unique = apart ? apart.unique : st.unique;
+  const rIntShown = (apart ?? st).redundancy > 1 + 1e-9;
+  const indices: ReportIndex[] = [
+    { symbol: "R_1", value: pct(ag.r1), hint: `Σ||F_o| − |F_c|| / Σ|F_o| over the ${ag.observed} reflections with F_o² > 2σ` },
+    { symbol: "wR_2", value: pct(ag.wr2), hint: `√(Σ w (F_o² − F_c²)² / Σ w (F_o²)²), ${weightText}, all reflections` },
+    { symbol: "GooF", value: num(ag.goof, 2), hint: "√(Σ w (F_o² − F_c²)² / (N − P))" },
+    ...(rIntShown ? [{ symbol: "R_int", value: pct((apart ?? st).rInt), ...(apart ? { hint: "the Friedel mates apart, as SHELXL reports it" } : {}) }] : []),
+    countIndex(o.dataset.reflections.length, "reflection"),
+    { symbol: "unique", value: String(unique), count: true },
+    countIndex(free, "free parameter"),
+  ];
+  const assessment: ReportAssessment | null = o.verdict
+    ? (() => {
+        const facts = {
+          subject: subjectOf([o.structure]),
+          against: `${o.dataset.reflections.length} reflections (${unique} unique) of ${dataPhrase(o.dataset.radiation)}`,
+          free,
+          agreement: `{{R_1}} = ${pct(ag.r1)} (${ag.observed} reflections with {{F_o^2}} > 2σ), {{wR_2}} = ${pct(ag.wr2)} and GooF = ${num(ag.goof, 2)} over all ${ag.total}`,
+          result: o.result, parameters: params, verdict: o.verdict,
+          magnetic: magnetic.section ? primes(magnetic.summary, magnetic.section.group.symbol) : undefined,
+        };
+        const changed = !!o.result && parametersChangedSince(o.result, o.params);
+        return { result: singleCrystalResultParagraph(facts, changed), caveats: singleCrystalCaveats(facts, changed) };
+      })()
+    : null;
   const notes = [
     `R1 = Σ||F_o| − |F_c|| / Σ|F_o| over reflections with F_o² > 2σ(F_o²); wR2 = √(Σ w (F_o² − F_c²)² / Σ w (F_o²)²) and GooF = √(Σ w (F_o² − F_c²)² / (N − P)) over all reflections, ${weightText} (SHELX conventions).`,
     "R_int = Σ|F_o² − ⟨F_o²⟩| / Σ F_o² over Laue-equivalent groups with two or more members (in a non-centrosymmetric group, the Friedel mates apart and the systematic absences left out, as SHELXL merges it); R_σ = Σ σ(F_o²) / Σ F_o².",
@@ -707,6 +789,8 @@ export function singleCrystalReportInput(o: {
   ];
   return {
     technique: "singleCrystal",
+    indices,
+    assessment,
     title: o.structure.name || o.structure.id,
     subtitle: `${probeLabel(o.dataset.radiation)} · ${o.dataset.name}`,
     summary,
@@ -751,6 +835,10 @@ export function pdfReportInput(o: {
   readonly warnings?: readonly string[];
   /** The last boxcar scan of this model, as a table (pdfBoxcar.boxcarTable). */
   readonly boxcar?: ReportBoxcar | null;
+  /** assess_refinement's reading of the fit on screen (mode "pdf"), for the Result paragraph and the caveats. */
+  readonly findings?: RefinementAssessment | null;
+  /** The fit on screen is the last refinement's (its values unedited): its esds and findings apply. */
+  readonly current?: boolean;
 }): ReportInput {
   const params = withEsds(o.params, o.result);
   const free = params.filter((p) => !p.fixed && !p.expression).length;
@@ -804,6 +892,22 @@ export function pdfReportInput(o: {
     (o.spinModel || o.explored
       ? magnetic.summary.replace("Magnetic structure:", "Magnetic PDF (mPDF) spin model:")
       : "No magnetic (mPDF) component is included.");
+  const indices: ReportIndex[] = [
+    { symbol: "R_w", value: pct(o.rw), hint: "√(Σ (G_obs − G_calc)² / Σ G_obs²) over the fit window, uniform weights" },
+    { symbol: "r", value: `${num(o.fitRange.min, 2)}–${num(o.fitRange.max, 2)} Å`, hint: "The fit window" },
+    countIndex(inWindow, "point"),
+    countIndex(free, "free parameter"),
+  ];
+  const facts = {
+    subject: subjectOf(o.phases),
+    against: `${pattern.scatteringType === "neutron" ? "neutron" : "X-ray"} G(r) over r = ${num(o.fitRange.min, 2)}–${num(o.fitRange.max, 2)} Å (${inWindow} points)`,
+    free, rw: o.rw, result: o.result, parameters: params,
+    assessment: o.current === false ? null : o.findings ?? null,
+    magnetic: o.spinModel || o.explored ? primes(magnetic.summary.replace("Magnetic structure:", "Magnetic PDF (mPDF) spin model:"), magnetic.section?.group.symbol) : undefined,
+  };
+  const assessment: ReportAssessment | null = o.findings !== undefined
+    ? { result: pdfResultParagraph(facts, o.current === false), caveats: pdfCaveats(facts) }
+    : null;
   const notes = [
     "Rw = √(Σ (G_obs − G_calc)² / Σ G_obs²) over the fit window with uniform weights. G(r) point errors are strongly correlated (finite-Q sine transform), so Rw is a relative quality indicator, not a statistical one (Toby & Billinge 2004); esds from this fit are correspondingly optimistic.",
     "G(r) = 4πr[ρ(r) − ρ₀]; the calculated PDF applies the Q_max termination and the Q_damp / Q_broad instrument envelope as loaded.",
@@ -811,6 +915,8 @@ export function pdfReportInput(o: {
   ];
   return {
     technique: "pdf",
+    indices,
+    assessment,
     title: primary.name || primary.id,
     subtitle: `${pattern.scatteringType === "neutron" ? "Neutron" : "X-ray"} G(r) · ${pattern.name}`,
     summary,

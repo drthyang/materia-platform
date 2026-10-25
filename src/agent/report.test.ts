@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import { moveTo, recordStep, type ProjectHistory } from "@/core/project/history";
 import type { Workspace } from "@/core/project/types";
 import type { ParameterKind, RefinementParameter, RefinementResult } from "@/core/refinement/types";
-import { DETAIL_CHECKS, summaryParameters, type ReportInput } from "@/core/export/report";
+import type { ReportInput } from "@/core/export/report";
+import { DETAIL_CHECKS, summaryParameters } from "@/core/export/reportMarkdownFrozen";
 import { buildAgentReport, comparedRefinements, freeSummary, historySteps, recordChecks, reportFileBase } from "@/agent/report";
 import { corundumPage } from "@/testSupport/scPages";
 import { buildSingleCrystalSpec } from "@/core/workflow/singleCrystalRefinement";
@@ -246,7 +247,7 @@ O2 O2- 0.3075 0.3075 0.3400 1 0.6
     const r = reports[0]!;
     expect(r.technique).toBe("powder");
     expect(r.fileBase).toBe(`${r.title}_agent_report`);
-    expect(r.html).toContain("Rietveld refinement report · analysed with MATERIA Copilot");
+    expect(r.html).toContain("Rietveld refinement · analysed with MATERIA Copilot");
     expect(r.html).toContain("model Test model · headless");
     expect(r.html).toContain("Bond valence");
     expect(r.html).toContain(`wR ${wR.toFixed(2)} %.</p>`);
@@ -296,9 +297,9 @@ O2 O2- 0.3075 0.3075 0.3400 1 0.6
     await ex.run("refine", {});
     const out = parse((await ex.run("write_report", { summary: "Refined the scale of the GaTa4Se8 G(r) over the default window." })).text) as { checks: string[] };
     expect(out.checks.some((c) => /^note: Agreement — Rw = \d+\.\d\d %/.test(c))).toBe(true);
-    expect(reports[0]!.html).toContain("PDF refinement report · analysed with MATERIA Copilot");
-    expect(reports[0]!.html).toContain('<th class="num">Rw</th>');
-    expect(reports[0]!.html).not.toContain('<th class="num">GoF</th>');
+    expect(reports[0]!.html).toContain("PDF refinement · analysed with MATERIA Copilot");
+    expect(reports[0]!.html).toContain('<th class="n">Rw (%)</th>');
+    expect(reports[0]!.html).not.toContain(">GoF</th>");
 
     const { reportInput: _drop, ...bare } = port;
     const { ex: ex2 } = executor(fakeHost(bare).host, "auto");

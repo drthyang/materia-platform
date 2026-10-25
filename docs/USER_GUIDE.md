@@ -629,15 +629,35 @@ them in FullProf before comparing.
 
 ### The report
 
-**Report** writes one HTML page. It opens on the summary: the data and model,
-the fit figure, the atomic and magnetic structures with esds, the other refined
-values, and the fit quality with the correlations and warnings. An appendix
-follows, collapsed until you open it: every parameter, fixed or refined, the
-conventions and the software. Printing opens it. A report the Copilot writes
-adds its account, the open issues and the checks that bear on trust to the
-summary. Its appendix also holds the History's steps, the method's checklist,
-every check with its numbers, and the notes. The Markdown file has the same
-parts, the appendix last.
+**Report** writes one HTML page that reads like a paper's results section:
+
+- **Result**: a short paragraph. It says what was refined against which data,
+  the outcome with its key numbers (Rwp and GoF; R1, wR2 and GooF; Rw), the
+  verdict against the acceptance bar and the main limitation. It is composed
+  from the app's own checks (on a powder, the Validation tab's verdict and its
+  causes of misfit), never by a model. A report the Copilot writes puts its
+  account here instead, labelled as its words.
+- **Structure**: per phase, the space group, the phase fraction, and the cell
+  as its independent parameters (a = b = 5.41964(5) Å, c = …, V = …; no angle
+  the symmetry fixes). The atom table gives Wyckoff positions, esds where a
+  value was refined, and fractions where the site symmetry fixes a
+  coordinate. The distances follow as small tables.
+- **Magnetic structure**, when there is one (see below).
+- **Fit**: the figure, the agreement indices in one line, and the other
+  refined values.
+- **Quality and caveats**: one line each for the acceptance checks, the
+  causes of misfit, the correlations worth reading (not a background's
+  coefficients among themselves), and the limitations. A report the Copilot
+  writes adds its open issues and its Bayesian check.
+- **Appendix**, collapsed until you open it: the data and model, the
+  refinement's statistics, every parameter (fixed or refined), the
+  conventions and the software. A Copilot report adds the analysis step by
+  step: the History's steps, the method's checklist, every check with its
+  numbers, and the notes. Printing opens every part.
+
+The page prints to A4 and Letter and follows the system's dark mode on
+screen. The Markdown file the Copilot's viewer saves has the same parts in the
+same order.
 
 The magnetic section gives k and the magnetic space group, named as on the
 magnetic page. It adds a projected figure, the moments with esds and a
