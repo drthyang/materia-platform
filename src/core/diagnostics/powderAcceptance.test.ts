@@ -173,7 +173,7 @@ describe("the headline", () => {
     expect(powderAcceptance({ gof: 12, result: null, parameters: params, structures: [] }).headline).toBe("Not refined yet.");
     expect(powderAcceptance({ gof: 1.2, result: result({ scale: 1, B1: 0.5 }, { status: "diverged" }), parameters: params, structures: [] }).headline).toBe("The refinement diverged: its values are not meaningful.");
     expect(powderAcceptance({ gof: 6, result: fit, parameters: params, structures: [], topCause: { phrase: "the peak positions", share: 0.3 } }).headline)
-      .toBe("Poor fit (GoF 6.00): far from the data — the largest part of the misfit is the peak positions.");
+      .toBe("Poor fit (GoF 6.00): far from the data — the largest part of the misfit is in the peak positions.");
     expect(powderAcceptance({ gof: 15.85, result: null, parameters: [param("scale", "scale", 1.2, { initial: 1 })], structures: [], topCause: { phrase: "the peak positions", share: 0.21, first: true } }).headline)
       .toBe("Poor fit (GoF 15.85): far from the data — start with the peak positions, your method's first block.");
     expect(powderAcceptance({ gof: 0.6, result: fit, parameters: params, structures: [] }).headline).toBe("GoF 0.60 is below 0.8: the fit is too good, and the esds optimistic.");

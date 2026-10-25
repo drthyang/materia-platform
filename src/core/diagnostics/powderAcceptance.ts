@@ -347,7 +347,7 @@ export function powderAcceptance(input: AcceptanceInput): Acceptance {
   const top = input.topCause;
   const cause = !top ? ""
     : top.first ? ` — start with ${top.phrase}, your method's first block`
-      : ` — ${top.share >= 0.5 ? "most of the misfit is in" : "the largest part of the misfit is"} ${top.phrase}`;
+      : ` — ${top.share >= 0.5 ? "most of the misfit is in" : "the largest part of the misfit is in"} ${top.phrase}`;
   const blockers = items.filter((i) => i.severity === "blocker").length;
   const issues = items.filter((i) => i.severity === "issue").length;
   const verdict = ((): { tone: Tone; headline: string } => {
