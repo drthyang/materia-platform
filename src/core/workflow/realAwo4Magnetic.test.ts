@@ -21,10 +21,10 @@ import { dataExists, readData } from "@/testSupport/data";
  * tops the ranking. Skips when the git-ignored data/ folder is absent.
  */
 
-const CIF = "AWO4/AWO4_HE_100K_refined.cif";
-const INST = "AWO4/GSAS-II_2025B_HR/2025B_HighRes_60HzB3_CWL2p665.instprm";
-const LOW_6K = "AWO4/autoreduced/PG3_61115.gsa"; // 6.06 K, bank 3 — magnetically ordered
-const PARA_100K = "AWO4/autoreduced/PG3_61133.gsa"; // 100 K, bank 3 — paramagnetic reference
+const CIF = "AWO4/structure_100K.cif";
+const INST = "AWO4/instrument_bank3.instprm";
+const LOW_6K = "AWO4/PG3_powder_6K.gsa"; // 6 K, bank 3 — magnetically ordered
+const PARA_100K = "AWO4/PG3_powder_100K.gsa"; // 100 K, bank 3 — paramagnetic reference
 const has = dataExists(CIF) && dataExists(INST) && dataExists(LOW_6K) && dataExists(PARA_100K);
 
 describe.skipIf(!has)("real AWO₄ — magnetic k-search from 6 K POWGEN neutron data", () => {

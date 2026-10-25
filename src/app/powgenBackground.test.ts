@@ -96,7 +96,7 @@ describe("recognizing POWGEN", () => {
   });
 
   it("names POWGEN from a data file named PG3_…: the base name's start, in any case, nothing looser", () => {
-    for (const name of ["PG3_45598_Bank1.fxye", "PG3_61113-3.dat", "PG3_61115.gsa", "pg3_61115.gsa", "Pg3_1.dat", "/data/run/PG3_1.gsa", "C:\\runs\\PG3_1.gsa", "runs/PG3_45598_Bank1.fxye"]) {
+    for (const name of ["PG3_45598_Bank1.fxye", "PG3_12345-3.dat", "PG3_12345.gsa", "pg3_12345.gsa", "Pg3_1.dat", "/data/run/PG3_1.gsa", "C:\\runs\\PG3_1.gsa", "runs/PG3_45598_Bank1.fxye"]) {
       expect(instrumentHintFromFileName(name)?.name, name).toBe("POWGEN");
     }
     for (const name of ["NOM_12345.dat", "nom_12345.dat", "/sns/NOM_1.gsa"]) expect(instrumentHintFromFileName(name)?.name, name).toBe("NOMAD");
