@@ -93,7 +93,9 @@ saying once in a final report.
      result.
 4. **Act on it.** If a parameter turns out undetermined, constrain it (on the powder page,
    `tie_parameters` for alike atoms; on the PDF page, fix one of them), fix it at a physically
-   sensible value and say so, or drop the claim it carried. If everything is determined, the esds stand and the check is one sentence.
+   sensible value and say so — on the powder page, for a B on its bound, the B-at-0 options
+   (`apply_adp_proposal`) give that value with its source: a tie to a similar site (the
+   common B still refines), or the starting structure's B — or drop the claim it carried. If everything is determined, the esds stand and the check is one sentence.
 
 ## How to report
 
