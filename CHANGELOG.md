@@ -544,6 +544,21 @@ release fixes bugs.
 
 ### Changed
 
+- **One short zoom hint on every plot and 3D view.** The pattern, G(r), the
+  magnetic page's pattern and S(Q) each carry one line under the plot in the
+  gestures of the device: "⌘ + scroll to zoom · drag to pan · double-click to
+  reset" on a Mac, the same with Ctrl elsewhere, and "Pinch to zoom · drag to
+  pan" on a touch screen. Every 3D model (powder, PDF, magnetic, single
+  crystal) says "Scroll to zoom · drag to rotate" (on a touch screen, "Pinch
+  to zoom") beside its View a / b / c chip. The rest (Shift + drag box zoom,
+  the keys, a trackpad's pinch and swipe, the fit-range handles, the
+  reflection ticks; panning the 3D model) is in the line's tooltip: hover it,
+  focus it, or tap it. The hint replaces the long captions under the powder
+  and PDF plots and the 3D views; the PDF Qdamp/Qbroad note keeps its own
+  line. On a touch screen it shares the row of the zoom buttons, so the
+  phone layout gains no row. The magnetic page's pattern card grows by the
+  hint's line on a desktop instead of letting it run past the card.
+
 - **Phones and tablets: layouts fitted to iPhone and iPad Pro screens.**
   Tuned on the iPhone 18 Pro and Pro Max and the iPad Pro 11" and 13", upright
   and sideways; a desktop window looks as it did. On a phone held sideways the
