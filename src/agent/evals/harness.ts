@@ -102,6 +102,8 @@ export interface EvalScenario {
   readonly page: () => AgentPort;
   /** False when the page's data are not on this machine (a scenario on git-ignored data): it is skipped, not failed. */
   readonly available?: () => boolean;
+  /** The run fits real magnetic groups (a ranking with restarts): its scripted tests get four minutes, not one. */
+  readonly slow?: boolean;
   /** What the user says, one message per turn. */
   readonly messages: readonly string[];
   readonly autonomy: AgentAutonomy;

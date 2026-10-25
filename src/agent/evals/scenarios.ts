@@ -171,6 +171,7 @@ export const SCENARIOS: readonly EvalScenario[] = [
     title: "Finds a k = 0 magnetic order from the nuclear fit's misfits, the moments measured against a fixed nuclear model",
     origin: "The user, on the Mn₃Ga 30 K example (simulated from P2₁'/m'): at k = 0 the magnetic intensity sits on nuclear lines, so a nuclear model refined on the whole pattern takes it into its scale, and moments fitted against it come out too small. The user's method: the nuclear model refined at d ≤ 1.5 Å, then only the moments refined over the whole pattern.",
     page: mn3ga30kPage,
+    slow: true,
     messages: ["Fit this 30 K neutron pattern. If the nuclear model leaves intensity unexplained, find the magnetic order."],
     autonomy: "auto",
     checks: [readsMethodFirst, ran("find_unexplained_peaks"), nuclearAtHighAngle(1.5, MN3GA_30K_TRUTH.wavelength), ran("rank_magnetic_groups"), magneticKIs([MN3GA_30K_TRUTH.k[0], MN3GA_30K_TRUTH.k[1], MN3GA_30K_TRUTH.k[2]]), magneticGroupIs(MN3GA_30K_TRUTH.id), magneticRefinesMomentsOnly, noStall],
