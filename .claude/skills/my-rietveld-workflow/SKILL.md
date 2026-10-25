@@ -140,9 +140,9 @@ The sequence is **atoms before profile**. Free parameters in this order — over
 (`assess_refinement`) between blocks, freeing the next only once a block is done (Gates).
 
 1. **Scale + background + cell** — first, so intensity has somewhere sane to go. **Refine
-   the cell here** (with the zero). (Watch the
-   cell↔zero↔displacement correlation — `assess_refinement` flags it; free the zero from a
-   standard or on a wide range.)
+   the cell here** (with the zero). (Free the
+   zero from a standard or a wide range; `assess_refinement` flags cell↔zero↔displacement.)
+   POWGEN: `logInterpolate` bkg.
 2. **Atomic positions** — freed *early*, against a roughly correct profile (the instrument
    file's; when it is far off, see below), so the profile cannot later absorb structural
    misfit as fake broadening. A *quick* pass: the positional gain is often

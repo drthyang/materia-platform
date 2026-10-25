@@ -14,6 +14,12 @@ reasoning behind them, for when a question needs them.
 - **Read the ends again after the first refinement.** PbSO₄: the last 0.8° sat 4.4σ above
   the model, more than anywhere just inside — which the data alone could not show.
 
+## The background on POWGEN (Stage 1)
+
+- **Logarithmic interpolation** (`logInterpolate`), its points evenly spaced in log TOF: the
+  long-d end, where a TOF background rises steeply, gets the points it needs; a polynomial
+  over the whole TOF range bends where the data do not.
+
 ## Unindexed peaks and the sample environment (Stage 0, step 3)
 
 - Cr₂WO₆ at 150 K: weak lines at 62.4° and 73.5° were Al 111 and 200, shifted because the
