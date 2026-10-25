@@ -15,12 +15,17 @@ import { applyParameters } from "@/core/workflow/apply";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { searchPropagationVector } from "@/core/magnetic/kSearch";
 import { magneticSubgroupLattice, latticeRepresentatives } from "@/core/magnetic/subgroupLattice";
-import { buildMagneticModel } from "@/core/magnetic/momentModel";
 import { buildMagneticPowderProblem } from "@/core/workflow/magneticPowder";
 import { magneticIonCandidates } from "@/core/magnetic/magneticIons";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { momentCartesian } from "@/core/magnetic/moment";
 import { formatMagneticSymbol } from "@/core/magnetic/bnsOg";
+import { buildFor, fitRows, momentDims, rankCandidates, type MagneticFit } from "@/app/magneticStep";
+import { noiseOf, RANK_RESTARTS } from "@/core/magnetic/momentRestarts";
+import { withinNoiseOfBest } from "@/core/diagnostics/hamilton";
+import { RANK_NOISE_ALPHA } from "@/core/diagnostics/thresholds";
+import { fCritical } from "@/core/math/fDistribution";
+import type { SymmetryOperation } from "@/core/crystal/types";
 import { dataExists, readData, DATA_DIR } from "@/testSupport/data";
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -39,8 +44,11 @@ import type { Vec3 } from "@/core/math/types";
  *      (scale → background → cell → TOF profile → ADP → positions);
  *   2. residual-peak detection + k-search (must find k = (½,0,0));
  *   3. every magnetic subgroup candidate of the little group of k is refined
- *      with the nuclear model held fixed and ranked by wR — the exact procedure
- *      the magnetic page's "Rank candidates" runs;
+ *      with the nuclear model held fixed — the magnetic page's own "Rank
+ *      candidates" (rankCandidates, with its restarts) — and the group chosen
+ *      top-down: the maximal group with the fewest moment parameters among
+ *      those within the noise of the best fit, by Hamilton's test at 5 %
+ *      (topDownGroup below states N, m and b);
  *   4. the chosen candidate is co-refined with the nuclear model; the converged
  *      values are written to the solution file (and echoed as JSON).
  *
@@ -55,7 +63,7 @@ const has = !!process.env.AWO4_SOLVE && dataExists(CIF) && dataExists(INST) && d
 const K: Vec3 = [0.5, 0, 0];
 
 describe.skipIf(!has)("AWO₄ magnetic demo — solve the 6 K magnetic structure with the app's own tools", () => {
-  it("nuclear refinement → k-search → candidate ranking → joint refinement", { timeout: 40 * 60 * 1000 }, () => {
+  it("nuclear refinement → k-search → candidate ranking → joint refinement", { timeout: 40 * 60 * 1000 }, async () => {
     const structure = parseCif(readData(CIF), "awo4");
     const instrument = parseInstrumentParameters(readData(INST));
     if (instrument.kind !== "tof") throw new Error("bank-3 instprm should be TOF");
@@ -109,54 +117,77 @@ describe.skipIf(!has)("AWO₄ magnetic demo — solve the 6 K magnetic structure
     const kRank = kCands.findIndex((c) => c.k[0] === K[0] && c.k[1] === K[1] && c.k[2] === K[2]);
     console.log(`[awo4] k = (½ 0 0) ranks #${kRank + 1} from the nuclear-fit residual (the 6 K − 100 K difference analysis in realAwo4Magnetic.test.ts puts it first)`);
 
-    // 3. Rank every candidate magnetic group at k against the data (nuclear fixed).
+    // 3. Rank every candidate magnetic group at k against the data, the nuclear
+    //    model held: the page's own ranking (rankCandidates — each group fitted
+    //    from its seeds and from RANK_RESTARTS kicked starts, the lowest wR
+    //    kept) of the page's moment model (buildFor: the co-located ions of the
+    //    mixed site share one moment), through the page's in-thread fit.
     const ions = magneticIonCandidates(structure).map((i) => i.siteLabel);
     console.log(`[awo4] magnetic ions: ${ions.join(", ")}`);
     const reps = latticeRepresentatives(magneticSubgroupLattice(structure.spaceGroup.operations, K));
+    const dims = momentDims(structure, reps, ions, K);
+    const buildOf = (ops: readonly SymmetryOperation[]) => buildFor(structure, K, ions, ops, { sameSite: true, magnitudes: false, flippedUnits: [] });
     const nuclearFixed = nuclear.map((p) => ({ ...p, fixed: true }));
-    const ranked: { label: string; index: number; dof: number; wR: number; values: Record<string, number>; moments: string; ops: { xyz: string; timeReversal: 1 | -1 }[] }[] = [];
+    const fit: MagneticFit = {
+      agreementLabel: "wR",
+      refine: async (magnetic, momentParams, momentBindings) => {
+        const res = refine(buildMagneticPowderProblem(structure, magnetic, pattern, [...nuclearFixed, ...momentParams], [...spec.bindings, ...momentBindings], spec.profile), { maxIterations: 20 });
+        const values: Record<string, number> = {};
+        for (const p of momentParams) values[p.id] = res.parameters[p.id] ?? p.value;
+        return { values, agreement: res.agreement.rWeighted ?? null, ...noiseOf(res) };
+      },
+    };
+    const t1 = Date.now();
+    const results = await rankCandidates({ structure, reps, dims, scope: "all", open: new Set(), build: buildOf, fit });
+    const ranked: Ranked[] = [];
     for (const rep of reps) {
-      const build = buildMagneticModel(structure, K, ions, rep.candidate.operations, { moment: 2, tieSameSite: true });
-      if (build.params.length === 0) continue;
-      const moments = build.params.map((p) => ({ ...p, fixed: false }));
-      const problem = buildMagneticPowderProblem(structure, build.magnetic, pattern, [...nuclearFixed, ...moments], [...spec.bindings, ...build.bindings], { shape: spec.profile.shape });
-      const t1 = Date.now();
-      const res = refine(problem, { maxIterations: 20 });
-      const applied = applyMagneticMoments(build.magnetic, build.bindings, res.parameters);
-      const mags = applied.moments.map((m) => `${m.siteLabel}${m.orbitIndex && m.orbitIndex > 1 ? `#${m.orbitIndex}` : ""} ${Math.hypot(...momentCartesian(structure.cell, m)).toFixed(2)}`).join(", ");
+      const e = results[rep.candidate.id];
+      if (e?.status !== "ok" || e.wR == null || e.chi2 === undefined || e.dof === undefined) continue;
+      const build = buildOf(rep.candidate.operations);
+      // The page's label. For this k it names the operations in the parent cell
+      // as a k = 0 group: the bundled table holds types I and III only, so the
+      // magnetic space group's own BNS number (type IV, with the anti-translation
+      // the k gives the doubled cell) is not identified.
       const std = rep.candidate.standard ?? rep.settingMatch?.identity;
-      const label = std ? `${formatMagneticSymbol(std.bnsSymbol)} BNS ${std.bnsNumber}` : rep.candidate.label;
-      const values: Record<string, number> = {};
-      for (const p of build.params) values[p.id] = res.parameters[p.id] ?? p.value;
       ranked.push({
-        label, index: rep.index, dof: build.params.length, wR: res.agreement.rWeighted ?? NaN, values, moments: mags,
+        id: rep.candidate.id,
+        label: std ? `${formatMagneticSymbol(std.bnsSymbol)} BNS ${std.bnsNumber}` : rep.candidate.label,
+        index: rep.index,
+        parameters: fitRows(build).filter((p) => !p.fixed).length,
+        wR: e.wR, chi2: e.chi2, dof: e.dof, values: e.values,
+        moments: e.magnitudes.map((m) => `${m.label} ${m.value.toFixed(2)}`).join(", "),
         ops: rep.candidate.operations.map((o) => ({ xyz: o.xyz, timeReversal: (o.timeReversal ?? 1) as 1 | -1 })),
       });
-      console.log(`[awo4]   ${label} (index ${rep.index}, ${build.params.length} dof): wR ${(100 * (res.agreement.rWeighted ?? 0)).toFixed(2)}% · |M| ${mags} · ${res.status} · ${((Date.now() - t1) / 1000).toFixed(0)} s`);
     }
-    ranked.sort((a, b) => a.wR - b.wR);
-    // Ties within 0.01 % absolute are the powder's direction ambiguity: several
-    // symmetry-distinct models give the same pattern. The top-down rule picks
-    // the MAXIMAL subgroup (lowest index), then the fewest moment parameters.
-    const TIE = 1e-4;
-    const tied = ranked.filter((r) => r.wR <= ranked[0]!.wR + TIE).sort((a, b) => a.index - b.index || a.dof - b.dof);
-    const best = tied[0]!;
-    console.log(`[awo4] baseline nuclear wR ${(100 * nuclearWr).toFixed(2)}% · lowest wR ${(100 * ranked[0]!.wR).toFixed(2)}% shared by ${tied.length} candidate(s): ${tied.map((t) => `${t.label} (index ${t.index}, ${t.dof} dof)`).join("; ")} → pick ${best.label}`);
+    console.log(`[awo4] ranked ${ranked.length} groups (${RANK_RESTARTS} restarts each) in ${((Date.now() - t1) / 1000).toFixed(0)} s`);
+    const { chosen, equivalent, tests } = topDownGroup(ranked, RANK_NOISE_ALPHA);
+    for (const r of [...ranked].sort((a, b) => a.chi2 - b.chi2)) {
+      const t = tests.get(r.id);
+      console.log(`[awo4]   ${r.label} (index ${r.index}, m = ${r.parameters} moment parameters; the page counts ${dims[reps.findIndex((x) => x.candidate.id === r.id)]}): wR ${(100 * r.wR).toFixed(3)}% · χ² ${r.chi2.toFixed(1)}, ν = N − m = ${r.dof} · |M| ${r.moments}${t ? ` · vs the best: b = ${t.b}, F = ${t.F.toFixed(2)} (F_crit ${t.Fcrit.toFixed(2)}), R = ${t.R.toFixed(5)} (R_crit ${t.Rcrit.toFixed(5)}) → ${t.F > t.Fcrit ? "worse beyond the noise" : "within the noise"}` : " · the best χ²"}`);
+    }
+    console.log(`[awo4] baseline nuclear wR ${(100 * nuclearWr).toFixed(2)}% · Hamilton at α = ${RANK_NOISE_ALPHA}, N = ${ranked[0]!.dof + ranked[0]!.parameters} points: ${equivalent.length} group(s) within the noise of the best (${equivalent.map((r) => r.label).join("; ")}) → top-down: ${chosen.label} (index ${chosen.index}, m = ${chosen.parameters})`);
+    const best = chosen;
 
     // 4. Joint refinement of the chosen candidate (nuclear free set + moments).
-    const bestBuild = buildMagneticModel(structure, K, ions, best.ops.map((o) => ({ ...parseXyz(o.xyz), timeReversal: o.timeReversal })), { moment: 2, tieSameSite: true });
+    const bestBuild = buildOf(best.ops.map((o) => ({ ...parseXyz(o.xyz), timeReversal: o.timeReversal })));
     const jointParams = [
       ...nuclear.map((p) => ({ ...p })),
       ...bestBuild.params.map((p) => ({ ...p, value: best.values[p.id] ?? p.value, initialValue: best.values[p.id] ?? p.value, fixed: false })),
     ];
     const joint = refine(
-      buildMagneticPowderProblem(structure, bestBuild.magnetic, pattern, jointParams, [...spec.bindings, ...bestBuild.bindings], { shape: spec.profile.shape }),
+      buildMagneticPowderProblem(structure, bestBuild.magnetic, pattern, jointParams, [...spec.bindings, ...bestBuild.bindings], spec.profile),
       { maxIterations: 20 },
     );
     const finalValues: Record<string, number> = {};
     for (const p of jointParams) finalValues[p.id] = joint.parameters[p.id] ?? p.value;
     const finalMag = applyMagneticMoments(bestBuild.magnetic, bestBuild.bindings, finalValues);
     console.log(`[awo4] joint: wR ${(100 * (joint.agreement.rWeighted ?? 0)).toFixed(2)}% (${joint.status}) · |M| ${finalMag.moments.map((m) => Math.hypot(...momentCartesian(structure.cell, m)).toFixed(2)).join(", ")}`);
+    // What the joint step moved, in esds of the joint fit: the moments trade
+    // with the scale and the ADPs (magnetic-analysis, Stage 4).
+    const esd = joint.esd ?? {};
+    const moved = jointParams.filter((p) => !p.fixed && esd[p.id]).map((p) => ({ id: p.id, from: p.value, to: finalValues[p.id]!, z: (finalValues[p.id]! - p.value) / esd[p.id]! }));
+    console.log(`[awo4] joint moved (Δ/esd, largest first): ${moved.sort((a, b) => Math.abs(b.z) - Math.abs(a.z)).slice(0, 8).map((m) => `${m.id} ${m.from.toPrecision(4)} → ${m.to.toPrecision(4)} (${m.z.toFixed(1)})`).join(" · ")}`);
+    console.log(`[awo4] joint moments: ${bestBuild.params.map((p) => `${p.id} ${finalValues[p.id]!.toFixed(3)}±${(esd[p.id] ?? NaN).toFixed(3)}`).join(" · ")} · |ρ| ≥ 0.8 with a moment: ${[...(joint.diagnostics?.highCorrelations ?? []), ...(joint.diagnostics?.moderateCorrelations ?? [])].filter((c) => bestBuild.params.some((p) => p.id === c.parameterIdA || p.id === c.parameterIdB)).map((c) => `${c.parameterIdA}~${c.parameterIdB} ${c.coefficient.toFixed(2)}`).join(", ") || "none"}`);
     const solution = {
       k: K,
       group: best.label,
@@ -166,8 +197,12 @@ describe.skipIf(!has)("AWO₄ magnetic demo — solve the 6 K magnetic structure
       params: Object.fromEntries(Object.entries(finalValues).map(([k, v]) => [k, Number(v.toPrecision(10))])),
       nuclearWr: Number(nuclearWr.toPrecision(6)),
       jointWr: Number((joint.agreement.rWeighted ?? NaN).toPrecision(6)),
-      tied: tied.map((t) => t.label),
-      ranking: ranked.map((r) => ({ label: r.label, index: r.index, dof: r.dof, wR: Number(r.wR.toPrecision(6)), moments: r.moments })),
+      selection: { test: "Hamilton (F on χ²)", alpha: RANK_NOISE_ALPHA, observations: best.dof + best.parameters },
+      withinNoise: equivalent.map((r) => r.label),
+      ranking: ranked.map((r) => ({
+        label: r.label, index: r.index, parameters: r.parameters, wR: Number(r.wR.toPrecision(6)),
+        chi2: Number(r.chi2.toPrecision(8)), dof: r.dof, moments: r.moments,
+      })),
       solvedAt: new Date().toISOString(),
     };
     const out = resolve(DATA_DIR, AWO4_DEMO_FILES.solution);
@@ -177,6 +212,86 @@ describe.skipIf(!has)("AWO₄ magnetic demo — solve the 6 K magnetic structure
     expect(joint.agreement.rWeighted ?? 1).toBeLessThan(nuclearWr);
   });
 });
+
+/** One ranked group: its moments-only fit and the moment parameters it refined. */
+interface Ranked {
+  readonly id: string;
+  readonly label: string;
+  /** Index in the parent group (2 = maximal). */
+  readonly index: number;
+  /** The moment rows the fit refined (m): a mixed site's tied ions count once, a split orbit twice. */
+  readonly parameters: number;
+  readonly wR: number;
+  readonly chi2: number;
+  /** ν = N − m: the points the fit weighs less the rows it refined. */
+  readonly dof: number;
+  readonly values: Record<string, number>;
+  readonly moments: string;
+  readonly ops: { xyz: string; timeReversal: 1 | -1 }[];
+}
+
+interface HamiltonTest {
+  /** The extra moment parameters of the best fit (at least 1). */
+  readonly b: number;
+  readonly F: number;
+  readonly Fcrit: number;
+  /** wR ratio and Hamilton's critical ratio √(1 + b/ν · F_crit). */
+  readonly R: number;
+  readonly Rcrit: number;
+}
+
+/**
+ * The magnetic group, top-down (magnetic-analysis, Stage 2), with a
+ * significance test for every extra parameter.
+ *
+ * Landau theory prefers a maximal group (one irrep), and a powder often
+ * cannot tell a maximal group from its subgroups: a subgroup that contains
+ * the maximal group's moment arrangement as a special case reaches the same
+ * wR with its extra moment parameters at no use. Lowest wR alone hands those
+ * parameters the win on round-off, or on a misfit of the nuclear model they
+ * happen to absorb. So a group with more parameters is
+ * chosen only when the data require it: by Hamilton's test (W. C. Hamilton,
+ * Acta Cryst. 18 (1965) 502), in its F form on χ² — for the R-factor ratio
+ * R = wR_f/wR_best of fits to the same points with the same weights,
+ * R² − 1 = (χ²_f − χ²_best)/χ²_best, so R > R(b, ν, α) = √(1 + b/ν·F(α; b, ν))
+ * exactly when F = (χ²_f − χ²_best)/b / (χ²_best/ν) > F(α; b, ν). Here N is
+ * the points with weight, m the moment rows the fit refines (the nuclear
+ * model is held, as the page ranks), ν = N − m of the best fit, b its extra
+ * moment parameters over the group tested (at least 1: a group with as many
+ * parameters is within the noise when its χ² is above the best's by less
+ * than one parameter's worth), and α = RANK_NOISE_ALPHA (5 %).
+ *
+ * This is core/diagnostics/hamilton.ts's `withinNoiseOfBest`, the page's own
+ * test, and the page's order among the fits within the noise: the lowest
+ * index (a maximal group first), then the fewest moment parameters, then wR.
+ * It differs from the page's ★ (magneticStep.ts, bestRanked) in one input:
+ * the page counts a group's parameters as momentDims, the allowed moment
+ * directions summed over the chosen ions (10 for P2/c′ on the five ions of
+ * the mixed site here), where its fit refines one moment per site (2): b
+ * comes out several times too large, and the ★'s "fewest moment parameters"
+ * can order two groups the wrong way. The test needs the parameters the fits
+ * refine; this solve counts them.
+ *
+ * The test assumes independent errors. Powder residuals are serially
+ * correlated, and a GoF well above 1 says the model misses more than noise,
+ * so N points overstate the information: a difference the test calls
+ * significant may not be, never the reverse. It errs toward the lower
+ * symmetry; a group it keeps within the noise is a safe call.
+ */
+function topDownGroup(ranked: readonly Ranked[], alpha: number): { chosen: Ranked; equivalent: Ranked[]; tests: Map<string, HamiltonTest> } {
+  const within = withinNoiseOfBest(ranked.map((r) => ({ id: r.id, chi2: r.chi2, dof: r.dof, parameters: r.parameters })), alpha);
+  const best = ranked.reduce((a, r) => (r.chi2 < a.chi2 ? r : a));
+  const noise = best.chi2 / best.dof;
+  const tests = new Map<string, HamiltonTest>();
+  for (const r of ranked) {
+    if (r === best) continue;
+    const b = Math.max(1, best.parameters - r.parameters);
+    const Fcrit = fCritical(alpha, b, best.dof);
+    tests.set(r.id, { b, F: (r.chi2 - best.chi2) / b / noise, Fcrit, R: r.wR / best.wR, Rcrit: Math.sqrt(1 + (b / best.dof) * Fcrit) });
+  }
+  const equivalent = ranked.filter((r) => within.has(r.id)).sort((a, b) => a.index - b.index || a.parameters - b.parameters || a.wR - b.wR);
+  return { chosen: equivalent[0]!, equivalent, tests };
+}
 
 import { parseSymmetryOperation } from "@/core/crystal/symmetry";
 function parseXyz(xyz: string): ReturnType<typeof parseSymmetryOperation> {
