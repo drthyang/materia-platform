@@ -21,6 +21,8 @@ export function InfoBadge({
   text,
   width = 232,
   align = "left",
+  label,
+  ariaLabel,
 }: {
   /** Tooltip content — plain text or light JSX (kept to a few sentences). */
   text: ReactNode;
@@ -28,6 +30,13 @@ export function InfoBadge({
   width?: number;
   /** Horizontal anchoring of the tooltip relative to the badge. */
   align?: "left" | "right";
+  /**
+   * Visible text before the badge that opens the tooltip too: the tooltip
+   * belongs to that text, and a finger gets the line to tap, not a 14 px dot.
+   */
+  label?: ReactNode;
+  /** The badge's accessible name when `text` is JSX (default "More information"). */
+  ariaLabel?: string;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   // Viewport coords for the tip; null = the hidden measuring pass.
@@ -51,23 +60,32 @@ export function InfoBadge({
     if (top + t.height > window.innerHeight - 8) top = Math.max(8, a.top - 7 - t.height);
     setPos({ left: left / z, top: top / z });
   }, [open, align, width]);
+  const badgeEl = (
+    <span
+      style={{ ...badge, ...(label !== undefined ? { marginLeft: 5 } : {}), ...(open ? { color: color.secondary, borderColor: color.control } : {}) }}
+      aria-label={typeof text === "string" ? text : ariaLabel ?? "More information"}
+      role="img"
+    >
+      ?
+    </span>
+  );
   return (
     <span
       ref={anchorRef}
-      style={{ position: "relative", display: "inline-flex" }}
+      // With a label, the badge runs in the label's text, so a label that
+      // wraps keeps the badge after its last word.
+      style={label !== undefined ? { position: "relative", minWidth: 0, cursor: "help" } : { position: "relative", display: "inline-flex" }}
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => setOpen(false)}
       onFocus={() => setOpen(true)}
       onBlur={() => setOpen(false)}
       tabIndex={0}
     >
-      <span
-        style={{ ...badge, ...(open ? { color: color.secondary, borderColor: color.control } : {}) }}
-        aria-label={typeof text === "string" ? text : "More information"}
-        role="img"
-      >
-        ?
-      </span>
+      {label}
+      {label !== undefined ? (
+        // The word joiner holds the badge to the label's last word.
+        <span style={{ whiteSpace: "nowrap" }}>{"\u2060"}{badgeEl}</span>
+      ) : badgeEl}
       {open && (
         <span
           role="tooltip"

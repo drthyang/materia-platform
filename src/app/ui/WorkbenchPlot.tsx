@@ -26,8 +26,8 @@ import { color, mono } from "@/app/theme";
 import { minMax } from "@/core/math/extent";
 import { cssZoom } from "@/app/ui/cssZoom";
 import { usePlotInteraction, useThrottledText, type PlotTap } from "@/app/ui/usePlotInteraction";
-import { PlotHint, PlotZoomControls, plotReadoutBox, zoomControlsInline } from "@/app/ui/PlotControls";
-import { gripHitWidth, trackPointerDrag, useCoarsePointer } from "@/app/ui/touchInput";
+import { PlotFooter, PlotHint, PlotZoomControls, plotReadoutBox, zoomControlsInline } from "@/app/ui/PlotControls";
+import { gripHitWidth, isMac, plotGestureDescription, trackPointerDrag, useCoarsePointer } from "@/app/ui/touchInput";
 import { tickCountFor, yTickCount } from "@/visualization/axisTicks";
 import {
   decimalsForStep, decimateByColumn, formatReadoutValue, localStep, minimumSpan, nearestIndex, splitAxisLabel, ticksNear, visibleIndexRange,
@@ -820,7 +820,7 @@ export function WorkbenchPlot({
         tabIndex={0}
         role="application"
         aria-roledescription="interactive plot"
-        aria-label={`${plotName}. Drag to pan, Shift + drag to box-zoom, Ctrl + scroll or pinch to zoom, double-click to reset. Keys: plus and minus zoom, left and right arrows pan, Shift + arrows step the cursor one point, 0 resets.`}
+        aria-label={`${plotName}. ${plotGestureDescription(isMac())}`}
         {...ix.handlers}
         {...{
           // The frame and the window, for the headless interaction checks.
@@ -1075,7 +1075,13 @@ export function WorkbenchPlot({
       <PlotHint text={ix.hint} />
       {!zoomInline && <PlotZoomControls ix={ix} yRange={{ lo: yLo, hi: yTop }} />}
     </div>
-    {zoomInline && <PlotZoomControls ix={ix} yRange={{ lo: yLo, hi: yTop }} inline />}
+    <PlotFooter
+      ix={ix}
+      yRange={{ lo: yLo, hi: yTop }}
+      inline={zoomInline}
+      fitHandles={!!onFitRangeChange && !!fitRange}
+      ticks={!!onHighlight && (phases?.length ?? 0) > 0}
+    />
     </>
   );
 }

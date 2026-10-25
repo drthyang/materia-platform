@@ -217,7 +217,11 @@ magnetic model are steps too. Loading a new dataset starts a new history.
 ### Zoom, pan and the cursor readout
 
 The pattern, the G(r) plot, the magnetic page's pattern and the S(Q) view all
-work the same way.
+work the same way. The line under each plot names the main gestures for your
+device (⌘ on a Mac, Ctrl elsewhere, a pinch on a touch screen); hover, focus
+or tap it for the rest. The 3D models carry the same kind of line beside
+their View a / b / c chip: scroll or pinch to zoom, drag to rotate, and
+right-drag, Shift + drag or two fingers to pan.
 
 - **Cursor.** Hover the plot. A vertical line marks the data point under the
   pointer. The readout gives x in the axis unit (2θ °, TOF µs, d Å, Q Å⁻¹ or

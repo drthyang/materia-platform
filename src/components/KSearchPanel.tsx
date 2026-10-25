@@ -35,7 +35,6 @@ import {
 } from "@/visualization/reflectionTicks";
 import { WorkbenchPlot, type FitRangeSelection } from "@/app/ui/WorkbenchPlot";
 import { InfoBadge } from "@/app/ui/InfoBadge";
-import { gestureHint, useCoarsePointer } from "@/app/ui/touchInput";
 import { momentEntriesFrom } from "@/app/ui/cellModel";
 import type { ReportGroup } from "@/core/export/report";
 import type { MagneticExploration } from "@/app/reportInputs";
@@ -561,9 +560,6 @@ export function KSearchPanel({
   const kIsZero = k.every((c) => Math.abs(c) < 1e-12);
   const nearNuclearCount = peakRows.filter((r) => r.nearNuclear).length;
   const allOnNuclear = peakRows.length > 0 && nearNuclearCount === peakRows.length;
-  // The 3D model's gestures in the user's terms: a finger pinches, a mouse scrolls.
-  const coarse = useCoarsePointer();
-  const hint3d = gestureHint("model-3d", coarse).replace(/^d/, "D");
 
   return (
     <div className="wb-mag2">
@@ -591,8 +587,7 @@ export function KSearchPanel({
                   the current k allows; <b>allowed</b> marks the reflections the selected magnetic
                   group keeps (|F<sub>M</sub>|² &gt; 0 with the current moments); <b>residual</b> marks
                   peaks the nuclear fit leaves unexplained. A plausible k puts a G ± k tick under every
-                  residual peak; a plausible group keeps those peaks in the allowed row. Drag to zoom,
-                  blue handles set the fit range, click a tick for its indices.
+                  residual peak; a plausible group keeps those peaks in the allowed row.
                 </>
               }
             />
@@ -633,7 +628,7 @@ export function KSearchPanel({
               {patternView.unitToggle}
             </div>
           </div>
-          <div className="wb-mag2-plot" style={{ height: space.plotHeightSm, display: "flex", flexDirection: "column" }}>
+          <div className="wb-mag2-plot" style={{ display: "flex", flexDirection: "column" }}>
             <WorkbenchPlot
               curves={previewCurves ?? patternView.curves}
               xLabel={patternView.xLabel}
@@ -672,8 +667,8 @@ export function KSearchPanel({
           <InfoBadge
             width={280}
             text={magBuild
-              ? `The magnetic unit cell with the selected group's symmetry-allowed moments (red arrows) — atoms without an arrow are moment-forbidden under this group. Directions and relative sizes are well defined; the absolute arrow length carries a display convention. ${hint3d}.`
-              : `The refined nuclear structure over the magnetic (super)cell of the current k. Pick a magnetic space group in step 4 to preview its symmetry-allowed moments here. ${hint3d}.`}
+              ? `The magnetic unit cell with the selected group's symmetry-allowed moments (red arrows) — atoms without an arrow are moment-forbidden under this group. Directions and relative sizes are well defined; the absolute arrow length carries a display convention.`
+              : `The refined nuclear structure over the magnetic (super)cell of the current k. Pick a magnetic space group in step 4 to preview its symmetry-allowed moments here.`}
           />
           <span style={{ marginLeft: "auto", color: theme.secondary, fontFamily: themeMono, fontSize: 12 }}>k = {kLabel(k)}</span>
         </div>
