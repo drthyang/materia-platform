@@ -26,7 +26,8 @@ import type {
 } from "@/workers/protocol";
 import type { MagneticModel } from "@/core/magnetic/types";
 import { leBailCellPrefit, type LeBailPrefitResult } from "@/core/workflow/leBailPrefit";
-import type { RefinementResult, RefinementOptions, AgreementFactors, RefinementParameter } from "@/core/refinement/types";
+import { ModelDomainError, type RefinementResult, type RefinementOptions, type AgreementFactors, type RefinementParameter } from "@/core/refinement/types";
+import { joinBlocks, type PdfRefinementProblem } from "@/core/workflow/pdf";
 import { refine, refineParallel, type BatchEvaluator } from "@/core/refinement/engine";
 import { analyticDriverPolicy, applyResultToParams, boxcarScan, momentMultiStart, poolSolver, type MomentSearchResult } from "@/workers/strategy";
 import { refineSingleCrystal, withFitWeights } from "@/core/workflow/singleCrystalRefinement";
@@ -125,15 +126,31 @@ class GpuEvaluator implements BatchEvaluator {
   }
 }
 
+/** A failed evaluation as the error to throw: a ModelDomainError stays one across the worker boundary. */
+function evaluationError(r: ComputeResponse, what: string): Error {
+  const failure = r as { ok: boolean; error?: string; domain?: boolean };
+  const message = `${what}: ${failure.ok ? "bad response" : failure.error ?? "unknown"}`;
+  return failure.domain ? new ModelDomainError(message) : new Error(message);
+}
+
 /**
  * A pool of evaluator workers for the parallel Jacobian. Each worker holds a
  * problem replica built from the shared spec; `evaluate` splits a batch into
  * contiguous chunks (one per worker), so reassembly preserves order exactly.
+ *
+ * A single-phase PDF spec is split instead of replicated: worker w holds only
+ * the pairs its block of the model grid can see (core/workflow/pdf
+ * `PdfSplit`), every evaluation goes to every worker, and the blocks are
+ * joined and finished here. The result is bit-identical to `calculate`, and no
+ * isolate holds the whole pair list — not even the driver's, which takes the
+ * single evaluations and analytic columns off its own thread as well.
  */
 class EvaluatorPool implements BatchEvaluator {
   private readonly workers: Worker[] = [];
   private nextId = 1;
   private readonly pending = new Map<number, { resolve: (r: ComputeResponse) => void }>();
+  /** The driver's copy of a split problem: it joins and finishes the blocks (and never evaluates). */
+  private splitProblem: PdfRefinementProblem | null = null;
 
   constructor(size: number) {
     for (let i = 0; i < size; i++) {
@@ -171,16 +188,59 @@ class EvaluatorPool implements BatchEvaluator {
     });
   }
 
+  /** True while the pool is split by grid block (refineParallel then sends it the single evaluations and the analytic columns). */
+  get splitsEvaluations(): boolean {
+    return this.splitProblem !== null;
+  }
+
   async init(spec: EvaluatorSpec): Promise<void> {
+    const count = this.workers.length;
+    const split = spec.kind === "pdf" && !(spec.extraPhases && spec.extraPhases.length > 0) && count > 1;
+    this.splitProblem = null;
     const acks = await Promise.all(
-      this.workers.map((w) => this.send(w, { type: "initEvaluator", requestId: this.nextId++, spec })),
+      this.workers.map((w, index) => this.send(w, { type: "initEvaluator", requestId: this.nextId++, spec, ...(split ? { shard: { index, count } } : {}) })),
     );
     for (const ack of acks) {
       if (!ack.ok) throw new Error(`evaluator init failed: ${(ack as { error?: string }).error ?? "unknown"}`);
     }
+    if (split) this.splitProblem = buildProblemForSpec(spec) as PdfRefinementProblem;
+  }
+
+  /** Every worker's block of each set's model curve, joined into the whole grid. */
+  private async splitBlocks(problem: PdfRefinementProblem, request: (id: number) => ComputeRequest, pick: (r: ComputeResponse) => (Float64Array | null)[] | undefined, what: string): Promise<(Float64Array | null)[]> {
+    const responses = await Promise.all(this.workers.map((w) => this.send(w, request(this.nextId++))));
+    const blocks = responses.map((r) => {
+      const b = r.ok ? pick(r) : undefined;
+      if (!b) throw evaluationError(r, what);
+      return b;
+    });
+    return blocks[0]!.map((first, s) => (first ? joinBlocks(problem.split, blocks.map((b) => b[s]!)) : null));
+  }
+
+  async analyticColumns(freeParams: readonly RefinementParameter[], freeValues: readonly number[]): Promise<(Float64Array | null)[]> {
+    const problem = this.splitProblem;
+    if (!problem) throw new Error("analytic columns are computed by a split pool only");
+    const freeIds = freeParams.map((p) => p.id);
+    const models = await this.splitBlocks(
+      problem,
+      (requestId) => ({ type: "analytic", requestId, freeIds, freeValues: [...freeValues] }),
+      (r) => ("columns" in r ? r.columns : undefined),
+      "analytic columns failed",
+    );
+    return problem.split.finishColumns(freeParams, models);
   }
 
   async evaluate(sets: readonly Record<string, number>[]): Promise<Float64Array[]> {
+    const problem = this.splitProblem;
+    if (problem) {
+      const models = await this.splitBlocks(
+        problem,
+        (requestId) => ({ type: "evaluate", requestId, sets: sets as Record<string, number>[] }),
+        (r) => ("results" in r ? r.results : undefined),
+        "evaluation failed",
+      );
+      return sets.map((values, s) => problem.split.finish(values, models[s]!));
+    }
     const n = this.workers.length;
     const chunkSize = Math.ceil(sets.length / n);
     const jobs: Promise<ComputeResponse>[] = [];
@@ -191,7 +251,7 @@ class EvaluatorPool implements BatchEvaluator {
     const responses = await Promise.all(jobs);
     const out: Float64Array[] = [];
     for (const r of responses) {
-      if (!r.ok || !("results" in r)) throw new Error(`evaluation failed: ${(r as { error?: string }).error ?? "bad response"}`);
+      if (!r.ok || !("results" in r)) throw evaluationError(r, "evaluation failed");
       out.push(...r.results);
     }
     return out;

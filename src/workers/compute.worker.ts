@@ -14,6 +14,8 @@
 
 import type { ComputeRequest, ComputeResponse, EvaluatorSpec } from "@/workers/protocol";
 import { refine, type RefinementProblem } from "@/core/refinement/engine";
+import { ModelDomainError } from "@/core/refinement/types";
+import type { PdfRefinementProblem } from "@/core/workflow/pdf";
 import { refineSingleCrystal } from "@/core/workflow/singleCrystalRefinement";
 import { buildMagneticSingleCrystalProblem } from "@/core/workflow/magnetic";
 import { runPowderRefinement, runPdfRefinement, runMpdfRefinement, buildProblemForSpec } from "@/workers/runPowder";
@@ -26,6 +28,8 @@ const post = (msg: unknown, transfer?: Transferable[]): void =>
 
 /** The problem replica when this worker serves as a pool evaluator. */
 let evaluatorProblem: RefinementProblem | null = null;
+/** Set when the replica is one shard of a split pool: it answers with its block of the model grid. */
+let shardProblem: PdfRefinementProblem | null = null;
 /** GPU |F|² accelerator + its spec, set when this evaluator runs the GPU path. */
 let gpu: GpuStructureFactor | null = null;
 let gpuSpec: Extract<EvaluatorSpec, { kind: "powder" }> | null = null;
@@ -33,7 +37,10 @@ let gpuSpec: Extract<EvaluatorSpec, { kind: "powder" }> | null = null;
 async function handle(req: ComputeRequest): Promise<ComputeResponse> {
   try {
     if (req.type === "initEvaluator") {
-      evaluatorProblem = buildProblemForSpec(req.spec);
+      evaluatorProblem = null;
+      shardProblem = null;
+      evaluatorProblem = buildProblemForSpec(req.spec, req.shard);
+      shardProblem = req.shard ? (evaluatorProblem as PdfRefinementProblem) : null;
       gpu = null;
       gpuSpec = null;
       // GPU |F|² path: single-phase nuclear powder only. Feature-detected; on any
@@ -46,10 +53,18 @@ async function handle(req: ComputeRequest): Promise<ComputeResponse> {
     }
     if (req.type === "evaluate") {
       if (!evaluatorProblem) throw new Error("evaluate before initEvaluator");
-      const results = gpu && gpuSpec
-        ? await evaluatePowderBatchOnGpu(gpuSpec, evaluatorProblem, gpu, req.sets)
-        : req.sets.map((values) => evaluatorProblem!.calculate(values));
+      const results = shardProblem
+        ? req.sets.map((values) => shardProblem!.split.evaluateBlock(values))
+        : gpu && gpuSpec
+          ? await evaluatePowderBatchOnGpu(gpuSpec, evaluatorProblem, gpu, req.sets)
+          : req.sets.map((values) => evaluatorProblem!.calculate(values));
       return { requestId: req.requestId, ok: true, results };
+    }
+    if (req.type === "analytic") {
+      if (!shardProblem) throw new Error("analytic columns are asked of a split pool's shards only");
+      const byId = new Map(shardProblem.parameters.map((p) => [p.id, p] as const));
+      const freeParams = req.freeIds.map((id) => byId.get(id)!);
+      return { requestId: req.requestId, ok: true, columns: shardProblem.split.analyticBlock(freeParams, req.freeValues) };
     }
     if (req.type === "refinePowder") {
       // Emit each accepted cycle's calculated curve as a progress message so the
@@ -90,14 +105,18 @@ async function handle(req: ComputeRequest): Promise<ComputeResponse> {
     const result = refineSingleCrystal(req.structure, req.dataset, req.parameters, req.bindings, req.options ?? {});
     return { requestId: req.requestId, ok: true, result };
   } catch (err) {
-    return { requestId: req.requestId, ok: false, error: err instanceof Error ? err.message : String(err) };
+    return { requestId: req.requestId, ok: false, error: err instanceof Error ? err.message : String(err), ...(err instanceof ModelDomainError ? { domain: true } : {}) };
   }
 }
 
 self.addEventListener("message", (event: MessageEvent<ComputeRequest>) => {
   void handle(event.data).then((response) => {
-    // Zero-copy the evaluation curves back to the driver.
-    const transfer = "results" in response && response.ok ? response.results.map((r) => r.buffer as ArrayBuffer) : [];
+    // Zero-copy the evaluation curves (or a shard's column blocks) back to the driver.
+    const transfer = "results" in response && response.ok
+      ? response.results.map((r) => r.buffer as ArrayBuffer)
+      : "columns" in response && response.ok
+        ? response.columns.flatMap((c) => (c ? [c.buffer as ArrayBuffer] : []))
+        : [];
     post(response, transfer);
   });
 });

@@ -139,7 +139,7 @@ the app's file-name hint opens them on the POWGEN background default.
 | `magnetic_8K.mcif` | The owner's refined 8 K magnetic structure (Jana mCIF, doubled cell) | `realAwo4Benchmark.test.ts` (reference block) |
 | `instrument_bank1.instprm`, `instrument_bank2.instprm`, `instrument_bank3.instprm` | The GSAS-II TOF calibration of each bank's frame (bank 3 for the patterns above) | `realAwo4Benchmark.test.ts` (all three), the bank-3 file everywhere else |
 | `instrument_bank3_jana.instprm` | The same bank-3 calibration as written for JANA | `realPowderTOF.test.ts` |
-| `pdf.gr` | The neutron PDF G(r) | not read yet |
+| `pdf.gr` | The neutron PDF G(r) | `realPdfLongRange.test.ts` (also found as a `.gr` file in `data/AWO4/pdf/`) |
 | `awo4_demo_solution.json` | Written by `awo4MagneticSolve.test.ts` (`AWO4_SOLVE=1`) from `PG3_powder_6K.gsa`; not a measurement | the local demo, `awo4Magnetic.test.ts` |
 
 The dev server serves the folder under `/data/AWO4/…` for the local demo

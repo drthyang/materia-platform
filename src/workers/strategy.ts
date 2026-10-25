@@ -46,7 +46,10 @@ export interface Solver {
  * `calculate` per iteration, and spares the evaluators two evaluations per
  * column. Every other problem keeps its columns on the evaluators: the powder
  * template synthesizes a whole pattern per column, the work a pool exists for
- * (and in the browser the driver is the UI thread).
+ * (and in the browser the driver is the UI thread). A pool that splits every
+ * evaluation (the browser's, on a single-phase PDF problem) takes the analytic
+ * pass and the single evaluations itself (`BatchEvaluator.splitsEvaluations`);
+ * the columns are the same.
  */
 export function analyticDriverPolicy(
   spec: EvaluatorSpec,

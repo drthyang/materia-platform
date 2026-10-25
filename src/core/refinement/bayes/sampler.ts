@@ -403,7 +403,8 @@ export async function samplePosteriorParallel(
   let step = gen.next();
   while (!step.done) {
     const sets = step.value;
-    const results = sets.length === 1 ? [problem.calculate(sets[0]!)] : await evaluator.evaluate(sets);
+    // An evaluator that splits every evaluation takes the single ones too (the driver holds no pairs).
+    const results = sets.length === 1 && evaluator.splitsEvaluations !== true ? [problem.calculate(sets[0]!)] : await evaluator.evaluate(sets);
     step = gen.next(results);
   }
   return step.value;

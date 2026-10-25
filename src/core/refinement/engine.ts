@@ -237,7 +237,7 @@ function jacobianPlan(
   problem: RefinementProblem,
   freeParams: readonly RefinementParameter[],
   freeValues: readonly number[],
-  useAnalytic: boolean,
+  analytic: readonly (Float64Array | null)[] | undefined,
 ): { sets: Record<string, number>[]; plan: JacobianColumnPlan[] } {
   const freeIds = freeParams.map((p) => p.id);
   const sets: Record<string, number>[] = [];
@@ -246,9 +246,8 @@ function jacobianPlan(
   // is either an exact ∂calc/∂p (no evaluation batch needed) or null → finite
   // difference below. Providing analytic columns is purely additive: an unaware
   // problem leaves `analyticColumns` undefined and every column stays FD. The
-  // parallel driver disables them (useAnalytic=false) so column work stays on
-  // the worker pool rather than the UI thread — see refineCore.
-  const analytic = useAnalytic ? problem.analyticColumns?.(freeParams, freeValues) : undefined;
+  // parallel driver disables them unless its caller allows them, so column
+  // work stays on the worker pool rather than the UI thread — see refineCore.
   for (let j = 0; j < freeValues.length; j++) {
     const base = freeValues[j]!;
     const analyticCol = analytic?.[j];
@@ -545,6 +544,14 @@ function highCorrelations(
   return pairs.sort((a, b) => Math.abs(b.coefficient) - Math.abs(a.coefficient)).slice(0, maxPairs);
 }
 
+/** The analytic columns at the free values, asked of the driver (refineCore's "remote" mode). */
+export interface AnalyticRequest {
+  readonly analytic: { readonly freeParams: readonly RefinementParameter[]; readonly freeValues: readonly number[] };
+}
+
+/** What the core yields: a batch of value-sets to evaluate, or an analytic-columns request. */
+type CoreRequest = Record<string, number>[] | AnalyticRequest;
+
 /**
  * The Levenberg–Marquardt core as a sans-io generator: it yields batches of
  * value-sets to evaluate and receives their `calculate` results, so the SAME
@@ -553,7 +560,9 @@ function highCorrelations(
  * what happens next. Evaluations are pure, so any faithful driver produces a
  * bit-identical trajectory. A driver whose evaluation throws hands the error
  * back with `throw()`, at the batch it came from: the core decides whether the
- * point it asked for may fail (a trial step outside the model's domain).
+ * point it asked for may fail (a trial step outside the model's domain). In
+ * the remote mode it also yields `AnalyticRequest`s, answered with the
+ * analytic columns.
  */
 function* refineCore(
   problem: RefinementProblem,
@@ -569,10 +578,20 @@ function* refineCore(
   // pattern synthesis per column). Either way analytic is also gated behind
   // `options.analyticDerivatives` (default off), so both drivers stay
   // finite-difference and bit-identical out of the box.
-  allowAnalytic = false,
-): Generator<Record<string, number>[], RefinementResult, Float64Array[]> {
+  //
+  // "remote": the driver's evaluator computes them (one that splits every
+  // evaluation across its workers): the core yields an `AnalyticRequest` and
+  // receives the columns, which must be exactly `problem.analyticColumns`'.
+  allowAnalytic: boolean | "remote" = false,
+): Generator<CoreRequest, RefinementResult, Float64Array[] | readonly (Float64Array | null)[]> {
   const opts = { ...DEFAULT_OPTIONS, ...options };
-  const useAnalytic = allowAnalytic && (opts.analyticDerivatives ?? false);
+  const useAnalytic = allowAnalytic !== false && (opts.analyticDerivatives ?? false);
+  // The analytic columns at a point: inline, or asked of the driver.
+  function* analyticAt(freeValuesNow: readonly number[]): Generator<CoreRequest, readonly (Float64Array | null)[] | undefined, Float64Array[] | readonly (Float64Array | null)[]> {
+    if (!useAnalytic || !problem.analyticColumns) return undefined;
+    if (allowAnalytic === "remote") return (yield { analytic: { freeParams, freeValues: freeValuesNow } }) as readonly (Float64Array | null)[];
+    return problem.analyticColumns(freeParams, freeValuesNow);
+  }
   const freeParams = problem.parameters.filter((p) => !p.fixed);
   const freeIds = freeParams.map((p) => p.id);
   const n = freeParams.length;
@@ -606,7 +625,7 @@ function* refineCore(
   });
 
   if (n === 0) {
-    const { yCalc, chi } = withChi((yield [valuesRecord(problem.parameters, freeIds, freeValues)])[0]!);
+    const { yCalc, chi } = withChi(((yield [valuesRecord(problem.parameters, freeIds, freeValues)]) as Float64Array[])[0]!);
     const agreement = dataAgreement(yCalc, 0);
     return {
       status: "converged",
@@ -618,7 +637,7 @@ function* refineCore(
     };
   }
 
-  let current = withChi((yield [valuesRecord(problem.parameters, freeIds, freeValues)])[0]!);
+  let current = withChi(((yield [valuesRecord(problem.parameters, freeIds, freeValues)]) as Float64Array[])[0]!);
   let status: RefinementStatus = "maxIterations";
   const solveDropped = new Set<string>();
   let maxSolveZeroCount = 0;
@@ -629,8 +648,8 @@ function* refineCore(
 
   for (let iter = 0; iter < opts.maxIterations; iter++) {
     const r = weightedResiduals(problem.observations, current.yCalc, problem.weights);
-    const { sets, plan } = jacobianPlan(problem, freeParams, freeValues, useAnalytic);
-    const jac = assembleJacobian(problem, plan, n, current.yCalc, yield sets);
+    const { sets, plan } = jacobianPlan(problem, freeParams, freeValues, yield* analyticAt(freeValues));
+    const jac = assembleJacobian(problem, plan, n, current.yCalc, (yield sets) as Float64Array[]);
     const { jtj, jtr } = normalEquations(jac, r);
 
     // Gradient norm ‖Jᵀr‖: near zero means we sit at a (local) minimum.
@@ -686,7 +705,7 @@ function* refineCore(
       const trial = freeValues.map((v, j) => clamp(v + delta[j]!, freeParams[j]!));
       let trialEval: { yCalc: Float64Array; chi: number } | null = null;
       try {
-        trialEval = withChi((yield [valuesRecord(problem.parameters, freeIds, trial)])[0]!);
+        trialEval = withChi(((yield [valuesRecord(problem.parameters, freeIds, trial)]) as Float64Array[])[0]!);
       } catch (e) {
         // A point where the model has no pattern (a free cell length driven
         // below 0): the step is too long, not the refinement wrong. Any other
@@ -765,8 +784,8 @@ function* refineCore(
   const esd: Record<string, number> = {};
   const reducedChi = current.chi / dof;
   const finalResiduals = weightedResiduals(problem.observations, current.yCalc, problem.weights);
-  const { sets: finalSets, plan: finalPlan } = jacobianPlan(problem, freeParams, freeValues, useAnalytic);
-  const finalJacobian = assembleJacobian(problem, finalPlan, n, current.yCalc, yield finalSets);
+  const { sets: finalSets, plan: finalPlan } = jacobianPlan(problem, freeParams, freeValues, yield* analyticAt(freeValues));
+  const finalJacobian = assembleJacobian(problem, finalPlan, n, current.yCalc, (yield finalSets) as Float64Array[]);
   const { jtj: finalJtj } = normalEquations(finalJacobian, finalResiduals);
   const finalFloors = deadColumnFloors(finalPlan, n, current.yCalc, problem.weights);
   const { covarianceBase, diagnostics: covDiagnostics } = normalizedPseudoInverse(
@@ -841,9 +860,11 @@ export function refine(
   const gen = refineCore(problem, options, true);
   let step = gen.next();
   while (!step.done) {
+    const request = step.value;
+    if (!Array.isArray(request)) throw new Error("the serial driver computes analytic columns inline");
     let results: Float64Array[];
     try {
-      results = step.value.map((values) => problem.calculate(values));
+      results = request.map((values) => problem.calculate(values));
     } catch (e) {
       step = gen.throw(e);
       continue;
@@ -861,6 +882,17 @@ export function refine(
  */
 export interface BatchEvaluator {
   evaluate(sets: readonly Record<string, number>[]): Promise<Float64Array[]>;
+  /**
+   * True when the evaluator splits each evaluation across its workers (each
+   * holding part of the problem, none the whole): `refineParallel` then hands
+   * it the single evaluations too, and asks it for the analytic columns
+   * (`analyticColumns`), so the driver thread holds and computes nothing
+   * heavy. Its results must be exactly `problem.calculate`'s and
+   * `problem.analyticColumns`'.
+   */
+  readonly splitsEvaluations?: boolean;
+  /** The problem's analytic columns at the free values, computed by the evaluator (with `splitsEvaluations`). */
+  analyticColumns?(freeParams: readonly RefinementParameter[], freeValues: readonly number[]): Promise<(Float64Array | null)[]>;
 }
 
 /**
@@ -898,16 +930,23 @@ export async function refineParallel(
 ): Promise<RefinementResult> {
   // Analytic columns are computed on THIS thread, so they need the caller's
   // permission as well as the numerical opt-in; without it every column's
-  // evaluation stays on the worker pool.
-  const gen = refineCore(problem, options, driver.analyticOnDriver ?? false);
+  // evaluation stays on the worker pool. An evaluator that splits every
+  // evaluation computes them itself, and the single evaluations as well.
+  const split = evaluator.splitsEvaluations === true && typeof evaluator.analyticColumns === "function";
+  const gen = refineCore(problem, options, split ? "remote" : driver.analyticOnDriver ?? false);
   let step = gen.next();
   while (!step.done) {
-    const sets = step.value;
+    const request = step.value;
+    if (!Array.isArray(request)) {
+      const { freeParams, freeValues } = request.analytic;
+      step = gen.next(await evaluator.analyticColumns!(freeParams, freeValues));
+      continue;
+    }
     let results: Float64Array[];
     try {
-      results = sets.length === 1
-        ? [problem.calculate(sets[0]!)]
-        : await evaluator.evaluate(sets);
+      results = request.length === 1 && !split
+        ? [problem.calculate(request[0]!)]
+        : await evaluator.evaluate(request);
     } catch (e) {
       step = gen.throw(e);
       continue;

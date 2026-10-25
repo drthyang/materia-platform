@@ -27,7 +27,7 @@ import type {
 import type { RefinementProblem } from "@/core/refinement/engine";
 import type { StageKinds } from "@/core/workflow/structureRefinement";
 import type { FitRange } from "@/core/workflow/powder";
-import type { PdfPair } from "@/core/pdf/pairEnumerator";
+import type { PairShell, PairSource } from "@/core/pdf/pairEnumerator";
 import { applyExclusionMask, fitRangeMask } from "@/core/refinement/factors";
 import { tieReferences, resolveTies } from "@/core/refinement/constraints";
 import { applyParameters } from "@/core/workflow/apply";
@@ -37,8 +37,8 @@ import {
   expandStructureAtomsWithProvenance,
   type ExpandedAtom,
 } from "@/core/diffraction/structureFactor";
-import { cartesianAdpTensor, colocatedGroups, enumeratePairs, type ColocatedGroups } from "@/core/pdf/pairEnumerator";
-import { computeGofR, PAIR_REACH_MARGIN, type PdfModelParams } from "@/core/pdf/forwardModel";
+import { cartesianAdpTensor, colocatedGroups, pairSourceFor, type ColocatedGroups } from "@/core/pdf/pairEnumerator";
+import { computeGofR, PAIR_REACH_MARGIN, type GridBlock, type PdfModelParams } from "@/core/pdf/forwardModel";
 import { computeGofRWithColumns, DUISO_DBISO, requestsUniformOver, type PdfColumnRequest } from "@/core/pdf/gradients";
 import { rotateUAniso, toIsotropic } from "@/core/crystal/adp";
 import { orthogonalizationMatrix } from "@/core/crystal/unitCell";
@@ -106,6 +106,82 @@ export interface PdfRefinementProblem extends RefinementProblem {
     freeParams: readonly RefinementParameter[],
     freeValues: readonly number[],
   ) => { chi2: number; grad: Float64Array };
+  /** The same evaluation split by model-grid block, for a pool that holds each block's pairs in one worker. */
+  readonly split: PdfSplit;
+}
+
+/** Which block of the model grid a problem built for one pool worker computes: `index` of `count`. */
+export interface PdfShard {
+  readonly index: number;
+  readonly count: number;
+}
+
+/**
+ * One evaluation split by model-grid block. Worker w of W holds only the pairs
+ * whose ±5σ window can reach its block, and computes that block of the model
+ * curve (or of every analytic column); the driver joins the blocks and
+ * finishes them (termination, the window, the restraint rows). Each grid point
+ * receives the same terms in the same order as in the whole curve, so the
+ * joined result is bit-identical to `calculate` / `analyticColumns`.
+ */
+export interface PdfSplit {
+  /** The model grid's length (the sum of the blocks'). */
+  readonly gridLength: number;
+  /** Block `index` of `count`: contiguous, balanced by r³ (the pairs a block draws on grow as r²). */
+  blockOf(index: number, count: number): GridBlock;
+  /** This shard's block of the model curve at `values` (enveloped and scaled, not terminated). Only on a problem built with a shard. */
+  evaluateBlock(values: Readonly<Record<string, number>>): Float64Array;
+  /** This shard's block of every analytic column at the free values (null: finite differences). Only on a problem built with a shard. */
+  analyticBlock(freeParams: readonly RefinementParameter[], freeValues: readonly number[]): (Float64Array | null)[];
+  /** The model curve on the whole grid → the calculated vector. */
+  finish(values: Readonly<Record<string, number>>, model: Float64Array): Float64Array;
+  /** The columns' model curves → the Jacobian columns (null stays null). */
+  finishColumns(freeParams: readonly RefinementParameter[], model: readonly (Float64Array | null)[]): (Float64Array | null)[];
+}
+
+/** The shards' blocks of one model curve (shard w's at index w), joined into the whole grid. */
+export function joinBlocks(split: PdfSplit, blocks: readonly Float64Array[]): Float64Array {
+  const model = new Float64Array(split.gridLength);
+  for (let w = 0; w < blocks.length; w++) model.set(blocks[w]!, split.blockOf(w, blocks.length).k0);
+  return model;
+}
+
+/** Pairs shorter than this are kept by every shard: they are few, and their width bound (through δ1/r, δ2/r²) is the loosest. */
+const SHARD_SHORT_PAIRS = 4;
+
+/**
+ * An upper bound (Å) of how far a pair's ±5σ window reaches, for every pair at
+ * r ∈ [SHARD_SHORT_PAIRS, rTop], plus two grid steps for the window's rounding:
+ * σ² is msd·(1 − δ1/r − δ2/r² + Qbroad²r²) or, in the fallbacks, msd or the
+ * floor; |msd| = |n̂ᵀ(U_i + U_j)n̂| ≤ ‖U_i‖ + ‖U_j‖, each norm bounded by the
+ * smaller of the Frobenius norm and the largest Gershgorin row sum (exact for
+ * an isotropic U); sratio can only widen it below rcut. A shard excludes a
+ * pair only beyond this reach of its block.
+ */
+export function pairReachBound(cell: UnitCell, atoms: readonly ExpandedAtom[], params: PdfModelParams, rTop: number, step: number): number {
+  let uMax = 0;
+  for (const a of atoms) {
+    const U = cartesianAdpTensor(cell, a.adp);
+    let frobenius = 0;
+    let gershgorin = 0;
+    for (let r = 0; r < 3; r++) {
+      let row = 0;
+      for (let c = 0; c < 3; c++) {
+        frobenius += U[r]![c]! * U[r]![c]!;
+        row += Math.abs(U[r]![c]!);
+      }
+      gershgorin = Math.max(gershgorin, row);
+    }
+    // Both bound the spectral norm; the rounding of either is far inside the (1 + 1e-9) and two-step slack below.
+    uMax = Math.max(uMax, Math.min(Math.sqrt(frobenius), gershgorin) * (1 + 1e-12));
+  }
+  const msdBound = 2 * uMax;
+  const rLow = SHARD_SHORT_PAIRS;
+  const broadBound = 1 + Math.abs(params.delta1) / rLow + Math.abs(params.delta2) / (rLow * rLow) + params.qbroad * params.qbroad * rTop * rTop;
+  let sigma = Math.sqrt(Math.max(msdBound * broadBound, msdBound, 1e-8));
+  if ((params.rcut ?? 0) > 0) sigma *= Math.max(1, Math.abs(params.sratio ?? 1));
+  sigma = Math.max(sigma, 1e-4);
+  return 5 * sigma * (1 + 1e-9) + 2 * step;
 }
 
 export function buildPdfProblem(
@@ -115,6 +191,7 @@ export function buildPdfProblem(
   bindings: readonly ParameterBinding[],
   restraints: readonly LinearRestraint[] = [],
   fitRange?: FitRange,
+  shard?: PdfShard,
 ): PdfRefinementProblem {
   const rValues = pattern.points.map((p) => p.r);
   const gObs = pattern.points.map((p) => p.gObs);
@@ -149,38 +226,89 @@ export function buildPdfProblem(
   // the data grid. Otherwise the model grid IS the (windowed) data grid.
   const { modelGrid, sliceOffset, terminate, step, qmax } = terminationPlanFor(pattern, rWindow);
   const rMaxModel = modelGrid.length ? modelGrid[modelGrid.length - 1]! : 0;
-  let lastKey: string | null = null;
-  let cachedPairs: PdfPair[] = [];
+  const rReach = rMaxModel + PAIR_REACH_MARGIN;
+  const gridStep = modelGrid.length > 1 ? modelGrid[1]! - modelGrid[0]! : 1;
+
+  const blockOf = (index: number, count: number): GridBlock => {
+    const n = modelGrid.length;
+    if (count <= 1 || n === 0) return { k0: 0, k1: n };
+    const r0 = modelGrid[0]!;
+    const rN = modelGrid[n - 1]!;
+    const edge = (w: number): number => {
+      if (w <= 0) return 0;
+      if (w >= count) return n;
+      const target = r0 * r0 * r0 + (w / count) * (rN * rN * rN - r0 * r0 * r0);
+      let k = 0;
+      while (k < n && modelGrid[k]! * modelGrid[k]! * modelGrid[k]! < target) k++;
+      return k;
+    };
+    return { k0: edge(index), k1: edge(index + 1) };
+  };
+  // A shard's own block, and the r range of the pairs that can reach it.
+  const ownBlock: GridBlock | undefined = shard && shard.count > 1 ? blockOf(shard.index, shard.count) : undefined;
+  const shellFor = (margin: number): PairShell | undefined => {
+    if (!ownBlock) return undefined;
+    const n = modelGrid.length;
+    // The block's edges on the lattice the pair windows are cut on (r0 + k·step, computeGofR's).
+    const rA = ownBlock.k0 > 0 ? modelGrid[0]! + ownBlock.k0 * gridStep : -Infinity;
+    const rB = ownBlock.k1 < n ? modelGrid[0]! + (ownBlock.k1 - 1) * gridStep : Infinity;
+    return { rMin: Math.max(0, rA - margin), rMax: Math.min(rReach, rB + margin), rAlways: SHARD_SHORT_PAIRS };
+  };
+
+  // The pairs: a compact list (pdf/pairEnumerator), or a stream beyond its
+  // storage budget. A shard keeps only those its block can see, with a margin
+  // checked against every evaluation's widths (`pairReachBound`).
+  interface CachedPairs { readonly key: string; readonly margin: number; readonly pairs: PairSource }
+  let cached: CachedPairs | null = null;
   // A mixed site's species (same position, same ADP) pair once, through one
   // representative carrying their summed weight: a third of the pairs for a
   // six-cation site. Null when no atoms coincide, and the sum is per atom.
   let cachedGroups: ColocatedGroups | null = null;
   // The per-atom pairs at the same geometry, for a gradient request that tells
   // a group's atoms apart (built only then).
-  let atomPairs: { key: string; pairs: PdfPair[] } | null = null;
+  let atomPairs: CachedPairs | null = null;
 
   const geometryKey = (resolved: Readonly<Record<string, number>>): string => {
     let key = "";
     for (const id of geomIds) key += `|${resolved[id]}`;
     return key;
   };
-  const pairsFor = (cell: UnitCell, atoms: readonly ExpandedAtom[], resolved: Readonly<Record<string, number>>): { pairs: PdfPair[]; groups: ColocatedGroups | null } => {
+  const marginNeeded = (cell: UnitCell, atoms: readonly ExpandedAtom[], params: PdfModelParams): number =>
+    ownBlock ? pairReachBound(cell, atoms, params, rReach, gridStep) : 0;
+  const pairsFor = (cell: UnitCell, atoms: readonly ExpandedAtom[], resolved: Readonly<Record<string, number>>, params: PdfModelParams): { pairs: PairSource; groups: ColocatedGroups | null } => {
     const key = geometryKey(resolved);
-    if (key !== lastKey) {
+    const need = marginNeeded(cell, atoms, params);
+    if (!cached || cached.key !== key || cached.margin < need) {
       cachedGroups = colocatedGroups(atoms);
-      cachedPairs = enumeratePairs(cell, atoms, rMaxModel + PAIR_REACH_MARGIN, cachedGroups);
-      lastKey = key;
+      const margin = 1.5 * need;
+      cached = null; // let the old list go before the new one is built
+      cached = { key, margin, pairs: pairSourceFor(cell, atoms, rReach, cachedGroups, shellFor(margin)) };
     }
-    return { pairs: cachedPairs, groups: cachedGroups };
+    return { pairs: cached.pairs, groups: cachedGroups };
+  };
+  const perAtomPairsFor = (cell: UnitCell, atoms: readonly ExpandedAtom[], resolved: Readonly<Record<string, number>>, params: PdfModelParams): PairSource => {
+    const key = geometryKey(resolved);
+    const need = marginNeeded(cell, atoms, params);
+    if (!atomPairs || atomPairs.key !== key || atomPairs.margin < need) {
+      const margin = 1.5 * need;
+      atomPairs = null;
+      atomPairs = { key, margin, pairs: pairSourceFor(cell, atoms, rReach, null, shellFor(margin)) };
+    }
+    return atomPairs.pairs;
   };
 
-  const calculate = (values: Readonly<Record<string, number>>): Float64Array => {
+  /** The model curve (model grid, enveloped and scaled, not terminated), on `block` or the whole grid. */
+  const modelCurve = (values: Readonly<Record<string, number>>, block?: GridBlock): Float64Array => {
     const resolved = resolveTies(parameters, values);
     const applied = applyParameters(structure, bindings, resolved);
     const atoms = expandStructureAtoms(applied.model);
-    const { pairs, groups } = pairsFor(applied.model.cell, atoms, resolved);
     const params: PdfModelParams = { scatteringType: pattern.scatteringType, ...(applied.pdf ?? PDF_DEFAULTS) };
-    const gModel = computeGofR(applied.model.cell, atoms, modelGrid, params, pairs, groups);
+    const { pairs, groups } = pairsFor(applied.model.cell, atoms, resolved, params);
+    return computeGofR(applied.model.cell, atoms, modelGrid, params, pairs, groups, block);
+  };
+
+  const finish = (values: Readonly<Record<string, number>>, gModel: Float64Array): Float64Array => {
+    const resolved = resolveTies(parameters, values);
     const gWindow = terminate
       ? bandLimit(gModel, modelGrid[0]!, step, qmax).subarray(sliceOffset, sliceOffset + rWindow.length)
       : gModel;
@@ -193,6 +321,11 @@ export function buildPdfProblem(
       out[rValues.length + i] = value;
     }
     return out;
+  };
+
+  const calculate = (values: Readonly<Record<string, number>>): Float64Array => {
+    if (ownBlock) throw new Error("a PDF shard computes its block only (split.evaluateBlock)");
+    return finish(values, modelCurve(values));
   };
 
   // Free parameters referenced BY a tie expression: moving them moves the tied
@@ -208,13 +341,13 @@ export function buildPdfProblem(
     }
   }
 
-  /** Analytic ∂calc/∂p for every free parameter the fused gradient pass can
-   *  differentiate, null (→ engine FD) elsewhere. Restraint rows are affine in
-   *  the parameters, so their derivative entries are the term coefficients —
-   *  restraints are supported, not refused (unlike the powder template). */
-  const columnsFor = (
+  /** Analytic ∂(model curve)/∂p for every free parameter the fused gradient
+   *  pass can differentiate, null (→ engine FD) elsewhere, on `block` or the
+   *  whole model grid. */
+  const modelColumns = (
     freeParams: readonly RefinementParameter[],
     freeValues: readonly number[],
+    block?: GridBlock,
   ): (Float64Array | null)[] => {
     const record: Record<string, number> = {};
     for (const p of parameters) record[p.id] = p.value;
@@ -223,9 +356,10 @@ export function buildPdfProblem(
     const applied = applyParameters(structure, bindings, resolved);
     const { atoms, provenance } = expandStructureAtomsWithProvenance(applied.model);
     const cell = applied.model.cell;
-    const grouped = pairsFor(cell, atoms, resolved);
-    const M = orthogonalizationMatrix(cell);
     const pdf = applied.pdf ?? PDF_DEFAULTS;
+    const params: PdfModelParams = { scatteringType: pattern.scatteringType, ...pdf };
+    const grouped = pairsFor(cell, atoms, resolved, params);
+    const M = orthogonalizationMatrix(cell);
 
     const siteIndexByLabel = new Map(applied.model.sites.map((s, i) => [s.label, i] as const));
     const orbit: number[][] = applied.model.sites.map(() => []);
@@ -332,20 +466,24 @@ export function buildPdfProblem(
     }
     if (activeReqs.length === 0) return out;
 
-    const params: PdfModelParams = { scatteringType: pattern.scatteringType, ...pdf };
     let { pairs, groups } = grouped;
     if (groups && !requestsUniformOver(activeReqs, groups)) {
-      const key = geometryKey(resolved);
-      if (atomPairs?.key !== key) atomPairs = { key, pairs: enumeratePairs(cell, atoms, rMaxModel + PAIR_REACH_MARGIN) };
-      pairs = atomPairs.pairs;
+      pairs = perAtomPairsFor(cell, atoms, resolved, params);
       groups = null;
     }
-    const { columns } = computeGofRWithColumns(cell, atoms, modelGrid, params, pairs, activeReqs, groups);
-    for (let c = 0; c < activeIdx.length; c++) {
-      const j = activeIdx[c]!;
-      const col = columns[c]!;
-      // Columns live in calculated-pattern space: same termination convolution
-      // (bandLimit is linear) and window splice as the value path.
+    const { columns } = computeGofRWithColumns(cell, atoms, modelGrid, params, pairs, activeReqs, groups, block);
+    for (let c = 0; c < activeIdx.length; c++) out[activeIdx[c]!] = columns[c]!;
+    return out;
+  };
+
+  /** Model-grid columns → Jacobian columns. Columns live in calculated-pattern
+   *  space: the same termination convolution (bandLimit is linear) and window
+   *  splice as the value path; restraint rows are affine in the parameters, so
+   *  their entries are the term coefficients — restraints are supported, not
+   *  refused (unlike the powder template). */
+  const finishColumns = (freeParams: readonly RefinementParameter[], model: readonly (Float64Array | null)[]): (Float64Array | null)[] =>
+    model.map((col, j) => {
+      if (!col) return null;
       const colWindow = terminate
         ? bandLimit(col, modelGrid[0]!, step, qmax).subarray(sliceOffset, sliceOffset + rWindow.length)
         : col;
@@ -357,9 +495,32 @@ export function buildPdfProblem(
         for (const term of restraints[t]!.terms) if (term.parameterId === pid) coeff += term.coefficient;
         full[rValues.length + t] = coeff;
       }
-      out[j] = full;
-    }
-    return out;
+      return full;
+    });
+
+  /** Analytic ∂calc/∂p for every free parameter the fused gradient pass can
+   *  differentiate, null (→ engine FD) elsewhere. */
+  const columnsFor = (
+    freeParams: readonly RefinementParameter[],
+    freeValues: readonly number[],
+  ): (Float64Array | null)[] => {
+    if (ownBlock) throw new Error("a PDF shard computes its block only (split.analyticBlock)");
+    return finishColumns(freeParams, modelColumns(freeParams, freeValues));
+  };
+
+  const split: PdfSplit = {
+    gridLength: modelGrid.length,
+    blockOf,
+    evaluateBlock: (values) => {
+      const b = ownBlock ?? { k0: 0, k1: modelGrid.length };
+      return modelCurve(values, ownBlock).slice(b.k0, b.k1);
+    },
+    analyticBlock: (freeParams, freeValues) => {
+      const b = ownBlock ?? { k0: 0, k1: modelGrid.length };
+      return modelColumns(freeParams, freeValues, ownBlock).map((c) => (c ? c.slice(b.k0, b.k1) : null));
+    },
+    finish,
+    finishColumns,
   };
 
   const gradChi2 = (
@@ -401,7 +562,7 @@ export function buildPdfProblem(
     return { chi2, grad };
   };
 
-  return { parameters, observations, weights, dataLength: rValues.length, calculate, analyticColumns: columnsFor, gradChi2 };
+  return { parameters, observations, weights, dataLength: rValues.length, calculate, analyticColumns: columnsFor, gradChi2, split };
 }
 
 /** Structural alias for a 3×3 tensor built row-wise in the uAniso accumulation. */
@@ -484,11 +645,11 @@ export function buildMultiPhasePdfProblem(
 
   // One geometry-keyed pair cache per phase (same exactness argument as the
   // single-phase cache: amplitudes rebuild per evaluation, scale applies last).
-  const caches = new Map<string, { geomIds: string[]; lastKey: string | null; pairs: PdfPair[] }>();
+  const caches = new Map<string, { geomIds: string[]; lastKey: string | null; pairs: PairSource }>();
   for (const phase of phases) {
     const phaseBindings = pdfPhaseBindingsFor(bindings, phase.id);
     const geomIds = [...new Set(phaseBindings.filter((b) => PAIR_GEOMETRY_KINDS.has(b.kind)).map((b) => b.parameterId))];
-    caches.set(phase.id, { geomIds, lastKey: null, pairs: [] });
+    caches.set(phase.id, { geomIds, lastKey: null, pairs: { forEachChunk: () => {} } });
   }
 
   const calculate = (values: Readonly<Record<string, number>>): Float64Array => {
@@ -502,7 +663,7 @@ export function buildMultiPhasePdfProblem(
       let key = "";
       for (const id of cache.geomIds) key += `|${resolved[id]}`;
       if (key !== cache.lastKey) {
-        cache.pairs = enumeratePairs(applied.model.cell, atoms, rMaxModel + PAIR_REACH_MARGIN);
+        cache.pairs = pairSourceFor(applied.model.cell, atoms, rMaxModel + PAIR_REACH_MARGIN);
         cache.lastKey = key;
       }
       const params: PdfModelParams = { scatteringType: pattern.scatteringType, ...(applied.pdf ?? PDF_DEFAULTS) };
@@ -676,7 +837,7 @@ export function buildMultiDatasetPdfProblem(
   const geomIds = [...new Set(bindings.filter((b) => PAIR_GEOMETRY_KINDS.has(b.kind)).map((b) => b.parameterId))];
   const rMaxAll = Math.max(0, ...plans.map((d) => (d.plan.modelGrid.length ? d.plan.modelGrid[d.plan.modelGrid.length - 1]! : 0)));
   let lastKey: string | null = null;
-  let cachedPairs: PdfPair[] = [];
+  let cachedPairs: PairSource = { forEachChunk: () => {} };
 
   const calculate = (values: Readonly<Record<string, number>>): Float64Array => {
     const resolved = resolveTies(parameters, values);
@@ -688,7 +849,7 @@ export function buildMultiDatasetPdfProblem(
       let key = "";
       for (const id of geomIds) key += `|${resolved[id]}`;
       if (key !== lastKey) {
-        cachedPairs = enumeratePairs(applied.model.cell, atoms, rMaxAll + PAIR_REACH_MARGIN);
+        cachedPairs = pairSourceFor(applied.model.cell, atoms, rMaxAll + PAIR_REACH_MARGIN);
         lastKey = key;
       }
       const params: PdfModelParams = { scatteringType: d.pattern.scatteringType, ...(applied.pdf ?? PDF_DEFAULTS) };
