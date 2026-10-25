@@ -224,14 +224,12 @@ export function atomTable(phase: TablePhase, technique: TableTechnique): AtomTab
   };
 }
 
-/** What the atom table's values without an esd are, said once under it. */
+/** What the atom table's values without an esd are, said once under it (the footer says what the parentheses are). */
 export function atomTableNote(t: AtomTable): string {
-  const parts = [
-    "Numbers in parentheses are standard uncertainties in the last digits.",
-    ...(t.symmetryFixed ? ["Fractions are coordinates fixed by the site symmetry."] : []),
-    ...(t.held ? ["A value without one was held at its starting value, not refined."] : []),
-  ];
-  return parts.join(" ");
+  return [
+    ...(t.symmetryFixed ? ["Fractions: coordinates fixed by the site symmetry."] : []),
+    ...(t.held ? ["Values without an esd were held, not refined."] : []),
+  ].join(" ");
 }
 
 // ---------------------------------------------------------------------------
@@ -253,4 +251,4 @@ export function shellTables(structure: StructureModel): ShellTable[] {
 }
 
 /** What the shell tables' lengths are, said once. */
-export const SHELL_NOTE = "Distances at the refined positions: each cation's shell out to 3.2 Å, or 1.25 × its shortest bond for a large cation. No esds: the covariance is not carried to the lengths.";
+export const SHELL_NOTE = "Distances: each cation's shell to 3.2 Å (or 1.25 × its shortest bond) at the refined positions; no esds, as the covariance is not carried to the lengths.";

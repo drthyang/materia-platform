@@ -435,7 +435,7 @@ export function summaryParameters(params: readonly RefinementParameter[], techni
 }
 
 /** What the appendix holds, under its heading. */
-export const APPENDIX_NOTE = "The record behind the report, for reproducing it: the data and the model, the refinement's statistics, how the analysis went step by step, every parameter (fixed or refined), the conventions and the software.";
+export const APPENDIX_NOTE = "The record behind the report, for reproducing it: the data and model, the statistics, the analysis step by step, every parameter, the conventions and the software.";
 
 /** What the covalent bond table says about its lengths. */
 export const COVALENT_BONDS_NOTE = "Covalent bonds at the refined positions (atoms closer than their covalent radii and 0.4 Å), each once; the esds from the refined positions' and, for a cell held fixed, from the structure file's cell esds (each independent cell parameter moved by its esd, as SHELXL adds them). A riding hydrogen's bond is set by its constraint. [k_abc] marks an image of the atom listed: operation k of the symmetry list, moved by the lattice translation (a − 5, b − 5, c − 5), as a CIF's site-symmetry code.";
@@ -479,7 +479,11 @@ export function posteriorCaveat(p: ReportPosterior): string {
 export const ACCOUNT_NOTE = "Written by MATERIA Copilot in its own words, as are its notes (in the appendix, with the model that wrote them). Every other number in this report — the steps, the checks, the parameters, the agreement factors and the figure — comes from the refinement engine and the project's History, not from the model.";
 
 /** What the composed Result paragraph says about whose words it is. */
-export const COMPOSED_NOTE = "Composed by MATERIA from its own readings of this fit; no model wrote it.";
+export const COMPOSED_NOTE = "Composed by MATERIA from its own checks of this fit, not by a model.";
+
+/** The report's last words: who wrote it, what the parentheses are, and the beta's caution. */
+export const FOOTER = (input: ReportInput, date: string): string =>
+  `MATERIA Workbench${input.appVersion ? ` v${input.appVersion}` : ""}, ${date}. Numbers in parentheses are standard uncertainties in the last digits, from this fit's least-squares covariance; a tied value carries its leader's. MATERIA is in public beta: reproduce a result you publish in an established package (the Export menu writes GSAS-II and FullProf bundles).`;
 
 /** The software and the date behind the report, for the appendix. */
 export function softwareRows(input: ReportInput, date: string): ReportRow[] {
@@ -711,7 +715,7 @@ function structureHtml(input: ReportInput): string {
     ...(molecule?.hydrogenBonds?.length ? [HBOND_NOTE] : []),
   ];
   return `${built.map((b) => b.html).join("\n")}
-<p class="note">${notes.map(esc).join(" ")}</p>`;
+<p class="note">${notes.filter(Boolean).map(esc).join(" ")}</p>`;
 }
 
 function magneticHtml(m: ReportMagnetic, fallback: StructureModel | undefined): string {
@@ -745,8 +749,8 @@ function magneticHtml(m: ReportMagnetic, fallback: StructureModel | undefined): 
 <p>${esc(m.status)}</p>
 ${moments}
 <div class="pair">
-  <figure class="fig mag">${svg}<figcaption>${isSuper ? `Magnetic supercell ${supercell.join(" × ")} of the nuclear cell` : "One unit cell"}, projected down <i>c</i>*. Arrows: the in-plane moment, length ∝ |<i>m</i>|; ⊙ / ⊗ a component out of / into the page. Filled atoms lie in the lower half of the cell, outlined ones in the upper half.</figcaption></figure>
-  <div>${params}${limits}<p class="note">Components along <i>a</i>, <i>b</i>, <i>c</i> in µ<sub>B</sub> per unit cell length; |<i>m</i>| through the cell metric.</p></div>
+  <figure class="fig mag">${svg}<figcaption>${isSuper ? `The ${supercell.join(" × ")} magnetic supercell` : "One unit cell"} down <i>c</i>*: in-plane moments as arrows (length ∝ |<i>m</i>|), ⊙ / ⊗ out of / into the page; filled atoms in the lower half of the cell.</figcaption></figure>
+  <div>${params}${limits}<p class="note"><i>m<sub>a</sub></i>, <i>m<sub>b</sub></i>, <i>m<sub>c</sub></i>: components along the cell axes (µ<sub>B</sub>); |<i>m</i>| through the metric.</p></div>
 </div>`;
 }
 
@@ -1083,9 +1087,6 @@ const CSS = `
   }
 `;
 
-/** Open every part of the appendix before printing, where ::details-content is not supported. */
-const PRINT_SCRIPT = `addEventListener("beforeprint",function(){document.querySelectorAll("details").forEach(function(d){d.setAttribute("open","")})});`;
-
 /** Build the standalone HTML report (a complete document, ready to save). */
 export function reportHtml(input: ReportInput): string {
   const date = (input.date ?? new Date()).toISOString().slice(0, 10);
@@ -1120,7 +1121,6 @@ export function reportHtml(input: ReportInput): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(formulaText(input.title))} · ${esc(technique)} report</title>
 <style>${CSS}</style>
-<script>${PRINT_SCRIPT}</script>
 </head>
 <body>
 <div class="wrap">
@@ -1135,14 +1135,11 @@ export function reportHtml(input: ReportInput): string {
   ${section("fit", "Fit", fit)}
   ${section("quality", "Quality and caveats", qualityHtml(input))}
   <section id="appendix" class="appendix"><h2>Appendix</h2>
-  <p class="note">${esc(APPENDIX_NOTE)} Open a part to read it; printing opens them all.</p>
+  <p class="note">${esc(APPENDIX_NOTE)} Printing opens every part.</p>
   ${appendix}
   </section>
   <footer>
-    Generated by MATERIA Workbench${input.appVersion ? ` v${esc(input.appVersion)}` : ""} on ${esc(date)}.
-    Values in parentheses are standard uncertainties in the last digit(s), from the least-squares covariance of this fit;
-    a value without one was fixed, set by a constraint, or not part of the last refinement; a tied value carries its leader's.
-    MATERIA is in public beta — reproduce results you intend to publish in an established package (the Export menu offers GSAS-II and FullProf bundles).
+    ${esc(FOOTER(input, date))}
   </footer>
 </div>
 </body>

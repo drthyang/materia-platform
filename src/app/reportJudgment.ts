@@ -68,7 +68,7 @@ export function powderJudgment(page: JudgedPage, o: { readonly gof: number | nul
   });
   return {
     acceptance,
-    causes: rows.map((r) => ({ title: r.title, phrase: r.phrase, share: r.share, evidence: r.evidence, ...(r.statistic ? { statistic: r.statistic } : {}) })),
+    causes: rows.map((r) => ({ title: r.title, phrase: r.phrase, share: r.share, evidence: r.evidence, summary: r.summary, ...(r.statistic ? { statistic: r.statistic } : {}) })),
     ...(top ? { headlineCause: top } : {}),
     restraints: page.restraints,
   };

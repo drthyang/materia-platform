@@ -64,8 +64,8 @@ describe("refinement report (HTML)", () => {
     // Numbers aligned on the decimal point: the integer and fractional parts in boxes.
     expect(html).toMatch(/<td class="n"><span class="ip" style="min-width:\d+(\.\d+)?ch">0<\/span><span class="fp" style="min-width:\d+ch">\.62\(5\)<\/span><\/td>/);
     // What the numbers are, said once.
-    expect(html.match(/Fractions are coordinates fixed by the site symmetry/g)).toHaveLength(1);
-    expect(html.match(/No esds: the covariance is not carried to the lengths/g)).toHaveLength(1);
+    expect(html.match(/Fractions: coordinates fixed by the site symmetry/g)).toHaveLength(1);
+    expect(html.match(/no esds, as the covariance is not carried to the lengths/g)).toHaveLength(1);
     // The shells as small tables, not a run-on line.
     expect(html).toContain('<table class="bt mini">');
     expect(html).not.toContain(" · Ga1 ");
@@ -294,11 +294,11 @@ describe("correlations worth reading", () => {
     const c = meaningfulCorrelations(result([["bkg0", "bkg1", 0.995], ["U", "W", -0.97], ["scale", "B_Mn1", 0.962], ["occ_A", "occ_C", -0.99]]), params, [restraint]);
     expect(c.pairs.map((x) => `${x.a}/${x.b}`)).toEqual(["scale/B_Mn1"]);
     expect(c.curveOnly).toBe(true);
-    expect(correlationCaveats(c)[0]!.text).toBe("scale ↔ B_Mn1 0.962 (|ρ| ≥ 0.95: their esds are inflated)");
+    expect(correlationCaveats(c)[0]!.text).toBe("scale ↔ B_Mn1 0.962 (|ρ| ≥ 0.95: esds inflated)");
     // Only the background's among themselves: said so, not listed.
     const none = meaningfulCorrelations(result([["bkg0", "bkg1", 0.995]]), params);
     expect(none.pairs).toEqual([]);
-    expect(correlationCaveats(none)[0]).toEqual({ tone: "ok", label: "Correlations", text: "no pair at |ρ| ≥ 0.95 apart from the background coefficients among themselves, which trade off by construction" });
+    expect(correlationCaveats(none)[0]).toEqual({ tone: "ok", label: "Correlations", text: "none at |ρ| ≥ 0.95 (the background coefficients among themselves aside)" });
   });
 });
 
@@ -322,26 +322,26 @@ describe("the Result paragraph per verdict state", () => {
     expect(powderResultParagraph(i)).toBe(
       "Rietveld refinement of Mn₃Ga (P6₃/mmc) against neutron time-of-flight data: 9 free parameters over 3125 points. " +
       "It converged in 2 cycles at {{R_wp}} = 4.01 % ({{R_exp}} = 1.31 %, GoF = 3.05). " +
-      "At GoF = 3.05 the fit is fair, above the acceptance bar (good ≤ 2.5), and not yet acceptable: most of the misfit is in the peak tails (about 85 % of χ²). " +
-      "The Mn3Ga Ga1 occupancy is held at 1.005, outside [0, 1] (an input the fit never moved); the esds are likely too small (GoF 3.05); and the cross-check in GSAS-II and FullProf is still to do.",
+      "The fit is fair, above the acceptance bar (good ≤ 2.5): most of the misfit is in the peak tails (about 85 % of χ²). " +
+      "The Mn3Ga Ga1 occupancy is held at 1.005, outside [0, 1] (an input, not refined); the esds are likely too small; and the cross-check in GSAS-II and FullProf is still to do.",
     );
     const caveats = powderCaveats(i);
     expect(caveats.map((c) => c.label)).toEqual(["Goodness of fit", "Peak tails", "Physical sanity", "Esds", "Correlations", "Cross-check"]);
-    expect(caveats[0]).toEqual({ tone: "warn", label: "Goodness of fit", text: "GoF 3.05, fair — above the acceptance bar (good ≤ 2.5); the model misses systematic features" });
+    expect(caveats[0]).toEqual({ tone: "warn", label: "Goodness of fit", text: "GoF 3.05, fair — above the acceptance bar (good ≤ 2.5)" });
     expect(caveats[1]!.text).toBe("about 85 % of χ² — the observed peaks have longer tails than the model's");
     expect(caveats[2]!.text).toBe("Mn3Ga Ga1 occupancy held at 1.005 (0.5% over 1: an input the fit never moved)");
   });
 
   it("a good fit, physically sane: within the bar, the cross-check the step left", () => {
     const p = powderResultParagraph(input({ gof: 1.8, result: fit(1.8) }));
-    expect(p).toContain("At GoF = 1.80 the fit is good, within the acceptance bar (good ≤ 2.5) and physically sane.");
+    expect(p).toContain("GoF = 1.80). The fit is good, within the acceptance bar (good ≤ 2.5) and physically sane.");
     expect(p).toContain("The cross-check in GSAS-II and FullProf is the step left.");
   });
 
   it("an excellent, a poor and a too-good fit", () => {
-    expect(powderResultParagraph(input({ gof: 1.2, result: fit(1.2) }))).toContain("At GoF = 1.20 the fit is excellent, close to the noise, and physically sane.");
+    expect(powderResultParagraph(input({ gof: 1.2, result: fit(1.2) }))).toContain("GoF = 1.20). The fit is excellent, close to the noise, and physically sane.");
     expect(powderResultParagraph(input({ gof: 6.5, result: fit(6.5), cause: { phrase: "the peak positions", share: 0.4, first: true } })))
-      .toContain("At GoF = 6.50 the fit is poor, far from the data, and no value should be trusted yet: the misfit in the peak positions comes first, as the method refines the cell, zero and background before the rest.");
+      .toContain("GoF = 6.50). The fit is poor, far from the data, and no value should be trusted yet: the misfit in the peak positions comes first, as the method refines the cell, zero and background before the rest.");
     expect(powderResultParagraph(input({ gof: 0.6, result: fit(0.6) }))).toContain("GoF = 0.60 is below 0.8: the σ's are overestimated or the model has more parameters than the data support, so the esds are optimistic.");
   });
 
@@ -377,9 +377,9 @@ describe("the Result paragraph per verdict state", () => {
   it("puts the app's caveats first, then the page's limitations and the Agent's open issues; the composed Result says whose words it is", () => {
     const items = qualityItems({ ...powderInput(), assessment: { result: "x", caveats: [{ tone: "ok", label: "Correlations", text: "none" }] }, agent: AGENT_CHECKS });
     expect(items.map((c) => c.label)).toEqual(["Correlations", "Limitation", "Bounds", "Residual peaks"]);
-    const html = reportHtml({ ...powderInput(), assessment: { result: "At GoF = 3.05 the fit is fair, with {{R_wp}} = 4.01 %.", caveats: [] } });
-    expect(html).toContain('<p class="lede">At GoF = 3.05 the fit is fair, with <i>R</i><sub>wp</sub> = 4.01&nbsp;%.</p>');
-    expect(html).toContain("Composed by MATERIA from its own readings of this fit; no model wrote it.");
+    const html = reportHtml({ ...powderInput(), assessment: { result: "The fit is fair, with {{R_wp}} = 4.01 %.", caveats: [] } });
+    expect(html).toContain('<p class="lede">The fit is fair, with <i>R</i><sub>wp</sub> = 4.01&nbsp;%.</p>');
+    expect(html).toContain("Composed by MATERIA from its own checks of this fit, not by a model.");
   });
 });
 

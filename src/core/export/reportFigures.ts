@@ -117,7 +117,9 @@ export function patternFigureSvg(c: FigureCurves, o: PatternFigureOptions): stri
   const n = c.x.length;
   if (n === 0) return "";
   const W = 1000;
-  const L = 68;
+  const rows = (o.ticks ?? []).filter((r) => r.x.length > 0);
+  // Room on the left for the longest tick-row label (a phase's name), within reason.
+  const L = Math.min(190, Math.max(68, 16 + 6.6 * Math.max(0, ...rows.map((r) => [...r.label].length))));
   const R = 16;
   const T = 14;
   const H1 = 300;
@@ -125,7 +127,6 @@ export function patternFigureSvg(c: FigureCurves, o: PatternFigureOptions): stri
   const H2 = 86;
   const TICK_H = 14;
   const AX = 40;
-  const rows = (o.ticks ?? []).filter((r) => r.x.length > 0);
   const tickBlock = rows.length > 0 ? 8 + rows.length * TICK_H : 0;
   const H = T + H1 + GAP + H2 + tickBlock + AX;
 

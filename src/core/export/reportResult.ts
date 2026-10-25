@@ -97,10 +97,10 @@ export function meaningfulCorrelations(result: RefinementResult, parameters: rea
 /** The correlations as caveats: each named pair, or that none is strong. */
 export function correlationCaveats(c: ReturnType<typeof meaningfulCorrelations>): ReportCaveat[] {
   if (c.pairs.length === 0) {
-    return [{ tone: "ok", label: "Correlations", text: `no pair at |ρ| ≥ ${CORRELATION_LIMIT}${c.curveOnly ? " apart from the background coefficients among themselves, which trade off by construction" : ""}` }];
+    return [{ tone: "ok", label: "Correlations", text: `none at |ρ| ≥ ${CORRELATION_LIMIT}${c.curveOnly ? " (the background coefficients among themselves aside)" : ""}` }];
   }
   const shown = c.pairs.slice(0, 3).map((p) => `${p.a} ↔ ${p.b} ${p.coefficient.toFixed(3)}`).join("; ");
-  return [{ tone: "warn", label: "Correlations", text: `${shown}${c.pairs.length > 3 ? `; ${c.pairs.length - 3} more in the appendix` : ""} (|ρ| ≥ ${CORRELATION_LIMIT}: their esds are inflated)` }];
+  return [{ tone: "warn", label: "Correlations", text: `${shown}${c.pairs.length > 3 ? `; ${c.pairs.length - 3} more in the appendix` : ""} (|ρ| ≥ ${CORRELATION_LIMIT}: esds inflated)` }];
 }
 
 // ---------------------------------------------------------------------------
@@ -145,6 +145,8 @@ export interface ReportCause {
   /** Fraction of χ². */
   readonly share: number;
   readonly evidence: string;
+  /** What the residual shows, in a few words ("Model's tails too short"). */
+  readonly summary?: string;
   readonly statistic?: string;
 }
 
@@ -188,11 +190,12 @@ function powderVerdict(i: PowderResultInput): string {
   const g = i.gof.toFixed(2);
   const cause = i.headlineCause ? `: ${causeClause(i.headlineCause)}` : "";
   const toCheck = issues.length > 0 ? `, with ${plural(issues.length, "value")} to check` : "";
+  // The GoF itself is the outcome sentence's; this one says where it stands.
   switch (a.band) {
-    case "poor": return `At GoF = ${g} the fit is poor, far from the data, and no value should be trusted yet${cause}.`;
-    case "fair": return `At GoF = ${g} the fit is fair, above the acceptance bar (good ≤ ${GOF_BANDS.good}), and not yet acceptable${cause}.`;
-    case "good": return `At GoF = ${g} the fit is good, within the acceptance bar (good ≤ ${GOF_BANDS.good})${toCheck || (a.passes ? " and physically sane" : "")}${i.headlineCause && !i.headlineCause.first ? `; some systematic misfit remains, ${causeClause(i.headlineCause)}` : cause}.`;
-    case "excellent": return `At GoF = ${g} the fit is excellent, close to the noise${toCheck || (a.passes ? ", and physically sane" : "")}.`;
+    case "poor": return `The fit is poor, far from the data, and no value should be trusted yet${cause}.`;
+    case "fair": return `The fit is fair, above the acceptance bar (good ≤ ${GOF_BANDS.good})${cause}.`;
+    case "good": return `The fit is good, within the acceptance bar (good ≤ ${GOF_BANDS.good})${toCheck || (a.passes ? " and physically sane" : "")}${i.headlineCause && !i.headlineCause.first ? `; some systematic misfit remains, ${causeClause(i.headlineCause)}` : cause}.`;
+    case "excellent": return `The fit is excellent, close to the noise${toCheck || (a.passes ? ", and physically sane" : "")}.`;
     case "too-good": return `GoF = ${g} is below ${GOF_BANDS.tooGood}: the σ's are overestimated or the model has more parameters than the data support, so the esds are optimistic.`;
   }
 }
@@ -203,12 +206,21 @@ function powderLimitations(i: PowderResultInput): string {
   const [, physical, cross] = a.checks;
   const byId = new Map(i.parameters.map((p) => [p.id, p]));
   const clauses: string[] = [];
-  for (const item of (physical.items ?? []).filter((x) => x.severity !== "blocker").slice(0, 2)) {
+  // The values to check (the bar's amber findings) and an input held outside its range; the
+  // other notes (a bond-valence length, a B on its bound) are the caveats' to list, one line each.
+  const items = physical.items ?? [];
+  const held = (item: (typeof items)[number]): RefinementParameter | undefined => {
     const p = byId.get(item.parameterIds[0] ?? "");
-    clauses.push(p && p.kind === "occupancy" && (p.fixed || p.expression) && /held at/.test(item.text)
-      ? `the ${parameterPhrase(p.label)} is held at ${+p.value.toFixed(4)}, outside [0, 1] (an input the fit never moved)`
+    return p && p.kind === "occupancy" && (p.fixed || p.expression) && /held at/.test(item.text) ? p : undefined;
+  };
+  for (const item of [...items.filter((x) => x.severity === "issue").slice(0, 1), ...items.filter((x) => x.severity === "note" && held(x)).slice(0, 1)]) {
+    const p = held(item);
+    clauses.push(p
+      ? `the ${parameterPhrase(p.label)} is held at ${+p.value.toFixed(4)}, outside [0, 1] (an input, not refined)`
       : lowerFirst(parameterPhrase(withoutAction(item.text)).replace(/\.$/, "")));
   }
+  const notes = items.filter((x) => x.severity === "note" && !held(x)).length;
+  if (notes > 0) clauses.push(`${plural(notes, "further note")} on the values ${notes === 1 ? "is" : "are"} listed under the caveats`);
   for (const e of (cross.esd ?? []).slice(0, 1)) clauses.push(esdClause(e));
   if (a.state.current || a.state.kind === "snapshot") {
     clauses.push(a.passes ? "the cross-check in GSAS-II and FullProf is the step left" : "the cross-check in GSAS-II and FullProf is still to do");
@@ -224,7 +236,11 @@ const symbols = (t: string): string => t.replace(/\bDW (\d)/, "Durbin–Watson {
 /** Why the esds may not hold, as a clause: "the esds are likely too small (Durbin–Watson d 0.61 < Q_D 1.90, GoF 3.05)". */
 function esdClause(e: { readonly text: string; readonly detail?: string }): string {
   const m = /^Esds likely too small: (.+)$/.exec(e.text);
-  if (m) return `the esds are likely too small (${symbols(m[1]!)})`;
+  // The GoF is the outcome sentence's; the clause keeps what it adds (the serial correlation).
+  if (m) {
+    const why = symbols(m[1]!).split(", ").filter((w) => !/^GoF /.test(w));
+    return `the esds are likely too small${why.length ? ` (${why.join(", ")})` : ""}`;
+  }
   return lowerFirst((e.detail ?? e.text).replace(/\.$/, ""));
 }
 
@@ -261,10 +277,10 @@ export function powderCaveats(i: PowderResultInput): ReportCaveat[] {
   const [gof, physical, cross] = a.checks;
   const out: ReportCaveat[] = [];
   if (a.state.kind !== "converged") out.push({ tone: TONE[a.state.tone], label: "Fit", text: lowerFirst(`${a.state.text}${a.state.detail ? `. ${a.state.detail}` : ""}`) });
-  out.push({ tone: TONE[gof.tone], label: "Goodness of fit", text: `${gof.value.replace(" · ", ", ")}${gof.sentence ? ` — ${lowerFirst(reportVoice(gof.sentence))}` : ""}${gof.detail ? `; ${lowerFirst(gof.detail.replace(/\.$/, ""))}` : ""}` });
+  out.push({ tone: TONE[gof.tone], label: "Goodness of fit", text: `${gof.value.replace(" · ", ", ")}${gof.sentence ? ` — ${lowerFirst(reportVoice(gof.sentence))}` : ""}` });
   const misfit: ReportTone = a.band === "poor" ? "bad" : a.band === "fair" ? "warn" : "note";
   for (const c of i.causes.filter((x) => x.share >= 0.05).slice(0, 3)) {
-    out.push({ tone: misfit, label: c.title, text: `about ${Math.round(100 * c.share)} % of χ² — ${lowerFirst(c.evidence.replace(/\.$/, ""))}${c.statistic ? ` (${c.statistic})` : ""}` });
+    out.push({ tone: misfit, label: c.title, text: `about ${Math.round(100 * c.share)} % of χ² — ${lowerFirst((c.summary ?? c.evidence).replace(/\.$/, ""))}${c.statistic ? ` (${c.statistic})` : ""}` });
   }
   const items = physical.items ?? [];
   if (items.length === 0) out.push({ tone: TONE[physical.tone], label: "Physical sanity", text: lowerFirst(physical.value) + (physical.sentence ? `; ${lowerFirst(physical.sentence)}` : "") });

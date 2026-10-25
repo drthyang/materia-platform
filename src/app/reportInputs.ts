@@ -298,6 +298,9 @@ export function subjectOf(phases: readonly StructureModel[]): string {
 
 const countIndex = (n: number, one: string, many = `${one}s`): ReportIndex => ({ symbol: n === 1 ? one : many, value: String(n), count: true });
 
+/** A magnetic group's time reversal as the prime it is: "P2/c'" → "P2/c′" (an apostrophe after a symbol letter, not before a word's s). */
+const primes = (s: string): string => s.replace(/(?<=[A-Za-z0-9₀-₉′])'(?![A-Za-z])/g, "′");
+
 function instrumentLabel(inst: InstrumentParameters, loaded: boolean): string {
   const name = [inst.name, inst.facility].filter(Boolean).join(" · ");
   const bits: string[] = [];
@@ -426,7 +429,7 @@ export function powderReportInput(o: {
           against: `${dataPhrase(pattern.radiation)}${inst && o.instrumentLoaded ? ` from ${inst}` : ""}`,
           free, points: o.pointsInWindow, rwp: o.wR, rexp: o.rExp, gof: o.gof, result, parameters: params,
           acceptance: o.judgment.acceptance, headlineCause: o.judgment.headlineCause, causes: o.judgment.causes, restraints: o.judgment.restraints,
-          magnetic: magnetic.section ? magnetic.summary : undefined,
+          magnetic: magnetic.section ? primes(magnetic.summary) : undefined,
         };
         return { result: powderResultParagraph(facts), caveats: powderCaveats(facts) };
       })()
@@ -766,7 +769,7 @@ export function singleCrystalReportInput(o: {
           free,
           agreement: `{{R_1}} = ${pct(ag.r1)} (${ag.observed} reflections with {{F_o^2}} > 2σ), {{wR_2}} = ${pct(ag.wr2)} and GooF = ${num(ag.goof, 2)} over all ${ag.total}`,
           result: o.result, parameters: params, verdict: o.verdict,
-          magnetic: magnetic.section ? magnetic.summary : undefined,
+          magnetic: magnetic.section ? primes(magnetic.summary) : undefined,
         };
         const changed = !!o.result && parametersChangedSince(o.result, o.params);
         return { result: singleCrystalResultParagraph(facts, changed), caveats: singleCrystalCaveats(facts, changed) };
@@ -895,7 +898,7 @@ export function pdfReportInput(o: {
     against: `${pattern.scatteringType === "neutron" ? "neutron" : "X-ray"} G(r) over r = ${num(o.fitRange.min, 2)}–${num(o.fitRange.max, 2)} Å (${inWindow} points)`,
     free, rw: o.rw, result: o.result, parameters: params,
     assessment: o.current === false ? null : o.findings ?? null,
-    magnetic: o.spinModel || o.explored ? magnetic.summary.replace("Magnetic structure:", "Magnetic PDF (mPDF) spin model:") : undefined,
+    magnetic: o.spinModel || o.explored ? primes(magnetic.summary.replace("Magnetic structure:", "Magnetic PDF (mPDF) spin model:")) : undefined,
   };
   const assessment: ReportAssessment | null = o.findings !== undefined
     ? { result: pdfResultParagraph(facts, o.current === false), caveats: pdfCaveats(facts) }
