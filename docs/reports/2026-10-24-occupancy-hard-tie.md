@@ -88,12 +88,25 @@ project round trip. All identical. A test pins that a structure without a
 shared site gets the same rows and refinement with the tie as without it.
 
 **Goldens and the data-gated benchmark.** The PDFfit2, diffpy.mpdf and powder
-goldens pass unchanged; none was re-pinned. The AWO₄ powder benchmark passes
-all 23 tests with its criteria as written. Its numbers moved: the model's last
+goldens pass unchanged; none was re-pinned. The AWO₄ powder benchmark (25
+tests since M10) passes with its criteria and its `it.fails` as written; one
+observation in C5b is re-pinned, below. Its numbers moved: the model's last
 cation now starts at one minus the five others (Σ 1, not 1.002). With the tie
 switched off in a scratch run, its output was identical to `main`'s, line for
-line, so the change comes only through that occupancy. The data are
-unpublished; the numbers are kept outside the repository.
+line, before and after the merge with M10, so the change comes only through
+that occupancy. The data are unpublished; the numbers are kept outside the
+repository.
+
+**C5b re-pinned.** M10's C5b pinned the two B's its joint fit left on their
+lower bound, W1 and O2. With the tie the staged nuclear fit still puts both
+at 0, but the joint fit, which starts from it, leaves O2 a hair above 0, far
+inside its esd. The engine's bound test counts only a value on a bound of 0,
+so it no longer flags O2, and the B-at-0 rule makes it no proposal. C5b now
+pins W1 and checks O2's preferred tie to O1 whenever O2 is on its bound
+(`zeroAdp.test.ts` checks that tie on synthetic data); its criterion, every B
+on its bound gets a warned proposal and nothing is applied, is unchanged.
+C5c then has no preferred tie to apply on this fit. With the tie switched
+off, both are on the bound again and C5b as M10 wrote it passes.
 
 **PDF performance.** M6's `nodeTiming.ts` on GaTa₄Se₈ (node, serial,
 analytic on; medians, load 2.6–6.4 from other jobs), this branch against
@@ -146,6 +159,9 @@ shared-site page `get_state` gains fields and `refine` notes and warnings.
 - **MCP's powder tools** (`build_refinement` and the rest) keep the soft Σ
   restraint; MCP's PDF tools take the tie (total 1) but no totals.
 - **The last member is eliminated**, by file order; it cannot be chosen.
+- **A B a hair above 0 gets no B-at-0 proposal** (O2 in the benchmark's
+  joint fit, above). Counting a B within a small fraction of its esd of its
+  bound would change M10's rule or the engine's bound test; not done here.
 - **One pattern or G(r) sees a shared site only through its summed
   scattering.** With three or more species, the data determine one
   combination of the n − 1 free occupancies and leave the rest undetermined
@@ -155,4 +171,16 @@ shared-site page `get_state` gains fields and `refine` notes and warnings.
 
 ## Checks
 
-CHECKS
+After merging `main` (M10's B-at-0 proposals, #105, and the generic data
+names, #104), keeping both sides: the parameter panel shows M10's notice and
+the shared sites' warnings; the powder report lists M10's limitations, then
+the range warnings; `get_state` gives the zero-ADP view and the occupancy
+constraints.
+
+- `npm run lint`, `tsc -b --noEmit`, `npm run build` and `npm run build:mcp`
+  pass.
+- `npm test` (`--minWorkers=1 --maxWorkers=2`): 348 files, 319 passed and 29
+  skipped; 2701 tests passed, 254 skipped, none failed. It includes the AWO₄
+  benchmark (25 tests) with the local data in the new layout.
+- No shared site, bit-identical to the merged `main`, re-checked after the
+  merge on both pages (the cases above).
