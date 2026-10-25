@@ -132,18 +132,22 @@ export function disorderAssemblies(structure: StructureModel, bindings: readonly
 export function readCorrelations(result: RefinementResult, parameters: readonly RefinementParameter[], restraints: readonly LinearRestraint[] = [], assemblies: ReadonlyMap<string, string> = new Map(), singleCrystal = isSingleCrystalSet(parameters)): CorrelationCheck {
   const kind = new Map<string, ParameterKind>(parameters.map((p) => [p.id, p.kind]));
   const sameCurve = (a: string, b: string): boolean => oneCurve(kind.get(a), kind.get(b)) !== null;
-  // Two rows one restraint holds together, or one sum tie reads (a shared site's occupancies, whose last follows one minus the others).
+  // Two rows one restraint holds together, or one sum tie reads (a shared site's occupancies, whose last follows the total minus the others).
+  // A restraint's term on a tied row (a composition over a site's last occupancy) holds the rows that row follows.
+  const reads = new Map<string, readonly string[]>();
   const sums = parameters.flatMap((p) => {
     if (!p.expression) return [];
     try {
       const tie = parseTie(p.expression);
+      reads.set(p.id, tie.kind === "linear" ? [tie.refId] : tie.refIds);
       return tie.kind === "sum" ? [tie.refIds] : [];
     } catch {
       return [];
     }
   });
+  const touches = (r: LinearRestraint, id: string): boolean => r.terms.some((t) => t.parameterId === id || (reads.get(t.parameterId)?.includes(id) ?? false));
   const tied = (a: string, b: string): boolean =>
-    restraints.some((r) => r.terms.some((t) => t.parameterId === a) && r.terms.some((t) => t.parameterId === b)) || sums.some((ids) => ids.includes(a) && ids.includes(b));
+    restraints.some((r) => touches(r, a) && touches(r, b)) || sums.some((ids) => ids.includes(a) && ids.includes(b));
   const pairs = (result.diagnostics?.highCorrelations ?? []).filter((c) => !sameCurve(c.parameterIdA, c.parameterIdB) && !tied(c.parameterIdA, c.parameterIdB)).map((c): CorrelatedPair => {
     const ka = kind.get(c.parameterIdA);
     const kb = kind.get(c.parameterIdB);

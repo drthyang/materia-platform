@@ -259,14 +259,17 @@ approximate, however plausible its output looks.
 
 **Supported**
 - Atoms that share one site (mixed occupancy — for example the six 3d cations
-  of the high-entropy tungstate) refine with a tied position and ADP. On the
-  powder page an automatic Σ(occupancy) restraint holds their sum, optionally
-  at exactly 1; on the PDF page the sum is exactly 1 by a constraint (the last
-  occupancy follows one minus the others). In a magnetic refinement their
-  moments can be tied too. Each powder tie is a toggle that appears when the
-  structure has a shared site. One G(r) sees a shared site's species only
-  through their summed scattering: with three or more species free, most
-  combinations are not determined, and the fit reports them as undetermined.
+  of the high-entropy tungstate) refine with a tied position and ADP, and on
+  the powder and PDF pages their occupancies sum to exactly the site's total
+  by a constraint: the last occupancy (in file order) follows the total minus
+  the others. The total is 1 unless the user sets a vacancy (Occupancy group;
+  `set_site_ties` `totals` for the Agent on the powder page, not yet on the PDF
+  page). A last occupancy driven outside [0, 1] is warned of, never clamped.
+  MCP's powder tools keep a soft Σ restraint. In a magnetic refinement their
+  moments can be tied too. One diffraction pattern or G(r) sees a shared
+  site's species only through their summed scattering: with three or more
+  species free, most combinations are not determined, and the fit reports
+  them as undetermined.
 
 **Not yet**
 - Split (positional) disorder; anti-site exchange between different sites;

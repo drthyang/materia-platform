@@ -42,9 +42,10 @@ function normals(seed: number): () => number {
 }
 
 /** The truth's G(r) on 0.5 Å to the window's end (Δr 0.02, no termination), Gaussian noise of `noise` × max |G| added. */
-export function simulateSharedSite(truth: StructureModel, scatteringType: "neutron" | "xray", noise: number, seed: number, fit: { readonly min: number; readonly max: number } = { min: 1.5, max: 12 }): PdfPattern {
+export function simulateSharedSite(truth: StructureModel, scatteringType: "neutron" | "xray", noise: number, seed: number, fit: { readonly min: number; readonly max: number } = { min: 1.5, max: 12 }, totals?: Readonly<Record<string, number>>): PdfPattern {
   const blank: PdfPattern = { id: `ao-${scatteringType}`, name: `(A)O ${scatteringType}`, scatteringType, points: Array.from(makeRGrid(0.5, fit.max, 0.02), (r) => ({ r, gObs: 0 })), qdamp: 0.03 };
-  const spec = buildPdfSpec(truth, blank);
+  // The truth's own occupancies: its site's total is their sum, so the tie leaves them as they are.
+  const spec = buildPdfSpec(truth, blank, totals ? { totals } : {});
   const y = buildPdfProblem(truth, blank, spec.params, spec.bindings, [], fit).calculate(valuesOf(spec.params));
   const n = normals(seed);
   const sigma = noise * maxAbs(y);

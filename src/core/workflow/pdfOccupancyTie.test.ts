@@ -4,16 +4,16 @@ import { gata4se8PdfExample } from "@/examples/gata4se8Pdf";
 import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import { cscl, maxAbs, simulateSharedSite as simulate, valuesOf } from "@/testSupport/sharedSite";
 import {
-  buildMultiDatasetPdfProblem, buildMultiDatasetPdfSpec, buildMultiPhasePdfSpec, buildPdfProblem, buildPdfSpec, PDF_STAGE_KINDS, siteSumConstraints,
+  buildMultiDatasetPdfProblem, buildMultiDatasetPdfSpec, buildMultiPhasePdfSpec, buildPdfProblem, buildPdfSpec, PDF_STAGE_KINDS,
 } from "@/core/workflow/pdf";
 import { applyParameters } from "@/core/workflow/apply";
-import { stagesFromKindGroups } from "@/core/workflow/structureRefinement";
-import { esdsWithTies, resolveTies } from "@/core/refinement/constraints";
+import { siteSumConstraints, siteSumRangeWarnings, stagesFromKindGroups } from "@/core/workflow/structureRefinement";
+import { esdsWithTies, remainderOf, resolveTies } from "@/core/refinement/constraints";
 import { refine, type RefinementProblem } from "@/core/refinement/engine";
 import { refineStaged } from "@/core/refinement/staged";
 import { samplePosterior } from "@/core/refinement/bayes/sampler";
 import { pseudoInverseSymmetric } from "@/core/math/linalg";
-import { pdfPage, pageView, workspaceOf } from "@/app/pdfPage";
+import { pdfPage, pageView, withSiteTotal, workspaceOf } from "@/app/pdfPage";
 
 /**
  * A shared site's occupancies sum to exactly 1 on the PDF page: the last
@@ -29,6 +29,63 @@ const SIX = ["Co1", "Fe1", "Ni1", "Mn1", "Cu1", "Zn1"] as const;
 
 const sumOver = (values: Readonly<Record<string, number>>, labels: readonly string[]): number => labels.reduce((acc, l) => acc + values[`occ_${l}`]!, 0);
 
+describe("a shared site's total below 1 (vacancies) on the PDF page", () => {
+  it("is honoured: the tie's constant, Σ at every evaluation, the page's rows, the saved project and an old one", () => {
+    const truth = cscl({ Co1: 0.1, Fe1: 0.15, Ni1: 0.2, Mn1: 0.25, Cu1: 0.12, Zn1: 0.13 });
+    const pattern = simulate(truth, "neutron", 0.01, 13, FIT, { Co1: 0.95 });
+    const loaded = cscl(Object.fromEntries(SIX.map((l) => [l, 0.19])));
+    const two = buildPdfSpec(cscl({ Fe1: 0.5, Mn1: 0.4 }), pattern, { totals: { Fe1: 0.95 } });
+    expect(two.params.find((p) => p.id === "occ_Mn1")!.expression).toBe("= -1*occ_Fe1+0.95");
+    expect(two.params.find((p) => p.id === "occ_Mn1")!.value).toBeCloseTo(0.45, 15);
+    // On the page: the total set, the rows keep their values, the last follows the new total.
+    const page0 = pdfPage(loaded, pattern, { preset: { fitRange: FIT } });
+    const page = withSiteTotal(page0, "Co1", 0.95);
+    const zn = page.params.find((p) => p.id === "occ_Zn1")!;
+    expect(zn.expression).toBe("= 0.95 - sum(occ_Co1, occ_Fe1, occ_Ni1, occ_Mn1, occ_Cu1)");
+    expect(zn.value).toBe(0.95 - [0.19, 0.19, 0.19, 0.19, 0.19].reduce((a, b) => a + b, 0));
+    expect(page.params.find((p) => p.id === "occ_Co1")!.value).toBe(0.19);
+    expect(withSiteTotal(page, "Co1", 1).siteTotals).toEqual({});
+    const params = page.params.map((p) => ({ ...p, fixed: !!p.expression || !(p.kind === "pdfScale" || (p.kind === "occupancy" && p.id !== "occ_O1")) }));
+    const v = pageView(page);
+    let worst = 0;
+    const problem = buildPdfProblem(v.fitStructure, pattern, params, [...v.bindings], v.spec.restraints, FIT);
+    const res = refine({ ...problem, calculate: (values, o) => {
+      const site = applyParameters(v.fitStructure, [...v.bindings], resolveTies(params, values)).model.sites.filter((x) => x.label !== "O1");
+      worst = Math.max(worst, Math.abs(site.reduce((acc, x) => acc + x.occupancy, 0) - 0.95));
+      return problem.calculate(values, o);
+    } }, { maxIterations: 8 });
+    expect(worst).toBeLessThan(1e-12);
+    expect(Math.abs(sumOver(res.parameters, SIX) - 0.95)).toBeLessThan(1e-12);
+    // Saved with the project, read back; a project saved before totals existed reads every site full.
+    const ws = workspaceOf(page);
+    expect(ws.siteTotals).toEqual({ Co1: 0.95 });
+    expect(pdfPage(loaded, pattern, { restore: ws }).params.find((p) => p.id === "occ_Zn1")!.expression).toBe(zn.expression);
+    const { siteTotals: _t, ...older } = ws;
+    expect(pdfPage(loaded, pattern, { restore: older }).params.find((p) => p.id === "occ_Zn1")!.expression).toBe("= 1 - sum(occ_Co1, occ_Fe1, occ_Ni1, occ_Mn1, occ_Cu1)");
+  });
+});
+
+describe("a shared site's last occupancy outside [0, 1]", () => {
+  it("is warned of, never clamped, after a refinement that takes it there; no warning in range", () => {
+    // Three species, the truth's last at 1 − 0.7 − 0.6 = −0.3: the fit follows the data there.
+    const pattern = simulate(cscl({ Fe1: 0.7, Ni1: 0.6, Mn1: -0.3 }), "neutron", 0.002, 17);
+    const loaded = cscl({ Fe1: 0.4, Ni1: 0.3, Mn1: 0.3 });
+    const page = pdfPage(loaded, pattern, { preset: { fitRange: FIT } });
+    expect(siteSumRangeWarnings(page.params)).toEqual([]);
+    const v = pageView(page);
+    const params = page.params.map((p) => ({ ...p, fixed: !["pdfScale", "occ_Fe1", "occ_Ni1"].includes(p.id) }));
+    const res = refine(buildPdfProblem(v.fitStructure, pattern, params, [...v.bindings], v.spec.restraints, FIT), { maxIterations: 30 });
+    const after = params.map((p) => ({ ...p, value: res.parameters[p.id] ?? p.value }));
+    expect(res.parameters.occ_Mn1).toBeLessThan(-0.1);
+    expect(res.parameters.occ_Mn1).toBe(1 - (res.parameters.occ_Fe1! + res.parameters.occ_Ni1!));
+    const [w] = siteSumRangeWarnings(after);
+    expect(w).toMatch(/^occ_Mn1 = -0\.\d{4} is outside \[0, 1\]: it follows 1 − \(occ_Fe1 \+ occ_Ni1\), and the others sum to more than the site's total 1\. The tie does not clamp it/);
+    // Above 1: the others below 0 (set by hand; a free occupancy cannot go there).
+    expect(siteSumRangeWarnings(after.map((p) => (p.id === "occ_Fe1" ? { ...p, value: -0.2 } : p.id === "occ_Ni1" ? { ...p, value: -0.1 } : p.id === "occ_Mn1" ? { ...p, value: 1.3 } : p)))[0]).toMatch(/occ_Mn1 = 1\.3000 is outside \[0, 1\].*the others sum to less than 0/);
+    expect(siteSumRangeWarnings(after.map((p) => (p.id === "occ_Mn1" ? { ...p, value: 0 } : p)))).toEqual([]);
+  });
+});
+
 describe("a shared site's occupancies on the PDF page", () => {
   it("are tied, not restrained: the last follows one minus the others (the complement for two), lone sites untied", () => {
     const blank = simulate(cscl({ Fe1: 0.5, Mn1: 0.5 }), "neutron", 0, 1);
@@ -42,7 +99,7 @@ describe("a shared site's occupancies on the PDF page", () => {
     for (const id of ["occ_Co1", "occ_Cu8", "occ_W1", "occ_O1", "occ_O2"]) expect(he.params.find((p) => p.id === id)!.expression).toBeUndefined();
     const two = buildPdfSpec(cscl({ Fe1: 0.5, Mn1: 0.5 }), blank);
     expect(two.params.find((p) => p.id === "occ_Mn1")!.expression).toBe("= -1*occ_Fe1+1");
-    expect(siteSumConstraints(he.params)).toEqual([{ follower: "occ_Zn1", leaders: ["occ_Co1", "occ_Fe1", "occ_Ni1", "occ_Mn1", "occ_Cu8"] }]);
+    expect(siteSumConstraints(he.params)).toEqual([{ follower: "occ_Zn1", leaders: ["occ_Co1", "occ_Fe1", "occ_Ni1", "occ_Mn1", "occ_Cu8"], total: 1 }]);
     // A multi-phase page's ties read the phase's own (prefixed) rows.
     const mp = buildMultiPhasePdfSpec([cscl({ Fe1: 0.5, Mn1: 0.5 }), exampleStructure()], blank);
     expect(mp.params.find((p) => p.id === "p0_occ_Mn1")!.expression).toBe("= -1*p0_occ_Fe1+1");
@@ -161,20 +218,22 @@ describe("a shared site's occupancies on the PDF page", () => {
   });
 });
 
-describe("the eliminated occupancy's esd (six species, joint neutron + X-ray G(r))", () => {
+// Total 1, and 0.95 (5 % vacancies on the site): the esd is the same propagation, the constant aside.
+describe.each([1, 0.95])("the eliminated occupancy's esd (six species, joint neutron + X-ray G(r), site total %s)", (total) => {
   // Neutron and X-ray contrasts tell two combinations of the six apart: Mn and Cu refine, Zn follows.
   // A short window (to 7 Å) keeps the posterior's thousands of evaluations cheap.
   const W = { min: 1.5, max: 7 };
-  const truth = { Co1: 0.1, Fe1: 0.15, Ni1: 0.2, Mn1: 0.25, Cu1: 0.12, Zn1: 0.18 };
+  const truth = { Co1: 0.1, Fe1: 0.15, Ni1: 0.2, Mn1: 0.25, Cu1: 0.12, Zn1: total - 0.82 };
   const FREE = ["d0_pdfScale", "d1_pdfScale", "occ_Mn1", "occ_Cu1"];
+  const totals = total === 1 ? undefined : { Co1: total };
   const loaded = cscl({ ...truth, Mn1: 0.2, Cu1: 0.2 });
   let problemFor: (ps: readonly RefinementParameter[]) => RefinementProblem;
   let res: RefinementResult;
   let at: RefinementParameter[];
   let zn: number | undefined;
   beforeAll(() => {
-    const patterns = [simulate(cscl(truth), "neutron", 0.003, 3, W), simulate(cscl(truth), "xray", 0.003, 5, W)];
-    const spec = buildMultiDatasetPdfSpec(loaded, patterns);
+    const patterns = [simulate(cscl(truth), "neutron", 0.003, 3, W, totals), simulate(cscl(truth), "xray", 0.003, 5, W, totals)];
+    const spec = buildMultiDatasetPdfSpec(loaded, patterns, totals ? { totals } : {});
     problemFor = (ps) => buildMultiDatasetPdfProblem(loaded, patterns, ps, spec.bindings, spec.restraints, [W, W]);
     const start = spec.params.map((p) => ({ ...p, fixed: !FREE.includes(p.id) }));
     res = refine(problemFor(start), { maxIterations: 40 });
@@ -189,7 +248,8 @@ describe("the eliminated occupancy's esd (six species, joint neutron + X-ray G(r
     for (const [id, sigma] of [["occ_Mn1", res.esd.occ_Mn1!], ["occ_Cu1", res.esd.occ_Cu1!], ["occ_Zn1", zn!]] as const) {
       expect(Math.abs(res.parameters[id]! - truth[id.slice(4) as keyof typeof truth]), id).toBeLessThan(3 * sigma);
     }
-    expect(Math.abs(sumOver(res.parameters, SIX) - 1)).toBeLessThan(1e-12);
+    expect(Math.abs(sumOver(res.parameters, SIX) - total)).toBeLessThan(1e-12);
+    expect(at.find((p) => p.id === "occ_Zn1")!.expression).toBe(remainderOf(["occ_Co1", "occ_Fe1", "occ_Ni1", "occ_Mn1", "occ_Cu1"], total));
   });
 
   it("matches the covariance propagated by hand: σ²(Zn) = Σ C over the free occupancies", () => {
@@ -222,7 +282,7 @@ describe("the eliminated occupancy's esd (six species, joint neutron + X-ray G(r
         const { expression: _e, ...rest } = p;
         return { ...rest, fixed: false };
       }
-      return p.id === "occ_Mn1" ? { ...p, fixed: true, expression: "= 1 - sum(occ_Co1, occ_Fe1, occ_Ni1, occ_Cu1, occ_Zn1)" } : p;
+      return p.id === "occ_Mn1" ? { ...p, fixed: true, expression: remainderOf(["occ_Co1", "occ_Fe1", "occ_Ni1", "occ_Cu1", "occ_Zn1"], total) } : p;
     });
     const other = refine(problemFor(swapped), { maxIterations: 40 });
     expect(Math.abs(other.esd.occ_Zn1! / zn! - 1)).toBeLessThan(2e-3);
@@ -230,12 +290,12 @@ describe("the eliminated occupancy's esd (six species, joint neutron + X-ray G(r
     expect(Math.abs(other.parameters.occ_Zn1! - res.parameters.occ_Zn1!)).toBeLessThan(0.01 * zn!);
   });
 
-  it("agrees with the posterior's spread of 1 − Σ the sampled others", { timeout: 120_000 }, () => {
+  it.runIf(total === 1)("agrees with the posterior's spread of 1 − Σ the sampled others", { timeout: 120_000 }, () => {
     const run = samplePosterior(problemFor(at), { nSteps: 400, nWalkers: 10, seed: 0x0cc, linearizedEsd: res.esd });
     const jMn = run.freeIds.indexOf("occ_Mn1");
     const jCu = run.freeIds.indexOf("occ_Cu1");
     const fixedPart = truth.Co1 + truth.Fe1 + truth.Ni1;
-    const samples = run.chains.flatMap((chain) => chain.map((x) => 1 - (fixedPart + x[jMn]! + x[jCu]!)));
+    const samples = run.chains.flatMap((chain) => chain.map((x) => total - (fixedPart + x[jMn]! + x[jCu]!)));
     const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
     const sd = Math.sqrt(samples.reduce((a, b) => a + (b - mean) ** 2, 0) / (samples.length - 1));
     const ratio = sd / zn!;

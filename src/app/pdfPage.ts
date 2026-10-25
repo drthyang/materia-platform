@@ -19,7 +19,8 @@ import { withAdpModel as structureWithAdpModel } from "@/core/crystal/adp";
 import type { PdfPattern } from "@/core/diffraction/types";
 import { isMagneticModelParameterKind, type ParameterBinding, type RefinementOptions, type RefinementParameter, type RefinementResult } from "@/core/refinement/types";
 import { CANCELLED, type ComputeClient } from "@/workers/computeClient";
-import { resolveTies } from "@/core/refinement/constraints";
+import { withTieValues } from "@/core/refinement/constraints";
+import { siteSumConstraints, siteSumRangeWarnings } from "@/core/workflow/structureRefinement";
 import {
   buildMultiPhasePdfSpec, buildPdfSpec, correlatedMotionConflict, multiPhasePdfCurves, optimalPdfScale, pdfCurves, pdfPhaseBindingsFor, zeroAdpWarning,
 } from "@/core/workflow/pdf";
@@ -96,6 +97,8 @@ export interface PdfPageModel {
   readonly boxcarPlan: BoxcarPlan;
   readonly boxcarRun: BoxcarRun | null;
   readonly sample: PosteriorRun | null;
+  /** Each shared site's total occupancy set below 1 (vacancies), by the site's key (its first member's label); absent: 1. */
+  readonly siteTotals: Readonly<Record<string, number>>;
 }
 
 /** The compute client's fits the page runs. */
@@ -150,6 +153,7 @@ export function pdfPage(
     boxcarPlan: r?.boxcar?.plan ?? DEFAULT_BOXCAR_PLAN,
     boxcarRun: r?.boxcar?.lastRun ?? null,
     sample: null,
+    siteTotals: r?.siteTotals ?? {},
   };
   return { ...seed, params: freshRows(seed, r) };
 }
@@ -168,6 +172,7 @@ export function workspaceOf(m: PdfPageModel): PdfWorkspace {
     boxcarPlan: m.boxcarPlan,
     boxcarRun: m.boxcarRun,
     adpModel: m.adp?.model ?? null,
+    siteTotals: m.siteTotals,
   });
 }
 
@@ -205,7 +210,7 @@ function freshRows(m: PdfPageModel, restore?: PdfWorkspace): RefinementParameter
     // its tie gives, from the others' saved values.
     const untiedInFile = new Set(saved.filter((p) => !p.expression).map((p) => p.id));
     const newlyTied = new Set(params.filter((p) => p.expression && untiedInFile.has(p.id)).map((p) => p.id));
-    if (newlyTied.size > 0) params = withTiedRows(params, newlyTied);
+    if (newlyTied.size > 0) params = withTieValues(params, newlyTied, true);
   }
   return params;
 }
@@ -360,13 +365,15 @@ class View implements PdfPageView {
     const set = this.modeSet;
     const spin = this.spinFit;
     const multi = this.multiPhase;
-    return this.memo("spec", [fit, set, extraPhases, pattern, spin], () => {
+    const totals = this.m.siteTotals;
+    return this.memo("spec", [fit, set, extraPhases, pattern, spin, totals], () => {
+      const ties = Object.keys(totals).length > 0 ? { totals } : {};
       const base = multi
-        ? buildMultiPhasePdfSpec([fit, ...extraPhases], pattern)
+        ? buildMultiPhasePdfSpec([fit, ...extraPhases], pattern, ties)
         : spin
           // The magnetic build's rows join the nuclear ones.
-          ? buildMpdfSpec(fit, pattern, { magnetic: spin.magnetic, params: [...spin.params], bindings: [...spin.bindings] })
-          : buildPdfSpec(fit, pattern);
+          ? buildMpdfSpec(fit, pattern, { magnetic: spin.magnetic, params: [...spin.params], bindings: [...spin.bindings] }, ties)
+          : buildPdfSpec(fit, pattern, ties);
       // Mode amplitudes in place of the per-coordinate position rows.
       return set ? { ...base, ...withDistortionModes({ params: base.params, bindings: base.bindings }, set) } : base;
     });
@@ -478,7 +485,7 @@ export function rwOf(curves: { readonly x: readonly number[]; readonly yObs: rea
 export type SpecKey = readonly unknown[];
 
 export function specKeyOf(m: PdfPageModel): SpecKey {
-  return [m.loaded, m.extraPhases.length > 0 ? m.extraPhases : null, m.pattern, modeSetOf(m), m.adp, spinFitOf(m)];
+  return [m.loaded, m.extraPhases.length > 0 ? m.extraPhases : null, m.pattern, modeSetOf(m), m.adp, spinFitOf(m), m.siteTotals];
 }
 
 /** Whether something computed on the page with this key may land on this page. */
@@ -509,7 +516,7 @@ const SETTING_FREE = new Set([
  * The last fit, the posterior and the boxcar scan belong to the old rows and
  * are cleared.
  */
-function withSpecChange(m: PdfPageModel, change: Partial<Pick<PdfPageModel, "positionMode" | "modes" | "adp" | "spinModel">>, how: { readonly kick?: boolean } = {}): PdfPageModel {
+function withSpecChange(m: PdfPageModel, change: Partial<Pick<PdfPageModel, "positionMode" | "modes" | "adp" | "spinModel" | "siteTotals">>, how: { readonly kick?: boolean } = {}): PdfPageModel {
   // A change the spec does not see (the mode toggle on a multi-phase page, a spin model on X-ray data) keeps the rows and the fit.
   if (landsOn({ ...m, ...change }, specKeyOf(m))) return { ...m, ...change };
   const draft: PdfPageModel = { ...m, ...change, result: null, sample: null, boxcarRun: null };
@@ -533,7 +540,8 @@ function withSpecChange(m: PdfPageModel, change: Partial<Pick<PdfPageModel, "pos
     const old = before.get(p.id);
     return old ? { ...p, value: old.value, fixed: old.fixed } : p;
   });
-  return { ...draft, params };
+  // A shared site's last occupancy follows the kept others (and a new total).
+  return { ...draft, params: withSiteSumValues(params) };
 }
 
 // ── the changes ──────────────────────────────────────────────────────────────
@@ -546,24 +554,24 @@ export function withFixed(m: PdfPageModel, changes: readonly { readonly id: stri
 
 /** One row edited in the parameter panel; the rows tied to it follow. */
 export function withParameter(m: PdfPageModel, id: string, patch: Partial<RefinementParameter>): PdfPageModel {
-  return { ...m, params: withTiedRows(m.params.map((p) => (p.id === id ? { ...p, ...patch } : p))) };
+  return { ...m, params: withSiteSumValues(m.params.map((p) => (p.id === id ? { ...p, ...patch } : p))) };
+}
+
+/** The rows with each shared site's last occupancy at what its tie gives from the others now. */
+function withSiteSumValues(params: RefinementParameter[]): RefinementParameter[] {
+  const followers = siteSumConstraints(params).map((c) => c.follower);
+  return followers.length > 0 ? withTieValues(params, new Set(followers)) : params;
 }
 
 /**
- * The rows with each tied row at the value its tie gives. `reopened` names
- * rows a project file left untied: they also take their starting value from
- * the others' and are held fixed (a tied row never refines itself).
- * Unchanged without a tie.
+ * One shared site's total occupancy (by its key, the first member's label): 1
+ * clears it, below 1 leaves vacancies. The spec changes (the last occupancy's
+ * tie), so the last fit is cleared; every row keeps its value and the last
+ * occupancy follows the new total.
  */
-function withTiedRows(params: RefinementParameter[], reopened?: ReadonlySet<string>): RefinementParameter[] {
-  if (!params.some((p) => p.expression)) return params;
-  const now = resolveTies(params, valuesOf(params));
-  const start = reopened ? resolveTies(params, Object.fromEntries(params.map((p) => [p.id, p.initialValue]))) : null;
-  return params.map((p) => {
-    if (!p.expression) return p;
-    if (start && reopened!.has(p.id)) return { ...p, value: now[p.id]!, initialValue: start[p.id]!, fixed: true };
-    return now[p.id] === p.value ? p : { ...p, value: now[p.id]! };
-  });
+export function withSiteTotal(m: PdfPageModel, key: string, total: number): PdfPageModel {
+  const { [key]: _old, ...rest } = m.siteTotals;
+  return withSpecChange(m, { siteTotals: total === 1 ? rest : { ...rest, [key]: total } });
 }
 
 /** Values back to their starting values (these ids, or every one), every row and free choice kept; the last fit cleared. */
@@ -1050,7 +1058,7 @@ export function reportInputOf(m: PdfPageModel, extra: { readonly explored?: Magn
     positionMode: m.positionMode,
     spinModel: v.spinFit ? v.refinedMagnetic ?? v.spinFit.magnetic : null,
     explored: extra.explored ?? null,
-    ...(v.motionConflict || v.radiationWarning ? { warnings: [v.motionConflict, v.radiationWarning].filter((w): w is string => w !== null) } : {}),
+    ...(v.motionConflict || v.radiationWarning || siteSumRangeWarnings(m.params).length > 0 ? { warnings: [v.motionConflict, v.radiationWarning, ...siteSumRangeWarnings(m.params)].filter((w): w is string => w !== null) } : {}),
     boxcar: m.boxcarRun ? boxcarTable(m.boxcarRun, v.fitStructure, v.primaryBindings, m.params) : null,
   });
 }

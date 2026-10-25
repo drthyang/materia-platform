@@ -31,7 +31,7 @@ import { dispersionLine } from "@/core/scattering/dispersion";
 import { EXTINCTION_MODEL_LABELS } from "@/core/diffraction/singleCrystalFactors";
 import { isMomentParameterKind, type ParameterBinding, type RefinementParameter, type RefinementResult } from "@/core/refinement/types";
 import { esdsWithTies, parseTie, resolveTies } from "@/core/refinement/constraints";
-import { siteSumConstraints } from "@/core/workflow/pdf";
+import { siteSumConstraints, siteSumRangeWarnings } from "@/core/workflow/structureRefinement";
 import type { PowderProfile } from "@/core/workflow/powder";
 import { backgroundLabel } from "@/core/diffraction/background";
 import { formatMagneticSymbol, identifyMagneticGroupAnySetting } from "@/core/magnetic/bnsOg";
@@ -378,6 +378,7 @@ export function powderReportInput(o: {
     { label: "Lorentz factor", value: session.powderProfile.lorentz === false ? "off (pre-reduced intensities)" : "applied" },
     ...(session.mustrain && session.mustrain !== "isotropic" ? [{ label: "Microstrain model", value: session.mustrain }] : []),
     ...(multi ? [{ label: "Phases", value: o.refinedPhases.map((s) => s.name || s.id).join(" · ") }] : []),
+    ...siteSumRow(params, o.bindings),
     ...(fractions ? [{ label: "Phase fractions", value: `${fractions.map((w) => `${w.name} ${formatWt(w)}`).join(" · ")} — Hill & Howard, from the refined scales; crystalline phases only, no microabsorption correction, esds from the scales alone` }] : []),
     ...micro,
   ];
@@ -423,6 +424,8 @@ export function powderReportInput(o: {
     parameters: params,
     result,
     notes,
+    // A shared site's last occupancy outside [0, 1]: the tie does not clamp it.
+    ...(siteSumRangeWarnings(params).length > 0 ? { warnings: siteSumRangeWarnings(params) } : {}),
   };
 }
 
@@ -476,12 +479,13 @@ function twinRow(laws: readonly TwinLaw[], params: readonly RefinementParameter[
   return `${laws.length + 1} domains: ${rows.join("; ")}`;
 }
 
-/** The shared sites of a PDF fit: who shares each, and that their occupancies sum to exactly 1 by a constraint. */
+/** The shared sites of a powder or PDF fit: who shares each, and that their occupancies sum to exactly the site's total by a constraint. */
 function siteSumRow(params: readonly RefinementParameter[], bindings: readonly ParameterBinding[]): ReportRow[] {
   const site = (id: string): string => bindings.find((b) => b.parameterId === id && b.kind === "occupancy")?.targetKey ?? id;
   const value = siteSumConstraints(params).map((c) => {
     const members = [...c.leaders, c.follower].map(site);
-    return `${members.slice(0, -1).join(", ")} and ${members[members.length - 1]} share one site (one position, one ADP), their occupancies summing to exactly 1: ${site(c.follower)} = 1 − ${c.leaders.length === 1 ? site(c.leaders[0]!) : "the others"}, a constraint (its esd from the others' covariance)`;
+    const total = c.total < 1 ? `${c.total} (${+((1 - c.total) * 100).toPrecision(3)} % vacancies, as set)` : "1";
+    return `${members.slice(0, -1).join(", ")} and ${members[members.length - 1]} share one site, their occupancies summing to exactly ${total}: ${site(c.follower)} = ${c.total} − ${c.leaders.length === 1 ? site(c.leaders[0]!) : "the others"}, a constraint (its esd from the others' covariance)`;
   }).join("; ");
   return value ? [{ label: "Shared sites", value }] : [];
 }

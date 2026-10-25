@@ -31,7 +31,7 @@ import type { PdfPair } from "@/core/pdf/pairEnumerator";
 import { applyExclusionMask, fitRangeMask } from "@/core/refinement/factors";
 import { parseTie, renamedTie, resolveTies } from "@/core/refinement/constraints";
 import { applyParameters } from "@/core/workflow/apply";
-import { buildStructureRefinement, sharedOccupancyTies } from "@/core/workflow/structureRefinement";
+import { buildStructureRefinement } from "@/core/workflow/structureRefinement";
 import {
   expandStructureAtoms,
   expandStructureAtomsWithProvenance,
@@ -829,13 +829,14 @@ export const PDF_STAGE_KINDS: readonly StageKinds[] = [
 
 /**
  * Whether atoms sharing a crystallographic site are tied (mirrors `SiteTies`).
- * Their occupancies always sum to exactly 1 on the PDF page (a hard tie), so
- * there is no `occupancyToUnity`.
+ * Their occupancies always sum to exactly the site's total by a hard tie:
+ * `totals` by the site's key (its first member's label), 1 where absent.
  */
 export interface PdfSiteTies {
   readonly positions?: boolean;
   readonly adp?: boolean;
   readonly composition?: boolean;
+  readonly totals?: Readonly<Record<string, number>>;
 }
 
 export interface PdfSpec {
@@ -857,10 +858,10 @@ export interface PdfSpec {
  * occupancy restraints) is reused rather than duplicated. Its reciprocal-space
  * leftovers (Rietveld `scale`, single `peakWidth`) are filtered out.
  *
- * A shared site's occupancies sum to exactly 1: its last member's row follows
- * one minus the others' (`sharedOccupancyTies`), held fixed, so n − 1 refine
- * and the engine gives the follower its esd from the covariance. No soft Σ
- * restraint is emitted (the powder page keeps that one).
+ * A shared site's occupancies sum to exactly its total (1 unless `ties.totals`
+ * sets one): its last member's row follows the total minus the others'
+ * (`sharedOccupancyTies`), held fixed, so n − 1 refine and the engine gives
+ * the follower its esd from the covariance. No soft Σ restraint is emitted.
  *
  * Free on load: `pdfScale` and the cell — the safe first fit. ADPs, δ1/δ2,
  * positions, and occupancies start fixed (freed per row or by the guided
@@ -882,11 +883,11 @@ export function buildPdfSpec(structure: StructureModel, pattern: PdfPattern, tie
     refineOccupancy: true,
     tieSharedPositions: ties.positions ?? true,
     tieSharedAdp: ties.adp ?? true,
-    // A shared site's Σ occupancy is the hard tie below, not the soft restraint.
-    restrainSharedOccupancy: false,
+    // A shared site's Σ occupancy is a hard tie to its total, not the soft restraint.
+    tieSharedOccupancy: true,
+    ...(ties.totals ? { occupancyTotals: ties.totals } : {}),
     holdComposition: ties.composition ?? false,
   });
-  const occupancyTies = new Map(sharedOccupancyTies(structure.sites).map((t) => [t.id, t] as const));
   const drop = new Set<ParameterKind>(["scale", "peakWidth"]);
   const keptIds = new Set(structural.params.filter((p) => !drop.has(p.kind)).map((p) => p.id));
 
@@ -920,39 +921,12 @@ export function buildPdfSpec(structure: StructureModel, pattern: PdfPattern, tie
   const structuralFixed = new Set<ParameterKind>(["bIso", "uAniso", "positionShift", "atomX", "atomY", "atomZ", "occupancy"]);
   for (const p of structural.params) {
     if (!keptIds.has(p.id)) continue;
-    // A shared site's last occupancy follows one minus the others', held (it never refines itself).
-    const tie = occupancyTies.get(p.id);
-    params.push(tie ? { ...p, value: tie.value, initialValue: tie.value, fixed: true, expression: tie.expression }
-      : structuralFixed.has(p.kind) ? { ...p, fixed: true } : p);
+    params.push(structuralFixed.has(p.kind) ? { ...p, fixed: true } : p);
   }
   for (const b of structural.bindings) {
     if (keptIds.has(b.parameterId)) bindings.push(b);
   }
   return { params, bindings, restraints: structural.restraints };
-}
-
-/**
- * The shared sites' occupancy constraints, read off the rows: each occupancy
- * row that follows one minus other occupancies (`sharedOccupancyTies`), with
- * the rows it follows. Each site's occupancies sum to exactly 1.
- */
-export function siteSumConstraints(params: readonly RefinementParameter[]): { readonly follower: string; readonly leaders: readonly string[] }[] {
-  const kind = new Map(params.map((p) => [p.id, p.kind] as const));
-  const out: { follower: string; leaders: string[] }[] = [];
-  for (const p of params) {
-    if (p.kind !== "occupancy" || !p.expression) continue;
-    let tie: ReturnType<typeof parseTie>;
-    try {
-      tie = parseTie(p.expression);
-    } catch {
-      continue;
-    }
-    const leaders = tie.kind === "linear" && tie.factor === -1 && tie.constant === 1 ? [tie.refId]
-      : tie.kind === "sum" && tie.factor === -1 && tie.constant === 1 ? [...tie.refIds]
-        : null;
-    if (leaders && leaders.every((id) => kind.get(id) === "occupancy")) out.push({ follower: p.id, leaders });
-  }
-  return out;
 }
 
 /**

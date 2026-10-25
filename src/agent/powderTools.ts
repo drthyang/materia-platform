@@ -33,12 +33,14 @@ import { identifyPeaks, identifyReading, knownPhaseNames, knownPhaseStructure } 
 import { withAntisite } from "@/core/crystal/antisite";
 import { structureTable } from "@/agent/structureTable";
 import { powderReflectionObsCalc } from "@/core/workflow/obsCalc";
-import { checkEqualTies, type EqualTieUpdate } from "@/core/refinement/constraints";
-import { bondsOf, cellOf, historyView, labelOf, matchIds, parameterSummary, pct, sig, type LiveToolHost } from "@/agent/liveCommon";
+import { checkEqualTies, esdsWithTies, type EqualTieUpdate } from "@/core/refinement/constraints";
+import { bondsOf, cellOf, historyView, labelOf, matchIds, occupancyConstraintsView, parameterSummary, pct, sig, siteSumNotes, type LiveToolHost } from "@/agent/liveCommon";
+import { sharedSites } from "@/core/workflow/structureRefinement";
+import { isSiteTotal } from "@/core/workflow/powderModelOptions";
 import { change, freePlan, goToPlan, nothing, refinePlan, resetPlan, type Plans } from "@/agent/pages/plans";
 import { powderValidation } from "@/core/diagnostics/powderValidation";
 import type { ReportCheck } from "@/core/export/report";
-import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, correlationsCheck, findingChecks, noResultCheck, verdictCheck } from "@/agent/reportChecks";
+import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, correlationsCheck, findingChecks, noResultCheck, siteSumChecks, verdictCheck } from "@/agent/reportChecks";
 import { groupOf, POSITION_KINDS, THERMAL_KINDS } from "@/agent/method";
 import { MAGNETIC_PLANS, magneticNext } from "@/agent/magneticTools";
 import { cellCheckReading, dScaleReading } from "@/core/diagnostics/cellReading";
@@ -239,7 +241,7 @@ export function readPowderTool(name: string, input: Input, port: PowderAgentPort
       return fitDiagnosisOf(s);
     case "structure_table":
       if (input.against !== undefined) throw new Error("`against` is on the single-crystal page only, for now");
-      return { phases: s.refinedPhases.map((ph, i) => structureTable(ph, i, s.parameters, s.bindings, s.result?.esd ?? {})), ...(s.result ? {} : { note: "No refinement on screen: the values carry no esds." }) };
+      return { phases: s.refinedPhases.map((ph, i) => structureTable(ph, i, s.parameters, s.bindings, esdsWithTies(s.parameters, s.result))), ...(s.result ? {} : { note: "No refinement on screen: the values carry no esds." }) };
     case "bond_geometry":
       return bondsOf(s.refinedPhases, input, bond_geometry);
     case "interpret_structure": {
@@ -295,11 +297,18 @@ export const POWDER_PLANS: Plans<PowderAgentPort> = {
   },
   set_site_ties: (input, s, port) => {
     const update = siteTieUpdate(input);
-    const keys = Object.keys(update) as (keyof SiteTies)[];
-    if (keys.length === 0) throw new Error("pass at least one of `positions`, `adp`, `occupancyToUnity`, `composition`");
-    if (keys.every((k) => tieOn(s.settings.siteTies, k) === update[k])) return nothing("the site ties are already set so");
-    return change(keys.map((k) => `${SITE_TIE_NAMES[k]} ${update[k] ? "on" : "off"}`).join(" · "), () => {
-      port.setSiteTies(update);
+    const keys = Object.keys(update) as SiteTieKey[];
+    const totals = input.totals ? siteTotalsUpdate(input.totals, [s.structure, ...s.extraPhases]) : null;
+    if (keys.length === 0 && !totals) throw new Error("pass at least one of `positions`, `adp`, `composition`, `totals`");
+    const current = s.settings.siteTies.totals ?? {};
+    const totalsChange = totals ? Object.entries(totals).filter(([k, t]) => (current[k] ?? 1) !== t) : [];
+    if (keys.every((k) => tieOn(s.settings.siteTies, k) === update[k]) && totalsChange.length === 0) return nothing("the site ties are already set so");
+    const next = totals ? Object.fromEntries(Object.entries({ ...current, ...totals }).filter(([, t]) => t !== 1)) : null;
+    return change([
+      ...keys.map((k) => `${SITE_TIE_NAMES[k]} ${update[k] ? "on" : "off"}`),
+      ...totalsChange.map(([k, t]) => `Σ occ of the ${k} site = ${t}${t < 1 ? ` (${+((1 - t) * 100).toPrecision(3)} % vacancies)` : ""}`),
+    ].join(" · "), () => {
+      port.setSiteTies({ ...update, ...(next ? { totals: next } : {}) });
       return undefined;
     });
   },
@@ -331,7 +340,7 @@ export const POWDER_PLANS: Plans<PowderAgentPort> = {
     const add = handler(port.addAntisite, "this page cannot change its structure");
     const a = s.structure.sites.find((x) => x.label === input.siteA);
     const b = s.structure.sites.find((x) => x.label === input.siteB);
-    return change(`Antisite ${input.siteA} ⇄ ${input.siteB}: ${b?.element ?? "?"} on ${input.siteA}, ${a?.element ?? "?"} on ${input.siteB}, at occupancy 0 · Σ occ = 1 and hold composition on`, () => {
+    return change(`Antisite ${input.siteA} ⇄ ${input.siteB}: ${b?.element ?? "?"} on ${input.siteA}, ${a?.element ?? "?"} on ${input.siteB}, at occupancy 0 · each site's occupancies sum to its total · hold composition on`, () => {
       add(input.siteA, input.siteB);
       return undefined;
     });
@@ -347,7 +356,7 @@ export const POWDER_PLANS: Plans<PowderAgentPort> = {
     });
   },
   tie_parameters: (input, s, port) => {
-    if (input.complement !== undefined || input.adp !== undefined) throw new Error("`complement` and `adp` are the single-crystal page's: here set_site_ties ties a shared site's occupancies (Σ occ = 1) and ADPs");
+    if (input.complement !== undefined || input.adp !== undefined) throw new Error("`complement` and `adp` are the single-crystal page's: here a shared site's occupancies sum to its total by a constraint (set_site_ties `totals`), and set_site_ties ties its position and ADP");
     const update = tieUpdate(s.parameters, input);
     if (checkEqualTies(s.parameters, update).unchanged) return nothing("those parameters are already tied so");
     const tie = handler(port.setParameterTies, "this page cannot tie parameters");
@@ -404,7 +413,7 @@ export const POWDER_PLANS: Plans<PowderAgentPort> = {
     },
     after: (s) => {
       const caution = k0RefineCaution(s);
-      return caution ? [caution] : [];
+      return [...(caution ? [caution] : []), ...siteSumNotes(s.parameters)];
     },
   }),
   reset_parameters: resetPlan,
@@ -442,18 +451,30 @@ function correctionUpdate(input: InputOf<"set_corrections">): CorrectionsUpdate 
   };
 }
 
-const SITE_TIE_KEYS = ["positions", "adp", "occupancyToUnity", "composition"] as const;
-const SITE_TIE_NAMES: Record<keyof SiteTies, string> = { positions: "tie position", adp: "tie ADP", occupancyToUnity: "Σ occ = 1", composition: "hold composition" };
+const SITE_TIE_KEYS = ["positions", "adp", "composition"] as const;
+type SiteTieKey = (typeof SITE_TIE_KEYS)[number];
+const SITE_TIE_NAMES: Record<SiteTieKey, string> = { positions: "tie position", adp: "tie ADP", composition: "hold composition" };
 /** A tie's effective value: positions and ADPs are tied unless switched off. */
-const tieOn = (ties: SiteTies, k: keyof SiteTies): boolean => ties[k] ?? (k === "positions" || k === "adp");
+const tieOn = (ties: SiteTies, k: SiteTieKey): boolean => ties[k] ?? (k === "positions" || k === "adp");
 
-function siteTieUpdate(input: InputOf<"set_site_ties">): Partial<Record<keyof SiteTies, boolean>> {
-  const update: Partial<Record<keyof SiteTies, boolean>> = {};
+function siteTieUpdate(input: InputOf<"set_site_ties">): Partial<Record<SiteTieKey, boolean>> {
+  const update: Partial<Record<SiteTieKey, boolean>> = {};
   for (const k of SITE_TIE_KEYS) {
     const on = input[k];
     if (on !== undefined) update[k] = on;
   }
   return update;
+}
+
+/** `totals` checked against the phases' shared sites (each by its key, the first member's label). */
+function siteTotalsUpdate(totals: Readonly<Record<string, number>>, phases: readonly StructureModel[]): Record<string, number> {
+  const keys = new Set(phases.flatMap((ph) => sharedSites(ph.sites).map((site) => site.key)));
+  if (keys.size === 0) throw new Error("the model has no shared site: `totals` sets a shared site's total occupancy");
+  for (const [k, t] of Object.entries(totals)) {
+    if (!keys.has(k)) throw new Error(`${k} is not a shared site's key: the keys are ${[...keys].join(", ")} (each site's first member's label)`);
+    if (!isSiteTotal(t)) throw new Error(`a site's total occupancy is a number from 0.001 to 1 (got ${t} for ${k})`);
+  }
+  return { ...totals };
 }
 
 // ── state view ──────────────────────────────────────────────────────────────
@@ -537,7 +558,8 @@ function stateView(s: PowderLiveState, history: ProjectHistory | null, select: r
           ...(s.result.message ? { message: s.result.message } : {}),
         }
       : null,
-    ...parameterSummary(s.parameters, s.result?.esd, select),
+    ...occupancyConstraintsView(s.parameters),
+    ...parameterSummary(s.parameters, s.result ? esdsWithTies(s.parameters, s.result) : undefined, select),
     history: historyView(history),
   };
 }
@@ -782,6 +804,7 @@ export function powderReportChecks(s: PowderLiveState, probe: RefinementResult |
     verdictCheck(a),
     probe ? correlationsCheck(probe, s.parameters, s.restraints) : correlationsCheck(s.result, s.parameters, s.restraints, CORRELATION_LISTED),
     boundsCheck(s.result, s.parameters),
+    ...siteSumChecks(s.parameters),
   ];
   if (s.d) {
     const { between, beside, onReflection } = residualPeaks(residualOf(s), { limit: 12 });

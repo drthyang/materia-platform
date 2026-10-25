@@ -10,6 +10,8 @@
  * Prefit was a plain refine (docs/AGENT_REVIEW.md).
  */
 
+import { withTieValues } from "@/core/refinement/constraints";
+import { siteSumConstraints } from "@/core/workflow/structureRefinement";
 import type { StructureModel } from "@/core/crystal/types";
 import type { ParameterBinding, RefinementOptions, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import { isMagneticModelParameterKind, isMomentParameterKind } from "@/core/refinement/types";
@@ -177,12 +179,13 @@ export function withBackgroundTerms(s: Session, n: number, instrument: Instrumen
 
 /**
  * Antisite disorder between two sites: each element added on the other site
- * at occupancy 0, sharing its host's position and ADP, with Σ occ = 1 and
- * hold composition on. Every existing row keeps its value and state; the new
- * occupancy rows come in fixed.
+ * at occupancy 0, sharing its host's position and ADP (each site's occupancies
+ * then sum to its total by the shared-site tie), with hold composition on.
+ * Every existing row keeps its value and state; the new occupancy rows come in
+ * fixed.
  */
 export function withAntisitePair(s: Session, siteA: string, siteB: string, instrument: InstrumentParameters): Session {
-  return rebuilt(s, instrument, { structure: withAntisite(s.structure, siteA, siteB), siteTies: { ...s.siteTies, occupancyToUnity: true, composition: true } });
+  return rebuilt(s, instrument, { structure: withAntisite(s.structure, siteA, siteB), siteTies: { ...s.siteTies, composition: true } });
 }
 
 /** Another phase in the model (an impurity, the sample environment): its rows come in as the spec seeds them, every other row keeps its value, state and tie. */
@@ -226,9 +229,23 @@ export function withParameterTies(s: Session, update: EqualTieUpdate): Session {
   return { ...s, powderParams: withEqualTies(s.powderParams, update) };
 }
 
-/** Toggle tying position/ADP across shared (disordered) sites. */
+/** One row edited in the parameter panel; a shared site's last occupancy follows the others. */
+export function withParameter(s: Session, id: string, patch: Partial<RefinementParameter>): Session {
+  const rows = s.powderParams.map((p) => (p.id === id ? { ...p, ...patch } : p));
+  const followers = siteSumConstraints(rows).map((c) => c.follower);
+  return { ...s, powderParams: followers.length > 0 ? withTieValues(rows, new Set(followers)) : rows };
+}
+
+/** Toggle tying position/ADP across shared (disordered) sites, or set the sites' totals (an empty set: every site full). */
 export function withSiteTies(s: Session, update: Partial<SiteTies>, instrument: InstrumentParameters): Session {
-  return rebuilt(s, instrument, { siteTies: { ...s.siteTies, ...update } });
+  const { totals, ...rest } = { ...s.siteTies, ...update };
+  return rebuilt(s, instrument, { siteTies: totals && Object.keys(totals).length > 0 ? { ...rest, totals } : rest });
+}
+
+/** One shared site's total occupancy (by its key, the first member's label): 1 clears it; below 1 leaves vacancies. Every row keeps its value; the site's last occupancy follows the new total. */
+export function withSiteTotal(s: Session, key: string, total: number, instrument: InstrumentParameters): Session {
+  const { [key]: _old, ...rest } = s.siteTies.totals ?? {};
+  return withSiteTies(s, { totals: total === 1 ? rest : { ...rest, [key]: total } }, instrument);
 }
 
 /**

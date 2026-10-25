@@ -821,7 +821,7 @@ Powder page only. Switch sample and geometry corrections on or off, as the profi
 
 ### add_antisite
 
-Powder page only. Let two sites of different elements exchange their atoms: site B's element is added on site A and A's on B, at occupancy 0, each sharing its host's position and ADP, with the Shared site ties Σ occ = 1 and hold composition switched on — so the exchange refines as one fraction while the formula stays. For when the refined ADPs point at it (one site's B rails toward 0 while the other's is high: the first scatters more, the second less, than the ordered model has), on data with contrast between the two elements. Then free the occupancies of both sites (set_free with the occ_ ids) and refine; report the exchange fraction with its esd, and how the ADPs moved. On data to a modest Q the exchange trades with the two sites' B values (both scale a site's scattering): the esd is then large, and further cycles drift along that valley — report the esd and the correlation, not just the value. Always asks the user.
+Powder page only. Let two sites of different elements exchange their atoms: site B's element is added on site A and A's on B, at occupancy 0, each sharing its host's position and ADP (each site's occupancies then sum to its total by the shared-site constraint), with hold composition switched on — so the exchange refines as one fraction while the formula stays. For when the refined ADPs point at it (one site's B rails toward 0 while the other's is high: the first scatters more, the second less, than the ordered model has), on data with contrast between the two elements. Then free the occupancies of both sites (set_free with the occ_ ids; each site's added one follows its host and is skipped) and refine; report the exchange fraction with its esd, and how the ADPs moved. On data to a modest Q the exchange trades with the two sites' B values (both scale a site's scattering): the esd is then large, and further cycles drift along that valley — report the esd and the correlation, not just the value. Always asks the user.
 
 ```json
 {
@@ -1538,7 +1538,7 @@ Switch the primary phase's atomic displacement model between isotropic (one B_is
 
 ### set_site_ties
 
-Powder page only. The Shared site settings, for atoms that share a crystallographic site or an element spread over several sites. `positions`/`adp`: one position / one ADP per shared site (default on). `occupancyToUnity`: a shared site's Σ occupancy is restrained to 1 instead of its starting sum. `composition`: each element on two or more sites keeps its total in the cell, so atoms exchange between sites while the formula stays (anti-site disorder, spinel inversion). With the shared-site Σ and the composition held, freeing the occupancies of two mixed sites refines one exchange fraction, and refine's correlation check does not count occupancies tied by one restraint against each other (scale and ADPs still count). The restraints act only while one of their occupancies is free; get_state lists them. Multi-phase too; not with a magnetic model applied.
+Powder page only. The Shared site settings, for atoms that share a crystallographic site or an element spread over several sites. `positions`/`adp`: one position / one ADP per shared site (default on). A shared site's occupancies always sum to exactly its total by a constraint: the last member follows the total minus the others (get_state's occupancyConstraints). `totals`: a site's total by its key (the site's first member's label), 1 by default; below 1 only for vacancies the user has evidence of. `composition`: each element on two or more sites keeps its total in the cell, so atoms exchange between sites while the formula stays (anti-site disorder, spinel inversion). With the composition held, freeing the occupancies of two mixed sites refines one exchange fraction, and refine's correlation check does not count occupancies tied by one restraint or one site's constraint against each other (scale and ADPs still count). The composition restraints act only while one of their occupancies is free; get_state lists them. Multi-phase too; not with a magnetic model applied.
 
 ```json
 {
@@ -1550,11 +1550,20 @@ Powder page only. The Shared site settings, for atoms that share a crystallograp
     "adp": {
       "type": "boolean"
     },
-    "occupancyToUnity": {
-      "type": "boolean"
-    },
     "composition": {
       "type": "boolean"
+    },
+    "totals": {
+      "description": "A shared site's total occupancy by its key: {\"Co1\": 0.95} for 5 % vacancies; 1 restores a full site",
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "number",
+        "minimum": 0.001,
+        "maximum": 1
+      }
     }
   },
   "additionalProperties": false

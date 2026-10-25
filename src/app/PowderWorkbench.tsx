@@ -31,11 +31,12 @@ import type { PowderProfile } from "@/core/workflow/powder";
 import { magneticComponentCurve } from "@/core/workflow/magneticPowder";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { pageInstrument } from "@/core/workflow/backgroundDefaults";
-import { resolveTies, type EqualTieUpdate } from "@/core/refinement/constraints";
+import { esdsWithTies, resolveTies, type EqualTieUpdate } from "@/core/refinement/constraints";
 import type { BackgroundType } from "@/core/diffraction/background";
 import { extractSizeStrain } from "@/core/diffraction/microstructure";
 import { PEAK_CORRECTION_IDS, type CorrectionsUpdate, type SiteTies, type MustrainModel, type SampleCorrections, type PeakCorrectionId } from "@/app/powderSpec";
-import { siteGroups } from "@/core/workflow/structureRefinement";
+import { sharedSites, siteGroups, siteSumRangeWarnings } from "@/core/workflow/structureRefinement";
+import { SiteTotals } from "@/app/ui/SiteTotals";
 import { powderPatternCsv } from "@/core/export/exporters";
 import { powderWorkspaceFrom, type PowderViewState } from "@/app/projectIo";
 import { structureToCif, magneticStructureToMcif, type CifRefinementMeta } from "@/core/export/cif";
@@ -85,7 +86,7 @@ import { type Session, SYNTHETIC_SOURCE, EMPTY_SOURCE } from "@/app/powderSessio
 import {
   extentOf, hasTensorAdp, magneticApplied as magneticAppliedOn, magneticProfileOf, momentRowsFree as momentRowsFreeOn, observationsIn, posteriorRun, powderFit as powderFitOn,
   powderPageCurves, refinedPhasesOf, restraintRequest, thoroughFit, weightedR as weightedROf, withAnisotropicAdp, withAntisitePair, withBackgroundTerms,
-  withBackgroundType, withCorrections, withMagneticModelRows, withMagneticPreview, withMustrain, withParameterTies, withReset, withSiteTies, pageAxis, powderMomentFit, residualPeaksOf,
+  withBackgroundType, withCorrections, withMagneticModelRows, withMagneticPreview, withMustrain, withParameterTies, withReset, withSiteTies, withSiteTotal, withParameter, pageAxis, powderMomentFit, residualPeaksOf,
   changed, specInstrumentOf, withFit, withFixed, type PowderPage, type PowderPageModel,
 } from "@/app/powderPage";
 import type { EngineExportsRef } from "@/app/workbenchEngine";
@@ -364,6 +365,12 @@ export function PowderWorkbench({
     () => siteGroups(structure.sites, true).some((g) => g.members.length > 1),
     [structure],
   );
+  // Every phase's shared sites, for their totals (one per site key), and a last occupancy gone outside [0, 1].
+  const sharedSiteList = useMemo(() => {
+    const seen = new Set<string>();
+    return [session.structure, ...session.extraPhases].flatMap((ph) => sharedSites(ph.sites)).filter((site) => !seen.has(site.key) && (seen.add(site.key), true));
+  }, [session.structure, session.extraPhases]);
+  const occupancyWarnings = useMemo(() => siteSumRangeWarnings(powderParams), [powderParams]);
   const displayUnits = useMemo(() => availableDisplayUnits(axisCtx), [axisCtx]);
   const effectiveUnit: DisplayUnit = displayUnit ?? pattern.xUnit;
   const displayCurves = useMemo(
@@ -494,7 +501,7 @@ export function PowderWorkbench({
   );
 
   function patchPowder(id: string, patch: Partial<RefinementParameter>): void {
-    editRows((s) => ({ ...s, powderParams: s.powderParams.map((p) => (p.id === id ? { ...p, ...patch } : p)) }));
+    editRows((s) => withParameter(s, id, patch));
   }
 
   /** Hand the magnetic model + moment parameters to the refinement page: add the
@@ -536,8 +543,8 @@ export function PowderWorkbench({
 
   /**
    * Antisite disorder between two sites: each element added on the other site
-   * at occupancy 0, sharing its host's position and ADP, with Σ occ = 1 and
-   * hold composition on. Rebuilds the spec; every existing row keeps its value
+   * at occupancy 0, sharing its host's position and ADP (each site's
+   * occupancies summing to its total), with hold composition on. Rebuilds the spec; every existing row keeps its value
    * and state, the new occupancy rows come in fixed.
    */
   function addAntisite(siteA: string, siteB: string): void {
@@ -863,8 +870,10 @@ export function PowderWorkbench({
   // esds, so passing the starting model writes pre-refinement values annotated
   // with post-refinement uncertainties.
   function exportPhaseCif(target: StructureModel, withMoments: boolean): void {
+    // A tied row (a shared site's last occupancy) carries its tie's esd, as the report does.
+    const esds = esdsWithTies(powderParams, powderResult);
     const withEsd = powderParams.map((p) => {
-      const e = powderResult?.esd[p.id];
+      const e = esds[p.id];
       return e !== undefined ? { ...p, esd: e } : { ...p };
     });
     const s = powderResult?.agreement.goodnessOfFit;
@@ -1464,10 +1473,6 @@ export function PowderWorkbench({
                           <input type="checkbox" checked={session.siteTies.adp ?? true} onChange={(e) => setSiteTies({ adp: e.target.checked })} />
                           tie ADP
                         </label>
-                        <label style={{ display: "inline-flex", alignItems: "center", gap: 4, cursor: "pointer" }} title="Constrain the total occupancy of the shared site to 1 (fully occupied)">
-                          <input type="checkbox" checked={session.siteTies.occupancyToUnity ?? false} onChange={(e) => setSiteTies({ occupancyToUnity: e.target.checked })} />
-                          Σ occ = 1
-                        </label>
                         <label style={{ display: "inline-flex", alignItems: "center", gap: 4, cursor: "pointer" }} title="Each element on two or more sites keeps its total in the cell, so atoms exchange between sites (anti-site disorder, spinel inversion) while the formula stays">
                           <input type="checkbox" checked={session.siteTies.composition ?? false} onChange={(e) => setSiteTies({ composition: e.target.checked })} />
                           hold composition
@@ -1482,7 +1487,7 @@ export function PowderWorkbench({
                   the whole column. */}
               <ParameterPanel
                 params={powderParams}
-                esd={powderResult?.esd}
+                esd={powderResult ? esdsWithTies(powderParams, powderResult) : undefined}
                 onChange={patchPowder}
                 onRefine={() => runPowder()}
                 onThorough={() => runThorough()}
@@ -1496,6 +1501,7 @@ export function PowderWorkbench({
                 busy={busy}
                 result={powderResult}
                 disabled={tofViewOnly}
+                warnings={occupancyWarnings}
                 groupControls={tofViewOnly ? undefined : {
                   "Instrument / profile": (
                     <CorrectionControls corrections={session.corrections} twoTheta={session.pattern.xUnit === "twoTheta"} onChange={setCorrections} />
@@ -1516,6 +1522,10 @@ export function PowderWorkbench({
                       </label>
                     </>
                   ),
+                  ...(sharedSiteList.length > 0 ? {
+                    // Each shared site's occupancies sum to its total by a tie (the last follows the others).
+                    Occupancy: <SiteTotals sites={sharedSiteList} totals={session.siteTies.totals ?? {}} onChange={(key, total) => change((s, inst) => withSiteTotal(s, key, total, inst))} disabled={busy} />,
+                  } : {}),
                   "ADPs (thermal)": (
                     <label style={{ display: "inline-flex", alignItems: "center", gap: 5, cursor: "pointer" }} title="Refine the anisotropic U tensor. Each site's U is seeded from its current B_iso; symmetry fixes which components are free. Turn on after an isotropic fit converges.">
                       <input type="checkbox" checked={hasTensorAdp(session.structure)} onChange={(e) => setAnisotropicAdp(e.target.checked)} />

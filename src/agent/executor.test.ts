@@ -8,6 +8,7 @@ import { freePlan } from "@/agent/liveCommon";
 import { LIVE_TOOLS, inputJsonSchema } from "@/agent/tools";
 import { newSession, type Session } from "@/app/powderSession";
 import { exampleStructure } from "@/examples/mn3ga";
+import { exampleStructure as highEntropy } from "@/examples/highEntropyWO4";
 import type { RefinementParameter } from "@/core/refinement/types";
 import { executor, fakeHost, pdfPort, sessionPort } from "@/testSupport/agentHeadless";
 import { shoulderReading } from "@/core/diagnostics/cellReading";
@@ -337,7 +338,7 @@ describe("AgentExecutor on a live powder fit", () => {
     const key = analysisOf(port);
     const { ex, asked } = executor(host, "auto");
     const refused = await ex.run("refine", {});
-    expect(refused.text).toMatch(/occ_Mn1 is a free occupancy with nothing but the scale to determine it.*Tie it \(set_site_ties/);
+    expect(refused.text).toMatch(/occ_Mn1 is a free occupancy with nothing but the scale to determine it.*Tie it \(a shared site's occupancies sum to its total/);
     const allow = parse((await ex.run("allow_exception", { rule: "bare-occupancy", reason: "Mn K-edge anomalous contrast" })).text);
     expect(allow.allowed).toBe("bare-occupancy");
     expect(asked.at(-1)).toMatchObject({ tool: "allow_exception", alwaysAsk: true, preview: "Refine an occupancy with no tie or second contrast, because: Mn K-edge anomalous contrast" });
@@ -555,11 +556,26 @@ describe("AgentExecutor on a live powder fit", () => {
     expect(parse((await ex.run("set_site_ties", { positions: true })).text).unchanged).toBe(true);
     expect((await ex.run("set_site_ties", {})).text).toMatch(/at least one of/);
     expect(asked).toEqual([]);
-    await ex.run("set_site_ties", { composition: true, occupancyToUnity: true });
-    expect(asked[0]!.preview).toBe("Σ occ = 1 on · hold composition on");
-    expect(calls).toEqual(['ties {"occupancyToUnity":true,"composition":true}']);
-    expect(port.state().settings.siteTies).toMatchObject({ composition: true, occupancyToUnity: true });
+    expect((await ex.run("set_site_ties", { totals: { Mn1: 0.9 } })).text).toMatch(/the model has no shared site/);
+    await ex.run("set_site_ties", { composition: true });
+    expect(asked[0]!.preview).toBe("hold composition on");
+    expect(calls).toEqual(['ties {"composition":true}']);
+    expect(port.state().settings.siteTies).toMatchObject({ composition: true });
     expect(steps.at(-1)).toEqual({ kind: "settings", agent: true });
+  });
+
+  it("sets a shared site's total occupancy (vacancies) through set_site_ties, checked against the model's sites", async () => {
+    const { port, calls } = sessionPort(newSession(highEntropy()));
+    const { ex, asked } = executor(fakeHost(port).host, true);
+    expect((await ex.run("set_site_ties", { totals: { W1: 0.9 } })).text).toMatch(/W1 is not a shared site's key: the keys are Co1/);
+    await ex.run("set_site_ties", { totals: { Co1: 0.95 } });
+    expect(asked[0]!.preview).toBe("Σ occ of the Co1 site = 0.95 (5 % vacancies)");
+    expect(calls).toEqual(['ties {"totals":{"Co1":0.95}}']);
+    expect(port.state().settings.siteTies).toMatchObject({ totals: { Co1: 0.95 } });
+    expect(port.state().parameters.find((p) => p.id === "occ_Zn1")!.expression).toBe("= 0.95 - sum(occ_Co1, occ_Fe1, occ_Ni1, occ_Mn1, occ_Cu8)");
+    expect(parse((await ex.run("set_site_ties", { totals: { Co1: 0.95 } })).text).unchanged).toBe(true);
+    await ex.run("set_site_ties", { totals: { Co1: 1 } });
+    expect(port.state().settings.siteTies.totals).toBeUndefined();
   });
 });
 

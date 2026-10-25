@@ -89,12 +89,12 @@ export interface PowderAgentPort {
   readonly setBackgroundType: (type: BackgroundType) => void;
   readonly setMustrain: (model: MustrainModel) => void;
   readonly setAnisotropicAdp: (on: boolean) => void;
-  /** The Shared site check boxes (tie position, tie ADP, Σ occ = 1, hold composition). */
+  /** The Shared site settings: the check boxes (tie position, tie ADP, hold composition) and the sites' totals. */
   readonly setSiteTies: (update: Partial<SiteTies>) => void;
   /** The profile group's corrections boxes (asymmetry, texture axis, displacement, …). */
   readonly setCorrections?: (update: CorrectionsUpdate) => void;
   /** Let two sites exchange their atoms (antisite disorder): each element added
-   *  on the other site at occupancy 0, with Σ occ = 1 and hold composition on. */
+   *  on the other site at occupancy 0 (each site's occupancies summing to its total), with hold composition on. */
   readonly addAntisite?: (siteA: string, siteB: string) => void;
   /** Add a further phase to the model (Add CIF… with a structure in hand): its scale and cell refine with the others. */
   readonly addPhase?: (structure: StructureModel) => void;

@@ -600,8 +600,9 @@ current.
   with the call to make. Clearing the conversation resets it.
 - **The firm rules are code** ([`src/agent/method.ts`](../src/agent/method.ts)),
   checked before the correlation probe. No occupancy refines bare, on any page:
-  it needs a tie (on powder `set_site_ties`' Σ occ = 1 or hold composition; on
-  single crystal `tie_parameters` `complement`; on PDF a shared site's Σ). The
+  it needs a tie (on powder and PDF a shared site's occupancies, whose last
+  follows the site's total minus the others, or powder's hold composition; on
+  single crystal `tie_parameters` `complement`). The
   instrument's terms (the zero or TOF calibration, the peak shape and its
   asymmetry, Qdamp and Qbroad) never refine with the B values or ADPs, on the
   powder and PDF pages: the two groups alternate, and `refine` reports the

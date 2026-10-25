@@ -311,7 +311,7 @@ export function ruleRefusal(page: AgentPage, free: readonly RefinementParameter[
     }
     const bare = free.filter((p) => p.kind === "occupancy" && !tied.has(p.id));
     if (bare.length > 0) {
-      const fix = page === "powder" ? "Tie it (set_site_ties: Σ occ = 1 on a shared site, or hold composition)"
+      const fix = page === "powder" ? "Tie it (a shared site's occupancies sum to its total by a constraint, the last following the others; or set_site_ties' hold composition)"
         : page === "singleCrystal" ? "Tie it (tie_parameters `complement`: a disorder's two alternatives add up to one)"
           : "Tie it (a shared site holds its Σ occupancy; a lone site has no tie on this page)";
       broken.push({
