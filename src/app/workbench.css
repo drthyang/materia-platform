@@ -636,6 +636,12 @@ html {
   flex: 1 1 auto;
   min-height: 0;
 }
+/* The pattern check: at least the secondary plot height, and taller by the
+ * row under the plot (the gesture hint, and the zoom buttons where they take
+ * a row), rather than a fixed band that row overflowed, past the card's edge. */
+.wb-mag2-plot {
+  min-height: var(--wb-plot-h-sm);
+}
 
 /* Workflow steps: the card is the scroll region, not the page. */
 .wb-mag2-steps {
@@ -1632,23 +1638,6 @@ html {
     min-height: 0 !important;
     overflow: visible !important;
     flex: none !important;
-  }
-}
-
-/* The magnetic page's pattern check: its own content's height (the plot and,
- * on a touch screen or a narrow plot, the zoom row under it) wherever the page
- * stacks or the screen is touch, rather than a fixed band the 320px plot
- * overflowed (past the card's edge on a phone). */
-@container shell (max-width: 1120px) {
-  .wb-mag2-plot {
-    height: auto !important;
-    min-height: var(--wb-plot-h-sm);
-  }
-}
-@media (pointer: coarse) {
-  .wb-mag2-plot {
-    height: auto !important;
-    min-height: var(--wb-plot-h-sm);
   }
 }
 

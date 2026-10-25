@@ -9,7 +9,8 @@
  * covalent-radius cylinders, and the cell edges are drawn as a wireframe.
  *
  * Controls: bond-length labels, perspective vs orthographic projection, and an
- * a/b/c coordinate-axis triad. Interaction: drag to rotate, scroll to zoom.
+ * a/b/c coordinate-axis triad. Interaction: drag to rotate, scroll to zoom
+ * (OrbitControls; the hint under the canvas is GestureHintLine).
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -17,6 +18,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { orthoHalfHeight, screenExtent } from "@/app/ui/structureFrame";
 import { useCoarsePointer } from "@/app/ui/touchInput";
+import { GestureHintLine } from "@/app/ui/GestureHintLine";
 import type { StructureModel, SymmetryOperation } from "@/core/crystal/types";
 import type { Vec3 } from "@/core/math/types";
 import { fractionalToCartesian } from "@/core/crystal/unitCell";
@@ -836,9 +838,11 @@ export function StructureView({
         )}
       </div>
       <div ref={mountRef} className="wb-3d-canvas" style={{ width: "100%", flex: 1, minHeight: minCanvasHeight, cursor: "grab", borderRadius: 10, overflow: "hidden" }} />
-      {/* View presets (bottom-right, above the legend): look straight down an axis. */}
-      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6, fontSize: 12, fontFamily: themeMono, color: theme.secondary }}>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 9px", borderRadius: 8, background: theme.chipBg }} title="Look straight down a crystallographic axis (keeps your zoom)">
+      {/* The gesture hint (left) and the view presets (right, above the
+          legend): look straight down an axis. */}
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "4px 10px", marginTop: 6, fontSize: 12, fontFamily: themeMono, color: theme.secondary }}>
+        <GestureHintLine view="model-3d" style={{ flex: "1 1 150px" }} />
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 9px", borderRadius: 8, background: theme.chipBg, marginLeft: "auto" }} title="Look straight down a crystallographic axis (keeps your zoom)">
           View
           <span style={{ display: "inline-flex", border: `1px solid ${theme.border}`, borderRadius: 6, overflow: "hidden" }}>
             {(["a", "b", "c"] as const).map((ax) => (
