@@ -61,7 +61,13 @@
    * area). Both sides take the larger inset so the column stays centred.
    */
   --wb-max: 2560px;
-  --wb-safe-x: max(env(safe-area-inset-left, 0px), env(safe-area-inset-right, 0px));
+  /* The insets as tokens (0 on every desktop browser), read by the bands below
+     and by the Copilot's rail and drawer. iOS reports the left and right ones
+     alike in landscape, whichever side the sensor housing is on. */
+  --wb-safe-l: env(safe-area-inset-left, 0px);
+  --wb-safe-r: env(safe-area-inset-right, 0px);
+  --wb-safe-b: env(safe-area-inset-bottom, 0px);
+  --wb-safe-x: max(var(--wb-safe-l), var(--wb-safe-r));
   --wb-edge: max(calc(var(--wb-pad) + var(--wb-safe-x)), calc((100% - var(--wb-max)) / 2 + var(--wb-pad)));
 
   /*
@@ -148,6 +154,16 @@ html {
   /* Its own query container: the composer and the cards respond to the
      drawer's width, not the window's. */
   container: agent / inline-size;
+  /* On an iPhone the drawer meets the screen's right and bottom edges: its
+     content stays clear of the sensor housing and the home indicator (0 on a
+     desktop, where nothing changes). */
+  padding-right: var(--wb-safe-r);
+  padding-bottom: var(--wb-safe-b);
+}
+.wb-frame-agent > .wb-agent {
+  width: calc(var(--wb-agent-w, clamp(340px, 27vw, 460px)) + var(--wb-safe-r));
+  min-width: calc(320px + var(--wb-safe-r));
+  max-width: calc(max(320px, calc(100vw / var(--ui-zoom) - 760px)) + var(--wb-safe-r));
 }
 /* The resize handle: an 8px strip over the drawer's left border, a line on
  * hover, while dragging, and on keyboard focus. */
@@ -232,7 +248,9 @@ html {
  * (sheet), with a dot when an answer has landed since it was closed. */
 .wb-agent-rail {
   flex: none;
-  width: 44px;
+  /* 44px, plus the iPhone's right inset when it meets that edge (0 elsewhere):
+     the label stays clear of the sensor housing in landscape. */
+  width: calc(44px + var(--wb-safe-r));
   height: calc(100vh / var(--ui-zoom));
   height: calc(100dvh / var(--ui-zoom));
   position: sticky;
@@ -251,6 +269,7 @@ html {
   align-items: center;
   gap: 10px;
   padding-top: 14px;
+  padding-right: var(--wb-safe-r);
   color: #3b3a36;
   position: relative;
 }
@@ -319,7 +338,8 @@ html {
   .wb-agent-rail {
     position: relative;
     width: auto;
-    height: 40px;
+    /* A 44px bar, above the home indicator. */
+    height: calc(44px + var(--wb-safe-b));
     border-left: none;
     border-top: 1px solid #e8e2d8;
   }
@@ -327,6 +347,8 @@ html {
     flex-direction: row;
     justify-content: center;
     padding-top: 0;
+    padding-right: 0;
+    padding-bottom: var(--wb-safe-b);
   }
   .wb-agent-rail-label {
     writing-mode: horizontal-tb;
@@ -693,8 +715,12 @@ html {
  * header, the beta bar and the footer, and in landscape (~360px tall) more
  * than half. Where the working rows stack anyway (and on any short window) the
  * page scrolls as one document instead: the chrome scrolls away with it, the
- * content gets the whole screen, and Safari can collapse its toolbars. */
-@media (max-width: 820px), (max-height: 540px), (max-width: 1100px) and (orientation: portrait) {
+ * content gets the whole screen, and Safari can collapse its toolbars. A
+ * tablet held landscape with under 900px of height (iPad Pro 11", ~760px in
+ * Safari) does the same: its fixed chrome left the working row ~380px, the
+ * parameter list a 290px scroller. Its rows then take a screen's height of
+ * their own (see "Tablets held landscape" at the end of this file). */
+@media (max-width: 820px), (max-height: 540px), (max-width: 1100px) and (orientation: portrait), (pointer: coarse) and (max-height: 900px) {
   .wb-shell {
     height: auto;
     min-height: calc(100vh / var(--ui-zoom));
@@ -991,36 +1017,58 @@ html {
 }
 
 /* ---- Touch ergonomics ----------------------------------------------------
- * On coarse pointers (fingers), give every control a comfortable hit area.
- * min-height composes with the components' inline padding, so no !important.
- * Glyph-sized inline controls (a chip's ×) opt out with .wb-tight: growing
- * them to 34px inflated the chip around them into a bubble. */
+ * On coarse pointers (fingers), every control gets a 44px hit height — Apple's
+ * minimum for a touch target (it was 34px, which a fingertip covers and
+ * misses). min-height composes with the components' inline padding, so no
+ * !important. Glyph-sized inline controls (a chip's ×) opt out with .wb-tight:
+ * growing them inflated the chip around them into a bubble. A checkbox's hit
+ * area is its label, so the label grows rather than the box. Links inside a
+ * sentence stay text. */
 @media (pointer: coarse) {
   button:not(.wb-tight),
-  select {
-    min-height: 34px;
+  select,
+  input:not([type="checkbox"], [type="radio"], [type="file"], [type="hidden"]) {
+    min-height: 44px;
   }
-  input[type="checkbox"] {
-    width: 17px;
-    height: 17px;
+  /* A disclosure line, and the footer's link (a line of its own, not a word
+     in a sentence). */
+  summary {
+    min-height: 44px;
+    padding-block: 12px;
   }
-  /* The header's chip groups and GPU chip share one 32px row height (the
-     indicator track adds 3px of padding + border on each side of its chips),
-     instead of the bare 34px rule lifting only the clickable ones. */
+  .wb-footer a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+  input[type="checkbox"],
+  input[type="radio"] {
+    width: 20px;
+    height: 20px;
+  }
+  label:has(> input[type="checkbox"]),
+  label:has(> input[type="radio"]),
+  label:has(> input[type="file"]) {
+    min-height: 44px;
+    align-items: center;
+  }
+  label:has(> input[type="file"]) {
+    display: inline-flex;
+  }
+  /* The header's chip groups and GPU chip share one row height: the clickable
+     chips at 44px, and the selected chip (a label, not a button) and the GPU
+     chip matched to them, instead of the bare rule lifting only some. */
   .wb-header .wb-header-step,
   .wb-header .wb-header-indicator,
   .wb-header .wb-gpu-badge {
     display: inline-flex;
     align-items: center;
+    min-height: 44px;
   }
-  .wb-header .wb-header-step {
-    min-height: 30px;
-  }
-  .wb-header .wb-header-indicator {
-    min-height: 26px;
-  }
-  .wb-header .wb-gpu-badge {
-    min-height: 32px;
+  /* The Copilot's chips to the cards it names, and its rail and bar. */
+  .wb-agent-chip {
+    display: inline-flex;
+    align-items: center;
   }
 }
 
@@ -1505,4 +1553,133 @@ html {
   clip: rect(0 0 0 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* ── Phones and tablets ─────────────────────────────────────────────────────
+ * Tuned on iPhone 18 Pro / Pro Max (Safari's visible area 402×680 upright,
+ * 874×370 sideways; 440×760, 956×410) and iPad Pro 11" / 13" (834×1130,
+ * 1210×760; 1032×1290, 1376×950). Nothing here applies to a desktop window
+ * (fine pointer, wider than 1100px or taller than 540px). */
+
+/* Boxes that scroll inside a card scroll inside the page too wherever the page
+ * scrolls as a whole (stacked rows, short windows, tablets held landscape):
+ * a scroller inside a scroller, which a finger drags by accident or cannot
+ * leave. There they take their content's height. The subgroup lists grow on
+ * any touch screen: the panel around them already scrolls. */
+@container shell (max-width: 820px) {
+  .wb-grow-box {
+    max-height: none !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    flex: none !important;
+  }
+  .wb-posterior-table {
+    flex: none !important;
+  }
+}
+@media (max-height: 540px), (max-width: 1100px) and (orientation: portrait), (pointer: coarse) and (max-height: 900px) {
+  .wb-grow-box {
+    max-height: none !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    flex: none !important;
+  }
+  .wb-posterior-table {
+    flex: none !important;
+  }
+}
+@media (pointer: coarse) {
+  .wb-subgroups .wb-grow-box {
+    max-height: none !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    flex: none !important;
+  }
+}
+
+/* The magnetic page's pattern check: its own content's height (the plot and,
+ * on a touch screen or a narrow plot, the zoom row under it) wherever the page
+ * stacks or the screen is touch, rather than a fixed band the 320px plot
+ * overflowed (past the card's edge on a phone). */
+@container shell (max-width: 1120px) {
+  .wb-mag2-plot {
+    height: auto !important;
+    min-height: var(--wb-plot-h-sm);
+  }
+}
+@media (pointer: coarse) {
+  .wb-mag2-plot {
+    height: auto !important;
+    min-height: var(--wb-plot-h-sm);
+  }
+}
+
+/* Tablets held landscape with under 900px of height (iPad Pro 11"): the page
+ * scrolls (see "Whole-page scrolling"), and each working row takes a screen's
+ * height of its own instead of the ~380px the fixed chrome left it — scroll
+ * the header away and the row fills the screen, as it fills a desktop window.
+ * A column that scrolls inside itself (the parameter list, the magnetic steps)
+ * is contained so its length does not stretch the row (and the plot with it). */
+@media (pointer: coarse) and (max-height: 900px) and (min-height: 540.02px) and (orientation: landscape) {
+  @container shell (min-width: 821px) {
+    .wb-work2,
+    .wb-work3 {
+      flex: 0 0 auto;
+      min-height: max(var(--wb-plot-min-h), calc(100dvh - 2 * var(--wb-pad)));
+    }
+    .wb-work2 > :last-child {
+      contain: size;
+    }
+  }
+  @container shell (min-width: 1121px) {
+    .wb-mag-page {
+      flex: 0 0 auto;
+    }
+    .wb-mag2 {
+      flex: 0 0 auto;
+      min-height: max(var(--wb-plot-min-h), calc(100dvh - 2 * var(--wb-pad)));
+    }
+    .wb-mag2-steps {
+      contain: size;
+    }
+    /* The 3D card under the pattern check: its toolbar, a canvas worth turning
+       and its legend (it was left its toolbar alone). */
+    .wb-mag2-model {
+      min-height: 420px;
+    }
+  }
+}
+
+/* Phones held sideways (~330–410px of height): the summary cards sit three
+ * across, and the plot and the 3D canvas are fitted with the card's tab row
+ * to the visible height — scroll the tab row to the top and the whole plot is
+ * on screen (it was ~1.5 screens tall). Everything else in the card follows
+ * below. */
+@media (max-height: 540px) and (orientation: landscape) {
+  .wb-autofit {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  }
+  .wb-autofit > :last-child:nth-child(odd) {
+    grid-column: auto;
+  }
+  .wb-work2 > *,
+  .wb-work2 > :first-child,
+  .wb-mag2-model,
+  .wb-mag2-plot {
+    min-height: 0;
+  }
+  .wb-plot-box {
+    flex: none !important;
+    min-height: 200px !important;
+    height: calc(100dvh - var(--wb-fit-chrome, 112px));
+  }
+  .wb-3d-host {
+    flex: none !important;
+    min-height: 0 !important;
+  }
+  .wb-3d-canvas {
+    flex: none !important;
+    min-height: 160px !important;
+    height: calc(100dvh - var(--wb-fit-chrome-3d, 150px));
+  }
 }

@@ -918,7 +918,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                   internally. Before this, the wrapper shrank to its 360 px
                   minimum while the viewer's own chrome (toolbar, view row,
                   legend) overflowed it — painting over the modes table. */}
-              <div style={{ flex: "1 1 auto", minHeight: 320, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              <div className="wb-3d-host" style={{ flex: "1 1 auto", minHeight: 320, display: "flex", flexDirection: "column", overflow: "hidden" }}>
                 <Suspense fallback={<div style={{ flex: 1, display: "grid", placeItems: "center", color: color.secondary, fontSize: 13 }}>Loading 3D viewer…</div>}>
                   <StructureView
                     key={viewStructure.id + viewPhase}
@@ -946,7 +946,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
               {/* The modes being refined; the symmetry they lower to is
                   chosen (and cleared) on the Subgroups page. */}
               {!multiPhase && (
-                <div style={{ flex: "0 1 auto", minHeight: modeSet ? 90 : 0, maxHeight: 300, overflowY: "auto", marginTop: 6 }}>
+                <div className="wb-grow-box" style={{ flex: "0 1 auto", minHeight: modeSet ? 90 : 0, maxHeight: 300, overflowY: "auto", marginTop: 6 }}>
                   <DistortionModesPanel
                     modeSet={modeSet}
                     modes={modes}

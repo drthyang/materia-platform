@@ -159,15 +159,17 @@ const LEGEND_ROW = 16; // extra legend rows (a narrow plot wraps its legend)
 
 /** Vertical layout for a plot `h` px tall (bottom-up; see the constants above). */
 function plotLayout(h: number) {
-  const capY = h - 38; // fit-handle caps, below the difference band
-  // Difference half-height. A plot under 300px tall (only a phone on its side
-  // makes one) takes a slimmer floor, so the pattern keeps most of the height.
-  const diffA = Math.round(Math.min(110, Math.max(h < 300 ? 18 : 26, h * 0.082)));
+  // A plot under 300px tall — only a phone on its side makes one, fitting it to
+  // the screen — tightens the fixed bands (difference, ticks, labels), which
+  // otherwise took ~170px and left the pattern itself under 90px.
+  const short = h < 300;
+  const capY = h - (short ? 32 : 38); // fit-handle caps, below the difference band
+  const diffA = Math.round(Math.min(110, short ? Math.max(14, h * 0.06) : Math.max(26, h * 0.082))); // difference half-height
   const diffY = capY - 6 - diffA; // difference-band zero line
   const tickMaxBot = diffY - diffA - 4; // tick band floor (just above the difference band)
-  const tickTop = tickMaxBot - 38; // Bragg tick band (below the x-axis labels)
-  const base = tickTop - 26; // main-region baseline
-  return { capY, diffA, diffY, tickMaxBot, tickTop, base, mainH: base - TOP - 6, xLabelY: base + 16, axisTitleY: h - 10 };
+  const tickTop = tickMaxBot - (short ? 28 : 38); // Bragg tick band (below the x-axis labels)
+  const base = tickTop - (short ? 22 : 26); // main-region baseline
+  return { capY, diffA, diffY, tickMaxBot, tickTop, base, mainH: base - TOP - 6, xLabelY: base + (short ? 14 : 16), axisTitleY: h - (short ? 6 : 10) };
 }
 
 /**
@@ -424,11 +426,14 @@ export function WorkbenchPlot({
   }, [xs, curves.diff, vlo, vhi, yTop]);
   const sdiff = (d: number): number => DIFF_Y - (Math.min(Math.max(d, -dm), dm) / dm) * DIFF_A;
 
-  // Row geometry: at up to three phase rows the fixed spacing applies; more
-  // rows (e.g. two nuclear phases + the magnetic-analysis rows) compress the
-  // spacing and tick height so the band stays above the difference band.
+  // Row geometry: rows that fit the band at the fixed spacing keep it (up to
+  // three on every plot 300px tall or more); more rows (e.g. two nuclear phases
+  // + the magnetic-analysis rows), or a short plot's narrower band, compress
+  // the spacing and tick height so the band stays above the difference band.
   const nRows = phases?.length ?? 0;
-  const tickStep = nRows > 3 ? Math.min(TICK_ROW, Math.floor((TICK_MAX_BOT - TICK_TOP - TICK_H) / (nRows - 1))) : TICK_ROW;
+  const tickStep = nRows > 1 && (nRows - 1) * TICK_ROW + TICK_H > TICK_MAX_BOT - TICK_TOP
+    ? Math.min(TICK_ROW, Math.floor((TICK_MAX_BOT - TICK_TOP - TICK_H) / (nRows - 1)))
+    : TICK_ROW;
   const tickH = tickStep < TICK_ROW ? Math.max(5, tickStep - 2) : TICK_H;
 
   // --- the data layer (canvas) ---------------------------------------------

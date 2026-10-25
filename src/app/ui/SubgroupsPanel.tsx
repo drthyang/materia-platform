@@ -107,7 +107,7 @@ export function SubgroupsPanel({ spaceGroup, lattice, irrepTree, modes, modeCoun
   const pickBlocked = busy || modes !== null;
   const blockedStyle = { opacity: 0.5, cursor: "not-allowed" } as const;
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflowY: "auto" }}>
+    <div className="wb-subgroups" style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflowY: "auto" }}>
       {modes && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8, padding: "5px 9px", borderRadius: 6, background: "rgba(90, 130, 255, 0.08)", border: `1px solid ${color.border}`, fontSize: fz.micro }}>
           <span style={{ color: color.primary, fontFamily: mono }}>
@@ -178,7 +178,7 @@ export function SubgroupsPanel({ spaceGroup, lattice, irrepTree, modes, modeCoun
         )}
         {modes === null && irrepTree !== null && irrepTree.length > 0 && (
           <>
-            <div style={{ marginTop: 4, border: `1px solid ${color.border}`, borderRadius: 6, maxHeight: 168, overflowY: "auto" }}>
+            <div className="wb-grow-box" style={{ marginTop: 4, border: `1px solid ${color.border}`, borderRadius: 6, maxHeight: 168, overflowY: "auto" }}>
               {irrepTree.map(({ term, subgroups }) => {
                 const dim = term.irrep.dim ?? 1;
                 const optic = term.multiplicity - term.acoustic;
@@ -219,7 +219,7 @@ export function SubgroupsPanel({ spaceGroup, lattice, irrepTree, modes, modeCoun
           {parent} · {lattice.nodes.length} translationengleiche subgroups · {levels.reduce((s, l) => s + l.nodes.length, 0)} distinct types
         </span>
       </div>
-      <div style={{ overflowY: "auto", border: `1px solid ${color.border}`, borderRadius: 6, flex: "1 1 auto", minHeight: 140 }}>
+      <div className="wb-grow-box" style={{ overflowY: "auto", border: `1px solid ${color.border}`, borderRadius: 6, flex: "1 1 auto", minHeight: 140 }}>
         {levels.map(({ index, nodes }) => (
           <div key={index}>
             <div style={{ position: "sticky", top: 0, padding: "3px 8px", background: color.subtle, borderTop: `1px solid ${color.border}`, borderBottom: `1px solid ${color.subtle2}`, fontFamily: mono, fontSize: fz.micro, color: color.secondary }}>
