@@ -276,20 +276,26 @@ export function powderCaveats(i: PowderResultInput): ReportCaveat[] {
   const a = i.acceptance;
   const [gof, physical, cross] = a.checks;
   const out: ReportCaveat[] = [];
-  if (a.state.kind !== "converged") out.push({ tone: TONE[a.state.tone], label: "Fit", text: lowerFirst(`${a.state.text}${a.state.detail ? `. ${a.state.detail}` : ""}`) });
-  out.push({ tone: TONE[gof.tone], label: "Goodness of fit", text: `${gof.value.replace(" · ", ", ")}${gof.sentence ? ` — ${lowerFirst(reportVoice(gof.sentence))}` : ""}` });
+  if (a.state.kind !== "converged") out.push({ tone: TONE[a.state.tone], label: "Fit", text: lowerFirst(a.state.detail ?? a.state.text) });
+  out.push({ tone: TONE[gof.tone], label: "Goodness of fit", text: `${gof.value.replace(" · ", ", ")}${gof.sentence ? `: ${lowerFirst(reportVoice(gof.sentence))}` : ""}` });
   const misfit: ReportTone = a.band === "poor" ? "bad" : a.band === "fair" ? "warn" : "note";
   for (const c of i.causes.filter((x) => x.share >= 0.05).slice(0, 3)) {
     out.push({ tone: misfit, label: c.title, text: `about ${Math.round(100 * c.share)} % of χ² — ${lowerFirst((c.summary ?? c.evidence).replace(/\.$/, ""))}${c.statistic ? ` (${c.statistic})` : ""}` });
   }
   const items = physical.items ?? [];
   if (items.length === 0) out.push({ tone: TONE[physical.tone], label: "Physical sanity", text: lowerFirst(physical.value) + (physical.sentence ? `; ${lowerFirst(physical.sentence)}` : "") });
-  for (const item of items) {
-    out.push({
-      tone: item.severity === "blocker" ? "bad" : item.severity === "issue" ? "warn" : "note",
-      label: "Physical sanity",
-      text: `${parameterPhrase(withoutAction(item.text)).replace(/\.$/, "")}${item.detail ? ` (${firstSentence(item.detail).replace(/\.$/, "")})` : ""}`,
-    });
+  // A held input says why it is one (its detail's first sentence); the others are their own line's words.
+  const byId = new Map(i.parameters.map((p) => [p.id, p]));
+  const itemText = (item: (typeof items)[number]): string => {
+    const p = byId.get(item.parameterIds[0] ?? "");
+    const held = p && p.kind === "occupancy" && (p.fixed || p.expression) && /held at/.test(item.text);
+    return `${parameterPhrase(withoutAction(item.text)).replace(/\.$/, "")}${held && item.detail ? ` (${firstSentence(item.detail).replace(/\.$/, "")})` : ""}`;
+  };
+  // Each blocker on its line; the values to check, and the notes, each as one line.
+  for (const item of items.filter((x) => x.severity === "blocker")) out.push({ tone: "bad", label: "Physical sanity", text: itemText(item) });
+  for (const [severity, tone] of [["issue", "warn"], ["note", "note"]] as const) {
+    const group = items.filter((x) => x.severity === severity);
+    if (group.length > 0) out.push({ tone, label: "Physical sanity", text: group.map(itemText).join("; ") });
   }
   for (const e of cross.esd ?? []) {
     const m = /^Esds likely too small: (.+)$/.exec(e.text);

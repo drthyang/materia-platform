@@ -298,8 +298,8 @@ export function subjectOf(phases: readonly StructureModel[]): string {
 
 const countIndex = (n: number, one: string, many = `${one}s`): ReportIndex => ({ symbol: n === 1 ? one : many, value: String(n), count: true });
 
-/** A magnetic group's time reversal as the prime it is: "P2/c'" → "P2/c′" (an apostrophe after a symbol letter, not before a word's s). */
-const primes = (s: string): string => s.replace(/(?<=[A-Za-z0-9₀-₉′])'(?![A-Za-z])/g, "′");
+/** A magnetic group's time reversal as the prime it is, in a sentence that names the group: "P2/c'" → "P2/c′". */
+const primes = (s: string, symbol: string | undefined): string => (symbol && symbol.includes("'") ? s.split(symbol).join(symbol.replace(/'/g, "′")) : s);
 
 function instrumentLabel(inst: InstrumentParameters, loaded: boolean): string {
   const name = [inst.name, inst.facility].filter(Boolean).join(" · ");
@@ -415,10 +415,15 @@ export function powderReportInput(o: {
   ];
 
   const inst = [o.instrument.name, o.instrument.facility].filter(Boolean).join(" · ");
+  // Without a refinement of its own (a converged snapshot), the curves' agreement as the Validation tab reads it.
+  const fromCurves = o.gof === null && !!o.judgment;
+  const gof = o.gof ?? o.judgment?.agreement.gof ?? null;
+  const rExp = o.rExp ?? (fromCurves ? o.judgment!.agreement.rexp : null);
+  const curvesHint = fromCurves ? " (of the curves shown: no refinement in this session)" : "";
   const indices: ReportIndex[] = [
     { symbol: "R_wp", value: pct(o.wR), hint: "Weighted profile R over the fit window, w = 1/σ²" },
-    ...(o.rExp !== null ? [{ symbol: "R_exp", value: pct(o.rExp), hint: "Expected R: the statistical floor √((N − P) / Σ w y²)" }] : []),
-    ...(o.gof !== null ? [{ symbol: "χ^2", value: num(o.gof * o.gof, 2), hint: "Reduced χ² = GoF²" }, { symbol: "GoF", value: num(o.gof, 2), hint: "GoF = R_wp / R_exp (GSAS-II's GoF)" }] : []),
+    ...(rExp !== null ? [{ symbol: "R_exp", value: pct(rExp), hint: `Expected R: the statistical floor √((N − P) / Σ w y²)${curvesHint}` }] : []),
+    ...(gof !== null ? [{ symbol: "χ^2", value: num(gof * gof, 2), hint: `Reduced χ² = GoF²${curvesHint}` }, { symbol: "GoF", value: num(gof, 2), hint: `GoF = R_wp / R_exp (GSAS-II's GoF)${curvesHint}` }] : []),
     countIndex(o.pointsInWindow, "point"),
     countIndex(free, "free parameter"),
   ];
@@ -427,9 +432,9 @@ export function powderReportInput(o: {
         const facts = {
           subject: subjectOf(o.refinedPhases),
           against: `${dataPhrase(pattern.radiation)}${inst && o.instrumentLoaded ? ` from ${inst}` : ""}`,
-          free, points: o.pointsInWindow, rwp: o.wR, rexp: o.rExp, gof: o.gof, result, parameters: params,
+          free, points: o.pointsInWindow, rwp: o.wR, rexp: rExp, gof, result, parameters: params,
           acceptance: o.judgment.acceptance, headlineCause: o.judgment.headlineCause, causes: o.judgment.causes, restraints: o.judgment.restraints,
-          magnetic: magnetic.section ? primes(magnetic.summary) : undefined,
+          magnetic: magnetic.section ? primes(magnetic.summary, magnetic.section.group.symbol) : undefined,
         };
         return { result: powderResultParagraph(facts), caveats: powderCaveats(facts) };
       })()
@@ -769,7 +774,7 @@ export function singleCrystalReportInput(o: {
           free,
           agreement: `{{R_1}} = ${pct(ag.r1)} (${ag.observed} reflections with {{F_o^2}} > 2σ), {{wR_2}} = ${pct(ag.wr2)} and GooF = ${num(ag.goof, 2)} over all ${ag.total}`,
           result: o.result, parameters: params, verdict: o.verdict,
-          magnetic: magnetic.section ? primes(magnetic.summary) : undefined,
+          magnetic: magnetic.section ? primes(magnetic.summary, magnetic.section.group.symbol) : undefined,
         };
         const changed = !!o.result && parametersChangedSince(o.result, o.params);
         return { result: singleCrystalResultParagraph(facts, changed), caveats: singleCrystalCaveats(facts, changed) };
@@ -898,7 +903,7 @@ export function pdfReportInput(o: {
     against: `${pattern.scatteringType === "neutron" ? "neutron" : "X-ray"} G(r) over r = ${num(o.fitRange.min, 2)}–${num(o.fitRange.max, 2)} Å (${inWindow} points)`,
     free, rw: o.rw, result: o.result, parameters: params,
     assessment: o.current === false ? null : o.findings ?? null,
-    magnetic: o.spinModel || o.explored ? primes(magnetic.summary.replace("Magnetic structure:", "Magnetic PDF (mPDF) spin model:")) : undefined,
+    magnetic: o.spinModel || o.explored ? primes(magnetic.summary.replace("Magnetic structure:", "Magnetic PDF (mPDF) spin model:"), magnetic.section?.group.symbol) : undefined,
   };
   const assessment: ReportAssessment | null = o.findings !== undefined
     ? { result: pdfResultParagraph(facts, o.current === false), caveats: pdfCaveats(facts) }

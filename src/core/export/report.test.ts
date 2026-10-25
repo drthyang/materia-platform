@@ -327,7 +327,7 @@ describe("the Result paragraph per verdict state", () => {
     );
     const caveats = powderCaveats(i);
     expect(caveats.map((c) => c.label)).toEqual(["Goodness of fit", "Peak tails", "Physical sanity", "Esds", "Correlations", "Cross-check"]);
-    expect(caveats[0]).toEqual({ tone: "warn", label: "Goodness of fit", text: "GoF 3.05, fair — above the acceptance bar (good ≤ 2.5)" });
+    expect(caveats[0]).toEqual({ tone: "warn", label: "Goodness of fit", text: "GoF 3.05, fair: above the acceptance bar (good ≤ 2.5)" });
     expect(caveats[1]!.text).toBe("about 85 % of χ² — the observed peaks have longer tails than the model's");
     expect(caveats[2]!.text).toBe("Mn3Ga Ga1 occupancy held at 1.005 (0.5% over 1: an input the fit never moved)");
   });
@@ -352,6 +352,8 @@ describe("the Result paragraph per verdict state", () => {
 
   it("states where the values come from when they are not a converged refinement's", () => {
     expect(powderResultParagraph(input({ gof: null, result: null, snapshot: true }))).toContain("The values are a converged snapshot at {{R_wp}} = 4.01 %, which carries no esds or correlations: refining once gives them.");
+    // A snapshot's curves still have a GoF (the Validation tab's): the verdict reads it.
+    expect(powderResultParagraph(input({ gof: 3.05, result: null, snapshot: true }))).toContain("The values are a converged snapshot at {{R_wp}} = 4.01 % ({{R_exp}} = 1.31 %, GoF = 3.05), which carries no esds or correlations: refining once gives them. The fit is fair, above the acceptance bar (good ≤ 2.5).");
     expect(powderResultParagraph(input({ gof: null, result: null, parameters: [{ ...scale, initialValue: 1.2 }] }))).toContain("The model has not been refined; the starting values give {{R_wp}} = 4.01 %.");
     expect(powderResultParagraph(input({ gof: 3, result: fit(3), parameters: [{ ...scale, value: 1.5 }] }))).toContain("The values were edited after the last refinement, so its esds no longer apply");
     expect(powderResultParagraph(input({ gof: 3, result: fit(3, "diverged") }))).toContain("The last refinement diverged: its values and esds are not meaningful.");

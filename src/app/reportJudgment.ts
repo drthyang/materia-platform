@@ -24,6 +24,8 @@ export interface PowderJudgment {
   /** The cause the verdict names. */
   readonly headlineCause?: { readonly phrase: string; readonly share: number; readonly first: boolean } | undefined;
   readonly restraints: readonly LinearRestraint[];
+  /** The agreement of the curves shown, as the Validation tab computes it: what the verdict reads where no refinement gave one (a snapshot). */
+  readonly agreement: { readonly rexp: number; readonly gof: number };
 }
 
 /**
@@ -71,5 +73,6 @@ export function powderJudgment(page: JudgedPage, o: { readonly gof: number | nul
     causes: rows.map((r) => ({ title: r.title, phrase: r.phrase, share: r.share, evidence: r.evidence, summary: r.summary, ...(r.statistic ? { statistic: r.statistic } : {}) })),
     ...(top ? { headlineCause: top } : {}),
     restraints: page.restraints,
+    agreement: { rexp: validation.agreement.rexp, gof: validation.agreement.gof },
   };
 }
