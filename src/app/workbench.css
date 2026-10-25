@@ -64,6 +64,7 @@
   /* The insets as tokens (0 on every desktop browser), read by the bands below
      and by the Copilot's rail and drawer. iOS reports the left and right ones
      alike in landscape, whichever side the sensor housing is on. */
+  --wb-safe-t: env(safe-area-inset-top, 0px);
   --wb-safe-l: env(safe-area-inset-left, 0px);
   --wb-safe-r: env(safe-area-inset-right, 0px);
   --wb-safe-b: env(safe-area-inset-bottom, 0px);
@@ -270,6 +271,7 @@ html {
   gap: 10px;
   padding-top: 14px;
   padding-right: var(--wb-safe-r);
+  padding-bottom: var(--wb-safe-b);
   color: #3b3a36;
   position: relative;
 }
@@ -357,7 +359,7 @@ html {
 
 /* The copyright footer clears the home indicator when the page runs full-bleed. */
 .wb-footer {
-  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)) !important;
+  padding-bottom: calc(10px + var(--wb-safe-b)) !important;
 }
 
 /* "Refining…" shimmer: a bright band sweeps across the button text while a
@@ -856,7 +858,7 @@ html {
  * hangs from its right end, spans the column. */
 @container shell (max-width: 700px) {
   .wb-header {
-    padding: max(10px, env(safe-area-inset-top, 0px)) var(--wb-edge) 10px !important;
+    padding: max(10px, var(--wb-safe-t)) var(--wb-edge) 10px !important;
     gap: 10px 8px !important;
   }
   .wb-header-mark {
@@ -1553,9 +1555,14 @@ html {
     font-size: max(16px, 1em);
   }
 }
-/* The sheet: a one-line input. */
+/* The sheet, and the drawer beside a phone held sideways: a one-line input. */
 .wb-agent[data-mode="sheet"] .wb-agent-input textarea {
   min-height: 1.5em;
+}
+@media (max-height: 540px) {
+  .wb-agent .wb-agent-input textarea {
+    min-height: 1.5em;
+  }
 }
 
 /* Interactive plots (usePlotInteraction): a visible keyboard focus ring, and the

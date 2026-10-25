@@ -151,8 +151,13 @@ export function AgentDrawer({ agent, method = null, onClose }: Props): JSX.Eleme
       )}
       {method && <MethodChecklist key={sheetMode ? "sheet" : shortWindow ? "short" : "docked"} method={method} folded={sheetMode || shortWindow} />}
       {showSettings && <Settings agent={agent} />}
-      <Transcript agent={agent} page={method?.skill ?? null} onOther={editDraft} />
-      <Composer agent={agent} disabled={needsSetup} compact={sheetMode} text={draft} setText={setDraft} input={input} hint={hint} />
+      {/* In the sheet and the short drawer the settings, while open, take the
+          conversation's room (kept mounted, only hidden): squeezed beside it
+          they were a ~40px scroller. */}
+      <div style={{ display: showSettings && (sheetMode || shortWindow) ? "none" : "contents" }}>
+        <Transcript agent={agent} page={method?.skill ?? null} onOther={editDraft} />
+      </div>
+      <Composer agent={agent} disabled={needsSetup} compact={sheetMode || shortWindow} text={draft} setText={setDraft} input={input} hint={hint} />
     </aside>
   );
 }
