@@ -460,8 +460,8 @@ export function KSearchPanel({
     setPeakFocusToken((t) => t + 1);
   }
 
-  // A long peak table shows its first rows (and every row the search reads)
-  // until "Show all": 24 rows put step 4 two screens down.
+  // A long peak table shows its strongest rows (and every row the search
+  // reads) until "Show all": 24 rows put step 4 two screens down.
   const [allPeaksShown, setAllPeaksShown] = useState(false);
   const spotlitIdx = patternPick?.phaseId === "residual" ? Number(patternPick.hkl.slice(1)) : null;
   const collapsedPeakRows = visiblePeakRows(peakRows, false, spotlitIdx);
@@ -946,7 +946,7 @@ export function KSearchPanel({
                 <button
                   style={moreRowsBtn}
                   onClick={() => setAllPeaksShown((v) => !v)}
-                  title={allPeaksShown ? "Show the first peaks only (and every peak in the k-search)" : "Show every detected peak"}
+                  title={allPeaksShown ? "Show the strongest peaks only (and every peak in the k-search)" : "Show every detected peak"}
                 >
                   {allPeaksShown ? "Show fewer peaks" : `Show all ${peakRows.length} peaks (${hiddenPeaks} more)`}
                 </button>

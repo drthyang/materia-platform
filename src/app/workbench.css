@@ -657,9 +657,12 @@ html {
       align-items: flex-start;
       overflow-y: auto;
     }
+    /* At least the row's height, and never less than its cards need: on a
+       short window (under ~800px) the rail runs past the fold instead of its
+       cards spilling, and the row scrolls to it. */
     .wb-mag2-rail > .wb-mag2-left {
       flex: 1 1 0;
-      height: 100%;
+      min-height: 100%;
       position: sticky;
       top: 0;
     }
@@ -669,24 +672,28 @@ html {
       overflow: visible;
       min-height: 100%;
     }
-    /* The rail's height is shared: the pattern a little more than the model. */
+    /* The rail's height is shared: the pattern a little more than the model,
+       neither below its content's floor. */
     .wb-mag2-rail .wb-mag2-pattern {
       flex: 1.25 1 0;
-      min-height: 0;
     }
     .wb-mag2-rail .wb-mag2-plot {
       height: auto !important;
       flex: 1 1 0;
-      min-height: 0;
     }
     .wb-mag2-rail .wb-plot-box {
       min-height: 240px !important;
     }
     .wb-mag2-rail .wb-mag2-model {
       flex: 1 1 0;
+      min-height: auto;
     }
+    /* Size containment: the WebGL canvas inside keeps the size it was last
+       drawn at until the resize observer catches up, and would otherwise hold
+       the card's floor at that size (360px at first paint). */
     .wb-mag2-rail .wb-3d-canvas {
       min-height: 140px !important;
+      contain: size;
     }
     /* The 3D card's chrome, tightened so the canvas keeps the room: the a/b/c
        presets ride on the canvas's corner instead of a row of their own (only
