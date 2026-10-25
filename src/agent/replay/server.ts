@@ -6,19 +6,40 @@
  * already holds, so the real chat loop, executor and tools run on the page
  * and only the model is scripted. No key and no network. Without the cookie
  * the request passes on to the proxy.
+ *
+ * A replay named `local-…` is read from the git-ignored data folder
+ * (`data/replays/<id>.json`, or MATERIA_DATA_DIR's): a run on unpublished data
+ * the repository must not hold, played the same way.
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { DEMO_REPLAYS } from "./demoReplays";
+import { existsSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { DEMO_REPLAYS, type DemoReplay } from "./demoReplays";
+import { LOCAL_REPLAY, REPLAY_COOKIE } from "./cookie";
 import { sse } from "./sse";
 
-export const REPLAY_COOKIE = "materia-agent-replay";
+export { LOCAL_REPLAY, REPLAY_COOKIE };
+
+/** A `local-…` replay from the git-ignored data folder, or null when there is none. */
+export function localReplay(id: string): DemoReplay | null {
+  if (!LOCAL_REPLAY.test(id)) return null;
+  const dir = process.env.MATERIA_DATA_DIR ? resolve(process.env.MATERIA_DATA_DIR) : resolve(process.cwd(), "data");
+  const file = join(dir, "replays", `${id}.json`);
+  if (!existsSync(file)) return null;
+  try {
+    return JSON.parse(readFileSync(file, "utf8")) as DemoReplay;
+  } catch {
+    return null;
+  }
+}
 
 /** The replay a request's cookie selects, or null. */
 export function replayFrom(cookie: string | undefined): string | null {
   for (const part of (cookie ?? "").split(";")) {
     const [k, v] = part.trim().split("=");
-    if (k === REPLAY_COOKIE && v && Object.hasOwn(DEMO_REPLAYS, decodeURIComponent(v))) return decodeURIComponent(v);
+    const id = v ? decodeURIComponent(v) : "";
+    if (k === REPLAY_COOKIE && id && (Object.hasOwn(DEMO_REPLAYS, id) || localReplay(id))) return id;
   }
   return null;
 }
@@ -41,7 +62,8 @@ export function scriptedReplay(mount = "/api/anthropic/v1/messages") {
     req.on("data", (c: Buffer) => chunks.push(c));
     req.on("end", () => {
       const n = turnOf(Buffer.concat(chunks).toString("utf8"));
-      const turn = DEMO_REPLAYS[id]?.turns[n] ?? { text: "(end of the scripted replay)" };
+      const replay = Object.hasOwn(DEMO_REPLAYS, id) ? DEMO_REPLAYS[id] : localReplay(id);
+      const turn = replay?.turns[n] ?? { text: "(end of the scripted replay)" };
       res.writeHead(200, { "content-type": "text/event-stream" });
       res.end(sse(turn, n + 1));
     });

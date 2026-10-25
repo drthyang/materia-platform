@@ -9,7 +9,7 @@
 
 import { SETTINGS_KEY } from "../storage";
 import { DEMO_REPLAYS } from "./demoReplays";
-import { REPLAY_COOKIE } from "./server";
+import { LOCAL_REPLAY, REPLAY_COOKIE } from "./cookie";
 
 const KEPT_KEY = `${SETTINGS_KEY}.beforeReplay`;
 
@@ -25,7 +25,8 @@ export interface ReplayEnv {
 /** Arm (or disarm) the replay; returns the replay in effect, or null. */
 export function armReplay(env: ReplayEnv): string | null {
   const id = new URLSearchParams(env.search).get("agentReplay");
-  if (id && Object.hasOwn(DEMO_REPLAYS, id)) {
+  // A `local-…` replay lives in the git-ignored data folder; the dev server checks it exists.
+  if (id && (Object.hasOwn(DEMO_REPLAYS, id) || LOCAL_REPLAY.test(id))) {
     if (env.storage.getItem(KEPT_KEY) === null) env.storage.setItem(KEPT_KEY, env.storage.getItem(SETTINGS_KEY) ?? "");
     let stored: Record<string, unknown>;
     try {
