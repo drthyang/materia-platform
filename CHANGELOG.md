@@ -668,6 +668,16 @@ release fixes bugs.
 
 ### Fixed
 
+- **The Background group stays on the parameter panel at 0 terms.** Emptying
+  the background's terms field to retype the count read as 0, and 0 terms
+  removed every background row, and with them the Background group and its
+  function and terms controls, with nothing on the page to bring them back (a
+  project saved then would not open: it needs one term). The page now keeps at
+  least one coefficient, the field waits on an entry that is no count (empty,
+  0, a fraction, above 24) and puts the count back on blur, and
+  `set_background` takes 1 to 24 terms. A coefficient at 0 keeps its row as
+  before.
+
 - **A PDF fit over a long r range no longer crashes the browser tab.** The
   pair list was an object per pair (about 100 bytes), built by the UI thread
   and by every evaluator, and a 1.5–100 Å fit on a multi-element site filled

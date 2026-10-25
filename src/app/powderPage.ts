@@ -151,15 +151,32 @@ export function withBackgroundType(s: Session, backgroundType: BackgroundType): 
   return { ...s, powderParams, powderProfile: { ...s.powderProfile, backgroundType } };
 }
 
+/** How many background coefficients the page takes: at least one, as the project file needs (docs/PROJECT_FORMAT.md). */
+export const BACKGROUND_TERMS = { min: 1, max: 24 } as const;
+
 /**
- * Change the number of background coefficients (0–24), keeping every other row
- * and the background type. An interpolation basis's coefficients are heights at
+ * The count an entry in the terms field asks for, or null while it asks for
+ * none: the field emptied to retype it (`Number("")` is 0), 0, a fraction, or
+ * more than 24. The field waits on null instead of applying it.
+ */
+export function backgroundTermsEntry(raw: string): number | null {
+  const n = raw.trim() === "" ? NaN : Number(raw);
+  return Number.isInteger(n) && n >= BACKGROUND_TERMS.min && n <= BACKGROUND_TERMS.max ? n : null;
+}
+
+/**
+ * Change the number of background coefficients (1–24), keeping every other row
+ * and the background type. Never none: 0 took every background row, and with
+ * them the Background group and its function and terms controls, off the
+ * parameter panel. An interpolation basis's coefficients are heights at
  * points that move with their number, so they are read off the current curve at
  * the new points: the background keeps its shape instead of each height landing
  * at another point.
  */
 export function withBackgroundTerms(s: Session, n: number, instrument: InstrumentParameters): Session {
-  const next = rebuilt(s, instrument, { backgroundTerms: Math.max(0, Math.min(24, Math.trunc(n))) });
+  // Not a count (NaN would build no rows either): the session as it is.
+  if (!Number.isFinite(n)) return s;
+  const next = rebuilt(s, instrument, { backgroundTerms: Math.max(BACKGROUND_TERMS.min, Math.min(BACKGROUND_TERMS.max, Math.trunc(n))) });
   const type = s.powderProfile.backgroundType;
   if ((type !== "linInterpolate" && type !== "logInterpolate") || next.backgroundTerms === s.backgroundTerms) return next;
   const old = s.powderParams.filter((p) => p.kind === "background").map((p) => p.value);

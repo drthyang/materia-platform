@@ -1560,7 +1560,7 @@ Powder page only. Change the background model: the number of coefficients (rebui
     "terms": {
       "description": "Number of background coefficients",
       "type": "integer",
-      "minimum": 0,
+      "minimum": 1,
       "maximum": 24
     },
     "type": {

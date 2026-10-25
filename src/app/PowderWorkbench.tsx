@@ -84,7 +84,7 @@ import { excludedPointMask } from "@/core/refinement/factors";
 import { secondLine, type InstrumentConstants, type InstrumentParameters } from "@/core/diffraction/instrument";
 import { type Session, SYNTHETIC_SOURCE, EMPTY_SOURCE } from "@/app/powderSession";
 import {
-  extentOf, hasTensorAdp, magneticApplied as magneticAppliedOn, magneticProfileOf, momentRowsFree as momentRowsFreeOn, observationsIn, posteriorRun, powderFit as powderFitOn,
+  BACKGROUND_TERMS, backgroundTermsEntry, extentOf, hasTensorAdp, magneticApplied as magneticAppliedOn, magneticProfileOf, momentRowsFree as momentRowsFreeOn, observationsIn, posteriorRun, powderFit as powderFitOn,
   powderPageCurves, refinedPhasesOf, restraintRequest, thoroughFit, weightedR as weightedROf, withAnisotropicAdp, withAntisitePair, withBackgroundTerms,
   withBackgroundType, withCorrections, withMagneticModelRows, withMagneticPreview, withMustrain, withParameterTies, withReset, withSiteTies, withSiteTotal, withParameter, pageAxis, powderMomentFit, residualPeaksOf,
   changed, specInstrumentOf, withFit, withFixed, withZeroAdpApplied, withZeroAdpPruned, withZeroAdpReleased, zeroAdpOf, type PowderPage, type PowderPageModel,
@@ -1546,7 +1546,7 @@ export function PowderWorkbench({
                       </select>
                       <label style={{ display: "flex", alignItems: "center", gap: 4 }}>
                         terms
-                        <input type="number" min={1} max={24} step={1} value={session.backgroundTerms} onChange={(e) => setBackgroundTerms(Number(e.target.value))} style={bgTermsInput} />
+                        <BackgroundTermsInput terms={session.backgroundTerms} onChange={setBackgroundTerms} />
                       </label>
                     </>
                   ),
@@ -1835,6 +1835,33 @@ function CorrectionControls({ corrections, twoTheta, onChange }: {
         <input value={axisText} onChange={(e) => setAxisText(e.target.value)} onBlur={() => { const a = axis(); if (a && corrections?.preferredOrientation) onChange({ preferredOrientation: a }); }} style={{ ...bgTermsInput, width: 52 }} aria-label="Preferred-orientation axis h k l" />
       </span>
     </span>
+  );
+}
+
+/**
+ * The background's coefficient count. A count applies as it is typed or
+ * stepped; an entry that is none (backgroundTermsEntry: the field emptied to
+ * retype it, 0) waits, and blur puts the count back. Applied, the emptied
+ * field's 0 removed every background row, and with them the Background group
+ * and this field, from the parameter panel.
+ */
+function BackgroundTermsInput({ terms, onChange }: { terms: number; onChange: (n: number) => void }): JSX.Element {
+  const [buf, setBuf] = useState<string | null>(null);
+  return (
+    <input
+      type="number"
+      min={BACKGROUND_TERMS.min}
+      max={BACKGROUND_TERMS.max}
+      step={1}
+      value={buf ?? String(terms)}
+      onChange={(e) => {
+        const n = backgroundTermsEntry(e.target.value);
+        setBuf(n === null ? e.target.value : null);
+        if (n !== null && n !== terms) onChange(n);
+      }}
+      onBlur={() => setBuf(null)}
+      style={bgTermsInput}
+    />
   );
 }
 

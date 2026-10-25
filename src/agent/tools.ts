@@ -870,7 +870,7 @@ const TOOLS = [
     description:
       "Powder page only. Change the background model: the number of coefficients (rebuilds the parameter set, keeping every other value and free state) and/or the basis. Changing the basis between a polynomial and an interpolation type reseeds the coefficients; a new count on an interpolation basis keeps the curve. More terms: the card cautions when they would absorb an excess no reflection explains, or exceed what the points between the lines justify (BIC). Clears the last result.",
     inputSchema: {
-      terms: z.number().int().min(0).max(24).optional().describe("Number of background coefficients"),
+      terms: z.number().int().min(1).max(24).optional().describe("Number of background coefficients"),
       type: z.enum(["chebyshev", "cosine", "powerSeries", "linInterpolate", "logInterpolate"]).optional(),
     },
     effect: "change",
