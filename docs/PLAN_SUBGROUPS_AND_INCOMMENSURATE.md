@@ -89,9 +89,11 @@ relation to the parent irreps.
 
 **Surface debts to fix while we are in here.**
 
-- All subgroup/mode UI is **inline in `PdfWorkbench.tsx`**; there is no
-  component for it in `src/app/ui/`. (Its operations, the activation and the
-  parent decomposition, are in `app/pdfPage.ts`.)
+- The subgroup/mode UI was inline in `PdfWorkbench.tsx`. It now has its own
+  components: `app/ui/SubgroupsPanel.tsx` (the Subgroups view, where the
+  symmetry is chosen) and `app/ui/DistortionModesPanel.tsx` (the modes being
+  refined, under the 3D Model view). Their operations, the activation and the
+  parent decomposition, are in `app/pdfPage.ts`.
 - MCP exposes `build_distortion_modes` and `build_symmetry_modes` only — the
   subgroup lattice and activation are UI-only, so an agent cannot drive them.
 - [PDF_MPDF_ROADMAP.md](PDF_MPDF_ROADMAP.md) has **no distortion/subgroup
@@ -210,11 +212,12 @@ and it needs no new physics once A-I…A-III are in.
 
 ## A-V · Debts, in the same series
 
-Extract the subgroup/mode UI out of `PdfWorkbench.tsx` into its own component;
-expose the subgroup lattice and activation as MCP tools; add the missing project
-round-trip test for a stored `DistortionModeSet`; add the end-to-end
-activation-against-data test; and give the feature its section in
-[PDF_MPDF_ROADMAP.md](PDF_MPDF_ROADMAP.md), which has none.
+The subgroup/mode UI is out of `PdfWorkbench.tsx` (`SubgroupsPanel`,
+`DistortionModesPanel`). Still to do: expose the subgroup lattice and
+activation as MCP tools; add the missing project round-trip test for a stored
+`DistortionModeSet`; add the end-to-end activation-against-data test; and give
+the feature its section in [PDF_MPDF_ROADMAP.md](PDF_MPDF_ROADMAP.md), which
+has none.
 
 Adjacent, explicitly **not** in this track: ADP and strain symmetry modes
 ([LIMITATIONS.md](LIMITATIONS.md) already calls them future work).
