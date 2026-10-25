@@ -696,7 +696,10 @@ release fixes bugs.
   correlation rules already did; an inflation no newcomer accounts for still
   rejects the stage. The staged sequence runs in `refinePowderStructure`, the
   MCP PDF and mPDF fits with `staged`, and the demo's solve; the page's Refine
-  and the Agent's `refine` do not use it.
+  and the Agent's `refine` do not use it. The demo's solve now ranks the
+  groups as the magnetic page does and keeps the maximal group unless
+  Hamilton's test says the data need more moment parameters (lowest wR alone
+  had chosen a subgroup with four more).
 
 - **The Background group stays on the parameter panel at 0 terms.** Emptying
   the background's terms field to retype the count read as 0, and 0 terms

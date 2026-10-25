@@ -77,7 +77,8 @@ export interface StagedRefinementResult {
  *
  * An inflated esd is the esd of the full covariance growing as a newcomer that
  * correlates with the parameter joins the fit: by 1/√(1 − ρ²) for one partner,
- * the TOF zero against the cell lengths (ρ ≈ −0.98, several-fold). That is the
+ * several-fold for the TOF zero against the cell lengths (|ρ| above 0.9 on a
+ * TOF bank; stagedTofProfile.test.ts). That is the
  * pair the data cannot separate, not a diverging fit — the stage's other
  * newcomers (the TOF peak shape) improve it — so the newcomer the parameter
  * correlates with most strongly is re-fixed, the member of the pair that this

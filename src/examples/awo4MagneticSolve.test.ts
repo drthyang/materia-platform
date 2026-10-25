@@ -197,6 +197,8 @@ describe.skipIf(!has)("AWO₄ magnetic demo — solve the 6 K magnetic structure
       params: Object.fromEntries(Object.entries(finalValues).map(([k, v]) => [k, Number(v.toPrecision(10))])),
       nuclearWr: Number(nuclearWr.toPrecision(6)),
       jointWr: Number((joint.agreement.rWeighted ?? NaN).toPrecision(6)),
+      /** |M| (µB) of the tied cations after the joint fit: the demo test checks the demo carries it. */
+      moment: Number(Math.hypot(...momentCartesian(structure.cell, finalMag.moments[0]!)).toPrecision(6)),
       selection: { test: "Hamilton (F on χ²)", alpha: RANK_NOISE_ALPHA, observations: best.dof + best.parameters },
       withinNoise: equivalent.map((r) => r.label),
       ranking: ranked.map((r) => ({

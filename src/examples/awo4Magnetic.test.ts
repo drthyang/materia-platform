@@ -43,10 +43,12 @@ describe.skipIf(!has)("local AWO₄ magnetic demo (POWGEN 6 K, k = ½ 0 0)", () 
     if (ex.instrument.kind === "tof") expect(ex.instrument.difC).toBeCloseTo(22600, 0);
   });
 
-  // 2.50 µ_B since the solve uses sig-q linear in d (GSAS-II getTOFsig); under
-  // the old sig-q/d² width it was 2.57 — a 0.07 µ_B shift against an esd of
-  // ≈ 0.05 µ_B, the moment following the corrected peak widths.
-  it("carries the solved P2/c′ model: a maximal candidate of the k = (½,0,0) lattice, tied cations at 2.50 µ_B", () => {
+  // The moment is the one the solve wrote (the solution's `moment`), not a
+  // number kept here: the demo must carry the model the solve refined, and the
+  // data's scans and reductions move it by about an esd. One moment for the
+  // co-located cations, at most their mean spin-only value (g·S of the 2+
+  // ions, the benchmark's C8 bound).
+  it("carries the solved P2/c′ model: a maximal candidate of the k = (½,0,0) lattice, one moment on the tied cations", () => {
     const ex = example();
     expect(ex.k).toEqual([0.5, 0, 0]);
     expect(ex.magnetic.propagation[0]).toEqual([0.5, 0, 0]);
@@ -54,11 +56,24 @@ describe.skipIf(!has)("local AWO₄ magnetic demo (POWGEN 6 K, k = ½ 0 0)", () 
     const hit = reps.find((r) => sig(r.candidate.operations) === sig(ex.magnetic.operations ?? []));
     expect(hit).toBeDefined();
     expect(hit!.index).toBe(2);
+    // The page's label: the parent-cell operations read as a k = 0 group. With
+    // the k's anti-translation the group is of type IV, which the bundled table
+    // does not hold.
     expect(hit!.candidate.standard?.bnsNumber ?? hit!.settingMatch?.identity.bnsNumber).toBe("13.68");
     expect(magneticIonCandidates(ex.structure).map((i) => i.siteLabel)).toEqual(ex.magneticSites);
     const carried = ex.magnetic.moments.filter((m) => m.components.some((c) => c !== 0));
     expect(carried.map((m) => m.siteLabel).sort()).toEqual([...ex.magneticSites].sort());
-    for (const m of carried) expect(Math.hypot(...momentCartesian(ex.structure.cell, m))).toBeCloseTo(2.5, 1);
+    const solved = (JSON.parse(readData(AWO4_DEMO_FILES.solution)) as { moment?: number }).moment;
+    expect(solved, "the solution's moment: regenerate the solution (AWO4_SOLVE=1)").toBeDefined();
+    const spinOnly: Record<string, number> = { Mn: 5, Fe: 4, Co: 3, Ni: 2, Cu: 1 };
+    const spins = carried.map((m) => spinOnly[ex.structure.sites.find((s) => s.label === m.siteLabel)!.element]!);
+    const bound = spins.reduce((a, b) => a + b, 0) / spins.length;
+    for (const m of carried) {
+      const size = Math.hypot(...momentCartesian(ex.structure.cell, m));
+      expect(size).toBeCloseTo(solved!, 4);
+      expect(size).toBeGreaterThan(0);
+      expect(size).toBeLessThanOrEqual(bound);
+    }
     expect(ex.momentParams).toHaveLength(2);
   });
 
