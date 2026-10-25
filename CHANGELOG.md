@@ -668,6 +668,18 @@ release fixes bugs.
 
 ### Fixed
 
+- **A PDF fit over a long r range no longer crashes the browser tab.** The
+  pair list was an object per pair (about 100 bytes), built by the UI thread
+  and by every evaluator, and a 1.5–100 Å fit on a multi-element site filled
+  the heap the tab's isolates share. A pair is now a lattice translation and
+  a small atom-pair code (about a byte), its values recomputed bit-identically;
+  for a single-phase PDF the evaluator pool splits each evaluation by r block,
+  each worker holding only its block's pairs and the UI thread none; and a
+  list beyond 64 MiB is generated chunk by chunk. Results are bit-identical,
+  fits are 1.2–1.6× faster, and the UI thread no longer evaluates during a
+  single-phase PDF fit (the longest freeze of a 17-parameter fit to 30 Å:
+  about a ninth).
+
 - **A propagation vector's label reads back as itself.** A centred lattice's k
   above 1 was labelled to three decimals ((0 0 1.333) for 4/3, which sets
   another k when copied); it is now the exact fraction, (0 0 4/3).

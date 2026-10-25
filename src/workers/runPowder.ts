@@ -8,7 +8,7 @@ import type { EvaluatorSpec, RefineMpdfRequest, RefinePdfRequest, RefinePowderRe
 import type { AgreementFactors, RefinementOptions, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import { refine, type RefinementProblem } from "@/core/refinement/engine";
 import { buildPowderProblem, type PowderProfile } from "@/core/workflow/powder";
-import { buildPdfProblem, buildMultiPhasePdfProblem } from "@/core/workflow/pdf";
+import { buildPdfProblem, buildMultiPhasePdfProblem, type PdfShard } from "@/core/workflow/pdf";
 import { buildMpdfProblem } from "@/core/workflow/mpdf";
 import { buildMagneticPowderProblem } from "@/core/workflow/magneticPowder";
 import { buildSingleCrystalRefinementProblem } from "@/core/workflow/singleCrystalRefinement";
@@ -33,15 +33,17 @@ function powderProfileOf(r: PowderProfile): PowderProfile {
  * the two cannot diverge — the parallel-refinement exactness rests on this
  * single construction path.
  */
-export function buildProblemForSpec(spec: EvaluatorSpec): RefinementProblem {
+export function buildProblemForSpec(spec: EvaluatorSpec, shard?: PdfShard): RefinementProblem {
   if (spec.kind === "pdf") {
     const phases = spec.extraPhases && spec.extraPhases.length > 0
       ? [{ structure: spec.structure, id: spec.structure.id }, ...spec.extraPhases.map((s) => ({ structure: s, id: s.id }))]
       : null;
+    if (phases && shard) throw new Error("only a single-phase PDF problem splits by grid block");
     return phases
       ? buildMultiPhasePdfProblem(phases, spec.pattern, spec.parameters, spec.bindings, spec.restraints ?? [], spec.fitRange)
-      : buildPdfProblem(spec.structure, spec.pattern, spec.parameters, spec.bindings, spec.restraints ?? [], spec.fitRange);
+      : buildPdfProblem(spec.structure, spec.pattern, spec.parameters, spec.bindings, spec.restraints ?? [], spec.fitRange, shard);
   }
+  if (shard) throw new Error("only a single-phase PDF problem splits by grid block");
   if (spec.kind === "mpdf") {
     return buildMpdfProblem(spec.structure, spec.magnetic, spec.pattern, spec.parameters, spec.bindings, spec.restraints ?? [], spec.fitRange);
   }

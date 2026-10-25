@@ -26,7 +26,7 @@ import type { UnitCell } from "@/core/crystal/types";
 import type { ExpandedAtom } from "@/core/diffraction/structureFactor";
 import type { PdfScatteringType } from "@/core/diffraction/types";
 import { compositionWeights, groupedWeights, numberDensity, pairWeight } from "@/core/totalscattering/weights";
-import { enumeratePairs, type ColocatedGroups, type PdfPair } from "@/core/pdf/pairEnumerator";
+import { asPairSource, streamPairs, type ColocatedGroups, type PairsInput } from "@/core/pdf/pairEnumerator";
 
 export interface PdfModelParams {
   readonly scatteringType: PdfScatteringType;
@@ -64,6 +64,12 @@ export function sphereEnvelope(r: number, diameter: number): number {
 const GAUSS_WINDOW = 5; // accumulate each Gaussian over ±5σ
 const SIGMA_FLOOR = 1e-4; // Å, guards against a zero-width peak
 
+/** A contiguous range [k0, k1) of model-grid indices. */
+export interface GridBlock {
+  readonly k0: number;
+  readonly k1: number;
+}
+
 /**
  * How far (Å) beyond the last grid point pairs are enumerated, so peak tails
  * from just outside the window still land on the grid. A caller precomputing a
@@ -84,14 +90,24 @@ export const PAIR_REACH_MARGIN = 1.0;
  * `groups` (pairEnumerator `colocatedGroups`) sums each mixed site's species
  * onto one representative: `pairs` must then be enumerated over the
  * representatives with the same groups. The sum is the same up to rounding.
+ *
+ * `pairs` may be the object list or any pair source in the same order (a
+ * compact list, a stream): the values and their order are the same, so is G.
+ * Without `pairs` they are generated chunk by chunk and never stored.
+ *
+ * `block` computes grid points [k0, k1) only, and leaves the others 0: each
+ * point receives the same terms in the same order as in the whole curve, so
+ * the block is bit-identical to that part of it. `pairs` must then hold every
+ * pair whose ±5σ window reaches the block (workflow/pdf `shardShell`).
  */
 export function computeGofR(
   cell: UnitCell,
   atoms: readonly ExpandedAtom[],
   rGrid: ArrayLike<number>,
   params: PdfModelParams,
-  pairs?: readonly PdfPair[],
+  pairs?: PairsInput,
   groups?: ColocatedGroups | null,
+  block?: GridBlock,
 ): Float64Array {
   const n = rGrid.length;
   const g = new Float64Array(n);
@@ -114,33 +130,38 @@ export function computeGofR(
   const qb2 = params.qbroad * params.qbroad;
 
   // Enumerate a little beyond the grid so peak tails just outside still land.
-  const pairList = pairs ?? enumeratePairs(cell, atoms, rMaxGrid + PAIR_REACH_MARGIN, groups);
+  const source = pairs ? asPairSource(pairs) : streamPairs(cell, atoms, rMaxGrid + PAIR_REACH_MARGIN, groups);
+  const kFirst = block ? Math.max(0, block.k0) : 0;
+  const kLast = block ? Math.min(n, block.k1) - 1 : n - 1;
 
   const INV_SQRT_2PI = 1 / Math.sqrt(2 * Math.PI);
-  for (const pair of pairList) {
-    const r = pair.rij;
-    let sig2 = pair.msd * (1 - d1 / r - d2 / (r * r) + qb2 * r * r);
-    if (!(sig2 > 0)) sig2 = pair.msd > 0 ? pair.msd : SIGMA_FLOOR * SIGMA_FLOOR;
-    let sigma = Math.sqrt(sig2);
-    if (rcut > 0 && r < rcut) sigma *= sratio;
-    if (sigma < SIGMA_FLOOR) sigma = SIGMA_FLOOR;
+  source.forEachChunk((c) => {
+    for (let p = 0; p < c.length; p++) {
+      const r = c.r[p]!;
+      const msd = c.msd[p]!;
+      let sig2 = msd * (1 - d1 / r - d2 / (r * r) + qb2 * r * r);
+      if (!(sig2 > 0)) sig2 = msd > 0 ? msd : SIGMA_FLOOR * SIGMA_FLOOR;
+      let sigma = Math.sqrt(sig2);
+      if (rcut > 0 && r < rcut) sigma *= sratio;
+      if (sigma < SIGMA_FLOOR) sigma = SIGMA_FLOOR;
 
-    const amp = pairWeight(weights, pair.i, pair.j) * norm / r;
-    const invTwoSig2 = 1 / (2 * sigma * sigma);
-    const peak = amp * INV_SQRT_2PI / sigma;
+      const amp = pairWeight(weights, c.i[p]!, c.j[p]!) * norm / r;
+      const invTwoSig2 = 1 / (2 * sigma * sigma);
+      const peak = amp * INV_SQRT_2PI / sigma;
 
-    const lo = Math.max(0, Math.ceil((r - GAUSS_WINDOW * sigma - r0) / step));
-    const hi = Math.min(n - 1, Math.floor((r + GAUSS_WINDOW * sigma - r0) / step));
-    for (let k = lo; k <= hi; k++) {
-      const dr = r0 + k * step - r;
-      g[k] = g[k]! + peak * Math.exp(-dr * dr * invTwoSig2);
+      const lo = Math.max(kFirst, Math.ceil((r - GAUSS_WINDOW * sigma - r0) / step));
+      const hi = Math.min(kLast, Math.floor((r + GAUSS_WINDOW * sigma - r0) / step));
+      for (let k = lo; k <= hi; k++) {
+        const dr = r0 + k * step - r;
+        g[k] = g[k]! + peak * Math.exp(-dr * dr * invTwoSig2);
+      }
     }
-  }
+  });
 
   // Average-density baseline, particle/Q-resolution envelopes, overall scale.
   const fourPiRho0 = 4 * Math.PI * rho0;
   const spd = params.spdiameter ?? 0;
-  for (let k = 0; k < n; k++) {
+  for (let k = kFirst; k <= kLast; k++) {
     const r = rGrid[k]!;
     let val = g[k]! - fourPiRho0 * r;
     if (spd > 0) val *= sphereEnvelope(r, spd);

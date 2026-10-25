@@ -131,9 +131,12 @@ takes them is a question about *where that thread runs*. The serial `refine`
 driver always may (it runs in a worker in the browser, in-process under the MCP
 server); `refineParallel` may only when the caller declares its driver thread can
 afford the work (`analyticOnDriver`), since in the browser that thread is the UI
-thread — cheap for the fused PDF pass, ruinous for the powder template. Both
-remain gated behind `analyticDerivatives`, which the worker runners and the MCP
-server now set. An analytic-vs-FD
+thread — cheap for the fused PDF pass, ruinous for the powder template. An
+evaluator that splits every evaluation across its workers (the browser pool on a
+single-phase PDF problem, below) computes them itself: the core then yields an
+analytic request instead (`refineCore`'s remote mode) and receives the same
+columns. All of these remain gated behind `analyticDerivatives`, which the worker
+runners and the MCP server now set. An analytic-vs-FD
 agreement test gates every kind.
 
 The powder builder supplies occupancy and isotropic B columns when the problem
@@ -149,7 +152,29 @@ The real-space PDF model supplies a much larger set through a fused pass
   time, which keeps every column's sum in the same order. The pass still costs
   several forward evaluations when many columns are free (each occupancy
   column touches every pair, through the normalization), and the parallel
-  driver runs it on the UI thread in the browser.
+  driver runs it on the UI thread in the browser unless its pool is split.
+- **Pairs without objects.** A pair is stored as its lattice translation (per
+  run of pairs) and a 1–4-byte atom-pair code, about 1–2 bytes a pair, and r,
+  n̂ and the msd are recomputed from the float64 Cartesian positions and ADP
+  tensors with `enumeratePairs`' own expressions in its order
+  ([`pairEnumerator.ts`](../src/core/pdf/pairEnumerator.ts), `CompactPairs`):
+  every value, and so every sum, is bit-identical to the object list it
+  replaces (an object per pair took about 100 bytes in a browser isolate). A
+  list projected beyond `PAIR_STORE_BUDGET_BYTES` (64 MiB) is generated chunk by
+  chunk on every read instead (`streamPairs`): the same arithmetic, memory one
+  chunk.
+- **The split pool.** For a single-phase PDF problem the browser pool does not
+  replicate the problem: worker w of W computes block w of the model grid
+  (contiguous, balanced by r³) from only the pairs whose ±5σ window can reach
+  it (`pairReachBound`: msd ≤ ‖U_i‖_F + ‖U_j‖_F and the width factor bounded
+  over the range; pairs under 4 Å are kept by every shard), and the driver
+  joins the blocks and finishes them (termination, the window, the restraint
+  rows). Every grid point receives the same terms in the same order as in the
+  whole sum, so a split evaluation and its analytic columns are bit-identical
+  to the unsplit ones (`pdfSplit.test.ts`, 1–6 shards, with a mutation check
+  of the margin). Single evaluations and analytic columns go to the pool too,
+  so the UI thread holds no pairs and computes only the LM step and the
+  per-set termination.
 - **Geometry-aware pairs.** Each `PdfPair` carries the bond unit vector n̂.
   Atoms are expanded with provenance: the site index and the generating
   rotation `R` (`expandStructureAtomsWithProvenance`). A symmetry-mode

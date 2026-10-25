@@ -227,6 +227,12 @@ export interface InitEvaluatorRequest {
    * it silently serves the CPU forward model, so this is only ever a hint.
    */
   readonly useGpu?: boolean;
+  /**
+   * Make this evaluator one shard of a split pool (single-phase PDF only):
+   * it holds only the pairs its block of the model grid can see, and answers
+   * `evaluate` and `analytic` with that block (core/workflow/pdf `PdfSplit`).
+   */
+  readonly shard?: { readonly index: number; readonly count: number };
 }
 
 export interface EvaluateRequest {
@@ -235,7 +241,16 @@ export interface EvaluateRequest {
   readonly sets: Record<string, number>[];
 }
 
+/** A shard's block of the analytic columns at the free values (split pool only). */
+export interface AnalyticRequest {
+  readonly type: "analytic";
+  readonly requestId: number;
+  readonly freeIds: string[];
+  readonly freeValues: number[];
+}
+
 export type ComputeRequest =
+  | AnalyticRequest
   | RefinePowderRequest
   | RefinePdfRequest
   | RefineMpdfRequest
@@ -271,6 +286,15 @@ export interface ComputeFailure {
   readonly requestId: number;
   readonly ok: false;
   readonly error: string;
+  /** The error was a ModelDomainError (a point outside the model's domain), rethrown as one by the pool. */
+  readonly domain?: boolean;
+}
+
+/** A shard's block of every analytic column, null where finite differences apply. */
+export interface AnalyticSuccess {
+  readonly requestId: number;
+  readonly ok: true;
+  readonly columns: (Float64Array | null)[];
 }
 
 /** Result of a Le Bail cell pre-fit. */
@@ -280,7 +304,7 @@ export interface LeBailPrefitSuccess {
   readonly leBail: LeBailPrefitResult;
 }
 
-export type ComputeResponse = ComputeSuccess | EvaluatorReady | EvaluateSuccess | LeBailPrefitSuccess | ComputeFailure;
+export type ComputeResponse = ComputeSuccess | EvaluatorReady | EvaluateSuccess | AnalyticSuccess | LeBailPrefitSuccess | ComputeFailure;
 
 /** Per-cycle progress emitted during a powder refinement (before the final
  *  response), so the UI can animate the calculated curve as it converges. */

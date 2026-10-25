@@ -195,6 +195,13 @@ model's domain is rejected; anything else ends the fit).
   holding a problem replica built by the same construction path.
   [`engineParallel.test.ts`](../src/core/refinement/engineParallel.test.ts) pins
   the two drivers to identical trajectories.
+- **Split path (single-phase PDF).** The browser pool splits each evaluation by
+  block of the model grid instead: each worker holds only the pairs its block
+  can see, every evaluation (single ones and the analytic columns included)
+  goes to every worker, and the driver joins the blocks bit-identically
+  ([REFINEMENT_ENGINE.md](./REFINEMENT_ENGINE.md#analytic-derivatives)). No
+  isolate holds the whole pair list, which matters because the isolates of one
+  browser tab share about 4 GB of JS heap.
 - **Posterior sampling.** The ensemble sampler fans its walker batches out over
   the same pools.
 - **Strategies.** A strategy that runs many fits (the PDF boxcar scan, the

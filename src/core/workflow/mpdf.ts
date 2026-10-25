@@ -44,14 +44,14 @@ import type {
 import type { RefinementProblem } from "@/core/refinement/engine";
 import type { StageKinds } from "@/core/workflow/structureRefinement";
 import type { FitRange } from "@/core/workflow/powder";
-import type { PdfPair } from "@/core/pdf/pairEnumerator";
+import type { PairSource } from "@/core/pdf/pairEnumerator";
 import type { MpdfSpin, SpinPair } from "@/core/magnetic/mpdf";
 import { applyExclusionMask, fitRangeMask } from "@/core/refinement/factors";
 import { resolveTies } from "@/core/refinement/constraints";
 import { applyParameters } from "@/core/workflow/apply";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { expandStructureAtoms } from "@/core/diffraction/structureFactor";
-import { enumeratePairs } from "@/core/pdf/pairEnumerator";
+import { pairSourceFor } from "@/core/pdf/pairEnumerator";
 import { computeGofR, PAIR_REACH_MARGIN, type PdfModelParams } from "@/core/pdf/forwardModel";
 import { bandLimit } from "@/core/pdf/termination";
 import { compositionWeights } from "@/core/totalscattering/weights";
@@ -185,7 +185,7 @@ export function buildMpdfProblem(
   // Nuclear pair cache (identical to buildPdfProblem's).
   const geomIds = [...new Set(bindings.filter((b) => PAIR_GEOMETRY_KINDS.has(b.kind)).map((b) => b.parameterId))];
   let lastNucKey: string | null = null;
-  let cachedNucPairs: PdfPair[] = [];
+  let cachedNucPairs: PairSource = { forEachChunk: () => {} };
 
   // Nuclear G(r) cache — the one buildPdfProblem has no use for. A moment-only
   // Jacobian column leaves the nuclear model untouched, so recomputing
@@ -297,7 +297,7 @@ export function buildMpdfProblem(
     let nucKey = "";
     for (const id of geomIds) nucKey += `|${resolved[id]}`;
     if (nucKey !== lastNucKey) {
-      cachedNucPairs = enumeratePairs(applied.model.cell, atoms, rMaxModel + PAIR_REACH_MARGIN);
+      cachedNucPairs = pairSourceFor(applied.model.cell, atoms, rMaxModel + PAIR_REACH_MARGIN);
       lastNucKey = nucKey;
     }
     let nucModelKey = "";
