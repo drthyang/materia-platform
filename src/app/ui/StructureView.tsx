@@ -181,6 +181,7 @@ export function StructureView({
   displacements,
   exports,
   minCanvasHeight = 360,
+  fit = false,
 }: {
   structure: StructureModel;
   /** Magnetic moment entries to overlay as arrows (one per site — or per split
@@ -216,14 +217,19 @@ export function StructureView({
   /** Canvas minimum height (px) — hosts that stack panels below the viewer in
    *  a fixed-height card pass a smaller value so the layout can settle. */
   minCanvasHeight?: number;
+  /** Fit the cell to the canvas with a mouse too, as every touch screen does
+   *  (structureFrame.ts): a host whose canvas is far from square (a short card
+   *  beside a long column) would otherwise show a small model in a wide field. */
+  fit?: boolean;
 }): JSX.Element {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const [showBondLengths, setShowBondLengths] = useState(false);
   const [showAtomLabels, setShowAtomLabels] = useState(false);
   const [perspective, setPerspective] = useState(false);
   // On a touch screen the orthographic frame fits the cell to the canvas (a
-  // phone's canvas is short and wide, or narrow); a desktop keeps its frame.
-  const fitToCanvas = useCoarsePointer();
+  // phone's canvas is short and wide, or narrow); a desktop keeps its frame
+  // unless the host asks for the fit.
+  const fitToCanvas = useCoarsePointer() || fit;
   const [showAxes, setShowAxes] = useState(true);
   // Which unit cell to show — mutually exclusive, never two frames at once:
   //  "atomic"   the parent nuclear cell,
@@ -776,7 +782,7 @@ export function StructureView({
     // Fill whatever the host card gives us (flex column); in an unconstrained
     // context the canvas keeps its 360 px minimum.
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", marginBottom: 6, fontSize: 12, color: theme.secondary, fontFamily: themeMono, alignItems: "center" }}>
+      <div className="wb-3d-toolbar" style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", marginBottom: 6, fontSize: 12, color: theme.secondary, fontFamily: themeMono, alignItems: "center" }}>
         <ViewerToggle label="Bond lengths" checked={showBondLengths} onChange={setShowBondLengths} />
         <ViewerToggle label="Atom labels" checked={showAtomLabels} onChange={setShowAtomLabels} />
         <ViewerToggle label="Axes" checked={showAxes} onChange={setShowAxes} />
@@ -859,7 +865,7 @@ export function StructureView({
         </span>
       </div>
       {/* Atom legend + appearance controls (light / finish shape the swatches too). */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 16px", marginTop: 6, fontSize: 12, fontFamily: themeMono, color: theme.secondary, alignItems: "center" }}>
+      <div className="wb-3d-legend" style={{ display: "flex", flexWrap: "wrap", gap: "6px 16px", marginTop: 6, fontSize: 12, fontFamily: themeMono, color: theme.secondary, alignItems: "center" }}>
         {uniqueElements.map((el) => (
           <span key={el} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
             {atomSwatches[el] ? (

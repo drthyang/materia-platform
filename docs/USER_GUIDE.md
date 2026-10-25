@@ -259,7 +259,9 @@ and refines the symmetry-allowed moments
 powder; [Single crystal and PDF](#single-crystal-and-pdf) lists what differs.
 
 Refine the nuclear structure first, so the residual isolates the magnetic
-intensity. Then click **Magnetic analysis →** or the **Magnetic** chip.
+intensity. Then click **Magnetic analysis →** or the **Magnetic** chip. On a
+desktop the steps scroll beside the pattern and the 3D model, which stay in
+view.
 
 ### Steps 1 and 2: magnetic ions and k
 
@@ -267,7 +269,9 @@ In **Magnetic ions**, click a site to include or exclude it. In
 **Propagation vector k**:
 
 1. Read **Detected residual peaks**. Each peak is numbered #n in the table and
-   on the pattern.
+   on the pattern. A long table shows its six strongest peaks and every peak
+   in the search; **Show all … peaks** lists the rest. **near** gives the
+   nuclear reflection a peak sits on, with its phase when there are several.
 2. Choose the peaks for the search with **I/σ ≥**,
    **include peaks at nuclear positions** and each peak's **use** box. To add a
    missed peak, click **+ Add peak from plot**, then the pattern.
@@ -315,8 +319,9 @@ residual before you trust any moments.
 
 The **Powder pattern** card draws the nuclear fit plus the selected candidate's
 magnetic intensity, which also appears alone as the **magnetic** curve. Tick
-rows mark where k allows satellites (**G ± k**), where the group keeps them
-(**allowed**) and the unexplained peaks (**residual**). A plausible k puts a
+rows mark each phase's reflections (**nuclear** for a single phase), where k
+allows satellites (**G ± k**), where the group keeps them (**allowed**) and the
+unexplained peaks (**residual**). A plausible k puts a
 **G ± k** tick under every residual peak. A plausible group keeps those peaks in
 the **allowed** row.
 
