@@ -544,6 +544,25 @@ release fixes bugs.
 
 ### Changed
 
+- **A shared site's occupancies sum to exactly its total, on the powder and
+  PDF pages.** They were separate free rows held by a soft Σ restraint (σ
+  0.01, its target the starting sum: 1.002 for the bundled high-entropy
+  tungstate, or 1 with the powder page's "Σ occ = 1"). Now the site's last
+  member follows the total minus the others: `= -1*occ_A+1` for two species
+  (the complement tie the single-crystal page makes), `= 1 - sum(occ_A,
+  occ_B, …)` for more, a new form of tie. The others refine; the last is
+  held, and its esd comes from their full covariance. **The total is 1 unless
+  set below 1 for vacancies** (the Occupancy group on either page; saved with
+  the project; the Agent's `set_site_ties` `totals` on the powder page). A
+  last occupancy driven outside [0, 1] is warned of in the parameter panel,
+  `refine`, `get_state`, the report's checks and its warnings, never clamped.
+  The panel, the CIF, the report ("Shared sites") and the Agent's `get_state`,
+  `refine` and `structure_table` give the constraint and the tied esd. The
+  powder page's "Σ occ = 1" switch and `set_site_ties`' `occupancyToUnity` are
+  gone. Projects saved before open with the tie: values kept, the last
+  occupancy, even if saved free, following the others. Without a shared site
+  nothing changes. MCP's powder tools keep the soft restraint.
+
 - **The Agent's executor and chat code split by what each part does**
   (internal; no behaviour change): the executor's dispatch, policy and
   record, and the chat's loop, transports, context budget and guards, each in

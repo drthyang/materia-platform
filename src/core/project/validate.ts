@@ -27,7 +27,7 @@ import {
   SINGLE_CRYSTAL_PROBES,
   PDF_POSITION_MODES,
 } from "@/core/project/types";
-import { MUSTRAIN_MODELS, PEAK_CORRECTION_IDS } from "@/core/workflow/powderModelOptions";
+import { isSiteTotal, MUSTRAIN_MODELS, PEAK_CORRECTION_IDS } from "@/core/workflow/powderModelOptions";
 import { EXTINCTION_MODELS } from "@/core/diffraction/singleCrystalFactors";
 
 export class ProjectFileError extends Error {
@@ -321,7 +321,9 @@ function checkPowderWorkspace(ws: Rec, path: string, ctx: PhaseContext): void {
   opt(prof.backgroundType, `${path}.profile.backgroundType`, oneOf(BACKGROUND_TYPES));
   if (int(ws.backgroundTerms, `${path}.backgroundTerms`) < 1) fail(`${path}.backgroundTerms`, "needs at least one background term");
   const ties = rec(ws.siteTies, `${path}.siteTies`);
+  // `occupancyToUnity` is read and ignored: a file saved before the shared site's Σ became a tie (to `totals`) has it.
   for (const k of ["positions", "adp", "occupancyToUnity", "composition"]) opt(ties[k], `${path}.siteTies.${k}`, bool);
+  opt(ties.totals, `${path}.siteTies.totals`, checkSiteTotals);
   opt(ws.anisotropicAdp, `${path}.anisotropicAdp`, bool);
   opt(ws.mustrain, `${path}.mustrain`, oneOf(MUSTRAIN_MODELS));
   if (ws.corrections !== undefined && ws.corrections !== null) {
@@ -544,6 +546,13 @@ function checkReciprocal(v: unknown, path: string): void {
   }
 }
 
+/** Each shared site's total occupancy by the site's key (its first member's label): a fraction in [0.001, 1]. */
+function checkSiteTotals(v: unknown, path: string): Readonly<Record<string, number>> {
+  const totals = rec(v, path);
+  for (const [k, t] of Object.entries(totals)) if (!isSiteTotal(t)) fail(`${path}.${k}`, "a site's total occupancy is a number from 0.001 to 1");
+  return totals as Record<string, number>;
+}
+
 function checkPdfWorkspace(ws: Rec, path: string, ctx: PhaseContext): void {
   const pat = rec(ws.pattern, `${path}.pattern`);
   str(pat.id, `${path}.pattern.id`);
@@ -574,6 +583,7 @@ function checkPdfWorkspace(ws: Rec, path: string, ctx: PhaseContext): void {
   oneOf(PDF_POSITION_MODES)(ws.positionMode, `${path}.positionMode`);
   opt(ws.adpModel, `${path}.adpModel`, oneOf(["isotropic", "anisotropic"] as const));
   opt(ws.distortionModes, `${path}.distortionModes`, checkDistortionModes);
+  opt(ws.siteTotals, `${path}.siteTotals`, checkSiteTotals);
   if (ws.spinModel !== undefined && ws.spinModel !== null) {
     const s = rec(ws.spinModel, `${path}.spinModel`);
     checkMagnetic(ctx)(s.magnetic, `${path}.spinModel.magnetic`);

@@ -208,8 +208,12 @@ Monte-Carlo of 40 refinements against data simulated at the fit's weights
 scatters as these esds say (scatter/esd 0.74–1.18).
 
 The esds fill `RefinementResult.esd`, and callers copy them onto
-`RefinementParameter.esd`. A dead column gets esd 0. The result also carries
-diagnostics:
+`RefinementParameter.esd`. A dead column gets esd 0. A tied row is not refined
+and has no entry there: a row tied linearly to one free row carries |factor|
+times its esd (`esdsWithTies`), and for a row tied to a sum of free rows the
+engine reports √(fᵀC f) over them, from the full covariance, in
+`combinationEsd` under the row's id (a fixed reference adds nothing). The
+result also carries diagnostics:
 
 - `svdZeroCount`: the number of dropped near-null Hessian directions.
 - `singularParameterIds`: parameters that take part strongly in dropped
@@ -343,7 +347,9 @@ values.
   above have analytic ones. Everything else is finite-difference, including
   powder coordinates, cell, profile, zero shift and moments.
 - **A general constraint language.** A tie `expression` is one of `= id`,
-  `= factor*id + c`, or the magnitude tie `= ±hypot(a, b, …)`
+  `= factor*id + c`, the magnitude tie `= ±hypot(a, b, …)`, or the sum tie
+  `= c ± factor*sum(a, b, …)` (a PDF shared site's last occupancy,
+  `= 1 - sum(…)`)
   ([`refinement/constraints.ts`](../src/core/refinement/constraints.ts)), plus
   equal-value grouping via `RefinementParameter.group`. Anything else is
   rejected rather than guessed.

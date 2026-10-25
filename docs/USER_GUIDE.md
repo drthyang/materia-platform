@@ -132,7 +132,10 @@ Open a group for its model controls:
 - **Microstructure**: set **model** to **isotropic**, **uniaxial** (2θ data
   only) or **generalized** ([MICROSTRUCTURE.md](./MICROSTRUCTURE.md)).
 - **Shared site**, under the plot when atoms share a site: **tie position**,
-  **tie ADP** and **Σ occ = 1**.
+  **tie ADP** and **hold composition**. The site's occupancies always sum to
+  its total: the last one follows the others ("= tied"). Set a total below 1
+  (vacancies) in the **Occupancy** group; a last occupancy outside [0, 1] is
+  flagged under the parameters, never clamped. The PDF page does the same.
 
 ### When a B refines to 0
 

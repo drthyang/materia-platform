@@ -394,11 +394,17 @@ describe.skipIf(!has)("AWO₄ 8 K benchmark — nuclear vs the 100 K CIF, k, and
 
   // The B-at-0 rule (M10): each B the joint fit leaves on its bound gets a proposal with a warning,
   // and nothing is applied behind the user's back — C5 above is read on the fit as refined.
+  // Re-pinned with the shared-site tie (#106): W1 and O2 both rail to 0 in the staged nuclear fit, but
+  // the joint fit, which starts from it, leaves O2 a hair above 0, far inside its esd, and the engine's
+  // bound test (on the bound itself, for a bound of 0) no longer counts it. Before the tie (the
+  // occupancies' starting sum, not 1, held softly) the joint fit held both on the bound. So only W1 is pinned;
+  // O2's preferred tie to O1 is checked whenever O2 is on its bound, and on synthetic data in
+  // zeroAdp.test.ts. The criterion — every B on its bound gets a warned proposal, nothing applied — is unchanged.
   it("C5b: each B on its lower bound gets a warned proposal, applied to nothing", () => {
     const rows = b.nuclear.map((p) => ({ ...p, value: b.jointValues[p.id] ?? p.value }));
     const kind = new Map(rows.map((p) => [p.id, p.kind]));
     const bounded = (b.joint.diagnostics?.atBounds ?? []).filter((x) => x.bound === "min" && kind.get(x.parameterId) === "bIso").map((x) => x.parameterId).sort();
-    expect(bounded).toEqual(expect.arrayContaining(["B_O2", "B_W1"]));
+    expect(bounded).toEqual(expect.arrayContaining(["B_W1"]));
     const proposals = zeroAdpProposals({ parameters: rows, bindings: b.bindings, result: b.joint, structures: [b.structure], refined: [b.jointModel] });
     expect(proposals.map((p) => p.parameterId).sort()).toEqual(bounded);
     for (const p of proposals) {
@@ -408,7 +414,8 @@ describe.skipIf(!has)("AWO₄ 8 K benchmark — nuclear vs the 100 K CIF, k, and
       expect(p.source.startsWith(`rule ${p.rule}`)).toBe(true);
     }
     // O2 has a sensible partner of its own element (O1): that tie is offered first, as the preferred option.
-    expect(proposals.find((p) => p.parameterId === "B_O2")!.options[0]).toMatchObject({ rule: "A", rank: "preferred", leader: "B_O1" });
+    const o2 = proposals.find((p) => p.parameterId === "B_O2");
+    if (o2) expect(o2.options[0]).toMatchObject({ rule: "A", rank: "preferred", leader: "B_O1" });
     // W1 has no other W: any tie to another cation is only a labelled alternative, with its caution; nothing is preferred.
     const w1 = proposals.find((p) => p.parameterId === "B_W1")!;
     expect(w1.options.length).toBeGreaterThan(0);
@@ -422,6 +429,8 @@ describe.skipIf(!has)("AWO₄ 8 K benchmark — nuclear vs the 100 K CIF, k, and
   // With options applied (what the user gets on Apply), the joint fit refined again: an observation
   // for the record — C5 above stays as written, on the fit as refined. Two choices: the preferred
   // tie alone; and the preferred tie with each other B held at its starting value, where it has one.
+  // With the shared-site tie only W1 is on its bound (C5b) and it has no preferred option, so the
+  // first run applies nothing and the leader check has no leader to read.
   it("C5c: with the preferred tie applied and the joint fit refined again, its leader is off its bound", () => {
     const rows = b.nuclear.map((p) => ({ ...p, value: b.jointValues[p.id] ?? p.value }));
     const proposals = zeroAdpProposals({ parameters: rows, bindings: b.bindings, result: b.joint, structures: [b.structure], refined: [b.jointModel] });

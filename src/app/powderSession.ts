@@ -16,7 +16,8 @@ import { buildPowderSpec, type SiteTies, type PowderSpec, type MustrainModel, ty
 import { buildMultiPhaseSpec } from "@/app/multiPhaseSpec";
 import { buildSyntheticPowder } from "@/examples/synthetic";
 import { parseSymmetryOperation } from "@/core/crystal/symmetry";
-import { isUserTie, tieReferences } from "@/core/refinement/constraints";
+import { isUserTie, renamedTie, tieReferences, withTieValues } from "@/core/refinement/constraints";
+import { sharedOccupancyTies, siteSumConstraints } from "@/core/workflow/structureRefinement";
 import type { ZeroAdpFix } from "@/core/diagnostics/zeroAdp";
 
 export const DEFAULT_INSTRUMENT: InstrumentParameters = { kind: "constantWavelength", wavelength: 1.54 };
@@ -181,10 +182,43 @@ export function keptBindings(specBindings: readonly ParameterBinding[], previous
   return [...specBindings, ...previous.filter((b) => isMagneticModelParameterKind(b.kind))];
 }
 
-/** Rebuilt rows keeping the previous ones by id (keptRow), the magnetic rows carried, user ties checked. */
+/**
+ * Rebuilt rows keeping the previous ones by id (keptRow), the magnetic rows
+ * carried, user ties checked, and each shared site's last occupancy at what
+ * its tie gives from the kept others (its total may have changed).
+ */
 export function keptRows(specParams: readonly RefinementParameter[], previous: readonly RefinementParameter[]): RefinementParameter[] {
   const old = new Map(previous.map((p) => [p.id, p]));
-  return withValidUserTies(withMagneticRows(specParams.map((p) => keptRow(p, old.get(p.id))), previous));
+  const rows = withValidUserTies(withMagneticRows(specParams.map((p) => keptRow(p, old.get(p.id))), previous));
+  const followers = siteSumConstraints(rows).map((c) => c.follower);
+  if (followers.length === 0) return rows;
+  // A row the previous set left untied (a project saved before the tie) is also held, from the others' starting values.
+  const untied = new Set(followers.filter((id) => old.has(id) && !old.get(id)!.expression));
+  return withTieValues(withTieValues(rows, untied, true), new Set(followers.filter((id) => !untied.has(id))));
+}
+
+/**
+ * Saved rows with each shared site's last occupancy tied as the spec ties it
+ * (the site's total minus the others'): a project saved before the tie has
+ * every occupancy as its own row, held by the soft Σ. Its values are kept;
+ * the last then follows the others, held, from their values. Multi-phase ids
+ * `p{i}_` as the spec gives them. Unchanged without a shared site.
+ */
+export function withSiteSumTies(params: readonly RefinementParameter[], phases: readonly StructureModel[], ties: SiteTies): RefinementParameter[] {
+  const want = new Map<string, string>();
+  phases.forEach((phase, i) => {
+    const prefix = phases.length > 1 ? `p${i}_` : "";
+    for (const t of sharedOccupancyTies(phase.sites, ties.totals)) want.set(`${prefix}${t.id}`, renamedTie(t.expression, (ref) => `${prefix}${ref}`));
+  });
+  const untied = new Set<string>();
+  const rows = params.map((p) => {
+    const expression = want.get(p.id);
+    if (expression === undefined || p.expression === expression) return p;
+    untied.add(p.id);
+    const { group: _g, ...rest } = p;
+    return { ...(isUserTie(p) ? rest : p), expression };
+  });
+  return untied.size > 0 ? withValidUserTies(withTieValues(rows, untied, true)) : rows;
 }
 
 /** The session with its corrections cleared: new data starts without them. */

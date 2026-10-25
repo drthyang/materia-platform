@@ -246,6 +246,12 @@ export interface PdfWorkspace {
    */
   readonly adpModel?: "isotropic" | "anisotropic";
   /**
+   * Each shared site's total occupancy, by the site's key (its first member's
+   * label), where the user set one below 1 (vacancies); absent: 1. The site's
+   * last occupancy follows the total minus the others'.
+   */
+  readonly siteTotals?: Readonly<Record<string, number>>;
+  /**
    * The distortion-mode parameterization in force, when one was built from a
    * parent CIF or a subgroup activation. It cannot be regenerated from the
    * child structure alone, so the whole set is stored.

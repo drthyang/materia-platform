@@ -14,6 +14,7 @@ import type { LinearRestraint, RefinementParameter, RefinementResult } from "@/c
 import type { RefinementAssessment, FindingCategory } from "@/core/diagnostics/assessment";
 import { bondValenceSums, type BondValenceSum } from "@/core/crystal/bondValence";
 import { CORRELATION_LIMIT, readCorrelations } from "@/core/diagnostics/correlationGuard";
+import { siteSumConstraints, siteSumRangeWarnings } from "@/core/workflow/structureRefinement";
 
 /** The engine's own threshold for the correlations a refinement keeps (engine.ts DEFAULT_OPTIONS). */
 export const CORRELATION_LISTED = CORRELATION_LIMIT;
@@ -81,6 +82,20 @@ export function boundsCheck(r: RefinementResult, parameters: readonly Refinement
     status: "warn",
     detail: `On a bound (its esd means nothing there): ${at.map((b) => `${label.get(b.parameterId) ?? b.parameterId} at its ${b.bound === "min" ? "lower" : "upper"} bound ${b.value}`).join("; ")}.`,
   };
+}
+
+/**
+ * The shared sites' occupancy constraint, when the model has one: a warning
+ * naming each site's last occupancy that has left [0, 1] (the tie does not
+ * clamp it), else a pass. Nothing without a shared site.
+ */
+export function siteSumChecks(parameters: readonly RefinementParameter[]): ReportCheck[] {
+  const constraints = siteSumConstraints(parameters);
+  if (constraints.length === 0) return [];
+  const warnings = siteSumRangeWarnings(parameters);
+  return [warnings.length > 0
+    ? { name: "Shared sites", status: "warn", detail: warnings.join(" ") }
+    : { name: "Shared sites", status: "pass", detail: `Each shared site's occupancies sum to its total by a constraint, and its last occupancy (${constraints.map((c) => c.follower).join(", ")}) is within [0, 1].` }];
 }
 
 /** Bond-valence sums of every phase with tabulated parameters: within 8 % pass, 8–15 % a note, beyond attention. */

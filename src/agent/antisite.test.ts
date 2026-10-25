@@ -72,8 +72,10 @@ describe("antisite disorder through the Agent", () => {
 
     expect((await ex.run("add_antisite", { siteA: "Cr1", siteB: "Cr1" })).text).toMatch(/both Cr/);
     await ex.run("add_antisite", { siteA: "W1", siteB: "Cr1" });
-    expect(asked.at(-1)!.preview).toBe("Antisite W1 ⇄ Cr1: Cr on W1, W on Cr1, at occupancy 0 · Σ occ = 1 and hold composition on");
-    expect(session().siteTies).toMatchObject({ occupancyToUnity: true, composition: true });
+    expect(asked.at(-1)!.preview).toBe("Antisite W1 ⇄ Cr1: Cr on W1, W on Cr1, at occupancy 0 · each site's occupancies sum to its total · hold composition on");
+    expect(session().siteTies).toMatchObject({ composition: true });
+    // Each site's added element follows its host: one minus it.
+    expect(session().powderParams.filter((p) => p.expression).map((p) => [p.id, p.expression])).toEqual(expect.arrayContaining([["occ_Cr_W1", "= -1*occ_W1+1"], ["occ_W_Cr1", "= -1*occ_Cr1+1"]]));
     expect(session().structure.sites.map((s) => s.label)).toEqual(["W1", "Cr1", "O1", "O2", "Cr_W1", "W_Cr1"]);
     // Asked again: already modelled.
     expect((await ex.run("add_antisite", { siteA: "W1", siteB: "Cr1" })).text).toMatch(/already in the structure/);

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { RefinementParameter } from "@/core/refinement/types";
-import { USER_TIE_GROUP, checkEqualTies, complementOf, isUserTie, parseTie, renamedTie, resolveTies, tieReferences, tieStepLabel, withEqualTies } from "@/core/refinement/constraints";
+import { USER_TIE_GROUP, type ParsedTie, checkEqualTies, complementOf, esdsWithTies, isUserTie, parseTie, remainderOf, renamedTie, resolveTies, tieReferences, tieStepLabel, withEqualTies } from "@/core/refinement/constraints";
+import { refine } from "@/core/refinement/engine";
 
 const p = (id: string, value: number, expression?: string): RefinementParameter =>
   ({ id, label: id, kind: "momentMode", value, initialValue: value, fixed: !!expression, ...(expression ? { expression } : {}) });
@@ -42,6 +43,65 @@ describe("tie expressions", () => {
     expect(parseTie(renamedTie("= 0.5*a+2", rename))).toEqual({ kind: "linear", factor: 0.5, refId: "p0_a", constant: 2 });
     expect(parseTie(renamedTie("= -hypot(a, b)", rename))).toEqual({ kind: "norm", factor: -1, refIds: ["p0_a", "p0_b"] });
     expect(renamedTie("= 1*a+0.5", (id) => id)).toBe("= 1*a+0.5");
+    expect(renamedTie(remainderOf(["occ_A", "occ_B"]), rename)).toBe(remainderOf(["p0_occ_A", "p0_occ_B"]));
+  });
+
+  it("parses, resolves and writes the sum tie: a shared site's last occupancy, one minus the others", () => {
+    expect(remainderOf(["occ_A"])).toBe(complementOf("occ_A"));
+    expect(remainderOf(["occ_A", "occ_B", "occ_C"])).toBe("= 1 - sum(occ_A, occ_B, occ_C)");
+    expect(parseTie("= 1 - sum(occ_A, occ_B, occ_C)")).toEqual({ kind: "sum", constant: 1, factor: -1, refIds: ["occ_A", "occ_B", "occ_C"] });
+    expect(parseTie("= sum(a,b)")).toEqual({ kind: "sum", constant: 0, factor: 1, refIds: ["a", "b"] });
+    expect(parseTie("= 2+0.5*sum(a,b)")).toEqual({ kind: "sum", constant: 2, factor: 0.5, refIds: ["a", "b"] });
+    expect(parseTie("= -sum(a)")).toEqual({ kind: "sum", constant: 0, factor: -1, refIds: ["a"] });
+    expect(() => parseTie("= 1sum(a,b)")).toThrow(/Unsupported/);
+    expect(() => parseTie("= 1 - sum()")).toThrow(/Unsupported/);
+    expect(tieReferences("= 1 - sum(a, b)")).toEqual(["a", "b"]);
+    for (const e of ["= 1 - sum(a, b)", "= sum(a, b)", "= 2 + 0.5*sum(a, b)", "= -3*sum(a)"]) {
+      const tie = parseTie(e) as Extract<ParsedTie, { kind: "sum" }>;
+      expect(parseTie(renamedTie(e, (id) => `x_${id}`))).toEqual({ ...tie, refIds: tie.refIds.map((id) => `x_${id}`) });
+    }
+    const params = [p("a", 0.2), p("b", 0.3), p("c", 0.1), p("last", 0, remainderOf(["a", "b", "c"]))];
+    const out = resolveTies(params, { a: 0.2, b: 0.3, c: 0.1, last: 0 });
+    expect(out.last).toBe(1 - (0.2 + 0.3 + 0.1));
+    expect(out.a! + out.b! + out.c! + out.last!).toBeCloseTo(1, 15);
+    expect(() => resolveTies([p("last", 0, "= 1 - sum(a, zz)")], { a: 1, last: 0 })).toThrow(/unknown parameter "zz"/);
+  });
+});
+
+describe("a tied row's esd", () => {
+  it("is |f| times its leader's for a linear tie, the covariance's for a sum tie, and absent otherwise", () => {
+    const params = [p("a", 0.2), p("b", 0.3), p("comp", 0.8, complementOf("a")), p("half", 0.1, "= 0.5*a"), p("rest", 0.5, remainderOf(["a", "b"])), p("m", 0, "= hypot(a, b)")];
+    const result = { status: "converged" as const, parameters: {}, esd: { a: 0.01, b: 0.02 }, combinationEsd: { rest: 0.015 }, agreement: { rFactor: 0 }, history: [] };
+    expect(esdsWithTies(params, result)).toEqual({ a: 0.01, b: 0.02, comp: 0.01, half: 0.005, rest: 0.015 });
+    expect(esdsWithTies(params, null)).toEqual({});
+  });
+
+  it("of a sum tie is √(Σ C) over its free references, from the engine's full covariance (a fixed one adds nothing)", () => {
+    // y = a·f + b·g on two non-orthogonal basis curves, noisy: C = σ²(JᵀJ)⁻¹ in closed form.
+    const n = 40;
+    const f = Array.from({ length: n }, (_, i) => Math.sin(0.3 * i) + 1);
+    const g = Array.from({ length: n }, (_, i) => Math.cos(0.2 * i) + 0.5 * f[i]!);
+    const noise = Array.from({ length: n }, (_, i) => 0.01 * Math.sin(17.3 * i + 1));
+    const obs = Float64Array.from({ length: n }, (_, i) => 0.3 * f[i]! + 0.5 * g[i]! + noise[i]!);
+    const params = [p("a", 0.2), p("b", 0.4), p("c", 0.1), p("rest", 0, "= 1 - sum(a, b, c)")].map((q) => ({ ...q, kind: "occupancy" as const, fixed: q.id === "c" || q.id === "rest" }));
+    const res = refine({
+      parameters: params,
+      observations: obs,
+      weights: new Float64Array(n).fill(1),
+      calculate: (v) => Float64Array.from({ length: n }, (_, i) => v.a! * f[i]! + v.b! * g[i]!),
+    }, { maxIterations: 10 });
+    let ff = 0, gg = 0, fg = 0, chi = 0;
+    for (let i = 0; i < n; i++) {
+      ff += f[i]! ** 2; gg += g[i]! ** 2; fg += f[i]! * g[i]!;
+      chi += (obs[i]! - res.parameters.a! * f[i]! - res.parameters.b! * g[i]!) ** 2;
+    }
+    const det = ff * gg - fg * fg;
+    const s2 = chi / (n - 2);
+    const expected = Math.sqrt(((gg + ff - 2 * fg) / det) * s2);
+    expect(res.combinationEsd!.rest! / expected).toBeCloseTo(1, 6);
+    expect(res.esd.rest).toBeUndefined();
+    expect(Object.keys(res.esd).sort()).toEqual(["a", "b"]);
+    expect(res.parameters.rest).toBe(1 - (res.parameters.a! + res.parameters.b! + 0.1));
   });
 });
 

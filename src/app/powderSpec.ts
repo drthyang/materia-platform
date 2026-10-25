@@ -16,6 +16,7 @@ import type { LinearRestraint, ParameterBinding, ParameterKind, RefinementParame
 import { estimateBackground, evaluateBackground, type BackgroundType } from "@/core/diffraction/background";
 import { estimateZeroShift } from "@/core/workflow/startingValues";
 import { buildStructureRefinement, siteTieRestraints } from "@/core/workflow/structureRefinement";
+import { tieReferences } from "@/core/refinement/constraints";
 import { powderCurves, type PowderProfile } from "@/core/workflow/powder";
 import { CORRECTION_KINDS } from "@/core/diffraction/corrections";
 import { optimalScale } from "@/app/loadData";
@@ -69,14 +70,16 @@ export { PEAK_CORRECTION_IDS, type CorrectionsUpdate, type PeakCorrectionId, typ
 export type { SiteTies, MustrainModel };
 
 /**
- * The occupancy restraints a session's site ties ask for (the shared-site Σ,
- * the composition) over every phase, multi-phase ids prefixed `p{i}_` as the
- * multi-phase spec does. Kept only where one of their occupancies is free: over
- * fixed occupancies a restraint changes nothing, and any restraint turns off
- * the analytic Jacobian.
+ * The occupancy restraints a session's site ties ask for (the composition;
+ * a shared site's Σ is a tie in the rows) over every phase, multi-phase ids
+ * prefixed `p{i}_` as the multi-phase spec does. Kept only where one of their
+ * occupancies moves: free, or a tied row that follows a free one. Over fixed
+ * occupancies a restraint changes nothing, and any restraint turns off the
+ * analytic Jacobian.
  */
 export function powderRestraints(phases: readonly StructureModel[], ties: SiteTies, params: readonly RefinementParameter[]): LinearRestraint[] {
-  const free = new Set(params.filter((p) => !p.fixed).map((p) => p.id));
+  const freeIds = new Set(params.filter((p) => !p.fixed && !p.expression).map((p) => p.id));
+  const free = new Set([...freeIds, ...params.filter((p) => p.expression && tieReferences(p.expression).some((id) => freeIds.has(id))).map((p) => p.id)]);
   const prefixed = (r: LinearRestraint, i: number): LinearRestraint =>
     phases.length > 1
       ? { ...r, id: `p${i}_${r.id}`, label: `${phases[i]!.name}: ${r.label}`, terms: r.terms.map((t) => ({ ...t, parameterId: `p${i}_${t.parameterId}` })) }
@@ -180,7 +183,9 @@ export function buildPowderSpec(
   const tieOpts = {
     tieSharedPositions: ties.positions ?? true,
     tieSharedAdp: ties.adp ?? true,
-    constrainOccupancyToUnity: ties.occupancyToUnity ?? false,
+    // A shared site's occupancies sum to exactly its total by a tie (the last follows the others), as on the PDF page.
+    tieSharedOccupancy: true,
+    ...(ties.totals ? { occupancyTotals: ties.totals } : {}),
     holdComposition: ties.composition ?? false,
   };
   // Time-of-flight: back-to-back-exponential profile driven by the diffractometer

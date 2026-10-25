@@ -42,11 +42,12 @@ function recording(): { client: PowderCompute; requests: { call: string; req: Re
   return { client, requests };
 }
 
-/** The demo with a second phase and occupancy ties on, a log-interpolated background, and the cell free. */
+/** The demo with a second phase and the composition held, a log-interpolated background, and the cell free. */
 function busySession(): Session {
   const s0 = mn3gaSession();
   const second = { ...s0.structure, id: "second", name: "Second" };
-  const s1 = withBackgroundType(withPhase({ ...s0, siteTies: { ...s0.siteTies, occupancyToUnity: true } }, second, DEFAULT_INSTRUMENT), "logInterpolate");
+  // ("Σ occ = 1" was the site tie switched on here; a shared site's Σ is now always a tie, so the composition stands in.)
+  const s1 = withBackgroundType(withPhase({ ...s0, siteTies: { ...s0.siteTies, composition: true } }, second, DEFAULT_INSTRUMENT), "logInterpolate");
   return { ...s1, powderParams: s1.powderParams.map((p) => (p.kind === "cellLength" ? { ...p, fixed: false } : p)) };
 }
 

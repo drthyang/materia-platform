@@ -7,6 +7,7 @@
 
 import { pct, sig } from "@/core/math/precision";
 import type { RefinementParameter } from "@/core/refinement/types";
+import { siteSumConstraints, siteSumRangeWarnings } from "@/core/workflow/structureRefinement";
 import type { ProjectHistory } from "@/core/project/history";
 import type { AgentRecord } from "@/agent/method";
 import { lineage } from "@/core/project/history";
@@ -51,8 +52,32 @@ export function parameterSummary(
   const patterns = select?.map((f) => ({ f, test: idMatcher(params, f) }));
   const unmatched = patterns?.filter(({ test }) => !params.some((p) => test(p.id))).map(({ f }) => f) ?? [];
   const rows = (patterns ? params.filter((p) => patterns.some(({ test }) => test(p.id))) : params.filter(isFree))
-    .map((p) => parameterRow(p, esd?.[p.id] ?? p.esd));
+    .map((p) => parameterRow(p, esd?.[p.id] ?? (p.expression ? undefined : p.esd)));
   return { parameterGroups: [...groups.values()], parameterRows: rows, ...(unmatched.length ? { unmatched } : {}) };
+}
+
+/** A shared site's occupancy constraint in words: the row that follows, the rows it follows, and their total. */
+export function siteSumText(c: { readonly follower: string; readonly leaders: readonly string[]; readonly total: number }): string {
+  const others = c.leaders.length === 1 ? c.leaders[0]! : `(${c.leaders.join(" + ")})`;
+  const vacancy = c.total < 1 ? ` (a total below 1: ${+((1 - c.total) * 100).toPrecision(3)} % vacancies, set by the user)` : "";
+  return `${c.follower} = ${c.total} − ${others}: one site's occupancies, summing to exactly ${c.total}${vacancy} (a constraint, not a restraint); ${c.leaders.length === 1 ? "the other refines" : `the other ${c.leaders.length} refine`} and ${c.follower} follows, its esd from their covariance`;
+}
+
+/** get_state's shared-site occupancy constraints and, when a site's last occupancy has left [0, 1], the warning; nothing without a shared site. */
+export function occupancyConstraintsView(params: readonly RefinementParameter[]): Record<string, unknown> {
+  const constraints = siteSumConstraints(params);
+  const warnings = siteSumRangeWarnings(params);
+  return {
+    ...(constraints.length ? { occupancyConstraints: constraints.map(siteSumText) } : {}),
+    ...(warnings.length ? { occupancyWarnings: warnings } : {}),
+  };
+}
+
+/** refine's notes on a shared site whose occupancies refined: the constraint, and the warning when its last occupancy left [0, 1]. */
+export function siteSumNotes(params: readonly RefinementParameter[]): string[] {
+  return siteSumConstraints(params)
+    .filter((c) => c.leaders.some((id) => params.some((p) => p.id === id && !p.fixed)))
+    .map((c) => `${siteSumText(c)}; get_state gives its value and esd.`);
 }
 
 /** set_free on any page: plan it, then hand the changes to the page's own handler. */
@@ -206,7 +231,8 @@ export function parameterRow(p: RefinementParameter, esd: number | undefined): R
     label: p.label,
     kind: p.kind,
     value: sig(p.value, 6),
-    ...(esd !== undefined && !p.fixed ? { esd: sig(esd, 2) } : {}),
+    // A tied row's esd is its tie's, from the free rows it follows, when the page passes it (esdsWithTies).
+    ...(esd !== undefined && (!p.fixed || p.expression) ? { esd: sig(esd, 2) } : {}),
     state: p.expression ? `tied ${p.expression}` : p.fixed ? "fixed" : "free",
     ...(p.min !== undefined ? { min: p.min } : {}),
     ...(p.max !== undefined ? { max: p.max } : {}),

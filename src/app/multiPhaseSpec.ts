@@ -62,7 +62,8 @@ export function buildMultiPhaseSpec(
     if (i === 0) profile = spec.profile;
     for (const p of spec.params) {
       if (SHARED_KINDS.has(p.kind)) { if (i === 0) params.push(p); continue; }
-      params.push({ ...p, id: `p${i}_${p.id}`, label: `${structure.name}: ${p.label}` });
+      // A per-phase tie (a shared site's last occupancy) reads the phase's own rows.
+      params.push({ ...p, id: `p${i}_${p.id}`, label: `${structure.name}: ${p.label}`, ...(p.expression ? { expression: renamedTie(p.expression, (ref) => `p${i}_${ref}`) } : {}) });
     }
     for (const b of spec.bindings) {
       if (SHARED_KINDS.has(b.kind)) { if (i === 0) bindings.push(b); continue; }
