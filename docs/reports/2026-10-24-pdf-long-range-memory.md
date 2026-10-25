@@ -1,6 +1,7 @@
 # PDF to the full range: pairs without objects, one evaluation split across the pool
 
-Branch `claude/pdf-long-range-memory`, 2026-10-24. Backlog item M9: after M6,
+Pull request [#107](https://github.com/drthyang/materia-platform/pull/107),
+branch `claude/pdf-long-range-memory`, 2026-10-24. Backlog item M9: after M6,
 a PDF fit over the data's full range (1.5–100 Å) on a multi-element-site model
 still crashed the browser tab, on `main` as on the M6 branch. The owner's
 requirement: no compromise of scientific accuracy or precision.
