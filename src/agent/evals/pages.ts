@@ -241,7 +241,7 @@ export function powderPage(session: Session): PowderAgentPort {
  * The user's own AWO₄ powder data, where they are: the structure's CIF, a
  * POWGEN bank's GSAS histogram (TOF) and the instrument file of the same bank,
  * found in the git-ignored data/AWO4 folder under the generic names of
- * docs/VALIDATION.md (the ordered pattern, `powder_6K.gsa`, before any other
+ * docs/VALIDATION.md (the ordered pattern, `PG3_powder_6K.gsa`, before any other
  * histogram; `instrument_bank<N>.instprm` for its bank). The data are
  * unpublished: the repository holds none of them, and the scenario on them
  * runs only on a machine that has the folder. Null when it is absent.
@@ -251,7 +251,7 @@ export function awo4UserFiles(): { readonly structure: string; readonly data: st
   if (!existsSync(dir)) return null;
   const files = readdirSync(dir).sort();
   const cif = files.find((f) => /\.cif$/i.test(f));
-  const gsa = files.find((f) => f === "powder_6K.gsa") ?? files.find((f) => /\.gsa$/i.test(f));
+  const gsa = files.find((f) => f === "PG3_powder_6K.gsa") ?? files.find((f) => /\.gsa$/i.test(f));
   if (!cif || !gsa) return null;
   const bank = /^BANK\s+(\d+)/m.exec(readFileSync(join(dir, gsa), "utf8"))?.[1];
   const instruments = files.filter((f) => /\.instprm$/i.test(f));

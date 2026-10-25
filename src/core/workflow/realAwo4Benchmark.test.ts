@@ -34,7 +34,7 @@ import { dataExists, readData } from "@/testSupport/data";
 /**
  * BENCHMARK — magnetic refinement of the high-entropy tungstate AWO₄
  * ((Co,Cu,Fe,Mn,Ni,Zn)WO₄, P2/c) on the 8 K bank-3 POWGEN pattern, read
- * from its Mantid XYDATA export (`powder_8K.dat`). The data are UNPUBLISHED:
+ * from its Mantid XYDATA export (`PG3_powder_8K.dat`). The data are UNPUBLISHED:
  * they are read from the git-ignored data/ folder only, and this file holds no
  * number derived from them — only the criteria. Skips when the files are absent.
  *
@@ -67,7 +67,7 @@ import { dataExists, readData } from "@/testSupport/data";
 
 const DIR = "AWO4";
 /** The data file's name, as the loaders are given it (the layout is in docs/VALIDATION.md). */
-const DATA_NAME = "powder_8K.dat";
+const DATA_NAME = "PG3_powder_8K.dat";
 const DATA = `${DIR}/${DATA_NAME}`;
 const CIF = `${DIR}/structure_100K.cif`;
 const INST = {

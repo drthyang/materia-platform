@@ -9,9 +9,9 @@
  * folder, which the dev server exposes under `/data/…` (vite.config.ts,
  * `serveLocalData`, dev only):
  *
- *   data/AWO4/powder_6K.gsa              the 6 K bank-3 histogram
- *   data/AWO4/instrument_bank3.instprm   its bank's calibration
- *   data/AWO4/awo4_demo_solution.json    the solved structure
+ *   data/AWO4/PG3_powder_6K.gsa         the 6 K bank-3 histogram
+ *   data/AWO4/instrument_bank3.instprm  its bank's calibration
+ *   data/AWO4/awo4_demo_solution.json   the solved structure
  *
  * (The whole folder's layout is in docs/VALIDATION.md.)
  *
@@ -41,7 +41,7 @@ import { applyMagneticMoments } from "@/core/workflow/magnetic";
 
 /** Where the demo's files live under the (git-ignored) data folder. */
 export const AWO4_DEMO_FILES = {
-  data: "AWO4/powder_6K.gsa",
+  data: "AWO4/PG3_powder_6K.gsa",
   instrument: "AWO4/instrument_bank3.instprm",
   solution: "AWO4/awo4_demo_solution.json",
 } as const;

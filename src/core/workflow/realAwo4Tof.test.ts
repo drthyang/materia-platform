@@ -25,9 +25,9 @@ const DIR = "AWO4";
 const CIF = `${DIR}/structure_100K.cif`;
 const INSTPRM = `${DIR}/instrument_bank3.instprm`;
 const GSA = {
-  bank1: `${DIR}/powder_bank1.gsa`,
-  bank2: `${DIR}/powder_bank2.gsa`,
-  bank3: `${DIR}/powder_6K.gsa`,
+  bank1: `${DIR}/PG3_powder_bank1.gsa`,
+  bank2: `${DIR}/PG3_powder_bank2.gsa`,
+  bank3: `${DIR}/PG3_powder_6K.gsa`,
 };
 const has = dataExists(CIF) && dataExists(GSA.bank1);
 const CATIONS = ["Co1", "Fe1", "Ni1", "Mn1", "Cu8", "Zn1"];
@@ -100,7 +100,7 @@ describe.skipIf(!has)("real AWO₄ — POWGEN neutron TOF, raw .gsa histograms",
   it("detects a .gsa as TOF from its BANK record, beating a mismatched instrument", () => {
     const fmt = detectDataFormat({
       text: readData(GSA.bank1),
-      filename: "powder_bank1.gsa",
+      filename: "PG3_powder_bank1.gsa",
       instrument: { kind: "constantWavelength", wavelength: 1.54 },
     });
     expect(fmt.xUnit).toBe("tof");

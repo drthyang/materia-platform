@@ -124,21 +124,23 @@ The owner's AWO₄ ((Co,Cu,Fe,Mn,Ni,Zn)WO₄) POWGEN data are unpublished. They
 stay in the git-ignored `data/AWO4/`, and the repository refers to them only
 by the generic names below: no run number, original file name or calibration
 name. To run the AWO₄ tests, copy each file into `data/AWO4/` under its name
-here (one flat folder). A test whose files are missing skips.
+here (one flat folder). A test whose files are missing skips. The powder
+patterns keep the instrument's `PG3_` prefix (it names POWGEN, not a run), so
+the app's file-name hint opens them on the POWGEN background default.
 
 | File | What it holds | Read by |
 | --- | --- | --- |
-| `powder_8K.dat` | The 8 K bank-3 POWGEN pattern, Mantid `XYDATA` export (focused TOF, y, σ) | `realAwo4Benchmark.test.ts` |
-| `powder_6K.gsa` | The 6 K bank-3 POWGEN histogram (magnetically ordered), GSAS `.gsa` | `realAwo4Magnetic.test.ts`, `realAwo4Tof.test.ts`, `awo4MagneticSolve.test.ts`, the local demo, the `awo4-user-flow` eval |
-| `powder_100K.gsa` | The 100 K bank-3 POWGEN histogram (paramagnetic), GSAS `.gsa`, on the same bank as `powder_6K.gsa` | `realAwo4Magnetic.test.ts` |
-| `powder_100K.dat` | The 100 K bank-3 POWGEN pattern, Mantid `XYDATA` export | `realPowderTOF.test.ts` |
-| `powder_bank1.gsa`, `powder_bank2.gsa` | A POWGEN histogram of bank 1 and of bank 2, GSAS `.gsa` | `realAwo4Tof.test.ts` |
+| `PG3_powder_8K.dat` | The 8 K bank-3 POWGEN pattern, Mantid `XYDATA` export (focused TOF, y, σ) | `realAwo4Benchmark.test.ts` |
+| `PG3_powder_6K.gsa` | The 6 K bank-3 POWGEN histogram (magnetically ordered), GSAS `.gsa` | `realAwo4Magnetic.test.ts`, `realAwo4Tof.test.ts`, `awo4MagneticSolve.test.ts`, the local demo, the `awo4-user-flow` eval |
+| `PG3_powder_100K.gsa` | The 100 K bank-3 POWGEN histogram (paramagnetic), GSAS `.gsa`, on the same bank as `PG3_powder_6K.gsa` | `realAwo4Magnetic.test.ts` |
+| `PG3_powder_100K.dat` | The 100 K bank-3 POWGEN pattern, Mantid `XYDATA` export | `realPowderTOF.test.ts` |
+| `PG3_powder_bank1.gsa`, `PG3_powder_bank2.gsa` | A POWGEN histogram of bank 1 and of bank 2, GSAS `.gsa` | `realAwo4Tof.test.ts` |
 | `structure_100K.cif` | The refined 100 K nuclear structure (P2/c), the model also bundled in `examples/highEntropyWO4.ts` | every test above but the demo's |
 | `magnetic_8K.mcif` | The owner's refined 8 K magnetic structure (Jana mCIF, doubled cell) | `realAwo4Benchmark.test.ts` (reference block) |
 | `instrument_bank1.instprm`, `instrument_bank2.instprm`, `instrument_bank3.instprm` | The GSAS-II TOF calibration of each bank's frame (bank 3 for the patterns above) | `realAwo4Benchmark.test.ts` (all three), the bank-3 file everywhere else |
 | `instrument_bank3_jana.instprm` | The same bank-3 calibration as written for JANA | `realPowderTOF.test.ts` |
 | `pdf.gr` | The neutron PDF G(r) | not read yet |
-| `awo4_demo_solution.json` | Written by `awo4MagneticSolve.test.ts` (`AWO4_SOLVE=1`) from `powder_6K.gsa`; not a measurement | the local demo, `awo4Magnetic.test.ts` |
+| `awo4_demo_solution.json` | Written by `awo4MagneticSolve.test.ts` (`AWO4_SOLVE=1`) from `PG3_powder_6K.gsa`; not a measurement | the local demo, `awo4Magnetic.test.ts` |
 
 The dev server serves the folder under `/data/AWO4/…` for the local demo
 (`vite.config.ts`, development only).

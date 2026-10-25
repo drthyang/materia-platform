@@ -27,7 +27,7 @@ const DIR = "AWO4";
 const CIF = `${DIR}/structure_100K.cif`;
 const GSAS = `${DIR}/instrument_bank3.instprm`;
 const JANA = `${DIR}/instrument_bank3_jana.instprm`;
-const DAT = `${DIR}/powder_100K.dat`;
+const DAT = `${DIR}/PG3_powder_100K.dat`;
 const has = dataExists(CIF) && dataExists(DAT);
 
 const CATIONS = ["Co1", "Fe1", "Ni1", "Mn1", "Cu8", "Zn1"];
@@ -77,7 +77,7 @@ describe.skipIf(!has)("real powder TOF — POWGEN high-entropy (Co,Cu,Fe,Mn,Ni,Z
 
   it("detects TOF from the Mantid header and loads 3670 points with errors", () => {
     const text = readData(DAT);
-    const fmt = detectDataFormat({ text, filename: "powder_100K.dat" });
+    const fmt = detectDataFormat({ text, filename: "PG3_powder_100K.dat" });
     expect(fmt.xUnit).toBe("tof");
     expect(fmt.source).toBe("header");
     expect(fmt.radiation.kind).toBe("neutron-tof");

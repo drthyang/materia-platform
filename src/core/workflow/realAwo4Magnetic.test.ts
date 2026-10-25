@@ -23,8 +23,8 @@ import { dataExists, readData } from "@/testSupport/data";
 
 const CIF = "AWO4/structure_100K.cif";
 const INST = "AWO4/instrument_bank3.instprm";
-const LOW_6K = "AWO4/powder_6K.gsa"; // 6 K, bank 3 — magnetically ordered
-const PARA_100K = "AWO4/powder_100K.gsa"; // 100 K, bank 3 — paramagnetic reference
+const LOW_6K = "AWO4/PG3_powder_6K.gsa"; // 6 K, bank 3 — magnetically ordered
+const PARA_100K = "AWO4/PG3_powder_100K.gsa"; // 100 K, bank 3 — paramagnetic reference
 const has = dataExists(CIF) && dataExists(INST) && dataExists(LOW_6K) && dataExists(PARA_100K);
 
 describe.skipIf(!has)("real AWO₄ — magnetic k-search from 6 K POWGEN neutron data", () => {

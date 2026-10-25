@@ -50,7 +50,7 @@ import type { Vec3 } from "@/core/math/types";
 
 const CIF = "AWO4/structure_100K.cif";
 const INST = "AWO4/instrument_bank3.instprm";
-const GSA = "AWO4/powder_6K.gsa";
+const GSA = "AWO4/PG3_powder_6K.gsa";
 const has = !!process.env.AWO4_SOLVE && dataExists(CIF) && dataExists(INST) && dataExists(GSA);
 const K: Vec3 = [0.5, 0, 0];
 

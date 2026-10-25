@@ -23,10 +23,10 @@ generic names only.
 
 | Change | Where |
 | --- | --- |
-| One flat layout, `data/AWO4/`, with generic names: `powder_<T>.dat` / `powder_<T>.gsa` for the bank-3 patterns, `powder_bank1.gsa` and `powder_bank2.gsa`, `structure_100K.cif`, `magnetic_8K.mcif`, `instrument_bank<N>.instprm`, `instrument_bank3_jana.instprm`, `pdf.gr`. "AWO4" stays: the compound class is public in the bundled `highEntropyWO4.ts` and the docs | `realAwo4Benchmark.test.ts`, `realAwo4Magnetic.test.ts`, `realAwo4Tof.test.ts`, `realPowderTOF.test.ts`, `awo4MagneticSolve.test.ts`, `examples/awo4Magnetic.ts` |
+| One flat layout, `data/AWO4/`, with generic names: `PG3_powder_<T>.dat` / `PG3_powder_<T>.gsa` for the bank-3 patterns, `PG3_powder_bank1.gsa` and `PG3_powder_bank2.gsa`, `structure_100K.cif`, `magnetic_8K.mcif`, `instrument_bank<N>.instprm`, `instrument_bank3_jana.instprm`, `pdf.gr`. The powder patterns keep the instrument prefix `PG3_` (it names POWGEN, not a run), so the file-name hint `PG3_…` → POWGEN still applies. "AWO4" stays: the compound class is public in the bundled `highEntropyWO4.ts` and the docs | `realAwo4Benchmark.test.ts`, `realAwo4Magnetic.test.ts`, `realAwo4Tof.test.ts`, `realPowderTOF.test.ts`, `awo4MagneticSolve.test.ts`, `examples/awo4Magnetic.ts` |
 | The 100 K view-only test reads `data/AWO4/` like the others | `realPowderTOF.test.ts` |
 | C2 takes each bank's centre wavelength from a table in the test, not from the file name. The criterion and its bounds are unchanged | `realAwo4Benchmark.test.ts` |
-| The `awo4-user-flow` eval takes `powder_6K.gsa` (the ordered pattern) before any other histogram, and finds the bank's calibration as `instrument_bank<N>` as well as the old `B<N>` | `agent/evals/pages.ts` |
+| The `awo4-user-flow` eval takes `PG3_powder_6K.gsa` (the ordered pattern) before any other histogram, and finds the bank's calibration as `instrument_bank<N>` as well as the old `B<N>` | `agent/evals/pages.ts` |
 | The demo's pattern name, the comments and the VALIDATION row describe the data ("the 8 K bank-3 POWGEN pattern") instead of naming the run, frame or calibration | `awo4Magnetic.ts`, `highEntropyWO4.ts`, `docs/VALIDATION.md` |
 | The file-name hint's test uses made-up run numbers | `app/powgenBackground.test.ts` |
 | The layout, with what each file holds and which test reads it | `docs/VALIDATION.md`, "The AWO₄ data folder" |
@@ -39,6 +39,10 @@ generic names only.
   C13 as `it.fails`), and every number the benchmark prints (wR, GoF, cell,
   peaks, k ranking, groups, |M|, the reference comparison) is the same, line
   for line.
+- **The file-name hint.** The `awo4-user-flow` page opened (`openedPage`, the
+  bank-3 calibration) on a pattern named `PG3_powder_6K.gsa` starts on the
+  POWGEN default, log interpolation with 3 points; named without the prefix
+  it would start on 4 Chebyshev terms.
 - **The grep.** `git grep` for the run numbers, the original file names and
   the calibration and frame names finds no reference to the AWO₄ data. What
   it still finds is numbers inside other data files and golden arrays, and
