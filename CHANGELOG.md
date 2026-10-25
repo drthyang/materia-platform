@@ -578,6 +578,21 @@ release fixes bugs.
   occupancy, even if saved free, following the others. Without a shared site
   nothing changes. MCP's powder tools keep the soft restraint.
 
+- **POWGEN backgrounds are log-interpolated.** The Rietveld workflow skill now
+  sets a logarithmic-interpolation background (`logInterpolate`) on POWGEN
+  time-of-flight data; the reasoning is in the skill's notes.
+
+- **The magnetic step refines only the magnetic parameters.** In the
+  `magnetic-analysis` skill the magnetic refinement frees the moment amplitudes
+  alone; the scale, background, cell, instrument terms, positions and ADPs stay
+  at their nuclear values. With k = 0 and no pattern above the ordering
+  temperature, the nuclear model is first refined at d ≤ 1.5 Å, where the
+  magnetic form factor has faded, so its scale does not take the magnetic
+  intensity on the nuclear lines (on the Mn₃Ga 30 K example a whole-pattern
+  nuclear scale left the moments 30–55 % small). A new eval scenario,
+  `magnetic-30k`, checks both, and the dev server can play it
+  (`?agentReplay=magnetic-30k`).
+
 - **The Agent's executor and chat code split by what each part does**
   (internal; no behaviour change): the executor's dispatch, policy and
   record, and the chat's loop, transports, context budget and guards, each in
@@ -710,6 +725,16 @@ release fixes bugs.
   another k when copied); it is now the exact fraction, (0 0 4/3).
   `set_propagation_vector` now also reads every glyph a k label prints
   (⅔, ¾, ⅙, ⅚ and the minus sign of (¼ 0 −¼)), which it refused.
+
+- **The report no longer calls a moments-only fit "refined jointly".** A
+  magnetic model whose moments were refined with the atomic structure held
+  fixed was summarized as refined jointly with it; the report now says only the
+  moments were free.
+
+- **The Agent's outcome card no longer reads "Not achieved" after a refusal it
+  got past.** A refused refinement that the same turn then ran, and ran, counted
+  against the whole turn; the card now judges a turn by the call it ended on. A
+  refusal the turn never got past still reads "Not achieved".
 
 - **The local proxy says when the page has none.** On the published site
   (GitHub Pages) there is no proxy, and choosing it ended every message in a
