@@ -48,15 +48,27 @@ export function writeDrawerWidth(store: Pick<Storage, "setItem" | "removeItem">,
 /**
  * Docked beside the page when the window has the room (a laptop, a desktop,
  * a tablet held landscape), else a bottom sheet under it (a portrait tablet,
- * a phone). Either way it never covers the page: what the Agent points at
- * stays in view. The same rule as SHEET_QUERY, for code that needs the mode.
+ * a phone held upright). Either way it never covers the page: what the Agent
+ * points at stays in view. A short landscape window (a phone on its side, at
+ * most SHORT_LANDSCAPE px tall) docks too, whatever its width: a sheet there
+ * would split ~370 px of height between the page and the conversation, while
+ * beside the page each keeps the full height. The same rule as SHEET_QUERY,
+ * and as the two media queries in workbench.css, for code that needs the mode.
  */
 export type DockMode = "docked" | "sheet";
+/** The tallest window that counts as a phone on its side (the CSS (max-height: 540px) bands). */
+export const SHORT_LANDSCAPE = 540;
 export function dockModeFor(width: number, height: number): DockMode {
-  return width >= 1000 || (width >= 900 && width > height) ? "docked" : "sheet";
+  const landscape = width > height;
+  return width >= 1000 || (width >= 900 && landscape) || (landscape && height <= SHORT_LANDSCAPE) ? "docked" : "sheet";
 }
-/** dockModeFor as a media query (CSS px): true where the drawer is a sheet. */
-export const SHEET_QUERY = "(max-width: 899.98px), (max-width: 999.98px) and (orientation: portrait)";
+/**
+ * dockModeFor as a media query (CSS px): true where the drawer is a sheet —
+ * a portrait window under 1000 px wide, or a landscape one under 900 px wide
+ * and taller than SHORT_LANDSCAPE. (CSS calls a square window portrait, as
+ * `width > height` does above.)
+ */
+export const SHEET_QUERY = "(max-width: 999.98px) and (orientation: portrait), (max-width: 899.98px) and (min-height: 540.02px)";
 
 /** The sheet's height, a share of the window: enough for a few cards, never the whole page. */
 export const SHEET_MIN = 0.3;

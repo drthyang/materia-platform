@@ -13,7 +13,8 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { usePlotInteraction, useThrottledText } from "@/app/ui/usePlotInteraction";
-import { PlotHint, PlotZoomControls, plotReadoutBox } from "@/app/ui/PlotControls";
+import { PlotHint, PlotZoomControls, plotReadoutBox, zoomControlsInline } from "@/app/ui/PlotControls";
+import { useCoarsePointer } from "@/app/ui/touchInput";
 import { decimalsForStep, formatReadoutValue, localStep, minimumSpan, nearestIndex } from "@/visualization/plotView";
 import type { PdfPattern } from "@/core/diffraction/types";
 import { grUncertaintySummary } from "@/core/totalscattering/grErrors";
@@ -64,6 +65,8 @@ export function ReciprocalPanel({ pattern, fitRange }: { pattern: PdfPattern; fi
   const [showSigma, setShowSigma] = useState(true);
   const [boxRef, { width: W, height: H }] = useElementSize<HTMLDivElement>();
   const svgRef = useRef<SVGSVGElement>(null);
+  const coarse = useCoarsePointer();
+  const zoomInline = zoomControlsInline(coarse, W);
   const qs = rec?.q ?? EMPTY;
   const domain = useMemo(() => ({ min: qs[0] ?? 0, max: qs.length > 1 ? qs[qs.length - 1]! : (qs[0] ?? 0) + 1 }), [qs]);
   const minSpan = useMemo(() => minimumSpan(qs), [qs]);
@@ -293,8 +296,9 @@ export function ReciprocalPanel({ pattern, fitRange }: { pattern: PdfPattern; fi
         )}
         <div role="status" aria-live="polite" aria-atomic="true" className="wb-sr-only">{spoken}</div>
         <PlotHint text={ix.hint} />
-        <PlotZoomControls ix={ix} yRange={{ lo: yLo, hi: yHi }} style={{ bottom: 4 }} />
+        {!zoomInline && <PlotZoomControls ix={ix} yRange={{ lo: yLo, hi: yHi }} style={{ bottom: 4 }} />}
       </div>
+      {zoomInline && <PlotZoomControls ix={ix} yRange={{ lo: yLo, hi: yHi }} inline />}
 
       <div style={{ fontSize: fz.micro, color: color.secondary, lineHeight: 1.55 }}>
         {tr && (

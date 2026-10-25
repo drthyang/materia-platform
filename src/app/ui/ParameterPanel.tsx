@@ -208,7 +208,7 @@ export function ParameterPanel({ params, esd, onChange, onRefine, onThorough, th
         <span>esd</span>
         <span>Refine</span>
       </div>
-      <div ref={listRef} style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+      <div ref={listRef} className="wb-param-list" style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
         {groups.map((g) => {
           const togglable = g.rows.filter((p) => !isLocked(p));
           const groupFree = togglable.filter((p) => !p.fixed).length;
@@ -328,7 +328,7 @@ function ResultSection({ result, open, onToggle }: { result: RefinementResult; o
         )}
       </div>
       {open && (
-        <div style={resultBody}>
+        <div className="wb-grow-box" style={resultBody}>
           {flags.length > 0 && d && (
             <div style={{ ...banner, ...noteTone }}>
               {d.svdZeroCount > 0 && <div>SVD dropped {d.svdZeroCount} near-null direction{d.svdZeroCount === 1 ? "" : "s"}.</div>}

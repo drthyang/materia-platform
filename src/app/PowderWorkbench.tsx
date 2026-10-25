@@ -81,6 +81,7 @@ import {
 } from "@/visualization/reflectionTicks";
 import { SummaryCards, type SummaryCardData } from "@/app/ui/SummaryCards";
 import { InfoBadge } from "@/app/ui/InfoBadge";
+import { gestureHint, useCoarsePointer } from "@/app/ui/touchInput";
 import { WorkbenchPlot, type FitRangeSelection } from "@/app/ui/WorkbenchPlot";
 import { ParameterPanel } from "@/app/ui/ParameterPanel";
 import { color as theme, card as themeCard, uppercaseLabel as themeLabel, mono as themeMono, fz, toolbarBtn, resetRangeBtn, space } from "@/app/theme";
@@ -191,6 +192,8 @@ export function PowderWorkbench({
   /** A change of the model or a setting, the rows built with the page's instrument: the last fit's result goes (powderPage.ts, changed). */
   const change = (f: (s: Session, instrument: InstrumentParameters) => Session): void => setPage((p) => changed(p, f(p.session, specInstrumentOf(p))));
   const [busy, setBusy] = useState(false);
+  // Touch screens get touch wording under the plot and the 3D model.
+  const coarse = useCoarsePointer();
   // Incremented by the toolbar "⊡ Fit range" button; the plot zooms onto the
   // active fit window when it changes.
   const [focusFitToken, setFocusFitToken] = useState(0);
@@ -1407,7 +1410,7 @@ export function PowderWorkbench({
                     <p style={{ marginTop: 8, fontSize: 12, color: theme.secondary }}>
                       {viewStructure.name || "Structure"}
                       {viewStructure.spaceGroup.hermannMauguin ? ` · ${viewStructure.spaceGroup.hermannMauguin}` : ""}
-                      {` · ${viewStructure.sites.length} site${viewStructure.sites.length === 1 ? "" : "s"} · drag to rotate, scroll to zoom.`}
+                      {` · ${viewStructure.sites.length} site${viewStructure.sites.length === 1 ? "" : "s"} · ${gestureHint("model-3d", coarse)}.`}
                     </p>
                   </>
                   );
@@ -1541,7 +1544,7 @@ export function PowderWorkbench({
                         ? session.powderOverlay
                           ? "Observed (points) with GSAS-II fit overlay."
                           : "Observed TOF pattern — view-only (load a TOF instrument with difC to refine)."
-                        : "Drag to pan, Ctrl/⌘ + scroll or pinch to zoom, Shift + drag to box-zoom, double-click to reset; blue handles set the fit range."}
+                        : gestureHint("powder-plot", coarse)}
                     </p>
                     {!tofViewOnly && mustrainReadout && (mustrainReadout.strainPpm.value > 0 || mustrainReadout.sampleY !== 0) && (
                       <div style={{ display: "flex", alignItems: "center", gap: 14, rowGap: 5, marginTop: 6, fontSize: 12, color: theme.secondary, fontFamily: themeMono, flexWrap: "wrap" }} title="Derived from the refined Lorentzian X (size) and Y (microstrain), with the instrument seed deconvoluted (GSAS-II microstrain = LY·π/72000·10⁶ ppm).">

@@ -20,7 +20,7 @@ import { listLmStudioModels, lmstudioUnreachableHint, type LmStudioModel } from 
 import { MIN_AGENT_CONTEXT, kTokens } from "@/agent/localServer";
 import { cardsInReply, type AgentCard } from "@/agent/focus";
 import { MATH_SPAN_SOURCE, mathInside, texPieces } from "@/agent/ui/texText";
-import { DRAWER_MAX, DRAWER_MIN, KEY_STEP, SHEET_DEFAULT, SHEET_MAX, SHEET_MIN, SHEET_QUERY, clampDrawerWidth, clampSheet, readDrawerWidth, readSheet, sheetFor, writeDrawerWidth, writeSheet } from "@/agent/ui/drawerWidth";
+import { DRAWER_MAX, DRAWER_MIN, KEY_STEP, SHEET_DEFAULT, SHEET_MAX, SHEET_MIN, SHEET_QUERY, SHORT_LANDSCAPE, clampDrawerWidth, clampSheet, readDrawerWidth, readSheet, sheetFor, writeDrawerWidth, writeSheet } from "@/agent/ui/drawerWidth";
 import { cssZoom } from "@/app/ui/cssZoom";
 
 interface Props {
@@ -57,6 +57,9 @@ function localModel(s: AgentSettings): string | null {
 /** The OpenAI-compatible server needs a key the user has not given. */
 const missingOpenAIKey = (s: AgentSettings, key: string): boolean => s.mode === "openai-compatible" && !key && (presetForUrl(s.openaiUrl)?.needsKey ?? false);
 
+/** The share of the window the sheet takes at least while the settings are open in it. */
+const SETTINGS_SHEET = 0.75;
+
 export function AgentDrawer({ agent, method = null, onClose }: Props): JSX.Element {
   const { settings } = agent;
   const [showSettings, setShowSettings] = useState(false);
@@ -69,6 +72,9 @@ export function AgentDrawer({ agent, method = null, onClose }: Props): JSX.Eleme
   const [width, setWidth] = useDrawerWidth();
   const [sheet, setSheet] = useSheetHeight();
   const sheetMode = useMediaQuery(SHEET_QUERY);
+  // A phone on its side docks the drawer beside the page, ~370 px tall: the
+  // method folds to one line there too, so the conversation keeps the height.
+  const shortWindow = useMediaQuery(`(max-height: ${SHORT_LANDSCAPE}px)`);
   const lowered = useSheetForFocus(sheetMode, sheet, agent.focus);
   const aside = useRef<HTMLElement>(null);
   // The message box's text, here so a choice's "Other…" can put a template in it to edit.
@@ -90,21 +96,31 @@ export function AgentDrawer({ agent, method = null, onClose }: Props): JSX.Eleme
       box.setSelectionRange(box.value.length, box.value.length);
     }, 0);
   };
-  const sized: CSSProperties = { ...drawer, ...(width === null ? {} : { ["--wb-agent-w" as string]: `${width}px` }), ["--wb-sheet-h" as string]: `calc(${((lowered ?? sheet) * 100).toFixed(1)}dvh / var(--ui-zoom))` };
+  // The settings open in the sheet: it rises, for now, so they have room (the
+  // user's height comes back when they close).
+  const shown = sheetMode && showSettings ? Math.max(sheet, SETTINGS_SHEET) : (lowered ?? sheet);
+  const sized: CSSProperties = { ...drawer, ...(width === null ? {} : { ["--wb-agent-w" as string]: `${width}px` }), ["--wb-sheet-h" as string]: `calc(${(shown * 100).toFixed(1)}dvh / var(--ui-zoom))` };
   return (
     <aside ref={aside} className="wb-agent" data-mode={sheetMode ? "sheet" : "docked"} style={sized} aria-label="MATERIA Copilot">
       {sheetMode ? <SheetHandle fraction={sheet} onResize={setSheet} /> : <ResizeHandle drawer={aside} width={width} onResize={setWidth} />}
-      {sheetMode ? (
+      {sheetMode || shortWindow ? (
         // The sheet is short: one row, the status a dot (its words in the tooltip), the model in the settings.
-        <div style={{ ...head, flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: "8px 12px" }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+        // So is the drawer beside the page on a phone held sideways (~370 px tall).
+        // Too narrow for one row (a phone held upright), the approval switch takes a second row
+        // (.wb-agent-sheethead in workbench.css) rather than run over the name.
+        <div className="wb-agent-sheethead" style={{ ...head, flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: "6px 7px", padding: "8px 12px" }}>
+          <span className="wb-agent-sheethead-brand">
             <SparkIcon />
             <b className="wb-agent-title">MATERIA Copilot</b>
-            <span className="wb-agent-beta" title="A public beta: check what it does, as you would a new colleague's work">Beta</span>
+          </span>
+          <span className="wb-agent-beta wb-agent-sheethead-beta" title="A public beta: check what it does, as you would a new colleague's work">Beta</span>
+          <span className="wb-agent-sheethead-status">
             <StatusChip agent={agent} compact />
           </span>
-          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span className="wb-agent-sheethead-switch">
             <AutonomySwitch agent={agent} />
+          </span>
+          <span className="wb-agent-sheethead-icons">
             {agent.report && <IconButton title="Open the analysis report" onClick={agent.openReport}><ReportIcon /></IconButton>}
             <IconButton title="Settings" active={showSettings} onClick={() => setShowSettings((v) => !v)}>⚙</IconButton>
             <IconButton title="Close the Copilot" onClick={onClose}>✕</IconButton>
@@ -133,10 +149,15 @@ export function AgentDrawer({ agent, method = null, onClose }: Props): JSX.Eleme
           </div>
         </div>
       )}
-      {method && <MethodChecklist key={sheetMode ? "sheet" : "docked"} method={method} folded={sheetMode} />}
+      {method && <MethodChecklist key={sheetMode ? "sheet" : shortWindow ? "short" : "docked"} method={method} folded={sheetMode || shortWindow} />}
       {showSettings && <Settings agent={agent} />}
-      <Transcript agent={agent} page={method?.skill ?? null} onOther={editDraft} />
-      <Composer agent={agent} disabled={needsSetup} compact={sheetMode} text={draft} setText={setDraft} input={input} hint={hint} />
+      {/* In the sheet and the short drawer the settings, while open, take the
+          conversation's room (kept mounted, only hidden): squeezed beside it
+          they were a ~40px scroller. */}
+      <div style={{ display: showSettings && (sheetMode || shortWindow) ? "none" : "contents" }}>
+        <Transcript agent={agent} page={method?.skill ?? null} onOther={editDraft} />
+      </div>
+      <Composer agent={agent} disabled={needsSetup} compact={sheetMode || shortWindow} text={draft} setText={setDraft} input={input} hint={hint} />
     </aside>
   );
 }
@@ -159,7 +180,7 @@ export function methodSummary(method: MethodProgress): string {
 function MethodChecklist({ method, folded: foldedAtFirst }: { method: MethodProgress; folded: boolean }): JSX.Element {
   const [folded, setFolded] = useState(foldedAtFirst);
   return (
-    <div style={checklist} aria-label="Method progress">
+    <div className="wb-agent-method" style={checklist} aria-label="Method progress">
       <button type="button" className="wb-agent-fold" aria-expanded={!folded} onClick={() => setFolded((f) => !f)} title={`The page's method: the skill ${method.skill}. ${folded ? "Show" : "Hide"} the stages`}>
         <span aria-hidden="true">{folded ? "▸" : "▾"}</span> Method
       </button>
@@ -413,7 +434,7 @@ function Settings({ agent }: { agent: AgentController }): JSX.Element {
   const provider = providerOf(settings.mode);
   const cloud = settings.mode === "api-key" || settings.mode === "proxy";
   return (
-    <div style={settingsBox}>
+    <div className="wb-agent-settings" style={settingsBox}>
       <div style={segmented} role="radiogroup" aria-label="Model provider">
         {PROVIDERS.map((p) => (
           <button
@@ -1163,7 +1184,7 @@ function Composer({ agent, disabled, compact, text, setText, input, hint }: { ag
           : <button type="button" className="wb-agent-send" onClick={submit} disabled={disabled || !text.trim()} aria-label="Send" title="Send (Enter)"><ArrowGlyph /></button>}
       </div>
       <div className="wb-agent-foot">
-        <span className="wb-agent-hint" title={used ? `${usage.input} input tokens (${usage.cacheRead} read from the cache) and ${usage.output} output tokens this session` : undefined}>
+        <span className="wb-agent-hint" data-keys={used ? undefined : ""} title={used ? `${usage.input} input tokens (${usage.cacheRead} read from the cache) and ${usage.output} output tokens this session` : undefined}>
           {used ? `${fmtTokens(usage.input)} in · ${fmtTokens(usage.cacheRead)} cached · ${fmtTokens(usage.output)} out` : "Enter to send · Shift+Enter for a new line"}
         </span>
         {agent.transcript.length > 0 && !agent.thinking && (
@@ -1299,6 +1320,7 @@ function IconButton({ children, title, onClick, active, disabled }: { children: 
     <button
       title={title}
       aria-label={title}
+      className="wb-agent-icon"
       onClick={onClick}
       disabled={disabled}
       style={{ border: `1px solid ${active ? color.primaryTintBorder : "transparent"}`, background: active ? color.primaryTintBg : "transparent", color: disabled ? color.faintest : color.secondary, borderRadius: 6, width: 28, height: 28, cursor: disabled ? "default" : "pointer", fontSize: 14, lineHeight: 1 }}
@@ -1360,7 +1382,11 @@ const drawer: CSSProperties = {
 const checklist: CSSProperties = { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "3px 10px", padding: "6px 14px", borderBottom: `1px solid ${color.border}`, background: color.muted2, fontSize: fz.micro };
 const head: CSSProperties = { display: "flex", flexDirection: "column", gap: 8, padding: "10px 14px", borderBottom: `1px solid ${color.border}` };
 const headRow: CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, minWidth: 0 };
-const settingsBox: CSSProperties = { display: "flex", flexDirection: "column", gap: 10, padding: "12px 14px", borderBottom: `1px solid ${color.border}`, background: color.muted2 };
+// It scrolls on its own when the drawer is too short for it (a phone: the sheet,
+// or the drawer beside the page held sideways), rather than running out of the drawer.
+// Its rows keep their height (.wb-agent-settings in workbench.css): squeezed, the
+// segmented toggles (overflow hidden, so no content minimum) shrank to their borders.
+const settingsBox: CSSProperties = { display: "flex", flexDirection: "column", gap: 10, padding: "12px 14px", borderBottom: `1px solid ${color.border}`, background: color.muted2, flex: "0 1 auto", minHeight: 0, overflowY: "auto" };
 const transcriptBox: CSSProperties = { flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 };
 const composer: CSSProperties = { display: "flex", flexDirection: "column", gap: 5, padding: "10px 12px 10px", borderTop: `1px solid ${color.border}`, background: color.raised };
 const field: CSSProperties = { display: "flex", flexDirection: "column", gap: 4 };

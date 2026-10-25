@@ -544,6 +544,25 @@ release fixes bugs.
 
 ### Changed
 
+- **Phones and tablets: layouts fitted to iPhone and iPad Pro screens.**
+  Tuned on the iPhone 18 Pro and Pro Max and the iPad Pro 11" and 13", upright
+  and sideways; a desktop window looks as it did. On a phone held sideways the
+  plot and the 3D canvas fit the screen with their tab row (the plot was ~1.5
+  screens tall), a plot that short keeps most of its height for the pattern,
+  the 3D view fits the cell to the canvas on any touch screen, and the summary
+  cards sit three across. The Copilot docks beside the page on any landscape
+  window up to 540 px tall. An iPad held landscape scrolls as a page with
+  screen-tall rows, so the parameter list is no longer a 290 px box and the
+  magnetic page's 3D card shows its model. Lists that scrolled inside a card
+  inside the scrolling page (subgroups, distortion modes, the run result, the
+  posterior table) take their height. Controls are 44 px tall on a touch
+  screen. The plot's zoom buttons take a row under the plot on a touch screen
+  or a narrow plot instead of covering the x-axis title, the magnetic pattern
+  check no longer runs past its card, and the Copilot's sheet header keeps
+  Ask first / Auto off its name. Captions name finger gestures on a touch
+  screen (pinch to zoom, drag to pan or rotate). The header, the Copilot's
+  rail and drawer and the cards stay out of the iPhone's safe-area insets.
+
 - **The powder Validation tab reads the fit against your acceptance bar.**
   It opened on a verdict of mixed-weight lines beside eight agreement
   numbers, with diagnoses but no actions, and called the demo's converged fit
@@ -724,6 +743,12 @@ release fixes bugs.
   groups as the magnetic page does and keeps the maximal group unless
   Hamilton's test says the data need more moment parameters (lowest wR alone
   had chosen a subgroup with four more).
+
+- **A fit-range handle drag the browser takes over no longer swallows the
+  next tap.** The handle listened for the pointer lifting but not for a
+  cancel, so when a touch drag turned into a page scroll the plot ignored the
+  next tap and kept a stale drag listener. It now ends on a cancel or a lost
+  capture too, and its hit area is 32 px wide on a touch screen.
 
 - **The Background group stays on the parameter panel at 0 terms.** Emptying
   the background's terms field to retype the count read as 0, and 0 terms
