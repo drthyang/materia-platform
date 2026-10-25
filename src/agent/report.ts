@@ -11,10 +11,16 @@
  * words. Its decimal numbers are audited against the numbers the report
  * computed (reportAudit.ts); any that match none are marked in the report and
  * returned, so the Agent can correct them.
+ *
+ * The audit, and the Markdown the evals and the validation read, use the
+ * report's frozen layout (reportMarkdownFrozen.ts), so the report people read
+ * (the HTML and the Markdown they save) can change while the validation runs
+ * without moving what the model is told or what is scored.
  */
 
 import { reportHtml, type ReportAgent, type ReportCheck, type ReportInput, type ReportPosterior, type ReportStep } from "@/core/export/report";
 import { reportMarkdown } from "@/core/export/reportMarkdown";
+import { frozenReportMarkdown } from "@/core/export/reportMarkdownFrozen";
 import { unverifiedNumbers } from "@/core/export/reportAudit";
 import { lineage, type HistoryStep, type ProjectHistory } from "@/core/project/history";
 import type { ParameterBinding, ParameterKind, RefinementParameter, RefinementResult } from "@/core/refinement/types";
@@ -36,7 +42,13 @@ export interface AgentReport {
   readonly title: string;
   readonly technique: AgentPage;
   readonly html: string;
+  /**
+   * The report as Markdown in the frozen layout the evals and the validation
+   * read (reportMarkdownFrozen.ts). Not what the viewer saves: `markdownFile`.
+   */
   readonly markdown: string;
+  /** The report as Markdown in the current layout, as the HTML: what the viewer saves. */
+  readonly markdownFile: string;
   /** File name without its extension. */
   readonly fileBase: string;
   readonly at: number;
@@ -372,7 +384,7 @@ export interface AgentReportArgs {
 }
 
 /** Build the report: its input, the Agent section, the HTML and the Markdown, and the audit. */
-export function buildAgentReport(a: AgentReportArgs): { input: ReportInput; agent: ReportAgent; html: string; markdown: string; unverified: string[]; audit: AgentReport["audit"] } {
+export function buildAgentReport(a: AgentReportArgs): { input: ReportInput; agent: ReportAgent; html: string; markdown: string; markdownFile: string; unverified: string[]; audit: AgentReport["audit"] } {
   const method = a.method !== false;
   const progress = methodProgress(a.page, a.record);
   const { steps, otherBranches, rowOf } = historySteps(a.page, a.history, method);
@@ -406,14 +418,15 @@ export function buildAgentReport(a: AgentReportArgs): { input: ReportInput; agen
   const date = a.date ?? new Date();
   // What the report computed: no figure (its data URI), and none of the Agent's
   // own words — the account, its notes, the reasons it gave for an exception.
-  const engineText = reportMarkdown({ ...a.input, date, figure: null, agent: { ...base, notes: [], checks: checks.filter((c) => c.name !== "Method exception") } });
+  // In the frozen layout: the audit's verdicts must not move with the report's design.
+  const engineText = frozenReportMarkdown({ ...a.input, date, figure: null, agent: { ...base, notes: [], checks: checks.filter((c) => c.name !== "Method exception") } });
   const narrative = a.narrative.trim();
   // The numbers the user gave (a published refinement's, a reference) are quoted, not the Agent's own.
   const audit = { account: [narrative, ...base.notes].join("\n\n"), against: `${engineText}\n\n${a.userText ?? ""}` };
   const unverified = unverifiedNumbers(audit.account, audit.against);
   const agent: ReportAgent = { ...base, narrative, unverified };
   const input: ReportInput = { ...a.input, date, agent };
-  return { input, agent, html: reportHtml(input), markdown: reportMarkdown(input), unverified, audit };
+  return { input, agent, html: reportHtml(input), markdown: frozenReportMarkdown(input), markdownFile: reportMarkdown(input), unverified, audit };
 }
 
 /** "<title>_agent_report", the title reduced to a safe token. */
