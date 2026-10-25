@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { frozenReportMarkdown } from "@/core/export/reportMarkdownFrozen";
+import { reportMarkdown } from "@/core/export/reportMarkdown";
 import { buildAgentReport } from "@/agent/report";
 import { emptyRecord } from "@/agent/method";
 import type { ReportInput } from "@/core/export/report";
@@ -48,7 +49,9 @@ describe("the frozen report layout (the audit's and the validation's text)", () 
     });
     expect(built.unverified).toEqual(["2.2012", "8.4807"]);
     await expect(built.audit.against).toMatchFileSnapshot("__goldens__/frozen-audit-against.md");
-    // The report the evals and the validation read is the frozen one.
+    // The report the evals and the validation read is the frozen one; the viewer saves the current layout.
     expect(built.markdown).toBe(frozenReportMarkdown(built.input));
+    expect(built.markdownFile).toBe(reportMarkdown(built.input));
+    expect(built.markdownFile).toContain("## Quality and caveats");
   });
 });
