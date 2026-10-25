@@ -3,7 +3,10 @@
  * (.claude/skills/my-rietveld-workflow, "When it's done — the acceptance
  * bar"): the state of the fit being judged, one line that says where it
  * stands, and the bar as three checks, each green, amber or red with one
- * plain sentence.
+ * short line. Each line leads with what to do and stays short; the longer
+ * account (why, and the numbers behind it) rides along as `detail`, which the
+ * view shows as a tooltip. Not read by the Agent or by the validation's arm A
+ * (validationChecks.ts powderChecks).
  *
  *  1. Goodness of fit, in the assessment's bands (GOF_BANDS, Toby 2006): good
  *     or excellent meets the bar; fair and poor do not; below 0.8 the esds are
@@ -47,6 +50,7 @@ export function gofBand(gof: number): GofBand | null {
 
 const fmt = (v: number, digits = 2): string => (Number.isFinite(v) ? v.toFixed(digits) : "—");
 const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
+const cap = (s: string): string => `${s.charAt(0).toUpperCase()}${s.slice(1)}`;
 
 // ── the fit being judged ───────────────────────────────────────────────────
 
@@ -55,8 +59,10 @@ export type FitStateKind = "none" | "changed" | "snapshot" | "edited" | "converg
 export interface FitState {
   readonly kind: FitStateKind;
   readonly tone: Tone;
-  /** One sentence: where the fit on screen comes from, and what to do next if anything. */
+  /** One short line: where the fit on screen comes from, or what to do first; Refine follows it when `refine`. */
   readonly text: string;
+  /** The longer account, for a tooltip. */
+  readonly detail?: string;
   /** Refining is the next step (the view offers Refine). */
   readonly refine: boolean;
   /** A refinement result describes the values on screen: its esds, correlations and bounds can be read. */
@@ -74,36 +80,38 @@ const same = (a: number, b: number): boolean => a === b || Math.abs(a - b) <= 1e
  * to do, never a stale "not refined".
  */
 export function fitState(result: RefinementResult | null, parameters: readonly RefinementParameter[], snapshot = false): FitState {
+  // Where refining is the next step the view puts Refine right after the line: the line says why, the button is the action.
   if (result) {
     if (result.status === "diverged") {
-      return { kind: "diverged", tone: "red", text: "The last refinement diverged: its values and esds mean nothing. Go back a step (History), or refine fewer parameters at once.", refine: false, current: false };
+      return { kind: "diverged", tone: "red", text: "Go back a step (History), or refine fewer parameters at once", detail: "The last refinement diverged: its values and esds mean nothing.", refine: false, current: false };
     }
     if (parametersChangedSince(result, parameters)) {
-      return { kind: "edited", tone: "grey", text: "Values edited since the last refinement: refine again before quoting values or esds.", refine: true, current: false };
+      return { kind: "edited", tone: "grey", text: "Edited since the last refinement: esds stale", detail: "Values edited since the last refinement: refine again before quoting values or esds.", refine: true, current: false };
     }
     if (result.status !== "converged") {
-      const why = result.status === "maxIterations" ? "at its cycle limit" : result.status === "stalled" ? "stalled" : "failed";
-      return { kind: "stopped", tone: "amber", text: `The last refinement stopped (${why}) before it converged: the values are provisional — refine again.`, refine: true, current: true };
+      const why = result.status === "maxIterations" ? "cycle limit" : result.status === "stalled" ? "stalled" : "failed";
+      return { kind: "stopped", tone: "amber", text: `Stopped before converging (${why}): values provisional`, detail: "Refine again.", refine: true, current: true };
     }
     const shift = result.diagnostics?.maxShiftOverEsd ?? 0;
     const id = result.diagnostics?.maxShiftParameterId;
     const who = id ? ` (${parameters.find((p) => p.id === id)?.label ?? id})` : "";
     const cycles = plural(result.history.length, "cycle");
     if (shift > 1) {
-      return { kind: "moving", tone: "amber", text: `Still moving: the last cycle shifted a parameter by ${fmt(shift)} esd${who}. Refine more cycles; the values are not the minimum yet.`, refine: true, current: true };
+      return { kind: "moving", tone: "amber", text: `Still moving: last shift ${fmt(shift)} esd${who}`, detail: "Refine more cycles; the values are not the minimum yet.", refine: true, current: true };
     }
     if (shift > SHIFT_SETTLED) {
-      return { kind: "settling", tone: "grey", text: `Nearly settled: the last cycle shifted a parameter by ${fmt(shift)} esd${who}; settled is below ${SHIFT_SETTLED}. Refine a few more cycles.`, refine: true, current: true };
+      return { kind: "settling", tone: "grey", text: `Nearly settled: last shift ${fmt(shift)} esd${who}, settled < ${SHIFT_SETTLED}`, detail: "Refine a few more cycles.", refine: true, current: true };
     }
-    return { kind: "converged", tone: "green", text: `Converged in ${cycles}: the last moved no parameter by more than ${fmt(shift, shift < 0.01 ? 3 : 2)} esd.`, refine: false, current: true };
+    const max = fmt(shift, shift < 0.01 ? 3 : 2);
+    return { kind: "converged", tone: "green", text: `Converged in ${cycles} · max shift ${max} esd`, detail: `The last cycle moved no parameter by more than ${max} esd.`, refine: false, current: true };
   }
   if (snapshot) {
-    return { kind: "snapshot", tone: "grey", text: "Opened on a converged fit, which carries no esds or correlations: refine once to get them.", refine: true, current: false };
+    return { kind: "snapshot", tone: "grey", text: "Converged snapshot: no esds or correlations", detail: "The page opened on a converged fit, which carries no esds or correlations: refine once to get them.", refine: true, current: false };
   }
   if (parameters.some((p) => !p.expression && !same(p.value, p.initialValue))) {
-    return { kind: "changed", tone: "grey", text: "The model changed since its last refinement: refine to bring the values, esds and correlations up to date.", refine: true, current: false };
+    return { kind: "changed", tone: "grey", text: "Model changed since its last refinement", detail: "Refine to bring the values, esds and correlations up to date.", refine: true, current: false };
   }
-  return { kind: "none", tone: "grey", text: "Not refined yet. Your method starts with the scale, background and cell: free them in the parameter panel, then refine.", refine: true, current: false };
+  return { kind: "none", tone: "grey", text: "Free the scale, background and cell first", detail: "Your method starts with the scale, background and cell: free them in the parameter panel, then refine.", refine: true, current: false };
 }
 
 // ── physical sanity ────────────────────────────────────────────────────────
@@ -126,7 +134,7 @@ const SEVERITY_ORDER: Record<PhysicalSeverity, number> = { blocker: 0, issue: 1,
  * rounding), which the fit never moved. A note to correct, not a fault of the
  * fit. Null for anything else.
  */
-function heldOccupancyNote(f: AssessmentFinding, byId: ReadonlyMap<string, RefinementParameter>): string | null {
+function heldOccupancyNote(f: AssessmentFinding, byId: ReadonlyMap<string, RefinementParameter>): { text: string; detail: string } | null {
   if (f.category !== "physical" || f.evidence?.origin !== "input") return null;
   const p = byId.get(f.parameterIds?.[0] ?? "");
   if (!p || p.kind !== "occupancy") return null;
@@ -134,7 +142,10 @@ function heldOccupancyNote(f: AssessmentFinding, byId: ReadonlyMap<string, Refin
   if (!(off > 0) || off > 1 - OCCUPANCY_FULL + 1e-9) return null;
   const edge = p.value > 1 ? 1 : 0;
   const by = 100 * off;
-  return `${p.label} is held at ${p.value.toFixed(4).replace(/0+$/, "").replace(/\.$/, "")} (${by < 0.1 ? by.toFixed(2) : by.toFixed(1)}% ${edge === 1 ? "over 1" : "below 0"}): an input the fit never moved — set it to ${edge}.`;
+  return {
+    text: `${p.label} held at ${p.value.toFixed(4).replace(/0+$/, "").replace(/\.$/, "")} → set to ${edge}`,
+    detail: `${by < 0.1 ? by.toFixed(2) : by.toFixed(1)}% ${edge === 1 ? "over 1" : "below 0"}: an input the fit never moved.${f.detail ? ` ${f.detail}` : ""}`,
+  };
 }
 
 /** One finding as the check lists it: the assessment's severity, a held occupancy just outside its range scaled to a note. */
@@ -143,7 +154,7 @@ function itemOf(f: AssessmentFinding, byId: ReadonlyMap<string, RefinementParame
   const detail = f.detail ? { detail: f.detail } : {};
   if (f.severity === "critical") return { severity: "blocker", text: f.summary, ...detail, parameterIds: ids };
   const held = heldOccupancyNote(f, byId);
-  if (held) return { severity: "note", text: held, ...detail, parameterIds: ids };
+  if (held) return { severity: "note", text: held.text, detail: held.detail, parameterIds: ids };
   return { severity: f.severity === "warning" ? "issue" : "note", text: f.summary, ...detail, parameterIds: ids };
 }
 
@@ -180,6 +191,8 @@ export type AcceptanceCheckId = "gof" | "physical" | "cross-check";
 /** Why the esds may not hold, for the cross-check: each with whether sampling the posterior is the way to judge it. */
 export interface EsdNote {
   readonly text: string;
+  /** The longer account, for a tooltip. */
+  readonly detail?: string;
   readonly posterior: boolean;
 }
 
@@ -189,8 +202,10 @@ export interface AcceptanceCheck {
   readonly tone: Tone;
   /** The value or count beside the label ("GoF 3.05 · fair", "1 note", "To do"). */
   readonly value: string;
-  /** One plain sentence. */
+  /** One short line; empty when the value says it all. */
   readonly sentence: string;
+  /** The longer account, for a tooltip. */
+  readonly detail?: string;
   /** Physical sanity: the findings, scaled. */
   readonly items?: readonly PhysicalItem[];
   /** Cross-check: why the esds may not hold. */
@@ -202,19 +217,19 @@ const BAND_WORD: Record<GofBand, string> = { "too-good": "too good", excellent: 
 
 function goodnessCheck(gof: number, band: GofBand | null): AcceptanceCheck {
   const base = { id: "gof" as const, label: "Goodness of fit" };
-  if (band === null) return { ...base, tone: "grey", value: "GoF —", sentence: "No fitted points to judge." };
+  if (band === null) return { ...base, tone: "grey", value: "GoF —", sentence: "No fitted points to judge" };
   const value = `GoF ${fmt(gof)} · ${BAND_WORD[band]}`;
   switch (band) {
     case "excellent":
-      return { ...base, tone: "green", value, sentence: "Close to the noise: the model explains the data within their uncertainties." };
+      return { ...base, tone: "green", value, sentence: "Close to the noise", detail: "The model explains the data within their uncertainties." };
     case "good":
-      return { ...base, tone: "green", value, sentence: `Within your bar (good is up to ${GOF_BANDS.good}); some systematic misfit remains.` };
+      return { ...base, tone: "green", value, sentence: `Within your bar (good ≤ ${GOF_BANDS.good})`, detail: "Some systematic misfit remains." };
     case "fair":
-      return { ...base, tone: "amber", value, sentence: `Above your bar (good is up to ${GOF_BANDS.good}): the model misses systematic features.` };
+      return { ...base, tone: "amber", value, sentence: `Above your bar (good ≤ ${GOF_BANDS.good})`, detail: "The model misses systematic features." };
     case "poor":
-      return { ...base, tone: "red", value, sentence: "Far from the data: fix the largest cause of misfit before trusting any value." };
+      return { ...base, tone: "red", value, sentence: "Far from the data — trust no value yet", detail: "Fix the largest cause of misfit before trusting any value." };
     case "too-good":
-      return { ...base, tone: "amber", value, sentence: `Below ${GOF_BANDS.tooGood}: the σ's are overestimated or the model has more parameters than the data support, so the esds are optimistic.` };
+      return { ...base, tone: "amber", value, sentence: "σ overestimated, or too many parameters", detail: `Below ${GOF_BANDS.tooGood}: the σ's are overestimated or the model has more parameters than the data support, so the esds are optimistic.` };
   }
 }
 
@@ -224,16 +239,17 @@ function physicalCheck(items: readonly PhysicalItem[], current: boolean): Accept
   const noteText = notes > 0 ? ` · ${plural(notes, "note")}` : "";
   const base = { id: "physical" as const, label: "Physical sanity", items };
   if (blockers > 0) {
-    return { ...base, tone: "red", value: `${blockers} to fix${issues > 0 ? `, ${issues} to check` : ""}${noteText}`, sentence: "Your bar treats these as blockers: fix them before reading anything else into the fit." };
+    return { ...base, tone: "red", value: `${blockers} to fix${issues > 0 ? `, ${issues} to check` : ""}${noteText}`, sentence: "Blockers: fix them before reading the fit", detail: "Your bar treats these as blockers: fix them before reading anything else into the fit." };
   }
   if (issues > 0) {
-    return { ...base, tone: "amber", value: `${issues} to check${noteText}`, sentence: "Unusual values: each can be right, but check it before quoting the result." };
+    return { ...base, tone: "amber", value: `${issues} to check${noteText}`, sentence: "Unusual: check each before quoting", detail: "Each can be right, but check it before quoting the result." };
   }
+  // The value says it; the line adds only what was not read.
+  const checked = "B values positive, occupancies in [0, 1], distances and U values within the limits.";
   return {
     ...base, tone: "green", value: `Nothing unphysical${noteText}`,
-    sentence: notes > 0
-      ? "Nothing the fit made unphysical."
-      : `B values positive, occupancies in [0, 1], distances and U values within the limits${current ? ", nothing at a bound" : "; bounds are read after a refinement"}.`,
+    sentence: notes > 0 ? "" : current ? "Nothing at a bound either" : "Bounds are read after a refinement",
+    detail: current ? `${checked} Nothing at a bound.` : checked,
   };
 }
 
@@ -257,29 +273,28 @@ interface CrossCheckInput {
 function crossCheck(input: CrossCheckInput): AcceptanceCheck {
   const { state, band, durbinWatson: dw } = input;
   const esd: EsdNote[] = [];
-  if (!state.current) {
-    const text = state.kind === "snapshot" ? "No esds yet: the opened fit carries none."
-      : state.kind === "edited" ? "The esds on screen are the last refinement's, not these values': refine again."
-        : state.kind === "diverged" ? "The last refinement's esds mean nothing."
-          : "No esds yet: refine to get them.";
-    esd.push({ text, posterior: false });
-  } else {
+  // Without a result that describes the values, the state line already says
+  // there are no esds to read (or that they are stale): nothing to repeat here.
+  if (state.current) {
     // Serially correlated residuals, or a model that leaves systematic misfit: the esds understate the uncertainty (the method's stopping rule).
+    const correlated = dw?.correlated ? dw : undefined;
+    const misfit = band === "fair" || band === "poor";
     const why = [
-      dw?.correlated ? `neighbouring points miss together (Durbin–Watson ${fmt(dw.d)}, below ${fmt(dw.qd)})` : null,
-      band === "fair" || band === "poor" ? `the model leaves systematic misfit (GoF ${fmt(input.gof)})` : null,
+      correlated ? `neighbouring points miss together (Durbin–Watson ${fmt(correlated.d)}, below ${fmt(correlated.qd)})` : null,
+      misfit ? `the model leaves systematic misfit (GoF ${fmt(input.gof)})` : null,
     ].filter((w): w is string => w !== null);
-    if (why.length > 0) esd.push({ text: `The esds are likely too small: ${why.join(", and ")}.`, posterior: false });
+    const short = [correlated ? `DW ${fmt(correlated.d)} < Q_D ${fmt(correlated.qd)}` : null, misfit ? `GoF ${fmt(input.gof)}` : null].filter((w): w is string => w !== null);
+    if (why.length > 0) esd.push({ text: `Esds likely too small: ${short.join(", ")}`, detail: `The esds are likely too small: ${why.join(", and ")}.`, posterior: false });
     const findings = input.assessment?.findings ?? [];
     const bound = findings.filter((f) => f.category === "at-bound" && (f.severity === "critical" || f.severity === "warning")).flatMap((f) => f.parameterIds ?? []);
-    if (bound.length > 0) esd.push({ text: `A value on its bound has no meaningful esd: ${labels(bound, input.parameters)}. Sample the posterior before quoting it.`, posterior: true });
+    if (bound.length > 0) esd.push({ text: `${labels(bound, input.parameters)} on a bound, no meaningful esd — sample the posterior`, detail: "A value on its bound has no meaningful esd. Sample the posterior before quoting it.", posterior: true });
     // The pairs the Agent's guard would not refine together (the assessment's warnings), not the expected ones (one curve's terms, a restraint's pair).
     for (const f of findings.filter((x) => x.category === "correlation" && x.severity === "warning").slice(0, 2)) {
-      esd.push({ text: `${f.summary.replace(/\.$/, "")}: their esds are inflated. Fix one, or sample the posterior.`, posterior: true });
+      esd.push({ text: `${f.summary.replace(/\.$/, "")}: fix one or sample the posterior`, detail: "Their esds are inflated.", posterior: true });
     }
     const conditioning = findings.find((f) => f.category === "conditioning");
     if (conditioning) {
-      esd.push({ text: `The data cannot separate ${labels(conditioning.parameterIds ?? [], input.parameters) || "some parameters"}: fix or tie one; their esds mean nothing.`, posterior: false });
+      esd.push({ text: `Data cannot separate ${labels(conditioning.parameterIds ?? [], input.parameters) || "some parameters"}: fix or tie one`, detail: "Their esds mean nothing.", posterior: false });
     }
     // Pairs from 0.8 up to the refusal limit: refined, and reported, never silent (the user's rule).
     const moderate = findings.find((f) => f.category === "correlation" && f.severity === "note" && f.evidence?.pairs !== undefined);
@@ -292,7 +307,8 @@ function crossCheck(input: CrossCheckInput): AcceptanceCheck {
     label: "Cross-check",
     tone: input.passes ? "amber" : "grey",
     value: input.passes ? "To do" : "Not yet",
-    sentence: input.passes
+    sentence: input.passes ? "In GSAS-II and FullProf: each value within 2 combined esds" : "In GSAS-II and FullProf, once the bar is met",
+    detail: input.passes
       ? "The step left: refine the same model in GSAS-II and FullProf; done when both give each value within 2 combined esds."
       : "Once the fit meets the bar: refine the same model in GSAS-II and FullProf, and compare the values and esds.",
     ...(esd.length > 0 ? { esd } : {}),
@@ -326,8 +342,10 @@ export interface AcceptanceInput {
 
 export interface Acceptance {
   readonly tone: Tone;
-  /** One line: where the fit stands against the bar. */
+  /** One short line: where the fit stands against the bar. */
   readonly headline: string;
+  /** The longer account, for a tooltip. */
+  readonly headlineDetail?: string;
   readonly state: FitState;
   readonly band: GofBand | null;
   /** The bar's first two checks pass on a converged fit: the cross-check is the step left. */
@@ -343,30 +361,33 @@ export function powderAcceptance(input: AcceptanceInput): Acceptance {
   const physical = physicalCheck(items, state.current);
   const passes = state.kind === "converged" && (band === "excellent" || band === "good") && physical.tone === "green";
   const cross = crossCheck({ passes, state, gof: input.gof, band, durbinWatson: input.durbinWatson, assessment: input.assessment, parameters: input.parameters, canExport: input.canExport ?? false });
-  const g = `GoF ${fmt(input.gof)}`;
+  // The GoF itself is the card header's and the first check's: the headline names the band and where the misfit is.
   const top = input.topCause;
-  const cause = !top ? ""
-    : top.first ? ` — start with ${top.phrase}, your method's first block`
-      : ` — ${top.share >= 0.5 ? "most of the misfit is in" : "the largest part of the misfit is in"} ${top.phrase}`;
+  const cause = !top ? null
+    : top.first
+      ? { text: `fix ${top.phrase} first`, detail: `${cap(top.phrase)}: your method's first block (cell, zero, background) comes before the rest, whatever its share of χ².` }
+      : { text: `${top.share >= 0.5 ? "misfit mostly in" : "largest misfit in"} ${top.phrase}`, detail: `${top.share >= 0.5 ? "Most of the misfit is in" : "The largest part of the misfit is in"} ${top.phrase} (about ${Math.round(100 * top.share)}% of χ²).` };
   const blockers = items.filter((i) => i.severity === "blocker").length;
   const issues = items.filter((i) => i.severity === "issue").length;
-  const verdict = ((): { tone: Tone; headline: string } => {
-    if (state.kind === "diverged") return { tone: "red", headline: "The refinement diverged: its values are not meaningful." };
+  const verdict = ((): { tone: Tone; headline: string; headlineDetail?: string } => {
+    if (state.kind === "diverged") return { tone: "red", headline: "Refinement diverged: values not meaningful" };
     if (blockers > 0) {
-      return { tone: "red", headline: state.kind === "none" ? `${plural(blockers, "physical problem")} to fix before refining.` : `Not acceptable: ${plural(blockers, "physical problem")} to fix first.` };
+      return { tone: "red", headline: state.kind === "none" ? `Fix ${plural(blockers, "physical problem")} before refining` : `Not acceptable: fix ${plural(blockers, "physical problem")} first` };
     }
-    if (state.kind === "none") return { tone: "grey", headline: "Not refined yet." };
+    if (state.kind === "none") return { tone: "grey", headline: "Not refined yet" };
     switch (band) {
-      case null: return { tone: "grey", headline: "No fitted points to judge." };
-      case "poor": return { tone: "red", headline: `Poor fit (${g}): far from the data${cause}.` };
-      case "fair": return { tone: "amber", headline: `Fair fit (${g}): not yet acceptable${cause}.` };
-      case "too-good": return { tone: "amber", headline: `${g} is below ${GOF_BANDS.tooGood}: the fit is too good, and the esds optimistic.` };
+      case null: return { tone: "grey", headline: "No fitted points to judge" };
+      case "poor": return cause ? { tone: "red", headline: `Poor fit: ${cause.text}`, headlineDetail: `Far from the data. ${cause.detail}` } : { tone: "red", headline: "Poor fit: far from the data" };
+      case "fair": return cause ? { tone: "amber", headline: `Fair fit: ${cause.text}`, headlineDetail: `Not yet acceptable. ${cause.detail}` } : { tone: "amber", headline: "Fair fit: not yet acceptable" };
+      case "too-good": return { tone: "amber", headline: `Fit too good (GoF < ${GOF_BANDS.tooGood}): esds optimistic` };
       default: break;
     }
     const word = band === "excellent" ? "Excellent" : "Good";
-    if (issues > 0) return { tone: "amber", headline: `${word} fit (${g}), with ${plural(issues, "value")} to check.` };
-    if (passes) return { tone: "green", headline: `${word} fit (${g}) and physically sane: cross-check it in GSAS-II and FullProf.` };
-    return { tone: "grey", headline: `${word} fit (${g}): ${state.kind === "snapshot" ? "refine once to confirm it and get its esds" : "refine until it settles before you quote it"}.` };
+    if (issues > 0) return { tone: "amber", headline: `${word} fit, ${plural(issues, "value")} to check` };
+    if (passes) return { tone: "green", headline: `${word} fit, physically sane: cross-check it` };
+    return state.kind === "snapshot"
+      ? { tone: "grey", headline: `${word} fit — refine once to confirm`, headlineDetail: "Refine once to confirm it and get its esds." }
+      : { tone: "grey", headline: `${word} fit — refine until settled before quoting` };
   })();
   return { ...verdict, state, band, passes, checks: [gof, physical, cross] };
 }
