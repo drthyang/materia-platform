@@ -205,7 +205,8 @@ function momentRange(structure: StructureModel, magnetic: MagneticModel): string
 
 /**
  * The magnetic section and its one-sentence summary. Priority: the model
- * applied to the refinement (with its provenance: refined jointly, or only
+ * applied to the refinement (with its provenance: refined jointly, the moments
+ * alone against a fixed atomic structure, or only
  * carried over), else the candidate under exploration on the magnetic page.
  */
 export function magneticReportSection(o: {
@@ -224,13 +225,19 @@ export function magneticReportSection(o: {
     const sameAsExplored = !!explored && magneticOperationSignature(explored.magnetic.operations ?? []) === magneticOperationSignature(applied.operations ?? []);
     const group = sameAsExplored ? explored.group : groupOfOperations(structure, applied);
     const k = applied.propagation[0] ?? explored?.k ?? [0, 0, 0];
-    const jointly = !!o.result && momentParams.some((p) => o.result!.esd[p.id] !== undefined);
+    // The last fit refined the moments when they have esds from it; jointly when it refined anything else too.
+    const refined = !!o.result && momentParams.some((p) => o.result!.esd[p.id] !== undefined);
+    const momentIds = new Set(momentParams.map((p) => p.id));
+    const jointly = refined && Object.keys(o.result!.esd).some((id) => !momentIds.has(id));
     const range = momentRange(structure, applied);
     const status = jointly
       ? `Refined jointly with the atomic structure against ${o.against}; the moment esds come from that fit.`
-      : `Included in the model and in the calculated pattern, but not refined together with the atomic structure in this session — the moments are as loaded or as set on the magnetic page` +
-        (sameAsExplored && explored.agreement !== null ? ` (moments-only fit there: ${explored.agreementLabel} = ${pct(explored.agreement, 1)}).` : ".");
-    const summary = `Magnetic structure: k = ${kLabel(k as Vec3)}, ${group.symbol}${group.numbers ? ` (${group.numbers})` : ""}${range ? `, |m| = ${range}` : ""}, ${jointly ? "refined jointly with the atomic structure" : "included in the model (not refined jointly in this session)"}.`;
+      : refined
+        ? `Refined against ${o.against} with the atomic structure held fixed: only the moments were free; their esds come from that fit.`
+        : `Included in the model and in the calculated pattern, but not refined together with the atomic structure in this session — the moments are as loaded or as set on the magnetic page` +
+          (sameAsExplored && explored.agreement !== null ? ` (moments-only fit there: ${explored.agreementLabel} = ${pct(explored.agreement, 1)}).` : ".");
+    const provenance = jointly ? "refined jointly with the atomic structure" : refined ? "the moments refined with the atomic structure held fixed" : "included in the model (not refined jointly in this session)";
+    const summary = `Magnetic structure: k = ${kLabel(k as Vec3)}, ${group.symbol}${group.numbers ? ` (${group.numbers})` : ""}${range ? `, |m| = ${range}` : ""}, ${provenance}.`;
     return { section: { magnetic: applied, k: k as Vec3, group, params: momentParams, status, structure }, summary };
   }
   if (explored) {

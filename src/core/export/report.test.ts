@@ -456,13 +456,20 @@ describe("magnetic report section (reportInputs)", () => {
   it("prefers the applied model, reports joint refinement from the esds, else the explored candidate", () => {
     const { structure, k, params, magnetic } = cmcm();
     const withEsd = params.map((p) => ({ ...p, esd: 0.05 }));
-    const result = { esd: Object.fromEntries(params.map((p) => [p.id, 0.05])) } as unknown as RefinementResult;
+    const result = { esd: { ...Object.fromEntries(params.map((p) => [p.id, 0.05])), scale: 0.01 } } as unknown as RefinementResult;
     const joint = magneticReportSection({ structure, applied: magnetic, params: withEsd, result, explored: null, against: "the powder pattern" });
     expect(joint.section?.status).toMatch(/^Refined jointly/);
     expect(joint.section?.group.numbers).toContain("BNS 63.");
     expect(joint.section?.group.index).toBe(6);
     expect(joint.summary).toContain("refined jointly");
     expect(joint.summary).toContain("|m| = 2.50 µB");
+
+    // Only the moments refined (the atomic structure held): not "jointly".
+    const momentsOnly = { esd: Object.fromEntries(params.map((p) => [p.id, 0.05])) } as unknown as RefinementResult;
+    const alone = magneticReportSection({ structure, applied: magnetic, params: withEsd, result: momentsOnly, explored: null, against: "the powder pattern" });
+    expect(alone.section?.status).toMatch(/^Refined against the powder pattern with the atomic structure held fixed/);
+    expect(alone.summary).toContain("the moments refined with the atomic structure held fixed");
+    expect(alone.summary).not.toContain("jointly");
 
     const carried = magneticReportSection({ structure, applied: magnetic, params, result: null, explored: null, against: "the powder pattern" });
     expect(carried.section?.status).toMatch(/^Included in the model/);
