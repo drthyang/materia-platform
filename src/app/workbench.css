@@ -1654,8 +1654,7 @@ html {
  * is contained so its length does not stretch the row (and the plot with it). */
 @media (pointer: coarse) and (max-height: 1000px) and (min-height: 540.02px) and (orientation: landscape) {
   @container shell (min-width: 821px) {
-    .wb-work2,
-    .wb-work3 {
+    .wb-work2 {
       flex: 0 0 auto;
       min-height: max(var(--wb-plot-min-h), calc(100dvh - 2 * var(--wb-pad)));
     }
