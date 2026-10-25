@@ -85,7 +85,7 @@ describe("the powder Validation view", () => {
     expect(t).toContain("Physical sanity Nothing unphysical · 1 note note Mn3Ga: Ga1 occ held at 1.005 → set to 1");
     expect(t).not.toContain("Nothing the fit made unphysical");
     // The cross-check in one line; the state line alone says there are no esds yet.
-    expect(t).toContain("Cross-check Not yet In GSAS-II and FullProf, once the bar is met");
+    expect(t).toContain("Cross-check Not yet In GSAS-II / FullProf, once the bar is met");
     expect(t.match(/esds/g)).toHaveLength(1);
     expect(t).toContain("GSAS-II bundle");
     expect(t).not.toContain(">Posterior<");

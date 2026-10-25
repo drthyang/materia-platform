@@ -80,13 +80,13 @@ describe("physical sanity, scaled", () => {
     const items = physicalItems({ result: null, parameters: occ(1.005, true), structures: [] });
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({ severity: "note", parameterIds: ["occ_Ga1"] });
-    expect(items[0]!.text).toBe("Mn3Ga: Ga1 occ held at 1.005 → set to 1");
+    expect(items[0]!.text).toBe("Mn3Ga: Ga1 occ held at 1.005 →\u00a0set\u00a0to\u00a01");
     // The why rides along for the tooltip, with the assessment's own account.
     expect(items[0]!.detail).toMatch(/^0\.5% over 1: an input the fit never moved\. This value was not refined; it comes from the starting structure or CIF\./);
     const a = powderAcceptance({ gof: 1.2, result: null, parameters: occ(1.005, true), structures: [] });
     // The value says nothing is unphysical: no line repeats it.
     expect(a.checks[1]).toMatchObject({ id: "physical", tone: "green", value: "Nothing unphysical · 1 note", sentence: "" });
-    expect(physicalItems({ result: null, parameters: occ(-0.004, true), structures: [] })[0]!.text).toBe("Mn3Ga: Ga1 occ held at -0.004 → set to 0");
+    expect(physicalItems({ result: null, parameters: occ(-0.004, true), structures: [] })[0]!.text).toBe("Mn3Ga: Ga1 occ held at -0.004 →\u00a0set\u00a0to\u00a00");
   });
 
   it("a held occupancy well outside [0, 1], or a refined one outside it, is to check (the assessment's warning)", () => {
@@ -130,7 +130,7 @@ describe("the cross-check and the esds", () => {
     expect(a.tone).toBe("green");
     expect(a.headline).toBe("Excellent fit, physically sane: cross-check it");
     expect(a.checks[2]).toMatchObject({ id: "cross-check", tone: "amber", value: "To do", actions: ["export-gsas2", "export-fullprof"] });
-    expect(a.checks[2]).toMatchObject({ sentence: "In GSAS-II and FullProf: each value within 2 combined esds", detail: "The step left: refine the same model in GSAS-II and FullProf; done when both give each value within 2 combined esds." });
+    expect(a.checks[2]).toMatchObject({ sentence: "In GSAS-II / FullProf: each value within 2 combined esds", detail: "The step left: refine the same model in GSAS-II and FullProf; done when both give each value within 2 combined esds." });
     expect(a.checks[1]).toMatchObject({ tone: "green", sentence: "Nothing at a bound either" });
   });
 
@@ -143,7 +143,7 @@ describe("the cross-check and the esds", () => {
     expect(a.headline).toBe("Fair fit: misfit mostly in the peak tails");
     expect(a.headlineDetail).toBe("Not yet acceptable. Most of the misfit is in the peak tails (about 85% of χ²).");
     expect(a.checks[0]).toMatchObject({ tone: "amber", value: "GoF 3.05 · fair", sentence: "Above your bar (good ≤ 2.5)", detail: "The model misses systematic features." });
-    expect(a.checks[2]).toMatchObject({ tone: "grey", value: "Not yet", sentence: "In GSAS-II and FullProf, once the bar is met" });
+    expect(a.checks[2]).toMatchObject({ tone: "grey", value: "Not yet", sentence: "In GSAS-II / FullProf, once the bar is met" });
     expect(a.checks[2]!.detail).toBe("Once the fit meets the bar: refine the same model in GSAS-II and FullProf, and compare the values and esds.");
     expect(a.checks[2]!.esd).toEqual([{
       text: "Esds likely too small: DW 0.61 < Q_D 1.89, GoF 3.05",

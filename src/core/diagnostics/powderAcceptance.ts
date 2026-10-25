@@ -143,7 +143,8 @@ function heldOccupancyNote(f: AssessmentFinding, byId: ReadonlyMap<string, Refin
   const edge = p.value > 1 ? 1 : 0;
   const by = 100 * off;
   return {
-    text: `${p.label} held at ${p.value.toFixed(4).replace(/0+$/, "").replace(/\.$/, "")} → set to ${edge}`,
+    // The action kept on one line: "→ set to 1" never breaks.
+    text: `${p.label} held at ${p.value.toFixed(4).replace(/0+$/, "").replace(/\.$/, "")} →\u00a0set\u00a0to\u00a0${edge}`,
     detail: `${by < 0.1 ? by.toFixed(2) : by.toFixed(1)}% ${edge === 1 ? "over 1" : "below 0"}: an input the fit never moved.${f.detail ? ` ${f.detail}` : ""}`,
   };
 }
@@ -307,7 +308,7 @@ function crossCheck(input: CrossCheckInput): AcceptanceCheck {
     label: "Cross-check",
     tone: input.passes ? "amber" : "grey",
     value: input.passes ? "To do" : "Not yet",
-    sentence: input.passes ? "In GSAS-II and FullProf: each value within 2 combined esds" : "In GSAS-II and FullProf, once the bar is met",
+    sentence: input.passes ? "In GSAS-II / FullProf: each value within 2 combined esds" : "In GSAS-II / FullProf, once the bar is met",
     detail: input.passes
       ? "The step left: refine the same model in GSAS-II and FullProf; done when both give each value within 2 combined esds."
       : "Once the fit meets the bar: refine the same model in GSAS-II and FullProf, and compare the values and esds.",

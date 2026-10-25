@@ -548,7 +548,7 @@ release fixes bugs.
   half the words on the demo (as it opens, after Refine, and with its cell
   off by 0.3 %). Each line leads with what to do: "Fair fit: misfit mostly in
   the peak tails", "Above your bar (good ≤ 2.5)", "Mn3Ga: Ga1 occ held at
-  1.005 → set to 1", "In GSAS-II and FullProf, once the bar is met", "Model's
+  1.005 → set to 1", "In GSAS-II / FullProf, once the bar is met", "Model's
   tails too short → Refine TOF σ and β (keep α), after the atom positions".
   Where refining is the next step, the state line says why and **Refine**
   follows it. The full sentences, the statistic, the method's reasons and
