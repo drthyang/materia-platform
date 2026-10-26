@@ -1149,6 +1149,11 @@ html {
     display: inline-flex;
     align-items: center;
   }
+  /* The residual-peak table's sort headers: a finger wide as well as tall
+     (the button already fills its cell). */
+  .wb-peak-sort {
+    min-width: 44px;
+  }
 }
 
 /* ---- Large, dense screens: scale the whole UI ------------------------------

@@ -605,6 +605,19 @@ release fixes bugs.
   is settled. `weightsLast` now counts the twin and the hand among the model's
   changes, and reads the last weighting scheme set, not the first.
 
+- **The residual-peak table sorts.** On the Magnetic page's step 2, a click on
+  a column header (#, d, I/σ, Δd→k, near, or use) orders the table by it, and
+  a second click reverses it. The header carries `aria-sort`, a direction
+  glyph and a button the keyboard presses (44 px on a touch screen); a note
+  beside the table names an order that is not the default and one click
+  returns to it. The table opens in the order it always had, # ascending (d
+  from large to small, as the ticks on the pattern are numbered). Ties, and
+  rows with no value, keep # order whichever way a column runs. Sorting only
+  reorders: a collapsed table still shows the peaks the k-search reads, those
+  added by hand, the highlighted one, and then the strongest, in whatever
+  order is set, so sorting by d never swaps a real peak for noise. The order
+  lasts for the session, until a new structure is loaded.
+
 ### Changed
 
 - **Save and Load are header buttons of their own, not folded into "Project ▾".**
@@ -896,6 +909,15 @@ release fixes bugs.
   on 2b's refined model 0.0437 0.452. It is labelled the weights SHELXL's
   criterion suggests, not SHELXL's own, and its bins are given as the
   analysis of variance gives them.
+
+- **A click on a residual peak's row highlights it and no longer zooms.** On
+  the Magnetic page the peak is marked on the pattern (a translucent band, the
+  arrow, the guide line and a bold tick, at its place in TOF, d or Q), the row
+  is highlighted, and the view stays where it was. A peak out of view moves
+  the window just far enough to show it, a tenth of the window inside the edge
+  it crossed, with the zoom width unchanged. A second click on the row clears
+  the highlight; a click on another row moves it. Space now works on a row as
+  Enter does, and a key pressed on a row's check box or × stays that control's.
 
 ### Fixed
 

@@ -274,6 +274,13 @@ In **Magnetic ions**, click a site to include or exclude it. In
    on the pattern. A long table shows its six strongest peaks and every peak
    in the search; **Show all … peaks** lists the rest. **near** gives the
    nuclear reflection a peak sits on, with its phase when there are several.
+   Click a column header to sort by it (**#**, **d**, **I/σ**, **Δd→k**,
+   **near**, **use**); a second click reverses it. The table opens in # order,
+   which is d from large to small, and **default order** returns to it.
+   Sorting only reorders: a long table shows the same peaks in any order.
+   Click a row to mark that peak on the pattern, in the plot's own unit: the
+   view keeps its zoom, and moves only to bring a peak that is out of view in.
+   Click the row again to clear the mark.
 2. Choose the peaks for the search with **I/σ ≥**,
    **include peaks at nuclear positions** and each peak's **use** box. To add a
    missed peak, click **+ Add peak from plot**, then the pattern.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  clampView, decimalsForStep, decimateByColumn, formatReadoutValue, isFullView, localStep, minimumSpan, nearestIndex, panBy,
+  clampView, decimalsForStep, decimateByColumn, formatReadoutValue, isFullView, localStep, minimumSpan, nearestIndex, panBy, revealX,
   splitAxisLabel, ticksNear, visibleIndexRange, wheelZoomFactor, zoomAt,
 } from "@/visualization/plotView";
 import type { PhaseTicks } from "@/visualization/reflectionTicks";
@@ -48,6 +48,41 @@ describe("the x window", () => {
     expect(wheelZoomFactor(-100)).toBeCloseTo(1 / wheelZoomFactor(100), 12);
     expect(wheelZoomFactor(0.1, 1)).toBeCloseTo(wheelZoomFactor(1.6), 12);
     expect(wheelZoomFactor(0)).toBe(1);
+  });
+
+  it("reveals an x that is out of view by the least pan, the width unchanged", () => {
+    const v = { min: 40, max: 60 };
+    // Inside the window (edges included): nothing moves.
+    expect(revealX(v, 50, D)).toBeNull();
+    expect(revealX(v, 40, D)).toBeNull();
+    expect(revealX(v, 60, D)).toBeNull();
+    // Past the right edge: it lands a tenth of the span (2) inside that edge.
+    expect(revealX(v, 75, D)).toEqual({ min: 57, max: 77 });
+    // Past the left edge: a tenth inside the left edge.
+    const left = revealX(v, 10, D)!;
+    expect(left.min).toBeCloseTo(8, 12);
+    expect(left.max).toBeCloseTo(28, 12);
+    // A custom margin.
+    expect(revealX(v, 75, D, 0)).toEqual({ min: 55, max: 75 });
+    expect(revealX(v, 75, D, 0.25)).toEqual({ min: 60, max: 80 });
+  });
+
+  it("holds a revealed window inside the data and keeps its width there too", () => {
+    const v = { min: 40, max: 60 };
+    // Near the data's end the window stops at the end, with the point nearer the edge than the margin.
+    expect(revealX(v, 99, D)).toEqual({ min: 80, max: 100 });
+    const lo = revealX({ min: 10, max: 30 }, 0.5, D)!;
+    expect(lo.min).toBe(0);
+    expect(lo.max).toBe(20);
+    for (const x of [-5, 3, 77, 100, 140]) {
+      const r = revealX(v, x, D);
+      if (r) expect(r.max - r.min).toBeCloseTo(20, 12);
+    }
+  });
+
+  it("does not move for a point it cannot place", () => {
+    expect(revealX({ min: 40, max: 60 }, Number.NaN, D)).toBeNull();
+    expect(revealX({ min: 40, max: 40 }, 70, D)).toBeNull();
   });
 
   it("keeps a few data steps as the narrowest window", () => {
