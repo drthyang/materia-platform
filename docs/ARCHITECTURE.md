@@ -225,7 +225,10 @@ hand-rolled `postMessage` calls.
   [LIMITATIONS.md](./LIMITATIONS.md#input-and-output) lists the supported
   formats.
 - **Exporters** (`src/core/export`): CIF and mCIF, the HTML refinement report,
-  and the FullProf + GSAS-II cross-check bundle.
+  the FullProf + GSAS-II cross-check bundles, and the PDFgui / diffpy-CMI
+  bundle of a PDF fit (`pdffit2.ts` maps the model onto PDFfit2, `pdfBundle.ts`
+  writes the files). `crossCheck.ts` names each technique's cross-check
+  programs, for the report and the page banner.
 - **Project I/O** (`src/core/project`): `ProjectFile ↔ JSON`, with a readable
   serializer, a `schemaVersion` gate with migrations, and structural validation
   by technique. The app layer (`src/app/projectIo.ts`) maps each engine's live
