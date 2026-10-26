@@ -27,16 +27,19 @@ import {
 import { buildMpdfSpec, mpdfComponents, unsupportedMpdfModel } from "@/core/workflow/mpdf";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import type { MagneticModel } from "@/core/magnetic/types";
-import { buildDistortionModes, buildSymmetryModes, positionShiftValuesFor, withDistortionModes, type DistortionModeSet } from "@/core/crystal/distortionModes";
+import { buildDistortionModes, buildSymmetryModes, isodistortAmplitudes, positionShiftValuesFor, withDistortionModes, type DistortionModeSet } from "@/core/crystal/distortionModes";
 import { decomposeDisplacementRepresentation, type DisplaciveIrrepTerm } from "@/core/crystal/displaciveModes";
 import { activateDisplacementMode, fieldSeedAxes, realizeSubgroup, type SubgroupIdentity } from "@/core/crystal/isotropyTree";
 import { isotropyField, subgroupOrderParameter } from "@/core/crystal/isotropySubgroups";
+import { activateIsotropySubgroup, decentringTerms, lowerToSubgroup } from "@/core/crystal/decentringModes";
+import type { IndexSplit } from "@/core/crystal/irreps/isotropy";
+import { latticeCentring } from "@/core/crystal/standardSetting";
 import type { SubgroupNode } from "@/core/crystal/subgroupTree";
 import { applyParameters } from "@/core/workflow/apply";
 import { boxcarPlanIssue, boxcarStepIndex, boxcarTable, boxcarWindows, type BoxcarDirection, type BoxcarPlan, type BoxcarRun, type BoxcarSeries } from "@/core/workflow/pdfBoxcar";
 import type { SequentialResult, SequentialStep } from "@/core/refinement/sequential";
 import type { SampleOptions, SampleResult } from "@/core/refinement/bayes/sampler";
-import type { ReportInput } from "@/core/export/report";
+import type { ReportInput, ReportModes } from "@/core/export/report";
 import { groupOfOperations, pdfReportInput, withEsds, type MagneticExploration } from "@/app/reportInputs";
 import { pdfguiBundle } from "@/core/export/pdfBundle";
 import { APP_VERSION } from "@/app/constants";
@@ -711,6 +714,19 @@ export function withActivatedMode(m: PdfPageModel, term: DisplaciveIrrepTerm, su
   const refined = applyParameters(v.fitStructure, v.bindings, valuesOf(m.params)).model;
   // The field again on the refined anchor (the atoms moved with the fit): the irrep by its label, then its field the subgroup fixes.
   const termNow = decomposeDisplacementRepresentation(refined).terms.find((t) => t.irrep.label === term.irrep.label && !t.trivial);
+  if (!termNow) {
+    // A decentring irrep (X, H, …): its isotropy subgroup realized in the parent's cell, the child's modes per parent irrep.
+    const x = decentringTerms(refined).find((t) => t.term.irrep.label === term.irrep.label);
+    const act = x ? activateIsotropySubgroup(refined, x.term, sub.operations, label, x.star.label) : null;
+    if (!act) return { model: m, label, message: `activation failed: ${label} not found on the refined structure (did the fit lower the effective symmetry?)` };
+    const set = kicked(act.modeSet);
+    if (!set) return { model: m, label, message: `activation of ${label} produced no refinable mode — nothing to do` };
+    return {
+      model: withSpecChange(m, { modes: { set, parentName: label, fromActivation: true }, positionMode: "irreps" }, { kick: true }),
+      label,
+      message: `activated ${label}${act.identity.number !== undefined ? ` (#${act.identity.number})` : ""} in the parent's cell: ${act.child.sites.length} child site(s) · ${set.modes.length} modes by parent irrep · the order parameter free from ${ACTIVATION_KICK} Å`,
+    };
+  }
   const fieldNow = termNow ? isotropyField(refined, termNow, sub.operations) : null;
   if (!fieldNow) return { model: m, label, message: `activation failed: ${label} not found on the refined structure (did the fit lower the effective symmetry?)` };
   const act = activateDisplacementMode(refined, fieldNow, label);
@@ -721,6 +737,63 @@ export function withActivatedMode(m: PdfPageModel, term: DisplaciveIrrepTerm, su
     model: withSpecChange(m, { modes: { set, parentName: label, fromActivation: true }, positionMode: "irreps" }, { kick: true }),
     label,
     message: `activated ${label}${sub.identity.number !== undefined ? ` (#${sub.identity.number})` : ""}: ${act.child.sites.length} child site(s) · starting amplitude ${ACTIVATION_KICK} Å`,
+  };
+}
+
+/** A subgroup of the same-cell lattice that is not a t-subgroup: a decentring k-subgroup or a general one. */
+export interface SameCellChoice {
+  readonly operations: readonly SymmetryOperation[];
+  readonly identity: SubgroupIdentity;
+  readonly index: IndexSplit;
+}
+
+/**
+ * A k- or general subgroup picked from the same-cell lattice: the child
+ * realized in the parent's conventional cell from the current refined
+ * geometry (orbits split), its modes per parent irrep, and the order parameter
+ * that lowers the parent to it — from the Γ and decentring irreps, the fewest
+ * that reach it — leading, free from the ACTIVATION_KICK; the other modes
+ * start at 0, fixed. As withSubgroup does for a t-subgroup.
+ */
+export function withSameCellSubgroup(m: PdfPageModel, node: SameCellChoice): { readonly model: PdfPageModel; readonly label: string; readonly message: string } {
+  const name = node.identity.hermannMauguin ?? node.identity.pointGroup ?? "subgroup";
+  const label = node.identity.number !== undefined ? `${name} #${node.identity.number}` : `${name} (index ${node.index.t * node.index.k})`;
+  const v = pageView(m);
+  const refined = applyParameters(v.fitStructure, v.bindings, valuesOf(m.params)).model;
+  let lowered: ReturnType<typeof lowerToSubgroup>;
+  try {
+    lowered = lowerToSubgroup(refined, node.operations, node.identity, name);
+  } catch (e) {
+    return { model: m, label, message: `${label}: ${e instanceof Error ? e.message : String(e)}` };
+  }
+  const built = lowered.modeSet;
+  if (built.modes.length === 0) return { model: m, label, message: `${label}: this subgroup leaves every site symmetry-pinned — no refinable distortion modes` };
+  const set = lowered.order ? kicked(built) : null;
+  const sites = `${lowered.child.sites.length} child site(s) · ${built.modes.length} modes by parent irrep`;
+  return {
+    model: withSpecChange(m, { modes: { set: set ?? built, parentName: label, fromActivation: true }, positionMode: "irreps" }, { kick: true }),
+    label,
+    message: set && lowered.order
+      ? `lowered to ${label} in the parent's cell: ${sites} · the order parameter (${lowered.order.irreps.join(" + ")}) free from ${ACTIVATION_KICK} Å${lowered.order.reachesTarget ? "" : " (the displacements allowed keep a higher symmetry)"} — free the other rows to refine them (Positions group)`
+      : `lowered to ${label} in the parent's cell: ${sites} — no displacement breaks the parent's symmetry here, so the modes start at 0`,
+  };
+}
+
+/** The mode amplitudes for the report: MATERIA's A and ISODISTORT's A_s and A_p. */
+function reportModesOf(m: PdfPageModel, v: ReturnType<typeof pageView>): ReportModes | null {
+  const set = v.modeSet;
+  if (!set || m.positionMode !== "irreps") return null;
+  const own = latticeCentring(set.parentized.spaceGroup.operations).length;
+  const cells = set.amplitudeCells ?? { child: own, parent: own };
+  return {
+    against: m.modes?.parentName ?? m.loaded.spaceGroup.hermannMauguin ?? "the loaded group",
+    cells,
+    rows: set.modes.map((mode) => {
+      const a = m.params.find((p) => p.id === mode.id)?.value ?? 0;
+      const esd = m.result?.esd[mode.id];
+      const { as, ap } = isodistortAmplitudes(a, cells);
+      return { label: mode.label, a, ...(esd !== undefined ? { esd } : {}), as, ap };
+    }),
   };
 }
 
@@ -1098,6 +1171,7 @@ export function reportInputOf(m: PdfPageModel, extra: { readonly explored?: Magn
     explored: extra.explored ?? null,
     ...(v.motionConflict || v.radiationWarning || siteSumRangeWarnings(m.params).length > 0 ? { warnings: [v.motionConflict, v.radiationWarning, ...siteSumRangeWarnings(m.params)].filter((w): w is string => w !== null) } : {}),
     boxcar: m.boxcarRun ? boxcarTable(m.boxcarRun, v.fitStructure, v.primaryBindings, m.params) : null,
+    modes: reportModesOf(m, v),
     // assess_refinement in real space, as the Agent reads it (pdfTools.ts): only off a result that describes the values.
     ...findingsOf(m, v),
   });

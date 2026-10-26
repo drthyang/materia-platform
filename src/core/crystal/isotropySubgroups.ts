@@ -1,32 +1,20 @@
 /**
- * The isotropy subgroups of a Γ irrep on a structure's displacements — its
+ * The isotropy subgroups of an irrep on a structure's displacements — its
  * kernel and epikernels (Ascher & Kobayashi, J. Phys. C 10 (1977) 1349;
  * Stokes & Hatch, *Isotropy Subgroups of the 230 Crystallographic Space
  * Groups*, 1988; the ISOTROPY / ISODISTORT suite) — each with a displacement
  * field that lowers the structure to exactly it; and the order parameter that
  * lowers it to a t-subgroup picked from the lattice.
  *
- * At Γ every irrep is trivial on the lattice translations, so its isotropy
- * subgroups are t-subgroups: a subgroup H̄ of the point group with all of G's
- * translations, centring included (Bradley & Cracknell 1972, Ch. 3: the
- * ordinary point-group irreps are the small representations at Γ). The order
- * parameter η of an irrep Γ of dimension d lives in Γ's carrier space, and its
- * isotropy subgroup is the stabilizer of η. For each H̄ ≤ Ḡ the subspace of
- * the carrier space H fixes has the dimension
- *
- *     n_H = (1/|H̄|) Σ_{h ∈ H̄} χ_Γ(h),
- *
- * the multiplicity of H's identity irrep in Γ↓H; for a complex-conjugate pair
- * merged into one physically irreducible real representation χ is the pair's
- * real character χ + χ* and n_H counts real dimensions. Fix(K) ⊆ Fix(H) for
- * K ⊇ H, and equal dimensions mean equal spaces, so H̄ is an isotropy subgroup
- * exactly when n_H > 0 and every K̄ ⊋ H̄ has n_K < n_H: a generic vector of
- * Fix(H) is then fixed by H and by nothing larger. The test needs characters
- * only, so it holds for every irrep of all 32 point groups, multidimensional
- * ones included. Conjugate isotropy subgroups are one order-parameter
- * direction in another orientation; n_H = 1 marks a one-parameter direction
- * (Pm-3m's Γ4⁻, the polar vector T1u: P4mm (a,0,0), Amm2 (a,a,0), R3m (a,a,a)),
- * and the kernel, n_H = d, is a generic direction's (P1 there).
+ * The subgroups come from the general engine (irreps/isotropy.ts): the
+ * irrep's physically irreducible representation on the factor group of the
+ * conventional cell, its image group's fixed spaces (the order-parameter
+ * directions) and their stabilizers pulled back to the parent, named in ITA
+ * standard setting. It serves Γ irreps (the cell-preserving distortions, the
+ * t-subgroups) and the decentring irreps of a centred parent (X for F, H for
+ * I, …), whose isotropy subgroups keep the conventional cell and lose some of
+ * its centring translations. A Γ irrep is found among the engine's by its
+ * characters, so the point-group labels of displaciveModes.ts carry over.
  *
  * On the structure, the irrep's isotypic component of the displacement
  * representation is Γ ⊗ ℝ^m (m its multiplicity): its fixed space under H is
@@ -44,11 +32,10 @@ import { applyOperation } from "@/core/crystal/symmetry";
 import { orthogonalizationMatrix } from "@/core/crystal/unitCell";
 import { mulVec } from "@/core/math/mat3";
 import { decomposeDisplacementRepresentation, orbitAtoms, type DisplaciveIrrepTerm } from "@/core/crystal/displaciveModes";
-import { identifySubgroup, projectIsotypicModes, type DisplacementField, type SubgroupIdentity } from "@/core/crystal/isotropyTree";
-import { latticeCentring } from "@/core/crystal/standardSetting";
-import { conjugacyKey, withLatticeCentring } from "@/core/crystal/subgroupTree";
-import { allSubgroups, buildCosetContext } from "@/core/magnetic/subgroupLattice";
-import { rotationKey } from "@/core/magnetic/magneticGroups";
+import { projectIsotypicModes, type DisplacementField, type SubgroupIdentity } from "@/core/crystal/isotropyTree";
+import { factorGroup, type FactorGroup } from "@/core/crystal/irreps/factorGroup";
+import { irrepsInBound, type PhysicalIrrep, type StarIrreps } from "@/core/crystal/irreps/spaceGroupIrreps";
+import { isotropySubgroups, type IndexSplit } from "@/core/crystal/irreps/isotropy";
 
 /** One isotropy subgroup of an irrep (a class of conjugates), with a field that reaches it. */
 export interface IsotropySubgroup {
@@ -66,6 +53,10 @@ export interface IsotropySubgroup {
   readonly domainStates: number;
   /** An optic displacement field with exactly this stabilizer; null when the irrep has no optic copy here. */
   readonly field: DisplacementField | null;
+  /** The order-parameter direction, in the irrep's basis: "(a,0,0)", "(a,a,a)", …. */
+  readonly direction: string;
+  /** [G : H] = t·k, the point-group and the translation factor. */
+  readonly index: IndexSplit;
 }
 
 const wrap = (v: number): number => {
@@ -192,70 +183,64 @@ function genericField(basis: readonly Field[], ops: readonly SymmetryOperation[]
   return best ? asField(action.atoms, best.u) : null;
 }
 
+interface Engine {
+  readonly group: FactorGroup;
+  readonly stars: readonly StarIrreps[];
+}
+
+const engineCache = new WeakMap<readonly SymmetryOperation[], Engine>();
+
+/** The factor group of the conventional cell and every star's irreps, once per operation list. */
+export function irrepEngine(ops: readonly SymmetryOperation[]): Engine {
+  let e = engineCache.get(ops);
+  if (!e) {
+    const group = factorGroup(ops);
+    e = { group, stars: irrepsInBound(group) };
+    engineCache.set(ops, e);
+  }
+  return e;
+}
+
+/** The engine's physically irreducible representation with the term's characters (per operation). */
+function physicalIrrepOf(engine: Engine, term: DisplaciveIrrepTerm): PhysicalIrrep | null {
+  for (const s of engine.stars) {
+    for (const p of s.physical) {
+      if (p.characters.every((c, i) => Math.abs(c - (term.irrep.characters[i]?.re ?? Number.NaN)) < 1e-6)) return p;
+    }
+  }
+  return null;
+}
+
 /**
- * The isotropy subgroups of one Γ irrep of the structure's space group, one
- * per conjugacy class: the epikernels and the kernel, one-parameter
- * directions first, then by index. See the module comment for the method.
+ * The isotropy subgroups of one irrep of the structure's space group (a Γ
+ * irrep, or a decentring one of a centred parent), one per conjugacy class:
+ * the epikernels and the kernel, one-parameter directions first, then by
+ * index. See the module comment for the method.
  */
 export function irrepIsotropySubgroups(structure: StructureModel, term: DisplaciveIrrepTerm): IsotropySubgroup[] {
   const ops = structure.spaceGroup.operations;
   if (ops.length === 0) return [];
-  const ctx = buildCosetContext(ops);
-  const centring = latticeCentring(ops);
-  const N = ctx.cosets.length;
-  // χ per rotation coset (Γ irreps are trivial on translations).
-  const chiByRotation = new Map<string, number>();
-  ops.forEach((op, i) => {
-    const key = rotationKey(op);
-    if (!chiByRotation.has(key)) chiByRotation.set(key, term.irrep.characters[i]?.re ?? 0);
-  });
-  const chi = ctx.cosets.map((c) => chiByRotation.get(rotationKey(c)) ?? 0);
-  const dim = Math.round(chi[0] ?? term.irrep.dim ?? 1);
-
-  const subs = allSubgroups(ctx);
-  const fixedDim = subs.map((S) => {
-    const raw = S.reduce((s, i) => s + chi[i]!, 0) / S.length;
-    const n = Math.round(raw);
-    if (Math.abs(raw - n) > 1e-6) throw new Error(`isotropySubgroups: non-integral fixed dimension ${raw} for ${term.irrep.label}`);
-    return n;
-  });
-  const sets = subs.map((S) => new Set(S));
-  const isotropy = subs
-    .map((S, i) => ({ S, n: fixedDim[i]! }))
-    .filter(({ S, n }) => n > 0 && subs.every((K, k) => !(K.length > S.length && S.every((x) => sets[k]!.has(x))) || fixedDim[k]! < n));
-
-  // One per conjugacy class; the conjugate named in the parent's own cell is preferred.
-  const classes = new Map<string, { S: number[]; n: number }[]>();
-  for (const { S, n } of isotropy) {
-    const key = conjugacyKey(S, ctx);
-    const list = classes.get(key);
-    if (list) list.push({ S, n });
-    else classes.set(key, [{ S, n }]);
-  }
-
+  const engine = irrepEngine(ops);
+  const pir = physicalIrrepOf(engine, term);
+  if (!pir) throw new Error(`isotropySubgroups: ${term.irrep.label} is not an irrep of the parent in the conventional-cell bound`);
+  const analysis = isotropySubgroups(engine.group, pir);
   const action = atomAction(structure, ops);
   const isotypic = projectIsotypicModes(structure, undefined, term, ops);
-  const out: IsotropySubgroup[] = [];
-  for (const members of classes.values()) {
-    const named = members.map((m) => {
-      const operations = withLatticeCentring(m.S.map((i) => ctx.cosets[i]!), centring);
-      const asGiven = identifySubgroup(operations, ops);
-      return { ...m, operations, asGiven: asGiven.method === "direct" };
-    });
-    const rep = named.find((m) => m.asGiven) ?? named[0]!;
-    const subAction = atomAction(structure, rep.operations);
-    const basis = fixedOpticBasis(structure, isotypic, rep.operations, subAction.image);
-    out.push({
-      operations: rep.operations,
-      identity: identifySubgroup(rep.operations, ops, { standard: true }),
-      orderParameterDim: rep.n,
-      kernel: rep.n === dim,
-      conjugates: members.length,
-      domainStates: N / rep.S.length,
-      field: genericField(basis, ops, action, rep.operations.length),
-    });
-  }
-  return out.sort((a, b) => a.orderParameterDim - b.orderParameterDim || a.domainStates - b.domainStates || (a.identity.number ?? 999) - (b.identity.number ?? 999));
+  return analysis.subgroups.map((sub) => {
+    const subAction = atomAction(structure, sub.operations);
+    const basis = fixedOpticBasis(structure, isotypic, sub.operations, subAction.image);
+    return {
+      operations: sub.operations,
+      identity: sub.identity,
+      orderParameterDim: sub.direction.dim,
+      kernel: sub.kernel,
+      conjugates: sub.orientationStates,
+      domainStates: sub.domainStates,
+      field: genericField(basis, ops, action, sub.operations.length),
+      direction: sub.direction.symbol,
+      index: sub.index,
+    };
+  });
 }
 
 /** The order parameter that lowers a structure to a t-subgroup: a field, the irreps it is built from, and its stabilizer's size. */
@@ -277,10 +262,12 @@ export interface SubgroupOrderParameter {
  * lowers the stabilizer most first, until it is the subgroup (a coupled order
  * parameter). Null when no symmetry-breaking displacement is fixed by the
  * subgroup (it differs from the parent in its metric only, as NaCl's I4/mmm).
+ * `terms`: the irreps to draw on (default: the Γ decomposition; a same-cell
+ * k-subgroup needs the decentring ones too, decentringModes.ts).
  */
-export function subgroupOrderParameter(structure: StructureModel, subOps: readonly SymmetryOperation[]): SubgroupOrderParameter | null {
+export function subgroupOrderParameter(structure: StructureModel, subOps: readonly SymmetryOperation[], terms?: readonly DisplaciveIrrepTerm[]): SubgroupOrderParameter | null {
   const ops = structure.spaceGroup.operations;
-  const dec = decomposeDisplacementRepresentation(structure);
+  const dec = terms ? { available: true, terms } : decomposeDisplacementRepresentation(structure);
   if (!dec.available) return null;
   const action = atomAction(structure, ops);
   const subAction = atomAction(structure, subOps);

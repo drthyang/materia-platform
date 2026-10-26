@@ -1,0 +1,34 @@
+# The ISOTROPY oracle (opt-in, ADR 0005): MATERIA's isotropy subgroups at the
+# Phase-1 k-points against the ISOTROPY Suite's (iso.byu.edu). ISOTROPY for
+# Linux states no licence, so it is downloaded here at run time and never
+# committed. Run it from the Actions tab or `gh workflow run isotropy-oracle.yml`.
+name: ISOTROPY oracle
+
+on:
+  workflow_dispatch:
+
+jobs:
+  oracle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Download ISOTROPY for Linux (not committed)
+        run: |
+          mkdir -p "$RUNNER_TEMP/isobyu"
+          curl -fsSL -o "$RUNNER_TEMP/isobyu/iso.zip" https://iso.byu.edu/iso.zip
+          unzip -q -o "$RUNNER_TEMP/isobyu/iso.zip" -d "$RUNNER_TEMP/isobyu"
+          ISO_BIN="$(find "$RUNNER_TEMP/isobyu" -type f -name iso | head -1)"
+          test -n "$ISO_BIN"
+          chmod +x "$ISO_BIN"
+          ls -la "$(dirname "$ISO_BIN")"
+          echo "ISODATA=$(dirname "$ISO_BIN")/" >> "$GITHUB_ENV"
+      - name: Compare isotropy subgroups
+        env:
+          ISOTROPY_ORACLE: "1"
+        run: npx vitest run src/core/crystal/irreps/isotropyOracle.test.ts

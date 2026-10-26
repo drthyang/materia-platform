@@ -39,7 +39,7 @@ import { magneticOperationSignature } from "@/core/magnetic/operationSignature";
 import { latticeCandidateLabel, latticeRepresentatives, magneticSubgroupLattice } from "@/core/magnetic/subgroupLattice";
 import { crystalComponentsToCartesian } from "@/core/magnetic/moment";
 import { kLabel } from "@/core/magnetic/kSearch";
-import type { ReportBond, ReportBoxcar, ReportGroup, ReportIndex, ReportInput, ReportMagnetic, ReportPhase, ReportRow, ReportStat } from "@/core/export/report";
+import type { ReportBond, ReportBoxcar, ReportGroup, ReportIndex, ReportInput, ReportMagnetic, ReportModes, ReportPhase, ReportRow, ReportStat } from "@/core/export/report";
 import { pdfCaveats, pdfResultParagraph, powderCaveats, powderResultParagraph, singleCrystalCaveats, singleCrystalResultParagraph, type ReportAssessment } from "@/core/export/reportResult";
 import { formulaText, spaceGroupText } from "@/core/export/reportTypeset";
 import { parametersChangedSince, type ValidationVerdict } from "@/core/diagnostics/validationChecks";
@@ -866,6 +866,8 @@ export function pdfReportInput(o: {
   readonly warnings?: readonly string[];
   /** The last boxcar scan of this model, as a table (pdfBoxcar.boxcarTable). */
   readonly boxcar?: ReportBoxcar | null;
+  /** The distortion-mode amplitudes, when positions refine as modes. */
+  readonly modes?: ReportModes | null;
   /** assess_refinement's reading of the fit on screen (mode "pdf"), for the Result paragraph and the caveats. */
   readonly findings?: RefinementAssessment | null;
   /** The fit on screen is the last refinement's (its values unedited): its esds and findings apply. */
@@ -957,6 +959,7 @@ export function pdfReportInput(o: {
     phases,
     magnetic: magnetic.section,
     ...(o.boxcar ? { boxcar: o.boxcar } : {}),
+    ...(o.modes ? { modes: o.modes } : {}),
     figure: o.curves.x.length > 0
       ? {
           kind: "pattern",

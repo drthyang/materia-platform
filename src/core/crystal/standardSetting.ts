@@ -329,8 +329,12 @@ function tableWithOrder(n: number): TableEntryKeys[] {
   return list;
 }
 
-/** The ⅛ grid of origin shifts tried (a subgroup of an origin-choice-2 group sits ⅛ off its own origin). */
-const ORIGIN_GRID = 8;
+/**
+ * The grids of origin shifts tried: ⅛ first (a subgroup of an origin-choice-2
+ * group sits ⅛ off its own origin), then 1/24 (a decentred child of an R or
+ * hexagonal parent can sit a third or a sixth off), the ⅛ points skipped.
+ */
+const ORIGIN_GRIDS = [8, 24] as const;
 
 /**
  * The tabulated setting a group's operations match in one of its conventional
@@ -359,6 +363,7 @@ export function standardSettingOf(ops: readonly SymmetryOperation[]): StandardSe
     if (found.reference) return found.reference;
   }
   // Origin shifts: screen each shift on a few operations, then match the whole set.
+  const shiftedCells: { cell: Mat3; candidates: TableEntryKeys[]; probes: SymmetryOperation[] }[] = [];
   for (const cell of cells) {
     const atZero = inCell(ops, cell, zero, centring);
     if (!atZero) continue;
@@ -366,21 +371,29 @@ export function standardSettingOf(ops: readonly SymmetryOperation[]): StandardSe
     const candidates = tableWithOrder(atZero.length).filter((t) => t.rotations === rotations);
     if (candidates.length === 0) continue;
     const probes = ops.filter((op) => !isIdentityMatrix(op.rotation)).slice(0, 3);
-    for (let a = 0; a < ORIGIN_GRID; a++) {
-      for (let b = 0; b < ORIGIN_GRID; b++) {
-        for (let c = 0; c < ORIGIN_GRID; c++) {
-          if (a === 0 && b === 0 && c === 0) continue;
-          const origin: Vec3 = [a / ORIGIN_GRID, b / ORIGIN_GRID, c / ORIGIN_GRID];
-          const probe = inCell(probes, cell, origin, [[0, 0, 0]]);
-          if (!probe) continue;
-          const keys = probe.map((o) => opKey(o.rotation, o.translation));
-          if (!candidates.some((t) => keys.every((k) => t.ops.has(k)))) continue;
-          const transformed = inCell(ops, cell, origin, centring);
-          if (transformed) consider(cell, origin, transformed);
-          if (found.reference) return found.reference;
+    shiftedCells.push({ cell, candidates, probes });
+  }
+  for (const grid of ORIGIN_GRIDS) {
+    for (const { cell, candidates, probes } of shiftedCells) {
+      for (let a = 0; a < grid; a++) {
+        for (let b = 0; b < grid; b++) {
+          for (let c = 0; c < grid; c++) {
+            if (a === 0 && b === 0 && c === 0) continue;
+            // The coarser grid's points were tried already.
+            if (grid !== ORIGIN_GRIDS[0] && (a * 8) % grid === 0 && (b * 8) % grid === 0 && (c * 8) % grid === 0) continue;
+            const origin: Vec3 = [a / grid, b / grid, c / grid];
+            const probe = inCell(probes, cell, origin, [[0, 0, 0]]);
+            if (!probe) continue;
+            const keys = probe.map((o) => opKey(o.rotation, o.translation));
+            if (!candidates.some((t) => keys.every((k) => t.ops.has(k)))) continue;
+            const transformed = inCell(ops, cell, origin, centring);
+            if (transformed) consider(cell, origin, transformed);
+            if (found.reference) return found.reference;
+          }
         }
       }
     }
+    if (found.other) return found.other;
   }
   return found.other;
 }
