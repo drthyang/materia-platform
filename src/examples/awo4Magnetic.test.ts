@@ -1,12 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { AWO4_DEMO_FILES, buildAwo4MagneticExample } from "@/examples/awo4Magnetic";
+import { AWO4_DEMO_FILES, awo4DemoParams, buildAwo4MagneticExample, type Awo4Solution } from "@/examples/awo4Magnetic";
 import { magneticSubgroupLattice, latticeRepresentatives } from "@/core/magnetic/subgroupLattice";
 import { operationKey } from "@/core/crystal/symmetry";
 import { momentCartesian } from "@/core/magnetic/moment";
 import { magneticIonCandidates } from "@/core/magnetic/magneticIons";
 import { loadedSession } from "@/app/powderSession";
 import { powderCurves } from "@/core/workflow/powder";
-import { magneticComponentCurve } from "@/core/workflow/magneticPowder";
+import { buildMagneticPowderProblem, magneticComponentCurve } from "@/core/workflow/magneticPowder";
+import { refine } from "@/core/refinement/engine";
 import { dataExists, readData } from "@/testSupport/data";
 import type { SymmetryOperation } from "@/core/crystal/types";
 
@@ -19,8 +20,9 @@ const has = Object.values(AWO4_DEMO_FILES).every((rel) => dataExists(rel));
  * The LOCAL AWO₄ magnetic demo must stay coherent with the machinery that
  * produced it (`awo4MagneticSolve.test.ts`): a real histogram, a k = (½,0,0)
  * model whose group is a candidate the magnetic page enumerates, moment rows
- * whose ids the page's builder regenerates, and a session that reopens near
- * the solved fit. Data-gated: the files live only in the git-ignored data/
+ * whose ids the page's builder regenerates, and a session that reopens on the
+ * solved fit — the magnetic refinement, moments only with the nuclear model
+ * held. Data-gated: the files live only in the git-ignored data/
  * folder (unpublished data), so this skips on CI and fresh clones.
  */
 describe.skipIf(!has)("local AWO₄ magnetic demo (POWGEN 6 K, k = ½ 0 0)", () => {
@@ -77,7 +79,12 @@ describe.skipIf(!has)("local AWO₄ magnetic demo (POWGEN 6 K, k = ½ 0 0)", () 
     expect(ex.momentParams).toHaveLength(2);
   });
 
-  it("reopens as a powder session with the moment rows merged and the fit near the solved wR", () => {
+  // The demo opens on the solve's last step, the magnetic refinement: only the
+  // magnetic parameters free, the nuclear model held at its refined values
+  // (magnetic-analysis, Stage 4). So the free rows are the solution's, the
+  // nuclear rows are all held, the pattern gives the solved wR, and Refine from
+  // there moves nothing: the moments are converged against that nuclear model.
+  it("reopens as a powder session on the magnetic refinement: the nuclear rows held, the moments free and converged, at the solved wR", () => {
     const ex = example();
     const base = loadedSession(ex.structure, ex.pattern, ex.instrument, [], ex.refinedParams, ex.backgroundTerms);
     expect(base.backgroundTerms).toBe(ex.backgroundTerms);
@@ -87,8 +94,15 @@ describe.skipIf(!has)("local AWO₄ magnetic demo (POWGEN 6 K, k = ½ 0 0)", () 
     for (const id of ["scale", "cell_beta", "tof_sig0", "B_Co1", "pos_O2_2"]) {
       expect(base.powderParams.find((p) => p.id === id)?.value).toBeCloseTo(ex.refinedParams[id]!, 6);
     }
-    const params = [...base.powderParams, ...ex.momentParams];
+    const params = awo4DemoParams(base.powderParams, ex);
     const bindings = [...base.powderBindings, ...ex.momentBindings];
+    const solution = JSON.parse(readData(AWO4_DEMO_FILES.solution)) as Awo4Solution;
+    const free = params.filter((p) => !p.fixed).map((p) => p.id);
+    expect(free.length).toBeGreaterThan(0);
+    expect([...free].sort()).toEqual([...solution.free].sort());
+    expect(free.every((id) => ex.momentParams.some((p) => p.id === id))).toBe(true);
+    expect(params.filter((p) => ids.has(p.id)).every((p) => p.fixed)).toBe(true);
+
     const nuclear = powderCurves(ex.structure, ex.pattern, base.powderParams, base.powderBindings, base.powderProfile);
     const mag = magneticComponentCurve(ex.structure, ex.magnetic, ex.pattern, params, bindings, { shape: "tof" });
     let num = 0, den = 0;
@@ -99,7 +113,12 @@ describe.skipIf(!has)("local AWO₄ magnetic demo (POWGEN 6 K, k = ½ 0 0)", () 
     }
     const wR = Math.sqrt(num / den);
     expect(wR).toBeLessThan(0.08);
-    expect(wR).toBeCloseTo(ex.jointWr, 2);
+    expect(wR).toBeLessThan(ex.nuclearWr);
+    expect(wR).toBeCloseTo(ex.magneticWr, 4);
     expect(Math.max(...mag)).toBeGreaterThan(0);
+
+    const again = refine(buildMagneticPowderProblem(ex.structure, ex.magnetic, ex.pattern, params, bindings, base.powderProfile), { maxIterations: 20 });
+    for (const id of free) expect(Math.abs((again.parameters[id] ?? NaN) - ex.refinedParams[id]!), id).toBeLessThanOrEqual(0.1 * (again.esd[id] ?? NaN));
+    expect(again.agreement.rWeighted ?? NaN).toBeCloseTo(ex.magneticWr, 4);
   });
 });

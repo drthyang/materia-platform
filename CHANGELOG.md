@@ -544,6 +544,21 @@ release fixes bugs.
 
 ### Changed
 
+- **The local AWO₄ magnetic demo refines the moments alone, the nuclear model
+  held.** Its solve (`awo4MagneticSolve.test.ts`, `AWO4_SOLVE=1`) no longer
+  ends on a joint nuclear + magnetic fit. Its last step, the owner's rule for
+  the magnetic refinement, frees only the magnetic parameters: the chosen
+  group's moments, and k's components where the little group lets k move
+  (none for k = (½ 0 0)). The scale, background, cell, instrument terms,
+  positions, ADPs and occupancies stay at the nuclear stage's values, and the
+  solve checks that none moved. The group is chosen as before (Hamilton's
+  test, top-down: P2/c′). The demo opens on that step: the nuclear rows held,
+  the moment rows free, so Refine from it refines the moments only. The
+  solution file records the free rows (`free`) and the wR of that step
+  (`magneticWr`, which replaces `jointWr`). The demo refuses an older solution
+  file and asks for it to be regenerated. The magnetic page and the user's
+  own refinements are unchanged.
+
 - **The refinement report reads as a paper's results section.** Export ▸
   Report (and the Copilot's report) now opens on a short **Result**
   paragraph: what was refined against which data, the outcome with its key
