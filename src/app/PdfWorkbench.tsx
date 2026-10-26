@@ -489,9 +489,10 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
 
   // Activate a chosen SUBGROUP (subgroup-driven, the inverse of the irrep-driven
   // path; withSubgroup): the child realized from the current refined geometry,
-  // with every distortion it permits as an amplitude seeded at 0 and fixed. The
-  // user frees the ones to refine (a polar mode needs a nudge off its χ²
-  // stationary point — Prefit escapes it).
+  // with every distortion it permits as an amplitude: the order parameter that
+  // lowers the parent to it free at the starting kick (χ² is stationary along
+  // every symmetry-breaking mode at the parent's geometry), the others at 0,
+  // fixed, for the user to free.
   function onActivateSubgroup(node: SubgroupNode): void {
     const activated = withSubgroup(model, node);
     if (activated.model === model) {

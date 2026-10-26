@@ -255,7 +255,7 @@ export function SubgroupsPanel({ spaceGroup, lattice, irrepTree, modes, modeCoun
                     style={{ ...resetRangeBtn, marginLeft: "auto", ...(pickBlocked ? blockedStyle : {}) }}
                     disabled={pickBlocked}
                     onClick={() => onActivateSubgroup(n)}
-                    title={modes !== null ? "Clear the active distortion first" : "Lower to this subgroup: split the Wyckoff orbits and load the Γ distortion modes it permits into the Positions group as refinable amplitudes."}
+                    title={modes !== null ? "Clear the active distortion first" : `Lower to this subgroup: split the Wyckoff orbits and load the Γ distortion modes it permits into the Positions group as refinable amplitudes, the order parameter that lowers the structure to it free from a ${ACTIVATION_KICK} Å start.`}
                   >
                     Activate ↓
                   </button>
@@ -266,7 +266,7 @@ export function SubgroupsPanel({ spaceGroup, lattice, irrepTree, modes, modeCoun
         ))}
       </div>
       <p style={{ marginTop: 6, marginBottom: 0, fontSize: 12, color: color.secondary }}>
-        Translationengleiche (lattice-preserving) subgroups only. Activating one splits the Wyckoff orbits and exposes the Γ distortion modes that subgroup allows as amplitudes (all seed at 0 — a polar mode sits at a χ² stationary point, so free it and use Prefit to escape zero). Cell-multiplying (klassengleiche) subgroups arrive with the zone-boundary engine.
+        Translationengleiche (lattice-preserving) subgroups only, the parent's centring kept, each named in its standard setting. Activating one splits the Wyckoff orbits and exposes the Γ distortion modes that subgroup allows as amplitudes: at the parent's geometry χ² is stationary along every symmetry-breaking mode, so the order parameter that lowers the structure to it leads, free from a {ACTIVATION_KICK} Å start, and the others start at 0, fixed. Cell-multiplying (klassengleiche) subgroups arrive with the zone-boundary engine.
       </p>
     </div>
   );

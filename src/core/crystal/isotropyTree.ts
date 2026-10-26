@@ -458,8 +458,17 @@ export function activateDisplacementMode(
   const subOps = stabilizerOfField(field, parent.spaceGroup.operations);
   const identity = identifySubgroup(subOps, parent.spaceGroup.operations, { standard: true });
   const child = realizeSubgroup(parent, subOps, identity);
+  const modeSet = buildSymmetryModes(child, {
+    seeds: [{ axes: fieldSeedAxes(child, field), label }],
+  });
+  return { child, identity, modeSet };
+}
 
-  // Field value at each child asymmetric site (its own orbit representative).
+/**
+ * A displacement field as a mode seed on a realized child: its value at each
+ * child site (the site's own orbit representative), the zero ones left out.
+ */
+export function fieldSeedAxes(child: StructureModel, field: DisplacementField): { siteLabel: string; axis: Vec3 }[] {
   const seedAxes: { siteLabel: string; axis: Vec3 }[] = [];
   for (const s of child.sites) {
     const at = field.atoms.find((a) => samePos(a.position, s.position));
@@ -467,8 +476,5 @@ export function activateDisplacementMode(
       seedAxes.push({ siteLabel: s.label, axis: at.u });
     }
   }
-  const modeSet = buildSymmetryModes(child, {
-    seeds: [{ axes: seedAxes, label }],
-  });
-  return { child, identity, modeSet };
+  return seedAxes;
 }

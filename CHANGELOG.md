@@ -839,6 +839,21 @@ release fixes bugs.
   R3m, Amm2, Pm, Cm, P1; T2u: P-4m2, R32, Amm2, C2, Pm, P1), Fm-3m, F-43m,
   P4/mmm, I4/mmm and R-3m.
 
+- **A subgroup picked from the lattice is kicked off zero, as an activated
+  irrep is.** **Activate ↓** loaded every mode at 0 and fixed. At the
+  parent's geometry χ² is invariant under the parent group, so its derivative
+  along every symmetry-breaking mode is exactly zero, and a mode started at 0
+  never moved, whatever was freed. The order parameter that lowers the
+  structure to the subgroup now leads the modes, free from 0.05 Å as on the
+  irrep route: a field with exactly that symmetry, from the irrep for which
+  the subgroup is an isotropy subgroup, or the fewest irreps coupled when no
+  single one is (GaTa₄Se₈ → C2). The other modes start at 0, fixed, and move
+  once freed. On a synthetic G(r) of tetragonal BaTiO₃, lowering cubic
+  BaTiO₃ to P4mm now refines to the distortion (Rw from 5.8 % to 0); from 0
+  the same fit left every mode at 0. When no displacement breaks the
+  parent's symmetry (the subgroup differs from it in its cell only), nothing
+  is kicked and the status line says so.
+
 - **A staged fit keeps a profile stage whose zero trades with the cell.** The
   staged sequence rejected a whole stage when freeing it grew an earlier
   parameter's esd more than fivefold. Since the engine's esds are those of the
