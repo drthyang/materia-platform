@@ -14,7 +14,7 @@
 
 import type { PdfWorkspace } from "@/core/project/types";
 import { overlaySavedParameters, pdfWorkspaceFrom } from "@/app/projectIo";
-import type { AtomSite, StructureModel } from "@/core/crystal/types";
+import type { AtomSite, StructureModel, SymmetryOperation } from "@/core/crystal/types";
 import { withAdpModel as structureWithAdpModel } from "@/core/crystal/adp";
 import type { PdfPattern } from "@/core/diffraction/types";
 import { isMagneticModelParameterKind, type ParameterBinding, type RefinementOptions, type RefinementParameter, type RefinementResult } from "@/core/refinement/types";
@@ -29,7 +29,8 @@ import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import type { MagneticModel } from "@/core/magnetic/types";
 import { buildDistortionModes, buildSymmetryModes, positionShiftValuesFor, withDistortionModes, type DistortionModeSet } from "@/core/crystal/distortionModes";
 import { decomposeDisplacementRepresentation, type DisplaciveIrrepTerm } from "@/core/crystal/displaciveModes";
-import { activateDisplacementMode, identifySubgroup, projectIsotypicModes, realizeSubgroup, stabilizerOfField, type DisplacementField, type SubgroupIdentity } from "@/core/crystal/isotropyTree";
+import { activateDisplacementMode, fieldSeedAxes, realizeSubgroup, type SubgroupIdentity } from "@/core/crystal/isotropyTree";
+import { isotropyField, subgroupOrderParameter } from "@/core/crystal/isotropySubgroups";
 import type { SubgroupNode } from "@/core/crystal/subgroupTree";
 import { applyParameters } from "@/core/workflow/apply";
 import { boxcarPlanIssue, boxcarStepIndex, boxcarTable, boxcarWindows, type BoxcarDirection, type BoxcarPlan, type BoxcarRun, type BoxcarSeries } from "@/core/workflow/pdfBoxcar";
@@ -627,10 +628,36 @@ export function withParentModes(m: PdfPageModel, parent: StructureModel, parentN
   };
 }
 
+/** The starting amplitude of an activated mode (Å, whole cell): a polar mode's χ² is stationary at 0. */
+export const ACTIVATION_KICK = 0.05;
+
+/**
+ * The mode set with its activated (seeded) mode free at the starting kick, on
+ * both routes that lower the symmetry; null when no mode is active (a seed of
+ * pure rigid translation is projected away). The kick is targeted by the
+ * active mode's id, never by index.
+ */
+function kicked(set: DistortionModeSet): DistortionModeSet | null {
+  const activeId = set.modes.find((mode) => mode.active)?.id;
+  if (activeId === undefined) return null;
+  return { ...set, parameters: set.parameters.map((p) => (p.id === activeId ? { ...p, value: ACTIVATION_KICK, initialValue: ACTIVATION_KICK, fixed: false } : p)) };
+}
+
 /**
  * A chosen subgroup: the child realized (Wyckoff orbits split) from the
- * current refined geometry, with every distortion it permits as an amplitude
- * seeded at 0 and fixed; the setting-free rows carry over. `label` names it.
+ * current refined geometry, with every distortion it permits as an amplitude;
+ * the setting-free rows carry over. `label` names it.
+ *
+ * At the parent's geometry χ² is invariant under the parent group, so its
+ * derivative along every symmetry-breaking mode is exactly zero, and a mode
+ * started at 0 never moves. As on the irrep route (withActivatedMode), the
+ * order parameter that lowers the parent to this subgroup — a field with
+ * exactly its symmetry, from the primary irrep or, when no single irrep
+ * reaches it, the fewest irreps coupled (subgroupOrderParameter) — leads the
+ * mode set, free, at the ACTIVATION_KICK starting amplitude. The other modes
+ * start at 0, fixed; once the kick has broken the symmetry they are no longer
+ * stationary, so freeing them later lets them move. With no such field (the
+ * subgroup differs from the parent in its metric only) nothing is kicked.
  */
 export function withSubgroup(m: PdfPageModel, node: SubgroupNode): { readonly model: PdfPageModel; readonly label: string; readonly message: string } {
   const name = node.identity.hermannMauguin ?? node.identity.pointGroup ?? "subgroup";
@@ -638,50 +665,52 @@ export function withSubgroup(m: PdfPageModel, node: SubgroupNode): { readonly mo
   const v = pageView(m);
   const refined = applyParameters(v.fitStructure, v.bindings, valuesOf(m.params)).model;
   const child = realizeSubgroup(refined, node.operations, node.identity);
-  const set = buildSymmetryModes(child);
-  if (set.modes.length === 0) return { model: m, label, message: `${label}: this subgroup leaves every site symmetry-pinned — no refinable distortion modes` };
+  let order: ReturnType<typeof subgroupOrderParameter> = null;
+  let orderFailed: string | null = null;
+  try {
+    order = subgroupOrderParameter(refined, node.operations);
+  } catch (e) {
+    orderFailed = e instanceof Error ? e.message : String(e);
+  }
+  const seeds = order ? [{ axes: fieldSeedAxes(child, order.field), label: `${order.irreps.join(" + ")} → ${name}` }] : [];
+  const built = buildSymmetryModes(child, { seeds });
+  if (built.modes.length === 0) return { model: m, label, message: `${label}: this subgroup leaves every site symmetry-pinned — no refinable distortion modes` };
+  const set = kicked(built);
+  const sites = `${child.sites.length} child site(s) · ${built.modes.length} distortion mode(s)`;
   return {
-    model: withSpecChange(m, { modes: { set, parentName: label, fromActivation: true }, positionMode: "irreps" }, { kick: true }),
+    model: withSpecChange(m, { modes: { set: set ?? built, parentName: label, fromActivation: true }, positionMode: "irreps" }, { kick: true }),
     label,
-    message: `lowered to ${label}: ${child.sites.length} child site(s) · ${set.modes.length} distortion mode(s) — free the rows to refine (Positions group)`,
+    message: set && order
+      ? `lowered to ${label}: ${sites} · the order parameter (${order.irreps.join(" + ")}) free from ${ACTIVATION_KICK} Å${order.reachesTarget ? "" : " (the displacements allowed keep a higher symmetry; the rest is the cell's)"} — free the other rows to refine them (Positions group)`
+      : orderFailed
+        ? `lowered to ${label}: ${sites} — the order parameter could not be built (${orderFailed}), so the modes start at 0 and a symmetry-breaking one cannot leave it`
+        : `lowered to ${label}: ${sites} — no displacement breaks the parent's symmetry here (only the cell can), so the modes start at 0; free the rows to refine (Positions group)`,
   };
 }
-
-/** The starting amplitude of an activated mode (Å, whole cell): a polar mode's χ² is stationary at 0. */
-export const ACTIVATION_KICK = 0.05;
 
 /**
  * One symmetry-breaking mode activated from the current refined geometry: the
  * isotropy subgroup's child realized, the activated field the leading free
  * amplitude with a small starting kick (±a are inversion domains with the
  * same G(r), so a gradient fit could never leave 0); the setting-free rows
- * carry over.
+ * carry over. `sub` is one of the irrep's isotropy subgroups (its operations
+ * in the parent's cell, isotropySubgroups.ts): the field is built again on the
+ * refined geometry, a generic optic field of the irrep that the subgroup fixes.
  */
-export function withActivatedMode(m: PdfPageModel, term: DisplaciveIrrepTerm, sub: { readonly identity: SubgroupIdentity; readonly field: DisplacementField }): { readonly model: PdfPageModel; readonly label: string; readonly message: string } {
+export function withActivatedMode(m: PdfPageModel, term: DisplaciveIrrepTerm, sub: { readonly identity: SubgroupIdentity; readonly operations: readonly SymmetryOperation[] }): { readonly model: PdfPageModel; readonly label: string; readonly message: string } {
   const subName = sub.identity.hermannMauguin ?? sub.identity.pointGroup ?? "subgroup";
   const label = `${term.irrep.label} → ${subName}`;
   const v = pageView(m);
   // From the refined geometry, not the loaded CIF: the child spec then self-seeds the refined values in its own setting.
   const refined = applyParameters(v.fitStructure, v.bindings, valuesOf(m.params)).model;
-  // The field again on the refined anchor (the atoms moved with the fit): by irrep label, then by the subgroup it leads to.
+  // The field again on the refined anchor (the atoms moved with the fit): the irrep by its label, then its field the subgroup fixes.
   const termNow = decomposeDisplacementRepresentation(refined).terms.find((t) => t.irrep.label === term.irrep.label && !t.trivial);
-  let fieldNow: DisplacementField | null = null;
-  for (const f of termNow ? projectIsotypicModes(refined, undefined, termNow, refined.spaceGroup.operations) : []) {
-    const id = identifySubgroup(stabilizerOfField(f, refined.spaceGroup.operations), refined.spaceGroup.operations);
-    if (id.number !== undefined ? id.number === sub.identity.number : id.pointGroup === sub.identity.pointGroup && id.index === sub.identity.index) {
-      fieldNow = f;
-      break;
-    }
-  }
+  const fieldNow = termNow ? isotropyField(refined, termNow, sub.operations) : null;
   if (!fieldNow) return { model: m, label, message: `activation failed: ${label} not found on the refined structure (did the fit lower the effective symmetry?)` };
   const act = activateDisplacementMode(refined, fieldNow, label);
-  // A purely acoustic field is projected away: target the kick by the active mode's id, never by index.
-  const activeId = act.modeSet.modes.find((mode) => mode.active)?.id;
-  if (activeId === undefined) return { model: m, label, message: `activation of ${label} produced no refinable mode (the field is pure rigid translation) — nothing to do` };
-  const set: DistortionModeSet = {
-    ...act.modeSet,
-    parameters: act.modeSet.parameters.map((p) => (p.id === activeId ? { ...p, value: ACTIVATION_KICK, initialValue: ACTIVATION_KICK, fixed: false } : p)),
-  };
+  // A purely acoustic field is projected away: nothing to kick.
+  const set = kicked(act.modeSet);
+  if (!set) return { model: m, label, message: `activation of ${label} produced no refinable mode (the field is pure rigid translation) — nothing to do` };
   return {
     model: withSpecChange(m, { modes: { set, parentName: label, fromActivation: true }, positionMode: "irreps" }, { kick: true }),
     label,

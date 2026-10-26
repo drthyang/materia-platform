@@ -66,8 +66,8 @@ folder skip when it is absent (CI, fresh clones).
 | Abelian little-group irreps + Γ_mag decomposition + mode projection | golden (P1/C2/Ci/D2/C4) | ✅ `core/magnetic/irreps.test.ts` |
 | Mode amplitudes recovered from a model's moments (open-on-model, demo seeding) | round trip + the 30 K mCIF | ✅ `core/magnetic/amplitudeFit.test.ts` |
 | Strong k = 0 magnetic peaks on the nuclear lines (simulated Mn₃Ga 30 K, truth known): the nuclear-only ADP stage biases every B > 3σ at a good GoF; the Agent is routed to the magnetic step (k = 0 peaks to include, `diagnose_fit` and `refine` cautions); the guarded path (B's and positions held until the moments are in) puts all 16 parameters within 3σ of the truth, RMS z ≤ 1.5 | benchmark (synthetic, in-app Agent) | ✅ `core/workflow/k0MagneticBias.test.ts`, `agent/strongMagneticPeaks.test.ts` |
-| AWO₄ 8 K magnetic **benchmark** (the 8 K bank-3 POWGEN pattern, Mantid XYDATA, with its bank's calibration): k = (½,0,0) from the nuclear residual alone, the ★ group maximal, \|M\| within the spin-only bound, the magnetic lines fitted. Checked against the magnetic content of the owner's own 8 K refinement (a Jana mCIF, read at runtime): the same k, the same magnetic group operation by operation in the doubled cell, the moment's axis and \|M\| within 2σ combined, with the reference's ⟨j0⟩ ions and the app's 8 K metric. No trusted 8 K cell exists: the cell is compared only with the 100 K CIF within thermal-contraction bounds. Criteria the app does not meet yet are kept as `it.fails` | data-gated (git-ignored data/) | ✅ `core/workflow/realAwo4Benchmark.test.ts` |
-| Local AWO₄ 6 K magnetic demo — k = (½,0,0), P2/c′ is a maximal lattice candidate, session reopens at the solved wR | data-gated (git-ignored data/) | ✅ `examples/awo4Magnetic.test.ts`; provenance `examples/awo4MagneticSolve.test.ts` (AWO4_SOLVE=1) |
+| AWO₄ 8 K magnetic **benchmark** (the 8 K bank-3 POWGEN pattern, Mantid XYDATA, with its bank's calibration): k = (½,0,0) from the nuclear residual alone, the ★ group maximal, \|M\| within the spin-only bound, the magnetic lines fitted by the magnetic refinement (the moments alone, the staged nuclear model held). Checked against the magnetic content of the owner's own 8 K refinement (a Jana mCIF, read at runtime): the same k, the same magnetic group operation by operation in the doubled cell, the moment's axis and \|M\| within 2σ combined, with the reference's ⟨j0⟩ ions and the app's 8 K metric. No trusted 8 K cell exists: the cell is compared only with the 100 K CIF within thermal-contraction bounds. Criteria the app does not meet yet are kept as `it.fails` | data-gated (git-ignored data/) | ✅ `core/workflow/realAwo4Benchmark.test.ts` |
+| Local AWO₄ 6 K magnetic demo — k = (½,0,0), P2/c′ is a maximal lattice candidate; the session reopens on the solve's last step, the magnetic refinement (the moments free, every nuclear row held at the nuclear stage's values), at the solved wR, and a refine from it moves nothing | data-gated (git-ignored data/) | ✅ `examples/awo4Magnetic.test.ts`; provenance `examples/awo4MagneticSolve.test.ts` (AWO4_SOLVE=1) |
 | Moment-size restraint → physical magnitudes | integration | ✅ `core/workflow/magneticCompare.test.ts` |
 | TOF ↔ d conversion (POWGEN calibration) | golden (GSAS `.lst`) | ✅ `core/diffraction/instrument.test.ts` |
 | Instrument-file parsing | unit | ✅ `core/diffraction/instrument.test.ts` |
@@ -131,17 +131,17 @@ the app's file-name hint opens them on the POWGEN background default.
 
 | File | What it holds | Read by |
 | --- | --- | --- |
-| `PG3_powder_8K.dat` | The 8 K bank-3 POWGEN pattern, Mantid `XYDATA` export (focused TOF, y, σ) | `realAwo4Benchmark.test.ts` |
-| `PG3_powder_6K.gsa` | The 6 K bank-3 POWGEN histogram (magnetically ordered), GSAS `.gsa` | `realAwo4Magnetic.test.ts`, `realAwo4Tof.test.ts`, `awo4MagneticSolve.test.ts`, the local demo, the `awo4-user-flow` eval |
+| `PG3_powder_8K.dat` | The magnetically ordered bank-3 POWGEN pattern, Mantid `XYDATA` export (focused TOF, y, σ): the measurement the owner's reference refinement (`magnetic_8K.mcif`) is of | `realAwo4Benchmark.test.ts` |
+| `PG3_powder_6K.gsa` | The same measurement as `PG3_powder_8K.dat`, as the GSAS `.gsa` histogram (magnetically ordered). The two temperatures in the names are one measurement's: 8 K its nominal temperature, 6 K the sample's reading | `realAwo4Magnetic.test.ts`, `realAwo4Tof.test.ts`, `awo4MagneticSolve.test.ts`, the local demo, the `awo4-user-flow` eval |
 | `PG3_powder_100K.gsa` | The 100 K bank-3 POWGEN histogram (paramagnetic), GSAS `.gsa`, on the same bank as `PG3_powder_6K.gsa` | `realAwo4Magnetic.test.ts` |
 | `PG3_powder_100K.dat` | The 100 K bank-3 POWGEN pattern, Mantid `XYDATA` export | `realPowderTOF.test.ts` |
 | `PG3_powder_bank1.gsa`, `PG3_powder_bank2.gsa` | A POWGEN histogram of bank 1 and of bank 2, GSAS `.gsa` | `realAwo4Tof.test.ts` |
 | `structure_100K.cif` | The refined 100 K nuclear structure (P2/c), the model also bundled in `examples/highEntropyWO4.ts` | every test above but the demo's |
-| `magnetic_8K.mcif` | The owner's refined 8 K magnetic structure (Jana mCIF, doubled cell) | `realAwo4Benchmark.test.ts` (reference block) |
+| `magnetic_8K.mcif` | The owner's refined magnetic structure of that measurement (Jana mCIF, doubled cell) | `realAwo4Benchmark.test.ts` (reference block) |
 | `instrument_bank1.instprm`, `instrument_bank2.instprm`, `instrument_bank3.instprm` | The GSAS-II TOF calibration of each bank's frame (bank 3 for the patterns above) | `realAwo4Benchmark.test.ts` (all three), the bank-3 file everywhere else |
 | `instrument_bank3_jana.instprm` | The same bank-3 calibration as written for JANA | `realPowderTOF.test.ts` |
 | `pdf.gr` | The neutron PDF G(r) | `realPdfLongRange.test.ts` (also found as a `.gr` file in `data/AWO4/pdf/`) |
-| `awo4_demo_solution.json` | Written by `awo4MagneticSolve.test.ts` (`AWO4_SOLVE=1`) from `PG3_powder_6K.gsa`; not a measurement | the local demo, `awo4Magnetic.test.ts` |
+| `awo4_demo_solution.json` | Written by `awo4MagneticSolve.test.ts` (`AWO4_SOLVE=1`) from `PG3_powder_6K.gsa`: the nuclear stage's values and the moments of the magnetic refinement that follows it (the moments alone, the nuclear model held); not a measurement | the local demo, `awo4Magnetic.test.ts` |
 
 The dev server serves the folder under `/data/AWO4/…` for the local demo
 (`vite.config.ts`, development only).
