@@ -143,6 +143,41 @@ describe("refinement report (HTML)", () => {
   });
 });
 
+describe("limitations in a short line, in full in the appendix", () => {
+  const long = "B(W1) refined to 0 Å² (its lower bound) and is tied to B_Co1 by the B-at-0 rule (alternative: rule A: B(Co1 +5) (B_Co1), same coordination (6 O), different cation (W site vs Co site/Fe site/Ni site/…), refined to 0.6(2) Å² (a different cation (W site vs Co site/Fe site/Ni site/…): check it is physically sensible)). Its value follows the tie; it is not measured on its own.";
+  const short = "B(W1) refined to 0 and is tied to B(Co1 +5) = 0.6(2) Å² (same 6-O coordination, different cation); not measured on its own — check it is physically sensible";
+  const input = (): ReportInput => ({ ...powderInput(), warnings: [long], limitations: [{ text: short, detail: long }] });
+
+  it("the caveats list the short line, marked for its account in the appendix's Caveats in full", () => {
+    const html = reportHtml(input());
+    const { summary, appendix } = parts(html);
+    expect(text(summary)).toContain(`Limitation ${short}.`);
+    expect(text(summary)).not.toContain("by the B-at-0 rule");
+    expect(summary).toContain('href="#caveats-in-full"');
+    expect(html).toContain('<details id="caveats-in-full">');
+    expect(text(appendix)).toContain(long);
+    expect(qualityItems(input()).find((c) => c.label === "Limitation")).toEqual({ tone: "warn", label: "Limitation", text: short, detail: long });
+    // The Markdown file the viewer saves does the same.
+    const md = mdParts(reportMarkdown(input()));
+    expect(md.summary).toContain(`- **Limitation:** ${short}. \\*`);
+    expect(md.appendix).toContain("Caveats in full");
+    expect(md.appendix).toContain(long);
+  });
+
+  it("the frozen layout the Agent and its audit read keeps the limitations in full, as before", () => {
+    const frozen = frozenReportMarkdown({ ...input(), date: DATE });
+    expect(frozen).toContain(`> ⚠ ${long}`);
+    expect(frozen).not.toContain(short);
+    expect(frozen).toBe(frozenReportMarkdown({ ...powderInput(), warnings: [long], date: DATE }));
+  });
+
+  it("without short lines the limitations stand as written, and nothing goes to the appendix", () => {
+    const html = reportHtml({ ...powderInput(), warnings: [long] });
+    expect(text(parts(html).summary)).toContain(`Limitation ${long}`);
+    expect(html).not.toContain('id="caveats-in-full"');
+  });
+});
+
 describe("the analysis as the Agent ran it", () => {
   const withAgent = (): ReportInput => ({ ...powderInput(), agent: AGENT });
 
