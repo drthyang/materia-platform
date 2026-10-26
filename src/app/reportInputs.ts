@@ -29,7 +29,7 @@ import type { MergeStatistics } from "@/core/diffraction/merge";
 import { isInversion, mergedOnlyAbsences, type OmittedMeasurement, type PdfPattern, type Radiation, type SingleCrystalDataset, type TwinLaw } from "@/core/diffraction/types";
 import { dispersionLine } from "@/core/scattering/dispersion";
 import { EXTINCTION_MODEL_LABELS } from "@/core/diffraction/singleCrystalFactors";
-import { isMomentParameterKind, type ParameterBinding, type RefinementParameter, type RefinementResult } from "@/core/refinement/types";
+import { isMomentParameterKind, type ParameterBinding, type ParameterKind, type RefinementParameter, type RefinementResult } from "@/core/refinement/types";
 import { esdsWithTies, parseTie, resolveTies } from "@/core/refinement/constraints";
 import { siteSumConstraints, siteSumRangeWarnings } from "@/core/workflow/structureRefinement";
 import type { PowderProfile } from "@/core/workflow/powder";
@@ -208,6 +208,19 @@ function momentRange(structure: StructureModel, magnetic: MagneticModel): string
   return hi - lo < 0.005 ? `${num(hi, 2)} µB` : `${num(lo, 2)}–${num(hi, 2)} µB`;
 }
 
+/** The atomic structure's rows: a fit that frees any of them refines the moments jointly with it. */
+const ATOMIC_STRUCTURE: ReadonlySet<ParameterKind> = new Set<ParameterKind>(["atomX", "atomY", "atomZ", "positionShift", "occupancy", "bIso", "uAniso", "cellLength", "cellAngle"]);
+
+/** What else may be free beside the moments, with the structure held, as the status names it. */
+const OVERALL_TERMS: readonly (readonly [readonly ParameterKind[], string])[] = [
+  [["scale"], "the scale"],
+  [["background"], "the background"],
+  [["tofProfile", "peakWidth", "profileU", "profileV", "profileW", "profileX", "profileY", "asymSL", "asymHL", "mustrainIso", "mustrainPerp", "mustrainPar", "anisoSizePerp", "anisoSizePar", "stephensStrain"], "the peak shape"],
+  [["zeroShift", "sampleDisplacement", "sampleTransparency", "tofCalibration"], "the peak positions' instrument terms"],
+];
+
+const listJoin = (xs: readonly string[]): string => (xs.length <= 1 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
+
 /**
  * The magnetic section and its one-sentence summary. Priority: the model
  * applied to the refinement (with its provenance: refined jointly, the moments
@@ -230,15 +243,17 @@ export function magneticReportSection(o: {
     const sameAsExplored = !!explored && magneticOperationSignature(explored.magnetic.operations ?? []) === magneticOperationSignature(applied.operations ?? []);
     const group = sameAsExplored ? explored.group : groupOfOperations(structure, applied);
     const k = applied.propagation[0] ?? explored?.k ?? [0, 0, 0];
-    // The last fit refined the moments when they have esds from it; jointly when it refined anything else too.
+    // The last fit refined the moments when they have esds from it; jointly when it refined the atomic
+    // structure too. The scale, background and peak shape free beside them leave the structure held.
     const refined = !!o.result && momentParams.some((p) => o.result!.esd[p.id] !== undefined);
-    const momentIds = new Set(momentParams.map((p) => p.id));
-    const jointly = refined && Object.keys(o.result!.esd).some((id) => !momentIds.has(id));
+    const freeKinds = new Set(o.params.filter((p) => !isMomentParameterKind(p.kind) && o.result?.esd[p.id] !== undefined).map((p) => p.kind));
+    const jointly = refined && [...freeKinds].some((k) => ATOMIC_STRUCTURE.has(k));
+    const beside = OVERALL_TERMS.filter(([kinds]) => kinds.some((k) => freeKinds.has(k))).map(([, name]) => name);
     const range = momentRange(structure, applied);
     const status = jointly
       ? `Refined jointly with the atomic structure against ${o.against}; the moment esds come from that fit.`
       : refined
-        ? `Refined against ${o.against} with the atomic structure held fixed: only the moments were free; their esds come from that fit.`
+        ? `Refined against ${o.against} with the atomic structure held fixed: ${beside.length > 0 ? `the moments were free with ${listJoin(beside)}` : "only the moments were free"}; their esds come from that fit.`
         : `Included in the model and in the calculated pattern, but not refined together with the atomic structure in this session — the moments are as loaded or as set on the magnetic page` +
           (sameAsExplored && explored.agreement !== null ? ` (moments-only fit there: ${explored.agreementLabel} = ${pct(explored.agreement, 1)}).` : ".");
     const provenance = jointly ? "refined jointly with the atomic structure" : refined ? "the moments refined with the atomic structure held fixed" : "included in the model (not refined jointly in this session)";

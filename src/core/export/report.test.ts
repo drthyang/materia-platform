@@ -435,8 +435,10 @@ describe("magnetic report section (reportInputs)", () => {
   it("prefers the applied model, reports joint refinement from the esds, else the explored candidate", () => {
     const { structure, k, params, magnetic } = cmcm();
     const withEsd = params.map((p) => ({ ...p, esd: 0.05 }));
-    const result = { esd: { ...Object.fromEntries(params.map((p) => [p.id, 0.05])), scale: 0.01 } } as unknown as RefinementResult;
-    const joint = magneticReportSection({ structure, applied: magnetic, params: withEsd, result, explored: null, against: "the powder pattern" });
+    // Joint: an atomic-structure row (a B) refined in the same fit as the moments.
+    const withB = [...withEsd, { id: "B_Mn1", label: "B_iso Mn1", kind: "bIso" as const, value: 0.6, initialValue: 0.5, fixed: false, esd: 0.05 }];
+    const result = { esd: { ...Object.fromEntries(params.map((p) => [p.id, 0.05])), B_Mn1: 0.05 } } as unknown as RefinementResult;
+    const joint = magneticReportSection({ structure, applied: magnetic, params: withB, result, explored: null, against: "the powder pattern" });
     expect(joint.section?.status).toMatch(/^Refined jointly/);
     expect(joint.section?.group.index).toBe(6);
     expect(joint.summary).toContain("|m| = 2.50 µB");
@@ -447,6 +449,14 @@ describe("magnetic report section (reportInputs)", () => {
     expect(alone.section?.status).toMatch(/^Refined against the powder pattern with the atomic structure held fixed/);
     expect(alone.summary).toContain("the moments refined with the atomic structure held fixed");
     expect(alone.summary).not.toContain("jointly");
+
+    // The moments with the scale and background (the structure still held): not "jointly" either.
+    // A last fit of the moments, scale and background read as joint with the atomic structure.
+    const overall = [...withEsd, { id: "scale", label: "scale", kind: "scale" as const, value: 1, initialValue: 1, fixed: false, esd: 0.01 }, { id: "bkg0", label: "bkg0", kind: "background" as const, value: 1, initialValue: 1, fixed: false, esd: 0.1 }];
+    const withOverall = { esd: { ...momentsOnly.esd, scale: 0.01, bkg0: 0.1 } } as unknown as RefinementResult;
+    const held = magneticReportSection({ structure, applied: magnetic, params: overall, result: withOverall, explored: null, against: "the powder pattern" });
+    expect(held.section?.status).toBe("Refined against the powder pattern with the atomic structure held fixed: the moments were free with the scale and the background; their esds come from that fit.");
+    expect(held.summary).toContain("the moments refined with the atomic structure held fixed");
 
     const carried = magneticReportSection({ structure, applied: magnetic, params, result: null, explored: null, against: "the powder pattern" });
     expect(carried.section?.status).toMatch(/^Included in the model/);
