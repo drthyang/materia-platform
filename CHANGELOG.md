@@ -561,8 +561,12 @@ release fixes bugs.
   the ★ group's moments with the staged nuclear model held, the B-at-0 checks
   read the nuclear fit, and C9 asks that step to hold every nuclear row and
   end no higher than the ranking's fit, where it asked a joint fit to end
-  strictly lower. The magnetic page and the user's own refinements are
-  unchanged.
+  strictly lower. The data-folder layout in `docs/VALIDATION.md` now says
+  that the demo's histogram (`PG3_powder_6K.gsa`) and the benchmark's
+  pattern (`PG3_powder_8K.dat`) are one measurement, the one the owner's
+  reference refinement is of. `docs/MAGNETIC_SYMMETRY.md` says the five tied
+  groups tie within the noise by Hamilton's test and no longer quotes a wR.
+  The magnetic page and the user's own refinements are unchanged.
 
 - **The refinement report reads as a paper's results section.** Export ▸
   Report (and the Copilot's report) now opens on a short **Result**
