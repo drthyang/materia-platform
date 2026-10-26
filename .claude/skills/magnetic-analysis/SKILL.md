@@ -76,9 +76,8 @@ a single irreducible representation — a maximal group — so start there:
    perpendicular to Q, so a moment along c puts no intensity on 0 0 l. A magnetic 0 0 l
    line the best maximal group leaves in the residual asks for an in-plane component,
    which may only a lower group allow (notes: Cr₂WO₆).
-2. Read the ranking honestly. The ★ marks the lowest wR (a tie within 0.01 % goes to the
-   maximal group with the fewest moment parameters); it is no test that the others fit
-   worse. A powder often cannot tell several groups apart (the direction ambiguity below):
+2. Read the ranking honestly. The ★ marks the lowest wR (a tie within 0.01 %: the
+   fewest moment parameters); it is no test that the others fit worse. A powder often cannot tell several groups apart (the direction ambiguity below):
    a group whose wR is close to the ★'s and which explains every magnetic peak is an
    equally good fit. Among those prefer the maximal group with the fewest moment
    parameters, and say which others fit as well.
@@ -110,18 +109,18 @@ nuclear values (until Stage 5): freed, they trade with the moments, and the esds
    (and k) refine. `show_magnetic_model` instead holds the moments.
 2. `refine`, checking the free set is the moments alone; the Stage 3 checks;
    `assess_refinement`.
-3. A residual left on the nuclear lines is the nuclear model's (notes): say so, and which
+3. A residual on the nuclear lines is the nuclear model's (notes): say so, and which
    nuclear model the moments were measured against.
 
 ## Stage 5 — a last profile tweak
 
-The peak shape was fitted before the magnetic peaks were modelled. With the moments
-converged:
+The peak shape was fitted before the magnetic peaks were modelled. Once the moments
+converge:
 
-1. `set_free` together the scale, the background, the zero and every peak-shape term (TOF
+1. `set_free` together the scale, background, zero and every peak-shape term (TOF
    α₀, α₁, β₀, β₁, β_q, σ₀², σ₂², σ_q²; CW U, V, W, X, Y), moments and atomic structure
-   held; `refine` until wR stops moving. A term on its bound is fixed alone; the
-   rest stay free.
+   held; `refine` until wR stops moving. All of them, never a subset: a term on its bound
+   is fixed alone, the rest stay free.
 2. The moments once more with the scale and background (the scale trades with their
    size); quote this fit and the tweak's gain.
 
@@ -141,9 +140,9 @@ converged:
   at 0: before you report a moment whose esd is a large part of it, sample the posterior
   (`bayesian-check`, `sample_posterior` with the moments, the scale and the B's free) and
   quote its credible interval.
-- The run ends with `write_report` after Stage 5 (offer next steps after it, not
-  instead): the engine's magnetic section and Bayesian check; your account adds the
-  powder's limits in words.
+- The run ends with `write_report` after Stage 5, open issues or not (they go in it; next
+  steps come after it): the engine's magnetic section and Bayesian check;
+  your account adds the powder's limits in words.
 
 ## Tools
 
