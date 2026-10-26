@@ -30,7 +30,7 @@ import { PlotFooter, PlotHint, PlotZoomControls, plotReadoutBox, zoomControlsInl
 import { gripHitWidth, isMac, plotGestureDescription, trackPointerDrag, useCoarsePointer } from "@/app/ui/touchInput";
 import { tickCountFor, yTickCount } from "@/visualization/axisTicks";
 import {
-  decimalsForStep, decimateByColumn, formatReadoutValue, localStep, minimumSpan, nearestIndex, splitAxisLabel, ticksNear, visibleIndexRange,
+  decimalsForStep, decimateByColumn, formatReadoutValue, localStep, minimumSpan, nearestIndex, revealX, splitAxisLabel, ticksNear, visibleIndexRange,
 } from "@/visualization/plotView";
 
 export interface FitRangeSelection {
@@ -83,6 +83,19 @@ interface Props {
    * reveal it if it is off-screen.
    */
   readonly highlight?: { readonly hkl: string; readonly kind: "nuclear" | "magnetic"; readonly phaseId?: string } | null;
+  /**
+   * How a spotlighted reflection that lies outside the view is brought in:
+   * "center" (the default) puts it mid-window; "nearest" moves the window just
+   * far enough to show it, a tenth of the window inside the edge it crossed.
+   * Either keeps the zoom width, and neither moves a window that already shows it.
+   */
+  readonly revealPan?: "center" | "nearest";
+  /**
+   * Also mark the spotlighted reflection with a translucent band down the
+   * pattern (beside the arrow, guide line and bold tick), so a peak among many
+   * stands out without the view being zoomed onto it.
+   */
+  readonly highlightBand?: boolean;
   /**
    * Called when a Bragg tick is clicked (or the current pick is toggled off) —
    * the *same* selection channel as the F_obs/F_calc plot, so a tick click and a
@@ -226,6 +239,9 @@ function formatHkl(hkl: string): string {
     .join(" ");
 }
 
+/** Half the width, in px, of the band that marks a spotlighted reflection (highlightBand). */
+const BAND_HALF_W = 7;
+
 /** Pixel tolerance for "the reflection under the cursor" (readout and tick click). */
 const TICK_TOL_PX = 4.5;
 
@@ -242,6 +258,8 @@ export function WorkbenchPlot({
   focusPeakToken = 0,
   focusPoint = null,
   highlight: highlightSel = null,
+  revealPan = "center",
+  highlightBand = false,
   onHighlight,
   onPlotClick,
   signedY = false,
@@ -677,6 +695,11 @@ export function WorkbenchPlot({
   useEffect(() => {
     if (!highlight) return;
     if (highlight.x >= vlo && highlight.x <= vhi) return;
+    if (revealPan === "nearest") {
+      const next = revealX({ min: vlo, max: vhi }, highlight.x, domain);
+      if (next) setView(next);
+      return;
+    }
     const span = vhi - vlo;
     let min = highlight.x - span / 2;
     let max = highlight.x + span / 2;
@@ -923,6 +946,9 @@ export function WorkbenchPlot({
           const right = hx > (X0 + X1) / 2;
           return (
             <g pointerEvents="none">
+              {highlightBand && (
+                <rect data-highlight-band x={hx - BAND_HALF_W} y={TOP} width={2 * BAND_HALF_W} height={tickY2 - TOP} fill={highlight.color} opacity={0.16} />
+              )}
               {/* ink (not primary — that equals the calc/hkl blue) so the guide
                   reads over the blue calc curve; matches the scatter's pick ring. */}
               <line x1={hx} y1={TOP + 12} x2={hx} y2={tickY2} stroke={color.ink} strokeWidth={1.1} strokeDasharray="3 3" opacity={0.55} />
