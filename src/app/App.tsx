@@ -52,6 +52,7 @@ import { PdfWorkbench } from "@/app/PdfWorkbench";
 import { WorkbenchHeader, type Step, type ExportAction } from "@/app/ui/WorkbenchHeader";
 import { WorkbenchErrorBoundary } from "@/app/ui/WorkbenchErrorBoundary";
 import { color as theme, space } from "@/app/theme";
+import { CROSS_CHECK } from "@/core/export/crossCheck";
 import { newSession, loadedSession, emptySession, structureCarried, EMPTY_SOURCE } from "@/app/powderSession";
 import {
   changed, emptyPage, snapshotOf, specInstrumentOf, withInstrument, withInstrumentConstants, withPattern, withPhase, withPhases, withoutPhase, withStructure, type PowderPage,
@@ -1271,18 +1272,19 @@ export function App(): JSX.Element {
  * The package a user should reproduce THIS technique's result in. Naming the
  * right one beats a generic "established tools": a PDF user told to check
  * against GSAS-II learns nothing, and the reference implementations differ per
- * technique (real space vs reciprocal space vs single crystal).
+ * technique (real space vs reciprocal space vs single crystal). The names are
+ * the report's too (core/export/crossCheck.ts), so the two cannot drift.
  */
 function crossCheckTargets(technique: "rietveld" | "pdf" | "sc"): string {
   switch (technique) {
     case "pdf":
       // The real-space references, including the magnetic term the PDF page can
       // add — diffpy.mpdf is the only implementation of it worth checking against.
-      return "PDFgui / diffpy-CMI (PDFfit2), or diffpy.mpdf for a magnetic PDF";
+      return `${CROSS_CHECK.pdf.packages}, or ${CROSS_CHECK.pdf.magnetic} for a magnetic PDF (Export ▸ PDFgui / diffpy-CMI bundle writes the files and a PDFfit2 script)`;
     case "sc":
-      return "SHELXL, JANA2020, or FullProf";
+      return CROSS_CHECK.singleCrystal.packages;
     default:
-      return "GSAS-II or FullProf (Export ▸ bundle writes both decks)";
+      return `${CROSS_CHECK.powder.packages} (Export ▸ bundle writes both decks)`;
   }
 }
 

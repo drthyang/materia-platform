@@ -10,7 +10,7 @@ import { buildSpaceGroup } from "@/core/crystal/spaceGroups";
 import { niceTicks, patternFigureSvg } from "@/core/export/reportFigures";
 import { atomTable, cellLineText, cellTerms } from "@/core/export/reportTables";
 import { asFraction, formulaHtml, formulaParts, formulasText, minus, spaceGroupHtml, spaceGroupText, symbolHtml, symbolText } from "@/core/export/reportTypeset";
-import { correlationCaveats, meaningfulCorrelations, pdfResultParagraph, powderCaveats, powderResultParagraph, singleCrystalResultParagraph, type PowderResultInput } from "@/core/export/reportResult";
+import { correlationCaveats, meaningfulCorrelations, pdfResultParagraph, powderCaveats, powderResultParagraph, singleCrystalCaveats, singleCrystalResultParagraph, type PowderResultInput } from "@/core/export/reportResult";
 import { powderAcceptance } from "@/core/diagnostics/powderAcceptance";
 import type { ValidationVerdict } from "@/core/diagnostics/validationChecks";
 import { groupOfOperations, magneticReportSection, pdfReportInput, powderMomentLimits, reportFileName, subjectOf } from "@/app/reportInputs";
@@ -467,6 +467,56 @@ describe("PDF report (reportInputs)", () => {
     const nuclearOnly = pdfReportInput({ phases: [cmcm().structure], params: [], bindings: [], result: null, pattern: { id: "g", name: "g", scatteringType: "xray", points: [{ r: 1, gObs: 0 }] }, rw: 0.08, fitRange: { min: 1, max: 2 }, curves: { x: [], yObs: [], yCalc: [], diff: [] }, positionMode: "atomic", spinModel: null, explored: null });
     expect(nuclearOnly.magnetic).toBeNull();
     expect(nuclearOnly.summary).toContain("No magnetic (mPDF) component is included.");
+  });
+});
+
+describe("the cross-check names the technique's own programs", () => {
+  const converged = { status: "converged", parameters: {}, esd: {}, agreement: { rWeighted: 0.0812 }, history: [{}, {}], diagnostics: { svdZeroCount: 0, highCorrelations: [] } } as unknown as RefinementResult;
+  const scaleRow: RefinementParameter = { id: "pdfScale", label: "PDF scale", kind: "pdfScale", value: 0.09, initialValue: 0.09, fixed: false };
+  const pattern = { id: "g", name: "g.gr", scatteringType: "xray" as const, points: Array.from({ length: 30 }, (_, i) => ({ r: 1 + 0.1 * i, gObs: Math.sin(i) })) };
+  /** A refined nuclear PDF, as the PDF page assembles it (its assessment read, its fit current). */
+  const nuclearPdf = (): ReportInput => ({
+    ...pdfReportInput({ phases: [exampleStructure()], params: [scaleRow], bindings: [], result: converged, pattern, rw: 0.0812, fitRange: { min: 1, max: 3.9 }, curves: { x: [], yObs: [], yCalc: [], diff: [] }, positionMode: "atomic", spinModel: null, explored: null, findings: null, current: true }),
+    date: DATE,
+  });
+
+  it("a PDF report names PDFgui / diffpy-CMI (PDFfit2), never GSAS-II or FullProf: Result, caveats and footer", () => {
+    const input = nuclearPdf();
+    expect(input.assessment?.result).toContain("The cross-check in PDFgui / diffpy-CMI (PDFfit2) is still to do.");
+    expect(input.assessment?.caveats.at(-1)).toEqual({
+      tone: "info", label: "Cross-check",
+      text: "reproduce the fit in PDFgui / diffpy-CMI (PDFfit2): the Export menu writes a PDFgui / diffpy-CMI bundle with the structure, the data and a PDFfit2 script that refines the same parameters",
+    });
+    const footer = "MATERIA is in public beta: reproduce a result you publish in PDFgui / diffpy-CMI (PDFfit2); the Export menu writes a PDFgui / diffpy-CMI bundle with the structure, the data and a PDFfit2 script.";
+    for (const doc of [text(reportHtml(input)), reportMarkdown(input)]) {
+      expect(doc).not.toMatch(/GSAS|FullProf/);
+      expect(doc).toContain(footer);
+      expect(doc).not.toContain("diffpy.mpdf");
+    }
+  });
+
+  it("a magnetic PDF adds diffpy.mpdf for its magnetic term, which the bundle does not carry", () => {
+    const input = pdfCandidateInput();
+    const md = reportMarkdown(input);
+    expect(md).not.toMatch(/GSAS|FullProf/);
+    expect(md).toContain("reproduce a result you publish in PDFgui / diffpy-CMI (PDFfit2), and its magnetic term in diffpy.mpdf; the Export menu writes a PDFgui / diffpy-CMI bundle");
+    const result = pdfResultParagraph({ subject: "Mn₃Ga (Cmcm)", against: "neutron G(r)", free: 3, rw: 0.08, result: converged, parameters: [scaleRow], assessment: null, magnetic: "Magnetic PDF (mPDF) spin model: …" }, false);
+    expect(result).toContain("The cross-check in PDFgui / diffpy-CMI (PDFfit2), with the magnetic term in diffpy.mpdf, is still to do.");
+    // Nothing to cross-check before a refinement, or after one that diverged.
+    expect(pdfResultParagraph({ subject: "s", against: "a", free: 1, rw: 0.3, result: null, parameters: [], assessment: null }, false)).not.toContain("cross-check");
+  });
+
+  it("a Rietveld report names GSAS-II and FullProf; a single crystal SHELXL, JANA2020 or FullProf", () => {
+    const powder = text(reportHtml(powderInput()));
+    expect(powder).toContain("reproduce a result you publish in GSAS-II or FullProf; the Export menu writes a GSAS-II and a FullProf bundle.");
+    expect(powder).not.toMatch(/PDFgui|diffpy|SHELXL/);
+    const sc = text(reportHtml(singleCrystalInput()));
+    expect(sc).toContain("reproduce a result you publish in SHELXL, JANA2020 or FullProf; the Export menu writes the CIF and the reflections as a FullProf .int.");
+    expect(sc).not.toMatch(/GSAS|PDFgui|diffpy/);
+    const verdict: ValidationVerdict = { headline: "", tone: "ok", checks: [] };
+    expect(singleCrystalCaveats({ subject: "s", against: "a", free: 1, agreement: "{{R_1}} = 1 %", result: null, parameters: [], verdict }).at(-1)).toEqual({
+      tone: "info", label: "Cross-check", text: "reproduce the refinement in SHELXL, JANA2020 or FullProf: the Export menu writes the CIF and the reflections as a FullProf .int",
+    });
   });
 });
 

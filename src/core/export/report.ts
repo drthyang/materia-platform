@@ -46,6 +46,7 @@ import { crystalComponentsToCartesian } from "@/core/magnetic/moment";
 import { kLabel } from "@/core/magnetic/kSearch";
 import { magneticSupercell, momentAnchorPosition } from "@/core/crystal/cellExpansion";
 import { markNumbers } from "@/core/export/reportAudit";
+import { CROSS_CHECK, crossCheckPackages } from "@/core/export/crossCheck";
 import { atomTable, atomTableNote, cellTerms, shellTables, spaceGroupNumber, SHELL_NOTE, type AtomTable } from "@/core/export/reportTables";
 import { asFraction, esc, formulaHtml, formulasInText, formulaText, minus, spaceGroupHtml, splitAtPoint, symbolHtml } from "@/core/export/reportTypeset";
 import type { ReportAssessment, ReportCaveat, ReportTone } from "@/core/export/reportResult";
@@ -481,9 +482,14 @@ export const ACCOUNT_NOTE = "Written by MATERIA Copilot in its own words, as are
 /** What the composed Result paragraph says about whose words it is. */
 export const COMPOSED_NOTE = "Composed by MATERIA from its own checks of this fit, not by a model.";
 
-/** The report's last words: who wrote it, what the parentheses are, and the beta's caution. */
+/**
+ * The report's last words: who wrote it, what the parentheses are, and the
+ * beta's caution, naming the technique's own cross-check packages and what the
+ * Export menu writes for them (crossCheck.ts): a PDF is reproduced in PDFgui /
+ * diffpy-CMI, not in a Rietveld program.
+ */
 export const FOOTER = (input: ReportInput, date: string): string =>
-  `MATERIA Workbench${input.appVersion ? ` v${input.appVersion}` : ""}, ${date}. Numbers in parentheses are standard uncertainties in the last digits, from this fit's least-squares covariance; a tied value carries its leader's. MATERIA is in public beta: reproduce a result you publish in an established package (the Export menu writes GSAS-II and FullProf bundles).`;
+  `MATERIA Workbench${input.appVersion ? ` v${input.appVersion}` : ""}, ${date}. Numbers in parentheses are standard uncertainties in the last digits, from this fit's least-squares covariance; a tied value carries its leader's. MATERIA is in public beta: reproduce a result you publish in ${crossCheckPackages(input.technique, !!input.magnetic)}; ${CROSS_CHECK[input.technique].exportNote}.`;
 
 /** The software and the date behind the report, for the appendix. */
 export function softwareRows(input: ReportInput, date: string): ReportRow[] {
