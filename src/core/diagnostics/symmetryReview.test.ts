@@ -2,6 +2,9 @@ import { describe, it, expect } from "vitest";
 import { parse_structure } from "@/mcp/tools";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { orderCandidates, reviewSymmetry } from "@/core/diagnostics/symmetryReview";
+import { buildSpaceGroup } from "@/core/crystal/spaceGroups";
+import { structuralSubgroupLattice } from "@/core/crystal/subgroupTree";
+import type { StructureModel, UnitCell } from "@/core/crystal/types";
 
 /**
  * The symmetry review (the method's last step) on a refined residual: a
@@ -106,5 +109,49 @@ describe("the order of the candidates", () => {
     expect(all.map((c) => [c.name, c.number, c.index, c.lost])).toEqual([["P m -3 m", 221, 2, "(½ ½ ½)"]]);
     expect(review.reading).toMatch(/a lost centring explains: P m -3 m \(the centring \(½ ½ ½\) dropped, index 2\) allows them all\. Its model orders what this one averages/);
     expect(review.limits.join(" ")).not.toMatch(/lost centring .* not enumerated/);
+  });
+});
+
+describe("the review's names under the validation freeze", () => {
+  // review_symmetry is model-visible, and frozen (docs/AGENT_PLAN.md, phase 6).
+  // The subgroup lattice now names a centred parent's subgroups in their
+  // standard settings, but the review keeps its names as they were until the
+  // freeze lifts, and some are wrong: from the coset representatives alone,
+  // I4₁/amd's Imma (#74) reads as Pmna (#53), its Imm2 (#44) as Pmn2₁ (#31)
+  // and R-3c's R-3 (#148) as P-3 (#147). The lattice's own names are the right
+  // ones (asserted here too), for the review once the freeze lifts.
+  const review = (symbol: string, cell: UnitCell) => {
+    const s: StructureModel = { id: "f", name: "f", cell, spaceGroup: buildSpaceGroup(symbol), sites: [{ label: "A1", element: "Fe", position: [0.1, 0.2, 0.3], occupancy: 1, adp: { kind: "isotropic", bIso: 0.5 } }] };
+    const allowed = generateReflections(cell, s.spaceGroup, 1.2, 6);
+    const keys = new Set(allowed.map((r) => `${r.h} ${r.k} ${r.l}`));
+    const forbidden = generateReflections(cell, s.spaceGroup, 1.2, 6, { absences: false }).filter((r) => !keys.has(`${r.h} ${r.k} ${r.l}`));
+    const n = 6000;
+    const d = Array.from({ length: n }, (_, i) => 1.2 + (4.8 * i) / (n - 1));
+    const yCalc = d.map(() => 1000);
+    const yObs = d.map((di, i) => 1000 + 8 * Math.sin(i * 1.7) + forbidden.reduce((sum, f) => sum + 400 * Math.exp(-0.5 * ((di - f.d) / 0.004) ** 2), 0));
+    const reflections = allowed.map((r) => ({ d: r.d, hkl: `${r.h} ${r.k} ${r.l}`, phaseLabel: "f" }));
+    return { s, out: reviewSymmetry([s], { d, yObs, yCalc, sigma: yCalc.map((y) => Math.sqrt(y)), reflections }) };
+  };
+  const rows = (r: ReturnType<typeof reviewSymmetry>) => r.candidates.map((c) => [c.name, c.number ?? null, c.index, c.domains]);
+
+  it("I4₁/amd: the candidates as main had them", () => {
+    const { s, out } = review("I 41/a m d:2", { a: 5, b: 5, c: 12, alpha: 90, beta: 90, gamma: 90 });
+    expect(rows(out)).toEqual([
+      ["I -4 m 2", 119, 2, 1], ["P m n a", 53, 2, 1], ["I 41 2 2", 98, 2, 1], ["I 41/a:2", 88, 2, 1],
+      ["I -4", 82, 4, 1], ["P m n 21", 31, 4, 1], ["P 1 2/n 1", 13, 4, 2], ["222 (point group; index 4)", null, 4, 1],
+    ]);
+    const names = new Set(structuralSubgroupLattice(s, { maxIndex: 6 }).nodes.map((n) => n.identity.number));
+    for (const right of [74, 44, 15, 22]) expect(names.has(right)).toBe(true);
+  });
+
+  it("R-3c: the candidates as main had them", () => {
+    const { s, out } = review("R -3 c:H", { a: 5, b: 5, c: 13.7, alpha: 90, beta: 90, gamma: 120 });
+    expect(rows(out)).toEqual([
+      ["P -3", 147, 2, 1], ["R 3 2:H", 155, 2, 1], ["P 3", 143, 4, 1], ["2 (point group; index 6)", null, 6, 3],
+      ["P -1", 2, 6, 1], ["m (point group; index 6)", null, 6, 3],
+    ]);
+    expect(out.decentred.map((c) => [c.name, c.number ?? null, c.index, c.domains])).toEqual([["P -3 c 1", 165, 3, 1], ["a primitive subgroup (index 3)", null, 3, 2]]);
+    const names = new Set(structuralSubgroupLattice(s, { maxIndex: 6 }).nodes.map((n) => n.identity.number));
+    for (const right of [148, 146, 15, 5, 9]) expect(names.has(right)).toBe(true);
   });
 });

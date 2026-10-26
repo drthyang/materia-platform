@@ -800,6 +800,30 @@ release fixes bugs.
 
 ### Fixed
 
+- **The PDF Subgroups page reads a centred parent's subgroups as centred.**
+  Its subgroup lattice held each subgroup as one operation per rotation,
+  without the parent's centring translations, so an F, I or R parent's
+  subgroups were named and built as primitive ones: NaCl's Fm-3m opened as
+  "Pm-3m" with a "P4/mmm" subgroup, and lowering to it split Na 4a into three
+  sites (a klassengleiche P subgroup, not F4/mmm). Every subgroup now keeps
+  all the parent's lattice translations, as a translationengleiche subgroup
+  does, and is named in its standard setting from the conventional cell of
+  its own symmetry (ITA A, Ch. 3.1 and 5.1): Fm-3m's 4/mmm subgroup is
+  I4/mmm (#139) on a′ = (a+b)/2, b′ = (−a+b)/2, c′ = c, and the subgroups on
+  a cube's diagonals, before named by their point group only, are Amm2, Cmmm,
+  R3m and the rest. The names agree with the maximal t-subgroups of ITA A1
+  for Pm-3m, Fm-3m, Fd-3m (both origins), Im-3m, I4/mmm, I4₁/amd, R-3m (both
+  axes), P6₃/mmc and Pnma. The child keeps the parent's cell. The Agent's
+  `review_symmetry` keeps its names until the validation freeze lifts; some
+  name a centred parent's subgroups as primitive (I4₁/amd's Imma as Pmna).
+
+- **The subgroup lattice counts orientations and domain states apart.**
+  "×3 domains" for Pm-3m → P4mm was the number of conjugate subgroups,
+  [G : N_G(H)]: the orientations of the distortion. Its domain states are
+  [G : H] = 6, ±P along each axis (Janovec; ITA D, Ch. 3.4). The row now
+  shows both: "3 orientations · 6 domain states". The magnetic subgroups'
+  domain counts are unchanged.
+
 - **A staged fit keeps a profile stage whose zero trades with the cell.** The
   staged sequence rejected a whole stage when freeing it grew an earlier
   parameter's esd more than fivefold. Since the engine's esds are those of the

@@ -39,6 +39,7 @@ import { extendedSymbol } from "@/core/crystal/spaceGroups";
 import { transformOperation } from "@/core/crystal/settings";
 import { orthogonalizationMatrix } from "@/core/crystal/unitCell";
 import { mulVec, determinant } from "@/core/math/mat3";
+import { standardSettingOf } from "@/core/crystal/standardSetting";
 import { orbitAtoms, type DisplaciveIrrepTerm } from "@/core/crystal/displaciveModes";
 import { buildSymmetryModes, type DistortionModeSet } from "@/core/crystal/distortionModes";
 
@@ -185,10 +186,22 @@ export interface SubgroupIdentity {
   readonly pointGroup: string | null;
   /** [G : H] index in the parent point group. */
   readonly index: number;
-  /** How the name was found (or why not). */
-  readonly method: "direct" | "permuted-setting" | "origin-shifted" | "point-group-only";
-  /** The origin shift (fractional) that matched, for "origin-shifted". */
+  /**
+   * How the name was found (or why not). "conventional-cell": in the cell the
+   * group's own symmetry defines (`basis`, `originShift`), not the parent's —
+   * a centred parent's subgroup such as F4/mmm, named I4/mmm (standardSetting).
+   */
+  readonly method: "direct" | "permuted-setting" | "origin-shifted" | "conventional-cell" | "point-group-only";
+  /** The origin shift (fractional) that matched, for "origin-shifted" and "conventional-cell". */
   readonly originShift?: readonly [number, number, number];
+  /** For "conventional-cell": the cell where the name holds, its axes as the columns, in the parent's basis. */
+  readonly basis?: Mat3;
+  /**
+   * For "conventional-cell": the tabulated symbol of the operations as given,
+   * in the parent's cell, when they are a listed non-standard setting
+   * (gemmi lists "F 4/m m m" for #139); `realizeSubgroup` stamps it.
+   */
+  readonly inParentCell?: string;
 }
 
 const opKey = (op: SymmetryOperation): string => {
@@ -246,11 +259,18 @@ const ORIGIN_GRID = 8;
  * origin-choice-2 group, Fd-3m:2's F-43m, has its origin ⅛ along the
  * diagonal; pass the full centred operation set). Falls back to the point
  * group + index (honest degradation, reported via `method`).
+ *
+ * With `standard`, the name is the STANDARD one: a reference setting as given,
+ * else the group's own conventional cell (standardSetting.ts — ITA A Ch. 3.1,
+ * 5.1), which names the subgroups of a centred parent (pass its full centred
+ * operation set: F4/mmm in the cubic cell is I4/mmm, #139) and those whose
+ * axes are the parent's diagonals (Amm2, Cmmm, R3m below Pm-3m). Off by
+ * default: the review_symmetry tool's names are frozen with the call as it was.
  */
 export function identifySubgroup(
   subOps: readonly SymmetryOperation[],
   parentOps: readonly SymmetryOperation[],
-  options: { readonly originShifts?: boolean } = {},
+  options: { readonly originShifts?: boolean; readonly standard?: boolean } = {},
 ): SubgroupIdentity {
   const pg = classifyPointGroup(subOps);
   const parentPg = classifyPointGroup(parentOps);
@@ -264,10 +284,31 @@ export function identifySubgroup(
   const entries = tableKeysWithOrder(nOps);
 
   const direct = opSetKey(subOps);
-  for (const { e, key } of entries) {
-    if (key === direct) {
-      return { number: e.number, hermannMauguin: extendedSymbol(e), pointGroup: pg.symbol, index, method: "direct" };
+  const directHit = entries.find(({ key }) => key === direct)?.e;
+  if (options.standard) {
+    // The standard name: the operations as given when they are a reference
+    // setting; else the conventional cell of their own symmetry
+    // (standardSetting.ts), which also names a centred parent's subgroups.
+    if (directHit?.reference) {
+      return { number: directHit.number, hermannMauguin: extendedSymbol(directHit), pointGroup: pg.symbol, index, method: "direct" };
     }
+    const std = standardSettingOf(subOps);
+    if (std && (std.entry.reference || !directHit)) {
+      const shifted = std.origin.some((x) => Math.abs(x) > 1e-9);
+      return {
+        number: std.entry.number,
+        hermannMauguin: extendedSymbol(std.entry),
+        pointGroup: pg.symbol,
+        index,
+        method: "conventional-cell",
+        basis: std.basis,
+        ...(shifted ? { originShift: [std.origin[0], std.origin[1], std.origin[2]] as const } : {}),
+        ...(directHit ? { inParentCell: extendedSymbol(directHit) } : {}),
+      };
+    }
+  }
+  if (directHit) {
+    return { number: directHit.number, hermannMauguin: extendedSymbol(directHit), pointGroup: pg.symbol, index, method: "direct" };
   }
   for (const P of properCubicRotations()) {
     const transformed = opSetKey(subOps.map((op) => transformOperation(op, P)));
@@ -367,13 +408,16 @@ export function realizeSubgroup(
   // Stamp the standard name ONLY when the operation list actually IS the
   // standard setting (a permuted-setting match would put a symbol on ops it
   // does not describe — the identity is still reported to callers for labels).
+  // A conventional-cell name holds in another cell; the operations get the
+  // symbol of the tabulated setting they are in the parent's cell, if any.
   const direct = identity?.method === "direct";
+  const symbol = direct ? identity?.hermannMauguin : identity?.inParentCell;
   return {
     ...parent,
     spaceGroup: {
       operations: [...subOps],
-      ...(direct && identity?.hermannMauguin !== undefined ? { hermannMauguin: identity.hermannMauguin } : {}),
-      ...(direct && identity?.number !== undefined ? { number: identity.number } : {}),
+      ...(symbol !== undefined ? { hermannMauguin: symbol } : {}),
+      ...(symbol !== undefined && identity?.number !== undefined ? { number: identity.number } : {}),
     },
     sites,
   };

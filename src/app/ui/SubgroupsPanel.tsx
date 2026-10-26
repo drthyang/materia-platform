@@ -232,9 +232,12 @@ export function SubgroupsPanel({ spaceGroup, lattice, irrepTree, modes, modeCoun
                   {n.identity.hermannMauguin && n.pointGroup ? <span style={{ color: color.secondary }}> ({n.pointGroup})</span> : null}
                   {n.identity.number !== undefined ? <span style={{ color: color.secondary }}> #{n.identity.number}</span> : null}
                 </span>
-                {n.domainCount > 1 && (
-                  <span style={{ fontFamily: mono, fontSize: fz.micro, color: color.secondary }} title="symmetry-equivalent domains (conjugate subgroups of the same type)">
-                    ×{n.domainCount} domains
+                {n.domainStates > 1 && (
+                  <span
+                    style={{ fontFamily: mono, fontSize: fz.micro, color: color.secondary }}
+                    title={`${n.conjugates} conjugate subgroup${n.conjugates === 1 ? "" : "s"} [G : N_G(H)]: the orientations of this distortion. ${n.domainStates} domain states [G : H]${n.conjugates > 1 ? `: ${n.domainStates / n.conjugates} in each orientation, of the same symmetry (such as ±)` : ""}.`}
+                  >
+                    {n.conjugates > 1 ? `${n.conjugates} orientations · ` : ""}{n.domainStates} domain states
                   </span>
                 )}
                 {n.identity.number === undefined && !n.isTrivial && (
