@@ -33,7 +33,7 @@ const parseFrac = (s: string): number => {
 };
 
 describe("small representations agree with spgrep, character by character", () => {
-  for (const c of (fixtures as { cases: FixtureCase[] }).cases) {
+  for (const c of (fixtures as unknown as { cases: FixtureCase[] }).cases) {
     it(c.name, () => {
       const group = factorGroup(buildSpaceGroup(SETTING[c.name.split(" ")[0]!]!).operations);
       const k = [c.k[0]!, c.k[1]!, c.k[2]!] as const;
