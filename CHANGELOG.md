@@ -556,8 +556,13 @@ release fixes bugs.
   the moment rows free, so Refine from it refines the moments only. The
   solution file records the free rows (`free`) and the wR of that step
   (`magneticWr`, which replaces `jointWr`). The demo refuses an older solution
-  file and asks for it to be regenerated. The magnetic page and the user's
-  own refinements are unchanged.
+  file and asks for it to be regenerated. The data-gated 8 K benchmark
+  (`realAwo4Benchmark.test.ts`) follows the same rule: its last step refines
+  the ★ group's moments with the staged nuclear model held, the B-at-0 checks
+  read the nuclear fit, and C9 asks that step to hold every nuclear row and
+  end no higher than the ranking's fit, where it asked a joint fit to end
+  strictly lower. The magnetic page and the user's own refinements are
+  unchanged.
 
 - **The refinement report reads as a paper's results section.** Export ▸
   Report (and the Copilot's report) now opens on a short **Result**

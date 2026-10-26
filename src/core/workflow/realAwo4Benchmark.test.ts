@@ -46,8 +46,8 @@ import { withZeroAdpProposal, zeroAdpProposals } from "@/core/diagnostics/zeroAd
  * without it. Only its magnetic content is trusted (k, the group and its
  * operators, the moment components, its ⟨j0⟩ ions); its cell is not. The cell
  * enters only as the basis of the doubled cell, the moment components are
- * converted with the app's refined 8 K metric, and the like-for-like joint fit
- * uses the reference's ⟨j0⟩ ions through the sites' oxidation states (the app's
+ * converted with the app's refined 8 K metric, and the like-for-like magnetic
+ * refinement uses the reference's ⟨j0⟩ ions through the sites' oxidation states (the app's
  * default, 2+, drives C1–C13). No trusted 8 K cell exists: the cell (C3) is
  * compared only with the 100 K CIF, within thermal-contraction bounds. The
  * app-generated demo solution is not used.
@@ -60,8 +60,10 @@ import { withZeroAdpProposal, zeroAdpProposals } from "@/core/diagnostics/zeroAd
  *
  * Procedure: the app's own pipeline (my-rietveld-workflow → magnetic-analysis):
  * staged nuclear refinement → residual peaks → k-search → every magnetic group
- * of the little group of k ranked with the nuclear model held → the ★ group
- * co-refined with the nuclear model. Criteria the app does not meet today are
+ * of the little group of k ranked with the nuclear model held → the ★ group's
+ * magnetic refinement: only the magnetic parameters free, the staged nuclear
+ * model held as the fixed reference (magnetic-analysis, Stage 4: the owner's
+ * rule). Criteria the app does not meet today are
  * kept as stated and marked `it.fails`; when one starts to pass, the test turns
  * red and the benchmark record must be revisited — never loosen the criterion.
  */
@@ -139,8 +141,10 @@ interface Bench {
   readonly ranking: Record<string, RankEntry>;
   readonly best: { id: string; wR: number };
   readonly tied: string[];
-  readonly joint: RefinementResult;
-  readonly jointValues: Record<string, number>;
+  /** The magnetic refinement: the ★ group's moments free, every nuclear row held. */
+  readonly magneticFit: RefinementResult;
+  /** Its values: the staged nuclear rows as they were, and the moments. */
+  readonly values: Record<string, number>;
   readonly momentIds: string[];
   readonly moment: { value: number; esd: number };
   readonly ionBound: number;
@@ -150,12 +154,12 @@ interface Bench {
   readonly dArr: number[];
   readonly sigma: number[];
   readonly reflections: { d: number; hkl: string; phaseLabel: string }[];
-  readonly yJoint: Float64Array;
+  readonly yMagnetic: Float64Array;
   readonly ions: string[];
-  /** The ★ group's moment model (its amplitudes are in jointValues). */
+  /** The ★ group's moment model (its amplitudes are in values). */
   readonly build: MagneticModelBuild;
-  /** The structure with the joint nuclear values applied. */
-  readonly jointModel: StructureModel;
+  /** The structure with the staged nuclear values applied (the magnetic refinement holds them). */
+  readonly model: StructureModel;
 }
 
 async function runBenchmark(): Promise<Bench> {
@@ -209,50 +213,53 @@ async function runBenchmark(): Promise<Bench> {
   const best = bestRanked(ranking, reps, dims)!;
   const tied = withinNoise(ranking, reps, dims);
 
-  // Joint: the nuclear free set and the ★ group's moments together.
+  // The magnetic refinement (magnetic-analysis, Stage 4, the owner's rule): only
+  // the magnetic parameters free — the ★ group's moments; k = (½ 0 0) is
+  // self-conjugate, so no k component refines — against the staged nuclear
+  // model as a fixed reference. Freed, the nuclear rows trade with the moments.
   const build = buildFor(structure, K, ions, reps.find((r) => r.candidate.id === best.id)!.candidate.operations, ties);
   const moments = build.params.map((p) => {
     const v = ranking[best.id]!.values[p.id] ?? p.value;
     return { ...p, value: v, initialValue: v, fixed: !!p.expression };
   });
-  const jointParams = [...nuclear.map((p) => ({ ...p })), ...moments];
-  const jointProblem = buildMagneticPowderProblem(structure, build.magnetic, pattern, jointParams, [...spec.bindings, ...build.bindings], spec.profile, fitRange);
-  const joint = refine(jointProblem, { maxIterations: 20 });
-  const jointValues: Record<string, number> = {};
-  for (const p of jointParams) jointValues[p.id] = joint.parameters[p.id] ?? p.value;
-  const yJoint = jointProblem.calculate(jointValues);
+  const magneticParams = [...held, ...moments];
+  const magneticProblem = buildMagneticPowderProblem(structure, build.magnetic, pattern, magneticParams, [...spec.bindings, ...build.bindings], spec.profile, fitRange);
+  const magneticFit = refine(magneticProblem, { maxIterations: 20 });
+  const values: Record<string, number> = {};
+  for (const p of magneticParams) values[p.id] = magneticFit.parameters[p.id] ?? p.value;
+  const yMagnetic = magneticProblem.calculate(values);
 
   // |M| (one tied moment per ion) and its esd from the amplitude esds (covariances neglected).
   const sizeOf = (v: Record<string, number>) => {
     const m = applyMagneticMoments(build.magnetic, build.bindings, v).moments[0]!;
     return Math.hypot(...momentCartesian(structure.cell, m));
   };
-  const size = sizeOf(jointValues);
+  const size = sizeOf(values);
   let var2 = 0;
   for (const p of moments.filter((q) => !q.fixed)) {
-    const h = 1e-4 * Math.max(1, Math.abs(jointValues[p.id]!));
-    const dM = (sizeOf({ ...jointValues, [p.id]: jointValues[p.id]! + h }) - size) / h;
-    var2 += (dM * (joint.esd?.[p.id] ?? NaN)) ** 2;
+    const h = 1e-4 * Math.max(1, Math.abs(values[p.id]!));
+    const dM = (sizeOf({ ...values, [p.id]: values[p.id]! + h }) - size) / h;
+    var2 += (dM * (magneticFit.esd?.[p.id] ?? NaN)) ** 2;
   }
   const spins = ions.map((l) => SPIN_ONLY[structure.sites.find((s) => s.label === l)!.element] ?? NaN);
 
-  // Residual height at each included k-search peak, before (nuclear) and after (joint).
+  // Residual height at each included k-search peak, before (nuclear) and after (the magnetic refinement).
   const included = rows.filter((r) => r.included);
   const apex = (y: ArrayLike<number>, d: number) => Math.max(...window.filter((i) => Math.abs(dArr[i]! / d - 1) <= 0.003).map((i) => curves.yObs[i]! - y[i]!));
-  const jointModel = applyParameters(structure, spec.bindings, jointValues).model;
+  const model = applyParameters(structure, spec.bindings, values).model;
   const reflections = [
-    ...generateReflections(jointModel.cell, jointModel.spaceGroup, 0.9, 25).map((r) => ({ d: r.d, hkl: `${r.h} ${r.k} ${r.l}`, phaseLabel: "AWO4" })),
-    ...satellitePositions(jointModel.cell, K, 0.9, D_MAX + 1).map((r) => ({ d: r.d, hkl: r.hkl, phaseLabel: "magnetic" })),
+    ...generateReflections(model.cell, model.spaceGroup, 0.9, 25).map((r) => ({ d: r.d, hkl: `${r.h} ${r.k} ${r.l}`, phaseLabel: "AWO4" })),
+    ...satellitePositions(model.cell, K, 0.9, D_MAX + 1).map((r) => ({ d: r.d, hkl: r.hkl, phaseLabel: "magnetic" })),
   ];
 
   const bench: Bench = {
-    structure, pattern, inst, cif, bindings: spec.bindings, profile: spec.profile, fitRange, nuclear, nuclearResult, rows, kRanking, reps, dims, ranking, best, tied, joint, jointValues,
+    structure, pattern, inst, cif, bindings: spec.bindings, profile: spec.profile, fitRange, nuclear, nuclearResult, rows, kRanking, reps, dims, ranking, best, tied, magneticFit, values,
     momentIds: moments.filter((q) => !q.fixed).map((q) => q.id),
     moment: { value: size, esd: Math.sqrt(var2) },
     ionBound: spins.reduce((a, b) => a + b, 0) / spins.length,
     before: included.map((r) => apex(curves.yCalc, r.d)),
-    after: included.map((r) => apex(yJoint, r.d)),
-    window, dArr, sigma, reflections, yJoint, ions, build, jointModel,
+    after: included.map((r) => apex(yMagnetic, r.d)),
+    window, dArr, sigma, reflections, yMagnetic, ions, build, model,
   };
   report(bench);
   return bench;
@@ -284,19 +291,18 @@ function report(b: Bench): void {
     const label = std ? `${formatMagneticSymbol(std.bnsSymbol)} (BNS ${std.bnsNumber})` : r.candidate.label;
     console.log(`[awo4-bench]   ${r.candidate.id === b.best.id ? "★" : b.tied.includes(r.candidate.id) ? "=" : " "} ${label} index ${r.index} · ${b.dims[i]} moment comps · ${e?.status ?? "not fitted"} · wR ${e?.wR != null ? (100 * e.wR).toFixed(3) : "—"}% · |M| ${e?.magnitudes[0]?.value.toFixed(2) ?? "—"}`);
   }
-  const esd = b.joint.esd ?? {};
-  console.log(`[awo4-bench] joint ${ag(b.joint)} · ${b.joint.status} · |M| ${b.moment.value.toFixed(3)}(${b.moment.esd.toFixed(3)}) µB (bound ${b.ionBound.toFixed(2)}) · amplitudes ${b.momentIds.map((id) => `${id} ${b.jointValues[id]!.toFixed(3)}±${(esd[id] ?? NaN).toFixed(3)}`).join(" ")} · max shift/esd ${b.joint.diagnostics?.maxShiftOverEsd.toExponential(2)} · at bounds ${b.joint.diagnostics?.atBounds.map((x) => x.parameterId).join(",") || "none"} · |ρ|≥0.95 ${JSON.stringify(b.joint.diagnostics?.highCorrelations ?? [])}`);
-  console.log(`[awo4-bench] joint − staged (Δ/esd): ${b.nuclear.filter((p) => !p.fixed).map((p) => `${p.id} ${((b.jointValues[p.id]! - p.value) / (esd[p.id] ?? NaN)).toFixed(1)}`).join(" ")}`);
+  const esd = b.magneticFit.esd ?? {};
+  console.log(`[awo4-bench] magnetic refinement (moments only, nuclear held) ${ag(b.magneticFit)} · ${b.magneticFit.status} · |M| ${b.moment.value.toFixed(3)}(${b.moment.esd.toFixed(3)}) µB (bound ${b.ionBound.toFixed(2)}) · amplitudes ${b.momentIds.map((id) => `${id} ${b.values[id]!.toFixed(3)}±${(esd[id] ?? NaN).toFixed(3)}`).join(" ")} · max shift/esd ${b.magneticFit.diagnostics?.maxShiftOverEsd.toExponential(2)} · at bounds ${b.magneticFit.diagnostics?.atBounds.map((x) => x.parameterId).join(",") || "none"} · |ρ|≥0.95 ${JSON.stringify(b.magneticFit.diagnostics?.highCorrelations ?? [])}`);
   console.log(`[awo4-bench] magnetic-peak residual after/before: ${b.after.map((a, i) => (a / b.before[i]!).toFixed(2)).join(" ")}`);
   const post = postResidual(b);
-  console.log(`[awo4-bench] after joint: ${post.reading} · unexplained ${post.unexplained.map((p) => `${p.d.toFixed(3)} (${p.sigmas?.toFixed(0)}σ)`).join(", ") || "none"}`);
+  console.log(`[awo4-bench] after the magnetic refinement: ${post.reading} · unexplained ${post.unexplained.map((p) => `${p.d.toFixed(3)} (${p.sigmas?.toFixed(0)}σ)`).join(", ") || "none"}`);
 }
 
 function postResidual(b: Bench) {
   const w = b.window;
   const yObs = b.pattern.points.map((p) => p.yObs);
   return find_unexplained_peaks({
-    residual: { d: w.map((i) => b.dArr[i]!), yObs: w.map((i) => yObs[i]!), yCalc: w.map((i) => b.yJoint[i]!), sigma: w.map((i) => b.sigma[i]!), sigmaFrom: "file", reflections: b.reflections, magneticNeutron: true },
+    residual: { d: w.map((i) => b.dArr[i]!), yObs: w.map((i) => yObs[i]!), yCalc: w.map((i) => b.yMagnetic[i]!), sigma: w.map((i) => b.sigma[i]!), sigmaFrom: "file", reflections: b.reflections, magneticNeutron: true },
   });
 }
 
@@ -370,7 +376,7 @@ describe.skipIf(!has)("AWO₄ 8 K benchmark — nuclear vs the 100 K CIF, k, and
     expect(v / v0 - 1).toBeGreaterThanOrEqual(-(3 * THERMAL_PER_AXIS + 2 * sigV));
   });
 
-  // Known not met on the local data, after the staged nuclear fit and unchanged by the joint one.
+  // Known not met on the local data, after the staged nuclear fit (the magnetic refinement holds the positions).
   // The 8 K reference keeps the 100 K positions (R0b), so it gives no other target.
   it.fails("C4: refined positions within 0.02 Å + 3σ of the 100 K CIF", () => {
     for (const p of b.nuclear.filter((q) => q.kind === "positionShift" && !q.fixed)) {
@@ -383,29 +389,29 @@ describe.skipIf(!has)("AWO₄ 8 K benchmark — nuclear vs the 100 K CIF, k, and
   // Known not met on the local data: B_iso values rail to their bound at 0. The 8 K reference
   // refines one shared U_iso (R0c), so it gives no per-site target. The B-at-0 rule (M10) gives each
   // a warned proposal with ranked options (C5b); with the preferred tie applied it is off its bound (C5c); C5 is read
-  // on the fit as refined, with nothing applied, and stays as written.
+  // on the fit as refined, with nothing applied, and stays as written. The B's are the staged nuclear
+  // fit's: the magnetic refinement holds them (Stage 4), so C5–C5c read that fit.
   it.fails("C5: every B_iso positive and off its bound", () => {
-    const bounded = new Set(b.joint.diagnostics?.atBounds.map((x) => x.parameterId) ?? []);
+    const bounded = new Set(b.nuclearResult.diagnostics?.atBounds.map((x) => x.parameterId) ?? []);
     for (const p of b.nuclear.filter((q) => q.kind === "bIso" && !q.fixed)) {
-      expect(b.jointValues[p.id]!).toBeGreaterThan(0);
+      expect(p.value).toBeGreaterThan(0);
       expect(bounded.has(p.id)).toBe(false);
     }
   });
 
-  // The B-at-0 rule (M10): each B the joint fit leaves on its bound gets a proposal with a warning,
+  // The B-at-0 rule (M10): each B the nuclear fit leaves on its bound gets a proposal with a warning,
   // and nothing is applied behind the user's back — C5 above is read on the fit as refined.
-  // Re-pinned with the shared-site tie (#106): W1 and O2 both rail to 0 in the staged nuclear fit, but
-  // the joint fit, which starts from it, leaves O2 a hair above 0, far inside its esd, and the engine's
-  // bound test (on the bound itself, for a bound of 0) no longer counts it. Before the tie (the
-  // occupancies' starting sum, not 1, held softly) the joint fit held both on the bound. So only W1 is pinned;
-  // O2's preferred tie to O1 is checked whenever O2 is on its bound, and on synthetic data in
-  // zeroAdp.test.ts. The criterion — every B on its bound gets a warned proposal, nothing applied — is unchanged.
+  // Read on the staged nuclear fit, whose B's the magnetic refinement holds: W1 and O2 both rail to 0
+  // there. (A joint nuclear + magnetic fit, which this benchmark ran before the moments-only rule, left
+  // O2 a hair above 0, far inside its esd, so only W1 was pinned.) W1 is pinned; O2's preferred tie to
+  // O1 is checked whenever O2 is on its bound, and on synthetic data in zeroAdp.test.ts. The
+  // criterion — every B on its bound gets a warned proposal, nothing applied — is unchanged.
   it("C5b: each B on its lower bound gets a warned proposal, applied to nothing", () => {
-    const rows = b.nuclear.map((p) => ({ ...p, value: b.jointValues[p.id] ?? p.value }));
+    const rows = b.nuclear;
     const kind = new Map(rows.map((p) => [p.id, p.kind]));
-    const bounded = (b.joint.diagnostics?.atBounds ?? []).filter((x) => x.bound === "min" && kind.get(x.parameterId) === "bIso").map((x) => x.parameterId).sort();
+    const bounded = (b.nuclearResult.diagnostics?.atBounds ?? []).filter((x) => x.bound === "min" && kind.get(x.parameterId) === "bIso").map((x) => x.parameterId).sort();
     expect(bounded).toEqual(expect.arrayContaining(["B_W1"]));
-    const proposals = zeroAdpProposals({ parameters: rows, bindings: b.bindings, result: b.joint, structures: [b.structure], refined: [b.jointModel] });
+    const proposals = zeroAdpProposals({ parameters: rows, bindings: b.bindings, result: b.nuclearResult, structures: [b.structure], refined: [b.model] });
     expect(proposals.map((p) => p.parameterId).sort()).toEqual(bounded);
     for (const p of proposals) {
       expect(p.warning.startsWith(`${p.atom} refined to`)).toBe(true);
@@ -422,19 +428,19 @@ describe.skipIf(!has)("AWO₄ 8 K benchmark — nuclear vs the 100 K CIF, k, and
     expect(w1.options.every((o) => o.rank === "alternative")).toBe(true);
     for (const o of w1.options.filter((x) => x.rule === "A")) expect(o.caution).toMatch(/^a different cation \(W.* vs .*\): check it is physically sensible$/);
     // Computing a proposal changes no row.
-    expect(rows.filter((p) => p.kind === "bIso").every((p) => p.value === (b.jointValues[p.id] ?? p.value))).toBe(true);
+    expect(rows.filter((p) => p.kind === "bIso").every((p) => p.value === b.values[p.id])).toBe(true);
     console.log(`[awo4-bench] B at 0: ${proposals.map((p) => `${p.parameterId} → ${p.options.map((o, i) => `${i + 1}) ${o.rank} ${o.rule === "A" ? `tie ${o.leader}` : `hold ${o.value!.toFixed(3)}`} [${o.label}]`).join(" ")}`).join(" | ")}`);
   });
 
-  // With options applied (what the user gets on Apply), the joint fit refined again: an observation
-  // for the record — C5 above stays as written, on the fit as refined. Two choices: the preferred
-  // tie alone; and the preferred tie with each other B held at its starting value, where it has one.
-  // With the shared-site tie only W1 is on its bound (C5b) and it has no preferred option, so the
-  // first run applies nothing and the leader check has no leader to read.
-  it("C5c: with the preferred tie applied and the joint fit refined again, its leader is off its bound", () => {
-    const rows = b.nuclear.map((p) => ({ ...p, value: b.jointValues[p.id] ?? p.value }));
-    const proposals = zeroAdpProposals({ parameters: rows, bindings: b.bindings, result: b.joint, structures: [b.structure], refined: [b.jointModel] });
-    const moments = b.build.params.map((p) => ({ ...p, value: b.jointValues[p.id] ?? p.value, initialValue: b.jointValues[p.id] ?? p.value, fixed: !!p.expression }));
+  // With options applied (what the user gets on Apply), the nuclear model refined again — the B's are
+  // its rows — and the moments refined once more against it, nuclear held: an observation for the
+  // record — C5 above stays as written, on the fit as refined. Two choices: the preferred tie alone;
+  // and the preferred tie with each other B held at its starting value, where it has one. The leader
+  // check reads the nuclear refit.
+  it("C5c: with the preferred tie applied and the nuclear model refined again, its leader is off its bound", () => {
+    const rows = b.nuclear;
+    const proposals = zeroAdpProposals({ parameters: rows, bindings: b.bindings, result: b.nuclearResult, structures: [b.structure], refined: [b.model] });
+    const moments = b.build.params.map((p) => ({ ...p, value: b.values[p.id] ?? p.value, initialValue: b.values[p.id] ?? p.value, fixed: !!p.expression }));
     const ag = (r: RefinementResult) => `wR ${(100 * (r.agreement.rWeighted ?? NaN)).toFixed(3)}% GoF ${(r.agreement.goodnessOfFit ?? NaN).toFixed(2)}`;
     const run = (choice: (p: (typeof proposals)[number]) => number, name: string) => {
       let applied = rows;
@@ -442,9 +448,12 @@ describe.skipIf(!has)("AWO₄ 8 K benchmark — nuclear vs the 100 K CIF, k, and
         const i = choice(p);
         if (i >= 0) applied = withZeroAdpProposal(applied, p, i);
       }
-      const again = refine(buildMagneticPowderProblem(b.structure, b.build.magnetic, b.pattern, [...applied, ...moments], [...b.bindings, ...b.build.bindings], b.profile, b.fitRange), { maxIterations: 20 });
+      const again = refine(buildPowderProblem(b.structure, b.pattern, applied, b.bindings, b.profile, [], b.fitRange), { maxIterations: 20 });
       const bounded = new Set((again.diagnostics?.atBounds ?? []).map((x) => x.parameterId));
-      console.log(`[awo4-bench] ${name}, joint again: ${ag(again)} (was ${ag(b.joint)}) · ${again.status} · B ${applied.filter((p) => p.kind === "bIso").map((p) => `${p.id} ${(again.parameters[p.id] ?? p.value).toFixed(3)}${again.esd?.[p.id] ? `±${again.esd[p.id]!.toFixed(3)}` : p.expression ? ` (${p.expression})` : " (held)"}`).join(" ")} · at bounds ${[...bounded].join(",") || "none"}`);
+      const held = applied.map((p) => ({ ...p, value: again.parameters[p.id] ?? p.value, fixed: true }));
+      const mag = refine(buildMagneticPowderProblem(b.structure, b.build.magnetic, b.pattern, [...held, ...moments], [...b.bindings, ...b.build.bindings], b.profile, b.fitRange), { maxIterations: 20 });
+      const m = applyMagneticMoments(b.build.magnetic, b.build.bindings, { ...Object.fromEntries(held.map((p) => [p.id, p.value])), ...mag.parameters }).moments[0]!;
+      console.log(`[awo4-bench] ${name}, nuclear again: ${ag(again)} (was ${ag(b.nuclearResult)}) · ${again.status} · B ${applied.filter((p) => p.kind === "bIso").map((p) => `${p.id} ${(again.parameters[p.id] ?? p.value).toFixed(3)}${again.esd?.[p.id] ? `±${again.esd[p.id]!.toFixed(3)}` : p.expression ? ` (${p.expression})` : " (held)"}`).join(" ")} · at bounds ${[...bounded].join(",") || "none"} · then the moments, nuclear held: ${ag(mag)} (was ${ag(b.magneticFit)}) · |M| ${Math.hypot(...momentCartesian(b.structure.cell, m)).toFixed(3)} µB`);
       return { again, bounded };
     };
     const preferred = (p: (typeof proposals)[number]) => p.options.findIndex((o) => o.rank === "preferred");
@@ -480,13 +489,18 @@ describe.skipIf(!has)("AWO₄ 8 K benchmark — nuclear vs the 100 K CIF, k, and
     expect(b.moment.value / b.moment.esd).toBeGreaterThanOrEqual(10);
   });
 
-  it("C9: wR falls from the nuclear fit to the ★ moments to the joint fit", () => {
+  // The magnetic refinement frees the moments alone (the owner's rule), from the ★ ranking's fit of
+  // the same rows on the same nuclear model: it holds every nuclear row and ends no higher than that
+  // fit. (Before the rule, C9 asked a joint nuclear + magnetic fit to end strictly lower.)
+  it("C9: wR falls from the nuclear fit to the ★ moments; the magnetic refinement holds the nuclear model and ends no higher", () => {
     const nuclear = b.nuclearResult.agreement.rWeighted!;
     expect(b.best.wR).toBeLessThan(nuclear);
-    expect(b.joint.agreement.rWeighted!).toBeLessThan(b.best.wR);
+    for (const p of b.nuclear) expect(b.values[p.id], p.id).toBe(p.value);
+    expect(Object.keys(b.magneticFit.esd).every((id) => b.momentIds.includes(id))).toBe(true);
+    expect(b.magneticFit.agreement.rWeighted!).toBeLessThanOrEqual(b.best.wR * (1 + 1e-6));
   });
 
-  it("C10: the joint fit takes at least half the residual off every k-search peak", () => {
+  it("C10: the magnetic refinement takes at least half the residual off every k-search peak", () => {
     expect(b.before.length).toBeGreaterThan(0);
     b.after.forEach((a, i) => expect(a).toBeLessThanOrEqual(0.5 * b.before[i]!));
   });
@@ -494,24 +508,26 @@ describe.skipIf(!has)("AWO₄ 8 K benchmark — nuclear vs the 100 K CIF, k, and
   // Known not met on the local data: a line the magnetic model leaves unchanged (not yet identified).
   // The 8 K reference has the same k and group, so it indexes no reflection there either. Not the
   // vanadium can: bcc V at its 8 K cell puts 110 well outside the calibration's reach of the line, and
-  // a V phase added to the joint fit leaves it (identify_peaks' ±1.5 % d scale names V anyway).
-  it.fails("C11: no residual peak ≥ 5σ off every nuclear and magnetic reflection after the joint fit", () => {
+  // a V phase added to a joint fit left it (identify_peaks' ±1.5 % d scale names V anyway).
+  it.fails("C11: no residual peak ≥ 5σ off every nuclear and magnetic reflection after the magnetic refinement", () => {
     expect(postResidual(b).unexplained).toHaveLength(0);
   });
 
-  it("C12: esds on every free row off its bound, and converged", () => {
-    const bounded = new Set(b.joint.diagnostics?.atBounds.map((x) => x.parameterId) ?? []);
-    const free = [...b.nuclear.filter((p) => !p.fixed).map((p) => p.id), ...b.momentIds].filter((id) => !bounded.has(id));
-    for (const id of free) {
-      const e = b.joint.esd?.[id];
-      expect(Number.isFinite(e) && e! > 0, id).toBe(true);
+  // Each step's own free rows: the nuclear stage's, and the magnetic refinement's moments.
+  it("C12: esds on every free row off its bound, and the magnetic refinement converged", () => {
+    for (const [result, free] of [[b.nuclearResult, b.nuclear.filter((p) => !p.fixed).map((p) => p.id)], [b.magneticFit, b.momentIds]] as const) {
+      const bounded = new Set(result.diagnostics?.atBounds.map((x) => x.parameterId) ?? []);
+      for (const id of free.filter((x) => !bounded.has(x))) {
+        const e = result.esd?.[id];
+        expect(Number.isFinite(e) && e! > 0, id).toBe(true);
+      }
     }
-    expect(b.joint.diagnostics!.maxShiftOverEsd).toBeLessThan(0.1);
+    expect(b.magneticFit.diagnostics!.maxShiftOverEsd).toBeLessThan(0.1);
   });
 
   // Known not met on the local data. The 8 K reference gives no R values to compare.
-  it.fails("C13: joint GoF at most 2.5 (the acceptance bar)", () => {
-    expect(b.joint.agreement.goodnessOfFit!).toBeLessThanOrEqual(2.5);
+  it.fails("C13: the magnetic refinement's GoF at most 2.5 (the acceptance bar)", () => {
+    expect(b.magneticFit.agreement.goodnessOfFit!).toBeLessThanOrEqual(2.5);
   });
 });
 
@@ -599,13 +615,13 @@ const opKey = (o: SymmetryOperation): string => `${operationKey(o)}|${o.timeReve
 const isPureTranslation = (o: SymmetryOperation): boolean => o.rotation.every((row, i) => row.every((v, j) => v === (i === j ? 1 : 0)));
 
 
-/** An app joint fit as the reference block compares it. */
+/** An app magnetic refinement (moments only, the nuclear model held) as the reference block compares it. */
 interface AppFit {
   readonly build: MagneticModelBuild;
   readonly values: Record<string, number>;
   readonly esd: Record<string, number>;
   readonly result: RefinementResult;
-  /** The structure with the fit's nuclear values applied (its cell is the app's 8 K metric). */
+  /** The structure with the nuclear values applied (its cell is the app's refined 8 K metric). */
   readonly model: StructureModel;
   readonly magnetic: MagneticModel;
 }
@@ -613,9 +629,9 @@ interface AppFit {
 describe.skipIf(!hasRef)("AWO₄ 8 K benchmark — against the owner's reference refinement (magnetic_8K.mcif)", () => {
   let b: Bench;
   let ref: Reference;
-  /** The default pipeline's joint fit (2+ ⟨j0⟩, the app's default). */
+  /** The default pipeline's magnetic refinement (2+ ⟨j0⟩, the app's default). */
   let plain: AppFit;
-  /** Like for like: the same joint fit with the reference's ⟨j0⟩ ions, set as the sites' oxidation states. */
+  /** Like for like: the same magnetic refinement with the reference's ⟨j0⟩ ions, set as the sites' oxidation states. */
   let like: AppFit;
   beforeAll(async () => {
     b = await benchmark();
@@ -624,17 +640,17 @@ describe.skipIf(!hasRef)("AWO₄ 8 K benchmark — against the owner's reference
     if (!magnetic) throw new Error(`${REF}: read with no magnetic model`);
     const n = (["a", "b", "c"] as const).map((x) => Math.round(structure.cell[x] / b.structure.cell[x])) as [number, number, number];
     ref = { text, structure, magnetic, n, sus: momentSus(text), ions: referenceIons(text) };
-    plain = { build: b.build, values: b.jointValues, esd: b.joint.esd ?? {}, result: b.joint, model: b.jointModel, magnetic: applyMagneticMoments(b.build.magnetic, b.build.bindings, b.jointValues) };
-    like = jointWithIons(ref.ions);
+    plain = { build: b.build, values: b.values, esd: b.magneticFit.esd ?? {}, result: b.magneticFit, model: b.model, magnetic: applyMagneticMoments(b.build.magnetic, b.build.bindings, b.values) };
+    like = momentsWithIons(ref.ions);
     reportReference();
   }, LONG);
 
   /**
-   * The ★ group's two steps of the default pipeline again, with each ion's oxidation state from `ions`
-   * (which picks its ⟨j0⟩ ion): the moments with the staged nuclear model held, from the ranked values,
-   * then the joint fit with the same free rows.
+   * The ★ group's magnetic refinement of the default pipeline again, with each ion's oxidation state
+   * from `ions` (which picks its ⟨j0⟩ ion): the moments alone, from the ranked values, with the staged
+   * nuclear model held.
    */
-  function jointWithIons(ions: ReadonlyMap<string, number>): AppFit {
+  function momentsWithIons(ions: ReadonlyMap<string, number>): AppFit {
     const structure: StructureModel = {
       ...b.structure,
       sites: b.structure.sites.map((s) => (b.ions.includes(s.label) && ions.has(s.element) ? { ...s, oxidationState: ions.get(s.element)! } : s)),
@@ -644,8 +660,7 @@ describe.skipIf(!hasRef)("AWO₄ 8 K benchmark — against the owner's reference
     const problem = (params: RefinementParameter[]) => buildMagneticPowderProblem(structure, build.magnetic, b.pattern, params, [...b.bindings, ...build.bindings], b.profile, b.fitRange);
     const seed = (p: RefinementParameter, v: number | undefined) => ({ ...p, value: v ?? p.value, initialValue: v ?? p.value, fixed: !!p.expression });
     const ranked = b.ranking[b.best.id]!.values;
-    const momentsOnly = refine(problem([...b.nuclear.map((p) => ({ ...p, fixed: true })), ...build.params.map((p) => seed(p, ranked[p.id]))]), { maxIterations: 20 });
-    const params = [...b.nuclear.map((p) => ({ ...p })), ...build.params.map((p) => seed(p, momentsOnly.parameters[p.id]))];
+    const params = [...b.nuclear.map((p) => ({ ...p, fixed: true })), ...build.params.map((p) => seed(p, ranked[p.id]))];
     const result = refine(problem(params), { maxIterations: 20 });
     const values: Record<string, number> = Object.fromEntries(params.map((p) => [p.id, result.parameters[p.id] ?? p.value]));
     return { build, values, esd: result.esd ?? {}, result, model: applyParameters(structure, b.bindings, values).model, magnetic: applyMagneticMoments(build.magnetic, build.bindings, values) };
@@ -678,7 +693,7 @@ describe.skipIf(!hasRef)("AWO₄ 8 K benchmark — against the owner's reference
       const app = appSide(f);
       const r = refSide(f.model.cell);
       const r0 = refSide(ref.structure.cell);
-      console.log(`[awo4-ref] ${name}: joint wR ${(100 * (f.result.agreement.rWeighted ?? NaN)).toFixed(3)}% GoF ${(f.result.agreement.goodnessOfFit ?? NaN).toFixed(2)} · ${f.result.status} · |M| app ${app.size.toFixed(3)}(${app.sizeSu.toFixed(3)}) ref ${r.size.toFixed(3)}(${r.sizeSu.toFixed(3)}) µB [mCIF metric ${r0.size.toFixed(4)}] · φ app ${app.phi.toFixed(2)}(${app.phiSu.toFixed(2)})° ref ${r.phi.toFixed(2)}(${r.phiSu.toFixed(2)})° [mCIF metric ${r0.phi.toFixed(3)}] · Δ|M| ${(app.size - r.size).toFixed(3)} (2σ ${(2 * Math.hypot(app.sizeSu, r.sizeSu)).toFixed(3)}) · Δφ ${axisDelta(app.phi, r.phi).toFixed(2)}° (2σ ${(2 * Math.hypot(app.phiSu, r.phiSu)).toFixed(2)}°) · comps ${f.magnetic.moments.find((m) => m.siteLabel === label())!.components.map((x) => x.toFixed(3)).join(",")} · ff ${f.build.magnetic.moments.map((m) => m.formFactorId).join(",")}`);
+      console.log(`[awo4-ref] ${name}: moments-only wR ${(100 * (f.result.agreement.rWeighted ?? NaN)).toFixed(3)}% GoF ${(f.result.agreement.goodnessOfFit ?? NaN).toFixed(2)} · ${f.result.status} · |M| app ${app.size.toFixed(3)}(${app.sizeSu.toFixed(3)}) ref ${r.size.toFixed(3)}(${r.sizeSu.toFixed(3)}) µB [mCIF metric ${r0.size.toFixed(4)}] · φ app ${app.phi.toFixed(2)}(${app.phiSu.toFixed(2)})° ref ${r.phi.toFixed(2)}(${r.phiSu.toFixed(2)})° [mCIF metric ${r0.phi.toFixed(3)}] · Δ|M| ${(app.size - r.size).toFixed(3)} (2σ ${(2 * Math.hypot(app.sizeSu, r.sizeSu)).toFixed(3)}) · Δφ ${axisDelta(app.phi, r.phi).toFixed(2)}° (2σ ${(2 * Math.hypot(app.phiSu, r.phiSu)).toFixed(2)}°) · comps ${f.magnetic.moments.find((m) => m.siteLabel === label())!.components.map((x) => x.toFixed(3)).join(",")} · ff ${f.build.magnetic.moments.map((m) => m.formFactorId).join(",")}`);
     }
     // A note only: the mCIF's cell is not a reference (the owner: it may not be accurate).
     const cells = (["a", "b", "c"] as const).map((x, i) => `${x} ${((like.model.cell[x] / (ref.structure.cell[x] / ref.n[i]!) - 1) * 1e4).toFixed(2)}e-4`);
@@ -768,7 +783,7 @@ describe.skipIf(!hasRef)("AWO₄ 8 K benchmark — against the owner's reference
       if (r.index !== 2 || r.candidate.id === b.best.id || b.dims[i] === 0) continue;
       const build = buildFor(b.structure, K, b.ions, r.candidate.operations, ties);
       const generic = Object.fromEntries(build.params.map((p, j) => [p.id, 0.7 + 0.31 * j]));
-      expect(same(groupKeys(b.jointModel, applyMagneticMoments(build.magnetic, build.bindings, generic))), r.candidate.label).toBe(false);
+      expect(same(groupKeys(b.model, applyMagneticMoments(build.magnetic, build.bindings, generic))), r.candidate.label).toBe(false);
       others++;
     }
     expect(others).toBeGreaterThan(0);
