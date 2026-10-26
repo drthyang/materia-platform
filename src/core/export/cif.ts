@@ -453,9 +453,9 @@ function supercellProvenance(structure: StructureModel, k: Vec3, n: readonly [nu
  * Magnetic symmetry of the magnetic cell in the two magCIF loops: the coset
  * representatives, then the centering translations of the cell with anti-
  * translations marked −1 (identity first). The group is named when its
- * operations match a tabulated type I/III group in some setting; a black-and-
- * white lattice (type IV) is not in this app's table, so its name is left out
- * and the operations — which are complete — speak for themselves.
+ * operations match a tabulated group (types I–IV) in some setting; otherwise
+ * its name is left out and the operations — which are complete — speak for
+ * themselves.
  */
 function magneticCellSymmetryBlock(group: MagneticCellGroup, n: readonly [number, number, number]): string {
   const head: string[] = [];

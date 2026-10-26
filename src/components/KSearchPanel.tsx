@@ -83,10 +83,10 @@ const NO_PEAKS: readonly ResidualPeak[] = [];
 
 const ISOTROPY_FAILURE_TEXT: Record<IsotropyFailure, string> = {
   "no-modes": "The selected irrep(s) carry no moment on the chosen site(s) — this order parameter is magnetically silent here.",
-  "complex-irrep": "A conjugate-pair (complex) irrep is selected: its real combinations generally stabilize as anti-translation (type-IV) groups, which the bundled type-I/III table cannot name yet.",
+  "complex-irrep": "A conjugate-pair (complex) irrep is selected: its real combinations generally stabilize as anti-translation (type-IV) groups, which this route does not build yet. The magnetic-space-group route lists them.",
   "multidim-irrep": "A multidimensional irrep is selected: its magnetic group depends on the order-parameter direction (kernel vs epikernels) — direction selection is the next milestone. The magnetic-space-group route covers these orderings today.",
   "complex-phase": "This k gives complex phase factors e^{2πik·L}: naming needs the type-IV / star-of-k treatment (see docs/MAGNETIC_SYMMETRY.md).",
-  "primed-translation": "The stabilizer contains a primed pure translation — a type-IV magnetic group, outside the bundled type-I/III table.",
+  "primed-translation": "The stabilizer contains a primed pure translation — a type-IV magnetic group, which this route does not build yet. The magnetic-space-group route lists it.",
 };
 
 /**
@@ -1262,7 +1262,7 @@ export function KSearchPanel({
                                 : undefined}
                           >
                             <span style={{ fontFamily: themeMono, color: theme.secondary }}>
-                              {r.candidate.isTypeI ? "type I" : "type III"}
+                              {`type ${["I", "II", "III", "IV"][r.magneticType - 1]}`}
                             </span>
                             {" · "}{lbl.symbol}
                             {lbl.numbers && <span style={{ color: theme.secondary }}> · {lbl.numbers}</span>}

@@ -63,7 +63,7 @@ import { reviewSymmetry, type SymmetryReview } from "@/core/diagnostics/symmetry
 import { isGsasHistogram, parseGsasHistogramPattern } from "@/parsers/gsasHistogram";
 import { cagliotiOf } from "@/core/workflow/leBail";
 import { searchPropagationVector, type KSearchOptions } from "@/core/magnetic/kSearch";
-import { magneticSubgroupLattice, latticeRepresentatives } from "@/core/magnetic/subgroupLattice";
+import { magneticSubgroupLattice, latticeCandidateLabel, latticeRepresentatives } from "@/core/magnetic/subgroupLattice";
 import { allowedMomentDirections } from "@/core/magnetic/allowedMoments";
 import { buildMagneticModel } from "@/core/magnetic/momentModel";
 import { describePropagation } from "@/core/magnetic/propagation";
@@ -695,7 +695,9 @@ export function search_propagation_vector(args: {
  * Enumerate the maximal magnetic subgroup candidates of the parent group for a
  * propagation vector k — conjugacy-class representatives with their BNS
  * identification, subgroup index, and domain count. The operations of the
- * chosen candidate feed allowed_moments / build_magnetic_model.
+ * chosen candidate feed allowed_moments / build_magnetic_model. At k ≠ 0 the
+ * operations are listed in the parent cell and the name is the group's in its
+ * magnetic cell (type IV), `setting` the standard BNS cell in parent axes.
  */
 export function list_magnetic_subgroups(args: {
   structure: StructureModel;
@@ -705,6 +707,8 @@ export function list_magnetic_subgroups(args: {
   candidates: {
     label: string;
     bns: string | null;
+    bnsNumber: string | null;
+    setting: string | null;
     index: number;
     domainCount: number;
     operations: SymmetryOperation[];
@@ -714,13 +718,18 @@ export function list_magnetic_subgroups(args: {
     magneticSubgroupLattice(args.structure.spaceGroup.operations, args.k ?? [0, 0, 0], { maxIndex: args.maxIndex ?? 8 }),
   );
   return {
-    candidates: reps.map((r) => ({
-      label: r.candidate.label,
-      bns: r.candidate.standard?.bnsSymbol ?? r.settingMatch?.identity.bnsSymbol ?? null,
-      index: r.index,
-      domainCount: r.domainCount,
-      operations: [...r.candidate.operations],
-    })),
+    candidates: reps.map((r) => {
+      const identity = r.candidate.standard ?? r.settingMatch?.identity ?? null;
+      return {
+        label: latticeCandidateLabel(r).symbol,
+        bns: identity?.bnsSymbol ?? null,
+        bnsNumber: identity?.bnsNumber ?? null,
+        setting: latticeCandidateLabel(r).setting,
+        index: r.index,
+        domainCount: r.domainCount,
+        operations: [...r.candidate.operations],
+      };
+    }),
   };
 }
 

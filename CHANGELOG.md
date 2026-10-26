@@ -998,6 +998,24 @@ release fixes bugs.
   a group at k = (0,0,½)), is the same arrangement bit for bit and is now G1,
   the group it actually has.
 
+- **Magnetic groups at k ≠ 0 carry their own BNS names** (THY-37). Every
+  k ≠ 0 candidate was named by its parent-cell operations read as a k = 0
+  group (type I or III), not by the group of the ordered structure, whose
+  anti-translations make it type IV: the AWO₄ demo's group showed as
+  "P2/c′, BNS 13.68" and is P_a2/c, BNS 13.70. The bundled table now holds all
+  1651 ISO-MAG groups (types I–IV, type II for completeness), each candidate is
+  named from its group in the magnetic cell, with the setting against the
+  parent cell ("(2a, b, c; 0, 0, 0)"), and the page shows its true type. The
+  setting search gains the group's own conventional cells with the origin
+  solved exactly, which names the 23 groups it left unnamed (monoclinic cell
+  choices under Pnma and P4₂/mnm at k = 0; Immm at (½,0,½), C_c2/c). The one
+  name is used everywhere: the page's rows and their order (BNS number within
+  an index), the standard-cell overlay (now the magnetic cell), the irrep
+  route's isotropy subgroup, the report, the Agent's tools,
+  `list_magnetic_subgroups` (which gains `bnsNumber` and `setting`) and the
+  mCIF writer, which now names a type-IV group. Every class of the 15 oracle
+  cases carries the BNS number and type spglib gives its group.
+
 - **Each technique's report names its own cross-check programs.** The
   report's footer told every technique that the Export menu writes GSAS-II
   and FullProf bundles. A PDF is reproduced in PDFgui / diffpy-CMI (PDFfit2),

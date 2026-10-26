@@ -223,11 +223,15 @@ export function cosetFrame(ops: readonly SymmetryOperation[], index: ReadonlyMap
   return { cosetOf, reps: R, offsets, comp, t };
 }
 
-/** Subscript a small integer for pretty operation labels. */
-function primedLabel(ops: readonly SymmetryOperation[]): string {
+/**
+ * The descriptive label of an unnamed candidate: its primed operations. At
+ * k = 0 that is its type (I or III); at a k ≠ 0 the group of the structure is
+ * type IV whatever θ is, so no type is claimed.
+ */
+function primedLabel(ops: readonly SymmetryOperation[], atK = false): string {
   const primed = ops.filter((o) => (o.timeReversal ?? 1) === -1).map((o) => o.xyz);
-  if (primed.length === 0) return "type I (no time reversal)";
-  return `type III · primed: ${primed.join("  ")}`;
+  if (primed.length === 0) return atK ? "no time reversal" : "type I (no time reversal)";
+  return `${atK ? "" : "type III · "}primed: ${primed.join("  ")}`;
 }
 
 /**
@@ -326,10 +330,13 @@ export function generateMagneticCandidates(
     const cosetReps: SymmetryOperation[] = ops.map((op, i) => ({ ...op, timeReversal: (x[i] ? -1 : 1) as 1 | -1 }));
     const unprimedCount = cosetReps.filter((o) => (o.timeReversal ?? 1) === 1).length;
     const isTypeI = unprimedCount === m;
-    const standard = identifyMagneticGroup(candOps);
+    // At a single-arm k ≠ 0 the parent-cell operations are not the group of the
+    // structure (its lattice has anti-translations): it is named from its
+    // magnetic cell (`identifyCandidate`), never from this list.
+    const standard = zeroK ? identifyMagneticGroup(candOps) : null;
     candidates.push({
       id: `mag-cand-${signature}`,
-      label: standard ? formatMagneticSymbol(standard.bnsSymbol) : primedLabel(cosetReps),
+      label: standard ? formatMagneticSymbol(standard.bnsSymbol) : primedLabel(cosetReps, !zeroK),
       isTypeI,
       unprimedCount,
       operations: candOps,

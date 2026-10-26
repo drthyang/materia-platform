@@ -285,7 +285,7 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
   {
     name: "list_magnetic_subgroups",
     title: "List magnetic subgroup candidates",
-    description: "Enumerate the maximal magnetic subgroup candidates of the parent space group for a propagation vector k: conjugacy-class representatives with BNS identification, subgroup index, and domain count. The chosen candidate's `operations` feed allowed_moments and build_magnetic_model.",
+    description: "Enumerate the maximal magnetic subgroup candidates of the parent space group for a propagation vector k: conjugacy-class representatives with BNS identification, subgroup index, and domain count. At k ≠ 0 the name (`label`, `bns`, `bnsNumber`) is that of the ordered structure's group in its magnetic cell (BNS type IV) and `setting` is its standard BNS cell in the parent's axes; the `operations` stay in the parent cell. The chosen candidate's `operations` feed allowed_moments and build_magnetic_model.",
     inputSchema: {
       structure: anyObj,
       k: z.array(z.number()).length(3).optional().describe("Propagation vector, default (0,0,0)"),

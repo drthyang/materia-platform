@@ -409,6 +409,13 @@ def run_case(data):
         dims = moment_dims(ops)
         allows.append(any(d > 0 for ds in dims.values() for d in ds))
         ident = generic_orbit_identify(ops, lat_box)
+        # Each member named on its own: the domains of one class can be enantiomorphs
+        # (P_c4_1 and P_c4_3), related by an improper operation of the little group.
+        named = []
+        if not two_arm:
+            for j in members:
+                mi = generic_orbit_identify(groups[j][1], lat_box)
+                named.append([group_key(groups[j][1]), mi.get("bns"), mi.get("type")])
         rows.append({
             "index": 2 * len(cog) // len(H),
             "orderH": len(H),
@@ -418,7 +425,7 @@ def run_case(data):
             "type": ident.get("type"),
             **({"error": ident["error"]} if "error" in ident else {}),
             "moments": dims,
-            "members": [] if two_arm else sorted(group_key(groups[j][1]) for j in members),
+            "members": sorted(named),
         })
     for cid, members in enumerate(classes):
         mine = groups[members[0]][2]

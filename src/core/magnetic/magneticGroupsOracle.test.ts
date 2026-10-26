@@ -24,7 +24,7 @@ import { describe, expect, it } from "vitest";
 import type { SymmetryOperation } from "@/core/crystal/types";
 import { magneticOrbitRepresentatives } from "@/core/crystal/cellExpansion";
 import { allowedMomentDirections } from "@/core/magnetic/allowedMoments";
-import { latticeRepresentatives, magneticSubgroupLattice } from "@/core/magnetic/subgroupLattice";
+import { latticeCandidateLabel, latticeRepresentatives, magneticSubgroupLattice } from "@/core/magnetic/subgroupLattice";
 import { candidateCellGroup, isMagneticGroup } from "@/core/magnetic/magneticCell";
 import { MAGNETIC_ORACLE_CASES, oracleInput } from "@/testSupport/magneticOracleCases";
 
@@ -42,7 +42,8 @@ interface OracleClass {
   readonly maxmagn: boolean;
   readonly allowsMoment: boolean;
   readonly moments: Readonly<Record<string, readonly number[]>>;
-  readonly members: readonly string[];
+  /** Every group of the class (its domains): its key, and the BNS number and type spglib gives it. */
+  readonly members: readonly (readonly [key: string, bns: string | null, type: number | null])[];
 }
 
 interface OracleCase {
@@ -108,13 +109,30 @@ describe("every candidate is a magnetic group, and the classes are the oracle's"
     const unmatched = new Set(want.classes.map((_, i) => i));
     for (const [classId, keys] of byClass) {
       const rep = lattice.find((m) => m.classId === classId && m.classRepresentative)!;
-      const hit = want.classes.findIndex((o) => o.members.length === keys.size && o.members.every((k) => keys.has(k)));
+      const hit = want.classes.findIndex((o) => o.members.length === keys.size && o.members.every(([k]) => keys.has(k)));
       expect(hit, `class of ${rep.candidate.id} (${keys.size} groups) is not an oracle class`).toBeGreaterThanOrEqual(0);
       expect(rep.domainCount).toBe(want.classes[hit]!.domains);
       expect(rep.index).toBe(want.classes[hit]!.index);
       unmatched.delete(hit);
     }
     expect([...unmatched].map((i) => want.classes[i]!.bns), "oracle classes MATERIA misses").toEqual([]);
+  });
+});
+
+describe("every class is named by the BNS number and type of its group", () => {
+  it.each(singleArm.map((c) => [c.id, c] as const))("%s", (_id, c) => {
+    const want = oracle.cases.find((x) => x.id === c.id)!;
+    const wrong: string[] = [];
+    for (const rep of latticeRepresentatives(magneticSubgroupLattice(c.structure().spaceGroup.operations, c.k))) {
+      // The representative's own group: a class's domains can be enantiomorphs (P_c4₁ and P_c4₃).
+      const key = groupKey(candidateCellGroup(rep.candidate.operations, c.k)!.operations);
+      const member = want.classes.flatMap((x) => x.members).find(([k]) => k === key)!;
+      const identity = rep.candidate.standard ?? rep.settingMatch?.identity ?? null;
+      const got = `${identity?.bnsNumber ?? "unnamed"} type ${rep.magneticType}`;
+      const expected = `${member[1]} type ${member[2]}`;
+      if (got !== expected) wrong.push(`${rep.candidate.id}: ${got}, oracle ${expected} (${latticeCandidateLabel(rep).symbol})`);
+    }
+    expect(wrong).toEqual([]);
   });
 });
 
@@ -125,7 +143,7 @@ describe("the allowed moments on each magnetic site are the oracle's", () => {
     const ops = structure.spaceGroup.operations;
     for (const rep of latticeRepresentatives(magneticSubgroupLattice(ops, c.k))) {
       const key = groupKey(candidateCellGroup(rep.candidate.operations, c.k)!.operations);
-      const o = want.classes.find((x) => x.members.includes(key))!;
+      const o = want.classes.find((x) => x.members.some(([k]) => k === key))!;
       for (const label of c.ions) {
         const s = structure.sites.find((x) => x.label === label)!;
         // One entry per orbit the group splits the site's orbit into: the moment dimension its site symmetry allows.

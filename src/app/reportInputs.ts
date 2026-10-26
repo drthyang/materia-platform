@@ -34,7 +34,8 @@ import { esdsWithTies, parseTie, resolveTies } from "@/core/refinement/constrain
 import { siteSumConstraints, siteSumRangeWarnings } from "@/core/workflow/structureRefinement";
 import type { PowderProfile } from "@/core/workflow/powder";
 import { backgroundLabel } from "@/core/diffraction/background";
-import { formatMagneticSymbol, identifyMagneticGroupAnySetting } from "@/core/magnetic/bnsOg";
+import { formatMagneticSymbol } from "@/core/magnetic/bnsOg";
+import { identifyCandidate } from "@/core/magnetic/magneticCell";
 import { magneticOperationSignature } from "@/core/magnetic/operationSignature";
 import { latticeCandidateLabel, latticeRepresentatives, magneticSubgroupLattice } from "@/core/magnetic/subgroupLattice";
 import { crystalComponentsToCartesian } from "@/core/magnetic/moment";
@@ -184,7 +185,8 @@ export function groupOfOperations(structure: StructureModel, model: MagneticMode
   } catch {
     // An unusual parent (or an incommensurate k) may not enumerate; fall through.
   }
-  const any = identifyMagneticGroupAnySetting(list);
+  // At k ≠ 0 the operations are named from their group in the magnetic cell, as the page names its candidates.
+  const any = identifyCandidate(list, k as Vec3);
   if (any) {
     return {
       symbol: formatMagneticSymbol(any.identity.bnsSymbol),
@@ -192,7 +194,7 @@ export function groupOfOperations(structure: StructureModel, model: MagneticMode
       ...(any.direct ? {} : { setting: any.transformation }),
     };
   }
-  return { symbol: "magnetic subgroup", numbers: `${list.length} operations (not in the type I/III table)` };
+  return { symbol: "magnetic subgroup", numbers: `${list.length} operations (no BNS match in the settings searched)` };
 }
 
 /** |m| range over the carried sublattices, e.g. "2.57 µB" or "1.8–2.6 µB". */

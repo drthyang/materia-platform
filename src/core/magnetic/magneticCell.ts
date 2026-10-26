@@ -31,6 +31,7 @@ import type { Mat3, Vec3 } from "@/core/math/types";
 import { centringOffsets, centringTranslations, formatOperationXyz } from "@/core/crystal/symmetry";
 import { classifyPropagation } from "@/core/magnetic/propagation";
 import { latticePhase } from "@/core/magnetic/magneticGroups";
+import { describeTransformation, identifyMagneticGroupAnySetting, type TransformedIdentification } from "@/core/magnetic/bnsOg";
 
 export interface CandidateCellGroup {
   /** The box: the magnetic cell is (n₁a, n₂b, n₃c) of the parent. */
@@ -90,6 +91,62 @@ export function candidateCellGroup(ops: readonly SymmetryOperation[], k: Vec3): 
     }
   }
   return { n: [n[0], n[1], n[2]], operations: [...out.values()] };
+}
+
+/**
+ * The BNS/OG name of the group a candidate denotes at k: at k = 0 its own
+ * operations, identified in any setting reachable from the parent cell; at a
+ * single-arm k ≠ 0 its group in the magnetic cell ({@link candidateCellGroup},
+ * a type-IV group), identified there and reported against the PARENT cell —
+ * P is the standard BNS cell in parent coordinates (the box matrix times the
+ * box's own basis change), so the transformation reads e.g. "(2a, b, c; 0,
+ * 0, 0)" for P_a2/c from a P2/c parent at k = (½,0,0). A two-arm k has no
+ * group of this kind; its candidate keeps the parent-cell identification of
+ * its operations. Null when nothing in the table matches.
+ */
+export function identifyCandidate(ops: readonly SymmetryOperation[], k: Vec3): TransformedIdentification | null {
+  if (k.every((c) => Math.abs(c) < 1e-9)) return identifyMagneticGroupAnySetting(ops);
+  const cls = classifyPropagation(k, { centrings: centringTranslations(ops) });
+  if (cls.twoArms) return identifyMagneticGroupAnySetting(ops);
+  const cell = candidateCellGroup(ops, k);
+  if (!cell) return null;
+  // The group's own conventional cells reach every setting of a magnetic cell;
+  // the fixed family of parent-cell settings only costs time on its many operations.
+  const id = identifyMagneticGroupAnySetting(cell.operations, { family: false });
+  if (!id) return null;
+  const n = cell.n;
+  const P = id.P.map((row, i) => row.map((v) => v * n[i]!)) as unknown as Mat3;
+  const unitBox = n[0] === 1 && n[1] === 1 && n[2] === 1;
+  return {
+    identity: id.identity,
+    transformation: describeTransformation(P, id.originShift),
+    direct: id.direct && unitBox,
+    P,
+    originShift: id.originShift,
+  };
+}
+
+/**
+ * The Shubnikov type of an operation list: II when an operation comes with
+ * both signs (1′ in the group), IV when a pure translation is primed (an
+ * anti-translation), III when anything else is primed, I otherwise.
+ */
+export function magneticTypeOf(ops: readonly SymmetryOperation[]): 1 | 2 | 3 | 4 {
+  const signs = new Map<string, number>();
+  let primed = false;
+  let anti = false;
+  for (const o of ops) {
+    const theta = o.timeReversal ?? 1;
+    const key = opKey(o.rotation, o.translation.map((x) => wrap(x)) as unknown as Vec3, 0);
+    const prev = signs.get(key);
+    if (prev !== undefined && prev !== theta) return 2;
+    signs.set(key, theta);
+    if (theta === -1) {
+      primed = true;
+      if (o.rotation.every((row, i) => row.every((v, j) => v === (i === j ? 1 : 0)))) anti = true;
+    }
+  }
+  return anti ? 4 : primed ? 3 : 1;
 }
 
 /**

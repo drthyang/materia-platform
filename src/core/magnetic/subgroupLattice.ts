@@ -36,8 +36,9 @@
  *    enumerated (fixed lattice), the k-part being the type-IV extension.
  *  - International Tables for Crystallography Vol. A1 (Wondratschek & Müller,
  *    eds.) — group–subgroup relations, index, conjugacy and domains.
- *  - D. B. Litvin, *Magnetic Group Tables* (IUCr, 2013) — the type-I/III groups
- *    the candidates are matched against (via {@link identifyMagneticGroup}).
+ *  - D. B. Litvin, *Magnetic Group Tables* (IUCr, 2013) — the groups the
+ *    candidates are matched against (via `identifyCandidate`: at k ≠ 0 the
+ *    type-IV group of the magnetic cell).
  */
 
 import type { SymmetryOperation } from "@/core/crystal/types";
@@ -55,7 +56,8 @@ import {
   type CosetFrame,
   type MagneticCandidate,
 } from "./magneticGroups";
-import { identifyMagneticGroupAnySetting, type TransformedIdentification, formatMagneticSymbol } from "./bnsOg";
+import { type TransformedIdentification, formatMagneticSymbol } from "./bnsOg";
+import { candidateCellGroup, identifyCandidate, magneticTypeOf } from "./magneticCell";
 
 export interface LatticeCandidate {
   /** The magnetic group itself (operations, label, BNS/OG identification). */
@@ -73,9 +75,14 @@ export interface LatticeCandidate {
    *  the UI lists; the conjugates are the same physics in other domains. */
   readonly classRepresentative: boolean;
   /** When the exact standard-setting match failed, the BNS/OG identity found
-   *  through a setting transformation (axis permutation + origin shift) —
-   *  computed for class representatives only. Undefined: no match either way. */
+   *  through a setting transformation — computed for class representatives
+   *  only. At a single-arm k ≠ 0 it is always this: the group of the ordered
+   *  structure, named in its magnetic cell, with the transformation from the
+   *  PARENT cell to its standard BNS cell (`identifyCandidate`). Undefined: no
+   *  match either way. */
   readonly settingMatch?: TransformedIdentification;
+  /** The Shubnikov type of the group the candidate denotes (IV at a single-arm k ≠ 0). */
+  readonly magneticType: 1 | 2 | 3 | 4;
 }
 
 export interface CosetContext {
@@ -313,12 +320,15 @@ export function magneticSubgroupLattice(
     readonly members: Raw[];
     readonly settingMatch: TransformedIdentification | null;
     readonly bnsKey: number;
+    readonly magneticType: 1 | 2 | 3 | 4;
   }
   const infos: ClassInfo[] = [...classes.values()].map((members) => {
     const rep = members[0]!;
-    const settingMatch = rep.cand.standard === null ? identifyMagneticGroupAnySetting(rep.cand.operations) : null;
-    const bnsNumber = rep.cand.standard?.bnsNumber ?? settingMatch?.identity.bnsNumber ?? null;
-    return { members, settingMatch, bnsKey: bnsSortKey(bnsNumber) };
+    const settingMatch = rep.cand.standard === null ? identifyCandidate(rep.cand.operations, k) : null;
+    const identity = rep.cand.standard ?? settingMatch?.identity ?? null;
+    const cell = identity ? null : candidateCellGroup(rep.cand.operations, k);
+    const magneticType = identity?.magtype ?? magneticTypeOf(cell ? cell.operations : rep.cand.operations);
+    return { members, settingMatch, bnsKey: bnsSortKey(identity?.bnsNumber ?? null), magneticType };
   });
 
   // Bilbao k-SUBGROUPSMAG order: by index (maximal / highest symmetry first),
@@ -333,7 +343,7 @@ export function magneticSubgroupLattice(
   );
 
   const out: LatticeCandidate[] = [];
-  infos.forEach(({ members, settingMatch }, classId) => {
+  infos.forEach(({ members, settingMatch, magneticType }, classId) => {
     const domainCount = new Set(members.map((m) => m.self)).size;
     members.forEach((m, i) => {
       const isRep = i === 0;
@@ -344,6 +354,7 @@ export function magneticSubgroupLattice(
         classId,
         domainCount,
         classRepresentative: isRep,
+        magneticType,
         ...(isRep && settingMatch ? { settingMatch } : {}),
       });
     });

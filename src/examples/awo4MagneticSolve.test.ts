@@ -150,10 +150,8 @@ describe.skipIf(!has)("AWO₄ magnetic demo — solve the 6 K magnetic structure
       const e = results[rep.candidate.id];
       if (e?.status !== "ok" || e.wR == null || e.chi2 === undefined || e.dof === undefined) continue;
       const build = buildOf(rep.candidate.operations);
-      // The page's label. For this k it names the operations in the parent cell
-      // as a k = 0 group: the bundled table holds types I and III only, so the
-      // magnetic space group's own BNS number (type IV, with the anti-translation
-      // the k gives the doubled cell) is not identified.
+      // The page's label: the group in its magnetic cell, type IV at this k
+      // (the anti-translation the k gives the doubled cell).
       const std = rep.candidate.standard ?? rep.settingMatch?.identity;
       ranked.push({
         id: rep.candidate.id,
@@ -301,7 +299,7 @@ interface HamiltonTest {
  * index (a maximal group first), then the fewest moment parameters, then wR.
  * It differs from the page's ★ (magneticStep.ts, bestRanked) in one input:
  * the page counts a group's parameters as momentDims, the allowed moment
- * directions summed over the chosen ions (10 for P2/c′ on the five ions of
+ * directions summed over the chosen ions (10 for P_a2/c on the five ions of
  * the mixed site here), where its fit refines one moment per site (2): b
  * comes out several times too large, and the ★'s "fewest moment parameters"
  * can order two groups the wrong way. The test needs the parameters the fits
