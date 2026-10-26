@@ -48,6 +48,7 @@ import {
   posteriorCaveat,
   posteriorStatus,
   qualityItems,
+  caveatsInFull,
   shownParameter,
   sig,
   softwareRows,
@@ -248,7 +249,7 @@ function posteriorMarkdown(p: ReportPosterior): string {
 }
 
 function qualityMarkdown(input: ReportInput): string {
-  const items = qualityItems(input).map((c) => `- **${c.label}:** ${prose(endSentence(c.text))}`).join("\n");
+  const items = qualityItems(input).map((c) => `- **${c.label}:** ${prose(endSentence(c.text))}${c.detail ? " \\*" : ""}`).join("\n");
   const posterior = input.agent?.posterior ? posteriorMarkdown(input.agent.posterior) : "";
   return [items, posterior].filter(Boolean).join("\n\n");
 }
@@ -340,6 +341,7 @@ export function reportMarkdown(input: ReportInput): string {
     part("Data and model", input.data.length > 0 ? kvTable(input.data) : ""),
     part("Refinement statistics", kvTable(statisticsRows(input))),
     input.agent ? part("The analysis step by step", agentRecordMarkdown(input.agent)) : "",
+    part("Caveats in full", caveatsInFull(qualityItems(input)).map((c) => `- **${c.label}:** ${prose(endSentence(c.text))}\n  ${c.detail}`).join("\n")),
     part(`Every parameter · ${input.parameters.length} parameter${input.parameters.length === 1 ? "" : "s"}, ${free} refined`, parametersMarkdown(input.parameters, input.technique)),
     part("Conventions and software", conventionsMarkdown(input, date)),
   ];

@@ -101,8 +101,8 @@ async function open(viewport, demo, extra = {}) {
   const page = await ctx.newPage();
   page.on("pageerror", (e) => allErrors.push(`${demo}: ${e}`));
   await page.goto(BASE, { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: "Demos ▾", exact: true }).click();
-  await page.getByRole("button", { name: demo, exact: true }).click();
+  // The demos are cards on the landing page, named by their material.
+  await page.getByRole("button", { name: demo.split(" · ")[1] ?? demo }).click();
   await page.waitForTimeout(1500);
   return { ctx, page };
 }

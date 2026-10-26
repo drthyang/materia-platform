@@ -20,9 +20,11 @@ Open [drthyang.github.io/materia-platform](https://drthyang.github.io/materia-pl
 The start page shows the **Structure**, **Data** and **Instrument** cards above
 **Start with a demo**.
 
-1. Click a demo card, or pick a demo from **Demos ▾** in the header.
+1. Click a demo card.
 2. The demo opens on a converged refinement. Change anything you like.
-3. To leave, open **Demo ✓ ▾** and click **Exit demo**.
+3. To leave, click **Close** in the header. It returns to this start page. If
+   you changed anything since the demo opened, it asks first (see the table
+   below).
 
 - **Rietveld · Mn₃Ga neutron TOF**: a two-phase fit of POWGEN time-of-flight
   data, Mn₃Ga with a MnO impurity. At 600 K the sample is paramagnetic.
@@ -37,7 +39,7 @@ The start page shows the **Structure**, **Data** and **Instrument** cards above
 | --- | --- |
 | **Powder** · **Crystal**, **Rietveld** · **PDF** | Indicators: the sample form and the technique of the loaded data |
 | **Nuclear** · **Magnetic** | Switch between the refinement page and the magnetic page |
-| **Save** · **Load** | Save the session as a project file, or load a saved one |
+| **Save** · **Open** · **Close** | Save the session as a project file, open a saved one, or close the project and return to the start page. **Close** asks first when there are changes since the last **Save** or **Open** (or since a demo was loaded), and always for a project built from your own files that you have not saved: **Save** downloads the file and closes, **Discard** closes without saving, **Cancel** keeps working. A refinement that is still running is cancelled |
 | **Export ▾** | The report and the files for the active technique |
 
 The data you load pick the page. A reflection list opens the single-crystal
@@ -54,7 +56,7 @@ page, a G(r) file the PDF page, and any other pattern the powder page.
 | Single-crystal reflections | SHELX `.hkl` (h k l F² σ); FullProf `.int`; a GSAS-II reflection list, filtered to the loaded cell | **Load data…** |
 | Magnetic satellites | A second `.int` or `.hkl`, indexed as the fundamental hkl of hkl ± k | **Load magnetic .int…** |
 | Pair distribution function | `.gr`; `.sq` and `.fq`, transformed to G(r) on load; PDFgui `.fgr` fit files | **Load data…** |
-| Project | `.materia.json` | **Load** in the header |
+| Project | `.materia.json` | **Open** in the header |
 
 **Check `.hkl` reflections after loading.** The page reads them as
 whitespace-separated columns, so in a SHELX HKLF 4 file an intensity of
@@ -144,14 +146,17 @@ Open a group for its model controls:
 A B_iso that ends on its lower bound (0) has no meaningful esd, and usually
 absorbs an error elsewhere: check the background, absorption and the
 correlations first ([Judge a fit](#8-judge-a-fit)). The powder page then shows
-a ⚠ **B at its lower bound** notice over the parameter list. It names the atom,
-the B it reached, and the options, ranked, each with its source and its own
-**Apply**:
+a ⚠ **B at its lower bound** notice over the parameter list. It names the atom
+("B(W1) is at its 0 bound") and lists the options, ranked, each in one short
+line with its own **Apply** ("Tie to B(Co1) = 0.6(2) Å² (same 6-O coordination,
+different cation)", "Hold at 1.453 Å² (starting value)"). The **?** beside
+each line holds the rule's full sentence: the source, the species, the
+reasoning.
 
 - **Preferred: a tie to a site of the same element** that refined sensibly
   (O2 → O1). The common B still refines.
 - **Alternatives: a tie to another cation with the same coordination** (as many
-  of the same ligands), labelled with both species and a caution such as
+  of the same ligands). A ⚠ beside the line carries the caution, such as
   "a different cation (W⁶⁺ vs Co²⁺): check it is physically sensible".
 - **Alternative: the starting structure's B** for that site (a CIF's U_iso is
   read as B = 8π²U), held fixed. It is used as it stands: the app has no
@@ -164,8 +169,12 @@ option of this list: asking first, its card shows every option with its pick
 preselected, and you may pick another or decline. In auto mode its pick
 applies without a card, and the notice, the History and the report say it was
 the Agent's choice in auto mode, with the options not taken.
-Applied, the row is an ordinary **= tied** or fixed row, saved like any other,
-and listed under **Limitations** in the report. **Release** (or ⌘Z) frees it
+Applied, the notice says so in one line ("B(W1) hit 0 → tied to B(Co1) =
+0.6(2) Å² (same 6-O coordination, different cation); not measured on its
+own", the tied value as the last fit gives it; or "B(O1) hit 0 → held at
+0.800 Å² (starting value); not measured"), with the options not taken behind
+its **?**. The row is an ordinary **= tied** or fixed row, saved like any
+other, and listed under **Limitations** in the report. **Release** (or ⌘Z) frees it
 again. If a conclusion rests on that B, sample its posterior first
 (**Posterior** view).
 
@@ -584,7 +593,10 @@ Never judge a fit by its R value alone. The definitions are in
     negative B values, occupancies outside [0, 1], values on a bound,
     distances and U values; a negative B or a structural value on its bound
     is a blocker, a held occupancy within 1 % outside its range a note (an
-    input to correct). The **cross-check** in GSAS-II and FullProf (the
+    input to correct). Each is one line that ends on what to do ("W1 B refined
+    negative (-0.0123) → hold it positive, find the cause"); a B on 0 lists
+    its options in the notice's words, and the **?** holds the finding as
+    the assessment states it. The **cross-check** in GSAS-II and FullProf (the
     bundles), with why the esds may not hold: serially correlated residuals,
     a value on its bound, or a correlated pair, which the **Posterior**
     judges.
@@ -726,10 +738,11 @@ nuclear part only.
 - **Quality and caveats**: one line each for the acceptance checks, the
   causes of misfit, the correlations worth reading (not a background's
   coefficients among themselves), and the limitations. A report the Copilot
-  writes adds its open issues and its Bayesian check.
+  writes adds its open issues and its Bayesian check. A line marked * was
+  shortened: its full account is in the appendix's **Caveats in full**.
 - **Appendix**, collapsed until you open it: the data and model, the
-  refinement's statistics, every parameter (fixed or refined), the
-  conventions and the software. A Copilot report adds the analysis step by
+  refinement's statistics, the caveats in full, every parameter (fixed or
+  refined), the conventions and the software. A Copilot report adds the analysis step by
   step: the History's steps, the method's checklist, every check with its
   numbers, and the notes. Printing opens every part.
 

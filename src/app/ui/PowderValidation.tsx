@@ -49,6 +49,7 @@ import { pageAssessment, pageFitDiagnosis, type JudgedPage } from "@/app/powderJ
 import { causeRows, headlineCause, whereSummary, type ActionButton, type CauseRow, type EvidenceSection, type ValidationAction } from "@/app/ui/fitCauses";
 import { color, fz, mono, uppercaseLabel } from "@/app/theme";
 import { InfoBadge } from "@/app/ui/InfoBadge";
+import { Paragraphs, ShortLineText, WithBadge } from "@/app/ui/lineInfo";
 import {
   ACTION_LABEL,
   Bars,
@@ -171,6 +172,7 @@ export function PowderValidationView(props: PowderValidationProps): JSX.Element 
     snapshot: props.snapshot ?? false,
     topCause: headlineCause(causes),
     canExport: props.canExport ?? false,
+    zeroAdp: page?.zeroAdp,
   }), [props.gof, validation, result, parameters, page, assessment, props.snapshot, causes, props.canExport]);
 
   // Evidence sections: held by the page when it offers to, else here.
@@ -379,11 +381,7 @@ function CheckCard({ check, onAction }: { check: AcceptanceCheck; onAction: (a: 
         {check.sentence ? <span title={check.detail} style={{ fontSize: fz.small, lineHeight: 1.45, color: color.secondary }}><WithBadge text={check.sentence} badge={help} /></span> : null}
         {shown.length > 0 ? (
           <ul style={{ listStyle: "none", margin: "2px 0 0", padding: 0, display: "flex", flexDirection: "column", gap: 3 }}>
-            {shown.map((item, i) => (
-              <li key={i} title={item.detail} style={{ fontSize: fz.micro, lineHeight: 1.45, color: color.ink }}>
-                <SeverityChip severity={item.severity} />{item.text}
-              </li>
-            ))}
+            {shown.map((item, i) => <PhysicalLine key={i} item={item} />)}
           </ul>
         ) : null}
         {items.length > ITEMS_SHOWN ? (
@@ -406,16 +404,17 @@ function CheckCard({ check, onAction }: { check: AcceptanceCheck; onAction: (a: 
   );
 }
 
-/** A line ending in a "?" that wraps with its last word, never alone onto a line of its own. */
-function WithBadge({ text, badge }: { text: string; badge: ReactNode }): JSX.Element {
-  if (!badge) return <>{text}</>;
-  const cut = text.lastIndexOf(" ");
-  return <>{text.slice(0, cut + 1)}<span style={{ whiteSpace: "nowrap" }}>{text.slice(cut + 1)}{badge}</span></>;
-}
-
-/** Lines of a "?" tooltip, each its own paragraph. */
-function Paragraphs({ lines }: { lines: readonly ReactNode[] }): JSX.Element {
-  return <>{lines.map((l, i) => <span key={i} style={{ display: "block", marginTop: i > 0 ? 6 : 0 }}>{l}</span>)}</>;
+/**
+ * One physical finding: its chip and short line, a ⚠ when the line carries a
+ * caution (a B tied across two different sites), and a "?" with the longer
+ * account (the finding's own words) where the line rewords it.
+ */
+function PhysicalLine({ item }: { item: PhysicalItem }): JSX.Element {
+  return (
+    <li data-item={item.parameterIds.join(" ")} title={item.info ? item.info.join("\n\n") : item.detail} style={{ fontSize: fz.micro, lineHeight: 1.45, color: color.ink }}>
+      <SeverityChip severity={item.severity} /><ShortLineText text={item.text} caution={item.caution} detail={item.info} />
+    </li>
+  );
 }
 
 function SeverityChip({ severity }: { severity: PhysicalItem["severity"] }): JSX.Element {
