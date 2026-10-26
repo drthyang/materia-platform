@@ -384,7 +384,8 @@ export function buildDistortionModes(parent: StructureModel, child: StructureMod
     }),
   };
 
-  return { parentized, originShift: shift, parameters, bindings, modes, totalAmplitude: observedNorm, unpaired };
+  const centred = (st: StructureModel): number => 1 + st.spaceGroup.operations.filter((op) => op.rotation.every((r, i) => r.every((x, j) => x === (i === j ? 1 : 0))) && op.translation.some((t) => Math.abs(t - Math.round(t)) > 1e-6)).length;
+  return { parentized, originShift: shift, parameters, bindings, modes, totalAmplitude: observedNorm, unpaired, amplitudeCells: { child: centred(child), parent: centred(parent) } };
 }
 
 /**

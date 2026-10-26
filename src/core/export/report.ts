@@ -264,6 +264,25 @@ export function startText(start: NonNullable<ReportAgent["start"]>, label: strin
  * box — its r range, Rw and the tracked values (a site's bond lengths in the
  * structure that box refined, or the free parameters' values).
  */
+/**
+ * The distortion-mode amplitudes of a symmetry-mode refinement, in
+ * MATERIA's normalization and ISODISTORT's two (ADR 0003): A over the
+ * conventional child cell (the refined parameter), A_s over the primitive
+ * child cell, A_p normalized to the parent's primitive cell.
+ */
+export interface ReportModes {
+  /** What the modes are measured from: the parent group or CIF, or the activated irrep. */
+  readonly against: string;
+  /** Lattice points per conventional cell of the child and of the parent. */
+  readonly cells: { readonly child: number; readonly parent: number };
+  readonly rows: readonly { readonly label: string; readonly a: number; readonly esd?: number; readonly as: number; readonly ap: number }[];
+}
+
+/** The note under the mode table: what A, A_s and A_p are, for this child. */
+export function modesNote(m: ReportModes): string {
+  return `A is MATERIA's refined amplitude, the displacement norm over the conventional child cell (${m.cells.child} lattice point${m.cells.child === 1 ? "" : "s"}). A_s, ISODISTORT's, runs over the primitive child cell: A_s = A/√${m.cells.child}. A_p = A_s·√(V_p/V_s) is normalized to the parent's primitive cell: A/√${m.cells.parent}.`;
+}
+
 export interface ReportBoxcar {
   /** Box width (Å). */
   readonly width: number;
@@ -297,6 +316,8 @@ export interface ReportInput {
   readonly figure?: ReportFigure | null;
   /** The last boxcar scan of this model (PDF), when one was run. */
   readonly boxcar?: ReportBoxcar | null;
+  /** The distortion-mode amplitudes, when positions refine as modes (PDF). */
+  readonly modes?: ReportModes | null;
   /** Every parameter of the model, with esds merged in where the fit gave one. */
   readonly parameters: readonly RefinementParameter[];
   readonly result?: RefinementResult | null;
@@ -801,6 +822,14 @@ function otherValuesHtml(params: readonly RefinementParameter[], technique: Repo
 <div class="bonds">${chunks.map((c) => table([{ head: "Parameter", cls: "lbl" }, { head: "Value", num: true }, { head: "Unit" }], c, "mini")).join("")}</div>`;
 }
 
+function modesHtml(m: ReportModes): string {
+  const amp = (x: number): string => fixed(x, 5);
+  const rows = m.rows.map((r) => [esc(r.label), r.esd !== undefined ? `${amp(r.a)} <span class="muted">(${amp(r.esd)})</span>` : amp(r.a), amp(r.as), amp(r.ap)]);
+  return `<h3 id="modes">Distortion modes vs ${esc(m.against)}</h3>
+${table([{ head: "Mode", cls: "lbl" }, { head: "A (Å)", num: true }, { head: "A<sub>s</sub> (Å)", num: true }, { head: "A<sub>p</sub> (Å)", num: true }], rows)}
+<p class="note">${esc(modesNote(m))}</p>`;
+}
+
 function boxcarHtml(b: ReportBoxcar): string {
   const rows = b.rows.map((row) => [`${fixed(row.r[0], 2)}–${fixed(row.r[1], 2)}`, fixed(100 * row.rw, 2), ...row.values.map((v) => (Number.isFinite(v) ? fixed(v, b.decimals) : "—"))]);
   return `<h3 id="local">Local versus average: boxcar scan</h3>
@@ -1120,6 +1149,7 @@ export function reportHtml(input: ReportInput): string {
     input.figure ? figureHtml(input.figure) : "",
     indicesHtml(indicesOf(input)),
     otherValuesHtml(input.parameters, input.technique),
+    input.modes ? modesHtml(input.modes) : "",
     input.boxcar ? boxcarHtml(input.boxcar) : "",
   ].filter(Boolean).join("\n");
   const free = input.parameters.filter((p) => !p.fixed && !p.expression).length;

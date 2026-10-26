@@ -34,6 +34,7 @@ import {
   TECHNIQUE_TITLE,
   anchorCoordinate,
   boxcarNote,
+  modesNote,
   fixed,
   formatParameterValue,
   indicesOf,
@@ -55,6 +56,7 @@ import {
   summaryParameters,
   type ReportAgent,
   type ReportBoxcar,
+  type ReportModes,
   type ReportCheck,
   type ReportFigure,
   type ReportIndex,
@@ -208,6 +210,11 @@ function indicesMarkdown(indices: readonly ReportIndex[]): string {
   return minus(`${values.join(", ")}${counts.length ? `${values.length ? " · " : ""}${counts.join(" · ")}` : ""}`);
 }
 
+function modesMarkdown(m: ReportModes): string {
+  const rows = m.rows.map((r) => [r.label, r.esd !== undefined ? `${fixed(r.a, 5)} (${fixed(r.esd, 5)})` : fixed(r.a, 5), fixed(r.as, 5), fixed(r.ap, 5)]);
+  return `**Distortion modes vs ${m.against}**\n\n${table(["Mode", "A (Å)", "A_s (Å)", "A_p (Å)"], rows, ["l", "r", "r", "r"])}\n\n*${modesNote(m)}*`;
+}
+
 function boxcarMarkdown(b: ReportBoxcar): string {
   const rows = b.rows.map((row) => [`${fixed(row.r[0], 2)}–${fixed(row.r[1], 2)}`, fixed(100 * row.rw, 2), ...row.values.map((v) => (Number.isFinite(v) ? fixed(v, b.decimals) : "—"))]);
   return `**Local versus average: boxcar scan**\n\n${table(["r (Å)", "Rw (%)", ...b.columns], rows, ["r", "r", ...b.columns.map(() => "r" as const)])}\n\n*${boxcarNote(b)}*`;
@@ -221,6 +228,7 @@ function fitMarkdown(input: ReportInput): string {
     other.length > 0
       ? `**Other refined values**\n\n${table(["Parameter", "Value", "Unit"], other.map((p) => shownParameter(p, input.technique)).map(({ parameter: p, value }) => [p.label, value, KIND_UNIT[p.kind] ?? ""]), ["l", "r", "l"])}`
       : "",
+    input.modes ? modesMarkdown(input.modes) : "",
     input.boxcar ? boxcarMarkdown(input.boxcar) : "",
   ].filter(Boolean).join("\n\n");
 }

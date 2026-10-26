@@ -30,7 +30,7 @@ import { mulVec } from "@/core/math/mat3";
 import { decomposeDisplacementRepresentation, displacementCharacters, orbitAtoms, type DisplaciveIrrepTerm } from "@/core/crystal/displaciveModes";
 import { fieldSeedAxes, identifySubgroup, projectIsotypicModes, realizeSubgroup, stabilizerOfField, type DisplacementField, type SubgroupIdentity } from "@/core/crystal/isotropyTree";
 import { buildSymmetryModes, type DistortionModeSet, type SymmetryModeSeed } from "@/core/crystal/distortionModes";
-import { irrepEngine, isotropyField } from "@/core/crystal/isotropySubgroups";
+import { irrepEngine, isotropyField, subgroupOrderParameter, type SubgroupOrderParameter } from "@/core/crystal/isotropySubgroups";
 import type { KStar } from "@/core/crystal/irreps/spaceGroupIrreps";
 import { latticeCentring } from "@/core/crystal/standardSetting";
 
@@ -189,4 +189,31 @@ export function activateIsotropySubgroup(parent: StructureModel, term: Displaciv
  */
 export function amplitudeCells(parent: StructureModel, child: StructureModel): { readonly child: number; readonly parent: number } {
   return { child: latticeCentring(child.spaceGroup.operations).length, parent: latticeCentring(parent.spaceGroup.operations).length };
+}
+
+/** A subgroup picked from the same-cell lattice, realized: the child, its modes per irrep, and the order parameter leading them. */
+export interface LoweredToSubgroup {
+  readonly child: StructureModel;
+  readonly modeSet: DistortionModeSet;
+  /** The order parameter, from the fewest irreps that reach the subgroup; null when no displacement breaks the symmetry. */
+  readonly order: SubgroupOrderParameter | null;
+}
+
+/**
+ * Lower a structure to a subgroup that keeps its conventional cell (a
+ * decentring k-subgroup or a general one): the child realized with its
+ * orbits split, the order parameter drawn from the Γ and decentring irreps
+ * (subgroupOrderParameter) leading as the active mode, the child's other
+ * displacements as modes per parent irrep and site, inactive.
+ */
+export function lowerToSubgroup(parent: StructureModel, subOps: readonly SymmetryOperation[], identity: SubgroupIdentity, name: string): LoweredToSubgroup {
+  const terms = modeTerms(parent);
+  const child = realizeSubgroup(parent, subOps, identity);
+  const order = subgroupOrderParameter(parent, subOps, terms.filter((t) => !t.term.trivial).map((t) => t.term));
+  const seeds: SymmetryModeSeed[] = [
+    ...(order ? [{ axes: fieldSeedAxes(child, order.field), label: `${order.irreps.join(" + ")} → ${name}` }] : []),
+    ...irrepModeSeeds(parent, child, subOps, terms),
+  ];
+  const built = buildSymmetryModes(child, { seeds, gauge: "polar" });
+  return { child, modeSet: { ...built, amplitudeCells: amplitudeCells(parent, child) }, order };
 }

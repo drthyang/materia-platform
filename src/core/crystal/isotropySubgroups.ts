@@ -262,10 +262,12 @@ export interface SubgroupOrderParameter {
  * lowers the stabilizer most first, until it is the subgroup (a coupled order
  * parameter). Null when no symmetry-breaking displacement is fixed by the
  * subgroup (it differs from the parent in its metric only, as NaCl's I4/mmm).
+ * `terms`: the irreps to draw on (default: the Γ decomposition; a same-cell
+ * k-subgroup needs the decentring ones too, decentringModes.ts).
  */
-export function subgroupOrderParameter(structure: StructureModel, subOps: readonly SymmetryOperation[]): SubgroupOrderParameter | null {
+export function subgroupOrderParameter(structure: StructureModel, subOps: readonly SymmetryOperation[], terms?: readonly DisplaciveIrrepTerm[]): SubgroupOrderParameter | null {
   const ops = structure.spaceGroup.operations;
-  const dec = decomposeDisplacementRepresentation(structure);
+  const dec = terms ? { available: true, terms } : decomposeDisplacementRepresentation(structure);
   if (!dec.available) return null;
   const action = atomAction(structure, ops);
   const subAction = atomAction(structure, subOps);
