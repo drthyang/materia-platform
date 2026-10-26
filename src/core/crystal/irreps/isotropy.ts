@@ -285,6 +285,6 @@ export function isotropySubgroups(group: FactorGroup, pir: PhysicalIrrep): Isotr
       identity: identifySubgroup(rep.operations, group.operations, { standard: true }),
     } satisfies IrrepIsotropySubgroup;
   });
-  subgroups.sort((a, b) => a.direction.dim - b.direction.dim || a.domainStates - b.domainStates || (a.identity.number ?? 999) - (b.identity.number ?? 999));
+  subgroups.sort((a, b) => a.direction.dim - b.direction.dim || a.domainStates - b.domainStates || (a.identity.number ?? 999) - (b.identity.number ?? 999) || (a.direction.symbol < b.direction.symbol ? -1 : a.direction.symbol > b.direction.symbol ? 1 : 0));
   return { imageOrder: imageKeys.size, subgroups };
 }

@@ -69,16 +69,35 @@ export function equivalentK(group: FactorGroup, k: RVec, kp: RVec): boolean {
 /** The image of k under the rotation W of an element: W⁻ᵀk (the arm it carries k to). */
 export const rotateK = (W: ExactOp["W"], k: RVec): RVec => itransMulVec(iinv(W), k);
 
-/** The distinct rotations of the group (its point group), each with the first element that carries it. */
+const pointGroupCache = new WeakMap<FactorGroup, number[]>();
+
+/**
+ * The distinct rotations of the group (its point group), each with its coset
+ * representative: the element with that rotation and the smallest translation
+ * (lexicographically, in [0, 1)). The identity comes first, then the
+ * rotations in a fixed order of their matrices, so every choice built on them
+ * (arms, coset representatives, the factor system) is independent of the
+ * order of the operation list.
+ */
 export function pointGroupElements(group: FactorGroup): number[] {
-  const seen = new Set<string>();
-  const out: number[] = [];
+  const cached = pointGroupCache.get(group);
+  if (cached) return cached;
+  const best = new Map<string, number>();
+  const tLess = (a: RVec, b: RVec): boolean => {
+    for (let i = 0; i < 3; i++) {
+      const d = a[i]!.n * b[i]!.d - b[i]!.n * a[i]!.d;
+      if (d !== 0) return d < 0;
+    }
+    return false;
+  };
   group.elements.forEach((e, i) => {
     const key = ikey(e.W);
-    if (seen.has(key)) return;
-    seen.add(key);
-    out.push(i);
+    const cur = best.get(key);
+    if (cur === undefined || tLess(e.w, group.elements[cur]!.w)) best.set(key, i);
   });
+  const idKey = ikey(group.elements[group.identity]!.W);
+  const out = [...best.entries()].sort(([a], [b]) => (a === idKey ? -1 : b === idKey ? 1 : a < b ? -1 : a > b ? 1 : 0)).map(([, i]) => i);
+  pointGroupCache.set(group, out);
   return out;
 }
 

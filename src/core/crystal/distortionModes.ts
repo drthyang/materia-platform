@@ -15,9 +15,15 @@
  *    space, with the OBSERVED parent→child distortion as the leading "frozen"
  *    mode and an orthonormal complement (Gram–Schmidt in Cartesian Å);
  *  - normalize so a parameter value of 1 equals a whole-cell displacement
- *    norm of 1 Å: A = √(Σ_cell |u_i|²) — amplitudes are in Å (note: AMPLIMODES
- *    reports the same functional form, normalized over its parent cell; the
- *    convention here is the CHILD cell, stated so comparisons are explicit);
+ *    norm of 1 Å: A = √(Σ_cell |u_i|²) over the CONVENTIONAL child cell (the
+ *    atoms the child's operations generate, centring included). ISODISTORT's
+ *    A_s and AMPLIMODES's amplitude both run over the PRIMITIVE cell of the
+ *    child (ISODISTORT help; Orobengoa et al., J. Appl. Cryst. 42 (2009) 820,
+ *    eq. 6), so for a child with f_child lattice points per conventional cell
+ *    A = √f_child·A_s, and A = √f_parent·A_p with ISODISTORT's parent-normalized
+ *    A_p = A_s·√(V_p/V_s) (docs/research/SUBGROUP_ENGINES.md §4.5; ADR 0003).
+ *    The two agree with A only for a primitive child of a primitive parent.
+ *    `amplitudeCells` carries the two f's; the parameter's unit stays A;
  *  - return the "parentized" child (sites moved to the parent reference) with
  *    mode parameters seeded at the observed decomposition, so refinement
  *    starts exactly at the input child structure and the fitted amplitude of
@@ -97,6 +103,17 @@ export interface DistortionModeSet {
    * Absent for child-decomposed sets.
    */
   readonly acousticExcluded?: number;
+  /**
+   * Lattice points per conventional cell of the child and of the parent, for
+   * ISODISTORT's amplitudes: A_s = A/√child, A_p = A/√parent (see the module
+   * comment). Absent: both are the set's own structure's.
+   */
+  readonly amplitudeCells?: { readonly child: number; readonly parent: number };
+}
+
+/** ISODISTORT's amplitudes of a MATERIA amplitude A (conventional child cell): A_s over the primitive child cell, A_p normalized to the parent. */
+export function isodistortAmplitudes(a: number, cells: { readonly child: number; readonly parent: number }): { readonly as: number; readonly ap: number } {
+  return { as: a / Math.sqrt(cells.child), ap: a / Math.sqrt(cells.parent) };
 }
 
 const PAIR_TOLERANCE = 1.2; // Å — max parent↔child site separation to pair
@@ -416,11 +433,25 @@ export interface SymmetryModeSeed {
   readonly axes: readonly { readonly siteLabel: string; readonly axis: Vec3 }[];
   readonly label: string;
   readonly star?: string;
+  /** False: the seed only labels a mode, which enters fixed. Default true (the activated mode, free). */
+  readonly active?: boolean;
 }
 
 export function buildSymmetryModes(
   structure: StructureModel,
-  opts?: { readonly seeds?: readonly SymmetryModeSeed[] },
+  opts?: {
+    readonly seeds?: readonly SymmetryModeSeed[];
+    /**
+     * Which rigid translations are projected out. "sites" (the default, kept
+     * for the frozen tool output): every direction each site's own symmetry
+     * allows. "polar": only the directions every rotation of the group fixes
+     * — the translations that are a null direction of the fit. They differ for
+     * a non-polar group whose sites all allow one common direction (P2₁3 with
+     * every site on a 3-fold: [111] is allowed at each site, but moving each
+     * site along it moves the orbits apart, a genuine distortion).
+     */
+    readonly gauge?: "sites" | "polar";
+  },
 ): DistortionModeSet {
   const M = orthogonalizationMatrix(structure.cell);
   const ops = structure.spaceGroup.operations;
@@ -476,7 +507,21 @@ export function buildSymmetryModes(
     // Per-site projector complements, over ALL sites (a pinned site contributes
     // I − 0 = I, forcing an empty intersection — the origin is anchored).
     const Q: number[][] = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
-    for (const s of structure.sites) {
+    const polar = opts?.gauge === "polar";
+    // "polar": Q = Σ_R (R − I)ᵀ(R − I) in Cartesian, null on the vectors every rotation fixes.
+    if (polar) {
+      const Minv0 = inverse(M);
+      for (const op of ops) {
+        const Rc = [0, 1, 2].map((i) => [0, 1, 2].map((j) => {
+          // Cartesian rotation M·R·M⁻¹.
+          let v = 0;
+          for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) v += M[i]![a]! * op.rotation[a]![b]! * Minv0[b]![j]!;
+          return v - (i === j ? 1 : 0);
+        }));
+        for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) for (let a = 0; a < 3; a++) Q[i]![j] = Q[i]![j]! + Rc[a]![i]! * Rc[a]![j]!;
+      }
+    }
+    for (const s of polar ? [] : structure.sites) {
       const basis = allowedPositionShifts(ops, s.position).basis;
       const bC = basis.map((b) => mulVec(M, b));
       // P = B·(BᵀB)⁻¹·Bᵀ via the small Gram solve; complement added to Q.
@@ -558,7 +603,7 @@ export function buildSymmetryModes(
   // fields, gauge-projected and normalized, become the leading catalog entries
   // and are emitted `active: true` under the caller's label.
   const ortho: GlobalVec[] = [];
-  const seedMeta: { readonly label: string; readonly star?: string }[] = [];
+  const seedMeta: { readonly label: string; readonly star?: string; readonly active: boolean }[] = [];
   for (const seed of opts?.seeds ?? []) {
     let w = zero();
     for (const ax of seed.axes) {
@@ -574,7 +619,7 @@ export function buildSymmetryModes(
     const n = Math.sqrt(cartNormSq(w));
     if (n > 1e-8) {
       ortho.push(scaled(w, 1 / n));
-      seedMeta.push({ label: seed.label, ...(seed.star !== undefined ? { star: seed.star } : {}) });
+      seedMeta.push({ label: seed.label, ...(seed.star !== undefined ? { star: seed.star } : {}), active: seed.active ?? true });
     }
   }
 
@@ -618,7 +663,7 @@ export function buildSymmetryModes(
     });
     const seed = seedMeta[k];
     const label = seed ? seed.label : `mode ${k + 1} @ Γ (${sites[domJ]!.site.label})`;
-    const active = seed !== undefined;
+    const active = seed !== undefined && seed.active;
     parameters.push({ id, label, kind: "positionShift", value: 0, initialValue: 0, fixed: !active });
     const axes: { siteLabel: string; axis: Vec3 }[] = [];
     m.frac.forEach((f, j) => {
