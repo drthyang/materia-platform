@@ -665,7 +665,13 @@ export function withSubgroup(m: PdfPageModel, node: SubgroupNode): { readonly mo
   const v = pageView(m);
   const refined = applyParameters(v.fitStructure, v.bindings, valuesOf(m.params)).model;
   const child = realizeSubgroup(refined, node.operations, node.identity);
-  const order = subgroupOrderParameter(refined, node.operations);
+  let order: ReturnType<typeof subgroupOrderParameter> = null;
+  let orderFailed: string | null = null;
+  try {
+    order = subgroupOrderParameter(refined, node.operations);
+  } catch (e) {
+    orderFailed = e instanceof Error ? e.message : String(e);
+  }
   const seeds = order ? [{ axes: fieldSeedAxes(child, order.field), label: `${order.irreps.join(" + ")} → ${name}` }] : [];
   const built = buildSymmetryModes(child, { seeds });
   if (built.modes.length === 0) return { model: m, label, message: `${label}: this subgroup leaves every site symmetry-pinned — no refinable distortion modes` };
@@ -676,7 +682,9 @@ export function withSubgroup(m: PdfPageModel, node: SubgroupNode): { readonly mo
     label,
     message: set && order
       ? `lowered to ${label}: ${sites} · the order parameter (${order.irreps.join(" + ")}) free from ${ACTIVATION_KICK} Å${order.reachesTarget ? "" : " (the displacements allowed keep a higher symmetry; the rest is the cell's)"} — free the other rows to refine them (Positions group)`
-      : `lowered to ${label}: ${sites} — no displacement breaks the parent's symmetry here (only the cell can), so the modes start at 0; free the rows to refine (Positions group)`,
+      : orderFailed
+        ? `lowered to ${label}: ${sites} — the order parameter could not be built (${orderFailed}), so the modes start at 0 and a symmetry-breaking one cannot leave it`
+        : `lowered to ${label}: ${sites} — no displacement breaks the parent's symmetry here (only the cell can), so the modes start at 0; free the rows to refine (Positions group)`,
   };
 }
 
