@@ -39,7 +39,7 @@ import { magneticOperationSignature } from "@/core/magnetic/operationSignature";
 import { latticeCandidateLabel, latticeRepresentatives, magneticSubgroupLattice } from "@/core/magnetic/subgroupLattice";
 import { crystalComponentsToCartesian } from "@/core/magnetic/moment";
 import { kLabel } from "@/core/magnetic/kSearch";
-import type { ReportBond, ReportBoxcar, ReportGroup, ReportIndex, ReportInput, ReportMagnetic, ReportModes, ReportPhase, ReportRow, ReportStat } from "@/core/export/report";
+import type { ReportBond, ReportBoxcar, ReportGroup, ReportIndex, ReportInput, ReportLimitation, ReportMagnetic, ReportModes, ReportPhase, ReportRow, ReportStat } from "@/core/export/report";
 import { pdfCaveats, pdfResultParagraph, powderCaveats, powderResultParagraph, singleCrystalCaveats, singleCrystalResultParagraph, type ReportAssessment } from "@/core/export/reportResult";
 import { formulaText, spaceGroupText } from "@/core/export/reportTypeset";
 import { parametersChangedSince, type ValidationVerdict } from "@/core/diagnostics/validationChecks";
@@ -50,6 +50,7 @@ import type { Session } from "@/app/powderSession";
 import { APP_VERSION } from "@/app/constants";
 import { minMax } from "@/core/math/extent";
 import { activeZeroAdpFixes, zeroAdpFixText, zeroAdpProposals, ZERO_ADP_BAYES } from "@/core/diagnostics/zeroAdp";
+import { zeroAdpFixLine, zeroAdpOpenLimitation } from "@/core/diagnostics/zeroAdpLines";
 
 /** What the magnetic page is showing right now, as published by KSearchPanel. */
 export interface MagneticExploration {
@@ -387,7 +388,9 @@ export function powderReportInput(o: {
 }): ReportInput {
   const { session, result } = o;
   const params = withEsds(o.params, result);
-  const limitations = zeroAdpLimitations(session, o.params, o.bindings, result, o.refinedPhases);
+  // The B-at-0 limitations: in full for the frozen layout; short, and less what the physical sanity already names, for this one.
+  const covered = new Set((o.judgment?.acceptance.checks[1].items ?? []).filter((i) => i.zeroAdp === "open").flatMap((i) => i.parameterIds));
+  const limitations = zeroAdpLimitations(session, o.params, o.bindings, result, o.refinedPhases, covered);
   const structure = o.refinedPhases[0] ?? session.structure;
   const multi = session.extraPhases.length > 0;
   // The phases' weight fractions, and what the refined Lorentzian adds to the
@@ -513,20 +516,36 @@ export function powderReportInput(o: {
     result,
     notes,
     // The B-at-0 limitations, and a shared site's last occupancy outside [0, 1] (the tie does not clamp it).
-    ...(limitations.length + siteSumRangeWarnings(params).length > 0 ? { warnings: [...limitations, ...siteSumRangeWarnings(params)] } : {}),
+    ...(limitations.full.length + siteSumRangeWarnings(params).length > 0
+      ? {
+          warnings: [...limitations.full, ...siteSumRangeWarnings(params)],
+          limitations: [...limitations.short, ...siteSumRangeWarnings(params).map((w) => ({ text: w }))],
+        }
+      : {}),
   };
 }
 
 /**
  * The B-at-0 rule in the report's limitations: each fix the user applied that
  * the rows still carry (a B that is tied or held, not measured), and each B
- * the fit left on its bound with no fix applied.
+ * the fit left on its bound with no fix applied. `full`: in the rule's own
+ * words, as the frozen layout (and the Agent's audit) reads them. `short`: one
+ * line each with the full account for the appendix (zeroAdpLines.ts), less
+ * the B's on their bound the physical sanity's caveats already name with
+ * their options (`covered`); a fix is stated here, not among those caveats.
  */
-function zeroAdpLimitations(session: Session, params: readonly RefinementParameter[], bindings: readonly ParameterBinding[], result: RefinementResult | null, refined: readonly StructureModel[]): string[] {
-  const applied = activeZeroAdpFixes(params, session.zeroAdpFixes).map(zeroAdpFixText);
-  const open = zeroAdpProposals({ parameters: params, bindings, result, structures: [session.structure, ...session.extraPhases], refined })
-    .map((p) => `${p.warning.replace(` ${ZERO_ADP_BAYES}`, "")} Not applied: the B is reported on its bound, where its esd means nothing.`);
-  return [...applied, ...open];
+function zeroAdpLimitations(session: Session, params: readonly RefinementParameter[], bindings: readonly ParameterBinding[], result: RefinementResult | null, refined: readonly StructureModel[], covered: ReadonlySet<string>): { full: string[]; short: ReportLimitation[] } {
+  const fixes = activeZeroAdpFixes(params, session.zeroAdpFixes);
+  const proposals = zeroAdpProposals({ parameters: params, bindings, result, structures: [session.structure, ...session.extraPhases], refined });
+  const full = [
+    ...fixes.map(zeroAdpFixText),
+    ...proposals.map((p) => `${p.warning.replace(` ${ZERO_ADP_BAYES}`, "")} Not applied: the B is reported on its bound, where its esd means nothing.`),
+  ];
+  const short = [
+    ...fixes.filter((f) => !covered.has(f.parameterId)).map((f) => zeroAdpFixLine(f, { result, parameters: params })),
+    ...proposals.filter((p) => !covered.has(p.parameterId)).map(zeroAdpOpenLimitation),
+  ].map((l) => ({ text: l.report ?? l.text, detail: l.detail.join(" ") }));
+  return { full, short };
 }
 
 // ---------------------------------------------------------------------------

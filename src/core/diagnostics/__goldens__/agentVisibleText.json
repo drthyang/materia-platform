@@ -1,0 +1,890 @@
+{
+  "awo4Like": {
+    "proposals": [
+      {
+        "parameterId": "B_W1",
+        "sites": [
+          "W1"
+        ],
+        "atom": "B(W1)",
+        "reached": 0,
+        "rule": "A",
+        "source": "rule A: B(Cr1) (B_Cr1), same coordination (6 O), different cation (W⁶⁺ vs Cr³⁺), refined to 0.40(4) Å²",
+        "advice": "2 options, none applied until you choose one: 1) alternative — tie it to B(Cr1), same coordination (6 O), different cation (W⁶⁺ vs Cr³⁺), which refined to 0.40(4) Å² (a constraint: the common B still refines) — a different cation (W⁶⁺ vs Cr³⁺): check it is physically sensible. 2) alternative — hold it at 0.316 Å², the B of W1 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature. If this B carries physical meaning (a conclusion rests on it), run the Bayesian check on it (sample_posterior) before quoting it: a parameter on its bound is not convincing, and its esd means nothing.",
+        "warning": "B(W1) refined to 0 Å² (its lower bound). 2 options, none applied until you choose one: 1) alternative — tie it to B(Cr1), same coordination (6 O), different cation (W⁶⁺ vs Cr³⁺), which refined to 0.40(4) Å² (a constraint: the common B still refines) — a different cation (W⁶⁺ vs Cr³⁺): check it is physically sensible. 2) alternative — hold it at 0.316 Å², the B of W1 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature. If this B carries physical meaning (a conclusion rests on it), run the Bayesian check on it (sample_posterior) before quoting it: a parameter on its bound is not convincing, and its esd means nothing.",
+        "options": [
+          {
+            "id": "tie:B_Cr1",
+            "rule": "A",
+            "rank": "alternative",
+            "leader": "B_Cr1",
+            "value": null,
+            "label": "same coordination (6 O), different cation (W⁶⁺ vs Cr³⁺)",
+            "caution": "a different cation (W⁶⁺ vs Cr³⁺): check it is physically sensible",
+            "source": "rule A: B(Cr1) (B_Cr1), same coordination (6 O), different cation (W⁶⁺ vs Cr³⁺), refined to 0.40(4) Å²",
+            "text": "tie it to B(Cr1), same coordination (6 O), different cation (W⁶⁺ vs Cr³⁺), which refined to 0.40(4) Å² (a constraint: the common B still refines) — a different cation (W⁶⁺ vs Cr³⁺): check it is physically sensible"
+          },
+          {
+            "id": "start",
+            "rule": "B",
+            "rank": "alternative",
+            "leader": null,
+            "value": 0.31582734083485947,
+            "label": "the starting structure's B",
+            "caution": null,
+            "source": "rule B: the B of W1 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature",
+            "text": "hold it at 0.316 Å², the B of W1 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature"
+          }
+        ]
+      },
+      {
+        "parameterId": "B_O2",
+        "sites": [
+          "O2"
+        ],
+        "atom": "B(O2)",
+        "reached": 0,
+        "rule": "A",
+        "source": "rule A: B(O1) (B_O1), same element (O²⁻), refined to 0.62(5) Å²",
+        "advice": "2 options, none applied until you choose one: 1) preferred — tie it to B(O1), same element (O²⁻), which refined to 0.62(5) Å² (a constraint: the common B still refines). 2) alternative — hold it at 0.600 Å², the B of O2 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature. If this B carries physical meaning (a conclusion rests on it), run the Bayesian check on it (sample_posterior) before quoting it: a parameter on its bound is not convincing, and its esd means nothing.",
+        "warning": "B(O2) refined to 0 Å² (its lower bound). 2 options, none applied until you choose one: 1) preferred — tie it to B(O1), same element (O²⁻), which refined to 0.62(5) Å² (a constraint: the common B still refines). 2) alternative — hold it at 0.600 Å², the B of O2 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature. If this B carries physical meaning (a conclusion rests on it), run the Bayesian check on it (sample_posterior) before quoting it: a parameter on its bound is not convincing, and its esd means nothing.",
+        "options": [
+          {
+            "id": "tie:B_O1",
+            "rule": "A",
+            "rank": "preferred",
+            "leader": "B_O1",
+            "value": null,
+            "label": "same element (O²⁻)",
+            "caution": null,
+            "source": "rule A: B(O1) (B_O1), same element (O²⁻), refined to 0.62(5) Å²",
+            "text": "tie it to B(O1), same element (O²⁻), which refined to 0.62(5) Å² (a constraint: the common B still refines)"
+          },
+          {
+            "id": "start",
+            "rule": "B",
+            "rank": "alternative",
+            "leader": null,
+            "value": 0.600071947586233,
+            "label": "the starting structure's B",
+            "caution": null,
+            "source": "rule B: the B of O2 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature",
+            "text": "hold it at 0.600 Å², the B of O2 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature"
+          }
+        ]
+      }
+    ],
+    "fixes": [
+      {
+        "parameterId": "B_O2",
+        "atom": "B(O2)",
+        "reached": 0,
+        "rule": "A",
+        "leader": "B_O1",
+        "value": null,
+        "source": "preferred: rule A: B(O1) (B_O1), same element (O²⁻), refined to 0.62(5) Å²",
+        "chosenBy": null,
+        "reason": null,
+        "alternatives": [
+          "alternative: hold at 0.600 Å² (the starting structure's B)"
+        ],
+        "text": "B(O2) refined to 0 Å² (its lower bound) and is tied to B_O1 by the B-at-0 rule (preferred: rule A: B(O1) (B_O1), same element (O²⁻), refined to 0.62(5) Å²). Its value follows the tie; it is not measured on its own. Not taken: alternative: hold at 0.600 Å² (the starting structure's B)."
+      },
+      {
+        "parameterId": "B_O2",
+        "atom": "B(O2)",
+        "reached": 0,
+        "rule": "B",
+        "leader": null,
+        "value": 0.600071947586233,
+        "source": "alternative: rule B: the B of O2 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature",
+        "chosenBy": null,
+        "reason": null,
+        "alternatives": [
+          "preferred: tie to B_O1 (same element (O²⁻))"
+        ],
+        "text": "B(O2) refined to 0 Å² (its lower bound) and is held at 0.600 Å² by the B-at-0 rule (alternative: rule B: the B of O2 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature). It is held, not refined: its value is an input, with no esd. Not taken: preferred: tie to B_O1 (same element (O²⁻))."
+      },
+      {
+        "parameterId": "B_W1",
+        "atom": "B(W1)",
+        "reached": 0,
+        "rule": "A",
+        "leader": "B_Cr1",
+        "value": null,
+        "source": "alternative: rule A: B(Cr1) (B_Cr1), same coordination (6 O), different cation (W⁶⁺ vs Cr³⁺), refined to 0.40(4) Å² (a different cation (W⁶⁺ vs Cr³⁺): check it is physically sensible)",
+        "chosenBy": null,
+        "reason": "W and Cr share one octahedral site type here",
+        "alternatives": [
+          "alternative: hold at 0.316 Å² (the starting structure's B)"
+        ],
+        "text": "B(W1) refined to 0 Å² (its lower bound) and is tied to B_Cr1 by the B-at-0 rule (alternative: rule A: B(Cr1) (B_Cr1), same coordination (6 O), different cation (W⁶⁺ vs Cr³⁺), refined to 0.40(4) Å² (a different cation (W⁶⁺ vs Cr³⁺): check it is physically sensible)). Its value follows the tie; it is not measured on its own. Reason given: W and Cr share one octahedral site type here. Not taken: alternative: hold at 0.316 Å² (the starting structure's B)."
+      },
+      {
+        "parameterId": "B_O2",
+        "atom": "B(O2)",
+        "reached": 0,
+        "rule": "A",
+        "leader": "B_O1",
+        "value": null,
+        "source": "preferred: rule A: B(O1) (B_O1), same element (O²⁻), refined to 0.62(5) Å²",
+        "chosenBy": "agent-auto",
+        "reason": "both are the oxide's oxygens",
+        "alternatives": [
+          "alternative: hold at 0.600 Å² (the starting structure's B)"
+        ],
+        "text": "B(O2) refined to 0 Å² (its lower bound) and is tied to B_O1 by the B-at-0 rule (preferred: rule A: B(O1) (B_O1), same element (O²⁻), refined to 0.62(5) Å²). Its value follows the tie; it is not measured on its own. Chosen by the Agent in auto mode, without a card (its reason: both are the oxide's oxygens): release it or undo the step if you would choose otherwise. Not taken: alternative: hold at 0.600 Å² (the starting structure's B)."
+      },
+      {
+        "parameterId": "B_W1",
+        "atom": "B(W1)",
+        "reached": 0,
+        "rule": "B",
+        "leader": null,
+        "value": 0.31582734083485947,
+        "source": "alternative: rule B: the B of W1 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature",
+        "chosenBy": "agent-auto",
+        "reason": null,
+        "alternatives": [
+          "alternative: tie to B_Cr1 (same coordination (6 O), different cation (W⁶⁺ vs Cr³⁺))"
+        ],
+        "text": "B(W1) refined to 0 Å² (its lower bound) and is held at 0.316 Å² by the B-at-0 rule (alternative: rule B: the B of W1 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature). It is held, not refined: its value is an input, with no esd. Chosen by the Agent in auto mode, without a card: release it or undo the step if you would choose otherwise. Not taken: alternative: tie to B_Cr1 (same coordination (6 O), different cation (W⁶⁺ vs Cr³⁺))."
+      }
+    ],
+    "stepLabels": [
+      "B at 0: tie B_O2 = B_O1 (preferred)",
+      "B at 0: hold B_O2 at 0.600 Å² (starting structure)",
+      "B at 0: tie B_W1 = B_Cr1 (alternative, the Agent's choice in auto mode)",
+      "B at 0: hold B_W1 at 0.316 Å² (starting structure)"
+    ],
+    "assessment": [
+      {
+        "category": "at-bound",
+        "severity": "critical",
+        "summary": "W1 B is resting on its min bound (0).",
+        "evidence": {
+          "bound": "min",
+          "value": 0,
+          "proposal": "A",
+          "options": "1) \"tie:B_Cr1\" alternative: tie to B_Cr1 — same coordination (6 O), different cation (W⁶⁺ vs Cr³⁺) (a different cation (W⁶⁺ vs Cr³⁺): check it is physically sensible); 2) \"start\" alternative: hold at 0.31582734083485947 — the starting structure's B",
+          "source": "rule A: B(Cr1) (B_Cr1), same coordination (6 O), different cation (W⁶⁺ vs Cr³⁺), refined to 0.40(4) Å²"
+        },
+        "detail": "A displacement parameter pinned at a bound (often B→0) usually means the model is over-damping high-angle intensity — check the background, an absorption/extinction effect, or a correlation, rather than trusting the value. The B-at-0 rule: 2 options, none applied until you choose one: 1) alternative — tie it to B(Cr1), same coordination (6 O), different cation (W⁶⁺ vs Cr³⁺), which refined to 0.40(4) Å² (a constraint: the common B still refines) — a different cation (W⁶⁺ vs Cr³⁺): check it is physically sensible. 2) alternative — hold it at 0.316 Å², the B of W1 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature. If this B carries physical meaning (a conclusion rests on it), run the Bayesian check on it (sample_posterior) before quoting it: a parameter on its bound is not convincing, and its esd means nothing. apply_adp_proposal applies the option you choose by its id (prefer the same-element tie; a cross-element one only when physically sensible, with the reason; in doubt the starting value, or leave the B and report it): asking first, the card shows the user every option with yours preselected; in auto mode yours applies and is recorded as yours. Applied, it stays a tie or a held value that can be released.",
+        "parameterIds": [
+          "B_W1"
+        ]
+      },
+      {
+        "category": "at-bound",
+        "severity": "critical",
+        "summary": "O2 B is resting on its min bound (0).",
+        "evidence": {
+          "bound": "min",
+          "value": 0,
+          "proposal": "A",
+          "options": "1) \"tie:B_O1\" preferred: tie to B_O1 — same element (O²⁻); 2) \"start\" alternative: hold at 0.600071947586233 — the starting structure's B",
+          "source": "rule A: B(O1) (B_O1), same element (O²⁻), refined to 0.62(5) Å²"
+        },
+        "detail": "A displacement parameter pinned at a bound (often B→0) usually means the model is over-damping high-angle intensity — check the background, an absorption/extinction effect, or a correlation, rather than trusting the value. The B-at-0 rule: 2 options, none applied until you choose one: 1) preferred — tie it to B(O1), same element (O²⁻), which refined to 0.62(5) Å² (a constraint: the common B still refines). 2) alternative — hold it at 0.600 Å², the B of O2 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature. If this B carries physical meaning (a conclusion rests on it), run the Bayesian check on it (sample_posterior) before quoting it: a parameter on its bound is not convincing, and its esd means nothing. apply_adp_proposal applies the option you choose by its id (prefer the same-element tie; a cross-element one only when physically sensible, with the reason; in doubt the starting value, or leave the B and report it): asking first, the card shows the user every option with yours preselected; in auto mode yours applies and is recorded as yours. Applied, it stays a tie or a held value that can be released.",
+        "parameterIds": [
+          "B_O2"
+        ]
+      }
+    ],
+    "assessmentWithFixes": [
+      {
+        "category": "at-bound",
+        "severity": "critical",
+        "summary": "W1 B is resting on its min bound (0).",
+        "evidence": {
+          "bound": "min",
+          "value": 0,
+          "proposal": "A",
+          "options": "1) \"tie:B_Cr1\" alternative: tie to B_Cr1 — same coordination (6 O), different cation (W⁶⁺ vs Cr³⁺) (a different cation (W⁶⁺ vs Cr³⁺): check it is physically sensible); 2) \"start\" alternative: hold at 0.31582734083485947 — the starting structure's B",
+          "source": "rule A: B(Cr1) (B_Cr1), same coordination (6 O), different cation (W⁶⁺ vs Cr³⁺), refined to 0.40(4) Å²"
+        },
+        "detail": "A displacement parameter pinned at a bound (often B→0) usually means the model is over-damping high-angle intensity — check the background, an absorption/extinction effect, or a correlation, rather than trusting the value. The B-at-0 rule: 2 options, none applied until you choose one: 1) alternative — tie it to B(Cr1), same coordination (6 O), different cation (W⁶⁺ vs Cr³⁺), which refined to 0.40(4) Å² (a constraint: the common B still refines) — a different cation (W⁶⁺ vs Cr³⁺): check it is physically sensible. 2) alternative — hold it at 0.316 Å², the B of W1 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature. If this B carries physical meaning (a conclusion rests on it), run the Bayesian check on it (sample_posterior) before quoting it: a parameter on its bound is not convincing, and its esd means nothing. apply_adp_proposal applies the option you choose by its id (prefer the same-element tie; a cross-element one only when physically sensible, with the reason; in doubt the starting value, or leave the B and report it): asking first, the card shows the user every option with yours preselected; in auto mode yours applies and is recorded as yours. Applied, it stays a tie or a held value that can be released.",
+        "parameterIds": [
+          "B_W1"
+        ]
+      },
+      {
+        "category": "at-bound",
+        "severity": "critical",
+        "summary": "O2 B is resting on its min bound (0).",
+        "detail": "A displacement parameter pinned at a bound (often B→0) usually means the model is over-damping high-angle intensity — check the background, an absorption/extinction effect, or a correlation, rather than trusting the value.",
+        "parameterIds": [
+          "B_O2"
+        ],
+        "evidence": {
+          "bound": "min",
+          "value": 0
+        }
+      },
+      {
+        "category": "at-bound",
+        "severity": "note",
+        "summary": "B(O2) refined to 0 Å² (its lower bound) and is tied to B_O1 by the B-at-0 rule (preferred: rule A: B(O1) (B_O1), same element (O²⁻), refined to 0.62(5) Å²). Its value follows the tie; it is not measured on its own. Not taken: alternative: hold at 0.600 Å² (the starting structure's B).",
+        "detail": "Applied with the user's approval. It is a constraint or a held value like any other: release the tie (tie_parameters `release`) or free the row (set_free) to refine it again; go_to_step undoes it. Say it in the report.",
+        "parameterIds": [
+          "B_O2"
+        ],
+        "evidence": {
+          "rule": "A",
+          "reached": 0,
+          "tiedTo": "B_O1"
+        }
+      },
+      {
+        "category": "at-bound",
+        "severity": "note",
+        "summary": "B(W1) refined to 0 Å² (its lower bound) and is held at 0.316 Å² by the B-at-0 rule (alternative: rule B: the B of W1 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature). It is held, not refined: its value is an input, with no esd. Chosen by the Agent in auto mode, without a card: release it or undo the step if you would choose otherwise. Not taken: alternative: tie to B_Cr1 (same coordination (6 O), different cation (W⁶⁺ vs Cr³⁺)).",
+        "detail": "Applied with the user's approval. It is a constraint or a held value like any other: release the tie (tie_parameters `release`) or free the row (set_free) to refine it again; go_to_step undoes it. Say it in the report.",
+        "parameterIds": [
+          "B_W1"
+        ],
+        "evidence": {
+          "rule": "B",
+          "reached": 0,
+          "heldAt": 0.31582734083485947
+        }
+      }
+    ]
+  },
+  "startOnly": {
+    "proposals": [
+      {
+        "parameterId": "B_W1",
+        "sites": [
+          "W1"
+        ],
+        "atom": "B(W1)",
+        "reached": 0,
+        "rule": "B",
+        "source": "rule B: the B of W1 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature",
+        "advice": "One option, none applied until you choose one: 1) alternative — hold it at 0.316 Å², the B of W1 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature. If this B carries physical meaning (a conclusion rests on it), run the Bayesian check on it (sample_posterior) before quoting it: a parameter on its bound is not convincing, and its esd means nothing.",
+        "warning": "B(W1) refined to 0 Å² (its lower bound). One option, none applied until you choose one: 1) alternative — hold it at 0.316 Å², the B of W1 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature. If this B carries physical meaning (a conclusion rests on it), run the Bayesian check on it (sample_posterior) before quoting it: a parameter on its bound is not convincing, and its esd means nothing.",
+        "options": [
+          {
+            "id": "start",
+            "rule": "B",
+            "rank": "alternative",
+            "leader": null,
+            "value": 0.31582734083485947,
+            "label": "the starting structure's B",
+            "caution": null,
+            "source": "rule B: the B of W1 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature",
+            "text": "hold it at 0.316 Å², the B of W1 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature"
+          }
+        ]
+      },
+      {
+        "parameterId": "B_O1",
+        "sites": [
+          "O1"
+        ],
+        "atom": "B(O1)",
+        "reached": 0,
+        "rule": "B",
+        "source": "rule B: the B of O1 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature",
+        "advice": "One option, none applied until you choose one: 1) alternative — hold it at 0.553 Å², the B of O1 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature. If this B carries physical meaning (a conclusion rests on it), run the Bayesian check on it (sample_posterior) before quoting it: a parameter on its bound is not convincing, and its esd means nothing.",
+        "warning": "B(O1) refined to 0 Å² (its lower bound). One option, none applied until you choose one: 1) alternative — hold it at 0.553 Å², the B of O1 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature. If this B carries physical meaning (a conclusion rests on it), run the Bayesian check on it (sample_posterior) before quoting it: a parameter on its bound is not convincing, and its esd means nothing.",
+        "options": [
+          {
+            "id": "start",
+            "rule": "B",
+            "rank": "alternative",
+            "leader": null,
+            "value": 0.5526978464610041,
+            "label": "the starting structure's B",
+            "caution": null,
+            "source": "rule B: the B of O1 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature",
+            "text": "hold it at 0.553 Å², the B of O1 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature"
+          }
+        ]
+      },
+      {
+        "parameterId": "B_O2",
+        "sites": [
+          "O2"
+        ],
+        "atom": "B(O2)",
+        "reached": 0,
+        "rule": "B",
+        "source": "rule B: the B of O2 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature",
+        "advice": "One option, none applied until you choose one: 1) alternative — hold it at 0.600 Å², the B of O2 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature. If this B carries physical meaning (a conclusion rests on it), run the Bayesian check on it (sample_posterior) before quoting it: a parameter on its bound is not convincing, and its esd means nothing.",
+        "warning": "B(O2) refined to 0 Å² (its lower bound). One option, none applied until you choose one: 1) alternative — hold it at 0.600 Å², the B of O2 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature. If this B carries physical meaning (a conclusion rests on it), run the Bayesian check on it (sample_posterior) before quoting it: a parameter on its bound is not convincing, and its esd means nothing.",
+        "options": [
+          {
+            "id": "start",
+            "rule": "B",
+            "rank": "alternative",
+            "leader": null,
+            "value": 0.600071947586233,
+            "label": "the starting structure's B",
+            "caution": null,
+            "source": "rule B: the B of O2 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature",
+            "text": "hold it at 0.600 Å², the B of O2 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature"
+          }
+        ]
+      }
+    ],
+    "fixes": [
+      {
+        "parameterId": "B_W1",
+        "atom": "B(W1)",
+        "reached": 0,
+        "rule": "B",
+        "leader": null,
+        "value": 0.31582734083485947,
+        "source": "alternative: rule B: the B of W1 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature",
+        "chosenBy": null,
+        "reason": null,
+        "alternatives": null,
+        "text": "B(W1) refined to 0 Å² (its lower bound) and is held at 0.316 Å² by the B-at-0 rule (alternative: rule B: the B of W1 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature). It is held, not refined: its value is an input, with no esd."
+      },
+      {
+        "parameterId": "B_O1",
+        "atom": "B(O1)",
+        "reached": 0,
+        "rule": "B",
+        "leader": null,
+        "value": 0.5526978464610041,
+        "source": "alternative: rule B: the B of O1 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature",
+        "chosenBy": null,
+        "reason": null,
+        "alternatives": null,
+        "text": "B(O1) refined to 0 Å² (its lower bound) and is held at 0.553 Å² by the B-at-0 rule (alternative: rule B: the B of O1 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature). It is held, not refined: its value is an input, with no esd."
+      },
+      {
+        "parameterId": "B_O2",
+        "atom": "B(O2)",
+        "reached": 0,
+        "rule": "B",
+        "leader": null,
+        "value": 0.600071947586233,
+        "source": "alternative: rule B: the B of O2 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature",
+        "chosenBy": null,
+        "reason": null,
+        "alternatives": null,
+        "text": "B(O2) refined to 0 Å² (its lower bound) and is held at 0.600 Å² by the B-at-0 rule (alternative: rule B: the B of O2 in the loaded starting structure \"cr2wo6\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature). It is held, not refined: its value is an input, with no esd."
+      }
+    ]
+  },
+  "ruleC": {
+    "proposals": [
+      {
+        "parameterId": "B_O1",
+        "sites": [
+          "O1"
+        ],
+        "atom": "B(O1)",
+        "reached": 0,
+        "rule": "C",
+        "source": "rule C: no value (no chemically similar site refined sensibly to tie it to, the starting structure gives it no B, and the app holds no documented table of typical B values by element and temperature)",
+        "advice": "No value is proposed (no chemically similar site refined sensibly to tie it to, the starting structure gives it no B, and the app holds no documented table of typical B values by element and temperature). Find the cause first (the background, absorption or a correlation: diagnose_fit), or hold it at a value you can cite. If this B carries physical meaning (a conclusion rests on it), run the Bayesian check on it (sample_posterior) before quoting it: a parameter on its bound is not convincing, and its esd means nothing.",
+        "warning": "B(O1) refined to 0 Å² (its lower bound). No value is proposed (no chemically similar site refined sensibly to tie it to, the starting structure gives it no B, and the app holds no documented table of typical B values by element and temperature). Find the cause first (the background, absorption or a correlation: diagnose_fit), or hold it at a value you can cite. If this B carries physical meaning (a conclusion rests on it), run the Bayesian check on it (sample_posterior) before quoting it: a parameter on its bound is not convincing, and its esd means nothing.",
+        "options": []
+      },
+      {
+        "parameterId": "B_O2",
+        "sites": [
+          "O2"
+        ],
+        "atom": "B(O2)",
+        "reached": 0,
+        "rule": "C",
+        "source": "rule C: no value (no chemically similar site refined sensibly to tie it to, the starting structure gives it no B, and the app holds no documented table of typical B values by element and temperature)",
+        "advice": "No value is proposed (no chemically similar site refined sensibly to tie it to, the starting structure gives it no B, and the app holds no documented table of typical B values by element and temperature). Find the cause first (the background, absorption or a correlation: diagnose_fit), or hold it at a value you can cite. If this B carries physical meaning (a conclusion rests on it), run the Bayesian check on it (sample_posterior) before quoting it: a parameter on its bound is not convincing, and its esd means nothing.",
+        "warning": "B(O2) refined to 0 Å² (its lower bound). No value is proposed (no chemically similar site refined sensibly to tie it to, the starting structure gives it no B, and the app holds no documented table of typical B values by element and temperature). Find the cause first (the background, absorption or a correlation: diagnose_fit), or hold it at a value you can cite. If this B carries physical meaning (a conclusion rests on it), run the Bayesian check on it (sample_posterior) before quoting it: a parameter on its bound is not convincing, and its esd means nothing.",
+        "options": []
+      }
+    ],
+    "assessment": [
+      {
+        "category": "at-bound",
+        "severity": "critical",
+        "summary": "O1 B is resting on its min bound (0).",
+        "evidence": {
+          "bound": "min",
+          "value": 0,
+          "proposal": "C",
+          "options": "",
+          "source": "rule C: no value (no chemically similar site refined sensibly to tie it to, the starting structure gives it no B, and the app holds no documented table of typical B values by element and temperature)"
+        },
+        "detail": "A displacement parameter pinned at a bound (often B→0) usually means the model is over-damping high-angle intensity — check the background, an absorption/extinction effect, or a correlation, rather than trusting the value. The B-at-0 rule: No value is proposed (no chemically similar site refined sensibly to tie it to, the starting structure gives it no B, and the app holds no documented table of typical B values by element and temperature). Find the cause first (the background, absorption or a correlation: diagnose_fit), or hold it at a value you can cite. If this B carries physical meaning (a conclusion rests on it), run the Bayesian check on it (sample_posterior) before quoting it: a parameter on its bound is not convincing, and its esd means nothing.",
+        "parameterIds": [
+          "B_O1"
+        ]
+      },
+      {
+        "category": "at-bound",
+        "severity": "critical",
+        "summary": "O2 B is resting on its min bound (0).",
+        "evidence": {
+          "bound": "min",
+          "value": 0,
+          "proposal": "C",
+          "options": "",
+          "source": "rule C: no value (no chemically similar site refined sensibly to tie it to, the starting structure gives it no B, and the app holds no documented table of typical B values by element and temperature)"
+        },
+        "detail": "A displacement parameter pinned at a bound (often B→0) usually means the model is over-damping high-angle intensity — check the background, an absorption/extinction effect, or a correlation, rather than trusting the value. The B-at-0 rule: No value is proposed (no chemically similar site refined sensibly to tie it to, the starting structure gives it no B, and the app holds no documented table of typical B values by element and temperature). Find the cause first (the background, absorption or a correlation: diagnose_fit), or hold it at a value you can cite. If this B carries physical meaning (a conclusion rests on it), run the Bayesian check on it (sample_posterior) before quoting it: a parameter on its bound is not convincing, and its esd means nothing.",
+        "parameterIds": [
+          "B_O2"
+        ]
+      },
+      {
+        "category": "physical",
+        "severity": "warning",
+        "summary": "U_iso of W1 is 0.0000 Å² (B 0.000 Å²), below the 0.001 Å² of a room-temperature atom.",
+        "detail": "That small is a low-temperature value. At room temperature it usually absorbs an error elsewhere (absorption, the scale, a scattering length or occupancy too small): check those before reporting it.",
+        "evidence": {
+          "site": "W1",
+          "uIso": 0
+        }
+      },
+      {
+        "category": "physical",
+        "severity": "warning",
+        "summary": "U_iso of Cr1 is 0.0000 Å² (B 0.000 Å²), below the 0.001 Å² of a room-temperature atom.",
+        "detail": "That small is a low-temperature value. At room temperature it usually absorbs an error elsewhere (absorption, the scale, a scattering length or occupancy too small): check those before reporting it.",
+        "evidence": {
+          "site": "Cr1",
+          "uIso": 0
+        }
+      },
+      {
+        "category": "physical",
+        "severity": "warning",
+        "summary": "U_iso of O1 is 0.0000 Å² (B 0.000 Å²), below the 0.001 Å² of a room-temperature atom.",
+        "detail": "That small is a low-temperature value. At room temperature it usually absorbs an error elsewhere (absorption, the scale, a scattering length or occupancy too small): check those before reporting it.",
+        "evidence": {
+          "site": "O1",
+          "uIso": 0
+        }
+      },
+      {
+        "category": "physical",
+        "severity": "warning",
+        "summary": "U_iso of O2 is 0.0000 Å² (B 0.000 Å²), below the 0.001 Å² of a room-temperature atom.",
+        "detail": "That small is a low-temperature value. At room temperature it usually absorbs an error elsewhere (absorption, the scale, a scattering length or occupancy too small): check those before reporting it.",
+        "evidence": {
+          "site": "O2",
+          "uIso": 0
+        }
+      }
+    ]
+  },
+  "sharedSite": {
+    "proposals": [
+      {
+        "parameterId": "B_W1",
+        "sites": [
+          "W1"
+        ],
+        "atom": "B(W1)",
+        "reached": 0,
+        "rule": "A",
+        "source": "rule A: B(Cr1/Fe1) (B_Cr1), same coordination (6 O), different cation (W site vs Cr site/Fe site), refined to 0.6(2) Å²",
+        "advice": "2 options, none applied until you choose one: 1) alternative — tie it to B(Cr1/Fe1), same coordination (6 O), different cation (W site vs Cr site/Fe site), which refined to 0.6(2) Å² (a constraint: the common B still refines) — a different cation (W site vs Cr site/Fe site): check it is physically sensible. 2) alternative — hold it at 1.453 Å², the B of W1 in the loaded starting structure \"shared\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature. If this B carries physical meaning (a conclusion rests on it), run the Bayesian check on it (sample_posterior) before quoting it: a parameter on its bound is not convincing, and its esd means nothing.",
+        "warning": "B(W1) refined to 0 Å² (its lower bound). 2 options, none applied until you choose one: 1) alternative — tie it to B(Cr1/Fe1), same coordination (6 O), different cation (W site vs Cr site/Fe site), which refined to 0.6(2) Å² (a constraint: the common B still refines) — a different cation (W site vs Cr site/Fe site): check it is physically sensible. 2) alternative — hold it at 1.453 Å², the B of W1 in the loaded starting structure \"shared\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature. If this B carries physical meaning (a conclusion rests on it), run the Bayesian check on it (sample_posterior) before quoting it: a parameter on its bound is not convincing, and its esd means nothing.",
+        "options": [
+          {
+            "id": "tie:B_Cr1",
+            "rule": "A",
+            "rank": "alternative",
+            "leader": "B_Cr1",
+            "value": null,
+            "label": "same coordination (6 O), different cation (W site vs Cr site/Fe site)",
+            "caution": "a different cation (W site vs Cr site/Fe site): check it is physically sensible",
+            "source": "rule A: B(Cr1/Fe1) (B_Cr1), same coordination (6 O), different cation (W site vs Cr site/Fe site), refined to 0.6(2) Å²",
+            "text": "tie it to B(Cr1/Fe1), same coordination (6 O), different cation (W site vs Cr site/Fe site), which refined to 0.6(2) Å² (a constraint: the common B still refines) — a different cation (W site vs Cr site/Fe site): check it is physically sensible"
+          },
+          {
+            "id": "start",
+            "rule": "B",
+            "rank": "alternative",
+            "leader": null,
+            "value": 1.4528057678403534,
+            "label": "the starting structure's B",
+            "caution": null,
+            "source": "rule B: the B of W1 in the loaded starting structure \"shared\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature",
+            "text": "hold it at 1.453 Å², the B of W1 in the loaded starting structure \"shared\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature"
+          }
+        ]
+      }
+    ],
+    "fixes": [
+      {
+        "parameterId": "B_W1",
+        "atom": "B(W1)",
+        "reached": 0,
+        "rule": "A",
+        "leader": "B_Cr1",
+        "value": null,
+        "source": "alternative: rule A: B(Cr1/Fe1) (B_Cr1), same coordination (6 O), different cation (W site vs Cr site/Fe site), refined to 0.6(2) Å² (a different cation (W site vs Cr site/Fe site): check it is physically sensible)",
+        "chosenBy": null,
+        "reason": null,
+        "alternatives": [
+          "alternative: hold at 1.453 Å² (the starting structure's B)"
+        ],
+        "text": "B(W1) refined to 0 Å² (its lower bound) and is tied to B_Cr1 by the B-at-0 rule (alternative: rule A: B(Cr1/Fe1) (B_Cr1), same coordination (6 O), different cation (W site vs Cr site/Fe site), refined to 0.6(2) Å² (a different cation (W site vs Cr site/Fe site): check it is physically sensible)). Its value follows the tie; it is not measured on its own. Not taken: alternative: hold at 1.453 Å² (the starting structure's B)."
+      },
+      {
+        "parameterId": "B_W1",
+        "atom": "B(W1)",
+        "reached": 0,
+        "rule": "B",
+        "leader": null,
+        "value": 1.4528057678403534,
+        "source": "alternative: rule B: the B of W1 in the loaded starting structure \"shared\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature",
+        "chosenBy": null,
+        "reason": null,
+        "alternatives": [
+          "alternative: tie to B_Cr1 (same coordination (6 O), different cation (W site vs Cr site/Fe site))"
+        ],
+        "text": "B(W1) refined to 0 Å² (its lower bound) and is held at 1.453 Å² by the B-at-0 rule (alternative: rule B: the B of W1 in the loaded starting structure \"shared\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature). It is held, not refined: its value is an input, with no esd. Not taken: alternative: tie to B_Cr1 (same coordination (6 O), different cation (W site vs Cr site/Fe site))."
+      }
+    ],
+    "assessment": [
+      {
+        "category": "at-bound",
+        "severity": "critical",
+        "summary": "W1 B is resting on its min bound (0).",
+        "evidence": {
+          "bound": "min",
+          "value": 0,
+          "proposal": "A",
+          "options": "1) \"tie:B_Cr1\" alternative: tie to B_Cr1 — same coordination (6 O), different cation (W site vs Cr site/Fe site) (a different cation (W site vs Cr site/Fe site): check it is physically sensible); 2) \"start\" alternative: hold at 1.4528057678403534 — the starting structure's B",
+          "source": "rule A: B(Cr1/Fe1) (B_Cr1), same coordination (6 O), different cation (W site vs Cr site/Fe site), refined to 0.6(2) Å²"
+        },
+        "detail": "A displacement parameter pinned at a bound (often B→0) usually means the model is over-damping high-angle intensity — check the background, an absorption/extinction effect, or a correlation, rather than trusting the value. The B-at-0 rule: 2 options, none applied until you choose one: 1) alternative — tie it to B(Cr1/Fe1), same coordination (6 O), different cation (W site vs Cr site/Fe site), which refined to 0.6(2) Å² (a constraint: the common B still refines) — a different cation (W site vs Cr site/Fe site): check it is physically sensible. 2) alternative — hold it at 1.453 Å², the B of W1 in the loaded starting structure \"shared\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature. If this B carries physical meaning (a conclusion rests on it), run the Bayesian check on it (sample_posterior) before quoting it: a parameter on its bound is not convincing, and its esd means nothing. apply_adp_proposal applies the option you choose by its id (prefer the same-element tie; a cross-element one only when physically sensible, with the reason; in doubt the starting value, or leave the B and report it): asking first, the card shows the user every option with yours preselected; in auto mode yours applies and is recorded as yours. Applied, it stays a tie or a held value that can be released.",
+        "parameterIds": [
+          "B_W1"
+        ]
+      },
+      {
+        "category": "physical",
+        "severity": "warning",
+        "summary": "W1 (W) has U_iso 0.018 Å², 2.6× that of the lighter O1 (O, 0.0070 Å²).",
+        "detail": "Heavier atoms usually vibrate less. It can be right (a loosely bound heavy atom, a rattler); otherwise the two sites' occupancies or elements may be swapped, or one U is taking a misfit. Say so in the report.",
+        "evidence": {
+          "heavy": "W1",
+          "light": "O1",
+          "uHeavy": 0.0184,
+          "uLight": 0.007
+        }
+      }
+    ]
+  },
+  "twoPhases": {
+    "proposals": [
+      {
+        "parameterId": "p0_B_O2",
+        "sites": [
+          "O2"
+        ],
+        "atom": "B(O2)",
+        "reached": 0,
+        "rule": "A",
+        "source": "rule A: B(O1) (p0_B_O1), same element (O²⁻), refined to 0.62(5) Å²",
+        "advice": "2 options, none applied until you choose one: 1) preferred — tie it to B(O1), same element (O²⁻), which refined to 0.62(5) Å² (a constraint: the common B still refines). 2) alternative — hold it at 0.600 Å², the B of O2 in the loaded starting structure \"Cr2WO6-a\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature. If this B carries physical meaning (a conclusion rests on it), run the Bayesian check on it (sample_posterior) before quoting it: a parameter on its bound is not convincing, and its esd means nothing.",
+        "warning": "B(O2) refined to 0 Å² (its lower bound). 2 options, none applied until you choose one: 1) preferred — tie it to B(O1), same element (O²⁻), which refined to 0.62(5) Å² (a constraint: the common B still refines). 2) alternative — hold it at 0.600 Å², the B of O2 in the loaded starting structure \"Cr2WO6-a\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature. If this B carries physical meaning (a conclusion rests on it), run the Bayesian check on it (sample_posterior) before quoting it: a parameter on its bound is not convincing, and its esd means nothing.",
+        "options": [
+          {
+            "id": "tie:p0_B_O1",
+            "rule": "A",
+            "rank": "preferred",
+            "leader": "p0_B_O1",
+            "value": null,
+            "label": "same element (O²⁻)",
+            "caution": null,
+            "source": "rule A: B(O1) (p0_B_O1), same element (O²⁻), refined to 0.62(5) Å²",
+            "text": "tie it to B(O1), same element (O²⁻), which refined to 0.62(5) Å² (a constraint: the common B still refines)"
+          },
+          {
+            "id": "start",
+            "rule": "B",
+            "rank": "alternative",
+            "leader": null,
+            "value": 0.600071947586233,
+            "label": "the starting structure's B",
+            "caution": null,
+            "source": "rule B: the B of O2 in the loaded starting structure \"Cr2WO6-a\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature",
+            "text": "hold it at 0.600 Å², the B of O2 in the loaded starting structure \"Cr2WO6-a\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature"
+          }
+        ]
+      },
+      {
+        "parameterId": "p1_B_O1",
+        "sites": [
+          "O1"
+        ],
+        "atom": "B(O1)",
+        "reached": 0,
+        "rule": "A",
+        "source": "rule A: B(O2) (p1_B_O2), same element (O²⁻), refined to 0.70(5) Å²",
+        "advice": "2 options, none applied until you choose one: 1) preferred — tie it to B(O2), same element (O²⁻), which refined to 0.70(5) Å² (a constraint: the common B still refines). 2) alternative — hold it at 0.553 Å², the B of O1 in the loaded starting structure \"Cr2WO6-b\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature. If this B carries physical meaning (a conclusion rests on it), run the Bayesian check on it (sample_posterior) before quoting it: a parameter on its bound is not convincing, and its esd means nothing.",
+        "warning": "B(O1) refined to 0 Å² (its lower bound). 2 options, none applied until you choose one: 1) preferred — tie it to B(O2), same element (O²⁻), which refined to 0.70(5) Å² (a constraint: the common B still refines). 2) alternative — hold it at 0.553 Å², the B of O1 in the loaded starting structure \"Cr2WO6-b\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature. If this B carries physical meaning (a conclusion rests on it), run the Bayesian check on it (sample_posterior) before quoting it: a parameter on its bound is not convincing, and its esd means nothing.",
+        "options": [
+          {
+            "id": "tie:p1_B_O2",
+            "rule": "A",
+            "rank": "preferred",
+            "leader": "p1_B_O2",
+            "value": null,
+            "label": "same element (O²⁻)",
+            "caution": null,
+            "source": "rule A: B(O2) (p1_B_O2), same element (O²⁻), refined to 0.70(5) Å²",
+            "text": "tie it to B(O2), same element (O²⁻), which refined to 0.70(5) Å² (a constraint: the common B still refines)"
+          },
+          {
+            "id": "start",
+            "rule": "B",
+            "rank": "alternative",
+            "leader": null,
+            "value": 0.5526978464610041,
+            "label": "the starting structure's B",
+            "caution": null,
+            "source": "rule B: the B of O1 in the loaded starting structure \"Cr2WO6-b\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature",
+            "text": "hold it at 0.553 Å², the B of O1 in the loaded starting structure \"Cr2WO6-b\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature"
+          }
+        ]
+      }
+    ],
+    "fixes": [
+      {
+        "parameterId": "p0_B_O2",
+        "atom": "B(O2)",
+        "reached": 0,
+        "rule": "A",
+        "leader": "p0_B_O1",
+        "value": null,
+        "source": "preferred: rule A: B(O1) (p0_B_O1), same element (O²⁻), refined to 0.62(5) Å²",
+        "chosenBy": null,
+        "reason": null,
+        "alternatives": [
+          "alternative: hold at 0.600 Å² (the starting structure's B)"
+        ],
+        "text": "B(O2) refined to 0 Å² (its lower bound) and is tied to p0_B_O1 by the B-at-0 rule (preferred: rule A: B(O1) (p0_B_O1), same element (O²⁻), refined to 0.62(5) Å²). Its value follows the tie; it is not measured on its own. Not taken: alternative: hold at 0.600 Å² (the starting structure's B)."
+      },
+      {
+        "parameterId": "p1_B_O1",
+        "atom": "B(O1)",
+        "reached": 0,
+        "rule": "A",
+        "leader": "p1_B_O2",
+        "value": null,
+        "source": "preferred: rule A: B(O2) (p1_B_O2), same element (O²⁻), refined to 0.70(5) Å²",
+        "chosenBy": null,
+        "reason": null,
+        "alternatives": [
+          "alternative: hold at 0.553 Å² (the starting structure's B)"
+        ],
+        "text": "B(O1) refined to 0 Å² (its lower bound) and is tied to p1_B_O2 by the B-at-0 rule (preferred: rule A: B(O2) (p1_B_O2), same element (O²⁻), refined to 0.70(5) Å²). Its value follows the tie; it is not measured on its own. Not taken: alternative: hold at 0.553 Å² (the starting structure's B)."
+      }
+    ],
+    "assessment": [
+      {
+        "category": "at-bound",
+        "severity": "critical",
+        "summary": "Cr2WO6-a: O2 B is resting on its min bound (0).",
+        "evidence": {
+          "bound": "min",
+          "value": 0,
+          "proposal": "A",
+          "options": "1) \"tie:p0_B_O1\" preferred: tie to p0_B_O1 — same element (O²⁻); 2) \"start\" alternative: hold at 0.600071947586233 — the starting structure's B",
+          "source": "rule A: B(O1) (p0_B_O1), same element (O²⁻), refined to 0.62(5) Å²"
+        },
+        "detail": "A displacement parameter pinned at a bound (often B→0) usually means the model is over-damping high-angle intensity — check the background, an absorption/extinction effect, or a correlation, rather than trusting the value. The B-at-0 rule: 2 options, none applied until you choose one: 1) preferred — tie it to B(O1), same element (O²⁻), which refined to 0.62(5) Å² (a constraint: the common B still refines). 2) alternative — hold it at 0.600 Å², the B of O2 in the loaded starting structure \"Cr2WO6-a\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature. If this B carries physical meaning (a conclusion rests on it), run the Bayesian check on it (sample_posterior) before quoting it: a parameter on its bound is not convincing, and its esd means nothing. apply_adp_proposal applies the option you choose by its id (prefer the same-element tie; a cross-element one only when physically sensible, with the reason; in doubt the starting value, or leave the B and report it): asking first, the card shows the user every option with yours preselected; in auto mode yours applies and is recorded as yours. Applied, it stays a tie or a held value that can be released.",
+        "parameterIds": [
+          "p0_B_O2"
+        ]
+      },
+      {
+        "category": "at-bound",
+        "severity": "critical",
+        "summary": "Cr2WO6-b: O1 B is resting on its min bound (0).",
+        "evidence": {
+          "bound": "min",
+          "value": 0,
+          "proposal": "A",
+          "options": "1) \"tie:p1_B_O2\" preferred: tie to p1_B_O2 — same element (O²⁻); 2) \"start\" alternative: hold at 0.5526978464610041 — the starting structure's B",
+          "source": "rule A: B(O2) (p1_B_O2), same element (O²⁻), refined to 0.70(5) Å²"
+        },
+        "detail": "A displacement parameter pinned at a bound (often B→0) usually means the model is over-damping high-angle intensity — check the background, an absorption/extinction effect, or a correlation, rather than trusting the value. The B-at-0 rule: 2 options, none applied until you choose one: 1) preferred — tie it to B(O2), same element (O²⁻), which refined to 0.70(5) Å² (a constraint: the common B still refines). 2) alternative — hold it at 0.553 Å², the B of O1 in the loaded starting structure \"Cr2WO6-b\" (a CIF's U_iso is read as B = 8π²U), used as it stands: the app has no temperature model for B, so it is not adjusted to the measurement temperature. If this B carries physical meaning (a conclusion rests on it), run the Bayesian check on it (sample_posterior) before quoting it: a parameter on its bound is not convincing, and its esd means nothing. apply_adp_proposal applies the option you choose by its id (prefer the same-element tie; a cross-element one only when physically sensible, with the reason; in doubt the starting value, or leave the B and report it): asking first, the card shows the user every option with yours preselected; in auto mode yours applies and is recorded as yours. Applied, it stays a tie or a held value that can be released.",
+        "parameterIds": [
+          "p1_B_O1"
+        ]
+      }
+    ]
+  },
+  "physical": [
+    {
+      "category": "physical",
+      "severity": "critical",
+      "summary": "W1 B refined negative (-0.0123) — an unphysical isotropic displacement B.",
+      "detail": "A negative ADP has no physical meaning; it typically absorbs an error elsewhere (scale, background, absorption, or a wrong scattering type). Fix it at a small positive value and address the real cause.",
+      "parameterIds": [
+        "B_W1"
+      ],
+      "evidence": {
+        "value": -0.0123,
+        "origin": "refined"
+      }
+    },
+    {
+      "category": "physical",
+      "severity": "critical",
+      "summary": "O1 B is held at -0.5000, negative — an unphysical isotropic displacement B.",
+      "detail": "This value was not refined; it comes from the starting structure or CIF. A negative ADP has no physical meaning — correct the input to a small positive value, or constrain it, before refining.",
+      "parameterIds": [
+        "B_O1"
+      ],
+      "evidence": {
+        "value": -0.5,
+        "origin": "input"
+      }
+    },
+    {
+      "category": "physical",
+      "severity": "warning",
+      "summary": "Mn3Ga: Ga1 occ is held at 1.0500, outside [0, 1].",
+      "detail": "This value was not refined; it comes from the starting structure or CIF. Correct the input occupancy to its physical range, or constrain it (full site, or a Σ=1 tie).",
+      "parameterIds": [
+        "occ_Ga1"
+      ],
+      "evidence": {
+        "value": 1.05,
+        "origin": "input"
+      }
+    },
+    {
+      "category": "physical",
+      "severity": "warning",
+      "summary": "Mn1 occ refined to 1.0731, outside [0, 1].",
+      "detail": "Occupancy outside its physical range points to a scale/occupancy correlation or the wrong site multiplicity. Constrain it (full site, or a Σ=1 tie) unless a second contrast justifies the value.",
+      "parameterIds": [
+        "occ_Mn1"
+      ],
+      "evidence": {
+        "value": 1.0731,
+        "origin": "refined"
+      }
+    },
+    {
+      "category": "physical",
+      "severity": "warning",
+      "summary": "Fe1 occ refined to -0.0712, outside [0, 1].",
+      "detail": "Occupancy outside its physical range points to a scale/occupancy correlation or the wrong site multiplicity. Constrain it (full site, or a Σ=1 tie) unless a second contrast justifies the value.",
+      "parameterIds": [
+        "occ_Fe1"
+      ],
+      "evidence": {
+        "value": -0.0712,
+        "origin": "refined"
+      }
+    },
+    {
+      "category": "physical",
+      "severity": "warning",
+      "summary": "Ni1 occ is held at 1.0050, outside [0, 1].",
+      "detail": "This value was not refined; it comes from the starting structure or CIF. Correct the input occupancy to its physical range, or constrain it (full site, or a Σ=1 tie).",
+      "parameterIds": [
+        "occ_Ni1"
+      ],
+      "evidence": {
+        "value": 1.005,
+        "origin": "input"
+      }
+    },
+    {
+      "category": "physical",
+      "severity": "warning",
+      "summary": "size (Lorentzian X) refined negative (-1.234): a negative size (Lorentzian X) has no physical meaning.",
+      "detail": "It narrows the peaks below the Gaussian width, compensating Caglioti U, V, W that make them too broad (or a wrong peak-shape mix). Fix it at 0 and refine U, V, W, then free it again; quote no size or strain from it.",
+      "parameterIds": [
+        "profX"
+      ],
+      "evidence": {
+        "value": -1.234
+      }
+    },
+    {
+      "category": "physical",
+      "severity": "warning",
+      "summary": "mustrain (Lorentzian Y) refined negative (-0.500): a negative microstrain (Lorentzian Y) has no physical meaning.",
+      "detail": "It narrows the peaks below the Gaussian width, compensating Caglioti U, V, W that make them too broad (or a wrong peak-shape mix). Fix it at 0 and refine U, V, W, then free it again; quote no size or strain from it.",
+      "parameterIds": [
+        "profY"
+      ],
+      "evidence": {
+        "value": -0.5
+      }
+    }
+  ],
+  "moderate": [
+    {
+      "category": "correlation",
+      "severity": "note",
+      "summary": "5 pairs correlate at |ρ| 0.8–0.95: W1 B ↔ Mn1 occ 0.86; Fe1 occ ↔ O1 B -0.82; size (Lorentzian X) ↔ mustrain (Lorentzian Y) 0.91; Mn1 occ ↔ Fe1 occ -0.81; ….",
+      "detail": "Below the 0.95 at which a pair is not refined together, so refined; but the data couple them, and their esds carry it. Report each with its coefficient; if one of them is a claim, fix its partner and refine again to see how far it moves.",
+      "parameterIds": [
+        "B_W1",
+        "occ_Mn1",
+        "occ_Fe1",
+        "B_O1",
+        "profX",
+        "profY"
+      ],
+      "evidence": {
+        "pairs": 5,
+        "maxCoefficient": 0.91
+      }
+    }
+  ],
+  "moderateOne": [
+    {
+      "category": "correlation",
+      "severity": "note",
+      "summary": "1 pair correlates at |ρ| 0.8–0.95: W1 B ↔ Mn1 occ 0.86.",
+      "detail": "Below the 0.95 at which a pair is not refined together, so refined; but the data couple them, and their esds carry it. Report each with its coefficient; if one of them is a claim, fix its partner and refine again to see how far it moves.",
+      "parameterIds": [
+        "B_W1",
+        "occ_Mn1"
+      ],
+      "evidence": {
+        "pairs": 1,
+        "maxCoefficient": 0.86
+      }
+    }
+  ],
+  "otherBounds": [
+    {
+      "category": "at-bound",
+      "severity": "critical",
+      "summary": "Mn1 occ is resting on its max bound (1).",
+      "detail": "A free parameter at a bound has a meaningless esd and signals the fit wanted to go where physics forbids — hold it fixed and find the upstream cause (correlation, wrong background, bad starting value).",
+      "parameterIds": [
+        "occ_Mn1"
+      ],
+      "evidence": {
+        "bound": "max",
+        "value": 1
+      }
+    },
+    {
+      "category": "at-bound",
+      "severity": "warning",
+      "summary": "size (Lorentzian X) is resting on its min bound (0).",
+      "detail": "A free parameter at a bound has a meaningless esd and signals the fit wanted to go where physics forbids — hold it fixed and find the upstream cause (correlation, wrong background, bad starting value).",
+      "parameterIds": [
+        "profX"
+      ],
+      "evidence": {
+        "bound": "min",
+        "value": 0
+      }
+    }
+  ]
+}

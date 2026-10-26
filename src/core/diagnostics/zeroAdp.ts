@@ -25,6 +25,11 @@
  * Pure functions over the rows, the bindings and the structures; the pages
  * show every option (a notice with an Apply per option, the Agent's approval
  * card) and keep what was applied (`ZeroAdpFix`) beside their rows.
+ *
+ * The prose here (`warning`, `advice`, each option's `text`, `zeroAdpFixText`)
+ * is what the Agent reads, and is frozen (agentVisibleText.test.ts). The pages
+ * word the same things in short lines of their own (zeroAdpLines.ts), built
+ * from the structured facts each option and fix carries (`ZeroAdpFacts`).
  */
 
 import type { ParameterBinding, RefinementParameter, RefinementResult } from "@/core/refinement/types";
@@ -36,17 +41,35 @@ import { formatWithEsd } from "@/core/export/cif";
 /** A: a tie; B: the starting structure's value; C: nothing to propose (no documented table). */
 export type ZeroAdpRule = "A" | "B" | "C";
 
-/** One way to hold a B at 0: a tie or the starting structure's value, ranked. */
-export interface ZeroAdpOption {
-  /** Stable within its proposal: "tie:B_O1" for a tie to that row, "start" for the starting structure's value. */
-  readonly id: string;
+/**
+ * An option's facts without its prose: what the pages' short lines are built
+ * from (zeroAdpLines.ts). The Agent reads the prose (`text`, `label`, `caution`).
+ */
+export interface ZeroAdpFacts {
   readonly rule: "A" | "B";
   /** "preferred": a tie to a site of the same element; every other option is an alternative. */
   readonly rank: "preferred" | "alternative";
   /** Rule A: the row it follows. */
   readonly leader?: string;
+  /** Rule A: the leader's atom as the warning names it ("B(O1)", "B(Co1 +5)"). */
+  readonly leaderAtom?: string;
+  /** Rule A: what the leader refined to when the option was offered, and its esd (Å²). */
+  readonly leaderValue?: number;
+  readonly leaderEsd?: number;
+  /** Rule A: what the two sites share — the element, or the coordination of two different cations. */
+  readonly shared?: "element" | "coordination";
+  /** Rule A, a shared coordination: the cation's first shell ("6 O", "4 O + 2 F"). */
+  readonly shell?: string;
+  /** Rule A: how the two sites differ, when they do (the subject of the caution). */
+  readonly differs?: "cation" | "oxidation state";
   /** Rule B: the value it is held at (Å²). */
   readonly value?: number;
+}
+
+/** One way to hold a B at 0: a tie or the starting structure's value, ranked. */
+export interface ZeroAdpOption extends ZeroAdpFacts {
+  /** Stable within its proposal: "tie:B_O1" for a tie to that row, "start" for the starting structure's value. */
+  readonly id: string;
   /** What kind of option it is: "same element (O²⁻)", "same coordination (6 O), different cation (W⁶⁺ vs Co²⁺)", "the starting structure's B". */
   readonly label: string;
   /** What the user should check before choosing it. */
@@ -64,6 +87,8 @@ export interface ZeroAdpProposal {
   readonly sites: readonly string[];
   /** "B(O2)", the atom the warning names. */
   readonly atom: string;
+  /** The phase the row belongs to, when the model has several (its name): the pages' short lines name it. */
+  readonly phase?: string;
   /** The value it reached (its lower bound). */
   readonly reached: number;
   /** The first option's rule, or C when there is none. */
@@ -93,6 +118,12 @@ export interface ZeroAdpFix {
   readonly reason?: string;
   /** The options not taken, in words. */
   readonly alternatives?: readonly string[];
+  /** The phase of the row, when the model has several. */
+  readonly phase?: string;
+  /** The applied option's facts and caution, and the facts of those not taken: the pages' short lines. Absent on a fix saved before them. */
+  readonly facts?: ZeroAdpFacts;
+  readonly caution?: string;
+  readonly others?: readonly ZeroAdpFacts[];
 }
 
 /** Who applies an option and why: the page's notice and the Agent's card are the user's choice; auto mode is the Agent's. */
@@ -117,6 +148,12 @@ export interface ZeroAdpInput {
 
 /** The sentence every warning ends on: a B with physical meaning needs its posterior, not a fixed value alone. */
 export const ZERO_ADP_BAYES = "If this B carries physical meaning (a conclusion rests on it), run the Bayesian check on it (sample_posterior) before quoting it: a parameter on its bound is not convincing, and its esd means nothing.";
+
+/** An option's facts, the prose left out. */
+export function zeroAdpFacts(o: ZeroAdpFacts): ZeroAdpFacts {
+  const keys = ["rule", "rank", "leader", "leaderAtom", "leaderValue", "leaderEsd", "shared", "shell", "differs", "value"] as const;
+  return Object.fromEntries(keys.filter((k) => o[k] !== undefined).map((k) => [k, o[k]])) as unknown as ZeroAdpFacts;
+}
 
 /** A row refined in the last fit and free: no tie, not held. */
 const refinedFree = (p: RefinementParameter, result: RefinementResult): boolean => !p.fixed && !p.expression && result.parameters[p.id] !== undefined;
@@ -207,6 +244,8 @@ export function zeroAdpProposals(input: ZeroAdpInput): ZeroAdpProposal[] {
     const rs = sitesOf(bindings, p.id);
     const sites = rs?.labels ?? [];
     const atom = adpAtom(sites, p.label);
+    const own = rs ? loaded.get(rs.structureId) : undefined;
+    const phase = own && input.structures.length > 1 ? own.name || own.id : undefined;
     const reached = result.parameters[p.id] ?? atMin.get(p.id)!;
     const head = `${atom} refined to ${fmt(reached)} Å² (its lower bound).`;
     const options: ZeroAdpOption[] = [];
@@ -224,15 +263,16 @@ export function zeroAdpProposals(input: ZeroAdpInput): ZeroAdpProposal[] {
       const mineSpecies = speciesText(loaded.get(rs.structureId), rs.labels);
       const shell = role(sites) === "cation" ? coordinationOf(model, sites[0]!, cache) : null;
       const rel = (q: RefinementParameter): number => (result.esd?.[q.id] ?? 0) / result.parameters[q.id]!;
-      const ties = partners.flatMap((q) => {
+      interface Tie { q: RefinementParameter; qs: RowSites; tier: number; label: string; caution?: string; differs?: ZeroAdpFacts["differs"] }
+      const ties = partners.flatMap((q): Tie[] => {
         const qs = sitesOf(bindings, q.id);
         if (!qs || qs.structureId !== rs.structureId) return [];
         const theirs = speciesText(loaded.get(rs.structureId), qs.labels);
         if (sameSet(elementsOf(qs), els)) {
-          return [{ q, qs, tier: 0, label: `same element (${theirs})`, ...(theirs !== mineSpecies ? { caution: `a different oxidation state (${mineSpecies} vs ${theirs}): check it is physically sensible` } : {}) }];
+          return [{ q, qs, tier: 0, label: `same element (${theirs})`, ...(theirs !== mineSpecies ? { caution: `a different oxidation state (${mineSpecies} vs ${theirs}): check it is physically sensible`, differs: "oxidation state" } : {}) }];
         }
         if (shell && role(qs.labels) === "cation" && shell === coordinationOf(model, qs.labels[0]!, cache)) {
-          return [{ q, qs, tier: 1, label: `same coordination (${shell}), different cation (${mineSpecies} vs ${theirs})`, caution: `a different cation (${mineSpecies} vs ${theirs}): check it is physically sensible` }];
+          return [{ q, qs, tier: 1, label: `same coordination (${shell}), different cation (${mineSpecies} vs ${theirs})`, caution: `a different cation (${mineSpecies} vs ${theirs}): check it is physically sensible`, differs: "cation" }];
         }
         return [];
       }).sort((x, y) => x.tier - y.tier || rel(x.q) - rel(y.q));
@@ -241,6 +281,8 @@ export function zeroAdpProposals(input: ZeroAdpInput): ZeroAdpProposal[] {
         const leaderAtom = adpAtom(t.qs.labels, t.q.label);
         options.push({
           id: `tie:${t.q.id}`, rule: "A", rank: t.tier === 0 ? "preferred" : "alternative", leader: t.q.id, label: t.label, ...(t.caution ? { caution: t.caution } : {}),
+          leaderAtom, leaderValue: result.parameters[t.q.id]!, leaderEsd: result.esd![t.q.id]!,
+          shared: t.tier === 0 ? "element" : "coordination", ...(t.tier === 1 && shell ? { shell } : {}), ...(t.differs ? { differs: t.differs } : {}),
           source: `rule A: ${leaderAtom} (${t.q.id}), ${t.label}, refined to ${v} Å²`,
           text: `tie it to ${leaderAtom}, ${t.label}, which refined to ${v} Å² (a constraint: the common B still refines)${t.caution ? ` — ${t.caution}` : ""}`,
         });
@@ -266,11 +308,11 @@ export function zeroAdpProposals(input: ZeroAdpInput): ZeroAdpProposal[] {
       // C — no documented table of typical B values: nothing is proposed.
       const why = "no chemically similar site refined sensibly to tie it to, the starting structure gives it no B, and the app holds no documented table of typical B values by element and temperature";
       const advice = `No value is proposed (${why}). Find the cause first (the background, absorption or a correlation: diagnose_fit), or hold it at a value you can cite. ${ZERO_ADP_BAYES}`;
-      return { parameterId: p.id, sites, atom, reached, rule: "C" as const, options, source: `rule C: no value (${why})`, advice, warning: `${head} ${advice}` };
+      return { parameterId: p.id, sites, atom, ...(phase ? { phase } : {}), reached, rule: "C" as const, options, source: `rule C: no value (${why})`, advice, warning: `${head} ${advice}` };
     }
     const list = options.map((o, i) => `${i + 1}) ${o.rank} — ${o.text}.`).join(" ");
     const advice = `${options.length === 1 ? "One option" : `${options.length} options`}, none applied until you choose one: ${list} ${ZERO_ADP_BAYES}`;
-    return { parameterId: p.id, sites, atom, reached, rule: options[0]!.rule, options, source: options[0]!.source, advice, warning: `${head} ${advice}` };
+    return { parameterId: p.id, sites, atom, ...(phase ? { phase } : {}), reached, rule: options[0]!.rule, options, source: options[0]!.source, advice, warning: `${head} ${advice}` };
   });
 }
 
@@ -302,6 +344,10 @@ export function zeroAdpFix(proposal: ZeroAdpProposal, index = 0, how: { readonly
     ...(how.chosenBy === "agent-auto" ? { chosenBy: "agent-auto" as const } : {}),
     ...(how.reason ? { reason: how.reason } : {}),
     ...(others.length > 0 ? { alternatives: others } : {}),
+    ...(proposal.phase ? { phase: proposal.phase } : {}),
+    facts: zeroAdpFacts(o),
+    ...(o.caution ? { caution: o.caution } : {}),
+    ...(others.length > 0 ? { others: proposal.options.filter((_, i) => i !== index).map(zeroAdpFacts) } : {}),
   };
 }
 
@@ -340,6 +386,11 @@ export function zeroAdpStepLabel(proposal: ZeroAdpProposal, index = 0, chosenBy?
   const o = zeroAdpOption(proposal, index);
   const by = chosenBy === "agent-auto" ? ", the Agent's choice in auto mode" : "";
   return o.rule === "A" ? `B at 0: tie ${proposal.parameterId} = ${o.leader} (${o.rank}${by})` : `B at 0: hold ${proposal.parameterId} at ${fmt(o.value ?? NaN)} Å² (starting structure${by})`;
+}
+
+/** A B as the rule's prose gives it: "0.600", "0" (Å² left to the caller). */
+export function formatB(v: number): string {
+  return fmt(v);
 }
 
 function fmt(v: number): string {

@@ -620,6 +620,29 @@ release fixes bugs.
 
 ### Changed
 
+- **The B-at-0 notice, the physical findings and the report's limitations
+  say each thing in one short line.** The result or the action comes first,
+  with no rule letters and no repetition. A B on 0 reads "B(W1) is at its 0
+  bound: tie it to B(Co1) (same coordination) or hold it at 1.453 Å²", and
+  each option sits beside its own **Apply**. A fix in force reads "B(W1) hit
+  0 → tied to B(Co1) = 0.6(2) Å² (same 6-O coordination, different cation);
+  not measured on its own", with the tied value as the last fit gives it. A
+  held B reads "B(O1) hit 0 → held at 0.800 Å² (starting value); not
+  measured". A tie across two different sites carries its caution as a ⚠
+  with a tooltip, not a parenthetical. The Validation tab's physical sanity
+  card shortens the other long findings the same way: "B1 hit its lower
+  bound (0) → find the cause", "Ga1 occ held at 1.05, outside [0, 1] →
+  correct the input", "W1 B refined negative (-0.0123) → hold it positive,
+  find the cause". The cross-check card's moderate correlations read "2 pairs
+  correlate, |ρ| up to 0.86 → report each with ρ". The full sentences are
+  behind a **?** on screen. In the report they move to a new appendix part,
+  **Caveats in full**, and the report states a fix once, as a limitation.
+  The Agent reads the same text as before: the rule's warnings, the fix
+  text and the assessment's findings are unchanged, byte for byte (a freeze
+  test holds them), as are the Agent's tools and the report's frozen
+  Markdown. A saved project keeps each fix's facts beside its text. Older
+  project files still open and read in one line.
+
 - **Save and Load are header buttons of their own, not folded into "Project ▾".**
   The menu held only those two, so it is gone: Save and Load sit in the header
   beside History, Demos and Export, in the same button style, each with a

@@ -1602,7 +1602,7 @@ export function PowderWorkbench({
                 result={powderResult}
                 disabled={tofViewOnly}
                 warnings={occupancyWarnings}
-                notice={<ZeroAdpNotice proposals={zeroAdp.proposals} applied={zeroAdp.applied} busy={busy} onApply={applyZeroAdp} onRelease={releaseZeroAdp} />}
+                notice={<ZeroAdpNotice proposals={zeroAdp.proposals} applied={zeroAdp.applied} busy={busy} onApply={applyZeroAdp} onRelease={releaseZeroAdp} result={powderResult} parameters={powderParams} />}
                 groupControls={tofViewOnly ? undefined : {
                   "Instrument / profile": (
                     <CorrectionControls corrections={session.corrections} twoTheta={session.pattern.xUnit === "twoTheta"} onChange={setCorrections} />
