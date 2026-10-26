@@ -144,8 +144,14 @@ export interface ReportMagnetic {
   readonly group: ReportGroup;
   /** Moment parameters (mode amplitudes), values set, esds when jointly refined. */
   readonly params: readonly RefinementParameter[];
-  /** Provenance sentence: refined jointly · moments-only fit · candidate. */
+  /** Provenance sentence: refined jointly · moments-only fit · candidate. The frozen layout's words (reportMarkdownFrozen.ts). */
   readonly status: string;
+  /**
+   * The provenance as this report words it, by the free set of the last
+   * refinement: refined jointly with the atomic structure, or the moments
+   * refined with the nuclear model held. Absent: `status` says it.
+   */
+  readonly provenance?: string;
   /** What the data cannot determine about the moments (a powder's averaging), shown with them. */
   readonly limits?: readonly string[];
   /** The parent structure the moments decorate; defaults to the primary phase. */
@@ -753,7 +759,7 @@ function magneticHtml(m: ReportMagnetic, fallback: StructureModel | undefined): 
     : "";
   const limits = (m.limits ?? []).length > 0 ? `<ul class="plain small">${m.limits!.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : "";
   return `<p class="cell">${facts}</p>
-<p>${esc(m.status)}</p>
+<p>${esc(m.provenance ?? m.status)}</p>
 ${moments}
 <div class="pair">
   <figure class="fig mag">${svg}<figcaption>${isSuper ? `The ${supercell.join(" × ")} magnetic supercell` : "One unit cell"} down <i>c</i>*: in-plane moments as arrows (length ∝ |<i>m</i>|), ⊙ / ⊗ out of / into the page; filled atoms in the lower half of the cell.</figcaption></figure>
