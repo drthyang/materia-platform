@@ -32,7 +32,7 @@ approximate, however plausible its output looks.
 | [Magnetic](#magnetic-structures) | One propagation vector (k = 0, commensurate or incommensurate); subgroup candidates with BNS/OG labels | Multi-k and the star of k; harmonics and superspace; refining a self-conjugate k, or k on single-crystal data |
 | [PDF and mPDF](#real-space-pdf-and-magnetic-pdf) | Neutron and X-ray G(r); multi-phase; magnetic PDF; Γ symmetry modes | Zone-boundary modes; a correlated-error likelihood; data reduction |
 | [Uncertainty](#uncertainty-and-posterior-sampling) | Least-squares esds and correlations; posterior sampling (prototype) | Correlated residuals; comparing models |
-| [Files](#input-and-output) | CIF, mCIF, project files, report, FullProf and GSAS-II cross-check bundle | Single-crystal and multi-phase `.pcr`; geometry tables in the report |
+| [Files](#input-and-output) | CIF, mCIF, project files, report, FullProf and GSAS-II cross-check bundles, a PDFgui / diffpy-CMI bundle for a PDF | Single-crystal and multi-phase `.pcr`; geometry tables in the report |
 
 ## Refinement engine
 
@@ -444,6 +444,14 @@ approximate, however plausible its output looks.
   family, not both (the UI warns).
 - Qdamp and Qbroad are instrument constants: calibrate them on a standard, then
   hold them fixed.
+- The peak shape differs from PDFfit2's (PDFgui, diffpy-CMI) in one
+  convention. MATERIA gives each pair's Gaussian a factor 1/r_ij; PDFfit2
+  divides the summed Gaussians by r, which leans each peak toward low r by
+  about σ²/r_ij. The curves differ by about 1 % of the rms G(r), mostly at low
+  r, and PDFfit2's refined cell comes out slightly larger (75 ppm, 3 esds, on
+  the GaTa₄Se₈ demo). The Qmax termination also differs in algorithm, by a
+  ripple of about 0.1 % of G(r). The PDFgui / diffpy-CMI bundle's README gives
+  the details.
 
 Conventions are pinned in
 [`knowledge/total_scattering_pdf_conventions_knowledge.md`](../knowledge/total_scattering_pdf_conventions_knowledge.md).
@@ -486,6 +494,12 @@ Conventions are pinned in
 - A FullProf + GSAS-II cross-check bundle of the refined structure: a CW or
   TOF `.pcr`, plus your original data and instrument files, unchanged. The
   agent tools write it too (`export_bundle`).
+- A PDFgui / diffpy-CMI cross-check bundle of a PDF fit (Export ▾ on the PDF
+  page). It holds every phase as a PDFfit `.stru` (the whole cell) and a CIF,
+  the G(r), and a PDFfit2 script that refines exactly the free parameters,
+  with every atom tied through its symmetry operation, and compares the two
+  results. A script has PDFgui write its `.ddp`, and the README gives the
+  conventions. The agent tools do not write it.
 
 **Approximate**
 - The `.pcr` starts scale, background and the constant-wavelength peak shape

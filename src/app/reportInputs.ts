@@ -208,24 +208,27 @@ function momentRange(structure: StructureModel, magnetic: MagneticModel): string
   return hi - lo < 0.005 ? `${num(hi, 2)} µB` : `${num(lo, 2)}–${num(hi, 2)} µB`;
 }
 
-/** The atomic structure's rows: a fit that frees any of them refines the moments jointly with it. */
-const ATOMIC_STRUCTURE: ReadonlySet<ParameterKind> = new Set<ParameterKind>(["atomX", "atomY", "atomZ", "positionShift", "occupancy", "bIso", "uAniso", "cellLength", "cellAngle"]);
-
-/** What else may be free beside the moments, with the structure held, as the status names it. */
-const OVERALL_TERMS: readonly (readonly [readonly ParameterKind[], string])[] = [
-  [["scale"], "the scale"],
-  [["background"], "the background"],
-  [["tofProfile", "peakWidth", "profileU", "profileV", "profileW", "profileX", "profileY", "asymSL", "asymHL", "mustrainIso", "mustrainPerp", "mustrainPar", "anisoSizePerp", "anisoSizePar", "stephensStrain"], "the peak shape"],
-  [["zeroShift", "sampleDisplacement", "sampleTransparency", "tofCalibration"], "the peak positions' instrument terms"],
-];
-
-const listJoin = (xs: readonly string[]): string => (xs.length <= 1 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
+/** Rows of the magnetic model and its terms, which a magnetic refinement frees with the nuclear model held. */
+const MAGNETIC_TERM_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>([
+  "momentX", "momentY", "momentZ", "momentMode", "propagationK", "magneticScale", "mpdfOrdScale", "mpdfParaScale", "mpdfPsigma", "corrLength",
+]);
 
 /**
  * The magnetic section and its one-sentence summary. Priority: the model
- * applied to the refinement (with its provenance: refined jointly, the moments
- * alone against a fixed atomic structure, or only
- * carried over), else the candidate under exploration on the magnetic page.
+ * applied to the refinement (with its provenance: refined jointly, the
+ * moments refined with the nuclear model held, or only carried over), else
+ * the candidate under exploration on the magnetic page.
+ *
+ * Two wordings, because two layouts read them. `status` and `summary` are the
+ * frozen layout's (reportMarkdownFrozen.ts, which the Agent's number audit and
+ * the evals read: it prints both, and must not move while the validation
+ * runs), and keep its words: any moment esd reads as a joint refinement.
+ * `provenance` and `sentence` are the current report's, and follow the free
+ * set of the last refinement, read off its esds: "refined jointly with the
+ * atomic structure" only when nuclear rows were free beside the moments, "the
+ * moments refined with the nuclear model held" when every nuclear row was
+ * fixed — the user's rule for a magnetic refinement, and the AWO₄ demo's last
+ * step.
  */
 export function magneticReportSection(o: {
   readonly structure: StructureModel;
@@ -236,29 +239,35 @@ export function magneticReportSection(o: {
   readonly explored: MagneticExploration | null | undefined;
   /** How the joint refinement is described, e.g. "the powder pattern". */
   readonly against: string;
-}): { section: ReportMagnetic | null; summary: string } {
+}): { section: ReportMagnetic | null; summary: string; sentence: string } {
   const { structure, applied, explored } = o;
   if (applied && applied.moments.length > 0) {
     const momentParams = o.params.filter((p) => isMomentParameterKind(p.kind));
     const sameAsExplored = !!explored && magneticOperationSignature(explored.magnetic.operations ?? []) === magneticOperationSignature(applied.operations ?? []);
     const group = sameAsExplored ? explored.group : groupOfOperations(structure, applied);
     const k = applied.propagation[0] ?? explored?.k ?? [0, 0, 0];
-    // The last fit refined the moments when they have esds from it; jointly when it refined the atomic
-    // structure too. The scale, background and peak shape free beside them leave the structure held.
-    const refined = !!o.result && momentParams.some((p) => o.result!.esd[p.id] !== undefined);
-    const freeKinds = new Set(o.params.filter((p) => !isMomentParameterKind(p.kind) && o.result?.esd[p.id] !== undefined).map((p) => p.kind));
-    const jointly = refined && [...freeKinds].some((k) => ATOMIC_STRUCTURE.has(k));
-    const beside = OVERALL_TERMS.filter(([kinds]) => kinds.some((k) => freeKinds.has(k))).map(([, name]) => name);
+    const jointly = !!o.result && momentParams.some((p) => o.result!.esd[p.id] !== undefined);
+    // The rows the last refinement freed carry its esds: a nuclear one among them makes the fit joint.
+    const kindOf = new Map(o.params.map((p) => [p.id, p.kind] as const));
+    const nuclearFree = jointly && Object.keys(o.result!.esd).some((id) => {
+      const kind = kindOf.get(id);
+      return kind !== undefined && !MAGNETIC_TERM_KINDS.has(kind);
+    });
     const range = momentRange(structure, applied);
+    const exploredFit = sameAsExplored && explored.agreement !== null ? ` (moments-only fit there: ${explored.agreementLabel} = ${pct(explored.agreement, 1)})` : "";
     const status = jointly
       ? `Refined jointly with the atomic structure against ${o.against}; the moment esds come from that fit.`
-      : refined
-        ? `Refined against ${o.against} with the atomic structure held fixed: ${beside.length > 0 ? `the moments were free with ${listJoin(beside)}` : "only the moments were free"}; their esds come from that fit.`
-        : `Included in the model and in the calculated pattern, but not refined together with the atomic structure in this session — the moments are as loaded or as set on the magnetic page` +
-          (sameAsExplored && explored.agreement !== null ? ` (moments-only fit there: ${explored.agreementLabel} = ${pct(explored.agreement, 1)}).` : ".");
-    const provenance = jointly ? "refined jointly with the atomic structure" : refined ? "the moments refined with the atomic structure held fixed" : "included in the model (not refined jointly in this session)";
-    const summary = `Magnetic structure: k = ${kLabel(k as Vec3)}, ${group.symbol}${group.numbers ? ` (${group.numbers})` : ""}${range ? `, |m| = ${range}` : ""}, ${provenance}.`;
-    return { section: { magnetic: applied, k: k as Vec3, group, params: momentParams, status, structure }, summary };
+      : `Included in the model and in the calculated pattern, but not refined together with the atomic structure in this session — the moments are as loaded or as set on the magnetic page` +
+        (exploredFit ? `${exploredFit}.` : ".");
+    const provenance = !jointly
+      ? `Included in the model and in the calculated pattern; ${o.result ? "the last refinement held the moments, which are" : "not refined in this session: the moments are"} as loaded or as set on the magnetic page${exploredFit}.`
+      : nuclearFree
+        ? status
+        : `Moments refined against ${o.against} with the nuclear model held; the moment esds come from that fit.`;
+    const head = `Magnetic structure: k = ${kLabel(k as Vec3)}, ${group.symbol}${group.numbers ? ` (${group.numbers})` : ""}${range ? `, |m| = ${range}` : ""}`;
+    const summary = `${head}, ${jointly ? "refined jointly with the atomic structure" : "included in the model (not refined jointly in this session)"}.`;
+    const sentence = `${head}, ${!jointly ? (o.result ? "included in the model (held in the last refinement)" : "included in the model (not refined in this session)") : nuclearFree ? "refined jointly with the atomic structure" : "moments refined with the nuclear model held"}.`;
+    return { section: { magnetic: applied, k: k as Vec3, group, params: momentParams, status, provenance, structure }, summary, sentence };
   }
   if (explored) {
     const range = momentRange(structure, explored.magnetic);
@@ -267,9 +276,9 @@ export function magneticReportSection(o: {
       ? `Candidate under exploration on the magnetic page — moments-only fit (${explored.agreementLabel} = ${pct(explored.agreement, 1)}); not applied to the refinement.`
       : "Candidate under exploration on the magnetic page — symmetry-allowed moments at their preview amplitudes; not fitted, not applied to the refinement.";
     const summary = `A magnetic candidate is under exploration on the magnetic page (k = ${kLabel(explored.k)}, ${explored.group.symbol}${range ? `, |m| = ${range}` : ""}); it is ${fitted ? "fitted on its own but " : ""}not part of the refinement above.`;
-    return { section: { magnetic: explored.magnetic, k: explored.k, group: explored.group, params: explored.params, status, structure }, summary };
+    return { section: { magnetic: explored.magnetic, k: explored.k, group: explored.group, params: explored.params, status, structure }, summary, sentence: summary };
   }
-  return { section: null, summary: "No magnetic model is included." };
+  return { section: null, summary: "No magnetic model is included.", sentence: "No magnetic model is included." };
 }
 
 /**
@@ -456,7 +465,7 @@ export function powderReportInput(o: {
           against: `${dataPhrase(pattern.radiation)}${inst && o.instrumentLoaded ? ` from ${inst}` : ""}`,
           free, points: o.pointsInWindow, rwp: o.wR, rexp: rExp, gof, result, parameters: params,
           acceptance: o.judgment.acceptance, headlineCause: o.judgment.headlineCause, causes: o.judgment.causes, restraints: o.judgment.restraints,
-          magnetic: magnetic.section ? primes(magnetic.summary, magnetic.section.group.symbol) : undefined,
+          magnetic: magnetic.section ? primes(magnetic.sentence, magnetic.section.group.symbol) : undefined,
         };
         return { result: powderResultParagraph(facts), caveats: powderCaveats(facts) };
       })()
@@ -796,7 +805,7 @@ export function singleCrystalReportInput(o: {
           free,
           agreement: `{{R_1}} = ${pct(ag.r1)} (${ag.observed} reflections with {{F_o^2}} > 2σ), {{wR_2}} = ${pct(ag.wr2)} and GooF = ${num(ag.goof, 2)} over all ${ag.total}`,
           result: o.result, parameters: params, verdict: o.verdict,
-          magnetic: magnetic.section ? primes(magnetic.summary, magnetic.section.group.symbol) : undefined,
+          magnetic: magnetic.section ? primes(magnetic.sentence, magnetic.section.group.symbol) : undefined,
         };
         const changed = !!o.result && parametersChangedSince(o.result, o.params);
         return { result: singleCrystalResultParagraph(facts, changed), caveats: singleCrystalCaveats(facts, changed) };
@@ -925,7 +934,7 @@ export function pdfReportInput(o: {
     against: `${pattern.scatteringType === "neutron" ? "neutron" : "X-ray"} G(r) over r = ${num(o.fitRange.min, 2)}–${num(o.fitRange.max, 2)} Å (${inWindow} points)`,
     free, rw: o.rw, result: o.result, parameters: params,
     assessment: o.current === false ? null : o.findings ?? null,
-    magnetic: o.spinModel || o.explored ? primes(magnetic.summary.replace("Magnetic structure:", "Magnetic PDF (mPDF) spin model:"), magnetic.section?.group.symbol) : undefined,
+    magnetic: o.spinModel || o.explored ? primes(magnetic.sentence.replace("Magnetic structure:", "Magnetic PDF (mPDF) spin model:"), magnetic.section?.group.symbol) : undefined,
   };
   const assessment: ReportAssessment | null = o.findings !== undefined
     ? { result: pdfResultParagraph(facts, o.current === false), caveats: pdfCaveats(facts) }

@@ -11,7 +11,11 @@
  * (diagnose_fit, as fitCauses.ts names them); on a single crystal the
  * Validation view's checks (validationChecks.ts singleCrystalChecks); on a
  * PDF the assessment's findings (assessment.ts, mode "pdf"). Every threshold
- * is thresholds.ts's. Every number is one those readings computed.
+ * is thresholds.ts's. Every number is one those readings computed. The
+ * cross-check names the technique's own programs, as the page banner does
+ * (crossCheck.ts): GSAS-II and FullProf for a powder, PDFgui / diffpy-CMI
+ * (PDFfit2) and diffpy.mpdf for a PDF, SHELXL, JANA2020 or FullProf for a
+ * single crystal.
  *
  * Symbols are marked {{R_wp}} for the renderers to typeset (reportTypeset.ts
  * symbolHtml / symbolText); nothing else in the text is markup.
@@ -24,6 +28,7 @@ import type { RefinementAssessment } from "@/core/diagnostics/assessment";
 import { readCorrelations } from "@/core/diagnostics/correlationGuard";
 import { oneCurve } from "@/core/diagnostics/assessment";
 import { CORRELATION_LIMIT, GOF_BANDS } from "@/core/diagnostics/thresholds";
+import { CROSS_CHECK } from "@/core/export/crossCheck";
 
 /** How a caveat reads: met, worth a note, needing attention, a blocker, or context. */
 export type ReportTone = "ok" | "note" | "warn" | "bad" | "info";
@@ -358,6 +363,8 @@ export function singleCrystalCaveats(i: SingleCrystalResultInput, changed = fals
   const out: ReportCaveat[] = i.verdict.checks.map((c) => ({ tone: STATUS_TONE[c.status], label: c.title, text: c.detail ?? "" }));
   // The correlations of the refinement that describes the values on screen only, unless the view's checks list them.
   if (i.result && !changed && !i.verdict.checks.some((c) => /correlat/i.test(`${c.id} ${c.title}`))) out.push(...correlationCaveats(meaningfulCorrelations(i.result, i.parameters, restraints)));
+  // The single-crystal programs, as the page banner names them.
+  out.push({ tone: "info", label: "Cross-check", text: `reproduce the refinement in ${CROSS_CHECK.singleCrystal.packages}: ${CROSS_CHECK.singleCrystal.exportNote}` });
   return out;
 }
 
@@ -387,8 +394,18 @@ export function pdfResultParagraph(i: PdfResultInput, changed: boolean): string 
     // The convention the PDF page's notes state (Toby & Billinge 2004): no GoF on correlated G(r) points.
     "G(r) points are strongly correlated, so {{R_w}} is a relative measure with no statistical acceptance bar, and the esds are optimistic.",
     serious.length > 0 ? sentence(`To resolve: ${serious.slice(0, 3).map((f) => lowerFirst(f.summary.replace(/\.$/, ""))).join("; ")}`) : "",
+    // A refined fit's cross-check is in the real-space programs, as the powder's is in GSAS-II and FullProf.
+    state !== "none" && state !== "diverged"
+      ? `The cross-check in ${CROSS_CHECK.pdf.packages}${i.magnetic ? `, with the magnetic term in ${CROSS_CHECK.pdf.magnetic},` : ""} is still to do.`
+      : "",
     i.magnetic ?? "",
   ].filter(Boolean).join(" ");
+}
+
+/** The cross-check line of a PDF's caveats: the real-space programs, and what the bundle carries (the mPDF term it does not). */
+function pdfCrossCheckCaveat(magnetic: boolean): ReportCaveat {
+  const mpdf = magnetic ? `; the magnetic term in ${CROSS_CHECK.pdf.magnetic}, which the bundle does not carry` : "";
+  return { tone: "info", label: "Cross-check", text: `reproduce the fit in ${CROSS_CHECK.pdf.packages}: ${CROSS_CHECK.pdf.exportNote} that refines the same parameters${mpdf}` };
 }
 
 export function pdfCaveats(i: PdfResultInput, restraints: readonly LinearRestraint[] = []): ReportCaveat[] {
@@ -396,6 +413,7 @@ export function pdfCaveats(i: PdfResultInput, restraints: readonly LinearRestrai
   const out: ReportCaveat[] = findings.map((f) => ({ tone: SEVERITY_TONE[f.severity], label: CATEGORY_LABEL[f.category] ?? "Finding", text: f.summary.replace(/\.$/, "") }));
   // An assessment is read only off a refinement that describes the values on screen; so are its correlations.
   if (i.result && i.assessment) out.push(...correlationCaveats(meaningfulCorrelations(i.result, i.parameters, restraints)));
+  out.push(pdfCrossCheckCaveat(!!i.magnetic));
   return out;
 }
 

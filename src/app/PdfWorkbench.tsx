@@ -30,7 +30,7 @@ import type { DisplaciveIrrepTerm } from "@/core/crystal/displaciveModes";
 import { structuralSubgroupLattice, type SubgroupNode } from "@/core/crystal/subgroupTree";
 import { parseCif } from "@/parsers/cif";
 import {
-  SAMPLE_STEPS, agentBoxcarPlan, boxcarSummary, landsOn, liveStateOf, momentFit, pageView, pdfBoxcar, pdfFit, pdfPage, pdfPosterior, pdfProbe, pdfThorough, reportInputOf, rwOf, specKeyOf,
+  SAMPLE_STEPS, agentBoxcarPlan, boxcarSummary, landsOn, liveStateOf, momentFit, pageView, pdfBoxcar, pdfFit, pdfguiBundleOf, pdfPage, pdfPosterior, pdfProbe, pdfThorough, reportInputOf, rwOf, specKeyOf,
   withActivatedMode, withAdpModel, withBoxcarPlan, withBoxcarRun, withBoxcarStep, withExtraPhases, withFit, withFitRange, withFixed, withLoadedStructure, withoutModes,
   withParameter, withParentModes, withPattern, withPositionMode, withPosterior, withReset, withSiteTotal, withSpinModel, withSubgroup, workspaceOf, type AgentBoxcarPlan,
 } from "@/app/pdfPage";
@@ -50,7 +50,8 @@ import type { SampleResult } from "@/core/refinement/bayes/sampler";
 import { SummaryCards, type SummaryCardData } from "@/app/ui/SummaryCards";
 import { WorkbenchPlot } from "@/app/ui/WorkbenchPlot";
 import { SegmentedToggle } from "@/app/ui/SegmentedToggle";
-import { downloadText } from "@/app/download";
+import { downloadBlob, downloadText } from "@/app/download";
+import { zipStore } from "@/core/export/zip";
 import { structureToCif, magneticStructureToMcif } from "@/core/export/cif";
 import { reportHtml, type ReportInput } from "@/core/export/report";
 import type { MagneticExploration } from "@/app/reportInputs";
@@ -642,6 +643,19 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   exportReportRef.current = (): void => {
     downloadText(`${pattern.id}_report.html`, reportHtml(reportInputRef.current()), "text/html");
   };
+  // The PDFgui / diffpy-CMI cross-check bundle: the model as PDFfit2 takes it,
+  // the data, a script that refines exactly the free rows there, and the
+  // PDFgui project builder (pdfPage.pdfguiBundleOf).
+  const exportPdfguiRef = useRef<() => void>(noop);
+  exportPdfguiRef.current = (): void => {
+    try {
+      const entries = pdfguiBundleOf(model, { rw });
+      const base = (structure.name || structure.id).normalize("NFKD").replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^_+|_+$/g, "") || "structure";
+      downloadBlob(`${base}_pdfgui.zip`, zipStore(entries), "application/zip");
+    } catch (e) {
+      console.error(`[status] PDFgui / diffpy-CMI bundle failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
   // The project snapshot reads the live state through a ref (like the exports
   // above), so the shell's stable handler always sees the current page.
   const projectWorkspaceRef = useRef<() => PdfWorkspace>(() => { throw new Error("PdfWorkbench: not mounted"); });
@@ -652,6 +666,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
       csv: () => exportCsvRef.current(),
       cif: () => exportCifRef.current(),
       report: () => exportReportRef.current(),
+      pdfguiBundle: () => exportPdfguiRef.current(),
       projectWorkspace: () => projectWorkspaceRef.current(),
     };
     return () => { exportsRef.current = null; };

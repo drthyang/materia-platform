@@ -595,7 +595,7 @@ near 1 supports the least-squares esds.
 | --- | --- |
 | Powder | GSAS-II or FullProf; **Export ▾** writes a bundle for each |
 | Single crystal | SHELXL, JANA2020 or FullProf |
-| PDF | PDFgui or diffpy-CMI (PDFfit2); diffpy.mpdf for a magnetic PDF |
+| PDF | PDFgui or diffpy-CMI (PDFfit2); **Export ▾** writes a bundle with a PDFfit2 script. diffpy.mpdf for a magnetic PDF |
 | Magnetic candidates | Bilbao (MAXMAGN, k-SUBGROUPSMAG), ISODISTORT or SARAh |
 
 ## 9. Save and export
@@ -618,11 +618,37 @@ posterior samples, the single-crystal supercell result or view choices. See
 | **.int** | — | yes | — | The reflections in FullProf format, as a `_nuc` and `_mag` pair when both are loaded |
 | **GSAS-II bundle (.zip)** | yes | — | — | CIF, `.instprm`, data, a script that builds the GSAS-II project, and a README |
 | **FullProf bundle (.zip)** | yes | — | — | `.pcr`, data and a README |
+| **PDFgui / diffpy-CMI bundle (.zip)** | — | — | yes | `.stru` and CIF per phase, the data, a PDFfit2 script, a PDFgui project builder, the constraints and a README |
 
-Both bundles hold your original data and instrument files, unchanged. They
-carry the primary phase only, at its refined values. In the `.pcr`, scale,
-background and the constant-wavelength peak shape are starting values: free
-them in FullProf before comparing.
+The GSAS-II and FullProf bundles hold your original data and instrument files,
+unchanged. They carry the primary phase only, at its refined values. In the
+`.pcr`, scale, background and the constant-wavelength peak shape are starting
+values: free them in FullProf before comparing.
+
+The PDFgui / diffpy-CMI bundle carries every phase at its refined values, as the
+whole unit cell (`.stru`, the PDFfit format) and as the CIF in its space group.
+It holds the G(r) in two columns and three runnable pieces:
+
+- **`fit_pdffit2.py`** (needs `diffpy.pdffit2`) sets every quantity to MATERIA's
+  value: the scattering type, Qmax, Qdamp, Qbroad, the fit window, each phase's
+  scale, δ1, δ2, sratio, rcut and particle diameter, and the scattering lengths.
+  It constrains exactly the parameters you refined, every atom of the cell tied
+  through its symmetry operation. It then compares PDFfit2's G(r) at your values
+  with MATERIA's, refines, and prints Rw and every parameter beside yours.
+- **`make_pdfgui_project.py`** (needs `diffpy.pdfgui`) has PDFgui write the
+  project `.ddp`; open it and run the fit.
+- **`constraints.txt`** lists every formula for entering by hand.
+
+The README gives the conventions (B = 8π²U, an isotropic U as its six U^ij,
+pscale and dscale, the esds) and where the two programs differ:
+
+- PDFfit2 divides its summed Gaussians by r, where MATERIA gives each pair's
+  Gaussian 1/r_ij. A refined cell therefore comes out slightly larger in PDFfit2,
+  by 75 ppm on the GaTa₄Se₈ demo.
+- The Qmax termination algorithms differ, by a ripple of about 0.1 % of G(r).
+
+A magnetic PDF's spin model ships as an mCIF for diffpy.mpdf; PDFfit2 fits the
+nuclear part only.
 
 ### CIF or mCIF
 
