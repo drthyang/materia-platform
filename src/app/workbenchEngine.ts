@@ -63,7 +63,7 @@ export interface WorkbenchExports {
   /**
    * The engine's technique block of the project file — everything needed to
    * reopen this page as it is now. The shell wraps it with the phases and
-   * metadata (Save project).
+   * metadata (the header's Save button).
    */
   projectWorkspace?: () => Workspace;
 }
