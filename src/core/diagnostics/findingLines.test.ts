@@ -48,7 +48,7 @@ describe("the physical findings of the values", () => {
 
 describe("a parameter on its bound", () => {
   it("any parameter: what it hit, then what to do; the assessment's reading behind the \"?\"", () => {
-    const params = [p("scale", "scale", 1), p("profX", "size (Lorentzian X)", "profileX", 0), p("occ_Mn1", "Mn1 occ", "occupancy", 1), p("B1", "B1", "bIso", 0)];
+    const params = [p("scale", "scale", "scale", 1), p("profX", "size (Lorentzian X)", "profileX", 0), p("occ_Mn1", "Mn1 occ", "occupancy", 1), p("B1", "B1", "bIso", 0)];
     const r = result({ profX: 0, occ_Mn1: 1, B1: 0 }, {}, []);
     const bounded = { ...r, diagnostics: { ...r.diagnostics!, atBounds: [{ parameterId: "profX", bound: "min" as const, value: 0 }, { parameterId: "occ_Mn1", bound: "max" as const, value: 1 }, { parameterId: "B1", bound: "min" as const, value: 0 }] } };
     const at = assessRefinement({ result: bounded, parameters: params, observationCount: 1800, mode: "powder" }).findings.filter((f) => f.category === "at-bound");
