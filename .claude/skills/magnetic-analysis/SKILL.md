@@ -118,10 +118,12 @@ nuclear values (until Stage 5): freed, they trade with the moments, and the esds
 The peak shape was fitted before the magnetic peaks were modelled. With the moments
 converged:
 
-1. `set_free` the scale, the background, the peak shape (TOF α, β, σ; CW U, V, W, X, Y) and
-   the zero, the moments and the atomic structure held; `refine` until wR stops moving.
+1. `set_free` together the scale, the background, the zero and every peak-shape term (TOF
+   α₀, α₁, β₀, β₁, β_q, σ₀², σ₂², σ_q²; CW U, V, W, X, Y), moments and atomic structure
+   held; `refine` until wR stops moving. A term on its bound is fixed alone; the
+   rest stay free.
 2. The moments once more with the scale and background (the scale trades with their
-   size); quote this fit, and the gain the tweak gave.
+   size); quote this fit and the tweak's gain.
 
 ## What to report — and what not
 
@@ -131,17 +133,17 @@ converged:
   from powder data (only |M|); in a uniaxial one only the angle to the unique axis. Do not
   report a direction the data cannot fix, and do not choose among degenerate groups by R
   factor alone.
-- Domains: the group's domain count; a powder averages them. Orientation domains that
-  exchange two axes (a and b in an orthorhombic group of a tetragonal parent) make the
-  moment's direction between those axes undeterminable: report the size and the
-  arrangement, not the direction within the plane.
+- Domains: the group's domain count (a powder averages them). Orientation domains that
+  exchange two axes (a and b of a tetragonal parent, in an orthorhombic group) leave the
+  direction between them undeterminable: report the size and arrangement, not the
+  in-plane direction.
 - A moment's size trades with the scale and the ADPs, and a small one sits near its bound
   at 0: before you report a moment whose esd is a large part of it, sample the posterior
   (`bayesian-check`, `sample_posterior` with the moments, the scale and the B's free) and
   quote its credible interval.
-- The written report (`write_report`, once the magnetic refinement is done) carries the
-  magnetic section from the engine — k, the group, the moments with esds — and the Bayesian
-  check of that refinement; your account adds the powder's limits above in words.
+- The run ends with `write_report` after Stage 5 (offer next steps after it, not
+  instead): the engine's magnetic section and Bayesian check; your account adds the
+  powder's limits in words.
 
 ## Tools
 
