@@ -2060,9 +2060,10 @@ function UnitDetection({ unit, detection, onOverride }: {
 }
 
 /** Empty-state panel shown in place of the plot/parameters on a clean start.
- *  The two converged demos (one per technique, matching the header chips) are
- *  the visual focus; the load cards above handle the user's own files. */
-function EmptyWorkbench({ demos, onLoadDemo, onOpenProject }: { demos: readonly DemoEntry[]; onLoadDemo?: (kind: DemoId) => void; onOpenProject?: (file: File) => void }): JSX.Element {
+ *  The converged demos (one per workflow) are the visual focus, and the only
+ *  way to a demo: the header has no demo menu. The load cards above handle the
+ *  user's own files. */
+export function EmptyWorkbench({ demos, onLoadDemo, onOpenProject }: { demos: readonly DemoEntry[]; onLoadDemo?: (kind: DemoId) => void; onOpenProject?: (file: File) => void }): JSX.Element {
   return (
     // Fills the space a working row would occupy and centres its content in it,
     // so the first screen looks composed at any window height instead of a

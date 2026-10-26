@@ -600,6 +600,35 @@ release fixes bugs.
 
 ### Changed
 
+- **The header's Demos menu is gone; Load is Open; a Close button returns to
+  the start page.** The demos were offered twice, in a header menu and as
+  cards on the start page, and the cards (Rietveld Mn₃Ga, PDF GaTa₄Se₈, and
+  the AWO₄ magnetic demo where its local data are reachable) stay as the one
+  way to them. The "Demo ✓" state and "Exit demo" go with the menu: the
+  loaded-file chip says what is open, and Close replaces Exit.
+  - **Open** is the old Load button under its new name (visible label "Open",
+    accessible name "Open project", the tooltip names the `.materia.json`
+    file). It does what it did.
+  - **Close** sits after Open and shows only while something is loaded. It
+    returns to the start page with an empty workbench: the page, model, data,
+    step history and the Agent's records are dropped, a refinement still
+    running is cancelled (its worker is stopped and no result lands on the
+    empty page), the Agent's running turn and waiting approval cards are
+    stopped, and the browser's autosave is cleared, so a project closed on
+    purpose is not offered back as a crashed session. The Agent conversation
+    is kept, as when a demo or a file replaces the project; "New
+    conversation" stays the user's.
+  - **Close asks first when the project has changes** since its last Save,
+    Open or demo load (or since the first load of the user's own files): Save
+    downloads the project file and closes, Discard closes, Cancel keeps
+    working. A change is a different model state (what the step history calls
+    one, so a plot-unit switch is not), a step recorded since (a refinement
+    undone again still counts), or a change to the Agent's records. With
+    none, it closes at once.
+  - The header's order is History, Save, Open, Close, Export, with one fewer
+    word than before in the row, so the row counts, heights and 44 px touch
+    targets tuned for the desktop, iPad and iPhone sizes are unchanged.
+
 - **Save and Load are header buttons of their own, not folded into "Project ▾".**
   The menu held only those two, so it is gone: Save and Load sit in the header
   beside History, Demos and Export, in the same button style, each with a

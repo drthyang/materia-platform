@@ -62,9 +62,9 @@ async function loadPage(page, kind) {
     await page.waitForTimeout(800);
     await page.locator('label:has-text("Load data…") input[type=file]').first().setInputFiles(data);
   } else {
-    await page.getByRole("button", { name: "Demos ▾", exact: true }).click();
-    const label = kind === "rietveld" ? "Rietveld · Mn₃Ga neutron TOF" : "PDF · GaTa₄Se₈ X-ray G(r)";
-    await page.getByRole("button", { name: label, exact: true }).click();
+    // The demos are cards on the landing page.
+    const title = kind === "rietveld" ? "Mn₃Ga neutron TOF" : "GaTa₄Se₈ X-ray G(r)";
+    await page.getByRole("button", { name: title }).click();
   }
   await page.waitForTimeout(1500);
 }

@@ -23,8 +23,8 @@
  * candidate magnetic group ranked → the magnetic refinement, with only the
  * magnetic parameters free and the nuclear model held at its refined values,
  * all with the app's own pipeline. The demo opens on that last step's state.
- * It appears in the Demos menu only when these files can be fetched; a
- * deployed site has none of them and shows no AWO₄ demo.
+ * Its landing card appears only when these files can be fetched; a deployed
+ * site has none of them and shows no AWO₄ demo.
  *
  * The nuclear structure itself (the 100 K refined CIF) is the one already
  * bundled in `highEntropyWO4.ts`.

@@ -152,6 +152,15 @@ function isBlobRef(v: unknown): v is BlobRef {
   return isRecord(v) && typeof v.blob === "string" && Object.keys(v).length === 1;
 }
 
+/** The snapshot with its shared fields replaced by what `put` returns for them. */
+function pointed(snapshot: Snapshot, put: (v: unknown) => BlobRef): { structures: BlobRef; workspace: Record<string, unknown> } {
+  const ws: Record<string, unknown> = { ...(snapshot.workspace as unknown as Record<string, unknown>) };
+  for (const f of SHARED_FIELDS) if (ws[f] !== undefined) ws[f] = put(ws[f]);
+  const refinement = ws.refinement as Record<string, unknown>;
+  ws.refinement = { ...refinement, bindings: put(refinement.bindings) };
+  return { structures: put(snapshot.structures), workspace: ws };
+}
+
 /** The snapshot as stored in a step: shared fields moved into `blobs` (mutated). */
 function slim(snapshot: Snapshot, blobs: Record<string, unknown>): { structures: BlobRef; workspace: Record<string, unknown> } {
   const put = (v: unknown): BlobRef => {
@@ -160,11 +169,19 @@ function slim(snapshot: Snapshot, blobs: Record<string, unknown>): { structures:
     if (!(key in blobs)) blobs[key] = JSON.parse(json);
     return { blob: key };
   };
-  const ws: Record<string, unknown> = { ...(snapshot.workspace as unknown as Record<string, unknown>) };
-  for (const f of SHARED_FIELDS) if (ws[f] !== undefined) ws[f] = put(ws[f]);
-  const refinement = ws.refinement as Record<string, unknown>;
-  ws.refinement = { ...refinement, bindings: put(refinement.bindings) };
-  return { structures: put(snapshot.structures), workspace: JSON.parse(JSON.stringify(ws)) as Record<string, unknown> };
+  const { structures, workspace } = pointed(snapshot, put);
+  return { structures, workspace: JSON.parse(JSON.stringify(workspace)) as Record<string, unknown> };
+}
+
+/**
+ * The model state of a snapshot as one string: equal strings, the same state,
+ * by the test `recordStep` applies (display-only fields left out). Lets the
+ * shell ask "is the live session still what was saved?" without recording a
+ * step to find out.
+ */
+export function snapshotKey(snapshot: Snapshot): string {
+  const { structures, workspace } = pointed(snapshot, (v) => ({ blob: keyOf(v).key }));
+  return stateKey(structures, workspace);
 }
 
 /** Inverse of `slim`. Throws when a blob is missing (a damaged file). */
