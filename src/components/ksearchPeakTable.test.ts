@@ -14,6 +14,9 @@ import type { PhaseTicks } from "@/visualization/reflectionTicks";
  * The real panel and the real plot, in a DOM; only the 3D viewer is stubbed.
  */
 vi.mock("@/app/ui/StructureView", () => ({ StructureView: () => null }));
+// Each test mounts the whole panel, which works out the little group's subgroup lattice: about a second
+// on an idle machine, several on a loaded CI runner, so the default 5 s is too tight.
+vi.setConfig({ testTimeout: 60_000 });
 
 const FE = `data_fe
 _cell_length_a 2.8665
