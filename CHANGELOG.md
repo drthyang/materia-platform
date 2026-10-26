@@ -9,6 +9,13 @@ release fixes bugs.
 
 ### Added
 
+- **README: what each result is checked against.** The Impact table now names
+  the area, the case, the reference (SHELXL, GSAS-II, FindSpinGroup, FullProf,
+  PDFfit2, diffpy.mpdf) and what agreed, each row marked Supported,
+  Approximate or Not yet; the Copilot's own study is a Not yet row. The
+  README's tool and scenario counts, which said nothing about correctness,
+  are gone, and so is the test that pinned them.
+
 - **The subgroup engine, Phase 1: irreps computed at the decentring
   k-points, and the subgroups that keep the conventional cell** (PDF
   Subgroups page; [ADRs 0001–0005](docs/adr/)).
