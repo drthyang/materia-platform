@@ -1091,7 +1091,7 @@ const CSS = `
   ul.caveats .dot { position: absolute; left: 2px; top: 0.72em; width: 7px; height: 7px; border-radius: 50%; background: var(--info); }
   ul.caveats .lbl { font-weight: 600; }
   ul.caveats .lbl::after { content: ":"; }
-  ul.caveats .more { margin-left: 0.2em; color: var(--soft); text-decoration: none; font-size: 0.85em; vertical-align: super; }
+  ul.caveats .more { margin-left: 0.15em; color: var(--soft); text-decoration: none; font-size: 0.8em; position: relative; top: -0.45em; line-height: 0; }
   dl.full { margin: 0; max-width: 90ch; }
   dl.full dt { margin-top: var(--s2); }
   dl.full dt .lbl { font-weight: 600; }
