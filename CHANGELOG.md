@@ -619,15 +619,22 @@ release fixes bugs.
     is kept, as when a demo or a file replaces the project; "New
     conversation" stays the user's.
   - **Close asks first when the project has changes** since its last Save,
-    Open or demo load (or since the first load of the user's own files): Save
-    downloads the project file and closes, Discard closes, Cancel keeps
-    working. A change is a different model state (what the step history calls
-    one, so a plot-unit switch is not), a step recorded since (a refinement
-    undone again still counts), or a change to the Agent's records. With
-    none, it closes at once.
-  - The header's order is History, Save, Open, Close, Export, with one fewer
-    word than before in the row, so the row counts, heights and 44 px touch
-    targets tuned for the desktop, iPad and iPhone sizes are unchanged.
+    Open or demo load: Save downloads the project file and closes, Discard
+    closes, Cancel keeps working. A change is a different model state (what
+    the step history calls one, so a plot-unit switch is not), a step
+    recorded since (a refinement undone again still counts), or a change to
+    the Agent's records. With none, it closes at once. A project built from
+    your own files, or restored from the browser's autosave, exists nowhere
+    else, so it asks until it is saved. The "has anything changed" mark is
+    taken once the page has settled after a demo load or an Open, because an
+    engine finishes restoring its fit window a render after the step is
+    recorded.
+  - The header's order is History, Save, Open, Close, Export. Close takes the
+    Demos menu's place (a shorter word, the same number of buttons), so the
+    header's height and row count are unchanged at the desktop, iPad and
+    iPhone sizes tuned for it (1920 and 1440; iPad Pro 11" and 13", upright
+    and sideways; iPhone 402×680, 440×760, 874×370 and 956×410), nothing
+    overflows, and the buttons stay 44 px tall on a touch screen.
 
 - **Save and Load are header buttons of their own, not folded into "Project ▾".**
   The menu held only those two, so it is gone: Save and Load sit in the header

@@ -12,7 +12,8 @@ last result, so a session can be saved, shared, and reopened where it was left.
   button's file filter may hide `.json` files.
 - **Close:** the header's *Close* button returns to the start page. With changes
   since the last Save or Open (or since a demo was loaded) it asks first: *Save*
-  writes the file and closes, *Discard* closes, *Cancel* keeps the project.
+  writes the file and closes, *Discard* closes, *Cancel* keeps the project. A
+  project built from your own files, never saved, always asks.
 
 The authoritative schema is the `ProjectFile` type in
 [`src/core/project/types.ts`](../src/core/project/types.ts); the reader is

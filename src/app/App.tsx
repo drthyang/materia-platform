@@ -134,6 +134,11 @@ interface StepRequest {
   readonly label?: string;
   /** Start a new history (a new material, a demo) instead of extending this one. */
   readonly fresh?: boolean;
+  /**
+   * With `fresh`: the state is one a demo or a project file already has, so
+   * Close need not ask about it until it changes. A user's own files are not.
+   */
+  readonly saved?: boolean;
   /** Who made the change: absent for the user, "agent" for the Agent. */
   readonly actor?: StepActor;
 }
@@ -241,8 +246,9 @@ export function App(): JSX.Element {
   // of the user's own files): what Close compares the live project with to know
   // whether there is anything to lose (closeProject.ts). Null: nothing loaded.
   const savedMark = useRef<ProjectMark | null>(null);
-  // Asks the effect below to take the mark once an opened project has rendered.
+  // Asks the effect below to settle the mark (markWanted) or to drop it.
   const [markRequest, setMarkRequest] = useState(0);
+  const markWanted = useRef(false);
   // The "Close this project?" guard is showing.
   const [closeAsk, setCloseAsk] = useState(false);
   // A user-facing problem from the last project open. The app has no status
@@ -322,11 +328,11 @@ export function App(): JSX.Element {
   // action requested (agentHost.settle) however long the page takes to render.
   const stepsRequested = useRef(0);
   const stepsRecorded = useRef(0);
-  const requestStep = useCallback((kind: StepKind, label?: string, fresh = false): void => {
+  const requestStep = useCallback((kind: StepKind, label?: string, fresh = false, saved = false): void => {
     // The actor is read now, while the action that asked for the step runs.
     const actor = stepActor.current;
     const n = ++stepsRequested.current;
-    setStepRequest({ n, kind, ...(label ? { label } : {}), ...(fresh ? { fresh } : {}), ...(actor ? { actor } : {}) });
+    setStepRequest({ n, kind, ...(label ? { label } : {}), ...(fresh ? { fresh } : {}), ...(saved ? { saved } : {}), ...(actor ? { actor } : {}) });
   }, []);
 
   // Recorded a tick after the request renders: an engine may settle its state
@@ -338,31 +344,54 @@ export function App(): JSX.Element {
   });
   useEffect(() => {
     if (!stepRequest) return;
-    const { n, kind, label, fresh, actor } = stepRequest;
+    const { n, kind, label, fresh, saved, actor } = stepRequest;
     setTimeout(() => {
       stepsRecorded.current = Math.max(stepsRecorded.current, n);
       const snap = liveSnapshotRef.current();
       if (!snap) {
         if (fresh) {
           setHistory(null);
-          savedMark.current = null;
+          markWanted.current = false;
+          setMarkRequest((n) => n + 1);
         }
         return;
       }
       setHistory(recordStep(fresh ? null : historyRef.current, { ...snap, kind, ...(label ? { label } : {}), ...(actor ? { actor } : {}) }));
-      // A fresh history is a demo, a load or an open: the project as it now
-      // stands is the one Close compares with.
-      if (fresh) savedMark.current = markOf(snap, historyRef.current, agentRecordsRef.current);
+      // A fresh history is a demo, a load or an open. A demo or a project file
+      // is the state Close compares with (as it settles, below); the user's own
+      // files are not saved anywhere, so they leave no mark and Close asks.
+      if (fresh) {
+        markWanted.current = !!saved;
+        setMarkRequest((n) => n + 1);
+      }
     }, 0);
   }, [stepRequest, setHistory]);
 
-  // An opened project that brings its own history takes its mark once the
-  // engine has settled on it, as a recorded step does (above).
+  // The mark Close compares with, taken once the project has settled. An engine
+  // finishes putting a project on screen in effects of its own (a restored fit
+  // window, parameters carried over), some a render after the step is recorded,
+  // so the mark is sampled until it has stopped moving for ~300 ms (2 s at most)
+  // instead of read at one fixed moment. A person cannot edit in that time.
   useEffect(() => {
     if (markRequest === 0) return;
-    const timer = setTimeout(() => {
-      savedMark.current = markOf(liveSnapshotRef.current(), historyRef.current, agentRecordsRef.current);
-    }, 0);
+    if (!markWanted.current) {
+      savedMark.current = null;
+      return;
+    }
+    let timer: ReturnType<typeof setTimeout>;
+    let last = "";
+    let stable = 0;
+    let tries = 0;
+    const sample = (): void => {
+      const mark = markOf(liveSnapshotRef.current(), historyRef.current, agentRecordsRef.current);
+      savedMark.current = mark;
+      const key = mark ? `${mark.steps}|${mark.agent}|${mark.state}` : "";
+      stable = key === last ? stable + 1 : 0;
+      last = key;
+      if (stable >= 5 || ++tries >= 34) return;
+      timer = setTimeout(sample, 60);
+    };
+    timer = setTimeout(sample, 0);
     return () => clearTimeout(timer);
   }, [markRequest]);
 
@@ -639,7 +668,7 @@ export function App(): JSX.Element {
           setDemo("magnetic");
           setNotice(null);
           setMessage(`Loaded the local AWO₄ magnetic demo (POWGEN 6 K, k = (½ 0 0), ${ex.group}; the moments refined with the nuclear model held) — magnetic page.`);
-          requestStep("load", "AWO₄ 6 K magnetic demo", true);
+          requestStep("load", "AWO₄ 6 K magnetic demo", true, true);
         },
         (e: unknown) => {
           const msg = e instanceof Error ? e.message : String(e);
@@ -665,7 +694,7 @@ export function App(): JSX.Element {
       setStep(0);
       setDemo("rietveld");
       setMessage("Loaded the bundled Mn₃Ga + MnO POWGEN demo (two-phase TOF, converged fit).");
-      requestStep("load", "Mn₃Ga + MnO POWGEN demo", true);
+      requestStep("load", "Mn₃Ga + MnO POWGEN demo", true, true);
       return;
     }
     const ex = gata4se8PdfExample();
@@ -676,7 +705,7 @@ export function App(): JSX.Element {
     setStep(0);
     setDemo("pdf");
     setMessage("Loaded the bundled GaTa4Se8 299 K X-ray PDF demo (cubic lacunar spinel, converged fit).");
-    requestStep("load", "GaTa₄Se₈ PDF demo", true);
+    requestStep("load", "GaTa₄Se₈ PDF demo", true, true);
   }
 
   /**
@@ -791,7 +820,12 @@ export function App(): JSX.Element {
     file.text().then((text) => openProjectText(text, file.name));
   }
 
-  function openProjectText(text: string, sourceName: string): void {
+  /**
+   * Put a project file's text on screen. `fromFile`: it is a saved file the
+   * user opened, so it is the state Close compares with; the autosaved session
+   * is not (it exists only in this browser), so closing it asks.
+   */
+  function openProjectText(text: string, sourceName: string, fromFile = true): void {
     let file: ProjectFile;
     try {
       file = parseProject(text);
@@ -820,8 +854,10 @@ export function App(): JSX.Element {
     // The Agent's records travel with the project (gate, exceptions, stages, notes).
     agentRecordsRef.current = Object.fromEntries((file.agent?.records ?? []).map((r) => [r.key, r]));
     setAgentRecords(agentRecordsRef.current);
-    if (file.history) setMarkRequest((n) => n + 1);
-    else requestStep("open", `Opened ${sourceName}`, true);
+    if (file.history) {
+      markWanted.current = fromFile;
+      setMarkRequest((n) => n + 1);
+    } else requestStep("open", `Opened ${sourceName}`, true, fromFile);
     setMessage(`Opened project “${file.metadata.title}” — ${TECHNIQUE_LABEL[ws.technique]}, saved by v${file.metadata.appVersion}${file.history ? `, ${file.history.steps.length} steps` : ""}.`);
   }
 
@@ -1234,7 +1270,7 @@ export function App(): JSX.Element {
             Restore your last session — “{autosaveOffer.title}”, {autosaveOffer.steps} step{autosaveOffer.steps === 1 ? "" : "s"}, saved{" "}
             {new Date(autosaveOffer.savedAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}?
           </span>
-          <button style={offerButton} onClick={() => { openProjectText(autosaveOffer.text, "the autosaved session"); setAutosaveOffer(null); }}>Restore</button>
+          <button style={offerButton} onClick={() => { openProjectText(autosaveOffer.text, "the autosaved session", false); setAutosaveOffer(null); }}>Restore</button>
           <button style={offerButton} onClick={() => { void clearAutosave(); setAutosaveOffer(null); }}>Discard</button>
         </div>
       )}

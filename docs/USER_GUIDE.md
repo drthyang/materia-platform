@@ -39,7 +39,7 @@ The start page shows the **Structure**, **Data** and **Instrument** cards above
 | --- | --- |
 | **Powder** · **Crystal**, **Rietveld** · **PDF** | Indicators: the sample form and the technique of the loaded data |
 | **Nuclear** · **Magnetic** | Switch between the refinement page and the magnetic page |
-| **Save** · **Open** · **Close** | Save the session as a project file, open a saved one, or close the project and return to the start page. **Close** asks first when there are changes since the last **Save** or **Open** (or since a demo was loaded): **Save** downloads the file and closes, **Discard** closes without saving, **Cancel** keeps working. A refinement that is still running is cancelled |
+| **Save** · **Open** · **Close** | Save the session as a project file, open a saved one, or close the project and return to the start page. **Close** asks first when there are changes since the last **Save** or **Open** (or since a demo was loaded), and always for a project built from your own files that you have not saved: **Save** downloads the file and closes, **Discard** closes without saving, **Cancel** keeps working. A refinement that is still running is cancelled |
 | **Export ▾** | The report and the files for the active technique |
 
 The data you load pick the page. A reflection list opens the single-crystal

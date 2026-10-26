@@ -2,17 +2,19 @@
  * Closing a project: has anything changed since it was last saved, opened or
  * loaded as a demo?
  *
- * The shell keeps a mark of the project as it stood at its last Save, Open,
- * demo load (or first load of the user's own files), and compares the live
- * project with it when Close is pressed. Three things make up a project in a
- * saved file, so three things are compared:
+ * The shell keeps a mark of the project as it stood at its last Save, Open or
+ * demo load, and compares the live project with it when Close is pressed. A
+ * project built from the user's own files, and a session restored from the
+ * browser's autosave, have no such mark: they exist nowhere else, so Close asks
+ * until they are saved. Three things make up a project in a saved file, so
+ * three things are compared:
  *
  *  - the model state — what the step history itself calls a change
  *    (`snapshotKey`, core/project/history.ts: parameter rows, settings, the
  *    last result, the data; display-only fields like the plot unit are not a
  *    change);
  *  - the step history, by its length (steps are only ever appended, and a new
- *    load starts a new history with a new mark), so a refinement undone again
+ *    load starts a new history and a new mark), so a refinement undone again
  *    still counts: the step it left is not in the saved file;
  *  - the Agent's records (the method's stages done, the exceptions the user
  *    allowed, its notes), which a project file carries too.
@@ -48,7 +50,8 @@ export function markOf(
 
 /**
  * Are there changes `saved` does not have? Nothing loaded: no. Something
- * loaded but no mark to compare with: yes — the guard asks rather than guess.
+ * loaded but no mark to compare with (nothing saved, opened or loaded as a
+ * demo yet): yes, so the guard asks.
  */
 export function hasUnsavedChanges(saved: ProjectMark | null, now: ProjectMark | null): boolean {
   if (now === null) return false;
