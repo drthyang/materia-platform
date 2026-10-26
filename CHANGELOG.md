@@ -544,6 +544,15 @@ release fixes bugs.
 
 ### Changed
 
+- **The Agent refines the TOF peak shape as one profile.** Its correlation
+  guard now lets the time-of-flight peak-shape terms (α, β, σ and the zero)
+  refine together, as GSAS-II refines an instrument's profile, and lists their
+  correlations in the outcome instead of refusing them; `assess_refinement`
+  notes them rather than warning. Each against anything else (the zero against
+  the cell, a σ against a B) still stops the refinement. On AWO₄ at 8 K the
+  guard had refused α₁ ↔ β₀ (0.997), and staging round it reached wR 9.53 %
+  where the joint fit reaches 8.57 %.
+
 - **The refinement report reads as a paper's results section.** Export ▸
   Report (and the Copilot's report) now opens on a short **Result**
   paragraph: what was refined against which data, the outcome with its key

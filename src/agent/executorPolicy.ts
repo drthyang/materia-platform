@@ -101,7 +101,7 @@ export async function correlationGate<P extends AgentPort>(page: PageAdapter<P>,
 export function developedCorrelations(r: RefinementResult, parameters: readonly RefinementParameter[], restraints: readonly LinearRestraint[], assemblies: ReadonlyMap<string, string>): Record<string, unknown> {
   const check = readCorrelations(r, parameters, restraints, assemblies);
   const carried = check.carried.length > 0
-    ? { carriedCorrelations: check.carried.map(carriedText), carriedNote: "Correlated, and refined together: through the other free parameters (with them held fixed each pair separates), as the overall intensity terms (scale, extinction, batch scales), as one disorder's alternatives, or as the domains of a twin with both hands, as every single-crystal program refines them. The correlation is in their esds: read them before quoting them." }
+    ? { carriedCorrelations: check.carried.map(carriedText), carriedNote: "Correlated, and refined together: through the other free parameters (with them held fixed each pair separates); as the overall intensity terms (scale, extinction, batch scales), one disorder's alternatives, or the domains of a twin with both hands, as every single-crystal program refines them; or as the TOF peak-shape terms (α, β, σ and the zero), as GSAS-II refines an instrument's profile. The correlation is in their esds: read them before quoting them." }
     : {};
   if (check.correlated.length === 0 && check.undetermined.length === 0) return carried;
   return {

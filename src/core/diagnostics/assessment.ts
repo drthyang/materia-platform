@@ -220,6 +220,21 @@ export function intensityTerms(a: ParameterKind | undefined, b: ParameterKind | 
   return a !== undefined && b !== undefined && INTENSITY_TERMS.has(a) && INTENSITY_TERMS.has(b);
 }
 
+/** The TOF peak-shape terms: the back-to-back exponentials' α and β, the Gaussian σ coefficients, and the zero. */
+const PEAK_SHAPE: ReadonlySet<ParameterKind> = new Set<ParameterKind>(["tofProfile", "zeroShift"]);
+
+/**
+ * Two TOF peak-shape terms (α, β, σ coefficients, or one of them and the zero).
+ * They make one peak profile over d and are refined together, as GSAS-II
+ * refines an instrument's profile: the rise and the decay trade almost exactly
+ * (AWO₄ at 8 K on POWGEN: α₁ ↔ β₀ 0.997, β₀ ↔ zero 0.995) while the peak they
+ * shape is determined. A pair with a tofProfile row is a TOF fit's, so a 2θ zero
+ * never counts.
+ */
+export function tofPeakShape(a: ParameterKind | undefined, b: ParameterKind | undefined): boolean {
+  return a !== undefined && b !== undefined && PEAK_SHAPE.has(a) && PEAK_SHAPE.has(b) && (a === "tofProfile" || b === "tofProfile");
+}
+
 /** A correlation a third free parameter carries: under CARRIED_BELOW with every other free parameter fixed, and under CARRIED_MAX itself. */
 export function carriedByThird(c: { readonly coefficient: number; readonly conditional?: number }): boolean {
   return c.conditional !== undefined && Math.abs(c.conditional) < CARRIED_BELOW && Math.abs(c.coefficient) < CARRIED_MAX;
@@ -648,14 +663,17 @@ export function assessRefinement(input: AssessmentInput): RefinementAssessment {
     const abs = Math.abs(c.coefficient);
     // What the correlation guard refines together is noted, not warned about (correlationGuard.ts).
     const overall = mode === "single-crystal" && intensityTerms(a?.kind, b?.kind);
-    const carried = !overall && carriedByThird(c);
+    const peakShape = !overall && tofPeakShape(a?.kind, b?.kind);
+    const carried = !overall && !peakShape && carriedByThird(c);
     findings.push({
       category: "correlation",
-      severity: abs >= CORRELATION_LIMIT && !overall && !carried ? "warning" : "note",
+      severity: abs >= CORRELATION_LIMIT && !overall && !peakShape && !carried ? "warning" : "note",
       // Three places near ±1, where two would round 0.995 up to a perfect 1.00.
       summary: `${a?.label ?? c.parameterIdA} ↔ ${b?.label ?? c.parameterIdB} correlate at ${c.coefficient.toFixed(abs >= 0.99 ? 3 : 2)}.`,
       detail: overall
         ? "The overall intensity terms (scale, extinction, batch scales), refined together as SHELXL refines OSF, EXTI and BASF: the extinction is told from the scale by how the misfit grows with intensity, which their correlation does not see. An extinction the data do not determine shows as an esd as large as its value, or a bound."
+        : peakShape
+          ? "The TOF peak-shape terms (α, β, σ and the zero), refined together as GSAS-II refines an instrument's profile: they trade among themselves while the peak shape they make is determined. Their individual values mean little; the full covariance carries the correlation into their esds."
         : carried
           ? `Carried by a third free parameter: with every other free parameter held fixed they correlate at ${c.conditional!.toFixed(2)}. Each trades with a common one (often the overall fall-off of the intensities), not with the other, so they refine together and the full covariance carries the correlation into their esds.`
           : insight ?? "Strongly correlated parameters share information the data cannot separate; their individual esds are inflated. Consider refining them in separate stages or fixing one.",

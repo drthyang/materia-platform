@@ -626,7 +626,11 @@ current.
   two more groups are listed rather than refused: the overall intensity terms
   (scale, extinction, batch scales), which every single-crystal program refines
   together, and the parameters of one disorder among themselves (SHELXL's PART
-  1 and 2), which correlate near −1 by construction. A pair whose correlation a
+  1 and 2), which correlate near −1 by construction. On a time-of-flight fit
+  the peak-shape terms (α, β, σ and the zero) are listed among themselves too,
+  refined together as GSAS-II refines an instrument's profile (the rise and the
+  decay trade near 1 while the peak they shape is determined); each against
+  anything else, the zero against the cell included, still counts. A pair whose correlation a
   third free parameter carries (under 0.9 with every other free parameter held
   fixed, under 0.99 itself) is listed too, and `assess_refinement`, in the app
   and over MCP, notes rather than warns about the pairs the check lets through.

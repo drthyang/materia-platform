@@ -200,6 +200,27 @@ describe("assessRefinement — findings", () => {
     expect(powder.findings.find((x) => x.category === "correlation")?.severity).toBe("warning");
   });
 
+  it("notes the TOF peak-shape terms among themselves, and warns when one trades with anything else", () => {
+    // AWO₄ at 8 K on POWGEN, the profile freed with the moments held: the guard refines α, β, σ and the
+    // zero together (correlationGuard.ts), so the assessment must not tell the model to split them.
+    const diagnostics = (highCorrelations: NonNullable<RefinementResult["diagnostics"]>["highCorrelations"]): NonNullable<RefinementResult["diagnostics"]> => ({
+      svdZeroCount: 0, singularParameterIds: [], conditionNumber: 100, maxLambda: 1, atBounds: [], maxShiftOverEsd: 0, highCorrelations,
+    });
+    const tof = [param("tof_alpha1", "tofProfile", 0.14), param("tof_beta0", "tofProfile", 0.004), param("zero", "zeroShift", 10), param("cell_a", "cellLength", 4.68)];
+    const a = assessRefinement({
+      result: result({ diagnostics: diagnostics([
+        { parameterIdA: "tof_alpha1", parameterIdB: "tof_beta0", coefficient: 0.997, conditional: 0.99 },
+        { parameterIdA: "tof_beta0", parameterIdB: "zero", coefficient: 0.995, conditional: 0.99 },
+        { parameterIdA: "zero", parameterIdB: "cell_a", coefficient: 0.98, conditional: 0.97 },
+      ]) }),
+      parameters: tof,
+      observationCount: 3600,
+    });
+    const of = (a1: string, b1: string) => a.findings.find((x) => x.category === "correlation" && x.parameterIds?.join() === `${a1},${b1}`)!;
+    expect([of("tof_alpha1", "tof_beta0").severity, of("tof_beta0", "zero").severity, of("zero", "cell_a").severity]).toEqual(["note", "note", "warning"]);
+    expect(of("tof_alpha1", "tof_beta0").detail).toMatch(/TOF peak-shape terms/);
+  });
+
   it("reads a PDF fit without a GoF band, the mode taken from its parameters when not given", () => {
     // MCP could not ask for the PDF mode, so assess_refinement on a refine_pdf result read the
     // engine's GoF with the powder bands; the app's page stripped it before calling.
