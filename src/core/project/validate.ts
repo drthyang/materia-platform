@@ -367,6 +367,22 @@ function checkZeroAdpFix(v: unknown, path: string): void {
   opt(f.chosenBy, `${path}.chosenBy`, oneOf(["user", "agent-auto"] as const));
   opt(f.reason, `${path}.reason`, str);
   if (f.alternatives !== undefined && f.alternatives !== null) each(f.alternatives, `${path}.alternatives`, (x, q) => str(x, q));
+  // The facts the page's short lines are built from (zeroAdpLines.ts): absent on a fix saved before them.
+  opt(f.phase, `${path}.phase`, str);
+  opt(f.caution, `${path}.caution`, str);
+  opt(f.facts, `${path}.facts`, checkZeroAdpFacts);
+  if (f.others !== undefined && f.others !== null) each(f.others, `${path}.others`, checkZeroAdpFacts);
+}
+
+/** An option's facts without its prose (core/diagnostics/zeroAdp.ts ZeroAdpFacts). */
+function checkZeroAdpFacts(v: unknown, path: string): void {
+  const o = rec(v, path);
+  oneOf(["A", "B"] as const)(o.rule, `${path}.rule`);
+  oneOf(["preferred", "alternative"] as const)(o.rank, `${path}.rank`);
+  for (const k of ["leader", "leaderAtom", "shell"]) opt(o[k], `${path}.${k}`, str);
+  for (const k of ["leaderValue", "leaderEsd", "value"]) opt(o[k], `${path}.${k}`, num);
+  opt(o.shared, `${path}.shared`, oneOf(["element", "coordination"] as const));
+  opt(o.differs, `${path}.differs`, oneOf(["cation", "oxidation state"] as const));
 }
 
 function checkScDataset(v: unknown, path: string): void {

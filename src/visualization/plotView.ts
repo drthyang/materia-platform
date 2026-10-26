@@ -51,6 +51,23 @@ export function panBy(view: XView, dx: number, domain: XView): XView {
   return clampView({ min: view.min + dx, max: view.max + dx }, domain, view.max - view.min);
 }
 
+/**
+ * The window moved just far enough to show `x`, its width unchanged: null where
+ * `x` is already inside it (nothing moves, so a pick that is in view never
+ * shifts the frame). Out of view, `x` lands `margin` (a fraction of the span,
+ * 0.1 by default) inside the edge it crossed, so its marker and label are not
+ * cut by the frame; the window is held inside the data, which can leave `x`
+ * nearer the edge at the end of the data. For a pick made elsewhere (a row of
+ * a table) that must be seen without losing the user's zoom.
+ */
+export function revealX(view: XView, x: number, domain: XView, margin = 0.1): XView | null {
+  const span = view.max - view.min;
+  if (!Number.isFinite(x) || !(span > 0) || (x >= view.min && x <= view.max)) return null;
+  const inset = Math.min(Math.max(margin, 0), 0.5) * span;
+  const min = x < view.min ? x - inset : x + inset - span;
+  return clampView({ min, max: min + span }, domain, span);
+}
+
 /** True when the window shows the whole data range (to a part in 10⁹ of it). */
 export function isFullView(view: XView, domain: XView): boolean {
   const tol = 1e-9 * Math.abs(domain.max - domain.min || 1);

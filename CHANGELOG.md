@@ -9,6 +9,13 @@ release fixes bugs.
 
 ### Added
 
+- **README: what each result is checked against.** The Impact table now names
+  the area, the case, the reference (SHELXL, GSAS-II, FindSpinGroup, FullProf,
+  PDFfit2, diffpy.mpdf) and what agreed, each row marked Supported,
+  Approximate or Not yet; the Copilot's own study is a Not yet row. The
+  README's tool and scenario counts, which said nothing about correctness,
+  are gone, and so is the test that pinned them.
+
 - **The subgroup engine, Phase 1: irreps computed at the decentring
   k-points, and the subgroups that keep the conventional cell** (PDF
   Subgroups page; [ADRs 0001–0005](docs/adr/)).
@@ -598,6 +605,19 @@ release fixes bugs.
   is settled. `weightsLast` now counts the twin and the hand among the model's
   changes, and reads the last weighting scheme set, not the first.
 
+- **The residual-peak table sorts.** On the Magnetic page's step 2, a click on
+  a column header (#, d, I/σ, Δd→k, near, or use) orders the table by it, and
+  a second click reverses it. The header carries `aria-sort`, a direction
+  glyph and a button the keyboard presses (44 px on a touch screen); a note
+  beside the table names an order that is not the default and one click
+  returns to it. The table opens in the order it always had, # ascending (d
+  from large to small, as the ticks on the pattern are numbered). Ties, and
+  rows with no value, keep # order whichever way a column runs. Sorting only
+  reorders: a collapsed table still shows the peaks the k-search reads, those
+  added by hand, the highlighted one, and then the strongest, in whatever
+  order is set, so sorting by d never swaps a real peak for noise. The order
+  lasts for the session, until a new structure is loaded.
+
 ### Changed
 
 - **The header's Demos menu is gone; Load is Open; a Close button returns to
@@ -635,6 +655,29 @@ release fixes bugs.
     iPhone sizes tuned for it (1920 and 1440; iPad Pro 11" and 13", upright
     and sideways; iPhone 402×680, 440×760, 874×370 and 956×410), nothing
     overflows, and the buttons stay 44 px tall on a touch screen.
+
+- **The B-at-0 notice, the physical findings and the report's limitations
+  say each thing in one short line.** The result or the action comes first,
+  with no rule letters and no repetition. A B on 0 reads "B(W1) is at its 0
+  bound: tie it to B(Co1) (same coordination) or hold it at 1.453 Å²", and
+  each option sits beside its own **Apply**. A fix in force reads "B(W1) hit
+  0 → tied to B(Co1) = 0.6(2) Å² (same 6-O coordination, different cation);
+  not measured on its own", with the tied value as the last fit gives it. A
+  held B reads "B(O1) hit 0 → held at 0.800 Å² (starting value); not
+  measured". A tie across two different sites carries its caution as a ⚠
+  with a tooltip, not a parenthetical. The Validation tab's physical sanity
+  card shortens the other long findings the same way: "B1 hit its lower
+  bound (0) → find the cause", "Ga1 occ held at 1.05, outside [0, 1] →
+  correct the input", "W1 B refined negative (-0.0123) → hold it positive,
+  find the cause". The cross-check card's moderate correlations read "2 pairs
+  correlate, |ρ| up to 0.86 → report each with ρ". The full sentences are
+  behind a **?** on screen. In the report they move to a new appendix part,
+  **Caveats in full**, and the report states a fix once, as a limitation.
+  The Agent reads the same text as before: the rule's warnings, the fix
+  text and the assessment's findings are unchanged, byte for byte (a freeze
+  test holds them), as are the Agent's tools and the report's frozen
+  Markdown. A saved project keeps each fix's facts beside its text. Older
+  project files still open and read in one line.
 
 - **Save and Load are header buttons of their own, not folded into "Project ▾".**
   The menu held only those two, so it is gone: Save and Load sit in the header
@@ -925,6 +968,15 @@ release fixes bugs.
   on 2b's refined model 0.0437 0.452. It is labelled the weights SHELXL's
   criterion suggests, not SHELXL's own, and its bins are given as the
   analysis of variance gives them.
+
+- **A click on a residual peak's row highlights it and no longer zooms.** On
+  the Magnetic page the peak is marked on the pattern (a translucent band, the
+  arrow, the guide line and a bold tick, at its place in TOF, d or Q), the row
+  is highlighted, and the view stays where it was. A peak out of view moves
+  the window just far enough to show it, a tenth of the window inside the edge
+  it crossed, with the zoom width unchanged. A second click on the row clears
+  the highlight; a click on another row moves it. Space now works on a row as
+  Enter does, and a key pressed on a row's check box or × stays that control's.
 
 ### Fixed
 
