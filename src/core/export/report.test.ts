@@ -4,13 +4,14 @@ import type { StructureModel } from "@/core/crystal/types";
 import { exampleStructure } from "@/examples/mn3ga";
 import { reportHtml, formatParameterValue, qualityItems, type ReportInput } from "@/core/export/report";
 import { reportMarkdown } from "@/core/export/reportMarkdown";
+import { frozenReportMarkdown } from "@/core/export/reportMarkdownFrozen";
 import { formatWithEsd } from "@/core/export/cif";
 import { uEquivalent } from "@/core/crystal/adp";
 import { buildSpaceGroup } from "@/core/crystal/spaceGroups";
 import { niceTicks, patternFigureSvg } from "@/core/export/reportFigures";
 import { atomTable, cellLineText, cellTerms } from "@/core/export/reportTables";
 import { asFraction, formulaHtml, formulaParts, formulasText, minus, spaceGroupHtml, spaceGroupText, symbolHtml, symbolText } from "@/core/export/reportTypeset";
-import { correlationCaveats, meaningfulCorrelations, pdfResultParagraph, powderCaveats, powderResultParagraph, singleCrystalResultParagraph, type PowderResultInput } from "@/core/export/reportResult";
+import { correlationCaveats, meaningfulCorrelations, pdfResultParagraph, powderCaveats, powderResultParagraph, singleCrystalCaveats, singleCrystalResultParagraph, type PowderResultInput } from "@/core/export/reportResult";
 import { powderAcceptance } from "@/core/diagnostics/powderAcceptance";
 import type { ValidationVerdict } from "@/core/diagnostics/validationChecks";
 import { groupOfOperations, magneticReportSection, pdfReportInput, powderMomentLimits, reportFileName, subjectOf } from "@/app/reportInputs";
@@ -447,6 +448,44 @@ describe("magnetic report section (reportInputs)", () => {
     expect(magneticReportSection({ structure, applied: null, params, result: null, explored: null, against: "x" }).section).toBeNull();
   });
 
+  it("words the provenance by the free set: jointly only with nuclear rows free, else the moments with the nuclear model held", () => {
+    const { structure, params, magnetic } = cmcm();
+    const scale: RefinementParameter = { id: "scale", label: "scale", kind: "scale", value: 1, initialValue: 1, fixed: true };
+    const momentEsds = Object.fromEntries(params.map((p) => [p.id, 0.05]));
+    const result = (esd: Record<string, number>): RefinementResult => ({ status: "converged", parameters: {}, esd, agreement: {}, history: [{}], diagnostics: { svdZeroCount: 0, highCorrelations: [] } }) as unknown as RefinementResult;
+    const base = { structure, applied: magnetic, params: [scale, ...params], explored: null, against: "the powder pattern" } as const;
+    // The moments alone (the magnetic page's Refine moments, the AWO₄ demo's last step): every nuclear row held.
+    const held = magneticReportSection({ ...base, result: result(momentEsds) });
+    expect(held.section?.provenance).toBe("Moments refined against the powder pattern with the nuclear model held; the moment esds come from that fit.");
+    expect(held.sentence).toMatch(/, moments refined with the nuclear model held\.$/);
+    // The moments and nuclear rows together.
+    const joint = magneticReportSection({ ...base, result: result({ ...momentEsds, scale: 0.01 }) });
+    expect(joint.section?.provenance).toBe("Refined jointly with the atomic structure against the powder pattern; the moment esds come from that fit.");
+    expect(joint.sentence).toMatch(/, refined jointly with the atomic structure\.$/);
+    // Moments held by the last refinement, or never refined.
+    expect(magneticReportSection({ ...base, result: result({ scale: 0.01 }) }).section?.provenance).toBe("Included in the model and in the calculated pattern; the last refinement held the moments, which are as loaded or as set on the magnetic page.");
+    expect(magneticReportSection({ ...base, result: null }).sentence).toMatch(/, included in the model \(not refined in this session\)\.$/);
+    // The frozen layout's words stay as they were (the Agent's number audit and the evals read them).
+    expect(held.section?.status).toBe("Refined jointly with the atomic structure against the powder pattern; the moment esds come from that fit.");
+    expect(held.summary).toMatch(/, refined jointly with the atomic structure\.$/);
+    const input: ReportInput = { ...powderInput(), phases: [{ structure, params: [], bindings: [] }], magnetic: held.section };
+    expect(text(reportHtml(input))).toContain("Moments refined against the powder pattern with the nuclear model held");
+    expect(reportMarkdown(input)).toContain("Moments refined against the powder pattern with the nuclear model held");
+    expect(frozenReportMarkdown(input)).toContain("*Refined jointly with the atomic structure against the powder pattern; the moment esds come from that fit.*");
+    expect(frozenReportMarkdown(input)).not.toContain("nuclear model held");
+  });
+
+  it("the Result paragraph says the moments were refined with the nuclear model held, the frozen summary keeps its words (a PDF's spin model)", () => {
+    const { structure, params, magnetic } = cmcm();
+    const scaleRow: RefinementParameter = { id: "pdfScale", label: "PDF scale", kind: "pdfScale", value: 1, initialValue: 1, fixed: true };
+    const result = { status: "converged", parameters: {}, esd: Object.fromEntries(params.map((p) => [p.id, 0.05])), agreement: { rWeighted: 0.1 }, history: [{}], diagnostics: { svdZeroCount: 0, highCorrelations: [] } } as unknown as RefinementResult;
+    const pattern = { id: "g", name: "g.gr", scatteringType: "neutron" as const, points: Array.from({ length: 30 }, (_, i) => ({ r: 1 + 0.1 * i, gObs: Math.sin(i) })) };
+    const input = pdfReportInput({ phases: [structure], params: [scaleRow, ...params], bindings: [], result, pattern, rw: 0.1, fitRange: { min: 1, max: 3.9 }, curves: { x: [], yObs: [], yCalc: [], diff: [] }, positionMode: "atomic", spinModel: magnetic, explored: null, findings: null, current: true });
+    expect(input.assessment?.result).toContain("moments refined with the nuclear model held.");
+    expect(input.assessment?.result).not.toContain("jointly");
+    expect(input.summary).toContain("refined jointly with the atomic structure");
+  });
+
   it("states the powder's limits on the moment direction by the crystal system", () => {
     const hexagonal = exampleStructure();
     expect(powderMomentLimits(hexagonal)).toEqual([expect.stringMatching(/cannot fix the absolute moment direction/), expect.stringMatching(/angle to the unique axis/)]);
@@ -467,6 +506,56 @@ describe("PDF report (reportInputs)", () => {
     const nuclearOnly = pdfReportInput({ phases: [cmcm().structure], params: [], bindings: [], result: null, pattern: { id: "g", name: "g", scatteringType: "xray", points: [{ r: 1, gObs: 0 }] }, rw: 0.08, fitRange: { min: 1, max: 2 }, curves: { x: [], yObs: [], yCalc: [], diff: [] }, positionMode: "atomic", spinModel: null, explored: null });
     expect(nuclearOnly.magnetic).toBeNull();
     expect(nuclearOnly.summary).toContain("No magnetic (mPDF) component is included.");
+  });
+});
+
+describe("the cross-check names the technique's own programs", () => {
+  const converged = { status: "converged", parameters: {}, esd: {}, agreement: { rWeighted: 0.0812 }, history: [{}, {}], diagnostics: { svdZeroCount: 0, highCorrelations: [] } } as unknown as RefinementResult;
+  const scaleRow: RefinementParameter = { id: "pdfScale", label: "PDF scale", kind: "pdfScale", value: 0.09, initialValue: 0.09, fixed: false };
+  const pattern = { id: "g", name: "g.gr", scatteringType: "xray" as const, points: Array.from({ length: 30 }, (_, i) => ({ r: 1 + 0.1 * i, gObs: Math.sin(i) })) };
+  /** A refined nuclear PDF, as the PDF page assembles it (its assessment read, its fit current). */
+  const nuclearPdf = (): ReportInput => ({
+    ...pdfReportInput({ phases: [exampleStructure()], params: [scaleRow], bindings: [], result: converged, pattern, rw: 0.0812, fitRange: { min: 1, max: 3.9 }, curves: { x: [], yObs: [], yCalc: [], diff: [] }, positionMode: "atomic", spinModel: null, explored: null, findings: null, current: true }),
+    date: DATE,
+  });
+
+  it("a PDF report names PDFgui / diffpy-CMI (PDFfit2), never GSAS-II or FullProf: Result, caveats and footer", () => {
+    const input = nuclearPdf();
+    expect(input.assessment?.result).toContain("The cross-check in PDFgui / diffpy-CMI (PDFfit2) is still to do.");
+    expect(input.assessment?.caveats.at(-1)).toEqual({
+      tone: "info", label: "Cross-check",
+      text: "reproduce the fit in PDFgui / diffpy-CMI (PDFfit2): the Export menu writes a PDFgui / diffpy-CMI bundle with the structure, the data and a PDFfit2 script that refines the same parameters",
+    });
+    const footer = "MATERIA is in public beta: reproduce a result you publish in PDFgui / diffpy-CMI (PDFfit2); the Export menu writes a PDFgui / diffpy-CMI bundle with the structure, the data and a PDFfit2 script.";
+    for (const doc of [text(reportHtml(input)), reportMarkdown(input)]) {
+      expect(doc).not.toMatch(/GSAS|FullProf/);
+      expect(doc).toContain(footer);
+      expect(doc).not.toContain("diffpy.mpdf");
+    }
+  });
+
+  it("a magnetic PDF adds diffpy.mpdf for its magnetic term, which the bundle does not carry", () => {
+    const input = pdfCandidateInput();
+    const md = reportMarkdown(input);
+    expect(md).not.toMatch(/GSAS|FullProf/);
+    expect(md).toContain("reproduce a result you publish in PDFgui / diffpy-CMI (PDFfit2), and its magnetic term in diffpy.mpdf; the Export menu writes a PDFgui / diffpy-CMI bundle");
+    const result = pdfResultParagraph({ subject: "Mn₃Ga (Cmcm)", against: "neutron G(r)", free: 3, rw: 0.08, result: converged, parameters: [scaleRow], assessment: null, magnetic: "Magnetic PDF (mPDF) spin model: …" }, false);
+    expect(result).toContain("The cross-check in PDFgui / diffpy-CMI (PDFfit2), with the magnetic term in diffpy.mpdf, is still to do.");
+    // Nothing to cross-check before a refinement, or after one that diverged.
+    expect(pdfResultParagraph({ subject: "s", against: "a", free: 1, rw: 0.3, result: null, parameters: [], assessment: null }, false)).not.toContain("cross-check");
+  });
+
+  it("a Rietveld report names GSAS-II and FullProf; a single crystal SHELXL, JANA2020 or FullProf", () => {
+    const powder = text(reportHtml(powderInput()));
+    expect(powder).toContain("reproduce a result you publish in GSAS-II or FullProf; the Export menu writes a GSAS-II and a FullProf bundle.");
+    expect(powder).not.toMatch(/PDFgui|diffpy|SHELXL/);
+    const sc = text(reportHtml(singleCrystalInput()));
+    expect(sc).toContain("reproduce a result you publish in SHELXL, JANA2020 or FullProf; the Export menu writes the CIF and the reflections as a FullProf .int.");
+    expect(sc).not.toMatch(/GSAS|PDFgui|diffpy/);
+    const verdict: ValidationVerdict = { headline: "", tone: "ok", checks: [] };
+    expect(singleCrystalCaveats({ subject: "s", against: "a", free: 1, agreement: "{{R_1}} = 1 %", result: null, parameters: [], verdict }).at(-1)).toEqual({
+      tone: "info", label: "Cross-check", text: "reproduce the refinement in SHELXL, JANA2020 or FullProf: the Export menu writes the CIF and the reflections as a FullProf .int",
+    });
   });
 });
 

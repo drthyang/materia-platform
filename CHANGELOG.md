@@ -9,6 +9,32 @@ release fixes bugs.
 
 ### Added
 
+- **The PDF page exports a PDFgui / diffpy-CMI bundle** (Export ▾ →
+  PDFgui / diffpy-CMI bundle (.zip)), the real-space counterpart of the
+  GSAS-II and FullProf bundles. It holds the whole unit cell as a PDFfit-format
+  `.stru` at the refined values, with each site's images, their rotated U, and
+  an isotropic U as its six U^ij. It also holds the CIF, the data as two columns
+  under a header PDFgui reads, and `fit_pdffit2.py`. The script sets every
+  variable at MATERIA's value (scattering type, Qmax, Qdamp, Qbroad, the
+  window, scale, δ1/δ2, sratio/rcut, spdiameter, MATERIA's scattering lengths)
+  and constrains exactly the parameters MATERIA refined. The constraints tie
+  every atom of the cell through its symmetry operation, and the occupancy
+  ties too. It then checks the model at MATERIA's values against MATERIA's own
+  curve, refines, and prints Rw and every value beside MATERIA's, with the
+  esds of both scaled alike. `make_pdfgui_project.py` has PDFgui's own code
+  write the `.ddp`, ready to run. `constraints.txt` and a README give the
+  conventions and every difference. With a spin model in the fit, the nuclear
+  part goes to PDFfit2 and the spin model ships as an mCIF for diffpy.mpdf;
+  no mPDF script is written, because the parameters do not map one to one.
+  Checked against PDFfit2 1.6.0: at perturbed parameters every constrained
+  variable equals MATERIA's model to 1e-16 (cubic, hexagonal, monoclinic with
+  a shared site, triclinic, two phases), and the PDFgui project opens and runs
+  in PDFgui's own code. The one model difference is documented: MATERIA gives
+  each pair's Gaussian a factor 1/r_ij, while PDFfit2 divides the summed
+  Gaussians by r. That leans PDFfit2's peaks toward low r by about σ²/r_ij. On
+  the GaTa₄Se₈ demo this is 1.2 % of the rms G(r), and PDFfit2's refined cell
+  is 75 ppm (3 esds) larger; the other parameters agree within their esds.
+
 - **A B that refines to 0 gets ranked options, never a silent change.**
   When a powder refinement leaves an isotropic B on its lower bound, the page
   shows a notice over the parameters naming the atom, the B it reached, and
@@ -823,6 +849,25 @@ release fixes bugs.
   analysis of variance gives them.
 
 ### Fixed
+
+- **Each technique's report names its own cross-check programs.** The
+  report's footer told every technique that the Export menu writes GSAS-II
+  and FullProf bundles. A PDF is reproduced in PDFgui / diffpy-CMI (PDFfit2),
+  with diffpy.mpdf for its magnetic term; a single crystal in SHELXL, JANA2020
+  or FullProf. The footer, a refined PDF's Result paragraph and the caveats of
+  both now name those programs and what the Export menu writes for them, from
+  one table the page banner reads too. The powder report keeps GSAS-II and
+  FullProf.
+
+- **A moments-only refinement no longer reads as a joint one in the report.**
+  Any refinement that gave the moments esds was called "refined jointly with
+  the atomic structure", even when only the moment rows were free (the
+  magnetic page's Refine moments, the AWO₄ demo's last step). The magnetic
+  section and the Result paragraph now follow the last refinement's free set:
+  "moments refined with the nuclear model held" when every nuclear row was
+  fixed, and "refined jointly with the atomic structure" only when nuclear
+  rows were free too. The frozen Markdown the Agent's number audit and the
+  evals read keeps its words.
 
 - **The PDF Subgroups page reads a centred parent's subgroups as centred.**
   Its subgroup lattice held each subgroup as one operation per rotation,

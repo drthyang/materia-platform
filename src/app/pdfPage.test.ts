@@ -10,7 +10,7 @@ import { IDENTITY3 } from "@/core/math/mat3";
 import { decomposeDisplacementRepresentation } from "@/core/crystal/displaciveModes";
 import { irrepIsotropySubgroups } from "@/core/crystal/isotropySubgroups";
 import {
-  ACTIVATION_KICK, pageView, pdfBoxcar, pdfFit, pdfPage, withActivatedMode, withAdpModel, withBoxcarRun, withExtraPhases, withFit, withFitRange, withParameter,
+  ACTIVATION_KICK, pageView, pdfBoxcar, pdfFit, pdfguiBundleOf, pdfPage, withActivatedMode, withAdpModel, withBoxcarRun, withExtraPhases, withFit, withFitRange, withParameter,
   withPositionMode, withSpinModel, workspaceOf, type PdfCompute, type PdfPageModel,
 } from "@/app/pdfPage";
 
@@ -209,6 +209,20 @@ describe("the PDF page's spin model", () => {
     expect(removed.params.some((p) => p.kind === "momentMode")).toBe(false);
   });
 
+  it("exports the nuclear model for PDFfit2, the spin model as an mCIF for diffpy.mpdf, and MATERIA's nuclear curve to compare with", () => {
+    const m = withSpinModel(pdfPage(mn, neutron), { magnetic, params: [moment(3)], bindings: [binding] }).model;
+    const entries = pdfguiBundleOf(m);
+    const names = entries.map((e) => e.name);
+    expect(names).toContain("Mn_toy_mpdf.mcif");
+    const file = (n: string): string => entries.find((e) => e.name === n)!.data as string;
+    expect(file("materia_fit.csv").split("\n")[0]).toBe("r,Gobs,Gcalc_MATERIA,Gcalc_MATERIA_nuclear");
+    expect(file("fit_pdffit2.py")).toContain("MAGNETIC = True");
+    const readme = file("README.txt");
+    expect(readme).toMatch(/Magnetic PDF\n/);
+    expect(readme).toContain("diffpy.mpdf");
+    expect(readme).toContain("Mn_toy_mpdf.mcif");
+  });
+
   it("refuses a model the spin field cannot represent, and leaves an X-ray page's rows and fit alone", () => {
     const m0 = pdfPage(mn, neutron);
     const incommensurate = withSpinModel(m0, { magnetic: { ...magnetic, propagation: [[0, 0, 0.3141]] }, params: [moment(3)], bindings: [binding] });
@@ -219,6 +233,27 @@ describe("the PDF page's spin model", () => {
     expect(shown.params).toBe(xray.params);
     expect(shown.result).toBe(xray.result);
   });
+});
+
+describe("the PDF page's PDFgui / diffpy-CMI bundle (Export ▾)", () => {
+  it("carries the free rows as PDFfit2 parameters, without esds on a snapshot and with them after a fit", async () => {
+    const opened = demoPage();
+    const snapshot = pdfguiBundleOf(opened);
+    expect(snapshot.map((e) => e.name)).toEqual(["GaTa4Se8.stru", "GaTa4Se8.cif", "GaTa4Se8.gr", "materia_fit.csv", "fit_pdffit2.py", "make_pdfgui_project.py", "constraints.txt", "README.txt"]);
+    const script = (entries: typeof snapshot): string => entries.find((e) => e.name === "fit_pdffit2.py")!.data as string;
+    const rows = (entries: typeof snapshot): string[] => script(entries).split("\n").filter((l) => /^ {4}\(\d+, "/.test(l));
+    // The demo opens with the scale and the cell free, a snapshot with no esds.
+    expect(rows(snapshot)).toHaveLength(opened.params.filter((p) => !p.fixed && !p.expression).length);
+    expect(rows(snapshot).every((l) => l.endsWith(", None),"))).toBe(true);
+    expect(script(snapshot)).toContain("RMIN, RMAX = 1.5, 6");
+    expect(script(snapshot)).toContain("QMAX = 27");
+    // After a fit the values carry its esds.
+    const m = free(demoPage(), ["delta2"]);
+    const fitted = withFit(m, await pdfFit(new ComputeClient(), m));
+    const after = rows(pdfguiBundleOf(fitted));
+    expect(after).toHaveLength(3);
+    expect(after.some((l) => l.endsWith(", None),"))).toBe(false);
+  }, 120_000);
 });
 
 describe("the PDF page saved and reopened", () => {

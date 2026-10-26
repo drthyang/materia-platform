@@ -199,7 +199,7 @@ function magneticMarkdown(m: ReportMagnetic, fallback: StructureModel | undefine
     ? `\n\n${table(["Moment parameter", "Value (µB)", "Status"], m.params.map((p) => [p.label, formatParameterValue(p), parameterStatus(p)]), ["l", "r", "l"])}`
     : "";
   const limits = (m.limits ?? []).map((t) => `- ${t}`).join("\n");
-  return `${facts}\n\n${m.status}\n\n${moments}${params}${limits ? `\n\n${limits}` : ""}\n\n*m_a, m_b, m_c: components along the cell axes (µB); |m| through the metric.*`;
+  return `${facts}\n\n${m.provenance ?? m.status}\n\n${moments}${params}${limits ? `\n\n${limits}` : ""}\n\n*m_a, m_b, m_c: components along the cell axes (µB); |m| through the metric.*`;
 }
 
 function indicesMarkdown(indices: readonly ReportIndex[]): string {
