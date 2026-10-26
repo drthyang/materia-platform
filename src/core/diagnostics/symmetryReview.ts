@@ -65,7 +65,11 @@ export interface SubgroupCandidate {
   readonly number?: number;
   /** [G : H]. */
   readonly index: number;
-  /** Symmetry-equivalent domains (conjugate subgroups). */
+  /**
+   * The number of conjugate subgroups, [G : N_G(H)] — the orientations, not
+   * the domain states [G : H] (= `index` for these subgroups of the same
+   * lattice). The name is frozen with the tool's output (see reviewSymmetry).
+   */
   readonly domains: number;
   /** The observed forbidden reflections this subgroup allows. */
   readonly allows: readonly string[];
@@ -227,7 +231,7 @@ export function reviewSymmetry(
   const candidates: SubgroupCandidate[] = subgroupClassRepresentatives(lattice)
     .filter((n) => !n.isParent && !n.isTrivial)
     .map((n) => {
-      const ops = withCentring(n.operations, parentOps);
+      const ops = withCentring(n.cosetOperations, parentOps);
       const allows = observed.filter((o) => {
         const [h, k, l] = o.hkl.split(" ").map(Number) as [number, number, number];
         return !isReflectionAbsent(ops, h, k, l);
@@ -236,11 +240,18 @@ export function reviewSymmetry(
     })
     .filter((c) => c.allows.length > 0)
     .map(({ n, ops, allows }): SubgroupCandidate => {
-      // Named on the full (centred) operation set: the lattice's coset
-      // representatives alone match no table entry of a centred group.
-      const id = n.identity.number !== undefined ? n.identity : identifySubgroup(ops, parentOps, { originShifts: true });
-      const name = id.hermannMauguin ?? `${n.pointGroup ?? "?"} (point group; index ${n.index})`;
-      return { name, ...(id.number !== undefined ? { number: id.number } : {}), index: n.index, domains: n.domainCount, allows };
+      // VALIDATION FREEZE (docs/AGENT_PLAN.md): this tool's output is frozen,
+      // so its names are still found as they were: from the coset
+      // representatives alone when those match a table entry, which reads a
+      // centred parent's subgroup as primitive (Fm-3m's 4/mmm subgroup as
+      // P4/mmm, #123), else on the full centred set. `n.identity` is the
+      // correct standard name (I4/mmm, #139), which the PDF Subgroups page
+      // shows; use it here once the freeze lifts. `domains` is the number of
+      // conjugate subgroups, [G : N_G(H)] (`n.domainStates` is [G : H]).
+      const legacy = identifySubgroup(n.cosetOperations, parentOps);
+      const id = legacy.number !== undefined ? legacy : identifySubgroup(ops, parentOps, { originShifts: true });
+      const name = id.hermannMauguin ?? `${legacy.pointGroup ?? "?"} (point group; index ${n.index})`;
+      return { name, ...(id.number !== undefined ? { number: id.number } : {}), index: n.index, domains: n.conjugates, allows };
     });
   const ordered = orderCandidates(candidates, observed.length);
   const all = ordered.filter((c) => c.allows.length === observed.length);

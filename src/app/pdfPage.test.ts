@@ -8,7 +8,7 @@ import type { MagneticModel } from "@/core/magnetic/types";
 import type { ParameterBinding, RefinementParameter } from "@/core/refinement/types";
 import { IDENTITY3 } from "@/core/math/mat3";
 import { decomposeDisplacementRepresentation } from "@/core/crystal/displaciveModes";
-import { identifySubgroup, projectIsotypicModes, stabilizerOfField } from "@/core/crystal/isotropyTree";
+import { irrepIsotropySubgroups } from "@/core/crystal/isotropySubgroups";
 import {
   ACTIVATION_KICK, pageView, pdfBoxcar, pdfFit, pdfguiBundleOf, pdfPage, withActivatedMode, withAdpModel, withBoxcarRun, withExtraPhases, withFit, withFitRange, withParameter,
   withPositionMode, withSpinModel, workspaceOf, type PdfCompute, type PdfPageModel,
@@ -126,15 +126,31 @@ describe("the PDF page's changes", () => {
     const m = withParameter(demoPage(), "pdfScale", { value: 0.09 });
     const structure = pageView(m).fitStructure;
     const term = decomposeDisplacementRepresentation(structure).terms.find((t) => !t.trivial && t.multiplicity - t.acoustic > 0)!;
-    const field = projectIsotypicModes(structure, undefined, term, structure.spaceGroup.operations)[0]!;
-    const identity = identifySubgroup(stabilizerOfField(field, structure.spaceGroup.operations), structure.spaceGroup.operations);
-    const { model, message } = withActivatedMode(m, term, { identity, field });
+    const sub = irrepIsotropySubgroups(structure, term)[0]!;
+    const { model, message } = withActivatedMode(m, term, sub);
     expect(message).toMatch(/^activated /);
     expect(model.positionMode).toBe("irreps");
     expect(model.modes?.fromActivation).toBe(true);
     expect(rowIds(model)).toEqual(specIds(model));
     expect(model.params.filter((p) => p.value === ACTIVATION_KICK && !p.fixed)).toHaveLength(1);
     expect(model.params.find((p) => p.id === "pdfScale")!.value).toBe(0.09);
+  });
+
+  it("activates an epikernel off the axes: GaTa₄Se₈'s polar T2 irrep along ⟨111⟩, the child R3m with the F translations kept", () => {
+    const m = demoPage();
+    const structure = pageView(m).fitStructure;
+    const branch = decomposeDisplacementRepresentation(structure).terms
+      .filter((t) => !t.trivial && t.multiplicity - t.acoustic > 0)
+      .map((term) => ({ term, subs: irrepIsotropySubgroups(structure, term) }))
+      .find(({ subs }) => subs.some((s) => s.identity.number === 160))!;
+    const r3m = branch.subs.find((s) => s.identity.number === 160)!;
+    expect(r3m.orderParameterDim).toBe(1);
+    expect(r3m.conjugates).toBe(4);
+    const { model, label } = withActivatedMode(m, branch.term, r3m);
+    expect(label).toBe(`${branch.term.irrep.label} → R 3 m:H`);
+    const child = model.modes!.set.parentized;
+    expect(child.spaceGroup.operations).toHaveLength(24); // 3m's six rotations × the four F translations
+    expect(model.params.filter((p) => p.value === ACTIVATION_KICK && !p.fixed)).toHaveLength(1);
   });
 
   it("seeds an ADP switch back to the demo's own model from the refined ADPs, not the demo's values", () => {

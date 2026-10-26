@@ -88,6 +88,20 @@ describe("the Subgroups page", () => {
     expect(out).not.toContain("▼ ");
   });
 
+  it("lists every order-parameter direction of GaTa₄Se₈'s irreps, and its lattice with the F translations kept", () => {
+    const out = subgroups(demoPage()).replace(/<!-- -->/g, "");
+    // The polar T2's epikernels off the axes (R3m on ⟨111⟩, Imm2), the lower Cm, and the kernel P1.
+    for (const name of ["R 3 m:H #160", "I m m 2 #44", "C 1 m 1 #8 · 2-dim", "P 1 #1 · general", "I -4 m 2 #119"]) {
+      expect(out).toContain(`Activate → ${name}`);
+    }
+    // The lattice is F-43m's, named in standard settings: never a primitive name for a centred subgroup.
+    expect(out).toContain("F -4 3 m");
+    expect(out).not.toContain("P -4 3 m");
+    expect(out).toContain("I -4 m 2");
+    expect(out).toContain("4 orientations · 4 domain states"); // R3m: the four ⟨111⟩ axes, no ± pairs at index 4
+    expect(out).toContain("· own cell");
+  });
+
   it("drops the acoustic-only and the symmetry-conserving irreps from the tree", () => {
     const m = demoPage();
     const dec = decomposeDisplacementRepresentation(m.loaded);

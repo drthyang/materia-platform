@@ -869,6 +869,60 @@ release fixes bugs.
   rows were free too. The frozen Markdown the Agent's number audit and the
   evals read keeps its words.
 
+- **The PDF Subgroups page reads a centred parent's subgroups as centred.**
+  Its subgroup lattice held each subgroup as one operation per rotation,
+  without the parent's centring translations, so an F, I or R parent's
+  subgroups were named and built as primitive ones: the GaTa₄Se₈ demo's
+  F-43m opened as "P-43m" with "R3m:R" and "P-4" below it, NaCl's Fm-3m as
+  "Pm-3m" with a "P4/mmm" subgroup, and lowering to that one split Na 4a into
+  three sites (a klassengleiche P subgroup, not F4/mmm). Every subgroup now keeps
+  all the parent's lattice translations, as a translationengleiche subgroup
+  does, and is named in its standard setting from the conventional cell of
+  its own symmetry (ITA A, Ch. 3.1 and 5.1): Fm-3m's 4/mmm subgroup is
+  I4/mmm (#139) on a′ = (a+b)/2, b′ = (−a+b)/2, c′ = c, and the subgroups on
+  a cube's diagonals, before named by their point group only, are Amm2, Cmmm,
+  R3m and the rest. The names agree with the maximal t-subgroups of ITA A1
+  for Pm-3m, Fm-3m, Fd-3m (both origins), Im-3m, I4/mmm, I4₁/amd, R-3m (both
+  axes), P6₃/mmc and Pnma. The child keeps the parent's cell. The Agent's
+  `review_symmetry` keeps its names until the validation freeze lifts; some
+  name a centred parent's subgroups as primitive (I4₁/amd's Imma as Pmna).
+
+- **The subgroup lattice counts orientations and domain states apart.**
+  "×3 domains" for Pm-3m → P4mm was the number of conjugate subgroups,
+  [G : N_G(H)]: the orientations of the distortion. Its domain states are
+  [G : H] = 6, ±P along each axis (Janovec; ITA D, Ch. 3.4). The row now
+  shows both: "3 orientations · 6 domain states". The magnetic subgroups'
+  domain counts are unchanged.
+
+- **The Γ irrep tree lists every order-parameter direction of an irrep.** It
+  took the stabilizers of the irrep's basis fields alone, which lie along the
+  axes, so a multidimensional irrep showed one subgroup: BaTiO₃'s polar T1u
+  (Γ4⁻) gave P4mm and never Amm2 or R3m, and GaTa₄Se₈'s T2 never R3m, the
+  distortion it is known for. Each irrep now lists its isotropy subgroups, the
+  epikernels and the kernel (Stokes & Hatch 1988; ISOTROPY), found exactly
+  from its characters: a subgroup is one when the irrep's subspace it fixes
+  is larger than any larger subgroup's. The one-parameter directions come
+  first, then the lower ones down to a general direction, each with its
+  orientations and domain states; activating one builds a field with exactly
+  that symmetry. Validated against the known lists for Pm-3m (T1u: P4mm,
+  R3m, Amm2, Pm, Cm, P1; T2u: P-4m2, R32, Amm2, C2, Pm, P1), Fm-3m, F-43m,
+  P4/mmm, I4/mmm and R-3m.
+
+- **A subgroup picked from the lattice is kicked off zero, as an activated
+  irrep is.** **Activate ↓** loaded every mode at 0 and fixed. At the
+  parent's geometry χ² is invariant under the parent group, so its derivative
+  along every symmetry-breaking mode is exactly zero, and a mode started at 0
+  never moved, whatever was freed. The order parameter that lowers the
+  structure to the subgroup now leads the modes, free from 0.05 Å as on the
+  irrep route: a field with exactly that symmetry, from the irrep for which
+  the subgroup is an isotropy subgroup, or the fewest irreps coupled when no
+  single one is (GaTa₄Se₈ → C2). The other modes start at 0, fixed, and move
+  once freed. On a synthetic G(r) of tetragonal BaTiO₃, lowering cubic
+  BaTiO₃ to P4mm now refines to the distortion (Rw from 5.8 % to 0); from 0
+  the same fit left every mode at 0. When no displacement breaks the
+  parent's symmetry (the subgroup differs from it in its cell only), nothing
+  is kicked and the status line says so.
+
 - **A staged fit keeps a profile stage whose zero trades with the cell.** The
   staged sequence rejected a whole stage when freeing it grew an earlier
   parameter's esd more than fivefold. Since the engine's esds are those of the
