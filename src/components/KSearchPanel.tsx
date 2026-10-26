@@ -36,7 +36,10 @@ import {
 import { WorkbenchPlot, type FitRangeSelection } from "@/app/ui/WorkbenchPlot";
 import { InfoBadge } from "@/app/ui/InfoBadge";
 import { momentEntriesFrom } from "@/app/ui/cellModel";
-import { nearReflectionLabel, visiblePeakRows } from "@/app/ui/peakTable";
+import {
+  DEFAULT_PEAK_SORT, describePeakSort, isDefaultPeakSort, listedPeakRows, nearReflectionLabel, visiblePeakRows, type PeakSort,
+} from "@/app/ui/peakTable";
+import { PeakSortHeader } from "@/app/ui/PeakSortHeader";
 import type { ReportGroup } from "@/core/export/report";
 import type { MagneticExploration } from "@/app/reportInputs";
 import { structureToCif, magneticStructureToMcif } from "@/core/export/cif";
@@ -435,10 +438,10 @@ export function KSearchPanel({
   }, [patternView, structure, k[0], k[1], k[2], appliedMagnetic, peakRows]);
 
   // Tick-click spotlight in the pattern preview (same interaction as the
-  // refinement plot, local to this page). Peak-table rows spotlight their
-  // numbered residual tick and zoom onto it via the local focus token.
+  // refinement plot, local to this page). A peak-table row spotlights its
+  // numbered residual tick: marked on the pattern, the view left where it is
+  // (the plot pans only if the peak is out of view, keeping its zoom width).
   const [patternPick, setPatternPick] = useState<{ hkl: string; kind: "nuclear" | "magnetic"; phaseId?: string } | null>(null);
-  const [peakFocusToken, setPeakFocusToken] = useState(0);
   // Armed "add a peak" mode: the next plain click on the pattern places a
   // manual residual peak at the clicked position (single-shot).
   const [addingPeak, setAddingPeak] = useState(false);
@@ -451,21 +454,22 @@ export function KSearchPanel({
   }, [peakSignature]);
   function spotlightPeak(idx: number): void {
     const hkl = `#${idx}`;
-    if (patternPick?.hkl === hkl && patternPick.phaseId === "residual") {
-      setPatternPick(null);
-      return;
-    }
-    setPatternPick({ hkl, kind: "magnetic", phaseId: "residual" });
-    setPeakFocusToken((t) => t + 1);
+    setPatternPick((p) => (p?.hkl === hkl && p.phaseId === "residual" ? null : { hkl, kind: "magnetic", phaseId: "residual" }));
   }
 
   // A long peak table shows its strongest rows (and every row the search
   // reads) until "Show all": 24 rows put step 4 two screens down.
   const [allPeaksShown, setAllPeaksShown] = useState(false);
+  // The table's order: a click on a column header. Kept with the panel (which
+  // the page keeps mounted across its steps), so it lasts the session, until
+  // a new structure remounts the page. It only orders the rows: which rows a
+  // collapsed table shows does not depend on it (peakTable.ts, listedPeakRows).
+  const [peakSort, setPeakSort] = useState<PeakSort>(DEFAULT_PEAK_SORT);
   const spotlitIdx = patternPick?.phaseId === "residual" ? Number(patternPick.hkl.slice(1)) : null;
-  const collapsedPeakRows = visiblePeakRows(peakRows, false, spotlitIdx);
-  const shownPeakRows = allPeaksShown ? peakRows : collapsedPeakRows;
-  const hiddenPeaks = peakRows.length - collapsedPeakRows.length;
+  // Each row with its Δd→k, which is also a sort key.
+  const sortableRows = useMemo(() => peakRows.map((r) => ({ ...r, delta: kDeltas[r.idx - 1] })), [peakRows, kDeltas]);
+  const shownPeakRows = listedPeakRows(sortableRows, peakSort, allPeaksShown, spotlitIdx);
+  const hiddenPeaks = peakRows.length - visiblePeakRows(peakRows, false, spotlitIdx).length;
   // The near cell names the phase only when the pattern has several.
   const multiPhase = (patternView?.nuclearTicks.length ?? 1) > 1;
 
@@ -652,8 +656,9 @@ export function KSearchPanel({
               {...(previewMagnetic ? { overlays: [{ label: "magnetic", y: previewMagnetic }] } : {})}
               highlight={patternPick}
               onHighlight={setPatternPick}
+              revealPan="nearest"
+              highlightBand
               focusFitToken={focusFitToken}
-              focusPeakToken={peakFocusToken}
               {...(addingPeak && canAddPeak
                 ? {
                     onPlotClick: (x: number) => {
@@ -809,8 +814,11 @@ export function KSearchPanel({
                   which detections feed the k-search: the I/σ threshold, and whether apexes sitting on
                   a nuclear reflection participate (those are usually profile misfit, e.g. an impurity
                   shoulder — though k = 0 orderings do put intensity there). Each peak is marked #n in
-                  the pattern; click a row to zoom to it. <b>Δd→k</b> is the distance to the nearest
-                  satellite G ± k of the current k — ≤ 20 mÅ counts as explained.
+                  the pattern; click a row to highlight it there (the view keeps its zoom, and pans only to
+                  show a peak that is out of view). <b>Δd→k</b> is the distance to the nearest
+                  satellite G ± k of the current k — ≤ 20 mÅ counts as explained. Click a column header
+                  to sort; the table opens in # order (d from large to small), and sorting only
+                  reorders: a collapsed table shows the same rows in any order.
                 </>
               }
             />
@@ -866,35 +874,39 @@ export function KSearchPanel({
               <table style={{ fontSize: 12.5, borderCollapse: "collapse", width: "100%", marginTop: 6 }}>
                 <thead>
                   <tr style={{ color: theme.secondary, textAlign: "left" }}>
-                    <th style={{ ...th, width: 26 }} title="Include this peak in the k-search">use</th>
-                    <th style={th} title="Tick label in the pattern preview">#</th>
-                    <th style={th}>d (Å)</th>
-                    {hasSignificance && <th style={th} title="Residual height over the counting σ at the apex">I/σ</th>}
-                    <th style={th} title="Distance to the nearest satellite G ± k of the current k (≤ 20 mÅ = explained)">Δd→k (mÅ)</th>
-                    <th style={th} title="Nuclear reflection within 1% in d — likely profile misfit, not a magnetic peak">near</th>
+                    <PeakSortHeader column="use" label="use" title="Include this peak in the k-search" sort={peakSort} onSort={setPeakSort} style={{ ...th, width: 26 }} />
+                    <PeakSortHeader column="idx" label="#" title="Tick label in the pattern preview; # runs from large d to small" sort={peakSort} onSort={setPeakSort} style={th} />
+                    <PeakSortHeader column="d" label="d (Å)" title="Position of the peak" sort={peakSort} onSort={setPeakSort} style={th} />
+                    {hasSignificance && <PeakSortHeader column="significance" label="I/σ" title="Residual height over the counting σ at the apex" sort={peakSort} onSort={setPeakSort} style={th} />}
+                    <PeakSortHeader column="delta" label="Δd→k (mÅ)" title="Distance to the nearest satellite G ± k of the current k (≤ 20 mÅ = explained)" sort={peakSort} onSort={setPeakSort} style={th} />
+                    <PeakSortHeader column="near" label="near" title="Nuclear reflection within 1% in d — likely profile misfit, not a magnetic peak" sort={peakSort} onSort={setPeakSort} style={th} />
                     <th style={{ ...th, width: 20 }}></th>
                   </tr>
                 </thead>
                 <tbody>
                   {shownPeakRows.map((row) => {
-                    const delta = kDeltas[row.idx - 1];
+                    const delta = row.delta;
                     const explained = delta !== undefined && Number.isFinite(delta) && delta <= 0.02;
                     const picked = patternPick?.hkl === `#${row.idx}` && patternPick.phaseId === "residual";
                     return (
                       <tr
                         key={row.key}
                         onClick={() => spotlightPeak(row.idx)}
-                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); spotlightPeak(row.idx); } }}
+                        // Enter or Space on the row itself; on its check box or × they are that control's.
+                        onKeyDown={(e) => {
+                          if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); spotlightPeak(row.idx); }
+                        }}
                         tabIndex={0}
+                        aria-current={picked ? "true" : undefined}
                         style={{
                           borderTop: `1px solid ${theme.border}`,
                           cursor: "pointer",
                           opacity: row.included ? 1 : 0.55,
                           background: picked ? theme.primaryTintBg : undefined,
                         }}
-                        title="Show this peak in the pattern"
+                        title={picked ? "Highlighted in the pattern (click to clear)" : "Highlight this peak in the pattern"}
                       >
-                        <td style={td} onClick={(e) => e.stopPropagation()}>
+                        <td style={{ ...td, ...(picked ? { boxShadow: `inset 3px 0 0 ${theme.primary}`, padding: "4px 10px 4px 7px" } : {}) }} onClick={(e) => e.stopPropagation()}>
                           {/* The label is the hit area (44px tall on a touch screen, workbench.css). */}
                           <label style={{ display: "flex", alignItems: "center", cursor: "pointer" }}>
                             <input
@@ -937,15 +949,33 @@ export function KSearchPanel({
                   })}
                 </tbody>
               </table>
-              {hiddenPeaks > 0 && (
-                <button
-                  style={moreRowsBtn}
-                  onClick={() => setAllPeaksShown((v) => !v)}
-                  title={allPeaksShown ? "Show the strongest peaks only (and every peak in the k-search)" : "Show every detected peak"}
-                >
-                  {allPeaksShown ? "Show fewer peaks" : `Show all ${peakRows.length} peaks (${hiddenPeaks} more)`}
-                </button>
-              )}
+              <div style={{ display: "flex", alignItems: "center", gap: 14, rowGap: 0, flexWrap: "wrap" }}>
+                {hiddenPeaks > 0 && (
+                  <button
+                    style={moreRowsBtn}
+                    onClick={() => setAllPeaksShown((v) => !v)}
+                    title={allPeaksShown
+                      ? "Show the strongest peaks only (and every peak in the k-search)"
+                      : "Show every detected peak. Collapsed, the table shows the strongest peaks and every peak in the k-search, in the order set by the column headers."}
+                  >
+                    {allPeaksShown ? "Show fewer peaks" : `Show all ${peakRows.length} peaks (${hiddenPeaks} more)`}
+                  </button>
+                )}
+                {!isDefaultPeakSort(peakSort) && (
+                  <span style={{ ...moreRowsBtn, color: theme.secondary, cursor: "default", display: "inline-flex", alignItems: "center", gap: 8 }}>
+                    sorted by {describePeakSort(peakSort)}
+                    <button
+                      style={{ ...moreRowsBtn, padding: 0 }}
+                      onClick={() => setPeakSort(DEFAULT_PEAK_SORT)}
+                      title="Back to the default order: # ascending, d from large to small"
+                    >
+                      default order
+                    </button>
+                  </span>
+                )}
+                {/* The sorted column is in the header's aria-sort; this says it when a press changes it. */}
+                <span className="wb-sr-only" role="status" aria-live="polite">Peaks sorted by {describePeakSort(peakSort)}</span>
+              </div>
               {allOnNuclear && !allowNearNuclear && (
                 <div style={kZeroNote}>
                   <b>Every residual peak sits on a nuclear reflection.</b> That is what a <b>k = 0</b> ordering

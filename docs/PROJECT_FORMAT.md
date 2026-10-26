@@ -5,8 +5,8 @@ the crystallographic phases, the observed data, every refinement parameter with
 its value and fixed/free state, the technique-specific model settings, and the
 last result, so a session can be saved, shared, and reopened where it was left.
 
-- **Save:** header ▸ *Project ▾* ▸ *Save project* — downloads `<title>.materia.json`.
-- **Open:** *Project ▾* ▸ *Open project…*, or the *open a saved project* link on
+- **Save:** the header's *Save* button — downloads `<title>.materia.json`.
+- **Open:** the header's *Load* button, or the *open a saved project* link on
   the landing page. A project file chosen through a *Load data…* button also
   opens as a project, because the data loader recognizes it — though that
   button's file filter may hide `.json` files.

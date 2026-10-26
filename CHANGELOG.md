@@ -9,6 +9,13 @@ release fixes bugs.
 
 ### Added
 
+- **README: what each result is checked against.** The Impact table now names
+  the area, the case, the reference (SHELXL, GSAS-II, FindSpinGroup, FullProf,
+  PDFfit2, diffpy.mpdf) and what agreed, each row marked Supported,
+  Approximate or Not yet; the Copilot's own study is a Not yet row. The
+  README's tool and scenario counts, which said nothing about correctness,
+  are gone, and so is the test that pinned them.
+
 - **The subgroup engine, Phase 1: irreps computed at the decentring
   k-points, and the subgroups that keep the conventional cell** (PDF
   Subgroups page; [ADRs 0001–0005](docs/adr/)).
@@ -598,6 +605,19 @@ release fixes bugs.
   is settled. `weightsLast` now counts the twin and the hand among the model's
   changes, and reads the last weighting scheme set, not the first.
 
+- **The residual-peak table sorts.** On the Magnetic page's step 2, a click on
+  a column header (#, d, I/σ, Δd→k, near, or use) orders the table by it, and
+  a second click reverses it. The header carries `aria-sort`, a direction
+  glyph and a button the keyboard presses (44 px on a touch screen); a note
+  beside the table names an order that is not the default and one click
+  returns to it. The table opens in the order it always had, # ascending (d
+  from large to small, as the ticks on the pattern are numbered). Ties, and
+  rows with no value, keep # order whichever way a column runs. Sorting only
+  reorders: a collapsed table still shows the peaks the k-search reads, those
+  added by hand, the highlighted one, and then the strongest, in whatever
+  order is set, so sorting by d never swaps a real peak for noise. The order
+  lasts for the session, until a new structure is loaded.
+
 ### Changed
 
 - **The B-at-0 notice, the physical findings and the report's limitations
@@ -622,6 +642,18 @@ release fixes bugs.
   test holds them), as are the Agent's tools and the report's frozen
   Markdown. A saved project keeps each fix's facts beside its text. Older
   project files still open and read in one line.
+
+- **Save and Load are header buttons of their own, not folded into "Project ▾".**
+  The menu held only those two, so it is gone: Save and Load sit in the header
+  beside History, Demos and Export, in the same button style, each with a
+  tooltip naming the `.materia.json` file. Save appears once something is
+  loaded (as it did), Load is there from the start page. What they do is
+  unchanged: the same project file is written and read. They stay words, not
+  icons, at every width, so the header keeps the row counts and heights it had
+  on a 1440 and a 1920 desktop, the iPad Pro 11" and 13" and the iPhone 18 Pro
+  and Pro Max, upright and sideways, and the buttons are 44 px tall on a
+  touch screen. Between 1281 and 1499 px they take slightly less padding so
+  the current-step label still shows at 1440 px.
 
 - **The local AWO₄ magnetic demo refines the moments alone, the nuclear model
   held.** Its solve (`awo4MagneticSolve.test.ts`, `AWO4_SOLVE=1`) no longer
@@ -900,6 +932,15 @@ release fixes bugs.
   on 2b's refined model 0.0437 0.452. It is labelled the weights SHELXL's
   criterion suggests, not SHELXL's own, and its bins are given as the
   analysis of variance gives them.
+
+- **A click on a residual peak's row highlights it and no longer zooms.** On
+  the Magnetic page the peak is marked on the pattern (a translucent band, the
+  arrow, the guide line and a bold tick, at its place in TOF, d or Q), the row
+  is highlighted, and the view stays where it was. A peak out of view moves
+  the window just far enough to show it, a tenth of the window inside the edge
+  it crossed, with the zoom width unchanged. A second click on the row clears
+  the highlight; a click on another row moves it. Space now works on a row as
+  Enter does, and a key pressed on a row's check box or × stays that control's.
 
 ### Fixed
 
