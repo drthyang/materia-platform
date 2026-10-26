@@ -41,13 +41,18 @@
  */
 
 import type { SymmetryOperation } from "@/core/crystal/types";
-import type { Vec3 } from "@/core/math/types";
+import type { Mat3, Vec3 } from "@/core/math/types";
 import { composeOperations } from "@/core/crystal/symmetry";
+import { inverse, mulMat, mulVec } from "@/core/math/mat3";
 import {
+  cosetFrame,
   distinctCosets,
   generateMagneticCandidates,
+  latticePhase,
   littleGroup,
   rotationKey,
+  twistingK,
+  type CosetFrame,
   type MagneticCandidate,
 } from "./magneticGroups";
 import { identifyMagneticGroupAnySetting, type TransformedIdentification, formatMagneticSymbol } from "./bnsOg";
@@ -176,14 +181,55 @@ function pairSignature(theta: ReadonlyMap<number, 1 | -1>): string {
     .join(" ");
 }
 
-/** Signature of the conjugate g·(H,θ)·g⁻¹ — h ↦ ghg⁻¹ keeps its θ sign. */
+/** How the representative g_h of one coset conjugates under another's, g_g·g_h·g_g⁻¹ = {I|s}·g_m. */
+interface Conjugation {
+  readonly m: number;
+  /** χ(s) = e^{2πi k·s}: the sign the conjugate's θ on coset m picks up (null: complex). */
+  readonly sign: 1 | -1 | null;
+}
+
+/**
+ * The conjugation table of the coset representatives, with the k-phase of the
+ * lattice vector each conjugate differs from its coset's representative by.
+ * Conjugation by a lattice translation leaves every (H, θ) unchanged
+ * (χ(t − R t) = 1 for R in G_k), so the representatives give every conjugate.
+ */
+function conjugationTable(frame: CosetFrame, index: ReadonlyMap<string, number>, k: Vec3): Conjugation[][] {
+  const zeroK = k.every((c) => Math.abs(c) < 1e-9);
+  const round = (M: Mat3): Mat3 => M.map((row) => row.map((v) => Math.round(v))) as unknown as Mat3;
+  return frame.reps.map((g) => {
+    const Rg = g.rotation;
+    const Rgi = round(inverse(Rg));
+    return frame.reps.map((h) => {
+      const R = round(mulMat(mulMat(Rg, h.rotation), Rgi));
+      const m = index.get(R.map((row) => row.join(",")).join(";")) ?? 0;
+      if (zeroK) return { m, sign: 1 };
+      const a = mulVec(Rg, h.translation);
+      const b = mulVec(R, g.translation);
+      const tm = frame.reps[m]!.translation;
+      const s: Vec3 = [a[0] + g.translation[0]! - b[0] - tm[0]!, a[1] + g.translation[1]! - b[1] - tm[1]!, a[2] + g.translation[2]! - b[2] - tm[2]!];
+      return { m, sign: latticePhase(k, s) };
+    });
+  });
+}
+
+/**
+ * Signature of the conjugate g·(H,θ)·g⁻¹: h ↦ ghg⁻¹ keeps its own θ, and the
+ * conjugate's θ on the coset of ghg⁻¹ is read at that coset's representative,
+ * so it carries the k-phase of the lattice vector between them. Null when a
+ * phase is complex (no real conjugate on these representatives).
+ */
 function conjugateSignature(
   theta: ReadonlyMap<number, 1 | -1>,
   g: number,
-  ctx: CosetContext,
-): string {
+  table: readonly (readonly Conjugation[])[],
+): string | null {
   const conj = new Map<number, 1 | -1>();
-  for (const [h, t] of theta) conj.set(ctx.comp[ctx.comp[g]![h]!]![ctx.inv[g]!]!, t);
+  for (const [h, t] of theta) {
+    const { m, sign } = table[g]![h]!;
+    if (sign === null) return null;
+    conj.set(m, (t * sign) as 1 | -1);
+  }
   return pairSignature(conj);
 }
 
@@ -210,6 +256,9 @@ export function magneticSubgroupLattice(
 
   const cosetIndex = new Map<string, number>();
   ctx.cosets.forEach((op, i) => cosetIndex.set(rotationKey(op), i));
+  // Conjugation with the k-phase (a single-arm k's; a two-arm k keeps θ plain):
+  // the representatives θ is read at, and how each conjugates.
+  const conjugations = conjugationTable(cosetFrame(lg, cosetIndex, n), cosetIndex, twistingK(lg, k));
 
   interface Raw {
     cand: MagneticCandidate;
@@ -228,14 +277,14 @@ export function magneticSubgroupLattice(
     // Full operation list of H: every little-group op whose rotation coset is
     // in S (centring translations preserved, as in the maximal-only generator).
     const subOps = lg.filter((op) => inS.has(cosetIndex.get(rotationKey(op)) ?? -1));
-    for (const cand of generateMagneticCandidates(subOps)) {
+    for (const cand of generateMagneticCandidates(subOps, k)) {
       const theta = thetaByCoset(cand, cosetIndex);
       const self = pairSignature(theta);
       // Canonical class signature: lexicographic minimum over all conjugates.
       let canonical = self;
       for (let g = 0; g < n; g++) {
-        const sig = conjugateSignature(theta, g, ctx);
-        if (sig < canonical) canonical = sig;
+        const sig = conjugateSignature(theta, g, conjugations);
+        if (sig !== null && sig < canonical) canonical = sig;
       }
       raws.push({
         cand: { ...cand, id: `mag-sub-${S.join("_")}-${cand.id}` },

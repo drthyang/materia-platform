@@ -6,6 +6,7 @@ import { parseSymmetryOperation, applyOperation } from "@/core/crystal/symmetry"
 import { determinant } from "@/core/math/mat3";
 import { buildMagneticModel } from "@/core/magnetic/momentModel";
 import { generateMagneticCandidatesForK } from "@/core/magnetic/magneticGroups";
+import { magneticSubgroupLattice } from "@/core/magnetic/subgroupLattice";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { magneticStructureFactor, satelliteArm, MAGNETIC_PREFACTOR } from "@/core/magnetic/structureFactor";
 import { expandSpinField } from "@/core/crystal/cellExpansion";
@@ -172,7 +173,12 @@ describe("brute-force supercell oracle — k-formalism ≡ real-space moment fie
 
   it("self-conjugate k = (0, ½, 0): one arm, real coefficients, no sine parameters", () => {
     const k: Vec3 = [0, 0.5, 0];
-    const cands = generateMagneticCandidatesForK(p21.spaceGroup.operations, k);
+    // The 2₁ squares to b, whose k-phase is −1: θ(2₁)² = −1 has no solution, so
+    // no magnetic group contains the screw at this k (THY-37) …
+    expect(generateMagneticCandidatesForK(p21.spaceGroup.operations, k)).toHaveLength(0);
+    // … and the groups of the lattice are those of its identity subgroup.
+    const cands = magneticSubgroupLattice(p21.spaceGroup.operations, k).map((c) => c.candidate);
+    expect(cands.length).toBeGreaterThan(0);
     for (const cand of cands) {
       const build = buildMagneticModel(p21, k, ["Fe1"], cand.operations, { moment: 2 });
       expect(build.fourier).toBe(false);

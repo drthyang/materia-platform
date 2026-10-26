@@ -270,7 +270,7 @@ describe("a pattern with an excluded plateau, fitted with a second phase or a ma
     const { port, session } = sessionPort(withPlateau(mn3gaMagneticSession()));
     const h = (): NonNullable<ReturnType<NonNullable<typeof port.magnetic>>> => port.magnetic!()!;
     h().setK([0, 0, 0.5]);
-    h().choose("G2");
+    h().choose(MAGNETIC_TRUTH.id);
     const moments = await h().refineMoments();
     // Handed over with the moments free, so the co-refinement moves them too.
     h().continueToRefinement(false);

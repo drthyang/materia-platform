@@ -4,7 +4,7 @@ import { loadedSession } from "@/app/powderSession";
 import { powderMomentFit, powderPageCurves, refinedPhasesOf, residualPeaksOf, weightedR } from "@/app/powderPage";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { momentFit as singleCrystalMomentFit, singleCrystalPage, type SingleCrystalCompute } from "@/app/singleCrystalPage";
-import { MagneticStep, bestRanked, candidatesOf, momentDims, buildFor, rankCandidates, stepView, type MagneticFit, type RankEntry, type StepInputs } from "@/app/magneticStep";
+import { MagneticStep, bestRanked, candidatesOf, firstOpen, momentDims, buildFor, rankCandidates, stepView, type MagneticFit, type RankEntry, type StepInputs } from "@/app/magneticStep";
 import type { LatticeCandidate } from "@/core/magnetic/subgroupLattice";
 import { sessionPort } from "@/testSupport/agentHeadless";
 import { corundumPage } from "@/testSupport/scPages";
@@ -174,13 +174,17 @@ describe("the magnetic step on the Agent's page, as on the app's", () => {
     const { port } = sessionPort(mn3gaMagneticSession());
     const h = (): NonNullable<ReturnType<NonNullable<typeof port.magnetic>>> => port.magnetic!()!;
     h().setK([0, 0, 0.5]);
-    const fourth = h().state().candidates.find((c) => c.index === 4 && c.momentDims > 0)!;
-    h().choose(fourth.id);
+    // At the Z point of P6₃/mmc the 6₃ squares to an anti-translation: no group
+    // closes on the whole little group, and the first section open is index 4.
+    const lowest = Math.min(...h().state().candidates.map((c) => c.index));
+    expect(lowest).toBe(4);
+    const deeper = h().state().candidates.find((c) => c.index === 8 && c.momentDims > 0)!;
+    h().choose(deeper.id);
     await h().rank("open", 0);
     const ranked = h().state().candidates.filter((c) => c.fit);
-    expect(ranked.some((c) => c.index === 2)).toBe(true);
     expect(ranked.some((c) => c.index === 4)).toBe(true);
-    expect(ranked.every((c) => c.index === 2 || c.index === 4)).toBe(true);
+    expect(ranked.some((c) => c.index === 8)).toBe(true);
+    expect(ranked.every((c) => c.index === 4 || c.index === 8)).toBe(true);
   }, 120000);
 });
 
@@ -235,7 +239,7 @@ describe("one restart scheme", () => {
     };
     const ties = { sameSite: true, magnitudes: false as const, flippedUnits: [] };
     const results = await rankCandidates({
-      reps, dims, scope: "open", open: new Set([2]), restarts: 3, fit, structure: s.structure,
+      reps, dims, scope: "open", open: firstOpen(reps), restarts: 3, fit, structure: s.structure,
       build: (ops) => buildFor(s.structure, k, ["Mn1"], ops, ties),
     });
     const ranked = Object.values(results).filter((e) => e.status === "ok").length;
@@ -245,7 +249,7 @@ describe("one restart scheme", () => {
     // A fit that keeps its own starts (the mPDF's) is asked for its default in each.
     calls.length = 0;
     await rankCandidates({
-      reps, dims, scope: "open", open: new Set([2]), restarts: 3, fit: { ...fit, nestedStarts: true }, structure: s.structure,
+      reps, dims, scope: "open", open: firstOpen(reps), restarts: 3, fit: { ...fit, nestedStarts: true }, structure: s.structure,
       build: (ops) => buildFor(s.structure, k, ["Mn1"], ops, ties),
     });
     expect(calls).toHaveLength(ranked * 4);

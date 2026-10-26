@@ -32,8 +32,19 @@ A candidate is a subgroup of the grey group that lacks 1′ itself. Because the
 enumeration keeps the parent lattice, each candidate is a pair (H, θ):
 
 - H is a subgroup of G_k with every lattice and centring translation.
-- θ: H → {±1} is a homomorphism that marks time reversal. The trivial θ gives
-  type I, and any other θ gives type III.
+- θ marks time reversal on each rotation coset of H, read at the coset's
+  representative g_i = {R_i|τ_i}. At k = 0 it is a homomorphism H → {±1}: the
+  trivial θ gives type I, and any other θ gives type III.
+- At a single-arm k ≠ 0, a lattice translation t carries the phase
+  χ(t) = e^{2πi k·t} = ±1, and the pair is a group exactly when
+  θ_i·θ_j = θ_ij·χ(t_ij) for every product g_i∘g_j = {I|t_ij}·g_ij. Where a screw
+  or glide squares to a translation with χ = −1 (the c-glide of P2/c at
+  k = (0,0,½), the 2₁ of Pnma at X, the 4₂ of P4₂/mnm and the 6₃ of P6₃/mmc at
+  Z), no group contains that operation, and some groups are reached only by a
+  θ that is not a homomorphism. The condition is solved over GF(2) as an
+  inhomogeneous system: one particular solution plus the null space, or none.
+  A two-arm k has complex phases; there θ stays a homomorphism, the real
+  decoration of G_k the Fourier moment model uses, not a magnetic space group.
 
 **Centred parents.** A lattice translation t multiplies a site's Fourier
 coefficient by e^{−2πi k·t}, and a centring translation is a lattice
@@ -50,16 +61,27 @@ a primitive cell and a two-arm k in a C-centred one
 ([`propagation.ts`](../src/core/magnetic/propagation.ts)).
 
 Its index in the grey group is 2·|Ḡ_k| / |H̄|, where H̄ is the co-group of H. The
-largest candidates have index 2.
+largest candidates have index 2 where a group closes on the whole of G_k, and
+4 at the Z points above.
 
 Like k-SUBGROUPSMAG (Perez-Mato et al. 2015), the workbench lists every pair, not
 only those of index 2 ([`subgroupLattice.ts`](../src/core/magnetic/subgroupLattice.ts)).
 Subgroups come from breadth-first closure of generator sets, which is exhaustive,
 and each θ from a linear system over GF(2). Conjugate candidates are one ordering
 in different domains, so each conjugacy class is listed once, with its domain
-count.
+count. Conjugation by g keeps each operation's θ, and the conjugate's θ on a
+coset is read at that coset's representative, so it carries the k-phase of the
+lattice vector between them.
 
 **Supported**
+- Checked against an independent oracle: every magnetic group compatible with k
+  built from scratch in the magnetic cell and named by spglib, for 15 single-arm
+  cases (P2/c, Pnma, P4₂/mnm, P4/mmm, Immm, P6/mmm, P6₃/mmc, Fm-3m and P2₁/m, at
+  k = 0 and at zone-boundary k). Every candidate is a group, every conjugacy
+  class is one of the oracle's with its domain count, none is missing, and the
+  allowed moments on every split orbit agree
+  ([`magneticGroupsOracle.test.ts`](../src/core/magnetic/magneticGroupsOracle.test.ts);
+  the oracle is [`oracle.py`](../scripts/magnetic-groups/oracle.py)).
 - Verified counts: 2/m gives 5 subgroups and 11 candidates, and mmm gives 16 and
   51. In 4mm, each pair of conjugate mirror subgroups forms one class with 2
   domains ([`subgroupLattice.test.ts`](../src/core/magnetic/subgroupLattice.test.ts)).

@@ -127,6 +127,15 @@ export function candidatesOf(structure: StructureModel, k: Vec3): LatticeCandida
   return ops.length === 0 ? [] : latticeRepresentatives(magneticSubgroupLattice(ops, k));
 }
 
+/**
+ * The index section open on a new k: the lowest index its groups sit at —
+ * 2 at k = 0, higher where no group on the whole little group closes (the
+ * Z point of P4₂/mnm or P6₃/mmc: their lowest index is 4).
+ */
+export function firstOpen(reps: readonly LatticeCandidate[]): Set<number> {
+  return new Set([reps.length > 0 ? Math.min(...reps.map((r) => r.index)) : 2]);
+}
+
 /** How many moment components each group allows on the chosen ions, summed over them. */
 export function momentDims(structure: StructureModel, reps: readonly LatticeCandidate[], ions: Iterable<string>, k: Vec3): number[] {
   const sites = [...ions].map((l) => structure.sites.find((s) => s.label === l)).filter((s): s is NonNullable<typeof s> => s !== undefined);
@@ -665,7 +674,8 @@ export class MagneticStep {
 
   /** Confirm a k: the group pick goes, with the irreps chosen and the sections opened. */
   setK(k: Vec3): void {
-    this.commitModel({ ...this.s, k: [k[0], k[1], k[2]], chosen: null, irreps: new Set(), open: new Set([2]) });
+    const next: StepState = { ...this.s, k: [k[0], k[1], k[2]], chosen: null, irreps: new Set() };
+    this.commitModel({ ...next, open: firstOpen(this.view(next).reps) });
   }
 
   setIons(labels: Iterable<string>): void {
@@ -763,13 +773,14 @@ export class MagneticStep {
     const carrying = new Set(model.moments.filter((m) => m.components.some((c) => c !== 0) || (m.sinComponents?.some((c) => c !== 0) ?? false)).map((m) => m.siteLabel));
     const known = new Set(magneticIonCandidates(at.structure).map((i) => i.siteLabel));
     const pick = [...carrying].filter((l) => known.has(l));
-    let next: StepState = { ...this.s, ...(pick.length > 0 ? { ions: new Set(pick) } : {}), framework: "msg", k: [k[0]!, k[1]!, k[2]!], chosen: null, irreps: new Set(), open: new Set([2]) };
+    const kNext: Vec3 = [k[0]!, k[1]!, k[2]!];
+    const reps = candidatesOf(at.structure, kNext);
+    let next: StepState = { ...this.s, ...(pick.length > 0 ? { ions: new Set(pick) } : {}), framework: "msg", k: kNext, chosen: null, irreps: new Set(), open: firstOpen(reps) };
     if (!model.operations) {
       this.commitModel(next);
       return;
     }
     const sig = magneticOperationSignature(model.operations);
-    const reps = candidatesOf(at.structure, next.k);
     const idx = reps.findIndex((r) => magneticOperationSignature(r.candidate.operations) === sig);
     if (idx < 0) {
       this.commitModel(next);

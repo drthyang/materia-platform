@@ -921,6 +921,24 @@ release fixes bugs.
 
 ### Fixed
 
+- **Magnetic space groups at zone-boundary k are groups, and each class is
+  listed once** (THY-37). At a k ≠ 0 the k-phase of a lattice translation
+  twists the time-reversal condition, θ_i·θ_j = θ_ij·e^{2πi k·t_ij}; the
+  candidates were built as plain homomorphisms of the point group. Where a
+  screw or glide squares to a translation with phase −1 (P2/c at (0,0,½),
+  Pnma at X, P4₂/mnm and P6₃/mmc at Z), 147 of 305 candidates were not groups,
+  among them every index-2 one, and P4₂/mnm at Z missed four classes, two of
+  them maximal. The condition is now solved as an inhomogeneous system over
+  GF(2), and conjugation carries the k-phase too, which removes 38 duplicate
+  classes and corrects their domain counts. At these k the first index section
+  open on the magnetic page is now the lowest index present (4). Checked
+  against an independent construction named by spglib on 15 single-arm cases
+  (`magneticGroupsOracle.test.ts`): every candidate a group, every class the
+  oracle's, none missing, the allowed moments unchanged. k = 0 is unchanged.
+  The synthetic Mn₃Ga eval page's truth, simulated from the old list's G2 (not
+  a group at k = (0,0,½)), is the same arrangement bit for bit and is now G1,
+  the group it actually has.
+
 - **Each technique's report names its own cross-check programs.** The
   report's footer told every technique that the Export menu writes GSAS-II
   and FullProf bundles. A PDF is reproduced in PDFgui / diffpy-CMI (PDFfit2),
