@@ -906,7 +906,7 @@ export function KSearchPanel({
                         }}
                         title={picked ? "Highlighted in the pattern (click to clear)" : "Highlight this peak in the pattern"}
                       >
-                        <td style={{ ...td, ...(picked ? { boxShadow: `inset 3px 0 0 ${theme.primary}`, paddingLeft: 7 } : {}) }} onClick={(e) => e.stopPropagation()}>
+                        <td style={{ ...td, ...(picked ? { boxShadow: `inset 3px 0 0 ${theme.primary}`, padding: "4px 10px 4px 7px" } : {}) }} onClick={(e) => e.stopPropagation()}>
                           {/* The label is the hit area (44px tall on a touch screen, workbench.css). */}
                           <label style={{ display: "flex", alignItems: "center", cursor: "pointer" }}>
                             <input
