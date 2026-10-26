@@ -36,7 +36,7 @@ neutron TOF Rietveld fit and a GaTa₄Se₈ X-ray PDF fit.
   neutron (CW and TOF), nuclear and magnetic, reciprocal and real space, in a
   browser, beside GSAS-II, Jana2020 and FullProf ([comparison](docs/COMPARISON.md)).
 - **Transparent by design.** A validation view, not wR alone, and results
-  checked against established tools ([validation](docs/VALIDATION.md)).
+  checked against established tools ([what is checked against what](#what-is-checked-against-what)).
 
 ## Features
 
@@ -48,8 +48,36 @@ neutron TOF Rietveld fit and a GaTa₄Se₈ X-ray PDF fit.
 | **PDF and mPDF** | Neutron and X-ray G(r), multi-phase and multi-dataset, boxcar scans across r, symmetry-mode distortions, magnetic PDF; validated against PDFfit2 and diffpy.mpdf | [PDF roadmap](docs/PDF_MPDF_ROADMAP.md) |
 | **Uncertainty** | Levenberg–Marquardt esds plus Bayesian posterior sampling (ensemble MCMC and NUTS) with convergence diagnostics | [Refinement engine](docs/REFINEMENT_ENGINE.md) |
 | **In-app Agent** | A model of your choice beside the analysis — local on Ollama or LM Studio, or a cloud model — runs it by your method and discusses it; every change approved or undoable | [The Agent](#the-agent) |
-| **Agent tools** | An MCP server over the same core (41 tools): parse → build → refine → assess → suggest → interpret | [Agent tools](docs/AGENT_TOOLS.md) |
+| **Agent tools** | An MCP server over the same core: parse → build → refine → assess → suggest → interpret | [Agent tools](docs/AGENT_TOOLS.md) |
 | **Files** | Reads CIF/mCIF, hkl, `.int`, GSAS/FXYE/ILL/plain powder data, `.gr`/`.sq`/`.fq`; writes CIF/mCIF with esds, an HTML report, and a reopenable project file | [Project format](docs/PROJECT_FORMAT.md) |
+
+## What is checked against what
+
+A number is trusted only as far as it was checked against an independent
+source. Each row names that source, the case and what agreed. **Supported**
+means implemented and checked; **Approximate** means it works with a
+simplification you should know; **Not yet** means not shown. The tolerances
+and the tests are in [docs/VALIDATION.md](docs/VALIDATION.md); every gap is in
+[docs/LIMITATIONS.md](docs/LIMITATIONS.md).
+
+| Area | Checked against | Case | Result | Status |
+| --- | --- | --- | --- | --- |
+| Cell, multiplicities, scattering lengths | GSAS-II | Mn₃Ga + MnO, POWGEN neutron TOF | cell volumes to 0.01 Å³, reciprocal metric to 10⁻⁶, Wyckoff multiplicities exact | Supported |
+| Powder Rietveld fit | GSAS-II | GaNb₄Se₈, 28-ID synchrotron X-ray | our staged fit reaches wR 5.7 % on the data GSAS-II fits to 7.34 % | Supported |
+| Magnetic structure factor | GSAS-II | Mn₃Ga 350 K, POWGEN | \|F_M\|² of all 82 reflections within ±5 % at GSAS-II's moments | Supported |
+| Magnetic moments and group | GSAS-II `.lst` and mCIF | Mn₃Ga 30 K, monoclinic cell | \|M\| of three Mn sites to 0.01 μB; P2₁′/m′ | Supported |
+| Magnetic group labels | FindSpinGroup | MnO, every k = 0 subgroup of Fm-3m | the same BNS labels (types I and III; II and IV not yet) | Supported |
+| Incommensurate k | FullProf | DyMn₆Ge₆ 11 K conical spiral, PSI DMC | γ = 0.16478(67) against 0.16509(43); the cone's k = 0 part is not modelled, so wR 19.9 % against 11.3 % | Approximate |
+| Magnetic supercell reflections | FullProf files | Eu₃In₂Te₄, HB-3A single crystal | identical on every h, k, l, I, σ | Supported |
+| Absorption correction | WinGX | Eu₃In₂Te₄ rod crystal, λ = 1.0 Å | transmission r ≈ 0.99 with a fitted μ; in the core only, no page control | Approximate |
+| PDF | PDFfit2 1.6.0 | Ni and MnO, X-ray G(r) | G_calc correlation 0.9998; refined cell within 2 mÅ | Supported |
+| Magnetic PDF | diffpy.mpdf | MnO (MAGNDATA 1.31) and its measured tutorial data | f(r) to 10⁻¹¹ of its peak; ordered scale 1.6716 against 1.6685 | Supported |
+| Posterior sampling | the exact posterior; LM esds | linear-Gaussian problems; the PDFfit2 Ni fit | means within 0.12σ; posterior std / LM esd 0.95–1.01 | Approximate: correlated residuals not modelled |
+| GPU structure factors | the f64 CPU path | Mn₃Ga, nuclear and magnetic | worst relative deviation 5 × 10⁻⁷; the same fit minimum | Approximate: f32 |
+| Does the Agent help? | the app alone, scored by fixed rules | 8 held-out simulated cases with a known answer | the app alone is right on 3 of 8; the Agent's runs are not made yet | Not yet |
+
+Some of these checks read real data that stay out of git, so CI skips them;
+VALIDATION.md marks which.
 
 ## The Agent
 
@@ -79,8 +107,8 @@ run (Claude Opus 5.5), replayed, and labelled so.*
   stage by stage, why a fit is poor, which phase an extra peak is, bond
   valences, the magnetic structure, boxcar scans of a PDF, the single-crystal
   data, twins and the absolute structure; then a report with esds. It
-  answers questions about the fit on screen. 60 tools across the powder page, its magnetic step, the
-  single-crystal page and the PDF page.
+  answers questions about the fit on screen, on the powder page, its magnetic
+  step, the single-crystal page and the PDF page.
 - **Your method, as skills read on demand** ([`.claude/skills/`](.claude/skills)),
   so a local model with a 32k context can follow it. **Firm rules in code**: no
   change before the method is read, no refinement of a set correlated at
@@ -90,13 +118,14 @@ run (Claude Opus 5.5), replayed, and labelled so.*
   the Agent's own account labelled, any number in it the engine did not compute
   underlined. A Bayesian check (`sample_posterior`) when a number is not
   convincing.
-- **Tested on what it does.** 37 eval scenarios, each written against a failure
-  a user or a researcher round found, replay the real chat loop in CI with a
-  scripted model, as the Agent should behave and as it failed (50 of the 57
-  checks are shown to catch a failure this way); real models run on demand.
-  Ten researcher rounds on real data drove it; see
-  [docs/AGENT_EVALS.md](docs/AGENT_EVALS.md) and
-  [docs/VALIDATION.md](docs/VALIDATION.md#researcher-rounds).
+- **Tested on its past failures.** Each eval scenario is a failure a user or a
+  researcher round found. CI replays the real chat loop with a scripted model,
+  once as the Agent should behave and once as it failed, so a check that
+  cannot catch its failure shows. Real models run on demand. Ten researcher
+  rounds on real data drove it; see [docs/AGENT_EVALS.md](docs/AGENT_EVALS.md)
+  and [docs/VALIDATION.md](docs/VALIDATION.md#researcher-rounds). Passing the
+  evals does not show that the Agent beats the app alone; that question has
+  its own protocol, [not yet run](#what-is-checked-against-what).
 
 More: [docs/AGENT_TOOLS.md](docs/AGENT_TOOLS.md) (every tool and rule),
 [docs/AGENT_EXAMPLES.md](docs/AGENT_EXAMPLES.md) (worked MCP sessions).

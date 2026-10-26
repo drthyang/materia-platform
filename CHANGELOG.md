@@ -9,6 +9,12 @@ release fixes bugs.
 
 ### Added
 
+- **README: what is checked against what.** A table of each area's
+  independent reference (GSAS-II, FullProf, FindSpinGroup, PDFfit2,
+  diffpy.mpdf, WinGX), the case and what agreed, each marked Supported,
+  Approximate or Not yet. The tool counts and the eval-check count, which
+  drifted and said nothing about correctness, are gone from the README.
+
 - **The Agent on any server that speaks OpenAI's API**: OpenAI, Gemini's
   OpenAI-compatible endpoint, vLLM, a llama.cpp server. A base URL, a key if
   the server needs one (kept as Anthropic's is), a model from the server's
