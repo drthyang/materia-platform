@@ -14,9 +14,9 @@ description: >-
 
 # Powder magnetic analysis (MATERIA)
 
-This is the magnetic step that `my-rietveld-workflow` hands off to. It is written from the
-app's own workflow and the magnetic knowledge base; the user has not yet been interviewed on
-it, so where it leaves a choice, say what you chose and why, and let them steer.
+The magnetic step `my-rietveld-workflow` hands off to, written from the app's workflow and
+the magnetic knowledge base; the user has not been interviewed on it yet, so where it leaves
+a choice, say what you chose and why, and let them steer.
 
 ## Before anything: the nuclear structure is refined
 
@@ -34,8 +34,7 @@ k = 0, where magnetic intensity sits on nuclear reflections. So:
    nuclear ones. The app's signal is `find_unexplained_peaks`' `k0Magnetic` (neutron data:
    the misfits sit on nuclear reflections at large d, the sample below its ordering
    temperature). The nuclear model alone then takes up the magnetic intensity: the ADPs and
-   the scale grow (a simulated k = 0 test: B 3–6× too large, the scale ×1.5, at a "good" GoF
-   of 2.1). Only then, follow the usual order up to, not including, the positions and ADPs
+   the scale grow (notes). Only then, follow the usual order up to, not including, the positions and ADPs
    (the scale, background and cell), then go to k: include the misfit peaks in the k-search
    (they sit on nuclear lines and are left out by default) or set k = 0. Stage 4 refines the
    positions, the profile and the B's with the moments, in the usual order.
@@ -48,9 +47,8 @@ k = 0, where magnetic intensity sits on nuclear reflections. So:
    Check the peak widths still fit the low-angle lines; say which window you used.
 4. Know what the residual is. `find_unexplained_peaks` separates peaks on no reflection
    (candidate magnetic satellites, or an impurity) from misfits on known reflections (which
-   refinement fixes; for k = 0 on neutron data they may also be magnetic: its `k0Magnetic`
-   flag, and the same hint in `assess_refinement`, say when a neutron pattern of magnetic
-   ions has its excess on nuclear lines at large d).
+   refinement fixes; for k = 0 on neutron data they may also be magnetic: the `k0Magnetic`
+   flag, also in `assess_refinement`, marks an excess on nuclear lines at large d).
 
 ## Stage 1 — the propagation vector k
 
@@ -77,8 +75,7 @@ a single irreducible representation — a maximal group — so start there:
    explains each of them, not only the wR: neutrons see the moment component
    perpendicular to Q, so a moment along c puts no intensity on 0 0 l. A magnetic 0 0 l
    line the best maximal group leaves in the residual asks for an in-plane component,
-   which may only a lower group allow (Cr₂WO₆ at 4 K: the maximal P4₂'/m'nm', moments
-   along c, left 0 0 1 at 32σ; the in-plane groups of index 4 took wR from 18.9 to 12 %).
+   which may only a lower group allow (notes: Cr₂WO₆).
 2. Read the ranking honestly. The ★ marks the lowest wR (a tie within 0.01 % goes to the
    maximal group with the fewest moment parameters); it is no test that the others fit
    worse. A powder often cannot tell several groups apart (the direction ambiguity below):
@@ -106,15 +103,25 @@ a single irreducible representation — a maximal group — so start there:
 
 The user's rule: the moments refine against the nuclear model as a fixed reference. The
 scale, background, cell, instrument terms, positions, ADPs and occupancies stay at their
-nuclear values: freed, they trade with the moments, and the esds hide it.
+nuclear values (until Stage 5): freed, they trade with the moments, and the esds hide it.
 
 1. `continue_magnetic_refinement` adds the moment rows (and k's free components with
    `refineK`); then `set_free` `fix` every nuclear row it left free, so only the moments
    (and k) refine. `show_magnetic_model` instead holds the moments.
 2. `refine`, checking the free set is the moments alone; the Stage 3 checks;
    `assess_refinement`.
-3. A residual left on the nuclear lines is the nuclear model's: say so, leave it to the
-   user, and say which nuclear model the moments were measured against.
+3. A residual left on the nuclear lines is the nuclear model's (notes): say so, and which
+   nuclear model the moments were measured against.
+
+## Stage 5 — a last profile tweak
+
+The peak shape was fitted before the magnetic peaks were modelled. With the moments
+converged:
+
+1. `set_free` the scale, the background, the peak shape (TOF α, β, σ; CW U, V, W, X, Y) and
+   the zero, the moments and the atomic structure held; `refine` until wR stops moving.
+2. The moments once more with the scale and background (the scale trades with their
+   size); quote this fit, and the gain the tweak gave.
 
 ## What to report — and what not
 
