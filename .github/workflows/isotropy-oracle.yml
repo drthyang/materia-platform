@@ -6,12 +6,6 @@ name: ISOTROPY oracle
 
 on:
   workflow_dispatch:
-  # Temporary: one run on the Phase-1 branch (workflow_dispatch needs the file on main).
-  push:
-    branches: [claude/subgroup-engine-phase1]
-    paths:
-      - .github/workflows/isotropy-oracle.yml
-      - src/core/crystal/irreps/isotropyOracle.test.ts
 
 jobs:
   oracle:
