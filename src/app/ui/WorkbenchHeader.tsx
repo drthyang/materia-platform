@@ -1,6 +1,6 @@
 /**
  * Top header: brand mark (concentric diffraction rings), title + kicker, version
- * chip, the workflow stepper, and the action buttons (History, Save, Load, Demos,
+ * chip, the workflow stepper, and the action buttons (History, Save, Open, Close,
  * Export). Per the design handoff, scaled up as the app's one fixed landmark: a
  * taller bar, a larger mark, a clearer type ramp, and step pills with numbered
  * badges.
@@ -8,7 +8,6 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { color, fz, mono, radius, shadow, space } from "@/app/theme";
-import type { DemoId } from "@/app/demos";
 import type { HistoryBinding } from "@/app/historyBinding";
 import { HistoryIcon, HistoryPanel, StepArrow, StepText } from "@/app/ui/HistoryPanel";
 
@@ -57,16 +56,15 @@ interface Props {
    * crystal appears as a third chip only while active.
    */
   readonly technique?: "rietveld" | "pdf" | "sc" | null;
-  /** The bundled demos (one per workflow) for the Demos ▾ menu. */
-  readonly demos?: readonly { readonly id: DemoId; readonly label: string }[];
-  /** Which demo is loaded (adds "Exit demo" to the menu and lights the button). */
-  readonly activeDemo?: DemoId | null;
-  readonly onLoadDemo?: (id: DemoId) => void;
-  readonly onExitDemo?: () => void;
-  /** The Load button: open a saved project file — offered even on the landing, before any data. */
+  /** The Open button: open a saved project file — offered even on the landing, before any data. */
   readonly onOpenProject?: (file: File) => void;
   /** The Save button: save the current session as a project file (absent while nothing is loaded). */
   readonly onSaveProject?: () => void;
+  /**
+   * The Close button: close the project and return to the landing (absent while
+   * nothing is loaded). The shell decides whether to ask first (closeProject.ts).
+   */
+  readonly onCloseProject?: () => void;
   /**
    * The GPU-acceleration preference and its setter. The badge IS the control
    * (one home for "GPU" in the UI): lit = the WebGPU |F|² kernel is engaged
@@ -85,7 +83,7 @@ interface Props {
 /** File-picker filter for project files (any .json is accepted; the reader decides). */
 const PROJECT_ACCEPT = ".materia.json,.json,application/json";
 
-export function WorkbenchHeader({ steps, active, onStep, version, exports, technique = null, demos, activeDemo = null, onLoadDemo, onExitDemo, onOpenProject, onSaveProject, gpu, history }: Props): JSX.Element {
+export function WorkbenchHeader({ steps, active, onStep, version, exports, technique = null, onOpenProject, onSaveProject, onCloseProject, gpu, history }: Props): JSX.Element {
   return (
     <header className="wb-header" style={headerBar}>
       <div className="wb-header-brand" style={{ display: "flex", alignItems: "center", gap: 13, minWidth: 0 }}>
@@ -136,10 +134,8 @@ export function WorkbenchHeader({ steps, active, onStep, version, exports, techn
       <div className="wb-header-actions" style={{ position: "relative", marginLeft: "auto", display: "flex", gap: 9, flexWrap: "wrap" }}>
         {history && <HistoryMenu binding={history} />}
         {onSaveProject && <SaveButton onSave={onSaveProject} />}
-        {onOpenProject && <LoadButton onOpenProject={onOpenProject} />}
-        {demos && demos.length > 0 && onLoadDemo && (
-          <DemosMenu demos={demos} activeDemo={activeDemo} onLoadDemo={onLoadDemo} onExitDemo={onExitDemo} />
-        )}
+        {onOpenProject && <OpenButton onOpenProject={onOpenProject} />}
+        {onCloseProject && <CloseButton onClose={onCloseProject} />}
         {exports.length > 0 && <ExportMenu exports={exports} />}
       </div>
     </header>
@@ -477,51 +473,13 @@ function NavButton({ children, onClick, title, divider }: { children: React.Reac
   );
 }
 
-/** "Demos ▾": one bundled, converged example per technique. */
-function DemosMenu({ demos, activeDemo, onLoadDemo, onExitDemo }: {
-  demos: readonly { readonly id: DemoId; readonly label: string }[];
-  activeDemo: DemoId | null;
-  onLoadDemo: (id: DemoId) => void;
-  onExitDemo?: (() => void) | undefined;
-}): JSX.Element {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent): void => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [open]);
-  return (
-    <div ref={ref} style={{ position: "relative" }}>
-      <ActionButton onClick={() => setOpen((o) => !o)} active={open || activeDemo !== null}>
-        {activeDemo ? "Demo ✓ ▾" : "Demos ▾"}
-      </ActionButton>
-      {open && (
-        <div style={menu}>
-          {demos.map((d) => (
-            <MenuItem key={d.id} onClick={() => { setOpen(false); onLoadDemo(d.id); }}>
-              {activeDemo === d.id ? "✓ " : ""}{d.label}
-            </MenuItem>
-          ))}
-          {activeDemo && onExitDemo && (
-            <MenuItem onClick={() => { setOpen(false); onExitDemo(); }}>Exit demo</MenuItem>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 /**
- * Save and Load: two buttons of their own beside History / Demos / Export, not
+ * Save, Open and Close: three buttons of their own beside History / Export, not
  * a menu. Saving and reopening the session is the session-level counterpart of
  * the per-mode exports (see workbenchEngine.ts), and was folded into a
  * "Project ▾" menu that held nothing else. Their words are short, so they stay
  * words at every width the header holds (phones included); the accessible names
- * are the full "Save project" / "Load project".
+ * are the full "Save project" / "Open project" / "Close project".
  */
 function SaveButton({ onSave }: { onSave: () => void }): JSX.Element {
   return (
@@ -537,22 +495,22 @@ function SaveButton({ onSave }: { onSave: () => void }): JSX.Element {
 }
 
 /**
- * Load a saved project: a button that opens the file picker through a hidden
+ * Open a saved project: a button that opens the file picker through a hidden
  * input (visually hidden, not display: none, which some touch browsers will not
  * open from a script). The picker takes any .json; the reader decides whether
  * it is a project.
  */
-function LoadButton({ onOpenProject }: { onOpenProject: (file: File) => void }): JSX.Element {
+function OpenButton({ onOpenProject }: { onOpenProject: (file: File) => void }): JSX.Element {
   const input = useRef<HTMLInputElement>(null);
   return (
     <>
       <ActionButton
         onClick={() => input.current?.click()}
         className="wb-header-file"
-        ariaLabel="Load project"
-        title="Load project — opens a saved .materia.json on the page it was saved from"
+        ariaLabel="Open project"
+        title="Open project — opens a saved .materia.json on the page it was saved from"
       >
-        Load
+        Open
       </ActionButton>
       <input
         ref={input}
@@ -568,6 +526,23 @@ function LoadButton({ onOpenProject }: { onOpenProject: (file: File) => void }):
         }}
       />
     </>
+  );
+}
+
+/**
+ * Close the project and go back to the landing. The shell asks first when the
+ * project has changes since its last Save, Open or demo load.
+ */
+function CloseButton({ onClose }: { onClose: () => void }): JSX.Element {
+  return (
+    <ActionButton
+      onClick={onClose}
+      className="wb-header-file"
+      ariaLabel="Close project"
+      title="Close project — returns to the start page; asks first if there are changes not yet saved to a .materia.json file"
+    >
+      Close
+    </ActionButton>
   );
 }
 

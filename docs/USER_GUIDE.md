@@ -20,9 +20,11 @@ Open [drthyang.github.io/materia-platform](https://drthyang.github.io/materia-pl
 The start page shows the **Structure**, **Data** and **Instrument** cards above
 **Start with a demo**.
 
-1. Click a demo card, or pick a demo from **Demos ▾** in the header.
+1. Click a demo card.
 2. The demo opens on a converged refinement. Change anything you like.
-3. To leave, open **Demo ✓ ▾** and click **Exit demo**.
+3. To leave, click **Close** in the header. It returns to this start page. If
+   you changed anything since the demo opened, it asks first (see the table
+   below).
 
 - **Rietveld · Mn₃Ga neutron TOF**: a two-phase fit of POWGEN time-of-flight
   data, Mn₃Ga with a MnO impurity. At 600 K the sample is paramagnetic.
@@ -37,7 +39,7 @@ The start page shows the **Structure**, **Data** and **Instrument** cards above
 | --- | --- |
 | **Powder** · **Crystal**, **Rietveld** · **PDF** | Indicators: the sample form and the technique of the loaded data |
 | **Nuclear** · **Magnetic** | Switch between the refinement page and the magnetic page |
-| **Save** · **Load** | Save the session as a project file, or load a saved one |
+| **Save** · **Open** · **Close** | Save the session as a project file, open a saved one, or close the project and return to the start page. **Close** asks first when there are changes since the last **Save** or **Open** (or since a demo was loaded), and always for a project built from your own files that you have not saved: **Save** downloads the file and closes, **Discard** closes without saving, **Cancel** keeps working. A refinement that is still running is cancelled |
 | **Export ▾** | The report and the files for the active technique |
 
 The data you load pick the page. A reflection list opens the single-crystal
@@ -54,7 +56,7 @@ page, a G(r) file the PDF page, and any other pattern the powder page.
 | Single-crystal reflections | SHELX `.hkl` (h k l F² σ); FullProf `.int`; a GSAS-II reflection list, filtered to the loaded cell | **Load data…** |
 | Magnetic satellites | A second `.int` or `.hkl`, indexed as the fundamental hkl of hkl ± k | **Load magnetic .int…** |
 | Pair distribution function | `.gr`; `.sq` and `.fq`, transformed to G(r) on load; PDFgui `.fgr` fit files | **Load data…** |
-| Project | `.materia.json` | **Load** in the header |
+| Project | `.materia.json` | **Open** in the header |
 
 **Check `.hkl` reflections after loading.** The page reads them as
 whitespace-separated columns, so in a SHELX HKLF 4 file an intensity of

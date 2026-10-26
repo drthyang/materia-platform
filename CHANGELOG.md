@@ -620,6 +620,42 @@ release fixes bugs.
 
 ### Changed
 
+- **The header's Demos menu is gone; Load is Open; a Close button returns to
+  the start page.** The demos were offered twice, in a header menu and as
+  cards on the start page, and the cards (Rietveld Mn₃Ga, PDF GaTa₄Se₈, and
+  the AWO₄ magnetic demo where its local data are reachable) stay as the one
+  way to them. The "Demo ✓" state and "Exit demo" go with the menu: the
+  loaded-file chip says what is open, and Close replaces Exit.
+  - **Open** is the old Load button under its new name (visible label "Open",
+    accessible name "Open project", the tooltip names the `.materia.json`
+    file). It does what it did.
+  - **Close** sits after Open and shows only while something is loaded. It
+    returns to the start page with an empty workbench: the page, model, data,
+    step history and the Agent's records are dropped, a refinement still
+    running is cancelled (its worker is stopped and no result lands on the
+    empty page), the Agent's running turn and waiting approval cards are
+    stopped, and the browser's autosave is cleared, so a project closed on
+    purpose is not offered back as a crashed session. The Agent conversation
+    is kept, as when a demo or a file replaces the project; "New
+    conversation" stays the user's.
+  - **Close asks first when the project has changes** since its last Save,
+    Open or demo load: Save downloads the project file and closes, Discard
+    closes, Cancel keeps working. A change is a different model state (what
+    the step history calls one, so a plot-unit switch is not), a step
+    recorded since (a refinement undone again still counts), or a change to
+    the Agent's records. With none, it closes at once. A project built from
+    your own files, or restored from the browser's autosave, exists nowhere
+    else, so it asks until it is saved. The "has anything changed" mark is
+    taken once the page has settled after a demo load or an Open, because an
+    engine finishes restoring its fit window a render after the step is
+    recorded.
+  - The header's order is History, Save, Open, Close, Export. Close takes the
+    Demos menu's place (a shorter word, the same number of buttons), so the
+    header's height and row count are unchanged at the desktop, iPad and
+    iPhone sizes tuned for it (1920 and 1440; iPad Pro 11" and 13", upright
+    and sideways; iPhone 402×680, 440×760, 874×370 and 956×410), nothing
+    overflows, and the buttons stay 44 px tall on a touch screen.
+
 - **The B-at-0 notice, the physical findings and the report's limitations
   say each thing in one short line.** The result or the action comes first,
   with no rule letters and no repetition. A B on 0 reads "B(W1) is at its 0
