@@ -9,6 +9,36 @@ release fixes bugs.
 
 ### Added
 
+- **The subgroup engine, Phase 1: irreps computed at the decentring
+  k-points, and the subgroups that keep the conventional cell** (PDF
+  Subgroups page; [ADRs 0001–0005](docs/adr/)).
+  - Irreps are built, not looked up. The engine finds the star and the
+    little co-group exactly and builds the projective small representations
+    by chain induction (spgrep's method, BSD-3, ported). It induces them over
+    the star and checks every result: the representation property,
+    unitarity, Σ dim², orthonormal characters.
+  - For a centred parent the Subgroups page lists the irreps at X (F), H (I)
+    and the C, A, B and R points beside the Γ ones. They carry generic
+    labels: the k-point and "irrep n of m". Each comes with its isotropy
+    subgroups and order-parameter directions, found by the image method and
+    named in ITA standard setting.
+  - The subgroup lattice gains the decentring k-subgroups and the general
+    subgroups that keep the cell, each marked with its index split t·k.
+  - Activate realizes the child in the parent's cell, lists its modes by
+    parent irrep and Wyckoff site, and kicks the order parameter.
+  - The Γ isotropy subgroups now come from the same engine, with unchanged
+    results.
+  - Checked against spgrep (12 cases, by character), hand-derived counts
+    (Im-3m's four and I4/mmm's eight index-2 k-subgroups), and an opt-in
+    ISOTROPY workflow. On real data, GaNb₄Se₈'s local P2₁3 is reached from
+    F-43m's X irrep and from the lattice. Its 13 modes refine to Rw 5.5 %
+    (r = 2–10 Å; the cubic average gives 9.19 %).
+- **ISODISTORT's mode amplitudes, A_s and A_p, beside MATERIA's.** They
+  appear in the 3D Model's mode table and in the report. MATERIA's
+  amplitude runs over the conventional child cell, √f larger than A_s for a
+  child with f lattice points per cell; the refined parameter keeps its unit
+  until the agent validation freeze ends.
+
 - **The PDF page exports a PDFgui / diffpy-CMI bundle** (Export ▾ →
   PDFgui / diffpy-CMI bundle (.zip)), the real-space counterpart of the
   GSAS-II and FullProf bundles. It holds the whole unit cell as a PDFfit-format

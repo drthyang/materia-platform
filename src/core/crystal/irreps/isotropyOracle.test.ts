@@ -59,6 +59,9 @@ const CASES: readonly [string, number | string, number, string, readonly [number
   ["F-43m X", 216, 216, "X", [0, 0, 1]],
   ["Fd-3m X", "F d -3 m:2", 227, "X", [0, 0, 1]],
   ["Im-3m H", 229, 229, "H", [0, 0, 1]],
+  // CDML labels of the decentring points of I4/mmm and Cmcm: (0,0,1) is M of the body-centred tetragonal zone, (0,1,0) Y of the C-centred orthorhombic one.
+  ["I4/mmm M", 139, 139, "M", [0, 0, 1]],
+  ["Cmcm Y", 63, 63, "Y", [0, 1, 0]],
   ["Pm-3m Γ", 221, 221, "GM", [0, 0, 0]],
   ["Fm-3m Γ", 225, 225, "GM", [0, 0, 0]],
 ];

@@ -455,14 +455,33 @@ shows the modes being refined.
     Amm2), then the lower ones down to a general direction (marked
     "general"). **Activate → …** lowers to that isotropy subgroup and frees
     the mode with a small starting amplitude.
-  - **Subgroup lattice** lists the translationengleiche subgroups, each in
-    its standard setting (a centred parent's subgroups keep its centring:
-    F-43m's tetragonal subgroup is I-4m2), with its orientations (conjugate
-    subgroups) and domain states. **Activate ↓** lowers to one and loads its
-    modes: the order parameter that lowers the structure to it is freed with
-    a small starting amplitude, as **Activate →** does, and the other modes
-    start fixed at 0. At the parent's geometry a symmetry-breaking mode
-    started at 0 would never move.
+  - **Decentring modes · irreps (same cell)** appears for a centred parent
+    (F, I, C, A, B, or R on hexagonal axes). It lists the irreps at the
+    k-points the centring makes zone-boundary but the conventional cell still
+    holds: X for F, H for I, (0,1,0) for C, (0,0,1) for R. A distortion there
+    loses centring translations and keeps the cell, so it refines as it
+    stands. The irreps are named generically, by the k-point and "irrep n of
+    m" ([ADR 0004](./adr/0004-generic-irrep-labels-in-the-app.md)). Each
+    **Activate → …** button names an isotropy subgroup and its
+    order-parameter direction, such as (a,a,a,−a,−a,−a). The direction is in
+    MATERIA's own irrep basis, which can differ from ISODISTORT's symbols.
+    The tooltip gives the index split as point group · translations. For
+    F-43m (GaTa₄Se₈, GaNb₄Se₈) the six-dimensional X irrep leads to P2₁3. On
+    activation the Wyckoff orbits split, the child's modes are listed by
+    parent irrep and site, and the order parameter is freed with the small
+    starting amplitude.
+  - **Subgroup lattice** lists the subgroups that keep the conventional
+    cell, each in its standard setting (ADR 0003), with its orientations
+    (conjugate subgroups) and domain states. The translationengleiche ones
+    keep the parent's centring: F-43m's tetragonal subgroup is I-4m2. For a
+    centred parent the list adds the decentring k-subgroups (marked **k**,
+    such as F-43m's P-43m) and the general subgroups (marked **general**,
+    such as P2₁3), each with its index split, for example 2·4.
+    **Activate ↓** lowers to one and loads its modes: the order parameter
+    that lowers the structure to it is freed with a small starting
+    amplitude, as **Activate →** does, and the other modes start fixed at 0.
+    At the parent's geometry a symmetry-breaking mode started at 0 would
+    never move.
   - **Load parent CIF…** decomposes a structure that is already the distorted
     child against a high-symmetry parent.
 - The choice shows at the top of the **Subgroups** view. **✕ clear** returns
@@ -470,9 +489,25 @@ shows the modes being refined.
 - The **3D Model** view lists the modes with their amplitudes, esds and
   free/fixed state, and names the parent or subgroup they lower to. Click a
   **Distortion modes** row to draw the mode as green arrows.
+- Three amplitudes are shown
+  ([ADR 0003](./adr/0003-isodistort-as-the-single-convention-system.md)):
+  - **A** is the refined parameter: the displacement norm over the
+    conventional child cell.
+  - **A_s** is ISODISTORT's: over the primitive child cell, A/√f for a child
+    with f lattice points per cell.
+  - **A_p** = A_s·√(V_p/V_s) is normalized to the parent's primitive cell.
 
-These tools need a single phase, and offer cell-preserving (Γ) modes only
-([LIMITATIONS.md](./LIMITATIONS.md#real-space-pdf-and-magnetic-pdf)).
+  For a primitive child of a primitive parent all three are equal. The
+  report shows them as well.
+
+These tools need a single phase. They offer the distortions that keep the
+conventional cell: Γ, and the decentring k-points of a centred parent.
+Cell-multiplying k-points (X, M and R of a primitive cubic parent; L and W of
+an F one) need a supercell and are named on the page as planned
+([LIMITATIONS.md](./LIMITATIONS.md#real-space-pdf-and-magnetic-pdf)). The
+engine behind them is described in
+[ADR 0001](./adr/0001-compute-irreps-by-chain-induction.md) and
+[ADR 0002](./adr/0002-bound-the-search-by-a-supercell.md).
 
 ### Boxcar scan
 
