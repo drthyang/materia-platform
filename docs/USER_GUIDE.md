@@ -217,7 +217,11 @@ magnetic model are steps too. Loading a new dataset starts a new history.
 ### Zoom, pan and the cursor readout
 
 The pattern, the G(r) plot, the magnetic page's pattern and the S(Q) view all
-work the same way.
+work the same way. The line under each plot names the main gestures for your
+device (⌘ on a Mac, Ctrl elsewhere, a pinch on a touch screen); hover, focus
+or tap it for the rest. The 3D models carry the same kind of line beside
+their View a / b / c chip: scroll or pinch to zoom, drag to rotate, and
+right-drag, Shift + drag or two fingers to pan.
 
 - **Cursor.** Hover the plot. A vertical line marks the data point under the
   pointer. The readout gives x in the axis unit (2θ °, TOF µs, d Å, Q Å⁻¹ or
@@ -255,7 +259,9 @@ and refines the symmetry-allowed moments
 powder; [Single crystal and PDF](#single-crystal-and-pdf) lists what differs.
 
 Refine the nuclear structure first, so the residual isolates the magnetic
-intensity. Then click **Magnetic analysis →** or the **Magnetic** chip.
+intensity. Then click **Magnetic analysis →** or the **Magnetic** chip. On a
+desktop the steps scroll beside the pattern and the 3D model, which stay in
+view.
 
 ### Steps 1 and 2: magnetic ions and k
 
@@ -263,7 +269,9 @@ In **Magnetic ions**, click a site to include or exclude it. In
 **Propagation vector k**:
 
 1. Read **Detected residual peaks**. Each peak is numbered #n in the table and
-   on the pattern.
+   on the pattern. A long table shows its six strongest peaks and every peak
+   in the search; **Show all … peaks** lists the rest. **near** gives the
+   nuclear reflection a peak sits on, with its phase when there are several.
 2. Choose the peaks for the search with **I/σ ≥**,
    **include peaks at nuclear positions** and each peak's **use** box. To add a
    missed peak, click **+ Add peak from plot**, then the pattern.
@@ -311,8 +319,9 @@ residual before you trust any moments.
 
 The **Powder pattern** card draws the nuclear fit plus the selected candidate's
 magnetic intensity, which also appears alone as the **magnetic** curve. Tick
-rows mark where k allows satellites (**G ± k**), where the group keeps them
-(**allowed**) and the unexplained peaks (**residual**). A plausible k puts a
+rows mark each phase's reflections (**nuclear** for a single phase), where k
+allows satellites (**G ± k**), where the group keeps them (**allowed**) and the
+unexplained peaks (**residual**). A plausible k puts a
 **G ± k** tick under every residual peak. A plausible group keeps those peaks in
 the **allowed** row.
 
@@ -497,29 +506,53 @@ Never judge a fit by its R value alone. The definitions are in
 
 | Page | Readout | How to read it |
 | --- | --- | --- |
-| Powder | wR and GoF | GoF = wR / R_exp, after a refinement. Near 1 matches the uncertainties; below 1 is also a warning. |
+| Powder | wR and GoF | GoF = wR / R_exp: the last refinement's while it describes the values on screen, else that of the curves on screen. Near 1 matches the uncertainties; below 1 is also a warning. |
 | Single crystal | R1, wR2, GooF | SHELX-style agreement factors on F² |
 | PDF | Rw | A relative measure: a PDF Rw runs higher than a Bragg wR for an equally good fit |
 
-- **Validation**, a view of the powder plot card and of the single-crystal
-  quality card, opens with a **Verdict**: what needs a look or a fix comes
-  first, one line each; passing checks follow as green chips (hover for the
-  detail). The checks are the goodness of fit (below 1 is a
-  warning too), convergence (max shift/esd below 0.1), physical values, the
+- **Validation** is a view of the powder plot card and of the single-crystal
+  quality card. On single crystal it opens with a **Verdict**: what needs a
+  look or a fix comes first, one line each; passing checks follow as green
+  chips (hover for the detail). The checks are the goodness of fit (below 1 is
+  a warning too), convergence (max shift/esd below 0.1), physical values, the
   correlations and undetermined directions of the last refinement, and the
-  technique's own tests below.
-- On **powder**: the agreement set (Rp, Rwp, Rexp, GoF, and Rwp′/Rexp′ with
-  the background subtracted, which judge the peaks rather than the
-  background); the **Durbin–Watson** d against its critical value Q_D (d
-  below Q_D means neighbouring points miss together: a profile misfit, and
-  esds that are too small); R_Bragg and R_F per phase; the normalized residual
-  (y_obs − y_calc)/σ along the pattern with the **cumulative χ²** below it;
-  χ² per point in d-shells; and the **Worst peaks**, the reflections carrying
-  the most χ² with whether the residual under each is a shape or an intensity
-  error (four shown; **all** lists eight). A residual peak where no reflection
-  of any phase lies is listed as **unindexed**. Click the strip or a
-  **view →** to open that spot in the Refinement view. The **?** beside each
-  panel title explains how to read it.
+  tests below.
+- On **powder** it reads the fit against your acceptance bar, top down.
+  Each item is one short line that leads with what to do; the **?** beside
+  it (or a hover) holds the longer account: why, the numbers behind it, and
+  your method's reasons.
+  - One line on where the fit stands, and the state of the fit it judges:
+    converged; a demo's converged snapshot, which has no esds until you
+    refine; values edited since the last refinement; or not refined yet,
+    with what to do. **Refine** follows the line when refining is the next
+    step.
+  - **Acceptance bar**, three checks, each green, amber or red. The
+    **goodness of fit** in the assessment's bands (excellent up to 1.5, good
+    up to 2.5; below 0.8 the esds are optimistic). **Physical sanity**:
+    negative B values, occupancies outside [0, 1], values on a bound,
+    distances and U values; a negative B or a structural value on its bound
+    is a blocker, a held occupancy within 1 % outside its range a note (an
+    input to correct). The **cross-check** in GSAS-II and FullProf (the
+    bundles), with why the esds may not hold: serially correlated residuals,
+    a value on its bound, or a correlated pair, which the **Posterior**
+    judges.
+  - **What limits the fit**: the causes the Agent's `diagnose_fit` reads,
+    largest share of χ² first (three shown; **show all**), each with what
+    the residual shows and what to do in your method's order, in a few words
+    each. **Open …** opens that parameter group in the panel; nothing is
+    freed for you. **Show on pattern** opens the Refinement view there. A
+    line below says where half of χ² sits in d.
+  - **Evidence**, collapsed: the normalized residual (y_obs − y_calc)/σ with
+    the **cumulative χ²** below it (click it to open that spot in the
+    Refinement view); χ² per point in d-shells; the **Worst peaks**, the
+    reflections carrying the most χ², with whether the residual under each
+    is a shape or an intensity error (four shown, **all** lists eight,
+    **view →** opens one); and every agreement number: Rp, Rwp, Rexp, GoF,
+    Rwp′/Rexp′ with the background subtracted (they judge the peaks rather
+    than the background), the **Durbin–Watson** d against Q_D (below it,
+    neighbouring points miss together: a profile misfit, and esds that are
+    too small), and R_Bragg and R_F per phase. The **?** beside each title
+    explains how to read it.
 - On **single crystal**: R1 (I > 2σ and all), wR2, GooF, reflections per
   parameter and completeness beside R_int and R_σ; **Fo² vs Fc²** (log axes by
   default; switch to linear or |F|), coloured by |Δ|/σ; K = ⟨Fo²⟩/⟨Fc²⟩ and
@@ -596,15 +629,35 @@ them in FullProf before comparing.
 
 ### The report
 
-**Report** writes one HTML page. It opens on the summary: the data and model,
-the fit figure, the atomic and magnetic structures with esds, the other refined
-values, and the fit quality with the correlations and warnings. An appendix
-follows, collapsed until you open it: every parameter, fixed or refined, the
-conventions and the software. Printing opens it. A report the Copilot writes
-adds its account, the open issues and the checks that bear on trust to the
-summary. Its appendix also holds the History's steps, the method's checklist,
-every check with its numbers, and the notes. The Markdown file has the same
-parts, the appendix last.
+**Report** writes one HTML page that reads like a paper's results section:
+
+- **Result**: a short paragraph. It says what was refined against which data,
+  the outcome with its key numbers (Rwp and GoF; R1, wR2 and GooF; Rw), the
+  verdict against the acceptance bar and the main limitation. It is composed
+  from the app's own checks (on a powder, the Validation tab's verdict and its
+  causes of misfit), never by a model. A report the Copilot writes puts its
+  account here instead, labelled as its words.
+- **Structure**: per phase, the space group, the phase fraction, and the cell
+  as its independent parameters (a = b = 5.41964(5) Å, c = …, V = …; no angle
+  the symmetry fixes). The atom table gives Wyckoff positions, esds where a
+  value was refined, and fractions where the site symmetry fixes a
+  coordinate. The distances follow as small tables.
+- **Magnetic structure**, when there is one (see below).
+- **Fit**: the figure, the agreement indices in one line, and the other
+  refined values.
+- **Quality and caveats**: one line each for the acceptance checks, the
+  causes of misfit, the correlations worth reading (not a background's
+  coefficients among themselves), and the limitations. A report the Copilot
+  writes adds its open issues and its Bayesian check.
+- **Appendix**, collapsed until you open it: the data and model, the
+  refinement's statistics, every parameter (fixed or refined), the
+  conventions and the software. A Copilot report adds the analysis step by
+  step: the History's steps, the method's checklist, every check with its
+  numbers, and the notes. Printing opens every part.
+
+The page prints to A4 and Letter and follows the system's dark mode on
+screen. The Markdown file the Copilot's viewer saves has the same parts in the
+same order.
 
 The magnetic section gives k and the magnetic space group, named as on the
 magnetic page. It adds a projected figure, the moments with esds and a

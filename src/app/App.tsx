@@ -54,7 +54,7 @@ import { WorkbenchErrorBoundary } from "@/app/ui/WorkbenchErrorBoundary";
 import { color as theme, space } from "@/app/theme";
 import { newSession, loadedSession, emptySession, structureCarried, EMPTY_SOURCE } from "@/app/powderSession";
 import {
-  changed, emptyPage, specInstrumentOf, withInstrument, withInstrumentConstants, withPattern, withPhase, withPhases, withoutPhase, withStructure, type PowderPage,
+  changed, emptyPage, snapshotOf, specInstrumentOf, withInstrument, withInstrumentConstants, withPattern, withPhase, withPhases, withoutPhase, withStructure, type PowderPage,
 } from "@/app/powderPage";
 import type { WorkbenchExports } from "@/app/workbenchEngine";
 import { AgentLink } from "@/agent/link";
@@ -588,19 +588,16 @@ export function App(): JSX.Element {
       loadAwo4MagneticExample().then(
         (ex) => {
           const base = loadedSession(ex.structure, ex.pattern, ex.instrument, [], ex.refinedParams, ex.backgroundTerms);
-          setPage({
-            session: {
-              ...base,
-              magnetic: ex.magnetic,
-              powderParams: [...base.powderParams, ...ex.momentParams],
-              powderBindings: [...base.powderBindings, ...ex.momentBindings],
-              rawData: ex.rawData,
-              rawInstrument: ex.rawInstrument,
-            },
-            instrument: ex.instrument,
-            instrumentLoaded: true,
-            result: null,
-          });
+          const session = {
+            ...base,
+            magnetic: ex.magnetic,
+            powderParams: [...base.powderParams, ...ex.momentParams],
+            powderBindings: [...base.powderBindings, ...ex.momentBindings],
+            rawData: ex.rawData,
+            rawInstrument: ex.rawInstrument,
+          };
+          // A converged snapshot with no result of its own: the Validation view reads it as such.
+          setPage({ session, instrument: ex.instrument, instrumentLoaded: true, result: null, snapshot: snapshotOf(session) });
           setOwnStructure(false);
           setScNuclearDataset(null);
           setPdfDataset(null);
@@ -619,7 +616,9 @@ export function App(): JSX.Element {
     }
     if (kind === "rietveld") {
       const ex = mn3gaPowgenExample();
-      setPage({ session: loadedSession(ex.structure, ex.pattern, ex.instrument, ex.extraPhases, ex.refinedParams), instrument: ex.instrument, instrumentLoaded: true, result: null });
+      const session = loadedSession(ex.structure, ex.pattern, ex.instrument, ex.extraPhases, ex.refinedParams);
+      // It opens on a converged fit with no result of its own: the Validation view reads it as such.
+      setPage({ session, instrument: ex.instrument, instrumentLoaded: true, result: null, snapshot: snapshotOf(session) });
       setOwnStructure(false);
       setScNuclearDataset(null);
       setPdfDataset(null);

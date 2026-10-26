@@ -544,6 +544,123 @@ release fixes bugs.
 
 ### Changed
 
+- **The refinement report reads as a paper's results section.** Export ▸
+  Report (and the Copilot's report) now opens on a short **Result**
+  paragraph: what was refined against which data, the outcome with its key
+  numbers, the verdict against the acceptance bar and the main limitation.
+  It restates the app's own judgment (on a powder the Validation tab's
+  verdict and causes of misfit; on a single crystal its Validation checks;
+  on a PDF the assessment's findings); where the Copilot wrote an account,
+  its account takes that place. **Structure** gives per phase the space
+  group, the phase fraction and the cell as its independent parameters
+  ("a = b = 5.41964(5) Å, c = 4.37366(7) Å, V = 111.254(3) Å³", no angle the
+  symmetry fixes), an atom table with Wyckoff positions, esds where refined
+  and fractions where the site symmetry fixes a coordinate, and the
+  distances as small tables. **Fit** has the figure, the agreement indices in
+  one line and the other refined values; **Quality and caveats** one line
+  per acceptance check, cause of misfit and limitation, with only the
+  correlations worth reading (a background's coefficients among themselves
+  left out, as the Validation tab leaves them out). The tiles, the repeated
+  statistics and the data-and-model list are gone from the body: the data
+  and model, the refinement's statistics, every parameter and the record go
+  to the collapsed appendix, which printing opens. The page is set like a
+  journal's: white, booktabs tables with numbers aligned on the decimal
+  point, one typeface with tabular figures, sentence-case headings, one
+  accent color, italic symbols, typeset space groups and formulas, and the
+  minus sign. The Markdown the Copilot's viewer saves follows the same
+  order. The text the Agent's number audit and the validation read keeps
+  its earlier layout, frozen, so neither moves.
+
+- **One short zoom hint on every plot and 3D view.** The pattern, G(r), the
+  magnetic page's pattern and S(Q) each carry one line under the plot in the
+  gestures of the device: "⌘ + scroll to zoom · drag to pan · double-click to
+  reset" on a Mac, the same with Ctrl elsewhere, and "Pinch to zoom · drag to
+  pan" on a touch screen. Every 3D model (powder, PDF, magnetic, single
+  crystal) says "Scroll to zoom · drag to rotate" (on a touch screen, "Pinch
+  to zoom") beside its View a / b / c chip. The rest (Shift + drag box zoom,
+  the keys, a trackpad's pinch and swipe, the fit-range handles, the
+  reflection ticks; panning the 3D model) is in the line's tooltip: hover it,
+  focus it, or tap it. The hint replaces the long captions under the powder
+  and PDF plots and the 3D views; the PDF Qdamp/Qbroad note keeps its own
+  line. On a touch screen it shares the row of the zoom buttons, so the
+  phone layout gains no row. The magnetic page's pattern card grows by the
+  hint's line on a desktop instead of letting it run past the card.
+
+- **The powder Validation tab says each thing in one short line.** About
+  half the words on the demo (as it opens, after Refine, and with its cell
+  off by 0.3 %). Each line leads with what to do: "Fair fit: misfit mostly in
+  the peak tails", "Above your bar (good ≤ 2.5)", "Mn3Ga: Ga1 occ held at
+  1.005 → set to 1", "In GSAS-II / FullProf, once the bar is met", "Model's
+  tails too short → Refine TOF σ and β (keep α), after the atom positions".
+  Where refining is the next step, the state line says why and **Refine**
+  follows it. The full sentences, the statistic, the method's reasons and
+  `diagnose_fit`'s own words are behind a **?** beside each check and cause
+  (and on hover), so nothing is dropped. What was said twice is said once:
+  the physical card no longer restates "nothing unphysical", the cross-check
+  no longer repeats the state line's "no esds yet", the headline leaves the
+  GoF to its card, and the footer leaves the worst peaks' share to their
+  summary below. Same numbers and advice as before; the Agent's tools, their
+  text and the validation's arm A are unchanged.
+
+- **Phones and tablets: layouts fitted to iPhone and iPad Pro screens.**
+  Tuned on the iPhone 18 Pro and Pro Max and the iPad Pro 11" and 13", upright
+  and sideways; a desktop window looks as it did. On a phone held sideways the
+  plot and the 3D canvas fit the screen with their tab row (the plot was ~1.5
+  screens tall), a plot that short keeps most of its height for the pattern,
+  the 3D view fits the cell to the canvas on any touch screen, and the summary
+  cards sit three across. The Copilot docks beside the page on any landscape
+  window up to 540 px tall. An iPad held landscape scrolls as a page with
+  screen-tall rows, so the parameter list is no longer a 290 px box and the
+  magnetic page's 3D card shows its model. Lists that scrolled inside a card
+  inside the scrolling page (subgroups, distortion modes, the run result, the
+  posterior table) take their height. Controls are 44 px tall on a touch
+  screen. The plot's zoom buttons take a row under the plot on a touch screen
+  or a narrow plot instead of covering the x-axis title, the magnetic pattern
+  check no longer runs past its card, and the Copilot's sheet header keeps
+  Ask first / Auto off its name. Captions name finger gestures on a touch
+  screen (pinch to zoom, drag to pan or rotate). The header, the Copilot's
+  rail and drawer and the cards stay out of the iPhone's safe-area insets.
+
+- **The magnetic page on a desktop: the steps lead, and the pattern and the
+  model stay in view.** The workflow (steps 1–5) sat in the narrower right
+  column as a box scrolling inside its card, with step 4's candidate list
+  below its fold, beside a 3D card whose model filled a fraction of its canvas
+  and whose legend ran past the card. The steps now take half the row (up to
+  1000 px) at their natural height, and the row scrolls as a whole beside a
+  rail pinned to it: the pattern check over the 3D model, both in view while
+  candidates are clicked. The 3D view fits the cell to its canvas with a mouse
+  too, and nothing runs past a card at 1440, 1920 or 2560 px; a window under
+  ~800 px tall runs the rail past the fold. The residual-peak table shows its
+  six strongest peaks (and every peak in the k-search) until "Show all", and
+  its "near" column gives the reflection's hkl, with the phase only when the
+  pattern has several; a single phase's tick row is "nuclear" in the legend.
+  "Set k" is a quiet button while the fields hold the k in use, not a faded
+  primary one that read as broken. Phones and tablets keep their layouts.
+
+- **The powder Validation tab reads the fit against your acceptance bar.**
+  It opened on a verdict of mixed-weight lines beside eight agreement
+  numbers, with diagnoses but no actions, and called the demo's converged fit
+  "Not refined yet". It now reads top down. One line says where the fit
+  stands, beside the state of the fit (a demo's converged snapshot says so,
+  and that it has no esds until you refine). Your method's acceptance bar
+  follows as three checks, green, amber or red: the goodness of fit in the
+  assessment's bands; physical sanity, scaled (a negative B or a structural
+  value on its bound is a blocker, a held occupancy 0.5 % over 1 a note);
+  and the GSAS-II/FullProf cross-check, with why the esds may not hold.
+  **What limits the fit** lists the causes the Agent's `diagnose_fit` reads,
+  largest share of χ² first, each with its evidence and what to do in the
+  method's order (a misfit of the cell, zero or background first);
+  **Open …** opens the parameter group (nothing is freed), **Show on
+  pattern** the spot. The evidence is collapsed below: the residual strip,
+  χ² by d-shell, the worst peaks, and every agreement number with R_Bragg
+  and R_F per phase and Durbin–Watson. The causes and findings are built
+  from the page as the Agent's tools build them, so the tab no longer warns
+  of a background's own coefficients correlating, nor says "every residual
+  peak indexes" where the Agent finds lines no phase explains. Without a
+  refinement that describes the values on screen, the card's GoF is that of
+  the curves on screen. The Agent's tools and text are unchanged, and the
+  validation's arm A still reads the old verdict.
+
 - **On the PDF page, the symmetry is chosen on the Subgroups view and the
   modes are inspected on the 3D Model view.** The Γ irrep tree (each irrep's
   label, dimension, optic and acoustic counts, with its **Activate →**
@@ -697,6 +814,30 @@ release fixes bugs.
   analysis of variance gives them.
 
 ### Fixed
+
+- **A staged fit keeps a profile stage whose zero trades with the cell.** The
+  staged sequence rejected a whole stage when freeing it grew an earlier
+  parameter's esd more than fivefold. Since the engine's esds are those of the
+  full inverse (the eigen-decomposition entry below), freeing the TOF zero
+  with the peak shape grows the cell lengths' esds several-fold, as a pair the
+  data cannot separate does, and the guard threw the peak shape (α, β, σ) away
+  with it: every later stage fitted with the shape at its calibration, and the
+  local AWO₄ magnetic demo's solve ended far from its own earlier fit. The
+  newcomer the inflated esd correlates with most strongly (|ρ| ≥ 0.8, here the
+  zero) is now re-fixed and the stage re-run without it, as the singular and
+  correlation rules already did; an inflation no newcomer accounts for still
+  rejects the stage. The staged sequence runs in `refinePowderStructure`, the
+  MCP PDF and mPDF fits with `staged`, and the demo's solve; the page's Refine
+  and the Agent's `refine` do not use it. The demo's solve now ranks the
+  groups as the magnetic page does and keeps the maximal group unless
+  Hamilton's test says the data need more moment parameters (lowest wR alone
+  had chosen a subgroup with four more).
+
+- **A fit-range handle drag the browser takes over no longer swallows the
+  next tap.** The handle listened for the pointer lifting but not for a
+  cancel, so when a touch drag turned into a page scroll the plot ignored the
+  next tap and kept a stale drag listener. It now ends on a cancel or a lost
+  capture too, and its hit area is 32 px wide on a touch screen.
 
 - **The Background group stays on the parameter panel at 0 terms.** Emptying
   the background's terms field to retype the count read as 0, and 0 terms

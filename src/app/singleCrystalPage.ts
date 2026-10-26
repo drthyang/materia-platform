@@ -36,6 +36,10 @@ import { applyMagneticMoments, magneticComparison } from "@/core/workflow/magnet
 import { applyParameters } from "@/core/workflow/apply";
 import type { ReportInput } from "@/core/export/report";
 import { singleCrystalReportInput, type MagneticExploration } from "@/app/reportInputs";
+import { singleCrystalValidation } from "@/core/diagnostics/singleCrystalValidation";
+import { singleCrystalChecks, type ValidationVerdict } from "@/core/diagnostics/validationChecks";
+import { shelxWeights, singleCrystalAgreement } from "@/core/diffraction/singleCrystalFactors";
+import { nonPositiveDefiniteSites } from "@/core/crystal/adp";
 import type { SingleCrystalLiveState } from "@/agent/port";
 import type { FitOptions } from "@/app/magneticStep";
 import { noiseOf, type MomentFit } from "@/core/magnetic/momentRestarts";
@@ -860,6 +864,33 @@ export function liveStateOf(m: SingleCrystalPageModel, extra: { readonly busy: b
   };
 }
 
+/**
+ * The Validation view's checks of the fit on screen (SingleCrystalValidation.tsx),
+ * built the same way: the SHELX agreement and the statistics over the
+ * reflections shown, the σ filter's omissions, the ADPs' definiteness.
+ */
+export function validationVerdictOf(m: SingleCrystalPageModel): ValidationVerdict | null {
+  const v = pageView(m);
+  const rows = v.obsCalc;
+  if (rows.length === 0) return null;
+  const nParams = m.params.filter((p) => !p.fixed && !p.expression).length;
+  const fo = rows.map((r) => r.iObs);
+  const fc = rows.map((r) => r.iCalc);
+  const sg = rows.map((r) => r.sigma ?? 0);
+  const ag = singleCrystalAgreement(fo, fc, sg, shelxWeights(fo, fc, sg), nParams);
+  const structure = v.refinedStructure;
+  const validation = singleCrystalValidation({
+    rows: rows.map((r) => ({ h: r.h, k: r.k, l: r.l, foSq: r.iObs, fcSq: r.iCalc, ...(r.sigma !== undefined ? { sigma: r.sigma } : {}) })),
+    cell: structure.cell, spaceGroup: structure.spaceGroup, nParams,
+  });
+  return singleCrystalChecks({
+    validation, goof: ag.goof, result: m.result, parameters: m.params,
+    nonPositiveDefinite: nonPositiveDefiniteSites(structure),
+    xray: v.activeDataset.radiation.kind === "xray",
+    omitted: m.filter.on ? { count: v.excluded, cutoff: m.filter.cutoffSigma } : undefined,
+  });
+}
+
 /** The page's report (Export ▾ → Report): data and merge statistics, the F figure, the agreement, the refined structure, the magnetic model. */
 export function reportInputOf(m: SingleCrystalPageModel, extra: { readonly explored?: MagneticExploration | null; readonly structureFile?: readonly string[]; readonly structureFileName?: string } = {}): ReportInput {
   const v = pageView(m);
@@ -884,6 +915,7 @@ export function reportInputOf(m: SingleCrystalPageModel, extra: { readonly explo
     explored: extra.explored ?? null,
     ...(v.handText ? { inverted: v.handText } : {}),
     ...(extra.structureFile?.length ? { structureFile: extra.structureFile, ...(extra.structureFileName ? { structureFileName: extra.structureFileName } : {}) } : {}),
+    verdict: validationVerdictOf(m),
   });
 }
 

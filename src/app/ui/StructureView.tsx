@@ -9,12 +9,16 @@
  * covalent-radius cylinders, and the cell edges are drawn as a wireframe.
  *
  * Controls: bond-length labels, perspective vs orthographic projection, and an
- * a/b/c coordinate-axis triad. Interaction: drag to rotate, scroll to zoom.
+ * a/b/c coordinate-axis triad. Interaction: drag to rotate, scroll to zoom
+ * (OrbitControls; the hint under the canvas is GestureHintLine).
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { orthoHalfHeight, screenExtent } from "@/app/ui/structureFrame";
+import { useCoarsePointer } from "@/app/ui/touchInput";
+import { GestureHintLine } from "@/app/ui/GestureHintLine";
 import type { StructureModel, SymmetryOperation } from "@/core/crystal/types";
 import type { Vec3 } from "@/core/math/types";
 import { fractionalToCartesian } from "@/core/crystal/unitCell";
@@ -177,6 +181,7 @@ export function StructureView({
   displacements,
   exports,
   minCanvasHeight = 360,
+  fit = false,
 }: {
   structure: StructureModel;
   /** Magnetic moment entries to overlay as arrows (one per site — or per split
@@ -212,11 +217,19 @@ export function StructureView({
   /** Canvas minimum height (px) — hosts that stack panels below the viewer in
    *  a fixed-height card pass a smaller value so the layout can settle. */
   minCanvasHeight?: number;
+  /** Fit the cell to the canvas with a mouse too, as every touch screen does
+   *  (structureFrame.ts): a host whose canvas is far from square (a short card
+   *  beside a long column) would otherwise show a small model in a wide field. */
+  fit?: boolean;
 }): JSX.Element {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const [showBondLengths, setShowBondLengths] = useState(false);
   const [showAtomLabels, setShowAtomLabels] = useState(false);
   const [perspective, setPerspective] = useState(false);
+  // On a touch screen the orthographic frame fits the cell to the canvas (a
+  // phone's canvas is short and wide, or narrow); a desktop keeps its frame
+  // unless the host asks for the fit.
+  const fitToCanvas = useCoarsePointer() || fit;
   const [showAxes, setShowAxes] = useState(true);
   // Which unit cell to show — mutually exclusive, never two frames at once:
   //  "atomic"   the parent nuclear cell,
@@ -316,7 +329,7 @@ export function StructureView({
 
   // Cartesian cell corners + centre + span, for edges and camera framing —
   // the frame covers the parent cell(s) plus the standard cell when shown.
-  const { corners, center, span } = useMemo(() => {
+  const { corners, frame, center, span } = useMemo(() => {
     const [nx, ny, nz] = supercell;
     const c: Vec3[] = [];
     for (const i of [0, 1]) for (const j of [0, 1]) for (const k of [0, 1]) {
@@ -343,7 +356,7 @@ export function StructureView({
     }
     const ctr: Vec3 = [(lo[0]! + hi[0]!) / 2, (lo[1]! + hi[1]!) / 2, (lo[2]! + hi[2]!) / 2];
     const diag = Math.hypot(hi[0]! - lo[0]!, hi[1]! - lo[1]!, hi[2]! - lo[2]!);
-    return { corners: c, center: ctr, span: diag || 10 };
+    return { corners: c, frame: framePts, center: ctr, span: diag || 10 };
   }, [structure, supercell[0], supercell[1], supercell[2], activeRegion]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -354,10 +367,16 @@ export function StructureView({
     const aspect = width / height;
 
     const scene = new THREE.Scene();
+    // On a touch screen the frame fits the cell as the default view below first
+    // sees it (screenExtent); elsewhere it is the desktop frame (null).
+    const extent = fitToCanvas
+      ? screenExtent(frame, center, [center[0] + span * 0.55, center[1] + span * 0.45, center[2] + span * 1.1 + 4])
+      : null;
     const camera: THREE.PerspectiveCamera | THREE.OrthographicCamera = perspective
       ? new THREE.PerspectiveCamera(45, aspect, 0.05, 8000)
       : (() => {
-          const d = span * 0.85; // half-height of the ortho frustum, sized to the cell
+          // Half-height of the ortho frustum, sized to the cell (fitted to the canvas on a touch screen).
+          const d = orthoHalfHeight(span, aspect, extent);
           return new THREE.OrthographicCamera(-d * aspect, d * aspect, d, -d, -8000, 8000);
         })();
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -671,7 +690,7 @@ export function StructureView({
       if (camera instanceof THREE.PerspectiveCamera) {
         camera.aspect = a;
       } else {
-        const d = span * 0.85;
+        const d = orthoHalfHeight(span, a, extent);
         camera.left = -d * a; camera.right = d * a; camera.top = d; camera.bottom = -d;
       }
       camera.updateProjectionMatrix();
@@ -699,7 +718,7 @@ export function StructureView({
     // lightLevel and finish are intentionally NOT dependencies: their knobs
     // mutate the live lights/materials below without rebuilding the scene.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [atoms, corners, center, span, showBondLengths, showAtomLabels, perspective, showAxes, structure, moments, propagation, standardCell, showParentCell, showStandardCell, cellView, displacements]);
+  }, [atoms, corners, center, span, showBondLengths, showAtomLabels, perspective, showAxes, structure, moments, propagation, standardCell, showParentCell, showStandardCell, cellView, displacements, fitToCanvas, frame]);
 
   // Light knob → in-place intensity update, drawn on the next frame.
   useEffect(() => {
@@ -763,7 +782,7 @@ export function StructureView({
     // Fill whatever the host card gives us (flex column); in an unconstrained
     // context the canvas keeps its 360 px minimum.
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", marginBottom: 6, fontSize: 12, color: theme.secondary, fontFamily: themeMono, alignItems: "center" }}>
+      <div className="wb-3d-toolbar" style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", marginBottom: 6, fontSize: 12, color: theme.secondary, fontFamily: themeMono, alignItems: "center" }}>
         <ViewerToggle label="Bond lengths" checked={showBondLengths} onChange={setShowBondLengths} />
         <ViewerToggle label="Atom labels" checked={showAtomLabels} onChange={setShowAtomLabels} />
         <ViewerToggle label="Axes" checked={showAxes} onChange={setShowAxes} />
@@ -824,10 +843,12 @@ export function StructureView({
           </span>
         )}
       </div>
-      <div ref={mountRef} style={{ width: "100%", flex: 1, minHeight: minCanvasHeight, cursor: "grab", borderRadius: 10, overflow: "hidden" }} />
-      {/* View presets (bottom-right, above the legend): look straight down an axis. */}
-      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6, fontSize: 12, fontFamily: themeMono, color: theme.secondary }}>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 9px", borderRadius: 8, background: theme.chipBg }} title="Look straight down a crystallographic axis (keeps your zoom)">
+      <div ref={mountRef} className="wb-3d-canvas" style={{ width: "100%", flex: 1, minHeight: minCanvasHeight, cursor: "grab", borderRadius: 10, overflow: "hidden" }} />
+      {/* The gesture hint (left) and the view presets (right, above the
+          legend): look straight down an axis. */}
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "4px 10px", marginTop: 6, fontSize: 12, fontFamily: themeMono, color: theme.secondary }}>
+        <GestureHintLine view="model-3d" style={{ flex: "1 1 150px" }} />
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 9px", borderRadius: 8, background: theme.chipBg, marginLeft: "auto" }} title="Look straight down a crystallographic axis (keeps your zoom)">
           View
           <span style={{ display: "inline-flex", border: `1px solid ${theme.border}`, borderRadius: 6, overflow: "hidden" }}>
             {(["a", "b", "c"] as const).map((ax) => (
@@ -844,7 +865,7 @@ export function StructureView({
         </span>
       </div>
       {/* Atom legend + appearance controls (light / finish shape the swatches too). */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 16px", marginTop: 6, fontSize: 12, fontFamily: themeMono, color: theme.secondary, alignItems: "center" }}>
+      <div className="wb-3d-legend" style={{ display: "flex", flexWrap: "wrap", gap: "6px 16px", marginTop: 6, fontSize: 12, fontFamily: themeMono, color: theme.secondary, alignItems: "center" }}>
         {uniqueElements.map((el) => (
           <span key={el} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
             {atomSwatches[el] ? (

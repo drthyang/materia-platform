@@ -179,7 +179,7 @@ export function PosteriorPanel({ result, busy, progress, onRun, hasRefined, labe
 
       {/* Per-parameter table */}
       {result ? (
-        <div style={{ overflow: "auto", minHeight: 0, flex: 1 }}>
+        <div className="wb-posterior-table" style={{ overflow: "auto", minHeight: 0, flex: 1 }}>
           <table style={{ borderCollapse: "collapse", width: "100%", fontSize: fz.small }}>
             <thead>
               <tr style={{ ...uppercaseLabel, color: color.faint, textAlign: "left" }}>

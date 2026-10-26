@@ -714,18 +714,23 @@ current.
   MCMC of the Posterior view, over the free parameters of a converged fit;
   `continue: true` resumes the chain.
 - **`write_report`** ([`report.ts`](../src/agent/report.ts)) builds the page's
-  own report (Export ▾ → Report) with the analysis as it went. The summary
-  leads with the Agent's account, the issues left open, the engine's checks
-  ([`reportChecks.ts`](../src/agent/reportChecks.ts)) that bear on trust (the
-  others named as passed) and the Bayesian check of the refinement on screen
-  when one ran. A collapsed appendix holds the History's steps on the path to
-  the result, the method's checklist, every check with its numbers, the
-  Agent's notes, every parameter and the software. The Agent writes only `summary`; its decimal numbers are
-  checked against the numbers the report computed
+  own report (Export ▾ → Report) with the analysis as it went. The Agent's
+  account is the report's Result; the issues left open and the Bayesian check
+  of the refinement on screen join its Quality and caveats; a collapsed
+  appendix holds the History's steps on the path to the result, the method's
+  checklist, every check ([`reportChecks.ts`](../src/agent/reportChecks.ts))
+  with its numbers, the Agent's notes, every parameter and the software. The
+  Agent writes only `summary`; its decimal numbers are checked against the
+  numbers the report computed
   ([`reportAudit.ts`](../src/core/export/reportAudit.ts)), and any that match
   none are underlined (HTML) or marked † (Markdown) and returned, so the Agent
-  corrects them and writes again. The report opens in a viewer (Save HTML,
-  Markdown, Print / PDF, CIF), and again from the drawer.
+  corrects them and writes again. The audit, and the Markdown the evals and
+  the validation read (`AgentReport.markdown`), use the report's earlier
+  layout, frozen for the validation
+  ([`reportMarkdownFrozen.ts`](../src/core/export/reportMarkdownFrozen.ts));
+  the viewer shows and saves the current one (`markdownFile`). The report
+  opens in a viewer (Save HTML, Markdown, Print / PDF, CIF), and again from
+  the drawer.
 - **The magnetic step** publishes its controls as a handle on the powder port
   ([`magneticPort.ts`](../src/agent/magneticPort.ts)), so the Agent works it as
   the user does, and the page switches to it when a tool acts. Its last step

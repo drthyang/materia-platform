@@ -13,7 +13,8 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { usePlotInteraction, useThrottledText } from "@/app/ui/usePlotInteraction";
-import { PlotHint, PlotZoomControls, plotReadoutBox } from "@/app/ui/PlotControls";
+import { PlotFooter, PlotHint, PlotZoomControls, plotReadoutBox, zoomControlsInline } from "@/app/ui/PlotControls";
+import { isMac, plotGestureDescription, useCoarsePointer } from "@/app/ui/touchInput";
 import { decimalsForStep, formatReadoutValue, localStep, minimumSpan, nearestIndex } from "@/visualization/plotView";
 import type { PdfPattern } from "@/core/diffraction/types";
 import { grUncertaintySummary } from "@/core/totalscattering/grErrors";
@@ -64,6 +65,8 @@ export function ReciprocalPanel({ pattern, fitRange }: { pattern: PdfPattern; fi
   const [showSigma, setShowSigma] = useState(true);
   const [boxRef, { width: W, height: H }] = useElementSize<HTMLDivElement>();
   const svgRef = useRef<SVGSVGElement>(null);
+  const coarse = useCoarsePointer();
+  const zoomInline = zoomControlsInline(coarse, W);
   const qs = rec?.q ?? EMPTY;
   const domain = useMemo(() => ({ min: qs[0] ?? 0, max: qs.length > 1 ? qs[qs.length - 1]! : (qs[0] ?? 0) + 1 }), [qs]);
   const minSpan = useMemo(() => minimumSpan(qs), [qs]);
@@ -205,7 +208,7 @@ export function ReciprocalPanel({ pattern, fitRange }: { pattern: PdfPattern; fi
           style={{ position: "absolute", inset: 0, width: "100%", height: "100%", display: "block", touchAction: "pan-y", cursor: ix.panning ? "grabbing" : "crosshair", userSelect: "none" }}
           role="application"
           aria-roledescription="interactive plot"
-          aria-label={`${ordinate === "sq" ? "S(Q)" : "F(Q)"} against Q${sig ? " with a ±σ error ribbon" : ""}. Drag to pan, Shift + drag to box-zoom, Ctrl + scroll or pinch to zoom, double-click to reset. Keys: plus and minus zoom, left and right arrows pan, Shift + arrows step the cursor one point, 0 resets.`}
+          aria-label={`${ordinate === "sq" ? "S(Q)" : "F(Q)"} against Q${sig ? " with a ±σ error ribbon" : ""}. ${plotGestureDescription(isMac())}`}
           {...ix.handlers}
           {...{ "data-vmin": vlo, "data-vmax": vhi, "data-dmin": qLo, "data-dmax": qHi, "data-ylock": ix.yLock ? 1 : 0, "data-frame": [X0, X1, W, H, Y0, Y1].join(",") }}
         >
@@ -293,8 +296,9 @@ export function ReciprocalPanel({ pattern, fitRange }: { pattern: PdfPattern; fi
         )}
         <div role="status" aria-live="polite" aria-atomic="true" className="wb-sr-only">{spoken}</div>
         <PlotHint text={ix.hint} />
-        <PlotZoomControls ix={ix} yRange={{ lo: yLo, hi: yHi }} style={{ bottom: 4 }} />
+        {!zoomInline && <PlotZoomControls ix={ix} yRange={{ lo: yLo, hi: yHi }} style={{ bottom: 4 }} />}
       </div>
+      <PlotFooter ix={ix} yRange={{ lo: yLo, hi: yHi }} inline={zoomInline} style={{ marginTop: -3 }} />
 
       <div style={{ fontSize: fz.micro, color: color.secondary, lineHeight: 1.55 }}>
         {tr && (

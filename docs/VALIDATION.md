@@ -87,7 +87,8 @@ folder skip when it is absent (CI, fresh clones).
 | Plot scaling math | unit | ✅ `visualization/scale.test.ts` |
 | Parallel-Jacobian pool ≡ serial (bit-identical trajectory) | unit | ✅ `core/refinement/engineParallel.test.ts` |
 | Analytic Jacobian columns (occupancy, B_iso) vs central FD | unit (F1.1) | ✅ `core/workflow/analyticJacobian.test.ts` |
-| Staged controller guards (re-fix degenerate additions) | unit (F1.4) | ✅ `core/refinement/stagedGuards.test.ts` |
+| Staged controller guards (re-fix degenerate additions; re-fix the newcomer behind an inflated esd) | unit (F1.4) | ✅ `core/refinement/stagedGuards.test.ts` |
+| Staged TOF fit keeps its profile stage when the zero trades with the cell (synthetic, bundled tungstate model) | integration (F1.4) | ✅ `core/workflow/stagedTofProfile.test.ts` |
 | Robust starting values (envelope background + zero sanity) | unit (F1.3) | ✅ `core/workflow/startingValues.test.ts` |
 | Next-parameter sensitivity ranking | unit (F1.5) | ✅ `core/workflow/nextParameters.test.ts` |
 | GPU \|F\|²-injection seam is bit-identical to the CPU sum | unit | ✅ `core/workflow/structureFactorInjection.test.ts` |

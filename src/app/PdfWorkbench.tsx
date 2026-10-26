@@ -875,7 +875,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                 {...(gSigma && showGSigma ? { obsSigma: gSigma, obsSigmaLabel: pattern.transform ? "±σ propagated" : "±σ (file)" } : {})}
               />
               <p style={{ marginTop: 8, marginBottom: 0, fontSize: 12, color: color.secondary }}>
-                Drag to pan, Ctrl/⌘ + scroll to zoom, handles set the fit window. Qdamp/Qbroad are instrument constants — hold them fixed once calibrated on a standard.
+                Qdamp/Qbroad are instrument constants — hold them fixed once calibrated on a standard.
               </p>
               {radiationWarning && (
                 <div style={{ marginTop: 6, fontSize: 12, color: color.warnInk }}>⚠ {radiationWarning}</div>
@@ -915,7 +915,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                   internally. Before this, the wrapper shrank to its 360 px
                   minimum while the viewer's own chrome (toolbar, view row,
                   legend) overflowed it — painting over the modes table. */}
-              <div style={{ flex: "1 1 auto", minHeight: 320, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              <div className="wb-3d-host" style={{ flex: "1 1 auto", minHeight: 320, display: "flex", flexDirection: "column", overflow: "hidden" }}>
                 <Suspense fallback={<div style={{ flex: 1, display: "grid", placeItems: "center", color: color.secondary, fontSize: 13 }}>Loading 3D viewer…</div>}>
                   <StructureView
                     key={viewStructure.id + viewPhase}
@@ -943,7 +943,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
               {/* The modes being refined; the symmetry they lower to is
                   chosen (and cleared) on the Subgroups page. */}
               {!multiPhase && (
-                <div style={{ flex: "0 1 auto", minHeight: modeSet ? 90 : 0, maxHeight: 300, overflowY: "auto", marginTop: 6 }}>
+                <div className="wb-grow-box" style={{ flex: "0 1 auto", minHeight: modeSet ? 90 : 0, maxHeight: 300, overflowY: "auto", marginTop: 6 }}>
                   <DistortionModesPanel
                     modeSet={modeSet}
                     modes={modes}
@@ -960,7 +960,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
               <p style={{ marginTop: 4, fontSize: 12, color: color.secondary }}>
                 {viewStructure.name || "Structure"}
                 {viewStructure.spaceGroup.hermannMauguin ? ` · ${viewStructure.spaceGroup.hermannMauguin}` : ""}
-                {` · ${viewStructure.sites.length} site${viewStructure.sites.length === 1 ? "" : "s"} · refined values applied · drag to rotate, scroll to zoom.`}
+                {` · ${viewStructure.sites.length} site${viewStructure.sites.length === 1 ? "" : "s"} · refined values applied`}
               </p>
             </>
           ) : viewTab === "boxcar" ? (
