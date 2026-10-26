@@ -9,7 +9,10 @@
  * folder, which the dev server exposes under `/data/…` (vite.config.ts,
  * `serveLocalData`, dev only):
  *
- *   data/AWO4/PG3_powder_6K.gsa         the 6 K bank-3 histogram
+ *   data/AWO4/PG3_powder_6K.gsa         the ordered bank-3 histogram: the
+ *                                       measurement of the owner's reference
+ *                                       refinement (and of the benchmark's
+ *                                       8 K Mantid export)
  *   data/AWO4/instrument_bank3.instprm  its bank's calibration
  *   data/AWO4/awo4_demo_solution.json   the solved structure
  *
@@ -17,9 +20,11 @@
  *
  * The solution file is written by `awo4MagneticSolve.test.ts` (run with
  * AWO4_SOLVE=1): staged nuclear refinement → residual k-search → every
- * candidate magnetic group ranked → joint refinement, all with the app's own
- * pipeline. The demo appears in the Demos menu only when these files can be
- * fetched; a deployed site has none of them and shows no AWO₄ demo.
+ * candidate magnetic group ranked → the magnetic refinement, with only the
+ * magnetic parameters free and the nuclear model held at its refined values,
+ * all with the app's own pipeline. The demo opens on that last step's state.
+ * It appears in the Demos menu only when these files can be fetched; a
+ * deployed site has none of them and shows no AWO₄ demo.
  *
  * The nuclear structure itself (the 100 K refined CIF) is the one already
  * bundled in `highEntropyWO4.ts`.
@@ -61,10 +66,13 @@ export interface Awo4Solution {
   readonly ions: readonly string[];
   /** Chebyshev background terms the solve refined with (the session must match). */
   readonly backgroundTerms: number;
-  /** Converged values by parameter id — nuclear rows and moment modes. */
+  /** Converged values by parameter id — the nuclear rows (held at the nuclear stage's values) and the moment modes. */
   readonly params: Readonly<Record<string, number>>;
+  /** The rows the last step refined: the magnetic parameters alone (the moments, and k's free components). */
+  readonly free: readonly string[];
   readonly nuclearWr: number;
-  readonly jointWr: number;
+  /** wR of the magnetic refinement: moments only, the nuclear model held. */
+  readonly magneticWr: number;
 }
 
 export interface Awo4MagneticExample {
@@ -85,12 +93,17 @@ export interface Awo4MagneticExample {
   readonly backgroundTerms: number;
   readonly group: string;
   readonly nuclearWr: number;
-  readonly jointWr: number;
+  /** wR of the magnetic refinement the demo opens on (moments only, the nuclear model held). */
+  readonly magneticWr: number;
 }
 
 /** Assemble the demo from the three files' text — pure, so tests can feed it from disk. */
 export function buildAwo4MagneticExample(files: { data: string; instrument: string; solution: string }): Awo4MagneticExample {
   const solution = JSON.parse(files.solution) as Awo4Solution;
+  if (!Array.isArray(solution.free) || typeof solution.magneticWr !== "number") {
+    throw new Error(`${AWO4_DEMO_FILES.solution} predates the moments-only solve: regenerate it (AWO4_SOLVE=1 npx vitest run src/examples/awo4MagneticSolve.test.ts)`);
+  }
+  const free = new Set(solution.free);
   const structure: StructureModel = { ...parseCif(HIGH_ENTROPY_CIF, STRUCTURE_ID), name: "(Co,Cu,Fe,Mn,Ni,Zn)WO₄" };
   const instrument = parseInstrumentParameters(files.instrument);
   const pattern = parseGsasHistogramPattern(files.data, PATTERN_ID, PATTERN_NAME, { radiation: { kind: "neutron-tof" } });
@@ -98,7 +111,7 @@ export function buildAwo4MagneticExample(files: { data: string; instrument: stri
   const build = buildMagneticModel(structure, solution.k, solution.ions, ops, { moment: 2, tieSameSite: true });
   const momentParams = build.params.map((p) => {
     const v = solution.params[p.id] ?? p.value;
-    return { ...p, value: v, initialValue: v, fixed: false };
+    return { ...p, value: v, initialValue: v, fixed: !free.has(p.id) };
   });
   const magnetic = applyMagneticMoments(build.magnetic, build.bindings, Object.fromEntries(momentParams.map((p) => [p.id, p.value])));
   return {
@@ -116,8 +129,19 @@ export function buildAwo4MagneticExample(files: { data: string; instrument: stri
     backgroundTerms: solution.backgroundTerms,
     group: solution.group,
     nuclearWr: solution.nuclearWr,
-    jointWr: solution.jointWr,
+    magneticWr: solution.magneticWr,
   };
+}
+
+/**
+ * The demo session's parameter rows: the nuclear rows (as `loadedSession`
+ * seeds them, at the solved values) all held, then the moment rows, free as
+ * the solve's last step refined them. The demo opens on that step — the
+ * magnetic refinement, the moments measured against the nuclear model as a
+ * fixed reference — so Refine from it refines the moments alone.
+ */
+export function awo4DemoParams(nuclear: readonly RefinementParameter[], ex: Pick<Awo4MagneticExample, "momentParams">): RefinementParameter[] {
+  return [...nuclear.map((p) => ({ ...p, fixed: true })), ...ex.momentParams];
 }
 
 /** URL of one demo file on the dev server's `/data/` route. */

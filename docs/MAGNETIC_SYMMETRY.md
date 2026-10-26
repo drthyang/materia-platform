@@ -145,10 +145,11 @@ best fit's noise gives them (an mPDF fit, which reports no χ², ties within
 the magnetic peaks sit on the nuclear ones, and a scale refined without them
 has taken part of their intensity.
 
-On unpublished AWO₄ 6 K data with k = (½, 0, 0), five candidates tie at wR 7.59 %
-with the nuclear model fixed: P2/c′, P-1′, Pc′, P2 and P1. The rule picks P2/c′,
-of index 2 with two moment parameters. The magnetic page ranks candidates by this
-rule, as [USER_GUIDE.md](./USER_GUIDE.md) describes.
+On unpublished AWO₄ 6 K data with k = (½, 0, 0), five candidates tie within the
+noise by Hamilton's test, with the nuclear model fixed: P2/c′, P-1′, Pc′, P2 and
+P1. The rule picks P2/c′, of index 2 with two moment parameters. Its moments are
+then refined alone, against the same nuclear model held. The magnetic page ranks
+candidates by this rule, as [USER_GUIDE.md](./USER_GUIDE.md) describes.
 
 ## BNS and OG labels
 

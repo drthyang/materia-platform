@@ -16,6 +16,7 @@ import { generateReflections } from "@/core/diffraction/reflections";
 import { searchPropagationVector } from "@/core/magnetic/kSearch";
 import { magneticSubgroupLattice, latticeRepresentatives } from "@/core/magnetic/subgroupLattice";
 import { buildMagneticPowderProblem } from "@/core/workflow/magneticPowder";
+import { propagationKParameters } from "@/core/magnetic/refinableK";
 import { magneticIonCandidates } from "@/core/magnetic/magneticIons";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { momentCartesian } from "@/core/magnetic/moment";
@@ -49,8 +50,13 @@ import type { Vec3 } from "@/core/math/types";
  *      top-down: the maximal group with the fewest moment parameters among
  *      those within the noise of the best fit, by Hamilton's test at 5 %
  *      (topDownGroup below states N, m and b);
- *   4. the chosen candidate is co-refined with the nuclear model; the converged
- *      values are written to the solution file (and echoed as JSON).
+ *   4. the magnetic refinement of the chosen candidate, with only the magnetic
+ *      parameters free (magnetic-analysis, Stage 4): its moments, and k's
+ *      components where the little group lets k move (none for k = (½,0,0)).
+ *      The nuclear model of step 1 is the fixed reference: the scale,
+ *      background, cell, instrument terms, positions, ADPs and occupancies
+ *      stay at their nuclear values. The converged values are written to the
+ *      solution file (and echoed as JSON).
  *
  * Slow (minutes) and needs the git-ignored data/ folder, so it runs only with
  * AWO4_SOLVE=1. Ordinary CI never executes it.
@@ -63,7 +69,7 @@ const has = !!process.env.AWO4_SOLVE && dataExists(CIF) && dataExists(INST) && d
 const K: Vec3 = [0.5, 0, 0];
 
 describe.skipIf(!has)("AWO₄ magnetic demo — solve the 6 K magnetic structure with the app's own tools", () => {
-  it("nuclear refinement → k-search → candidate ranking → joint refinement", { timeout: 40 * 60 * 1000 }, async () => {
+  it("nuclear refinement → k-search → candidate ranking → magnetic refinement (moments only, nuclear held)", { timeout: 40 * 60 * 1000 }, async () => {
     const structure = parseCif(readData(CIF), "awo4");
     const instrument = parseInstrumentParameters(readData(INST));
     if (instrument.kind !== "tof") throw new Error("bank-3 instprm should be TOF");
@@ -168,26 +174,47 @@ describe.skipIf(!has)("AWO₄ magnetic demo — solve the 6 K magnetic structure
     console.log(`[awo4] baseline nuclear wR ${(100 * nuclearWr).toFixed(2)}% · Hamilton at α = ${RANK_NOISE_ALPHA}, N = ${ranked[0]!.dof + ranked[0]!.parameters} points: ${equivalent.length} group(s) within the noise of the best (${equivalent.map((r) => r.label).join("; ")}) → top-down: ${chosen.label} (index ${chosen.index}, m = ${chosen.parameters})`);
     const best = chosen;
 
-    // 4. Joint refinement of the chosen candidate (nuclear free set + moments).
+    // 4. The magnetic refinement of the chosen candidate: only the magnetic
+    //    parameters free (magnetic-analysis, Stage 4). The moments refine
+    //    against the nuclear model of step 1 as a fixed reference: every
+    //    nuclear row (scale, background, cell, instrument terms, positions,
+    //    ADPs, occupancies) stays at its nuclear value — freed, they trade with
+    //    the moments, and the esds hide it. k's free components refine too
+    //    where the little group lets k move; k = (½,0,0) has none.
     const bestBuild = buildOf(best.ops.map((o) => ({ ...parseXyz(o.xyz), timeReversal: o.timeReversal })));
-    const jointParams = [
-      ...nuclear.map((p) => ({ ...p })),
-      ...bestBuild.params.map((p) => ({ ...p, value: best.values[p.id] ?? p.value, initialValue: best.values[p.id] ?? p.value, fixed: false })),
-    ];
-    const joint = refine(
-      buildMagneticPowderProblem(structure, bestBuild.magnetic, pattern, jointParams, [...spec.bindings, ...bestBuild.bindings], spec.profile),
+    const kRows = propagationKParameters(structure, bestBuild.magnetic);
+    console.log(`[awo4] k rows: ${kRows.params.length > 0 ? kRows.params.map((p) => p.id).join(", ") : `none — ${kRows.notes.join("; ")}`}`);
+    const magneticRows = [...fitRows(bestBuild, best.values), ...kRows.params.map((p) => ({ ...p, fixed: !!p.expression }))];
+    const finalParams = [...nuclearFixed, ...magneticRows];
+    const free = finalParams.filter((p) => !p.fixed).map((p) => p.id);
+    expect(free.length).toBeGreaterThan(0);
+    expect(free.every((id) => magneticRows.some((p) => p.id === id))).toBe(true);
+    const fitted = refine(
+      buildMagneticPowderProblem(structure, bestBuild.magnetic, pattern, finalParams, [...spec.bindings, ...bestBuild.bindings, ...kRows.bindings], spec.profile),
       { maxIterations: 20 },
     );
     const finalValues: Record<string, number> = {};
-    for (const p of jointParams) finalValues[p.id] = joint.parameters[p.id] ?? p.value;
+    for (const p of finalParams) finalValues[p.id] = fitted.parameters[p.id] ?? p.value;
+    // The nuclear model is the reference the moments are measured against: not one of its rows moved.
+    for (const p of nuclear) expect(finalValues[p.id], p.id).toBe(p.value);
+    const finalWr = fitted.agreement.rWeighted ?? NaN;
     const finalMag = applyMagneticMoments(bestBuild.magnetic, bestBuild.bindings, finalValues);
-    console.log(`[awo4] joint: wR ${(100 * (joint.agreement.rWeighted ?? 0)).toFixed(2)}% (${joint.status}) · |M| ${finalMag.moments.map((m) => Math.hypot(...momentCartesian(structure.cell, m)).toFixed(2)).join(", ")}`);
-    // What the joint step moved, in esds of the joint fit: the moments trade
-    // with the scale and the ADPs (magnetic-analysis, Stage 4).
-    const esd = joint.esd ?? {};
-    const moved = jointParams.filter((p) => !p.fixed && esd[p.id]).map((p) => ({ id: p.id, from: p.value, to: finalValues[p.id]!, z: (finalValues[p.id]! - p.value) / esd[p.id]! }));
-    console.log(`[awo4] joint moved (Δ/esd, largest first): ${moved.sort((a, b) => Math.abs(b.z) - Math.abs(a.z)).slice(0, 8).map((m) => `${m.id} ${m.from.toPrecision(4)} → ${m.to.toPrecision(4)} (${m.z.toFixed(1)})`).join(" · ")}`);
-    console.log(`[awo4] joint moments: ${bestBuild.params.map((p) => `${p.id} ${finalValues[p.id]!.toFixed(3)}±${(esd[p.id] ?? NaN).toFixed(3)}`).join(" · ")} · |ρ| ≥ 0.8 with a moment: ${[...(joint.diagnostics?.highCorrelations ?? []), ...(joint.diagnostics?.moderateCorrelations ?? [])].filter((c) => bestBuild.params.some((p) => p.id === c.parameterIdA || p.id === c.parameterIdB)).map((c) => `${c.parameterIdA}~${c.parameterIdB} ${c.coefficient.toFixed(2)}`).join(", ") || "none"}`);
+    const esd = fitted.esd ?? {};
+    // |M| of the tied cations and its esd, from the free rows' esds and their
+    // correlation where the fit reports one (|ρ| below the report's floor is taken as 0).
+    const sizeOf = (v: Record<string, number>) => Math.hypot(...momentCartesian(structure.cell, applyMagneticMoments(bestBuild.magnetic, bestBuild.bindings, v).moments[0]!));
+    const size = sizeOf(finalValues);
+    const grad = free.map((id) => {
+      const h = 1e-4 * Math.max(1, Math.abs(finalValues[id]!));
+      return (sizeOf({ ...finalValues, [id]: finalValues[id]! + h }) - size) / h;
+    });
+    const correlations = [...(fitted.diagnostics?.highCorrelations ?? []), ...(fitted.diagnostics?.moderateCorrelations ?? [])];
+    const rho = (a: string, b: string) => (a === b ? 1 : correlations.find((c) => (c.parameterIdA === a && c.parameterIdB === b) || (c.parameterIdA === b && c.parameterIdB === a))?.coefficient ?? 0);
+    let sizeVar = 0;
+    free.forEach((a, i) => free.forEach((b, j) => { sizeVar += grad[i]! * grad[j]! * (esd[a] ?? NaN) * (esd[b] ?? NaN) * rho(a, b); }));
+    const sizeEsd = Math.sqrt(sizeVar);
+    console.log(`[awo4] magnetic refinement (free: ${free.join(", ")}; every nuclear row held): wR ${(100 * finalWr).toFixed(3)}% GoF ${(fitted.agreement.goodnessOfFit ?? NaN).toFixed(2)} (${fitted.status}) · ranked ${(100 * best.wR).toFixed(3)}% · |M| ${size.toFixed(3)}(${sizeEsd.toFixed(3)}) µB`);
+    console.log(`[awo4] moments: ${free.map((id) => `${id} ${finalValues[id]!.toFixed(3)}±${(esd[id] ?? NaN).toFixed(3)}`).join(" · ")} · components per site: ${finalMag.moments.map((m) => `${m.siteLabel} (${m.components.map((c) => c.toFixed(3)).join(", ")})`).join(" ")} · correlations reported: ${correlations.map((c) => `${c.parameterIdA}~${c.parameterIdB} ${c.coefficient.toFixed(2)}`).join(", ") || "none"}`);
     const solution = {
       k: K,
       group: best.label,
@@ -195,10 +222,14 @@ describe.skipIf(!has)("AWO₄ magnetic demo — solve the 6 K magnetic structure
       ions,
       backgroundTerms: 6,
       params: Object.fromEntries(Object.entries(finalValues).map(([k, v]) => [k, Number(v.toPrecision(10))])),
+      /** The rows the final step refined: the magnetic parameters only (the moments, and k's free components). */
+      free,
       nuclearWr: Number(nuclearWr.toPrecision(6)),
-      jointWr: Number((joint.agreement.rWeighted ?? NaN).toPrecision(6)),
-      /** |M| (µB) of the tied cations after the joint fit: the demo test checks the demo carries it. */
-      moment: Number(Math.hypot(...momentCartesian(structure.cell, finalMag.moments[0]!)).toPrecision(6)),
+      /** wR of the magnetic refinement (moments only, the nuclear model held). */
+      magneticWr: Number(finalWr.toPrecision(6)),
+      /** |M| (µB) of the tied cations and its esd: the demo test checks the demo carries it. */
+      moment: Number(size.toPrecision(6)),
+      momentEsd: Number(sizeEsd.toPrecision(3)),
       selection: { test: "Hamilton (F on χ²)", alpha: RANK_NOISE_ALPHA, observations: best.dof + best.parameters },
       withinNoise: equivalent.map((r) => r.label),
       ranking: ranked.map((r) => ({
@@ -211,7 +242,9 @@ describe.skipIf(!has)("AWO₄ magnetic demo — solve the 6 K magnetic structure
     writeFileSync(out, JSON.stringify(solution, null, 2) + "\n");
     console.log(`[awo4] solution written to ${out}`);
     console.log("[awo4-json] " + JSON.stringify(solution));
-    expect(joint.agreement.rWeighted ?? 1).toBeLessThan(nuclearWr);
+    expect(finalWr).toBeLessThan(nuclearWr);
+    // The ranking fitted the same free rows from the same nuclear model: the final step converges it, never above it.
+    expect(finalWr).toBeLessThanOrEqual(best.wR * (1 + 1e-6));
   });
 });
 
