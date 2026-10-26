@@ -246,6 +246,7 @@ describe("PDFfit2 export: the parameters in PDFfit2's units", () => {
     const occFe = model.parameters.find((p) => p.id === "occ_Fe1")!;
     expect(ph.constraints.find((c) => c.variable === `occ(${co})`)!.formula).toBe(`1-@${occFe.index}`);
     expect(ph.constraints.find((c) => c.variable === `x(${co})`)!.formula).toBe(ph.constraints.find((c) => c.variable === `x(${fe})`)!.formula);
+    expect(model.parameters.find((p) => p.id === "pos_Fe1_0")!.meaning).toBe("shift along (1, 0, 0), fractional");
   });
 
   it("a symmetry-tied position: each image's coordinates as the generator's shift through its operation", () => {

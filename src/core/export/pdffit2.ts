@@ -666,8 +666,10 @@ function meaningOf(p: RefinementParameter, bindings: readonly ParameterBinding[]
     case "bIso": return "U_iso = B/8π² (Å²)";
     case "uAniso": return "U^ij mode coefficient (Å²)";
     case "positionShift": {
+      // One axis for every binding: a shift (a shared site's atoms move together); several: a distortion mode over the sites.
       const axis = own[0]?.axis;
-      return own.length > 1 ? `mode amplitude over ${own.length} sites` : axis ? `shift along (${axis.map((x) => fmt(x, 4)).join(", ")}), fractional` : "position shift";
+      const oneAxis = !!axis && own.every((b) => b.axis && b.axis.every((x, i) => Math.abs(x - axis[i]!) < 1e-12));
+      return oneAxis ? `shift along (${axis.map((x) => fmt(x, 4)).join(", ")}), fractional` : own.length > 1 ? `mode amplitude over ${new Set(own.map((b) => b.targetKey)).size} sites` : "position shift";
     }
     case "atomX": case "atomY": case "atomZ": return "fractional coordinate";
     case "occupancy": return "occupancy";
