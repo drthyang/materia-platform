@@ -16,7 +16,10 @@
  *     values on screen (physicalFindings, structureChecks), scaled. A finding
  *     the assessment calls critical is a blocker; a warning is to check; a
  *     held occupancy within 1 % outside [0, 1] (OCCUPANCY_FULL) is an input to
- *     correct, a note rather than a fault of the fit.
+ *     correct, a note rather than a fault of the fit. Each finding reads as a
+ *     short line of the page's own (findingLines.ts; a B on its bound with
+ *     the B-at-0 rule's options, or a fix of that rule in force, as
+ *     zeroAdpLines.ts words it); the finding's own words go behind its "?".
  *  3. The external cross-check in GSAS-II and FullProf, which the app cannot
  *     run: due once the first two pass, with why the esds may not hold (serial
  *     correlation, a value on its bound, a correlated pair: the Posterior).
@@ -29,6 +32,8 @@ import type { RefinementParameter, RefinementResult } from "@/core/refinement/ty
 import type { StructureModel } from "@/core/crystal/types";
 import { physicalFindings, type AssessmentFinding, type RefinementAssessment } from "@/core/diagnostics/assessment";
 import { structureChecks } from "@/core/diagnostics/structureChecks";
+import { findingLine, moderateCorrelationLine } from "@/core/diagnostics/findingLines";
+import type { ZeroAdpFix, ZeroAdpProposal } from "@/core/diagnostics/zeroAdp";
 import type { DurbinWatson } from "@/core/diagnostics/powderValidation";
 import { parametersChangedSince, type CheckAction } from "@/core/diagnostics/validationChecks";
 import { GOF_BANDS, OCCUPANCY_FULL, SHIFT_SETTLED } from "@/core/diagnostics/thresholds";
@@ -120,9 +125,20 @@ export type PhysicalSeverity = "blocker" | "issue" | "note";
 
 export interface PhysicalItem {
   readonly severity: PhysicalSeverity;
+  /** One short line, the result or the action first ("→ correct the input"). */
   readonly text: string;
   /** The assessment's account: what it usually means and what to do. */
   readonly detail?: string;
+  /** Where the line rewords the finding: the longer account, paragraph by paragraph (the finding's own words first), for the "?". */
+  readonly info?: readonly string[];
+  /** A caution the line carries (a B tied across two different sites): a ⚠ with it as its tooltip. */
+  readonly caution?: string;
+  /** The line as the report states it, where `text`'s arrow gives a result rather than an action. */
+  readonly report?: string;
+  /** The finding in a few words, for a sentence that lists it ("B(W1) at its 0 bound"). */
+  readonly brief?: string;
+  /** A line of the B-at-0 rule: a B on its bound with the rule's options ("open"), or a fix of it in force ("applied"), which the report states among its limitations. */
+  readonly zeroAdp?: "open" | "applied";
   readonly parameterIds: readonly string[];
 }
 
@@ -149,14 +165,39 @@ function heldOccupancyNote(f: AssessmentFinding, byId: ReadonlyMap<string, Refin
   };
 }
 
-/** One finding as the check lists it: the assessment's severity, a held occupancy just outside its range scaled to a note. */
-function itemOf(f: AssessmentFinding, byId: ReadonlyMap<string, RefinementParameter>): PhysicalItem {
+/** The B-at-0 rule on the page: its proposals and the fixes in force (core/diagnostics/zeroAdp.ts). */
+export interface ZeroAdpOnPage {
+  readonly proposals: readonly ZeroAdpProposal[];
+  readonly applied: readonly ZeroAdpFix[];
+}
+
+/**
+ * One finding as the check lists it: the assessment's severity, a held
+ * occupancy just outside its range scaled to a note, and the line in the
+ * page's own words where findingLines.ts has them (the finding's own after).
+ */
+function itemOf(f: AssessmentFinding, byId: ReadonlyMap<string, RefinementParameter>, ctx: Parameters<typeof findingLine>[1]): PhysicalItem {
   const ids = f.parameterIds ?? [];
   const detail = f.detail ? { detail: f.detail } : {};
-  if (f.severity === "critical") return { severity: "blocker", text: f.summary, ...detail, parameterIds: ids };
-  const held = heldOccupancyNote(f, byId);
-  if (held) return { severity: "note", text: held.text, detail: held.detail, parameterIds: ids };
-  return { severity: f.severity === "warning" ? "issue" : "note", text: f.summary, ...detail, parameterIds: ids };
+  const severity: PhysicalSeverity = f.severity === "critical" ? "blocker" : f.severity === "warning" ? "issue" : "note";
+  if (severity !== "blocker") {
+    const held = heldOccupancyNote(f, byId);
+    if (held) return { severity: "note", text: held.text, detail: held.detail, parameterIds: ids };
+  }
+  const line = findingLine(f, ctx);
+  if (!line) return { severity, text: f.summary, ...detail, parameterIds: ids };
+  // A B on its bound with the rule's options: "B(W1) at its 0 bound" when a sentence lists it.
+  const open = f.evidence?.proposal !== undefined;
+  const applied = f.category === "at-bound" && f.evidence?.rule !== undefined;
+  const brief = open ? line.text.replace(/ is at its 0 bound: .*$/, " at its 0 bound") : undefined;
+  return {
+    severity, text: line.text, ...detail, info: line.detail,
+    ...(open ? { zeroAdp: "open" as const } : applied ? { zeroAdp: "applied" as const } : {}),
+    ...(line.caution ? { caution: line.caution } : {}),
+    ...(line.report ? { report: line.report } : {}),
+    ...(brief && brief !== line.text ? { brief } : {}),
+    parameterIds: ids,
+  };
 }
 
 export interface PhysicalInput {
@@ -166,6 +207,8 @@ export interface PhysicalInput {
   readonly structures: readonly StructureModel[];
   /** assess_refinement's reading of the fit on screen, when a result describes it. */
   readonly assessment?: RefinementAssessment | null;
+  /** The B-at-0 rule on the page, which its at-bound findings name. */
+  readonly zeroAdp?: ZeroAdpOnPage | undefined;
 }
 
 /**
@@ -182,7 +225,8 @@ export function physicalItems(input: PhysicalInput): PhysicalItem[] {
     ? input.assessment.findings.filter((f) => f.category === "physical" || f.category === "at-bound")
     : [...physicalFindings(parameters), ...structures.flatMap((m) => structureChecks(m, structures.length > 1 ? m.name || m.id : undefined))];
   const byId = new Map(parameters.map((p) => [p.id, p]));
-  return findings.map((f) => itemOf(f, byId)).sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
+  const ctx = { parameters, result, zeroAdp: input.zeroAdp };
+  return findings.map((f) => itemOf(f, byId, ctx)).sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
 }
 
 // ── the three checks ───────────────────────────────────────────────────────
@@ -299,7 +343,11 @@ function crossCheck(input: CrossCheckInput): AcceptanceCheck {
     }
     // Pairs from 0.8 up to the refusal limit: refined, and reported, never silent (the user's rule).
     const moderate = findings.find((f) => f.category === "correlation" && f.severity === "note" && f.evidence?.pairs !== undefined);
-    if (moderate) esd.push({ text: moderate.summary, posterior: false });
+    if (moderate) {
+      // The pairs and their coefficients behind the "?": the line keeps the count and the largest.
+      const line = moderateCorrelationLine(moderate, input.parameters);
+      esd.push(line ? { text: line.text, detail: moderate.summary, posterior: false } : { text: moderate.summary, posterior: false });
+    }
   }
   const posterior = esd.some((e) => e.posterior);
   const actions: CheckAction[] = [...(input.canExport ? ["export-gsas2", "export-fullprof"] as const : []), ...(posterior ? ["posterior"] as const : [])];
@@ -339,6 +387,8 @@ export interface AcceptanceInput {
   readonly topCause?: { readonly phrase: string; readonly share: number; readonly first?: boolean } | undefined;
   /** Offer the cross-check bundles. */
   readonly canExport?: boolean;
+  /** The B-at-0 rule on the page (its proposals and fixes), which the physical findings name in short lines. */
+  readonly zeroAdp?: ZeroAdpOnPage | undefined;
 }
 
 export interface Acceptance {
@@ -357,7 +407,7 @@ export interface Acceptance {
 export function powderAcceptance(input: AcceptanceInput): Acceptance {
   const state = fitState(input.result, input.parameters, input.snapshot ?? false);
   const band = gofBand(input.gof);
-  const items = physicalItems({ result: input.result, parameters: input.parameters, structures: input.structures, assessment: input.assessment ?? null });
+  const items = physicalItems({ result: input.result, parameters: input.parameters, structures: input.structures, assessment: input.assessment ?? null, zeroAdp: input.zeroAdp });
   const gof = goodnessCheck(input.gof, band);
   const physical = physicalCheck(items, state.current);
   const passes = state.kind === "converged" && (band === "excellent" || band === "good") && physical.tone === "green";

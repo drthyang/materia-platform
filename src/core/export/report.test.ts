@@ -348,7 +348,7 @@ describe("the Result paragraph per verdict state", () => {
 
   it("a blocker makes it not acceptable, whatever the GoF", () => {
     const negative: RefinementParameter = { id: "B_O1", label: "B(O1)", kind: "bIso", value: -0.4, initialValue: -0.4, fixed: true };
-    expect(powderResultParagraph(input({ gof: 1.2, result: fit(1.2), parameters: [scale, negative] }))).toContain("It is not acceptable: 1 physical problem to fix first (B(O1) is held at -0.4000, negative");
+    expect(powderResultParagraph(input({ gof: 1.2, result: fit(1.2), parameters: [scale, negative] }))).toContain("It is not acceptable: 1 physical problem to fix first (B(O1) held at -0.4, negative).");
   });
 
   it("states where the values come from when they are not a converged refinement's", () => {

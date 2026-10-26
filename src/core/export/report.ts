@@ -92,6 +92,12 @@ export interface ReportIndex {
   readonly count?: boolean;
 }
 
+/** A limitation in a short line, with its full account for the appendix. */
+export interface ReportLimitation {
+  readonly text: string;
+  readonly detail?: string;
+}
+
 /** A label / value line of the "Data & model" record. */
 export interface ReportRow {
   readonly label: string;
@@ -323,7 +329,14 @@ export interface ReportInput {
   readonly result?: RefinementResult | null;
   /** Method notes: how the agreement factors, weights, and models are defined. */
   readonly notes?: readonly string[];
+  /** The limitations, each in full: what the frozen layout (reportMarkdownFrozen.ts) lists, and this layout when `limitations` is absent. */
   readonly warnings?: readonly string[];
+  /**
+   * The limitations as this layout shows them: one short line each, the full
+   * account in the appendix. The same limitations as `warnings`, less any a
+   * caveat line already states (a B on its bound the physical sanity names).
+   */
+  readonly limitations?: readonly ReportLimitation[];
   /** The analysis as the in-app Agent ran it, when it did. */
   readonly agent?: ReportAgent | null;
 }
@@ -546,7 +559,7 @@ export function phaseRole(phase: ReportPhase, index: number, total: number): str
 export function qualityItems(input: ReportInput): ReportCaveat[] {
   return [
     ...(input.assessment?.caveats ?? []),
-    ...(input.warnings ?? []).map((w): ReportCaveat => ({ tone: "warn", label: "Limitation", text: w })),
+    ...(input.limitations ?? (input.warnings ?? []).map((w): ReportLimitation => ({ text: w }))).map((l): ReportCaveat => ({ tone: "warn", label: "Limitation", text: l.text, ...(l.detail ? { detail: l.detail } : {}) })),
     ...(input.agent?.openIssues ?? []).map((t): ReportCaveat => {
       const m = /^([^:]{2,40}): (.+)$/.exec(t);
       return m ? { tone: "warn", label: m[1]!, text: m[2]! } : { tone: "warn", label: "Open issue", text: t };
@@ -837,6 +850,18 @@ ${table([{ head: "<i>r</i> (Å)" }, { head: "<i>R</i><sub>w</sub> (%)", num: tru
 <p class="note">${esc(boxcarNote(b))}</p>`;
 }
 
+/** The caveats whose line leaves something out, each with its full account (the finding's own words): the appendix's "Caveats in full". */
+export function caveatsInFull(items: readonly ReportCaveat[]): { label: string; text: string; detail: string }[] {
+  return items.filter((c) => !!c.detail).map((c) => ({ label: c.label, text: c.text, detail: c.detail! }));
+}
+
+function caveatsInFullHtml(items: readonly ReportCaveat[]): string {
+  const full = caveatsInFull(items);
+  if (full.length === 0) return "";
+  return `<p class="note">Each caveat above marked * in full: the line, then the account it was shortened from.</p>
+<dl class="full">${full.map((c) => `<dt><span class="lbl">${minus(esc(c.label))}</span> ${proseHtml(endSentence(c.text))}</dt><dd>${minus(esc(c.detail))}</dd>`).join("\n")}</dl>`;
+}
+
 /** A caveat's text ends as a sentence does. */
 export const endSentence = (t: string): string => (/[.!?)…]$/.test(t.trim()) || !t.trim() ? t.trim() : `${t.trim()}.`);
 
@@ -845,7 +870,7 @@ const TONE_LABEL: Record<ReportTone, string> = { ok: "met", note: "note", warn: 
 function qualityHtml(input: ReportInput): string {
   const items = qualityItems(input);
   const list = items.length > 0
-    ? `<ul class="caveats">${items.map((c) => `<li class="t-${c.tone}"><span class="dot" title="${TONE_LABEL[c.tone]}"></span><span class="lbl">${minus(esc(c.label))}</span> ${proseHtml(endSentence(c.text))}</li>`).join("\n")}</ul>`
+    ? `<ul class="caveats">${items.map((c) => `<li class="t-${c.tone}"${c.detail ? ` title="${esc(c.detail)}"` : ""}><span class="dot" title="${TONE_LABEL[c.tone]}"></span><span class="lbl">${minus(esc(c.label))}</span> ${proseHtml(endSentence(c.text))}${c.detail ? `<a class="more" href="#caveats-in-full" title="In full in the appendix">*</a>` : ""}</li>`).join("\n")}</ul>`
     : "";
   const posterior = input.agent?.posterior ? posteriorHtml(input.agent.posterior) : "";
   return list || posterior ? `${list}${posterior}` : "";
@@ -1066,6 +1091,12 @@ const CSS = `
   ul.caveats .dot { position: absolute; left: 2px; top: 0.72em; width: 7px; height: 7px; border-radius: 50%; background: var(--info); }
   ul.caveats .lbl { font-weight: 600; }
   ul.caveats .lbl::after { content: ":"; }
+  ul.caveats .more { margin-left: 0.2em; color: var(--soft); text-decoration: none; font-size: 0.85em; vertical-align: super; }
+  dl.full { margin: 0; max-width: 90ch; }
+  dl.full dt { margin-top: var(--s2); }
+  dl.full dt .lbl { font-weight: 600; }
+  dl.full dt .lbl::after { content: ":"; }
+  dl.full dd { margin: 2px 0 0 1.2em; color: var(--soft); }
   ul.caveats .t-ok .dot { background: var(--ok); } ul.caveats .t-note .dot { background: var(--note); } ul.caveats .t-warn .dot { background: var(--warn); } ul.caveats .t-bad .dot { background: var(--bad); }
   .st { font-size: var(--fs-4); }
   .st-pass { color: var(--ok); } .st-warn { color: var(--warn); font-weight: 600; } .st-note { color: var(--soft); }
@@ -1157,6 +1188,7 @@ export function reportHtml(input: ReportInput): string {
     part("data", "Data and model", "", input.data.length > 0 ? kvHtml(input.data) : ""),
     part("statistics", "Refinement statistics", "", kvHtml(statisticsRows(input))),
     input.agent ? part("record", "The analysis step by step", `${input.agent.steps.length} step${input.agent.steps.length === 1 ? "" : "s"}, every check${input.agent.notes.length > 0 ? ", the notes" : ""}`, agentRecordHtml(input.agent)) : "",
+    part("caveats-in-full", "Caveats in full", "", caveatsInFullHtml(qualityItems(input))),
     part("parameters", "Every parameter", `${input.parameters.length} parameter${input.parameters.length === 1 ? "" : "s"}, ${free} refined`, parametersHtml(input.parameters, input.technique)),
     part("conventions", "Conventions and software", "", conventionsHtml(input, date)),
   ].join("\n");

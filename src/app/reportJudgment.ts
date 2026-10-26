@@ -67,6 +67,7 @@ export function powderJudgment(page: JudgedPage, o: { readonly gof: number | nul
     snapshot: o.snapshot,
     topCause: top,
     canExport: true,
+    zeroAdp: page.zeroAdp,
   });
   return {
     acceptance,
