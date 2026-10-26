@@ -36,7 +36,13 @@ import { boxcarPlanIssue, boxcarStepIndex, boxcarTable, boxcarWindows, type Boxc
 import type { SequentialResult, SequentialStep } from "@/core/refinement/sequential";
 import type { SampleOptions, SampleResult } from "@/core/refinement/bayes/sampler";
 import type { ReportInput } from "@/core/export/report";
-import { pdfReportInput, type MagneticExploration } from "@/app/reportInputs";
+import { groupOfOperations, pdfReportInput, withEsds, type MagneticExploration } from "@/app/reportInputs";
+import { pdfguiBundle } from "@/core/export/pdfBundle";
+import { APP_VERSION } from "@/app/constants";
+import { magneticStructureToMcif } from "@/core/export/cif";
+import type { ZipEntry } from "@/core/export/zip";
+import { kLabel } from "@/core/magnetic/kSearch";
+import type { Vec3 } from "@/core/math/types";
 import { assess_refinement } from "@/mcp/tools";
 import { parametersChangedSince } from "@/core/diagnostics/validationChecks";
 import type { RefinementAssessment } from "@/core/diagnostics/assessment";
@@ -1077,4 +1083,45 @@ function findingsOf(m: PdfPageModel, v: ReturnType<typeof pageView>): { findings
   } catch {
     return { findings: null, current };
   }
+}
+
+/**
+ * The page's PDFgui / diffpy-CMI bundle (Export ▾): the fit as PDFfit2 takes
+ * it (core/export/pdfBundle.ts) — every phase as fitted, with the bindings
+ * that move it; the rows at their values, with the last refinement's esds
+ * while it describes them; the window; MATERIA's curve, and its nuclear part
+ * with a spin model in the fit; and that spin model as an mCIF for diffpy.mpdf.
+ */
+export function pdfguiBundleOf(m: PdfPageModel, extra: { readonly rw?: number } = {}): ZipEntry[] {
+  const v = pageView(m);
+  const current = m.result !== null && !parametersChangedSince(m.result, m.params);
+  const params = withEsds(m.params, current ? m.result : null);
+  const spin = v.spinFit ? v.refinedMagnetic ?? v.spinFit.magnetic : null;
+  const primary = v.refinedPhases[0]!;
+  const magnetic = spin
+    ? (() => {
+        const group = groupOfOperations(primary, spin);
+        return {
+          description: `${group.symbol.replace(/'/g, "′")}${group.numbers ? ` (${group.numbers})` : ""}, k = ${kLabel((spin.propagation[0] ?? [0, 0, 0]) as Vec3)}`,
+          mcif: { name: `${primary.name || primary.id}_mpdf.mcif`, text: magneticStructureToMcif(primary, spin, { params, bindings: [...v.primaryBindings] }) },
+        };
+      })()
+    : null;
+  return pdfguiBundle({
+    name: m.loaded.name || m.loaded.id,
+    phases: v.phases,
+    params,
+    bindings: v.bindings,
+    restraints: v.spec.restraints,
+    pattern: m.pattern,
+    fitRange: m.fitRange,
+    refinedPhases: v.refinedPhases,
+    rw: extra.rw ?? v.rw,
+    calc: v.curves.yCalc,
+    ...(v.mpdfCurves ? { calcNuclear: v.mpdfCurves.yNuclear } : {}),
+    magnetic,
+    current,
+    positionMode: m.positionMode,
+    appVersion: APP_VERSION,
+  });
 }

@@ -1060,6 +1060,11 @@ export function App(): JSX.Element {
         { label: "Report", hint: reportHint, onClick: () => pdfExports.current?.report?.() },
         { label: "CIF", onClick: () => pdfExports.current?.cif?.() },
         { label: "CSV", onClick: () => pdfExports.current?.csv?.() },
+        {
+          label: "PDFgui / diffpy-CMI bundle (.zip)",
+          hint: "The fit for PDFfit2, the engine of PDFgui and diffpy-CMI: the structure (.stru and CIF), the data, a script that refines the same parameters there and compares the results, the PDFgui project builder, and a README with the conventions",
+          onClick: () => pdfExports.current?.pdfguiBundle?.(),
+        },
       ]
     : scDataset
     ? [

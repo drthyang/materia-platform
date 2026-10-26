@@ -58,6 +58,8 @@ export interface WorkbenchExports {
   fullprofBundle?: () => void;
   /** Model + data + instprm + build_gpx.py as a GSAS-II bundle (.zip). */
   gsas2Bundle?: () => void;
+  /** A PDF fit as a PDFgui / diffpy-CMI bundle (.zip): the .stru, CIF, data, a PDFfit2 script and the PDFgui project builder. */
+  pdfguiBundle?: () => void;
   /**
    * The engine's technique block of the project file — everything needed to
    * reopen this page as it is now. The shell wraps it with the phases and
