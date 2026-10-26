@@ -13,6 +13,7 @@
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
+import type { RunRecorder } from "./replay/recorder";
 
 const UPSTREAM = "https://api.anthropic.com";
 const MAX_BODY_BYTES = 32 * 1024 * 1024;
@@ -26,7 +27,8 @@ type Next = (err?: unknown) => void;
 /** The hosts beyond this machine the server answers for: Vite's `allowedHosts` (true: any). */
 export type AllowedHosts = readonly string[] | true | undefined;
 
-export function anthropicProxy(apiKey: string | undefined, mount = "/api/anthropic", allowedHosts: () => AllowedHosts = () => undefined) {
+/** `recorder`: the dev server's run recorder (replay/recorder.ts, MATERIA_RECORD=1), told of each Messages exchange. */
+export function anthropicProxy(apiKey: string | undefined, mount = "/api/anthropic", allowedHosts: () => AllowedHosts = () => undefined, recorder?: RunRecorder) {
   return (req: IncomingMessage, res: ServerResponse, next: Next): void => {
     const url = req.url ?? "";
     const at = url.indexOf(mount + "/");
@@ -39,14 +41,14 @@ export function anthropicProxy(apiKey: string | undefined, mount = "/api/anthrop
       res.end(JSON.stringify({ proxy: true, key: !!apiKey }));
       return;
     }
-    void forward(req, res, url.slice(at + mount.length), apiKey).catch((e) => {
+    void forward(req, res, url.slice(at + mount.length), apiKey, recorder).catch((e) => {
       if (!res.headersSent) fail(res, 502, "proxy_error", `The proxy could not reach the API: ${e instanceof Error ? e.message : String(e)}`);
       else res.end();
     });
   };
 }
 
-async function forward(req: IncomingMessage, res: ServerResponse, path: string, apiKey: string | undefined): Promise<void> {
+async function forward(req: IncomingMessage, res: ServerResponse, path: string, apiKey: string | undefined, recorder?: RunRecorder): Promise<void> {
   if (!sameOrigin(req)) return fail(res, 403, "forbidden", "Only this app's own pages may use the proxy.");
   if (!apiKey) {
     return fail(res, 503, "proxy_not_configured", "The proxy has no API key. Start the dev server with ANTHROPIC_API_KEY set (in the shell, or in .env.local), or use your own key in the Copilot settings.");
@@ -73,7 +75,14 @@ async function forward(req: IncomingMessage, res: ServerResponse, path: string, 
     return;
   }
   // Stream it back as it arrives (server-sent events for a streaming request).
-  Readable.fromWeb(upstream.body as import("node:stream/web").ReadableStream).pipe(res);
+  let stream = upstream.body;
+  if (recorder && body && upstream.ok && path.split("?")[0] === "/v1/messages") {
+    // The recorder reads its own copy once the turn is complete; the page's is not held up.
+    const [page, copy] = stream.tee();
+    stream = page;
+    void new Response(copy).text().then((text) => recorder.exchange(body.toString("utf8"), text)).catch(() => undefined);
+  }
+  Readable.fromWeb(stream as import("node:stream/web").ReadableStream).pipe(res);
 }
 
 /**

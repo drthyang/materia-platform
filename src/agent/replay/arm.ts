@@ -3,11 +3,13 @@
  * build drops it): `?agentReplay=<id>` points the Agent at the dev server's
  * scripted replay (replay/server.ts). It sets the replay cookie the server
  * reads, and the Agent's settings to the proxy route, labelled as a scripted
- * replay, keeping the user's own settings aside. A later load without the
+ * replay (or, for a recorded live run, by the model that took it), keeping the
+ * user's own settings aside. A later load without the
  * flag puts them back and clears the cookie.
  */
 
 import { SETTINGS_KEY } from "../storage";
+import { CHAT_MODELS } from "../chat-models";
 import { DEMO_REPLAYS } from "./demoReplays";
 import { LOCAL_REPLAY, REPLAY_COOKIE } from "./cookie";
 
@@ -15,6 +17,17 @@ const KEPT_KEY = `${SETTINGS_KEY}.beforeReplay`;
 
 /** The label the drawer's chip shows for a scripted replay. */
 export const scriptedLabel = (id: string): string => `Scripted model (eval ${id})`;
+
+/**
+ * A recorded live run (replay/recorder.ts) is named by its model and time,
+ * `local-live-<model>-<yyyymmdd>-<hhmmss>`: its label is that model, so the
+ * drawer says it is a replay of a live run, not a scripted one.
+ */
+export function replayOfLabel(id: string): string {
+  const live = /^local-live-(.+)-\d{8}-\d{6}$/.exec(id);
+  if (!live) return scriptedLabel(id);
+  return CHAT_MODELS.find((m) => m.id === live[1])?.label ?? live[1]!;
+}
 
 export interface ReplayEnv {
   readonly search: string;
@@ -34,7 +47,7 @@ export function armReplay(env: ReplayEnv): string | null {
     } catch {
       stored = {};
     }
-    env.storage.setItem(SETTINGS_KEY, JSON.stringify({ ...stored, mode: "proxy", replayOf: scriptedLabel(id) }));
+    env.storage.setItem(SETTINGS_KEY, JSON.stringify({ ...stored, mode: "proxy", replayOf: replayOfLabel(id) }));
     env.setCookie(`${REPLAY_COOKIE}=${encodeURIComponent(id)}; path=/; SameSite=Strict`);
     return id;
   }

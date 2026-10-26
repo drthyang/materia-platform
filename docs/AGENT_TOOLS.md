@@ -924,6 +924,18 @@ reading or a scan counts only when it answered.
   requests there, and the server adds the key from `ANTHROPIC_API_KEY` and
   forwards them to api.anthropic.com, so the key never reaches the browser.
   Only the app's own pages may use it. The static build has no proxy.
+  - **Replays and recorded runs (dev server only).** `?agentReplay=<id>` makes
+    the proxy answer with a replay's model turns instead of the API: the page
+    runs the real chat loop, executor and tools, so every number is computed
+    again ([`src/agent/replay/`](../src/agent/replay/)). The eval suite's
+    scripted replays are labeled "a scripted replay, not a live run"; a
+    `local-…` replay is read from the git-ignored `data/replays/`. With
+    `MATERIA_RECORD=1` (in the shell or `.env.local`), the dev server's proxy
+    writes each live run through it to `data/replays/local-live-<model>-<time>.json`
+    ([`recorder.ts`](../src/agent/replay/recorder.ts)): the model's turns (its
+    words and tool calls), the scientist's later messages, and what each tool
+    answered. Played back, it is labeled with its model as a replay of a live
+    run. The terminal prints each recording's id as it is written.
 - **Ollama.** The same chat loop, tools and approvals drive a local model
   through Ollama's native `/api/chat`, translated to and from the Messages
   API ([`src/agent/ollamaNative.ts`](../src/agent/ollamaNative.ts)): it is

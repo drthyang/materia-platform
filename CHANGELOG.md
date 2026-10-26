@@ -9,6 +9,14 @@ release fixes bugs.
 
 ### Added
 
+- **A live Agent run can be recorded and replayed (dev server).** With
+  `MATERIA_RECORD=1`, the dev server's proxy writes each run through it to the
+  git-ignored `data/replays/` as a replay of that run: the model's words and
+  tool calls, the scientist's later messages, and each tool's answer.
+  `?agentReplay=<its id>` plays it again on the page, every tool run again,
+  and the Copilot labels it with its model as a replay of a live run, not a
+  scripted one. Off by default; the static build has neither.
+
 - **A B that refines to 0 gets ranked options, never a silent change.**
   When a powder refinement leaves an isotropic B on its lower bound, the page
   shows a notice over the parameters naming the atom, the B it reached, and
