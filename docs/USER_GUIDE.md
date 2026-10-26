@@ -29,7 +29,9 @@ The start page shows the **Structure**, **Data** and **Instrument** cards above
 - **PDF · GaTa₄Se₈ X-ray G(r)**: a real-space fit of synchrotron
   total-scattering data at 299 K, with the cubic average structure.
 - A third, magnetic demo (AWO₄) appears only in a local development build that
-  has the git-ignored data folder. Its data are unpublished.
+  has the git-ignored data folder. Its data are unpublished. It opens on the
+  magnetic page with its moments refined against the nuclear model, which is
+  held: only the moment rows are free.
 
 | Header control | What it does |
 | --- | --- |
