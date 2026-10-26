@@ -9,11 +9,12 @@ import type { CSSProperties, ReactNode } from "react";
 import { color } from "@/app/theme";
 import { describePeakSort, nextPeakSort, type PeakSort, type PeakSortKey } from "@/app/ui/peakTable";
 
-const buttonStyle: CSSProperties = {
-  display: "inline-flex", alignItems: "center", gap: 4, border: "none", background: "transparent",
-  padding: 0, margin: 0, font: "inherit", fontWeight: 600, color: "inherit", cursor: "pointer", textAlign: "left",
+/** The button fills its header cell, padding included, so the whole cell is the hit area (a finger needs the width too: workbench.css). */
+const buttonStyle = (padding: CSSProperties["padding"]): CSSProperties => ({
+  display: "flex", alignItems: "center", gap: 4, width: "100%", boxSizing: "border-box", border: "none", background: "transparent",
+  padding, margin: 0, font: "inherit", fontWeight: 600, color: "inherit", cursor: "pointer", textAlign: "left",
   whiteSpace: "nowrap",
-};
+});
 
 /** Two small triangles; the one for the sorted direction is solid, the other (or both, on an unsorted column) pale. */
 function SortGlyph({ dir }: { dir: "asc" | "desc" | null }): JSX.Element {
@@ -39,13 +40,14 @@ export function PeakSortHeader({ column, label, title, sort, onSort, style }: {
   return (
     <th
       scope="col"
-      style={style}
+      style={{ ...style, padding: 0 }}
       {...(active ? { "aria-sort": sort.dir === "asc" ? "ascending" : "descending" } : {})}
     >
       <button
         type="button"
+        className="wb-peak-sort"
         data-sort-column={column}
-        style={buttonStyle}
+        style={buttonStyle(style?.padding)}
         onClick={() => onSort(next)}
         title={`${title}. ${active ? `Sorted: ${describePeakSort(sort)}. Click for ${describePeakSort(next)}.` : `Click to sort: ${describePeakSort(next)}.`}`}
       >
