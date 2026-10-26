@@ -290,7 +290,7 @@ each M3 candidate, then rank candidates by fit and physical plausibility.
 - The page draws the chosen candidate on the pattern, opens on an applied model
   and explains a residual on nuclear positions as k = 0.
 - **AWO₄ 6 K demo (LOCAL ONLY):** opens on the solved k = (½,0,0), P2/c′
-  structure. Its data are unpublished, stay in the git-ignored `data/` folder
+  structure, its moments refined with the nuclear model held. Its data are unpublished, stay in the git-ignored `data/` folder
   and never enter the public build ([`awo4Magnetic.ts`](../src/examples/awo4Magnetic.ts)).
 
 **Next** (items 1–4 are Track B phases in
