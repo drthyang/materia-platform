@@ -14,7 +14,7 @@
 
 import type { PdfWorkspace } from "@/core/project/types";
 import { overlaySavedParameters, pdfWorkspaceFrom } from "@/app/projectIo";
-import type { AtomSite, StructureModel } from "@/core/crystal/types";
+import type { AtomSite, StructureModel, SymmetryOperation } from "@/core/crystal/types";
 import { withAdpModel as structureWithAdpModel } from "@/core/crystal/adp";
 import type { PdfPattern } from "@/core/diffraction/types";
 import { isMagneticModelParameterKind, type ParameterBinding, type RefinementOptions, type RefinementParameter, type RefinementResult } from "@/core/refinement/types";
@@ -29,7 +29,8 @@ import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import type { MagneticModel } from "@/core/magnetic/types";
 import { buildDistortionModes, buildSymmetryModes, positionShiftValuesFor, withDistortionModes, type DistortionModeSet } from "@/core/crystal/distortionModes";
 import { decomposeDisplacementRepresentation, type DisplaciveIrrepTerm } from "@/core/crystal/displaciveModes";
-import { activateDisplacementMode, identifySubgroup, projectIsotypicModes, realizeSubgroup, stabilizerOfField, type DisplacementField, type SubgroupIdentity } from "@/core/crystal/isotropyTree";
+import { activateDisplacementMode, realizeSubgroup, type SubgroupIdentity } from "@/core/crystal/isotropyTree";
+import { isotropyField } from "@/core/crystal/isotropySubgroups";
 import type { SubgroupNode } from "@/core/crystal/subgroupTree";
 import { applyParameters } from "@/core/workflow/apply";
 import { boxcarPlanIssue, boxcarStepIndex, boxcarTable, boxcarWindows, type BoxcarDirection, type BoxcarPlan, type BoxcarRun, type BoxcarSeries } from "@/core/workflow/pdfBoxcar";
@@ -655,24 +656,19 @@ export const ACTIVATION_KICK = 0.05;
  * isotropy subgroup's child realized, the activated field the leading free
  * amplitude with a small starting kick (±a are inversion domains with the
  * same G(r), so a gradient fit could never leave 0); the setting-free rows
- * carry over.
+ * carry over. `sub` is one of the irrep's isotropy subgroups (its operations
+ * in the parent's cell, isotropySubgroups.ts): the field is built again on the
+ * refined geometry, a generic optic field of the irrep that the subgroup fixes.
  */
-export function withActivatedMode(m: PdfPageModel, term: DisplaciveIrrepTerm, sub: { readonly identity: SubgroupIdentity; readonly field: DisplacementField }): { readonly model: PdfPageModel; readonly label: string; readonly message: string } {
+export function withActivatedMode(m: PdfPageModel, term: DisplaciveIrrepTerm, sub: { readonly identity: SubgroupIdentity; readonly operations: readonly SymmetryOperation[] }): { readonly model: PdfPageModel; readonly label: string; readonly message: string } {
   const subName = sub.identity.hermannMauguin ?? sub.identity.pointGroup ?? "subgroup";
   const label = `${term.irrep.label} → ${subName}`;
   const v = pageView(m);
   // From the refined geometry, not the loaded CIF: the child spec then self-seeds the refined values in its own setting.
   const refined = applyParameters(v.fitStructure, v.bindings, valuesOf(m.params)).model;
-  // The field again on the refined anchor (the atoms moved with the fit): by irrep label, then by the subgroup it leads to.
+  // The field again on the refined anchor (the atoms moved with the fit): the irrep by its label, then its field the subgroup fixes.
   const termNow = decomposeDisplacementRepresentation(refined).terms.find((t) => t.irrep.label === term.irrep.label && !t.trivial);
-  let fieldNow: DisplacementField | null = null;
-  for (const f of termNow ? projectIsotypicModes(refined, undefined, termNow, refined.spaceGroup.operations) : []) {
-    const id = identifySubgroup(stabilizerOfField(f, refined.spaceGroup.operations), refined.spaceGroup.operations);
-    if (id.number !== undefined ? id.number === sub.identity.number : id.pointGroup === sub.identity.pointGroup && id.index === sub.identity.index) {
-      fieldNow = f;
-      break;
-    }
-  }
+  const fieldNow = termNow ? isotropyField(refined, termNow, sub.operations) : null;
   if (!fieldNow) return { model: m, label, message: `activation failed: ${label} not found on the refined structure (did the fit lower the effective symmetry?)` };
   const act = activateDisplacementMode(refined, fieldNow, label);
   // A purely acoustic field is projected away: target the kick by the active mode's id, never by index.

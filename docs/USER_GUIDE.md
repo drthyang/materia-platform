@@ -447,9 +447,12 @@ shows the modes being refined.
 - To lower it, open the **Subgroups** view. Each choice loads the distortion
   modes it permits into **Positions**:
   - **Potential Γ modes · irreps** lists the symmetry-breaking irreps, with
-    their dimension and optic and acoustic mode counts. **Activate → …**
-    lowers to that isotropy subgroup and frees the mode with a small starting
-    amplitude.
+    their dimension and optic and acoustic mode counts, and each irrep's
+    isotropy subgroups: one per order-parameter direction, the one-parameter
+    directions first (for a cubic perovskite's polar irrep, P4mm, R3m and
+    Amm2), then the lower ones down to a general direction (marked
+    "general"). **Activate → …** lowers to that isotropy subgroup and frees
+    the mode with a small starting amplitude.
   - **Subgroup lattice** lists the translationengleiche subgroups.
     **Activate ↓** lowers to one and loads its modes, fixed at 0. A polar mode
     needs **Prefit ↻** to leave zero.

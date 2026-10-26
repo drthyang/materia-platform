@@ -16,26 +16,16 @@ import { useMemo } from "react";
 import { ACTIVATION_KICK, type ModesInForce } from "@/app/pdfPage";
 import type { StructureModel } from "@/core/crystal/types";
 import { decomposeDisplacementRepresentation, type DisplaciveIrrepTerm } from "@/core/crystal/displaciveModes";
-import {
-  projectIsotypicModes,
-  stabilizerOfField,
-  identifySubgroup,
-  subgroupTypeKey,
-  type DisplacementField,
-  type SubgroupIdentity,
-} from "@/core/crystal/isotropyTree";
+import type { DisplacementField, SubgroupIdentity } from "@/core/crystal/isotropyTree";
+import { irrepIsotropySubgroups, type IsotropySubgroup } from "@/core/crystal/isotropySubgroups";
+import { formatBasis } from "@/core/crystal/standardSetting";
 import { subgroupClassRepresentatives, type StructuralSubgroupTree, type SubgroupNode } from "@/core/crystal/subgroupTree";
 import { color, fz, mono, resetRangeBtn, uppercaseLabel } from "@/app/theme";
 
-/** An isotropy subgroup one of an irrep's modes leads to, with a field that reaches it. */
-export interface IrrepSubgroup {
-  readonly identity: SubgroupIdentity;
-  readonly field: DisplacementField;
-  /** How many of the irrep's candidate modes lead to it. */
-  readonly count: number;
-}
+/** An isotropy subgroup of an irrep (one order-parameter direction, its conjugates counted), with a field that reaches it. */
+export type IrrepSubgroup = IsotropySubgroup & { readonly field: DisplacementField };
 
-/** One symmetry-breaking Γ irrep of the loaded group and the subgroups its modes lead to. */
+/** One symmetry-breaking Γ irrep of the loaded group and its isotropy subgroups. */
 export interface IrrepBranch {
   readonly term: DisplaciveIrrepTerm;
   readonly subgroups: readonly IrrepSubgroup[];
@@ -43,34 +33,49 @@ export interface IrrepBranch {
 
 /**
  * The displacive decomposition of a structure's own space group at Γ: the
- * irreps that could carry a symmetry-breaking distortion, each with the
- * isotropy subgroups its modes lead to (null when it is not available).
- * Acoustic-only terms (optic = 0) are dropped: their entire content is a rigid
- * translation the gauge projection would discard, making activation a
- * guaranteed no-op.
+ * irreps that could carry a symmetry-breaking distortion, each with its
+ * isotropy subgroups — the epikernels and the kernel, one per order-parameter
+ * direction, one-parameter directions first (isotropySubgroups.ts; Stokes &
+ * Hatch 1988). Null when the decomposition is not available. Acoustic-only
+ * terms (optic = 0) are dropped: their entire content is a rigid translation
+ * the gauge projection would discard, making activation a guaranteed no-op.
  */
 export function gammaIrrepTree(structure: StructureModel): readonly IrrepBranch[] | null {
   const dec = decomposeDisplacementRepresentation(structure);
   if (!dec.available) return null;
   return dec.terms
     .filter((t) => !t.trivial && t.multiplicity - t.acoustic > 0)
-    .map((term) => {
-      const fields = projectIsotypicModes(structure, undefined, term, structure.spaceGroup.operations);
-      // Group candidate modes by the subgroup they lead to — the tree view.
-      // The key must distinguish subgroups that share point group and index
-      // but differ in translation content (Pm vs Pc), hence the
-      // setting-invariant op-set key fallback.
-      const bySub = new Map<string, { identity: SubgroupIdentity; field: DisplacementField; count: number }>();
-      for (const f of fields) {
-        const subOps = stabilizerOfField(f, structure.spaceGroup.operations);
-        const id = identifySubgroup(subOps, structure.spaceGroup.operations);
-        const key = id.number !== undefined ? `#${id.number}` : subgroupTypeKey(subOps);
-        const e = bySub.get(key);
-        if (e) e.count++;
-        else bySub.set(key, { identity: id, field: f, count: 1 });
-      }
-      return { term, subgroups: [...bySub.values()] };
-    });
+    .map((term) => ({
+      term,
+      subgroups: irrepIsotropySubgroups(structure, term).filter((s): s is IrrepSubgroup => s.field !== null),
+    }));
+}
+
+/** The name of a subgroup as the page lists it: the standard symbol and number, else the point group and index. */
+export function subgroupName(identity: SubgroupIdentity): string {
+  return identity.number !== undefined
+    ? `${identity.hermannMauguin ?? "?"} #${identity.number}`
+    : `${identity.pointGroup ?? "?"} (index ${identity.index})`;
+}
+
+/** The tooltip of an Activate → button: the direction, its orientations and domain states, where the name holds, and the kick. */
+function directionTitle(sub: IrrepSubgroup, dim: number): string {
+  const direction = sub.kernel
+    ? `a general direction of the order parameter (all ${dim} components free, the irrep's kernel)`
+    : sub.orderParameterDim === 1
+      ? "a one-parameter direction of the order parameter"
+      : `a ${sub.orderParameterDim}-parameter direction of the order parameter (of ${dim})`;
+  const orientations = `${sub.conjugates} orientation${sub.conjugates === 1 ? "" : "s"} (conjugate subgroups), ${sub.domainStates} domain states`;
+  const note = settingNote(sub.identity);
+  return `The isotropy subgroup of ${direction}; ${orientations}${note ? `; ${note}` : ""}. Activate: the space group lowers to it (Wyckoff orbits split) and the mode enters the Positions group free with a ${ACTIVATION_KICK} Å starting amplitude: at amplitude 0 the parent's symmetry makes χ² stationary along every symmetry-breaking mode, so it must start off zero.`;
+}
+
+/** Where the standard name holds, when it is not the parent's own cell. */
+export function settingNote(identity: SubgroupIdentity): string | null {
+  if (identity.method !== "conventional-cell" || !identity.basis) return null;
+  const shift = identity.originShift ? `, origin shifted by (${identity.originShift.map((x) => +x.toFixed(4)).join(", ")})` : "";
+  const given = identity.inParentCell ? `; ${identity.inParentCell} in the parent's cell` : "";
+  return `named in its own cell, ${formatBasis(identity.basis)}${shift}${given}; the structure keeps the parent's cell`;
 }
 
 interface Props {
@@ -194,11 +199,10 @@ export function SubgroupsPanel({ spaceGroup, lattice, irrepTree, modes, modeCoun
                         style={{ ...resetRangeBtn, ...(busy ? { opacity: 0.55, cursor: "not-allowed" } : {}) }}
                         disabled={busy}
                         onClick={() => onActivateMode(term, sub)}
-                        title={`Activate this distortion: the space group lowers to the isotropy subgroup (Wyckoff orbits split), the mode enters the Positions group free with a ${ACTIVATION_KICK} Å starting amplitude — a polar mode of a centrosymmetric parent sits at an exact χ² stationary point at amplitude 0, so it must start off zero.`}
+                        title={directionTitle(sub, dim)}
                       >
-                        Activate → {sub.identity.hermannMauguin ?? sub.identity.pointGroup ?? "?"}
-                        {sub.identity.number !== undefined ? ` #${sub.identity.number}` : ` (index ${sub.identity.index})`}
-                        {sub.count > 1 ? ` ·${sub.count}` : ""}
+                        Activate → {subgroupName(sub.identity)}
+                        {sub.orderParameterDim > 1 ? ` · ${sub.kernel ? "general" : `${sub.orderParameterDim}-dim`}` : ""}
                       </button>
                     ))}
                   </div>
@@ -206,7 +210,7 @@ export function SubgroupsPanel({ spaceGroup, lattice, irrepTree, modes, modeCoun
               })}
             </div>
             <p style={{ marginTop: 4, marginBottom: 0, fontSize: 12, color: color.secondary }}>
-              Cell-preserving (Γ) distortions of the loaded group only — zone-boundary (cell-multiplying) modes need projective small representations and are deliberately not enumerated. Oblique order-parameter directions arrive via a parent-CIF decomposition.
+              Each irrep lists its isotropy subgroups, one per order-parameter direction (Stokes &amp; Hatch): the one-parameter directions first, then the lower ones down to a general direction. Cell-preserving (Γ) distortions of the loaded group only — zone-boundary (cell-multiplying) modes need projective small representations and are deliberately not enumerated.
             </p>
           </>
         )}
@@ -227,10 +231,11 @@ export function SubgroupsPanel({ spaceGroup, lattice, irrepTree, modes, modeCoun
             </div>
             {nodes.map((n) => (
               <div key={n.id} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "4px 8px", borderTop: `1px solid ${color.subtle2}` }}>
-                <span style={{ fontFamily: mono, fontSize: fz.micro, color: color.ink, minWidth: 140 }}>
+                <span style={{ fontFamily: mono, fontSize: fz.micro, color: color.ink, minWidth: 140 }} title={settingNote(n.identity) ?? undefined}>
                   {n.identity.hermannMauguin ?? n.pointGroup ?? "?"}
                   {n.identity.hermannMauguin && n.pointGroup ? <span style={{ color: color.secondary }}> ({n.pointGroup})</span> : null}
                   {n.identity.number !== undefined ? <span style={{ color: color.secondary }}> #{n.identity.number}</span> : null}
+                  {n.identity.method === "conventional-cell" ? <span style={{ color: color.secondary }}> · own cell</span> : null}
                 </span>
                 {n.domainStates > 1 && (
                   <span
@@ -241,7 +246,7 @@ export function SubgroupsPanel({ spaceGroup, lattice, irrepTree, modes, modeCoun
                   </span>
                 )}
                 {n.identity.number === undefined && !n.isTrivial && (
-                  <span style={{ fontSize: fz.micro, color: color.secondary }} title="named by point group only — the origin-shifted/translation setting is not resolved yet">
+                  <span style={{ fontSize: fz.micro, color: color.secondary }} title="no tabulated setting matched: named by its point group only">
                     approx.
                   </span>
                 )}

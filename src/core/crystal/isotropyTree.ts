@@ -8,14 +8,15 @@
  *    works for multidimensional irreps of non-abelian groups too;
  *  - `stabilizerOfField`: the exact isotropy subgroup of a CONCRETE
  *    displacement field — the operations under which the field is invariant,
- *    u(g·r) = R_g·u(r). Computing the stabilizer of the chosen field (rather
- *    than tabulating per-irrep kernels) handles multidimensional order
- *    parameters for free: distinct OP directions of one irrep get their
- *    distinct isotropy subgroups (P4mm vs Amm2 vs R3m for a T1u vector);
+ *    u(g·r) = R_g·u(r). Distinct OP directions of one irrep get their
+ *    distinct isotropy subgroups (P4mm vs Amm2 vs R3m for a T1u vector); the
+ *    directions themselves, the kernel and epikernels of each irrep, are
+ *    enumerated in isotropySubgroups.ts;
  *  - `identifySubgroup`: name the subgroup — exact operation-set match against
  *    the generated table of all 564 settings, retried over the 24 proper axis-permutation
- *    settings; honest fallback to point group + index when no match is found
- *    (origin-shifted settings are a later addition);
+ *    settings, or with `standard` in the conventional cell of the subgroup's
+ *    own symmetry (standardSetting.ts); honest fallback to point group +
+ *    index when no match is found;
  *  - `realizeSubgroup`: re-express the parent structure in the subgroup
  *    setting by splitting each Wyckoff orbit into its subgroup orbits — the
  *    step that makes an activated symmetry-breaking mode PHYSICAL: expanding a
@@ -455,7 +456,7 @@ export function activateDisplacementMode(
   label: string,
 ): ActivatedMode {
   const subOps = stabilizerOfField(field, parent.spaceGroup.operations);
-  const identity = identifySubgroup(subOps, parent.spaceGroup.operations);
+  const identity = identifySubgroup(subOps, parent.spaceGroup.operations, { standard: true });
   const child = realizeSubgroup(parent, subOps, identity);
 
   // Field value at each child asymmetric site (its own orbit representative).

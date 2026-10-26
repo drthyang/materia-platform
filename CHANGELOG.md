@@ -803,9 +803,10 @@ release fixes bugs.
 - **The PDF Subgroups page reads a centred parent's subgroups as centred.**
   Its subgroup lattice held each subgroup as one operation per rotation,
   without the parent's centring translations, so an F, I or R parent's
-  subgroups were named and built as primitive ones: NaCl's Fm-3m opened as
-  "Pm-3m" with a "P4/mmm" subgroup, and lowering to it split Na 4a into three
-  sites (a klassengleiche P subgroup, not F4/mmm). Every subgroup now keeps
+  subgroups were named and built as primitive ones: the GaTa₄Se₈ demo's
+  F-43m opened as "P-43m" with "R3m:R" and "P-4" below it, NaCl's Fm-3m as
+  "Pm-3m" with a "P4/mmm" subgroup, and lowering to that one split Na 4a into
+  three sites (a klassengleiche P subgroup, not F4/mmm). Every subgroup now keeps
   all the parent's lattice translations, as a translationengleiche subgroup
   does, and is named in its standard setting from the conventional cell of
   its own symmetry (ITA A, Ch. 3.1 and 5.1): Fm-3m's 4/mmm subgroup is
@@ -823,6 +824,20 @@ release fixes bugs.
   [G : H] = 6, ±P along each axis (Janovec; ITA D, Ch. 3.4). The row now
   shows both: "3 orientations · 6 domain states". The magnetic subgroups'
   domain counts are unchanged.
+
+- **The Γ irrep tree lists every order-parameter direction of an irrep.** It
+  took the stabilizers of the irrep's basis fields alone, which lie along the
+  axes, so a multidimensional irrep showed one subgroup: BaTiO₃'s polar T1u
+  (Γ4⁻) gave P4mm and never Amm2 or R3m, and GaTa₄Se₈'s T2 never R3m, the
+  distortion it is known for. Each irrep now lists its isotropy subgroups, the
+  epikernels and the kernel (Stokes & Hatch 1988; ISOTROPY), found exactly
+  from its characters: a subgroup is one when the irrep's subspace it fixes
+  is larger than any larger subgroup's. The one-parameter directions come
+  first, then the lower ones down to a general direction, each with its
+  orientations and domain states; activating one builds a field with exactly
+  that symmetry. Validated against the known lists for Pm-3m (T1u: P4mm,
+  R3m, Amm2, Pm, Cm, P1; T2u: P-4m2, R32, Amm2, C2, Pm, P1), Fm-3m, F-43m,
+  P4/mmm, I4/mmm and R-3m.
 
 - **A staged fit keeps a profile stage whose zero trades with the cell.** The
   staged sequence rejected a whole stage when freeing it grew an earlier

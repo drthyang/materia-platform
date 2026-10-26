@@ -27,7 +27,6 @@ import { isMomentParameterKind } from "@/core/refinement/types";
 import { KSearchPanel } from "@/components/KSearchPanel";
 import type { MagneticFit } from "@/app/magneticStep";
 import type { DisplaciveIrrepTerm } from "@/core/crystal/displaciveModes";
-import type { DisplacementField, SubgroupIdentity } from "@/core/crystal/isotropyTree";
 import { structuralSubgroupLattice, type SubgroupNode } from "@/core/crystal/subgroupTree";
 import { parseCif } from "@/parsers/cif";
 import {
@@ -37,7 +36,7 @@ import {
 } from "@/app/pdfPage";
 import { SiteTotals } from "@/app/ui/SiteTotals";
 import { DistortionModesPanel } from "@/app/ui/DistortionModesPanel";
-import { SubgroupsPanel, gammaIrrepTree } from "@/app/ui/SubgroupsPanel";
+import { SubgroupsPanel, gammaIrrepTree, type IrrepSubgroup } from "@/app/ui/SubgroupsPanel";
 import { sharedSites, siteSumRangeWarnings } from "@/core/workflow/structureRefinement";
 
 // Lazy so three.js stays out of the main bundle until the 3D view is opened.
@@ -508,7 +507,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   // Activate one symmetry-breaking mode (withActivatedMode): the isotropy
   // subgroup's child realized, the activated field the leading free amplitude
   // with a small starting kick.
-  function onActivateMode(term: DisplaciveIrrepTerm, sub: { identity: SubgroupIdentity; field: DisplacementField }): void {
+  function onActivateMode(term: DisplaciveIrrepTerm, sub: IrrepSubgroup): void {
     const activated = withActivatedMode(model, term, sub);
     if (activated.model === model) {
       console.error(`[status] ${activated.message}`);
