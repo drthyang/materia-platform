@@ -6,15 +6,24 @@
  *
  * It reuses the generic finite-group subgroup enumerator `allSubgroups`
  * (`add-a-generator-and-close` BFS over the rotation-coset composition table —
- * exhaustive for any crystallographic group, |Ḡ| ≤ 48). Every subgroup found is
+ * exhaustive for any crystallographic group, |Ḡ| ≤ 48). A t-subgroup H keeps
+ * EVERY lattice translation of G, centring included (Hermann 1929; ITA A1,
+ * Ch. 1.2): H = ⋃_{h̄ ∈ H̄} (h̄, t_h + L), so each node's operations are its coset
+ * representatives with the parent's centring translations added — read without
+ * them, Fm-3m's 4/mmm subgroup is the primitive P4/mmm, a klassengleiche
+ * subgroup that splits Na 4a into three sites. Every subgroup found is
  *
- *  - named with `identifySubgroup` (exact op-set match → H-M symbol + IT number,
- *    retried over axis-permutation settings; honest point-group-only fallback);
+ *  - named with `identifySubgroup` in its STANDARD setting (`standard`: the
+ *    conventional cell of its own symmetry, e.g. F4/mmm → I4/mmm, #139, with
+ *    a′ = (a−b)/2, b′ = (a+b)/2, c′ = c; honest point-group-only fallback);
  *  - linked into the group–subgroup lattice by its COVERING relations (immediate
  *    maximal subgroups / minimal supergroups) — the Bärnighausen-tree edges; and
  *  - grouped into conjugacy classes under the parent (conjugate subgroups are
- *    the same distortion in symmetry-equivalent DOMAINS), each class reporting a
- *    representative and a domain count, exactly as the magnetic lattice does.
+ *    the same distortion in symmetry-equivalent orientations), each class
+ *    reporting a representative, its number of conjugates [G : N_G(H)] and its
+ *    number of domain states [G : H] (Janovec; ITA D, Ch. 3.4): Pm-3m → P4mm
+ *    has 3 conjugates (the polar axis along x, y or z) and 6 domain states
+ *    (±P along each).
  *
  * Each node carries its own OPERATIONS, so a chosen node feeds `realizeSubgroup`
  * (orbit splitting) and then `buildSymmetryModes` directly — the subgroup-driven
@@ -30,17 +39,23 @@
  */
 
 import type { SymmetryOperation, StructureModel } from "@/core/crystal/types";
+import type { Vec3 } from "@/core/math/types";
 import { IDENTITY3 } from "@/core/math/mat3";
+import { formatOperationXyz } from "@/core/crystal/symmetry";
 import { identifySubgroup, type SubgroupIdentity } from "@/core/crystal/isotropyTree";
+import { latticeCentring } from "@/core/crystal/standardSetting";
 import { allSubgroups, buildCosetContext, type CosetContext } from "@/core/magnetic/subgroupLattice";
 
 export interface SubgroupNode {
   /** Stable id (derived from the coset-index set) — the key covering edges use. */
   readonly id: string;
-  /** The subgroup's operations (one representative per rotation coset, with the
-   *  parent's intrinsic translations) — ready for `realizeSubgroup`. */
+  /** The subgroup's operations in the parent's cell: each rotation coset's
+   *  representative with every centring translation of the parent (a
+   *  t-subgroup keeps them all) — ready for `realizeSubgroup`. */
   readonly operations: readonly SymmetryOperation[];
-  /** Name: H-M symbol + IT number when matched, else point group + index. */
+  /** One representative per rotation coset (the parent's intrinsic translations, no centring). */
+  readonly cosetOperations: readonly SymmetryOperation[];
+  /** Name in the standard setting: H-M symbol + IT number when matched (with the conventional cell when it is not the parent's), else point group + index. */
   readonly identity: SubgroupIdentity;
   /** Point-group symbol (always defined when classifiable). */
   readonly pointGroup: string | null;
@@ -54,10 +69,19 @@ export interface SubgroupNode {
   readonly minimalSupergroupIds: readonly string[];
   /** 0-based conjugacy-class id (classes are contiguous in `nodes`). */
   readonly conjugacyClassId: number;
-  /** True for the canonical member the UI lists; conjugates are other domains. */
+  /** True for the canonical member the UI lists; its conjugates are the other orientations. */
   readonly classRepresentative: boolean;
-  /** Number of conjugate subgroups in this class = symmetry-equivalent domains. */
-  readonly domainCount: number;
+  /**
+   * Number of conjugate subgroups in this class, [G : N_G(H)]: the distinct
+   * orientations of the distortion (Pm-3m → P4mm: 3). Not the domain count.
+   */
+  readonly conjugates: number;
+  /**
+   * Number of domain states, [G : H] — the index, since a t-subgroup keeps the
+   * lattice (no translation domains): each orientation holds [N_G(H) : H]
+   * states of the same symmetry, such as ±P (Pm-3m → P4mm: 6).
+   */
+  readonly domainStates: number;
   /** The whole group H = G. */
   readonly isParent: boolean;
   /** The trivial subgroup H = P1. */
@@ -75,13 +99,35 @@ export interface StructuralSubgroupTree {
 
 const IDENTITY_OP: SymmetryOperation = { rotation: IDENTITY3, translation: [0, 0, 0], xyz: "x,y,z" };
 
+const mod1 = (x: number): number => {
+  const f = x - Math.floor(x);
+  return f > 1 - 1e-9 || f < 1e-9 ? 0 : f;
+};
+
+/**
+ * A t-subgroup's operations in its parent's cell: each coset representative
+ * with every centring translation of the parent's lattice (translations mod 1,
+ * Jones–Faithful strings rewritten). A t-subgroup keeps all of them.
+ */
+export function withLatticeCentring(
+  cosetOps: readonly SymmetryOperation[],
+  centring: readonly (readonly [number, number, number])[],
+): SymmetryOperation[] {
+  return cosetOps.flatMap((op) =>
+    centring.map((c) => {
+      const translation: Vec3 = [mod1(op.translation[0] + c[0]), mod1(op.translation[1] + c[1]), mod1(op.translation[2] + c[2])];
+      return { rotation: op.rotation, translation, xyz: formatOperationXyz(op.rotation, translation) };
+    }),
+  );
+}
+
 /** Conjugate the coset-index set S by coset g: h ↦ g·h·g⁻¹. */
 function conjugateSet(S: readonly number[], g: number, ctx: CosetContext): number[] {
   return S.map((h) => ctx.comp[ctx.comp[g]![h]!]![ctx.inv[g]!]!).sort((a, b) => a - b);
 }
 
 /** Lexicographically minimal conjugate signature — equal for conjugate subgroups. */
-function conjugacyKey(S: readonly number[], ctx: CosetContext): string {
+export function conjugacyKey(S: readonly number[], ctx: CosetContext): string {
   let best: string | null = null;
   for (let g = 0; g < ctx.cosets.length; g++) {
     const k = conjugateSet(S, g, ctx).join(",");
@@ -103,6 +149,7 @@ export function structuralSubgroupLattice(
 ): StructuralSubgroupTree {
   const parentOps = structure.spaceGroup.operations.length ? structure.spaceGroup.operations : [IDENTITY_OP];
   const ctx = buildCosetContext(parentOps);
+  const centring = latticeCentring(parentOps);
   const N = ctx.cosets.length;
   const maxIndex = opts.maxIndex ?? Number.POSITIVE_INFINITY;
 
@@ -115,8 +162,8 @@ export function structuralSubgroupLattice(
   const classOrder: string[] = [];
   for (const k of classKey) if (!classOrder.includes(k)) classOrder.push(k);
   const classIdByKey = new Map(classOrder.map((k, i) => [k, i] as const));
-  const domainCountByKey = new Map<string, number>();
-  for (const k of classKey) domainCountByKey.set(k, (domainCountByKey.get(k) ?? 0) + 1);
+  const conjugateCountByKey = new Map<string, number>();
+  for (const k of classKey) conjugateCountByKey.set(k, (conjugateCountByKey.get(k) ?? 0) + 1);
 
   // Retain by index, keep original (size-descending) order for now.
   const retained = all
@@ -152,8 +199,9 @@ export function structuralSubgroupLattice(
   // First node in each class (by size desc, then id) is the representative.
   const seenClass = new Set<number>();
   const built = retained.map(({ S }, r) => {
-    const ops = S.map((ci) => ctx.cosets[ci]!);
-    const identity = identifySubgroup(ops, parentOps);
+    const cosetOperations = S.map((ci) => ctx.cosets[ci]!);
+    const operations = withLatticeCentring(cosetOperations, centring);
+    const identity = identifySubgroup(operations, parentOps, { standard: true });
     const key = classKey[retained[r]!.i]!;
     const conjugacyClassId = classIdByKey.get(key)!;
     const isRep = !seenClass.has(conjugacyClassId);
@@ -161,7 +209,8 @@ export function structuralSubgroupLattice(
     const order = S.length;
     return {
       id: idOf(S),
-      operations: ops,
+      operations,
+      cosetOperations,
       identity,
       pointGroup: identity.pointGroup,
       order,
@@ -170,7 +219,8 @@ export function structuralSubgroupLattice(
       minimalSupergroupIds: parents[r]!,
       conjugacyClassId,
       classRepresentative: isRep,
-      domainCount: domainCountByKey.get(key)!,
+      conjugates: conjugateCountByKey.get(key)!,
+      domainStates: N / order,
       isParent: order === N,
       isTrivial: order === 1,
     } satisfies SubgroupNode;

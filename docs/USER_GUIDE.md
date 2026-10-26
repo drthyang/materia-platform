@@ -449,12 +449,20 @@ shows the modes being refined.
 - To lower it, open the **Subgroups** view. Each choice loads the distortion
   modes it permits into **Positions**:
   - **Potential Γ modes · irreps** lists the symmetry-breaking irreps, with
-    their dimension and optic and acoustic mode counts. **Activate → …**
-    lowers to that isotropy subgroup and frees the mode with a small starting
-    amplitude.
-  - **Subgroup lattice** lists the translationengleiche subgroups.
-    **Activate ↓** lowers to one and loads its modes, fixed at 0. A polar mode
-    needs **Prefit ↻** to leave zero.
+    their dimension and optic and acoustic mode counts, and each irrep's
+    isotropy subgroups: one per order-parameter direction, the one-parameter
+    directions first (for a cubic perovskite's polar irrep, P4mm, R3m and
+    Amm2), then the lower ones down to a general direction (marked
+    "general"). **Activate → …** lowers to that isotropy subgroup and frees
+    the mode with a small starting amplitude.
+  - **Subgroup lattice** lists the translationengleiche subgroups, each in
+    its standard setting (a centred parent's subgroups keep its centring:
+    F-43m's tetragonal subgroup is I-4m2), with its orientations (conjugate
+    subgroups) and domain states. **Activate ↓** lowers to one and loads its
+    modes: the order parameter that lowers the structure to it is freed with
+    a small starting amplitude, as **Activate →** does, and the other modes
+    start fixed at 0. At the parent's geometry a symmetry-breaking mode
+    started at 0 would never move.
   - **Load parent CIF…** decomposes a structure that is already the distorted
     child against a high-symmetry parent.
 - The choice shows at the top of the **Subgroups** view. **✕ clear** returns
