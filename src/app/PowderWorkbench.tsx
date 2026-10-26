@@ -2081,7 +2081,7 @@ function EmptyWorkbench({ demos, onLoadDemo, onOpenProject }: { demos: readonly 
         </div>
       )}
       {onOpenProject && (
-        <label style={openProjectLink} title="Reopen a session saved with Project ▸ Save project">
+        <label style={openProjectLink} title="Reopen a session saved with the header's Save button">
           … or open a saved project (.materia.json)
           <input
             type="file"

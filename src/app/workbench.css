@@ -889,6 +889,15 @@ html {
     gap: 12px 16px !important;
   }
 }
+/* Save and Load are two buttons of their own, not the one menu they came from.
+ * Between 1281 and 1499px they would crowd the current-step label out of the
+ * row at 1440 (it needs 135px; the two words leave it 126), so their padding
+ * tightens here, as every menu button's does from 1280px down. */
+@container shell (min-width: 1281px) and (max-width: 1499px) {
+  .wb-header-file {
+    padding: 8px 12px !important;
+  }
+}
 /* Up to 1280px back / forward move from the header into the History popover
  * (⌘Z / ⇧⌘Z still work), History shows as its icon and the menu buttons
  * tighten, so the brand, the chips and the menus still share one row. */
