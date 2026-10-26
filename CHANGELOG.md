@@ -613,6 +613,18 @@ release fixes bugs.
 
 ### Changed
 
+- **Save and Load are header buttons of their own, not folded into "Project ▾".**
+  The menu held only those two, so it is gone: Save and Load sit in the header
+  beside History, Demos and Export, in the same button style, each with a
+  tooltip naming the `.materia.json` file. Save appears once something is
+  loaded (as it did), Load is there from the start page. What they do is
+  unchanged: the same project file is written and read. They stay words, not
+  icons, at every width, so the header keeps the row counts and heights it had
+  on a 1440 and a 1920 desktop, the iPad Pro 11" and 13" and the iPhone 18 Pro
+  and Pro Max, upright and sideways, and the buttons are 44 px tall on a
+  touch screen. Between 1281 and 1499 px they take slightly less padding so
+  the current-step label still shows at 1440 px.
+
 - **The local AWO₄ magnetic demo refines the moments alone, the nuclear model
   held.** Its solve (`awo4MagneticSolve.test.ts`, `AWO4_SOLVE=1`) no longer
   ends on a joint nuclear + magnetic fit. Its last step, the owner's rule for

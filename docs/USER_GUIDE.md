@@ -37,7 +37,7 @@ The start page shows the **Structure**, **Data** and **Instrument** cards above
 | --- | --- |
 | **Powder** · **Crystal**, **Rietveld** · **PDF** | Indicators: the sample form and the technique of the loaded data |
 | **Nuclear** · **Magnetic** | Switch between the refinement page and the magnetic page |
-| **Project ▾** | **Save project** and **Open project…** |
+| **Save** · **Load** | Save the session as a project file, or load a saved one |
 | **Export ▾** | The report and the files for the active technique |
 
 The data you load pick the page. A reflection list opens the single-crystal
@@ -54,7 +54,7 @@ page, a G(r) file the PDF page, and any other pattern the powder page.
 | Single-crystal reflections | SHELX `.hkl` (h k l F² σ); FullProf `.int`; a GSAS-II reflection list, filtered to the loaded cell | **Load data…** |
 | Magnetic satellites | A second `.int` or `.hkl`, indexed as the fundamental hkl of hkl ± k | **Load magnetic .int…** |
 | Pair distribution function | `.gr`; `.sq` and `.fq`, transformed to G(r) on load; PDFgui `.fgr` fit files | **Load data…** |
-| Project | `.materia.json` | **Project ▾** → **Open project…** |
+| Project | `.materia.json` | **Load** in the header |
 
 **Check `.hkl` reflections after loading.** The page reads them as
 whitespace-separated columns, so in a SHELX HKLF 4 file an intensity of
@@ -642,9 +642,9 @@ near 1 supports the least-squares esds.
 
 ## 9. Save and export
 
-**Project ▾** → **Save project** downloads the session as a `.materia.json`
-file. **Open project…**, or **… or open a saved project (.materia.json)** on the
-start page, reopens it on the page you saved from.
+**Save** in the header downloads the session as a `.materia.json` file (it
+appears once something is loaded). **Load**, or **… or open a saved project
+(.materia.json)** on the start page, reopens it on the page you saved from.
 
 A project keeps the phases, data, parameters, model settings, last result,
 applied magnetic model and the step history. It does not keep the magnetic page's search state,
