@@ -168,11 +168,11 @@ const CONTRACTS: Record<string, { args: object; keys: string[] }> = {
   build_refinement: { args: { structure, pattern }, keys: ["bindings", "freeCount", "parameters", "profile"] },
   check_fit_range: {
     args: { structure, pattern, parameters: refined.parameters, bindings: built.bindings, profile: built.profile, result: refined.result },
-    keys: ["basis", "extent", "high", "interior", "low", "proposed", "proposedD"],
+    keys: ["basis", "extent", "high", "interior", "low", "proposed", "proposedD", "reading"],
   },
   check_cell_symmetry: {
     args: { structure, pattern },
-    keys: ["absences", "absencesConsistent", "cell", "cellValues", "everyPeakIndexes", "leBail", "limits", "passed", "shoulders", "unindexedPeaks"],
+    keys: ["absences", "absencesConsistent", "cell", "cellValues", "everyPeakIndexes", "leBail", "limits", "passed", "reading", "shoulders", "unindexedPeaks"],
   },
   refine_powder: {
     args: { structure, pattern, parameters: built.parameters, bindings: built.bindings, profile: built.profile, maxIterations: 2 },
@@ -201,9 +201,9 @@ const CONTRACTS: Record<string, { args: object; keys: string[] }> = {
         yCalc: Array.from({ length: 60 }, () => 5),
       },
     },
-    keys: ["count", "peaks"],
+    keys: ["count", "k0Magnetic", "misfits", "reading", "unexplained"],
   },
-  review_symmetry: { args: { structure, residual: refined.residual }, keys: ["candidates", "limits", "observedForbidden", "reading", "tested", "untestable"] },
+  review_symmetry: { args: { structure, residual: refined.residual }, keys: ["candidates", "decentred", "limits", "observedForbidden", "reading", "tested", "untestable"] },
   search_propagation_vector: { args: { structure, peakD: [6.7, 3.35] }, keys: ["candidates"] },
   list_magnetic_subgroups: { args: { structure, maxIndex: 4 }, keys: ["candidates"] },
   allowed_moments: { args: { structure }, keys: ["sites"] },
@@ -272,7 +272,7 @@ const CONTRACTS: Record<string, { args: object; keys: string[] }> = {
     // itself part of the contract). The default ensemble sampler; the NUTS
     // variant is exercised in pdfPosterior.test.ts / nuts.test.ts.
     args: { structure, pattern: pdfPattern, parameters: pdfBuilt.parameters, bindings: pdfBuilt.bindings, nSteps: 5, nWalkers: 4, burnIn: 1, seed: 7 },
-    keys: ["acceptanceFraction", "converged", "correlations", "freeIds", "message", "nSamples", "parallel", "posterior", "resume", "sampler", "status"],
+    keys: ["acceptanceFraction", "converged", "correlations", "freeIds", "intervals", "message", "nSamples", "parallel", "posterior", "reading", "resume", "sampler", "status"],
   },
   compute_partial_pdf: {
     args: { structure, pattern: pdfPattern, parameters: pdfBuilt.parameters, bindings: pdfBuilt.bindings },

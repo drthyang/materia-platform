@@ -8,7 +8,7 @@ import type { EvaluatorSpec, RefineMpdfRequest, RefinePdfRequest, RefinePowderRe
 import type { AgreementFactors, RefinementOptions, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import { refine, type RefinementProblem } from "@/core/refinement/engine";
 import { buildPowderProblem, type PowderProfile } from "@/core/workflow/powder";
-import { buildPdfProblem, buildMultiPhasePdfProblem } from "@/core/workflow/pdf";
+import { buildPdfProblem, buildMultiPhasePdfProblem, type PdfShard } from "@/core/workflow/pdf";
 import { buildMpdfProblem } from "@/core/workflow/mpdf";
 import { buildMagneticPowderProblem } from "@/core/workflow/magneticPowder";
 import { buildSingleCrystalRefinementProblem } from "@/core/workflow/singleCrystalRefinement";
@@ -17,29 +17,38 @@ import { buildMultiPhasePowderProblem } from "@/core/workflow/multiPhase";
 import { refineStaged } from "@/core/refinement/staged";
 import { stagesFromKindGroups } from "@/core/workflow/structureRefinement";
 
+/** The powder profile a request or spec carries (shape, η, Lorentz flag, background basis). */
+function powderProfileOf(r: PowderProfile): PowderProfile {
+  return {
+    shape: r.shape,
+    ...(r.eta !== undefined ? { eta: r.eta } : {}),
+    ...(r.lorentz !== undefined ? { lorentz: r.lorentz } : {}),
+    ...(r.backgroundType !== undefined ? { backgroundType: r.backgroundType } : {}),
+  };
+}
+
 /**
  * Build the refinement problem an evaluator spec describes. Used by BOTH the
  * parallel driver (its local problem) and every pool worker (its replica), so
  * the two cannot diverge — the parallel-refinement exactness rests on this
  * single construction path.
  */
-export function buildProblemForSpec(spec: EvaluatorSpec): RefinementProblem {
+export function buildProblemForSpec(spec: EvaluatorSpec, shard?: PdfShard): RefinementProblem {
   if (spec.kind === "pdf") {
     const phases = spec.extraPhases && spec.extraPhases.length > 0
       ? [{ structure: spec.structure, id: spec.structure.id }, ...spec.extraPhases.map((s) => ({ structure: s, id: s.id }))]
       : null;
+    if (phases && shard) throw new Error("only a single-phase PDF problem splits by grid block");
     return phases
       ? buildMultiPhasePdfProblem(phases, spec.pattern, spec.parameters, spec.bindings, spec.restraints ?? [], spec.fitRange)
-      : buildPdfProblem(spec.structure, spec.pattern, spec.parameters, spec.bindings, spec.restraints ?? [], spec.fitRange);
+      : buildPdfProblem(spec.structure, spec.pattern, spec.parameters, spec.bindings, spec.restraints ?? [], spec.fitRange, shard);
   }
+  if (shard) throw new Error("only a single-phase PDF problem splits by grid block");
   if (spec.kind === "mpdf") {
     return buildMpdfProblem(spec.structure, spec.magnetic, spec.pattern, spec.parameters, spec.bindings, spec.restraints ?? [], spec.fitRange);
   }
   if (spec.kind === "multiPhasePowder") {
-    return buildMultiPhasePowderProblem([...spec.phases], spec.pattern, spec.parameters, spec.bindings, {
-      shape: spec.shape,
-      ...(spec.eta !== undefined ? { eta: spec.eta } : {}),
-    }, spec.fitRange, spec.restraints ?? []);
+    return buildMultiPhasePowderProblem([...spec.phases], spec.pattern, spec.parameters, spec.bindings, powderProfileOf(spec), spec.fitRange, spec.restraints ?? []);
   }
   if (spec.kind === "singleCrystal") {
     return buildSingleCrystalRefinementProblem(spec.structure, spec.dataset, spec.parameters, spec.bindings);
@@ -48,20 +57,9 @@ export function buildProblemForSpec(spec: EvaluatorSpec): RefinementProblem {
     return buildMagneticSingleCrystalProblem(spec.structure, spec.magnetic, spec.dataset, spec.parameters, spec.bindings);
   }
   if (spec.kind === "magneticPowder") {
-    return buildMagneticPowderProblem(spec.structure, spec.magnetic, spec.pattern, spec.parameters, spec.bindings, {
-      shape: spec.shape,
-      ...(spec.eta !== undefined ? { eta: spec.eta } : {}),
-      ...(spec.lorentz !== undefined ? { lorentz: spec.lorentz } : {}),
-      ...(spec.backgroundType !== undefined ? { backgroundType: spec.backgroundType } : {}),
-    }, spec.fitRange, spec.extraPhases ?? []);
+    return buildMagneticPowderProblem(spec.structure, spec.magnetic, spec.pattern, spec.parameters, spec.bindings, powderProfileOf(spec), spec.fitRange, spec.extraPhases ?? []);
   }
-  const profile: PowderProfile = {
-    shape: spec.shape,
-    ...(spec.eta !== undefined ? { eta: spec.eta } : {}),
-    ...(spec.lorentz !== undefined ? { lorentz: spec.lorentz } : {}),
-    ...(spec.backgroundType !== undefined ? { backgroundType: spec.backgroundType } : {}),
-  };
-  return buildPowderProblem(spec.structure, spec.pattern, spec.parameters, spec.bindings, profile, spec.restraints ?? [], spec.fitRange);
+  return buildPowderProblem(spec.structure, spec.pattern, spec.parameters, spec.bindings, powderProfileOf(spec), spec.restraints ?? [], spec.fitRange);
 }
 
 /**
@@ -78,12 +76,7 @@ const SERIAL_DEFAULTS: Partial<RefinementOptions> = { analyticDerivatives: true 
 export type PowderProgress = (yCalc: number[], rWeighted: number) => void;
 
 export function runPowderRefinement(req: RefinePowderRequest, onProgress?: PowderProgress): RefinementResult {
-  const profile: PowderProfile = {
-    shape: req.shape,
-    ...(req.eta !== undefined ? { eta: req.eta } : {}),
-    ...(req.lorentz !== undefined ? { lorentz: req.lorentz } : {}),
-    ...(req.backgroundType !== undefined ? { backgroundType: req.backgroundType } : {}),
-  };
+  const profile = powderProfileOf(req);
   const phases = req.extraPhases && req.extraPhases.length > 0
     ? [{ structure: req.structure, id: req.structure.id }, ...req.extraPhases.map((s) => ({ structure: s, id: s.id }))]
     : null;

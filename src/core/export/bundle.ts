@@ -33,6 +33,7 @@ import {
 import { applyParameters, type AppliedModel } from "@/core/workflow/apply";
 import { phaseBindingsFor } from "@/core/workflow/multiPhase";
 import { resolveTies } from "@/core/refinement/constraints";
+import { minMax } from "@/core/math/extent";
 
 /** A further phase of a multi-phase fit, as it goes into the bundle. */
 export interface BundlePhase {
@@ -234,9 +235,7 @@ function powderExtras(
     ...(tofProfile ? { tofProfile } : {}),
   };
   if (!kinds.has("background") || a.background.length === 0 || pattern.points.length < 2) return { profile };
-  const xs = pattern.points.map((p) => p.x);
-  const xMin = Math.min(...xs);
-  const xMax = Math.max(...xs);
+  const { min: xMin, max: xMax } = minMax(pattern.points.map((p) => p.x));
   const coeffs = a.background;
   const backgroundCurve = (x: number): number => evaluateBackground(x, coeffs, bgType, xMin, xMax);
   // An interpolating background is exact at its own anchors (GSAS-II style).
@@ -279,13 +278,11 @@ function linspace(lo: number, hi: number, n: number): number[] {
 /** Data span, fitted span and the excluded tails outside the fit range. */
 function powderSpan(pattern: PowderPattern, fitRange: BundleOptions["fitRange"]) {
   const xs = pattern.points.map((p) => p.x);
-  const xMin = Math.min(...xs);
-  const xMax = Math.max(...xs);
+  const { min: xMin, max: xMax } = minMax(xs);
   const lo = fitRange?.min !== undefined && fitRange.min > xMin ? fitRange.min : xMin;
   const hi = fitRange?.max !== undefined && fitRange.max < xMax ? fitRange.max : xMax;
   const inFit = xs.filter((x) => x >= lo && x <= hi);
-  const first = inFit.length ? Math.min(...inFit) : xMin;
-  const last = inFit.length ? Math.max(...inFit) : xMax;
+  const { min: first, max: last } = inFit.length ? minMax(inFit) : { min: xMin, max: xMax };
   const excluded: [number, number][] = [];
   const margin = Math.max(1, (xMax - xMin) * 0.01);
   if (lo > xMin) excluded.push([xMin - margin, lo]);

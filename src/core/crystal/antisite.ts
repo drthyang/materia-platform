@@ -1,8 +1,9 @@
 /**
  * Antisite disorder between two cation sites: each site's element is added on
  * the other site, at occupancy 0, sharing its host's position and ADP (atoms
- * at one position form a mixed site). With "Σ occ = 1" and "hold composition"
- * the exchange then refines as one fraction while the formula stays.
+ * at one position form a mixed site). With each site's occupancies summing to
+ * its total (the shared-site tie) and "hold composition", the exchange then
+ * refines as one fraction while the formula stays.
  */
 
 import type { AtomSite, StructureModel } from "@/core/crystal/types";

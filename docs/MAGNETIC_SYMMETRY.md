@@ -137,12 +137,19 @@ Powder data often cannot separate symmetry-distinct models, because only the
 moment component perpendicular to Q scatters and orientations are averaged
 ([direction ambiguity](../knowledge/magnetic_structure_symmetry_knowledge.md), §9).
 Ties are therefore expected. Among tied fits, prefer the maximal subgroup (lowest
-index) with the fewest moment parameters.
+index) with the fewest moment parameters. The ranking calls fits tied when they
+are within the noise of the best: Hamilton's test (Acta Cryst. 18 (1965) 502)
+at 5 %, so a group with more moment parameters must lower χ² by more than the
+best fit's noise gives them (an mPDF fit, which reports no χ², ties within
+10⁻⁴ in Rw). At k = 0 the ranking refines the nuclear scale with the moments:
+the magnetic peaks sit on the nuclear ones, and a scale refined without them
+has taken part of their intensity.
 
-On unpublished AWO₄ 6 K data with k = (½, 0, 0), five candidates tie at wR 7.59 %
-with the nuclear model fixed: P2/c′, P-1′, Pc′, P2 and P1. The rule picks P2/c′,
-of index 2 with two moment parameters. The magnetic page ranks candidates by this
-rule, as [USER_GUIDE.md](./USER_GUIDE.md) describes.
+On unpublished AWO₄ 6 K data with k = (½, 0, 0), five candidates tie within the
+noise by Hamilton's test, with the nuclear model fixed: P2/c′, P-1′, Pc′, P2 and
+P1. The rule picks P2/c′, of index 2 with two moment parameters. Its moments are
+then refined alone, against the same nuclear model held. The magnetic page ranks
+candidates by this rule, as [USER_GUIDE.md](./USER_GUIDE.md) describes.
 
 ## BNS and OG labels
 

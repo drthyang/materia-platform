@@ -179,6 +179,66 @@ describe("staged controller guards", () => {
     expect(wrOf(build, out.parameters)).toBeCloseTo(out.final!.agreement.rWeighted!, 12);
   });
 
+  // ── An earlier parameter's inflated esd: re-fix the newcomer, keep the stage ──
+
+  it("re-fixes the newcomer that inflates an earlier esd and keeps the stage's other gains", () => {
+    // y = s·x + z + w·cos(9x) on x ∈ [1.6, 2.4]: the offset z and the slope s
+    // trade (|ρ| ≈ 0.993, below the 0.998 correlation rule), so freeing z
+    // inflates esd(s) about sevenfold — the TOF zero against the cell. w is
+    // the well-behaved sibling (the peak widths) with a real gain. The stage
+    // must re-fix z alone and keep w's fit, not throw both away.
+    const xs2 = Array.from({ length: 61 }, (_, i) => 1.6 + i / 75);
+    const build = (ps: readonly RefinementParameter[]) => ({
+      parameters: ps,
+      observations: Float64Array.from(xs2.map((x) => 0.5 * x + 0.04 * Math.cos(9 * x) + 0.05 * Math.sin(37 * x))),
+      weights: Float64Array.from(xs2.map(() => 1)),
+      calculate: (v: Readonly<Record<string, number>>) => Float64Array.from(xs2.map((x) => v.s! * x + v.z! + v.w! * Math.cos(9 * x))),
+    });
+    const params = [param("s", 0.4), param("z", 0), param("w", 0)];
+    const out = refineStaged(params, build, [
+      { name: "cell", select: (p) => p.id === "s" },
+      { name: "profile", select: (p) => p.id === "z" || p.id === "w" },
+    ], { maxIterations: 30 });
+    const profile = out.stages.find((s) => s.name === "profile")!;
+    expect(profile.rejected).toBeUndefined();
+    expect(profile.refixed?.map((r) => r.id)).toEqual(["z"]);
+    expect(profile.refixed?.[0]!.reason).toMatch(/^inflated esd\(s\) \d+\.\d×, \|ρ\|=0\.99\d with s$/);
+    expect(profile.freeIds).toEqual(["s", "w"]);
+    const byId = new Map(out.parameters.map((p) => [p.id, p]));
+    expect(byId.get("z")!.fixed).toBe(true);
+    expect(byId.get("z")!.value).toBe(0);
+    expect(byId.get("w")!.fixed).toBe(false);
+    expect(byId.get("w")!.value).toBeCloseTo(0.04, 2);
+    expect(out.final).toBe(profile.result);
+    expect(out.final!.agreement.rWeighted!).toBeLessThan(out.stages[0]!.result.agreement.rWeighted!);
+    expect(wrOf(build, out.parameters)).toBeCloseTo(out.final!.agreement.rWeighted!, 12);
+  });
+
+  it("still rejects the stage when no newcomer correlates with the inflated esd", () => {
+    // A strict caller bound (any growth at all): freeing w, which the data do
+    // not use, grows esd(s) about 12 % through a moderate correlation (|ρ| ≈
+    // 0.44, below the 0.8 a newcomer is blamed from). No newcomer is to blame,
+    // so the stage-level rule stands: the values revert and w comes back out.
+    const xs2 = Array.from({ length: 61 }, (_, i) => i * 0.05);
+    const build = (ps: readonly RefinementParameter[]) => ({
+      parameters: ps,
+      observations: Float64Array.from(xs2.map((x) => 0.5 * x + wiggle(x))),
+      weights: Float64Array.from(xs2.map(() => 1)),
+      calculate: (v: Readonly<Record<string, number>>) => Float64Array.from(xs2.map((x) => v.s! * x + v.w! * Math.cos(x))),
+    });
+    const out = refineStaged([param("s", 0.4), param("w", 0)], build, [
+      { name: "slope", select: (p) => p.id === "s" },
+      { name: "wave", select: (p) => p.id === "w" },
+    ], { maxIterations: 30 }, { maxEsdInflation: 1 });
+    const wave = out.stages.find((s) => s.name === "wave")!;
+    expect(wave.rejected?.reason).toMatch(/^freeing w inflated esd\(s\) 1\.\d×$/);
+    expect(wave.refixed).toBeUndefined();
+    const w = out.parameters.find((p) => p.id === "w")!;
+    expect(w.fixed).toBe(true);
+    expect(w.value).toBe(0);
+    expect(out.final).toBe(out.stages[0]!.result);
+  });
+
   it("keeps a degenerate set free when re-fixing it costs fit", () => {
     // y = a + e^(−k1·x) + e^(−k2·x) from equal starts: the two columns are
     // identical only while k1 = k2 — symmetry-equivalent sites refined as

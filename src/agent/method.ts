@@ -28,18 +28,21 @@
  * the data and the phases — and is kept by the shell, saved with the project.
  */
 
-import type { LinearRestraint, ParameterKind, RefinementParameter } from "@/core/refinement/types";
+import type { LinearRestraint, ParameterKind, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { AgentRecordFile } from "@/core/project/types";
 import type { AgentPage } from "@/agent/tools";
-import type { LiveState } from "@/agent/port";
+import type { PdfLiveState, PowderLiveState, SingleCrystalLiveState } from "@/agent/port";
 import { PAGE_METHOD } from "@/agent/skills";
 import { parseTie } from "@/core/refinement/constraints";
+import { lineage, type ProjectHistory } from "@/core/project/history";
+import { listOf } from "@/agent/liveCommon";
 
-export type MethodRule = "bare-occupancy" | "instrument-with-thermal";
+export type MethodRule = "bare-occupancy" | "instrument-with-thermal" | "instrument-with-positions";
 
 export const RULES: Readonly<Record<MethodRule, { readonly title: string; readonly pages: readonly AgentPage[] }>> = {
   "bare-occupancy": { title: "Refine an occupancy with no tie or second contrast", pages: ["powder", "pdf", "singleCrystal"] },
   "instrument-with-thermal": { title: "Refine instrument and thermal parameters together", pages: ["powder", "pdf"] },
+  "instrument-with-positions": { title: "Refine instrument terms and atom positions together", pages: ["powder"] },
 };
 
 /**
@@ -51,6 +54,9 @@ export const RULES: Readonly<Record<MethodRule, { readonly title: string; readon
 export const INSTRUMENT_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>([
   "zeroShift", "tofCalibration", "peakWidth", "profileU", "profileV", "profileW", "profileX", "profileY", "asymSL", "asymHL", "tofProfile", "qdamp", "qbroad",
 ]);
+
+/** The atom positions: coordinates and position shifts. */
+export const POSITION_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>(["atomX", "atomY", "atomZ", "positionShift"]);
 
 /** The thermal parameters: B_iso and the anisotropic U's. */
 export const THERMAL_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>(["bIso", "uAniso"]);
@@ -72,12 +78,19 @@ export function emptyRecord(key: string): AgentRecord {
   return { key, exceptions: [], stagesDone: [], notes: [] };
 }
 
-/** The analysis on a page, from its live state. */
-export function keyOfState(page: AgentPage, s: LiveState): string {
-  if ("phases" in s) return analysisKey(page, s.source, s.phases);
-  // An inverted model is the same analysis: keyed by the model as loaded.
-  if ("dataset" in s) return analysisKey(page, s.source, [s.loadedAs ?? s.structure]);
-  return analysisKey(page, s.source, [s.structure, ...s.extraPhases]);
+/** The analysis on the powder page: its data and every phase. */
+export function powderAnalysis(s: PowderLiveState): string {
+  return analysisKey("powder", s.source, [s.structure, ...s.extraPhases]);
+}
+
+/** The analysis on the PDF page: its data and every phase. */
+export function pdfAnalysis(s: PdfLiveState): string {
+  return analysisKey("pdf", s.source, s.phases);
+}
+
+/** The analysis on the single-crystal page. An inverted model is the same analysis: keyed by the model as loaded. */
+export function singleCrystalAnalysis(s: SingleCrystalLiveState): string {
+  return analysisKey("singleCrystal", s.source, [s.loadedAs ?? s.structure]);
 }
 
 /** What identifies an analysis: the page, the data, and the phases (name and space group). */
@@ -109,12 +122,16 @@ const POWDER_STAGES: readonly MethodStage[] = [
   { id: "symmetry", label: "Symmetry review (last)", kinds: [], optional: true },
 ];
 
-/** pdf-workflow: scale and cell, ADPs, one correlated-motion term, positions, occupancy, particle size. */
+/**
+ * pdf-workflow, the user's order (2026-10-19): on the long range scale and
+ * cell, then the ADPs and positions; the correlated-motion term once the
+ * window reaches the first peak; then occupancy, particle size.
+ */
 const PDF_STAGES: readonly MethodStage[] = [
   { id: "base", label: "Scale, cell", kinds: ["pdfScale", "cellLength", "cellAngle"] },
   { id: "adp", label: "ADPs", kinds: ["bIso", "uAniso"] },
-  { id: "motion", label: "Correlated motion", kinds: ["delta1", "delta2", "sratio", "rcut"] },
   { id: "positions", label: "Positions", kinds: ["atomX", "atomY", "atomZ", "positionShift"] },
+  { id: "motion", label: "Correlated motion", kinds: ["delta1", "delta2", "sratio", "rcut"] },
   { id: "occupancy", label: "Occupancy", kinds: ["occupancy"], optional: true },
   { id: "size", label: "Particle size", kinds: ["spdiameter"], optional: true },
 ];
@@ -161,6 +178,46 @@ export function stagesCovered(page: AgentPage, free: readonly RefinementParamete
   const available = all ? new Set(all.map((p) => p.kind)) : null;
   // A required stage the model has no parameter for is passed by a later one; an optional one (a twin the crystal does not have) stays open.
   return stages.filter((s, i) => covered[i] || (available !== null && i < last && !s.optional && s.kinds.length > 0 && !s.kinds.some((k) => available.has(k)))).map((s) => s.id);
+}
+
+/** Two values of a parameter the same: a refinement's own, read back from a snapshot. */
+const sameValue = (a: number, b: number): boolean => a === b || Math.abs(a - b) <= 1e-9 * Math.max(Math.abs(a), Math.abs(b));
+
+/**
+ * The stages done as the analysis stands, from the History: every stage a
+ * converged refinement on the path to the step on screen covered (since the
+ * analysis was loaded), as long as each of its parameters still holds the
+ * value the last converged refinement that refined it left. Undo and
+ * go_to_step leave the path; a reset, of every parameter or some, and a
+ * value typed in by hand move a parameter off its refined value: either way
+ * the stage is no longer done. `now` is the page as it is, its converged fit
+ * counted even before the page records it as a step. Null without a History
+ * (the record's own list then stands).
+ */
+export function stagesOnPath(page: AgentPage, history: ProjectHistory | null, now: { readonly parameters: readonly RefinementParameter[]; readonly result: RefinementResult | null }): string[] | null {
+  if (!history) return null;
+  const path = lineage(history);
+  const start = Math.max(0, ...path.map((st, i) => (st.kind === "load" || st.kind === "open" ? i : 0)));
+  const fits = path.slice(start).map((st) => {
+    const r = st.workspace.refinement as { parameters?: readonly RefinementParameter[]; lastResult?: RefinementResult } | undefined;
+    return { parameters: r?.parameters ?? [], result: r?.lastResult ?? null };
+  });
+  const covered = new Set<string>();
+  // Each parameter's value at the end of the last converged refinement that refined it.
+  const refinedValue = new Map<string, number>();
+  for (const fit of [...fits, now]) {
+    if (fit.result?.status !== "converged") continue;
+    const refined = new Set(Object.keys(fit.result.esd));
+    const free = fit.parameters.filter((p) => refined.has(p.id));
+    for (const id of stagesCovered(page, free, fit.parameters)) covered.add(id);
+    for (const p of free) refinedValue.set(p.id, p.value);
+  }
+  const value = new Map(now.parameters.map((p) => [p.id, p.value]));
+  return stagesFor(page).filter((st) => covered.has(st.id) && now.parameters.every((p) => {
+    if (!st.kinds.includes(p.kind)) return true;
+    const was = refinedValue.get(p.id);
+    return was === undefined || sameValue(was, value.get(p.id)!);
+  })).map((st) => st.id);
 }
 
 export interface StageView {
@@ -245,14 +302,16 @@ export function ruleRefusal(page: AgentPage, free: readonly RefinementParameter[
   if (!hasException(record, "bare-occupancy")) {
     const tied = new Set(restraints.flatMap((r) => r.terms.map((t) => t.parameterId)));
     // An occupancy whose complement follows it (a disorder's alternatives, one minus the other) holds the site's sum: their contrast measures the split.
+    // So do the occupancies a shared site's last one follows (one minus their sum, the PDF page's).
     for (const q of all) {
       if (q.kind !== "occupancy" || !q.expression) continue;
       const tie = parseTie(q.expression);
       if (tie.kind === "linear" && tie.factor < 0) tied.add(tie.refId);
+      if (tie.kind === "sum" && tie.factor < 0) for (const id of tie.refIds) tied.add(id);
     }
     const bare = free.filter((p) => p.kind === "occupancy" && !tied.has(p.id));
     if (bare.length > 0) {
-      const fix = page === "powder" ? "Tie it (set_site_ties: Σ occ = 1 on a shared site, or hold composition)"
+      const fix = page === "powder" ? "Tie it (a shared site's occupancies sum to its total by a constraint, the last following the others; or set_site_ties' hold composition)"
         : page === "singleCrystal" ? "Tie it (tie_parameters `complement`: a disorder's two alternatives add up to one)"
           : "Tie it (a shared site holds its Σ occupancy; a lone site has no tie on this page)";
       broken.push({
@@ -266,7 +325,7 @@ export function ruleRefusal(page: AgentPage, free: readonly RefinementParameter[
     const instrument = free.filter((p) => INSTRUMENT_KINDS.has(p.kind));
     const thermal = free.filter((p) => THERMAL_KINDS.has(p.kind));
     if (instrument.length > 0 && thermal.length > 0) {
-      const ids = (ps: readonly RefinementParameter[]): string => ps.length <= 6 ? ps.map((p) => p.id).join(", ") : `${ps.slice(0, 6).map((p) => p.id).join(", ")} and ${ps.length - 6} more`;
+      const ids = (ps: readonly RefinementParameter[]): string => listOf(ps.map((p) => p.id), 6);
       const trade = page === "pdf"
         ? "Qbroad widens the peaks with r and Qdamp damps them with r, as the ADPs and the correlated motion do: refined together, each absorbs the other's error and the esds hide it. Keep Qdamp and Qbroad from the standard measured on the same instrument (Ni, Si); if they must be refined"
         : "Wider or more Lorentzian peaks put intensity into tails the background takes up at high angle, and the B values' fall-off with angle gives it back; the zero and the asymmetry shape the low-angle lines that fix the scale the B values are measured against. Refined together, each absorbs the other's error (a B gone negative, a profile gone wide) and the esds hide it. Keep an instrument file's terms from its standard where they fit; where they must be refined";
@@ -274,6 +333,18 @@ export function ruleRefusal(page: AgentPage, free: readonly RefinementParameter[
         rule: "instrument-with-thermal",
         line: `Not run: instrument terms (${ids(instrument)}) free with thermal (${ids(thermal)})`,
         why: `the instrument's terms (${ids(instrument)}) and the thermal parameters (${ids(thermal)}) are free together — the user's method never refines them together. ${trade}, alternate the two groups: fix the thermal parameters and refine the instrument terms, then fix those and refine the thermal ones, and repeat until a cycle moves neither by more than ${ALTERNATION_SETTLED} esd (refine's \`alternation\` gives the shifts). If the user wants them refined together, call allow_exception with rule "instrument-with-thermal" and their reason — they approve it themselves.`,
+      });
+    }
+  }
+  if (page === "powder" && !hasException(record, "instrument-with-positions")) {
+    const instrument = free.filter((p) => INSTRUMENT_KINDS.has(p.kind));
+    const positions = free.filter((p) => POSITION_KINDS.has(p.kind));
+    if (instrument.length > 0 && positions.length > 0) {
+      const ids = (ps: readonly RefinementParameter[]): string => ps.length <= 6 ? ps.map((p) => p.id).join(", ") : `${ps.slice(0, 6).map((p) => p.id).join(", ")} and ${ps.length - 6} more`;
+      broken.push({
+        rule: "instrument-with-positions",
+        line: `Not run: instrument terms (${ids(instrument)}) free with positions (${ids(positions)})`,
+        why: `the instrument's terms (${ids(instrument)}) and the atom positions (${ids(positions)}) are free together — the user's method never refines them together. A peak shape or zero gone wrong moves intensity between neighbouring lines, which the positions can follow, and each then absorbs the other's error. Fix the positions and refine the instrument terms, then fix those and refine the positions. If the user wants them refined together, call allow_exception with rule "instrument-with-positions" and their reason — they approve it themselves.`,
       });
     }
   }

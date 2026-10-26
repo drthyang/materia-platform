@@ -19,12 +19,13 @@
 
 import { APP_VERSION } from "@/app/constants";
 import type { Session } from "@/app/powderSession";
-import { EMPTY_SOURCE, withValidUserTies } from "@/app/powderSession";
+import { EMPTY_SOURCE, withSiteSumTies, withValidUserTies } from "@/app/powderSession";
 import type { DistanceRestraint, RidingRule, StructureModel } from "@/core/crystal/types";
 import type { DistortionModeSet } from "@/core/crystal/distortionModes";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import type { ExtinctionModel, OmittedMeasurement, PdfPattern, PowderXUnit, ResolutionRange, ShelxWeighting, SingleCrystalDataset, TwinLaw } from "@/core/diffraction/types";
 import type { MagneticModel } from "@/core/magnetic/types";
+import type { SiteTies } from "@/core/workflow/powderModelOptions";
 import {
   PROJECT_SCHEMA_VERSION,
   type AgentRecordFile,
@@ -42,6 +43,7 @@ import {
 } from "@/core/project/types";
 import { isMomentParameterKind, type ParameterBinding, type RefinementParameter, type RefinementResult } from "@/core/refinement/types";
 import { isUserTie } from "@/core/refinement/constraints";
+import { activeZeroAdpFixes } from "@/core/diagnostics/zeroAdp";
 import type { ProjectHistory } from "@/core/project/history";
 import type { BoxcarPlan, BoxcarRun } from "@/core/workflow/pdfBoxcar";
 
@@ -162,7 +164,17 @@ export function powderWorkspaceFrom(
     ...(view.fitRange ? { fitRange: view.fitRange } : {}),
     ...(view.displayUnit ? { displayUnit: view.displayUnit } : {}),
     ...(view.manualPeakD.length > 0 ? { manualPeaks: [...view.manualPeakD] } : {}),
+    // Only the fixes the rows still carry: an overridden one is not saved as the rule's.
+    ...(session.zeroAdpFixes && session.zeroAdpFixes.length > 0 && activeZeroAdpFixes(session.powderParams, session.zeroAdpFixes).length > 0
+      ? { zeroAdpFixes: activeZeroAdpFixes(session.powderParams, session.zeroAdpFixes).map((f) => ({ ...f })) }
+      : {}),
   };
+}
+
+/** Site ties as saved, less the `occupancyToUnity` a file saved before the shared-site tie may carry (the Σ is a site's total now). */
+function withoutUnity(ties: SiteTies): SiteTies {
+  const { occupancyToUnity: _u, ...rest } = ties as SiteTies & { readonly occupancyToUnity?: boolean };
+  return rest;
 }
 
 export interface RestoredPowder {
@@ -186,11 +198,12 @@ export function sessionFromPowderWorkspace(ws: PowderWorkspace, structures: read
     structure,
     extraPhases: structures.slice(1),
     pattern: ws.pattern,
-    powderParams: ws.refinement.parameters.map(cloneParameter),
+    // A project saved before a shared site's Σ became a tie: the last occupancy now follows the others.
+    powderParams: withSiteSumTies(ws.refinement.parameters.map(cloneParameter), structures, ws.siteTies),
     powderBindings: [...ws.refinement.bindings],
     powderProfile: ws.profile,
     backgroundTerms: ws.backgroundTerms,
-    siteTies: ws.siteTies,
+    siteTies: withoutUnity(ws.siteTies),
     ...(ws.anisotropicAdp !== undefined ? { anisotropicAdp: ws.anisotropicAdp } : {}),
     ...(ws.mustrain !== undefined ? { mustrain: ws.mustrain } : {}),
     ...(ws.corrections ? { corrections: ws.corrections } : {}),
@@ -201,6 +214,7 @@ export function sessionFromPowderWorkspace(ws: PowderWorkspace, structures: read
     ...(ws.rawInstrument ? { rawInstrument: ws.rawInstrument } : {}),
     ...(ws.rawData ? { rawData: ws.rawData } : {}),
     ...(ws.magnetic ? { magnetic: ws.magnetic } : {}),
+    ...(ws.zeroAdpFixes && ws.zeroAdpFixes.length > 0 ? { zeroAdpFixes: ws.zeroAdpFixes.map((f) => ({ ...f })) } : {}),
   };
   return {
     session,
@@ -341,6 +355,8 @@ export interface PdfSnapshot {
   readonly boxcarRun: BoxcarRun | null;
   /** The ADP model chosen on the page; null keeps the structure's own. */
   readonly adpModel?: "isotropic" | "anisotropic" | null;
+  /** The shared sites' totals set below 1, by site key. */
+  readonly siteTotals?: Readonly<Record<string, number>>;
 }
 
 export function pdfWorkspaceFrom(s: PdfSnapshot): PdfWorkspace {
@@ -362,5 +378,6 @@ export function pdfWorkspaceFrom(s: PdfSnapshot): PdfWorkspace {
       : {}),
     boxcar: { plan: s.boxcarPlan, ...(s.boxcarRun ? { lastRun: s.boxcarRun } : {}) },
     ...(s.adpModel ? { adpModel: s.adpModel } : {}),
+    ...(s.siteTotals && Object.keys(s.siteTotals).length > 0 ? { siteTotals: s.siteTotals } : {}),
   };
 }

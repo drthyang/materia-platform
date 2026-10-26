@@ -4,8 +4,14 @@
  * One list serves every way a model reaches the app (API key, local proxy,
  * Ollama, LM Studio), so the names, descriptions and schemas a model sees are
  * the same everywhere. This file is declarations only (no browser code); the
- * handlers live in powderTools.ts and pdfTools.ts and run in the page. Every tool names the pages it works on; on another page it
- * answers with an error that says so.
+ * handlers live in the pages' tool modules (powderTools.ts, pdfTools.ts,
+ * scTools.ts, magneticTools.ts) and run in the page. Every tool names the
+ * pages it works on; on another page it answers with an error that says so.
+ *
+ * Each definition also holds the tool's facts: the History step it records,
+ * the cards it acts on, where a local model is offered it, the evidence it
+ * gives a final answer, and so on. Every other module derives what it needs
+ * from here and keeps no list of tool names of its own (toolFacts.test.ts).
  *
  * Unlike the MATERIA MCP tools (src/mcp/registry.ts), which are pure functions
  * over data the caller passes, these act on what is on screen: the model never
@@ -19,13 +25,42 @@
  */
 
 import { z } from "zod";
+import type { StepKind } from "@/core/project/history";
+import { MAX_OPTIONS } from "@/agent/choices";
 
 /**
- * What a tool does to the analysis. `read` tools run freely; `change` tools
- * alter the model or the fit and need the user's approval unless the Agent
- * is in auto mode; `control` tools (stopping a run) never need it.
+ * What a tool does. A `read` reads the page; a `compute` fills a panel of the
+ * page and changes no fit (the magnetic step's k-search and group ranking);
+ * a `record` writes the Agent's record, not the analysis (a note, the
+ * report). These three run at once. A `change` alters the model or the fit
+ * and needs the user's approval unless the Agent is in auto mode; a
+ * `control` (stopping a run) never needs it.
  */
-export type ToolEffect = "read" | "change" | "control";
+export type ToolEffect = "read" | "compute" | "record" | "change" | "control";
+
+/** A card of the page a tool acts on: its edges breathe while the tool runs (focus.ts). */
+export type AgentCard = "structure" | "data" | "instrument" | "pattern" | "parameters" | "result";
+
+/** The powder method's stages (method.ts), by id. */
+export type PowderStageId = "range" | "check" | "base" | "positions" | "profile" | "adp" | "occupancy" | "corrections" | "symmetry";
+
+/** What the user's words may ask for, each a set of phrases (toolScope.ts). */
+export type AskTopic = "magnetic" | "impurity" | "symmetry" | "occupancy" | "posterior" | "geometry" | "report" | "background" | "strain" | "adp" | "corrections" | "xray" | "tie" | "cellCheck";
+
+/** Where a local model is offered a tool (toolScope.ts); every tool is offered on its pages once it has been called. */
+export interface ToolOffer {
+  /** On every page, at every stage. */
+  readonly core?: true;
+  /** On the powder page: at every stage ("always"), at these stages of the method, or once every required stage is done ("finish"). */
+  readonly powder?: readonly (PowderStageId | "always" | "finish")[];
+  /** With the powder page's magnetic step, once it is under way. */
+  readonly magnetic?: true;
+  /** When the user's words ask for one of these. */
+  readonly asked?: readonly AskTopic[];
+}
+
+/** What a call may give a final answer that concludes something (evidence.ts). */
+export type Evidence = "assessment" | "absoluteStructure" | "localStructure";
 
 /** The pages the Agent works on. Each publishes its own port (port.ts). */
 export type AgentPage = "powder" | "pdf" | "singleCrystal";
@@ -37,6 +72,11 @@ export interface LiveToolSpec {
   readonly title: string;
   /** Model-facing: what the tool does and when to reach for it. */
   readonly description: string;
+  /**
+   * The description without the skills (the validation's arm C), where this
+   * one refers to the page's written method; absent: the same in both.
+   */
+  readonly withoutSkills?: string;
   readonly inputSchema: Record<string, z.ZodType>;
   readonly effect: ToolEffect;
   /** The pages it works on; on another page it answers with an error naming them. */
@@ -45,11 +85,32 @@ export interface LiveToolSpec {
   readonly alwaysAsk?: boolean;
   /** The skill to have read before a change with this tool (default: the page's method). */
   readonly skill?: string;
+  /** The cards of the page it reads or changes (none for a read of the whole page). */
+  readonly cards: readonly AgentCard[];
+  /** The History step a change records once it is made; absent for one that records its own (a refinement) or none. */
+  readonly historyStep?: StepKind;
+  /** Where a local model is offered it beyond its page's list; absent: on the PDF and single-crystal pages (every tool of the page), or once called. */
+  readonly offer?: ToolOffer;
+  /** Refuses on a powder page with no structure (a pattern loaded alone). */
+  readonly needsStructure?: true;
+  /** Each call draws anew: the same call at the same state is not a repeat (the loop guard). */
+  readonly sampler?: true;
+  /** Reads what is there (a ref, a skill): it never counts toward a stall. */
+  readonly stallNeutral?: true;
+  /** Its results stay whole when a long session's old results are cleared: the method is read once. */
+  readonly keep?: true;
+  /** A tool of the powder page's magnetic analysis step (magneticTools.ts). */
+  readonly magneticStep?: true;
+  /** What it gives a final answer, when it answered (evidence.ts). */
+  readonly evidence?: readonly Evidence[];
+  /** A call that answered ends the model's turn: the user answers in their next message (chat.ts). */
+  readonly endsTurn?: true;
 }
 
 const ids = z.array(z.string().min(1)).describe("Parameter ids, or globs such as \"bkg*\" or \"*Fe1*\"");
 
-export const LIVE_TOOLS: readonly LiveToolSpec[] = [
+/** The definitions with their own literal types: what types a tool's input by its name (InputOf). */
+const TOOLS = [
   {
     name: "get_state",
     title: "Read the analysis",
@@ -60,6 +121,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "read",
     pages: ["powder", "pdf", "singleCrystal"],
+    cards: [],
+    offer: { core: true },
   },
   {
     name: "assess_refinement",
@@ -69,6 +132,10 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     inputSchema: {},
     effect: "read",
     pages: ["powder", "pdf", "singleCrystal"],
+    cards: ["result", "pattern"],
+    offer: { core: true },
+    needsStructure: true,
+    evidence: ["assessment", "absoluteStructure"],
   },
   {
     name: "suggest_next_steps",
@@ -78,6 +145,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     inputSchema: {},
     effect: "read",
     pages: ["powder", "pdf"],
+    cards: ["result"],
+    offer: { powder: ["always"] },
+    needsStructure: true,
   },
   {
     name: "rank_next_parameters",
@@ -87,36 +157,46 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     inputSchema: {},
     effect: "read",
     pages: ["powder"],
+    cards: ["parameters"],
+    offer: { powder: ["always"] },
+    needsStructure: true,
   },
   {
     name: "check_cell_symmetry",
     title: "Check cell and space group",
     description:
-      "Powder page only. A sanity check at the START of a refinement, not a gate: a Le Bail fit refines the cell from peak positions alone, then reports leftover peaks no reflection can index (`unindexedPeaks`: a wrong cell or a missing phase — worth settling before refining), small bumps on a strong line's flank (`shoulders`: a profile tail, not a phase) and forbidden reflections showing intensity (`absences.violated`). An absence flag is NOT a reason to change the space group: before the structure is refined it is as often profile misfit or an impurity line. Note it (write_note) and refine on; the space group is questioned only at the end, with review_symmetry. Never blocks a refinement. Uses the loaded phases, data, instrument and fit window; the other phases count as known impurities. Cannot catch a too-large cell. Takes several seconds.",
+      "Powder page only. A sanity check of the loaded cell and space group against the data, not a gate: a Le Bail fit refines the cell from peak positions alone, then reports leftover peaks no reflection can index (`unindexedPeaks`: a missing phase or a wrong cell; when the Le Bail fit did not settle, the model's own lines too, the start being further off than the fit follows), small bumps on a strong line's flank (`shoulders`: a profile tail, not a phase) and forbidden reflections showing intensity (`absences.violated`). An absence flag is NOT a reason to change the space group: before the structure is refined it is as often profile misfit or an impurity line, and the space group is questioned with review_symmetry on the refined fit. Flags that are all of the class the model's centring forbids read as a possible lost centring too, which no refinement fixes. `reading` says which of these applies and what to do. Never blocks a refinement. Uses the loaded phases, data, instrument and fit window; the other phases count as known impurities. Cannot catch a too-large cell. Takes several seconds.",
     inputSchema: {
       significance: z.number().positive().optional().describe("Leftover height, in σ, that counts as observed intensity (default 5)"),
       dMin: z.number().positive().optional().describe("Smallest d-spacing read, Å (default 0.7)"),
     },
     effect: "read",
     pages: ["powder"],
+    cards: ["structure", "pattern"],
+    offer: { powder: ["check"], asked: ["impurity", "symmetry", "cellCheck"] },
+    needsStructure: true,
   },
   {
     name: "check_fit_range",
     title: "Check the fit range",
     description:
-      "Powder page only. Reads the data's two ends and proposes where the fit window should start and stop, as the GSAS-II tutorials do: the long-d end starts just below the first reflection (the background beyond it tells the structure nothing) unless the data hold peaks there that no phase explains (magnetic order, an impurity: then keep them); the far end ends in a gap below a detector's or scan's edge (counts that step up and stay), points with no counts, a line cut by the last point, or the stretch where peaks have faded into the noise; on a converged fit, a stretch at an end the model misses by more than anywhere just inside. Each cut lies in a gap between reflections. Returns each end's verdict with the evidence, the counting σ at the ends, and `proposed` (the window, in the data's unit and in d) — apply it with set_fit_range, which asks the user. The first step of the method: run it before the cell check, and again after the first refinement, when the residual can show what the data alone could not. It never changes the window itself.",
+      "Powder page only. Reads the data's two ends and proposes where the fit window should start and stop, as the GSAS-II tutorials do: the long-d end starts just below the first reflection (the background beyond it tells the structure nothing) unless the data hold peaks there that no phase explains (magnetic order, an impurity: then keep them); the far end ends in a gap below a detector's or scan's edge (counts that step up and stay), points with no counts, a line cut by the last point, or the stretch where peaks have faded into the noise; on a converged fit, a stretch at an end the model misses by more than anywhere just inside. Each cut lies in a gap between reflections. Returns each end's verdict with the evidence, the counting σ at the ends, and `proposed` (the window, in the data's unit and in d) — apply it with set_fit_range, which asks the user. It never changes the window itself.",
     inputSchema: {},
     effect: "read",
     pages: ["powder"],
+    cards: ["data", "pattern"],
+    offer: { powder: ["always"] },
+    needsStructure: true,
   },
   {
     name: "reflection_statistics",
     title: "Read the reflection data",
     description:
-      "Single-crystal page only. The data before the model, as a crystallographer reads them first: reflections measured and unique after merging in the Laue class, R_int and R_σ, the redundancy, the resolution (d_min, sinθ/λ max) and the completeness to it, ⟨I/σ⟩ and completeness shell by shell, whether Friedel pairs were measured apart (the absolute structure needs them in a non-centrosymmetric group), the reflections the space group forbids that carry intensity (≥ 3σ: a wrong group, twinning, or multiple scattering), the intensity statistics ⟨|E²−1|⟩ (≈ 0.97 centrosymmetric, ≈ 0.74 not; low values hint at twinning), and where the lattice holds more symmetry than the Laue class, each merohedral twin law (`twinLaws`, as set_twin takes it) with the twin fraction Yeates' H-test reads for it from the intensities alone. The method's first stage: read it before refining.",
+      "Single-crystal page only. The data before the model, as a crystallographer reads them first: reflections measured and unique after merging in the Laue class, R_int and R_σ, the redundancy, the resolution (d_min, sinθ/λ max) and the completeness to it, ⟨I/σ⟩ and completeness shell by shell, whether Friedel pairs were measured apart (the absolute structure needs them in a non-centrosymmetric group), the reflections the space group forbids that carry intensity (≥ 3σ: a wrong group, twinning, or multiple scattering), the intensity statistics ⟨|E²−1|⟩ (≈ 0.97 centrosymmetric, ≈ 0.74 not; low values hint at twinning), and where the lattice holds more symmetry than the Laue class, each merohedral twin law (`twinLaws`, as set_twin takes it) with the twin fraction Yeates' H-test reads for it from the intensities alone.",
     inputSchema: {},
     effect: "read",
     pages: ["singleCrystal"],
+    cards: ["data"],
   },
   {
     name: "reflection_equivalents",
@@ -126,6 +206,7 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     inputSchema: { h: z.number().int(), k: z.number().int(), l: z.number().int() },
     effect: "read",
     pages: ["singleCrystal"],
+    cards: ["data", "result"],
   },
   {
     name: "set_outlier_filter",
@@ -139,6 +220,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["singleCrystal"],
+    cards: ["data", "result"],
+    historyStep: "settings",
   },
   {
     name: "keep_reflections",
@@ -151,18 +234,20 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["singleCrystal"],
+    cards: ["data", "result"],
     alwaysAsk: true,
   },
   {
     name: "test_extinction",
     title: "Test the extinguished reflections",
     description:
-      "Single-crystal page only. The extinction test, with the page left as it is: the fit on screen refined twice as probes (the free set and start as they are), once on all the data fitted and once without the reflections whose extinction factor y is below `below` (default 0.5). Answers how many that leaves out, wR2 and the extinction parameter each way, and every free parameter that moves by more than 2 esd between them. None moving: the structure does not rest on the reflections the correction carries; one moving (an ADP, an occupancy): the model leans on them — try the other extinction model (set_extinction_model) and compare. Nothing on the page changes: no filter, no values, no step. Refine first: it starts from the converged fit.",
+      "Single-crystal page only. The extinction test, with the page left as it is: the fit on screen refined twice as probes (the free set and start as they are), once on all the data fitted and once without the reflections whose extinction factor y is below `below` (default 0.5). Answers how many that leaves out, wR2 and the extinction parameter each way, and every free parameter that moves by more than 2 esd between them (the esd of the fit without them, which leaving data out widens). None moving: the structure does not rest on the reflections the correction carries; one moving (an ADP, an occupancy): the model leans on them — try the other extinction model (set_extinction_model) and compare. Nothing on the page changes: no filter, no values, no step. Refine first: it starts from the converged fit.",
     inputSchema: {
       below: z.number().gt(0).lt(1).optional().describe("Leave out the reflections whose y is below this (default 0.5)"),
     },
     effect: "change",
     pages: ["singleCrystal"],
+    cards: ["data", "result"],
   },
   {
     name: "omit_reflections",
@@ -176,18 +261,22 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["singleCrystal"],
+    cards: ["data", "result"],
+    historyStep: "settings",
   },
   {
     name: "set_radiation",
     title: "Set the radiation",
     description:
-      "Single-crystal page only. The probe and the wavelength the data were measured with, which a reflection file cannot say (a SHELX .hkl or .fcf loads as neutron at 1.54 Å): \"xray\" (atomic form factors f(s)), \"neutron\" (scattering lengths, one wavelength) or \"neutron-tof\" (a Laue measurement, each reflection at its own wavelength). `wavelength` in Å for X-ray and constant-wavelength neutrons: Mo Kα 0.71073, Cu Kα 1.54184, Ag Kα 0.56087. The probe changes every Fc; the wavelength enters the extinction correction (not |F|²). The scale restarts from its best value under the new physics and the last fit is cleared: refine again. Set it before anything else when get_state's probe or wavelength is not what the user says the data are.",
+      "Single-crystal page only. The probe and the wavelength the data were measured with, which a reflection file cannot say (a SHELX .hkl or .fcf loads as neutron at 1.54 Å): \"xray\" (atomic form factors f(s)), \"neutron\" (scattering lengths, one wavelength) or \"neutron-tof\" (a Laue measurement, each reflection at its own wavelength). `wavelength` in Å for X-ray and constant-wavelength neutrons: Mo Kα 0.71073, Cu Kα 1.54184, Ag Kα 0.56087. The probe changes every Fc; the wavelength enters the extinction correction (not |F|²). The scale restarts from its best value under the new physics and the last fit is cleared: refine again. For when get_state's probe or wavelength is not what the user says the data are.",
     inputSchema: {
       probe: z.enum(["xray", "neutron", "neutron-tof"]).optional(),
       wavelength: z.number().gt(0.1).lt(5).optional().describe("Å, for X-ray and constant-wavelength neutrons"),
     },
     effect: "change",
     pages: ["singleCrystal"],
+    cards: ["data", "result"],
+    historyStep: "settings",
   },
   {
     name: "set_resolution_range",
@@ -200,21 +289,25 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["singleCrystal"],
+    cards: ["data", "result"],
+    historyStep: "settings",
   },
   {
     name: "set_extinction_model",
     title: "Set the extinction model",
     description:
-      "Single-crystal page only. The extinction model: SHELXL's empirical EXTI (\"shelx\", the default), or Becker–Coppens secondary extinction as GSAS-II applies it — type I, where the mosaic spread limits it (\"bc-1-lorentzian\", \"bc-1-gaussian\"), or type II, where the domain size does (\"bc-2-lorentzian\", \"bc-2-gaussian\") — with each reflection's mean path length when the file gives it (TOPAZ). The parameter is another quantity under each model (x, Eg, Es), so it restarts at 0: refine it with the scale and what was free before, to convergence, then compare wR2, GooF and the lowest resolution shell and strongest bin of assess_refinement with the model before. Worth trying when the extinction is severe (y well below 0.5) and the strongest low-angle reflections are what is left in the residual; report the model chosen and why.",
+      "Single-crystal page only. The extinction model: SHELXL's empirical EXTI (\"shelx\", the default), or Becker–Coppens secondary extinction as GSAS-II applies it — type I, where the mosaic spread limits it (\"bc-1-lorentzian\", \"bc-1-gaussian\"), or type II, where the domain size does (\"bc-2-lorentzian\", \"bc-2-gaussian\") — with each reflection's mean path length when the file gives it (TOPAZ). The parameter is another quantity under each model (x, Eg, Es), so it restarts at 0: refine it with the scale and what was free before, to convergence, then compare wR2, GooF and the lowest resolution shell and strongest bin of assess_refinement with the model before. Worth trying when the extinction is severe (y below 0.5) and the strongest low-angle reflections are what is left in the residual; report the model chosen and why.",
     inputSchema: { model: z.enum(["shelx", "bc-1-lorentzian", "bc-1-gaussian", "bc-2-lorentzian", "bc-2-gaussian"]) },
     effect: "change",
     pages: ["singleCrystal"],
+    cards: ["data", "parameters"],
+    historyStep: "settings",
   },
   {
     name: "set_riding_hydrogens",
     title: "Ride the hydrogens",
     description:
-      "Single-crystal page only. The riding model for hydrogen, as SHELXL's AFIX and as X-ray structures are published: each hydrogen follows the atoms it is bonded to, in its group's ideal geometry — an sp² X–H on the external bisector of its parent's two neighbours (AFIX 43); a methyl's (or NH₃'s) three hydrogens tetrahedral about the X–C axis and rotating: the group's torsion is a parameter (rot_C1, AFIX 137) to free with the positions; a hydroxyl's hydrogen likewise (AFIX 147); a CH₂ pair in the plane bisecting X–C–Y (AFIX 23); a tertiary C–H or N–H opposite its three neighbours (AFIX 13); a metal's hydrogen, or any other, at its present offset (AFIX 3) — with U_iso = 1.2·U_eq of the parent (1.5 for methyl and hydroxyl; `uFactor` sets one value for all), so it carries no parameter of its own. X–H: each group at its present distance; `temperature` (the measurement's, K) sets SHELXL's for each group (C–H 0.93 sp², 0.96 CH₃, 0.97 CH₂, 0.98 CH at room temperature, +0.01 Å below 253 K and +0.02 below 203 K; N–H 0.86–0.91; O–H 0.82); `distance` one value for all. `refine` names hydrogens whose positions the data determine (a hydride beside a metal, a hydrogen-bonded OH seen in the difference map): their positions refine — usually restrained (restrain_distances) — while their U_iso rides. `sharedU` gives a group of hydrogens one U_iso that refines instead of riding (SHELXL's free variable on the U column, as a .ins's 21.0 for every methyl hydrogen): a parameter B_shared_1 (fixed, freed with the ADPs) for the first list, B_shared_2 for the next. X-ray data cannot place a hydrogen on its own (one electron, displaced into its bond): ride them in an X-ray refinement before the heavy atoms go anisotropic, and say so in the report. Neutron data see the hydrogens as well as any atom and can refine them freely. The result lists the groups and the X–H distances as placed. `on: false` gives the hydrogens their own rows again (fixed, at the loaded positions). The parents come from the structure as refined now; the last fit is cleared.",
+      "Single-crystal page only. The riding model for hydrogen, as SHELXL's AFIX and as X-ray structures are published: each hydrogen follows the atoms it is bonded to, in its group's ideal geometry — an sp² X–H on the external bisector of its parent's two neighbours (AFIX 43); a methyl's (or NH₃'s) three hydrogens tetrahedral about the X–C axis and rotating: the group's torsion is a parameter (rot_C1, AFIX 137) to free with the positions; a hydroxyl's hydrogen likewise (AFIX 147); a CH₂ pair in the plane bisecting X–C–Y (AFIX 23); a tertiary C–H or N–H opposite its three neighbours (AFIX 13); a metal's hydrogen, or any other, at its present offset (AFIX 3) — with U_iso = 1.2·U_eq of the parent (1.5 for methyl and hydroxyl; `uFactor` sets one value for all), so it carries no parameter of its own. X–H: each group at its present distance; `temperature` (the measurement's, K) sets SHELXL's for each group (C–H 0.93 sp², 0.96 CH₃, 0.97 CH₂, 0.98 CH at room temperature, +0.01 Å below 253 K and +0.02 below 203 K; N–H 0.86–0.91; O–H 0.82); `distance` one value for all. `refine` names hydrogens whose positions the data determine (a hydride beside a metal, a hydrogen-bonded OH seen in the difference map): their positions refine — usually restrained (restrain_distances) — while their U_iso rides. `sharedU` gives a group of hydrogens one U_iso that refines instead of riding (SHELXL's free variable on the U column, as a .ins's 21.0 for every methyl hydrogen): a parameter B_shared_1 (fixed, freed with the ADPs) for the first list, B_shared_2 for the next. X-ray data cannot place a hydrogen on its own (one electron, displaced into its bond): on X-ray data they ride; say so in the report. Neutron data see the hydrogens as well as any atom and can refine them freely. The result lists the groups and the X–H distances as placed. `on: false` gives the hydrogens their own rows again (fixed, at the loaded positions). The parents come from the structure as refined now; the last fit is cleared.",
     inputSchema: {
       on: z.boolean(),
       uFactor: z.number().min(1).max(2).optional().describe("U_iso as this multiple of the parent's U_eq, for every hydrogen (default: 1.2, and 1.5 for methyl and hydroxyl)"),
@@ -225,17 +318,21 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["singleCrystal"],
+    cards: ["structure", "parameters"],
+    historyStep: "settings",
   },
   {
     name: "merge_equivalents",
     title: "Merge the equivalents",
     description:
-      "Single-crystal page only. Fit the measurement's equivalents merged, as SHELXL merges them before it refines (MERG 2): each set of symmetry-equivalent measurements becomes one reflection, their mean weighted by 1/σ², its σ the larger of the propagated one and the spread. In a non-centrosymmetric group the Friedel opposites stay apart — their difference is the anomalous signal the absolute structure (the Flack x) rests on — and in a centrosymmetric one they merge with the rest. R1, wR2 and GooF are then on unique reflections, comparable with SHELXL's; R_int and the redundancy still read the measurement as loaded. For monochromatic data with equivalents measured (a SHELX .hkl, a CIF's own measurement); not for a time-of-flight Laue file (each measurement has its own wavelength and extinction) or a refinement's listing (merged already). Merge before the model is refined, so the fit and the outliers read the reflections SHELXL would. `on: false` fits every measurement again. The omissions are cleared (they named the other set's reflections), and so is the last fit.",
+      "Single-crystal page only. Fit the measurement's equivalents merged, as SHELXL merges them before it refines (MERG 2): each set of symmetry-equivalent measurements becomes one reflection, their mean weighted by 1/σ², its σ the larger of the propagated one and the spread. In a non-centrosymmetric group the Friedel opposites stay apart — their difference is the anomalous signal the absolute structure (the Flack x) rests on — and in a centrosymmetric one they merge with the rest. R1, wR2 and GooF are then on unique reflections, comparable with SHELXL's; R_int and the redundancy still read the measurement as loaded. For monochromatic data with equivalents measured (a SHELX .hkl, a CIF's own measurement); not for a time-of-flight Laue file (each measurement has its own wavelength and extinction) or a refinement's listing (merged already). The fit and its outliers then read the reflections SHELXL would. `on: false` fits every measurement again. The omissions are cleared (they named the other set's reflections), and so is the last fit.",
     inputSchema: {
       on: z.boolean(),
     },
     effect: "change",
     pages: ["singleCrystal"],
+    cards: ["data", "result"],
+    historyStep: "settings",
   },
   {
     name: "restrain_distances",
@@ -253,12 +350,14 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["singleCrystal"],
+    cards: ["structure", "result"],
+    historyStep: "settings",
   },
   {
     name: "set_weighting",
     title: "Set the weighting scheme",
     description:
-      "Single-crystal page only. SHELXL's weighting scheme WGHT a b: w = 1/[σ²(Fo²) + (aP)² + bP], P = (max(Fo², 0) + 2Fc²)/3, for the errors the file's σ do not carry (absorption, scaling, what no model describes). `use: \"suggested\"` takes the a and b SHELXL's criterion gives for the model as refined now — each of ten intensity bins' GooF nearest 1, the overall GooF left a little above 1 as SHELXL leaves it (assess_refinement shows them; SHELXL's own printed suggestion, from a coarser search, can differ by a few thousandths in a and up to about 0.2 in b); `use: \"sigma\"` goes back to w = 1/σ²; or give `a` and `b`. Set it LAST, when the model is complete (ADPs, extinction, hydrogens): weights fitted to an unfinished model hide its errors. Then refine once more (the weights follow Fc² and are re-evaluated until they settle). wR2 and GooF depend on the weights, R1 does not; the report states the scheme.",
+      "Single-crystal page only. SHELXL's weighting scheme WGHT a b: w = 1/[σ²(Fo²) + (aP)² + bP], P = (max(Fo², 0) + 2Fc²)/3, for the errors the file's σ do not carry (absorption, scaling, what no model describes). `use: \"suggested\"` takes the a and b SHELXL's criterion gives for the model as refined now — each of ten intensity bins' GooF nearest 1, the overall GooF left a little above 1 as SHELXL leaves it (assess_refinement shows them; SHELXL's own printed suggestion, from a coarser search, can differ by a few thousandths in a and up to about 0.2 in b); `use: \"sigma\"` goes back to w = 1/σ²; or give `a` and `b`. Weights fitted to an unfinished model hide its errors, so the suggestion is for a complete one (ADPs, extinction, hydrogens). Applies to the next refinement (the weights follow Fc² and are re-evaluated until they settle). wR2 and GooF depend on the weights, R1 does not; the report states the scheme.",
     inputSchema: {
       use: z.enum(["suggested", "sigma"]).optional().describe("\"suggested\": the weights SHELXL's criterion suggests for the model as refined now; \"sigma\": w = 1/σ²"),
       a: z.number().min(0).max(0.5).optional(),
@@ -266,6 +365,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["singleCrystal"],
+    cards: ["result"],
+    historyStep: "settings",
   },
   {
     name: "set_twin",
@@ -279,6 +380,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["singleCrystal"],
+    cards: ["parameters", "result"],
+    historyStep: "settings",
   },
   {
     name: "invert_structure",
@@ -288,6 +391,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     inputSchema: {},
     effect: "change",
     pages: ["singleCrystal"],
+    cards: ["structure", "parameters"],
+    historyStep: "settings",
   },
   {
     name: "find_unexplained_peaks",
@@ -301,30 +406,42 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "read",
     pages: ["powder"],
+    cards: ["pattern"],
+    offer: { powder: ["check", "finish"], asked: ["impurity"] },
+    needsStructure: true,
   },
   {
     name: "review_symmetry",
     title: "Review the space group (last step)",
     description:
-      "Powder page only. The LAST step of the method, never the first: once every required stage is refined (scale, background, cell, positions, profile, ADPs) and the fit is still not good, read the REFINED residual at the reflections the space group forbids. Lists the forbidden reflections that still carry intensity and the subgroups of the same lattice that allow them (smallest index first, with their domain counts). Refuses, naming the stages left, until the method's stages are done: intensity differences on known reflections are what refinement fixes, so lowering the symmetry before refining to the best is wrong. The result is a proposal for the user: a lower group is a new model (its CIF), refined again from the start.",
+      "Powder page only. For a fit refined to the best its space group allows that is still not good: reads the REFINED residual at the reflections the space group forbids. Lists the forbidden reflections that still carry intensity, the subgroups of the same lattice that allow them (smallest index first, with their domain counts), and in a centred group those that drop a centring vector (a lost centring: an order the model averages, its sites split in the new model). Refuses, naming the stages left, until the method's stages (scale, background, cell, positions, profile, ADPs) are done: intensity differences on known reflections are what refinement fixes, so lowering the symmetry before refining to the best is wrong. The result is a proposal for the user: a lower group is a new model (its CIF), refined again from the start.",
+    withoutSkills:
+      "Powder page only. For a fit refined to the best its space group allows that is still not good: reads the REFINED residual at the reflections the space group forbids. Lists the forbidden reflections that still carry intensity, the subgroups of the same lattice that allow them (smallest index first, with their domain counts), and in a centred group those that drop a centring vector (a lost centring: an order the model averages, its sites split in the new model). Refuses until a refinement has converged: intensity differences on known reflections are what refinement fixes, so lowering the symmetry before refining to the best is wrong. The result is a proposal for the user: a lower group is a new model (its CIF), refined again from the start.",
     inputSchema: {},
     effect: "read",
     pages: ["powder"],
+    cards: ["structure", "pattern"],
+    offer: { powder: ["symmetry", "finish"], asked: ["symmetry"] },
+    needsStructure: true,
   },
   {
     name: "diagnose_fit",
     title: "Diagnose the fit",
     description:
-      "Powder page only. Why the fit on screen is not good, cause by cause, each with the share of χ² it carries and what to do: background (misfit between the peaks), peak positions (residual on one side of every peak: zero, cell, displacement), asymmetry (one-sided residual at low angle), peak width/shape (± lobes everywhere), intensity falling off with angle wrongly (a Wilson-type ΔB: ADPs, absorption, roughness), texture (intensity misfit following the angle to a low-index direction: preferred orientation), and what is left for the structure. Also the background-subtracted Rwp′, the Durbin–Watson statistic, χ² by d shell, and the reflections that carry the most χ². Call it when assess_refinement says the fit is poor or fair and you need to know what to free next; it reads the curves on screen, refined or not.",
+      "Powder page only. Why the fit on screen is not good, cause by cause, each with the share of χ² it carries and what to do: background (misfit between the peaks, with the number of terms the points there justify), an unexplained peak (excess between the lines that no reflection explains: to explain, never to fit with the background), peak positions (residual on one side of every peak: zero, cell, displacement), asymmetry (one-sided residual at low angle), peak width/shape (± lobes everywhere), intensity falling off with angle wrongly (a Wilson-type ΔB: ADPs, absorption, roughness), texture (intensity misfit following the angle to a low-index direction: preferred orientation), and what is left for the structure. Also the background-subtracted Rwp′, the Durbin–Watson statistic, χ² by d shell, and the reflections that carry the most χ². Call it when assess_refinement says the fit is poor or fair and you need to know what to free next; it reads the curves on screen, refined or not.",
     inputSchema: {},
     effect: "read",
     pages: ["powder"],
+    cards: ["pattern", "result"],
+    offer: { powder: ["always"] },
+    needsStructure: true,
+    evidence: ["assessment"],
   },
   {
     name: "set_corrections",
     title: "Set the corrections",
     description:
-      "Powder page only. Switch sample and geometry corrections on or off, as the profile group's corrections boxes do: `asymmetry` (Finger–Cox–Jephcoat axial divergence, S/L and H/L; constant wavelength), `preferredOrientation` (March–Dollase along a reciprocal-lattice direction [h, k, l]; null turns it off), and `peak` — the set of displacement (flat plate, Δ2θ ∝ cosθ), transparency (flat plate, ∝ sin2θ), absorption (Debye–Scherrer μR, capillary), roughness (Suortti, flat-plate X-ray). Their rows come in fixed: free them with set_free and refine. Match the correction to the geometry and to what diagnose_fit found; they are polish after the structure, never a substitute for it.",
+      "Powder page only. Switch sample and geometry corrections on or off, as the profile group's corrections boxes do: `asymmetry` (Finger–Cox–Jephcoat axial divergence, S/L and H/L; constant wavelength), `preferredOrientation` (March–Dollase along a reciprocal-lattice direction [h, k, l]; null turns it off), and `peak` — the set of displacement (flat plate, Δ2θ ∝ cosθ), transparency (flat plate, ∝ sin2θ), absorption (Debye–Scherrer μR, capillary), roughness (Suortti, flat-plate X-ray). Their rows come in fixed: free them with set_free and refine. Match the correction to the geometry and to what diagnose_fit found; a correction answers a residual's signature, never a misfit of the structure.",
     inputSchema: {
       asymmetry: z.boolean().optional(),
       preferredOrientation: z.array(z.number().int()).length(3).nullable().optional().describe("[h, k, l], or null to turn texture off"),
@@ -332,18 +449,22 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["powder"],
+    cards: ["parameters"],
+    offer: { powder: ["profile", "corrections", "finish"], asked: ["corrections"] },
   },
   {
     name: "add_antisite",
     title: "Add antisite disorder",
     description:
-      "Powder page only. Let two sites of different elements exchange their atoms: site B's element is added on site A and A's on B, at occupancy 0, each sharing its host's position and ADP, with the Shared site ties Σ occ = 1 and hold composition switched on — so the exchange refines as one fraction while the formula stays. Call it when the ADPs point at it (one site's B rails toward 0 while the other's is high: the first scatters more, the second less, than the ordered model has), on data with contrast between the two elements, after positions, profile and ADPs are refined. Then free the occupancies of both sites (set_free with the occ_ ids) and refine; report the exchange fraction with its esd, and how the ADPs moved. On data to a modest Q the exchange trades with the two sites' B values (both scale a site's scattering): the esd is then large, and further cycles drift along that valley — report the esd and the correlation, not just the value. Always asks the user.",
+      "Powder page only. Let two sites of different elements exchange their atoms: site B's element is added on site A and A's on B, at occupancy 0, each sharing its host's position and ADP (each site's occupancies then sum to its total by the shared-site constraint), with hold composition switched on — so the exchange refines as one fraction while the formula stays. For when the refined ADPs point at it (one site's B rails toward 0 while the other's is high: the first scatters more, the second less, than the ordered model has), on data with contrast between the two elements. Then free the occupancies of both sites (set_free with the occ_ ids; each site's added one follows its host and is skipped) and refine; report the exchange fraction with its esd, and how the ADPs moved. On data to a modest Q the exchange trades with the two sites' B values (both scale a site's scattering): the esd is then large, and further cycles drift along that valley — report the esd and the correlation, not just the value. Always asks the user.",
     inputSchema: {
       siteA: z.string().describe("Label of one site, e.g. W1"),
       siteB: z.string().describe("Label of the other site, e.g. Cr1"),
     },
     effect: "change",
     pages: ["powder"],
+    cards: ["structure", "parameters"],
+    offer: { powder: ["occupancy"], asked: ["occupancy"] },
     alwaysAsk: true,
   },
   {
@@ -359,12 +480,33 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["powder", "singleCrystal"],
+    cards: ["parameters"],
+    offer: { powder: ["positions", "adp", "occupancy", "finish"], asked: ["occupancy", "adp", "tie"] },
+  },
+  {
+    name: "apply_adp_proposal",
+    title: "Hold a B that refined to 0",
+    description:
+      "Powder page only. For a B the last fit left on its lower bound (0), apply one of the app's ranked options (get_state's bAtZero) by its id: \"tie:<row>\" — a same-element site (preferred), or another cation of the same coordination (an alternative, with a caution) — or \"start\", the starting structure's B as it stands. No partner or value outside that list. Prefer the same-element tie; take a cross-element one only when physically sensible, with `reason` (required for it); in doubt take \"start\", or leave the B and report it. Asking first, the card shows the user every option with yours preselected; they may pick another or decline. In auto mode yours applies, recorded as yours (result, History, notice, report) with the options not taken. Undo: tie_parameters `release`, set_free or go_to_step. Refine after it. If the B carries physical meaning, run the Bayesian check (bayesian-check) instead of quoting a held value.",
+    withoutSkills:
+      "Powder page only. For a B the last fit left on its lower bound (0), apply one of the app's ranked options (get_state's bAtZero) by its id: \"tie:<row>\" — a same-element site (preferred), or another cation of the same coordination (an alternative, with a caution) — or \"start\", the starting structure's B as it stands. No partner or value outside that list. Prefer the same-element tie; take a cross-element one only when physically sensible, with `reason` (required for it); in doubt take \"start\", or leave the B and report it. Asking first, the card shows the user every option with yours preselected; they may pick another or decline. In auto mode yours applies, recorded as yours (result, History, notice, report) with the options not taken. Undo: tie_parameters `release`, set_free or go_to_step. Refine after it. If the B carries physical meaning, sample its posterior (sample_posterior) instead of quoting a held value.",
+    inputSchema: {
+      choose: z.array(z.object({
+        parameter: z.string().min(1).describe("The B row the last fit left on its lower bound, e.g. \"B_O2\""),
+        option: z.string().regex(/^(tie:[A-Za-z0-9_.+-]+|start)$/).describe("One of that row's option ids: \"tie:<row>\" (a tie the app offers) or \"start\" (the starting structure's value)"),
+        reason: z.string().min(1).optional().describe("Why the choice is physically sensible; required for a cross-element tie"),
+      }).strict()).min(1).describe("One option per row"),
+    },
+    effect: "change",
+    pages: ["powder"],
+    cards: ["parameters"],
+    offer: { powder: ["adp", "finish"], asked: ["adp", "tie"] },
   },
   {
     name: "sample_posterior",
     title: "Sample the Bayesian posterior",
     description:
-      "Powder and PDF pages. The Bayesian check of a converged refinement: an ensemble MCMC (Goodman–Weare stretch moves over the worker pool) samples the posterior of the FREE parameters around the refined values and returns, per parameter, the median with 68 % and 95 % credible intervals, the posterior width over the least-squares esd (esdRatio), whether the interval ends on a bound, and the convergence (split-R̂, effective sample size); with the posterior correlations the data leave. Use it when a number is not convincing: an esd as large as the value, a parameter on a bound (B = 0, an occupancy at 1: the posterior gives a one-sided limit where the esd means nothing), a pair the correlation check flags, values that move between refinement paths at the same wR, or a physical claim resting on one parameter (an exchange fraction, a moment, a small distortion). esdRatio ≈ 1 confirms the esds; > 1.5 means they understate the uncertainty: quote the credible interval. `compare` gives the posterior of a difference (two B's, two occupancies, two moments) and the probability one is the larger: whether the data tell them apart. It quantifies uncertainty within the model and cannot fix a wrong one; with a systematic misfit (Durbin–Watson well below 2) it is as overconfident as the esds. Cost: each step evaluates the pattern 2·nFree+2 times, and the chain mixes more slowly with more free parameters (about 10⁴ steps at 20 free; a few thousand at 8–10): fix what does not correlate with the values in question (the profile, the background, the cell and zero usually), refine that set — the posterior is read against that refinement's esds — then sample. Not converged: call again with continue: true. Changes nothing in the model; the page shows the marginals in its Posterior view.",
+      "Powder and PDF pages. The Bayesian check of a converged refinement: an ensemble MCMC (Goodman–Weare stretch moves over the worker pool) samples the posterior of the FREE parameters around the refined values and returns, per parameter, the median with 68 % and 95 % credible intervals, the posterior width over the least-squares esd (esdRatio), whether the interval ends on a bound, and the convergence (split-R̂, effective sample size); with the posterior correlations the data leave. Use it when a number is not convincing: an esd as large as the value, a parameter on a bound (B = 0, an occupancy at 1: the posterior gives a one-sided limit where the esd means nothing), a pair the correlation check flags, values that move between refinement paths at the same wR, or a physical claim resting on one parameter (an exchange fraction, a moment, a small distortion). esdRatio ≈ 1 confirms the esds; > 1.5 means they understate the uncertainty: quote the credible interval. `compare` gives the posterior of a difference (two B's, two occupancies, two moments) and the probability one is the larger: whether the data tell them apart. It quantifies uncertainty within the model and cannot fix a wrong one; with a systematic misfit (on powder, diagnose_fit's Durbin–Watson d below its critical Q_D) it is as overconfident as the esds. Cost: each step evaluates the pattern 2·nFree+2 times, and the chain mixes more slowly with more free parameters (about 10⁴ steps at 20 free; a few thousand at 8–10): free the values in question with their partners (the scale with occupancies and B's, the B's with the positions, the moments with the scale), fix the rest (usually the profile, the background, the cell and zero), refine that set — the posterior is read against that refinement's esds — then sample. The intervals are conditional on what is held: the profile and the background trade with the B values, so say so when quoting them. Not converged: call again with continue: true. Changes nothing in the model; the page shows the marginals in its Posterior view.",
     inputSchema: {
       continue: z.boolean().optional().describe("Resume the last run's chain (same problem) instead of starting a new one"),
       steps: z.number().int().min(50).max(5000).optional().describe("Ensemble steps this call (default 400)"),
@@ -372,28 +514,35 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "read",
     pages: ["powder", "pdf"],
+    cards: ["parameters"],
+    offer: { powder: ["finish"], asked: ["posterior"] },
+    sampler: true,
   },
   {
     name: "identify_peaks",
     title: "Identify extra peaks",
     description:
-      "Powder page only. Match peaks no phase of the model explains against phases a pattern often holds besides the sample: the sample environment (Al can or cryostat shields, V, Cu, steels, Nb heat shields, Pb shielding), holders (corundum, graphite), standards (Si, LaB₆, CeO₂) and common synthesis impurities (CaF₂, NaF, NaCl), their lines computed for this radiation. Each phase may scale its d-spacings by up to ±1.5 % (cooling; a part off the sample position shifts its lines). Returns the candidates with the lines they explain and the strong lines they should also show. Uses the residual's unexplained peaks (find_unexplained_peaks), or the d-spacings you pass (e.g. the cell check's unindexed peaks). A lead to put to the user, not an identification; add_known_phase then adds a matched phase to the model.",
+      "Powder page only. Match peaks no phase of the model explains against phases a pattern often holds besides the sample: the sample environment (Al can or cryostat shields, V, Cu, steels, Nb heat shields, Pb shielding), holders (corundum, graphite), standards (Si, LaB₆, CeO₂) and the synthesis impurities in its library, their lines computed for this radiation. Each phase may scale its d-spacings by up to ±1.5 % (cooling; a part off the sample position shifts its lines). Returns the candidates with the lines they explain and the strong lines they should also show; a lead is named only when random peaks over the same range match a library phase as well less than 1 % of the time. Uses the residual's unexplained peaks (find_unexplained_peaks), or the d-spacings you pass (e.g. the cell check's unindexed peaks). A lead to put to the user, not an identification; add_known_phase then adds a matched phase to the model.",
     inputSchema: {
       d: z.array(z.number().positive()).optional().describe("d-spacings (Å) to identify; default: the residual's unexplained peaks"),
     },
     effect: "read",
     pages: ["powder"],
+    cards: ["pattern"],
+    offer: { powder: ["check", "base", "finish"], asked: ["impurity"] },
   },
   {
     name: "add_known_phase",
     title: "Add a known phase",
     description:
-      "Powder page only. Add one of identify_peaks' library phases (the sample environment, holders, line standards, and the impurities a synthesis leaves most often: CaF₂, NaF, NaCl) to the model as a further phase, with the library's room-temperature cell and positions and B ≈ 0.5 Å². Its scale and cell then refine with the others (free them with set_free; the cell first if identify_peaks found a d scale away from 1); report its weight fraction. Call it once identify_peaks has matched the unindexed peaks to it and the user agrees. A phase outside the library needs the user's CIF (Add CIF…). Always asks the user.",
+      "Powder page only. Add one of identify_peaks' library phases (the sample environment, holders, line standards, and the synthesis impurities in its library) to the model as a further phase, with the library's room-temperature cell and positions and B ≈ 0.5 Å². Its scale and cell then refine with the others (free them with set_free; the cell first if identify_peaks found a d scale away from 1); report its weight fraction. Call it once identify_peaks has matched the unindexed peaks to it and the user agrees. A phase outside the library needs the user's CIF (Add CIF…). Always asks the user.",
     inputSchema: {
       name: z.string().describe("The phase as identify_peaks names it, e.g. \"CaF₂\""),
     },
     effect: "change",
     pages: ["powder"],
+    cards: ["structure", "parameters"],
+    offer: { powder: ["check", "base"], asked: ["impurity"] },
     alwaysAsk: true,
   },
   {
@@ -407,6 +556,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["powder"],
+    cards: ["instrument"],
+    offer: { powder: ["base"], asked: ["xray"] },
     alwaysAsk: true,
   },
   {
@@ -419,6 +570,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "read",
     pages: ["powder", "pdf", "singleCrystal"],
+    cards: ["structure"],
+    offer: { powder: ["finish"], asked: ["geometry", "report"] },
   },
   {
     name: "magnetic_state",
@@ -428,18 +581,24 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     inputSchema: {},
     effect: "read",
     pages: ["powder"],
+    cards: [],
+    offer: { powder: ["finish"], magnetic: true, asked: ["magnetic"] },
+    magneticStep: true,
   },
   {
     name: "search_propagation_vector",
     title: "Search the propagation vector",
     description:
-      "Powder page only. Search commensurate propagation vectors k (denominators 2, 3, 4, 6, and k = 0, whose magnetic peaks can sit on reflections the space group forbids) that put magnetic reflections G ± k on the residual peaks the k-search uses (magnetic_state lists them, numbered; peaks on allowed nuclear reflections are left out). Ranked by how many peaks each explains and how closely. Leave out lines already identified as not magnetic — the sample environment, an impurity, a line present above the ordering temperature — with `exclude` (their numbers), as the peak table's check boxes do; `include` puts a peak in. Shows the list on the magnetic step. It does not set k: set_propagation_vector does.",
+      "Powder page only. Search commensurate propagation vectors k (denominators 2, 3, 4, 6, in a monoclinic or triclinic cell the mixed-sign ones too such as (¼ 0 −¼), and k = 0, whose magnetic peaks can sit on reflections the space group forbids) that put magnetic reflections G ± k on the residual peaks the k-search uses (magnetic_state lists them, numbered; peaks on allowed nuclear reflections are left out). Ranked by how many peaks each explains and how closely. Leave out lines already identified as not magnetic — the sample environment, an impurity, a line present above the ordering temperature — with `exclude` (their numbers), as the peak table's check boxes do; `include` puts a peak in. Shows the list on the magnetic step. It does not set k: set_propagation_vector does.",
     inputSchema: {
       exclude: z.array(z.number().int().positive()).optional().describe("Numbers of residual peaks to leave out of the search (magnetic_state's residualPeaks n)"),
       include: z.array(z.number().int().positive()).optional().describe("Numbers of residual peaks to put into the search"),
     },
-    effect: "read",
+    effect: "compute",
     pages: ["powder"],
+    cards: [],
+    offer: { powder: ["finish"], magnetic: true, asked: ["magnetic"] },
+    magneticStep: true,
   },
   {
     name: "set_propagation_vector",
@@ -451,6 +610,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["powder"],
+    cards: [],
+    offer: { magnetic: true, asked: ["magnetic"] },
+    magneticStep: true,
     skill: "magnetic-analysis",
   },
   {
@@ -462,6 +624,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["powder"],
+    cards: [],
+    offer: { magnetic: true, asked: ["magnetic"] },
+    magneticStep: true,
     skill: "magnetic-analysis",
   },
   {
@@ -475,19 +640,25 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["powder"],
+    cards: [],
+    offer: { magnetic: true, asked: ["magnetic"] },
+    magneticStep: true,
     skill: "magnetic-analysis",
   },
   {
     name: "rank_magnetic_groups",
     title: "Rank the magnetic groups",
     description:
-      "Powder page only. Fit the moments of each magnetic group that allows a moment (the nuclear model held) and rank them by wR: `scope` \"open\" (default) fits the groups in the index sections open on the page (the maximal, index-2 groups at first: the top-down start), \"all\" every group. Each group is fitted from its seed moments and from `restarts` kicked starts (default 12), the best kept: magnetic intensity is quadratic in the moments, so one fit can stop in a minimum with a sublattice switched off. Returns the fitted groups, best first, with the best marked (ties go to the maximal group with the fewest moment parameters). Several seconds per group.",
+      "Powder page only. Fit the moments of each magnetic group that allows a moment (the nuclear model held) and rank them by wR: `scope` \"open\" (default) fits the groups in the index sections open on the page (the maximal, index-2 groups at first: the top-down start), \"all\" every group. Each group is fitted from its seed moments and from `restarts` kicked starts (default 12), the best kept: magnetic intensity is quadratic in the moments, so one fit can stop in a minimum with a sublattice switched off. Returns the fitted groups, best first, the groups within the noise of the best (Hamilton's test: a group with more moment parameters must lower χ² beyond the noise), and the ★, the maximal one with the fewest moment parameters among them. At k = 0 the nuclear scale refines with the moments. Several seconds per group.",
     inputSchema: {
       scope: z.enum(["open", "all"]).optional(),
       restarts: z.number().int().min(0).max(32).optional().describe("Kicked restarts per group beyond the seeded fit (default 12; 0 = one fit)"),
     },
-    effect: "read",
+    effect: "compute",
     pages: ["powder"],
+    cards: [],
+    offer: { magnetic: true, asked: ["magnetic"] },
+    magneticStep: true,
   },
   {
     name: "choose_magnetic_group",
@@ -499,6 +670,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["powder"],
+    cards: [],
+    offer: { magnetic: true, asked: ["magnetic"] },
+    magneticStep: true,
     skill: "magnetic-analysis",
   },
   {
@@ -508,6 +682,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     inputSchema: {},
     effect: "change",
     pages: ["powder"],
+    cards: [],
+    offer: { magnetic: true, asked: ["magnetic"] },
+    magneticStep: true,
     skill: "magnetic-analysis",
   },
   {
@@ -520,6 +697,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["powder"],
+    cards: ["pattern"],
+    offer: { magnetic: true, asked: ["magnetic"] },
+    magneticStep: true,
     skill: "magnetic-analysis",
   },
   {
@@ -532,6 +712,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["powder"],
+    cards: ["parameters"],
+    offer: { magnetic: true, asked: ["magnetic"] },
+    magneticStep: true,
     skill: "magnetic-analysis",
   },
   {
@@ -546,6 +729,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "read",
     pages: ["powder", "pdf", "singleCrystal"],
+    cards: ["structure"],
+    offer: { asked: ["geometry"] },
+    needsStructure: true,
   },
   {
     name: "interpret_structure",
@@ -555,6 +741,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     inputSchema: {},
     effect: "read",
     pages: ["powder", "pdf"],
+    cards: ["structure"],
+    offer: { asked: ["geometry", "report"] },
+    needsStructure: true,
   },
   {
     name: "read_skill",
@@ -567,18 +756,24 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "read",
     pages: ["powder", "pdf", "singleCrystal"],
+    cards: [],
+    offer: { core: true },
+    stallNeutral: true,
+    keep: true,
   },
   {
     name: "allow_exception",
     title: "Allow an exception to the method",
     description:
-      "Ask the user to lift one of their method's firm rules for this analysis, when refine refused on it and the user wants to go on regardless: \"bare-occupancy\" (refine an occupancy with no tie, because a second contrast — anomalous X-ray, isotopic neutron — determines it), or \"instrument-with-thermal\" (refine the instrument's terms — the zero, the peak shape and asymmetry, Qdamp/Qbroad — together with the B values or ADPs, which the user's method alternates). Only when the user asks for it, never to get past a refusal. Always shows the user an approval card, even in Auto; only they can approve it. Give their reason in `reason`. Lasts until the data or the phases change.",
+      "Ask the user to lift one of their method's firm rules for this analysis, when refine refused on it and the user wants to go on regardless: \"bare-occupancy\" (refine an occupancy with no tie, because a second contrast — anomalous X-ray, isotopic neutron — determines it), or \"instrument-with-thermal\" (refine the instrument's terms — the zero, the peak shape and asymmetry, Qdamp/Qbroad — together with the B values or ADPs, which the user's method alternates), or \"instrument-with-positions\" (on the powder page, the instrument's terms together with the atom positions, which it alternates too). Only when the user asks for it, never to get past a refusal. Always shows the user an approval card, even in Auto; only they can approve it. Give their reason in `reason`. Lasts until the data or the phases change.",
     inputSchema: {
-      rule: z.enum(["bare-occupancy", "instrument-with-thermal"]),
+      rule: z.enum(["bare-occupancy", "instrument-with-thermal", "instrument-with-positions"]),
       reason: z.string().min(3).describe("Why the rule does not apply here, in the user's terms"),
     },
     effect: "change",
     pages: ["powder", "pdf", "singleCrystal"],
+    cards: [],
+    offer: { core: true },
     alwaysAsk: true,
   },
   {
@@ -589,21 +784,54 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     inputSchema: {
       text: z.string().min(3).max(400).describe("The note, in a sentence or two"),
     },
-    effect: "read",
+    effect: "record",
     pages: ["powder", "pdf", "singleCrystal"],
+    cards: [],
+    offer: { core: true },
   },
   {
     name: "write_report",
     title: "Write the analysis report",
     description:
-      "Write the analysis report and open it for the user, who can save it as HTML, Markdown or PDF, with the CIF. It holds what the page's own report holds — the data and the model, the fit figure, the refined structure with esds, every parameter, the agreement factors and the diagnostics — and the analysis as you ran it: the History's steps on the path to the result (what each refinement freed, and the method stage that is the reason), the method's checklist, the engine's checks (convergence, agreement, correlations, bounds, residual peaks, serial correlation, bond valences, the cell check and symmetry review) with the issues left open, the Bayesian check if you ran sample_posterior on this refinement, and your notes. Every number in it comes from the engine and the History. You write only `summary`, your own account, which the report labels as yours. Quote the engine's numbers by reference ({{wR2}}, {{Rwp}}, {{verdict}}, {{p:ID}}; get_state lists them): the app fills them in from the engine, and refuses a reference that names nothing the page has. Any decimal number you type yourself is checked against the numbers the report computed: one that matches none is underlined in the report and listed in the answer — correct it (get_state, structure_table) and call again, or leave it out. Call it when the analysis is done and you have reported, or when the user asks for the report.",
+      "Write the analysis report and open it for the user, who can save it as HTML, Markdown or PDF, with the CIF. It holds what the page's own report holds — the data and the model, the fit figure, the refined structure with esds, every parameter, the agreement factors and the diagnostics — and the analysis as you ran it: the History's steps on the path to the result (what each refinement freed, and the method stage that is the reason), the method's checklist, the engine's checks (convergence, agreement, correlations, bounds, residual peaks, serial correlation, bond valences, the cell check and symmetry review) with the issues left open, the Bayesian check if you ran sample_posterior on this refinement, and your notes. Every number in it comes from the engine and the History. You write only `summary`, your own account, which the report labels as yours. It leads the report, beside the open issues and the checks that bear on trust; the steps, every check, every parameter and the software follow in a collapsed appendix. So keep it short and do not retell the steps: the result, how far to trust it (its uncertainties, what limits it) and what is left open, the approach in a sentence. Quote the engine's numbers by reference ({{wR2}}, {{Rwp}}, {{verdict}}, {{p:ID}}; get_state lists them): the app fills them in from the engine, and refuses a reference that names nothing the page has. Any decimal number you type yourself is checked against the numbers the report computed: one that matches none is underlined in the report and listed in the answer — correct it (get_state, structure_table) and call again, or leave it out. Call it when the analysis is done and you have reported, or when the user asks for the report.",
+    withoutSkills:
+      "Write the analysis report and open it for the user, who can save it as HTML, Markdown or PDF, with the CIF. It holds what the page's own report holds — the data and the model, the fit figure, the refined structure with esds, every parameter, the agreement factors and the diagnostics — and the analysis as you ran it: the History's steps on the path to the result (what each refinement freed), the engine's checks (convergence, agreement, correlations, bounds, residual peaks, serial correlation, bond valences, the cell check and symmetry review) with the issues left open, the Bayesian check if you ran sample_posterior on this refinement, and your notes. Every number in it comes from the engine and the History. You write only `summary`, your own account, which the report labels as yours. It leads the report, beside the open issues and the checks that bear on trust; the steps, every check, every parameter and the software follow in a collapsed appendix. So keep it short and do not retell the steps: the result, how far to trust it (its uncertainties, what limits it) and what is left open, the approach in a sentence. Quote the engine's numbers by reference ({{wR2}}, {{Rwp}}, {{verdict}}, {{p:ID}}; get_state lists them): the app fills them in from the engine, and refuses a reference that names nothing the page has. Any decimal number you type yourself is checked against the numbers the report computed: one that matches none is underlined in the report and listed in the answer — correct it (get_state, structure_table) and call again, or leave it out. Call it when the analysis is done and you have reported, or when the user asks for the report.",
     inputSchema: {
       summary: z.string().min(20).max(6000).describe(
         "Your account, in plain prose, one to four short paragraphs separated by blank lines: what you did and why, what the result shows about the structure, its caveats, and what is left open. The engine's numbers by reference ({{wR2}}, {{p:ID}}); any other number exactly as the tools gave it (or rounded from it); add none of your own.",
       ),
     },
+    effect: "record",
+    pages: ["powder", "pdf", "singleCrystal"],
+    cards: ["result"],
+    offer: { core: true },
+    evidence: ["assessment", "absoluteStructure"],
+  },
+  {
+    name: "ask_user",
+    title: "Ask you a question",
+    description:
+      "Put a question to the user with 2 to 6 answers to click, when the next step is theirs to decide (which block to free next, whether to add a phase, which of two readings to follow). The drawer shows the question with one button per option; a click sends that option's `message` as the user's next message, exactly as written, and they may answer in their own words instead. Your turn ends with this call: say what the decision rests on in your reply before it, and call nothing after it. Write each `message` as the user would type it (\"Free the B values and refine.\"), one decision per question. An answer is a request like any other: a change it asks for still goes through its change tool, which asks the user as every change does. Not for asking leave to make a change (call the change tool: it asks them), nor for a choice a tool already shows as buttons (the k-search's k, rank_magnetic_groups's groups, suggest_next_steps's steps). Engine numbers by reference ({{wR}}, {{p:ID}}), as in your replies.",
+    inputSchema: {
+      question: z.string().trim().min(3).max(300).describe("The question, in a sentence or two"),
+      options: z
+        .array(
+          z.object({
+            label: z.string().trim().min(1).max(60).describe("The button's text, a few words"),
+            message: z.string().trim().min(1).max(300).describe("What a click sends as the user's message, as they would type it"),
+          }).strict(),
+        )
+        .min(2)
+        .max(MAX_OPTIONS)
+        .refine((os) => new Set(os.map((o) => o.label.toLowerCase().replace(/\s+/g, " "))).size === os.length, { message: "each option needs its own label" })
+        .describe(`The answers, 2 to ${MAX_OPTIONS}, one button each`),
+      other: z.string().trim().min(1).max(120).optional().describe("A hint shown in the empty message box when the user answers in their own words"),
+    },
     effect: "read",
     pages: ["powder", "pdf", "singleCrystal"],
+    cards: [],
+    offer: { core: true },
+    endsTurn: true,
   },
   {
     name: "read_ref",
@@ -617,6 +845,9 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "read",
     pages: ["powder", "pdf", "singleCrystal"],
+    cards: [],
+    offer: { core: true },
+    stallNeutral: true,
   },
   {
     name: "set_free",
@@ -629,18 +860,24 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["powder", "pdf", "singleCrystal"],
+    cards: ["parameters"],
+    historyStep: "edit",
+    offer: { core: true },
   },
   {
     name: "set_background",
     title: "Change the background",
     description:
-      "Powder page only. Change the background model: the number of coefficients (rebuilds the parameter set, keeping every other value and free state) and/or the basis. Changing the basis between a polynomial and an interpolation type reseeds the coefficients. Clears the last result.",
+      "Powder page only. Change the background model: the number of coefficients (rebuilds the parameter set, keeping every other value and free state) and/or the basis. Changing the basis between a polynomial and an interpolation type reseeds the coefficients; a new count on an interpolation basis keeps the curve. More terms: the card cautions when they would absorb an excess no reflection explains, or exceed what the points between the lines justify (BIC). Clears the last result.",
     inputSchema: {
-      terms: z.number().int().min(0).max(24).optional().describe("Number of background coefficients"),
+      terms: z.number().int().min(1).max(24).optional().describe("Number of background coefficients"),
       type: z.enum(["chebyshev", "cosine", "powerSeries", "linInterpolate", "logInterpolate"]).optional(),
     },
     effect: "change",
     pages: ["powder"],
+    cards: ["parameters", "pattern"],
+    historyStep: "settings",
+    offer: { powder: ["base"], asked: ["background"] },
   },
   {
     name: "set_microstrain",
@@ -650,29 +887,38 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     inputSchema: { model: z.enum(["isotropic", "uniaxial", "generalized"]) },
     effect: "change",
     pages: ["powder"],
+    cards: ["parameters"],
+    historyStep: "settings",
+    offer: { powder: ["profile"], asked: ["strain"] },
   },
   {
     name: "set_adp_model",
     title: "Change the ADP model",
     description:
-      "Switch the primary phase's atomic displacement model between isotropic (one B_iso / U per site) and anisotropic (the symmetry-allowed U tensor components), seeded from the current refined values. New rows start fixed — free them with set_free. A CIF with U_aniso columns loads anisotropic (get_state says which): on the PDF page a small-box fit usually refines one U per site. Anisotropic ADPs need good data; they are the last structural step. On the single-crystal page with X-ray data the hydrogens stay isotropic (one electron, displaced into its bond, defines no tensor); with neutrons they follow.",
+      "Switch the primary phase's atomic displacement model between isotropic (one B_iso / U per site) and anisotropic (the symmetry-allowed U tensor components), seeded from the current refined values. New rows start fixed — free them with set_free. A CIF with U_aniso columns loads anisotropic (get_state says which): on the PDF page a small-box fit usually refines one U per site. Anisotropic ADPs need good data (resolution, and data per parameter). On the single-crystal page with X-ray data the hydrogens stay isotropic (one electron, displaced into its bond, defines no tensor); with neutrons they follow.",
     inputSchema: { anisotropic: z.boolean() },
     effect: "change",
     pages: ["powder", "pdf", "singleCrystal"],
+    cards: ["parameters"],
+    historyStep: "settings",
+    offer: { powder: ["adp"], asked: ["adp"] },
   },
   {
     name: "set_site_ties",
     title: "Change the site ties",
     description:
-      "Powder page only. The Shared site settings, for atoms that share a crystallographic site or an element spread over several sites. `positions`/`adp`: one position / one ADP per shared site (default on). `occupancyToUnity`: a shared site's Σ occupancy is restrained to 1 instead of its starting sum. `composition`: each element on two or more sites keeps its total in the cell, so atoms exchange between sites while the formula stays (anti-site disorder, spinel inversion). With the shared-site Σ and the composition held, freeing the occupancies of two mixed sites refines one exchange fraction, and refine's correlation check does not count occupancies tied by one restraint against each other (scale and ADPs still count). The restraints act only while one of their occupancies is free; get_state lists them. Multi-phase too; not with a magnetic model applied.",
+      "Powder page only. The Shared site settings, for atoms that share a crystallographic site or an element spread over several sites. `positions`/`adp`: one position / one ADP per shared site (default on). A shared site's occupancies always sum to exactly its total by a constraint: the last member follows the total minus the others (get_state's occupancyConstraints). `totals`: a site's total by its key (the site's first member's label), 1 by default; below 1 only for vacancies the user has evidence of. `composition`: each element on two or more sites keeps its total in the cell, so atoms exchange between sites while the formula stays (anti-site disorder, spinel inversion). With the composition held, freeing the occupancies of two mixed sites refines one exchange fraction, and refine's correlation check does not count occupancies tied by one restraint or one site's constraint against each other (scale and ADPs still count). The composition restraints act only while one of their occupancies is free; get_state lists them. Multi-phase too; not with a magnetic model applied.",
     inputSchema: {
       positions: z.boolean().optional(),
       adp: z.boolean().optional(),
-      occupancyToUnity: z.boolean().optional(),
       composition: z.boolean().optional(),
+      totals: z.record(z.string(), z.number().min(0.001).max(1)).optional().describe("A shared site's total occupancy by its key: {\"Co1\": 0.95} for 5 % vacancies; 1 restores a full site"),
     },
     effect: "change",
     pages: ["powder"],
+    cards: ["parameters"],
+    historyStep: "settings",
+    offer: { powder: ["positions", "occupancy"], asked: ["occupancy", "tie"] },
   },
   {
     name: "set_fit_range",
@@ -687,32 +933,41 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["powder", "pdf"],
+    cards: ["pattern"],
+    historyStep: "settings",
+    offer: { powder: ["always"] },
   },
   {
     name: "refine",
     title: "Refine",
     description:
-      "Run the refinement of the free parameters, as the Refine button does, and wait for it. mode \"thorough\" is the Prefit / Escape-minimum button instead: with no fit yet, a multi-start search (on powder, after a Le Bail cell pre-fit); after a fit, a light multi-start nudge out of a local minimum. Correlated parameters are never refined together: before it runs (and before the user is asked), it measures the free set at the current values, and refuses when two free parameters correlate at |ρ| ≥ 0.95 or the data cannot determine a combination of them, naming them with the physical reason; fix one of each pair with set_free, or refine them in separate stages. Returns the outcome (status; wR and GoF on powder, Rw on PDF; iterations, free count; any pair that correlates at the refined values) and the step it recorded. Follow it with assess_refinement.",
+      "Run the refinement of the free parameters, as the Refine button does, and wait for it. mode \"thorough\" is the Prefit / Escape-minimum button instead: with no fit yet, a multi-start search (on powder, after a Le Bail cell pre-fit); after a fit, a light multi-start nudge out of a local minimum. Correlated parameters are never refined together: before it runs (and before the user is asked), it measures the free set at the current values, and refuses when two free parameters correlate at |ρ| ≥ 0.95 or the data cannot determine a combination of them, naming them with the physical reason; fix one of each pair with set_free, or refine them in separate stages. Returns the outcome (status; wR and GoF on powder, Rw on PDF; iterations, free count; any pair that correlates at the refined values) and the step it recorded.",
     inputSchema: {
       mode: z.enum(["refine", "thorough"]).optional().describe("Default \"refine\""),
     },
     effect: "change",
     pages: ["powder", "pdf", "singleCrystal"],
+    cards: ["parameters", "pattern"],
+    offer: { core: true },
+    needsStructure: true,
   },
   {
     name: "boxcar_scan",
     title: "Boxcar scan",
     description:
-      "PDF page only. The way to answer whether the local structure differs from the average one — not the full fit, nor bond_geometry, which give the average only. The r-resolved view of the current model: a box of fixed width slid across the fit window, the FREE parameters refined in each box (seeded from the previous one), as the page's Boxcar view does — the user watches it there. It answers whether the local structure differs from the average: Rw and parameters that drift between low and high r. The parameter rows are left as they are (a diagnostic, not a fit). Returns, per box, its r range, Rw and the free parameters' values, and each parameter's spread; with `bonds`, also those sites' bond lengths per box and each bond's spread — a distortion read as lengths, not coordinate shifts. Takes about one refinement per box. Pass `free` for a scan's own small set (scale, cell, the parameters in question): the page keeps its free set and its fit, so the report that follows still matches them.",
+      "PDF page only. The way to answer whether the local structure differs from the average one — not the full fit, nor bond_geometry, which give the average only. The r-resolved view of the current model: a box of fixed width slid across the fit window, the FREE parameters refined in each box (seeded from the previous one), as the page's Boxcar view does — the user watches it there. It answers whether the local structure differs from the average: Rw and parameters that drift between low and high r. The parameter rows are left as they are (a diagnostic, not a fit). Returns, per box, its r range, Rw and the free parameters' values with their esds, and each parameter's spread and its drift from the first box to the last in esds; with `bonds`, also those sites' bond lengths per box and each bond's spread — a distortion read as lengths, not coordinate shifts. Takes about one refinement per box. Pass `free` for a scan's own small set (scale, cell, the parameters in question): the page keeps its free set and its fit, so the report that follows still matches them.",
     inputSchema: {
       width: z.number().positive().optional().describe("Box width in Å (default 5)"),
       step: z.number().positive().optional().describe("Advance between boxes in Å (default 1; width/2 gives half-overlapping boxes)"),
       direction: z.enum(["up", "down", "both"]).optional().describe("Walk low → high r (default), high → low, or both (path dependence shows as a gap)"),
       free: ids.optional().describe("The parameters each box refines (ids or globs), for this scan only; default the page's free set. The page's own free set and fit are left as they are."),
       bonds: z.array(z.string()).max(4).optional().describe("Site labels (e.g. [\"Mn1\"]) whose bond lengths each box reports, from the structure that box refined: the local geometry box by box"),
+      restarts: z.number().int().min(0).max(16).optional().describe("Randomly perturbed starts each box also refines from, the seeded start kept (default 0): for a track that may have inherited one box's local minimum"),
     },
     effect: "change",
     pages: ["pdf"],
+    cards: ["pattern"],
+    evidence: ["localStructure"],
   },
   {
     name: "reset_parameters",
@@ -723,6 +978,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     },
     effect: "change",
     pages: ["powder", "pdf", "singleCrystal"],
+    cards: ["parameters"],
+    offer: { core: true },
   },
   {
     name: "go_to_step",
@@ -732,6 +989,8 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     inputSchema: { step: z.string().regex(/^s\d+$/).describe("Step id, e.g. \"s7\"") },
     effect: "change",
     pages: ["powder", "pdf", "singleCrystal"],
+    cards: [],
+    offer: { core: true },
   },
   {
     name: "cancel_refinement",
@@ -740,10 +999,34 @@ export const LIVE_TOOLS: readonly LiveToolSpec[] = [
     inputSchema: {},
     effect: "control",
     pages: ["powder", "pdf", "singleCrystal"],
+    cards: [],
+    offer: { core: true },
   },
-];
+] as const satisfies readonly LiveToolSpec[];
+
+export const LIVE_TOOLS: readonly LiveToolSpec[] = TOOLS;
 
 export const PAGE_LABEL: Readonly<Record<AgentPage, string>> = { powder: "powder", pdf: "PDF", singleCrystal: "single-crystal" };
+
+/** A live tool's name. */
+export type ToolName = (typeof TOOLS)[number]["name"];
+
+/** A tool's definition, by name, with its schema's own types. */
+type SpecOf<N extends ToolName> = Extract<(typeof TOOLS)[number], { readonly name: N }>;
+
+/** A tool's input as its schema parses it: what a handler receives once the executor has validated the call. */
+export type InputOf<N extends ToolName> = z.infer<z.ZodObject<SpecOf<N>["inputSchema"]>>;
+
+/** The change tools that work on a page, but `allow_exception`, which the executor runs itself (it lifts a rule, it changes no page). */
+export type PageChangeTool<P extends AgentPage> = Exclude<
+  (typeof TOOLS)[number] extends infer T ? (T extends { readonly name: infer N; readonly effect: "change"; readonly pages: readonly (infer G)[] } ? (P extends G ? N : never) : never) : never,
+  "allow_exception"
+>;
+
+/** The magnetic step's change tools: their definitions say magneticStep. */
+export type MagneticChangeTool = (typeof TOOLS)[number] extends infer T
+  ? (T extends { readonly name: infer N; readonly effect: "change"; readonly magneticStep: true } ? N : never)
+  : never;
 
 export function liveTool(name: string): LiveToolSpec | undefined {
   return LIVE_TOOLS.find((t) => t.name === name);

@@ -43,17 +43,22 @@ import {
   PDF_STAGE_KINDS,
 } from "@/core/workflow/pdf";
 import { buildMpdfSpec, mpdfComponents, unsupportedMpdfModel, MPDF_STAGE_KINDS } from "@/core/workflow/mpdf";
-import { computeAgreementFactors, excludedPointMask, fitRangeMask, weightsFromSigma } from "@/core/refinement/factors";
+import { applyExclusionMask, computeAgreementFactors, excludedPointMask, weightsFromSigma } from "@/core/refinement/factors";
 import { axisContext, convertAxisArray, convertAxisValue, tofCalibrationOf } from "@/visualization/axisUnits";
-import { inspectDataRange, type DataRangeReading } from "@/core/diagnostics/dataRange";
+import { posteriorReading, type ParameterReading } from "@/core/diagnostics/posteriorReading";
+import { cellCheckReading, dScaleReading } from "@/core/diagnostics/cellReading";
+import type { DataRangeReading } from "@/core/diagnostics/dataRange";
+import { fitRangeSentence, readFitRange } from "@/core/diagnostics/fitRangeReading";
+import { axisPlausibility } from "@/core/diagnostics/axisReading";
 import { generateReflections } from "@/core/diffraction/reflections";
+import { pointSigma, powderResidual as corePowderResidual, type PowderResidual as CorePowderResidual } from "@/core/diagnostics/powderResidual";
+import { unexplainedPeaks, type PeakReading } from "@/core/diagnostics/unexplainedPeaks";
 import { abscissaFromD, radiationOf } from "@/core/diffraction/instrument";
 import { bondLengths } from "@/core/crystal/geometry";
 import { centringTranslations } from "@/core/crystal/symmetry";
 import { bondValenceReading, bondValenceSums, type BondValenceSum } from "@/core/crystal/bondValence";
 import { analyzeSiteSymmetry, type SiteSymmetry } from "@/core/crystal/siteSymmetry";
 import { classifyPointGroup } from "@/core/crystal/pointGroup";
-import { detectExtraPeaks, type ExtraPeakOptions } from "@/core/magnetic/extraPeaks";
 import { reviewSymmetry, type SymmetryReview } from "@/core/diagnostics/symmetryReview";
 import { isGsasHistogram, parseGsasHistogramPattern } from "@/parsers/gsasHistogram";
 import { cagliotiOf } from "@/core/workflow/leBail";
@@ -72,9 +77,8 @@ import { applyParameters } from "@/core/workflow/apply";
 import { resolveTies } from "@/core/refinement/constraints";
 import { buildDistortionModes, buildSymmetryModes } from "@/core/crystal/distortionModes";
 import { refine, refineParallel } from "@/core/refinement/engine";
-import { refineSequentialAsync } from "@/core/refinement/sequential";
-import { refineMultiStart } from "@/core/refinement/multiStart";
-import { canonicalizeMomentValues, momentDegeneracies, momentKickFloor, type MomentDegeneracy } from "@/core/magnetic/canonicalize";
+import { boxcarScan, momentMultiStart, poolSolver } from "@/workers/strategy";
+import { momentKickFloor, type MomentDegeneracy } from "@/core/magnetic/canonicalize";
 import {
   boxcarPlanIssue,
   boxcarScannedMax,
@@ -87,6 +91,7 @@ import { looksLikeSnsTofHkl, parseSnsTofHkl } from "@/parsers/snsTofHkl";
 import { writeFullProfInt } from "@/core/export/fullprofInt";
 import { refinementBundle, type BundleTarget } from "@/core/export/bundle";
 import type { BackgroundType } from "@/core/diffraction/background";
+import { instrumentBackgroundDefault } from "@/core/workflow/backgroundDefaults";
 import type { CifRefinementMeta } from "@/core/export/cif";
 import { parseHklRows } from "@/parsers/hkl";
 import { isCifReflectionLoop, isRefinementListing, parseFcf, parseShelxHkl } from "@/parsers/shelxHkl";
@@ -113,12 +118,12 @@ import type { Vec3 } from "@/core/math/types";
 import type { PeakShape } from "@/core/diffraction/profile";
 import {
   assessRefinement,
-  relativeLineWidth,
   suggestNextSteps,
   type AssessmentInput,
   type RefinementAssessment,
 } from "@/core/diagnostics/assessment";
 import { interpretStructure } from "@/core/diagnostics/interpret";
+import { minMax } from "@/core/math/extent";
 
 const DEFAULT_INSTRUMENT: InstrumentParameters = { kind: "constantWavelength", wavelength: 1.54 };
 
@@ -159,7 +164,7 @@ export function parse_powder_data(args: { text: string; filename?: string; instr
   return {
     detected: { dataType: fmt.dataType, ...(fmt.xUnit ? { xUnit: fmt.xUnit } : {}), source: fmt.source, confidence: fmt.confidence, ...(fmt.note ? { note: fmt.note } : {}) },
     pattern,
-    summary: { points: pattern.points.length, xUnit: pattern.xUnit, xMin: Math.min(...xs), xMax: Math.max(...xs), radiation: pattern.radiation.kind },
+    summary: { points: pattern.points.length, xUnit: pattern.xUnit, xMin: minMax(xs).min, xMax: minMax(xs).max, radiation: pattern.radiation.kind },
   };
 }
 
@@ -178,16 +183,25 @@ export function build_refinement(args: {
   pattern: PowderPattern;
   instrument?: InstrumentParameters;
   backgroundTerms?: number;
+  backgroundType?: BackgroundType;
   mustrain?: MustrainModel;
 }): { parameters: RefinementParameter[]; bindings: ParameterBinding[]; profile: PowderProfile; freeCount: number } {
+  const instrument = args.instrument ?? DEFAULT_INSTRUMENT;
+  // The instrument's default background (POWGEN TOF: log interpolate, 3
+  // points) for what the call leaves out; the count follows the basis.
+  const own = instrumentBackgroundDefault(args.pattern, instrument);
+  const backgroundType = args.backgroundType ?? own?.type;
+  const backgroundTerms = args.backgroundTerms ?? (own && backgroundType === own.type ? own.terms : 4);
   const spec = buildPowderSpec(
     args.structure,
     args.pattern,
-    args.instrument ?? DEFAULT_INSTRUMENT,
+    instrument,
     true,
-    args.backgroundTerms ?? 4,
+    backgroundTerms,
     {},
     args.mustrain ?? "isotropic",
+    undefined,
+    backgroundType,
   );
   return {
     parameters: spec.params,
@@ -222,7 +236,7 @@ export function check_fit_range(args: {
   profile?: PowderProfile;
   result?: RefinementResult;
   fitRange?: { min: number; max: number };
-}): DataRangeReading & { readonly proposedD: readonly [number, number] | null } {
+}): DataRangeReading & { readonly proposedD: readonly [number, number] | null; readonly reading: string; readonly axisWarning?: string } {
   const instrument = args.instrument ?? DEFAULT_INSTRUMENT;
   if (args.pattern.xUnit === "tof" && instrument.kind !== "tof") {
     throw new Error("check_fit_range: a time-of-flight pattern needs its TOF instrument (difC) to place reflections");
@@ -233,27 +247,37 @@ export function check_fit_range(args: {
   const zero = (args.parameters ?? []).find((p) => p.kind === "zeroShift")?.value;
   const ctx = axisContext(args.pattern, args.instrument, zero, tofCalibrationOf(args.parameters ?? []));
   const unit = args.pattern.xUnit;
-  const ds = args.pattern.points.map((p) => convertAxisValue(p.x, unit, "dSpacing", ctx)).filter((d) => Number.isFinite(d) && d > 0);
-  const dMin = Math.min(...ds) * 0.98;
-  const dMax = Math.min(50, Math.max(...ds) * 1.02);
-  const reflections = [args.structure, ...(args.extraPhases ?? [])]
-    .flatMap((ph) => generateReflections(ph.cell, ph.spaceGroup, dMin, dMax, { absences: true }).map((r) => convertAxisValue(r.d, "dSpacing", unit, ctx)))
-    .filter(Number.isFinite);
+  const x = args.pattern.points.map((p) => p.x);
   const yObs = args.pattern.points.map((p) => p.yObs);
-  const reading = inspectDataRange({
-    x: args.pattern.points.map((p) => p.x),
+  const d = x.map((v) => convertAxisValue(v, unit, "dSpacing", ctx));
+  const reading = readFitRange({
+    unit,
+    x,
     yObs,
-    sigma: args.pattern.points.map((p) => (p.sigma !== undefined && p.sigma > 0 ? p.sigma : Math.sqrt(Math.max(p.yObs, 1)))),
+    sigma: pointSigma(yObs, args.pattern.points),
     yCalc: curves.yCalc,
     ...(curves.yBackground ? { yBackground: curves.yBackground } : {}),
+    // The residual is a fit's only when the curve is drawn at the refined values.
     fitted: args.result?.status === "converged" && !!args.parameters,
-    reflections,
-    shortD: unit === "tof" || unit === "dSpacing" ? "low" : "high",
-    excluded: excludedPointMask(yObs),
+    d,
+    phases: [args.structure, ...(args.extraPhases ?? [])],
+    xOf: (v) => convertAxisValue(v, "dSpacing", unit, ctx),
     window: args.fitRange ?? null,
   });
+  const words = {
+    unit,
+    dOf: (v: number) => convertAxisValue(v, unit, "dSpacing", ctx),
+    apply: "pass it on as `fitRange` to refine_powder and check_cell_symmetry",
+  };
   const p = reading.proposed;
-  return { ...reading, proposedD: p ? [convertAxisValue(p.min, unit, "dSpacing", ctx), convertAxisValue(p.max, unit, "dSpacing", ctx)] : null };
+  const extent = minMax(x);
+  const axisWarning = axisPlausibility({ unit, extent, d, structure: args.structure });
+  return {
+    ...reading,
+    proposedD: p ? [convertAxisValue(p.min, unit, "dSpacing", ctx), convertAxisValue(p.max, unit, "dSpacing", ctx)] : null,
+    reading: fitRangeSentence(reading, words),
+    ...(axisWarning ? { axisWarning } : {}),
+  };
 }
 
 export function check_cell_symmetry(args: {
@@ -264,7 +288,7 @@ export function check_cell_symmetry(args: {
   fitRange?: { min: number; max: number };
   dMin?: number;
   significance?: number;
-}): CellSymmetryCheck {
+}): CellSymmetryCheck & { reading: string } {
   const instrument = args.instrument ?? DEFAULT_INSTRUMENT;
   if (args.pattern.xUnit === "tof" && instrument.kind !== "tof") {
     throw new Error("check_cell_symmetry: a time-of-flight pattern needs its TOF instrument (difC) to place reflections");
@@ -288,7 +312,7 @@ export function check_cell_symmetry(args: {
   // A loaded instrument's resolution curve shapes the Le Bail widths (the
   // default instrument's generic one would mislead).
   const caglioti = args.instrument ? cagliotiOf(args.instrument) : undefined;
-  return checkCellSymmetry(
+  const check = checkCellSymmetry(
     args.structure,
     args.pattern,
     spec.params.filter((p) => isCell(p.kind)),
@@ -303,6 +327,11 @@ export function check_cell_symmetry(args: {
       ...(args.significance !== undefined ? { significance: args.significance } : {}),
     },
   );
+  // The app's reading (core/diagnostics/cellReading.ts): the d scale from the pattern's own peaks first.
+  const ctx = axisContext(args.pattern, args.instrument);
+  const d = args.pattern.points.map((p) => convertAxisValue(p.x, args.pattern.xUnit, "dSpacing", ctx));
+  const scale = dScaleReading(d, args.pattern, args.structure, args.instrument);
+  return { ...check, reading: cellCheckReading(check, { loaded: args.structure.cell, unit: args.pattern.xUnit, scale, tools: { review: "review_symmetry" } }) };
 }
 
 /**
@@ -382,23 +411,14 @@ export async function refine_powder(args: {
   return { result, parameters: refined, observationCount, residual, parallel };
 }
 
-/** The residual refine_powder hands assess_refinement: in d, inside the fit window, with σ and every phase's reflections. */
-export interface PowderResidual {
-  d: number[];
-  yObs: number[];
-  yCalc: number[];
-  sigma: number[];
-  reflections: { d: number; hkl: string; phaseLabel: string }[];
-  lineWidth?: number;
-}
+/** The residual refine_powder hands assess_refinement: in d, inside the fit window, with σ and every line of the model. */
+export type PowderResidual = CorePowderResidual;
 
 /**
- * The refined model's residual (obs − calc) as d-spacing arrays, so
- * assess_refinement can scan the positive residual for the missing-phase /
- * magnetic-order signal. Every phase's calculated pattern (the one the
- * refinement fitted), only the points it fitted (inside the fit range, not a
- * masked plateau), each point's σ, and the reflections of every phase in its
- * refined cell.
+ * The refined model's residual (core/diagnostics/powderResidual.ts, as the
+ * in-app Agent builds it): every phase's calculated pattern (the one the
+ * refinement fitted), in d with the refined zero taken out, the points it
+ * fitted, each point's σ, and every phase's reflections in its refined cell.
  */
 function powderResidual(
   args: { structure: StructureModel; pattern: PowderPattern; bindings: ParameterBinding[]; profile: PowderProfile; instrument?: InstrumentParameters; extraPhases?: StructureModel[]; fitRange?: { min: number; max: number } },
@@ -408,29 +428,11 @@ function powderResidual(
   const curves = phases.length > 1
     ? multiPhaseCurves(phases, args.pattern, refined, args.bindings, args.profile)
     : powderCurves(args.structure, args.pattern, refined, args.bindings, args.profile);
-  // d with the refined zero taken out, so residual peaks compare with the cell's reflections.
   const ctx = axisContext(args.pattern, args.instrument, refined.find((p) => p.kind === "zeroShift")?.value, tofCalibrationOf(refined));
-  const dAll = args.pattern.xUnit === "dSpacing" ? [...curves.x] : convertAxisArray(curves.x, args.pattern.xUnit, "dSpacing", ctx);
-  const plateau = excludedPointMask(curves.yObs);
-  const outside = fitRangeMask(curves.x, args.fitRange);
-  const keep = curves.x.map((_, i) => !plateau[i] && !outside[i]);
-  const pick = <T>(a: readonly T[]): T[] => a.filter((_, i) => keep[i]);
-  const sigma = args.pattern.points.map((p) => (p.sigma !== undefined && p.sigma > 0 ? p.sigma : Math.sqrt(Math.max(p.yObs, 1))));
-  const d = pick(dAll);
-  const yCalc = pick(curves.yCalc);
-  const finite = d.filter((v) => Number.isFinite(v) && v > 0);
+  const d = args.pattern.xUnit === "dSpacing" ? [...curves.x] : convertAxisArray(curves.x, args.pattern.xUnit, "dSpacing", ctx);
   const values = resolveTies(refined, Object.fromEntries(refined.map((p) => [p.id, p.value])));
-  const reflections = finite.length === 0 ? [] : phases.flatMap((ph) => {
-    const cell = applyParameters(ph.structure, phaseBindingsFor(args.bindings, ph.id), values).model;
-    return generateReflections(cell.cell, cell.spaceGroup, Math.min(...finite) * 0.99, Math.max(...finite) * 1.01, { absences: true })
-      .map((r) => ({ d: r.d, hkl: `${r.h} ${r.k} ${r.l}`, phaseLabel: ph.structure.name || ph.id }));
-  });
-  // Constant wavelength: assess_refinement reads "on" and "beside" a reflection by the lines' own width.
-  const lineWidth = args.pattern.xUnit === "twoTheta" ? relativeLineWidth(d, yCalc) : undefined;
-  return {
-    residual: { d, yObs: pick(curves.yObs), yCalc, sigma: pick(sigma), reflections, ...(lineWidth !== undefined ? { lineWidth } : {}) },
-    observationCount: keep.reduce((n, k) => n + (k ? 1 : 0), 0),
-  };
+  const refinedPhases = phases.map((ph) => applyParameters(ph.structure, phaseBindingsFor(args.bindings, ph.id), values).model);
+  return corePowderResidual({ curves, d, pattern: args.pattern, phases: refinedPhases, fitRange: args.fitRange ?? null });
 }
 
 /**
@@ -451,6 +453,10 @@ export function assess_refinement(args: {
   sharedSiteAdps?: AssessmentInput["sharedSiteAdps"];
   /** The disorder assemblies of the parameters (see AssessmentInput). */
   disorder?: AssessmentInput["disorder"];
+  /** The refined structures, for the physical checks (see AssessmentInput). */
+  structures?: AssessmentInput["structures"];
+  /** The B-at-0 rule's proposals and applied fixes (see AssessmentInput). */
+  zeroAdp?: AssessmentInput["zeroAdp"];
 }): RefinementAssessment {
   return assessRefinement({
     result: args.result,
@@ -461,6 +467,8 @@ export function assess_refinement(args: {
     ...(args.restraints?.length ? { restraints: args.restraints } : {}),
     ...(args.sharedSiteAdps?.length ? { sharedSiteAdps: args.sharedSiteAdps } : {}),
     ...(args.disorder?.size ? { disorder: args.disorder } : {}),
+    ...(args.structures?.length ? { structures: args.structures } : {}),
+    ...(args.zeroAdp && (args.zeroAdp.proposals.length > 0 || args.zeroAdp.applied.length > 0) ? { zeroAdp: args.zeroAdp } : {}),
   });
 }
 
@@ -488,15 +496,16 @@ export function evaluate_pattern(args: {
   observationCount: number;
 } {
   const curves = args.magnetic
-    ? magneticPowderComponents(args.structure, args.magnetic, args.pattern, args.parameters, args.bindings, { shape: args.profile.shape, ...(args.profile.eta !== undefined ? { eta: args.profile.eta } : {}) })
+    ? magneticPowderComponents(args.structure, args.magnetic, args.pattern, args.parameters, args.bindings, args.profile)
     : powderCurves(args.structure, args.pattern, args.parameters, args.bindings, args.profile);
   // Poisson fallback with the standard 1-count floor: σ = √max(N, 1). Without
   // the floor a near-zero intensity (e.g. the background of a simulated
-  // pattern) gets an exploding weight and poisons the agreement sums.
-  const weights = weightsFromSigma(args.pattern.points.map((p) => p.sigma ?? Math.sqrt(Math.max(p.yObs, 1))));
+  // pattern) gets an exploding weight and poisons the agreement sums. An
+  // excluded plateau scores nothing, as in a refinement and observationCount.
+  const excluded = excludedPointMask(curves.yObs);
+  const weights = applyExclusionMask(weightsFromSigma(args.pattern.points.map((p) => p.sigma ?? Math.sqrt(Math.max(p.yObs, 1)))), excluded);
   const nFree = args.parameters.filter((p) => !p.fixed && !p.expression).length;
   const a = computeAgreementFactors(Float64Array.from(curves.yObs), Float64Array.from(curves.yCalc), weights, nFree);
-  const excluded = excludedPointMask(curves.yObs);
   return {
     curves: {
       x: [...curves.x],
@@ -551,7 +560,7 @@ export function simulate_pattern(args: {
     p.kind === "scale" ? { ...p, value: args.scale ?? 1 } : p.kind === "background" ? { ...p, value: 0 } : p,
   );
   const curves = args.magnetic
-    ? magneticPowderComponents(args.structure, args.magnetic, pattern, params, spec.bindings, { shape: spec.profile.shape, ...(spec.profile.eta !== undefined ? { eta: spec.profile.eta } : {}) })
+    ? magneticPowderComponents(args.structure, args.magnetic, pattern, params, spec.bindings, spec.profile)
     : powderCurves(args.structure, pattern, params, spec.bindings, spec.profile);
   return {
     xUnit: pattern.xUnit,
@@ -628,17 +637,20 @@ export function analyze_site_symmetry(args: { structure: StructureModel }): {
 }
 
 /**
- * Find unexplained residual peaks (obs − calc) after a nuclear refinement —
- * the "is there magnetic order / an impurity?" signal. Robust (MAD-based)
- * thresholding; a handful of peaks suggests satellites, dozens mean the
- * nuclear fit itself is poor.
+ * The residual's peaks, classified against the model's lines
+ * (core/diagnostics/unexplainedPeaks.ts, as the in-app tool): unexplained (on
+ * no phase's reflection: an impurity, the sample environment, magnetic order
+ * off the nuclear lines) and misfits (on or beside a known reflection: what
+ * refining the model fixes, or on a neutron pattern of magnetic ions, k = 0
+ * order). With per-point σ (refine_powder's residual carries it) a peak must
+ * stand 5σ above its own noise.
  */
 export function find_unexplained_peaks(args: {
-  residual: { d: number[]; yObs: number[]; yCalc: number[] };
-  options?: ExtraPeakOptions;
-}): { peaks: { d: number; height: number }[]; count: number } {
-  const peaks = detectExtraPeaks(args.residual.d, args.residual.yObs, args.residual.yCalc, args.options ?? {});
-  return { peaks: [...peaks], count: peaks.length };
+  residual: { d: number[]; yObs: number[]; yCalc: number[]; sigma?: number[]; sigmaFrom?: "file" | "counting"; reflections?: { d: number; hkl: string; phaseLabel: string }[]; magneticNeutron?: boolean; lineWidth?: number };
+  options?: { sigma?: number; limit?: number };
+}): { count: number; unexplained: PeakReading[]; misfits: PeakReading[]; k0Magnetic: boolean; reading: string } {
+  const found = unexplainedPeaks(args.residual, { ...(args.options?.sigma !== undefined ? { sigma: args.options.sigma } : {}), ...(args.options?.limit !== undefined ? { limit: args.options.limit } : {}) });
+  return { count: found.count, unexplained: [...found.unexplained], misfits: [...found.misfits], k0Magnetic: found.k0Magnetic, reading: found.reading };
 }
 
 /**
@@ -655,8 +667,9 @@ export function review_symmetry(args: {
 }): SymmetryReview {
   const phases = [args.structure, ...(args.extraPhases ?? [])];
   const finite = args.residual.d.filter((v) => Number.isFinite(v) && v > 0);
-  const dMin = Math.min(...finite) * 0.99;
-  const dMax = Math.max(...finite) * 1.01;
+  const dSpan = minMax(finite);
+  const dMin = dSpan.min * 0.99;
+  const dMax = dSpan.max * 1.01;
   const reflections = phases.flatMap((ph) =>
     generateReflections(ph.cell, ph.spaceGroup, dMin, dMax).map((r) => ({ d: r.d, hkl: `${r.h} ${r.k} ${r.l}`, phaseLabel: ph.name || ph.id })));
   return reviewSymmetry(phases, { ...args.residual, reflections });
@@ -672,9 +685,9 @@ export function search_propagation_vector(args: {
   peakD: number[];
   options?: KSearchOptions;
 }): { candidates: { k: Vec3; label: string; matched: number; total: number; rmsd: number; score: number }[] } {
-  // A line's width in d grows with d: match within 0.5 % of d where that is wider than the Å tolerance.
-  // Satellites about the lattice's own reflections: a centred lattice's absences carry none.
-  const candidates = searchPropagationVector(args.structure.cell, args.peakD, { relativeTolerance: 0.005, centring: centringTranslations(args.structure.spaceGroup.operations), ...(args.options ?? {}) });
+  // The app's options (K_SEARCH_DEFAULTS: 0.02 Å or 0.5 % of d, no Q cut), about the lattice's own
+  // reflections: a centred lattice's absences carry none.
+  const candidates = searchPropagationVector(args.structure.cell, args.peakD, { centring: centringTranslations(args.structure.spaceGroup.operations), ...(args.options ?? {}) });
   return { candidates: candidates.map((c) => ({ ...c })) };
 }
 
@@ -825,6 +838,8 @@ export async function refine_magnetic_powder(args: {
   parameters: RefinementParameter[];
   bindings: ParameterBinding[];
   profile: PowderProfile;
+  extraPhases?: StructureModel[];
+  fitRange?: { min: number; max: number };
   staged?: boolean;
   maxIterations?: number;
   restarts?: number;
@@ -838,74 +853,64 @@ export async function refine_magnetic_powder(args: {
   parallel: { workers: number } | null;
   multiStart?: { restartsRun: number; bestStartIndex: number; improved: boolean; costByStart: number[]; degeneracies: MomentDegeneracy[] };
 }> {
-  const prof = { shape: args.profile.shape, ...(args.profile.eta !== undefined ? { eta: args.profile.eta } : {}) };
   const maxIterations = args.maxIterations ?? 25;
   let params = args.parameters.map((p) => ({ ...p }));
-
-  // Node evaluator pool when the runtime supports it (one init serves both
-  // passes — replicas evaluate from the full values record). Serial otherwise;
-  // trajectories are bit-identical either way.
-  const spec: EvaluatorSpec = {
+  const phases = (args.extraPhases ?? []).map((s) => ({ structure: s, id: s.id }));
+  // The problem the app's page fits: the whole profile (shape, η, Lorentz, the
+  // background basis), the window and every phase.
+  const spec: Extract<EvaluatorSpec, { kind: "magneticPowder" }> = {
     kind: "magneticPowder",
     structure: args.structure,
     magnetic: args.magnetic,
     pattern: args.pattern,
     parameters: args.parameters,
     bindings: args.bindings,
+    ...(phases.length > 0 ? { extraPhases: phases } : {}),
     shape: args.profile.shape,
     ...(args.profile.eta !== undefined ? { eta: args.profile.eta } : {}),
+    ...(args.profile.lorentz !== undefined ? { lorentz: args.profile.lorentz } : {}),
+    ...(args.profile.backgroundType !== undefined ? { backgroundType: args.profile.backgroundType } : {}),
+    ...(args.fitRange ? { fitRange: args.fitRange } : {}),
   };
+  // Node evaluator pool when the runtime supports it (one init serves every
+  // pass: replicas evaluate from the full values record). Serial otherwise;
+  // trajectories are bit-identical either way.
   const pool = await createNodeEvaluatorPool(spec);
-  const solve = (ps: RefinementParameter[], opts: { maxIterations: number }): Promise<RefinementResult> | RefinementResult => {
-    const problem = buildMagneticPowderProblem(args.structure, args.magnetic, args.pattern, ps, args.bindings, prof);
-    return pool ? refineParallel(problem, opts, pool) : refine(problem, opts);
-  };
+  const solver = poolSolver(pool);
   try {
+    await solver.init(spec);
     if (args.staged ?? true) {
-      const pass1 = magneticStage1Parameters(params);
-      const r1 = await solve(pass1, { maxIterations: Math.min(maxIterations, 20) });
+      const r1 = await solver.solve(magneticStage1Parameters(params), { maxIterations: Math.min(maxIterations, 20) });
       params = params.map((p) => ({ ...p, value: r1.parameters[p.id] ?? p.value }));
     }
-
-    const isMoment = (p: RefinementParameter): boolean => isMomentParameterKind(p.kind);
-    let search: Awaited<ReturnType<typeof refineMultiStart>> | null = null;
-    if ((args.restarts ?? 0) > 0 && params.some((p) => isMoment(p) && !p.fixed && !p.expression)) {
-      // Moment-only restarts on the frozen nuclear scaffold. Kicks are µ_B-scale:
-      // m = 0 is a stationary point an unkicked LM never leaves, and a mode the
-      // baseline switched off must be able to turn back on (momentKickFloor).
-      const frozen = params.map((p) => (!isMoment(p) && !p.fixed && !p.expression ? { ...p, fixed: true } : { ...p }));
-      search = await refineMultiStart(frozen, async (start) => {
-        const r = await solve([...start], { maxIterations });
-        return { parameters: start.map((p) => ({ ...p, value: r.parameters[p.id] ?? p.value })), final: r };
-      }, {
-        restarts: args.restarts!, escapeSigma: 6, relFraction: 1, shouldPerturb: isMoment, minKick: momentKickFloor(frozen),
-        ...(args.seed !== undefined ? { seed: args.seed } : {}),
-      });
-      const best = new Map(search.parameters.map((p) => [p.id, p.value]));
-      params = params.map((p) => (isMoment(p) && best.has(p.id) ? { ...p, value: best.get(p.id)! } : p));
-    }
-
-    const joint = await solve(params, { maxIterations });
-    // One ±m twin, deterministically — and only when a search asked for it, so a
-    // plain call reproduces exactly what it always has.
-    const result: RefinementResult = search
-      ? { ...joint, parameters: canonicalizeMomentValues(joint.parameters, applyMagneticMoments(args.magnetic, args.bindings, joint.parameters), args.structure.cell, params) }
-      : joint;
+    // The app's moment search (workers/strategy.ts) when asked for: kicks are
+    // µB-scale, since m = 0 is a stationary point an unkicked LM never leaves,
+    // and a mode the first pass switched off must be able to turn back on
+    // (momentKickFloor). A plain call, no search, reproduces what it always has:
+    // one joint solve, no ±m canonicalization.
+    const searchable = params.some((p) => isMomentParameterKind(p.kind) && !p.fixed && !p.expression);
+    const search = (args.restarts ?? 0) > 0 && searchable
+      ? await momentMultiStart({ ...spec, parameters: params }, solver, {
+          restarts: args.restarts!, minKick: momentKickFloor(params), ...(args.seed !== undefined ? { seed: args.seed } : {}),
+        }, { maxIterations })
+      : null;
+    const result = search ? search.final : await solver.solve(params, { maxIterations });
     const refined = params.map((p) => ({ ...p, value: result.parameters[p.id] ?? p.value }));
     const refinedMagnetic = applyMagneticMoments(args.magnetic, args.bindings, Object.fromEntries(refined.map((p) => [p.id, p.value])));
-    const c = magneticPowderComponents(args.structure, refinedMagnetic, args.pattern, refined, args.bindings, prof);
+    const c = magneticPowderComponents(args.structure, refinedMagnetic, args.pattern, refined, args.bindings, args.profile, phases);
     const excluded = excludedPointMask(c.yObs);
+    const inWindow = (x: number): boolean => !args.fitRange || (x >= args.fitRange.min && x <= args.fitRange.max);
     return {
       result,
       parameters: refined,
       magnetic: refinedMagnetic,
-      observationCount: excluded.reduce((n, ex) => n + (ex ? 0 : 1), 0),
+      observationCount: excluded.reduce((n, ex, i) => n + (ex || !inWindow(c.x[i]!) ? 0 : 1), 0),
       components: { x: c.x, yObs: c.yObs, yNuclear: c.yNuclear, yMagnetic: c.yMagnetic, yCalc: c.yCalc },
       parallel: pool ? { workers: pool.size } : null,
       ...(search ? {
         multiStart: {
           restartsRun: search.restartsRun, bestStartIndex: search.bestStartIndex, improved: search.improved,
-          costByStart: [...search.costByStart], degeneracies: momentDegeneracies(joint.diagnostics, params),
+          costByStart: [...search.costByStart], degeneracies: search.degeneracies,
         },
       } : {}),
     };
@@ -1141,10 +1146,7 @@ export function rank_next_parameters(args: {
   }[];
 } {
   const problem = args.magnetic
-    ? buildMagneticPowderProblem(args.structure, args.magnetic, args.pattern, args.parameters, args.bindings, {
-        shape: args.profile.shape,
-        ...(args.profile.eta !== undefined ? { eta: args.profile.eta } : {}),
-      }, args.fitRange)
+    ? buildMagneticPowderProblem(args.structure, args.magnetic, args.pattern, args.parameters, args.bindings, args.profile, args.fitRange)
     : buildPowderProblem(args.structure, args.pattern, args.parameters, args.bindings, args.profile, args.restraints ?? [], args.fitRange);
   const ranking = rankNextParameterGroups(problem);
   return {
@@ -1399,6 +1401,7 @@ export async function refine_pdf(args: {
  */
 export async function refine_pdf_boxcar(args: {
   structure: StructureModel;
+  extraPhases?: StructureModel[];
   pattern: PdfPattern;
   parameters: RefinementParameter[];
   bindings: ParameterBinding[];
@@ -1451,67 +1454,26 @@ export async function refine_pdf_boxcar(args: {
   }
   const windows = boxcarWindows(plan);
 
-  // Analytic PDF columns for every box (see refine_pdf): exact, and one fused
-  // pass per iteration instead of two evaluations per supported column.
-  const options = { maxIterations: args.maxIterations ?? 20, analyticDerivatives: true };
-  const restarts = Math.max(0, Math.floor(args.restarts ?? 0));
-  const baseSpec: EvaluatorSpec = {
+  const baseSpec: Extract<EvaluatorSpec, { kind: "pdf" }> = {
     kind: "pdf",
     structure: args.structure,
+    ...(args.extraPhases && args.extraPhases.length ? { extraPhases: args.extraPhases } : {}),
     pattern: args.pattern,
     parameters: args.parameters,
     bindings: args.bindings,
     ...(args.restraints && args.restraints.length ? { restraints: args.restraints } : {}),
   };
-  // ONE pool for the whole series, re-initialized per box: `fitRange` is baked
-  // into a replica's problem, so a pool held across windows without re-init
-  // would evaluate the wrong window's Jacobian — silently, since the shape
-  // still matches. Re-init rebuilds the replicas in place; spawning a pool per
-  // box would instead re-execute the bundle in every worker, every box.
+  // One pool for the whole series, its replicas rebuilt for every box (the fit
+  // range is part of the problem); the scan is the app's (workers/strategy.ts).
   const first = windows[0]!;
   const pool = await createNodeEvaluatorPool({ ...baseSpec, fitRange: { min: first.min, max: first.max } });
   let series;
   try {
-    series = await refineSequentialAsync(
-      args.parameters,
-      windows.map((w, i) => ({
-        id: `box_${i}`,
-        label: `${w.center.toFixed(2)} A`,
-        buildProblem: (parameters) =>
-          buildProblemForSpec({ ...baseSpec, parameters: [...parameters], fitRange: { min: w.min, max: w.max } }),
-      })),
-      {
-        refineOptions: options,
-        ...(args.seedFromPrevious !== undefined ? { seedFromPrevious: args.seedFromPrevious } : {}),
-      },
-      async (problem, refineOptions, _dataset, index) => {
-        const w = windows[index]!;
-        const fitRange = { min: w.min, max: w.max };
-        await pool?.init({ ...baseSpec, fitRange });
-        // One start, solved on the pool when there is one. `problem.parameters`
-        // is the box's SEEDED set, so the restart baseline is exactly the
-        // seed-only answer — restarts can improve a box, never move it for free.
-        const solve = async (params: readonly RefinementParameter[]): Promise<RefinementResult> => {
-          const p = buildProblemForSpec({ ...baseSpec, parameters: [...params], fitRange });
-          // Analytic PDF columns on the driver (no UI thread in node), FD on the pool.
-          return pool
-            ? refineParallel(p, refineOptions, pool, { analyticOnDriver: true })
-            : refine(p, refineOptions);
-        };
-        if (restarts === 0) return solve(problem.parameters);
-        // A per-box seed: one shared seed would draw the identical perturbation
-        // pattern in every box, imprinting its own r-dependence on the series.
-        const ms = await refineMultiStart(
-          problem.parameters,
-          async (start) => {
-            const result = await solve(start);
-            return { parameters: start.map((p) => ({ ...p, value: result.parameters[p.id] ?? p.value })), final: result };
-          },
-          { restarts, seed: 0xb0 + Math.round(w.center * 1000) },
-        );
-        return ms.final;
-      },
-    );
+    series = await boxcarScan(baseSpec, windows, poolSolver(pool), {
+      refineOptions: { maxIterations: args.maxIterations ?? 20 },
+      ...(args.seedFromPrevious !== undefined ? { seedFromPrevious: args.seedFromPrevious } : {}),
+      ...(args.restarts !== undefined ? { restarts: args.restarts } : {}),
+    });
   } finally {
     await pool?.dispose();
   }
@@ -1825,6 +1787,8 @@ function powderSampleSpec(args: {
     bindings: args.bindings,
     shape: profile.shape,
     ...(profile.eta !== undefined ? { eta: profile.eta } : {}),
+    ...(profile.lorentz !== undefined ? { lorentz: profile.lorentz } : {}),
+    ...(profile.backgroundType !== undefined ? { backgroundType: profile.backgroundType } : {}),
     ...(args.fitRange ? { fitRange: args.fitRange } : {}),
   };
   const extra = args.extraPhases ?? [];
@@ -1832,18 +1796,12 @@ function powderSampleSpec(args: {
     return {
       kind: "magneticPowder", structure: args.structure, magnetic: args.magnetic, ...shared,
       ...(extra.length ? { extraPhases: extra.map((st) => ({ structure: st, id: st.id })) } : {}),
-      ...(profile.lorentz !== undefined ? { lorentz: profile.lorentz } : {}),
-      ...(profile.backgroundType !== undefined ? { backgroundType: profile.backgroundType } : {}),
     };
   }
   const restraints = args.restraints && args.restraints.length ? { restraints: args.restraints } : {};
   return extra.length
     ? { kind: "multiPhasePowder", phases: [{ structure: args.structure, id: args.structure.id }, ...extra.map((st) => ({ structure: st, id: st.id }))], ...shared, ...restraints }
-    : {
-        kind: "powder", structure: args.structure, ...shared, ...restraints,
-        ...(profile.lorentz !== undefined ? { lorentz: profile.lorentz } : {}),
-        ...(profile.backgroundType !== undefined ? { backgroundType: profile.backgroundType } : {}),
-      };
+    : { kind: "powder", structure: args.structure, ...shared, ...restraints };
 }
 
 export async function sample_posterior(args: {
@@ -1883,6 +1841,10 @@ export async function sample_posterior(args: {
   message?: string;
   nSamples: number;
   freeIds: string[];
+  /** Each free parameter's interval read against its esd (`linearizedEsd`), as the app reads it. */
+  intervals: ParameterReading[];
+  /** The run read whole: converged or not, the esds confirmed or not, the bounds, the correlations. */
+  reading: string;
   resume: WalkerState | NutsState;
   chains?: number[][][];
   nuts?: { divergences: number; maxTreeDepthHits: number; gradEvals: number; stepSize: number[] };
@@ -1971,6 +1933,8 @@ export async function sample_posterior(args: {
     }
   }
   correlations.sort((a, b) => Math.abs(b.coefficient) - Math.abs(a.coefficient));
+  // The app's reading (core/diagnostics/posteriorReading.ts), resumed MCP's way.
+  const read = posteriorReading(result, args.parameters, args.linearizedEsd, [], { again: "call sample_posterior again with `resume` (this result's)", brief: "`resume`" });
 
   return {
     sampler,
@@ -1982,6 +1946,8 @@ export async function sample_posterior(args: {
     ...(result.message !== undefined ? { message: result.message } : {}),
     nSamples: result.diagnostics.nSamples,
     freeIds: [...ids],
+    intervals: read.rows,
+    reading: read.reading,
     resume: result.resume,
     ...(args.includeChains ? { chains: result.chains.map((w) => w.map((r) => [...r])) } : {}),
     ...(nutsInfo ? { nuts: nutsInfo } : {}),

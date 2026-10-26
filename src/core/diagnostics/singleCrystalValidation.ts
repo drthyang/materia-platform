@@ -23,6 +23,7 @@ import type { SpaceGroup, UnitCell } from "@/core/crystal/types";
 import { dSpacing } from "@/core/crystal/unitCell";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { canonicalKey, laueRotations, mergeEquivalents, pointGroupRotations } from "@/core/diffraction/merge";
+import { EXTINCTION_K } from "@/core/diagnostics/thresholds";
 
 export interface ScValidationRow {
   readonly h: number;
@@ -142,7 +143,6 @@ export interface ScValidation {
 }
 
 /** Below this K in the strongest bin, against the other bins', strong reflections are weak on Fo². */
-const EXTINCTION_K = 0.95;
 
 /**
  * d rounded to 1 µÅ. Distinct families that share a d (accidental

@@ -17,7 +17,7 @@ import type { StructureModel } from "@/core/crystal/types";
 import type { Vec3 } from "@/core/math/types";
 import type { PowderAgentPort } from "@/agent/port";
 import type { Session } from "@/app/powderSession";
-import { loadedSession } from "@/app/powderSession";
+import { openedPage } from "@/app/powderPage";
 import { sessionPort } from "@/testSupport/agentHeadless";
 import { dataDir } from "@/testSupport/data";
 import { knownPhaseStructure } from "@/core/diagnostics/knownPhases";
@@ -262,10 +262,12 @@ function publicCase(id: string, title: string, split: Split): ValidationCase {
     session: () => {
       const c = spec();
       const read = (f: string): string => readFileSync(join(dir(), f), "utf8");
-      const instrument = parse_instrument({ text: read(c.files.instrument) });
+      const instrumentFile = { name: c.files.instrument, text: read(c.files.instrument) };
+      const instrument = parse_instrument({ text: instrumentFile.text });
       const { structure } = parse_structure({ cif: read(c.files.structure), id });
-      const { pattern } = parse_powder_data({ text: read(c.files.data), filename: c.files.data, instrument });
-      return loadedSession(structure, pattern, instrument);
+      const data = { name: c.files.data, text: read(c.files.data) };
+      const { pattern } = parse_powder_data({ text: data.text, filename: data.name, instrument });
+      return openedPage(structure, instrument, pattern, { instrument: instrumentFile, data }).session;
     },
   };
 }
@@ -371,6 +373,6 @@ export const TEST_CASES = TEST;
 export const DEV_CASES = DEV;
 
 /** The held-out structures' names and formulas: none may appear where the Agent is taught (validation.test.ts). */
-export const HELD_OUT_TERMS: readonly RegExp[] = [/\brutile\b/i, /\bTiO[2₂]\b/, /\bcalcite\b/i, /\bCaCO[3₃]\b/, /\bwurtzite\b/i, /\bZnO\b/, /\bNiAl\b/];
+export const HELD_OUT_TERMS: readonly RegExp[] = [/\brutile\b/i, /\bTiO[2₂]\b/, /titanium dioxide/i, /\bcalcite\b/i, /\bCaCO[3₃]\b/, /calcium carbonate/i, /\bwurtzite\b/i, /\bZnO\b/, /zinc oxide/i, /\bNiAl\b/, /nickel aluminide/i];
 
 export const caseById = (id: string): ValidationCase | undefined => VALIDATION_CASES.find((c) => c.id === id);

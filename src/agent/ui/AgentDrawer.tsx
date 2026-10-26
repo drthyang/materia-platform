@@ -4,20 +4,23 @@
  * it, so the plot and the parameter panel stay in view while the model works.
  */
 
+import type { CardOptionGroup } from "@/agent/cardOptions";
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from "react";
 import { color, fz, mono, radius } from "@/app/theme";
 import { tableRows } from "@/agent/ui/markdownTable";
 import type { ActivityEntry } from "@/agent/executor";
+import type { ChoiceSet } from "@/agent/choices";
 import type { MethodProgress } from "@/agent/method";
-import { providerOf, replayLabel, type AgentController, type AgentMode, type AgentProvider, type AgentSettings, type TranscriptItem } from "@/agent/useAgent";
+import { isScriptedReplay, providerOf, replayLabel, type AgentController, type AgentMode, type AgentProvider, type AgentSettings, type TranscriptItem } from "@/agent/useAgent";
 import { OPENAI_PRESETS, isMachineUrl, listOpenAIModels, openaiBase, openaiUnreachableHint, presetForUrl, type OpenAIModel } from "@/agent/openaiCompat";
 import { CHAT_MODELS, hasRefusalFallback } from "@/agent/chat-models";
+import { NO_PROXY, proxyStatus, type ProxyStatus } from "@/agent/proxyStatus";
 import { listOllamaModels, unreachableHint, type OllamaModel } from "@/agent/ollama";
 import { listLmStudioModels, lmstudioUnreachableHint, type LmStudioModel } from "@/agent/lmstudio";
-import { MIN_AGENT_CONTEXT } from "@/agent/localServer";
+import { MIN_AGENT_CONTEXT, kTokens } from "@/agent/localServer";
 import { cardsInReply, type AgentCard } from "@/agent/focus";
 import { MATH_SPAN_SOURCE, mathInside, texPieces } from "@/agent/ui/texText";
-import { DRAWER_MAX, DRAWER_MIN, KEY_STEP, SHEET_DEFAULT, SHEET_MAX, SHEET_MIN, SHEET_QUERY, clampDrawerWidth, clampSheet, readDrawerWidth, readSheet, sheetFor, writeDrawerWidth, writeSheet } from "@/agent/ui/drawerWidth";
+import { DRAWER_MAX, DRAWER_MIN, KEY_STEP, SHEET_DEFAULT, SHEET_MAX, SHEET_MIN, SHEET_QUERY, SHORT_LANDSCAPE, clampDrawerWidth, clampSheet, readDrawerWidth, readSheet, sheetFor, writeDrawerWidth, writeSheet } from "@/agent/ui/drawerWidth";
 import { cssZoom } from "@/app/ui/cssZoom";
 
 interface Props {
@@ -54,6 +57,9 @@ function localModel(s: AgentSettings): string | null {
 /** The OpenAI-compatible server needs a key the user has not given. */
 const missingOpenAIKey = (s: AgentSettings, key: string): boolean => s.mode === "openai-compatible" && !key && (presetForUrl(s.openaiUrl)?.needsKey ?? false);
 
+/** The share of the window the sheet takes at least while the settings are open in it. */
+const SETTINGS_SHEET = 0.75;
+
 export function AgentDrawer({ agent, method = null, onClose }: Props): JSX.Element {
   const { settings } = agent;
   const [showSettings, setShowSettings] = useState(false);
@@ -66,26 +72,58 @@ export function AgentDrawer({ agent, method = null, onClose }: Props): JSX.Eleme
   const [width, setWidth] = useDrawerWidth();
   const [sheet, setSheet] = useSheetHeight();
   const sheetMode = useMediaQuery(SHEET_QUERY);
+  // A phone on its side docks the drawer beside the page, ~370 px tall: the
+  // method folds to one line there too, so the conversation keeps the height.
+  const shortWindow = useMediaQuery(`(max-height: ${SHORT_LANDSCAPE}px)`);
   const lowered = useSheetForFocus(sheetMode, sheet, agent.focus);
   const aside = useRef<HTMLElement>(null);
-  const sized: CSSProperties = { ...drawer, ...(width === null ? {} : { ["--wb-agent-w" as string]: `${width}px` }), ["--wb-sheet-h" as string]: `calc(${((lowered ?? sheet) * 100).toFixed(1)}dvh / var(--ui-zoom))` };
+  // The message box's text, here so a choice's "Other…" can put a template in it to edit.
+  const [draft, setDraft] = useState("");
+  // A question's hint for an answer in the user's own words (ask_user): shown in the empty box, never sent.
+  const [hint, setHint] = useState<string | null>(null);
+  useEffect(() => {
+    if (agent.thinking) setHint(null);
+  }, [agent.thinking]);
+  const input = useRef<HTMLTextAreaElement>(null);
+  const editDraft = (template: string, placeholder?: string): void => {
+    setDraft(template);
+    setHint(placeholder ?? null);
+    // After the render that puts the text in: the caret at its end, ready to type.
+    setTimeout(() => {
+      const box = input.current;
+      if (!box) return;
+      box.focus();
+      box.setSelectionRange(box.value.length, box.value.length);
+    }, 0);
+  };
+  // The settings open in the sheet: it rises, for now, so they have room (the
+  // user's height comes back when they close).
+  const shown = sheetMode && showSettings ? Math.max(sheet, SETTINGS_SHEET) : (lowered ?? sheet);
+  const sized: CSSProperties = { ...drawer, ...(width === null ? {} : { ["--wb-agent-w" as string]: `${width}px` }), ["--wb-sheet-h" as string]: `calc(${(shown * 100).toFixed(1)}dvh / var(--ui-zoom))` };
   return (
-    <aside ref={aside} className="wb-agent" data-mode={sheetMode ? "sheet" : "docked"} style={sized} aria-label="Agent">
+    <aside ref={aside} className="wb-agent" data-mode={sheetMode ? "sheet" : "docked"} style={sized} aria-label="MATERIA Copilot">
       {sheetMode ? <SheetHandle fraction={sheet} onResize={setSheet} /> : <ResizeHandle drawer={aside} width={width} onResize={setWidth} />}
-      {sheetMode ? (
+      {sheetMode || shortWindow ? (
         // The sheet is short: one row, the status a dot (its words in the tooltip), the model in the settings.
-        <div style={{ ...head, flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: "8px 12px" }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+        // So is the drawer beside the page on a phone held sideways (~370 px tall).
+        // Too narrow for one row (a phone held upright), the approval switch takes a second row
+        // (.wb-agent-sheethead in workbench.css) rather than run over the name.
+        <div className="wb-agent-sheethead" style={{ ...head, flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: "6px 7px", padding: "8px 12px" }}>
+          <span className="wb-agent-sheethead-brand">
             <SparkIcon />
-            <b style={{ fontSize: 15, color: color.ink }}>Agent</b>
-            <span className="wb-agent-beta" title="A public beta: check what it does, as you would a new colleague's work">Beta</span>
+            <b className="wb-agent-title">MATERIA Copilot</b>
+          </span>
+          <span className="wb-agent-beta wb-agent-sheethead-beta" title="A public beta: check what it does, as you would a new colleague's work">Beta</span>
+          <span className="wb-agent-sheethead-status">
             <StatusChip agent={agent} compact />
           </span>
-          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span className="wb-agent-sheethead-switch">
             <AutonomySwitch agent={agent} />
+          </span>
+          <span className="wb-agent-sheethead-icons">
             {agent.report && <IconButton title="Open the analysis report" onClick={agent.openReport}><ReportIcon /></IconButton>}
             <IconButton title="Settings" active={showSettings} onClick={() => setShowSettings((v) => !v)}>⚙</IconButton>
-            <IconButton title="Close the Agent" onClick={onClose}>✕</IconButton>
+            <IconButton title="Close the Copilot" onClick={onClose}>✕</IconButton>
           </span>
         </div>
       ) : (
@@ -93,13 +131,13 @@ export function AgentDrawer({ agent, method = null, onClose }: Props): JSX.Eleme
           <div style={headRow}>
             <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
               <SparkIcon />
-              <b style={{ fontSize: 15, color: color.ink }}>Agent</b>
+              <b className="wb-agent-title">MATERIA Copilot</b>
               <span className="wb-agent-beta" title="A public beta: check what it does, as you would a new colleague's work">Beta</span>
             </span>
             <span style={{ display: "flex", gap: 4 }}>
               {agent.report && <IconButton title="Open the analysis report" onClick={agent.openReport}><ReportIcon /></IconButton>}
               <IconButton title="Settings" active={showSettings} onClick={() => setShowSettings((v) => !v)}>⚙</IconButton>
-              <IconButton title="Close the Agent" onClick={onClose}>✕</IconButton>
+              <IconButton title="Close the Copilot" onClick={onClose}>✕</IconButton>
             </span>
           </div>
           <div style={{ ...headRow, flexWrap: "wrap", rowGap: 6 }}>
@@ -111,10 +149,15 @@ export function AgentDrawer({ agent, method = null, onClose }: Props): JSX.Eleme
           </div>
         </div>
       )}
-      {method && <MethodChecklist key={sheetMode ? "sheet" : "docked"} method={method} folded={sheetMode} />}
+      {method && <MethodChecklist key={sheetMode ? "sheet" : shortWindow ? "short" : "docked"} method={method} folded={sheetMode || shortWindow} />}
       {showSettings && <Settings agent={agent} />}
-      <Transcript agent={agent} page={method?.skill ?? null} />
-      <Composer agent={agent} disabled={needsSetup} compact={sheetMode} />
+      {/* In the sheet and the short drawer the settings, while open, take the
+          conversation's room (kept mounted, only hidden): squeezed beside it
+          they were a ~40px scroller. */}
+      <div style={{ display: showSettings && (sheetMode || shortWindow) ? "none" : "contents" }}>
+        <Transcript agent={agent} page={method?.skill ?? null} onOther={editDraft} />
+      </div>
+      <Composer agent={agent} disabled={needsSetup} compact={sheetMode || shortWindow} text={draft} setText={setDraft} input={input} hint={hint} />
     </aside>
   );
 }
@@ -137,7 +180,7 @@ export function methodSummary(method: MethodProgress): string {
 function MethodChecklist({ method, folded: foldedAtFirst }: { method: MethodProgress; folded: boolean }): JSX.Element {
   const [folded, setFolded] = useState(foldedAtFirst);
   return (
-    <div style={checklist} aria-label="Method progress">
+    <div className="wb-agent-method" style={checklist} aria-label="Method progress">
       <button type="button" className="wb-agent-fold" aria-expanded={!folded} onClick={() => setFolded((f) => !f)} title={`The page's method: the skill ${method.skill}. ${folded ? "Show" : "Hide"} the stages`}>
         <span aria-hidden="true">{folded ? "▸" : "▾"}</span> Method
       </button>
@@ -225,7 +268,7 @@ function SheetHandle({ fraction, onResize }: { fraction: number; onResize: (f: n
       className="wb-agent-resize"
       role="separator"
       aria-orientation="horizontal"
-      aria-label="Resize the Agent panel"
+      aria-label="Resize the Copilot panel"
       aria-valuemin={Math.round(SHEET_MIN * 100)}
       aria-valuemax={Math.round(SHEET_MAX * 100)}
       aria-valuenow={Math.round(fraction * 100)}
@@ -314,7 +357,7 @@ function ResizeHandle({ drawer, width, onResize }: { drawer: RefObject<HTMLEleme
       className="wb-agent-resize"
       role="separator"
       aria-orientation="vertical"
-      aria-label="Resize the Agent panel"
+      aria-label="Resize the Copilot panel"
       aria-valuemin={DRAWER_MIN}
       aria-valuemax={DRAWER_MAX}
       aria-valuenow={Math.round(width ?? current())}
@@ -391,7 +434,7 @@ function Settings({ agent }: { agent: AgentController }): JSX.Element {
   const provider = providerOf(settings.mode);
   const cloud = settings.mode === "api-key" || settings.mode === "proxy";
   return (
-    <div style={settingsBox}>
+    <div className="wb-agent-settings" style={settingsBox}>
       <div style={segmented} role="radiogroup" aria-label="Model provider">
         {PROVIDERS.map((p) => (
           <button
@@ -427,6 +470,7 @@ function Settings({ agent }: { agent: AgentController }): JSX.Element {
               </label>
             </>
           )}
+          {settings.mode === "proxy" && <ProxyCheck />}
           <p style={note}>{cloudNote("Anthropic")}</p>
         </>
       )}
@@ -460,6 +504,21 @@ function Settings({ agent }: { agent: AgentController }): JSX.Element {
   );
 }
 
+/** Whether this page has the local proxy: the published site has none, and says so before a message fails. */
+function ProxyCheck(): JSX.Element | null {
+  const [status, setStatus] = useState<ProxyStatus | null>(null);
+  useEffect(() => {
+    let live = true;
+    void proxyStatus(import.meta.env.BASE_URL).then((s) => { if (live) setStatus(s); });
+    return () => { live = false; };
+  }, []);
+  if (status === null) return null;
+  const text = status === "ready" ? "The proxy is running, with a key." : status === "no-key"
+    ? "The proxy is running but has no key: start the dev server with ANTHROPIC_API_KEY set (in the shell, or in .env.local)."
+    : NO_PROXY;
+  return <p role="status" style={{ ...note, color: status === "ready" ? color.secondary : color.warnInk }}>{text}</p>;
+}
+
 /** The longer how-to for the chosen connection, folded away. */
 function HowToConnect({ mode }: { mode: AgentMode }): JSX.Element {
   return (
@@ -488,7 +547,7 @@ function HowToConnect({ mode }: { mode: AgentMode }): JSX.Element {
               Any server that speaks OpenAI's API: its base URL (usually ending in <code style={code}>/v1</code>) and, if it needs one, a key. OpenAI and Gemini need a key from their consoles; vLLM (started with <code style={code}>--allowed-origins</code> for this page) and llama.cpp's server run on this machine with none.
             </span>
             <span>The key goes only to that server. It is kept for this tab unless you tick Remember.</span>
-            <span>Every request is sized to the model's context: the server's own when it says, else the one set here. Below 128k the Agent offers the tools of the method's stage; at 128k or more, all of them.</span>
+            <span>Every request is sized to the model's context: the server's own when it says, else the one set here. Below 128k the Copilot offers the tools of the method's stage; at 128k or more, all of them.</span>
           </>
         )}
         {(mode === "ollama" || mode === "lmstudio" || mode === "openai-compatible") && <span>A smaller model follows a long method less reliably than a large one: keep Ask first on until it has shown it follows yours.</span>}
@@ -535,7 +594,6 @@ function useModelList<T>(url: string, list: (url: string, signal: AbortSignal) =
   return { list: state, refresh: () => setRound((n) => n + 1) };
 }
 
-const kTokens = (n: number): string => `${Math.round(n / 1024)}k`;
 
 /** The Ollama server and a model on it, listed from the server itself. */
 function OllamaSettings({ agent }: { agent: AgentController }): JSX.Element {
@@ -566,11 +624,11 @@ function OllamaSettings({ agent }: { agent: AgentController }): JSX.Element {
       </ModelPicker>
       {list.status === "error" && <p style={{ ...note, color: color.warnInk }}>{list.message}</p>}
       {list.status === "ok" && models.length > 0 && !models.some((m) => m.tools) && (
-        <p style={{ ...note, color: color.warnInk }}>None of these models can call tools, and the Agent works only through them. Pull one that can (e.g. <code style={code}>ollama pull qwen3</code>).</p>
+        <p style={{ ...note, color: color.warnInk }}>None of these models can call tools, and the Copilot works only through them. Pull one that can (e.g. <code style={code}>ollama pull qwen3</code>).</p>
       )}
       {list.status === "ok" && models.length === 0 && <p style={{ ...note, color: color.warnInk }}>The server has no models. Pull one that can call tools (e.g. <code style={code}>ollama pull qwen3</code>).</p>}
       {picked?.context != null && picked.context < MIN_AGENT_CONTEXT && (
-        <p style={{ ...note, color: color.noteInk }}>This model takes {kTokens(picked.context)} tokens of context; the Agent's instructions alone are about 15k. Expect it to lose track in a long session.</p>
+        <p style={{ ...note, color: color.noteInk }}>This model takes {kTokens(picked.context)} tokens of context; the Copilot's instructions alone are about 15k. Expect it to lose track in a long session.</p>
       )}
       <p style={note}>{LOCAL_NOTE}</p>
     </>
@@ -614,11 +672,11 @@ function LmStudioSettings({ agent }: { agent: AgentController }): JSX.Element {
       )}
       {picked?.loadedContext != null && picked.loadedContext < MIN_AGENT_CONTEXT && (
         <p style={{ ...note, color: color.noteInk }}>
-          LM Studio loaded this model with {kTokens(picked.loadedContext)} tokens of context; the Agent's instructions alone are about 15k, so it will not send to it. Eject the model in LM Studio and the Agent loads it with 32k on your next message (or <code style={code}>lms load {picked.key} --context-length 32768</code>{picked.maxContext != null && picked.maxContext < MIN_AGENT_CONTEXT ? `; it takes at most ${kTokens(picked.maxContext)}` : ""}).
+          LM Studio loaded this model with {kTokens(picked.loadedContext)} tokens of context; the Copilot's instructions alone are about 15k, so it will not send to it. Eject the model in LM Studio and the Copilot loads it with 32k on your next message (or <code style={code}>lms load {picked.key} --context-length 32768</code>{picked.maxContext != null && picked.maxContext < MIN_AGENT_CONTEXT ? `; it takes at most ${kTokens(picked.maxContext)}` : ""}).
         </p>
       )}
       {picked && picked.loadedContext == null && (
-        <p style={note}>Not loaded yet: the Agent loads it with a 32k context on your first message.</p>
+        <p style={note}>Not loaded yet: the Copilot loads it with a 32k context on your first message.</p>
       )}
       <p style={note}>{LOCAL_NOTE}</p>
     </>
@@ -708,7 +766,7 @@ export function OpenAICompatSettings({ agent }: { agent: AgentController }): JSX
         />
       </label>
       {(picked?.context ?? settings.openaiContext) < MIN_AGENT_CONTEXT && (
-        <p style={{ ...note, color: color.noteInk }}>The Agent's instructions alone are about 15k tokens: below 32k, expect it to refuse long sessions.</p>
+        <p style={{ ...note, color: color.noteInk }}>The Copilot's instructions alone are about 15k tokens: below 32k, expect it to refuse long sessions.</p>
       )}
       <p style={note}>{local ? LOCAL_NOTE : cloudNote(where)}</p>
     </>
@@ -734,7 +792,7 @@ function ModelPicker<T>({ label, list, value, onChange, onRefresh, children }: {
 
 // ── transcript ──────────────────────────────────────────────────────────────
 
-function Transcript({ agent, page }: { agent: AgentController; page: string | null }): JSX.Element {
+function Transcript({ agent, page, onOther }: { agent: AgentController; page: string | null; onOther: (template: string, placeholder?: string) => void }): JSX.Element {
   const end = useRef<HTMLDivElement>(null);
   const items = agent.transcript;
   useEffect(() => {
@@ -743,6 +801,8 @@ function Transcript({ agent, page }: { agent: AgentController; page: string | nu
   const ended = useEndTimes(agent.activity);
   // Each finished turn's verdict, after its last item: what its tools computed.
   const outcomes = turnOutcomes(items, agent.activity, agent.thinking);
+  // Each turn's choices, after its outcome: live on the last finished turn only.
+  const offered = turnChoices(items, agent.activity, agent.thinking);
   return (
     <div style={transcriptBox} aria-live="polite">
       {items.length === 0 && <EmptyState settings={agent.settings} page={page} />}
@@ -750,6 +810,7 @@ function Transcript({ agent, page }: { agent: AgentController; page: string | nu
         <Fragment key={item.id}>
           <Item item={item} agent={agent} ended={ended} />
           {outcomes.get(item.id) && <OutcomePill outcome={outcomes.get(item.id)!} />}
+          {offered.get(item.id) && <Choices shown={offered.get(item.id)!} agent={agent} onOther={onOther} />}
         </Fragment>
       ))}
       {agent.thinking && <div style={{ fontSize: 12.5, color: color.faint, padding: "0 2px" }}>Working…</div>}
@@ -760,7 +821,7 @@ function Transcript({ agent, page }: { agent: AgentController; page: string | nu
 
 /** The model the Agent talks to, as the settings name it. */
 function modelName(s: AgentSettings): string {
-  if (s.replayOf) return `${s.replayOf} (a replay of a live run)`;
+  if (s.replayOf) return `${s.replayOf} (${isScriptedReplay(s.replayOf) ? "a scripted replay, not a live run" : "a replay of a live run"})`;
   if (s.mode === "ollama") return s.ollamaModel ? `${s.ollamaModel} (Ollama)` : "the Ollama model you pick";
   if (s.mode === "lmstudio") return s.lmstudioModel ? `${s.lmstudioModel} (LM Studio)` : "the LM Studio model you pick";
   if (s.mode === "openai-compatible") return s.openaiModel ? `${s.openaiModel} (${presetForUrl(s.openaiUrl)?.label ?? "OpenAI-compatible"})` : "the model you pick on your server";
@@ -809,7 +870,7 @@ export function EmptyState({ settings, page }: { settings: AgentSettings; page: 
 function Item({ item, agent, ended }: { item: TranscriptItem; agent: AgentController; ended: ReadonlyMap<string, number> }): JSX.Element | null {
   switch (item.kind) {
     case "user":
-      return <div style={userBubble}>{item.text}</div>;
+      return <div style={userBubble} data-transcript-user>{item.text}</div>;
     case "assistant":
       return (
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -850,8 +911,11 @@ export function formatDuration(ms: number | undefined): string | null {
  * took, and the one line that matters (the preview while it waits, the
  * outcome after). A change waiting for approval keeps its Approve / Decline.
  */
-function ToolCard({ entry, endedAt, onDecide, onOpenReport }: { entry: ActivityEntry; endedAt: number | undefined; onDecide: (id: string, ok: boolean) => void; onOpenReport?: () => void }): JSX.Element {
+function ToolCard({ entry, endedAt, onDecide, onOpenReport }: { entry: ActivityEntry; endedAt: number | undefined; onDecide: (id: string, ok: boolean, selected?: Readonly<Record<string, string>>) => void; onOpenReport?: () => void }): JSX.Element {
   const waiting = entry.status === "waiting";
+  // A card with options: the Agent's pick preselected, the user's pick what Approve applies (cardOptions.ts).
+  const [picked, setPicked] = useState<Readonly<Record<string, string>>>({});
+  const selected = entry.options ? Object.fromEntries(entry.options.map((g) => [g.id, picked[g.id] ?? g.selected])) : undefined;
   const took = endedAt !== undefined && entry.status !== "running" && !waiting ? formatDuration(endedAt - entry.at) : null;
   const meta = [STATUS_TEXT[entry.status], took].filter(Boolean).join(" · ");
   const line = waiting ? entry.preview : entry.outcome ?? entry.preview;
@@ -868,13 +932,47 @@ function ToolCard({ entry, endedAt, onDecide, onOpenReport }: { entry: ActivityE
           <button style={secondaryButton} onClick={onOpenReport}>Open the report</button>
         </div>
       )}
+      {waiting && entry.options && selected && <CardOptions groups={entry.options} selected={selected} onPick={(group, id) => setPicked((p) => ({ ...p, [group]: id }))} />}
       {waiting && (
         <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-          <button style={primaryButton} onClick={() => onDecide(entry.id, true)}>Approve</button>
+          <button style={primaryButton} onClick={() => onDecide(entry.id, true, selected)}>{entry.options ? "Apply the selected" : "Approve"}</button>
           <button style={secondaryButton} onClick={() => onDecide(entry.id, false)}>Decline</button>
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * A change's options on its card, as the drawer's choice buttons: one group
+ * per row, the Agent's pick preselected (★), the user's pick marked. A click
+ * only selects; the card's Apply sends the selection, Decline sends nothing.
+ */
+function CardOptions({ groups, selected, onPick }: { groups: readonly CardOptionGroup[]; selected: Readonly<Record<string, string>>; onPick: (group: string, id: string) => void }): JSX.Element {
+  return (
+    <>
+      {groups.map((g) => (
+        <div key={g.id} className="wb-agent-choices" role="radiogroup" aria-label={g.title} data-choices="card" data-state="live">
+          <div className="wb-agent-choices-head">{g.title}</div>
+          <div className="wb-agent-choices-list">
+            {g.options.map((o) => (
+              <button
+                key={o.id}
+                type="button"
+                role="radio"
+                aria-checked={selected[g.id] === o.id}
+                className={`wb-agent-choice${o.id === g.selected ? " is-recommended" : ""}${selected[g.id] === o.id ? " is-selected" : ""}`}
+                onClick={() => onPick(g.id, o.id)}
+                title={o.id === g.selected ? "The Agent's choice" : "Choose this option instead"}
+              >
+                <span className="wb-agent-choice-label">{selected[g.id] === o.id ? "● " : "○ "}{o.label}{o.id === g.selected && <span aria-label="the Agent's choice"> ★</span>}</span>
+                {o.detail && <span className="wb-agent-choice-detail">{o.detail}</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </>
   );
 }
 
@@ -913,7 +1011,7 @@ export function turnOutcomes(items: readonly TranscriptItem[], activity: Readonl
   turns.forEach((turn, t) => {
     if (thinking && t === turns.length - 1) return;
     const entries = turn.flatMap((i) => (i.kind === "tool" && activity[i.entryId] ? [activity[i.entryId]!] : []));
-    const changes = entries.filter((e) => e.effect !== "read");
+    const changes = entries.filter((e) => e.effect === "change" || e.effect === "control");
     if (changes.length === 0) return;
     const last = turn[turn.length - 1]!;
     const failed = changes.filter((e) => e.status === "failed");
@@ -934,6 +1032,90 @@ function OutcomePill({ outcome }: { outcome: TurnOutcome }): JSX.Element {
       <span className="wb-agent-outcome-label">Outcome</span>
       <strong>{OUTCOME_TEXT[outcome.status]}</strong>
       <span className="wb-agent-outcome-note">{outcome.note}</span>
+    </div>
+  );
+}
+
+// ── choices ─────────────────────────────────────────────────────────────────
+
+/** A turn's choice set as the drawer shows it: live on the last finished turn, superseded once a message follows it. */
+export interface ShownChoices {
+  readonly entryId: string;
+  readonly set: ChoiceSet;
+  readonly state: "live" | "superseded";
+}
+
+/**
+ * The choices each turn offers, keyed by the turn's last item: its last call
+ * that carries a set (ActivityEntry.choices), unless a change made later in
+ * the same turn acted on the page (the agent went on, in Auto). The last turn
+ * shows none while it runs; an earlier turn's set is superseded.
+ */
+export function turnChoices(items: readonly TranscriptItem[], activity: Readonly<Record<string, ActivityEntry>>, thinking: boolean): Map<string, ShownChoices> {
+  const out = new Map<string, ShownChoices>();
+  const turns: TranscriptItem[][] = [];
+  for (const item of items) {
+    if (item.kind === "user" || turns.length === 0) turns.push([]);
+    turns[turns.length - 1]!.push(item);
+  }
+  turns.forEach((turn, t) => {
+    const last = t === turns.length - 1;
+    if (thinking && last) return;
+    const entries = turn.flatMap((i) => (i.kind === "tool" && activity[i.entryId] ? [activity[i.entryId]!] : []));
+    let at = entries.length - 1;
+    while (at >= 0 && !(entries[at]!.choices !== undefined && entries[at]!.status === "done")) at--;
+    if (at < 0) return;
+    if (entries.slice(at + 1).some((e) => (e.effect === "change" || e.effect === "control") && e.status === "done")) return;
+    const entry = entries[at]!;
+    out.set(turn[turn.length - 1]!.id, { entryId: entry.id, set: entry.choices!, state: last ? "live" : "superseded" });
+  });
+  return out;
+}
+
+const CHOICE_STATE_NOTE = {
+  superseded: "Superseded: the conversation has moved on.",
+  stale: "The page has changed since this list: ask again, or type your choice.",
+} as const;
+
+/**
+ * A set of options as buttons: a click sends the option's message as the
+ * user's, through the same send as typing. "Other…" puts a template in the
+ * message box to edit. Only the live set sends, and only while the page is
+ * as it was when the set was made (checked again at the click).
+ */
+function Choices({ shown, agent, onOther }: { shown: ShownChoices; agent: AgentController; onOther: (template: string, placeholder?: string) => void }): JSX.Element {
+  const { set } = shown;
+  const state = shown.state === "superseded" ? "superseded" : agent.choiceCurrent(set) ? "live" : "stale";
+  const live = state === "live" && !agent.thinking;
+  const noteId = `choices-${shown.entryId}-note`;
+  return (
+    <div className="wb-agent-choices" role="group" aria-label={set.title} aria-describedby={set.note || state !== "live" ? noteId : undefined} data-choices={set.kind} data-state={state}>
+      <div className="wb-agent-choices-head">{set.title}</div>
+      {(set.note || state !== "live") && (
+        <div id={noteId} className="wb-agent-choices-note">
+          {state !== "live" && <span className="wb-agent-choices-state">{CHOICE_STATE_NOTE[state]} </span>}
+          {set.note}
+        </div>
+      )}
+      <div className="wb-agent-choices-list">
+        {set.options.map((o) => (
+          <button
+            key={o.id}
+            type="button"
+            className={`wb-agent-choice${o.recommended ? " is-recommended" : ""}`}
+            disabled={!live}
+            data-message={o.message}
+            title={`Sends: ${o.message}`}
+            onClick={() => agent.choose(shown.entryId, o.id)}
+          >
+            <span className="wb-agent-choice-label">{o.recommended && <span aria-label="recommended">★ </span>}{o.label}</span>
+            {o.detail && <span className="wb-agent-choice-detail">{o.detail}</span>}
+          </button>
+        ))}
+        <button type="button" className="wb-agent-choice is-other" disabled={!live} title={set.other.template ? "Type your own answer: puts a template in the message box, sends nothing" : "Type your own answer in the message box: sends nothing"} onClick={() => onOther(set.other.template, set.other.placeholder)}>
+          <span className="wb-agent-choice-label">{set.other.label}</span>
+        </button>
+      </div>
     </div>
   );
 }
@@ -971,8 +1153,7 @@ function CardChips({ text, onHover }: { text: string; onHover: (card: AgentCard 
 
 // ── input ───────────────────────────────────────────────────────────────────
 
-function Composer({ agent, disabled, compact }: { agent: AgentController; disabled: boolean; compact: boolean }): JSX.Element {
-  const [text, setText] = useState("");
+function Composer({ agent, disabled, compact, text, setText, input, hint }: { agent: AgentController; disabled: boolean; compact: boolean; text: string; setText: (text: string) => void; input: RefObject<HTMLTextAreaElement>; hint: string | null }): JSX.Element {
   const submit = (): void => {
     if (!text.trim() || agent.thinking || disabled) return;
     agent.send(text);
@@ -984,9 +1165,10 @@ function Composer({ agent, disabled, compact }: { agent: AgentController; disabl
     <div style={composer}>
       <div className="wb-agent-input">
         <textarea
-          aria-label="Message the Agent"
+          ref={input}
+          aria-label="Message the Copilot"
           rows={compact ? 1 : 2}
-          placeholder={disabled ? (localModel(agent.settings) !== null ? "Pick a model in the settings first" : "Add your API key in the settings first") : "Ask anything, or ask it to run the analysis…"}
+          placeholder={disabled ? (localModel(agent.settings) !== null ? "Pick a model in the settings first" : "Add your API key in the settings first") : hint ?? "Ask anything, or ask it to run the analysis…"}
           value={text}
           disabled={disabled}
           onChange={(e) => setText(e.target.value)}
@@ -1002,7 +1184,7 @@ function Composer({ agent, disabled, compact }: { agent: AgentController; disabl
           : <button type="button" className="wb-agent-send" onClick={submit} disabled={disabled || !text.trim()} aria-label="Send" title="Send (Enter)"><ArrowGlyph /></button>}
       </div>
       <div className="wb-agent-foot">
-        <span className="wb-agent-hint" title={used ? `${usage.input} input tokens (${usage.cacheRead} read from the cache) and ${usage.output} output tokens this session` : undefined}>
+        <span className="wb-agent-hint" data-keys={used ? undefined : ""} title={used ? `${usage.input} input tokens (${usage.cacheRead} read from the cache) and ${usage.output} output tokens this session` : undefined}>
           {used ? `${fmtTokens(usage.input)} in · ${fmtTokens(usage.cacheRead)} cached · ${fmtTokens(usage.output)} out` : "Enter to send · Shift+Enter for a new line"}
         </span>
         {agent.transcript.length > 0 && !agent.thinking && (
@@ -1138,6 +1320,7 @@ function IconButton({ children, title, onClick, active, disabled }: { children: 
     <button
       title={title}
       aria-label={title}
+      className="wb-agent-icon"
       onClick={onClick}
       disabled={disabled}
       style={{ border: `1px solid ${active ? color.primaryTintBorder : "transparent"}`, background: active ? color.primaryTintBg : "transparent", color: disabled ? color.faintest : color.secondary, borderRadius: 6, width: 28, height: 28, cursor: disabled ? "default" : "pointer", fontSize: 14, lineHeight: 1 }}
@@ -1147,29 +1330,37 @@ function IconButton({ children, title, onClick, active, disabled }: { children: 
   );
 }
 
-/** The Agent mark: a four-point spark. */
 /** The answers in a conversation: what the collapsed rail's dot counts. */
 export function answersIn(transcript: readonly TranscriptItem[]): number {
   return transcript.filter((t) => t.kind === "assistant" && t.text.trim() !== "").length;
 }
 
+/** The rail's words: what is waiting (changes to approve, a new answer), or just how to open it. */
+export function railLabel(unread: boolean, pending: number): string {
+  if (pending > 0) return `Open the Copilot: ${pending} change${pending === 1 ? "" : "s"} waiting for your approval`;
+  return unread ? "Open the Copilot: a new answer" : "Open the Copilot";
+}
+
 /**
- * The Agent collapsed: a slim rail beside the page, or a bar under it on a
- * tablet held upright or a phone, with a dot when an answer has landed since
- * it was closed.
+ * The Copilot collapsed: a slim rail beside the page, or a bar under it on a
+ * tablet held upright or a phone. It is how the Copilot opens (the header has
+ * no button for it): the count of changes waiting for approval on it, or a
+ * dot when an answer has landed since it was closed.
  */
-export function AgentRail({ unread, onOpen }: { unread: boolean; onOpen: () => void }): JSX.Element {
+export function AgentRail({ unread, pending = 0, onOpen }: { unread: boolean; pending?: number; onOpen: () => void }): JSX.Element {
+  const label = railLabel(unread, pending);
   return (
-    <aside className="wb-agent-rail" aria-label="Agent">
-      <button type="button" onClick={onOpen} title={unread ? "Open the Agent: a new answer" : "Open the Agent"} aria-label={unread ? "Open the Agent (a new answer)" : "Open the Agent"}>
+    <aside className="wb-agent-rail" aria-label="MATERIA Copilot">
+      <button type="button" onClick={onOpen} title={label} aria-label={label}>
         <SparkIcon size={18} />
-        <span className="wb-agent-rail-label">Agent</span>
-        {unread && <span className="wb-agent-dot" aria-hidden="true" />}
+        <span className="wb-agent-rail-label">Copilot</span>
+        {pending > 0 ? <span className="wb-agent-count" aria-hidden="true">{pending}</span> : unread && <span className="wb-agent-dot" aria-hidden="true" />}
       </button>
     </aside>
   );
 }
 
+/** The Agent mark: a four-point spark. */
 export function SparkIcon({ size = 16 }: { size?: number }): JSX.Element {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden style={{ display: "block", flex: "none" }}>
@@ -1191,7 +1382,11 @@ const drawer: CSSProperties = {
 const checklist: CSSProperties = { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "3px 10px", padding: "6px 14px", borderBottom: `1px solid ${color.border}`, background: color.muted2, fontSize: fz.micro };
 const head: CSSProperties = { display: "flex", flexDirection: "column", gap: 8, padding: "10px 14px", borderBottom: `1px solid ${color.border}` };
 const headRow: CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, minWidth: 0 };
-const settingsBox: CSSProperties = { display: "flex", flexDirection: "column", gap: 10, padding: "12px 14px", borderBottom: `1px solid ${color.border}`, background: color.muted2 };
+// It scrolls on its own when the drawer is too short for it (a phone: the sheet,
+// or the drawer beside the page held sideways), rather than running out of the drawer.
+// Its rows keep their height (.wb-agent-settings in workbench.css): squeezed, the
+// segmented toggles (overflow hidden, so no content minimum) shrank to their borders.
+const settingsBox: CSSProperties = { display: "flex", flexDirection: "column", gap: 10, padding: "12px 14px", borderBottom: `1px solid ${color.border}`, background: color.muted2, flex: "0 1 auto", minHeight: 0, overflowY: "auto" };
 const transcriptBox: CSSProperties = { flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 };
 const composer: CSSProperties = { display: "flex", flexDirection: "column", gap: 5, padding: "10px 12px 10px", borderTop: `1px solid ${color.border}`, background: color.raised };
 const field: CSSProperties = { display: "flex", flexDirection: "column", gap: 4 };

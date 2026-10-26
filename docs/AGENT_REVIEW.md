@@ -17,7 +17,8 @@ This page covers the parts those results depend on. It was reviewed on
 result, a simulation whose truth is known, or a reference program. Tests marked
 *data* read the git-ignored `data/` folder. They are skipped in CI, so CI does
 not hold the GSAS-II, SHELXL and FullProf comparisons; only a machine with the
-data does.
+data does. The exception is the published Mn₃Ga 350 K POWGEN set, committed
+under `examples/mn3ga-350k`: its GSAS-II magnetic comparison runs in CI.
 
 | Tool | What it computes | Known answer | Gaps |
 | --- | --- | --- | --- |
@@ -60,7 +61,8 @@ data does.
 
 1. **CI runs none of the external comparisons.** The GSAS-II, SHELXL, FullProf
    and WinGX tests read git-ignored data. Committing small public reference
-   fixtures, as `pdffit2Golden.ts` does, would put them in CI.
+   fixtures, as `pdffit2Golden.ts` does, would put them in CI. Done for the
+   Mn₃Ga 350 K magnetic structure (GSAS-II), whose data are published.
 2. **The 8 %-of-largest floor** in residual-peak detection. Drop it when every
    point has a σ, and rely on the 5σ test. This needs a check of the
    false-positive rate on the eval pages first.
@@ -86,10 +88,13 @@ data does.
 | `symmetry-review` | "if it is acceptable, stop" is undefined | the 2 % overlap matches the tool | the restart omits the fit-range stage; `build_distortion_modes` exists only on MCP; candidates are sorted by allowed reflections, not by index |
 | `bayesian-check` | yes | R̂, ESS, esd ratio and P all match `posteriorTool.ts` (McCluskey et al. 2023) | \|ρ\| ≥ 0.9 against the engine's 0.95; "Durbin–Watson well below 2" against the tools' d < Q_D; "the profile's correlations with the structure are weak" contradicts the same skill and `my-rietveld-workflow`, and makes intervals falsely narrow; `tie_parameters` is offered on the PDF page, where it does not exist |
 
-### Proposed skill changes, waiting for the user's approval
+### Proposed skill changes
 
-None of these is applied. A skill change needs the user's approval, and it is
-to be tried on the dev set only (see VALIDATION.md, "Findings").
+The user approved these; each is applied in the skill drafts
+([AGENT_PLAN.md](./AGENT_PLAN.md), 5.2–5.5), with the tool text that restated
+it, and tried on the dev set only (see VALIDATION.md, "Findings"). The drafts'
+report lists each edit:
+[2026-10-17 · the skill drafts](./reports/2026-10-17-skill-drafts.md).
 
 1. `my-rietveld-workflow` Stage 0: say that the app does not carry the Le Bail
    cell, zero or profile forward. On a start the cell check finds off, use

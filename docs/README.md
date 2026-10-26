@@ -50,6 +50,19 @@ workbench? Start with the [user guide](./USER_GUIDE.md), and read
 | [ROADMAP.md](./ROADMAP.md) | The authoritative roadmap for the whole project |
 | [PDF_MPDF_ROADMAP.md](./PDF_MPDF_ROADMAP.md) | The real-space PDF and magnetic PDF track |
 | [PLAN_SUBGROUPS_AND_INCOMMENSURATE.md](./PLAN_SUBGROUPS_AND_INCOMMENSURATE.md) | Planned next: PDF subgroups and supercells; incommensurate magnetic studies |
+| [AGENT_PLAN.md](./AGENT_PLAN.md) | Planned before the Agent's validation: its architecture, tools and skills |
+
+## Research
+
+| Document | Read it to learn |
+| --- | --- |
+| [research/SUBGROUP_ENGINES.md](./research/SUBGROUP_ENGINES.md) | How ISOTROPY/ISODISTORT and the Bilbao server enumerate subgroups and build irreps, isotropy subgroups and symmetry modes, from primary sources; what a MATERIA subgroup engine with supercells needs |
+
+## Reports
+
+| Document | Read it to learn |
+| --- | --- |
+| [reports/](./reports/) | One report for each change that improves the code: what changed and why, the evidence, what users and the validation will see differently, and what is left |
 
 ## Archive
 
@@ -74,5 +87,9 @@ Kept for their detail; each names the document that replaced it.
 - Keep counts that change (tests, tools) out of the docs.
 - Keep section numbers that code comments cite, such as `PDF_MPDF_ROADMAP §8`
   and `roadmap F1.1`.
-- The tool tables in AGENT_TOOLS.md are generated: edit `src/mcp/registry.ts`,
-  then run `npm run gen:tooldoc`.
+- Every change that improves the code ships with a report in
+  [reports/](./reports/), linked from its pull request; the other documents
+  describe the state the change leaves.
+- The tool tables in AGENT_TOOLS.md are generated: edit `src/mcp/registry.ts`
+  (the MCP tools) or `src/agent/tools.ts` (the in-app Agent's), then run
+  `npm run gen:tooldoc`.

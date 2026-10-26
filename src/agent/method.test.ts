@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { ALTERNATION_SETTLED, advanceAlternation, alternationView, analysisKey, emptyRecord, methodProgress, outOfOrder, ruleRefusal, stagesCovered, stagesLeft, type Alternation } from "@/agent/method";
-import type { RefinementParameter } from "@/core/refinement/types";
+import { ALTERNATION_SETTLED, advanceAlternation, alternationView, analysisKey, emptyRecord, methodProgress, outOfOrder, ruleRefusal, stagesCovered, stagesLeft, stagesOnPath, type Alternation } from "@/agent/method";
+import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
+import { recordStep, type ProjectHistory, type StepKind } from "@/core/project/history";
+import type { Workspace } from "@/core/project/types";
 
 const p = (id: string, kind: RefinementParameter["kind"]): RefinementParameter => ({ id, label: id, kind, value: 1, initialValue: 1, fixed: false });
 
@@ -56,6 +58,40 @@ describe("the method as code", () => {
     expect(all.next).toBeNull();
   });
 
+  it("keeps a stage done only while the History's path holds what refined it: undo, a reset and a typed value take it back", () => {
+    const start = [p("scale", "scale"), p("bkg0", "background"), p("a", "cellLength"), p("x", "atomX"), p("W", "profileW"), p("B", "bIso")];
+    // A page's state: its parameters (free ones as listed, each at its value) and a converged fit of the free ones.
+    const at = (values: Record<string, number>, free: readonly string[] | null): { parameters: RefinementParameter[]; result: RefinementResult | null } => {
+      const parameters = start.map((q) => ({ ...q, value: values[q.id] ?? q.value, fixed: free !== null && !free.includes(q.id) }));
+      const result = free ? ({ status: "converged", agreement: { rWeighted: 0.1 }, esd: Object.fromEntries(free.map((id) => [id, 0.01])) } as unknown as RefinementResult) : null;
+      return { parameters, result };
+    };
+    let h: ProjectHistory | null = null;
+    const step = (kind: StepKind, s: ReturnType<typeof at>): void => {
+      h = recordStep(h, { structures: [], workspace: { technique: "powder", refinement: { parameters: s.parameters, ...(s.result ? { lastResult: s.result } : {}) } } as unknown as Workspace, kind, label: kind });
+    };
+    step("load", at({}, null));
+    const base = at({ scale: 2, bkg0: 5, a: 4.1 }, ["scale", "bkg0", "a"]);
+    step("refine", base);
+    const positions = at({ scale: 2.1, bkg0: 5, a: 4.1, x: 0.27 }, ["scale", "x"]);
+    step("refine", positions);
+    const afterBase = h!.steps[1]!.id;
+    expect(stagesOnPath("powder", h, positions)).toEqual(["base", "positions"]);
+    // The scale refined again with the positions does not undo the base stage; a converged fit not yet recorded counts.
+    expect(stagesOnPath("powder", h, at({ scale: 2.2, bkg0: 5, a: 4.1, x: 0.27, W: 0.8 }, ["scale", "W"]))).toEqual(["base", "positions", "profile"]);
+    // Undo (go_to_step) to the step after the base refinement: the positions were never refined on that path.
+    expect(stagesOnPath("powder", { ...h!, current: afterBase }, base)).toEqual(["base"]);
+    // A reset of the cell (of some parameters) takes back the stage it belongs to, and only that one.
+    expect(stagesOnPath("powder", h, at({ scale: 2.1, bkg0: 5, x: 0.27 }, null))).toEqual(["positions"]);
+    // A reset of everything: nothing is done.
+    expect(stagesOnPath("powder", h, at({}, null))).toEqual([]);
+    // A new load starts a new analysis.
+    step("load", at({}, null));
+    expect(stagesOnPath("powder", h, at({ scale: 2.1, bkg0: 5, a: 4.1, x: 0.27 }, null))).toEqual([]);
+    // No History: the record's own list stands.
+    expect(stagesOnPath("powder", null, positions)).toBeNull();
+  });
+
   it("lists the refinement stages left before the space group may be questioned", () => {
     expect(stagesLeft("powder", emptyRecord("k"))).toEqual(["Scale, background, cell", "Positions", "Profile", "ADPs"]);
     // The cell check is not among them: it never holds anything up.
@@ -80,13 +116,17 @@ describe("the method as code", () => {
     const tie = { id: "t", label: "Σ", target: 1, sigma: 0.01, terms: [{ parameterId: "occ_A", coefficient: 1 }, { parameterId: "occ_B", coefficient: 1 }] };
     expect(ruleRefusal("powder", [p("occ_A", "occupancy"), p("occ_B", "occupancy")], [tie], none)).toBeNull();
     expect(ruleRefusal("pdf", [p("occ_A", "occupancy")], [], none)?.message).toMatch(/a shared site holds its Σ occupancy/);
+    // The PDF page's shared site: the last occupancy follows one minus the others (complement for two), which are then not bare.
+    const sum = { ...p("occ_C", "occupancy"), fixed: true, expression: "= 1 - sum(occ_A, occ_B)" };
+    expect(ruleRefusal("pdf", [p("occ_A", "occupancy"), p("occ_B", "occupancy")], [], none, [p("occ_A", "occupancy"), p("occ_B", "occupancy"), sum])).toBeNull();
+    const complement = { ...p("occ_B", "occupancy"), fixed: true, expression: "= -1*occ_A+1" };
+    expect(ruleRefusal("pdf", [p("occ_A", "occupancy")], [], none, [p("occ_A", "occupancy"), complement])).toBeNull();
     const allowed = { ...none, exceptions: [{ rule: "bare-occupancy" as const, reason: "isotope contrast", at: 0 }] };
     expect(ruleRefusal("powder", [p("occ_A", "occupancy")], [], allowed)).toBeNull();
   });
 
   it("never refines the instrument's terms with the thermal parameters, and names every broken rule at once", () => {
     const none = emptyRecord("k");
-    expect(ruleRefusal("powder", [p("zero", "zeroShift"), p("pos", "atomX")], [], none)).toBeNull();
     expect(ruleRefusal("powder", [p("B_Pb1", "bIso"), p("pos", "atomX")], [], none)).toBeNull();
     // A microstrain model is the sample's broadening, not the instrument's.
     expect(ruleRefusal("powder", [p("mustrain", "mustrainIso"), p("B_Pb1", "bIso")], [], none)).toBeNull();
@@ -103,6 +143,21 @@ describe("the method as code", () => {
     expect(both.line).toBe("Not run: occ_A free with no tie; Not run: instrument terms (zero) free with thermal (B)");
     const allowed = { ...none, exceptions: [{ rule: "instrument-with-thermal" as const, reason: "one joint cycle for the esds", at: 0 }] };
     expect(ruleRefusal("powder", [p("W", "profileW"), p("B", "bIso")], [], allowed)).toBeNull();
+  });
+
+  it("never refines the instrument's terms with the atom positions on the powder page (the user's rule, 2026-10-19)", () => {
+    const none = emptyRecord("k");
+    const r = ruleRefusal("powder", [p("zero", "zeroShift"), p("W", "profileW"), p("x_Pb1", "atomX")], [], none)!;
+    expect(r.rule).toBe("instrument-with-positions");
+    expect(r.line).toBe("Not run: instrument terms (zero, W) free with positions (x_Pb1)");
+    expect(r.message).toMatch(/Fix the positions and refine the instrument terms, then fix those and refine the positions/);
+    expect(r.message).toMatch(/call allow_exception with rule "instrument-with-positions" and their reason/);
+    expect(ruleRefusal("powder", [p("zero", "zeroShift"), p("shift", "positionShift")], [], none)?.rule).toBe("instrument-with-positions");
+    // The cell and the scale are not the instrument's; the PDF page has its own method.
+    expect(ruleRefusal("powder", [p("a", "cellLength"), p("x_Pb1", "atomX")], [], none)).toBeNull();
+    expect(ruleRefusal("pdf", [p("qdamp", "qdamp"), p("x_Pb1", "atomX")], [], none)).toBeNull();
+    const allowed = { ...none, exceptions: [{ rule: "instrument-with-positions" as const, reason: "the last joint cycle", at: 0 }] };
+    expect(ruleRefusal("powder", [p("zero", "zeroShift"), p("x_Pb1", "atomX")], [], allowed)).toBeNull();
   });
 
   it("follows the alternation: each group's shift since its last refinement, settled once neither moves", () => {

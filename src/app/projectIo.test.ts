@@ -45,6 +45,7 @@ describe("the Agent's records in a project", () => {
       key: "powder¦mgal2o4.xye¦MgAl2O4|F d -3 m:2",
       cellCheck: { passed: true, at: 1, summary: "every peak indexes; no absence flagged" },
       exceptions: [{ rule: "bare-occupancy" as const, reason: "isotopic contrast", at: 2 }],
+      kept: [{ measurement: "1,0,4,2", reason: "re-measured; the value stands", at: 4 }],
       stagesDone: ["base", "positions"],
       notes: [{ text: "The user holds the composition: inversion is the question.", at: 3 }],
     };
@@ -55,6 +56,9 @@ describe("the Agent's records in a project", () => {
     const bad = JSON.parse(serializeProject(file as never));
     bad.agent.records[0].exceptions[0].rule = "anything-goes";
     expect(() => parseProject(JSON.stringify(bad))).toThrow(/agent\.records\[0\]\.exceptions\[0\]\.rule/);
+    const unreasoned = JSON.parse(serializeProject(file as never));
+    delete unreasoned.agent.records[0].kept[0].reason;
+    expect(() => parseProject(JSON.stringify(unreasoned))).toThrow(/agent\.records\[0\]\.kept\[0\]\.reason/);
   });
 });
 
@@ -89,6 +93,29 @@ describe("powder capture / restore", () => {
     expect(() => parseProject(JSON.stringify(bad))).toThrow(/corrections\.peak\[0\]/);
     bad.workspace.corrections = { preferredOrientation: [0, 1] };
     expect(() => parseProject(JSON.stringify(bad))).toThrow(/three indices/);
+  });
+
+  it("saves a B-at-0 fix as the tie it is, with its record; a project without one opens unchanged", () => {
+    const base = newSession(structure, DEFAULT_INSTRUMENT);
+    const [a, b] = base.powderParams.filter((p) => p.kind === "bIso");
+    if (!a || !b) throw new Error("two B rows expected");
+    const view = { fitRange: null, displayUnit: null, manualPeakD: [] };
+    // Before: no record in the file, none on the session it opens to.
+    const plain = roundTrip(projectFileFor({ structures: [base.structure], workspace: powderWorkspaceFrom(base, null, DEFAULT_INSTRUMENT, false, view), title: "t" }));
+    if (plain.workspace.technique !== "powder") throw new Error("technique");
+    expect("zeroAdpFixes" in plain.workspace).toBe(false);
+    expect(sessionFromPowderWorkspace(plain.workspace, plain.structures).session).toEqual(base);
+    // Applied: the row is a user tie like any other, and the record says why.
+    const fix = { parameterId: b.id, atom: `B(${b.id})`, reached: 0, rule: "A" as const, leader: a.id, source: `rule A: ${a.id}, same element` };
+    const session: Session = { ...base, powderParams: base.powderParams.map((p) => (p.id === b.id ? { ...p, value: a.value, fixed: true, expression: `= ${a.id}`, group: "user-tie" } : p)), zeroAdpFixes: [fix] };
+    const file = roundTrip(projectFileFor({ structures: [session.structure], workspace: powderWorkspaceFrom(session, null, DEFAULT_INSTRUMENT, false, view), title: "t" }));
+    if (file.workspace.technique !== "powder") throw new Error("technique");
+    const back = sessionFromPowderWorkspace(file.workspace, file.structures).session;
+    expect(back.zeroAdpFixes).toEqual([fix]);
+    expect(back.powderParams.find((p) => p.id === b.id)).toMatchObject({ expression: `= ${a.id}`, fixed: true });
+    const bad = JSON.parse(serializeProject(file as never));
+    bad.workspace.zeroAdpFixes[0].rule = "C";
+    expect(() => parseProject(JSON.stringify(bad))).toThrow(/zeroAdpFixes\[0\]\.rule/);
   });
 
   it("carries extra phases as structures[1..] and the magnetic model with the primary phase", () => {

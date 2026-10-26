@@ -1,14 +1,15 @@
 /**
- * Powder (Rietveld) refinement engine page — the peer of SingleCrystalWorkbench
- * behind the WorkbenchEngine contract. Owns all powder view state (fit range,
- * display unit, plot mode, highlight, live refinement preview), the refinement
- * orchestration against the shared compute worker, the powder exports, and both
- * step pages (setup & refinement · magnetic symmetry analysis).
+ * Powder (Rietveld) refinement engine page — a peer of SingleCrystalWorkbench
+ * and PdfWorkbench behind the WorkbenchEngine contract. Owns all powder view
+ * state (fit range, display unit, plot mode, highlight, live refinement
+ * preview), the powder exports, and both step pages (setup & refinement ·
+ * magnetic symmetry analysis); the fits it runs are the page's own
+ * (powderPage.ts: powderFit, thoroughFit, posteriorRun).
  *
- * The session (structure + pattern + parameter spec) lives in the app shell —
- * whose data loaders create it — and is passed down with its setter; the
- * engine's controls (background basis/terms, ADP model, site ties, Mustrain)
- * rebuild the spec through it.
+ * The page itself (session, instrument, last result) lives in the app shell
+ * and is passed down with its setter; the engine's controls change it through
+ * the page's functions (powderPage.ts: `changed`, `withFit` and the with*
+ * controls), which clear the result when a change makes it out of date.
  *
  * Per the WorkbenchEngine boundary (see workbenchEngine.ts), the quality panel
  * and every agreement factor here are the powder community's own: Rwp over the
@@ -24,23 +25,24 @@ import { zipStore } from "@/core/export/zip";
 import type { StructureModel } from "@/core/crystal/types";
 import type { PowderPattern, PowderXUnit } from "@/core/diffraction/types";
 import type { DetectedFormat, DetectionSource } from "@/parsers/detectFormat";
-import type { RefinementOptions, RefinementParameter, RefinementResult, ParameterBinding } from "@/core/refinement/types";
+import type { LinearRestraint, RefinementOptions, RefinementParameter, RefinementResult, ParameterBinding } from "@/core/refinement/types";
 import { cellVolume } from "@/core/crystal/unitCell";
-import { powderCurves, type PowderProfile } from "@/core/workflow/powder";
+import type { PowderProfile } from "@/core/workflow/powder";
 import { magneticComponentCurve } from "@/core/workflow/magneticPowder";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
-import { resolveTies, withEqualTies, type EqualTieUpdate } from "@/core/refinement/constraints";
-import type { PeakShape } from "@/core/diffraction/profile";
+import { pageInstrument } from "@/core/workflow/backgroundDefaults";
+import { esdsWithTies, resolveTies, type EqualTieUpdate } from "@/core/refinement/constraints";
 import type { BackgroundType } from "@/core/diffraction/background";
 import { extractSizeStrain } from "@/core/diffraction/microstructure";
-import { powderRestraints, PEAK_CORRECTION_IDS, type CorrectionsUpdate, type SiteTies, type MustrainModel, type SampleCorrections, type PeakCorrectionId } from "@/app/powderSpec";
-import { multiPhaseCurves } from "@/core/workflow/multiPhase";
-import { siteGroups } from "@/core/workflow/structureRefinement";
+import { PEAK_CORRECTION_IDS, type CorrectionsUpdate, type SiteTies, type MustrainModel, type SampleCorrections, type PeakCorrectionId } from "@/app/powderSpec";
+import { sharedSites, siteGroups, siteSumRangeWarnings } from "@/core/workflow/structureRefinement";
+import { SiteTotals } from "@/app/ui/SiteTotals";
 import { powderPatternCsv } from "@/core/export/exporters";
 import { powderWorkspaceFrom, type PowderViewState } from "@/app/projectIo";
 import { structureToCif, magneticStructureToMcif, type CifRefinementMeta } from "@/core/export/cif";
 import { reportHtml, type ReportInput } from "@/core/export/report";
 import { powderReportInput, reportFileName, type MagneticExploration } from "@/app/reportInputs";
+import { powderJudgment } from "@/app/reportJudgment";
 import { isMagneticModelParameterKind, isMomentParameterKind } from "@/core/refinement/types";
 import type { ComputeClient } from "@/workers/computeClient";
 import { CANCELLED } from "@/workers/computeClient";
@@ -48,19 +50,20 @@ import type { PowderProgress } from "@/workers/runPowder";
 import { formatWt, fractionsOf } from "@/core/diagnostics/phaseFractions";
 import { PosteriorPanel } from "@/app/ui/PosteriorPanel";
 import type { SampleOptions, SampleResult } from "@/core/refinement/bayes/sampler";
-import { KSearchPanel, type MagneticFit, type MagneticPatternView, type ResidualPeak } from "@/components/KSearchPanel";
+import { KSearchPanel, type MagneticPatternView } from "@/components/KSearchPanel";
 import type { DemoEntry, DemoId } from "@/app/demos";
 import { useOnChange } from "@/app/useOnChange";
-import { withAdpModel } from "@/core/crystal/adp";
 import { momentEntriesFrom } from "@/app/ui/cellModel";
-import { detectExtraPeaks, annotateExtraPeaks, type ExtraPeak } from "@/core/magnetic/extraPeaks";
-import { momentKickFloor } from "@/core/magnetic/canonicalize";
 import { powderReflectionObsCalc, type ReflectionObsCalc } from "@/core/workflow/obsCalc";
 import { PowderValidationView } from "@/app/ui/PowderValidation";
-import type { CheckAction } from "@/core/diagnostics/validationChecks";
+import type { EvidenceSection, ValidationAction } from "@/app/ui/fitCauses";
+import { parametersChangedSince } from "@/core/diagnostics/validationChecks";
+import type { JudgedPage } from "@/app/powderJudgment";
+import type { PowderLiveState } from "@/agent/port";
+import { stagesCovered, stagesOnPath } from "@/agent/method";
+import type { ProjectHistory } from "@/core/project/history";
 import type { MagneticModel } from "@/core/magnetic/types";
 import {
-  axisContext,
   tofCalibrationOf,
   availableDisplayUnits,
   convertAxisArray,
@@ -68,6 +71,7 @@ import {
   convertInterval,
   axisLabel,
   axisShortLabel,
+  type AxisContext,
   type DisplayUnit,
 } from "@/visualization/axisUnits";
 import {
@@ -83,11 +87,17 @@ import { WorkbenchPlot, type FitRangeSelection } from "@/app/ui/WorkbenchPlot";
 import { ParameterPanel } from "@/app/ui/ParameterPanel";
 import { color as theme, card as themeCard, uppercaseLabel as themeLabel, mono as themeMono, fz, toolbarBtn, resetRangeBtn, space } from "@/app/theme";
 import { SegmentedToggle } from "@/app/ui/SegmentedToggle";
-import { applyParameters } from "@/core/workflow/apply";
 import { excludedPointMask } from "@/core/refinement/factors";
 import { secondLine, type InstrumentConstants, type InstrumentParameters } from "@/core/diffraction/instrument";
-import { withAntisite } from "@/core/crystal/antisite";
-import { type Session, buildSpecFor, keptBindings, keptRow, keptRows, withMagneticRows, withValidUserTies, DEFAULT_INSTRUMENT, SYNTHETIC_SOURCE, EMPTY_SOURCE } from "@/app/powderSession";
+import { type Session, SYNTHETIC_SOURCE, EMPTY_SOURCE } from "@/app/powderSession";
+import {
+  BACKGROUND_TERMS, backgroundTermsEntry, curvesGoodnessOfFit, extentOf, hasTensorAdp, magneticApplied as magneticAppliedOn, magneticProfileOf, momentRowsFree as momentRowsFreeOn, observationsIn, posteriorRun, powderFit as powderFitOn,
+  powderPageCurves, refinedPhasesOf, restraintRequest, thoroughFit, weightedR as weightedROf, withAnisotropicAdp, withAntisitePair, withBackgroundTerms,
+  withBackgroundType, withCorrections, withMagneticModelRows, withMagneticPreview, withMustrain, withParameterTies, withReset, withSiteTies, withSiteTotal, withParameter, pageAxis, powderMomentFit, residualPeaksOf,
+  changed, snapshotHolds, specInstrumentOf, withFit, withFixed, withZeroAdpApplied, withZeroAdpPruned, withZeroAdpReleased, zeroAdpOf, type PowderPage, type PowderPageModel,
+} from "@/app/powderPage";
+import { zeroAdpStepLabel, type ZeroAdpChoice, type ZeroAdpFix, type ZeroAdpProposal } from "@/core/diagnostics/zeroAdp";
+import { ZeroAdpNotice } from "@/app/ui/ZeroAdpNotice";
 import type { EngineExportsRef } from "@/app/workbenchEngine";
 import type { AgentLink } from "@/agent/link";
 import type { MagneticAgentHandle } from "@/agent/magneticPort";
@@ -110,12 +120,9 @@ const DETECTION_LABEL: Record<DetectionSource, string> = {
 };
 
 export interface PowderWorkbenchProps {
-  session: Session;
-  setSession: Dispatch<SetStateAction<Session>>;
-  powderResult: RefinementResult | null;
-  setPowderResult: (r: RefinementResult | null) => void;
-  instrument: InstrumentParameters;
-  instrumentLoaded: boolean;
+  /** The powder page (powderPage.ts): the session, the instrument and the last fit's result, which the shell holds. */
+  page: PowderPage;
+  setPage: Dispatch<SetStateAction<PowderPage>>;
   /** The user has loaded their own primary CIF (Structure card offers "Add CIF…"). */
   ownStructure: boolean;
   /** Shared compute worker — refinement runs off the main thread. */
@@ -166,26 +173,25 @@ export interface PowderWorkbenchProps {
   agentLink?: AgentLink;
 }
 
-/**
- * The primary phase refines U tensors: some site is anisotropic. Read from
- * the structure, not from the toggle alone — a CIF with U_aniso columns loads
- * tensors without anyone ticking the box (round 10, NAC on 11-BM).
- */
-function hasTensorAdp(structure: StructureModel): boolean {
-  return structure.sites.some((site) => site.adp.kind === "anisotropic");
-}
-
 /** Ensemble steps per posterior run or continue (each one proposal per walker). */
 const SAMPLE_STEPS = 400;
 
+/** No occupancy restraints: one array, so the Validation view's readings of the page are not recomputed every render. */
+const NO_RESTRAINTS: readonly LinearRestraint[] = [];
+
 export function PowderWorkbench({
-  session, setSession, powderResult, setPowderResult, instrument, instrumentLoaded, ownStructure,
+  page, setPage, ownStructure,
   client, active, step, onStep, setMessage, exportsRef,
   onLoadData, onLoadCif, onAddPhase, onAddStructure, onRemovePhase, onClearStructures, detection, onOverrideXUnit,
   onLoadInstrument, onInstrumentConstants, onLoadDemo, demos = [],
   onOpenProject, viewRestore, useGpu = true,
   stepHistory, agentLink,
 }: PowderWorkbenchProps): JSX.Element {
+  const { session, result: powderResult, instrument, instrumentLoaded } = page;
+  /** An edit of rows (a value, a free state): the last fit's result stays on the page. */
+  const editRows = (f: (s: Session) => Session): void => setPage((p) => ({ ...p, session: f(p.session) }));
+  /** A change of the model or a setting, the rows built with the page's instrument: the last fit's result goes (powderPage.ts, changed). */
+  const change = (f: (s: Session, instrument: InstrumentParameters) => Session): void => setPage((p) => changed(p, f(p.session, specInstrumentOf(p))));
   const [busy, setBusy] = useState(false);
   // Incremented by the toolbar "⊡ Fit range" button; the plot zooms onto the
   // active fit window when it changes.
@@ -195,6 +201,10 @@ export function PowderWorkbench({
   const [focusPeakToken, setFocusPeakToken] = useState(0);
   // "Open this spot" from the Validation view's residual strip (display-unit x).
   const [focusPoint, setFocusPoint] = useState<{ x: number; token: number } | null>(null);
+  // The Validation view's "Open …" on a cause: the parameter group to bring into view (nothing is freed).
+  const [revealGroup, setRevealGroup] = useState<{ group: string; token: number } | null>(null);
+  // The Validation view's evidence sections the user opened, kept across a switch of view.
+  const [validationOpen, setValidationOpen] = useState<ReadonlySet<EvidenceSection>>(new Set());
   // Optional refinement window; null = fit the full pattern. Reset when the
   // observed pattern changes (see effect below).
   const [fitRange, setFitRange] = useState<FitRangeSelection | null>(null);
@@ -269,10 +279,7 @@ export function PowderWorkbench({
   const pBindings = session.powderBindings;
   // The occupancy restraints the site ties ask for, with every nuclear refinement
   // (the magnetic path takes none).
-  const restraintReq = useMemo(() => {
-    const restraints = powderRestraints([structure, ...session.extraPhases], session.siteTies, powderParams);
-    return restraints.length > 0 ? { restraints } : {};
-  }, [structure, session.extraPhases, session.siteTies, powderParams]);
+  const restraintReq = useMemo(() => restraintRequest(session), [session]);
   // A magnetic model on the session is part of the CALCULATED pattern, whether or
   // not its moments are refinable — the plot below draws nuclear + magnetic, so
   // every fit path has to score against that same model or the wR it reports
@@ -280,7 +287,7 @@ export function PowderWorkbench({
   // nuclear + magnetic co-refinement; without them ("Show on refinement pattern"
   // applies a model but no rows) the moments are held and the nuclear set refines
   // against nuclear + magnetic.
-  const magneticApplied = !!session.magnetic && session.magnetic.moments.length > 0;
+  const magneticApplied = magneticAppliedOn(session);
   // The applied magnetic model at the CURRENT row values — moments and k. The
   // session model changes only after a refinement, so a Reset or a typed value
   // would otherwise leave the satellite ticks, 3D arrows and mCIF at the last
@@ -298,7 +305,7 @@ export function PowderWorkbench({
     }
   }, [session.magnetic, powderParams, pBindings]);
   /** Moment rows are present, i.e. the moments themselves are being refined. */
-  const momentRowsFree = (): boolean => powderParams.some((p) => isMomentParameterKind(p.kind));
+  const momentRowsFree = (): boolean => momentRowsFreeOn(session);
 
   // Every phase's structure with the CURRENT parameter values applied (lattice,
   // positions, occupancies, ADPs) — the refined cell each phase's Bragg ticks,
@@ -309,21 +316,20 @@ export function PowderWorkbench({
   // leaves the refined structure (and what depends on it, such as the magnetic
   // step's ranked groups) as it was.
   const paramValuesKey = powderParams.map((p) => `${p.id}=${p.value}`).join(";");
-  const refinedPhases = useMemo(() => {
-    const values: Record<string, number> = {};
-    for (const p of powderParams) values[p.id] = p.value;
-    const multi = session.extraPhases.length > 0;
-    return [structure, ...session.extraPhases].map((ph) =>
-      applyParameters(ph, multi ? pBindings.filter((b) => b.targetId === ph.id) : pBindings, values).model,
-    );
+  const refinedPhases = useMemo(
+    () => refinedPhasesOf(session),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the values key stands for powderParams
-  }, [structure, session.extraPhases, paramValuesKey, pBindings]);
+    [structure, session.extraPhases, paramValuesKey, pBindings],
+  );
   const refinedStructure = refinedPhases[0]!;
+  // The B-at-0 rule: proposals for the B's the fit on the page left on their bound, and the fixes in force.
+  const zeroAdp = useMemo(() => zeroAdpOf({ session, result: powderResult }), [session, powderResult]);
 
   // The profile shape the magnetic component is synthesized with (the
   // background basis is the nuclear curve's business).
   const magneticProfile = useMemo(
-    () => ({ shape: session.powderProfile.shape, ...(session.powderProfile.eta !== undefined ? { eta: session.powderProfile.eta } : {}) }),
+    () => magneticProfileOf(session),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the shape and eta are all it reads
     [session.powderProfile.shape, session.powderProfile.eta],
   );
   const phaseList = useMemo(() => session.extraPhases.map((s) => ({ structure: s, id: s.id })), [session.extraPhases]);
@@ -331,24 +337,11 @@ export function PowderWorkbench({
   // NUCLEAR curves — every phase's profile, no magnetic term. The magnetic
   // page draws its candidate on top of these (nuclear + candidate), so an
   // already-applied model must not be baked in here.
-  const nuclearCurves = useMemo(() => {
-    // Clean, data-less workbench: nothing to plot (the empty-state renders instead).
-    if (pattern.points.length === 0) return { x: [], yObs: [], yCalc: [], yBackground: [], diff: [] };
-    // TOF patterns cannot be profile-fit by the minimal engine; show the observed
-    // data with GSAS-II's own calc/background as a faithful reference overlay.
-    if (powderIsTof && session.powderOverlay) {
-      const x = pattern.points.map((p) => p.x);
-      const yObs = pattern.points.map((p) => p.yObs);
-      const yCalc = session.powderOverlay.calc;
-      return { x, yObs, yCalc, yBackground: session.powderOverlay.background, diff: yObs.map((o, i) => o - (yCalc[i] ?? 0)) };
-    }
-    // Multi-phase: sum every phase's contribution (shared instrument profile).
-    if (session.extraPhases.length > 0) {
-      const phases = [{ structure, id: structure.id }, ...phaseList];
-      return multiPhaseCurves(phases, pattern, powderParams, pBindings, session.powderProfile);
-    }
-    return powderCurves(structure, pattern, powderParams, pBindings, session.powderProfile);
-  }, [structure, pattern, powderParams, pBindings, session.powderProfile, powderIsTof, session.powderOverlay, session.extraPhases, phaseList]);
+  // What the page plots and scores (powderPage.ts): the NUCLEAR curves (every
+  // phase's profile, no magnetic term: the magnetic page draws its candidate on
+  // top of these), and those plus the APPLIED magnetic model's contribution.
+  const pageCurves = useMemo(() => powderPageCurves(session), [session]);
+  const nuclearCurves = pageCurves.nuclear;
 
   // The MAGNETIC contribution of a model (satellites at G ± k, or the k = 0
   // intensity on the nuclear peaks) with the nuclear model at its current
@@ -367,23 +360,9 @@ export function PowderWorkbench({
     [structure, pattern, powderParams, pBindings, magneticProfile, phaseList],
   );
 
-  // What the refinement page plots and scores: nuclear, plus the APPLIED
-  // magnetic model's contribution when one is on the session.
-  const curves = useMemo(() => {
-    const mag = session.magnetic;
-    if (!mag || mag.moments.length === 0 || pattern.points.length === 0 || (powderIsTof && session.powderOverlay)) return nuclearCurves;
-    // The applied model's moments are driven by its moment rows in the session,
-    // so here the full parameter set (moment rows included) is what applies.
-    const yMagnetic = magneticComponentCurve(structure, mag, pattern, powderParams, pBindings, magneticProfile, phaseList);
-    const yCalc = nuclearCurves.yCalc.map((v, i) => v + (yMagnetic[i] ?? 0));
-    return { ...nuclearCurves, yCalc, diff: nuclearCurves.yObs.map((o, i) => o - (yCalc[i] ?? 0)) };
-  }, [nuclearCurves, session.magnetic, structure, pattern, powderParams, pBindings, magneticProfile, phaseList, powderIsTof, session.powderOverlay]);
+  const curves = pageCurves.curves;
   // Full pattern extent; the plot handles default to this until the user drags.
-  const patternExtent = useMemo<FitRangeSelection>(() => {
-    const xs = curves.x;
-    if (xs.length === 0) return { min: 0, max: 0 };
-    return { min: Math.min(...xs), max: Math.max(...xs) };
-  }, [curves.x]);
+  const patternExtent = useMemo<FitRangeSelection>(() => extentOf(curves.x), [curves.x]);
   const effectiveFitRange = fitRange ?? patternExtent;
   const fitRangeActive =
     fitRange !== null && (fitRange.min > patternExtent.min || fitRange.max < patternExtent.max);
@@ -394,7 +373,8 @@ export function PowderWorkbench({
   // The refined TOF calibration too: a d read off the plot sits where the refinement puts the reflections.
   const { difC, difA, difB } = tofCalibrationOf(powderParams);
   const axisCtx = useMemo(
-    () => axisContext(pattern, instrumentLoaded ? instrument : undefined, zeroShift, { ...(difC !== undefined ? { difC } : {}), ...(difA !== undefined ? { difA } : {}), ...(difB !== undefined ? { difB } : {}) }),
+    () => pageAxis(session, instrumentLoaded ? instrument : undefined),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- of the session it reads the pattern, the zero and the TOF constants
     [pattern, instrument, instrumentLoaded, zeroShift, difC, difA, difB],
   );
 
@@ -403,29 +383,13 @@ export function PowderWorkbench({
     () => siteGroups(structure.sites, true).some((g) => g.members.length > 1),
     [structure],
   );
+  // Every phase's shared sites, for their totals (one per site key), and a last occupancy gone outside [0, 1].
+  const sharedSiteList = useMemo(() => {
+    const seen = new Set<string>();
+    return [session.structure, ...session.extraPhases].flatMap((ph) => sharedSites(ph.sites)).filter((site) => !seen.has(site.key) && (seen.add(site.key), true));
+  }, [session.structure, session.extraPhases]);
+  const occupancyWarnings = useMemo(() => siteSumRangeWarnings(powderParams), [powderParams]);
   const displayUnits = useMemo(() => availableDisplayUnits(axisCtx), [axisCtx]);
-  // Candidate magnetic peaks = positive residual the nuclear model can't explain,
-  // as d-spacings, ready for the k-search (so the user needn't read them off the
-  // plot). Requires a d-convertible axis; assumes the nuclear fit is refined.
-  const residualPeakD = useMemo<ExtraPeak[]>(() => {
-    if (!displayUnits.includes("dSpacing")) return [];
-    const dArr = pattern.xUnit === "dSpacing"
-      ? curves.x
-      : convertAxisArray(curves.x, pattern.xUnit, "dSpacing", axisCtx);
-    // Per-point σ so low-precision regions don't spray noise "peaks" into the
-    // k-search once the nuclear fit has converged — but only when the data
-    // actually carries uncertainties. Fabricating √yObs is valid for raw counts
-    // only; on a normalized pattern (max ≈ 1) it exceeds any possible residual
-    // and would silently disable detection altogether. The base cut is a
-    // permissive 3σ: the k-panel's own criteria (user-adjustable) decide which
-    // detections feed the search.
-    const hasSigma = pattern.points.length > 0 && pattern.points.every((p) => p.sigma !== undefined);
-    const pointSigma = hasSigma ? pattern.points.map((p) => p.sigma!) : undefined;
-    return detectExtraPeaks(dArr, curves.yObs, curves.yCalc, {
-      ...(pointSigma ? { pointSigma, minSignificance: 3 } : {}),
-      limit: 24,
-    });
-  }, [curves, pattern.points, pattern.xUnit, axisCtx, displayUnits]);
   const effectiveUnit: DisplayUnit = displayUnit ?? pattern.xUnit;
   const displayCurves = useMemo(
     () => (effectiveUnit === pattern.xUnit ? curves : { ...curves, x: convertAxisArray(curves.x, pattern.xUnit, effectiveUnit, axisCtx) }),
@@ -448,6 +412,9 @@ export function PowderWorkbench({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- tick-gated ref read
   }, [displayCurves, busy, liveTick]);
   const displayXLabel = axisLabel(effectiveUnit);
+  // The plot keeps its zoom until the dataset or the x unit changes — not when a
+  // refinement moves a converted axis (a refined zero or difC in a d display).
+  const plotViewKey = useMemo(() => ({ pattern, unit: effectiveUnit }), [pattern, effectiveUnit]);
   // For the Validation view: native x → display x, every point's d-spacing
   // (when the axis converts), and the points the fit uses — the same selection
   // as `weightedR` below (masked plateau, TOF calc > 0, the fit range).
@@ -537,43 +504,13 @@ export function PowderWorkbench({
   const removeManualPeak = useCallback((d: number): void => {
     setManualPeakD((list) => list.filter((v) => Math.abs(v - d) > 1e-9));
   }, []);
-  const manualResidualPeaks = useMemo<ExtraPeak[]>(() => {
-    if (manualPeakD.length === 0 || !displayUnits.includes("dSpacing")) return [];
-    const dArr = pattern.xUnit === "dSpacing"
-      ? curves.x
-      : convertAxisArray(curves.x, pattern.xUnit, "dSpacing", axisCtx);
-    const hasSigma = pattern.points.length > 0 && pattern.points.every((p) => p.sigma !== undefined);
-    return manualPeakD.map((d) => {
-      let bi = 0;
-      let bestErr = Infinity;
-      for (let i = 0; i < dArr.length; i++) {
-        const e = Math.abs(dArr[i]! - d);
-        if (e < bestErr) { bestErr = e; bi = i; }
-      }
-      const height = (curves.yObs[bi] ?? 0) - (curves.yCalc[bi] ?? 0);
-      const si = hasSigma ? pattern.points[bi]!.sigma! : undefined;
-      return { d, height, ...(si !== undefined && si > 0 ? { significance: height / si } : {}) };
-    });
-  }, [manualPeakD, curves, pattern.points, pattern.xUnit, axisCtx, displayUnits]);
-
-  // Detected + manual residual peaks annotated against every phase's nuclear
-  // reflections (refined cells, from the tick rows): a residual apex on a
-  // nuclear position is usually profile misfit (e.g. an impurity shoulder),
-  // not magnetic — the k-panel shows the flag and excludes such peaks from the
-  // search by default. Manual picks are flagged so the panel can mark and
-  // remove them (and include them regardless of the criteria).
-  const residualPeaks = useMemo<ResidualPeak[]>(() => {
-    // A manual pick right on a detected apex is the same peak — don't list twice.
-    const manual = manualResidualPeaks.filter((m) => !residualPeakD.some((p) => Math.abs(p.d - m.d) < 0.01));
-    if (residualPeakD.length + manual.length === 0) return [];
-    const nuclearRefs = phaseTicks
-      .filter((p) => p.kind === "nuclear")
-      .flatMap((p) => p.ticks.map((t) => ({ d: t.d, hkl: t.hkl, phaseLabel: p.label })));
-    return [
-      ...annotateExtraPeaks(residualPeakD, nuclearRefs),
-      ...annotateExtraPeaks(manual, nuclearRefs).map((p) => ({ ...p, manual: true as const })),
-    ];
-  }, [residualPeakD, manualResidualPeaks, phaseTicks]);
+  // Detected + manual residual peaks, each annotated with any nuclear reflection
+  // of any phase beside it (powderPage.ts): the k-panel flags those and leaves
+  // them out of the search by default; manual picks are included regardless.
+  const residualPeaks = useMemo(
+    () => residualPeaksOf(session, instrumentLoaded ? instrument : undefined, manualPeakD),
+    [session, instrument, instrumentLoaded, manualPeakD],
+  );
 
   // Refined moment entries (per site / split orbit) for the 3D structure view.
   const sessionMoments = useMemo(
@@ -582,7 +519,7 @@ export function PowderWorkbench({
   );
 
   function patchPowder(id: string, patch: Partial<RefinementParameter>): void {
-    setSession((s) => ({ ...s, powderParams: s.powderParams.map((p) => (p.id === id ? { ...p, ...patch } : p)) }));
+    editRows((s) => withZeroAdpPruned(withParameter(s, id, patch)));
   }
 
   /** Hand the magnetic model + moment parameters to the refinement page: add the
@@ -593,13 +530,7 @@ export function PowderWorkbench({
     momentParams: readonly RefinementParameter[],
     momentBindings: readonly ParameterBinding[],
   ): void {
-    setSession((s) => ({
-      ...s,
-      magnetic,
-      powderParams: [...s.powderParams.filter((p) => !isMagneticModelParameterKind(p.kind)), ...momentParams.map((p) => ({ ...p, fixed: !!p.expression }))],
-      powderBindings: [...s.powderBindings.filter((b) => !isMagneticModelParameterKind(b.kind)), ...momentBindings],
-    }));
-    setPowderResult(null);
+    change((s) => withMagneticModelRows(s, magnetic, momentParams, momentBindings));
     onStep(0);
     const nMoment = momentParams.filter((p) => isMomentParameterKind(p.kind)).length;
     const nK = momentParams.filter((p) => p.kind === "propagationK" && !p.expression).length;
@@ -608,75 +539,34 @@ export function PowderWorkbench({
     stepHistory?.requestStep("magnetic", "Magnetic model added to the refinement");
   }
 
-  const profileReq = (): { shape: PeakShape; eta?: number; lorentz?: boolean; backgroundType?: BackgroundType } => ({
-    shape: session.powderProfile.shape,
-    ...(session.powderProfile.eta !== undefined ? { eta: session.powderProfile.eta } : {}),
-    ...(session.powderProfile.lorentz !== undefined ? { lorentz: session.powderProfile.lorentz } : {}),
-    ...(session.powderProfile.backgroundType !== undefined ? { backgroundType: session.powderProfile.backgroundType } : {}),
+  /** The page as its fits see it (powderPage.ts): the session, the instrument its rows are built with, the active window, the last result. */
+  const pageModel = (): PowderPageModel => ({
+    session,
+    instrument: specInstrument,
+    fitRange: fitRangeActive ? { min: fitRange!.min, max: fitRange!.max } : null,
+    result: powderResult,
   });
+  const specInstrument = specInstrumentOf(page);
 
   /** Change the smooth-background basis (reinterprets the same coefficients). */
   function setBackgroundType(backgroundType: BackgroundType): void {
-    setSession((s) => {
-      // Interpolation coefficients are background *heights* at anchor points, so
-      // switching to/from a polynomial basis reseeds them: flatten to the current
-      // constant level for interpolation, or c0 + zeros for a polynomial.
-      const isInterp = backgroundType === "linInterpolate" || backgroundType === "logInterpolate";
-      const wasInterp = s.powderProfile.backgroundType === "linInterpolate" || s.powderProfile.backgroundType === "logInterpolate";
-      if (isInterp === wasInterp) {
-        return { ...s, powderProfile: { ...s.powderProfile, backgroundType } };
-      }
-      const level = s.powderParams.find((p) => p.kind === "background")?.value ?? 0;
-      let bIdx = 0;
-      const powderParams = s.powderParams.map((p) => {
-        if (p.kind !== "background") return p;
-        const v = isInterp ? level : bIdx === 0 ? level : 0;
-        bIdx++;
-        return { ...p, value: v, initialValue: v };
-      });
-      return { ...s, powderParams, powderProfile: { ...s.powderProfile, backgroundType } };
-    });
-    setPowderResult(null);
+    change((s) => withBackgroundType(s, backgroundType));
   }
 
   /** Change the number of background coefficients (rebuilds the spec, keeping
    *  every other parameter's value/free state and the chosen background type). */
   function setBackgroundTerms(n: number): void {
-    const count = Math.max(0, Math.min(24, Math.trunc(n)));
-    setSession((s) => {
-      const spec = buildSpecFor(s.structure, s.extraPhases, s.pattern, instrumentLoaded ? instrument : DEFAULT_INSTRUMENT, s.powderProfile.lorentz ?? true, count, s.siteTies, s.mustrain ?? "isotropic", s.corrections);
-      return {
-        ...s,
-        backgroundTerms: count,
-        powderParams: keptRows(spec.params, s.powderParams),
-        powderBindings: keptBindings(spec.bindings, s.powderBindings),
-        powderProfile: { ...spec.profile, ...(s.powderProfile.backgroundType ? { backgroundType: s.powderProfile.backgroundType } : {}) },
-      };
-    });
-    setPowderResult(null);
+    change((s, inst) => withBackgroundTerms(s, n, inst));
   }
 
   /**
    * Antisite disorder between two sites: each element added on the other site
-   * at occupancy 0, sharing its host's position and ADP, with Σ occ = 1 and
-   * hold composition on. Rebuilds the spec; every existing row keeps its value
+   * at occupancy 0, sharing its host's position and ADP (each site's
+   * occupancies summing to its total), with hold composition on. Rebuilds the spec; every existing row keeps its value
    * and state, the new occupancy rows come in fixed.
    */
   function addAntisite(siteA: string, siteB: string): void {
-    setSession((s) => {
-      const structure = withAntisite(s.structure, siteA, siteB);
-      const ties = { ...s.siteTies, occupancyToUnity: true, composition: true };
-      const spec = buildSpecFor(structure, s.extraPhases, s.pattern, instrumentLoaded ? instrument : DEFAULT_INSTRUMENT, s.powderProfile.lorentz ?? true, s.backgroundTerms, ties, s.mustrain ?? "isotropic", s.corrections);
-      return {
-        ...s,
-        structure,
-        siteTies: ties,
-        powderParams: keptRows(spec.params, s.powderParams),
-        powderBindings: keptBindings(spec.bindings, s.powderBindings),
-        powderProfile: { ...spec.profile, ...(s.powderProfile.backgroundType ? { backgroundType: s.powderProfile.backgroundType } : {}) },
-      };
-    });
-    setPowderResult(null);
+    change((s, inst) => withAntisitePair(s, siteA, siteB, inst));
     stepHistory?.requestStep("settings", `Antisite ${siteA} ⇄ ${siteB}`);
   }
 
@@ -686,28 +576,37 @@ export function PowderWorkbench({
    * release such ties (the rows come back fixed at their value).
    */
   function setParameterTies(update: EqualTieUpdate): void {
-    setSession((s) => ({ ...s, powderParams: withEqualTies(s.powderParams, update) }));
-    setPowderResult(null);
+    change((s) => withParameterTies(s, update));
     const label = update.equal
       ? `Tie ${update.equal.slice(1).join(", ")} = ${update.equal[0]}`
       : `Release ${(update.release ?? []).join(", ")}`;
     stepHistory?.requestStep("settings", label);
   }
 
+  /**
+   * The B-at-0 rule (core/diagnostics/zeroAdp.ts): apply the proposals for
+   * these rows — rule A's tie, rule B's held value — as one History step, or
+   * release a fix (the row free again). Never applied without the notice's
+   * click or the Agent's approved card.
+   */
+  function applyZeroAdp(choices: readonly ZeroAdpChoice[]): void {
+    const chosen = choices.flatMap((c) => {
+      const p = zeroAdp.proposals.find((z) => z.parameterId === c.parameterId);
+      return p && p.options[c.option] ? [{ p, i: c.option, c }] : [];
+    });
+    if (chosen.length === 0) return;
+    change((s) => chosen.reduce((acc, { p, i, c }) => withZeroAdpApplied(acc, p, i, { ...(c.chosenBy ? { chosenBy: c.chosenBy } : {}), ...(c.reason ? { reason: c.reason } : {}) }), s));
+    stepHistory?.requestStep("settings", chosen.map(({ p, i, c }) => zeroAdpStepLabel(p, i, c.chosenBy)).join("; "));
+    setMessage(`${chosen.map(({ p, i }) => `${p.atom}: ${p.options[i]!.rule === "A" ? `tied to ${p.options[i]!.leader}` : "held at the starting structure's value"}`).join("; ")} (the B-at-0 rule). Refine next; Release (or ⌘Z) undoes it.`);
+  }
+  function releaseZeroAdp(id: string): void {
+    change((s) => withZeroAdpReleased(s, id));
+    stepHistory?.requestStep("settings", `B at 0: released ${id}`);
+  }
+
   /** Toggle tying position/ADP across shared (disordered) sites; rebuilds the spec. */
   function setSiteTies(update: Partial<SiteTies>): void {
-    setSession((s) => {
-      const ties = { ...s.siteTies, ...update };
-      const spec = buildSpecFor(s.structure, s.extraPhases, s.pattern, instrumentLoaded ? instrument : DEFAULT_INSTRUMENT, s.powderProfile.lorentz ?? true, s.backgroundTerms, ties, s.mustrain ?? "isotropic", s.corrections);
-      return {
-        ...s,
-        siteTies: ties,
-        powderParams: keptRows(spec.params, s.powderParams),
-        powderBindings: keptBindings(spec.bindings, s.powderBindings),
-        powderProfile: { ...spec.profile, ...(s.powderProfile.backgroundType ? { backgroundType: s.powderProfile.backgroundType } : {}) },
-      };
-    });
-    setPowderResult(null);
+    change((s, inst) => withSiteTies(s, update, inst));
   }
 
   /**
@@ -717,17 +616,7 @@ export function PowderWorkbench({
    * strain and are fixed on load (free the Microstructure group to refine them).
    */
   function setMustrain(model: MustrainModel): void {
-    setSession((s) => {
-      const spec = buildSpecFor(s.structure, s.extraPhases, s.pattern, instrumentLoaded ? instrument : DEFAULT_INSTRUMENT, s.powderProfile.lorentz ?? true, s.backgroundTerms, s.siteTies, model, s.corrections);
-      return {
-        ...s,
-        mustrain: model,
-        powderParams: keptRows(spec.params, s.powderParams),
-        powderBindings: keptBindings(spec.bindings, s.powderBindings),
-        powderProfile: { ...spec.profile, ...(s.powderProfile.backgroundType ? { backgroundType: s.powderProfile.backgroundType } : {}) },
-      };
-    });
-    setPowderResult(null);
+    change((s, inst) => withMustrain(s, model, inst));
     setMessage(model === "isotropic"
       ? "Microstrain: isotropic (Lorentzian Y). Refine the profile to fit; the microstrain readout shows its value."
       : model === "uniaxial"
@@ -742,33 +631,7 @@ export function PowderWorkbench({
    * their seeds, every other row keeps its value and state.
    */
   function setCorrections(update: CorrectionsUpdate): void {
-    setSession((s) => {
-      const was = s.corrections ?? {};
-      const asymmetry = update.asymmetry ?? was.asymmetry ?? false;
-      const preferredOrientation = update.preferredOrientation === undefined ? was.preferredOrientation : update.preferredOrientation ?? undefined;
-      const peak = update.peak ?? was.peak ?? [];
-      const corrections: SampleCorrections = {
-        ...(asymmetry ? { asymmetry: true } : {}),
-        ...(preferredOrientation ? { preferredOrientation } : {}),
-        ...(peak.length > 0 ? { peak } : {}),
-      };
-      const spec = buildSpecFor(s.structure, s.extraPhases, s.pattern, instrumentLoaded ? instrument : DEFAULT_INSTRUMENT, s.powderProfile.lorentz ?? true, s.backgroundTerms, s.siteTies, s.mustrain ?? "isotropic", corrections);
-      const previous = new Map(s.powderParams.map((p) => [p.id, p]));
-      // A changed preferred-orientation axis restarts its ratio at 1.
-      const axisChanged = update.preferredOrientation !== undefined;
-      return {
-        ...s,
-        corrections,
-        powderParams: withValidUserTies(withMagneticRows(spec.params.map((p) => {
-          const old = previous.get(p.id);
-          if (!old || (axisChanged && p.kind === "poRatio")) return { ...p, fixed: true };
-          return keptRow(p, old);
-        }), s.powderParams)),
-        powderBindings: keptBindings(spec.bindings, s.powderBindings),
-        powderProfile: { ...spec.profile, ...(s.powderProfile.backgroundType ? { backgroundType: s.powderProfile.backgroundType } : {}) },
-      };
-    });
-    setPowderResult(null);
+    change((s, inst) => withCorrections(s, update, inst));
     stepHistory?.requestStep("settings", "Corrections changed");
   }
 
@@ -781,34 +644,7 @@ export function PowderWorkbench({
    * over unchanged; only the ADP rows are reseeded.
    */
   function setAnisotropicAdp(on: boolean): void {
-    setSession((s) => {
-      // Bake the current refined B_iso/U into the base structure's ADPs so the
-      // conversion seeds from the converged values (positions/cell stay in the
-      // preserved parameters, so they are not double-applied here).
-      const values: Record<string, number> = {};
-      for (const p of s.powderParams) values[p.id] = p.value;
-      const refined = applyParameters(s.structure, s.powderBindings, values).model;
-      const refinedAdp = new Map(refined.sites.map((rs) => [rs.label, rs.adp]));
-      const seeded = { ...s.structure, sites: s.structure.sites.map((site) => ({ ...site, adp: refinedAdp.get(site.label) ?? site.adp })) };
-      const promoted = withAdpModel(seeded, on ? "anisotropic" : "isotropic");
-      const spec = buildSpecFor(promoted, s.extraPhases, s.pattern, instrumentLoaded ? instrument : DEFAULT_INSTRUMENT, s.powderProfile.lorentz ?? true, s.backgroundTerms, s.siteTies, s.mustrain ?? "isotropic", s.corrections);
-      const previous = new Map(s.powderParams.map((p) => [p.id, p]));
-      return {
-        ...s,
-        structure: promoted,
-        anisotropicAdp: on,
-        powderParams: withValidUserTies(withMagneticRows(spec.params.map((p) => {
-          // ADP rows are freshly seeded by the rebuild (their ties with them);
-          // everything else keeps its current (possibly refined) value and
-          // free/fixed state.
-          if (p.kind === "bIso" || p.kind === "uAniso") return p;
-          return keptRow(p, previous.get(p.id));
-        }), s.powderParams)),
-        powderBindings: keptBindings(spec.bindings, s.powderBindings),
-        powderProfile: { ...spec.profile, ...(s.powderProfile.backgroundType ? { backgroundType: s.powderProfile.backgroundType } : {}) },
-      };
-    });
-    setPowderResult(null);
+    change((s, inst) => withAnisotropicAdp(s, on, inst));
     setMessage(on
       ? "Switched to anisotropic ADPs — each site's U tensor (symmetry-allowed modes) seeded from its B_iso. Free the ADP rows to refine them."
       : "Switched to isotropic ADPs (B_iso).");
@@ -817,21 +653,11 @@ export function PowderWorkbench({
   /** Reset every powder parameter to its initial value and clear the result. */
   function resetPowderParams(ids?: readonly string[]): void {
     const only = ids ? new Set(ids) : null;
-    setSession((s) => ({
-      ...s,
-      powderParams: s.powderParams.map((p) => {
-        if (only && !only.has(p.id)) return p;
-        const { esd: _esd, ...rest } = p;
-        return { ...rest, value: p.initialValue };
-      }),
-    }));
-    setPowderResult(null);
+    change((s) => withReset(s, ids));
     setMessage(only ? `Reset ${[...only].join(", ")} to the starting value${only.size === 1 ? "" : "s"}.` : "Parameters reset to initial values.");
     stepHistory?.requestStep("edit", only ? `Reset ${[...only].join(", ")}` : "Reset to starting values");
   }
 
-  /** Flat co-refinement of the currently-freed parameters. Resolves to why it
-   *  did not finish (cancelled, failed), or null when it did. */
   /**
    * The Refine button's fit of the current free set: with an applied magnetic
    * model, nuclear + magnetic on the shared scale; otherwise the nuclear
@@ -839,24 +665,11 @@ export function PowderWorkbench({
    * caller does, or (the Agent's correlation probe) only reads it.
    */
   function powderFit(options: Partial<RefinementOptions>, gpu = false, onProgress?: PowderProgress): Promise<RefinementResult> {
-    const window = fitRangeActive ? { fitRange: { min: fitRange!.min, max: fitRange!.max } } : {};
-    if (magneticApplied) {
-      return client.refineMagneticPowderParallel({
-        structure, magnetic: session.magnetic!, pattern, parameters: [...powderParams], bindings: [...pBindings],
-        ...(session.extraPhases.length > 0 ? { extraPhases: session.extraPhases.map((s) => ({ structure: s, id: s.id })) } : {}),
-        ...profileReq(),
-        ...window,
-      }, options);
-    }
-    return client.refinePowderParallel({
-      structure, pattern, parameters: powderParams, bindings: pBindings, ...profileReq(), ...restraintReq,
-      ...(session.extraPhases.length > 0 ? { extraPhases: session.extraPhases } : {}),
-      ...window,
-      options,
-      useGpu: gpu,
-    }, onProgress);
+    return powderFitOn(client, pageModel(), options, gpu, onProgress);
   }
 
+  /** Flat co-refinement of the currently-freed parameters. Resolves to why it
+   *  did not finish (cancelled, failed), or null when it did. */
   async function runPowder(): Promise<string | null> {
     // The starting point (freed parameters, edited values, settings) is a step
     // of its own, so going back lands before this refinement, not after it.
@@ -873,13 +686,7 @@ export function PowderWorkbench({
         await new Promise((r) => setTimeout(r, 30)); // let the busy state paint
         const coRefined = momentRowsFree();
         const result = await powderFit({ maxIterations: 20 });
-        const refinedMag = applyMagneticMoments(session.magnetic!, pBindings, result.parameters);
-        setSession((s) => ({
-          ...s,
-          magnetic: refinedMag,
-          powderParams: s.powderParams.map((p) => ({ ...p, value: result.parameters[p.id] ?? p.value })),
-        }));
-        setPowderResult(result);
+        setPage((p) => withFit(p, result));
         setMessage(
           `${coRefined ? "Nuclear + magnetic" : "Nuclear (magnetic model held)"} refinement ${result.status}: ` +
           `wR = ${(100 * (result.agreement.rWeighted ?? 0)).toFixed(2)}%.`,
@@ -897,11 +704,7 @@ export function PowderWorkbench({
       // Parallel-Jacobian path for the flat single-phase case; the client
       // falls back to the single-worker path for multi-phase requests.
       const result = await powderFit({ maxIterations: 20 }, useGpu, onPowderProgress);
-      setSession((s) => ({
-        ...s,
-        powderParams: s.powderParams.map((p) => ({ ...p, value: result.parameters[p.id] ?? p.value })),
-      }));
-      setPowderResult(result);
+      setPage((p) => withFit(p, result));
       setMessage(`Powder refinement ${result.status}: wR = ${(100 * (result.agreement.rWeighted ?? 0)).toFixed(2)}%${gpuActive ? " · GPU |F|²" : ""}.`);
       stepHistory?.requestStep("refine", "Refine");
       return null;
@@ -940,28 +743,8 @@ export function PowderWorkbench({
           if (step % 5 === 0 || step === total) setSampleProgress({ step, total });
         },
       };
-      let rerun: (options: SampleOptions) => Promise<SampleResult>;
-      if (prior) {
-        rerun = prior.rerun;
-      } else if (magneticApplied) {
-        const spec = {
-          structure, magnetic: session.magnetic!, pattern,
-          parameters: [...powderParams], bindings: [...pBindings],
-          ...(session.extraPhases.length > 0 ? { extraPhases: session.extraPhases.map((s) => ({ structure: s, id: s.id })) } : {}),
-          ...profileReq(),
-          ...(fitRangeActive ? { fitRange: { min: fitRange!.min, max: fitRange!.max } } : {}),
-        };
-        const esd = options.linearizedEsd;
-        rerun = (o) => client.sampleMagneticPowderPosterior(spec, { ...o, ...(esd ? { linearizedEsd: esd } : {}) });
-      } else {
-        const req = {
-          structure, pattern, parameters: [...powderParams], bindings: pBindings, ...profileReq(), ...restraintReq,
-          ...(session.extraPhases.length > 0 ? { extraPhases: session.extraPhases } : {}),
-          ...(fitRangeActive ? { fitRange: { min: fitRange!.min, max: fitRange!.max } } : {}),
-        };
-        const esd = options.linearizedEsd;
-        rerun = (o) => client.samplePowderPosterior(req, { ...o, ...(esd ? { linearizedEsd: esd } : {}) });
-      }
+      // The page's problem as it stands: the window, every phase, the restraints, an applied magnetic model (powderPage.ts).
+      const rerun = prior ? prior.rerun : posteriorRun(client, pageModel());
       const res = await rerun(options);
       setSample({ result: res, rerun });
       setMessage(
@@ -986,8 +769,9 @@ export function PowderWorkbench({
    *  2. Multi-start: one baseline fit plus perturbed restarts, keeping the
    *     lowest-χ² result.
    * With an applied magnetic model the search runs over the moment subspace
-   * instead (see the magnetic branch below), so the Le Bail stage is nuclear /
-   * multi-phase only. Resolves to why it did not finish, or null when it did.
+   * instead, so the Le Bail stage is nuclear only. The fit itself is
+   * thoroughFit (powderPage.ts), the Agent's headless page's too. Resolves to
+   * why it did not finish, or null when it did.
    */
   async function runThorough(): Promise<string | null> {
     // One engine, two faces: with no fit yet it's a "Prefit" (broad cold-start
@@ -996,100 +780,17 @@ export function PowderWorkbench({
     stepHistory?.recordNow("edit");
     setBusy(true);
     try {
-      // Magnetic branch — moment-subspace multi-start (GAP #1): freeze the
-      // nuclear scaffold, search the moment modes from several seeded starts,
-      // then one joint LM; the global ±m sign is canonicalized and the
-      // data-limited (flat) moment directions are reported. Prefit casts a wide
-      // net (more restarts); Escape is a lighter nudge around a converged fit.
-      if (magneticApplied) {
-        await new Promise((r) => setTimeout(r, 30)); // let the busy state paint
-        const msOptions = mode === "prefit" ? { restarts: 12, minKick: momentKickFloor(powderParams) } : { restarts: 6, escapeSigma: 3 };
-        const ms = await client.refineMagneticPowderMultiStart({
-          structure, magnetic: session.magnetic!, pattern, parameters: [...powderParams], bindings: [...pBindings],
-          ...(session.extraPhases.length > 0 ? { extraPhases: session.extraPhases.map((s) => ({ structure: s, id: s.id })) } : {}),
-          ...profileReq(),
-          ...(fitRangeActive ? { fitRange: { min: fitRange!.min, max: fitRange!.max } } : {}),
-        }, msOptions, { maxIterations: 20 }, onPowderProgress);
-        const refinedMag = applyMagneticMoments(session.magnetic!, pBindings, ms.final.parameters);
-        setSession((s) => ({
-          ...s,
-          magnetic: refinedMag,
-          powderParams: s.powderParams.map((p) => ({ ...p, value: ms.final.parameters[p.id] ?? p.value })),
-        }));
-        setPowderResult(ms.final);
-        const wr = (100 * (ms.final.agreement.rWeighted ?? 0)).toFixed(2);
-        const degNote = ms.degeneracies.length > 0
-          ? ` Data-limited: ${ms.degeneracies[0]!.message}`
-          : "";
-        // restartsRun 0 = no free moment row to perturb (a previewed model): the
-        // engine went straight to the joint solve, so don't report a search.
-        const bestNote = ms.restartsRun === 0
-          ? "no free moment row to search — joint solve with the magnetic model held"
-          : ms.improved
-          ? `found a lower minimum (start ${ms.bestStartIndex} of ${ms.restartsRun})`
-          : `baseline held over ${ms.restartsRun + 1} starts`;
-        setMessage(`Magnetic ${mode === "prefit" ? "prefit" : "escape"}: ${bestNote} — wR ${wr}%.${degNote}`);
-        stepHistory?.requestStep("refine", mode === "prefit" ? "Magnetic prefit" : "Magnetic escape minimum");
-        return null;
-      }
-      // Stage 1 — Le Bail cell pre-fit (prefit only; single-phase, when a cell
-      // parameter is free). A TOF pattern also needs the diffractometer
-      // calibration (difC/A/B, Zero) to place reflections on the time axis;
-      // recover it from the current parameters and pass it through.
-      let workingParams = powderParams;
-      const isCell = (kind: string): boolean => kind === "cellLength" || kind === "cellAngle";
-      const applied = applyParameters(structure, pBindings, Object.fromEntries(powderParams.map((p) => [p.id, p.value])));
-      const tofCal = powderIsTof && applied.tof ? { ...applied.tof, zero: applied.zeroShift } : undefined;
-      const leBailReady = mode === "prefit"
-        && session.extraPhases.length === 0
-        && powderParams.some((p) => isCell(p.kind) && !p.fixed && !p.expression)
-        && (!powderIsTof || tofCal !== undefined);
-      if (leBailReady) {
-        setMessage("Le Bail pre-fit: refining the cell against peak positions (no structure)…");
+      // With a magnetic model applied the search runs over the moment subspace
+      // (GAP #1): the nuclear scaffold frozen, the moment modes searched from
+      // several seeded starts, then one joint LM.
+      if (magneticApplied) await new Promise((r) => setTimeout(r, 30)); // let the busy state paint
+      const out = await thoroughFit(client, pageModel(), onPowderProgress, async (stage) => {
+        setMessage(stage);
         await new Promise((r) => setTimeout(r, 0)); // let the message paint
-        const pre = await client.leBailPrefit({
-          structure, pattern,
-          cellParameters: powderParams.filter((p) => isCell(p.kind)),
-          cellBindings: pBindings.filter((b) => isCell(b.kind)),
-          shape: session.powderProfile.shape,
-          ...(session.powderProfile.eta !== undefined ? { eta: session.powderProfile.eta } : {}),
-          ...(fitRangeActive ? { fitRange: { min: fitRange!.min, max: fitRange!.max } } : {}),
-          ...(tofCal ? { tof: tofCal } : {}),
-        });
-        if (pre.refined) {
-          // The Le Bail fit refines its own zero on a 2θ pattern, so its cell
-          // is free of the zero error: a free zero starts at the same value.
-          workingParams = powderParams.map((p) => (pre.cellValues[p.id] !== undefined
-            ? { ...p, value: pre.cellValues[p.id]! }
-            : p.kind === "zeroShift" && pre.zero !== undefined && !p.fixed && !p.expression ? { ...p, value: pre.zero } : p));
-        }
-      }
-      // Stage 2 — multi-start from the (cell-seeded) parameters. Prefit casts a
-      // wide net from a cold start (many restarts, default ~4σ kick); Escape is a
-      // light nudge around an already-refined fit (few restarts, tight ~1.5σ kick).
-      const msOptions = mode === "prefit" ? { restarts: 8 } : { restarts: 3, escapeSigma: 1.5 };
-      const ms = await client.refinePowderMultiStart({
-        structure, pattern, parameters: workingParams, bindings: pBindings, ...profileReq(), ...restraintReq,
-        ...(session.extraPhases.length > 0 ? { extraPhases: session.extraPhases } : {}),
-        ...(fitRangeActive ? { fitRange: { min: fitRange!.min, max: fitRange!.max } } : {}),
-        options: { maxIterations: 20 },
-      }, msOptions, onPowderProgress);
-      setSession((s) => ({
-        ...s,
-        powderParams: s.powderParams.map((p) => ({ ...p, value: ms.final.parameters[p.id] ?? p.value })),
-      }));
-      setPowderResult(ms.final);
-      const wr = (100 * (ms.final.agreement.rWeighted ?? 0)).toFixed(2);
-      if (mode === "prefit") {
-        setMessage(ms.improved
-          ? `Prefit found a lower minimum (restart ${ms.bestStartIndex} of ${ms.restartsRun}) — wR ${wr}%, best of ${ms.restartsRun + 1} starts. Refine to polish.`
-          : `Prefit: the starting model was already best of ${ms.restartsRun + 1} starts — wR ${wr}%. Refine to polish.`);
-      } else {
-        setMessage(ms.improved
-          ? `Escaped a local minimum (restart ${ms.bestStartIndex} of ${ms.restartsRun}) — wR ${wr}%, best of ${ms.restartsRun + 1} starts.`
-          : `Already at the best minimum — the baseline beat all ${ms.restartsRun + 1} starts, wR ${wr}%.`);
-      }
-      stepHistory?.requestStep("refine", mode === "prefit" ? "Prefit" : "Escape minimum");
+      });
+      setPage((p) => withFit(p, out.result));
+      setMessage(out.message);
+      stepHistory?.requestStep("refine", out.magnetic ? (mode === "prefit" ? "Magnetic prefit" : "Magnetic escape minimum") : mode === "prefit" ? "Prefit" : "Escape minimum");
       return null;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -1108,25 +809,10 @@ export function PowderWorkbench({
   }
 
   // The true weighted R_wp with the engine's definition and point selection
-  // (1/σ² weights, excluded-sentinel plateau, active fit range; for a TOF
-  // overlay only where the reference calc > 0), so it matches the refinement
-  // result at convergence and stays live as parameters are edited.
-  const weightedR = (c: { x: number[]; yObs: number[]; yCalc: number[] }): number => {
-    const excluded = excludedPointMask(c.yObs);
-    let num = 0, den = 0;
-    for (let i = 0; i < c.yObs.length; i++) {
-      const calc = c.yCalc[i] ?? 0;
-      if (excluded[i]) continue;
-      if (powderIsTof && calc <= 0) continue;
-      if (fitRangeActive && (c.x[i]! < fitRange!.min || c.x[i]! > fitRange!.max)) continue;
-      const o = c.yObs[i]!;
-      const s = pattern.points[i]?.sigma ?? (o > 0 ? Math.sqrt(o) : 1);
-      const w = s > 0 ? 1 / (s * s) : 1;
-      num += w * (o - calc) * (o - calc);
-      den += w * o * o;
-    }
-    return Math.sqrt(num / Math.max(den, 1e-12));
-  };
+  // (powderPage.ts), so it matches the refinement result at convergence and
+  // stays live as parameters are edited.
+  const activeWindow = fitRangeActive ? { min: fitRange!.min, max: fitRange!.max } : null;
+  const weightedR = (c: { x: number[]; yObs: number[]; yCalc: number[] }): number => weightedROf(session, c, activeWindow);
   // The page's single wR readout.
   const wRpct = (100 * weightedR(curves)).toFixed(2);
   // The nuclear-only agreement the magnetic page compares its candidates against.
@@ -1138,6 +824,20 @@ export function PowderWorkbench({
   const rExp = powderResult?.agreement.rExpected;
   const liveGof = rExp && rExp > 0 ? Number(liveWr) / (100 * rExp) : null;
   const refinedGof = powderResult ? (powderResult.agreement.goodnessOfFit ?? null) : null;
+  // With no refinement describing the values on screen (a demo opened on its
+  // converged snapshot, a model just loaded, values edited since the last
+  // fit), the GoF of the curves on screen, as wR is: the card's header and the
+  // Validation view's verdict then read the same number, and never a stale one.
+  const resultDescribesRows = powderResult !== null && !parametersChangedSince(powderResult, powderParams);
+  const curvesGof = useMemo(
+    () => (resultDescribesRows || pattern.points.length === 0 ? null : curvesGoodnessOfFit(session, curves, activeWindow)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the window's ends stand for activeWindow
+    [resultDescribesRows, session, curves, activeWindow?.min, activeWindow?.max],
+  );
+  const shownGof = (resultDescribesRows ? refinedGof : null) ?? curvesGof;
+  const gofTitle = resultDescribesRows && refinedGof !== null
+    ? "Goodness of fit = wR/R_exp at the last refinement; ≈1 = consistent with the data uncertainties"
+    : "Goodness of fit = wR/R_exp of the curves on screen (no refinement describes these values yet); ≈1 = consistent with the data uncertainties";
 
   // Pattern preview for the Magnetic tab — the SAME view as the refinement
   // plot: refined curves in the current display unit, the fit-range window,
@@ -1166,28 +866,14 @@ export function PowderWorkbench({
     };
   }, [pattern.points.length, pattern.xUnit, displayUnits, displayNuclearCurves, magneticComponentFor, displayXLabel, phaseTicks, displayFitRange, setFitRangeFromDisplay, tofViewOnly, effectiveUnit, axisCtx, patternExtent]);
 
-  // The magnetic page's moments-fit backend: nuclear model held fixed, moment
-  // amplitudes freed, solved through the evaluator-worker pool like every other
-  // refinement here — off the main thread, per-phase binding routing included.
-  // Moment rows of a previously applied model are dropped: the model handed in
-  // brings its own.
-  const powderMagneticFit = useMemo<MagneticFit>(() => ({
-    agreementLabel: "wR",
-    refine: async (magnetic, momentParams, momentBindings) => {
-      const nuclearFixed = powderParams.filter((p) => !isMagneticModelParameterKind(p.kind)).map((p) => ({ ...p, fixed: true }));
-      const result = await client.refineMagneticPowderParallel({
-        structure, magnetic, pattern,
-        parameters: [...nuclearFixed, ...momentParams.map((p) => ({ ...p, fixed: !!p.expression }))],
-        bindings: [...pBindings.filter((b) => !isMagneticModelParameterKind(b.kind)), ...momentBindings],
-        ...(phaseList.length > 0 ? { extraPhases: phaseList } : {}),
-        ...magneticProfile,
-        ...(fitRangeActive ? { fitRange: { min: fitRange!.min, max: fitRange!.max } } : {}),
-      }, { maxIterations: 20 });
-      const values: Record<string, number> = {};
-      for (const p of momentParams) values[p.id] = result.parameters[p.id] ?? p.value;
-      return { values, agreement: result.agreement.rWeighted ?? null };
-    },
-  }), [client, structure, pattern, powderParams, pBindings, phaseList, magneticProfile, fitRangeActive, fitRange]);
+  // The magnetic page's moments fit (powderPage.ts): the nuclear model held, as
+  // the page refines (its profile, every phase, the window), off the main
+  // thread; a view-only TOF page, which the worker does not refine, in this one.
+  const powderMagneticFit = useMemo(
+    () => powderMomentFit(tofViewOnly ? null : client, session, activeWindow),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the window's ends stand for activeWindow
+    [client, session, tofViewOnly, activeWindow?.min, activeWindow?.max],
+  );
 
   /** "Show on refinement pattern": put a candidate model on the session WITHOUT
    *  its parameter rows — the refinement page then plots nuclear + this model
@@ -1196,16 +882,7 @@ export function PowderWorkbench({
    *  previous Continue left behind are dropped so they cannot drive a model they
    *  do not belong to. */
   function applyMagneticPreview(mag: MagneticModel | null): void {
-    setSession((s) => {
-      const { magnetic: _previous, ...rest } = s;
-      return {
-        ...rest,
-        ...(mag ? { magnetic: mag } : {}),
-        powderParams: s.powderParams.filter((p) => !isMagneticModelParameterKind(p.kind)),
-        powderBindings: s.powderBindings.filter((b) => !isMagneticModelParameterKind(b.kind)),
-      };
-    });
-    setPowderResult(null);
+    change((s) => withMagneticPreview(s, mag));
     stepHistory?.requestStep("magnetic", mag ? "Magnetic model shown on the pattern" : "Magnetic model removed");
   }
 
@@ -1218,10 +895,10 @@ export function PowderWorkbench({
   const magneticQuality = (
     <span style={{ display: "flex", gap: 14, fontFamily: themeMono, fontSize: 12.5 }}>
       <span style={{ color: theme.secondary }} title="Weighted profile R for the current parameters, colored by wR/R_exp (Toby 2006)">
-        wR <b style={{ color: qualityInk(liveGof) }}>{liveWr}%</b>
+        wR <b style={{ color: qualityInk(liveGof ?? curvesGof) }}>{liveWr}%</b>
       </span>
-      <span style={{ color: theme.secondary }} title="Goodness of fit = wR/R_exp at the last refinement; ≈1 = consistent with the data uncertainties">
-        GoF <b style={{ color: qualityInk(refinedGof) }}>{refinedGof !== null ? refinedGof.toFixed(2) : "—"}</b>
+      <span style={{ color: theme.secondary }} title={gofTitle}>
+        GoF <b style={{ color: qualityInk(shownGof) }}>{shownGof !== null ? shownGof.toFixed(2) : "—"}</b>
       </span>
     </span>
   );
@@ -1246,8 +923,10 @@ export function PowderWorkbench({
   // esds, so passing the starting model writes pre-refinement values annotated
   // with post-refinement uncertainties.
   function exportPhaseCif(target: StructureModel, withMoments: boolean): void {
+    // A tied row (a shared site's last occupancy) carries its tie's esd, as the report does.
+    const esds = esdsWithTies(powderParams, powderResult);
     const withEsd = powderParams.map((p) => {
-      const e = powderResult?.esd[p.id];
+      const e = esds[p.id];
       return e !== undefined ? { ...p, esd: e } : { ...p };
     });
     const s = powderResult?.agreement.goodnessOfFit;
@@ -1335,6 +1014,46 @@ export function PowderWorkbench({
     exploredMagnetic.current = m;
   }, []);
 
+  // The page as the Agent's tools read it (agent/port.ts PowderLiveState): the
+  // Agent port's state, and what the report's judgment reads (reportJudgment.ts).
+  const liveState = (): PowderLiveState => {
+    const observations = observationsIn(curves, activeWindow);
+    return {
+      structure,
+      extraPhases: session.extraPhases,
+      refinedPhases,
+      pattern,
+      parameters: powderParams,
+      bindings: pBindings,
+      profile: session.powderProfile,
+      magnetic: session.magnetic ?? null,
+      result: powderResult,
+      instrument: instrumentLoaded ? instrument : null,
+      fitRange: fitRangeActive ? { min: fitRange!.min, max: fitRange!.max } : null,
+      extent: { min: patternExtent.min, max: patternExtent.max },
+      busy,
+      viewOnly: tofViewOnly,
+      wR: weightedR(curves),
+      settings: {
+        backgroundTerms: session.backgroundTerms,
+        backgroundType: session.powderProfile.backgroundType ?? "chebyshev",
+        mustrain: session.mustrain ?? "isotropic",
+        anisotropicAdp: hasTensorAdp(session.structure),
+        siteTies: session.siteTies,
+        corrections: session.corrections ?? {},
+      },
+      curves,
+      d: displayUnits.includes("dSpacing")
+        ? (pattern.xUnit === "dSpacing" ? curves.x : convertAxisArray(curves.x, pattern.xUnit, "dSpacing", axisCtx))
+        : null,
+      observationCount: observations,
+      axis: axisCtx,
+      source: session.rawData?.name ?? powderSource,
+      restraints: restraintReq.restraints ?? [],
+      zeroAdp,
+    };
+  };
+
   // Self-contained HTML report of the whole study (Export ▾ → Report): data
   // and model, the fit as plotted (display unit, ticks, window), agreement,
   // the refined phases with esds, the magnetic structure (applied model, or
@@ -1359,6 +1078,8 @@ export function PowderWorkbench({
       pointsInWindow: inWindow,
       tofViewOnly,
       explored: exploredMagnetic.current,
+      // The Validation tab's verdict and causes, for the Result paragraph and the caveats.
+      judgment: hasContent && structure.sites.length > 0 ? powderJudgment(liveState(), { gof: refinedGof, snapshot: snapshotHolds(page) }) : null,
     });
   }
   function exportReport(): void {
@@ -1366,7 +1087,7 @@ export function PowderWorkbench({
   }
 
   // Publish this engine's header exports while it is the active mode; cleared on
-  // unmount (the shell's other ref serves single-crystal mode).
+  // unmount (the shell's other refs serve the single-crystal and PDF modes).
   useEffect(() => {
     if (active) exportsRef.current = {
       report: exportReport,
@@ -1393,50 +1114,8 @@ export function PowderWorkbench({
     }
     agentLink.publish({
       technique: "powder",
-      state: () => {
-        const excluded = excludedPointMask(curves.yObs);
-        let observations = 0;
-        curves.x.forEach((x, i) => {
-          if (!excluded[i] && !(fitRangeActive && (x < fitRange!.min || x > fitRange!.max))) observations++;
-        });
-        return {
-          structure,
-          extraPhases: session.extraPhases,
-          refinedPhases,
-          pattern,
-          parameters: powderParams,
-          bindings: pBindings,
-          profile: session.powderProfile,
-          magnetic: session.magnetic ?? null,
-          result: powderResult,
-          instrument: instrumentLoaded ? instrument : null,
-          fitRange: fitRangeActive ? { min: fitRange!.min, max: fitRange!.max } : null,
-          extent: { min: patternExtent.min, max: patternExtent.max },
-          busy,
-          viewOnly: tofViewOnly,
-          wR: weightedR(curves),
-          settings: {
-            backgroundTerms: session.backgroundTerms,
-            backgroundType: session.powderProfile.backgroundType ?? "chebyshev",
-            mustrain: session.mustrain ?? "isotropic",
-            anisotropicAdp: hasTensorAdp(session.structure),
-            siteTies: session.siteTies,
-            corrections: session.corrections ?? {},
-          },
-          curves,
-          d: displayUnits.includes("dSpacing")
-            ? (pattern.xUnit === "dSpacing" ? curves.x : convertAxisArray(curves.x, pattern.xUnit, "dSpacing", axisCtx))
-            : null,
-          observationCount: observations,
-          axis: axisCtx,
-          source: session.rawData?.name ?? powderSource,
-          restraints: restraintReq.restraints ?? [],
-        };
-      },
-      setFixed: (changes) => {
-        const fixed = new Map(changes.map((c) => [c.id, c.fixed]));
-        setSession((s) => ({ ...s, powderParams: s.powderParams.map((p) => (fixed.has(p.id) ? { ...p, fixed: fixed.get(p.id)! } : p)) }));
-      },
+      state: liveState,
+      setFixed: (changes) => editRows((s) => withFixed(s, changes)),
       setBackgroundTerms,
       setBackgroundType,
       setMustrain,
@@ -1446,6 +1125,7 @@ export function PowderWorkbench({
       addAntisite,
       ...(onAddStructure ? { addPhase: onAddStructure } : {}),
       setParameterTies,
+      applyZeroAdp,
       ...(onInstrumentConstants ? { setInstrumentConstants: onInstrumentConstants } : {}),
       setFitRange: (range) => setFitRange(range ? { min: range.min, max: range.max } : null),
       showPeaks: (peaks) => {
@@ -1527,8 +1207,11 @@ export function PowderWorkbench({
   const instBeamline = instrumentLoaded ? instrument.name : undefined;
   const instFacility = instrumentLoaded ? instrument.facility : undefined;
   const instIdentified = !!(instBeamline || instFacility);
+  // A file that names no beamline: the data file's name may hint at one (PG3_…, NOM_…), shown as a guess.
+  const instGuess = instrumentLoaded && !instIdentified ? pageInstrument(pattern, instrument) : null;
   const instTitle = instIdentified
     ? [instBeamline, instFacility].filter(Boolean).join(" · ")
+    : instGuess?.guessed ? `${instGuess.name} (guessed from the file name)`
     : instrument.kind === "tof" ? "Time-of-flight" : "Constant wavelength";
   // Title carries the identity ("Beamline · Facility" or the mode); the meta line
   // always shows the key calibration actually loaded — the wavelength for CW
@@ -1655,10 +1338,10 @@ export function PowderWorkbench({
                   {plotMode !== "structure" && (
                     <span style={{ display: "flex", gap: 14, fontFamily: themeMono, fontSize: 12.5 }}>
                       <span style={{ color: theme.secondary }} title="Weighted profile R for the current parameters, colored by wR/R_exp (Toby 2006)">
-                        wR <b style={{ color: qualityInk(liveGof) }}>{liveWr}%</b>
+                        wR <b style={{ color: qualityInk(liveGof ?? curvesGof) }}>{liveWr}%</b>
                       </span>
-                      <span style={{ color: theme.secondary }} title="Goodness of fit = wR/R_exp at the last refinement; ≈1 = consistent with the data uncertainties">
-                        GoF <b style={{ color: qualityInk(refinedGof) }}>{refinedGof !== null ? refinedGof.toFixed(2) : "—"}</b>
+                      <span style={{ color: theme.secondary }} title={gofTitle}>
+                        GoF <b style={{ color: qualityInk(shownGof) }}>{shownGof !== null ? shownGof.toFixed(2) : "—"}</b>
                       </span>
                     </span>
                   )}
@@ -1732,7 +1415,7 @@ export function PowderWorkbench({
                     <p style={{ marginTop: 8, fontSize: 12, color: theme.secondary }}>
                       {viewStructure.name || "Structure"}
                       {viewStructure.spaceGroup.hermannMauguin ? ` · ${viewStructure.spaceGroup.hermannMauguin}` : ""}
-                      {` · ${viewStructure.sites.length} site${viewStructure.sites.length === 1 ? "" : "s"} · drag to rotate, scroll to zoom.`}
+                      {` · ${viewStructure.sites.length} site${viewStructure.sites.length === 1 ? "" : "s"}`}
                     </p>
                   </>
                   );
@@ -1764,11 +1447,49 @@ export function PowderWorkbench({
                         setPlotMode("curves");
                       }}
                       onAction={(a) => {
-                        if (a === "export-gsas2") exportBundle("gsas2");
-                        else if (a === "export-fullprof") exportBundle("fullprof");
-                        else if (a === "posterior") setPlotMode("posterior");
+                        switch (a.kind) {
+                          case "refine":
+                            if (!busy && !tofViewOnly) void runPowder();
+                            break;
+                          case "check":
+                            if (a.action === "export-gsas2") exportBundle("gsas2");
+                            else if (a.action === "export-fullprof") exportBundle("fullprof");
+                            else setPlotMode("posterior");
+                            break;
+                          case "parameters":
+                            // Open the group in the panel; the rows are the user's to free.
+                            setRevealGroup((r) => ({ group: a.group, token: (r?.token ?? 0) + 1 }));
+                            break;
+                          case "pattern":
+                            setFocusPoint((f) => ({ x: toDisplayX(a.x), token: (f?.token ?? 0) + 1 }));
+                            setPlotMode("curves");
+                            break;
+                          case "magnetic":
+                            onStep(1);
+                            setMessage("Refined structure passed to the magnetic symmetry analysis — k-search and symmetry now use the current parameter values.");
+                            break;
+                          case "evidence":
+                            break;
+                        }
                       }}
+                      canRefine={!busy && !tofViewOnly}
                       fitRange={fitRangeActive ? { min: fitRange!.min, max: fitRange!.max } : null}
+                      refinedPhases={refinedPhases}
+                      axis={axisCtx}
+                      restraints={restraintReq.restraints ?? NO_RESTRAINTS}
+                      zeroAdp={zeroAdp}
+                      backgroundTerms={session.backgroundTerms}
+                      backgroundType={session.powderProfile.backgroundType ?? "chebyshev"}
+                      gof={shownGof}
+                      snapshot={snapshotHolds(page)}
+                      history={stepHistory?.history ?? null}
+                      openSections={validationOpen}
+                      onToggleSection={(s) => setValidationOpen((o) => {
+                        const next = new Set(o);
+                        if (next.has(s)) next.delete(s);
+                        else next.add(s);
+                        return next;
+                      })}
                     />
                   </div>
                 ) : plotMode === "posterior" ? (
@@ -1787,6 +1508,8 @@ export function PowderWorkbench({
                     <WorkbenchPlot
                       curves={plotCurves}
                       xLabel={displayXLabel}
+                      viewKey={plotViewKey}
+                      ariaLabel="Powder pattern: observed, calculated and difference"
                       fitRange={displayFitRange}
                       phases={phaseTicks}
                       focusFitToken={focusFitToken}
@@ -1821,13 +1544,13 @@ export function PowderWorkbench({
                         <button type="button" onClick={() => setAgentPeaks(null)} style={{ ...resetRangeBtn }}>Clear</button>
                       </div>
                     )}
-                    <p style={{ marginTop: 8, fontSize: 12, color: theme.secondary }}>
-                      {tofViewOnly
-                        ? session.powderOverlay
+                    {tofViewOnly && (
+                      <p style={{ marginTop: 6, fontSize: 12, color: theme.secondary }}>
+                        {session.powderOverlay
                           ? "Observed (points) with GSAS-II fit overlay."
-                          : "Observed TOF pattern — view-only (load a TOF instrument with difC to refine)."
-                        : "Drag across the plot to zoom, blue handles to set the fit range."}
-                    </p>
+                          : "Observed TOF pattern — view-only (load a TOF instrument with difC to refine)."}
+                      </p>
+                    )}
                     {!tofViewOnly && mustrainReadout && (mustrainReadout.strainPpm.value > 0 || mustrainReadout.sampleY !== 0) && (
                       <div style={{ display: "flex", alignItems: "center", gap: 14, rowGap: 5, marginTop: 6, fontSize: 12, color: theme.secondary, fontFamily: themeMono, flexWrap: "wrap" }} title="Derived from the refined Lorentzian X (size) and Y (microstrain), with the instrument seed deconvoluted (GSAS-II microstrain = LY·π/72000·10⁶ ppm).">
                         <span style={themeLabel}>Microstructure</span>
@@ -1849,10 +1572,6 @@ export function PowderWorkbench({
                           <input type="checkbox" checked={session.siteTies.adp ?? true} onChange={(e) => setSiteTies({ adp: e.target.checked })} />
                           tie ADP
                         </label>
-                        <label style={{ display: "inline-flex", alignItems: "center", gap: 4, cursor: "pointer" }} title="Constrain the total occupancy of the shared site to 1 (fully occupied)">
-                          <input type="checkbox" checked={session.siteTies.occupancyToUnity ?? false} onChange={(e) => setSiteTies({ occupancyToUnity: e.target.checked })} />
-                          Σ occ = 1
-                        </label>
                         <label style={{ display: "inline-flex", alignItems: "center", gap: 4, cursor: "pointer" }} title="Each element on two or more sites keeps its total in the cell, so atoms exchange between sites (anti-site disorder, spinel inversion) while the formula stays">
                           <input type="checkbox" checked={session.siteTies.composition ?? false} onChange={(e) => setSiteTies({ composition: e.target.checked })} />
                           hold composition
@@ -1867,7 +1586,8 @@ export function PowderWorkbench({
                   the whole column. */}
               <ParameterPanel
                 params={powderParams}
-                esd={powderResult?.esd}
+                esd={powderResult ? esdsWithTies(powderParams, powderResult) : undefined}
+                reveal={revealGroup}
                 onChange={patchPowder}
                 onRefine={() => runPowder()}
                 onThorough={() => runThorough()}
@@ -1881,6 +1601,8 @@ export function PowderWorkbench({
                 busy={busy}
                 result={powderResult}
                 disabled={tofViewOnly}
+                warnings={occupancyWarnings}
+                notice={<ZeroAdpNotice proposals={zeroAdp.proposals} applied={zeroAdp.applied} busy={busy} onApply={applyZeroAdp} onRelease={releaseZeroAdp} />}
                 groupControls={tofViewOnly ? undefined : {
                   "Instrument / profile": (
                     <CorrectionControls corrections={session.corrections} twoTheta={session.pattern.xUnit === "twoTheta"} onChange={setCorrections} />
@@ -1897,10 +1619,14 @@ export function PowderWorkbench({
                       </select>
                       <label style={{ display: "flex", alignItems: "center", gap: 4 }}>
                         terms
-                        <input type="number" min={1} max={24} step={1} value={session.backgroundTerms} onChange={(e) => setBackgroundTerms(Number(e.target.value))} style={bgTermsInput} />
+                        <BackgroundTermsInput terms={session.backgroundTerms} onChange={setBackgroundTerms} />
                       </label>
                     </>
                   ),
+                  ...(sharedSiteList.length > 0 ? {
+                    // Each shared site's occupancies sum to its total by a tie (the last follows the others).
+                    Occupancy: <SiteTotals sites={sharedSiteList} totals={session.siteTies.totals ?? {}} onChange={(key, total) => change((s, inst) => withSiteTotal(s, key, total, inst))} disabled={busy} />,
+                  } : {}),
                   "ADPs (thermal)": (
                     <label style={{ display: "inline-flex", alignItems: "center", gap: 5, cursor: "pointer" }} title="Refine the anisotropic U tensor. Each site's U is seeded from its current B_iso; symmetry fixes which components are free. Turn on after an isotropic fit converges.">
                       <input type="checkbox" checked={hasTensorAdp(session.structure)} onChange={(e) => setAnisotropicAdp(e.target.checked)} />
@@ -1949,8 +1675,6 @@ export function PowderWorkbench({
             <KSearchPanel
               key={structureGeneration}
               structure={refinedStructure}
-              fitStructure={structure}
-              extraPhases={session.extraPhases.map((s) => ({ structure: s, id: s.id }))}
               residualPeaks={residualPeaks}
               onAddManualPeak={addManualPeak}
               onRemoveManualPeak={removeManualPeak}
@@ -1961,10 +1685,7 @@ export function PowderWorkbench({
               {...(magneticFitChip ? { patternFitChip: magneticFitChip } : {})}
               {...(tofViewOnly ? {} : { onFocusFit: () => setFocusFitToken((t) => t + 1) })}
               focusFitToken={focusFitToken}
-              nuclearParams={powderParams}
-              nuclearBindings={pBindings}
-              profile={session.powderProfile}
-              {...(tofViewOnly ? {} : { magneticFit: powderMagneticFit })}
+              magneticFit={powderMagneticFit}
               baselineAgreement={nuclearWr}
               preselect={session.magnetic ?? null}
               onApply={applyMagneticPreview}
@@ -2015,7 +1736,19 @@ function QualityPanel({
   onLocateReflection,
   onLocateX,
   onAction,
+  canRefine,
   fitRange,
+  refinedPhases,
+  axis,
+  restraints,
+  zeroAdp,
+  backgroundTerms,
+  backgroundType,
+  gof,
+  snapshot,
+  history,
+  openSections,
+  onToggleSection,
 }: {
   structure: StructureModel;
   /** Secondary crystallographic phases — decomposed alongside the primary so an
@@ -2039,13 +1772,31 @@ function QualityPanel({
   result: RefinementResult | null;
   onLocateReflection: (row: ReflectionObsCalc) => void;
   onLocateX: (x: number) => void;
-  onAction: (action: CheckAction) => void;
+  onAction: (action: ValidationAction) => void;
+  /** The page can refine now (no fit running, not a view-only pattern). */
+  canRefine: boolean;
   /** Active fit window (pattern x-unit); reflections outside it are left out. */
   fitRange?: { min: number; max: number } | null;
+  /** Every phase with the current values applied (primary first). */
+  refinedPhases: readonly StructureModel[];
+  axis: AxisContext;
+  /** The occupancy restraints the next refinement fits with. */
+  restraints: readonly LinearRestraint[];
+  /** The B-at-0 rule's proposals and the fixes in force. */
+  zeroAdp: { readonly proposals: readonly ZeroAdpProposal[]; readonly applied: readonly ZeroAdpFix[] };
+  backgroundTerms: number;
+  backgroundType: BackgroundType;
+  /** The GoF the card's header shows. */
+  gof: number | null;
+  /** The page shows the converged snapshot it opened on. */
+  snapshot: boolean;
+  /** The step History: the method's stages a converged refinement on its path covered. */
+  history: ProjectHistory | null;
+  openSections: ReadonlySet<EvidenceSection>;
+  onToggleSection: (section: EvidenceSection) => void;
 }): JSX.Element {
   // σ as the engine weights the points (data σ, else counting statistics).
   const sigma = useMemo(() => pattern.points.map((p) => p.sigma ?? (p.yObs > 0 ? Math.sqrt(p.yObs) : 1)), [pattern]);
-  const hasSigma = pattern.points.length > 0 && pattern.points.every((p) => p.sigma !== undefined);
   // The Rietveld partition with the fit's χ² attributed to every reflection.
   // With impurity phases it splits each point among every phase's peaks.
   const phasesKey = (extraPhases ?? []).map((p) => p.id).join(",");
@@ -2057,6 +1808,38 @@ function QualityPanel({
     [structure, phasesKey, pattern, params, bindings, profile, magnetic, fitRange?.min, fitRange?.max, curves.yCalc, sigma, include],
   );
   const nParams = params.filter((p) => !p.fixed && !p.expression).length;
+  // The page as the Agent's tools read it (agent/port.ts PowderLiveState, the
+  // same fields built the same way): the view's causes and findings are those
+  // diagnose_fit and assess_refinement give on this page (powderJudgment.ts).
+  const page = useMemo<JudgedPage>(() => ({
+    structure,
+    extraPhases: extraPhases ?? [],
+    refinedPhases,
+    pattern,
+    parameters: params,
+    bindings,
+    profile,
+    magnetic: magnetic ?? null,
+    result,
+    fitRange: fitRange ? { min: fitRange.min, max: fitRange.max } : null,
+    curves,
+    d: d ?? null,
+    axis,
+    observationCount: observationsIn(curves, fitRange ?? null),
+    restraints,
+    zeroAdp,
+    settings: { backgroundTerms, backgroundType },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the window's ends stand for fitRange
+  }), [structure, extraPhases, refinedPhases, pattern, params, bindings, profile, magnetic, result, fitRange?.min, fitRange?.max, curves, d, axis, restraints, zeroAdp, backgroundTerms, backgroundType]);
+  // The method's stages done, as the Agent counts them (agent/executorRecord.ts
+  // syncStages): from the History when there is one, else what the fit on
+  // screen refined; a converged snapshot counts the blocks it had free.
+  const stagesDone = useMemo(() => {
+    const onPath = stagesOnPath("powder", history, { parameters: params, result })
+      ?? (result?.status === "converged" ? stagesCovered("powder", params.filter((p) => result.esd[p.id] !== undefined), params) : []);
+    const fromSnapshot = snapshot ? stagesCovered("powder", params.filter((p) => !p.fixed && !p.expression), params) : [];
+    return [...new Set([...onPath, ...fromSnapshot])];
+  }, [history, params, result, snapshot]);
 
   // Rendered inside the pattern-plot card's "Validation" view mode; the toggle
   // labels it, so no heading here.
@@ -2069,7 +1852,6 @@ function QualityPanel({
       sigma={sigma}
       include={include}
       {...(d ? { d } : {})}
-      hasSigma={hasSigma}
       nParams={nParams}
       reflections={reflections}
       phaseTicks={phaseTicks}
@@ -2077,10 +1859,17 @@ function QualityPanel({
       displayLabel={displayLabel}
       result={result}
       parameters={params}
+      page={page}
+      {...(gof !== null ? { gof } : {})}
+      snapshot={snapshot}
+      stagesDone={stagesDone}
       onLocateReflection={onLocateReflection}
       onLocateX={onLocateX}
       onAction={onAction}
+      canRefine={canRefine}
       canExport
+      openSections={openSections}
+      onToggleSection={onToggleSection}
     />
   );
 }
@@ -2187,6 +1976,33 @@ function CorrectionControls({ corrections, twoTheta, onChange }: {
         <input value={axisText} onChange={(e) => setAxisText(e.target.value)} onBlur={() => { const a = axis(); if (a && corrections?.preferredOrientation) onChange({ preferredOrientation: a }); }} style={{ ...bgTermsInput, width: 52 }} aria-label="Preferred-orientation axis h k l" />
       </span>
     </span>
+  );
+}
+
+/**
+ * The background's coefficient count. A count applies as it is typed or
+ * stepped; an entry that is none (backgroundTermsEntry: the field emptied to
+ * retype it, 0) waits, and blur puts the count back. Applied, the emptied
+ * field's 0 removed every background row, and with them the Background group
+ * and this field, from the parameter panel.
+ */
+function BackgroundTermsInput({ terms, onChange }: { terms: number; onChange: (n: number) => void }): JSX.Element {
+  const [buf, setBuf] = useState<string | null>(null);
+  return (
+    <input
+      type="number"
+      min={BACKGROUND_TERMS.min}
+      max={BACKGROUND_TERMS.max}
+      step={1}
+      value={buf ?? String(terms)}
+      onChange={(e) => {
+        const n = backgroundTermsEntry(e.target.value);
+        setBuf(n === null ? e.target.value : null);
+        if (n !== null && n !== terms) onChange(n);
+      }}
+      onBlur={() => setBuf(null)}
+      style={bgTermsInput}
+    />
   );
 }
 

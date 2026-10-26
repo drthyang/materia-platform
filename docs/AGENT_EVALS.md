@@ -4,7 +4,16 @@ The in-app Agent is tested on what it does. Each eval scenario is a request a
 user or a researcher round made that the Agent once got wrong: a page built from
 the repository's own data, the message the user typed, what the stand-in user
 approves, and the checks that say whether the Agent got it right this time. The
-real chat loop, executor and tools run; only the model changes.
+real chat loop, executor and tools run; only the model changes. A powder page
+runs the app's own operations without React
+([`src/app/powderPage.ts`](../src/app/powderPage.ts): the curves and agreement,
+what each control does, Refine, Prefit, the posterior, going back to a History
+step) through the app's compute client, in-thread, so a scenario's fit is the
+one the app would run. The single-crystal and PDF pages do the same
+([`src/app/singleCrystalPage.ts`](../src/app/singleCrystalPage.ts),
+[`src/app/pdfPage.ts`](../src/app/pdfPage.ts)); the PDF page is the GaTa₄Se₈
+demo as the app opens it, on a 1.5–6 Å window (the app's demo fits 1.5–28 Å,
+where one fit takes seconds).
 
 - **In CI**, every scenario is replayed with a scripted model twice: once as the
   Agent should behave (every check passes) and once as it did when the failure
@@ -106,14 +115,14 @@ what Claude gets, so the tier also checks what Claude's server takes care of:
   Ollama's native chat; an OpenAI-compatible server's own figure, else the
   one in the settings). Old tool results become digests, a skill read again
   keeps its latest copy, and a prompt that still cannot fit is refused,
-  never sent cut (`contextWindow.ts`, `fitWindow` in `chat.ts`).
+  never sent cut (`contextWindow.ts`, `fitWindow` in `chatBudget.ts`).
 - **The tools.** A local model is offered the page's tools, and on the
   powder page those of the method's stage (`toolScope.ts`); every scenario's
   good replay is also run in CI with the scope on, to show no stage lacks a
   tool its replay calls.
 - **Loops.** The chat's loop guard notes a call repeated at the same state,
   and stops the turn, saying where the analysis stands, at the third
-  (`LoopGuard` in `chat.ts`).
+  (`LoopGuard` in `chatGuards.ts`).
 
 Each run's report adds, beside the checks: whether the turn cap was hit,
 whether the loop guard stopped the turn, whether a chat error ended it,

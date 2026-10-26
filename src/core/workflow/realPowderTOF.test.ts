@@ -14,7 +14,7 @@ import type { RefinementParameter } from "@/core/refinement/types";
  * Real POWGEN time-of-flight neutron data (100 K) on the high-entropy tungstate
  * (Co,Cu,Fe,Mn,Ni,Zn)WO₄ — wolframite-type, monoclinic P2/c, with six 3d cations
  * disordered on one site at occ ≈ 1/6 each. This is the app's default dataset
- * (loaded from data/ at runtime; see app/powgenData.ts), replacing the
+ * (its structure bundled in examples/highEntropyWO4.ts), replacing the
  * self-consistent Mn₃Ga synthetic demo as the primary real-data check.
  *
  * TOF profile refinement is not in the engine yet (roadmap M1), so the pattern is
@@ -23,11 +23,11 @@ import type { RefinementParameter } from "@/core/refinement/types";
  * git-ignored data/ folder is absent.
  */
 
-const DIR = "POWGEN_HighEntropy_100K";
-const CIF = `${DIR}/100K_HR_Co1_Fe1_Mn1_Ni1_O1_W1_Zn1.cif`;
-const GSAS = `${DIR}/GSAS2_2025B_HighRes_60HzB3_CWL2p665.instprm`;
-const JANA = `${DIR}/JANA_2025B_HighRes_60Hz_CWL2p665_Frame3.instprm`;
-const DAT = `${DIR}/PG3_61133-3.dat`;
+const DIR = "AWO4";
+const CIF = `${DIR}/structure_100K.cif`;
+const GSAS = `${DIR}/instrument_bank3.instprm`;
+const JANA = `${DIR}/instrument_bank3_jana.instprm`;
+const DAT = `${DIR}/PG3_powder_100K.dat`;
 const has = dataExists(CIF) && dataExists(DAT);
 
 const CATIONS = ["Co1", "Fe1", "Ni1", "Mn1", "Cu8", "Zn1"];
@@ -77,7 +77,7 @@ describe.skipIf(!has)("real powder TOF — POWGEN high-entropy (Co,Cu,Fe,Mn,Ni,Z
 
   it("detects TOF from the Mantid header and loads 3670 points with errors", () => {
     const text = readData(DAT);
-    const fmt = detectDataFormat({ text, filename: "PG3_61133-3.dat" });
+    const fmt = detectDataFormat({ text, filename: "PG3_powder_100K.dat" });
     expect(fmt.xUnit).toBe("tof");
     expect(fmt.source).toBe("header");
     expect(fmt.radiation.kind).toBe("neutron-tof");

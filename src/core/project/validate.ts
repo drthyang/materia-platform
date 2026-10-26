@@ -27,7 +27,7 @@ import {
   SINGLE_CRYSTAL_PROBES,
   PDF_POSITION_MODES,
 } from "@/core/project/types";
-import { MUSTRAIN_MODELS, PEAK_CORRECTION_IDS } from "@/core/workflow/powderModelOptions";
+import { isSiteTotal, MUSTRAIN_MODELS, PEAK_CORRECTION_IDS } from "@/core/workflow/powderModelOptions";
 import { EXTINCTION_MODELS } from "@/core/diffraction/singleCrystalFactors";
 
 export class ProjectFileError extends Error {
@@ -321,7 +321,9 @@ function checkPowderWorkspace(ws: Rec, path: string, ctx: PhaseContext): void {
   opt(prof.backgroundType, `${path}.profile.backgroundType`, oneOf(BACKGROUND_TYPES));
   if (int(ws.backgroundTerms, `${path}.backgroundTerms`) < 1) fail(`${path}.backgroundTerms`, "needs at least one background term");
   const ties = rec(ws.siteTies, `${path}.siteTies`);
+  // `occupancyToUnity` is read and ignored: a file saved before the shared site's Σ became a tie (to `totals`) has it.
   for (const k of ["positions", "adp", "occupancyToUnity", "composition"]) opt(ties[k], `${path}.siteTies.${k}`, bool);
+  opt(ties.totals, `${path}.siteTies.totals`, checkSiteTotals);
   opt(ws.anisotropicAdp, `${path}.anisotropicAdp`, bool);
   opt(ws.mustrain, `${path}.mustrain`, oneOf(MUSTRAIN_MODELS));
   if (ws.corrections !== undefined && ws.corrections !== null) {
@@ -349,6 +351,22 @@ function checkPowderWorkspace(ws: Rec, path: string, ctx: PhaseContext): void {
   opt(ws.fitRange, `${path}.fitRange`, checkWindow);
   opt(ws.displayUnit, `${path}.displayUnit`, oneOf(X_UNITS));
   if (ws.manualPeaks !== undefined && ws.manualPeaks !== null) each(ws.manualPeaks, `${path}.manualPeaks`, (d, p) => num(d, p));
+  if (ws.zeroAdpFixes !== undefined && ws.zeroAdpFixes !== null) each(ws.zeroAdpFixes, `${path}.zeroAdpFixes`, checkZeroAdpFix);
+}
+
+/** A B-at-0 fix the user applied (core/diagnostics/zeroAdp.ts): its row, the B it reached, rule A's leader or rule B's value, the source. */
+function checkZeroAdpFix(v: unknown, path: string): void {
+  const f = rec(v, path);
+  str(f.parameterId, `${path}.parameterId`);
+  str(f.atom, `${path}.atom`);
+  num(f.reached, `${path}.reached`);
+  const rule = oneOf(["A", "B"] as const)(f.rule, `${path}.rule`);
+  if (rule === "A") str(f.leader, `${path}.leader`);
+  if (rule === "B") num(f.value, `${path}.value`);
+  str(f.source, `${path}.source`);
+  opt(f.chosenBy, `${path}.chosenBy`, oneOf(["user", "agent-auto"] as const));
+  opt(f.reason, `${path}.reason`, str);
+  if (f.alternatives !== undefined && f.alternatives !== null) each(f.alternatives, `${path}.alternatives`, (x, q) => str(x, q));
 }
 
 function checkScDataset(v: unknown, path: string): void {
@@ -528,6 +546,13 @@ function checkReciprocal(v: unknown, path: string): void {
   }
 }
 
+/** Each shared site's total occupancy by the site's key (its first member's label): a fraction in [0.001, 1]. */
+function checkSiteTotals(v: unknown, path: string): Readonly<Record<string, number>> {
+  const totals = rec(v, path);
+  for (const [k, t] of Object.entries(totals)) if (!isSiteTotal(t)) fail(`${path}.${k}`, "a site's total occupancy is a number from 0.001 to 1");
+  return totals as Record<string, number>;
+}
+
 function checkPdfWorkspace(ws: Rec, path: string, ctx: PhaseContext): void {
   const pat = rec(ws.pattern, `${path}.pattern`);
   str(pat.id, `${path}.pattern.id`);
@@ -558,6 +583,7 @@ function checkPdfWorkspace(ws: Rec, path: string, ctx: PhaseContext): void {
   oneOf(PDF_POSITION_MODES)(ws.positionMode, `${path}.positionMode`);
   opt(ws.adpModel, `${path}.adpModel`, oneOf(["isotropic", "anisotropic"] as const));
   opt(ws.distortionModes, `${path}.distortionModes`, checkDistortionModes);
+  opt(ws.siteTotals, `${path}.siteTotals`, checkSiteTotals);
   if (ws.spinModel !== undefined && ws.spinModel !== null) {
     const s = rec(ws.spinModel, `${path}.spinModel`);
     checkMagnetic(ctx)(s.magnetic, `${path}.spinModel.magnetic`);
@@ -648,10 +674,18 @@ function checkAgent(v: unknown, path: string): void {
     }
     arr(record.exceptions, `${p}.exceptions`).forEach((e, j) => {
       const ex = rec(e, `${p}.exceptions[${j}]`);
-      oneOf(["bare-occupancy", "instrument-with-thermal"])(ex.rule, `${p}.exceptions[${j}].rule`);
+      oneOf(["bare-occupancy", "instrument-with-thermal", "instrument-with-positions"])(ex.rule, `${p}.exceptions[${j}].rule`);
       str(ex.reason, `${p}.exceptions[${j}].reason`);
       num(ex.at, `${p}.exceptions[${j}].at`);
     });
+    if (record.kept !== undefined && record.kept !== null) {
+      arr(record.kept, `${p}.kept`).forEach((k, j) => {
+        const kept = rec(k, `${p}.kept[${j}]`);
+        str(kept.measurement, `${p}.kept[${j}].measurement`);
+        str(kept.reason, `${p}.kept[${j}].reason`);
+        num(kept.at, `${p}.kept[${j}].at`);
+      });
+    }
     arr(record.stagesDone, `${p}.stagesDone`).forEach((st, j) => str(st, `${p}.stagesDone[${j}]`));
     arr(record.notes, `${p}.notes`).forEach((n, j) => {
       const note = rec(n, `${p}.notes[${j}]`);

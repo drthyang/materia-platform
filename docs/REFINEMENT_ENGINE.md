@@ -97,7 +97,20 @@ where `r_i = √w_i · (y_obs,i − y_calc,i)` and `J_ij = ∂r_i/∂p_j`.
 - **Bounds.** A trial step is clamped into `[min, max]`, and a parameter that
   ends on a bound is reported in `atBounds`. Each shift is also capped at 5× the
   parameter's current magnitude, so one ill-conditioned step cannot throw the
-  model out of its basin.
+  model out of its basin. An isotropic B is bounded below at 0: the engine
+  never lets it go negative, so a B the data push below 0 ends on that bound.
+  The engine does not change it; on the powder page the B-at-0 rule
+  ([`diagnostics/zeroAdp.ts`](../src/core/diagnostics/zeroAdp.ts)) proposes a
+  tie or a held value with a warning, which the user applies
+  ([USER_GUIDE.md](./USER_GUIDE.md#when-a-b-refines-to-0)).
+- **A trial point the model cannot evaluate.** A trial step whose χ² is not
+  finite, or whose `calculate` throws a `ModelDomainError`, is rejected like an
+  uphill one and λ grows. A cell length driven to 0 or below is such a point:
+  `generateReflections` refuses it with a `ReflectionLimitError`, as it refuses
+  a list too large to enumerate. The result's message counts these steps and
+  gives the first one's reason. An error at the starting point, or at a
+  Jacobian point beside an accepted one, still ends the refinement, and so does
+  any other error a `calculate` throws: that is a fault, not a long step.
 - **Fixed parameters** are removed from `p` entirely, not just given zero
   weight, so the normal matrix stays well-conditioned.
 - **Convergence.** A fit converges when the relative change in χ² falls below
@@ -118,9 +131,12 @@ takes them is a question about *where that thread runs*. The serial `refine`
 driver always may (it runs in a worker in the browser, in-process under the MCP
 server); `refineParallel` may only when the caller declares its driver thread can
 afford the work (`analyticOnDriver`), since in the browser that thread is the UI
-thread — cheap for the fused PDF pass, ruinous for the powder template. Both
-remain gated behind `analyticDerivatives`, which the worker runners and the MCP
-server now set. An analytic-vs-FD
+thread — cheap for the fused PDF pass, ruinous for the powder template. An
+evaluator that splits every evaluation across its workers (the browser pool on a
+single-phase PDF problem, below) computes them itself: the core then yields an
+analytic request instead (`refineCore`'s remote mode) and receives the same
+columns. All of these remain gated behind `analyticDerivatives`, which the worker
+runners and the MCP server now set. An analytic-vs-FD
 agreement test gates every kind.
 
 The powder builder supplies occupancy and isotropic B columns when the problem
@@ -131,7 +147,34 @@ The real-space PDF model supplies a much larger set through a fused pass
 
 - **Fused single pass.** One traversal of the pair list produces G(r) and every
   requested ∂G/∂p column. The value path is bit-identical to `computeGofR`,
-  pinned by test, so enabling gradients cannot change a fit.
+  pinned by test, so enabling gradients cannot change a fit. Each pair's
+  Gaussian window is evaluated once and the columns are then filled one at a
+  time, which keeps every column's sum in the same order. The pass still costs
+  several forward evaluations when many columns are free (each occupancy
+  column touches every pair, through the normalization), and the parallel
+  driver runs it on the UI thread in the browser unless its pool is split.
+- **Pairs without objects.** A pair is stored as its lattice translation (per
+  run of pairs) and a 1–4-byte atom-pair code, about 1–2 bytes a pair, and r,
+  n̂ and the msd are recomputed from the float64 Cartesian positions and ADP
+  tensors with `enumeratePairs`' own expressions in its order
+  ([`pairEnumerator.ts`](../src/core/pdf/pairEnumerator.ts), `CompactPairs`):
+  every value, and so every sum, is bit-identical to the object list it
+  replaces (an object per pair took about 100 bytes in a browser isolate). A
+  list projected beyond `PAIR_STORE_BUDGET_BYTES` (64 MiB) is generated chunk by
+  chunk on every read instead (`streamPairs`): the same arithmetic, memory one
+  chunk.
+- **The split pool.** For a single-phase PDF problem the browser pool does not
+  replicate the problem: worker w of W computes block w of the model grid
+  (contiguous, balanced by r³) from only the pairs whose ±5σ window can reach
+  it (`pairReachBound`: msd ≤ ‖U_i‖_F + ‖U_j‖_F and the width factor bounded
+  over the range; pairs under 4 Å are kept by every shard), and the driver
+  joins the blocks and finishes them (termination, the window, the restraint
+  rows). Every grid point receives the same terms in the same order as in the
+  whole sum, so a split evaluation and its analytic columns are bit-identical
+  to the unsplit ones (`pdfSplit.test.ts`, 1–6 shards, with a mutation check
+  of the margin). Single evaluations and analytic columns go to the pool too,
+  so the UI thread holds no pairs and computes only the LM step and the
+  per-set termination.
 - **Geometry-aware pairs.** Each `PdfPair` carries the bond unit vector n̂.
   Atoms are expanded with provenance: the site index and the generating
   rotation `R` (`expandStructureAtomsWithProvenance`). A symmetry-mode
@@ -190,8 +233,12 @@ Monte-Carlo of 40 refinements against data simulated at the fit's weights
 scatters as these esds say (scatter/esd 0.74–1.18).
 
 The esds fill `RefinementResult.esd`, and callers copy them onto
-`RefinementParameter.esd`. A dead column gets esd 0. The result also carries
-diagnostics:
+`RefinementParameter.esd`. A dead column gets esd 0. A tied row is not refined
+and has no entry there: a row tied linearly to one free row carries |factor|
+times its esd (`esdsWithTies`), and for a row tied to a sum of free rows the
+engine reports √(fᵀC f) over them, from the full covariance, in
+`combinationEsd` under the row's id (a fixed reference adds nothing). The
+result also carries diagnostics:
 
 - `svdZeroCount`: the number of dropped near-null Hessian directions.
 - `singularParameterIds`: parameters that take part strongly in dropped
@@ -325,7 +372,9 @@ values.
   above have analytic ones. Everything else is finite-difference, including
   powder coordinates, cell, profile, zero shift and moments.
 - **A general constraint language.** A tie `expression` is one of `= id`,
-  `= factor*id + c`, or the magnitude tie `= ±hypot(a, b, …)`
+  `= factor*id + c`, the magnitude tie `= ±hypot(a, b, …)`, or the sum tie
+  `= c ± factor*sum(a, b, …)` (a PDF shared site's last occupancy,
+  `= 1 - sum(…)`)
   ([`refinement/constraints.ts`](../src/core/refinement/constraints.ts)), plus
   equal-value grouping via `RefinementParameter.group`. Anything else is
   rejected rather than guessed.

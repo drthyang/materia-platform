@@ -13,9 +13,10 @@ import type { StructureModel } from "@/core/crystal/types";
 import type { PowderPattern } from "@/core/diffraction/types";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import type { LinearRestraint, ParameterBinding, ParameterKind, RefinementParameter } from "@/core/refinement/types";
-import { estimateBackground, evaluateBackground } from "@/core/diffraction/background";
+import { estimateBackground, evaluateBackground, type BackgroundType } from "@/core/diffraction/background";
 import { estimateZeroShift } from "@/core/workflow/startingValues";
 import { buildStructureRefinement, siteTieRestraints } from "@/core/workflow/structureRefinement";
+import { tieReferences } from "@/core/refinement/constraints";
 import { powderCurves, type PowderProfile } from "@/core/workflow/powder";
 import { CORRECTION_KINDS } from "@/core/diffraction/corrections";
 import { optimalScale } from "@/app/loadData";
@@ -69,14 +70,16 @@ export { PEAK_CORRECTION_IDS, type CorrectionsUpdate, type PeakCorrectionId, typ
 export type { SiteTies, MustrainModel };
 
 /**
- * The occupancy restraints a session's site ties ask for (the shared-site Σ,
- * the composition) over every phase, multi-phase ids prefixed `p{i}_` as the
- * multi-phase spec does. Kept only where one of their occupancies is free: over
- * fixed occupancies a restraint changes nothing, and any restraint turns off
- * the analytic Jacobian.
+ * The occupancy restraints a session's site ties ask for (the composition;
+ * a shared site's Σ is a tie in the rows) over every phase, multi-phase ids
+ * prefixed `p{i}_` as the multi-phase spec does. Kept only where one of their
+ * occupancies moves: free, or a tied row that follows a free one. Over fixed
+ * occupancies a restraint changes nothing, and any restraint turns off the
+ * analytic Jacobian.
  */
 export function powderRestraints(phases: readonly StructureModel[], ties: SiteTies, params: readonly RefinementParameter[]): LinearRestraint[] {
-  const free = new Set(params.filter((p) => !p.fixed).map((p) => p.id));
+  const freeIds = new Set(params.filter((p) => !p.fixed && !p.expression).map((p) => p.id));
+  const free = new Set([...freeIds, ...params.filter((p) => p.expression && tieReferences(p.expression).some((id) => freeIds.has(id))).map((p) => p.id)]);
   const prefixed = (r: LinearRestraint, i: number): LinearRestraint =>
     phases.length > 1
       ? { ...r, id: `p${i}_${r.id}`, label: `${phases[i]!.name}: ${r.label}`, terms: r.terms.map((t) => ({ ...t, parameterId: `p${i}_${t.parameterId}` })) }
@@ -173,11 +176,16 @@ export function buildPowderSpec(
   ties: SiteTies = {},
   mustrain: MustrainModel = "isotropic",
   corrections?: SampleCorrections,
+  /** The background basis, which the seeds are estimated in; omitted: Chebyshev (the profile then names none). */
+  backgroundType?: BackgroundType,
 ): PowderSpec {
+  const basis = backgroundType !== undefined ? { backgroundType } : {};
   const tieOpts = {
     tieSharedPositions: ties.positions ?? true,
     tieSharedAdp: ties.adp ?? true,
-    constrainOccupancyToUnity: ties.occupancyToUnity ?? false,
+    // A shared site's occupancies sum to exactly its total by a tie (the last follows the others), as on the PDF page.
+    tieSharedOccupancy: true,
+    ...(ties.totals ? { occupancyTotals: ties.totals } : {}),
     holdComposition: ties.composition ?? false,
   };
   // Time-of-flight: back-to-back-exponential profile driven by the diffractometer
@@ -216,7 +224,7 @@ export function buildPowderSpec(
       : useIsoMustrain ? { mustrainIso: resolution * 1e6 } // µstrain seed (×10⁻⁶)
       : {};
     const zero = instrument.zero ?? 0;
-    const profile: PowderProfile = { shape: "tof" };
+    const profile: PowderProfile = { shape: "tof", ...basis };
     const corr = correctionOptions(corrections, pattern, false);
     const seed = buildStructureRefinement(structure, pattern, { scale: 1, backgroundTerms, zero, tof, ...microOpt, refineOccupancy: true, ...tieOpts });
     const seeds = seedStartingValues(structure, pattern, seed.params, seed.bindings, profile, backgroundTerms, false);
@@ -234,6 +242,7 @@ export function buildPowderSpec(
     shape: caglioti ? "pseudoVoigt" : "gaussian",
     ...(caglioti ? { eta: 0.5 } : {}),
     lorentz,
+    ...basis,
   };
 
   // For a proper CW instrument, refine a Thompson–Cox–Hastings pseudo-Voigt:

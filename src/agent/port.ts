@@ -21,6 +21,7 @@ import type { MergeStatistics } from "@/core/diffraction/merge";
 import type { InstrumentConstants, InstrumentParameters } from "@/core/diffraction/instrument";
 import type { LinearRestraint, ParameterBinding, RefinementOptions, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { EqualTieUpdate } from "@/core/refinement/constraints";
+import type { ZeroAdpChoice, ZeroAdpFix, ZeroAdpProposal } from "@/core/diagnostics/zeroAdp";
 import type { SampleResult } from "@/core/refinement/bayes/sampler";
 import type { PowderProfile } from "@/core/workflow/powder";
 import type { MagneticModel } from "@/core/magnetic/types";
@@ -77,6 +78,8 @@ export interface PowderLiveState {
   /** The occupancy restraints the next refinement fits with: the site ties'
    *  shared-site Σ and composition, those over a free occupancy. */
   readonly restraints: readonly LinearRestraint[];
+  /** The B-at-0 rule (core/diagnostics/zeroAdp.ts): a proposal for each B the fit left on its lower bound, and the fixes applied. */
+  readonly zeroAdp?: { readonly proposals: readonly ZeroAdpProposal[]; readonly applied: readonly ZeroAdpFix[] };
 }
 
 /** What the powder page lets the Agent do. Each call is the page's own handler. */
@@ -89,17 +92,19 @@ export interface PowderAgentPort {
   readonly setBackgroundType: (type: BackgroundType) => void;
   readonly setMustrain: (model: MustrainModel) => void;
   readonly setAnisotropicAdp: (on: boolean) => void;
-  /** The Shared site check boxes (tie position, tie ADP, Σ occ = 1, hold composition). */
+  /** The Shared site settings: the check boxes (tie position, tie ADP, hold composition) and the sites' totals. */
   readonly setSiteTies: (update: Partial<SiteTies>) => void;
   /** The profile group's corrections boxes (asymmetry, texture axis, displacement, …). */
   readonly setCorrections?: (update: CorrectionsUpdate) => void;
   /** Let two sites exchange their atoms (antisite disorder): each element added
-   *  on the other site at occupancy 0, with Σ occ = 1 and hold composition on. */
+   *  on the other site at occupancy 0 (each site's occupancies summing to its total), with hold composition on. */
   readonly addAntisite?: (siteA: string, siteB: string) => void;
   /** Add a further phase to the model (Add CIF… with a structure in hand): its scale and cell refine with the others. */
   readonly addPhase?: (structure: StructureModel) => void;
   /** Tie parameters of one kind to one refined value (the leader first), or release such ties. */
   readonly setParameterTies?: (update: EqualTieUpdate) => void;
+  /** Apply B-at-0 options (the notice's Apply): each row's chosen tie or held value and who chose it, recorded as a step. */
+  readonly applyZeroAdp?: (choices: readonly ZeroAdpChoice[]) => void;
   /** Sample the Bayesian posterior of the free parameters (the Posterior view's Sample / Continue). */
   readonly samplePosterior?: PosteriorSampler;
   /** An X-ray instrument's constants the fit cannot determine: the polarization
@@ -164,7 +169,7 @@ export interface PdfLiveState {
   /** The page's own warnings (correlated-motion conflict, zero ADPs). */
   readonly warnings: readonly string[];
   readonly source: string;
-  /** The restraints the fit runs with (a shared site's Σ occupancy). */
+  /** The restraints the fit runs with (a shared site's Σ occupancy is not one: its last occupancy row follows one minus the others'). */
   readonly restraints: readonly LinearRestraint[];
 }
 
@@ -188,7 +193,7 @@ export interface PdfAgentPort {
    *  view opens): the free set — or the plan's own `free` ids — refined in each
    *  box across the fit window. The parameter rows are left as they are. Null
    *  when it was cancelled or failed. */
-  readonly boxcar: (plan: { readonly width: number; readonly step: number; readonly direction: BoxcarDirectionChoice; readonly bonds?: readonly string[]; readonly free?: readonly string[] }) => Promise<BoxcarRun | null>;
+  readonly boxcar: (plan: { readonly width: number; readonly step: number; readonly direction: BoxcarDirectionChoice; readonly bonds?: readonly string[]; readonly free?: readonly string[]; readonly restarts?: number }) => Promise<BoxcarRun | null>;
   /** Sample the Bayesian posterior of the free parameters (the Posterior tab's Sample / Continue). */
   readonly samplePosterior?: PosteriorSampler;
   /** The page's report of what is on screen (Export ▾ → Report): the engine's numbers, ready to render. */

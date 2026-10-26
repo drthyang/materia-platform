@@ -20,9 +20,9 @@
  *  - Intensity falling off with angle wrongly: ln(I_obs/I_calc) linear in
  *    s² = 1/(4d²) is a Wilson-type slope — the ADPs off by ΔB = −slope/2, or an
  *    absorption/roughness correction missing.
- *  - Texture: ln(I_obs/I_calc) correlated with cos² of the angle between the
- *    reflection's normal and one low-index direction is preferred orientation
- *    along it (March–Dollase).
+ *  - Texture: what the fall-off leaves, fitted by March–Dollase averaged over
+ *    each family's equivalents, on each symmetry-distinct low-index axis, and
+ *    named only if shuffled misfits rarely fit as well (textureTest.ts).
  *  - What is left in intensity is the structure: positions, ADPs, occupancies.
  *
  * Built on the Validation view's statistics (powderValidation.ts: Durbin–
@@ -30,9 +30,16 @@
  * partition's χ² attribution per reflection (obsCalc.ts).
  */
 
-import type { UnitCell } from "@/core/crystal/types";
+import type { SpaceGroup, UnitCell } from "@/core/crystal/types";
 import type { ReflectionObsCalc } from "@/core/workflow/obsCalc";
-import { misfitSignature, powderValidation, type PowderValidation } from "@/core/diagnostics/powderValidation";
+import { misfitSignature, powderValidation, type DurbinWatson, type PowderValidation } from "@/core/diagnostics/powderValidation";
+import type { PowderXUnit } from "@/core/diffraction/types";
+import { pct, sig } from "@/core/math/precision";
+import { WIDTHS_AGREE } from "@/core/diagnostics/thresholds";
+import { minMax } from "@/core/math/extent";
+import { TEXTURE_CHANCE, textureTest, type TextureTest } from "@/core/diagnostics/textureTest";
+import { BACKGROUND_ALONE_SIGMA, backgroundTermsReading, unexplainedExcess, type BackgroundExcess, type BackgroundTermsReading } from "@/core/diagnostics/backgroundTerms";
+import type { BackgroundType } from "@/core/diffraction/background";
 
 export interface FitDiagnosisInput {
   readonly x: readonly number[];
@@ -46,15 +53,34 @@ export interface FitDiagnosisInput {
   readonly d: readonly number[];
   /** The Rietveld partition with χ² attribution (powderReflectionObsCalc with `misfit`). */
   readonly reflections: readonly ReflectionObsCalc[];
-  /** Each phase's cell, by phase index (primary first), for the texture test. */
-  readonly cells: readonly UnitCell[];
+  /** Each phase's cell and space group, by phase index (primary first), for the texture test. */
+  readonly phases: readonly { readonly cell: UnitCell; readonly spaceGroup: SpaceGroup }[];
   /** Constant-wavelength 2θ data: asymmetry is read at low angle. */
   readonly twoTheta: boolean;
   /** The position of a reflection at d on the pattern's axis. */
   readonly xOf: (d: number) => number;
+  /** The Caglioti U, V, W (and X, when the profile has it) are all free: once the widths agree, a shape misfit gets no width advice. */
+  readonly widthsFree?: { readonly lorentzian: boolean };
+  /** The page's background, so a background misfit names the count its points justify (backgroundTerms.ts). */
+  readonly background?: { readonly type: BackgroundType; readonly terms: number };
+  /**
+   * A neutron pattern of a phase with magnetic ions and no magnetic model on
+   * the page: a line the model lacks may be magnetic (the k-search reads it),
+   * and `k0` says the misfits on nuclear reflections carry the k = 0 signature
+   * (k0MagneticHint) — magnetic intensity the ADPs and positions would take up.
+   */
+  readonly magneticNeutron?: { readonly k0: boolean };
 }
 
-export type CauseId = "background" | "peak-width" | "peak-tails" | "peak-position" | "asymmetry" | "peak-shape" | "intensity-falloff" | "texture" | "structure";
+/** The ADP and structure advice on a k = 0 residual: the magnetic step first (docs/LIMITATIONS.md, strong magnetic peaks). */
+export const K0_DIAGNOSIS =
+  "First the k = 0 check: on this neutron pattern of magnetic ions the misfits on nuclear reflections sit at large d, the k = 0 magnetic signature (find_unexplained_peaks' k0Magnetic). Take them to the magnetic step (magnetic_state; include those peaks in the k-search, or set k = 0) and hold the B's and positions until the moments are in: refined against the nuclear model alone they take up the magnetic intensity (on a simulated k = 0 pattern the B's came out 3–6× too large and the scale half again too large). If the sample is not ordered:";
+
+/** The unexplained-peak advice on a neutron pattern of magnetic ions: the magnetic step's k-search reads the lines. */
+const MAGNETIC_LINES =
+  " On this neutron pattern of magnetic ions, give the lines to the magnetic step first (magnetic_state, search_propagation_vector): lines that index to a propagation vector are magnetic order, modelled there and then refined together with the nuclear model.";
+
+export type CauseId = "background" | "unexplained-peak" | "peak-width" | "peak-tails" | "peak-position" | "asymmetry" | "peak-shape" | "intensity-falloff" | "texture" | "structure";
 
 export interface FitCause {
   readonly id: CauseId;
@@ -96,41 +122,20 @@ export interface WidthRatio {
 export interface FitDiagnosis {
   readonly validation: PowderValidation;
   readonly betweenPeaks?: { readonly share: number; readonly chi2PerPoint: number; readonly points: number };
+  /** Excess between the lines that no reflection explains, left out of the background's points (backgroundTerms.ts). */
+  readonly unexplained?: readonly BackgroundExcess[];
+  /** The background count the points between the lines justify (with `background` in the input). */
+  readonly backgroundTerms?: BackgroundTermsReading;
   readonly width?: WidthRatio;
   readonly worst: readonly WorstReflection[];
   /** ln(I_obs/I_calc) against s² = 1/(4d²): ΔB = −slope/2 (Å²). */
   readonly wilson?: { readonly deltaB: number; readonly r: number; readonly n: number };
-  readonly texture?: { readonly axis: readonly [number, number, number]; readonly r: number; readonly n: number; readonly enhancedAlongAxis: boolean };
+  readonly texture?: TextureTest;
   readonly causes: readonly FitCause[];
   readonly reading: string;
 }
 
 const hklText = (r: { h: number; k: number; l: number }): string => `${r.h} ${r.k} ${r.l}`;
-
-/** The reciprocal metric tensor G* of a cell. */
-export function reciprocalMetric(cell: UnitCell): number[][] {
-  const rad = Math.PI / 180;
-  const ca = Math.cos(cell.alpha * rad), cb = Math.cos(cell.beta * rad), cg = Math.cos(cell.gamma * rad);
-  const g = [
-    [cell.a * cell.a, cell.a * cell.b * cg, cell.a * cell.c * cb],
-    [cell.a * cell.b * cg, cell.b * cell.b, cell.b * cell.c * ca],
-    [cell.a * cell.c * cb, cell.b * cell.c * ca, cell.c * cell.c],
-  ];
-  const det = g[0]![0]! * (g[1]![1]! * g[2]![2]! - g[1]![2]! * g[2]![1]!) - g[0]![1]! * (g[1]![0]! * g[2]![2]! - g[1]![2]! * g[2]![0]!) + g[0]![2]! * (g[1]![0]! * g[2]![1]! - g[1]![1]! * g[2]![0]!);
-  const inv = (r: number, c: number): number => {
-    const m = g.filter((_, i) => i !== c).map((row) => row.filter((_, j) => j !== r));
-    const minor = m[0]![0]! * m[1]![1]! - m[0]![1]! * m[1]![0]!;
-    return ((r + c) % 2 === 0 ? 1 : -1) * minor / det;
-  };
-  return [0, 1, 2].map((r) => [0, 1, 2].map((c) => inv(r, c)));
-}
-
-/** cos of the angle between two reciprocal-lattice vectors. */
-function cosBetween(gs: number[][], h: readonly number[], k: readonly number[]): number {
-  const dot = (u: readonly number[], v: readonly number[]): number => u.reduce((s, ui, i) => s + ui * gs[i]!.reduce((t, gij, j) => t + gij * v[j]!, 0), 0);
-  const n = Math.sqrt(dot(h, h) * dot(k, k));
-  return n > 0 ? dot(h, k) / n : 0;
-}
 
 /** Weighted Pearson correlation and slope of y on x. */
 function regress(x: readonly number[], y: readonly number[], w: readonly number[]): { slope: number; r: number } {
@@ -146,8 +151,6 @@ function regress(x: readonly number[], y: readonly number[], w: readonly number[
   });
   return { slope: sxx > 0 ? sxy / sxx : 0, r: sxx > 0 && syy > 0 ? sxy / Math.sqrt(sxx * syy) : 0 };
 }
-
-const AXES: readonly (readonly [number, number, number])[] = [[1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 1, 0], [1, 0, 1], [0, 1, 1], [1, 1, 1]];
 
 export function diagnoseFit(input: FitDiagnosisInput): FitDiagnosis {
   const validation = powderValidation({
@@ -168,27 +171,49 @@ export function diagnoseFit(input: FitDiagnosisInput): FitDiagnosis {
   const reach = widths.length >= 3 ? lineReach(input, interpolator(widths.map((w) => [w.x, Math.max(w.obs, w.calc)] as const))) : null;
 
   // ── background: χ² where the model is background alone ───────────────────
+  // Excess there that stands above the noise on a line's scale is a line the
+  // model lacks, not background: it is read apart, and kept out of the points
+  // the background is judged on, so the advice never asks for the terms that
+  // would absorb it (backgroundTerms.ts).
   let betweenPeaks: FitDiagnosis["betweenPeaks"];
+  let unexplained: BackgroundExcess[] = [];
+  let termsReading: BackgroundTermsReading | null = null;
   if (input.yBackground) {
-    let chi = 0, n = 0, nAll = 0;
+    const yBackground = input.yBackground;
+    const base = input.x.map((_, i) => input.include[i]! && input.yCalc[i]! - yBackground[i]! <= BACKGROUND_ALONE_SIGMA * input.sigma[i]!
+      && !(reach && reach.envelope[i]! > 0.5 * input.sigma[i]!));
+    const points = { x: input.x, yObs: input.yObs, yCalc: input.yCalc, yBackground, sigma: input.sigma, include: input.include, d: input.d };
+    const excess = unexplainedExcess(points, base);
+    unexplained = excess.features;
+    let chi = 0, n = 0, nAll = 0, chiExcess = 0;
     input.x.forEach((_, i) => {
       if (!input.include[i]) return;
       nAll++;
-      const peak = input.yCalc[i]! - input.yBackground![i]!;
-      if (peak > 0.5 * input.sigma[i]!) return;
-      if (reach && reach.envelope[i]! > 0.5 * input.sigma[i]!) return;
+      if (!base[i]) return;
       const dl = (input.yObs[i]! - input.yCalc[i]!) / input.sigma[i]!;
+      if (excess.mask[i]) { chiExcess += dl * dl; return; }
       chi += dl * dl;
       n++;
     });
+    if (unexplained.length > 0 && total > 0) {
+      const list = unexplained.slice(0, 4).map((e) => `d = ${e.d.toFixed(3)} Å (${e.significance.toFixed(0)}σ)`).join(", ") + (unexplained.length > 4 ? ", …" : "");
+      causes.push({
+        id: "unexplained-peak",
+        share: chiExcess / total,
+        evidence: `between the lines, ${unexplained.length === 1 ? "an excess" : `${unexplained.length} excesses`} that no reflection of the model explains, each standing above the noise over a line's width: ${list}`,
+        action: "Not background: intensity no phase in the model has — magnetic order (neutrons, below the ordering temperature), an impurity or the sample environment (find_unexplained_peaks, identify_peaks). Explain it before adding background terms: a more flexible background absorbs it, and the structure is then refined against a pattern without it." + (input.magneticNeutron ? MAGNETIC_LINES : ""),
+      });
+    }
+    if (input.background) termsReading = backgroundTermsReading({ ...points, type: input.background.type }, base, excess);
     if (n > 0 && total > 0) {
       betweenPeaks = { share: chi / total, chi2PerPoint: chi / n, points: n };
       if (betweenPeaks.chi2PerPoint > 2 && betweenPeaks.share > 0.15) {
+        const left = unexplained.length > 0 ? `, the unexplained excess left out` : "";
         causes.push({
           id: "background",
           share: betweenPeaks.share,
-          evidence: `between the peaks (${n} of ${nAll} points) the residual carries ${(100 * betweenPeaks.share).toFixed(0)}% of χ² at ${betweenPeaks.chi2PerPoint.toFixed(1)} per point (noise alone gives 1)`,
-          action: "The background function misses: more terms or another basis (set_background), then refine the background alone.",
+          evidence: `between the peaks (${n} of ${nAll} points${left}) the residual carries ${(100 * betweenPeaks.share).toFixed(0)}% of χ² at ${betweenPeaks.chi2PerPoint.toFixed(1)} per point (noise alone gives 1)`,
+          action: backgroundAction(input.background, termsReading),
         });
       }
     }
@@ -197,7 +222,7 @@ export function diagnoseFit(input: FitDiagnosisInput): FitDiagnosis {
   // ── the reflections that carry the χ² ────────────────────────────────────
   const nuclear = input.reflections.filter((r) => r.kind === "nuclear" && r.chi2 !== undefined);
   const xs = input.x.filter((_, i) => input.include[i]);
-  const xLo = Math.min(...xs), xHi = Math.max(...xs);
+  const { min: xLo, max: xHi } = minMax(xs);
   const third = (x: number): 0 | 1 | 2 => (x < xLo + (xHi - xLo) / 3 ? 0 : x < xLo + (2 * (xHi - xLo)) / 3 ? 1 : 2);
   const rows = nuclear.map((r) => {
     const signature = misfitSignature(r.misfitMean ?? 0, r.misfitLobe ?? 0);
@@ -286,7 +311,7 @@ export function diagnoseFit(input: FitDiagnosisInput): FitDiagnosis {
         id: "peak-shape",
         share: shapeShare,
         evidence: `± residual lobes on both sides of peaks across the pattern carry ${(100 * shapeShare).toFixed(0)}% of χ²`,
-        action: "A width or shape mismatch: free the Caglioti U, V, W together, then the Lorentzian X (size) and Y (strain); anisotropic broadening if some hkl are broader (Microstructure).",
+        action: peakShapeAction(width?.median, input.widthsFree),
       });
     }
   }
@@ -312,27 +337,19 @@ export function diagnoseFit(input: FitDiagnosisInput): FitDiagnosis {
         action: "Free the ADPs if they are held; if they are free, an absorption (Debye–Scherrer μR) or surface-roughness correction is missing (set_corrections), or the data need a different Lorentz-polarization.",
       });
     }
-    // Texture: what the fall-off leaves, against each low-index direction.
+    // Texture: what the fall-off leaves, fitted by March–Dollase on each distinct axis.
     const resid = y.map((yi, i) => yi - (fit.r !== 0 ? fit.slope * (s2[i]! - s2.reduce((a, b) => a + b, 0) / s2.length) : 0));
-    const byPhase = new Map<number, number[]>();
-    usable.forEach((r, i) => byPhase.set(r.phaseIndex ?? 0, [...(byPhase.get(r.phaseIndex ?? 0) ?? []), i]));
-    const idx = byPhase.get(0) ?? [];
-    const cell = input.cells[0];
-    if (cell && idx.length >= 12) {
-      const gs = reciprocalMetric(cell);
-      let best: FitDiagnosis["texture"];
-      for (const axis of AXES) {
-        const c2 = idx.map((i) => cosBetween(gs, [usable[i]!.h, usable[i]!.k, usable[i]!.l], axis) ** 2);
-        const t = regress(c2, idx.map((i) => resid[i]!), idx.map((i) => w[i]!));
-        if (!best || Math.abs(t.r) > Math.abs(best.r)) best = { axis, r: t.r, n: idx.length, enhancedAlongAxis: t.slope > 0 };
-      }
-      texture = best;
-      if (best && Math.abs(best.r) > 0.5) {
+    const idx = usable.flatMap((r, i) => ((r.phaseIndex ?? 0) === 0 ? [i] : []));
+    const phase = input.phases[0];
+    if (phase && idx.length >= 12) {
+      texture = textureTest(idx.map((i) => ({ h: usable[i]!.h, k: usable[i]!.k, l: usable[i]!.l, misfit: resid[i]!, weight: w[i]! })), phase);
+      if (texture && texture.chance < TEXTURE_CHANCE && Math.abs(Math.log(texture.ratio)) >= Math.log(1.05)) {
+        const t = texture;
         causes.push({
           id: "texture",
-          share: intensityShare * Math.min(1, best.r * best.r),
-          evidence: `the intensity misfit follows the angle to [${best.axis.join(" ")}]* (r = ${best.r.toFixed(2)}, ${best.n} reflections): reflections near it are ${best.enhancedAlongAxis ? "stronger" : "weaker"} than calculated`,
-          action: `Preferred orientation along ${best.axis.join(" ")}: add March–Dollase (set_corrections preferredOrientation [${best.axis.join(", ")}]) and refine its ratio — after the structure, and only if the sample can be textured (a capillary rarely is).`,
+          share: intensityShare * Math.min(1, t.explained),
+          evidence: `March–Dollase along [${t.axis.join(" ")}]* at r ${t.atLimit ? (t.ratio < 1 ? "≤ " : "≥ ") : "≈ "}${t.ratio.toFixed(2)} explains ${(100 * t.explained).toFixed(0)}% of the intensity misfit (${t.n} reflections, averaged over their equivalents; best of ${t.axes} distinct axes, chance ${t.chance < 0.005 ? "< 0.5%" : `${(100 * t.chance).toFixed(1)}%`} on shuffled misfits): reflections near it are ${t.enhancedAlongAxis ? "stronger" : "weaker"} than calculated`,
+          action: `Preferred orientation along ${t.axis.join(" ")}: add March–Dollase (set_corrections preferredOrientation [${t.axis.join(", ")}]) and refine its ratio — after the structure, and only if the sample can be textured (a capillary rarely is).`,
         });
       }
     }
@@ -348,18 +365,44 @@ export function diagnoseFit(input: FitDiagnosisInput): FitDiagnosis {
       action: "The structure: positions, ADPs (anisotropic if the data support it), occupancies under their ties; check bond lengths after.",
     });
   }
+  // k = 0 magnetic intensity on the nuclear lines reads as a falloff or an intensity misfit: the magnetic step comes first.
+  if (input.magneticNeutron?.k0) {
+    for (const [i, c] of causes.entries()) {
+      if (c.id === "intensity-falloff" || c.id === "structure") causes[i] = { ...c, action: `${K0_DIAGNOSIS} ${c.action}` };
+    }
+  }
   causes.sort((a, b) => b.share - a.share);
 
   const dw = validation.durbinWatson;
   const ag = validation.agreement;
   const reading = [
     `GoF ${ag.gof.toFixed(2)} (Rwp ${(100 * ag.rwp).toFixed(2)}%, Rexp ${(100 * ag.rexp).toFixed(2)}%${ag.rwpBkg !== undefined ? `; background-subtracted Rwp′ ${(100 * ag.rwpBkg).toFixed(2)}%` : ""}).`,
-    ...(dw ? [dw.correlated ? `Durbin–Watson d = ${dw.d.toFixed(2)} < ${dw.qd.toFixed(2)}: neighbouring residuals miss together — a systematic misfit, and the esds are underestimated.` : `Durbin–Watson d = ${dw.d.toFixed(2)}: residuals uncorrelated.`] : []),
+    ...(dw ? [durbinWatsonSentence(dw)] : []),
     causes.length === 0
       ? "No dominant cause: the misfit is spread thin. If GoF is still well above 1, look at the worst reflections one by one."
       : `Most of the misfit: ${causes.slice(0, 3).map((c) => `${c.id} (~${(100 * c.share).toFixed(0)}% of χ²)`).join(", ")}. Address the largest first.`,
   ].join(" ");
-  return { validation, ...(betweenPeaks ? { betweenPeaks } : {}), ...(width ? { width } : {}), worst, ...(wilson ? { wilson } : {}), ...(texture ? { texture } : {}), causes, reading };
+  return {
+    validation, ...(betweenPeaks ? { betweenPeaks } : {}), ...(unexplained.length > 0 ? { unexplained } : {}), ...(termsReading ? { backgroundTerms: termsReading } : {}),
+    ...(width ? { width } : {}), worst, ...(wilson ? { wilson } : {}), ...(texture ? { texture } : {}), causes, reading,
+  };
+}
+
+/**
+ * What to do when the background misses between the lines: the count the
+ * points there justify (BIC, backgroundTerms.ts), or, when it is no more than
+ * the page has, another basis rather than more terms.
+ */
+export function backgroundAction(background: FitDiagnosisInput["background"], reading: BackgroundTermsReading | null): string {
+  if (!background || !reading) return "The background function misses: more terms or another basis (set_background), then refine the background alone.";
+  const on = `BIC on the ${reading.points} points between the lines${reading.excess.length > 0 ? ", the unexplained excess left out" : ""}`;
+  if (reading.justified <= background.terms) {
+    return `The background misses, but more terms are not justified (${on}: ${reading.justified}, the page has ${background.terms}): another basis (set_background type), or scattering the model lacks.`;
+  }
+  // A count read on the residual of a model that lacks lines is that model's: explain them first.
+  return reading.excess.length > 0
+    ? `The background misses between the lines, but the model also lacks lines there (unexplained-peak): explain them first, then read the count again (${on}: ${reading.justified} terms of this basis, the page has ${background.terms}).`
+    : `The background function misses: ${reading.justified} terms of this basis (${on}) instead of ${background.terms} — set_background terms ${reading.justified} — then refine the background alone.`;
 }
 
 /** Observed/calculated widths this far from 1 are a cause. */
@@ -502,4 +545,66 @@ function interpolator(points: readonly (readonly [number, number])[]): (x: numbe
     const [x1, y1] = points[i]!;
     return y0 + ((y1 - y0) * (x - x0)) / (x1 - x0 || 1);
   };
+}
+
+/**
+ * The peak-shape cause's action: free the widths while they are fixed; once
+ * the Caglioti terms are free and the observed and calculated widths agree
+ * (within WIDTHS_AGREE), what is left is a shape the profile does not follow.
+ */
+export function peakShapeAction(widthRatio: number | undefined, widthsFree: { readonly lorentzian: boolean } | undefined): string {
+  if (!widthsFree || widthRatio === undefined || Math.abs(widthRatio - 1) > WIDTHS_AGREE) {
+    return "A width or shape mismatch: free the Caglioti U, V, W together, then the Lorentzian X (size) and Y (strain); anisotropic broadening if some hkl are broader (Microstructure).";
+  }
+  return `The Caglioti U, V, W${widthsFree.lorentzian ? " and the Lorentzian X" : ""} are already free and the line widths agree (observed/calculated ${sig(widthRatio, 3)}): what is left is a shape the profile does not follow, not a width. Read the worst reflections: lobes on one side at low angle are axial-divergence asymmetry (set_corrections asymmetry); some hkl broader than others are anisotropic broadening (set_microstrain); lobes that change side from peak to peak, at a few % of the peak, are the limit of the profile function — say so, and read the esds as too small by the Durbin–Watson factor rather than adding parameters.`;
+}
+
+/** The serial correlation of the residual in one sentence: the diagnosis's reading and the report's check give the same. */
+export function durbinWatsonSentence(dw: DurbinWatson): string {
+  return dw.correlated
+    ? `Durbin–Watson d = ${dw.d.toFixed(2)}, below Q_D = ${dw.qd.toFixed(2)}: neighbouring residuals correlate (a systematic misfit of the profile or the model), so the esds — and a posterior's intervals — are optimistic.`
+    : `Durbin–Watson d = ${dw.d.toFixed(2)} (Q_D = ${dw.qd.toFixed(2)}): no significant serial correlation of the residuals.`;
+}
+
+/** What diagnosisText reads of a diagnosis view. */
+export interface DiagnosisView {
+  readonly reading: string;
+  readonly causes: readonly { readonly cause: string; readonly chi2Share: number; readonly evidence: string }[];
+  readonly worstReflections?: readonly { readonly hkl: string; readonly d: number; readonly chi2Share: number; readonly misfit: string }[];
+}
+
+/** diagnose_fit's answer: the diagnosis rounded, each worst reflection's misfit in words, on the pattern's own axis. */
+export function fitDiagnosisView(dx: FitDiagnosis, unit: PowderXUnit): Record<string, unknown> & DiagnosisView {
+  const v = dx.validation;
+  return {
+    reading: dx.reading,
+    causes: dx.causes.map((c) => ({ cause: c.id, chi2Share: pct(c.share), evidence: c.evidence, action: c.action })),
+    agreement: {
+      rwp: pct(v.agreement.rwp), rexp: pct(v.agreement.rexp), gof: sig(v.agreement.gof, 3),
+      ...(v.agreement.rwpBkg !== undefined ? { rwpBackgroundSubtracted: pct(v.agreement.rwpBkg) } : {}),
+      ...(v.durbinWatson ? { durbinWatson: sig(v.durbinWatson.d, 3), durbinWatsonCritical: sig(v.durbinWatson.qd, 3) } : {}),
+    },
+    ...(dx.betweenPeaks ? { betweenPeaks: { chi2Share: pct(dx.betweenPeaks.share), chi2PerPoint: sig(dx.betweenPeaks.chi2PerPoint, 3), points: dx.betweenPeaks.points } } : {}),
+    ...(dx.unexplained ? { unexplainedExcess: dx.unexplained.slice(0, 8).map((e) => ({ d: sig(e.d, 4), [unit]: sig(e.x, 5), significance: sig(e.significance, 3) })) } : {}),
+    ...(dx.backgroundTerms ? { backgroundTermsJustified: { terms: dx.backgroundTerms.justified, points: dx.backgroundTerms.points, criterion: "BIC of the background alone on the points between the lines, the unexplained excess left out" } } : {}),
+    ...(dx.width ? { lineWidths: { observedOverCalculated: sig(dx.width.median, 3), lowerThird: sig(dx.width.low, 3), upperThird: sig(dx.width.high, 3), isolatedLines: dx.width.lines, ...(dx.width.etaObs !== undefined && dx.width.etaCalc !== undefined && widthsComparable(dx.width) ? { lorentzianFraction: { observed: sig(dx.width.etaObs, 2), calculated: sig(dx.width.etaCalc, 2), lines: dx.width.shapeLines } } : {}) } } : {}),
+    dShells: v.shells.map((sh) => ({ d: `${sig(Math.min(sh.lo, sh.hi), 3)}–${sig(Math.max(sh.lo, sh.hi), 3)} Å`, chi2PerPoint: sig(sh.chi2PerPoint, 3), chi2Share: pct(sh.share) })),
+    worstReflections: dx.worst.map((w) => ({
+      hkl: `${w.phase ? `${w.phase} ` : ""}${w.hkl}`, d: sig(w.d, 4), [unit]: sig(w.x, 5), chi2Share: pct(w.share),
+      misfit: w.signature === "shape" ? `shape (residual ${w.lobe > 0 ? "on the high" : "on the low"}-${unit === "twoTheta" ? "angle" : "x"} side)` : w.signature === "under" ? "calculated too weak" : "calculated too strong",
+    })),
+    ...(dx.wilson ? { intensityFalloff: { deltaB: sig(dx.wilson.deltaB, 3), r: sig(dx.wilson.r, 2), reflections: dx.wilson.n } } : {}),
+    ...(dx.texture ? { textureTest: { axis: dx.texture.axis.join(" "), ratio: sig(dx.texture.ratio, 2), explained: pct(dx.texture.explained), chance: sig(dx.texture.chance, 2), reflections: dx.texture.n, axesSearched: dx.texture.axes } } : {}),
+  };
+}
+
+/**
+ * A diagnosis as the report gives it: the reading, each cause with its share
+ * of χ² and its evidence, and the three worst reflections. The report's check
+ * on the fit on screen, and the record of each earlier diagnosis.
+ */
+export function diagnosisText(dx: DiagnosisView): string {
+  const worst = (dx.worstReflections ?? []).slice(0, 3);
+  return `${dx.reading}${dx.causes.map((c) => ` ${c.cause} (${c.chi2Share} % of χ²): ${c.evidence}.`).join("")}` +
+    (worst.length > 0 ? ` Worst reflections: ${worst.map((w) => `${w.hkl} (d ${w.d} Å, ${w.chi2Share} % of χ², ${w.misfit})`).join("; ")}.` : "");
 }

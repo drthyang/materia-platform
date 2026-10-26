@@ -32,7 +32,7 @@ approximate, however plausible its output looks.
 | [Magnetic](#magnetic-structures) | One propagation vector (k = 0, commensurate or incommensurate); subgroup candidates with BNS/OG labels | Multi-k and the star of k; harmonics and superspace; refining a self-conjugate k, or k on single-crystal data |
 | [PDF and mPDF](#real-space-pdf-and-magnetic-pdf) | Neutron and X-ray G(r); multi-phase; magnetic PDF; Γ symmetry modes | Zone-boundary modes; a correlated-error likelihood; data reduction |
 | [Uncertainty](#uncertainty-and-posterior-sampling) | Least-squares esds and correlations; posterior sampling (prototype) | Correlated residuals; comparing models |
-| [Files](#input-and-output) | CIF, mCIF, project files, report, FullProf and GSAS-II cross-check bundle | Single-crystal and multi-phase `.pcr`; geometry tables in the report |
+| [Files](#input-and-output) | CIF, mCIF, project files, report, FullProf and GSAS-II cross-check bundles, a PDFgui / diffpy-CMI bundle for a PDF | Single-crystal and multi-phase `.pcr`; geometry tables in the report |
 
 ## Refinement engine
 
@@ -46,7 +46,21 @@ approximate, however plausible its output looks.
   a staged sequence that fixes a newly freed parameter again when it makes the
   fit degenerate.
 
+- An isotropic B that refines to its lower bound (0) on the powder page gets
+  ranked options with a warning, never a silent change: a tie to a site of the
+  same element that refined sensibly (preferred), ties to other cations of the
+  same coordination (labelled alternatives with a caution), and the starting
+  structure's B (an alternative). The user picks one in the notice; the
+  Agent's `apply_adp_proposal` picks one from the list, shown on its card for
+  the user to change or decline, or applied as the Agent's recorded choice in
+  auto mode. Applied, it is a tie or a held value like any other, listed under
+  Limitations in the report and reported by `assess_refinement`.
+
 **Approximate**
+- The B-at-0 rule's starting-structure value (rule B) is used as it stands,
+  with no temperature adjustment: the app has no model of B against
+  temperature. Its coordination match (a cross-cation tie) counts a cation's ligands
+  within the coordination shell (`coordinationShells`), not bond valences.
 - Fits fall back to central finite differences for every non-linear parameter
   with no validated analytic column — powder coordinates, cell, profile, zero
   shift and moments among them.
@@ -61,6 +75,14 @@ approximate, however plausible its output looks.
 **Not yet**
 - Global optimization. The engine is local, so it needs a reasonable starting
   model.
+- The B-at-0 rule's last step (rule C), a documented typical B for the element
+  at the measurement temperature: the repository holds no such table from a
+  citable source, so no value is proposed (and no arbitrary floor). The rule
+  also runs on the powder page only: a single-crystal B at 0 gets the
+  existing at-bound reading, a single-crystal tensor that is not positive
+  definite stays a hard flag, and on the PDF page a U at 0 points first at a
+  correlated-motion term (δ1/δ2), as before. The MCP `assess_refinement` takes
+  no proposals yet.
 
 ## Uncertainty and posterior sampling
 
@@ -195,8 +217,20 @@ approximate, however plausible its output looks.
   Constant per-bank prefactors are absorbed into the scale.
 - Backgrounds: Chebyshev, cosine (Fourier) or power series, or linear or
   logarithmic interpolation between evenly spaced points, with an adjustable
-  number of terms.
-- Corrections: March–Dollase preferred orientation; sample displacement and
+  number of terms. POWGEN time-of-flight data start on log interpolation with
+  3 points, recognized from the instrument file's text (POWGEN or PG3 in it)
+  or, when that names no known instrument, a guess from the data file's name
+  (`PG3_…` POWGEN, `NOM_…` NOMAD, any case; NOMAD has no default of its own,
+  so its guess only labels the Instrument card). An instrument file naming an
+  instrument wins; the guess is never saved or reported as the instrument.
+  Other data start on 4 Chebyshev terms. The Agent's `diagnose_fit` reads the
+  count the points between the lines justify (BIC), with any excess there
+  that no reflection explains left out as a line, not background; a hump wider
+  than 24 line widths counts as background, and the points under the lines
+  (a short-d stretch of overlapping TOF lines) say nothing of it. The
+  Background group's own terms box does not warn.
+- Corrections: March–Dollase preferred orientation (averaged over each
+  family's Laue equivalents, as GSAS-II); sample displacement and
   transparency, Debye–Scherrer absorption, and Suortti surface roughness
   (opt-in); crystallite size (isotropic, with uniaxial in the core only) and
   microstrain (isotropic,
@@ -247,10 +281,17 @@ approximate, however plausible its output looks.
 
 **Supported**
 - Atoms that share one site (mixed occupancy — for example the six 3d cations
-  of the high-entropy tungstate) refine with a tied position and ADP and an
-  automatic Σ(occupancy) restraint, optionally constrained to exactly 1. In a
-  magnetic refinement their moments can be tied too. Each tie is a toggle that
-  appears when the structure has a shared site.
+  of the high-entropy tungstate) refine with a tied position and ADP, and on
+  the powder and PDF pages their occupancies sum to exactly the site's total
+  by a constraint: the last occupancy (in file order) follows the total minus
+  the others. The total is 1 unless the user sets a vacancy (Occupancy group;
+  `set_site_ties` `totals` for the Agent on the powder page, not yet on the PDF
+  page). A last occupancy driven outside [0, 1] is warned of, never clamped.
+  MCP's powder tools keep a soft Σ restraint. In a magnetic refinement their
+  moments can be tied too. One diffraction pattern or G(r) sees a shared
+  site's species only through their summed scattering: with three or more
+  species free, most combinations are not determined, and the fit reports
+  them as undetermined.
 
 **Not yet**
 - Split (positional) disorder; anti-site exchange between different sites;
@@ -287,7 +328,9 @@ approximate, however plausible its output looks.
   against FullProf on DyMn₆Ge₆ (γ = 0.1648(7) vs 0.16509(43)). Single-crystal
   and magnetic-PDF refinements keep k fixed.
 - mCIF (BNS) import and export. Moment components are given along the
-  normalized crystal axes.
+  normalized crystal axes. The older magCIF spellings Jana2006 writes
+  (`_space_group_symop.magn_operation_xyz`, `_atom_site_moment_label`) read
+  like the DDLm ones.
 - Checks: the cosine/sine formalism reproduces a brute-force sum over the
   magnetic supercell, for primitive and for C-, I- and F-centred parents; a
   simple antiferromagnet at k = (0, 0, ½) is recovered end to end; MnO
@@ -295,7 +338,26 @@ approximate, however plausible its output looks.
   F-centred satellites; at k = 0 the moment sizes match GSAS-II; and |F_M|²
   matches GSAS-II reflection by reflection on the Mn₃Ga 350 K data.
 
+- Strong magnetic peaks on the nuclear lines (k = 0). The nuclear model alone
+  takes up k = 0 magnetic intensity: on the simulated Mn₃Ga 30 K pattern
+  (Example 3) the B's of a nuclear-only ADP stage came out 3–6× too large and
+  the scale 50 % too large, at a "good" GoF of 2.1. The Agent's tools read the
+  signature (a neutron pattern of magnetic ions with its misfits on nuclear
+  reflections at large d, weighted by significance; `find_unexplained_peaks`'
+  `k0Magnetic`): `magnetic_state` names the peaks to include in the k-search
+  (they sit on nuclear lines, which the search leaves out by default),
+  `diagnose_fit` puts the k = 0 check before its ADP and structure advice, and
+  `refine` cautions while B's or positions are free against it with no magnetic
+  model on the page. Held until the moments are in and then refined with them,
+  the B's, positions, scale and moments land within 1.3σ of the simulated
+  values. Lines that sit between the nuclear ones (k ≠ 0) are routed to the
+  k-search by `diagnose_fit`'s unexplained-peak cause.
+
 **Approximate**
+- The k = 0 guard is advice, not a rule: the method's order (ADPs before the
+  magnetic step) is the user's. It does not apply to k ≠ 0 satellites that
+  overlap nuclear lines by accident in d, where a nuclear-first fit can still
+  pull the positions toward the magnetic intensity on those lines.
 - The magnetic form factor is spin-only ⟨j0⟩ everywhere: structure factors,
   the GPU kernel and magnetic PDF. The dipole correction with ⟨j2⟩, needed when
   the orbital moment matters (g ≠ 2), is not applied yet.
@@ -306,8 +368,12 @@ approximate, however plausible its output looks.
   no weight. Each family's |F_M|² is evaluated at one of its arm members, not
   averaged over the family.
 - The k-search ranks candidates by peak positions, not intensities, and it
-  proposes commensurate k only (denominators 2, 3, 4 and 6). Type an
-  incommensurate k in by hand.
+  proposes commensurate k only (denominators 2, 3, 4 and 6; in a cell with an
+  angle off 90° the mixed-sign ones too, such as (¼ 0 −¼)). Type an
+  incommensurate k in by hand. It predicts satellites out to the smallest d
+  given, up to index ±24 along an axis, so on a cell over about 15 Å the
+  satellites below d ≈ a/24 are not all predicted; that close, they crowd
+  too densely to tell one k from another anyway.
 - An incommensurate model exports as an mCIF of the parent cell, with the cosine
   amplitudes in the moment loop and the sine amplitudes as comments — not as a
   superspace mCIF. (A commensurate k ≠ 0 exports as the magnetic supercell in its
@@ -378,15 +444,37 @@ approximate, however plausible its output looks.
   family, not both (the UI warns).
 - Qdamp and Qbroad are instrument constants: calibrate them on a standard, then
   hold them fixed.
+- The peak shape differs from PDFfit2's (PDFgui, diffpy-CMI) in one
+  convention. MATERIA gives each pair's Gaussian a factor 1/r_ij; PDFfit2
+  divides the summed Gaussians by r, which leans each peak toward low r by
+  about σ²/r_ij. The curves differ by about 1 % of the rms G(r), mostly at low
+  r, and PDFfit2's refined cell comes out slightly larger (75 ppm, 3 esds, on
+  the GaTa₄Se₈ demo). The Qmax termination also differs in algorithm, by a
+  ripple of about 0.1 % of G(r). The PDFgui / diffpy-CMI bundle's README gives
+  the details.
 
 Conventions are pinned in
 [`knowledge/total_scattering_pdf_conventions_knowledge.md`](../knowledge/total_scattering_pdf_conventions_knowledge.md).
 
 **Not yet**
-- Zone-boundary (cell-multiplying) modes and klassengleiche subgroups: the
-  distortion workflow is translationengleiche only (planned in
-  [PLAN_SUBGROUPS_AND_INCOMMENSURATE.md](./PLAN_SUBGROUPS_AND_INCOMMENSURATE.md),
-  Track A). ADP and strain symmetry modes.
+- Cell-multiplying distortions: irreps, isotropy subgroups and subgroups
+  only within the conventional cell (Γ and the decentring k-points of a
+  centred parent, ADR 0002's Phase-1 bound). Primitive-cubic X, M, R, F's L
+  and W, and every k-subgroup that enlarges the cell need the supercell
+  engine (Phase 2). ADP, strain and occupancy symmetry modes.
+- Irrep labels are generic (the k-point, "irrep n of m"): no CDML labels such
+  as X3⁺ ([ADR 0004](./adr/0004-generic-irrep-labels-in-the-app.md)).
+  Order-parameter directions are written in MATERIA's irrep basis and can
+  differ from ISODISTORT's symbols for the same subgroup.
+- Mode amplitudes: the refined parameter is still normalized over the
+  conventional child cell. ISODISTORT's A_s and A_p are shown beside it. The
+  parameter's unit changes after the agent validation freeze
+  ([ADR 0003](./adr/0003-isodistort-as-the-single-convention-system.md)).
+- The `build_symmetry_modes` tool (and the Γ activation) projects out a
+  rigid translation along any direction every site allows. For a non-polar
+  group whose sites all share one such direction, that removes a genuine
+  mode. The decentring activations keep it. The fix waits on the validation
+  freeze.
 - Multi-dataset co-refinement from the UI or the agent tools.
 - Magnetic PDF in the `refine_pdf_boxcar` and `sample_posterior` agent tools.
   The PDF page's Boxcar and Posterior views handle it.
@@ -420,6 +508,12 @@ Conventions are pinned in
 - A FullProf + GSAS-II cross-check bundle of the refined structure: a CW or
   TOF `.pcr`, plus your original data and instrument files, unchanged. The
   agent tools write it too (`export_bundle`).
+- A PDFgui / diffpy-CMI cross-check bundle of a PDF fit (Export ▾ on the PDF
+  page). It holds every phase as a PDFfit `.stru` (the whole cell) and a CIF,
+  the G(r), and a PDFfit2 script that refines exactly the free parameters,
+  with every atom tied through its symmetry operation, and compares the two
+  results. A script has PDFgui write its `.ddp`, and the README gives the
+  conventions. The agent tools do not write it.
 
 **Approximate**
 - The `.pcr` starts scale, background and the constant-wavelength peak shape
@@ -429,6 +523,10 @@ Conventions are pinned in
   follows GSAS-II's reader and is covered by synthetic tests only.
 - A `CONST` bank is read as constant wavelength. A rare constant-step TOF
   `CONST` bank needs its unit set by hand.
+- Mantid `XYDATA` exports (`SaveFocusedXYE`, POWGEN `.dat`) are read as plain
+  x y σ columns, the TOF unit taken from their `#` header. Their abscissa is
+  the focused TOF (difC·d), and the file carries no calibration: load the
+  frame's `.instprm` with it. Checked on one real POWGEN file (local data).
 
 **Not yet**
 - CIF: DDLm-style dotted names for the cell and atom sites

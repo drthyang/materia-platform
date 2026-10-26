@@ -38,7 +38,8 @@ export function isRef(v: unknown): v is RefObject {
   return isPlainObject(v) && typeof v[REF_KEY] === "string" && REF_PATTERN.test(v[REF_KEY]);
 }
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
+/** A JSON object: not null, not an array. */
+export function isPlainObject(v: unknown): v is Record<string, unknown> {
   return v !== null && typeof v === "object" && !Array.isArray(v);
 }
 
@@ -63,6 +64,11 @@ export class RefStore {
       this.entries.delete(oldest);
     }
     return `#${n}`;
+  }
+
+  /** Forget every stored output. The numbering goes on, so a ref from before reads as gone, never as another call's. */
+  clear(): void {
+    this.entries.clear();
   }
 
   /**

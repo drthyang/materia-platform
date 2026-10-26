@@ -117,7 +117,9 @@ export function patternFigureSvg(c: FigureCurves, o: PatternFigureOptions): stri
   const n = c.x.length;
   if (n === 0) return "";
   const W = 1000;
-  const L = 68;
+  const rows = (o.ticks ?? []).filter((r) => r.x.length > 0);
+  // Room on the left for the longest tick-row label (a phase's name), within reason.
+  const L = Math.min(190, Math.max(68, 16 + 6.6 * Math.max(0, ...rows.map((r) => [...r.label].length))));
   const R = 16;
   const T = 14;
   const H1 = 300;
@@ -125,7 +127,6 @@ export function patternFigureSvg(c: FigureCurves, o: PatternFigureOptions): stri
   const H2 = 86;
   const TICK_H = 14;
   const AX = 40;
-  const rows = (o.ticks ?? []).filter((r) => r.x.length > 0);
   const tickBlock = rows.length > 0 ? 8 + rows.length * TICK_H : 0;
   const H = T + H1 + GAP + H2 + tickBlock + AX;
 
@@ -215,7 +216,9 @@ export function patternFigureSvg(c: FigureCurves, o: PatternFigureOptions): stri
   for (const it of [...items].reverse()) {
     const w = it.label.length * 6.6 + 30;
     lx -= w;
-    s += `<line class="${it.cls === "obs" ? "obsline" : it.cls}" x1="${px(lx)}" x2="${px(lx + 16)}" y1="${px(ly)}" y2="${px(ly)}"/>`;
+    s += it.cls === "obs" && dots
+      ? `<path class="obs" d="M${px(lx + 4)} ${px(ly)}h0M${px(lx + 12)} ${px(ly)}h0"/>`
+      : `<line class="${it.cls === "obs" ? "obsline" : it.cls}" x1="${px(lx)}" x2="${px(lx + 16)}" y1="${px(ly)}" y2="${px(ly)}"/>`;
     s += `<text class="legend" x="${px(lx + 21)}" y="${px(ly + 3.5)}">${esc(it.label)}</text>`;
   }
 

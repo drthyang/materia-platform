@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { parametersChangedSince, powderChecks, singleCrystalChecks, verdictFrom } from "@/core/diagnostics/validationChecks";
+import { assessRefinement } from "@/core/diagnostics/assessment";
+import { CORRELATION_LIMIT } from "@/core/diagnostics/thresholds";
 import type { PowderValidation } from "@/core/diagnostics/powderValidation";
 import type { ScValidation } from "@/core/diagnostics/singleCrystalValidation";
 import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
@@ -87,6 +89,18 @@ describe("powderChecks", () => {
     const v = powderChecks({ validation: powder(), unindexed: [], result: r, parameters: params });
     expect(v.checks.find((c) => c.id === "correlation")!.detail).toBe("scale / B1 0.97");
     expect(v.checks.find((c) => c.id === "conditioning")!.status).toBe("warn");
+  });
+
+  it("warns about a correlation where the engine's assessment does and the Agent's guard refuses: one limit (it once warned only above 0.98)", () => {
+    const at = (coefficient: number) => result({ scale: 1, B1: 0.5 }, {
+      diagnostics: { svdZeroCount: 0, singularParameterIds: [], conditionNumber: 1e3, highCorrelations: [{ parameterIdA: "scale", parameterIdB: "B1", coefficient }], maxLambda: 1, atBounds: [], maxShiftOverEsd: 0.01 },
+    });
+    const tab = (coefficient: number) => powderChecks({ validation: powder(), unindexed: [], result: at(coefficient), parameters: params }).checks.find((c) => c.id === "correlation");
+    const engine = (coefficient: number) => assessRefinement({ result: at(coefficient), parameters: params, observationCount: 1000 }).findings.find((f) => f.category === "correlation")?.severity;
+    expect(tab(CORRELATION_LIMIT)?.status).toBe("warn");
+    expect(engine(CORRELATION_LIMIT)).toBe("warning");
+    expect(tab(CORRELATION_LIMIT - 0.01)).toBeUndefined();
+    expect(engine(CORRELATION_LIMIT - 0.01)).not.toBe("warning");
   });
 });
 

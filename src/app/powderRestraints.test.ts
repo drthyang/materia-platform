@@ -47,15 +47,18 @@ describe("occupancy restraints from the site ties", () => {
     expect(r[0]!.sigma).toBeCloseTo(0.16);
   });
 
-  it("sends only restraints over a free occupancy, phase-prefixed when multi-phase", () => {
+  it("sends only restraints over an occupancy that moves, phase-prefixed when multi-phase; a shared site's Σ is a tie, not a restraint", () => {
     const s = parseCif(spinel(0, 0.25));
     const spec = buildPowderSpec(s, { id: "p", name: "p", xUnit: "twoTheta", radiation: { kind: "neutron", wavelength: 1.54 }, points: [{ x: 10, yObs: 1 }, { x: 20, yObs: 1 }] }, NEUTRON);
-    const occFree = spec.params.map((p) => (p.id === "occ_Al1" ? { ...p, fixed: false } : { ...p, fixed: p.kind === "occupancy" ? true : p.fixed }));
+    // Each site's last occupancy follows the other: Al1 = 1 − Mg1, Mg2 = 1 − Al2.
+    expect(spec.params.filter((p) => p.expression).map((p) => [p.id, p.expression, p.fixed])).toEqual([["occ_Al1", "= -1*occ_Mg1+1", true], ["occ_Mg2", "= -1*occ_Al2+1", true]]);
+    const occFree = spec.params.map((p) => (p.id === "occ_Mg1" ? { ...p, fixed: false } : { ...p, fixed: p.kind === "occupancy" ? true : p.fixed }));
     expect(powderRestraints([s], { composition: true }, spec.params.map((p) => ({ ...p, fixed: true })))).toEqual([]);
-    expect(powderRestraints([s], { composition: true }, occFree).map((r) => r.id)).toEqual(["occ_sum_Mg1", "comp_Al"]);
-    expect(powderRestraints([s], {}, occFree).map((r) => r.id)).toEqual(["occ_sum_Mg1"]);
-    const multi = powderRestraints([s, s], {}, occFree.map((p) => ({ ...p, id: `p1_${p.id}` })));
-    expect(multi.map((r) => [r.id, r.terms.map((t) => t.parameterId)])).toEqual([["p1_occ_sum_Mg1", ["p1_occ_Mg1", "p1_occ_Al1"]]]);
+    // Mg1 moves comp_Mg directly and comp_Al through Al1, which follows it.
+    expect(powderRestraints([s], { composition: true }, occFree).map((r) => r.id)).toEqual(["comp_Mg", "comp_Al"]);
+    expect(powderRestraints([s], {}, occFree)).toEqual([]);
+    const multi = powderRestraints([s, s], { composition: true }, occFree.map((p) => ({ ...p, id: `p1_${p.id}`, ...(p.expression ? { expression: p.expression.replace(/occ_/g, "p1_occ_") } : {}) })));
+    expect(multi.map((r) => [r.id, r.terms.map((t) => t.parameterId)])).toEqual([["p1_comp_Mg", ["p1_occ_Mg1", "p1_occ_Mg2"]], ["p1_comp_Al", ["p1_occ_Al1", "p1_occ_Al2"]]]);
   });
 
   it("refines a spinel's inversion from a normal-spinel start, with the composition held", () => {
@@ -71,10 +74,11 @@ describe("occupancy restraints from the site ties", () => {
     };
     const start = parseCif(spinel(0, 0.2618));
     const spec = buildPowderSpec(start, pattern, NEUTRON, true, 2);
-    const free = new Set(["scale", "bkg0", "occ_Mg1", "occ_Al1", "occ_Al2", "occ_Mg2"]);
+    // Al1 and Mg2 follow their sites' others (a tie, where the soft Σ restraints were), so two occupancies refine.
+    const free = new Set(["scale", "bkg0", "occ_Mg1", "occ_Al2"]);
     const parameters = spec.params.map((p) => ({ ...p, fixed: !free.has(p.id) }));
     const restraints = powderRestraints([start], { composition: true }, parameters);
-    expect(restraints).toHaveLength(4);
+    expect(restraints.map((r) => r.id)).toEqual(["comp_Mg", "comp_Al"]);
     const r = runPowderRefinement({ type: "refinePowder", requestId: 0, structure: start, pattern, parameters, bindings: spec.bindings, shape: spec.profile.shape, restraints, options: { maxIterations: 30 } });
     const v = r.parameters;
     expect(v.occ_Al1).toBeCloseTo(0.22, 2);

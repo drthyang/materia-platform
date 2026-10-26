@@ -1,6 +1,7 @@
 /**
- * The Agent tools of the powder page's magnetic analysis step: each one the
- * panel's own control, through its handle (magneticPort.ts). The step's
+ * The Agent tools of the powder page's magnetic analysis step: each one a
+ * change of the step's store, the one the panel renders, through its handle
+ * (magneticPort.ts). The step's
  * method is the magnetic-analysis skill: the nuclear structure refined first,
  * k from the peaks the nuclear model leaves, the magnetic groups of the
  * little group of k top-down, the moments fitted, then nuclear and magnetic
@@ -10,16 +11,18 @@
 import { RANK_RESTARTS } from "@/core/magnetic/momentRestarts";
 import type { Vec3 } from "@/core/math/types";
 import type { PowderAgentPort } from "@/agent/port";
+import { liveTool, type MagneticChangeTool } from "@/agent/tools";
 import type { MagneticAgentHandle, MagneticCandidateView, MagneticPanelState } from "@/agent/magneticPort";
-import { sig } from "@/agent/liveCommon";
+import { pct, sig, type ChangeResult } from "@/agent/liveCommon";
+import { change, nothing, type Plans } from "@/agent/pages/plans";
+import { PEAK_CRITERIA } from "@/app/magneticStep";
+import { k0MagneticHint } from "@/core/diagnostics/assessment";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- inputs are validated against the spec's zod schema before a handler runs */
 type Input = any;
 
-export const MAGNETIC_SKILL = "magnetic-analysis";
-const READS = new Set(["magnetic_state", "search_propagation_vector", "rank_magnetic_groups"]);
-const CHANGES = new Set(["set_propagation_vector", "select_magnetic_ions", "set_moment_ties", "choose_magnetic_group", "refine_moments", "show_magnetic_model", "continue_magnetic_refinement"]);
-export const isMagneticTool = (name: string): boolean => READS.has(name) || CHANGES.has(name);
+/** A tool of the magnetic step (its definition says so). */
+export const isMagneticTool = (name: string): boolean => !!liveTool(name)?.magneticStep;
 
 function handleOf(port: PowderAgentPort): MagneticAgentHandle {
   const h = port.magnetic?.();
@@ -27,10 +30,13 @@ function handleOf(port: PowderAgentPort): MagneticAgentHandle {
   return h;
 }
 
-/** A k component as written: a number, or a fraction such as "1/2". */
+/** The fraction glyphs a k label prints (kSearch.ts kLabel), as fractions. */
+const K_GLYPH: Readonly<Record<string, string>> = { "½": "1/2", "⅓": "1/3", "⅔": "2/3", "¼": "1/4", "¾": "3/4", "⅙": "1/6", "⅚": "5/6" };
+
+/** A k component as written: a number, or a fraction such as "1/2" — and whatever a k label prints ("−¼", "⅔", "4/3"). */
 export function kComponent(v: number | string): number {
   if (typeof v === "number") return v;
-  const t = v.trim().replace("½", "1/2").replace("⅓", "1/3").replace("¼", "1/4");
+  const t = v.trim().replace(/[−–]/g, "-").replace(/[½⅓⅔¼¾⅙⅚]/g, (g) => K_GLYPH[g]!);
   const frac = /^(-?\d+)\s*\/\s*(\d+)$/.exec(t);
   const x = frac ? Number(frac[1]) / Number(frac[2]) : Number(t);
   if (!Number.isFinite(x)) throw new Error(`"${v}" is not a k component (a number or a fraction such as 1/2)`);
@@ -61,7 +67,6 @@ function candidateRow(c: MagneticCandidateView): Record<string, unknown> {
   };
 }
 
-const pct = (f: number): number => Math.round(f * 10000) / 100;
 
 /**
  * The magnetic analysis's own next step, from where the step stands: the
@@ -70,13 +75,32 @@ const pct = (f: number): number => Math.round(f * 10000) / 100;
  * that read only get_state's powder checklist went back to the fit range).
  */
 export function magneticNext(s: MagneticPanelState): string {
-  if (!s.peaks.some((p) => p.included)) return "no residual peak is used for the k-search: include the magnetic peaks (search_propagation_vector `include`), or the nuclear fit leaves none and there is nothing magnetic to find";
+  if (!s.peaks.some((p) => p.included)) {
+    const k0 = k0Peaks(s);
+    if (k0) {
+      return `no residual peak is used for the k-search, and the strong ones sit on nuclear reflections, most of their excess at large d (#${k0.join(", #")}): on neutron data that is the k = 0 signature, magnetic intensity on the nuclear lines (find_unexplained_peaks' k0Magnetic). Include them (search_propagation_vector include [${k0.join(", ")}]) or set_propagation_vector [0, 0, 0], then rank_magnetic_groups (at k = 0 the scale refines with the moments). Hold the B's and positions until the moments are in: refined against the nuclear model alone they take up the magnetic intensity`;
+    }
+    return "no residual peak is used for the k-search: include the magnetic peaks (search_propagation_vector `include`), or the nuclear fit leaves none and there is nothing magnetic to find";
+  }
   if (!s.kSearch) return "search_propagation_vector: the k that indexes the residual peaks";
   if (!s.selected) return s.best === null
     ? "set_propagation_vector to the k the search supports (the simplest of equal fits), then rank_magnetic_groups"
     : `choose_magnetic_group (the ranking's best: ${s.best}), then refine_moments`;
   if (s.selected.fitAgreement === null) return "refine_moments: fit the chosen group's moments, the nuclear model held";
   return "the moments are fitted: refine the nuclear and magnetic models together on the refinement step, then report the group, k and the moments with what the powder cannot tell";
+}
+
+/**
+ * The k = 0 signature in the step's peak table: no peak is included, and the
+ * ones left out only for sitting on a nuclear reflection (5σ or more) carry
+ * most of their excess at large d (k0MagneticHint's rule). Their row numbers,
+ * or null.
+ */
+export function k0Peaks(s: MagneticPanelState): number[] | null {
+  if (s.peaks.some((p) => p.included)) return null;
+  const onNuclear = s.peaks.filter((p) => !p.manual && p.near !== undefined && (p.sigmas === undefined || p.sigmas >= PEAK_CRITERIA.minSig));
+  // The step exists for magnetic ions; neutron data is the reading's premise (the text says so).
+  return k0MagneticHint(true, onNuclear.map((p) => ({ d: p.d, ...(p.sigmas !== undefined ? { significance: p.sigmas } : {}) }))) ? onNuclear.map((p) => p.n) : null;
 }
 
 /** The step as the model reads it: compact, the candidates that can carry a moment first. */
@@ -127,12 +151,11 @@ export function magneticView(s: MagneticPanelState): Record<string, unknown> {
 }
 
 /**
- * Run a read tool on the magnetic step. The step publishes a fresh handle on
- * every render, its state() fixed at that render: after an await (the ranking
- * fits each group), read through a handle taken after the page has rendered
- * (`settle`), or the answer is the state from before the call.
+ * Run a read tool on the magnetic step. Its handle is the step's own, one
+ * object for the panel's life (app/magneticStep.ts), so it reads the step as it
+ * is, after an await too (the ranking fits each group).
  */
-export async function readMagneticTool(name: string, input: Input, port: PowderAgentPort, settle: () => Promise<void> = async () => undefined): Promise<unknown> {
+export async function readMagneticTool(name: string, input: Input, port: PowderAgentPort): Promise<unknown> {
   const h = handleOf(port);
   switch (name) {
     case "magnetic_state":
@@ -160,11 +183,9 @@ export async function readMagneticTool(name: string, input: Input, port: PowderA
     case "rank_magnetic_groups": {
       const scope = (input.scope as "open" | "all" | undefined) ?? "open";
       port.openStep?.(1);
-      await settle();
       const restarts = typeof input.restarts === "number" ? input.restarts : RANK_RESTARTS;
-      await handleOf(port).rank(scope, restarts);
-      await settle();
-      return { ranked: scope, restarts, ...rankView(handleOf(port).state()) };
+      await h.rank(scope, restarts);
+      return { ranked: scope, restarts, ...rankView(h.state()) };
     }
     default:
       throw new Error(`${name} is not a magnetic read tool`);
@@ -176,98 +197,100 @@ function rankView(s: MagneticPanelState): Record<string, unknown> {
   return {
     groups: fitted.map(candidateRow),
     ...(s.best ? { best: s.best } : {}),
+    ...(s.withinNoise.length ? { withinNoise: s.withinNoise } : {}),
     ...(s.baselineAgreement !== null ? { nuclearOnlyWR: pct(s.baselineAgreement) } : {}),
     reading: s.best
-      ? `${s.best} fits best (ties go to the maximal group with the fewest moment parameters). A powder often cannot tell several groups apart: say which fit within the noise of the best, and choose the maximal one unless the data say otherwise.`
+      ? `${s.withinNoise.length > 1 ? `${s.withinNoise.length} groups fit within the noise of the best (${s.withinNoise.join(", ")}: a group with more moment parameters must lower χ² beyond the noise, Hamilton's test at 5 %), and ${s.best} is the maximal one with the fewest moment parameters among them.` : `${s.best} fits best, beyond the noise of every other group.`} A powder often cannot tell several groups apart: say which fit within the noise of the best, and choose ${s.best} unless the data say otherwise.`
       : "No candidate could be fitted.",
   };
 }
 
-/** Why a change would do nothing, or null. */
-export function magneticNoOp(name: string, input: Input, port: PowderAgentPort): string | null {
-  const s = handleOf(port).state();
-  if (name === "set_propagation_vector") {
-    const k = (input.k as (number | string)[]).map(kComponent);
-    return k.every((c, i) => Math.abs(c - s.k[i]!) < 1e-9) ? `k is already ${kText(s.k)}` : null;
-  }
-  if (name === "select_magnetic_ions") {
-    const want = new Set(input.sites as string[]);
-    const have = new Set(s.ions.filter((i) => i.selected).map((i) => i.label));
-    return want.size === have.size && [...want].every((l) => have.has(l)) ? "those ions are already the chosen ones" : null;
-  }
-  if (name === "choose_magnetic_group") return s.selected?.id === String(input.id).trim().toUpperCase() ? `${s.selected.id} is already chosen` : null;
-  if (name === "set_moment_ties") {
-    if (input.sameSite === undefined && input.magnitudes === undefined) throw new Error("pass `sameSite`, `magnitudes`, or both");
-    const same = input.sameSite === undefined || input.sameSite === s.ties.sameSite;
-    const mags = input.magnitudes === undefined || (input.magnitudes === "off" ? s.ties.magnitudes === false : input.magnitudes === s.ties.magnitudes);
-    return same && mags ? "the moment ties are already set so" : null;
-  }
-  return null;
+/** A change on the step, through its handle (one for the step's life), with the step's tab open. */
+function onStep(port: PowderAgentPort, make: (h: MagneticAgentHandle) => ChangeResult | Promise<ChangeResult>): () => ChangeResult | Promise<ChangeResult> {
+  return () => {
+    const h = handleOf(port);
+    port.openStep?.(1);
+    return make(h);
+  };
 }
 
-/** One line for the approval card. */
-export function describeMagneticChange(name: string, input: Input, port: PowderAgentPort): string {
-  const s = handleOf(port).state();
-  switch (name) {
-    case "set_propagation_vector":
-      return `Propagation vector ${kText(s.k)} → ${kText((input.k as (number | string)[]).map(kComponent) as unknown as Vec3)}`;
-    case "select_magnetic_ions":
-      return `Magnetic ions: ${(input.sites as string[]).join(", ")}`;
-    case "set_moment_ties":
-      return [
-        ...(input.sameSite !== undefined ? [`same-site moments ${input.sameSite ? "tied" : "independent"}`] : []),
-        ...(input.magnitudes !== undefined ? [`|M| tie ${input.magnitudes}`] : []),
-      ].join(" · ");
-    case "choose_magnetic_group": {
-      const c = s.candidates.find((x) => x.id === String(input.id).trim().toUpperCase());
-      return `Magnetic group ${String(input.id)}${c ? ` (${c.symbol}, index ${c.index})` : ""}`;
-    }
-    case "refine_moments":
-      return s.selected ? `Fit the moments of ${s.selected.symbol} (${s.selected.parameters.length} amplitude${s.selected.parameters.length === 1 ? "" : "s"}), nuclear model held` : "Fit the moments";
-    case "show_magnetic_model":
-      return input.show === false ? "Remove the magnetic model from the refinement pattern" : `Show ${s.selected?.symbol ?? "the chosen model"} on the refinement pattern, moments held`;
-    case "continue_magnetic_refinement":
-      return `Add ${s.selected?.symbol ?? "the chosen model"}'s moment rows${input.refineK ? " and k" : ""} to the refinement page`;
-    default:
-      return name;
-  }
-}
-
-export async function changeMagnetic(name: string, input: Input, port: PowderAgentPort): Promise<string | undefined> {
-  const h = handleOf(port);
-  if (name !== "continue_magnetic_refinement") port.openStep?.(1);
-  switch (name) {
-    case "set_propagation_vector": {
-      const k = (input.k as (number | string)[]).map(kComponent);
+/**
+ * The step's changes, one plan each (pages/plans.ts), on the powder page's
+ * table (powderTools.ts): what the approval card says, read off the step as
+ * it stands, and the change through the step's store.
+ */
+export const MAGNETIC_PLANS: Pick<Plans<PowderAgentPort>, MagneticChangeTool> = {
+  set_propagation_vector: (input, _s, port) => {
+    const now = handleOf(port).state().k;
+    const k = input.k.map(kComponent);
+    if (k.every((c, i) => Math.abs(c - now[i]!) < 1e-9)) return nothing(`k is already ${kText(now)}`);
+    return change(`Propagation vector ${kText(now)} → ${kText(k as unknown as Vec3)}`, onStep(port, (h) => {
       h.setK([k[0]!, k[1]!, k[2]!]);
       return undefined;
-    }
-    case "select_magnetic_ions":
-      h.selectIons(input.sites as string[]);
+    }));
+  },
+  select_magnetic_ions: (input, _s, port) => {
+    const want = new Set(input.sites);
+    const have = new Set(handleOf(port).state().ions.filter((i) => i.selected).map((i) => i.label));
+    if (want.size === have.size && [...want].every((l) => have.has(l))) return nothing("those ions are already the chosen ones");
+    return change(`Magnetic ions: ${input.sites.join(", ")}`, onStep(port, (h) => {
+      h.selectIons(input.sites);
       return undefined;
-    case "set_moment_ties":
+    }));
+  },
+  set_moment_ties: (input, _s, port) => {
+    if (input.sameSite === undefined && input.magnitudes === undefined) throw new Error("pass `sameSite`, `magnitudes`, or both");
+    const { ties } = handleOf(port).state();
+    const same = input.sameSite === undefined || input.sameSite === ties.sameSite;
+    const mags = input.magnitudes === undefined || (input.magnitudes === "off" ? ties.magnitudes === false : input.magnitudes === ties.magnitudes);
+    if (same && mags) return nothing("the moment ties are already set so");
+    const preview = [
+      ...(input.sameSite !== undefined ? [`same-site moments ${input.sameSite ? "tied" : "independent"}`] : []),
+      ...(input.magnitudes !== undefined ? [`|M| tie ${input.magnitudes}`] : []),
+    ].join(" · ");
+    return change(preview, onStep(port, (h) => {
       h.setTies({
-        ...(input.sameSite !== undefined ? { sameSite: !!input.sameSite } : {}),
-        ...(input.magnitudes !== undefined ? { magnitudes: input.magnitudes === "off" ? false : (input.magnitudes as "element" | "all") } : {}),
+        ...(input.sameSite !== undefined ? { sameSite: input.sameSite } : {}),
+        ...(input.magnitudes !== undefined ? { magnitudes: input.magnitudes === "off" ? false : input.magnitudes } : {}),
       });
       return undefined;
-    case "choose_magnetic_group":
-      h.choose(String(input.id));
+    }));
+  },
+  choose_magnetic_group: (input, _s, port) => {
+    const s = handleOf(port).state();
+    const id = input.id.trim().toUpperCase();
+    if (s.selected?.id === id) return nothing(`${s.selected.id} is already chosen`);
+    const c = s.candidates.find((x) => x.id === id);
+    return change(`Magnetic group ${input.id}${c ? ` (${c.symbol}, index ${c.index})` : ""}`, onStep(port, (h) => {
+      h.choose(input.id);
       return undefined;
-    case "refine_moments": {
+    }));
+  },
+  refine_moments: (_input, _s, port) => {
+    const { selected } = handleOf(port).state();
+    const preview = selected ? `Fit the moments of ${selected.symbol} (${selected.parameters.length} amplitude${selected.parameters.length === 1 ? "" : "s"}), nuclear model held` : "Fit the moments";
+    return change(preview, onStep(port, async (h) => {
       const wR = await h.refineMoments();
       return wR === null ? "The moments fit did not run." : `Moments fitted: wR ${pct(wR)}%.`;
-    }
-    case "show_magnetic_model":
+    }));
+  },
+  show_magnetic_model: (input, _s, port) => {
+    const { selected } = handleOf(port).state();
+    const preview = input.show === false ? "Remove the magnetic model from the refinement pattern" : `Show ${selected?.symbol ?? "the chosen model"} on the refinement pattern, moments held`;
+    return change(preview, onStep(port, (h) => {
       h.apply(input.show !== false);
       return undefined;
-    case "continue_magnetic_refinement":
-      h.continueToRefinement(!!input.refineK);
+    }));
+  },
+  continue_magnetic_refinement: (input, _s, port) => {
+    const { selected } = handleOf(port).state();
+    // The refinement step is where it goes: the step's tab is not opened.
+    return change(`Add ${selected?.symbol ?? "the chosen model"}'s moment rows${input.refineK ? " and k" : ""} to the refinement page`, () => {
+      handleOf(port).continueToRefinement(!!input.refineK);
       return "The model's moment rows are on the refinement page, free; refine there fits nuclear and magnetic together.";
-    default:
-      throw new Error(`${name} is not a magnetic change tool`);
-  }
-}
+    });
+  },
+};
 
 /** What the step shows after a change, for the outcome. */
 export function magneticOutcome(name: string, port: PowderAgentPort): Record<string, unknown> {

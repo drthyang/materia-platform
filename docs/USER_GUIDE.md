@@ -16,7 +16,7 @@ app does not do is in [LIMITATIONS.md](./LIMITATIONS.md).
 
 ## 2. Open the app and try a demo
 
-Open [drthyang.github.io/web-refinement](https://drthyang.github.io/web-refinement/).
+Open [drthyang.github.io/materia-platform](https://drthyang.github.io/materia-platform/).
 The start page shows the **Structure**, **Data** and **Instrument** cards above
 **Start with a demo**.
 
@@ -29,7 +29,9 @@ The start page shows the **Structure**, **Data** and **Instrument** cards above
 - **PDF · GaTa₄Se₈ X-ray G(r)**: a real-space fit of synchrotron
   total-scattering data at 299 K, with the cubic average structure.
 - A third, magnetic demo (AWO₄) appears only in a local development build that
-  has the git-ignored data folder. Its data are unpublished.
+  has the git-ignored data folder. Its data are unpublished. It opens on the
+  magnetic page with its moments refined against the nuclear model, which is
+  held: only the moment rows are free.
 
 | Header control | What it does |
 | --- | --- |
@@ -120,12 +122,52 @@ keeps every row and its free or fixed choice (on every page).
 Open a group for its model controls:
 
 - **Background**: the **function** (such as **Chebyshev**) and its **terms**.
+  New data start on Chebyshev with 4 terms; POWGEN time-of-flight data (an
+  instrument file that names POWGEN or PG3, or a data file named `PG3_…`
+  with an instrument file that names no instrument; the Instrument card then
+  reads "POWGEN (guessed from the file name)") start on
+  **Log interpolate** with
+  3 points. Either is a starting choice: change it here, and a saved project
+  keeps the one it was saved with.
 - **ADPs (thermal)**: **anisotropic (U tensor)**, once an isotropic fit
   converges.
 - **Microstructure**: set **model** to **isotropic**, **uniaxial** (2θ data
   only) or **generalized** ([MICROSTRUCTURE.md](./MICROSTRUCTURE.md)).
 - **Shared site**, under the plot when atoms share a site: **tie position**,
-  **tie ADP** and **Σ occ = 1**.
+  **tie ADP** and **hold composition**. The site's occupancies always sum to
+  its total: the last one follows the others ("= tied"). Set a total below 1
+  (vacancies) in the **Occupancy** group; a last occupancy outside [0, 1] is
+  flagged under the parameters, never clamped. The PDF page does the same.
+
+### When a B refines to 0
+
+A B_iso that ends on its lower bound (0) has no meaningful esd, and usually
+absorbs an error elsewhere: check the background, absorption and the
+correlations first ([Judge a fit](#8-judge-a-fit)). The powder page then shows
+a ⚠ **B at its lower bound** notice over the parameter list. It names the atom,
+the B it reached, and the options, ranked, each with its source and its own
+**Apply**:
+
+- **Preferred: a tie to a site of the same element** that refined sensibly
+  (O2 → O1). The common B still refines.
+- **Alternatives: a tie to another cation with the same coordination** (as many
+  of the same ligands), labelled with both species and a caution such as
+  "a different cation (W⁶⁺ vs Co²⁺): check it is physically sensible".
+- **Alternative: the starting structure's B** for that site (a CIF's U_iso is
+  read as B = 8π²U), held fixed. It is used as it stands: the app has no
+  temperature model for B.
+- **No value**, when there is none of these. The app has no documented table
+  of typical B values, so it proposes none, and never an arbitrary floor.
+
+Nothing changes until you choose. The Agent's `apply_adp_proposal` picks an
+option of this list: asking first, its card shows every option with its pick
+preselected, and you may pick another or decline. In auto mode its pick
+applies without a card, and the notice, the History and the report say it was
+the Agent's choice in auto mode, with the options not taken.
+Applied, the row is an ordinary **= tied** or fixed row, saved like any other,
+and listed under **Limitations** in the report. **Release** (or ⌘Z) frees it
+again. If a conclusion rests on that B, sample its posterior first
+(**Posterior** view).
 
 ### When the fit is stuck
 
@@ -168,12 +210,48 @@ magnetic model are steps too. Loading a new dataset starts a new history.
 
 - Drag the blue handles on the plot to set the fit window. **Reset range**
   returns to the whole pattern, and **optimize view** zooms onto the window.
-- Drag across the plot to zoom, and double-click to zoom out. Click a Bragg
-  tick for its (hkl). The unit buttons (**2θ**, **d**, **Q**, **TOF**) change
-  the axis only.
+- Click a Bragg tick to spotlight its (hkl). The unit buttons (**2θ**,
+  **d**, **Q**, **TOF**) change the axis only.
 - To add a phase, load the data, then click **Add CIF…**. Each phase gets its
   own scale, cell, atoms and tick row; the profile and background are shared.
   Click **×** on a phase badge to remove it.
+
+### Zoom, pan and the cursor readout
+
+The pattern, the G(r) plot, the magnetic page's pattern and the S(Q) view all
+work the same way. The line under each plot names the main gestures for your
+device (⌘ on a Mac, Ctrl elsewhere, a pinch on a touch screen); hover, focus
+or tap it for the rest. The 3D models carry the same kind of line beside
+their View a / b / c chip: scroll or pinch to zoom, drag to rotate, and
+right-drag, Shift + drag or two fingers to pan.
+
+- **Cursor.** Hover the plot. A vertical line marks the data point under the
+  pointer. The readout gives x in the axis unit (2θ °, TOF µs, d Å, Q Å⁻¹ or
+  r Å) to the precision of the data step, then obs (± σ when the file has
+  one), calc, diff, the background and any partial curves at that point.
+  Calc and diff are shown inside the fit window only, as they are drawn. On a
+  diffraction pattern it also lists the reflections within about 4 pixels of
+  the cursor, with phase, (hkl) and d. The readout only reads the data.
+- **Zoom.** Ctrl + scroll (⌘ + scroll on a Mac) or a trackpad pinch zooms x
+  about the cursor. Where the page around the plot scrolls, a plain scroll
+  scrolls the page, and the plot shows "Use Ctrl + scroll to zoom". Where the
+  plot fills a view that does not scroll, a plain scroll zooms. **+** and
+  **−** under the plot zoom about the centre.
+- **y.** y follows the data in view. **Shift + drag** a box to zoom to it: a
+  flat box (under 20 px tall) zooms x only, a taller box also fixes y to the
+  box. **y auto** fixes the y range shown, and **y fixed** releases it.
+- **Pan.** Drag the plot, or scroll sideways on a trackpad (Shift + scroll
+  with a mouse). Panning stops at the ends of the data.
+- **Reset.** **Reset**, a double-click, or the **0** key shows the whole
+  range with y automatic.
+- **Keyboard.** Tab to the plot (it shows a blue focus ring). **+** and **−**
+  zoom, **←** and **→** pan a tenth of the view, **Shift + ←/→** step the
+  cursor one data point, **0** resets and **Esc** hides the cursor. A screen
+  reader announces the readout.
+- **Touch.** One finger scrolls the page up and down and pans the plot
+  sideways. Two fingers pinch-zoom. A tap shows the readout there.
+- The zoom is kept through refinements and recalculations. It resets when
+  you load other data or change the x unit. It is not saved in the project.
 
 ## 5. Magnetic structures
 
@@ -183,7 +261,9 @@ and refines the symmetry-allowed moments
 powder; [Single crystal and PDF](#single-crystal-and-pdf) lists what differs.
 
 Refine the nuclear structure first, so the residual isolates the magnetic
-intensity. Then click **Magnetic analysis →** or the **Magnetic** chip.
+intensity. Then click **Magnetic analysis →** or the **Magnetic** chip. On a
+desktop the steps scroll beside the pattern and the 3D model, which stay in
+view.
 
 ### Steps 1 and 2: magnetic ions and k
 
@@ -191,7 +271,9 @@ In **Magnetic ions**, click a site to include or exclude it. In
 **Propagation vector k**:
 
 1. Read **Detected residual peaks**. Each peak is numbered #n in the table and
-   on the pattern.
+   on the pattern. A long table shows its six strongest peaks and every peak
+   in the search; **Show all … peaks** lists the rest. **near** gives the
+   nuclear reflection a peak sits on, with its phase when there are several.
 2. Choose the peaks for the search with **I/σ ≥**,
    **include peaks at nuclear positions** and each peak's **use** box. To add a
    missed peak, click **+ Add peak from plot**, then the pattern.
@@ -239,8 +321,9 @@ residual before you trust any moments.
 
 The **Powder pattern** card draws the nuclear fit plus the selected candidate's
 magnetic intensity, which also appears alone as the **magnetic** curve. Tick
-rows mark where k allows satellites (**G ± k**), where the group keeps them
-(**allowed**) and the unexplained peaks (**residual**). A plausible k puts a
+rows mark each phase's reflections (**nuclear** for a single phase), where k
+allows satellites (**G ± k**), where the group keeps them (**allowed**) and the
+unexplained peaks (**residual**). A plausible k puts a
 **G ± k** tick under every residual peak. A plausible group keeps those peaks in
 the **allowed** row.
 
@@ -357,21 +440,74 @@ workbench fits reduced data; it does not reduce raw intensities.
 
 ### Symmetry modes and subgroups
 
-- Under **Parameterization**, switch **Constrained atomic** to
-  **Irreps (modes)**. The mode amplitudes come from the structure's own space
-  group and start at 0.
-- In the **3D Model** view, **Load parent CIF…** decomposes the structure
-  against a high-symmetry parent. Click a **Distortion modes** row to draw the
-  mode as green arrows; **✕ clear** returns to coordinates.
-- **Potential Γ modes · subgroup tree**, in the same view, lists the
-  symmetry-breaking irreps. **Activate → …** lowers to that isotropy subgroup
-  and frees the mode with a small starting amplitude.
-- The **Subgroups** view lists the translationengleiche subgroups.
-  **Activate ↓** lowers to one and loads its modes, fixed at 0, into
-  **Positions**. A polar mode needs **Prefit ↻** to leave zero.
+The **Subgroups** view is where you choose the symmetry; the **3D Model** view
+shows the modes being refined.
 
-These tools need a single phase, and offer cell-preserving (Γ) modes only
-([LIMITATIONS.md](./LIMITATIONS.md#real-space-pdf-and-magnetic-pdf)).
+- To keep the structure's symmetry, switch **Constrained atomic** to
+  **Irreps (modes)** under **Parameterization**. The mode amplitudes come from
+  the structure's own space group and start at 0.
+- To lower it, open the **Subgroups** view. Each choice loads the distortion
+  modes it permits into **Positions**:
+  - **Potential Γ modes · irreps** lists the symmetry-breaking irreps, with
+    their dimension and optic and acoustic mode counts, and each irrep's
+    isotropy subgroups: one per order-parameter direction, the one-parameter
+    directions first (for a cubic perovskite's polar irrep, P4mm, R3m and
+    Amm2), then the lower ones down to a general direction (marked
+    "general"). **Activate → …** lowers to that isotropy subgroup and frees
+    the mode with a small starting amplitude.
+  - **Decentring modes · irreps (same cell)** appears for a centred parent
+    (F, I, C, A, B, or R on hexagonal axes). It lists the irreps at the
+    k-points the centring makes zone-boundary but the conventional cell still
+    holds: X for F, H for I, (0,1,0) for C, (0,0,1) for R. A distortion there
+    loses centring translations and keeps the cell, so it refines as it
+    stands. The irreps are named generically, by the k-point and "irrep n of
+    m" ([ADR 0004](./adr/0004-generic-irrep-labels-in-the-app.md)). Each
+    **Activate → …** button names an isotropy subgroup and its
+    order-parameter direction, such as (a,a,a,−a,−a,−a). The direction is in
+    MATERIA's own irrep basis, which can differ from ISODISTORT's symbols.
+    The tooltip gives the index split as point group · translations. For
+    F-43m (GaTa₄Se₈, GaNb₄Se₈) the six-dimensional X irrep leads to P2₁3. On
+    activation the Wyckoff orbits split, the child's modes are listed by
+    parent irrep and site, and the order parameter is freed with the small
+    starting amplitude.
+  - **Subgroup lattice** lists the subgroups that keep the conventional
+    cell, each in its standard setting (ADR 0003), with its orientations
+    (conjugate subgroups) and domain states. The translationengleiche ones
+    keep the parent's centring: F-43m's tetragonal subgroup is I-4m2. For a
+    centred parent the list adds the decentring k-subgroups (marked **k**,
+    such as F-43m's P-43m) and the general subgroups (marked **general**,
+    such as P2₁3), each with its index split, for example 2·4.
+    **Activate ↓** lowers to one and loads its modes: the order parameter
+    that lowers the structure to it is freed with a small starting
+    amplitude, as **Activate →** does, and the other modes start fixed at 0.
+    At the parent's geometry a symmetry-breaking mode started at 0 would
+    never move.
+  - **Load parent CIF…** decomposes a structure that is already the distorted
+    child against a high-symmetry parent.
+- The choice shows at the top of the **Subgroups** view. **✕ clear** returns
+  to coordinates; clear one choice before making another.
+- The **3D Model** view lists the modes with their amplitudes, esds and
+  free/fixed state, and names the parent or subgroup they lower to. Click a
+  **Distortion modes** row to draw the mode as green arrows.
+- Three amplitudes are shown
+  ([ADR 0003](./adr/0003-isodistort-as-the-single-convention-system.md)):
+  - **A** is the refined parameter: the displacement norm over the
+    conventional child cell.
+  - **A_s** is ISODISTORT's: over the primitive child cell, A/√f for a child
+    with f lattice points per cell.
+  - **A_p** = A_s·√(V_p/V_s) is normalized to the parent's primitive cell.
+
+  For a primitive child of a primitive parent all three are equal. The
+  report shows them as well.
+
+These tools need a single phase. They offer the distortions that keep the
+conventional cell: Γ, and the decentring k-points of a centred parent.
+Cell-multiplying k-points (X, M and R of a primitive cubic parent; L and W of
+an F one) need a supercell and are named on the page as planned
+([LIMITATIONS.md](./LIMITATIONS.md#real-space-pdf-and-magnetic-pdf)). The
+engine behind them is described in
+[ADR 0001](./adr/0001-compute-irreps-by-chain-induction.md) and
+[ADR 0002](./adr/0002-bound-the-search-by-a-supercell.md).
 
 ### Boxcar scan
 
@@ -383,10 +519,13 @@ differs from the average one.
 2. In the **Boxcar** view, set **box** and **step** in Å. Pick
    **low → high r**, **high → low r** or **both**, and optionally
    **random restarts**.
-3. Click **Run boxcar scan**. **Cancel** keeps the boxes already fitted.
+3. Click **Run boxcar scan**. **Cancel** keeps the boxes already fitted. After
+   a run the plan folds into one line in the toolbar; click it to edit the
+   next scan's plan.
 4. Click a parameter chip to plot it against the box centre, above an Rw strip.
-5. **Adopt** loads one box's values into the panel. **Export CSV** saves the
-   scan.
+   Point at a box to read it; click it (or step with ← →) to pick it.
+5. **Adopt**, under the plot, loads the picked box's values into the panel.
+   **box table** lists every box, and **Export CSV** saves the scan.
 
 The scan itself changes neither the fit window nor the parameters. With
 **both**, **The two directions agree** means the drift is in the data.
@@ -412,29 +551,53 @@ Never judge a fit by its R value alone. The definitions are in
 
 | Page | Readout | How to read it |
 | --- | --- | --- |
-| Powder | wR and GoF | GoF = wR / R_exp, after a refinement. Near 1 matches the uncertainties; below 1 is also a warning. |
+| Powder | wR and GoF | GoF = wR / R_exp: the last refinement's while it describes the values on screen, else that of the curves on screen. Near 1 matches the uncertainties; below 1 is also a warning. |
 | Single crystal | R1, wR2, GooF | SHELX-style agreement factors on F² |
 | PDF | Rw | A relative measure: a PDF Rw runs higher than a Bragg wR for an equally good fit |
 
-- **Validation**, a view of the powder plot card and of the single-crystal
-  quality card, opens with a **Verdict**: what needs a look or a fix comes
-  first, one line each; passing checks follow as green chips (hover for the
-  detail). The checks are the goodness of fit (below 1 is a
-  warning too), convergence (max shift/esd below 0.1), physical values, the
+- **Validation** is a view of the powder plot card and of the single-crystal
+  quality card. On single crystal it opens with a **Verdict**: what needs a
+  look or a fix comes first, one line each; passing checks follow as green
+  chips (hover for the detail). The checks are the goodness of fit (below 1 is
+  a warning too), convergence (max shift/esd below 0.1), physical values, the
   correlations and undetermined directions of the last refinement, and the
-  technique's own tests below.
-- On **powder**: the agreement set (Rp, Rwp, Rexp, GoF, and Rwp′/Rexp′ with
-  the background subtracted, which judge the peaks rather than the
-  background); the **Durbin–Watson** d against its critical value Q_D (d
-  below Q_D means neighbouring points miss together: a profile misfit, and
-  esds that are too small); R_Bragg and R_F per phase; the normalized residual
-  (y_obs − y_calc)/σ along the pattern with the **cumulative χ²** below it;
-  χ² per point in d-shells; and the **Worst peaks**, the reflections carrying
-  the most χ² with whether the residual under each is a shape or an intensity
-  error (four shown; **all** lists eight). A residual peak where no reflection
-  of any phase lies is listed as **unindexed**. Click the strip or a
-  **view →** to open that spot in the Refinement view. The **?** beside each
-  panel title explains how to read it.
+  tests below.
+- On **powder** it reads the fit against your acceptance bar, top down.
+  Each item is one short line that leads with what to do; the **?** beside
+  it (or a hover) holds the longer account: why, the numbers behind it, and
+  your method's reasons.
+  - One line on where the fit stands, and the state of the fit it judges:
+    converged; a demo's converged snapshot, which has no esds until you
+    refine; values edited since the last refinement; or not refined yet,
+    with what to do. **Refine** follows the line when refining is the next
+    step.
+  - **Acceptance bar**, three checks, each green, amber or red. The
+    **goodness of fit** in the assessment's bands (excellent up to 1.5, good
+    up to 2.5; below 0.8 the esds are optimistic). **Physical sanity**:
+    negative B values, occupancies outside [0, 1], values on a bound,
+    distances and U values; a negative B or a structural value on its bound
+    is a blocker, a held occupancy within 1 % outside its range a note (an
+    input to correct). The **cross-check** in GSAS-II and FullProf (the
+    bundles), with why the esds may not hold: serially correlated residuals,
+    a value on its bound, or a correlated pair, which the **Posterior**
+    judges.
+  - **What limits the fit**: the causes the Agent's `diagnose_fit` reads,
+    largest share of χ² first (three shown; **show all**), each with what
+    the residual shows and what to do in your method's order, in a few words
+    each. **Open …** opens that parameter group in the panel; nothing is
+    freed for you. **Show on pattern** opens the Refinement view there. A
+    line below says where half of χ² sits in d.
+  - **Evidence**, collapsed: the normalized residual (y_obs − y_calc)/σ with
+    the **cumulative χ²** below it (click it to open that spot in the
+    Refinement view); χ² per point in d-shells; the **Worst peaks**, the
+    reflections carrying the most χ², with whether the residual under each
+    is a shape or an intensity error (four shown, **all** lists eight,
+    **view →** opens one); and every agreement number: Rp, Rwp, Rexp, GoF,
+    Rwp′/Rexp′ with the background subtracted (they judge the peaks rather
+    than the background), the **Durbin–Watson** d against Q_D (below it,
+    neighbouring points miss together: a profile misfit, and esds that are
+    too small), and R_Bragg and R_F per phase. The **?** beside each title
+    explains how to read it.
 - On **single crystal**: R1 (I > 2σ and all), wR2, GooF, reflections per
   parameter and completeness beside R_int and R_σ; **Fo² vs Fc²** (log axes by
   default; switch to linear or |F|), coloured by |Δ|/σ; K = ⟨Fo²⟩/⟨Fc²⟩ and
@@ -467,7 +630,7 @@ near 1 supports the least-squares esds.
 | --- | --- |
 | Powder | GSAS-II or FullProf; **Export ▾** writes a bundle for each |
 | Single crystal | SHELXL, JANA2020 or FullProf |
-| PDF | PDFgui or diffpy-CMI (PDFfit2); diffpy.mpdf for a magnetic PDF |
+| PDF | PDFgui or diffpy-CMI (PDFfit2); **Export ▾** writes a bundle with a PDFfit2 script. diffpy.mpdf for a magnetic PDF |
 | Magnetic candidates | Bilbao (MAXMAGN, k-SUBGROUPSMAG), ISODISTORT or SARAh |
 
 ## 9. Save and export
@@ -490,11 +653,37 @@ posterior samples, the single-crystal supercell result or view choices. See
 | **.int** | — | yes | — | The reflections in FullProf format, as a `_nuc` and `_mag` pair when both are loaded |
 | **GSAS-II bundle (.zip)** | yes | — | — | CIF, `.instprm`, data, a script that builds the GSAS-II project, and a README |
 | **FullProf bundle (.zip)** | yes | — | — | `.pcr`, data and a README |
+| **PDFgui / diffpy-CMI bundle (.zip)** | — | — | yes | `.stru` and CIF per phase, the data, a PDFfit2 script, a PDFgui project builder, the constraints and a README |
 
-Both bundles hold your original data and instrument files, unchanged. They
-carry the primary phase only, at its refined values. In the `.pcr`, scale,
-background and the constant-wavelength peak shape are starting values: free
-them in FullProf before comparing.
+The GSAS-II and FullProf bundles hold your original data and instrument files,
+unchanged. They carry the primary phase only, at its refined values. In the
+`.pcr`, scale, background and the constant-wavelength peak shape are starting
+values: free them in FullProf before comparing.
+
+The PDFgui / diffpy-CMI bundle carries every phase at its refined values, as the
+whole unit cell (`.stru`, the PDFfit format) and as the CIF in its space group.
+It holds the G(r) in two columns and three runnable pieces:
+
+- **`fit_pdffit2.py`** (needs `diffpy.pdffit2`) sets every quantity to MATERIA's
+  value: the scattering type, Qmax, Qdamp, Qbroad, the fit window, each phase's
+  scale, δ1, δ2, sratio, rcut and particle diameter, and the scattering lengths.
+  It constrains exactly the parameters you refined, every atom of the cell tied
+  through its symmetry operation. It then compares PDFfit2's G(r) at your values
+  with MATERIA's, refines, and prints Rw and every parameter beside yours.
+- **`make_pdfgui_project.py`** (needs `diffpy.pdfgui`) has PDFgui write the
+  project `.ddp`; open it and run the fit.
+- **`constraints.txt`** lists every formula for entering by hand.
+
+The README gives the conventions (B = 8π²U, an isotropic U as its six U^ij,
+pscale and dscale, the esds) and where the two programs differ:
+
+- PDFfit2 divides its summed Gaussians by r, where MATERIA gives each pair's
+  Gaussian 1/r_ij. A refined cell therefore comes out slightly larger in PDFfit2,
+  by 75 ppm on the GaTa₄Se₈ demo.
+- The Qmax termination algorithms differ, by a ripple of about 0.1 % of G(r).
+
+A magnetic PDF's spin model ships as an mCIF for diffpy.mpdf; PDFfit2 fits the
+nuclear part only.
 
 ### CIF or mCIF
 
@@ -511,11 +700,42 @@ them in FullProf before comparing.
 
 ### The report
 
-**Report** writes one HTML page: the data and model, the fit figure, the atomic
-and magnetic structures, every parameter and the refinement details. Its
-magnetic section gives k and the magnetic space group, named as on the magnetic
-page. It adds a projected figure, the moments with esds and a sublattice table.
-It states where the model came from:
+**Report** writes one HTML page that reads like a paper's results section:
+
+- **Result**: a short paragraph. It says what was refined against which data,
+  the outcome with its key numbers (Rwp and GoF; R1, wR2 and GooF; Rw), the
+  verdict against the acceptance bar and the main limitation. It is composed
+  from the app's own checks (on a powder, the Validation tab's verdict and its
+  causes of misfit), never by a model. A report the Copilot writes puts its
+  account here instead, labelled as its words.
+- **Structure**: per phase, the space group, the phase fraction, and the cell
+  as its independent parameters (a = b = 5.41964(5) Å, c = …, V = …; no angle
+  the symmetry fixes). The atom table gives Wyckoff positions, esds where a
+  value was refined, and fractions where the site symmetry fixes a
+  coordinate. The distances follow as small tables.
+- **Magnetic structure**, when there is one (see below).
+- **Fit**: the figure, the agreement indices in one line, and the other
+  refined values.
+- **Quality and caveats**: one line each for the acceptance checks, the
+  causes of misfit, the correlations worth reading (not a background's
+  coefficients among themselves), and the limitations. A report the Copilot
+  writes adds its open issues and its Bayesian check.
+- **Appendix**, collapsed until you open it: the data and model, the
+  refinement's statistics, every parameter (fixed or refined), the
+  conventions and the software. A Copilot report adds the analysis step by
+  step: the History's steps, the method's checklist, every check with its
+  numbers, and the notes. Printing opens every part.
+
+The page prints to A4 and Letter and follows the system's dark mode on
+screen. The Markdown file the Copilot's viewer saves has the same parts in the
+same order.
+
+The magnetic section gives k and the magnetic space group, named as on the
+magnetic page. It adds a projected figure, the moments with esds and a
+sublattice table. On a powder it says what the pattern cannot fix: the moment
+direction among the symmetry-equivalent ones. A cubic crystal gives only |m|.
+A uniaxial crystal gives only the angle to the unique axis. It states where
+the model came from:
 
 - **Refined jointly**: refined with the atomic structure in this session.
 - **Included in the model**: applied, but loaded or set on the magnetic page.

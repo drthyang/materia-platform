@@ -9,11 +9,182 @@ release fixes bugs.
 
 ### Added
 
-- **README: what is checked against what.** A table of each area's
-  independent reference (GSAS-II, FullProf, FindSpinGroup, PDFfit2,
-  diffpy.mpdf, WinGX), the case and what agreed, each marked Supported,
-  Approximate or Not yet. The tool counts and the eval-check count, which
-  drifted and said nothing about correctness, are gone from the README.
+- **README: what each result is checked against.** The Impact table now names
+  the area, the case, the reference (SHELXL, GSAS-II, FindSpinGroup, FullProf,
+  PDFfit2, diffpy.mpdf) and what agreed, each row marked Supported,
+  Approximate or Not yet; the Copilot's own study is a Not yet row. The
+  README's tool and scenario counts, which said nothing about correctness,
+  are gone, and so is the test that pinned them.
+
+- **The subgroup engine, Phase 1: irreps computed at the decentring
+  k-points, and the subgroups that keep the conventional cell** (PDF
+  Subgroups page; [ADRs 0001–0005](docs/adr/)).
+  - Irreps are built, not looked up. The engine finds the star and the
+    little co-group exactly and builds the projective small representations
+    by chain induction (spgrep's method, BSD-3, ported). It induces them over
+    the star and checks every result: the representation property,
+    unitarity, Σ dim², orthonormal characters.
+  - For a centred parent the Subgroups page lists the irreps at X (F), H (I)
+    and the C, A, B and R points beside the Γ ones. They carry generic
+    labels: the k-point and "irrep n of m". Each comes with its isotropy
+    subgroups and order-parameter directions, found by the image method and
+    named in ITA standard setting.
+  - The subgroup lattice gains the decentring k-subgroups and the general
+    subgroups that keep the cell, each marked with its index split t·k.
+  - Activate realizes the child in the parent's cell, lists its modes by
+    parent irrep and Wyckoff site, and kicks the order parameter.
+  - The Γ isotropy subgroups now come from the same engine, with unchanged
+    results.
+  - Checked against spgrep (12 cases, by character), hand-derived counts
+    (Im-3m's four and I4/mmm's eight index-2 k-subgroups), and an opt-in
+    ISOTROPY workflow. On real data, GaNb₄Se₈'s local P2₁3 is reached from
+    F-43m's X irrep and from the lattice. Its 13 modes refine to Rw 5.5 %
+    (r = 2–10 Å; the cubic average gives 9.19 %).
+- **ISODISTORT's mode amplitudes, A_s and A_p, beside MATERIA's.** They
+  appear in the 3D Model's mode table and in the report. MATERIA's
+  amplitude runs over the conventional child cell, √f larger than A_s for a
+  child with f lattice points per cell; the refined parameter keeps its unit
+  until the agent validation freeze ends.
+
+- **The PDF page exports a PDFgui / diffpy-CMI bundle** (Export ▾ →
+  PDFgui / diffpy-CMI bundle (.zip)), the real-space counterpart of the
+  GSAS-II and FullProf bundles. It holds the whole unit cell as a PDFfit-format
+  `.stru` at the refined values, with each site's images, their rotated U, and
+  an isotropic U as its six U^ij. It also holds the CIF, the data as two columns
+  under a header PDFgui reads, and `fit_pdffit2.py`. The script sets every
+  variable at MATERIA's value (scattering type, Qmax, Qdamp, Qbroad, the
+  window, scale, δ1/δ2, sratio/rcut, spdiameter, MATERIA's scattering lengths)
+  and constrains exactly the parameters MATERIA refined. The constraints tie
+  every atom of the cell through its symmetry operation, and the occupancy
+  ties too. It then checks the model at MATERIA's values against MATERIA's own
+  curve, refines, and prints Rw and every value beside MATERIA's, with the
+  esds of both scaled alike. `make_pdfgui_project.py` has PDFgui's own code
+  write the `.ddp`, ready to run. `constraints.txt` and a README give the
+  conventions and every difference. With a spin model in the fit, the nuclear
+  part goes to PDFfit2 and the spin model ships as an mCIF for diffpy.mpdf;
+  no mPDF script is written, because the parameters do not map one to one.
+  Checked against PDFfit2 1.6.0: at perturbed parameters every constrained
+  variable equals MATERIA's model to 1e-16 (cubic, hexagonal, monoclinic with
+  a shared site, triclinic, two phases), and the PDFgui project opens and runs
+  in PDFgui's own code. The one model difference is documented: MATERIA gives
+  each pair's Gaussian a factor 1/r_ij, while PDFfit2 divides the summed
+  Gaussians by r. That leans PDFfit2's peaks toward low r by about σ²/r_ij. On
+  the GaTa₄Se₈ demo this is 1.2 % of the rms G(r), and PDFfit2's refined cell
+  is 75 ppm (3 esds) larger; the other parameters agree within their esds.
+
+- **A B that refines to 0 gets ranked options, never a silent change.**
+  When a powder refinement leaves an isotropic B on its lower bound, the page
+  shows a notice over the parameters naming the atom, the B it reached, and
+  the options with their sources: a tie to a site of the same element that
+  refined sensibly (preferred), ties to other cations of the same
+  coordination (alternatives, labelled with both species and a caution), and
+  the starting structure's B as it stands (an alternative). With none, no
+  value is proposed: the repository has no documented table of typical B
+  values, and no arbitrary floor is used. Each option has its own Apply; it
+  becomes a tie or a held value like any other (Release or ⌘Z undoes it); the
+  report lists it under Limitations, and `assess_refinement` and `get_state`
+  show it to the Agent. Projects save the record beside the rows
+  (`zeroAdpFixes`); files without it open unchanged.
+
+- **The Agent chooses a B-at-0 option (`apply_adp_proposal`).** It picks one
+  of the app's ranked options per row by id (it cannot name a partner or a
+  value outside them), preferring the same-element tie, taking a
+  cross-element one only with a reason, and otherwise the starting value or
+  none. Asking first, the card shows every option with its pick preselected
+  (choice buttons on the approval card), and the user's pick is applied, or
+  nothing on Decline. In auto mode its pick applies without a card, and the
+  result, the History, the notice and the report record it as the Agent's
+  choice in auto mode, with the options not taken. Added at the owner's
+  decision, although it changes the model-visible tool list before the
+  validation freeze (docs/AGENT_PLAN.md).
+
+- **Plot interactions: a cursor readout, map-style zoom, pan, keyboard and
+  touch.** The pattern, G(r), magnetic-step and S(Q) plots share one
+  interaction module (`usePlotInteraction`, `visualization/plotView`). Hover
+  for a cursor line and a readout of x in the axis unit (to the data step),
+  obs, calc, diff and the reflections under the cursor. Ctrl/⌘ + scroll and
+  pinch zoom about the cursor; a plain scroll scrolls a scrolling page (with a
+  hint) and zooms where nothing scrolls. Drag pans (clamped to the data),
+  Shift + drag box-zooms (a tall box also fixes y), double-click, **Reset** or
+  0 resets; +, −, arrows and Shift + arrows work when the plot has focus, and
+  the readout reaches screen readers. On a phone one finger scrolls the page
+  and two pinch. The zoom now survives a refinement that moves a converted
+  axis (a refined zero or difC in a d display). The series and tick rows are
+  drawn on a canvas, decimated per pixel column: a zoom on a 100 000-point
+  pattern took 2–3 s and now fits a frame. Drag no longer rubber-band zooms
+  (that is Shift + drag), and a zoomed line no longer runs under the y-axis
+  labels.
+
+- **Strong k = 0 magnetic peaks are taken to the magnetic step, not into the
+  ADPs.** On a neutron pattern of magnetic ions whose misfits sit on nuclear
+  reflections at large d (the k = 0 signature), the Agent's `magnetic_state`
+  now names those peaks to include in the k-search instead of "nothing
+  magnetic to find", `diagnose_fit` puts the k = 0 check before its advice to
+  free the ADPs, and `refine` cautions on its card while B's or positions are
+  free against the signature with no magnetic model on the page. On the
+  simulated Mn₃Ga 30 K pattern the method's ADP stage on the nuclear model
+  alone left the B's 3–6× and the scale 1.5× too large at a "good" GoF of 2.1,
+  and the true group's moments-only fit 0.7–1.7 µB short; with the B's and
+  positions held until the moments are in, every parameter lands within 1.3σ
+  of the simulated values. The k = 0 signature is now weighted by each peak's
+  significance (it was a count, which weak small-d misfits outvoted), and
+  `diagnose_fit`'s unexplained-peak cause routes lines on a neutron pattern of
+  magnetic ions to the k-search.
+
+- **The background is kept off the peaks the model lacks.** Excess between
+  the lines that no reflection explains — a run of background points whose
+  residual stands above the noise on a line's scale (1–8 line widths, 1 %
+  false alarms on pure noise) — is now a cause of its own in the Agent's
+  `diagnose_fit` ("unexplained-peak": explain it, never fit it with the
+  background), and is left out of the points the background is judged on.
+  The background cause names the count those points justify (BIC of the
+  background alone), and `set_background` cautions on its card when more
+  terms would absorb such excess or exceed that count. Before, a line the
+  model lacked was billed to the background as "more terms": on a simulated
+  POWGEN pattern a broad line at d = 5.3 Å loses 18 % of its intensity to 4
+  Chebyshev terms, 62 % to 12 and 97 % to 24, and an information criterion
+  over every point the model leaves to the background asked for 16 (79 %);
+  with the line left out it asks for the 4 the line-free pattern gets.
+
+- **POWGEN data start on a logarithmic background**: GSAS-II's log
+  interpolation with 3 points (at the TOF range's ends and their geometric
+  mean), where the instrument file names POWGEN or PG3, or names no known
+  instrument and the data file's name hints at POWGEN (`PG3_…`; `NOM_…` hints
+  at NOMAD, which has no default of its own), and the pattern is
+  time-of-flight. The hint is a guess, labelled as such, never saved. On the 350 K Mn₃Ga bank it fits as well as the 4-term
+  Chebyshev default with one parameter fewer (wR 8.90 % against 9.00 %, scale,
+  background and cell refined). The basis and the count stay the user's (the
+  Background group, the Agent's `set_background`, MCP `build_refinement`'s new
+  `backgroundType`), and a saved project keeps its own. Log- and
+  linear-interpolation backgrounds are now seeded at their own points, keep
+  their curve when the number of points changes, and the report names the
+  basis refined instead of always "Chebyshev".
+
+- **The Agent asks with buttons (`ask_user`).** Where the next decision is the
+  user's and no tool's result lists it, the Agent puts a question with 2 to 6
+  options; each shows as a button under the turn and sends exactly its
+  message, as the k, group and next-step choices do, and the question ends
+  the model's turn. A change an option asks for still goes through its change
+  tool and approval card; a clicked option's numbers are not counted as the
+  user's by the report's number audit, and the checks on a final answer read
+  the question too. In-app only (not an MCP tool). Added at the owner's
+  decision, although it changes the model-visible tool list before the
+  validation freeze (docs/AGENT_PLAN.md).
+
+- **Choices to click in the Agent's conversation.** The k the k-search found,
+  the magnetic groups the ranking fitted and the next steps the assessment
+  suggests show as buttons under the turn, from the tool's result: a click
+  sends the message the user could have typed ("Set the propagation vector to
+  k = (1/2, 0, 0)."), "Another…" puts a template in the message box, and a set
+  stops sending once the conversation or the page moves on. Keyboard
+  accessible. The k set says what k is in: reciprocal-lattice units of the
+  cell as loaded (a centred lattice's conventional cell).
+
+- **The published Mn₃Ga 350 K POWGEN data** in `examples/mn3ga-350k`: the
+  histogram and instrument parameters, the GSAS-II magnetic structure
+  (C m′c m′), MATERIA's refinement of it, and a nuclear starting model. The
+  350 K golden tests read them when the git-ignored `data/` folder has no
+  copy, so the GSAS-II magnetic comparison runs in CI.
 
 - **The Agent on any server that speaks OpenAI's API**: OpenAI, Gemini's
   OpenAI-compatible endpoint, vLLM, a llama.cpp server. A base URL, a key if
@@ -436,6 +607,212 @@ release fixes bugs.
 
 ### Changed
 
+- **The local AWO₄ magnetic demo refines the moments alone, the nuclear model
+  held.** Its solve (`awo4MagneticSolve.test.ts`, `AWO4_SOLVE=1`) no longer
+  ends on a joint nuclear + magnetic fit. Its last step, the owner's rule for
+  the magnetic refinement, frees only the magnetic parameters: the chosen
+  group's moments, and k's components where the little group lets k move
+  (none for k = (½ 0 0)). The scale, background, cell, instrument terms,
+  positions, ADPs and occupancies stay at the nuclear stage's values, and the
+  solve checks that none moved. The group is chosen as before (Hamilton's
+  test, top-down: P2/c′). The demo opens on that step: the nuclear rows held,
+  the moment rows free, so Refine from it refines the moments only. The
+  solution file records the free rows (`free`) and the wR of that step
+  (`magneticWr`, which replaces `jointWr`). The demo refuses an older solution
+  file and asks for it to be regenerated. The data-gated 8 K benchmark
+  (`realAwo4Benchmark.test.ts`) follows the same rule: its last step refines
+  the ★ group's moments with the staged nuclear model held, the B-at-0 checks
+  read the nuclear fit, and C9 asks that step to hold every nuclear row and
+  end no higher than the ranking's fit, where it asked a joint fit to end
+  strictly lower. The data-folder layout in `docs/VALIDATION.md` now says
+  that the demo's histogram (`PG3_powder_6K.gsa`) and the benchmark's
+  pattern (`PG3_powder_8K.dat`) are one measurement, the one the owner's
+  reference refinement is of. `docs/MAGNETIC_SYMMETRY.md` says the five tied
+  groups tie within the noise by Hamilton's test and no longer quotes a wR.
+  The magnetic page and the user's own refinements are unchanged.
+
+- **The refinement report reads as a paper's results section.** Export ▸
+  Report (and the Copilot's report) now opens on a short **Result**
+  paragraph: what was refined against which data, the outcome with its key
+  numbers, the verdict against the acceptance bar and the main limitation.
+  It restates the app's own judgment (on a powder the Validation tab's
+  verdict and causes of misfit; on a single crystal its Validation checks;
+  on a PDF the assessment's findings); where the Copilot wrote an account,
+  its account takes that place. **Structure** gives per phase the space
+  group, the phase fraction and the cell as its independent parameters
+  ("a = b = 5.41964(5) Å, c = 4.37366(7) Å, V = 111.254(3) Å³", no angle the
+  symmetry fixes), an atom table with Wyckoff positions, esds where refined
+  and fractions where the site symmetry fixes a coordinate, and the
+  distances as small tables. **Fit** has the figure, the agreement indices in
+  one line and the other refined values; **Quality and caveats** one line
+  per acceptance check, cause of misfit and limitation, with only the
+  correlations worth reading (a background's coefficients among themselves
+  left out, as the Validation tab leaves them out). The tiles, the repeated
+  statistics and the data-and-model list are gone from the body: the data
+  and model, the refinement's statistics, every parameter and the record go
+  to the collapsed appendix, which printing opens. The page is set like a
+  journal's: white, booktabs tables with numbers aligned on the decimal
+  point, one typeface with tabular figures, sentence-case headings, one
+  accent color, italic symbols, typeset space groups and formulas, and the
+  minus sign. The Markdown the Copilot's viewer saves follows the same
+  order. The text the Agent's number audit and the validation read keeps
+  its earlier layout, frozen, so neither moves.
+
+- **One short zoom hint on every plot and 3D view.** The pattern, G(r), the
+  magnetic page's pattern and S(Q) each carry one line under the plot in the
+  gestures of the device: "⌘ + scroll to zoom · drag to pan · double-click to
+  reset" on a Mac, the same with Ctrl elsewhere, and "Pinch to zoom · drag to
+  pan" on a touch screen. Every 3D model (powder, PDF, magnetic, single
+  crystal) says "Scroll to zoom · drag to rotate" (on a touch screen, "Pinch
+  to zoom") beside its View a / b / c chip. The rest (Shift + drag box zoom,
+  the keys, a trackpad's pinch and swipe, the fit-range handles, the
+  reflection ticks; panning the 3D model) is in the line's tooltip: hover it,
+  focus it, or tap it. The hint replaces the long captions under the powder
+  and PDF plots and the 3D views; the PDF Qdamp/Qbroad note keeps its own
+  line. On a touch screen it shares the row of the zoom buttons, so the
+  phone layout gains no row. The magnetic page's pattern card grows by the
+  hint's line on a desktop instead of letting it run past the card.
+
+- **The powder Validation tab says each thing in one short line.** About
+  half the words on the demo (as it opens, after Refine, and with its cell
+  off by 0.3 %). Each line leads with what to do: "Fair fit: misfit mostly in
+  the peak tails", "Above your bar (good ≤ 2.5)", "Mn3Ga: Ga1 occ held at
+  1.005 → set to 1", "In GSAS-II / FullProf, once the bar is met", "Model's
+  tails too short → Refine TOF σ and β (keep α), after the atom positions".
+  Where refining is the next step, the state line says why and **Refine**
+  follows it. The full sentences, the statistic, the method's reasons and
+  `diagnose_fit`'s own words are behind a **?** beside each check and cause
+  (and on hover), so nothing is dropped. What was said twice is said once:
+  the physical card no longer restates "nothing unphysical", the cross-check
+  no longer repeats the state line's "no esds yet", the headline leaves the
+  GoF to its card, and the footer leaves the worst peaks' share to their
+  summary below. Same numbers and advice as before; the Agent's tools, their
+  text and the validation's arm A are unchanged.
+
+- **Phones and tablets: layouts fitted to iPhone and iPad Pro screens.**
+  Tuned on the iPhone 18 Pro and Pro Max and the iPad Pro 11" and 13", upright
+  and sideways; a desktop window looks as it did. On a phone held sideways the
+  plot and the 3D canvas fit the screen with their tab row (the plot was ~1.5
+  screens tall), a plot that short keeps most of its height for the pattern,
+  the 3D view fits the cell to the canvas on any touch screen, and the summary
+  cards sit three across. The Copilot docks beside the page on any landscape
+  window up to 540 px tall. An iPad held landscape scrolls as a page with
+  screen-tall rows, so the parameter list is no longer a 290 px box and the
+  magnetic page's 3D card shows its model. Lists that scrolled inside a card
+  inside the scrolling page (subgroups, distortion modes, the run result, the
+  posterior table) take their height. Controls are 44 px tall on a touch
+  screen. The plot's zoom buttons take a row under the plot on a touch screen
+  or a narrow plot instead of covering the x-axis title, the magnetic pattern
+  check no longer runs past its card, and the Copilot's sheet header keeps
+  Ask first / Auto off its name. Captions name finger gestures on a touch
+  screen (pinch to zoom, drag to pan or rotate). The header, the Copilot's
+  rail and drawer and the cards stay out of the iPhone's safe-area insets.
+
+- **The magnetic page on a desktop: the steps lead, and the pattern and the
+  model stay in view.** The workflow (steps 1–5) sat in the narrower right
+  column as a box scrolling inside its card, with step 4's candidate list
+  below its fold, beside a 3D card whose model filled a fraction of its canvas
+  and whose legend ran past the card. The steps now take half the row (up to
+  1000 px) at their natural height, and the row scrolls as a whole beside a
+  rail pinned to it: the pattern check over the 3D model, both in view while
+  candidates are clicked. The 3D view fits the cell to its canvas with a mouse
+  too, and nothing runs past a card at 1440, 1920 or 2560 px; a window under
+  ~800 px tall runs the rail past the fold. The residual-peak table shows its
+  six strongest peaks (and every peak in the k-search) until "Show all", and
+  its "near" column gives the reflection's hkl, with the phase only when the
+  pattern has several; a single phase's tick row is "nuclear" in the legend.
+  "Set k" is a quiet button while the fields hold the k in use, not a faded
+  primary one that read as broken. Phones and tablets keep their layouts.
+
+- **The powder Validation tab reads the fit against your acceptance bar.**
+  It opened on a verdict of mixed-weight lines beside eight agreement
+  numbers, with diagnoses but no actions, and called the demo's converged fit
+  "Not refined yet". It now reads top down. One line says where the fit
+  stands, beside the state of the fit (a demo's converged snapshot says so,
+  and that it has no esds until you refine). Your method's acceptance bar
+  follows as three checks, green, amber or red: the goodness of fit in the
+  assessment's bands; physical sanity, scaled (a negative B or a structural
+  value on its bound is a blocker, a held occupancy 0.5 % over 1 a note);
+  and the GSAS-II/FullProf cross-check, with why the esds may not hold.
+  **What limits the fit** lists the causes the Agent's `diagnose_fit` reads,
+  largest share of χ² first, each with its evidence and what to do in the
+  method's order (a misfit of the cell, zero or background first);
+  **Open …** opens the parameter group (nothing is freed), **Show on
+  pattern** the spot. The evidence is collapsed below: the residual strip,
+  χ² by d-shell, the worst peaks, and every agreement number with R_Bragg
+  and R_F per phase and Durbin–Watson. The causes and findings are built
+  from the page as the Agent's tools build them, so the tab no longer warns
+  of a background's own coefficients correlating, nor says "every residual
+  peak indexes" where the Agent finds lines no phase explains. Without a
+  refinement that describes the values on screen, the card's GoF is that of
+  the curves on screen. The Agent's tools and text are unchanged, and the
+  validation's arm A still reads the old verdict.
+
+- **On the PDF page, the symmetry is chosen on the Subgroups view and the
+  modes are inspected on the 3D Model view.** The Γ irrep tree (each irrep's
+  label, dimension, optic and acoustic counts, with its **Activate →**
+  buttons), **Load parent CIF…** and **✕ clear** moved from the 3D Model view
+  to the Subgroups view, beside the subgroup lattice. The Subgroups view shows
+  the choice in force, a parent-CIF decomposition as well as an activation,
+  with **✕ clear** and a link to the 3D Model view; its pickers wait while one
+  is in force or a fit runs. The 3D Model view keeps the mode table (amplitude,
+  esd, free/fixed, total |A|, the acoustic combinations excluded; a row click
+  draws the mode as green arrows) and names the parent or subgroup the modes
+  lower to. With no modes, it says in one line that the symmetry is lowered on
+  the Subgroups view, with a link there, and points to Positions →
+  “Irreps (modes)” for the structure's own symmetry-conserving modes. The
+  Agent's tools and text are unchanged.
+
+- **A shared site's occupancies sum to exactly its total, on the powder and
+  PDF pages.** They were separate free rows held by a soft Σ restraint (σ
+  0.01, its target the starting sum: 1.002 for the bundled high-entropy
+  tungstate, or 1 with the powder page's "Σ occ = 1"). Now the site's last
+  member follows the total minus the others: `= -1*occ_A+1` for two species
+  (the complement tie the single-crystal page makes), `= 1 - sum(occ_A,
+  occ_B, …)` for more, a new form of tie. The others refine; the last is
+  held, and its esd comes from their full covariance. **The total is 1 unless
+  set below 1 for vacancies** (the Occupancy group on either page; saved with
+  the project; the Agent's `set_site_ties` `totals` on the powder page). A
+  last occupancy driven outside [0, 1] is warned of in the parameter panel,
+  `refine`, `get_state`, the report's checks and its warnings, never clamped.
+  The panel, the CIF, the report ("Shared sites") and the Agent's `get_state`,
+  `refine` and `structure_table` give the constraint and the tied esd. The
+  powder page's "Σ occ = 1" switch and `set_site_ties`' `occupancyToUnity` are
+  gone. Projects saved before open with the tie: values kept, the last
+  occupancy, even if saved free, following the others. Without a shared site
+  nothing changes. MCP's powder tools keep the soft restraint.
+
+- **The Agent's executor and chat code split by what each part does**
+  (internal; no behaviour change): the executor's dispatch, policy and
+  record, and the chat's loop, transports, context budget and guards, each in
+  its own file.
+
+- **Five more readings in one place for the app and MCP.** MCP's
+  `check_fit_range` returns the app's reading in words (`reading`) and warns
+  when the axis cannot be what the file says (`axisWarning`).
+  `reflection_statistics` quotes SHELXL's R_int (the Friedel mates apart in a
+  non-centrosymmetric group), as `get_state` and the report do, with the Laue
+  class's as `rIntLaue` (in place of `rIntFriedelApart`). `diagnose_fit` and
+  the report give the same Durbin–Watson sentence. MCP's posterior reading no
+  longer names `diagnose_fit`, which MCP does not have.
+
+- **The repository is `materia-platform`.** The published app moves to
+  [drthyang.github.io/materia-platform](https://drthyang.github.io/materia-platform/)
+  (the build's base path, the README and user guide, the app's links to the
+  repository, the package name). GitHub redirects the old repository and git
+  URLs; the old Pages address does not redirect. Projects saved in the
+  browser stay: they belong to the site's origin, not its path.
+
+- **The boxcar plot gets the card.** After a run the plan folds into a
+  one-line summary in the toolbar, the caption moves to the chip row, and the
+  per-box table opens on demand, so on a 1280×800 window the figure is about
+  twice as tall (150 → 313 px) and the track itself about four times (≈50 →
+  194 px). The two panels share one r axis with gridlines through both, the Rw
+  strip scales with the figure and has a scale, and Rw bars widen with the box
+  spacing. Point at a box for its window, value ± esd and Rw; click it (or step
+  with ← →) to pick it, shading its r-window, and adopt it from the line under
+  the plot.
+
 - **Single-crystal structure factors with analytic derivatives.** A kernel
   computes F for a fixed reflection list and, in the same pass, ∂F for every
   position mode, U mode, B and occupancy, so the Jacobian costs about two
@@ -510,6 +887,182 @@ release fixes bugs.
 
 ### Fixed
 
+- **Each technique's report names its own cross-check programs.** The
+  report's footer told every technique that the Export menu writes GSAS-II
+  and FullProf bundles. A PDF is reproduced in PDFgui / diffpy-CMI (PDFfit2),
+  with diffpy.mpdf for its magnetic term; a single crystal in SHELXL, JANA2020
+  or FullProf. The footer, a refined PDF's Result paragraph and the caveats of
+  both now name those programs and what the Export menu writes for them, from
+  one table the page banner reads too. The powder report keeps GSAS-II and
+  FullProf.
+
+- **A moments-only refinement no longer reads as a joint one in the report.**
+  Any refinement that gave the moments esds was called "refined jointly with
+  the atomic structure", even when only the moment rows were free (the
+  magnetic page's Refine moments, the AWO₄ demo's last step). The magnetic
+  section and the Result paragraph now follow the last refinement's free set:
+  "moments refined with the nuclear model held" when every nuclear row was
+  fixed, and "refined jointly with the atomic structure" only when nuclear
+  rows were free too. The frozen Markdown the Agent's number audit and the
+  evals read keeps its words.
+
+- **The PDF Subgroups page reads a centred parent's subgroups as centred.**
+  Its subgroup lattice held each subgroup as one operation per rotation,
+  without the parent's centring translations, so an F, I or R parent's
+  subgroups were named and built as primitive ones: the GaTa₄Se₈ demo's
+  F-43m opened as "P-43m" with "R3m:R" and "P-4" below it, NaCl's Fm-3m as
+  "Pm-3m" with a "P4/mmm" subgroup, and lowering to that one split Na 4a into
+  three sites (a klassengleiche P subgroup, not F4/mmm). Every subgroup now keeps
+  all the parent's lattice translations, as a translationengleiche subgroup
+  does, and is named in its standard setting from the conventional cell of
+  its own symmetry (ITA A, Ch. 3.1 and 5.1): Fm-3m's 4/mmm subgroup is
+  I4/mmm (#139) on a′ = (a+b)/2, b′ = (−a+b)/2, c′ = c, and the subgroups on
+  a cube's diagonals, before named by their point group only, are Amm2, Cmmm,
+  R3m and the rest. The names agree with the maximal t-subgroups of ITA A1
+  for Pm-3m, Fm-3m, Fd-3m (both origins), Im-3m, I4/mmm, I4₁/amd, R-3m (both
+  axes), P6₃/mmc and Pnma. The child keeps the parent's cell. The Agent's
+  `review_symmetry` keeps its names until the validation freeze lifts; some
+  name a centred parent's subgroups as primitive (I4₁/amd's Imma as Pmna).
+
+- **The subgroup lattice counts orientations and domain states apart.**
+  "×3 domains" for Pm-3m → P4mm was the number of conjugate subgroups,
+  [G : N_G(H)]: the orientations of the distortion. Its domain states are
+  [G : H] = 6, ±P along each axis (Janovec; ITA D, Ch. 3.4). The row now
+  shows both: "3 orientations · 6 domain states". The magnetic subgroups'
+  domain counts are unchanged.
+
+- **The Γ irrep tree lists every order-parameter direction of an irrep.** It
+  took the stabilizers of the irrep's basis fields alone, which lie along the
+  axes, so a multidimensional irrep showed one subgroup: BaTiO₃'s polar T1u
+  (Γ4⁻) gave P4mm and never Amm2 or R3m, and GaTa₄Se₈'s T2 never R3m, the
+  distortion it is known for. Each irrep now lists its isotropy subgroups, the
+  epikernels and the kernel (Stokes & Hatch 1988; ISOTROPY), found exactly
+  from its characters: a subgroup is one when the irrep's subspace it fixes
+  is larger than any larger subgroup's. The one-parameter directions come
+  first, then the lower ones down to a general direction, each with its
+  orientations and domain states; activating one builds a field with exactly
+  that symmetry. Validated against the known lists for Pm-3m (T1u: P4mm,
+  R3m, Amm2, Pm, Cm, P1; T2u: P-4m2, R32, Amm2, C2, Pm, P1), Fm-3m, F-43m,
+  P4/mmm, I4/mmm and R-3m.
+
+- **A subgroup picked from the lattice is kicked off zero, as an activated
+  irrep is.** **Activate ↓** loaded every mode at 0 and fixed. At the
+  parent's geometry χ² is invariant under the parent group, so its derivative
+  along every symmetry-breaking mode is exactly zero, and a mode started at 0
+  never moved, whatever was freed. The order parameter that lowers the
+  structure to the subgroup now leads the modes, free from 0.05 Å as on the
+  irrep route: a field with exactly that symmetry, from the irrep for which
+  the subgroup is an isotropy subgroup, or the fewest irreps coupled when no
+  single one is (GaTa₄Se₈ → C2). The other modes start at 0, fixed, and move
+  once freed. On a synthetic G(r) of tetragonal BaTiO₃, lowering cubic
+  BaTiO₃ to P4mm now refines to the distortion (Rw from 5.8 % to 0); from 0
+  the same fit left every mode at 0. When no displacement breaks the
+  parent's symmetry (the subgroup differs from it in its cell only), nothing
+  is kicked and the status line says so.
+
+- **A staged fit keeps a profile stage whose zero trades with the cell.** The
+  staged sequence rejected a whole stage when freeing it grew an earlier
+  parameter's esd more than fivefold. Since the engine's esds are those of the
+  full inverse (the eigen-decomposition entry below), freeing the TOF zero
+  with the peak shape grows the cell lengths' esds several-fold, as a pair the
+  data cannot separate does, and the guard threw the peak shape (α, β, σ) away
+  with it: every later stage fitted with the shape at its calibration, and the
+  local AWO₄ magnetic demo's solve ended far from its own earlier fit. The
+  newcomer the inflated esd correlates with most strongly (|ρ| ≥ 0.8, here the
+  zero) is now re-fixed and the stage re-run without it, as the singular and
+  correlation rules already did; an inflation no newcomer accounts for still
+  rejects the stage. The staged sequence runs in `refinePowderStructure`, the
+  MCP PDF and mPDF fits with `staged`, and the demo's solve; the page's Refine
+  and the Agent's `refine` do not use it. The demo's solve now ranks the
+  groups as the magnetic page does and keeps the maximal group unless
+  Hamilton's test says the data need more moment parameters (lowest wR alone
+  had chosen a subgroup with four more).
+
+- **A fit-range handle drag the browser takes over no longer swallows the
+  next tap.** The handle listened for the pointer lifting but not for a
+  cancel, so when a touch drag turned into a page scroll the plot ignored the
+  next tap and kept a stale drag listener. It now ends on a cancel or a lost
+  capture too, and its hit area is 32 px wide on a touch screen.
+
+- **The Background group stays on the parameter panel at 0 terms.** Emptying
+  the background's terms field to retype the count read as 0, and 0 terms
+  removed every background row, and with them the Background group and its
+  function and terms controls, with nothing on the page to bring them back (a
+  project saved then would not open: it needs one term). The page now keeps at
+  least one coefficient, the field waits on an entry that is no count (empty,
+  0, a fraction, above 24) and puts the count back on blur, and
+  `set_background` takes 1 to 24 terms. A coefficient at 0 keeps its row as
+  before.
+
+- **A PDF fit over a long r range no longer crashes the browser tab.** The
+  pair list was an object per pair (about 100 bytes), built by the UI thread
+  and by every evaluator, and a 1.5–100 Å fit on a multi-element site filled
+  the heap the tab's isolates share. A pair is now a lattice translation and
+  a small atom-pair code (about a byte), its values recomputed bit-identically;
+  for a single-phase PDF the evaluator pool splits each evaluation by r block,
+  each worker holding only its block's pairs and the UI thread none; and a
+  list beyond 64 MiB is generated chunk by chunk. Results are bit-identical,
+  fits are 1.2–1.6× faster, and the UI thread no longer evaluates during a
+  single-phase PDF fit (the longest freeze of a 17-parameter fit to 30 Å:
+  about a ninth).
+
+- **A propagation vector's label reads back as itself.** A centred lattice's k
+  above 1 was labelled to three decimals ((0 0 1.333) for 4/3, which sets
+  another k when copied); it is now the exact fraction, (0 0 4/3).
+  `set_propagation_vector` now also reads every glyph a k label prints
+  (⅔, ¾, ⅙, ⅚ and the minus sign of (¼ 0 −¼)), which it refused.
+
+- **The local proxy says when the page has none.** On the published site
+  (GitHub Pages) there is no proxy, and choosing it ended every message in a
+  raw "API error 405" with nginx's HTML. The settings now ask the proxy's
+  health check and say whether it runs, runs without a key, or is absent;
+  and a 404, 405 or 501 in proxy mode reads as "This page has no proxy",
+  with how to run it locally or to use an API key instead.
+
+- **A powder page with a second phase uses its own background basis.** Its
+  curve, wR, Refine, Prefit and posterior used the Chebyshev basis and the
+  Lorentz factor whatever the page had set: the cosine, power-series and
+  interpolated bases, and the Lorentz factor off, applied with one phase
+  only. The magnetic step's moments fit, which did use them, then disagreed
+  with the page's wR (6.793 against 6.781 on the magnetic Mn₃Ga demo with
+  CaF₂ added and a cosine background).
+
+- **The MCP magnetic tools draw the pattern the fit solves.** With a
+  magnetic model, `evaluate_pattern`, `simulate_pattern` and
+  `rank_next_parameters` (the Agent's too) kept only the profile's shape
+  and η: a cosine (or other) background was drawn on Chebyshev, and the
+  Lorentz factor was on whatever the profile said. The components
+  `refine_magnetic_powder` returns dropped η, and drew an extra phase with
+  the Lorentz factor on. Their curves and wR are now the fitted problem's.
+
+- **A phase the data do not contain no longer ends the refinement.** With its
+  cell free, its scale fell to 0 and a trial step drove its cell length below
+  0, where the reflection list threw `RangeError: Invalid typed array length`
+  and Refine stopped (the Mn₃Ga demo with CaF₂ added). Such a step is now
+  rejected like an uphill one, the fit goes on, and its message says how many
+  steps were rejected and why. A cell length that is not positive and finite
+  is refused with a message that names it, wherever a reflection list is made.
+
+
+- **A fit with a second phase or a magnetic model leaves out the excluded
+  plateau**, a GSAS export's constant −3 outside its fit range, as a
+  single-phase fit and the page's wR already did. It fitted those points:
+  on the magnetic Mn₃Ga demo with its first 60 points at −3, the
+  co-refinement reported wR 28.44 % where the page showed 9.12 %, and took
+  the moment to 2.30 µB for a true 2.5. It now reports the page's 0.30 % at
+  2.50 µB. This holds for Refine, Prefit, the posterior, the magnetic step's
+  moments fit and ranking, and MCP's `refine_powder` with extra phases,
+  `refine_magnetic_powder`, `rank_next_parameters` and `sample_posterior`.
+  MCP's `evaluate_pattern` scored the plateau too: 30.10 % for that model's
+  0.30 %.
+
+- **The page on a phone in portrait.** The content column could shrink below
+  its cards while the page scrolled, so the footer was drawn across them (on
+  every page) and the PDF page's plot card was held to 380 px with its plot
+  running over the parameter card. The column now grows to its content. On
+  the Boxcar tab, stacked, the figure has a height of its own (293 px on a
+  390 px phone, against its 160 px floor) and an open box table its natural
+  height; a view switcher that wraps fills the card's width.
 - **A local model no longer loops, its prompt cut.** On qwen3.8-27b in LM
   Studio the Agent re-read its method and the state until the turn cap: the
   instructions and every tool took 18.8k of the model's 32k tokens, LM Studio

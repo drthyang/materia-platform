@@ -36,9 +36,9 @@
 import type { Mat3, Vec3 } from "@/core/math/types";
 import type { UnitCell } from "@/core/crystal/types";
 import type { ExpandedAtom } from "@/core/diffraction/structureFactor";
-import { compositionWeights, numberDensity, pairWeight, speciesAmplitude } from "@/core/totalscattering/weights";
-import { cartesianAdpTensor, type PdfPair } from "@/core/pdf/pairEnumerator";
-import { sphereEnvelope, type PdfModelParams } from "@/core/pdf/forwardModel";
+import { compositionWeights, groupedWeights, numberDensity, pairWeight, speciesAmplitude } from "@/core/totalscattering/weights";
+import { asPairSource, cartesianAdpTensor, type ColocatedGroups, type PairsInput } from "@/core/pdf/pairEnumerator";
+import { sphereEnvelope, type GridBlock, type PdfModelParams } from "@/core/pdf/forwardModel";
 
 /**
  * One requested derivative column. Built by the workflow (which owns bindings,
@@ -94,14 +94,24 @@ function msdDeriv(req: { constant: Float64Array; tensors: readonly (Mat3 | null)
  * Fused value + analytic-columns pass. `atoms`/`pairs` must be the same lists
  * a `computeGofR` call would use (the workflow's cached pairs). Every request
  * yields one column, index-aligned with `requests`.
+ *
+ * With `groups` (the pairs over each mixed site's representative, as for
+ * `computeGofR`), every request must be the same on each atom of a group
+ * (`requestsUniformOver`): only occupancy may differ, which is summed.
+ *
+ * `pairs` may be any pair source in the canonical order, and `block` limits
+ * the value and every column to grid points [k0, k1), as for `computeGofR`
+ * (each point bit-identical to the whole pass's).
  */
 export function computeGofRWithColumns(
   cell: UnitCell,
   atoms: readonly ExpandedAtom[],
   rGrid: ArrayLike<number>,
   params: PdfModelParams,
-  pairs: readonly PdfPair[],
+  pairs: PairsInput,
   requests: readonly PdfColumnRequest[],
+  groups?: ColocatedGroups | null,
+  block?: GridBlock,
 ): PdfGradResult {
   const n = rGrid.length;
   const g = new Float64Array(n);
@@ -111,7 +121,8 @@ export function computeGofRWithColumns(
   const r0 = rGrid[0]!;
   const step = n > 1 ? rGrid[1]! - rGrid[0]! : 1;
 
-  const weights = compositionWeights(atoms, params.scatteringType);
+  const cellWeights = compositionWeights(atoms, params.scatteringType);
+  const weights = groups ? groupedWeights(cellWeights, groups.rep) : cellWeights;
   const rho0 = numberDensity(weights.nEff, cell);
   const norm = 1 / (weights.bAvgAbs2 * weights.nEff);
 
@@ -150,6 +161,17 @@ export function computeGofRWithColumns(
     const S1 = weights.bAvg * weights.nEff;
     // d(norm)/norm = dN/N − 2·Re(S1*·dS1)/|S1|² (norm = N/|S1|²).
     const S1Im = weights.bAvgIm * weights.nEff;
+    if (groups) {
+      // Each species' weight derivative onto its group's representative, as the weights are.
+      const g = new Float64Array(atoms.length);
+      for (let a = 0; a < atoms.length; a++) g[groups.rep[a]!] = g[groups.rep[a]!]! + dPer[a]!;
+      dPer.set(g);
+      if (dPerIm) {
+        g.fill(0);
+        for (let a = 0; a < atoms.length; a++) g[groups.rep[a]!] = g[groups.rep[a]!]! + dPerIm[a]!;
+        dPerIm.set(g);
+      }
+    }
     const dLnS1Sq = dPerIm
       ? (S1 !== 0 || S1Im !== 0 ? (2 * (S1 * dS1 + S1Im * dS1Im)) / (S1 * S1 + S1Im * S1Im) : 0)
       : (S1 !== 0 ? (2 * dS1) / S1 : 0);
@@ -168,146 +190,179 @@ export function computeGofRWithColumns(
   const q1 = new Float64Array(requests.length);
   const q2 = new Float64Array(requests.length);
   const active: number[] = [];
+  // Scratch: one pair's Gaussian window (e and dr per grid point).
+  let eWin = new Float64Array(256);
+  let drWin = new Float64Array(256);
 
+  const kFirst = block ? Math.max(0, block.k0) : 0;
+  const kLast = block ? Math.min(n, block.k1) - 1 : n - 1;
   const INV_SQRT_2PI = 1 / Math.sqrt(2 * Math.PI);
-  for (const pair of pairs) {
-    const r = pair.rij;
-    const msd = pair.msd;
-    const broad = 1 - d1 / r - d2 / (r * r) + qb2 * r * r;
-    const sig2raw = msd * broad;
-    // Fallback tri-state mirrors the forward model exactly.
-    const fallbackMsd = !(sig2raw > 0) && msd > 0;
-    const fallbackFloor = !(sig2raw > 0) && !(msd > 0);
-    let sig2 = sig2raw;
-    if (!(sig2 > 0)) sig2 = msd > 0 ? msd : SIGMA_FLOOR * SIGMA_FLOOR;
-    const sigma0 = Math.sqrt(sig2);
-    let sigma = sigma0;
-    const cut = rcut > 0 && r < rcut;
-    if (cut) sigma *= sratio;
-    const clamped = sigma < SIGMA_FLOOR;
-    if (clamped) sigma = SIGMA_FLOOR;
+  asPairSource(pairs).forEachChunk((chunk) => {
+    for (let p = 0; p < chunk.length; p++) {
+      const pi = chunk.i[p]!;
+      const pj = chunk.j[p]!;
+      const pnx = chunk.nx[p]!;
+      const pny = chunk.ny[p]!;
+      const pnz = chunk.nz[p]!;
+      const r = chunk.r[p]!;
+      const msd = chunk.msd[p]!;
+      const broad = 1 - d1 / r - d2 / (r * r) + qb2 * r * r;
+      const sig2raw = msd * broad;
+      // Fallback tri-state mirrors the forward model exactly.
+      const fallbackMsd = !(sig2raw > 0) && msd > 0;
+      const fallbackFloor = !(sig2raw > 0) && !(msd > 0);
+      let sig2 = sig2raw;
+      if (!(sig2 > 0)) sig2 = msd > 0 ? msd : SIGMA_FLOOR * SIGMA_FLOOR;
+      const sigma0 = Math.sqrt(sig2);
+      let sigma = sigma0;
+      const cut = rcut > 0 && r < rcut;
+      if (cut) sigma *= sratio;
+      const clamped = sigma < SIGMA_FLOOR;
+      if (clamped) sigma = SIGMA_FLOOR;
 
-    const amp = pairWeight(weights, pair.i, pair.j) * norm / r;
-    const invTwoSig2 = 1 / (2 * sigma * sigma);
-    const peak = amp * INV_SQRT_2PI / sigma;
+      const amp = pairWeight(weights, pi, pj) * norm / r;
+      const invTwoSig2 = 1 / (2 * sigma * sigma);
+      const peak = amp * INV_SQRT_2PI / sigma;
 
-    // dσ/d(sig2): zero through the floor clamp; scut/(2σ0) otherwise.
-    const dSigDSig2 = clamped ? 0 : (cut ? sratio : 1) / (2 * sigma0);
-    // ∂sig2/∂msd (the "B" factor): broad normally, 1 in the msd fallback,
-    // 0 when floored (sig2 pinned at the constant floor).
-    const B = fallbackFloor ? 0 : fallbackMsd ? 1 : broad;
-    // ∂sig2/∂r at fixed msd — vanishes in both fallback branches.
-    const dSig2Dr = fallbackMsd || fallbackFloor ? 0 : msd * (d1 / (r * r) + (2 * d2) / (r * r * r) + 2 * qb2 * r);
+      // dσ/d(sig2): zero through the floor clamp; scut/(2σ0) otherwise.
+      const dSigDSig2 = clamped ? 0 : (cut ? sratio : 1) / (2 * sigma0);
+      // ∂sig2/∂msd (the "B" factor): broad normally, 1 in the msd fallback,
+      // 0 when floored (sig2 pinned at the constant floor).
+      const B = fallbackFloor ? 0 : fallbackMsd ? 1 : broad;
+      // ∂sig2/∂r at fixed msd — vanishes in both fallback branches.
+      const dSig2Dr = fallbackMsd || fallbackFloor ? 0 : msd * (d1 / (r * r) + (2 * d2) / (r * r * r) + 2 * qb2 * r);
 
-    const invSigma = 1 / sigma;
-    const invSigma2 = invSigma * invSigma;
-    const invSigma3 = invSigma2 * invSigma;
+      const invSigma = 1 / sigma;
+      const invSigma2 = invSigma * invSigma;
+      const invSigma3 = invSigma2 * invSigma;
 
-    active.length = 0;
-    for (let c = 0; c < requests.length; c++) {
-      const req = requests[c]!;
-      let a0 = 0;
-      let a1 = 0;
-      let a2 = 0;
-      switch (req.kind) {
-        case "qdamp":
-        case "spdiameter":
-          continue; // pointwise epilogue kinds — no pair contribution
-        case "sigma": {
-          const dsig2 =
-            fallbackMsd || fallbackFloor
-              ? 0
-              : req.target === "delta1"
-                ? -msd / r
-                : req.target === "delta2"
-                  ? -msd / (r * r)
-                  : 2 * qb * msd * r * r;
-          const D = dSigDSig2 * dsig2;
-          if (D === 0) continue;
-          a0 = -peak * D * invSigma;
-          a2 = peak * D * invSigma3;
-          break;
-        }
-        case "msd": {
-          const dmsd =
-            msdDeriv(req, pair.i, pair.nx, pair.ny, pair.nz) +
-            msdDeriv(req, pair.j, pair.nx, pair.ny, pair.nz);
-          if (dmsd === 0) continue;
-          const D = dSigDSig2 * B * dmsd;
-          if (D === 0) continue;
-          a0 = -peak * D * invSigma;
-          a2 = peak * D * invSigma3;
-          break;
-        }
-        case "position": {
-          const vi = req.velocity[pair.i];
-          const vj = req.velocity[pair.j];
-          if (!vi && !vj) continue;
-          // Δu = du_j − du_i; center velocity R′ = n̂·Δu.
-          const ux = (vj ? vj[0] : 0) - (vi ? vi[0] : 0);
-          const uy = (vj ? vj[1] : 0) - (vi ? vi[1] : 0);
-          const uz = (vj ? vj[2] : 0) - (vi ? vi[2] : 0);
-          const rPrime = pair.nx * ux + pair.ny * uy + pair.nz * uz;
-          // msd reacts through n̂ only for anisotropic ADPs:
-          // dmsd = 2·(U_sum n̂)·dn̂, dn̂ = (Δu − n̂·R′)/r.
-          let dmsd = 0;
-          if (uCartAll) {
-            const Ui = uCartAll[pair.i]!;
-            const Uj = uCartAll[pair.j]!;
-            const sx = (Ui[0][0] + Uj[0][0]) * pair.nx + (Ui[0][1] + Uj[0][1]) * pair.ny + (Ui[0][2] + Uj[0][2]) * pair.nz;
-            const sy = (Ui[1][0] + Uj[1][0]) * pair.nx + (Ui[1][1] + Uj[1][1]) * pair.ny + (Ui[1][2] + Uj[1][2]) * pair.nz;
-            const sz = (Ui[2][0] + Uj[2][0]) * pair.nx + (Ui[2][1] + Uj[2][1]) * pair.ny + (Ui[2][2] + Uj[2][2]) * pair.nz;
-            const dnx = (ux - pair.nx * rPrime) / r;
-            const dny = (uy - pair.ny * rPrime) / r;
-            const dnz = (uz - pair.nz * rPrime) / r;
-            dmsd = 2 * (sx * dnx + sy * dny + sz * dnz);
+      // A pair whose window misses the grid (or a split pool's block) adds nothing.
+      const lo = Math.max(kFirst, Math.ceil((r - GAUSS_WINDOW * sigma - r0) / step));
+      const hi = Math.min(kLast, Math.floor((r + GAUSS_WINDOW * sigma - r0) / step));
+      if (lo > hi) continue;
+
+      active.length = 0;
+      for (let c = 0; c < requests.length; c++) {
+        const req = requests[c]!;
+        let a0 = 0;
+        let a1 = 0;
+        let a2 = 0;
+        switch (req.kind) {
+          case "qdamp":
+          case "spdiameter":
+            continue; // pointwise epilogue kinds — no pair contribution
+          case "sigma": {
+            const dsig2 =
+              fallbackMsd || fallbackFloor
+                ? 0
+                : req.target === "delta1"
+                  ? -msd / r
+                  : req.target === "delta2"
+                    ? -msd / (r * r)
+                    : 2 * qb * msd * r * r;
+            const D = dSigDSig2 * dsig2;
+            if (D === 0) continue;
+            a0 = -peak * D * invSigma;
+            a2 = peak * D * invSigma3;
+            break;
           }
-          const D = dSigDSig2 * (dSig2Dr * rPrime + B * dmsd);
-          if (rPrime === 0 && D === 0) continue;
-          a0 = -peak * (rPrime / r) - peak * D * invSigma;
-          a1 = peak * rPrime * invSigma2;
-          a2 = peak * D * invSigma3;
-          break;
+          case "msd": {
+            const dmsd =
+              msdDeriv(req, pi, pnx, pny, pnz) +
+              msdDeriv(req, pj, pnx, pny, pnz);
+            if (dmsd === 0) continue;
+            const D = dSigDSig2 * B * dmsd;
+            if (D === 0) continue;
+            a0 = -peak * D * invSigma;
+            a2 = peak * D * invSigma3;
+            break;
+          }
+          case "position": {
+            const vi = req.velocity[pi];
+            const vj = req.velocity[pj];
+            if (!vi && !vj) continue;
+            // Δu = du_j − du_i; center velocity R′ = n̂·Δu.
+            const ux = (vj ? vj[0] : 0) - (vi ? vi[0] : 0);
+            const uy = (vj ? vj[1] : 0) - (vi ? vi[1] : 0);
+            const uz = (vj ? vj[2] : 0) - (vi ? vi[2] : 0);
+            const rPrime = pnx * ux + pny * uy + pnz * uz;
+            // msd reacts through n̂ only for anisotropic ADPs:
+            // dmsd = 2·(U_sum n̂)·dn̂, dn̂ = (Δu − n̂·R′)/r.
+            let dmsd = 0;
+            if (uCartAll) {
+              const Ui = uCartAll[pi]!;
+              const Uj = uCartAll[pj]!;
+              const sx = (Ui[0][0] + Uj[0][0]) * pnx + (Ui[0][1] + Uj[0][1]) * pny + (Ui[0][2] + Uj[0][2]) * pnz;
+              const sy = (Ui[1][0] + Uj[1][0]) * pnx + (Ui[1][1] + Uj[1][1]) * pny + (Ui[1][2] + Uj[1][2]) * pnz;
+              const sz = (Ui[2][0] + Uj[2][0]) * pnx + (Ui[2][1] + Uj[2][1]) * pny + (Ui[2][2] + Uj[2][2]) * pnz;
+              const dnx = (ux - pnx * rPrime) / r;
+              const dny = (uy - pny * rPrime) / r;
+              const dnz = (uz - pnz * rPrime) / r;
+              dmsd = 2 * (sx * dnx + sy * dny + sz * dnz);
+            }
+            const D = dSigDSig2 * (dSig2Dr * rPrime + B * dmsd);
+            if (rPrime === 0 && D === 0) continue;
+            a0 = -peak * (rPrime / r) - peak * D * invSigma;
+            a1 = peak * rPrime * invSigma2;
+            a2 = peak * D * invSigma3;
+            break;
+          }
+          case "occupancy": {
+            const pre = occPre[c]!;
+            const im = weights.perAtomIm;
+            const dW = pre.dPerIm && im
+              ? pre.dPer[pi]! * weights.perAtom[pj]! + weights.perAtom[pi]! * pre.dPer[pj]! +
+                (pre.dPerIm[pi]! * im[pj]! + im[pi]! * pre.dPerIm[pj]!)
+              : pre.dPer[pi]! * weights.perAtom[pj]! + weights.perAtom[pi]! * pre.dPer[pj]!;
+            const dAmp = (dW * norm) / r + amp * pre.dNormRel;
+            if (dAmp === 0) continue;
+            a0 = dAmp * INV_SQRT_2PI * invSigma;
+            break;
+          }
         }
-        case "occupancy": {
-          const pre = occPre[c]!;
-          const im = weights.perAtomIm;
-          const dW = pre.dPerIm && im
-            ? pre.dPer[pair.i]! * weights.perAtom[pair.j]! + weights.perAtom[pair.i]! * pre.dPer[pair.j]! +
-              (pre.dPerIm[pair.i]! * im[pair.j]! + im[pair.i]! * pre.dPerIm[pair.j]!)
-            : pre.dPer[pair.i]! * weights.perAtom[pair.j]! + weights.perAtom[pair.i]! * pre.dPer[pair.j]!;
-          const dAmp = (dW * norm) / r + amp * pre.dNormRel;
-          if (dAmp === 0) continue;
-          a0 = dAmp * INV_SQRT_2PI * invSigma;
-          break;
-        }
+        q0[c] = a0;
+        q1[c] = a1;
+        q2[c] = a2;
+        active.push(c);
       }
-      q0[c] = a0;
-      q1[c] = a1;
-      q2[c] = a2;
-      active.push(c);
-    }
 
-    const lo = Math.max(0, Math.ceil((r - GAUSS_WINDOW * sigma - r0) / step));
-    const hi = Math.min(n - 1, Math.floor((r + GAUSS_WINDOW * sigma - r0) / step));
-    if (active.length === 0) {
-      // Value-only accumulation (identical expressions to computeGofR).
-      for (let k = lo; k <= hi; k++) {
-        const dr = r0 + k * step - r;
-        g[k] = g[k]! + peak * Math.exp(-dr * dr * invTwoSig2);
-      }
-    } else {
-      for (let k = lo; k <= hi; k++) {
-        const dr = r0 + k * step - r;
-        const e = Math.exp(-dr * dr * invTwoSig2);
-        g[k] = g[k]! + peak * e;
-        for (const c of active) {
+      if (active.length === 0) {
+        // Value-only accumulation (identical expressions to computeGofR).
+        for (let k = lo; k <= hi; k++) {
+          const dr = r0 + k * step - r;
+          g[k] = g[k]! + peak * Math.exp(-dr * dr * invTwoSig2);
+        }
+      } else {
+        // The window's e and dr once, then one tight loop per active column. Each
+        // column point receives the same terms in the same pair order as a
+        // point-outer loop, so the result is bit-identical; walking one column
+        // at a time is about twice as fast.
+        const span = hi - lo + 1;
+        if (span > eWin.length) {
+          eWin = new Float64Array(2 * span);
+          drWin = new Float64Array(2 * span);
+        }
+        for (let k = lo; k <= hi; k++) {
+          const dr = r0 + k * step - r;
+          const e = Math.exp(-dr * dr * invTwoSig2);
+          g[k] = g[k]! + peak * e;
+          eWin[k - lo] = e;
+          drWin[k - lo] = dr;
+        }
+        for (let a = 0; a < active.length; a++) {
+          const c = active[a]!;
           const col = columns[c]!;
-          col[k] = col[k]! + (q0[c]! + dr * (q1[c]! + dr * q2[c]!)) * e;
+          const c0 = q0[c]!;
+          const c1 = q1[c]!;
+          const c2 = q2[c]!;
+          for (let k = lo; k <= hi; k++) {
+            const dr = drWin[k - lo]!;
+            col[k] = col[k]! + (c0 + dr * (c1 + dr * c2)) * eWin[k - lo]!;
+          }
         }
       }
     }
-  }
+  });
 
   // --- Epilogue: baseline + envelopes + scale --------------------------------
   // The value path repeats computeGofR verbatim (bit-identity); columns ride
@@ -315,7 +370,7 @@ export function computeGofRWithColumns(
   const fourPiRho0 = 4 * Math.PI * rho0;
   const spd = params.spdiameter ?? 0;
   const volume = rho0 > 0 ? weights.nEff / rho0 : 0;
-  for (let k = 0; k < n; k++) {
+  for (let k = kFirst; k <= kLast; k++) {
     const r = rGrid[k]!;
     let val = g[k]! - fourPiRho0 * r;
     let env = 1;
@@ -369,3 +424,31 @@ export function computeGofRWithColumns(
 
 /** d(u_iso)/d(B_iso) = 1/8π² — the bIso "constant" msd-request entry. */
 export const DUISO_DBISO = 1 / EIGHT_PI_SQ;
+
+/**
+ * Whether every request is the same on each atom of a co-located group, so the
+ * group's pairs may be summed through its representative: the ADP derivative
+ * (constant and tensor) and the position velocity per atom. Occupancy, the
+ * width and envelope kinds hold on any grouping.
+ */
+export function requestsUniformOver(requests: readonly PdfColumnRequest[], groups: ColocatedGroups): boolean {
+  const rep = groups.rep;
+  const same3 = (a: readonly number[] | null, b: readonly number[] | null): boolean =>
+    a === b || (a !== null && b !== null && a[0] === b[0] && a[1] === b[1] && a[2] === b[2]);
+  for (const req of requests) {
+    for (let a = 0; a < rep.length; a++) {
+      const r = rep[a]!;
+      if (r === a) continue;
+      if (req.kind === "msd") {
+        if (req.constant[a] !== req.constant[r]) return false;
+        const ta = req.tensors[a] ?? null;
+        const tr = req.tensors[r] ?? null;
+        if ((ta === null) !== (tr === null)) return false;
+        if (ta && tr && !(same3(ta[0], tr[0]) && same3(ta[1], tr[1]) && same3(ta[2], tr[2]))) return false;
+      } else if (req.kind === "position") {
+        if (!same3(req.velocity[a] ?? null, req.velocity[r] ?? null)) return false;
+      }
+    }
+  }
+  return true;
+}

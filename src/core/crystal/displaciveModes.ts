@@ -99,6 +99,16 @@ function displacementRepresentationCharacter(
   });
 }
 
+/**
+ * χ_disp(g) per operation of the structure's own group: the displacement
+ * representation of the given sites' orbits (all sites when omitted) in the
+ * conventional cell, χ_disp(g) = tr(R_g)·N_fixed(g).
+ */
+export function displacementCharacters(structure: StructureModel, siteLabels?: readonly string[]): number[] {
+  const labels = siteLabels ?? structure.sites.map((s) => s.label);
+  return displacementRepresentationCharacter(structure, labels, structure.spaceGroup.operations).map((c) => c.re);
+}
+
 export interface DisplaciveIrrepTerm {
   readonly irrep: Irrep;
   /** Multiplicity in the FULL displacement rep (includes the acoustic branch). */

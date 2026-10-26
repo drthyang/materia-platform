@@ -3,6 +3,7 @@ import { moveTo, recordStep, type ProjectHistory } from "@/core/project/history"
 import type { Workspace } from "@/core/project/types";
 import type { ParameterKind, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { ReportInput } from "@/core/export/report";
+import { DETAIL_CHECKS, summaryParameters } from "@/core/export/reportMarkdownFrozen";
 import { buildAgentReport, comparedRefinements, freeSummary, historySteps, recordChecks, reportFileBase } from "@/agent/report";
 import { corundumPage } from "@/testSupport/scPages";
 import { buildSingleCrystalSpec } from "@/core/workflow/singleCrystalRefinement";
@@ -10,7 +11,9 @@ import { withAdpModel } from "@/core/crystal/adp";
 import { emptyRecord } from "@/agent/method";
 import { parse_structure, simulate_pattern } from "@/mcp/tools";
 import { loadedSession } from "@/app/powderSession";
-import { executor, fakeHost, pdfPort, sessionPort } from "@/testSupport/agentHeadless";
+import { executor, fakeHost, headlessHistory, pdfPort, sessionPort, singleCrystalPort } from "@/testSupport/agentHeadless";
+import type { AgentPort } from "@/agent/port";
+import { mn3gaPowgenExample } from "@/examples/mn3gaPowgen";
 import type { AgentReport } from "@/agent/report";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import type { PowderPattern } from "@/core/diffraction/types";
@@ -128,7 +131,7 @@ describe("the analysis from the History", () => {
     // 3.71 is the engine's; 2.2012 only the Agent's own note says; 8.4807 is nowhere.
     expect(built.unverified).toEqual(["2.2012", "8.4807"]);
     expect(built.agent.openIssues).toEqual(["Method stages not yet refined to convergence: Scale, background, cell, Positions, Profile, ADPs."]);
-    expect(built.html).toContain("analysed with the Agent");
+    expect(built.html).toContain("analysed with MATERIA Copilot");
     expect(built.markdown).toContain("a = 8.4807† Å");
     // A number the user gave (a published refinement's) is theirs to quote.
     const quoted = buildAgentReport({ page: "powder", input, history: null, record: emptyRecord("k"), checks: [], posterior: null, model: "M", narrative: "wR 3.71 % against the published 3.92 %; a = 8.4807 Å.", userText: "Compare with the published wR of 3.92 %." });
@@ -156,7 +159,7 @@ describe("the analysis from the History", () => {
       narrative: "From wR 16.48 % to 4.12 %. The Le Bail fit gave a = 8.48072 Å at Rwp 1.51 %; before the profile the lines were 2.45× too broad (Durbin–Watson 0.41).",
     });
     expect(built.unverified).toEqual([]);
-    expect(built.markdown).toContain("Before the Agent's first refinement: wR 16.48 %.");
+    expect(built.markdown).toContain("Before the Copilot's first refinement: wR 16.48 %.");
     expect(built.agent.checks.find((c) => c.name === "Earlier fit diagnoses")?.detail).toBe(
       "At step 2 (Refine): GoF 3.1 (Rwp 12.03%, Rexp 3.88%). Durbin–Watson d = 0.41 < 1.75. peak-width (61.2 % of χ²): the observed lines are 2.45× broader than calculated at half maximum (median of 31 isolated lines).",
     );
@@ -244,7 +247,7 @@ O2 O2- 0.3075 0.3075 0.3400 1 0.6
     const r = reports[0]!;
     expect(r.technique).toBe("powder");
     expect(r.fileBase).toBe(`${r.title}_agent_report`);
-    expect(r.html).toContain("Rietveld refinement report · analysed with the Agent");
+    expect(r.html).toContain("Rietveld refinement · analysed with MATERIA Copilot");
     expect(r.html).toContain("model Test model · headless");
     expect(r.html).toContain("Bond valence");
     expect(r.html).toContain(`wR ${wR.toFixed(2)} %.</p>`);
@@ -294,9 +297,9 @@ O2 O2- 0.3075 0.3075 0.3400 1 0.6
     await ex.run("refine", {});
     const out = parse((await ex.run("write_report", { summary: "Refined the scale of the GaTa4Se8 G(r) over the default window." })).text) as { checks: string[] };
     expect(out.checks.some((c) => /^note: Agreement — Rw = \d+\.\d\d %/.test(c))).toBe(true);
-    expect(reports[0]!.html).toContain("PDF refinement report · analysed with the Agent");
-    expect(reports[0]!.html).toContain('<th class="num">Rw</th>');
-    expect(reports[0]!.html).not.toContain('<th class="num">GoF</th>');
+    expect(reports[0]!.html).toContain("PDF refinement · analysed with MATERIA Copilot");
+    expect(reports[0]!.html).toContain('<th class="n">Rw (%)</th>');
+    expect(reports[0]!.html).not.toContain(">GoF</th>");
 
     const { reportInput: _drop, ...bare } = port;
     const { ex: ex2 } = executor(fakeHost(bare).host, "auto");
@@ -323,4 +326,90 @@ O2 O2- 0.3075 0.3075 0.3400 1 0.6
     expect(reports.at(-1)!.html).toContain('id="local"');
     expect(reports.at(-1)!.unverified ?? []).toEqual([]);
   }, 60000);
+});
+
+describe("the bundled demos' reports: the summary first, the record in the appendix", () => {
+  /** A Markdown table cell as the report writes it. */
+  const asCell = (t: string): string => t.replace(/\|/g, "\\|");
+  /** Write the report after the given steps and split its Markdown at the appendix. */
+  async function written(port: AgentPort, run: (step: (name: string, input?: Record<string, unknown>) => Promise<string>) => Promise<void>) {
+    const h = headlessHistory(port);
+    const reports: AgentReport[] = [];
+    const { host } = fakeHost(port, h.history, (kind, agent) => h.record(kind, agent ? "agent" : undefined), h.goTo);
+    const { ex } = executor(host, "auto", { onReport: (r) => reports.push(r) });
+    const step = async (name: string, input: Record<string, unknown> = {}): Promise<string> => {
+      const text = (await ex.run(name, input)).text;
+      if (name === "refine") h.record("refine", "agent", "Refine");
+      return text;
+    };
+    await run(step);
+    const out = JSON.parse(await step("write_report", { summary: "The refined values with their esds are in the report." })) as { checks: string[]; openIssues: string[] };
+    const md = reports.at(-1)!.markdown;
+    const cut = md.indexOf("## Appendix — the full record");
+    const html = reports.at(-1)!.html;
+    return { out, summary: md.slice(0, cut), appendix: md.slice(cut), html, state: port.state() };
+  }
+
+  /** The checklist: what the summary must keep, and what the appendix must still hold. */
+  function checklist(r: Awaited<ReturnType<typeof written>>, technique: ReportInput["technique"], metrics: readonly string[]): void {
+    // Fit quality, the refined structure (cell and sites with esds), the account.
+    for (const m of metrics) expect(r.summary, m).toContain(m);
+    expect(r.summary).toMatch(/\| a \(Å\) \| b \(Å\) \| c \(Å\) \|/);
+    expect(r.summary).toMatch(/\| Site \| Type \| x \| y \| z \| Occ\. \|/);
+    expect(r.summary).toMatch(/\d\(\d+\)/); // values with esds
+    expect(r.summary).toContain("The refined values with their esds are in the report.");
+    // Every other refined value, by its label; the parameters in full in the appendix.
+    const free = summaryParameters(r.state.parameters, technique);
+    expect(free.length).toBeGreaterThan(0);
+    for (const p of free) expect(r.summary, p.label).toContain(asCell(p.label));
+    for (const p of r.state.parameters) expect(r.appendix, p.label).toContain(asCell(p.label));
+    // Every open issue in the summary; every check, with its detail, in the appendix.
+    for (const issue of r.out.openIssues) expect(r.summary, issue).toContain(issue);
+    for (const c of r.out.checks) {
+      const [, status, name, detail] = /^(\w+): (.+?) — ([^]*)$/.exec(c)!;
+      expect(r.appendix, name).toContain(asCell(detail!));
+      if (status === "pass" && name !== "Data") expect(r.summary).toMatch(new RegExp(`Passed: .*${name}`));
+      else if (status === "note" && !DETAIL_CHECKS.has(name!)) expect(r.summary, name).toContain(asCell(detail!));
+      else if (status === "attention") expect(r.summary, name).toContain(detail!);
+    }
+    // The record: the steps and the method, the conventions and the software, in the appendix only.
+    for (const moved of ["**How the analysis was done**", "Method (the skill", "**Software**", "MATERIA Copilot · Test model · headless"]) {
+      expect(r.summary, moved).not.toContain(moved);
+      expect(r.appendix, moved).toContain(moved);
+    }
+    // In the HTML the appendix is collapsed.
+    const appendix = r.html.slice(r.html.indexOf('<section id="appendix"'));
+    expect(appendix).toContain('<details id="record">');
+    expect(appendix).toContain('<details id="parameters">');
+  }
+
+  it("the Mn₃Ga + MnO POWGEN demo: the phase fractions, the cells and the fit quality in the summary", async () => {
+    const demo = mn3gaPowgenExample();
+    const { port } = sessionPort(loadedSession(demo.structure, demo.pattern, demo.instrument, demo.extraPhases, demo.refinedParams), demo.instrument, { instrumentOnPage: true });
+    port.setFitRange(demo.fitRange);
+    const r = await written(port, async (step) => {
+      await step("set_free", { free: ["p0_B_Mn1", "p0_B_Ga1"] });
+      await step("refine");
+    });
+    checklist(r, "powder", ["| wR | R exp | GoF (S) |", "**Final χ² (Σ w Δ²)**", "**Phase fractions**", "### MnO"]);
+    expect(r.summary).toMatch(/Mn3Ga [\d.]+\(\d+\) wt% · MnO [\d.]+\(\d+\) wt%/);
+  }, 120_000);
+
+  it("the GaTa₄Se₈ PDF demo: Rw and the envelope's refined values in the summary", async () => {
+    const r = await written(pdfPort().port, async (step) => {
+      await step("set_free", { free: ["pdfScale", "pos_*", "delta2"] });
+      await step("refine");
+    });
+    checklist(r, "pdf", ["| Rw(G) |", "**Weighted R**"]);
+  }, 120_000);
+
+  it("the corundum crystal: R1, wR2, GooF, the data's numbers and the correlations in the summary", async () => {
+    const c = corundumPage({ extinction: 20 });
+    const r = await written(singleCrystalPort(c.structure, c.dataset).port, async (step) => {
+      await step("reflection_statistics");
+      await step("set_free", { free: ["pos_*", "B_*"] });
+      await step("refine");
+    });
+    checklist(r, "singleCrystal", ["| R1 | wR2 | GooF |", "**Goodness of fit S**", "d_min", "completeness"]);
+  }, 120_000);
 });

@@ -47,6 +47,7 @@ import {
   type PosteriorSummary,
   type SampleDiagnostics,
 } from "@/core/refinement/bayes/diagnostics";
+import { POSTERIOR_RHAT } from "@/core/diagnostics/thresholds";
 
 /** Deterministic 32-bit PRNG (mulberry32) → uniform [0, 1). Counter-resumable:
  *  the state after n draws is a pure function of (seed, n), so a resume token
@@ -353,7 +354,7 @@ export function* sampleCore(
   const diagnostics = buildDiagnostics(chains, keptLogP, freeIds);
   const posterior = posteriorSummary(chains, freeIds, diagnostics, options.linearizedEsd);
   const converged =
-    diagnostics.maxRHat < 1.05 && diagnostics.minEss >= Math.max(100, 10 * nFree);
+    diagnostics.maxRHat < POSTERIOR_RHAT && diagnostics.minEss >= Math.max(100, 10 * nFree);
 
   return {
     chains,
@@ -402,7 +403,8 @@ export async function samplePosteriorParallel(
   let step = gen.next();
   while (!step.done) {
     const sets = step.value;
-    const results = sets.length === 1 ? [problem.calculate(sets[0]!)] : await evaluator.evaluate(sets);
+    // An evaluator that splits every evaluation takes the single ones too (the driver holds no pairs).
+    const results = sets.length === 1 && evaluator.splitsEvaluations !== true ? [problem.calculate(sets[0]!)] : await evaluator.evaluate(sets);
     step = gen.next(results);
   }
   return step.value;

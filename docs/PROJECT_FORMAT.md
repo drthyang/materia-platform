@@ -79,7 +79,7 @@ own. Bindings must reference parameters present in the file; ids must be unique.
 | `instrumentLoaded` | boolean | Whether `instrument` came from a user file (vs. the built-in default). |
 | `profile` | `PowderProfile` | `shape` ∈ gaussian · pseudoVoigt · tof; `eta?`, `lorentz?`, `backgroundType?`. |
 | `backgroundTerms` | integer ≥ 1 | Number of background coefficients. |
-| `siteTies` | `SiteTies` | Shared-site position / ADP / occupancy-to-unity ties. |
+| `siteTies` | `SiteTies` | Shared-site position / ADP ties, hold composition, and `totals?` `{[siteKey]: number}` (a shared site's total occupancy below 1, 0.001–1, by its first member's label; absent: 1). A shared site's last occupancy row carries its tie to the total; a file saved before the tie opens with it, that row then following the others. An old file's `occupancyToUnity` is read and dropped. |
 | `anisotropicAdp?` | boolean | U-tensor ADPs instead of B_iso. |
 | `mustrain?` | isotropic · uniaxial · generalized | Microstrain model. Absent ⇒ isotropic. |
 | `overlay?` | `{calc[], background[]}` | Reference curves of a view-only pattern (GSAS-II CSV); one value per point. |
@@ -90,6 +90,7 @@ own. Bindings must reference parameters present in the file; ids must be unique.
 | `fitRange?` | `{min, max}` | Refinement window in the pattern's native unit. Absent ⇒ whole pattern. |
 | `displayUnit?` | `PowderXUnit` | Display-only axis choice. |
 | `manualPeaks?` | number[] | Hand-picked residual peaks (d, Å) from the magnetic page. |
+| `zeroAdpFixes?` | `{parameterId, atom, reached, rule, leader?, value?, source, chosenBy?, reason?, alternatives?}[]` | The B-at-0 options applied: why a B row is tied (`rule` A, `leader`) or held (`rule` B, `value`), who chose it (`chosenBy` `agent-auto` for the Agent in auto mode; absent: the user), the Agent's `reason`, and the options not taken. The tie or the held value itself is in `refinement`, like any other; a record its row no longer carries is ignored. Absent ⇒ none (files written before it open unchanged). |
 
 ### `"singleCrystal"` — integrated intensities (F²)
 
@@ -108,7 +109,8 @@ own. Bindings must reference parameters present in the file; ids must be unique.
 | Field | Type | Notes |
 | --- | --- | --- |
 | `pattern` | `PdfPattern` | `scatteringType` ∈ neutron · xray; points `{r, gObs, sigma?}`; Qmax/Qdamp/Qbroad/rpoly… from the header. A pattern transformed from S(Q)/F(Q) also carries `reciprocal` `{kind: sq·fq, q[], y[], sigma?[]}` (the original data, equal-length columns, σ ≥ 0) and `transform` `{qmin, qmax, modification: none·lorch, lowQ: none·linear}`; both optional, no schema bump. |
-| `refinement` | see above | Includes mode-amplitude rows (irreps) and moment rows (mPDF) when in use. |
+| `refinement` | see above | Includes mode-amplitude rows (irreps) and moment rows (mPDF) when in use. A shared site's last occupancy row carries its tie (`= 1 - sum(…)`, or the complement for two species); the spec rebuilds it on open, so a file saved before the tie opens with it, that row held at the total minus the others. |
+| `siteTotals?` | `{[siteKey]: number}` | A shared site's total occupancy, 0.001–1, by the site's key (its first member's label), where the user set one below 1 (vacancies). Absent: every site 1. Optional, no schema bump. |
 | `fitRange` | `{min, max}` | The r window the model is computed and fitted in (Å). Required. |
 | `positionMode` | atomic · irreps | Per-coordinate shifts vs. symmetry-adapted mode amplitudes. |
 | `distortionModes?` | `{set: DistortionModeSet, parentName, fromActivation?}` | The parameterization built from a parent CIF or a subgroup activation — stored whole, since it cannot be regenerated from the child structure alone. |

@@ -83,6 +83,23 @@ describe("the lattice's merohedral twin laws", () => {
     expect(twinned[0]!.pairs).toBeGreaterThan(500);
   });
 
+  it("reads a high α on weak data: the 3σ cut keeps the pairs both strong, and noise lowers a twin's α only without it", () => {
+    const law: Mat3 = [[0, 1, 0], [1, 0, 0], [0, 0, -1]];
+    // Each intensity measured with Gaussian noise of σ (the Wilson mean is 1000).
+    const noisy = (rows: TwinLawRow[], sigma: number, seed = 11): TwinLawRow[] => {
+      const random = rng(seed);
+      return rows.map((r) => ({ ...r, intensity: r.intensity + sigma * Math.sqrt(-2 * Math.log(1 - random())) * Math.cos(2 * Math.PI * random()), sigma }));
+    };
+    const alphaOf = (rows: TwinLawRow[], minIOverSigma?: number): number =>
+      merohedralTwinLaws(rows, hexagonal, buildSpaceGroup(145), minIOverSigma === undefined ? {} : { minIOverSigma }).find((l) => JSON.stringify(l.matrix) === JSON.stringify(law))!.alpha;
+    // Untwinned, ⟨I/σ⟩ = 20: the default cut reads a twin that is not there; keeping every pair does not.
+    const untwinned = noisy(trigonal(0, law), 50);
+    expect(alphaOf(untwinned)).toBeGreaterThan(0.06);
+    expect(alphaOf(untwinned, 1e-4)).toBeLessThan(alphaOf(untwinned) - 0.04);
+    // Twinned at 0.3, ⟨I/σ⟩ = 5: with every pair kept, noise lowers the fraction.
+    expect(alphaOf(noisy(trigonal(0.3, law), 200), 1e-4)).toBeLessThan(0.27);
+  });
+
   it("reads a centrosymmetric group's twin from the centric H distribution (P−3, α = 0.3)", () => {
     const law: Mat3 = [[0, 1, 0], [1, 0, 0], [0, 0, -1]];
     const none = merohedralTwinLaws(trigonal(0, law, 7, true), hexagonal, buildSpaceGroup(147));

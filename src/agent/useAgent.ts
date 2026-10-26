@@ -5,6 +5,7 @@
  * `onAttention` opens it.
  */
 
+import type { CardDecision } from "@/agent/cardOptions";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ActivityEntry, AgentExecutor, AgentHost, ToolRunner } from "@/agent/executor";
 import type { ChatConfig, ChatEffort, AgentChat } from "@/agent/chat";
@@ -15,6 +16,7 @@ import { DEFAULT_LMSTUDIO_URL } from "@/agent/lmstudio";
 import { TOOL_CARDS, cardsInReply, cardsInText, type AgentCard } from "@/agent/focus";
 import { CHAT_MODELS } from "@/agent/chat-models";
 import type { AgentReport } from "@/agent/report";
+import type { ChoiceSet } from "@/agent/choices";
 
 /**
  * How the Agent reaches a model: Anthropic two ways (an API key, or the dev
@@ -78,10 +80,20 @@ export interface AgentController {
   readonly activity: Readonly<Record<string, ActivityEntry>>;
   /** Changes waiting for the user's decision. */
   readonly pending: readonly ActivityEntry[];
-  readonly decide: (entryId: string, approve: boolean) => void;
+  /** The card's answer: approve or decline; on a card with options, the option picked in each group (cardOptions.ts). */
+  readonly decide: (entryId: string, approve: boolean, selected?: Readonly<Record<string, string>>) => void;
   /** A chat turn is running. */
   readonly thinking: boolean;
   readonly send: (text: string) => void;
+  /**
+   * Click an option a tool's result offered (ActivityEntry.choices): sends its
+   * message, as if typed. Only while no turn runs, the conversation has not
+   * moved past the set, and the page is as it was when the set was made;
+   * otherwise nothing is sent (a stale page says so). Returns whether it sent.
+   */
+  readonly choose: (entryId: string, optionId: string) => boolean;
+  /** The page is still as it was when the set was made (its stamp). */
+  readonly choiceCurrent: (set: ChoiceSet) => boolean;
   readonly stop: () => void;
   readonly clear: () => void;
   readonly usage: { readonly input: number; readonly output: number; readonly cacheRead: number };
@@ -132,7 +144,7 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
   const [usage, setUsage] = useState({ input: 0, output: 0, cacheRead: 0 });
   const [report, setReport] = useState<AgentReport | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
-  const approvals = useRef(new Map<string, (ok: boolean) => void>());
+  const approvals = useRef(new Map<string, (ok: boolean | CardDecision) => void>());
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const apiKeyRef = useRef(apiKey);
@@ -159,7 +171,7 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
               // Auto approves every change but the ones only the user may make.
               if (settingsRef.current.autoApprove && !entry.alwaysAsk) return Promise.resolve(true);
               attention.current();
-              return new Promise<boolean>((resolve) => {
+              return new Promise<boolean | CardDecision>((resolve) => {
                 // Stop declines the card; a decision removes the listener (one per card would pile up).
                 const onAbort = (): void => {
                   approvals.current.delete(entry.id);
@@ -197,6 +209,7 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
       situation: async () => (await load()).situation(),
       fill: (text) => (instance ? instance.fill(text) : text),
       page: () => instance?.page() ?? null,
+      stamp: () => instance?.stamp() ?? null,
     };
   }, [host]);
 
@@ -222,10 +235,11 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
     storeKey(OPENAI_KEY_KEY, key, settingsRef.current.rememberKey);
   }, []);
 
-  const decide = useCallback((entryId: string, ok: boolean) => {
+  const decide = useCallback((entryId: string, ok: boolean, selected?: Readonly<Record<string, string>>) => {
     const resolve = approvals.current.get(entryId);
     approvals.current.delete(entryId);
-    resolve?.(ok);
+    // A card with options answers with the user's picks: what the change applies.
+    resolve?.(ok && selected ? { selected } : ok);
   }, []);
 
   // ── the in-app chat ─────────────────────────────────────────────────────
@@ -291,7 +305,7 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
           ctrl.signal,
         );
       } catch (e) {
-        const text = mod ? mod.describeChatError(e, config) : `The Agent could not load (${e instanceof Error ? e.message : String(e)}). Check the connection and send again.`;
+        const text = mod ? mod.describeChatError(e, config) : `The Copilot could not load (${e instanceof Error ? e.message : String(e)}). Check the connection and send again.`;
         setTranscript((t) => [...t, { kind: "notice", id: itemId(), text, tone: "error" }]);
       } finally {
         turn.current = null;
@@ -301,6 +315,31 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
       }
     })();
   }, [executor]);
+
+  // What a click is checked against, as it stands at the click (not at the last render).
+  const transcriptRef = useRef(transcript);
+  transcriptRef.current = transcript;
+  const activityRef = useRef(activity);
+  activityRef.current = activity;
+
+  const choiceCurrent = useCallback((set: ChoiceSet) => set.stamp !== null && executor.stamp?.() === set.stamp, [executor]);
+
+  const choose = useCallback((entryId: string, optionId: string): boolean => {
+    if (turn.current) return false;
+    const set = activityRef.current[entryId]?.choices;
+    const option = set?.options.find((o) => o.id === optionId);
+    if (!set || !option) return false;
+    // A set the conversation has moved past (a message after it) is history, not a question.
+    const items = transcriptRef.current;
+    const at = items.findIndex((i) => i.kind === "tool" && i.entryId === entryId);
+    if (at < 0 || items.slice(at + 1).some((i) => i.kind === "user")) return false;
+    if (!choiceCurrent(set)) {
+      setTranscript((t) => [...t, { kind: "notice", id: itemId(), text: `The page has changed since these options were listed, so “${option.message}” was not sent. Ask again, or type your choice.`, tone: "info" }]);
+      return false;
+    }
+    send(option.message);
+    return true;
+  }, [choiceCurrent, send]);
 
   const stop = useCallback(() => {
     turn.current?.abort();
@@ -355,7 +394,7 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
   const openReport = useCallback(() => setReportOpen(true), []);
   const closeReport = useCallback(() => setReportOpen(false), []);
 
-  return { settings, updateSettings, apiKey, setApiKey, openaiKey, setOpenaiKey, transcript, activity, pending, decide, thinking, send, stop, clear, usage, focus, hoverReply, report, reportOpen, openReport, closeReport };
+  return { settings, updateSettings, apiKey, setApiKey, openaiKey, setOpenaiKey, transcript, activity, pending, decide, thinking, send, choose, choiceCurrent, stop, clear, usage, focus, hoverReply, report, reportOpen, openReport, closeReport };
 }
 
 /** The model and how it is reached, as a report names it. */
@@ -377,8 +416,11 @@ export function modelLabel(s: AgentSettings): string {
   return `${name} · ${s.mode === "proxy" ? "local proxy" : "Anthropic API"}`;
 }
 
-/** A replayed run's label: the model that took it live, and that this is its replay. */
-export const replayLabel = (model: string): string => `${model} · replay of a live run`;
+/** A scripted replay (the eval suite's turns, src/agent/replay/), named "Scripted model (eval …)": no model ran it live. */
+export const isScriptedReplay = (label: string): boolean => /^Scripted model\b/.test(label);
+
+/** A replayed run's label: the model that took it live and that this is its replay, or a scripted replay said to be one. */
+export const replayLabel = (model: string): string => (isScriptedReplay(model) ? `${model} · a scripted replay, not a live run` : `${model} · replay of a live run`);
 
 /** What one chat message runs on, from the settings. */
 function chatConfig(s: AgentSettings, apiKey: string): ChatConfig {
@@ -391,13 +433,31 @@ function chatConfig(s: AgentSettings, apiKey: string): ChatConfig {
 
 // ── storage (guarded: private windows and blocked site data throw) ─────────
 
+/**
+ * The stored settings, read as often as the page asks for them. A replay's
+ * label is for this load only: taken out of storage at the first read, and
+ * kept here for the reads after it in the same load (React's StrictMode reads
+ * the settings twice in development, where the replays run).
+ */
+export function settingsReader(): (store: Pick<Storage, "getItem" | "setItem">) => AgentSettings {
+  let replayThisLoad = "";
+  return (store) => {
+    const s = settingsFrom(store.getItem(SETTINGS_KEY));
+    if (s.replayOf) {
+      replayThisLoad = s.replayOf;
+      store.setItem(SETTINGS_KEY, JSON.stringify(savedSettings(s)));
+      return s;
+    }
+    return replayThisLoad ? { ...s, replayOf: replayThisLoad } : s;
+  };
+}
+
+const readStored = settingsReader();
+
 function readSettings(): AgentSettings {
   try {
     migrateLegacyKeys(localStorage, sessionStorage);
-    const s = settingsFrom(localStorage.getItem(SETTINGS_KEY));
-    // A replay's label is for this load only: taken out of storage once read.
-    if (s.replayOf) localStorage.setItem(SETTINGS_KEY, JSON.stringify(savedSettings(s)));
-    return s;
+    return readStored(localStorage);
   } catch {
     return DEFAULTS;
   }

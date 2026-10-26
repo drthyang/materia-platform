@@ -40,7 +40,7 @@ are bounded to ±12 µ_B (above any real ion; Eu²⁺ ≈ 7 µ_B).
 ## 3. Diagnosis (Phase 1a)
 
 We characterized the reported instability on the Mn₃Ga 350 K POWGEN data
-(`data/Mn3Ga_POWGEN_350K`, BNS group C m′c m′, moment modes: 2 on Mn1_0, 1 on
+(`data/Mn3Ga_POWGEN_350K`, committed as `examples/mn3ga-350k`; BNS group C m′c m′, moment modes: 2 on Mn1_0, 1 on
 Mn1_1) by running **24 seeded random starting moment configurations** and recording,
 per run, the final χ², the converged moments, and the engine's condition number,
 correlation matrix, damping history, and at-bound flags. Reproduce with:

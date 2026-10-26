@@ -30,10 +30,10 @@
  */
 
 import type { BetaContentBlockParam, BetaContextManagementConfig, BetaMessageParam, BetaToolResultBlockParam } from "@anthropic-ai/sdk/resources/beta/messages/messages";
-import { liveTool } from "@/agent/tools";
+import { LIVE_TOOLS, liveTool } from "@/agent/tools";
 
-/** Results never cleared: a skill is the method the Agent works by. */
-export const KEEP_TOOLS: readonly string[] = ["read_skill"];
+/** Results never cleared (the tools that keep them): a skill is the method the Agent works by. */
+export const KEEP_TOOLS: readonly string[] = LIVE_TOOLS.filter((t) => t.keep).map((t) => t.name);
 
 /** Claude: clear old tool results past 60k input tokens, in batches of 15k or more, keeping the last 6. */
 export const CONTEXT_EDITING: BetaContextManagementConfig = {
@@ -79,8 +79,9 @@ interface Call {
  *  2. then, oldest first and in the same batches, those digests shrink to one
  *     line, and the replies around them to one sentence;
  *  3. then a method read before the latest one (the Rietveld method, once
- *     the magnetic step's is read) shrinks to its outline, its headings:
- *     read_skill gives it whole again;
+ *     the magnetic step's is read) shrinks to its outline, its headings and
+ *     its "## Gates" section whole (the numbers and the stops): read_skill
+ *     gives it whole again;
  *  4. last, in a session so long that nothing else is left to shorten, the
  *     latest method too, to its outline, once the model has worked with it
  *     for a dozen results or more (read_skill gives it whole).
@@ -172,10 +173,23 @@ export function pruneForLocal(messages: readonly BetaMessageParam[], budget = LO
   return prune(most, most, everySkill);
 }
 
-/** A method read before the latest one, as its outline: its title and headings. */
-function skillOutline(tool: string, input: Readonly<Record<string, unknown>>, text: string): string {
-  const headings = text.split("\n").filter((l) => /^#{1,3} /.test(l)).map((l) => l.trim()).slice(0, 40);
-  return `[${tool} ${skillName(input)}: shortened to its outline to fit the window; read_skill gives it whole again.\n${headings.join("\n")}]`;
+/**
+ * A method as its outline: its title and headings, and its "## Gates"
+ * section whole — the numbers and the stops, which headings alone would drop.
+ */
+export function skillOutline(tool: string, input: Readonly<Record<string, unknown>>, text: string): string {
+  const kept: string[] = [];
+  let headings = 0;
+  let inGates = false;
+  for (const line of text.split("\n")) {
+    if (/^#{1,3} /.test(line)) {
+      inGates = /^## Gates\s*$/.test(line.trim());
+      if (++headings <= 40) kept.push(line.trim());
+    } else if (inGates && line.trim()) {
+      kept.push(line);
+    }
+  }
+  return `[${tool} ${skillName(input)}: shortened to its outline to fit the window; read_skill gives it whole again.\n${kept.join("\n")}]`;
 }
 
 /** What a reply keeps when its turn's results are digested (characters), and when they are one line. */

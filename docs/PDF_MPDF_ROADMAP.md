@@ -152,6 +152,8 @@ Paths are under `src/`. Nothing in `src/core` imports React.
 | `parsers/pdfData.ts`, `parsers/fgrData.ts` | `.gr`, `.sq` and `.fq`; PDFgui `.fgr` fits |
 | `workers/protocol.ts`, `workers/runPowder.ts` | The `pdf` and `mpdf` evaluator specs |
 | `app/PdfWorkbench.tsx`, `app/ui/PosteriorPanel.tsx`, `app/ui/BoxcarPanel.tsx`, `app/ui/ReciprocalPanel.tsx` | The PDF page and its views (S(Q) ± σ in the last) |
+| `app/ui/SubgroupsPanel.tsx`, `app/ui/DistortionModesPanel.tsx` | The Subgroups view, where the symmetry is lowered, and the distortion modes being refined, under the 3D Model view |
+| `app/pdfPage.ts` | What the PDF page's controls and fits do, for the page and the Agent's headless page |
 
 **Planned but not built:** `core/pdf/peakWidth.ts`, folded into the enumerator
 and forward model; `core/totalscattering/reduction.ts` and
@@ -386,8 +388,8 @@ The pair sum costs O(N_cell · N_images) per phase and grows as rmax³.
 
 | Rung | Status | Notes |
 | --- | --- | --- |
-| 1. f64 CPU in a Web Worker | ✅ caching · ⬜ binning | The reference path. The pair list is cached on cell, positions and ADPs, so other steps skip enumeration. Neighbour binning of the images is not built. |
-| 2. Evaluator pool for the Jacobian | ✅ | `pdf` and `mpdf` specs. Multi-start, staged and boxcar runs each reuse one pool. |
+| 1. f64 CPU in a Web Worker | ✅ caching · ✅ mixed sites · ✅ compact pairs · ⬜ binning | The reference path. The pair list is cached on cell, positions and ADPs, so other steps skip enumeration. It holds a translation per run and a small atom-pair code per pair (about 1–2 bytes), with r, n̂ and the msd recomputed bit-identically; beyond a 64 MiB budget the pairs are generated chunk by chunk. The species of a mixed site (same position, same ADP) pair once, through one representative with their summed weight, in the single-phase problem: the same sum up to rounding, from a third of the pairs for the six-cation (Co,Cu,Fe,Mn,Ni,Zn)WO₄ A site (`colocatedGroups`). A gradient that moves one species alone falls back to the per-atom pairs. Neighbour binning of the images is not built. |
+| 2. Evaluator pool for the Jacobian | ✅ · ✅ split | `pdf` and `mpdf` specs. Multi-start, staged and boxcar runs each reuse one pool. On a single-phase `pdf` spec the browser pool splits every evaluation by model-grid block, each worker holding only the pairs its block sees, bit-identically ([REFINEMENT_ENGINE.md](./REFINEMENT_ENGINE.md#analytic-derivatives)). |
 | 3. Opt-in WebGPU pair-sum kernel | ⬜ | f32, gated like the structure-factor kernels: WGSL field count equals the JS stride, and an f64 twin matches CPU G(r) to 1e-6. Many small Gaussians may be more f32-sensitive than a reflection sum. |
 | 4. Analytic gradients | ✅ PDF · ⬜ mPDF | Cell, sratio/rcut, ties and multi-phase or multi-dataset problems fall back to finite differences ([REFINEMENT_ENGINE.md](./REFINEMENT_ENGINE.md)). Every mPDF column is a finite difference. |
 

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { CORRELATION_LIMIT, carriedText, correlationRefusal, disorderAssemblies, readCorrelations, refusalLine } from "@/agent/correlationCheck";
+import { correlationRefusal, refusalLine } from "@/agent/correlationCheck";
+import { CORRELATION_LIMIT, carriedText, disorderAssemblies, readCorrelations } from "@/core/diagnostics/correlationGuard";
 import { disorderPage } from "@/testSupport/scPages";
 import { buildSingleCrystalSpec } from "@/core/workflow/singleCrystalRefinement";
 import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
@@ -113,6 +114,15 @@ describe("correlation check", () => {
     const check = readCorrelations(probe(pairs), occ, [restraint]);
     expect(check.correlated.map((p) => [p.a, p.b])).toEqual([["occ_Mg1", "occ_Mg2"], ["scale", "occ_Al1"]]);
     expect(readCorrelations(probe(pairs), occ).correlated).toHaveLength(3);
+  });
+
+  it("does not count two occupancies one shared site's sum tie reads against each other", () => {
+    // The PDF page's hard Σ: the last occupancy follows one minus the others, which refine and trade against it.
+    const last: RefinementParameter = { ...param("occ_Zn1", "occupancy"), fixed: true, expression: "= 1 - sum(occ_Co1, occ_Mn1)" };
+    const occ = [param("pdfScale", "pdfScale"), param("occ_Co1", "occupancy"), param("occ_Mn1", "occupancy"), last, param("occ_O1", "occupancy")];
+    const pairs: [string, string, number][] = [["occ_Co1", "occ_Mn1", 0.99], ["occ_Co1", "occ_O1", 0.97], ["pdfScale", "occ_Mn1", 0.96]];
+    expect(readCorrelations(probe(pairs), occ).correlated.map((p) => [p.a, p.b])).toEqual([["occ_Co1", "occ_O1"], ["pdfScale", "occ_Mn1"]]);
+    expect(readCorrelations(probe(pairs), occ.filter((p) => p !== last)).correlated).toHaveLength(3);
   });
 
   it("lets the Caglioti U, V, W correlate among themselves, but not with a structural parameter", () => {

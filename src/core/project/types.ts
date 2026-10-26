@@ -47,6 +47,7 @@
  * Versioning and migration policy: see `io.ts` and docs/PROJECT_FORMAT.md.
  */
 
+import type { ZeroAdpFix } from "@/core/diagnostics/zeroAdp";
 import type { DistanceRestraint, RidingRule, StructureModel } from "@/core/crystal/types";
 import type { DistortionModeSet } from "@/core/crystal/distortionModes";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
@@ -148,6 +149,12 @@ export interface PowderWorkspace {
   readonly displayUnit?: PowderXUnit;
   /** Residual peaks the user added by hand on the magnetic page (d-spacings, Å). */
   readonly manualPeaks?: readonly number[];
+  /**
+   * The B-at-0 proposals the user applied (core/diagnostics/zeroAdp.ts): why a
+   * B row is tied or held. The tie or value itself is in `refinement`, as any
+   * other; a record its row no longer carries is ignored. Absent ⇒ none.
+   */
+  readonly zeroAdpFixes?: readonly ZeroAdpFix[];
 }
 
 // ---------------------------------------------------------------------------
@@ -239,6 +246,12 @@ export interface PdfWorkspace {
    */
   readonly adpModel?: "isotropic" | "anisotropic";
   /**
+   * Each shared site's total occupancy, by the site's key (its first member's
+   * label), where the user set one below 1 (vacancies); absent: 1. The site's
+   * last occupancy follows the total minus the others'.
+   */
+  readonly siteTotals?: Readonly<Record<string, number>>;
+  /**
    * The distortion-mode parameterization in force, when one was built from a
    * parent CIF or a subgroup activation. It cannot be regenerated from the
    * child structure alone, so the whole set is stored.
@@ -302,7 +315,13 @@ export interface AgentRecordFile {
   readonly start?: { readonly at: number; readonly agreement: number; readonly r1?: number };
   /** The fit's diagnoses (diagnose_fit), each with the History step it read; the latest per step, oldest first. */
   readonly diagnoses?: readonly { readonly at: number; readonly step?: string; readonly summary: string }[];
-  readonly exceptions: readonly { readonly rule: "bare-occupancy" | "instrument-with-thermal"; readonly reason: string; readonly at: number }[];
+  readonly exceptions: readonly { readonly rule: "bare-occupancy" | "instrument-with-thermal" | "instrument-with-positions"; readonly reason: string; readonly at: number }[];
+  /**
+   * Single-crystal measurements the user chose to keep in the fit though they
+   * read as failed (keep_reflections, always their decision): "h,k,l,batch",
+   * with their reason.
+   */
+  readonly kept?: readonly { readonly measurement: string; readonly reason: string; readonly at: number }[];
   readonly stagesDone: readonly string[];
   readonly notes: readonly { readonly text: string; readonly at: number }[];
 }

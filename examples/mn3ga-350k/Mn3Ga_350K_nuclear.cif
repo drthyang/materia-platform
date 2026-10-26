@@ -1,0 +1,44 @@
+# Mn3Ga at 350 K: the nuclear starting model for the magnetic demo, derived
+# from the published refined structure (Mn3Ga-mag_53_350K_Final_ortho.cif):
+# the parent group C m c m, the same cell and positions, no moments, and the
+# occupancies at 1. The magnetic order is left for the data to show.
+# (c) 2026 Tsung-Han Yang
+data_Mn3Ga_350K_nuclear
+_pd_phase_name  'Mn3Ga 350 K nuclear'
+_cell_length_a  5.407891
+_cell_length_b  9.366742
+_cell_length_c  4.356817
+_cell_angle_alpha  90
+_cell_angle_beta   90
+_cell_angle_gamma  90
+_symmetry_space_group_name_H-M  'C m c m'
+_symmetry_Int_Tables_number  63
+loop_
+  _space_group_symop_operation_xyz
+  'x,y,z'
+  '-x,y,z'
+  'x,-y,1/2+z'
+  '-x,-y,1/2+z'
+  '-x,-y,-z'
+  'x,-y,-z'
+  '-x,y,1/2-z'
+  'x,y,1/2-z'
+  '1/2+x,1/2+y,z'
+  '1/2-x,1/2+y,z'
+  '1/2+x,1/2-y,1/2+z'
+  '1/2-x,1/2-y,1/2+z'
+  '1/2-x,1/2-y,-z'
+  '1/2+x,1/2-y,-z'
+  '1/2-x,1/2+y,1/2-z'
+  '1/2+x,1/2+y,1/2-z'
+loop_
+  _atom_site_label
+  _atom_site_type_symbol
+  _atom_site_fract_x
+  _atom_site_fract_y
+  _atom_site_fract_z
+  _atom_site_occupancy
+  _atom_site_U_iso_or_equiv
+  Mn1_0  Mn  0.24584  0.08191  0.25000  1.0  0.020
+  Mn1_1  Mn  0.50005  0.66388  0.75000  1.0  0.020
+  Ga1    Ga  0.50000  0.16670  0.75000  1.0  0.003

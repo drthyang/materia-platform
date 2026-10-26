@@ -65,7 +65,9 @@ folder skip when it is absent (CI, fresh clones).
 | Antiferromagnetic \|F_M\|² ≠ 0 (magnetic-op orbit expansion, k≠0) | golden (Mn₃Ga 6h) | ✅ `core/magnetic/afmStructureFactor.test.ts` |
 | Abelian little-group irreps + Γ_mag decomposition + mode projection | golden (P1/C2/Ci/D2/C4) | ✅ `core/magnetic/irreps.test.ts` |
 | Mode amplitudes recovered from a model's moments (open-on-model, demo seeding) | round trip + the 30 K mCIF | ✅ `core/magnetic/amplitudeFit.test.ts` |
-| Local AWO₄ 6 K magnetic demo — k = (½,0,0), P2/c′ is a maximal lattice candidate, session reopens at the solved wR | data-gated (git-ignored data/) | ✅ `examples/awo4Magnetic.test.ts`; provenance `examples/awo4MagneticSolve.test.ts` (AWO4_SOLVE=1) |
+| Strong k = 0 magnetic peaks on the nuclear lines (simulated Mn₃Ga 30 K, truth known): the nuclear-only ADP stage biases every B > 3σ at a good GoF; the Agent is routed to the magnetic step (k = 0 peaks to include, `diagnose_fit` and `refine` cautions); the guarded path (B's and positions held until the moments are in) puts all 16 parameters within 3σ of the truth, RMS z ≤ 1.5 | benchmark (synthetic, in-app Agent) | ✅ `core/workflow/k0MagneticBias.test.ts`, `agent/strongMagneticPeaks.test.ts` |
+| AWO₄ 8 K magnetic **benchmark** (the 8 K bank-3 POWGEN pattern, Mantid XYDATA, with its bank's calibration): k = (½,0,0) from the nuclear residual alone, the ★ group maximal, \|M\| within the spin-only bound, the magnetic lines fitted by the magnetic refinement (the moments alone, the staged nuclear model held). Checked against the magnetic content of the owner's own 8 K refinement (a Jana mCIF, read at runtime): the same k, the same magnetic group operation by operation in the doubled cell, the moment's axis and \|M\| within 2σ combined, with the reference's ⟨j0⟩ ions and the app's 8 K metric. No trusted 8 K cell exists: the cell is compared only with the 100 K CIF within thermal-contraction bounds. Criteria the app does not meet yet are kept as `it.fails` | data-gated (git-ignored data/) | ✅ `core/workflow/realAwo4Benchmark.test.ts` |
+| Local AWO₄ 6 K magnetic demo — k = (½,0,0), P2/c′ is a maximal lattice candidate; the session reopens on the solve's last step, the magnetic refinement (the moments free, every nuclear row held at the nuclear stage's values), at the solved wR, and a refine from it moves nothing | data-gated (git-ignored data/) | ✅ `examples/awo4Magnetic.test.ts`; provenance `examples/awo4MagneticSolve.test.ts` (AWO4_SOLVE=1) |
 | Moment-size restraint → physical magnitudes | integration | ✅ `core/workflow/magneticCompare.test.ts` |
 | TOF ↔ d conversion (POWGEN calibration) | golden (GSAS `.lst`) | ✅ `core/diffraction/instrument.test.ts` |
 | Instrument-file parsing | unit | ✅ `core/diffraction/instrument.test.ts` |
@@ -85,7 +87,8 @@ folder skip when it is absent (CI, fresh clones).
 | Plot scaling math | unit | ✅ `visualization/scale.test.ts` |
 | Parallel-Jacobian pool ≡ serial (bit-identical trajectory) | unit | ✅ `core/refinement/engineParallel.test.ts` |
 | Analytic Jacobian columns (occupancy, B_iso) vs central FD | unit (F1.1) | ✅ `core/workflow/analyticJacobian.test.ts` |
-| Staged controller guards (re-fix degenerate additions) | unit (F1.4) | ✅ `core/refinement/stagedGuards.test.ts` |
+| Staged controller guards (re-fix degenerate additions; re-fix the newcomer behind an inflated esd) | unit (F1.4) | ✅ `core/refinement/stagedGuards.test.ts` |
+| Staged TOF fit keeps its profile stage when the zero trades with the cell (synthetic, bundled tungstate model) | integration (F1.4) | ✅ `core/workflow/stagedTofProfile.test.ts` |
 | Robust starting values (envelope background + zero sanity) | unit (F1.3) | ✅ `core/workflow/startingValues.test.ts` |
 | Next-parameter sensitivity ranking | unit (F1.5) | ✅ `core/workflow/nextParameters.test.ts` |
 | GPU \|F\|²-injection seam is bit-identical to the CPU sum | unit | ✅ `core/workflow/structureFactorInjection.test.ts` |
@@ -115,6 +118,33 @@ Golden inputs live in two places:
 - **Real measured data** in the git-ignored `data/` folder (GSAS-II, FullProf
   and WinGX outputs), read through `src/testSupport`; these tests skip when
   the folder is absent.
+
+### The AWO₄ data folder
+
+The owner's AWO₄ ((Co,Cu,Fe,Mn,Ni,Zn)WO₄) POWGEN data are unpublished. They
+stay in the git-ignored `data/AWO4/`, and the repository refers to them only
+by the generic names below: no run number, original file name or calibration
+name. To run the AWO₄ tests, copy each file into `data/AWO4/` under its name
+here (one flat folder). A test whose files are missing skips. The powder
+patterns keep the instrument's `PG3_` prefix (it names POWGEN, not a run), so
+the app's file-name hint opens them on the POWGEN background default.
+
+| File | What it holds | Read by |
+| --- | --- | --- |
+| `PG3_powder_8K.dat` | The magnetically ordered bank-3 POWGEN pattern, Mantid `XYDATA` export (focused TOF, y, σ): the measurement the owner's reference refinement (`magnetic_8K.mcif`) is of | `realAwo4Benchmark.test.ts` |
+| `PG3_powder_6K.gsa` | The same measurement as `PG3_powder_8K.dat`, as the GSAS `.gsa` histogram (magnetically ordered). The two temperatures in the names are one measurement's: 8 K its nominal temperature, 6 K the sample's reading | `realAwo4Magnetic.test.ts`, `realAwo4Tof.test.ts`, `awo4MagneticSolve.test.ts`, the local demo, the `awo4-user-flow` eval |
+| `PG3_powder_100K.gsa` | The 100 K bank-3 POWGEN histogram (paramagnetic), GSAS `.gsa`, on the same bank as `PG3_powder_6K.gsa` | `realAwo4Magnetic.test.ts` |
+| `PG3_powder_100K.dat` | The 100 K bank-3 POWGEN pattern, Mantid `XYDATA` export | `realPowderTOF.test.ts` |
+| `PG3_powder_bank1.gsa`, `PG3_powder_bank2.gsa` | A POWGEN histogram of bank 1 and of bank 2, GSAS `.gsa` | `realAwo4Tof.test.ts` |
+| `structure_100K.cif` | The refined 100 K nuclear structure (P2/c), the model also bundled in `examples/highEntropyWO4.ts` | every test above but the demo's |
+| `magnetic_8K.mcif` | The owner's refined magnetic structure of that measurement (Jana mCIF, doubled cell) | `realAwo4Benchmark.test.ts` (reference block) |
+| `instrument_bank1.instprm`, `instrument_bank2.instprm`, `instrument_bank3.instprm` | The GSAS-II TOF calibration of each bank's frame (bank 3 for the patterns above) | `realAwo4Benchmark.test.ts` (all three), the bank-3 file everywhere else |
+| `instrument_bank3_jana.instprm` | The same bank-3 calibration as written for JANA | `realPowderTOF.test.ts` |
+| `pdf.gr` | The neutron PDF G(r) | `realPdfLongRange.test.ts` (also found as a `.gr` file in `data/AWO4/pdf/`) |
+| `awo4_demo_solution.json` | Written by `awo4MagneticSolve.test.ts` (`AWO4_SOLVE=1`) from `PG3_powder_6K.gsa`: the nuclear stage's values and the moments of the magnetic refinement that follows it (the moments alone, the nuclear model held); not a measurement | the local demo, `awo4Magnetic.test.ts` |
+
+The dev server serves the folder under `/data/AWO4/…` for the local demo
+(`vite.config.ts`, development only).
 
 ## External comparisons
 
@@ -296,7 +326,7 @@ without it, on cases with a known answer, scored by fixed rules. The code is in
 | --- | --- | --- |
 | **A** | The app without the Agent, as a newcomer drives it: free every parameter, press Refine until wR settles (three presses at most), read the Validation tab's verdict. The verdict is arm A's conclusion. | none |
 | **B** | The Agent as it ships: skills, guardrails (the executor's firm rules, the correlation guard), auto mode. | each model below |
-| **C** | Ablation: B without the skills. There is no skill index, no `read_skill`, and changes do not wait for a method to be read. The guardrails stay, so C measures what the skills add. | each model below |
+| **C** | Ablation: B without the skills. The model sees no skill index, no `read_skill` and no written method: no stage checklist in `get_state`, no method named in a refusal, a nudge or the report, and on a local model every tool of the page rather than the stage's. Changes do not wait for a method to be read. The guardrails stay (the firm rules, the correlation guard, and the symmetry review only on a converged fit), so C measures what the skills add. Both prompts are built from one list, and a test reads every request of a scripted arm-C session for a trace of the method. | each model below |
 | **D** | The truth: the structure each pattern was simulated from, or a published refinement. | — |
 
 Every arm sees the same page, built from the same seed. B and C get the same
@@ -306,13 +336,38 @@ model looks wrong."* The stand-in user approves every change and approves
 adding a phase the Agent proposes. It declines lifting a firm rule and setting
 an instrument's constants, which are the user's decisions.
 
+### Skills arm B reads
+
+Arm B measures the skills as they stand, and only one of them is the user's
+method in full. Every case is a powder pattern. Arm B must read the powder
+page's method before it changes anything (the executor enforces it), and may
+read any other skill its index lists. The ones a powder case calls for:
+
+| Skill | Status | What a B result on it means |
+| --- | --- | --- |
+| `my-rietveld-workflow` | The user's method, from their interview; the page's method, always read | The user's method, as written |
+| `symmetry-review` | The user's rule (the space group last, on evidence); the detail is drafted | The user's rule; the evidence and tests it asks for are general practice |
+| `bayesian-check` | Draft, general practice; read only when the Agent judges a number unconvincing | General practice |
+
+The PDF skill (`pdf-workflow`) is the user's method since their interview of
+2026-10-19; the single-crystal and magnetic skills (`sc-workflow`,
+`magnetic-analysis`) are drafts. No case runs on the PDF or single-crystal
+page, and none has a magnetic phase. A result that rests on one of them,
+whenever a case calls for it, measures general practice, not the user's
+method, and is reported as such. A skill moves to "the user's method"
+when its interview in [SKILL_INTERVIEWS.md](./SKILL_INTERVIEWS.md) is done;
+results scored before that change stay labelled with the status they ran
+under.
+
 ### Cases
 
 The **test set** is held out and gives the reported numbers. Its structures
-(rutile, calcite, ZnO, NiAl) are named in no skill, knowledge note, tool
-description, eval scenario or other file under `src/agent`, and a test enforces
-that. The **dev set** is where tools and skills may be improved: the eval pages
-the researcher rounds left, Example 3, and a dev analog of each test fault.
+(rutile, calcite, ZnO, NiAl) appear, by name, formula or common synonym, in
+no skill or knowledge note, no file under `src/agent` but the validation's own,
+and no source file that ships (the MCP tools, the diagnostics, the known-phase
+library, the app), and a test enforces that. The **dev set** is where tools and
+skills may be improved: the eval pages the researcher rounds left, Example 3,
+and a dev analog of each test fault.
 
 All patterns are constant-wavelength neutron data simulated by the engine:
 λ 1.54 Å, Example 3's instrument file, 10–130° 2θ in 0.05° steps, 20,000 counts
@@ -396,6 +451,7 @@ a self-contained Markdown transcript that a reviewer can read offline. The
 transcript holds:
 
 - the case, its injected fault and the message;
+- the run policy it ran under (see below);
 - each decision: the tool, its input, the Agent's words before the call, and
   what came back;
 - each reference the Agent wrote (`{{wR}}`, `{{p:…}}`) with the engine value
@@ -477,7 +533,8 @@ transcript go to the output directory, and `summary.md` holds the tables:
 MATERIA_VALIDATION=1 MATERIA_VALIDATION_MODEL=qwen MATERIA_VALIDATION_SPLIT=test \
   npx vitest run src/agent/validation/live.test.ts --reporter=verbose
 #   MATERIA_VALIDATION_MODEL=gemma | glimmer; _ARMS=B,C (default); _REPEAT=3 (default);
-#   _ONLY=case ids; _SERVER=the local server's address; _OUT=/tmp/materia-validation/<model>
+#   _ONLY=case ids; _SERVER=the local server's address; _OUT=/tmp/materia-validation/<model>;
+#   _TEMPERATURE=a temperature for a local model (default: the server's for the model)
 
 # Claude Sonnet 5.5: the test set only, under a $15 cap (MATERIA's share of the cycle's $40)
 MATERIA_VALIDATION=1 MATERIA_VALIDATION_MODEL=sonnet ANTHROPIC_API_KEY=… \
@@ -495,6 +552,22 @@ the run passes $2 or the cap. Runs not made are listed in `summary.md`.
 The models are qwen3.8-27b (LM Studio, 32k), gemma4:26b (Ollama, 32k),
 meta/muse-glimmer (LM Studio) and Claude Sonnet 5.5. Each gets the same cases
 and the same scoring, and they are reported side by side.
+
+**The run policy.** Arm B is the Agent as it ships, and it ships different
+settings for different ways of reaching a model (`runPolicy` in `chatBudget.ts`):
+
+| | Claude | a local model (LM Studio, Ollama) |
+| --- | --- | --- |
+| turns per message | 40 | 80 (one call a turn, where Claude makes several) |
+| tools offered | every tool | the page's and the method stage's (arm C: the page's) |
+| old tool results | cleared by the API past 60k tokens | digested by the app to fit the window |
+| reads that change nothing | not counted | the turn stops after 20 in a row |
+| temperature | its own (adaptive thinking) | the server's for the model |
+
+Arms B and C on one model share the policy, so their comparison is clean. A
+comparison across models also compares these settings; each record and
+transcript states the policy its run had, and `_TEMPERATURE` fixes the local
+models' temperature where the server's default should not stand.
 
 **Expected time on qwen3.8-27b.** This is an estimate, not a measurement. A
 full refinement on the local tier took about 40 turns, and only the long AWO₄

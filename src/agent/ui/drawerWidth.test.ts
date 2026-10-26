@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { DRAWER_MAX, DRAWER_MIN, PAGE_MIN, clampDrawerWidth, readDrawerWidth, writeDrawerWidth } from "@/agent/ui/drawerWidth";
 import { WIDTH_KEY } from "@/agent/storage";
 
@@ -70,6 +72,57 @@ describe("where the drawer sits", () => {
     expect(dockModeFor(390, 844)).toBe("sheet"); // a phone
     expect(dockModeFor(950, 600)).toBe("docked");
     expect(dockModeFor(950, 1000)).toBe("sheet");
+  });
+
+  it("docks beside the page on a phone held sideways, whatever its width", async () => {
+    const { dockModeFor } = await import("@/agent/ui/drawerWidth");
+    // Safari's visible area: iPhone 18 Pro and Pro Max, upright and sideways.
+    expect(dockModeFor(402, 680)).toBe("sheet");
+    expect(dockModeFor(440, 760)).toBe("sheet");
+    expect(dockModeFor(874, 370)).toBe("docked");
+    expect(dockModeFor(956, 410)).toBe("docked");
+    // iPad Pro 11" and 13", upright and sideways.
+    expect(dockModeFor(834, 1130)).toBe("sheet");
+    expect(dockModeFor(1210, 760)).toBe("docked");
+    expect(dockModeFor(1032, 1290)).toBe("docked");
+    expect(dockModeFor(1376, 950)).toBe("docked");
+    // The edges: 540 px tall still counts as short; a square window is portrait.
+    expect(dockModeFor(800, 540)).toBe("docked");
+    expect(dockModeFor(800, 541)).toBe("sheet");
+    expect(dockModeFor(540, 540)).toBe("sheet");
+  });
+
+  it("says the same as SHEET_QUERY, read the way a browser reads it", async () => {
+    const { dockModeFor, SHEET_QUERY } = await import("@/agent/ui/drawerWidth");
+    // A small evaluator for the query's grammar: a comma is "or", `and` is
+    // "and"; (max-width|min-height…: N px) and (orientation: …).
+    const matches = (w: number, h: number): boolean =>
+      SHEET_QUERY.split(",").some((clause) =>
+        clause.trim().split(/\s+and\s+/).every((feature) => {
+          const m = /^\((max-width|min-width|max-height|min-height|orientation):\s*([\w.]+?)(px)?\)$/.exec(feature.trim());
+          if (!m) throw new Error(`unread feature ${feature}`);
+          const [, name, raw] = m;
+          if (name === "orientation") return raw === "portrait" ? h >= w : w > h;
+          const v = Number(raw);
+          return name === "max-width" ? w <= v : name === "min-width" ? w >= v : name === "max-height" ? h <= v : h >= v;
+        }),
+      );
+    for (let w = 320; w <= 1500; w += 7) {
+      for (let h = 300; h <= 1400; h += 11) {
+        expect(matches(w, h), `${w}×${h}`).toBe(dockModeFor(w, h) === "sheet");
+      }
+    }
+    // workbench.css lays the drawer and the rail out by the same query.
+    const css = readFileSync(fileURLToPath(new URL("../../app/workbench.css", import.meta.url)), "utf8");
+    for (const rule of [".wb-frame-agent", ".wb-frame-rail"]) {
+      const at = css.indexOf(`  ${rule} {`);
+      const media = css.lastIndexOf("@media ", at);
+      expect(css.slice(media + 7, css.indexOf(" {", media)), rule).toBe(SHEET_QUERY);
+    }
+    // The edges themselves.
+    for (const [w, h] of [[899, 540], [899, 541], [900, 541], [999, 1000], [1000, 1001], [540, 540]] as const) {
+      expect(matches(w, h), `${w}×${h}`).toBe(dockModeFor(w, h) === "sheet");
+    }
   });
 
   it("keeps the sheet between 30 % and 85 % of the window, remembers it, and lowers it so a card fits", async () => {

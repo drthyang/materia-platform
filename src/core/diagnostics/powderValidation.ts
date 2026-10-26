@@ -377,8 +377,9 @@ export function unindexedPeaks(
   for (let i = 0; i < delta.length; i++) if (!Number.isNaN(delta[i]!)) map.push(i);
   if (map.length < 5) return [];
   const sub = (arr: readonly number[]): number[] => map.map((i) => arr[i]!);
+  // With the data's own σ each peak is tested against its own noise: no floor at a fraction of the largest residual (residualPeaks).
   const peaks = detectExtraPeaks(sub(d), sub(yObs), sub(yCalc), {
-    ...(options.pointSigma ? { pointSigma: sub(options.pointSigma) } : {}),
+    ...(options.pointSigma ? { pointSigma: sub(options.pointSigma), minFraction: 0 } : {}),
     limit: 40,
   });
   const annotated = annotateExtraPeaks(peaks, reflections, options.relTolerance ?? 0.01);

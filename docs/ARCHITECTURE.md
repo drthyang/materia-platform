@@ -62,7 +62,14 @@ worker dependencies. Every scientific function is pure and independently
 testable, which keeps validation tractable. It also keeps every consumer surface
 thin, so adding a surface never adds science:
 
-- **Web app:** React state over core functions.
+- **Web app:** React state over core functions. What a page's controls and
+  fits do is plain functions too where a second surface needs them: the
+  powder page's (`app/powderPage.ts`), the single-crystal page's
+  (`app/singleCrystalPage.ts`), the PDF page's (`app/pdfPage.ts`) and the
+  magnetic step's (`app/magneticStep.ts`) are shared with the Agent's test
+  pages. The shell (`app/App.tsx`) parses files and routes them; what a
+  structure, a pattern or an instrument does to the powder page is the page's
+  (`withStructure`, `withPattern`, `withInstrument`).
 - **MCP server:** a registry of the same functions behind a stdio transport.
   The transport keeps bulky data server-side and passes refs
   ([AGENT_TOOLS.md](./AGENT_TOOLS.md)).
@@ -91,12 +98,24 @@ src/
     absorption/      μ, transmission, crystal habit, face indexing
     project/         project file: types, readable serializer, validation, migration
   parsers/           CIF/mCIF, hkl, powder formats, instrument files, PDF data
+  agent/             the in-app Agent: tools.ts (the live tools), executor.ts
+                     (runs a call: gate, ask, act, answer) with its policy
+                     (executorPolicy.ts: the method gate, the firm rules, the
+                     correlation guard) and its record (executorRecord.ts:
+                     the notes, get_state's view, the report, the refs),
+                     pages/ (what differs by page, one adapter each; plans.ts,
+                     a change planned before its card), the pages' handlers
+                     (powderTools, pdfTools, scTools, magneticTools), skills,
+                     the chat loop (chat.ts) with its transports
+                     (chatTransport.ts), its context budget (chatBudget.ts)
+                     and its guards (chatGuards.ts)
   mcp/               agent tool layer: tools.ts (pure handlers),
                      registry.ts (single source of truth), host.ts + refs.ts
                      (refs, path, free, read_ref), server.ts (stdio),
                      nodeEvaluator.ts (worker_threads pool)
   workers/           compute worker, typed protocol and client, WebGPU kernels
-  visualization/     plot helpers: scales, axis units, reflection ticks, hit testing
+  visualization/     plot helpers: scales, axis units, reflection ticks, hit testing,
+                     plot view maths (zoom, pan, readout, decimation; plotView.ts)
   examples/          bundled demo structures and datasets
   testSupport/       helpers for tests over the git-ignored data/ folder
 docs/
@@ -107,7 +126,9 @@ docs/
 
 Tests live next to the code as `*.test.ts`. Suites that read the git-ignored
 `data/` folder go through `src/testSupport` and skip when it is absent, as in CI
-or a fresh clone ([VALIDATION.md](./VALIDATION.md)).
+or a fresh clone ([VALIDATION.md](./VALIDATION.md)). A published dataset is also
+committed under `examples/` and read from there when `data/` has no copy (the
+Mn₃Ga 350 K POWGEN set, `examples/mn3ga-350k`), so its tests run in CI.
 
 ## Core scientific data model
 
@@ -163,7 +184,9 @@ design is in [REFINEMENT_ENGINE.md](./REFINEMENT_ENGINE.md), and the gates are i
 
 The bulk of the evaluation runs in workers. The Levenberg–Marquardt core is a
 sans-io generator (`refineCore`) that yields batches of evaluations, so a driver
-decides only where they run.
+decides only where they run. An evaluation that throws is handed back to the
+core, which decides whether that point may fail (a trial step outside the
+model's domain is rejected; anything else ends the fit).
 
 - **Single-worker path.** A whole refinement runs inside the compute worker.
 - **Parallel path.** The driver keeps the LM loop and the single baseline and
@@ -172,8 +195,21 @@ decides only where they run.
   holding a problem replica built by the same construction path.
   [`engineParallel.test.ts`](../src/core/refinement/engineParallel.test.ts) pins
   the two drivers to identical trajectories.
+- **Split path (single-phase PDF).** The browser pool splits each evaluation by
+  block of the model grid instead: each worker holds only the pairs its block
+  can see, every evaluation (single ones and the analytic columns included)
+  goes to every worker, and the driver joins the blocks bit-identically
+  ([REFINEMENT_ENGINE.md](./REFINEMENT_ENGINE.md#analytic-derivatives)). No
+  isolate holds the whole pair list, which matters because the isolates of one
+  browser tab share about 4 GB of JS heap.
 - **Posterior sampling.** The ensemble sampler fans its walker batches out over
   the same pools.
+- **Strategies.** A strategy that runs many fits (the PDF boxcar scan, the
+  moment search of a magnetic Prefit) is written once, in [`workers/strategy.ts`](../src/workers/strategy.ts), over a
+  `Solver`: the problem set on the evaluators, then one start refined at a
+  time. The browser's client hands it its worker pool, the MCP server its worker
+  threads, and either runs it in-thread without one; the Jacobian rule (a PDF
+  problem's analytic columns on the driver) is the same for all three.
 
 The protocol is a typed request/response message set
 ([`workers/protocol.ts`](../src/workers/protocol.ts)). Data types cross the
@@ -189,7 +225,10 @@ hand-rolled `postMessage` calls.
   [LIMITATIONS.md](./LIMITATIONS.md#input-and-output) lists the supported
   formats.
 - **Exporters** (`src/core/export`): CIF and mCIF, the HTML refinement report,
-  and the FullProf + GSAS-II cross-check bundle.
+  the FullProf + GSAS-II cross-check bundles, and the PDFgui / diffpy-CMI
+  bundle of a PDF fit (`pdffit2.ts` maps the model onto PDFfit2, `pdfBundle.ts`
+  writes the files). `crossCheck.ts` names each technique's cross-check
+  programs, for the report and the page banner.
 - **Project I/O** (`src/core/project`): `ProjectFile ↔ JSON`, with a readable
   serializer, a `schemaVersion` gate with migrations, and structural validation
   by technique. The app layer (`src/app/projectIo.ts`) maps each engine's live

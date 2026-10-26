@@ -11,16 +11,24 @@
  * words. Its decimal numbers are audited against the numbers the report
  * computed (reportAudit.ts); any that match none are marked in the report and
  * returned, so the Agent can correct them.
+ *
+ * The audit, and the Markdown the evals and the validation read, use the
+ * report's frozen layout (reportMarkdownFrozen.ts), so the report people read
+ * (the HTML and the Markdown they save) can change while the validation runs
+ * without moving what the model is told or what is scored.
  */
 
 import { reportHtml, type ReportAgent, type ReportCheck, type ReportInput, type ReportPosterior, type ReportStep } from "@/core/export/report";
 import { reportMarkdown } from "@/core/export/reportMarkdown";
+import { frozenReportMarkdown } from "@/core/export/reportMarkdownFrozen";
 import { unverifiedNumbers } from "@/core/export/reportAudit";
 import { lineage, type HistoryStep, type ProjectHistory } from "@/core/project/history";
 import type { ParameterBinding, ParameterKind, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { AgentPage } from "@/agent/tools";
 import { RULES, methodProgress, stagesCovered, stagesFor, stagesLeft, type AgentRecord } from "@/agent/method";
-import { differenceSentences, readPosterior, type PosteriorRun } from "@/agent/posteriorTool";
+import { PAGES } from "@/agent/pages";
+import type { PosteriorRun } from "@/agent/posteriorTool";
+import { differenceSentences, readPosterior } from "@/core/diagnostics/posteriorReading";
 import type { UnitCell } from "@/core/crystal/types";
 import { isInversion, type ExtinctionModel, type OmittedMeasurement, type ResolutionRange, type TwinLaw } from "@/core/diffraction/types";
 import { improper } from "@/core/workflow/singleCrystalRefinement";
@@ -34,7 +42,13 @@ export interface AgentReport {
   readonly title: string;
   readonly technique: AgentPage;
   readonly html: string;
+  /**
+   * The report as Markdown in the frozen layout the evals and the validation
+   * read (reportMarkdownFrozen.ts). Not what the viewer saves: `markdownFile`.
+   */
   readonly markdown: string;
+  /** The report as Markdown in the current layout, as the HTML: what the viewer saves. */
+  readonly markdownFile: string;
   /** File name without its extension. */
   readonly fileBase: string;
   readonly at: number;
@@ -89,7 +103,7 @@ function freeFixOnly(st: HistoryStep): boolean {
  * The steps on the path from the first step to the one on screen, as the
  * report lists them, and how many steps lie on branches the analysis left.
  */
-export function historySteps(page: AgentPage, history: ProjectHistory | null): { steps: ReportStep[]; otherBranches: number; rowOf: Map<string, number> } {
+export function historySteps(page: AgentPage, history: ProjectHistory | null, method = true): { steps: ReportStep[]; otherBranches: number; rowOf: Map<string, number> } {
   if (!history) return { steps: [], otherBranches: 0, rowOf: new Map() };
   const path = lineage(history);
   const stageLabel = new Map(stagesFor(page).map((s) => [s.id, s.label]));
@@ -97,7 +111,8 @@ export function historySteps(page: AgentPage, history: ProjectHistory | null): {
   const steps = shown.map((st): ReportStep => {
     const refine = st.kind === "refine";
     const free = refine ? stepParameters(st).filter((p) => !p.fixed && !p.expression) : [];
-    const stages = stagesCovered(page, free).map((id) => stageLabel.get(id) ?? id).join(" · ");
+    // Without the skills (arm C) there is no method stage to give as a step's reason.
+    const stages = method ? stagesCovered(page, free).map((id) => stageLabel.get(id) ?? id).join(" · ") : "";
     const status = refine && st.summary.status && st.summary.status !== "converged" ? ` (${st.summary.status})` : "";
     return {
       label: `${st.name ? `${st.name} — ` : ""}${st.label}${status}`,
@@ -360,16 +375,23 @@ export interface AgentReportArgs {
   /** What the user said in the conversation: the numbers they gave may be quoted. */
   readonly userText?: string;
   readonly date?: Date;
+  /**
+   * The page's written method was in play (default). False without the skills
+   * (the validation's arm C): no method checklist, no stage given as a step's
+   * reason, and no stage left among the open issues.
+   */
+  readonly method?: boolean;
 }
 
 /** Build the report: its input, the Agent section, the HTML and the Markdown, and the audit. */
-export function buildAgentReport(a: AgentReportArgs): { input: ReportInput; agent: ReportAgent; html: string; markdown: string; unverified: string[]; audit: AgentReport["audit"] } {
+export function buildAgentReport(a: AgentReportArgs): { input: ReportInput; agent: ReportAgent; html: string; markdown: string; markdownFile: string; unverified: string[]; audit: AgentReport["audit"] } {
+  const method = a.method !== false;
   const progress = methodProgress(a.page, a.record);
-  const { steps, otherBranches, rowOf } = historySteps(a.page, a.history);
+  const { steps, otherBranches, rowOf } = historySteps(a.page, a.history, method);
   const compared = a.page === "singleCrystal" && a.input.phases[0] ? comparedRefinements(a.history, a.input.phases[0].structure.cell, rowOf) : null;
   const diagnosed = earlierDiagnoses(a.record, a.history, rowOf, steps);
   const checks = [...a.checks, ...recordChecks(a.page, a.record), ...(diagnosed ? [diagnosed] : []), ...(compared ? [compared] : [])];
-  const left = stagesLeft(a.page, a.record);
+  const left = method ? stagesLeft(a.page, a.record) : [];
   // An earlier run is placed by its row in the steps table, the reader's own reference.
   const where = (id: string | null): string => {
     const row = id ? rowOf.get(id) : undefined;
@@ -383,9 +405,9 @@ export function buildAgentReport(a: AgentReportArgs): { input: ReportInput; agen
   ];
   const base: ReportAgent = {
     model: a.model,
-    method: { skill: progress.skill, stages: progress.stages.map((s) => ({ label: s.label, done: s.done, optional: s.optional })) },
+    ...(method ? { method: { skill: progress.skill, stages: progress.stages.map((s) => ({ label: s.label, done: s.done, optional: s.optional })) } } : {}),
     steps,
-    agreementLabel: a.page === "pdf" ? "Rw" : a.page === "singleCrystal" ? "wR2" : "wR",
+    agreementLabel: PAGES[a.page].agreementKey,
     ...(otherBranches > 0 ? { otherBranches } : {}),
     ...(a.record.start ? { start: { agreement: a.record.start.agreement, ...(a.record.start.r1 !== undefined ? { r1: a.record.start.r1 } : {}) } } : {}),
     checks,
@@ -396,14 +418,15 @@ export function buildAgentReport(a: AgentReportArgs): { input: ReportInput; agen
   const date = a.date ?? new Date();
   // What the report computed: no figure (its data URI), and none of the Agent's
   // own words — the account, its notes, the reasons it gave for an exception.
-  const engineText = reportMarkdown({ ...a.input, date, figure: null, agent: { ...base, notes: [], checks: checks.filter((c) => c.name !== "Method exception") } });
+  // In the frozen layout: the audit's verdicts must not move with the report's design.
+  const engineText = frozenReportMarkdown({ ...a.input, date, figure: null, agent: { ...base, notes: [], checks: checks.filter((c) => c.name !== "Method exception") } });
   const narrative = a.narrative.trim();
   // The numbers the user gave (a published refinement's, a reference) are quoted, not the Agent's own.
   const audit = { account: [narrative, ...base.notes].join("\n\n"), against: `${engineText}\n\n${a.userText ?? ""}` };
   const unverified = unverifiedNumbers(audit.account, audit.against);
   const agent: ReportAgent = { ...base, narrative, unverified };
   const input: ReportInput = { ...a.input, date, agent };
-  return { input, agent, html: reportHtml(input), markdown: reportMarkdown(input), unverified, audit };
+  return { input, agent, html: reportHtml(input), markdown: frozenReportMarkdown(input), markdownFile: reportMarkdown(input), unverified, audit };
 }
 
 /** "<title>_agent_report", the title reduced to a safe token. */

@@ -19,13 +19,12 @@ import type { MagneticModel } from "@/core/magnetic/types";
 import type { ParameterBinding, ParameterKind, RefinementParameter } from "@/core/refinement/types";
 import type { RefinementProblem } from "@/core/refinement/engine";
 import type { ProfilePeak, ProfileOptions } from "@/core/diffraction/profile";
-import { weightsFromSigma, applyExclusionMask, fitRangeMask } from "@/core/refinement/factors";
 import type { FitRange, PowderProfile } from "@/core/workflow/powder";
 import { resolveTies } from "@/core/refinement/constraints";
 import { applyParameters } from "@/core/workflow/apply";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { phaseBindingsFor, type PowderPhase } from "@/core/workflow/multiPhase";
-import { buildPeaks, createPeakBuilder, placePeaks, reflectionDRange } from "@/core/workflow/powder";
+import { buildPeaks, createPeakBuilder, placePeaks, powderPointWeights, reflectionDRange } from "@/core/workflow/powder";
 import { magneticSatellites } from "@/core/magnetic/satellites";
 import { lorentzPolarization } from "@/core/diffraction/intensity";
 import { magneticStructureFactor } from "@/core/magnetic/structureFactor";
@@ -232,13 +231,10 @@ export function buildMagneticPowderProblem(
 ): RefinementProblem {
   const xValues = pattern.points.map((p) => p.x);
   const observations = Float64Array.from(pattern.points.map((p) => p.yObs));
-  // A fit range zeroes the weight of every point outside it, so the nuclear +
-  // magnetic co-refinement optimizes only the selected window (same masking as
-  // the single-phase nuclear problem).
-  const weights = applyExclusionMask(
-    weightsFromSigma(pattern.points.map((p) => p.sigma ?? (p.yObs > 0 ? Math.sqrt(p.yObs) : 1))),
-    fitRangeMask(xValues, fitRange),
-  );
+  // The pattern's points weighted as in the single-phase nuclear problem: none
+  // on an excluded plateau or outside the fit range, so the nuclear + magnetic
+  // co-refinement optimizes the points the page scores.
+  const weights = powderPointWeights(pattern, fitRange);
 
   // Multi-phase: the magnetic (primary) phase sees only its own + shared +
   // magnetic bindings, and each extra phase contributes its nuclear peaks
@@ -287,21 +283,28 @@ export function magneticPowderComponents(
   for (const p of parameters) values[p.id] = p.value;
   const resolved = resolveTies(parameters, values);
   const xValues = pattern.points.map((p) => p.x);
+  // The profile buildMagneticPowderProblem fits — η, the Lorentz factor on
+  // every phase, the background basis — so yCalc is the pattern it fitted.
+  const applyLorentz = profile.lorentz ?? true;
   const primaryBindings = extraPhases.length > 0 ? magneticPhaseBindings(bindings, structure.id) : bindings;
   const applied = applyParameters(structure, primaryBindings, resolved);
-  const { nuclear, magnetic: magPeaks } = buildCombinedPeaks(structure, magnetic, pattern, resolved, primaryBindings, profile.lorentz ?? true);
+  const { nuclear, magnetic: magPeaks } = buildCombinedPeaks(structure, magnetic, pattern, resolved, primaryBindings, applyLorentz);
   const nuclearPeaks: ProfilePeak[] = [...nuclear];
   for (const phase of extraPhases) {
     const appliedExtra = applyParameters(phase.structure, phaseBindingsFor(bindings, phase.id), resolved);
-    nuclearPeaks.push(...buildPeaks(pattern, appliedExtra));
+    nuclearPeaks.push(...buildPeaks(pattern, appliedExtra, applyLorentz));
   }
-  const bkgOpts: ProfileOptions = {
+  const peakOpts: ProfileOptions = {
     shape: profile.shape,
+    ...(profile.eta !== undefined ? { eta: profile.eta } : {}),
+  };
+  const bkgOpts: ProfileOptions = {
+    ...peakOpts,
     ...(applied.background.length ? { background: applied.background } : {}),
     ...(profile.backgroundType !== undefined ? { backgroundType: profile.backgroundType } : {}),
   };
   const yNuclear = Array.from(synthesizePattern(xValues, nuclearPeaks, bkgOpts));
-  const yMagnetic = Array.from(synthesizePattern(xValues, magPeaks, { shape: profile.shape }));
+  const yMagnetic = Array.from(synthesizePattern(xValues, magPeaks, peakOpts));
   const yObs = pattern.points.map((p) => p.yObs);
   const yCalc = yNuclear.map((n, i) => n + (yMagnetic[i] ?? 0));
   return {

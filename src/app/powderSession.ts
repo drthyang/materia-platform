@@ -10,15 +10,18 @@ import type { PowderPattern } from "@/core/diffraction/types";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import { isMagneticModelParameterKind, type ParameterBinding, type RefinementParameter } from "@/core/refinement/types";
 import type { PowderProfile } from "@/core/workflow/powder";
+import type { BackgroundType } from "@/core/diffraction/background";
 import type { MagneticModel } from "@/core/magnetic/types";
 import { buildPowderSpec, type SiteTies, type PowderSpec, type MustrainModel, type SampleCorrections } from "@/app/powderSpec";
 import { buildMultiPhaseSpec } from "@/app/multiPhaseSpec";
 import { buildSyntheticPowder } from "@/examples/synthetic";
 import { parseSymmetryOperation } from "@/core/crystal/symmetry";
-import { isUserTie, tieReferences } from "@/core/refinement/constraints";
+import { isUserTie, renamedTie, tieReferences, withTieValues } from "@/core/refinement/constraints";
+import { sharedOccupancyTies, siteSumConstraints } from "@/core/workflow/structureRefinement";
+import type { ZeroAdpFix } from "@/core/diagnostics/zeroAdp";
 
 export const DEFAULT_INSTRUMENT: InstrumentParameters = { kind: "constantWavelength", wavelength: 1.54 };
-const DEFAULT_BACKGROUND_TERMS = 4;
+export const DEFAULT_BACKGROUND_TERMS = 4;
 const DEFAULT_TIES: SiteTies = { positions: true, adp: true };
 export const SYNTHETIC_SOURCE = "synthetic (self-consistent demo)";
 /** Provenance marker for a clean, data-less workbench — the app's first-run
@@ -37,7 +40,7 @@ export interface Session {
   powderBindings: ParameterBinding[];
   /** Peak-shape / Lorentz / background settings for display and refinement. */
   powderProfile: PowderProfile;
-  /** Number of Chebyshev background coefficients in the powder model. */
+  /** Number of background coefficients in the powder model (in `powderProfile.backgroundType`'s basis). */
   backgroundTerms: number;
   /** Tie position/ADP of atoms sharing a crystallographic site (disorder). */
   siteTies: SiteTies;
@@ -61,6 +64,8 @@ export interface Session {
   rawData?: { name: string; text: string };
   /** Optional magnetic model over `structure`, for magnetic reflection ticks. */
   magnetic?: MagneticModel;
+  /** The B-at-0 proposals the user applied (core/diagnostics/zeroAdp.ts): the rows carry the tie or the held value; this says why. */
+  zeroAdpFixes?: ZeroAdpFix[];
 }
 
 /** A valid but data-less placeholder structure (P1, unit cell, no sites). The
@@ -131,6 +136,11 @@ export function carryRefinedStructure(previous: Session, params: readonly Refine
   return { params: out, carried };
 }
 
+/** How many of the structure's rows start where a previous fit left them, away from the CIF's values (right after a load: the rows carryRefinedStructure carried). */
+export function structureCarried(s: Session): number {
+  return s.powderParams.filter((p) => STRUCTURAL_KINDS.has(p.kind) && p.value !== p.initialValue).length;
+}
+
 /**
  * A rebuilt row keeping the previous row's value and free state. A tie the
  * user made rides along (the spec only regenerates its own ties); rows the
@@ -172,10 +182,43 @@ export function keptBindings(specBindings: readonly ParameterBinding[], previous
   return [...specBindings, ...previous.filter((b) => isMagneticModelParameterKind(b.kind))];
 }
 
-/** Rebuilt rows keeping the previous ones by id (keptRow), the magnetic rows carried, user ties checked. */
+/**
+ * Rebuilt rows keeping the previous ones by id (keptRow), the magnetic rows
+ * carried, user ties checked, and each shared site's last occupancy at what
+ * its tie gives from the kept others (its total may have changed).
+ */
 export function keptRows(specParams: readonly RefinementParameter[], previous: readonly RefinementParameter[]): RefinementParameter[] {
   const old = new Map(previous.map((p) => [p.id, p]));
-  return withValidUserTies(withMagneticRows(specParams.map((p) => keptRow(p, old.get(p.id))), previous));
+  const rows = withValidUserTies(withMagneticRows(specParams.map((p) => keptRow(p, old.get(p.id))), previous));
+  const followers = siteSumConstraints(rows).map((c) => c.follower);
+  if (followers.length === 0) return rows;
+  // A row the previous set left untied (a project saved before the tie) is also held, from the others' starting values.
+  const untied = new Set(followers.filter((id) => old.has(id) && !old.get(id)!.expression));
+  return withTieValues(withTieValues(rows, untied, true), new Set(followers.filter((id) => !untied.has(id))));
+}
+
+/**
+ * Saved rows with each shared site's last occupancy tied as the spec ties it
+ * (the site's total minus the others'): a project saved before the tie has
+ * every occupancy as its own row, held by the soft Σ. Its values are kept;
+ * the last then follows the others, held, from their values. Multi-phase ids
+ * `p{i}_` as the spec gives them. Unchanged without a shared site.
+ */
+export function withSiteSumTies(params: readonly RefinementParameter[], phases: readonly StructureModel[], ties: SiteTies): RefinementParameter[] {
+  const want = new Map<string, string>();
+  phases.forEach((phase, i) => {
+    const prefix = phases.length > 1 ? `p${i}_` : "";
+    for (const t of sharedOccupancyTies(phase.sites, ties.totals)) want.set(`${prefix}${t.id}`, renamedTie(t.expression, (ref) => `${prefix}${ref}`));
+  });
+  const untied = new Set<string>();
+  const rows = params.map((p) => {
+    const expression = want.get(p.id);
+    if (expression === undefined || p.expression === expression) return p;
+    untied.add(p.id);
+    const { group: _g, ...rest } = p;
+    return { ...(isUserTie(p) ? rest : p), expression };
+  });
+  return untied.size > 0 ? withValidUserTies(withTieValues(rows, untied, true)) : rows;
 }
 
 /** The session with its corrections cleared: new data starts without them. */
@@ -186,10 +229,10 @@ export function withoutCorrections(s: Session): Session {
 
 /** Build the powder spec for a session, branching to the multi-phase builder when
  *  the session carries extra phases (so every rebuild preserves all phases). */
-export function buildSpecFor(structure: StructureModel, extraPhases: readonly StructureModel[], pattern: PowderPattern, instrument: InstrumentParameters, lorentz: boolean, backgroundTerms: number, ties: SiteTies, mustrain: MustrainModel, corrections?: SampleCorrections): PowderSpec {
+export function buildSpecFor(structure: StructureModel, extraPhases: readonly StructureModel[], pattern: PowderPattern, instrument: InstrumentParameters, lorentz: boolean, backgroundTerms: number, ties: SiteTies, mustrain: MustrainModel, corrections?: SampleCorrections, backgroundType?: BackgroundType): PowderSpec {
   return extraPhases.length > 0
-    ? buildMultiPhaseSpec([structure, ...extraPhases], pattern, instrument, backgroundTerms, ties, mustrain, corrections)
-    : buildPowderSpec(structure, pattern, instrument, lorentz, backgroundTerms, ties, mustrain, corrections);
+    ? buildMultiPhaseSpec([structure, ...extraPhases], pattern, instrument, backgroundTerms, ties, mustrain, corrections, backgroundType)
+    : buildPowderSpec(structure, pattern, instrument, lorentz, backgroundTerms, ties, mustrain, corrections, backgroundType);
 }
 
 /**

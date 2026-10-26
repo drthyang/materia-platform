@@ -46,10 +46,10 @@ export function AgentReportViewer({ report, onClose, onCif }: Props): JSX.Elemen
       <div role="dialog" aria-modal="true" aria-label="Analysis report" style={panel}>
         <div style={head}>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: fz.micro, letterSpacing: ".08em", textTransform: "uppercase", color: color.secondary }}>Analysis report · the Agent</div>
+            <div style={{ fontSize: fz.micro, letterSpacing: ".08em", textTransform: "uppercase", color: color.secondary }}>Analysis report · MATERIA Copilot</div>
             <div style={{ fontSize: 16, fontWeight: 650, color: color.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{report.title}</div>
             <div style={{ fontSize: fz.micro, color: color.faint }}>
-              Written {when} · every number from the engine and the History; only the Agent's account is its own words
+              Written {when} · every number from the engine and the History; only the Copilot's account is its own words
               {report.unverified.length > 0 && (
                 <span style={unverifiedChip} title={`Not among the values the report computed: ${report.unverified.join(", ")}`}>
                   {report.unverified.length} number{report.unverified.length === 1 ? "" : "s"} in its words unverified
@@ -59,7 +59,7 @@ export function AgentReportViewer({ report, onClose, onCif }: Props): JSX.Elemen
           </div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center" }}>
             <button style={primaryButton} onClick={() => downloadText(`${report.fileBase}.html`, report.html, "text/html")} title="The report as one self-contained HTML file">Save HTML</button>
-            <button style={secondaryButton} onClick={() => downloadText(`${report.fileBase}.md`, report.markdown, "text/markdown")} title="The report as Markdown, the figure embedded">Markdown</button>
+            <button style={secondaryButton} onClick={() => downloadText(`${report.fileBase}.md`, report.markdownFile, "text/markdown")} title="The report as Markdown, the figure embedded">Markdown</button>
             <button style={secondaryButton} onClick={print} title="Print the report, or save it as PDF from the print dialog">Print / PDF</button>
             {onCif && <button style={secondaryButton} onClick={onCif} title="The refined structure as CIF, with esds">CIF</button>}
             <button ref={close} style={closeButton} onClick={onClose} aria-label="Close the report" title="Close (Esc)">✕</button>

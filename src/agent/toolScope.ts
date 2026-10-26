@@ -20,31 +20,27 @@
  *  - every tool the model has already called: a tool is never taken away
  *    mid-task, and one called by name though not offered (the executor runs
  *    any tool) is offered from then on.
+ *
+ * Without the skills (the validation's arm C) there is no method to follow,
+ * so no stage either: every page offers all of its tools.
  */
 
-import { LIVE_TOOLS, type AgentPage, type LiveToolSpec } from "@/agent/tools";
+import { LIVE_TOOLS, type AgentPage, type AskTopic, type LiveToolSpec, type PowderStageId, type ToolOffer } from "@/agent/tools";
 import { stagesFor } from "@/agent/method";
 
+/** The tools whose definition offers them so (tools.ts, `offer`). */
+const offered = (where: (offer: ToolOffer) => boolean | undefined): string[] => LIVE_TOOLS.filter((t) => t.offer && where(t.offer)).map((t) => t.name);
+
 /** Offered on every page, at every stage. */
-export const CORE_TOOLS: readonly string[] = [
-  "get_state", "read_skill", "read_ref", "write_note", "assess_refinement", "set_free", "refine", "reset_parameters", "go_to_step", "cancel_refinement", "allow_exception", "write_report",
-];
+export const CORE_TOOLS: readonly string[] = offered((o) => o.core);
 
 /** The powder page, at every stage: the fit window (read again after the first refinement) and the fit's diagnosis. */
-const POWDER_ALWAYS: readonly string[] = ["check_fit_range", "set_fit_range", "diagnose_fit", "suggest_next_steps", "rank_next_parameters"];
+const POWDER_ALWAYS: readonly string[] = offered((o) => o.powder?.includes("always"));
 
 /** The powder method's stages (method.ts), each with its own tools. */
-export const POWDER_STAGE_TOOLS: Readonly<Record<string, readonly string[]>> = {
-  range: [],
-  check: ["check_cell_symmetry", "identify_peaks", "add_known_phase", "find_unexplained_peaks"],
-  base: ["set_background", "set_instrument_constants", "identify_peaks", "add_known_phase"],
-  positions: ["tie_parameters", "set_site_ties"],
-  profile: ["set_microstrain", "set_corrections"],
-  adp: ["set_adp_model", "tie_parameters"],
-  occupancy: ["set_site_ties", "tie_parameters", "add_antisite"],
-  corrections: ["set_corrections"],
-  symmetry: ["review_symmetry"],
-};
+export const POWDER_STAGE_TOOLS: Readonly<Record<string, readonly string[]>> = Object.fromEntries(
+  stagesFor("powder").map((st) => [st.id, offered((o) => o.powder?.includes(st.id as PowderStageId))]),
+);
 
 /**
  * Every required powder stage done: the symmetry review, the structure's
@@ -53,32 +49,31 @@ export const POWDER_STAGE_TOOLS: Readonly<Record<string, readonly string[]>> = {
  * ties, bond geometry, a known phase) comes with the user's words or the
  * model's own earlier use.
  */
-const POWDER_FINISH: readonly string[] = [
-  "review_symmetry", "structure_table", "sample_posterior", "find_unexplained_peaks", "identify_peaks", "set_corrections", "tie_parameters", "magnetic_state", "search_propagation_vector",
-];
+const POWDER_FINISH: readonly string[] = offered((o) => o.powder?.includes("finish"));
 
 /** The magnetic step (magnetic-analysis), offered once it is under way or asked for. */
-export const MAGNETIC_TOOLS: readonly string[] = [
-  "magnetic_state", "search_propagation_vector", "set_propagation_vector", "select_magnetic_ions", "set_moment_ties", "rank_magnetic_groups", "choose_magnetic_group", "refine_moments", "show_magnetic_model", "continue_magnetic_refinement",
-];
+export const MAGNETIC_TOOLS: readonly string[] = offered((o) => o.magnetic);
+
+/** What the user's words may ask for; the tools that answer each are the ones whose definition names it. */
+const ASK_TOPICS: Readonly<Record<AskTopic, RegExp>> = {
+  magnetic: /magnet|propagation|\bk[- ]?(vector|point|search)\b|\bk\s*=|\bmoments?\b|\bspins?\b|ferro|antiferro|satellite/i,
+  impurity: /impurit|extra (peaks?|lines?|reflections?)|unexplained|unindexed|not (account|explain)|does(n't| not) (account|explain)|second phase|another phase|other phase|lines? (this|the) model|known phase|sample environment|alumin/i,
+  symmetry: /symmetr|space ?group|sub ?group|absences?/i,
+  occupancy: /occupan|vacanc|antisite|anti-site|site mixing|disorder|composition|stoichiometr/i,
+  posterior: /posterior|uncertaint|credible|confiden|trust|esd|error bars?/i,
+  geometry: /bond|distance|angles?\b|coordinat|octahed|tetrahed|geometr|polyhed/i,
+  report: /report|table|summar|publish/i,
+  background: /background/i,
+  strain: /strain|crystallite|size broadening|broaden|mustrain/i,
+  adp: /aniso|\badps?\b|thermal|\bb[- ]?(iso|values?)\b|u_?iso|displacement param/i,
+  corrections: /texture|preferred orientation|absorption|asymmetr|sample displacement|transparency|correction|extinction/i,
+  xray: /x-?ray|polari[sz]ation|k-?alpha|kα|monochromat/i,
+  tie: /\btie\b|\btied\b|constrain|equal|same value/i,
+  cellCheck: /cell check|check(ing)? (the )?cell|le ?bail|\bindex/i,
+};
 
 /** What the user's words ask for, and the tools that answer it, on any page. */
-const ASKED: readonly (readonly [RegExp, readonly string[]])[] = [
-  [/magnet|propagation|\bk[- ]?(vector|point|search)\b|\bk\s*=|\bmoments?\b|\bspins?\b|ferro|antiferro|satellite/i, MAGNETIC_TOOLS],
-  [/impurit|extra (peaks?|lines?|reflections?)|unexplained|unindexed|not (account|explain)|does(n't| not) (account|explain)|second phase|another phase|other phase|lines? (this|the) model|known phase|sample environment|alumin/i, ["find_unexplained_peaks", "identify_peaks", "add_known_phase", "check_cell_symmetry"]],
-  [/symmetr|space ?group|sub ?group|absences?/i, ["review_symmetry", "check_cell_symmetry"]],
-  [/occupan|vacanc|antisite|anti-site|site mixing|disorder|composition|stoichiometr/i, ["set_site_ties", "tie_parameters", "add_antisite"]],
-  [/posterior|uncertaint|credible|confiden|trust|esd|error bars?/i, ["sample_posterior"]],
-  [/bond|distance|angles?\b|coordinat|octahed|tetrahed|geometr|polyhed/i, ["bond_geometry", "structure_table", "interpret_structure"]],
-  [/report|table|summar|publish/i, ["structure_table", "interpret_structure"]],
-  [/background/i, ["set_background"]],
-  [/strain|crystallite|size broadening|broaden|mustrain/i, ["set_microstrain"]],
-  [/aniso|\badps?\b|thermal|\bb[- ]?(iso|values?)\b|u_?iso|displacement param/i, ["set_adp_model", "tie_parameters"]],
-  [/texture|preferred orientation|absorption|asymmetr|sample displacement|transparency|correction|extinction/i, ["set_corrections"]],
-  [/x-?ray|polari[sz]ation|k-?alpha|kα|monochromat/i, ["set_instrument_constants"]],
-  [/\btie\b|\btied\b|constrain|equal|same value/i, ["tie_parameters", "set_site_ties"]],
-  [/cell check|check(ing)? (the )?cell|le ?bail|\bindex/i, ["check_cell_symmetry"]],
-];
+const ASKED: readonly (readonly [RegExp, readonly string[]])[] = (Object.entries(ASK_TOPICS) as [AskTopic, RegExp][]).map(([topic, words]) => [words, offered((o) => o.asked?.includes(topic))]);
 
 export interface ScopeInput {
   /** The page open (null: nothing open). */
@@ -91,13 +86,15 @@ export interface ScopeInput {
   readonly asked: readonly string[];
   /** Every tool called in this conversation. */
   readonly called: ReadonlySet<string>;
+  /** The page's written method is in play (default). False without the skills (arm C): the page's tools, not the stage's. */
+  readonly method?: boolean;
 }
 
 /** The names a local model is offered now. */
 export function scopedToolNames(input: ScopeInput): Set<string> {
   const names = new Set<string>(CORE_TOOLS);
   const add = (list: readonly string[]): void => list.forEach((n) => names.add(n));
-  if (input.page === "pdf" || input.page === "singleCrystal") {
+  if (input.page === "pdf" || input.page === "singleCrystal" || (input.page === "powder" && input.method === false)) {
     add(LIVE_TOOLS.filter((t) => t.pages.includes(input.page!)).map((t) => t.name));
   } else if (input.page === "powder") {
     add(POWDER_ALWAYS);
@@ -127,3 +124,11 @@ export function scopedTools(input: ScopeInput): LiveToolSpec[] {
 
 /** What a local model is told about its tool list. */
 export const SCOPE_NOTE = "Tools: you are offered the tools of the page and of the method's current stage; a later stage's tools appear once you reach it (a converged refinement completes a stage), and every tool you have used stays offered.";
+
+/** The same, without the skills (arm C): no method, so no stage. */
+export const SCOPE_NOTE_PAGE = "Tools: you are offered the tools of the page that is open.";
+
+/** The note that goes with a scoped tool list. */
+export function scopeNote(method: boolean): string {
+  return method ? SCOPE_NOTE : SCOPE_NOTE_PAGE;
+}
