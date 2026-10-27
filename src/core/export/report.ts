@@ -1036,6 +1036,8 @@ const CSS = `
   .meta { font-weight: 400; color: var(--soft); margin-left: 0.6em; font-size: var(--fs-4); }
   p { margin: 0 0 var(--s2); }
   .lede, .account p, section > p:not(.note):not(.cell):not(.indices) { max-width: 74ch; }
+  /* Prose is set justified, as in a journal; hyphenation keeps the word spacing even. Tables, the cell line and the indices stay as typeset. */
+  p:not(.cell):not(.indices), figcaption, ul.caveats li, dl.full dd { text-align: justify; text-justify: inter-word; hyphens: auto; -webkit-hyphens: auto; }
   .lede { font-size: 15px; line-height: 1.6; }
   .account { border-left: 2px solid var(--accent); padding-left: var(--s3); }
   .byline { font-size: var(--fs-4); color: var(--soft); margin-bottom: var(--s1); }

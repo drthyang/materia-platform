@@ -619,6 +619,7 @@ release fixes bugs.
   lasts for the session, until a new structure is loaded.
 
 ### Changed
+- Report: prose (the Result paragraph, notes, captions, caveats and the appendix text) is set justified with hyphenation, as in a journal; tables keep their alignment.
 - Plots: a plain mouse wheel over a plot now flashes the whole gesture line (zoom, pan, box-zoom, reset), not just the zoom shortcut.
 
 - **The header's Demos menu is gone; Load is Open; a Close button returns to
