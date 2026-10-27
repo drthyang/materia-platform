@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { allowedMomentDirections } from "@/core/magnetic/allowedMoments";
-import { buildFor, candidatesOf, fitRows, momentParameters, rankedGroups } from "@/app/magneticStep";
+import { buildFor, candidatesOf, firstOpen, fitRows, momentParameters, rankedGroups } from "@/app/magneticStep";
+import { maximalWithMoment } from "@/core/magnetic/subgroupLattice";
 import { MAGNETIC_ORACLE_CASES } from "@/testSupport/magneticOracleCases";
 import { allowed_moments } from "@/mcp/tools";
 
@@ -60,3 +61,31 @@ describe("the MCP allowed_moments", () => {
     expect(out.dimension).toBe(params[i]);
   });
 });
+
+describe("the sections open on a new k (THY-37, D6)", () => {
+  const bns = (r: ReturnType<typeof candidatesOf>[number]): string | undefined => (r.candidate.standard ?? r.settingMatch?.identity)?.bnsNumber;
+
+  it("are those of the maximal groups that carry a moment, at any index (MnO at k = 0: 6, 8 and 12)", () => {
+    const c = caseOf("mno_k0");
+    const s = c.structure();
+    const reps = candidatesOf(s, c.k);
+    const params = momentParameters(s, reps, c.ions, c.k, TIES);
+    expect([...firstOpen(reps, params)].sort((a, b) => a - b)).toEqual([6, 8, 12]);
+    const top = maximalWithMoment(reps, params);
+    // FindSpinGroup's I4/mm'm', R-3m' and Im'm'm; no index-2 group carries a moment on Mn.
+    expect(reps.filter((_, i) => top[i]).map(bns).sort()).toEqual(["139.537", "166.101", "71.536"]);
+  });
+
+  it("include the two maximal groups the Z point of P4₂/mnm was missing", () => {
+    const c = caseOf("trirutile_k_00half");
+    const s = c.structure();
+    const reps = candidatesOf(s, c.k);
+    const params = momentParameters(s, reps, c.ions, c.k, TIES);
+    expect([...firstOpen(reps, params)]).toEqual([4]);
+    const top = maximalWithMoment(reps, params);
+    const named = reps.filter((_, i) => top[i]).map(bns);
+    expect(named).toContain("96.148");
+    expect(named).toContain("92.116");
+  });
+});
+

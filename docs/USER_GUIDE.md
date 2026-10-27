@@ -310,9 +310,10 @@ In **Symmetry framework**, pick **Magnetic space groups**, or
 **Representation analysis** to tick irreps and get their isotropy subgroup.
 
 In **Magnetic space group**, the candidates are grouped by index. Work top-down:
-only the lowest index starts open (**index 2 — maximal** at most k; index 4
-where no group closes on the whole little group of k, as at the Z point of
-P4₂/mnm), because the ordered phase is usually a maximal subgroup. Each row
+only the sections of the **maximal** groups that carry a moment on your sites
+start open (marked "— maximal"), because the ordered phase is usually a maximal
+subgroup. Maximal is containment, not index: no candidate above the group gives
+your sites a moment, and such a group can sit at index 4, 6, 8 or 12. Each row
 shows the group's type (I to IV; at k ≠ 0 it is IV, the k turning some lattice
 translations into anti-translations), the BNS/OG symbol of the group in its
 magnetic cell with its setting against the parent cell, and a **… moment dof**
@@ -331,8 +332,9 @@ can also show its standard cell (at k ≠ 0, the magnetic cell).
    the moment sizes. Click a ranked row to preview its refined moments.
 
 Ties are expected, because a powder pattern often cannot tell symmetry-distinct
-models apart. Candidates within 0.01 % in wR of the best are marked ≈. Among
-them, the ★ goes to the maximal subgroup with the fewest moment parameters.
+models apart. Candidates within the noise of the best fit by Hamilton's test are
+marked ≈. Among them the ★ goes top-down: to a group none of the others
+contains, then the lowest index, then the fewest moment parameters.
 
 If no candidate beats the nuclear-only fit, a note says so. The pattern may be
 paramagnetic, the moments may be too small, or k may be wrong. Check the

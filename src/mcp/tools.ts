@@ -693,9 +693,9 @@ export function search_propagation_vector(args: {
 }
 
 /**
- * Enumerate the maximal magnetic subgroup candidates of the parent group for a
+ * Enumerate the magnetic subgroup candidates of the parent group for a
  * propagation vector k — conjugacy-class representatives with their BNS
- * identification, subgroup index, and domain count. The operations of the
+ * identification, subgroup index, domain count and whether they are maximal. The operations of the
  * chosen candidate feed allowed_moments / build_magnetic_model. At k ≠ 0 the
  * operations are listed in the parent cell and the name is the group's in its
  * magnetic cell (type IV), `setting` the standard BNS cell in parent axes.
@@ -712,12 +712,14 @@ export function list_magnetic_subgroups(args: {
     setting: string | null;
     index: number;
     domainCount: number;
+    maximal: boolean;
     operations: SymmetryOperation[];
   }[];
 } {
-  const reps = latticeRepresentatives(
-    magneticSubgroupLattice(args.structure.spaceGroup.operations, args.k ?? [0, 0, 0], { maxIndex: args.maxIndex ?? 8 }),
-  );
+  // The whole lattice, then the cut: a maximal group stays whatever its index.
+  const maxIndex = args.maxIndex ?? 8;
+  const reps = latticeRepresentatives(magneticSubgroupLattice(args.structure.spaceGroup.operations, args.k ?? [0, 0, 0]))
+    .filter((r) => r.index <= maxIndex || r.maximal);
   return {
     candidates: reps.map((r) => {
       const identity = r.candidate.standard ?? r.settingMatch?.identity ?? null;
@@ -728,6 +730,7 @@ export function list_magnetic_subgroups(args: {
         setting: latticeCandidateLabel(r).setting,
         index: r.index,
         domainCount: r.domainCount,
+        maximal: r.maximal,
         operations: [...r.candidate.operations],
       };
     }),

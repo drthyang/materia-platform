@@ -24,7 +24,7 @@ import { describe, expect, it } from "vitest";
 import type { SymmetryOperation } from "@/core/crystal/types";
 import { magneticOrbitRepresentatives } from "@/core/crystal/cellExpansion";
 import { allowedMomentDirections } from "@/core/magnetic/allowedMoments";
-import { latticeCandidateLabel, latticeRepresentatives, magneticSubgroupLattice } from "@/core/magnetic/subgroupLattice";
+import { latticeCandidateLabel, latticeRepresentatives, magneticSubgroupLattice, maximalWithMoment } from "@/core/magnetic/subgroupLattice";
 import { candidateCellGroup, isMagneticGroup } from "@/core/magnetic/magneticCell";
 import { MAGNETIC_ORACLE_CASES, oracleInput } from "@/testSupport/magneticOracleCases";
 
@@ -153,5 +153,30 @@ describe("the allowed moments on each magnetic site are the oracle's", () => {
         expect(dims, `${rep.candidate.id} on ${label}`).toEqual(o.moments[label]);
       }
     }
+  });
+});
+
+describe("maximal by containment, and the maximal groups that carry a moment", () => {
+  it.each(singleArm.map((c) => [c.id, c] as const))("%s", (_id, c) => {
+    const want = oracle.cases.find((x) => x.id === c.id)!;
+    const structure = c.structure();
+    const ops = structure.spaceGroup.operations;
+    const reps = latticeRepresentatives(magneticSubgroupLattice(ops, c.k));
+    // Whether a group allows a moment on any orbit of the chosen ions.
+    const moments = reps.map((rep) =>
+      c.ions.reduce((sum, label) => {
+        const s = structure.sites.find((x) => x.label === label)!;
+        return sum + magneticOrbitRepresentatives(ops, rep.candidate.operations, s.position).reduce((t, p) => t + allowedMomentDirections(rep.candidate.operations, p, c.k).dimension, 0);
+      }, 0),
+    );
+    const withMoment = maximalWithMoment(reps, moments);
+    const wrong: string[] = [];
+    reps.forEach((rep, i) => {
+      const key = groupKey(candidateCellGroup(rep.candidate.operations, c.k)!.operations);
+      const o = want.classes.find((x) => x.members.some(([k]) => k === key))!;
+      if (rep.maximal !== o.maximal) wrong.push(`${latticeCandidateLabel(rep).symbol} (index ${rep.index}): maximal ${rep.maximal}, oracle ${o.maximal}`);
+      if (withMoment[i] !== o.maxmagn) wrong.push(`${latticeCandidateLabel(rep).symbol} (index ${rep.index}): maximal with a moment ${withMoment[i]}, oracle ${o.maxmagn}`);
+    });
+    expect(wrong).toEqual([]);
   });
 });

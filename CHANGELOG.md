@@ -1027,6 +1027,28 @@ release fixes bugs.
   (`momentParameters`), the Agent's `momentComponents` the same, and the MCP
   `allowed_moments` lists each split orbit, its `dimension` their sum.
 
+- **"Maximal" means containment, not index 2** (THY-37). A magnetic group is
+  maximal when no other candidate contains it, and the page starts from the
+  maximal groups that carry a moment on the chosen ions (Bilbao MAXMAGN's
+  selection), at whatever index they sit: MnO at k = 0 opens I4/mm′m′, R-3m′ and
+  Im′m′m at indices 6, 8 and 12, where the index-2 groups put no moment on Mn,
+  and P4₂/mnm at Z opens index 4 with P4₃2₁2 and P4₁2₁2 among them. The rows
+  mark them maximal, the Agent's groups carry `maximal: true`, and
+  `list_magnetic_subgroups` gains `maximal` and keeps the maximal groups past its
+  `maxIndex`. The ★ goes top-down among the fits within the noise: to a group
+  none of the others contains, then the lowest index and the fewest moment
+  parameters. The ≈ marks and their order follow that set (Hamilton's test)
+  instead of a 10⁻⁴ wR window, and the Agent's `withinNoise` lists it in the ★'s
+  order. The magnetic-analysis skill's Stage 2 says so and no longer quotes the
+  old 0.01 % tie.
+
+- **The mCIF names the type of a group it cannot name** (THY-37). A k ≠ 0
+  supercell group the table did not name was always described as a
+  black-and-white lattice (BNS type IV), also for a two-arm k, whose group has
+  no anti-translation (type III). The comment now reads the type off the group;
+  with the full table most of these groups are named anyway (the triangular
+  P6/mmm at k = (⅓,⅓,0) gives P-6m′2′, BNS 187.213).
+
 - **Each technique's report names its own cross-check programs.** The
   report's footer told every technique that the Export menu writes GSAS-II
   and FullProf bundles. A PDF is reproduced in PDFgui / diffpy-CMI (PDFfit2),

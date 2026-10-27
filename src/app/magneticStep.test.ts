@@ -4,7 +4,7 @@ import { loadedSession } from "@/app/powderSession";
 import { powderMomentFit, powderPageCurves, refinedPhasesOf, residualPeaksOf, weightedR } from "@/app/powderPage";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { momentFit as singleCrystalMomentFit, singleCrystalPage, type SingleCrystalCompute } from "@/app/singleCrystalPage";
-import { MagneticStep, bestRanked, candidatesOf, firstOpen, momentParameters, buildFor, rankCandidates, stepView, type MagneticFit, type RankEntry, type StepInputs } from "@/app/magneticStep";
+import { MagneticStep, bestRanked, candidatesOf, firstOpen, momentParameters, buildFor, rankCandidates, rankWithinNoise, stepView, type MagneticFit, type RankEntry, type StepInputs } from "@/app/magneticStep";
 import type { LatticeCandidate } from "@/core/magnetic/subgroupLattice";
 import { sessionPort } from "@/testSupport/agentHeadless";
 import { corundumPage } from "@/testSupport/scPages";
@@ -189,8 +189,11 @@ describe("the magnetic step on the Agent's page, as on the app's", () => {
 });
 
 describe("the ★ and the noise", () => {
-  // A maximal group with one moment parameter, and an index-12 group with three that fits a little lower.
-  const reps = [{ index: 2, candidate: { id: "maximal" } }, { index: 12, candidate: { id: "lower" } }] as unknown as LatticeCandidate[];
+  // A maximal group with one moment parameter, and an index-12 group inside it with three that fits a little lower.
+  const reps = [
+    { index: 2, classId: 0, above: [], candidate: { id: "maximal" } },
+    { index: 12, classId: 1, above: [0], candidate: { id: "lower" } },
+  ] as unknown as LatticeCandidate[];
   const dims = [1, 3];
   const entry = (wR: number, chi2?: number, dof?: number): RankEntry => ({ status: "ok", wR, values: {}, magnitudes: [], ...(chi2 !== undefined && dof !== undefined ? { chi2, dof } : {}) });
 
@@ -201,6 +204,18 @@ describe("the ★ and the noise", () => {
 
   it("takes the lower group when its moments earn their place", () => {
     expect(bestRanked({ maximal: entry(0.05, 1000, 499), lower: entry(0.045, 810, 497) }, reps, dims)?.id).toBe("lower");
+  });
+
+  it("orders the fits within the noise top-down by containment, then index (the ≈ rows)", () => {
+    // A maximal (index 4); B below A (index 8); C below none of them (index 12): B has its supergroup among the
+    // fits within the noise, so it is the lower symmetry the data do not ask for and goes after C.
+    const three = [
+      { index: 4, classId: 0, above: [], candidate: { id: "A" } },
+      { index: 8, classId: 1, above: [0], candidate: { id: "B" } },
+      { index: 12, classId: 2, above: [], candidate: { id: "C" } },
+    ] as unknown as LatticeCandidate[];
+    const fits = { A: entry(0.05, 1000, 497), B: entry(0.05, 999.9, 495), C: entry(0.05, 999.8, 491) };
+    expect(rankWithinNoise(fits, three, [3, 5, 9])).toEqual(["A", "C", "B"]);
   });
 
   it("falls back to the tie on a fit that reports no χ² (the mPDF's)", () => {

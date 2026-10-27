@@ -61,6 +61,7 @@ function candidateRow(c: MagneticCandidateView): Record<string, unknown> {
     ...(c.numbers ? { numbers: c.numbers } : {}),
     ...(c.setting ? { setting: c.setting } : {}),
     index: c.index,
+    ...(c.maximal ? { maximal: true } : {}),
     domains: c.domains,
     momentComponents: c.momentParameters,
     ...(c.fit ? { fit: c.fit.status === "ok" ? { wR: c.fit.wR !== null ? pct(c.fit.wR) : null, moments: c.fit.moments.map((m) => `${m.site} ${sig(m.muB, 3)} µB`) } : c.fit.status } : {}),

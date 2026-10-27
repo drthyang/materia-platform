@@ -7,7 +7,7 @@ import { ALTERNATION_SETTLED } from "@/agent/method";
 import { LOCAL_BUDGET_CHARS, skillOutline } from "@/agent/contextWindow";
 import {
   COMPLETENESS_NOTE, CORRELATION_LIMIT, DATA_PER_PARAMETER, EXTINCTION_K, EXTINCTION_LARGE, EXTINCTION_SEVERE, FLACK_U_DETERMINED, FORBIDDEN_OVERLAP, GOF_BANDS, LARGE_CUT,
-  LE_BAIL_UNSETTLED, POSTERIOR_CORRELATION, POSTERIOR_NEARLY_RHAT, POSTERIOR_RHAT, R_INT_NOTE, RANK_TIE_WR, SHIFT_SETTLED,
+  LE_BAIL_UNSETTLED, POSTERIOR_CORRELATION, POSTERIOR_NEARLY_RHAT, POSTERIOR_RHAT, R_INT_NOTE, SHIFT_SETTLED,
   BOND_SHORT, CORRELATION_REPORTED, DISTANCE_HARD, DISTANCE_WARN, U_HARD, U_LARGE, U_ORDER_RATIO, U_SMALL,
 } from "@/core/diagnostics/thresholds";
 
@@ -76,7 +76,6 @@ const QUOTED: readonly { readonly skill: string; readonly what: string; readonly
   { skill: "my-rietveld-workflow", what: "correlations reported from", pattern: /\*\*Correlations\*\* from (\d\.\d+) to/, value: CORRELATION_REPORTED },
   { skill: "pdf-workflow", what: "a block converged (esd)", pattern: /largest shift below\s+(\d\.\d+) esd/, value: SHIFT_SETTLED },
   { skill: "pdf-workflow", what: "the correlation limit", pattern: /correlate at \|ρ\| ≥ (\d\.\d+)/, value: CORRELATION_LIMIT },
-  { skill: "magnetic-analysis", what: "the ranking's tie (%)", pattern: /a tie within (\d\.\d+) %/, value: 100 * RANK_TIE_WR },
   { skill: "bayesian-check", what: "a converged posterior's R̂", pattern: /converged run: R̂ < (\d\.\d+)/, value: POSTERIOR_RHAT },
   { skill: "bayesian-check", what: "a nearly converged posterior's R̂", pattern: /close to converged" \(R̂ < (\d\.\d+)\)/, value: POSTERIOR_NEARLY_RHAT },
   { skill: "bayesian-check", what: "the correlation limit", pattern: /below the (\d\.\d+) at which `refine` refuses/, value: CORRELATION_LIMIT },

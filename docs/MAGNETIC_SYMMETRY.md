@@ -62,7 +62,13 @@ a primitive cell and a two-arm k in a C-centred one
 
 Its index in the grey group is 2·|Ḡ_k| / |H̄|, where H̄ is the co-group of H. The
 largest candidates have index 2 where a group closes on the whole of G_k, and
-4 at the Z points above.
+4 at the Z points above. A candidate is **maximal** when no other candidate
+contains it (one of its groups inside one of the other's, with the same θ on
+its cosets), which is containment, not index: a maximal group can sit at index
+4, 6, 8 or 12. The magnetic page starts from the maximal groups that carry a
+moment on the chosen ions, those no group above them gives one (the selection
+of Bilbao's MAXMAGN): for MnO at k = 0, I4/mm′m′, R-3m′ and Im′m′m at indices 6,
+8 and 12, while no index-2 group allows a moment on Mn.
 
 Like k-SUBGROUPSMAG (Perez-Mato et al. 2015), the workbench lists every pair, not
 only those of index 2 ([`subgroupLattice.ts`](../src/core/magnetic/subgroupLattice.ts)).
@@ -154,19 +160,20 @@ Mx+2My, and orbit 2 follows |M(orbit 1)|
 
 An ordered phase usually keeps a maximal subgroup of the paramagnetic group
 (Landau theory, k-SUBGROUPSMAG practice, ITA Vol. A1). Test the maximal
-candidates first, and descend the lattice only when none fits.
+candidates first, and descend the lattice only when none fits. The page opens
+the index sections of the maximal groups that carry a moment.
 
 Powder data often cannot separate symmetry-distinct models, because only the
 moment component perpendicular to Q scatters and orientations are averaged
 ([direction ambiguity](../knowledge/magnetic_structure_symmetry_knowledge.md), §9).
-Ties are therefore expected. Among tied fits, prefer the maximal subgroup (lowest
-index) with the fewest moment parameters: the rows its fit refines, every split
-orbit's modes counted and co-located ions sharing one moment
-([`momentParameters`](../src/app/magneticStep.ts)). The ranking calls fits tied when they
-are within the noise of the best: Hamilton's test (Acta Cryst. 18 (1965) 502)
-at 5 %, so a group with more moment parameters must lower χ² by more than the
-best fit's noise gives them (an mPDF fit, which reports no χ², ties within
-10⁻⁴ in Rw). At k = 0 the ranking refines the nuclear scale with the moments:
+Ties are therefore expected. The ranking calls fits tied when they are within
+the noise of the best: Hamilton's test (Acta Cryst. 18 (1965) 502) at 5 %, so a
+group with more moment parameters must lower χ² by more than the best fit's
+noise gives them (an mPDF fit, which reports no χ², ties within 10⁻⁴ in Rw).
+The page marks these ≈. Among them the ★ goes top-down: to a group none of the
+others contains, then the lowest index, then the fewest moment parameters (the
+rows its fit refines, every split orbit's modes counted and co-located ions
+sharing one moment; [`momentParameters`](../src/app/magneticStep.ts)). At k = 0 the ranking refines the nuclear scale with the moments:
 the magnetic peaks sit on the nuclear ones, and a scale refined without them
 has taken part of their intensity.
 

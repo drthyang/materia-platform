@@ -64,7 +64,8 @@ export interface LatticeCandidate {
   readonly candidate: MagneticCandidate;
   /** Order of the spatial subgroup H̄ (distinct rotation cosets). */
   readonly subgroupOrder: number;
-  /** Index of M in the grey group G_k·1': 2·|Ḡ_k| / |H̄|. Maximal ⇔ 2. */
+  /** Index of M in the grey group G_k·1': 2·|Ḡ_k| / |H̄|. Index 2 is maximal,
+   *  but not every maximal group has index 2 (see `maximal`). */
   readonly index: number;
   /** 0-based conjugacy-class id (classes are contiguous in the output). */
   readonly classId: number;
@@ -83,6 +84,15 @@ export interface LatticeCandidate {
   readonly settingMatch?: TransformedIdentification;
   /** The Shubnikov type of the group the candidate denotes (IV at a single-arm k ≠ 0). */
   readonly magneticType: 1 | 2 | 3 | 4;
+  /** The classes one of whose groups properly contains a group of this class
+   *  (by classId, ascending): the candidates above it in the lattice. */
+  readonly above: readonly number[];
+  /** No candidate properly contains a group of this class. Maximality is
+   *  containment, not index: where no group closes on the whole little group
+   *  the maximal ones have index 4 (the Z point of P4₂/mnm), and a maximal
+   *  group can sit below an index-2 one of another class only if it is not
+   *  contained in it (MnO at k = 0: I4/mm′m′ at index 6, Im′m′m at 12). */
+  readonly maximal: boolean;
 }
 
 export interface CosetContext {
@@ -342,9 +352,40 @@ export function magneticSubgroupLattice(
       A.members[0]!.canonical.localeCompare(B.members[0]!.canonical),
   );
 
+  // Containment between classes: a group lies inside another when the other's
+  // cosets hold its own with the same θ on them (both are read at the same
+  // coset representatives). Cosets as two 24-bit words (|Ḡ_k| ≤ 48).
+  const words = (cosets: Iterable<number>): [number, number] => {
+    let lo = 0;
+    let hi = 0;
+    for (const i of cosets) {
+      if (i < 24) lo |= 1 << i;
+      else hi |= 1 << (i - 24);
+    }
+    return [lo, hi];
+  };
+  const masks = infos.flatMap(({ members }, classId) =>
+    members.map((m) => ({
+      s: words(m.theta.keys()),
+      p: words([...m.theta].filter(([, t]) => t === -1).map(([i]) => i)),
+      order: m.order,
+      classId,
+    })),
+  );
+  const above = infos.map(() => new Set<number>());
+  for (const a of masks) {
+    for (const b of masks) {
+      if (b.order <= a.order) continue;
+      if ((a.s[0] & ~b.s[0]) !== 0 || (a.s[1] & ~b.s[1]) !== 0) continue;
+      if (((a.p[0] ^ b.p[0]) & a.s[0]) !== 0 || ((a.p[1] ^ b.p[1]) & a.s[1]) !== 0) continue;
+      above[a.classId]!.add(b.classId);
+    }
+  }
+
   const out: LatticeCandidate[] = [];
   infos.forEach(({ members, settingMatch, magneticType }, classId) => {
     const domainCount = new Set(members.map((m) => m.self)).size;
+    const aboveIds = [...above[classId]!].sort((x, y) => x - y);
     members.forEach((m, i) => {
       const isRep = i === 0;
       out.push({
@@ -355,11 +396,25 @@ export function magneticSubgroupLattice(
         domainCount,
         classRepresentative: isRep,
         magneticType,
+        above: aboveIds,
+        maximal: aboveIds.length === 0,
         ...(isRep && settingMatch ? { settingMatch } : {}),
       });
     });
   });
   return out;
+}
+
+/**
+ * The maximal groups among those that carry a moment: a group that allows a
+ * moment on the chosen ions while no candidate above it does (Bilbao MAXMAGN's
+ * selection). `moments` gives, per representative, the moment parameters its
+ * fit refines (0: no moment). These are where a top-down search starts; they
+ * can sit at any index (MnO at k = 0: 6, 8 and 12).
+ */
+export function maximalWithMoment(reps: readonly LatticeCandidate[], moments: readonly number[]): boolean[] {
+  const carries = new Map(reps.map((r, i) => [r.classId, (moments[i] ?? 0) > 0]));
+  return reps.map((r, i) => (moments[i] ?? 0) > 0 && !r.above.some((c) => carries.get(c)));
 }
 
 /** Only the class representatives — what a candidate list should display. */
