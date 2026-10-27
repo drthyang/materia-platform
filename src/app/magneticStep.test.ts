@@ -4,7 +4,7 @@ import { loadedSession } from "@/app/powderSession";
 import { powderMomentFit, powderPageCurves, refinedPhasesOf, residualPeaksOf, weightedR } from "@/app/powderPage";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { momentFit as singleCrystalMomentFit, singleCrystalPage, type SingleCrystalCompute } from "@/app/singleCrystalPage";
-import { MagneticStep, bestRanked, candidatesOf, momentDims, buildFor, rankCandidates, stepView, type MagneticFit, type RankEntry, type StepInputs } from "@/app/magneticStep";
+import { MagneticStep, bestRanked, candidatesOf, firstOpen, momentParameters, buildFor, rankCandidates, rankWithinNoise, stepView, type MagneticFit, type RankEntry, type StepInputs } from "@/app/magneticStep";
 import type { LatticeCandidate } from "@/core/magnetic/subgroupLattice";
 import { sessionPort } from "@/testSupport/agentHeadless";
 import { corundumPage } from "@/testSupport/scPages";
@@ -138,7 +138,7 @@ describe("the magnetic step on the Agent's page, as on the app's", () => {
     const { port, session } = sessionPort(mn3gaMagneticSession());
     const h = (): NonNullable<ReturnType<NonNullable<typeof port.magnetic>>> => port.magnetic!()!;
     h().setK(TWO_ARM);
-    h().choose(h().state().candidates.find((c) => c.momentDims > 0)!.id);
+    h().choose(h().state().candidates.find((c) => c.momentParameters > 0)!.id);
     h().continueToRefinement(true);
     const rows = session().powderParams.filter((p) => p.kind === "momentMode" || p.kind === "propagationK");
     expect(rows.filter((p) => p.label.includes("[phase gauge]")).map((p) => p.fixed)).toEqual([true]);
@@ -151,7 +151,7 @@ describe("the magnetic step on the Agent's page, as on the app's", () => {
     const { port } = sessionPort(mn3gaMagneticSession(), undefined, { client });
     const h = (): NonNullable<ReturnType<NonNullable<typeof port.magnetic>>> => port.magnetic!()!;
     h().setK(TWO_ARM);
-    h().choose(h().state().candidates.find((c) => c.momentDims > 0)!.id);
+    h().choose(h().state().candidates.find((c) => c.momentParameters > 0)!.id);
     await h().refineMoments();
     expect(fits).toHaveLength(1);
     const moments = fits[0]!.filter((p) => p.kind === "momentMode");
@@ -174,19 +174,26 @@ describe("the magnetic step on the Agent's page, as on the app's", () => {
     const { port } = sessionPort(mn3gaMagneticSession());
     const h = (): NonNullable<ReturnType<NonNullable<typeof port.magnetic>>> => port.magnetic!()!;
     h().setK([0, 0, 0.5]);
-    const fourth = h().state().candidates.find((c) => c.index === 4 && c.momentDims > 0)!;
-    h().choose(fourth.id);
+    // At the Z point of P6₃/mmc the 6₃ squares to an anti-translation: no group
+    // closes on the whole little group, and the first section open is index 4.
+    const lowest = Math.min(...h().state().candidates.map((c) => c.index));
+    expect(lowest).toBe(4);
+    const deeper = h().state().candidates.find((c) => c.index === 8 && c.momentParameters > 0)!;
+    h().choose(deeper.id);
     await h().rank("open", 0);
     const ranked = h().state().candidates.filter((c) => c.fit);
-    expect(ranked.some((c) => c.index === 2)).toBe(true);
     expect(ranked.some((c) => c.index === 4)).toBe(true);
-    expect(ranked.every((c) => c.index === 2 || c.index === 4)).toBe(true);
+    expect(ranked.some((c) => c.index === 8)).toBe(true);
+    expect(ranked.every((c) => c.index === 4 || c.index === 8)).toBe(true);
   }, 120000);
 });
 
 describe("the ★ and the noise", () => {
-  // A maximal group with one moment parameter, and an index-12 group with three that fits a little lower.
-  const reps = [{ index: 2, candidate: { id: "maximal" } }, { index: 12, candidate: { id: "lower" } }] as unknown as LatticeCandidate[];
+  // A maximal group with one moment parameter, and an index-12 group inside it with three that fits a little lower.
+  const reps = [
+    { index: 2, classId: 0, above: [], candidate: { id: "maximal" } },
+    { index: 12, classId: 1, above: [0], candidate: { id: "lower" } },
+  ] as unknown as LatticeCandidate[];
   const dims = [1, 3];
   const entry = (wR: number, chi2?: number, dof?: number): RankEntry => ({ status: "ok", wR, values: {}, magnitudes: [], ...(chi2 !== undefined && dof !== undefined ? { chi2, dof } : {}) });
 
@@ -197,6 +204,18 @@ describe("the ★ and the noise", () => {
 
   it("takes the lower group when its moments earn their place", () => {
     expect(bestRanked({ maximal: entry(0.05, 1000, 499), lower: entry(0.045, 810, 497) }, reps, dims)?.id).toBe("lower");
+  });
+
+  it("orders the fits within the noise top-down by containment, then index (the ≈ rows)", () => {
+    // A maximal (index 4); B below A (index 8); C below none of them (index 12): B has its supergroup among the
+    // fits within the noise, so it is the lower symmetry the data do not ask for and goes after C.
+    const three = [
+      { index: 4, classId: 0, above: [], candidate: { id: "A" } },
+      { index: 8, classId: 1, above: [0], candidate: { id: "B" } },
+      { index: 12, classId: 2, above: [], candidate: { id: "C" } },
+    ] as unknown as LatticeCandidate[];
+    const fits = { A: entry(0.05, 1000, 497), B: entry(0.05, 999.9, 495), C: entry(0.05, 999.8, 491) };
+    expect(rankWithinNoise(fits, three, [3, 5, 9])).toEqual(["A", "C", "B"]);
   });
 
   it("falls back to the tie on a fit that reports no χ² (the mPDF's)", () => {
@@ -224,7 +243,7 @@ describe("one restart scheme", () => {
     const s = mn3gaMagneticSession();
     const k: Vec3 = [0, 0, 0.5];
     const reps = candidatesOf(s.structure, k);
-    const dims = momentDims(s.structure, reps, ["Mn1"], k);
+    const dims = momentParameters(s.structure, reps, ["Mn1"], k, { sameSite: true, magnitudes: false, flippedUnits: [] });
     const calls: (number | undefined)[] = [];
     const fit: MagneticFit = {
       agreementLabel: "wR",
@@ -235,7 +254,7 @@ describe("one restart scheme", () => {
     };
     const ties = { sameSite: true, magnitudes: false as const, flippedUnits: [] };
     const results = await rankCandidates({
-      reps, dims, scope: "open", open: new Set([2]), restarts: 3, fit, structure: s.structure,
+      reps, dims, scope: "open", open: firstOpen(reps), restarts: 3, fit, structure: s.structure,
       build: (ops) => buildFor(s.structure, k, ["Mn1"], ops, ties),
     });
     const ranked = Object.values(results).filter((e) => e.status === "ok").length;
@@ -245,7 +264,7 @@ describe("one restart scheme", () => {
     // A fit that keeps its own starts (the mPDF's) is asked for its default in each.
     calls.length = 0;
     await rankCandidates({
-      reps, dims, scope: "open", open: new Set([2]), restarts: 3, fit: { ...fit, nestedStarts: true }, structure: s.structure,
+      reps, dims, scope: "open", open: firstOpen(reps), restarts: 3, fit: { ...fit, nestedStarts: true }, structure: s.structure,
       build: (ops) => buildFor(s.structure, k, ["Mn1"], ops, ties),
     });
     expect(calls).toHaveLength(ranked * 4);

@@ -7,6 +7,7 @@ import { magneticCellGroup } from "@/core/magnetic/supercellGroup";
 import { magneticStructureToMcif } from "@/core/export/cif";
 import { parseCif, parseMagneticCif } from "@/parsers/cif";
 import { HIGH_ENTROPY_CIF } from "@/examples/highEntropyWO4";
+import { MAGNETIC_ORACLE_CASES } from "@/testSupport/magneticOracleCases";
 import { magneticIonCandidates } from "@/core/magnetic/magneticIons";
 import { magneticSubgroupLattice, latticeRepresentatives } from "@/core/magnetic/subgroupLattice";
 import { buildMagneticModel } from "@/core/magnetic/momentModel";
@@ -107,7 +108,9 @@ describe("mCIF of a k ≠ 0 structure is written in the magnetic cell's own grou
     expect(mcif).toContain("_parent_space_group.child_transform_Pp_abc  '2a,b,c;0,0,0'");
     expect(mcif).toContain("_space_group_symop_magn_operation.xyz");
     expect(mcif).toContain("_space_group_symop_magn_centering.xyz");
-    expect(mcif).toContain("BNS type IV"); // black-and-white lattice: named honestly, not as the parent-basis label
+    // The black-and-white lattice is named as what it is (BNS type IV, THY-37), not by the parent-basis label.
+    expect(mcif).toContain('_space_group_magn.name_bns  "P_a2/c"');
+    expect(mcif).toContain("_space_group_magn.number_bns  13.70");
     expect(mcif).not.toContain('_space_group_magn.name_bns  "P2/c');
     // Atom loop holds the asymmetric unit only (9 rows), not the 2× expanded list.
     const back = parseMagneticCif(mcif);
@@ -118,4 +121,19 @@ describe("mCIF of a k ≠ 0 structure is written in the magnetic cell's own grou
     // …and the moments are nonzero on the magnetic cations.
     expect(back.magnetic!.moments.some((m) => m.components.some((c) => Math.abs(c) > 0.5))).toBe(true);
   });
+
+  it("a two-arm k's supercell group is named as what it is, not as a black-and-white lattice (THY-37, D8)", () => {
+    // Triangular P6/mmm, Mn on 1a, k = (⅓,⅓,0): the 3 × 3 × 1 cell's group has no anti-translation.
+    const c = MAGNETIC_ORACLE_CASES.find((x) => x.id === "triangular_k_KK0")!;
+    const structure = c.structure();
+    const reps = latticeRepresentatives(magneticSubgroupLattice(structure.spaceGroup.operations, c.k));
+    const rep = reps.find((r) => buildMagneticModel(structure, c.k, ["Mn1"], [...r.candidate.operations], { moment: 2 }).params.length > 0)!;
+    const build = buildMagneticModel(structure, c.k, ["Mn1"], [...rep.candidate.operations], { moment: 2 });
+    const values = Object.fromEntries(build.params.map((p, i) => [p.id, 1.3 + 0.7 * i]));
+    const mcif = magneticStructureToMcif(structure, applyMagneticMoments(build.magnetic, build.bindings, values), {});
+    expect(mcif).not.toContain("type IV");
+    expect(mcif).toContain('_space_group_magn.name_bns  "P-6m\'2\'"');
+    expect(mcif).toContain("_space_group_magn.number_bns  187.213");
+  });
 });
+

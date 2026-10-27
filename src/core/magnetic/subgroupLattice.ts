@@ -36,28 +36,37 @@
  *    enumerated (fixed lattice), the k-part being the type-IV extension.
  *  - International Tables for Crystallography Vol. A1 (Wondratschek & Müller,
  *    eds.) — group–subgroup relations, index, conjugacy and domains.
- *  - D. B. Litvin, *Magnetic Group Tables* (IUCr, 2013) — the type-I/III groups
- *    the candidates are matched against (via {@link identifyMagneticGroup}).
+ *  - D. B. Litvin, *Magnetic Group Tables* (IUCr, 2013) — the groups the
+ *    candidates are matched against (via `identifyCandidate`: at k ≠ 0 the
+ *    type-IV group of the magnetic cell).
  */
 
 import type { SymmetryOperation } from "@/core/crystal/types";
-import type { Vec3 } from "@/core/math/types";
-import { composeOperations } from "@/core/crystal/symmetry";
+import type { Mat3, Vec3 } from "@/core/math/types";
+import { centringTranslations, composeOperations } from "@/core/crystal/symmetry";
+import { inverse, mulMat, mulVec } from "@/core/math/mat3";
 import {
+  cosetFrame,
   distinctCosets,
   generateMagneticCandidates,
+  latticePhase,
   littleGroup,
   rotationKey,
+  twistingK,
+  type CosetFrame,
   type MagneticCandidate,
 } from "./magneticGroups";
-import { identifyMagneticGroupAnySetting, type TransformedIdentification, formatMagneticSymbol } from "./bnsOg";
+import { type TransformedIdentification, formatMagneticSymbol, identifyMagneticGroupAnySetting } from "./bnsOg";
+import { classifyPropagation } from "./propagation";
+import { candidateCellGroup, identifyCandidate, magneticTypeOf } from "./magneticCell";
 
 export interface LatticeCandidate {
   /** The magnetic group itself (operations, label, BNS/OG identification). */
   readonly candidate: MagneticCandidate;
   /** Order of the spatial subgroup H̄ (distinct rotation cosets). */
   readonly subgroupOrder: number;
-  /** Index of M in the grey group G_k·1': 2·|Ḡ_k| / |H̄|. Maximal ⇔ 2. */
+  /** Index of M in the grey group G_k·1': 2·|Ḡ_k| / |H̄|. Index 2 is maximal,
+   *  but not every maximal group has index 2 (see `maximal`). */
   readonly index: number;
   /** 0-based conjugacy-class id (classes are contiguous in the output). */
   readonly classId: number;
@@ -68,9 +77,30 @@ export interface LatticeCandidate {
    *  the UI lists; the conjugates are the same physics in other domains. */
   readonly classRepresentative: boolean;
   /** When the exact standard-setting match failed, the BNS/OG identity found
-   *  through a setting transformation (axis permutation + origin shift) —
-   *  computed for class representatives only. Undefined: no match either way. */
+   *  through a setting transformation — computed for class representatives
+   *  only. At a single-arm k ≠ 0 it is always this: the group of the ordered
+   *  structure, named in its magnetic cell, with the transformation from the
+   *  PARENT cell to its standard BNS cell (`identifyCandidate`). Undefined: no
+   *  match either way. */
   readonly settingMatch?: TransformedIdentification;
+  /** The Shubnikov type of the group the candidate denotes (IV at a single-arm k ≠ 0; meaningless at a two-arm k, see `twoArm`). */
+  readonly magneticType: 1 | 2 | 3 | 4;
+  /** A two-arm k (2k not in the reciprocal lattice): the candidate is a real
+   *  decoration of G_k for the Fourier moment model, not a magnetic space group,
+   *  and carries no BNS label (`latticeCandidateLabel` says so). */
+  readonly twoArm: boolean;
+  /** At a two-arm k, the time-reversal pattern of the decoration read as a
+   *  group of the parent cell — what the label shows it by and the list is
+   *  ordered by; never a BNS name. Class representatives only. */
+  readonly decoration?: TransformedIdentification;
+  /** The classes one of whose groups properly contains a group of this class
+   *  (by classId, ascending): the candidates above it in the lattice. */
+  readonly above: readonly number[];
+  /** No candidate properly contains a group of this class. Maximality is
+   *  containment, not index: a maximal group can have index 4, 6, 8 or 12
+   *  (the Z point of P4₂/mnm, where no group closes on the whole little group:
+   *  4; MnO at k = 0: I4/mm′m′ at 6, Im′m′m at 12). */
+  readonly maximal: boolean;
 }
 
 export interface CosetContext {
@@ -176,14 +206,55 @@ function pairSignature(theta: ReadonlyMap<number, 1 | -1>): string {
     .join(" ");
 }
 
-/** Signature of the conjugate g·(H,θ)·g⁻¹ — h ↦ ghg⁻¹ keeps its θ sign. */
+/** How the representative g_h of one coset conjugates under another's, g_g·g_h·g_g⁻¹ = {I|s}·g_m. */
+interface Conjugation {
+  readonly m: number;
+  /** χ(s) = e^{2πi k·s}: the sign the conjugate's θ on coset m picks up (null: complex). */
+  readonly sign: 1 | -1 | null;
+}
+
+/**
+ * The conjugation table of the coset representatives, with the k-phase of the
+ * lattice vector each conjugate differs from its coset's representative by.
+ * Conjugation by a lattice translation leaves every (H, θ) unchanged
+ * (χ(t − R t) = 1 for R in G_k), so the representatives give every conjugate.
+ */
+function conjugationTable(frame: CosetFrame, index: ReadonlyMap<string, number>, k: Vec3): Conjugation[][] {
+  const zeroK = k.every((c) => Math.abs(c) < 1e-9);
+  const round = (M: Mat3): Mat3 => M.map((row) => row.map((v) => Math.round(v))) as unknown as Mat3;
+  return frame.reps.map((g) => {
+    const Rg = g.rotation;
+    const Rgi = round(inverse(Rg));
+    return frame.reps.map((h) => {
+      const R = round(mulMat(mulMat(Rg, h.rotation), Rgi));
+      const m = index.get(R.map((row) => row.join(",")).join(";")) ?? 0;
+      if (zeroK) return { m, sign: 1 };
+      const a = mulVec(Rg, h.translation);
+      const b = mulVec(R, g.translation);
+      const tm = frame.reps[m]!.translation;
+      const s: Vec3 = [a[0] + g.translation[0]! - b[0] - tm[0]!, a[1] + g.translation[1]! - b[1] - tm[1]!, a[2] + g.translation[2]! - b[2] - tm[2]!];
+      return { m, sign: latticePhase(k, s) };
+    });
+  });
+}
+
+/**
+ * Signature of the conjugate g·(H,θ)·g⁻¹: h ↦ ghg⁻¹ keeps its own θ, and the
+ * conjugate's θ on the coset of ghg⁻¹ is read at that coset's representative,
+ * so it carries the k-phase of the lattice vector between them. Null when a
+ * phase is complex (no real conjugate on these representatives).
+ */
 function conjugateSignature(
   theta: ReadonlyMap<number, 1 | -1>,
   g: number,
-  ctx: CosetContext,
-): string {
+  table: readonly (readonly Conjugation[])[],
+): string | null {
   const conj = new Map<number, 1 | -1>();
-  for (const [h, t] of theta) conj.set(ctx.comp[ctx.comp[g]![h]!]![ctx.inv[g]!]!, t);
+  for (const [h, t] of theta) {
+    const { m, sign } = table[g]![h]!;
+    if (sign === null) return null;
+    conj.set(m, (t * sign) as 1 | -1);
+  }
   return pairSignature(conj);
 }
 
@@ -210,6 +281,9 @@ export function magneticSubgroupLattice(
 
   const cosetIndex = new Map<string, number>();
   ctx.cosets.forEach((op, i) => cosetIndex.set(rotationKey(op), i));
+  // Conjugation with the k-phase (a single-arm k's; a two-arm k keeps θ plain):
+  // the representatives θ is read at, and how each conjugates.
+  const conjugations = conjugationTable(cosetFrame(lg, cosetIndex, n), cosetIndex, twistingK(lg, k));
 
   interface Raw {
     cand: MagneticCandidate;
@@ -228,14 +302,14 @@ export function magneticSubgroupLattice(
     // Full operation list of H: every little-group op whose rotation coset is
     // in S (centring translations preserved, as in the maximal-only generator).
     const subOps = lg.filter((op) => inS.has(cosetIndex.get(rotationKey(op)) ?? -1));
-    for (const cand of generateMagneticCandidates(subOps)) {
+    for (const cand of generateMagneticCandidates(subOps, k)) {
       const theta = thetaByCoset(cand, cosetIndex);
       const self = pairSignature(theta);
       // Canonical class signature: lexicographic minimum over all conjugates.
       let canonical = self;
       for (let g = 0; g < n; g++) {
-        const sig = conjugateSignature(theta, g, ctx);
-        if (sig < canonical) canonical = sig;
+        const sig = conjugateSignature(theta, g, conjugations);
+        if (sig !== null && sig < canonical) canonical = sig;
       }
       raws.push({
         cand: { ...cand, id: `mag-sub-${S.join("_")}-${cand.id}` },
@@ -263,13 +337,20 @@ export function magneticSubgroupLattice(
   interface ClassInfo {
     readonly members: Raw[];
     readonly settingMatch: TransformedIdentification | null;
+    readonly decoration: TransformedIdentification | null;
     readonly bnsKey: number;
+    readonly magneticType: 1 | 2 | 3 | 4;
   }
+  const twoArm = !k.every((c) => Math.abs(c) < 1e-9) && classifyPropagation(k, { centrings: centringTranslations(lg) }).twoArms;
   const infos: ClassInfo[] = [...classes.values()].map((members) => {
     const rep = members[0]!;
-    const settingMatch = rep.cand.standard === null ? identifyMagneticGroupAnySetting(rep.cand.operations) : null;
-    const bnsNumber = rep.cand.standard?.bnsNumber ?? settingMatch?.identity.bnsNumber ?? null;
-    return { members, settingMatch, bnsKey: bnsSortKey(bnsNumber) };
+    // A two-arm k: no magnetic space group to name; the decoration's pattern orders the list.
+    const decoration = twoArm ? identifyMagneticGroupAnySetting(rep.cand.operations) : null;
+    const settingMatch = !twoArm && rep.cand.standard === null ? identifyCandidate(rep.cand.operations, k) : null;
+    const identity = rep.cand.standard ?? settingMatch?.identity ?? null;
+    const cell = identity ? null : candidateCellGroup(rep.cand.operations, k);
+    const magneticType = identity?.magtype ?? magneticTypeOf(cell ? cell.operations : rep.cand.operations);
+    return { members, settingMatch, decoration, bnsKey: bnsSortKey(identity?.bnsNumber ?? decoration?.identity.bnsNumber ?? null), magneticType };
   });
 
   // Bilbao k-SUBGROUPSMAG order: by index (maximal / highest symmetry first),
@@ -283,9 +364,40 @@ export function magneticSubgroupLattice(
       A.members[0]!.canonical.localeCompare(B.members[0]!.canonical),
   );
 
+  // Containment between classes: a group lies inside another when the other's
+  // cosets hold its own with the same θ on them (both are read at the same
+  // coset representatives). Cosets as two 24-bit words (|Ḡ_k| ≤ 48).
+  const words = (cosets: Iterable<number>): [number, number] => {
+    let lo = 0;
+    let hi = 0;
+    for (const i of cosets) {
+      if (i < 24) lo |= 1 << i;
+      else hi |= 1 << (i - 24);
+    }
+    return [lo, hi];
+  };
+  const masks = infos.flatMap(({ members }, classId) =>
+    members.map((m) => ({
+      s: words(m.theta.keys()),
+      p: words([...m.theta].filter(([, t]) => t === -1).map(([i]) => i)),
+      order: m.order,
+      classId,
+    })),
+  );
+  const above = infos.map(() => new Set<number>());
+  for (const a of masks) {
+    for (const b of masks) {
+      if (b.order <= a.order) continue;
+      if ((a.s[0] & ~b.s[0]) !== 0 || (a.s[1] & ~b.s[1]) !== 0) continue;
+      if (((a.p[0] ^ b.p[0]) & a.s[0]) !== 0 || ((a.p[1] ^ b.p[1]) & a.s[1]) !== 0) continue;
+      above[a.classId]!.add(b.classId);
+    }
+  }
+
   const out: LatticeCandidate[] = [];
-  infos.forEach(({ members, settingMatch }, classId) => {
+  infos.forEach(({ members, settingMatch, decoration, magneticType }, classId) => {
     const domainCount = new Set(members.map((m) => m.self)).size;
+    const aboveIds = [...above[classId]!].sort((x, y) => x - y);
     members.forEach((m, i) => {
       const isRep = i === 0;
       out.push({
@@ -295,11 +407,28 @@ export function magneticSubgroupLattice(
         classId,
         domainCount,
         classRepresentative: isRep,
+        magneticType,
+        twoArm,
+        above: aboveIds,
+        maximal: aboveIds.length === 0,
         ...(isRep && settingMatch ? { settingMatch } : {}),
+        ...(isRep && decoration ? { decoration } : {}),
       });
     });
   });
   return out;
+}
+
+/**
+ * The maximal groups among those that carry a moment: a group that allows a
+ * moment on the chosen ions while no candidate above it does (Bilbao MAXMAGN's
+ * selection). `moments` gives, per representative, the moment parameters its
+ * fit refines (0: no moment). These are where a top-down search starts; they
+ * can sit at any index (MnO at k = 0: 6, 8 and 12).
+ */
+export function maximalWithMoment(reps: readonly LatticeCandidate[], moments: readonly number[]): boolean[] {
+  const carries = new Map(reps.map((r, i) => [r.classId, (moments[i] ?? 0) > 0]));
+  return reps.map((r, i) => (moments[i] ?? 0) > 0 && !r.above.some((c) => carries.get(c)));
 }
 
 /** Only the class representatives — what a candidate list should display. */
@@ -309,12 +438,24 @@ export function latticeRepresentatives(
   return lattice.filter((c) => c.classRepresentative);
 }
 
+/** What a two-arm k's candidate is, where its label is shown. */
+export const TWO_ARM_NOTE = "not a magnetic space group label: two-arm k";
+
 /** How a lattice candidate is named wherever it is shown (the magnetic page's
  *  rows, the report, the project): the standard BNS symbol with its BNS/OG
  *  numbers when the operations match a tabulated group directly, the symbol
  *  plus the setting transformation when they match after a basis change, and
- *  otherwise the candidate's own descriptive label without its type prefix. */
-export function latticeCandidateLabel(c: LatticeCandidate): { symbol: string; numbers: string | null; setting: string | null } {
+ *  otherwise the candidate's own descriptive label without its type prefix.
+ *  A two-arm k's candidate is a decoration of G_k, not a magnetic space group:
+ *  it is shown by its time-reversal pattern, with no BNS number, and `note`
+ *  says so. */
+export function latticeCandidateLabel(c: LatticeCandidate): { symbol: string; numbers: string | null; setting: string | null; note?: string } {
+  if (c.twoArm) {
+    const symbol = c.decoration
+      ? `${formatMagneticSymbol(c.decoration.identity.bnsSymbol)} (G_k decoration)`
+      : c.candidate.label.replace(/^type III · /, "").replace(/^type I \(no time reversal\)$/, "no time reversal");
+    return { symbol, numbers: null, setting: null, note: TWO_ARM_NOTE };
+  }
   if (c.candidate.standard) {
     return {
       symbol: c.candidate.label,

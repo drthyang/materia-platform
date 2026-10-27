@@ -27,8 +27,9 @@
  * (e^{2πi k·L} = ±1, i.e. k = 0 or half-integer k on the relevant lattice
  * vectors). Complex conjugate-pair irreps and genuinely complex k-phases give
  * a null result with a reason — those configurations generally stabilize as
- * type-IV / anti-translation groups, which the bundled type-I/III table
- * cannot name yet (see docs/MAGNETIC_SYMMETRY.md).
+ * type-IV / anti-translation groups, which this route does not build yet (the
+ * magnetic-space-group route lists them; see docs/MAGNETIC_SYMMETRY.md). A
+ * result at a k ≠ 0 is named from its group in the magnetic cell.
  *
  * References:
  *  - E. F. Bertaut, Acta Cryst. A24 (1968) 217 — representation analysis of
@@ -54,10 +55,10 @@ import { rotationKey } from "./magneticGroups";
 import { projectIrrepModes, type Irrep } from "./irreps";
 import {
   identifyMagneticGroup,
-  identifyMagneticGroupAnySetting,
   type MagneticGroupIdentity,
   type TransformedIdentification,
 } from "./bnsOg";
+import { identifyCandidate } from "./magneticCell";
 
 const TOL = 1e-3;
 
@@ -306,11 +307,13 @@ export function isotropySubgroup(
   if (!ops || ops.length === 0) return { failure: "no-modes" };
 
   const cosets = new Set(ops.map((o) => rotationKey(o)));
-  const standard = identifyMagneticGroup(ops);
+  // At k ≠ 0 the group of the structure lives in the magnetic cell: named there, as a candidate is.
+  const zeroK = k.every((c) => Math.abs(c) < 1e-9);
+  const standard = zeroK ? identifyMagneticGroup(ops) : null;
   return {
     operations: ops,
     standard,
-    settingMatch: standard ? null : identifyMagneticGroupAnySetting(ops),
+    settingMatch: standard ? null : identifyCandidate(ops, k),
     subgroupOrder: cosets.size,
   };
 }

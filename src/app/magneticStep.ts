@@ -17,8 +17,7 @@ import type { MagneticModel } from "@/core/magnetic/types";
 import type { AnnotatedExtraPeak } from "@/core/magnetic/extraPeaks";
 import { searchPropagationVector, type KCandidate } from "@/core/magnetic/kSearch";
 import { centringTranslations } from "@/core/crystal/symmetry";
-import { magneticSubgroupLattice, latticeRepresentatives, type LatticeCandidate } from "@/core/magnetic/subgroupLattice";
-import { allowedMomentDirections } from "@/core/magnetic/allowedMoments";
+import { magneticSubgroupLattice, latticeRepresentatives, maximalWithMoment, type LatticeCandidate } from "@/core/magnetic/subgroupLattice";
 import { buildMagneticModel, type MagneticModelBuild } from "@/core/magnetic/momentModel";
 import { propagationKParameters } from "@/core/magnetic/refinableK";
 import { fitMomentsWithRestarts, RANK_RESTARTS, type MomentFit } from "@/core/magnetic/momentRestarts";
@@ -127,10 +126,21 @@ export function candidatesOf(structure: StructureModel, k: Vec3): LatticeCandida
   return ops.length === 0 ? [] : latticeRepresentatives(magneticSubgroupLattice(ops, k));
 }
 
-/** How many moment components each group allows on the chosen ions, summed over them. */
-export function momentDims(structure: StructureModel, reps: readonly LatticeCandidate[], ions: Iterable<string>, k: Vec3): number[] {
-  const sites = [...ions].map((l) => structure.sites.find((s) => s.label === l)).filter((s): s is NonNullable<typeof s> => s !== undefined);
-  return reps.map((r) => sites.reduce((sum, s) => sum + allowedMomentDirections(r.candidate.operations, s.position, k).dimension, 0));
+/**
+ * The index sections open on a new k, where a top-down search starts: those of
+ * its maximal groups that carry a moment on the chosen ions (`moments`, the
+ * parameters each group's fit refines; maximal by containment, at any index:
+ * MnO at k = 0 has them at 6, 8 and 12). Without the moments, or when no
+ * group carries one, the lowest index the groups sit at — 2 at k = 0, 4 where
+ * no group closes on the whole little group (the Z point of P4₂/mnm).
+ */
+export function firstOpen(reps: readonly LatticeCandidate[], moments?: readonly number[]): Set<number> {
+  if (moments) {
+    const top = maximalWithMoment(reps, moments);
+    const indices = reps.filter((_, i) => top[i]).map((r) => r.index);
+    if (indices.length > 0) return new Set(indices);
+  }
+  return new Set([reps.length > 0 ? Math.min(...reps.map((r) => r.index)) : 2]);
 }
 
 /** The moment model's options: same-site moments tied, an |M| tie (within each element or across all), the sublattices flipped. */
@@ -138,6 +148,19 @@ export interface ModelOptions {
   readonly sameSite: boolean;
   readonly magnitudes: false | "element" | "all";
   readonly flippedUnits: readonly string[];
+}
+
+/**
+ * The moment parameters each group's fit refines on the chosen ions: the free
+ * rows of its moment model under the page's ties (fitRows) — every split
+ * orbit's modes, co-located ions sharing one moment when the same-site tie is
+ * on, a derived |M| row and a two-arm k's phase gauge held. What Hamilton's
+ * test counts, what the ★'s "fewest parameters" compares, and 0 only for a
+ * group that puts no moment on any orbit of the chosen ions.
+ */
+export function momentParameters(structure: StructureModel, reps: readonly LatticeCandidate[], ions: Iterable<string>, k: Vec3, options: ModelOptions): number[] {
+  const labels = [...ions];
+  return reps.map((r) => fitRows(buildFor(structure, k, labels, r.candidate.operations, options)).filter((p) => !p.fixed).length);
 }
 
 /** The moment model of a group's operations: one builder for the chosen group and for the ranking, so a ranked wR is the model a click previews. */
@@ -238,6 +261,7 @@ export interface RankEntry {
 export interface RankRun {
   readonly structure: StructureModel;
   readonly reps: readonly LatticeCandidate[];
+  /** The moment parameters each group's fit refines (`momentParameters`), in the order of `reps`. */
   readonly dims: readonly number[];
   /** "open": the index sections open on the page; "all": every one. */
   readonly scope: "open" | "all";
@@ -252,7 +276,7 @@ export interface RankRun {
   readonly onEntry?: (results: Readonly<Record<string, RankEntry>>) => void;
 }
 
-/** The groups a ranking fits: those allowing a moment on the chosen ions, in the scope. */
+/** The groups a ranking fits: those whose fit refines a moment on the chosen ions (any split orbit), in the scope. */
 export function rankedGroups(reps: readonly LatticeCandidate[], dims: readonly number[], scope: "open" | "all", open: ReadonlySet<number>): LatticeCandidate[] {
   return reps.filter((r, i) => (dims[i] ?? 0) > 0 && (scope === "all" || open.has(r.index)));
 }
@@ -315,18 +339,30 @@ export function withinNoise(results: Readonly<Record<string, RankEntry>>, reps: 
 }
 
 /**
- * The ★: among the groups within the noise of the best fit (withinNoise),
- * the maximal one (lowest index) with the fewest moment parameters, then the
- * lowest agreement. Ties are the rule: a powder often cannot tell several
- * groups apart, and the top-down prescription breaks them.
+ * The groups within the noise of the best fit (withinNoise), in the order the
+ * ★ takes them, top-down: a group no other of them contains first (a group
+ * with a supergroup among them is the lower symmetry the data do not ask
+ * for), then the lowest index, the fewest moment parameters, the lowest
+ * agreement. Ties are the rule: a powder often cannot tell several groups
+ * apart, and the top-down prescription breaks them.
  */
-export function bestRanked(results: Readonly<Record<string, RankEntry>>, reps: readonly LatticeCandidate[], dims: readonly number[]): { readonly id: string; readonly wR: number } | null {
+export function rankWithinNoise(results: Readonly<Record<string, RankEntry>>, reps: readonly LatticeCandidate[], dims: readonly number[]): string[] {
   const tied = withinNoise(results, reps, dims);
-  if (tied.length === 0) return null;
-  const meta = new Map(reps.map((r, i) => [r.candidate.id, { index: r.index, dof: dims[i] ?? 0 }]));
-  tied.sort((a, b) => (meta.get(a)?.index ?? 99) - (meta.get(b)?.index ?? 99) || (meta.get(a)?.dof ?? 99) - (meta.get(b)?.dof ?? 99) || results[a]!.wR! - results[b]!.wR!);
-  const id = tied[0]!;
-  return { id, wR: results[id]!.wR! };
+  const meta = new Map(reps.map((r, i) => [r.candidate.id, { rep: r, dof: dims[i] ?? 0 }]));
+  const classes = new Set(tied.map((id) => meta.get(id)?.rep.classId));
+  const below = (id: string): number => (meta.get(id)?.rep.above.some((c) => classes.has(c)) ? 1 : 0);
+  return tied.sort((a, b) =>
+    below(a) - below(b) ||
+    (meta.get(a)?.rep.index ?? 99) - (meta.get(b)?.rep.index ?? 99) ||
+    (meta.get(a)?.dof ?? 99) - (meta.get(b)?.dof ?? 99) ||
+    results[a]!.wR! - results[b]!.wR!,
+  );
+}
+
+/** The ★: the first of the groups within the noise of the best fit, top-down (rankWithinNoise). */
+export function bestRanked(results: Readonly<Record<string, RankEntry>>, reps: readonly LatticeCandidate[], dims: readonly number[]): { readonly id: string; readonly wR: number } | null {
+  const id = rankWithinNoise(results, reps, dims)[0];
+  return id === undefined ? null : { id, wR: results[id]!.wR! };
 }
 
 // ── the hand-off ────────────────────────────────────────────────────────────
@@ -436,6 +472,7 @@ export interface StepView {
   readonly kClass: ReturnType<typeof classifyPropagation>;
   readonly reps: readonly LatticeCandidate[];
   readonly lgSize: number;
+  /** The moment parameters each group's fit refines on the chosen ions, under the ties (`momentParameters`). */
   readonly dims: readonly number[];
   readonly irrepAnalysis: { readonly dec: ReturnType<typeof decomposeMagneticRepresentation>; readonly modes: ReturnType<typeof projectIrrepModes>[]; readonly lg: ReturnType<typeof littleGroup> } | null;
   readonly combo: ReturnType<typeof isotropySubgroup> | null;
@@ -461,6 +498,10 @@ export interface StepView {
   /** The ranking while it is for this model and data. */
   readonly rankResults: Readonly<Record<string, RankEntry>>;
   readonly best: { readonly id: string; readonly wR: number } | null;
+  /** The ranked groups within the noise of the best fit, in the ★'s order (the ★ first). */
+  readonly noise: readonly string[];
+  /** Per representative: a maximal group that carries a moment on the chosen ions (maximalWithMoment). */
+  readonly maximal: readonly boolean[];
   /** The chosen model's fit while it is for this model and data. */
   readonly fitWR: number | null;
 }
@@ -497,7 +538,13 @@ export function stepView(s: StepState, at: StepInputs, slots: StepSlots): StepVi
     const ops = structure.spaceGroup.operations;
     return { reps: candidatesOf(structure, s.k), lgSize: ops.length === 0 ? 0 : littleGroup(ops, s.k).length };
   });
-  const dims = memo("dims", [reps, s.ions, structure, ...s.k], () => momentDims(structure, reps, s.ions, s.k));
+  const options = memo("options", [s.ties], (): ModelOptions => ({
+    sameSite: s.ties.sameSite,
+    magnitudes: s.ties.magnitudes ? s.ties.scope : false,
+    flippedUnits: [...s.ties.flippedUnits],
+  }));
+  // The moment parameters each group's fit refines, under the page's ties: the count the ranking reads.
+  const dims = memo("dims", [reps, s.ions, structure, options, ...s.k], () => momentParameters(structure, reps, s.ions, s.k, options));
   // Representation analysis: Γ_mag over G(k) into the irreps of its little co-group, each one's basis modes on the reference site.
   const irrepAnalysis = memo("irreps", [structure, s.ions, ...s.k], () => {
     const ops = structure.spaceGroup.operations;
@@ -520,11 +567,6 @@ export function stepView(s: StepState, at: StepInputs, slots: StepSlots): StepVi
     return idx >= 0 ? idx : null;
   });
   const chosenOps = s.framework === "msg" ? (s.chosen != null ? reps[s.chosen]?.candidate.operations ?? null : null) : combo && !("failure" in combo) ? combo.operations : null;
-  const options = memo("options", [s.ties], (): ModelOptions => ({
-    sameSite: s.ties.sameSite,
-    magnitudes: s.ties.magnitudes ? s.ties.scope : false,
-    flippedUnits: [...s.ties.flippedUnits],
-  }));
   const build = memo("build", [chosenOps, structure, s.ions, options, ...s.k], () => (chosenOps ? buildFor(structure, s.k, s.ions, chosenOps, options) : null));
   const kRows = memo("kRows", [structure, build], () => (build ? propagationKParameters(structure, build.magnetic) : null));
   const canRefineK = at.allowRefineK && !!kRows && kRows.params.length > 0;
@@ -536,10 +578,12 @@ export function stepView(s: StepState, at: StepInputs, slots: StepSlots): StepVi
   const rankKey = `${at.fitContext}|${memo("structureKey", [structure], () => structureKey(structure))}|${s.k.join(",")}|${sortedKey(s.ions)}|${s.ties.sameSite}|${options.magnitudes}|${sortedKey(s.ties.flippedUnits)}`;
   const fitKey = `${rankKey}|${chosenOps ? magneticOperationSignature(chosenOps) : ""}`;
   const rankResults = s.rank.on === rankKey ? s.rank.results : {};
-  const best = memo("best", [rankResults, reps, dims], () => bestRanked(rankResults, reps, dims));
+  const noise = memo("noise", [rankResults, reps, dims], () => rankWithinNoise(rankResults, reps, dims));
+  const best = memo("best", [noise, rankResults], () => (noise.length > 0 ? { id: noise[0]!, wR: rankResults[noise[0]!]!.wR! } : null));
+  const maximal = memo("maximal", [reps, dims], () => maximalWithMoment(reps, dims));
   return {
     rows, includedSignature, results, kClass, reps, lgSize, dims, irrepAnalysis, combo, comboRepIdx, chosenOps, options, build, kRows, canRefineK,
-    resolvedAmps, applied, kUnsupported, canFit, canRefine, agreementLabel: at.fit?.agreementLabel ?? "wR", rankKey, fitKey, rankResults, best,
+    resolvedAmps, applied, kUnsupported, canFit, canRefine, agreementLabel: at.fit?.agreementLabel ?? "wR", rankKey, fitKey, rankResults, best, noise, maximal,
     fitWR: s.fitWR && s.fitWR.on === fitKey ? s.fitWR.wR : null,
   };
 }
@@ -579,6 +623,9 @@ export class MagneticStep {
       fitWR: null,
       refining: false,
     };
+    // The sections open to start: those of the maximal groups that carry a moment at k = 0.
+    const v0 = this.view(this.s, at);
+    this.s = { ...this.s, open: firstOpen(v0.reps, v0.dims) };
     this.seenPeaks = peakSetKey(at.residualPeaks);
     this.sync();
     this.handle = this.makeHandle();
@@ -665,7 +712,9 @@ export class MagneticStep {
 
   /** Confirm a k: the group pick goes, with the irreps chosen and the sections opened. */
   setK(k: Vec3): void {
-    this.commitModel({ ...this.s, k: [k[0], k[1], k[2]], chosen: null, irreps: new Set(), open: new Set([2]) });
+    const next: StepState = { ...this.s, k: [k[0], k[1], k[2]], chosen: null, irreps: new Set() };
+    const v = this.view(next);
+    this.commitModel({ ...next, open: firstOpen(v.reps, v.dims) });
   }
 
   setIons(labels: Iterable<string>): void {
@@ -763,13 +812,16 @@ export class MagneticStep {
     const carrying = new Set(model.moments.filter((m) => m.components.some((c) => c !== 0) || (m.sinComponents?.some((c) => c !== 0) ?? false)).map((m) => m.siteLabel));
     const known = new Set(magneticIonCandidates(at.structure).map((i) => i.siteLabel));
     const pick = [...carrying].filter((l) => known.has(l));
-    let next: StepState = { ...this.s, ...(pick.length > 0 ? { ions: new Set(pick) } : {}), framework: "msg", k: [k[0]!, k[1]!, k[2]!], chosen: null, irreps: new Set(), open: new Set([2]) };
+    const kNext: Vec3 = [k[0]!, k[1]!, k[2]!];
+    const opened: StepState = { ...this.s, ...(pick.length > 0 ? { ions: new Set(pick) } : {}), framework: "msg", k: kNext, chosen: null, irreps: new Set() };
+    const v = this.view(opened, at);
+    const reps = v.reps;
+    let next: StepState = { ...opened, open: firstOpen(reps, v.dims) };
     if (!model.operations) {
       this.commitModel(next);
       return;
     }
     const sig = magneticOperationSignature(model.operations);
-    const reps = candidatesOf(at.structure, next.k);
     const idx = reps.findIndex((r) => magneticOperationSignature(r.candidate.operations) === sig);
     if (idx < 0) {
       this.commitModel(next);
@@ -882,12 +934,12 @@ export class MagneticStep {
           k: [s.k[0], s.k[1], s.k[2]],
           kDescription: describePropagation(v.kClass),
           kUnsupported: v.kUnsupported,
-          candidates: v.reps.map((r, i) => candidateView(r, i, v.dims[i] ?? 0, v.rankResults[r.candidate.id])),
+          candidates: v.reps.map((r, i) => candidateView(r, i, v.dims[i] ?? 0, v.maximal[i] ?? false, v.rankResults[r.candidate.id])),
           selected: chosen && v.build && v.applied ? selectionView(chosen, s.chosen!, at.structure, v.build.params, v.resolvedAmps, v.applied, v.fitWR) : null,
           ties: { sameSite: s.ties.sameSite, magnitudes: v.options.magnitudes },
           baselineAgreement: at.baselineAgreement,
           best: v.best ? candidateId(v.reps.findIndex((r) => r.candidate.id === v.best!.id)) : null,
-          withinNoise: withinNoise(v.rankResults, v.reps, v.dims).map((id) => candidateId(v.reps.findIndex((r) => r.candidate.id === id))),
+          withinNoise: v.noise.map((id) => candidateId(v.reps.findIndex((r) => r.candidate.id === id))),
           canFit: v.canFit,
           canRefineK: v.canRefineK,
         };

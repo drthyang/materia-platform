@@ -1,0 +1,43 @@
+# The magnetic-group oracle (opt-in, THY-37): every magnetic space group
+# compatible with k built independently of MATERIA and named by spglib, for the
+# cases in src/testSupport/magneticOracleCases.ts. CI's gate
+# (magneticGroupsOracle.test.ts) compares MATERIA with the committed fixture;
+# this job rebuilds the fixture from the cases and fails when it differs, then
+# runs the gate on the rebuilt one. Run it from the Actions tab or
+# `gh workflow run magnetic-oracle.yml`.
+name: Magnetic group oracle
+
+on:
+  workflow_dispatch:
+
+jobs:
+  oracle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: npm ci
+      - run: python -m pip install "spglib==2.8.*" numpy
+      - name: The oracle's input from the cases
+        env:
+          MAGNETIC_ORACLE_DUMP: "1"
+        run: |
+          npx vitest run src/core/magnetic/magneticGroupsOracle.test.ts -t "writes the oracle"
+          git diff --exit-code src/core/magnetic/fixtures/magnetic-oracle-input.json
+      - name: The oracle
+        run: python -I scripts/magnetic-groups/oracle.py src/core/magnetic/fixtures/magnetic-oracle-input.json "$RUNNER_TEMP/magnetic-oracle.json"
+      - name: The committed fixture is the oracle's output
+        run: |
+          cases() { python -I -c 'import json, sys; print(json.dumps(json.load(open(sys.argv[1]))["cases"], sort_keys=True, indent=1))' "$1"; }
+          diff <(cases src/core/magnetic/fixtures/magnetic-oracle.json) <(cases "$RUNNER_TEMP/magnetic-oracle.json")
+      - name: The gate on the rebuilt fixture
+        run: |
+          cp "$RUNNER_TEMP/magnetic-oracle.json" src/core/magnetic/fixtures/magnetic-oracle.json
+          npx vitest run src/core/magnetic/magneticGroupsOracle.test.ts

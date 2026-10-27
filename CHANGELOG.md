@@ -980,6 +980,84 @@ release fixes bugs.
 
 ### Fixed
 
+- **Magnetic space groups at zone-boundary k are groups, and each class is
+  listed once** (THY-37). At a k ≠ 0 the k-phase of a lattice translation
+  twists the time-reversal condition, θ_i·θ_j = θ_ij·e^{2πi k·t_ij}; the
+  candidates were built as plain homomorphisms of the point group. Where a
+  screw or glide squares to a translation with phase −1 (P2/c at (0,0,½),
+  Pnma at X, P4₂/mnm and P6₃/mmc at Z), 147 of 305 candidates were not groups,
+  among them every index-2 one, and P4₂/mnm at Z missed four classes, two of
+  them maximal. The condition is now solved as an inhomogeneous system over
+  GF(2), and conjugation carries the k-phase too, which removes 38 duplicate
+  classes and corrects their domain counts. At these k the first index section
+  open on the magnetic page is now the lowest index present (4). Checked
+  against an independent construction named by spglib on 15 single-arm cases
+  (`magneticGroupsOracle.test.ts`): every candidate a group, every class the
+  oracle's, none missing, the allowed moments unchanged. k = 0 is unchanged.
+  The synthetic Mn₃Ga eval page's truth, simulated from the old list's G2 (not
+  a group at k = (0,0,½)), is the same arrangement bit for bit and is now G1,
+  the group it actually has.
+
+- **Magnetic groups at k ≠ 0 carry their own BNS names** (THY-37). Every
+  k ≠ 0 candidate was named by its parent-cell operations read as a k = 0
+  group (type I or III), not by the group of the ordered structure, whose
+  anti-translations make it type IV: the AWO₄ demo's group showed as
+  "P2/c′, BNS 13.68" and is P_a2/c, BNS 13.70. The bundled table now holds all
+  1651 ISO-MAG groups (types I–IV, type II for completeness), each candidate is
+  named from its group in the magnetic cell, with the setting against the
+  parent cell ("(2a, b, c; 0, 0, 0)"), and the page shows its true type. The
+  setting search gains the group's own conventional cells with the origin
+  solved exactly, which names the 23 groups it left unnamed (monoclinic cell
+  choices under Pnma and P4₂/mnm at k = 0; Immm at (½,0,½), C_c2/c). The one
+  name is used everywhere: the page's rows and their order (BNS number within
+  an index), the standard-cell overlay (now the magnetic cell), the irrep
+  route's isotropy subgroup, the report, the Agent's tools,
+  `list_magnetic_subgroups` (which gains `bnsNumber` and `setting`) and the
+  mCIF writer, which now names a type-IV group. Every class of the 15 oracle
+  cases carries the BNS number and type spglib gives its group.
+
+- **The ranking counts the moment parameters each fit refines** (THY-37). Hamilton's
+  test, the ★'s "fewest moment parameters" and the page's **moment dof** badge
+  counted the allowed directions at a site's first orbit, summed over the
+  chosen ions: a mixed site's co-located ions counted once each (on the AWO₄
+  demo's site, where one shared moment is refined), and a moment on a
+  later split orbit not at all, so such a group was shown as "moment forbidden"
+  and never ranked (a kagome Co site under P6/mmm at (0,0,½)). The count is now
+  the free rows of each group's moment model under the page's ties
+  (`momentParameters`), the Agent's `momentComponents` the same, and the MCP
+  `allowed_moments` lists each split orbit, its `dimension` their sum.
+
+- **"Maximal" means containment, not index 2** (THY-37). A magnetic group is
+  maximal when no other candidate contains it, and the page starts from the
+  maximal groups that carry a moment on the chosen ions (Bilbao MAXMAGN's
+  selection), at whatever index they sit: MnO at k = 0 opens I4/mm′m′, R-3m′ and
+  Im′m′m at indices 6, 8 and 12, where the index-2 groups put no moment on Mn,
+  and P4₂/mnm at Z opens index 4 with P4₃2₁2 and P4₁2₁2 among them. The rows
+  mark them maximal, the Agent's groups carry `maximal: true`, and
+  `list_magnetic_subgroups` gains `maximal` and keeps the maximal groups past its
+  `maxIndex`. The ★ goes top-down among the fits within the noise: to a group
+  none of the others contains, then the lowest index and the fewest moment
+  parameters. The ≈ marks and their order follow that set (Hamilton's test)
+  instead of a 10⁻⁴ wR window, and the Agent's `withinNoise` lists it in the ★'s
+  order. The magnetic-analysis skill's Stage 2 says so and no longer quotes the
+  old 0.01 % tie.
+
+- **The mCIF names the type of a group it cannot name** (THY-37). A k ≠ 0
+  supercell group the table did not name was always described as a
+  black-and-white lattice (BNS type IV), also for a two-arm k, whose group has
+  no anti-translation (type III). The comment now reads the type off the group;
+  with the full table most of these groups are named anyway (the triangular
+  P6/mmm at k = (⅓,⅓,0) gives P-6m′2′, BNS 187.213).
+
+- **A two-arm k's candidates no longer carry BNS numbers** (THY-37). At a k with
+  two arms, such as (⅓,⅓,0), the candidates are real decorations of the little
+  group for the Fourier moment model, but each was labelled as a magnetic space
+  group with a BNS number from its parent-cell operations. They are now shown by
+  their time-reversal pattern ("P-62′m′ (G_k decoration)") with "not a magnetic
+  space group label: two-arm k" on the page, for the Agent (`note`) and in
+  `list_magnetic_subgroups`, and no BNS number anywhere. Enumerating the
+  magnetic space groups of a two-arm k is not done yet.
+
 - **Each technique's report names its own cross-check programs.** The
   report's footer told every technique that the Export menu writes GSAS-II
   and FullProf bundles. A PDF is reproduced in PDFgui / diffpy-CMI (PDFfit2),

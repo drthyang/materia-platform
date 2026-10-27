@@ -156,11 +156,15 @@ approximate, however plausible its output looks.
   no symmetry at all; it loads as P1 only when you choose that, because its
   atoms are the whole cell (diffpy writes such files).
 - Magnetic subgroup candidates carry standard BNS/OG labels from a bundled
-  ISO-MAG table (types I and III). A setting search also names candidates
-  written in other settings: axis permutations, origin shifts, orthohexagonal
-  C-centred cells, the tetragonal-I, hexagonal-R, monoclinic-C and triclinic
-  cells of an F cubic parent, and the hexagonal cell of a rhombohedral-axes or
-  primitive cubic parent ([MAGNETIC_SYMMETRY.md](./MAGNETIC_SYMMETRY.md)).
+  ISO-MAG table of all 1651 groups (types I–IV). At a single-arm k ≠ 0 each is
+  named from its group in the magnetic cell, a type-IV group, with its setting
+  against the parent cell. A setting search also names candidates written in
+  other settings: axis permutations, origin shifts, orthohexagonal C-centred
+  cells, the cells of an F cubic parent, and the group's own conventional cells
+  with the origin solved exactly ([MAGNETIC_SYMMETRY.md](./MAGNETIC_SYMMETRY.md)).
+  The candidates of a two-arm k are decorations of G_k, not magnetic space
+  groups, and carry no BNS label; the magnetic space groups of a two-arm k
+  (over G_{±k} in the supercell) are not enumerated yet.
 - Representation analysis: irreps at k = 0 for every parent group, and at any k
   when the little group is abelian.
 - The little group of k, the one-arm/two-arm classification and the k-phase of

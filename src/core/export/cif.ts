@@ -32,6 +32,7 @@ import type { Mat3, Vec3 } from "@/core/math/types";
 import { expandMagneticSupercell, momentAnchorPosition, type SupercellAtom } from "@/core/crystal/cellExpansion";
 import { magneticCellGroup, type MagneticCellGroup } from "@/core/magnetic/supercellGroup";
 import { identifyMagneticGroupAnySetting } from "@/core/magnetic/bnsOg";
+import { magneticTypeOf } from "@/core/magnetic/magneticCell";
 import { classifyPropagation, describePropagation } from "@/core/magnetic/propagation";
 import { centringTranslations } from "@/core/crystal/symmetry";
 import { cellVolumeEsd } from "@/core/crystal/cellEsd";
@@ -453,9 +454,9 @@ function supercellProvenance(structure: StructureModel, k: Vec3, n: readonly [nu
  * Magnetic symmetry of the magnetic cell in the two magCIF loops: the coset
  * representatives, then the centering translations of the cell with anti-
  * translations marked −1 (identity first). The group is named when its
- * operations match a tabulated type I/III group in some setting; a black-and-
- * white lattice (type IV) is not in this app's table, so its name is left out
- * and the operations — which are complete — speak for themselves.
+ * operations match a tabulated group (types I–IV) in some setting; otherwise
+ * its name is left out and the operations — which are complete — speak for
+ * themselves.
  */
 function magneticCellSymmetryBlock(group: MagneticCellGroup, n: readonly [number, number, number]): string {
   const head: string[] = [];
@@ -465,11 +466,16 @@ function magneticCellSymmetryBlock(group: MagneticCellGroup, n: readonly [number
     head.push(`_space_group_magn.number_bns  ${id.identity.bnsNumber}`);
     if (!id.direct) head.push(`# standard BNS setting reached by the transformation ${id.transformation}`);
   } else {
+    // The type from the group itself: only anti-translations make it type IV (a two-arm k's group has none).
     const anti = group.centerings.filter((c) => (c.timeReversal ?? 1) === -1).length;
+    const type = magneticTypeOf(group.operations);
+    const kind = type === 4
+      ? `${anti} anti-translation${anti === 1 ? "" : "s"}, i.e. time-reversed: a black-and-white lattice, BNS type IV`
+      : `no anti-translation: BNS type ${type === 3 ? "III" : type === 2 ? "II" : "I"}`;
     head.push(
       `# Magnetic space group of the ${childTransform(n)} magnetic cell: ${group.representatives.length} coset representatives ×`,
-      `# ${group.centerings.length} centering translations (${anti} anti-translation${anti === 1 ? "" : "s"}, i.e. time-reversed: a black-and-white`,
-      `# lattice, BNS type IV). Its BNS symbol is not tabulated in this app; the operations below are complete.`,
+      `# ${group.centerings.length} centering translations (${kind}).`,
+      `# It matches no tabulated group in the settings this app searches; the operations below are complete.`,
     );
   }
   const fmt = (o: SymmetryOperation): string => `"${o.xyz},${(o.timeReversal ?? 1) === -1 ? "-1" : "+1"}"`;

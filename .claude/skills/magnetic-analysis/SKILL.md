@@ -63,23 +63,27 @@ k = 0, where magnetic intensity sits on nuclear reflections. So:
 
 ## Stage 2 — the magnetic space group, top-down
 
-The groups of the little group of k are listed by index (2 = maximal). Landau theory favours
-a single irreducible representation — a maximal group — so start there:
+The groups of the little group of k are listed by index, each named by its group in the
+magnetic cell (type IV at k ≠ 0). Landau theory favours a single irreducible representation
+— a maximal group — so start there. A group is maximal (`maximal: true`) when no candidate
+above it carries a moment on the chosen ions: containment, not index (it can sit at index 4,
+6, 8 or 12).
 
-1. `rank_magnetic_groups` with the default scope fits the maximal groups' moments (the
-   nuclear model held) and ranks them by wR against the nuclear-only wR. Widen to
-   `"all"` only when no maximal group explains the magnetic peaks — and check that it
-   explains each of them, not only the wR: neutrons see the moment component
-   perpendicular to Q, so a moment along c puts no intensity on 0 0 l. A magnetic 0 0 l
-   line the best maximal group leaves in the residual asks for an in-plane component,
-   which may only a lower group allow (Cr₂WO₆ at 4 K: the maximal P4₂'/m'nm', moments
-   along c, left 0 0 1 at 32σ; the in-plane groups of index 4 took wR from 18.9 to 12 %).
-2. Read the ranking honestly. The ★ marks the lowest wR (a tie within 0.01 % goes to the
-   maximal group with the fewest moment parameters); it is no test that the others fit
-   worse. A powder often cannot tell several groups apart (the direction ambiguity below):
-   a group whose wR is close to the ★'s and which explains every magnetic peak is an
-   equally good fit. Among those prefer the maximal group with the fewest moment
-   parameters, and say which others fit as well.
+1. `rank_magnetic_groups` with the default scope fits the moments of the groups in the
+   index sections of the maximal ones (the nuclear model held) and ranks them by wR
+   against the nuclear-only wR. Widen to `"all"` only when no maximal group explains the
+   magnetic peaks — and check that it explains each of them, not only the wR: neutrons
+   see the moment component perpendicular to Q, so a moment along c puts no intensity on
+   0 0 l. A magnetic 0 0 l line the best maximal group leaves in the residual asks for an
+   in-plane component, which may only a lower group allow (Cr₂WO₆ at 4 K: the maximal
+   P4₂'/m'nm', moments along c, left 0 0 1 at 32σ; the in-plane groups of index 4 took wR
+   from 18.9 to 12 %).
+2. Read the ranking honestly. `withinNoise` lists the groups within the noise of the best
+   fit by Hamilton's test (more moment parameters must lower χ² beyond the noise); the ★ is
+   the first of them top-down: none of the others contains it, then the lowest index and
+   the fewest moment parameters. A powder often cannot tell several groups apart (the
+   direction ambiguity below): those that explain every magnetic peak are equally good
+   fits. Prefer the ★, and say which others fit as well.
 3. A group that puts no moment on the chosen ions (0 moment components) cannot be it.
 
 ## Stage 3 — the moments
@@ -116,8 +120,8 @@ a single irreducible representation — a maximal group — so start there:
 
 ## What to report — and what not
 
-- The k, the magnetic space group (BNS symbol and number) and its index, the moment per
-  site with its esd, and the agreement against the nuclear-only fit.
+- The k, the magnetic space group (BNS symbol and number, in its magnetic cell) and its
+  index, the moment per site with its esd, and the agreement against the nuclear-only fit.
 - The powder's limits, always: in a cubic group the moment direction is not determinable
   from powder data (only |M|); in a uniaxial one only the angle to the unique axis. Do not
   report a direction the data cannot fix, and do not choose among degenerate groups by R

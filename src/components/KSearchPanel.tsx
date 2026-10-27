@@ -52,7 +52,6 @@ import { MagneticStep, NO_RANK, handoff, peakKey, type MagneticFit, type Residua
 const StructureView = lazy(() => import("@/app/ui/StructureView").then((m) => ({ default: m.StructureView })));
 // Type-only — erased at build, so it does not pull the viewer out of its chunk.
 import type { StructureExport } from "@/app/ui/StructureView";
-import { RANK_TIE_WR } from "@/core/diagnostics/thresholds";
 
 /**
  * Parse one k component, accepting fractions ("1/2", "-1/3") as well as
@@ -83,10 +82,10 @@ const NO_PEAKS: readonly ResidualPeak[] = [];
 
 const ISOTROPY_FAILURE_TEXT: Record<IsotropyFailure, string> = {
   "no-modes": "The selected irrep(s) carry no moment on the chosen site(s) — this order parameter is magnetically silent here.",
-  "complex-irrep": "A conjugate-pair (complex) irrep is selected: its real combinations generally stabilize as anti-translation (type-IV) groups, which the bundled type-I/III table cannot name yet.",
+  "complex-irrep": "A conjugate-pair (complex) irrep is selected: its real combinations generally stabilize as anti-translation (type-IV) groups, which this route does not build yet. The magnetic-space-group route lists them.",
   "multidim-irrep": "A multidimensional irrep is selected: its magnetic group depends on the order-parameter direction (kernel vs epikernels) — direction selection is the next milestone. The magnetic-space-group route covers these orderings today.",
   "complex-phase": "This k gives complex phase factors e^{2πik·L}: naming needs the type-IV / star-of-k treatment (see docs/MAGNETIC_SYMMETRY.md).",
-  "primed-translation": "The stabilizer contains a primed pure translation — a type-IV magnetic group, outside the bundled type-I/III table.",
+  "primed-translation": "The stabilizer contains a primed pure translation — a type-IV magnetic group, which this route does not build yet. The magnetic-space-group route lists it.",
 };
 
 /**
@@ -536,6 +535,8 @@ export function KSearchPanel({
   // (direction ambiguity), and the top-down Landau prescription breaks them.
   const bestRanked = view.best;
   const bestRankedId = bestRanked?.id ?? null;
+  // The ranked groups within the noise of the best fit, in the ★'s order (the ≈ marks and their sort).
+  const noiseRank = useMemo(() => new Map(view.noise.map((id, n) => [id, n])), [view.noise]);
   function rankCandidates(scope: "open" | "all"): void {
     if (canFit) void step.rank(scope);
   }
@@ -1169,7 +1170,7 @@ export function KSearchPanel({
                     </span>
                   )}
                   {!rank.running && rank.total > 0 && bestRanked && (
-                    <span style={{ fontSize: 12, color: theme.secondary }}>rows sorted by fit · ★ best (ties go to the maximal subgroup with the fewest parameters, marked ≈) · click a row to preview it with its refined moments</span>
+                    <span style={{ fontSize: 12, color: theme.secondary }}>rows sorted by fit · ≈ within the noise of the best fit (Hamilton's test) · ★ the first of those top-down: no other contains it, then the lowest index and the fewest moment parameters · click a row to preview it with its refined moments</span>
                   )}
                   {!rank.running && rank.total > 0 && bestRanked && baselineAgreement != null && bestRanked.wR > baselineAgreement - 5e-4 && (
                     <span style={{ ...kZeroNote, marginTop: 0, flexBasis: "100%" }}>
@@ -1207,13 +1208,16 @@ export function KSearchPanel({
                       const e = rank.results[c.r.candidate.id];
                       return e?.status === "ok" && e.wR != null ? e.wR : Infinity;
                     };
-                    // Ties (same fit within RANK_TIE) sort by fewest moment parameters, then BNS.
+                    // The fits within the noise of the best (Hamilton's test) lead, in the ★'s
+                    // order; the rest follow by fit.
                     const ordered = rank.total > 0
                       ? [...group].sort((A, B) => {
                           const a = wrOf(A), b = wrOf(B);
                           if (a === Infinity && b === Infinity) return bnsKey(A) - bnsKey(B);
-                          if (Math.abs(a - b) > RANK_TIE_WR) return a - b;
-                          return (repMomentDims[A.i] ?? 0) - (repMomentDims[B.i] ?? 0) || bnsKey(A) - bnsKey(B);
+                          const na = noiseRank.get(A.r.candidate.id);
+                          const nb = noiseRank.get(B.r.candidate.id);
+                          if (na !== undefined || nb !== undefined) return (na ?? Infinity) - (nb ?? Infinity);
+                          return a - b;
                         })
                       : group;
                     const open = openIndices.has(idx);
@@ -1231,7 +1235,7 @@ export function KSearchPanel({
                           }}
                         >
                           <span style={{ color: theme.primary }}>{open ? "▾" : "▸"}</span>
-                          <span style={{ fontWeight: 700 }}>index {idx}{idx === 2 ? " — maximal" : ""}</span>
+                          <span style={{ fontWeight: 700 }}>index {idx}{group.some(({ i }) => view.maximal[i]) ? " — maximal" : ""}</span>
                           <span>
                             {group.length} class{group.length === 1 ? "" : "es"} · {allowing} allow moments
                           </span>
@@ -1242,7 +1246,7 @@ export function KSearchPanel({
                         const dim = repMomentDims[i] ?? 0;
                         const entry = rank.results[r.candidate.id];
                         const isBest = r.candidate.id === bestRankedId;
-                        const isTie = !isBest && bestRanked !== null && entry?.status === "ok" && entry.wR != null && entry.wR <= bestRanked.wR + RANK_TIE_WR;
+                        const isTie = !isBest && noiseRank.has(r.candidate.id);
                         const delta = entry?.status === "ok" && entry.wR != null && baselineAgreement != null ? entry.wR - baselineAgreement : null;
                         return (
                           <button
@@ -1258,19 +1262,25 @@ export function KSearchPanel({
                             title={dim === 0
                               ? "No symmetry-allowed moment on the selected site(s) under this group"
                               : entry?.status === "ok" && entry.wR != null
-                                ? `Moments-only fit: ${agreementLabel} ${(100 * entry.wR).toFixed(2)}%${delta != null ? ` (${delta <= 0 ? "−" : "+"}${Math.abs(100 * delta).toFixed(2)} vs nuclear only)` : ""} · |M| ${entry.magnitudes.map((m) => `${m.label} ${m.value.toFixed(2)}`).join(", ")} µ_B${isTie ? " — same fit as the ★ candidate: the powder cannot tell them apart; the ★ is the higher-symmetry / fewer-parameter choice" : ""} — click to preview with these moments`
+                                ? `Moments-only fit: ${agreementLabel} ${(100 * entry.wR).toFixed(2)}%${delta != null ? ` (${delta <= 0 ? "−" : "+"}${Math.abs(100 * delta).toFixed(2)} vs nuclear only)` : ""} · |M| ${entry.magnitudes.map((m) => `${m.label} ${m.value.toFixed(2)}`).join(", ")} µ_B${isTie ? " — within the noise of the best fit (Hamilton's test): the powder cannot tell it from the ★ candidate; the ★ is the higher-symmetry / fewer-parameter choice" : ""} — click to preview with these moments`
                                 : undefined}
                           >
                             <span style={{ fontFamily: themeMono, color: theme.secondary }}>
-                              {r.candidate.isTypeI ? "type I" : "type III"}
+                              {r.twoArm ? "two-arm k" : `type ${["I", "II", "III", "IV"][r.magneticType - 1]}`}
                             </span>
                             {" · "}{lbl.symbol}
                             {lbl.numbers && <span style={{ color: theme.secondary }}> · {lbl.numbers}</span>}
                             {lbl.setting && (
                               <span style={{ color: theme.noteInk }}> · setting {lbl.setting}</span>
                             )}
+                            {lbl.note && (
+                              <span style={{ color: theme.secondary }}> · {lbl.note}</span>
+                            )}
                             {r.domainCount > 1 && (
                               <span style={{ color: theme.secondary }}> · ×{r.domainCount} domains</span>
+                            )}
+                            {view.maximal[i] && (
+                              <span style={{ color: theme.okInk }} title="No candidate above it in the lattice carries a moment on your sites: where a top-down search starts"> · maximal</span>
                             )}
                             <span style={{ float: "right", display: "inline-flex", gap: 10, alignItems: "baseline", fontFamily: themeMono, fontSize: 11.5 }}>
                               {entry?.status === "ok" && entry.wR != null && (
