@@ -980,6 +980,25 @@ release fixes bugs.
 
 ### Fixed
 
+- **Copilot: switching Ask first / Auto no longer fails the next request
+  (Anthropic).** The error was an API 400, "Invalid signature in thinking
+  block. The block is bound to a different conversation ... The system prompt
+  differs from the one this block was created with." Claude's thinking is
+  signed under the system prompt and the tools it was written under, and the
+  mode line is part of that prompt, so the history's thinking was refused once
+  the mode changed. Now, when the system prompt or the tools
+  differ from those the history's thinking was signed under, that thinking is
+  left out of the earlier replies, for good (their text, tool calls and
+  results stay), and what Claude writes next is signed under the new prompt:
+  the API's own recovery that needs no beta header, in `thinkingBinding.ts`.
+  The same covers the skills switch and a scoped tool offer. A switch made
+  while a tool loop runs reaches Claude at the next message instead (the
+  approval cards follow it at once), so the loop's own thinking stays valid.
+  A model switch strips nothing; the API drops what a model cannot read. The
+  prompt's words, and Ollama, LM Studio and OpenAI-compatible servers (which
+  sign nothing), are unchanged. Unit and loop tests run against a stand-in API;
+  no live call was made.
+
 - **Magnetic space groups at zone-boundary k are groups, and each class is
   listed once** (THY-37). At a k ≠ 0 the k-phase of a lattice translation
   twists the time-reversal condition, θ_i·θ_j = θ_ij·e^{2πi k·t_ij}; the
