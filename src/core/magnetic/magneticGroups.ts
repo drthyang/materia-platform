@@ -29,12 +29,13 @@
  * coset member without a centring offset (`centringOffsets`), its translation
  * as listed. A centred copy {R_i|τ_i + c} carries θ_i·χ(c) through its offset.
  *
- * Each candidate is additionally matched against the bundled standard table of
- * Shubnikov groups ({@link identifyMagneticGroup}): when the parent is in its
- * standard ITA setting, the candidate carries its BNS/OG numbers and symbols
- * (e.g. "Pn'ma'", BNS 62.448). When no exact match exists (non-standard
- * setting, or a little-group subset for k ≠ 0), `standard` is null and the
- * label falls back to describing which operations are primed.
+ * At k = 0 each candidate is additionally matched against the bundled standard
+ * table of Shubnikov groups ({@link identifyMagneticGroup}): when the parent is
+ * in its standard ITA setting, the candidate carries its BNS/OG numbers and
+ * symbols (e.g. "Pn'ma'", BNS 62.448). When no exact match exists, and always
+ * at k ≠ 0 (the group of the structure is not this parent-cell list; see
+ * `identifyCandidate`), `standard` is null and the label describes which
+ * operations are primed.
  */
 
 import type { SymmetryOperation } from "@/core/crystal/types";

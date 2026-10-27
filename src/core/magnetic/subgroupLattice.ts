@@ -83,7 +83,7 @@ export interface LatticeCandidate {
    *  PARENT cell to its standard BNS cell (`identifyCandidate`). Undefined: no
    *  match either way. */
   readonly settingMatch?: TransformedIdentification;
-  /** The Shubnikov type of the group the candidate denotes (IV at a single-arm k ≠ 0). */
+  /** The Shubnikov type of the group the candidate denotes (IV at a single-arm k ≠ 0; meaningless at a two-arm k, see `twoArm`). */
   readonly magneticType: 1 | 2 | 3 | 4;
   /** A two-arm k (2k not in the reciprocal lattice): the candidate is a real
    *  decoration of G_k for the Fourier moment model, not a magnetic space group,
@@ -97,10 +97,9 @@ export interface LatticeCandidate {
    *  (by classId, ascending): the candidates above it in the lattice. */
   readonly above: readonly number[];
   /** No candidate properly contains a group of this class. Maximality is
-   *  containment, not index: where no group closes on the whole little group
-   *  the maximal ones have index 4 (the Z point of P4₂/mnm), and a maximal
-   *  group can sit below an index-2 one of another class only if it is not
-   *  contained in it (MnO at k = 0: I4/mm′m′ at index 6, Im′m′m at 12). */
+   *  containment, not index: a maximal group can have index 4, 6, 8 or 12
+   *  (the Z point of P4₂/mnm, where no group closes on the whole little group:
+   *  4; MnO at k = 0: I4/mm′m′ at 6, Im′m′m at 12). */
   readonly maximal: boolean;
 }
 
