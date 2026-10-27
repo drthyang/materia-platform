@@ -58,7 +58,7 @@ folder skip when it is absent (CI, fresh clones).
 | ILL powder / numor + format auto-detection | unit | ✅ `parsers/illPowder.test.ts`, `parsers/detectFormat.test.ts` |
 | Magnetic single-crystal workflow + moment refinement | integration (GSAS structure) | ✅ `core/workflow/magneticWorkflow.test.ts` |
 | Magnetic candidate generation (k=0 index-2 subgroups) | golden (P2₁/m → P2₁'/m') | ✅ `core/magnetic/magneticGroups.test.ts` |
-| Magnetic groups of the lattice at k = 0 and zone-boundary k (15 single-arm cases: P2/c, Pnma, P4₂/mnm, P4/mmm, Immm, P6/mmm, P6₃/mmc, Fm-3m, P2₁/m): every candidate a group, every conjugacy class and domain count the oracle's, none missing, each class's BNS number and type, the allowed moments on every split orbit | oracle (independent construction + spglib 2.8, `scripts/magnetic-groups/oracle.py`; committed fixture) | ✅ `core/magnetic/magneticGroupsOracle.test.ts` |
+| Magnetic groups of the lattice at k = 0 and zone-boundary k (15 single-arm cases: P2/c, Pnma, P4₂/mnm, P4/mmm, Immm, P6/mmm, P6₃/mmc, Fm-3m, P2₁/m): every candidate a group, every conjugacy class and domain count the oracle's, none missing, each class's BNS number and type, the allowed moments on every split orbit | oracle (independent construction + spglib 2.8, `scripts/magnetic-groups/oracle.py`; committed fixture, rebuilt by the opt-in `magnetic-oracle.yml` workflow) | ✅ `core/magnetic/magneticGroupsOracle.test.ts` |
 | Allowed moment directions per site | golden (a–c plane) | ✅ `core/magnetic/magneticGroups.test.ts` |
 | Candidate comparison ranks correct group best | integration (30 K) | ✅ `core/workflow/magneticCompare.test.ts` |
 | k-search recovers k=(½,0,0) (AWO₄ P2/c cell) | unit | ✅ `core/magnetic/kSearch.test.ts` |

@@ -39,7 +39,9 @@ Run in a scratch venv (never committed):
         src/core/magnetic/fixtures/magnetic-oracle.json
 The input is written by `MAGNETIC_ORACLE_DUMP=1 npx vitest run
 src/core/magnetic/magneticGroupsOracle.test.ts` from the committed cases
-(src/testSupport/magneticOracleCases.ts).
+(src/testSupport/magneticOracleCases.ts). The opt-in workflow
+.github/workflows/magnetic-oracle.yml does all of this and fails when the
+committed fixture differs from a fresh run.
 """
 
 from __future__ import annotations
