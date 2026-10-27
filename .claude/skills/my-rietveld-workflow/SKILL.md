@@ -180,11 +180,11 @@ re-run it after each change. A fit that converges poor while
 with mode `thorough` after a fit is the Escape minimum, a light multi-start nudge out of
 it; a start far off goes back to the Prefit (Stage 0, step 4).
 
-**Asymmetry is profile, not polish.** CW: a one-sided low-angle residual is axial
+**Asymmetry is profile.** CW: a one-sided low-angle residual is axial
 divergence (`set_corrections` asymmetry; S/L with Caglioti). TOF: β₁ then
 β₀. Negative X or Y: `reset_parameters`, hold. On TOF the zero, α₁ and σ₀² stay at
-calibration until the **final profile pass** (cell held; last, not a stall cure;
-`rietveld_notes`). Paired residuals at one d: `set_microstrain` generalized.
+calibration until the **final profile pass** (cell held; a last tweak: physical
+values barely move; `rietveld_notes`). Paired residuals at one d: `set_microstrain` generalized.
 
 **When the starting profile is far off, the profile comes before the positions.** When
 `diagnose_fit` measures the lines much broader (or narrower) than calculated

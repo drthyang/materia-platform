@@ -104,7 +104,13 @@ background and the cell. Free the whole TOF profile together (α₀, α₁, β�
 σ₂², σ_q² and the zero) with the B values and moments held: holding the cell breaks the
 zero ↔ cell and α₁ ↔ cell correlations. Then alternate in small blocks (B's · moments ·
 profile · mustrain), each with the others held, with Escape minimum (`refine` mode
-`thorough`) between blocks. This is the last profile step, not a cure for a stall.
+`thorough`) between blocks. This is the last profile step, a final tweak once everything has been refined, not a cure
+for a stall. It should improve the fit without moving the physical values: positions, B
+values, occupancies and the moments stay within about their esds (the moments in particular
+should not change appreciably). Compare them before and after the pass. A value that moves
+by more means the profile is trading with the structure or the magnetic model: undo the
+pass (History), hold the terms that traded, and report it rather than keeping the shifted
+values.
 
 **Paired residuals** on opposite sides at nearly the same d read as broadening that depends on
 hkl (`set_microstrain` generalized), not as more σ or Caglioti terms.
