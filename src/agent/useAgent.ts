@@ -250,7 +250,9 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
     const message = text.trim();
     if (!message || turn.current) return;
     // The mode is read at every model turn, so switching Ask first / Auto
-    // mid-run reaches the model as it reaches the approval cards.
+    // mid-run reaches a local model as it reaches the approval cards. Claude's
+    // run pins the mode it started with (AgentChat.send): its thinking is
+    // signed under the prompt that carries it.
     const config: ChatConfig = Object.defineProperty({ ...chatConfig(settingsRef.current, settingsRef.current.mode === "openai-compatible" ? openaiKeyRef.current : apiKeyRef.current) }, "autonomy", {
       get: (): "auto" | "ask" => (settingsRef.current.autoApprove ? "auto" : "ask"),
       enumerable: true,

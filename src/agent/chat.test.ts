@@ -16,7 +16,7 @@ import { mn3gaSession, powderPage } from "@/agent/evals/pages";
 
 type Block =
   | { type: "text"; text: string }
-  | { type: "thinking"; thinking: string }
+  | { type: "thinking"; thinking: string; signature?: string }
   | { type: "tool_use"; id: string; name: string; input: unknown }
   | { type: "fallback"; from: string; to: string };
 
@@ -30,9 +30,10 @@ function sse(blocks: Block[], stop: string): string {
       out += ev("content_block_start", { index, content_block: { type: "text", text: "" } });
       out += ev("content_block_delta", { index, delta: { type: "text_delta", text: b.text } });
     } else if (b.type === "thinking") {
-      // As Ollama streams it: no signature.
+      // As Ollama streams it: no signature. Claude's carries one, bound to the prompt it was written under.
       out += ev("content_block_start", { index, content_block: { type: "thinking", thinking: "" } });
       out += ev("content_block_delta", { index, delta: { type: "thinking_delta", thinking: b.thinking } });
+      if (b.signature !== undefined) out += ev("content_block_delta", { index, delta: { type: "signature_delta", signature: b.signature } });
     } else if (b.type === "fallback") {
       out += ev("content_block_start", { index, content_block: { type: "fallback", from: { model: b.from }, to: { model: b.to }, trigger: { type: "refusal" } } });
     } else {
@@ -277,6 +278,140 @@ describe("AgentChat", () => {
   });
 });
 
+describe("AgentChat on Claude: thinking is signed under the prompt it was written under", () => {
+  let server: Server | null = null;
+  afterEach(async () => {
+    if (server) await new Promise<void>((r) => server!.close(() => r()));
+    server = null;
+  });
+  const quiet = { onAssistantStart: () => undefined, onText: () => undefined, onThinking: () => undefined, onNotice: () => undefined, onUsage: () => undefined };
+  const base = (url: string) => ({ transport: "api-key" as const, apiKey: "sk-test", baseURL: url, model: "claude-opus-5-5", effort: "high" as const });
+  type Sent = { role: string; content: string | { type: string; signature?: string; text?: string; id?: string; tool_use_id?: string }[] };
+  const sent = (r: { body: Record<string, unknown> }): Sent[] => r.body.messages as Sent[];
+  const types = (m: Sent): string[] => (typeof m.content === "string" ? ["string"] : m.content.map((b) => b.type));
+  const modeLine = (r: { body: Record<string, unknown> }): string => (r.body.system as { text: string }[])[1]!.text.split(".")[0]!;
+  const runner = { run: async () => ({ isError: false, text: "{}" }) } as unknown as AgentExecutor;
+  /** Two messages' worth of turns: a tool round with thinking, an answer with thinking. */
+  const firstMessage = (): string[] => [
+    sse([{ type: "thinking", thinking: "Read the state first.", signature: "sig-1" }, { type: "text", text: "Looking." }, { type: "tool_use", id: "tu_1", name: "get_state", input: {} }], "tool_use"),
+    sse([{ type: "thinking", thinking: "It is fine.", signature: "sig-2" }, { type: "text", text: "The fit is fine." }], "end_turn"),
+  ];
+
+  it("switching Ask first to Auto leaves the earlier replies' thinking out, and keeps their text and tool calls", async () => {
+    const api = await fakeApi([
+      ...firstMessage(),
+      sse([{ type: "thinking", thinking: "Refine now.", signature: "sig-3" }, { type: "text", text: "Refining." }, { type: "tool_use", id: "tu_2", name: "get_state", input: {} }], "tool_use"),
+      sse([{ type: "text", text: "Done." }], "end_turn"),
+    ]);
+    server = api.server;
+    const chat = new AgentChat(runner);
+    await chat.send("How is the fit?", { ...base(api.url), autonomy: "ask" }, quiet, new AbortController().signal);
+    await chat.send("Go on, refine.", { ...base(api.url), autonomy: "auto" }, quiet, new AbortController().signal);
+
+    // Same prompt: the thinking goes back as the API wrote it.
+    expect(modeLine(api.requests[1]!)).toBe("Mode: ask");
+    expect(types(sent(api.requests[1]!)[1]!)).toEqual(["thinking", "text", "tool_use"]);
+    expect((sent(api.requests[1]!)[1]!.content as { signature?: string }[])[0]!.signature).toBe("sig-1");
+
+    // The mode changed: the prompt differs, so no thinking written under the old one goes back.
+    const next = api.requests[2]!;
+    expect(modeLine(next)).toBe("Mode: auto");
+    expect((next.body.system as { text: string }[])[0]).toEqual((api.requests[0]!.body.system as { text: string }[])[0]);
+    const messages = sent(next);
+    expect(messages.map((m) => m.role)).toEqual(["user", "assistant", "user", "assistant", "user"]);
+    expect(messages.map(types)).toEqual([["string"], ["text", "tool_use"], ["tool_result"], ["text"], ["string"]]);
+    expect(JSON.stringify(messages)).not.toMatch(/thinking|sig-/);
+    expect(messages[1]!.content).toEqual([{ type: "text", text: "Looking." }, { type: "tool_use", id: "tu_1", name: "get_state", input: {} }]);
+    expect((messages[2]!.content as { tool_use_id?: string }[])[0]!.tool_use_id).toBe("tu_1");
+    expect((messages[3]!.content as { text?: string }[])[0]!.text).toBe("The fit is fine.");
+
+    // What Claude writes from then on is signed under the new prompt, and goes back as written.
+    const last = sent(api.requests[3]!);
+    expect(JSON.stringify(last.slice(0, 5))).not.toMatch(/sig-1|sig-2/);
+    expect(types(last[5]!)).toEqual(["thinking", "text", "tool_use"]);
+    expect((last[5]!.content as { signature?: string }[])[0]!.signature).toBe("sig-3");
+    // The strip is for good: the history no longer holds the old thinking.
+    expect(JSON.stringify(chat.history().slice(0, 4))).not.toMatch(/thinking/);
+  });
+
+  it("changes nothing while the prompt stays the same", async () => {
+    const api = await fakeApi([...firstMessage(), sse([{ type: "text", text: "Same." }], "end_turn")]);
+    server = api.server;
+    const chat = new AgentChat(runner);
+    await chat.send("How is the fit?", { ...base(api.url), autonomy: "ask" }, quiet, new AbortController().signal);
+    await chat.send("And now?", { ...base(api.url), autonomy: "ask" }, quiet, new AbortController().signal);
+    const messages = sent(api.requests[2]!);
+    expect(messages.map(types)).toEqual([["string"], ["thinking", "text", "tool_use"], ["tool_result"], ["thinking", "text"], ["string"]]);
+    // Byte for byte what the first message's second request carried, and what the API returned after it.
+    expect(messages.slice(0, 3)).toEqual(sent(api.requests[1]!));
+    expect((messages[3]!.content as { signature?: string }[])[0]!.signature).toBe("sig-2");
+  });
+
+  it("a switch during a tool loop reaches the model at the next message, so the loop's thinking stays valid", async () => {
+    const api = await fakeApi([
+      sse([{ type: "thinking", thinking: "Read the state first.", signature: "sig-1" }, { type: "text", text: "Looking." }, { type: "tool_use", id: "tu_1", name: "get_state", input: {} }], "tool_use"),
+      sse([{ type: "thinking", thinking: "It is fine.", signature: "sig-2" }, { type: "text", text: "The fit is fine." }], "end_turn"),
+      sse([{ type: "text", text: "Refined." }], "end_turn"),
+    ]);
+    server = api.server;
+    // The user flips the switch while the first call waits for its card: the setting is read live.
+    let mode: "ask" | "auto" = "ask";
+    const flipping = { run: async () => { mode = "auto"; return { isError: false, text: "{}" }; } } as unknown as AgentExecutor;
+    const live = Object.defineProperty({ ...base(api.url) }, "autonomy", { get: () => mode, enumerable: true });
+    const chat = new AgentChat(flipping);
+    await chat.send("How is the fit?", live, quiet, new AbortController().signal);
+
+    // The loop's second request: the same prompt, the in-flight turn's thinking intact.
+    expect(modeLine(api.requests[1]!)).toBe("Mode: ask");
+    expect(types(sent(api.requests[1]!)[1]!)).toEqual(["thinking", "text", "tool_use"]);
+    expect((sent(api.requests[1]!)[1]!.content as { signature?: string }[])[0]!.signature).toBe("sig-1");
+
+    // The next message runs in Auto, without the thinking of the loop before.
+    await chat.send("Refine.", live, quiet, new AbortController().signal);
+    expect(modeLine(api.requests[2]!)).toBe("Mode: auto");
+    expect(JSON.stringify(sent(api.requests[2]!))).not.toMatch(/thinking|sig-/);
+  });
+
+  it("any other change of the prompt or tools unsigns the thinking too: the skills switch", async () => {
+    const api = await fakeApi([...firstMessage(), sse([{ type: "text", text: "Without them." }], "end_turn")]);
+    server = api.server;
+    const chat = new AgentChat(runner);
+    await chat.send("How is the fit?", base(api.url), quiet, new AbortController().signal);
+    await chat.send("Again, no skills.", { ...base(api.url), skills: false }, quiet, new AbortController().signal);
+    const next = api.requests[2]!;
+    expect((next.body.system as { text: string }[])[0]!.text).not.toContain("<skills>");
+    expect(JSON.stringify(sent(next))).not.toMatch(/thinking|sig-/);
+    expect(sent(next).map(types)).toEqual([["string"], ["text", "tool_use"], ["tool_result"], ["text"], ["string"]]);
+  });
+
+  it("a tool offer that moves mid-message unsigns the thinking, the turn in flight included", async () => {
+    const api = await fakeApi([
+      sse([{ type: "thinking", thinking: "Read the state first.", signature: "sig-1" }, { type: "text", text: "Looking." }, { type: "tool_use", id: "tu_1", name: "get_state", input: {} }], "tool_use"),
+      sse([{ type: "text", text: "On to the positions." }], "end_turn"),
+    ]);
+    server = api.server;
+    // The stage advances after the first call, so the second request offers other tools than the first.
+    let stage = "range";
+    const here = () => ({ page: "powder" as const, stage, stagesDone: [], magnetic: false, fingerprint: stage, summary: stage });
+    const scoped = { run: async () => { stage = "positions"; return { isError: false, text: "{}" }; }, situation: async () => here() } as unknown as AgentExecutor;
+    const chat = new AgentChat(scoped);
+    await chat.send("Go.", { ...base(api.url), toolScope: "stage" }, quiet, new AbortController().signal);
+    const names = (i: number): string => JSON.stringify((api.requests[i]!.body.tools as { name: string }[]).map((t) => t.name));
+    expect(names(1)).not.toBe(names(0));
+    expect(sent(api.requests[1]!).map(types)).toEqual([["string"], ["text", "tool_use"], ["tool_result"]]);
+  });
+
+  it("another model reading the thinking is the API's call: a model switch strips nothing", async () => {
+    const api = await fakeApi([...firstMessage(), sse([{ type: "text", text: "Sonnet here." }], "end_turn")]);
+    server = api.server;
+    const chat = new AgentChat(runner);
+    await chat.send("How is the fit?", base(api.url), quiet, new AbortController().signal);
+    await chat.send("Again.", { ...base(api.url), model: "claude-sonnet-5-5" }, quiet, new AbortController().signal);
+    expect(api.requests[2]!.body.model).toBe("claude-sonnet-5-5");
+    expect(sent(api.requests[2]!).map(types)).toEqual([["string"], ["thinking", "text", "tool_use"], ["tool_result"], ["thinking", "text"], ["string"]]);
+  });
+});
+
 describe("AgentChat on Ollama", () => {
   let server: Server | null = null;
   afterEach(async () => {
@@ -355,6 +490,19 @@ describe("AgentChat on Ollama", () => {
     const err = await chat.send("Read your method.", { transport: "ollama", serverUrl: small.url, model: "qwen3:32b", effort: "high" }, quiet, new AbortController().signal).then(() => null, (e: unknown) => e);
     expect(small.requests).toHaveLength(1);
     expect((err as Error).message).toMatch(/^This conversation no longer fits the 40k-token context Ollama runs qwen3:32b with, even with the old tool results shortened\. Nothing was sent, so the model was not handed a cut prompt\. This conversation needs about \d+k tokens; qwen3:32b takes at most 40k\. Start a new conversation \(the analysis stays as it is\), or pick a model with a longer context\.$/);
+  });
+
+  it("a mode switch changes the prompt it reads, and its thinking is not touched: nothing there is signed", async () => {
+    const api = await fakeApi([ndjson([{ type: "thinking", thinking: "Look first." }, { type: "text", text: "Hi." }]), ndjson([{ type: "text", text: "Going on." }])], undefined, qwen(40960));
+    server = api.server;
+    const chat = new AgentChat({ run: async () => ({ isError: false, text: "{}" }) } as unknown as AgentExecutor);
+    const config = { transport: "ollama" as const, serverUrl: api.url, model: "qwen3:32b", effort: "high" as const };
+    await chat.send("hi", { ...config, autonomy: "ask" }, quiet, new AbortController().signal);
+    await chat.send("go on", { ...config, autonomy: "auto" }, quiet, new AbortController().signal);
+    const [first, second] = api.requests.map((r) => r.body.messages as { role: string; content: string; thinking?: string }[]);
+    expect(first![0]!.content).toMatch(/Mode: ask\. [^]*$/);
+    expect(second![0]!.content).toMatch(/Mode: auto\. [^]*$/);
+    expect(second![2]).toMatchObject({ role: "assistant", content: "Hi.", thinking: "Look first." });
   });
 
   it("moving the conversation to Claude drops Ollama's unsigned thinking from earlier replies", async () => {

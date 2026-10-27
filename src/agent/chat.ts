@@ -15,8 +15,10 @@
  *
  * The loop is a manual tool loop over a stream, so text shows as it arrives
  * and an approval card can hold a tool call as long as the user needs. The
- * history is append-only (thinking blocks stay valid), and an interrupted turn
- * still answers every tool call it made, so the conversation can go on.
+ * history is append-only (thinking blocks stay valid) except where the system
+ * prompt or the tools change, which unsigns the thinking before (thinkingBinding.ts),
+ * and an interrupted turn still answers every tool call it made, so the
+ * conversation can go on.
  *
  * This file is the loop. How a model is reached is chatTransport.ts, how much
  * a conversation may take (run policy, window, token meter) chatBudget.ts, and
@@ -29,6 +31,7 @@ import type {
   BetaMessage,
   BetaMessageParam,
   BetaMessageStreamParams,
+  BetaTextBlockParam,
   BetaTool,
   BetaToolResultBlockParam,
   BetaToolUseBlock,
@@ -46,6 +49,7 @@ import { DEFAULT_OPENAI_CONTEXT, openaiWindow } from "@/agent/openaiCompat";
 import { ensureLmStudioContext } from "@/agent/lmstudio";
 import { MIN_AGENT_CONTEXT, contextAdvice } from "@/agent/localServer";
 import { clientFor, isLocal, isSized, type Backend, type ChatConfig } from "@/agent/chatTransport";
+import { ThinkingBinding, bindingKey, withoutSignedThinking } from "@/agent/thinkingBinding";
 import { PromptMeter, REPLY_RESERVE, fitWindow, runPolicy, temperatureOf, type RunPolicy } from "@/agent/chatBudget";
 import { FROM_APP, LoopGuard, MAX_GATES, MAX_NUDGES, REFUSED_HINT, RepeatWatch, stalledReply } from "@/agent/chatGuards";
 
@@ -87,11 +91,18 @@ export class AgentChat {
   /** Ollama: the longest context the model takes (null: unknown), and what the next request runs with. */
   private maxWindow: number | null = null;
   private ollamaPlan: OllamaPlan | null = null;
+  /** The system prompt and tools the history's Claude thinking is signed under (thinkingBinding.ts). */
+  private readonly binding = new ThinkingBinding();
 
   constructor(private readonly executor: ToolRunner) {}
 
   /** Send one user message and run the turns it leads to. */
-  async send(text: string, config: ChatConfig, cb: ChatCallbacks, signal: AbortSignal): Promise<void> {
+  async send(text: string, asked: ChatConfig, cb: ChatCallbacks, signal: AbortSignal): Promise<void> {
+    // The mode is part of the system prompt Claude's thinking is signed under, so one message runs
+    // under the mode it started with: a switch of Ask first / Auto reaches Claude at the next
+    // message (the approval cards follow the switch at once), and a tool loop in flight keeps its
+    // thinking. A local server signs nothing, so it still reads the mode at every turn.
+    const config: ChatConfig = isSized(asked.transport) ? asked : { ...asked, autonomy: asked.autonomy ?? "ask" };
     const client = clientFor(config, () => this.ollamaPlan);
     const backend: Backend = isSized(config.transport) ? config.transport : "anthropic";
     if (this.backend !== null && this.backend !== backend) this.keepPortableBlocks();
@@ -375,13 +386,17 @@ export class AgentChat {
       this.ollamaPlan = config.transport === "ollama" ? { numCtx: this.window, numPredict: fit.maxTokens } : null;
       return { model: config.model, max_tokens: fit.maxTokens, system, tools, messages: fit.messages, ...temperatureOf(config) };
     }
+    // The mode follows the cached prompt, so switching it keeps the cache.
+    const system: BetaTextBlockParam[] = [{ type: "text", text: this.systemFor(config), cache_control: { type: "ephemeral" } }, { type: "text", text: `${autonomyNote(config.autonomy ?? "ask", { skills: config.skills !== false })}${this.offered(config) ? `\n\n${scopeNote(config.skills !== false)}` : ""}` }];
+    // Inputs stream as generated; the executor validates each against its schema.
+    const tools = (this.offered(config) ?? this.allTools(config)).map((t) => ({ ...t, eager_input_streaming: true }));
+    // Thinking written under another system prompt or tool list is refused by the API (thinkingBinding.ts).
+    if (this.binding.moves(bindingKey(system, tools))) this.dropThinking();
     return {
       model: config.model,
       max_tokens: 64000,
-      // The mode follows the cached prompt, so switching it keeps the cache.
-      system: [{ type: "text", text: this.systemFor(config), cache_control: { type: "ephemeral" } }, { type: "text", text: `${autonomyNote(config.autonomy ?? "ask", { skills: config.skills !== false })}${this.offered(config) ? `\n\n${scopeNote(config.skills !== false)}` : ""}` }],
-      // Inputs stream as generated; the executor validates each against its schema.
-      tools: (this.offered(config) ?? this.allTools(config)).map((t) => ({ ...t, eager_input_streaming: true })),
+      system,
+      tools,
       messages: this.messages,
       thinking: { type: "adaptive", display: "summarized" },
       output_config: { effort: config.effort },
@@ -408,6 +423,20 @@ export class AgentChat {
       const kept = m.content.filter((b) => b.type === "text" || b.type === "tool_use");
       this.messages[i] = { role: "assistant", content: kept.length ? kept : [{ type: "text", text: "(no reply)" }] };
     }
+    this.binding.forget();
+  }
+
+  /**
+   * The system prompt or the tools changed since Claude wrote the thinking in
+   * the history, which is bound to them: it is left out of every earlier reply,
+   * for good (their text and tool calls stay). Between messages the usual
+   * cause is the mode; within one, only a tool offer that moves, which strips
+   * the reply in flight too, as the API's own recovery does.
+   */
+  private dropThinking(): void {
+    withoutSignedThinking(this.messages).forEach((m, i) => {
+      this.messages[i] = m;
+    });
   }
 
   /** The policy the conversation runs under now (its window as the last message found it): for a run's record. */
