@@ -48,8 +48,8 @@ export interface MagneticCandidateView {
   /** Index in the grey little group (2 = maximal). */
   readonly index: number;
   readonly domains: number;
-  /** Moment components the group allows on the chosen ions (0: no moment there). */
-  readonly momentDims: number;
+  /** Moment parameters the group's fit refines on the chosen ions, every split orbit counted (0: no moment there). */
+  readonly momentParameters: number;
   /** The moments-only fit against the data, once ranked. */
   readonly fit?: { readonly status: "ok" | "failed" | "forbidden"; readonly wR: number | null; readonly moments: readonly { readonly site: string; readonly muB: number }[] };
 }
@@ -134,7 +134,7 @@ export function candidateIndex(id: string, count: number): number {
 export function candidateView(
   rep: LatticeCandidate,
   i: number,
-  momentDims: number,
+  momentParameters: number,
   fit?: { readonly status: "ok" | "failed" | "forbidden"; readonly wR: number | null; readonly magnitudes: readonly { readonly label: string; readonly value: number }[] },
 ): MagneticCandidateView {
   const label = latticeCandidateLabel(rep);
@@ -145,7 +145,7 @@ export function candidateView(
     ...(label.setting ? { setting: label.setting } : {}),
     index: rep.index,
     domains: rep.domainCount,
-    momentDims,
+    momentParameters,
     ...(fit ? { fit: { status: fit.status, wR: fit.wR, moments: fit.magnitudes.map((m) => ({ site: m.label, muB: m.value })) } } : {}),
   };
 }

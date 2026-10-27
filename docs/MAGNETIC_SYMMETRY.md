@@ -160,7 +160,9 @@ Powder data often cannot separate symmetry-distinct models, because only the
 moment component perpendicular to Q scatters and orientations are averaged
 ([direction ambiguity](../knowledge/magnetic_structure_symmetry_knowledge.md), §9).
 Ties are therefore expected. Among tied fits, prefer the maximal subgroup (lowest
-index) with the fewest moment parameters. The ranking calls fits tied when they
+index) with the fewest moment parameters: the rows its fit refines, every split
+orbit's modes counted and co-located ions sharing one moment
+([`momentParameters`](../src/app/magneticStep.ts)). The ranking calls fits tied when they
 are within the noise of the best: Hamilton's test (Acta Cryst. 18 (1965) 502)
 at 5 %, so a group with more moment parameters must lower χ² by more than the
 best fit's noise gives them (an mPDF fit, which reports no χ², ties within

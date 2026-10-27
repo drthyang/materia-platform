@@ -4,7 +4,7 @@ import { loadedSession } from "@/app/powderSession";
 import { powderMomentFit, powderPageCurves, refinedPhasesOf, residualPeaksOf, weightedR } from "@/app/powderPage";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { momentFit as singleCrystalMomentFit, singleCrystalPage, type SingleCrystalCompute } from "@/app/singleCrystalPage";
-import { MagneticStep, bestRanked, candidatesOf, firstOpen, momentDims, buildFor, rankCandidates, stepView, type MagneticFit, type RankEntry, type StepInputs } from "@/app/magneticStep";
+import { MagneticStep, bestRanked, candidatesOf, firstOpen, momentParameters, buildFor, rankCandidates, stepView, type MagneticFit, type RankEntry, type StepInputs } from "@/app/magneticStep";
 import type { LatticeCandidate } from "@/core/magnetic/subgroupLattice";
 import { sessionPort } from "@/testSupport/agentHeadless";
 import { corundumPage } from "@/testSupport/scPages";
@@ -138,7 +138,7 @@ describe("the magnetic step on the Agent's page, as on the app's", () => {
     const { port, session } = sessionPort(mn3gaMagneticSession());
     const h = (): NonNullable<ReturnType<NonNullable<typeof port.magnetic>>> => port.magnetic!()!;
     h().setK(TWO_ARM);
-    h().choose(h().state().candidates.find((c) => c.momentDims > 0)!.id);
+    h().choose(h().state().candidates.find((c) => c.momentParameters > 0)!.id);
     h().continueToRefinement(true);
     const rows = session().powderParams.filter((p) => p.kind === "momentMode" || p.kind === "propagationK");
     expect(rows.filter((p) => p.label.includes("[phase gauge]")).map((p) => p.fixed)).toEqual([true]);
@@ -151,7 +151,7 @@ describe("the magnetic step on the Agent's page, as on the app's", () => {
     const { port } = sessionPort(mn3gaMagneticSession(), undefined, { client });
     const h = (): NonNullable<ReturnType<NonNullable<typeof port.magnetic>>> => port.magnetic!()!;
     h().setK(TWO_ARM);
-    h().choose(h().state().candidates.find((c) => c.momentDims > 0)!.id);
+    h().choose(h().state().candidates.find((c) => c.momentParameters > 0)!.id);
     await h().refineMoments();
     expect(fits).toHaveLength(1);
     const moments = fits[0]!.filter((p) => p.kind === "momentMode");
@@ -178,7 +178,7 @@ describe("the magnetic step on the Agent's page, as on the app's", () => {
     // closes on the whole little group, and the first section open is index 4.
     const lowest = Math.min(...h().state().candidates.map((c) => c.index));
     expect(lowest).toBe(4);
-    const deeper = h().state().candidates.find((c) => c.index === 8 && c.momentDims > 0)!;
+    const deeper = h().state().candidates.find((c) => c.index === 8 && c.momentParameters > 0)!;
     h().choose(deeper.id);
     await h().rank("open", 0);
     const ranked = h().state().candidates.filter((c) => c.fit);
@@ -228,7 +228,7 @@ describe("one restart scheme", () => {
     const s = mn3gaMagneticSession();
     const k: Vec3 = [0, 0, 0.5];
     const reps = candidatesOf(s.structure, k);
-    const dims = momentDims(s.structure, reps, ["Mn1"], k);
+    const dims = momentParameters(s.structure, reps, ["Mn1"], k, { sameSite: true, magnitudes: false, flippedUnits: [] });
     const calls: (number | undefined)[] = [];
     const fit: MagneticFit = {
       agreementLabel: "wR",

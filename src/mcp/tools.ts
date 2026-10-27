@@ -65,6 +65,7 @@ import { cagliotiOf } from "@/core/workflow/leBail";
 import { searchPropagationVector, type KSearchOptions } from "@/core/magnetic/kSearch";
 import { magneticSubgroupLattice, latticeCandidateLabel, latticeRepresentatives } from "@/core/magnetic/subgroupLattice";
 import { allowedMomentDirections } from "@/core/magnetic/allowedMoments";
+import { magneticOrbitRepresentatives } from "@/core/crystal/cellExpansion";
 import { buildMagneticModel } from "@/core/magnetic/momentModel";
 import { describePropagation } from "@/core/magnetic/propagation";
 import { propagationKParameters } from "@/core/magnetic/refinableK";
@@ -744,14 +745,32 @@ export function allowed_moments(args: {
   operations?: SymmetryOperation[];
   k?: Vec3;
   siteLabels?: string[];
-}): { sites: { label: string; element: string; dimension: number; basis: Vec3[] }[] } {
+}): {
+  sites: {
+    label: string;
+    element: string;
+    dimension: number;
+    basis: Vec3[];
+    orbits?: { position: Vec3; dimension: number; basis: Vec3[] }[];
+  }[];
+} {
   const ops = args.operations ?? args.structure.spaceGroup.operations;
   const wanted = args.siteLabels ? new Set(args.siteLabels) : null;
   const sites = args.structure.sites
     .filter((s) => !wanted || wanted.has(s.label))
     .map((s) => {
-      const allowed = allowedMomentDirections(ops, s.position, args.k ?? [0, 0, 0]);
-      return { label: s.label, element: s.element, dimension: allowed.dimension, basis: allowed.basis.map((b) => [...b] as Vec3) };
+      // A group lower than the nuclear one can split the site's orbit: each split orbit has its own allowed moment.
+      const orbits = magneticOrbitRepresentatives(args.structure.spaceGroup.operations, ops, s.position).map((position) => {
+        const allowed = allowedMomentDirections(ops, position, args.k ?? [0, 0, 0]);
+        return { position: [...position] as Vec3, dimension: allowed.dimension, basis: allowed.basis.map((b) => [...b] as Vec3) };
+      });
+      return {
+        label: s.label,
+        element: s.element,
+        dimension: orbits.reduce((sum, o) => sum + o.dimension, 0),
+        basis: orbits[0]!.basis,
+        ...(orbits.length > 1 ? { orbits } : {}),
+      };
     });
   return { sites };
 }

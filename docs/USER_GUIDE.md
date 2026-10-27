@@ -310,12 +310,17 @@ In **Symmetry framework**, pick **Magnetic space groups**, or
 **Representation analysis** to tick irreps and get their isotropy subgroup.
 
 In **Magnetic space group**, the candidates are grouped by index. Work top-down:
-only **index 2 — maximal** starts open, because the ordered phase is usually a
-maximal subgroup. Each row shows **type I** or **type III**, the BNS/OG symbol
-and a **… moment dof** badge. A greyed **moment forbidden** row allows no moment
-on your sites. Click a row to preview it. When a candidate's symbol needed a
-change of setting, the 3D view's **Cell** control can also show its standard
-cell.
+only the lowest index starts open (**index 2 — maximal** at most k; index 4
+where no group closes on the whole little group of k, as at the Z point of
+P4₂/mnm), because the ordered phase is usually a maximal subgroup. Each row
+shows the group's type (I to IV; at k ≠ 0 it is IV, the k turning some lattice
+translations into anti-translations), the BNS/OG symbol of the group in its
+magnetic cell with its setting against the parent cell, and a **… moment dof**
+badge: the moment parameters its fit refines on your sites, every split orbit
+counted and co-located ions sharing one moment. A greyed **moment forbidden**
+row allows no moment on your sites. Click a row to preview it. When a
+candidate's symbol needed a change of setting, the 3D view's **Cell** control
+can also show its standard cell (at k ≠ 0, the magnetic cell).
 
 #### Rank the candidates against the data
 

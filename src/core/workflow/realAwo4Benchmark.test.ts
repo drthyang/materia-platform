@@ -10,7 +10,7 @@ import { detectExtraPeaks, annotateExtraPeaks } from "@/core/magnetic/extraPeaks
 import { applyParameters } from "@/core/workflow/apply";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { satellitePositions, type KCandidate } from "@/core/magnetic/kSearch";
-import { peakRows, PEAK_CRITERIA, searchK, candidatesOf, momentDims, rankCandidates, bestRanked, withinNoise, buildFor, type MagneticFit, type PeakRow, type RankEntry } from "@/app/magneticStep";
+import { peakRows, PEAK_CRITERIA, searchK, candidatesOf, momentParameters, rankCandidates, bestRanked, withinNoise, buildFor, type MagneticFit, type PeakRow, type RankEntry } from "@/app/magneticStep";
 import { magneticIonCandidates } from "@/core/magnetic/magneticIons";
 import { buildMagneticPowderProblem } from "@/core/workflow/magneticPowder";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
@@ -199,8 +199,8 @@ async function runBenchmark(): Promise<Bench> {
   // Every magnetic group of the little group of k, moments only (nuclear held).
   const ions = magneticIonCandidates(structure).map((i) => i.siteLabel);
   const reps = candidatesOf(structure, K);
-  const dims = momentDims(structure, reps, ions, K);
   const ties = { sameSite: true, magnitudes: false as const, flippedUnits: [] };
+  const dims = momentParameters(structure, reps, ions, K, ties);
   const held = nuclear.map((p) => ({ ...p, fixed: true }));
   const fit: MagneticFit = {
     agreementLabel: "wR",

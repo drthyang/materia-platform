@@ -1016,6 +1016,17 @@ release fixes bugs.
   mCIF writer, which now names a type-IV group. Every class of the 15 oracle
   cases carries the BNS number and type spglib gives its group.
 
+- **The ranking counts the moment parameters each fit refines** (THY-37). Hamilton's
+  test, the ★'s "fewest moment parameters" and the page's **moment dof** badge
+  counted the allowed directions at a site's first orbit, summed over the
+  chosen ions: a mixed site's co-located ions counted once each (on the AWO₄
+  demo's site, where one shared moment is refined), and a moment on a
+  later split orbit not at all, so such a group was shown as "moment forbidden"
+  and never ranked (a kagome Co site under P6/mmm at (0,0,½)). The count is now
+  the free rows of each group's moment model under the page's ties
+  (`momentParameters`), the Agent's `momentComponents` the same, and the MCP
+  `allowed_moments` lists each split orbit, its `dimension` their sum.
+
 - **Each technique's report names its own cross-check programs.** The
   report's footer told every technique that the Export menu writes GSAS-II
   and FullProf bundles. A PDF is reproduced in PDFgui / diffpy-CMI (PDFfit2),

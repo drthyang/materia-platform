@@ -208,10 +208,13 @@ describe("MCP analysis primitives (no data files needed)", () => {
     expect(cand).toBeDefined();
 
     // 2. Site-symmetry analysis under that subgroup: Mn1 carries an in-plane
-    //    2-D allowed space (the golden-validated Cm'cm' result).
+    //    2-D allowed space (the golden-validated Cm'cm' result), and Cm'cm'
+    //    splits its orbit, the second orbit with one mode: 3 in all.
     const am = allowed_moments({ structure, operations: cand.operations, siteLabels: ["Mn1"] });
     expect(am.sites).toHaveLength(1);
-    expect(am.sites[0]!.dimension).toBe(2);
+    expect(am.sites[0]!.basis).toHaveLength(2);
+    expect(am.sites[0]!.orbits!.map((o) => o.dimension)).toEqual([2, 1]);
+    expect(am.sites[0]!.dimension).toBe(3);
 
     // 3. Build the symmetry-allowed model: 2 modes on orbit 1 + 1 on the split
     //    orbit, first mode of each orbit seeded at 2 µ_B.

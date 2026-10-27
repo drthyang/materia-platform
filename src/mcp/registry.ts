@@ -296,7 +296,7 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
   {
     name: "allowed_moments",
     title: "Allowed moment directions per site",
-    description: "The site-symmetry analysis: which moment directions the magnetic group allows on each site (null space of the magnetic stabilizer, with the k-phase). Dimension 0 = moment symmetry-forbidden; the basis spans exactly what a refinement may vary. Matches GSAS-II's per-site moment rules.",
+    description: "The site-symmetry analysis: which moment directions the magnetic group allows on each site (null space of the magnetic stabilizer, with the k-phase). Dimension 0 = moment symmetry-forbidden; the basis spans exactly what a refinement may vary. A group lower than the nuclear one can split a site's orbit: `orbits` then lists each split orbit (its anchor, dimension and basis), `dimension` is their sum and `basis` the first orbit's. Matches GSAS-II's per-site moment rules.",
     inputSchema: {
       structure: anyObj,
       operations: anyArr.optional().describe("Magnetic group operations (default: the structure's own)"),

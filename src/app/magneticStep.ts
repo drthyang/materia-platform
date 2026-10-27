@@ -18,7 +18,6 @@ import type { AnnotatedExtraPeak } from "@/core/magnetic/extraPeaks";
 import { searchPropagationVector, type KCandidate } from "@/core/magnetic/kSearch";
 import { centringTranslations } from "@/core/crystal/symmetry";
 import { magneticSubgroupLattice, latticeRepresentatives, type LatticeCandidate } from "@/core/magnetic/subgroupLattice";
-import { allowedMomentDirections } from "@/core/magnetic/allowedMoments";
 import { buildMagneticModel, type MagneticModelBuild } from "@/core/magnetic/momentModel";
 import { propagationKParameters } from "@/core/magnetic/refinableK";
 import { fitMomentsWithRestarts, RANK_RESTARTS, type MomentFit } from "@/core/magnetic/momentRestarts";
@@ -136,17 +135,24 @@ export function firstOpen(reps: readonly LatticeCandidate[]): Set<number> {
   return new Set([reps.length > 0 ? Math.min(...reps.map((r) => r.index)) : 2]);
 }
 
-/** How many moment components each group allows on the chosen ions, summed over them. */
-export function momentDims(structure: StructureModel, reps: readonly LatticeCandidate[], ions: Iterable<string>, k: Vec3): number[] {
-  const sites = [...ions].map((l) => structure.sites.find((s) => s.label === l)).filter((s): s is NonNullable<typeof s> => s !== undefined);
-  return reps.map((r) => sites.reduce((sum, s) => sum + allowedMomentDirections(r.candidate.operations, s.position, k).dimension, 0));
-}
-
 /** The moment model's options: same-site moments tied, an |M| tie (within each element or across all), the sublattices flipped. */
 export interface ModelOptions {
   readonly sameSite: boolean;
   readonly magnitudes: false | "element" | "all";
   readonly flippedUnits: readonly string[];
+}
+
+/**
+ * The moment parameters each group's fit refines on the chosen ions: the free
+ * rows of its moment model under the page's ties (fitRows) — every split
+ * orbit's modes, co-located ions sharing one moment when the same-site tie is
+ * on, a derived |M| row and a two-arm k's phase gauge held. What Hamilton's
+ * test counts, what the ★'s "fewest parameters" compares, and 0 only for a
+ * group that puts no moment on any orbit of the chosen ions.
+ */
+export function momentParameters(structure: StructureModel, reps: readonly LatticeCandidate[], ions: Iterable<string>, k: Vec3, options: ModelOptions): number[] {
+  const labels = [...ions];
+  return reps.map((r) => fitRows(buildFor(structure, k, labels, r.candidate.operations, options)).filter((p) => !p.fixed).length);
 }
 
 /** The moment model of a group's operations: one builder for the chosen group and for the ranking, so a ranked wR is the model a click previews. */
@@ -247,6 +253,7 @@ export interface RankEntry {
 export interface RankRun {
   readonly structure: StructureModel;
   readonly reps: readonly LatticeCandidate[];
+  /** The moment parameters each group's fit refines (`momentParameters`), in the order of `reps`. */
   readonly dims: readonly number[];
   /** "open": the index sections open on the page; "all": every one. */
   readonly scope: "open" | "all";
@@ -261,7 +268,7 @@ export interface RankRun {
   readonly onEntry?: (results: Readonly<Record<string, RankEntry>>) => void;
 }
 
-/** The groups a ranking fits: those allowing a moment on the chosen ions, in the scope. */
+/** The groups a ranking fits: those whose fit refines a moment on the chosen ions (any split orbit), in the scope. */
 export function rankedGroups(reps: readonly LatticeCandidate[], dims: readonly number[], scope: "open" | "all", open: ReadonlySet<number>): LatticeCandidate[] {
   return reps.filter((r, i) => (dims[i] ?? 0) > 0 && (scope === "all" || open.has(r.index)));
 }
@@ -445,6 +452,7 @@ export interface StepView {
   readonly kClass: ReturnType<typeof classifyPropagation>;
   readonly reps: readonly LatticeCandidate[];
   readonly lgSize: number;
+  /** The moment parameters each group's fit refines on the chosen ions, under the ties (`momentParameters`). */
   readonly dims: readonly number[];
   readonly irrepAnalysis: { readonly dec: ReturnType<typeof decomposeMagneticRepresentation>; readonly modes: ReturnType<typeof projectIrrepModes>[]; readonly lg: ReturnType<typeof littleGroup> } | null;
   readonly combo: ReturnType<typeof isotropySubgroup> | null;
@@ -506,7 +514,13 @@ export function stepView(s: StepState, at: StepInputs, slots: StepSlots): StepVi
     const ops = structure.spaceGroup.operations;
     return { reps: candidatesOf(structure, s.k), lgSize: ops.length === 0 ? 0 : littleGroup(ops, s.k).length };
   });
-  const dims = memo("dims", [reps, s.ions, structure, ...s.k], () => momentDims(structure, reps, s.ions, s.k));
+  const options = memo("options", [s.ties], (): ModelOptions => ({
+    sameSite: s.ties.sameSite,
+    magnitudes: s.ties.magnitudes ? s.ties.scope : false,
+    flippedUnits: [...s.ties.flippedUnits],
+  }));
+  // The moment parameters each group's fit refines, under the page's ties: the count the ranking reads.
+  const dims = memo("dims", [reps, s.ions, structure, options, ...s.k], () => momentParameters(structure, reps, s.ions, s.k, options));
   // Representation analysis: Γ_mag over G(k) into the irreps of its little co-group, each one's basis modes on the reference site.
   const irrepAnalysis = memo("irreps", [structure, s.ions, ...s.k], () => {
     const ops = structure.spaceGroup.operations;
@@ -529,11 +543,6 @@ export function stepView(s: StepState, at: StepInputs, slots: StepSlots): StepVi
     return idx >= 0 ? idx : null;
   });
   const chosenOps = s.framework === "msg" ? (s.chosen != null ? reps[s.chosen]?.candidate.operations ?? null : null) : combo && !("failure" in combo) ? combo.operations : null;
-  const options = memo("options", [s.ties], (): ModelOptions => ({
-    sameSite: s.ties.sameSite,
-    magnitudes: s.ties.magnitudes ? s.ties.scope : false,
-    flippedUnits: [...s.ties.flippedUnits],
-  }));
   const build = memo("build", [chosenOps, structure, s.ions, options, ...s.k], () => (chosenOps ? buildFor(structure, s.k, s.ions, chosenOps, options) : null));
   const kRows = memo("kRows", [structure, build], () => (build ? propagationKParameters(structure, build.magnetic) : null));
   const canRefineK = at.allowRefineK && !!kRows && kRows.params.length > 0;

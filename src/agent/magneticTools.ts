@@ -62,7 +62,7 @@ function candidateRow(c: MagneticCandidateView): Record<string, unknown> {
     ...(c.setting ? { setting: c.setting } : {}),
     index: c.index,
     domains: c.domains,
-    momentComponents: c.momentDims,
+    momentComponents: c.momentParameters,
     ...(c.fit ? { fit: c.fit.status === "ok" ? { wR: c.fit.wR !== null ? pct(c.fit.wR) : null, moments: c.fit.moments.map((m) => `${m.site} ${sig(m.muB, 3)} µB`) } : c.fit.status } : {}),
   };
 }
@@ -105,7 +105,7 @@ export function k0Peaks(s: MagneticPanelState): number[] | null {
 
 /** The step as the model reads it: compact, the candidates that can carry a moment first. */
 export function magneticView(s: MagneticPanelState): Record<string, unknown> {
-  const carrying = s.candidates.filter((c) => c.momentDims > 0);
+  const carrying = s.candidates.filter((c) => c.momentParameters > 0);
   const peak = (p: MagneticPanelState["peaks"][number]): Record<string, unknown> => ({
     n: p.n,
     d: sig(p.d, 5),
