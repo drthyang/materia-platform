@@ -619,6 +619,7 @@ release fixes bugs.
   lasts for the session, until a new structure is loaded.
 
 ### Changed
+- Plots: a plain mouse wheel over a plot now flashes the whole gesture line (zoom, pan, box-zoom, reset), not just the zoom shortcut.
 
 - **The header's Demos menu is gone; Load is Open; a Close button returns to
   the start page.** The demos were offered twice, in a header menu and as
