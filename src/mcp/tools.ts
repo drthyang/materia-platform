@@ -696,9 +696,11 @@ export function search_propagation_vector(args: {
  * Enumerate the magnetic subgroup candidates of the parent group for a
  * propagation vector k — conjugacy-class representatives with their BNS
  * identification, subgroup index, domain count and whether they are maximal. The operations of the
- * chosen candidate feed allowed_moments / build_magnetic_model. At k ≠ 0 the
- * operations are listed in the parent cell and the name is the group's in its
- * magnetic cell (type IV), `setting` the standard BNS cell in parent axes.
+ * chosen candidate feed allowed_moments / build_magnetic_model. At a
+ * single-arm k ≠ 0 the operations are listed in the parent cell and the name
+ * is the group's in its magnetic cell (type IV), `setting` the standard BNS
+ * cell in parent axes; at a two-arm k a candidate is no magnetic space group
+ * and has no BNS name (`note`).
  */
 export function list_magnetic_subgroups(args: {
   structure: StructureModel;
@@ -710,6 +712,7 @@ export function list_magnetic_subgroups(args: {
     bns: string | null;
     bnsNumber: string | null;
     setting: string | null;
+    note?: string;
     index: number;
     domainCount: number;
     maximal: boolean;
@@ -728,6 +731,7 @@ export function list_magnetic_subgroups(args: {
         bns: identity?.bnsSymbol ?? null,
         bnsNumber: identity?.bnsNumber ?? null,
         setting: latticeCandidateLabel(r).setting,
+        ...(r.twoArm ? { note: latticeCandidateLabel(r).note } : {}),
         index: r.index,
         domainCount: r.domainCount,
         maximal: r.maximal,

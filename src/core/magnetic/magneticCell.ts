@@ -100,14 +100,15 @@ export function candidateCellGroup(ops: readonly SymmetryOperation[], k: Vec3): 
  * a type-IV group), identified there and reported against the PARENT cell —
  * P is the standard BNS cell in parent coordinates (the box matrix times the
  * box's own basis change), so the transformation reads e.g. "(2a, b, c; 0,
- * 0, 0)" for P_a2/c from a P2/c parent at k = (½,0,0). A two-arm k has no
- * group of this kind; its candidate keeps the parent-cell identification of
- * its operations. Null when nothing in the table matches.
+ * 0, 0)" for P_a2/c from a P2/c parent at k = (½,0,0). A two-arm k gives no
+ * magnetic space group of this kind (its candidates are real decorations of
+ * the little group for the Fourier moment model): null, as when nothing in the
+ * table matches.
  */
 export function identifyCandidate(ops: readonly SymmetryOperation[], k: Vec3): TransformedIdentification | null {
   if (k.every((c) => Math.abs(c) < 1e-9)) return identifyMagneticGroupAnySetting(ops);
   const cls = classifyPropagation(k, { centrings: centringTranslations(ops) });
-  if (cls.twoArms) return identifyMagneticGroupAnySetting(ops);
+  if (cls.twoArms) return null;
   const cell = candidateCellGroup(ops, k);
   if (!cell) return null;
   // The group's own conventional cells reach every setting of a magnetic cell;

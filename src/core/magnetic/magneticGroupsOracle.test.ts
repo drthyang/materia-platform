@@ -24,7 +24,7 @@ import { describe, expect, it } from "vitest";
 import type { SymmetryOperation } from "@/core/crystal/types";
 import { magneticOrbitRepresentatives } from "@/core/crystal/cellExpansion";
 import { allowedMomentDirections } from "@/core/magnetic/allowedMoments";
-import { latticeCandidateLabel, latticeRepresentatives, magneticSubgroupLattice, maximalWithMoment } from "@/core/magnetic/subgroupLattice";
+import { TWO_ARM_NOTE, latticeCandidateLabel, latticeRepresentatives, magneticSubgroupLattice, maximalWithMoment } from "@/core/magnetic/subgroupLattice";
 import { candidateCellGroup, isMagneticGroup } from "@/core/magnetic/magneticCell";
 import { MAGNETIC_ORACLE_CASES, oracleInput } from "@/testSupport/magneticOracleCases";
 
@@ -180,3 +180,21 @@ describe("maximal by containment, and the maximal groups that carry a moment", (
     expect(wrong).toEqual([]);
   });
 });
+
+describe("a two-arm k's candidates are not named as magnetic space groups (D5)", () => {
+  const twoArm = MAGNETIC_ORACLE_CASES.filter((c) => oracle.cases.find((x) => x.id === c.id)?.twoArms);
+  it.each(twoArm.map((c) => [c.id, c] as const))("%s", (_id, c) => {
+    expect(twoArm.length).toBeGreaterThan(0);
+    for (const rep of latticeRepresentatives(magneticSubgroupLattice(c.structure().spaceGroup.operations, c.k))) {
+      const label = latticeCandidateLabel(rep);
+      expect(rep.twoArm).toBe(true);
+      expect(rep.candidate.standard).toBeNull();
+      expect(rep.settingMatch).toBeUndefined();
+      expect(label.numbers).toBeNull();
+      expect(label.setting).toBeNull();
+      expect(label.note).toBe(TWO_ARM_NOTE);
+      expect(label.symbol).not.toMatch(/BNS/);
+    }
+  });
+});
+

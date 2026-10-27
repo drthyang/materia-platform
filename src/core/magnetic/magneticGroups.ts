@@ -330,13 +330,14 @@ export function generateMagneticCandidates(
     const cosetReps: SymmetryOperation[] = ops.map((op, i) => ({ ...op, timeReversal: (x[i] ? -1 : 1) as 1 | -1 }));
     const unprimedCount = cosetReps.filter((o) => (o.timeReversal ?? 1) === 1).length;
     const isTypeI = unprimedCount === m;
-    // At a single-arm k ≠ 0 the parent-cell operations are not the group of the
-    // structure (its lattice has anti-translations): it is named from its
-    // magnetic cell (`identifyCandidate`), never from this list.
-    const standard = zeroK ? identifyMagneticGroup(candOps) : null;
+    // At k ≠ 0 the parent-cell operations are not the group of the structure:
+    // at a single-arm k it is named from its magnetic cell (`identifyCandidate`),
+    // and a two-arm k's decoration is no magnetic space group at all.
+    const atZero = isZeroK(kIn);
+    const standard = atZero ? identifyMagneticGroup(candOps) : null;
     candidates.push({
       id: `mag-cand-${signature}`,
-      label: standard ? formatMagneticSymbol(standard.bnsSymbol) : primedLabel(cosetReps, !zeroK),
+      label: standard ? formatMagneticSymbol(standard.bnsSymbol) : primedLabel(cosetReps, !atZero),
       isTypeI,
       unprimedCount,
       operations: candOps,

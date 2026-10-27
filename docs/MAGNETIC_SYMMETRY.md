@@ -285,10 +285,14 @@ writer all use the search.
   is named in hexagonal axes: R-3m′ in the cell (a−b, b−c, a+b+c).
 
 **Not yet**
-- A two-arm k (2k not in the reciprocal lattice, such as (⅓,⅓,0)): its
-  candidates are real decorations of G_k for the Fourier moment model, not
-  magnetic space groups, and keep the parent-cell identification of their
-  operations.
+- The magnetic space groups of a two-arm k (2k not in the reciprocal lattice,
+  such as (⅓,⅓,0)). Its candidates are real decorations of G_k for the Fourier
+  moment model, not magnetic space groups: they are shown by their
+  time-reversal pattern on G_k ("P-62′m′ (G_k decoration)"), with no BNS number
+  and the note "not a magnetic space group label: two-arm k". The groups of
+  such a structure need G_{±k} and the global phase in the supercell; the
+  oracle fixture holds them for the two two-arm cases (113 classes each) as the
+  reference for that step.
 - A cell with basis coefficients beyond ±2 in the plane of a monoclinic or
   hexagonal axis is not tried; such a group keeps its primed-operation label.
 

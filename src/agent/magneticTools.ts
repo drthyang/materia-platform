@@ -60,6 +60,7 @@ function candidateRow(c: MagneticCandidateView): Record<string, unknown> {
     group: c.symbol,
     ...(c.numbers ? { numbers: c.numbers } : {}),
     ...(c.setting ? { setting: c.setting } : {}),
+    ...(c.note ? { note: c.note } : {}),
     index: c.index,
     ...(c.maximal ? { maximal: true } : {}),
     domains: c.domains,

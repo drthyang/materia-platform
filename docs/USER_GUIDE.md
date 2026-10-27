@@ -319,7 +319,10 @@ translations into anti-translations), the BNS/OG symbol of the group in its
 magnetic cell with its setting against the parent cell, and a **… moment dof**
 badge: the moment parameters its fit refines on your sites, every split orbit
 counted and co-located ions sharing one moment. A greyed **moment forbidden**
-row allows no moment on your sites. Click a row to preview it. When a
+row allows no moment on your sites. At a two-arm k (such as (⅓,⅓,0)) the rows
+are decorations of the little group for the Fourier moment model, marked
+**two-arm k** and "not a magnetic space group label". Click a row to preview
+it. When a
 candidate's symbol needed a change of setting, the 3D view's **Cell** control
 can also show its standard cell (at k ≠ 0, the magnetic cell).
 

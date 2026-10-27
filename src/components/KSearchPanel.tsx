@@ -1266,12 +1266,15 @@ export function KSearchPanel({
                                 : undefined}
                           >
                             <span style={{ fontFamily: themeMono, color: theme.secondary }}>
-                              {`type ${["I", "II", "III", "IV"][r.magneticType - 1]}`}
+                              {r.twoArm ? "two-arm k" : `type ${["I", "II", "III", "IV"][r.magneticType - 1]}`}
                             </span>
                             {" · "}{lbl.symbol}
                             {lbl.numbers && <span style={{ color: theme.secondary }}> · {lbl.numbers}</span>}
                             {lbl.setting && (
                               <span style={{ color: theme.noteInk }}> · setting {lbl.setting}</span>
+                            )}
+                            {lbl.note && (
+                              <span style={{ color: theme.secondary }}> · {lbl.note}</span>
                             )}
                             {r.domainCount > 1 && (
                               <span style={{ color: theme.secondary }}> · ×{r.domainCount} domains</span>

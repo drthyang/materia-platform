@@ -177,7 +177,7 @@ export function groupOfOperations(structure: StructureModel, model: MagneticMode
       const lbl = latticeCandidateLabel(hit);
       return {
         symbol: lbl.symbol,
-        ...(lbl.numbers ? { numbers: lbl.numbers } : {}),
+        ...(lbl.numbers ? { numbers: lbl.numbers } : lbl.note ? { numbers: lbl.note } : {}),
         ...(lbl.setting ? { setting: lbl.setting } : {}),
         index: hit.index,
       };

@@ -1049,6 +1049,15 @@ release fixes bugs.
   with the full table most of these groups are named anyway (the triangular
   P6/mmm at k = (⅓,⅓,0) gives P-6m′2′, BNS 187.213).
 
+- **A two-arm k's candidates no longer carry BNS numbers** (THY-37). At a k with
+  two arms, such as (⅓,⅓,0), the candidates are real decorations of the little
+  group for the Fourier moment model, but each was labelled as a magnetic space
+  group with a BNS number from its parent-cell operations. They are now shown by
+  their time-reversal pattern ("P-62′m′ (G_k decoration)") with "not a magnetic
+  space group label: two-arm k" on the page, for the Agent (`note`) and in
+  `list_magnetic_subgroups`, and no BNS number anywhere. Enumerating the
+  magnetic space groups of a two-arm k is not done yet.
+
 - **Each technique's report names its own cross-check programs.** The
   report's footer told every technique that the Export menu writes GSAS-II
   and FullProf bundles. A PDF is reproduced in PDFgui / diffpy-CMI (PDFfit2),

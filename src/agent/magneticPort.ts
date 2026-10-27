@@ -45,6 +45,8 @@ export interface MagneticCandidateView {
   readonly numbers?: string;
   /** The setting transformation when the group is named in a non-standard setting. */
   readonly setting?: string;
+  /** What the label is not, where it is no magnetic space group (a two-arm k). */
+  readonly note?: string;
   /** Index in the grey little group. */
   readonly index: number;
   readonly domains: number;
@@ -146,6 +148,7 @@ export function candidateView(
     symbol: label.symbol,
     ...(label.numbers ? { numbers: label.numbers } : {}),
     ...(label.setting ? { setting: label.setting } : {}),
+    ...(label.note ? { note: label.note } : {}),
     index: rep.index,
     domains: rep.domainCount,
     maximal,

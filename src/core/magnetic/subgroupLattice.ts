@@ -43,7 +43,7 @@
 
 import type { SymmetryOperation } from "@/core/crystal/types";
 import type { Mat3, Vec3 } from "@/core/math/types";
-import { composeOperations } from "@/core/crystal/symmetry";
+import { centringTranslations, composeOperations } from "@/core/crystal/symmetry";
 import { inverse, mulMat, mulVec } from "@/core/math/mat3";
 import {
   cosetFrame,
@@ -56,7 +56,8 @@ import {
   type CosetFrame,
   type MagneticCandidate,
 } from "./magneticGroups";
-import { type TransformedIdentification, formatMagneticSymbol } from "./bnsOg";
+import { type TransformedIdentification, formatMagneticSymbol, identifyMagneticGroupAnySetting } from "./bnsOg";
+import { classifyPropagation } from "./propagation";
 import { candidateCellGroup, identifyCandidate, magneticTypeOf } from "./magneticCell";
 
 export interface LatticeCandidate {
@@ -84,6 +85,14 @@ export interface LatticeCandidate {
   readonly settingMatch?: TransformedIdentification;
   /** The Shubnikov type of the group the candidate denotes (IV at a single-arm k ≠ 0). */
   readonly magneticType: 1 | 2 | 3 | 4;
+  /** A two-arm k (2k not in the reciprocal lattice): the candidate is a real
+   *  decoration of G_k for the Fourier moment model, not a magnetic space group,
+   *  and carries no BNS label (`latticeCandidateLabel` says so). */
+  readonly twoArm: boolean;
+  /** At a two-arm k, the time-reversal pattern of the decoration read as a
+   *  group of the parent cell — what the label shows it by and the list is
+   *  ordered by; never a BNS name. Class representatives only. */
+  readonly decoration?: TransformedIdentification;
   /** The classes one of whose groups properly contains a group of this class
    *  (by classId, ascending): the candidates above it in the lattice. */
   readonly above: readonly number[];
@@ -329,16 +338,20 @@ export function magneticSubgroupLattice(
   interface ClassInfo {
     readonly members: Raw[];
     readonly settingMatch: TransformedIdentification | null;
+    readonly decoration: TransformedIdentification | null;
     readonly bnsKey: number;
     readonly magneticType: 1 | 2 | 3 | 4;
   }
+  const twoArm = !k.every((c) => Math.abs(c) < 1e-9) && classifyPropagation(k, { centrings: centringTranslations(lg) }).twoArms;
   const infos: ClassInfo[] = [...classes.values()].map((members) => {
     const rep = members[0]!;
-    const settingMatch = rep.cand.standard === null ? identifyCandidate(rep.cand.operations, k) : null;
+    // A two-arm k: no magnetic space group to name; the decoration's pattern orders the list.
+    const decoration = twoArm ? identifyMagneticGroupAnySetting(rep.cand.operations) : null;
+    const settingMatch = !twoArm && rep.cand.standard === null ? identifyCandidate(rep.cand.operations, k) : null;
     const identity = rep.cand.standard ?? settingMatch?.identity ?? null;
     const cell = identity ? null : candidateCellGroup(rep.cand.operations, k);
     const magneticType = identity?.magtype ?? magneticTypeOf(cell ? cell.operations : rep.cand.operations);
-    return { members, settingMatch, bnsKey: bnsSortKey(identity?.bnsNumber ?? null), magneticType };
+    return { members, settingMatch, decoration, bnsKey: bnsSortKey(identity?.bnsNumber ?? decoration?.identity.bnsNumber ?? null), magneticType };
   });
 
   // Bilbao k-SUBGROUPSMAG order: by index (maximal / highest symmetry first),
@@ -383,7 +396,7 @@ export function magneticSubgroupLattice(
   }
 
   const out: LatticeCandidate[] = [];
-  infos.forEach(({ members, settingMatch, magneticType }, classId) => {
+  infos.forEach(({ members, settingMatch, decoration, magneticType }, classId) => {
     const domainCount = new Set(members.map((m) => m.self)).size;
     const aboveIds = [...above[classId]!].sort((x, y) => x - y);
     members.forEach((m, i) => {
@@ -396,9 +409,11 @@ export function magneticSubgroupLattice(
         domainCount,
         classRepresentative: isRep,
         magneticType,
+        twoArm,
         above: aboveIds,
         maximal: aboveIds.length === 0,
         ...(isRep && settingMatch ? { settingMatch } : {}),
+        ...(isRep && decoration ? { decoration } : {}),
       });
     });
   });
@@ -424,12 +439,24 @@ export function latticeRepresentatives(
   return lattice.filter((c) => c.classRepresentative);
 }
 
+/** What a two-arm k's candidate is, where its label is shown. */
+export const TWO_ARM_NOTE = "not a magnetic space group label: two-arm k";
+
 /** How a lattice candidate is named wherever it is shown (the magnetic page's
  *  rows, the report, the project): the standard BNS symbol with its BNS/OG
  *  numbers when the operations match a tabulated group directly, the symbol
  *  plus the setting transformation when they match after a basis change, and
- *  otherwise the candidate's own descriptive label without its type prefix. */
-export function latticeCandidateLabel(c: LatticeCandidate): { symbol: string; numbers: string | null; setting: string | null } {
+ *  otherwise the candidate's own descriptive label without its type prefix.
+ *  A two-arm k's candidate is a decoration of G_k, not a magnetic space group:
+ *  it is shown by its time-reversal pattern, with no BNS number, and `note`
+ *  says so. */
+export function latticeCandidateLabel(c: LatticeCandidate): { symbol: string; numbers: string | null; setting: string | null; note?: string } {
+  if (c.twoArm) {
+    const symbol = c.decoration
+      ? `${formatMagneticSymbol(c.decoration.identity.bnsSymbol)} (G_k decoration)`
+      : c.candidate.label.replace(/^type III · /, "").replace(/^type I \(no time reversal\)$/, "no time reversal");
+    return { symbol, numbers: null, setting: null, note: TWO_ARM_NOTE };
+  }
   if (c.candidate.standard) {
     return {
       symbol: c.candidate.label,

@@ -162,7 +162,9 @@ approximate, however plausible its output looks.
   other settings: axis permutations, origin shifts, orthohexagonal C-centred
   cells, the cells of an F cubic parent, and the group's own conventional cells
   with the origin solved exactly ([MAGNETIC_SYMMETRY.md](./MAGNETIC_SYMMETRY.md)).
-  The candidates of a two-arm k are not magnetic space groups.
+  The candidates of a two-arm k are decorations of G_k, not magnetic space
+  groups, and carry no BNS label; the magnetic space groups of a two-arm k
+  (over G_{±k} in the supercell) are not enumerated yet.
 - Representation analysis: irreps at k = 0 for every parent group, and at any k
   when the little group is abelian.
 - The little group of k, the one-arm/two-arm classification and the k-phase of
