@@ -151,20 +151,23 @@ The sequence is **atoms before profile**. Free parameters in this order — over
    `X, Y` is a reasonable order, *not* a rigid one: free what the residual needs. `U`
    correlates strongly with sample broadening and is often held on a narrow 2θ range, but
    free it when a genuine width mismatch demands it.
-4. **ADPs** — with the instrument's terms fixed (the guardrail below), then the two groups alternate. `B_iso` first; **anisotropic only if
-   the data clearly support it** (high real-space resolution / low temperature). When B values are not *determined* — they swap
+4. **ADPs** — with the instrument's terms fixed (the guardrail below), then the two groups alternate. `B_iso` first; **anisotropic only as
+   an atom-by-atom test** after the isotropic fit settles (`rietveld_notes`); if the user
+   prefers U_iso, stay isotropic. When B values are not *determined* — they swap
    between refinement paths at the same wR, an esd is as large as the value, or one rails
    at 0 as its partner climbs (common below Q ≈ 6 Å⁻¹) — `tie_parameters` constrains
    chemically alike atoms to one B (the cations of an oxide, all the oxygens). Say in the
    report which B's are tied and why.
 
-   A B that ends on its bound at 0 is not a result. Find the cause first
-   (`diagnose_fit`: the background or absorption taking high-angle intensity, a correlation). If it stays at 0, the app ranks options
+   A B that ends on its bound at 0 is not a result. Find the cause first: the
+   profile at short d (TOF: asymmetry), the background or absorption (`diagnose_fit`), a
+   correlation, then an antisite test. If it stays at 0, the app ranks options
    (`assess_refinement`'s at-bound finding): a tie to a same-element site (preferred) or to
    a cation of the same coordination (labelled, with a caution), or the starting
    structure's B. Choose with `apply_adp_proposal` (asking first, the user picks; in auto
    mode yours applies; a cautioned option needs your `reason`), refine,
-   and say it in the report. A held B is an input, not a measurement: when a conclusion
+   and say it in the report. A held B (the rule's or the user's) is an
+   input: no esd, its source and the free fit's wR beside it; when a conclusion
    rests on it, run `bayesian-check`.
 5. **Occupancy** — see the guardrail below. Usually near-last.
 6. **Corrections** — end-stage polish only; see below.
@@ -177,11 +180,11 @@ re-run it after each change. A fit that converges poor while
 with mode `thorough` after a fit is the Escape minimum, a light multi-start nudge out of
 it; a start far off goes back to the Prefit (Stage 0, step 4).
 
-**Peak asymmetry is part of the profile, not polish.** On constant-wavelength data a
-one-sided residual at low angle (`diagnose_fit` says asymmetry) is axial divergence: switch
-it on (`set_corrections` asymmetry; S/L refines, H/L follows it) and refine it with the
-Caglioti terms. A Lorentzian X or Y that refines negative is unphysical: reset it
-(`reset_parameters` with its id), hold it, refine the rest.
+**Asymmetry is profile, not polish.** CW: a one-sided low-angle residual is axial
+divergence (`set_corrections` asymmetry; S/L with Caglioti). TOF: β₁ then
+β₀. Negative X or Y: `reset_parameters`, hold. On TOF the zero, α₁ and σ₀² stay at
+calibration until the **final profile pass** (cell held; last, not a stall cure;
+`rietveld_notes`). Paired residuals at one d: `set_microstrain` generalized.
 
 **When the starting profile is far off, the profile comes before the positions.** When
 `diagnose_fit` measures the lines much broader (or narrower) than calculated
@@ -334,14 +337,13 @@ comes from `export_bundle` and the tools.
   collapsing, divergence, runaway cross-phase correlations). Report each **weight fraction**
   (`get_state`'s `phaseFractions`, Hill–Howard, with esds): the model's crystalline phases
   only, no microabsorption correction.
+- **Magnetic before the ADPs** when satellites carry over ~10 % of χ² (they bias B).
 - **Magnetic**: once the nuclear structure is refined as fully as the data allow, hand off
-  to the `magnetic-analysis` skill (in the app, the powder page's magnetic analysis step;
-  over MCP, `search_propagation_vector`, `list_magnetic_subgroups`, `build_magnetic_model`,
-  `refine_magnetic_powder`) — a separate method, not this one. The exception is magnetic
-  Bragg intensity comparable to the nuclear, on nuclear reflections (large moments;
-  `k0Magnetic` on neutron data): hand off before the positions; they, the profile and the
-  ADPs refine with the moments in the joint step, by this method's order and rules
-  (alternating with the instrument terms). A nuclear-only fit of such data is not judged by
+  to the `magnetic-analysis` skill (the page's magnetic step; over MCP see
+  `mcp_tool_map`) — a separate method. The exception is magnetic
+  intensity comparable to the nuclear on nuclear reflections (`k0Magnetic`): hand off
+  before the positions, then alternate blocks (positions, profile, ADPs, moments), each
+  with the others held. A nuclear-only fit of such data is not judged by
   the acceptance bar.
 
 ## References
