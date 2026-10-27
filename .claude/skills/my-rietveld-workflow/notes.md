@@ -72,3 +72,49 @@ On constant-wavelength neutron data the wavelength is a calibration, not a const
 uniformly off by a fraction of a percent from the literature says the wavelength is (PbSO₄
 on D1A: 0.13% small, λ ≈ 1.9115 Å rather than the nominal 1.909 Å). Quote such a cell as
 uncalibrated, or calibrate λ against a standard or an X-ray cell.
+
+## Final tweaks (the user's procedure, 2026-10-27)
+
+**Anisotropic ADPs, atom by atom.** A test, tried only once the isotropic fit has settled.
+Freeing every U at once (four sites already make some twenty parameters) runs components
+onto their bounds.
+1. `set_adp_model` anisotropic. Every site is seeded from its refined B, so a site whose U
+   rows stay fixed is still isotropic in effect.
+2. Hold the instrument's terms (the instrument–thermal rule). Free one site's U rows
+   (`U_<site>_*`) with the scale and refine.
+3. Check that site: no component on a bound (`assess_refinement`), the tensor positive
+   definite, 8π²·U_eq close to the isotropic B, and a wR gain worth its parameters. If it
+   passes, hold it, or keep it free if it does not correlate with the next site, and go on.
+   If it fails, return it to its seeded values (`reset_parameters` on its U rows) and keep it
+   fixed, so it stays isotropic in effect.
+4. Order: the sites the data see best first (neutrons: largest b and multiplicity, often the
+   oxygens; X-rays: the heaviest atoms). Mixed or partially occupied sites last.
+5. Then alternate with the profile as usual. Report which sites are anisotropic, which stayed
+   isotropic, and why.
+
+If the user prefers U_iso, stay isotropic. B values held at U_eq from an anisotropic trial
+are reported as held (no esd), with where they came from and the free isotropic fit's wR.
+
+**TOF profile.** Asymmetry: β₁, then β₀, for one-sided residuals on the worst reflections;
+check it before an antisite test when a B is at 0. The zero and α₁ go with the cell, and σ₀²
+correlates with mustrain: all three stay at the calibration values until the final pass.
+
+**Final TOF profile pass.** Once the structure and any magnetic model are in, hold the
+background and the cell. Free the whole TOF profile together (α₀, α₁, β₀, β₁, β_q, σ₀²,
+σ₂², σ_q² and the zero) with the B values and moments held: holding the cell breaks the
+zero ↔ cell and α₁ ↔ cell correlations. Then alternate in small blocks (B's · moments ·
+profile · mustrain), each with the others held, with Escape minimum (`refine` mode
+`thorough`) between blocks. This is the last profile step, a final tweak once everything has been refined, not a cure
+for a stall. It should improve the fit without moving the physical values: positions, B
+values, occupancies and the moments stay within about their esds (the moments in particular
+should not change appreciably). Compare them before and after the pass. A value that moves
+by more means the profile is trading with the structure or the magnetic model: undo the
+pass (History), hold the terms that traded, and report it rather than keeping the shifted
+values.
+
+**Paired residuals** on opposite sides at nearly the same d read as broadening that depends on
+hkl (`set_microstrain` generalized), not as more σ or Caglioti terms.
+
+**Magnetic before the ADPs.** When the satellites carry a notable share of χ² (in the user's
+case about 13 %), hand off to the magnetic step before the ADPs: unmodelled magnetic
+intensity biases the B values.
