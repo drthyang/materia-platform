@@ -627,7 +627,16 @@ release fixes bugs.
   lasts for the session, until a new structure is loaded.
 
 ### Changed
-- Report: prose (the Result paragraph, notes, captions, caveats and the appendix text) is set justified with hyphenation, as in a journal; tables keep their alignment.
+-- **The fit-range check trims the long-d end past the data's own peaks.**
+  When the stretch beyond the last reflection holds a peak no phase
+  explains (an impurity, or magnetic order on neutron data),
+  `check_fit_range` used to keep the whole stretch. It now keeps that peak
+  and cuts the background beyond it: where the peak's tail is back at the
+  background, measured on the data, plus three of its own widths. On AWO₄ at
+  8 K on POWGEN (the 9.37 Å magnetic line at 211 244 µs) the window now ends
+  near 230 500 µs instead of the data's end at 462 823 µs.
+
+ Report: prose (the Result paragraph, notes, captions, caveats and the appendix text) is set justified with hyphenation, as in a journal; tables keep their alignment.
 - Plots: a plain mouse wheel over a plot now flashes the whole gesture line (zoom, pan, box-zoom, reset), not just the zoom shortcut.
 
 - **The header's Demos menu is gone; Load is Open; a Close button returns to

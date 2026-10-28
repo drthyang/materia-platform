@@ -68,11 +68,25 @@ describe("the data's ends", () => {
     expect(r.proposed).toEqual({ min: r.low.cut, max: 130 });
   });
 
-  it("keeps the background stretch when the data hold a peak there no phase explains", () => {
-    // A line at 14° the model lacks (magnetic order, an impurity).
+  it("keeps a peak no phase explains in the window, and cuts the background beyond it", () => {
+    // A line at 14° the model lacks (magnetic order, an impurity): the window covers it, then stops.
     const r = inspectDataRange(pattern(LINES, 200, (v, y) => y + 400 * Math.exp((-4 * Math.LN2 * (v - 14) ** 2) / 0.09)));
-    expect(r.low.verdict).toBe("keep");
     expect(r.low.notes.join(" ")).toMatch(/the data hold 1 peak there \(the strongest \d+σ at 1(3\.9|4\.0)\d\) that no phase explains: another phase, or magnetic order on neutron data — keep it/);
+    expect(r.low.verdict).toBe("trim");
+    expect(r.low.findings.map((f) => f.cause)).toEqual(["background-only"]);
+    expect(r.low.findings[0]!.detail).toMatch(/beyond the outermost peak in the data, at 1(3\.9|4\.0)\d/);
+    // Where its tail meets the background, then three of its widths (0.9°) more: the peak stays in.
+    expect(r.low.cut!).toBeGreaterThan(12.2);
+    expect(r.low.cut!).toBeLessThan(12.9);
+    // A line with a long tail toward the end (a TOF line's decay): the cut clears the tail, not just the top.
+    const tailed = (v: number, y: number): number => y + 400 * Math.exp((-4 * Math.LN2 * (v - 14) ** 2) / 0.09) + (v < 14 ? 150 * Math.exp((v - 14) / 0.5) : 0);
+    const t = inspectDataRange(pattern(LINES, 200, tailed));
+    expect(t.low.findings[0]!.detail).toMatch(/its tail back at the background by 1[23]\.\d+/);
+    expect(t.low.cut!).toBeLessThan(r.low.cut! - 0.3);
+    expect(t.low.cut!).toBeGreaterThan(10.5);
+    // A peak at the very edge leaves nothing to cut beyond it.
+    const atEdge = inspectDataRange(pattern(LINES, 200, (v, y) => y + 400 * Math.exp((-4 * Math.LN2 * (v - 10.6) ** 2) / 0.09)));
+    expect(atEdge.low.findings.some((f) => f.cause === "background-only")).toBe(false);
   });
 
   it("ends in a gap below counts that step up and stay at the last points", () => {
