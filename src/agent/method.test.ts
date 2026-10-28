@@ -128,8 +128,8 @@ describe("the method as code", () => {
   it("never refines the instrument's terms with the thermal parameters, and names every broken rule at once", () => {
     const none = emptyRecord("k");
     expect(ruleRefusal("powder", [p("B_Pb1", "bIso"), p("pos", "atomX")], [], none)).toBeNull();
-    // A microstrain model is the sample's broadening, not the instrument's.
-    expect(ruleRefusal("powder", [p("mustrain", "mustrainIso"), p("B_Pb1", "bIso")], [], none)).toBeNull();
+    // A microstrain model is the sample's broadening, not the instrument's: with a B it breaks its own rule, not this one.
+    expect(ruleRefusal("powder", [p("mustrain", "mustrainIso"), p("B_Pb1", "bIso")], [], none)?.rule).toBe("broadening-alone");
     const r = ruleRefusal("powder", [p("W", "profileW"), p("SL", "asymSL"), p("B_Pb1", "bIso")], [], none)!;
     expect(r.rule).toBe("instrument-with-thermal");
     expect(r.line).toBe("Not run: instrument terms (W, SL) free with thermal (B_Pb1)");
@@ -158,6 +158,22 @@ describe("the method as code", () => {
     expect(ruleRefusal("pdf", [p("qdamp", "qdamp"), p("x_Pb1", "atomX")], [], none)).toBeNull();
     const allowed = { ...none, exceptions: [{ rule: "instrument-with-positions" as const, reason: "the last joint cycle", at: 0 }] };
     expect(ruleRefusal("powder", [p("zero", "zeroShift"), p("x_Pb1", "atomX")], [], allowed)).toBeNull();
+  });
+
+  it("refines the microstrain on its own: never with the instrument's terms or the B values (the user's rule, 2026-10-28)", () => {
+    const none = emptyRecord("k");
+    // AWO₄ at 8 K: σ₂² ↔ microstrain −0.90, under the correlation limit, so only the rule stops it.
+    const withProfile = ruleRefusal("powder", [p("scale", "scale"), p("tof_sig2", "tofProfile"), p("mustrainIso", "mustrainIso")], [], none)!;
+    expect(withProfile.rule).toBe("broadening-alone");
+    expect(withProfile.line).toBe("Not run: microstrain (mustrainIso) free with instrument terms");
+    expect(withProfile.message).toMatch(/refines the microstrain on its own/);
+    expect(withProfile.message).toMatch(/call allow_exception with rule "broadening-alone"/);
+    const withB = ruleRefusal("powder", [p("stephens_1", "stephensStrain"), p("B_O1", "bIso")], [], none)!;
+    expect(withB.line).toBe("Not run: microstrain (stephens_1) free with thermal parameters");
+    // With the scale and background, or alone, it refines.
+    expect(ruleRefusal("powder", [p("scale", "scale"), p("bkg0", "background"), p("mustrainIso", "mustrainIso")], [], none)).toBeNull();
+    const allowed = { ...none, exceptions: [{ rule: "broadening-alone" as const, reason: "one joint cycle", at: 0 }] };
+    expect(ruleRefusal("powder", [p("tof_sig2", "tofProfile"), p("mustrainIso", "mustrainIso")], [], allowed)).toBeNull();
   });
 
   it("follows the alternation: each group's shift since its last refinement, settled once neither moves", () => {

@@ -112,17 +112,14 @@ nuclear values (until Stage 5): freed, they trade with the moments, and the esds
 3. A residual on the nuclear lines is the nuclear model's (notes): say so, and which
    nuclear model the moments were measured against.
 
-## Stage 5 — a last profile tweak
+## Stage 5 — the final instrument pass (always; the report waits for it)
 
 The peak shape was fitted before the magnetic peaks were modelled. Once the moments
-converge:
-
-1. `set_free` together the scale, background, zero and every peak-shape term (TOF
-   α₀, α₁, β₀, β₁, β_q, σ₀², σ₂², σ_q²; CW U, V, W, X, Y), moments and atomic structure
-   held; `refine` until wR stops moving. All of them, never a subset: a term on its bound
-   is fixed alone, the rest stay free.
-2. The moments once more with the scale and background (the scale trades with their
-   size); quote this fit and the tweak's gain.
+converge, `set_free` the instrument's terms alone — the zero and every peak-shape term
+(TOF α₀, α₁, β₀, β₁, β_q, σ₀², σ₂², σ_q²; CW U, V, W, X, Y, S/L, H/L), never a subset —
+everything else held (moments, structure, microstrain, scale, background); `refine` until
+wR stops moving. A term on its bound is fixed alone, the rest refined again. Quote the
+fit before and after.
 
 ## What to report — and what not
 

@@ -27,7 +27,7 @@ import { readSkill } from "@/agent/skills";
 import { RULES, advanceAlternation, alternationView, methodProgress, stagesCovered, type Alternation, type MethodRule } from "@/agent/method";
 import { analysisOf, hashText, onPage, type PageAdapter, type StateOf } from "@/agent/pages";
 import type { StepKind } from "@/core/project/history";
-import { Refusal, correlationGate, developedCorrelations, firmRules, methodGate, staleReason, symmetryNotYet, type RefusalKind } from "@/agent/executorPolicy";
+import { Refusal, correlationGate, developedCorrelations, firmRules, methodGate, reportNotYet, staleReason, symmetryNotYet, type RefusalKind } from "@/agent/executorPolicy";
 import { Answers, addNote, noteRead, recordView, syncStages, withoutMethod, writeReport, type SampledPosterior } from "@/agent/executorRecord";
 import { choicesFor, questionChoices, type ChoiceContext, type ChoiceSet } from "@/agent/choices";
 
@@ -378,6 +378,12 @@ export class AgentExecutor implements ToolRunner {
     }
 
     if (spec.name === "write_report") {
+      // The magnetic workflow's last step comes before its report: the final instrument pass.
+      const pending = reportNotYet(port.technique, port.state().parameters, port.state().result, this.skills);
+      if (pending) {
+        update({ status: "failed", outcome: pending.line });
+        return refused(pending.message, "report-gate");
+      }
       update({});
       // Let the drawer paint "running" before the checks run.
       await new Promise((r) => setTimeout(r, 0));

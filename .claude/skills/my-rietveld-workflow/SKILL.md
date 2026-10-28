@@ -49,9 +49,9 @@ Each is explained at its stage below.
 - **A block is done** when it has converged — `assess_refinement`'s largest shift below
   0.1 esd — and nothing has railed to a bound. Only then free the next.
 - **Firm rules** (`refine` refuses; only the user lifts one, with `allow_exception`): no
-  occupancy refines bare; the instrument's terms never refine with the B values (alternate
-  the two; settled once a cycle moves neither group by more than 0.3 esd), nor with the atom
-  positions; no two free parameters that correlate at |ρ| ≥ 0.95.
+  bare occupancy; the instrument's terms never with the B values (alternate; settled once a
+  cycle moves neither group by more than 0.3 esd) nor the positions; the microstrain alone;
+  no two free parameters at |ρ| ≥ 0.95.
 - **After every run**, assess it (`refine`'s `checks`; over MCP `bond_geometry` and the B
   values). **Hard** — two atoms closer than 1.0 Å, a U_iso above 0.1 Å², a negative U: take
   the run back (`go_to_step`) and ask the user. **Warn** and report — atoms closer than
@@ -239,9 +239,9 @@ fixed — say so in the report.
 
 **With an instrument file from a standard**, keep its terms fixed where they fit, and
 refine only what the sample adds; when it does not describe the data, refine its terms,
-alternating as above. A microstrain model (`set_microstrain`) is the sample's broadening,
-outside this rule; `X` and `Y` are inside it (they hold the instrument's Lorentzian part
-too). Only the user lifts the rule (`allow_exception`, rule `instrument-with-thermal`),
+alternating as above; `X` and `Y` are inside this rule. **The microstrain refines alone**
+(rule `broadening-alone`): it trades with the instrument's width and the B values' fall-off,
+so free it with both held. Only the user lifts the rule (`allow_exception`, rule `instrument-with-thermal`),
 for instance for one last joint cycle once the alternation has settled.
 
 **The positions likewise** (rule `instrument-with-positions`): a wrong peak shape or zero

@@ -37,12 +37,13 @@ import { parseTie } from "@/core/refinement/constraints";
 import { lineage, type ProjectHistory } from "@/core/project/history";
 import { listOf } from "@/agent/liveCommon";
 
-export type MethodRule = "bare-occupancy" | "instrument-with-thermal" | "instrument-with-positions";
+export type MethodRule = "bare-occupancy" | "instrument-with-thermal" | "instrument-with-positions" | "broadening-alone";
 
 export const RULES: Readonly<Record<MethodRule, { readonly title: string; readonly pages: readonly AgentPage[] }>> = {
   "bare-occupancy": { title: "Refine an occupancy with no tie or second contrast", pages: ["powder", "pdf", "singleCrystal"] },
   "instrument-with-thermal": { title: "Refine instrument and thermal parameters together", pages: ["powder", "pdf"] },
   "instrument-with-positions": { title: "Refine instrument terms and atom positions together", pages: ["powder"] },
+  "broadening-alone": { title: "Refine the microstrain with the instrument terms or the thermal parameters", pages: ["powder"] },
 };
 
 /**
@@ -57,6 +58,9 @@ export const INSTRUMENT_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKin
 
 /** The atom positions: coordinates and position shifts. */
 export const POSITION_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>(["atomX", "atomY", "atomZ", "positionShift"]);
+
+/** The sample's broadening: the microstrain (isotropic, generalized, uniaxial) and the size terms. */
+export const BROADENING_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>(["mustrainIso", "stephensStrain", "mustrainPerp", "mustrainPar", "anisoSizePerp", "anisoSizePar"]);
 
 /** The thermal parameters: B_iso and the anisotropic U's. */
 export const THERMAL_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>(["bIso", "uAniso"]);
@@ -345,6 +349,20 @@ export function ruleRefusal(page: AgentPage, free: readonly RefinementParameter[
         rule: "instrument-with-positions",
         line: `Not run: instrument terms (${ids(instrument)}) free with positions (${ids(positions)})`,
         why: `the instrument's terms (${ids(instrument)}) and the atom positions (${ids(positions)}) are free together — the user's method never refines them together. A peak shape or zero gone wrong moves intensity between neighbouring lines, which the positions can follow, and each then absorbs the other's error. Fix the positions and refine the instrument terms, then fix those and refine the positions. If the user wants them refined together, call allow_exception with rule "instrument-with-positions" and their reason — they approve it themselves.`,
+      });
+    }
+  }
+  if (page === "powder" && !hasException(record, "broadening-alone")) {
+    const broadening = free.filter((p) => BROADENING_KINDS.has(p.kind));
+    const instrument = free.filter((p) => INSTRUMENT_KINDS.has(p.kind));
+    const thermal = free.filter((p) => THERMAL_KINDS.has(p.kind));
+    if (broadening.length > 0 && (instrument.length > 0 || thermal.length > 0)) {
+      const ids = (ps: readonly RefinementParameter[]): string => listOf(ps.map((p) => p.id), 6);
+      const others = [instrument.length > 0 ? `the instrument terms (${ids(instrument)})` : null, thermal.length > 0 ? `the thermal parameters (${ids(thermal)})` : null].filter(Boolean).join(" and ");
+      broken.push({
+        rule: "broadening-alone",
+        line: `Not run: microstrain (${ids(broadening)}) free with ${instrument.length > 0 ? "instrument terms" : "thermal parameters"}${instrument.length > 0 && thermal.length > 0 ? " and thermal parameters" : ""}`,
+        why: `the sample's broadening (${ids(broadening)}) is free together with ${others} — the user's method refines the microstrain on its own. It widens every line as the instrument's peak width does (σ₂² and σ_q² on TOF, U, X and Y at constant wavelength), and its fall-off with d trades with the B values: refined together, each takes the other's share and the esds hide it. Refine it with the instrument terms and the B values fixed (the scale and background may stay free), then fix it and go on. If the user wants them refined together, call allow_exception with rule "broadening-alone" and their reason — they approve it themselves.`,
       });
     }
   }

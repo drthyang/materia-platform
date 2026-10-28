@@ -444,8 +444,12 @@ export const magneticRefinesMomentsOnly: Check = {
     if (handed < 0) return fail("never handed the magnetic model to the refinement");
     const refines = all.slice(handed + 1).filter((c) => c.name === "refine" && !c.isError);
     if (refines.length === 0) return fail("no refinement after the hand-off");
-    const mixed = refines.find((c) => (c.free ?? []).some((id) => !id.startsWith("mom_")));
-    return mixed ? fail(`refined ${(mixed.free ?? []).filter((id) => !id.startsWith("mom_")).join(", ")} with the moments`) : ok(`${refines.length} refinement(s) of the moments alone`);
+    // The moments never refine with anything else; a pass with the moments held (the final
+    // instrument pass, magnetic-analysis Stage 5) is no moments refinement.
+    const withMoments = refines.filter((c) => (c.free ?? []).some((id) => id.startsWith("mom_")));
+    if (withMoments.length === 0) return fail("the moments were never refined after the hand-off");
+    const mixed = withMoments.find((c) => (c.free ?? []).some((id) => !id.startsWith("mom_")));
+    return mixed ? fail(`refined ${(mixed.free ?? []).filter((id) => !id.startsWith("mom_")).join(", ")} with the moments`) : ok(`${withMoments.length} refinement(s) of the moments alone`);
   },
 };
 

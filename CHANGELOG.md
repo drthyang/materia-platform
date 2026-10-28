@@ -627,7 +627,21 @@ release fixes bugs.
   lasts for the session, until a new structure is loaded.
 
 ### Changed
--- **The fit-range check trims the long-d end past the data's own peaks.**
+-- **The microstrain refines on its own (a firm rule).** On the powder page
+  the Agent's `refine` now refuses a free set with the microstrain (or any
+  sample-broadening term) together with the instrument's terms or the B
+  values, rule `broadening-alone`: they widen the lines alike and trade with
+  each other, below the correlation limit (σ₂² ↔ microstrain −0.90 on AWO₄).
+  Only the user lifts it, with `allow_exception`.
+
+- **The magnetic workflow ends with the final instrument pass.** On the
+  powder page with a magnetic model in the refinement, `write_report` waits
+  until the last converged refinement freed the instrument's terms alone
+  (the zero and the peak shape, everything else held): the peak shape was
+  fitted before the magnetic peaks were modelled. The magnetic skill's
+  Stage 5 says so; no prompt is needed for it.
+
+- **The fit-range check trims the long-d end past the data's own peaks.**
   When the stretch beyond the last reflection holds a peak no phase
   explains (an impurity, or magnetic order on neutron data),
   `check_fit_range` used to keep the whole stretch. It now keeps that peak

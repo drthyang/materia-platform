@@ -19,12 +19,12 @@ import { matchIds } from "@/agent/liveCommon";
 import { correlationRefusal, refusalLine } from "@/agent/correlationCheck";
 import { PROBE_OPTIONS, carriedText, pairText, readCorrelations } from "@/core/diagnostics/correlationGuard";
 import { PAGE_METHOD } from "@/agent/skills";
-import { outOfOrder, ruleRefusal, stagesLeft, type AgentRecord } from "@/agent/method";
+import { INSTRUMENT_KINDS, outOfOrder, ruleRefusal, stagesLeft, type AgentRecord } from "@/agent/method";
 import type { PageAdapter, StateOf } from "@/agent/pages";
-import type { LinearRestraint, RefinementParameter, RefinementResult } from "@/core/refinement/types";
+import { isMomentParameterKind, type LinearRestraint, type RefinementParameter, type RefinementResult } from "@/core/refinement/types";
 
 /** Who refused a call: the method gate, a running fit, a firm rule, the correlation guard, the symmetry review's gate, or a page changed while the card waited. */
-export type RefusalKind = "method" | "busy" | "firm-rule" | "correlation" | "symmetry-gate" | "stale";
+export type RefusalKind = "method" | "busy" | "firm-rule" | "correlation" | "symmetry-gate" | "report-gate" | "stale";
 
 /** A call refused by a rule or a guard: an error to the model, `refused` to the loop. */
 export class Refusal extends Error {
@@ -133,6 +133,24 @@ export function symmetryNotYet(page: AgentPage, record: AgentRecord, status: str
     };
   }
   return null;
+}
+
+/**
+ * Why the report waits, or null: on the powder page with a magnetic model in the refinement, the
+ * magnetic workflow ends with a final instrument pass (magnetic-analysis Stage 5) — the peak shape was
+ * fitted before the magnetic peaks were modelled — so the report comes once the last converged
+ * refinement freed the instrument's terms and nothing else. Without the skills (arm C) there is no
+ * workflow to keep.
+ */
+export function reportNotYet(page: AgentPage, parameters: readonly RefinementParameter[], result: RefinementResult | null | undefined, skills: boolean): Held | null {
+  if (!skills || page !== "powder" || !parameters.some((p) => isMomentParameterKind(p.kind))) return null;
+  const kind = new Map(parameters.map((p) => [p.id, p.kind] as const));
+  const refined = result?.status === "converged" ? Object.keys(result.esd).map((id) => kind.get(id)) : [];
+  if (refined.length > 0 && refined.every((k) => k !== undefined && INSTRUMENT_KINDS.has(k))) return null;
+  return {
+    line: "Not yet: the final instrument pass",
+    message: `Not yet. ${PAGE_METHOD[page]}'s magnetic step ends with a final instrument pass (magnetic-analysis Stage 5): the peak shape was fitted before the magnetic peaks were modelled. Free only the instrument's terms — the zero and the peak shape with its asymmetry (TOF α, β, σ; constant wavelength U, V, W, X, Y and S/L, H/L) — with everything else held (the moments, the structure, the microstrain, the scale and the background), and refine to convergence; a term that lands on its bound is fixed alone and the rest refined again. Then write the report, quoting the fit before and after the pass.`,
+  };
 }
 
 /** Why an approved change may no longer run (the page closed, a fit running, or anything checked changed while the card waited), or null. */

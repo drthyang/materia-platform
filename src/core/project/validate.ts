@@ -690,7 +690,7 @@ function checkAgent(v: unknown, path: string): void {
     }
     arr(record.exceptions, `${p}.exceptions`).forEach((e, j) => {
       const ex = rec(e, `${p}.exceptions[${j}]`);
-      oneOf(["bare-occupancy", "instrument-with-thermal", "instrument-with-positions"])(ex.rule, `${p}.exceptions[${j}].rule`);
+      oneOf(["bare-occupancy", "instrument-with-thermal", "instrument-with-positions", "broadening-alone"])(ex.rule, `${p}.exceptions[${j}].rule`);
       str(ex.reason, `${p}.exceptions[${j}].reason`);
       num(ex.at, `${p}.exceptions[${j}].at`);
     });
