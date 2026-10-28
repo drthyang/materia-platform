@@ -20,9 +20,11 @@ Open [drthyang.github.io/materia-platform](https://drthyang.github.io/materia-pl
 The start page shows the **Structure**, **Data** and **Instrument** cards above
 **Start with a demo**.
 
-1. Click a demo card, or pick a demo from **Demos ▾** in the header.
+1. Click a demo card.
 2. The demo opens on a converged refinement. Change anything you like.
-3. To leave, open **Demo ✓ ▾** and click **Exit demo**.
+3. To leave, click **Close** in the header. It returns to this start page. If
+   you changed anything since the demo opened, it asks first (see the table
+   below).
 
 - **Rietveld · Mn₃Ga neutron TOF**: a two-phase fit of POWGEN time-of-flight
   data, Mn₃Ga with a MnO impurity. At 600 K the sample is paramagnetic.
@@ -37,7 +39,7 @@ The start page shows the **Structure**, **Data** and **Instrument** cards above
 | --- | --- |
 | **Powder** · **Crystal**, **Rietveld** · **PDF** | Indicators: the sample form and the technique of the loaded data |
 | **Nuclear** · **Magnetic** | Switch between the refinement page and the magnetic page |
-| **Project ▾** | **Save project** and **Open project…** |
+| **Save** · **Open** · **Close** | Save the session as a project file, open a saved one, or close the project and return to the start page. **Close** asks first when there are changes since the last **Save** or **Open** (or since a demo was loaded), and always for a project built from your own files that you have not saved: **Save** downloads the file and closes, **Discard** closes without saving, **Cancel** keeps working. A refinement that is still running is cancelled |
 | **Export ▾** | The report and the files for the active technique |
 
 The data you load pick the page. A reflection list opens the single-crystal
@@ -54,7 +56,7 @@ page, a G(r) file the PDF page, and any other pattern the powder page.
 | Single-crystal reflections | SHELX `.hkl` (h k l F² σ); FullProf `.int`; a GSAS-II reflection list, filtered to the loaded cell | **Load data…** |
 | Magnetic satellites | A second `.int` or `.hkl`, indexed as the fundamental hkl of hkl ± k | **Load magnetic .int…** |
 | Pair distribution function | `.gr`; `.sq` and `.fq`, transformed to G(r) on load; PDFgui `.fgr` fit files | **Load data…** |
-| Project | `.materia.json` | **Project ▾** → **Open project…** |
+| Project | `.materia.json` | **Open** in the header |
 
 **Check `.hkl` reflections after loading.** The page reads them as
 whitespace-separated columns, so in a SHELX HKLF 4 file an intensity of
@@ -144,14 +146,17 @@ Open a group for its model controls:
 A B_iso that ends on its lower bound (0) has no meaningful esd, and usually
 absorbs an error elsewhere: check the background, absorption and the
 correlations first ([Judge a fit](#8-judge-a-fit)). The powder page then shows
-a ⚠ **B at its lower bound** notice over the parameter list. It names the atom,
-the B it reached, and the options, ranked, each with its source and its own
-**Apply**:
+a ⚠ **B at its lower bound** notice over the parameter list. It names the atom
+("B(W1) is at its 0 bound") and lists the options, ranked, each in one short
+line with its own **Apply** ("Tie to B(Co1) = 0.6(2) Å² (same 6-O coordination,
+different cation)", "Hold at 1.453 Å² (starting value)"). The **?** beside
+each line holds the rule's full sentence: the source, the species, the
+reasoning.
 
 - **Preferred: a tie to a site of the same element** that refined sensibly
   (O2 → O1). The common B still refines.
 - **Alternatives: a tie to another cation with the same coordination** (as many
-  of the same ligands), labelled with both species and a caution such as
+  of the same ligands). A ⚠ beside the line carries the caution, such as
   "a different cation (W⁶⁺ vs Co²⁺): check it is physically sensible".
 - **Alternative: the starting structure's B** for that site (a CIF's U_iso is
   read as B = 8π²U), held fixed. It is used as it stands: the app has no
@@ -164,8 +169,12 @@ option of this list: asking first, its card shows every option with its pick
 preselected, and you may pick another or decline. In auto mode its pick
 applies without a card, and the notice, the History and the report say it was
 the Agent's choice in auto mode, with the options not taken.
-Applied, the row is an ordinary **= tied** or fixed row, saved like any other,
-and listed under **Limitations** in the report. **Release** (or ⌘Z) frees it
+Applied, the notice says so in one line ("B(W1) hit 0 → tied to B(Co1) =
+0.6(2) Å² (same 6-O coordination, different cation); not measured on its
+own", the tied value as the last fit gives it; or "B(O1) hit 0 → held at
+0.800 Å² (starting value); not measured"), with the options not taken behind
+its **?**. The row is an ordinary **= tied** or fixed row, saved like any
+other, and listed under **Limitations** in the report. **Release** (or ⌘Z) frees it
 again. If a conclusion rests on that B, sample its posterior first
 (**Posterior** view).
 
@@ -274,6 +283,13 @@ In **Magnetic ions**, click a site to include or exclude it. In
    on the pattern. A long table shows its six strongest peaks and every peak
    in the search; **Show all … peaks** lists the rest. **near** gives the
    nuclear reflection a peak sits on, with its phase when there are several.
+   Click a column header to sort by it (**#**, **d**, **I/σ**, **Δd→k**,
+   **near**, **use**); a second click reverses it. The table opens in # order,
+   which is d from large to small, and **default order** returns to it.
+   Sorting only reorders: a long table shows the same peaks in any order.
+   Click a row to mark that peak on the pattern, in the plot's own unit: the
+   view keeps its zoom, and moves only to bring a peak that is out of view in.
+   Click the row again to clear the mark.
 2. Choose the peaks for the search with **I/σ ≥**,
    **include peaks at nuclear positions** and each peak's **use** box. To add a
    missed peak, click **+ Add peak from plot**, then the pattern.
@@ -294,12 +310,21 @@ In **Symmetry framework**, pick **Magnetic space groups**, or
 **Representation analysis** to tick irreps and get their isotropy subgroup.
 
 In **Magnetic space group**, the candidates are grouped by index. Work top-down:
-only **index 2 — maximal** starts open, because the ordered phase is usually a
-maximal subgroup. Each row shows **type I** or **type III**, the BNS/OG symbol
-and a **… moment dof** badge. A greyed **moment forbidden** row allows no moment
-on your sites. Click a row to preview it. When a candidate's symbol needed a
-change of setting, the 3D view's **Cell** control can also show its standard
-cell.
+only the sections of the **maximal** groups that carry a moment on your sites
+start open (marked "— maximal"), because the ordered phase is usually a maximal
+subgroup. Maximal is containment, not index: no candidate above the group gives
+your sites a moment, and such a group can sit at index 4, 6, 8 or 12. Each row
+shows the group's type (I to IV; at k ≠ 0 it is IV, the k turning some lattice
+translations into anti-translations), the BNS/OG symbol of the group in its
+magnetic cell with its setting against the parent cell, and a **… moment dof**
+badge: the moment parameters its fit refines on your sites, every split orbit
+counted and co-located ions sharing one moment. A greyed **moment forbidden**
+row allows no moment on your sites. At a two-arm k (such as (⅓,⅓,0)) the rows
+are decorations of the little group for the Fourier moment model, marked
+**two-arm k** and "not a magnetic space group label". Click a row to preview
+it. When a
+candidate's symbol needed a change of setting, the 3D view's **Cell** control
+can also show its standard cell (at k ≠ 0, the magnetic cell).
 
 #### Rank the candidates against the data
 
@@ -310,8 +335,9 @@ cell.
    the moment sizes. Click a ranked row to preview its refined moments.
 
 Ties are expected, because a powder pattern often cannot tell symmetry-distinct
-models apart. Candidates within 0.01 % in wR of the best are marked ≈. Among
-them, the ★ goes to the maximal subgroup with the fewest moment parameters.
+models apart. Candidates within the noise of the best fit by Hamilton's test are
+marked ≈. Among them the ★ goes top-down: to a group none of the others
+contains, then the lowest index, then the fewest moment parameters.
 
 If no candidate beats the nuclear-only fit, a note says so. The pattern may be
 paramagnetic, the moments may be too small, or k may be wrong. Check the
@@ -455,14 +481,33 @@ shows the modes being refined.
     Amm2), then the lower ones down to a general direction (marked
     "general"). **Activate → …** lowers to that isotropy subgroup and frees
     the mode with a small starting amplitude.
-  - **Subgroup lattice** lists the translationengleiche subgroups, each in
-    its standard setting (a centred parent's subgroups keep its centring:
-    F-43m's tetragonal subgroup is I-4m2), with its orientations (conjugate
-    subgroups) and domain states. **Activate ↓** lowers to one and loads its
-    modes: the order parameter that lowers the structure to it is freed with
-    a small starting amplitude, as **Activate →** does, and the other modes
-    start fixed at 0. At the parent's geometry a symmetry-breaking mode
-    started at 0 would never move.
+  - **Decentring modes · irreps (same cell)** appears for a centred parent
+    (F, I, C, A, B, or R on hexagonal axes). It lists the irreps at the
+    k-points the centring makes zone-boundary but the conventional cell still
+    holds: X for F, H for I, (0,1,0) for C, (0,0,1) for R. A distortion there
+    loses centring translations and keeps the cell, so it refines as it
+    stands. The irreps are named generically, by the k-point and "irrep n of
+    m" ([ADR 0004](./adr/0004-generic-irrep-labels-in-the-app.md)). Each
+    **Activate → …** button names an isotropy subgroup and its
+    order-parameter direction, such as (a,a,a,−a,−a,−a). The direction is in
+    MATERIA's own irrep basis, which can differ from ISODISTORT's symbols.
+    The tooltip gives the index split as point group · translations. For
+    F-43m (GaTa₄Se₈, GaNb₄Se₈) the six-dimensional X irrep leads to P2₁3. On
+    activation the Wyckoff orbits split, the child's modes are listed by
+    parent irrep and site, and the order parameter is freed with the small
+    starting amplitude.
+  - **Subgroup lattice** lists the subgroups that keep the conventional
+    cell, each in its standard setting (ADR 0003), with its orientations
+    (conjugate subgroups) and domain states. The translationengleiche ones
+    keep the parent's centring: F-43m's tetragonal subgroup is I-4m2. For a
+    centred parent the list adds the decentring k-subgroups (marked **k**,
+    such as F-43m's P-43m) and the general subgroups (marked **general**,
+    such as P2₁3), each with its index split, for example 2·4.
+    **Activate ↓** lowers to one and loads its modes: the order parameter
+    that lowers the structure to it is freed with a small starting
+    amplitude, as **Activate →** does, and the other modes start fixed at 0.
+    At the parent's geometry a symmetry-breaking mode started at 0 would
+    never move.
   - **Load parent CIF…** decomposes a structure that is already the distorted
     child against a high-symmetry parent.
 - The choice shows at the top of the **Subgroups** view. **✕ clear** returns
@@ -470,9 +515,25 @@ shows the modes being refined.
 - The **3D Model** view lists the modes with their amplitudes, esds and
   free/fixed state, and names the parent or subgroup they lower to. Click a
   **Distortion modes** row to draw the mode as green arrows.
+- Three amplitudes are shown
+  ([ADR 0003](./adr/0003-isodistort-as-the-single-convention-system.md)):
+  - **A** is the refined parameter: the displacement norm over the
+    conventional child cell.
+  - **A_s** is ISODISTORT's: over the primitive child cell, A/√f for a child
+    with f lattice points per cell.
+  - **A_p** = A_s·√(V_p/V_s) is normalized to the parent's primitive cell.
 
-These tools need a single phase, and offer cell-preserving (Γ) modes only
-([LIMITATIONS.md](./LIMITATIONS.md#real-space-pdf-and-magnetic-pdf)).
+  For a primitive child of a primitive parent all three are equal. The
+  report shows them as well.
+
+These tools need a single phase. They offer the distortions that keep the
+conventional cell: Γ, and the decentring k-points of a centred parent.
+Cell-multiplying k-points (X, M and R of a primitive cubic parent; L and W of
+an F one) need a supercell and are named on the page as planned
+([LIMITATIONS.md](./LIMITATIONS.md#real-space-pdf-and-magnetic-pdf)). The
+engine behind them is described in
+[ADR 0001](./adr/0001-compute-irreps-by-chain-induction.md) and
+[ADR 0002](./adr/0002-bound-the-search-by-a-supercell.md).
 
 ### Boxcar scan
 
@@ -542,7 +603,10 @@ Never judge a fit by its R value alone. The definitions are in
     negative B values, occupancies outside [0, 1], values on a bound,
     distances and U values; a negative B or a structural value on its bound
     is a blocker, a held occupancy within 1 % outside its range a note (an
-    input to correct). The **cross-check** in GSAS-II and FullProf (the
+    input to correct). Each is one line that ends on what to do ("W1 B refined
+    negative (-0.0123) → hold it positive, find the cause"); a B on 0 lists
+    its options in the notice's words, and the **?** holds the finding as
+    the assessment states it. The **cross-check** in GSAS-II and FullProf (the
     bundles), with why the esds may not hold: serially correlated residuals,
     a value on its bound, or a correlated pair, which the **Posterior**
     judges.
@@ -600,9 +664,9 @@ near 1 supports the least-squares esds.
 
 ## 9. Save and export
 
-**Project ▾** → **Save project** downloads the session as a `.materia.json`
-file. **Open project…**, or **… or open a saved project (.materia.json)** on the
-start page, reopens it on the page you saved from.
+**Save** in the header downloads the session as a `.materia.json` file (it
+appears once something is loaded). **Load**, or **… or open a saved project
+(.materia.json)** on the start page, reopens it on the page you saved from.
 
 A project keeps the phases, data, parameters, model settings, last result,
 applied magnetic model and the step history. It does not keep the magnetic page's search state,
@@ -684,10 +748,11 @@ nuclear part only.
 - **Quality and caveats**: one line each for the acceptance checks, the
   causes of misfit, the correlations worth reading (not a background's
   coefficients among themselves), and the limitations. A report the Copilot
-  writes adds its open issues and its Bayesian check.
+  writes adds its open issues and its Bayesian check. A line marked * was
+  shortened: its full account is in the appendix's **Caveats in full**.
 - **Appendix**, collapsed until you open it: the data and model, the
-  refinement's statistics, every parameter (fixed or refined), the
-  conventions and the software. A Copilot report adds the analysis step by
+  refinement's statistics, the caveats in full, every parameter (fixed or
+  refined), the conventions and the software. A Copilot report adds the analysis step by
   step: the History's steps, the method's checklist, every check with its
   numbers, and the notes. Printing opens every part.
 

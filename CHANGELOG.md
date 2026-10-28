@@ -17,6 +17,43 @@ release fixes bugs.
   and the Copilot labels it with its model as a replay of a live run, not a
   scripted one. Off by default; the static build has neither.
 
+- **README: what each result is checked against.** The Impact table now names
+  the area, the case, the reference (SHELXL, GSAS-II, FindSpinGroup, FullProf,
+  PDFfit2, diffpy.mpdf) and what agreed, each row marked Supported,
+  Approximate or Not yet; the Copilot's own study is a Not yet row. The
+  README's tool and scenario counts, which said nothing about correctness,
+  are gone, and so is the test that pinned them.
+
+- **The subgroup engine, Phase 1: irreps computed at the decentring
+  k-points, and the subgroups that keep the conventional cell** (PDF
+  Subgroups page; [ADRs 0001–0005](docs/adr/)).
+  - Irreps are built, not looked up. The engine finds the star and the
+    little co-group exactly and builds the projective small representations
+    by chain induction (spgrep's method, BSD-3, ported). It induces them over
+    the star and checks every result: the representation property,
+    unitarity, Σ dim², orthonormal characters.
+  - For a centred parent the Subgroups page lists the irreps at X (F), H (I)
+    and the C, A, B and R points beside the Γ ones. They carry generic
+    labels: the k-point and "irrep n of m". Each comes with its isotropy
+    subgroups and order-parameter directions, found by the image method and
+    named in ITA standard setting.
+  - The subgroup lattice gains the decentring k-subgroups and the general
+    subgroups that keep the cell, each marked with its index split t·k.
+  - Activate realizes the child in the parent's cell, lists its modes by
+    parent irrep and Wyckoff site, and kicks the order parameter.
+  - The Γ isotropy subgroups now come from the same engine, with unchanged
+    results.
+  - Checked against spgrep (12 cases, by character), hand-derived counts
+    (Im-3m's four and I4/mmm's eight index-2 k-subgroups), and an opt-in
+    ISOTROPY workflow. On real data, GaNb₄Se₈'s local P2₁3 is reached from
+    F-43m's X irrep and from the lattice. Its 13 modes refine to Rw 5.5 %
+    (r = 2–10 Å; the cubic average gives 9.19 %).
+- **ISODISTORT's mode amplitudes, A_s and A_p, beside MATERIA's.** They
+  appear in the 3D Model's mode table and in the report. MATERIA's
+  amplitude runs over the conventional child cell, √f larger than A_s for a
+  child with f lattice points per cell; the refined parameter keeps its unit
+  until the agent validation freeze ends.
+
 - **The PDF page exports a PDFgui / diffpy-CMI bundle** (Export ▾ →
   PDFgui / diffpy-CMI bundle (.zip)), the real-space counterpart of the
   GSAS-II and FullProf bundles. It holds the whole unit cell as a PDFfit-format
@@ -576,7 +613,93 @@ release fixes bugs.
   is settled. `weightsLast` now counts the twin and the hand among the model's
   changes, and reads the last weighting scheme set, not the first.
 
+- **The residual-peak table sorts.** On the Magnetic page's step 2, a click on
+  a column header (#, d, I/σ, Δd→k, near, or use) orders the table by it, and
+  a second click reverses it. The header carries `aria-sort`, a direction
+  glyph and a button the keyboard presses (44 px on a touch screen); a note
+  beside the table names an order that is not the default and one click
+  returns to it. The table opens in the order it always had, # ascending (d
+  from large to small, as the ticks on the pattern are numbered). Ties, and
+  rows with no value, keep # order whichever way a column runs. Sorting only
+  reorders: a collapsed table still shows the peaks the k-search reads, those
+  added by hand, the highlighted one, and then the strongest, in whatever
+  order is set, so sorting by d never swaps a real peak for noise. The order
+  lasts for the session, until a new structure is loaded.
+
 ### Changed
+- Report: prose (the Result paragraph, notes, captions, caveats and the appendix text) is set justified with hyphenation, as in a journal; tables keep their alignment.
+- Plots: a plain mouse wheel over a plot now flashes the whole gesture line (zoom, pan, box-zoom, reset), not just the zoom shortcut.
+
+- **The header's Demos menu is gone; Load is Open; a Close button returns to
+  the start page.** The demos were offered twice, in a header menu and as
+  cards on the start page, and the cards (Rietveld Mn₃Ga, PDF GaTa₄Se₈, and
+  the AWO₄ magnetic demo where its local data are reachable) stay as the one
+  way to them. The "Demo ✓" state and "Exit demo" go with the menu: the
+  loaded-file chip says what is open, and Close replaces Exit.
+  - **Open** is the old Load button under its new name (visible label "Open",
+    accessible name "Open project", the tooltip names the `.materia.json`
+    file). It does what it did.
+  - **Close** sits after Open and shows only while something is loaded. It
+    returns to the start page with an empty workbench: the page, model, data,
+    step history and the Agent's records are dropped, a refinement still
+    running is cancelled (its worker is stopped and no result lands on the
+    empty page), the Agent's running turn and waiting approval cards are
+    stopped, and the browser's autosave is cleared, so a project closed on
+    purpose is not offered back as a crashed session. The Agent conversation
+    is kept, as when a demo or a file replaces the project; "New
+    conversation" stays the user's.
+  - **Close asks first when the project has changes** since its last Save,
+    Open or demo load: Save downloads the project file and closes, Discard
+    closes, Cancel keeps working. A change is a different model state (what
+    the step history calls one, so a plot-unit switch is not), a step
+    recorded since (a refinement undone again still counts), or a change to
+    the Agent's records. With none, it closes at once. A project built from
+    your own files, or restored from the browser's autosave, exists nowhere
+    else, so it asks until it is saved. The "has anything changed" mark is
+    taken once the page has settled after a demo load or an Open, because an
+    engine finishes restoring its fit window a render after the step is
+    recorded.
+  - The header's order is History, Save, Open, Close, Export. Close takes the
+    Demos menu's place (a shorter word, the same number of buttons), so the
+    header's height and row count are unchanged at the desktop, iPad and
+    iPhone sizes tuned for it (1920 and 1440; iPad Pro 11" and 13", upright
+    and sideways; iPhone 402×680, 440×760, 874×370 and 956×410), nothing
+    overflows, and the buttons stay 44 px tall on a touch screen.
+
+- **The B-at-0 notice, the physical findings and the report's limitations
+  say each thing in one short line.** The result or the action comes first,
+  with no rule letters and no repetition. A B on 0 reads "B(W1) is at its 0
+  bound: tie it to B(Co1) (same coordination) or hold it at 1.453 Å²", and
+  each option sits beside its own **Apply**. A fix in force reads "B(W1) hit
+  0 → tied to B(Co1) = 0.6(2) Å² (same 6-O coordination, different cation);
+  not measured on its own", with the tied value as the last fit gives it. A
+  held B reads "B(O1) hit 0 → held at 0.800 Å² (starting value); not
+  measured". A tie across two different sites carries its caution as a ⚠
+  with a tooltip, not a parenthetical. The Validation tab's physical sanity
+  card shortens the other long findings the same way: "B1 hit its lower
+  bound (0) → find the cause", "Ga1 occ held at 1.05, outside [0, 1] →
+  correct the input", "W1 B refined negative (-0.0123) → hold it positive,
+  find the cause". The cross-check card's moderate correlations read "2 pairs
+  correlate, |ρ| up to 0.86 → report each with ρ". The full sentences are
+  behind a **?** on screen. In the report they move to a new appendix part,
+  **Caveats in full**, and the report states a fix once, as a limitation.
+  The Agent reads the same text as before: the rule's warnings, the fix
+  text and the assessment's findings are unchanged, byte for byte (a freeze
+  test holds them), as are the Agent's tools and the report's frozen
+  Markdown. A saved project keeps each fix's facts beside its text. Older
+  project files still open and read in one line.
+
+- **Save and Load are header buttons of their own, not folded into "Project ▾".**
+  The menu held only those two, so it is gone: Save and Load sit in the header
+  beside History, Demos and Export, in the same button style, each with a
+  tooltip naming the `.materia.json` file. Save appears once something is
+  loaded (as it did), Load is there from the start page. What they do is
+  unchanged: the same project file is written and read. They stay words, not
+  icons, at every width, so the header keeps the row counts and heights it had
+  on a 1440 and a 1920 desktop, the iPad Pro 11" and 13" and the iPhone 18 Pro
+  and Pro Max, upright and sideways, and the buttons are 44 px tall on a
+  touch screen. Between 1281 and 1499 px they take slightly less padding so
+  the current-step label still shows at 1440 px.
 
 - **The Agent refines the TOF peak shape as one profile.** Its correlation
   guard now lets the time-of-flight peak-shape terms (α, β, σ and the zero)
@@ -880,7 +1003,113 @@ release fixes bugs.
   criterion suggests, not SHELXL's own, and its bins are given as the
   analysis of variance gives them.
 
+- **A click on a residual peak's row highlights it and no longer zooms.** On
+  the Magnetic page the peak is marked on the pattern (a translucent band, the
+  arrow, the guide line and a bold tick, at its place in TOF, d or Q), the row
+  is highlighted, and the view stays where it was. A peak out of view moves
+  the window just far enough to show it, a tenth of the window inside the edge
+  it crossed, with the zoom width unchanged. A second click on the row clears
+  the highlight; a click on another row moves it. Space now works on a row as
+  Enter does, and a key pressed on a row's check box or × stays that control's.
+
 ### Fixed
+
+- **Copilot: switching Ask first / Auto no longer fails the next request
+  (Anthropic).** The error was an API 400, "Invalid signature in thinking
+  block. The block is bound to a different conversation ... The system prompt
+  differs from the one this block was created with." Claude's thinking is
+  signed under the system prompt and the tools it was written under, and the
+  mode line is part of that prompt, so the history's thinking was refused once
+  the mode changed. Now, when the system prompt or the tools
+  differ from those the history's thinking was signed under, that thinking is
+  left out of the earlier replies, for good (their text, tool calls and
+  results stay), and what Claude writes next is signed under the new prompt:
+  the API's own recovery that needs no beta header, in `thinkingBinding.ts`.
+  The same covers the skills switch and a scoped tool offer. A switch made
+  while a tool loop runs reaches Claude at the next message instead (the
+  approval cards follow it at once), so the loop's own thinking stays valid.
+  A model switch strips nothing; the API drops what a model cannot read. The
+  prompt's words, and Ollama, LM Studio and OpenAI-compatible servers (which
+  sign nothing), are unchanged. Unit and loop tests run against a stand-in API;
+  no live call was made.
+
+- **Magnetic space groups at zone-boundary k are groups, and each class is
+  listed once** (THY-37). At a k ≠ 0 the k-phase of a lattice translation
+  twists the time-reversal condition, θ_i·θ_j = θ_ij·e^{2πi k·t_ij}; the
+  candidates were built as plain homomorphisms of the point group. Where a
+  screw or glide squares to a translation with phase −1 (P2/c at (0,0,½),
+  Pnma at X, P4₂/mnm and P6₃/mmc at Z), 147 of 305 candidates were not groups,
+  among them every index-2 one, and P4₂/mnm at Z missed four classes, two of
+  them maximal. The condition is now solved as an inhomogeneous system over
+  GF(2), and conjugation carries the k-phase too, which removes 38 duplicate
+  classes and corrects their domain counts. At these k the first index section
+  open on the magnetic page is now the lowest index present (4). Checked
+  against an independent construction named by spglib on 15 single-arm cases
+  (`magneticGroupsOracle.test.ts`): every candidate a group, every class the
+  oracle's, none missing, the allowed moments unchanged. k = 0 is unchanged.
+  The synthetic Mn₃Ga eval page's truth, simulated from the old list's G2 (not
+  a group at k = (0,0,½)), is the same arrangement bit for bit and is now G1,
+  the group it actually has.
+
+- **Magnetic groups at k ≠ 0 carry their own BNS names** (THY-37). Every
+  k ≠ 0 candidate was named by its parent-cell operations read as a k = 0
+  group (type I or III), not by the group of the ordered structure, whose
+  anti-translations make it type IV: the AWO₄ demo's group showed as
+  "P2/c′, BNS 13.68" and is P_a2/c, BNS 13.70. The bundled table now holds all
+  1651 ISO-MAG groups (types I–IV, type II for completeness), each candidate is
+  named from its group in the magnetic cell, with the setting against the
+  parent cell ("(2a, b, c; 0, 0, 0)"), and the page shows its true type. The
+  setting search gains the group's own conventional cells with the origin
+  solved exactly, which names the 23 groups it left unnamed (monoclinic cell
+  choices under Pnma and P4₂/mnm at k = 0; Immm at (½,0,½), C_c2/c). The one
+  name is used everywhere: the page's rows and their order (BNS number within
+  an index), the standard-cell overlay (now the magnetic cell), the irrep
+  route's isotropy subgroup, the report, the Agent's tools,
+  `list_magnetic_subgroups` (which gains `bnsNumber` and `setting`) and the
+  mCIF writer, which now names a type-IV group. Every class of the 15 oracle
+  cases carries the BNS number and type spglib gives its group.
+
+- **The ranking counts the moment parameters each fit refines** (THY-37). Hamilton's
+  test, the ★'s "fewest moment parameters" and the page's **moment dof** badge
+  counted the allowed directions at a site's first orbit, summed over the
+  chosen ions: a mixed site's co-located ions counted once each (on the AWO₄
+  demo's site, where one shared moment is refined), and a moment on a
+  later split orbit not at all, so such a group was shown as "moment forbidden"
+  and never ranked (a kagome Co site under P6/mmm at (0,0,½)). The count is now
+  the free rows of each group's moment model under the page's ties
+  (`momentParameters`), the Agent's `momentComponents` the same, and the MCP
+  `allowed_moments` lists each split orbit, its `dimension` their sum.
+
+- **"Maximal" means containment, not index 2** (THY-37). A magnetic group is
+  maximal when no other candidate contains it, and the page starts from the
+  maximal groups that carry a moment on the chosen ions (Bilbao MAXMAGN's
+  selection), at whatever index they sit: MnO at k = 0 opens I4/mm′m′, R-3m′ and
+  Im′m′m at indices 6, 8 and 12, where the index-2 groups put no moment on Mn,
+  and P4₂/mnm at Z opens index 4 with P4₃2₁2 and P4₁2₁2 among them. The rows
+  mark them maximal, the Agent's groups carry `maximal: true`, and
+  `list_magnetic_subgroups` gains `maximal` and keeps the maximal groups past its
+  `maxIndex`. The ★ goes top-down among the fits within the noise: to a group
+  none of the others contains, then the lowest index and the fewest moment
+  parameters. The ≈ marks and their order follow that set (Hamilton's test)
+  instead of a 10⁻⁴ wR window, and the Agent's `withinNoise` lists it in the ★'s
+  order. The magnetic-analysis skill's Stage 2 says so and no longer quotes the
+  old 0.01 % tie.
+
+- **The mCIF names the type of a group it cannot name** (THY-37). A k ≠ 0
+  supercell group the table did not name was always described as a
+  black-and-white lattice (BNS type IV), also for a two-arm k, whose group has
+  no anti-translation (type III). The comment now reads the type off the group;
+  with the full table most of these groups are named anyway (the triangular
+  P6/mmm at k = (⅓,⅓,0) gives P-6m′2′, BNS 187.213).
+
+- **A two-arm k's candidates no longer carry BNS numbers** (THY-37). At a k with
+  two arms, such as (⅓,⅓,0), the candidates are real decorations of the little
+  group for the Fourier moment model, but each was labelled as a magnetic space
+  group with a BNS number from its parent-cell operations. They are now shown by
+  their time-reversal pattern ("P-62′m′ (G_k decoration)") with "not a magnetic
+  space group label: two-arm k" on the page, for the Agent (`note`) and in
+  `list_magnetic_subgroups`, and no BNS number anywhere. Enumerating the
+  magnetic space groups of a two-arm k is not done yet.
 
 - **Each technique's report names its own cross-check programs.** The
   report's footer told every technique that the Export menu writes GSAS-II

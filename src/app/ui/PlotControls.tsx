@@ -1,6 +1,6 @@
 /**
  * The visible controls shared by the interactive 1-D plots (usePlotInteraction):
- * zoom out / in, the y lock, Reset, the "Use Ctrl + scroll to zoom" flash, and
+ * zoom out / in, the y lock, Reset, the gesture-line flash on a plain wheel, and
  * the row under the plot with the resting gesture hint.
  */
 
@@ -123,4 +123,6 @@ export const plotReadoutBox: CSSProperties = {
 const hintOverlay: CSSProperties = {
   position: "absolute", left: "50%", top: "42%", transform: "translate(-50%, -50%)", pointerEvents: "none", zIndex: 2,
   background: "rgba(25,23,20,0.78)", color: "#fff", borderRadius: 8, padding: "7px 14px", fontSize: 13,
+  // The line names every gesture, so on a narrow plot it wraps inside the plot instead of overflowing it.
+  maxWidth: "calc(100% - 32px)", width: "max-content", textAlign: "center",
 };

@@ -10,7 +10,7 @@
  *  - Hover: a cursor at the pointer's x (the plot draws the line and readout).
  *  - Ctrl/⌘ + wheel and trackpad pinch: zoom x about the cursor. A plain wheel
  *    zooms too when nothing around the plot can scroll; where the page scrolls,
- *    a plain wheel scrolls it and briefly shows "Use Ctrl + scroll to zoom"
+ *    a plain wheel scrolls it and briefly shows the gesture line ("Ctrl + scroll to zoom · drag to pan · …")
  *    (⌘ on a Mac). The resting hint under each plot is `GestureHintLine`.
  *  - A horizontal wheel / trackpad swipe (or Shift + wheel) pans x.
  *  - Drag pans x; Shift + drag box-zooms (a flat box zooms x only, a box at
@@ -87,9 +87,9 @@ const DRAG_SLOP = 3;
 const KEY_ZOOM = 1.5;
 const KEY_PAN = 0.1;
 
-/** The hint a plain wheel shows where the page scrolls. */
+/** The hint a plain wheel shows where the page scrolls: zoom first, then the other gestures, one line. */
 export function zoomHintText(): string {
-  return `Use ${isMac() ? "⌘" : "Ctrl"} + scroll to zoom`;
+  return `${isMac() ? "⌘" : "Ctrl"} + scroll to zoom · drag to pan · Shift + drag to box-zoom · double-click to reset`;
 }
 
 /** Whether a vertical wheel over `el` would scroll something (an ancestor or the page). */

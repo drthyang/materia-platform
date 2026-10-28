@@ -32,11 +32,11 @@ import { parseCif } from "@/parsers/cif";
 import {
   SAMPLE_STEPS, agentBoxcarPlan, boxcarSummary, landsOn, liveStateOf, momentFit, pageView, pdfBoxcar, pdfFit, pdfguiBundleOf, pdfPage, pdfPosterior, pdfProbe, pdfThorough, reportInputOf, rwOf, specKeyOf,
   withActivatedMode, withAdpModel, withBoxcarPlan, withBoxcarRun, withBoxcarStep, withExtraPhases, withFit, withFitRange, withFixed, withLoadedStructure, withoutModes,
-  withParameter, withParentModes, withPattern, withPositionMode, withPosterior, withReset, withSiteTotal, withSpinModel, withSubgroup, workspaceOf, type AgentBoxcarPlan,
+  withParameter, withParentModes, withPattern, withPositionMode, withPosterior, withReset, withSameCellSubgroup, withSiteTotal, withSpinModel, withSubgroup, workspaceOf, type AgentBoxcarPlan,
 } from "@/app/pdfPage";
 import { SiteTotals } from "@/app/ui/SiteTotals";
 import { DistortionModesPanel } from "@/app/ui/DistortionModesPanel";
-import { SubgroupsPanel, gammaIrrepTree, type IrrepSubgroup } from "@/app/ui/SubgroupsPanel";
+import { SubgroupsPanel, decentringIrrepTree, gammaIrrepTree, sameCellLattice, supercellPointsOf, type IrrepSubgroup, type SameCellNode } from "@/app/ui/SubgroupsPanel";
 import { sharedSites, siteSumRangeWarnings } from "@/core/workflow/structureRefinement";
 
 // Lazy so three.js stays out of the main bundle until the 3D view is opened.
@@ -487,6 +487,33 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
     () => (multiPhase || viewTab !== "subgroups" ? null : structuralSubgroupLattice(structure)),
     [multiPhase, viewTab, structure],
   );
+
+  // The decentring irreps of a centred parent (X for F, H for I, …: the
+  // k-points that keep the conventional cell) and the same-cell lattice's k-
+  // and general subgroups — Phase 1 of the subgroup engine. As the Γ tree,
+  // the irreps are offered only from the parent's own state.
+  const decentringTree = useMemo(
+    () => (multiPhase || viewTab !== "subgroups" || modes !== null ? null : decentringIrrepTree(structure)),
+    [multiPhase, viewTab, structure, modes],
+  );
+  const sameCell = useMemo(
+    () => (multiPhase || viewTab !== "subgroups" ? [] : sameCellLattice(structure)),
+    [multiPhase, viewTab, structure],
+  );
+  const supercellNote = useMemo(() => (viewTab !== "subgroups" ? null : supercellPointsOf(structure)), [viewTab, structure]);
+
+  // A k- or general subgroup of the same-cell lattice (withSameCellSubgroup).
+  function onActivateSameCell(node: SameCellNode): void {
+    const activated = withSameCellSubgroup(model, node);
+    if (activated.model === model) {
+      console.error(`[status] ${activated.message}`);
+      return;
+    }
+    setModel(activated.model);
+    setLive(null);
+    stepHistory?.requestStep("settings", `Distortion modes: ${activated.label}`);
+    console.info(`[status] ${activated.message}`);
+  }
 
   // Activate a chosen SUBGROUP (subgroup-driven, the inverse of the irrep-driven
   // path; withSubgroup): the child realized from the current refined geometry,
@@ -1022,6 +1049,10 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                   spaceGroup={structure.spaceGroup.hermannMauguin}
                   lattice={subgroupLattice}
                   irrepTree={subgroupTree}
+                  decentringTree={decentringTree}
+                  sameCell={sameCell}
+                  supercellNote={supercellNote}
+                  onActivateSameCell={onActivateSameCell}
                   modes={modes}
                   modeCount={modeSet ? modeSet.modes.length : null}
                   busy={busy}

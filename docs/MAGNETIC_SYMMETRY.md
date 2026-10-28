@@ -32,8 +32,19 @@ A candidate is a subgroup of the grey group that lacks 1′ itself. Because the
 enumeration keeps the parent lattice, each candidate is a pair (H, θ):
 
 - H is a subgroup of G_k with every lattice and centring translation.
-- θ: H → {±1} is a homomorphism that marks time reversal. The trivial θ gives
-  type I, and any other θ gives type III.
+- θ marks time reversal on each rotation coset of H, read at the coset's
+  representative g_i = {R_i|τ_i}. At k = 0 it is a homomorphism H → {±1}: the
+  trivial θ gives type I, and any other θ gives type III.
+- At a single-arm k ≠ 0, a lattice translation t carries the phase
+  χ(t) = e^{2πi k·t} = ±1, and the pair is a group exactly when
+  θ_i·θ_j = θ_ij·χ(t_ij) for every product g_i∘g_j = {I|t_ij}·g_ij. Where a screw
+  or glide squares to a translation with χ = −1 (the c-glide of P2/c at
+  k = (0,0,½), the 2₁ of Pnma at X, the 4₂ of P4₂/mnm and the 6₃ of P6₃/mmc at
+  Z), no group contains that operation, and some groups are reached only by a
+  θ that is not a homomorphism. The condition is solved over GF(2) as an
+  inhomogeneous system: one particular solution plus the null space, or none.
+  A two-arm k has complex phases; there θ stays a homomorphism, the real
+  decoration of G_k the Fourier moment model uses, not a magnetic space group.
 
 **Centred parents.** A lattice translation t multiplies a site's Fourier
 coefficient by e^{−2πi k·t}, and a centring translation is a lattice
@@ -50,16 +61,33 @@ a primitive cell and a two-arm k in a C-centred one
 ([`propagation.ts`](../src/core/magnetic/propagation.ts)).
 
 Its index in the grey group is 2·|Ḡ_k| / |H̄|, where H̄ is the co-group of H. The
-largest candidates have index 2.
+largest candidates have index 2 where a group closes on the whole of G_k, and
+4 at the Z points above. A candidate is **maximal** when no other candidate
+contains it (one of its groups inside one of the other's, with the same θ on
+its cosets), which is containment, not index: a maximal group can sit at index
+4, 6, 8 or 12. The magnetic page starts from the maximal groups that carry a
+moment on the chosen ions, those no group above them gives one (the selection
+of Bilbao's MAXMAGN): for MnO at k = 0, I4/mm′m′, R-3m′ and Im′m′m at indices 6,
+8 and 12, while no index-2 group allows a moment on Mn.
 
 Like k-SUBGROUPSMAG (Perez-Mato et al. 2015), the workbench lists every pair, not
 only those of index 2 ([`subgroupLattice.ts`](../src/core/magnetic/subgroupLattice.ts)).
 Subgroups come from breadth-first closure of generator sets, which is exhaustive,
 and each θ from a linear system over GF(2). Conjugate candidates are one ordering
 in different domains, so each conjugacy class is listed once, with its domain
-count.
+count. Conjugation by g keeps each operation's θ, and the conjugate's θ on a
+coset is read at that coset's representative, so it carries the k-phase of the
+lattice vector between them.
 
 **Supported**
+- Checked against an independent oracle: every magnetic group compatible with k
+  built from scratch in the magnetic cell and named by spglib, for 15 single-arm
+  cases (P2/c, Pnma, P4₂/mnm, P4/mmm, Immm, P6/mmm, P6₃/mmc, Fm-3m and P2₁/m, at
+  k = 0 and at zone-boundary k). Every candidate is a group, every conjugacy
+  class is one of the oracle's with its domain count, none is missing, and the
+  allowed moments on every split orbit agree
+  ([`magneticGroupsOracle.test.ts`](../src/core/magnetic/magneticGroupsOracle.test.ts);
+  the oracle is [`oracle.py`](../scripts/magnetic-groups/oracle.py)).
 - Verified counts: 2/m gives 5 subgroups and 11 candidates, and mmm gives 16 and
   51. In 4mm, each pair of conjugate mirror subgroups forms one class with 2
   domains ([`subgroupLattice.test.ts`](../src/core/magnetic/subgroupLattice.test.ts)).
@@ -71,9 +99,10 @@ count.
   supercell sum ([`centredLattice.test.ts`](../src/core/magnetic/centredLattice.test.ts)).
 
 **Not yet**
-- Type-IV candidates, planned with the star of k. They turn some lattice
-  translations into anti-translations, a kind of step the lattice omits
-  (Hermann 1929).
+- Candidates over the whole star of k, and the groups of a two-arm k: the
+  lattice keeps one arm and the parent lattice, its translations turned into
+  anti-translations by the k-phase at a single-arm k (type IV, named in the
+  magnetic cell; see BNS and OG labels).
 
 ### Allowed moment directions
 
@@ -131,25 +160,29 @@ Mx+2My, and orbit 2 follows |M(orbit 1)|
 
 An ordered phase usually keeps a maximal subgroup of the paramagnetic group
 (Landau theory, k-SUBGROUPSMAG practice, ITA Vol. A1). Test the maximal
-candidates first, and descend the lattice only when none fits.
+candidates first, and descend the lattice only when none fits. The page opens
+the index sections of the maximal groups that carry a moment.
 
 Powder data often cannot separate symmetry-distinct models, because only the
 moment component perpendicular to Q scatters and orientations are averaged
 ([direction ambiguity](../knowledge/magnetic_structure_symmetry_knowledge.md), §9).
-Ties are therefore expected. Among tied fits, prefer the maximal subgroup (lowest
-index) with the fewest moment parameters. The ranking calls fits tied when they
-are within the noise of the best: Hamilton's test (Acta Cryst. 18 (1965) 502)
-at 5 %, so a group with more moment parameters must lower χ² by more than the
-best fit's noise gives them (an mPDF fit, which reports no χ², ties within
-10⁻⁴ in Rw). At k = 0 the ranking refines the nuclear scale with the moments:
+Ties are therefore expected. The ranking calls fits tied when they are within
+the noise of the best: Hamilton's test (Acta Cryst. 18 (1965) 502) at 5 %, so a
+group with more moment parameters must lower χ² by more than the best fit's
+noise gives them (an mPDF fit, which reports no χ², ties within 10⁻⁴ in Rw).
+The page marks these ≈. Among them the ★ goes top-down: to a group none of the
+others contains, then the lowest index, then the fewest moment parameters (the
+rows its fit refines, every split orbit's modes counted and co-located ions
+sharing one moment; [`momentParameters`](../src/app/magneticStep.ts)). At k = 0 the ranking refines the nuclear scale with the moments:
 the magnetic peaks sit on the nuclear ones, and a scale refined without them
 has taken part of their intensity.
 
 On unpublished AWO₄ 6 K data with k = (½, 0, 0), five candidates tie within the
-noise by Hamilton's test, with the nuclear model fixed: P2/c′, P-1′, Pc′, P2 and
-P1. The rule picks P2/c′, of index 2 with two moment parameters. Its moments are
-then refined alone, against the same nuclear model held. The magnetic page ranks
-candidates by this rule, as [USER_GUIDE.md](./USER_GUIDE.md) describes.
+noise by Hamilton's test, with the nuclear model fixed: P_a2/c, P_S-1, P_ac, P_a2
+and P_S1 (type IV, named in the 2a × b × c magnetic cell). The rule picks P_a2/c
+(BNS 13.70), of index 2 with two moment parameters. Its moments are then refined
+alone, against the same nuclear model held. The magnetic page ranks candidates by
+this rule, as [USER_GUIDE.md](./USER_GUIDE.md) describes.
 
 ## BNS and OG labels
 
@@ -162,14 +195,31 @@ Belov–Neronova–Smirnova (BNS) and Opechowski–Guccione (OG) numbers and sym
 such as P2₁′/m′, BNS 11.54, OG 11.5.63. Otherwise the candidate keeps a label of
 its primed operations, because a wrong symbol is worse than none.
 
+**At k ≠ 0** a candidate's operations, listed in the parent cell, are not the
+group of the ordered structure: a lattice translation with phase e^{2πi k·t} = −1
+reverses every moment, so the group has anti-translations and is of type IV. Each
+candidate is named from that group, written in the magnetic cell
+(n₁a, n₂b, n₃c), nᵢ the denominator of kᵢ, the cell the mCIF exporter and the 3D
+view use ([`magneticCell.ts`](../src/core/magnetic/magneticCell.ts)). Its
+setting is reported against the parent cell. For P2/c at k = (½,0,0), the
+candidate without time reversal in the parent cell (read alone, P2/c, 13.65)
+is P_a2/c, BNS 13.70, in (2a, b, c; 0, 0, 0); the AWO₄ ground state (read
+alone, the type-III P2/c′, 13.68) is P_a2/c too, in (2a, b, 2a+c; 3/4, 0, 0).
+The isotropy subgroups of Route B and the report are named the same way.
+
 [`gen_bns_og_table.py`](../scripts/gen_bns_og_table.py) generates the table:
 
-- **Contents.** The 230 type-I and 674 type-III groups. For these types the OG and
-  BNS symbols agree, and only the numbers differ.
+- **Contents.** All 1651 groups: 230 of type I, 230 grey groups (type II), 674 of
+  type III and 517 black-and-white lattices (type IV). For types I–III the OG and
+  BNS symbols agree, and only the numbers differ; a type-IV group has its own OG
+  symbol (P_a2/c is P_2a2/c). Type IV is stored as the unprimed coset
+  representatives and the anti-translation, type II as the group without 1′.
 - **Source.** ISO-MAG data (ISOTROPY Software Suite) via pymatgen-core, compiled
   from Litvin (2013) and Bradley & Cracknell (1972). No label is typed by hand.
-- **Checks.** Every entry has an unprimed identity, the right primed count,
-  closure, a unique signature, and matching OG and BNS symbols.
+- **Checks.** Every entry has an unprimed identity, the right primed count for
+  its type, closure, a unique signature, and matching OG and BNS symbols for
+  types I–III; a type-IV entry has exactly one anti-translation coset, and its
+  compact form rebuilds the full operation set.
 - **Setting.** Standard BNS: unique axis b with cell choice 1, hexagonal axes for
   trigonal groups, origin choice 2.
 
@@ -198,13 +248,31 @@ A cell with fractional basis vectors is used only when each of them is a
 translation of the group, read off its operation list, so the transformed
 translation group is exactly P⁻¹ of the old one. Before any origin shift is
 tried, the transformed rotation set must match some tabulated group; this
-keeps the search fast for candidates no setting can name. The lattice, the
-isotropy result and the mCIF writer all use the search.
+keeps the search fast for candidates no setting can name.
+
+When none of these families matches, and always for a group in its magnetic
+cell, the search builds the group's own conventional cells. The standard cell
+of a group is a conventional cell of its lattice of unprimed translations, with
+its basis vectors along the symmetry directions (ITA Vol. A §2.1.3), so they are
+read off the group itself, in the primitive basis of that lattice: the cube
+edges, the 3-, 4- or 6-fold axis with a basis of the lattice plane normal to it,
+the three 2-fold axes in every order, or the monoclinic 2-fold axis with small
+unimodular bases of its normal plane (which reach the cell choices and
+centrings of ITA). The origin shift is then solved, not searched: for a
+generating set of the group, t + (R − I)·p ≡ t_E modulo the tabulated group's
+lattice, a congruence solved exactly over the integers. The simplest cell that
+matches is reported. The lattice, the isotropy result, the report and the mCIF
+writer all use the search.
 
 **Supported**
-- All 904 groups re-identify from their own operations. The four P2₁/c
+- All 1651 groups re-identify from their own operations. The four P2₁/c
   candidates get their numbers, and parents 14, 216 and 225 yield exactly their
-  tabulated groups ([`bnsOg.test.ts`](../src/core/magnetic/bnsOg.test.ts)).
+  tabulated type-I and type-III groups ([`bnsOg.test.ts`](../src/core/magnetic/bnsOg.test.ts)).
+- Every class of the 15 single-arm oracle cases, at k = 0 and at zone-boundary
+  k, carries the BNS number and type spglib gives its group, every one of them
+  named ([`magneticGroupsOracle.test.ts`](../src/core/magnetic/magneticGroupsOracle.test.ts)).
+  The domains of one class can be enantiomorphs (P_c4₁ and P_c4₃ at the Z point
+  of P4₂/mnm); the class is named by its representative.
 - The search recovers an a-unique P2/m and an off-origin P-1, with primes kept.
   Under P6₃/mmc it names Cmcm and C2/m (Nos. 63 and 12) and type-III
   orthorhombic groups; its 56 setting-search labels are pinned by a snapshot
@@ -217,12 +285,16 @@ isotropy result and the mCIF writer all use the search.
   is named in hexagonal axes: R-3m′ in the cell (a−b, b−c, a+b+c).
 
 **Not yet**
-- Type-II and type-IV groups. Widening the generator's `MAGTYPES` filter is not
-  enough, because its checks and the table's row type assume types I and III.
-- Monoclinic cell choices 2 and 3, the reverse rhombohedral setting, and
-  sub-cells of I- or C-centred parents (for example the primitive cell of a
-  C-centred monoclinic parent, or the F cell of an I tetragonal one). Such
-  candidates keep their primed-operation labels.
+- The magnetic space groups of a two-arm k (2k not in the reciprocal lattice,
+  such as (⅓,⅓,0)). Its candidates are real decorations of G_k for the Fourier
+  moment model, not magnetic space groups: they are shown by their
+  time-reversal pattern on G_k ("P-62′m′ (G_k decoration)"), with no BNS number
+  and the note "not a magnetic space group label: two-arm k". The groups of
+  such a structure need G_{±k} and the global phase in the supercell; the
+  oracle fixture holds them for the two two-arm cases (113 classes each) as the
+  reference for that step.
+- A cell with basis coefficients beyond ±2 in the plane of a monoclinic or
+  hexagonal axis is not tried; such a group keeps its primed-operation label.
 
 ## Route B — representation analysis
 

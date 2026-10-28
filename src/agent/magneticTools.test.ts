@@ -69,7 +69,7 @@ describe("the magnetic analysis step through the Agent", () => {
     const ranked = parse((await ex.run("rank_magnetic_groups", {})).text);
     expect(ranked.best).toBe(MAGNETIC_TRUTH.id);
     const groups = ranked.groups as { id: string; group: string; index: number; fit: { wR: number } }[];
-    expect(groups[0]).toMatchObject({ id: MAGNETIC_TRUTH.id, group: truthGroup, index: 2 });
+    expect(groups[0]).toMatchObject({ id: MAGNETIC_TRUTH.id, group: truthGroup, index: 4 });
     expect(groups[0]!.fit.wR).toBeLessThan(groups[1]!.fit.wR);
 
     const chosen = parse((await ex.run("choose_magnetic_group", { id: MAGNETIC_TRUTH.id })).text);
@@ -114,7 +114,7 @@ describe("the magnetic analysis step through the Agent", () => {
     await ex.run("choose_magnetic_group", { id: "G2" });
     expect(asked.map((a) => a.preview)).toEqual([
       "Propagation vector (0, 0, 0) → (0, 0, 0.5)",
-      expect.stringMatching(/^Magnetic group G2 \(.+, index 2\)$/),
+      expect.stringMatching(/^Magnetic group G2 \(.+, index 4\)$/),
     ]);
   }, 60_000);
 });

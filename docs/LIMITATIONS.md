@@ -156,11 +156,15 @@ approximate, however plausible its output looks.
   no symmetry at all; it loads as P1 only when you choose that, because its
   atoms are the whole cell (diffpy writes such files).
 - Magnetic subgroup candidates carry standard BNS/OG labels from a bundled
-  ISO-MAG table (types I and III). A setting search also names candidates
-  written in other settings: axis permutations, origin shifts, orthohexagonal
-  C-centred cells, the tetragonal-I, hexagonal-R, monoclinic-C and triclinic
-  cells of an F cubic parent, and the hexagonal cell of a rhombohedral-axes or
-  primitive cubic parent ([MAGNETIC_SYMMETRY.md](./MAGNETIC_SYMMETRY.md)).
+  ISO-MAG table of all 1651 groups (types I–IV). At a single-arm k ≠ 0 each is
+  named from its group in the magnetic cell, a type-IV group, with its setting
+  against the parent cell. A setting search also names candidates written in
+  other settings: axis permutations, origin shifts, orthohexagonal C-centred
+  cells, the cells of an F cubic parent, and the group's own conventional cells
+  with the origin solved exactly ([MAGNETIC_SYMMETRY.md](./MAGNETIC_SYMMETRY.md)).
+  The candidates of a two-arm k are decorations of G_k, not magnetic space
+  groups, and carry no BNS label; the magnetic space groups of a two-arm k
+  (over G_{±k} in the supercell) are not enumerated yet.
 - Representation analysis: irreps at k = 0 for every parent group, and at any k
   when the little group is abelian.
 - The little group of k, the one-arm/two-arm classification and the k-phase of
@@ -457,10 +461,24 @@ Conventions are pinned in
 [`knowledge/total_scattering_pdf_conventions_knowledge.md`](../knowledge/total_scattering_pdf_conventions_knowledge.md).
 
 **Not yet**
-- Zone-boundary (cell-multiplying) modes and klassengleiche subgroups: the
-  distortion workflow is translationengleiche only (planned in
-  [PLAN_SUBGROUPS_AND_INCOMMENSURATE.md](./PLAN_SUBGROUPS_AND_INCOMMENSURATE.md),
-  Track A). ADP and strain symmetry modes.
+- Cell-multiplying distortions: irreps, isotropy subgroups and subgroups
+  only within the conventional cell (Γ and the decentring k-points of a
+  centred parent, ADR 0002's Phase-1 bound). Primitive-cubic X, M, R, F's L
+  and W, and every k-subgroup that enlarges the cell need the supercell
+  engine (Phase 2). ADP, strain and occupancy symmetry modes.
+- Irrep labels are generic (the k-point, "irrep n of m"): no CDML labels such
+  as X3⁺ ([ADR 0004](./adr/0004-generic-irrep-labels-in-the-app.md)).
+  Order-parameter directions are written in MATERIA's irrep basis and can
+  differ from ISODISTORT's symbols for the same subgroup.
+- Mode amplitudes: the refined parameter is still normalized over the
+  conventional child cell. ISODISTORT's A_s and A_p are shown beside it. The
+  parameter's unit changes after the agent validation freeze
+  ([ADR 0003](./adr/0003-isodistort-as-the-single-convention-system.md)).
+- The `build_symmetry_modes` tool (and the Γ activation) projects out a
+  rigid translation along any direction every site allows. For a non-polar
+  group whose sites all share one such direction, that removes a genuine
+  mode. The decentring activations keep it. The fix waits on the validation
+  freeze.
 - Multi-dataset co-refinement from the UI or the agent tools.
 - Magnetic PDF in the `refine_pdf_boxcar` and `sample_posterior` agent tools.
   The PDF page's Boxcar and Posterior views handle it.

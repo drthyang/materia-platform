@@ -21,7 +21,7 @@ import { magneticIonCandidates } from "@/core/magnetic/magneticIons";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { momentCartesian } from "@/core/magnetic/moment";
 import { formatMagneticSymbol } from "@/core/magnetic/bnsOg";
-import { buildFor, fitRows, momentDims, rankCandidates, type MagneticFit } from "@/app/magneticStep";
+import { buildFor, fitRows, momentParameters, rankCandidates, type MagneticFit } from "@/app/magneticStep";
 import { noiseOf, RANK_RESTARTS } from "@/core/magnetic/momentRestarts";
 import { withinNoiseOfBest } from "@/core/diagnostics/hamilton";
 import { RANK_NOISE_ALPHA } from "@/core/diagnostics/thresholds";
@@ -131,7 +131,7 @@ describe.skipIf(!has)("AWO₄ magnetic demo — solve the 6 K magnetic structure
     const ions = magneticIonCandidates(structure).map((i) => i.siteLabel);
     console.log(`[awo4] magnetic ions: ${ions.join(", ")}`);
     const reps = latticeRepresentatives(magneticSubgroupLattice(structure.spaceGroup.operations, K));
-    const dims = momentDims(structure, reps, ions, K);
+    const dims = momentParameters(structure, reps, ions, K, { sameSite: true, magnitudes: false, flippedUnits: [] });
     const buildOf = (ops: readonly SymmetryOperation[]) => buildFor(structure, K, ions, ops, { sameSite: true, magnitudes: false, flippedUnits: [] });
     const nuclearFixed = nuclear.map((p) => ({ ...p, fixed: true }));
     const fit: MagneticFit = {
@@ -150,10 +150,8 @@ describe.skipIf(!has)("AWO₄ magnetic demo — solve the 6 K magnetic structure
       const e = results[rep.candidate.id];
       if (e?.status !== "ok" || e.wR == null || e.chi2 === undefined || e.dof === undefined) continue;
       const build = buildOf(rep.candidate.operations);
-      // The page's label. For this k it names the operations in the parent cell
-      // as a k = 0 group: the bundled table holds types I and III only, so the
-      // magnetic space group's own BNS number (type IV, with the anti-translation
-      // the k gives the doubled cell) is not identified.
+      // The page's label: the group in its magnetic cell, type IV at this k
+      // (the anti-translation the k gives the doubled cell).
       const std = rep.candidate.standard ?? rep.settingMatch?.identity;
       ranked.push({
         id: rep.candidate.id,
@@ -299,13 +297,10 @@ interface HamiltonTest {
  * This is core/diagnostics/hamilton.ts's `withinNoiseOfBest`, the page's own
  * test, and the page's order among the fits within the noise: the lowest
  * index (a maximal group first), then the fewest moment parameters, then wR.
- * It differs from the page's ★ (magneticStep.ts, bestRanked) in one input:
- * the page counts a group's parameters as momentDims, the allowed moment
- * directions summed over the chosen ions (10 for P2/c′ on the five ions of
- * the mixed site here), where its fit refines one moment per site (2): b
- * comes out several times too large, and the ★'s "fewest moment parameters"
- * can order two groups the wrong way. The test needs the parameters the fits
- * refine; this solve counts them.
+ * Both count a group's parameters as the rows its fit refines (fitRows; the
+ * page's `momentParameters` since THY-37), not the allowed directions summed
+ * over the co-located ions of a mixed site, which made b several times too
+ * large.
  *
  * The test assumes independent errors. Powder residuals are serially
  * correlated, and a GoF well above 1 says the model misses more than noise,

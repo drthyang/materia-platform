@@ -45,11 +45,15 @@ export interface MagneticCandidateView {
   readonly numbers?: string;
   /** The setting transformation when the group is named in a non-standard setting. */
   readonly setting?: string;
-  /** Index in the grey little group (2 = maximal). */
+  /** What the label is not, where it is no magnetic space group (a two-arm k). */
+  readonly note?: string;
+  /** Index in the grey little group. */
   readonly index: number;
   readonly domains: number;
-  /** Moment components the group allows on the chosen ions (0: no moment there). */
-  readonly momentDims: number;
+  /** A maximal group that carries a moment on the chosen ions: no candidate above it does (maximal by containment, at any index). */
+  readonly maximal: boolean;
+  /** Moment parameters the group's fit refines on the chosen ions, every split orbit counted (0: no moment there). */
+  readonly momentParameters: number;
   /** The moments-only fit against the data, once ranked. */
   readonly fit?: { readonly status: "ok" | "failed" | "forbidden"; readonly wR: number | null; readonly moments: readonly { readonly site: string; readonly muB: number }[] };
 }
@@ -88,7 +92,7 @@ export interface MagneticPanelState {
   readonly ties: { readonly sameSite: boolean; readonly magnitudes: false | "element" | "all" };
   /** The nuclear-only wR (fraction) a candidate's fit is compared with. */
   readonly baselineAgreement: number | null;
-  /** The ★: among the ranked groups within the noise of the best fit, the maximal one with the fewest moment parameters. */
+  /** The ★: among the ranked groups within the noise of the best fit, the first top-down (none of the others contains it), then the lowest index and the fewest moment parameters. */
   readonly best: string | null;
   /** The ranked groups within the noise of the best fit (Hamilton's test where the fit reports χ²). */
   readonly withinNoise: readonly string[];
@@ -134,7 +138,8 @@ export function candidateIndex(id: string, count: number): number {
 export function candidateView(
   rep: LatticeCandidate,
   i: number,
-  momentDims: number,
+  momentParameters: number,
+  maximal: boolean,
   fit?: { readonly status: "ok" | "failed" | "forbidden"; readonly wR: number | null; readonly magnitudes: readonly { readonly label: string; readonly value: number }[] },
 ): MagneticCandidateView {
   const label = latticeCandidateLabel(rep);
@@ -143,9 +148,11 @@ export function candidateView(
     symbol: label.symbol,
     ...(label.numbers ? { numbers: label.numbers } : {}),
     ...(label.setting ? { setting: label.setting } : {}),
+    ...(label.note ? { note: label.note } : {}),
     index: rep.index,
     domains: rep.domainCount,
-    momentDims,
+    maximal,
+    momentParameters,
     ...(fit ? { fit: { status: fit.status, wR: fit.wR, moments: fit.magnitudes.map((m) => ({ site: m.label, muB: m.value })) } } : {}),
   };
 }

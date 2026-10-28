@@ -44,6 +44,8 @@ import { loadReflectionDataset, describeDrops } from "@/app/loadData";
 import { mn3gaPowgenExample } from "@/examples/mn3gaPowgen";
 import { awo4DemoParams, awo4MagneticDemoAvailable, loadAwo4MagneticExample } from "@/examples/awo4Magnetic";
 import { DEMOS, type DemoId } from "@/app/demos";
+import { hasUnsavedChanges, markOf, type ProjectMark } from "@/app/closeProject";
+import { CloseProjectDialog } from "@/app/ui/CloseProjectDialog";
 import { gata4se8PdfExample } from "@/examples/gata4se8Pdf";
 import { ComputeClient } from "@/workers/computeClient";
 import { PowderWorkbench } from "@/app/PowderWorkbench";
@@ -132,6 +134,11 @@ interface StepRequest {
   readonly label?: string;
   /** Start a new history (a new material, a demo) instead of extending this one. */
   readonly fresh?: boolean;
+  /**
+   * With `fresh`: the state is one a demo or a project file already has, so
+   * Close need not ask about it until it changes. A user's own files are not.
+   */
+  readonly saved?: boolean;
   /** Who made the change: absent for the user, "agent" for the Agent. */
   readonly actor?: StepActor;
 }
@@ -170,8 +177,8 @@ function writeGpuPreference(on: boolean): void {
 
 export function App(): JSX.Element {
   // The workbench opens clean (no data): the shell shows a landing view until the
-  // user loads the bundled Mn₃Ga POWGEN demo (the header "Demo" toggle) or their
-  // own CIF. The demo is embedded in the build, so it works on the deployed site
+  // user loads a bundled demo (a landing card) or their own CIF. The Mn₃Ga
+  // POWGEN demo is embedded in the build, so it works on the deployed site
   // with no runtime fetch or local data/ folder.
   // The powder page (powderPage.ts): its session, instrument and last fit's
   // result as one value, changed through the page's own functions. The shell
@@ -197,7 +204,8 @@ export function App(): JSX.Element {
   const [pdfDataset, setPdfDataset] = useState<PdfPattern | null>(null);
   const [step, setStep] = useState(0);
   // Which bundled demo is the loaded content (null = user's own / nothing) —
-  // drives the header Demos menu and is cleared once the user loads their own.
+  // a structure loaded on a demo starts the user's own page, and the PDF demo's
+  // refined values preset its page; cleared once the user loads their own.
   const [demo, setDemo] = useState<DemoId | null>(null);
   // Demos whose files live in the git-ignored data folder (unpublished data)
   // are offered only when the dev server can serve them; the public build
@@ -234,6 +242,15 @@ export function App(): JSX.Element {
   const [stepRequest, setStepRequest] = useState<StepRequest | null>(null);
   // The previous session found in browser storage, offered on the landing view.
   const [autosaveOffer, setAutosaveOffer] = useState<AutosaveEntry | null>(null);
+  // The project as it stood at its last Save, Open, demo load (or the first load
+  // of the user's own files): what Close compares the live project with to know
+  // whether there is anything to lose (closeProject.ts). Null: nothing loaded.
+  const savedMark = useRef<ProjectMark | null>(null);
+  // Asks the effect below to settle the mark (markWanted) or to drop it.
+  const [markRequest, setMarkRequest] = useState(0);
+  const markWanted = useRef(false);
+  // The "Close this project?" guard is showing.
+  const [closeAsk, setCloseAsk] = useState(false);
   // A user-facing problem from the last project open. The app has no status
   // bar (status goes to the console), but a refused file must be seen.
   const [notice, setNotice] = useState<string | null>(null);
@@ -311,11 +328,11 @@ export function App(): JSX.Element {
   // action requested (agentHost.settle) however long the page takes to render.
   const stepsRequested = useRef(0);
   const stepsRecorded = useRef(0);
-  const requestStep = useCallback((kind: StepKind, label?: string, fresh = false): void => {
+  const requestStep = useCallback((kind: StepKind, label?: string, fresh = false, saved = false): void => {
     // The actor is read now, while the action that asked for the step runs.
     const actor = stepActor.current;
     const n = ++stepsRequested.current;
-    setStepRequest({ n, kind, ...(label ? { label } : {}), ...(fresh ? { fresh } : {}), ...(actor ? { actor } : {}) });
+    setStepRequest({ n, kind, ...(label ? { label } : {}), ...(fresh ? { fresh } : {}), ...(saved ? { saved } : {}), ...(actor ? { actor } : {}) });
   }, []);
 
   // Recorded a tick after the request renders: an engine may settle its state
@@ -327,17 +344,56 @@ export function App(): JSX.Element {
   });
   useEffect(() => {
     if (!stepRequest) return;
-    const { n, kind, label, fresh, actor } = stepRequest;
+    const { n, kind, label, fresh, saved, actor } = stepRequest;
     setTimeout(() => {
       stepsRecorded.current = Math.max(stepsRecorded.current, n);
       const snap = liveSnapshotRef.current();
       if (!snap) {
-        if (fresh) setHistory(null);
+        if (fresh) {
+          setHistory(null);
+          markWanted.current = false;
+          setMarkRequest((n) => n + 1);
+        }
         return;
       }
       setHistory(recordStep(fresh ? null : historyRef.current, { ...snap, kind, ...(label ? { label } : {}), ...(actor ? { actor } : {}) }));
+      // A fresh history is a demo, a load or an open. A demo or a project file
+      // is the state Close compares with (as it settles, below); the user's own
+      // files are not saved anywhere, so they leave no mark and Close asks.
+      if (fresh) {
+        markWanted.current = !!saved;
+        setMarkRequest((n) => n + 1);
+      }
     }, 0);
   }, [stepRequest, setHistory]);
+
+  // The mark Close compares with, taken once the project has settled. An engine
+  // finishes putting a project on screen in effects of its own (a restored fit
+  // window, parameters carried over), some a render after the step is recorded,
+  // so the mark is sampled until it has stopped moving for ~300 ms (2 s at most)
+  // instead of read at one fixed moment. A person cannot edit in that time.
+  useEffect(() => {
+    if (markRequest === 0) return;
+    if (!markWanted.current) {
+      savedMark.current = null;
+      return;
+    }
+    let timer: ReturnType<typeof setTimeout>;
+    let last = "";
+    let stable = 0;
+    let tries = 0;
+    const sample = (): void => {
+      const mark = markOf(liveSnapshotRef.current(), historyRef.current, agentRecordsRef.current);
+      savedMark.current = mark;
+      const key = mark ? `${mark.steps}|${mark.agent}|${mark.state}` : "";
+      stable = key === last ? stable + 1 : 0;
+      last = key;
+      if (stable >= 5 || ++tries >= 34) return;
+      timer = setTimeout(sample, 60);
+    };
+    timer = setTimeout(sample, 0);
+    return () => clearTimeout(timer);
+  }, [markRequest]);
 
   /** Go back (or forward) to a step: restored as opening its project would, history kept. */
   function goToStep(id: string): void {
@@ -567,6 +623,10 @@ export function App(): JSX.Element {
     setNotice(null);
     setDetection(null);
     setHistory(null);
+    // The Agent's records belong to the project that is gone, as does the mark.
+    agentRecordsRef.current = {};
+    setAgentRecords({});
+    savedMark.current = null;
   }
 
   function onClearStructures(): void {
@@ -608,7 +668,7 @@ export function App(): JSX.Element {
           setDemo("magnetic");
           setNotice(null);
           setMessage(`Loaded the local AWO₄ magnetic demo (POWGEN 6 K, k = (½ 0 0), ${ex.group}; the moments refined with the nuclear model held) — magnetic page.`);
-          requestStep("load", "AWO₄ 6 K magnetic demo", true);
+          requestStep("load", "AWO₄ 6 K magnetic demo", true, true);
         },
         (e: unknown) => {
           const msg = e instanceof Error ? e.message : String(e);
@@ -634,7 +694,7 @@ export function App(): JSX.Element {
       setStep(0);
       setDemo("rietveld");
       setMessage("Loaded the bundled Mn₃Ga + MnO POWGEN demo (two-phase TOF, converged fit).");
-      requestStep("load", "Mn₃Ga + MnO POWGEN demo", true);
+      requestStep("load", "Mn₃Ga + MnO POWGEN demo", true, true);
       return;
     }
     const ex = gata4se8PdfExample();
@@ -645,13 +705,40 @@ export function App(): JSX.Element {
     setStep(0);
     setDemo("pdf");
     setMessage("Loaded the bundled GaTa4Se8 299 K X-ray PDF demo (cubic lacunar spinel, converged fit).");
-    requestStep("load", "GaTa₄Se₈ PDF demo", true);
+    requestStep("load", "GaTa₄Se₈ PDF demo", true, true);
   }
 
-  /** Header Demos menu exit: clear back to the landing. */
-  function onExitDemo(): void {
+  /**
+   * The header's Close button. A project with nothing that a file or a demo
+   * does not already have closes at once; one with changes asks first (Save,
+   * Discard or Cancel). What counts as a change is closeProject.ts.
+   */
+  function onCloseProject(): void {
+    const now = markOf(liveSnapshot(), historyRef.current, agentRecordsRef.current);
+    if (hasUnsavedChanges(savedMark.current, now)) setCloseAsk(true);
+    else closeProject();
+  }
+
+  /**
+   * Close the project: back to the landing with an empty workbench (clearWorkbench:
+   * page, model, data, history, the Agent's records). Besides that:
+   *  - a refinement still running is cancelled, not waited for: its worker is
+   *    stopped and it reports "cancelled", so no result lands on the empty page;
+   *  - the Agent's turn and any approval card waiting are stopped, since they
+   *    are about the project that is going (the conversation itself stays, as it
+   *    does when a demo or a file replaces the project: "New conversation" is the
+   *    user's);
+   *  - the browser's autosave is dropped, so a project closed on purpose is not
+   *    offered back as a crashed session on the next visit.
+   */
+  function closeProject(): void {
+    setCloseAsk(false);
+    client.current.cancel();
+    agent.stop();
     clearWorkbench();
-    setMessage("Exited the demo — workbench cleared.");
+    setAutosaveOffer(null);
+    void clearAutosave();
+    setMessage("Closed the project.");
   }
 
   /** Append a CIF as an additional crystallographic phase (multi-phase refinement),
@@ -712,25 +799,33 @@ export function App(): JSX.Element {
     });
   }
 
-  function onSaveProject(): void {
+  /** Save the project file. True when it was written (the Close guard closes after it). */
+  function onSaveProject(): boolean {
     // Unrecorded changes become the last step, so the saved history ends where the file does.
     const file = buildProjectFile(recordNow("edit"));
     if (!file) {
       setNotice("Nothing to save yet — load a structure and a dataset first.");
-      return;
+      return false;
     }
     const title = file.metadata.title;
     downloadText(projectFileName(file), serializeProject(file), "application/json");
+    savedMark.current = markOf(liveSnapshot(), historyRef.current, agentRecordsRef.current);
     if (!projectMeta) setProjectMeta({ title, createdAt: file.metadata.createdAt });
     setNotice(null);
     setMessage(`Saved project “${title}” (${TECHNIQUE_LABEL[file.workspace.technique]}${file.history ? `, ${file.history.steps.length} steps` : ""}).`);
+    return true;
   }
 
   function onOpenProject(file: File): void {
     file.text().then((text) => openProjectText(text, file.name));
   }
 
-  function openProjectText(text: string, sourceName: string): void {
+  /**
+   * Put a project file's text on screen. `fromFile`: it is a saved file the
+   * user opened, so it is the state Close compares with; the autosaved session
+   * is not (it exists only in this browser), so closing it asks.
+   */
+  function openProjectText(text: string, sourceName: string, fromFile = true): void {
     let file: ProjectFile;
     try {
       file = parseProject(text);
@@ -759,7 +854,10 @@ export function App(): JSX.Element {
     // The Agent's records travel with the project (gate, exceptions, stages, notes).
     agentRecordsRef.current = Object.fromEntries((file.agent?.records ?? []).map((r) => [r.key, r]));
     setAgentRecords(agentRecordsRef.current);
-    if (!file.history) requestStep("open", `Opened ${sourceName}`, true);
+    if (file.history) {
+      markWanted.current = fromFile;
+      setMarkRequest((n) => n + 1);
+    } else requestStep("open", `Opened ${sourceName}`, true, fromFile);
     setMessage(`Opened project “${file.metadata.title}” — ${TECHNIQUE_LABEL[ws.technique]}, saved by v${file.metadata.appVersion}${file.history ? `, ${file.history.steps.length} steps` : ""}.`);
   }
 
@@ -1141,12 +1239,8 @@ export function App(): JSX.Element {
         version={`v${APP_VERSION}`}
         exports={hasContent ? headerExports : []}
         technique={hasContent ? (pdfDataset ? "pdf" : scDataset ? "sc" : "rietveld") : null}
-        demos={demos}
-        activeDemo={demo}
-        onLoadDemo={onLoadDemo}
-        onExitDemo={onExitDemo}
         onOpenProject={onOpenProject}
-        {...(hasContent ? { onSaveProject } : {})}
+        {...(hasContent ? { onSaveProject, onCloseProject } : {})}
         gpu={{ enabled: gpuEnabled, onChange: setGpu }}
         {...(hasContent ? { history: stepHistory } : {})}
       />
@@ -1176,7 +1270,7 @@ export function App(): JSX.Element {
             Restore your last session — “{autosaveOffer.title}”, {autosaveOffer.steps} step{autosaveOffer.steps === 1 ? "" : "s"}, saved{" "}
             {new Date(autosaveOffer.savedAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}?
           </span>
-          <button style={offerButton} onClick={() => { openProjectText(autosaveOffer.text, "the autosaved session"); setAutosaveOffer(null); }}>Restore</button>
+          <button style={offerButton} onClick={() => { openProjectText(autosaveOffer.text, "the autosaved session", false); setAutosaveOffer(null); }}>Restore</button>
           <button style={offerButton} onClick={() => { void clearAutosave(); setAutosaveOffer(null); }}>Discard</button>
         </div>
       )}
@@ -1258,6 +1352,13 @@ export function App(): JSX.Element {
         </a>
       </footer>
     </div>
+    {closeAsk && (
+      <CloseProjectDialog
+        onSave={() => { if (onSaveProject()) closeProject(); else setCloseAsk(false); }}
+        onDiscard={closeProject}
+        onCancel={() => setCloseAsk(false)}
+      />
+    )}
     {agentOpen && <AgentDrawer agent={agent} method={agentMethod} onClose={() => setAgentOpen(false)} />}
     {agentRail && <AgentRail unread={answers > seenAnswers} pending={agent.pending.length} onOpen={() => setAgentOpen(true)} />}
     {agent.reportOpen && agent.report && (

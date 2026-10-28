@@ -20,9 +20,12 @@ too narrow (about 1.3 Å for a 3d ion) extrapolates them badly.
 
 ## Magnetic intensity as strong as the nuclear (before Stage 1, step 1)
 
-When large moments put k = 0 magnetic peaks as strong as the nuclear ones, a nuclear model
-refined alone takes up the magnetic intensity: a simulated k = 0 test gave B 3–6× too large
-and the scale ×1.5, at a "good" GoF of 2.1.
+The magnetic signal is usually orders of magnitude weaker than the nuclear, but large
+moments (Tb-based compounds, for one) can put k = 0 magnetic peaks as strong as the nuclear
+ones. The app flags it with `find_unexplained_peaks`' `k0Magnetic`: on neutron data the
+misfits sit on nuclear reflections at large d, the sample below its ordering temperature.
+A nuclear model refined alone then takes up the magnetic intensity: a simulated k = 0 test
+gave B 3–6× too large and the scale ×1.5, at a "good" GoF of 2.1.
 
 ## A magnetic line the maximal group leaves (Stage 2)
 

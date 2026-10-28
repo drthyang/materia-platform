@@ -50,7 +50,7 @@ describe.skipIf(!has)("local AWO₄ magnetic demo (POWGEN 6 K, k = ½ 0 0)", () 
   // data's scans and reductions move it by about an esd. One moment for the
   // co-located cations, at most their mean spin-only value (g·S of the 2+
   // ions, the benchmark's C8 bound).
-  it("carries the solved P2/c′ model: a maximal candidate of the k = (½,0,0) lattice, one moment on the tied cations", () => {
+  it("carries the solved P_a2/c model: a maximal candidate of the k = (½,0,0) lattice, one moment on the tied cations", () => {
     const ex = example();
     expect(ex.k).toEqual([0.5, 0, 0]);
     expect(ex.magnetic.propagation[0]).toEqual([0.5, 0, 0]);
@@ -58,10 +58,12 @@ describe.skipIf(!has)("local AWO₄ magnetic demo (POWGEN 6 K, k = ½ 0 0)", () 
     const hit = reps.find((r) => sig(r.candidate.operations) === sig(ex.magnetic.operations ?? []));
     expect(hit).toBeDefined();
     expect(hit!.index).toBe(2);
-    // The page's label: the parent-cell operations read as a k = 0 group. With
-    // the k's anti-translation the group is of type IV, which the bundled table
-    // does not hold.
-    expect(hit!.candidate.standard?.bnsNumber ?? hit!.settingMatch?.identity.bnsNumber).toBe("13.68");
+    // The page's label: the group in the magnetic cell (2a, b, c), whose
+    // anti-translation the k gives it — type IV, P_a2/c (THY-37; the parent-cell
+    // operations read as a k = 0 group were "P2/c′", 13.68).
+    expect(hit!.candidate.standard).toBeNull();
+    expect(hit!.settingMatch?.identity.bnsNumber).toBe("13.70");
+    expect(hit!.settingMatch?.identity.bnsSymbol).toBe("P_a2/c");
     expect(magneticIonCandidates(ex.structure).map((i) => i.siteLabel)).toEqual(ex.magneticSites);
     const carried = ex.magnetic.moments.filter((m) => m.components.some((c) => c !== 0));
     expect(carried.map((m) => m.siteLabel).sort()).toEqual([...ex.magneticSites].sort());

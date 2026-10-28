@@ -285,18 +285,18 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
   {
     name: "list_magnetic_subgroups",
     title: "List magnetic subgroup candidates",
-    description: "Enumerate the maximal magnetic subgroup candidates of the parent space group for a propagation vector k: conjugacy-class representatives with BNS identification, subgroup index, and domain count. The chosen candidate's `operations` feed allowed_moments and build_magnetic_model.",
+    description: "Enumerate the magnetic subgroup candidates of the parent space group for a propagation vector k: conjugacy-class representatives with BNS identification, subgroup index, and domain count. At a single-arm k ≠ 0 the name (`label`, `bns`, `bnsNumber`) is that of the ordered structure's group in its magnetic cell (BNS type IV) and `setting` is its standard BNS cell in the parent's axes; the `operations` stay in the parent cell. At a two-arm k (such as (⅓,⅓,0)) a candidate is a decoration of the little group for the Fourier moment model, not a magnetic space group: no BNS name, and `note` says so. `maximal` marks the groups no other candidate contains (by containment, at any index: where no group closes on the whole little group they have index 4); they are listed whatever `maxIndex` (default 8) cuts. The chosen candidate's `operations` feed allowed_moments and build_magnetic_model.",
     inputSchema: {
       structure: anyObj,
       k: z.array(z.number()).length(3).optional().describe("Propagation vector, default (0,0,0)"),
-      maxIndex: z.number().int().min(2).max(48).optional(),
+      maxIndex: z.number().int().min(2).max(48).optional().describe("Leave out non-maximal groups above this index (default 8)"),
     },
     handler: tools.list_magnetic_subgroups,
   },
   {
     name: "allowed_moments",
     title: "Allowed moment directions per site",
-    description: "The site-symmetry analysis: which moment directions the magnetic group allows on each site (null space of the magnetic stabilizer, with the k-phase). Dimension 0 = moment symmetry-forbidden; the basis spans exactly what a refinement may vary. Matches GSAS-II's per-site moment rules.",
+    description: "The site-symmetry analysis: which moment directions the magnetic group allows on each site (null space of the magnetic stabilizer, with the k-phase). Dimension 0 = moment symmetry-forbidden; the basis spans exactly what a refinement may vary. A group lower than the nuclear one can split a site's orbit: `orbits` then lists each split orbit (its anchor, dimension and basis), `dimension` is their sum and `basis` the first orbit's. Matches GSAS-II's per-site moment rules.",
     inputSchema: {
       structure: anyObj,
       operations: anyArr.optional().describe("Magnetic group operations (default: the structure's own)"),

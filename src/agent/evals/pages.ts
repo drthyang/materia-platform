@@ -207,7 +207,10 @@ export function mn3gaEdgeSession(): Session {
 }
 
 /** The magnetic structure behind `mn3gaMagneticSession`: k, the group (its id on the page) and the Mn moment. */
-export const MAGNETIC_TRUTH = { k: [0, 0, 0.5] as Vec3, id: "G2", moment: 2.5 } as const;
+// G1 since THY-37: the arrangement was first simulated from the index-2 list's G2,
+// which is not a group at this k (the 6₃ squares to an anti-translation); the
+// same arrangement, bit for bit, is G1's, the group its moments actually have.
+export const MAGNETIC_TRUTH = { k: [0, 0, 0.5] as Vec3, id: "G1", moment: 2.5 } as const;
 
 /**
  * Mn₃Ga below an (invented) ordering temperature: the nuclear pattern at the

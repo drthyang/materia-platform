@@ -8,7 +8,8 @@
  */
 
 import type { ModesInForce } from "@/app/pdfPage";
-import type { DistortionModeSet } from "@/core/crystal/distortionModes";
+import { isodistortAmplitudes, type DistortionModeSet } from "@/core/crystal/distortionModes";
+import { latticeCentring } from "@/core/crystal/standardSetting";
 import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import { color, fz, mono, resetRangeBtn, uppercaseLabel } from "@/app/theme";
 
@@ -63,13 +64,17 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
       return s + v * v;
     }, 0),
   );
+  // ISODISTORT's normalizations (ADR 0003): A_s over the primitive child cell, A_p to the parent's.
+  const own = latticeCentring(modeSet.parentized.spaceGroup.operations).length;
+  const cells = modeSet.amplitudeCells ?? { child: own, parent: own };
+  const totals = isodistortAmplitudes(totalAmplitude, cells);
   return (
     <>
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
         <span style={uppercaseLabel}>Distortion modes</span>
         <span style={{ fontFamily: mono, fontSize: fz.micro, color: color.secondary }}>
           {modes ? `vs ${modes.parentName}` : `from ${spaceGroup ?? "own space group"}`}
-          {` · total |A| = ${totalAmplitude.toFixed(4)} Å`}
+          {` · total |A| = ${totalAmplitude.toFixed(4)} Å (A_s ${totals.as.toFixed(4)}, A_p ${totals.ap.toFixed(4)})`}
           {(modeSet.acousticExcluded ?? 0) > 0 ? ` · ${modeSet.acousticExcluded} acoustic excluded` : ""}
         </span>
         {shownMode && (
@@ -84,7 +89,9 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
           <thead>
             <tr style={{ color: color.secondary, textAlign: "left" }}>
               <th style={{ padding: "3px 8px", fontWeight: 500 }}>mode</th>
-              <th style={{ padding: "3px 8px", fontWeight: 500, textAlign: "right" }}>A (Å)</th>
+              <th style={{ padding: "3px 8px", fontWeight: 500, textAlign: "right" }} title="MATERIA's refined amplitude: the displacement norm over the conventional child cell">A (Å)</th>
+              <th style={{ padding: "3px 8px", fontWeight: 500, textAlign: "right" }} title={`ISODISTORT's A_s, over the primitive child cell: A/√${cells.child}`}>A_s</th>
+              <th style={{ padding: "3px 8px", fontWeight: 500, textAlign: "right" }} title={`ISODISTORT's A_p = A_s·√(V_p/V_s), normalized to the parent's primitive cell: A/√${cells.parent}`}>A_p</th>
               <th style={{ padding: "3px 8px", fontWeight: 500, textAlign: "right" }}>esd</th>
               <th style={{ padding: "3px 8px", fontWeight: 500 }}>state</th>
             </tr>
@@ -109,6 +116,8 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
                     {shown ? "▸ " : ""}{m.label}
                   </td>
                   <td style={{ padding: "3px 8px", textAlign: "right" }}>{(p?.value ?? 0).toFixed(5)}</td>
+                  <td style={{ padding: "3px 8px", textAlign: "right", color: color.secondary }}>{isodistortAmplitudes(p?.value ?? 0, cells).as.toFixed(5)}</td>
+                  <td style={{ padding: "3px 8px", textAlign: "right", color: color.secondary }}>{isodistortAmplitudes(p?.value ?? 0, cells).ap.toFixed(5)}</td>
                   <td style={{ padding: "3px 8px", textAlign: "right", color: color.secondary }}>{esd !== undefined ? esd.toFixed(5) : "—"}</td>
                   <td style={{ padding: "3px 8px", color: color.secondary }}>{p?.fixed ? "fixed" : "free"}</td>
                 </tr>
@@ -123,6 +132,7 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
           : modes
             ? "Amplitudes are whole-cell displacement norms (Å); mode 1 is the frozen distortion — its fitted amplitude is the order parameter. Free/fix rows in the parameter panel (Positions group)."
             : "Amplitudes are whole-cell displacement norms (Å), enumerated from the structure's own space group (symmetry-conserving Γ modes; rigid-translation gauge excluded). All seed at 0 — free the rows you want active in the parameter panel (Positions group), or load a parent CIF on the Subgroups page for the observed order-parameter decomposition."}
+        {` A is over the conventional child cell (${cells.child} lattice point${cells.child === 1 ? "" : "s"}); ISODISTORT's A_s runs over the primitive child cell (A/√${cells.child}) and A_p = A_s·√(V_p/V_s) is normalized to the parent (A/√${cells.parent}).`}
         {" Click a row to draw the mode's eigenvector on the 3D model (green arrows)."}
       </p>
     </>

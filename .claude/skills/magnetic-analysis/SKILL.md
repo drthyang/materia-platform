@@ -28,16 +28,12 @@ k = 0, where magnetic intensity sits on nuclear reflections. So:
    usual order, before the magnetic structure: that is the standard. If it is not, do that
    first.
 
-   **The exception: magnetic Bragg intensity comparable to the nuclear, on nuclear
-   reflections.** The magnetic signal is usually orders of magnitude weaker, but large
-   moments (Tb-based compounds, for one) can give k = 0 magnetic peaks as strong as the
-   nuclear ones. The app's signal is `find_unexplained_peaks`' `k0Magnetic` (neutron data:
-   the misfits sit on nuclear reflections at large d, the sample below its ordering
-   temperature). The nuclear model alone then takes up the magnetic intensity: the ADPs and
-   the scale grow (notes). Only then, follow the usual order up to, not including, the positions and ADPs
-   (the scale, background and cell), then go to k: include the misfit peaks in the k-search
-   (they sit on nuclear lines and are left out by default) or set k = 0. Stage 4 refines the
-   positions, the profile and the B's with the moments, in the usual order.
+   **The exception: magnetic intensity as strong as the nuclear, on nuclear reflections**
+   (large moments; the app's signal is `find_unexplained_peaks`' `k0Magnetic`). The nuclear
+   model alone would take it up (notes). Follow the usual order only through the scale,
+   background and cell, then go to k: include the misfit peaks in the k-search (left out
+   by default) or set k = 0. Stage 4 refines the positions, the profile and the B's with
+   the moments, in the usual order.
 2. Prefer the nuclear structure from a dataset above the ordering temperature when the user
    has one: fix it, and refine only the magnetic parameters on the ordered data.
 3. With k = 0 and no dataset above the ordering temperature, refine the nuclear model at
@@ -66,21 +62,25 @@ k = 0, where magnetic intensity sits on nuclear reflections. So:
 
 ## Stage 2 — the magnetic space group, top-down
 
-The groups of the little group of k are listed by index (2 = maximal). Landau theory favours
-a single irreducible representation — a maximal group — so start there:
+The groups of the little group of k are listed by index, each named by its group in the
+magnetic cell (type IV at k ≠ 0). Landau theory favours a single irreducible representation
+— a maximal group — so start there. A group is maximal (`maximal: true`) when no candidate
+above it carries a moment on the chosen ions: containment, not index (it can sit at index 4,
+6, 8 or 12).
 
-1. `rank_magnetic_groups` with the default scope fits the maximal groups' moments (the
-   nuclear model held) and ranks them by wR against the nuclear-only wR. Widen to
-   `"all"` only when no maximal group explains the magnetic peaks — and check that it
-   explains each of them, not only the wR: neutrons see the moment component
-   perpendicular to Q, so a moment along c puts no intensity on 0 0 l. A magnetic 0 0 l
-   line the best maximal group leaves in the residual asks for an in-plane component,
-   which may only a lower group allow (notes: Cr₂WO₆).
-2. Read the ranking honestly. The ★ marks the lowest wR (a tie within 0.01 %: the
-   fewest moment parameters); it is no test that the others fit worse. A powder often cannot tell several groups apart (the direction ambiguity below):
-   a group whose wR is close to the ★'s and which explains every magnetic peak is an
-   equally good fit. Among those prefer the maximal group with the fewest moment
-   parameters, and say which others fit as well.
+1. `rank_magnetic_groups` with the default scope fits the moments of the groups in the
+   index sections of the maximal ones (the nuclear model held) and ranks them by wR
+   against the nuclear-only wR. Widen to `"all"` only when no maximal group explains the
+   magnetic peaks — and check that it explains each of them, not only the wR: neutrons
+   see the moment component perpendicular to Q, so a moment along c puts no intensity on
+   0 0 l. A magnetic 0 0 l line the best maximal group leaves in the residual asks for an
+   in-plane component, which may only a lower group allow (notes: Cr₂WO₆).
+2. Read the ranking honestly. `withinNoise` lists the groups within the noise of the best
+   fit by Hamilton's test (more moment parameters must lower χ² beyond the noise); the ★ is
+   the first of them top-down: none of the others contains it, then the lowest index and
+   the fewest moment parameters. A powder often cannot tell several groups apart (the
+   direction ambiguity below): those that explain every magnetic peak are equally good
+   fits. Prefer the ★, and say which others fit as well.
 3. A group that puts no moment on the chosen ions (0 moment components) cannot be it.
 
 ## Stage 3 — the moments
@@ -126,8 +126,8 @@ converge:
 
 ## What to report — and what not
 
-- The k, the magnetic space group (BNS symbol and number) and its index, the moment per
-  site with its esd, and the agreement against the nuclear-only fit.
+- The k, the magnetic space group (BNS symbol and number, in its magnetic cell) and its
+  index, the moment per site with its esd, and the agreement against the nuclear-only fit.
 - The powder's limits, always: in a cubic group the moment direction is not determinable
   from powder data (only |M|); in a uniaxial one only the angle to the unique axis. Do not
   report a direction the data cannot fix, and do not choose among degenerate groups by R

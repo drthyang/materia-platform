@@ -111,8 +111,7 @@ await page.route("**/api/anthropic/v1/messages**", async (route) => {
 
 await page.goto(BASE, { waitUntil: "networkidle" });
 await page.waitForSelector("header");
-await page.getByRole("button", { name: "Demos ▾", exact: true }).click();
-await page.getByRole("button", { name: "Rietveld · Mn₃Ga neutron TOF", exact: true }).click();
+await page.getByRole("button", { name: /Mn₃Ga neutron TOF/ }).click();
 await page.waitForTimeout(2000);
 await page.getByRole("button", { name: /^Open the Copilot/ }).click();
 const drawer = page.locator("aside.wb-agent");

@@ -4,7 +4,7 @@ import { profileRequest } from "@/app/powderPage";
 import { buildPowderProblem } from "@/core/workflow/powder";
 import { buildMagneticPowderProblem } from "@/core/workflow/magneticPowder";
 import { refine } from "@/core/refinement/engine";
-import { candidatesOf, momentDims, rankCandidates, buildFor, type MagneticFit } from "@/app/magneticStep";
+import { candidatesOf, momentParameters, rankCandidates, buildFor, type MagneticFit } from "@/app/magneticStep";
 import { noiseOf } from "@/core/magnetic/momentRestarts";
 import { magneticIonCandidates } from "@/core/magnetic/magneticIons";
 import { momentCartesian } from "@/core/magnetic/moment";
@@ -75,7 +75,7 @@ async function momentsOnly(nuclear: readonly RefinementParameter[]): Promise<Rec
     },
   };
   const ranking = await rankCandidates({
-    structure, reps, dims: momentDims(structure, reps, ions, K), scope: "all", open: new Set(), freeScale: true, fit,
+    structure, reps, dims: momentParameters(structure, reps, ions, K, { sameSite: true, magnitudes: false, flippedUnits: [] }), scope: "all", open: new Set(), freeScale: true, fit,
     build: (ops) => buildFor(structure, K, ions, ops, { sameSite: true, magnitudes: false, flippedUnits: [] }),
   });
   const entry = ranking[reps[0]!.candidate.id]!;

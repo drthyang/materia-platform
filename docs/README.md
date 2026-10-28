@@ -52,6 +52,12 @@ workbench? Start with the [user guide](./USER_GUIDE.md), and read
 | [PLAN_SUBGROUPS_AND_INCOMMENSURATE.md](./PLAN_SUBGROUPS_AND_INCOMMENSURATE.md) | Planned next: PDF subgroups and supercells; incommensurate magnetic studies |
 | [AGENT_PLAN.md](./AGENT_PLAN.md) | Planned before the Agent's validation: its architecture, tools and skills |
 
+## Research
+
+| Document | Read it to learn |
+| --- | --- |
+| [research/SUBGROUP_ENGINES.md](./research/SUBGROUP_ENGINES.md) | How ISOTROPY/ISODISTORT and the Bilbao server enumerate subgroups and build irreps, isotropy subgroups and symmetry modes, from primary sources; what a MATERIA subgroup engine with supercells needs |
+
 ## Reports
 
 | Document | Read it to learn |

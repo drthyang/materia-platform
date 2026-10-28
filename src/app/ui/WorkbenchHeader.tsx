@@ -1,13 +1,13 @@
 /**
  * Top header: brand mark (concentric diffraction rings), title + kicker, version
- * chip, the workflow stepper, and the export actions. Per the design handoff,
- * scaled up as the app's one fixed landmark: a taller bar, a larger mark, a
- * clearer type ramp, and step pills with numbered badges.
+ * chip, the workflow stepper, and the action buttons (History, Save, Open, Close,
+ * Export). Per the design handoff, scaled up as the app's one fixed landmark: a
+ * taller bar, a larger mark, a clearer type ramp, and step pills with numbered
+ * badges.
  */
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { color, fz, mono, radius, shadow, space } from "@/app/theme";
-import type { DemoId } from "@/app/demos";
 import type { HistoryBinding } from "@/app/historyBinding";
 import { HistoryIcon, HistoryPanel, StepArrow, StepText } from "@/app/ui/HistoryPanel";
 
@@ -56,16 +56,15 @@ interface Props {
    * crystal appears as a third chip only while active.
    */
   readonly technique?: "rietveld" | "pdf" | "sc" | null;
-  /** The bundled demos (one per workflow) for the Demos ▾ menu. */
-  readonly demos?: readonly { readonly id: DemoId; readonly label: string }[];
-  /** Which demo is loaded (adds "Exit demo" to the menu and lights the button). */
-  readonly activeDemo?: DemoId | null;
-  readonly onLoadDemo?: (id: DemoId) => void;
-  readonly onExitDemo?: () => void;
-  /** Open a saved project file — offered even on the landing, before any data. */
+  /** The Open button: open a saved project file — offered even on the landing, before any data. */
   readonly onOpenProject?: (file: File) => void;
-  /** Save the current session as a project file (absent while nothing is loaded). */
+  /** The Save button: save the current session as a project file (absent while nothing is loaded). */
   readonly onSaveProject?: () => void;
+  /**
+   * The Close button: close the project and return to the landing (absent while
+   * nothing is loaded). The shell decides whether to ask first (closeProject.ts).
+   */
+  readonly onCloseProject?: () => void;
   /**
    * The GPU-acceleration preference and its setter. The badge IS the control
    * (one home for "GPU" in the UI): lit = the WebGPU |F|² kernel is engaged
@@ -84,7 +83,7 @@ interface Props {
 /** File-picker filter for project files (any .json is accepted; the reader decides). */
 const PROJECT_ACCEPT = ".materia.json,.json,application/json";
 
-export function WorkbenchHeader({ steps, active, onStep, version, exports, technique = null, demos, activeDemo = null, onLoadDemo, onExitDemo, onOpenProject, onSaveProject, gpu, history }: Props): JSX.Element {
+export function WorkbenchHeader({ steps, active, onStep, version, exports, technique = null, onOpenProject, onSaveProject, onCloseProject, gpu, history }: Props): JSX.Element {
   return (
     <header className="wb-header" style={headerBar}>
       <div className="wb-header-brand" style={{ display: "flex", alignItems: "center", gap: 13, minWidth: 0 }}>
@@ -134,10 +133,9 @@ export function WorkbenchHeader({ steps, active, onStep, version, exports, techn
       {/* Positioned: the History popover hangs from this row's right end. */}
       <div className="wb-header-actions" style={{ position: "relative", marginLeft: "auto", display: "flex", gap: 9, flexWrap: "wrap" }}>
         {history && <HistoryMenu binding={history} />}
-        {onOpenProject && <ProjectMenu onOpenProject={onOpenProject} {...(onSaveProject ? { onSaveProject } : {})} />}
-        {demos && demos.length > 0 && onLoadDemo && (
-          <DemosMenu demos={demos} activeDemo={activeDemo} onLoadDemo={onLoadDemo} onExitDemo={onExitDemo} />
-        )}
+        {onSaveProject && <SaveButton onSave={onSaveProject} />}
+        {onOpenProject && <OpenButton onOpenProject={onOpenProject} />}
+        {onCloseProject && <CloseButton onClose={onCloseProject} />}
         {exports.length > 0 && <ExportMenu exports={exports} />}
       </div>
     </header>
@@ -475,103 +473,99 @@ function NavButton({ children, onClick, title, divider }: { children: React.Reac
   );
 }
 
-/** "Demos ▾": one bundled, converged example per technique. */
-function DemosMenu({ demos, activeDemo, onLoadDemo, onExitDemo }: {
-  demos: readonly { readonly id: DemoId; readonly label: string }[];
-  activeDemo: DemoId | null;
-  onLoadDemo: (id: DemoId) => void;
-  onExitDemo?: (() => void) | undefined;
-}): JSX.Element {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent): void => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [open]);
+/**
+ * Save, Open and Close: three buttons of their own beside History / Export, not
+ * a menu. Saving and reopening the session is the session-level counterpart of
+ * the per-mode exports (see workbenchEngine.ts), and was folded into a
+ * "Project ▾" menu that held nothing else. Their words are short, so they stay
+ * words at every width the header holds (phones included); the accessible names
+ * are the full "Save project" / "Open project" / "Close project".
+ */
+function SaveButton({ onSave }: { onSave: () => void }): JSX.Element {
   return (
-    <div ref={ref} style={{ position: "relative" }}>
-      <ActionButton onClick={() => setOpen((o) => !o)} active={open || activeDemo !== null}>
-        {activeDemo ? "Demo ✓ ▾" : "Demos ▾"}
-      </ActionButton>
-      {open && (
-        <div style={menu}>
-          {demos.map((d) => (
-            <MenuItem key={d.id} onClick={() => { setOpen(false); onLoadDemo(d.id); }}>
-              {activeDemo === d.id ? "✓ " : ""}{d.label}
-            </MenuItem>
-          ))}
-          {activeDemo && onExitDemo && (
-            <MenuItem onClick={() => { setOpen(false); onExitDemo(); }}>Exit demo</MenuItem>
-          )}
-        </div>
-      )}
-    </div>
+    <ActionButton
+      onClick={onSave}
+      className="wb-header-file"
+      ariaLabel="Save project"
+      title="Save project — downloads the session (data, model, step history) as a .materia.json file"
+    >
+      Save
+    </ActionButton>
   );
 }
 
 /**
- * "Project ▾": save the whole session as one `.materia.json`, or open a saved
- * one. Lives beside Demos/Export because a project is the session-level
- * counterpart of the per-mode exports (see workbenchEngine.ts).
+ * Open a saved project: a button that opens the file picker through a hidden
+ * input (visually hidden, not display: none, which some touch browsers will not
+ * open from a script). The picker takes any .json; the reader decides whether
+ * it is a project.
  */
-function ProjectMenu({ onOpenProject, onSaveProject }: { onOpenProject: (file: File) => void; onSaveProject?: () => void }): JSX.Element {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent): void => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [open]);
+function OpenButton({ onOpenProject }: { onOpenProject: (file: File) => void }): JSX.Element {
+  const input = useRef<HTMLInputElement>(null);
   return (
-    <div ref={ref} style={{ position: "relative" }}>
-      <ActionButton onClick={() => setOpen((o) => !o)} active={open}>Project ▾</ActionButton>
-      {open && (
-        <div style={menu}>
-          {onSaveProject && (
-            <MenuItem onClick={() => { setOpen(false); onSaveProject(); }}>Save project</MenuItem>
-          )}
-          <MenuFileItem accept={PROJECT_ACCEPT} onFile={(f) => { setOpen(false); onOpenProject(f); }}>
-            Open project…
-          </MenuFileItem>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** A menu row that opens the file picker (a label wrapping a hidden input). */
-function MenuFileItem({ children, accept, onFile }: { children: React.ReactNode; accept: string; onFile: (file: File) => void }): JSX.Element {
-  const [hover, setHover] = useState(false);
-  return (
-    <label onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} style={{ ...menuItem(hover), boxSizing: "border-box" }}>
-      {children}
+    <>
+      <ActionButton
+        onClick={() => input.current?.click()}
+        className="wb-header-file"
+        ariaLabel="Open project"
+        title="Open project — opens a saved .materia.json on the page it was saved from"
+      >
+        Open
+      </ActionButton>
       <input
+        ref={input}
         type="file"
-        accept={accept}
-        style={{ display: "none" }}
+        accept={PROJECT_ACCEPT}
+        tabIndex={-1}
+        aria-hidden
+        style={visuallyHidden}
         onChange={(e) => {
           const f = e.target.files?.[0];
-          if (f) onFile(f);
+          if (f) onOpenProject(f);
           e.target.value = "";
         }}
       />
-    </label>
+    </>
   );
 }
 
-function ActionButton({ children, onClick, active, title, ariaLabel }: { children: React.ReactNode; onClick: () => void; active?: boolean; title?: string; ariaLabel?: string }): JSX.Element {
+/**
+ * Close the project and go back to the landing. The shell asks first when the
+ * project has changes since its last Save, Open or demo load.
+ */
+function CloseButton({ onClose }: { onClose: () => void }): JSX.Element {
+  return (
+    <ActionButton
+      onClick={onClose}
+      className="wb-header-file"
+      ariaLabel="Close project"
+      title="Close project — returns to the start page; asks first if there are changes not yet saved to a .materia.json file"
+    >
+      Close
+    </ActionButton>
+  );
+}
+
+/** A file picker input kept out of sight and out of the layout, but in the page. */
+const visuallyHidden: CSSProperties = {
+  position: "absolute",
+  width: 1,
+  height: 1,
+  margin: -1,
+  padding: 0,
+  overflow: "hidden",
+  clip: "rect(0 0 0 0)",
+  border: 0,
+  opacity: 0,
+  pointerEvents: "none",
+};
+
+function ActionButton({ children, onClick, active, title, ariaLabel, className }: { children: React.ReactNode; onClick: () => void; active?: boolean; title?: string; ariaLabel?: string; className?: string }): JSX.Element {
   const [hover, setHover] = useState(false);
   const lit = hover || active;
   return (
     <button
-      className="wb-header-action"
+      className={className ? `wb-header-action ${className}` : "wb-header-action"}
       onClick={onClick}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}

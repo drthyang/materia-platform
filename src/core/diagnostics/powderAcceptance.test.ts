@@ -117,7 +117,9 @@ describe("physical sanity, scaled", () => {
     const onBound = [param("scale", "scale", 1), param("B1", "bIso", 0)];
     const items = physicalItems({ result: r, parameters: onBound, structures: [], assessment: assess(r, onBound) });
     expect(items.map((i) => i.severity)).toEqual(["blocker"]);
-    expect(items[0]!.text).toMatch(/B1 is resting on its min bound/);
+    // The page's short line; the assessment's own words behind its "?".
+    expect(items[0]!.text).toBe("B1 hit its lower bound (0) → find the cause");
+    expect(items[0]!.info?.[0]).toBe("B1 is resting on its min bound (0).");
     const edited = [param("scale", "scale", 1.1), param("B1", "bIso", 0)];
     expect(physicalItems({ result: r, parameters: edited, structures: [], assessment: assess(r, edited) })).toEqual([]);
   });

@@ -63,8 +63,9 @@ import { reviewSymmetry, type SymmetryReview } from "@/core/diagnostics/symmetry
 import { isGsasHistogram, parseGsasHistogramPattern } from "@/parsers/gsasHistogram";
 import { cagliotiOf } from "@/core/workflow/leBail";
 import { searchPropagationVector, type KSearchOptions } from "@/core/magnetic/kSearch";
-import { magneticSubgroupLattice, latticeRepresentatives } from "@/core/magnetic/subgroupLattice";
+import { magneticSubgroupLattice, latticeCandidateLabel, latticeRepresentatives } from "@/core/magnetic/subgroupLattice";
 import { allowedMomentDirections } from "@/core/magnetic/allowedMoments";
+import { magneticOrbitRepresentatives } from "@/core/crystal/cellExpansion";
 import { buildMagneticModel } from "@/core/magnetic/momentModel";
 import { describePropagation } from "@/core/magnetic/propagation";
 import { propagationKParameters } from "@/core/magnetic/refinableK";
@@ -692,10 +693,14 @@ export function search_propagation_vector(args: {
 }
 
 /**
- * Enumerate the maximal magnetic subgroup candidates of the parent group for a
+ * Enumerate the magnetic subgroup candidates of the parent group for a
  * propagation vector k — conjugacy-class representatives with their BNS
- * identification, subgroup index, and domain count. The operations of the
- * chosen candidate feed allowed_moments / build_magnetic_model.
+ * identification, subgroup index, domain count and whether they are maximal. The operations of the
+ * chosen candidate feed allowed_moments / build_magnetic_model. At a
+ * single-arm k ≠ 0 the operations are listed in the parent cell and the name
+ * is the group's in its magnetic cell (type IV), `setting` the standard BNS
+ * cell in parent axes; at a two-arm k a candidate is no magnetic space group
+ * and has no BNS name (`note`).
  */
 export function list_magnetic_subgroups(args: {
   structure: StructureModel;
@@ -705,22 +710,34 @@ export function list_magnetic_subgroups(args: {
   candidates: {
     label: string;
     bns: string | null;
+    bnsNumber: string | null;
+    setting: string | null;
+    note?: string;
     index: number;
     domainCount: number;
+    maximal: boolean;
     operations: SymmetryOperation[];
   }[];
 } {
-  const reps = latticeRepresentatives(
-    magneticSubgroupLattice(args.structure.spaceGroup.operations, args.k ?? [0, 0, 0], { maxIndex: args.maxIndex ?? 8 }),
-  );
+  // The whole lattice, then the cut: a maximal group stays whatever its index.
+  const maxIndex = args.maxIndex ?? 8;
+  const reps = latticeRepresentatives(magneticSubgroupLattice(args.structure.spaceGroup.operations, args.k ?? [0, 0, 0]))
+    .filter((r) => r.index <= maxIndex || r.maximal);
   return {
-    candidates: reps.map((r) => ({
-      label: r.candidate.label,
-      bns: r.candidate.standard?.bnsSymbol ?? r.settingMatch?.identity.bnsSymbol ?? null,
-      index: r.index,
-      domainCount: r.domainCount,
-      operations: [...r.candidate.operations],
-    })),
+    candidates: reps.map((r) => {
+      const identity = r.candidate.standard ?? r.settingMatch?.identity ?? null;
+      return {
+        label: latticeCandidateLabel(r).symbol,
+        bns: identity?.bnsSymbol ?? null,
+        bnsNumber: identity?.bnsNumber ?? null,
+        setting: latticeCandidateLabel(r).setting,
+        ...(r.twoArm ? { note: latticeCandidateLabel(r).note } : {}),
+        index: r.index,
+        domainCount: r.domainCount,
+        maximal: r.maximal,
+        operations: [...r.candidate.operations],
+      };
+    }),
   };
 }
 
@@ -735,14 +752,32 @@ export function allowed_moments(args: {
   operations?: SymmetryOperation[];
   k?: Vec3;
   siteLabels?: string[];
-}): { sites: { label: string; element: string; dimension: number; basis: Vec3[] }[] } {
+}): {
+  sites: {
+    label: string;
+    element: string;
+    dimension: number;
+    basis: Vec3[];
+    orbits?: { position: Vec3; dimension: number; basis: Vec3[] }[];
+  }[];
+} {
   const ops = args.operations ?? args.structure.spaceGroup.operations;
   const wanted = args.siteLabels ? new Set(args.siteLabels) : null;
   const sites = args.structure.sites
     .filter((s) => !wanted || wanted.has(s.label))
     .map((s) => {
-      const allowed = allowedMomentDirections(ops, s.position, args.k ?? [0, 0, 0]);
-      return { label: s.label, element: s.element, dimension: allowed.dimension, basis: allowed.basis.map((b) => [...b] as Vec3) };
+      // A group lower than the nuclear one can split the site's orbit: each split orbit has its own allowed moment.
+      const orbits = magneticOrbitRepresentatives(args.structure.spaceGroup.operations, ops, s.position).map((position) => {
+        const allowed = allowedMomentDirections(ops, position, args.k ?? [0, 0, 0]);
+        return { position: [...position] as Vec3, dimension: allowed.dimension, basis: allowed.basis.map((b) => [...b] as Vec3) };
+      });
+      return {
+        label: s.label,
+        element: s.element,
+        dimension: orbits.reduce((sum, o) => sum + o.dimension, 0),
+        basis: orbits[0]!.basis,
+        ...(orbits.length > 1 ? { orbits } : {}),
+      };
     });
   return { sites };
 }

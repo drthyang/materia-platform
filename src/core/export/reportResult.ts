@@ -27,6 +27,8 @@ import type { ValidationVerdict, CheckStatus } from "@/core/diagnostics/validati
 import type { RefinementAssessment } from "@/core/diagnostics/assessment";
 import { readCorrelations } from "@/core/diagnostics/correlationGuard";
 import { oneCurve } from "@/core/diagnostics/assessment";
+import { findingLine } from "@/core/diagnostics/findingLines";
+import { CAUTION_SHORT } from "@/core/diagnostics/zeroAdpLines";
 import { CORRELATION_LIMIT, GOF_BANDS } from "@/core/diagnostics/thresholds";
 import { CROSS_CHECK } from "@/core/export/crossCheck";
 
@@ -37,7 +39,10 @@ export type ReportTone = "ok" | "note" | "warn" | "bad" | "info";
 export interface ReportCaveat {
   readonly tone: ReportTone;
   readonly label: string;
+  /** One short line. */
   readonly text: string;
+  /** The longer account behind it (a finding's own words): a tooltip on screen, and the appendix's "Caveats in full". */
+  readonly detail?: string;
 }
 
 /** The report's judgment of the fit: the template Result paragraph and the caveats. */
@@ -190,7 +195,7 @@ function powderVerdict(i: PowderResultInput): string {
   const items = a.checks[1].items ?? [];
   const blockers = items.filter((x) => x.severity === "blocker");
   const issues = items.filter((x) => x.severity === "issue");
-  if (blockers.length > 0) return `It is not acceptable: ${plural(blockers.length, "physical problem")} to fix first (${blockers.map((b) => b.text.replace(/\.$/, "")).join("; ")}).`;
+  if (blockers.length > 0) return `It is not acceptable: ${plural(blockers.length, "physical problem")} to fix first (${blockers.map((b) => (b.brief ?? withoutAction(b.text)).replace(/\.$/, "")).join("; ")}).`;
   if (i.gof === null || a.band === null) return "";
   const g = i.gof.toFixed(2);
   const cause = i.headlineCause ? `: ${causeClause(i.headlineCause)}` : "";
@@ -287,24 +292,33 @@ export function powderCaveats(i: PowderResultInput): ReportCaveat[] {
   for (const c of i.causes.filter((x) => x.share >= 0.05).slice(0, 3)) {
     out.push({ tone: misfit, label: c.title, text: `about ${Math.round(100 * c.share)} % of χ² — ${lowerFirst((c.summary ?? c.evidence).replace(/\.$/, ""))}${c.statistic ? ` (${c.statistic})` : ""}` });
   }
-  const items = physical.items ?? [];
-  if (items.length === 0) out.push({ tone: TONE[physical.tone], label: "Physical sanity", text: lowerFirst(physical.value) + (physical.sentence ? `; ${lowerFirst(physical.sentence)}` : "") });
-  // A held input says why it is one (its detail's first sentence); the others are their own line's words.
+  // A fix of the B-at-0 rule in force is the report's limitation (reportInputs), stated there once.
+  const items = (physical.items ?? []).filter((x) => x.zeroAdp !== "applied");
+  if ((physical.items ?? []).length === 0) out.push({ tone: TONE[physical.tone], label: "Physical sanity", text: lowerFirst(physical.value) + (physical.sentence ? `; ${lowerFirst(physical.sentence)}` : "") });
+  // A held input says why it is one (its detail's first sentence); a B-at-0 line is stated as the
+  // report states it (its arrow is a result); the others are their own line's words, the action left out.
   const byId = new Map(i.parameters.map((p) => [p.id, p]));
   const itemText = (item: (typeof items)[number]): string => {
+    if (item.report) return item.report;
     const p = byId.get(item.parameterIds[0] ?? "");
     const held = p && p.kind === "occupancy" && (p.fixed || p.expression) && /held at/.test(item.text);
-    return `${parameterPhrase(withoutAction(item.text)).replace(/\.$/, "")}${held && item.detail ? ` (${firstSentence(item.detail).replace(/\.$/, "")})` : ""}`;
+    return `${parameterPhrase(withoutAction(item.text)).replace(/\.$/, "")}${held && item.detail ? ` (${firstSentence(item.detail).replace(/\.$/, "")})` : ""}${item.caution ? ` — ${CAUTION_SHORT}` : ""}`;
+  };
+  // What the short lines leave out, for the appendix: the finding's own words where the line rewords it.
+  const itemDetail = (group: readonly (typeof items)[number][]): { detail?: string } => {
+    const d = group.map((x) => (x.info ?? []).join(" ")).filter(Boolean);
+    return d.length > 0 ? { detail: d.join(" · ") } : {};
   };
   // Each blocker on its line; the values to check, and the notes, each as one line.
-  for (const item of items.filter((x) => x.severity === "blocker")) out.push({ tone: "bad", label: "Physical sanity", text: itemText(item) });
+  for (const item of items.filter((x) => x.severity === "blocker")) out.push({ tone: "bad", label: "Physical sanity", text: itemText(item), ...itemDetail([item]) });
   for (const [severity, tone] of [["issue", "warn"], ["note", "note"]] as const) {
     const group = items.filter((x) => x.severity === severity);
-    if (group.length > 0) out.push({ tone, label: "Physical sanity", text: group.map(itemText).join("; ") });
+    if (group.length > 0) out.push({ tone, label: "Physical sanity", text: group.map(itemText).join("; "), ...itemDetail(group) });
   }
   for (const e of cross.esd ?? []) {
     const m = /^Esds likely too small: (.+)$/.exec(e.text);
-    out.push({ tone: "warn", label: "Esds", text: m ? `likely too small (${symbols(m[1]!)})` : e.text });
+    // The longer account (a pair list behind the moderate correlations' line) goes to the appendix.
+    out.push({ tone: "warn", label: "Esds", text: m ? `likely too small (${symbols(m[1]!)})` : withoutAction(e.text), ...(e.detail ? { detail: e.detail } : {}) });
   }
   if (i.result && a.state.current) out.push(...correlationCaveats(meaningfulCorrelations(i.result, i.parameters, i.restraints)));
   out.push({ tone: TONE[cross.tone], label: "Cross-check", text: `${lowerFirst(cross.value)} (${lowerFirst(cross.sentence.replace(/ \/ /g, " and "))})` });
@@ -393,7 +407,7 @@ export function pdfResultParagraph(i: PdfResultInput, changed: boolean): string 
     outcomeSentence({ state, agreement: `{{R_w}} = ${pct(i.rw)}`, ...(i.result ? { cycles: i.result.history.length, status: i.result.status } : {}) }),
     // The convention the PDF page's notes state (Toby & Billinge 2004): no GoF on correlated G(r) points.
     "G(r) points are strongly correlated, so {{R_w}} is a relative measure with no statistical acceptance bar, and the esds are optimistic.",
-    serious.length > 0 ? sentence(`To resolve: ${serious.slice(0, 3).map((f) => lowerFirst(f.summary.replace(/\.$/, ""))).join("; ")}`) : "",
+    serious.length > 0 ? sentence(`To resolve: ${serious.slice(0, 3).map((f) => lowerFirst(shortFinding(f, i.parameters).text.replace(/\.$/, ""))).join("; ")}`) : "",
     // A refined fit's cross-check is in the real-space programs, as the powder's is in GSAS-II and FullProf.
     state !== "none" && state !== "diverged"
       ? `The cross-check in ${CROSS_CHECK.pdf.packages}${i.magnetic ? `, with the magnetic term in ${CROSS_CHECK.pdf.magnetic},` : ""} is still to do.`
@@ -408,9 +422,16 @@ function pdfCrossCheckCaveat(magnetic: boolean): ReportCaveat {
   return { tone: "info", label: "Cross-check", text: `reproduce the fit in ${CROSS_CHECK.pdf.packages}: ${CROSS_CHECK.pdf.exportNote} that refines the same parameters${mpdf}` };
 }
 
+/** A finding as a caveat states it: the page's short line where it has one, the action left out, its own words for the appendix. */
+function shortFinding(f: RefinementAssessment["findings"][number], parameters: readonly RefinementParameter[]): { text: string; detail?: string } {
+  const line = findingLine(f, { parameters });
+  if (!line) return { text: f.summary.replace(/\.$/, "") };
+  return { text: line.report ?? withoutAction(line.text), detail: line.detail.join(" ") };
+}
+
 export function pdfCaveats(i: PdfResultInput, restraints: readonly LinearRestraint[] = []): ReportCaveat[] {
   const findings = (i.assessment?.findings ?? []).filter((f) => f.severity !== "info" && f.category !== "correlation");
-  const out: ReportCaveat[] = findings.map((f) => ({ tone: SEVERITY_TONE[f.severity], label: CATEGORY_LABEL[f.category] ?? "Finding", text: f.summary.replace(/\.$/, "") }));
+  const out: ReportCaveat[] = findings.map((f) => ({ tone: SEVERITY_TONE[f.severity], label: CATEGORY_LABEL[f.category] ?? "Finding", ...shortFinding(f, i.parameters) }));
   // An assessment is read only off a refinement that describes the values on screen; so are its correlations.
   if (i.result && i.assessment) out.push(...correlationCaveats(meaningfulCorrelations(i.result, i.parameters, restraints)));
   out.push(pdfCrossCheckCaveat(!!i.magnetic));
