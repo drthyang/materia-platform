@@ -66,15 +66,14 @@ export function turnFromSse(stream: string): ScriptTurn {
   }
   const ordered = [...blocks.entries()].sort(([a], [b]) => a - b).map(([, b]) => b);
   const text = ordered.filter((b) => b.type === "text").map((b) => b.text).join("");
-  const calls = ordered.filter((b) => b.type === "tool_use" && b.name).map((b) => {
-    let input: Record<string, unknown> = {};
+  const parsed = (json: string): Record<string, unknown> => {
     try {
-      input = b.json ? (JSON.parse(b.json) as Record<string, unknown>) : {};
+      return json ? (JSON.parse(json) as Record<string, unknown>) : {};
     } catch {
-      input = {};
+      return {};
     }
-    return { name: b.name!, input };
-  });
+  };
+  const calls = ordered.filter((b) => b.type === "tool_use" && b.name).map((b) => ({ name: b.name!, input: parsed(b.json) }));
   return { ...(text ? { text } : {}), ...(calls.length ? { calls } : {}) };
 }
 
