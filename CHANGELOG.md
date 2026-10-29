@@ -640,8 +640,9 @@ release fixes bugs.
 
 - **The magnetic workflow ends with the final instrument pass.** On the
   powder page with a magnetic model in the refinement, `write_report` waits
-  until the last converged refinement freed the instrument's terms alone
-  (the zero and the peak shape, everything else held): the peak shape was
+  until the last converged refinement freed the instrument's terms (the
+  zero and the peak shape) with the scale and background, the moments,
+  structure and microstrain held: the peak shape was
   fitted before the magnetic peaks were modelled. The magnetic skill's
   Stage 5 says so; no prompt is needed for it.
 

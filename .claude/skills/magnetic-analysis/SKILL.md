@@ -115,10 +115,10 @@ nuclear values (until Stage 5): freed, they trade with the moments, and the esds
 ## Stage 5 — the final instrument pass (always; the report waits for it)
 
 The peak shape was fitted before the magnetic peaks were modelled. Once the moments
-converge, `set_free` the instrument's terms alone — the zero and every peak-shape term
-(TOF α₀, α₁, β₀, β₁, β_q, σ₀², σ₂², σ_q²; CW U, V, W, X, Y, S/L, H/L), never a subset —
-everything else held (moments, structure, microstrain, scale, background); `refine` until
-wR stops moving. A term on its bound is fixed alone, the rest refined again. Quote the
+converge, `set_free` the instrument's terms — the zero and every peak-shape term (TOF α₀,
+α₁, β₀, β₁, β_q, σ₀², σ₂², σ_q²; CW U, V, W, X, Y, S/L, H/L), never a subset — with the scale
+and background, everything else held (moments, structure, microstrain); `refine` until wR
+stops moving. A term on its bound is fixed alone, the rest refined again. Quote the
 fit before and after.
 
 ## What to report — and what not
