@@ -632,7 +632,11 @@ release fixes bugs.
   sample-broadening term) together with the instrument's terms or the B
   values, rule `broadening-alone`: they widen the lines alike and trade with
   each other, below the correlation limit (σ₂² ↔ microstrain −0.90 on AWO₄).
-  Only the user lifts it, with `allow_exception`.
+  Only the user lifts it, with `allow_exception`. It is the atomic
+  structure's, refined again with it: once refined, the microstrain is a
+  third group in the alternation (instrument terms, B values, microstrain,
+  each alone in turn), which settles only when a cycle moves none of them by
+  more than 0.3 esd.
 
 - **The magnetic workflow ends with the final instrument pass.** On the
   powder page with a magnetic model in the refinement, `write_report` waits

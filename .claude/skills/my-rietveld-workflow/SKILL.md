@@ -229,13 +229,13 @@ calibration), the **peak shape** (Caglioti `U V W`, Lorentzian `X Y`, the TOF α
 through the background at high angle and the low-angle scale: refined together, each
 absorbs the other's error (a B gone negative while the profile widens).
 
-**Alternate the two groups instead.** Refine the instrument terms with the B values fixed,
-then fix them and refine the B values; repeat. In the app, `refine` reports the
-`alternation` after each step: the group refined, its largest shift since its last
-refinement (in esd), and `settled` once a cycle moves neither group by more than 0.3 esd —
-stop there. If the shifts shrink slowly (each cycle more than two-thirds of the last), the
-groups are coupled: tell the user. Each group's esds are conditional on the other held
-fixed — say so in the report.
+**Alternate the groups instead**: the instrument terms with the B values fixed, then the B
+values, and the microstrain alone as a third group once used (the structure's, refined
+again with it). `refine` reports the `alternation`: the
+group refined, its largest shift since its last refinement (in esd), and `settled` once a
+cycle moves no group by more than 0.3 esd — stop there. Shifts shrinking slowly (each over
+two-thirds of the last) mean coupled groups: tell the user. Each group's esds are
+conditional on the others held — say so in the report.
 
 **With an instrument file from a standard**, keep its terms fixed where they fit, and
 refine only what the sample adds; when it does not describe the data, refine its terms,

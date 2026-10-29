@@ -205,6 +205,33 @@ describe("the method as code", () => {
     s = step(s.memory, 11.9, 0.815, "W", 0.5);
     expect(s.view).toMatchObject({ largestShift: "W 0.20 esd since their last refinement", settled: true });
     expect(String(s.view!.next)).toMatch(new RegExp(`^Neither group moved by more than ${ALTERNATION_SETTLED} esd in its last refinement: the alternation has converged\\. Each group's esds are conditional on the other held fixed`));
+    // Once the microstrain has been refined (alone), it joins the cycle: instrument → thermal → microstrain.
+    const three = (w: number, b: number, m: number, free: "W" | "B" | "M"): RefinementParameter[] => [
+      { ...p("W", "profileW"), value: w, fixed: free !== "W" },
+      { ...p("B", "bIso"), value: b, fixed: free !== "B" },
+      { ...p("M", "mustrainIso"), value: m, fixed: free !== "M" },
+    ];
+    const stepThree = (memory: Alternation, w: number, b: number, m: number, free: "W" | "B" | "M", e: number) => {
+      const ps = three(w, b, m, free);
+      const next = advanceAlternation(memory, ps.filter((q) => !q.fixed), ps, { [free]: e });
+      return { ...next, view: alternationView(next.memory, next.refined, ps)?.alternation as Record<string, unknown> | undefined };
+    };
+    let t = stepThree({}, 10, 0.8, 1500, "W", 0.5);
+    t = stepThree(t.memory, 10, 0.8, 1500, "B", 0.05);
+    expect(String(t.view!.next)).toMatch(/^Fix the thermal parameters and refine the instrument terms \(W\) again/);
+    t = stepThree(t.memory, 10, 0.8, 1500, "M", 50);
+    expect(t.view).toMatchObject({ refined: "the microstrain (M), with the instrument terms and the thermal parameters fixed", settled: false });
+    expect(String(t.view!.next)).toMatch(/^Fix the microstrain and refine the instrument terms \(W\) again.*stop when a cycle moves no group by more than/);
+    // After the profile moves, the microstrain is refined again before the cycle can settle.
+    t = stepThree(t.memory, 10.05, 0.8, 1500, "W", 0.5);
+    expect(String(t.view!.next)).toMatch(/^Fix the instrument terms and refine the thermal parameters/);
+    t = stepThree(t.memory, 10.05, 0.801, 1500, "B", 0.05);
+    expect(t.view).toMatchObject({ settled: false });
+    expect(String(t.view!.next)).toMatch(/refine the microstrain \(M\) again, alone/);
+    t = stepThree(t.memory, 10.05, 0.801, 1505, "M", 50);
+    expect(t.view).toMatchObject({ settled: true });
+    expect(String(t.view!.next)).toMatch(/^No group moved by more than/);
+
     // Both groups free together (the user's exception) is no step of the alternation.
     const both = at(12, 0.8, "W").map((q) => ({ ...q, fixed: q.id === "x" }));
     expect(advanceAlternation(s.memory, both.filter((q) => !q.fixed), both, { W: 0.5, B: 0.05 }).refined).toBeNull();
