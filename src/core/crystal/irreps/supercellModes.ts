@@ -619,7 +619,7 @@ export function supercellModeBasis(parent: StructureModel, group: FactorGroup, e
       copy,
       copies,
       local: r.local,
-      axes: axes.map(({ siteLabel: l, axis }) => ({ siteLabel: l, axis: [axis[0] / n, axis[1] / n, axis[2] / n] as Vec3 })),
+      axes: axes.map(({ siteLabel: l, axis }) => ({ siteLabel: l, axis: axis.map((x) => (Math.abs(x / n) < 1e-12 ? 0 : x / n)) as unknown as Vec3 })),
     });
     fields.push(r.field.map((x) => x / n) as Field);
   }

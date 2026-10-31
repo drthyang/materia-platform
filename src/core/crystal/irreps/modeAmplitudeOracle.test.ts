@@ -98,9 +98,15 @@ const isoNumber = (t: string): number => {
 
 /**
  * DISPLAY DISTORTION with SHOW WYCKOFF, SHOW MICROSCOPIC VECTOR and SHOW
- * CARTESIAN: a line with a Wyckoff letter opens a block; each line is an atom,
- * its position and then its vectors. A position written with decimals is
- * Cartesian (Å), one written with integers and fractions is fractional.
+ * CARTESIAN: a line with a Wyckoff letter opens a block; a line with a
+ * position and a vector opens an atom, and a line with a vector alone adds the
+ * atom's next component (SHOW CARTESIAN writes one per line):
+ *
+ *     a       (0,0,0) (3.90500, 0.00000, 0.00000)
+ *                     (0.00000, 3.90500, 0.00000)
+ *
+ * A position written with decimals is Cartesian (Å), one written with integers
+ * and fractions is fractional.
  */
 function parseDistortion(out: string): IsoBlock[] {
   const blocks: IsoBlock[] = [];
@@ -110,8 +116,15 @@ function parseDistortion(out: string): IsoBlock[] {
     const line = raw.replace(/^\*+/, "");
     if (/Wyckoff|Projected/.test(line)) continue;
     const found = [...line.matchAll(triple)];
-    if (found.length < 2) continue;
+    if (found.length === 0) continue;
     const vecs = found.map((m) => [isoNumber(m[1]!), isoNumber(m[2]!), isoNumber(m[3]!)] as Vec3);
+    if (found.length === 1) {
+      // The atom's next component.
+      const atoms = blocks[blocks.length - 1]?.atoms;
+      if (!atoms || atoms.length === 0) throw new Error(`ISOTROPY output: a vector before any atom: ${line}`);
+      atoms[atoms.length - 1]!.vectors.push(vecs[0]!);
+      continue;
+    }
     const head = line.slice(0, line.indexOf("(")).trim();
     if (/^[a-z]$/.test(head) || blocks.length === 0) blocks.push({ atoms: [] });
     blocks[blocks.length - 1]!.atoms.push({ point: vecs[0]!, cartesianPoint: found[0]![0].includes("."), vectors: vecs.slice(1) });

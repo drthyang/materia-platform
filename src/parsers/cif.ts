@@ -706,3 +706,18 @@ export function parseMagneticCif(text: string, id = "structure", options: CifPar
       : null;
   return { structure, magnetic };
 }
+
+/**
+ * A CIF's data block as its tags and loops: the block parseCif reads (the
+ * first with atom sites), tags in lower case, values as written (quotes
+ * removed). For readers of a CIF's other items, such as an ISODISTORT mode
+ * CIF's (modeCif.ts). A loop whose values do not fill whole rows carries the
+ * reason in `malformed`.
+ */
+export function readCifBlock(text: string): {
+  readonly items: ReadonlyMap<string, string>;
+  readonly loops: readonly { readonly headers: readonly string[]; readonly rows: readonly (readonly string[])[]; readonly malformed?: string }[];
+} {
+  const { items, loops } = parseCifBlocks(text);
+  return { items, loops: loops.map((l) => ({ headers: l.headers.map((h) => h.toLowerCase()), rows: l.rows, ...(l.malformed ? { malformed: l.malformed } : {}) })) };
+}

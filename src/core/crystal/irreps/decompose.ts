@@ -535,7 +535,8 @@ export function decomposeChild(parent: StructureModel, child: StructureModel, op
     const v = values.get(mode.id)!;
     const axes = mode.axes.map(({ siteLabel, axis }) => {
       const label = refLabelOf.get(siteLabel)!;
-      return { siteLabel: label, axis: mulMV(Winv(bySite.get(label)!), axis) };
+      const turned = mulMV(Winv(bySite.get(label)!), axis);
+      return { siteLabel: label, axis: turned.map((x) => (Math.abs(x) < 1e-12 ? 0 : x)) as unknown as Vec3 };
     });
     const active = Math.abs(v) > 1e-5;
     const param = onRef.parameters.find((p) => p.id === mode.id)!;
