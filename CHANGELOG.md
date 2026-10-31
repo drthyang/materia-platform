@@ -7,6 +7,8 @@ release fixes bugs.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-31
+
 ### Added
 
 - **A live Agent run can be recorded and replayed (dev server).** With
