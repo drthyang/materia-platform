@@ -317,14 +317,20 @@ describe.skipIf(!ENABLED)("ISOTROPY oracle: mode amplitudes of a decomposed supe
         ours.set(key, { irrep: m.irrep!.label, site: m.irrep!.parentSite, as: Math.hypot(cur?.as ?? 0, as) });
       }
       const lines = [`--- ${c.name}: ${d.set.modes.length} modes; ISOTROPY ${subspaces} isotypic subspaces on the parent's sites, ${theirs.length} carrying the distortion ---`];
+      const pairs: { site: string; o: { irrep: string; as: number }[]; t: { label: string; as: number }[] }[] = [];
       for (const site of parent.sites) {
         const t = theirs.filter((x) => x.site === site.label).sort((x, y) => x.as - y.as);
         const o = [...ours.values()].filter((x) => x.site === site.label && x.as > 1e-6).sort((x, y) => x.as - y.as);
-        t.forEach((x, i) => lines.push(`${site.label}: ISOTROPY ${x.label} (subspace dim ${x.dim}) A_s = ${x.as.toFixed(6)} Å | MATERIA ${o[i]?.irrep ?? "—"} A_s = ${o[i]?.as.toFixed(6) ?? "—"} Å | diff ${o[i] ? Math.abs(o[i]!.as - x.as).toExponential(2) : "—"}`));
-        expect(o.map((x) => x.as).length, `${c.name}: irreps carrying amplitude on ${site.label}`).toBe(t.length);
-        o.forEach((x, i) => expect(Math.abs(x.as - t[i]!.as), `${c.name}: ${site.label}, ${x.irrep} against ${t[i]!.label}`).toBeLessThan(1e-3));
+        const n = Math.max(t.length, o.length);
+        for (let i = 0; i < n; i++) lines.push(`${site.label}: ISOTROPY ${t[i]?.label ?? "—"} (subspace dim ${t[i]?.dim ?? "—"}) A_s = ${t[i]?.as.toFixed(6) ?? "—"} Å | MATERIA ${o[i]?.irrep ?? "—"} A_s = ${o[i]?.as.toFixed(6) ?? "—"} Å | diff ${o[i] && t[i] ? Math.abs(o[i]!.as - t[i]!.as).toExponential(2) : "—"}`);
+        pairs.push({ site: site.label, o, t });
       }
+      for (const m of d.set.modes) lines.push(`  MATERIA mode ${m.label}: A_s = ${(m.observedAmplitude / Math.sqrt(d.set.amplitudeCells!.child)).toFixed(6)} Å`);
       console.log(lines.join("\n"));
+      for (const { site, o, t } of pairs) {
+        expect(o.length, `${c.name}: irreps carrying amplitude on ${site}`).toBe(t.length);
+        o.forEach((x, i) => expect(Math.abs(x.as - t[i]!.as), `${c.name}: ${site}, ${x.irrep} against ${t[i]!.label}`).toBeLessThan(1e-3));
+      }
       expect(theirs.length).toBeGreaterThan(0);
     });
   }

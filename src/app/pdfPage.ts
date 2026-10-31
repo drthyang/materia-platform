@@ -38,6 +38,8 @@ import { realiseChild, type RealisedChild } from "@/core/crystal/irreps/realisat
 import { orderParameterIrreps, supercellModeBasis, type SupercellModeBasis } from "@/core/crystal/irreps/supercellModes";
 import { irrepModeSet } from "@/core/crystal/irreps/modeSet";
 import { decomposeChild } from "@/core/crystal/irreps/decompose";
+import { modeCif, isodistortSymbol } from "@/core/export/modeCif";
+import type { ModeCif } from "@/parsers/modeCif";
 import { latticeCentring } from "@/core/crystal/standardSetting";
 import type { SubgroupNode } from "@/core/crystal/subgroupTree";
 import { applyParameters } from "@/core/workflow/apply";
@@ -678,6 +680,74 @@ export function withParentModes(m: PdfPageModel, parent: StructureModel, parentN
     model: withSpecChange(m, { modes: { set, parentName }, positionMode: "irreps" }),
     message: `${set.modes.length} mode(s), total |A| = ${set.totalAmplitude.toFixed(4)} Å${set.unpaired.length ? ` · unpaired: ${set.unpaired.join(", ")}` : ""} · paired on the same lattice (not by parent irrep: ${reason})`,
   };
+}
+
+/**
+ * The modes of an ISODISTORT mode CIF (parsers/modeCif.ts) in force: the
+ * file's child, its modes and amplitudes as the file gives them. Where the
+ * loaded structure is the file's parent (its space group), the child is fitted
+ * in its own cell, as an activated supercell child is, and ✕ clear returns to
+ * the parent. Where the loaded structure is the file's child (its group and
+ * sites), the modes are refined on it, as a decomposition is. Anything else is
+ * refused with the reason; so is a multi-phase page.
+ */
+export function withModeCif(m: PdfPageModel, parsed: ModeCif, fileName: string): { readonly model: PdfPageModel; readonly label: string; readonly message: string } {
+  const child = parsed.structure;
+  const name = child.spaceGroup.hermannMauguin ?? "child";
+  const label = `${name}${child.spaceGroup.number !== undefined ? ` #${child.spaceGroup.number}` : ""} (mode CIF)`;
+  if (m.extraPhases.length > 0) return { model: m, label, message: `${label}: a mode CIF is refined on a single-phase page` };
+  const set = parsed.set;
+  const ignored = parsed.ignored.length > 0 ? ` · not read: its ${parsed.ignored.join(", ")} modes` : "";
+  const total = isodistortAmplitudes(set.totalAmplitude, set.amplitudeCells ?? { child: 1, parent: 1 });
+  const summary = `${set.modes.length} mode(s) from ${fileName} (${parsed.materia ? "MATERIA" : "ISODISTORT"}), total |A| = ${set.totalAmplitude.toFixed(4)} Å (A_s ${total.as.toFixed(4)}, A_p ${total.ap.toFixed(4)})${ignored}`;
+  const loaded = m.loaded;
+  const sameGroup = (number: number | undefined, symbol: string | undefined, sg: StructureModel["spaceGroup"]): boolean =>
+    (number !== undefined && sg.number === number) || (symbol !== undefined && isodistortSymbol(symbol) === isodistortSymbol(sg.hermannMauguin));
+  // The loaded structure is the file's parent: the child in its own cell.
+  if (sameGroup(parsed.parentNumber, parsed.parentSymbol, loaded.spaceGroup)) {
+    const ownId = (x: StructureModel): StructureModel => ({ ...x, id: loaded.id });
+    const inForce: DistortionModeSet = {
+      ...set,
+      parentized: ownId(set.parentized),
+      bindings: set.bindings.map((b) => ({ ...b, targetId: loaded.id })),
+    };
+    return {
+      model: withSpecChange(m, { modes: { set: inForce, parentName: label, fromActivation: true, ownCell: true }, positionMode: "irreps" }, { kick: true }),
+      label,
+      message: `${summary} · the child fitted in its own cell, ✕ clear returns to ${loaded.spaceGroup.hermannMauguin ?? "the parent"}`,
+    };
+  }
+  // The loaded structure is the file's child: the modes on it.
+  const labels = new Map(loaded.sites.map((x) => [x.label, x] as const));
+  if (sameGroup(child.spaceGroup.number, child.spaceGroup.hermannMauguin, loaded.spaceGroup) && child.sites.every((x) => labels.get(x.label)?.element === x.element)) {
+    const refOf = new Map(set.parentized.sites.map((x) => [x.label, x.position] as const));
+    const inForce: DistortionModeSet = {
+      ...set,
+      parentized: { ...loaded, sites: loaded.sites.map((x) => (refOf.has(x.label) ? { ...x, position: refOf.get(x.label)! } : x)) },
+      bindings: set.bindings.map((b) => ({ ...b, targetId: loaded.id })),
+    };
+    return { model: withSpecChange(m, { modes: { set: inForce, parentName: label }, positionMode: "irreps" }), label, message: `${summary} · on the loaded structure` };
+  }
+  const parentName = `${parsed.parentSymbol ?? "?"}${parsed.parentNumber !== undefined ? ` #${parsed.parentNumber}` : ""}`;
+  return { model: m, label, message: `${fileName}: its parent is ${parentName} and its child ${name}; the loaded structure is neither (${loaded.spaceGroup.hermannMauguin ?? "?"}). Load one of them first.` };
+}
+
+/**
+ * The mode set in force as an ISODISTORT mode CIF (export/modeCif.ts): the
+ * child at the current values (cell, ADPs, positions), its modes, amplitudes
+ * and free state. Null when the set is not one by parent irrep (the
+ * structure's own modes, a same-lattice pairing) or positions refine per
+ * coordinate.
+ */
+export function modeCifOf(m: PdfPageModel): { readonly fileName: string; readonly text: string } | null {
+  const v = pageView(m);
+  const set = v.modeSet;
+  if (!set || !set.parent || set.modes.length === 0 || set.modes.some((mode) => !mode.irrep)) return null;
+  const values = valuesOf(m.params);
+  const child = applyParameters(v.fitStructure, v.bindings, values).model;
+  const free = Object.fromEntries(m.params.map((p) => [p.id, !p.fixed]));
+  const base = (child.name || "child").replace(/[^A-Za-z0-9_-]+/g, "_");
+  return { fileName: `${base}_modes.cif`, text: modeCif({ set, child, values, free, version: APP_VERSION }) };
 }
 
 /** The child basis in words: "a′ = −a+c, b′ = −a−c, c′ = −2b, origin (0, 0, ½)". */
