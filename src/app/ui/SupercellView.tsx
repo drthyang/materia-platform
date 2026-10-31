@@ -11,7 +11,9 @@
  *   - Lattice: the classes of subgroups whose lattice is the supercell
  *     (Bilbao's SUBGROUPS list), plus those between it and the parent cell,
  *     named, with t·k, orientation and domain states and the maximal ones
- *     marked. A search above the measured ceiling is refused, not truncated.
+ *     marked. A class holding both enantiomorphs (P4₁22 and P4₃22) names
+ *     both; SUBGROUPS lists them as two entries, and the summary gives its
+ *     count too. A search above the measured ceiling is refused, not truncated.
  *
  * Cell-multiplying children are listed and named but not activated: their
  * refinement needs the supercell forward model, which arrives in phase 3
@@ -65,6 +67,21 @@ export function childBasisNote(identity: SubgroupIdentity | undefined): string {
 
 const nameOf = (identity: SubgroupIdentity | undefined): string =>
   identity?.number !== undefined ? `${identity.hermannMauguin ?? "?"} #${identity.number}` : `${identity?.pointGroup ?? "?"} (unnamed)`;
+
+/** Shown on a class that holds both enantiomorphs. */
+export const ENANTIOMORPH_NOTE = "Both enantiomorphs belong to this class: the parent's improper operations turn one into the other. Bilbao's SUBGROUPS lists them as two entries.";
+
+/**
+ * The Lattice view's summary: the classes, those with the supercell's lattice
+ * (with Bilbao's SUBGROUPS count when enantiomorphs make it differ), and the
+ * cell-multiplying ones.
+ */
+export function latticeSummary(lattice: SupercellLattice): string {
+  const exact = lattice.classes.filter((c) => c.supercellLattice);
+  const twice = exact.filter((c) => c.enantiomorph).length;
+  const subgroups = twice > 0 ? ` (${exact.length + twice} in Bilbao's SUBGROUPS, enantiomorphs apart)` : "";
+  return `${lattice.classes.length} classes · ${exact.length} with the supercell's lattice${subgroups} · ${lattice.classes.filter((c) => c.cellMultiplying).length} cell-multiplying`;
+}
 
 interface IrrepRow {
   readonly label: string;
@@ -230,7 +247,7 @@ export function SupercellView({ operations }: { readonly operations: readonly Sy
                 <button style={resetRangeBtn} disabled={working} onClick={showLattice}>Subgroups →</button>
                 {lattice && (
                   <span style={{ fontFamily: mono, fontSize: fz.micro, color: color.secondary }}>
-                    {lattice.classes.length} classes · {lattice.classes.filter((c) => c.supercellLattice).length} with the supercell's lattice · {lattice.classes.filter((c) => c.cellMultiplying).length} cell-multiplying
+                    {latticeSummary(lattice)}
                   </span>
                 )}
               </div>
@@ -241,6 +258,11 @@ export function SupercellView({ operations }: { readonly operations: readonly Sy
                       <span style={{ fontFamily: mono, fontSize: fz.micro, color: color.ink, minWidth: 150 }} title={childBasisNote(c.identity)}>
                         {nameOf(c.identity)}
                       </span>
+                      {c.enantiomorph && (
+                        <span style={{ fontFamily: mono, fontSize: fz.micro, color: color.secondary }} title={`${ENANTIOMORPH_NOTE} ${childBasisNote(c.enantiomorph)}`}>
+                          also {nameOf(c.enantiomorph)}
+                        </span>
+                      )}
                       <span style={{ fontFamily: mono, fontSize: fz.micro, color: color.secondary }} title={c.coveredBy.length ? `covered by ${c.coveredBy.map((u) => nameOf(lattice.classes[u]!.identity)).join(", ")}` : undefined}>
                         {c.kind === "parent" ? "parent" : `${c.kind}${c.isomorphic ? " (isomorphic)" : ""} · ${c.index.t}·${c.index.k}`}
                         {c.kind !== "parent" ? ` · ${c.orientationStates} orientation${c.orientationStates === 1 ? "" : "s"} · ${c.domainStates} domains` : ""}

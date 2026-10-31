@@ -3,24 +3,35 @@
  * its interface, against Bilbao's SUBGROUPS (ADR 0005: published counts only,
  * typed by hand with their source).
  *
- * Source: M. I. Aroyo et al., "SUBGROUPS" tutorial of the Bilbao
- * Crystallographic Server, https://www.cryst.ehu.eus/html/cryst/tutorials/Tutorial_SUBGROUPS.pdf
- * (as summarised in docs/research/SUBGROUP_ENGINES.md §7):
- *  - Pnma, supercell (a, b, 2c): 11 classes; 4 maximal (Pca2₁, Pmc2₁, P2₁/c, P2₁/m); 8 polar.
- *  - Pm-3m, I-centred supercell (a+b, −a+b, 2c): 98 classes; 10 maximal, two of
- *    them I4/mcm differing in origin.
- *  - Fm-3m, primitive supercell (½a−½b, ½a+½b, 2c): 99 classes; 20 down to
- *    point group mmm. MATERIA agrees on the 20 but lists 96 in all: open
- *    (the it.todo below).
+ * Source: L. Elcoro, J. M. Perez-Mato & M. I. Aroyo, tutorial on the program
+ * SUBGROUPS of the Bilbao Crystallographic Server,
+ * https://www.cryst.ehu.eus/html/cryst/tutorials/Tutorial_SUBGROUPS.pdf
+ * (the PDF of 2018-08-16, read 2026-10-31; page numbers are the PDF's):
+ *  - Example 1, Fm-3m, primitive supercell (½a−½b, ½a+½b, 2c): 99 subgroups
+ *    (p. 3); 62 with "lowest crystal system" orthorhombic (p. 4); 20 down to
+ *    point group mmm, drawn in Fig. 1.1: P4₂/ncm, P4₂/nmc, P4₂/mcm, P4₂/mmc,
+ *    P4/ncc, P4/nmm, P4/mcc, P4/mmm, Ccce, Cmme, Cccm, Cmmm, Cmce, Cmcm, Pnma,
+ *    Pmmn, Pccn, Pmma, Pccm, Pmmm (p. 4); 31 with the Landau (single-irrep)
+ *    filter (p. 12).
+ *  - Example 2, Pnma, supercell (a, b, 2c): 11 (p. 13); 4 maximal, Pca2₁,
+ *    Pmc2₁, P2₁/c, P2₁/m (p. 15); 8 polar (p. 15); 6 Landau-type (p. 18).
+ *  - Example 3, Pm-3m, I-centred supercell (a+b, −a+b, 2c): 98 (p. 21); 10
+ *    maximal (p. 21), two of them I4/mcm differing in origin (p. 22).
  * SUBGROUPS lists the classes with a member whose lattice is the supercell
- * ("conjugates whose supercell does not coincide with the one of the input,
- * are NOT shown"): `supercellLattice` below.
+ * ("conjugates … whose supercell does not coincide with the one of the input,
+ * are NOT shown", p. 6): `supercellLattice` below. It lists such a class once
+ * per space-group type among those members, so a class holding both types of
+ * an enantiomorphic pair is two entries (`enantiomorph`). With that rule every
+ * Fm-3m number above follows from MATERIA's conjugacy classes: 99 = 96 + 3,
+ * 62 = 60 + 2, 31 = 28 + 3. MATERIA keeps one entry per class.
  */
 import { describe, it, expect } from "vitest";
 import { buildSpaceGroup } from "@/core/crystal/spaceGroups";
 import { classifyPointGroup } from "@/core/crystal/pointGroup";
 import { factorGroup, type FactorGroup } from "@/core/crystal/irreps/factorGroup";
-import { supercellSubgroups, SubgroupSearchTooLarge, type SupercellLattice } from "@/core/crystal/irreps/supercellLattice";
+import { supercellSubgroups, SubgroupSearchTooLarge, type SubgroupClass, type SupercellLattice } from "@/core/crystal/irreps/supercellLattice";
+import { irrepsInBound } from "@/core/crystal/irreps/spaceGroupIrreps";
+import { irrepsFor } from "@/core/crystal/irreps/orderParameters";
 import { iIsIdentity } from "@/core/crystal/irreps/rational";
 import { inLattice, scaleVec, type SupercellMatrix, type SupercellSpec } from "@/core/crystal/irreps/supercell";
 
@@ -29,15 +40,39 @@ function lattice(sg: number | string, P: SupercellMatrix | SupercellSpec, name =
 }
 
 const POLAR = new Set(["1", "2", "m", "mm2", "4", "4mm", "3", "3m", "6", "6mm"]);
+/** The point groups in these lists that contain 222, mm2 or mmm (4, -4 and 4/m contain none). */
+const DOWN_TO_ORTHORHOMBIC = new Set(["222", "mm2", "mmm", "422", "4mm", "-42m", "4/mmm"]);
+const pointGroupOf = (c: SubgroupClass): string => classifyPointGroup(c.operations).symbol ?? "?";
+/** SUBGROUPS' entries for a list of classes: one per space-group type, so a class with an enantiomorph counts twice. */
+const entries = (classes: readonly SubgroupClass[]): number => classes.length + classes.filter((c) => c.enantiomorph).length;
+/** The classes one irrep alone reaches (its isotropy subgroup is the class): SUBGROUPS' Landau filter. */
+const landau = (group: FactorGroup, classes: readonly SubgroupClass[]): SubgroupClass[] => {
+  const stars = irrepsInBound(group);
+  return classes.filter((c) => irrepsFor(group, stars, c.elements).some((a) => a.reachesChild));
+};
+
+const FM3M_SUPERCELL: SupercellMatrix = [[0.5, 0.5, 0], [-0.5, 0.5, 0], [0, 0, 2]];
+let fm3m: { group: FactorGroup; list: SubgroupClass[] } | null = null;
+/** Fm-3m in (½a−½b, ½a+½b, 2c), named, its supercell list (computed once: a few seconds). */
+const fm3mList = () => {
+  if (!fm3m) {
+    const group = factorGroup(buildSpaceGroup(225).operations, FM3M_SUPERCELL);
+    fm3m = { group, list: supercellSubgroups(group).classes.filter((c) => c.supercellLattice) };
+  }
+  return fm3m;
+};
 
 describe("supercell subgroup lattice: Bilbao SUBGROUPS class counts", { timeout: 600_000 }, () => {
-  it("Pnma, (a, b, 2c): 11 classes, 4 maximal (Pca2₁, Pmc2₁, P2₁/c, P2₁/m), 8 polar", () => {
-    const L = lattice(62, [[1, 0, 0], [0, 1, 0], [0, 0, 2]]);
-    const list = L.classes.filter((c) => c.supercellLattice);
+  it("Pnma, (a, b, 2c): 11 classes, 4 maximal (Pca2₁, Pmc2₁, P2₁/c, P2₁/m), 8 polar, 6 Landau-type", () => {
+    const group = factorGroup(buildSpaceGroup(62).operations, [[1, 0, 0], [0, 1, 0], [0, 0, 2]]);
+    const list = supercellSubgroups(group).classes.filter((c) => c.supercellLattice);
     expect(list).toHaveLength(11);
     const maximal = list.filter((c) => c.maximalInSupercell);
     expect(maximal.map((c) => c.identity?.number).sort((a, b) => a! - b!)).toEqual([11, 14, 26, 29]);
-    expect(list.filter((c) => POLAR.has(classifyPointGroup(c.operations).symbol ?? ""))).toHaveLength(8);
+    expect(list.filter((c) => POLAR.has(pointGroupOf(c)))).toHaveLength(8);
+    expect(landau(group, list)).toHaveLength(6);
+    // No chiral type here: the entries are the classes.
+    expect(entries(list)).toBe(11);
     // Every class of the list doubles the cell: k = 2.
     for (const c of list) expect(c.index.k).toBe(2);
   });
@@ -52,21 +87,38 @@ describe("supercell subgroup lattice: Bilbao SUBGROUPS class counts", { timeout:
     expect(i4mcm).toHaveLength(2);
     const origin = (c: (typeof i4mcm)[number]) => (c.identity?.originShift ?? [0, 0, 0]).map((x) => x.toFixed(3)).join(",");
     expect(origin(i4mcm[0]!)).not.toBe(origin(i4mcm[1]!));
+    // No chiral type here: the entries are the classes.
+    expect(entries(list)).toBe(98);
   });
 
-  it("Fm-3m, (½a−½b, ½a+½b, 2c): 20 classes down to point group mmm", () => {
-    const L = lattice(225, [[0.5, 0.5, 0], [-0.5, 0.5, 0], [0, 0, 2]], false);
-    const list = L.classes.filter((c) => c.supercellLattice);
-    const mmmOrHigher = list.filter((c) => ["mmm", "4/mmm"].includes(classifyPointGroup(c.operations).symbol ?? ""));
-    expect(mmmOrHigher).toHaveLength(20);
-    // Pnma, reached by DT5 in the tutorial, is in the list.
-    expect(lattice(225, [[0.5, 0.5, 0], [-0.5, 0.5, 0], [0, 0, 2]]).classes.some((c) => c.supercellLattice && c.identity?.number === 62)).toBe(true);
+  it("Fm-3m, (½a−½b, ½a+½b, 2c): the 20 classes of Fig. 1.1 down to point group mmm", () => {
+    const { list } = fm3mList();
+    const mmmOrHigher = list.filter((c) => ["mmm", "4/mmm"].includes(pointGroupOf(c)));
+    expect(mmmOrHigher.map((c) => c.identity?.number).sort((a, b) => a! - b!)).toEqual([47, 49, 51, 56, 59, 62, 63, 64, 65, 66, 67, 68, 123, 124, 129, 130, 131, 132, 137, 138]);
+    expect(entries(mmmOrHigher)).toBe(20);
   });
 
-  // Open: the tutorial's total is 99 classes; MATERIA lists 96 (the 20 above agree, and so do the
-  // Pnma and Pm-3m totals). The tutorial could not be re-read from this environment to settle
-  // whether the 99 counts something else (docs/research/SUBGROUP_ENGINES.md §7 is a summary).
-  it.todo("Fm-3m, (½a−½b, ½a+½b, 2c): 99 classes in all (MATERIA lists 96; unresolved)");
+  it("Fm-3m, (½a−½b, ½a+½b, 2c): 96 conjugacy classes, 99 SUBGROUPS entries — P4₁/P4₃, P4₁22/P4₃22, P4₁2₁2/P4₃2₁2 listed once per type", () => {
+    const { list } = fm3mList();
+    expect(list).toHaveLength(96);
+    const pairs = list.filter((c) => c.enantiomorph).map((c) => [c.identity!.number!, c.enantiomorph!.number!].sort((a, b) => a - b).join("/"));
+    expect(pairs.sort()).toEqual(["76/78", "91/95", "92/96"]);
+    expect(entries(list)).toBe(99);
+  });
+
+  it("Fm-3m, (½a−½b, ½a+½b, 2c): 62 entries down to the orthorhombic system (60 classes), 31 Landau-type (28 classes)", () => {
+    const { group, list } = fm3mList();
+    // SUBGROUPS' "lowest crystal system" orthorhombic keeps the point groups that contain 222, mm2 or mmm.
+    const downToOrthorhombic = list.filter((c) => DOWN_TO_ORTHORHOMBIC.has(pointGroupOf(c)));
+    expect(downToOrthorhombic).toHaveLength(60);
+    expect(entries(downToOrthorhombic)).toBe(62);
+    const single = landau(group, list);
+    expect(single).toHaveLength(28);
+    expect(entries(single)).toBe(31);
+    // Of the six primitive mmm classes (Fig. 1.2) only Pnma and Pmma are Landau-type, both from DT5 (pp. 8–9).
+    const primitiveMmm = [47, 49, 51, 56, 59, 62];
+    expect(single.map((c) => c.identity?.number ?? 0).filter((n) => primitiveMmm.includes(n)).sort((a, b) => a - b)).toEqual([51, 62]);
+  });
 });
 
 /**
@@ -80,8 +132,9 @@ function bruteForceExact(group: FactorGroup): number {
   const { D, supercell } = group.bound;
   const N = group.translations.filter((t) => inLattice(supercell, scaleVec(group.elements[t]!.w, D)));
   const isT = group.elements.map((e) => iIsIdentity(e.W));
+  const seen = new Uint8Array(F);
   const close = (gens: readonly number[]): number[] | null => {
-    const seen = new Uint8Array(F);
+    seen.fill(0);
     const out = [group.identity];
     seen[group.identity] = 1;
     let translations = 1;
@@ -101,9 +154,10 @@ function bruteForceExact(group: FactorGroup): number {
   const queue: { H: number[]; gens: readonly number[] }[] = [{ H: start, gens: N }];
   while (queue.length > 0) {
     const { H, gens } = queue.pop()!;
-    const inH = new Set(H);
+    const inH = new Uint8Array(F);
+    for (const h of H) inH[h] = 1;
     for (let x = 0; x < F; x++) {
-      if (inH.has(x) || isT[x]) continue;
+      if (inH[x] || isT[x]) continue;
       const K = close([...gens, x]);
       if (!K) continue;
       const key = K.join(",");
@@ -117,7 +171,8 @@ function bruteForceExact(group: FactorGroup): number {
 }
 
 describe("supercell subgroup lattice: the HS85 search against brute force", { timeout: 600_000 }, () => {
-  for (const [name, sg, P] of [["Pnma (a,b,2c)", 62, [[1, 0, 0], [0, 1, 0], [0, 0, 2]]], ["P4/mmm (a,b,2c)", 123, [[1, 0, 0], [0, 1, 0], [0, 0, 2]]], ["P4/mmm √2×√2×1", 123, [[1, -1, 0], [1, 1, 0], [0, 0, 1]]]] as const) {
+  // Fm-3m in Bilbao's (½a−½b, ½a+½b, 2c): 231 subgroups with the supercell's lattice, in 96 classes (THY-48).
+  for (const [name, sg, P] of [["Pnma (a,b,2c)", 62, [[1, 0, 0], [0, 1, 0], [0, 0, 2]]], ["P4/mmm (a,b,2c)", 123, [[1, 0, 0], [0, 1, 0], [0, 0, 2]]], ["P4/mmm √2×√2×1", 123, [[1, -1, 0], [1, 1, 0], [0, 0, 1]]], ["Fm-3m (½a−½b,½a+½b,2c)", 225, FM3M_SUPERCELL]] as const) {
     it(`${name}: the same subgroups with the supercell's lattice`, () => {
       const group = factorGroup(buildSpaceGroup(sg).operations, P as unknown as number[][]);
       const L = supercellSubgroups(group, { name: false });

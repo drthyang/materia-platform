@@ -20,17 +20,20 @@
  * there are [G : N_G(H)] of them (orientation states) and [G : H] domain
  * states. One representative per class is reported: the conjugate the
  * parent's cell names directly when there is one, else the one with the
- * simplest direction symbol.
+ * simplest direction symbol, coefficients that read as small fractions
+ * first: (a,-a) rather than (a,0.268a) for the same direction in another
+ * orientation. The irrep's basis is chosen so that one exists where the
+ * image allows it (directionBasis.ts).
  */
 
 import type { SymmetryOperation } from "@/core/crystal/types";
-import { symmetricEigenDecomposition } from "@/core/math/linalg";
 import { identifySubgroup, type SubgroupIdentity } from "@/core/crystal/isotropyTree";
 import { pointGroupElements, type FactorGroup } from "@/core/crystal/irreps/factorGroup";
 import { keepsConventionalCell, nameChild, subgroupLattice } from "@/core/crystal/irreps/childSetting";
 import { inDual } from "@/core/crystal/irreps/supercell";
 import type { PhysicalIrrep } from "@/core/crystal/irreps/spaceGroupIrreps";
 import { ikey, iIsIdentity, vfrom } from "@/core/crystal/irreps/rational";
+import { fixedSpace, intersect, isSimpleFraction, projector, projectorKey, type Vec } from "@/core/crystal/irreps/subspace";
 
 /** A direction of the order parameter: the subspace of the irrep's carrier space an isotropy subgroup fixes. */
 export interface OrderParameterDirection {
@@ -95,37 +98,6 @@ const EPS = 1e-8;
 /** Images up to this order take the full closure (every Phase 1 image does: |F| ≤ 192 there); larger ones the orbit-wise closure. */
 const SMALL_IMAGE = 192;
 
-type Vec = number[];
-
-/** An orthonormal basis of the null space of a symmetric positive semidefinite matrix. */
-function nullSpace(M: number[][]): Vec[] {
-  const n = M.length;
-  const { values, vectors } = symmetricEigenDecomposition(M);
-  const out: Vec[] = [];
-  for (let k = 0; k < n; k++) if (Math.abs(values[k]!) < 1e-9 * n) out.push(vectors.map((row) => row[k]!));
-  return out;
-}
-
-const projector = (basis: readonly Vec[], n: number): number[][] =>
-  Array.from({ length: n }, (_, i) => Array.from({ length: n }, (__, j) => basis.reduce((s, b) => s + b[i]! * b[j]!, 0)));
-
-const projectorKey = (basis: readonly Vec[], n: number): string =>
-  `${basis.length}:${projector(basis, n).flat().map((x) => Math.round(x * 1e6) / 1e6 || 0).join(",")}`;
-
-/** The fixed space of a real matrix: the null space of (D − I)ᵀ(D − I). */
-function fixedSpace(D: Float64Array, n: number): Vec[] {
-  const A = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (__, j) => D[i * n + j]! - (i === j ? 1 : 0)));
-  const AtA = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (__, j) => A.reduce((s, row) => s + row[i]! * row[j]!, 0)));
-  return nullSpace(AtA);
-}
-
-/** The intersection of two subspaces: the null space of (I − P) + (I − Q). */
-function intersect(a: readonly Vec[], b: readonly Vec[], n: number): Vec[] {
-  const P = projector(a, n);
-  const Q = projector(b, n);
-  return nullSpace(P.map((row, i) => row.map((x, j) => (i === j ? 2 : 0) - x - Q[i]![j]!)));
-}
-
 /** Reduced row echelon form of a basis (rows), pivots normalized to 1. */
 function rref(basis: readonly Vec[]): Vec[] {
   const rows = basis.map((b) => [...b]);
@@ -179,12 +151,17 @@ export function directionSymbol(basis: readonly Vec[]): string {
   return `(${parts.join(",")})`;
 }
 
-/** How simple a direction's symbol is: fewer nonzero entries first, then the leading entries earliest. */
+/**
+ * How simple a direction's symbol is: fewer coefficients that are not small
+ * fractions first (so (a,-a) beats (a,0.268a)), then fewer nonzero entries,
+ * fewer minus signs, the leading entries earliest.
+ */
 function simplicity(basis: readonly Vec[]): number[] {
   const rows = rref(basis);
+  const irrational = rows.reduce((s, row) => s + row.filter((x) => !isSimpleFraction(x)).length, 0);
   const nonzero = rows.reduce((s, row) => s + row.filter((x) => Math.abs(x) > 1e-9).length, 0);
   const negative = rows.reduce((s, row) => s + row.filter((x) => x < -1e-9).length, 0);
-  return [nonzero, negative, ...rows.flatMap((row) => row.map((x) => (Math.abs(x) > 1e-9 ? 0 : 1)))];
+  return [irrational, nonzero, negative, ...rows.flatMap((row) => row.map((x) => (Math.abs(x) > 1e-9 ? 0 : 1)))];
 }
 
 const lexLess = (a: readonly number[], b: readonly number[]): boolean => {

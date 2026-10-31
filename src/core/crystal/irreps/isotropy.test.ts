@@ -11,9 +11,16 @@
  * one-dimensional irreps), I4/mmm eight (4/mmm's eight): the P cubic groups
  * Pm-3m, Pn-3n, Pm-3n, Pn-3m and the eight P4/m.. and P4₂/m.. groups, as the
  * maximal klassengleiche subgroups of type IIa in ITA Vol. A1 list them.
+ *
+ * Direction symbols read as ISODISTORT's: a class's representative is the
+ * conjugate whose coefficients are small fractions, and every one-parameter
+ * direction of the 230 groups in the conventional cell is written with 0 and
+ * ±a. Phase 1 wrote 44 of them with an irrational coefficient, the same
+ * direction in another orientation: R-3m's C2/m as (a,-0.366a,a,1.366a), now
+ * (a,-a,a,-a); Fm-3m's I-4m2 as (a,3.732a), now (a,-a).
  */
 import { describe, it, expect } from "vitest";
-import { buildSpaceGroup } from "@/core/crystal/spaceGroups";
+import { buildSpaceGroup, knownSpaceGroups } from "@/core/crystal/spaceGroups";
 import { factorGroup } from "@/core/crystal/irreps/factorGroup";
 import { irrepsInBound } from "@/core/crystal/irreps/spaceGroupIrreps";
 import { isotropySubgroups, type IrrepIsotropySubgroup } from "@/core/crystal/irreps/isotropy";
@@ -94,4 +101,30 @@ describe("isotropy subgroups by the image method", () => {
     // Its operations keep no centring translation.
     expect(p213.operations).toHaveLength(12);
   });
+
+  it("R-3m's four-dimensional irrep at (0,0,1): P3₁21 (a,0,a,0), C2/m (a,-a,a,-a); Fm-3m's two-dimensional Γ irreps: I4/mmm, I422 (a,a), I-4m2 (a,-a)", () => {
+    const symbols = (sg: number | string, pick: (p: { dim: number }, star: string) => boolean) => analyse(sg).stars
+      .flatMap(({ s, iso }) => iso.filter(({ p }) => pick(p, s.star.label)))
+      .flatMap(({ a }) => a.subgroups.filter((x) => x.direction.dim === 1).map((x) => `${x.identity.number} ${x.direction.symbol}`));
+    expect(symbols("R -3 m:H", (p, star) => p.dim === 4 && star !== "Γ")).toEqual(["152 (a,0,a,0)", "12 (a,-a,a,-a)"]);
+    expect(symbols(225, (p, star) => p.dim === 2 && star === "Γ").sort()).toEqual(["119 (a,-a)", "139 (a,a)", "97 (a,a)"]);
+  });
+
+  it("every one-parameter direction of the 230 groups' irreps in the conventional cell is written with 0 and ±a", () => {
+    const clean = /^\((-?a|0)(,(-?a|0))*\)$/;
+    let count = 0;
+    for (const { hermannMauguin } of knownSpaceGroups()) {
+      const group = setting(hermannMauguin);
+      for (const star of irrepsInBound(group)) {
+        for (const p of star.physical) {
+          for (const x of isotropySubgroups(group, p).subgroups) {
+            if (x.direction.dim !== 1) continue;
+            count++;
+            expect(x.direction.symbol, `${hermannMauguin} ${p.label} #${x.identity.number}`).toMatch(clean);
+          }
+        }
+      }
+    }
+    expect(count).toBe(2115);
+  }, 300_000);
 });
