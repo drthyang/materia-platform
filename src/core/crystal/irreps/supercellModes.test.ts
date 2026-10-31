@@ -101,11 +101,11 @@ function expectSoundBasis(r: RealisedChild, b: SupercellModeBasis): void {
       const G = bc.map((x) => bc.map((y) => x[0] * y[0] + x[1] * y[1] + x[2] * y[2]));
       const rhs = bc.map((x) => x[0] * c[0] + x[1] * c[1] + x[2] * c[2]);
       const coef = solve(G, rhs);
-      const fit: Vec3 = [0, 0, 0];
+      const fit = [0, 0, 0];
       coef.forEach((k, t) => {
-        for (let q = 0; q < 3; q++) fit[q] += k * bc[t]![q]!;
+        for (let q = 0; q < 3; q++) fit[q] = fit[q]! + k * bc[t]![q]!;
       });
-      expect(Math.hypot(c[0] - fit[0], c[1] - fit[1], c[2] - fit[2])).toBeLessThan(1e-9);
+      expect(Math.hypot(c[0] - fit[0]!, c[1] - fit[1]!, c[2] - fit[2]!)).toBeLessThan(1e-9);
     }
   }
   // Every irrep's modes are listed under it, once.

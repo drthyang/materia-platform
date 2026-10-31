@@ -33,3 +33,7 @@ jobs:
         env:
           ISOTROPY_ORACLE: "1"
         run: npx vitest run src/core/crystal/irreps/isotropyOracle.test.ts
+      - name: Mode amplitudes against ISOTROPY's modes
+        env:
+          ISOTROPY_ORACLE: "1"
+        run: npx vitest run src/core/crystal/irreps/modeAmplitudeOracle.test.ts
