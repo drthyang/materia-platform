@@ -78,7 +78,12 @@ as the plan set it; neither engine changed.
   own modes are named by number and site, without the "@ Γ" that
   `buildSymmetryModes` writes: on a child that Γ is the child's, and would
   read as the parent's. **✕ clear** returns to the parent, and a saved
-  project keeps the child, since the mode set holds it. The header's CIF
+  project keeps the child, since the mode set holds it. The child's rows
+  share ids with the parent's (`cell_a`, `B_Sr`) in another cell, so the
+  mode set is marked as the child's own cell (`ownCell`, saved with the
+  project), and moving the fit between child and parent (✕ clear, the
+  Positions toggle) carries only the setting-free rows, as the activation
+  does. The header's CIF
   export writes the child, which can be loaded on the powder page for
   Rietveld.
 
@@ -92,7 +97,7 @@ All of the following are tests through the module interfaces.
 | At the parent's geometry the child is the parent (`irreps/realisation.test.ts`): \|F(H)\|² = (V_c/V_p)²·\|F_p(P⁻ᵀH)\|², every superlattice reflection zero, the same G(r), to 1e-9. Cases: SrTiO₃ → R-3c (irrep route), and Pnma, I4/mcm, P4/mbm, R-3c (lattice route); with O anisotropic and Sr at 0.9 occupancy for R-3c, I4/mcm, Imma and C2/c (every child tensor in its site's allowed span to 1e-12); rock salt's 27 L-point isotropy subgroup types (Fm-3m, a centred parent); NiAs (P6₃/mmc, both sites anisotropic with U12 = U11/2), 43 types of M- and L-point child down to P1, for the ADP transformation on non-orthogonal axes | all agree; the correspondence holds exactly (n integral, child operations to 1e-9) |
 | **Gate: a perovskite tilt refines from the lattice route, PDF** (`workflow/supercellPdfRefinement.test.ts`). The truth is a geometric tilt in a strained cell with its own B values; neutron G(r) at 1.5–12 Å, noise 0.4 % of the peak (Rw 1.10 %). Every class of the type in the 2×2×2 lattice is realised at the cubic geometry, kicked, and refined (scale, cell, B, δ2, every allowed displacement) | **R-3c**: of 4 classes the truth's reaches the noise (Rw 1.083 %), and so does its ×4 isomorphic subgroup (1.068 %, 17 free against 8); the other two sit at 16.8 % and 18.0 %. O \|x − ½\| 0.03499 (truth 0.03500), a 5.5138 Å (5.5142), c 13.5547 Å (13.5544). **Pnma** (Sr moved on its mirror too): of 12 classes only the truth's reaches the noise (1.075 % against 1.107 %; next 2.77 %). Ti–O distances to 2.9e-4 Å, Ti–O–Ti angles to 0.026° |
 | **Rietveld, superlattice reflections included** (`workflow/supercellRietveldRefinement.test.ts`). The same truths as a constant-wavelength neutron pattern (λ 1.54 Å, 2θ 15–135°, strongest peak 5·10⁴ counts, counting noise). The superlattice reflections (P⁻ᵀH not integral) are zero in the realised parent and present in the truth | **R-3c**: 15 superlattice families; the truth's class χ²ν 0.973, O \|x − ½\| 0.03500 (0.03500), angles to 0.001°; the two classes without the truth χ²ν ≈ 124. **Pnma**: 90 superlattice families; the truth's class χ²ν 0.972, the next of 12 at 20; distances to 2.8e-4 Å, angles to 0.014° |
-| The PDF page (`app/pdfSupercellChild.test.ts`): Activate on the R-3c class of the tilt, and on a Pnma class | R-3c: the page fits R-3c on hexagonal axes (30 atoms, γ = 120°, two cell rows), O's x free at the 0.05 Å kick, A_s/A_p cells {3, 6}; the fit reaches the tilt (or its antiphase twin) at Rw < 1e-6; saved and reopened (through the project validator) it comes back with the child, every row and Rw; ✕ clear returns to the parent. Pnma: one mode per free coordinate, only the leading one free, no mode labelled with a k-point |
+| The PDF page (`app/pdfSupercellChild.test.ts`): Activate on the R-3c class of the tilt, and on a Pnma class | R-3c: the page fits R-3c on hexagonal axes (30 atoms, γ = 120°, two cell rows), O's x free at the 0.05 Å kick, A_s/A_p cells {3, 6}; the fit reaches the tilt (or its antiphase twin) at Rw < 1e-6; saved and reopened (through the project validator) it comes back with the child, every row and Rw; ✕ clear (also after reopening) and Constrained atomic return to the parent's own rows and its Rw, the refined scale kept; Irreps (modes) brings the child back. Pnma: one mode per free coordinate, only the leading one free, no mode labelled with a k-point |
 | Phase 1 and 2 tests, the Subgroups page, the same-cell activation (`pdfSubgroupKick`, `subgroupsDecentring`) | unchanged and passing |
 
 **Choosing among classes.** A same-type subgroup in a larger cell contains

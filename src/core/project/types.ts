@@ -260,6 +260,8 @@ export interface PdfWorkspace {
     readonly set: DistortionModeSet;
     readonly parentName: string;
     readonly fromActivation?: boolean;
+    /** A supercell child: the set's structure is in the child's own cell, not the loaded structure's. */
+    readonly ownCell?: boolean;
   };
   /**
    * The spin model handed over from the magnetic page (mPDF co-refinement):

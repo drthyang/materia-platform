@@ -541,7 +541,11 @@ and W of an F one) are in the **Supercell** view below them:
    child (for example R-3c on hexagonal axes), with its own cell and ADP
    rows. Its displacements refine as mode amplitudes, the ones that break
    the parent's symmetry free from a small starting amplitude, the others
-   fixed at 0 until you free them. **✕ clear** returns to the parent.
+   fixed at 0 until you free them. **✕ clear** returns to the parent: its
+   cell, ADP and position rows come back as loaded, with the scale and the
+   instrument rows kept from the child's fit. **Constrained atomic** sets
+   the child aside the same way, and **Irreps (modes)** brings it back at
+   its starting values.
 
 A same-type subgroup in a larger cell holds the smaller child as a special
 case and fits as well with more parameters: of the children that reach the

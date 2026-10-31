@@ -65,6 +65,13 @@ export interface ModesInForce {
   readonly set: DistortionModeSet;
   readonly parentName: string;
   readonly fromActivation?: boolean;
+  /**
+   * A supercell child (withSupercellChild): its set's structure is in the
+   * child's own cell, not the loaded structure's, so its rows share ids with
+   * the parent's (cell_a, B_Sr, …) in a different cell, and none but the
+   * setting-free ones carry between the two (withSpecChange).
+   */
+  readonly ownCell?: boolean;
 }
 
 /** The spin model handed over from the magnetic page, with its moment rows as handed over. */
@@ -158,7 +165,7 @@ export function pdfPage(
     pattern,
     preset: opts.preset ?? {},
     positionMode: r?.positionMode ?? "atomic",
-    modes: dm ? { set: dm.set, parentName: dm.parentName, ...(dm.fromActivation ? { fromActivation: true } : {}) } : null,
+    modes: dm ? { set: dm.set, parentName: dm.parentName, ...(dm.fromActivation ? { fromActivation: true } : {}), ...(dm.ownCell ? { ownCell: true } : {}) } : null,
     adp: r?.adpModel ? { model: r.adpModel, seeds: {} } : null,
     spinModel: sm ? { magnetic: sm.magnetic, params: [...sm.parameters], bindings: [...sm.bindings] } : null,
     params: [],
@@ -527,7 +534,9 @@ const SETTING_FREE = new Set([
  * by id; the positions re-seeded exactly from the current geometry (an
  * interpolation onto the new position rows, not a fit), unless `kick` keeps
  * the spec's own seeds (an activation's starting kick, which also carries
- * only the setting-free kinds); a new spin model's moment rows as handed over.
+ * only the setting-free kinds); so too when the fit moves between a supercell
+ * child and the parent (✕ clear, the Positions toggle), whose cells differ;
+ * a new spin model's moment rows as handed over.
  * The last fit, the posterior and the boxcar scan belong to the old rows and
  * are cleared.
  */
@@ -539,8 +548,10 @@ function withSpecChange(m: PdfPageModel, change: Partial<Pick<PdfPageModel, "pos
   const next = pageView(draft);
   const spinChanged = next.spinFit !== prev.spinFit;
   const before = new Map(m.params.map((p) => [p.id, p]));
+  // Into or out of a supercell child's own cell: the geometry and the cell's rows do not carry, as on an activation.
+  const fresh = how.kick === true || ownCellFit(m) !== ownCellFit(draft);
   // Positions re-seed on a single-phase page; a multi-phase page has no other parameterization, so its rows carry by id.
-  const realized = how.kick || prev.multiPhase ? null : applyParameters(prev.fitStructure, prev.bindings, valuesOf(m.params)).model;
+  const realized = fresh || prev.multiPhase ? null : applyParameters(prev.fitStructure, prev.bindings, valuesOf(m.params)).model;
   const posSeed = realized ? positionShiftValuesFor(next.fitStructure, next.bindings, realized) : null;
   const params = next.spec.params.map((p) => {
     if (p.kind === "positionShift" && posSeed) {
@@ -548,8 +559,8 @@ function withSpecChange(m: PdfPageModel, change: Partial<Pick<PdfPageModel, "pos
       // Rows carrying a real displacement enter free (they hold the fit); the rest keep the spec's default.
       return { ...p, value: v, fixed: Math.abs(v) > 1e-8 ? false : p.fixed };
     }
-    if (p.kind === "positionShift" && how.kick) return p;
-    if (how.kick && !SETTING_FREE.has(p.kind)) return p;
+    if (p.kind === "positionShift" && fresh) return p;
+    if (fresh && !SETTING_FREE.has(p.kind)) return p;
     // A new spin model's moment rows replace the old ones: moment ids repeat across magnetic groups.
     if (spinChanged && isMagneticModelParameterKind(p.kind)) return p;
     const old = before.get(p.id);
@@ -557,6 +568,11 @@ function withSpecChange(m: PdfPageModel, change: Partial<Pick<PdfPageModel, "pos
   });
   // A shared site's last occupancy follows the kept others (and a new total).
   return { ...draft, params: withSiteSumValues(params) };
+}
+
+/** The supercell child the page fits (ModesInForce.ownCell, its modes refining); null while the fit is in the loaded structure's cell. */
+function ownCellFit(m: PdfPageModel): DistortionModeSet | null {
+  return m.modes?.ownCell && modeSetOf(m) !== null ? m.modes.set : null;
 }
 
 // ── the changes ──────────────────────────────────────────────────────────────
@@ -822,7 +838,7 @@ export function withSupercellChild(m: PdfPageModel, choice: SupercellChoice): { 
   const dropped = realised.dropped.length > 0 ? ` (not carried: ${realised.dropped.join(", ")})` : "";
   const sites = `${realised.structure.sites.length} child site(s), ${realised.atoms.length} atoms in the cell (×${+realised.volumeRatio.toFixed(4)} the parent's) · ${built.modes.length} distortion mode(s)`;
   return {
-    model: withSpecChange(m, { modes: { set: set ?? withCells, parentName: label, fromActivation: true }, positionMode: "irreps" }, { kick: true }),
+    model: withSpecChange(m, { modes: { set: set ?? withCells, parentName: label, fromActivation: true, ownCell: true }, positionMode: "irreps" }, { kick: true }),
     label,
     message: set
       ? `realised ${label} in its own cell: ${sites} · the symmetry-breaking displacements free from ${ACTIVATION_KICK} Å — free the other rows to refine them (Positions group)${dropped}`

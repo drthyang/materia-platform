@@ -519,6 +519,7 @@ function checkDistortionModes(v: unknown, path: string): void {
   opt(set.acousticExcluded, `${path}.set.acousticExcluded`, int);
   str(d.parentName, `${path}.parentName`);
   opt(d.fromActivation, `${path}.fromActivation`, bool);
+  opt(d.ownCell, `${path}.ownCell`, bool);
 }
 
 function checkBoxcarRun(v: unknown, path: string): void {

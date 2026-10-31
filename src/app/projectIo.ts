@@ -345,7 +345,7 @@ export interface PdfSnapshot {
   readonly result: RefinementResult | null;
   readonly fitRange: FitWindow;
   readonly positionMode: PdfPositionMode;
-  readonly modes: { readonly set: DistortionModeSet; readonly parentName: string; readonly fromActivation?: boolean } | null;
+  readonly modes: { readonly set: DistortionModeSet; readonly parentName: string; readonly fromActivation?: boolean; readonly ownCell?: boolean } | null;
   readonly spinModel: {
     readonly magnetic: MagneticModel;
     readonly params: readonly RefinementParameter[];
@@ -371,7 +371,7 @@ export function pdfWorkspaceFrom(s: PdfSnapshot): PdfWorkspace {
     fitRange: s.fitRange,
     positionMode: s.positionMode,
     ...(s.modes
-      ? { distortionModes: { set: s.modes.set, parentName: s.modes.parentName, ...(s.modes.fromActivation ? { fromActivation: true } : {}) } }
+      ? { distortionModes: { set: s.modes.set, parentName: s.modes.parentName, ...(s.modes.fromActivation ? { fromActivation: true } : {}), ...(s.modes.ownCell ? { ownCell: true } : {}) } }
       : {}),
     ...(s.spinModel
       ? { spinModel: { magnetic: s.spinModel.magnetic, parameters: s.spinModel.params.map(cloneParameter), bindings: [...s.spinModel.bindings] } }

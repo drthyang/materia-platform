@@ -9,7 +9,7 @@ import { allowedPositionShifts } from "@/core/crystal/siteConstraints";
 import { computeGofR, makeRGrid } from "@/core/pdf/forwardModel";
 import { expandStructureAtoms } from "@/core/diffraction/structureFactor";
 import { applyParameters } from "@/core/workflow/apply";
-import { ACTIVATION_KICK, pageView, pdfFit, pdfPage, withoutModes, withSupercellChild, workspaceOf, type PdfPageModel } from "@/app/pdfPage";
+import { ACTIVATION_KICK, pageView, pdfFit, pdfPage, withFit, withoutModes, withParameter, withPositionMode, withSupercellChild, workspaceOf, type PdfPageModel } from "@/app/pdfPage";
 import { validateSnapshot } from "@/core/project/validate";
 import { AXIS_ORDERS, GLAZER, TILT_SENSES, srtio3, tiltedChild, tiltIsInvariant, type Glazer } from "@/testSupport/perovskiteTilts";
 
@@ -112,6 +112,9 @@ describe("a supercell child activated on the PDF page", () => {
     const rows = (x: PdfPageModel) => x.params.map((p) => ({ id: p.id, value: p.value + 0, fixed: p.fixed }));
     expect(rows(back)).toEqual(rows(model));
     expect(pageView(back).rw).toBeCloseTo(pageView(model).rw, 9);
+    // Still the child in its own cell: ✕ clear after reopening returns to the parent's rows too.
+    expect(back.modes?.ownCell).toBe(true);
+    expectParentRows(withoutModes(back), back.params.find((p) => p.id === "pdfScale")!.value);
   });
 
   it("refines from the kick to the tilt; ✕ clear returns to the parent", async () => {
@@ -124,8 +127,33 @@ describe("a supercell child activated on the PDF page", () => {
     const want = truth.sites.find((s) => s.element === "O")!.position[axis]!;
     // The tilt or its antiphase twin (x ↔ 1 − x about ½), which has the same G(r).
     expect(Math.min(Math.abs(o.position[axis]! - want), Math.abs(1 - o.position[axis]! - want))).toBeLessThan(1e-6);
-    const back = withoutModes(model);
+    // Cleared from the refined child: the parent's own rows (its cubic a, not the
+    // child's hexagonal one), the refined scale carried, and the parent's Rw at it.
+    const fitted = withFit(freeOnly(model, [lead.id, "pdfScale"]), fit);
+    expect(fitted.result).not.toBeNull();
+    const back = withoutModes(fitted);
     expect(back.modes).toBeNull();
     expect(pageView(back).fitStructure).toBe(PARENT);
+    expectParentRows(back, fitted.params.find((p) => p.id === "pdfScale")!.value);
   }, 120_000);
+
+  it("Constrained atomic sets the child aside for the parent, and Irreps (modes) brings the child back, each in its own cell", () => {
+    const atomic = withPositionMode(withParameter(model, "pdfScale", { value: 0.8 }), "atomic");
+    expect(pageView(atomic).fitStructure).toBe(PARENT);
+    expectParentRows(atomic, 0.8);
+    const again = withPositionMode(atomic, "irreps");
+    expect(pageView(again).fitStructure).toBe(set.parentized);
+    const rowsOf = (x: PdfPageModel, kind: string) => x.params.filter((p) => p.kind === kind).map((p) => [p.id, p.value]);
+    expect(rowsOf(again, "cellLength")).toEqual(rowsOf(model, "cellLength"));
+    expect(rowsOf(again, "bIso")).toEqual(rowsOf(model, "bIso"));
+    expect(again.params.find((p) => p.id === "pdfScale")!.value).toBe(0.8);
+  });
+
+  /** The parent's rows as the page had them before the activation, the setting-free scale at `scale`, and the parent's Rw there. */
+  function expectParentRows(m: PdfPageModel, scale: number): void {
+    const rows = (x: PdfPageModel) => x.params.filter((p) => p.id !== "pdfScale").map((p) => ({ id: p.id, value: p.value, fixed: p.fixed }));
+    expect(rows(m)).toEqual(rows(page));
+    expect(m.params.find((p) => p.id === "pdfScale")!.value).toBe(scale);
+    expect(pageView(m).rw).toBeCloseTo(pageView(withParameter(page, "pdfScale", { value: scale })).rw, 12);
+  }
 });
