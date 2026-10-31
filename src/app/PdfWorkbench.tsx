@@ -29,10 +29,11 @@ import type { MagneticFit } from "@/app/magneticStep";
 import type { DisplaciveIrrepTerm } from "@/core/crystal/displaciveModes";
 import { structuralSubgroupLattice, type SubgroupNode } from "@/core/crystal/subgroupTree";
 import { parseCif } from "@/parsers/cif";
+import { parseModeCif } from "@/parsers/modeCif";
 import {
   SAMPLE_STEPS, agentBoxcarPlan, boxcarSummary, landsOn, liveStateOf, momentFit, pageView, pdfBoxcar, pdfFit, pdfguiBundleOf, pdfPage, pdfPosterior, pdfProbe, pdfThorough, reportInputOf, rwOf, specKeyOf,
   withActivatedMode, withAdpModel, withBoxcarPlan, withBoxcarRun, withBoxcarStep, withExtraPhases, withFit, withFitRange, withFixed, withLoadedStructure, withoutModes,
-  withParameter, withParentModes, withPattern, withPositionMode, withPosterior, withReset, withSameCellSubgroup, withSiteTotal, withSpinModel, withSubgroup, withSupercellChild, workspaceOf, type AgentBoxcarPlan, type SupercellChoice,
+  withParameter, withParentModes, withModeCif, modeCifOf, withPattern, withPositionMode, withPosterior, withReset, withSameCellSubgroup, withSiteTotal, withSpinModel, withSubgroup, withSupercellChild, workspaceOf, type AgentBoxcarPlan, type SupercellChoice,
 } from "@/app/pdfPage";
 import { SiteTotals } from "@/app/ui/SiteTotals";
 import { DistortionModesPanel } from "@/app/ui/DistortionModesPanel";
@@ -144,6 +145,8 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   const [shownModeId, setShownModeId] = useState<string | null>(null);
   useEffect(() => setShownModeId(null), [modeSet]);
   const shownMode = (shownModeId !== null ? modeSet?.modes.find((m) => m.id === shownModeId) : undefined) ?? null;
+  // Modes by parent irrep (a supercell child, a decomposition, a mode CIF) can be saved as an ISODISTORT mode CIF.
+  const modeCifAvailable = modeSet !== null && modeSet.parent !== undefined && modeSet.modes.length > 0 && modeSet.modes.every((m) => m.irrep !== undefined);
   const [busy, setBusy] = useState(false);
   // Live calculated curve streamed from the worker during a refinement.
   const [live, setLive] = useState<number[] | null>(null);
@@ -584,6 +587,33 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
     }
   }
 
+  // An ISODISTORT mode CIF (withModeCif): its child and modes in force, the
+  // amplitudes as the file gives them; with the parent loaded, the child in
+  // its own cell.
+  async function onLoadModeCif(file: File): Promise<void> {
+    try {
+      const parsed = parseModeCif(await file.text(), modelRef.current.loaded.id);
+      const loadedModes = withModeCif(modelRef.current, parsed, file.name);
+      if (loadedModes.model === modelRef.current) {
+        console.error(`[status] mode CIF: ${loadedModes.message}`);
+        return;
+      }
+      setModel(loadedModes.model);
+      setLive(null);
+      stepHistory?.requestStep("settings", `Mode CIF: ${loadedModes.label}`);
+      console.info(`[status] mode CIF: ${loadedModes.message}`);
+    } catch (e) {
+      console.error(`[status] mode CIF failed to read: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  /** The modes in force as an ISODISTORT mode CIF (modeCifOf), downloaded. */
+  function exportModeCif(): void {
+    const out = modeCifOf(modelRef.current);
+    if (!out) return;
+    downloadText(out.fileName, out.text, "chemical/x-cif");
+  }
+
   /** Values back to their starting values, every row and free/fixed choice kept — as on the powder page. */
   function reset(ids?: readonly string[]): void {
     setModel((m) => withReset(m, ids));
@@ -1011,6 +1041,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                     shownModeId={shownModeId}
                     onShowMode={setShownModeId}
                     onOpenSubgroups={() => setViewTab("subgroups")}
+                    {...(modeCifAvailable ? { onExportModeCif: exportModeCif } : {})}
                   />
                 </div>
               )}
@@ -1074,6 +1105,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                   modeCount={modeSet ? modeSet.modes.length : null}
                   busy={busy}
                   onLoadParentCif={(file) => void onLoadParentCif(file)}
+                  onLoadModeCif={(file) => void onLoadModeCif(file)}
                   onActivateMode={onActivateMode}
                   onActivateSubgroup={onActivateSubgroup}
                   onClear={() => setModel((m) => withoutModes(m))}

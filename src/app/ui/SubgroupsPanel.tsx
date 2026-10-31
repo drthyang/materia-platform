@@ -1,9 +1,12 @@
 /**
- * The PDF page's Subgroups view: where the symmetry is lowered. Three ways in,
+ * The PDF page's Subgroups view: where the symmetry is lowered. Four ways in,
  * each loading the distortion modes it permits into the Positions group (the
  * 3D Model view then lists them as they refine):
  *
- *   - a parent CIF the loaded structure is decomposed against (withParentModes);
+ *   - a parent CIF the loaded structure is decomposed against, by parent irrep,
+ *     a supercell child included (withParentModes, decompose.ts);
+ *   - an ISODISTORT mode CIF, its child and modes as the file gives them
+ *     (withModeCif);
  *   - a symmetry-breaking Γ irrep of the loaded group, activated toward one of
  *     the isotropy subgroups its modes lead to (withActivatedMode);
  *   - a subgroup picked from the lattice (withSubgroup for a t-subgroup,
@@ -162,6 +165,8 @@ interface Props {
   readonly modeCount: number | null;
   readonly busy: boolean;
   readonly onLoadParentCif: (file: File) => void;
+  /** Load an ISODISTORT mode CIF (withModeCif); absent, the loader is not shown. */
+  readonly onLoadModeCif?: (file: File) => void;
   readonly onActivateMode: (term: DisplaciveIrrepTerm, sub: IrrepSubgroup) => void;
   readonly onActivateSubgroup: (node: SubgroupNode) => void;
   /** Drop the choice: back to the parent's per-coordinate positions. */
@@ -177,7 +182,7 @@ export function supercellPointsOf(structure: StructureModel): string {
 
 type LatticeRow = { readonly t: SubgroupNode } | { readonly k: SameCellNode };
 
-export function SubgroupsPanel({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCell = [], supercellNote = null, operations, onActivateSameCell, onActivateSupercell, modes, modeCount, busy, onLoadParentCif, onActivateMode, onActivateSubgroup, onClear, onOpenModel }: Props): JSX.Element {
+export function SubgroupsPanel({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCell = [], supercellNote = null, operations, onActivateSameCell, onActivateSupercell, modes, modeCount, busy, onLoadParentCif, onLoadModeCif, onActivateMode, onActivateSubgroup, onClear, onOpenModel }: Props): JSX.Element {
   const levels = useMemo(() => {
     const byIndex = new Map<number, LatticeRow[]>();
     const add = (index: number, row: LatticeRow): void => {
@@ -241,9 +246,34 @@ export function SubgroupsPanel({ spaceGroup, lattice, irrepTree, decentringTree 
           />
         </label>
         <span style={{ fontSize: fz.micro, color: color.secondary }}>
-          for a loaded structure that is already the distorted child — its distortion from the parent as mode amplitudes, seeded to reproduce it exactly
+          for a loaded structure that is already the distorted child, in the parent's cell or a supercell — its distortion from the parent as modes by parent irrep, seeded to reproduce it exactly
         </span>
       </div>
+      {onLoadModeCif && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, rowGap: 4, flexWrap: "wrap", marginTop: 6 }}>
+          <span style={uppercaseLabel}>Mode CIF</span>
+          <label
+            style={{ border: `1px solid ${color.border}`, borderRadius: 6, padding: "2px 10px", fontSize: fz.micro, color: color.ink, cursor: "pointer", ...(pickBlocked ? blockedStyle : {}) }}
+            title={modes !== null ? "Clear the active distortion first" : "Load an ISODISTORT mode CIF (ISODISTORT's own, or one MATERIA exported): its child and displacive modes, the amplitudes as the file gives them. With its parent loaded, the child is fitted in its own cell; with its child loaded, the modes go on it."}
+          >
+            Load mode CIF…
+            <input
+              type="file"
+              accept=".cif,text/plain"
+              disabled={pickBlocked}
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) onLoadModeCif(f);
+                e.target.value = "";
+              }}
+            />
+          </label>
+          <span style={{ fontSize: fz.micro, color: color.secondary }}>
+            ISODISTORT's distortion-mode CIF, or one exported from the 3D Model view — the modes as amplitudes to refine
+          </span>
+        </div>
+      )}
 
       {/* Irrep-driven: a symmetry-breaking Γ irrep of the loaded group, toward one of its isotropy subgroups. */}
       <div style={{ marginTop: 10 }}>

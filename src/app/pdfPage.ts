@@ -657,7 +657,7 @@ export function withoutModes(m: PdfPageModel): PdfPageModel {
  * is used as before. `message`: why nothing changed, or what the set holds.
  */
 export function withParentModes(m: PdfPageModel, parent: StructureModel, parentName: string): { readonly model: PdfPageModel; readonly message: string } {
-  let reason = "";
+  let reason: string;
   try {
     const d = decomposeChild(parent, m.loaded);
     if (d.set.modes.length > 0) {

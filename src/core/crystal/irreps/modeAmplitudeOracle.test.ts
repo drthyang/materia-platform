@@ -106,7 +106,8 @@ const isoNumber = (t: string): number => {
  *                     (0.00000, 3.90500, 0.00000)
  *
  * A position written with decimals is Cartesian (Å), one written with integers
- * and fractions is fractional.
+ * and fractions is fractional (ISOTROPY keeps a Wyckoff position's point
+ * fractional unless its free parameters are given); the vectors are Cartesian.
  */
 function parseDistortion(out: string): IsoBlock[] {
   const blocks: IsoBlock[] = [];
@@ -130,13 +131,6 @@ function parseDistortion(out: string): IsoBlock[] {
     blocks[blocks.length - 1]!.atoms.push({ point: vecs[0]!, cartesianPoint: found[0]![0].includes("."), vectors: vecs.slice(1) });
   }
   return blocks;
-}
-
-/** A lattice-unit component as ISOTROPY rounds it (to 3 decimals): back to n/2, n/√3 or n·√3/2 when that is within the rounding. */
-function snapIso(x: number): number {
-  const exact = [...[1, 2, 3, 4, 6].flatMap((d) => [1, 2, 3, 4, 5, 6].map((n) => n / d)), ...[1, 2, 3, 4].flatMap((n) => [n / Math.sqrt(3), (n * Math.sqrt(3)) / 2])];
-  for (const v of exact) if (Math.abs(Math.abs(x) - v) < 6e-4) return Math.sign(x) * v;
-  return x;
 }
 
 interface OracleCase {
@@ -277,8 +271,8 @@ describe.skipIf(!ENABLED)("ISOTROPY oracle: mode amplitudes of a decomposed supe
                   const X = at.cartesianPoint ? mulMV(Minv, at.point) : at.point;
                   const k = cellKey(X);
                   points.set(k, X);
-                  // Cartesian when the positions are; else in lattice units, written to 3 decimals (2/√3 as 1.155), snapped and turned Cartesian.
-                  f.set(k, at.cartesianPoint ? at.vectors[t]! : mulMV(Mp, at.vectors[t]!.map(snapIso)));
+                  // SHOW CARTESIAN writes the vectors in Cartesian Å (x along a, y in the ab plane), whatever the positions.
+                  f.set(k, at.vectors[t]!);
                 }
                 fields.push(f);
               }
