@@ -15,7 +15,7 @@ import { mn3gaSession, pdfPage, powderPage, scPage } from "@/agent/evals/pages";
  */
 const CONTRACTS: Readonly<Record<AgentPage, Readonly<Record<string, readonly string[]>>>> = {
   powder: {
-    get_state: ["busy", "data", "history", "instrument", "lastRefinement", "magneticModel", "method", "parameterGroups", "parameterRows", "phases", "references", "settings", "source", "technique", "wR"],
+    get_state: ["busy", "data", "history", "instrument", "lastRefinement", "magneticModel", "magneticStep", "method", "parameterGroups", "parameterRows", "phases", "references", "settings", "source", "technique", "wR"],
     assess_refinement: ["findings", "summary", "verdict"],
     suggest_next_steps: ["steps"],
     rank_next_parameters: ["groups", "wrNow"],
@@ -25,6 +25,8 @@ const CONTRACTS: Readonly<Record<AgentPage, Readonly<Record<string, readonly str
     diagnose_fit: ["agreement", "causes", "dShells", "intensityFalloff", "lineWidths", "reading", "textureTest", "worstReflections"],
     identify_peaks: ["candidates", "peaks", "reading"],
     structure_table: ["phases"],
+    // The Mn₃Ga 30 K page carries residual peaks above 5σ (k = 0 magnetic intensity): the k-search runs.
+    search_propagation_vector: ["candidates", "reading", "simplest"],
     magnetic_state: ["canFitMoments", "canRefineK", "candidates", "groups", "ions", "k", "kKind", "next", "nuclearOnlyWR", "residualPeaks", "ties"],
     rank_magnetic_groups: ["best", "groups", "nuclearOnlyWR", "ranked", "reading", "restarts", "withinNoise"],
     bond_geometry: ["bonds", "name", "phase", "shortest"],

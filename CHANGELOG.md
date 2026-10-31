@@ -627,7 +627,14 @@ release fixes bugs.
   lasts for the session, until a new structure is loaded.
 
 ### Changed
--- **The microstrain refines on its own (a firm rule).** On the powder page
+-- **The magnetic step finds the weaker magnetic lines beside a strong
+  misfit.** With the file's σ, its residual-peak detector now tests each
+  peak against its own noise (5σ) with no floor at 8 % of the largest
+  residual, as the assessment's residual reader already did. On AWO₄ at
+  8 K a 130σ nuclear misfit at 1.424 Å had hidden the magnetic lines at
+  2.388, 2.084, 1.601 and 1.396 Å, so the k-search ran on two peaks.
+
+- **The microstrain refines on its own (a firm rule).** On the powder page
   the Agent's `refine` now refuses a free set with the microstrain (or any
   sample-broadening term) together with the instrument's terms or the B
   values, rule `broadening-alone`: they widen the lines alike and trade with

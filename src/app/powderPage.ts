@@ -909,7 +909,10 @@ export function residualPeaksOf(s: Session, instrument: InstrumentParameters | u
   // Only data that carry σ: √yObs is valid for raw counts only, and on a normalized pattern it would exceed any residual.
   const hasSigma = s.pattern.points.length > 0 && s.pattern.points.every((p) => p.sigma !== undefined);
   const pointSigma = hasSigma ? s.pattern.points.map((p) => p.sigma!) : undefined;
-  const detected = detectExtraPeaks(d, curves.yObs, curves.yCalc, { ...(pointSigma ? { pointSigma, minSignificance: 3 } : {}), limit: 24 });
+  // With the file's σ each peak is tested against its own noise, and no floor at a fraction of the
+  // largest residual: one strong nuclear misfit (AWO₄ at 8 K: 130σ at 1.424 Å) hid the magnetic lines
+  // beside it (2.388, 2.084, 1.601, 1.396 Å), as residualPeaks already reads it.
+  const detected = detectExtraPeaks(d, curves.yObs, curves.yCalc, { ...(pointSigma ? { pointSigma, minSignificance: 5, minFraction: 0 } : {}), limit: 24 });
   // A pick carries the residual at the nearest point; one on a detected apex is that peak.
   const manual = manualD.map((at) => {
     let bi = 0;
