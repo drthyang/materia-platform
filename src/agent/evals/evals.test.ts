@@ -42,12 +42,13 @@ describe("Agent evals, scripted", () => {
     // A scenario on data only some machines have (the user's own) replays where they are.
     describe.skipIf(!(s.available?.() ?? true))(s.id, () => {
       const r = REPLAYS[s.id]!;
+      const limit = s.slow ? 240_000 : 60_000;
       it("passes every check as the Agent should behave", async () => {
         const result = await replay(s.id, r.good);
         expect(result.overrun, why(result)).toBe(0);
         expect(failing(result), why(result)).toEqual([]);
         expect(regraded(result), "the saved run, scored again").toEqual(verdicts(result));
-      }, 60_000);
+      }, limit);
 
       it("offers every tool the good replay calls when the tools follow the stage (a local model's list)", async () => {
         const result = await replay(s.id, r.good, "stage");
@@ -57,7 +58,7 @@ describe("Agent evals, scripted", () => {
         expect(failing(result), why(result)).toEqual([]);
         // Fewer tools than the page has, on the powder page.
         if (result.run.port.technique === "powder") expect(Math.min(...result.offered.slice(0, r.good.length).map((o) => o.length))).toBeLessThan(LIVE_TOOLS.filter((t) => t.pages.includes("powder")).length);
-      }, 60_000);
+      }, limit);
 
       it("fails the checks written against the failure", async () => {
         const result = await replay(s.id, r.bad);
@@ -65,7 +66,7 @@ describe("Agent evals, scripted", () => {
         for (const c of r.catches) expect(names, `${c} is not a check of ${s.id}`).toContain(c);
         expect(failing(result), why(result)).toEqual(expect.arrayContaining([...r.catches]));
         expect(regraded(result), "the saved run, scored again").toEqual(verdicts(result));
-      }, 60_000);
+      }, limit);
     });
   }
 });

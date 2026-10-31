@@ -67,6 +67,29 @@ describe("correlation check", () => {
     expect([...map.keys()].some((id) => id.startsWith("pos_N"))).toBe(false);
   });
 
+  it("refines the TOF peak-shape terms together, as GSAS-II refines an instrument's profile; each against anything else still stops", () => {
+    // AWO₄ at 8 K on POWGEN, the profile freed with the moments held (the probe's own numbers): the
+    // guard refused α₁ ↔ β₀, β₀ ↔ zero and σ₀² ↔ σ_q², and the staged way round them reached 9.53 %
+    // where the joint fit the scientist ran by hand reached 8.57 %.
+    const tof = [param("scale", "scale"), param("bkg0", "background"), param("tof_alpha1", "tofProfile"), param("tof_beta0", "tofProfile"), param("tof_sig0", "tofProfile"), param("tof_sigQ", "tofProfile"), param("zero", "zeroShift"), param("cell_a", "cellLength"), param("B_O1", "bIso")];
+    const check = readCorrelations(probe([
+      ["tof_alpha1", "tof_beta0", 0.997, 0.99],
+      ["tof_beta0", "zero", 0.995, 0.99],
+      ["tof_sig0", "tof_sigQ", -0.994, -0.99],
+      ["zero", "cell_a", 0.98, 0.97],
+      ["tof_sig0", "B_O1", 0.96, 0.95],
+    ]), tof);
+    expect(check.carried.map((p) => [p.a, p.b])).toEqual([["tof_alpha1", "tof_beta0"], ["tof_beta0", "zero"], ["tof_sig0", "tof_sigQ"]]);
+    expect(check.carried.every((p) => p.peakShape)).toBe(true);
+    expect(carriedText(check.carried[0]!)).toBe("tof_alpha1 ↔ tof_beta0 0.997 (the TOF peak-shape terms, refined together as GSAS-II refines an instrument's profile)");
+    // The zero against the cell, and a profile term against an ADP, still stop the refinement.
+    expect(check.correlated.map((p) => [p.a, p.b])).toEqual([["zero", "cell_a"], ["tof_sig0", "B_O1"]]);
+    expect(correlationRefusal(check)).not.toContain("tof_alpha1");
+    // A 2θ zero is not a peak-shape term: with the Caglioti width it stops as before.
+    const cw = [param("zero", "zeroShift"), param("width", "peakWidth"), param("cell_a", "cellLength")];
+    expect(readCorrelations(probe([["zero", "width", 0.97, 0.96]]), cw).correlated).toHaveLength(1);
+  });
+
   it("exempts the intensity terms among themselves on a single-crystal fit only: two powder phases' scales at −0.99 stop", () => {
     const powder = [param("p0_scale", "scale"), param("p1_scale", "scale"), param("bkg0", "background"), param("cell_a", "cellLength"), param("B_Mn1", "bIso")];
     const scales = probe([["p0_scale", "p1_scale", -0.99, -0.98]]);

@@ -197,6 +197,23 @@ export function inspectDataRange(input: DataRangeInput): DataRangeReading {
           add("background-only", k - 1, `no reflection of any phase and no peak in the data: background only, up to ${fmtNum(margin, localStep)} short of the first reflection, at ${fmt(first!, localStep)}`);
         } else {
           notes.push(`no reflection of any phase over ${span(pos(0), pos(k - 1), localStep)}, but the data hold ${peaks.length} peak${peaks.length === 1 ? "" : "s"} there (the strongest ${strongest.sigmas.toFixed(0)}σ at ${fmt(strongest.x, localStep)}) that no phase explains: another phase, or magnetic order on neutron data — keep it in the window and find out what it is`);
+          // The window covers every peak, the model's and the data's own, and no more: beyond the
+          // outermost peak the stretch is background only, cut as the stretch before a first reflection is.
+          // The cut clears the peak's own tail (a TOF line's decays far on its long side), measured on
+          // the data, and MARGIN_WIDTHS of its own widths more; at least the margin a reflection gets.
+          // (AWO₄ at 8 K on POWGEN: the 9.37 Å magnetic line at 211 244 µs, its tail back at the
+          // background by 220 400 µs; the cut near 230 500 µs, where the scientist puts it, 230–253k.)
+          const outermost = end === "low" ? Math.min(...peaks.map((p) => p.x)) : Math.max(...peaks.map((p) => p.x));
+          const kp = Array.from({ length: k }, (_, j) => j).reduce((best, j) => (Math.abs(pos(j) - outermost) < Math.abs(pos(best) - outermost) ? j : best), 0);
+          const reach = peakReach(yObs, sigma, valid, at, pos, kp);
+          const clear = reach ? Math.max(margin, Math.abs(reach.tailEnd - outermost) + MARGIN_WIDTHS * reach.fwhm) : margin;
+          const past = end === "low" ? outermost - clear : outermost + clear;
+          let j = 0;
+          while (j < k && (end === "low" ? pos(j) < past : pos(j) > past)) j++;
+          if (j >= 2 * h) {
+            const tail = reach ? `, its tail back at the background by ${fmt(reach.tailEnd, localStep)}, the cut ${MARGIN_WIDTHS} of its widths (${fmtNum(reach.fwhm, localStep)} each) beyond` : "";
+            add("background-only", j - 1, `background only beyond the outermost peak in the data, at ${fmt(outermost, localStep)} (no phase explains it: kept in the window${tail})`);
+          }
         }
       }
     }
@@ -371,6 +388,43 @@ function solve(a: number[][], b: number[]): number[] | null {
  * counting σ — the excess variance per point, 0 for noise alone — and the
  * peaks standing PEAK_SIGMA above that level.
  */
+/**
+ * A peak's extent on the data, from its top at index kp (counted from the pattern's end) toward the
+ * end: its full width at half maximum, and where its tail is back at the background (the first of
+ * three running 4-point means within 1σ of it). The background is the median of the outer half
+ * between the peak and the end. Null when there is too little room to read it.
+ */
+function peakReach(
+  y: readonly number[], sigma: readonly number[], valid: readonly boolean[],
+  at: (k: number) => number, pos: (k: number) => number, kp: number,
+): { fwhm: number; tailEnd: number } | null {
+  if (kp < 16) return null;
+  const outer: number[] = [];
+  for (let k = 0; k < Math.floor(kp / 2); k++) if (valid[at(k)]) outer.push(y[at(k)]!);
+  if (outer.length < 8) return null;
+  const b = quantile(outer, 0.5);
+  const mean3 = (k: number): number => (y[at(Math.max(0, k - 1))]! + y[at(k)]! + y[at(k + 1)]!) / 3;
+  let top = kp;
+  for (let k = Math.max(1, kp - 3); k <= kp + 3; k++) if (mean3(k) > mean3(top)) top = k;
+  const half = b + (mean3(top) - b) / 2;
+  let kOut = top;
+  while (kOut > 1 && mean3(kOut) > half) kOut--;
+  let kIn = top;
+  while (kIn < y.length - 2 && mean3(kIn) > half) kIn++;
+  const fwhm = Math.abs(pos(kIn) - pos(kOut));
+  const z = (k0: number): number => {
+    const ks = [k0, k0 - 1, k0 - 2, k0 - 3].filter((k) => k >= 0 && valid[at(k)]);
+    if (ks.length === 0) return 0;
+    const m = ks.reduce((a, k) => a + y[at(k)]!, 0) / ks.length;
+    const s = Math.sqrt(ks.reduce((a, k) => a + sigma[at(k)]! ** 2, 0)) / ks.length;
+    return (m - b) / Math.max(s, 1e-9);
+  };
+  for (let k = kOut; k >= 12; k -= 4) {
+    if (z(k) < 1 && z(k - 4) < 1 && z(k - 8) < 1) return { fwhm, tailEnd: pos(k) };
+  }
+  return null;
+}
+
 function blockSignal(
   x: readonly number[], y: readonly number[], sigma: readonly number[], valid: readonly boolean[],
   at: (k: number) => number, k0: number, k1: number, size: number,

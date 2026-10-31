@@ -36,6 +36,12 @@ export interface AnnotatedExtraPeak extends ExtraPeak {
     readonly d: number;
     /** |d_peak − d_ref| / d_ref. */
     readonly relDelta: number;
+    /**
+     * The peak is near the reflection but not its misfit: beyond the line's
+     * width, where the line carries little intensity (markResolvedPeaks).
+     * The k-search counts it.
+     */
+    readonly resolved?: boolean;
   };
 }
 

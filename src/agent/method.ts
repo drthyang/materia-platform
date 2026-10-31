@@ -37,12 +37,13 @@ import { parseTie } from "@/core/refinement/constraints";
 import { lineage, type ProjectHistory } from "@/core/project/history";
 import { listOf } from "@/agent/liveCommon";
 
-export type MethodRule = "bare-occupancy" | "instrument-with-thermal" | "instrument-with-positions";
+export type MethodRule = "bare-occupancy" | "instrument-with-thermal" | "instrument-with-positions" | "broadening-alone";
 
 export const RULES: Readonly<Record<MethodRule, { readonly title: string; readonly pages: readonly AgentPage[] }>> = {
   "bare-occupancy": { title: "Refine an occupancy with no tie or second contrast", pages: ["powder", "pdf", "singleCrystal"] },
   "instrument-with-thermal": { title: "Refine instrument and thermal parameters together", pages: ["powder", "pdf"] },
   "instrument-with-positions": { title: "Refine instrument terms and atom positions together", pages: ["powder"] },
+  "broadening-alone": { title: "Refine the microstrain with the instrument terms or the thermal parameters", pages: ["powder"] },
 };
 
 /**
@@ -58,13 +59,17 @@ export const INSTRUMENT_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKin
 /** The atom positions: coordinates and position shifts. */
 export const POSITION_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>(["atomX", "atomY", "atomZ", "positionShift"]);
 
+/** The sample's broadening: the microstrain (isotropic, generalized, uniaxial) and the size terms. */
+export const BROADENING_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>(["mustrainIso", "stephensStrain", "mustrainPerp", "mustrainPar", "anisoSizePerp", "anisoSizePar"]);
+
 /** The thermal parameters: B_iso and the anisotropic U's. */
 export const THERMAL_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>(["bIso", "uAniso"]);
 
-export type ParameterGroup = "instrument" | "thermal";
+/** The groups the method refines in turn: the instrument's terms, the thermal parameters, and the sample's broadening (the microstrain). */
+export type ParameterGroup = "instrument" | "thermal" | "broadening";
 
 export function groupOf(kind: ParameterKind): ParameterGroup | null {
-  return INSTRUMENT_KINDS.has(kind) ? "instrument" : THERMAL_KINDS.has(kind) ? "thermal" : null;
+  return INSTRUMENT_KINDS.has(kind) ? "instrument" : THERMAL_KINDS.has(kind) ? "thermal" : BROADENING_KINDS.has(kind) ? "broadening" : null;
 }
 
 /**
@@ -348,6 +353,20 @@ export function ruleRefusal(page: AgentPage, free: readonly RefinementParameter[
       });
     }
   }
+  if (page === "powder" && !hasException(record, "broadening-alone")) {
+    const broadening = free.filter((p) => BROADENING_KINDS.has(p.kind));
+    const instrument = free.filter((p) => INSTRUMENT_KINDS.has(p.kind));
+    const thermal = free.filter((p) => THERMAL_KINDS.has(p.kind));
+    if (broadening.length > 0 && (instrument.length > 0 || thermal.length > 0)) {
+      const ids = (ps: readonly RefinementParameter[]): string => listOf(ps.map((p) => p.id), 6);
+      const others = [instrument.length > 0 ? `the instrument terms (${ids(instrument)})` : null, thermal.length > 0 ? `the thermal parameters (${ids(thermal)})` : null].filter(Boolean).join(" and ");
+      broken.push({
+        rule: "broadening-alone",
+        line: `Not run: microstrain (${ids(broadening)}) free with ${instrument.length > 0 ? "instrument terms" : "thermal parameters"}${instrument.length > 0 && thermal.length > 0 ? " and thermal parameters" : ""}`,
+        why: `the sample's broadening (${ids(broadening)}) is free together with ${others} — the user's method refines the microstrain on its own. It widens every line as the instrument's peak width does (σ₂² and σ_q² on TOF, U, X and Y at constant wavelength), and its fall-off with d trades with the B values: refined together, each takes the other's share and the esds hide it. Refine it with the instrument terms and the B values fixed (the scale and background may stay free), then fix it and go on. If the user wants them refined together, call allow_exception with rule "broadening-alone" and their reason — they approve it themselves.`,
+      });
+    }
+  }
   if (broken.length === 0) return null;
   const first = broken[0]!;
   if (broken.length === 1) return { rule: first.rule, line: first.line, message: `Not refined: ${first.why}` };
@@ -358,7 +377,7 @@ export function ruleRefusal(page: AgentPage, free: readonly RefinementParameter[
   };
 }
 
-// ── the alternation: instrument and thermal refined in turn ────────────────
+// ── the alternation: instrument, thermal and microstrain refined in turn ──
 
 /** A cycle that moves neither group by more than this (in esd) ends the alternation. */
 export const ALTERNATION_SETTLED = 0.3;
@@ -406,31 +425,47 @@ export function advanceAlternation(
   return { memory: next, refined: groups.size === 1 ? [...groups][0]! : null };
 }
 
-/** For refine's outcome: where the alternation stands after a step of it. Null when there is no alternation yet. */
+/** The order the alternation takes its groups in. */
+const CYCLE: readonly ParameterGroup[] = ["instrument", "thermal", "broadening"];
+
+/**
+ * For refine's outcome: where the alternation stands after a step of it. Null when there is no
+ * alternation yet. Its groups are those refined so far: the instrument's terms and the thermal
+ * parameters, and the microstrain once it has been refined (alone, as the method refines it) — so a
+ * cycle settles only when the microstrain too has been refined again against the current profile.
+ */
 export function alternationView(memory: Alternation, refined: ParameterGroup | null, parameters: readonly RefinementParameter[]): Record<string, unknown> | null {
   if (!refined) return null;
-  const other: ParameterGroup = refined === "instrument" ? "thermal" : "instrument";
-  // Before the other group has been refined, there is nothing to alternate with.
-  if (!memory[other]) return null;
+  const groups = CYCLE.filter((g) => g === refined || memory[g]);
+  // Before another group has been refined, there is nothing to alternate with.
+  if (groups.length < 2) return null;
+  const others = groups.filter((g) => g !== refined);
+  const next = groups[(groups.indexOf(refined) + 1) % groups.length]!;
   const mine = memory[refined]!;
-  const name = (g: ParameterGroup): string => g === "instrument" ? "the instrument terms" : "the thermal parameters";
+  const name = (g: ParameterGroup): string => g === "instrument" ? "the instrument terms" : g === "thermal" ? "the thermal parameters" : "the microstrain";
   const idsOf = (g: ParameterGroup): string => {
     const ids = parameters.filter((p) => groupOf(p.kind) === g && !p.expression).map((p) => p.id);
     return ids.length <= 6 ? ids.join(", ") : `${ids.slice(0, 6).join(", ")}, …`;
   };
   const shiftText = (g: GroupRefinement | undefined): string => g?.shift ? `${g.shift.id} ${g.shift.esds.toFixed(2)} esd` : "not yet measured";
-  const settled = [mine, memory[other]].every((g) => g?.shift && g.shift.esds <= ALTERNATION_SETTLED);
+  const settled = groups.every((g) => memory[g]?.shift && memory[g]!.shift!.esds <= ALTERNATION_SETTLED);
   const slow = mine.shift && mine.previousShift !== null && mine.shift.esds > ALTERNATION_SETTLED && mine.shift.esds > (2 / 3) * mine.previousShift;
+  const two = groups.length === 2;
+  const listJoin = (xs: readonly string[]): string => (xs.length <= 1 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`);
   return {
     alternation: {
-      refined: `${name(refined)} (${idsOf(refined)}), with ${name(other)} fixed`,
+      refined: `${name(refined)} (${idsOf(refined)}), with ${listJoin(others.map(name))} fixed`,
       largestShift: mine.shift ? `${shiftText(mine)} since their last refinement` : "their first refinement in the alternation",
-      otherGroupLastShift: shiftText(memory[other]),
+      otherGroupLastShift: shiftText(memory[next]),
       settled,
       next: settled
-        ? `Neither group moved by more than ${ALTERNATION_SETTLED} esd in its last refinement: the alternation has converged. Each group's esds are conditional on the other held fixed; say so in the report.`
-        : `Fix ${name(refined)} and refine ${name(other)} (${idsOf(other)}) again${other === "instrument" ? ", unless they stay at the instrument file's values" : ""}; stop when a cycle moves neither group by more than ${ALTERNATION_SETTLED} esd.`,
-      ...(slow ? { slow: `The shifts shrink slowly (${mine.shift!.id}: ${mine.previousShift!.toFixed(2)} → ${mine.shift!.esds.toFixed(2)} esd): the two groups are coupled. Tell the user, and ask whether one joint refinement is acceptable (allow_exception) or the B values are to be reported as conditional on the instrument terms.` } : {}),
+        ? two
+          ? `Neither group moved by more than ${ALTERNATION_SETTLED} esd in its last refinement: the alternation has converged. Each group's esds are conditional on the other held fixed; say so in the report.`
+          : `No group moved by more than ${ALTERNATION_SETTLED} esd in its last refinement: the alternation has converged. Each group's esds are conditional on the others held fixed; say so in the report.`
+        : `Fix ${name(refined)} and refine ${name(next)} (${idsOf(next)}) again${next === "instrument" ? ", unless they stay at the instrument file's values" : ""}${next === "broadening" ? ", alone" : ""}; stop when a cycle moves ${two ? "neither group" : "no group"} by more than ${ALTERNATION_SETTLED} esd.`,
+      ...(slow ? { slow: two
+        ? `The shifts shrink slowly (${mine.shift!.id}: ${mine.previousShift!.toFixed(2)} → ${mine.shift!.esds.toFixed(2)} esd): the two groups are coupled. Tell the user, and ask whether one joint refinement is acceptable (allow_exception) or the B values are to be reported as conditional on the instrument terms.`
+        : `The shifts shrink slowly (${mine.shift!.id}: ${mine.previousShift!.toFixed(2)} → ${mine.shift!.esds.toFixed(2)} esd): the groups are coupled. Tell the user, and ask whether one joint refinement is acceptable (allow_exception) or the values are to be reported as conditional on each other.` } : {}),
     },
   };
 }

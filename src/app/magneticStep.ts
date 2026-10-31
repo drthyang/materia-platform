@@ -50,7 +50,7 @@ export interface ResidualPeak extends AnnotatedExtraPeak {
 export interface PeakCriteria {
   /** The I/σ a detection must reach (where the data carry σ). */
   readonly minSig: number;
-  /** Whether a peak on a nuclear reflection may count (usually profile misfit, not magnetic). */
+  /** Whether a peak on a nuclear reflection may count (usually profile misfit, not magnetic; one resolved from the line always counts). */
   readonly allowNearNuclear: boolean;
 }
 
@@ -74,7 +74,7 @@ export function peakRows(peaks: readonly ResidualPeak[], criteria: PeakCriteria,
       const key = peakKey(p.d);
       // A peak without a significance (a masked bin, mixed data) passes the threshold rather than disabling it for everyone.
       const passSig = p.significance === undefined || p.significance >= criteria.minSig;
-      const passNuclear = criteria.allowNearNuclear || !p.nearNuclear;
+      const passNuclear = criteria.allowNearNuclear || !p.nearNuclear || p.nearNuclear.resolved === true;
       return { ...p, idx: i + 1, key, included: overrides[key] ?? (p.manual ? true : passSig && passNuclear) };
     });
 }
@@ -926,7 +926,7 @@ export class MagneticStep {
             n: p.idx,
             d: p.d,
             ...(p.significance !== undefined ? { sigmas: p.significance } : {}),
-            ...(p.nearNuclear ? { near: `${p.nearNuclear.phaseLabel} ${p.nearNuclear.hkl}` } : {}),
+            ...(p.nearNuclear ? { near: `${p.nearNuclear.phaseLabel} ${p.nearNuclear.hkl}${p.nearNuclear.resolved ? ", resolved from it" : ""}` } : {}),
             included: p.included,
             manual: !!p.manual,
           })),

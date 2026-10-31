@@ -220,6 +220,21 @@ export function intensityTerms(a: ParameterKind | undefined, b: ParameterKind | 
   return a !== undefined && b !== undefined && INTENSITY_TERMS.has(a) && INTENSITY_TERMS.has(b);
 }
 
+/** The TOF peak-shape terms: the back-to-back exponentials' α and β, the Gaussian σ coefficients, and the zero. */
+const PEAK_SHAPE: ReadonlySet<ParameterKind> = new Set<ParameterKind>(["tofProfile", "zeroShift"]);
+
+/**
+ * Two TOF peak-shape terms (α, β, σ coefficients, or one of them and the zero).
+ * They make one peak profile over d and are refined together, as GSAS-II
+ * refines an instrument's profile: the rise and the decay trade almost exactly
+ * (AWO₄ at 8 K on POWGEN: α₁ ↔ β₀ 0.997, β₀ ↔ zero 0.995) while the peak they
+ * shape is determined. A pair with a tofProfile row is a TOF fit's, so a 2θ zero
+ * never counts.
+ */
+export function tofPeakShape(a: ParameterKind | undefined, b: ParameterKind | undefined): boolean {
+  return a !== undefined && b !== undefined && PEAK_SHAPE.has(a) && PEAK_SHAPE.has(b) && (a === "tofProfile" || b === "tofProfile");
+}
+
 /** A correlation a third free parameter carries: under CARRIED_BELOW with every other free parameter fixed, and under CARRIED_MAX itself. */
 export function carriedByThird(c: { readonly coefficient: number; readonly conditional?: number }): boolean {
   return c.conditional !== undefined && Math.abs(c.conditional) < CARRIED_BELOW && Math.abs(c.coefficient) < CARRIED_MAX;
@@ -295,13 +310,7 @@ export function residualPeaks(residual: NonNullable<AssessmentInput["residual"]>
   // A shoulder or tail sits on the line's own calculated intensity; a bump
   // where the calculated curve is down to its background is a separate,
   // resolved peak however close the line (Cr₂WO₆: 2.4 widths from 1 1 3).
-  const onLine = (p: AnnotatedExtraPeak): boolean => {
-    let i = 0;
-    for (let j = 1; j < d.length; j++) if (Math.abs(d[j]! - p.d) < Math.abs(d[i]! - p.d)) i = j;
-    let base = yCalc[i]!;
-    for (let j = 0; j < d.length; j++) if (Math.abs(d[j]! - p.d) <= 0.03 * p.d) base = Math.min(base, yCalc[j]!);
-    return yCalc[i]! - base >= TAIL_ON_LINE * p.height;
-  };
+  const onLine = (p: AnnotatedExtraPeak): boolean => lineUnder(d, yCalc, p.d) >= TAIL_ON_LINE * p.height;
   const beside = (p: AnnotatedExtraPeak): boolean => rel(p) > onTol && rel(p) <= besideTol;
   const cap = <T>(list: T[]): T[] => (options.limit !== undefined ? list.slice(0, options.limit) : list.slice(0, DEFAULT_PEAK_LIMIT));
   return {
@@ -309,6 +318,51 @@ export function residualPeaks(residual: NonNullable<AssessmentInput["residual"]>
     beside: cap(annotated.filter((p) => beside(p) && onLine(p))),
     onReflection: cap(annotated.filter((p) => rel(p) <= onTol)),
   };
+}
+
+/** The calculated curve's height at `at` above its lowest value within 3 % in d: the line's own intensity there. */
+function lineUnder(d: readonly number[], yCalc: readonly number[], at: number): number {
+  let i = 0;
+  for (let j = 1; j < d.length; j++) if (Math.abs(d[j]! - at) < Math.abs(d[i]! - at)) i = j;
+  let base = yCalc[i]!;
+  for (let j = 0; j < d.length; j++) if (Math.abs(d[j]! - at) <= 0.03 * at) base = Math.min(base, yCalc[j]!);
+  return yCalc[i]! - base;
+}
+
+/**
+ * Marks the peaks near a nuclear reflection that are not its misfit, as
+ * residualPeaks reads them: beyond the line's width, where the calculated
+ * curve carries under half the peak all the way to the reflection (a
+ * shifted strong line is a cell or zero misfit, not a new peak). A dense cell
+ * has a reflection within 1 % of nearly every d: by position alone the
+ * k-search lost the magnetic lines (AWO4, k = (½ 0 0): four of six strong
+ * satellites within 1 % of a weak nuclear line). A peak on the line itself
+ * stays its misfit, however strong: on neutron data that is the k = 0
+ * signature, which the magnetic step reads on its own (k0MagneticHint).
+ */
+export function markResolvedPeaks<P extends AnnotatedExtraPeak>(peaks: readonly P[], d: readonly number[], yCalc: readonly number[]): P[] {
+  if (!peaks.some((p) => p.nearNuclear)) return [...peaks];
+  // Resolved means beyond the line's width: with no width to measure (lines a point or two wide), nothing is.
+  const w = relativeLineWidth(d, yCalc);
+  if (w === undefined || !(w > 0)) return [...peaks];
+  const onTol = Math.min(ON_REFLECTION, Math.max(0.002, w));
+  // The calculated line's strongest point from the peak to its reflection: a shifted line (a cell or
+  // zero misfit) has the model's own line there, a peak beside a weak reflection does not.
+  const lineBetween = (a: number, b: number): number => {
+    const lo = Math.min(a, b) * (1 - onTol), hi = Math.max(a, b) * (1 + onTol);
+    let top = -Infinity, base = Infinity;
+    for (let j = 0; j < d.length; j++) {
+      const x = d[j]!;
+      if (x >= lo && x <= hi) top = Math.max(top, yCalc[j]!);
+      if (x >= lo * 0.97 && x <= hi * 1.03) base = Math.min(base, yCalc[j]!);
+    }
+    return Number.isFinite(top) ? top - base : 0;
+  };
+  return peaks.map((p) => {
+    if (!p.nearNuclear || !(p.height > 0) || p.nearNuclear.relDelta <= onTol) return p;
+    if (lineUnder(d, yCalc, p.d) >= TAIL_ON_LINE * p.height || lineBetween(p.d, p.nearNuclear.d) >= TAIL_ON_LINE * p.height) return p;
+    return { ...p, nearNuclear: { ...p.nearNuclear, resolved: true } };
+  });
 }
 
 /** Most peaks of each class residualPeaks lists when no limit is given (detectExtraPeaks' own default). */
@@ -648,14 +702,17 @@ export function assessRefinement(input: AssessmentInput): RefinementAssessment {
     const abs = Math.abs(c.coefficient);
     // What the correlation guard refines together is noted, not warned about (correlationGuard.ts).
     const overall = mode === "single-crystal" && intensityTerms(a?.kind, b?.kind);
-    const carried = !overall && carriedByThird(c);
+    const peakShape = !overall && tofPeakShape(a?.kind, b?.kind);
+    const carried = !overall && !peakShape && carriedByThird(c);
     findings.push({
       category: "correlation",
-      severity: abs >= CORRELATION_LIMIT && !overall && !carried ? "warning" : "note",
+      severity: abs >= CORRELATION_LIMIT && !overall && !peakShape && !carried ? "warning" : "note",
       // Three places near ±1, where two would round 0.995 up to a perfect 1.00.
       summary: `${a?.label ?? c.parameterIdA} ↔ ${b?.label ?? c.parameterIdB} correlate at ${c.coefficient.toFixed(abs >= 0.99 ? 3 : 2)}.`,
       detail: overall
         ? "The overall intensity terms (scale, extinction, batch scales), refined together as SHELXL refines OSF, EXTI and BASF: the extinction is told from the scale by how the misfit grows with intensity, which their correlation does not see. An extinction the data do not determine shows as an esd as large as its value, or a bound."
+        : peakShape
+          ? "The TOF peak-shape terms (α, β, σ and the zero), refined together as GSAS-II refines an instrument's profile: they trade among themselves while the peak shape they make is determined. Their individual values mean little; the full covariance carries the correlation into their esds."
         : carried
           ? `Carried by a third free parameter: with every other free parameter held fixed they correlate at ${c.conditional!.toFixed(2)}. Each trades with a common one (often the overall fall-off of the intensities), not with the other, so they refine together and the full covariance carries the correlation into their esds.`
           : insight ?? "Strongly correlated parameters share information the data cannot separate; their individual esds are inflated. Consider refining them in separate stages or fixing one.",

@@ -18,7 +18,7 @@ where one fit takes seconds).
 - **In CI**, every scenario is replayed with a scripted model twice: once as the
   Agent should behave (every check passes) and once as it did when the failure
   was found (the checks written against it must fail). That shows each of
-  those checks catches its failure: 53 of the suite's 57 checks so far; the
+  those checks catches its failure: 55 of the suite's 62 checks so far; the
   rest (`calls identify_peaks` among them) have no failing replay yet. The scripts are in
   [`src/agent/evals/evals.test.ts`](../src/agent/evals/evals.test.ts).
 - **On demand**, the same scenarios run against a real model
@@ -80,6 +80,7 @@ with a known answer, is a separate protocol:
 | `swapped-units` | questions a pattern whose axis cannot be what it says (d-spacings loaded as 2θ; get_state's `axisWarning`) rather than refining around it | THY-19 fault injection (held out) |
 | `wrong-wavelength` | puts a wavelength the peaks contradict to the user (λ 1.556 Å given, 1.54 measured: the cell check finds every d × 1.011 from the pattern's own peaks) instead of refining a cell that absorbs it | THY-19 fault injection (held out) |
 | `magnetic-step-first` | searches k before going back to the powder stages: the magnetic step's own sequence leads (get_state's `magneticStep.next`) | Track A2, Haiku's magnetic runs |
+| `magnetic-30k` | finds a k = 0 order from the nuclear fit's misfits, refines the nuclear model at d ≤ 1.5 Å where the magnetic form factor has faded, and refines only the moments over the whole pattern | the user, on the Mn₃Ga 30 K example (simulated: a whole-pattern nuclear scale left the moments 30–55 % small) |
 | `pdf-method` | refines a PDF by its method | the PDF page (v0.3) |
 | `pdf-local-structure` | compares local and average structure with a boxcar scan | boxcar scans (#40) |
 | `pdf-local-geometry` | answers a bond-length question box by box, and reports the scan | round 9 (LaMnO₃) |

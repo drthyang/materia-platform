@@ -128,8 +128,8 @@ describe("the method as code", () => {
   it("never refines the instrument's terms with the thermal parameters, and names every broken rule at once", () => {
     const none = emptyRecord("k");
     expect(ruleRefusal("powder", [p("B_Pb1", "bIso"), p("pos", "atomX")], [], none)).toBeNull();
-    // A microstrain model is the sample's broadening, not the instrument's.
-    expect(ruleRefusal("powder", [p("mustrain", "mustrainIso"), p("B_Pb1", "bIso")], [], none)).toBeNull();
+    // A microstrain model is the sample's broadening, not the instrument's: with a B it breaks its own rule, not this one.
+    expect(ruleRefusal("powder", [p("mustrain", "mustrainIso"), p("B_Pb1", "bIso")], [], none)?.rule).toBe("broadening-alone");
     const r = ruleRefusal("powder", [p("W", "profileW"), p("SL", "asymSL"), p("B_Pb1", "bIso")], [], none)!;
     expect(r.rule).toBe("instrument-with-thermal");
     expect(r.line).toBe("Not run: instrument terms (W, SL) free with thermal (B_Pb1)");
@@ -158,6 +158,22 @@ describe("the method as code", () => {
     expect(ruleRefusal("pdf", [p("qdamp", "qdamp"), p("x_Pb1", "atomX")], [], none)).toBeNull();
     const allowed = { ...none, exceptions: [{ rule: "instrument-with-positions" as const, reason: "the last joint cycle", at: 0 }] };
     expect(ruleRefusal("powder", [p("zero", "zeroShift"), p("x_Pb1", "atomX")], [], allowed)).toBeNull();
+  });
+
+  it("refines the microstrain on its own: never with the instrument's terms or the B values (the user's rule, 2026-10-28)", () => {
+    const none = emptyRecord("k");
+    // AWO₄ at 8 K: σ₂² ↔ microstrain −0.90, under the correlation limit, so only the rule stops it.
+    const withProfile = ruleRefusal("powder", [p("scale", "scale"), p("tof_sig2", "tofProfile"), p("mustrainIso", "mustrainIso")], [], none)!;
+    expect(withProfile.rule).toBe("broadening-alone");
+    expect(withProfile.line).toBe("Not run: microstrain (mustrainIso) free with instrument terms");
+    expect(withProfile.message).toMatch(/refines the microstrain on its own/);
+    expect(withProfile.message).toMatch(/call allow_exception with rule "broadening-alone"/);
+    const withB = ruleRefusal("powder", [p("stephens_1", "stephensStrain"), p("B_O1", "bIso")], [], none)!;
+    expect(withB.line).toBe("Not run: microstrain (stephens_1) free with thermal parameters");
+    // With the scale and background, or alone, it refines.
+    expect(ruleRefusal("powder", [p("scale", "scale"), p("bkg0", "background"), p("mustrainIso", "mustrainIso")], [], none)).toBeNull();
+    const allowed = { ...none, exceptions: [{ rule: "broadening-alone" as const, reason: "one joint cycle", at: 0 }] };
+    expect(ruleRefusal("powder", [p("tof_sig2", "tofProfile"), p("mustrainIso", "mustrainIso")], [], allowed)).toBeNull();
   });
 
   it("follows the alternation: each group's shift since its last refinement, settled once neither moves", () => {
@@ -189,6 +205,33 @@ describe("the method as code", () => {
     s = step(s.memory, 11.9, 0.815, "W", 0.5);
     expect(s.view).toMatchObject({ largestShift: "W 0.20 esd since their last refinement", settled: true });
     expect(String(s.view!.next)).toMatch(new RegExp(`^Neither group moved by more than ${ALTERNATION_SETTLED} esd in its last refinement: the alternation has converged\\. Each group's esds are conditional on the other held fixed`));
+    // Once the microstrain has been refined (alone), it joins the cycle: instrument → thermal → microstrain.
+    const three = (w: number, b: number, m: number, free: "W" | "B" | "M"): RefinementParameter[] => [
+      { ...p("W", "profileW"), value: w, fixed: free !== "W" },
+      { ...p("B", "bIso"), value: b, fixed: free !== "B" },
+      { ...p("M", "mustrainIso"), value: m, fixed: free !== "M" },
+    ];
+    const stepThree = (memory: Alternation, w: number, b: number, m: number, free: "W" | "B" | "M", e: number) => {
+      const ps = three(w, b, m, free);
+      const next = advanceAlternation(memory, ps.filter((q) => !q.fixed), ps, { [free]: e });
+      return { ...next, view: alternationView(next.memory, next.refined, ps)?.alternation as Record<string, unknown> | undefined };
+    };
+    let t = stepThree({}, 10, 0.8, 1500, "W", 0.5);
+    t = stepThree(t.memory, 10, 0.8, 1500, "B", 0.05);
+    expect(String(t.view!.next)).toMatch(/^Fix the thermal parameters and refine the instrument terms \(W\) again/);
+    t = stepThree(t.memory, 10, 0.8, 1500, "M", 50);
+    expect(t.view).toMatchObject({ refined: "the microstrain (M), with the instrument terms and the thermal parameters fixed", settled: false });
+    expect(String(t.view!.next)).toMatch(/^Fix the microstrain and refine the instrument terms \(W\) again.*stop when a cycle moves no group by more than/);
+    // After the profile moves, the microstrain is refined again before the cycle can settle.
+    t = stepThree(t.memory, 10.05, 0.8, 1500, "W", 0.5);
+    expect(String(t.view!.next)).toMatch(/^Fix the instrument terms and refine the thermal parameters/);
+    t = stepThree(t.memory, 10.05, 0.801, 1500, "B", 0.05);
+    expect(t.view).toMatchObject({ settled: false });
+    expect(String(t.view!.next)).toMatch(/refine the microstrain \(M\) again, alone/);
+    t = stepThree(t.memory, 10.05, 0.801, 1505, "M", 50);
+    expect(t.view).toMatchObject({ settled: true });
+    expect(String(t.view!.next)).toMatch(/^No group moved by more than/);
+
     // Both groups free together (the user's exception) is no step of the alternation.
     const both = at(12, 0.8, "W").map((q) => ({ ...q, fixed: q.id === "x" }));
     expect(advanceAlternation(s.memory, both.filter((q) => !q.fixed), both, { W: 0.5, B: 0.05 }).refined).toBeNull();
