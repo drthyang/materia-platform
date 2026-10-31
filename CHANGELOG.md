@@ -108,7 +108,32 @@ release fixes bugs.
     one of 12 Pnma classes reaches the noise with distances to 3e-4 Å.
     Rietveld: χ²ν 0.97 for both, the geometry to 3e-4 Å and 0.014°.
     Modes by parent irrep on supercells, and ISODISTORT mode-CIF
-    interchange, are Phase 4.
+    interchange, came in Phase 4 (below).
+- **The subgroup engine, Phase 4: modes by parent irrep on supercells,
+  decompose(parent, child), and ISODISTORT mode CIFs** (PDF page;
+  [ADRs 0001–0005](docs/adr/); THY-35).
+  - An activated supercell child refines its displacive modes by parent
+    irrep, named by the irrep and the parent site they move ("R irrep 8 of
+    10 · O"). The fewest irreps that together lower the parent to the child
+    lead, kicked from 0.05 Å; the others start at 0, fixed. The basis is
+    complete and checked: one mode per free coordinate.
+  - **Load parent CIF…** decomposes a loaded child against its parent by
+    parent irrep, a supercell child included. The basis and origin are
+    found, each undistorted site is paired with its child site, and the
+    amplitudes are seeded at the observed values. Where that cannot pair the
+    two, the same-lattice pairing is used as before.
+  - **Mode CIF ↓** writes ISODISTORT's mode CIF: A_s values, normfactors over
+    the primitive child cell, the mode matrix, the parent cell and transform.
+    **Load mode CIF…** reads ISODISTORT's own files and MATERIA's; the round
+    trip is exact. The 3D Model's mode table groups the modes by irrep with
+    each irrep's total A_s and A_p.
+  - Checked against ISOTROPY in the opt-in oracle workflow: the
+    per-irrep, per-site A_s of decomposed children equal ISOTROPY's to
+    4e-14 (SrTiO₃ → R-3c and Pnma, NiAs → MnP-type Pnma). Checked against
+    ISODISTORT 6.12.2's own mode CIF in the GSAS-II tutorials: A_s 0.100 and
+    0.300 Å, normfactor 0.09068. Glazer tilts built geometrically give
+    A_s = √3·φ·a for a⁻a⁻a⁻ and the a⁻_a⁻ and b⁺ parts of a⁻b⁺a⁻ on the R
+    and M modes.
 - **ISODISTORT's mode amplitudes, A_s and A_p, beside MATERIA's.** They
   appear in the 3D Model's mode table and in the report. MATERIA's
   amplitude runs over the conventional child cell, √f larger than A_s for a

@@ -461,13 +461,31 @@ Conventions are pinned in
 [`knowledge/total_scattering_pdf_conventions_knowledge.md`](../knowledge/total_scattering_pdf_conventions_knowledge.md).
 
 **Not yet**
-- Cell-multiplying distortions refine in the child's own cell (Phase 3),
-  as the child's own symmetry-adapted displacements with a generic
-  symmetry-breaking kick. Their modes by parent irrep, the order parameter
-  of one irrep, and ISODISTORT mode-CIF interchange come in phase 4.
-  Riding hydrogens and distance restraints are not carried into a supercell
-  child. The powder page has no Subgroups view: a supercell child reaches it
-  as the CIF the PDF page exports. ADP, strain and occupancy symmetry modes.
+- Supercell children refine their displacive modes by parent irrep. Inside
+  a block with several copies of one irrep on one site, the basis is
+  MATERIA's own, so those modes' individual amplitudes can differ from
+  ISODISTORT's; each irrep's total on each site agrees. A polar child's
+  rigid translations are projected out of the modes of their irrep (they
+  are a null direction of every fit); ISODISTORT keeps its per-site modes
+  and fixes the origin instead.
+- The decomposition (Load parent CIF…) allows 12 % strain between the
+  child's cell and the parent's, takes origins on a 1/24 grid, and needs
+  every parent atom of the child cell paired with a child atom within
+  1.2 Å. A child with vacancies falls back to the same-lattice pairing. The
+  child's centring must be P, A, B, C, I, F or obverse R.
+- Mode CIFs carry displacive modes only; a file's occupancy, magnetic,
+  rotational and strain modes are listed as not read. Exported labels use
+  MATERIA's generic irrep names in ISODISTORT's label shape, and a Wyckoff
+  letter only where the built-in table has the group. A mode CIF loads only
+  on a page whose structure is the file's parent or its child.
+- With a supercell bound that drops some arms of a star (2×1×1, say), an
+  activation numbers the irreps from the view's arm and a decomposition from
+  the star's first arm, so one irrep can carry two numbers. With the default
+  2×2×2 bound they agree.
+- Riding hydrogens and distance restraints are not carried into a supercell
+  child. The powder page has no Subgroups view, so no parent-CIF route or
+  mode-CIF loader: a supercell child reaches it as the CIF the PDF page
+  exports. ADP, strain and occupancy symmetry modes.
 - Irrep labels are generic (the k-point, "irrep n of m"): no CDML labels such
   as X3⁺ ([ADR 0004](./adr/0004-generic-irrep-labels-in-the-app.md)).
   Order-parameter directions are written in MATERIA's irrep basis and can
