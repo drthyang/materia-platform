@@ -40,6 +40,36 @@ release fixes bugs.
     ISOTROPY workflow. On real data, GaNb₄Se₈'s local P2₁3 is reached from
     F-43m's X irrep and from the lattice. Its 13 modes refine to Rw 5.5 %
     (r = 2–10 Å; the cubic average gives 9.19 %).
+- **The subgroup engine, Phase 2: a supercell bound, the subgroup lattice
+  inside it, and irreps at cell-multiplying k-points** (PDF Subgroups page;
+  [ADRs 0001–0005](docs/adr/)).
+  - Every search is bounded by a supercell P. The default is the 2×2×2
+    conventional cell; any integer P is accepted, and so is a rational or
+    centred one. The engine works in G/T″, where T″ is the point-group core
+    of the supercell. That brings in Pm-3m's X, M and R, Fm-3m's L and W, and
+    any commensurate k inside P. With P = 1×1×1 the results are exactly
+    Phase 1's.
+  - The subgroup lattice inside P follows Hatch & Stokes (1985). It holds
+    t-subgroups, k-subgroups (decentring, cell-multiplying and isomorphic)
+    and general subgroups up to a maximum index. Each class carries its index
+    split t·k, its orientation and domain states and its covering edges. Each
+    class is named in ITA standard setting with its child basis (P_H, p_H).
+    A bound above the measured ceiling is refused, not truncated.
+  - The engine gives the isotropy subgroups at the new k-points and the arms
+    each direction uses. New queries: coupled order parameters, as an
+    intersection with the domain choice made explicit; the secondary irreps
+    (n_j > 0); and the irreps a chosen child allows.
+  - The Subgroups page gains a supercell view: the bound, a k-point, and an
+    irreps view and a lattice view. Cell-multiplying children are listed and
+    named. They cannot be activated yet: supercell refinement arrives in
+    phase 3.
+  - Checked against Bilbao's published SUBGROUPS counts. Pnma (a, b, 2c)
+    agrees: 11 classes, 4 maximal. Pm-3m with the I-centred (a+b, −a+b, 2c)
+    agrees: 98 classes, 10 maximal. For Fm-3m (½a−½b, ½a+½b, 2c), 20 classes
+    down to mmm agree, but MATERIA lists 96 classes in all where the tutorial
+    gives 99 (still open). Also checked against brute-force enumeration,
+    spgrep (19 cases, 7 of them cell-multiplying), and the opt-in ISOTROPY
+    workflow extended to M, R, L and W.
 - **ISODISTORT's mode amplitudes, A_s and A_p, beside MATERIA's.** They
   appear in the 3D Model's mode table and in the report. MATERIA's
   amplitude runs over the conventional child cell, √f larger than A_s for a
