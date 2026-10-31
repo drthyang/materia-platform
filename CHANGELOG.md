@@ -64,12 +64,18 @@ release fixes bugs.
     named. They cannot be activated yet: supercell refinement arrives in
     phase 3.
   - Checked against Bilbao's published SUBGROUPS counts. Pnma (a, b, 2c)
-    agrees: 11 classes, 4 maximal. Pm-3m with the I-centred (a+b, −a+b, 2c)
-    agrees: 98 classes, 10 maximal. For Fm-3m (½a−½b, ½a+½b, 2c), 20 classes
-    down to mmm agree, but MATERIA lists 96 classes in all where the tutorial
-    gives 99 (still open). Also checked against brute-force enumeration,
-    spgrep (19 cases, 7 of them cell-multiplying), and the opt-in ISOTROPY
-    workflow extended to X, M, R, L and W, which agrees on all 13 cases.
+    agrees: 11 classes, 4 maximal, 6 Landau-type. Pm-3m with the I-centred
+    (a+b, −a+b, 2c) agrees: 98 classes, 10 maximal. Fm-3m (½a−½b, ½a+½b, 2c)
+    has 96 classes; the tutorial's 99 counts entries per space-group type
+    (THY-48). SUBGROUPS lists the three classes of chiral type twice, once
+    per enantiomorph (P4₁/P4₃, P4₁22/P4₃22, P4₁2₁2/P4₃2₁2). The lattice view
+    names both enantiomorphs on those classes and gives SUBGROUPS' count
+    beside MATERIA's. Read the same way, the tutorial's other Fm-3m counts
+    agree too: 62 down to orthorhombic, the 20 classes of its Fig. 1.1
+    down to mmm, and 31 Landau-type. Also checked against brute-force
+    enumeration (Fm-3m: the same 231 subgroups), spgrep (19 cases, 7 of them
+    cell-multiplying), and the opt-in ISOTROPY workflow extended to X, M, R,
+    L and W, which agrees on all 13 cases.
 - **ISODISTORT's mode amplitudes, A_s and A_p, beside MATERIA's.** They
   appear in the 3D Model's mode table and in the report. MATERIA's
   amplitude runs over the conventional child cell, √f larger than A_s for a

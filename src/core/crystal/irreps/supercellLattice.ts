@@ -5,9 +5,18 @@
  * cell-multiplying, isomorphic ones included) and general subgroups — with
  * their index split t·k, orientation and domain states, the covering edges
  * between the classes, and the name of each class in ITA standard setting
- * with its child basis (P_H, p_H). This is the list Bilbao's SUBGROUPS gives
- * for a supercell (docs/research/SUBGROUP_ENGINES.md §1.2, §1.5): a class
- * counts when one of its members keeps the supercell.
+ * with its child basis (P_H, p_H). The classes are conjugacy classes under
+ * the parent group G.
+ *
+ * The classes with a member whose lattice is exactly the supercell
+ * (`supercellLattice`) are the list Bilbao's SUBGROUPS gives for a supercell
+ * (docs/research/SUBGROUP_ENGINES.md §1.2, §1.5), with one difference:
+ * SUBGROUPS lists a class once per space-group type among its members, and a
+ * class of a chiral type holds both types of its enantiomorphic pair (the
+ * parent's improper operations turn P4₁22 into P4₃22), so SUBGROUPS lists it
+ * twice. `enantiomorph` marks those classes. Fm-3m in (a/2−b/2, a/2+b/2, 2c)
+ * has 96 classes and 99 SUBGROUPS entries: P4₁/P4₃, P4₁22/P4₃22 and
+ * P4₁2₁2/P4₃2₁2 are listed twice (Bilbao SUBGROUPS tutorial, Example 1).
  *
  * Enumeration after Hatch & Stokes, Phys. Rev. B 31 (1985) 2908, §III–IV, in
  * the finite group F = G/T″ (T″ the point-group core of T′, factorGroup.ts).
@@ -35,7 +44,7 @@ import type { SymmetryOperation } from "@/core/crystal/types";
 import type { SubgroupIdentity } from "@/core/crystal/isotropyTree";
 import { allSubgroups, buildCosetContext } from "@/core/magnetic/subgroupLattice";
 import { pointGroupElements, type FactorGroup } from "@/core/crystal/irreps/factorGroup";
-import { ikey, iIsIdentity } from "@/core/crystal/irreps/rational";
+import { idet, ikey, iIsIdentity } from "@/core/crystal/irreps/rational";
 import { inLattice, scaleVec } from "@/core/crystal/irreps/supercell";
 import { keepsConventionalCell, nameChild } from "@/core/crystal/irreps/childSetting";
 import type { IndexSplit } from "@/core/crystal/irreps/isotropy";
@@ -79,7 +88,8 @@ export interface SubgroupClass {
   /**
    * True when a member's lattice is the supercell exactly (T_H = T′): the
    * classes Bilbao's SUBGROUPS lists for a supercell, which shows only the
-   * conjugates "whose supercell coincides" with the input.
+   * conjugates "whose supercell coincides" with the input. A class with an
+   * `enantiomorph` is two entries there, one per type.
    */
   readonly supercellLattice: boolean;
   /** The classes that cover this one (minimal supergroups in the list), by id. */
@@ -93,7 +103,22 @@ export interface SubgroupClass {
   readonly maximalInSupercell: boolean;
   /** The ITA standard-setting name with (P_H, p_H); absent when naming was skipped. */
   readonly identity?: SubgroupIdentity;
+  /**
+   * For a class of a chiral type (P4₁22, P3₁21, …; the 11 enantiomorphic
+   * pairs): the other type of the pair, named in standard setting, when the
+   * class holds it too. An improper operation of the parent that keeps the
+   * supercell (−1 always does) turns the representative into its mirror
+   * image, a member of the same class. Bilbao's SUBGROUPS lists such a class
+   * twice, once per type; MATERIA lists it once. Absent when naming was skipped.
+   */
+  readonly enantiomorph?: SubgroupIdentity;
 }
+
+/** The 11 enantiomorphic pairs of space-group types, both ways (P4₁ #76 ↔ P4₃ #78, …). */
+const ENANTIOMORPHS: ReadonlyMap<number, number> = new Map(
+  [[76, 78], [91, 95], [92, 96], [144, 145], [151, 153], [152, 154], [169, 170], [171, 172], [178, 179], [180, 181], [212, 213]]
+    .flatMap(([a, b]) => [[a!, b!], [b!, a!]] as [number, number][]),
+);
 
 export interface SupercellLattice {
   readonly factorOrder: number;
@@ -302,12 +327,30 @@ export function supercellSubgroups(group: FactorGroup, opts: LatticeOptions = {}
     }
     return acc;
   };
+  /**
+   * The other type of a chiral representative's enantiomorphic pair, when the
+   * class holds it: the representative conjugated by an improper operation
+   * that keeps the supercell (its mirror image), named.
+   */
+  const enantiomorphOf = (rep: readonly number[], identity: SubgroupIdentity): SubgroupIdentity | undefined => {
+    const partner = identity.number === undefined ? undefined : ENANTIOMORPHS.get(identity.number);
+    if (partner === undefined) return undefined;
+    for (let g = 0; g < F; g++) {
+      if (idet(group.elements[g]!.W) > 0) continue;
+      const image = rep.map((h) => conj(g, h)).sort((x, y) => x - y);
+      if (!keepsSupercell(image)) continue;
+      const named = nameChild(group, image);
+      return named.number === partner ? named : undefined;
+    }
+    return undefined;
+  };
   const parentType = opts.name === false ? undefined : nameChild(group, group.elements.map((_, i) => i)).number;
   const classes: SubgroupClass[] = kept.map((c, ci) => {
     const rep = reps[ci]!;
     const index = latticeIndexSplit(group, rep);
     const kind: LatticeKind = rep.length === F ? "parent" : index.k === 1 ? "t" : index.t === 1 ? "k" : "general";
     const identity = opts.name === false ? undefined : nameChild(group, rep);
+    const enantiomorph = identity ? enantiomorphOf(rep, identity) : undefined;
     return {
       id: ci,
       elements: rep,
@@ -325,6 +368,7 @@ export function supercellSubgroups(group: FactorGroup, opts: LatticeOptions = {}
       maximal: coveredBy[ci]!.length === 1 && coveredBy[ci]![0] === 0 && ci !== 0,
       maximalInSupercell: c.exact && ![...above(ci)].some((u) => kept[u]!.exact),
       ...(identity ? { identity } : {}),
+      ...(enantiomorph ? { enantiomorph } : {}),
     };
   });
   const edges: [number, number][] = [];

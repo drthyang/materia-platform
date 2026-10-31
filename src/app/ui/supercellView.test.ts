@@ -1,7 +1,9 @@
 /**
  * The Subgroups page's supercell view (Phase 2): the bound's controls render
  * from the parent's operations, P parses as three rows, and a cell-multiplying
- * child's basis reads as (P_H, p_H) with the phase-3 note in place of Activate.
+ * child's basis reads as (P_H, p_H) with the phase-3 note in place of Activate,
+ * and the Lattice summary gives Bilbao's SUBGROUPS count when enantiomorphs
+ * make it differ.
  */
 import { describe, it, expect } from "vitest";
 import { createElement } from "react";
@@ -11,7 +13,8 @@ import { factorGroup } from "@/core/crystal/irreps/factorGroup";
 import { irrepsOfStar } from "@/core/crystal/irreps/spaceGroupIrreps";
 import { isotropySubgroups } from "@/core/crystal/irreps/isotropy";
 import { DEFAULT_SUPERCELL } from "@/core/crystal/irreps/supercell";
-import { SupercellView, PHASE3_NOTE, childBasisNote, parseSupercell } from "@/app/ui/SupercellView";
+import { supercellSubgroups } from "@/core/crystal/irreps/supercellLattice";
+import { SupercellView, PHASE3_NOTE, childBasisNote, latticeSummary, parseSupercell } from "@/app/ui/SupercellView";
 
 describe("the supercell view", () => {
   it("renders the bound's controls, 2×2×2 by default", () => {
@@ -34,5 +37,14 @@ describe("the supercell view", () => {
     expect(sub.cellMultiplying).toBe(true);
     expect(childBasisNote(sub.identity)).toMatch(/^a′ = .*, c′ = /);
     expect(PHASE3_NOTE).toBe("supercell refinement arrives in phase 3");
+  });
+
+  it("summarises the lattice, with Bilbao's SUBGROUPS count only when a class holds both enantiomorphs", () => {
+    const lattice = supercellSubgroups(factorGroup(buildSpaceGroup(62).operations, [[1, 0, 0], [0, 1, 0], [0, 0, 2]]));
+    expect(latticeSummary(lattice)).toMatch(/^\d+ classes · 11 with the supercell's lattice · \d+ cell-multiplying$/);
+    // A class marked with its enantiomorph is one class here, two entries in SUBGROUPS.
+    const i = lattice.classes.findIndex((c) => c.supercellLattice);
+    const marked = { ...lattice, classes: lattice.classes.map((c, j) => (j === i ? { ...c, enantiomorph: c.identity! } : c)) };
+    expect(latticeSummary(marked)).toContain("11 with the supercell's lattice (12 in Bilbao's SUBGROUPS, enantiomorphs apart)");
   });
 });
