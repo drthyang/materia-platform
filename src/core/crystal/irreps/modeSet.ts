@@ -40,21 +40,27 @@ export function modeSetParent(parent: StructureModel, realised: RealisedChild): 
 /**
  * The child's modes by parent irrep as a mode set on the realised child: every
  * mode at 0 and fixed unless `values` gives it a value (by basis mode) and
- * `free` frees it. Mode i of the set is basis mode i, except that a polar
- * child loses the combinations the gauge removes (buildSymmetryModes).
+ * `free` frees it; `first` lists basis modes to put first (an activation's
+ * order parameter), the rest following in the basis's order. A polar child
+ * loses the combinations the gauge removes (buildSymmetryModes).
  */
 export function irrepModeSet(
   parent: StructureModel,
   realised: RealisedChild,
   basis: SupercellModeBasis,
-  opts: { readonly values?: readonly number[]; readonly free?: (i: number) => boolean } = {},
+  opts: { readonly values?: readonly number[]; readonly free?: (i: number) => boolean; readonly first?: readonly number[] } = {},
 ): DistortionModeSet {
-  const seeds: SymmetryModeSeed[] = basis.modes.map((m, i) => ({
-    axes: m.axes,
-    label: m.label,
-    star: basis.irreps[m.irrep]!.star,
-    active: opts.free?.(i) ?? false,
-  }));
+  const lead = new Set(opts.first ?? []);
+  const order = [...(opts.first ?? []), ...basis.modes.map((_, i) => i).filter((i) => !lead.has(i))];
+  const seeds: SymmetryModeSeed[] = order.map((i) => {
+    const m = basis.modes[i]!;
+    return {
+      axes: m.axes,
+      label: m.label,
+      star: basis.irreps[m.irrep]!.star,
+      active: opts.free?.(i) ?? false,
+    };
+  });
   const built = buildSymmetryModes(realised.structure, { seeds, gauge: "polar" });
   const byLabel = new Map(basis.modes.map((m, i) => [m.label, i] as const));
   const modes: DistortionMode[] = built.modes.map((mode) => {

@@ -15,11 +15,11 @@ import { AXIS_ORDERS, GLAZER, TILT_SENSES, srtio3, tiltedChild, tiltIsInvariant,
 
 /**
  * A cell-multiplying child activated on the PDF page (withSupercellChild,
- * subgroup engine phase 3): cubic SrTiO₃ (Pm-3m) against a synthetic G(r) of
- * its a⁻a⁻a⁻ tilt (R-3c). The child is realised in its own hexagonal cell and
- * becomes the structure the page fits; its symmetry-breaking displacement
- * leads, free from the kick, and the fit reaches the tilt. ✕ clear returns to
- * the parent.
+ * subgroup engine phases 3 and 4): cubic SrTiO₃ (Pm-3m) against a synthetic
+ * G(r) of its a⁻a⁻a⁻ tilt (R-3c). The child is realised in its own hexagonal
+ * cell and becomes the structure the page fits; its positions are modes by
+ * parent irrep, the order parameter (the R irrep's one mode on O) leads, free
+ * from the kick, and the fit reaches the tilt. ✕ clear returns to the parent.
  */
 
 const PARENT = srtio3();
@@ -57,9 +57,9 @@ describe("a supercell child activated on the PDF page", () => {
   const set = model.modes!.set;
   const lead = set.modes.find((mode) => mode.active)!;
 
-  it("fits the child in its own cell: R-3c on hexagonal axes, its cell rows and its displacement, kicked", () => {
+  it("fits the child in its own cell: R-3c on hexagonal axes, its cell rows and its one mode by parent irrep, kicked", () => {
     expect(label).toBe("R -3 c:H #167");
-    expect(message).toMatch(/^realised R -3 c:H #167 in its own cell: 3 child site\(s\), 30 atoms in the cell \(×6 the parent's\) · 1 distortion mode\(s\) · the symmetry-breaking displacements free from 0\.05 Å/);
+    expect(message).toMatch(/^realised R -3 c:H #167 in its own cell: 3 child site\(s\), 30 atoms in the cell \(×6 the parent's\) · 1 mode\(s\) in 1 parent irrep\(s\) · the order parameter \(R irrep \d+ of 10\) free from 0\.05 Å/);
     const child = pageView(model).fitStructure;
     expect(child).toBe(set.parentized);
     expect(child.spaceGroup.number).toBe(167);
@@ -69,12 +69,12 @@ describe("a supercell child activated on the PDF page", () => {
     const row = model.params.find((p) => p.id === lead.id)!;
     expect([row.value, row.fixed]).toEqual([ACTIVATION_KICK, false]);
     expect(lead.axes.map((a) => a.siteLabel)).toEqual(["O"]);
-    expect(lead.label).toBe("R -3 c:H #167: symmetry-breaking displacements");
-    // The child's own modes carry no k-point: "@ Γ" would read as the parent's Γ.
-    for (const mode of set.modes) {
-      expect(mode.star).toBeUndefined();
-      expect(mode.label).not.toContain("Γ");
-    }
+    // Named by the parent's irrep and site; the star is the parent's R point.
+    expect(lead.label).toMatch(/^R irrep \d+ of 10 · O$/);
+    expect(lead.star).toBe("R");
+    expect(lead.irrep).toMatchObject({ parentSite: "O", k: [0.5, 0.5, 0.5], direction: "(a,a,a)" });
+    // The parent and child basis a mode CIF records.
+    expect(set.parent).toMatchObject({ number: 221, centring: 1 });
     // Two cell rows (a = b, c), the parent's one gone; the PDF rows carried by id.
     const cellRows = model.params.filter((p) => p.kind === "cellLength");
     expect(cellRows).toHaveLength(2);
@@ -83,23 +83,28 @@ describe("a supercell child activated on the PDF page", () => {
     expect(set.amplitudeCells).toEqual({ child: 3, parent: 6 });
   });
 
-  it("a Pnma child: every coordinate its sites allow as a mode, the symmetry-breaking field leading, none labelled with a k-point", () => {
-    const pnma = lattice.classes.find((c) => c.identity?.number === 62)!;
+  it("a Pnma child: every coordinate its sites allow as a mode by parent irrep, the two irreps that reach it kicked first", () => {
+    // The a⁻b⁺a⁻ class with Sr free on its mirror: seven modes in five irreps.
+    const pnma = lattice.classes.filter((c) => c.identity?.number === 62).map((c) => ({ c, r: realiseChild(PARENT, group, c.elements, c.identity) })).find(({ r }) => r.structure.sites.length === 4 && r.structure.sites.filter((x) => allowedPositionShifts(r.structure.spaceGroup.operations, x.position).dimension > 0).length === 3)!.c;
     const act = withSupercellChild(page, { group, elements: pnma.elements, identity: pnma.identity! });
     const child = act.model.modes!.set.parentized;
     const modes = act.model.modes!.set.modes;
     expect(act.label).toBe("P n m a #62");
     // Pnma is not polar: no rigid translation is projected out, so the modes span every free coordinate.
     const free = child.sites.reduce((n, site) => n + allowedPositionShifts(child.spaceGroup.operations, site.position).dimension, 0);
-    expect(free).toBeGreaterThan(1);
+    expect(free).toBe(7);
     expect(modes).toHaveLength(free);
-    expect(modes.filter((mode) => mode.active)).toHaveLength(1);
-    expect(modes[0]!.active).toBe(true);
-    for (const mode of modes) {
-      expect(mode.star).toBeUndefined();
-      expect(mode.label).not.toContain("Γ");
-    }
-    expect(act.model.params.filter((p) => p.kind === "positionShift" && !p.fixed).map((p) => p.value)).toEqual([ACTIVATION_KICK]);
+    expect(new Set(modes.map((mode) => mode.irrep!.label)).size).toBe(5);
+    // The order parameter: one mode of each tilt irrep (an R and an M), leading, free, the kick ACTIVATION_KICK in all.
+    const active = modes.filter((mode) => mode.active);
+    expect(active.map((mode) => mode.star).sort()).toEqual(["M", "R"]);
+    expect(modes.slice(0, 2).every((mode) => mode.active)).toBe(true);
+    const kicks = act.model.params.filter((p) => p.kind === "positionShift" && !p.fixed).map((p) => p.value);
+    expect(kicks).toHaveLength(2);
+    expect(Math.hypot(...kicks)).toBeCloseTo(ACTIVATION_KICK, 12);
+    expect(Math.abs(kicks[0]! - kicks[1]!)).toBeGreaterThan(1e-3);
+    expect(act.message).toMatch(/· 7 mode\(s\) in 5 parent irrep\(s\) · the order parameter \([MR] irrep \d+ of 10 \+ [MR] irrep \d+ of 10\) free from 0\.05 Å/);
+    for (const mode of modes) expect(mode.label).toMatch(/^(X|M|R) irrep \d+ of 10 · (Sr|Ti|O)( \d)?$/);
   });
 
   it("is saved with the project and reopens as it was: the child, every row, Rw", () => {

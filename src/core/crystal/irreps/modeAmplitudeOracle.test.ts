@@ -85,25 +85,45 @@ function irrepLabels(parent: number, kpoint: string): string[] {
   return [...new Set(labels)];
 }
 
-/** One block of DISPLAY DISTORTION: per atom, its Cartesian position and one vector per irrep component. */
+/** One block of DISPLAY DISTORTION: per atom, its position and one vector per irrep component. */
 interface IsoBlock {
-  readonly atoms: { readonly point: Vec3; readonly vectors: Vec3[] }[];
+  readonly atoms: { readonly point: Vec3; readonly cartesianPoint: boolean; readonly vectors: Vec3[] }[];
 }
 
-/** DISPLAY DISTORTION with SHOW WYCKOFF, SHOW MICROSCOPIC VECTOR and SHOW CARTESIAN: a line with a Wyckoff letter opens a block. */
+/** A number as ISOTROPY writes it: an integer, a decimal or a fraction ("3/2"). */
+const isoNumber = (t: string): number => {
+  const [n, d] = t.split("/");
+  return Number(n) / (d === undefined ? 1 : Number(d));
+};
+
+/**
+ * DISPLAY DISTORTION with SHOW WYCKOFF, SHOW MICROSCOPIC VECTOR and SHOW
+ * CARTESIAN: a line with a Wyckoff letter opens a block; each line is an atom,
+ * its position and then its vectors. A position written with decimals is
+ * Cartesian (Å), one written with integers and fractions is fractional.
+ */
 function parseDistortion(out: string): IsoBlock[] {
   const blocks: IsoBlock[] = [];
-  const triple = /\(\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\)/g;
+  const num = "-?\\d+(?:\\.\\d+)?(?:/\\d+)?";
+  const triple = new RegExp(`\\(\\s*(${num})\\s*,\\s*(${num})\\s*,\\s*(${num})\\s*\\)`, "g");
   for (const raw of out.split("\n")) {
     const line = raw.replace(/^\*+/, "");
     if (/Wyckoff|Projected/.test(line)) continue;
-    const vecs = [...line.matchAll(triple)].map((m) => [Number(m[1]), Number(m[2]), Number(m[3])] as Vec3);
-    if (vecs.length < 2) continue;
+    const found = [...line.matchAll(triple)];
+    if (found.length < 2) continue;
+    const vecs = found.map((m) => [isoNumber(m[1]!), isoNumber(m[2]!), isoNumber(m[3]!)] as Vec3);
     const head = line.slice(0, line.indexOf("(")).trim();
     if (/^[a-z]$/.test(head) || blocks.length === 0) blocks.push({ atoms: [] });
-    blocks[blocks.length - 1]!.atoms.push({ point: vecs[0]!, vectors: vecs.slice(1) });
+    blocks[blocks.length - 1]!.atoms.push({ point: vecs[0]!, cartesianPoint: found[0]![0].includes("."), vectors: vecs.slice(1) });
   }
   return blocks;
+}
+
+/** A lattice-unit component as ISOTROPY rounds it (to 3 decimals): back to n/2, n/√3 or n·√3/2 when that is within the rounding. */
+function snapIso(x: number): number {
+  const exact = [...[1, 2, 3, 4, 6].flatMap((d) => [1, 2, 3, 4, 5, 6].map((n) => n / d)), ...[1, 2, 3, 4].flatMap((n) => [n / Math.sqrt(3), (n * Math.sqrt(3)) / 2])];
+  for (const v of exact) if (Math.abs(Math.abs(x) - v) < 6e-4) return Math.sign(x) * v;
+  return x;
 }
 
 interface OracleCase {
@@ -232,6 +252,7 @@ describe.skipIf(!ENABLED)("ISOTROPY oracle: mode amplitudes of a decomposed supe
             const out = iso(["PAGE NOBREAK", `VALUE PARENT ${c.isoParent}`, `VALUE IRREP ${label}`, `VALUE WYCKOFF ${c.wyckoff[site.label]!.toUpperCase()}`, `VALUE CELL ${cellArg}`, `VALUE LATTICE PARAMETER ${a} ${b} ${cc} ${alpha} ${beta} ${gamma}`, "SHOW WYCKOFF", "SHOW MICROSCOPIC VECTOR", "SHOW CARTESIAN", "DISPLAY DISTORTION"]);
             const blocks = parseDistortion(out);
             if (blocks.length === 0) continue;
+            if (subspaces === 0) console.log(`--- ${c.name}: ISOTROPY's DISPLAY DISTORTION for ${label} on ${site.label} ---\n${out}`);
             subspaces++;
             // The isotypic subspace: every component vector of every block, as a field on the cell's atoms.
             const points = new Map<string, Vec3>();
@@ -240,10 +261,11 @@ describe.skipIf(!ENABLED)("ISOTROPY oracle: mode amplitudes of a decomposed supe
               for (let t = 0; t < blk.atoms[0]!.vectors.length; t++) {
                 const f = new Map<string, Vec3>();
                 for (const at of blk.atoms) {
-                  const X = mulMV(Minv, at.point);
+                  const X = at.cartesianPoint ? mulMV(Minv, at.point) : at.point;
                   const k = cellKey(X);
                   points.set(k, X);
-                  f.set(k, at.vectors[t]!);
+                  // Cartesian when the positions are; else in lattice units, written to 3 decimals (2/√3 as 1.155), snapped and turned Cartesian.
+                  f.set(k, at.cartesianPoint ? at.vectors[t]! : mulMV(Mp, at.vectors[t]!.map(snapIso)));
                 }
                 fields.push(f);
               }
