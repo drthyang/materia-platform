@@ -79,6 +79,10 @@ export interface MagneticSelectionView {
 
 export interface MagneticPanelState {
   readonly ions: readonly { readonly label: string; readonly element: string; readonly selected: boolean }[];
+  /** The magnetic model applied to the calculated pattern (a loaded mCIF, a shown or continued model), or null. */
+  readonly applied: { readonly kLabel: string; readonly group: string | null; readonly inCalc: boolean } | null;
+  /** The residual the peaks are read from: the calculated pattern as it is ("calc"), or its nuclear part alone. */
+  readonly residualFrom: "calc" | "nuclear";
   readonly peaks: readonly MagneticPeakView[];
   /** The last k-search, best first; null before one (or after the peaks changed). */
   readonly kSearch: readonly KCandidateView[] | null;
@@ -109,7 +113,7 @@ export interface MagneticAgentHandle {
   /** Search k from the included residual peaks; shows the list on the page. `exclude` /
    *  `include` set peaks (by their number) out of or into the search first, as the
    *  peak table's check boxes do. */
-  readonly searchK: (choice?: { readonly exclude?: readonly number[]; readonly include?: readonly number[] }) => readonly KCandidateView[];
+  readonly searchK: (choice?: { readonly exclude?: readonly number[]; readonly include?: readonly number[]; readonly nuclearOnly?: boolean }) => readonly KCandidateView[];
   /** Set k (the group pick is dropped). */
   readonly setK: (k: Vec3) => void;
   readonly selectIons: (labels: readonly string[]) => void;

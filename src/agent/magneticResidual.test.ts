@@ -5,11 +5,17 @@ import { executor, fakeHost, sessionPort } from "@/testSupport/agentHeadless";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
 import type { PowderPattern } from "@/core/diffraction/types";
 import type { MagneticModel } from "@/core/magnetic/types";
+import { latticeRepresentatives, magneticSubgroupLattice } from "@/core/magnetic/subgroupLattice";
+import { buildMagneticModel } from "@/core/magnetic/momentModel";
+import { applyMagneticMoments } from "@/core/workflow/magnetic";
+import { magneticLines } from "@/core/magnetic/magneticLines";
 
 /**
- * With a magnetic model applied, its satellites are lines of the model: the
- * Agent's peak reading counts a residual on one as that line's misfit, not as
- * intensity no phase explains (review low finding, powderTools.ts:697).
+ * With a magnetic model applied, its satellites are lines of the model where
+ * its moments put intensity: the Agent's peak reading counts a residual on one
+ * as that line's misfit, not as intensity no phase explains (review low
+ * finding, powderTools.ts:697). A satellite the model has no intensity on —
+ * zero moments — explains nothing: a magnetic tick alone never does (THY-45).
  */
 describe("the residual's reflections with a magnetic model applied", () => {
   const CIF = `data_t
@@ -35,7 +41,7 @@ O2 O2- 0.3075 0.3075 0.3400 1 0.6
 `;
   const INSTRUMENT: InstrumentParameters = { kind: "constantWavelength", radiationKind: "neutron", wavelength: 2.4067, u: 3889, v: -6417, w: 3098, x: 0, y: 0 };
 
-  it("reads a residual on the satellite 0 0 1 + k as its misfit, and as an unexplained peak without the model", async () => {
+  it("reads a residual on the satellite 0 0 1 + k as its misfit, and as an unexplained peak without the model or with a model of zero moments", async () => {
     const structure = parse_structure({ cif: CIF }).structure;
     const sim = simulate_pattern({ structure, instrument: INSTRUMENT, xMin: 10, xMax: 130, points: 1200 });
     const top = Math.max(...sim.curves.yCalc);
@@ -61,7 +67,18 @@ O2 O2- 0.3075 0.3075 0.3400 1 0.6
     const near = (p: { d: number }): boolean => Math.abs(p.d - d) < 0.03;
     const without = await peaksWith(undefined);
     expect(without.unexplained.some(near)).toBe(true);
-    const magnetic: MagneticModel = { id: "m", structureId: structure.id, propagation: [[0, 0, 0.5]], moments: [] };
+    // A model with no moment puts no intensity on its satellites: the peak stays unexplained.
+    const empty = await peaksWith({ id: "m", structureId: structure.id, propagation: [[0, 0, 0.5]], moments: [] });
+    expect(empty.unexplained.some(near)).toBe(true);
+    expect(empty.misfits.some((p) => near(p) && /magnetic/.test(p.near ?? ""))).toBe(false);
+    // A model of a magnetic group of k with intensity on that satellite: its moments, 2.5 µB per mode.
+    const magnetic = latticeRepresentatives(magneticSubgroupLattice(structure.spaceGroup.operations, [0, 0, 0.5]))
+      .map((rep) => {
+        const built = buildMagneticModel(structure, [0, 0, 0.5], ["Cr1"], rep.candidate.operations);
+        return applyMagneticMoments(built.magnetic, built.bindings, Object.fromEntries(built.params.map((p) => [p.id, 2.5])));
+      })
+      .find((m) => magneticLines(structure, m, d - 0.05, d + 0.05).some((l) => Math.abs(l.d - d) < 0.01))!;
+    expect(magnetic).toBeDefined();
     const withModel = await peaksWith(magnetic);
     expect(withModel.unexplained.some(near)).toBe(false);
     expect(withModel.misfits.find(near)?.near).toMatch(/^on \S+ magnetic (0 0 1 \+ k|0 0 2 − k|0 0 -1 − k|0 0 -2 \+ k)$/);

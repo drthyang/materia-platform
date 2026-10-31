@@ -15,7 +15,7 @@ import type { StructureModel } from "@/core/crystal/types";
 import type { MagneticModel } from "@/core/magnetic/types";
 import type { Vec3 } from "@/core/math/types";
 import { generateReflections } from "@/core/diffraction/reflections";
-import { magneticStructureFactor } from "@/core/magnetic/structureFactor";
+import { magneticLines } from "@/core/magnetic/magneticLines";
 import { magneticSatellites } from "@/core/magnetic/satellites";
 
 export interface ReflectionTick {
@@ -81,20 +81,10 @@ export function magneticPhaseTicks(
   toX: (d: number) => number,
   meta: PhaseMeta,
 ): PhaseTicks {
-  const k = magnetic.propagation[0] ?? [0, 0, 0];
-  const sat = magneticSatellites(structure.cell, structure.spaceGroup, k, dMin, dMax).map((s) => ({
-    ...s,
-    sq: magneticStructureFactor(structure, magnetic, s.h, s.k, s.l).squared,
-  }));
-  const maxSq = sat.reduce((m, s) => (s.sq > m ? s.sq : m), 0);
   const ticks: ReflectionTick[] = [];
-  if (maxSq > 0) {
-    const eps = maxSq * 1e-4;
-    for (const r of sat) {
-      if (r.sq <= eps) continue;
-      const x = toX(r.d);
-      if (Number.isFinite(x)) ticks.push({ x, hkl: hklLabel(r.h, r.k, r.l), d: r.d });
-    }
+  for (const r of magneticLines(structure, magnetic, dMin, dMax)) {
+    const x = toX(r.d);
+    if (Number.isFinite(x)) ticks.push({ x, hkl: hklLabel(r.h, r.k, r.l), d: r.d });
   }
   return { ...meta, kind: "magnetic", ticks };
 }

@@ -77,6 +77,10 @@ function candidateRow(c: MagneticCandidateView): Record<string, unknown> {
  * that read only get_state's powder checklist went back to the fit range).
  */
 export function magneticNext(s: MagneticPanelState): string {
+  // A loaded model explains its own peaks in the residual: whether k is right is asked of the nuclear-only residual.
+  if (s.applied && s.residualFrom === "calc" && !s.kSearch && !s.peaks.some((p) => p.included)) {
+    return `a magnetic model is applied (k = ${s.applied.kLabel}${s.applied.group ? `, ${s.applied.group}` : ""})${s.applied.inCalc ? " and its moments are in the calculated pattern, so its peaks leave no residual" : ", but its moments put no intensity in the calculated pattern"}: to check k, search_propagation_vector with nuclearOnly true (the residual of the nuclear model alone)`;
+  }
   if (!s.peaks.some((p) => p.included)) {
     const k0 = k0Peaks(s);
     if (k0) {
@@ -123,6 +127,16 @@ export function magneticView(s: MagneticPanelState): Record<string, unknown> {
   return {
     next: magneticNext(s),
     ions: s.ions.map((i) => `${i.label} (${i.element})${i.selected ? " ✓" : ""}`),
+    ...(s.applied
+      ? {
+        appliedModel: {
+          k: s.applied.kLabel,
+          ...(s.applied.group ? { group: s.applied.group } : {}),
+          momentsInCalc: s.applied.inCalc,
+          residualPeaksFrom: s.residualFrom === "nuclear" ? "the nuclear model alone" : "nuclear + this model",
+        },
+      }
+      : {}),
     residualPeaks: {
       usedByKSearch: included.map(peak),
       ...(excluded.length > 0 ? { notUsed: `${excluded.length} (below 5σ, or on a nuclear reflection)`, strongestNotUsed: excluded.slice(0, 5).map(peak) } : {}),
@@ -166,6 +180,7 @@ export async function readMagneticTool(name: string, input: Input, port: PowderA
       const found = h.searchK({
         ...(Array.isArray(input.exclude) ? { exclude: input.exclude as number[] } : {}),
         ...(Array.isArray(input.include) ? { include: input.include as number[] } : {}),
+        ...(typeof input.nuclearOnly === "boolean" ? { nuclearOnly: input.nuclearOnly } : {}),
       });
       port.openStep?.(1);
       const all = found.filter((c) => c.matched === c.total);

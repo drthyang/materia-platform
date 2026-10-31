@@ -45,7 +45,12 @@ import { powderBindings } from "@/examples/synthetic";
 import type { PowderPattern } from "@/core/diffraction/types";
 import type { MagneticFit, ResidualPeak } from "@/app/magneticStep";
 import { noiseOf } from "@/core/magnetic/momentRestarts";
-import type { MagneticModel } from "@/core/magnetic/types";
+import { momentBindingKey, type MagneticModel } from "@/core/magnetic/types";
+import type { Vec3 } from "@/core/math/types";
+import { buildMagneticModel } from "@/core/magnetic/momentModel";
+import { fitAmplitudesToMoments } from "@/core/magnetic/amplitudeFit";
+import { identifyMagneticGroup, formatMagneticSymbol } from "@/core/magnetic/bnsOg";
+import { kLabel } from "@/core/magnetic/kSearch";
 import { refine } from "@/core/refinement/engine";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { annotateExtraPeaks, detectExtraPeaks } from "@/core/magnetic/extraPeaks";
@@ -491,15 +496,18 @@ function startingBackground(pattern: PowderPattern, p: PowderPage, previous: { r
  */
 export function withStructure(p: PowderPage, structure: StructureModel, magnetic?: MagneticModel): PowderPage {
   const s = p.session;
+  // A file's magnetic model (an mCIF) comes with its moments as rows, held (THY-45).
+  const model = magnetic ? fileMomentRows(structure, magnetic) : null;
+  const magneticPart = (session: Session): Session => (model ? withHeldMagneticRows(session, model) : session);
   const fresh: Session = {
     ...newSession(structure, p.instrument),
-    ...(magnetic ? { magnetic } : {}),
+    ...(magnetic ? { magnetic: model?.magnetic ?? magnetic } : {}),
     ...(p.instrumentLoaded && s.rawInstrument ? { rawInstrument: s.rawInstrument } : {}),
   };
-  if (!hasData(s)) return changed(p, fresh);
+  if (!hasData(s)) return changed(p, magneticPart(fresh));
   const background = startingBackground(s.pattern, p, { pattern: s.pattern, page: p, terms: fresh.backgroundTerms });
   const rows = rowsOn(p, structure, s.pattern, { lorentz: s.powderProfile.lorentz ?? true, backgroundTerms: background.terms, ...(background.type ? { backgroundType: background.type } : {}), siteTies: fresh.siteTies }, !!s.powderOverlay);
-  return changed(p, {
+  return changed(p, magneticPart({
     ...fresh,
     backgroundTerms: background.terms,
     pattern: s.pattern,
@@ -509,7 +517,88 @@ export function withStructure(p: PowderPage, structure: StructureModel, magnetic
     powderOverlay: s.powderOverlay ?? null,
     powderSource: s.powderSource,
     ...(s.rawData ? { rawData: s.rawData } : {}),
+  }));
+}
+
+/** A magnetic model with the rows that drive its moments. */
+export interface MagneticRows {
+  readonly magnetic: MagneticModel;
+  readonly params: RefinementParameter[];
+  readonly bindings: ParameterBinding[];
+}
+
+/**
+ * A magnetic model read from a file (an mCIF) as rows: its moments over the
+ * symmetry modes its own magnetic group allows on each site (the magnetic
+ * page's moment model), at the file's values, every row held. The owner's
+ * rule: the moments refine with the nuclear model held, so nothing is freed on
+ * load. Null when the file has no operations or its moments are not a
+ * combination of the allowed modes (the model then stays on show without rows,
+ * as before).
+ */
+export function fileMomentRows(structure: StructureModel, magnetic: MagneticModel): MagneticRows | null {
+  if (!magnetic.operations || magnetic.moments.length === 0) return null;
+  const k = magnetic.propagation[0] ?? [0, 0, 0];
+  const ions = [...new Set(magnetic.moments.map((m) => m.siteLabel))].filter((l) => structure.sites.some((site) => site.label === l));
+  if (ions.length === 0) return null;
+  let build: ReturnType<typeof buildMagneticModel>;
+  try {
+    build = buildMagneticModel(structure, k, ions, magnetic.operations, { tieSameSite: false });
+  } catch {
+    return null;
+  }
+  if (build.params.length === 0) return null;
+  const fit = fitAmplitudesToMoments(build, magnetic);
+  const largest = Math.max(1, ...magnetic.moments.flatMap((m) => m.components.map(Math.abs)));
+  if (!(fit.maxMisfit <= 1e-3 * largest)) return null;
+  const params = build.params.map((p) => {
+    const v = fit.values[p.id] ?? p.value;
+    return { ...p, value: v, initialValue: v, fixed: true };
   });
+  // The file's own model where the rows address its moments as they are (they reproduce them); the build's where it splits a site.
+  const fileKeys = new Set(magnetic.moments.map(momentBindingKey));
+  if (build.magnetic.moments.every((m) => fileKeys.has(momentBindingKey(m)))) return { magnetic, params, bindings: build.bindings.map((b) => (b.targetId === build.magnetic.id ? { ...b, targetId: magnetic.id } : b)) };
+  const values = Object.fromEntries(params.map((p) => [p.id, p.value]));
+  return { magnetic: { ...applyMagneticMoments(build.magnetic, build.bindings, values), id: magnetic.id, structureId: magnetic.structureId }, params, bindings: build.bindings };
+}
+
+/** The session with this model and its rows, held, in place of any earlier model's. */
+function withHeldMagneticRows(s: Session, model: MagneticRows): Session {
+  return {
+    ...s,
+    magnetic: model.magnetic,
+    powderParams: [...s.powderParams.filter((p) => !isMagneticModelParameterKind(p.kind)), ...model.params.map((p) => ({ ...p, fixed: true }))],
+    powderBindings: [...s.powderBindings.filter((b) => !isMagneticModelParameterKind(b.kind)), ...model.bindings],
+  };
+}
+
+/** What the Structure card's chip and the magnetic page say of the applied model: its k and its magnetic group. */
+export interface MagneticModelSummary {
+  readonly k: Vec3;
+  readonly kLabel: string;
+  /** The BNS symbol where the operations are a tabulated group in its standard setting; else the file's name for it; else null. */
+  readonly group: string | null;
+  /** Moment rows on the page, and how many of them are free. */
+  readonly rows: number;
+  readonly free: number;
+  /** The moments put intensity in the calculated pattern (not all zero). */
+  readonly inCalc: boolean;
+}
+
+/** The applied magnetic model's summary, or null without one. `live`: the model at the rows' current values (the page's liveMagnetic), when the caller has it. */
+export function magneticModelSummary(s: Session, live?: MagneticModel | null): MagneticModelSummary | null {
+  const mag = live ?? s.magnetic;
+  if (!mag || mag.moments.length === 0) return null;
+  const k = mag.propagation[0] ?? [0, 0, 0];
+  let group: string | null = null;
+  if (mag.operations) {
+    const id = identifyMagneticGroup(mag.operations);
+    if (id) group = formatMagneticSymbol(id.bnsSymbol);
+    else if (s.structure.spaceGroup.operations === mag.operations || s.structure.spaceGroup.operations.some((op) => op.timeReversal === -1)) group = s.structure.spaceGroup.hermannMauguin ?? null;
+  }
+  const rows = s.powderParams.filter((p) => isMomentParameterKind(p.kind));
+  const inCalc = mag.moments.some((m) => m.components.some((c) => Math.abs(c) > 1e-9) || (m.sinComponents?.some((c) => Math.abs(c) > 1e-9) ?? false));
+  return { k: [k[0]!, k[1]!, k[2]!], kLabel: kLabel([k[0]!, k[1]!, k[2]!]), group, rows: rows.length, free: rows.filter((p) => !p.fixed && !p.expression).length, inCalc };
 }
 
 /** The session's rows under the ids the primary phase has on its own (a multi-phase spec prefixes them `p0_`), the added phases' left out. */
@@ -521,9 +610,10 @@ function primaryOnly(s: Session): Session {
  * New data on the page. The structure starts where the last fit left it (a
  * temperature series: carryRefinedStructure); the data's own scale,
  * background and profile start afresh, with Lorentz on. The added phases, the
- * corrections and the microstrain model go; a magnetic model stays on show
- * without its rows; a TOF instrument goes for constant-wavelength data, which
- * it cannot place.
+ * corrections and the microstrain model go; a magnetic model stays, its rows
+ * (moments, k) held at their values (THY-45: the moments in the calculated
+ * pattern are always rows on the page); a TOF instrument goes for
+ * constant-wavelength data, which it cannot place.
  */
 export function withPattern(p: PowderPage, pattern: PowderPattern, file?: LoadedFile, overlay?: PatternOverlay): PowderPage {
   const page = pattern.xUnit !== "tof" && p.instrument.kind === "tof" ? { ...p, instrument: DEFAULT_INSTRUMENT, instrumentLoaded: false } : p;
@@ -536,8 +626,8 @@ export function withPattern(p: PowderPage, pattern: PowderPattern, file?: Loaded
     backgroundTerms: background.terms,
     extraPhases: [],
     pattern,
-    powderParams: rows.viewOnly ? rows.params : carryRefinedStructure(primaryOnly(s), rows.params).params,
-    powderBindings: rows.bindings,
+    powderParams: withMagneticRows(rows.viewOnly ? rows.params : carryRefinedStructure(primaryOnly(s), rows.params).params, s.magnetic ? s.powderParams.map((p) => (isMagneticModelParameterKind(p.kind) && !p.expression ? { ...p, fixed: true } : p)) : []),
+    powderBindings: s.magnetic ? keptBindings(rows.bindings, s.powderBindings) : rows.bindings,
     powderProfile: rows.profile,
     powderOverlay: overlay ?? null,
     powderSource: file?.name ?? pattern.name,
@@ -898,11 +988,18 @@ function nuclearReflections(s: Session, axis: AxisContext, x: readonly number[])
  * decide which feed the k-search), and the user's own picks at these d, each
  * annotated with any nuclear reflection of any phase beside it (a residual on
  * a nuclear position is usually profile misfit, not magnetic).
+ *
+ * The residual is against what the calculated pattern includes: an applied
+ * magnetic model explains a peak only through the intensity its moments put
+ * in the calculation (zero moments explain nothing), never by its ticks. With
+ * `nuclearOnly`, against the nuclear calculation alone: the residual a
+ * k-search starts from when a loaded model is in question (THY-45).
  */
-export function residualPeaksOf(s: Session, instrument: InstrumentParameters | undefined, manualD: readonly number[] = []): ResidualPeak[] {
+export function residualPeaksOf(s: Session, instrument: InstrumentParameters | undefined, manualD: readonly number[] = [], options: { readonly nuclearOnly?: boolean } = {}): ResidualPeak[] {
   const axis = pageAxis(s, instrument);
   if (!availableDisplayUnits(axis).includes("dSpacing")) return [];
-  const { curves } = powderPageCurves(s);
+  const page = powderPageCurves(s);
+  const curves = options.nuclearOnly ? page.nuclear : page.curves;
   const d = s.pattern.xUnit === "dSpacing" ? curves.x : convertAxisArray(curves.x, s.pattern.xUnit, "dSpacing", axis);
   // Only data that carry σ: √yObs is valid for raw counts only, and on a normalized pattern it would exceed any residual.
   const hasSigma = s.pattern.points.length > 0 && s.pattern.points.every((p) => p.sigma !== undefined);
