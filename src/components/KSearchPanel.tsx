@@ -589,7 +589,7 @@ export function KSearchPanel({
     return { ...base, yCalc, diff: base.yObs.map((o, i) => o - yCalc[i]!) };
   }, [patternView, previewMagnetic]);
   const kIsZero = k.every((c) => Math.abs(c) < 1e-12);
-  const nearNuclearCount = peakRows.filter((r) => r.nearNuclear).length;
+  const nearNuclearCount = peakRows.filter((r) => r.nearNuclear && !r.nearNuclear.resolved).length;
   const allOnNuclear = peakRows.length > 0 && nearNuclearCount === peakRows.length;
 
   return (
@@ -958,7 +958,7 @@ export function KSearchPanel({
                           )}
                           {row.nearNuclear
                             ? <span title={`Within ${(100 * row.nearNuclear.relDelta).toFixed(2)}% of ${row.nearNuclear.phaseLabel} (${row.nearNuclear.hkl}), d = ${row.nearNuclear.d.toFixed(4)} Å`}>
-                                {nearReflectionLabel(row.nearNuclear, multiPhase)}
+                                {nearReflectionLabel(row.nearNuclear, multiPhase)}{row.nearNuclear.resolved ? " · resolved" : ""}
                               </span>
                             : ""}
                         </td>

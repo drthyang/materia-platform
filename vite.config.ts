@@ -6,6 +6,12 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { normalize, resolve, sep } from "node:path";
 import { anthropicProxy } from "./src/agent/proxy";
+import { runRecorder, type RunRecorder } from "./src/agent/replay/recorder";
+
+/** The recorder, saying where each turn went. */
+function announced(recorder: RunRecorder, say: (id: string) => void): RunRecorder {
+  return { exchange: (body, stream) => { const id = recorder.exchange(body, stream); if (id) say(id); return id; } };
+}
 import { scriptedReplay } from "./src/agent/replay/server";
 
 // GitHub Pages serves from a repo subpath; override with VITE_BASE if needed.
@@ -69,12 +75,15 @@ function serveLocalData(): Plugin {
  * or .env.local, so the key never reaches the page. Dev and preview servers
  * only; the static build has no server and so no proxy.
  */
-function agentProxy(apiKey: string | undefined): Plugin {
+function agentProxy(apiKey: string | undefined, record = false): Plugin {
   return {
     name: "agent-anthropic-proxy",
     // Only on this machine's names or the server's allowedHosts: a DNS-rebound name is refused.
     configureServer(server) {
-      server.middlewares.use(anthropicProxy(apiKey, undefined, () => server.config.server.allowedHosts));
+      // MATERIA_RECORD=1: each live run through the proxy is written to data/replays/ as a replay of
+      // that run (src/agent/replay/recorder.ts), played again with ?agentReplay=<the id it prints>.
+      const recorder = record ? announced(runRecorder(), (id) => server.config.logger.info(`[run recorder] data/replays/${id}.json`, { timestamp: true })) : undefined;
+      server.middlewares.use(anthropicProxy(apiKey, undefined, () => server.config.server.allowedHosts, recorder));
     },
     configurePreviewServer(server) {
       server.middlewares.use(anthropicProxy(apiKey, undefined, () => server.config.preview.allowedHosts));
@@ -102,7 +111,7 @@ export function agentReplay(): Plugin {
 export default defineConfig(({ mode }) => ({
   base,
   // Read without a prefix filter, server side only: never exposed to the page.
-  plugins: [react(), serveLocalData(), agentReplay(), agentProxy(loadEnv(mode, process.cwd(), "").ANTHROPIC_API_KEY)],
+  plugins: [react(), serveLocalData(), agentReplay(), agentProxy(loadEnv(mode, process.cwd(), "").ANTHROPIC_API_KEY, loadEnv(mode, process.cwd(), "").MATERIA_RECORD === "1")],
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),

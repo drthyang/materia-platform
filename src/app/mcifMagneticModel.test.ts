@@ -101,10 +101,10 @@ describe("the k-search with an mCIF's model", () => {
     const step = stepOn(withMagneticPreview(withData(mcifPage()).session, null));
     const st = step.handle.state();
     expect(st.applied).toBeNull();
-    // The magnetic peaks sit apart from every nuclear line: none is taken as explained.
+    // The magnetic peaks sit apart from every nuclear line, or are resolved from it: none is taken as explained.
     const included = st.peaks.filter((p) => p.included);
     expect(included.length).toBeGreaterThanOrEqual(3);
-    expect(included.every((p) => p.near === undefined)).toBe(true);
+    expect(included.every((p) => p.near === undefined || p.near.endsWith("resolved from it"))).toBe(true);
     const found = step.handle.searchK();
     expect(found[0]!.label).toBe("(0 0 0)");
     expect(found[0]!.matched).toBe(found[0]!.total);

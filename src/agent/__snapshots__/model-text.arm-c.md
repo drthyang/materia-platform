@@ -29,7 +29,7 @@ How to work:
 
 The pages:
 - get_state says which page is open (`technique`). A tool marked "Powder page only" answers with an error elsewhere.
-- Powder page: Rietveld refinement. Its second step is the magnetic analysis (the magnetic_state tool and the tools after it; the page switches to it when they act): k from the peaks the nuclear fit leaves, the magnetic space groups of the little group of k, their moments fitted, then nuclear and magnetic refined together.
+- Powder page: Rietveld refinement. Its second step is the magnetic analysis (the magnetic_state tool and the tools after it; the page switches to it when they act): k from the peaks the nuclear fit leaves, the magnetic space groups of the little group of k, their moments fitted and refined.
 - PDF page: a real-space fit of the reduced PDF G(r) over an r window (Å). Rw is a relative measure, there is no GoF, and the esds are not statistical. Answer a local-versus-average question with boxcar_scan (`bonds` for lengths), not from the full fit.
 - Single-crystal page: a fit to integrated F² (SHELX's R1, wR2 and GooF; w = 1/σ² until SHELXL's WGHT is set, last), the cell fixed. Read the data first (reflection_statistics).
 
@@ -1326,7 +1326,7 @@ Read the refined primary phase for materials signals: crystallite size and micro
 
 ### allow_exception
 
-Ask the user to lift one of their method's firm rules for this analysis, when refine refused on it and the user wants to go on regardless: "bare-occupancy" (refine an occupancy with no tie, because a second contrast — anomalous X-ray, isotopic neutron — determines it), or "instrument-with-thermal" (refine the instrument's terms — the zero, the peak shape and asymmetry, Qdamp/Qbroad — together with the B values or ADPs, which the user's method alternates), or "instrument-with-positions" (on the powder page, the instrument's terms together with the atom positions, which it alternates too). Only when the user asks for it, never to get past a refusal. Always shows the user an approval card, even in Auto; only they can approve it. Give their reason in `reason`. Lasts until the data or the phases change.
+Ask the user to lift one of their method's firm rules for this analysis, when refine refused on it and the user wants to go on regardless: "bare-occupancy" (refine an occupancy with no tie, because a second contrast — anomalous X-ray, isotopic neutron — determines it), or "instrument-with-thermal" (refine the instrument's terms — the zero, the peak shape and asymmetry, Qdamp/Qbroad — together with the B values or ADPs, which the user's method alternates), or "instrument-with-positions" (on the powder page, the instrument's terms together with the atom positions, which it alternates too), or "broadening-alone" (on the powder page, the microstrain together with the instrument's terms or the B values, which it refines on its own). Only when the user asks for it, never to get past a refusal. Always shows the user an approval card, even in Auto; only they can approve it. Give their reason in `reason`. Lasts until the data or the phases change.
 
 ```json
 {
@@ -1337,7 +1337,8 @@ Ask the user to lift one of their method's firm rules for this analysis, when re
       "enum": [
         "bare-occupancy",
         "instrument-with-thermal",
-        "instrument-with-positions"
+        "instrument-with-positions",
+        "broadening-alone"
       ]
     },
     "reason": {

@@ -49,9 +49,9 @@ Each is explained at its stage below.
 - **A block is done** when it has converged — `assess_refinement`'s largest shift below
   0.1 esd — and nothing has railed to a bound. Only then free the next.
 - **Firm rules** (`refine` refuses; only the user lifts one, with `allow_exception`): no
-  occupancy refines bare; the instrument's terms never refine with the B values (alternate
-  the two; settled once a cycle moves neither group by more than 0.3 esd), nor with the atom
-  positions; no two free parameters that correlate at |ρ| ≥ 0.95.
+  bare occupancy; the instrument's terms never with the B values (alternate; settled once a
+  cycle moves neither group by more than 0.3 esd) nor the positions; the microstrain alone;
+  no two free parameters at |ρ| ≥ 0.95.
 - **After every run**, assess it (`refine`'s `checks`; over MCP `bond_geometry` and the B
   values). **Hard** — two atoms closer than 1.0 Å, a U_iso above 0.1 Å², a negative U: take
   the run back (`go_to_step`) and ask the user. **Warn** and report — atoms closer than
@@ -140,15 +140,15 @@ The sequence is **atoms before profile**. Free parameters in this order — over
 (`assess_refinement`) between blocks, freeing the next only once a block is done (Gates).
 
 1. **Scale + background + cell** — first, so intensity has somewhere sane to go. **Refine
-   the cell here** (with the zero). (Watch the
-   cell↔zero↔displacement correlation — `assess_refinement` flags it; free the zero from a
-   standard or on a wide range.)
+   the cell here** (with the zero). (Free the
+   zero from a standard or a wide range; `assess_refinement` flags cell↔zero↔displacement.)
+   POWGEN: `logInterpolate` bkg.
 2. **Atomic positions** — freed *early*, against a roughly correct profile (the instrument
    file's; when it is far off, see below), so the profile cannot later absorb structural
    misfit as fake broadening. A *quick* pass: the positional gain is often
    small and the profile the bigger lever.
 3. **Profile** — now the peak shape: Caglioti `W` → `U, V` → the Lorentzian size/strain
-   `X, Y` is a reasonable order, *not* a rigid one: free what the residual needs. `U`
+   `X, Y` (TOF: α β σ + zero) is an order, *not* a rigid one: free what the residual needs. `U`
    correlates strongly with sample broadening and is often held on a narrow 2θ range, but
    free it when a genuine width mismatch demands it.
 4. **ADPs** — with the instrument's terms fixed (the guardrail below), then the two groups alternate. `B_iso` first; **anisotropic only as
@@ -182,9 +182,9 @@ it; a start far off goes back to the Prefit (Stage 0, step 4).
 
 **Asymmetry is profile.** CW: a one-sided low-angle residual is axial
 divergence (`set_corrections` asymmetry; S/L with Caglioti). TOF: β₁ then
-β₀. Negative X or Y: `reset_parameters`, hold. On TOF the zero, α₁ and σ₀² stay at
-calibration until the **final profile pass** (cell held; a last tweak: physical
-values barely move; `rietveld_notes`). Paired residuals at one d: `set_microstrain` generalized.
+β₀. Negative X or Y: `reset_parameters`, hold. TOF: every α β σ term and the zero
+refine in stage 3 (cell held, the B's fixed); the **final profile pass** repeats it
+(`rietveld_notes`). Paired residuals at one d: `set_microstrain` generalized.
 
 **When the starting profile is far off, the profile comes before the positions.** When
 `diagnose_fit` measures the lines much broader (or narrower) than calculated
@@ -229,19 +229,19 @@ calibration), the **peak shape** (Caglioti `U V W`, Lorentzian `X Y`, the TOF α
 through the background at high angle and the low-angle scale: refined together, each
 absorbs the other's error (a B gone negative while the profile widens).
 
-**Alternate the two groups instead.** Refine the instrument terms with the B values fixed,
-then fix them and refine the B values; repeat. In the app, `refine` reports the
-`alternation` after each step: the group refined, its largest shift since its last
-refinement (in esd), and `settled` once a cycle moves neither group by more than 0.3 esd —
-stop there. If the shifts shrink slowly (each cycle more than two-thirds of the last), the
-groups are coupled: tell the user. Each group's esds are conditional on the other held
-fixed — say so in the report.
+**Alternate the groups instead**: the instrument terms with the B values fixed, then the B
+values, and the microstrain alone as a third group once used (the structure's, refined
+again with it). `refine` reports the `alternation`: the
+group refined, its largest shift since its last refinement (in esd), and `settled` once a
+cycle moves no group by more than 0.3 esd — stop there. Shifts shrinking slowly (each over
+two-thirds of the last) mean coupled groups: tell the user. Each group's esds are
+conditional on the others held — say so in the report.
 
 **With an instrument file from a standard**, keep its terms fixed where they fit, and
 refine only what the sample adds; when it does not describe the data, refine its terms,
-alternating as above. A microstrain model (`set_microstrain`) is the sample's broadening,
-outside this rule; `X` and `Y` are inside it (they hold the instrument's Lorentzian part
-too). Only the user lifts the rule (`allow_exception`, rule `instrument-with-thermal`),
+alternating as above; `X` and `Y` are inside this rule. **The microstrain refines alone**
+(rule `broadening-alone`): it trades with the instrument's width and the B values' fall-off,
+so free it with both held. Only the user lifts the rule (`allow_exception`, rule `instrument-with-thermal`),
 for instance for one last joint cycle once the alternation has settled.
 
 **The positions likewise** (rule `instrument-with-positions`): a wrong peak shape or zero

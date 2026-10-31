@@ -9,6 +9,14 @@ release fixes bugs.
 
 ### Added
 
+- **A live Agent run can be recorded and replayed (dev server).** With
+  `MATERIA_RECORD=1`, the dev server's proxy writes each run through it to the
+  git-ignored `data/replays/` as a replay of that run: the model's words and
+  tool calls, the scientist's later messages, and each tool's answer.
+  `?agentReplay=<its id>` plays it again on the page, every tool run again,
+  and the Copilot labels it with its model as a replay of a live run, not a
+  scripted one. Off by default; the static build has neither.
+
 - **README: what each result is checked against.** The Impact table now names
   the area, the case, the reference (SHELXL, GSAS-II, FindSpinGroup, FullProf,
   PDFfit2, diffpy.mpdf) and what agreed, each row marked Supported,
@@ -680,7 +688,51 @@ release fixes bugs.
   lasts for the session, until a new structure is loaded.
 
 ### Changed
-- Report: prose (the Result paragraph, notes, captions, caveats and the appendix text) is set justified with hyphenation, as in a journal; tables keep their alignment.
+- **On TOF the instrument's terms refine with the profile, not only at the
+  end.** The Rietveld workflow skill used to hold the zero, α₁ and σ₀² at the
+  instrument file's calibration until the final profile pass. Stage 3 (the
+  profile) now frees every α β σ term and the zero with the cell held, in
+  turn with the B values and the microstrain under the existing firm rules;
+  the final pass repeats them. A calibration from a standard rarely fits the
+  sample's lines that well, and held to the end it left the final pass too
+  much to do.
+
+- **The magnetic step finds the weaker magnetic lines beside a strong
+  misfit.** With the file's σ, its residual-peak detector now tests each
+  peak against its own noise (5σ) with no floor at 8 % of the largest
+  residual, as the assessment's residual reader already did. On AWO₄ at
+  8 K a 130σ nuclear misfit at 1.424 Å had hidden the magnetic lines at
+  2.388, 2.084, 1.601 and 1.396 Å, so the k-search ran on two peaks.
+
+- **The microstrain refines on its own (a firm rule).** On the powder page
+  the Agent's `refine` now refuses a free set with the microstrain (or any
+  sample-broadening term) together with the instrument's terms or the B
+  values, rule `broadening-alone`: they widen the lines alike and trade with
+  each other, below the correlation limit (σ₂² ↔ microstrain −0.90 on AWO₄).
+  Only the user lifts it, with `allow_exception`. It is the atomic
+  structure's, refined again with it: once refined, the microstrain is a
+  third group in the alternation (instrument terms, B values, microstrain,
+  each alone in turn), which settles only when a cycle moves none of them by
+  more than 0.3 esd.
+
+- **The magnetic workflow ends with the final instrument pass.** On the
+  powder page with a magnetic model in the refinement, `write_report` waits
+  until the last converged refinement freed the instrument's terms (the
+  zero and the peak shape) with the scale and background, the moments,
+  structure and microstrain held: the peak shape was
+  fitted before the magnetic peaks were modelled. The magnetic skill's
+  Stage 5 says so; no prompt is needed for it.
+
+- **The fit-range check trims the long-d end past the data's own peaks.**
+  When the stretch beyond the last reflection holds a peak no phase
+  explains (an impurity, or magnetic order on neutron data),
+  `check_fit_range` used to keep the whole stretch. It now keeps that peak
+  and cuts the background beyond it: where the peak's tail is back at the
+  background, measured on the data, plus three of its own widths. On AWO₄ at
+  8 K on POWGEN (the 9.37 Å magnetic line at 211 244 µs) the window now ends
+  near 230 500 µs instead of the data's end at 462 823 µs.
+
+ Report: prose (the Result paragraph, notes, captions, caveats and the appendix text) is set justified with hyphenation, as in a journal; tables keep their alignment.
 - Plots: a plain mouse wheel over a plot now flashes the whole gesture line (zoom, pan, box-zoom, reset), not just the zoom shortcut.
 
 - **The header's Demos menu is gone; Load is Open; a Close button returns to
@@ -753,6 +805,15 @@ release fixes bugs.
   and Pro Max, upright and sideways, and the buttons are 44 px tall on a
   touch screen. Between 1281 and 1499 px they take slightly less padding so
   the current-step label still shows at 1440 px.
+
+- **The Agent refines the TOF peak shape as one profile.** Its correlation
+  guard now lets the time-of-flight peak-shape terms (α, β, σ and the zero)
+  refine together, as GSAS-II refines an instrument's profile, and lists their
+  correlations in the outcome instead of refusing them; `assess_refinement`
+  notes them rather than warning. Each against anything else (the zero against
+  the cell, a σ against a B) still stops the refinement. On AWO₄ at 8 K the
+  guard had refused α₁ ↔ β₀ (0.997), and staging round it reached wR 9.53 %
+  where the joint fit reaches 8.57 %.
 
 - **The local AWO₄ magnetic demo refines the moments alone, the nuclear model
   held.** Its solve (`awo4MagneticSolve.test.ts`, `AWO4_SOLVE=1`) no longer
@@ -928,6 +989,21 @@ release fixes bugs.
   gone. Projects saved before open with the tie: values kept, the last
   occupancy, even if saved free, following the others. Without a shared site
   nothing changes. MCP's powder tools keep the soft restraint.
+
+- **POWGEN backgrounds are log-interpolated.** The Rietveld workflow skill now
+  sets a logarithmic-interpolation background (`logInterpolate`) on POWGEN
+  time-of-flight data; the reasoning is in the skill's notes.
+
+- **The magnetic step refines only the magnetic parameters.** In the
+  `magnetic-analysis` skill the magnetic refinement frees the moment amplitudes
+  alone; the scale, background, cell, instrument terms, positions and ADPs stay
+  at their nuclear values. With k = 0 and no pattern above the ordering
+  temperature, the nuclear model is first refined at d ≤ 1.5 Å, where the
+  magnetic form factor has faded, so its scale does not take the magnetic
+  intensity on the nuclear lines (on the Mn₃Ga 30 K example a whole-pattern
+  nuclear scale left the moments 30–55 % small). A new eval scenario,
+  `magnetic-30k`, checks both, and the dev server can play it
+  (`?agentReplay=magnetic-30k`).
 
 - **The Agent's executor and chat code split by what each part does**
   (internal; no behaviour change): the executor's dispatch, policy and
@@ -1314,6 +1390,16 @@ release fixes bugs.
   another k when copied); it is now the exact fraction, (0 0 4/3).
   `set_propagation_vector` now also reads every glyph a k label prints
   (⅔, ¾, ⅙, ⅚ and the minus sign of (¼ 0 −¼)), which it refused.
+
+- **The report no longer calls a moments-only fit "refined jointly".** A
+  magnetic model whose moments were refined with the atomic structure held
+  fixed was summarized as refined jointly with it; the report now says only the
+  moments were free.
+
+- **The Agent's outcome card no longer reads "Not achieved" after a refusal it
+  got past.** A refused refinement that the same turn then ran, and ran, counted
+  against the whole turn; the card now judges a turn by the call it ended on. A
+  refusal the turn never got past still reads "Not achieved".
 
 - **The local proxy says when the page has none.** On the published site
   (GitHub Pages) there is no proxy, and choosing it ended every message in a

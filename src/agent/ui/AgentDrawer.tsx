@@ -996,7 +996,8 @@ const OUTCOME_TEXT: Record<TurnOutcome["status"], string> = { achieved: "Achieve
 
 /**
  * A finished turn's verdict, from what its tools computed, not from what the
- * reply says: a refusal or a failed change is not achieved; a declined change,
+ * reply says: a refusal or a failed change is not achieved, unless the turn
+ * then made that call again and it went through; a declined change,
  * or a refinement that stopped short of converging, is partial; a converged
  * refinement, or changes all made, achieved. A turn of reads and words alone
  * has none. Keyed by the turn's last item.
@@ -1014,7 +1015,8 @@ export function turnOutcomes(items: readonly TranscriptItem[], activity: Readonl
     const changes = entries.filter((e) => e.effect === "change" || e.effect === "control");
     if (changes.length === 0) return;
     const last = turn[turn.length - 1]!;
-    const failed = changes.filter((e) => e.status === "failed");
+    // A failed call the turn then made again, and made, was recovered from: the turn is judged by what it ended on.
+    const failed = changes.filter((e, i) => e.status === "failed" && !changes.slice(i + 1).some((later) => later.tool === e.tool && later.status === "done"));
     const declined = changes.filter((e) => e.status === "declined");
     const refines = changes.filter((e) => e.tool === "refine" && e.status === "done");
     const lastRefine = refines.at(-1);

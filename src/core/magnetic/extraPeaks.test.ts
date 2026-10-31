@@ -51,3 +51,26 @@ describe("detectExtraPeaks (magnetic residual)", () => {
     expect(detectExtraPeaks(d, yObs, yCalc)).toHaveLength(1);
   });
 });
+
+describe("detectExtraPeaks with the file's σ and no fraction floor (the magnetic step, 2026-10-31)", () => {
+  // AWO₄ at 8 K: a 130σ nuclear misfit at 1.424 Å set an 8 % floor that hid the magnetic lines beside it.
+  const d = Array.from({ length: 3000 }, (_, i) => 1 + i * 0.001);
+  const line = (at: number, h: number) => (x: number) => h * Math.exp(-(((x - at) / 0.004) ** 2));
+  const misfit = line(1.424, 13000);
+  const magnetic = [line(2.388, 600), line(2.084, 350), line(1.601, 250)];
+  const yCalc = d.map(() => 1000);
+  const yObs = d.map((x, i) => yCalc[i]! + misfit(x) + magnetic.reduce((a, f) => a + f(x), 0));
+  const pointSigma = d.map(() => 10);
+
+  it("keeps the weaker lines a strong misfit would hide under a fraction floor", () => {
+    const floored = detectExtraPeaks(d, yObs, yCalc, { pointSigma, minSignificance: 5 });
+    expect(floored.map((p) => p.d.toFixed(3))).toEqual(["1.424"]);
+    const open = detectExtraPeaks(d, yObs, yCalc, { pointSigma, minSignificance: 5, minFraction: 0 });
+    expect(open.map((p) => +p.d.toFixed(3)).sort()).toEqual([1.424, 1.601, 2.084, 2.388]);
+  });
+
+  it("finds nothing on a correct model's counting noise", () => {
+    const flat = d.map((_, i) => 1000 + 10 * Math.sin(i * 1.7));
+    expect(detectExtraPeaks(d, flat, yCalc, { pointSigma, minSignificance: 5, minFraction: 0 })).toEqual([]);
+  });
+});

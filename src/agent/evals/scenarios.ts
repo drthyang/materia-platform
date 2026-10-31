@@ -4,7 +4,7 @@
  * own data, with the checks that say whether it got it right this time.
  */
 
-import { awo4UserFiles, awo4UserPage, BATCH_SCALES, BC_EXTINCTION, EDGE_STEP_AT, FAILED_PAIR, FAILED_REFLECTION, MAGNETIC_TRUTH, impurityD, scChiralPage, scDisorderPage, scHydridePage, scInvertedHandPage, scOrganicPage, scPage, scTwinnedPage, mn3gaEdgeSession, mn3gaFluoriteSession, mn3gaImpuritySession, mn3gaMagneticSession, mn3gaMisfitSession, mn3gaSession, mn3gaSwappedUnitsSession, mn3gaWrongWavelengthSession, pdfPage, powderPage } from "@/agent/evals/pages";
+import { awo4UserFiles, awo4UserPage, BATCH_SCALES, BC_EXTINCTION, EDGE_STEP_AT, FAILED_PAIR, FAILED_REFLECTION, MAGNETIC_TRUTH, MN3GA_30K_TRUTH, impurityD, scChiralPage, scDisorderPage, scHydridePage, scInvertedHandPage, scOrganicPage, scPage, scTwinnedPage, mn3gaEdgeSession, mn3gaFluoriteSession, mn3gaImpuritySession, mn3gaMagneticSession, mn3gaMisfitSession, mn3gaSession, mn3gaSwappedUnitsSession, mn3gaWrongWavelengthSession, mn3ga30kPage, pdfPage, powderPage } from "@/agent/evals/pages";
 import {
   mergesFirst,
   refinesFlack,
@@ -35,6 +35,8 @@ import {
   keepsGroupsApart,
   liftsNoRule,
   magneticGroupIs,
+  magneticRefinesMomentsOnly,
+  nuclearAtHighAngle,
   magneticSequenceFirst,
   questionsAxis,
   questionsWavelength,
@@ -163,6 +165,16 @@ export const SCENARIOS: readonly EvalScenario[] = [
     messages: ["The nuclear structure is refined. Find the magnetic structure."],
     autonomy: "auto",
     checks: [readsMethodFirst, ran("search_propagation_vector"), magneticKIs([MAGNETIC_TRUTH.k[0], MAGNETIC_TRUTH.k[1], MAGNETIC_TRUTH.k[2]]), magneticGroupIs(MAGNETIC_TRUTH.id), ran("refine_moments"), noStall],
+  },
+  {
+    id: "magnetic-30k",
+    title: "Finds a k = 0 magnetic order from the nuclear fit's misfits, the moments measured against a fixed nuclear model",
+    origin: "The user, on the Mn₃Ga 30 K example (simulated from P2₁'/m'): at k = 0 the magnetic intensity sits on nuclear lines, so a nuclear model refined on the whole pattern takes it into its scale, and moments fitted against it come out too small. The user's method: the nuclear model refined at d ≤ 1.5 Å, then only the moments refined over the whole pattern.",
+    page: mn3ga30kPage,
+    slow: true,
+    messages: ["Fit this 30 K neutron pattern. If the nuclear model leaves intensity unexplained, find the magnetic order."],
+    autonomy: "auto",
+    checks: [readsMethodFirst, ran("find_unexplained_peaks"), nuclearAtHighAngle(1.5, MN3GA_30K_TRUTH.wavelength), ran("rank_magnetic_groups"), magneticKIs([MN3GA_30K_TRUTH.k[0], MN3GA_30K_TRUTH.k[1], MN3GA_30K_TRUTH.k[2]]), magneticGroupIs(MN3GA_30K_TRUTH.id), magneticRefinesMomentsOnly, noStall],
   },
   {
     id: "awo4-user-flow",

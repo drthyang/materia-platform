@@ -54,6 +54,7 @@ import { kLabel } from "@/core/magnetic/kSearch";
 import { refine } from "@/core/refinement/engine";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { annotateExtraPeaks, detectExtraPeaks } from "@/core/magnetic/extraPeaks";
+import { markResolvedPeaks } from "@/core/diagnostics/assessment";
 import { axisContext, availableDisplayUnits, convertAxisArray, convertAxisValue, tofCalibrationOf, type AxisContext } from "@/visualization/axisUnits";
 import { minMax } from "@/core/math/extent";
 
@@ -987,7 +988,8 @@ function nuclearReflections(s: Session, axis: AxisContext, x: readonly number[])
  * page leaves (above 3σ where the data carry σ: the step's own criteria
  * decide which feed the k-search), and the user's own picks at these d, each
  * annotated with any nuclear reflection of any phase beside it (a residual on
- * a nuclear position is usually profile misfit, not magnetic).
+ * a nuclear position is usually profile misfit, not magnetic, unless it is
+ * resolved from the line or far stronger than it: markResolvedPeaks).
  *
  * The residual is against what the calculated pattern includes: an applied
  * magnetic model explains a peak only through the intensity its moments put
@@ -1004,7 +1006,10 @@ export function residualPeaksOf(s: Session, instrument: InstrumentParameters | u
   // Only data that carry σ: √yObs is valid for raw counts only, and on a normalized pattern it would exceed any residual.
   const hasSigma = s.pattern.points.length > 0 && s.pattern.points.every((p) => p.sigma !== undefined);
   const pointSigma = hasSigma ? s.pattern.points.map((p) => p.sigma!) : undefined;
-  const detected = detectExtraPeaks(d, curves.yObs, curves.yCalc, { ...(pointSigma ? { pointSigma, minSignificance: 3 } : {}), limit: 24 });
+  // With the file's σ each peak is tested against its own noise, and no floor at a fraction of the
+  // largest residual: one strong nuclear misfit (AWO₄ at 8 K: 130σ at 1.424 Å) hid the magnetic lines
+  // beside it (2.388, 2.084, 1.601, 1.396 Å), as residualPeaks already reads it.
+  const detected = detectExtraPeaks(d, curves.yObs, curves.yCalc, { ...(pointSigma ? { pointSigma, minSignificance: 5, minFraction: 0 } : {}), limit: 24 });
   // A pick carries the residual at the nearest point; one on a detected apex is that peak.
   const manual = manualD.map((at) => {
     let bi = 0;
@@ -1022,7 +1027,7 @@ export function residualPeaksOf(s: Session, instrument: InstrumentParameters | u
   }).filter((m) => !detected.some((p) => Math.abs(p.d - m.d) < 0.01));
   if (detected.length + manual.length === 0) return [];
   const refs = nuclearReflections(s, axis, curves.x);
-  return [...annotateExtraPeaks(detected, refs), ...annotateExtraPeaks(manual, refs).map((p) => ({ ...p, manual: true as const }))];
+  return [...markResolvedPeaks(annotateExtraPeaks(detected, refs), d, curves.yCalc), ...annotateExtraPeaks(manual, refs).map((p) => ({ ...p, manual: true as const }))];
 }
 
 /** The step's moments-only fit, as the page refines: the nuclear model held, its full profile, every phase, the window. */

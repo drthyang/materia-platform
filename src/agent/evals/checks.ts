@@ -435,6 +435,53 @@ export function magneticGroupIs(id: string): Check {
   };
 }
 
+/** The magnetic refinement frees the moments and nothing else (magnetic-analysis Stage 4): the nuclear model is the fixed reference. */
+export const magneticRefinesMomentsOnly: Check = {
+  name: "refines only the moments once the magnetic model is on the page",
+  grade: (run) => {
+    const all = calls(run);
+    const handed = all.findIndex((c) => c.name === "continue_magnetic_refinement" && !c.isError);
+    if (handed < 0) return fail("never handed the magnetic model to the refinement");
+    const refines = all.slice(handed + 1).filter((c) => c.name === "refine" && !c.isError);
+    if (refines.length === 0) return fail("no refinement after the hand-off");
+    // The moments never refine with anything else; a pass with the moments held (the final
+    // instrument pass, magnetic-analysis Stage 5) is no moments refinement.
+    const withMoments = refines.filter((c) => (c.free ?? []).some((id) => id.startsWith("mom_")));
+    if (withMoments.length === 0) return fail("the moments were never refined after the hand-off");
+    const mixed = withMoments.find((c) => (c.free ?? []).some((id) => !id.startsWith("mom_")));
+    return mixed ? fail(`refined ${(mixed.free ?? []).filter((id) => !id.startsWith("mom_")).join(", ")} with the moments`) : ok(`${withMoments.length} refinement(s) of the moments alone`);
+  },
+};
+
+/**
+ * With k = 0 and no pattern above the ordering temperature, the nuclear model is
+ * refined in a high-angle window (d at most `dMax` Å), where the magnetic form
+ * factor has faded, and the window opened again before the magnetic step.
+ */
+export function nuclearAtHighAngle(dMax: number, wavelength: number): Check {
+  const tthMin = (2 * Math.asin(wavelength / (2 * dMax)) * 180) / Math.PI;
+  const highAngle = (input: Readonly<Record<string, unknown>>): boolean => {
+    const { unit, min, max } = input as { unit?: string; min?: number; max?: number };
+    if (unit === "dSpacing") return typeof max === "number" && max <= dMax + 1e-6;
+    if (unit === "q") return typeof min === "number" && min >= (2 * Math.PI) / dMax - 1e-6;
+    return typeof min === "number" && min >= tthMin - 1e-6;
+  };
+  return {
+    name: `refines the nuclear model at d ≤ ${dMax} Å before the magnetic step`,
+    grade: (run) => {
+      const all = calls(run);
+      const set = all.findIndex((c) => c.name === "set_fit_range" && !c.isError && highAngle(c.input));
+      if (set < 0) return fail("never set a high-angle window");
+      const reopened = all.findIndex((c, i) => i > set && c.name === "set_fit_range" && !c.isError && c.input.whole === true);
+      const refined = all.slice(set + 1, reopened < 0 ? undefined : reopened).some((c) => c.name === "refine" && !c.isError);
+      if (!refined) return fail("set the window but refined nothing in it");
+      if (reopened < 0) return fail("never opened the whole pattern again");
+      const chose = all.findIndex((c) => c.name === "choose_magnetic_group" && !c.isError);
+      return chose < 0 || chose > reopened ? ok("nuclear model refined at high angle, then the whole pattern again") : fail("chose the magnetic group before the high-angle nuclear fit");
+    },
+  };
+}
+
 /** The single-crystal page's state, or null on another page. */
 function scState(run: EvalRun): SingleCrystalLiveState | null {
   const s = run.port.state();

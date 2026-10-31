@@ -14,6 +14,12 @@ reasoning behind them, for when a question needs them.
 - **Read the ends again after the first refinement.** PbSO₄: the last 0.8° sat 4.4σ above
   the model, more than anywhere just inside — which the data alone could not show.
 
+## The background on POWGEN (Stage 1)
+
+- **Logarithmic interpolation** (`logInterpolate`), its points evenly spaced in log TOF: the
+  long-d end, where a TOF background rises steeply, gets the points it needs; a polynomial
+  over the whole TOF range bends where the data do not.
+
 ## Unindexed peaks and the sample environment (Stage 0, step 3)
 
 - Cr₂WO₆ at 150 K: weak lines at 62.4° and 73.5° were Al 111 and 200, shifted because the
@@ -97,7 +103,10 @@ are reported as held (no esd), with where they came from and the free isotropic 
 
 **TOF profile.** Asymmetry: β₁, then β₀, for one-sided residuals on the worst reflections;
 check it before an antisite test when a B is at 0. The zero and α₁ go with the cell, and σ₀²
-correlates with mustrain: all three stay at the calibration values until the final pass.
+correlates with mustrain, so they refine in the profile stage with the cell held, in turn with
+the B values and the microstrain (each held while the others refine): a calibration from a
+standard rarely matches the sample's lines well enough to hold until the end, and
+held to the last they leave the final pass too much to do. The final pass repeats them.
 
 **Final TOF profile pass.** Once the structure and any magnetic model are in, hold the
 background and the cell. Free the whole TOF profile together (α₀, α₁, β₀, β₁, β_q, σ₀²,

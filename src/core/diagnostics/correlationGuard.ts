@@ -61,7 +61,7 @@ import type { LinearRestraint, ParameterBinding, ParameterKind, RefinementOption
 import type { StructureModel } from "@/core/crystal/types";
 import type { TwinLaw } from "@/core/diffraction/types";
 import { improper } from "@/core/workflow/singleCrystalRefinement";
-import { BOTH_HANDS, carriedByThird, correlationInsight, intensityTerms, oneCurve } from "@/core/diagnostics/assessment";
+import { BOTH_HANDS, carriedByThird, correlationInsight, intensityTerms, oneCurve, tofPeakShape } from "@/core/diagnostics/assessment";
 import { CORRELATION_LIMIT } from "@/core/diagnostics/thresholds";
 import { parseTie } from "@/core/refinement/constraints";
 
@@ -94,6 +94,8 @@ export interface CorrelatedPair {
   readonly intensityTerms?: true;
   /** Listed, not stopped, because both belong to one disorder (the assembly named). */
   readonly disorder?: string;
+  /** Listed, not stopped, because both are TOF peak-shape terms (α, β, σ, the zero). */
+  readonly peakShape?: true;
 }
 
 export interface CorrelationCheck {
@@ -153,6 +155,7 @@ export function readCorrelations(result: RefinementResult, parameters: readonly 
     const kb = kind.get(c.parameterIdB);
     const reason = ka && kb ? correlationInsight(ka, kb) : undefined;
     const intensity = singleCrystal && intensityTerms(ka, kb);
+    const peakShape = tofPeakShape(ka, kb);
     const disorder = assemblies.get(c.parameterIdA);
     const oneDisorder = disorder !== undefined && assemblies.get(c.parameterIdB) === disorder;
     return {
@@ -163,9 +166,10 @@ export function readCorrelations(result: RefinementResult, parameters: readonly 
       ...(reason ? { reason } : {}),
       ...(intensity ? { intensityTerms: true as const } : {}),
       ...(oneDisorder ? { disorder } : {}),
+      ...(peakShape ? { peakShape: true as const } : {}),
     };
   });
-  const carriedPair = (p: CorrelatedPair): boolean => p.intensityTerms === true || p.disorder !== undefined || carriedByThird(p);
+  const carriedPair = (p: CorrelatedPair): boolean => p.intensityTerms === true || p.disorder !== undefined || p.peakShape === true || carriedByThird(p);
   const over = pairs.filter((p) => Math.abs(p.coefficient) >= CORRELATION_LIMIT);
   return {
     correlated: over.filter((p) => !carriedPair(p)),
@@ -180,6 +184,7 @@ export const pairText = (p: CorrelatedPair): string => `${p.a} ↔ ${p.b} ${p.co
 /** A carried pair as the model reads it: the correlation, and what it is with the rest held fixed. */
 export const carriedText = (p: CorrelatedPair): string =>
   p.intensityTerms ? `${pairText(p)} (the overall intensity terms, refined together)`
+    : p.peakShape ? `${pairText(p)} (the TOF peak-shape terms, refined together as GSAS-II refines an instrument's profile)`
     : p.disorder === BOTH_HANDS ? `${pairText(p)} (a twin with both hands: a domain and its inverse differ only by the anomalous signal, so their fractions trade, refined together as SHELXL's TWIN R −4 refines them; read the sums — the Flack x and the law's fraction — with their esds from the covariance)`
     : p.disorder !== undefined ? `${pairText(p)} (one disorder${p.disorder ? ` (${p.disorder})` : ""}: its alternatives refined together, as SHELXL refines them)`
       : `${pairText(p)} (${p.conditional!.toFixed(2)} with the other free parameters fixed)`;

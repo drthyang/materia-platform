@@ -55,6 +55,8 @@ describe("a turn's Outcome", () => {
       f1: entry("f1", "refine", "failed", "pos_O1 ↔ B_O1 at 0.97: refused"),
       s1: entry("s1", "get_state", "done", undefined, "read"),
       d1: entry("d1", "set_free", "declined", "Declined"),
+      f2: entry("f2", "refine", "failed", "Not run: profU free with B_Mn1"),
+      r3: entry("r3", "refine", "done", "converged · wR 4.34%"),
     } as never;
     const items = [...turn("a", "s1", "r1"), ...turn("b", "r2"), ...turn("c", "f1"), ...turn("d", "s1"), ...turn("e", "d1")];
     const out = turnOutcomes(items, activity, false);
@@ -63,6 +65,9 @@ describe("a turn's Outcome", () => {
     expect(out.get("ca")).toEqual({ status: "not-achieved", note: "refine: pos_O1 ↔ B_O1 at 0.97: refused" });
     expect(out.has("da")).toBe(false);
     expect(out.get("ea")).toEqual({ status: "partial", note: "1 change declined" });
+    // A refusal the turn then got past (the same call, made again, went through) is judged by what it ended on.
+    expect(turnOutcomes(turn("g", "f2", "r3"), activity, false).get("ga")).toEqual({ status: "achieved", note: "converged · wR 4.34%" });
+    expect(turnOutcomes(turn("h", "r3", "f2"), activity, false).get("ha")?.status).toBe("not-achieved");
     // The turn still running has none yet.
     expect(turnOutcomes(turn("a", "r1"), activity, true).size).toBe(0);
   });

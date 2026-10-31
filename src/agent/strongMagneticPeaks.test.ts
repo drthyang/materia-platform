@@ -55,7 +55,8 @@ describe("strong k = 0 magnetic peaks on the nuclear lines (Example 3)", () => {
     // The magnetic step: the strong peaks sit on nuclear lines, so none is included — the k = 0 signature, not "nothing magnetic".
     const state = parse(await run("magnetic_state"));
     expect(String(state.next)).toMatch(/k = 0 signature/);
-    expect(String(state.next)).toMatch(/search_propagation_vector include \[1, 2, 3\]/);
+    // Every strong misfit on the nuclear lines, its numbers listed (7 once no fraction floor hides the weaker ones).
+    expect(String(state.next)).toMatch(/search_propagation_vector include \[1, 2, 3(, \d+)*\]/);
     expect(String(state.next)).not.toMatch(/nothing magnetic to find/);
     expect(await run("search_propagation_vector")).toMatch(/include them by number, `include`/);
     const found = parse(await run("search_propagation_vector", { include: [1, 2, 3] }));
