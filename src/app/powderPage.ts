@@ -45,7 +45,7 @@ import { powderBindings } from "@/examples/synthetic";
 import type { PowderPattern } from "@/core/diffraction/types";
 import type { MagneticFit, ResidualPeak } from "@/app/magneticStep";
 import { noiseOf } from "@/core/magnetic/momentRestarts";
-import type { MagneticModel } from "@/core/magnetic/types";
+import { momentBindingKey, type MagneticModel } from "@/core/magnetic/types";
 import type { Vec3 } from "@/core/math/types";
 import { buildMagneticModel } from "@/core/magnetic/momentModel";
 import { fitAmplitudesToMoments } from "@/core/magnetic/amplitudeFit";
@@ -555,6 +555,9 @@ export function fileMomentRows(structure: StructureModel, magnetic: MagneticMode
     const v = fit.values[p.id] ?? p.value;
     return { ...p, value: v, initialValue: v, fixed: true };
   });
+  // The file's own model where the rows address its moments as they are (they reproduce them); the build's where it splits a site.
+  const fileKeys = new Set(magnetic.moments.map(momentBindingKey));
+  if (build.magnetic.moments.every((m) => fileKeys.has(momentBindingKey(m)))) return { magnetic, params, bindings: build.bindings.map((b) => (b.targetId === build.magnetic.id ? { ...b, targetId: magnetic.id } : b)) };
   const values = Object.fromEntries(params.map((p) => [p.id, p.value]));
   return { magnetic: { ...applyMagneticMoments(build.magnetic, build.bindings, values), id: magnetic.id, structureId: magnetic.structureId }, params, bindings: build.bindings };
 }

@@ -52,10 +52,16 @@ export interface PowderResidualInput {
   readonly magnetic?: MagneticModel | null;
 }
 
-/** A satellite's indices as the tools print them (fractional ones to 3 decimals). */
-function satelliteLabel(h: number, k: number, l: number): string {
-  const f = (v: number): string => (Math.abs(v - Math.round(v)) < 1e-9 ? String(Math.round(v)) : String(+v.toFixed(3)));
-  return `${f(h)} ${f(k)} ${f(l)}`;
+/** A satellite's indices as the tools print them: "h k l" at k = 0, else its parent reflection and arm, "0 0 1 + k". */
+function satelliteLabel(q: readonly [number, number, number], k: readonly number[]): string {
+  const isInt = (v: number): boolean => Math.abs(v - Math.round(v)) < 1e-6;
+  const ints = (v: readonly number[]): string => v.map((x) => String(Math.round(x) + 0)).join(" ");
+  if (k.every((v) => Math.abs(v) < 1e-9)) return ints(q);
+  const minus = q.map((v, i) => v - k[i]!);
+  if (minus.every(isInt)) return `${ints(minus)} + k`;
+  const plus = q.map((v, i) => v + k[i]!);
+  if (plus.every(isInt)) return `${ints(plus)} − k`;
+  return q.map((v) => String(+v.toFixed(3))).join(" ");
 }
 
 /** The least and greatest finite positive value, by a loop (a TOF file's 10⁵–10⁶ points overflow a spread into Math.min). */
@@ -117,7 +123,7 @@ export function powderResidual(input: PowderResidualInput): { residual: PowderRe
     if (magnetic) {
       const parent = input.phases.find((ph) => ph.id === magnetic.structureId) ?? input.phases[0];
       if (parent) {
-        reflections.push(...magneticLines(parent, magnetic, dMin, dMax).map((r) => ({ d: r.d, hkl: satelliteLabel(r.h, r.k, r.l), phaseLabel: `${parent.name || parent.id} magnetic` })));
+        reflections.push(...magneticLines(parent, magnetic, dMin, dMax).map((r) => ({ d: r.d, hkl: satelliteLabel([r.h, r.k, r.l], magnetic.propagation[0] ?? [0, 0, 0]), phaseLabel: `${parent.name || parent.id} magnetic` })));
       }
     }
   }
