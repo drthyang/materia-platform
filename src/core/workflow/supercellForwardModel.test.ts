@@ -153,7 +153,7 @@ describe("supercell forward model: a tilted SrTiO₃ child against the whole sup
         const rad = radiation === "neutron" ? { kind: "neutron" as const, wavelength: 1.5 } : ({ kind: "xray" as const, wavelength: 0.7107 } as never);
         for (let h = -hMax; h <= hMax; h++) for (let k = -hMax; k <= hMax; k++) for (let l = -hMax; l <= hMax; l++) {
           if (h === 0 && k === 0 && l === 0) continue;
-          const hp = [0, 1, 2].map((j) => 2 * (Pinv[0][j] * h + Pinv[1][j] * k + Pinv[2][j] * l)) as unknown as Vec3;
+          const hp = [0, 1, 2].map((j) => 2 * (Pinv[0][j]! * h + Pinv[1][j]! * k + Pinv[2][j]! * l)) as unknown as Vec3;
           const fc = nuclearStructureFactor(child, rad, h, k, l);
           const ic = fc.re * fc.re + fc.im * fc.im;
           if (hp.some((x) => Math.abs(x - Math.round(x)) > 1e-9)) {

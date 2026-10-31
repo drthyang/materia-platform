@@ -75,19 +75,19 @@ export function tiltDisplacement(X: Vec3, g: Glazer, scale: number, order: reado
   const rel: Vec3 = [X[0] - 0.5, X[1] - 0.5, X[2] - 0.5];
   // An oxygen sits half a cell from Ti_n along one axis: Ti_n − ½e_i.
   for (let i = 0; i < 3; i++) {
-    const t: Vec3 = [rel[0], rel[1], rel[2]];
-    t[i] += 0.5;
+    const t: [number, number, number] = [rel[0], rel[1], rel[2]];
+    t[i] = t[i]! + 0.5;
     if (!t.every(near) || near(rel[i]!)) continue;
     const n = t.map((x) => Math.round(x)) as unknown as Vec3;
     // ω(n) in the cube's axes: the system's axis a lies along order[a].
-    const omega: Vec3 = [0, 0, 0];
+    const omega: [number, number, number] = [0, 0, 0];
     for (let a = 0; a < 3; a++) {
       const axis = order[a]!;
       const sum = g.inPhase[a] ? n.reduce((s, x, b) => (b === axis ? s : s + x), 0) : n[0] + n[1] + n[2];
       omega[axis] = scale * g.phi[a]! * (sum % 2 === 0 ? 1 : -1);
     }
     // u = ω × (O − Ti_n), O − Ti_n = −½e_i (fractional; the cube's Cartesian frame is a·x).
-    const d: Vec3 = [0, 0, 0];
+    const d: [number, number, number] = [0, 0, 0];
     d[i] = -0.5;
     return [omega[1] * d[2] - omega[2] * d[1], omega[2] * d[0] - omega[0] * d[2], omega[0] * d[1] - omega[1] * d[0]];
   }
@@ -169,7 +169,7 @@ export function tiltedBlock(parent: StructureModel, g: Glazer, scale: number, or
         let adp = site.adp;
         if (adp.kind === "anisotropic") {
           const [par, perp] = [adp.uAniso[0], adp.uAniso[1]];
-          const diag: Vec3 = [perp, perp, perp];
+          const diag: [number, number, number] = [perp, perp, perp];
           diag[k] = par;
           adp = { kind: "anisotropic", uAniso: [diag[0], diag[1], diag[2], 0, 0, 0] };
         }
