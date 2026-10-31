@@ -55,7 +55,8 @@ k = 0, where magnetic intensity sits on nuclear reflections. So:
 2. `search_propagation_vector` ranks commensurate k by how many included peaks their
    satellites G ± k explain and how closely. Prefer the k that explains every peak with
    the simplest fractions; an impurity's lines will not fit any k — check them against a
-   second phase first.
+   second phase first. An applied model (`appliedModel`, e.g. an mCIF) leaves no residual
+   on its peaks: check its k with `nuclearOnly: true`.
 3. Set it (`set_propagation_vector`). k = 0 when the magnetic intensity sits on the nuclear
    reflections (the `k0Magnetic` hint, and the sample below its ordering temperature on
    neutron data); the k-search on the misfits' d confirms it.

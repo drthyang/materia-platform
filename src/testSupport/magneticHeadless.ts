@@ -12,8 +12,8 @@ import type { MagneticAgentHandle } from "@/agent/magneticPort";
 import { magneticComponentCurve } from "@/core/workflow/magneticPowder";
 import { powderCurves } from "@/core/workflow/powder";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
-import { MagneticStep, type StepInputs } from "@/app/magneticStep";
-import { powderMomentFit, powderPageCurves, refinedPhasesOf, residualPeaksOf, weightedR, withMagneticModelRows, withMagneticPreview, type FitWindow, type PowderCompute } from "@/app/powderPage";
+import { MagneticStep, type AppliedModelView, type StepInputs } from "@/app/magneticStep";
+import { magneticApplied, magneticModelSummary, powderMomentFit, powderPageCurves, refinedPhasesOf, residualPeaksOf, weightedR, withMagneticModelRows, withMagneticPreview, type FitWindow, type PowderCompute } from "@/app/powderPage";
 
 /** The curves of a session, the magnetic model's contribution included. */
 export function sessionCurves(s: Session): ReturnType<typeof powderCurves> {
@@ -25,6 +25,12 @@ export function sessionCurves(s: Session): ReturnType<typeof powderCurves> {
   const mag = magneticComponentCurve(s.structure, s.magnetic, s.pattern, s.powderParams, s.powderBindings, s.powderProfile);
   const yCalc = curves.yCalc.map((y, i) => y + (mag[i] ?? 0));
   return { ...curves, yCalc, diff: curves.yObs.map((o, i) => o - yCalc[i]!) };
+}
+
+/** The applied model as the step shows it (the panel's, from the same summary). */
+function appliedView(s: Session): AppliedModelView | null {
+  const m = magneticModelSummary(s);
+  return m ? { kLabel: m.kLabel, group: m.group, inCalc: m.inCalc } : null;
 }
 
 /** What the step reads off the page: the session and the fit window it applies. */
@@ -50,6 +56,8 @@ export function magneticHandle(
       // The panel works on the refined phase (the moments fit re-applies the rows onto the loaded one).
       structure: refinedPhasesOf(s)[0]!,
       residualPeaks: residualPeaksOf(s, opts.instrument),
+      ...(magneticApplied(s) ? { nuclearResidualPeaks: residualPeaksOf(s, opts.instrument, [], { nuclearOnly: true }) } : {}),
+      applied: appliedView(s),
       // A view-only TOF page, which the compute client does not refine, fits in this thread.
       fit: powderMomentFit(viewOnly ? null : opts.client ?? null, s, window),
       baselineAgreement: s.pattern.points.length > 0 ? weightedR(s, powderPageCurves(s).nuclear, window) : null,
