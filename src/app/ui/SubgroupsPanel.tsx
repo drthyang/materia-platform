@@ -11,8 +11,11 @@
  *
  * The irreps are Γ's and, for a centred parent, those at the decentring
  * k-points that keep the conventional cell (X for F, H for I, …), labelled
- * generically: the k-point, "irrep n of m" (ADR 0004). Cell-multiplying
- * k-points need a supercell (Phase 2) and are only named.
+ * generically: the k-point, "irrep n of m" (ADR 0004). The supercell view
+ * (SupercellView, Phase 2) sets a supercell bound and lists, inside it, the
+ * irreps at cell-multiplying k-points with their isotropy subgroups and the
+ * subgroup lattice, every child named; cell-multiplying children are not
+ * activated yet (their refinement needs the supercell forward model, phase 3).
  *
  * All start from the parent's own symmetry: while a choice is in force
  * it is shown with ✕ clear (withoutModes), and the pickers wait for it.
@@ -31,6 +34,8 @@ import { identifySubgroup } from "@/core/crystal/isotropyTree";
 import { sameCellSubgroups, type SameCellSubgroup } from "@/core/crystal/irreps/sameCellLattice";
 import type { KStar } from "@/core/crystal/irreps/spaceGroupIrreps";
 import { color, fz, mono, resetRangeBtn, uppercaseLabel } from "@/app/theme";
+import { SupercellView } from "@/app/ui/SupercellView";
+import type { SymmetryOperation } from "@/core/crystal/types";
 
 /** An isotropy subgroup of an irrep (one order-parameter direction, its conjugates counted), with a field that reaches it. */
 export type IrrepSubgroup = IsotropySubgroup & { readonly field: DisplacementField };
@@ -146,6 +151,8 @@ interface Props {
   readonly sameCell?: readonly SameCellNode[];
   /** The k-points that need a supercell, named for the note (supercellPointsOf). */
   readonly supercellNote?: string | null;
+  /** The parent's operations, for the supercell view (Phase 2); omitted, the view is not shown. */
+  readonly operations?: readonly SymmetryOperation[];
   readonly onActivateSameCell?: (node: SameCellNode) => void;
   /** The parent CIF or subgroup choice in force, or null at the parent's own symmetry. */
   readonly modes: ModesInForce | null;
@@ -168,7 +175,7 @@ export function supercellPointsOf(structure: StructureModel): string {
 
 type LatticeRow = { readonly t: SubgroupNode } | { readonly k: SameCellNode };
 
-export function SubgroupsPanel({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCell = [], supercellNote = null, onActivateSameCell, modes, modeCount, busy, onLoadParentCif, onActivateMode, onActivateSubgroup, onClear, onOpenModel }: Props): JSX.Element {
+export function SubgroupsPanel({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCell = [], supercellNote = null, operations, onActivateSameCell, modes, modeCount, busy, onLoadParentCif, onActivateMode, onActivateSubgroup, onClear, onOpenModel }: Props): JSX.Element {
   const levels = useMemo(() => {
     const byIndex = new Map<number, LatticeRow[]>();
     const add = (index: number, row: LatticeRow): void => {
@@ -324,9 +331,10 @@ export function SubgroupsPanel({ spaceGroup, lattice, irrepTree, decentringTree 
       )}
       {supercellNote && (
         <p style={{ marginTop: 6, marginBottom: 0, fontSize: 12, color: color.secondary }}>
-          {`Cell-multiplying k-points (${supercellNote}) need a supercell (planned).`}
+          {`Cell-multiplying k-points (${supercellNote}) enter with a supercell bound: set one below.`}
         </p>
       )}
+      {operations && operations.length > 0 && <SupercellView operations={operations} />}
 
       {/* Subgroup-driven: the translationengleiche lattice, by index. */}
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", marginTop: 10, marginBottom: 4 }}>
@@ -402,7 +410,7 @@ export function SubgroupsPanel({ spaceGroup, lattice, irrepTree, decentringTree 
         ))}
       </div>
       <p style={{ marginTop: 6, marginBottom: 0, fontSize: 12, color: color.secondary }}>
-        The subgroups that keep the conventional cell, each named in its standard setting: the translationengleiche ones with the parent's centring kept, and for a centred parent the decentring k-subgroups and the general ones (marked k or general, with the index split as point group · translations). Activating one splits the Wyckoff orbits and exposes the distortion modes that subgroup allows as amplitudes: at the parent's geometry χ² is stationary along every symmetry-breaking mode, so the order parameter that lowers the structure to it leads, free from a {ACTIVATION_KICK} Å start, and the others start at 0, fixed. Cell-multiplying subgroups need a supercell (planned).
+        The subgroups that keep the conventional cell, each named in its standard setting: the translationengleiche ones with the parent's centring kept, and for a centred parent the decentring k-subgroups and the general ones (marked k or general, with the index split as point group · translations). Activating one splits the Wyckoff orbits and exposes the distortion modes that subgroup allows as amplitudes: at the parent's geometry χ² is stationary along every symmetry-breaking mode, so the order parameter that lowers the structure to it leads, free from a {ACTIVATION_KICK} Å start, and the others start at 0, fixed. Cell-multiplying subgroups are listed in the supercell view above.
       </p>
     </div>
   );
