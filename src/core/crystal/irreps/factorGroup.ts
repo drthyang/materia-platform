@@ -227,6 +227,46 @@ export const kInBound = (group: FactorGroup, k: RVec): boolean => inDual(group.b
 export const kInSupercell = (group: FactorGroup, k: RVec): boolean => inDual(group.bound.supercell, k, group.bound.D);
 
 /**
+ * The canonical arm of k's star: of all its arms, the first in starsInBound's
+ * order, whatever the supercell. An irrep's number at a star ("irrep n of m")
+ * depends on the arm it is induced from, and starsInBound takes the first arm
+ * in the supercell's dual, which can differ between bounds; this one does not.
+ * For a bound whose supercell admits every arm (the default 2×2×2 of a cubic
+ * or hexagonal parent) the two agree.
+ */
+export function canonicalArm(group: FactorGroup, k: RVec): RVec {
+  const { core, D } = group.bound;
+  const m = exponent(core);
+  const M = m / gcd(m, D);
+  const rotations = pointGroupElements(group).map((i) => group.elements[i]!.W);
+  const arms: RVec[] = [];
+  for (const W of rotations) {
+    const kp = rotateK(W, k);
+    if (!arms.some((q) => equivalentK(group, q, kp))) arms.push(kp);
+  }
+  const values: number[] = [0];
+  for (let n = 1; n <= 2 * M; n++) {
+    values.push(n);
+    if (n <= M) values.push(-n);
+  }
+  const weight = (q: RVec): number => q.reduce((s, x) => s + Math.abs(x.n) * (M / x.d), 0);
+  const order = (q: RVec): number[] => [weight(q), ...q.map((x) => Math.abs(x.n) * (M / x.d)), ...q.map((x) => -x.n * (M / x.d))];
+  const less = (a: number[], b: number[]): boolean => {
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i]! < b[i]!;
+    return false;
+  };
+  let best: { k: RVec; order: number[] } | null = null;
+  for (const a of values) for (const b of values) for (const c of values) {
+    const q: RVec = [rat(a, M), rat(b, M), rat(c, M)];
+    if (!arms.some((arm) => equivalentK(group, arm, q))) continue;
+    const o = order(q);
+    if (best === null || less(o, best.order)) best = { k: q, order: o };
+  }
+  if (!best) throw new Error("canonicalArm: k is not in the bound");
+  return best.k;
+}
+
+/**
  * The stars of the k-points the bound admits, one representative each, Γ
  * first: the vectors of the core's dual modulo Λ*, grouped into orbits of the
  * point group, keeping the stars with an arm in the supercell's dual. The

@@ -45,7 +45,7 @@
  * the full authoritative labels (irrep index and branch).
  */
 
-import type { StructureModel, AtomSite } from "@/core/crystal/types";
+import type { StructureModel, AtomSite, UnitCell } from "@/core/crystal/types";
 import type { Mat3, Vec3 } from "@/core/math/types";
 import type { ParameterBinding, RefinementParameter } from "@/core/refinement/types";
 import { allowedPositionShifts } from "@/core/crystal/siteConstraints";
@@ -78,6 +78,44 @@ export interface DistortionMode {
    * observed distortion and hence no frozen mode) can state intent explicitly.
    */
   readonly active?: boolean;
+  /**
+   * The parent irrep and parent site the mode belongs to, for modes by parent
+   * irrep (subgroup engine phase 4: a supercell child, a decomposition, a mode
+   * CIF). Absent on the other mode sets.
+   */
+  readonly irrep?: ModeIrrep;
+}
+
+/** A mode's parent irrep and parent site (supercellModes.ts). */
+export interface ModeIrrep {
+  /** The irrep's label: MATERIA's generic one ("R irrep 4 of 10", ADR 0004), or an imported mode CIF's own. */
+  readonly label: string;
+  /** Its k-point, the star's representative arm, in the parent's conventional reciprocal basis. */
+  readonly k: Vec3;
+  /** The order-parameter direction the child allows, in the irrep's basis ("(a,a,a)"); absent for the identity irrep. */
+  readonly direction?: string;
+  /** The parent site the mode moves. */
+  readonly parentSite: string;
+}
+
+/**
+ * The parent a mode set's child descends from, and the child basis between
+ * them: what an ISODISTORT mode CIF records about the parent (supercell
+ * children, decompositions; phase 4).
+ */
+export interface ModeSetParent {
+  readonly name: string;
+  readonly hermannMauguin?: string;
+  readonly number?: number;
+  readonly cell: UnitCell;
+  /** Lattice points per conventional parent cell. */
+  readonly centring: number;
+  /** P_H: the child's axes as columns, in the parent's basis. */
+  readonly basis: Mat3;
+  /** p_H: the child's origin in the parent's coordinates. */
+  readonly origin: Vec3;
+  /** The parent's sites: label, element, and Wyckoff letter where the table has it. */
+  readonly sites: readonly { readonly label: string; readonly element: string; readonly wyckoff?: string }[];
 }
 
 export interface DistortionModeSet {
@@ -109,6 +147,8 @@ export interface DistortionModeSet {
    * comment). Absent: both are the set's own structure's.
    */
   readonly amplitudeCells?: { readonly child: number; readonly parent: number };
+  /** The parent and child basis, for modes by parent irrep (a mode CIF writes them); absent on the other sets. */
+  readonly parent?: ModeSetParent;
 }
 
 /** ISODISTORT's amplitudes of a MATERIA amplitude A (conventional child cell): A_s over the primitive child cell, A_p normalized to the parent. */
