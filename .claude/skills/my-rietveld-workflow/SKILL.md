@@ -148,7 +148,7 @@ The sequence is **atoms before profile**. Free parameters in this order — over
    misfit as fake broadening. A *quick* pass: the positional gain is often
    small and the profile the bigger lever.
 3. **Profile** — now the peak shape: Caglioti `W` → `U, V` → the Lorentzian size/strain
-   `X, Y` is a reasonable order, *not* a rigid one: free what the residual needs. `U`
+   `X, Y` (TOF: α β σ + zero) is an order, *not* a rigid one: free what the residual needs. `U`
    correlates strongly with sample broadening and is often held on a narrow 2θ range, but
    free it when a genuine width mismatch demands it.
 4. **ADPs** — with the instrument's terms fixed (the guardrail below), then the two groups alternate. `B_iso` first; **anisotropic only as
@@ -182,9 +182,9 @@ it; a start far off goes back to the Prefit (Stage 0, step 4).
 
 **Asymmetry is profile.** CW: a one-sided low-angle residual is axial
 divergence (`set_corrections` asymmetry; S/L with Caglioti). TOF: β₁ then
-β₀. Negative X or Y: `reset_parameters`, hold. On TOF the zero, α₁ and σ₀² stay at
-calibration until the **final profile pass** (cell held; a last tweak: physical
-values barely move; `rietveld_notes`). Paired residuals at one d: `set_microstrain` generalized.
+β₀. Negative X or Y: `reset_parameters`, hold. TOF: every α β σ term and the zero
+refine in stage 3 (cell held, the B's fixed); the **final profile pass** repeats it
+(`rietveld_notes`). Paired residuals at one d: `set_microstrain` generalized.
 
 **When the starting profile is far off, the profile comes before the positions.** When
 `diagnose_fit` measures the lines much broader (or narrower) than calculated

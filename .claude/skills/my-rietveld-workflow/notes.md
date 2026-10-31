@@ -103,7 +103,10 @@ are reported as held (no esd), with where they came from and the free isotropic 
 
 **TOF profile.** Asymmetry: β₁, then β₀, for one-sided residuals on the worst reflections;
 check it before an antisite test when a B is at 0. The zero and α₁ go with the cell, and σ₀²
-correlates with mustrain: all three stay at the calibration values until the final pass.
+correlates with mustrain, so they refine in the profile stage with the cell held, in turn with
+the B values and the microstrain (each held while the others refine): a calibration from a
+standard rarely matches the sample's lines well enough to hold until the end, and
+held to the last they leave the final pass too much to do. The final pass repeats them.
 
 **Final TOF profile pass.** Once the structure and any magnetic model are in, hold the
 background and the cell. Free the whole TOF profile together (α₀, α₁, β₀, β₁, β_q, σ₀²,

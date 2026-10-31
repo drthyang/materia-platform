@@ -627,7 +627,16 @@ release fixes bugs.
   lasts for the session, until a new structure is loaded.
 
 ### Changed
--- **The magnetic step finds the weaker magnetic lines beside a strong
+- **On TOF the instrument's terms refine with the profile, not only at the
+  end.** The Rietveld workflow skill used to hold the zero, α₁ and σ₀² at the
+  instrument file's calibration until the final profile pass. Stage 3 (the
+  profile) now frees every α β σ term and the zero with the cell held, in
+  turn with the B values and the microstrain under the existing firm rules;
+  the final pass repeats them. A calibration from a standard rarely fits the
+  sample's lines that well, and held to the end it left the final pass too
+  much to do.
+
+- **The magnetic step finds the weaker magnetic lines beside a strong
   misfit.** With the file's σ, its residual-peak detector now tests each
   peak against its own noise (5σ) with no floor at 8 % of the largest
   residual, as the assessment's residual reader already did. On AWO₄ at
