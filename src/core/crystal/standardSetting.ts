@@ -163,7 +163,7 @@ const dotG = (g: Mat3, a: Vec3, b: Vec3): number => {
 };
 
 /** The candidate conventional cells of a group, from its own symmetry directions. */
-export function conventionalCells(ops: readonly SymmetryOperation[]): Mat3[] {
+export function conventionalCells(ops: readonly SymmetryOperation[], options: { readonly cubicSwap?: boolean } = {}): Mat3[] {
   const rotations = new Map<string, Mat3>();
   for (const op of ops) rotations.set(rotKey(op.rotation), op.rotation);
   const rots = [...rotations.values()];
@@ -201,8 +201,12 @@ export function conventionalCells(ops: readonly SymmetryOperation[]): Mat3[] {
       const dominant = (v: Vec3): number => [0, 1, 2].reduce((m, i) => (Math.abs(v[i]!) > Math.abs(v[m]!) ? i : m), 0);
       const sorted = [...axes].sort((u, v) => dominant(u) - dominant(v));
       const [a, b, c] = sorted.map((d) => shortestAlong(d, centring)) as [V3, V3, V3];
-      cells.push(right(a, b, c));
+      // With cubicSwap, the other axis order (a, c, b): Pa-3 and Ia-3 lack the 4-fold that
+      // relates their two settings, so a child can sit in the one the table does not list.
+      cells.push(options.cubicSwap ? right(a, c, b) : right(a, b, c));
     }
+  } else if (options.cubicSwap) {
+    return [];
   } else if (threes.length === 1 || sixes.length === 1) {
     // Trigonal or hexagonal: c along the axis, a ⟂ it, b = 3·a.
     const main = sixes[0] ?? threes[0]!;
@@ -347,10 +351,22 @@ export function standardSettingOf(
   ops: readonly SymmetryOperation[],
   options: { readonly originGrids?: readonly number[] } = {},
 ): StandardSettingMatch | null {
+  const match = standardSettingIn(ops, options, false);
+  if (match || ops.length === 0) return match;
+  // Only when nothing matched: a cubic group in the other axis order (Pa-3, Ia-3).
+  return standardSettingIn(ops, options, true);
+}
+
+function standardSettingIn(
+  ops: readonly SymmetryOperation[],
+  options: { readonly originGrids?: readonly number[] },
+  cubicSwap: boolean,
+): StandardSettingMatch | null {
   const grids = options.originGrids ?? ORIGIN_GRIDS;
   if (ops.length === 0) return null;
   const centring = latticeCentring(ops);
-  const cells = conventionalCells(ops);
+  const cells = conventionalCells(ops, { cubicSwap });
+  if (cubicSwap && cells.length === 0) return null;
   const zero: Vec3 = [0, 0, 0];
   // A reference setting wins (unshifted before shifted); else the first match
   // in any setting, unshifted first.
