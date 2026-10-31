@@ -27,8 +27,10 @@ import type { SymmetryOperation } from "@/core/crystal/types";
 import { symmetricEigenDecomposition } from "@/core/math/linalg";
 import { identifySubgroup, type SubgroupIdentity } from "@/core/crystal/isotropyTree";
 import { pointGroupElements, type FactorGroup } from "@/core/crystal/irreps/factorGroup";
+import { keepsConventionalCell, nameChild, subgroupLattice } from "@/core/crystal/irreps/childSetting";
+import { inDual } from "@/core/crystal/irreps/supercell";
 import type { PhysicalIrrep } from "@/core/crystal/irreps/spaceGroupIrreps";
-import { ikey, iIsIdentity } from "@/core/crystal/irreps/rational";
+import { ikey, iIsIdentity, vfrom } from "@/core/crystal/irreps/rational";
 
 /** A direction of the order parameter: the subspace of the irrep's carrier space an isotropy subgroup fixes. */
 export interface OrderParameterDirection {
@@ -61,6 +63,25 @@ export interface IrrepIsotropySubgroup {
   readonly index: IndexSplit;
   /** The name in ITA standard setting, with (P_H, p_H) when the cell or origin differs from the parent's. */
   readonly identity: SubgroupIdentity;
+  /** True when the child loses translations of the conventional cell (its realisation needs the supercell, phase 3). */
+  readonly cellMultiplying: boolean;
+  /** The arms of the star the direction involves (1-based, in the star's arm order). */
+  readonly activeArms: readonly number[];
+}
+
+/**
+ * The arms of the star a subgroup's distortion is built from: the arms k_j
+ * with k_j·t ∈ ℤ for every translation t the subgroup keeps (1-based, in
+ * the star's order) — the waves its lattice admits. Basis-independent: the
+ * real form of a real irrep can mix an arm with its partner at −k.
+ */
+function activeArms(group: FactorGroup, elements: readonly number[], pir: PhysicalIrrep): number[] {
+  const lattice = subgroupLattice(group, elements);
+  const out: number[] = [];
+  pir.starArms.forEach((k, j) => {
+    if (inDual(lattice, vfrom(k, 48), group.bound.D)) out.push(j + 1);
+  });
+  return out;
 }
 
 export interface IsotropyAnalysis {
@@ -71,6 +92,8 @@ export interface IsotropyAnalysis {
 }
 
 const EPS = 1e-8;
+/** Images up to this order take the full closure (every Phase 1 image does: |F| ≤ 192 there); larger ones the orbit-wise closure. */
+const SMALL_IMAGE = 192;
 
 type Vec = number[];
 
@@ -169,11 +192,11 @@ const lexLess = (a: readonly number[], b: readonly number[]): boolean => {
   return a.length < b.length;
 };
 
-/** The subgroup's index split into its point-group and translation factors. */
+/** The subgroup's index split into its point-group and translation factors (k = |T/T″| / |T_H/T″|). */
 export function indexSplit(group: FactorGroup, elements: readonly number[]): IndexSplit {
   const rotations = new Set(elements.map((i) => ikey(group.elements[i]!.W)));
   const translations = elements.filter((i) => iIsIdentity(group.elements[i]!.W)).length;
-  return { t: pointGroupElements(group).length / rotations.size, k: group.centrings.length / translations };
+  return { t: pointGroupElements(group).length / rotations.size, k: group.translations.length / translations };
 }
 
 /**
@@ -198,25 +221,23 @@ export function isotropySubgroups(group: FactorGroup, pir: PhysicalIrrep): Isotr
     const fix = fixedSpace(pir.matrices[f]!, n);
     if (fix.length > 0) spaces.set(projectorKey(fix, n), fix);
   }
-  let frontier = [...spaces.values()];
-  while (frontier.length > 0) {
-    const next: Vec[][] = [];
-    const all = [...spaces.values()];
-    for (const a of frontier) {
-      for (const b of all) {
-        const c = intersect(a, b, n);
-        if (c.length === 0) continue;
-        const key = projectorKey(c, n);
-        if (!spaces.has(key)) {
-          spaces.set(key, c);
-          next.push(c);
-        }
-      }
+  // a ⊆ b when b's projector fixes a's basis: then a ∩ b is a or b, already listed, and no
+  // eigendecomposition is needed (the closure, and the order it lists the spaces in, are unchanged).
+  const projectors = new Map<Vec[], number[][]>();
+  const projectorOf = (b: Vec[]): number[][] => {
+    let P = projectors.get(b);
+    if (!P) {
+      P = projector(b, n);
+      projectors.set(b, P);
     }
-    frontier = next;
-  }
-  // Each subspace's isotropy subgroup: the elements fixing it pointwise.
-  const found = [...spaces.values()].map((basis) => {
+    return P;
+  };
+  const within = (a: readonly Vec[], b: Vec[]): boolean => {
+    const P = projectorOf(b);
+    return a.every((v) => P.every((row, i) => Math.abs(row.reduce((t, x, j) => t + x * v[j]!, 0) - v[i]!) < 1e-7));
+  };
+  // The elements fixing a subspace pointwise: its isotropy subgroup.
+  const stabilizerOf = (basis: readonly Vec[]): number[] => {
     const elements: number[] = [];
     for (let f = 0; f < F; f++) {
       const D = pir.matrices[f]!;
@@ -230,29 +251,118 @@ export function isotropySubgroups(group: FactorGroup, pir: PhysicalIrrep): Isotr
       });
       if (fixesAll) elements.push(f);
     }
-    return { basis, elements, key: elements.join(",") };
-  });
-  // Conjugacy classes under F.
-  const byKey = new Map(found.map((x) => [x.key, x] as const));
-  const classes: (typeof found)[] = [];
-  const seen = new Set<string>();
-  for (const x of found) {
-    if (seen.has(x.key)) continue;
-    const members: typeof found = [];
-    for (let g = 0; g < F; g++) {
-      const conj = x.elements.map((h) => group.table[group.table[g]![h]!]![group.inverse[g]!]!).sort((a, b) => a - b).join(",");
-      const m = byKey.get(conj);
-      if (!m) throw new Error("isotropy: a conjugate of an isotropy subgroup is not one");
-      if (!members.includes(m)) members.push(m);
-      seen.add(conj);
+    return elements;
+  };
+  type Member = { basis: Vec[]; elements: number[]; key: string };
+  const classes: Member[][] = imageKeys.size <= SMALL_IMAGE ? closureClasses() : orbitClasses();
+
+  /** Phase 1's route: the whole intersection closure, then the conjugacy classes of the subgroups. */
+  function closureClasses(): Member[][] {
+    let frontier = [...spaces.values()];
+    while (frontier.length > 0) {
+      const next: Vec[][] = [];
+      const all = [...spaces.values()];
+      for (const a of frontier) {
+        for (const b of all) {
+          if (within(a, b) || within(b, a)) continue;
+          const c = intersect(a, b, n);
+          if (c.length === 0) continue;
+          const key = projectorKey(c, n);
+          if (!spaces.has(key)) {
+            spaces.set(key, c);
+            next.push(c);
+          }
+        }
+      }
+      frontier = next;
     }
-    classes.push(members);
+    const found: Member[] = [...spaces.values()].map((basis) => {
+      const elements = stabilizerOf(basis);
+      return { basis, elements, key: elements.join(",") };
+    });
+    // Conjugacy classes under F.
+    const byKey = new Map(found.map((x) => [x.key, x] as const));
+    const out: Member[][] = [];
+    const seen = new Set<string>();
+    for (const x of found) {
+      if (seen.has(x.key)) continue;
+      const members: Member[] = [];
+      for (let g = 0; g < F; g++) {
+        const conj = x.elements.map((h) => group.table[group.table[g]![h]!]![group.inverse[g]!]!).sort((a, b) => a - b).join(",");
+        const m = byKey.get(conj);
+        if (!m) throw new Error("isotropy: a conjugate of an isotropy subgroup is not one");
+        if (!members.includes(m)) members.push(m);
+        seen.add(conj);
+      }
+      out.push(members);
+    }
+    return out;
+  }
+
+  /**
+   * For a large image group: the closure up to the group's action. Every
+   * fixed space is an intersection of single elements' fixed spaces, and
+   * g·(a ∩ Fix(f)) = g·a ∩ Fix(gfg⁻¹), so intersecting one representative of
+   * each orbit with every single fixed space reaches every orbit; an orbit is
+   * recorded whole (its images under the image group) so a conjugate is
+   * never taken for a new class.
+   */
+  function orbitClasses(): Member[][] {
+    const singles = [...spaces.values()].filter((b) => b.length < n);
+    const imageElements = [...imageKeys.values()];
+    const orbitOf = new Map<string, number>();
+    const reps: Vec[][] = [];
+    const apply = (f: number, basis: readonly Vec[]): Vec[] => {
+      const D = pir.matrices[f]!;
+      return basis.map((v) => Array.from({ length: n }, (_, i) => {
+        let t = 0;
+        for (let j = 0; j < n; j++) t += D[i * n + j]! * v[j]!;
+        return t;
+      }));
+    };
+    const addOrbit = (basis: Vec[]): boolean => {
+      if (orbitOf.has(projectorKey(basis, n))) return false;
+      const id = reps.length;
+      reps.push(basis);
+      for (const f of imageElements) orbitOf.set(projectorKey(apply(f, basis), n), id);
+      return true;
+    };
+    addOrbit(whole);
+    for (const s of singles) addOrbit(s);
+    let frontier = [...reps];
+    while (frontier.length > 0) {
+      const next: Vec[][] = [];
+      for (const a of frontier) {
+        for (const b of singles) {
+          if (within(a, b) || within(b, a)) continue;
+          const c = intersect(a, b, n);
+          if (c.length === 0) continue;
+          if (addOrbit(c)) next.push(c);
+        }
+      }
+      frontier = next;
+    }
+    // Each orbit's members: the conjugate subgroups, in the order of the conjugating elements.
+    return reps.map((rep) => {
+      const elements = stabilizerOf(rep);
+      const members: Member[] = [];
+      const seen = new Set<string>();
+      for (let g = 0; g < F; g++) {
+        const conj = elements.map((h) => group.table[group.table[g]![h]!]![group.inverse[g]!]!).sort((a, b) => a - b);
+        const key = conj.join(",");
+        if (seen.has(key)) continue;
+        seen.add(key);
+        members.push({ basis: apply(g, rep), elements: conj, key });
+      }
+      return members;
+    });
   }
 
   const subgroups = classes.map((members) => {
     const named = members.map((m) => {
       const operations = m.elements.map((i) => group.operations[i]!);
-      return { m, operations, direct: identifySubgroup(operations, group.operations).method === "direct" };
+      const direct = keepsConventionalCell(group, m.elements) && identifySubgroup(operations, group.parentOperations).method === "direct";
+      return { m, operations, direct };
     });
     let rep = named[0]!;
     for (const c of named.slice(1)) {
@@ -282,7 +392,9 @@ export function isotropySubgroups(group: FactorGroup, pir: PhysicalIrrep): Isotr
       orientationStates: members.length,
       domainStates: F / rep.m.elements.length,
       index: indexSplit(group, rep.m.elements),
-      identity: identifySubgroup(rep.operations, group.operations, { standard: true }),
+      identity: nameChild(group, rep.m.elements),
+      cellMultiplying: !keepsConventionalCell(group, rep.m.elements),
+      activeArms: activeArms(group, rep.m.elements, pir),
     } satisfies IrrepIsotropySubgroup;
   });
   subgroups.sort((a, b) => a.direction.dim - b.direction.dim || a.domainStates - b.domainStates || (a.identity.number ?? 999) - (b.identity.number ?? 999) || (a.direction.symbol < b.direction.symbol ? -1 : a.direction.symbol > b.direction.symbol ? 1 : 0));

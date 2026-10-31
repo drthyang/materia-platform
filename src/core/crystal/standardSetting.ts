@@ -30,7 +30,9 @@
  * lattice re-expressed in the new cell (its new centring vectors), and the
  * set is matched against every tabulated setting (spaceGroupData, 564
  * settings): a reference setting is preferred, and origin shifts on a ⅛ grid
- * of the original cell are tried when no unshifted cell matches.
+ * of the original cell are tried when no unshifted cell matches (finer grids
+ * on request: a supercell child's primitive cell is larger than the parent's,
+ * so the parent's ⅛ is a 1/16 or finer there).
  * "Perpendicular" and "shortest" use the metric G = Σ WᵀW, which the group
  * leaves invariant: a 3-, 4- or 6-fold axis fixes the metric of its plane up
  * to a scale, so the shortest perpendicular vector is the cell's; where the
@@ -161,7 +163,7 @@ const dotG = (g: Mat3, a: Vec3, b: Vec3): number => {
 };
 
 /** The candidate conventional cells of a group, from its own symmetry directions. */
-export function conventionalCells(ops: readonly SymmetryOperation[]): Mat3[] {
+export function conventionalCells(ops: readonly SymmetryOperation[], options: { readonly cubicSwap?: boolean } = {}): Mat3[] {
   const rotations = new Map<string, Mat3>();
   for (const op of ops) rotations.set(rotKey(op.rotation), op.rotation);
   const rots = [...rotations.values()];
@@ -199,8 +201,12 @@ export function conventionalCells(ops: readonly SymmetryOperation[]): Mat3[] {
       const dominant = (v: Vec3): number => [0, 1, 2].reduce((m, i) => (Math.abs(v[i]!) > Math.abs(v[m]!) ? i : m), 0);
       const sorted = [...axes].sort((u, v) => dominant(u) - dominant(v));
       const [a, b, c] = sorted.map((d) => shortestAlong(d, centring)) as [V3, V3, V3];
-      cells.push(right(a, b, c));
+      // With cubicSwap, the other axis order (a, c, b): Pa-3 and Ia-3 lack the 4-fold that
+      // relates their two settings, so a child can sit in the one the table does not list.
+      cells.push(options.cubicSwap ? right(a, c, b) : right(a, b, c));
     }
+  } else if (options.cubicSwap) {
+    return [];
   } else if (threes.length === 1 || sixes.length === 1) {
     // Trigonal or hexagonal: c along the axis, a ⟂ it, b = 3·a.
     const main = sixes[0] ?? threes[0]!;
@@ -341,10 +347,26 @@ const ORIGIN_GRIDS = [8, 24] as const;
  * cells (see the module comment), a reference setting preferred; null when
  * none does. The caller tries its operations as given first (a direct match).
  */
-export function standardSettingOf(ops: readonly SymmetryOperation[]): StandardSettingMatch | null {
+export function standardSettingOf(
+  ops: readonly SymmetryOperation[],
+  options: { readonly originGrids?: readonly number[] } = {},
+): StandardSettingMatch | null {
+  const match = standardSettingIn(ops, options, false);
+  if (match || ops.length === 0) return match;
+  // Only when nothing matched: a cubic group in the other axis order (Pa-3, Ia-3).
+  return standardSettingIn(ops, options, true);
+}
+
+function standardSettingIn(
+  ops: readonly SymmetryOperation[],
+  options: { readonly originGrids?: readonly number[] },
+  cubicSwap: boolean,
+): StandardSettingMatch | null {
+  const grids = options.originGrids ?? ORIGIN_GRIDS;
   if (ops.length === 0) return null;
   const centring = latticeCentring(ops);
-  const cells = conventionalCells(ops);
+  const cells = conventionalCells(ops, { cubicSwap });
+  if (cubicSwap && cells.length === 0) return null;
   const zero: Vec3 = [0, 0, 0];
   // A reference setting wins (unshifted before shifted); else the first match
   // in any setting, unshifted first.
@@ -373,14 +395,14 @@ export function standardSettingOf(ops: readonly SymmetryOperation[]): StandardSe
     const probes = ops.filter((op) => !isIdentityMatrix(op.rotation)).slice(0, 3);
     shiftedCells.push({ cell, candidates, probes });
   }
-  for (const grid of ORIGIN_GRIDS) {
+  for (const grid of grids) {
     for (const { cell, candidates, probes } of shiftedCells) {
       for (let a = 0; a < grid; a++) {
         for (let b = 0; b < grid; b++) {
           for (let c = 0; c < grid; c++) {
             if (a === 0 && b === 0 && c === 0) continue;
             // The coarser grid's points were tried already.
-            if (grid !== ORIGIN_GRIDS[0] && (a * 8) % grid === 0 && (b * 8) % grid === 0 && (c * 8) % grid === 0) continue;
+            if (grid !== grids[0] && grids.slice(0, grids.indexOf(grid)).some((g) => grid % g === 0 && (a * g) % grid === 0 && (b * g) % grid === 0 && (c * g) % grid === 0)) continue;
             const origin: Vec3 = [a / grid, b / grid, c / grid];
             const probe = inCell(probes, cell, origin, [[0, 0, 0]]);
             if (!probe) continue;

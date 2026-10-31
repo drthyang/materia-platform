@@ -1,5 +1,6 @@
 # The ISOTROPY oracle (opt-in, ADR 0005): MATERIA's isotropy subgroups at the
-# Phase-1 k-points against the ISOTROPY Suite's (iso.byu.edu). ISOTROPY for
+# Phase-1 k-points and Phase 2's cell-multiplying ones (Pm-3m X, M, R; Fm-3m
+# L, W) against the ISOTROPY Suite's (iso.byu.edu). ISOTROPY for
 # Linux states no licence, so it is downloaded here at run time and never
 # committed. Run it from the Actions tab or `gh workflow run isotropy-oracle.yml`.
 name: ISOTROPY oracle
@@ -10,7 +11,7 @@ on:
 jobs:
   oracle:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

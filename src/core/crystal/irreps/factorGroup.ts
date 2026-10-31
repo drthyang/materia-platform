@@ -1,27 +1,41 @@
 /**
  * The finite group the irreps, the isotropy subgroups and the subgroup
- * lattice live in: the parent group modulo the translations of a supercell
- * bound, F = G/T_P (ADR 2; docs/research/SUBGROUP_ENGINES.md §6(a)).
+ * lattice live in: the parent group modulo the translations of the point-group
+ * core of a supercell bound, F = G/T″ (ADR 0002; supercell.ts;
+ * docs/research/SUBGROUP_ENGINES.md §6(a) and Implications item 1).
  *
- * Phase 1 bounds every search by the conventional cell itself, T_P = ℤ³. A
- * space group's operation list is then already F: one element per operation,
- * the centring translations included, composed modulo the integer
- * translations (Fm-3m: 48 × 4 = 192 elements). The k-points the bound admits
- * are the reciprocal vectors k with k·t ∈ ℤ for every t ∈ ℤ³ — the integer
- * vectors — taken modulo the parent's reciprocal lattice Λ*: Γ, and for a
- * centred lattice the decentring points that keep the conventional cell
- * (X for F, H for I, (1,0,0) for C, (0,0,1) for R on hexagonal axes).
+ * Without a bound, F is Phase 1's G/ℤ³: the space group's operation list
+ * itself, one element per operation, the centring translations included,
+ * composed modulo the integer translations (Fm-3m: 48 × 4 = 192 elements).
+ * With a supercell P (the 2×2×2 conventional cell by default in the app),
+ * every operation is taken with every translation of T/T″: Pm-3m in 2×2×2,
+ * 48 × 8 = 384 elements; Fm-3m, 48 × 32 = 1536. Element i < |operations|
+ * is still operation i, so a bound of P = I gives Phase 1's group exactly.
+ *
+ * The k-points the bound admits are the reciprocal vectors k with k·t ∈ ℤ
+ * for every t ∈ T″ (taken modulo the parent's reciprocal lattice Λ*), and the
+ * stars listed are those with an arm in the supercell's dual (k·t ∈ ℤ for
+ * every t ∈ T′): with P = I, Γ and the decentring points that keep the
+ * conventional cell; with 2×2×2, Pm-3m's X, M and R and Fm-3m's L, W and X.
  */
 
 import type { SymmetryOperation } from "@/core/crystal/types";
+import { formatOperationXyz } from "@/core/crystal/symmetry";
 import {
-  compose, exactOp, iinv, ikey, iIsIdentity, invert, itransMulVec, risInt, vdot, vkey, vmod1, vsub, rat, type ExactOp, type RVec,
+  exactOp, iinv, ikey, iIsIdentity, imul, itransMulVec, risInt, vdot, vmod1, vsub, rat, rnum, type ExactOp, type IMat, type RVec,
 } from "@/core/crystal/irreps/rational";
+import {
+  boundLattices, cosets, exponent, iapply, inDual, reduceMod, scaleVec, unscaleVec, CONVENTIONAL_CELL, type BoundLattices, type IVec, type SupercellMatrix, type SupercellSpec,
+} from "@/core/crystal/irreps/supercell";
 
 export interface FactorGroup {
-  /** The parent's operations, one per element (element i is operations[i]). */
+  /**
+   * One operation per element: element i < |parent operations| is the
+   * parent's operation i; with a supercell bound the others carry the
+   * translations of T/T″ (their translation is the element's, below).
+   */
   readonly operations: readonly SymmetryOperation[];
-  /** The elements exactly, translations in [0, 1). */
+  /** The elements exactly, translations reduced modulo T″ (in [0, 1) without a bound). */
   readonly elements: readonly ExactOp[];
   /** elements[a]·elements[b] = elements[table[a][b]]. */
   readonly table: readonly (readonly number[])[];
@@ -29,34 +43,100 @@ export interface FactorGroup {
   readonly identity: number;
   /** The parent lattice's translations modulo ℤ³ (its centring vectors), zero first. */
   readonly centrings: readonly RVec[];
+  /** The pure translations of F (T/T″), as element indices, the identity first. */
+  readonly translations: readonly number[];
+  /** The bound's lattices (T, T′, T″), scaled. */
+  readonly bound: BoundLattices;
+  /** The parent's operation list, as given. */
+  readonly parentOperations: readonly SymmetryOperation[];
 }
 
-const elementKey = (op: ExactOp): string => `${ikey(op.W)}|${vkey(vmod1(op.w))}`;
-
-/** The parent group modulo the conventional cell's translations, from its operation list. */
-export function factorGroup(operations: readonly SymmetryOperation[]): FactorGroup {
+/**
+ * The parent group modulo the bound's core T″ (see the module comment). With
+ * no supercell the bound is the conventional cell (Phase 1's group).
+ */
+export function factorGroup(operations: readonly SymmetryOperation[], supercell: SupercellMatrix | SupercellSpec = CONVENTIONAL_CELL): FactorGroup {
   if (operations.length === 0) throw new Error("factorGroup: no operations");
-  const elements = operations.map((op) => {
-    const e = exactOp(op);
-    return { W: e.W, w: vmod1(e.w) };
-  });
-  const index = new Map<string, number>();
-  elements.forEach((e, i) => {
-    const key = elementKey(e);
-    if (index.has(key)) throw new Error(`factorGroup: operation ${operations[i]!.xyz} is listed twice`);
-    index.set(key, i);
-  });
-  const table = elements.map((a) => elements.map((b) => {
-    const c = index.get(elementKey(compose(a, b)));
-    if (c === undefined) throw new Error("factorGroup: the operations are not closed modulo the lattice");
-    return c;
+  const exact = operations.map(exactOp);
+  const centrings: RVec[] = [];
+  for (const e of exact) {
+    if (!iIsIdentity(e.W)) continue;
+    const c = vmod1(e.w);
+    if (!centrings.some((q) => vsub(q, c).every((x) => x.n === 0))) centrings.push(c);
+  }
+  if (!centrings.some((c) => c.every((x) => x.n === 0))) centrings.push([rat(0), rat(0), rat(0)]);
+  centrings.sort((a, b) => Number(b.every((x) => x.n === 0)) - Number(a.every((x) => x.n === 0)));
+  // The distinct rotations, indexed, with their product table.
+  const rotKeys = new Map<string, number>();
+  const rots: IMat[] = [];
+  for (const e of exact) {
+    const key = ikey(e.W);
+    if (!rotKeys.has(key)) {
+      rotKeys.set(key, rots.length);
+      rots.push(e.W);
+    }
+  }
+  const rotTable = rots.map((A) => rots.map((B) => {
+    const r = rotKeys.get(ikey(imul(A, B)));
+    if (r === undefined) throw new Error("factorGroup: the rotations are not closed");
+    return r;
   }));
+  const bound = boundLattices(supercell, centrings, exact.map((e) => e.w), rots);
+  const { D, core } = bound;
+  // Elements as (rotation, scaled translation reduced modulo T″), keyed by an integer.
+  const span = [core[0][0], core[1][1], core[2][2]] as const;
+  const tKey = (v: IVec): number => v[0] + span[0] * (v[1] + span[1] * v[2]);
+  const keyOf = (r: number, v: IVec): number => r * span[0] * span[1] * span[2] + tKey(v);
+  const shifts = cosets(bound.parent, core);
+  const rotOf: number[] = [];
+  const trans: IVec[] = [];
+  const index = new Map<number, number>();
+  const ops: SymmetryOperation[] = [];
+  for (const t of shifts) {
+    exact.forEach((e, i) => {
+      const r = rotKeys.get(ikey(e.W))!;
+      const s0 = scaleVec(e.w, D);
+      const v = reduceMod(core, [s0[0] + t[0], s0[1] + t[1], s0[2] + t[2]]);
+      const key = keyOf(r, v);
+      if (index.has(key)) {
+        if (t === shifts[0]) throw new Error(`factorGroup: operation ${operations[i]!.xyz} is listed twice`);
+        return;
+      }
+      index.set(key, rotOf.length);
+      rotOf.push(r);
+      trans.push(v);
+      if (t === shifts[0] && shifts.length === centrings.length) ops.push(operations[i]!);
+      else {
+        const w = unscaleVec(v, D);
+        const translation = [rnum(w[0]), rnum(w[1]), rnum(w[2])] as const;
+        ops.push({ rotation: operations[i]!.rotation, translation: [...translation], xyz: formatOperationXyz(operations[i]!.rotation, [...translation]) });
+      }
+    });
+  }
+  const n = rotOf.length;
+  if (n !== rots.length * shifts.length) {
+    throw new Error("factorGroup: the operations are not closed modulo the lattice");
+  }
+  const elements: ExactOp[] = rotOf.map((r, i) => ({ W: rots[r]!, w: unscaleVec(trans[i]!, D) }));
+  const table = rotOf.map((ra, a) => {
+    const row = new Array<number>(n);
+    const Wa = rots[ra]!;
+    const ta = trans[a]!;
+    for (let b = 0; b < n; b++) {
+      const wb = iapply(Wa, trans[b]!);
+      const v = reduceMod(core, [ta[0] + wb[0], ta[1] + wb[1], ta[2] + wb[2]]);
+      const c = index.get(keyOf(rotTable[ra]![rotOf[b]!]!, v));
+      if (c === undefined) throw new Error("factorGroup: the operations are not closed modulo the lattice");
+      row[b] = c;
+    }
+    return row;
+  });
   const identity = elements.findIndex((e) => iIsIdentity(e.W) && e.w.every((x) => x.n === 0));
   if (identity < 0) throw new Error("factorGroup: no identity operation");
-  const inverse = elements.map((e) => index.get(elementKey(invert(e)))!);
-  const centrings = elements.filter((e) => iIsIdentity(e.W)).map((e) => e.w);
-  centrings.sort((a, b) => Number(b.every((x) => x.n === 0)) - Number(a.every((x) => x.n === 0)));
-  return { operations, elements, table, inverse, identity, centrings };
+  const inverse = table.map((row) => row.indexOf(identity));
+  const translations = elements.map((e, i) => (iIsIdentity(e.W) ? i : -1)).filter((i) => i >= 0);
+  translations.sort((a, b) => Number(b === identity) - Number(a === identity));
+  return { operations: ops, elements, table, inverse, identity, centrings, translations, bound, parentOperations: operations };
 }
 
 /** True when k − k′ is a vector of the parent's reciprocal lattice Λ*. */
@@ -68,6 +148,13 @@ export function equivalentK(group: FactorGroup, k: RVec, kp: RVec): boolean {
 
 /** The image of k under the rotation W of an element: W⁻ᵀk (the arm it carries k to). */
 export const rotateK = (W: ExactOp["W"], k: RVec): RVec => itransMulVec(iinv(W), k);
+
+function gcd(a: number, b: number): number {
+  let x = Math.abs(a);
+  let y = Math.abs(b);
+  while (y !== 0) [x, y] = [y, x % y];
+  return x;
+}
 
 const pointGroupCache = new WeakMap<FactorGroup, number[]>();
 
@@ -101,20 +188,37 @@ export function pointGroupElements(group: FactorGroup): number[] {
   return out;
 }
 
-/** True when the bound (the conventional cell) admits k: k·t ∈ ℤ for every integer t, i.e. k is an integer vector. */
-export const kInBound = (k: RVec): boolean => k.every(risInt);
+/** True when the bound admits k: k·t ∈ ℤ for every t of the core T″ (Phase 1's bound: k an integer vector). */
+export const kInBound = (group: FactorGroup, k: RVec): boolean => inDual(group.bound.core, k, group.bound.D);
+
+/** True when k lies in the supercell's dual: k·t ∈ ℤ for every t of T′. */
+export const kInSupercell = (group: FactorGroup, k: RVec): boolean => inDual(group.bound.supercell, k, group.bound.D);
 
 /**
  * The stars of the k-points the bound admits, one representative each, Γ
- * first: the integer vectors modulo Λ*, grouped into orbits of the point
- * group. The representative is the arm with the smallest, then the
- * "latest-axis" components ((0,0,1) before (1,0,0)).
+ * first: the vectors of the core's dual modulo Λ*, grouped into orbits of the
+ * point group, keeping the stars with an arm in the supercell's dual. The
+ * representative is the first such arm in the order: the smallest, then the
+ * "latest-axis" components ((0,0,1) before (1,0,0)); components n/M with M
+ * the smallest integer for which M·ℤ³ ⊆ T″ (Phase 1: integers).
  */
 export function starsInBound(group: FactorGroup): RVec[] {
+  const { core, D } = group.bound;
+  // M·ℤ³ ⊆ T″ (scaled: M·D·ℤ³ ⊆ core), so the core's dual lies in (1/M)ℤ³.
+  const m = exponent(core);
+  const M = m / gcd(m, D);
+  const values: number[] = [0];
+  for (let n = 1; n <= 2 * M; n++) {
+    values.push(n);
+    if (n <= M) values.push(-n);
+  }
   const candidates: RVec[] = [];
-  for (const a of [0, 1, -1, 2]) for (const b of [0, 1, -1, 2]) for (const c of [0, 1, -1, 2]) candidates.push([rat(a), rat(b), rat(c)]);
-  const weight = (k: RVec): number => k.reduce((s, x) => s + Math.abs(x.n), 0);
-  const order = (k: RVec): number[] => [weight(k), ...k.map((x) => Math.abs(x.n)), ...k.map((x) => -x.n)];
+  for (const a of values) for (const b of values) for (const c of values) {
+    const k: RVec = [rat(a, M), rat(b, M), rat(c, M)];
+    if (kInBound(group, k) && kInSupercell(group, k)) candidates.push(k);
+  }
+  const weight = (k: RVec): number => k.reduce((s, x) => s + Math.abs(x.n) * (M / x.d), 0);
+  const order = (k: RVec): number[] => [weight(k), ...k.map((x) => Math.abs(x.n) * (M / x.d)), ...k.map((x) => -x.n * (M / x.d))];
   const lex = (a: number[], b: number[]): number => {
     for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i]! - b[i]!;
     return 0;

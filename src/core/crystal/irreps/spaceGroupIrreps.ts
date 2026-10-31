@@ -86,6 +86,8 @@ export interface PhysicalIrrep {
   readonly characters: readonly number[];
   /** "X irrep 2 of 4", "X irreps 3⊕4 of 4". */
   readonly label: string;
+  /** The arms of its star, the representative first (conventional reciprocal basis). */
+  readonly starArms: readonly Vec3[];
 }
 
 export interface StarIrreps {
@@ -251,6 +253,37 @@ function conjugacyClasses(group: FactorGroup): number[][] {
 }
 
 const classCache = new WeakMap<FactorGroup, number[][]>();
+const generatorCache = new WeakMap<FactorGroup, number[]>();
+
+/** A generating set of the factor group, greedily: each element not yet generated joins it. */
+export function generatorsOf(group: FactorGroup): number[] {
+  const cached = generatorCache.get(group);
+  if (cached) return cached;
+  const gens: number[] = [];
+  const inSpan = new Uint8Array(group.elements.length);
+  inSpan[group.identity] = 1;
+  let span = [group.identity];
+  for (let x = 0; x < group.elements.length; x++) {
+    if (inSpan[x]) continue;
+    gens.push(x);
+    // Close the span under right multiplication by every generator.
+    const queue = [...span];
+    while (queue.length > 0) {
+      const a = queue.pop()!;
+      for (const g of gens) {
+        const b = group.table[a]![g]!;
+        if (!inSpan[b]) {
+          inSpan[b] = 1;
+          span.push(b);
+          queue.push(b);
+        }
+      }
+    }
+    span = [...span];
+  }
+  generatorCache.set(group, gens);
+  return gens;
+}
 
 function selfCheck(group: FactorGroup, irreps: readonly SpaceGroupIrrep[], star: RVec[], pointGroupOrder: number, label: string): void {
   const F = group.elements.length;
@@ -261,11 +294,14 @@ function selfCheck(group: FactorGroup, irreps: readonly SpaceGroupIrrep[], star:
   for (const irrep of irreps) {
     sumSq += irrep.dim * irrep.dim;
     const D = irrep.matrices;
-    // Representation property and unitarity.
+    // Unitarity, and the representation property D(g)D(b) = D(gb) for g in a
+    // generating set and every b — which makes D a homomorphism on all of F.
     for (let a = 0; a < F; a++) {
       if (cmaxDiff(cmul(D[a]!, cadjoint(D[a]!)), cidentity(irrep.dim)) > 1e-7) fail(`${irrep.label} is not unitary`);
+    }
+    for (const g of generatorsOf(group)) {
       for (let b = 0; b < F; b++) {
-        if (cmaxDiff(cmul(D[a]!, D[b]!), D[group.table[a]![b]!]!) > 1e-7) fail(`${irrep.label} is not a representation`);
+        if (cmaxDiff(cmul(D[g]!, D[b]!), D[group.table[g]![b]!]!) > 1e-7) fail(`${irrep.label} is not a representation`);
       }
     }
   }
@@ -309,7 +345,7 @@ function selfCheck(group: FactorGroup, irreps: readonly SpaceGroupIrrep[], star:
  */
 export function irrepsOfStar(group: FactorGroup, kIn: Vec3): StarIrreps {
   const k = vfrom(kIn, 24);
-  if (!kInBound(k)) throw new Error(`irreps: k = ${formatK(kIn)} needs a supercell (planned); the bound is the conventional cell`);
+  if (!kInBound(group, k)) throw new Error(`irreps: k = ${formatK(kIn)} needs a supercell beyond the bound: k·t is not an integer for some translation t of its core T″`);
   const pg = pointGroupElements(group);
   const rotations = pg.map((i) => group.elements[i]!.W);
   const { arms, reps } = starOf(group, k);
@@ -384,7 +420,7 @@ export function irrepsOfStar(group: FactorGroup, kIn: Vec3): StarIrreps {
     used.add(i);
     if (irrep.reality === "real") {
       const matrices = realForm(irrep.matrices);
-      physical.push({ irreps: [irrep.index], dim: irrep.dim, reality: "real", matrices, characters: matrices.map((x) => trace(x, irrep.dim)), label: irrep.label });
+      physical.push({ irreps: [irrep.index], dim: irrep.dim, reality: "real", matrices, characters: matrices.map((x) => trace(x, irrep.dim)), label: irrep.label, starArms: star.arms });
       return;
     }
     let partner = -1;
@@ -400,6 +436,7 @@ export function irrepsOfStar(group: FactorGroup, kIn: Vec3): StarIrreps {
       reality: irrep.reality,
       matrices,
       characters: matrices.map((x) => trace(x, 2 * irrep.dim)),
+      starArms: star.arms,
       label: members.length === 2
         ? `${star.label} irreps ${members[0]}⊕${members[1]} of ${m}`
         : irrep.reality === "pseudoreal" ? `${irrep.label} (doubled)` : `${irrep.label} ⊕ its conjugate at −k`,

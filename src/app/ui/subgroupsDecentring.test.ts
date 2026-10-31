@@ -21,7 +21,7 @@ function demoPage(): PdfPageModel {
 const noop = (): void => undefined;
 
 describe("the Subgroups page at the decentring k-points", () => {
-  it("lists the X irreps, the k- and general subgroups of the same cell, and names the points that need a supercell", () => {
+  it("lists the X irreps, the k- and general subgroups of the same cell, and names the points that need a supercell bound", () => {
     const m = demoPage();
     const out = renderToStaticMarkup(createElement(SubgroupsPanel, {
       spaceGroup: m.loaded.spaceGroup.hermannMauguin,
@@ -41,7 +41,7 @@ describe("the Subgroups page at the decentring k-points", () => {
     // The lattice: P-43m a decentring k-subgroup (index 4 = 1·4), P2₁3 a general one (8 = 2·4).
     expect(text).toContain("P -4 3 m #215 · k · 1·4");
     expect(text).toContain("P 21 3 #198 · general · 2·4");
-    expect(out).toContain("Cell-multiplying k-points (L and W) need a supercell (planned).");
+    expect(out).toContain("Cell-multiplying k-points (L and W) enter with a supercell bound: set one below.");
   });
 
   it("activates the X irrep toward P2₁3 in the parent's cell: one mode free at the kick, the others by irrep, A_s and A_p in the report", () => {

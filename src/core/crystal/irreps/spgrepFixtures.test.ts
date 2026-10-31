@@ -6,13 +6,15 @@
  * puts translations at exp(−2πi k·t), MATERIA at exp(+2πi k·t) (ADR 0003), so
  * MATERIA's characters are the complex conjugates of spgrep's. Characters are
  * compared, never matrices: two correct engines may differ by a change of
- * basis.
+ * basis. The cell-multiplying k-points (Pm-3m X, M, R; Fm-3m L, W; Fd-3m L;
+ * Pnma (0,0,½)) are computed in the 2×2×2 supercell bound.
  */
 import { describe, it, expect } from "vitest";
 import { buildSpaceGroup } from "@/core/crystal/spaceGroups";
 import { factorGroup } from "@/core/crystal/irreps/factorGroup";
 import { irrepsOfStar } from "@/core/crystal/irreps/spaceGroupIrreps";
-import { ikey, rmod1, ratFrom, vkey, type RVec } from "@/core/crystal/irreps/rational";
+import { ikey, ratFrom, rmod1, vkey, type RVec } from "@/core/crystal/irreps/rational";
+import { CONVENTIONAL_CELL, DEFAULT_SUPERCELL } from "@/core/crystal/irreps/supercell";
 import fixtures from "@/core/crystal/irreps/fixtures/spgrep-small-representations.json";
 
 interface FixtureCase {
@@ -35,14 +37,17 @@ const parseFrac = (s: string): number => {
 describe("small representations agree with spgrep, character by character", () => {
   for (const c of (fixtures as unknown as { cases: FixtureCase[] }).cases) {
     it(c.name, () => {
-      const group = factorGroup(buildSpaceGroup(SETTING[c.name.split(" ")[0]!]!).operations);
       const k = [c.k[0]!, c.k[1]!, c.k[2]!] as const;
+      // A k that multiplies the cell needs the 2×2×2 supercell bound (Phase 2); the others keep Phase 1's bound.
+      const bound = k.every(Number.isInteger) ? CONVENTIONAL_CELL : DEFAULT_SUPERCELL;
+      const group = factorGroup(buildSpaceGroup(SETTING[c.name.split(" ")[0]!]!).operations, bound);
       const result = irrepsOfStar(group, k);
-      // The fixture's little-group operations among MATERIA's elements (same rotation, same translation mod 1).
-      const keyOf = (W: readonly (readonly number[])[], t: RVec): string => `${ikey(W as never)}|${vkey(t.map(rmod1) as unknown as RVec)}`;
+      // The fixture's little-group operations among MATERIA's elements: same rotation, and the
+      // translation in [0, 1) — the element of G/T″ with exactly that translation.
+      const keyOf = (W: readonly (readonly number[])[], t: RVec): string => `${ikey(W as never)}|${vkey(t)}`;
       const index = new Map(group.elements.map((e, i) => [keyOf(e.W, e.w), i] as const));
       const elements = c.littleGroup.map((op) => {
-        const t = op.translation.map((x) => ratFrom(parseFrac(x), 48)) as unknown as RVec;
+        const t = op.translation.map((x) => rmod1(ratFrom(parseFrac(x), 48))) as unknown as RVec;
         const i = index.get(keyOf(op.rotation, t));
         expect(i, `${c.name}: operation ${JSON.stringify(op)} is not in MATERIA's group`).toBeDefined();
         return i!;
