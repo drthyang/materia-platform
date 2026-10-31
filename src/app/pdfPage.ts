@@ -33,6 +33,8 @@ import { activateDisplacementMode, fieldSeedAxes, realizeSubgroup, type Subgroup
 import { isotropyField, subgroupOrderParameter } from "@/core/crystal/isotropySubgroups";
 import { activateIsotropySubgroup, decentringTerms, lowerToSubgroup } from "@/core/crystal/decentringModes";
 import type { IndexSplit } from "@/core/crystal/irreps/isotropy";
+import type { FactorGroup } from "@/core/crystal/irreps/factorGroup";
+import { realiseChild, realisedAmplitudeCells, symmetryBreakingField, type RealisedChild } from "@/core/crystal/irreps/realisation";
 import { latticeCentring } from "@/core/crystal/standardSetting";
 import type { SubgroupNode } from "@/core/crystal/subgroupTree";
 import { applyParameters } from "@/core/workflow/apply";
@@ -776,6 +778,55 @@ export function withSameCellSubgroup(m: PdfPageModel, node: SameCellChoice): { r
     message: set && lowered.order
       ? `lowered to ${label} in the parent's cell: ${sites} · the order parameter (${lowered.order.irreps.join(" + ")}) free from ${ACTIVATION_KICK} Å${lowered.order.reachesTarget ? "" : " (the displacements allowed keep a higher symmetry)"} — free the other rows to refine them (Positions group)`
       : `lowered to ${label} in the parent's cell: ${sites} — no displacement breaks the parent's symmetry here, so the modes start at 0`,
+  };
+}
+
+/** A cell-multiplying child picked in the supercell view: its elements of the factor group the view built, and its name. */
+export interface SupercellChoice {
+  readonly group: FactorGroup;
+  readonly elements: readonly number[];
+  readonly identity: SubgroupIdentity;
+}
+
+/**
+ * A cell-multiplying child from the supercell view (subgroup engine phase 3):
+ * the child realised in its own cell from the current refined geometry
+ * (realisation.ts: the standard setting's cell and operations, every orbit
+ * split), refined as an ordinary structure there, so the G(r) and its pairs
+ * are the supercell's. Its positions refine as the child's symmetry-adapted
+ * displacements (buildSymmetryModes on the child): the leading one is a
+ * generic field that breaks the parent's symmetry down to the child's
+ * (symmetryBreakingField), free from the ACTIVATION_KICK, since χ² is
+ * stationary at the parent's geometry; the others start at 0, fixed. The
+ * setting-free rows carry over; the cell and ADP rows are the child's. The
+ * modes by parent irrep arrive with the supercell mode basis (phase 4).
+ */
+export function withSupercellChild(m: PdfPageModel, choice: SupercellChoice): { readonly model: PdfPageModel; readonly label: string; readonly message: string } {
+  const { identity } = choice;
+  const name = identity.hermannMauguin ?? identity.pointGroup ?? "subgroup";
+  const label = identity.number !== undefined ? `${name} #${identity.number}` : `${name} (index ${identity.index})`;
+  if (m.extraPhases.length > 0) return { model: m, label, message: `${label}: a supercell child is refined on a single-phase page` };
+  const v = pageView(m);
+  const refined = applyParameters(v.fitStructure, v.bindings, valuesOf(m.params)).model;
+  let realised: RealisedChild;
+  try {
+    realised = realiseChild(refined, choice.group, choice.elements, identity);
+  } catch (e) {
+    return { model: m, label, message: `${label}: ${e instanceof Error ? e.message : String(e)}` };
+  }
+  const field = symmetryBreakingField(refined, realised);
+  const built = buildSymmetryModes(realised.structure, { seeds: field ? [{ axes: field, label: `${label}: symmetry-breaking displacements` }] : [], gauge: "polar" });
+  if (built.modes.length === 0) return { model: m, label, message: `${label}: every site of the child is symmetry-pinned — no refinable displacement` };
+  const withCells: DistortionModeSet = { ...built, amplitudeCells: realisedAmplitudeCells(refined, realised) };
+  const set = field ? kicked(withCells) : null;
+  const dropped = realised.dropped.length > 0 ? ` (not carried: ${realised.dropped.join(", ")})` : "";
+  const sites = `${realised.structure.sites.length} child site(s), ${realised.atoms.length} atoms in the cell (×${+realised.volumeRatio.toFixed(4)} the parent's) · ${built.modes.length} distortion mode(s)`;
+  return {
+    model: withSpecChange(m, { modes: { set: set ?? withCells, parentName: label, fromActivation: true }, positionMode: "irreps" }, { kick: true }),
+    label,
+    message: set
+      ? `realised ${label} in its own cell: ${sites} · the symmetry-breaking displacements free from ${ACTIVATION_KICK} Å — free the other rows to refine them (Positions group)${dropped}`
+      : `realised ${label} in its own cell: ${sites} — no displacement breaks the parent's symmetry here (only the cell can), so the modes start at 0${dropped}`,
   };
 }
 
