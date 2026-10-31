@@ -1,6 +1,7 @@
 /**
  * The ISOTROPY oracle (opt-in; ADR 0005): MATERIA's isotropy subgroups at the
- * Phase-1 k-points against the ISOTROPY Suite's (H. T. Stokes, D. M. Hatch &
+ * Phase-1 k-points and Phase 2's cell-multiplying ones (Pm-3m X, M, R; Fm-3m
+ * L, W) against the ISOTROPY Suite's (H. T. Stokes, D. M. Hatch &
  * B. J. Campbell, iso.byu.edu), which the workflow
  * .github/workflows/isotropy-oracle.yml downloads at run time — the binary
  * and its data are never committed. Runs only with ISOTROPY_ORACLE=1 and
@@ -21,6 +22,7 @@ import { buildSpaceGroup } from "@/core/crystal/spaceGroups";
 import { factorGroup } from "@/core/crystal/irreps/factorGroup";
 import { irrepsOfStar } from "@/core/crystal/irreps/spaceGroupIrreps";
 import { isotropySubgroups } from "@/core/crystal/irreps/isotropy";
+import { CONVENTIONAL_CELL, DEFAULT_SUPERCELL } from "@/core/crystal/irreps/supercell";
 
 const ISODATA = process.env.ISODATA ?? "";
 const ENABLED = process.env.ISOTROPY_ORACLE === "1" && ISODATA !== "" && existsSync(resolve(ISODATA, "iso"));
@@ -64,15 +66,22 @@ const CASES: readonly [string, number | string, number, string, readonly [number
   ["Cmcm Y", 63, 63, "Y", [0, 1, 0]],
   ["Pm-3m Γ", 221, 221, "GM", [0, 0, 0]],
   ["Fm-3m Γ", 225, 225, "GM", [0, 0, 0]],
+  // Phase 2: cell-multiplying k-points, in the 2×2×2 supercell bound (ISOTROPY's k-vectors: X (0,½,0), M (½,½,0), R (½,½,½); L (½,½,½), W (½,1,0)).
+  ["Pm-3m X", 221, 221, "X", [0, 0.5, 0]],
+  ["Pm-3m M", 221, 221, "M", [0.5, 0.5, 0]],
+  ["Pm-3m R", 221, 221, "R", [0.5, 0.5, 0.5]],
+  ["Fm-3m L", 225, 225, "L", [0.5, 0.5, 0.5]],
+  ["Fm-3m W", 225, 225, "W", [0.5, 1, 0]],
 ];
 
-describe.skipIf(!ENABLED)("ISOTROPY oracle: isotropy subgroups at the Phase-1 k-points", () => {
+describe.skipIf(!ENABLED)("ISOTROPY oracle: isotropy subgroups at the Phase-1 and Phase-2 k-points", { timeout: 900_000 }, () => {
   for (const [name, setting, parent, kLabel, k] of CASES) {
     it(name, () => {
       const out = iso(["PAGE NOBREAK", `VALUE PARENT ${parent}`, `VALUE KPOINT ${kLabel}`, "SHOW IRREP", "SHOW SUBGROUP", "SHOW DIRECTION", "DISPLAY ISOTROPY"]);
       console.log(`--- ISOTROPY, ${name} ---\n${out}`);
       const theirs = parseIsotropy(out);
-      const group = factorGroup(buildSpaceGroup(setting).operations);
+      // An integer k keeps the conventional cell (Phase 1's bound); the others need the 2×2×2 supercell.
+      const group = factorGroup(buildSpaceGroup(setting).operations, k.every(Number.isInteger) ? CONVENTIONAL_CELL : DEFAULT_SUPERCELL);
       const ours = irrepsOfStar(group, k).physical.map((p) => isotropySubgroups(group, p).subgroups.map((s) => s.identity.number ?? 0));
       console.log(`MATERIA ${name}: ${JSON.stringify(signature(ours))}\nISOTROPY ${name}: ${JSON.stringify(signature(theirs.values()))}`);
       expect(theirs.size, `${name}: no isotropy subgroups parsed from ISOTROPY's output`).toBeGreaterThan(0);
