@@ -157,6 +157,10 @@ which is directly implementable:
   not coincide with the one of the input, are NOT shown". The class graph relates
   *classes*, "not … the specific subgroups that are listed as … representatives"
   ([SUB-tut](https://www.cryst.ehu.eus/html/cryst/tutorials/Tutorial_SUBGROUPS.pdf)).
+  *Added 2026-10-31 (THY-48):* the list's counts are entries per space-group type. A
+  class of a chiral type holds both enantiomorphs (an improper operation of the parent
+  turns P4₁22 into P4₃22) and appears twice. This reading reproduces all four of the
+  tutorial's Fm-3m counts from MATERIA's conjugacy classes (§7).
 - **Domains.** The index gives the number of domains. Its [i_L] factor counts antiphase
   domains, and its [i_P] factor counts twin (orientational) domains (*ibid.*;
   "the number of possible domains is equal to the index", [ISOTROPY manual](https://iso.byu.edu/isotropy_doc.php)).
@@ -637,9 +641,14 @@ property-test oracle. Skip (e).
 **Concrete golden cases from opened sources:**
 
 - **Bilbao SUBGROUPS, class counts** ([SUB-tut](https://www.cryst.ehu.eus/html/cryst/tutorials/Tutorial_SUBGROUPS.pdf)):
-  - Fm-3m, primitive supercell (½a−½b, ½a+½b, 2c): 99 classes; 62 down to orthorhombic;
-    20 down to point group mmm; 31 Landau-type. Pnma (2c, −½a+½b, −½a−½b; 0,¼,−¼) is
-    reached by DT5.
+  - Fm-3m, primitive supercell (½a−½b, ½a+½b, 2c): 99 subgroups (p. 3); 62 with "lowest
+    crystal system" orthorhombic (p. 4); 20 down to point group mmm (p. 4, Fig. 1.1);
+    31 Landau-type (p. 12). Pnma (2c, −½a+½b, −½a−½b; 0,¼,−¼) is reached by DT5.
+    *Added 2026-10-31 (THY-48):* these are entries per space-group type, not conjugacy
+    classes. There are 96 classes; the three of chiral type (P4₁/P4₃, P4₁22/P4₃22,
+    P4₁2₁2/P4₃2₁2) are each listed twice, so 99 = 96 + 3. The other counts follow the
+    same way: 62 = 60 + 2 (the "orthorhombic" filter keeps point groups containing
+    222, mm2 or mmm, so 4/m, 4 and -4 drop out) and 31 = 28 + 3.
   - Pnma, supercell (a,b,2c): 11 classes; 4 maximal (Pca2₁, Pmc2₁, P2₁/c, P2₁/m); 8 polar.
   - Pm-3m, I-centred supercell (a+b, −a+b, 2c): 98 classes; 68 with 1a, 1b and 3d
     occupied; 10 maximal, two of them I4/mcm and differing in origin. R4+ alone gives

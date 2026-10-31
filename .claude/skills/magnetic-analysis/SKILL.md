@@ -54,7 +54,8 @@ k = 0, where magnetic intensity sits on nuclear reflections. So:
 2. `search_propagation_vector` ranks commensurate k by how many included peaks their
    satellites G ± k explain and how closely. Prefer the k that explains every peak with
    the simplest fractions; an impurity's lines will not fit any k — check them against a
-   second phase first.
+   second phase first. An applied model (`appliedModel`, e.g. an mCIF) leaves no residual
+   on its peaks: check its k with `nuclearOnly: true`.
 3. Set it (`set_propagation_vector`). k = 0 when the magnetic intensity sits on the nuclear
    reflections (the `k0Magnetic` hint, and the sample below its ordering temperature on
    neutron data); the k-search on the misfits' d confirms it.
@@ -107,8 +108,7 @@ nuclear values (until Stage 5): freed, they trade with the moments, and the esds
 1. `continue_magnetic_refinement` adds the moment rows (and k's free components with
    `refineK`); then `set_free` `fix` every nuclear row it left free, so only the moments
    (and k) refine. `show_magnetic_model` instead holds the moments.
-2. `refine`, checking the free set is the moments alone; the Stage 3 checks;
-   `assess_refinement`.
+2. `refine` (the free set: the moments alone); the Stage 3 checks; `assess_refinement`.
 3. A residual on the nuclear lines is the nuclear model's (notes): say so, and which
    nuclear model the moments were measured against.
 
@@ -118,8 +118,8 @@ The peak shape was fitted before the magnetic peaks were modelled. Once the mome
 converge, `set_free` the instrument's terms — the zero and every peak-shape term (TOF α₀,
 α₁, β₀, β₁, β_q, σ₀², σ₂², σ_q²; CW U, V, W, X, Y, S/L, H/L), never a subset — with the scale
 and background, everything else held (moments, structure, microstrain); `refine` until wR
-stops moving. A term on its bound is fixed alone, the rest refined again. Quote the
-fit before and after.
+stops moving. A term on its bound is fixed alone, the rest refined again. Quote wR
+before and after.
 
 ## What to report — and what not
 

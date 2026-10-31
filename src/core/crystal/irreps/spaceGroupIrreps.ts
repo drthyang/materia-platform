@@ -15,7 +15,11 @@
  *     over the finite group F = G/T_P (factorGroup.ts), and its physically
  *     irreducible real form: a real irrep brought to real matrices by the
  *     square root of its symmetric unitary intertwiner with D* (spgrep's
- *     method), a pseudoreal or complex one realified with its conjugate.
+ *     method), a pseudoreal or complex one realified with its conjugate;
+ *  5. that real form rotated, where it reads poorly, into a basis built from
+ *     its one-parameter directions, so the direction symbols come out as
+ *     ISODISTORT's do, (a,0,…), (a,a,…) (directionBasis.ts). The rotation is
+ *     an orthogonal similarity: characters and isotropy subgroups are unchanged.
  *
  * Conventions (ADR 0003, ISODISTORT's): a translation acts as exp(+2πi k·t),
  * k in the conventional reciprocal basis. spgrep and Bilbao use exp(−ik·t),
@@ -40,11 +44,12 @@ import {
 import { pointGroupChain } from "@/core/crystal/irreps/chain";
 import { projectiveIrreps } from "@/core/crystal/irreps/projective";
 import {
-  equivalentK, kInBound, pointGroupElements, rotateK, starsInBound, type FactorGroup,
+  equivalentK, generatorsOf, kInBound, pointGroupElements, rotateK, starsInBound, type FactorGroup,
 } from "@/core/crystal/irreps/factorGroup";
 import {
   compose, idet, ikey, imul, invert, itransMulVec, phase, rnum, vdot, vfrom, vsub, type IMat, type RVec,
 } from "@/core/crystal/irreps/rational";
+import { alignedToDirections } from "@/core/crystal/irreps/directionBasis";
 
 export type Reality = "real" | "pseudoreal" | "complex";
 
@@ -86,6 +91,8 @@ export interface PhysicalIrrep {
   readonly characters: readonly number[];
   /** "X irrep 2 of 4", "X irreps 3⊕4 of 4". */
   readonly label: string;
+  /** The arms of its star, the representative first (conventional reciprocal basis). */
+  readonly starArms: readonly Vec3[];
 }
 
 export interface StarIrreps {
@@ -261,11 +268,14 @@ function selfCheck(group: FactorGroup, irreps: readonly SpaceGroupIrrep[], star:
   for (const irrep of irreps) {
     sumSq += irrep.dim * irrep.dim;
     const D = irrep.matrices;
-    // Representation property and unitarity.
+    // Unitarity, and the representation property D(g)D(b) = D(gb) for g in a
+    // generating set and every b — which makes D a homomorphism on all of F.
     for (let a = 0; a < F; a++) {
       if (cmaxDiff(cmul(D[a]!, cadjoint(D[a]!)), cidentity(irrep.dim)) > 1e-7) fail(`${irrep.label} is not unitary`);
+    }
+    for (const g of generatorsOf(group)) {
       for (let b = 0; b < F; b++) {
-        if (cmaxDiff(cmul(D[a]!, D[b]!), D[group.table[a]![b]!]!) > 1e-7) fail(`${irrep.label} is not a representation`);
+        if (cmaxDiff(cmul(D[g]!, D[b]!), D[group.table[g]![b]!]!) > 1e-7) fail(`${irrep.label} is not a representation`);
       }
     }
   }
@@ -309,7 +319,7 @@ function selfCheck(group: FactorGroup, irreps: readonly SpaceGroupIrrep[], star:
  */
 export function irrepsOfStar(group: FactorGroup, kIn: Vec3): StarIrreps {
   const k = vfrom(kIn, 24);
-  if (!kInBound(k)) throw new Error(`irreps: k = ${formatK(kIn)} needs a supercell (planned); the bound is the conventional cell`);
+  if (!kInBound(group, k)) throw new Error(`irreps: k = ${formatK(kIn)} needs a supercell beyond the bound: k·t is not an integer for some translation t of its core T″`);
   const pg = pointGroupElements(group);
   const rotations = pg.map((i) => group.elements[i]!.W);
   const { arms, reps } = starOf(group, k);
@@ -384,7 +394,7 @@ export function irrepsOfStar(group: FactorGroup, kIn: Vec3): StarIrreps {
     used.add(i);
     if (irrep.reality === "real") {
       const matrices = realForm(irrep.matrices);
-      physical.push({ irreps: [irrep.index], dim: irrep.dim, reality: "real", matrices, characters: matrices.map((x) => trace(x, irrep.dim)), label: irrep.label });
+      physical.push({ irreps: [irrep.index], dim: irrep.dim, reality: "real", matrices, characters: matrices.map((x) => trace(x, irrep.dim)), label: irrep.label, starArms: star.arms });
       return;
     }
     let partner = -1;
@@ -400,12 +410,13 @@ export function irrepsOfStar(group: FactorGroup, kIn: Vec3): StarIrreps {
       reality: irrep.reality,
       matrices,
       characters: matrices.map((x) => trace(x, 2 * irrep.dim)),
+      starArms: star.arms,
       label: members.length === 2
         ? `${star.label} irreps ${members[0]}⊕${members[1]} of ${m}`
         : irrep.reality === "pseudoreal" ? `${irrep.label} (doubled)` : `${irrep.label} ⊕ its conjugate at −k`,
     });
   });
-  return { star, littleCoGroupOrder: n, irreps, physical };
+  return { star, littleCoGroupOrder: n, irreps, physical: physical.map((p) => alignedToDirections(group, p)) };
 }
 
 function trace(m: Float64Array, n: number): number {

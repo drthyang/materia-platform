@@ -22,6 +22,8 @@ export interface SummaryCardData {
   /** One badge per crystallographic phase (multi-phase); removable ones show an ×. */
   readonly phaseBadges?: readonly { id: string; label: string; removable: boolean }[];
   readonly onRemovePhase?: (id: string) => void;
+  /** The applied magnetic model as a chip (its k and group) with an × that removes it. */
+  readonly magneticBadge?: { readonly label: string; readonly title: string; readonly onRemove: () => void };
   /** Optional interactive control rendered under the meta line (e.g. the
    *  single-crystal X-ray/neutron probe toggle, which the data file can't carry). */
   readonly control?: ReactNode;
@@ -47,7 +49,8 @@ function SummaryCard({ data }: { data: SummaryCardData }): JSX.Element {
   const badges = data.phaseBadges ?? [];
   // Nothing loaded → skip the status chip entirely; a "none" pill is just noise.
   const showChip = !data.muted && !!data.chip;
-  const showChipRow = showChip || badges.length > 0;
+  const magnetic = data.magneticBadge;
+  const showChipRow = showChip || badges.length > 0 || !!magnetic;
   const chipStyle = data.chipTone === "warn" ? warnChip : okChip;
   return (
     <div data-agent-card={data.label.toLowerCase()} style={{ ...card, padding: space.inset, display: "flex", flexDirection: "column", gap: 7 }}>
@@ -67,7 +70,7 @@ function SummaryCard({ data }: { data: SummaryCardData }): JSX.Element {
               {ph.label}
               {ph.removable && data.onRemovePhase && (
                 <button
-                  className="wb-tight"
+                  className="wb-tight wb-chip-x"
                   onClick={() => data.onRemovePhase!(ph.id)}
                   title={`Remove the ${ph.label} phase`}
                   style={{ border: "none", background: "none", cursor: "pointer", color: color.secondary, fontSize: fz.small, lineHeight: 1, padding: 0 }}
@@ -77,6 +80,20 @@ function SummaryCard({ data }: { data: SummaryCardData }): JSX.Element {
               )}
             </span>
           ))}
+          {magnetic && (
+            <span data-testid="magnetic-model-chip" style={{ ...phaseChip, borderColor: MAGNETIC_CHIP }} title={magnetic.title}>
+              {magnetic.label}
+              <button
+                className="wb-tight wb-chip-x"
+                onClick={magnetic.onRemove}
+                title="Remove the magnetic model: its reflection ticks, its contribution to the calculated pattern and its moment rows (undo with History)"
+                aria-label="Remove the magnetic model"
+                style={{ border: "none", background: "none", cursor: "pointer", color: color.secondary, fontSize: fz.small, lineHeight: 1, padding: 0 }}
+              >
+                ×
+              </button>
+            </span>
+          )}
         </div>
       )}
       <div style={{ fontSize: fz.large, fontWeight: data.muted ? 500 : 640, color: data.muted ? color.secondary : color.ink, lineHeight: 1.3, letterSpacing: data.muted ? 0 : "-0.005em" }}>{data.title}</div>
@@ -85,6 +102,9 @@ function SummaryCard({ data }: { data: SummaryCardData }): JSX.Element {
     </div>
   );
 }
+
+/** The magnetic tick row's colour (visualization/reflectionTicks.ts MAGNETIC_COLOR), so the chip reads as that row. */
+const MAGNETIC_CHIP = "#c2185b";
 
 const phaseChip: CSSProperties = {
   display: "inline-flex",

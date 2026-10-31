@@ -93,7 +93,7 @@ import { type Session, SYNTHETIC_SOURCE, EMPTY_SOURCE } from "@/app/powderSessio
 import {
   BACKGROUND_TERMS, backgroundTermsEntry, curvesGoodnessOfFit, extentOf, hasTensorAdp, magneticApplied as magneticAppliedOn, magneticProfileOf, momentRowsFree as momentRowsFreeOn, observationsIn, posteriorRun, powderFit as powderFitOn,
   powderPageCurves, refinedPhasesOf, restraintRequest, thoroughFit, weightedR as weightedROf, withAnisotropicAdp, withAntisitePair, withBackgroundTerms,
-  withBackgroundType, withCorrections, withMagneticModelRows, withMagneticPreview, withMustrain, withParameterTies, withReset, withSiteTies, withSiteTotal, withParameter, pageAxis, powderMomentFit, residualPeaksOf,
+  withBackgroundType, withCorrections, withMagneticModelRows, withMagneticPreview, withMustrain, withParameterTies, withReset, withSiteTies, withSiteTotal, withParameter, pageAxis, powderMomentFit, residualPeaksOf, magneticModelSummary,
   changed, snapshotHolds, specInstrumentOf, withFit, withFixed, withZeroAdpApplied, withZeroAdpPruned, withZeroAdpReleased, zeroAdpOf, type PowderPage, type PowderPageModel,
 } from "@/app/powderPage";
 import { zeroAdpStepLabel, type ZeroAdpChoice, type ZeroAdpFix, type ZeroAdpProposal } from "@/core/diagnostics/zeroAdp";
@@ -511,6 +511,14 @@ export function PowderWorkbench({
     () => residualPeaksOf(session, instrumentLoaded ? instrument : undefined, manualPeakD),
     [session, instrument, instrumentLoaded, manualPeakD],
   );
+  // With a magnetic model applied, the same peaks against the nuclear model
+  // alone: the k-search can be re-run as if the model were removed (THY-45).
+  const nuclearResidualPeaks = useMemo(
+    () => (magneticApplied ? residualPeaksOf(session, instrumentLoaded ? instrument : undefined, manualPeakD, { nuclearOnly: true }) : undefined),
+    [magneticApplied, session, instrument, instrumentLoaded, manualPeakD],
+  );
+  // The applied model's k and group, for the Structure card's chip and the magnetic page.
+  const magneticSummary = useMemo(() => magneticModelSummary(session, liveMagnetic), [session, liveMagnetic]);
 
   // Refined moment entries (per site / split orbit) for the 3D structure view.
   const sessionMoments = useMemo(
@@ -1026,7 +1034,8 @@ export function PowderWorkbench({
       parameters: powderParams,
       bindings: pBindings,
       profile: session.powderProfile,
-      magnetic: session.magnetic ?? null,
+      // The model at the rows' current values: the one the calculated pattern uses.
+      magnetic: liveMagnetic ?? null,
       result: powderResult,
       instrument: instrumentLoaded ? instrument : null,
       fitRange: fitRangeActive ? { min: fitRange!.min, max: fitRange!.max } : null,
@@ -1247,6 +1256,21 @@ export function PowderWorkbench({
           return `${p.name} ${p.spaceGroup.hermannMauguin ?? ""}`.trim() + (w ? ` ${formatWt(w)}` : "");
         }).join(" · ")
         : `${cellStr} · V ${cellVolume(structure.cell).toFixed(2)} Å³ · ${structure.sites.length} sites`,
+      // The applied magnetic model (an mCIF's, or one the magnetic page put on
+      // the pattern): one chip with its k and group, and an × that removes it —
+      // its ticks, its share of the calculated pattern and its rows (THY-45).
+      ...(magneticSummary
+        ? {
+            magneticBadge: {
+              label: `magnetic · k = ${magneticSummary.kLabel}${magneticSummary.group ? ` · ${magneticSummary.group}` : ""}`,
+              title: `Magnetic model: k = ${magneticSummary.kLabel}${magneticSummary.group ? `, ${magneticSummary.group}` : ""}; ${magneticSummary.rows > 0 ? `${magneticSummary.rows} moment row${magneticSummary.rows === 1 ? "" : "s"} (${magneticSummary.free > 0 ? `${magneticSummary.free} free` : "held"}) in the Magnetic group` : "moments held, no rows"}${magneticSummary.inCalc ? "" : "; its moments are zero, so it adds nothing to the calculated pattern"}.`,
+              onRemove: () => {
+                applyMagneticPreview(null);
+                setMessage("Magnetic model removed: its reflection ticks, its contribution to the calculated pattern and its moment rows are gone (undo with History).");
+              },
+            },
+          }
+        : {}),
       ...(session.extraPhases.length > 0
         ? {
             // Badge every phase; the primary is the base (no ×), extras are removable.
@@ -1676,6 +1700,8 @@ export function PowderWorkbench({
               key={structureGeneration}
               structure={refinedStructure}
               residualPeaks={residualPeaks}
+              {...(nuclearResidualPeaks ? { nuclearResidualPeaks } : {})}
+              applied={magneticSummary ? { kLabel: magneticSummary.kLabel, group: magneticSummary.group, inCalc: magneticSummary.inCalc } : null}
               onAddManualPeak={addManualPeak}
               onRemoveManualPeak={removeManualPeak}
               pattern={pattern}

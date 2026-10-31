@@ -46,7 +46,7 @@ import { structureToCif, magneticStructureToMcif } from "@/core/export/cif";
 import { downloadText } from "@/app/download";
 import { card as themeCard, color as theme, mono as themeMono, uppercaseLabel as themeLabel, resetRangeBtn, space, toolbarBtn } from "@/app/theme";
 import type { MagneticAgentHandle } from "@/agent/magneticPort";
-import { MagneticStep, NO_RANK, handoff, peakKey, type MagneticFit, type ResidualPeak, type StepInputs } from "@/app/magneticStep";
+import { MagneticStep, NO_RANK, handoff, peakKey, stepPeaks, type AppliedModelView, type MagneticFit, type ResidualPeak, type StepInputs } from "@/app/magneticStep";
 
 // Lazy so three.js stays in its own chunk (only loaded when a group is previewed).
 const StructureView = lazy(() => import("@/app/ui/StructureView").then((m) => ({ default: m.StructureView })));
@@ -127,6 +127,8 @@ export interface MagneticPatternView {
 export function KSearchPanel({
   structure,
   residualPeaks = NO_PEAKS,
+  nuclearResidualPeaks,
+  applied = null,
   onAddManualPeak,
   onRemoveManualPeak,
   pattern,
@@ -150,6 +152,10 @@ export function KSearchPanel({
    *  plus any manually added picks (flagged `manual`). The panel's own criteria
    *  decide which detections feed the k-search; manual picks are always in. */
   residualPeaks?: readonly ResidualPeak[];
+  /** The residual peaks against the nuclear calculation alone, where a magnetic model is applied (residualPeaks then include it). */
+  nuclearResidualPeaks?: readonly ResidualPeak[];
+  /** The magnetic model applied to the page's calculated pattern: its k and group, shown above the peak table. */
+  applied?: AppliedModelView | null;
   /** Add a manual residual peak at this d (from a click on the pattern). */
   onAddManualPeak?: (d: number) => void;
   /** Remove a manually added peak (by its d). */
@@ -212,6 +218,8 @@ export function KSearchPanel({
   const inputs = useMemo<StepInputs>(() => ({
     structure,
     residualPeaks,
+    ...(nuclearResidualPeaks ? { nuclearResidualPeaks } : {}),
+    applied,
     fit: magneticFit ?? null,
     baselineAgreement,
     allowRefineK,
@@ -219,7 +227,7 @@ export function KSearchPanel({
     preselect,
     ...(onApply ? { onApply } : {}),
     ...(onContinue ? { onContinue } : {}),
-  }), [structure, residualPeaks, magneticFit, baselineAgreement, allowRefineK, fitContext, preselect, onApply, onContinue]);
+  }), [structure, residualPeaks, nuclearResidualPeaks, applied, magneticFit, baselineAgreement, allowRefineK, fitContext, preselect, onApply, onContinue]);
   const latestInputs = useRef(inputs);
   useLayoutEffect(() => {
     latestInputs.current = inputs;
@@ -252,7 +260,9 @@ export function KSearchPanel({
   // Peaks with σ carry a significance; a masked bin (σ = 0) or mixed data can
   // leave individual peaks without one — those pass the threshold rather than
   // silently disabling the criterion for everyone.
-  const hasSignificance = residualPeaks.some((p) => p.significance !== undefined);
+  // The peaks the table reads: the nuclear-only residual's when chosen (a loaded model in question).
+  const activePeaks = stepPeaks(s, inputs);
+  const hasSignificance = activePeaks.some((p) => p.significance !== undefined);
   // Display rows: sorted by d descending (low Q first — left-to-right in
   // d-spacing, where magnetic peaks live) and numbered to match the ticks the
   // pattern preview draws for them.
@@ -262,7 +272,7 @@ export function KSearchPanel({
   // array) by unrelated re-renders upstream (axis toggles, applying a model),
   // which must not drop the spotlight — only a real change of the peak set
   // does (the step's store keeps the curation: MagneticStep.sync).
-  const peakSignature = useMemo(() => residualPeaks.map((p) => peakKey(p.d)).sort().join("|"), [residualPeaks]);
+  const peakSignature = useMemo(() => activePeaks.map((p) => peakKey(p.d)).sort().join("|"), [activePeaks]);
 
   // k is confirmed explicitly ("Set k") so the symmetry analysis below does not
   // churn on every keystroke; the inputs hold a draft until then, and follow
@@ -804,6 +814,24 @@ export function KSearchPanel({
             Each row has a numbered tick (#n) in the pattern preview; criteria
             (and per-peak checkboxes) decide what feeds the search. */}
         <div style={{ marginTop: 12 }}>
+          {applied && (
+            <div data-testid="applied-magnetic-model" style={{ display: "flex", alignItems: "center", gap: 10, rowGap: 4, flexWrap: "wrap", marginBottom: 8, padding: "6px 10px", border: `1px solid ${theme.border}`, borderRadius: 6, fontSize: 12, color: theme.secondary }}>
+              <span>
+                Applied magnetic model: <b style={{ color: theme.ink }}>k = {applied.kLabel}</b>{applied.group ? <> · {applied.group}</> : null}
+                {applied.inCalc ? " — its peaks are in the calculated pattern, so they leave no residual." : " — its moments put no intensity in the calculated pattern."}
+              </span>
+              {nuclearResidualPeaks && (
+                <label style={{ display: "inline-flex", alignItems: "center", gap: 5, cursor: "pointer" }} title="Read the residual peaks against the nuclear model alone, as if the magnetic model were removed: a check of its k. The model stays on the refinement page.">
+                  <input
+                    type="checkbox"
+                    checked={s.residualFrom === "nuclear"}
+                    onChange={(e) => step.setResidualFrom(e.target.checked ? "nuclear" : "calc")}
+                  />
+                  search the nuclear-only residual
+                </label>
+              )}
+            </div>
+          )}
           <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
             <span style={themeLabel}>Detected residual peaks</span>
             <InfoBadge
