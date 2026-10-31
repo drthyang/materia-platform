@@ -179,3 +179,43 @@ export function tiltedBlock(parent: StructureModel, g: Glazer, scale: number, or
   }
   return { cell: { a: 2 * a, b: 2 * a, c: 2 * a, alpha: 90, beta: 90, gamma: 90 }, atoms };
 }
+
+/** Deterministic noise: a fixed linear congruential sequence through Box–Muller. */
+export function gaussianNoise(n: number, sigma: number, seed = 12345): Float64Array {
+  let s = seed >>> 0;
+  const u = (): number => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return (s + 0.5) / 4294967296;
+  };
+  const out = new Float64Array(n);
+  for (let i = 0; i < n; i++) out[i] = sigma * Math.sqrt(-2 * Math.log(u())) * Math.cos(2 * Math.PI * u());
+  return out;
+}
+
+/** The tilt systems' orientations to try: every axis order, and the senses that give distinct axes. */
+export const TILT_SENSES: readonly (readonly [number, number, number])[] = [[1, 1, 1], [1, 1, -1], [1, -1, 1], [-1, 1, 1]];
+
+/**
+ * Every Ti–O distance and Ti–O–Ti angle of a perovskite's octahedral network,
+ * sorted: its geometry whatever the domain or setting.
+ */
+export function octahedralGeometry(atoms: readonly ExpandedAtom[], toCartesian: (frac: Vec3) => Vec3): { distances: number[]; angles: number[] } {
+  const ti = atoms.filter((a) => a.element === "Ti");
+  const distances: number[] = [];
+  const angles: number[] = [];
+  for (const o of atoms.filter((a) => a.element === "O")) {
+    const co = toCartesian(o.position);
+    const near: { d: number; v: Vec3 }[] = [];
+    for (const t of ti) for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let c = -1; c <= 1; c++) {
+      const ct = toCartesian([t.position[0] + a, t.position[1] + b, t.position[2] + c]);
+      const v: Vec3 = [ct[0] - co[0], ct[1] - co[1], ct[2] - co[2]];
+      const d = Math.hypot(v[0], v[1], v[2]);
+      if (d < 2.4) near.push({ d, v });
+    }
+    if (near.length !== 2) throw new Error(`octahedralGeometry: an O with ${near.length} Ti neighbours`);
+    distances.push(near[0]!.d, near[1]!.d);
+    const [p, q] = [near[0]!.v, near[1]!.v];
+    angles.push((Math.acos((p[0] * q[0] + p[1] * q[1] + p[2] * q[2]) / (near[0]!.d * near[1]!.d)) * 180) / Math.PI);
+  }
+  return { distances: distances.sort((x, y) => x - y), angles: angles.sort((x, y) => x - y) };
+}
