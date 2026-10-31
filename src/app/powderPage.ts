@@ -49,6 +49,7 @@ import type { MagneticModel } from "@/core/magnetic/types";
 import { refine } from "@/core/refinement/engine";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { annotateExtraPeaks, detectExtraPeaks } from "@/core/magnetic/extraPeaks";
+import { markResolvedPeaks } from "@/core/diagnostics/assessment";
 import { axisContext, availableDisplayUnits, convertAxisArray, convertAxisValue, tofCalibrationOf, type AxisContext } from "@/visualization/axisUnits";
 import { minMax } from "@/core/math/extent";
 
@@ -897,7 +898,8 @@ function nuclearReflections(s: Session, axis: AxisContext, x: readonly number[])
  * page leaves (above 3σ where the data carry σ: the step's own criteria
  * decide which feed the k-search), and the user's own picks at these d, each
  * annotated with any nuclear reflection of any phase beside it (a residual on
- * a nuclear position is usually profile misfit, not magnetic).
+ * a nuclear position is usually profile misfit, not magnetic, unless it is
+ * resolved from the line or far stronger than it: markResolvedPeaks).
  */
 export function residualPeaksOf(s: Session, instrument: InstrumentParameters | undefined, manualD: readonly number[] = []): ResidualPeak[] {
   const axis = pageAxis(s, instrument);
@@ -925,7 +927,7 @@ export function residualPeaksOf(s: Session, instrument: InstrumentParameters | u
   }).filter((m) => !detected.some((p) => Math.abs(p.d - m.d) < 0.01));
   if (detected.length + manual.length === 0) return [];
   const refs = nuclearReflections(s, axis, curves.x);
-  return [...annotateExtraPeaks(detected, refs), ...annotateExtraPeaks(manual, refs).map((p) => ({ ...p, manual: true as const }))];
+  return [...markResolvedPeaks(annotateExtraPeaks(detected, refs), d, curves.yCalc), ...annotateExtraPeaks(manual, refs).map((p) => ({ ...p, manual: true as const }))];
 }
 
 /** The step's moments-only fit, as the page refines: the nuclear model held, its full profile, every phase, the window. */

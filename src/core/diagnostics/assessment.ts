@@ -310,13 +310,7 @@ export function residualPeaks(residual: NonNullable<AssessmentInput["residual"]>
   // A shoulder or tail sits on the line's own calculated intensity; a bump
   // where the calculated curve is down to its background is a separate,
   // resolved peak however close the line (Cr₂WO₆: 2.4 widths from 1 1 3).
-  const onLine = (p: AnnotatedExtraPeak): boolean => {
-    let i = 0;
-    for (let j = 1; j < d.length; j++) if (Math.abs(d[j]! - p.d) < Math.abs(d[i]! - p.d)) i = j;
-    let base = yCalc[i]!;
-    for (let j = 0; j < d.length; j++) if (Math.abs(d[j]! - p.d) <= 0.03 * p.d) base = Math.min(base, yCalc[j]!);
-    return yCalc[i]! - base >= TAIL_ON_LINE * p.height;
-  };
+  const onLine = (p: AnnotatedExtraPeak): boolean => lineUnder(d, yCalc, p.d) >= TAIL_ON_LINE * p.height;
   const beside = (p: AnnotatedExtraPeak): boolean => rel(p) > onTol && rel(p) <= besideTol;
   const cap = <T>(list: T[]): T[] => (options.limit !== undefined ? list.slice(0, options.limit) : list.slice(0, DEFAULT_PEAK_LIMIT));
   return {
@@ -324,6 +318,51 @@ export function residualPeaks(residual: NonNullable<AssessmentInput["residual"]>
     beside: cap(annotated.filter((p) => beside(p) && onLine(p))),
     onReflection: cap(annotated.filter((p) => rel(p) <= onTol)),
   };
+}
+
+/** The calculated curve's height at `at` above its lowest value within 3 % in d: the line's own intensity there. */
+function lineUnder(d: readonly number[], yCalc: readonly number[], at: number): number {
+  let i = 0;
+  for (let j = 1; j < d.length; j++) if (Math.abs(d[j]! - at) < Math.abs(d[i]! - at)) i = j;
+  let base = yCalc[i]!;
+  for (let j = 0; j < d.length; j++) if (Math.abs(d[j]! - at) <= 0.03 * at) base = Math.min(base, yCalc[j]!);
+  return yCalc[i]! - base;
+}
+
+/**
+ * Marks the peaks near a nuclear reflection that are not its misfit, as
+ * residualPeaks reads them: beyond the line's width, where the calculated
+ * curve carries under half the peak all the way to the reflection (a
+ * shifted strong line is a cell or zero misfit, not a new peak). A dense cell
+ * has a reflection within 1 % of nearly every d: by position alone the
+ * k-search lost the magnetic lines (AWO4, k = (½ 0 0): four of six strong
+ * satellites within 1 % of a weak nuclear line). A peak on the line itself
+ * stays its misfit, however strong: on neutron data that is the k = 0
+ * signature, which the magnetic step reads on its own (k0MagneticHint).
+ */
+export function markResolvedPeaks<P extends AnnotatedExtraPeak>(peaks: readonly P[], d: readonly number[], yCalc: readonly number[]): P[] {
+  if (!peaks.some((p) => p.nearNuclear)) return [...peaks];
+  // Resolved means beyond the line's width: with no width to measure (lines a point or two wide), nothing is.
+  const w = relativeLineWidth(d, yCalc);
+  if (w === undefined || !(w > 0)) return [...peaks];
+  const onTol = Math.min(ON_REFLECTION, Math.max(0.002, w));
+  // The calculated line's strongest point from the peak to its reflection: a shifted line (a cell or
+  // zero misfit) has the model's own line there, a peak beside a weak reflection does not.
+  const lineBetween = (a: number, b: number): number => {
+    const lo = Math.min(a, b) * (1 - onTol), hi = Math.max(a, b) * (1 + onTol);
+    let top = -Infinity, base = Infinity;
+    for (let j = 0; j < d.length; j++) {
+      const x = d[j]!;
+      if (x >= lo && x <= hi) top = Math.max(top, yCalc[j]!);
+      if (x >= lo * 0.97 && x <= hi * 1.03) base = Math.min(base, yCalc[j]!);
+    }
+    return Number.isFinite(top) ? top - base : 0;
+  };
+  return peaks.map((p) => {
+    if (!p.nearNuclear || !(p.height > 0) || p.nearNuclear.relDelta <= onTol) return p;
+    if (lineUnder(d, yCalc, p.d) >= TAIL_ON_LINE * p.height || lineBetween(p.d, p.nearNuclear.d) >= TAIL_ON_LINE * p.height) return p;
+    return { ...p, nearNuclear: { ...p.nearNuclear, resolved: true } };
+  });
 }
 
 /** Most peaks of each class residualPeaks lists when no limit is given (detectExtraPeaks' own default). */
