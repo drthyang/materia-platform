@@ -41,6 +41,14 @@ CASES = [
     ("Cmcm (0,1,0)", 298, np.diag([4.0, 5.0, 6.0]), [0, 1, 0]),
     ("Pnma Γ", 292, np.diag([4.0, 5.0, 6.0]), [0, 0, 0]),
     ("P4 Γ", 349, np.diag([4.0, 4.0, 6.0]), [0, 0, 0]),
+    # Phase 2: cell-multiplying k-points, inside the 2x2x2 conventional bound.
+    ("Pm-3m X", 517, CUBIC, [0, 0.5, 0]),
+    ("Pm-3m M", 517, CUBIC, [0.5, 0.5, 0]),
+    ("Pm-3m R", 517, CUBIC, [0.5, 0.5, 0.5]),
+    ("Fm-3m L", 523, CUBIC, [0.5, 0.5, 0.5]),
+    ("Fm-3m W", 523, CUBIC, [0.5, 1, 0]),
+    ("Fd-3m:2 L", 526, CUBIC, [0.5, 0.5, 0.5]),
+    ("Pnma (0,0,1/2)", 292, np.diag([4.0, 5.0, 6.0]), [0, 0, 0.5]),
 ]
 
 # Two generic orbits of different species, so the structure has no symmetry beyond the group's.
@@ -67,7 +75,7 @@ def structure(hall: int, lattice: np.ndarray):
     return lattice, np.array(positions), numbers
 
 
-def case(name: str, hall: int, lattice: np.ndarray, k: list[int]) -> dict:
+def case(name: str, hall: int, lattice: np.ndarray, k: list[float]) -> dict:
     cell = structure(hall, lattice)
     dataset = spglib.get_symmetry_dataset(cell)
     expected = spglib.get_spacegroup_type(hall)

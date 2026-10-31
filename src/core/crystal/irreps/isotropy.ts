@@ -27,8 +27,10 @@ import type { SymmetryOperation } from "@/core/crystal/types";
 import { symmetricEigenDecomposition } from "@/core/math/linalg";
 import { identifySubgroup, type SubgroupIdentity } from "@/core/crystal/isotropyTree";
 import { pointGroupElements, type FactorGroup } from "@/core/crystal/irreps/factorGroup";
+import { keepsConventionalCell, nameChild, subgroupLattice } from "@/core/crystal/irreps/childSetting";
+import { inDual } from "@/core/crystal/irreps/supercell";
 import type { PhysicalIrrep } from "@/core/crystal/irreps/spaceGroupIrreps";
-import { ikey, iIsIdentity } from "@/core/crystal/irreps/rational";
+import { ikey, iIsIdentity, vfrom } from "@/core/crystal/irreps/rational";
 
 /** A direction of the order parameter: the subspace of the irrep's carrier space an isotropy subgroup fixes. */
 export interface OrderParameterDirection {
@@ -61,6 +63,25 @@ export interface IrrepIsotropySubgroup {
   readonly index: IndexSplit;
   /** The name in ITA standard setting, with (P_H, p_H) when the cell or origin differs from the parent's. */
   readonly identity: SubgroupIdentity;
+  /** True when the child loses translations of the conventional cell (its realisation needs the supercell, phase 3). */
+  readonly cellMultiplying: boolean;
+  /** The arms of the star the direction involves (1-based, in the star's arm order). */
+  readonly activeArms: readonly number[];
+}
+
+/**
+ * The arms of the star a subgroup's distortion is built from: the arms k_j
+ * with k_j·t ∈ ℤ for every translation t the subgroup keeps (1-based, in
+ * the star's order) — the waves its lattice admits. Basis-independent: the
+ * real form of a real irrep can mix an arm with its partner at −k.
+ */
+function activeArms(group: FactorGroup, elements: readonly number[], pir: PhysicalIrrep): number[] {
+  const lattice = subgroupLattice(group, elements);
+  const out: number[] = [];
+  pir.starArms.forEach((k, j) => {
+    if (inDual(lattice, vfrom(k, 48), group.bound.D)) out.push(j + 1);
+  });
+  return out;
 }
 
 export interface IsotropyAnalysis {
@@ -169,11 +190,11 @@ const lexLess = (a: readonly number[], b: readonly number[]): boolean => {
   return a.length < b.length;
 };
 
-/** The subgroup's index split into its point-group and translation factors. */
+/** The subgroup's index split into its point-group and translation factors (k = |T/T″| / |T_H/T″|). */
 export function indexSplit(group: FactorGroup, elements: readonly number[]): IndexSplit {
   const rotations = new Set(elements.map((i) => ikey(group.elements[i]!.W)));
   const translations = elements.filter((i) => iIsIdentity(group.elements[i]!.W)).length;
-  return { t: pointGroupElements(group).length / rotations.size, k: group.centrings.length / translations };
+  return { t: pointGroupElements(group).length / rotations.size, k: group.translations.length / translations };
 }
 
 /**
@@ -252,7 +273,8 @@ export function isotropySubgroups(group: FactorGroup, pir: PhysicalIrrep): Isotr
   const subgroups = classes.map((members) => {
     const named = members.map((m) => {
       const operations = m.elements.map((i) => group.operations[i]!);
-      return { m, operations, direct: identifySubgroup(operations, group.operations).method === "direct" };
+      const direct = keepsConventionalCell(group, m.elements) && identifySubgroup(operations, group.parentOperations).method === "direct";
+      return { m, operations, direct };
     });
     let rep = named[0]!;
     for (const c of named.slice(1)) {
@@ -282,7 +304,9 @@ export function isotropySubgroups(group: FactorGroup, pir: PhysicalIrrep): Isotr
       orientationStates: members.length,
       domainStates: F / rep.m.elements.length,
       index: indexSplit(group, rep.m.elements),
-      identity: identifySubgroup(rep.operations, group.operations, { standard: true }),
+      identity: nameChild(group, rep.m.elements),
+      cellMultiplying: !keepsConventionalCell(group, rep.m.elements),
+      activeArms: activeArms(group, rep.m.elements, pir),
     } satisfies IrrepIsotropySubgroup;
   });
   subgroups.sort((a, b) => a.direction.dim - b.direction.dim || a.domainStates - b.domainStates || (a.identity.number ?? 999) - (b.identity.number ?? 999) || (a.direction.symbol < b.direction.symbol ? -1 : a.direction.symbol > b.direction.symbol ? 1 : 0));
