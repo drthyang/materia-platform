@@ -423,10 +423,16 @@ export function realiseChild(parent: StructureModel, group: FactorGroup, element
             if (xc.some((c) => c < -FACE || c >= 1 - FACE)) continue;
             const x = wrapVec(xc);
             if (found.some((f) => periodicGap(f.x, x) < 1e-7)) continue;
-            // P·x + p = W·x_s + w + n: n from the wrapped position, exactly integral.
+            // P·x + p = W·x_s + w + n, read from the wrapped position: wrapping moves an atom by a
+            // child lattice vector, which can be a parent centring vector, so the image it is an
+            // integer translate of is found again (exactly, else within the orbit tolerance).
             const X = mulMV(Pf, x).map((c, i) => c + pf[i]!);
-            const n = X.map((c, i) => Math.round(c - img.x[i]!)) as unknown as Vec3;
-            found.push({ x, parentOp: img.op, n });
+            const offInteger = (im: { x: Vec3 }): number => Math.max(...X.map((c, i) => Math.abs(c - im.x[i]! - Math.round(c - im.x[i]!))));
+            let k = images.findIndex((im) => offInteger(im) < 1e-6);
+            if (k < 0) k = images.findIndex((im) => offInteger(im) < SAME_ATOM);
+            if (k < 0) throw new Error(`realiseChild: an image of ${site.label} in the child cell is no parent atom`);
+            const n = X.map((c, i) => Math.round(c - images[k]!.x[i]!)) as unknown as Vec3;
+            found.push({ x, parentOp: images[k]!.op, n });
           }
         }
       }
