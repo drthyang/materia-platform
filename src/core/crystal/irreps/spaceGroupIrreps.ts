@@ -15,7 +15,11 @@
  *     over the finite group F = G/T_P (factorGroup.ts), and its physically
  *     irreducible real form: a real irrep brought to real matrices by the
  *     square root of its symmetric unitary intertwiner with D* (spgrep's
- *     method), a pseudoreal or complex one realified with its conjugate.
+ *     method), a pseudoreal or complex one realified with its conjugate;
+ *  5. that real form rotated, where it reads poorly, into a basis built from
+ *     its one-parameter directions, so the direction symbols come out as
+ *     ISODISTORT's do, (a,0,…), (a,a,…) (directionBasis.ts). The rotation is
+ *     an orthogonal similarity: characters and isotropy subgroups are unchanged.
  *
  * Conventions (ADR 0003, ISODISTORT's): a translation acts as exp(+2πi k·t),
  * k in the conventional reciprocal basis. spgrep and Bilbao use exp(−ik·t),
@@ -40,11 +44,12 @@ import {
 import { pointGroupChain } from "@/core/crystal/irreps/chain";
 import { projectiveIrreps } from "@/core/crystal/irreps/projective";
 import {
-  equivalentK, kInBound, pointGroupElements, rotateK, starsInBound, type FactorGroup,
+  equivalentK, generatorsOf, kInBound, pointGroupElements, rotateK, starsInBound, type FactorGroup,
 } from "@/core/crystal/irreps/factorGroup";
 import {
   compose, idet, ikey, imul, invert, itransMulVec, phase, rnum, vdot, vfrom, vsub, type IMat, type RVec,
 } from "@/core/crystal/irreps/rational";
+import { alignedToDirections } from "@/core/crystal/irreps/directionBasis";
 
 export type Reality = "real" | "pseudoreal" | "complex";
 
@@ -253,37 +258,6 @@ function conjugacyClasses(group: FactorGroup): number[][] {
 }
 
 const classCache = new WeakMap<FactorGroup, number[][]>();
-const generatorCache = new WeakMap<FactorGroup, number[]>();
-
-/** A generating set of the factor group, greedily: each element not yet generated joins it. */
-export function generatorsOf(group: FactorGroup): number[] {
-  const cached = generatorCache.get(group);
-  if (cached) return cached;
-  const gens: number[] = [];
-  const inSpan = new Uint8Array(group.elements.length);
-  inSpan[group.identity] = 1;
-  let span = [group.identity];
-  for (let x = 0; x < group.elements.length; x++) {
-    if (inSpan[x]) continue;
-    gens.push(x);
-    // Close the span under right multiplication by every generator.
-    const queue = [...span];
-    while (queue.length > 0) {
-      const a = queue.pop()!;
-      for (const g of gens) {
-        const b = group.table[a]![g]!;
-        if (!inSpan[b]) {
-          inSpan[b] = 1;
-          span.push(b);
-          queue.push(b);
-        }
-      }
-    }
-    span = [...span];
-  }
-  generatorCache.set(group, gens);
-  return gens;
-}
 
 function selfCheck(group: FactorGroup, irreps: readonly SpaceGroupIrrep[], star: RVec[], pointGroupOrder: number, label: string): void {
   const F = group.elements.length;
@@ -442,7 +416,7 @@ export function irrepsOfStar(group: FactorGroup, kIn: Vec3): StarIrreps {
         : irrep.reality === "pseudoreal" ? `${irrep.label} (doubled)` : `${irrep.label} ⊕ its conjugate at −k`,
     });
   });
-  return { star, littleCoGroupOrder: n, irreps, physical };
+  return { star, littleCoGroupOrder: n, irreps, physical: physical.map((p) => alignedToDirections(group, p)) };
 }
 
 function trace(m: Float64Array, n: number): number {

@@ -33,6 +33,10 @@ The transformation (P_H, p_H) from the parent cell to a child group's standard s
 **Index**:
 The number [G : H], the product of its point-group factor and its translation factor.
 
+**Enantiomorphs**:
+The two space-group types of a mirror-image pair, such as P4₁22 and P4₃22. An improper operation of the parent turns a child of one type into a child of the other, so one class of conjugate child groups can hold both; Bilbao's SUBGROUPS lists such a class twice, once per type.
+_Avoid_: chiral pair
+
 ## Representations
 
 **k-point**:

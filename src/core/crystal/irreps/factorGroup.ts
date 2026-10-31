@@ -156,6 +156,38 @@ function gcd(a: number, b: number): number {
   return x;
 }
 
+const generatorCache = new WeakMap<FactorGroup, number[]>();
+
+/** A generating set of the factor group, greedily: each element not yet generated joins it. */
+export function generatorsOf(group: FactorGroup): number[] {
+  const cached = generatorCache.get(group);
+  if (cached) return cached;
+  const gens: number[] = [];
+  const inSpan = new Uint8Array(group.elements.length);
+  inSpan[group.identity] = 1;
+  let span = [group.identity];
+  for (let x = 0; x < group.elements.length; x++) {
+    if (inSpan[x]) continue;
+    gens.push(x);
+    // Close the span under right multiplication by every generator.
+    const queue = [...span];
+    while (queue.length > 0) {
+      const a = queue.pop()!;
+      for (const g of gens) {
+        const b = group.table[a]![g]!;
+        if (!inSpan[b]) {
+          inSpan[b] = 1;
+          span.push(b);
+          queue.push(b);
+        }
+      }
+    }
+    span = [...span];
+  }
+  generatorCache.set(group, gens);
+  return gens;
+}
+
 const pointGroupCache = new WeakMap<FactorGroup, number[]>();
 
 /**

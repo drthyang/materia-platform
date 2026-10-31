@@ -461,15 +461,20 @@ Conventions are pinned in
 [`knowledge/total_scattering_pdf_conventions_knowledge.md`](../knowledge/total_scattering_pdf_conventions_knowledge.md).
 
 **Not yet**
-- Cell-multiplying distortions: irreps, isotropy subgroups and subgroups
-  only within the conventional cell (Γ and the decentring k-points of a
-  centred parent, ADR 0002's Phase-1 bound). Primitive-cubic X, M, R, F's L
-  and W, and every k-subgroup that enlarges the cell need the supercell
-  engine (Phase 2). ADP, strain and occupancy symmetry modes.
+- Cell-multiplying distortions: their irreps, isotropy subgroups and
+  subgroups are listed and named inside a supercell bound (Phase 2), but a
+  cell-multiplying child cannot be activated or refined until the supercell
+  forward model arrives (phase 3). ADP, strain and occupancy symmetry modes.
 - Irrep labels are generic (the k-point, "irrep n of m"): no CDML labels such
   as X3⁺ ([ADR 0004](./adr/0004-generic-irrep-labels-in-the-app.md)).
   Order-parameter directions are written in MATERIA's irrep basis and can
-  differ from ISODISTORT's symbols for the same subgroup.
+  differ from ISODISTORT's symbols for the same subgroup, for example (a,a)
+  and (a,-a) where ISODISTORT writes (a,0) and (0,a). A few keep an
+  irrational coefficient, as some in ISOTROPY's own tables do. An eight-fold
+  image (I4₁/amd and Fd-3m at (0,0,½)) forces √2 − 1 in any orthonormal
+  basis. A direction spread over three arms that a 3-fold permutes (the
+  rhombohedral children at L; P3₁21 at R-3m's (0,½,0)) keeps √3/2-type
+  coefficients in every basis MATERIA tries.
 - Mode amplitudes: the refined parameter is still normalized over the
   conventional child cell. ISODISTORT's A_s and A_p are shown beside it. The
   parameter's unit changes after the agent validation freeze

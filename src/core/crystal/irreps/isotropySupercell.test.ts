@@ -13,6 +13,16 @@
  *    (2006) 607, §4.6).
  *  - Pm-3m X3+ (a,b,0) gives Pban with two arms active (SvOC16 Fig. 2).
  * The irreps are matched by their subgroups, never by label (ADR 0004).
+ *
+ * Direction symbols read as ISODISTORT's, in MATERIA's basis (ADR 0003: it
+ * can differ from ISO-IR's). R3+'s two directions are (a,a) and (a,-a), the
+ * published (a,0) and (0,a) in a basis turned by 45°. Phase 2 wrote one of
+ * them as (a,0.268a) or (a,3.732a): the same direction in another
+ * orientation, picked for having no minus sign. Fm-3m's eight-dimensional L
+ * irreps were written in a basis turned by 15° in every arm, and now read
+ * (a,0,…,0), (a,0,a,0,0,0,0,0), (a,0,a,0,a,0,a,0), …. Their rhombohedral
+ * directions, spread over three arms that a 3-fold permutes, keep √3/2-type
+ * coefficients in every basis the search tries (directionBasis.ts).
  */
 import { describe, it, expect } from "vitest";
 import { buildSpaceGroup } from "@/core/crystal/spaceGroups";
@@ -51,6 +61,39 @@ describe("isotropy subgroups at cell-multiplying k-points (2×2×2 bound)", { ti
         expect(s.identity.basis).toBeDefined();
       }
     }
+  });
+
+  it("Pm-3m R: the two-dimensional irreps read I4/mmm and I4/mcm as (a,a) and (a,-a), Fmmm as (a,b)", () => {
+    const { star, iso } = analyse(221, [0.5, 0.5, 0.5]);
+    const two = iso.filter((_, i) => star.physical[i]!.dim === 2);
+    expect(two).toHaveLength(2);
+    for (const a of two) {
+      const bySymbol = Object.fromEntries(a.subgroups.map((s) => [s.direction.symbol, s.identity.number]));
+      expect(Object.keys(bySymbol).sort()).toEqual(["(a,-a)", "(a,a)", "(a,b)"]);
+      expect([bySymbol["(a,a)"], bySymbol["(a,-a)"]].sort()).toEqual([139, 140]);
+      expect(bySymbol["(a,b)"]).toBe(69);
+    }
+  });
+
+  it("Fm-3m L: every one-parameter direction of the eight-dimensional irreps written with 0 and ±a, but R-3m's and R-3c's", () => {
+    const { star, iso } = analyse(225, [0.5, 0.5, 0.5]);
+    const eight = iso.filter((_, i) => star.physical[i]!.dim === 8);
+    expect(eight).toHaveLength(2);
+    for (const a of eight) {
+      const lines = a.subgroups.filter((s) => s.direction.dim === 1);
+      expect(lines).toHaveLength(10);
+      const unclean = lines.filter((s) => !/^\((-?a|0)(,(-?a|0))*\)$/.test(s.direction.symbol));
+      expect(unclean.map((s) => s.identity.number).sort()).toEqual([166, 167]);
+      // One arm alone: C2/m and C2/c, a single nonzero coefficient.
+      for (const n of [12, 15]) expect(lines.find((s) => s.identity.number === n)!.direction.symbol).toMatch(/^\((0,)*a(,0)*\)$/);
+    }
+  });
+
+  it("F-43m W at the bound's own arm (0,½,1): every one-parameter direction written with 0 and ±a (P-43m, P-43n and P2₁3 read 0.707a or 1.414a before)", () => {
+    const { iso } = analyse("F -4 3 m", [0, 0.5, 1]);
+    const lines = iso.flatMap((a) => a.subgroups).filter((s) => s.direction.dim === 1);
+    expect(lines.length).toBeGreaterThan(0);
+    for (const s of lines) expect(s.direction.symbol, `#${s.identity.number}`).toMatch(/^\((-?a|0)(,(-?a|0))*\)$/);
   });
 
   it("Pm-3m M: P4/mbm from a one-arm direction; Im-3m from three equal arms", () => {
