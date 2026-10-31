@@ -84,6 +84,13 @@ A basis displacement pattern of the child cell that belongs to one irrep.
 **Mode amplitude**:
 The size of a symmetry mode in Å, reported as A_s over the primitive child cell and A_p normalised to the parent cell.
 
+**Decomposition**:
+A child structure's distortion taken apart into the parent's symmetry modes, given the parent: the child basis and origin found, each child atom paired with its undistorted position, the displacements projected onto the modes by irrep.
+
+**Mode CIF**:
+ISODISTORT's CIF of a child structure with its symmetry modes: each mode's amplitude A_s and normfactor, and the matrix that turns amplitudes into coordinate shifts.
+_Avoid_: distortion file (ISODISTORT's own page-state file)
+
 **Orientation state**:
 One conjugate of a child group; there are [G : N_G(H)] of them.
 

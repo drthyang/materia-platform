@@ -513,8 +513,43 @@ function checkDistortionModes(v: unknown, path: string): void {
     });
     opt(m.star, `${p}.star`, str);
     opt(m.active, `${p}.active`, bool);
+    // Modes by parent irrep: the irrep and the parent site.
+    opt(m.irrep, `${p}.irrep`, (ir, ip) => {
+      const r = rec(ir, ip);
+      str(r.label, `${ip}.label`);
+      vec3(r.k, `${ip}.k`);
+      opt(r.direction, `${ip}.direction`, str);
+      str(r.parentSite, `${ip}.parentSite`);
+      return r;
+    });
   });
   num(set.totalAmplitude, `${path}.set.totalAmplitude`);
+  opt(set.amplitudeCells, `${path}.set.amplitudeCells`, (c, cp) => {
+    const r = rec(c, cp);
+    num(r.child, `${cp}.child`);
+    num(r.parent, `${cp}.parent`);
+    return r;
+  });
+  // The parent and child basis of modes by parent irrep (a mode CIF writes them).
+  opt(set.parent, `${path}.set.parent`, (pa, pp) => {
+    const r = rec(pa, pp);
+    str(r.name, `${pp}.name`);
+    opt(r.hermannMauguin, `${pp}.hermannMauguin`, str);
+    opt(r.number, `${pp}.number`, int);
+    const cell = rec(r.cell, `${pp}.cell`);
+    for (const k of ["a", "b", "c", "alpha", "beta", "gamma"]) num(cell[k], `${pp}.cell.${k}`);
+    num(r.centring, `${pp}.centring`);
+    each(r.basis, `${pp}.basis`, (row, rp) => vec3(row, rp));
+    if (!Array.isArray(r.basis) || r.basis.length !== 3) fail(`${pp}.basis`, "the child basis is a 3×3 matrix");
+    vec3(r.origin, `${pp}.origin`);
+    each(r.sites, `${pp}.sites`, (site, sp) => {
+      const x = rec(site, sp);
+      str(x.label, `${sp}.label`);
+      str(x.element, `${sp}.element`);
+      opt(x.wyckoff, `${sp}.wyckoff`, str);
+    });
+    return r;
+  });
   each(set.unpaired, `${path}.set.unpaired`, (x, p) => str(x, p));
   opt(set.acousticExcluded, `${path}.set.acousticExcluded`, int);
   str(d.parentName, `${path}.parentName`);

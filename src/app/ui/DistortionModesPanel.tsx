@@ -1,10 +1,13 @@
 /**
  * The PDF page's distortion modes, under the 3D Model view: the modes being
  * refined, each amplitude with its esd and free/fixed state, the total |A|
- * and the acoustic combinations left out. A row click draws that mode's
- * eigenvector on the model as green arrows. The symmetry the modes lower to
- * is chosen on the Subgroups page (SubgroupsPanel), which also clears it;
- * this table only names it.
+ * and the acoustic combinations left out. Modes by parent irrep (a supercell
+ * child, a decomposition, a mode CIF) are grouped under their irrep, with the
+ * irrep's total A_s and A_p, as ISODISTORT reports them, and can be saved as
+ * an ISODISTORT mode CIF. A row click draws that mode's eigenvector on the
+ * model as green arrows. The symmetry the modes lower to is chosen on the
+ * Subgroups page (SubgroupsPanel), which also clears it; this table only
+ * names it.
  */
 
 import type { ModesInForce } from "@/app/pdfPage";
@@ -28,9 +31,11 @@ interface Props {
   readonly onShowMode: (id: string | null) => void;
   /** Open the Subgroups page, where the symmetry is lowered. */
   readonly onOpenSubgroups: () => void;
+  /** Save the modes as an ISODISTORT mode CIF (modeCifOf); absent when the set is not one by parent irrep. */
+  readonly onExportModeCif?: () => void;
 }
 
-export function DistortionModesPanel({ modeSet, modes, params, result, spaceGroup, ownModes, shownModeId, onShowMode, onOpenSubgroups }: Props): JSX.Element {
+export function DistortionModesPanel({ modeSet, modes, params, result, spaceGroup, ownModes, shownModeId, onShowMode, onOpenSubgroups, onExportModeCif }: Props): JSX.Element {
   const toSubgroups = (title: string): JSX.Element => (
     <button style={resetRangeBtn} onClick={onOpenSubgroups} title={title}>
       Subgroups →
@@ -83,6 +88,11 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
           </span>
         )}
         {toSubgroups(modes ? "The symmetry these modes lower to is chosen on the Subgroups page — change or clear it there" : "Lower the symmetry on the Subgroups page: a subgroup, a Γ irrep, or a parent CIF")}
+        {onExportModeCif && (
+          <button style={resetRangeBtn} onClick={onExportModeCif} title="Save the child and these modes, at their current amplitudes, as an ISODISTORT mode CIF (ISODISTORT's tags, A_s values and normfactors; MATERIA's generic irrep labels). It reads back here exactly, and ISODISTORT-aware programs such as GSAS-II read its modes.">
+            Mode CIF ↓
+          </button>
+        )}
       </div>
       <div style={{ marginTop: 4, border: `1px solid ${color.border}`, borderRadius: 6 }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: mono, fontSize: fz.micro }}>
@@ -101,7 +111,20 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
               const p = params.find((q) => q.id === m.id);
               const esd = result?.esd[m.id] ?? p?.esd;
               const shown = m.id === shownModeId;
-              return (
+              // Modes by parent irrep: a header row where the irrep changes, with the irrep's total A_s and A_p.
+              const irrep = m.irrep;
+              const header = irrep && modeSet.modes[i - 1]?.irrep?.label !== irrep.label ? irrep : null;
+              const irrepTotal = header
+                ? isodistortAmplitudes(Math.hypot(...modeSet.modes.filter((x) => x.irrep?.label === header.label).map((x) => params.find((q) => q.id === x.id)?.value ?? 0)), cells)
+                : null;
+              return [
+                header && irrepTotal ? (
+                  <tr key={`${m.id}-irrep`} style={{ borderTop: `1px solid ${color.border}`, background: color.subtle }}>
+                    <td colSpan={6} style={{ padding: "3px 8px", color: color.secondary }} title={`The parent's irrep at k = (${header.k.map((x) => +x.toFixed(4)).join(", ")})${header.direction ? `, order-parameter direction ${header.direction} in MATERIA's basis of the irrep` : ""}: its modes below, its total amplitude added in quadrature, as ISODISTORT reports one per irrep`}>
+                      {header.label}{header.direction ? ` ${header.direction}` : ""} · k = ({header.k.map((x) => +x.toFixed(4)).join(", ")}) · total A_s {irrepTotal.as.toFixed(5)}, A_p {irrepTotal.ap.toFixed(5)}
+                    </td>
+                  </tr>
+                ) : null,
                 <tr
                   key={m.id}
                   onClick={() => onShowMode(shown ? null : m.id)}
@@ -120,14 +143,16 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
                   <td style={{ padding: "3px 8px", textAlign: "right", color: color.secondary }}>{isodistortAmplitudes(p?.value ?? 0, cells).ap.toFixed(5)}</td>
                   <td style={{ padding: "3px 8px", textAlign: "right", color: color.secondary }}>{esd !== undefined ? esd.toFixed(5) : "—"}</td>
                   <td style={{ padding: "3px 8px", color: color.secondary }}>{p?.fixed ? "fixed" : "free"}</td>
-                </tr>
-              );
+                </tr>,
+              ];
             })}
           </tbody>
         </table>
       </div>
       <p style={{ marginTop: 4, marginBottom: 0, fontSize: 12, color: color.secondary }}>
-        {modes?.fromActivation
+        {modeSet.modes.some((m) => m.irrep)
+          ? "Amplitudes are whole-cell displacement norms (Å) of the child's modes by parent irrep, each named by its irrep and the parent site it moves (generic irrep labels; an imported mode CIF keeps its own). Free/fix rows in the parameter panel (Positions group)."
+          : modes?.fromActivation
           ? "Amplitudes are whole-cell displacement norms (Å) of the distortions the lowered group permits. Free/fix rows in the parameter panel (Positions group)."
           : modes
             ? "Amplitudes are whole-cell displacement norms (Å); mode 1 is the frozen distortion — its fitted amplitude is the order parameter. Free/fix rows in the parameter panel (Positions group)."

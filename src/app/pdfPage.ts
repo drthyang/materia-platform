@@ -34,7 +34,12 @@ import { isotropyField, subgroupOrderParameter } from "@/core/crystal/isotropySu
 import { activateIsotropySubgroup, decentringTerms, lowerToSubgroup } from "@/core/crystal/decentringModes";
 import type { IndexSplit } from "@/core/crystal/irreps/isotropy";
 import type { FactorGroup } from "@/core/crystal/irreps/factorGroup";
-import { realiseChild, realisedAmplitudeCells, symmetryBreakingField, type RealisedChild } from "@/core/crystal/irreps/realisation";
+import { realiseChild, type RealisedChild } from "@/core/crystal/irreps/realisation";
+import { orderParameterIrreps, supercellModeBasis, type SupercellModeBasis } from "@/core/crystal/irreps/supercellModes";
+import { irrepModeSet } from "@/core/crystal/irreps/modeSet";
+import { decomposeChild } from "@/core/crystal/irreps/decompose";
+import { modeCif, isodistortSymbol } from "@/core/export/modeCif";
+import type { ModeCif } from "@/parsers/modeCif";
 import { latticeCentring } from "@/core/crystal/standardSetting";
 import type { SubgroupNode } from "@/core/crystal/subgroupTree";
 import { applyParameters } from "@/core/workflow/apply";
@@ -644,15 +649,128 @@ export function withoutModes(m: PdfPageModel): PdfPageModel {
 /**
  * The structure decomposed against a high-symmetry parent into refinable
  * distortion-mode amplitudes, seeded to reproduce it exactly (the curve does
- * not move). `message`: why nothing changed, or what the set holds.
+ * not move). The loaded structure is the child, in its own cell: a supercell
+ * of the parent or the parent's cell. decomposeChild finds the basis and
+ * origin and splits the distortion into the parent's irreps, site by site
+ * (subgroup engine phase 4); where it cannot pair the two (a site missing, a
+ * setting it does not reach), the same-lattice pairing of buildDistortionModes
+ * is used as before. `message`: why nothing changed, or what the set holds.
  */
 export function withParentModes(m: PdfPageModel, parent: StructureModel, parentName: string): { readonly model: PdfPageModel; readonly message: string } {
+  let reason: string;
+  try {
+    const d = decomposeChild(parent, m.loaded);
+    if (d.set.modes.length > 0) {
+      const set = d.set;
+      const cells = set.amplitudeCells!;
+      const irreps = [...new Set(set.modes.filter((mode) => Math.abs(mode.observedAmplitude) > 1e-5).map((mode) => mode.irrep!.label))];
+      const total = isodistortAmplitudes(set.totalAmplitude, cells);
+      return {
+        model: withSpecChange(m, { modes: { set, parentName }, positionMode: "irreps" }),
+        message: `${set.modes.length} mode(s) by parent irrep${irreps.length > 0 ? ` (${irreps.join(", ")} carry the distortion)` : ""}, total |A| = ${set.totalAmplitude.toFixed(4)} Å (A_s ${total.as.toFixed(4)}, A_p ${total.ap.toFixed(4)}) · ${formatChildBasis(d.basis, d.origin)}${d.unpaired.length ? ` · unpaired: ${d.unpaired.join(", ")}` : ""}`,
+      };
+    }
+    reason = "no displacement the child's sites allow";
+  } catch (e) {
+    reason = e instanceof Error ? e.message : String(e);
+  }
   const set = buildDistortionModes(parent, m.loaded);
-  if (set.modes.length === 0) return { model: m, message: "no child site could be paired with the parent structure — check that both CIFs share the same lattice/setting" };
+  if (set.modes.length === 0) return { model: m, message: `no child site could be paired with the parent structure — check that both CIFs share the same lattice/setting (by parent irrep: ${reason})` };
   return {
     model: withSpecChange(m, { modes: { set, parentName }, positionMode: "irreps" }),
-    message: `${set.modes.length} mode(s), total |A| = ${set.totalAmplitude.toFixed(4)} Å${set.unpaired.length ? ` · unpaired: ${set.unpaired.join(", ")}` : ""}`,
+    message: `${set.modes.length} mode(s), total |A| = ${set.totalAmplitude.toFixed(4)} Å${set.unpaired.length ? ` · unpaired: ${set.unpaired.join(", ")}` : ""} · paired on the same lattice (not by parent irrep: ${reason})`,
   };
+}
+
+/**
+ * The modes of an ISODISTORT mode CIF (parsers/modeCif.ts) in force: the
+ * file's child, its modes and amplitudes as the file gives them. Where the
+ * loaded structure is the file's parent (its space group), the child is fitted
+ * in its own cell, as an activated supercell child is, and ✕ clear returns to
+ * the parent. Where the loaded structure is the file's child (its group and
+ * sites), the modes are refined on it, as a decomposition is. Anything else is
+ * refused with the reason; so is a multi-phase page.
+ */
+export function withModeCif(m: PdfPageModel, parsed: ModeCif, fileName: string): { readonly model: PdfPageModel; readonly label: string; readonly message: string } {
+  const child = parsed.structure;
+  const name = child.spaceGroup.hermannMauguin ?? "child";
+  const label = `${name}${child.spaceGroup.number !== undefined ? ` #${child.spaceGroup.number}` : ""} (mode CIF)`;
+  if (m.extraPhases.length > 0) return { model: m, label, message: `${label}: a mode CIF is refined on a single-phase page` };
+  const set = parsed.set;
+  const ignored = parsed.ignored.length > 0 ? ` · not read: its ${parsed.ignored.join(", ")} modes` : "";
+  const total = isodistortAmplitudes(set.totalAmplitude, set.amplitudeCells ?? { child: 1, parent: 1 });
+  const summary = `${set.modes.length} mode(s) from ${fileName} (${parsed.materia ? "MATERIA" : "ISODISTORT"}), total |A| = ${set.totalAmplitude.toFixed(4)} Å (A_s ${total.as.toFixed(4)}, A_p ${total.ap.toFixed(4)})${ignored}`;
+  const loaded = m.loaded;
+  const sameGroup = (number: number | undefined, symbol: string | undefined, sg: StructureModel["spaceGroup"]): boolean =>
+    (number !== undefined && sg.number === number) || (symbol !== undefined && isodistortSymbol(symbol) === isodistortSymbol(sg.hermannMauguin));
+  // The loaded structure is the file's parent: the child in its own cell.
+  if (sameGroup(parsed.parentNumber, parsed.parentSymbol, loaded.spaceGroup)) {
+    const ownId = (x: StructureModel): StructureModel => ({ ...x, id: loaded.id });
+    const inForce: DistortionModeSet = {
+      ...set,
+      parentized: ownId(set.parentized),
+      bindings: set.bindings.map((b) => ({ ...b, targetId: loaded.id })),
+    };
+    return {
+      model: withSpecChange(m, { modes: { set: inForce, parentName: label, fromActivation: true, ownCell: true }, positionMode: "irreps" }, { kick: true }),
+      label,
+      message: `${summary} · the child fitted in its own cell, ✕ clear returns to ${loaded.spaceGroup.hermannMauguin ?? "the parent"}`,
+    };
+  }
+  // The loaded structure is the file's child: the modes on it.
+  const labels = new Map(loaded.sites.map((x) => [x.label, x] as const));
+  if (sameGroup(child.spaceGroup.number, child.spaceGroup.hermannMauguin, loaded.spaceGroup) && child.sites.every((x) => labels.get(x.label)?.element === x.element)) {
+    const refOf = new Map(set.parentized.sites.map((x) => [x.label, x.position] as const));
+    const inForce: DistortionModeSet = {
+      ...set,
+      parentized: { ...loaded, sites: loaded.sites.map((x) => (refOf.has(x.label) ? { ...x, position: refOf.get(x.label)! } : x)) },
+      bindings: set.bindings.map((b) => ({ ...b, targetId: loaded.id })),
+    };
+    return { model: withSpecChange(m, { modes: { set: inForce, parentName: label }, positionMode: "irreps" }), label, message: `${summary} · on the loaded structure` };
+  }
+  const parentName = `${parsed.parentSymbol ?? "?"}${parsed.parentNumber !== undefined ? ` #${parsed.parentNumber}` : ""}`;
+  return { model: m, label, message: `${fileName}: its parent is ${parentName} and its child ${name}; the loaded structure is neither (${loaded.spaceGroup.hermannMauguin ?? "?"}). Load one of them first.` };
+}
+
+/**
+ * The mode set in force as an ISODISTORT mode CIF (export/modeCif.ts): the
+ * child at the current values (cell, ADPs, positions), its modes, amplitudes
+ * and free state. Null when the set is not one by parent irrep (the
+ * structure's own modes, a same-lattice pairing) or positions refine per
+ * coordinate.
+ */
+export function modeCifOf(m: PdfPageModel): { readonly fileName: string; readonly text: string } | null {
+  const v = pageView(m);
+  const set = v.modeSet;
+  if (!set || !set.parent || set.modes.length === 0 || set.modes.some((mode) => !mode.irrep)) return null;
+  const values = valuesOf(m.params);
+  const child = applyParameters(v.fitStructure, v.bindings, values).model;
+  const free = Object.fromEntries(m.params.map((p) => [p.id, !p.fixed]));
+  const base = (child.name || "child").replace(/[^A-Za-z0-9_-]+/g, "_");
+  return { fileName: `${base}_modes.cif`, text: modeCif({ set, child, values, free, version: APP_VERSION }) };
+}
+
+/** The child basis in words: "a′ = −a+c, b′ = −a−c, c′ = −2b, origin (0, 0, ½)". */
+function formatChildBasis(P: readonly (readonly number[])[], p: readonly number[]): string {
+  const axis = (j: number): string => {
+    let out = "";
+    ["a", "b", "c"].forEach((name, i) => {
+      const x = Math.round(P[i]![j]! * 12) / 12;
+      if (x === 0) return;
+      const mag = Math.abs(x) === 1 ? "" : fraction(Math.abs(x));
+      out += `${x < 0 ? "−" : out === "" ? "" : "+"}${mag}${name}`;
+    });
+    return out || "0";
+  };
+  return `a′ = ${axis(0)}, b′ = ${axis(1)}, c′ = ${axis(2)}, origin (${p.map((x) => fraction(x)).join(", ")})`;
+}
+
+function fraction(x: number): string {
+  for (const d of [1, 2, 3, 4, 6, 8, 12, 24]) {
+    const n = Math.round(x * d);
+    if (Math.abs(x * d - n) < 1e-9) return d === 1 ? String(n) : `${n}/${d}`;
+  }
+  return x.toFixed(4);
 }
 
 /** The starting amplitude of an activated mode (Å, whole cell): a polar mode's χ² is stationary at 0. */
@@ -668,6 +786,24 @@ function kicked(set: DistortionModeSet): DistortionModeSet | null {
   const activeId = set.modes.find((mode) => mode.active)?.id;
   if (activeId === undefined) return null;
   return { ...set, parameters: set.parameters.map((p) => (p.id === activeId ? { ...p, value: ACTIVATION_KICK, initialValue: ACTIVATION_KICK, fixed: false } : p)) };
+}
+
+/**
+ * The mode set with several modes kicked: the order parameter of a supercell
+ * child, the modes of the irreps that together lower the parent to it. Each
+ * is free at ACTIVATION_KICK·w_k/|w| with fixed, distinct weights w_k, so the
+ * kick totals ACTIVATION_KICK and no special combination keeps a higher
+ * symmetry; one mode alone gets ACTIVATION_KICK.
+ */
+function kickedModes(set: DistortionModeSet, ids: readonly string[]): DistortionModeSet {
+  const w = ids.map((_, k) => 1 + 0.5 * Math.sin(1.7 * (k + 1) + 0.3));
+  const n = Math.hypot(...w);
+  const value = new Map(ids.map((id, k) => [id, (ACTIVATION_KICK * w[k]!) / n] as const));
+  return {
+    ...set,
+    modes: set.modes.map((mode) => (value.has(mode.id) ? { ...mode, active: true } : mode)),
+    parameters: set.parameters.map((p) => (value.has(p.id) ? { ...p, value: value.get(p.id)!, initialValue: value.get(p.id)!, fixed: false } : p)),
+  };
 }
 
 /**
@@ -802,20 +938,22 @@ export interface SupercellChoice {
   readonly group: FactorGroup;
   readonly elements: readonly number[];
   readonly identity: SubgroupIdentity;
+  /** The irrep the child was activated from (the irreps view), by its characters on the group's elements: the order parameter, when its modes reach the child. */
+  readonly primary?: readonly number[];
 }
 
 /**
- * A cell-multiplying child from the supercell view (subgroup engine phase 3):
- * the child realised in its own cell from the current refined geometry
- * (realisation.ts: the standard setting's cell and operations, every orbit
- * split), refined as an ordinary structure there, so the G(r) and its pairs
- * are the supercell's. Its positions refine as the child's symmetry-adapted
- * displacements (buildSymmetryModes on the child): the leading one is a
- * generic field that breaks the parent's symmetry down to the child's
- * (symmetryBreakingField), free from the ACTIVATION_KICK, since χ² is
- * stationary at the parent's geometry; the others start at 0, fixed. The
- * setting-free rows carry over; the cell and ADP rows are the child's. The
- * modes by parent irrep arrive with the supercell mode basis (phase 4).
+ * A cell-multiplying child from the supercell view (subgroup engine phases 3
+ * and 4): the child realised in its own cell from the current refined
+ * geometry (realisation.ts: the standard setting's cell and operations, every
+ * orbit split), refined as an ordinary structure there, so the G(r) and its
+ * pairs are the supercell's. Its positions refine as its displacive modes by
+ * parent irrep (supercellModes.ts), labelled with the irrep and the parent
+ * site. χ² is stationary at the parent's geometry, so the order parameter is
+ * kicked: the modes of the fewest irreps that together lower the parent to
+ * the child (the irrep it was activated from, when it reaches the child),
+ * free from ACTIVATION_KICK in all; the others start at 0, fixed. The
+ * setting-free rows carry over; the cell and ADP rows are the child's.
  */
 export function withSupercellChild(m: PdfPageModel, choice: SupercellChoice): { readonly model: PdfPageModel; readonly label: string; readonly message: string } {
   const { identity } = choice;
@@ -825,39 +963,32 @@ export function withSupercellChild(m: PdfPageModel, choice: SupercellChoice): { 
   const v = pageView(m);
   const refined = applyParameters(v.fitStructure, v.bindings, valuesOf(m.params)).model;
   let realised: RealisedChild;
+  let basis: SupercellModeBasis;
   try {
     realised = realiseChild(refined, choice.group, choice.elements, identity);
+    basis = supercellModeBasis(refined, choice.group, choice.elements, realised, { arms: "bound" });
   } catch (e) {
     return { model: m, label, message: `${label}: ${e instanceof Error ? e.message : String(e)}` };
   }
-  const field = symmetryBreakingField(refined, realised);
-  const built = buildSymmetryModes(realised.structure, { seeds: field ? [{ axes: field, label: `${label}: symmetry-breaking displacements` }] : [], gauge: "polar" });
-  if (built.modes.length === 0) return { model: m, label, message: `${label}: every site of the child is symmetry-pinned — no refinable displacement` };
-  const withCells: DistortionModeSet = { ...childModeLabels(built), amplitudeCells: realisedAmplitudeCells(refined, realised) };
-  const set = field ? kicked(withCells) : null;
+  if (basis.modes.length === 0) return { model: m, label, message: `${label}: every site of the child is symmetry-pinned — no refinable displacement` };
+  // The order parameter: the fewest irreps that reach the child; failing that, every symmetry-breaking one.
+  const order = orderParameterIrreps(basis, choice.primary);
+  const breaking = basis.irreps.map((ir, i) => ({ ir, i })).filter(({ ir }) => ir.direction !== undefined).map(({ i }) => i);
+  const kickedIrreps = order ?? breaking;
+  const kicked = basis.modes.map((mode, i) => ({ mode, i })).filter(({ mode }) => kickedIrreps.includes(mode.irrep)).map(({ i }) => i);
+  const built = irrepModeSet(refined, realised, basis, { first: kicked });
+  const ids = built.modes.filter((mode) => kicked.some((i) => basis.modes[i]!.label === mode.label)).map((mode) => mode.id);
+  const set = ids.length > 0 ? kickedModes(built, ids) : null;
   const dropped = realised.dropped.length > 0 ? ` (not carried: ${realised.dropped.join(", ")})` : "";
-  const sites = `${realised.structure.sites.length} child site(s), ${realised.atoms.length} atoms in the cell (×${+realised.volumeRatio.toFixed(4)} the parent's) · ${built.modes.length} distortion mode(s)`;
+  const irreps = new Set(basis.modes.map((mode) => mode.irrep)).size;
+  const sites = `${realised.structure.sites.length} child site(s), ${realised.atoms.length} atoms in the cell (×${+realised.volumeRatio.toFixed(4)} the parent's) · ${built.modes.length} mode(s) in ${irreps} parent irrep(s)`;
+  const named = kickedIrreps.map((i) => basis.irreps[i]!.label).join(" + ");
   return {
-    model: withSpecChange(m, { modes: { set: set ?? withCells, parentName: label, fromActivation: true, ownCell: true }, positionMode: "irreps" }, { kick: true }),
+    model: withSpecChange(m, { modes: { set: set ?? built, parentName: label, fromActivation: true, ownCell: true }, positionMode: "irreps" }, { kick: true }),
     label,
     message: set
-      ? `realised ${label} in its own cell: ${sites} · the symmetry-breaking displacements free from ${ACTIVATION_KICK} Å — free the other rows to refine them (Positions group)${dropped}`
+      ? `realised ${label} in its own cell: ${sites} · the order parameter (${named}${order ? "" : ": no three irreps reach the child, so every symmetry-breaking one"}) free from ${ACTIVATION_KICK} Å — free the other rows to refine them (Positions group)${dropped}`
       : `realised ${label} in its own cell: ${sites} — no displacement breaks the parent's symmetry here (only the cell can), so the modes start at 0${dropped}`,
-  };
-}
-
-/**
- * A supercell child's own modes named without a k-point: buildSymmetryModes
- * writes "mode 2 @ Γ (O)", the Γ of the structure it is given, which on a
- * child would read as the parent's Γ. Its modes by parent irrep, with their
- * k-points, come with the supercell mode basis (phase 4).
- */
-function childModeLabels(set: DistortionModeSet): DistortionModeSet {
-  const rename = (label: string): string => label.replace(" @ Γ (", " (");
-  return {
-    ...set,
-    modes: set.modes.map(({ star: _star, ...mode }) => ({ ...mode, label: rename(mode.label) })),
-    parameters: set.parameters.map((p) => ({ ...p, label: rename(p.label) })),
   };
 }
 

@@ -509,12 +509,32 @@ shows the modes being refined.
     At the parent's geometry a symmetry-breaking mode started at 0 would
     never move.
   - **Load parent CIF…** decomposes a structure that is already the distorted
-    child against a high-symmetry parent.
+    child against a high-symmetry parent, in the parent's cell or a supercell
+    (a Pnma CIF against its cubic parent, say). MATERIA finds the child basis
+    and origin, pairs each atom with its undistorted position, and splits
+    the displacements into the parent's irreps, site by site. The amplitudes
+    are seeded at the observed values, so the curve does not move, and the
+    message gives the basis it found. If the two cannot be paired that way (a
+    missing site, a setting outside the search), the older same-lattice
+    pairing is used and the message says so.
+  - **Load mode CIF…** reads an ISODISTORT mode CIF: ISODISTORT's own, or one
+    saved from the 3D Model view. With the file's parent loaded, the file's
+    child is fitted in its own cell, its modes and amplitudes as the file
+    gives them, and **✕ clear** returns to the parent. With the file's child
+    loaded, the modes go on it. Only displacive modes are read.
 - The choice shows at the top of the **Subgroups** view. **✕ clear** returns
   to coordinates; clear one choice before making another.
 - The **3D Model** view lists the modes with their amplitudes, esds and
   free/fixed state, and names the parent or subgroup they lower to. Click a
-  **Distortion modes** row to draw the mode as green arrows.
+  **Distortion modes** row to draw the mode as green arrows. Modes by parent
+  irrep (a supercell child, a decomposition, a mode CIF) are grouped under
+  their irrep, each group headed by the irrep, its k-point, its
+  order-parameter direction and its total A_s and A_p, as ISODISTORT reports
+  one per irrep. **Mode CIF ↓** saves the child and these modes, at their
+  current amplitudes, as an ISODISTORT mode CIF: ISODISTORT's tags, A_s
+  values and normfactors, with MATERIA's generic irrep names. It reads back
+  here exactly, and ISODISTORT-aware programs such as GSAS-II read its
+  modes.
 - Three amplitudes are shown
   ([ADR 0003](./adr/0003-isodistort-as-the-single-convention-system.md)):
   - **A** is the refined parameter: the displacement norm over the
@@ -539,8 +559,11 @@ and W of an F one) are in the **Supercell** view below them:
 3. **Activate** on a cell-multiplying child realises it in its own cell, its
    Wyckoff orbits split, and fits it there: the page's structure becomes the
    child (for example R-3c on hexagonal axes), with its own cell and ADP
-   rows. Its displacements refine as mode amplitudes, the ones that break
-   the parent's symmetry free from a small starting amplitude, the others
+   rows. Its displacements refine as its modes by parent irrep, each named
+   by the irrep and the parent site it moves ("R irrep 8 of 10 · O"). The
+   fewest irreps that together lower the parent to the child are kicked
+   from a small starting amplitude (from the **Irreps** view, the irrep you
+   activated; for Pnma, the two tilt irreps), and the other modes start
    fixed at 0 until you free them. **✕ clear** returns to the parent: its
    cell, ADP and position rows come back as loaded, with the scale and the
    instrument rows kept from the child's fit. **Constrained atomic** sets
@@ -551,8 +574,9 @@ A same-type subgroup in a larger cell holds the smaller child as a special
 case and fits as well with more parameters: of the children that reach the
 noise, keep the one of highest symmetry. For Rietveld, export the child's CIF
 and load it on the powder page; its superlattice reflections are then that
-cell's own. Modes by parent irrep on a supercell come later
-([LIMITATIONS.md](./LIMITATIONS.md#real-space-pdf-and-magnetic-pdf)). The
+cell's own. Occupancy and strain modes, and the limits of the decomposition
+and the mode CIF, are in
+[LIMITATIONS.md](./LIMITATIONS.md#real-space-pdf-and-magnetic-pdf). The
 engine is described in
 [ADR 0001](./adr/0001-compute-irreps-by-chain-induction.md) and
 [ADR 0002](./adr/0002-bound-the-search-by-a-supercell.md).

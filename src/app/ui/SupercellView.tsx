@@ -15,11 +15,13 @@
  *     both; SUBGROUPS lists them as two entries, and the summary gives its
  *     count too. A search above the measured ceiling is refused, not truncated.
  *
- * A cell-multiplying child activates (phase 3, THY-34): it is realised in
- * its own cell (realisation.ts) and refined there as an ordinary structure,
- * the page's G(r) then the supercell's (withSupercellChild). A same-cell
- * child is activated from the panels above, in the parent's cell, as
- * before. Everything is computed on request; a large bound takes seconds.
+ * A cell-multiplying child activates (phases 3 and 4, THY-34 and THY-35): it
+ * is realised in its own cell (realisation.ts) and refined there as an
+ * ordinary structure, the page's G(r) then the supercell's, its positions as
+ * modes by parent irrep (withSupercellChild). From the irreps view the
+ * activated irrep leads the kick. A same-cell child is activated from the
+ * panels above, in the parent's cell, as before. Everything is computed on
+ * request; a large bound takes seconds.
  */
 
 import { useState } from "react";
@@ -36,7 +38,7 @@ import type { SubgroupIdentity } from "@/core/crystal/isotropyTree";
 import { color, fz, mono, resetRangeBtn, uppercaseLabel } from "@/app/theme";
 
 /** What Activate does on a cell-multiplying child (its title). */
-export const SUPERCELL_ACTIVATE_NOTE = "Realise this child in its own cell (its standard setting, the Wyckoff orbits split) and refine it there: the G(r) is the supercell's, and the displacements that break the parent's symmetry down to it lead, free from a small starting kick.";
+export const SUPERCELL_ACTIVATE_NOTE = "Realise this child in its own cell (its standard setting, the Wyckoff orbits split) and refine it there: the G(r) is the supercell's, its positions are modes by parent irrep, and the irreps that lower the parent to it lead, free from a small starting kick.";
 
 const PRESETS: readonly { readonly label: string; readonly P: number[][] }[] = [
   { label: "2×2×2", P: DEFAULT_SUPERCELL.map((r) => [...r]) },
@@ -89,6 +91,8 @@ export function latticeSummary(lattice: SupercellLattice): string {
 interface IrrepRow {
   readonly label: string;
   readonly dim: number;
+  /** The irrep's characters on the factor group's elements: an activation from this row kicks this irrep. */
+  readonly characters: readonly number[];
   readonly subgroups: readonly IrrepIsotropySubgroup[];
 }
 
@@ -155,7 +159,7 @@ export function SupercellView({ operations, onActivate, blocked = null }: Props)
   const showIrreps = (i: number): void => run(() => {
     if (!computed) return;
     const star = irrepsOfStar(computed.group, computed.stars[i]!.k);
-    setIrreps({ star, rows: star.physical.map((p) => ({ label: p.label, dim: p.dim, subgroups: isotropySubgroups(computed.group, p).subgroups })) });
+    setIrreps({ star, rows: star.physical.map((p) => ({ label: p.label, dim: p.dim, characters: p.characters, subgroups: isotropySubgroups(computed.group, p).subgroups })) });
   });
   const showLattice = (): void => run(() => {
     if (!computed) return;
@@ -164,7 +168,7 @@ export function SupercellView({ operations, onActivate, blocked = null }: Props)
 
   const box = { marginTop: 4, border: `1px solid ${color.border}`, borderRadius: 6, maxHeight: 220, overflowY: "auto" } as const;
   const row = { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "4px 8px", borderTop: `1px solid ${color.subtle2}` } as const;
-  const activate = (elements: readonly number[], identity: SubgroupIdentity | undefined): JSX.Element | null => {
+  const activate = (elements: readonly number[], identity: SubgroupIdentity | undefined, primary?: readonly number[]): JSX.Element | null => {
     if (!onActivate || !computed || !identity) return null;
     const group = computed.group;
     return (
@@ -172,7 +176,7 @@ export function SupercellView({ operations, onActivate, blocked = null }: Props)
         style={{ ...resetRangeBtn, marginLeft: "auto", ...(blocked ? { opacity: 0.55, cursor: "not-allowed" } : {}) }}
         disabled={blocked !== null || working}
         title={blocked ?? SUPERCELL_ACTIVATE_NOTE}
-        onClick={() => onActivate({ group, elements, identity })}
+        onClick={() => onActivate({ group, elements, identity, ...(primary ? { primary } : {}) })}
       >
         Activate
       </button>
@@ -254,7 +258,7 @@ export function SupercellView({ operations, onActivate, blocked = null }: Props)
                             {s.direction.symbol} · index {s.index.t}·{s.index.k} · {s.orientationStates} orientation{s.orientationStates === 1 ? "" : "s"} · {s.domainStates} domains · arms {s.activeArms.join(",")}
                             {s.kernel ? " · kernel" : ""}
                           </span>
-                          {s.cellMultiplying ? activate(s.elements, s.identity) : <span style={{ marginLeft: "auto", fontSize: fz.micro, color: color.secondary }}>same cell: activate it above</span>}
+                          {s.cellMultiplying ? activate(s.elements, s.identity, r.characters) : <span style={{ marginLeft: "auto", fontSize: fz.micro, color: color.secondary }}>same cell: activate it above</span>}
                         </div>
                       ))}
                     </div>
@@ -301,7 +305,7 @@ export function SupercellView({ operations, onActivate, blocked = null }: Props)
             </div>
           )}
           <p style={{ marginTop: 4, marginBottom: 0, fontSize: 12, color: color.secondary }}>
-            Inside the bound P every k-point with k·t integer on the supercell enters, cell-multiplying ones included. Children are named in their ITA standard setting; hover a name for its basis (P_H, p_H) from the parent's cell. Activate on a cell-multiplying child realises it in its own cell and refines it there, the leading displacements free from a small kick; its modes by parent irrep come in a later phase.
+            Inside the bound P every k-point with k·t integer on the supercell enters, cell-multiplying ones included. Children are named in their ITA standard setting; hover a name for its basis (P_H, p_H) from the parent's cell. Activate on a cell-multiplying child realises it in its own cell and refines it there, its positions as modes by parent irrep, the irreps that lower the parent to it free from a small kick.
           </p>
         </>
       )}
