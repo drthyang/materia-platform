@@ -817,7 +817,7 @@ export function withSupercellChild(m: PdfPageModel, choice: SupercellChoice): { 
   const field = symmetryBreakingField(refined, realised);
   const built = buildSymmetryModes(realised.structure, { seeds: field ? [{ axes: field, label: `${label}: symmetry-breaking displacements` }] : [], gauge: "polar" });
   if (built.modes.length === 0) return { model: m, label, message: `${label}: every site of the child is symmetry-pinned — no refinable displacement` };
-  const withCells: DistortionModeSet = { ...built, amplitudeCells: realisedAmplitudeCells(refined, realised) };
+  const withCells: DistortionModeSet = { ...childModeLabels(built), amplitudeCells: realisedAmplitudeCells(refined, realised) };
   const set = field ? kicked(withCells) : null;
   const dropped = realised.dropped.length > 0 ? ` (not carried: ${realised.dropped.join(", ")})` : "";
   const sites = `${realised.structure.sites.length} child site(s), ${realised.atoms.length} atoms in the cell (×${+realised.volumeRatio.toFixed(4)} the parent's) · ${built.modes.length} distortion mode(s)`;
@@ -827,6 +827,21 @@ export function withSupercellChild(m: PdfPageModel, choice: SupercellChoice): { 
     message: set
       ? `realised ${label} in its own cell: ${sites} · the symmetry-breaking displacements free from ${ACTIVATION_KICK} Å — free the other rows to refine them (Positions group)${dropped}`
       : `realised ${label} in its own cell: ${sites} — no displacement breaks the parent's symmetry here (only the cell can), so the modes start at 0${dropped}`,
+  };
+}
+
+/**
+ * A supercell child's own modes named without a k-point: buildSymmetryModes
+ * writes "mode 2 @ Γ (O)", the Γ of the structure it is given, which on a
+ * child would read as the parent's Γ. Its modes by parent irrep, with their
+ * k-points, come with the supercell mode basis (phase 4).
+ */
+function childModeLabels(set: DistortionModeSet): DistortionModeSet {
+  const rename = (label: string): string => label.replace(" @ Γ (", " (");
+  return {
+    ...set,
+    modes: set.modes.map(({ star: _star, ...mode }) => ({ ...mode, label: rename(mode.label) })),
+    parameters: set.parameters.map((p) => ({ ...p, label: rename(p.label) })),
   };
 }
 

@@ -68,12 +68,37 @@ describe("a supercell child activated on the PDF page", () => {
     const row = model.params.find((p) => p.id === lead.id)!;
     expect([row.value, row.fixed]).toEqual([ACTIVATION_KICK, false]);
     expect(lead.axes.map((a) => a.siteLabel)).toEqual(["O"]);
+    expect(lead.label).toBe("R -3 c:H #167: symmetry-breaking displacements");
+    // The child's own modes carry no k-point: "@ Γ" would read as the parent's Γ.
+    for (const mode of set.modes) {
+      expect(mode.star).toBeUndefined();
+      expect(mode.label).not.toContain("Γ");
+    }
     // Two cell rows (a = b, c), the parent's one gone; the PDF rows carried by id.
     const cellRows = model.params.filter((p) => p.kind === "cellLength");
     expect(cellRows).toHaveLength(2);
     expect(model.params.find((p) => p.id === "pdfScale")!.value).toBe(page.params.find((p) => p.id === "pdfScale")!.value);
     // ISODISTORT's amplitudes: A_s over the primitive (rhombohedral) child cell, A_p over six parent cells.
     expect(set.amplitudeCells).toEqual({ child: 3, parent: 6 });
+  });
+
+  it("a Pnma child: every coordinate its sites allow as a mode, the symmetry-breaking field leading, none labelled with a k-point", () => {
+    const pnma = lattice.classes.find((c) => c.identity?.number === 62)!;
+    const act = withSupercellChild(page, { group, elements: pnma.elements, identity: pnma.identity! });
+    const child = act.model.modes!.set.parentized;
+    const modes = act.model.modes!.set.modes;
+    expect(act.label).toBe("P n m a #62");
+    // Pnma is not polar: no rigid translation is projected out, so the modes span every free coordinate.
+    const free = child.sites.reduce((n, site) => n + allowedPositionShifts(child.spaceGroup.operations, site.position).dimension, 0);
+    expect(free).toBeGreaterThan(1);
+    expect(modes).toHaveLength(free);
+    expect(modes.filter((mode) => mode.active)).toHaveLength(1);
+    expect(modes[0]!.active).toBe(true);
+    for (const mode of modes) {
+      expect(mode.star).toBeUndefined();
+      expect(mode.label).not.toContain("Γ");
+    }
+    expect(act.model.params.filter((p) => p.kind === "positionShift" && !p.fixed).map((p) => p.value)).toEqual([ACTIVATION_KICK]);
   });
 
   it("refines from the kick to the tilt; ✕ clear returns to the parent", async () => {
