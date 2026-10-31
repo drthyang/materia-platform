@@ -69,7 +69,7 @@ release fixes bugs.
     down to mmm agree, but MATERIA lists 96 classes in all where the tutorial
     gives 99 (still open). Also checked against brute-force enumeration,
     spgrep (19 cases, 7 of them cell-multiplying), and the opt-in ISOTROPY
-    workflow extended to M, R, L and W.
+    workflow extended to X, M, R, L and W, which agrees on all 13 cases.
 - **ISODISTORT's mode amplitudes, A_s and A_p, beside MATERIA's.** They
   appear in the 3D Model's mode table and in the report. MATERIA's
   amplitude runs over the conventional child cell, √f larger than A_s for a

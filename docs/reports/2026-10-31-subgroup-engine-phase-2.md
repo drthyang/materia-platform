@@ -36,6 +36,11 @@ cell were covered. Phase 2 adds a supercell bound, as ADR 0002 decided.
   conventional cell and origin, with origin grids down to 1/48 (a new
   option; the default grids are unchanged). The two transformations are
   composed.
+- **Pa-3's other setting**: when no cell has matched, `standardSettingOf`
+  now also tries the other cubic axis order. Pa-3 and Ia-3 lack the 4-fold
+  that relates their two settings. The ISOTROPY oracle found a Pm-3m X child
+  left unnamed because of this. The fallback runs only after every other
+  cell has failed, so no existing name changes.
 - **Isotropy subgroups** at the new k now report the active arms (the arms
   k_j with k_j·t ∈ ℤ on T_H) and a cell-multiplying flag. Image groups larger
   than 192 elements use an orbit-wise closure: one representative per orbit,
@@ -70,7 +75,7 @@ All of the following are tests run through the module interfaces.
 | HS85 search against brute-force cyclic extension (Pnma (a,b,2c), P4/mmm (a,b,2c), P4/mmm √2×√2×1) | identical subgroup sets |
 | spgrep 0.8.0 small representations, by character | 19/19 (12 Phase 1 + Pm-3m X, M, R; Fm-3m L, W; Fd-3m L; Pnma (0,0,½)) |
 | Published isotropy subgroups: Pm-3m R3+ → I4/mmm, I4/mcm, Fmmm; R4+ → 6 classes down to P-1; M3+ → P4/mbm; X3+ (a,b,0) → Pban, two arms, 24 domains; R4+ ⊕ M3+ → Pnma for one domain choice | all reproduced |
-| ISOTROPY oracle (opt-in workflow, run on the branch) | see the PR for the run |
+| ISOTROPY 9.6.1 oracle (opt-in workflow, run on the branch): the same isotropy subgroups irrep by irrep | 13/13: Phase 1's 8 plus Pm-3m X, M, R and Fm-3m L, W (W alone: 153 subgroups over 5 irreps). The first run found one Pm-3m X child unnamed: it was Pa-3 in its other cubic setting, which `standardSettingOf` now tries as a last fallback ([run 41196511449](https://github.com/drthyang/materia-platform/actions/runs/41196511449)) |
 | Phase 1 tests (isotropy, irreps, spgrep, Subgroups page) | unchanged and passing |
 
 On the Fm-3m total: the published sub-count (20 classes with point group ⊇ mmm)
