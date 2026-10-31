@@ -1,8 +1,10 @@
 # The ISOTROPY oracle (opt-in, ADR 0005): MATERIA's isotropy subgroups at the
 # Phase-1 k-points and Phase 2's cell-multiplying ones (Pm-3m X, M, R; Fm-3m
-# L, W) against the ISOTROPY Suite's (iso.byu.edu). ISOTROPY for
-# Linux states no licence, so it is downloaded here at run time and never
-# committed. Run it from the Actions tab or `gh workflow run isotropy-oracle.yml`.
+# L, W), and Phase 4's mode amplitudes of decomposed supercell children
+# (SrTiO3 R-3c and Pnma, NiAs to MnP-type Pnma), against the ISOTROPY Suite
+# (iso.byu.edu). ISOTROPY for Linux states no licence, so it is downloaded here
+# at run time and never committed. Run it from the Actions tab or
+# `gh workflow run isotropy-oracle.yml`.
 name: ISOTROPY oracle
 
 on:
