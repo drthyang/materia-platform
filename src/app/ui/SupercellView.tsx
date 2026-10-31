@@ -15,13 +15,16 @@
  *     both; SUBGROUPS lists them as two entries, and the summary gives its
  *     count too. A search above the measured ceiling is refused, not truncated.
  *
- * Cell-multiplying children are listed and named but not activated: their
- * refinement needs the supercell forward model, which arrives in phase 3
- * (THY-34). Everything is computed on request; a large bound takes seconds.
+ * A cell-multiplying child activates (phase 3, THY-34): it is realised in
+ * its own cell (realisation.ts) and refined there as an ordinary structure,
+ * the page's G(r) then the supercell's (withSupercellChild). A same-cell
+ * child is activated from the panels above, in the parent's cell, as
+ * before. Everything is computed on request; a large bound takes seconds.
  */
 
 import { useState } from "react";
 import type { SymmetryOperation } from "@/core/crystal/types";
+import type { SupercellChoice } from "@/app/pdfPage";
 import { factorGroup, starsInBound, type FactorGroup } from "@/core/crystal/irreps/factorGroup";
 import { irrepsOfStar, formatK, type StarIrreps } from "@/core/crystal/irreps/spaceGroupIrreps";
 import { isotropySubgroups, type IrrepIsotropySubgroup } from "@/core/crystal/irreps/isotropy";
@@ -32,8 +35,8 @@ import { formatBasis } from "@/core/crystal/standardSetting";
 import type { SubgroupIdentity } from "@/core/crystal/isotropyTree";
 import { color, fz, mono, resetRangeBtn, uppercaseLabel } from "@/app/theme";
 
-/** Shown in place of Activate on a cell-multiplying child. */
-export const PHASE3_NOTE = "supercell refinement arrives in phase 3";
+/** What Activate does on a cell-multiplying child (its title). */
+export const SUPERCELL_ACTIVATE_NOTE = "Realise this child in its own cell (its standard setting, the Wyckoff orbits split) and refine it there: the G(r) is the supercell's, and the displacements that break the parent's symmetry down to it lead, free from a small starting kick.";
 
 const PRESETS: readonly { readonly label: string; readonly P: number[][] }[] = [
   { label: "2×2×2", P: DEFAULT_SUPERCELL.map((r) => [...r]) },
@@ -101,7 +104,15 @@ function starChoices(group: FactorGroup): Computed["stars"] {
   });
 }
 
-export function SupercellView({ operations }: { readonly operations: readonly SymmetryOperation[] }): JSX.Element {
+interface Props {
+  readonly operations: readonly SymmetryOperation[];
+  /** Activate a cell-multiplying child (withSupercellChild); absent, the children are listed only. */
+  readonly onActivate?: (choice: SupercellChoice) => void;
+  /** Why Activate waits (a choice in force, a fit running); null when it can run. */
+  readonly blocked?: string | null;
+}
+
+export function SupercellView({ operations, onActivate, blocked = null }: Props): JSX.Element {
   const [preset, setPreset] = useState(0);
   const [custom, setCustom] = useState(formatMatrix(DEFAULT_SUPERCELL));
   const [centring, setCentring] = useState<SupercellCentring>("P");
@@ -153,7 +164,20 @@ export function SupercellView({ operations }: { readonly operations: readonly Sy
 
   const box = { marginTop: 4, border: `1px solid ${color.border}`, borderRadius: 6, maxHeight: 220, overflowY: "auto" } as const;
   const row = { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "4px 8px", borderTop: `1px solid ${color.subtle2}` } as const;
-  const phase3 = <span style={{ marginLeft: "auto", fontSize: fz.micro, color: color.secondary, fontStyle: "italic" }}>{PHASE3_NOTE}</span>;
+  const activate = (elements: readonly number[], identity: SubgroupIdentity | undefined): JSX.Element | null => {
+    if (!onActivate || !computed || !identity) return null;
+    const group = computed.group;
+    return (
+      <button
+        style={{ ...resetRangeBtn, marginLeft: "auto", ...(blocked ? { opacity: 0.55, cursor: "not-allowed" } : {}) }}
+        disabled={blocked !== null || working}
+        title={blocked ?? SUPERCELL_ACTIVATE_NOTE}
+        onClick={() => onActivate({ group, elements, identity })}
+      >
+        Activate
+      </button>
+    );
+  };
 
   return (
     <div style={{ marginTop: 10 }} className="wb-supercell">
@@ -230,7 +254,7 @@ export function SupercellView({ operations }: { readonly operations: readonly Sy
                             {s.direction.symbol} · index {s.index.t}·{s.index.k} · {s.orientationStates} orientation{s.orientationStates === 1 ? "" : "s"} · {s.domainStates} domains · arms {s.activeArms.join(",")}
                             {s.kernel ? " · kernel" : ""}
                           </span>
-                          {s.cellMultiplying ? phase3 : <span style={{ marginLeft: "auto", fontSize: fz.micro, color: color.secondary }}>same cell: activate it above</span>}
+                          {s.cellMultiplying ? activate(s.elements, s.identity) : <span style={{ marginLeft: "auto", fontSize: fz.micro, color: color.secondary }}>same cell: activate it above</span>}
                         </div>
                       ))}
                     </div>
@@ -269,7 +293,7 @@ export function SupercellView({ operations }: { readonly operations: readonly Sy
                         {c.maximal ? " · maximal" : ""}
                         {c.supercellLattice ? " · supercell lattice" : ""}
                       </span>
-                      {c.cellMultiplying ? phase3 : null}
+                      {c.cellMultiplying && c.kind !== "parent" ? activate(c.elements, c.identity) : null}
                     </div>
                   ))}
                 </div>
@@ -277,7 +301,7 @@ export function SupercellView({ operations }: { readonly operations: readonly Sy
             </div>
           )}
           <p style={{ marginTop: 4, marginBottom: 0, fontSize: 12, color: color.secondary }}>
-            Inside the bound P every k-point with k·t integer on the supercell enters, cell-multiplying ones included. Children are named in their ITA standard setting; hover a name for its basis (P_H, p_H) from the parent's cell. Cell-multiplying children are listed and named here; {PHASE3_NOTE}.
+            Inside the bound P every k-point with k·t integer on the supercell enters, cell-multiplying ones included. Children are named in their ITA standard setting; hover a name for its basis (P_H, p_H) from the parent's cell. Activate on a cell-multiplying child realises it in its own cell and refines it there, the leading displacements free from a small kick; its modes by parent irrep come in a later phase.
           </p>
         </>
       )}

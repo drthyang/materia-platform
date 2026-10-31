@@ -526,12 +526,34 @@ shows the modes being refined.
   For a primitive child of a primitive parent all three are equal. The
   report shows them as well.
 
-These tools need a single phase. They offer the distortions that keep the
-conventional cell: Γ, and the decentring k-points of a centred parent.
-Cell-multiplying k-points (X, M and R of a primitive cubic parent; L and W of
-an F one) need a supercell and are named on the page as planned
+These tools need a single phase. The pickers above offer the distortions
+that keep the conventional cell: Γ, and the decentring k-points of a centred
+parent. Cell-multiplying k-points (X, M and R of a primitive cubic parent; L
+and W of an F one) are in the **Supercell** view below them:
+
+1. Pick a bound (2×2×2 by default, or type P) and **Set bound**.
+2. Under **Irreps**, pick a k-point and **Irreps →** for its isotropy
+   subgroups; or under **Lattice**, **Subgroups →** for every class inside
+   the bound. Each child is named in its standard setting; hover the name for
+   its basis (P_H, p_H).
+3. **Activate** on a cell-multiplying child realises it in its own cell, its
+   Wyckoff orbits split, and fits it there: the page's structure becomes the
+   child (for example R-3c on hexagonal axes), with its own cell and ADP
+   rows. Its displacements refine as mode amplitudes, the ones that break
+   the parent's symmetry free from a small starting amplitude, the others
+   fixed at 0 until you free them. **✕ clear** returns to the parent: its
+   cell, ADP and position rows come back as loaded, with the scale and the
+   instrument rows kept from the child's fit. **Constrained atomic** sets
+   the child aside the same way, and **Irreps (modes)** brings it back at
+   its starting values.
+
+A same-type subgroup in a larger cell holds the smaller child as a special
+case and fits as well with more parameters: of the children that reach the
+noise, keep the one of highest symmetry. For Rietveld, export the child's CIF
+and load it on the powder page; its superlattice reflections are then that
+cell's own. Modes by parent irrep on a supercell come later
 ([LIMITATIONS.md](./LIMITATIONS.md#real-space-pdf-and-magnetic-pdf)). The
-engine behind them is described in
+engine is described in
 [ADR 0001](./adr/0001-compute-irreps-by-chain-induction.md) and
 [ADR 0002](./adr/0002-bound-the-search-by-a-supercell.md).
 

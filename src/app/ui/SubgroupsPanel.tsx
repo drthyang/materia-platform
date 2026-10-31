@@ -14,15 +14,15 @@
  * generically: the k-point, "irrep n of m" (ADR 0004). The supercell view
  * (SupercellView, Phase 2) sets a supercell bound and lists, inside it, the
  * irreps at cell-multiplying k-points with their isotropy subgroups and the
- * subgroup lattice, every child named; cell-multiplying children are not
- * activated yet (their refinement needs the supercell forward model, phase 3).
+ * subgroup lattice, every child named; a cell-multiplying child activates
+ * there, realised in its own cell (withSupercellChild, phase 3).
  *
  * All start from the parent's own symmetry: while a choice is in force
  * it is shown with ✕ clear (withoutModes), and the pickers wait for it.
  */
 
 import { useMemo } from "react";
-import { ACTIVATION_KICK, type ModesInForce } from "@/app/pdfPage";
+import { ACTIVATION_KICK, type ModesInForce, type SupercellChoice } from "@/app/pdfPage";
 import type { StructureModel } from "@/core/crystal/types";
 import { decomposeDisplacementRepresentation, type DisplaciveIrrepTerm } from "@/core/crystal/displaciveModes";
 import type { DisplacementField, SubgroupIdentity } from "@/core/crystal/isotropyTree";
@@ -154,6 +154,8 @@ interface Props {
   /** The parent's operations, for the supercell view (Phase 2); omitted, the view is not shown. */
   readonly operations?: readonly SymmetryOperation[];
   readonly onActivateSameCell?: (node: SameCellNode) => void;
+  /** A cell-multiplying child from the supercell view, realised in its own cell (withSupercellChild). */
+  readonly onActivateSupercell?: (choice: SupercellChoice) => void;
   /** The parent CIF or subgroup choice in force, or null at the parent's own symmetry. */
   readonly modes: ModesInForce | null;
   /** How many of its modes refine (pageView.modeSet); null while Positions is on “Constrained atomic”. */
@@ -175,7 +177,7 @@ export function supercellPointsOf(structure: StructureModel): string {
 
 type LatticeRow = { readonly t: SubgroupNode } | { readonly k: SameCellNode };
 
-export function SubgroupsPanel({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCell = [], supercellNote = null, operations, onActivateSameCell, modes, modeCount, busy, onLoadParentCif, onActivateMode, onActivateSubgroup, onClear, onOpenModel }: Props): JSX.Element {
+export function SubgroupsPanel({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCell = [], supercellNote = null, operations, onActivateSameCell, onActivateSupercell, modes, modeCount, busy, onLoadParentCif, onActivateMode, onActivateSubgroup, onClear, onOpenModel }: Props): JSX.Element {
   const levels = useMemo(() => {
     const byIndex = new Map<number, LatticeRow[]>();
     const add = (index: number, row: LatticeRow): void => {
@@ -334,7 +336,13 @@ export function SubgroupsPanel({ spaceGroup, lattice, irrepTree, decentringTree 
           {`Cell-multiplying k-points (${supercellNote}) enter with a supercell bound: set one below.`}
         </p>
       )}
-      {operations && operations.length > 0 && <SupercellView operations={operations} />}
+      {operations && operations.length > 0 && (
+        <SupercellView
+          operations={operations}
+          {...(onActivateSupercell ? { onActivate: onActivateSupercell } : {})}
+          blocked={modes !== null ? "Clear the active distortion first" : busy ? "A fit is running" : null}
+        />
+      )}
 
       {/* Subgroup-driven: the translationengleiche lattice, by index. */}
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", marginTop: 10, marginBottom: 4 }}>

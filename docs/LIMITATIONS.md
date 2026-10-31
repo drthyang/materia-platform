@@ -461,10 +461,13 @@ Conventions are pinned in
 [`knowledge/total_scattering_pdf_conventions_knowledge.md`](../knowledge/total_scattering_pdf_conventions_knowledge.md).
 
 **Not yet**
-- Cell-multiplying distortions: their irreps, isotropy subgroups and
-  subgroups are listed and named inside a supercell bound (Phase 2), but a
-  cell-multiplying child cannot be activated or refined until the supercell
-  forward model arrives (phase 3). ADP, strain and occupancy symmetry modes.
+- Cell-multiplying distortions refine in the child's own cell (Phase 3),
+  as the child's own symmetry-adapted displacements with a generic
+  symmetry-breaking kick. Their modes by parent irrep, the order parameter
+  of one irrep, and ISODISTORT mode-CIF interchange come in phase 4.
+  Riding hydrogens and distance restraints are not carried into a supercell
+  child. The powder page has no Subgroups view: a supercell child reaches it
+  as the CIF the PDF page exports. ADP, strain and occupancy symmetry modes.
 - Irrep labels are generic (the k-point, "irrep n of m"): no CDML labels such
   as X3⁺ ([ADR 0004](./adr/0004-generic-irrep-labels-in-the-app.md)).
   Order-parameter directions are written in MATERIA's irrep basis and can

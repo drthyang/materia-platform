@@ -32,7 +32,7 @@ import { parseCif } from "@/parsers/cif";
 import {
   SAMPLE_STEPS, agentBoxcarPlan, boxcarSummary, landsOn, liveStateOf, momentFit, pageView, pdfBoxcar, pdfFit, pdfguiBundleOf, pdfPage, pdfPosterior, pdfProbe, pdfThorough, reportInputOf, rwOf, specKeyOf,
   withActivatedMode, withAdpModel, withBoxcarPlan, withBoxcarRun, withBoxcarStep, withExtraPhases, withFit, withFitRange, withFixed, withLoadedStructure, withoutModes,
-  withParameter, withParentModes, withPattern, withPositionMode, withPosterior, withReset, withSameCellSubgroup, withSiteTotal, withSpinModel, withSubgroup, workspaceOf, type AgentBoxcarPlan,
+  withParameter, withParentModes, withPattern, withPositionMode, withPosterior, withReset, withSameCellSubgroup, withSiteTotal, withSpinModel, withSubgroup, withSupercellChild, workspaceOf, type AgentBoxcarPlan, type SupercellChoice,
 } from "@/app/pdfPage";
 import { SiteTotals } from "@/app/ui/SiteTotals";
 import { DistortionModesPanel } from "@/app/ui/DistortionModesPanel";
@@ -512,6 +512,21 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
     setModel(activated.model);
     setLive(null);
     stepHistory?.requestStep("settings", `Distortion modes: ${activated.label}`);
+    console.info(`[status] ${activated.message}`);
+  }
+
+  // A cell-multiplying child from the supercell view (withSupercellChild): the
+  // child realised in its own cell and refined there, its symmetry-breaking
+  // displacements free from the starting kick.
+  function onActivateSupercell(choice: SupercellChoice): void {
+    const activated = withSupercellChild(model, choice);
+    if (activated.model === model) {
+      console.error(`[status] ${activated.message}`);
+      return;
+    }
+    setModel(activated.model);
+    setLive(null);
+    stepHistory?.requestStep("settings", `Supercell child: ${activated.label}`);
     console.info(`[status] ${activated.message}`);
   }
 
@@ -1054,6 +1069,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                   supercellNote={supercellNote}
                   operations={structure.spaceGroup.operations}
                   onActivateSameCell={onActivateSameCell}
+                  onActivateSupercell={onActivateSupercell}
                   modes={modes}
                   modeCount={modeSet ? modeSet.modes.length : null}
                   busy={busy}

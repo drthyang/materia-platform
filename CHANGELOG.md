@@ -61,8 +61,7 @@ release fixes bugs.
     (n_j > 0); and the irreps a chosen child allows.
   - The Subgroups page gains a supercell view: the bound, a k-point, and an
     irreps view and a lattice view. Cell-multiplying children are listed and
-    named. They cannot be activated yet: supercell refinement arrives in
-    phase 3.
+    named; Phase 3 (below) activates them.
   - Checked against Bilbao's published SUBGROUPS counts. Pnma (a, b, 2c)
     agrees: 11 classes, 4 maximal, 6 Landau-type. Pm-3m with the I-centred
     (a+b, −a+b, 2c) agrees: 98 classes, 10 maximal. Fm-3m (½a−½b, ½a+½b, 2c)
@@ -76,6 +75,32 @@ release fixes bugs.
     enumeration (Fm-3m: the same 231 subgroups), spgrep (19 cases, 7 of them
     cell-multiplying), and the opt-in ISOTROPY workflow extended to X, M, R,
     L and W, which agrees on all 13 cases.
+- **The subgroup engine, Phase 3: a supercell child refines in its own
+  cell** (PDF Subgroups page; [ADRs 0001–0005](docs/adr/); THY-34).
+  - A cell-multiplying child is realised in its ITA standard setting from
+    its child basis (P_H, p_H). Its operations are computed exactly and
+    must be a tabulated setting of its type. Its cell comes from the
+    parent's own metric. Every parent orbit is split into the child's
+    orbits, and an anisotropic U is transformed to the child's axes. Every
+    atom of the child cell keeps the parent site, operation and lattice
+    translation it came from.
+  - The child is an ordinary structure, so the PDF and Rietveld engines
+    refine it unchanged, superlattice reflections included. Checked against
+    sums over the whole supercell written out atom by atom: four tilt
+    systems of SrTiO₃ (R-3c, I4/mcm, P4/mbm, Pnma) agree to 4e-12 in |F|²
+    and 7e-14 in G(r). At the parent's geometry the child is the parent
+    exactly (rock salt's 27 L-point types too).
+  - In the supercell view a cell-multiplying child now has **Activate**.
+    The page then fits the child in its own cell. Its symmetry-breaking
+    displacements lead, free from a small kick (χ² is stationary at the
+    parent's geometry), and the other rows start fixed. The CIF export
+    writes the child, which the powder page loads for Rietveld.
+  - From the lattice route on synthetic data, cubic SrTiO₃ reaches its
+    tilted children. PDF: the R-3c tilt is recovered to 1e-5, and the right
+    one of 12 Pnma classes reaches the noise with distances to 3e-4 Å.
+    Rietveld: χ²ν 0.97 for both, the geometry to 3e-4 Å and 0.014°.
+    Modes by parent irrep on supercells, and ISODISTORT mode-CIF
+    interchange, are Phase 4.
 - **ISODISTORT's mode amplitudes, A_s and A_p, beside MATERIA's.** They
   appear in the 3D Model's mode table and in the report. MATERIA's
   amplitude runs over the conventional child cell, √f larger than A_s for a
