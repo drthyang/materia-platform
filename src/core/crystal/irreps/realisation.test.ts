@@ -212,6 +212,38 @@ describe("realiseChild: Pm-3m SrTiO₃ in the 2×2×2 bound", { timeout: 600_000
   });
 });
 
+/** NiAs type (P6₃/mmc): both sites with their allowed tensors, U12 = U11/2 on hexagonal axes. */
+const NIAS: StructureModel = {
+  id: "nias",
+  name: "NiAs",
+  cell: { a: 3.62, b: 3.62, c: 5.03, alpha: 90, beta: 90, gamma: 120 },
+  spaceGroup: buildSpaceGroup(194),
+  sites: [
+    { label: "Ni", element: "Ni", position: [0, 0, 0], occupancy: 1, adp: { kind: "anisotropic", uAniso: [0.006, 0.006, 0.01, 0.003, 0, 0] } },
+    { label: "As", element: "As", position: [1 / 3, 2 / 3, 0.25], occupancy: 1, adp: { kind: "anisotropic", uAniso: [0.008, 0.008, 0.012, 0.004, 0, 0] } },
+  ],
+};
+
+describe("realiseChild: P6₃/mmc NiAs, a hexagonal parent with anisotropic ADPs", { timeout: 600_000 }, () => {
+  it("the M- and L-point children (orthohexagonal and larger cells) reproduce the parent", () => {
+    const seen = new Set<number>();
+    for (const k of [[0.5, 0, 0], [0.5, 0, 0.5]] as const) {
+      for (const sub of isotropyAt(NIAS, k).filter((x) => x.cellMultiplying)) {
+        const number = sub.identity.number!;
+        if (seen.has(number)) continue;
+        seen.add(number);
+        const r = realiseChild(NIAS, groupOf(NIAS), sub.elements, sub.identity);
+        expect(r.structure.spaceGroup.number).toBe(number);
+        expectCorrespondence(NIAS, r);
+        expectParentIntensities(NIAS, r, NEUTRON, 4);
+        expectParentPdf(NIAS, r);
+      }
+    }
+    expect(seen.size).toBeGreaterThan(4);
+    console.log("P6_3/mmc M, L children", [...seen].join(","));
+  });
+});
+
 describe("realiseChild: Fm-3m rock salt, a centred parent", { timeout: 600_000 }, () => {
   it("every L-point isotropy subgroup realises in its own cell and reproduces the parent", () => {
     const subs = isotropyAt(NACL, [0.5, 0.5, 0.5]).filter((s) => s.cellMultiplying);
