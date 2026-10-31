@@ -9,7 +9,8 @@ import { allowedPositionShifts } from "@/core/crystal/siteConstraints";
 import { computeGofR, makeRGrid } from "@/core/pdf/forwardModel";
 import { expandStructureAtoms } from "@/core/diffraction/structureFactor";
 import { applyParameters } from "@/core/workflow/apply";
-import { ACTIVATION_KICK, pageView, pdfFit, pdfPage, withoutModes, withSupercellChild, type PdfPageModel } from "@/app/pdfPage";
+import { ACTIVATION_KICK, pageView, pdfFit, pdfPage, withoutModes, withSupercellChild, workspaceOf, type PdfPageModel } from "@/app/pdfPage";
+import { validateSnapshot } from "@/core/project/validate";
 import { AXIS_ORDERS, GLAZER, TILT_SENSES, srtio3, tiltedChild, tiltIsInvariant, type Glazer } from "@/testSupport/perovskiteTilts";
 
 /**
@@ -99,6 +100,18 @@ describe("a supercell child activated on the PDF page", () => {
       expect(mode.label).not.toContain("Γ");
     }
     expect(act.model.params.filter((p) => p.kind === "positionShift" && !p.fixed).map((p) => p.value)).toEqual([ACTIVATION_KICK]);
+  });
+
+  it("is saved with the project and reopens as it was: the child, every row, Rw", () => {
+    const saved = JSON.parse(JSON.stringify(workspaceOf(model)));
+    expect(() => validateSnapshot([PARENT], saved, "snapshot")).not.toThrow();
+    const back = pdfPage(PARENT, model.pattern, { preset: model.preset, restore: saved });
+    expect(back.modes?.parentName).toBe(label);
+    expect(pageView(back).fitStructure.spaceGroup.number).toBe(167);
+    expect(pageView(back).fitStructure.cell).toEqual(set.parentized.cell);
+    const rows = (x: PdfPageModel) => x.params.map((p) => ({ id: p.id, value: p.value + 0, fixed: p.fixed }));
+    expect(rows(back)).toEqual(rows(model));
+    expect(pageView(back).rw).toBeCloseTo(pageView(model).rw, 9);
   });
 
   it("refines from the kick to the tilt; ✕ clear returns to the parent", async () => {
