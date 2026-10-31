@@ -12,8 +12,7 @@ import type { StructureModel } from "@/core/crystal/types";
 import type { MagneticModel } from "@/core/magnetic/types";
 import type { PowderPattern } from "@/core/diffraction/types";
 import { generateReflections } from "@/core/diffraction/reflections";
-import { centringTranslations } from "@/core/crystal/symmetry";
-import { satellitePositions } from "@/core/magnetic/kSearch";
+import { magneticLines } from "@/core/magnetic/magneticLines";
 import { magneticIonCandidates } from "@/core/magnetic/magneticIons";
 import { excludedPointMask } from "@/core/refinement/factors";
 import { relativeLineWidth } from "@/core/diagnostics/assessment";
@@ -49,8 +48,14 @@ export interface PowderResidualInput {
   readonly phases: readonly StructureModel[];
   /** The fit window on the pattern's axis; null: the whole pattern. */
   readonly fitRange: { readonly min: number; readonly max: number } | null;
-  /** The magnetic model applied to the calculated pattern, if any. */
+  /** The magnetic model applied to the calculated pattern, if any, at the moments the calculated pattern uses. */
   readonly magnetic?: MagneticModel | null;
+}
+
+/** A satellite's indices as the tools print them (fractional ones to 3 decimals). */
+function satelliteLabel(h: number, k: number, l: number): string {
+  const f = (v: number): string => (Math.abs(v - Math.round(v)) < 1e-9 ? String(Math.round(v)) : String(+v.toFixed(3)));
+  return `${f(h)} ${f(k)} ${f(l)}`;
 }
 
 /** The least and greatest finite positive value, by a loop (a TOF file's 10⁵–10⁶ points overflow a spread into Math.min). */
@@ -103,15 +108,16 @@ export function powderResidual(input: PowderResidualInput): { residual: PowderRe
     for (const ph of input.phases) {
       reflections.push(...generateReflections(ph.cell, ph.spaceGroup, dMin, dMax, { absences: true }).map((r) => ({ d: r.d, hkl: `${r.h} ${r.k} ${r.l}`, phaseLabel: ph.name || ph.id })));
     }
-    // An applied magnetic model's satellites are lines of the model too: a residual on one is its misfit, not a missing phase.
+    // An applied magnetic model's lines are lines of the model too, where the
+    // calculated pattern has its intensity: a residual on one is its misfit,
+    // not a missing phase. A satellite with no magnetic intensity (zero
+    // moments, a structure factor that vanishes there) explains nothing — a
+    // magnetic tick alone never marks a peak as explained (THY-45).
     const magnetic = input.magnetic;
     if (magnetic) {
       const parent = input.phases.find((ph) => ph.id === magnetic.structureId) ?? input.phases[0];
       if (parent) {
-        const centring = centringTranslations(parent.spaceGroup.operations);
-        for (const k of magnetic.propagation) {
-          reflections.push(...satellitePositions(parent.cell, k, dMin, dMax, centring).map((r) => ({ ...r, phaseLabel: `${parent.name || parent.id} magnetic` })));
-        }
+        reflections.push(...magneticLines(parent, magnetic, dMin, dMax).map((r) => ({ d: r.d, hkl: satelliteLabel(r.h, r.k, r.l), phaseLabel: `${parent.name || parent.id} magnetic` })));
       }
     }
   }

@@ -982,6 +982,29 @@ release fixes bugs.
 
 ### Fixed
 
+- **A magnetic CIF on the powder page: its model can be seen, refined and
+  removed, and the k-search is no longer fooled by it** (THY-45). Loading an
+  mCIF drew nuclear and magnetic ticks, but its moments had no rows, nothing
+  removed the model, and the k-search took the magnetic peaks as explained.
+  - The Structure card shows the applied magnetic model as a chip, "magnetic ·
+    k = (…) · group". Its × removes the model, its ticks, its share of the
+    calculated pattern and its rows in one step, which History can undo. The ×
+    has a 44 px touch target on phones and tablets, and so do the phase chips'.
+  - The mCIF's moments are rows in the Magnetic group: the symmetry modes its
+    own magnetic group allows on each site, at the file's values, all held.
+    The moments refine with the nuclear model held, so nothing is freed on
+    load. New data loaded after the mCIF keeps those rows, held. It used to
+    drop them, leaving the model in the calculation with no rows.
+  - A magnetic line explains a residual peak only where the calculated pattern
+    has magnetic intensity. A model with zero moments explains nothing, for
+    the magnetic step's peak table and for the Agent's judgment tools
+    (find_unexplained_peaks, assess_refinement, identify_peaks): its
+    satellites no longer turn real magnetic peaks into "misfits".
+  - With a model applied, the magnetic step shows its k and group and can
+    search the nuclear-only residual, as if the model were removed, to check
+    its k. The Agent gets the same: `appliedModel` in magnetic_state and
+    `nuclearOnly` on search_propagation_vector.
+
 - **Copilot: switching Ask first / Auto no longer fails the next request
   (Anthropic).** The error was an API 400, "Invalid signature in thinking
   block. The block is bound to a different conversation ... The system prompt

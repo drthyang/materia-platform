@@ -397,6 +397,14 @@ export function handoff(build: MagneticModelBuild, amps: Readonly<Record<string,
 export interface StepInputs {
   readonly structure: StructureModel;
   readonly residualPeaks: readonly ResidualPeak[];
+  /**
+   * The residual peaks against the nuclear calculation alone, where the page
+   * has an applied magnetic model (residualPeaks are then against nuclear +
+   * that model): what a k-search re-run from the nuclear-only residual reads.
+   */
+  readonly nuclearResidualPeaks?: readonly ResidualPeak[];
+  /** The magnetic model applied to the page's calculated pattern: its k, its group, whether its moments put intensity there. */
+  readonly applied?: AppliedModelView | null;
   /** The page's moments fit; null where there is nothing to fit against. */
   readonly fit: MagneticFit | null;
   readonly baselineAgreement: number | null;
@@ -408,6 +416,21 @@ export interface StepInputs {
   readonly preselect: MagneticModel | null;
   readonly onApply?: (magnetic: MagneticModel | null) => void;
   readonly onContinue?: (magnetic: MagneticModel, params: readonly RefinementParameter[], bindings: readonly ParameterBinding[]) => void;
+}
+
+/** An applied magnetic model as the step shows it (powderPage.ts, magneticModelSummary). */
+export interface AppliedModelView {
+  readonly kLabel: string;
+  readonly group: string | null;
+  readonly inCalc: boolean;
+}
+
+/** The residual the peak table reads: against the calculated pattern as it is, or against its nuclear part alone. */
+export type ResidualFrom = "calc" | "nuclear";
+
+/** The peaks the step reads: the nuclear-only residual's where it is chosen and the page gives one. */
+export function stepPeaks(s: Pick<StepState, "residualFrom">, at: Pick<StepInputs, "residualPeaks" | "nuclearResidualPeaks">): readonly ResidualPeak[] {
+  return s.residualFrom === "nuclear" && at.nuclearResidualPeaks ? at.nuclearResidualPeaks : at.residualPeaks;
 }
 
 /** The moment model's ties as the page sets them. */
@@ -436,6 +459,8 @@ export interface StepState {
   readonly search: { readonly peaks: string; readonly found: readonly KCandidate[] } | null;
   readonly criteria: PeakCriteria;
   readonly overrides: Readonly<Record<string, boolean>>;
+  /** Which residual the peak table reads (stepPeaks). */
+  readonly residualFrom: ResidualFrom;
   /** The symmetry framework: the magnetic space groups, or representation analysis. */
   readonly framework: "msg" | "irrep";
   readonly irreps: ReadonlySet<string>;
@@ -530,7 +555,8 @@ export function stepView(s: StepState, at: StepInputs, slots: StepSlots): StepVi
     return value;
   };
   const { structure } = at;
-  const rows = memo("rows", [at.residualPeaks, s.criteria, s.overrides], () => peakRows(at.residualPeaks, s.criteria, s.overrides));
+  const peaks = stepPeaks(s, at);
+  const rows = memo("rows", [peaks, s.criteria, s.overrides], () => peakRows(peaks, s.criteria, s.overrides));
   const includedSignature = memo("included", [rows], () => rows.filter((r) => r.included).map((r) => r.key).join("|"));
   const results = s.search && s.search.peaks === includedSignature ? s.search.found : null;
   const kClass = memo("kClass", [structure, ...s.k], () => classifyPropagation(s.k, { centrings: centringTranslations(structure.spaceGroup.operations) }));
@@ -612,6 +638,7 @@ export class MagneticStep {
       search: null,
       criteria: PEAK_CRITERIA,
       overrides: {},
+      residualFrom: "calc",
       framework: "msg",
       irreps: new Set(),
       chosen: null,
@@ -626,7 +653,7 @@ export class MagneticStep {
     // The sections open to start: those of the maximal groups that carry a moment at k = 0.
     const v0 = this.view(this.s, at);
     this.s = { ...this.s, open: firstOpen(v0.reps, v0.dims) };
-    this.seenPeaks = peakSetKey(at.residualPeaks);
+    this.seenPeaks = peakSetKey(stepPeaks(this.s, at));
     this.sync();
     this.handle = this.makeHandle();
   }
@@ -692,10 +719,13 @@ export class MagneticStep {
       this.seenPreselect = at.preselect;
       if (at.preselect?.operations) this.openOn(at.preselect);
     }
-    const peaks = peakSetKey(at.residualPeaks);
+    // Without an applied model there is no nuclear-only residual apart from the page's own.
+    if (this.s.residualFrom === "nuclear" && !at.nuclearResidualPeaks) this.commit({ ...this.s, residualFrom: "calc" });
+    const current = stepPeaks(this.s, at);
+    const peaks = peakSetKey(current);
     if (peaks !== this.seenPeaks) {
       this.seenPeaks = peaks;
-      const valid = new Set(at.residualPeaks.map((p) => peakKey(p.d)));
+      const valid = new Set(current.map((p) => peakKey(p.d)));
       const kept = Object.entries(this.s.overrides).filter(([key]) => valid.has(key));
       if (kept.length !== Object.keys(this.s.overrides).length) this.commit({ ...this.s, overrides: Object.fromEntries(kept) });
     }
@@ -726,6 +756,12 @@ export class MagneticStep {
     if (ions.has(label)) ions.delete(label);
     else ions.add(label);
     this.setIons(ions);
+  }
+
+  /** Read the residual against the calculated pattern, or against its nuclear part alone (a loaded model in question); the per-peak picks go with the peaks. */
+  setResidualFrom(from: ResidualFrom): void {
+    if (from === this.s.residualFrom) return;
+    this.commit({ ...this.s, residualFrom: from, overrides: {} });
   }
 
   /** A new criterion drops the per-peak picks: the criteria stay the one explanation of what is included. */
@@ -922,6 +958,8 @@ export class MagneticStep {
         const chosen = s.framework === "msg" && s.chosen != null ? v.reps[s.chosen] : undefined;
         return {
           ions: magneticIonCandidates(at.structure).map((i) => ({ label: i.siteLabel, element: i.element, selected: s.ions.has(i.siteLabel) })),
+          applied: at.applied ?? null,
+          residualFrom: at.nuclearResidualPeaks ? s.residualFrom : "calc",
           peaks: v.rows.map((p) => ({
             n: p.idx,
             d: p.d,
@@ -946,6 +984,11 @@ export class MagneticStep {
       },
       searchK: (choice) => {
         this.sync();
+        if (choice?.nuclearOnly !== undefined) {
+          if (choice.nuclearOnly && !this.inputs().nuclearResidualPeaks) throw new Error("no magnetic model is applied to the calculated pattern: the residual is the nuclear one already");
+          this.setResidualFrom(choice.nuclearOnly ? "nuclear" : "calc");
+          this.sync();
+        }
         // The Agent's picks, as the table's check boxes: applied now (the search reads them) and kept (the table shows them).
         const picked = pickedRows(this.view().rows, this.s.overrides, choice);
         if (picked.overrides !== this.s.overrides) this.commit({ ...this.s, overrides: picked.overrides });

@@ -118,7 +118,7 @@ describe("new data on the page", () => {
     expect(cell(next)).not.toEqual(cell(p0));
   });
 
-  it("keeps a magnetic model on show without its rows", () => {
+  it("keeps a magnetic model on show, its rows held (THY-45: the moments in the calculation are rows on the page)", () => {
     const { magnetic } = exampleMagnetic();
     const p0 = loaded("cif", "instrument", "data");
     const rows = magneticParameters(magnetic).filter((r) => isMagneticModelParameterKind(r.kind));
@@ -126,7 +126,11 @@ describe("new data on the page", () => {
     const withModel = changed(p0, withMagneticModelRows(p0.session, magnetic, rows, bindings));
     const next = withPattern(withModel, pattern(withModel), DATA);
     expect(next.session.magnetic).toBe(magnetic);
-    expect(next.session.powderParams.some((r) => isMagneticModelParameterKind(r.kind))).toBe(false);
+    const kept = next.session.powderParams.filter((r) => isMagneticModelParameterKind(r.kind));
+    expect(kept.map((r) => r.id)).toEqual(rows.map((r) => r.id));
+    expect(kept.map((r) => r.value)).toEqual(rows.map((r) => r.value));
+    expect(kept.every((r) => r.fixed)).toBe(true);
+    expect(next.session.powderBindings.filter((b) => isMagneticModelParameterKind(b.kind))).toEqual(bindings);
   });
 
   it("goes back to the default instrument when a TOF one cannot place constant-wavelength peaks", () => {
