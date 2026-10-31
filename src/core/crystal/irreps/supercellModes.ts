@@ -107,7 +107,8 @@ export interface SupercellModeBasis {
 interface CoreCell {
   readonly positions: Vec3[];
   readonly site: number[];
-  find(x: Vec3): number;
+  /** The atom of parent site `site` at x modulo T″; −1 when none. Sites that share a point (mixed occupancy) are told apart by `site`. */
+  find(x: Vec3, site: number): number;
 }
 
 const mulMV = (m: Mat3 | readonly (readonly number[])[], v: readonly number[]): Vec3 => [
@@ -173,10 +174,10 @@ function coreCell(parent: StructureModel, group: FactorGroup): CoreCell {
     }
     return worst;
   };
-  const find = (x: Vec3): number => {
+  const find = (x: Vec3, si: number): number => {
     const r = reduce(x);
-    for (const i of index.get(keyOf(r)) ?? []) if (gapScaled(reduced[i]!, r) < 1e-6) return i;
-    for (let i = 0; i < reduced.length; i++) if (gapScaled(reduced[i]!, r) < 1e-6) return i;
+    for (const i of index.get(`${si}|${keyOf(r)}`) ?? []) if (gapScaled(reduced[i]!, r) < 1e-6) return i;
+    for (let i = 0; i < reduced.length; i++) if (site[i] === si && gapScaled(reduced[i]!, r) < 1e-6) return i;
     return -1;
   };
   parent.sites.forEach((s, si) => {
@@ -189,9 +190,9 @@ function coreCell(parent: StructureModel, group: FactorGroup): CoreCell {
     for (const t of shifts) {
       for (const x of orbit) {
         const X: Vec3 = [x[0] + t[0], x[1] + t[1], x[2] + t[2]];
-        if (find(X) >= 0) throw new Error(`supercellModes: ${s.label} has two atoms at one point of the T″ cell`);
+        if (find(X, si) >= 0) throw new Error(`supercellModes: ${s.label} has two atoms at one point of the T″ cell`);
         const r = reduce(X);
-        const k = keyOf(r);
+        const k = `${si}|${keyOf(r)}`;
         const list = index.get(k);
         if (list) list.push(positions.length);
         else index.set(k, [positions.length]);
@@ -213,7 +214,7 @@ function atomAction(group: FactorGroup, cell: CoreCell): Int32Array {
     const w: Vec3 = [rnum(e.w[0]), rnum(e.w[1]), rnum(e.w[2])];
     for (let a = 0; a < N; a++) {
       const y = mulMV(e.W, cell.positions[a]!);
-      const b = cell.find([y[0] + w[0], y[1] + w[1], y[2] + w[2]]);
+      const b = cell.find([y[0] + w[0], y[1] + w[1], y[2] + w[2]], cell.site[a]!);
       if (b < 0) throw new Error("supercellModes: the parent's operations do not map its atoms onto its atoms");
       perm[f * N + a] = b;
     }
@@ -430,9 +431,10 @@ export function supercellModeBasis(parent: StructureModel, group: FactorGroup, e
   const P = realised.basis;
   const Pinv = inverse3(P);
   const p = realised.origin;
-  const childAtomOf = cell.positions.map((X) => {
+  const childAtomOf = cell.positions.map((X, a) => {
     const x = mulMV(Pinv, [X[0] - p[0], X[1] - p[1], X[2] - p[2]]);
-    const i = realised.atoms.findIndex((at) => periodicGap(at.position, x) < 1e-6);
+    const parentSite = parent.sites[cell.site[a]!]!.label;
+    const i = realised.atoms.findIndex((at) => at.parentSite === parentSite && periodicGap(at.position, x) < 1e-6);
     if (i < 0) throw new Error("supercellModes: an atom of the parent's T″ cell is no atom of the child's cell");
     return i;
   });
@@ -558,9 +560,10 @@ export function supercellModeBasis(parent: StructureModel, group: FactorGroup, e
   // Each mode on the child's sites: the field at each child site's representative, back in child coordinates, 1 Å over the conventional child cell.
   const Mchild = orthogonalizationMatrix(child.cell);
   const mult = child.sites.map((s) => siteMultiplicity(childOps, s.position));
-  const repAtom = child.sites.map((s) => {
+  const siteIndexOf = new Map(parent.sites.map((s, i) => [s.label, i] as const));
+  const repAtom = child.sites.map((s, j) => {
     const X = mulMV(P, s.position).map((x, i) => x + p[i]!) as unknown as Vec3;
-    const a = cell.find(X);
+    const a = cell.find(X, siteIndexOf.get(realised.sites[j]!.parentSite)!);
     if (a < 0) throw new Error(`supercellModes: ${s.label}'s representative is no atom of the parent`);
     return a;
   });

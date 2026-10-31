@@ -210,6 +210,20 @@ describe("decomposeChild: a supercell child against its parent", () => {
     expect(d.set.acousticExcluded).toBe(1);
   });
 
+  it("a mixed A site (Sr and La on one point) pairs element by element; the tilt's amplitude is the same", () => {
+    const { r, g, order } = tiltChild("a-a-a-", 167);
+    const tilted = tiltedChild(r, g, 0.07, order);
+    const mix = (x: StructureModel): StructureModel => ({
+      ...x,
+      sites: x.sites.flatMap((site) => (site.element === "Sr" ? [{ ...site, occupancy: 0.5 }, { ...site, label: `La${site.label.slice(2)}`, element: "La", occupancy: 0.5 }] : [site])),
+    });
+    const d = decomposeChild(mix(PARENT), asLoaded(mix(tilted)));
+    expectReproduces(d, asLoaded(mix(tilted)));
+    const moving = d.amplitudes.filter((a) => Math.abs(a.a) > 1e-9);
+    expect(moving).toHaveLength(1);
+    expect(Math.abs(moving[0]!.as)).toBeCloseTo(Math.sqrt(3) * 0.07 * PARENT.cell.a, 10);
+  });
+
   it("refuses an unrelated structure, with the reason", () => {
     const rutile: StructureModel = {
       id: "tio2",

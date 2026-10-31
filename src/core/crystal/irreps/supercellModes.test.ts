@@ -234,6 +234,28 @@ describe("supercellModeBasis: the child's displacements by parent irrep", () => 
     expect(orderParameterIrreps(b)!.map((i) => b.irreps[i]!.star).sort()).toEqual(["M", "R"]);
   });
 
+  it("two parent sites on one point (Sr and La sharing the A site) keep their own modes, complete", () => {
+    const mixed: StructureModel = {
+      ...PARENT,
+      id: "srla",
+      sites: [
+        { ...PARENT.sites[0]!, occupancy: 0.5 },
+        { ...PARENT.sites[0]!, label: "La", element: "La", occupancy: 0.5 },
+        ...PARENT.sites.slice(1),
+      ],
+    };
+    const group = factorGroup(mixed.spaceGroup.operations, DEFAULT_SUPERCELL);
+    for (const number of [167, 62]) {
+      for (const cls of LATTICE.classes.filter((c) => c.identity?.number === number).slice(0, 6)) {
+        const r = realiseChild(mixed, group, cls.elements, cls.identity);
+        const b = supercellModeBasis(mixed, group, cls.elements, r);
+        expectSoundBasis(r, b);
+        // Sr and La move alike by symmetry, but as two sites: as many modes on one as on the other.
+        expect(b.modes.filter((m) => m.parentSite === "Sr")).toHaveLength(b.modes.filter((m) => m.parentSite === "La").length);
+      }
+    }
+  });
+
   it("labels each mode by its generic irrep and parent site, and keeps them when the arms are the bound's (the default bound admits every arm)", () => {
     const { r, b, elements } = realiseClass(62, (x) => x.structure.sites.length === 4);
     for (const mode of b.modes) expect(mode.label).toMatch(/^(Γ|X|M|R) irreps? [0-9⊕]+ of \d+ · (Sr|Ti|O)( \d)?$/);
