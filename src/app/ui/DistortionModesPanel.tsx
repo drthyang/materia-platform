@@ -7,15 +7,19 @@
  * an ISODISTORT mode CIF. A row click draws that mode's eigenvector on the
  * model as green arrows. The symmetry the modes lower to is chosen on the
  * Subgroups page (SubgroupsPanel), which also clears it; this table only
- * names it.
+ * names it. With no choice in force, Import ▾ loads one from a file: an
+ * ISODISTORT mode CIF (withModeCif) or a parent CIF the loaded structure is
+ * decomposed against (withParentModes) — the counterpart of Mode CIF ↓.
  */
 
+import { useRef, useState } from "react";
 import type { ModesInForce } from "@/app/pdfPage";
 import { isodistortAmplitudes, type DistortionModeSet } from "@/core/crystal/distortionModes";
 import { latticeCentring } from "@/core/crystal/standardSetting";
 import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import { color, fz, mono, resetRangeBtn, uppercaseLabel } from "@/app/theme";
 import { ShortLineText } from "@/app/ui/lineInfo";
+import { InfoBadge } from "@/app/ui/InfoBadge";
 
 interface Props {
   /** The mode set in force (pageView.modeSet); null while positions refine per coordinate. */
@@ -34,9 +38,64 @@ interface Props {
   readonly onOpenSubgroups: () => void;
   /** Save the modes as an ISODISTORT mode CIF (modeCifOf); absent when the set is not one by parent irrep. */
   readonly onExportModeCif?: () => void;
+  /** Decompose the loaded structure against a parent CIF (withParentModes); with onLoadModeCif, Import ▾ shows while no choice is in force. */
+  readonly onLoadParentCif?: (file: File) => void;
+  /** Load an ISODISTORT mode CIF (withModeCif). */
+  readonly onLoadModeCif?: (file: File) => void;
+  /** A fit is running: Import waits. */
+  readonly busy?: boolean;
 }
 
-export function DistortionModesPanel({ modeSet, modes, params, result, spaceGroup, ownModes, shownModeId, onShowMode, onOpenSubgroups, onExportModeCif }: Props): JSX.Element {
+/** Import ▾: the two file loaders, opened inline (a popover would be clipped by the scrolling box). */
+export function ImportMenu({ onLoadParentCif, onLoadModeCif, busy = false }: { onLoadParentCif: (file: File) => void; onLoadModeCif: (file: File) => void; busy?: boolean }): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const modeRef = useRef<HTMLInputElement | null>(null);
+  const parentRef = useRef<HTMLInputElement | null>(null);
+  const input = (ref: typeof modeRef, onFile: (file: File) => void, label: string): JSX.Element => (
+    <input
+      ref={ref}
+      type="file"
+      accept=".cif,text/plain"
+      aria-label={label}
+      disabled={busy}
+      style={{ display: "none" }}
+      onChange={(e) => {
+        const f = e.target.files?.[0];
+        if (f) onFile(f);
+        e.target.value = "";
+        setOpen(false);
+      }}
+    />
+  );
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+      <button style={{ ...resetRangeBtn, ...(busy ? { opacity: 0.5, cursor: "not-allowed" } : {}) }} disabled={busy} aria-expanded={open} onClick={() => setOpen((o) => !o)} title={busy ? "A fit is running" : "Load distortion modes from a file"}>
+        Import {open ? "▴" : "▾"}
+      </button>
+      {open && (
+        <>
+          <button style={resetRangeBtn} disabled={busy} onClick={() => modeRef.current?.click()}>Mode CIF (ISODISTORT)…</button>
+          <button style={resetRangeBtn} disabled={busy} onClick={() => parentRef.current?.click()}>Parent CIF (decompose this structure)…</button>
+          <InfoBadge
+            width={320}
+            align="right"
+            ariaLabel="About importing modes"
+            text={<>
+              <b>Mode CIF:</b> an ISODISTORT distortion-mode CIF (ISODISTORT&apos;s own, or one saved with Mode CIF ↓): its child and displacive modes, the amplitudes as the file gives them. With its parent loaded, the child is fitted in its own cell; with its child loaded, the modes go on it.<br />
+              <b>Parent CIF:</b> for a loaded structure that is already the distorted child, in the parent&apos;s cell or a supercell: its distortion from the high-symmetry parent as modes by parent irrep, seeded to reproduce it exactly.
+            </>}
+          />
+          {input(modeRef, onLoadModeCif, "mode CIF file")}
+          {input(parentRef, onLoadParentCif, "parent CIF file")}
+        </>
+      )}
+    </span>
+  );
+}
+
+export function DistortionModesPanel({ modeSet, modes, params, result, spaceGroup, ownModes, shownModeId, onShowMode, onOpenSubgroups, onExportModeCif, onLoadParentCif, onLoadModeCif, busy = false }: Props): JSX.Element {
+  // Import ▾ while no choice is in force (a choice set aside by the atomic switch counts: it comes back on the flip).
+  const importMenu = !modes && onLoadParentCif && onLoadModeCif ? <ImportMenu onLoadParentCif={onLoadParentCif} onLoadModeCif={onLoadModeCif} busy={busy} /> : null;
   const toSubgroups = (title: string): JSX.Element => (
     <button style={resetRangeBtn} onClick={onOpenSubgroups} title={title}>
       Subgroups →
@@ -54,7 +113,8 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
             ? `vs ${modes.parentName}, set aside while Positions is on “Constrained atomic” — flip it to “Irreps (modes)” to refine them`
             : "none active — the symmetry is lowered on the Subgroups page"}
         </span>
-        {toSubgroups(modes ? "Change or clear the symmetry these modes lower to, on the Subgroups page" : "Lower the symmetry on the Subgroups page: a subgroup, a Γ irrep, or a parent CIF")}
+        {toSubgroups(modes ? "Change or clear the symmetry these modes lower to, on the Subgroups page" : "Lower the symmetry on the Subgroups page: pick a k-point, then a child")}
+        {importMenu}
         {!modes && ownModes && (
           <span style={{ fontSize: fz.micro, color: color.secondary }}>
             or flip Positions → “Irreps (modes)” in the parameter panel for the symmetry-conserving Γ modes of {spaceGroup ?? "the loaded space group"}
@@ -88,7 +148,7 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
         ? "A is the whole-cell displacement norm of each distortion the lowered group permits."
         : modes
           ? "A is the whole-cell displacement norm; mode 1 is the frozen distortion, so its fitted amplitude is the order parameter."
-          : "A is the whole-cell displacement norm of the structure's own symmetry-conserving Γ modes (rigid-translation gauge excluded). Free the rows you want in the parameter panel (Positions group), or load a parent CIF on the Subgroups page for the order-parameter decomposition.",
+          : "A is the whole-cell displacement norm of the structure's own symmetry-conserving Γ modes (rigid-translation gauge excluded). Free the rows you want in the parameter panel (Positions group), or Import ▾ → Parent CIF for the order-parameter decomposition of a structure loaded already distorted.",
     `A is over the conventional child cell (${cells.child} lattice point${cells.child === 1 ? "" : "s"}); ISODISTORT's A_s = A/√${cells.child} (primitive child cell) and A_p = A_s·√(V_p/V_s) = A/√${cells.parent} (parent).`,
     "A row click draws the mode's eigenvector on the 3D model (green arrows, unit amplitude).",
   ];
@@ -106,7 +166,8 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
             ▸ green arrows: {shownMode.label}
           </span>
         )}
-        {toSubgroups(modes ? "The symmetry these modes lower to is chosen on the Subgroups page — change or clear it there" : "Lower the symmetry on the Subgroups page: a subgroup, a Γ irrep, or a parent CIF")}
+        {toSubgroups(modes ? "The symmetry these modes lower to is chosen on the Subgroups page — change or clear it there" : "Lower the symmetry on the Subgroups page: pick a k-point, then a child")}
+        {importMenu}
         {onExportModeCif && (
           <button style={resetRangeBtn} onClick={onExportModeCif} title="Save the child and these modes, at their current amplitudes, as an ISODISTORT mode CIF (ISODISTORT's tags, A_s values and normfactors; MATERIA's generic irrep labels). It reads back here exactly, and ISODISTORT-aware programs such as GSAS-II read its modes.">
             Mode CIF ↓

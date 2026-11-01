@@ -1,6 +1,6 @@
 /**
- * The Subgroups page's supercell view (Phase 2): the bound's controls render
- * from the parent's operations, P parses as three rows, and a cell-multiplying
+ * The Subgroups page's supercell bound (Phase 2): the control renders 2×2×2
+ * by default with its presets, P parses as three rows, and a cell-multiplying
  * child's basis reads as (P_H, p_H) and it activates in its own cell (phase 3),
  * and the Lattice summary gives Bilbao's SUBGROUPS count when enantiomorphs
  * make it differ.
@@ -14,14 +14,20 @@ import { irrepsOfStar } from "@/core/crystal/irreps/spaceGroupIrreps";
 import { isotropySubgroups } from "@/core/crystal/irreps/isotropy";
 import { DEFAULT_SUPERCELL } from "@/core/crystal/irreps/supercell";
 import { supercellSubgroups } from "@/core/crystal/irreps/supercellLattice";
-import { SupercellView, SUPERCELL_ACTIVATE_NOTE, childBasisNote, latticeSummary, parseSupercell } from "@/app/ui/SupercellView";
+import { DEFAULT_BOUND, PRESETS, SupercellBound, SUPERCELL_ACTIVATE_NOTE, boundLabel, childBasisNote, latticeSummary, parseSupercell } from "@/app/ui/SupercellView";
 
-describe("the supercell view", () => {
-  it("renders the bound's controls, 2×2×2 by default", () => {
-    const out = renderToStaticMarkup(createElement(SupercellView, { operations: buildSpaceGroup(221).operations }));
+describe("the supercell bound", () => {
+  it("renders 2×2×2 by default, the presets and custom P in one select, the P input only for custom", () => {
+    const out = renderToStaticMarkup(createElement(SupercellBound, { value: DEFAULT_BOUND, onChange: () => undefined }));
     expect(out).toContain("Supercell");
-    expect(out).toContain("2×2×2");
-    expect(out).toContain("Set bound");
+    for (const p of PRESETS) expect(out).toContain(`>${p.label}</option>`);
+    expect(out).toContain("custom P…");
+    expect(out).not.toContain("supercell matrix P");
+    expect(DEFAULT_BOUND.P).toEqual(DEFAULT_SUPERCELL.map((r) => [...r]));
+    expect(boundLabel(DEFAULT_BOUND)).toBe("2×2×2");
+    const custom = { P: [[3, 0, 0], [0, 1, 0], [0, 0, 1]], centring: "P" as const };
+    expect(boundLabel(custom)).toBe("P = 3 0 0; 0 1 0; 0 0 1 (P)");
+    expect(renderToStaticMarkup(createElement(SupercellBound, { value: custom, onChange: () => undefined }))).toContain('aria-label="supercell matrix P, rows separated by ;"');
   });
 
   it("parses P as three rows, fractions accepted", () => {

@@ -1,17 +1,19 @@
 /**
  * The Subgroups page's Phase-1 additions on the GaTa₄Se₈ demo (F-43m): the
- * decentring X irreps with their isotropy subgroups, the same-cell lattice's
- * k- and general subgroups, the supercell note, and both ways of lowering the
- * symmetry to P2₁3 in the parent's cell — the order parameter kicked, the
- * modes by parent irrep, and ISODISTORT's amplitudes in the report.
+ * decentring X irreps with their isotropy subgroups (the X chip), the
+ * same-cell lattice's k- and general subgroups (By subgroup), the
+ * cell-multiplying L and W chips, and both ways of lowering the symmetry to
+ * P2₁3 in the parent's cell — the order parameter kicked, the modes by parent
+ * irrep, and ISODISTORT's amplitudes in the report.
  */
 import { describe, it, expect } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { gata4se8PdfExample } from "@/examples/gata4se8Pdf";
 import { ACTIVATION_KICK, pageView, pdfPage, reportInputOf, withActivatedMode, withSameCellSubgroup, type PdfPageModel } from "@/app/pdfPage";
-import { SubgroupsPanel, decentringIrrepTree, gammaIrrepTree, sameCellLattice, supercellPointsOf } from "@/app/ui/SubgroupsPanel";
+import { SubgroupsPanel, decentringIrrepTree, gammaIrrepTree, sameCellLattice } from "@/app/ui/SubgroupsPanel";
 import { structuralSubgroupLattice } from "@/core/crystal/subgroupTree";
+import { decentringRows, kChips } from "@/app/ui/subgroupPicker";
 
 function demoPage(): PdfPageModel {
   const demo = gata4se8PdfExample();
@@ -21,27 +23,34 @@ function demoPage(): PdfPageModel {
 const noop = (): void => undefined;
 
 describe("the Subgroups page at the decentring k-points", () => {
-  it("lists the X irreps, the k- and general subgroups of the same cell, and names the points that need a supercell bound", () => {
+  it("offers the X chip beside Γ as same cell, and L and W as supercell, the X irreps with their children", () => {
     const m = demoPage();
+    const tree = decentringIrrepTree(m.loaded);
     const out = renderToStaticMarkup(createElement(SubgroupsPanel, {
       spaceGroup: m.loaded.spaceGroup.hermannMauguin,
       lattice: structuralSubgroupLattice(m.loaded),
       irrepTree: gammaIrrepTree(m.loaded),
-      decentringTree: decentringIrrepTree(m.loaded),
+      decentringTree: tree,
       sameCell: sameCellLattice(m.loaded),
-      supercellNote: supercellPointsOf(m.loaded),
-      onActivateSameCell: noop,
+      operations: m.loaded.spaceGroup.operations,
+      onActivateSameCell: noop, onActivateSupercell: noop,
       modes: null, modeCount: null, busy: false,
-      onLoadParentCif: noop, onActivateMode: noop, onActivateSubgroup: noop, onClear: noop, onOpenModel: noop,
+      onActivateMode: noop, onActivateSubgroup: noop, onClear: noop, onOpenModel: noop,
     })).replace(/<!-- -->/g, "");
-    const text = out.replace(/<[^>]+>/g, "");
-    expect(out).toContain("Decentring modes · irreps (same cell)");
-    expect(out).toContain("X irrep 5 of 5 · dim 6");
-    expect(out).toContain("Activate → P 21 3 #198 · (a,a,a,-a,-a,-a)");
-    // The lattice: P-43m a decentring k-subgroup (index 4 = 1·4), P2₁3 a general one (8 = 2·4).
-    expect(text).toContain("P -4 3 m #215 · k · 1·4");
-    expect(text).toContain("P 21 3 #198 · general · 2·4");
-    expect(out).toContain("Cell-multiplying k-points (L and W) enter with a supercell bound: set one below.");
+    for (const name of ["Γ, same cell", "X, same cell", "L, supercell", "W, supercell"]) expect(out).toContain(`aria-label="${name}"`);
+    // The X chip's rows: the decentring tree's, generic labels, each child in one line.
+    const x = kChips(tree, null).find((c) => c.id === "X")!;
+    const rows = decentringRows(tree, x);
+    expect(rows.map((r) => r.label)).toContain("X irrep 5 of 5");
+    const p213 = rows.find((r) => r.label === "X irrep 5 of 5")!.children.find((c) => c.name === "P 21 3 #198")!;
+    expect(p213.facts).toBe("(a,a,a,-a,-a,-a) · 8 domains");
+    expect(p213.action.kind).toBe("irrep");
+    // The same-cell lattice (By subgroup): P-43m a decentring k-subgroup (index 4 = 1·4), P2₁3 a general one (8 = 2·4).
+    const lattice = sameCellLattice(m.loaded);
+    const k = lattice.find((n) => n.identity.number === 215)!;
+    expect([k.kind, k.index.t, k.index.k]).toEqual(["k", 1, 4]);
+    const g = lattice.find((n) => n.identity.number === 198)!;
+    expect([g.kind, g.index.t, g.index.k]).toEqual(["general", 2, 4]);
   });
 
   it("activates the X irrep toward P2₁3 in the parent's cell: one mode free at the kick, the others by irrep, A_s and A_p in the report", () => {

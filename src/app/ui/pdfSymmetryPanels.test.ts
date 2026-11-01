@@ -10,10 +10,11 @@ import { SubgroupsPanel, gammaIrrepTree } from "@/app/ui/SubgroupsPanel";
 
 /**
  * The PDF page separates choosing the symmetry from inspecting the modes. The
- * Subgroups page is where the symmetry is lowered: the parent CIF, the Γ irrep
- * tree with its Activate buttons, the subgroup lattice, and ✕ clear. The 3D
- * Model view lists the modes being refined (row click → green arrows) and,
- * with none, says where to choose them. Both once lived on the 3D view.
+ * Subgroups page is where the symmetry is lowered: one path, a k-point chip,
+ * then a child, then Activate, and ✕ clear. The 3D Model view lists the modes
+ * being refined (row click → green arrows), says where to choose them when
+ * there are none, and holds Import ▾ (a mode CIF or a parent CIF) and
+ * Mode CIF ↓. (The chips' interactions: subgroupsPanel.dom.test.ts.)
  */
 
 /** The GaTa₄Se₈ demo (F-43m) as the app opens it. */
@@ -43,63 +44,64 @@ function subgroups(m: PdfPageModel, opts: { busy?: boolean; modes?: ModesInForce
     modes,
     modeCount: pageView(m).modeSet?.modes.length ?? null,
     busy: opts.busy ?? false,
-    onLoadParentCif: noop, onActivateMode: noop, onActivateSubgroup: noop, onClear: noop, onOpenModel: noop,
+    onActivateMode: noop, onActivateSubgroup: noop, onClear: noop, onOpenModel: noop,
   }));
 }
 
 /** The 3D Model view's mode panel. */
-function modesPanel(m: PdfPageModel, opts: { shownModeId?: string; ownModes?: boolean } = {}): string {
+function modesPanel(m: PdfPageModel, opts: { shownModeId?: string; ownModes?: boolean; loaders?: boolean; busy?: boolean } = {}): string {
   const v = pageView(m);
   return renderToStaticMarkup(createElement(DistortionModesPanel, {
     modeSet: v.modeSet, modes: m.modes, params: m.params, result: m.result,
     spaceGroup: m.loaded.spaceGroup.hermannMauguin,
     ownModes: opts.ownModes ?? (v.symModes?.modes.length ?? 0) > 0,
     shownModeId: opts.shownModeId ?? null, onShowMode: noop, onOpenSubgroups: noop,
+    ...(opts.loaders ? { onLoadParentCif: noop, onLoadModeCif: noop } : {}),
+    busy: opts.busy ?? false,
   }));
 }
 
-/** Every `<button>` whose text starts with `text`, as its opening tag; and the parent CIF's file input. */
+/** Every `<button>` whose text starts with `text`, as its opening tag. */
 const buttons = (html: string, text: string): string[] => [...html.matchAll(new RegExp(`<button[^>]*>${text}`, "g"))].map((x) => x[0]);
-const fileInput = (html: string): string => html.match(/<input type="file"[^>]*>/)![0];
+/** The page's text, tags dropped. */
+const textOf = (html: string): string => html.replace(/<!-- -->/g, "").replace(/<[^>]+>/g, "");
 
 describe("the Subgroups page", () => {
-  it("hosts the parent CIF, the Γ irrep tree with its Activate buttons and the subgroup lattice, from the parent's own symmetry", () => {
+  it("offers one path from the parent's own symmetry: By irrep, the Γ chip, its irreps and children, each with Activate — and no CIF loader", () => {
     const m = demoPage();
     const tree = gammaIrrepTree(m.loaded)!;
     expect(tree.length).toBeGreaterThan(0);
     const out = subgroups(m);
-    expect(out).toContain("Load parent CIF…");
-    expect(fileInput(out)).not.toContain("disabled");
-    expect(out).toContain("Potential Γ modes · irreps");
-    expect(out).toContain(`${m.loaded.spaceGroup.hermannMauguin} · ${tree.length} symmetry-breaking irrep`);
-    // Each irrep keeps its label, dimension and optic/acoustic counts.
+    for (const gone of ["Load parent CIF", "Load mode CIF", "type=\"file\""]) expect(out).not.toContain(gone);
+    expect(out).toContain("By irrep");
+    expect(out).toContain("By subgroup");
+    expect(textOf(out)).toContain("Pick a k-point, then a child, then Activate.");
+    expect(out).toContain('aria-label="Γ, same cell"');
+    expect(out).toContain('aria-pressed="true"');
+    // Each irrep keeps its generic label, dimension and optic/acoustic counts.
     for (const { term } of tree) {
       const optic = term.multiplicity - term.acoustic;
-      expect(out).toContain(`${term.irrep.label} · dim ${term.irrep.dim ?? 1} · ${optic} optic mode`);
+      expect(textOf(out)).toContain(`${term.irrep.label}dim ${term.irrep.dim ?? 1} · ${optic} optic mode`);
     }
-    const activate = buttons(out, "Activate → ");
-    expect(activate).toHaveLength(tree.reduce((n, b) => n + b.subgroups.length, 0));
+    // Three irreps or fewer open together; more, the first only.
+    const open = tree.length <= 3 ? tree : tree.slice(0, 1);
+    const activate = buttons(out, "Activate");
+    expect(activate).toHaveLength(open.reduce((n, b) => n + b.subgroups.length, 0));
     expect(activate.filter((b) => b.includes("disabled"))).toEqual([]);
-    expect(out).toContain("Subgroup lattice");
-    expect(buttons(out, "Activate ↓").length).toBeGreaterThan(0);
-    expect(buttons(out, "Activate ↓").filter((b) => b.includes("disabled"))).toEqual([]);
     // Nothing is in force, so there is nothing to clear.
     expect(out).not.toContain("✕ clear");
     expect(out).not.toContain("▼ ");
   });
 
-  it("lists every order-parameter direction of GaTa₄Se₈'s irreps, and its lattice with the F translations kept", () => {
-    const out = subgroups(demoPage()).replace(/<!-- -->/g, "");
-    // The polar T2's epikernels off the axes (R3m on ⟨111⟩, Imm2), the lower Cm, and the kernel P1.
-    for (const name of ["R 3 m:H #160", "I m m 2 #44", "C 1 m 1 #8 · 2-dim", "P 1 #1 · general", "I -4 m 2 #119"]) {
-      expect(out).toContain(`Activate → ${name}`);
+  it("names each child of GaTa₄Se₈'s Γ irreps in one line: name, direction, domains", () => {
+    const out = textOf(subgroups(demoPage()));
+    const tree = gammaIrrepTree(demoPage().loaded)!;
+    const open = tree.length <= 3 ? tree : tree.slice(0, 1);
+    for (const { subgroups: subs } of open) {
+      for (const s of subs) expect(out).toContain(`${s.identity.hermannMauguin} #${s.identity.number}${s.direction} · ${s.domainStates} domains`);
     }
-    // The lattice is F-43m's, named in standard settings: never a primitive name for a centred subgroup.
-    expect(out).toContain("F -4 3 m");
-    expect(out).not.toContain("P -4 3 m");
-    expect(out).toContain("I -4 m 2");
-    expect(out).toContain("4 orientations · 4 domain states"); // R3m: the four ⟨111⟩ axes, no ± pairs at index 4
-    expect(out).toContain("· own cell");
+    // The long explanations sit behind "?": no paragraph of prose on the resting page.
+    expect(out).not.toContain("Stokes & Hatch): the one-parameter directions first");
   });
 
   it("drops the acoustic-only and the symmetry-conserving irreps from the tree", () => {
@@ -110,16 +112,13 @@ describe("the Subgroups page", () => {
     expect(tree.map(({ term }) => term.irrep.label)).toEqual(dec.terms.filter((t) => !t.trivial && t.multiplicity - t.acoustic > 0).map((t) => t.irrep.label));
   });
 
-  it("holds every activation and the parent CIF while a fit runs", () => {
+  it("holds every activation while a fit runs", () => {
     const out = subgroups(demoPage(), { busy: true });
-    for (const text of ["Activate → ", "Activate ↓"]) {
-      expect(buttons(out, text).length).toBeGreaterThan(0);
-      expect(buttons(out, text).every((b) => b.includes("disabled"))).toBe(true);
-    }
-    expect(fileInput(out)).toContain("disabled");
+    expect(buttons(out, "Activate").length).toBeGreaterThan(0);
+    expect(buttons(out, "Activate").every((b) => b.includes("disabled"))).toBe(true);
   });
 
-  it("shows an activated mode with ✕ clear and the way to the 3D Model, and offers no other choice until it is cleared", () => {
+  it("shows an activated mode with ✕ clear and the way to the 3D Model, and only that until it is cleared", () => {
     const { model, label } = activated();
     const n = pageView(model).modeSet!.modes.length;
     const out = subgroups(model);
@@ -127,12 +126,8 @@ describe("the Subgroups page", () => {
     expect(out).toContain(`${n} distortion mode${n === 1 ? "" : "s"} in the Positions group`);
     expect(buttons(out, "✕ clear")).toHaveLength(1);
     expect(buttons(out, "3D Model →")).toHaveLength(1);
-    // The parent's irreps would not match the lowered setting: the tree waits for ✕ clear.
-    expect(out).not.toContain("Activate → ");
-    expect(out).toContain("✕ clear the active distortion first");
-    expect(buttons(out, "Activate ↓").length).toBeGreaterThan(0);
-    expect(buttons(out, "Activate ↓").every((b) => b.includes("disabled"))).toBe(true);
-    expect(fileInput(out)).toContain("disabled");
+    expect(textOf(out)).toContain("Clear to pick another child.");
+    for (const hidden of ["By irrep", "Activate", "same cell"]) expect(out).not.toContain(hidden);
   });
 
   it("names a parent-CIF decomposition, and a choice set aside by the atomic switch", () => {
@@ -158,7 +153,9 @@ describe("the 3D Model view's distortion modes", () => {
     for (const mode of set.modes) expect(out).toContain(mode.label);
     expect(out.match(/<tr title="Click to show\/hide this mode/g)).toHaveLength(set.modes.length);
     expect(buttons(out, "Subgroups →")).toHaveLength(1);
-    for (const moved of ["✕ clear", "Load parent CIF", "Activate", "Potential Γ modes"]) expect(out).not.toContain(moved);
+    for (const moved of ["✕ clear", "Activate", "By irrep"]) expect(out).not.toContain(moved);
+    // A choice is in force: nothing to import over it.
+    expect(modesPanel(model, { loaders: true })).not.toContain("Import ");
   });
 
   it("names the mode drawn as green arrows", () => {
@@ -188,9 +185,24 @@ describe("the 3D Model view's distortion modes", () => {
     expect(buttons(out, "Subgroups →")).toHaveLength(1);
     expect(out).toContain("or flip Positions → “Irreps (modes)”");
     expect(out).not.toContain("<table");
-    for (const moved of ["Load parent CIF", "Activate", "✕ clear"]) expect(out).not.toContain(moved);
+    for (const moved of ["Activate", "✕ clear"]) expect(out).not.toContain(moved);
     // No symmetry-conserving modes to flip to: no hint to flip.
     expect(modesPanel(m, { ownModes: false })).not.toContain("Irreps (modes)");
+  });
+
+  it("holds Import ▾ while no choice is in force, closed until opened, and waits while a fit runs", () => {
+    const m = demoPage();
+    const out = modesPanel(m, { loaders: true });
+    expect(buttons(out, "Import ▾")).toHaveLength(1);
+    expect(buttons(out, "Import ▾")[0]).toContain('aria-expanded="false"');
+    expect(buttons(out, "Import ▾")[0]).not.toContain("disabled");
+    // The two loaders open from it (subgroupsPanel.dom.test.ts clicks it).
+    expect(out).not.toContain("Mode CIF (ISODISTORT)…");
+    expect(buttons(modesPanel(m, { loaders: true, busy: true }), "Import ▾")[0]).toContain("disabled");
+    // Under Irreps (modes), the structure's own modes listed: still no choice in force, so Import stays.
+    expect(buttons(modesPanel(withPositionMode(m, "irreps"), { loaders: true }), "Import ▾")).toHaveLength(1);
+    // Without the loaders wired, no menu.
+    expect(modesPanel(m)).not.toContain("Import ");
   });
 
   it("names a choice set aside by the atomic switch", () => {
