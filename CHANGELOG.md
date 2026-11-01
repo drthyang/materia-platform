@@ -54,6 +54,30 @@ release fixes bugs.
 
 ### Changed
 
+- **By subgroup lists the larger cells without freezing the page, and its
+  rows appear as they are worked out.** The supercell rows of the PDF page's
+  Subgroups view are worked out in a background worker.
+  - The same-cell rows show at once, as before. The larger cells follow,
+    each as soon as the irreps it needs are in, under one line:
+    "listing 2×2×2 subgroups… 60 % · 120 larger so far" with **stop**.
+  - The page stays responsive. On the GaTa₄Se₈ demo at 2×2×2 the old run
+    held the page for up to 1 s at a time, and for SrTiO₃ for 3 s; now no
+    pause is longer than 15 ms. The whole list takes the same time as before
+    (about 6 s for either).
+  - **stop** ends the worker. One run goes at a time, and the result is kept
+    for the structure and supercell. The rows are the same as before, in the
+    same order.
+- **A subgroup reached by several coupled sets shows the most symmetric set
+  first.** Of the smallest sets of irreps that lower the parent to it, the
+  row names first the set whose irreps, each alone, give the highest-symmetry
+  subgroups (the smallest total index). It still puts first the irreps the
+  structure's atoms carry, and the old order breaks ties. 58 rows change
+  their first set (55 of SrTiO₃'s 1217 coupled rows at 2×2×2, 3 of GaTa₄Se₈'s
+  227; none at 1×1×2). For example, SrTiO₃'s C2/c in 1×2×1 now shows
+  X irrep 2 (a,0,0) + X irrep 10 rather than Γ irrep 7 (a,a,b) + X irrep 10.
+  Activate seeds the order parameter from the set shown. The other sets
+  stay behind the row's **?**.
+
 - **The PDF page's Subgroups view opens on By subgroup: every subgroup that
   fits the chosen supercell, with its cell and the irreps that activate it.**
   - One row per class of conjugate subgroups, by index, in one line: the
@@ -70,7 +94,7 @@ release fixes bugs.
     GaTa₄Se₈ in 1×1×2, P-42₁m appears in (a, a, 2c) and, from X, in the
     parent's cell, and no longer in the (2a, 2a, c) that does not fit.
   - The same-cell rows show at once; the larger cells are worked out after
-    the view shows, with **working…** naming the step, the supercell held,
+    the view shows (in a background worker, above), the supercell held,
     **stop**, one run at a time, and the result kept.
   - **Activate** gives the child the older paths gave: By irrep's child for a
     primary irrep, the t-lattice's or the same-cell lattice's otherwise, and
