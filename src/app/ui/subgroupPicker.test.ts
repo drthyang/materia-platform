@@ -263,11 +263,13 @@ describe("By subgroup on SrTiO₃, 2×2×2: every subgroup that fits, each with 
   it("Activate on a same-cell row: the Γ tree's child for a Γ primary, the t-lattice's otherwise", () => {
     const { m, same } = sto();
     const p4mm = row(same, "P 4 m m #99 · same cell · 6 domains · Γ irrep 10 of 10 (a,0,0)");
-    expect(p4mm.detail).toContain("(Γ irrep 10 of 10 is Γ9 on the By irrep view's Γ chip.)");
     expect(p4mm.action.kind).toBe("irrep");
+    // The Γ tree's polar irrep (its children P4mm, R3m, Amm2, …), whatever the Γ chip calls it: its point-group
+    // numbering "Γn" is not the generic one, and is not even the same on every platform (Node 22 and 24 differ).
     const tree = gammaIrrepTree(m.loaded)!;
-    const branch = tree.find((b) => b.term.irrep.label === "Γ9")!;
+    const branch = tree.find((b) => b.subgroups.some((s) => s.identity.number === 99))!;
     const sub = branch.subgroups.find((s) => s.identity.number === 99)!;
+    expect(p4mm.detail).toContain(`(Γ irrep 10 of 10 is ${branch.term.irrep.label} on the By irrep view's Γ chip.)`);
     expect(outcome(activate(m, p4mm.action))).toEqual(outcome(withActivatedMode(m, branch.term, sub).model));
     // The t-subgroups no displacive irrep reaches alone: the old t-lattice path, node for node.
     const nodes = subgroupClassRepresentatives(structuralSubgroupLattice(m.loaded));

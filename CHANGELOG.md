@@ -54,6 +54,35 @@ release fixes bugs.
 
 ### Changed
 
+- **The PDF page's Subgroups view opens on By subgroup: every subgroup that
+  fits the chosen supercell, with its cell and the irreps that activate it.**
+  - One row per class of conjugate subgroups, by index, in one line: the
+    name, the cell (**same cell**, or the multiple of the parent's cell that
+    repeats the child, **1×1×2**, **2×2×2**), the domain states, and the
+    primary irreps with their directions ("R irrep 8 of 10 (a,a,a)"). A
+    subgroup no single irrep reaches names the fewest irreps coupled, "M
+    irrep 3 of 10 (a,0,0) + R irrep 8 of 10 (a,a,0), coupled", and its
+    **?** lists the other sets of that size. The **?** also has the index
+    split, orientations, the child basis (P_H, p_H), the secondary irreps and
+    the irreps that move no atom of the structure.
+  - The list is filtered to the supercell: the parent's same-cell subgroups,
+    and the larger cells that fit the bound in some orientation. For
+    GaTa₄Se₈ in 1×1×2, P-42₁m appears in (a, a, 2c) and, from X, in the
+    parent's cell, and no longer in the (2a, 2a, c) that does not fit.
+  - The same-cell rows show at once; the larger cells are worked out after
+    the view shows, with **working…** naming the step, the supercell held,
+    **stop**, one run at a time, and the result kept.
+  - **Activate** gives the child the older paths gave: By irrep's child for a
+    primary irrep, the t-lattice's or the same-cell lattice's otherwise, and
+    for a larger cell the child realised in its own cell with the row's
+    irreps kicked. After it, the banner says where the child lives ("in its
+    own cell, 1×1×2", "in the parent's cell").
+  - **By irrep** stays as the second view. Each child says its cell; only
+    the children that fit the supercell are listed, and **show larger cells**
+    gives the whole list. The supercell view's **List supercell subgroups**
+    and its index limit are gone: By subgroup lists every index.
+  - Nothing the Agent or an MCP client reads changed.
+
 - **The PDF page's Boxcar tab is an analysis of its own.** Its settings are
   grouped as Range, Boxes and Starting point, each with its detail behind a
   **?**, over a one-line result (boxes and span, or what to fix).

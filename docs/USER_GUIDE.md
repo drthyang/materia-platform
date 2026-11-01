@@ -486,56 +486,81 @@ shows the modes being refined.
 - To keep the structure's symmetry, switch **Constrained atomic** to
   **Irreps (modes)** under **Parameterization**. The mode amplitudes come from
   the structure's own space group and start at 0.
-- To lower it, open the **Subgroups** view. It has one path: pick a k-point,
-  then a child, then **Activate**. The child's distortion modes load into
-  **Positions**. Each section's details are behind its **?**.
-  - **By irrep** (the default) shows the k-points as chips. **Γ** and, for a
-    centred parent (F, I, C, A, B, or R on hexagonal axes), the decentring
-    points (X for F, H for I, (0,1,0) for C, (0,0,1) for R) are marked
-    **same cell**: a distortion there keeps the conventional cell and
-    refines as it stands. The other chips, marked **supercell**, are the
-    cell-multiplying stars inside the supercell bound (X, M and R of a
-    primitive cubic parent; L and W of an F one; coordinates where a star
-    has no name). A supercell chip shows **working…** while its irreps are
-    worked out (seconds on a large bound); the result is kept until you
-    change the bound.
+- To lower it, open the **Subgroups** view: pick a subgroup, then
+  **Activate**. The child's distortion modes load into **Positions**. Each
+  section's and each row's details are behind its **?**.
+  - **Supercell** (top right) sets the largest cell a child may have: 2×2×2
+    by default, a preset (1×1×2, √2×√2×1, …), or **custom P…** (type P and
+    its centring, then **Apply**). Both views follow it.
+  - **By subgroup** (the first view) lists every subgroup whose cell fits
+    that supercell, in some orientation, one row per class of conjugate
+    subgroups, by index, the maximal ones first. Each row is one line: the
+    name in the standard setting (ADR 0003), the cell, the domain states,
+    and the irreps that lower the parent to it.
+    - The **cell** is **same cell** for a child that keeps the conventional
+      cell (the t-subgroups, and for a centred parent the decentring
+      k-subgroups and the general ones, such as F-43m's P-43m at X, refined
+      in the parent's cell), else the multiple of the parent's cell along its
+      axes that repeats the child: **1×1×2**, **2×2×1**, **2×2×2**. A child
+      whose own cell is turned (R-3c on hexagonal axes, I4/mcm √2×√2×2) reads
+      as the box that holds whole copies of it, **2×2×2**; its own cell is
+      behind the row's **?**.
+    - The **irreps** are the primary ones: each irrep one of whose isotropy
+      subgroups is this subgroup (the child **By irrep** lists), with its
+      order-parameter direction, "R irrep 8 of 10 (a,a,a)". When no single
+      irrep has it as an isotropy subgroup, the row names the fewest irreps
+      that reach it together, "M irrep 3 of 10 (a,0,0) + R irrep 8 of 10
+      (a,a,0), coupled", each along the direction of its own isotropy
+      subgroup, in the domains that keep the subgroup. Several sets of that
+      size can reach one subgroup (for a cubic perovskite's a⁻b⁺a⁻ Pnma,
+      eight pairs among its R, M and X irreps); the row shows one and its
+      **?** lists the others. The **?** also gives the index split (point
+      group · translations), orientations, the child basis (P_H, p_H), the
+      secondary irreps (allowed in the child, induced by coupling), and any
+      irrep that moves no atom of the structure (a cell-only distortion).
+    - The same-cell rows show at once. The larger cells are worked out after
+      the view shows (seconds; a minute for an F-centred cubic parent in
+      2×2×2): **working…** names the step, the supercell is held, and
+      **stop** halts it. The result is kept until the structure or the bound
+      changes. The line above the list gives the count, and its **?** how
+      many have exactly the bound's lattice (the list Bilbao's SUBGROUPS
+      gives for that supercell).
+  - **Activate** on a same-cell row lowers the symmetry in the parent's
+    cell: the Wyckoff orbits split, the child's modes are listed by parent
+    irrep and site, and the order parameter (the row's primary irrep, or the
+    fewest displacive irreps that reach the child) is freed from a small
+    starting amplitude. At the parent's geometry a symmetry-breaking mode
+    started at 0 would never move. The child is the one **By irrep** gives
+    for that irrep.
+  - **Activate** on a larger row realises the child in its own cell, its
+    Wyckoff orbits split, and fits it there: the page's structure becomes
+    the child (for example P-42₁m of GaTa₄Se₈ in (a, a, 2c), from the demo's refined cell 10.37 × 10.37
+    × 20.74 Å), with its own cell and ADP rows. Its displacements refine as
+    its modes by parent irrep, each named by the irrep and the parent site it
+    moves ("R irrep 8 of 10 · O"). The row's irreps are kicked from a small
+    starting amplitude (failing that, the fewest irreps that lower the
+    parent to the child), and the other modes start fixed at 0 until you
+    free them. The banner then says where the child lives: "in its own cell,
+    1×1×2", or "in the parent's cell".
+  - **By irrep** shows the k-points as chips. **Γ** and, for a centred parent
+    (F, I, C, A, B, or R on hexagonal axes), the decentring points (X for F,
+    H for I, (0,1,0) for C, (0,0,1) for R) are marked **same cell**. The
+    other chips, marked **supercell**, are the cell-multiplying stars inside
+    the bound (X, M and R of a primitive cubic parent; L and W of an F one;
+    coordinates where a star has no name). A supercell chip shows
+    **working…** while its irreps are worked out.
   - Under the chosen chip each irrep is listed with its dimension, named
     generically by the k-point and "irrep n of m"
     ([ADR 0004](./adr/0004-generic-irrep-labels-in-the-app.md)). Click an
     irrep to open or close it. Its children are its isotropy subgroups, one
-    per order-parameter direction, the one-parameter directions first (for a
-    cubic perovskite's polar Γ irrep, P4mm, R3m and Amm2), down to a general
-    direction. Each child reads as one line: its name in the standard setting
-    (ADR 0003), its direction, such as (a,a,a) or (a,a,a,−a,−a,−a), and its
-    domain states. The direction is in MATERIA's own irrep basis, which can
-    differ from ISODISTORT's symbols. Hover a name for its index split
-    (point group · translations), orientations and basis (P_H, p_H). For
-    F-43m (GaTa₄Se₈, GaNb₄Se₈) the six-dimensional X irrep leads to P2₁3.
-  - **Activate** on a same-cell child lowers the symmetry in the parent's
-    cell: the Wyckoff orbits split, the child's modes are listed by parent
-    irrep and site, and the order parameter is freed from a small starting
-    amplitude. At the parent's geometry a symmetry-breaking mode started at
-    0 would never move.
-  - **Activate** on a supercell child realises it in its own cell, its
-    Wyckoff orbits split, and fits it there: the page's structure becomes
-    the child (for example R-3c on hexagonal axes), with its own cell and
-    ADP rows. Its displacements refine as its modes by parent irrep, each
-    named by the irrep and the parent site it moves ("R irrep 8 of 10 · O").
-    The irrep you activated from is kicked from a small starting amplitude
-    (failing that, the fewest irreps that lower the parent to the child),
-    and the other modes start fixed at 0 until you free them.
-  - **Supercell** (top right) sets the bound: 2×2×2 by default, a preset, or
-    **custom P…** (type P and its centring, then **Apply**). Changing it
-    recomputes the supercell chips.
-  - **By subgroup** lists the subgroups that keep the conventional cell by
-    index, each with its domain states: the translationengleiche ones (with
-    the parent's centring kept: F-43m's tetragonal subgroup is I-4m2) and,
-    for a centred parent, the decentring k-subgroups (marked **k**, such as
-    F-43m's P-43m) and the general ones (marked **general**, such as P2₁3).
-    **Activate** lowers to one and frees the order parameter that lowers the
-    structure to it, as above. **List supercell subgroups** adds the
-    cell-multiplying classes inside the bound (Pnma of a cubic perovskite,
-    for example); their **Activate** realises the child in its own cell.
+    per order-parameter direction, the one-parameter directions first, down
+    to a general direction. Each child reads as one line: its name, its
+    direction, its cell and its domain states. The direction is in MATERIA's
+    own irrep basis, which can differ from ISODISTORT's symbols. Only the
+    children whose cell fits the supercell are listed (the irrep's line says
+    how many are larger); **show larger cells** lists them all, as
+    ISODISTORT does. The Γ chip still names its irreps Γ1, Γ2, …: a row's
+    **?** on By subgroup says which generic label each one is.
 - While a choice is in force, the **Subgroups** view shows only it, with
   **3D Model →** and **✕ clear**. **✕ clear** returns to the parent: its
   cell, ADP and position rows come back as loaded, with the scale and the
