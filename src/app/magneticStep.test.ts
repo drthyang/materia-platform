@@ -8,7 +8,7 @@ import { MagneticStep, bestRanked, candidatesOf, firstOpen, momentParameters, bu
 import type { LatticeCandidate } from "@/core/magnetic/subgroupLattice";
 import { sessionPort } from "@/testSupport/agentHeadless";
 import { corundumPage } from "@/testSupport/scPages";
-import { mn3gaMagneticSession } from "@/agent/evals/pages";
+import { MAGNETIC_TRUTH, mn3gaMagneticSession } from "@/agent/evals/pages";
 import { knownPhaseStructure } from "@/core/diagnostics/knownPhases";
 import { ComputeClient } from "@/workers/computeClient";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
@@ -326,6 +326,31 @@ describe("the step's state, as the panel keeps it", () => {
     const st = at().structure;
     set({ structure: { ...st, sites: st.sites.map((x, i) => (i === 0 ? { ...x, position: [x.position[0], x.position[1], x.position[2] + 0.01] as Vec3 } : x)) } });
     expect(view(step).rankResults).toEqual({});
+  }, 60000);
+
+  it("reaches the truth through representation analysis at a non-abelian k ≠ 0, and fits it as the group list does (THY-36)", async () => {
+    // Mn₃Ga's synthetic page: P6₃/mmc at k = (0,0,½), little co-group 6/mmm, small representations projective.
+    const { step } = stepOn();
+    step.setK([...MAGNETIC_TRUTH.k]);
+    expect(view(step).irrepAnalysis).toBeNull(); // built only in its framework
+    step.setFramework("irrep");
+    const a = view(step).irrepAnalysis;
+    if (!a || !a.available) throw new Error("no representation analysis");
+    expect(a.terms.map((t) => [t.label, t.multiplicity, t.dim])).toEqual([
+      ["k = (0, 0, 1/2) irrep 1 of 3", 2, 2], ["k = (0, 0, 1/2) irrep 2 of 3", 1, 2], ["k = (0, 0, 1/2) irrep 3 of 3", 3, 4],
+    ]);
+    // Irrep 2 along (a,a): the truth's group, the list's G1.
+    const irrep2 = a.terms[1]!;
+    step.setIrrepDirection(irrep2.label, irrep2.directions.findIndex((d) => d.symbol === "(a,a)"));
+    const v = view(step);
+    if (!v.combo || "failure" in v.combo) throw new Error("no isotropy subgroup");
+    expect(v.combo.settingMatch?.identity.bnsNumber).toBe("164.90");
+    expect(v.comboRepIdx).toBe(Number(MAGNETIC_TRUTH.id.slice(1)) - 1);
+    const viaIrrep = await step.refineMoments();
+    step.choose(v.comboRepIdx!);
+    const viaList = await step.refineMoments();
+    expect(viaIrrep).not.toBeNull();
+    expect(viaIrrep!).toBeCloseTo(viaList!, 6);
   }, 60000);
 
   it("keeps each step's derived values while another step on another structure renders (the hidden powder page beside the PDF page)", () => {

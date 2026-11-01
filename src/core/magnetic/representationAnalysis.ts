@@ -124,7 +124,7 @@ export type RepresentationAnalysis =
       readonly twoArm: boolean;
       readonly terms: readonly MagneticIrrep[];
     }
-  | { readonly available: false; readonly reason: "no-group" | "no-ions" | "incommensurate" };
+  | { readonly available: false; readonly reason: "no-group" | "no-ions" | "incommensurate" | "failed" };
 
 /** One selected irrep and the index of its chosen direction (0: the first listed). */
 export interface IrrepChoice {
