@@ -601,10 +601,16 @@ A boxcar scan refines the model inside a fixed-width r-window slid across G(r).
 A parameter that drifts with the box centre shows a local structure that
 differs from the average one.
 
-1. Refine the whole window, and free the parameters you want to track.
-2. In the **Boxcar** view, set **box** and **step** in Å. Pick
-   **low → high r**, **high → low r** or **both**, and optionally
-   **random restarts**.
+1. Refine the whole window.
+2. In the **Boxcar** view, set the three groups:
+   - **Range**: the lower and upper r bounds the boxes slide across. They
+     start at the fit window and are the tab's own once you edit them or run
+     a scan; **Use fit range** copies the fit window again.
+   - **Boxes**: **width** and **step** in Å, **low → high r**,
+     **high → low r** or **both**, and optionally **random restarts**.
+   - **Starting point**: the scan starts from the current fit, its values and
+     free rows. Open **… refined** to choose other rows or start values for
+     the scan; **Reset to current fit** drops those edits.
 3. Click **Run boxcar scan**. **Cancel** keeps the boxes already fitted. After
    a run the plan folds into one line in the toolbar; click it to edit the
    next scan's plan.
@@ -613,7 +619,8 @@ differs from the average one.
 5. **Adopt**, under the plot, loads the picked box's values into the panel.
    **box table** lists every box, and **Export CSV** saves the scan.
 
-The scan itself changes neither the fit window nor the parameters. With
+The scan itself changes neither the fit window nor the parameters, whatever
+the tab's range and starting point. With
 **both**, **The two directions agree** means the drift is in the data.
 
 ### Magnetic PDF

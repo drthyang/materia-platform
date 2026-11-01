@@ -43,7 +43,7 @@ import type { ModeCif } from "@/parsers/modeCif";
 import { latticeCentring } from "@/core/crystal/standardSetting";
 import type { SubgroupNode } from "@/core/crystal/subgroupTree";
 import { applyParameters } from "@/core/workflow/apply";
-import { boxcarPlanIssue, boxcarStepIndex, boxcarTable, boxcarWindows, type BoxcarDirection, type BoxcarPlan, type BoxcarRun, type BoxcarSeries } from "@/core/workflow/pdfBoxcar";
+import { boxcarPlanIssue, boxcarRangeIssue, boxcarStepIndex, boxcarTable, boxcarWindows, type BoxcarDirection, type BoxcarPlan, type BoxcarRun, type BoxcarSeries, type BoxcarStart } from "@/core/workflow/pdfBoxcar";
 import type { SequentialResult, SequentialStep } from "@/core/refinement/sequential";
 import type { SampleOptions, SampleResult } from "@/core/refinement/bayes/sampler";
 import type { ReportInput, ReportModes } from "@/core/export/report";
@@ -1049,13 +1049,140 @@ export function withPattern(m: PdfPageModel, pattern: PdfPattern): PdfPageModel 
 function rebuilt(m: PdfPageModel, newDefault = true): PdfPageModel {
   const defaultRange = newDefault ? defaultRangeOf(m.pattern, m.preset.fitRange) : m.defaultRange;
   const moved = defaultRange.min !== m.defaultRange.min || defaultRange.max !== m.defaultRange.max;
-  const next: PdfPageModel = { ...m, defaultRange, fitRange: moved ? defaultRange : m.fitRange, params: [], result: null, sample: null, boxcarRun: null };
+  const next: PdfPageModel = { ...m, defaultRange, fitRange: moved ? defaultRange : m.fitRange, params: [], result: null, sample: null, boxcarRun: null, boxcarPlan: boxcarSettingsOnly(m.boxcarPlan) };
   return { ...next, params: freshRows(next) };
+}
+
+/** The boxcar plan without the tab's range and starting point: both belong to
+ *  the data and rows they were set on, so new data or a new structure drops
+ *  them (the tab then follows the fit window and the fit again). */
+function boxcarSettingsOnly(plan: BoxcarPlan): BoxcarPlan {
+  const { range: _range, start: _start, ...rest } = plan;
+  return rest;
 }
 
 /** The boxcar plan, edited in the Boxcar view. */
 export function withBoxcarPlan(m: PdfPageModel, patch: Partial<BoxcarPlan>): PdfPageModel {
   return { ...m, boxcarPlan: { ...m.boxcarPlan, ...patch } };
+}
+
+// ── the Boxcar tab's own range and starting point ───────────────────────────
+// The tab is an analysis of its own: it scans its own r bounds, and starts
+// from the current fit with any edits made on the tab. Nothing here writes to
+// the main page's rows, fit window or last fit.
+
+/** The r span the G(r) covers (Å) — the tab's bounds must lie on it. */
+export function boxcarDataRange(m: PdfPageModel): FitWindow {
+  const pts = m.pattern.points;
+  return { min: pts[0]?.r ?? 0, max: pts[pts.length - 1]?.r ?? 0 };
+}
+
+/** The tab's r bounds: its own once set (edited or scanned), else the fit window. */
+export function boxcarRangeOf(m: PdfPageModel): FitWindow {
+  return m.boxcarPlan.range ?? m.fitRange;
+}
+
+/** One bound (or both) of the tab's range edited; the other keeps its value. From here on the range is the tab's own. */
+export function withBoxcarRange(m: PdfPageModel, patch: Partial<FitWindow>): PdfPageModel {
+  const r = boxcarRangeOf(m);
+  return withBoxcarPlan(m, { range: { min: patch.min ?? r.min, max: patch.max ?? r.max } });
+}
+
+/** The tab's range set to the page's current fit window ("Use fit range"). */
+export function withBoxcarRangeFromFit(m: PdfPageModel): PdfPageModel {
+  return withBoxcarPlan(m, { range: { min: m.fitRange.min, max: m.fitRange.max } });
+}
+
+/** One row of the tab's starting point: the value and free flag the scan starts from, beside the main page's. */
+export interface BoxcarStartRow {
+  readonly id: string;
+  readonly label: string;
+  readonly kind: RefinementParameter["kind"];
+  /** What the first box starts from. */
+  readonly value: number;
+  /** Whether the scan refines this row. */
+  readonly free: boolean;
+  /** The main page's current value and free flag. */
+  readonly fitValue: number;
+  readonly fitFree: boolean;
+  readonly min?: number;
+  readonly max?: number;
+}
+
+/** The rows a scan can refine (constrained rows follow their expression), each with the tab's edits applied. */
+export function boxcarStartRows(m: PdfPageModel): BoxcarStartRow[] {
+  const start = m.boxcarPlan.start;
+  return m.params
+    .filter((p) => !p.expression)
+    .map((p) => ({
+      id: p.id,
+      label: p.label,
+      kind: p.kind,
+      value: start?.values?.[p.id] ?? p.value,
+      free: start?.free?.[p.id] ?? !p.fixed,
+      fitValue: p.value,
+      fitFree: !p.fixed,
+      ...(p.min !== undefined ? { min: p.min } : {}),
+      ...(p.max !== undefined ? { max: p.max } : {}),
+    }));
+}
+
+/** Whether the scan starts exactly from the current fit (no edit on the tab differs from it). */
+export function boxcarStartIsCurrent(m: PdfPageModel): boolean {
+  return boxcarStartRows(m).every((r) => r.value === r.fitValue && r.free === r.fitFree);
+}
+
+/**
+ * One row of the starting point edited on the tab. An edit that lands back on
+ * the main page's value (or free flag) is dropped rather than stored, so the
+ * row follows the fit again.
+ */
+export function withBoxcarStart(m: PdfPageModel, id: string, patch: { readonly free?: boolean; readonly value?: number }): PdfPageModel {
+  const row = m.params.find((p) => p.id === id && !p.expression);
+  if (!row) return m;
+  const free = { ...(m.boxcarPlan.start?.free ?? {}) };
+  const values = { ...(m.boxcarPlan.start?.values ?? {}) };
+  if (patch.free !== undefined) {
+    if (patch.free === !row.fixed) delete free[id];
+    else free[id] = patch.free;
+  }
+  if (patch.value !== undefined && Number.isFinite(patch.value)) {
+    if (patch.value === row.value) delete values[id];
+    else values[id] = patch.value;
+  }
+  const start: BoxcarStart = { ...(Object.keys(free).length ? { free } : {}), ...(Object.keys(values).length ? { values } : {}) };
+  const { start: _old, ...rest } = m.boxcarPlan;
+  return { ...m, boxcarPlan: Object.keys(start).length ? { ...rest, start } : rest };
+}
+
+/** "Reset to current fit": the tab's edits dropped, the scan starting from the main page's values and free flags again. */
+export function withBoxcarStartReset(m: PdfPageModel): PdfPageModel {
+  if (!m.boxcarPlan.start) return m;
+  const { start: _start, ...rest } = m.boxcarPlan;
+  return { ...m, boxcarPlan: rest };
+}
+
+/** Why the tab's scan cannot run, as one plain line: its bounds first, then the boxes between them — or null. */
+export function boxcarTabIssue(m: PdfPageModel): string | null {
+  const range = boxcarRangeOf(m);
+  return boxcarRangeIssue(range, boxcarDataRange(m)) ?? boxcarPlanIssue({ range, width: m.boxcarPlan.width, step: m.boxcarPlan.step }, "range");
+}
+
+/** The scan the tab's Run button starts: the tab's plan, on its own range, from its starting point. */
+export function boxcarTabScanPlan(m: PdfPageModel): BoxcarScanPlan {
+  const rows = boxcarStartRows(m);
+  const range = boxcarRangeOf(m);
+  const p = m.boxcarPlan;
+  return {
+    width: p.width,
+    step: p.step,
+    direction: p.direction,
+    randomStart: p.randomStart,
+    restarts: p.restarts,
+    range: { min: range.min, max: range.max },
+    free: rows.filter((r) => r.free).map((r) => r.id),
+    startValues: Object.fromEntries(rows.filter((r) => r.value !== r.fitValue).map((r) => [r.id, r.value])),
+  };
 }
 
 /**
@@ -1174,6 +1301,10 @@ export interface BoxcarScanPlan {
   readonly restarts: number;
   readonly bonds?: readonly string[];
   readonly free?: readonly string[];
+  /** The r span to scan; absent → the page's fit window (the Agent's scan). */
+  readonly range?: FitWindow;
+  /** Starting values by row id, over the rows' own (the Boxcar tab's edits). */
+  readonly startValues?: Readonly<Record<string, number>>;
 }
 
 /** The plan the Agent asks a scan for (PdfAgentPort's `boxcar`). */
@@ -1215,7 +1346,8 @@ export interface BoxcarOutcome {
 }
 
 /**
- * The boxcar scan: a fixed-width box slid across the fit window, refined at
+ * The boxcar scan: a fixed-width box slid across the fit window (or the
+ * plan's own range, the Boxcar tab's), refined at
  * each position from the previous box's values (every box refines the free
  * set inside its own window, the page's window untouched); "both" is two
  * passes over the same boxes from the same model. The rows are left as they
@@ -1225,7 +1357,8 @@ export interface BoxcarOutcome {
 export async function pdfBoxcar(client: PdfCompute, m: PdfPageModel, plan: BoxcarScanPlan, hooks: { readonly onRun?: (run: BoxcarRun) => void; readonly onProgress?: (done: number, total: number) => void } = {}): Promise<BoxcarOutcome> {
   const v = pageView(m);
   const key = specKeyOf(m);
-  const opts = { range: { min: m.fitRange.min, max: m.fitRange.max }, width: plan.width, step: plan.step };
+  const span = plan.range ?? m.fitRange;
+  const opts = { range: { min: span.min, max: span.max }, width: plan.width, step: plan.step };
   const issue = boxcarPlanIssue(opts);
   if (issue) throw new Error(issue);
   const windows = boxcarWindows(opts);
@@ -1233,7 +1366,15 @@ export async function pdfBoxcar(client: PdfCompute, m: PdfPageModel, plan: Boxca
   const restarts = plan.randomStart ? plan.restarts : 0;
   // The Agent may name the scan's own free set; the panel's free flags stay as they are.
   const own = plan.free ? new Set(plan.free) : null;
-  const scanParams = own ? m.params.map((p) => (p.expression ? p : { ...p, fixed: !own.has(p.id) })) : m.params;
+  // The Boxcar tab may start its rows from its own values. Either way the scan
+  // works on copies: the page's rows are never touched.
+  const startAt = plan.startValues ?? {};
+  const scanParams = m.params.map((p) => {
+    if (p.expression) return p;
+    const value = startAt[p.id];
+    if (!own && value === undefined) return p;
+    return { ...p, ...(own ? { fixed: !own.has(p.id) } : {}), ...(value !== undefined && Number.isFinite(value) ? { value } : {}) };
+  });
   const freeIds = scanParams.filter((p) => !p.fixed && !p.expression).map((p) => p.id);
   const directions: BoxcarDirection[] = plan.direction === "both" ? ["up", "down"] : [plan.direction];
   const base = { windows, width: plan.width, restarts, freeIds, ...(plan.bonds?.length ? { bondSites: [...plan.bonds] } : {}) };
@@ -1290,7 +1431,8 @@ export function withBoxcarRun(m: PdfPageModel, run: BoxcarRun | null, key: SpecK
 export function boxcarSummary(m: PdfPageModel, run: BoxcarRun, direction: BoxcarPlan["direction"]): string {
   const bad = run.series.reduce((n, d) => n + d.result.steps.filter((s) => !s.carried).length, 0);
   const last = run.windows.at(-1);
-  return `${run.windows.length} boxes of ${run.width} Å across ${m.fitRange.min.toFixed(2)}–${(last?.max ?? m.fitRange.max).toFixed(2)} Å` +
+  // The first box sits flush with the scanned span's lower end (the fit window's for the Agent's scan, the tab's own range for the tab's).
+  return `${run.windows.length} boxes of ${run.width} Å across ${(run.windows[0]?.min ?? m.fitRange.min).toFixed(2)}–${(last?.max ?? m.fitRange.max).toFixed(2)} Å` +
     `${run.series.length > 1 || direction === "both" ? " · both directions" : ` · ${direction === "down" ? "high → low r" : "low → high r"}`}` +
     `${run.restarts > 0 ? ` · best of ${run.restarts + 1} starts per box` : ""}` +
     `${bad > 0 ? ` · ${bad} box(es) diverged and were not carried forward` : ""}`;

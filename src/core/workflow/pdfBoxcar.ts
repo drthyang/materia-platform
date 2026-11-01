@@ -113,24 +113,42 @@ export function boxcarScannedMax(opts: BoxcarPlanOptions): number | null {
 /**
  * Why this plan cannot run, as a user-facing message — or null when it can.
  * Checked in the same order a user would fix things: nonsense inputs first,
- * then the box-vs-range geometry, then the series length.
+ * then the box-vs-range geometry, then the series length. `where` names the
+ * span in the advice: the Agent's scan runs on the page's fit window (its
+ * wording is frozen), the Boxcar tab on its own range.
  */
-export function boxcarPlanIssue(opts: BoxcarPlanOptions): string | null {
+export function boxcarPlanIssue(opts: BoxcarPlanOptions, where: "fit window" | "range" = "fit window"): string | null {
   const { range, width, step } = opts;
   if (!Number.isFinite(width) || width <= 0) return "Box width must be a positive number of Å.";
   if (!Number.isFinite(step) || step <= 0) return "Box step must be a positive number of Å.";
   const span = range.max - range.min;
-  if (!(span > 0)) return "The fit window is empty — set a valid r range first.";
+  if (!(span > 0)) return where === "range" ? "The range is empty — set the lower bound below the upper one." : "The fit window is empty — set a valid r range first.";
   if (width > span + EPS) {
-    return `A ${fmt(width)} Å box does not fit inside the ${fmt(range.min)}–${fmt(range.max)} Å window — shrink the box or widen the fit window.`;
+    return `A ${fmt(width)} Å box does not fit inside the ${fmt(range.min)}–${fmt(range.max)} Å window — shrink the box or widen the ${where}.`;
   }
   const count = Math.floor((span - width) / step + EPS) + 1;
   if (count < 2) {
-    return "The plan has a single box — a boxcar needs at least two (shrink the step or the box, or widen the fit window).";
+    return `The plan has a single box — a boxcar needs at least two (shrink the step or the box, or widen the ${where}).`;
   }
   if (count > BOXCAR_MAX_WINDOWS) {
     return `${count} boxes is too many (limit ${BOXCAR_MAX_WINDOWS}) — increase the step or the box width.`;
   }
+  return null;
+}
+
+/**
+ * Why the Boxcar tab's own r bounds cannot be scanned, as one plain line — or
+ * null when they can. The bounds must be numbers, in order, and on the data;
+ * whether a box fits between them is {@link boxcarPlanIssue}'s question.
+ */
+export function boxcarRangeIssue(
+  range: { readonly min: number; readonly max: number },
+  data: { readonly min: number; readonly max: number },
+): string | null {
+  if (!Number.isFinite(range.min) || !Number.isFinite(range.max)) return "Enter both r bounds in Å.";
+  if (!(range.min < range.max)) return "The lower bound must be below the upper bound.";
+  if (range.min < data.min - 1e-6) return `The lower bound is below the data, which starts at ${fmt(data.min)} Å.`;
+  if (range.max > data.max + 1e-6) return `The upper bound is past the data, which ends at ${fmt(data.max)} Å.`;
   return null;
 }
 
@@ -155,6 +173,25 @@ export interface BoxcarPlan {
   /** Re-search each box from perturbed starts instead of the seed alone. */
   readonly randomStart: boolean;
   readonly restarts: number;
+  /** The tab's own r bounds (Å), independent of the page's fit window. Absent
+   *  until the user edits them or runs a scan: until then the tab shows, and
+   *  would scan, the fit window (older project files have none). */
+  readonly range?: { readonly min: number; readonly max: number };
+  /** The tab's own edits to the starting point. Absent rows (and an absent
+   *  `start`) follow the current fit on the main page. */
+  readonly start?: BoxcarStart;
+}
+
+/**
+ * Where a boxcar scan starts, as edits on top of the current fit: per row,
+ * whether the scan refines it and the value its first box starts from. Rows
+ * not named here take the main page's free flag and value at run time, so the
+ * scan starts from the current fit unless the user changed something on the
+ * tab, and "Reset to current fit" is dropping the edits.
+ */
+export interface BoxcarStart {
+  readonly free?: Readonly<Record<string, boolean>>;
+  readonly values?: Readonly<Record<string, number>>;
 }
 
 /** One scan pass: the fits made walking the boxes in one direction. Its
