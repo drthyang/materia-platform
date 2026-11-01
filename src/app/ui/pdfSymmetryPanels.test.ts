@@ -174,7 +174,9 @@ describe("the 3D Model view's distortion modes", () => {
     expect(out).toContain(`from ${m.loaded.spaceGroup.hermannMauguin}`);
     for (const mode of set.modes) expect(out).toContain(mode.label);
     if ((set.acousticExcluded ?? 0) > 0) expect(out).toContain(`${set.acousticExcluded} acoustic excluded`);
-    expect(out).toContain("load a parent CIF on the Subgroups page");
+    // One line; the parent-CIF hint and the norm definitions sit behind its "?".
+    expect(out).toContain("A: mode amplitude (Å), all start at 0 · free/fix in Positions · click a row to show it in");
+    expect(out).toContain('aria-label="In full"');
     expect(out).not.toContain("✕ clear");
   });
 
