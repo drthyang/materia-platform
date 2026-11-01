@@ -113,7 +113,7 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
             ? `vs ${modes.parentName}, set aside while Positions is on “Constrained atomic” — flip it to “Irreps (modes)” to refine them`
             : "none active — the symmetry is lowered on the Subgroups page"}
         </span>
-        {toSubgroups(modes ? "Change or clear the symmetry these modes lower to, on the Subgroups page" : "Lower the symmetry on the Subgroups page: pick a k-point, then a child")}
+        {toSubgroups(modes ? "Change or clear the symmetry these modes lower to, on the Subgroups page" : "Lower the symmetry on the Subgroups page: pick a subgroup there")}
         {importMenu}
         {!modes && ownModes && (
           <span style={{ fontSize: fz.micro, color: color.secondary }}>
@@ -166,7 +166,7 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
             ▸ green arrows: {shownMode.label}
           </span>
         )}
-        {toSubgroups(modes ? "The symmetry these modes lower to is chosen on the Subgroups page — change or clear it there" : "Lower the symmetry on the Subgroups page: pick a k-point, then a child")}
+        {toSubgroups(modes ? "The symmetry these modes lower to is chosen on the Subgroups page — change or clear it there" : "Lower the symmetry on the Subgroups page: pick a subgroup there")}
         {importMenu}
         {onExportModeCif && (
           <button style={resetRangeBtn} onClick={onExportModeCif} title="Save the child and these modes, at their current amplitudes, as an ISODISTORT mode CIF (ISODISTORT's tags, A_s values and normfactors; MATERIA's generic irrep labels). It reads back here exactly, and ISODISTORT-aware programs such as GSAS-II read its modes.">

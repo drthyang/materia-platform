@@ -84,10 +84,11 @@ _Avoid_: branch
 The child group that leaves an order-parameter direction unchanged; the smallest is the **kernel**, the others are **epikernels**. For a magnetic irrep it is a magnetic space group: the operations of the little group, with or without time reversal, that keep the order parameter, named at k ≠ 0 in its **magnetic cell** (a type-IV group, whose anti-translations are the lattice translations with k-phase −1).
 
 **Primary irrep**:
-The irrep whose order parameter drives a distortion.
+An irrep one of whose isotropy subgroups is the child group (matched as a class of conjugates): its order parameter alone, along that direction, lowers the parent to the child. When no single irrep does, the child's primary irreps are the fewest **coupled** irreps whose joint isotropy subgroup is it, each along the direction of its own isotropy subgroup, in the domains the child fixes; several such sets can exist, and the Subgroups page shows one and lists the rest.
+_Avoid_: calling an irrep primary because its mode is the largest in a fit (that is a fit's result, not the group's)
 
 **Secondary irrep**:
-An irrep allowed to appear in the same child group by coupling to the primary one.
+An irrep with a vector the child group fixes (its subduction to the child contains the identity representation), other than the primary ones: allowed in the child, induced by coupling to the primary order parameter.
 
 **Symmetry mode**:
 A basis displacement pattern of the child cell that belongs to one irrep.

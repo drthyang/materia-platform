@@ -940,6 +940,8 @@ export interface SupercellChoice {
   readonly identity: SubgroupIdentity;
   /** The irrep the child was activated from (the irreps view), by its characters on the group's elements: the order parameter, when its modes reach the child. */
   readonly primary?: readonly number[];
+  /** The coupled irreps a By subgroup row names (by their characters): the order parameter, when their modes together reach the child and no fewer irreps do. */
+  readonly coupled?: readonly (readonly number[])[];
 }
 
 /**
@@ -972,7 +974,7 @@ export function withSupercellChild(m: PdfPageModel, choice: SupercellChoice): { 
   }
   if (basis.modes.length === 0) return { model: m, label, message: `${label}: every site of the child is symmetry-pinned — no refinable displacement` };
   // The order parameter: the fewest irreps that reach the child; failing that, every symmetry-breaking one.
-  const order = orderParameterIrreps(basis, choice.primary);
+  const order = orderParameterIrreps(basis, choice.primary, choice.coupled);
   const breaking = basis.irreps.map((ir, i) => ({ ir, i })).filter(({ ir }) => ir.direction !== undefined).map(({ i }) => i);
   const kickedIrreps = order ?? breaking;
   const kicked = basis.modes.map((mode, i) => ({ mode, i })).filter(({ mode }) => kickedIrreps.includes(mode.irrep)).map(({ i }) => i);

@@ -495,6 +495,21 @@ Conventions are pinned in
   child. The powder page has no Subgroups view and no Import ▾, so no
   parent-CIF route or mode-CIF loader: a supercell child reaches it as the CIF the PDF page
   exports. ADP, strain and occupancy symmetry modes.
+- The Subgroups page's By subgroup rows name a subgroup's primary irreps,
+  or the fewest irreps coupled, from the group alone (every irrep of the
+  bound, strain and occupancy ones included). When several sets of that size
+  reach one subgroup (the R, M and X irreps of a cubic perovskite's a⁻b⁺a⁻
+  Pnma: eight pairs), the row shows one, chosen by the structure (irreps its
+  atoms carry, then the fewest modes, then the lowest dimension, then the
+  first) and its "?" lists the rest: which pair drives a real distortion is
+  the physics', not the group's. The coupled search stops at four irreps; no
+  case tried needed more. The larger cells are worked out in the page itself,
+  a step at a time: about 6 s for a cubic perovskite or GaTa₄Se₈ in 2×2×2,
+  about a minute for an F-centred cubic parent (Fm-3m, Fd-3m) there. The Γ
+  chip of By irrep still names its irreps Γ1, Γ2, … in the point group's
+  order, which differs from the generic "Γ irrep n of m" (and from one
+  operation list to another); the activation's mode labels use them too, so
+  renaming them waits on the validation freeze.
 - Irrep labels are generic (the k-point, "irrep n of m"): no CDML labels such
   as X3⁺ ([ADR 0004](./adr/0004-generic-irrep-labels-in-the-app.md)).
   Order-parameter directions are written in MATERIA's irrep basis and can

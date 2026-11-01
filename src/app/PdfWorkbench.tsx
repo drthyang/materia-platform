@@ -949,7 +949,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                     ? [{ id: "reciprocal" as const, label: "S(Q)", title: "The S(Q)/F(Q) this G(r) was transformed from, with its ±σ error ribbon, and what that error becomes in G(r) over the fit window" }]
                     : []),
                   { id: "model3d", label: "3D Model", title: "3D crystal-structure model, with the distortion modes being refined — click a mode to draw its displacement pattern" },
-                  { id: "subgroups", label: "Subgroups", title: "Lower the symmetry here: pick a k-point, then a child, then Activate — the distortion modes it permits load into the Positions group" },
+                  { id: "subgroups", label: "Subgroups", title: "Lower the symmetry here: pick a subgroup that fits the supercell (or a k-point and one of its irreps' children), then Activate — the distortion modes it permits load into the Positions group" },
                   { id: "posterior", label: "Posterior", title: "Bayesian posterior of the free parameters (ensemble MCMC) — credible intervals, convergence diagnostics, and the posterior-vs-esd check" },
                   { id: "boxcar", label: "Boxcar", title: "Boxcar scan — refine inside a fixed-width r-window slid across G(r) and plot each parameter against the box center: how the structure changes with length scale" },
                 ] as const}
@@ -1122,6 +1122,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                   decentringTree={decentringTree}
                   sameCell={sameCell}
                   operations={structure.spaceGroup.operations}
+                  structure={structure}
                   onActivateSameCell={onActivateSameCell}
                   onActivateSupercell={onActivateSupercell}
                   modes={modes}
