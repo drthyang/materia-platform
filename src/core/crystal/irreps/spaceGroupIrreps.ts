@@ -133,6 +133,11 @@ function kName(group: FactorGroup, k: RVec, rotations: readonly IMat[]): string 
   return null;
 }
 
+/** The name of the star of k (Γ, X, M, R, L, W, H, N, P on a cubic parent), or null when it has none: kName, without the irreps. */
+export function starName(group: FactorGroup, k: Vec3): string | null {
+  return kName(group, vfrom(k, 24), pointGroupElements(group).map((i) => group.elements[i]!.W));
+}
+
 /** The star of k: its arms W⁻ᵀk modulo Λ*, and for each the first element carrying k to it. */
 function starOf(group: FactorGroup, k: RVec): { arms: RVec[]; reps: number[] } {
   const arms: RVec[] = [];

@@ -37,7 +37,7 @@ import {
 } from "@/app/pdfPage";
 import { SiteTotals } from "@/app/ui/SiteTotals";
 import { DistortionModesPanel } from "@/app/ui/DistortionModesPanel";
-import { SubgroupsPanel, decentringIrrepTree, gammaIrrepTree, sameCellLattice, supercellPointsOf, type IrrepSubgroup, type SameCellNode } from "@/app/ui/SubgroupsPanel";
+import { SubgroupsPanel, decentringIrrepTree, gammaIrrepTree, sameCellLattice, type IrrepSubgroup, type SameCellNode } from "@/app/ui/SubgroupsPanel";
 import { sharedSites, siteSumRangeWarnings } from "@/core/workflow/structureRefinement";
 
 // Lazy so three.js stays out of the main bundle until the 3D view is opened.
@@ -500,10 +500,9 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
     [multiPhase, viewTab, structure, modes],
   );
   const sameCell = useMemo(
-    () => (multiPhase || viewTab !== "subgroups" ? [] : sameCellLattice(structure)),
-    [multiPhase, viewTab, structure],
+    () => (multiPhase || viewTab !== "subgroups" || modes !== null ? [] : sameCellLattice(structure)),
+    [multiPhase, viewTab, structure, modes],
   );
-  const supercellNote = useMemo(() => (viewTab !== "subgroups" ? null : supercellPointsOf(structure)), [viewTab, structure]);
 
   // A k- or general subgroup of the same-cell lattice (withSameCellSubgroup).
   function onActivateSameCell(node: SameCellNode): void {
@@ -881,7 +880,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                     ? "Bayesian posterior — free parameters"
                     : viewTab === "boxcar"
                       ? "Boxcar scan — parameters vs box center r"
-                      : "Lower the symmetry — group–subgroup tree"}
+                      : "Lower the symmetry"}
             </span>
             {viewTab === "fit" && (
               <span style={{ display: "flex", gap: 14, fontFamily: mono, fontSize: 12.5 }}>
@@ -936,7 +935,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                     ? [{ id: "reciprocal" as const, label: "S(Q)", title: "The S(Q)/F(Q) this G(r) was transformed from, with its ±σ error ribbon, and what that error becomes in G(r) over the fit window" }]
                     : []),
                   { id: "model3d", label: "3D Model", title: "3D crystal-structure model, with the distortion modes being refined — click a mode to draw its displacement pattern" },
-                  { id: "subgroups", label: "Subgroups", title: "Lower the symmetry here: pick a subgroup, a Γ irrep's isotropy subgroup, or a parent CIF — the distortion modes it permits load into the Positions group" },
+                  { id: "subgroups", label: "Subgroups", title: "Lower the symmetry here: pick a k-point, then a child, then Activate — the distortion modes it permits load into the Positions group" },
                   { id: "posterior", label: "Posterior", title: "Bayesian posterior of the free parameters (ensemble MCMC) — credible intervals, convergence diagnostics, and the posterior-vs-esd check" },
                   { id: "boxcar", label: "Boxcar", title: "Boxcar scan — refine inside a fixed-width r-window slid across G(r) and plot each parameter against the box center: how the structure changes with length scale" },
                 ] as const}
@@ -1042,6 +1041,9 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                     onShowMode={setShownModeId}
                     onOpenSubgroups={() => setViewTab("subgroups")}
                     {...(modeCifAvailable ? { onExportModeCif: exportModeCif } : {})}
+                    onLoadParentCif={(file) => void onLoadParentCif(file)}
+                    onLoadModeCif={(file) => void onLoadModeCif(file)}
+                    busy={busy}
                   />
                 </div>
               )}
@@ -1097,15 +1099,12 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                   irrepTree={subgroupTree}
                   decentringTree={decentringTree}
                   sameCell={sameCell}
-                  supercellNote={supercellNote}
                   operations={structure.spaceGroup.operations}
                   onActivateSameCell={onActivateSameCell}
                   onActivateSupercell={onActivateSupercell}
                   modes={modes}
                   modeCount={modeSet ? modeSet.modes.length : null}
                   busy={busy}
-                  onLoadParentCif={(file) => void onLoadParentCif(file)}
-                  onLoadModeCif={(file) => void onLoadModeCif(file)}
                   onActivateMode={onActivateMode}
                   onActivateSubgroup={onActivateSubgroup}
                   onClear={() => setModel((m) => withoutModes(m))}
