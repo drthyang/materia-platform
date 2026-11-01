@@ -45,8 +45,8 @@ import type { SubgroupIdentity } from "@/core/crystal/isotropyTree";
 import { allSubgroups, buildCosetContext } from "@/core/magnetic/subgroupLattice";
 import { pointGroupElements, type FactorGroup } from "@/core/crystal/irreps/factorGroup";
 import { idet, ikey, iIsIdentity } from "@/core/crystal/irreps/rational";
-import { inLattice, scaleVec } from "@/core/crystal/irreps/supercell";
-import { keepsConventionalCell, nameChild } from "@/core/crystal/irreps/childSetting";
+import { iapply, inLattice, scaleVec } from "@/core/crystal/irreps/supercell";
+import { keepsConventionalCell, nameChild, subgroupLattice } from "@/core/crystal/irreps/childSetting";
 import type { IndexSplit } from "@/core/crystal/irreps/isotropy";
 
 /** The largest factor group the lattice search accepts (Fm-3m in a 2×2×2 cell is 1536). */
@@ -127,6 +127,40 @@ export interface SupercellLattice {
   readonly edges: readonly (readonly [number, number])[];
   /** Subgroups (members of all classes, conjugates included) the search found. */
   readonly subgroupCount: number;
+  /**
+   * The class a subgroup (factor-group elements, any order) belongs to: any
+   * member of a listed class, conjugates that do not keep the supercell
+   * included; null for a subgroup outside the list (its class keeps no
+   * conjugate of the supercell, or lies beyond the maximum index).
+   */
+  readonly classOf: (elements: readonly number[]) => number | null;
+}
+
+/** The supercell's translations modulo T″, as factor-group elements. */
+function supercellTranslations(group: FactorGroup): number[] {
+  const { D, supercell } = group.bound;
+  return group.translations.filter((t) => inLattice(supercell, scaleVec(group.elements[t]!.w, D)));
+}
+
+/** True when the subgroup holds every translation of the supercell T′ (T_H ⊇ T′): it keeps the bound's own cell. */
+export function keepsSupercell(group: FactorGroup, elements: readonly number[]): boolean {
+  const inH = new Set(elements);
+  return supercellTranslations(group).every((t) => inH.has(t));
+}
+
+/**
+ * True when the subgroup's lattice holds a conjugate R·T′ of the supercell
+ * (R in the parent's point group): some member of its class keeps the bound's
+ * cell, so the child fits the supercell the user chose. The classes the
+ * lattice lists are exactly these (up to the maximum index).
+ */
+export function fitsBound(group: FactorGroup, elements: readonly number[]): boolean {
+  const lattice = subgroupLattice(group, elements);
+  const T = group.bound.supercell;
+  return pointGroupElements(group).some((g) => {
+    const W = group.elements[g]!.W;
+    return [0, 1, 2].every((i) => inLattice(lattice, iapply(W, T[i]!)));
+  });
 }
 
 export interface LatticeOptions {
@@ -373,7 +407,10 @@ export function supercellSubgroups(group: FactorGroup, opts: LatticeOptions = {}
   });
   const edges: [number, number][] = [];
   classes.forEach((c) => c.coveredBy.forEach((u) => edges.push([c.id, u])));
-  return { factorOrder: F, classes, edges, subgroupCount: subgroups.length };
+  const memberClass = new Map<string, number>();
+  kept.forEach((c, ci) => c.members.forEach((m) => memberClass.set(m.join(","), ci)));
+  const lookup = (elements: readonly number[]): number | null => memberClass.get([...elements].sort((a, b) => a - b).join(",")) ?? null;
+  return { factorOrder: F, classes, edges, subgroupCount: subgroups.length, classOf: lookup };
 }
 
 function isSubset(a: Uint8Array, b: Uint8Array, n: number): boolean {

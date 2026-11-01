@@ -222,6 +222,43 @@ function atomAction(group: FactorGroup, cell: CoreCell): Int32Array {
   return perm;
 }
 
+/**
+ * The character of the displacement representation of F = G/T″ on the
+ * parent's atoms modulo T″: χ(f) = Σ over the atoms f leaves in place of
+ * tr W_f. Its multiplicity in a physically irreducible representation Γ,
+ * ⟨χ_Γ, χ⟩ / ⟨χ_Γ, χ_Γ⟩, counts the copies of Γ the atoms carry (0: Γ moves
+ * no atom of this structure).
+ */
+export function displacementCharacters(parent: StructureModel, group: FactorGroup): Float64Array {
+  const cell = coreCell(parent, group);
+  const N = cell.positions.length;
+  const perm = atomAction(group, cell);
+  const F = group.elements.length;
+  const chi = new Float64Array(F);
+  for (let f = 0; f < F; f++) {
+    const W = group.elements[f]!.W;
+    const tr = W[0][0] + W[1][1] + W[2][2];
+    let fixed = 0;
+    for (let a = 0; a < N; a++) if (perm[f * N + a] === a) fixed++;
+    chi[f] = fixed * tr;
+  }
+  return chi;
+}
+
+/** The copies of a physically irreducible representation in the displacement representation (displacementCharacters). */
+export function displacementMultiplicity(chi: Float64Array, characters: readonly number[]): number {
+  let pp = 0;
+  let pd = 0;
+  for (let f = 0; f < chi.length; f++) {
+    pp += characters[f]! * characters[f]!;
+    pd += characters[f]! * chi[f]!;
+  }
+  const n = pd / pp;
+  const m = Math.round(n);
+  if (Math.abs(n - m) > 1e-6) throw new Error(`supercellModes: the displacement representation holds ${n} copies of an irrep`);
+  return m;
+}
+
 // ── fields on the core cell ──────────────────────────────────────────────────
 
 type Field = Float64Array;

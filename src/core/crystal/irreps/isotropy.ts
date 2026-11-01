@@ -377,3 +377,19 @@ export function isotropySubgroups(group: FactorGroup, pir: PhysicalIrrep): Isotr
   subgroups.sort((a, b) => a.direction.dim - b.direction.dim || a.domainStates - b.domainStates || (a.identity.number ?? 999) - (b.identity.number ?? 999) || (a.direction.symbol < b.direction.symbol ? -1 : a.direction.symbol > b.direction.symbol ? 1 : 0));
   return { imageOrder: imageKeys.size, subgroups };
 }
+
+const isotropyCache = new WeakMap<FactorGroup, WeakMap<PhysicalIrrep, IsotropyAnalysis>>();
+
+/** {@link isotropySubgroups}, computed once per factor group and representation (the Subgroups page asks for the same irreps from both of its views). */
+export function cachedIsotropySubgroups(group: FactorGroup, pir: PhysicalIrrep): IsotropyAnalysis {
+  let byIrrep = isotropyCache.get(group);
+  if (!byIrrep) {
+    byIrrep = new WeakMap();
+    isotropyCache.set(group, byIrrep);
+  }
+  const hit = byIrrep.get(pir);
+  if (hit) return hit;
+  const out = isotropySubgroups(group, pir);
+  byIrrep.set(pir, out);
+  return out;
+}

@@ -46,6 +46,39 @@ export function keepsConventionalCell(group: FactorGroup, elements: readonly num
   return [0, 1, 2].every((i) => inLattice(h, [i === 0 ? D : 0, i === 1 ? D : 0, i === 2 ? D : 0]));
 }
 
+/**
+ * The smallest n₁ × n₂ × n₃ multiple of the parent's conventional cell that
+ * repeats a lattice: n_i the least n ≥ 1 with n·e_i in it (e_i the parent's
+ * axes). For a child whose cell has its axes along the parent's (P_H diagonal)
+ * it is that cell; for any other it is the parent-axes supercell that holds a
+ * whole number of its cells: R-3c of a cubic perovskite (F-centred 2a lattice,
+ * hexagonal cell ×6) gives 2 × 2 × 2. [1, 1, 1] when the conventional cell is
+ * kept.
+ */
+export function latticeBox(h: Hnf, D: number): [number, number, number] {
+  // det·ℤ³ lies in the lattice (scaled), so n = det always works.
+  const limit = Math.max(1, h[0][0] * h[1][1] * h[2][2]);
+  return [0, 1, 2].map((i) => {
+    for (let n = 1; n <= limit; n++) {
+      if (inLattice(h, [i === 0 ? n * D : 0, i === 1 ? n * D : 0, i === 2 ? n * D : 0])) return n;
+    }
+    throw new Error("latticeBox: the lattice has no vector along a parent axis");
+  }) as [number, number, number];
+}
+
+/** The parent-axes box that repeats a subgroup's lattice (latticeBox): [1, 1, 1] for a child that keeps the cell. */
+export const periodicityBox = (group: FactorGroup, elements: readonly number[]): [number, number, number] => latticeBox(subgroupLattice(group, elements), group.bound.D);
+
+/**
+ * The parent-axes box of a lattice given by vectors in the parent's
+ * fractional coordinates (a child's cell axes and its centring vectors P_H·c):
+ * latticeBox on the lattice they generate, entries on a 1/48 grid.
+ */
+export function boxOfVectors(vectors: readonly (readonly number[])[]): [number, number, number] {
+  const D = 48;
+  return latticeBox(hnf(vectors.map((v) => [Math.round(v[0]! * D), Math.round(v[1]! * D), Math.round(v[2]! * D)] as const)), D);
+}
+
 /** The operations of a same-cell subgroup modulo ℤ³ (one per element of G/ℤ³). */
 function operationsModCell(group: FactorGroup, elements: readonly number[]): SymmetryOperation[] {
   const seen = new Set<string>();
