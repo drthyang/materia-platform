@@ -168,6 +168,8 @@ export interface LatticeOptions {
   readonly maxIndex?: number;
   /** Name every class in standard setting (default true). */
   readonly name?: boolean;
+  /** Told the share of the work done, from 0 to 1 (the search, then the naming class by class), for a progress line; it changes nothing found. */
+  readonly onProgress?: (fraction: number) => void;
 }
 
 /** The index split of a subgroup of F: point-group factor t, translation factor k = |T/T″| / |T_H/T″|. */
@@ -379,7 +381,11 @@ export function supercellSubgroups(group: FactorGroup, opts: LatticeOptions = {}
     return undefined;
   };
   const parentType = opts.name === false ? undefined : nameChild(group, group.elements.map((_, i) => i)).number;
+  // The search so far; the naming, class by class, the rest (most of the time on a large bound).
+  const SEARCH_SHARE = 0.2;
+  opts.onProgress?.(SEARCH_SHARE);
   const classes: SubgroupClass[] = kept.map((c, ci) => {
+    if (ci % 16 === 0) opts.onProgress?.(SEARCH_SHARE + ((1 - SEARCH_SHARE) * ci) / kept.length);
     const rep = reps[ci]!;
     const index = latticeIndexSplit(group, rep);
     const kind: LatticeKind = rep.length === F ? "parent" : index.k === 1 ? "t" : index.t === 1 ? "k" : "general";
@@ -415,11 +421,11 @@ export function supercellSubgroups(group: FactorGroup, opts: LatticeOptions = {}
 
 const latticeCache = new WeakMap<FactorGroup, SupercellLattice>();
 
-/** {@link supercellSubgroups} with its defaults (named, every index), computed once per factor group. */
-export function cachedSupercellSubgroups(group: FactorGroup): SupercellLattice {
+/** {@link supercellSubgroups} with its defaults (named, every index), computed once per factor group; `onProgress` is told how far a computation has come. */
+export function cachedSupercellSubgroups(group: FactorGroup, onProgress?: (fraction: number) => void): SupercellLattice {
   let l = latticeCache.get(group);
   if (!l) {
-    l = supercellSubgroups(group);
+    l = supercellSubgroups(group, onProgress ? { onProgress } : {});
     latticeCache.set(group, l);
   }
   return l;

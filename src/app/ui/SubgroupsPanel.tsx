@@ -7,8 +7,10 @@
  *   - "By subgroup" (first): every subgroup whose cell fits the supercell
  *     bound (default 2×2×2), by index, each with its cell, domains and the
  *     irreps that lower the parent to it (subgroupIrreps.ts). The same-cell
- *     ones are listed at once; the larger cells are worked out after the
- *     view shows, with "working…", the controls held and one run at a time.
+ *     ones are listed at once; the larger cells are worked out in a Web
+ *     Worker after the view shows (supercellListingClient.ts), their rows
+ *     streaming in under a progress line with stop, the controls held, one
+ *     run at a time, the result kept for the structure and bound.
  *   - "By irrep": a k-point chip, its irreps, their isotropy subgroups. Γ and
  *     the decentring points of a centred parent keep the cell
  *     (withActivatedMode); the bound's cell-multiplying stars come from the
@@ -33,23 +35,19 @@ import type { StructuralSubgroupTree, SubgroupNode } from "@/core/crystal/subgro
 import { decentringTerms } from "@/core/crystal/decentringModes";
 import { identifySubgroup } from "@/core/crystal/isotropyTree";
 import { sameCellSubgroups, type SameCellSubgroup } from "@/core/crystal/irreps/sameCellLattice";
-import { starsInBound, factorGroup, type FactorGroup } from "@/core/crystal/irreps/factorGroup";
+import { factorGroup, type FactorGroup } from "@/core/crystal/irreps/factorGroup";
 import type { KStar } from "@/core/crystal/irreps/spaceGroupIrreps";
-import { starName } from "@/core/crystal/irreps/spaceGroupIrreps";
-import { cachedIsotropySubgroups } from "@/core/crystal/irreps/isotropy";
-import { rnum } from "@/core/crystal/irreps/rational";
 import { boxOfVectors } from "@/core/crystal/irreps/childSetting";
-import { cachedIrrepsOfStar } from "@/core/crystal/irreps/supercellModes";
-import { cachedSupercellSubgroups, SubgroupSearchTooLarge, type SupercellLattice } from "@/core/crystal/irreps/supercellLattice";
 import type { SupercellSpec } from "@/core/crystal/irreps/supercell";
 import { color, fz, mono, resetRangeBtn } from "@/app/theme";
 import { DEFAULT_BOUND, SUPERCELL_ACTIVATE_NOTE, SupercellBound, boundLabel, formatMatrix } from "@/app/ui/SupercellView";
 import { InfoBadge } from "@/app/ui/InfoBadge";
 import { SegmentedToggle } from "@/app/ui/SegmentedToggle";
 import {
-  chipName, decentringRows, kChips, sameCellListing, sameCellRows, subgroupLevels, subgroupSummary, supercellListing, supercellRows,
-  type KChip, type PickerAction, type PickerChild, type PickerIrrep, type SubgroupRow,
+  chipName, decentringRows, kChips, sameCellListing, sameCellRows, subgroupLevels, subgroupSummary, supercellRows,
+  type KChip, type LatticeCounts, type PickerAction, type PickerChild, type PickerIrrep, type SubgroupRow,
 } from "@/app/ui/subgroupPicker";
+import { startSupercellListing, type ListingJob } from "@/app/ui/supercellListingClient";
 
 /** An isotropy subgroup of an irrep (one order-parameter direction, its conjugates counted), with a field that reaches it. */
 export type IrrepSubgroup = IsotropySubgroup & { readonly field: DisplacementField };
@@ -262,8 +260,8 @@ function boundGroup(ops: readonly SymmetryOperation[] | undefined, bound: Superc
   return hit;
 }
 
-/** The By subgroup view's cell-multiplying part: its rows and lattice, or why there are none. */
-type SupercellPart = { readonly rows: readonly SubgroupRow[]; readonly lattice: SupercellLattice } | { readonly error: string };
+/** The By subgroup view's cell-multiplying part: its rows and what the summary says of the lattice, or why there are none. */
+type SupercellPart = { readonly rows: readonly SubgroupRow[]; readonly counts: LatticeCounts } | { readonly error: string };
 const supercellParts = new WeakMap<FactorGroup, WeakMap<object, SupercellPart>>();
 const NO_STRUCTURE = {};
 const partOf = (group: FactorGroup, structure: StructureModel | undefined): SupercellPart | undefined => supercellParts.get(group)?.get(structure ?? NO_STRUCTURE);
@@ -274,41 +272,6 @@ function keepPart(group: FactorGroup, structure: StructureModel | undefined, par
     supercellParts.set(group, byStructure);
   }
   byStructure.set(structure ?? NO_STRUCTURE, part);
-}
-
-class Stopped extends Error {}
-const pause = (ms = 0): Promise<void> => new Promise((r) => setTimeout(r, ms));
-
-/**
- * The cell-multiplying rows of the bound, step by step with a pause between
- * the steps (the lattice; each star's irreps; each irrep's isotropy subgroups;
- * the matching) so "working…" paints and a stop is heard.
- */
-async function computeSupercellPart(group: FactorGroup, structure: StructureModel | undefined, bound: string, say: (what: string) => void, stopped: () => boolean): Promise<SupercellPart> {
-  const check = async (what: string): Promise<void> => {
-    say(what);
-    await pause();
-    if (stopped()) throw new Stopped();
-  };
-  await check(`listing the subgroups in ${bound}`);
-  try {
-    cachedSupercellSubgroups(group);
-  } catch (e) {
-    if (e instanceof SubgroupSearchTooLarge) return { error: `Larger cells refused: ${e.message}.` };
-    throw e;
-  }
-  const ks = starsInBound(group).map((k) => [rnum(k[0]), rnum(k[1]), rnum(k[2])] as [number, number, number]);
-  for (let i = 0; i < ks.length; i++) {
-    const name = starName(group, ks[i]!) ?? `(${ks[i]!.join(", ")})`;
-    await check(`irreps at ${name} (${i + 1} of ${ks.length})`);
-    const star = cachedIrrepsOfStar(group, ks[i]!);
-    for (const p of star.physical) {
-      await check(`isotropy subgroups at ${name} (${i + 1} of ${ks.length})`);
-      cachedIsotropySubgroups(group, p);
-    }
-  }
-  await check("matching irreps to subgroups");
-  return supercellListing(group, structure, bound);
 }
 
 /** The same-cell rows, at once (sameCellListing), or why there are none. */
@@ -333,9 +296,11 @@ function Picker({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCel
   const [working, setWorking] = useState<string | null>(null);
   const workingRef = useRef<string | null>(null);
   const [progress, setProgress] = useState("");
-  const jobRef = useRef<{ stop: boolean } | null>(null);
+  const jobRef = useRef<ListingJob | null>(null);
   const [stoppedFor, setStoppedFor] = useState<FactorGroup | null>(null);
   const [showLarger, setShowLarger] = useState(false);
+  // The larger cells' rows as they stream in, for the group they belong to.
+  const [streamed, setStreamed] = useState<{ readonly group: FactorGroup; readonly rows: readonly SubgroupRow[] } | null>(null);
 
   const fg = useMemo(() => boundGroup(ops, bound), [ops, bound]);
   const chips = useMemo(() => kChips(decentringTree, fg.group), [decentringTree, fg.group]);
@@ -346,39 +311,56 @@ function Picker({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCel
   );
   const part = fg.group ? partOf(fg.group, structure) : undefined;
 
-  // The larger cells of the By subgroup view: worked out once the view shows, one run at a time (a job's end
-  // re-checks through `done`), and stopped when the view, the bound or the structure changes.
+  // The larger cells of the By subgroup view: worked out in a worker once the view shows, one run at a time (a
+  // job's end re-checks through `done`), and stopped when the view, the bound or the structure changes.
   const [done, setDone] = useState(0);
   useEffect(() => {
     const group = fg.group;
-    if (view !== "subgroup" || !group || partOf(group, structure) || stoppedFor === group || workingRef.current !== null) return;
-    const job = { stop: false };
-    jobRef.current = job;
+    if (view !== "subgroup" || !group || !ops || partOf(group, structure) || stoppedFor === group || workingRef.current !== null) return;
     workingRef.current = "subgroups";
     setWorking("subgroups");
-    void (async () => {
-      try {
-        await pause(20);
-        const result = await computeSupercellPart(group, structure, boundLabel(bound), (what) => { if (!job.stop) setProgress(what); }, () => job.stop);
-        keepPart(group, structure, result);
-      } catch (e) {
-        if (!(e instanceof Stopped)) keepPart(group, structure, { error: e instanceof Error ? e.message : String(e) });
-      } finally {
-        workingRef.current = null;
-        if (jobRef.current === job) jobRef.current = null;
-        setWorking(null);
-        setProgress("");
-        setDone((n) => n + 1);
-      }
-    })();
-  }, [view, fg.group, structure, stoppedFor, done, bound]);
+    setStreamed(null);
+    const label = boundLabel(bound);
+    setProgress(`listing ${label} subgroups…`);
+    const finish = (job: ListingJob): void => {
+      workingRef.current = null;
+      if (jobRef.current === job) jobRef.current = null;
+      setWorking(null);
+      setProgress("");
+      setStreamed(null);
+      setDone((n) => n + 1);
+    };
+    const job: ListingJob = startSupercellListing({ operations: ops, bound, boundLabel: label, ...(structure ? { structure } : {}) }, group, {
+      progress: (percent) => setProgress(`listing ${label} subgroups… ${percent} %`),
+      rows: (rows) => setStreamed({ group, rows }),
+      done: (rows, counts) => {
+        keepPart(group, structure, { rows, counts });
+        finish(job);
+      },
+      error: (message) => {
+        keepPart(group, structure, { error: message });
+        finish(job);
+      },
+    });
+    jobRef.current = job;
+  }, [view, fg.group, ops, structure, stoppedFor, done, bound]);
+  const halt = (): void => {
+    const job = jobRef.current;
+    if (!job) return;
+    job.stop();
+    jobRef.current = null;
+    workingRef.current = null;
+    setWorking(null);
+    setProgress("");
+    setStreamed(null);
+  };
   useEffect(() => () => {
-    if (jobRef.current) jobRef.current.stop = true;
+    if (workingRef.current === "subgroups") halt();
   }, [view, fg.group, structure]);
 
   const stop = (): void => {
-    if (jobRef.current) jobRef.current.stop = true;
     setStoppedFor(fg.group);
+    halt();
   };
 
   /** Run a slow computation once the "working" state has painted; one at a time, a repeat click ignored. */
@@ -496,7 +478,7 @@ function Picker({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCel
               );
             })}
           </div>
-          {working === "subgroups" && <p style={line}>working… {progress} (the By subgroup view)</p>}
+          {working === "subgroups" && <p style={line}>{progress} (the By subgroup view)</p>}
           {chip.source === "supercell" && (
             <label style={{ ...line, cursor: "pointer" }}>
               <input type="checkbox" checked={showLarger} disabled={working !== null} onChange={(e) => setShowLarger(e.target.checked)} />
@@ -523,6 +505,7 @@ function Picker({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCel
           sameRows={same.rows}
           sameError={same.error}
           part={part}
+          streamed={streamed && streamed.group === fg.group ? streamed.rows : null}
           working={working === "subgroups"}
           otherWork={working !== null && working !== "subgroups"}
           progress={progress}
@@ -643,6 +626,8 @@ function SubgroupList(p: {
   sameRows: readonly SubgroupRow[];
   sameError: string | null;
   part: SupercellPart | undefined;
+  /** The larger cells' rows so far, while they stream in. */
+  streamed: readonly SubgroupRow[] | null;
   working: boolean;
   otherWork: boolean;
   progress: string;
@@ -654,14 +639,14 @@ function SubgroupList(p: {
   onStop: () => void;
   onResume: () => void;
 }): JSX.Element {
-  const superRows = p.part && "rows" in p.part ? p.part.rows : null;
+  const superRows = p.part && "rows" in p.part ? p.part.rows : p.streamed;
   const levels = useMemo(() => subgroupLevels([...p.sameRows, ...(superRows ?? [])]), [p.sameRows, superRows]);
   if (p.noOperations) return <p style={line}>No space-group operations to analyse.</p>;
   const summary = subgroupSummary({
     parent: p.parent,
     bound: p.bound,
     sameCell: p.sameRows.length,
-    supercell: p.part && "rows" in p.part ? { rows: p.part.rows.length, lattice: p.part.lattice } : null,
+    supercell: p.part && "rows" in p.part ? { rows: p.part.rows.length, ...p.part.counts } : null,
   });
   return (
     <>
@@ -670,7 +655,7 @@ function SubgroupList(p: {
         <InfoBadge width={340} ariaLabel="About the subgroup list" text={summary.detail} />
         {p.working && (
           <>
-            <span aria-busy="true">· working… {p.progress}</span>
+            <span aria-busy="true" role="status">· {p.progress}{p.streamed ? ` · ${p.streamed.length} larger so far` : ""}</span>
             <button style={resetRangeBtn} onClick={p.onStop} title="Stop working out the larger cells (pick a smaller supercell, or come back to it)">
               stop
             </button>

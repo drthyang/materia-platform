@@ -1,8 +1,10 @@
 // @vitest-environment happy-dom
 /**
  * The Subgroups page in a DOM. By subgroup, its first view, lists the
- * same-cell subgroups at once and works out the larger cells after it shows:
- * "working…" with the bound held, a stop heard, one run at a time, and the
+ * same-cell subgroups at once and works out the larger cells after it shows
+ * (here on the main thread: the DOM has no Web Worker, so the listing client
+ * steps the worker's generator in place): a progress line with the bound
+ * held, the rows streaming in, a stop heard, one run at a time, and the
  * result kept for the next visit; Activate hands over each row's own action.
  * By irrep: the k-point chips are buttons with accessible names; a supercell
  * chip shows "working…" and holds every chip while its irreps are worked out,
@@ -17,12 +19,17 @@ import { structuralSubgroupLattice } from "@/core/crystal/subgroupTree";
 import { SubgroupsPanel, gammaIrrepTree, sameCellLattice } from "@/app/ui/SubgroupsPanel";
 import { ImportMenu } from "@/app/ui/DistortionModesPanel";
 import * as picker from "@/app/ui/subgroupPicker";
+import * as listingSteps from "@/app/ui/supercellListing";
 import { PRESETS } from "@/app/ui/SupercellView";
 import { srtio3 } from "@/testSupport/perovskiteTilts";
 
 vi.mock("@/app/ui/subgroupPicker", async (importOriginal) => {
   const mod = await importOriginal<typeof import("@/app/ui/subgroupPicker")>();
-  return { ...mod, supercellRows: vi.fn(mod.supercellRows), supercellListing: vi.fn(mod.supercellListing) };
+  return { ...mod, supercellRows: vi.fn(mod.supercellRows) };
+});
+vi.mock("@/app/ui/supercellListing", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("@/app/ui/supercellListing")>();
+  return { ...mod, supercellListingSteps: vi.fn(mod.supercellListingSteps) };
 });
 // The 2×2×2 lattice and irreps of Pm-3m take seconds; more on a loaded CI runner.
 vi.setConfig({ testTimeout: 240_000 });
@@ -80,36 +87,44 @@ const text = (h: HTMLElement): string => h.textContent ?? "";
 const ALL = "1426 subgroups fit the 2×2×2 cell";
 
 describe("By subgroup in a DOM", () => {
-  it("lists the same-cell subgroups at once, then works out the larger cells: working…, the bound held, a stop heard, one run", async () => {
-    const listing = vi.mocked(picker.supercellListing);
+  it("lists the same-cell subgroups at once, then works out the larger cells: a progress line, the bound held, the rows streaming in, a stop heard, one run", async () => {
+    const listing = vi.mocked(listingSteps.supercellListingSteps);
     listing.mockClear();
     const h = mount(panel());
+    const rowCount = (): number => h.querySelectorAll("[data-row]").length;
     expect(button(h, "By subgroup")).toBeDefined();
     expect(h.querySelector('[role=group][aria-label="k-point"]')).toBeNull();
     // The same-cell rows are there before any work is done.
     expect(h.querySelector('button[aria-label="Activate P 4 m m #99"]')).not.toBeNull();
     expect(text(h)).toContain("P 4 m m #99same cell · 6 domains · Γ irrep 10 of 10 (a,0,0)");
-    await until(() => text(h).includes("working…"));
+    expect(rowCount()).toBe(32);
+    await until(() => /listing 2×2×2 subgroups… \d+ %/.test(text(h)));
     expect(select(h).disabled).toBe(true);
-    // Stop: heard at the next step; the bound free again, the rows kept.
+    // The larger cells stream in while the work goes on.
+    await until(() => rowCount() > 32);
+    expect(text(h)).toMatch(/listing 2×2×2 subgroups… \d+ % · \d+ larger so far/);
+    expect(text(h)).not.toContain(ALL);
+    // Stop: the run ends, the bound free again, the same-cell rows kept and the partial ones dropped.
     act(() => button(h, "stop")!.click());
     await until(() => text(h).includes("larger cells not worked out"));
     expect(select(h).disabled).toBe(false);
+    expect(rowCount()).toBe(32);
     expect(h.querySelector('button[aria-label="Activate P 4 m m #99"]')).not.toBeNull();
-    expect(listing).not.toHaveBeenCalled();
-    // On again, to the end: one listing.
-    act(() => button(h, "work them out")!.click());
-    await until(() => text(h).includes("working…"));
-    await until(() => text(h).includes(ALL));
     expect(listing).toHaveBeenCalledTimes(1);
-    expect(text(h)).not.toContain("working…");
+    // On again, to the end: one more run.
+    act(() => button(h, "work them out")!.click());
+    await until(() => text(h).includes("listing 2×2×2 subgroups…"));
+    await until(() => text(h).includes(ALL));
+    expect(listing).toHaveBeenCalledTimes(2);
+    expect(text(h)).not.toContain("listing 2×2×2 subgroups…");
     expect(select(h).disabled).toBe(false);
+    expect(rowCount()).toBe(1426);
     expect(text(h)).toContain("R -3 c:H #1672×2×2 · 8 domains · R irrep 8 of 10 (a,a,a)");
     expect(text(h)).toContain("P n m a #622×2×2 · 24 domains · M irrep 3 of 10 (a,0,0) + R irrep 8 of 10 (a,a,0), coupled (or 7 other pairs)");
   });
 
   it("keeps the larger cells for the next visit, and Activate hands over each row's own action", async () => {
-    const listing = vi.mocked(picker.supercellListing);
+    const listing = vi.mocked(listingSteps.supercellListingSteps);
     listing.mockClear();
     const onMode = vi.fn();
     const onSupercell = vi.fn();
