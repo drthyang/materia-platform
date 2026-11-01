@@ -312,73 +312,106 @@ an axial vector, χ_axial(R) = det(R)·tr(R): +3 for E and inversion, −1 for a
 times. Hand checks: P1 gives 3 × trivial, C2 gives A + 2B, and inversion gives
 3 Ag and no Au.
 
-### Irreps by construction
+### Irreps by construction, at any commensurate k
 
-No irrep table is transcribed.
+No irrep table is transcribed. The magnetic page takes the small
+representations of G_k from the subgroup engine
+([`representationAnalysis.ts`](../src/core/magnetic/representationAnalysis.ts),
+on [ADR 0001](./adr/0001-compute-irreps-by-chain-induction.md)'s
+[`spaceGroupIrreps.ts`](../src/core/crystal/irreps/spaceGroupIrreps.ts)):
 
-- **Abelian co-groups, any k.** A product of cyclic groups ⟨g₁⟩ × … × ⟨gₘ⟩ has
-  the 1-D irreps ∏ exp(2πi·pₖ·aₖ/nₖ). This covers every abelian class, from
-  triclinic to hexagonal, and the little group of a general k
-  ([`irreps.ts`](../src/core/magnetic/irreps.ts)).
-- **Any co-group, k = 0.** Crystallographic point groups have order 2^a·3^b and
-  are solvable, so irreps are induced up a chain of prime-index normal subgroups
-  (Clifford theory; Serre 1977, §8–9). A result that fails Σ dim² = |G| or
-  character orthogonality throws
-  ([`pointGroupIrreps.ts`](../src/core/magnetic/pointGroupIrreps.ts)).
+- The engine builds the irreps of the whole group at the star of k, on G
+  modulo the core of the magnetic cell, induced from the user's arm k. The
+  top-left block of each irrep, on an operation of G_k, is its small
+  representation Γ({R|v}) = e^{2πi k·v}·P(R), with P a projective irrep of the
+  little co-group (chain induction). This covers non-abelian co-groups at
+  k ≠ 0, and the projective representations a non-symmorphic group needs on
+  the zone boundary.
+- Γ_mag acts on the Fourier coefficients of the magnetic atoms of one
+  primitive cell. An operation sending atom j to atom j′ plus the lattice
+  vector L sends S_j to e^{2πi k·L}·det(R)·R·S_j. The multiplicities
+  n = (1/|G_k|) Σ χ_mag(g)·χ_Γ(g)* come out integral, and the irreps account for
+  every dimension of Γ_mag. The analysis throws when either fails.
+- The basis vectors come from the transfer operators
+  P_λ0 = (d/|G_k|) Σ_g Γ(g)*_λ0·Γ_mag(g). Each copy's d vectors transform by Γ
+  exactly, which is checked too.
+- At a single-arm k (−k ≡ k), the order parameter is real and lives in a
+  physically irreducible representation. A real Γ is used in its real form, a
+  complex one is realified with its conjugate, and a pseudoreal one is doubled.
+- Labels are the engine's generic ones: "X irrep 2 of 4", or "k = (½, 0, 0)
+  irrep 1 of 2" where the point has no standard name. The magnetic irrep that
+  ISODISTORT calls mX2⁺ is the irrep X2⁺ with time reversal acting as −1.
+  MATERIA shows the space-group irrep's generic label, never a CDML label
+  ([ADR 0004](./adr/0004-generic-irrep-labels-in-the-app.md)).
 
-At k = 0 the ordinary irreps are the small representations, even for
-non-symmorphic groups, because every e^{2πi k·τ} is 1 (Bradley & Cracknell 1972,
-Ch. 3). Route B therefore works at k = 0 for every parent. The dimensions match
-the classical tables:
-
-| Co-group | Irrep dimensions |
+| k, group | Small representations (dimensions) |
 | --- | --- |
-| 4mm | 1, 1, 1, 1, 2 |
-| 432 | 1, 1, 2, 3, 3 |
-| m-3 | six of 1, with complex pairs; two of 3 |
-| m-3m | 1, 1, 1, 1, 2, 2, 3, 3, 3, 3 |
-| 6/mmm (Mn₃Ga) | eight of 1, all real and matching the eight index-2 candidates; four of 2 |
+| k = (0, 0, ½), P6₃/mmc (Mn₃Ga; co-group 6/mmm, the 6₃ squared has phase −1) | 2, 2, 4 |
+| X, Pnma (the 2₁ along a squared has phase −1) | 2, 2 |
+| Z, P4₂/mnm | 2, 2, 2, 2 |
+| L, Fm-3m (MnO; co-group -3m) | Γ_mag of Mn: a 1-dim irrep (m ∥ [111]) ⊕ a 2-dim one (m ⊥ [111]) |
+| (½, 0, 0), P2/c (2f) | four 1-dim irreps, Γ_mag = 2 ⊕ 2 ⊕ 1 ⊕ 1 |
 
-Basis modes come from the projection Σ χ_Γ(g)*·e^{2πi k·L}·det(R_g)·R_g over the
-operations that fix a reference site. For a real 1-D irrep, they span exactly the
-allowed moments of the matching Route A candidate, as checked for C2 and Pnma 4b
-([`irrepsValidation.test.ts`](../src/core/magnetic/irrepsValidation.test.ts)).
-
-### Irrep combinations and the isotropy subgroup
+### Order-parameter directions and the isotropy subgroup
 
 SARAh (Wills 2000) refines a combination of irreps. The workbench names the
 magnetic group that a combination implies, then refines that group's allowed
-modes ([`isotropy.ts`](../src/core/magnetic/isotropy.ts)).
+modes.
 
-It builds m(j) = Σ_ν Σ_λ c_νλ·ψ_νλ(j) with generic amplitudes, and coset
-representatives carry the modes over each orbit (Izyumov et al. 1991). The exact
-stabilizer in G_k × {1, 1′} is the isotropy subgroup (Stokes & Hatch 1988;
-Campbell et al. 2006). The workbench intersects two independent draws to rule out
-accidental invariance, then names the group through the table and setting search.
+A multidimensional irrep's group depends on the direction of its order
+parameter. The directions are found by the image method, as the Subgroups page
+finds them for displacive irreps (Stokes & Hatch 1988):
 
-A 1-D irrep acts by the scalar χ(g), so its group does not depend on the
-amplitudes: it is the kernel. Verified cases
-([`isotropy.test.ts`](../src/core/magnetic/isotropy.test.ts)):
+1. Take the image of G_k × {1, 1′}, with time reversal acting as −1. Its
+   elements are θ·M(g).
+2. Close the fixed spaces of these elements under intersection. Each subspace
+   is a direction.
+3. A subspace's stabilizer is its isotropy subgroup: the kernel for the whole
+   space, an epikernel for the others.
 
-- Each real irrep of P2/m gives the candidate whose time-reversal signs equal its
-  characters.
-- Ag ⊕ Bg gives P-1, Ag ⊕ Au gives P2, and all four irreps give P1 (BNS 2.4, 3.1
-  and 1.1).
-- On P2₁/m, the irrep with 2₁ and m primed names P2₁′/m′.
+One direction per class under G_k is listed, one-parameter directions first
+and the generic one (the kernel) last. A combination's group is the
+intersection of the chosen directions' groups. The group is named as a
+candidate of Route A is: at k ≠ 0, the type-IV group of the magnetic cell
+([`identifyCandidate`](../src/core/magnetic/magneticCell.ts)). The other irreps
+whose order parameter the group allows too (secondary irreps) are listed with
+it. Its allowed moments include their modes, so the moment model of a
+multidimensional irrep's epikernel can have more freedom than the irrep's own
+modes. For a one-dimensional irrep the two are the same.
+
+The magnetic page models the group of the class that Route A lists. A
+direction's group can be a conjugate of the listed one: the same order, in
+another domain. The powder calculation reads each satellite family's |F_M|² at
+one member (see [LIMITATIONS.md](./LIMITATIONS.md#magnetic-structures)), so two
+domains of one class need not fit alike, and using the listed group keeps the
+two routes' fits equal.
+
+**Supported**
+- On the 17 cases of the Route A oracle, every isotropy subgroup of every irrep
+  and direction is a candidate of Route A. It carries the BNS number and type
+  that spglib gives its group
+  ([`representationAnalysis.test.ts`](../src/core/magnetic/representationAnalysis.test.ts)).
+  For MnO at L, the 2-dim irrep along (a,−a) gives C_c2/c (BNS 15.90), the
+  group of MnO's moments in the (111) planes. For Mn₃Ga at (0, 0, ½), irrep 2
+  along (a,a) gives P_c-3m1 (BNS 164.90). For P2/c at (½, 0, 0), every irrep
+  gives the type-IV P_a2/c (BNS 13.70), not the parent-cell P2/c′ (13.68).
+- The previous abelian route still gives the same answers wherever it applied
+  ([`representationAnalysisLegacy.test.ts`](../src/core/magnetic/representationAnalysisLegacy.test.ts)).
+  On 15 cases it gives the same irreps by character, the same multiplicities,
+  the same modes on the reference site, and the same isotropy subgroup for
+  every real one-dimensional irrep. Its two wrong answers are listed: P2/c at
+  (0, 0, ½), and Pnma at X, where ordinary irreps stood in for projective ones.
+- On the synthetic Mn₃Ga page (P6₃/mmc, k = (0, 0, ½)), irrep 2 along (a,a)
+  reaches the truth's group. Its moments fit to the same wR as that group's
+  through the list ([`magneticStep.test.ts`](../src/app/magneticStep.test.ts)).
 
 ### Where Route B stops
 
-| Case | Why there is no result |
+| Case | Why there is no group |
 | --- | --- |
-| Non-abelian co-group, k ≠ 0 | The decomposition needs projective small representations. |
-| Irreps with no modes on the sites | The order is magnetically silent there. |
-| Multidimensional irrep | Its group depends on an order-parameter direction, which cannot be chosen yet. |
-| Complex conjugate-pair irrep | Real combinations are generally type IV, outside the table. |
-| e^{2πi k·L} ≠ ±1 | Naming needs the type-IV and star-of-k treatment. |
-| Primed pure translation in the stabilizer | The group is type IV. |
-
-Non-integral multiplicities flag a zone-boundary k of a non-symmorphic group, where
-the ordinary irreps are only approximate. Integral ones do not prove them right.
+| Two-arm k (−k ≢ k, such as (⅓, ⅓, 0)) | The irreps and their complex basis vectors are listed. Their magnetic groups need G_{±k} and the star, as on Route A. |
+| Irreps with no modes on the chosen ions | The order is magnetically silent there (the irrep is not listed). |
+| Incommensurate k | Only commensurate k (denominators up to 12) are analysed. |
 
 ## mCIF export in the right magnetic group
 
@@ -411,18 +444,14 @@ these files in VESTA, Bilbao or GSAS-II is not yet tested.
 
 ## Open work (in order)
 
-1. **Multidimensional irreps.** An order-parameter direction picker, so these
-   irreps can drive the isotropy construction and name epikernels.
-2. **Projective small representations** for non-abelian little co-groups at a
-   zone-boundary k ≠ 0 (Bradley & Cracknell 1972, Ch. 3–4).
-3. **Type-IV groups.** Anti-translation candidates with the star of k and its
-   domains. A centring translation whose phase e^{2πi k·t} is −1 is already an
-   anti-translation of the parent cell; enlarging a primitive cell is not
-   (phase B3 of
-   [PLAN_SUBGROUPS_AND_INCOMMENSURATE.md](./PLAN_SUBGROUPS_AND_INCOMMENSURATE.md)),
-   and type-II and type-IV rows in the label table.
-4. **Conjugate-pair irreps.** Their combinations and type-IV isotropy groups, and
-   cosine and sine modes taken from them instead of the magnetic group.
+1. **The groups of a two-arm k**, on both routes: G_{±k}, the global phase and
+   the star of k in the supercell (phase B3 of
+   [PLAN_SUBGROUPS_AND_INCOMMENSURATE.md](./PLAN_SUBGROUPS_AND_INCOMMENSURATE.md)).
+2. **Cosine and sine modes taken from the irreps** instead of the magnetic
+   group, for a two-arm k.
+3. **The powder average of a satellite family**, so that every domain of a
+   class gives the same pattern (each family's |F_M|² is read at one member
+   today).
 
 [ROADMAP.md](./ROADMAP.md) (M3, M4) places this work among the other milestones.
 

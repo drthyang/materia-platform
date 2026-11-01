@@ -29,8 +29,7 @@ import { withinNoiseOfBest } from "@/core/diagnostics/hamilton";
 import { magneticIonCandidates } from "@/core/magnetic/magneticIons";
 import { classifyPropagation, describePropagation } from "@/core/magnetic/propagation";
 import { littleGroup } from "@/core/magnetic/magneticGroups";
-import { decomposeMagneticRepresentation, projectIrrepModes } from "@/core/magnetic/irreps";
-import { isotropySubgroup, type IrrepSelection } from "@/core/magnetic/isotropy";
+import { magneticIsotropySubgroup, magneticRepresentationAnalysis, type RepresentationAnalysis } from "@/core/magnetic/representationAnalysis";
 import { magneticOperationSignature } from "@/core/magnetic/operationSignature";
 import { fitAmplitudesToMoments } from "@/core/magnetic/amplitudeFit";
 import { candidateId, candidateIndex, candidateView, selectionView, type KCandidateView, type MagneticAgentHandle } from "@/agent/magneticPort";
@@ -463,7 +462,9 @@ export interface StepState {
   readonly residualFrom: ResidualFrom;
   /** The symmetry framework: the magnetic space groups, or representation analysis. */
   readonly framework: "msg" | "irrep";
+  /** The irreps chosen (their labels), and the order-parameter direction of each (its index in the irrep's list; 0 when unset). */
   readonly irreps: ReadonlySet<string>;
+  readonly directions: Readonly<Record<string, number>>;
   /** The chosen group (its place in the list for this k). */
   readonly chosen: number | null;
   /** The index sections open: the maximal groups' to start, and each a choice or a click opens. */
@@ -499,8 +500,9 @@ export interface StepView {
   readonly lgSize: number;
   /** The moment parameters each group's fit refines on the chosen ions, under the ties (`momentParameters`). */
   readonly dims: readonly number[];
-  readonly irrepAnalysis: { readonly dec: ReturnType<typeof decomposeMagneticRepresentation>; readonly modes: ReturnType<typeof projectIrrepModes>[]; readonly lg: ReturnType<typeof littleGroup> } | null;
-  readonly combo: ReturnType<typeof isotropySubgroup> | null;
+  /** Representation analysis on the subgroup engine, while the framework is "irrep" (null otherwise, or with no ion chosen). */
+  readonly irrepAnalysis: RepresentationAnalysis | null;
+  readonly combo: ReturnType<typeof magneticIsotropySubgroup> | null;
   /** The isotropy subgroup as one of the candidates (it always is one), or null. */
   readonly comboRepIdx: number | null;
   /** The operations of the chosen group, from whichever framework is active. */
@@ -560,9 +562,10 @@ export function stepView(s: StepState, at: StepInputs, slots: StepSlots): StepVi
   const includedSignature = memo("included", [rows], () => rows.filter((r) => r.included).map((r) => r.key).join("|"));
   const results = s.search && s.search.peaks === includedSignature ? s.search.found : null;
   const kClass = memo("kClass", [structure, ...s.k], () => classifyPropagation(s.k, { centrings: centringTranslations(structure.spaceGroup.operations) }));
-  const { reps, lgSize } = memo("reps", [structure, ...s.k], () => {
+  const { lattice, reps, lgSize } = memo("reps", [structure, ...s.k], () => {
     const ops = structure.spaceGroup.operations;
-    return { reps: candidatesOf(structure, s.k), lgSize: ops.length === 0 ? 0 : littleGroup(ops, s.k).length };
+    const all = ops.length === 0 ? [] : magneticSubgroupLattice(ops, s.k);
+    return { lattice: all, reps: latticeRepresentatives(all), lgSize: ops.length === 0 ? 0 : littleGroup(ops, s.k).length };
   });
   const options = memo("options", [s.ties], (): ModelOptions => ({
     sameSite: s.ties.sameSite,
@@ -571,26 +574,37 @@ export function stepView(s: StepState, at: StepInputs, slots: StepSlots): StepVi
   }));
   // The moment parameters each group's fit refines, under the page's ties: the count the ranking reads.
   const dims = memo("dims", [reps, s.ions, structure, options, ...s.k], () => momentParameters(structure, reps, s.ions, s.k, options));
-  // Representation analysis: Γ_mag over G(k) into the irreps of its little co-group, each one's basis modes on the reference site.
-  const irrepAnalysis = memo("irreps", [structure, s.ions, ...s.k], () => {
-    const ops = structure.spaceGroup.operations;
-    if (ops.length === 0 || s.ions.size === 0) return null;
-    const lg = littleGroup(ops, s.k);
-    const dec = decomposeMagneticRepresentation(structure, s.k, [...s.ions], lg);
-    const modes = dec.available ? dec.terms.map((t) => projectIrrepModes(structure, s.k, [...s.ions], lg, t.irrep)) : [];
-    return { dec, modes, lg };
+  // Representation analysis (on the subgroup engine, any commensurate k): Γ_mag over G(k) into its small
+  // representations, each with its basis vectors and order-parameter directions. Built only in that framework.
+  const irrepAnalysis = s.framework !== "irrep" ? null : memo("irreps", [structure, s.ions, ...s.k], (): RepresentationAnalysis | null => {
+    if (structure.spaceGroup.operations.length === 0 || s.ions.size === 0) return null;
+    try {
+      return magneticRepresentationAnalysis(structure, s.k, [...s.ions]);
+    } catch {
+      return { available: false, reason: "failed" };
+    }
   });
-  // The isotropy subgroup of the irreps chosen (any combination of real ones), named against the BNS/OG table.
-  const combo = memo("combo", [irrepAnalysis, s.irreps, structure, s.ions, ...s.k], () => {
-    if (!irrepAnalysis || !irrepAnalysis.dec.available || s.irreps.size === 0) return null;
-    const selections: IrrepSelection[] = irrepAnalysis.dec.terms.filter((t) => s.irreps.has(t.irrep.label)).map((t) => ({ irrep: t.irrep }));
-    return selections.length === 0 ? null : isotropySubgroup(structure, s.k, [...s.ions], irrepAnalysis.lg, selections);
+  // The isotropy subgroup of the irreps chosen, each along its direction: a magnetic space group, named as the candidates are.
+  const isotropy = memo("combo", [irrepAnalysis, s.irreps, s.directions], () => {
+    if (!irrepAnalysis || !irrepAnalysis.available || s.irreps.size === 0) return null;
+    const choices = irrepAnalysis.terms.filter((t) => s.irreps.has(t.label)).map((t) => ({ label: t.label, direction: s.directions[t.label] ?? 0 }));
+    return choices.length === 0 ? null : magneticIsotropySubgroup(irrepAnalysis, choices);
   });
-  const comboRepIdx = memo("comboRep", [combo, reps], () => {
-    if (!combo || "failure" in combo) return null;
-    const sig = magneticOperationSignature(combo.operations);
-    const idx = reps.findIndex((r) => magneticOperationSignature(r.candidate.operations) === sig);
+  // The class of the candidate list it belongs to (any of the class's groups: a direction's group can be a conjugate of the one listed).
+  const comboRepIdx = memo("comboRep", [isotropy, lattice, reps], () => {
+    if (!isotropy || "failure" in isotropy) return null;
+    const sig = magneticOperationSignature(isotropy.operations);
+    const member = lattice.find((m) => magneticOperationSignature(m.candidate.operations) === sig);
+    const idx = member ? reps.findIndex((r) => r.classId === member.classId) : -1;
     return idx >= 0 ? idx : null;
+  });
+  // The group the step models: the class's listed group, so both frameworks fit one group the same way. A conjugate is
+  // the same order in another domain, but the powder calculation reads each family's |F_M|² at one member
+  // (docs/LIMITATIONS.md), so two domains need not fit alike.
+  const combo = memo("comboModel", [isotropy, comboRepIdx, reps], () => {
+    if (!isotropy || "failure" in isotropy || comboRepIdx === null) return isotropy;
+    const rep = reps[comboRepIdx]!;
+    return { ...isotropy, operations: rep.candidate.operations, standard: rep.candidate.standard, settingMatch: rep.settingMatch ?? null };
   });
   const chosenOps = s.framework === "msg" ? (s.chosen != null ? reps[s.chosen]?.candidate.operations ?? null : null) : combo && !("failure" in combo) ? combo.operations : null;
   const build = memo("build", [chosenOps, structure, s.ions, options, ...s.k], () => (chosenOps ? buildFor(structure, s.k, s.ions, chosenOps, options) : null));
@@ -641,6 +655,7 @@ export class MagneticStep {
       residualFrom: "calc",
       framework: "msg",
       irreps: new Set(),
+      directions: {},
       chosen: null,
       open: new Set([2]),
       amps: {},
@@ -742,7 +757,7 @@ export class MagneticStep {
 
   /** Confirm a k: the group pick goes, with the irreps chosen and the sections opened. */
   setK(k: Vec3): void {
-    const next: StepState = { ...this.s, k: [k[0], k[1], k[2]], chosen: null, irreps: new Set() };
+    const next: StepState = { ...this.s, k: [k[0], k[1], k[2]], chosen: null, irreps: new Set(), directions: {} };
     const v = this.view(next);
     this.commitModel({ ...next, open: firstOpen(v.reps, v.dims) });
   }
@@ -790,6 +805,13 @@ export class MagneticStep {
     if (irreps.has(label)) irreps.delete(label);
     else irreps.add(label);
     this.commitModel({ ...this.s, irreps });
+  }
+
+  /** The order-parameter direction of an irrep (its index in the irrep's list); choosing one also chooses the irrep. */
+  setIrrepDirection(label: string, direction: number): void {
+    const irreps = new Set(this.s.irreps);
+    irreps.add(label);
+    this.commitModel({ ...this.s, irreps, directions: { ...this.s.directions, [label]: direction } });
   }
 
   toggleOpen(index: number): void {
@@ -849,7 +871,7 @@ export class MagneticStep {
     const known = new Set(magneticIonCandidates(at.structure).map((i) => i.siteLabel));
     const pick = [...carrying].filter((l) => known.has(l));
     const kNext: Vec3 = [k[0]!, k[1]!, k[2]!];
-    const opened: StepState = { ...this.s, ...(pick.length > 0 ? { ions: new Set(pick) } : {}), framework: "msg", k: kNext, chosen: null, irreps: new Set() };
+    const opened: StepState = { ...this.s, ...(pick.length > 0 ? { ions: new Set(pick) } : {}), framework: "msg", k: kNext, chosen: null, irreps: new Set(), directions: {} };
     const v = this.view(opened, at);
     const reps = v.reps;
     let next: StepState = { ...opened, open: firstOpen(reps, v.dims) };

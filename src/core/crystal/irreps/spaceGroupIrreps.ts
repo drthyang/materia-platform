@@ -211,20 +211,31 @@ function conjugateIntertwiner(D: readonly CMat[]): CMat {
   return cscale(best, { re: 1 / Math.sqrt(s), im: 0 });
 }
 
-/** The real form of a real (type 1) irrep: T⁻¹DT with T² the symmetric intertwiner of D and D*. */
-function realForm(D: readonly CMat[]): Float64Array[] {
+/**
+ * The real form of a real (type 1) irrep: T⁻¹DT with T² the symmetric
+ * intertwiner of D and D*. `D` holds the irrep's matrices on a whole finite
+ * group, or on one element of each coset of a subgroup the irrep maps to ±1
+ * (D E Dᵀ is then the same on the coset).
+ */
+export function realForm(D: readonly CMat[]): Float64Array[] {
+  return realFormWithBasis(D).matrices;
+}
+
+/** {@link realForm}, with the unitary T it takes D to the real matrices by (T⁻¹DT): basis vectors carried by D go to real ones by T. */
+export function realFormWithBasis(D: readonly CMat[]): { readonly matrices: Float64Array[]; readonly T: CMat } {
   const U = conjugateIntertwiner(D);
   const T = symmetricSquareRoot(U);
   const Tinv = cconj(T);
-  return D.map((m) => {
+  const matrices = D.map((m) => {
     const r = cmul(Tinv, cmul(m, T));
     for (let i = 0; i < r.im.length; i++) if (Math.abs(r.im[i]!) > 1e-7) throw new Error("irreps: the real form of a real irrep is not real");
     return Float64Array.from(r.re, (x) => (Math.abs(x) < 1e-12 ? 0 : x));
   });
+  return { matrices, T };
 }
 
 /** The realification [[Re D, −Im D], [Im D, Re D]] of a pseudoreal or complex irrep. */
-function realification(D: readonly CMat[]): Float64Array[] {
+export function realification(D: readonly CMat[]): Float64Array[] {
   return D.map((m) => {
     const n = m.n;
     const out = new Float64Array(4 * n * n);
@@ -318,6 +329,51 @@ function selfCheck(group: FactorGroup, irreps: readonly SpaceGroupIrrep[], star:
  * irreducible real forms. See the module comment.
  */
 export function irrepsOfStar(group: FactorGroup, kIn: Vec3): StarIrreps {
+  const { star, littleCoGroupOrder, irreps } = complexIrrepsOfStar(group, kIn);
+  const m = irreps.length;
+
+  // Physically irreducible: real ones alone, complex ones with their conjugate when it is at this star.
+  const physical: PhysicalIrrep[] = [];
+  const used = new Set<number>();
+  irreps.forEach((irrep, i) => {
+    if (used.has(i)) return;
+    used.add(i);
+    if (irrep.reality === "real") {
+      const matrices = realForm(irrep.matrices);
+      physical.push({ irreps: [irrep.index], dim: irrep.dim, reality: "real", matrices, characters: matrices.map((x) => trace(x, irrep.dim)), label: irrep.label, starArms: star.arms });
+      return;
+    }
+    let partner = -1;
+    if (irrep.reality === "complex") {
+      partner = irreps.findIndex((o, j) => !used.has(j) && o.dim === irrep.dim && o.characters.every((c, f) => Math.hypot(c.re - irrep.characters[f]!.re, c.im + irrep.characters[f]!.im) < 1e-7));
+      if (partner >= 0) used.add(partner);
+    }
+    const matrices = realification(irrep.matrices);
+    const members = partner >= 0 ? [irrep.index, irreps[partner]!.index] : [irrep.index];
+    physical.push({
+      irreps: members,
+      dim: 2 * irrep.dim,
+      reality: irrep.reality,
+      matrices,
+      characters: matrices.map((x) => trace(x, 2 * irrep.dim)),
+      starArms: star.arms,
+      label: members.length === 2
+        ? `${star.label} irreps ${members[0]}⊕${members[1]} of ${m}`
+        : irrep.reality === "pseudoreal" ? `${irrep.label} (doubled)` : `${irrep.label} ⊕ its conjugate at −k`,
+    });
+  });
+  return { star, littleCoGroupOrder, irreps, physical: physical.map((p) => alignedToDirections(group, p)) };
+}
+
+/**
+ * The (complex) irreps of the parent group at the star of k, each induced
+ * from a small representation of the arm k as given (`star.arms[0]` is k
+ * itself, and the top-left block of each matrix, of the small dimension, is
+ * the small representation on the elements of G_k), numbered as
+ * {@link irrepsOfStar} numbers them, with their reality over F; without the
+ * physically irreducible forms. Checked as irrepsOfStar is.
+ */
+export function complexIrrepsOfStar(group: FactorGroup, kIn: Vec3): Omit<StarIrreps, "physical"> {
   const k = vfrom(kIn, 24);
   if (!kInBound(group, k)) throw new Error(`irreps: k = ${formatK(kIn)} needs a supercell beyond the bound: k·t is not an integer for some translation t of its core T″`);
   const pg = pointGroupElements(group);
@@ -385,38 +441,7 @@ export function irrepsOfStar(group: FactorGroup, kIn: Vec3): StarIrreps {
   const m = ordered.length;
   const irreps: SpaceGroupIrrep[] = ordered.map((b, i) => ({ ...b, index: i + 1, label: `${star.label} irrep ${i + 1} of ${m}` }));
   selfCheck(group, irreps, arms, rotations.length, star.label);
-
-  // Physically irreducible: real ones alone, complex ones with their conjugate when it is at this star.
-  const physical: PhysicalIrrep[] = [];
-  const used = new Set<number>();
-  irreps.forEach((irrep, i) => {
-    if (used.has(i)) return;
-    used.add(i);
-    if (irrep.reality === "real") {
-      const matrices = realForm(irrep.matrices);
-      physical.push({ irreps: [irrep.index], dim: irrep.dim, reality: "real", matrices, characters: matrices.map((x) => trace(x, irrep.dim)), label: irrep.label, starArms: star.arms });
-      return;
-    }
-    let partner = -1;
-    if (irrep.reality === "complex") {
-      partner = irreps.findIndex((o, j) => !used.has(j) && o.dim === irrep.dim && o.characters.every((c, f) => Math.hypot(c.re - irrep.characters[f]!.re, c.im + irrep.characters[f]!.im) < 1e-7));
-      if (partner >= 0) used.add(partner);
-    }
-    const matrices = realification(irrep.matrices);
-    const members = partner >= 0 ? [irrep.index, irreps[partner]!.index] : [irrep.index];
-    physical.push({
-      irreps: members,
-      dim: 2 * irrep.dim,
-      reality: irrep.reality,
-      matrices,
-      characters: matrices.map((x) => trace(x, 2 * irrep.dim)),
-      starArms: star.arms,
-      label: members.length === 2
-        ? `${star.label} irreps ${members[0]}⊕${members[1]} of ${m}`
-        : irrep.reality === "pseudoreal" ? `${irrep.label} (doubled)` : `${irrep.label} ⊕ its conjugate at −k`,
-    });
-  });
-  return { star, littleCoGroupOrder: n, irreps, physical: physical.map((p) => alignedToDirections(group, p)) };
+  return { star, littleCoGroupOrder: n, irreps };
 }
 
 function trace(m: Float64Array, n: number): number {

@@ -165,18 +165,23 @@ approximate, however plausible its output looks.
   The candidates of a two-arm k are decorations of G_k, not magnetic space
   groups, and carry no BNS label; the magnetic space groups of a two-arm k
   (over G_{±k} in the supercell) are not enumerated yet.
-- Representation analysis: irreps at k = 0 for every parent group, and at any k
-  when the little group is abelian.
+- Representation analysis at any commensurate k, on the subgroup engine: the
+  small representations of the little group (projective ones on the zone
+  boundary of a non-symmorphic group, any little co-group), Γ_mag's
+  multiplicities and basis vectors, and at a single-arm k each irrep's
+  order-parameter directions with their isotropy subgroups, named as the
+  magnetic-space-group candidates are (type IV in the magnetic cell at k ≠ 0)
+  ([MAGNETIC_SYMMETRY.md](./MAGNETIC_SYMMETRY.md#route-b--representation-analysis)).
 - The little group of k, the one-arm/two-arm classification and the k-phase of
   every lattice translation use the parent's own lattice, centring translations
   included ([MAGNETIC_SYMMETRY.md](./MAGNETIC_SYMMETRY.md)).
 
 **Not yet**
-- BNS/OG labels for type-II and type-IV (anti-translation) groups, for
-  monoclinic cell choices 2 and 3, for the reverse rhombohedral setting, and
-  for sub-cells of I- or C-centred parents.
-- Projective small representations, needed for non-abelian little groups at
-  k ≠ 0.
+- BNS/OG labels for monoclinic cell choices 2 and 3, for the reverse
+  rhombohedral setting, and for sub-cells of I- or C-centred parents.
+- The magnetic groups of a two-arm k from representation analysis: its irreps
+  and their complex basis vectors are listed, with no group, as on the
+  magnetic-space-group route.
 - Wyckoff letters beyond a curated set of groups. Multiplicities and site
   symmetries are available for all 230.
 
@@ -370,7 +375,11 @@ approximate, however plausible its output looks.
   single-arm |F_M|² is the powder intensity for any population of the domains
   of the star of k; the other members belong to other arms and are listed with
   no weight. Each family's |F_M|² is evaluated at one of its arm members, not
-  averaged over the family.
+  averaged over the family. Two domains of one magnetic group (conjugate
+  groups, the same order in another orientation) can therefore give different
+  powder patterns: on the synthetic Mn₃Ga page (P6₃/mmc, k = (0, 0, ½)) the two
+  domains of P_c-3m1 fit its data to wR 0.3 % and 29.6 %. The magnetic page
+  models the domain its group list shows, in both frameworks.
 - The k-search ranks candidates by peak positions, not intensities, and it
   proposes commensurate k only (denominators 2, 3, 4 and 6; in a cell with an
   angle off 90° the mixed-sign ones too, such as (¼ 0 −¼)). Type an

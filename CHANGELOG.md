@@ -7,6 +7,56 @@ release fixes bugs.
 
 ## [Unreleased]
 
+### Added
+
+- **The subgroup engine, Phase 5: the magnetic page's representation
+  analysis at any commensurate k** (powder and single-crystal magnetic step;
+  THY-36, [ADRs 0001 and 0004](docs/adr/)).
+  - Γ_mag decomposes into the small representations of G_k that the
+    subgroup engine builds. That covers non-abelian little co-groups at
+    k ≠ 0, which the page refused (MnO at L, Mn₃Ga at (0, 0, ½), the Z point
+    of P4₂/mnm). It also covers the projective representations on the zone
+    boundary of a non-symmorphic group, which it had approximated by ordinary
+    irreps with a warning (P2/c at (0, 0, ½), Pnma at X).
+  - Each irrep lists its order-parameter directions. A multidimensional
+    irrep takes one from a menu beside it, and the box names the magnetic
+    group of that order parameter: the isotropy subgroup, named as the
+    group list names its candidates (type IV in the magnetic cell at
+    k ≠ 0). The box also gives the candidate of the list in the same class,
+    and its **?** gives the secondary irreps the group allows. Step 5 models
+    that candidate's group, so both frameworks fit a group alike.
+  - The irreps carry the engine's generic labels ("irrep 2 of 3" at the k
+    the line names). The old "Γ1, Γ2, …" at every k read as Miller–Love Γ
+    labels. CDML labels stay out of the app (ADR 0004); an opt-in ISOTROPY
+    workflow checks, by character, that the generic labels stand for
+    ISOTROPY's irreps one to one.
+  - At a two-arm k the irreps and their complex basis vectors are listed,
+    with no group, as on the group list.
+  - Checked on the 17 cases of the magnetic-group oracle: every isotropy
+    subgroup is a candidate group, carrying the BNS number and type spglib
+    gives it (MnO at L: C_c2/c, 15.90; Mn₃Ga at (0, 0, ½): P_c-3m1, 164.90;
+    P2/c at (½, 0, 0): P_a2/c, 13.70). Where the old route applied, its
+    irreps, multiplicities, modes and groups are unchanged.
+
+### Changed
+
+- **`review_symmetry` lists the subgroup engine's subgroups, named in their
+  standard settings** (the Agent's tool and MCP's; THY-36). The candidates
+  and the subgroups that drop a centring vector come from the engine's
+  same-cell lattice, one per conjugacy class, named as the PDF Subgroups
+  page names them. A candidate named in another cell or origin gains
+  `setting`, its child basis from the parent's cell. Names change where the
+  old ones read a centred parent's subgroup as primitive or wrote a
+  non-standard setting: I4₁/amd's Pmna → Imma, Pmn2₁ → Imm2; R-3c's P-3 →
+  R-3, P3 → R3; Fd-3m's bare "-3m" → R-3m; Fddd's "2/m" → C2/c; Cmcm's
+  P2/m11 → C2/m; Pnma's Pnm2₁ → Pmn2₁ (b, a, −c; ¼, ¼, 0). A subgroup now
+  allows a powder line when it allows any reflection of the line's family,
+  so which of its orientations is listed no longer matters (Ia-3d's
+  I4₁/acd allowed one of the five lines its orientations allow).
+  Decentred subgroups are no longer merged by name: R-3m's and R-3c's
+  P-3m1 and P-3c1 read as one class of three domains (was one, beside an
+  unnamed two), and Cmcm's two Pnma classes stay two.
+
 ## [0.5.0] - 2026-10-31
 
 ### Added

@@ -21,7 +21,7 @@ import { magneticIonCandidates } from "@/core/magnetic/magneticIons";
 import { satelliteMatchDeltas, kLabel } from "@/core/magnetic/kSearch";
 import { describePropagation } from "@/core/magnetic/propagation";
 import { latticeCandidateLabel as latticeLabel, type LatticeCandidate } from "@/core/magnetic/subgroupLattice";
-import type { IsotropyFailure } from "@/core/magnetic/isotropy";
+import type { IsotropyFailure, MagneticIrrep, RepresentationAnalysis } from "@/core/magnetic/representationAnalysis";
 import { formatMagneticSymbol } from "@/core/magnetic/bnsOg";
 import { describeMomentMode } from "@/core/magnetic/momentModel";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
@@ -81,12 +81,28 @@ const NO_PEAKS: readonly ResidualPeak[] = [];
 
 
 const ISOTROPY_FAILURE_TEXT: Record<IsotropyFailure, string> = {
-  "no-modes": "The selected irrep(s) carry no moment on the chosen site(s) — this order parameter is magnetically silent here.",
-  "complex-irrep": "A conjugate-pair (complex) irrep is selected: its real combinations generally stabilize as anti-translation (type-IV) groups, which this route does not build yet. The magnetic-space-group route lists them.",
-  "multidim-irrep": "A multidimensional irrep is selected: its magnetic group depends on the order-parameter direction (kernel vs epikernels) — direction selection is the next milestone. The magnetic-space-group route covers these orderings today.",
-  "complex-phase": "This k gives complex phase factors e^{2πik·L}: naming needs the type-IV / star-of-k treatment (see docs/MAGNETIC_SYMMETRY.md).",
-  "primed-translation": "The stabilizer contains a primed pure translation — a type-IV magnetic group, which this route does not build yet. The magnetic-space-group route lists it.",
+  "no-modes": "The chosen irreps carry no moment on the chosen ions.",
+  "two-arm": "No magnetic group at a two-arm k: its groups need the star of k (not yet built).",
+  "incompatible": "These directions keep no common operation besides the identity.",
 };
+
+const IRREP_UNAVAILABLE_TEXT: Record<Extract<RepresentationAnalysis, { available: false }>["reason"], string> = {
+  "no-group": "The structure has no space-group operations to analyse.",
+  "no-ions": "Select at least one magnetic ion in step 1.",
+  "incommensurate": "Representation analysis needs a commensurate k (denominators up to 12).",
+  "failed": "The irreps at this k failed their self-check; use the magnetic space groups framework.",
+};
+
+/** An irrep's label without the k-point the section already names: "irrep 2 of 4". */
+const shortIrrep = (label: string, kLabel: string): string => (label.startsWith(`${kLabel} `) ? label.slice(kLabel.length + 1) : label);
+
+/** The chosen irreps, each with its direction when it has several: "irrep 2 (a,0) ⊕ irrep 3". */
+function chosenLabels(terms: readonly MagneticIrrep[], chosen: ReadonlySet<string>, directions: Readonly<Record<string, number>>, kLabel: string): string {
+  return terms
+    .filter((t) => chosen.has(t.label))
+    .map((t) => `${shortIrrep(t.label, kLabel).replace(/ of \d+$/, "")}${t.directions.length > 1 ? ` ${t.directions[directions[t.label] ?? 0]?.symbol ?? ""}` : ""}`)
+    .join(" ⊕ ");
+}
 
 /**
  * Everything the powder-pattern preview needs, prepared by the powder
@@ -505,13 +521,13 @@ export function KSearchPanel({
       return {
         symbol: identity
           ? formatMagneticSymbol(identity.bnsSymbol)
-          : `isotropy subgroup of ${[...chosenIrreps].sort().join(" ⊕ ")}`,
+          : `isotropy subgroup of ${irrepAnalysis?.available ? chosenLabels(irrepAnalysis.terms, chosenIrreps, s.directions, irrepAnalysis.kLabel) : [...chosenIrreps].sort().join(" ⊕ ")}`,
         ...(identity ? { numbers: `BNS ${identity.bnsNumber} · OG ${identity.ogNumber}` } : {}),
         ...(combo.settingMatch ? { setting: combo.settingMatch.transformation } : {}),
       };
     }
     return { symbol: "magnetic subgroup" };
-  }, [framework, selIdx, reps, combo, chosenIrreps]);
+  }, [framework, selIdx, reps, combo, chosenIrreps, s.directions, irrepAnalysis]);
   useEffect(() => {
     if (!onReportModel) return;
     if (!magBuild) {
@@ -1156,9 +1172,9 @@ export function KSearchPanel({
             : (
               <>
                 Tick one irrep (the Landau single-irrep prescription) or any combination (SARAh-style
-                mixing) — the resulting magnetic space group is the isotropy subgroup of the mixed
-                order parameter, computed as the exact stabilizer of a generic combination and named
-                from the standard BNS/OG table.
+                mixing); a multidimensional irrep also takes an order-parameter direction. The magnetic
+                space group is the isotropy subgroup of that order parameter, named from the BNS/OG table
+                (at k ≠ 0 in its magnetic cell, as the magnetic-space-group list names it).
               </>
             )}
           {...(framework === "msg" && reps.length > 0
@@ -1335,60 +1351,67 @@ export function KSearchPanel({
           </>
         ) : !irrepAnalysis ? (
           <p style={help}>Select at least one magnetic ion in step 1.</p>
-        ) : !irrepAnalysis.dec.available ? (
-          <p style={help}>
-            This <strong>non-abelian</strong> little co-group at <strong>k ≠ 0</strong> needs the
-            projective <em>small</em> representations — the remaining piece (see
-            docs/MAGNETIC_SYMMETRY.md). At k = 0 the irreps are generated for any point group.
-            Switch to the <strong>magnetic space groups</strong> framework above — it applies to
-            every G(k).
-          </p>
+        ) : !irrepAnalysis.available ? (
+          <p style={help}>{IRREP_UNAVAILABLE_TEXT[irrepAnalysis.reason]}</p>
         ) : (
           <>
             <p style={help}>
-              Γ<sub>mag</sub> ({irrepAnalysis.dec.dimension}-dim
-              {irrepAnalysis.dec.method === "induced" ? ", induced point-group irreps, exact at k = 0" : ""}) ={" "}
+              Γ<sub>mag</sub> ={" "}
               <span style={{ fontFamily: themeMono, color: theme.ink }}>
-                {irrepAnalysis.dec.terms.map((t) => `${t.multiplicity}${t.irrep.label}`).join(" ⊕ ") || "—"}
-              </span>
+                {irrepAnalysis.terms.map((t) => `${t.multiplicity} ${shortIrrep(t.label, irrepAnalysis.kLabel).replace(/ of \d+$/, "")}`).join(" ⊕ ") || "—"}
+              </span>{" "}
+              <span>at {irrepAnalysis.kLabel}</span>
+              {" "}<InfoBadge width={320} ariaLabel="About the irreps" text={<>
+                The small representations of G(k) at this k (their full-group irreps, {irrepAnalysis.terms[0]?.label.replace(/^.* of /, "of ") ?? ""} at the star), computed by the subgroup engine: projective ones on the zone boundary of a non-symmorphic group, any little co-group.
+                Labels are generic (k, irrep n of m), not Miller–Love (CDML) ones; an ISODISTORT mode CIF carries those. Γ<sub>mag</sub> is {irrepAnalysis.dimension}-dimensional: three moment components on each of the {irrepAnalysis.atoms.length} magnetic atom{irrepAnalysis.atoms.length === 1 ? "" : "s"} of the primitive cell.
+                {irrepAnalysis.twoArm ? " At this two-arm k the basis vectors are complex (cosine and sine parts); their magnetic groups need the star of k, which is not built yet." : " A multidimensional irrep's magnetic group depends on the direction of its order parameter: pick one beside it."}
+              </>} />
             </p>
+            {irrepAnalysis.twoArm && (
+              <p style={{ ...help, color: theme.noteInk }}>Two-arm k: the irreps and their modes are listed; no magnetic group is named here.</p>
+            )}
             <div style={{ margin: "6px 0 0", display: "grid", gap: 3 }}>
-              {irrepAnalysis.dec.terms.map((t, i) => {
-                const modes = irrepAnalysis.modes[i] ?? [];
-                const modeText = modes.length ? modes.map((m) => describeMomentMode(m)).join(", ") : "—";
-                const active = chosenIrreps.has(t.irrep.label);
-                const dim = t.irrep.dim ?? 1;
-                const selectable = t.irrep.real && dim === 1;
-                const blockReason = dim > 1 ? ISOTROPY_FAILURE_TEXT["multidim-irrep"] : ISOTROPY_FAILURE_TEXT["complex-irrep"];
+              {irrepAnalysis.terms.map((t) => {
+                const modeText = t.modes.length ? t.modes.map((m) => describeMomentMode(m)).join(", ") : "none on this ion";
+                const active = chosenIrreps.has(t.label);
+                const selectable = !irrepAnalysis.twoArm && t.directions.length > 0;
+                const dirIndex = s.directions[t.label] ?? 0;
                 return (
                   <label
-                    key={t.irrep.label}
+                    key={t.label}
                     style={{
                       textAlign: "left", fontSize: 12, padding: "4px 9px", borderRadius: 7,
                       border: `1px solid ${active ? theme.primary : theme.border}`,
                       background: active ? theme.chipBg : "#fff",
-                      display: "flex", gap: 8, alignItems: "baseline", width: "100%",
+                      display: "flex", flexWrap: "wrap", gap: 8, alignItems: "baseline", width: "100%",
                       cursor: selectable ? "pointer" : "default",
-                      opacity: selectable ? 1 : 0.6,
                     }}
-                    title={selectable ? undefined : blockReason}
                   >
                     <input
                       type="checkbox"
                       checked={active}
                       disabled={!selectable}
-                      onChange={() => step.toggleIrrep(t.irrep.label)}
+                      onChange={() => step.toggleIrrep(t.label)}
                       style={{ alignSelf: "center" }}
                     />
-                    <span style={{ fontFamily: themeMono, color: theme.primary, minWidth: 56 }}>{t.multiplicity} × {t.irrep.label}</span>
+                    <span style={{ fontFamily: themeMono, color: theme.primary, minWidth: 56 }}>{t.multiplicity} × {shortIrrep(t.label, irrepAnalysis.kLabel)}</span>
                     <span style={{ color: theme.secondary }}>
-                      {dim > 1 ? `${dim}-dim` : t.irrep.real ? "real" : "complex"} · modes:{" "}
+                      {t.dim > 1 ? `${t.dim}-dim` : "1-dim"}{t.reality === "complex" && t.irreps.length === 2 ? ", conjugate pair" : t.reality === "pseudoreal" ? ", doubled" : ""} · modes:{" "}
                       <span style={{ color: theme.ink }}>{modeText}</span>
                     </span>
-                    {!selectable && (
-                      <span style={{ marginLeft: "auto", fontSize: 11.5, color: theme.secondary, whiteSpace: "nowrap" }}>
-                        {dim > 1 ? "multidim — direction UI pending" : "conjugate pair — type-IV territory"}
-                      </span>
+                    {selectable && t.directions.length > 1 && (
+                      <select
+                        aria-label={`Order-parameter direction of ${t.label}`}
+                        value={dirIndex}
+                        onChange={(e) => step.setIrrepDirection(t.label, Number(e.target.value))}
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ marginLeft: "auto", fontFamily: themeMono, fontSize: 11.5 }}
+                        title="The order-parameter direction: its isotropy subgroup is the magnetic group (the generic one, the kernel, is last)"
+                      >
+                        {t.directions.map((d, i) => (
+                          <option key={d.symbol} value={i}>{d.symbol}{d.kernel ? " generic" : ""}</option>
+                        ))}
+                      </select>
                     )}
                   </label>
                 );
@@ -1398,9 +1421,6 @@ export function KSearchPanel({
               <p style={{ ...help, marginTop: 8, color: theme.noteInk }}>{ISOTROPY_FAILURE_TEXT[combo.failure]}</p>
             ) : (
               <div style={{ marginTop: 8, padding: "7px 10px", borderRadius: 7, border: `1px solid ${theme.primary}`, background: theme.chipBg, fontSize: 12.5 }}>
-                <span style={{ color: theme.secondary }}>Isotropy subgroup of </span>
-                <span style={{ fontFamily: themeMono }}>{[...chosenIrreps].sort().join(" ⊕ ")}</span>
-                <span style={{ color: theme.secondary }}>: </span>
                 {combo.standard ? (
                   <strong>{formatMagneticSymbol(combo.standard.bnsSymbol)}
                     <span style={{ fontWeight: 400, color: theme.secondary }}> · BNS {combo.standard.bnsNumber} · OG {combo.standard.ogNumber}</span>
@@ -1408,29 +1428,29 @@ export function KSearchPanel({
                 ) : combo.settingMatch ? (
                   <strong>{formatMagneticSymbol(combo.settingMatch.identity.bnsSymbol)}
                     <span style={{ fontWeight: 400, color: theme.secondary }}>
-                      {" "}· BNS {combo.settingMatch.identity.bnsNumber} · OG {combo.settingMatch.identity.ogNumber} · setting {combo.settingMatch.transformation}
+                      {" "}· BNS {combo.settingMatch.identity.bnsNumber} · OG {combo.settingMatch.identity.ogNumber} · {combo.settingMatch.transformation}
                     </span>
                   </strong>
                 ) : (
                   <strong>order-{combo.subgroupOrder} group
-                    <span style={{ fontWeight: 400, color: theme.secondary }}> — no tabulated setting match (symbol withheld rather than guessed)</span>
+                    <span style={{ fontWeight: 400, color: theme.secondary }}> — no tabulated setting matches (symbol withheld rather than guessed)</span>
                   </strong>
                 )}
-                {comboRepIdx != null && (
-                  <span style={{ color: theme.secondary }}> · = candidate {comboRepIdx + 1} of the subgroup list</span>
-                )}
-                <div style={{ ...help, marginTop: 4 }}>
-                  The moment preview in step 5 refines this group&rsquo;s symmetry-allowed modes — for a single
-                  irrep these are exactly its basis modes; for a combination, the union.
-                </div>
+                <span style={{ color: theme.secondary }}>
+                  {" "}from {chosenLabels(irrepAnalysis.terms, chosenIrreps, s.directions, irrepAnalysis.kLabel)}
+                  {comboRepIdx != null ? ` · candidate ${comboRepIdx + 1} of the list` : ""}
+                </span>
+                {" "}<InfoBadge width={300} ariaLabel="About this group" text={<>
+                  The isotropy subgroup of the order parameter: the operations of G(k), with or without time reversal, that keep it.
+                  {comboRepIdx != null ? ` It is in the class of candidate ${comboRepIdx + 1}, and step 5 models that candidate's group (the same order, in the domain the list shows).` : ""}
+                  {" "}Step 5 refines its allowed moments
+                  {combo.secondary.length > 0
+                    ? `, which include the modes of ${combo.secondary.map((l) => shortIrrep(l, irrepAnalysis.kLabel)).join(", ")} besides the chosen irrep's (secondary order parameters the group allows).`
+                    : ": the chosen irreps' modes along their directions."}
+                  {combo.settingMatch && !combo.settingMatch.direct ? " The setting gives the magnetic cell and origin from the parent cell." : ""}
+                </>} />
               </div>
             ))}
-            {!irrepAnalysis.dec.integerConsistent && (
-              <p style={{ ...help, marginTop: 6, color: theme.noteInk }}>
-                Non-integer multiplicities: this non-symmorphic BZ-boundary k needs the projective
-                <em> small</em> representations (ordinary irreps shown as an approximation).
-              </p>
-            )}
           </>
         )}
       </section>
@@ -1455,8 +1475,8 @@ export function KSearchPanel({
               <span style={{ fontSize: 12, color: theme.secondary, fontFamily: themeMono, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {framework === "msg" && selIdx != null && reps[selIdx]
                   ? `${latticeLabel(reps[selIdx]!).symbol} · index ${reps[selIdx]!.index}`
-                  : framework === "irrep" && combo && !("failure" in combo)
-                    ? `isotropy of ${[...chosenIrreps].sort().join(" ⊕ ")}`
+                  : framework === "irrep" && combo && !("failure" in combo) && irrepAnalysis?.available
+                    ? `isotropy of ${chosenLabels(irrepAnalysis.terms, chosenIrreps, s.directions, irrepAnalysis.kLabel)}`
                     : null}
               </span>
             }

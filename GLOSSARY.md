@@ -63,6 +63,17 @@ _Avoid_: real irrep
 **Image group**:
 The finite group of matrices an irrep forms acting on its order-parameter space.
 
+**Generic irrep label**:
+MATERIA's name for an irrep: its k-point (Γ, X, L, …, or the vector where the point has no standard name here) and its place among the star's irreps, ordered by dimension, "X irrep 2 of 4"; a complex pair reads "irreps 3⊕4". Miller–Love (CDML) labels such as X3⁺ are only read from imported ISODISTORT mode CIFs and matched in the opt-in ISOTROPY oracle (ADR 0004).
+_Avoid_: writing a generic label in CDML form (Γ1, X3); the magnetic page's old "Γ1, Γ2" at every k
+
+**Magnetic irrep**:
+An irrep of the parent group with time reversal acting as −1, the representation a magnetic order parameter transforms by; ISODISTORT writes it with an "m" (mX2⁺ for X2⁺). The magnetic page shows the space-group irrep's generic label.
+
+**Magnetic representation**:
+The representation Γ_mag of the little group on the Fourier coefficients of the magnetic atoms of one primitive cell; it decomposes into small representations with integral multiplicities, each copy carrying a set of **basis vectors**.
+_Avoid_: magnetic irrep (for Γ_mag itself)
+
 ## Distortions
 
 **Order-parameter direction**:
@@ -70,7 +81,7 @@ A vector in an irrep's order-parameter space, taken up to the image group's acti
 _Avoid_: branch
 
 **Isotropy subgroup**:
-The child group that leaves an order-parameter direction unchanged; the smallest is the **kernel**, the others are **epikernels**.
+The child group that leaves an order-parameter direction unchanged; the smallest is the **kernel**, the others are **epikernels**. For a magnetic irrep it is a magnetic space group: the operations of the little group, with or without time reversal, that keep the order parameter, named at k ≠ 0 in its **magnetic cell** (a type-IV group, whose anti-translations are the lattice translations with k-phase −1).
 
 **Primary irrep**:
 The irrep whose order parameter drives a distortion.
