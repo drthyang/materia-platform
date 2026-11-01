@@ -1358,7 +1358,7 @@ export function KSearchPanel({
             <p style={help}>
               Γ<sub>mag</sub> ={" "}
               <span style={{ fontFamily: themeMono, color: theme.ink }}>
-                {irrepAnalysis.terms.map((t) => `${t.multiplicity} ${shortIrrep(t.label, irrepAnalysis.kLabel)}`).join(" ⊕ ") || "—"}
+                {irrepAnalysis.terms.map((t) => `${t.multiplicity} ${shortIrrep(t.label, irrepAnalysis.kLabel).replace(/ of \d+$/, "")}`).join(" ⊕ ") || "—"}
               </span>{" "}
               <span>at {irrepAnalysis.kLabel}</span>
               {" "}<InfoBadge width={320} ariaLabel="About the irreps" text={<>
