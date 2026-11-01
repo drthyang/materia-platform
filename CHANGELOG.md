@@ -57,6 +57,30 @@ release fixes bugs.
   P-3m1 and P-3c1 read as one class of three domains (was one, beside an
   unnamed two), and Cmcm's two Pnma classes stay two.
 
+- **The PDF page's Subgroups view has one path: pick a k-point, then a
+  child, then Activate.**
+  - The k-points are chips: Γ and a centred parent's decentring points
+    marked "same cell", the supercell bound's cell-multiplying stars marked
+    "supercell" and named where they have a name (X, M, R; L, W). The
+    default 2×2×2 bound is set when the view opens. A supercell chip works
+    out its irreps on request, shows "working…" meanwhile, and keeps them.
+    The supercell view's Set bound, Irreps/Lattice tabs, k-point menu and
+    Irreps → are gone.
+  - Each irrep (generic labels, ADR 0004) opens to its children, one line
+    each: name, order-parameter direction, domain states, and **Activate**.
+    The index split, orientations and basis are in the name's tooltip.
+  - **By subgroup** holds the same-cell subgroup lattice and, on request,
+    the bound's cell-multiplying classes, which the supercell view's Lattice
+    tab listed.
+  - While a choice is in force the view shows only it, with ✕ clear.
+  - The prose under each list moved behind **?**.
+  - **Load parent CIF…** and **Load mode CIF…** moved to the 3D Model view's
+    Distortion modes row, as **Import ▾** → **Parent CIF (decompose this
+    structure)…** and **Mode CIF (ISODISTORT)…**, beside **Mode CIF ↓**.
+  - What each Activate does is unchanged: the same child, basis and modes as
+    before (checked for Γ, a decentring point, R → R-3c and Imma, and Pnma
+    from the lattice). The Agent's tools and their text are unchanged.
+
 ## [0.5.0] - 2026-10-31
 
 ### Added

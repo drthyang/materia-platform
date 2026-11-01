@@ -486,58 +486,62 @@ shows the modes being refined.
 - To keep the structure's symmetry, switch **Constrained atomic** to
   **Irreps (modes)** under **Parameterization**. The mode amplitudes come from
   the structure's own space group and start at 0.
-- To lower it, open the **Subgroups** view. Each choice loads the distortion
-  modes it permits into **Positions**:
-  - **Potential Γ modes · irreps** lists the symmetry-breaking irreps, with
-    their dimension and optic and acoustic mode counts, and each irrep's
-    isotropy subgroups: one per order-parameter direction, the one-parameter
-    directions first (for a cubic perovskite's polar irrep, P4mm, R3m and
-    Amm2), then the lower ones down to a general direction (marked
-    "general"). **Activate → …** lowers to that isotropy subgroup and frees
-    the mode with a small starting amplitude.
-  - **Decentring modes · irreps (same cell)** appears for a centred parent
-    (F, I, C, A, B, or R on hexagonal axes). It lists the irreps at the
-    k-points the centring makes zone-boundary but the conventional cell still
-    holds: X for F, H for I, (0,1,0) for C, (0,0,1) for R. A distortion there
-    loses centring translations and keeps the cell, so it refines as it
-    stands. The irreps are named generically, by the k-point and "irrep n of
-    m" ([ADR 0004](./adr/0004-generic-irrep-labels-in-the-app.md)). Each
-    **Activate → …** button names an isotropy subgroup and its
-    order-parameter direction, such as (a,a,a,−a,−a,−a). The direction is in
-    MATERIA's own irrep basis, which can differ from ISODISTORT's symbols.
-    The tooltip gives the index split as point group · translations. For
-    F-43m (GaTa₄Se₈, GaNb₄Se₈) the six-dimensional X irrep leads to P2₁3. On
-    activation the Wyckoff orbits split, the child's modes are listed by
-    parent irrep and site, and the order parameter is freed with the small
-    starting amplitude.
-  - **Subgroup lattice** lists the subgroups that keep the conventional
-    cell, each in its standard setting (ADR 0003), with its orientations
-    (conjugate subgroups) and domain states. The translationengleiche ones
-    keep the parent's centring: F-43m's tetragonal subgroup is I-4m2. For a
-    centred parent the list adds the decentring k-subgroups (marked **k**,
-    such as F-43m's P-43m) and the general subgroups (marked **general**,
-    such as P2₁3), each with its index split, for example 2·4.
-    **Activate ↓** lowers to one and loads its modes: the order parameter
-    that lowers the structure to it is freed with a small starting
-    amplitude, as **Activate →** does, and the other modes start fixed at 0.
-    At the parent's geometry a symmetry-breaking mode started at 0 would
-    never move.
-  - **Load parent CIF…** decomposes a structure that is already the distorted
-    child against a high-symmetry parent, in the parent's cell or a supercell
-    (a Pnma CIF against its cubic parent, say). MATERIA finds the child basis
-    and origin, pairs each atom with its undistorted position, and splits
-    the displacements into the parent's irreps, site by site. The amplitudes
-    are seeded at the observed values, so the curve does not move, and the
-    message gives the basis it found. If the two cannot be paired that way (a
-    missing site, a setting outside the search), the older same-lattice
-    pairing is used and the message says so.
-  - **Load mode CIF…** reads an ISODISTORT mode CIF: ISODISTORT's own, or one
-    saved from the 3D Model view. With the file's parent loaded, the file's
-    child is fitted in its own cell, its modes and amplitudes as the file
-    gives them, and **✕ clear** returns to the parent. With the file's child
-    loaded, the modes go on it. Only displacive modes are read.
-- The choice shows at the top of the **Subgroups** view. **✕ clear** returns
-  to coordinates; clear one choice before making another.
+- To lower it, open the **Subgroups** view. It has one path: pick a k-point,
+  then a child, then **Activate**. The child's distortion modes load into
+  **Positions**. Each section's details are behind its **?**.
+  - **By irrep** (the default) shows the k-points as chips. **Γ** and, for a
+    centred parent (F, I, C, A, B, or R on hexagonal axes), the decentring
+    points (X for F, H for I, (0,1,0) for C, (0,0,1) for R) are marked
+    **same cell**: a distortion there keeps the conventional cell and
+    refines as it stands. The other chips, marked **supercell**, are the
+    cell-multiplying stars inside the supercell bound (X, M and R of a
+    primitive cubic parent; L and W of an F one; coordinates where a star
+    has no name). A supercell chip shows **working…** while its irreps are
+    worked out (seconds on a large bound); the result is kept until you
+    change the bound.
+  - Under the chosen chip each irrep is listed with its dimension, named
+    generically by the k-point and "irrep n of m"
+    ([ADR 0004](./adr/0004-generic-irrep-labels-in-the-app.md)). Click an
+    irrep to open or close it. Its children are its isotropy subgroups, one
+    per order-parameter direction, the one-parameter directions first (for a
+    cubic perovskite's polar Γ irrep, P4mm, R3m and Amm2), down to a general
+    direction. Each child reads as one line: its name in the standard setting
+    (ADR 0003), its direction, such as (a,a,a) or (a,a,a,−a,−a,−a), and its
+    domain states. The direction is in MATERIA's own irrep basis, which can
+    differ from ISODISTORT's symbols. Hover a name for its index split
+    (point group · translations), orientations and basis (P_H, p_H). For
+    F-43m (GaTa₄Se₈, GaNb₄Se₈) the six-dimensional X irrep leads to P2₁3.
+  - **Activate** on a same-cell child lowers the symmetry in the parent's
+    cell: the Wyckoff orbits split, the child's modes are listed by parent
+    irrep and site, and the order parameter is freed from a small starting
+    amplitude. At the parent's geometry a symmetry-breaking mode started at
+    0 would never move.
+  - **Activate** on a supercell child realises it in its own cell, its
+    Wyckoff orbits split, and fits it there: the page's structure becomes
+    the child (for example R-3c on hexagonal axes), with its own cell and
+    ADP rows. Its displacements refine as its modes by parent irrep, each
+    named by the irrep and the parent site it moves ("R irrep 8 of 10 · O").
+    The irrep you activated from is kicked from a small starting amplitude
+    (failing that, the fewest irreps that lower the parent to the child),
+    and the other modes start fixed at 0 until you free them.
+  - **Supercell** (top right) sets the bound: 2×2×2 by default, a preset, or
+    **custom P…** (type P and its centring, then **Apply**). Changing it
+    recomputes the supercell chips.
+  - **By subgroup** lists the subgroups that keep the conventional cell by
+    index, each with its domain states: the translationengleiche ones (with
+    the parent's centring kept: F-43m's tetragonal subgroup is I-4m2) and,
+    for a centred parent, the decentring k-subgroups (marked **k**, such as
+    F-43m's P-43m) and the general ones (marked **general**, such as P2₁3).
+    **Activate** lowers to one and frees the order parameter that lowers the
+    structure to it, as above. **List supercell subgroups** adds the
+    cell-multiplying classes inside the bound (Pnma of a cubic perovskite,
+    for example); their **Activate** realises the child in its own cell.
+- While a choice is in force, the **Subgroups** view shows only it, with
+  **3D Model →** and **✕ clear**. **✕ clear** returns to the parent: its
+  cell, ADP and position rows come back as loaded, with the scale and the
+  instrument rows kept. Clear one choice before making another.
+  **Constrained atomic** sets a choice aside, and **Irreps (modes)** brings
+  it back at its starting values.
 - The **3D Model** view lists the modes with their amplitudes, esds and
   free/fixed state, and names the parent or subgroup they lower to. Click a
   **Distortion modes** row to draw the mode as green arrows. Modes by parent
@@ -549,6 +553,22 @@ shows the modes being refined.
   values and normfactors, with MATERIA's generic irrep names. It reads back
   here exactly, and ISODISTORT-aware programs such as GSAS-II read its
   modes.
+- With no choice in force, **Import ▾** on the same **Distortion modes** row
+  loads one from a file:
+  - **Mode CIF (ISODISTORT)…** reads an ISODISTORT mode CIF: ISODISTORT's
+    own, or one saved with **Mode CIF ↓**. With the file's parent loaded,
+    the file's child is fitted in its own cell, its modes and amplitudes as
+    the file gives them, and **✕ clear** returns to the parent. With the
+    file's child loaded, the modes go on it. Only displacive modes are read.
+  - **Parent CIF (decompose this structure)…** decomposes a structure that
+    is already the distorted child against a high-symmetry parent, in the
+    parent's cell or a supercell (a Pnma CIF against its cubic parent, say).
+    MATERIA finds the child basis and origin, pairs each atom with its
+    undistorted position, and splits the displacements into the parent's
+    irreps, site by site. The amplitudes are seeded at the observed values,
+    so the curve does not move, and the message gives the basis it found. If
+    the two cannot be paired that way (a missing site, a setting outside the
+    search), the older same-lattice pairing is used and the message says so.
 - Three amplitudes are shown
   ([ADR 0003](./adr/0003-isodistort-as-the-single-convention-system.md)):
   - **A** is the refined parameter: the displacement norm over the
@@ -560,29 +580,7 @@ shows the modes being refined.
   For a primitive child of a primitive parent all three are equal. The
   report shows them as well.
 
-These tools need a single phase. The pickers above offer the distortions
-that keep the conventional cell: Γ, and the decentring k-points of a centred
-parent. Cell-multiplying k-points (X, M and R of a primitive cubic parent; L
-and W of an F one) are in the **Supercell** view below them:
-
-1. Pick a bound (2×2×2 by default, or type P) and **Set bound**.
-2. Under **Irreps**, pick a k-point and **Irreps →** for its isotropy
-   subgroups; or under **Lattice**, **Subgroups →** for every class inside
-   the bound. Each child is named in its standard setting; hover the name for
-   its basis (P_H, p_H).
-3. **Activate** on a cell-multiplying child realises it in its own cell, its
-   Wyckoff orbits split, and fits it there: the page's structure becomes the
-   child (for example R-3c on hexagonal axes), with its own cell and ADP
-   rows. Its displacements refine as its modes by parent irrep, each named
-   by the irrep and the parent site it moves ("R irrep 8 of 10 · O"). The
-   fewest irreps that together lower the parent to the child are kicked
-   from a small starting amplitude (from the **Irreps** view, the irrep you
-   activated; for Pnma, the two tilt irreps), and the other modes start
-   fixed at 0 until you free them. **✕ clear** returns to the parent: its
-   cell, ADP and position rows come back as loaded, with the scale and the
-   instrument rows kept from the child's fit. **Constrained atomic** sets
-   the child aside the same way, and **Irreps (modes)** brings it back at
-   its starting values.
+These tools need a single phase.
 
 A same-type subgroup in a larger cell holds the smaller child as a special
 case and fits as well with more parameters: of the children that reach the
