@@ -1796,6 +1796,17 @@ html:has(.wb-run-bar) .wb-shell::after {
     flex: none !important;
   }
 }
+/* A By subgroup row on a wide card keeps its name and its facts on one line,
+ * the facts wrapping in their own column; on a narrow one the facts go under
+ * the name (the row's own flex-wrap). */
+@container shell (min-width: 821px) {
+  .wb-sgrow {
+    flex-wrap: nowrap !important;
+  }
+  .wb-sgrow > :last-child {
+    flex: 1 1 0;
+  }
+}
 @media (pointer: coarse) {
   .wb-subgroups .wb-grow-box {
     max-height: none !important;

@@ -1,10 +1,9 @@
 /**
  * The Subgroups page's supercell bound (subgroup engine, Phase 2): the
- * supercell P inside which the cell-multiplying k-points enter (default 2×2×2
- * conventional; presets, or any integer or centred P). The page offers the
- * bound's stars as k-point chips and its subgroup lattice under "By subgroup"
- * (subgroupPicker.ts). Everything is computed on request; a large bound takes
- * seconds.
+ * supercell P a child's cell must fit (default 2×2×2 conventional; presets, or
+ * any integer or centred P). The page lists the subgroups whose cell fits it
+ * under "By subgroup" and offers its stars as k-point chips under "By irrep"
+ * (subgroupPicker.ts). A large bound takes seconds.
  */
 
 import { useState } from "react";
@@ -124,7 +123,7 @@ export function SupercellBound({ value, onChange, disabled = false }: { value: S
         width={300}
         align="right"
         ariaLabel="About the supercell"
-        text="The largest cell a child may have, as P (its columns are the supercell's axes in the parent's conventional basis). Every k-point with k·t an integer on that cell enters as a chip: 2×2×2 holds a cubic perovskite's zone-boundary points X, M and R. A larger bound takes longer."
+        text="The largest cell a child may have, as P (its columns are the supercell's axes in the parent's conventional basis). By subgroup lists the subgroups whose cell fits it (in some orientation); every k-point with k·t an integer on that cell enters By irrep as a chip: 2×2×2 holds a cubic perovskite's zone-boundary points X, M and R. A larger bound takes longer."
       />
       {error && <span style={{ fontSize: fz.micro, color: color.warnInk }}>{error}</span>}
     </span>

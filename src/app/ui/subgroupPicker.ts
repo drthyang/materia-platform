@@ -237,7 +237,7 @@ export interface SubgroupRow {
   readonly sameCell: boolean;
   /** The irreps that lower the parent to it, in one line: the primary ones with their directions, or the coupled set. */
   readonly irreps: string;
-  /** Everything else, for its "?": the index split, orientations, the basis, the coupled alternatives, the secondary irreps. */
+  /** Everything else, for its "?", one statement a line: the index split, orientations, the basis, the coupled alternatives, the secondary irreps. */
   readonly detail: string;
   readonly action: PickerAction;
 }
@@ -303,7 +303,7 @@ function rowDetail(o: {
   if (still.length > 0) parts.push(`${still.map((d) => d.irrep.irrep.label).join(", ")} ${still.length === 1 ? "moves" : "move"} no atom of this structure.`);
   parts.push(r.secondary.length > 0 ? `Secondary (allowed here, induced by coupling): ${r.secondary.map((s) => s.irrep.irrep.label).join(", ")}.` : "No secondary irrep.");
   if (cls.enantiomorph) parts.push(`Its class also holds ${childName(cls.enantiomorph)} (Bilbao's SUBGROUPS lists the two as separate entries).`);
-  return parts.join(" ");
+  return parts.join("\n");
 }
 
 /** A same-cell subgroup's operations (parent's cell, modulo ℤ³) as elements of the conventional cell's factor group. */

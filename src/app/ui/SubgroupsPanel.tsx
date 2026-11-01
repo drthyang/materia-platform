@@ -626,11 +626,11 @@ function IrrepList({ rows, busy, showLarger, bound, canActivate, onActivate }: {
 function SubgroupRowView({ row, busy, canActivate, onActivate }: { row: SubgroupRow; busy: boolean; canActivate: boolean; onActivate: () => void }): JSX.Element {
   return (
     <div style={childRow} data-row={row.key}>
-      <span style={childText}>
+      <span className="wb-sgrow" style={childText}>
         <span style={nameStyle}>{row.name}</span>
         <span style={factStyle}>{row.cell} · {row.domains} domains · {row.irreps}</span>
       </span>
-      <InfoBadge width={340} align="right" ariaLabel={`About ${row.name}`} text={row.detail} />
+      <InfoBadge width={360} align="right" ariaLabel={`About ${row.name}`} text={<span style={{ whiteSpace: "pre-line" }}>{row.detail}</span>} />
       <ActivateButton action={row.action} name={row.name} busy={busy} canActivate={canActivate} onActivate={onActivate} />
     </div>
   );
@@ -688,7 +688,7 @@ function SubgroupList(p: {
       <div className="wb-grow-box" style={{ ...listBox, flex: "1 1 auto", minHeight: 140 }}>
         {levels.map(({ index, rows }) => (
           <div key={index}>
-            <div style={{ position: "sticky", top: 0, padding: "3px 8px", background: color.subtle, borderTop: `1px solid ${color.border}`, fontFamily: mono, fontSize: fz.micro, color: color.secondary }}>
+            <div style={{ position: "sticky", top: 0, zIndex: 1, padding: "3px 8px", background: color.subtle, borderTop: `1px solid ${color.border}`, fontFamily: mono, fontSize: fz.micro, color: color.secondary }}>
               index {index}
             </div>
             {rows.map((row) => (
