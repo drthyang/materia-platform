@@ -31,6 +31,11 @@
  * magnetic-space-group route lists them; see docs/MAGNETIC_SYMMETRY.md). A
  * result at a k ≠ 0 is named from its group in the magnetic cell.
  *
+ * The magnetic page no longer uses this module: representationAnalysis.ts
+ * builds the isotropy subgroup of any irrep and order-parameter direction from
+ * the subgroup engine (THY-36). It stays as the reference the engine is checked
+ * against where this route applies (representationAnalysisLegacy.test.ts).
+ *
  * References:
  *  - E. F. Bertaut, Acta Cryst. A24 (1968) 217 — representation analysis of
  *    magnetic structures (basis vectors from projection operators).

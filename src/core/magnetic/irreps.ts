@@ -18,6 +18,12 @@
  * flags when the multiplicities do not come out integral (a signal that the
  * ordinary irreps used here are not the right — projective — ones).
  *
+ * The magnetic page no longer uses this route: representationAnalysis.ts takes
+ * the small representations from the subgroup engine at any commensurate k
+ * (THY-36). `abelianIrreps` stays for displaciveModes.ts, and the
+ * decomposition and projection stay as the reference the engine's results are
+ * checked against where this route applies (representationAnalysisLegacy.test.ts).
+ *
  * References: Bradley & Cracknell (1972), Ch. 3–4; Rodríguez-Carvajal & Bourée,
  * BasIreps (*EPJ Web Conf.* 22, 2012).
  */
