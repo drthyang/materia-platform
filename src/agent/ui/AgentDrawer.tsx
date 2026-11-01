@@ -22,6 +22,7 @@ import { cardsInReply, type AgentCard } from "@/agent/focus";
 import { MATH_SPAN_SOURCE, mathInside, texPieces } from "@/agent/ui/texText";
 import { DRAWER_MAX, DRAWER_MIN, KEY_STEP, SHEET_DEFAULT, SHEET_MAX, SHEET_MIN, SHEET_QUERY, SHORT_LANDSCAPE, clampDrawerWidth, clampSheet, readDrawerWidth, readSheet, sheetFor, writeDrawerWidth, writeSheet } from "@/agent/ui/drawerWidth";
 import { cssZoom } from "@/app/ui/cssZoom";
+import { useMediaQuery } from "@/app/ui/useMediaQuery";
 
 interface Props {
   readonly agent: AgentController;
@@ -207,21 +208,6 @@ function MethodChecklist({ method, folded: foldedAtFirst }: { method: MethodProg
 }
 
 // ── width ───────────────────────────────────────────────────────────────────
-
-/** Whether a media query matches, following the window as it changes. */
-function useMediaQuery(query: string): boolean {
-  const get = (): boolean => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(query).matches;
-  const [matches, setMatches] = useState(get);
-  useEffect(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
-    const mq = window.matchMedia(query);
-    const on = (): void => setMatches(mq.matches);
-    on();
-    mq.addEventListener("change", on);
-    return () => mq.removeEventListener("change", on);
-  }, [query]);
-  return matches;
-}
 
 /** The sheet's height as a share of the window (a portrait tablet, a phone), remembered by the browser. */
 function useSheetHeight(): [number, (f: number, commit?: boolean) => void] {

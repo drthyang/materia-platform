@@ -1155,6 +1155,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
           busy={busy}
           result={result}
           title="PDF parameters"
+          shown={step !== 1}
           extraActions={refineActions}
           warnings={siteSumRangeWarnings(params)}
           groupControls={{

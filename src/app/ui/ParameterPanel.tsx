@@ -10,10 +10,12 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
-import { card, color, mono, primaryButton, secondaryButton, space, uppercaseLabel } from "@/app/theme";
+import { card, color, mono, secondaryButton, space, uppercaseLabel } from "@/app/theme";
 import { InfoBadge } from "@/app/ui/InfoBadge";
 import { resolveTies } from "@/core/refinement/constraints";
 import { GROUP_ORDER, parameterGroupOf } from "@/app/ui/parameterGroups";
+import { PanelRunButtons, RUN_BAR_QUERY, RunBar, type RunActionsProps } from "@/app/ui/RunActions";
+import { useMediaQuery } from "@/app/ui/useMediaQuery";
 
 /** Rows the user cannot free: instrument calibration, and parameters derived
  *  from others by a tie expression (their value follows the tie). */
@@ -84,9 +86,19 @@ interface Props {
    * Nothing is freed or changed: the rows are the user's to set.
    */
   readonly reveal?: { readonly group: string; readonly token: number } | null;
+  /**
+   * Whether the page shows this panel (default true). A page kept mounted but
+   * hidden (another step, another technique) passes false: on a phone the run
+   * actions sit in a bar outside the page (RunBar), which would otherwise
+   * stay on screen over the page that is open.
+   */
+  readonly shown?: boolean;
 }
 
-export function ParameterPanel({ params, esd, onChange, onRefine, onThorough, thoroughMode = "prefit", prefitTitle, onCancel, onReset, onMagnetic, busy, result, disabled, title, extraActions, groupControls, groupInfo, frameworkControls, notice, warnings, reveal }: Props): JSX.Element {
+export function ParameterPanel({ params, esd, onChange, onRefine, onThorough, thoroughMode = "prefit", prefitTitle, onCancel, onReset, onMagnetic, busy, result, disabled, title, extraActions, groupControls, groupInfo, frameworkControls, notice, warnings, reveal, shown = true }: Props): JSX.Element {
+  // On a phone Prefit / Refine / Cancel leave the action bar for the fixed bar at the screen's bottom.
+  const phone = useMediaQuery(RUN_BAR_QUERY);
+  const run: RunActionsProps = { onRefine, onThorough, thoroughMode, prefitTitle, onCancel, busy, disabled };
   const groups = useMemo(() => {
     const byGroup = new Map<string, RefinementParameter[]>();
     for (const p of params) {
@@ -163,31 +175,7 @@ export function ParameterPanel({ params, esd, onChange, onRefine, onThorough, th
         </button>
       </div>
       <div style={actionBar}>
-        {onThorough && (
-          <button
-            style={{ ...secondaryButton, flex: "0 0 auto", padding: "10px 13px", fontSize: 13, fontWeight: 600, ...(busy || disabled ? disabledStyle : {}) }}
-            disabled={busy || disabled}
-            onClick={onThorough}
-            title={thoroughMode === "escape"
-              ? "Escape a local minimum: a few perturbed restarts around the current fit, keeping the best — use when a plain Refine has stalled"
-              : prefitTitle ?? "Prefit from a cold start: a Le Bail cell pre-fit then a broad set of perturbed restarts, keeping the best — lands the structure in a good basin before you refine"}
-          >
-            {thoroughMode === "escape" ? "Escape min ↻" : "Prefit ↻"}
-          </button>
-        )}
-        <button
-          style={{ ...primaryButton, flex: "1 1 auto", minWidth: 96, textAlign: "center", padding: "10px 16px", fontSize: 14, fontWeight: 650, ...(busy ? refiningStyle : disabled ? disabledStyle : {}) }}
-          disabled={busy || disabled}
-          onClick={onRefine}
-          title="Refine the free parameters against the loaded data"
-        >
-          {busy ? <span className="wb-shimmer-text">Refining…</span> : "Refine"}
-        </button>
-        {busy && onCancel && (
-          <button style={cancelButton} onClick={onCancel} title="Abort the running refinement">
-            Cancel
-          </button>
-        )}
+        {!phone && <PanelRunButtons {...run} />}
         {onMagnetic && (
           <button
             style={{ ...secondaryButton, flex: "0 0 auto", padding: "10px 13px", fontSize: 13, ...(busy ? disabledStyle : {}) }}
@@ -252,6 +240,7 @@ export function ParameterPanel({ params, esd, onChange, onRefine, onThorough, th
         <div key={w} role="alert" style={{ padding: "6px 10px", fontSize: 11.5, lineHeight: 1.4, color: color.warnInk, borderTop: `1px solid ${color.subtle}` }}>⚠ {w}</div>
       ))}
       {result && <ResultSection result={result} open={resultOpen} onToggle={() => setResultOpen((o) => !o)} />}
+      {phone && shown && <RunBar {...run} />}
     </div>
   );
 }
@@ -382,6 +371,3 @@ const noteTone: CSSProperties = { background: color.noteBg, border: `1px solid $
 const banner: CSSProperties = { borderRadius: 8, padding: "6px 10px", fontSize: 12 };
 const hcell: CSSProperties = { padding: "1px 10px 1px 0", textAlign: "left", color: color.faint };
 const disabledStyle: CSSProperties = { opacity: 0.55, cursor: "not-allowed" };
-const cancelButton: CSSProperties = { padding: "11px 15px", fontSize: 13.5, fontWeight: 600, borderRadius: 8, border: `1px solid ${color.warnBorder}`, background: color.warnBg, color: color.warnInk, cursor: "pointer" };
-// While refining, keep the button vivid (so the shimmer reads) but show progress.
-const refiningStyle: CSSProperties = { cursor: "progress" };

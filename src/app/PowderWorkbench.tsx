@@ -1625,6 +1625,7 @@ export function PowderWorkbench({
                 busy={busy}
                 result={powderResult}
                 disabled={tofViewOnly}
+                shown={active && step === 0}
                 warnings={occupancyWarnings}
                 notice={<ZeroAdpNotice proposals={zeroAdp.proposals} applied={zeroAdp.applied} busy={busy} onApply={applyZeroAdp} onRelease={releaseZeroAdp} result={powderResult} parameters={powderParams} />}
                 groupControls={tofViewOnly ? undefined : {
