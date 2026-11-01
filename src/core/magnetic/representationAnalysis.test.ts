@@ -49,9 +49,8 @@ describe("Γ_mag decomposes into small representations at every k", () => {
     const a = magneticRepresentationAnalysis(c.structure(), c.k, c.ions);
     expect(a.available).toBe(true);
     if (!a.available) return;
-    // Every copy of every irrep carries dim real (or complex) vectors: together, all of Γ_mag.
-    const real = a.twoArm ? 1 : 1;
-    expect(a.terms.reduce((s, t) => s + t.multiplicity * t.dim * real, 0)).toBe(a.dimension);
+    // Every copy of every irrep carries dim vectors (real at a single-arm k, complex at a two-arm one): together, all of Γ_mag.
+    expect(a.terms.reduce((s, t) => s + t.multiplicity * t.dim, 0)).toBe(a.dimension);
     for (const t of a.terms) {
       expect(t.basis).toHaveLength(t.multiplicity);
       for (const copy of t.basis) expect(copy).toHaveLength(t.dim);
