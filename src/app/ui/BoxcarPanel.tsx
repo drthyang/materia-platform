@@ -8,10 +8,13 @@
  * drawn with its per-box esd bars, plus the Rw-vs-r context strip that says
  * whether each box was fitted well enough for its value to mean anything.
  *
- * The plan (box width, step, direction, restarts) lives HERE rather than in the
- * parameter panel: these settings shape this view's result and nothing else, so
- * they sit with the run button and the plot they produce, and the refinement
- * panel keeps one job and one primary action.
+ * The plan lives HERE rather than in the parameter panel: these settings shape
+ * this view's result and nothing else, so they sit with the run button and the
+ * plot they produce, and the refinement panel keeps one job and one primary
+ * action. It reads in three groups — the range (the tab's own r bounds,
+ * independent of the fit window), the boxes (width, step, direction,
+ * restarts) and the starting point (the current fit, with any edits made on
+ * this tab and a Reset back to it) — and the scan never writes to the main fit.
  *
  * The plot gets the card. Once a run is on screen the plan folds into a
  * one-line summary in the toolbar, the run's caption rides the chip row, and
@@ -33,7 +36,7 @@ import {
 // The run/plan data types live in the core (a project file carries them); the
 // panel's callers always imported them from here.
 export type { BoxcarDirectionChoice, BoxcarPlan, BoxcarRun, BoxcarSeries };
-import { color, fz, mono, primaryButton, secondaryButton } from "@/app/theme";
+import { color, fz, mono, primaryButton, secondaryButton, uppercaseLabel } from "@/app/theme";
 import {
   TRACK_PAD,
   TRACK_X_INSET,
@@ -47,6 +50,7 @@ import {
   trackLayout,
 } from "@/app/ui/boxcarLayout";
 import { InfoBadge } from "@/app/ui/InfoBadge";
+import type { BoxcarStartRow } from "@/app/pdfPage";
 import { SegmentedToggle } from "@/app/ui/SegmentedToggle";
 import { clientToSvgUser, nearestPointIndex } from "@/visualization/hitTest";
 import { linearScale } from "@/visualization/scale";
@@ -56,13 +60,13 @@ export function stepIndexFor(series: BoxcarSeries, windowIndex: number, total: n
   return boxcarStepIndex(series.direction, windowIndex, total, series.result.steps.length);
 }
 
-/** What the current plan resolves to against the page's fit window. */
+/** What the current plan resolves to against the tab's range. */
 export interface BoxcarPlanInfo {
   /** Boxes the settings fit inside the window. */
   readonly count: number;
   /** Why the plan cannot run, as user-facing prose (null when it can). */
   readonly issue: string | null;
-  /** The r window being scanned (the page's fit range). */
+  /** The r window being scanned (the tab's own range). */
   readonly range: { readonly min: number; readonly max: number };
   /** Where the last box's right edge lands, or null for an unusable plan. */
   readonly scannedMax: number | null;
@@ -80,6 +84,19 @@ export interface BoxcarPanelProps {
   readonly plan: BoxcarPlan;
   readonly planInfo: BoxcarPlanInfo;
   readonly onPlanChange: (patch: Partial<BoxcarPlan>) => void;
+  /** The r span the G(r) covers — the bounds must lie on it. */
+  readonly dataRange: RRange;
+  /** The Refinement tab's fit window ("Use fit range"). */
+  readonly fitRange: RRange;
+  readonly onRangeChange: (patch: Partial<RRange>) => void;
+  readonly onRangeFromFit: () => void;
+  /** Where the scan starts: each refinable row with the tab's edits, and
+   *  whether that is exactly the current fit. */
+  readonly start: { readonly rows: readonly BoxcarStartRow[]; readonly current: boolean };
+  /** The main fit's Rw (fraction), or null before a fit. */
+  readonly fitRw: number | null;
+  readonly onStartChange: (id: string, patch: { readonly free?: boolean; readonly value?: number }) => void;
+  readonly onStartReset: () => void;
   /** Parameter labels by id (falls back to the id). */
   readonly labels: ReadonlyMap<string, string>;
   /** Download the series as CSV. */
@@ -88,6 +105,8 @@ export interface BoxcarPanelProps {
    *  ascending window index — a compared run has two candidates per box). */
   readonly onAdoptStep: (seriesIndex: number, windowIndex: number) => void;
 }
+
+type RRange = { readonly min: number; readonly max: number };
 
 /** Series ink: the two passes read like the two curves on the fit plot. */
 const SERIES_INK: Record<BoxcarDirection, string> = { up: color.calc, down: color.obs };
@@ -118,7 +137,7 @@ function useElementSize<T extends HTMLElement>(): [React.RefObject<T>, { width: 
   return [ref, size];
 }
 
-/** The plan against the fit window, in full: the open plan bar's line, and the
+/** The plan against the range, in full: the open plan bar's line, and the
  *  folded summary's tooltip. */
 function planDetail(plan: BoxcarPlan, info: BoxcarPlanInfo): string {
   if (info.issue) return info.issue;
@@ -126,7 +145,7 @@ function planDetail(plan: BoxcarPlan, info: BoxcarPlanInfo): string {
     `${info.count} box${info.count === 1 ? "" : "es"} · ` +
     `${info.range.min.toFixed(2)}–${(info.scannedMax ?? info.range.max).toFixed(2)} Å` +
     (info.scannedMax !== null && info.scannedMax < info.range.max - 1e-6
-      ? ` (last ${(info.range.max - info.scannedMax).toFixed(2)} Å of the fit window has no room for a full box)`
+      ? ` (last ${(info.range.max - info.scannedMax).toFixed(2)} Å has no room for a full box)`
       : "") +
     // step > width samples the span rather than covering it — say so,
     // or the r span above reads as continuous coverage.
@@ -140,14 +159,25 @@ function planDetail(plan: BoxcarPlan, info: BoxcarPlanInfo): string {
 /** The plan in one line, for the toolbar once a run is on screen. */
 function planSummary(plan: BoxcarPlan, info: BoxcarPlanInfo): string {
   return (
-    `${plan.width} Å box · ${plan.step} Å step · ${PLAN_DIRECTION_LABEL[plan.direction]} · ` +
+    `${fmtR(info.range.min)}–${fmtR(info.range.max)} Å · ${plan.width} Å box · ${plan.step} Å step · ${PLAN_DIRECTION_LABEL[plan.direction]} · ` +
     `${info.count} box${info.count === 1 ? "" : "es"}` +
     (plan.randomStart ? ` · ${plan.restarts} restart${plan.restarts === 1 ? "" : "s"}` : "")
   );
 }
 
+/** An r bound as typed: no trailing zeros. */
+function fmtR(x: number): string {
+  return String(+x.toFixed(3));
+}
+
+/** A starting value, short enough for its field. */
+function fmtStart(x: number): string {
+  return String(+x.toPrecision(6));
+}
+
 export function BoxcarPanel({
   run, busy, progress, onRun, onCancel, blockedReason, plan, planInfo, onPlanChange, labels, onExportCsv, onAdoptStep,
+  dataRange, fitRange, onRangeChange, onRangeFromFit, start, fitRw, onStartChange, onStartReset,
 }: BoxcarPanelProps): JSX.Element {
   // Parameters worth a chip: free during the run (fixed rows are flat lines by
   // construction) and carrying a value in at least one box of some pass.
@@ -182,6 +212,9 @@ export function BoxcarPanel({
     if (!hasRun) setPlanOpen(false);
   }, [hasRun]);
   const showPlan = !hasRun || planOpen || planInfo.issue !== null;
+  // The parameter list is the detail of the starting point, opened on demand.
+  const [startOpen, setStartOpen] = useState(false);
+  const freeCount = start.rows.filter((r) => r.free).length;
 
   // The per-box table is the numbers behind the plot, not the reading.
   const [tableOpen, setTableOpen] = useState(false);
@@ -277,7 +310,7 @@ export function BoxcarPanel({
           onClick={onRun}
           title={
             blockedReason ??
-            `Slide the box across the fit window and refine the free parameters inside each position (${planInfo.count} boxes), each box seeded from the previous one.`
+            `Slide the box across the range and refine the ticked parameters inside each position (${planInfo.count} boxes), each box seeded from the previous one.`
           }
         >
           {busy ? <span className="wb-shimmer-text">Scanning…</span> : "Run boxcar scan"}
@@ -346,60 +379,179 @@ export function BoxcarPanel({
 
       {/* The plan. Editing it never disturbs a run already on screen — the run
           carries its own settings — so a user can compare a finished scan
-          against the next one's plan before spending the time. */}
+          against the next one's plan before spending the time. Three groups,
+          in the order a scan is set up: where, how, from what. */}
       {showPlan && (
-        <div style={planBar}>
-          <label style={fieldLabel} title="Width of the fitting box in Å. Every box has exactly this width, so the values are comparable across the scan. Too narrow and the box holds too few G(r) points to determine the free parameters.">
-            box
-            <NumberField value={plan.width} min={0.1} disabled={busy} onCommit={(width) => onPlanChange({ width })} />
-            Å
-          </label>
-          <label style={fieldLabel} title="How far the box advances between fits, in Å. Half the box width gives overlapping boxes — a smoother track at twice the cost.">
-            step
-            <NumberField value={plan.step} min={0.05} disabled={busy} onCommit={(step) => onPlanChange({ step })} />
-            Å
-          </label>
-          <SegmentedToggle
-            options={[
-              { id: "up", label: "low → high r", title: "Start at the smallest r and walk outward — each box seeded from the one before, so the local structure is carried into the average one" },
-              { id: "down", label: "high → low r", title: "Start at the largest r and walk inward — seeded from the average structure, the usual way to test whether the local structure departs from it" },
-              { id: "both", label: "both", title: "Scan the same boxes BOTH ways from the same starting model and plot the two tracks together. Where they agree, the drift is in the data; where they separate, the fit is following its seed rather than the G(r) — the boxcar's characteristic failure. Costs two passes." },
-            ] as const}
-            value={plan.direction}
-            onChange={(direction) => { if (!busy) onPlanChange({ direction }); }}
-          />
-          <label
-            style={{ ...fieldLabel, cursor: busy ? "default" : "pointer" }}
-            title="Random restarts per box: on top of the seed carried from the previous box, refine this many randomly perturbed starts and keep the lowest-χ² one. Use it when a track looks like it inherited a bad box — seeding forward makes the series path-dependent, and a box that fell into a local minimum hands it to every box after it. Costs (restarts + 1)× the scan time."
-          >
-            <input
-              type="checkbox"
-              checked={plan.randomStart}
-              disabled={busy}
-              onChange={(e) => onPlanChange({ randomStart: e.target.checked })}
-              style={{ accentColor: color.primary }}
-            />
-            random restarts
-            {plan.randomStart && (
-              <NumberField
-                value={plan.restarts}
-                min={1}
-                max={20}
-                integer
-                width={44}
-                disabled={busy}
-                onCommit={(restarts) => onPlanChange({ restarts })}
+        <div style={settingsCard}>
+          <div style={settingsGrid}>
+            <section style={group} aria-label="Range">
+              <GroupHead
+                label="Range"
+                help={
+                  <span>
+                    The r span the boxes slide across. It is this tab's own: it starts at the
+                    Refinement tab's fit window, and once you edit it or run a scan, moving the
+                    fit window no longer moves it (<b>Use fit range</b> copies it again). Both
+                    bounds must lie on the data, and at least two boxes must fit between them.
+                  </span>
+                }
               />
-            )}
-            {plan.randomStart ? "per box" : ""}
-          </label>
-          <span style={{ fontFamily: mono, fontSize: fz.micro, color: planInfo.issue ? color.warnInk : color.secondary }}>
-            {planDetail(plan, planInfo)}
-          </span>
+              <div style={fieldRow}>
+                <label style={fieldLabel}>
+                  r
+                  <NumberField value={planInfo.range.min} min={0} disabled={busy} ariaLabel="Lower r bound (Å)" onCommit={(min) => onRangeChange({ min })} />
+                </label>
+                <label style={fieldLabel}>
+                  to
+                  <NumberField value={planInfo.range.max} min={0} disabled={busy} ariaLabel="Upper r bound (Å)" onCommit={(max) => onRangeChange({ max })} />
+                  Å
+                </label>
+              </div>
+              <div style={hintRow}>
+                <span>data {fmtR(dataRange.min)}–{fmtR(dataRange.max)} Å</span>
+                {(Math.abs(planInfo.range.min - fitRange.min) > 1e-9 || Math.abs(planInfo.range.max - fitRange.max) > 1e-9) && (
+                  <button
+                    style={linkBtn}
+                    disabled={busy}
+                    onClick={onRangeFromFit}
+                    title="Set this tab's range to the Refinement tab's fit window"
+                  >
+                    Use fit range ({fmtR(fitRange.min)}–{fmtR(fitRange.max)} Å)
+                  </button>
+                )}
+              </div>
+            </section>
+
+            <section style={group} aria-label="Boxes">
+              <GroupHead
+                label="Boxes"
+                help={
+                  <span>
+                    <b>Width</b>: every box has exactly this width, so the values are comparable
+                    across the scan. Too narrow and a box holds too few G(r) points to determine
+                    the free parameters.
+                    <br />
+                    <b>Step</b>: how far the box advances between fits. Half the width gives
+                    overlapping boxes — a smoother track at twice the cost.
+                    <br />
+                    <b>Direction</b>: low → high r walks outward from the local structure;
+                    high → low r starts from the average one; <b>both</b> scans the same boxes
+                    both ways and plots the two tracks together — where they separate, the fit is
+                    following its seed rather than the data.
+                    <br />
+                    <b>Random restarts</b>: refine this many perturbed starts per box beside the
+                    seed and keep the best, for a track that inherited a bad box. Costs
+                    (restarts + 1)× the scan time.
+                  </span>
+                }
+              />
+              <div style={fieldRow}>
+                <label style={fieldLabel} title="Width of the fitting box in Å">
+                  width
+                  <NumberField value={plan.width} min={0.1} disabled={busy} ariaLabel="Box width (Å)" onCommit={(width) => onPlanChange({ width })} />
+                  Å
+                </label>
+                <label style={fieldLabel} title="How far the box advances between fits, in Å">
+                  step
+                  <NumberField value={plan.step} min={0.05} disabled={busy} ariaLabel="Box step (Å)" onCommit={(step) => onPlanChange({ step })} />
+                  Å
+                </label>
+              </div>
+              <SegmentedToggle
+                options={[
+                  { id: "up", label: "low → high r", title: "Start at the smallest r and walk outward — each box seeded from the one before, so the local structure is carried into the average one" },
+                  { id: "down", label: "high → low r", title: "Start at the largest r and walk inward — seeded from the average structure, the usual way to test whether the local structure departs from it" },
+                  { id: "both", label: "both", title: "Scan the same boxes BOTH ways from the same starting model and plot the two tracks together. Where they agree, the drift is in the data; where they separate, the fit is following its seed rather than the G(r) — the boxcar's characteristic failure. Costs two passes." },
+                ] as const}
+                value={plan.direction}
+                onChange={(direction) => { if (!busy) onPlanChange({ direction }); }}
+              />
+              <label
+                style={{ ...fieldLabel, cursor: busy ? "default" : "pointer" }}
+                title="Random restarts per box: refine this many randomly perturbed starts beside the seed and keep the lowest-χ² one"
+              >
+                <input
+                  type="checkbox"
+                  checked={plan.randomStart}
+                  disabled={busy}
+                  onChange={(e) => onPlanChange({ randomStart: e.target.checked })}
+                  style={{ accentColor: color.primary, margin: 0 }}
+                />
+                random restarts
+                {plan.randomStart && (
+                  <NumberField
+                    value={plan.restarts}
+                    min={1}
+                    max={20}
+                    integer
+                    width={44}
+                    disabled={busy}
+                    ariaLabel="Random restarts per box"
+                    onCommit={(restarts) => onPlanChange({ restarts })}
+                  />
+                )}
+                {plan.randomStart ? "per box" : ""}
+              </label>
+            </section>
+
+            <section style={group} aria-label="Starting point">
+              <GroupHead
+                label="Starting point"
+                help={
+                  <span>
+                    The first box starts from the current fit on the Refinement tab: its values,
+                    and which rows are free. Tick or untick rows, or change a start value, to
+                    start this scan differently — those edits stay on this tab and never change
+                    the main fit. <b>Reset to current fit</b> drops them. Each later box starts
+                    from the box before it.
+                    <br />
+                    <br />
+                    Keep the cell and an ADP free, and hold Qdamp/Qbroad at their calibrated
+                    values — they are properties of the diffractometer, not of r, so letting them
+                    float per box turns real drift into scatter.
+                  </span>
+                }
+              />
+              <div style={{ fontSize: fz.small, color: color.ink }}>
+                {start.current ? "Current fit" : "Current fit, edited here"}
+                {fitRw !== null && Number.isFinite(fitRw) ? (
+                  <span style={{ fontFamily: mono, fontSize: fz.micro, color: color.secondary }}> · Rw {(100 * fitRw).toFixed(2)}%</span>
+                ) : null}
+              </div>
+              <div style={hintRow}>
+                <button
+                  style={disclosureBtn}
+                  onClick={() => setStartOpen((o) => !o)}
+                  aria-expanded={startOpen}
+                  title={startOpen ? "Hide the parameter list" : "Choose which parameters each box refines and where the first box starts"}
+                >
+                  {startOpen ? "▾" : "▸"} {freeCount} of {start.rows.length} refined
+                </button>
+              </div>
+              <div>
+                <button
+                  style={{ ...resetBtn, ...(start.current || busy ? resetBtnIdle : {}) }}
+                  disabled={start.current || busy}
+                  onClick={onStartReset}
+                  title={start.current ? "Already starting from the current fit" : "Drop this tab's edits and start from the current fit's values and free rows"}
+                >
+                  Reset to current fit
+                </button>
+              </div>
+            </section>
+          </div>
+
+          {startOpen && (
+            <StartTable rows={start.rows} busy={busy} onChange={onStartChange} />
+          )}
+
+          <div style={{ ...planLine, color: planInfo.issue ? color.warnInk : color.secondary }} role={planInfo.issue ? "alert" : undefined}>
+            {planInfo.issue ? `⚠ ${planInfo.issue}` : planDetail(plan, planInfo)}
+          </div>
         </div>
       )}
 
-      {blockedReason && !busy ? (
+      {blockedReason && !busy && blockedReason !== planInfo.issue ? (
         <div style={{ fontSize: fz.small, color: color.warnInk }}>⚠ {blockedReason}</div>
       ) : null}
 
@@ -439,7 +591,7 @@ export function BoxcarPanel({
                 ) : run.partial ? (
                   <b style={{ color: color.noteInk }}>stopped early · </b>
                 ) : null}
-                {run.windows.length} boxes · {run.width} Å ·{" "}
+                {run.windows.length} boxes · {run.width} Å · {fmtR(run.windows[0]?.min ?? 0)}–{fmtR(run.windows.at(-1)?.max ?? 0)} Å ·{" "}
                 {run.series.length > 1 ? "both directions" : DIRECTION_LABEL[run.series[0]?.direction ?? "up"]}
                 {run.restarts > 0 ? ` · best of ${run.restarts + 1} starts per box` : " · seeded, no restarts"}
               </span>
@@ -520,10 +672,7 @@ export function BoxcarPanel({
         </>
       ) : (
         <div style={{ color: color.secondary, fontSize: fz.small, lineHeight: 1.55 }}>
-          Set the box above, free the parameters you want tracked in the refinement panel, then run the scan.
-          Keep the cell and an ADP free, and hold Qdamp/Qbroad at their calibrated values — they are properties
-          of the diffractometer, not of r, so letting them float per box turns real drift into scatter.
-          The scanned span is the fit window, set with the plot handles on the Refinement tab.
+          Set the range and boxes above, then run the scan.
         </div>
       )}
     </div>
@@ -1045,13 +1194,16 @@ function StepTable({ run, aligned, shownId, labels, onAdoptStep, busy, selected,
  * an emptied field back to 0 mid-edit, which here would also flip the plan to
  * "width must be positive" while someone is simply retyping a number.
  */
-function NumberField({ value, min, max, integer = false, width = 56, disabled, onCommit }: {
+function NumberField({ value, min, max, integer = false, width = 56, disabled, ariaLabel, format = String, onCommit }: {
   value: number;
-  min: number;
+  min?: number;
   max?: number;
   integer?: boolean;
   width?: number;
   disabled: boolean;
+  ariaLabel?: string;
+  /** How the resting value reads (an edit commits what was typed). */
+  format?: (v: number) => string;
   onCommit: (v: number) => void;
 }): JSX.Element {
   const [buf, setBuf] = useState<string | null>(null);
@@ -1064,15 +1216,16 @@ function NumberField({ value, min, max, integer = false, width = 56, disabled, o
     if (source === null || source.trim() === "") return;
     const v = Number(source);
     if (!Number.isFinite(v)) return;
-    onCommit(Math.min(max ?? Infinity, Math.max(min, integer ? Math.round(v) : v)));
+    onCommit(Math.min(max ?? Infinity, Math.max(min ?? -Infinity, integer ? Math.round(v) : v)));
   };
   return (
     <input
       type="number"
-      min={min}
+      {...(min !== undefined ? { min } : {})}
       {...(max !== undefined ? { max } : {})}
-      step={integer ? 1 : 0.5}
-      value={buf ?? String(value)}
+      step={integer ? 1 : "any"}
+      value={buf ?? format(value)}
+      {...(ariaLabel ? { "aria-label": ariaLabel } : {})}
       disabled={disabled}
       onClick={(e) => e.stopPropagation()}
       onChange={(e) => setBuf(e.target.value)}
@@ -1088,6 +1241,79 @@ function NumberField({ value, min, max, integer = false, width = 56, disabled, o
   );
 }
 
+/** A settings group's heading: its name, and the "?" that holds the detail. */
+function GroupHead({ label, help }: { label: string; help: React.ReactNode }): JSX.Element {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <span style={uppercaseLabel}>{label}</span>
+      <InfoBadge text={help} width={320} ariaLabel={`About ${label.toLowerCase()}`} />
+    </div>
+  );
+}
+
+/**
+ * The starting point, row by row: whether each box refines the row and the
+ * value the first box starts from. An edited row shows the current fit's
+ * value beside it, so a reader sees what "Reset to current fit" would undo.
+ */
+function StartTable({ rows, busy, onChange }: {
+  rows: readonly BoxcarStartRow[];
+  busy: boolean;
+  onChange: (id: string, patch: { readonly free?: boolean; readonly value?: number }) => void;
+}): JSX.Element {
+  return (
+    <div className="wb-boxcar-start" style={startTableWrap}>
+      <table style={{ borderCollapse: "collapse", width: "100%", fontFamily: mono, fontSize: fz.micro, color: color.secondary }}>
+        <thead>
+          <tr style={{ textAlign: "left", color: color.faint }}>
+            <th style={startHead}>refine</th>
+            <th style={startHead}>parameter</th>
+            <th style={startHead}>start</th>
+            <th style={startHead}>fit</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => {
+            const valueEdited = r.value !== r.fitValue;
+            const freeEdited = r.free !== r.fitFree;
+            return (
+              <tr key={r.id} style={{ borderTop: `1px solid ${color.subtle}` }}>
+                <td style={startCell}>
+                  <input
+                    type="checkbox"
+                    checked={r.free}
+                    disabled={busy}
+                    aria-label={`Refine ${r.label} in each box`}
+                    onChange={(e) => onChange(r.id, { free: e.target.checked })}
+                    style={{ accentColor: color.primary, margin: 0 }}
+                  />
+                </td>
+                <td style={{ ...startCell, color: color.ink, whiteSpace: "normal", minWidth: 96 }}>
+                  {r.label}
+                  {freeEdited ? <span style={{ color: color.noteInk }} title={r.fitFree ? "Free on the main fit" : "Fixed on the main fit"}> · {r.fitFree ? "free" : "fixed"} on fit</span> : null}
+                </td>
+                <td style={startCell}>
+                  <NumberField
+                    value={r.value}
+                    {...(r.min !== undefined ? { min: r.min } : {})}
+                    {...(r.max !== undefined ? { max: r.max } : {})}
+                    width={80}
+                    disabled={busy}
+                    format={fmtStart}
+                    ariaLabel={`Start value of ${r.label}`}
+                    onCommit={(value) => onChange(r.id, { value })}
+                  />
+                </td>
+                <td style={{ ...startCell, color: valueEdited ? color.noteInk : color.faint }}>{fmtStart(r.fitValue)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 /** The two-direction verdict, stated where the plot's reader will look first. */
 const verdictBar: CSSProperties = {
   display: "flex",
@@ -1099,17 +1325,79 @@ const verdictBar: CSSProperties = {
   borderRadius: 8,
   fontSize: fz.small,
 };
-const planBar: CSSProperties = {
+/** The settings: three groups side by side on a wide card, stacked on a phone. */
+const settingsCard: CSSProperties = {
   display: "flex",
-  alignItems: "center",
+  flexDirection: "column",
   gap: 10,
-  rowGap: 6,
-  flexWrap: "wrap",
-  padding: "7px 10px",
+  padding: "10px 12px",
   borderRadius: 8,
   border: `1px solid ${color.border}`,
   background: color.muted2,
+  flex: "0 0 auto",
 };
+const settingsGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
+  gap: 14,
+  rowGap: 12,
+};
+const group: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "flex-start",
+  gap: 7,
+  minWidth: 0,
+};
+const fieldRow: CSSProperties = { display: "flex", alignItems: "center", gap: 10, rowGap: 6, flexWrap: "wrap" };
+const hintRow: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  rowGap: 4,
+  flexWrap: "wrap",
+  fontFamily: mono,
+  fontSize: fz.micro,
+  color: color.faint,
+};
+/** The plan's one-line result: boxes and span, or what to fix. */
+const planLine: CSSProperties = {
+  fontFamily: mono,
+  fontSize: fz.micro,
+  borderTop: `1px solid ${color.subtle}`,
+  paddingTop: 8,
+};
+const linkBtn: CSSProperties = {
+  border: "none",
+  background: "none",
+  padding: 0,
+  fontFamily: mono,
+  fontSize: fz.micro,
+  color: color.primary,
+  cursor: "pointer",
+  textAlign: "left",
+};
+const resetBtn: CSSProperties = {
+  border: `1px solid ${color.control}`,
+  background: "#fff",
+  borderRadius: 7,
+  padding: "3px 10px",
+  fontSize: fz.micro,
+  fontFamily: mono,
+  color: color.ink,
+  cursor: "pointer",
+};
+const resetBtnIdle: CSSProperties = { color: color.faint, cursor: "default" };
+const startTableWrap: CSSProperties = {
+  maxWidth: 760,
+  maxHeight: 220,
+  overflow: "auto",
+  border: `1px solid ${color.border}`,
+  borderRadius: 7,
+  background: color.surface,
+};
+const startCell: CSSProperties = { padding: "3px 6px", whiteSpace: "nowrap" };
+const startHead: CSSProperties = { ...startCell, position: "sticky", top: 0, background: color.surface, fontWeight: 500, zIndex: 1 };
 /** The folded plan: reads as the plan bar's surface, in one line. */
 const planToggle: CSSProperties = {
   display: "inline-flex",

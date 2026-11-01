@@ -40,6 +40,21 @@ release fixes bugs.
 
 ### Changed
 
+- **The PDF page's Boxcar tab is an analysis of its own.** Its settings are
+  grouped as Range, Boxes and Starting point, each with its detail behind a
+  **?**, over a one-line result (boxes and span, or what to fix).
+  - The tab has its own lower and upper r bounds. They start at the fit
+    window; once edited (or after the first scan) moving the fit window no
+    longer moves them, and **Use fit range** copies it again. Bounds off the
+    data, out of order or with no room for two boxes get a plain message.
+  - The scan starts from the current fit: its values and free rows. The
+    parameter list under Starting point lets a scan refine other rows or
+    start from other values; **Reset to current fit** drops those edits.
+  - The scan never writes to the main fit (Adopt stays the explicit way to
+    load a box's values). Saved projects keep the tab's range and edits;
+    older files open with the tab following the fit window. The Agent's
+    `boxcar_scan` is unchanged: the fit window, the rows as they are.
+
 - **`review_symmetry` lists the subgroup engine's subgroups, named in their
   standard settings** (the Agent's tool and MCP's; THY-36). The candidates
   and the subgroups that drop a centring vector come from the engine's

@@ -649,6 +649,27 @@ function checkPdfWorkspace(ws: Rec, path: string, ctx: PhaseContext): void {
     oneOf(["up", "down", "both"] as const)(plan.direction, `${path}.boxcar.plan.direction`);
     bool(plan.randomStart, `${path}.boxcar.plan.randomStart`);
     int(plan.restarts, `${path}.boxcar.plan.restarts`);
+    // The tab's own range and starting point (absent in older files).
+    opt(plan.range, `${path}.boxcar.plan.range`, (r, rp) => {
+      const x = rec(r, rp);
+      num(x.min, `${rp}.min`);
+      num(x.max, `${rp}.max`);
+      return x;
+    });
+    opt(plan.start, `${path}.boxcar.plan.start`, (st, sp) => {
+      const x = rec(st, sp);
+      opt(x.free, `${sp}.free`, (f, fp) => {
+        const flags = rec(f, fp);
+        for (const [k, b] of Object.entries(flags)) bool(b, `${fp}.${k}`);
+        return flags;
+      });
+      opt(x.values, `${sp}.values`, (vv, vp) => {
+        const values = rec(vv, vp);
+        for (const [k, n] of Object.entries(values)) num(n, `${vp}.${k}`);
+        return values;
+      });
+      return x;
+    });
     opt(b.lastRun, `${path}.boxcar.lastRun`, checkBoxcarRun);
   }
 }
