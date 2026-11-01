@@ -12,6 +12,15 @@ name: ISOTROPY oracle
 
 on:
   workflow_dispatch:
+    inputs:
+      only_labels:
+        description: "Run only the irrep-label step"
+        type: boolean
+        default: false
+      label_cases:
+        description: "Label cases to run (a regular expression on their names; empty: all)"
+        type: string
+        default: ""
 
 jobs:
   oracle:
@@ -35,14 +44,17 @@ jobs:
           ls -la "$(dirname "$ISO_BIN")"
           echo "ISODATA=$(dirname "$ISO_BIN")/" >> "$GITHUB_ENV"
       - name: Compare isotropy subgroups
+        if: ${{ !inputs.only_labels }}
         env:
           ISOTROPY_ORACLE: "1"
         run: npx vitest run src/core/crystal/irreps/isotropyOracle.test.ts
       - name: Mode amplitudes against ISOTROPY's modes
+        if: ${{ !inputs.only_labels }}
         env:
           ISOTROPY_ORACLE: "1"
         run: npx vitest run src/core/crystal/irreps/modeAmplitudeOracle.test.ts
       - name: Irrep labels against ISOTROPY's, by character
         env:
           ISOTROPY_ORACLE: "1"
+          ORACLE_CASES: ${{ inputs.label_cases }}
         run: npx vitest run src/core/crystal/irreps/irrepLabelOracle.test.ts

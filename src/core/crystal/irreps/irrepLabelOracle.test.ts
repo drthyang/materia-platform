@@ -104,7 +104,7 @@ export function parseCharacters(out: string): Map<string, Complex> {
 }
 
 /** [case, MATERIA's setting, ISOTROPY's parent number, its k-point label, k (conventional)] */
-const CASES: readonly [string, number | string, number, string, readonly [number, number, number]][] = [
+const ALL_CASES: readonly [string, number | string, number, string, readonly [number, number, number]][] = [
   ["Pm-3m Γ", 221, 221, "GM", [0, 0, 0]],
   ["Fm-3m Γ", 225, 225, "GM", [0, 0, 0]],
   ["Fm-3m X", 225, 225, "X", [0, 0, 1]],
@@ -123,6 +123,9 @@ const CASES: readonly [string, number | string, number, string, readonly [number
   ["P4₂/mnm Z", "P 42/m n m", 136, "Z", [0, 0, 0.5]],
   ["P4/mmm Z", 123, 123, "Z", [0, 0, 0.5]],
 ];
+
+/** ORACLE_CASES (a regular expression) runs only the cases whose name it matches. */
+const CASES = ALL_CASES.filter(([name]) => !process.env.ORACLE_CASES || new RegExp(process.env.ORACLE_CASES).test(name));
 
 const close = (a: Complex, b: Complex): boolean => Math.hypot(a.re - b.re, a.im - b.im) < 2e-3;
 
@@ -182,6 +185,16 @@ describe.skipIf(!ENABLED)("ISOTROPY oracle: MATERIA's generic irrep labels stand
       const conj = attempt(true);
       const best = conj.unmatchedOurs.length + conj.unmatchedTheirs.length < direct.unmatchedOurs.length + direct.unmatchedTheirs.length ? conj : direct;
       console.log(`LABELS ${name} (${best === conj ? "conjugate phase" : "same phase"}): ${best.pairs.map(([a, b]) => `${a} = ${b}`).join("; ")}`);
+      // What keeps an unmatched irrep from its nearest unmatched ISOTROPY irrep of the same dimension: the elements that differ.
+      for (const label of best.unmatchedOurs) {
+        const o = ours.find((x) => x.label === label)!;
+        for (const t of best.unmatchedTheirs) {
+          const c = theirs.get(t)!;
+          if (!close(o.chi[0]!, c[0]!)) continue;
+          const diff = reps.map((e, i) => ({ e, i })).filter(({ i }) => !close(o.chi[i]!, c[i]!)).map(({ e, i }) => `${isoElement(group.elements[e]!.W, group.elements[e]!.w)}: ours ${o.chi[i]!.re.toFixed(3)}${o.chi[i]!.im ? `${o.chi[i]!.im >= 0 ? "+" : ""}${o.chi[i]!.im.toFixed(3)}i` : ""}, ISOTROPY ${c[i]!.re.toFixed(3)}`);
+          console.log(`UNMATCHED ${name}: ${label} against ${t} differs on ${diff.length} of ${reps.length} classes: ${diff.slice(0, 12).join("; ")}`);
+        }
+      }
       expect(best.unmatchedOurs, `${name}: MATERIA irreps with no ISOTROPY irrep of their characters`).toEqual([]);
       expect(best.unmatchedTheirs, `${name}: ISOTROPY irreps with no MATERIA irrep of their characters`).toEqual([]);
     });
