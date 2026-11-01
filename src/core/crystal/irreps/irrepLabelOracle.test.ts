@@ -92,6 +92,11 @@ export function parseCharacters(out: string): Map<string, Complex> {
     const m = line.match(IRREP);
     if (!m || /^(VALUE|SHOW|DISPLAY|PAGE|QUIT|LABEL|Irrep|Isotropy|Harold|Brigham|Current|Element|Character|Subgroup)$/i.test(m[1]!)) continue;
     const tokens = m[2]!.split(/\s+/);
+    // A field too narrow for its value prints as asterisks (Fortran): unknown, not absent.
+    if (/^\*+$/.test(tokens[tokens.length - 1]!)) {
+      byIrrep.set(m[1]!, { re: Number.NaN, im: Number.NaN });
+      continue;
+    }
     for (let i = tokens.length - 1; i >= 0; i--) {
       const c = parseCharacter(tokens[i]!);
       if (c) {
@@ -128,6 +133,8 @@ const ALL_CASES: readonly [string, number | string, number, string, readonly [nu
 const CASES = ALL_CASES.filter(([name]) => !process.env.ORACLE_CASES || new RegExp(process.env.ORACLE_CASES).test(name));
 
 const close = (a: Complex, b: Complex): boolean => Math.hypot(a.re - b.re, a.im - b.im) < 2e-3;
+/** A character ISOTROPY could not print (its field overflowed, "******") constrains nothing. */
+const agrees = (ours: Complex, theirs: Complex): boolean => Number.isNaN(theirs.re) || close(ours, theirs);
 
 describe.skipIf(!ENABLED)("ISOTROPY oracle: MATERIA's generic irrep labels stand for ISOTROPY's (CDML) irreps one to one", { timeout: 900_000 }, () => {
   for (const [name, setting, parent, kLabel, k] of CASES) {
@@ -148,6 +155,12 @@ describe.skipIf(!ENABLED)("ISOTROPY oracle: MATERIA's generic irrep labels stand
         }
       });
       expect(theirs.size, `${name}: no characters parsed from ISOTROPY's output`).toBeGreaterThan(0);
+      // Every irrep's character must be read on all but a few classes (an overflowed field or a missing row is unknown).
+      for (const [label, c] of theirs) {
+        const unknown = c.filter((x) => Number.isNaN(x.re)).length;
+        if (unknown > 0) console.log(`UNREAD ${name}: ${label} has ${unknown} of ${reps.length} characters ISOTROPY did not print legibly`);
+        expect(unknown, `${name}: ${label} unread on ${unknown} of ${reps.length} classes`).toBeLessThanOrEqual(Math.floor(reps.length / 4));
+      }
       const ours = irreps.map((irrep) => ({ label: irrep.label, chi: reps.map((e) => irrep.characters[e]!) }));
       // ISOTROPY's phase convention may be the conjugate of MATERIA's; one choice must match every irrep.
       const attempt = (conj: boolean) => {
@@ -156,7 +169,7 @@ describe.skipIf(!ENABLED)("ISOTROPY oracle: MATERIA's generic irrep labels stand
         const unmatchedOurs: string[] = [];
         const usedOurs = new Set<number>();
         for (const [label, c] of theirs) {
-          const same = (chi: Complex[]) => chi.every((x, i) => close(conj ? { re: x.re, im: -x.im } : x, c[i]!));
+          const same = (chi: Complex[]) => chi.every((x, i) => agrees(conj ? { re: x.re, im: -x.im } : x, c[i]!));
           const single = ours.findIndex((o, i) => !usedOurs.has(i) && same(o.chi));
           if (single >= 0) {
             usedOurs.add(single);
@@ -165,7 +178,7 @@ describe.skipIf(!ENABLED)("ISOTROPY oracle: MATERIA's generic irrep labels stand
             continue;
           }
           // A physically irreducible representation of a complex pair: characters 2·Re χ.
-          const pair = ours.findIndex((o, i) => !usedOurs.has(i) && o.chi.every((x, j) => close({ re: 2 * x.re, im: 0 }, c[j]!)) && o.chi.some((x) => Math.abs(x.im) > 1e-6));
+          const pair = ours.findIndex((o, i) => !usedOurs.has(i) && o.chi.every((x, j) => agrees({ re: 2 * x.re, im: 0 }, c[j]!)) && o.chi.some((x) => Math.abs(x.im) > 1e-6));
           if (pair >= 0) {
             const partner = ours.findIndex((o, i) => i !== pair && !usedOurs.has(i) && o.chi.every((x, j) => close({ re: x.re, im: -x.im }, ours[pair]!.chi[j]!)));
             if (partner >= 0) {
