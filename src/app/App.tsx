@@ -64,6 +64,7 @@ import { AgentLink } from "@/agent/link";
 import type { AgentHost } from "@/agent/executor";
 import { useAgent } from "@/agent/useAgent";
 import { AgentDrawer, AgentRail, answersIn } from "@/agent/ui/AgentDrawer";
+import { CopilotOpenContext } from "@/app/ui/RunActions";
 import { AgentReportViewer } from "@/agent/ui/AgentReportViewer";
 import { emptyRecord, methodProgress, type AgentRecord } from "@/agent/method";
 import { analysisOf } from "@/agent/pages";
@@ -1230,6 +1231,8 @@ export function App(): JSX.Element {
     // workbench.css (.wb-shell): the height must follow the dynamic viewport on
     // iOS and undo the large-screen UI zoom, and on phones the whole page
     // scrolls instead, header included.
+    // The phone's run bar (RunActions.tsx) hides while the Copilot is open.
+    <CopilotOpenContext.Provider value={agentOpen}>
     <div className={agentOpen ? "wb-frame wb-frame-agent" : agentRail ? "wb-frame wb-frame-rail" : "wb-frame"}>
     <div className="wb-shell">
       <WorkbenchHeader
@@ -1373,6 +1376,7 @@ export function App(): JSX.Element {
       />
     )}
     </div>
+    </CopilotOpenContext.Provider>
   );
 }
 

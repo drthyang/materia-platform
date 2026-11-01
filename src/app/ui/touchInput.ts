@@ -5,24 +5,14 @@
  * browser (touchInput.test.ts).
  */
 
-import { useEffect, useState } from "react";
+import { useMediaQuery } from "@/app/ui/useMediaQuery";
 
 /** The main pointer is a finger (a phone, a tablet): the CSS `(pointer: coarse)`. */
 export const COARSE_QUERY = "(pointer: coarse)";
 
 /** Whether the main pointer is coarse, following the device as it changes (a keyboard and trackpad attached). */
 export function useCoarsePointer(): boolean {
-  const get = (): boolean => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(COARSE_QUERY).matches;
-  const [coarse, setCoarse] = useState(get);
-  useEffect(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
-    const mq = window.matchMedia(COARSE_QUERY);
-    const on = (): void => setCoarse(mq.matches);
-    on();
-    mq.addEventListener("change", on);
-    return () => mq.removeEventListener("change", on);
-  }, []);
-  return coarse;
+  return useMediaQuery(COARSE_QUERY);
 }
 
 /**

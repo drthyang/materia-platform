@@ -9,6 +9,20 @@ release fixes bugs.
 
 ### Added
 
+- **On a phone, Prefit, Refine and Cancel stay at the bottom of the
+  screen.** Up to 640 px wide, or on a phone held sideways, the parameter
+  card's run actions (Prefit, or Escape min once a fit exists; Refine; Cancel)
+  move to a bar fixed to the bottom of the screen on the Rietveld, PDF and
+  single-crystal pages, so a long parameter list no longer scrolls them away.
+  - While a fit runs, the bar shows "Refining…" and Cancel takes Refine's
+    place. A double tap on Refine does not cancel the run it started.
+  - The bar sits above the Copilot bar (phone upright) or beside the Copilot
+    rail (phone sideways), clears the home indicator, and the page's end is
+    padded so it covers nothing. It hides while the Copilot is open or a field
+    is being typed in.
+  - Same handlers and disabled rules as the card's buttons, 44 px targets.
+    Tablets and desktops keep the buttons in the card, unchanged.
+
 - **The subgroup engine, Phase 5: the magnetic page's representation
   analysis at any commensurate k** (powder and single-crystal magnetic step;
   THY-36, [ADRs 0001 and 0004](docs/adr/)).

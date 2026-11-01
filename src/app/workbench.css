@@ -362,6 +362,89 @@ html {
   padding-bottom: calc(10px + var(--wb-safe-b)) !important;
 }
 
+/* ---- The phone's run bar ----------------------------------------------------
+ * On a phone (RUN_BAR_QUERY in RunActions.tsx) Prefit, Refine and Cancel sit
+ * in a bar fixed to the bottom of the screen instead of the parameter card's
+ * action bar, so a long parameter list never scrolls them away. It is fixed
+ * in the window (rendered into <body>), never over the Copilot: beside the
+ * Copilot rail on a phone on its side, above the Copilot bar on one held
+ * upright (the SHEET_QUERY band below). The page's end gets the bar's height
+ * of room, so the bar never covers the footer or the last card. 61px: the
+ * 44px buttons, 8px above and below, and the 1px border. */
+.wb-run-bar {
+  position: fixed;
+  left: 0;
+  right: calc(44px + var(--wb-safe-r));
+  bottom: 0;
+  z-index: 30;
+  padding: 8px 12px calc(8px + var(--wb-safe-b)) max(12px, var(--wb-safe-l));
+  background: #fffdf9;
+  border-top: 1px solid #e8e2d8;
+  box-shadow: 0 -6px 18px rgba(30, 28, 24, 0.08);
+}
+.wb-run-bar[hidden] {
+  display: none;
+}
+/* Full width held upright; on its side a thumb's reach at the right end, next
+   to the Copilot rail, rather than a Refine button 700px long. */
+.wb-run-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 520px;
+  margin-left: auto;
+}
+.wb-run-bar-row > button:focus-visible {
+  outline: 2px solid #1f4fd8;
+  outline-offset: 2px;
+}
+/* The running state, where Prefit was: the label and a pulsing dot. */
+.wb-run-bar-status {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 44px;
+  padding: 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f4fd8;
+}
+.wb-run-bar-status::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: wb-run-pulse 1.1s ease-in-out infinite;
+}
+@keyframes wb-run-pulse {
+  50% { opacity: 0.25; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wb-run-bar-status::before {
+    animation: none;
+  }
+}
+html:has(.wb-run-bar) .wb-shell::after {
+  content: "";
+  display: block;
+  flex: none;
+  height: calc(61px + var(--wb-safe-b));
+}
+/* Held upright the Copilot is a bar under the page that already clears the
+   home indicator: the run bar sits on it. */
+@media (max-width: 999.98px) and (orientation: portrait), (max-width: 899.98px) and (min-height: 540.02px) {
+  .wb-run-bar {
+    right: 0;
+    bottom: calc(45px + var(--wb-safe-b));
+    padding: 8px max(12px, var(--wb-safe-r)) 8px max(12px, var(--wb-safe-l));
+  }
+  html:has(.wb-run-bar) .wb-shell::after {
+    height: 61px;
+  }
+}
+
 /* "Refining…" shimmer: a bright band sweeps across the button text while a
  * refinement runs, echoing Claude Code's working-state shimmer. Clipped to the
  * glyphs so it reads as a sheen over the white label, not a moving background. */

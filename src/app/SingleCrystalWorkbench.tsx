@@ -849,6 +849,7 @@ export function SingleCrystalWorkbench({ structure: loadedStructure, dataset, ma
           busy={busy}
           result={result}
           title="Single-crystal parameters"
+          shown={step !== 1}
           extraActions={refineActions}
         />
 
