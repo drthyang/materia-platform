@@ -1122,6 +1122,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                   decentringTree={decentringTree}
                   sameCell={sameCell}
                   operations={structure.spaceGroup.operations}
+                  structure={structure}
                   onActivateSameCell={onActivateSameCell}
                   onActivateSupercell={onActivateSupercell}
                   modes={modes}

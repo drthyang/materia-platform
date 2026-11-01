@@ -702,14 +702,15 @@ export function supercellModeBasis(parent: StructureModel, group: FactorGroup, e
 /**
  * The smallest set of the child's irreps whose modes together lower the
  * parent to the child: the order parameter an activation kicks. Searched over
- * one, two and three irreps; ties go to a set holding `preferred` (the
- * irrep the user activated, given by its characters), then to the fewest
- * modes, then to the earliest irreps.
+ * one, two and three irreps; ties go first to exactly the set `preferredSet`
+ * names (the coupled irreps a By subgroup row shows, by their characters),
+ * then to a set holding `preferred` (the irrep the user activated, given by
+ * its characters), then to the fewest modes, then to the earliest irreps.
  * Null when no set of up to three irreps reaches the child (every
  * symmetry-breaking irrep is then the order parameter) or when no mode breaks
  * the parent's symmetry at all.
  */
-export function orderParameterIrreps(basis: SupercellModeBasis, preferred?: readonly number[]): number[] | null {
+export function orderParameterIrreps(basis: SupercellModeBasis, preferred?: readonly number[], preferredSet?: readonly (readonly number[])[]): number[] | null {
   const H = new Set(basis.elements);
   const generic = (i: number): number => 1 + 0.5 * Math.sin(1.7 * (i + 1) + 0.3);
   // Each symmetry-breaking irrep's stabilizer (of a generic combination of its modes).
@@ -738,13 +739,16 @@ export function orderParameterIrreps(basis: SupercellModeBasis, preferred?: read
     pick(0, []);
     if (sets.length === 0) continue;
     const modesOf = (s: readonly (typeof candidates)[number][]): number => s.reduce((t, c) => t + c.ir.modes.length, 0);
-    const isPreferred = (ir: IrrepModes): boolean => preferred !== undefined && preferred.length === ir.characters.length && ir.characters.every((x, f) => Math.abs(x - preferred[f]!) < 1e-6);
+    const same = (ir: IrrepModes, chars: readonly number[]): boolean => chars.length === ir.characters.length && ir.characters.every((x, f) => Math.abs(x - chars[f]!) < 1e-6);
+    const isPreferred = (ir: IrrepModes): boolean => preferred !== undefined && same(ir, preferred);
     const hasPreferred = (s: readonly (typeof candidates)[number][]): number => (s.some((c) => isPreferred(c.ir)) ? 0 : 1);
+    const isSet = (s: readonly (typeof candidates)[number][]): number =>
+      preferredSet !== undefined && preferredSet.length === s.length && preferredSet.every((chars) => s.some((c) => same(c.ir, chars))) ? 0 : 1;
     const earlier = (a: readonly (typeof candidates)[number][], b: readonly (typeof candidates)[number][]): number => {
       for (let t = 0; t < a.length; t++) if (a[t]!.i !== b[t]!.i) return a[t]!.i - b[t]!.i;
       return 0;
     };
-    sets.sort((a, b) => hasPreferred(a) - hasPreferred(b) || modesOf(a) - modesOf(b) || earlier(a, b));
+    sets.sort((a, b) => isSet(a) - isSet(b) || hasPreferred(a) - hasPreferred(b) || modesOf(a) - modesOf(b) || earlier(a, b));
     return sets[0]!.map((c) => c.i);
   }
   return null;

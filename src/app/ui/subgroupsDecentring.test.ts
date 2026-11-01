@@ -36,6 +36,7 @@ describe("the Subgroups page at the decentring k-points", () => {
       onActivateSameCell: noop, onActivateSupercell: noop,
       modes: null, modeCount: null, busy: false,
       onActivateMode: noop, onActivateSubgroup: noop, onClear: noop, onOpenModel: noop,
+      initialView: "irrep",
     })).replace(/<!-- -->/g, "");
     for (const name of ["Γ, same cell", "X, same cell", "L, supercell", "W, supercell"]) expect(out).toContain(`aria-label="${name}"`);
     // The X chip's rows: the decentring tree's, generic labels, each child in one line.
@@ -43,7 +44,7 @@ describe("the Subgroups page at the decentring k-points", () => {
     const rows = decentringRows(tree, x);
     expect(rows.map((r) => r.label)).toContain("X irrep 5 of 5");
     const p213 = rows.find((r) => r.label === "X irrep 5 of 5")!.children.find((c) => c.name === "P 21 3 #198")!;
-    expect(p213.facts).toBe("(a,a,a,-a,-a,-a) · 8 domains");
+    expect(p213.facts).toBe("(a,a,a,-a,-a,-a) · same cell · 8 domains");
     expect(p213.action.kind).toBe("irrep");
     // The same-cell lattice (By subgroup): P-43m a decentring k-subgroup (index 4 = 1·4), P2₁3 a general one (8 = 2·4).
     const lattice = sameCellLattice(m.loaded);

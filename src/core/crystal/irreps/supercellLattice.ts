@@ -413,6 +413,18 @@ export function supercellSubgroups(group: FactorGroup, opts: LatticeOptions = {}
   return { factorOrder: F, classes, edges, subgroupCount: subgroups.length, classOf: lookup };
 }
 
+const latticeCache = new WeakMap<FactorGroup, SupercellLattice>();
+
+/** {@link supercellSubgroups} with its defaults (named, every index), computed once per factor group. */
+export function cachedSupercellSubgroups(group: FactorGroup): SupercellLattice {
+  let l = latticeCache.get(group);
+  if (!l) {
+    l = supercellSubgroups(group);
+    latticeCache.set(group, l);
+  }
+  return l;
+}
+
 function isSubset(a: Uint8Array, b: Uint8Array, n: number): boolean {
   for (let i = 0; i < n; i++) if (a[i] && !b[i]) return false;
   return true;

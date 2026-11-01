@@ -6,7 +6,7 @@ import { pageView, pdfPage, withActivatedMode, withPositionMode, type ModesInFor
 import { decomposeDisplacementRepresentation } from "@/core/crystal/displaciveModes";
 import { structuralSubgroupLattice } from "@/core/crystal/subgroupTree";
 import { DistortionModesPanel } from "@/app/ui/DistortionModesPanel";
-import { SubgroupsPanel, gammaIrrepTree } from "@/app/ui/SubgroupsPanel";
+import { SubgroupsPanel, decentringIrrepTree, gammaIrrepTree, sameCellLattice } from "@/app/ui/SubgroupsPanel";
 
 /**
  * The PDF page separates choosing the symmetry from inspecting the modes. The
@@ -34,17 +34,23 @@ function activated(): { model: PdfPageModel; label: string } {
 
 const noop = (): void => undefined;
 
-/** The Subgroups page as the workbench renders it (the irrep tree computed only from the parent state). */
-function subgroups(m: PdfPageModel, opts: { busy?: boolean; modes?: ModesInForce | null } = {}): string {
+/** The Subgroups page as the workbench renders it (the trees computed only from the parent state), on its first view or By irrep. */
+function subgroups(m: PdfPageModel, opts: { busy?: boolean; modes?: ModesInForce | null; view?: "subgroup" | "irrep" } = {}): string {
   const modes = opts.modes !== undefined ? opts.modes : m.modes;
   return renderToStaticMarkup(createElement(SubgroupsPanel, {
     spaceGroup: m.loaded.spaceGroup.hermannMauguin,
     lattice: structuralSubgroupLattice(m.loaded),
     irrepTree: modes === null ? gammaIrrepTree(m.loaded) : null,
+    decentringTree: modes === null ? decentringIrrepTree(m.loaded) : null,
+    sameCell: modes === null ? sameCellLattice(m.loaded) : [],
+    operations: m.loaded.spaceGroup.operations,
+    structure: m.loaded,
+    onActivateSameCell: noop, onActivateSupercell: noop,
     modes,
     modeCount: pageView(m).modeSet?.modes.length ?? null,
     busy: opts.busy ?? false,
     onActivateMode: noop, onActivateSubgroup: noop, onClear: noop, onOpenModel: noop,
+    ...(opts.view ? { initialView: opts.view } : {}),
   }));
 }
 
@@ -67,11 +73,30 @@ const buttons = (html: string, text: string): string[] => [...html.matchAll(new 
 const textOf = (html: string): string => html.replace(/<!-- -->/g, "").replace(/<[^>]+>/g, "");
 
 describe("the Subgroups page", () => {
-  it("offers one path from the parent's own symmetry: By irrep, the Γ chip, its irreps and children, each with Activate — and no CIF loader", () => {
+  it("opens on By subgroup: the subgroups that keep the cell at once, each in one line with its cell, domains and irreps, and Activate — and no CIF loader", () => {
+    const m = demoPage();
+    const out = subgroups(m);
+    for (const gone of ["Load parent CIF", "Load mode CIF", "type=\"file\""]) expect(out).not.toContain(gone);
+    const text = textOf(out);
+    // By subgroup first, then By irrep; the larger cells are worked out once the view shows (subgroupsPanel.dom.test.ts).
+    expect(text.indexOf("By subgroup")).toBeLessThan(text.indexOf("By irrep"));
+    expect(text).toMatch(/^By subgroupBy irrepSupercell.*\d+ subgroups keep the cell/);
+    expect(text).toContain("index 4");
+    expect(text).toContain("P -4 21 m #113same cell · 12 domains · X irrep 5 of 5 (0,0,a,-a,-a,a)");
+    expect(text).toContain("P 21 3 #198same cell · 8 domains · X irrep 5 of 5 (a,a,a,-a,-a,-a)");
+    expect(buttons(out, "Activate").length).toBeGreaterThan(40);
+    expect(out).toContain('aria-label="Activate P 21 3 #198"');
+    expect(out).not.toContain("✕ clear");
+    expect(out).not.toContain("▼ ");
+    // The k-point chips are By irrep's.
+    expect(out).not.toContain('aria-label="Γ, same cell"');
+  });
+
+  it("offers By irrep: the Γ chip, its irreps and children, each with Activate", () => {
     const m = demoPage();
     const tree = gammaIrrepTree(m.loaded)!;
     expect(tree.length).toBeGreaterThan(0);
-    const out = subgroups(m);
+    const out = subgroups(m, { view: "irrep" });
     for (const gone of ["Load parent CIF", "Load mode CIF", "type=\"file\""]) expect(out).not.toContain(gone);
     expect(out).toContain("By irrep");
     expect(out).toContain("By subgroup");
@@ -93,12 +118,12 @@ describe("the Subgroups page", () => {
     expect(out).not.toContain("▼ ");
   });
 
-  it("names each child of GaTa₄Se₈'s Γ irreps in one line: name, direction, domains", () => {
-    const out = textOf(subgroups(demoPage()));
+  it("names each child of GaTa₄Se₈'s Γ irreps in one line: name, direction, cell, domains", () => {
+    const out = textOf(subgroups(demoPage(), { view: "irrep" }));
     const tree = gammaIrrepTree(demoPage().loaded)!;
     const open = tree.length <= 3 ? tree : tree.slice(0, 1);
     for (const { subgroups: subs } of open) {
-      for (const s of subs) expect(out).toContain(`${s.identity.hermannMauguin} #${s.identity.number}${s.direction} · ${s.domainStates} domains`);
+      for (const s of subs) expect(out).toContain(`${s.identity.hermannMauguin} #${s.identity.number}${s.direction} · same cell · ${s.domainStates} domains`);
     }
     // The long explanations sit behind "?": no paragraph of prose on the resting page.
     expect(out).not.toContain("Stokes & Hatch): the one-parameter directions first");
@@ -112,10 +137,12 @@ describe("the Subgroups page", () => {
     expect(tree.map(({ term }) => term.irrep.label)).toEqual(dec.terms.filter((t) => !t.trivial && t.multiplicity - t.acoustic > 0).map((t) => t.irrep.label));
   });
 
-  it("holds every activation while a fit runs", () => {
-    const out = subgroups(demoPage(), { busy: true });
-    expect(buttons(out, "Activate").length).toBeGreaterThan(0);
-    expect(buttons(out, "Activate").every((b) => b.includes("disabled"))).toBe(true);
+  it("holds every activation while a fit runs, in both views", () => {
+    for (const view of ["subgroup", "irrep"] as const) {
+      const out = subgroups(demoPage(), { busy: true, view });
+      expect(buttons(out, "Activate").length).toBeGreaterThan(0);
+      expect(buttons(out, "Activate").every((b) => b.includes("disabled"))).toBe(true);
+    }
   });
 
   it("shows an activated mode with ✕ clear and the way to the 3D Model, and only that until it is cleared", () => {
