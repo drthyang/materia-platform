@@ -110,7 +110,7 @@ Tests through the module interfaces (`subgroupIrreps.test.ts`,
 | **Activation through a row is the child of the older path** (`outcome`: group, operations, cell, sites, modes with labels, irreps and axes, every row's value and free state) | SrTiO₃: P4mm's row = the Γ tree's child; three t-subgroup rows = withSubgroup's, node for node; the R-3c row = By irrep's R child exactly (same elements, basis, primary); the Pnma row = the old Lattice view's child, the order parameter M irrep 3 + R irrep 8. GaTa₄Se₈: the X P-42₁m row = the X chip's child; a 1×1×2 P-42₁m row = the old Lattice view's child (group, cell, sites, modes), its kick the row's pair X irrep 5 + W irrep 1, the cell (a, a, 2a); three decentring rows = withSameCellSubgroup's |
 | DOM (happy-dom) | By subgroup first: same-cell rows before any work; "working…" with the supercell held; **stop** heard (no listing made), **work them out** to the end with one listing; the next mount reuses it (no listing); each row's Activate hands over its own action (Γ tree, t-node, supercell choice with its primary). By irrep: SrTiO₃'s X in 1×1×2 lists fewer children until "show larger cells" |
 | **Browser** (dev server, headless Chrome via playwright-core; the bundled GaTa₄Se₈ demo and synthetic SrTiO₃ with its neutron G(r)) | 1600×900: 13/13; 390×844: 11/11; SrTiO₃ 1600×900: 5/5, no page errors. GaTa₄Se₈: By subgroup first (55 same-cell rows, then 436 in 2×2×2, 151 in 1×1×2); the 1×1×2 P-42₁m row reads 1×1×2, the X rows same cell; Activate → "▼ lowered to P -4 21 m #113 · in its own cell, 1×1×2"; the 3D Model's structure exports 10.3683 × 10.3683 × 20.7366 Å (the demo's refined a); saved, reloaded, reopened: the same banner and cell; ✕ clear; By irrep W in 1×1×2: 12 children (25 larger per irrep), 112 with "show larger cells". SrTiO₃: 1426 rows, R-3c, I4/mcm and Pnma as above; R-3c activated "in its own cell, 2×2×2" |
-| **ISOTROPY oracle** (opt-in workflow, on the branch) | see Checks |
+| **ISOTROPY oracle** (opt-in workflow, on the branch at fbdf749: [run 41348292653](https://github.com/drthyang/materia-platform/actions/runs/41348292653)) | isotropy subgroups 13/13, mode amplitudes 3/3, irrep labels 16/16: the irreps and isotropy subgroups the rows are built from are ISOTROPY's |
 | Model-visible surfaces | Unchanged: no agent text, tool, MCP output, skill, snapshot or `review_symmetry` output. `review_symmetry` uses `nameChild` and `sameCellSubgroups`, both unchanged; the agent snapshots and scripted evals pass |
 
 **Cost** (Node 24, M-series laptop): SrTiO₃ 2×2×2, the named lattice 4.3 s,
@@ -164,6 +164,6 @@ untouched.
 
 ## Checks
 
-At the head of the PR: `npm run typecheck`, `npm run lint` and `npm test`
-(results in the PR). The ISOTROPY oracle ran on the branch (run linked in the
-PR).
+At fbdf749: `npm run typecheck` and `npm run lint` clean; `npm test` 378
+files, 3324 tests passed, 315 skipped, 0 failed (CI in the PR). The ISOTROPY
+oracle ran on the branch (above).
