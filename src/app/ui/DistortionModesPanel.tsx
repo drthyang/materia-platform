@@ -15,6 +15,7 @@ import { isodistortAmplitudes, type DistortionModeSet } from "@/core/crystal/dis
 import { latticeCentring } from "@/core/crystal/standardSetting";
 import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import { color, fz, mono, resetRangeBtn, uppercaseLabel } from "@/app/theme";
+import { ShortLineText } from "@/app/ui/lineInfo";
 
 interface Props {
   /** The mode set in force (pageView.modeSet); null while positions refine per coordinate. */
@@ -73,6 +74,24 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
   const own = latticeCentring(modeSet.parentized.spaceGroup.operations).length;
   const cells = modeSet.amplitudeCells ?? { child: own, parent: own };
   const totals = isodistortAmplitudes(totalAmplitude, cells);
+  // One line under the table, the rest behind its "?" (UI text only; no agent reads it).
+  const byIrrep = modeSet.modes.some((m) => m.irrep);
+  const captionLine = !modes && !byIrrep
+    ? "A: mode amplitude (Å), all start at 0 · free/fix in Positions · click a row to show it in 3D"
+    : modes && !modes.fromActivation && !byIrrep
+      ? "A: mode amplitude (Å); mode 1 is the order parameter · free/fix in Positions · click a row to show it in 3D"
+      : "A: mode amplitude (Å) · free/fix in Positions · click a row to show it in 3D";
+  const captionDetail = [
+    byIrrep
+      ? "A is the whole-cell displacement norm of each of the child's modes by parent irrep, named by its irrep and the parent site it moves (generic irrep labels; an imported mode CIF keeps its own)."
+      : modes?.fromActivation
+        ? "A is the whole-cell displacement norm of each distortion the lowered group permits."
+        : modes
+          ? "A is the whole-cell displacement norm; mode 1 is the frozen distortion, so its fitted amplitude is the order parameter."
+          : "A is the whole-cell displacement norm of the structure's own symmetry-conserving Γ modes (rigid-translation gauge excluded). Free the rows you want in the parameter panel (Positions group), or load a parent CIF on the Subgroups page for the order-parameter decomposition.",
+    `A is over the conventional child cell (${cells.child} lattice point${cells.child === 1 ? "" : "s"}); ISODISTORT's A_s = A/√${cells.child} (primitive child cell) and A_p = A_s·√(V_p/V_s) = A/√${cells.parent} (parent).`,
+    "A row click draws the mode's eigenvector on the 3D model (green arrows, unit amplitude).",
+  ];
   return (
     <>
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
@@ -150,15 +169,7 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
         </table>
       </div>
       <p style={{ marginTop: 4, marginBottom: 0, fontSize: 12, color: color.secondary }}>
-        {modeSet.modes.some((m) => m.irrep)
-          ? "Amplitudes are whole-cell displacement norms (Å) of the child's modes by parent irrep, each named by its irrep and the parent site it moves (generic irrep labels; an imported mode CIF keeps its own). Free/fix rows in the parameter panel (Positions group)."
-          : modes?.fromActivation
-          ? "Amplitudes are whole-cell displacement norms (Å) of the distortions the lowered group permits. Free/fix rows in the parameter panel (Positions group)."
-          : modes
-            ? "Amplitudes are whole-cell displacement norms (Å); mode 1 is the frozen distortion — its fitted amplitude is the order parameter. Free/fix rows in the parameter panel (Positions group)."
-            : "Amplitudes are whole-cell displacement norms (Å), enumerated from the structure's own space group (symmetry-conserving Γ modes; rigid-translation gauge excluded). All seed at 0 — free the rows you want active in the parameter panel (Positions group), or load a parent CIF on the Subgroups page for the observed order-parameter decomposition."}
-        {` A is over the conventional child cell (${cells.child} lattice point${cells.child === 1 ? "" : "s"}); ISODISTORT's A_s runs over the primitive child cell (A/√${cells.child}) and A_p = A_s·√(V_p/V_s) is normalized to the parent (A/√${cells.parent}).`}
-        {" Click a row to draw the mode's eigenvector on the 3D model (green arrows)."}
+        <ShortLineText text={captionLine} detail={captionDetail} width={340} />
       </p>
     </>
   );
