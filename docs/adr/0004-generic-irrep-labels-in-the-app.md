@@ -1,3 +1,5 @@
 # Generic irrep labels in the app
 
 The app labels irreps honestly and generically (the k-point, "irrep n of m", real or complex). Miller–Love (CDML) labels such as X3+ cannot be computed, only looked up in ISO-IR, which carries no licence to redistribute; they are matched only in tests and read from imported ISODISTORT mode CIFs. Revisit if BYU grants permission to bundle the labels.
+
+Reaffirmed in phase 5 (THY-36, 2026-11-01). No licensed source of CDML labels was found: Bilbao, which computes its irreps, takes its labels from ISO-IR (docs/research/SUBGROUP_ENGINES.md §2.4), and the numbering is a table's convention that changes with the origin and the arm, not something the irreps determine. So the magnetic page takes the same generic labels as the Subgroups page, and its old "Γ1, Γ2, …" at every k, which read as CDML Γ labels, are gone. The opt-in ISOTROPY oracle (irrepLabelOracle.test.ts) checks, by character, that the generic labels stand for ISOTROPY's irreps one to one. The correspondence it prints stays in the CI log and is never committed (ADR 0005).

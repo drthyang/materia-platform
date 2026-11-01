@@ -42,7 +42,7 @@ what is missing. [VALIDATION.md](./VALIDATION.md) records the evidence.
 | [F2 Symmetry constraints](#f2--symmetry-constrained-parameterization-) | 🚧 | All 230 space groups; Wyckoff letters for a curated set only | [LIMITATIONS.md](./LIMITATIONS.md#symmetry) |
 | [M1 Atomic refinement](#m1--atomic-structure-refinement-) | 🚧 | Staged CW and TOF Rietveld; GaNb₄Se₈ wR below GSAS-II's | [LIMITATIONS.md](./LIMITATIONS.md#powder-diffraction) |
 | [M2 k-vector search](#m2--magnetic-k-vector-search-) | 🚧 | Commensurate single-k search by peak position | [LIMITATIONS.md](./LIMITATIONS.md#magnetic-structures) |
-| [M3 Magnetic symmetry](#m3--magnetic-space-group-and-symmetry-analysis-) | 🚧 | Subgroup lattice, BNS/OG labels, irreps; no projective small representations | [MAGNETIC_SYMMETRY.md](./MAGNETIC_SYMMETRY.md) |
+| [M3 Magnetic symmetry](#m3--magnetic-space-group-and-symmetry-analysis-) | 🚧 | Subgroup lattice, BNS/OG labels (type IV in the magnetic cell), irreps at any commensurate k; no groups for a two-arm k | [MAGNETIC_SYMMETRY.md](./MAGNETIC_SYMMETRY.md) |
 | [M4 Magnetic refinement](#m4--magnetic-structure-refinement-) | 🚧 | One k, commensurate or incommensurate; candidates ranked on the data | [Track B plan](./PLAN_SUBGROUPS_AND_INCOMMENSURATE.md) |
 | [M5 Ship the results](#m5--ship-the-results-) | 🚧 | Project files, CIF and mCIF, HTML report, FullProf and GSAS-II bundle | [PROJECT_FORMAT.md](./PROJECT_FORMAT.md) |
 | [M6 Microstructure](#m6--powder-microstructure-and-texture-) | 🚧 | Size and strain models; texture is March–Dollase only | [MICROSTRUCTURE.md](./MICROSTRUCTURE.md) |
@@ -253,14 +253,14 @@ moment basis that M4 refines.
   ([`subgroupLattice.ts`](../src/core/magnetic/subgroupLattice.ts)).
 - BNS/OG labels for type-I and type-III groups, including non-standard settings
   ([`bnsOg.ts`](../src/core/magnetic/bnsOg.ts)).
-- Irreps at k = 0 for every parent, and at any k for an abelian little group
-  ([`irreps.ts`](../src/core/magnetic/irreps.ts)).
-- A combination of irreps names its isotropy subgroup
-  ([`isotropy.ts`](../src/core/magnetic/isotropy.ts)).
+- Irreps at any commensurate k on the subgroup engine, projective small
+  representations and non-abelian little groups included; order-parameter
+  directions, and the isotropy subgroup of any combination, type IV in the
+  magnetic cell at k ≠ 0
+  ([`representationAnalysis.ts`](../src/core/magnetic/representationAnalysis.ts); THY-36).
 
 **Next**
-1. Projective small representations for non-abelian little groups at k ≠ 0.
-2. The star of k and type-IV (anti-translation) groups, as Track B3.
+1. The magnetic groups of a two-arm k (the star of k, G_{±k}), as Track B3.
 
 **Validation gate**
 - ✅ At Γ, the general-k enumeration reproduces the k = 0 candidates

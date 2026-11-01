@@ -309,6 +309,20 @@ note says so. Keep k = (0 0 0) and go on to **Magnetic space group**;
 In **Symmetry framework**, pick **Magnetic space groups**, or
 **Representation analysis** to tick irreps and get their isotropy subgroup.
 
+Representation analysis works at any commensurate k. The line under
+**Magnetic space group** gives Γ_mag first, such as "Γmag = 2 irrep 1 ⊕
+1 irrep 2 ⊕ 3 irrep 3 at k = (0, 0, 1/2)". Below it, each irrep is listed with
+its dimension and its modes on your first ion. The irreps are named
+generically, by the k-point and "irrep n of m", as on the Subgroups page
+([ADR 0004](./adr/0004-generic-irrep-labels-in-the-app.md)). Tick one irrep,
+or several to mix them. A multidimensional irrep also takes an
+order-parameter direction from the menu beside it, such as (a,0), (a,a) or the
+generic (a,b). The box below names the magnetic group of that order
+parameter, with its setting (at k ≠ 0, its magnetic cell), and the candidate
+of the group list in the same class; step 5 models that candidate. Its **?**
+lists the other irreps the group allows too. At a two-arm k (such as
+(⅓,⅓,0)) the irreps and their modes are listed, and no group is named.
+
 In **Magnetic space group**, the candidates are grouped by index. Work top-down:
 only the sections of the **maximal** groups that carry a moment on your sites
 start open (marked "— maximal"), because the ordered phase is usually a maximal
