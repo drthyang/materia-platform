@@ -4,6 +4,9 @@ import { generateReflections } from "@/core/diffraction/reflections";
 import { orderCandidates, reviewSymmetry } from "@/core/diagnostics/symmetryReview";
 import { buildSpaceGroup } from "@/core/crystal/spaceGroups";
 import { structuralSubgroupLattice } from "@/core/crystal/subgroupTree";
+import { factorGroup } from "@/core/crystal/irreps/factorGroup";
+import { sameCellSubgroups } from "@/core/crystal/irreps/sameCellLattice";
+import { isReflectionAbsent } from "@/core/crystal/symmetry";
 import type { StructureModel, UnitCell } from "@/core/crystal/types";
 
 /**
@@ -112,14 +115,16 @@ describe("the order of the candidates", () => {
   });
 });
 
-describe("the review's names under the validation freeze", () => {
-  // review_symmetry is model-visible, and frozen (docs/AGENT_PLAN.md, phase 6).
-  // The subgroup lattice now names a centred parent's subgroups in their
-  // standard settings, but the review keeps its names as they were until the
-  // freeze lifts, and some are wrong: from the coset representatives alone,
-  // I4₁/amd's Imma (#74) reads as Pmna (#53), its Imm2 (#44) as Pmn2₁ (#31)
-  // and R-3c's R-3 (#148) as P-3 (#147). The lattice's own names are the right
-  // ones (asserted here too), for the review once the freeze lifts.
+describe("the review's subgroups come from the subgroup engine, named in standard setting", () => {
+  // review_symmetry lists the engine's same-cell subgroups (sameCellSubgroups:
+  // t-subgroups up to index 6, and the classes that drop a centring vector),
+  // one per conjugacy class, named in ITA standard setting with the child
+  // basis (nameChild). Before the engine (THY-36), its names came from the
+  // coset representatives alone, which read a centred parent's subgroup as
+  // primitive: I4₁/amd's Imma (#74) as Pmna (#53), its Imm2 (#44) as Pmn2₁
+  // (#31), R-3c's R-3 (#148) as P-3 (#147). A subgroup allows a powder line
+  // when it allows any reflection of the line's family, whichever of its
+  // conjugates is listed.
   const review = (symbol: string, cell: UnitCell) => {
     const s: StructureModel = { id: "f", name: "f", cell, spaceGroup: buildSpaceGroup(symbol), sites: [{ label: "A1", element: "Fe", position: [0.1, 0.2, 0.3], occupancy: 1, adp: { kind: "isotropic", bIso: 0.5 } }] };
     const allowed = generateReflections(cell, s.spaceGroup, 1.2, 6);
@@ -132,26 +137,52 @@ describe("the review's names under the validation freeze", () => {
     const reflections = allowed.map((r) => ({ d: r.d, hkl: `${r.h} ${r.k} ${r.l}`, phaseLabel: "f" }));
     return { s, out: reviewSymmetry([s], { d, yObs, yCalc, sigma: yCalc.map((y) => Math.sqrt(y)), reflections }) };
   };
-  const rows = (r: ReturnType<typeof reviewSymmetry>) => r.candidates.map((c) => [c.name, c.number ?? null, c.index, c.domains]);
+  const rows = (r: ReturnType<typeof reviewSymmetry>) => r.candidates.map((c) => [c.name, c.number ?? null, c.setting ?? null, c.index, c.domains]);
 
-  it("I4₁/amd: the candidates as main had them", () => {
+  it("I4₁/amd: Imma, Imm2, I2₁2₁2₁, F222 where Pmna, Pmn2₁, P2/n and a bare 222 were", () => {
     const { s, out } = review("I 41/a m d:2", { a: 5, b: 5, c: 12, alpha: 90, beta: 90, gamma: 90 });
     expect(rows(out)).toEqual([
-      ["I -4 m 2", 119, 2, 1], ["P m n a", 53, 2, 1], ["I 41 2 2", 98, 2, 1], ["I 41/a:2", 88, 2, 1],
-      ["I -4", 82, 4, 1], ["P m n 21", 31, 4, 1], ["P 1 2/n 1", 13, 4, 2], ["222 (point group; index 4)", null, 4, 1],
+      ["I -4 m 2", 119, "(a, b, c; 0, 1/4, 3/8)", 2, 1], ["I m m a", 74, null, 2, 1], ["I 41 2 2", 98, "(a, b, c; 0, 1/4, 3/8)", 2, 1], ["I 41/a:2", 88, "(a, b, c; 0, 1/2, 0)", 2, 1],
+      ["I m m 2", 44, "(a, b, c; 0, 1/4, 0)", 4, 1], ["I 21 21 21", 24, "(c, a, b; 0, 0, 1/4)", 4, 1], ["F 2 2 2", 22, "(c, a-b, a+b; 0, 1/4, 3/8)", 4, 1], ["I -4", 82, "(a, b, c; 0, 1/4, 3/8)", 4, 1],
     ]);
+    // The same names as the Subgroups page's lattice.
     const names = new Set(structuralSubgroupLattice(s, { maxIndex: 6 }).nodes.map((n) => n.identity.number));
-    for (const right of [74, 44, 15, 22]) expect(names.has(right)).toBe(true);
+    for (const c of out.candidates) expect(names.has(c.number!)).toBe(true);
   });
 
-  it("R-3c: the candidates as main had them", () => {
+  it("R-3c: R-3, R3, C2/c, C2, Cc where P-3, P3 and bare point groups were; one P-3c1 class of 3 conjugates", () => {
     const { s, out } = review("R -3 c:H", { a: 5, b: 5, c: 13.7, alpha: 90, beta: 90, gamma: 120 });
     expect(rows(out)).toEqual([
-      ["P -3", 147, 2, 1], ["R 3 2:H", 155, 2, 1], ["P 3", 143, 4, 1], ["2 (point group; index 6)", null, 6, 3],
-      ["P -1", 2, 6, 1], ["m (point group; index 6)", null, 6, 3],
+      ["R 3 2:H", 155, "(-a-b, a, c; 0, 0, 1/4)", 2, 1], ["R -3:H", 148, null, 2, 1], ["C 1 2/c 1", 15, "((a-b+2c)/3, -a-b, (2a-2b+c)/3; 0, 0, 0)", 3, 3], ["R 3:H", 146, null, 4, 1],
+      ["C 1 2 1", 5, "((a-b+2c)/3, -a-b, (a-b-c)/3; 0, 0, 1/4)", 6, 3], ["P -1", 2, "((a-b-c)/3, (a-b+2c)/3, (-2a-b-c)/3; 0, 0, 0)", 6, 1], ["C 1 c 1", 9, "((a+2b+2c)/3, a, (2a+4b+c)/3; 0, 0, 0)", 6, 3],
     ]);
-    expect(out.decentred.map((c) => [c.name, c.number ?? null, c.index, c.domains])).toEqual([["P -3 c 1", 165, 3, 1], ["a primitive subgroup (index 3)", null, 3, 2]]);
+    // Was P-3c1 with 1 domain beside "a primitive subgroup (index 3)" with 2: its three conjugates, two of them at an origin the old namer missed.
+    expect(out.decentred.map((c) => [c.name, c.number ?? null, c.index, c.domains, c.lost])).toEqual([["P -3 c 1", 165, 3, 3, "(⅔ ⅓ ⅓), (⅓ ⅔ ⅔)"]]);
     const names = new Set(structuralSubgroupLattice(s, { maxIndex: 6 }).nodes.map((n) => n.identity.number));
-    for (const right of [148, 146, 15, 5, 9]) expect(names.has(right)).toBe(true);
+    for (const c of out.candidates) expect(names.has(c.number!)).toBe(true);
+  });
+
+  it("Pnma, Cmcm: a child of the parent's axes reads with its basis; two classes of one type stay two", () => {
+    const pnma = review("P n m a", { a: 5.5, b: 7.8, c: 5.5, alpha: 90, beta: 90, gamma: 90 }).out;
+    // Was "P n m 21" and "P 21 m a", their parent-axes symbols.
+    expect(rows(pnma).filter((r) => r[1] === 31 || r[1] === 26)).toEqual([["P m n 21", 31, "(b, a, -c; 1/4, 1/4, 0)", 2, 1], ["P m c 21", 26, "(b, c, a; 0, 1/4, 1/4)", 2, 1]]);
+    const cmcm = review("C m c m", { a: 3.9, b: 11.2, c: 4.4, alpha: 90, beta: 90, gamma: 90 }).out;
+    // Was "P b n m" and "P m c n": two classes of type Pnma, not conjugate.
+    expect(cmcm.decentred.filter((c) => c.number === 62).map((c) => [c.setting, c.domains])).toEqual([["(b, c, a; 0, 0, 0)", 1], ["(c, a, b; 1/4, 1/4, 0)", 1]]);
+  });
+
+  it("a subgroup allows a line when any of its conjugates allows it (Ia-3d)", () => {
+    const { s, out } = review("I a -3 d", { a: 12.3, b: 12.3, c: 12.3, alpha: 90, beta: 90, gamma: 90 });
+    const group = factorGroup(s.spaceGroup.operations);
+    const subs = sameCellSubgroups(group, { maxIndex: 6 });
+    const hkls = out.observedForbidden.map((o) => o.hkl);
+    const byConjugate = (classId: number): string[] => hkls.filter((hkl) => {
+      const [h, k, l] = hkl.split(" ").map(Number) as [number, number, number];
+      return subs.filter((x) => x.classId === classId).some((x) => !isReflectionAbsent(x.operations, h, k, l));
+    });
+    const i41acd = subs.find((x) => x.classRepresentative && x.kind === "t" && x.index.t === 3)!;
+    // The class's listed member allows one line of the five its three orientations allow.
+    expect(byConjugate(i41acd.classId)).toHaveLength(5);
+    expect(out.candidates.find((c) => c.number === 142)!.allows).toEqual(byConjugate(i41acd.classId));
   });
 });
