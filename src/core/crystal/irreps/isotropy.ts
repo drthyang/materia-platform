@@ -156,7 +156,7 @@ export function directionSymbol(basis: readonly Vec[]): string {
  * fractions first (so (a,-a) beats (a,0.268a)), then fewer nonzero entries,
  * fewer minus signs, the leading entries earliest.
  */
-function simplicity(basis: readonly Vec[]): number[] {
+export function simplicity(basis: readonly Vec[]): number[] {
   const rows = rref(basis);
   const irrational = rows.reduce((s, row) => s + row.filter((x) => !isSimpleFraction(x)).length, 0);
   const nonzero = rows.reduce((s, row) => s + row.filter((x) => Math.abs(x) > 1e-9).length, 0);

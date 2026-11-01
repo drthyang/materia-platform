@@ -62,8 +62,8 @@ function samePosition(a: Vec3, b: Vec3, tol = 1e-3): boolean {
   return true;
 }
 
-/** Distinct magnetic atoms in one cell: the orbit of the given sites. */
-function magneticAtoms(structure: StructureModel, siteLabels: readonly string[]): Vec3[] {
+/** Distinct magnetic atoms in one cell: the orbit of the given sites, one per primitive cell. */
+export function magneticAtoms(structure: StructureModel, siteLabels: readonly string[]): Vec3[] {
   const atoms: Vec3[] = [];
   const ops = structure.spaceGroup.operations.length
     ? structure.spaceGroup.operations
