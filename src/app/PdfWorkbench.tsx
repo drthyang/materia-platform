@@ -31,8 +31,8 @@ import { structuralSubgroupLattice, type SubgroupNode } from "@/core/crystal/sub
 import { parseCif } from "@/parsers/cif";
 import { parseModeCif } from "@/parsers/modeCif";
 import {
-  SAMPLE_STEPS, agentBoxcarPlan, boxcarSummary, landsOn, liveStateOf, momentFit, pageView, pdfBoxcar, pdfFit, pdfguiBundleOf, pdfPage, pdfPosterior, pdfProbe, pdfThorough, reportInputOf, rwOf, specKeyOf,
-  withActivatedMode, withAdpModel, withBoxcarPlan, withBoxcarRun, withBoxcarStep, withExtraPhases, withFit, withFitRange, withFixed, withLoadedStructure, withoutModes,
+  SAMPLE_STEPS, agentBoxcarPlan, boxcarDataRange, boxcarRangeOf, boxcarStartIsCurrent, boxcarStartRows, boxcarSummary, boxcarTabIssue, boxcarTabScanPlan, landsOn, liveStateOf, momentFit, pageView, pdfBoxcar, pdfFit, pdfguiBundleOf, pdfPage, pdfPosterior, pdfProbe, pdfThorough, reportInputOf, rwOf, specKeyOf,
+  withActivatedMode, withAdpModel, withBoxcarPlan, withBoxcarRange, withBoxcarRangeFromFit, withBoxcarRun, withBoxcarStart, withBoxcarStartReset, withBoxcarStep, withExtraPhases, withFit, withFitRange, withFixed, withLoadedStructure, withoutModes,
   withParameter, withParentModes, withModeCif, modeCifOf, withPattern, withPositionMode, withPosterior, withReset, withSameCellSubgroup, withSiteTotal, withSpinModel, withSubgroup, withSupercellChild, workspaceOf, type AgentBoxcarPlan, type SupercellChoice,
 } from "@/app/pdfPage";
 import { SiteTotals } from "@/app/ui/SiteTotals";
@@ -316,19 +316,23 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   // around its seed and keep the best, at (restarts + 1)× the cost.
   const [boxcarBusy, setBoxcarBusy] = useState(false);
   const [boxcarProgress, setBoxcarProgress] = useState<{ done: number; total: number } | null>(null);
+  // The tab scans its OWN r bounds (the fit window until it is edited or a
+  // scan runs) and starts from the current fit with any edits made on the tab.
+  const boxcarRange = boxcarRangeOf(model);
   const boxcarPlan = useMemo(
-    () => ({ range: { min: fitRange.min, max: fitRange.max }, width: boxcarPlanState.width, step: boxcarPlanState.step }),
-    [fitRange, boxcarPlanState.width, boxcarPlanState.step],
+    () => ({ range: { min: boxcarRange.min, max: boxcarRange.max }, width: boxcarPlanState.width, step: boxcarPlanState.step }),
+    [boxcarRange.min, boxcarRange.max, boxcarPlanState.width, boxcarPlanState.step],
   );
-  const boxcarWindowList = useMemo(() => boxcarWindows(boxcarPlan), [boxcarPlan]);
-  const boxcarIssue = useMemo(() => boxcarPlanIssue(boxcarPlan), [boxcarPlan]);
+  const boxcarIssue = useMemo(() => boxcarTabIssue(model), [model]);
+  const boxcarWindowList = useMemo(() => (boxcarIssue ? [] : boxcarWindows(boxcarPlan)), [boxcarPlan, boxcarIssue]);
   // Where the last box's right edge lands: a plan rarely divides the window
   // evenly, and silently ignoring the tail would misreport what was scanned.
-  const boxcarScanned = useMemo(() => boxcarScannedMax(boxcarPlan), [boxcarPlan]);
+  const boxcarScanned = useMemo(() => (boxcarIssue ? null : boxcarScannedMax(boxcarPlan)), [boxcarPlan, boxcarIssue]);
+  const boxcarStart = useMemo(() => ({ rows: boxcarStartRows(model), current: boxcarStartIsCurrent(model) }), [model]);
   const boxcarBlocked =
     boxcarIssue ??
-    (params.every((p) => p.fixed || p.expression)
-      ? "No free parameters — free the rows you want tracked before scanning."
+    (boxcarStart.rows.every((r) => !r.free)
+      ? "No parameters to refine — tick at least one under Starting point."
       : null);
 
   /**
@@ -340,13 +344,23 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   async function runBoxcar(override?: AgentBoxcarPlan): Promise<BoxcarRun | null> {
     // The Agent passes its own plan: it becomes the panel's plan, and the
     // Boxcar view opens so the user watches the scan fill in.
-    const plan = override ? agentBoxcarPlan(boxcarPlanState, override) : boxcarPlanState;
-    const windows = boxcarWindows({ range: { min: fitRange.min, max: fitRange.max }, width: plan.width, step: plan.step });
+    // The Agent's scan runs on the fit window from the rows as they are (its
+    // tool is unchanged); the tab's Run scans the tab's own range from the
+    // tab's starting point.
+    const plan = override ? agentBoxcarPlan(boxcarPlanState, override) : boxcarTabScanPlan(model);
+    const span = plan.range ?? fitRange;
+    const windows = boxcarWindows({ range: { min: span.min, max: span.max }, width: plan.width, step: plan.step });
     if (override) {
       const issue = boxcarPlanIssue({ range: { min: fitRange.min, max: fitRange.max }, width: override.width, step: override.step });
       if (issue) throw new Error(issue);
-      setModel((m) => withBoxcarPlan(m, { width: plan.width, step: plan.step, direction: plan.direction, randomStart: plan.randomStart, restarts: plan.restarts }));
+      // The panel shows the plan the Agent ran, its range included.
+      setModel((m) => withBoxcarPlan(m, { width: plan.width, step: plan.step, direction: plan.direction, randomStart: plan.randomStart, restarts: plan.restarts, range: { min: fitRange.min, max: fitRange.max } }));
       setViewTab("boxcar");
+    } else {
+      if (boxcarIssue) return null;
+      // From the first scan on, the range is the tab's own: moving the fit
+      // window on the Refinement tab no longer moves it.
+      setModel((m) => (m.boxcarPlan.range ? m : withBoxcarRange(m, span)));
     }
     if (windows.length === 0) return null;
     const key = specKeyOf(model);
@@ -1063,10 +1077,18 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
               planInfo={{
                 count: boxcarWindowList.length,
                 issue: boxcarIssue,
-                range: { min: fitRange.min, max: fitRange.max },
+                range: { min: boxcarRange.min, max: boxcarRange.max },
                 scannedMax: boxcarScanned,
               }}
               onPlanChange={(patch) => setModel((m) => withBoxcarPlan(m, patch))}
+              dataRange={boxcarDataRange(model)}
+              fitRange={fitRange}
+              onRangeChange={(patch) => setModel((m) => withBoxcarRange(m, patch))}
+              onRangeFromFit={() => setModel((m) => withBoxcarRangeFromFit(m))}
+              start={boxcarStart}
+              fitRw={result ? rw : null}
+              onStartChange={(id, patch) => setModel((m) => withBoxcarStart(m, id, patch))}
+              onStartReset={() => setModel((m) => withBoxcarStartReset(m))}
               labels={new Map(params.map((p) => [p.id, p.label]))}
               onExportCsv={exportBoxcarCsv}
               onAdoptStep={adoptBoxcarStep}

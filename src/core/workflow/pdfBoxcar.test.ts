@@ -10,6 +10,7 @@ import {
   BOXCAR_MAX_WINDOWS,
   boxcarHasGaps,
   boxcarPlanIssue,
+  boxcarRangeIssue,
   boxcarScannedMax,
   boxcarStepIndex,
   boxcarWindows,
@@ -274,5 +275,27 @@ describe("boxcar refinement through the sequential controller", () => {
       ),
     ).rejects.toThrow("__refinement_cancelled__");
     expect(delivered).toEqual([0, 1]);
+  });
+});
+
+describe("the Boxcar tab's range checks", () => {
+  const data = { min: 1, max: 20 };
+  it("names what is wrong with the bounds in one plain line", () => {
+    expect(boxcarRangeIssue({ min: NaN, max: 10 }, data)).toBe("Enter both r bounds in Å.");
+    expect(boxcarRangeIssue({ min: 10, max: 10 }, data)).toBe("The lower bound must be below the upper bound.");
+    expect(boxcarRangeIssue({ min: 12, max: 10 }, data)).toBe("The lower bound must be below the upper bound.");
+    expect(boxcarRangeIssue({ min: 0.5, max: 10 }, data)).toBe("The lower bound is below the data, which starts at 1 Å.");
+    expect(boxcarRangeIssue({ min: 2, max: 25 }, data)).toBe("The upper bound is past the data, which ends at 20 Å.");
+    expect(boxcarRangeIssue({ min: 1, max: 20 }, data)).toBeNull();
+  });
+
+  it("words the box geometry for the tab's range, and leaves the fit-window wording (the Agent's) as it was", () => {
+    const tooWide = { range: { min: 2, max: 5 }, width: 4, step: 1 };
+    expect(boxcarPlanIssue(tooWide)).toBe("A 4 Å box does not fit inside the 2–5 Å window — shrink the box or widen the fit window.");
+    expect(boxcarPlanIssue(tooWide, "range")).toBe("A 4 Å box does not fit inside the 2–5 Å window — shrink the box or widen the range.");
+    const single = { range: { min: 2, max: 8 }, width: 6, step: 3 };
+    expect(boxcarPlanIssue(single)).toBe("The plan has a single box — a boxcar needs at least two (shrink the step or the box, or widen the fit window).");
+    expect(boxcarPlanIssue(single, "range")).toBe("The plan has a single box — a boxcar needs at least two (shrink the step or the box, or widen the range).");
+    expect(boxcarPlanIssue({ range: { min: 5, max: 5 }, width: 1, step: 1 })).toBe("The fit window is empty — set a valid r range first.");
   });
 });
