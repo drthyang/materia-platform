@@ -12,7 +12,7 @@
  * For each (parent, k-point): one element of each conjugacy class of the
  * factor group F = G/T″, written in International Tables notation, and
  * ISOTROPY's character of every irrep at k for it (VALUE ELEMENT, SHOW
- * CHARACTER, DISPLAY IRREP). Each of MATERIA's irreps at the star must have
+ * IRREP, SHOW CHARACTER, DISPLAY IRREP: a row "R4+ (x,y,z) 3.000" per irrep). Each of MATERIA's irreps at the star must have
  * the characters of exactly one of ISOTROPY's (or, for a complex pair that
  * ISOTROPY lists as one physically irreducible representation, their sum),
  * and every one of ISOTROPY's must be matched: the correspondence is printed.
@@ -135,7 +135,7 @@ describe.skipIf(!ENABLED)("ISOTROPY oracle: MATERIA's generic irrep labels stand
       const theirs = new Map<string, Complex[]>();
       reps.forEach((e, r) => {
         const element = isoElement(group.elements[e]!.W, group.elements[e]!.w);
-        const out = iso(["PAGE NOBREAK", "LABEL ELEMENT INTERNATIONAL", `VALUE PARENT ${parent}`, `VALUE KPOINT ${kLabel}`, `VALUE ELEMENT ${element}`, "SHOW CHARACTER", "DISPLAY IRREP"]);
+        const out = iso(["PAGE NOBREAK", "LABEL ELEMENT INTERNATIONAL", `VALUE PARENT ${parent}`, `VALUE KPOINT ${kLabel}`, `VALUE ELEMENT ${element}`, "SHOW IRREP", "SHOW CHARACTER", "DISPLAY IRREP"]);
         if (r === 0 || r === 1) console.log(`--- ISOTROPY, ${name}, element ${element} ---\n${out}`);
         const chars = parseCharacters(out);
         for (const [label, c] of chars) {
