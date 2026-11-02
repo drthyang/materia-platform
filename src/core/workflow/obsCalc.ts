@@ -33,8 +33,7 @@ import { phaseBindingsFor } from "@/core/workflow/multiPhase";
 import { magneticPhaseBindings } from "@/core/workflow/magneticPowder";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { powderPeakIntensities, lorentzPolarization } from "@/core/diffraction/intensity";
-import { magneticStructureFactor } from "@/core/magnetic/structureFactor";
-import { magneticSatellites } from "@/core/magnetic/satellites";
+import { satelliteIntensities } from "@/core/magnetic/powderAverage";
 import { evaluateBackground } from "@/core/diffraction/background";
 import { gaussian, pseudoVoigt, tofBackToBack, type ProfilePeak } from "@/core/diffraction/profile";
 import { minMax } from "@/core/math/extent";
@@ -216,14 +215,13 @@ export function powderReflectionObsCalc(
     const magScaleBinding = magBindings.find((b) => b.kind === "magneticScale");
     const magFactor = magScaleBinding ? resolved[magScaleBinding.parameterId] ?? 1 : 1;
     const magScale = appliedPrimary.scale * magFactor;
-    const kVec = appliedMag.propagation[0] ?? [0, 0, 0];
     const mags: Component[] = [];
-    for (const s of magneticSatellites(appliedPrimary.model.cell, appliedPrimary.model.spaceGroup, kVec, dMin, dMax)) {
-      const fm2 = magneticStructureFactor(appliedPrimary.model, appliedMag, s.h, s.k, s.l).squared;
+    // Each line's |F_M⊥|² summed over its family's members, as the powder pattern has it.
+    for (const s of satelliteIntensities(appliedPrimary.model, appliedMag, dMin, dMax)) {
       const lp = lorentzPolarization(pattern.radiation, s.d);
       mags.push({
         kind: "magnetic", h: s.h, k: s.k, l: s.l, d: s.d,
-        iCalc: magScale * s.multiplicity * lp * fm2,
+        iCalc: magScale * lp * s.squared,
         // No hkl here on purpose: the real magnetic satellites in
         // `buildCombinedPeaks` are also placed without hkl (no anisotropic
         // strain on satellites), so the decomposition must match that to stay

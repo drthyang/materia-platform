@@ -17,10 +17,14 @@ import { dot, norm, normalize, scale, sub } from "@/core/math/vec3";
  * where M is the fractional→Cartesian orthogonalization matrix.
  */
 export function qCartesian(cell: UnitCell, h: number, k: number, l: number): Vec3 {
+  return qCartesianFor(cell)(h, k, l);
+}
+
+/** {@link qCartesian} for many reflections of one cell: the reciprocal basis is built once. */
+export function qCartesianFor(cell: UnitCell): (h: number, k: number, l: number) => Vec3 {
   const m = orthogonalizationMatrix(cell);
   const reciprocalCart = transpose(inverse(m));
-  const q = mulVec(reciprocalCart, [h, k, l]);
-  return scale(q, 2 * Math.PI);
+  return (h, k, l) => scale(mulVec(reciprocalCart, [h, k, l]), 2 * Math.PI);
 }
 
 /**

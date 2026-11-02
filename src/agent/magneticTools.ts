@@ -209,16 +209,44 @@ export async function readMagneticTool(name: string, input: Input, port: PowderA
   }
 }
 
+/** A fitted group's moments and the chosen ions they sit on: "Mn1#2 3.54 µB on 3 of the 6 Mn1 ions, none on the others". */
+function momentPattern(c: MagneticCandidateView, ions: string): string {
+  const moments = (c.fit?.moments ?? []).map((m) => `${m.site} ${sig(m.muB, 3)} µB`).join(", ");
+  const cov = c.fit?.coverage;
+  if (!cov || cov.total === 0) return moments;
+  return cov.carrying === cov.total
+    ? `${moments} on all ${cov.total} ${ions} ions`
+    : `${moments} on ${cov.carrying} of the ${cov.total} ${ions} ions, none on the others`;
+}
+
 function rankView(s: MagneticPanelState): Record<string, unknown> {
   const fitted = s.candidates.filter((c) => c.fit).sort((a, b) => (a.fit!.wR ?? Infinity) - (b.fit!.wR ?? Infinity));
+  // The ★ order puts the groups within the noise first; within them the ranking's own order.
+  const byId = new Map(s.candidates.map((c) => [c.id, c]));
+  const best = s.best ? byId.get(s.best) : undefined;
+  const twins = s.powderTwins.map((id) => byId.get(id)).filter((c): c is MagneticCandidateView => !!c);
+  const ions = s.ions.filter((i) => i.selected).map((i) => i.label).join(", ") || "magnetic";
+  const covered = (c: MagneticCandidateView): number => (c.fit?.coverage && c.fit.coverage.total > 0 ? c.fit.coverage.carrying / c.fit.coverage.total : 0);
+  const noiseLine = s.withinNoise.length > 1
+    ? `${s.withinNoise.length} groups fit within the noise of the best (${s.withinNoise.join(", ")}: a group with more moment parameters must lower χ² beyond the noise, Hamilton's test at 5 %)`
+    : "";
+  let reading: string;
+  if (!s.best) reading = "No candidate could be fitted.";
+  else if (best && twins.length > 0) {
+    const why = twins.every((t) => covered(best) > covered(t))
+      ? covered(best) === 1 ? `the one with a moment on every ${ions} ion` : `the one with a moment on more of the ${ions} ions`
+      : "the first in the list";
+    reading = `${noiseLine}. ${[s.best, ...twins.map((t) => t.id)].join(" and ")} are indistinguishable by powder: ${twins.map((t) => `${t.id} ${t.symbol} (${momentPattern(t, ions)})`).join("; ")} ${twins.length === 1 ? "gives" : "give"} the same calculated pattern as ${s.best} ${best.symbol} (${momentPattern(best, ions)}), to 1e-9, so no powder data can choose between them. The ★ is ${s.best}, ${why}. Name both when you report the structure, and choose ${s.best} unless other data (a single crystal, the physics of the ions) say otherwise.`;
+  } else {
+    reading = `${noiseLine ? `${noiseLine}, and ${s.best} is the maximal one with the fewest moment parameters among them.` : `${s.best} fits best, beyond the noise of every other group.`} A powder often cannot tell several groups apart: say which fit within the noise of the best, and choose ${s.best} unless the data say otherwise.`;
+  }
   return {
     groups: fitted.map(candidateRow),
     ...(s.best ? { best: s.best } : {}),
     ...(s.withinNoise.length ? { withinNoise: s.withinNoise } : {}),
+    ...(twins.length ? { indistinguishableByPowder: twins.map((t) => ({ id: t.id, group: t.symbol, moments: momentPattern(t, ions) })) } : {}),
     ...(s.baselineAgreement !== null ? { nuclearOnlyWR: pct(s.baselineAgreement) } : {}),
-    reading: s.best
-      ? `${s.withinNoise.length > 1 ? `${s.withinNoise.length} groups fit within the noise of the best (${s.withinNoise.join(", ")}: a group with more moment parameters must lower χ² beyond the noise, Hamilton's test at 5 %), and ${s.best} is the maximal one with the fewest moment parameters among them.` : `${s.best} fits best, beyond the noise of every other group.`} A powder often cannot tell several groups apart: say which fit within the noise of the best, and choose ${s.best} unless the data say otherwise.`
-      : "No candidate could be fitted.",
+    reading,
   };
 }
 

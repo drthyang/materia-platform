@@ -4,8 +4,9 @@ import { loadedSession } from "@/app/powderSession";
 import { powderMomentFit, powderPageCurves, refinedPhasesOf, residualPeaksOf, weightedR } from "@/app/powderPage";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { momentFit as singleCrystalMomentFit, singleCrystalPage, type SingleCrystalCompute } from "@/app/singleCrystalPage";
-import { MagneticStep, bestRanked, candidatesOf, firstOpen, momentParameters, buildFor, rankCandidates, rankWithinNoise, stepView, type MagneticFit, type RankEntry, type StepInputs } from "@/app/magneticStep";
-import type { LatticeCandidate } from "@/core/magnetic/subgroupLattice";
+import { MagneticStep, bestRanked, candidatesOf, firstOpen, fitMoments, momentParameters, buildFor, powderTwins, rankCandidates, rankWithinNoise, stepView, type MagneticFit, type RankEntry, type StepInputs } from "@/app/magneticStep";
+import { latticeRepresentatives, magneticSubgroupLattice, type LatticeCandidate } from "@/core/magnetic/subgroupLattice";
+import { magneticComponentCurve } from "@/core/workflow/magneticPowder";
 import { sessionPort } from "@/testSupport/agentHeadless";
 import { corundumPage } from "@/testSupport/scPages";
 import { MAGNETIC_TRUTH, mn3gaMagneticSession } from "@/agent/evals/pages";
@@ -223,6 +224,49 @@ describe("the ★ and the noise", () => {
     expect(bestRanked({ maximal: entry(0.05), lower: entry(0.04995) }, reps, dims)?.id).toBe("maximal");
   });
 
+  describe("an exact powder tie (THY-58)", () => {
+    // Two maximal groups of one index and one moment parameter: the top-down rule cannot split them.
+    // "half" fits a hair lower but puts its moment on half the ions; "all" puts one on every ion.
+    const pair = [
+      { index: 4, classId: 0, above: [], candidate: { id: "all" } },
+      { index: 4, classId: 1, above: [], candidate: { id: "half" } },
+    ] as unknown as LatticeCandidate[];
+    const lines = [2934.9, 1624.6, 156.97, 3.789, 466.14];
+    const fit = (wR: number, l: readonly number[], carrying: number): RankEntry => ({ ...entry(wR, 1000 * wR / 0.05, 499), lines: l, coverage: { carrying, total: 6 } });
+    const scaled = (f: number): number[] => lines.map((x, i) => (i === 0 ? x * f : x));
+
+    it("puts the group with a moment on every ion first, and names the other indistinguishable by powder", () => {
+      // The same pattern and wR to ~1e-13, as P_c-3m1 and P_c-6m2 on the synthetic Mn₃Ga page; "half" lower in the last digits.
+      const fits = { all: fit(0.0029, lines, 6), half: fit(0.0029 * (1 - 4e-14), scaled(1 + 3e-13), 3) };
+      expect(rankWithinNoise(fits, pair, [1, 1])).toEqual(["all", "half"]);
+      expect(bestRanked(fits, pair, [1, 1])?.id).toBe("all");
+      expect(powderTwins(fits, rankWithinNoise(fits, pair, [1, 1]), pair)).toEqual(["half"]);
+    });
+
+    it("keeps the wR order for a near-tie just above the tolerance, in the pattern or in the wR", () => {
+      const patternApart = { all: fit(0.0029, lines, 6), half: fit(0.0029 * (1 - 4e-14), scaled(1 + 2e-9), 3) };
+      expect(rankWithinNoise(patternApart, pair, [1, 1])).toEqual(["half", "all"]);
+      expect(powderTwins(patternApart, rankWithinNoise(patternApart, pair, [1, 1]), pair)).toEqual([]);
+      const wRApart = { all: fit(0.0029, lines, 6), half: fit(0.0029 * (1 - 2e-9), lines, 3) };
+      expect(rankWithinNoise(wRApart, pair, [1, 1])).toEqual(["half", "all"]);
+      expect(powderTwins(wRApart, rankWithinNoise(wRApart, pair, [1, 1]), pair)).toEqual([]);
+    });
+
+    it("takes the list's order between twins with a moment on as many ions", () => {
+      const fits = { all: fit(0.0029, lines, 6), half: fit(0.0029 * (1 - 4e-14), lines, 6) };
+      expect(rankWithinNoise(fits, pair, [1, 1])).toEqual(["all", "half"]);
+    });
+
+    it("leaves the top-down rule first: a twin of higher index stays below, still named; a subgroup reproducing the ★ is not", () => {
+      const higher = [pair[0]!, { index: 8, classId: 1, above: [], candidate: { id: "half" } }] as unknown as LatticeCandidate[];
+      const fits = { all: fit(0.0029, lines, 3), half: fit(0.0029 * (1 - 4e-14), lines, 6) };
+      expect(rankWithinNoise(fits, higher, [1, 1])).toEqual(["all", "half"]);
+      expect(powderTwins(fits, rankWithinNoise(fits, higher, [1, 1]), higher)).toEqual(["half"]);
+      const subgroup = [pair[0]!, { index: 8, classId: 1, above: [0], candidate: { id: "half" } }] as unknown as LatticeCandidate[];
+      expect(powderTwins(fits, rankWithinNoise(fits, subgroup, [1, 1]), subgroup)).toEqual([]);
+    });
+  });
+
   it("refines the nuclear scale with the moments at k = 0, and holds it elsewhere", async () => {
     // At k = 0 the magnetic peaks sit on the nuclear ones: a scale refined without the moments
     // has taken part of their intensity (on Mn₃Ga, 26–29 for a true 24.4, and every ★ wrong).
@@ -351,6 +395,35 @@ describe("the step's state, as the panel keeps it", () => {
     const viaList = await step.refineMoments();
     expect(viaIrrep).not.toBeNull();
     expect(viaIrrep!).toBeCloseTo(viaList!, 6);
+  }, 60000);
+
+  it("fits both domains of the truth's group alike: the powder line sums every member of its family (THY-58)", async () => {
+    // The two P_c-3m1 domains fitted this page to wR 0.31 % and 29.6 % while each line was read at one member.
+    const s = mn3gaMagneticSession();
+    const structure = refinedPhasesOf(s)[0]!;
+    const k: Vec3 = [...MAGNETIC_TRUTH.k];
+    const lattice = magneticSubgroupLattice(structure.spaceGroup.operations, k);
+    const truth = latticeRepresentatives(lattice)[Number(MAGNETIC_TRUTH.id.slice(1)) - 1]!;
+    const domains = lattice.filter((m) => m.classId === truth.classId);
+    expect(domains).toHaveLength(2);
+    const options = { sameSite: true, magnitudes: false as const, flippedUnits: [] };
+    const fit = powderMomentFit(null, s, null);
+    const fits: Awaited<ReturnType<typeof fitMoments>>[] = [];
+    const curves: number[][] = [];
+    for (const d of domains) {
+      const build = buildFor(structure, k, ["Mn1"], d.candidate.operations, options);
+      fits.push(await fitMoments(fit, build));
+      // The magnetic curve at the truth's moment, on the page's own profile.
+      const model = applyMagneticMoments(build.magnetic, build.bindings, Object.fromEntries(build.params.map((p) => [p.id, MAGNETIC_TRUTH.moment])));
+      curves.push(magneticComponentCurve(structure, model, s.pattern, s.powderParams, s.powderBindings, s.powderProfile));
+    }
+    const top = Math.max(...curves[0]!);
+    expect(top).toBeGreaterThan(0);
+    expect(Math.max(...curves[0]!.map((y, i) => Math.abs(y - curves[1]![i]!)))).toBeLessThan(1e-9 * top);
+    expect(Math.abs(fits[0]!.agreement! - fits[1]!.agreement!)).toBeLessThan(1e-9 * fits[0]!.agreement!);
+    // At the noise of the data, at the truth's moment.
+    expect(fits[0]!.agreement!).toBeLessThan(0.005);
+    for (const f of fits) expect(Math.abs(Object.values(f.values)[0]!)).toBeCloseTo(MAGNETIC_TRUTH.moment, 2);
   }, 60000);
 
   it("keeps each step's derived values while another step on another structure renders (the hidden powder page beside the PDF page)", () => {

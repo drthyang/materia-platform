@@ -70,3 +70,18 @@ describe("the free set an eval records for a call", () => {
     expect(freeAtCall("get_state", {}, params)).toBeUndefined();
   });
 });
+
+describe("magneticGroupIs", () => {
+  it("counts a group indistinguishable by powder from the truth (the ★'s exact twin), not one merely within the noise (THY-58)", async () => {
+    const { magneticGroupIs } = await import("@/agent/evals/checks");
+    const run = (chosen: string, best: string, powderTwins: string[]): EvalRun =>
+      ({ events: [], port: { magnetic: () => ({ state: () => ({ selected: { id: chosen }, best, powderTwins }) }) } }) as unknown as EvalRun;
+    const check = magneticGroupIs("G1");
+    expect(check.grade(run("G1", "G1", ["G3"])).pass).toBe(true);
+    expect(check.grade(run("G3", "G1", ["G3"])).pass).toBe(true);
+    expect(check.grade(run("G3", "G3", ["G1"])).pass).toBe(true);
+    // Within the noise but a different pattern, or no ranking: only the truth counts.
+    expect(check.grade(run("G3", "G1", [])).pass).toBe(false);
+    expect(check.grade(run("G2", "G1", ["G3"])).pass).toBe(false);
+  });
+});

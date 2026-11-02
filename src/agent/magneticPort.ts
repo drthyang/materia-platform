@@ -55,7 +55,13 @@ export interface MagneticCandidateView {
   /** Moment parameters the group's fit refines on the chosen ions, every split orbit counted (0: no moment there). */
   readonly momentParameters: number;
   /** The moments-only fit against the data, once ranked. */
-  readonly fit?: { readonly status: "ok" | "failed" | "forbidden"; readonly wR: number | null; readonly moments: readonly { readonly site: string; readonly muB: number }[] };
+  readonly fit?: {
+    readonly status: "ok" | "failed" | "forbidden";
+    readonly wR: number | null;
+    readonly moments: readonly { readonly site: string; readonly muB: number }[];
+    /** The chosen ions carrying the fitted moment, of all of them in the parent cell. */
+    readonly coverage?: { readonly carrying: number; readonly total: number };
+  };
 }
 
 export interface MomentView {
@@ -100,6 +106,8 @@ export interface MagneticPanelState {
   readonly best: string | null;
   /** The ranked groups within the noise of the best fit (Hamilton's test where the fit reports χ²). */
   readonly withinNoise: readonly string[];
+  /** The groups indistinguishable by powder from the ★: the same calculated pattern and wR to 1e-9 (an exact tie the ★ breaks by the ions carrying a moment). */
+  readonly powderTwins: readonly string[];
   /** Moments can be fitted against the data on this page. */
   readonly canFit: boolean;
   /** The chosen model lets k refine with the moments (Continue with refineK). */
@@ -144,7 +152,12 @@ export function candidateView(
   i: number,
   momentParameters: number,
   maximal: boolean,
-  fit?: { readonly status: "ok" | "failed" | "forbidden"; readonly wR: number | null; readonly magnitudes: readonly { readonly label: string; readonly value: number }[] },
+  fit?: {
+    readonly status: "ok" | "failed" | "forbidden";
+    readonly wR: number | null;
+    readonly magnitudes: readonly { readonly label: string; readonly value: number }[];
+    readonly coverage?: { readonly carrying: number; readonly total: number };
+  },
 ): MagneticCandidateView {
   const label = latticeCandidateLabel(rep);
   return {
@@ -157,7 +170,7 @@ export function candidateView(
     domains: rep.domainCount,
     maximal,
     momentParameters,
-    ...(fit ? { fit: { status: fit.status, wR: fit.wR, moments: fit.magnitudes.map((m) => ({ site: m.label, muB: m.value })) } } : {}),
+    ...(fit ? { fit: { status: fit.status, wR: fit.wR, moments: fit.magnitudes.map((m) => ({ site: m.label, muB: m.value })), ...(fit.coverage ? { coverage: fit.coverage } : {}) } } : {}),
   };
 }
 

@@ -423,14 +423,22 @@ export function magneticKIs(k: readonly [number, number, number]): Check {
   };
 }
 
-/** The chosen magnetic group, or one the ranking ties with it (the powder's degeneracy). */
+/**
+ * The chosen magnetic group, or one the ranking ties with it exactly (the
+ * powder's degeneracy): the ★ and the groups indistinguishable by powder from
+ * it (`powderTwins`, the same calculated pattern) all count when `id` is one of
+ * them. A group merely within the noise does not.
+ */
 export function magneticGroupIs(id: string): Check {
   return {
     name: `chooses the magnetic group ${id}`,
     grade: (run) => {
-      const h = (run.port as PowderAgentPort).magnetic?.();
-      const chosen = h?.state().selected?.id;
-      return chosen === id ? ok(`chose ${id}`) : fail(chosen ? `chose ${chosen}` : "chose none");
+      const state = (run.port as PowderAgentPort).magnetic?.()?.state();
+      const chosen = state?.selected?.id;
+      if (chosen === id) return ok(`chose ${id}`);
+      const twins = state?.best ? [state.best, ...state.powderTwins] : [];
+      if (chosen && twins.includes(id) && twins.includes(chosen)) return ok(`chose ${chosen}, indistinguishable by powder from ${id}`);
+      return fail(chosen ? `chose ${chosen}` : "chose none");
     },
   };
 }
