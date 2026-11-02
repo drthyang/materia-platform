@@ -42,6 +42,7 @@ import type { KStar } from "@/core/crystal/irreps/spaceGroupIrreps";
 import { boxOfVectors } from "@/core/crystal/irreps/childSetting";
 import type { SupercellSpec } from "@/core/crystal/irreps/supercell";
 import { color, fz, mono, resetRangeBtn, uppercaseLabel } from "@/app/theme";
+import { Chip } from "@/app/ui/Chip";
 import { DEFAULT_BOUND, SupercellBound, boundLabel, formatMatrix } from "@/app/ui/SupercellView";
 import { InfoBadge } from "@/app/ui/InfoBadge";
 import { chipName, kChips, sameCellGraph, sameCellListing, type LatticeCounts, type PickerAction, type SubgroupRow } from "@/app/ui/subgroupPicker";
@@ -309,26 +310,6 @@ function useWidth(): [(el: HTMLDivElement | null) => void, number] {
     obs.current.observe(el);
   }, []);
   return [ref, width];
-}
-
-function Chip({ on, label, aria, title, disabled, onClick }: { on: boolean; label: ReactNode; aria: string; title?: string; disabled?: boolean; onClick: () => void }): JSX.Element {
-  return (
-    <button
-      type="button"
-      aria-pressed={on}
-      aria-label={aria}
-      title={title}
-      disabled={disabled}
-      onClick={onClick}
-      className="wb-kchip"
-      style={{
-        flex: "0 0 auto", border: `1px solid ${on ? color.primary : color.control}`, background: on ? color.primaryTintBg : color.surface, color: on ? color.primary : color.ink,
-        borderRadius: 999, padding: "3px 10px", fontSize: fz.micro, fontFamily: mono, cursor: "pointer", whiteSpace: "nowrap",
-      }}
-    >
-      {label}
-    </button>
-  );
 }
 
 function Segments<T extends string>({ value, options, onChange, label }: { value: T; options: readonly { readonly id: T; readonly label: string }[]; onChange: (v: T) => void; label: string }): JSX.Element {

@@ -13,13 +13,9 @@ import type { RefinementParameter, RefinementResult } from "@/core/refinement/ty
 import { card, color, mono, secondaryButton, space, uppercaseLabel } from "@/app/theme";
 import { InfoBadge } from "@/app/ui/InfoBadge";
 import { resolveTies } from "@/core/refinement/constraints";
-import { GROUP_ORDER, parameterGroupOf } from "@/app/ui/parameterGroups";
+import { GROUP_ORDER, isLocked, parameterGroupOf } from "@/app/ui/parameterGroups";
 import { PanelRunButtons, RUN_BAR_QUERY, RunBar, type RunActionsProps } from "@/app/ui/RunActions";
 import { useMediaQuery } from "@/app/ui/useMediaQuery";
-
-/** Rows the user cannot free: instrument calibration, and parameters derived
- *  from others by a tie expression (their value follows the tie). */
-const isLocked = (p: RefinementParameter): boolean => p.kind === "tofCalibration" || !!p.expression;
 
 interface Props {
   readonly params: readonly RefinementParameter[];
