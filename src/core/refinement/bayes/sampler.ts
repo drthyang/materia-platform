@@ -118,6 +118,49 @@ export interface SampleOptions {
   readonly linearizedEsd?: Readonly<Record<string, number>>;
   /** Progress callback per completed ensemble step. */
   readonly onStep?: (step: number, meanLogP: number) => void;
+  /**
+   * Stop the run early. Checked at every step boundary; an async driver also
+   * abandons the batch in flight. The step that was running is discarded, so
+   * the chains and the resume token end on the last COMPLETED step, and the
+   * result carries `stopped` (never status "ok"). The default burn-in is then
+   * half the steps actually taken, the same rule as a finished run.
+   */
+  readonly signal?: AbortSignal;
+}
+
+/** A run stopped through `SampleOptions.signal`, as its result records it. */
+export interface SampleStopped {
+  /** Total ensemble steps completed (across all chunks) when it stopped. */
+  readonly atStep: number;
+  /** The total the run was asked to reach. */
+  readonly plannedStep: number;
+  /** Draws (walkers × kept steps) a finished run would have kept. */
+  readonly plannedSamples: number;
+}
+
+/**
+ * Fewest kept steps per walker the diagnostics read: split-R̂ halves each
+ * walker into two chains of at least 2, and the ESS needs 4 draws. A stopped
+ * run with fewer has no posterior estimates to show.
+ */
+export const MIN_KEPT_STEPS = 4;
+
+/** Effective samples a run needs to pass (with R̂ < POSTERIOR_RHAT). */
+export function essTarget(nFree: number): number {
+  return Math.max(100, 10 * nFree);
+}
+
+/** Whether a run kept too few steps for any posterior estimate (see MIN_KEPT_STEPS). */
+export function tooFewToRead(result: Pick<SampleResult, "chains">): boolean {
+  return (result.chains[0]?.length ?? 0) < MIN_KEPT_STEPS;
+}
+
+/** Thrown into the sampler generator to stop it at the batch it is waiting on. */
+export class SamplingStopped extends Error {
+  constructor() {
+    super("sampling stopped");
+    this.name = "SamplingStopped";
+  }
 }
 
 export interface SampleResult {
@@ -132,9 +175,12 @@ export interface SampleResult {
   readonly posterior: PosteriorSummary;
   /** Serializable state to continue the chain in a later call. */
   readonly resume: WalkerState;
-  /** "ok" when R̂/ESS pass; "not-converged" with reasons in diagnostics. */
+  /** "ok" when R̂/ESS pass; "not-converged" with reasons in diagnostics. A
+   *  stopped run is always "not-converged": its chains are partial. */
   readonly status: "ok" | "not-converged";
   readonly message?: string;
+  /** Present when `signal` stopped the run before its last step. */
+  readonly stopped?: SampleStopped;
 }
 
 const DEFAULT_A = 2;
@@ -223,6 +269,9 @@ export function* sampleCore(
           `(token: [${init.freeIds.join(", ")}], problem: [${freeIds.join(", ")}])`,
       );
     }
+    if (init.logP.length !== init.q.length) {
+      throw new Error("samplePosterior: the resume token has no evaluated ensemble (the run stopped before its first step) — start a fresh run");
+    }
     q = init.q.map((row) => [...row]);
     logP = [...init.logP];
     stepIndex = init.stepIndex;
@@ -265,7 +314,13 @@ export function* sampleCore(
 
     // Evaluate the whole initial ensemble as one batch.
     const boundedRows = q.map((row) => row.map((qj, j) => toBounded(qj, transforms[j]!)));
-    const initCurves = yield boundedRows.map((b) => valuesRecord(problem, freeIds, b));
+    let initCurves: Float64Array[];
+    try {
+      initCurves = yield boundedRows.map((b) => valuesRecord(problem, freeIds, b));
+    } catch (e) {
+      if (!(e instanceof SamplingStopped)) throw e;
+      return stoppedBeforeStart(q, freeIds, seed, rng.count(), options);
+    }
     logP = boundedRows.map((b, w) =>
       logPostOf(problem, initCurves[w]!, q[w]!, b, prep, options.priors),
     );
@@ -275,20 +330,35 @@ export function* sampleCore(
 
   const nWalkers = q.length;
   const half = nWalkers >> 1;
-  const rng = mulberry32From(seed, rngDraws);
+  let rng = mulberry32From(seed, rngDraws);
 
   // --- Chain storage for THIS chunk ------------------------------------------
+  // A stoppable run stores every step: stopped early, its burn-in is half the
+  // steps it took, which reaches back before the planned one.
   const keptQ: number[][][] = Array.from({ length: nWalkers }, () => []);
   const keptLogP: number[][] = Array.from({ length: nWalkers }, () => []);
+  const keptAt: number[] = [];
   const thin = Math.max(1, options.thin ?? 1);
   const totalStepsAfter = stepIndex + options.nSteps;
   const burnIn = options.burnIn ?? Math.floor(totalStepsAfter / 2);
+  const isKept = (s: number, burn: number): boolean => s > burn && (s - burn) % thin === 0;
+  const keepAll = options.signal !== undefined;
+  const firstStep = stepIndex;
+  let stopped = false;
 
   let accepted = 0;
   let proposed = 0;
 
   // --- Stretch-move steps -----------------------------------------------------
-  for (let step = 0; step < options.nSteps; step++) {
+  steps: for (let step = 0; step < options.nSteps; step++) {
+    if (options.signal?.aborted) {
+      stopped = true;
+      break;
+    }
+    // The step's starting state: a stop mid-step returns here, so the chains
+    // and the resume token never hold half a step. Rows are replaced, never
+    // mutated, so shallow copies suffice.
+    const atStart = { q: q.slice(), logP: logP.slice(), draws: rng.count(), accepted, proposed };
     // Two half-ensemble updates: active half [start, start+half) proposes
     // against the complementary half, as one independent batch each.
     for (let phase = 0; phase < 2; phase++) {
@@ -318,7 +388,19 @@ export function* sampleCore(
         proposalBounded[k] = prop.map((qj, j) => toBounded(qj, transforms[j]!));
       }
 
-      const curves = yield proposalBounded.map((b) => valuesRecord(problem, freeIds, b));
+      let curves: Float64Array[];
+      try {
+        curves = yield proposalBounded.map((b) => valuesRecord(problem, freeIds, b));
+      } catch (e) {
+        if (!(e instanceof SamplingStopped)) throw e;
+        q = atStart.q;
+        logP = atStart.logP;
+        rng = mulberry32From(seed, atStart.draws);
+        accepted = atStart.accepted;
+        proposed = atStart.proposed;
+        stopped = true;
+        break steps;
+      }
 
       for (let k = 0; k < half; k++) {
         proposed++;
@@ -335,7 +417,8 @@ export function* sampleCore(
     }
 
     stepIndex++;
-    if (stepIndex > burnIn && (stepIndex - burnIn) % thin === 0) {
+    if (keepAll || isKept(stepIndex, burnIn)) {
+      keptAt.push(stepIndex);
       for (let w = 0; w < nWalkers; w++) {
         keptQ[w]!.push([...q[w]!]);
         keptLogP[w]!.push(logP[w]!);
@@ -348,17 +431,22 @@ export function* sampleCore(
   }
 
   // --- Assemble result --------------------------------------------------------
+  const finalBurn = stopped && options.burnIn === undefined ? Math.floor(stepIndex / 2) : burnIn;
+  const rows = keptAt.flatMap((s, i) => (isKept(s, finalBurn) ? [i] : []));
   const chains = keptQ.map((walker) =>
-    walker.map((row) => row.map((qj, j) => toBounded(qj, transforms[j]!))),
+    rows.map((i) => walker[i]!.map((qj, j) => toBounded(qj, transforms[j]!))),
   );
-  const diagnostics = buildDiagnostics(chains, keptLogP, freeIds);
+  const chainLogP = keptLogP.map((walker) => rows.map((i) => walker[i]!));
+  const diagnostics = buildDiagnostics(chains, chainLogP, freeIds);
   const posterior = posteriorSummary(chains, freeIds, diagnostics, options.linearizedEsd);
-  const converged =
-    diagnostics.maxRHat < POSTERIOR_RHAT && diagnostics.minEss >= Math.max(100, 10 * nFree);
+  const passes = diagnostics.maxRHat < POSTERIOR_RHAT && diagnostics.minEss >= essTarget(nFree);
+  const converged = passes && !stopped;
+  let plannedKept = 0;
+  for (let s = firstStep + 1; s <= totalStepsAfter; s++) if (isKept(s, burnIn)) plannedKept++;
 
   return {
     chains,
-    logProb: keptLogP,
+    logProb: chainLogP,
     freeIds: [...freeIds],
     acceptanceFraction: proposed > 0 ? accepted / proposed : 0,
     diagnostics,
@@ -372,9 +460,36 @@ export function* sampleCore(
       seed,
     },
     status: converged ? "ok" : "not-converged",
-    message: converged
-      ? `converged: R̂max ${diagnostics.maxRHat.toFixed(3)}, ESSmin ${Math.round(diagnostics.minEss)}`
-      : `not converged: R̂max ${diagnostics.maxRHat.toFixed(3)}, ESSmin ${Math.round(diagnostics.minEss)} — continue via the resume token`,
+    message: stopped
+      ? `stopped early at step ${stepIndex} of ${totalStepsAfter}: ${diagnostics.nSamples} of ${nWalkers * plannedKept} samples — the chains are partial`
+      : converged
+        ? `converged: R̂max ${diagnostics.maxRHat.toFixed(3)}, ESSmin ${Math.round(diagnostics.minEss)}`
+        : `not converged: R̂max ${diagnostics.maxRHat.toFixed(3)}, ESSmin ${Math.round(diagnostics.minEss)} — continue via the resume token`,
+    ...(stopped ? { stopped: { atStep: stepIndex, plannedStep: totalStepsAfter, plannedSamples: nWalkers * plannedKept } } : {}),
+  };
+}
+
+/** A fresh run stopped while its first ensemble was being evaluated: no samples, nothing to resume. */
+function stoppedBeforeStart(q: number[][], freeIds: readonly string[], seed: number, rngDraws: number, options: SampleOptions): SampleResult {
+  const nWalkers = q.length;
+  const chains: number[][][] = q.map(() => []);
+  const diagnostics = buildDiagnostics(chains, chains.map(() => []), freeIds);
+  const burnIn = options.burnIn ?? Math.floor(options.nSteps / 2);
+  const thin = Math.max(1, options.thin ?? 1);
+  let plannedKept = 0;
+  for (let s = 1; s <= options.nSteps; s++) if (s > burnIn && (s - burnIn) % thin === 0) plannedKept++;
+  return {
+    chains,
+    logProb: chains.map(() => []),
+    freeIds: [...freeIds],
+    acceptanceFraction: 0,
+    diagnostics,
+    posterior: posteriorSummary(chains, freeIds, diagnostics, options.linearizedEsd),
+    // logP left empty: the token cannot be resumed (the resume path refuses it).
+    resume: { q: q.map((row) => [...row]), logP: [], rngDraws, stepIndex: 0, freeIds: [...freeIds], seed },
+    status: "not-converged",
+    message: `stopped early at step 0 of ${options.nSteps}: 0 of ${nWalkers * plannedKept} samples`,
+    stopped: { atStep: 0, plannedStep: options.nSteps, plannedSamples: nWalkers * plannedKept },
   };
 }
 
@@ -400,12 +515,48 @@ export async function samplePosteriorParallel(
   evaluator: BatchEvaluator,
 ): Promise<SampleResult> {
   const gen = sampleCore(problem, options);
+  const signal = options.signal;
   let step = gen.next();
   while (!step.done) {
     const sets = step.value;
-    // An evaluator that splits every evaluation takes the single ones too (the driver holds no pairs).
-    const results = sets.length === 1 && evaluator.splitsEvaluations !== true ? [problem.calculate(sets[0]!)] : await evaluator.evaluate(sets);
+    let results: Float64Array[];
+    try {
+      // An evaluator that splits every evaluation takes the single ones too (the driver holds no pairs).
+      results = sets.length === 1 && evaluator.splitsEvaluations !== true ? [problem.calculate(sets[0]!)] : await untilAborted(evaluator.evaluate(sets), signal);
+      if (signal?.aborted) throw new SamplingStopped();
+    } catch (e) {
+      // Stopped: the batch in flight is abandoned (its evaluator is the
+      // caller's to dispose), and the generator ends on the last whole step.
+      if (!signal?.aborted) throw e;
+      step = gen.throw(new SamplingStopped());
+      continue;
+    }
     step = gen.next(results);
   }
   return step.value;
+}
+
+/** The evaluation, or a SamplingStopped rejection as soon as `signal` aborts. */
+function untilAborted<T>(work: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return work;
+  // Abandoned on a stop: its own failure (the pool disposed under it) must not surface as unhandled.
+  work.catch(() => undefined);
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => reject(new SamplingStopped());
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    signal.addEventListener("abort", onAbort, { once: true });
+    work.then(
+      (v) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(v);
+      },
+      (e: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(e instanceof Error ? e : new Error(String(e)));
+      },
+    );
+  });
 }

@@ -221,6 +221,10 @@ export function PowderWorkbench({
   } | null>(null);
   const [sampleBusy, setSampleBusy] = useState(false);
   const [sampleProgress, setSampleProgress] = useState<{ step: number; total: number } | null>(null);
+  // The running posterior's Stop (stopSample); null while none runs.
+  const sampleStop = useRef<AbortController | null>(null);
+  // A sampler still running when the page unmounts stops with it.
+  useEffect(() => () => sampleStop.current?.abort(), []);
   // Reflection clicked in the F_obs/F_calc plot, spotlighted in the pattern
   // plot; null = nothing highlighted.
   const [highlight, setHighlight] = useState<{ hkl: string; kind: "nuclear" | "magnetic"; phaseId?: string } | null>(null);
@@ -739,6 +743,8 @@ export function PowderWorkbench({
     const prior = continueRun ? sample : null;
     const total = (prior ? prior.result.resume.stepIndex : 0) + steps;
     setSampleProgress({ step: prior ? prior.result.resume.stepIndex : 0, total });
+    const stop = new AbortController();
+    sampleStop.current = stop;
     try {
       // A continued run keeps its first run's problem and esds (the stored
       // closure), with this call's steps and progress.
@@ -748,13 +754,21 @@ export function PowderWorkbench({
         ...(prior ? { init: prior.result.resume } : {}),
         ...(powderResult?.esd ? { linearizedEsd: powderResult.esd } : {}),
         onStep: (step: number) => {
-          if (step % 5 === 0 || step === total) setSampleProgress({ step, total });
+          if (!stop.signal.aborted && (step % 5 === 0 || step === total)) setSampleProgress({ step, total });
         },
+        // Stop: the run ends on its last whole step and comes back marked `stopped`.
+        signal: stop.signal,
       };
       // The page's problem as it stands: the window, every phase, the restraints, an applied magnetic model (powderPage.ts).
       const rerun = prior ? prior.rerun : posteriorRun(client, pageModel());
       const res = await rerun(options);
       setSample({ result: res, rerun });
+      if (res.stopped) {
+        // The partial run stays on the Posterior tab, labelled; the Agent reads
+        // it as the cancelled run it is (its text is frozen), never as a posterior.
+        setMessage(`Posterior stopped early: ${res.diagnostics.nSamples} of ${res.stopped.plannedSamples} samples.`);
+        return "cancelled";
+      }
       setMessage(
         `Posterior ${prior ? "continued" : "sampled"} (${res.status}): R̂max ${res.diagnostics.maxRHat.toFixed(3)} · ESSmin ${Math.round(res.diagnostics.minEss)} · ${res.diagnostics.nSamples} samples.`,
       );
@@ -764,9 +778,15 @@ export function PowderWorkbench({
       setMessage(msg === CANCELLED ? "Posterior sampling cancelled." : `Posterior sampling failed: ${msg}`);
       return msg === CANCELLED ? "cancelled" : `failed: ${msg}`;
     } finally {
+      if (sampleStop.current === stop) sampleStop.current = null;
       setSampleProgress(null);
       setSampleBusy(false);
     }
+  }
+
+  /** Stop the running posterior: it ends on its last whole step, the partial chains kept and labelled. */
+  function stopSample(): void {
+    sampleStop.current?.abort();
   }
 
   /**
@@ -1523,6 +1543,7 @@ export function PowderWorkbench({
                       busy={sampleBusy}
                       progress={sampleProgress}
                       onRun={(continueRun) => void runSample(continueRun)}
+                      onStop={stopSample}
                       hasRefined={powderResult !== null && !busy}
                       labels={new Map(powderParams.map((p) => [p.id, p.label]))}
                     />

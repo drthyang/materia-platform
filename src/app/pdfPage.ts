@@ -1450,7 +1450,7 @@ export const SAMPLE_STEPS = 400;
  * token, so the chain keeps targeting the same posterior. mPDF has no analytic
  * gradient: the sampler is the gradient-free ensemble either way.
  */
-export async function pdfPosterior(client: PdfCompute, m: PdfPageModel, continueRun: boolean, steps = SAMPLE_STEPS, onStep?: (step: number, total: number) => void): Promise<{ readonly sample: PosteriorRun; readonly key: SpecKey }> {
+export async function pdfPosterior(client: PdfCompute, m: PdfPageModel, continueRun: boolean, steps = SAMPLE_STEPS, onStep?: (step: number, total: number) => void, signal?: AbortSignal): Promise<{ readonly sample: PosteriorRun; readonly key: SpecKey }> {
   const v = pageView(m);
   const key = specKeyOf(m);
   const prior = continueRun ? m.sample : null;
@@ -1472,6 +1472,8 @@ export async function pdfPosterior(client: PdfCompute, m: PdfPageModel, continue
     ...(prior ? { init: prior.result.resume } : {}),
     ...(m.result?.esd ? { linearizedEsd: m.result.esd } : {}),
     ...(onStep ? { onStep: (s: number) => onStep(s, total) } : {}),
+    // Stop: the run ends on its last whole step and comes back marked `stopped`.
+    ...(signal ? { signal } : {}),
   };
   const result = "magnetic" in req ? await client.sampleMpdfPosterior(req, options) : await client.samplePdfPosterior(req, options);
   return { sample: { result, req }, key };

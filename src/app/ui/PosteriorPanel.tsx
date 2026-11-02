@@ -6,13 +6,20 @@
  * evidence (split-R̂, ESS, acceptance), never a bare std. The headline column
  * is esdRatio = posterior std / linearized LM esd: ≈ 1 validates the
  * least-squares error bars; ≫ 1 means the linearization was overconfident.
+ *
+ * While a run goes, Stop takes the Sample button's place (as Cancel takes
+ * Refine's): the run ends on its last whole step and its partial chains stay,
+ * labelled "Stopped early" — never "Converged" — with no estimates at all when
+ * too few steps were kept for the diagnostics to read.
  */
 
-import { useMemo } from "react";
-import type { SampleResult } from "@/core/refinement/bayes/sampler";
+import { useEffect, useMemo, useRef, type CSSProperties } from "react";
+import { essTarget, MIN_KEPT_STEPS, tooFewToRead, type SampleResult } from "@/core/refinement/bayes/sampler";
 import type { PosteriorParamSummary } from "@/core/refinement/bayes/diagnostics";
+import { POSTERIOR_RHAT } from "@/core/diagnostics/thresholds";
 import { color, fz, mono, primaryButton, secondaryButton, uppercaseLabel } from "@/app/theme";
 import { InfoBadge } from "@/app/ui/InfoBadge";
+import { CANCEL_ARM_MS } from "@/app/ui/RunActions";
 
 export interface PosteriorPanelProps {
   readonly result: SampleResult | null;
@@ -20,6 +27,8 @@ export interface PosteriorPanelProps {
   readonly progress: { step: number; total: number } | null;
   /** Kick off a run; `continueRun` resumes the existing chain. */
   readonly onRun: (continueRun: boolean) => void;
+  /** Stop the running sampler (shown in the Sample button's place while `busy`). */
+  readonly onStop: () => void;
   /** A converged LM result exists (enables sampling + the esdRatio column). */
   readonly hasRefined: boolean;
   /** Parameter labels by id (falls back to the id). */
@@ -33,8 +42,14 @@ function ratioInk(ratio: number | undefined): string {
 }
 
 function rhatInk(rhat: number): string {
-  return rhat < 1.05 ? color.okInk : color.warnInk;
+  return rhat < POSTERIOR_RHAT ? color.okInk : color.warnInk;
 }
+
+function essInk(ess: number, nFree: number): string {
+  return ess >= essTarget(nFree) ? color.okInk : color.warnInk;
+}
+
+const stopButton: CSSProperties = { ...secondaryButton, border: `1px solid ${color.warnBorder}`, background: color.warnBg, color: color.warnInk, fontWeight: 600 };
 
 /** Compact marginal histogram (SVG) from the flattened per-parameter draws. */
 function Marginal({ draws, summary }: { draws: readonly number[]; summary: PosteriorParamSummary }) {
@@ -74,7 +89,17 @@ function Marginal({ draws, summary }: { draws: readonly number[]; summary: Poste
   );
 }
 
-export function PosteriorPanel({ result, busy, progress, onRun, hasRefined, labels }: PosteriorPanelProps) {
+export function PosteriorPanel({ result, busy, progress, onRun, onStop, hasRefined, labels }: PosteriorPanelProps) {
+  // A Stop tap this soon after the run started is the second tap of a double
+  // tap on Sample (Stop takes its place): ignored, as the run bar's Cancel is.
+  const startedAt = useRef(0);
+  useEffect(() => {
+    if (busy) startedAt.current = Date.now();
+  }, [busy]);
+  const stop = (): void => {
+    if (Date.now() - startedAt.current < CANCEL_ARM_MS) return;
+    onStop();
+  };
   // Flattened draws per parameter for the marginals (kept small by the panel).
   const flat = useMemo(() => {
     if (!result) return new Map<string, number[]>();
@@ -87,37 +112,55 @@ export function PosteriorPanel({ result, busy, progress, onRun, hasRefined, labe
     return out;
   }, [result]);
 
-  const converged = result?.status === "ok";
+  const stopped = result?.stopped ?? null;
+  const converged = result?.status === "ok" && !stopped;
+  // Too few kept steps for R̂/ESS: a stopped run then shows only its note.
+  const tooFew = result !== null && tooFewToRead(result);
+  const showEstimates = result !== null && !(stopped && tooFew);
+  // A run stopped before its first step left nothing to continue.
+  const canContinue = result !== null && result.resume.logP.length === result.resume.q.length;
+  const nFree = result?.freeIds.length ?? 0;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, height: "100%", minHeight: 0 }}>
       {/* Action row */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <button
-          style={{ ...primaryButton, opacity: busy || !hasRefined ? 0.55 : 1 }}
-          disabled={busy || !hasRefined}
-          onClick={() => onRun(false)}
-          title={
-            hasRefined
-              ? "Sample the Bayesian posterior of the FREE parameters, seeded at the current refined values (400 ensemble steps; marginalized noise model)"
-              : "Refine first — sampling seeds walkers at the converged least-squares values"
-          }
-        >
-          {busy ? <span className="wb-shimmer-text">Sampling…</span> : "Sample posterior"}
-        </button>
+        {busy ? (
+          <button style={stopButton} onClick={stop} title="Stop the sampler: the steps already taken are kept, marked as stopped early">
+            Stop
+          </button>
+        ) : (
+          <button
+            style={{ ...primaryButton, opacity: hasRefined ? 1 : 0.55 }}
+            disabled={!hasRefined}
+            onClick={() => onRun(false)}
+            title={
+              hasRefined
+                ? "Sample the Bayesian posterior of the FREE parameters, seeded at the current refined values (400 ensemble steps; marginalized noise model)"
+                : "Refine first — sampling seeds walkers at the converged least-squares values"
+            }
+          >
+            Sample posterior
+          </button>
+        )}
         {result ? (
           <button
-            style={{ ...secondaryButton, opacity: busy ? 0.55 : 1 }}
-            disabled={busy}
+            style={{ ...secondaryButton, opacity: busy || !canContinue ? 0.55 : 1 }}
+            disabled={busy || !canContinue}
             onClick={() => onRun(true)}
-            title="Continue the SAME chain from its resume token (400 more steps) — the honest fix for a not-converged run"
+            title={
+              canContinue
+                ? "Continue the SAME chain from its resume token (400 more steps) — the honest fix for a not-converged run"
+                : "Stopped before the first step: nothing to continue — sample afresh"
+            }
           >
             Continue ↻
           </button>
         ) : null}
-        {progress && busy ? (
+        {busy ? (
           <span style={{ fontFamily: mono, fontSize: fz.small, color: color.secondary }}>
-            step {progress.step}/{progress.total}
+            <span className="wb-shimmer-text">Sampling…</span>
+            {progress ? ` step ${progress.step}/${progress.total}` : ""}
           </span>
         ) : null}
         <span style={{ flex: 1 }} />
@@ -152,21 +195,50 @@ export function PosteriorPanel({ result, busy, progress, onRun, hasRefined, labe
             fontSize: fz.small,
           }}
         >
-          <span style={{ fontWeight: 600, color: converged ? color.okInk : color.noteInk }}>
-            {converged ? "Converged" : "Not converged — continue the chain"}
-          </span>
-          <span style={{ fontFamily: mono, color: color.secondary }}>
-            R̂max <b style={{ color: rhatInk(result.diagnostics.maxRHat) }}>{result.diagnostics.maxRHat.toFixed(3)}</b>
-          </span>
-          <span style={{ fontFamily: mono, color: color.secondary }}>
-            ESSmin <b>{Math.round(result.diagnostics.minEss)}</b>
-          </span>
-          <span style={{ fontFamily: mono, color: color.secondary }}>
-            accept <b>{(result.acceptanceFraction * 100).toFixed(0)}%</b>
-          </span>
-          <span style={{ fontFamily: mono, color: color.secondary }}>
-            {result.diagnostics.nSamples} samples
-          </span>
+          {stopped ? (
+            <span data-testid="posterior-stopped" style={{ fontWeight: 600, color: color.noteInk, display: "inline-flex", alignItems: "center", gap: 6 }}>
+              Stopped early · {result.diagnostics.nSamples} of {stopped.plannedSamples} samples{tooFew ? " · too few to estimate" : ""}
+              <InfoBadge
+                width={280}
+                text={
+                  tooFew ? (
+                    <span>
+                      Stopped at step {stopped.atStep} of {stopped.plannedStep}. R̂ and ESS need at least {MIN_KEPT_STEPS} kept
+                      steps per walker after burn-in, so no estimates are shown. Sample again for a full run.
+                    </span>
+                  ) : (
+                    <span>
+                      Stopped at step {stopped.atStep} of {stopped.plannedStep}; burn-in is half the steps taken. The chains are
+                      partial, so the intervals below are not final and the run is not called converged. Continue ↻ resumes
+                      the chain from its last step; Sample posterior starts afresh.
+                    </span>
+                  )
+                }
+              />
+            </span>
+          ) : (
+            <span style={{ fontWeight: 600, color: converged ? color.okInk : color.noteInk }}>
+              {converged ? "Converged" : "Not converged — continue the chain"}
+            </span>
+          )}
+          {showEstimates ? (
+            <>
+              <span style={{ fontFamily: mono, color: color.secondary }} title={`passes below ${POSTERIOR_RHAT}`}>
+                R̂max <b style={{ color: rhatInk(result.diagnostics.maxRHat) }}>{result.diagnostics.maxRHat.toFixed(3)}</b>
+              </span>
+              <span style={{ fontFamily: mono, color: color.secondary }} title={`passes at ${essTarget(nFree)} or more`}>
+                ESSmin <b style={{ color: essInk(result.diagnostics.minEss, nFree) }}>{Math.round(result.diagnostics.minEss)}</b>
+              </span>
+              <span style={{ fontFamily: mono, color: color.secondary }}>
+                accept <b>{(result.acceptanceFraction * 100).toFixed(0)}%</b>
+              </span>
+              {stopped ? null : (
+                <span style={{ fontFamily: mono, color: color.secondary }}>
+                  {result.diagnostics.nSamples} samples
+                </span>
+              )}
+            </>
+          ) : null}
         </div>
       ) : (
         <div style={{ color: color.secondary, fontSize: fz.small, lineHeight: 1.5 }}>
@@ -178,7 +250,7 @@ export function PosteriorPanel({ result, busy, progress, onRun, hasRefined, labe
       )}
 
       {/* Per-parameter table */}
-      {result ? (
+      {result && showEstimates ? (
         <div className="wb-posterior-table" style={{ overflow: "auto", minHeight: 0, flex: 1 }}>
           <table style={{ borderCollapse: "collapse", width: "100%", fontSize: fz.small }}>
             <thead>
@@ -213,7 +285,7 @@ export function PosteriorPanel({ result, busy, progress, onRun, hasRefined, labe
                   <td style={{ fontFamily: mono, padding: "6px 8px", textAlign: "right", color: rhatInk(p.rHat) }}>
                     {p.rHat.toFixed(3)}
                   </td>
-                  <td style={{ fontFamily: mono, padding: "6px 8px", textAlign: "right", color: color.secondary }}>
+                  <td style={{ fontFamily: mono, padding: "6px 8px", textAlign: "right", color: stopped ? essInk(p.ess, nFree) : color.secondary }}>
                     {Math.round(p.ess)}
                   </td>
                 </tr>
