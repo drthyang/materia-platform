@@ -14,6 +14,7 @@ import { samplePosterior, samplePosteriorParallel, type SampleResult } from "@/c
 import { PosteriorPanel, type PosteriorPanelProps } from "@/app/ui/PosteriorPanel";
 import { CANCEL_ARM_MS } from "@/app/ui/RunActions";
 import { color } from "@/app/theme";
+import { REFINING_BLOCKS_SAMPLING, runLock } from "@/app/ui/runLock";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -116,5 +117,22 @@ describe("the Posterior tab's Stop", () => {
     expect(el.querySelector("[data-testid=posterior-stopped]")).toBeNull();
     expect(el.textContent).toContain("Not converged — continue the chain");
     expect(el.textContent).toContain(`${res.diagnostics.nSamples} samples`);
+  });
+
+  it("while a refinement runs, Sample posterior and Continue are disabled, the reason their title", async () => {
+    const blocked = runLock({ refining: true, sampling: false }).sample;
+    expect(blocked).toBe(REFINING_BLOCKS_SAMPLING);
+    const onRun = vi.fn();
+    const el = render({ result: await stoppedAt(60), blockedReason: blocked, onRun });
+    for (const label of ["Sample posterior", "Continue ↻"]) {
+      const b = button(el, label);
+      expect(b.disabled).toBe(true);
+      expect(b.title).toBe(REFINING_BLOCKS_SAMPLING);
+    }
+    act(() => button(el, "Sample posterior").click());
+    expect(onRun).not.toHaveBeenCalled();
+    // Free again once it ends.
+    act(() => root!.render(createElement(PosteriorPanel, { result: null, busy: false, progress: null, onRun, onStop: () => {}, hasRefined: true, labels: new Map(), blockedReason: runLock({ refining: false, sampling: false }).sample })));
+    expect(button(el, "Sample posterior").disabled).toBe(false);
   });
 });

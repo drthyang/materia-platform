@@ -31,6 +31,8 @@ export interface PosteriorPanelProps {
   readonly onStop: () => void;
   /** A converged LM result exists (enables sampling + the esdRatio column). */
   readonly hasRefined: boolean;
+  /** Why a run cannot start now (runLock.ts: a refinement is running): disables Sample and Continue, and is their title. */
+  readonly blockedReason?: string | null;
   /** Parameter labels by id (falls back to the id). */
   readonly labels: ReadonlyMap<string, string>;
 }
@@ -89,7 +91,7 @@ function Marginal({ draws, summary }: { draws: readonly number[]; summary: Poste
   );
 }
 
-export function PosteriorPanel({ result, busy, progress, onRun, onStop, hasRefined, labels }: PosteriorPanelProps) {
+export function PosteriorPanel({ result, busy, progress, onRun, onStop, hasRefined, blockedReason = null, labels }: PosteriorPanelProps) {
   // A Stop tap this soon after the run started is the second tap of a double
   // tap on Sample (Stop takes its place): ignored, as the run bar's Cancel is.
   const startedAt = useRef(0);
@@ -131,13 +133,13 @@ export function PosteriorPanel({ result, busy, progress, onRun, onStop, hasRefin
           </button>
         ) : (
           <button
-            style={{ ...primaryButton, opacity: hasRefined ? 1 : 0.55 }}
-            disabled={!hasRefined}
+            style={{ ...primaryButton, opacity: hasRefined && !blockedReason ? 1 : 0.55 }}
+            disabled={!hasRefined || !!blockedReason}
             onClick={() => onRun(false)}
             title={
-              hasRefined
+              blockedReason ?? (hasRefined
                 ? "Sample the Bayesian posterior of the FREE parameters, seeded at the current refined values (400 ensemble steps; marginalized noise model)"
-                : "Refine first — sampling seeds walkers at the converged least-squares values"
+                : "Refine first — sampling seeds walkers at the converged least-squares values")
             }
           >
             Sample posterior
@@ -145,13 +147,13 @@ export function PosteriorPanel({ result, busy, progress, onRun, onStop, hasRefin
         )}
         {result ? (
           <button
-            style={{ ...secondaryButton, opacity: busy || !canContinue ? 0.55 : 1 }}
-            disabled={busy || !canContinue}
+            style={{ ...secondaryButton, opacity: busy || !canContinue || blockedReason ? 0.55 : 1 }}
+            disabled={busy || !canContinue || !!blockedReason}
             onClick={() => onRun(true)}
             title={
-              canContinue
+              blockedReason ?? (canContinue
                 ? "Continue the SAME chain from its resume token (400 more steps) — the honest fix for a not-converged run"
-                : "Stopped before the first step: nothing to continue — sample afresh"
+                : "Stopped before the first step: nothing to continue — sample afresh")
             }
           >
             Continue ↻

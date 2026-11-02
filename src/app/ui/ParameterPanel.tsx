@@ -45,6 +45,8 @@ interface Props {
   readonly busy: boolean;
   readonly result: RefinementResult | null;
   readonly disabled?: boolean;
+  /** Why the run actions cannot start now (runLock.ts); the rows stay editable. */
+  readonly blockedReason?: string | null;
   /** Panel header label; defaults to "Powder parameters". */
   readonly title?: string;
   /** Extra footer buttons (e.g. single-crystal "Refine free" / "Export CIF"). */
@@ -91,10 +93,10 @@ interface Props {
   readonly shown?: boolean;
 }
 
-export function ParameterPanel({ params, esd, onChange, onRefine, onThorough, thoroughMode = "prefit", prefitTitle, onCancel, onReset, onMagnetic, busy, result, disabled, title, extraActions, groupControls, groupInfo, frameworkControls, notice, warnings, reveal, shown = true }: Props): JSX.Element {
+export function ParameterPanel({ params, esd, onChange, onRefine, onThorough, thoroughMode = "prefit", prefitTitle, onCancel, onReset, onMagnetic, busy, result, disabled, blockedReason, title, extraActions, groupControls, groupInfo, frameworkControls, notice, warnings, reveal, shown = true }: Props): JSX.Element {
   // On a phone Prefit / Refine / Cancel leave the action bar for the fixed bar at the screen's bottom.
   const phone = useMediaQuery(RUN_BAR_QUERY);
-  const run: RunActionsProps = { onRefine, onThorough, thoroughMode, prefitTitle, onCancel, busy, disabled };
+  const run: RunActionsProps = { onRefine, onThorough, thoroughMode, prefitTitle, onCancel, busy, disabled, blockedReason };
   const groups = useMemo(() => {
     const byGroup = new Map<string, RefinementParameter[]>();
     for (const p of params) {

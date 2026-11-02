@@ -46,6 +46,7 @@ import { sharedSites, siteSumRangeWarnings } from "@/core/workflow/structureRefi
 const StructureView = lazy(() => import("@/app/ui/StructureView").then((m) => ({ default: m.StructureView })));
 import { ParameterPanel } from "@/app/ui/ParameterPanel";
 import { PosteriorPanel } from "@/app/ui/PosteriorPanel";
+import { runLock } from "@/app/ui/runLock";
 import { ReciprocalPanel } from "@/app/ui/ReciprocalPanel";
 import { BoxcarPanel, stepIndexFor, type BoxcarRun } from "@/app/ui/BoxcarPanel";
 import { boxcarPlanIssue, boxcarScannedMax, boxcarWindows, type BoxcarDirection } from "@/core/workflow/pdfBoxcar";
@@ -340,6 +341,8 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   // minimum hands it to every box after it — restarts re-search each box
   // around its seed and keep the best, at (restarts + 1)× the cost.
   const [boxcarBusy, setBoxcarBusy] = useState(false);
+  // Refinement (or a boxcar scan) and sampling never run together (runLock.ts).
+  const lock = runLock({ refining: busy || boxcarBusy, sampling: sampleBusy });
   const [boxcarProgress, setBoxcarProgress] = useState<{ done: number; total: number } | null>(null);
   // The tab scans its OWN r bounds (the fit window until it is edited or a
   // scan runs) and starts from the current fit with any edits made on the tab.
@@ -1125,7 +1128,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
               progress={boxcarProgress}
               onRun={() => void runBoxcar()}
               onCancel={cancelBoxcar}
-              blockedReason={busy ? "A refinement is running — wait for it to finish." : boxcarBlocked}
+              blockedReason={busy ? "A refinement is running — wait for it to finish." : lock.refine ?? boxcarBlocked}
               plan={boxcarPlanState}
               planInfo={{
                 count: boxcarWindowList.length,
@@ -1153,7 +1156,8 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
               progress={sampleProgress}
               onRun={(continueRun) => void runSample(continueRun)}
               onStop={stopSample}
-              hasRefined={result !== null && !busy}
+              hasRefined={result !== null}
+              blockedReason={lock.sample}
               labels={new Map(params.map((p) => [p.id, p.label]))}
             />
           ) : (
@@ -1201,6 +1205,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
           // the scan's Cancel would abort the wrong run and leave the scan's own
           // workers spinning — the panel is read-only until the scan finishes.
           disabled={boxcarBusy}
+          blockedReason={lock.refine}
           thoroughMode={result ? "escape" : "prefit"}
           prefitTitle="Prefit from a cold start: a broad set of perturbed restarts of the free parameters, keeping the best — lands the model in a good basin before you refine. (No Le Bail stage — that extracts Bragg intensities, which real-space G(r) doesn't have.)"
           onReset={reset}

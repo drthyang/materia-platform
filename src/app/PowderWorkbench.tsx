@@ -46,6 +46,7 @@ import { powderJudgment } from "@/app/reportJudgment";
 import { isMagneticModelParameterKind, isMomentParameterKind } from "@/core/refinement/types";
 import type { ComputeClient } from "@/workers/computeClient";
 import { CANCELLED } from "@/workers/computeClient";
+import { runLock } from "@/app/ui/runLock";
 import type { PowderProgress } from "@/workers/runPowder";
 import { formatWt, fractionsOf } from "@/core/diagnostics/phaseFractions";
 import { PosteriorPanel } from "@/app/ui/PosteriorPanel";
@@ -221,6 +222,8 @@ export function PowderWorkbench({
   } | null>(null);
   const [sampleBusy, setSampleBusy] = useState(false);
   const [sampleProgress, setSampleProgress] = useState<{ step: number; total: number } | null>(null);
+  // Refinement and sampling never run together (runLock.ts).
+  const lock = runLock({ refining: busy, sampling: sampleBusy });
   // The running posterior's Stop (stopSample); null while none runs.
   const sampleStop = useRef<AbortController | null>(null);
   // A sampler still running when the page unmounts stops with it.
@@ -1544,7 +1547,8 @@ export function PowderWorkbench({
                       progress={sampleProgress}
                       onRun={(continueRun) => void runSample(continueRun)}
                       onStop={stopSample}
-                      hasRefined={powderResult !== null && !busy}
+                      hasRefined={powderResult !== null}
+                      blockedReason={lock.sample}
                       labels={new Map(powderParams.map((p) => [p.id, p.label]))}
                     />
                   </div>
@@ -1646,6 +1650,7 @@ export function PowderWorkbench({
                 busy={busy}
                 result={powderResult}
                 disabled={tofViewOnly}
+                blockedReason={lock.refine}
                 shown={active && step === 0}
                 warnings={occupancyWarnings}
                 notice={<ZeroAdpNotice proposals={zeroAdp.proposals} applied={zeroAdp.applied} busy={busy} onApply={applyZeroAdp} onRelease={releaseZeroAdp} result={powderResult} parameters={powderParams} />}

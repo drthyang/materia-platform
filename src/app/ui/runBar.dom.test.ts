@@ -13,6 +13,7 @@ import { createRoot, type Root } from "react-dom/client";
 import type { RefinementParameter } from "@/core/refinement/types";
 import { ParameterPanel } from "@/app/ui/ParameterPanel";
 import { CANCEL_ARM_MS, CopilotOpenContext, RUN_BAR_QUERY, isTextEntry } from "@/app/ui/RunActions";
+import { runLock, SAMPLING_BLOCKS_REFINE } from "@/app/ui/runLock";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -50,7 +51,7 @@ const PARAMS: RefinementParameter[] = [
 interface Handlers { onRefine: () => void; onThorough: () => void; onCancel: () => void }
 const handlers = (): Handlers => ({ onRefine: vi.fn(), onThorough: vi.fn(), onCancel: vi.fn() });
 
-function panel(h: Handlers, props: { busy?: boolean; disabled?: boolean; shown?: boolean; thoroughMode?: "prefit" | "escape"; copilot?: boolean; cancel?: boolean } = {}): ReactElement {
+function panel(h: Handlers, props: { busy?: boolean; disabled?: boolean; blockedReason?: string | null; shown?: boolean; thoroughMode?: "prefit" | "escape"; copilot?: boolean; cancel?: boolean } = {}): ReactElement {
   const { cancel = true, copilot = false, busy = false, ...rest } = props;
   return createElement(
     CopilotOpenContext.Provider,
@@ -230,5 +231,44 @@ describe("isTextEntry", () => {
     expect(isTextEntry(make("input", "checkbox"))).toBe(false);
     expect(isTextEntry(make("button"))).toBe(false);
     expect(isTextEntry(null)).toBe(false);
+  });
+});
+
+describe("while the posterior sampler runs (runLock)", () => {
+  const blocked = runLock({ refining: false, sampling: true }).refine;
+
+  it("the card's Prefit and Refine are disabled, the reason their title; the rows stay editable", () => {
+    viewport(false);
+    const h = handlers();
+    const card = mount(panel(h, { blockedReason: blocked }));
+    expect(blocked).toBe(SAMPLING_BLOCKS_REFINE);
+    for (const label of ["Refine", "Prefit ↻"]) {
+      const b = buttonIn(card, label)!;
+      expect(b.disabled).toBe(true);
+      expect(b.title).toBe(SAMPLING_BLOCKS_REFINE);
+    }
+    act(() => buttonIn(card, "Refine")!.click());
+    expect(h.onRefine).not.toHaveBeenCalled();
+    // No refinement runs, so no Cancel for one.
+    expect(buttonIn(card, "Cancel")).toBeUndefined();
+  });
+
+  it("the phone's run bar holds them too, by the same rule", () => {
+    viewport(true);
+    const h = handlers();
+    mount(panel(h, { blockedReason: blocked, thoroughMode: "escape" }));
+    const b = bar()!;
+    for (const label of ["Refine", "Escape min ↻"]) {
+      const btn = buttonIn(b, label)!;
+      expect(btn.disabled).toBe(true);
+      expect(btn.title).toBe(SAMPLING_BLOCKS_REFINE);
+    }
+    expect(buttonIn(b, "Cancel")).toBeUndefined();
+  });
+
+  it("free again once it stops", () => {
+    viewport(false);
+    const card = mount(panel(handlers(), { blockedReason: runLock({ refining: false, sampling: false }).refine }));
+    expect(buttonIn(card, "Refine")!.disabled).toBe(false);
   });
 });
