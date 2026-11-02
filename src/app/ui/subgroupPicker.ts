@@ -320,9 +320,9 @@ export interface RowWays {
 }
 
 /** The most reaching sets a row carries as data (the first ones, plus one per combination of stars). */
-export const MAX_SETS = 24;
+export const MAX_SETS = 12;
 /** The most chains a row carries as data. */
-export const MAX_WAYS = 24;
+export const MAX_WAYS = 12;
 
 /** The largest coupled set the rows search (subgroupIrreps' default). */
 export const MAX_COUPLED = 4;

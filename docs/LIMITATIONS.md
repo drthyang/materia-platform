@@ -514,7 +514,7 @@ Conventions are pinned in
 - The default list (one irrep, up to two coupled, or maximal) is still long
   for a large bound: 444 rows for SrTiO₃ in 2×2×2, 244 for GaTa₄Se₈. The
   index cap and the k-point chips shorten it.
-- "How you get here" shows the first 24 chains of a subgroup at most (the
+- "How you get here" shows the first 12 chains of a subgroup at most (the
   count says how many there are), and "every lattice step" the five
   shortest. The tree shows every child of an opened subgroup (P4/mmm of a
   cubic perovskite has 31 in 2×2×2).
