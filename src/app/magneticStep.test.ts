@@ -4,7 +4,7 @@ import { loadedSession } from "@/app/powderSession";
 import { powderMomentFit, powderPageCurves, refinedPhasesOf, residualPeaksOf, weightedR } from "@/app/powderPage";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { momentFit as singleCrystalMomentFit, singleCrystalPage, type SingleCrystalCompute } from "@/app/singleCrystalPage";
-import { MagneticStep, bestRanked, candidatesOf, firstOpen, fitMoments, momentParameters, buildFor, rankCandidates, rankWithinNoise, stepView, type MagneticFit, type RankEntry, type StepInputs } from "@/app/magneticStep";
+import { MagneticStep, bestRanked, candidatesOf, firstOpen, fitMoments, momentParameters, buildFor, powderTwins, rankCandidates, rankWithinNoise, stepView, type MagneticFit, type RankEntry, type StepInputs } from "@/app/magneticStep";
 import { latticeRepresentatives, magneticSubgroupLattice, type LatticeCandidate } from "@/core/magnetic/subgroupLattice";
 import { magneticComponentCurve } from "@/core/workflow/magneticPowder";
 import { sessionPort } from "@/testSupport/agentHeadless";
@@ -222,6 +222,49 @@ describe("the ★ and the noise", () => {
   it("falls back to the tie on a fit that reports no χ² (the mPDF's)", () => {
     expect(bestRanked({ maximal: entry(0.05), lower: entry(0.0498) }, reps, dims)?.id).toBe("lower");
     expect(bestRanked({ maximal: entry(0.05), lower: entry(0.04995) }, reps, dims)?.id).toBe("maximal");
+  });
+
+  describe("an exact powder tie (THY-58)", () => {
+    // Two maximal groups of one index and one moment parameter: the top-down rule cannot split them.
+    // "half" fits a hair lower but puts its moment on half the ions; "all" puts one on every ion.
+    const pair = [
+      { index: 4, classId: 0, above: [], candidate: { id: "all" } },
+      { index: 4, classId: 1, above: [], candidate: { id: "half" } },
+    ] as unknown as LatticeCandidate[];
+    const lines = [2934.9, 1624.6, 156.97, 3.789, 466.14];
+    const fit = (wR: number, l: readonly number[], carrying: number): RankEntry => ({ ...entry(wR, 1000 * wR / 0.05, 499), lines: l, coverage: { carrying, total: 6 } });
+    const scaled = (f: number): number[] => lines.map((x, i) => (i === 0 ? x * f : x));
+
+    it("puts the group with a moment on every ion first, and names the other indistinguishable by powder", () => {
+      // The same pattern and wR to ~1e-13, as P_c-3m1 and P_c-6m2 on the synthetic Mn₃Ga page; "half" lower in the last digits.
+      const fits = { all: fit(0.0029, lines, 6), half: fit(0.0029 * (1 - 4e-14), scaled(1 + 3e-13), 3) };
+      expect(rankWithinNoise(fits, pair, [1, 1])).toEqual(["all", "half"]);
+      expect(bestRanked(fits, pair, [1, 1])?.id).toBe("all");
+      expect(powderTwins(fits, rankWithinNoise(fits, pair, [1, 1]), pair)).toEqual(["half"]);
+    });
+
+    it("keeps the wR order for a near-tie just above the tolerance, in the pattern or in the wR", () => {
+      const patternApart = { all: fit(0.0029, lines, 6), half: fit(0.0029 * (1 - 4e-14), scaled(1 + 2e-9), 3) };
+      expect(rankWithinNoise(patternApart, pair, [1, 1])).toEqual(["half", "all"]);
+      expect(powderTwins(patternApart, rankWithinNoise(patternApart, pair, [1, 1]), pair)).toEqual([]);
+      const wRApart = { all: fit(0.0029, lines, 6), half: fit(0.0029 * (1 - 2e-9), lines, 3) };
+      expect(rankWithinNoise(wRApart, pair, [1, 1])).toEqual(["half", "all"]);
+      expect(powderTwins(wRApart, rankWithinNoise(wRApart, pair, [1, 1]), pair)).toEqual([]);
+    });
+
+    it("takes the list's order between twins with a moment on as many ions", () => {
+      const fits = { all: fit(0.0029, lines, 6), half: fit(0.0029 * (1 - 4e-14), lines, 6) };
+      expect(rankWithinNoise(fits, pair, [1, 1])).toEqual(["all", "half"]);
+    });
+
+    it("leaves the top-down rule first: a twin of higher index stays below, still named; a subgroup reproducing the ★ is not", () => {
+      const higher = [pair[0]!, { index: 8, classId: 1, above: [], candidate: { id: "half" } }] as unknown as LatticeCandidate[];
+      const fits = { all: fit(0.0029, lines, 3), half: fit(0.0029 * (1 - 4e-14), lines, 6) };
+      expect(rankWithinNoise(fits, higher, [1, 1])).toEqual(["all", "half"]);
+      expect(powderTwins(fits, rankWithinNoise(fits, higher, [1, 1]), higher)).toEqual(["half"]);
+      const subgroup = [pair[0]!, { index: 8, classId: 1, above: [0], candidate: { id: "half" } }] as unknown as LatticeCandidate[];
+      expect(powderTwins(fits, rankWithinNoise(fits, subgroup, [1, 1]), subgroup)).toEqual([]);
+    });
   });
 
   it("refines the nuclear scale with the moments at k = 0, and holds it elsewhere", async () => {

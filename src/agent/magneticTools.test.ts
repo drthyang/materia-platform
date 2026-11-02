@@ -17,9 +17,19 @@ const parse = (text: string): Record<string, unknown> => JSON.parse(text) as Rec
  * its moment on half the Mn at √2 × 2.5 µB, gives the truth's P_c-3m1 (G1)
  * pattern to 10⁻¹³ once each line sums |F_M⊥|² over its family (THY-58; the
  * old one-member reading told them apart). Both are maximal with one moment
- * parameter, so the ranking ties them and the ★ is either.
+ * parameter; the exact tie goes to the group with a moment on every Mn (G1),
+ * and the reading names G3 with its moments.
  */
 const POWDER_TWIN = "G3";
+
+/** The ranking's ★ and how it names the truth's powder twin. */
+function expectTwinNamed(ranked: Record<string, unknown>): void {
+  expect(ranked.best).toBe(MAGNETIC_TRUTH.id);
+  expect(ranked.withinNoise).toEqual(expect.arrayContaining([MAGNETIC_TRUTH.id, POWDER_TWIN]));
+  expect(ranked.indistinguishableByPowder).toEqual([{ id: POWDER_TWIN, group: "P_c-6m2", moments: expect.stringMatching(/^Mn1#2 3\.5\d µB on 3 of the 6 Mn1 ions, none on the others$/) }]);
+  expect(String(ranked.reading)).toMatch(/G1 and G3 are indistinguishable by powder: G3 P_c-6m2 \(Mn1#2 3\.5\d µB on 3 of the 6 Mn1 ions, none on the others\) gives the same calculated pattern as G1 P_c-3m1 \(Mn1 2\.5 µB on all 6 Mn1 ions\)/);
+  expect(String(ranked.reading)).toMatch(/The ★ is G1, the one with a moment on every Mn1 ion\. Name both/);
+}
 
 function page() {
   const session = mn3gaMagneticSession();
@@ -41,11 +51,11 @@ describe("the magnetic analysis step through the Agent", () => {
     await ex.run("read_skill", { name: "magnetic-analysis" });
     await ex.run("set_propagation_vector", { k: [0, 0, "1/2"] });
     const ranked = parse((await ex.run("rank_magnetic_groups", {})).text);
-    expect(ranked.withinNoise).toEqual(expect.arrayContaining([MAGNETIC_TRUTH.id, POWDER_TWIN]));
-    expect([MAGNETIC_TRUTH.id, POWDER_TWIN]).toContain(ranked.best);
+    expectTwinNamed(ranked);
     expect((ranked.groups as unknown[]).length).toBeGreaterThan(1);
     expect(port.magnetic!()).toBe(before);
-    expect(before.state().best).toBe(ranked.best);
+    expect(before.state().best).toBe(MAGNETIC_TRUTH.id);
+    expect(before.state().powderTwins).toEqual([POWDER_TWIN]);
   }, 60000);
 
   it("finds k, ranks the groups, fits the moments, and hands the model to the refinement", async () => {
@@ -77,8 +87,7 @@ describe("the magnetic analysis step through the Agent", () => {
     expect(parse((await ex.run("set_propagation_vector", { k: [0, 0, 0.5] })).text)).toMatchObject({ unchanged: true });
 
     const ranked = parse((await ex.run("rank_magnetic_groups", {})).text);
-    expect(ranked.withinNoise).toEqual(expect.arrayContaining([MAGNETIC_TRUTH.id, POWDER_TWIN]));
-    expect([MAGNETIC_TRUTH.id, POWDER_TWIN]).toContain(ranked.best);
+    expectTwinNamed(ranked);
     const groups = ranked.groups as { id: string; group: string; index: number; fit: { wR: number } }[];
     // The truth and its powder twin first, at one wR; every other group worse.
     expect(groups.slice(0, 2).map((g) => g.id).sort()).toEqual([MAGNETIC_TRUTH.id, POWDER_TWIN].sort());

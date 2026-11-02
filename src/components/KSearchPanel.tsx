@@ -1216,6 +1216,30 @@ export function KSearchPanel({
                   {!rank.running && rank.total > 0 && bestRanked && (
                     <span style={{ fontSize: 12, color: theme.secondary }}>rows sorted by fit · ≈ within the noise of the best fit (Hamilton's test) · ★ the first of those top-down: no other contains it, then the lowest index and the fewest moment parameters · click a row to preview it with its refined moments</span>
                   )}
+                  {!rank.running && rank.total > 0 && bestRanked && view.twins.length > 0 && (() => {
+                    // Groups a powder cannot tell from the ★: the same calculated pattern (THY-58).
+                    const name = (id: string): string => {
+                      const i = reps.findIndex((r) => r.candidate.id === id);
+                      return i >= 0 ? `G${i + 1} ${latticeLabel(reps[i]!).symbol}` : id;
+                    };
+                    const cov = (id: string): string => {
+                      const c = rank.results[id]?.coverage;
+                      return c ? ` (a moment on ${c.carrying} of the ${c.total} chosen ions)` : "";
+                    };
+                    const frac = (id: string): number => {
+                      const c = rank.results[id]?.coverage;
+                      return c && c.total > 0 ? c.carrying / c.total : 0;
+                    };
+                    const more = view.twins.every((id) => frac(bestRanked.id) > frac(id));
+                    return (
+                      <span style={{ ...kZeroNote, marginTop: 0, flexBasis: "100%" }}>
+                        <b>Indistinguishable by powder:</b> {[bestRanked.id, ...view.twins].map((id) => `${name(id)}${cov(id)}`).join(" and ")} give
+                        the same calculated pattern, so no powder data can choose between them. The ★ is{" "}
+                        {more ? "the one with a moment on more of the chosen ions" : "the first in the list"}; name both,
+                        and let other data (a single crystal, the ions' physics) decide.
+                      </span>
+                    );
+                  })()}
                   {!rank.running && rank.total > 0 && bestRanked && baselineAgreement != null && bestRanked.wR > baselineAgreement - 5e-4 && (
                     <span style={{ ...kZeroNote, marginTop: 0, flexBasis: "100%" }}>
                       <b>No candidate improves on the nuclear-only fit</b> (best Δ{agreementLabel}{" "}
@@ -1291,6 +1315,7 @@ export function KSearchPanel({
                         const entry = rank.results[r.candidate.id];
                         const isBest = r.candidate.id === bestRankedId;
                         const isTie = !isBest && noiseRank.has(r.candidate.id);
+                        const isTwin = view.twins.includes(r.candidate.id);
                         const delta = entry?.status === "ok" && entry.wR != null && baselineAgreement != null ? entry.wR - baselineAgreement : null;
                         return (
                           <button
@@ -1306,7 +1331,7 @@ export function KSearchPanel({
                             title={dim === 0
                               ? "No symmetry-allowed moment on the selected site(s) under this group"
                               : entry?.status === "ok" && entry.wR != null
-                                ? `Moments-only fit: ${agreementLabel} ${(100 * entry.wR).toFixed(2)}%${delta != null ? ` (${delta <= 0 ? "−" : "+"}${Math.abs(100 * delta).toFixed(2)} vs nuclear only)` : ""} · |M| ${entry.magnitudes.map((m) => `${m.label} ${m.value.toFixed(2)}`).join(", ")} µ_B${isTie ? " — within the noise of the best fit (Hamilton's test): the powder cannot tell it from the ★ candidate; the ★ is the higher-symmetry / fewer-parameter choice" : ""} — click to preview with these moments`
+                                ? `Moments-only fit: ${agreementLabel} ${(100 * entry.wR).toFixed(2)}%${delta != null ? ` (${delta <= 0 ? "−" : "+"}${Math.abs(100 * delta).toFixed(2)} vs nuclear only)` : ""} · |M| ${entry.magnitudes.map((m) => `${m.label} ${m.value.toFixed(2)}`).join(", ")} µ_B${isTwin ? " — indistinguishable by powder from the ★: the same calculated pattern (to 1e-9)" : isTie ? " — within the noise of the best fit (Hamilton's test): the powder cannot tell it from the ★ candidate; the ★ is the higher-symmetry / fewer-parameter choice" : ""} — click to preview with these moments`
                                 : undefined}
                           >
                             <span style={{ fontFamily: themeMono, color: theme.secondary }}>
