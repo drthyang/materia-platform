@@ -9,6 +9,17 @@ release fixes bugs.
 
 ### Added
 
+- **Stop for posterior sampling.** On the Posterior tab (PDF and powder pages)
+  **Stop** takes the place of **Sample posterior** while a run goes, as Cancel
+  does for Refine. The run stops within a second: the batch being evaluated is
+  dropped and the workers are shut down. The steps already taken are kept and
+  labelled "Stopped early · N of M samples". A stopped run is never called
+  converged. R̂ and ESS are read on the partial chains, burn-in is half the
+  steps taken, and values that miss their thresholds show as failing. With
+  fewer than 4 kept steps per walker, the tab shows only the note. **Continue ↻**
+  picks the chain up from its last whole step, and **Sample posterior** starts
+  a fresh run. A stopped run never goes into the report. The Agent reads it as
+  an interrupted run, the same as before.
 - **Bond style and Hide bonds in the 3D view.** Bonds can be drawn as sticks
   (as before), ball-and-stick (thicker) or thin lines, in gray or with each half
   in its atom's color. **Hide bonds** leaves the atoms, the cell, the site
