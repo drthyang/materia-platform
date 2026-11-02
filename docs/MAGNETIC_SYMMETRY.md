@@ -173,7 +173,13 @@ noise gives them (an mPDF fit, which reports no χ², ties within 10⁻⁴ in Rw
 The page marks these ≈. Among them the ★ goes top-down: to a group none of the
 others contains, then the lowest index, then the fewest moment parameters (the
 rows its fit refines, every split orbit's modes counted and co-located ions
-sharing one moment; [`momentParameters`](../src/app/magneticStep.ts)). At k = 0 the ranking refines the nuclear scale with the moments:
+sharing one moment; [`momentParameters`](../src/app/magneticStep.ts)). Two groups this
+cannot split whose fits are an **exact powder tie** (the same calculated
+pattern and wR, to 10⁻⁹; [`powderTies.ts`](../src/core/magnetic/powderTies.ts))
+are indistinguishable by powder: the ★ goes to the one with a moment on more of
+the chosen ions (on every ion the parent makes equivalent), then to the list's
+order, and the ranking names the other with its moments. A near-tie keeps the
+order of its wR (THY-58). At k = 0 the ranking refines the nuclear scale with the moments:
 the magnetic peaks sit on the nuclear ones, and a scale refined without them
 has taken part of their intensity.
 

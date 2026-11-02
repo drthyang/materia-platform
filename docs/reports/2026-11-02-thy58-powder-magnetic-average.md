@@ -2,7 +2,9 @@
 
 Linear THY-58, found by the THY-36 builder ([Phase 5](./2026-11-01-subgroup-engine-phase-5.md),
 PR #139). The owner approved the fix knowing it moves validated fits; the
-re-check below found that no external-reference golden that runs here moved.
+re-check below found that no external-reference golden moved, the local-data
+ones included. The exact powder ties the fix revealed are broken as the owner
+decided (below).
 
 ## What changed, and why
 
@@ -132,23 +134,11 @@ Every magnetic golden and validated fit that runs without the git-ignored
 | MnO names against FindSpinGroup, the magnetic-group and representation-analysis oracles (spglib, ISOTROPY) | FindSpinGroup, spglib | pass | pass, unchanged | equal: group enumeration untouched |
 | Scale equivalence, parent + k against the explicit supercell | itself | mag/nuc 0.201841 | 0.201841 | equal |
 
-**Not run here** (they read `data/`, which this worktree does not have; per
-the brief, unpublished data were not read from elsewhere):
-
-- **DyMn₆Ge₆ against FullProf** (`dymn6ge6K.test.ts`, refined γ = 0.1648(7)
-  vs 0.16509(43)). The helix is written on explicit atoms under the identity,
-  over the P6/mmm parent's families, so it is the one data-gated golden that
-  could move. Its moments depend only on each atom's layer, which predicts
-  equal members, but it must be run.
-- **FeCoSn 1.7 K against GSAS-II** (`fecosn1p7KGolden.test.ts`): read in its
-  own group P_c6/mcc, so predicted unchanged.
-- **AWO₄** (`realAwo4Magnetic`, `realAwo4Benchmark`, `examples/awo4Magnetic`):
-  P_a2/c keeps the P2/c parent's Laue class 2/m, so predicted unchanged.
-- **The diffpy.mpdf tutorial data** (`mpdfTutorialData.test.ts`): mPDF,
-  unchanged by construction.
-
-To run them where `data/` is:
-`MATERIA_DATA_DIR=<checkout>/data npx vitest run src/core/workflow/dymn6ge6K.test.ts src/core/workflow/fecosn1p7KGolden.test.ts src/core/workflow/mn3ga350KGolden.test.ts src/core/workflow/realAwo4Magnetic.test.ts src/core/workflow/realAwo4Benchmark.test.ts src/examples/awo4Magnetic.test.ts src/core/workflow/mpdfTutorialData.test.ts`.
+**Run locally on the git-ignored `data/`**, on `main` and on this branch
+(not in CI): DyMn₆Ge₆ against FullProf, FeCoSn 1.7 K against GSAS-II, the
+Mn₃Ga 350 K per-reflection |F_M|² against GSAS-II, the AWO₄ demo and the
+diffpy.mpdf tutorial data: **unchanged**. (The AWO₄ k-search and 8 K benchmark
+tests skip on both: the local folder holds their files under other names.)
 
 No golden was re-baselined: none that ran moved.
 
@@ -167,38 +157,69 @@ No golden was re-baselined: none that ran moved.
   points of cubic cells), the position ticks and lines include the families
   the list had missed.
 
+### Groups indistinguishable by powder (the owner's decision)
+
+With every member summed, P_c-6m2 with 3.54 µB (√2 × 2.5) on half the Mn and
+none on the others gives P_c-3m1's pattern to 4·10⁻¹⁴ on every line of the
+synthetic Mn₃Ga page: a powder cannot tell them apart. The one-member reading
+had told them apart only because it read G1's families at members unlike
+their average (its line at 4.14 Å read 419 against the true 2935). Both are
+maximal with one moment parameter, so the ranking's top-down rule ties them,
+and its last key, the wR, then differed only in the last digits (the ★ fell
+on G3).
+
+The owner decided (2026-11-02, under the 10-26 exemption for the magnetic
+tools):
+
+- **An exact powder tie is broken by physics, never a near-tie.** Two fits
+  the top-down rule cannot split are an exact tie when their wR and their
+  calculated magnetic lines agree to 10⁻⁹ relative
+  ([`powderTies.ts`](../../src/core/magnetic/powderTies.ts): the lines are the
+  family sums grouped by d, over d ≥ max(0.8 Å, V^⅓/6), compared with the
+  strongest). The ★ then goes to the group with a moment on more of the
+  chosen ions (on every ion the parent makes equivalent), then to the list's
+  order. G1 and G3 converge to 2.5·10⁻¹¹ in their lines and 3.5·10⁻¹⁵ in wR,
+  so they tie; G2 and G4 differ by 2.6·10⁻⁵ in their lines (their fits stop at
+  slightly different points) and keep the wR order. A near-tie just above
+  10⁻⁹, in the lines or in the wR, keeps the wR order (unit tests in
+  `app/magneticStep.test.ts`). A group with a supergroup among the ties is
+  never named as an alternative: it reproduces a structure, it is not another.
+- **The ranking says so.** `rank_magnetic_groups` gains
+  `indistinguishableByPowder` and a reading that names both groups with the
+  ions their moments sit on. The page shows the same note under the ranking,
+  and the twin's row says so in its tooltip.
+- **The eval check counts a twin.** `magneticGroupIs` now accepts the ★ and
+  its powder twins when the expected group is one of them, as its comment
+  said; a group merely within the noise still fails it.
+
 ### Old → new, model-visible (the Agent and MCP)
 
 No tool description, skill or system-prompt text changed, and no committed
 snapshot or scripted eval moved: the Agent snapshots
 (`model-text.arm-b.md`, `model-text.arm-c.md`), the frozen report and
 agent-text goldens and the scripted evals pass unchanged. The tools' numbers
-change on any magnetic model below the parent's Laue class. On the synthetic
-Mn₃Ga page the evals use (its data are simulated from the forward model, so
-they changed too):
+change on any magnetic model below the parent's Laue class, and the ranking's
+output gains its new field where two groups are indistinguishable by powder.
+On the synthetic Mn₃Ga page the evals use (its data are simulated from the
+forward model, so they changed too):
 
-| Output | Before | After |
+| Output | Before (`main`) | After |
 | --- | --- | --- |
 | `rank_magnetic_groups` at k = (0, 0, ½): G1 P_c-3m1 | wR 0.31 %, Mn1 2.5 µB | wR 0.29 %, Mn1 2.5 µB |
 | G3 P_c-6m2 | wR 27.17 %, Mn1#2 1.5 µB | wR 0.29 %, Mn1#2 3.54 µB |
 | G4 P_c-6c2 | wR 30.01 % | wR 42.55 % |
 | G2 P_c-3c1 | wR 30.31 % | wR 42.55 % |
-| ★ (`best`), `withinNoise` | G1; [G1] | **G3; [G3, G1]** |
-| reading | "G1 fits best, beyond the noise of every other group … choose G1 unless the data say otherwise." | "2 groups fit within the noise of the best (G3, G1: …), and G3 is the maximal one with the fewest moment parameters among them … choose G3 unless the data say otherwise." |
+| ★ (`best`) | G1 | G1 |
+| `withinNoise` | [G1] | [G1, G3] |
+| `indistinguishableByPowder` | (absent) | [{ id: "G3", group: "P_c-6m2", moments: "Mn1#2 3.54 µB on 3 of the 6 Mn1 ions, none on the others" }] |
+| reading | "G1 fits best, beyond the noise of every other group. A powder often cannot tell several groups apart: say which fit within the noise of the best, and choose G1 unless the data say otherwise." | "2 groups fit within the noise of the best (G1, G3: a group with more moment parameters must lower χ² beyond the noise, Hamilton's test at 5 %). G1 and G3 are indistinguishable by powder: G3 P_c-6m2 (Mn1#2 3.54 µB on 3 of the 6 Mn1 ions, none on the others) gives the same calculated pattern as G1 P_c-3m1 (Mn1 2.5 µB on all 6 Mn1 ions), to 1e-9, so no powder data can choose between them. The ★ is G1, the one with a moment on every Mn1 ion. Name both when you report the structure, and choose G1 unless other data (a single crystal, the physics of the ions) say otherwise." |
 | `nuclearOnlyWR` | 34.18 % | 46.02 % |
 | `refine_moments` on G1 | "Moments fitted: wR 0.31%." | "Moments fitted: wR 0.29%." |
 | `magnetic_state` residual peaks | 9 used by the k-search (strongest 1230σ at 2.479 Å) | 11 used (strongest 1960σ at 4.127 Å) |
 | `diagnose_fit` on the nuclear-only page | Rwp 34.18 %, GoF 115; "structure" ~63 % of χ² | Rwp 46.02 %, GoF 165; "intensity-falloff" ~7 % of χ² |
 
-**Why G3 ties G1.** With every member summed, P_c-6m2 with 3.54 µB (√2 ×
-2.5) on half the Mn and none on the others gives P_c-3m1's pattern to 4·10⁻¹⁴
-on every line: a powder cannot tell them apart. The one-member reading had
-told them apart only because it read G1's families at members unlike their
-average (its line at 4.14 Å read 419 against the true 2935). Both are maximal
-with one moment parameter, so `rankWithinNoise`'s top-down order ties them,
-and its last key (wR) is equal to the last digits: the ★ falls on G3. Same for
-G2 and G4. The two tests that pinned ★ = G1 (`agent/magneticTools.test.ts`)
-now pin the tie: both within the noise, ★ one of them, one wR.
+Where no two groups tie exactly, the reading is word for word what it was.
+`agent/magneticTools.test.ts` pins ★ = G1 with G3 named.
 
 The MCP profile test's non-vacuity check (a cosine background must move the
 pattern by more than 1 % of its peak) fell to 0.96 % with the new magnetic
@@ -208,28 +229,15 @@ agree to.
 ## What it means for the validation
 
 - Arm A's pinned results did not move.
-- Live evals that should be re-run (paid, not run here):
-  - **`magnetic-structure`**: its check `magneticGroupIs("G1")` accepts only
-    G1, while the ranking now ties G1 with G3 and the ★ names G3. A model
-    that follows the ★ fails the check although the data cannot tell the two
-    apart (the check's own comment says a group the ranking ties with it
-    should count). The owner's decision, below.
+- Live evals to run later (paid, not run here):
+  - **`magnetic-structure`**: new numbers; the ★ is still G1, the reading
+    names G3, and the check now counts G3 as a powder twin.
   - **`magnetic-step-first`**: same page, new numbers.
-  - **`magnetic-30k`**: the ★ is unchanged, but the lower groups' fits moved.
-  - **`awo4-user-flow`** (local data): predicted unchanged.
-  - Any validation run of arms B or C that reaches the magnetic step.
+  - Also worth a run: `magnetic-30k` (the ★ is unchanged, the lower groups'
+    fits moved) and any arm B or C run that reaches the magnetic step.
 
 ## Not done
 
-- **Decision for the owner: an exact powder tie in the ranking.** The ★
-  between G1 and G3 on the synthetic page is decided by the last digits of
-  wR. Options: (a) leave it, and widen `magneticGroupIs` to the groups the
-  ranking ties with the truth, as its comment says; (b) a tie-break for
-  patterns equal to rounding, by the list's order (G1 first) or by physics
-  (prefer the group that puts a moment on every ion the parent makes
-  equivalent, i.e. no symmetry-forced zero); (c) a synthetic truth the powder
-  can identify. The branch does none of them; the tests pin the tie.
-- **The data-gated goldens** listed above, DyMn₆Ge₆ first.
 - **Single crystal** is unaffected and still models one domain: a crystal with
   several domains needs their populations (LIMITATIONS, "Not yet").
 

@@ -384,11 +384,13 @@ approximate, however plausible its output looks.
   magnetic groups of one k do. On the synthetic Mn₃Ga page (P6₃/mmc,
   k = (0, 0, ½)) the truth, P_c-3m1 with 2.5 µB on every Mn, and P_c-6m2 with
   3.54 µB (√2 × 2.5) on half of them and none on the others, give the same
-  pattern to 10⁻¹³. Both are maximal with one moment parameter, so the
-  ranking ties them, and its ★ falls on the one whose wR is lower in the last
-  digits. The ranking says that both fit within the noise; choosing between
-  them needs more than the powder (equal moments on ions the parent makes
-  equivalent, or single-crystal data).
+  pattern to 10⁻¹³. Both are maximal with one moment parameter. The ranking
+  calls such an exact tie (wR and calculated pattern equal to 10⁻⁹)
+  indistinguishable by powder, gives the ★ to the group with a moment on more
+  of the chosen ions, and names the other with its moments; a near-tie keeps
+  its wR order. The preference is a physical prior, not a measurement:
+  choosing between the two needs more than the powder (single-crystal data,
+  the physics of the ions).
 - The k-search ranks candidates by peak positions, not intensities, and it
   proposes commensurate k only (denominators 2, 3, 4 and 6; in a cell with an
   angle off 90° the mixed-sign ones too, such as (¼ 0 −¼)). Type an

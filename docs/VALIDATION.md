@@ -201,7 +201,8 @@ structures are written in their own magnetic groups (Cm'cm', P2₁'/m'), whose
 families' members were already equal, and the mPDF reads no satellite. The
 per-reflection \|F_M\|² is bit-identical. The data-gated goldens (DyMn₆Ge₆
 against FullProf, FeCoSn 1.7 K and the Mn₃Ga 350 K reflection list against
-GSAS-II, AWO₄) were not re-run there ([report](./reports/2026-11-02-thy58-powder-magnetic-average.md)).
+GSAS-II, the AWO₄ demo, the diffpy.mpdf tutorial data), run locally on `main`
+and on the branch, are unchanged ([report](./reports/2026-11-02-thy58-powder-magnetic-average.md)).
 
 ### Fits and workflows checked against external tools
 

@@ -226,7 +226,15 @@ release fixes bugs.
     `rank_magnetic_groups`, `refine_moments` and the MCP powder magnetic
     tools. Structures read in their own magnetic group (the Mn₃Ga 350 K and
     30 K goldens) do not move. On the synthetic Mn₃Ga page the truth P_c-3m1
-    and P_c-6m2 now give one pattern exactly, and the ranking ties them.
+    and P_c-6m2 now give one pattern exactly.
+  - **Groups indistinguishable by powder.** When the ranking's top-down rule
+    cannot split two groups whose fits give the same calculated pattern and
+    wR (to 10⁻⁹), the ★ goes to the one with a moment on more of the chosen
+    ions, and the page and `rank_magnetic_groups` (new field
+    `indistinguishableByPowder`) name the other with its moments: P_c-3m1
+    (★) and P_c-6m2 "3.54 µB on 3 of the 6 Mn1 ions, none on the others". A
+    near-tie keeps its wR order. The eval check for the chosen group counts
+    such a twin as correct.
   - The magnetic structure factor expands the moments once per model, so the
     sum costs what the one-member reading did.
 

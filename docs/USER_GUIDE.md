@@ -353,6 +353,12 @@ models apart. Candidates within the noise of the best fit by Hamilton's test are
 marked ≈. Among them the ★ goes top-down: to a group none of the others
 contains, then the lowest index, then the fewest moment parameters.
 
+Two groups can give exactly the same powder pattern. When the rule above
+cannot split them, a note says they are **indistinguishable by powder** and
+names both, each with the ions its moments sit on. The ★ goes to the one with
+a moment on more of the chosen ions. Only other data (a single crystal, the
+physics of the ions) can choose between them.
+
 If no candidate beats the nuclear-only fit, a note says so. The pattern may be
 paramagnetic, the moments may be too small, or k may be wrong. Check the
 residual before you trust any moments.
