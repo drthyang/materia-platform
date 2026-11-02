@@ -9,6 +9,15 @@ release fixes bugs.
 
 ### Added
 
+- **Bond style and Hide bonds in the 3D view.** Bonds can be drawn as sticks
+  (as before), ball-and-stick (thicker) or thin lines, in gray or with each half
+  in its atom's color. **Hide bonds** leaves the atoms, the cell, the site
+  highlight and the mode and moment arrows as they are. The choice is kept for
+  the browser session, so an activated child's view opens the same way. The
+  bonds of a cell are now one draw call (instanced), so a big supercell turns
+  faster: on the GaTa₄Se₈ 2×2×2 child (441 atoms) the scene has 449 draw
+  objects instead of 1344, and a frame takes about 0.5 ms instead of 1.1 ms.
+  Nothing in the model or the fit changes.
 - **The 3D Model's mode table groups the modes by k-point and parent site.**
   This works for activated children (same cell or supercell), parent-CIF
   decompositions, mode-CIF imports and the structure's own modes.

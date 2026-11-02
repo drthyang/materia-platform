@@ -5,11 +5,13 @@
  *
  * The asymmetric unit is expanded by the space-group operations, wrapped into
  * one cell, and boundary atoms (on a face/edge/corner) are duplicated so the
- * cell looks complete. Atoms are spheres coloured/sized by element, bonds are
- * covalent-radius cylinders, and the cell edges are drawn as a wireframe.
+ * cell looks complete. Atoms are spheres coloured/sized by element, bonds join
+ * atoms within their covalent radii (sticks, ball-and-stick or thin lines,
+ * gray or by atom, or hidden: bondStyle.ts), and the cell edges are drawn as a
+ * wireframe.
  *
- * Controls: bond-length labels, perspective vs orthographic projection, and an
- * a/b/c coordinate-axis triad. Interaction: drag to rotate, scroll to zoom
+ * Controls: bond style and bond-length labels, perspective vs orthographic
+ * projection, and an a/b/c coordinate-axis triad. Interaction: drag to rotate, scroll to zoom
  * (OrbitControls; the hint under the canvas is GestureHintLine).
  */
 
@@ -27,6 +29,17 @@ import { color as theme, mono as themeMono } from "@/app/theme";
 import { covalentRadius, elementColor } from "@/app/ui/elementData";
 import { cssZoom } from "@/app/ui/cssZoom";
 import { buildCellAtoms, displayMoment, magneticSupercell, type MomentEntry } from "@/app/ui/cellModel";
+import { InfoBadge } from "@/app/ui/InfoBadge";
+import {
+  BOND_COLORS,
+  BOND_RADIUS,
+  BOND_STYLES,
+  loadBondSettings,
+  saveBondSettings,
+  type BondColor,
+  type BondSettings,
+  type BondStyle,
+} from "@/app/ui/bondStyle";
 
 const MAX_BOND_LABELS = 80; // labelling every bond of a big cell is unreadable
 const MAX_ATOM_LABELS = 400; // ditto for atom labels in a large supercell
@@ -233,6 +246,15 @@ export function StructureView({
   // By value, so a host that rebuilds the list each render does not rebuild the scene.
   const highlightKey = highlightSites && highlightSites.length > 0 ? highlightSites.join("\u0000") : "";
   const [showBondLengths, setShowBondLengths] = useState(false);
+  // Bond style, color and hide: kept for the browser session (bondStyle.ts),
+  // so an activated child's rebuilt view opens as the user left the last one.
+  const [bondSettings, setBondSettings] = useState<BondSettings>(() => loadBondSettings());
+  const updateBonds = (patch: Partial<BondSettings>): void => {
+    const next = { ...bondSettings, ...patch };
+    saveBondSettings(next);
+    setBondSettings(next);
+  };
+  const { style: bondStyle, color: bondColor, hidden: bondHidden } = bondSettings;
   const [showAtomLabels, setShowAtomLabels] = useState(false);
   const [perspective, setPerspective] = useState(false);
   // On a touch screen the orthographic frame fits the cell to the canvas (a
@@ -560,34 +582,92 @@ export function StructureView({
       }
     }
 
-    // Bonds — cylinders between atoms within 1.15×(sum of covalent radii).
-    // Collect the pairs first so optional length labels reuse the same geometry.
-    if (atoms.length <= 1600) {
-      const bondGeo = new THREE.CylinderGeometry(0.09, 0.09, 1, 8); // unit length along +Y
-      bondGeo.translate(0, 0.5, 0);
-      const bondMat = new THREE.MeshPhongMaterial({ color: 0x8a8f98, shininess: 20 });
-      const Y0 = new THREE.Vector3(0, 1, 0);
-      const pa = new THREE.Vector3(), pb = new THREE.Vector3(), dir = new THREE.Vector3(), quat = new THREE.Quaternion();
-      const bonds: { mid: THREE.Vector3; len: number }[] = [];
+    // Bonds between atoms within 1.15×(sum of covalent radii), in the chosen
+    // style (bondStyle.ts); none at all when hidden. Every bond of a style is
+    // ONE draw call — an InstancedMesh of a unit cylinder, or one LineSegments
+    // — however big the cell. "By atom" splits each bond at its midpoint into
+    // two halves, each in its own atom's color.
+    if (!bondHidden && atoms.length <= 1600) {
+      const pairs: number[] = []; // i, j per bond
+      const lens: number[] = [];
       for (let i = 0; i < atoms.length; i++) {
+        const ai = atoms[i]!.xyz;
         const ri = covalentRadius(atoms[i]!.element);
-        pa.set(atoms[i]!.xyz[0], atoms[i]!.xyz[1], atoms[i]!.xyz[2]);
         for (let j = i + 1; j < atoms.length; j++) {
-          const cut = (ri + covalentRadius(atoms[j]!.element)) * 1.15;
-          pb.set(atoms[j]!.xyz[0], atoms[j]!.xyz[1], atoms[j]!.xyz[2]);
-          const len = pa.distanceTo(pb);
-          if (len < 0.4 || len > cut) continue;
-          const mesh = new THREE.Mesh(bondGeo, bondMat);
-          dir.subVectors(pb, pa);
-          quat.setFromUnitVectors(Y0, dir.clone().normalize());
-          mesh.position.copy(pa);
-          mesh.quaternion.copy(quat);
-          mesh.scale.set(1, len, 1);
-          scene.add(mesh);
-          bonds.push({ mid: pa.clone().add(pb).multiplyScalar(0.5), len });
+          const aj = atoms[j]!.xyz;
+          const len = Math.hypot(aj[0] - ai[0], aj[1] - ai[1], aj[2] - ai[2]);
+          if (len < 0.4 || len > (ri + covalentRadius(atoms[j]!.element)) * 1.15) continue;
+          pairs.push(i, j);
+          lens.push(len);
         }
       }
-      if (showBondLengths && bonds.length <= MAX_BOND_LABELS) {
+      const nBonds = lens.length;
+      const halves = bondColor === "by-atom";
+      const BOND_GRAY = 0x8a8f98;
+      const colorOf = (i: number): THREE.Color => new THREE.Color(elementColor(atoms[i]!.element));
+      if (nBonds > 0 && bondStyle === "lines") {
+        const nv = nBonds * (halves ? 4 : 2);
+        const pos = new Float32Array(nv * 3);
+        const col = halves ? new Float32Array(nv * 3) : null;
+        let v = 0;
+        const put = (p: readonly number[], c: THREE.Color | null): void => {
+          pos[v * 3] = p[0]!; pos[v * 3 + 1] = p[1]!; pos[v * 3 + 2] = p[2]!;
+          if (col && c) { col[v * 3] = c.r; col[v * 3 + 1] = c.g; col[v * 3 + 2] = c.b; }
+          v++;
+        };
+        for (let k = 0; k < nBonds; k++) {
+          const i = pairs[2 * k]!, j = pairs[2 * k + 1]!;
+          const a = atoms[i]!.xyz, b = atoms[j]!.xyz;
+          if (halves) {
+            const m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+            const ca = colorOf(i), cb = colorOf(j);
+            put(a, ca); put(m, ca); put(m, cb); put(b, cb);
+          } else {
+            put(a, null); put(b, null);
+          }
+        }
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+        if (col) geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+        scene.add(new THREE.LineSegments(geo, new THREE.LineBasicMaterial(col ? { vertexColors: true } : { color: BOND_GRAY })));
+      } else if (nBonds > 0) {
+        const r = BOND_RADIUS[bondStyle === "ball-and-stick" ? "ball-and-stick" : "sticks"];
+        const geo = new THREE.CylinderGeometry(1, 1, 1, 8); // unit radius and length, along +Y
+        geo.translate(0, 0.5, 0); // base at the origin
+        // Halves carry their color per instance (multiplied into a white material).
+        const mat = new THREE.MeshPhongMaterial({ color: halves ? 0xffffff : BOND_GRAY, shininess: 20 });
+        const mesh = new THREE.InstancedMesh(geo, mat, nBonds * (halves ? 2 : 1));
+        const Y0 = new THREE.Vector3(0, 1, 0);
+        const pa = new THREE.Vector3(), pb = new THREE.Vector3(), dir = new THREE.Vector3();
+        const quat = new THREE.Quaternion(), scale = new THREE.Vector3(), m4 = new THREE.Matrix4();
+        let n = 0;
+        for (let k = 0; k < nBonds; k++) {
+          const i = pairs[2 * k]!, j = pairs[2 * k + 1]!, len = lens[k]!;
+          pa.set(...atoms[i]!.xyz);
+          pb.set(...atoms[j]!.xyz);
+          quat.setFromUnitVectors(Y0, dir.subVectors(pb, pa).normalize());
+          if (halves) {
+            scale.set(r, len / 2, r);
+            mesh.setMatrixAt(n, m4.compose(pa, quat, scale));
+            mesh.setColorAt(n++, colorOf(i));
+            mesh.setMatrixAt(n, m4.compose(pa.addScaledVector(dir, len / 2), quat, scale));
+            mesh.setColorAt(n++, colorOf(j));
+          } else {
+            scale.set(r, len, r);
+            mesh.setMatrixAt(n++, m4.compose(pa, quat, scale));
+          }
+        }
+        mesh.instanceMatrix.needsUpdate = true;
+        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+        mesh.computeBoundingSphere(); // frustum culling sees the instances, not the unit cylinder
+        scene.add(mesh);
+      }
+      const bonds: { mid: THREE.Vector3; len: number }[] = [];
+      for (let k = 0; showBondLengths && k < nBonds && nBonds <= MAX_BOND_LABELS; k++) {
+        const a = atoms[pairs[2 * k]!]!.xyz, b = atoms[pairs[2 * k + 1]!]!.xyz;
+        bonds.push({ mid: new THREE.Vector3((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2), len: lens[k]! });
+      }
+      if (showBondLengths && bonds.length > 0) {
         for (const b of bonds) {
           const s = makeLabelSprite(`${b.len.toFixed(2)} Å`, labelH, "#334155");
           s.position.copy(b.mid);
@@ -737,7 +817,7 @@ export function StructureView({
     // lightLevel and finish are intentionally NOT dependencies: their knobs
     // mutate the live lights/materials below without rebuilding the scene.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [atoms, corners, center, span, showBondLengths, showAtomLabels, perspective, showAxes, structure, moments, propagation, standardCell, showParentCell, showStandardCell, cellView, displacements, highlightKey, fitToCanvas, frame]);
+  }, [atoms, corners, center, span, showBondLengths, bondStyle, bondColor, bondHidden, showAtomLabels, perspective, showAxes, structure, moments, propagation, standardCell, showParentCell, showStandardCell, cellView, displacements, highlightKey, fitToCanvas, frame]);
 
   // Light knob → in-place intensity update, drawn on the next frame.
   useEffect(() => {
@@ -802,7 +882,8 @@ export function StructureView({
     // context the canvas keeps its 360 px minimum.
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
       <div className="wb-3d-toolbar" style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", marginBottom: 6, fontSize: 12, color: theme.secondary, fontFamily: themeMono, alignItems: "center" }}>
-        <ViewerToggle label="Bond lengths" checked={showBondLengths} onChange={setShowBondLengths} />
+        <ViewerToggle label="Hide bonds" checked={bondHidden} onChange={(v) => updateBonds({ hidden: v })} />
+        <ViewerToggle label="Bond lengths" checked={showBondLengths && !bondHidden} onChange={setShowBondLengths} disabled={bondHidden} />
         <ViewerToggle label="Atom labels" checked={showAtomLabels} onChange={setShowAtomLabels} />
         <ViewerToggle label="Axes" checked={showAxes} onChange={setShowAxes} />
         <ViewerToggle label="Perspective" checked={perspective} onChange={setPerspective} />
@@ -901,18 +982,30 @@ export function StructureView({
             {el}
           </span>
         ))}
-        <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 16 }}>
+        <span style={{ marginLeft: "auto", display: "inline-flex", flexWrap: "wrap", alignItems: "center", gap: "6px 16px" }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+              Bonds
+              <select aria-label="Bond style" value={bondStyle} disabled={bondHidden} onChange={(e) => updateBonds({ style: e.target.value as BondStyle })} style={selectStyle}>
+                {BOND_STYLES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </label>
+            <select aria-label="Bond color" value={bondColor} disabled={bondHidden} onChange={(e) => updateBonds({ color: e.target.value as BondColor })} style={selectStyle}>
+              {BOND_COLORS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            <InfoBadge
+              align="right"
+              width={260}
+              text="Sticks: thin bonds (the default). Ball-and-stick: thicker bonds. Thin lines: one-pixel lines, the lightest on a big cell. Gray, or each half of a bond in its own atom's color. Hide bonds leaves the atoms, the cell and the arrows as they are. Kept for this browser session; nothing in the model or the fit changes."
+            />
+          </span>
           <label style={{ display: "inline-flex", alignItems: "center", gap: 5 }} title="Scene light level (also brightens/dims the legend)">
             Light
             <input type="range" min={0.3} max={2} step={0.05} value={lightLevel} onChange={(e) => setLightLevel(Number(e.target.value))} style={{ width: 72 }} />
           </label>
           <label style={{ display: "inline-flex", alignItems: "center", gap: 5 }} title="Sphere surface finish (specular highlight)">
             Finish
-            <select
-              value={finish}
-              onChange={(e) => setFinish(e.target.value as Finish)}
-              style={{ fontSize: 11.5, fontFamily: "inherit", border: `1px solid ${theme.border}`, borderRadius: 6, padding: "1px 4px", color: theme.ink, background: "#fff" }}
-            >
+            <select value={finish} onChange={(e) => setFinish(e.target.value as Finish)} style={selectStyle}>
               <option value="matte">matte</option>
               <option value="standard">standard</option>
               <option value="glossy">glossy</option>
@@ -924,10 +1017,12 @@ export function StructureView({
   );
 }
 
-function ViewerToggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }): JSX.Element {
+const selectStyle = { fontSize: 11.5, fontFamily: "inherit", border: `1px solid ${theme.border}`, borderRadius: 6, padding: "1px 4px", color: theme.ink, background: "#fff" } as const;
+
+function ViewerToggle({ label, checked, onChange, disabled = false }: { label: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }): JSX.Element {
   return (
-    <label style={{ display: "inline-flex", alignItems: "center", gap: 5, cursor: "pointer" }}>
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+    <label style={{ display: "inline-flex", alignItems: "center", gap: 5, cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.5 : 1 }}>
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
       {label}
     </label>
   );
