@@ -95,6 +95,14 @@ export interface IrrepDirection {
   readonly subgroup: IrrepIsotropySubgroup;
   /** Its direction symbol, as By irrep writes it ("(a,0,0)"). */
   readonly direction: string;
+  /**
+   * For a coupled irrep: K_j itself, the member of that class containing the
+   * row's subgroup (its isotropy subgroup alone, in the domain the row fixes),
+   * as factor-group elements, ascending. The intersection of a set's members'
+   * K_j is the set's joint isotropy subgroup (the Subgroups page names each
+   * step of "how you get here" from it). Absent for a primary irrep.
+   */
+  readonly within?: readonly number[];
 }
 
 export interface SubgroupIrreps {
@@ -275,7 +283,9 @@ export function subgroupIrrepsAnalysis(group: FactorGroup, irreps: readonly Boun
         if (!own) throw new Error(`subgroupIrreps: the stabilizer of ${b.irrep.label}'s fixed space is not one of its isotropy subgroups`);
         if (popcount(K) === H.length) throw new Error(`subgroupIrreps: ${b.irrep.label} reaches a class its isotropy subgroups were not matched to`);
         const s = b.subgroups[own.cls]!;
-        cands.push({ j, K, dir: { irrep: b, subgroup: s, direction: s.direction.symbol } });
+        const within: number[] = [];
+        for (let x = 0; x < F; x++) if ((K[x >>> 5]! >>> (x & 31)) & 1) within.push(x);
+        cands.push({ j, K, dir: { irrep: b, subgroup: s, direction: s.direction.symbol, within } });
       }
       let spent = 0;
       for (let size = 2; size <= Math.min(maxCoupled, cands.length) && coupled === null; size++) {

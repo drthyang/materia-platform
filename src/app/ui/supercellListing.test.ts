@@ -7,7 +7,10 @@
  * SrTiO₃ in 2×2×2 and the GaTa₄Se₈ demo (published) in 1×1×2; they stream (rows
  * arrive while isotropy subgroups are still being worked out); the client
  * runs them in a Worker, streams, ends, stops by terminating it, and refuses
- * a worker whose factor group is not the page's.
+ * a worker whose factor group is not the page's. The worker also hands back
+ * the lattice as a graph (the tree and the lattice steps) and every star's
+ * irreps, which go into the page's own cache so Activate does not work them
+ * out again.
  */
 import { afterEach, describe, expect, it } from "vitest";
 import type { StructureModel } from "@/core/crystal/types";
@@ -15,7 +18,12 @@ import { buildSpaceGroup } from "@/core/crystal/spaceGroups";
 import { factorGroup, type FactorGroup } from "@/core/crystal/irreps/factorGroup";
 import { cachedSupercellSubgroups } from "@/core/crystal/irreps/supercellLattice";
 import type { SupercellSpec } from "@/core/crystal/irreps/supercell";
-import { latticeCounts, supercellListing, type SubgroupRow } from "@/app/ui/subgroupPicker";
+import { latticeCounts, latticeGraph, supercellListing, type SubgroupRow } from "@/app/ui/subgroupPicker";
+import type { GraphNode } from "@/app/ui/subgroupList";
+import { starsInBound } from "@/core/crystal/irreps/factorGroup";
+import { rnum } from "@/core/crystal/irreps/rational";
+import { cachedIrrepsOfStar, seedIrrepsOfStar } from "@/core/crystal/irreps/supercellModes";
+import type { StarIrreps } from "@/core/crystal/irreps/spaceGroupIrreps";
 import { collectListing, factorGroupKey, fromPlainRow, supercellListingSteps, type ListingEvent, type ListingInput } from "@/app/ui/supercellListing";
 import { startSupercellListing } from "@/app/ui/supercellListingClient";
 import { gata4se8PdfExample } from "@/examples/gata4se8Pdf";
@@ -140,6 +148,37 @@ describe("the listing client", () => {
     expect(seen.partial[0]!).toBeLessThan(direct.rows.length);
     expect(seen.percents.at(-1)).toBe(100);
   }, SLOW);
+
+  it("hands back the lattice as a graph, and puts every star's irreps in the page's cache", async () => {
+    g.Worker = FakeWorker;
+    const group = gts112();
+    let graph: readonly GraphNode[] | null = null;
+    await new Promise<void>((resolve, reject) => {
+      startSupercellListing(input(GTS, B112, "1×1×2"), group, { progress: () => undefined, rows: () => undefined, graph: (nodes) => { graph = nodes; }, done: () => resolve(), error: (m) => reject(new Error(m)) }, { throttleMs: 0 });
+    });
+    const lattice = cachedSupercellSubgroups(factorGroup(GTS.spaceGroup.operations, B112));
+    expect(graph).toEqual(latticeGraph(lattice, GTS.spaceGroup.operations).nodes);
+    // Each star is in the page group's cache already: a later seed is ignored, and what is there is the star's irreps.
+    const fresh = factorGroup(GTS.spaceGroup.operations, B112);
+    for (const r of starsInBound(group)) {
+      const k: [number, number, number] = [rnum(r[0]), rnum(r[1]), rnum(r[2])];
+      const sentinel = { star: { k, arms: [], name: null, label: "sentinel" }, littleCoGroupOrder: 0, irreps: [], physical: [] } as StarIrreps;
+      seedIrrepsOfStar(group, k, sentinel);
+      const got = cachedIrrepsOfStar(group, k);
+      expect(got).not.toBe(sentinel);
+      expect(got).toEqual(cachedIrrepsOfStar(fresh, k));
+    }
+  }, SLOW);
+
+  it("a seeded star is what the cache returns; a star already there is kept", () => {
+    const group = gts112();
+    const k: [number, number, number] = [0, 0, 0.5];
+    const seed = { star: { k, arms: [k], name: null, label: "seed" }, littleCoGroupOrder: 1, irreps: [], physical: [] } as StarIrreps;
+    seedIrrepsOfStar(group, k, seed);
+    expect(cachedIrrepsOfStar(group, k)).toBe(seed);
+    seedIrrepsOfStar(group, k, { ...seed });
+    expect(cachedIrrepsOfStar(group, k)).toBe(seed);
+  });
 
   it("stop terminates the worker, and nothing is heard after", async () => {
     g.Worker = FakeWorker;

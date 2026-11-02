@@ -10,11 +10,12 @@ import { SubgroupsPanel, decentringIrrepTree, gammaIrrepTree, sameCellLattice } 
 
 /**
  * The PDF page separates choosing the symmetry from inspecting the modes. The
- * Subgroups page is where the symmetry is lowered: one path, a k-point chip,
- * then a child, then Activate, and ✕ clear. The 3D Model view lists the modes
+ * Subgroups page is where the symmetry is lowered: one list of subgroups
+ * (the k-point chips filter it), a row's detail, Activate, and ✕ clear. The
+ * 3D Model view lists the modes
  * being refined (row click → green arrows), says where to choose them when
  * there are none, and holds Import ▾ (a mode CIF or a parent CIF) and
- * Mode CIF ↓. (The chips' interactions: subgroupsPanel.dom.test.ts.)
+ * Mode CIF ↓. (Selecting, the chips, the detail and Activate: subgroupsPanel.dom.test.ts.)
  */
 
 /** The GaTa₄Se₈ demo (F-43m) as the app opens it. */
@@ -34,8 +35,8 @@ function activated(): { model: PdfPageModel; label: string } {
 
 const noop = (): void => undefined;
 
-/** The Subgroups page as the workbench renders it (the trees computed only from the parent state), on its first view or By irrep. */
-function subgroups(m: PdfPageModel, opts: { busy?: boolean; modes?: ModesInForce | null; view?: "subgroup" | "irrep" } = {}): string {
+/** The Subgroups page as the workbench renders it (the trees computed only from the parent state). */
+function subgroups(m: PdfPageModel, opts: { busy?: boolean; modes?: ModesInForce | null } = {}): string {
   const modes = opts.modes !== undefined ? opts.modes : m.modes;
   return renderToStaticMarkup(createElement(SubgroupsPanel, {
     spaceGroup: m.loaded.spaceGroup.hermannMauguin,
@@ -50,7 +51,6 @@ function subgroups(m: PdfPageModel, opts: { busy?: boolean; modes?: ModesInForce
     modeCount: pageView(m).modeSet?.modes.length ?? null,
     busy: opts.busy ?? false,
     onActivateMode: noop, onActivateSubgroup: noop, onClear: noop, onOpenModel: noop,
-    ...(opts.view ? { initialView: opts.view } : {}),
   }));
 }
 
@@ -73,60 +73,29 @@ const buttons = (html: string, text: string): string[] => [...html.matchAll(new 
 const textOf = (html: string): string => html.replace(/<!-- -->/g, "").replace(/<[^>]+>/g, "");
 
 describe("the Subgroups page", () => {
-  it("opens on By subgroup: the subgroups that keep the cell at once, each in one line with its cell, domains and irreps, and Activate — and no CIF loader", () => {
+  it("opens on one short line of controls and one list: the supercell, the k-point chips, the subgroups high to low symmetry, the filters folded — and no CIF loader", () => {
     const m = demoPage();
     const out = subgroups(m);
-    for (const gone of ["Load parent CIF", "Load mode CIF", "type=\"file\""]) expect(out).not.toContain(gone);
+    for (const gone of ["Load parent CIF", "Load mode CIF", "type=\"file\"", "By irrep", "By subgroup"]) expect(out).not.toContain(gone);
     const text = textOf(out);
-    // By subgroup first, then By irrep; the larger cells are worked out once the view shows (subgroupsPanel.dom.test.ts).
-    expect(text.indexOf("By subgroup")).toBeLessThan(text.indexOf("By irrep"));
-    expect(text).toMatch(/^By subgroupBy irrepSupercell.*\d+ subgroups keep the cell/);
-    expect(text).toContain("index 4");
-    expect(text).toContain("P -4 21 m #113same cell · 12 domains · X irrep 5 of 5 (0,0,a,-a,-a,a)");
-    expect(text).toContain("P 21 3 #198same cell · 8 domains · X irrep 5 of 5 (a,a,a,-a,-a,-a)");
-    expect(buttons(out, "Activate").length).toBeGreaterThan(40);
-    expect(out).toContain('aria-label="Activate P 21 3 #198"');
+    // The supercell, then how many subgroups the list keeps (the larger cells are worked out once it shows: subgroupsPanel.dom.test.ts).
+    expect(text).toMatch(/^Supercell.*\d+ of \d+ subgroups so far · fit 2×2×2/);
+    // The chips: any k, Γ and the decentring X (same cell), the bound's larger-cell stars.
+    for (const name of ["any k-point", "Γ, same cell", "X, same cell", "W, supercell", "L, supercell"]) expect(out).toContain(`aria-label="${name}"`);
+    // Cell, kind and index sit behind one folded "Filters".
+    expect(out).toMatch(/<button[^>]*aria-expanded="false"[^>]*>▸ Filters/);
+    expect(text).not.toContain("Reached by");
+    expect(text).toContain("ListTree");
+    // Rows in one plain line, merged (×2), the tag not ISODISTORT's label; index headers from the top.
+    expect(text.indexOf("index 2")).toBeLessThan(text.indexOf("index 4"));
+    expect(text).toContain("P-42₁m #113· same cell· 12 domX·5×2");
+    expect(text).toContain("P2₁3 #198· same cell· 8 domX·5");
+    expect(text).not.toMatch(/X5[+-]|R4\+/);
+    // Nothing chosen yet: the detail says what to do, and nothing is activated or in force.
+    expect(text).toContain("Pick a subgroup: its cell, how you get there, then Activate.");
+    expect(buttons(out, "Activate")).toEqual([]);
     expect(out).not.toContain("✕ clear");
     expect(out).not.toContain("▼ ");
-    // The k-point chips are By irrep's.
-    expect(out).not.toContain('aria-label="Γ, same cell"');
-  });
-
-  it("offers By irrep: the Γ chip, its irreps and children, each with Activate", () => {
-    const m = demoPage();
-    const tree = gammaIrrepTree(m.loaded)!;
-    expect(tree.length).toBeGreaterThan(0);
-    const out = subgroups(m, { view: "irrep" });
-    for (const gone of ["Load parent CIF", "Load mode CIF", "type=\"file\""]) expect(out).not.toContain(gone);
-    expect(out).toContain("By irrep");
-    expect(out).toContain("By subgroup");
-    expect(textOf(out)).toContain("Pick a k-point, then a child, then Activate.");
-    expect(out).toContain('aria-label="Γ, same cell"');
-    expect(out).toContain('aria-pressed="true"');
-    // Each irrep keeps its generic label, dimension and optic/acoustic counts.
-    for (const { term } of tree) {
-      const optic = term.multiplicity - term.acoustic;
-      expect(textOf(out)).toContain(`${term.irrep.label}dim ${term.irrep.dim ?? 1} · ${optic} optic mode`);
-    }
-    // Three irreps or fewer open together; more, the first only.
-    const open = tree.length <= 3 ? tree : tree.slice(0, 1);
-    const activate = buttons(out, "Activate");
-    expect(activate).toHaveLength(open.reduce((n, b) => n + b.subgroups.length, 0));
-    expect(activate.filter((b) => b.includes("disabled"))).toEqual([]);
-    // Nothing is in force, so there is nothing to clear.
-    expect(out).not.toContain("✕ clear");
-    expect(out).not.toContain("▼ ");
-  });
-
-  it("names each child of GaTa₄Se₈'s Γ irreps in one line: name, direction, cell, domains", () => {
-    const out = textOf(subgroups(demoPage(), { view: "irrep" }));
-    const tree = gammaIrrepTree(demoPage().loaded)!;
-    const open = tree.length <= 3 ? tree : tree.slice(0, 1);
-    for (const { subgroups: subs } of open) {
-      for (const s of subs) expect(out).toContain(`${s.identity.hermannMauguin} #${s.identity.number}${s.direction} · same cell · ${s.domainStates} domains`);
-    }
-    // The long explanations sit behind "?": no paragraph of prose on the resting page.
-    expect(out).not.toContain("Stokes & Hatch): the one-parameter directions first");
   });
 
   it("drops the acoustic-only and the symmetry-conserving irreps from the tree", () => {
@@ -137,15 +106,7 @@ describe("the Subgroups page", () => {
     expect(tree.map(({ term }) => term.irrep.label)).toEqual(dec.terms.filter((t) => !t.trivial && t.multiplicity - t.acoustic > 0).map((t) => t.irrep.label));
   });
 
-  it("holds every activation while a fit runs, in both views", () => {
-    for (const view of ["subgroup", "irrep"] as const) {
-      const out = subgroups(demoPage(), { busy: true, view });
-      expect(buttons(out, "Activate").length).toBeGreaterThan(0);
-      expect(buttons(out, "Activate").every((b) => b.includes("disabled"))).toBe(true);
-    }
-  });
-
-  it("shows an activated mode with ✕ clear and the way to the 3D Model, and only that until it is cleared", () => {
+  it("shows an activated mode with ✕ clear and the way to the 3D Model; the list stays, to pick from once cleared", () => {
     const { model, label } = activated();
     const n = pageView(model).modeSet!.modes.length;
     const out = subgroups(model);
@@ -153,8 +114,10 @@ describe("the Subgroups page", () => {
     expect(out).toContain(`${n} distortion mode${n === 1 ? "" : "s"} in the Positions group`);
     expect(buttons(out, "✕ clear")).toHaveLength(1);
     expect(buttons(out, "3D Model →")).toHaveLength(1);
-    expect(textOf(out)).toContain("Clear to pick another child.");
-    for (const hidden of ["By irrep", "Activate", "same cell"]) expect(out).not.toContain(hidden);
+    expect(out).toContain("✕ clear returns to the parent");
+    // The parent's subgroups are still listed (from the parent's state), with nothing to activate over the choice.
+    expect(textOf(out)).toContain("P-42₁m #113· same cell· 12 dom");
+    expect(buttons(out, "Activate")).toEqual([]);
   });
 
   it("names a parent-CIF decomposition, and a choice set aside by the atomic switch", () => {

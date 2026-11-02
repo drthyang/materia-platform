@@ -8,9 +8,14 @@
  * irrep's characters as the primary) and its Lattice view (the lattice's
  * member, no primary).
  *
- * The By subgroup rows themselves: every subgroup that fits the bound, each
- * with its cell and the irreps that lower the parent to it, on SrTiO₃ (Pm-3m,
- * 2×2×2) and the bundled GaTa₄Se₈ demo (F-43m, published; 1×1×2).
+ * The rows themselves: every subgroup that fits the bound, each with its
+ * cell and the irreps that lower the parent to it, on SrTiO₃ (Pm-3m, 2×2×2)
+ * and the bundled GaTa₄Se₈ demo (F-43m, published; 1×1×2). The list's
+ * merging (subgroupList.ts) loses no class, and a row reached as a merged
+ * row's variant activates the same child; the default filter, the k-point
+ * chips and the tie rule keep the known cases; every "how you get here"
+ * chain is made of real relations of the engine's lattice; the mode count a
+ * row shows is the count Activate loads.
  */
 import { describe, it, expect, vi } from "vitest";
 import type { PdfPattern } from "@/core/diffraction/types";
@@ -28,9 +33,16 @@ import { pageView, pdfPage, withActivatedMode, withSameCellSubgroup, withSubgrou
 import { decentringIrrepTree, gammaIrrepTree, modesCellNote, sameCellLattice } from "@/app/ui/SubgroupsPanel";
 import { DEFAULT_BOUND, PRESETS } from "@/app/ui/SupercellView";
 import {
-  chipName, decentringRows, kChips, sameCellListing, sameCellRows, supercellListing, supercellRows,
+  chipName, decentringRows, kChips, latticeGraph, sameCellListing, sameCellRows, supercellListing, supercellRows,
   type PickerAction, type PickerIrrep, type SubgroupRow,
 } from "@/app/ui/subgroupPicker";
+import { DEFAULT_FILTERS, collapseTies, detailOf, groupRows, latticeChains, setLine, setsFor, tagOf, visibleGroups, type ListFilters, type RowGroup } from "@/app/ui/subgroupList";
+import { boundIrreps } from "@/core/crystal/irreps/subgroupIrreps";
+import { starsInBound } from "@/core/crystal/irreps/factorGroup";
+import { rnum } from "@/core/crystal/irreps/rational";
+import { cachedIrrepsOfStar } from "@/core/crystal/irreps/supercellModes";
+import { irrepEngine } from "@/core/crystal/isotropySubgroups";
+import type { SupercellLattice } from "@/core/crystal/irreps/supercellLattice";
 import { srtio3 } from "@/testSupport/perovskiteTilts";
 
 // Realising and splitting the supercell children takes seconds each, the bound's lattice and irreps more; more on a loaded CI runner.
@@ -98,6 +110,116 @@ function listing(m: PdfPageModel, group: FactorGroup, bound: string): { readonly
   const same = sameCellListing({ operations: s.spaceGroup.operations, structure: s, tTree: structuralSubgroupLattice(s), gammaTree: gammaIrrepTree(s), decentringTree: decentringIrrepTree(s), kNodes: sameCellLattice(s) });
   return { same, larger: supercellListing(group, s, bound).rows };
 }
+
+
+/** The modes Activate loads (pageView.modeSet), for a row's count. */
+const modesAfter = (m: PdfPageModel): number => pageView(m).modeSet!.modes.length;
+
+/** The merged row holding a row, and that the row is one of its variants itself (the same object, so the same action). */
+function groupOf(groups: readonly RowGroup[], row: SubgroupRow): RowGroup {
+  const g = groups.filter((x) => x.variants.includes(row));
+  expect(g, row.key).toHaveLength(1);
+  return g[0]!;
+}
+
+/** Merging keeps every class: each row is exactly one group's variant, every group's variants share name, cell and domains. */
+function expectNothingLost(rows: readonly SubgroupRow[]): RowGroup[] {
+  const groups = groupRows(rows);
+  const variants = groups.flatMap((g) => g.variants);
+  expect(variants).toHaveLength(rows.length);
+  expect(new Set(variants).size).toBe(rows.length);
+  for (const r of rows) expect(variants).toContain(r);
+  for (const g of groups) expect(g.variants.every((v) => v.name === g.name && v.cell === g.cell && v.domains === g.domains)).toBe(true);
+  // Every class stays reachable from the list: with every filter off, every group is listed, every variant in it.
+  const all = visibleGroups(groups, { ...DEFAULT_FILTERS, kind: "all" });
+  expect(all.flatMap((x) => x.shown)).toHaveLength(rows.length);
+  return groups;
+}
+
+/** The ancestors of each class of a lattice (every class above it, through the covering edges). */
+function ancestorsOf(lattice: SupercellLattice): Set<number>[] {
+  const memo: (Set<number> | null)[] = lattice.classes.map(() => null);
+  const up = (id: number): Set<number> => {
+    if (memo[id]) return memo[id]!;
+    const s = new Set<number>();
+    for (const u of lattice.classes[id]!.coveredBy) {
+      s.add(u);
+      for (const x of up(u)) s.add(x);
+    }
+    memo[id] = s;
+    return s;
+  };
+  return lattice.classes.map((c) => up(c.id));
+}
+
+/**
+ * Every displayed way of every row is made of real relations of the
+ * lattice: the first step is an isotropy subgroup of its irrep (the class of
+ * one of that irrep's isotropy subgroups), each next step lies strictly below
+ * the one before through the covering edges, the last is the row's class.
+ */
+function expectRealWays(rows: readonly SubgroupRow[], lattice: SupercellLattice, irrepClasses: (label: string) => Set<number>): number {
+  const above = ancestorsOf(lattice);
+  let steps = 0;
+  for (const r of rows) {
+    for (const way of r.ways.ways) {
+      expect(way.at(-1)!.cls, r.key).toBe(r.cls);
+      expect(irrepClasses(way[0]!.irrep.label).has(way[0]!.cls), `${r.key}: ${way[0]!.irrep.label}`).toBe(true);
+      for (let i = 1; i < way.length; i++) {
+        expect(way[i]!.cls).toBeGreaterThanOrEqual(0);
+        expect(above[way[i]!.cls]!.has(way[i - 1]!.cls), `${r.key} step ${i}`).toBe(true);
+      }
+      steps += way.length;
+    }
+    expect(r.ways.ways.length).toBeGreaterThan(r.reach.kind === "none" ? -1 : 0);
+  }
+  return steps;
+}
+
+/** The lattice classes of each irrep's isotropy subgroups, by label. */
+function isotropyClassesOf(group: FactorGroup, lattice: SupercellLattice, stars: Parameters<typeof boundIrreps>[1]): (label: string) => Set<number> {
+  const byLabel = new Map<string, Set<number>>();
+  for (const b of boundIrreps(group, stars)) byLabel.set(b.irrep.label, new Set(b.subgroups.map((x) => lattice.classOf(x.elements)).filter((x): x is number => x !== null)));
+  return (label) => byLabel.get(label) ?? new Set();
+}
+const boundStars = (group: FactorGroup) => starsInBound(group).map((k) => cachedIrrepsOfStar(group, [rnum(k[0]), rnum(k[1]), rnum(k[2])]));
+const shownIn = (groups: readonly RowGroup[], f: ListFilters, key: string) => visibleGroups(groups, f).find((g) => g.group.key === key);
+
+/**
+ * The detail describes the variant it shows, and Activate does what it says.
+ * For every row (each variant of every merged row): the lead set is the row's
+ * first reaching set; every irrep of a lead way is in it; every irrep of any
+ * way is in one of the row's reaching sets; and the activation's choice is
+ * the row's own class, kicked by that lead set (a larger row's coupled or
+ * primary characters; a same-cell row's irrep path through one of its
+ * primary irreps, the first).
+ */
+function expectDetailIsTheVariant(rows: readonly SubgroupRow[], o: { readonly lattice: SupercellLattice | null; readonly labelOf: (chars: readonly number[]) => string | undefined }): void {
+  let checked = 0;
+  for (const r of rows) {
+    const d = detailOf(r);
+    if (r.reach.kind === "none") continue;
+    const leadLabels = new Set(d.set!.members.flat().map((x) => x.label));
+    expect([...leadLabels].sort(), r.key).toEqual(expect.arrayContaining(r.reach.sets[0]!.map((x) => x.label)));
+    expect(d.lead.length, r.key).toBeGreaterThan(0);
+    for (const w of d.lead) for (const st of w.steps) for (const x of st.irreps) expect(leadLabels.has(x.label), `${r.key}: ${x.label} in a lead way`).toBe(true);
+    const all = new Set(r.reach.sets.flat().map((x) => x.label));
+    for (const w of [...d.lead, ...d.more]) for (const st of w.steps) for (const x of st.irreps) expect(all.has(x.label), `${r.key}: ${x.label}`).toBe(true);
+    const first = r.reach.sets[0]!.map((x) => x.label);
+    if (r.action.kind === "supercell") {
+      const c = r.action.choice;
+      expect(o.lattice!.classOf(c.elements), r.key).toBe(r.cls);
+      if (r.reach.kind === "coupled") expect(c.coupled!.map((ch) => o.labelOf(ch)), r.key).toEqual(first);
+      else expect(o.labelOf(c.primary!), r.key).toBe(first[0]);
+    } else if (r.action.kind === "irrep") {
+      expect(o.labelOf(r.action.term.irrep.characters.map((x) => x.re)), r.key).toBe(first[0]);
+    }
+    checked++;
+  }
+  expect(checked).toBeGreaterThan(rows.length / 2);
+}
+const labelsByCharacters = (irreps: ReturnType<typeof boundIrreps>) => (chars: readonly number[]): string | undefined =>
+  irreps.find((b) => b.irrep.characters.every((x, i) => Math.abs(x - chars[i]!) < 1e-6))?.irrep.label;
 
 describe("the k-point chips", () => {
   it("name Γ and the 2×2×2 bound's stars of Pm-3m, with accessible names", () => {
@@ -269,8 +391,10 @@ describe("By subgroup on SrTiO₃, 2×2×2: every subgroup that fits, each with 
     const tree = gammaIrrepTree(m.loaded)!;
     const branch = tree.find((b) => b.subgroups.some((s) => s.identity.number === 99))!;
     const sub = branch.subgroups.find((s) => s.identity.number === 99)!;
-    expect(p4mm.detail).toContain(`(Γ irrep 10 of 10 is ${branch.term.irrep.label} on the By irrep view's Γ chip.)`);
-    expect(outcome(activate(m, p4mm.action))).toEqual(outcome(withActivatedMode(m, branch.term, sub).model));
+    expect(p4mm.detail).toContain(`(Γ irrep 10 of 10 is ${branch.term.irrep.label} in the activated modes' labels.)`);
+    const fromRow = activate(m, p4mm.action);
+    expect(outcome(fromRow)).toEqual(outcome(withActivatedMode(m, branch.term, sub).model));
+    expect(modesAfter(fromRow)).toBe(p4mm.modes);
     // The t-subgroups no displacive irrep reaches alone: the old t-lattice path, node for node.
     const nodes = subgroupClassRepresentatives(structuralSubgroupLattice(m.loaded));
     let compared = 0;
@@ -283,6 +407,7 @@ describe("By subgroup on SrTiO₃, 2×2×2: every subgroup that fits, each with 
       expect([now.label, now.message]).toEqual([old.label, old.message]);
       if (old.model === m) continue;
       expect(outcome(now.model)).toEqual(outcome(old.model));
+      expect(modesAfter(now.model)).toBe(r.modes);
       if (++compared === 3) break;
     }
     expect(compared).toBe(3);
@@ -300,6 +425,7 @@ describe("By subgroup on SrTiO₃, 2×2×2: every subgroup that fits, each with 
     expect([a.label, a.message]).toEqual([b.label, b.message]);
     expect(outcome(a.model)).toEqual(outcome(b.model));
     expect(modesCellNote(a.model.modes!)).toBe(" · in its own cell, 2×2×2");
+    expect(modesAfter(a.model)).toBe(r3c.modes);
 
     const pnma = row(larger, "P n m a #62 · 2×2×2 · 24 domains · M irrep 3 of 10 (a,0,0) + R irrep 8 of 10 (a,a,0), coupled (or 7 other pairs)");
     if (pnma.action.kind !== "supercell") throw new Error("Pnma activates in its own cell");
@@ -312,6 +438,142 @@ describe("By subgroup on SrTiO₃, 2×2×2: every subgroup that fits, each with 
     expect(now.message).toBe(old.message);
     expect(now.message).toContain("the order parameter (M irrep 3 of 10 + R irrep 8 of 10)");
     expect(outcome(now.model)).toEqual(outcome(old.model));
+    expect(modesAfter(now.model)).toBe(pnma.modes);
+    expect(pnma.modes).toBe(7);
+  });
+
+  it("I4/mcm: its row activates By irrep's R child in its own cell, with the modes the row counts", () => {
+    const { m, larger } = sto();
+    const i4mcm = row(larger, "I 4/m c m #140 · 2×2×2 · 6 domains · R irrep 8 of 10 (a,0,0)");
+    if (i4mcm.action.kind !== "supercell") throw new Error("I4/mcm activates in its own cell");
+    const fromIrrep = supercellRows(group, rChip.k!).find((r) => r.label === "R irrep 8 of 10")!.children.find((c) => c.action.kind === "supercell" && c.action.choice.elements.join() === (i4mcm.action as { choice: SupercellChoice }).choice.elements.join())!;
+    const a = withSupercellChild(m, i4mcm.action.choice);
+    const b = activated(m, fromIrrep.action);
+    expect(outcome(a.model)).toEqual(outcome(b.model));
+    expect(modesAfter(a.model)).toBe(i4mcm.modes);
+  });
+
+  it("the list merges rows by name, cell and domains and loses no class; a gate row reached as a variant is the row itself", () => {
+    const { same, larger } = sto();
+    const groups = expectNothingLost([...same, ...larger]);
+    expect(groups).toHaveLength(559);
+    const pnma = row(larger, "P n m a #62 · 2×2×2 · 24 domains · M irrep 3 of 10 (a,0,0) + R irrep 8 of 10 (a,a,0), coupled (or 7 other pairs)");
+    const g = groupOf(groups, pnma);
+    expect(g.key).toBe("P n m a #62|2×2×2|24");
+    expect(g.variants).toHaveLength(4);
+    for (const text of ["R -3 c:H #167 · 2×2×2 · 8 domains · R irrep 8 of 10 (a,a,a)", "I 4/m c m #140 · 2×2×2 · 6 domains · R irrep 8 of 10 (a,0,0)"]) groupOf(groups, row(larger, text));
+    groupOf(groups, row(same, "P 4 m m #99 · same cell · 6 domains · Γ irrep 10 of 10 (a,0,0)"));
+  });
+
+  it("the default list keeps Pnma (two irreps coupled) and every maximal subgroup; the chips keep what their irreps reach; the tie is written on one line", () => {
+    const { same, larger } = sto();
+    const groups = groupRows([...same, ...larger]);
+    const pnma = row(larger, "P n m a #62 · 2×2×2 · 24 domains · M irrep 3 of 10 (a,0,0) + R irrep 8 of 10 (a,a,0), coupled (or 7 other pairs)");
+    const PNMA = "P n m a #62|2×2×2|24";
+    const R3C = "R -3 c:H #167|2×2×2|8";
+    const I4MCM = "I 4/m c m #140|2×2×2|6";
+    // Default: one irrep, or two coupled, or maximal: 444 of the 559 merged rows; Pnma among them, the a⁻b⁺a⁻ class a shown variant.
+    const def = visibleGroups(groups, DEFAULT_FILTERS);
+    expect(def).toHaveLength(444);
+    expect(shownIn(groups, DEFAULT_FILTERS, PNMA)!.shown).toContain(pnma);
+    expect(def.flatMap((x) => x.shown).filter((r) => r.maximal)).toHaveLength([...same, ...larger].filter((r) => r.maximal).length);
+    // High to low symmetry: the index never falls.
+    expect(def.every((x, i) => i === 0 || def[i - 1]!.group.index <= x.group.index)).toBe(true);
+    // One irrep only: Pnma (coupled) leaves, R-3c stays.
+    const one = { ...DEFAULT_FILTERS, kind: "one" as const };
+    expect(shownIn(groups, one, PNMA)).toBeUndefined();
+    expect(shownIn(groups, one, R3C)).toBeDefined();
+    // The R chip: R-3c and I4/mcm, not Pnma (it needs an M or X irrep too) nor P4mm (Γ).
+    const r = { ...DEFAULT_FILTERS, ks: ["R"] };
+    expect(shownIn(groups, r, R3C)).toBeDefined();
+    expect(shownIn(groups, r, I4MCM)).toBeDefined();
+    expect(shownIn(groups, r, PNMA)).toBeUndefined();
+    expect(shownIn(groups, r, "P 4 m m #99|same cell|6")).toBeUndefined();
+    // R and M: their coupled pairs too; Pnma's tag the M and R pair, the tied M irreps on one line.
+    const rm = { ...DEFAULT_FILTERS, ks: ["R", "M"] };
+    expect(shownIn(groups, rm, PNMA)!.shown).toContain(pnma);
+    const shownSet = collapseTies(setsFor(pnma, rm.ks))[0]!;
+    expect(tagOf(shownSet)).toBe("M·3/5+R·8");
+    expect(setLine(shownSet)).toBe("M irrep 3 or 5 + R irrep 8");
+    // X and R alone: Pnma by an X irrep and R irrep 8 (a pair inside those two stars).
+    expect(tagOf(collapseTies(setsFor(pnma, ["X", "R"]))[0]!)).toMatch(/^X·\d+\+R·\d+$/);
+  });
+
+  it("the tie: M irrep 3 and 5 tie in a⁻b⁺a⁻ Pnma (same star, dimension, direction, multiplicity, isotropy subgroups by type and order, and alone the same P4/mbm); R irrep 8 and 10 do not (multiplicity 1 and 2)", () => {
+    const { larger } = sto();
+    const pnma = row(larger, "P n m a #62 · 2×2×2 · 24 domains · M irrep 3 of 10 (a,0,0) + R irrep 8 of 10 (a,a,0), coupled (or 7 other pairs)");
+    const refs = pnma.reach.sets.flat();
+    const ref = (label: string) => refs.find((x) => x.label === label)!;
+    expect(ref("M irrep 3 of 10").tie).toBe(ref("M irrep 5 of 10").tie);
+    expect(ref("M irrep 3 of 10").tie).toBe("M|3|1|(a,0,0)|127:64,139:32,204:48,71:16|127:64");
+    expect(ref("R irrep 8 of 10").tie).not.toBe(ref("R irrep 10 of 10").tie);
+    // The first four sets: M3+R8, M5+R8 (tied: one line), M3+R10, M5+R10 (tied: another line).
+    const tied = collapseTies(pnma.reach.sets);
+    expect(tied.slice(0, 2).map(setLine)).toEqual(["M irrep 3 or 5 + R irrep 8", "M irrep 3 or 5 + R irrep 10"]);
+    // Every set written on a tied line reaches the row: one place varies, and each combination is one of its sets.
+    for (const t of tied) {
+      const varying = t.members.filter((alts) => alts.length > 1);
+      expect(varying.length).toBeLessThanOrEqual(1);
+      for (const alt of varying[0] ?? []) {
+        const labels = t.members.map((alts) => (alts.length > 1 ? alt.label : alts[0]!.label)).sort();
+        expect(pnma.reach.sets.some((set) => set.map((x) => x.label).sort().join() === labels.join())).toBe(true);
+      }
+    }
+    // Two sets that differ in two members never share a line, tied or not.
+    const a = { label: "A irrep 1 of 2", star: "A", number: "1", direction: "(a)", moves: true, alone: "P1", tie: "t" };
+    const b = { ...a, label: "A irrep 2 of 2", number: "2" };
+    const c = { ...a, label: "B irrep 1 of 2", star: "B", tie: "u" };
+    const d = { ...c, label: "B irrep 2 of 2", number: "2" };
+    expect(collapseTies([[a, c], [b, d]])).toHaveLength(2);
+    expect(collapseTies([[a, c], [b, c]]).map(tagOf)).toEqual(["A·1/2+B·1"]);
+    expect(collapseTies([[a, c], [{ ...b, tie: "other" }, c]])).toHaveLength(2);
+  });
+
+  it("the detail describes the variant it shows: its lead set, ways and Activate, for every row of every merged row", () => {
+    const { m, same, larger } = sto();
+    expectDetailIsTheVariant(larger, { lattice: cachedSupercellSubgroups(group), labelOf: labelsByCharacters(boundIrreps(group, boundStars(group))) });
+    const engine = irrepEngine(m.loaded.spaceGroup.operations);
+    expectDetailIsTheVariant(same, { lattice: null, labelOf: labelsByCharacters(boundIrreps(engine.group, engine.stars)) });
+    // The a⁻b⁺a⁻ Pnma: it leads with M irrep 3 or 5 + R irrep 8, and its first ways name only those; R irrep 10 (one of its other pairs) waits behind "more ways".
+    const pnma = row(larger, "P n m a #62 · 2×2×2 · 24 domains · M irrep 3 of 10 (a,0,0) + R irrep 8 of 10 (a,a,0), coupled (or 7 other pairs)");
+    const d = detailOf(pnma);
+    expect(setLine(d.set!)).toBe("M irrep 3 or 5 + R irrep 8");
+    expect(d.lead.flatMap((w) => w.steps.flatMap((st) => st.irreps.map((x) => x.label)))).not.toContain("R irrep 10 of 10");
+    expect(d.more.flatMap((w) => w.steps.flatMap((st) => st.irreps.map((x) => x.label)))).toContain("R irrep 10 of 10");
+    expect(pnma.reach.sets.some((set) => set.some((x) => x.label === "R irrep 10 of 10"))).toBe(true);
+  });
+
+  it("every way of every row is a chain of real relations of the lattice, and the lattice steps are covering edges", () => {
+    const { m, same, larger } = sto();
+    const lattice = cachedSupercellSubgroups(group);
+    const steps = expectRealWays(larger, lattice, isotropyClassesOf(group, lattice, boundStars(group)));
+    expect(steps).toBeGreaterThan(larger.length);
+    const engine = irrepEngine(m.loaded.spaceGroup.operations);
+    const sameLattice = cachedSupercellSubgroups(engine.group);
+    expectRealWays(same, sameLattice, isotropyClassesOf(engine.group, sameLattice, engine.stars));
+    // Pnma's ways name Imma (R irrep 8 alone) and P4/mbm (M irrep 3 alone) before Pnma.
+    const pnma = row(larger, "P n m a #62 · 2×2×2 · 24 domains · M irrep 3 of 10 (a,0,0) + R irrep 8 of 10 (a,a,0), coupled (or 7 other pairs)");
+    expect(pnma.ways.count).toBe(16);
+    expect(pnma.ways.ways.slice(0, 2).map((w) => w.map((st) => `${st.name} (${st.irrep.label})`).join(" → "))).toEqual([
+      "I m m a #74 (R irrep 8 of 10) → P n m a #62 (M irrep 3 of 10)",
+      "P 4/m b m #127 (M irrep 3 of 10) → P n m a #62 (R irrep 8 of 10)",
+    ]);
+    // The literal lattice steps: each consecutive pair a covering edge of the bound's lattice, from the parent to the row.
+    const graph = latticeGraph(lattice, m.loaded.spaceGroup.operations).nodes;
+    const byKey = new Map(graph.map((n) => [n.key, n]));
+    for (const r of [pnma, row(larger, "R -3 c:H #167 · 2×2×2 · 8 domains · R irrep 8 of 10 (a,a,a)"), row(same, "P 4 m m #99 · same cell · 6 domains · Γ irrep 10 of 10 (a,0,0)")]) {
+      const { count, chains } = latticeChains(graph, r.key, 5);
+      expect(count).toBeGreaterThan(0);
+      expect(chains.length).toBeGreaterThan(0);
+      for (const ch of chains) {
+        expect([ch[0], ch.at(-1)]).toEqual(["p", r.key]);
+        for (let i = 1; i < ch.length; i++) expect(byKey.get(ch[i]!)!.coveredBy).toContain(ch[i - 1]);
+      }
+    }
+    // The bound's same-cell classes are the same-cell rows' (by key): the graph's s-keys are rows.
+    const sameKeys = new Set(same.map((r) => r.key));
+    expect(graph.filter((n) => n.key.startsWith("s")).every((n) => sameKeys.has(n.key))).toBe(true);
+    expect(graph.filter((n) => n.key.startsWith("s"))).toHaveLength(same.length);
   });
 
   it("Pnma from the old Lattice view's list (maxIndex 48) is the same class as the row's", () => {
@@ -373,6 +635,7 @@ describe("By subgroup on GaTa₄Se₈, 1×1×2: P-42₁m in the bound's own cell
     const fromRow = activated(m, atX.action);
     expect(fromRow.label).toBe(fromX.label);
     expect(outcome(fromRow.model)).toEqual(outcome(fromX.model));
+    expect(modesAfter(fromRow.model)).toBe(atX.modes);
     // The parent's cubic cell, kept.
     const xc = pageView(fromRow.model).modeSet!.parentized.cell;
     expect(xc.c).toBeCloseTo(xc.a, 9);
@@ -398,6 +661,7 @@ describe("By subgroup on GaTa₄Se₈, 1×1×2: P-42₁m in the bound's own cell
     expect(cell.a).toBeCloseTo(10.36, 1);
     expect(cell.c).toBeCloseTo(20.73, 1);
     expect(modesCellNote(now.model.modes!)).toBe(" · in its own cell, 1×1×2");
+    expect(modesAfter(now.model)).toBe(own.modes);
   });
 
   it("Activate on a decentring k- or general row without a displacive primary takes the same-cell lattice's path", () => {
@@ -414,9 +678,43 @@ describe("By subgroup on GaTa₄Se₈, 1×1×2: P-42₁m in the bound's own cell
       expect([now.label, now.message]).toEqual([old.label, old.message]);
       if (old.model !== m) {
         expect(outcome(now.model)).toEqual(outcome(old.model));
+        expect(modesAfter(now.model)).toBe(r.modes);
         compared++;
       }
     }
     expect(compared).toBeGreaterThan(0);
+  });
+  it("the detail describes the variant it shows, for every row", () => {
+    const { m, group, same, larger } = gts();
+    expectDetailIsTheVariant(larger, { lattice: cachedSupercellSubgroups(group), labelOf: labelsByCharacters(boundIrreps(group, boundStars(group))) });
+    const engine = irrepEngine(m.loaded.spaceGroup.operations);
+    expectDetailIsTheVariant(same, { lattice: null, labelOf: labelsByCharacters(boundIrreps(engine.group, engine.stars)) });
+  });
+
+  it("the list: no class lost; the default keeps the four 1×1×2 P-42₁m and the two at X; the X chip keeps the X ones, X and W the 1×1×2 ones", () => {
+    const { m, group, same, larger } = gts();
+    const groups = expectNothingLost([...same, ...larger]);
+    const OWN = "P -4 21 m #113|1×1×2|24";
+    const AT_X = "P -4 21 m #113|same cell|12";
+    expect(shownIn(groups, DEFAULT_FILTERS, OWN)!.shown).toHaveLength(4);
+    expect(shownIn(groups, DEFAULT_FILTERS, AT_X)!.shown).toHaveLength(2);
+    for (const r of larger.filter((x) => x.name === "P -4 21 m #113")) expect(groupOf(groups, r).key).toBe(OWN);
+    // The X chip: the X ones (X irrep 5 alone), not the 1×1×2 ones (they need W or (0,0,½) as well).
+    const x = { ...DEFAULT_FILTERS, ks: ["X"] };
+    expect(shownIn(groups, x, AT_X)).toBeDefined();
+    expect(shownIn(groups, x, OWN)).toBeUndefined();
+    const xw = { ...DEFAULT_FILTERS, ks: ["X", "W"] };
+    const own = shownIn(groups, xw, OWN)!;
+    expect(own.shown).toHaveLength(4);
+    expect(tagOf(collapseTies(setsFor(own.shown[0]!, xw.ks))[0]!)).toMatch(/^X·5\+W·[1-4]$/);
+    // The chips' ids are the rows' stars: X from the decentring tree, W and the unnamed (0, 0, 1/2) from the bound.
+    const chips = kChips(decentringIrrepTree(m.loaded), group).map((c) => c.id);
+    const stars = new Set([...same, ...larger].flatMap((r) => r.reach.sets.flat().map((y) => y.star)));
+    for (const st of stars) expect(chips).toContain(st);
+    // Ways: the 1×1×2 P-42₁m by the X one in the parent's cell, then W.
+    const first = larger.find((r) => r.name === "P -4 21 m #113")!;
+    expect(first.ways.ways.map((w) => w.map((st) => `${st.name} ${st.cell}`).join(" → "))).toContain("P -4 21 m #113 same cell → P -4 21 m #113 1×1×2");
+    const lattice = cachedSupercellSubgroups(group);
+    expectRealWays(larger, lattice, isotropyClassesOf(group, lattice, boundStars(group)));
   });
 });

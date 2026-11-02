@@ -19,7 +19,10 @@ import { cachedIrrepsOfStar } from "@/core/crystal/irreps/supercellModes";
 import { cachedSupercellSubgroups, SubgroupSearchTooLarge } from "@/core/crystal/irreps/supercellLattice";
 import type { SupercellSpec } from "@/core/crystal/irreps/supercell";
 import { boundIrreps, subgroupIrrepsAnalysis, type BoundIrrep } from "@/core/crystal/irreps/subgroupIrreps";
-import { isSupercellRowClass, latticeCounts, multiplicitiesOf, supercellSubgroupRow, type LatticeCounts, type SubgroupRow } from "@/app/ui/subgroupPicker";
+import { chipsOfStars, displacementOf, isSupercellRowClass, latticeCounts, latticeGraph, rowExtras, supercellSubgroupRow, type LatticeCounts, type SubgroupRow } from "@/app/ui/subgroupPicker";
+import type { GraphNode } from "@/app/ui/subgroupList";
+import type { StarIrreps } from "@/core/crystal/irreps/spaceGroupIrreps";
+import type { Vec3 } from "@/core/math/types";
 
 /** What a listing is worked out from: plain data, so it crosses to a worker as it is. */
 export interface ListingInput {
@@ -32,8 +35,6 @@ export interface ListingInput {
 
 /** A row as plain data: its activation's choice without the factor group (fromPlainRow puts the page's back). */
 export type PlainRow = Omit<SubgroupRow, "action"> & {
-  /** Its class id in the bound's lattice: the order the rows are listed in. */
-  readonly cls: number;
   readonly action: { readonly kind: "supercell"; readonly choice: Omit<SupercellChoice, "group"> };
 };
 
@@ -42,6 +43,15 @@ export type ListingEvent =
   | { readonly type: "group"; readonly key: string }
   /** How far the work has come, in whole percent. */
   | { readonly type: "progress"; readonly percent: number }
+  /**
+   * The bound's lattice as a graph, every class by its row's key (the parent
+   * "p", a larger cell `c<id>`, a same-cell class `s<id>` by its id in the
+   * conventional cell's lattice, whose factor group has the fingerprint
+   * `sameKey`): the tree and the lattice chains are drawn from it.
+   */
+  | { readonly type: "graph"; readonly nodes: readonly GraphNode[]; readonly sameKey: string }
+  /** Every star's irreps as worked out, so the page's cache has them and Activate need not work them out again. */
+  | { readonly type: "stars"; readonly stars: readonly { readonly k: Vec3; readonly irreps: StarIrreps }[] }
   /** Rows whose irreps are all in, in any order (by `cls` when listed). */
   | { readonly type: "rows"; readonly rows: readonly PlainRow[] }
   /** Every row sent; what the summary says of the lattice. */
@@ -69,15 +79,15 @@ export function factorGroupKey(group: FactorGroup): string {
 }
 
 /** A row without its factor group, for postMessage. */
-export function toPlainRow(row: SubgroupRow, cls: number): PlainRow {
+export function toPlainRow(row: SubgroupRow): PlainRow {
   if (row.action.kind !== "supercell") throw new Error("supercellListing: a cell-multiplying row activates in its own cell");
   const { group: _group, ...choice } = row.action.choice;
-  return { ...row, cls, action: { kind: "supercell", choice } };
+  return { ...row, action: { kind: "supercell", choice } };
 }
 
 /** The row on the page's own factor group. */
 export function fromPlainRow(row: PlainRow, group: FactorGroup): SubgroupRow {
-  const { cls: _cls, action, ...rest } = row;
+  const { action, ...rest } = row;
   return { ...rest, action: { kind: "supercell", choice: { group, ...action.choice } } };
 }
 
@@ -104,16 +114,21 @@ export function* supercellListingSteps(input: ListingInput, opts: { readonly gro
     throw e;
   }
   yield { type: "progress", percent: SHARE.lattice };
+  const graph = latticeGraph(lattice, input.operations);
+  yield { type: "graph", nodes: graph.nodes, sameKey: factorGroupKey(graph.sameGroup) };
   const ks = starsInBound(group).map((k) => [rnum(k[0]), rnum(k[1]), rnum(k[2])] as [number, number, number]);
-  const stars = [];
+  const stars: StarIrreps[] = [];
   for (let i = 0; i < ks.length; i++) {
     stars.push(cachedIrrepsOfStar(group, ks[i]!));
     yield { type: "progress", percent: SHARE.lattice + Math.floor((SHARE.stars * (i + 1)) / ks.length) };
   }
+  yield { type: "stars", stars: ks.map((k, i) => ({ k, irreps: stars[i]! })) };
   const irreps = boundIrreps(group, stars, { lazy: true });
-  const m = multiplicitiesOf(input.structure, group);
+  const disp = displacementOf(input.structure, group);
+  const m = disp?.multiplicity;
   const analysis = subgroupIrrepsAnalysis(group, irreps, lattice, m ? { multiplicity: m } : {});
-  const src = { group, lattice, bound: input.boundLabel, ...(m ? { moves: (b: BoundIrrep) => m(b) > 0 } : {}) };
+  const extras = rowExtras({ group, lattice, chipOf: chipsOfStars(group, ks, stars), ...(disp ? { multiplicity: disp.multiplicity, identityMultiplicity: disp.identity } : {}) });
+  const src = { group, lattice, bound: input.boundLabel, extras, ...(m ? { moves: (b: BoundIrrep) => m(b) > 0 } : {}) };
 
   // The row classes, each waiting on the irreps it needs.
   const waiting = new Map<number, number>();
@@ -130,7 +145,7 @@ export function* supercellListingSteps(input: ListingInput, opts: { readonly gro
   const rowsOf = (ids: readonly number[]): PlainRow[] =>
     ids.flatMap((id) => {
       const row = supercellSubgroupRow(src, lattice.classes[id]!, analysis.of(id));
-      return row ? [toPlainRow(row, id)] : [];
+      return row ? [toPlainRow(row)] : [];
     });
   const flush = function* (): Generator<ListingEvent, void, void> {
     if (ready.length === 0) return;
@@ -169,8 +184,9 @@ export function* supercellListingSteps(input: ListingInput, opts: { readonly gro
 }
 
 /** The listing's rows in their order (by class), from its events: what supercellListing returns, as plain rows. */
-export function collectListing(events: Iterable<ListingEvent>): { readonly key: string; readonly rows: PlainRow[]; readonly counts: LatticeCounts | null; readonly error: string | null } {
+export function collectListing(events: Iterable<ListingEvent>): { readonly key: string; readonly rows: PlainRow[]; readonly counts: LatticeCounts | null; readonly error: string | null; readonly graph: readonly GraphNode[] | null } {
   let key = "";
+  let graph: readonly GraphNode[] | null = null;
   const rows: PlainRow[] = [];
   let counts: LatticeCounts | null = null;
   let error: string | null = null;
@@ -179,7 +195,8 @@ export function collectListing(events: Iterable<ListingEvent>): { readonly key: 
     else if (e.type === "rows") rows.push(...e.rows);
     else if (e.type === "done") counts = e.counts;
     else if (e.type === "error") error = e.message;
+    else if (e.type === "graph") graph = e.nodes;
   }
   rows.sort((a, b) => a.cls - b.cls);
-  return { key, rows, counts, error };
+  return { key, rows, counts, error, graph };
 }
