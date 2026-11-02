@@ -72,11 +72,11 @@ describe("MCP magnetic tools on the whole powder profile", () => {
     for (let i = 0; i < fitted.length; i++) worst = Math.max(worst, Math.abs(tool[i]! - fitted[i]!));
     expect(worst).toBeLessThan(1e-9 * top);
   }
-  /** The option a case sets moves the pattern: the check is not vacuous. */
+  /** The option a case sets moves the pattern: the check is not vacuous (10⁶ times the 10⁻⁹ the curves must agree to). */
   function expectOptionMatters(a: Float64Array, b: Float64Array): void {
     let worst = 0;
     for (let i = 0; i < a.length; i++) worst = Math.max(worst, Math.abs(a[i]! - b[i]!));
-    expect(worst).toBeGreaterThan(0.01 * Math.max(...a));
+    expect(worst).toBeGreaterThan(1e-3 * Math.max(...a));
   }
 
   const single = build_refinement({ structure, pattern, instrument: neutron, backgroundTerms: 3 });

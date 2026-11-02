@@ -173,7 +173,13 @@ noise gives them (an mPDF fit, which reports no χ², ties within 10⁻⁴ in Rw
 The page marks these ≈. Among them the ★ goes top-down: to a group none of the
 others contains, then the lowest index, then the fewest moment parameters (the
 rows its fit refines, every split orbit's modes counted and co-located ions
-sharing one moment; [`momentParameters`](../src/app/magneticStep.ts)). At k = 0 the ranking refines the nuclear scale with the moments:
+sharing one moment; [`momentParameters`](../src/app/magneticStep.ts)). Two groups this
+cannot split whose fits are an **exact powder tie** (the same calculated
+pattern and wR, to 10⁻⁹; [`powderTies.ts`](../src/core/magnetic/powderTies.ts))
+are indistinguishable by powder: the ★ goes to the one with a moment on more of
+the chosen ions (on every ion the parent makes equivalent), then to the list's
+order, and the ranking names the other with its moments. A near-tie keeps the
+order of its wR (THY-58). At k = 0 the ranking refines the nuclear scale with the moments:
 the magnetic peaks sit on the nuclear ones, and a scale refined without them
 has taken part of their intensity.
 
@@ -381,10 +387,9 @@ modes. For a one-dimensional irrep the two are the same.
 
 The magnetic page models the group of the class that Route A lists. A
 direction's group can be a conjugate of the listed one: the same order, in
-another domain. The powder calculation reads each satellite family's |F_M|² at
-one member (see [LIMITATIONS.md](./LIMITATIONS.md#magnetic-structures)), so two
-domains of one class need not fit alike, and using the listed group keeps the
-two routes' fits equal.
+another domain. Each powder line sums |F_M⊥|² over every member of its family
+(THY-58), so the two domains fit alike; the page shows the listed one in both
+routes.
 
 **Supported**
 - On the 17 cases of the Route A oracle, every isotropy subgroup of every irrep
@@ -449,9 +454,9 @@ these files in VESTA, Bilbao or GSAS-II is not yet tested.
    [PLAN_SUBGROUPS_AND_INCOMMENSURATE.md](./PLAN_SUBGROUPS_AND_INCOMMENSURATE.md)).
 2. **Cosine and sine modes taken from the irreps** instead of the magnetic
    group, for a two-arm k.
-3. **The powder average of a satellite family**, so that every domain of a
-   class gives the same pattern (each family's |F_M|² is read at one member
-   today).
+
+The powder average of a satellite family (every domain of a class gives the
+same pattern) was item 3; it is done (THY-58).
 
 [ROADMAP.md](./ROADMAP.md) (M3, M4) places this work among the other milestones.
 

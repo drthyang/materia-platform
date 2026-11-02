@@ -223,6 +223,41 @@ release fixes bugs.
     before (checked for Γ, a decentring point, R → R-3c and Imma, and Pnma
     from the lattice). The Agent's tools and their text are unchanged.
 
+### Fixed
+
+- **A powder magnetic line is the sum of |F_M⊥|² over every member of its
+  family** (THY-58). Each satellite family's |F_M|² was read at one member
+  and multiplied by the count, which holds only when the magnetic group keeps
+  the parent's Laue symmetry. Two domains of one group could therefore fit
+  differently: on the synthetic Mn₃Ga page (P6₃/mmc, k = (0, 0, ½)) the two
+  P_c-3m1 domains fitted to wR 0.31 % and 29.6 %; both now fit to 0.289 %.
+  - Each member (both ±k, every equivalent reflection) is projected
+    perpendicular to its own Q. Checked against a brute-force sum over every
+    Q of the explicit magnetic supercell (10⁻¹³), and every orientation
+    domain gives one pattern (k = 0, MnO at L, a two-arm k).
+  - The satellite list missed whole lines for a k that the rotations carry to
+    ±k only up to a lattice vector (MnO at the arm (½, −½, ½): the line at
+    1.71 Å); such a k now expands every parent family.
+  - The fit, the F_obs/F_calc plot, the magnetic tick row and the residual
+    readings all use the sum. A line whose first member has no |F_M⊥|² but
+    whose family scatters now gets its tick.
+  - Moves results wherever the magnetic group is below the parent's Laue
+    class (a model built on the parent cell): the magnetic page's ranking,
+    `rank_magnetic_groups`, `refine_moments` and the MCP powder magnetic
+    tools. Structures read in their own magnetic group (the Mn₃Ga 350 K and
+    30 K goldens) do not move. On the synthetic Mn₃Ga page the truth P_c-3m1
+    and P_c-6m2 now give one pattern exactly.
+  - **Groups indistinguishable by powder.** When the ranking's top-down rule
+    cannot split two groups whose fits give the same calculated pattern and
+    wR (to 10⁻⁹), the ★ goes to the one with a moment on more of the chosen
+    ions, and the page and `rank_magnetic_groups` (new field
+    `indistinguishableByPowder`) name the other with its moments: P_c-3m1
+    (★) and P_c-6m2 "3.54 µB on 3 of the 6 Mn1 ions, none on the others". A
+    near-tie keeps its wR order. The eval check for the chosen group counts
+    such a twin as correct.
+  - The magnetic structure factor expands the moments once per model, so the
+    sum costs what the one-member reading did.
+
 ## [0.5.0] - 2026-10-31
 
 ### Added

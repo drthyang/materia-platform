@@ -87,6 +87,7 @@ folder skip when it is absent (CI, fresh clones).
 | k≠0 Fourier structure factor (SDW/helix) + amplitude recovery | unit + self-consistent | ✅ `core/magnetic/fourierMoment.test.ts` |
 | Two-arm (incommensurate-type) modulation: k-formalism ≡ brute-force real-space supercell sum — k = ¼ (both θ), ⅓ (P3₁ screw), 3/10, self-conjugate ½; ½ two-arm factor; −k conjugation; gauge invariance; symmetry-forced K-point helix | **convention-free oracle** | ✅ `core/magnetic/fourierModulation.test.ts` |
 | Satellite Laue-family multiplicities (self-conjugate k listed once; off-axis star expanded) vs brute-force position count | unit | ✅ `core/magnetic/fourierModulation.test.ts` |
+| Powder average of a magnetic line (THY-58): \|F_M⊥\|² summed over every member of the family. Every orientation domain of a group gives the same lines (Mn₃Ga P_c-3m1 at (0, 0, ½), an orthorhombic group at k = 0, MnO's C_c2/c at L over 48 orientations and four arms, a two-arm k = (⅕, 0, 0); worst 4·10⁻¹⁴); a brute-force sum over every Q of the explicit magnetic supercell matches line by line (worst 1.2·10⁻¹³); a cubic ferromagnet gives the powder factor ⅔; the mPDF is domain-independent; the two P_c-3m1 domains fit the synthetic Mn₃Ga page alike | **convention-free oracle** + domains | ✅ `core/magnetic/powderAverage.test.ts`, `app/magneticStep.test.ts` |
 | Helix (cos ∥ a, sin ∥ b) recovered through the powder workflow; single-crystal satellite rows carry no nuclear term | integration | ✅ `core/workflow/fourierPowder.test.ts` |
 | Grouped (equal-value) constraints | unit | ✅ `core/refinement/engine.test.ts` |
 | Real 200 K/350 K CIF + reflection lists | golden (GSAS d-spacings) | ✅ `parsers/realData.test.ts` |
@@ -189,6 +190,19 @@ reproduces GSAS-II's listed d-spacings for those reflections to < 2×10⁻³ Å.
 **Scope note.** The table above pins the *crystallographic and scattering
 foundations* against this Mn₃Ga refinement. It does not compare the fit itself;
 the whole-fit and whole-workflow comparisons are in the next table.
+
+**THY-58 re-check (2026-11-02).** When the powder magnetic intensity became
+the sum over every member of each family, every magnetic golden that runs
+without the `data/` folder was re-run: the Mn₃Ga 350 K moment fit and
+multi-start on the published POWGEN data, the Mn₃Ga 30 K (Example 3) bias and
+guarded-path tests, the diffpy.mpdf and FindSpinGroup MnO goldens, and the
+magnetic-group oracles. None moved beyond 10⁻⁸ relative: the 350 K and 30 K
+structures are written in their own magnetic groups (Cm'cm', P2₁'/m'), whose
+families' members were already equal, and the mPDF reads no satellite. The
+per-reflection \|F_M\|² is bit-identical. The data-gated goldens (DyMn₆Ge₆
+against FullProf, FeCoSn 1.7 K and the Mn₃Ga 350 K reflection list against
+GSAS-II, the AWO₄ demo, the diffpy.mpdf tutorial data), run locally on `main`
+and on the branch, are unchanged ([report](./reports/2026-11-02-thy58-powder-magnetic-average.md)).
 
 ### Fits and workflows checked against external tools
 

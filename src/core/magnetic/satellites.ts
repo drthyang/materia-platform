@@ -25,22 +25,25 @@
  * Multiplicity — exact Laue families, each satellite position ONCE:
  *  - Every emitted entry is one Laue family of the (generally fractional)
  *    satellite index: its orbit under the point-group rotations of the parent
- *    space group plus Friedel −h. `multiplicity` is that family's size, which
- *    is the powder multiplicity under the standard equal-population assumption
- *    for the domains of the star of k. The representative index is the first
- *    member encountered (G + k or G − k of a parent representative), so |F_M|²
- *    is evaluated where it always was.
+ *    space group plus Friedel −h. The representative index is the first
+ *    member encountered (G + k or G − k of a parent representative); it labels
+ *    the line. `members` lists the family's satellites of this arm, and the
+ *    powder intensity is |F_M⊥|² summed over them (core/magnetic/
+ *    powderAverage.ts): a magnetic group below the parent's Laue class gives
+ *    its members different |F_M⊥|², so one member times the count is not the
+ *    powder average (THY-58).
  *  - A **self-conjugate k** (−k ≡ k: k = ½-type) makes G + k and G′ − k the
  *    SAME reflection for G′ = G + 2k. Listing both arms per parent counted
  *    every such satellite twice — 2× the magnetic intensity, refined moments
  *    1/√2 too small against a shared scale. Families are deduplicated across
  *    all candidates, so each position now enters exactly once.
- *  - When some Laue rotation carries k to neither +k nor −k (a k off the
- *    Laue-invariant lines, e.g. (⅓,0,0) in a tetragonal cell), the satellites
- *    of the other parent-orbit members lie at DIFFERENT d than the
- *    representative's, so every member of each parent family is expanded
- *    before ±k is added. For a Laue-invariant k the representative alone
- *    already spans its families and the cheaper path is taken.
+ *  - When some Laue rotation carries k to neither +k nor −k exactly (a k off
+ *    the Laue-invariant lines, e.g. (⅓,0,0) in a tetragonal cell, or one
+ *    carried to ±k only up to a lattice vector, as at the L point of a cubic
+ *    cell), the satellites of the other parent-orbit members lie in other
+ *    families, so every member of each parent family is expanded before ±k is
+ *    added. For a k every rotation carries to exactly ±k the representative
+ *    alone already spans its families and the cheaper path is taken.
  *  - `multiplicity` counts the members of a family that are ±k satellites in
  *    the parent's TRUE reciprocal lattice (H = Q ∓ k ∈ Λ*), and the
  *    representative is one of them. The other members are satellites of other
@@ -54,11 +57,12 @@
  *    with multiplicity 0, so position ticks show every place the star can
  *    scatter. For a Laue-invariant k in a primitive cell every member is an
  *    arm member and this is the family size.
+ *  - At k = 0 every member of the parent's Laue family is a member.
  */
 
 import type { UnitCell, SpaceGroup } from "@/core/crystal/types";
 import type { Mat3, Vec3 } from "@/core/math/types";
-import { generateReflections } from "@/core/diffraction/reflections";
+import { generateReflections, lauEquivalents } from "@/core/diffraction/reflections";
 import { dSpacing } from "@/core/crystal/unitCell";
 import { centringTranslations, isReciprocalLatticeVector } from "@/core/crystal/symmetry";
 
@@ -68,8 +72,10 @@ export interface SatellitePosition {
   readonly l: number;
   /** d-spacing in Å (always finite, inside [dMin, dMax]). */
   readonly d: number;
-  /** Laue-family multiplicity of this satellite (all arms of the star of k
-   *  the Laue group generates, equal-population domains). */
+  /** The family's satellites of this arm (the representative among them when
+   *  there are any): the indices whose |F_M⊥|² the powder line sums. */
+  readonly members: readonly Vec3[];
+  /** The number of `members`: the family's satellites of this arm. */
   readonly multiplicity: number;
 }
 
@@ -124,18 +130,27 @@ function laueFamily(rots: readonly Mat3[], h: Vec3): { members: Vec3[]; key: str
   return { members, key };
 }
 
-/** True when every point-group rotation carries k to ±k (mod lattice). */
+/**
+ * True when every point-group rotation carries k to exactly +k or −k. Then the
+ * ±k satellites of each parent representative r reach every family: a
+ * satellite R·r ± k has R⁻¹ of it, r ± k, in its family. A k the rotations
+ * carry to ±k only up to a lattice vector n (the L point of a cubic cell,
+ * (½,½,½) → (−½,½,½) = k − (1,0,0)) does not: R⁻¹ of the satellite is
+ * (r + n) ± k, a satellite of another parent node, and the representatives
+ * alone missed families — on MnO at the arm (½,−½,½), a whole line at
+ * d = 1.71 Å. Such a k takes the full path (THY-58).
+ */
 function kIsLaueInvariant(rots: readonly Mat3[], k: Vec3, tol = 1e-6): boolean {
-  const near = (a: Vec3, b: Vec3): boolean =>
-    [0, 1, 2].every((i) => { const d = a[i]! - b[i]!; return Math.abs(d - Math.round(d)) < tol; });
+  const same = (a: Vec3, b: Vec3): boolean => [0, 1, 2].every((i) => Math.abs(a[i]! - b[i]!) < tol);
   const minus: Vec3 = [-k[0]!, -k[1]!, -k[2]!];
-  return rots.every((R) => { const t = transformIndex(R, k); return near(t, k) || near(t, minus); });
+  return rots.every((R) => { const t = transformIndex(R, k); return same(t, k) || same(t, minus); });
 }
 
 /**
  * Enumerate the magnetic satellite positions G ± k with dMin ≤ d ≤ dMax, one
- * entry per Laue family with its exact multiplicity. Positions only —
- * evaluating |F_M|² at each (non-integer) index is the caller's job, and is
+ * entry per Laue family with its members of this arm. Positions only —
+ * evaluating |F_M|² at the (non-integer) indices is the caller's job
+ * (`satelliteIntensities` in powderAverage.ts sums it over the members), and is
  * what decides which candidates carry intensity.
  */
 export function magneticSatellites(
@@ -152,7 +167,8 @@ export function magneticSatellites(
     for (const r of generateReflections(cell, spaceGroup, dMin, dMax, { absences: false })) {
       const d = dSpacing(cell, r.h, r.k, r.l);
       if (Number.isFinite(d) && d > 0 && d >= dMin && d <= dMax) {
-        out.push({ h: r.h, k: r.k, l: r.l, d, multiplicity: r.multiplicity });
+        const members = lauEquivalents(spaceGroup, r.h, r.k, r.l);
+        out.push({ h: r.h, k: r.k, l: r.l, d, members, multiplicity: members.length });
       }
     }
     return out;
@@ -187,7 +203,8 @@ export function magneticSatellites(
     }
     familyIndex.set(fam.key, out.length);
     repIsArm.push(isArmMember(idx));
-    out.push({ h, k: kk, l, d, multiplicity: fam.members.filter(isArmMember).length });
+    const members = fam.members.filter(isArmMember);
+    out.push({ h, k: kk, l, d, members, multiplicity: members.length });
   };
 
   // The pure G = (000) satellites at ±k (one family when the arms are
@@ -208,8 +225,10 @@ export function magneticSatellites(
       push(r.h - k[0]!, r.k - k[1]!, r.l - k[2]!);
       continue;
     }
-    // Off the Laue-invariant lines the other members of the parent family
-    // put their satellites at other d: expand the parent orbit explicitly.
+    // Otherwise the other members of the parent family put their satellites in
+    // other families (at other d off the Laue-invariant lines; in families no
+    // representative reaches when k is invariant only up to a lattice vector):
+    // expand the parent orbit explicitly.
     const members = new Map<string, Vec3>();
     for (const R of rots) {
       const t = transformIndex(R, [r.h, r.k, r.l]);

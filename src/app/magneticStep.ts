@@ -32,6 +32,7 @@ import { littleGroup } from "@/core/magnetic/magneticGroups";
 import { magneticIsotropySubgroup, magneticRepresentationAnalysis, type RepresentationAnalysis } from "@/core/magnetic/representationAnalysis";
 import { magneticOperationSignature } from "@/core/magnetic/operationSignature";
 import { fitAmplitudesToMoments } from "@/core/magnetic/amplitudeFit";
+import { exactPowderTie, momentCoverage, powderLines, type MomentCoverage } from "@/core/magnetic/powderTies";
 import { candidateId, candidateIndex, candidateView, selectionView, type KCandidateView, type MagneticAgentHandle } from "@/agent/magneticPort";
 
 // ── the residual peaks ──────────────────────────────────────────────────────
@@ -255,6 +256,10 @@ export interface RankEntry {
   /** The fit's χ² and degrees of freedom, where it is weighted by the data's σ: Hamilton's test reads them. */
   readonly chi2?: number;
   readonly dof?: number;
+  /** The fitted model's magnetic lines (`powderLines`): what an exact powder tie compares. */
+  readonly lines?: readonly number[];
+  /** The chosen ions carrying a fitted moment, of all of them (`momentCoverage`): an exact tie's preference. */
+  readonly coverage?: MomentCoverage;
 }
 
 export interface RankRun {
@@ -267,6 +272,8 @@ export interface RankRun {
   readonly open: ReadonlySet<number>;
   readonly build: (ops: readonly SymmetryOperation[]) => MagneticModelBuild;
   readonly fit: MagneticFit;
+  /** The chosen ions, whose coverage an exact powder tie prefers (absent: each build's magnetic sites). */
+  readonly ions?: readonly string[];
   readonly restarts?: number;
   /** Refine the nuclear scale with each group's moments (k = 0). */
   readonly freeScale?: boolean;
@@ -307,7 +314,14 @@ export async function rankCandidates(run: RankRun): Promise<Record<string, RankE
           label: `${m.siteLabel}${m.orbitIndex !== undefined && m.orbitIndex > 1 ? `#${m.orbitIndex}` : ""}`,
           value: Math.hypot(...momentCartesian(run.structure.cell, m)),
         }));
-        results[id] = { status: "ok", wR: agreement, values, magnitudes, ...(chi2 !== undefined && dof !== undefined ? { chi2, dof } : {}) };
+        // What an exact powder tie reads (THY-58): the fitted model's lines and the ions it puts a moment on.
+        let tie: Pick<RankEntry, "lines" | "coverage"> = {};
+        try {
+          tie = { lines: powderLines(run.structure, applied), coverage: momentCoverage(run.structure, applied, run.ions ?? build.activeSites) };
+        } catch {
+          tie = {};
+        }
+        results[id] = { status: "ok", wR: agreement, values, magnitudes, ...(chi2 !== undefined && dof !== undefined ? { chi2, dof } : {}), ...tie };
       }
     } catch {
       results[id] = { status: "failed", wR: null, values: {}, magnitudes: [] };
@@ -347,15 +361,49 @@ export function withinNoise(results: Readonly<Record<string, RankEntry>>, reps: 
  */
 export function rankWithinNoise(results: Readonly<Record<string, RankEntry>>, reps: readonly LatticeCandidate[], dims: readonly number[]): string[] {
   const tied = withinNoise(results, reps, dims);
-  const meta = new Map(reps.map((r, i) => [r.candidate.id, { rep: r, dof: dims[i] ?? 0 }]));
+  const meta = new Map(reps.map((r, i) => [r.candidate.id, { rep: r, dof: dims[i] ?? 0, at: i }]));
   const classes = new Set(tied.map((id) => meta.get(id)?.rep.classId));
   const below = (id: string): number => (meta.get(id)?.rep.above.some((c) => classes.has(c)) ? 1 : 0);
-  return tied.sort((a, b) =>
+  const topDown = (id: string): string => `${below(id)}|${meta.get(id)?.rep.index ?? 99}|${meta.get(id)?.dof ?? 99}`;
+  const sorted = tied.sort((a, b) =>
     below(a) - below(b) ||
     (meta.get(a)?.rep.index ?? 99) - (meta.get(b)?.rep.index ?? 99) ||
     (meta.get(a)?.dof ?? 99) - (meta.get(b)?.dof ?? 99) ||
     results[a]!.wR! - results[b]!.wR!,
   );
+  // An exact powder tie (the same calculated pattern and wR to 1e-9, powderTies.ts) that the top-down rule
+  // cannot split is not ordered by the last digits of wR: the group with a moment on more of the chosen
+  // ions first (on every ion the parent makes equivalent), then the list's order. A near-tie keeps its wR order.
+  const covered = (id: string): number => {
+    const c = results[id]?.coverage;
+    return c && c.total > 0 ? c.carrying / c.total : 0;
+  };
+  const out: string[] = [];
+  for (let i = 0; i < sorted.length;) {
+    const run = [sorted[i]!];
+    let j = i + 1;
+    while (j < sorted.length && topDown(sorted[j]!) === topDown(sorted[i]!) && exactPowderTie(results[sorted[i]!]!, results[sorted[j]!]!)) run.push(sorted[j++]!);
+    if (run.length > 1) run.sort((a, b) => covered(b) - covered(a) || (meta.get(a)?.at ?? 0) - (meta.get(b)?.at ?? 0));
+    out.push(...run);
+    i = j;
+  }
+  return out;
+}
+
+/**
+ * The groups indistinguishable by powder from the ★ (THY-58): the fits within
+ * the noise whose fit is an exact powder tie with the ★'s (the same calculated
+ * pattern), other than those with a supergroup among them (a lower group that
+ * reproduces a structure is that structure, not an alternative). `ordered` is
+ * rankWithinNoise's order (the ★ first).
+ */
+export function powderTwins(results: Readonly<Record<string, RankEntry>>, ordered: readonly string[], reps: readonly LatticeCandidate[]): string[] {
+  const best = ordered[0];
+  if (best === undefined) return [];
+  const rep = new Map(reps.map((r) => [r.candidate.id, r]));
+  const classes = new Set(ordered.map((id) => rep.get(id)?.classId));
+  const below = (id: string): boolean => !!rep.get(id)?.above.some((c) => classes.has(c));
+  return ordered.slice(1).filter((id) => !below(id) && exactPowderTie(results[best]!, results[id]!));
 }
 
 /** The ★: the first of the groups within the noise of the best fit, top-down (rankWithinNoise). */
@@ -527,6 +575,8 @@ export interface StepView {
   readonly best: { readonly id: string; readonly wR: number } | null;
   /** The ranked groups within the noise of the best fit, in the ★'s order (the ★ first). */
   readonly noise: readonly string[];
+  /** The ranked groups indistinguishable by powder from the ★ (powderTwins), in the ★'s order. */
+  readonly twins: readonly string[];
   /** Per representative: a maximal group that carries a moment on the chosen ions (maximalWithMoment). */
   readonly maximal: readonly boolean[];
   /** The chosen model's fit while it is for this model and data. */
@@ -598,9 +648,9 @@ export function stepView(s: StepState, at: StepInputs, slots: StepSlots): StepVi
     const idx = member ? reps.findIndex((r) => r.classId === member.classId) : -1;
     return idx >= 0 ? idx : null;
   });
-  // The group the step models: the class's listed group, so both frameworks fit one group the same way. A conjugate is
-  // the same order in another domain, but the powder calculation reads each family's |F_M|² at one member
-  // (docs/LIMITATIONS.md), so two domains need not fit alike.
+  // The group the step models: the class's listed group, so both frameworks name and seed one group the same way. A
+  // conjugate is the same order in another domain; since each powder line sums |F_M⊥|² over its family (THY-58) the two
+  // fit alike, and the list's is the one the page shows.
   const combo = memo("comboModel", [isotropy, comboRepIdx, reps], () => {
     if (!isotropy || "failure" in isotropy || comboRepIdx === null) return isotropy;
     const rep = reps[comboRepIdx]!;
@@ -620,10 +670,12 @@ export function stepView(s: StepState, at: StepInputs, slots: StepSlots): StepVi
   const rankResults = s.rank.on === rankKey ? s.rank.results : {};
   const noise = memo("noise", [rankResults, reps, dims], () => rankWithinNoise(rankResults, reps, dims));
   const best = memo("best", [noise, rankResults], () => (noise.length > 0 ? { id: noise[0]!, wR: rankResults[noise[0]!]!.wR! } : null));
+  // The groups a powder cannot tell from the ★ (the same calculated pattern): named with it.
+  const twins = memo("twins", [noise, rankResults, reps], () => powderTwins(rankResults, noise, reps));
   const maximal = memo("maximal", [reps, dims], () => maximalWithMoment(reps, dims));
   return {
     rows, includedSignature, results, kClass, reps, lgSize, dims, irrepAnalysis, combo, comboRepIdx, chosenOps, options, build, kRows, canRefineK,
-    resolvedAmps, applied, kUnsupported, canFit, canRefine, agreementLabel: at.fit?.agreementLabel ?? "wR", rankKey, fitKey, rankResults, best, noise, maximal,
+    resolvedAmps, applied, kUnsupported, canFit, canRefine, agreementLabel: at.fit?.agreementLabel ?? "wR", rankKey, fitKey, rankResults, best, noise, twins, maximal,
     fitWR: s.fitWR && s.fitWR.on === fitKey ? s.fitWR.wR : null,
   };
 }
@@ -911,6 +963,7 @@ export class MagneticStep {
     await rankCandidates({
       structure: at.structure, reps: v.reps, dims: v.dims, scope, open: this.s.open, fit: at.fit,
       build: (ops) => buildFor(at.structure, this.s.k, this.s.ions, ops, v.options),
+      ions: [...this.s.ions],
       ...(restarts !== undefined ? { restarts } : {}),
       // At k = 0 the magnetic peaks sit on the nuclear ones: the scale refines with the moments.
       ...(this.s.k.every((v) => Math.abs(v) < 1e-9) ? { freeScale: true } : {}),
@@ -1000,6 +1053,7 @@ export class MagneticStep {
           baselineAgreement: at.baselineAgreement,
           best: v.best ? candidateId(v.reps.findIndex((r) => r.candidate.id === v.best!.id)) : null,
           withinNoise: v.noise.map((id) => candidateId(v.reps.findIndex((r) => r.candidate.id === id))),
+          powderTwins: v.twins.map((id) => candidateId(v.reps.findIndex((r) => r.candidate.id === id))),
           canFit: v.canFit,
           canRefineK: v.canRefineK,
         };
