@@ -45,6 +45,7 @@ import { periodicityBox } from "@/core/crystal/irreps/childSetting";
 import { cachedIrrepsOfStar, displacementCharacters, displacementMultiplicity } from "@/core/crystal/irreps/supercellModes";
 import { cachedSupercellSubgroups, fitsBound, keepsSupercell, type SubgroupClass, type SupercellLattice } from "@/core/crystal/irreps/supercellLattice";
 import { boundIrreps, subgroupIrreps, type BoundIrrep, type IrrepDirection, type SubgroupIrreps } from "@/core/crystal/irreps/subgroupIrreps";
+import type { KStar } from "@/core/crystal/irreps/spaceGroupIrreps";
 import type { DecentringBranch, IrrepBranch, IrrepSubgroup, SameCellNode } from "@/app/ui/SubgroupsPanel";
 import { formatBasis } from "@/core/crystal/standardSetting";
 
@@ -126,6 +127,16 @@ function cellVolume(identity: SubgroupIdentity): number | null {
 const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /**
+ * The chip a star belongs to: "Γ" at k = 0, else its standard name, else its
+ * coordinates ("(0, 0, 1/2)"). The rows name their irreps' stars the same way,
+ * so a chip keeps the rows its irreps reach.
+ */
+export function starChipId(k: Vec3, name: string | null): string {
+  if (k.every((x) => Math.abs(x) < 1e-9)) return "Γ";
+  return name ?? formatK(k);
+}
+
+/**
  * The chips: Γ, the decentring stars (from their tree, one chip per star), then
  * the bound's cell-multiplying stars (a component of k not an integer), named
  * where the engine names them (starName) and by coordinates otherwise.
@@ -133,13 +144,14 @@ const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? "" 
 export function kChips(decentring: readonly DecentringBranch[] | null, group: FactorGroup | null): KChip[] {
   const chips: KChip[] = [{ id: "Γ", label: "Γ", sameCell: true, source: "gamma", k: null }];
   for (const b of decentring ?? []) {
-    if (!chips.some((c) => c.id === b.star.label)) chips.push({ id: b.star.label, label: b.star.label, sameCell: true, source: "decentring", k: b.star.k });
+    const id = starChipId(b.star.k, b.star.name);
+    if (!chips.some((c) => c.id === id)) chips.push({ id, label: id, sameCell: true, source: "decentring", k: b.star.k });
   }
   if (group) {
     for (const r of starsInBound(group)) {
       const k: Vec3 = [rnum(r[0]), rnum(r[1]), rnum(r[2])];
       if (k.every((x) => Number.isInteger(x))) continue; // Γ or a decentring point: the same-cell chips have them.
-      const label = starName(group, k) ?? formatK(k);
+      const label = starChipId(k, starName(group, k));
       if (!chips.some((c) => c.id === label)) chips.push({ id: label, label, sameCell: false, source: "supercell", k });
     }
   }
@@ -182,7 +194,7 @@ export function sameCellRows(tree: readonly IrrepBranch[]): PickerIrrep[] {
 
 /** The rows of a decentring chip: the decentring tree's branches at that star. */
 export function decentringRows(tree: readonly DecentringBranch[], chip: KChip): PickerIrrep[] {
-  return sameCellRows(tree.filter((b) => b.star.label === chip.id));
+  return sameCellRows(tree.filter((b) => starChipId(b.star.k, b.star.name) === chip.id));
 }
 
 /**
@@ -240,7 +252,76 @@ export interface SubgroupRow {
   /** Everything else, for its "?", one statement a line: the index split, orientations, the basis, the coupled alternatives, the secondary irreps. */
   readonly detail: string;
   readonly action: PickerAction;
+  /** Its class id in the lattice it comes from: the conventional cell's for a same-cell row, the bound's for a larger one. */
+  readonly cls: number;
+  /** The irreps that reach it, as data: the k-point chips filter on them, the tags and the detail panel write them. */
+  readonly reach: RowReach;
+  /** How you get here: the irreps of a reaching set switched on one at a time, each step's subgroup named. */
+  readonly ways: RowWays;
+  /** The displacive modes the child refines (every irrep's copies on the atoms times the dimension the child fixes, rigid shifts left out); null without a structure. */
+  readonly modes: number | null;
 }
+
+/** One irrep of a row's reaching set, as the list and the detail panel write it. */
+export interface IrrepRef {
+  /** "R irrep 8 of 10", "k = (0, 0, 1/2) irreps 3⊕4 of 4". */
+  readonly label: string;
+  /** The chip its star belongs to (starChipId): "R", "Γ", "(0, 0, 1/2)". */
+  readonly star: string;
+  /** Its number at the star: "8", "3⊕4". */
+  readonly number: string;
+  /** The order-parameter direction, as By irrep writes it ("(a,a,0)"). */
+  readonly direction: string;
+  /** Whether the structure's atoms carry it (its displacement multiplicity is not 0); null without a structure. */
+  readonly moves: boolean | null;
+  /** A coupled irrep's own isotropy subgroup, alone, in the domain the row fixes (its name); null for a primary one. */
+  readonly alone: string | null;
+  /**
+   * Equal for two irreps of one row that the group-theoretic counts cannot
+   * tell apart there: the same star, dimension and direction, the same copies
+   * on the atoms (multiplicity), the same list of isotropy subgroups by type
+   * and order (ITA number and |H|, every class of each), and, alone in the
+   * row's domain, an isotropy subgroup of the same type and order. SrTiO₃'s
+   * M irrep 3 and M irrep 5 tie so (P4/mbm, Im-3, I4/mmm, Immm each; P4/mbm
+   * alone in a⁻b⁺a⁻ Pnma; once on the atoms) although their subgroups are
+   * different conjugacy classes (other origins). Two sets that differ only by
+   * such a member reach the row alike; the page writes them on one line ("M
+   * irrep 3 or 5 + R irrep 8"); which of the two drives a real distortion is
+   * physics, not symmetry.
+   */
+  readonly tie: string;
+}
+
+/** The irreps that reach a row: each primary irrep alone, or the smallest coupled sets, ranked as subgroupIrreps ranks them. */
+export interface RowReach {
+  readonly kind: "primary" | "coupled" | "none";
+  /** The sets, best first: a primary row's irreps one to a set; a coupled row's first sets, and the first of every other combination of stars. */
+  readonly sets: readonly (readonly IrrepRef[])[];
+  /** Every set there is (sets lists at most MAX_SETS of them, plus one per combination of stars). */
+  readonly setCount: number;
+}
+
+/** One step of a way: the irrep switched on, and the subgroup the irreps on so far lower the parent to. */
+export interface WayStep {
+  readonly irrep: IrrepRef;
+  readonly name: string;
+  /** "same cell", or the parent-axes box of the step's own member. */
+  readonly cell: string;
+  /** The step's class in the row's lattice. */
+  readonly cls: number;
+}
+
+/** How you get to a row: chains of steps, one irrep switched on per step (the first few), and how many there are. */
+export interface RowWays {
+  readonly ways: readonly (readonly WayStep[])[];
+  /** Every chain there is: the primary irreps, or Σ |set|! over the coupled sets. */
+  readonly count: number;
+}
+
+/** The most reaching sets a row carries as data (the first ones, plus one per combination of stars). */
+export const MAX_SETS = 24;
+/** The most chains a row carries as data. */
+export const MAX_WAYS = 24;
 
 /** The largest coupled set the rows search (subgroupIrreps' default). */
 export const MAX_COUPLED = 4;
@@ -306,8 +387,134 @@ function rowDetail(o: {
   return parts.join("\n");
 }
 
+
+const factorial = (n: number): number => (n <= 1 ? 1 : n * factorial(n - 1));
+function permutations(n: number): number[][] {
+  if (n <= 1) return [[0]];
+  return permutations(n - 1).flatMap((p) => Array.from({ length: n }, (_, at) => [...p.slice(0, at), n - 1, ...p.slice(at)]));
+}
+const intersectSorted = (a: readonly number[], b: readonly number[]): number[] => {
+  const out: number[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i]! === b[j]!) {
+      out.push(a[i]!);
+      i++;
+      j++;
+    } else if (a[i]! < b[j]!) i++;
+    else j++;
+  }
+  return out;
+};
+
+/** What a lattice's rows need to write their irreps, ways and mode counts. */
+export interface RowContext {
+  readonly group: FactorGroup;
+  readonly lattice: SupercellLattice;
+  /** The chip of an irrep's star (starChipId). */
+  readonly chipOf: (b: BoundIrrep) => string;
+  /** The structure's displacement multiplicity of each irrep; undefined without a structure. */
+  readonly multiplicity?: (b: BoundIrrep) => number;
+  /** The multiplicity of the identity irrep: the parent's free coordinates. */
+  readonly identityMultiplicity?: number;
+}
+
+/**
+ * The irreps, ways and mode count of rows of one lattice (see SubgroupRow),
+ * with what they share cached: each irrep's isotropy subgroup types (for the ties).
+ */
+export type RowExtras = (cls: SubgroupClass, r: SubgroupIrreps, name: string, cell: string) => Pick<SubgroupRow, "reach" | "ways" | "modes">;
+export function rowExtras(ctx: RowContext): RowExtras {
+  const { group, lattice } = ctx;
+  // Each irrep's isotropy subgroups as types and orders (ITA number : order), for the ties.
+  const isoTypes = new Map<BoundIrrep, string>();
+  const typesOf = (b: BoundIrrep): string => {
+    let x = isoTypes.get(b);
+    if (x === undefined) {
+      x = b.subgroups.map((s) => `${s.identity?.number ?? "?"}:${s.elements.length}`).sort().join(",");
+      isoTypes.set(b, x);
+    }
+    return x;
+  };
+  const numberOf = (label: string): string => /irreps? ([\d⊕]+) of/.exec(label)?.[1] ?? "?";
+  const stepName = (id: number): string => childName(lattice.classes[id]?.identity);
+  const stepCell = (elements: readonly number[]): string => (lattice.classes[0] && elements.length > 0 ? cellLabel(periodicityBox(group, elements)) : "?");
+  return (cls, r, name, cell) => {
+    const H = cls.elements;
+    const refOf = (d: IrrepDirection, primary: boolean): IrrepRef => {
+      const m = ctx.multiplicity?.(d.irrep);
+      const alone = primary ? `${cls.identity?.number ?? "?"}:${H.length}` : `${d.subgroup.identity?.number ?? "?"}:${d.subgroup.elements.length}`;
+      return {
+        label: d.irrep.irrep.label,
+        star: ctx.chipOf(d.irrep),
+        number: numberOf(d.irrep.irrep.label),
+        direction: d.direction,
+        moves: m === undefined ? null : m > 0,
+        alone: primary ? null : childName(d.subgroup.identity),
+        tie: `${ctx.chipOf(d.irrep)}|${d.irrep.irrep.dim}|${m ?? "?"}|${d.direction}|${typesOf(d.irrep)}|${alone}`,
+      };
+    };
+    // The sets: the first MAX_SETS, then the first of each combination of stars not among them.
+    let reach: RowReach;
+    let ways: RowWays;
+    if (r.primary.length > 0) {
+      const refs = r.primary.map((d) => refOf(d, true));
+      reach = { kind: "primary", sets: refs.map((x) => [x]), setCount: refs.length };
+      ways = { ways: refs.slice(0, MAX_WAYS).map((x) => [{ irrep: x, name, cell, cls: cls.id }]), count: refs.length };
+    } else if (r.coupled) {
+      const all = [r.coupled, ...r.otherCoupled];
+      const keep: (readonly IrrepDirection[])[] = all.slice(0, MAX_SETS);
+      const seen = new Set(keep.map((set) => set.map((d) => ctx.chipOf(d.irrep)).sort().join("+")));
+      for (const set of all.slice(MAX_SETS)) {
+        const sig = set.map((d) => ctx.chipOf(d.irrep)).sort().join("+");
+        if (seen.has(sig)) continue;
+        seen.add(sig);
+        keep.push(set);
+      }
+      const refs = keep.map((set) => set.map((d) => refOf(d, false)));
+      reach = { kind: "coupled", sets: refs, setCount: all.length };
+      const out: WayStep[][] = [];
+      for (let si = 0; si < keep.length && out.length < MAX_WAYS; si++) {
+        const set = keep[si]!;
+        if (set.some((d) => !d.within)) continue;
+        for (const order of permutations(set.length)) {
+          if (out.length >= MAX_WAYS) break;
+          let acc: readonly number[] | null = null;
+          const steps: WayStep[] = order.map((at, step) => {
+            const d = set[at]!;
+            acc = acc ? intersectSorted(acc, d.within!) : d.within!;
+            if (step === order.length - 1) return { irrep: refs[si]![at]!, name, cell, cls: cls.id };
+            const id = lattice.classOf(acc);
+            return { irrep: refs[si]![at]!, name: id === null ? "?" : stepName(id), cell: stepCell(acc), cls: id ?? -1 };
+          });
+          out.push(steps);
+        }
+      }
+      ways = { ways: out, count: all.reduce((n, set) => n + factorial(set.length), 0) };
+    } else {
+      reach = { kind: "none", sets: [], setCount: 0 };
+      ways = { ways: [], count: 0 };
+    }
+    // The child's modes: Σ n_j·m_j over the irreps it allows, the identity's copies (the parent's free coordinates), less its rigid shifts.
+    let modes: number | null = null;
+    if (ctx.multiplicity) {
+      const nOf = (b: BoundIrrep): number => Math.round(H.reduce((t, h) => t + b.irrep.characters[h]!, 0) / H.length);
+      let total = ctx.identityMultiplicity ?? 0;
+      for (const d of [...r.primary, ...(r.coupled ?? [])]) total += nOf(d.irrep) * ctx.multiplicity(d.irrep);
+      for (const x of r.secondary) total += x.n * ctx.multiplicity(x.irrep);
+      const shifts = Math.round(H.reduce((t, h) => {
+        const W = group.elements[h]!.W;
+        return t + W[0][0] + W[1][1] + W[2][2];
+      }, 0) / H.length);
+      modes = Math.max(0, total - shifts);
+    }
+    return { reach, ways, modes };
+  };
+}
+
 /** A same-cell subgroup's operations (parent's cell, modulo ℤ³) as elements of the conventional cell's factor group. */
-function elementsOf(group: FactorGroup, ops: readonly SymmetryOperation[]): number[] {
+export function elementsOf(group: FactorGroup, ops: readonly SymmetryOperation[]): number[] {
   const key = (op: SymmetryOperation): string => `${op.rotation.flat().map((x) => Math.round(x)).join(",")}|${op.translation.map((x) => Math.round((((x % 1) + 1) % 1) * 48) % 48).join(",")}`;
   const index = new Map<string, number>();
   group.operations.forEach((op, i) => {
@@ -338,6 +545,8 @@ export interface SameCellSources {
   readonly kNodes: readonly SameCellNode[];
   /** Whether the structure's atoms carry an irrep (its displacement multiplicity is not 0). */
   readonly moves?: (b: BoundIrrep) => boolean;
+  /** The rows' irreps, ways and mode counts (rowExtras on this lattice). */
+  readonly extras: RowExtras;
 }
 
 /**
@@ -394,6 +603,8 @@ export function sameCellSubgroupRows(src: SameCellSources): SubgroupRow[] {
     const id = identity ?? cls.identity!;
     rows.push({
       key: `s${cls.id}`,
+      cls: cls.id,
+      ...src.extras(cls, r, childName(id), "same cell"),
       name: childName(id),
       cell: "same cell",
       index: cls.domainStates,
@@ -419,6 +630,8 @@ export interface SupercellSources {
   /** The bound's label ("2×2×2"). */
   readonly bound: string;
   readonly moves?: (b: BoundIrrep) => boolean;
+  /** The rows' irreps, ways and mode counts (rowExtras on this lattice). */
+  readonly extras: RowExtras;
 }
 
 /**
@@ -457,6 +670,8 @@ export function supercellSubgroupRow(src: Omit<SupercellSources, "analysis">, cl
   };
   return {
     key: `c${cls.id}`,
+    cls: cls.id,
+    ...src.extras(cls, r, childName(identity), cellLabel(box)),
     name: childName(identity),
     cell: cellLabel(box),
     index: cls.domainStates,
@@ -518,6 +733,11 @@ export function subgroupSummary(o: {
 
 /** The structure's displacement multiplicity of each irrep on the group's cell (displacementCharacters); undefined without a structure. */
 export function multiplicitiesOf(structure: StructureModel | undefined, group: FactorGroup): ((b: BoundIrrep) => number) | undefined {
+  return displacementOf(structure, group)?.multiplicity;
+}
+
+/** The multiplicities of multiplicitiesOf, and the identity irrep's (the parent's free coordinates). */
+export function displacementOf(structure: StructureModel | undefined, group: FactorGroup): { readonly multiplicity: (b: BoundIrrep) => number; readonly identity: number } | undefined {
   if (!structure) return undefined;
   let chi: Float64Array;
   try {
@@ -525,7 +745,14 @@ export function multiplicitiesOf(structure: StructureModel | undefined, group: F
   } catch {
     return undefined;
   }
-  return (b) => displacementMultiplicity(chi, b.irrep.characters);
+  return { multiplicity: (b) => displacementMultiplicity(chi, b.irrep.characters), identity: displacementMultiplicity(chi, group.elements.map(() => 1)) };
+}
+
+/** The chips of a factor group's stars, from the stars as listed (starsInBound order): the same ids kChips gives. */
+export function chipsOfStars(group: FactorGroup, ks: readonly Vec3[], stars: readonly { readonly star: KStar }[]): (b: BoundIrrep) => string {
+  const byStar = new Map<KStar, string>();
+  stars.forEach((s, i) => byStar.set(s.star, starChipId(ks[i]!, starName(group, ks[i]!))));
+  return (b) => byStar.get(b.star) ?? starChipId(b.star.k, b.star.name);
 }
 
 /**
@@ -545,9 +772,12 @@ export function sameCellListing(o: {
   const engine = irrepEngine(o.operations);
   const group = engine.group;
   const lattice = cachedSupercellSubgroups(group);
-  const m = multiplicitiesOf(o.structure, group);
+  const disp = displacementOf(o.structure, group);
+  const m = disp?.multiplicity;
   const analysis = subgroupIrreps(group, boundIrreps(group, engine.stars), lattice, m ? { multiplicity: m } : {});
+  const extras = rowExtras({ group, lattice, chipOf: (b) => starChipId(b.star.k, b.star.name), ...(disp ? { multiplicity: disp.multiplicity, identityMultiplicity: disp.identity } : {}) });
   return sameCellSubgroupRows({
+    extras,
     group,
     lattice,
     analysis,
@@ -568,8 +798,11 @@ export function sameCellListing(o: {
  */
 export function supercellListing(group: FactorGroup, structure: StructureModel | undefined, bound: string): { readonly rows: SubgroupRow[]; readonly lattice: SupercellLattice } {
   const lattice = cachedSupercellSubgroups(group);
-  const stars = starsInBound(group).map((k) => cachedIrrepsOfStar(group, [rnum(k[0]), rnum(k[1]), rnum(k[2])]));
-  const m = multiplicitiesOf(structure, group);
+  const ks = starsInBound(group).map((k): Vec3 => [rnum(k[0]), rnum(k[1]), rnum(k[2])]);
+  const stars = ks.map((k) => cachedIrrepsOfStar(group, k));
+  const disp = displacementOf(structure, group);
+  const m = disp?.multiplicity;
   const analysis = subgroupIrreps(group, boundIrreps(group, stars), lattice, m ? { multiplicity: m } : {});
-  return { rows: supercellSubgroupRows({ group, lattice, analysis, bound, ...(m ? { moves: (b: BoundIrrep) => m(b) > 0 } : {}) }), lattice };
+  const extras = rowExtras({ group, lattice, chipOf: chipsOfStars(group, ks, stars), ...(disp ? { multiplicity: disp.multiplicity, identityMultiplicity: disp.identity } : {}) });
+  return { rows: supercellSubgroupRows({ group, lattice, analysis, bound, extras, ...(m ? { moves: (b: BoundIrrep) => m(b) > 0 } : {}) }), lattice };
 }

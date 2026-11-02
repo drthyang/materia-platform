@@ -19,7 +19,7 @@ import { cachedIrrepsOfStar } from "@/core/crystal/irreps/supercellModes";
 import { cachedSupercellSubgroups, SubgroupSearchTooLarge } from "@/core/crystal/irreps/supercellLattice";
 import type { SupercellSpec } from "@/core/crystal/irreps/supercell";
 import { boundIrreps, subgroupIrrepsAnalysis, type BoundIrrep } from "@/core/crystal/irreps/subgroupIrreps";
-import { isSupercellRowClass, latticeCounts, multiplicitiesOf, supercellSubgroupRow, type LatticeCounts, type SubgroupRow } from "@/app/ui/subgroupPicker";
+import { chipsOfStars, displacementOf, isSupercellRowClass, latticeCounts, rowExtras, supercellSubgroupRow, type LatticeCounts, type SubgroupRow } from "@/app/ui/subgroupPicker";
 
 /** What a listing is worked out from: plain data, so it crosses to a worker as it is. */
 export interface ListingInput {
@@ -32,8 +32,6 @@ export interface ListingInput {
 
 /** A row as plain data: its activation's choice without the factor group (fromPlainRow puts the page's back). */
 export type PlainRow = Omit<SubgroupRow, "action"> & {
-  /** Its class id in the bound's lattice: the order the rows are listed in. */
-  readonly cls: number;
   readonly action: { readonly kind: "supercell"; readonly choice: Omit<SupercellChoice, "group"> };
 };
 
@@ -69,15 +67,15 @@ export function factorGroupKey(group: FactorGroup): string {
 }
 
 /** A row without its factor group, for postMessage. */
-export function toPlainRow(row: SubgroupRow, cls: number): PlainRow {
+export function toPlainRow(row: SubgroupRow): PlainRow {
   if (row.action.kind !== "supercell") throw new Error("supercellListing: a cell-multiplying row activates in its own cell");
   const { group: _group, ...choice } = row.action.choice;
-  return { ...row, cls, action: { kind: "supercell", choice } };
+  return { ...row, action: { kind: "supercell", choice } };
 }
 
 /** The row on the page's own factor group. */
 export function fromPlainRow(row: PlainRow, group: FactorGroup): SubgroupRow {
-  const { cls: _cls, action, ...rest } = row;
+  const { action, ...rest } = row;
   return { ...rest, action: { kind: "supercell", choice: { group, ...action.choice } } };
 }
 
@@ -111,9 +109,11 @@ export function* supercellListingSteps(input: ListingInput, opts: { readonly gro
     yield { type: "progress", percent: SHARE.lattice + Math.floor((SHARE.stars * (i + 1)) / ks.length) };
   }
   const irreps = boundIrreps(group, stars, { lazy: true });
-  const m = multiplicitiesOf(input.structure, group);
+  const disp = displacementOf(input.structure, group);
+  const m = disp?.multiplicity;
   const analysis = subgroupIrrepsAnalysis(group, irreps, lattice, m ? { multiplicity: m } : {});
-  const src = { group, lattice, bound: input.boundLabel, ...(m ? { moves: (b: BoundIrrep) => m(b) > 0 } : {}) };
+  const extras = rowExtras({ group, lattice, chipOf: chipsOfStars(group, ks, stars), ...(disp ? { multiplicity: disp.multiplicity, identityMultiplicity: disp.identity } : {}) });
+  const src = { group, lattice, bound: input.boundLabel, extras, ...(m ? { moves: (b: BoundIrrep) => m(b) > 0 } : {}) };
 
   // The row classes, each waiting on the irreps it needs.
   const waiting = new Map<number, number>();
@@ -130,7 +130,7 @@ export function* supercellListingSteps(input: ListingInput, opts: { readonly gro
   const rowsOf = (ids: readonly number[]): PlainRow[] =>
     ids.flatMap((id) => {
       const row = supercellSubgroupRow(src, lattice.classes[id]!, analysis.of(id));
-      return row ? [toPlainRow(row, id)] : [];
+      return row ? [toPlainRow(row)] : [];
     });
   const flush = function* (): Generator<ListingEvent, void, void> {
     if (ready.length === 0) return;

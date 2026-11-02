@@ -282,19 +282,38 @@ function act(group: FactorGroup, perm: Int32Array, N: number, f: number, u: Fiel
 
 const irrepCache = new WeakMap<FactorGroup, Map<string, StarIrreps>>();
 
-/** The irreps at a star, computed once per factor group. */
-export function cachedIrrepsOfStar(group: FactorGroup, k: Vec3): StarIrreps {
+const starKey = (k: Vec3): string => k.map((x) => x.toFixed(6)).join(",");
+function starsOf(group: FactorGroup): Map<string, StarIrreps> {
   let byStar = irrepCache.get(group);
   if (!byStar) {
     byStar = new Map();
     irrepCache.set(group, byStar);
   }
-  const key = k.map((x) => x.toFixed(6)).join(",");
+  return byStar;
+}
+
+/** The irreps at a star, computed once per factor group. */
+export function cachedIrrepsOfStar(group: FactorGroup, k: Vec3): StarIrreps {
+  const byStar = starsOf(group);
+  const key = starKey(k);
   const hit = byStar.get(key);
   if (hit) return hit;
   const star = irrepsOfStar(group, k);
   byStar.set(key, star);
   return star;
+}
+
+/**
+ * Put a star's irreps, worked out elsewhere on an identical factor group (the
+ * Subgroups page's listing worker), in this group's cache, so the next
+ * cachedIrrepsOfStar(group, k) returns them instead of working them out
+ * again. The caller vouches that the two groups agree element for element; a
+ * star already cached is kept.
+ */
+export function seedIrrepsOfStar(group: FactorGroup, k: Vec3, star: StarIrreps): void {
+  const byStar = starsOf(group);
+  const key = starKey(k);
+  if (!byStar.has(key)) byStar.set(key, star);
 }
 
 /**
