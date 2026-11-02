@@ -9,7 +9,10 @@
  */
 
 import type { FactorGroup } from "@/core/crystal/irreps/factorGroup";
+import { irrepEngine } from "@/core/crystal/isotropySubgroups";
+import { seedIrrepsOfStar } from "@/core/crystal/irreps/supercellModes";
 import type { LatticeCounts, SubgroupRow } from "@/app/ui/subgroupPicker";
+import type { GraphNode } from "@/app/ui/subgroupList";
 import { factorGroupKey, fromPlainRow, supercellListingSteps, type ListingEvent, type ListingInput, type PlainRow } from "@/app/ui/supercellListing";
 
 export interface ListingHandlers {
@@ -20,6 +23,8 @@ export interface ListingHandlers {
   /** Every row, in the lattice's order, and the lattice's counts. */
   readonly done: (rows: readonly SubgroupRow[], counts: LatticeCounts) => void;
   readonly error: (message: string) => void;
+  /** The bound's lattice as a graph (latticeGraph), once it is worked out. */
+  readonly graph?: (nodes: readonly GraphNode[]) => void;
 }
 
 export interface ListingJob {
@@ -68,6 +73,13 @@ export function startSupercellListing(input: ListingInput, group: FactorGroup, o
       if (e.key !== key) fail("the worker's factor group differs from the page's");
     } else if (e.type === "progress") {
       on.progress(e.percent);
+    } else if (e.type === "graph") {
+      // Its same-cell keys name the conventional cell's lattice: the page's must be the worker's.
+      if (e.sameKey !== factorGroupKey(irrepEngine(input.operations).group)) fail("the worker's same-cell lattice differs from the page's");
+      else on.graph?.(e.nodes);
+    } else if (e.type === "stars") {
+      // The stars' irreps into the page's own cache (the groups agree, checked on "group"): Activate reads them there.
+      for (const s of e.stars) seedIrrepsOfStar(group, s.k, s.irreps);
     } else if (e.type === "rows") {
       plain.push(...e.rows);
       dirty = true;

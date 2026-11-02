@@ -19,7 +19,10 @@ import { cachedIrrepsOfStar } from "@/core/crystal/irreps/supercellModes";
 import { cachedSupercellSubgroups, SubgroupSearchTooLarge } from "@/core/crystal/irreps/supercellLattice";
 import type { SupercellSpec } from "@/core/crystal/irreps/supercell";
 import { boundIrreps, subgroupIrrepsAnalysis, type BoundIrrep } from "@/core/crystal/irreps/subgroupIrreps";
-import { chipsOfStars, displacementOf, isSupercellRowClass, latticeCounts, rowExtras, supercellSubgroupRow, type LatticeCounts, type SubgroupRow } from "@/app/ui/subgroupPicker";
+import { chipsOfStars, displacementOf, isSupercellRowClass, latticeCounts, latticeGraph, rowExtras, supercellSubgroupRow, type LatticeCounts, type SubgroupRow } from "@/app/ui/subgroupPicker";
+import type { GraphNode } from "@/app/ui/subgroupList";
+import type { StarIrreps } from "@/core/crystal/irreps/spaceGroupIrreps";
+import type { Vec3 } from "@/core/math/types";
 
 /** What a listing is worked out from: plain data, so it crosses to a worker as it is. */
 export interface ListingInput {
@@ -40,6 +43,15 @@ export type ListingEvent =
   | { readonly type: "group"; readonly key: string }
   /** How far the work has come, in whole percent. */
   | { readonly type: "progress"; readonly percent: number }
+  /**
+   * The bound's lattice as a graph, every class by its row's key (the parent
+   * "p", a larger cell `c<id>`, a same-cell class `s<id>` by its id in the
+   * conventional cell's lattice, whose factor group has the fingerprint
+   * `sameKey`): the tree and the lattice chains are drawn from it.
+   */
+  | { readonly type: "graph"; readonly nodes: readonly GraphNode[]; readonly sameKey: string }
+  /** Every star's irreps as worked out, so the page's cache has them and Activate need not work them out again. */
+  | { readonly type: "stars"; readonly stars: readonly { readonly k: Vec3; readonly irreps: StarIrreps }[] }
   /** Rows whose irreps are all in, in any order (by `cls` when listed). */
   | { readonly type: "rows"; readonly rows: readonly PlainRow[] }
   /** Every row sent; what the summary says of the lattice. */
@@ -102,12 +114,15 @@ export function* supercellListingSteps(input: ListingInput, opts: { readonly gro
     throw e;
   }
   yield { type: "progress", percent: SHARE.lattice };
+  const graph = latticeGraph(lattice, input.operations);
+  yield { type: "graph", nodes: graph.nodes, sameKey: factorGroupKey(graph.sameGroup) };
   const ks = starsInBound(group).map((k) => [rnum(k[0]), rnum(k[1]), rnum(k[2])] as [number, number, number]);
-  const stars = [];
+  const stars: StarIrreps[] = [];
   for (let i = 0; i < ks.length; i++) {
     stars.push(cachedIrrepsOfStar(group, ks[i]!));
     yield { type: "progress", percent: SHARE.lattice + Math.floor((SHARE.stars * (i + 1)) / ks.length) };
   }
+  yield { type: "stars", stars: ks.map((k, i) => ({ k, irreps: stars[i]! })) };
   const irreps = boundIrreps(group, stars, { lazy: true });
   const disp = displacementOf(input.structure, group);
   const m = disp?.multiplicity;
@@ -169,8 +184,9 @@ export function* supercellListingSteps(input: ListingInput, opts: { readonly gro
 }
 
 /** The listing's rows in their order (by class), from its events: what supercellListing returns, as plain rows. */
-export function collectListing(events: Iterable<ListingEvent>): { readonly key: string; readonly rows: PlainRow[]; readonly counts: LatticeCounts | null; readonly error: string | null } {
+export function collectListing(events: Iterable<ListingEvent>): { readonly key: string; readonly rows: PlainRow[]; readonly counts: LatticeCounts | null; readonly error: string | null; readonly graph: readonly GraphNode[] | null } {
   let key = "";
+  let graph: readonly GraphNode[] | null = null;
   const rows: PlainRow[] = [];
   let counts: LatticeCounts | null = null;
   let error: string | null = null;
@@ -179,7 +195,8 @@ export function collectListing(events: Iterable<ListingEvent>): { readonly key: 
     else if (e.type === "rows") rows.push(...e.rows);
     else if (e.type === "done") counts = e.counts;
     else if (e.type === "error") error = e.message;
+    else if (e.type === "graph") graph = e.nodes;
   }
   rows.sort((a, b) => a.cls - b.cls);
-  return { key, rows, counts, error };
+  return { key, rows, counts, error, graph };
 }

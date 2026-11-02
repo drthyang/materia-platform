@@ -46,6 +46,7 @@ import { cachedIrrepsOfStar, displacementCharacters, displacementMultiplicity } 
 import { cachedSupercellSubgroups, fitsBound, keepsSupercell, type SubgroupClass, type SupercellLattice } from "@/core/crystal/irreps/supercellLattice";
 import { boundIrreps, subgroupIrreps, type BoundIrrep, type IrrepDirection, type SubgroupIrreps } from "@/core/crystal/irreps/subgroupIrreps";
 import type { KStar } from "@/core/crystal/irreps/spaceGroupIrreps";
+import type { GraphNode } from "@/app/ui/subgroupList";
 import type { DecentringBranch, IrrepBranch, IrrepSubgroup, SameCellNode } from "@/app/ui/SubgroupsPanel";
 import { formatBasis } from "@/core/crystal/standardSetting";
 
@@ -729,6 +730,33 @@ export function subgroupSummary(o: {
     line: `${plural(total, "subgroup")} fit the ${o.bound} cell`,
     detail: `The subgroups of ${o.parent} whose cell fits the ${o.bound} supercell, one per conjugacy class, by index: ${o.sameCell} keep the conventional cell, ${o.supercell.rows} need a larger one. ${exact} have exactly the ${o.bound} lattice, the list Bilbao's SUBGROUPS gives for that supercell${twice > 0 ? ` (${exact + twice} entries there, enantiomorphs apart)` : ""}. ${how}`,
   };
+}
+
+/**
+ * A lattice as the tree and the lattice chains read it: every class by its
+ * row's key — the parent "p", a cell-multiplying class `c<id>`, a same-cell
+ * class `s<id>` by its id in the conventional cell's lattice (G/ℤ³, the
+ * lattice the same-cell rows come from; `sameGroup` its factor group) — with
+ * the keys of the classes covering it. A same-cell class contains every
+ * translation of the conventional cell, so its subgroup modulo T″ and modulo
+ * ℤ³ are one and the same, and so are its conjugates.
+ */
+export function latticeGraph(lattice: SupercellLattice, operations: readonly SymmetryOperation[]): { readonly nodes: GraphNode[]; readonly sameGroup: FactorGroup } {
+  const sameGroup = irrepEngine(operations).group;
+  const same = cachedSupercellSubgroups(sameGroup);
+  const keyOf = lattice.classes.map((c) => {
+    if (c.kind === "parent") return "p";
+    if (c.cellMultiplying) return `c${c.id}`;
+    const id = same.classOf(elementsOf(sameGroup, c.operations));
+    return id === null ? `x${c.id}` : id === 0 ? "p" : `s${id}`;
+  });
+  return { nodes: lattice.classes.map((c) => ({ key: keyOf[c.id]!, coveredBy: c.coveredBy.map((u) => keyOf[u]!) })), sameGroup };
+}
+
+/** The same-cell lattice as a graph (latticeGraph): the tree before the larger cells are worked out. */
+export function sameCellGraph(operations: readonly SymmetryOperation[]): GraphNode[] {
+  const group = irrepEngine(operations).group;
+  return latticeGraph(cachedSupercellSubgroups(group), operations).nodes;
 }
 
 /** The structure's displacement multiplicity of each irrep on the group's cell (displacementCharacters); undefined without a structure. */
