@@ -46,6 +46,7 @@ import { sharedSites, siteSumRangeWarnings } from "@/core/workflow/structureRefi
 const StructureView = lazy(() => import("@/app/ui/StructureView").then((m) => ({ default: m.StructureView })));
 import { ParameterPanel } from "@/app/ui/ParameterPanel";
 import { PosteriorPanel } from "@/app/ui/PosteriorPanel";
+import { runLock } from "@/app/ui/runLock";
 import { ReciprocalPanel } from "@/app/ui/ReciprocalPanel";
 import { BoxcarPanel, stepIndexFor, type BoxcarRun } from "@/app/ui/BoxcarPanel";
 import { boxcarPlanIssue, boxcarScannedMax, boxcarWindows, type BoxcarDirection } from "@/core/workflow/pdfBoxcar";
@@ -63,6 +64,10 @@ import { card as themeCard, color, mono, secondaryButton, uppercaseLabel, fz, to
 
 const DATA_ACCEPT = ".gr,.sgr,.fgr,.sq,.fq,.dat,.txt,text/plain";
 const noop = (): void => {};
+
+/** What the Agent's sample_posterior reads for a run the user stopped: the
+ *  text an interrupted run gave it before Stop existed (agent-read, frozen). */
+const STOPPED_FOR_AGENT = `failed: evaluation failed: ${CANCELLED}`;
 const pct = (x: number): string => `${(x * 100).toFixed(2)}%`;
 
 /** Rw quality bands for a PDF (fraction): <15 % good · <30 % mediocre · else
@@ -187,6 +192,10 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   const [showGSigma, setShowGSigma] = useState(true);
   const [sampleBusy, setSampleBusy] = useState(false);
   const [sampleProgress, setSampleProgress] = useState<{ step: number; total: number } | null>(null);
+  // The running posterior's Stop (stopSample); null while none runs.
+  const sampleStop = useRef<AbortController | null>(null);
+  // A sampler still running when the page unmounts stops with it.
+  useEffect(() => () => sampleStop.current?.abort(), []);
   const [viewPhase, setViewPhase] = useState(0);
   const [focusFitToken, setFocusFitToken] = useState(0);
 
@@ -332,6 +341,8 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   // minimum hands it to every box after it — restarts re-search each box
   // around its seed and keep the best, at (restarts + 1)× the cost.
   const [boxcarBusy, setBoxcarBusy] = useState(false);
+  // Refinement (or a boxcar scan) and sampling never run together (runLock.ts).
+  const lock = runLock({ refining: busy || boxcarBusy, sampling: sampleBusy });
   const [boxcarProgress, setBoxcarProgress] = useState<{ done: number; total: number } | null>(null);
   // The tab scans its OWN r bounds (the fit window until it is edited or a
   // scan runs) and starts from the current fit with any edits made on the tab.
@@ -468,16 +479,25 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
     setSampleBusy(true);
     const from = continueRun && sample ? sample.result.resume.stepIndex : 0;
     setSampleProgress({ step: from, total: from + steps });
+    const stop = new AbortController();
+    sampleStop.current = stop;
     try {
       const out = await pdfPosterior(client, model, continueRun, steps, (s, total) => {
-        if (s % 5 === 0 || s === total) setSampleProgress({ step: s, total });
-      });
+        if (!stop.signal.aborted && (s % 5 === 0 || s === total)) setSampleProgress({ step: s, total });
+      }, stop.signal);
       if (!landsOn(modelRef.current, out.key)) {
         console.info("[status] posterior result discarded — the parameter spec changed while it ran");
         return "discarded: the parameters changed while it ran";
       }
       setModel((m) => withPosterior(m, out.sample, out.key));
       const res = out.sample.result;
+      if (res.stopped) {
+        // The partial run stays on the Posterior tab, labelled. The Agent reads
+        // a stopped run as it has always read an interrupted one (its text is
+        // frozen): not finished, no posterior to quote or put in its report.
+        console.info(`[status] posterior stopped early: ${res.diagnostics.nSamples} of ${res.stopped.plannedSamples} samples`);
+        return STOPPED_FOR_AGENT;
+      }
       console.info(
         `[status] posterior ${continueRun && sample ? "continued" : "sampled"}: ${res.status} · R̂max ${res.diagnostics.maxRHat.toFixed(3)} · ESSmin ${Math.round(res.diagnostics.minEss)} · ${res.diagnostics.nSamples} samples`,
       );
@@ -487,9 +507,15 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
       console.error(`[status] posterior sampling failed: ${msg}`);
       return `failed: ${msg}`;
     } finally {
+      if (sampleStop.current === stop) sampleStop.current = null;
       setSampleProgress(null);
       setSampleBusy(false);
     }
+  }
+
+  /** Stop the running posterior: it ends on its last whole step, the partial chains kept and labelled. */
+  function stopSample(): void {
+    sampleStop.current?.abort();
   }
 
   function onParamChange(id: string, patch: Partial<RefinementParameter>): void {
@@ -1102,7 +1128,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
               progress={boxcarProgress}
               onRun={() => void runBoxcar()}
               onCancel={cancelBoxcar}
-              blockedReason={busy ? "A refinement is running — wait for it to finish." : boxcarBlocked}
+              blockedReason={busy ? "A refinement is running — wait for it to finish." : lock.refine ?? boxcarBlocked}
               plan={boxcarPlanState}
               planInfo={{
                 count: boxcarWindowList.length,
@@ -1129,7 +1155,9 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
               busy={sampleBusy}
               progress={sampleProgress}
               onRun={(continueRun) => void runSample(continueRun)}
-              hasRefined={result !== null && !busy}
+              onStop={stopSample}
+              hasRefined={result !== null}
+              blockedReason={lock.sample}
               labels={new Map(params.map((p) => [p.id, p.label]))}
             />
           ) : (
@@ -1177,6 +1205,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
           // the scan's Cancel would abort the wrong run and leave the scan's own
           // workers spinning — the panel is read-only until the scan finishes.
           disabled={boxcarBusy}
+          blockedReason={lock.refine}
           thoroughMode={result ? "escape" : "prefit"}
           prefitTitle="Prefit from a cold start: a broad set of perturbed restarts of the free parameters, keeping the best — lands the model in a good basin before you refine. (No Le Bail stage — that extracts Bragg intensities, which real-space G(r) doesn't have.)"
           onReset={reset}

@@ -42,6 +42,8 @@ export interface RunActionsProps {
   readonly onCancel?: (() => void) | undefined;
   readonly busy: boolean;
   readonly disabled?: boolean | undefined;
+  /** Why a run cannot start now (runLock.ts): disables Prefit and Refine, and is their title. */
+  readonly blockedReason?: string | null | undefined;
 }
 
 const DEFAULT_PREFIT_TITLE = "Prefit from a cold start: a Le Bail cell pre-fit then a broad set of perturbed restarts, keeping the best — lands the structure in a good basin before you refine";
@@ -53,7 +55,8 @@ const thoroughTitle = (mode: "prefit" | "escape", prefitTitle: string | undefine
 const thoroughLabel = (mode: "prefit" | "escape"): string => (mode === "escape" ? "Escape min ↻" : "Prefit ↻");
 
 /** The buttons as the panel's action bar has always shown them. */
-export function PanelRunButtons({ onRefine, onThorough, thoroughMode = "prefit", prefitTitle, onCancel, busy, disabled }: RunActionsProps): JSX.Element {
+export function PanelRunButtons({ onRefine, onThorough, thoroughMode = "prefit", prefitTitle, onCancel, busy, disabled: off, blockedReason }: RunActionsProps): JSX.Element {
+  const disabled = off === true || !!blockedReason;
   return (
     <>
       {onThorough && (
@@ -61,7 +64,7 @@ export function PanelRunButtons({ onRefine, onThorough, thoroughMode = "prefit",
           style={{ ...secondaryButton, flex: "0 0 auto", padding: "10px 13px", fontSize: 13, fontWeight: 600, ...(busy || disabled ? disabledStyle : {}) }}
           disabled={busy || disabled}
           onClick={onThorough}
-          title={thoroughTitle(thoroughMode, prefitTitle)}
+          title={blockedReason ?? thoroughTitle(thoroughMode, prefitTitle)}
         >
           {thoroughLabel(thoroughMode)}
         </button>
@@ -70,7 +73,7 @@ export function PanelRunButtons({ onRefine, onThorough, thoroughMode = "prefit",
         style={{ ...primaryButton, flex: "1 1 auto", minWidth: 96, textAlign: "center", padding: "10px 16px", fontSize: 14, fontWeight: 650, ...(busy ? refiningStyle : disabled ? disabledStyle : {}) }}
         disabled={busy || disabled}
         onClick={onRefine}
-        title={REFINE_TITLE}
+        title={blockedReason ?? REFINE_TITLE}
       >
         {busy ? <span className="wb-shimmer-text">Refining…</span> : "Refine"}
       </button>
@@ -98,7 +101,8 @@ export const CANCEL_ARM_MS = 500;
  * the page's end by its height. Hidden while the Copilot is open and while
  * the on-screen keyboard is up.
  */
-export function RunBar({ onRefine, onThorough, thoroughMode = "prefit", prefitTitle, onCancel, busy, disabled }: RunActionsProps): JSX.Element | null {
+export function RunBar({ onRefine, onThorough, thoroughMode = "prefit", prefitTitle, onCancel, busy, disabled: off, blockedReason }: RunActionsProps): JSX.Element | null {
+  const disabled = off === true || !!blockedReason;
   const copilotOpen = useContext(CopilotOpenContext);
   const keyboard = useOnScreenKeyboard();
   const row = useRef<HTMLDivElement>(null);
@@ -149,7 +153,7 @@ export function RunBar({ onRefine, onThorough, thoroughMode = "prefit", prefitTi
               style={{ ...barSecondary, ...(busy || disabled ? disabledStyle : {}) }}
               disabled={busy || disabled}
               onClick={onThorough}
-              title={thoroughTitle(thoroughMode, prefitTitle)}
+              title={blockedReason ?? thoroughTitle(thoroughMode, prefitTitle)}
             >
               {thoroughLabel(thoroughMode)}
             </button>
@@ -166,7 +170,7 @@ export function RunBar({ onRefine, onThorough, thoroughMode = "prefit", prefitTi
             style={{ ...barPrimary, ...(busy ? refiningStyle : disabled ? disabledStyle : {}) }}
             disabled={busy || disabled}
             onClick={onRefine}
-            title={REFINE_TITLE}
+            title={blockedReason ?? REFINE_TITLE}
           >
             {busy ? <span className="wb-shimmer-text">Refining…</span> : "Refine"}
           </button>

@@ -616,7 +616,16 @@ export class ComputeClient {
   private async sampleForSpec(spec: EvaluatorSpec, options: SampleOptions): Promise<SampleResult> {
     const problem = buildProblemForSpec(spec);
     if (this.poolSize() < 2) {
-      return samplePosterior(problem, options);
+      if (!options.signal) return samplePosterior(problem, options);
+      // In this thread but stoppable: each batch waits a macrotask first, so a
+      // Stop click is handled between batches (same chain: order is kept).
+      const inThread: BatchEvaluator = {
+        evaluate: async (sets) => {
+          await new Promise<void>((resolve) => setTimeout(resolve, 0));
+          return sets.map((values) => problem.calculate(values));
+        },
+      };
+      return samplePosteriorParallel(problem, options, inThread);
     }
     const pool = new EvaluatorPool(this.poolSize());
     this.activePool = pool;
