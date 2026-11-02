@@ -793,6 +793,9 @@ Never judge a fit by its R value alone. The definitions are in
   lists the worst reflections beside Fo² vs Fc² and the 3D model.
 - **Bond lengths**, in any 3D model, labels the bonds. **View** with a, b or c
   looks down that axis.
+- **Bonds** picks sticks, ball-and-stick or thin lines, in gray or by atom.
+  **Hide bonds** leaves only the atoms, the cell and the arrows. Both are kept
+  for the browser session.
 
 The **Posterior** view samples the free parameters around a converged fit. It
 is a prototype ([LIMITATIONS.md](./LIMITATIONS.md#uncertainty-and-posterior-sampling)).
