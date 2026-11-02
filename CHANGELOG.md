@@ -54,6 +54,46 @@ release fixes bugs.
 
 ### Changed
 
+- **The PDF page's Subgroups view is one list, with the picked subgroup's
+  detail beside it ("Lower the symmetry").** By subgroup and By irrep are
+  gone; the group theory is unchanged.
+  - The first screen holds the supercell, the k-point chips and the list.
+    Rows run from high to low symmetry, one plain line each:
+    `Pnma #62 · 2×2×2 · 24 dom · M·3/5+R·7 ×4`. The tag names the irreps
+    (R·8 is R irrep 8; dashed when coupled), never ISODISTORT's "R4+". A row
+    whose child moves no atom says **strain only**.
+  - Rows with the same name, cell and domains merge into one (×4); the
+    detail lists each class as a variant with its own Activate. SrTiO₃ in
+    2×2×2: 1426 classes in 559 rows.
+  - By default the list keeps the subgroups one irrep reaches, or two
+    coupled, and the maximal ones (SrTiO₃ 2×2×2: 444 of 559; GaTa₄Se₈ 1×1×2:
+    80 of 81). **Filters** (folded) sets how a subgroup is reached (one
+    irrep · up to two · all), its cell (same cell · supercell) and the
+    highest index.
+  - A k-point chip keeps the subgroups its irreps reach; picking two also
+    keeps their coupled pairs (R and M: Pnma).
+  - Sets that the group-theoretic counts cannot tell apart are written on one
+    line: "M irrep 3 or 5 + R irrep 8", tag M·3/5+R·8.
+  - The detail: the result in one line ("Pnma in a 2×2×2 cell, from 2 irreps
+    together: …", details behind **?**); the parent's cell and the child's
+    sketched; the domains and index; **How you get here**, one irrep
+    switched on per step ("Pm-3m → Imma (R irrep 8) → Pnma (+ M irrep 3 or
+    5)"), three shown, then "N more ways", the literal lattice steps behind
+    **every lattice step (N)**; the irreps with their directions, the other
+    sets and the secondary irreps folded; the mode count Activate loads; one
+    large **Activate**.
+  - **List | Tree**: the tree opens from the parent one maximal step at a
+    time, says "also under …" where a subgroup has two parents, and dims the
+    ones the filters leave out.
+  - After Activate the banner states the child and its cell, with **3D Model
+    →** and **✕ clear**; the list and the detail stay, Activate waiting for
+    ✕ clear.
+  - On a phone a row opens its detail as a full-screen sheet with **‹ Back**;
+    the chips scroll in one row.
+- **Activate on a larger-cell row is fast again** (about 0.3 s for SrTiO₃'s
+  Pnma; 0.9 s after the listing moved to a worker): the worker hands every
+  star's irreps back to the page. The k-point chips no longer work anything
+  out: they filter the list.
 - **By subgroup lists the larger cells without freezing the page, and its
   rows appear as they are worked out.** The supercell rows of the PDF page's
   Subgroups view are worked out in a background worker.

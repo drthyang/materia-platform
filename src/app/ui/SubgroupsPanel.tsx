@@ -415,6 +415,11 @@ function Picker({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCel
   const [streamed, setStreamed] = useState<{ readonly group: FactorGroup; readonly rows: readonly SubgroupRow[] } | null>(null);
   const [graphFor, setGraphFor] = useState<{ readonly group: FactorGroup; readonly nodes: readonly GraphNode[] } | null>(null);
   const [measure, width] = useWidth();
+  // A newly picked subgroup's detail opens at its top.
+  const detailBox = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (detailBox.current) detailBox.current.scrollTop = 0;
+  }, [selected?.group]);
   const wide = width === 0 || width >= TWO_COLUMNS;
 
   const fg = useMemo(() => boundGroup(ops, bound), [ops, bound]);
@@ -664,7 +669,7 @@ function Picker({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCel
       {wide ? (
         <div style={{ flex: "1 1 auto", minHeight: 0, display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1.05fr)", gap: 12 }}>
           <div className="wb-grow-box" style={{ ...cardBox, overflowY: "auto", minHeight: 160 }}>{listBody}</div>
-          <div className="wb-grow-box" style={{ ...cardBox, overflowY: "auto", padding: "12px 16px", minHeight: 160 }}>
+          <div ref={detailBox} className="wb-grow-box" style={{ ...cardBox, overflowY: "auto", padding: "12px 16px 0", minHeight: 160 }}>
             {detail ?? <p style={{ margin: 0, color: color.secondary, fontSize: fz.small }}>Pick a subgroup: its cell, how you get there, then Activate.</p>}
           </div>
         </div>
