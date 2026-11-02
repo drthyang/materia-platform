@@ -2,7 +2,7 @@
  * The Subgroups page's detail panel: the selected subgroup (a merged row of
  * subgroupList.ts, one of its variants chosen) with its cell sketched against
  * the parent's, its domains and index, how you get there (one irrep switched
- * on per step; the literal lattice steps on demand), its irreps, the other
+ * on per step), its irreps, the other
  * variants with their own Activate, the mode count, and one large Activate.
  * Result first, one plain line each; the rest behind "?" and folds.
  */
@@ -12,8 +12,8 @@ import { color, fz, mono, primaryButton, resetRangeBtn, uppercaseLabel } from "@
 import { InfoBadge } from "@/app/ui/InfoBadge";
 import type { PickerAction, SubgroupRow } from "@/app/ui/subgroupPicker";
 import {
-  collapseTies, compactName, detailOf, irrepsLineOf, latticeChains, setLine, shortName, tagOf,
-  type GraphNode, type RowGroup,
+  collapseTies, compactName, detailOf, irrepsLineOf, setLine, shortName, tagOf,
+  type RowGroup,
 } from "@/app/ui/subgroupList";
 
 /** Why Activate cannot run now, or null when it can. */
@@ -27,10 +27,6 @@ export interface DetailProps {
   /** The variant in the panel. */
   readonly row: SubgroupRow;
   readonly ks: readonly string[];
-  /** The lattice as a graph, for "every lattice step"; null until it is there. */
-  readonly graph: readonly GraphNode[] | null;
-  /** A row's name and cell by its key (the lattice steps name their subgroups). */
-  readonly nameOf: (key: string) => string;
   /** The row whose child is in force (its key), if any. */
   readonly activeKey: string | null;
   /** True while a choice is in force (any): Activate waits for ✕ clear. */
@@ -177,10 +173,8 @@ export function resultLine(row: SubgroupRow): string {
 export function SubgroupDetail(p: DetailProps): JSX.Element {
   const { row, group } = p;
   const [allWays, setAllWays] = useState(false);
-  const [steps, setSteps] = useState(false);
   useEffect(() => {
     setAllWays(false);
-    setSteps(false);
   }, [row.key]);
   // Everything below describes this variant: its first reaching set (what Activate kicks) and the ways through it first.
   const told = useMemo(() => detailOf(row), [row]);
@@ -188,8 +182,6 @@ export function SubgroupDetail(p: DetailProps): JSX.Element {
   const leadShown = told.lead.slice(0, 3);
   const shownWays = allWays ? ways : leadShown;
   const chainsShown = leadShown.reduce((n, w) => n + w.chains, 0);
-  const lattice = useMemo(() => (steps && p.graph ? latticeChains(p.graph, row.key, 5) : null), [steps, p.graph, row.key]);
-  const latticeCount = useMemo(() => (p.graph ? latticeChains(p.graph, row.key, 0).count : null), [p.graph, row.key]);
   const sets = collapseTies(row.reach.sets);
   const split = splitOf(row);
   const secondary = secondaryOf(row);
@@ -232,27 +224,8 @@ export function SubgroupDetail(p: DetailProps): JSX.Element {
         </div>
       </div>
 
-      <Section
-        title="How you get here"
-        right={latticeCount !== null && latticeCount > 0 ? (
-          <button type="button" style={linkBtn} onClick={() => setSteps(!steps)}>{steps ? "one irrep per step" : `every lattice step (${latticeCount.toLocaleString("en-US")})`}</button>
-        ) : null}
-      >
-        {steps && lattice ? (
-          <>
-            <p style={{ margin: "0 0 4px", ...sub }}>{plural(lattice.count, "chain")} of maximal subgroups; the shortest:</p>
-            {lattice.chains.map((ch, i) => (
-              <div key={i} data-lattice-chain={ch.join(">")} style={{ fontFamily: mono, fontSize: fz.micro, lineHeight: 1.7, display: "flex", flexWrap: "wrap", columnGap: 6 }}>
-                {ch.map((k, j) => (
-                  <Fragment key={j}>
-                    {j > 0 ? <span style={{ color: color.faint }}>→</span> : null}
-                    <span style={{ fontWeight: j === ch.length - 1 ? 600 : 400 }}>{k === "p" ? shortName(p.parent) : p.nameOf(k)}</span>
-                  </Fragment>
-                ))}
-              </div>
-            ))}
-          </>
-        ) : ways.length === 0 ? (
+      <Section title="How you get here">
+        {ways.length === 0 ? (
           <p style={{ margin: 0, fontSize: fz.micro, color: color.faint }}>No set of up to 4 irreps reaches it.</p>
         ) : (
           <>
