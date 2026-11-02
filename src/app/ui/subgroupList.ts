@@ -1,10 +1,10 @@
 /**
  * The Subgroups page's one list, as data (SubgroupsPanel renders it): the
  * rows of subgroupPicker.ts merged by name, cell and domains, filtered by the
- * k-point chips and the folded filters, sorted from high to low symmetry; the
- * tied coupled sets written on one line; the tree of maximal steps and the
- * literal lattice chains. The group theory is the rows'; this module only
- * groups, filters and writes them.
+ * k-point chips, the folded filters and a name search, sorted from high to
+ * low symmetry and cut short to the top index levels (more on demand); the
+ * tied coupled sets written on one line; the tree of maximal steps. The group
+ * theory is the rows'; this module only groups, filters and writes them.
  */
 
 import type { IrrepRef, SubgroupRow, WayStep } from "@/app/ui/subgroupPicker";
@@ -23,12 +23,17 @@ export interface ListFilters {
   readonly cell: CellFilter;
   /** The highest index kept; null keeps every index. */
   readonly maxIndex: number | null;
+  /** Keep the strain-only subgroups (no atom moves: 0 modes); hidden by default. */
+  readonly strain: boolean;
 }
 
-export const DEFAULT_FILTERS: ListFilters = { ks: [], kind: "two", cell: "any", maxIndex: null };
+export const DEFAULT_FILTERS: ListFilters = { ks: [], kind: "two", cell: "any", maxIndex: null, strain: false };
 
-/** True when the folded filters (cell, kind, index) differ from the defaults. */
-export const foldedFiltersSet = (f: ListFilters): boolean => f.kind !== DEFAULT_FILTERS.kind || f.cell !== DEFAULT_FILTERS.cell || f.maxIndex !== null;
+/** Every filter off: every class of every merged row is listed. */
+export const NO_FILTERS: ListFilters = { ks: [], kind: "all", cell: "any", maxIndex: null, strain: true };
+
+/** True when the folded filters (cell, kind, index, strain only) differ from the defaults. */
+export const foldedFiltersSet = (f: ListFilters): boolean => f.kind !== DEFAULT_FILTERS.kind || f.cell !== DEFAULT_FILTERS.cell || f.maxIndex !== null || f.strain !== DEFAULT_FILTERS.strain;
 
 /**
  * The reaching sets a row shows for the chosen chips, best first: every set
@@ -46,6 +51,7 @@ export function rowPasses(row: SubgroupRow, f: ListFilters): boolean {
   if (f.cell === "same" && !row.sameCell) return false;
   if (f.cell === "super" && row.sameCell) return false;
   if (f.maxIndex !== null && row.index > f.maxIndex) return false;
+  if (!f.strain && row.modes === 0) return false;
   const sets = setsFor(row, f.ks);
   if (f.ks.length > 0 && sets.length === 0) return false;
   if (row.maximal || f.kind === "all") return true;
@@ -112,6 +118,88 @@ export function visibleGroups(groups: readonly RowGroup[], f: ListFilters): Show
   // A stable sort keeps the lattice's order among equals.
   return out.sort(symmetryOrder);
 }
+
+// ── the short list and the search ────────────────────────────────────────────
+
+/** The short list takes whole index levels from the top until at least this many rows show… */
+export const SHORT_MIN = 20;
+/** …but adds no level that would take it past this many (a first level is taken whole, however long). */
+export const SHORT_MAX = 40;
+
+/** One index level of the list: its index and how many rows it has. */
+export interface IndexLevel {
+  readonly index: number;
+  readonly count: number;
+}
+
+/** The list's index levels, top first (the list is sorted by index). */
+export function indexLevels(visible: readonly ShownGroup[]): IndexLevel[] {
+  const out: { index: number; count: number }[] = [];
+  for (const g of visible) {
+    const last = out.at(-1);
+    if (last && last.index === g.group.index) last.count++;
+    else out.push({ index: g.group.index, count: 1 });
+  }
+  return out;
+}
+
+/** How many levels, from `from` on, one step of the short list takes: whole levels until at least SHORT_MIN rows, never past SHORT_MAX unless it is the first. */
+function chunk(levels: readonly IndexLevel[], from: number): number {
+  let n = 0;
+  let taken = 0;
+  for (let i = from; i < levels.length; i++) {
+    if (n >= SHORT_MIN) break;
+    if (taken > 0 && n + levels[i]!.count > SHORT_MAX) break;
+    n += levels[i]!.count;
+    taken++;
+  }
+  return taken;
+}
+
+/** The list as it shows: the rows, and what "show more" would add (null when every row shows). */
+export interface ShortList {
+  readonly rows: readonly ShownGroup[];
+  /** How many index levels show. */
+  readonly levels: number;
+  /** The next step: its levels (to show `levels` in all), its first and last index and its rows. */
+  readonly next: { readonly levels: number; readonly from: number; readonly to: number; readonly count: number } | null;
+  /** Every row the filters keep. */
+  readonly total: number;
+}
+
+/**
+ * The top of the list: `levels` index levels (null: the default, one step;
+ * "all": every row). The full list stays one "show all" away.
+ */
+export function shortList(visible: readonly ShownGroup[], levels: number | "all" | null): ShortList {
+  const all = indexLevels(visible);
+  const n = levels === "all" ? all.length : Math.min(all.length, levels ?? chunk(all, 0));
+  const rows = n === all.length ? visible : visible.slice(0, all.slice(0, n).reduce((t, l) => t + l.count, 0));
+  const k = n < all.length ? chunk(all, n) : 0;
+  const step = all.slice(n, n + k);
+  return {
+    rows, levels: n, total: visible.length,
+    next: step.length > 0 ? { levels: n + k, from: step[0]!.index, to: step.at(-1)!.index, count: step.reduce((t, l) => t + l.count, 0) } : null,
+  };
+}
+
+/** A name flattened for the search: lower case, no spaces, subscripts and "#" dropped ("P-42₁m #113" → "p-421m113"). */
+const flatName = (s: string): string => s.toLowerCase().replace(/[₀-₉]/g, (d) => String(d.charCodeAt(0) - 0x2080)).replace(/[\s#_]/g, "");
+
+/**
+ * Whether a subgroup's name answers a search: a number ("62", "#62") is the
+ * ITA number; anything else a part of the symbol, spaces, subscripts and
+ * "_" ignored ("Pnma", "P-42_1m", "p-421m", "I4/mcm").
+ */
+export function nameMatches(name: string, query: string): boolean {
+  const q = query.trim().replace(/^#/, "");
+  if (q === "") return true;
+  if (/^\d+$/.test(q)) return itNumber(name) === Number(q);
+  return flatName(compactName(name)).includes(flatName(q));
+}
+
+/** The rows a search keeps, in the list's order (every level: a search is not cut short). */
+export const searched = (visible: readonly ShownGroup[], query: string): ShownGroup[] => visible.filter((g) => nameMatches(g.group.name, query));
 
 // ── tied sets and tags ───────────────────────────────────────────────────────
 
@@ -191,7 +279,7 @@ export function compactName(name: string): string {
 /** The name without its number: "Pnma", for chains and buttons. */
 export const shortName = (name: string): string => compactName(name).replace(/ #\d+$/, "").replace(/ \(.*\)$/, "");
 
-// ── the tree and the lattice chains ──────────────────────────────────────────
+// ── the tree ──────────────────────────────────────────────────────────────────
 
 /** A subgroup in the lattice, by its row's key ("p" the parent), with the keys of the classes covering it. */
 export interface GraphNode {
@@ -208,48 +296,6 @@ export function childrenOf(graph: readonly GraphNode[]): ReadonlyMap<string, rea
     m.set(p, list);
   }
   return m;
-}
-
-/**
- * The chains of covering steps from the parent ("p") down to a class: how
- * many there are, and up to `n` of the shortest (each from the parent to the
- * class, by key).
- */
-export function latticeChains(graph: readonly GraphNode[], key: string, n: number): { readonly count: number; readonly chains: readonly (readonly string[])[] } {
-  const byKey = new Map(graph.map((x) => [x.key, x] as const));
-  if (!byKey.has(key)) return { count: 0, chains: [] };
-  const memo = new Map<string, number>();
-  const count = (k: string): number => {
-    if (k === "p") return 1;
-    const hit = memo.get(k);
-    if (hit !== undefined) return hit;
-    memo.set(k, 0);
-    const v = (byKey.get(k)?.coveredBy ?? []).reduce((s, p) => s + count(p), 0);
-    memo.set(k, v);
-    return v;
-  };
-  // The depth of each class below the parent (fewest steps), so the walk takes the shortest first.
-  const depth = new Map<string, number>([["p", 0]]);
-  const depthOf = (k: string): number => {
-    const hit = depth.get(k);
-    if (hit !== undefined) return hit;
-    depth.set(k, Infinity);
-    const d = 1 + Math.min(Infinity, ...(byKey.get(k)?.coveredBy ?? []).map(depthOf));
-    depth.set(k, d);
-    return d;
-  };
-  const out: string[][] = [];
-  const walk = (k: string, acc: string[]): void => {
-    if (out.length >= n) return;
-    if (k === "p") {
-      out.push(["p", ...acc]);
-      return;
-    }
-    const ups = [...(byKey.get(k)?.coveredBy ?? [])].sort((a, b) => depthOf(a) - depthOf(b));
-    for (const p of ups) walk(p, [k, ...acc]);
-  };
-  walk(key, []);
-  return { count: count(key), chains: out.sort((a, b) => a.length - b.length) };
 }
 
 // ── ways ─────────────────────────────────────────────────────────────────────

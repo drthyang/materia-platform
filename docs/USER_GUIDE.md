@@ -494,6 +494,15 @@ shows the modes being refined.
     its centring, then **Apply**). The list holds every subgroup whose cell
     fits it, in some orientation; the line beside it says how many the list
     shows of how many there are.
+  - **The list opens short**, on the top index levels: whole levels from the
+    top until at least 20 rows show, none added past 40 (SrTiO₃ in 2×2×2:
+    26 rows, index 2 to 8). **Show more** under it adds the next levels
+    ("Show more: index 12 (+78)"), **show all N** every row the filters
+    keep, **show fewer** goes back. A chip or a filter opens it short again.
+  - **Find** (beside Filters) lists every subgroup whose name has what you
+    type, at any level: a symbol ("Pnma", "I4/mcm"; "P-42_1m" or "P-421m"
+    for P-42₁m) or an ITA number ("62"). When the only matches lie outside
+    the filters, it says how many, with **show them**.
   - **The list** runs from high to low symmetry (by index). Each row is one
     line: the name in the standard setting (ADR 0003), the cell, the domain
     states, and a tag for the irreps that lower the parent to it:
@@ -519,11 +528,14 @@ shows the modes being refined.
       lists them as variants.
     - **strain only**: the child moves no atom of this structure (its irreps
       carry no displacement); only the cell can change, so there is nothing
-      to Activate.
+      to Activate. These rows are hidden by default.
     - By default the list keeps the subgroups one irrep reaches, or two
-      coupled, and the maximal ones. **Filters** (folded) changes that:
-      **Reached by** one irrep · up to two · all; **Cell** any · same cell ·
-      supercell; **Index ≤ N**; **reset**.
+      coupled, and the maximal ones, and hides the strain-only ones (a
+      merged row counts only its variants that move atoms). **Filters**
+      (folded) changes that: **Reached by** one irrep · up to two · all;
+      **Cell** any · same cell · supercell; **Index ≤ N**; **Strain only**
+      hide · show; **reset**. Every filter off and **show all** lists every
+      class.
     - The **k-point chips** filter the list: a chip keeps the subgroups its
       irreps reach; two chips also keep their coupled pairs (R and M give
       SrTiO₃'s a⁻b⁺a⁻ Pnma). **any k** clears them. The chips are Γ, for a
@@ -548,9 +560,8 @@ shows the modes being refined.
       when not); the cell, domains and index.
     - **How you get here**: the irreps switched on one per step, each step
       named by the subgroup it reaches ("Pm-3m → Imma (R irrep 8) → Pnma (+
-      M irrep 3 or 5)"); three, then **N more ways**. **every lattice step
-      (N)** shows the shortest chains of maximal subgroups instead, which
-      pass through the strain-only subgroups too (Pm-3m → P4/mmm → …).
+      M irrep 3 or 5)"); three, then **N more ways**. The chains of maximal
+      subgroups, strain-only ones included, are in the **Tree**.
     - The primary irrep, or the coupled irreps, each with its
       order-parameter direction and, coupled, the subgroup it gives alone;
       **or N other pairs** and the **secondary irreps** (allowed in the

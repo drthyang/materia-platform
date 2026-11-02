@@ -6,9 +6,10 @@
  * generator in place): a progress line with the supercell held, the rows
  * streaming in, a stop heard, one run at a time, the result kept for the next
  * visit. A row opens its detail (how you get here, the irreps, the variants,
- * the modes) and Activate hands over that row's own action; the k-point chips
- * and the folded filters filter the list; the tree expands one maximal step
- * at a time; on a narrow panel the detail is a full-screen sheet with Back.
+ * the modes) and Activate hands over that row's own action; the list opens
+ * short (the top index levels, strain-only rows hidden) with Show more, show
+ * all and a name search; the k-point chips and the folded filters filter it;
+ * the tree expands one maximal step at a time; on a narrow panel the detail is a full-screen sheet with Back.
  * Import ▾ on the 3D Model row opens the two loaders.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -78,13 +79,22 @@ const select = (h: HTMLElement): HTMLSelectElement => h.querySelector<HTMLSelect
 const text = (h: ParentNode): string => h.textContent ?? "";
 const rows = (h: HTMLElement): HTMLElement[] => [...h.querySelectorAll<HTMLElement>("[data-row]")];
 const rowOf = (h: HTMLElement, key: string): HTMLElement | undefined => h.querySelector<HTMLElement>(`[data-row="${key}"]`) ?? undefined;
-/** The default list of SrTiO₃ in 2×2×2: subgroups one irrep reaches, or two coupled, and the maximal ones, merged by name, cell and domains. */
-const ALL = "444 of 559 subgroups · fit 2×2×2";
+/** The default list of SrTiO₃ in 2×2×2, worked out: its first screen, index 2 to 8 (subgroups one irrep reaches, or two coupled, and the maximal ones, strain-only rows hidden, merged by name, cell and domains). */
+const ALL = "26 of 559 subgroups · fit 2×2×2";
 const PNMA = "P n m a #62|2×2×2|24";
 const R3C = "R -3 c:H #167|2×2×2|8";
 const P4MM = "P 4 m m #99|same cell|6";
 const P4MMM = "P 4/m m m #123|same cell|3";
 const pickRow = (h: HTMLElement, key: string): void => act(() => rowOf(h, key)!.click());
+/** Type into the name search. */
+function find(h: HTMLElement, q: string): void {
+  const input = h.querySelector<HTMLInputElement>('input[aria-label="find a subgroup"]')!;
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, q);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+const buttonLike = (h: ParentNode, re: RegExp): HTMLButtonElement | undefined => [...h.querySelectorAll("button")].find((b) => re.test(b.textContent?.trim() ?? ""));
 /** Activate in the detail (it runs once "working…" has painted). */
 async function activate(h: HTMLElement, name: string): Promise<void> {
   act(() => h.querySelector<HTMLButtonElement>(`button[aria-label="Activate ${name}"]`)!.click());
@@ -116,9 +126,12 @@ describe("the subgroup list in a DOM", () => {
     await until(() => text(h).includes("listing 2×2×2 subgroups…"));
     await until(() => text(h).includes(ALL));
     expect(listing).toHaveBeenCalledTimes(2);
-    expect(rows(h)).toHaveLength(444);
-    // The tilts: R-3c from the R irrep alone, a⁻b⁺a⁻ Pnma among four Pnma classes (×4), its tied pair on one tag.
-    expect(text(rowOf(h, R3C)!)).toBe("R-3c:H #167· 2×2×2· 8 domR·8×2");
+    expect(rows(h)).toHaveLength(26);
+    // The tilts: R-3c from the R irrep alone on the first screen; a⁻b⁺a⁻ Pnma (index 24) by name, among four Pnma classes (×4), its tied pair on one tag.
+    // Its other class (R irrep 9) moves no atom: hidden with the strain-only rows, so no "×2".
+    expect(text(rowOf(h, R3C)!)).toBe("R-3c:H #167· 2×2×2· 8 domR·8");
+    expect(rowOf(h, PNMA)).toBeUndefined();
+    find(h, "Pnma");
     expect(text(rowOf(h, PNMA)!)).toMatch(/^Pnma #62· 2×2×2· 24 domM·3\/5\+R·7×4$/);
   });
 
@@ -137,12 +150,18 @@ describe("the subgroup list in a DOM", () => {
     await activate(h, "P 4 m m #99");
     expect(onMode).toHaveBeenCalledTimes(1);
     expect(onMode.mock.calls[0]![1].identity.number).toBe(99);
+    // P4/mmm is strain only: hidden until the filter shows it.
+    expect(rowOf(h, P4MMM)).toBeUndefined();
+    act(() => button(h, "▸ Filters")!.click());
+    act(() => button(h.querySelector('[role=group][aria-label="Filters"]')!, "show")!.click());
     pickRow(h, P4MMM);
     expect(text(h)).toContain("strain only");
     // P4/mmm moves no atom of SrTiO₃ (Γ irrep 5 is strain): nothing to activate.
     const strain = h.querySelector<HTMLButtonElement>('button[aria-label="Activate P 4/m m m #123"]')!;
     expect(strain.disabled).toBe(true);
     expect(strain.textContent).toBe("Strain only: nothing to refine");
+    act(() => button(h.querySelector('[role=group][aria-label="Filters"]')!, "hide")!.click());
+    expect(rowOf(h, P4MMM)).toBeUndefined();
     pickRow(h, R3C);
     expect(text(h)).toContain("R-3c:H in a 2×2×2 cell, from one irrep: R irrep 8.");
     expect(text(h)).toContain("its own cell ×6, not drawn");
@@ -156,6 +175,7 @@ describe("the subgroup list in a DOM", () => {
     const onSupercell = vi.fn();
     const h = mount(panel({ onActivateSupercell: onSupercell }));
     await until(() => text(h).includes(ALL));
+    find(h, "62");
     pickRow(h, PNMA);
     const detail = h.querySelector<HTMLElement>("[data-detail]")!;
     // The four classes, the a⁻b⁺a⁻ one (M irrep 3 or 5 + R irrep 8) among them.
@@ -175,13 +195,10 @@ describe("the subgroup list in a DOM", () => {
     expect(t).toMatch(/\d+ more ways/);
     expect(t).toContain("M irrep 3 or 5 (of 10)(a,0,0)alone → P4/mbm");
     expect(t).toContain("R irrep 8 of 10(a,a,0)alone → Imma");
-    expect(t).toMatch(/every lattice step \(\d+\)/);
     expect(t).toContain("7 modes refine");
-    // The literal lattice steps, on demand: each chain from the parent to Pnma.
-    act(() => button(h, [...h.querySelectorAll("button")].find((b) => /every lattice step/.test(b.textContent ?? ""))!.textContent!.trim())!.click());
-    const chains = [...h.querySelectorAll<HTMLElement>("[data-lattice-chain]")];
-    expect(chains.length).toBeGreaterThan(0);
-    expect(chains.every((c) => c.dataset.latticeChain!.startsWith("p>") && c.textContent!.startsWith("Pm-3m→") && c.textContent!.endsWith("Pnma"))).toBe(true);
+    // The literal lattice steps are gone (the Tree holds the same covering steps).
+    expect(t).not.toMatch(/every lattice step/);
+    expect(h.querySelector("[data-lattice-chain]")).toBeNull();
     // Activate: the variant's own choice, its coupled pair as the order parameter.
     await activate(h, "P n m a #62");
     expect(onSupercell).toHaveBeenCalledTimes(1);
@@ -200,21 +217,61 @@ describe("the subgroup list in a DOM", () => {
     expect(rowOf(h, PNMA)).toBeUndefined();
     expect(rowOf(h, P4MM)).toBeUndefined();
     act(() => chip(h, "M, supercell").click());
+    // R and M: a short list again (index 2 to 8); show all brings Pnma with the M and R pair.
+    expect(rowOf(h, PNMA)).toBeUndefined();
+    act(() => buttonLike(h, /^show all \d+$/)!.click());
     expect(text(rowOf(h, PNMA)!)).toContain("M·3/5+R·7");
     act(() => chip(h, "any k-point").click());
     expect(text(h)).toContain(ALL);
-    // Filters: one irrep only drops the coupled Pnma; all lists every one of the 559.
+    // Filters: one irrep only drops the coupled Pnma; all, with the strain-only rows, lists every one of the 559.
     act(() => button(h, "▸ Filters")!.click());
     const filters = h.querySelector<HTMLElement>('[role=group][aria-label="Filters"]')!;
     act(() => button(filters, "one irrep")!.click());
     expect(rowOf(h, PNMA)).toBeUndefined();
     expect(rowOf(h, R3C)).toBeDefined();
     act(() => button(filters, "all 559")!.click());
+    act(() => button(filters, "show")!.click());
+    expect(text(h)).not.toContain("559 of 559 subgroups");
+    act(() => button(h, "show all 559")!.click());
     expect(text(h)).toContain("559 of 559 subgroups");
+    expect(rows(h)).toHaveLength(559);
     act(() => button(filters, "same cell")!.click());
     expect(rows(h).every((r) => r.textContent!.includes("same cell"))).toBe(true);
     act(() => button(filters, "reset")!.click());
     expect(text(h)).toContain(ALL);
+  });
+
+  it("the short list: Show more adds the next index level, show all every row, show fewer goes back; the search lists every match and says when the filters hide one", async () => {
+    const h = mount(panel());
+    await until(() => text(h).includes(ALL));
+    // The first screen: index 2 to 8; no strain-only row on it.
+    expect([...h.querySelectorAll("[data-row]")].some((r) => r.textContent!.includes("strain only"))).toBe(false);
+    expect(rowOf(h, "P 4 m m #99|same cell|6")).toBeDefined();
+    act(() => button(h, "Show more: index 12 (+78)")!.click());
+    expect(rows(h)).toHaveLength(104);
+    expect(text(h)).toContain("104 of 559 subgroups");
+    expect(rowOf(h, PNMA)).toBeUndefined();
+    act(() => button(h, "Show more: index 16 (+15)")!.click());
+    act(() => button(h, "Show more: index 24 (+132)")!.click());
+    expect(rowOf(h, PNMA)).toBeDefined();
+    act(() => button(h, "show all 418")!.click());
+    expect(rows(h)).toHaveLength(418);
+    expect(buttonLike(h, /^Show more/)).toBeUndefined();
+    act(() => button(h, "show fewer")!.click());
+    expect(rows(h)).toHaveLength(26);
+    // The search: every match at any level, the cut set aside; one hidden by a filter is offered.
+    find(h, "I4/m");
+    expect(rows(h).length).toBeGreaterThan(2);
+    expect(rows(h).every((r) => /^I4\/m/.test(r.textContent!))).toBe(true);
+    expect(buttonLike(h, /^Show more/)).toBeUndefined();
+    // Fm-3c (R irrep 2 or 9 in the 2×2×2 cell) moves no atom: hidden, and offered.
+    find(h, "Fm-3c");
+    expect(rows(h)).toHaveLength(0);
+    expect(text(h)).toContain("No match here; 1 outside the filters.");
+    act(() => button(h, "show them")!.click());
+    expect(rowOf(h, "F m -3 c #226|2×2×2|2")).toBeDefined();
+    find(h, "");
+    expect(text(h)).toContain("of 559 subgroups");
   });
 
   it("the tree: from the parent one maximal step at a time, a subgroup under two parents says so, those the filters leave out dimmed", async () => {
@@ -238,7 +295,7 @@ describe("the subgroup list in a DOM", () => {
     act(() => chip(h, "R, supercell").click());
     const rowIn = (re: RegExp): HTMLElement => [...h.querySelectorAll<HTMLElement>("[data-tree] [data-row]")].find((n) => re.test(n.textContent!))!;
     expect(rowIn(/^.P4\/mmm #123· same cell/).style.opacity).toBe("0.45");
-    expect(rowIn(/^.I4\/mcm #140· 2×2×2/).style.opacity).toBe("1");
+    expect(rowIn(/^.I4\/mcm #140· 2×2×2.*R·8$/).style.opacity).toBe("1");
   });
 
   it("holds Activate while a fit runs", async () => {

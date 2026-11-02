@@ -85,7 +85,11 @@ describe("the Subgroups page", () => {
     // Cell, kind and index sit behind one folded "Filters".
     expect(out).toMatch(/<button[^>]*aria-expanded="false"[^>]*>▸ Filters/);
     expect(text).not.toContain("Reached by");
+    expect(text).not.toContain("Strain only");
     expect(text).toContain("ListTree");
+    // A name search, and a short list: the top index levels, then Show more and show all.
+    expect(out).toContain('aria-label="find a subgroup"');
+    expect(text).toMatch(/Show more: index [\d–]+ \(\+\d+\)show all \d+/);
     // Rows in one plain line, merged (×2), the tag not ISODISTORT's label; index headers from the top.
     expect(text.indexOf("index 2")).toBeLessThan(text.indexOf("index 4"));
     expect(text).toContain("P-42₁m #113· same cell· 12 domX·5×2");

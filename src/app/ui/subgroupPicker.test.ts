@@ -13,7 +13,9 @@
  * and the bundled GaTa₄Se₈ demo (F-43m, published; 1×1×2). The list's
  * merging (subgroupList.ts) loses no class, and a row reached as a merged
  * row's variant activates the same child; the default filter, the k-point
- * chips and the tie rule keep the known cases; every "how you get here"
+ * chips and the tie rule keep the known cases; the default list is short
+ * (the top index levels, strain-only rows hidden) and every class stays a
+ * "show more", a filter or a search away; every "how you get here"
  * chain is made of real relations of the engine's lattice; the mode count a
  * row shows is the count Activate loads.
  */
@@ -36,7 +38,10 @@ import {
   chipName, decentringRows, kChips, latticeGraph, sameCellListing, sameCellRows, supercellListing, supercellRows,
   type PickerAction, type PickerIrrep, type SubgroupRow,
 } from "@/app/ui/subgroupPicker";
-import { DEFAULT_FILTERS, collapseTies, detailOf, groupRows, latticeChains, setLine, setsFor, tagOf, visibleGroups, type ListFilters, type RowGroup } from "@/app/ui/subgroupList";
+import {
+  DEFAULT_FILTERS, NO_FILTERS, SHORT_MAX, SHORT_MIN, collapseTies, detailOf, groupRows, indexLevels, nameMatches, searched, setLine, setsFor, shortList, tagOf, visibleGroups,
+  type ListFilters, type RowGroup, type ShownGroup,
+} from "@/app/ui/subgroupList";
 import { boundIrreps } from "@/core/crystal/irreps/subgroupIrreps";
 import { starsInBound } from "@/core/crystal/irreps/factorGroup";
 import { rnum } from "@/core/crystal/irreps/rational";
@@ -130,8 +135,9 @@ function expectNothingLost(rows: readonly SubgroupRow[]): RowGroup[] {
   expect(new Set(variants).size).toBe(rows.length);
   for (const r of rows) expect(variants).toContain(r);
   for (const g of groups) expect(g.variants.every((v) => v.name === g.name && v.cell === g.cell && v.domains === g.domains)).toBe(true);
-  // Every class stays reachable from the list: with every filter off, every group is listed, every variant in it.
-  const all = visibleGroups(groups, { ...DEFAULT_FILTERS, kind: "all" });
+  // Every class stays reachable from the list: with every filter off and the list shown whole, every group is listed, every variant in it.
+  const all = shortList(visibleGroups(groups, NO_FILTERS), "all").rows;
+  expect(all).toHaveLength(groups.length);
   expect(all.flatMap((x) => x.shown)).toHaveLength(rows.length);
   return groups;
 }
@@ -184,6 +190,35 @@ function isotropyClassesOf(group: FactorGroup, lattice: SupercellLattice, stars:
 }
 const boundStars = (group: FactorGroup) => starsInBound(group).map((k) => cachedIrrepsOfStar(group, [rnum(k[0]), rnum(k[1]), rnum(k[2])]));
 const shownIn = (groups: readonly RowGroup[], f: ListFilters, key: string) => visibleGroups(groups, f).find((g) => g.group.key === key);
+/** The filters as #145 defaulted them: reached by one irrep or two coupled, and the maximal ones, strain-only rows kept. */
+const REACH: ListFilters = { ...DEFAULT_FILTERS, strain: true };
+const strainOnly = (g: ShownGroup): boolean => g.shown.every((r) => r.modes === 0);
+
+/**
+ * The short list: whole index levels from the top, at least SHORT_MIN rows
+ * and no level past SHORT_MAX unless it is the first; Show more adds the next
+ * step by the same rule, show all the rest; nothing reordered or lost.
+ */
+function expectShortList(visible: readonly ShownGroup[]): void {
+  const levels = indexLevels(visible);
+  const s = shortList(visible, null);
+  expect(visible.slice(0, s.rows.length)).toEqual(s.rows);
+  expect(s.rows.length === visible.length || s.rows.length >= SHORT_MIN || s.levels === 1).toBe(true);
+  expect(s.rows.length <= SHORT_MAX || s.levels === 1).toBe(true);
+  // Whole levels: the last row shown ends its level.
+  if (s.next) expect(visible[s.rows.length]!.group.index).toBeGreaterThan(s.rows.at(-1)!.group.index);
+  let at = s;
+  while (at.next) {
+    const n = shortList(visible, at.next.levels);
+    expect(n.rows.length).toBe(at.rows.length + at.next.count);
+    expect(n.rows[at.rows.length]!.group.index).toBe(at.next.from);
+    expect(n.rows.at(-1)!.group.index).toBe(at.next.to);
+    at = n;
+  }
+  expect(at.rows).toEqual(visible);
+  expect(at.levels).toBe(levels.length);
+  expect(shortList(visible, "all").rows).toEqual(visible);
+}
 
 /**
  * The detail describes the variant it shows, and Activate does what it says.
@@ -472,15 +507,16 @@ describe("By subgroup on SrTiO₃, 2×2×2: every subgroup that fits, each with 
     const PNMA = "P n m a #62|2×2×2|24";
     const R3C = "R -3 c:H #167|2×2×2|8";
     const I4MCM = "I 4/m c m #140|2×2×2|6";
-    // Default: one irrep, or two coupled, or maximal: 444 of the 559 merged rows; Pnma among them, the a⁻b⁺a⁻ class a shown variant.
-    const def = visibleGroups(groups, DEFAULT_FILTERS);
+    // Reached by one irrep, or two coupled, or maximal (strain-only rows kept, as #145's default): 444 of the 559 merged rows; Pnma among them, the a⁻b⁺a⁻ class a shown variant.
+    const def = visibleGroups(groups, REACH);
     expect(def).toHaveLength(444);
+    expect(shownIn(groups, REACH, PNMA)!.shown).toContain(pnma);
     expect(shownIn(groups, DEFAULT_FILTERS, PNMA)!.shown).toContain(pnma);
     expect(def.flatMap((x) => x.shown).filter((r) => r.maximal)).toHaveLength([...same, ...larger].filter((r) => r.maximal).length);
     // High to low symmetry: the index never falls.
     expect(def.every((x, i) => i === 0 || def[i - 1]!.group.index <= x.group.index)).toBe(true);
     // One irrep only: Pnma (coupled) leaves, R-3c stays.
-    const one = { ...DEFAULT_FILTERS, kind: "one" as const };
+    const one = { ...REACH, kind: "one" as const };
     expect(shownIn(groups, one, PNMA)).toBeUndefined();
     expect(shownIn(groups, one, R3C)).toBeDefined();
     // The R chip: R-3c and I4/mcm, not Pnma (it needs an M or X irrep too) nor P4mm (Γ).
@@ -497,6 +533,54 @@ describe("By subgroup on SrTiO₃, 2×2×2: every subgroup that fits, each with 
     expect(setLine(shownSet)).toBe("M irrep 3 or 5 + R irrep 8");
     // X and R alone: Pnma by an X irrep and R irrep 8 (a pair inside those two stars).
     expect(tagOf(collapseTies(setsFor(pnma, ["X", "R"]))[0]!)).toMatch(/^X·\d+\+R·\d+$/);
+  });
+
+  it("the default list is short: the top index levels, no strain-only row; Show more, show all, the strain-only filter and the search reach every class, Pnma by name", () => {
+    const { same, larger } = sto();
+    const groups = groupRows([...same, ...larger]);
+    const PNMA = "P n m a #62|2×2×2|24";
+    // Strain only: hidden by default, 26 merged rows (P-43m, Pm-3, P4/mmm and the like move no atom of SrTiO₃).
+    const reach = visibleGroups(groups, REACH);
+    const def = visibleGroups(groups, DEFAULT_FILTERS);
+    expect(reach.filter(strainOnly)).toHaveLength(26);
+    expect(def).toHaveLength(444 - 26);
+    expect(def.some(strainOnly)).toBe(false);
+    expect(def.flatMap((g) => g.shown).every((r) => r.modes !== 0)).toBe(true);
+    expect(def.map((g) => g.group.key)).toEqual(reach.filter((g) => !strainOnly(g)).map((g) => g.group.key));
+    // The first screen: index 2 to 8, 26 rows; Show more adds index 12 (78), show all the 418 the filters keep.
+    const s = shortList(def, null);
+    expect(s.rows).toHaveLength(26);
+    expect(indexLevels(s.rows).map((l) => l.index)).toEqual([2, 4, 6, 8]);
+    expect(s.next).toEqual({ levels: 5, from: 12, to: 12, count: 78 });
+    expect(s.rows.map((g) => g.group.key)).toEqual(expect.arrayContaining(["R -3 c:H #167|2×2×2|8", "I 4/m c m #140|2×2×2|6", "P 4 m m #99|same cell|6"]));
+    expect(shortList(def, s.next!.levels).rows).toHaveLength(26 + 78);
+    expect(shortList(def, "all").rows).toHaveLength(418);
+    expectShortList(def);
+    // Pnma (index 24) is not on it; a search finds it at once, by name or number, with the a⁻b⁺a⁻ class among its variants.
+    expect(s.rows.some((g) => g.group.key === PNMA)).toBe(false);
+    for (const q of ["Pnma", "pnma", "62", "#62", "P n m a"]) {
+      const hit = searched(def, q);
+      expect(hit.map((g) => g.group.key), q).toContain(PNMA);
+      expect(hit.every((g) => g.group.name === "P n m a #62"), q).toBe(true);
+    }
+    expect(searched(def, "Pnma").find((g) => g.group.key === PNMA)!.shown.some((r) => collapseTies(r.reach.sets).some((t) => tagOf(t) === "M·3/5+R·8"))).toBe(true);
+    // Through the R and M chips it is three Show mores down (index 2–8, 12, 16, then 24).
+    const rm = shortList(visibleGroups(groups, { ...DEFAULT_FILTERS, ks: ["R", "M"] }), null);
+    let at = rm;
+    let clicks = 0;
+    while (!at.rows.some((g) => g.group.key === PNMA)) {
+      at = shortList(visibleGroups(groups, { ...DEFAULT_FILTERS, ks: ["R", "M"] }), at.next!.levels);
+      clicks++;
+    }
+    expect(clicks).toBe(3);
+    // The strain-only filter brings them back, the search finds one only there.
+    expect(visibleGroups(groups, { ...DEFAULT_FILTERS, strain: true })).toHaveLength(444);
+    expect(searched(def, "P4/mmm").map((g) => g.group.key)).not.toContain("P 4/m m m #123|same cell|3");
+    expect(searched(visibleGroups(groups, NO_FILTERS), "P4/mmm").map((g) => g.group.key)).toContain("P 4/m m m #123|same cell|3");
+    // Every filter off, shown whole: all 559, every class (expectNothingLost).
+    expect(shortList(visibleGroups(groups, NO_FILTERS), "all").rows).toHaveLength(559);
+    expectNothingLost([...same, ...larger]);
+    expectShortList(visibleGroups(groups, NO_FILTERS));
   });
 
   it("the tie: M irrep 3 and 5 tie in a⁻b⁺a⁻ Pnma (same star, dimension, direction, multiplicity, isotropy subgroups by type and order, and alone the same P4/mbm); R irrep 8 and 10 do not (multiplicity 1 and 2)", () => {
@@ -543,7 +627,7 @@ describe("By subgroup on SrTiO₃, 2×2×2: every subgroup that fits, each with 
     expect(pnma.reach.sets.some((set) => set.some((x) => x.label === "R irrep 10 of 10"))).toBe(true);
   });
 
-  it("every way of every row is a chain of real relations of the lattice, and the lattice steps are covering edges", () => {
+  it("every way of every row is a chain of real relations of the lattice", () => {
     const { m, same, larger } = sto();
     const lattice = cachedSupercellSubgroups(group);
     const steps = expectRealWays(larger, lattice, isotropyClassesOf(group, lattice, boundStars(group)));
@@ -558,19 +642,8 @@ describe("By subgroup on SrTiO₃, 2×2×2: every subgroup that fits, each with 
       "I m m a #74 (R irrep 8 of 10) → P n m a #62 (M irrep 3 of 10)",
       "P 4/m b m #127 (M irrep 3 of 10) → P n m a #62 (R irrep 8 of 10)",
     ]);
-    // The literal lattice steps: each consecutive pair a covering edge of the bound's lattice, from the parent to the row.
+    // The bound's lattice as a graph (the tree's): its same-cell classes are the same-cell rows' (by key), the graph's s-keys are rows.
     const graph = latticeGraph(lattice, m.loaded.spaceGroup.operations).nodes;
-    const byKey = new Map(graph.map((n) => [n.key, n]));
-    for (const r of [pnma, row(larger, "R -3 c:H #167 · 2×2×2 · 8 domains · R irrep 8 of 10 (a,a,a)"), row(same, "P 4 m m #99 · same cell · 6 domains · Γ irrep 10 of 10 (a,0,0)")]) {
-      const { count, chains } = latticeChains(graph, r.key, 5);
-      expect(count).toBeGreaterThan(0);
-      expect(chains.length).toBeGreaterThan(0);
-      for (const ch of chains) {
-        expect([ch[0], ch.at(-1)]).toEqual(["p", r.key]);
-        for (let i = 1; i < ch.length; i++) expect(byKey.get(ch[i]!)!.coveredBy).toContain(ch[i - 1]);
-      }
-    }
-    // The bound's same-cell classes are the same-cell rows' (by key): the graph's s-keys are rows.
     const sameKeys = new Set(same.map((r) => r.key));
     expect(graph.filter((n) => n.key.startsWith("s")).every((n) => sameKeys.has(n.key))).toBe(true);
     expect(graph.filter((n) => n.key.startsWith("s"))).toHaveLength(same.length);
@@ -711,6 +784,23 @@ describe("By subgroup on GaTa₄Se₈, 1×1×2: P-42₁m in the bound's own cell
     const chips = kChips(decentringIrrepTree(m.loaded), group).map((c) => c.id);
     const stars = new Set([...same, ...larger].flatMap((r) => r.reach.sets.flat().map((y) => y.star)));
     for (const st of stars) expect(chips).toContain(st);
+    // The short default: index 2 to 12 (26 of 80; no row is strain only), the X ones on it; one Show more (index 16–24) brings the 1×1×2 ones.
+    const def = visibleGroups(groups, DEFAULT_FILTERS);
+    expect(def).toHaveLength(80);
+    expect(def.some(strainOnly)).toBe(false);
+    const s = shortList(def, null);
+    expect(s.rows).toHaveLength(26);
+    expect(indexLevels(s.rows).map((l) => l.index)).toEqual([2, 3, 4, 6, 8, 12]);
+    expect(s.rows.map((g) => g.group.key)).toContain(AT_X);
+    expect(s.rows.map((g) => g.group.key)).not.toContain(OWN);
+    expect(s.next).toEqual({ levels: 8, from: 16, to: 24, count: 27 });
+    expect(shortList(def, s.next!.levels).rows.map((g) => g.group.key)).toContain(OWN);
+    expectShortList(def);
+    // X and W: the 1×1×2 ones on the first screen. The search: "113" gives both rows, "P-42_1m" too.
+    expect(shortList(visibleGroups(groups, xw), null).rows.map((g) => g.group.key)).toContain(OWN);
+    for (const q of ["113", "P-42_1m", "p-421m", "P-42₁m"]) expect(searched(def, q).map((g) => g.group.key).sort(), q).toEqual([AT_X, OWN].sort());
+    expect(nameMatches("P -4 21 m #113", "11")).toBe(false);
+    expect(shortList(visibleGroups(groups, NO_FILTERS), "all").rows).toHaveLength(81);
     // Ways: the 1×1×2 P-42₁m by the X one in the parent's cell, then W.
     const first = larger.find((r) => r.name === "P -4 21 m #113")!;
     expect(first.ways.ways.map((w) => w.map((st) => `${st.name} ${st.cell}`).join(" → "))).toContain("P -4 21 m #113 same cell → P -4 21 m #113 1×1×2");

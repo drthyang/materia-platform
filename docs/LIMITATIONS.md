@@ -511,17 +511,17 @@ Conventions are pinned in
   then the lattice's order) is the row's tag and default Activate. Among
   SrTiO₃'s four a⁻b⁺a⁻-like Pnma classes that is the one by M irrep 3 or 5 +
   R irrep 7, not the tilts' R irrep 8: the tilt pair is the second variant.
-- The default list (one irrep, up to two coupled, or maximal) is still long
-  for a large bound: 444 rows for SrTiO₃ in 2×2×2, 244 for GaTa₄Se₈. The
-  index cap and the k-point chips shorten it.
+- The list opens on the top index levels only (26 rows for SrTiO₃ in
+  2×2×2). A low-symmetry subgroup such as SrTiO₃'s Pnma (index 24) is three
+  **Show more** down, also with the R and M chips picked: **Find** ("Pnma",
+  "62") is the short way. The cut is by index, not by physics: it does not
+  know which subgroups are likely.
 - "How you get here" shows the first 12 chains of a subgroup at most (the
-  count says how many there are), and "every lattice step" the five
-  shortest. The tree shows every child of an opened subgroup (P4/mmm of a
+  count says how many there are). The tree shows every child of an opened subgroup (P4/mmm of a
   cubic perovskite has 31 in 2×2×2).
 - The larger cells are worked out in a background worker: about 6 s for a
   cubic perovskite or GaTa₄Se₈ in 2×2×2, about a minute for an F-centred
-  cubic parent (Fm-3m, Fd-3m) there. The tree's larger cells and the lattice
-  steps of a larger-cell row wait for it.
+  cubic parent (Fm-3m, Fd-3m) there. The tree's larger cells wait for it.
 - The activation's mode labels still name the Γ irreps Γ1, Γ2, … in the
   point group's order, which differs from the generic "Γ irrep n of m" (and
   from one operation list to another); the row's "?" says which is which.

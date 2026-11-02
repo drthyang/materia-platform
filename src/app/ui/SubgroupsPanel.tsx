@@ -3,14 +3,16 @@
  * subgroups whose cell fits the supercell, from high to low symmetry, and the
  * selected one's detail with Activate (subgroupList.ts merges and filters the
  * rows of subgroupPicker.ts; SubgroupDetail.tsx is the detail). Simple by
- * default: the supercell, the k-point chips and the list; the cell, how a
- * subgroup is reached and the index cap sit behind "Filters".
+ * default: the supercell, a name search, the k-point chips and a short list
+ * (the top index levels, "Show more" and "show all" under it); the cell, how
+ * a subgroup is reached, the index cap and the strain-only subgroups (hidden)
+ * sit behind "Filters".
  *
  *   - The same-cell rows show at once; the larger cells are worked out in a
  *     Web Worker after the view shows (supercellListingClient.ts), streaming
  *     in under a progress line with stop, the supercell held, one run at a
  *     time, the result kept for the structure and bound. The worker also hands
- *     back the lattice as a graph (the tree, the lattice steps) and every
+ *     back the lattice as a graph (the tree) and every
  *     star's irreps, so the page's cache has them for Activate.
  *   - List | Tree: the tree expands from the parent one maximal step at a time.
  *   - On a narrow panel (a phone) a row opens its detail as a full-screen
@@ -44,8 +46,8 @@ import { DEFAULT_BOUND, SupercellBound, boundLabel, formatMatrix } from "@/app/u
 import { InfoBadge } from "@/app/ui/InfoBadge";
 import { chipName, kChips, sameCellGraph, sameCellListing, type LatticeCounts, type PickerAction, type SubgroupRow } from "@/app/ui/subgroupPicker";
 import {
-  DEFAULT_FILTERS, childrenOf, collapseTies, compactName, foldedFiltersSet, groupRows, rowPasses, setLine, shortName, starShort, tagOf, visibleGroups,
-  type GraphNode, type ListFilters, type ReachKind, type RowGroup, type ShownGroup,
+  DEFAULT_FILTERS, NO_FILTERS, childrenOf, collapseTies, compactName, foldedFiltersSet, groupRows, rowPasses, searched, setLine, shortList, shortName, starShort, tagOf, visibleGroups,
+  type GraphNode, type ListFilters, type ReachKind, type RowGroup, type ShortList, type ShownGroup,
 } from "@/app/ui/subgroupList";
 import { SubgroupDetail } from "@/app/ui/SubgroupDetail";
 import { startSupercellListing, type ListingJob } from "@/app/ui/supercellListingClient";
@@ -404,6 +406,9 @@ function Picker({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCel
   const [bound, setBound] = useState<SupercellSpec>(DEFAULT_BOUND);
   const [filters, setFilters] = useState<ListFilters>(DEFAULT_FILTERS);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  // How many index levels show, for these filters and this supercell; the default (one step) otherwise.
+  const [more, setMore] = useState<{ readonly filters: ListFilters; readonly bound: SupercellSpec; readonly levels: number | "all" } | null>(null);
   const [view, setView] = useState<"list" | "tree">("list");
   const [selected, setSelected] = useState<{ readonly group: string; readonly row: string | null } | null>(null);
   const [sheet, setSheet] = useState(false);
@@ -491,6 +496,14 @@ function Picker({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCel
   const allRows = useMemo(() => [...same.rows, ...(superRows ?? [])], [same.rows, superRows]);
   const groups = useMemo(() => groupRows(allRows), [allRows]);
   const visible = useMemo(() => visibleGroups(groups, filters), [groups, filters]);
+  const levels = more && more.filters === filters && more.bound === bound ? more.levels : null;
+  const short = useMemo(() => shortList(visible, levels), [visible, levels]);
+  // Whether the default list is cut short at all (so "show fewer" means something).
+  const cut = useMemo(() => shortList(visible, null).next !== null, [visible]);
+  const found = useMemo(() => (query.trim() === "" ? null : searched(visible, query)), [visible, query]);
+  // A search with nothing under the filters: how many it would find with every filter off.
+  const foundOutside = useMemo(() => (found !== null && found.length === 0 ? searched(visibleGroups(groups, NO_FILTERS), query).length : 0), [found, groups, query]);
+  const listed = found ?? short.rows;
   const rowByKey = useMemo(() => new Map(allRows.map((r) => [r.key, r] as const)), [allRows]);
   const groupOfRow = useMemo(() => {
     const m = new Map<string, RowGroup>();
@@ -545,10 +558,6 @@ function Picker({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCel
   const selGroup = selected ? groups.find((g) => g.key === selected.group) ?? null : null;
   const selShown = selGroup ? selGroup.variants.filter((v) => rowPasses(v, filters)) : [];
   const selRow = selGroup ? (selected?.row ? rowByKey.get(selected.row) : undefined) ?? selShown[0] ?? selGroup.variants[0]! : null;
-  const nameOf = (key: string): string => {
-    const r = rowByKey.get(key);
-    return r ? shortName(r.name) : "?";
-  };
 
   const parent = spaceGroup ?? "the parent";
   if (!ops || ops.length === 0) return <p style={line}>No space-group operations to analyse.</p>;
@@ -557,15 +566,27 @@ function Picker({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCel
   const summary = (
     <InfoBadge
       width={360}
-      label={<><b>{visible.length}</b> of {total} subgroups{superRows === null || working ? " so far" : ""} · fit {label}</>}
+      label={<><b>{view === "list" ? listed.length : visible.length}</b> of {total} subgroups{superRows === null || working ? " so far" : ""} · fit {label}</>}
       ariaLabel="About the subgroup list"
-      text={`The subgroups of ${parent} whose cell fits the ${label} supercell, from high to low symmetry (by index). One row per name, cell and domains: "×4" when several classes share them, reached by different irreps (the detail lists them, each with its own Activate). By default the list keeps the subgroups one irrep reaches, or two coupled, and the maximal ones; Filters has the rest. A k-point chip keeps the subgroups its irreps reach; two chips also allow their coupled pairs. The tag names the irreps (R·8 is R irrep 8; dashed when coupled; M·3/5 when M irrep 3 or 5 reach it alike). "strain only": no atom moves, only the cell. Tree: each subgroup under the ones it is a maximal subgroup of.`}
+      text={`The subgroups of ${parent} whose cell fits the ${label} supercell, from high to low symmetry (by index). The list opens on the top index levels: Show more adds the next ones, show all lists every one the filters keep. Find picks out a name or an ITA number (Pnma, 62) at any level. One row per name, cell and domains: "×4" when several classes share them, reached by different irreps (the detail lists them, each with its own Activate). By default the list keeps the subgroups one irrep reaches, or two coupled, and the maximal ones, and hides the strain-only ones (no atom moves, only the cell); Filters has the rest. A k-point chip keeps the subgroups its irreps reach; two chips also allow their coupled pairs. The tag names the irreps (R·8 is R irrep 8; dashed when coupled; M·3/5 when M irrep 3 or 5 reach it alike). Tree: each subgroup under the ones it is a maximal subgroup of.`}
     />
   );
   const kindLabel: Record<ReachKind, string> = { one: "one irrep", two: "up to two", all: `all ${total}` };
 
   const listBody = view === "list" ? (
-    <ListBody visible={visible} selected={selected?.group ?? null} selectedRow={selRow} activeKey={activeKey} onPick={(g) => pick(g.group, null)} />
+    <ListBody
+      visible={listed}
+      short={found === null ? short : null}
+      cut={found === null && cut}
+      searching={found !== null}
+      outside={foundOutside}
+      selected={selected?.group ?? null}
+      selectedRow={selRow}
+      activeKey={activeKey}
+      onPick={(g) => pick(g.group, null)}
+      onLevels={(n) => setMore(n === null ? null : { filters, bound, levels: n })}
+      onClearFilters={() => setFilters(NO_FILTERS)}
+    />
   ) : (
     <TreeBody
       graph={graph}
@@ -597,8 +618,6 @@ function Picker({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCel
       shown={selShown}
       row={selRow}
       ks={filters.ks}
-      graph={graph}
-      nameOf={nameOf}
       activeKey={activeKey}
       modesInForce={modes !== null}
       busy={busy}
@@ -628,6 +647,16 @@ function Picker({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCel
           </span>
         )}
         <span style={{ marginLeft: "auto", display: "inline-flex", gap: 8, alignItems: "center" }}>
+          {view === "list" ? (
+            <input
+              type="search"
+              aria-label="find a subgroup"
+              placeholder="Find: Pnma, 62"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              style={{ width: 132, fontSize: fz.micro, padding: "3px 8px", border: `1px solid ${color.control}`, borderRadius: 7, background: color.surface, color: color.ink, minWidth: 0 }}
+            />
+          ) : null}
           <button
             type="button"
             aria-expanded={filtersOpen}
@@ -653,6 +682,7 @@ function Picker({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCel
               {indices.map((i) => <option key={i} value={i}>≤ {i}</option>)}
             </select>
           </label>
+          <span style={line}>Strain only <Segments label="strain only" value={filters.strain ? "show" : "hide"} onChange={(v) => setFilters({ ...filters, strain: v === "show" })} options={[{ id: "hide", label: "hide" }, { id: "show", label: "show" }]} /></span>
           {foldedFiltersSet(filters) ? <button style={resetRangeBtn} onClick={() => setFilters({ ...DEFAULT_FILTERS, ks: filters.ks })}>reset</button> : null}
         </div>
       )}
@@ -698,8 +728,48 @@ function Picker({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCel
   );
 }
 
-function ListBody({ visible, selected, selectedRow, activeKey, onPick }: { visible: readonly ShownGroup[]; selected: string | null; selectedRow: SubgroupRow | null; activeKey: string | null; onPick: (g: ShownGroup) => void }): JSX.Element {
-  if (visible.length === 0) return <p style={{ padding: 12, margin: 0, color: color.secondary, fontSize: fz.small }}>No subgroup matches. Loosen a filter or a chip.</p>;
+const moreBtn: CSSProperties = { border: "none", background: "none", color: color.primary, fontSize: fz.micro, cursor: "pointer", padding: "2px 0", fontFamily: "inherit" };
+
+/**
+ * The list, high to low symmetry under sticky index headers; under it, one
+ * line: Show more (the next index levels) and show all, or show fewer. A
+ * search lists every match; with none, how many lie outside the filters.
+ */
+function ListBody(p: {
+  visible: readonly ShownGroup[];
+  /** The short list's state (null while searching). */
+  short: ShortList | null;
+  /** True when the default list is cut short (so "show fewer" means something). */
+  cut: boolean;
+  searching: boolean;
+  /** A search's matches outside the filters, when it has none inside. */
+  outside: number;
+  selected: string | null;
+  selectedRow: SubgroupRow | null;
+  activeKey: string | null;
+  onPick: (g: ShownGroup) => void;
+  onLevels: (levels: number | "all" | null) => void;
+  onClearFilters: () => void;
+}): JSX.Element {
+  const { visible, short, selected, selectedRow, activeKey, onPick } = p;
+  if (visible.length === 0) {
+    return (
+      <p style={{ padding: 12, margin: 0, color: color.secondary, fontSize: fz.small }}>
+        {p.searching ? (p.outside > 0 ? <>No match here; {p.outside} outside the filters. <button type="button" style={moreBtn} onClick={p.onClearFilters}>show them</button></> : "No subgroup by that name.") : "No subgroup matches. Loosen a filter or a chip."}
+      </p>
+    );
+  }
+  const next = short?.next ?? null;
+  const footer = next ? (
+    <>
+      <button type="button" style={moreBtn} onClick={() => p.onLevels(next.levels)}>
+        Show more: index {next.from === next.to ? next.from : `${next.from}–${next.to}`} (+{next.count})
+      </button>
+      <button type="button" style={{ ...moreBtn, marginLeft: "auto" }} onClick={() => p.onLevels("all")}>show all {short!.total}</button>
+    </>
+  ) : short && p.cut ? (
+    <button type="button" style={moreBtn} onClick={() => p.onLevels(null)}>show fewer</button>
+  ) : null;
   return (
     <div>
       {visible.map((g, i) => {
@@ -711,6 +781,7 @@ function ListBody({ visible, selected, selectedRow, activeKey, onPick }: { visib
           </Fragment>
         );
       })}
+      {footer ? <div data-more="" style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 10px", borderTop: `1px solid ${color.subtle2}` }}>{footer}</div> : null}
     </div>
   );
 }
