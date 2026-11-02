@@ -598,9 +598,9 @@ export function stepView(s: StepState, at: StepInputs, slots: StepSlots): StepVi
     const idx = member ? reps.findIndex((r) => r.classId === member.classId) : -1;
     return idx >= 0 ? idx : null;
   });
-  // The group the step models: the class's listed group, so both frameworks fit one group the same way. A conjugate is
-  // the same order in another domain, but the powder calculation reads each family's |F_M|² at one member
-  // (docs/LIMITATIONS.md), so two domains need not fit alike.
+  // The group the step models: the class's listed group, so both frameworks name and seed one group the same way. A
+  // conjugate is the same order in another domain; since each powder line sums |F_M⊥|² over its family (THY-58) the two
+  // fit alike, and the list's is the one the page shows.
   const combo = memo("comboModel", [isotropy, comboRepIdx, reps], () => {
     if (!isotropy || "failure" in isotropy || comboRepIdx === null) return isotropy;
     const rep = reps[comboRepIdx]!;

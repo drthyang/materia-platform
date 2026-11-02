@@ -4,8 +4,9 @@ import { loadedSession } from "@/app/powderSession";
 import { powderMomentFit, powderPageCurves, refinedPhasesOf, residualPeaksOf, weightedR } from "@/app/powderPage";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { momentFit as singleCrystalMomentFit, singleCrystalPage, type SingleCrystalCompute } from "@/app/singleCrystalPage";
-import { MagneticStep, bestRanked, candidatesOf, firstOpen, momentParameters, buildFor, rankCandidates, rankWithinNoise, stepView, type MagneticFit, type RankEntry, type StepInputs } from "@/app/magneticStep";
-import type { LatticeCandidate } from "@/core/magnetic/subgroupLattice";
+import { MagneticStep, bestRanked, candidatesOf, firstOpen, fitMoments, momentParameters, buildFor, rankCandidates, rankWithinNoise, stepView, type MagneticFit, type RankEntry, type StepInputs } from "@/app/magneticStep";
+import { latticeRepresentatives, magneticSubgroupLattice, type LatticeCandidate } from "@/core/magnetic/subgroupLattice";
+import { magneticComponentCurve } from "@/core/workflow/magneticPowder";
 import { sessionPort } from "@/testSupport/agentHeadless";
 import { corundumPage } from "@/testSupport/scPages";
 import { MAGNETIC_TRUTH, mn3gaMagneticSession } from "@/agent/evals/pages";
@@ -351,6 +352,35 @@ describe("the step's state, as the panel keeps it", () => {
     const viaList = await step.refineMoments();
     expect(viaIrrep).not.toBeNull();
     expect(viaIrrep!).toBeCloseTo(viaList!, 6);
+  }, 60000);
+
+  it("fits both domains of the truth's group alike: the powder line sums every member of its family (THY-58)", async () => {
+    // The two P_c-3m1 domains fitted this page to wR 0.31 % and 29.6 % while each line was read at one member.
+    const s = mn3gaMagneticSession();
+    const structure = refinedPhasesOf(s)[0]!;
+    const k: Vec3 = [...MAGNETIC_TRUTH.k];
+    const lattice = magneticSubgroupLattice(structure.spaceGroup.operations, k);
+    const truth = latticeRepresentatives(lattice)[Number(MAGNETIC_TRUTH.id.slice(1)) - 1]!;
+    const domains = lattice.filter((m) => m.classId === truth.classId);
+    expect(domains).toHaveLength(2);
+    const options = { sameSite: true, magnitudes: false as const, flippedUnits: [] };
+    const fit = powderMomentFit(null, s, null);
+    const fits: Awaited<ReturnType<typeof fitMoments>>[] = [];
+    const curves: number[][] = [];
+    for (const d of domains) {
+      const build = buildFor(structure, k, ["Mn1"], d.candidate.operations, options);
+      fits.push(await fitMoments(fit, build));
+      // The magnetic curve at the truth's moment, on the page's own profile.
+      const model = applyMagneticMoments(build.magnetic, build.bindings, Object.fromEntries(build.params.map((p) => [p.id, MAGNETIC_TRUTH.moment])));
+      curves.push(magneticComponentCurve(structure, model, s.pattern, s.powderParams, s.powderBindings, s.powderProfile));
+    }
+    const top = Math.max(...curves[0]!);
+    expect(top).toBeGreaterThan(0);
+    expect(Math.max(...curves[0]!.map((y, i) => Math.abs(y - curves[1]![i]!)))).toBeLessThan(1e-9 * top);
+    expect(Math.abs(fits[0]!.agreement! - fits[1]!.agreement!)).toBeLessThan(1e-9 * fits[0]!.agreement!);
+    // At the noise of the data, at the truth's moment.
+    expect(fits[0]!.agreement!).toBeLessThan(0.005);
+    for (const f of fits) expect(Math.abs(Object.values(f.values)[0]!)).toBeCloseTo(MAGNETIC_TRUTH.moment, 2);
   }, 60000);
 
   it("keeps each step's derived values while another step on another structure renders (the hidden powder page beside the PDF page)", () => {

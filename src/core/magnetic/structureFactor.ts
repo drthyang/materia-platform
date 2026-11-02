@@ -21,7 +21,7 @@ import { dSpacing } from "@/core/crystal/unitCell";
 import { applyOperation, centringOffsets, centringTranslations, isReciprocalLatticeVector } from "@/core/crystal/symmetry";
 import { momentAnchorPosition } from "@/core/crystal/cellExpansion";
 import { magneticTable } from "@/core/scattering/magnetic";
-import { crystalComponentsToCartesian, perpendicularMoment, qCartesian } from "@/core/magnetic/moment";
+import { crystalComponentsToCartesian, perpendicularMoment, qCartesianFor } from "@/core/magnetic/moment";
 import { determinant } from "@/core/math/mat3";
 import { anisotropicDebyeWaller, debyeWaller } from "@/core/diffraction/structureFactor";
 import { rotateUAniso } from "@/core/crystal/adp";
@@ -217,26 +217,48 @@ export function expandMagneticAtoms(structure: StructureModel, magnetic: Magneti
   return out;
 }
 
+/** One orbit image of a moment entry, with its reflection-independent parts. */
+interface PreparedImage {
+  /** Unwrapped image position (it carries the lattice phase e^{2πi k·n_g}). */
+  readonly p: Vec3;
+  /** The op-rotated, axial-signed cosine amplitude, Cartesian (μ_B). */
+  readonly mCart: Vec3;
+  /** The op-rotated, axial-signed sine amplitude, Cartesian (μ_B), when observable. */
+  readonly sCart: Vec3 | null;
+  /** k·c for the operation's centring part c. */
+  readonly kc: number;
+  /** The image's anisotropic tensor R·U₀·Rᵀ, or null for an isotropic site. */
+  readonly uAniso: readonly [number, number, number, number, number, number] | null;
+}
+
+/** One moment entry, expanded over its distinct orbit. */
+interface PreparedMoment {
+  readonly occupancy: number;
+  readonly ffId: string;
+  readonly hasFormFactor: boolean;
+  /** B_iso of an isotropic site, else null. */
+  readonly bIso: number | null;
+  readonly images: readonly PreparedImage[];
+}
+
 /**
- * Magnetic structure factor for one reflection. Expands each moment site over
- * the space-group operations (rotating the moment by the operation's rotation
- * part). Returns both the complex vector and |F_M|².
+ * The magnetic structure factor of one model as a function of the reflection:
+ * the moment expansion over the operations (orbit images, their rotated
+ * moments, centring phases and rotated tensors) is done once, and each call
+ * applies only the reflection's own parts — the q̂ projection, the phase, the
+ * form factor and the Debye–Waller factor. A powder line sums |F_M⊥|² over
+ * every member of its family (core/magnetic/powderAverage.ts), so one
+ * expansion serves every member. The arithmetic per reflection is the same,
+ * operation for operation, as it was when the expansion was redone per call,
+ * so the result is bit-identical.
  */
-export function magneticStructureFactor(
+export function magneticStructureFactorEvaluator(
   structure: StructureModel,
   magnetic: MagneticModel,
-  h: number,
-  k: number,
-  l: number,
   table: MagneticFormFactorTable = magneticTable,
-): MagneticStructureFactor {
-  const d = dSpacing(structure.cell, h, k, l);
-  const s = d === Infinity ? 0 : 1 / (2 * d);
-  const q = qCartesian(structure.cell, h, k, l);
-
-  let fx = ZERO;
-  let fy = ZERO;
-  let fz = ZERO;
+): (h: number, k: number, l: number) => MagneticStructureFactor {
+  const cell = structure.cell;
+  const qFor = qCartesianFor(cell);
 
   // Expand each moment over the *magnetic* subgroup operations (θ-signed) when
   // the model carries them, deduplicating the crystallographic orbit; otherwise
@@ -258,35 +280,14 @@ export function magneticStructureFactor(
   const centrings = centringTranslations(structure.spaceGroup.operations);
   const offsets = centringOffsets(ops);
   const arm = fourierArmFactor(kVec, centrings);
-  // Which arm is this index? The −k satellite (H − k) scatters with the
-  // CONJUGATE coefficient S* = ½(M^cos − i·M^sin): the lattice phases of the
-  // orbit images conjugate on their own through the index (e^{2πi(H−k)·n_g}),
-  // but the representative's own sine part must be negated explicitly. An
-  // index that is neither H + k nor H − k (a nuclear node of a k ≠ 0 model, a
-  // higher harmonic) carries NO magnetic intensity from a single-k modulation:
-  // the formula would return a meaningless partial sum there, which is exactly
-  // what used to leak magnetic intensity onto the nuclear rows of a mixed
-  // single-crystal dataset. The index tolerance is loose (1e-3) because
-  // satellite indices in reflection files are written with few decimals.
   const isK0 = kVec[0] === 0 && kVec[1] === 0 && kVec[2] === 0;
-  const armSign = isK0 ? 1 : satelliteArm(h, k, l, kVec, 1e-3, centrings);
-  if (armSign === 0) return { vector: [ZERO, ZERO, ZERO], squared: 0 };
-  const conjugate = arm === 0.5 && armSign === -1;
 
+  const prepared: PreparedMoment[] = [];
   for (const moment of magnetic.moments) {
     const site = structure.sites.find((st) => st.label === moment.siteLabel);
     if (!site) continue;
     const ffId = formFactorId(structure, moment.siteLabel, moment.formFactorId);
-    const fMag = table.has(ffId) ? table.j0(ffId, s) : 1;
     const sinRaw = observableSin(moment, arm);
-    const sinComps: Vec3 | null = sinRaw && conjugate ? [-sinRaw[0], -sinRaw[1], -sinRaw[2]] : sinRaw;
-    // Thermal damping: the same Debye-Waller factor as the nuclear structure
-    // factor — the magnetic scatterer is the same vibrating atom (GSAS-II and
-    // FullProf damp |F_M| identically). Omitting it inflates the calculated
-    // magnetic intensity at low d, biasing refined moments low.
-    // Isotropic Debye–Waller is rotation-invariant; an anisotropic tensor is
-    // rotated per orbit image (U′ = R·U·Rᵀ) inside the operation loop below.
-    const isoDw = site.adp.kind === "isotropic" ? debyeWaller(site.adp.bIso, s) : null;
     const seen: Vec3[] | null = dedup ? [] : null;
     // A split-orbit moment (magnetic subgroup ⊂ nuclear group) expands from its
     // own orbit-representative position, not the site's asymmetric-unit one —
@@ -301,6 +302,7 @@ export function magneticStructureFactor(
       ? rotateUAniso(site.adp.uAniso, opToPosition(structure, site.position, basePos).rotation)
       : null;
 
+    const images: PreparedImage[] = [];
     for (let gi = 0; gi < ops.length; gi++) {
       const op = ops[gi]!;
       const p = applyOperation(op, basePos);
@@ -324,17 +326,24 @@ export function magneticStructureFactor(
       }
       // Transform the moment as an axial vector in the crystal-axis frame:
       // m' = θ · det(R) · R · m (θ = time-reversal flag ±1), then convert to
-      // Cartesian and project perpendicular to Q. Rotate-then-project matters:
-      // the two operations do not commute for a general Q.
+      // Cartesian; each reflection projects it perpendicular to its own Q.
+      // Rotate-then-project matters: the two operations do not commute for a
+      // general Q.
       const r = op.rotation;
       const axial = determinant(r) * (op.timeReversal ?? 1);
       const rotatedComps = rotateAxial(r, axial, moment.components);
       const mCart =
         moment.frame === "cartesian"
           ? rotatedComps
-          : crystalComponentsToCartesian(structure.cell, rotatedComps);
-      const mPerp = perpendicularMoment(mCart, q);
-
+          : crystalComponentsToCartesian(cell, rotatedComps);
+      let sCart: Vec3 | null = null;
+      if (sinRaw) {
+        // The sine part rotated by the same axial transform; a −k satellite
+        // negates it (the conjugate coefficient), which is exact in floating
+        // point, so the sign is applied per reflection.
+        const rotatedSin = rotateAxial(r, axial, sinRaw);
+        sCart = moment.frame === "cartesian" ? rotatedSin : crystalComponentsToCartesian(cell, rotatedSin);
+      }
       // The operation's centring part c is a lattice translation of the
       // parent: the image's coefficient carries e^{−2πi k_arm·c} (k_arm = ±k
       // for the ±k satellite), so the centring copies of an F/I/C/R cell add
@@ -342,40 +351,103 @@ export function magneticStructureFactor(
       // H + k needs H in the centred cell's reciprocal lattice — (½,½,½) but
       // not (³⁄₂,½,½) for MnO. Zero for a primitive parent.
       const c = offsets[gi]!;
-      const phase = TWO_PI * (h * p[0] + k * p[1] + l * p[2] - armSign * (kVec[0]! * c[0]! + kVec[1]! * c[1]! + kVec[2]! * c[2]!));
-      const ph = expι(phase);
-      const dw = isoDw ?? anisotropicDebyeWaller(structure.cell, rotateUAniso(anisoU!, r), h, k, l);
-      const w = MAGNETIC_PREFACTOR * site.occupancy * fMag * dw * arm;
-      if (!sinComps) {
-        // Real coefficient (k = 0, self-conjugate k, or no quadrature part):
-        // the historical path, kept operation-for-operation so every k = 0
-        // golden stays bit-identical.
-        fx = add(fx, cscale(ph, w * mPerp[0]));
-        fy = add(fy, cscale(ph, w * mPerp[1]));
-        fz = add(fz, cscale(ph, w * mPerp[2]));
-        continue;
-      }
-      // Complex coefficient: (M⊥^cos + i·M⊥^sin)·e^{iφ}, the sine part rotated
-      // by the same axial transform and projected by the same q̂ (both linear).
-      const rotatedSin = rotateAxial(r, axial, sinComps);
-      const sCart = moment.frame === "cartesian" ? rotatedSin : crystalComponentsToCartesian(structure.cell, rotatedSin);
-      const sPerp = perpendicularMoment(sCart, q);
-      const acc = [fx, fy, fz];
-      for (let a = 0; a < 3; a++) {
-        const c = w * mPerp[a]!;
-        const sv = w * sPerp[a]!;
-        acc[a] = add(acc[a]!, { re: c * ph.re - sv * ph.im, im: c * ph.im + sv * ph.re });
-      }
-      fx = acc[0]!;
-      fy = acc[1]!;
-      fz = acc[2]!;
+      const kc = kVec[0]! * c[0]! + kVec[1]! * c[1]! + kVec[2]! * c[2]!;
+      images.push({ p, mCart, sCart, kc, uAniso: anisoU ? rotateUAniso(anisoU, r) : null });
     }
+    // Thermal damping: the same Debye-Waller factor as the nuclear structure
+    // factor — the magnetic scatterer is the same vibrating atom (GSAS-II and
+    // FullProf damp |F_M| identically). Omitting it inflates the calculated
+    // magnetic intensity at low d, biasing refined moments low. Isotropic
+    // Debye–Waller is rotation-invariant; an anisotropic tensor is rotated per
+    // orbit image (U′ = R·U·Rᵀ) above.
+    prepared.push({
+      occupancy: site.occupancy,
+      ffId,
+      hasFormFactor: table.has(ffId),
+      bIso: site.adp.kind === "isotropic" ? site.adp.bIso : null,
+      images,
+    });
   }
 
-  const squared =
-    fx.re * fx.re + fx.im * fx.im +
-    fy.re * fy.re + fy.im * fy.im +
-    fz.re * fz.re + fz.im * fz.im;
+  return (h, k, l) => {
+    const d = dSpacing(cell, h, k, l);
+    const s = d === Infinity ? 0 : 1 / (2 * d);
+    const q = qFor(h, k, l);
 
-  return { vector: [fx, fy, fz], squared };
+    // Which arm is this index? The −k satellite (H − k) scatters with the
+    // CONJUGATE coefficient S* = ½(M^cos − i·M^sin): the lattice phases of the
+    // orbit images conjugate on their own through the index (e^{2πi(H−k)·n_g}),
+    // but the representative's own sine part must be negated explicitly. An
+    // index that is neither H + k nor H − k (a nuclear node of a k ≠ 0 model, a
+    // higher harmonic) carries NO magnetic intensity from a single-k modulation:
+    // the formula would return a meaningless partial sum there, which is exactly
+    // what used to leak magnetic intensity onto the nuclear rows of a mixed
+    // single-crystal dataset. The index tolerance is loose (1e-3) because
+    // satellite indices in reflection files are written with few decimals.
+    const armSign = isK0 ? 1 : satelliteArm(h, k, l, kVec, 1e-3, centrings);
+    if (armSign === 0) return { vector: [ZERO, ZERO, ZERO], squared: 0 };
+    const conjugate = arm === 0.5 && armSign === -1;
+
+    let fx = ZERO;
+    let fy = ZERO;
+    let fz = ZERO;
+    for (const pm of prepared) {
+      const fMag = pm.hasFormFactor ? table.j0(pm.ffId, s) : 1;
+      const isoDw = pm.bIso !== null ? debyeWaller(pm.bIso, s) : null;
+      for (const im of pm.images) {
+        const p = im.p;
+        const mPerp = perpendicularMoment(im.mCart, q);
+        const phase = TWO_PI * (h * p[0] + k * p[1] + l * p[2] - armSign * im.kc);
+        const ph = expι(phase);
+        const dw = isoDw ?? anisotropicDebyeWaller(cell, im.uAniso!, h, k, l);
+        const w = MAGNETIC_PREFACTOR * pm.occupancy * fMag * dw * arm;
+        if (!im.sCart) {
+          // Real coefficient (k = 0, self-conjugate k, or no quadrature part):
+          // the historical path, kept operation-for-operation so every k = 0
+          // golden stays bit-identical.
+          fx = add(fx, cscale(ph, w * mPerp[0]));
+          fy = add(fy, cscale(ph, w * mPerp[1]));
+          fz = add(fz, cscale(ph, w * mPerp[2]));
+          continue;
+        }
+        // Complex coefficient: (M⊥^cos + i·M⊥^sin)·e^{iφ}, the sine part
+        // projected by the same q̂ (both linear).
+        const sc = im.sCart;
+        const sPerp = perpendicularMoment(conjugate ? [-sc[0], -sc[1], -sc[2]] : sc, q);
+        const acc = [fx, fy, fz];
+        for (let a = 0; a < 3; a++) {
+          const cv = w * mPerp[a]!;
+          const sv = w * sPerp[a]!;
+          acc[a] = add(acc[a]!, { re: cv * ph.re - sv * ph.im, im: cv * ph.im + sv * ph.re });
+        }
+        fx = acc[0]!;
+        fy = acc[1]!;
+        fz = acc[2]!;
+      }
+    }
+
+    const squared =
+      fx.re * fx.re + fx.im * fx.im +
+      fy.re * fy.re + fy.im * fy.im +
+      fz.re * fz.re + fz.im * fz.im;
+
+    return { vector: [fx, fy, fz], squared };
+  };
+}
+
+/**
+ * Magnetic structure factor for one reflection. Expands each moment site over
+ * the space-group operations (rotating the moment by the operation's rotation
+ * part). Returns both the complex vector and |F_M|². For many reflections of
+ * one model, {@link magneticStructureFactorEvaluator} expands once.
+ */
+export function magneticStructureFactor(
+  structure: StructureModel,
+  magnetic: MagneticModel,
+  h: number,
+  k: number,
+  l: number,
+  table: MagneticFormFactorTable = magneticTable,
+): MagneticStructureFactor {
+  return magneticStructureFactorEvaluator(structure, magnetic, table)(h, k, l);
 }

@@ -7,10 +7,10 @@
  * `buildPeaks`/`placePeaks`) and one shared (GSAS-II) scale. Magnetic peaks are
  * satellites at G±k for a single commensurate k.
  *
- * Documented approximations: the magnetic intensity uses the perpendicular
- * projection for the representative reflection of each family (no full cone
- * average over symmetry-equivalent Q directions), and satellite multiplicity is
- * approximated by the parent nuclear multiplicity.
+ * The magnetic intensity of a line is the powder average: |F_M⊥|² summed over
+ * every member of its family, each with its own q̂ (core/magnetic/
+ * powderAverage.ts), so every domain of a magnetic group gives the same
+ * pattern (THY-58).
  */
 
 import type { StructureModel } from "@/core/crystal/types";
@@ -25,9 +25,8 @@ import { applyParameters } from "@/core/workflow/apply";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { phaseBindingsFor, type PowderPhase } from "@/core/workflow/multiPhase";
 import { buildPeaks, createPeakBuilder, placePeaks, powderPointWeights, reflectionDRange } from "@/core/workflow/powder";
-import { magneticSatellites } from "@/core/magnetic/satellites";
+import { satelliteIntensities } from "@/core/magnetic/powderAverage";
 import { lorentzPolarization } from "@/core/diffraction/intensity";
-import { magneticStructureFactor } from "@/core/magnetic/structureFactor";
 import { synthesizePattern } from "@/core/diffraction/profile";
 
 export interface MagneticPowderComponents {
@@ -149,27 +148,21 @@ function createCombinedPeakBuilder(
 }
 
 /**
- * Unit-scale magnetic satellite intensities at G ± k (single commensurate k),
- * including the pure (000)±k satellite and nuclear-extinct parents — see the
- * shared enumerator (core/magnetic/satellites) for the physics. |F_M|²
- * evaluated at the non-integer satellite indices carries the k-phase
- * automatically; parent nuclear multiplicity approximates the exact star-of-k
- * satellite multiplicity, and |F_M|² itself decides what is absent.
+ * Unit-scale magnetic satellite intensities at G ± k (single k), including the
+ * pure (000)±k satellite and nuclear-extinct parents — see the shared
+ * enumerator (core/magnetic/satellites) for the positions. Each line's
+ * intensity is |F_M⊥|² summed over its family's members (the powder average,
+ * core/magnetic/powderAverage.ts); |F_M|² evaluated at the non-integer
+ * satellite indices carries the k-phase, and decides what is absent.
  */
 function unitMagneticIntensities(
   applied: ReturnType<typeof applyParameters>,
   appliedMag: MagneticModel,
   pattern: PowderPattern,
 ): { d: number; intensity: number }[] {
-  const kVec = appliedMag.propagation[0] ?? [0, 0, 0];
   const { dMin, dMax } = reflectionDRange(pattern, applied);
-  const out: { d: number; intensity: number }[] = [];
-  for (const s of magneticSatellites(applied.model.cell, applied.model.spaceGroup, kVec, dMin, dMax)) {
-    const fm2 = magneticStructureFactor(applied.model, appliedMag, s.h, s.k, s.l).squared;
-    const lp = lorentzPolarization(pattern.radiation, s.d);
-    out.push({ d: s.d, intensity: s.multiplicity * lp * fm2 });
-  }
-  return out;
+  return satelliteIntensities(applied.model, appliedMag, dMin, dMax)
+    .map((s) => ({ d: s.d, intensity: lorentzPolarization(pattern.radiation, s.d) * s.squared }));
 }
 
 /**
