@@ -367,7 +367,7 @@ function RowLine({ g, ks, selected, active, onPick, lead, trail, dim }: { g: Sho
         }
       }}
       style={{
-        display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", cursor: "pointer", minWidth: 0,
+        display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", cursor: "pointer", minWidth: 0, overflow: "hidden",
         background: selected ? color.primaryTintBg : "transparent", borderLeft: `3px solid ${selected ? color.primary : "transparent"}`,
         borderTop: `1px solid ${color.subtle2}`, opacity: dim ? 0.45 : 1,
       }}
@@ -378,7 +378,7 @@ function RowLine({ g, ks, selected, active, onPick, lead, trail, dim }: { g: Sho
       <span style={factStyle}>· {g.group.domains} dom</span>
       {active ? <span style={{ ...factStyle, color: color.primary }}>· active</span> : null}
       {trail}
-      <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0, flex: "0 1 auto" }}>
+      <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6, flex: "0 0 auto" }}>
         {first.modes === 0 ? <span style={{ ...factStyle, color: color.faint }}>strain only</span> : null}
         {tied ? (
           <span
@@ -667,7 +667,7 @@ function Picker({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCel
         ))}
       </div>
       {wide ? (
-        <div style={{ flex: "1 1 auto", minHeight: 0, display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1.05fr)", gap: 12 }}>
+        <div style={{ flex: "1 1 auto", minHeight: 0, display: "grid", gridTemplateColumns: view === "tree" ? "minmax(0, 1.4fr) minmax(0, 1fr)" : "minmax(0, 1fr) minmax(0, 1.05fr)", gap: 12 }}>
           <div className="wb-grow-box" style={{ ...cardBox, overflowY: "auto", minHeight: 160 }}>{listBody}</div>
           <div ref={detailBox} className="wb-grow-box" style={{ ...cardBox, overflowY: "auto", padding: "12px 16px 0", minHeight: 160 }}>
             {detail ?? <p style={{ margin: 0, color: color.secondary, fontSize: fz.small }}>Pick a subgroup: its cell, how you get there, then Activate.</p>}
@@ -765,11 +765,11 @@ function TreeBody(p: {
       const group = row ? p.groupOfRow.get(row.key) : undefined;
       const others = (parents.get(key) ?? []).filter((x) => x !== from);
       const also = others.length > 0 ? (
-        <span style={{ ...factStyle, color: color.faint, fontSize: 11, overflow: "hidden", textOverflow: "ellipsis" }} title={`also under ${others.map((x) => (x === "p" ? compactName(p.parent) : compactName(p.rowByKey.get(x)?.name ?? "?"))).join(", ")}`}>
+        <span style={{ ...factStyle, color: color.faint, fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", flex: "0 1 auto", minWidth: 0 }} title={`also under ${others.map((x) => (x === "p" ? compactName(p.parent) : compactName(p.rowByKey.get(x)?.name ?? "?"))).join(", ")}`}>
           · also under {others[0] === "p" ? shortName(p.parent) : shortName(p.rowByKey.get(others[0]!)?.name ?? "?")}{others.length > 1 ? ` +${others.length - 1}` : ""}
         </span>
       ) : null;
-      const count = below.length && !open ? <span style={{ ...factStyle, color: color.faint, fontSize: 11 }}>· {below.length} below</span> : null;
+      const count = below.length && !open ? <span style={{ ...factStyle, color: color.faint, fontSize: 11, flex: "0 0 auto" }}>· {below.length} below</span> : null;
       if (row && group) {
         out.push(
           <div key={path} data-tree={key}>
@@ -780,7 +780,7 @@ function TreeBody(p: {
               active={p.activeKey === row.key}
               onPick={() => p.onPick(row)}
               lead={caret}
-              trail={<>{also}{count}</>}
+              trail={also || count ? <span style={{ display: "inline-flex", gap: 4, flex: "1 1 0", minWidth: 0, overflow: "hidden" }}>{also ?? count}</span> : null}
               dim={!rowPasses(row, p.filters)}
             />
           </div>,
