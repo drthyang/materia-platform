@@ -8,7 +8,7 @@
  * arrive while isotropy subgroups are still being worked out); the client
  * runs them in a Worker, streams, ends, stops by terminating it, and refuses
  * a worker whose factor group is not the page's. The worker also hands back
- * the lattice as a graph (the tree and the lattice steps) and every star's
+ * the lattice as a graph (the tree) and every star's
  * irreps, which go into the page's own cache so Activate does not work them
  * out again.
  */

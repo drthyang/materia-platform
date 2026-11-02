@@ -54,6 +54,28 @@ release fixes bugs.
 
 ### Changed
 
+- **The Subgroups list opens short.** It shows the top index levels only:
+  SrTiO₃ in 2×2×2 opens on 26 rows (index 2 to 8) instead of 444, GaTa₄Se₈
+  in 1×1×2 on 26 (index 2 to 12) instead of 80.
+  - **Show more** under the list adds the next levels ("Show more: index 12
+    (+78)"), **show all N** the rest the filters keep, **show fewer** goes
+    back. The list takes whole index levels from the top until at least 20
+    rows show, and adds no level that would take it past 40 (a first level
+    is taken whole).
+  - **Strain-only rows are hidden by default** (no atom moves; nothing to
+    Activate): 26 merged rows of SrTiO₃'s 444. **Filters › Strain only ›
+    show** brings them back. A merged row also drops a strain-only variant
+    from its count: R-3c reads R·8, not ×2 (its R irrep 9 class moves no
+    atom); the detail still lists every variant.
+  - **Find** (beside Filters) picks out a name or an ITA number at any level:
+    "Pnma" or "62" gives SrTiO₃'s two Pnma rows; "113" or "P-42_1m" gives
+    GaTa₄Se₈'s X and 1×1×2 P-42₁m. A name found only outside the filters
+    says so, with **show them**.
+  - The detail's **every lattice step** is gone: the Tree holds the same
+    covering steps, and the ways (one irrep per step) say how Activate gets
+    there.
+  - With every filter off and show all, every class is still listed (559
+    rows, 1426 classes for SrTiO₃). Activate is unchanged.
 - **The PDF page's Subgroups view is one list, with the picked subgroup's
   detail beside it ("Lower the symmetry").** By subgroup and By irrep are
   gone; the group theory is unchanged.
@@ -66,10 +88,9 @@ release fixes bugs.
     detail lists each class as a variant with its own Activate. SrTiO₃ in
     2×2×2: 1426 classes in 559 rows.
   - By default the list keeps the subgroups one irrep reaches, or two
-    coupled, and the maximal ones (SrTiO₃ 2×2×2: 444 of 559; GaTa₄Se₈ 1×1×2:
-    80 of 81). **Filters** (folded) sets how a subgroup is reached (one
-    irrep · up to two · all), its cell (same cell · supercell) and the
-    highest index.
+    coupled, and the maximal ones. **Filters** (folded) sets how a subgroup
+    is reached (one irrep · up to two · all), its cell (same cell ·
+    supercell) and the highest index.
   - A k-point chip keeps the subgroups its irreps reach; picking two also
     keeps their coupled pairs (R and M: Pnma).
   - Sets that the group-theoretic counts cannot tell apart are written on one
@@ -78,8 +99,7 @@ release fixes bugs.
     together: …", details behind **?**); the parent's cell and the child's
     sketched; the domains and index; **How you get here**, one irrep
     switched on per step ("Pm-3m → Imma (R irrep 8) → Pnma (+ M irrep 3 or
-    5)"), three shown, then "N more ways", the literal lattice steps behind
-    **every lattice step (N)**; the irreps with their directions, the other
+    5)"), three shown, then "N more ways"; the irreps with their directions, the other
     sets and the secondary irreps folded; the mode count Activate loads; one
     large **Activate**.
   - **List | Tree**: the tree opens from the parent one maximal step at a

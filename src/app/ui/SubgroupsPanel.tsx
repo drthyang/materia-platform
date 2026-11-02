@@ -12,7 +12,7 @@
  *     Web Worker after the view shows (supercellListingClient.ts), streaming
  *     in under a progress line with stop, the supercell held, one run at a
  *     time, the result kept for the structure and bound. The worker also hands
- *     back the lattice as a graph (the tree, the lattice steps) and every
+ *     back the lattice as a graph (the tree) and every
  *     star's irreps, so the page's cache has them for Activate.
  *   - List | Tree: the tree expands from the parent one maximal step at a time.
  *   - On a narrow panel (a phone) a row opens its detail as a full-screen
