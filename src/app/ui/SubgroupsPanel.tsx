@@ -654,7 +654,7 @@ function Picker({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCel
               placeholder="Find: Pnma, 62"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              style={{ width: 118, fontSize: fz.micro, fontFamily: mono, padding: "3px 8px", border: `1px solid ${color.control}`, borderRadius: 7, background: color.surface, color: color.ink, minWidth: 0 }}
+              style={{ width: 132, fontSize: fz.micro, padding: "3px 8px", border: `1px solid ${color.control}`, borderRadius: 7, background: color.surface, color: color.ink, minWidth: 0 }}
             />
           ) : null}
           <button
