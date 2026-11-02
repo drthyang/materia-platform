@@ -340,8 +340,18 @@ approximate, however plausible its output looks.
   normalized crystal axes. The older magCIF spellings Jana2006 writes
   (`_space_group_symop.magn_operation_xyz`, `_atom_site_moment_label`) read
   like the DDLm ones.
+- The powder intensity of a magnetic line is the powder average: |F_M⊥|²
+  summed over every member of its family (both ±k satellites and every
+  equivalent reflection, each projected perpendicular to its own Q). The
+  members are the family's satellites of the model's arm in the parent's
+  reciprocal lattice; the other members belong to other arms of the star of k,
+  and the sum is the same for any population of the domains. Every
+  orientation domain of a magnetic group gives one pattern (THY-58).
 - Checks: the cosine/sine formalism reproduces a brute-force sum over the
-  magnetic supercell, for primitive and for C-, I- and F-centred parents; a
+  magnetic supercell, for primitive and for C-, I- and F-centred parents; the
+  powder lines match a brute-force sum over every Q of the explicit magnetic
+  supercell to 10⁻¹³, at k = 0, at MnO's L point and at a two-arm k, and every
+  domain gives the same lines; a
   simple antiferromagnet at k = (0, 0, ½) is recovered end to end; MnO
   (Fm-3m, k = ½½½) gives the -3m little group, m(r) = m₀·(−1)^{x+y+z} and
   F-centred satellites; at k = 0 the moment sizes match GSAS-II; and |F_M|²
@@ -370,16 +380,15 @@ approximate, however plausible its output looks.
 - The magnetic form factor is spin-only ⟨j0⟩ everywhere: structure factors,
   the GPU kernel and magnetic PDF. The dipole correction with ⟨j2⟩, needed when
   the orbital moment matters (g ≠ 2), is not applied yet.
-- Satellite multiplicities count the members of a Laue family that are ±k
-  satellites in the parent's reciprocal lattice. Summed over the family, the
-  single-arm |F_M|² is the powder intensity for any population of the domains
-  of the star of k; the other members belong to other arms and are listed with
-  no weight. Each family's |F_M|² is evaluated at one of its arm members, not
-  averaged over the family. Two domains of one magnetic group (conjugate
-  groups, the same order in another orientation) can therefore give different
-  powder patterns: on the synthetic Mn₃Ga page (P6₃/mmc, k = (0, 0, ½)) the two
-  domains of P_c-3m1 fit its data to wR 0.3 % and 29.6 %. The magnetic page
-  models the domain its group list shows, in both frameworks.
+- A powder cannot tell apart two models that give one pattern, and some
+  magnetic groups of one k do. On the synthetic Mn₃Ga page (P6₃/mmc,
+  k = (0, 0, ½)) the truth, P_c-3m1 with 2.5 µB on every Mn, and P_c-6m2 with
+  3.54 µB (√2 × 2.5) on half of them and none on the others, give the same
+  pattern to 10⁻¹³. Both are maximal with one moment parameter, so the
+  ranking ties them, and its ★ falls on the one whose wR is lower in the last
+  digits. The ranking says that both fit within the noise; choosing between
+  them needs more than the powder (equal moments on ions the parent makes
+  equivalent, or single-crystal data).
 - The k-search ranks candidates by peak positions, not intensities, and it
   proposes commensurate k only (denominators 2, 3, 4 and 6; in a cell with an
   angle off 90° the mixed-sign ones too, such as (¼ 0 −¼)). Type an

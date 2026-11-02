@@ -54,7 +54,8 @@ expanded to its full Laue star, both arms formed, nodes deduplicated globally, e
 emitted once with weight 1 and |F_M|² evaluated per node. This also *removes* the
 representative-only (no cone average) approximation for self-conjugate k — each node carries its
 own perpendicular projection. Two-arm (generic and incommensurate) k keeps the representative ×
-parent-multiplicity convention, where it was measured exact per-d in orthogonal cells.
+parent-multiplicity convention, where it was measured exact per-d in orthogonal cells. (Superseded
+by THY-58: every k now sums |F_M⊥|² over every member of each Laue family.)
 
 **Validation.** `satellites.test.ts` gains a brute-force reference that enumerates every distinct
 node G ± k over a full hkl sphere and requires the emitted weight per d-group to match the
@@ -395,13 +396,12 @@ this unusable in practice):
 - Unpolarized powder cannot determine **vector chirality**; the model can carry it, the data
   cannot refine it.
 - Powder cannot separate **coherent multi-k from a k-domain average** (§2.2).
-- For **two-arm** k the magnetic intensity uses the perpendicular projection of the
-  **representative** reflection of each family with no cone average over symmetry-equivalent Q
-  (`magneticPowder.ts:10-13`) — far more damaging for a helix/cycloid than for a collinear
-  structure, since the equivalents H_i+k have genuinely different M_⊥ orientations. Either
-  implement the Laue-equivalent average or name it here; the self-consistency gates cannot detect
-  it. (**Self-conjugate k is now exempt**: §0's exact node enumeration evaluates every node
-  individually, so no representative approximation remains there.)
+- ~~For **two-arm** k the magnetic intensity uses the perpendicular projection of the
+  **representative** reflection of each family with no cone average over symmetry-equivalent Q.~~
+  **Done (THY-58, 2026-11-02):** every line sums |F_M⊥|² over every member of its family, each
+  with its own projection, for every k (k = 0, self-conjugate and two-arm alike;
+  `core/magnetic/powderAverage.ts`), checked against a brute-force sum over every Q of the
+  explicit supercell.
 - For two-arm k, satellite multiplicity is the parent-Laue **star-of-k approximation** (§0).
 - The powder intensity formula carries no 1/V² (scale absorbs it — audited); harmless for the
   magnetic:nuclear ratio since both live on one cell, but it means multi-phase scale ratios are
