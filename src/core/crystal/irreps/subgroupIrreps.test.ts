@@ -226,6 +226,49 @@ describe("known cases", () => {
     // The R tilt moves O only; Sr and Ti stay: its irrep is the one the atoms carry once.
     const chi = displacementCharacters(STO, c.group);
     expect(displacementMultiplicity(chi, r3c.row.primary[0]!.irrep.irrep.characters)).toBe(1);
+    // The tilts come second, tied with the first pair on every count: M irrep 3 and M irrep 5 have the same isotropy
+    // subgroups (P4/mbm, Im-3, I4/mmm, Immm, of the same orders; ISODISTORT's M2+ and M3+), each alone gives P4/mbm here
+    // (index 6) with R irrep 8's Imma (index 12), the atoms carry each once, and both are 3-dimensional: the earlier stays first.
+    expect(pairs[1]).toBe(`${p4mbm.row.primary[0]!.irrep.irrep.label} + ${r3c.row.primary[0]!.irrep.irrep.label}`);
+    const sameOrders = (label: string): string => c.irreps.find((b) => b.irrep.label === label)!.subgroups.map((x) => `${x.identity.number}:${x.elements.length}`).join(" ");
+    expect(sameOrders("M irrep 3 of 10")).toBe(sameOrders("M irrep 5 of 10"));
+    const index = (set: readonly { subgroup: { elements: readonly number[] } }[]): number => set.reduce((n, d) => n + c.group.elements.length / d.subgroup.elements.length, 0);
+    expect(index(pnma.row.coupled!)).toBe(18);
+    expect(index(pnma.row.otherCoupled[0]!)).toBe(18);
+  }, SLOW);
+
+  it("the first coupled set: irreps the atoms carry, then the highest symmetry of the members' own isotropy subgroups (the smallest Σ [F : K_j])", () => {
+    for (const [c, s] of [[sto222(), STO], [gts112(), GTS], [gts222(), GTS]] as const) {
+      const chi = displacementCharacters(s, c.group);
+      const F = c.group.elements.length;
+      const key = (set: readonly { irrep: BoundIrrep; subgroup: { elements: readonly number[] } }[]): [number, number] => [
+        set.filter((d) => displacementMultiplicity(chi, d.irrep.irrep.characters) === 0).length,
+        set.reduce((n, d) => n + F / d.subgroup.elements.length, 0),
+      ];
+      let ties = 0;
+      c.result.forEach((r) => {
+        if (!r.coupled) return;
+        const first = key(r.coupled);
+        for (const other of r.otherCoupled) {
+          const k = key(other);
+          // No other set is ahead on these two counts; the ones level with it are ordered by the older rule.
+          expect(k[0] > first[0] || (k[0] === first[0] && k[1] >= first[1])).toBe(true);
+          if (k[0] === first[0] && k[1] === first[1]) ties++;
+        }
+      });
+      expect(ties).toBeGreaterThan(0);
+    }
+  }, SLOW);
+
+  it("a row the symmetry rule reorders: SrTiO₃'s C2/c in 1×2×1 by two one-parameter X directions, not Γ irrep 7's two-parameter one", () => {
+    const c = sto222();
+    const rows = c.lattice.classes.map((cls, id) => ({ cls, r: c.result[id]! })).filter(({ cls, r }) => cls.identity?.number === 15 && r.coupled !== null && periodicityBox(c.group, cls.elements).join("×") === "1×2×1");
+    const reordered = rows.filter(({ r }) => r.coupled!.map((d) => d.irrep.irrep.label).join(" + ") === "X irrep 2 of 10 + X irrep 10 of 10");
+    expect(reordered).toHaveLength(1);
+    const { r } = reordered[0]!;
+    expect(shown(r)).toBe("X irrep 2 of 10 (a,0,0) + X irrep 10 of 10 (a,0,0,0,0,0) (coupled)");
+    // The pair shown before (the structure's counts only) is still among the others, behind the "?".
+    expect(r.otherCoupled.map((set) => set.map((d) => `${d.irrep.irrep.label} ${d.direction}`).join(" + "))).toContain("Γ irrep 7 of 10 (a,a,b) + X irrep 10 of 10 (a,0,0,0,0,0)");
   }, SLOW);
 
   it("GaTa₄Se₈: P-42₁m in 1×1×2 is reached by coupled irreps, in its own cell (a, a, 2c); at X, by X irrep 5 of 5 in the parent's cell", () => {

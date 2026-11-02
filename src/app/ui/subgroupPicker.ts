@@ -430,37 +430,43 @@ export interface SupercellSources {
  * the row's primary or coupled irreps preferred as the order parameter.
  */
 export function supercellSubgroupRows(src: SupercellSources): SubgroupRow[] {
-  const { group, lattice, analysis } = src;
-  const rows: SubgroupRow[] = [];
-  lattice.classes.forEach((cls) => {
-    if (cls.kind === "parent" || !cls.cellMultiplying || !cls.identity) return;
-    const r = analysis[cls.id]!;
-    const p = r.primary[0];
-    const own = p !== undefined && keepsSupercell(group, p.subgroup.elements);
-    const elements = own ? p.subgroup.elements : cls.elements;
-    const identity = own ? p.subgroup.identity : cls.identity;
-    const box = periodicityBox(group, elements);
-    const choice: SupercellChoice = {
-      group,
-      elements,
-      identity,
-      ...(p ? { primary: p.irrep.irrep.characters } : {}),
-      ...(r.coupled ? { coupled: r.coupled.map((d) => d.irrep.irrep.characters) } : {}),
-    };
-    rows.push({
-      key: `c${cls.id}`,
-      name: childName(identity),
-      cell: cellLabel(box),
-      index: cls.domainStates,
-      domains: cls.domainStates,
-      maximal: cls.maximal,
-      sameCell: false,
-      irreps: irrepsLine(r),
-      detail: rowDetail({ cls, r, identity, box, bound: src.bound, ...(src.moves ? { moves: src.moves } : {}) }),
-      action: { kind: "supercell", choice },
-    });
+  return src.lattice.classes.flatMap((cls) => {
+    const row = supercellSubgroupRow(src, cls, src.analysis[cls.id]!);
+    return row ? [row] : [];
   });
-  return rows;
+}
+
+/** Whether a class of the bound's lattice is a cell-multiplying row: below the parent, losing translations, named. */
+export const isSupercellRowClass = (cls: SubgroupClass): boolean => cls.kind !== "parent" && cls.cellMultiplying && cls.identity !== undefined;
+
+/** One cell-multiplying row (supercellSubgroupRows), from its class and its analysis; null for a class that is not a row. */
+export function supercellSubgroupRow(src: Omit<SupercellSources, "analysis">, cls: SubgroupClass, r: SubgroupIrreps): SubgroupRow | null {
+  const { group } = src;
+  if (!isSupercellRowClass(cls) || !cls.identity) return null;
+  const p = r.primary[0];
+  const own = p !== undefined && keepsSupercell(group, p.subgroup.elements);
+  const elements = own ? p.subgroup.elements : cls.elements;
+  const identity = own ? p.subgroup.identity : cls.identity;
+  const box = periodicityBox(group, elements);
+  const choice: SupercellChoice = {
+    group,
+    elements,
+    identity,
+    ...(p ? { primary: p.irrep.irrep.characters } : {}),
+    ...(r.coupled ? { coupled: r.coupled.map((d) => d.irrep.irrep.characters) } : {}),
+  };
+  return {
+    key: `c${cls.id}`,
+    name: childName(identity),
+    cell: cellLabel(box),
+    index: cls.domainStates,
+    domains: cls.domainStates,
+    maximal: cls.maximal,
+    sameCell: false,
+    irreps: irrepsLine(r),
+    detail: rowDetail({ cls, r, identity, box, bound: src.bound, ...(src.moves ? { moves: src.moves } : {}) }),
+    action: { kind: "supercell", choice },
+  };
 }
 
 /** The rows by index, each level's maximal subgroups first, then the same-cell ones, then the lattice's order. */
@@ -479,24 +485,34 @@ export function subgroupLevels(rows: readonly SubgroupRow[]): { readonly index: 
     }));
 }
 
+/** What the summary says of the bound's lattice: its classes with exactly the supercell's lattice (Bilbao's list), and how many of them also hold an enantiomorph. */
+export interface LatticeCounts {
+  readonly exact: number;
+  readonly twice: number;
+}
+
+export function latticeCounts(lattice: SupercellLattice): LatticeCounts {
+  const exact = lattice.classes.filter((c) => c.supercellLattice);
+  return { exact: exact.length, twice: exact.filter((c) => c.enantiomorph).length };
+}
+
 /** The By subgroup summary: one line, and its "?". */
 export function subgroupSummary(o: {
   readonly parent: string;
   readonly bound: string;
   readonly sameCell: number;
-  /** The cell-multiplying part: its row count and lattice, or null while it is not there. */
-  readonly supercell: { readonly rows: number; readonly lattice: SupercellLattice } | null;
+  /** The cell-multiplying part: its row count and lattice counts (latticeCounts), or null while it is not there. */
+  readonly supercell: { readonly rows: number } & LatticeCounts | null;
 }): { readonly line: string; readonly detail: string } {
   const how = `Each row names the irreps that lower ${o.parent} to it: a primary irrep, one of whose isotropy subgroups it is (the child By irrep lists), or, when there is none, the fewest irreps coupled whose joint isotropy subgroup it is. The other irreps it allows, the secondary ones, are behind the row's "?". The cell is the parent's ("same cell"), or the multiple of the parent's cell along its axes that repeats the child's. Irreps carry generic labels ("R irrep 8 of 10"), not ISODISTORT's.`;
   if (!o.supercell) {
     return { line: `${plural(o.sameCell, "subgroup")} keep the cell`, detail: `The subgroups of ${o.parent} that keep its conventional cell, by index. ${how}` };
   }
-  const exact = o.supercell.lattice.classes.filter((c) => c.supercellLattice);
-  const twice = exact.filter((c) => c.enantiomorph).length;
+  const { exact, twice } = o.supercell;
   const total = o.sameCell + o.supercell.rows;
   return {
     line: `${plural(total, "subgroup")} fit the ${o.bound} cell`,
-    detail: `The subgroups of ${o.parent} whose cell fits the ${o.bound} supercell, one per conjugacy class, by index: ${o.sameCell} keep the conventional cell, ${o.supercell.rows} need a larger one. ${exact.length} have exactly the ${o.bound} lattice, the list Bilbao's SUBGROUPS gives for that supercell${twice > 0 ? ` (${exact.length + twice} entries there, enantiomorphs apart)` : ""}. ${how}`,
+    detail: `The subgroups of ${o.parent} whose cell fits the ${o.bound} supercell, one per conjugacy class, by index: ${o.sameCell} keep the conventional cell, ${o.supercell.rows} need a larger one. ${exact} have exactly the ${o.bound} lattice, the list Bilbao's SUBGROUPS gives for that supercell${twice > 0 ? ` (${exact + twice} entries there, enantiomorphs apart)` : ""}. ${how}`,
   };
 }
 

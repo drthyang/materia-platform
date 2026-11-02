@@ -26,10 +26,12 @@
  *    search grows beyond a fixed budget. Several sets of the smallest size can
  *    reach one class (a trilinear coupling makes any two of three irreps
  *    enough: Pnma of a cubic perovskite is reached by its R and M tilts, by
- *    either with the X irrep of the antipolar shift, …); the one shown first
- *    is chosen by the structure, when given: irreps its atoms carry first,
- *    then the fewest child modes, then the lowest-dimensional irreps, then
- *    the earliest.
+ *    either with the X irrep of the antipolar shift, …); the one shown first:
+ *    irreps the structure's atoms carry first (when given), then the set
+ *    whose members' own isotropy subgroups K_j (each alone, in the domain the
+ *    class fixes) have the highest symmetry, the smallest Σ [F : K_j], then
+ *    the fewest child modes, then the lowest-dimensional irreps, then the
+ *    earliest.
  *  - **Secondary**: every other irrep with a vector the subgroup fixes
  *    (n_j = (1/|H|) Σ_{h∈H} χ_j(h) > 0: its subduction to H contains the
  *    identity), the primary and coupled ones excluded.
@@ -60,14 +62,27 @@ const isIdentityIrrep = (p: PhysicalIrrep): boolean => p.dim === 1 && p.characte
 /**
  * The non-identity irreps of the given stars (in their order) with their
  * isotropy subgroups (cachedIsotropySubgroups, so a view that asks for them
- * again computes nothing).
+ * again computes nothing). With `lazy`, each irrep's isotropy subgroups are
+ * worked out when first read, so a caller can take them one irrep at a time.
  */
-export function boundIrreps(group: FactorGroup, stars: readonly StarIrreps[]): BoundIrrep[] {
+export function boundIrreps(group: FactorGroup, stars: readonly StarIrreps[], opts: { readonly lazy?: boolean } = {}): BoundIrrep[] {
   const out: BoundIrrep[] = [];
   for (const s of stars) {
     for (const irrep of s.physical) {
       if (isIdentityIrrep(irrep)) continue;
-      out.push({ star: s.star, irrep, subgroups: cachedIsotropySubgroups(group, irrep).subgroups, order: out.length });
+      const order = out.length;
+      if (opts.lazy) {
+        out.push({
+          star: s.star,
+          irrep,
+          order,
+          get subgroups() {
+            return cachedIsotropySubgroups(group, irrep).subgroups;
+          },
+        });
+      } else {
+        out.push({ star: s.star, irrep, subgroups: cachedIsotropySubgroups(group, irrep).subgroups, order });
+      }
     }
   }
   return out;
@@ -156,30 +171,71 @@ function membersOf(group: FactorGroup, b: BoundIrrep, words: number): IrrepMembe
   return { members };
 }
 
+/** The per-class analysis behind {@link subgroupIrreps}: each class's result, reading only the irreps it needs. */
+export interface SubgroupIrrepsAnalysis {
+  /**
+   * The irreps (their `order`) with a vector the class fixes, n_j > 0: the
+   * only ones whose isotropy subgroups its result reads. A caller that
+   * computes the isotropy subgroups one irrep at a time can take a class's
+   * result as soon as these are in (the Subgroups page streams its rows so).
+   */
+  readonly needs: (classId: number) => readonly number[];
+  /** Match one irrep's isotropy subgroups to the lattice's classes, checking them (subgroupIrreps does this for every irrep first). */
+  readonly match: (order: number) => void;
+  /** One class's result (see the module comment); the parent's own class gets empty lists. */
+  readonly of: (classId: number) => SubgroupIrreps;
+}
+
 /**
- * The irreps each class of the lattice activates (see the module comment),
- * indexed by class id; the parent's own class gets empty lists. `irreps` are
- * the bound's (boundIrreps over every star of the bound), on the same factor
- * group as the lattice.
+ * The analysis of {@link subgroupIrreps}, one class at a time. `irreps` may
+ * carry their isotropy subgroups lazily (boundIrreps with `lazy`): a class's
+ * result reads those of the irreps it {@link SubgroupIrrepsAnalysis.needs}
+ * only, and is the same whenever it is asked for.
  */
-export function subgroupIrreps(group: FactorGroup, irreps: readonly BoundIrrep[], lattice: SupercellLattice, opts: SubgroupIrrepOptions = {}): SubgroupIrreps[] {
+export function subgroupIrrepsAnalysis(group: FactorGroup, irreps: readonly BoundIrrep[], lattice: SupercellLattice, opts: SubgroupIrrepOptions = {}): SubgroupIrrepsAnalysis {
   const F = group.elements.length;
   const words = Math.ceil(F / 32);
   const maxCoupled = opts.maxCoupled ?? 4;
   const budget = opts.budget ?? 400_000;
   const m = irreps.map((b) => opts.multiplicity?.(b) ?? 1);
-  // Each irrep's isotropy classes, matched to the lattice's classes.
-  const primaryOf = new Map<number, IrrepDirection[]>();
-  irreps.forEach((b) => {
-    for (const s of b.subgroups) {
-      const cls = lattice.classOf(s.elements);
-      if (cls === null) continue;
-      const list = primaryOf.get(cls) ?? [];
-      if (list.some((x) => x.irrep === b)) throw new Error(`subgroupIrreps: two isotropy classes of ${b.irrep.label} fall in one lattice class`);
-      list.push({ irrep: b, subgroup: s, direction: s.direction.symbol });
-      primaryOf.set(cls, list);
+  // n_j for each class: the dimension of the subspace its member fixes.
+  const nCache = new Map<number, readonly number[]>();
+  const nOf = (classId: number): readonly number[] => {
+    let n = nCache.get(classId);
+    if (!n) {
+      const H = lattice.classes[classId]!.elements;
+      n = irreps.map((b) => {
+        let sum = 0;
+        for (const h of H) sum += b.irrep.characters[h]!;
+        const v = sum / H.length;
+        const r = Math.round(v);
+        if (Math.abs(v - r) > 1e-6) throw new Error(`subgroupIrreps: n = ${v} is not an integer for ${b.irrep.label}`);
+        return r;
+      });
+      nCache.set(classId, n);
     }
-  });
+    return n;
+  };
+  const needs = (classId: number): readonly number[] => (lattice.classes[classId]!.kind === "parent" ? [] : nOf(classId).flatMap((x, j) => (x > 0 ? [j] : [])));
+  // Each irrep's isotropy classes, matched to the lattice's classes.
+  const matchCache = new Map<number, ReadonlyMap<number, IrrepIsotropySubgroup>>();
+  const matches = (j: number): ReadonlyMap<number, IrrepIsotropySubgroup> => {
+    let x = matchCache.get(j);
+    if (!x) {
+      const b = irreps[j]!;
+      const own = new Map<number, IrrepIsotropySubgroup>();
+      for (const s of b.subgroups) {
+        const cls = lattice.classOf(s.elements);
+        if (cls === null) continue;
+        if (own.has(cls)) throw new Error(`subgroupIrreps: two isotropy classes of ${b.irrep.label} fall in one lattice class`);
+        if (lattice.classes[cls]!.kind !== "parent" && nOf(cls)[j]! <= 0) throw new Error(`subgroupIrreps: ${b.irrep.label} reaches a class it fixes no vector of`);
+        own.set(cls, s);
+      }
+      x = own;
+      matchCache.set(j, x);
+    }
+    return x;
+  };
   const memberCache = new Map<number, IrrepMembers>();
   const members = (j: number): IrrepMembers => {
     let x = memberCache.get(j);
@@ -191,29 +247,27 @@ export function subgroupIrreps(group: FactorGroup, irreps: readonly BoundIrrep[]
   };
   const displacive = (d: IrrepDirection): number => (m[d.irrep.order]! > 0 ? 0 : 1);
 
-  return lattice.classes.map((c) => {
+  const of = (classId: number): SubgroupIrreps => {
+    const c = lattice.classes[classId]!;
     if (c.kind === "parent") return { primary: [], coupled: null, otherCoupled: [], secondary: [], searchedUpTo: 0 };
     const H = c.elements;
     const hBits = bitsOf(H, words);
-    // n_j: the dimension of the subspace H fixes.
-    const n = irreps.map((b) => {
-      let sum = 0;
-      for (const h of H) sum += b.irrep.characters[h]!;
-      const v = sum / H.length;
-      const r = Math.round(v);
-      if (Math.abs(v - r) > 1e-6) throw new Error(`subgroupIrreps: n = ${v} is not an integer for ${b.irrep.label}`);
-      return r;
-    });
-    const primary = [...(primaryOf.get(c.id) ?? [])].sort((a, b) => displacive(a) - displacive(b) || a.irrep.order - b.irrep.order);
-    for (const p of primary) if (n[p.irrep.order]! <= 0) throw new Error(`subgroupIrreps: ${p.irrep.irrep.label} reaches a class it fixes no vector of`);
+    const n = nOf(classId);
+    const allowed = needs(classId);
+    const primary = allowed
+      .flatMap((j) => {
+        const s = matches(j).get(classId);
+        return s ? [{ irrep: irreps[j]!, subgroup: s, direction: s.direction.symbol }] : [];
+      })
+      .sort((a, b) => displacive(a) - displacive(b) || a.irrep.order - b.irrep.order);
     let coupled: IrrepDirection[] | null = null;
     let otherCoupled: IrrepDirection[][] = [];
     let searchedUpTo = 1;
     if (primary.length === 0) {
       // K_j: the smallest isotropy subgroup of j containing H, the intersection of all that do.
       const cands: { j: number; K: Bits; dir: IrrepDirection }[] = [];
-      irreps.forEach((b, j) => {
-        if (n[j]! <= 0) return;
+      for (const j of allowed) {
+        const b = irreps[j]!;
         let K: Bits | null = null;
         for (const mem of members(j).members) if (contains(mem.bits, hBits)) K = K ? and(K, mem.bits) : mem.bits;
         if (!K) throw new Error(`subgroupIrreps: no isotropy subgroup of ${b.irrep.label} contains a subgroup that fixes one of its vectors`);
@@ -222,7 +276,7 @@ export function subgroupIrreps(group: FactorGroup, irreps: readonly BoundIrrep[]
         if (popcount(K) === H.length) throw new Error(`subgroupIrreps: ${b.irrep.label} reaches a class its isotropy subgroups were not matched to`);
         const s = b.subgroups[own.cls]!;
         cands.push({ j, K, dir: { irrep: b, subgroup: s, direction: s.direction.symbol } });
-      });
+      }
       let spent = 0;
       for (let size = 2; size <= Math.min(maxCoupled, cands.length) && coupled === null; size++) {
         const sets: number[][] = [];
@@ -252,6 +306,8 @@ export function subgroupIrreps(group: FactorGroup, irreps: readonly BoundIrrep[]
         if (sets.length === 0) continue;
         const score = (set: readonly number[]): number[] => [
           set.reduce((s, t) => s + (m[cands[t]!.j]! > 0 ? 0 : 1), 0),
+          // The members' own isotropy subgroups (K_j, each alone in this domain) of the highest symmetry: the smallest total index in F.
+          set.reduce((s, t) => s + F / popcount(cands[t]!.K), 0),
           opts.multiplicity ? set.reduce((s, t) => s + n[cands[t]!.j]! * m[cands[t]!.j]!, 0) : 0,
           set.reduce((s, t) => s + cands[t]!.dir.irrep.irrep.dim, 0),
           ...set.map((t) => cands[t]!.j),
@@ -266,7 +322,20 @@ export function subgroupIrreps(group: FactorGroup, irreps: readonly BoundIrrep[]
       }
     }
     const used = new Set<BoundIrrep>([...primary, ...(coupled ?? [])].map((d) => d.irrep));
-    const secondary = irreps.filter((b, j) => n[j]! > 0 && !used.has(b)).map((b) => ({ irrep: b, n: n[b.order]! }));
+    const secondary = allowed.filter((j) => !used.has(irreps[j]!)).map((j) => ({ irrep: irreps[j]!, n: n[j]! }));
     return { primary, coupled, otherCoupled, secondary, searchedUpTo };
-  });
+  };
+  return { needs, match: (j) => void matches(j), of };
+}
+
+/**
+ * The irreps each class of the lattice activates (see the module comment),
+ * indexed by class id; the parent's own class gets empty lists. `irreps` are
+ * the bound's (boundIrreps over every star of the bound), on the same factor
+ * group as the lattice.
+ */
+export function subgroupIrreps(group: FactorGroup, irreps: readonly BoundIrrep[], lattice: SupercellLattice, opts: SubgroupIrrepOptions = {}): SubgroupIrreps[] {
+  const analysis = subgroupIrrepsAnalysis(group, irreps, lattice, opts);
+  irreps.forEach((_, j) => analysis.match(j));
+  return lattice.classes.map((c) => analysis.of(c.id));
 }
