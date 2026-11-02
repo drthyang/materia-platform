@@ -19,7 +19,7 @@ export function Chip({ on, label, aria, title, disabled, onClick }: { on: boolea
       className="wb-kchip"
       style={{
         flex: "0 0 auto", border: `1px solid ${on ? color.primary : color.control}`, background: on ? color.primaryTintBg : color.surface, color: on ? color.primary : color.ink,
-        borderRadius: 999, padding: "3px 10px", fontSize: fz.micro, fontFamily: mono, cursor: "pointer", whiteSpace: "nowrap",
+        borderRadius: 999, padding: "3px 10px", fontSize: fz.micro, fontFamily: mono, cursor: disabled ? "not-allowed" : "pointer", whiteSpace: "nowrap", opacity: disabled ? 0.45 : 1,
       }}
     >
       {label}

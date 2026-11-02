@@ -85,10 +85,14 @@ describe("the mode table's chips", () => {
     expect(modeRows(h)).toEqual(label(() => true));
     click(chip(h, "k-point", "R, supercell ×2"));
     expect(modeRows(h)).toEqual(label((m) => m.star === "R"));
+    // A site no R mode moves is off while R is chosen.
+    for (const site of ["Sr", "Ti", "O"].filter((x) => set.modes.some((m) => m.irrep!.parentSite === x))) {
+      expect(chip(h, "parent site", site).disabled, site).toBe(!set.modes.some((m) => m.star === "R" && m.irrep!.parentSite === site));
+    }
     click(chip(h, "parent site", "O"));
     expect(modeRows(h)).toEqual(label((m) => m.star === "R" && m.irrep!.parentSite === "O"));
     // The line under the chips: the result first.
-    expect(h.textContent).toMatch(/R · O: total A_s [\d.]+ Å, A_p [\d.]+ Å · \d of \d free/);
+    expect(h.textContent).toMatch(/R · O: A_s [\d.]+ Å, A_p [\d.]+ Å · \d\/\d free/);
     // Pressed again: back to all k.
     click(chip(h, "k-point", "R, supercell ×2"));
     expect(modeRows(h)).toEqual(label((m) => m.irrep!.parentSite === "O"));

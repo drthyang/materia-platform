@@ -284,7 +284,8 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
 }
 
 const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? "" : "s"}`;
-const chipRow = { display: "flex", gap: 6, alignItems: "center", flexWrap: "nowrap", overflowX: "auto", scrollbarWidth: "none", paddingBottom: 2, marginTop: 4 } as const;
+const chipRow = { display: "flex", gap: 6, alignItems: "center", flexWrap: "nowrap", overflowX: "auto", scrollbarWidth: "none", paddingBottom: 2, flex: "0 1 auto", minWidth: 0, maxWidth: "100%" } as const;
+const chipGroup = { display: "flex", gap: 6, alignItems: "center", flex: "0 0 auto" } as const;
 
 /**
  * The chips over the mode table: the k-points of the modes in force (with the
@@ -305,6 +306,8 @@ function ModeChips({ groups, filter, kChip, site, rows, params, cells, busy, onC
   onParamChange?: (id: string, patch: Partial<RefinementParameter>) => void;
 }): JSX.Element {
   const total = modesTotal(rows, params, cells);
+  const inK = (id: string): boolean => !kChip || kChip.modeIds.includes(id);
+  const inSite = (id: string): boolean => !site || site.modeIds.includes(id);
   const free = rows.filter((m) => params.find((p) => p.id === m.id)?.fixed === false).length;
   const scope = [kChip?.label, site?.label].filter(Boolean).join(" · ") || "All modes";
   // Behind the "?": the chosen k-point's total on each of its sites, or the chosen site's at each k-point.
@@ -341,46 +344,58 @@ function ModeChips({ groups, filter, kChip, site, rows, params, cells, busy, onC
   };
   return (
     <>
-      {groups.ks.length > 0 && (
-        <div role="group" aria-label="k-point" className="wb-kchips" style={chipRow}>
-          <Chip on={filter.k === null} label="all k" aria="all k-points" onClick={() => onChoose({ ...filter, k: null })} />
-          {groups.ks.map((k) => {
-            const n = k.cellMultiple;
-            const t = modesTotal(k.modeIds.map((id) => ({ id })), params, cells);
-            return (
-              <Chip
-                key={k.id}
-                on={filter.k === k.id}
-                label={<>{k.label}{n !== null && n > 1 ? <span style={{ color: color.secondary }}> ×{n}</span> : null}</>}
-                aria={`${k.label}, ${n === null ? "k-point" : n === 1 ? "same cell" : `supercell ×${n}`}`}
-                title={`${k.label}: ${plural(k.modeIds.length, "mode")}, total A_s ${t.as.toFixed(5)} Å${n !== null && n > 1 ? ` · one arm's wave repeats over ${n} parent cells` : ""}`}
-                onClick={() => onChoose({ ...filter, k: filter.k === k.id ? null : k.id })}
-              />
-            );
-          })}
-        </div>
-      )}
-      {groups.sites.length > 0 && (
-        <div role="group" aria-label="parent site" className="wb-kchips" style={chipRow}>
-          <Chip on={filter.site === null} label="all sites" aria="all sites" onClick={() => onChoose({ ...filter, site: null })} />
-          {groups.sites.map((s) => (
-            <Chip
-              key={s.id}
-              on={filter.site === s.id}
-              label={s.label}
-              aria={s.label}
-              title={`${s.label}: ${s.title}, ${plural(s.modeIds.length, "mode")}; highlighted in the 3D model`}
-              onClick={() => onChoose({ ...filter, site: filter.site === s.id ? null : s.id })}
-            />
-          ))}
-        </div>
-      )}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 4, fontSize: fz.micro }}>
+      {/* The chips (k-points, then sites), then the line for the rows chosen: one line on a wide panel; on a phone the chips take their own row and scroll sideways. A chip that would list no row is off. */}
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", columnGap: 10, rowGap: 2, marginTop: 4 }}>
+      <div style={chipRow}>
+        {groups.ks.length > 0 && (
+          <div role="group" aria-label="k-point" className="wb-kchips" style={chipGroup}>
+            <Chip on={filter.k === null} label="all k" aria="all k-points" onClick={() => onChoose({ ...filter, k: null })} />
+            {groups.ks.map((k) => {
+              const n = k.cellMultiple;
+              const t = modesTotal(k.modeIds.map((id) => ({ id })), params, cells);
+              const empty = filter.k !== k.id && !k.modeIds.some((id) => inSite(id));
+              return (
+                <Chip
+                  key={k.id}
+                  on={filter.k === k.id}
+                  disabled={empty}
+                  label={<>{k.label}{n !== null && n > 1 ? <span style={{ color: color.secondary }}> ×{n}</span> : null}</>}
+                  aria={`${k.label}, ${n === null ? "k-point" : n === 1 ? "same cell" : `supercell ×${n}`}`}
+                  title={`${k.label}: ${plural(k.modeIds.length, "mode")}, total A_s ${t.as.toFixed(5)} Å${n !== null && n > 1 ? ` · one arm's wave repeats over ${n} parent cells` : ""}${empty && site ? ` · none on ${site.label}` : ""}`}
+                  onClick={() => onChoose({ ...filter, k: filter.k === k.id ? null : k.id })}
+                />
+              );
+            })}
+          </div>
+        )}
+        {groups.ks.length > 0 && groups.sites.length > 0 && <span aria-hidden style={{ flex: "0 0 auto", width: 1, alignSelf: "stretch", background: color.border, margin: "2px 2px" }} />}
+        {groups.sites.length > 0 && (
+          <div role="group" aria-label="parent site" className="wb-kchips" style={chipGroup}>
+            <Chip on={filter.site === null} label="all sites" aria="all sites" onClick={() => onChoose({ ...filter, site: null })} />
+            {groups.sites.map((s) => {
+              const empty = filter.site !== s.id && !s.modeIds.some((id) => inK(id));
+              return (
+                <Chip
+                  key={s.id}
+                  on={filter.site === s.id}
+                  disabled={empty}
+                  label={s.label}
+                  aria={s.label}
+                  title={`${s.label}: ${s.title}, ${plural(s.modeIds.length, "mode")}; highlighted in the 3D model${empty && kChip ? ` · no ${kChip.label} mode moves it` : ""}`}
+                  onClick={() => onChoose({ ...filter, site: filter.site === s.id ? null : s.id })}
+                />
+              );
+            })}
+          </div>
+        )}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: fz.micro }}>
         <span style={{ fontFamily: mono, color: color.ink }}>
-          <ShortLineText text={`${scope}: total A_s ${total.as.toFixed(5)} Å, A_p ${total.ap.toFixed(5)} Å · ${free} of ${rows.length} free`} detail={detail} width={340} />
+          <ShortLineText text={`${scope}: A_s ${total.as.toFixed(5)} Å, A_p ${total.ap.toFixed(5)} Å · ${free}/${rows.length} free`} detail={detail} width={340} />
         </span>
         {onParamChange && btn(false)}
         {onParamChange && btn(true)}
+      </div>
       </div>
     </>
   );

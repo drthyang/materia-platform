@@ -9,6 +9,26 @@ release fixes bugs.
 
 ### Added
 
+- **The 3D Model's mode table groups the modes by k-point and parent site.**
+  This works for activated children (same cell or supercell), parent-CIF
+  decompositions, mode-CIF imports and the structure's own modes.
+  - **k-point chips** (all k, Γ, X, M, R…) list only the k-points of the modes
+    in force. They are named as the Subgroups page names them and carry the
+    parent cells one arm repeats over (×2).
+  - **Site chips** (all sites, Sr, O…) show the element, plus the Wyckoff site
+    ("O (4e)") when the parent has the element on more than one site.
+  - The two filters combine. A chip that would list nothing is greyed out.
+    On a phone the chips scroll sideways.
+  - One line gives the chosen rows' total A_s and A_p, in quadrature as each
+    irrep's total is. The split by site or by k-point sits behind its "?".
+  - **Free all** / **Fix all** set exactly the rows listed. They go through
+    the same row edit as the Positions toggles, so picking R and O then
+    **Free all** frees the same rows as freeing each one by hand.
+  - A site chip highlights its atoms in 3D: the others fade and its own get a
+    halo. A row click's green arrows are kept to the chosen site.
+  - Only the app's layer changed. Mode labels, the refinement, its parameters
+    and everything the Agent or an MCP client reads are as they were.
+
 - **On a phone, Prefit, Refine and Cancel stay at the bottom of the
   screen.** Up to 640 px wide, or on a phone held sideways, the parameter
   card's run actions (Prefit, or Escape min once a fit exists; Refine; Cancel)

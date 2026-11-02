@@ -603,6 +603,31 @@ shows the modes being refined.
   values and normfactors, with MATERIA's generic irrep names. It reads back
   here exactly, and ISODISTORT-aware programs such as GSAS-II read its
   modes.
+- Chips above the mode table pick out the rows to work on:
+  - **k-point chips**: **all k**, then one chip per k-point the modes in
+    force sit at, named as on the Subgroups page (Γ, X, M, R…, or the
+    coordinates). A supercell child of SrTiO₃ in Pnma shows X, M and R;
+    R-3c shows R only. **×2** is how many parent cells one arm's wave
+    repeats over.
+  - **site chips**: **all sites**, then one chip per parent site the modes
+    move. A chip shows the element, plus the Wyckoff site ("O (4e)") when
+    the parent has the element on more than one site. Picking a site
+    highlights its atoms in the 3D model and fades the rest. Same-cell
+    choices and the structure's own modes have no parent site, so their
+    chips are by element; a mode sits under each element it moves.
+  - The two filters combine: R and O list the R modes on O. A chip that
+    would list no row is greyed out. Click a chip again to go back to all.
+    On a phone the chips scroll sideways.
+  - The line beside the chips gives the chosen rows' total A_s and A_p,
+    added in quadrature as each irrep's total is, and how many rows are
+    free. Its **?** has the split by site, or by k-point.
+  - **Free all** / **Fix all** free or fix exactly the rows listed, as their
+    toggles in the Positions group do. For example, pick R and O, then
+    **Free all**, to refine only the R tilts on O.
+  - With a site chosen, an irrep row still shows the irrep's total over all
+    its sites, followed by the chosen site's part. A row click draws that
+    mode's arrows on the chosen site's atoms. If a chip hides the row whose
+    arrows are drawn, the arrows go away.
 - With no choice in force, **Import ▾** on the same **Distortion modes** row
   loads one from a file:
   - **Mode CIF (ISODISTORT)…** reads an ISODISTORT mode CIF: ISODISTORT's
