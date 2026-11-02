@@ -5,7 +5,7 @@
  * the rows a cause of misfit is about ("Open Instrument / profile").
  */
 
-import type { ParameterKind } from "@/core/refinement/types";
+import type { ParameterKind, RefinementParameter } from "@/core/refinement/types";
 
 export const PARAMETER_GROUP: Record<ParameterKind, string> = {
   scale: "Scale",
@@ -87,3 +87,8 @@ export const GROUP_ORDER = ["Scale", "Background", "Lattice", "Instrument / prof
 export function parameterGroupOf(kind: ParameterKind): string {
   return PARAMETER_GROUP[kind] ?? "Other";
 }
+
+/** Rows the user cannot free: instrument calibration, and parameters derived
+ *  from others by a tie expression (their value follows the tie). The panel's
+ *  toggles and the mode table's Free all / Fix all leave them alone. */
+export const isLocked = (p: RefinementParameter): boolean => p.kind === "tofCalibration" || !!p.expression;

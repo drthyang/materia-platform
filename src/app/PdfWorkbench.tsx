@@ -37,6 +37,7 @@ import {
 } from "@/app/pdfPage";
 import { SiteTotals } from "@/app/ui/SiteTotals";
 import { DistortionModesPanel } from "@/app/ui/DistortionModesPanel";
+import { ALL_MODES, highlightedSites, modeGroups, type ModeFilter } from "@/app/ui/modeGroups";
 import { SubgroupsPanel, decentringIrrepTree, gammaIrrepTree, sameCellLattice, type IrrepSubgroup, type SameCellNode } from "@/app/ui/SubgroupsPanel";
 import { sharedSites, siteSumRangeWarnings } from "@/core/workflow/structureRefinement";
 
@@ -143,8 +144,20 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   // on the 3D model. Click the row to toggle; any mode-set change invalidates
   // the selection.
   const [shownModeId, setShownModeId] = useState<string | null>(null);
-  useEffect(() => setShownModeId(null), [modeSet]);
+  // The table's k-point and parent-site chips (modeGroups.ts): the site's atoms are highlighted in 3D.
+  const [modeFilter, setModeFilter] = useState<ModeFilter>(ALL_MODES);
+  useEffect(() => {
+    setShownModeId(null);
+    setModeFilter(ALL_MODES);
+  }, [modeSet]);
   const shownMode = (shownModeId !== null ? modeSet?.modes.find((m) => m.id === shownModeId) : undefined) ?? null;
+  const highlightSites = useMemo(() => (modeSet && modeFilter.site !== null ? highlightedSites(modeGroups(modeSet), modeFilter) : null), [modeSet, modeFilter]);
+  // The arrows of the row drawn, on the chosen site's atoms when a site chip is on (a mode by parent irrep moves one site anyway).
+  const shownDisplacements = useMemo(() => {
+    if (!shownMode) return null;
+    const kept = highlightSites ? shownMode.axes.filter((a) => highlightSites.includes(a.siteLabel)) : shownMode.axes;
+    return kept.length > 0 ? kept : shownMode.axes;
+  }, [shownMode, highlightSites]);
   // Modes by parent irrep (a supercell child, a decomposition, a mode CIF) can be saved as an ISODISTORT mode CIF.
   const modeCifAvailable = modeSet !== null && modeSet.parent !== undefined && modeSet.modes.length > 0 && modeSet.modes.every((m) => m.irrep !== undefined);
   const [busy, setBusy] = useState(false);
@@ -1021,7 +1034,8 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                     key={viewStructure.id + viewPhase}
                     structure={viewStructure}
                     minCanvasHeight={200}
-                    {...(shownMode ? { displacements: shownMode.axes } : {})}
+                    {...(shownDisplacements ? { displacements: shownDisplacements } : {})}
+                    {...(highlightSites ? { highlightSites } : {})}
                     exports={[(() => {
                       // The phase on screen, not every phase (that is the
                       // header export). Displacement modes are not in the file
@@ -1058,6 +1072,9 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                     onLoadParentCif={(file) => void onLoadParentCif(file)}
                     onLoadModeCif={(file) => void onLoadModeCif(file)}
                     busy={busy}
+                    onParamChange={onParamChange}
+                    filter={modeFilter}
+                    onFilter={setModeFilter}
                   />
                 </div>
               )}

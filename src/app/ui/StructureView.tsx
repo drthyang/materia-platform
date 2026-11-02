@@ -179,6 +179,7 @@ export function StructureView({
   magneticOperations,
   standardCell,
   displacements,
+  highlightSites,
   exports,
   minCanvasHeight = 360,
   fit = false,
@@ -207,6 +208,12 @@ export function StructureView({
    */
   displacements?: readonly { readonly siteLabel: string; readonly axis: Vec3 }[];
   /**
+   * Site labels to pick out (the distortion-mode table's site chip): their
+   * atoms keep their look and gain a pale halo, the others fade. Absent or
+   * empty: every atom as usual.
+   */
+  highlightSites?: readonly string[];
+  /**
    * Downloads offered from the viewer's toolbar for the structure on screen —
    * normally a single CIF. Host-supplied descriptors rather than a flag, so the
    * viewer never has to know which flavour is being written: a magnetic page
@@ -223,6 +230,8 @@ export function StructureView({
   fit?: boolean;
 }): JSX.Element {
   const mountRef = useRef<HTMLDivElement | null>(null);
+  // By value, so a host that rebuilds the list each render does not rebuild the scene.
+  const highlightKey = highlightSites && highlightSites.length > 0 ? highlightSites.join("\u0000") : "";
   const [showBondLengths, setShowBondLengths] = useState(false);
   const [showAtomLabels, setShowAtomLabels] = useState(false);
   const [perspective, setPerspective] = useState(false);
@@ -420,14 +429,24 @@ export function StructureView({
     const { shininess, specular } = FINISHES[finish];
     const VACANCY_COLOR = 0xd1d5db; // muted grey slice for an unoccupied fraction
     atomMatsRef.current = [];
+    // A highlighted site (highlightSites): the other atoms fade, its own gain a halo.
+    const picked = highlightKey ? new Set(highlightKey.split("\u0000")) : null;
+    let faded = false;
     const addSphere = (geo: THREE.SphereGeometry, color: THREE.ColorRepresentation, xyz: Vec3): void => {
-      const mat = new THREE.MeshPhongMaterial({ color: new THREE.Color(color), shininess, specular });
+      const mat = new THREE.MeshPhongMaterial({ color: new THREE.Color(color), shininess, specular, ...(faded ? { transparent: true, opacity: 0.22, depthWrite: false } : {}) });
       atomMatsRef.current.push(mat);
       const mesh = new THREE.Mesh(geo, mat);
       mesh.position.set(xyz[0], xyz[1], xyz[2]);
       scene.add(mesh);
     };
+    const haloMat = picked ? new THREE.MeshBasicMaterial({ color: 0xf59e0b, transparent: true, opacity: 0.35, depthWrite: false }) : null;
     for (const at of atoms) {
+      faded = picked !== null && !picked.has(at.label);
+      if (haloMat && !faded) {
+        const halo = new THREE.Mesh(getGeo(covalentRadius(at.element) * 0.38 * 1.45), haloMat);
+        halo.position.set(at.xyz[0], at.xyz[1], at.xyz[2]);
+        scene.add(halo);
+      }
       if (at.mixture && at.mixture.length > 0) {
         // Occupancy-weighted radius; wedge azimuths ∝ occupancy out of 1, so a
         // vacancy remainder (Σocc < 1) becomes a grey slice. Σocc slightly over 1
@@ -718,7 +737,7 @@ export function StructureView({
     // lightLevel and finish are intentionally NOT dependencies: their knobs
     // mutate the live lights/materials below without rebuilding the scene.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [atoms, corners, center, span, showBondLengths, showAtomLabels, perspective, showAxes, structure, moments, propagation, standardCell, showParentCell, showStandardCell, cellView, displacements, fitToCanvas, frame]);
+  }, [atoms, corners, center, span, showBondLengths, showAtomLabels, perspective, showAxes, structure, moments, propagation, standardCell, showParentCell, showStandardCell, cellView, displacements, highlightKey, fitToCanvas, frame]);
 
   // Light knob → in-place intensity update, drawn on the next frame.
   useEffect(() => {
