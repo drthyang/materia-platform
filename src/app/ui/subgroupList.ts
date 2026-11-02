@@ -283,3 +283,21 @@ export function collapseWays(ways: readonly (readonly WayStep[])[]): TiedWay[] {
 /** The irreps of a step in words: "M irrep 3 or 5". */
 export const irrepsLineOf = (irreps: readonly IrrepRef[]): string =>
   irreps.length === 1 ? shortLabel(irreps[0]!) : `${shortLabel(irreps[0]!)} or ${irreps.slice(1).map((x) => x.number).join(" or ")}`;
+
+/**
+ * What the detail panel says of one row (a variant): the set it leads with
+ * (the row's first reaching set, the one Activate kicks: SupercellChoice's
+ * coupled set, or the first primary irrep), the ways built from that set
+ * only, and the ways through its other reaching sets, which wait behind
+ * "more ways". Every irrep a lead way names is in the lead set.
+ */
+export function detailOf(row: SubgroupRow): { readonly set: TiedSet | null; readonly lead: readonly TiedWay[]; readonly more: readonly TiedWay[] } {
+  const set = collapseTies(row.reach.sets)[0] ?? null;
+  const labels = new Set((set?.members ?? []).flat().map((x) => x.label));
+  const movesFirst = (ws: TiedWay[]): TiedWay[] =>
+    [...ws].sort((a, b) => Number(a.steps.some((s) => s.irreps.every((x) => x.moves === false))) - Number(b.steps.some((s) => s.irreps.every((x) => x.moves === false))));
+  const ways = collapseWays(row.ways.ways);
+  // A primary row's lead is its first primary irrep alone; a coupled row's, every ordering of its first (tied) set.
+  const inLead = (w: TiedWay): boolean => w.steps.every((s) => s.irreps.every((x) => labels.has(x.label))) && (row.reach.kind !== "coupled" || w.steps.length === (set?.members.length ?? 0));
+  return { set, lead: movesFirst(ways.filter(inLead)), more: movesFirst(ways.filter((w) => !inLead(w))) };
+}

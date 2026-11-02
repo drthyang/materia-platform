@@ -12,7 +12,7 @@ import { color, fz, mono, primaryButton, resetRangeBtn, uppercaseLabel } from "@
 import { InfoBadge } from "@/app/ui/InfoBadge";
 import type { PickerAction, SubgroupRow } from "@/app/ui/subgroupPicker";
 import {
-  collapseTies, collapseWays, compactName, irrepsLineOf, latticeChains, setLine, setsFor, shortName, tagOf,
+  collapseTies, compactName, detailOf, irrepsLineOf, latticeChains, setLine, shortName, tagOf,
   type GraphNode, type RowGroup,
 } from "@/app/ui/subgroupList";
 
@@ -165,10 +165,9 @@ function Fold({ label, children }: { label: string; children: ReactNode }): JSX.
 const plural = (n: number, w: string, ws = `${w}s`): string => `${n} ${n === 1 ? w : ws}`;
 
 /** The result in one line: "Pnma in a 2×2×2 cell, from 2 irreps together: M irrep 3 or 5 and R irrep 8." */
-export function resultLine(row: SubgroupRow, ks: readonly string[]): string {
+export function resultLine(row: SubgroupRow): string {
   const where = row.sameCell ? "in the parent's cell" : `in a ${row.cell} cell`;
-  const sets = collapseTies(setsFor(row, ks).length > 0 ? setsFor(row, ks) : row.reach.sets);
-  const first = sets[0];
+  const first = collapseTies(row.reach.sets)[0];
   const name = shortName(row.name);
   if (!first) return `${name} ${where}; no small set of irreps reaches it.`;
   if (row.reach.kind === "primary") return `${name} ${where}, from one irrep: ${setLine(first)}.`;
@@ -183,16 +182,15 @@ export function SubgroupDetail(p: DetailProps): JSX.Element {
     setAllWays(false);
     setSteps(false);
   }, [row.key]);
-  const ways = useMemo(() => {
-    const tied = collapseWays(row.ways.ways);
-    // The ways whose irreps all move atoms first.
-    return [...tied].sort((a, b) => Number(a.steps.some((s) => s.irreps.every((x) => x.moves === false))) - Number(b.steps.some((s) => s.irreps.every((x) => x.moves === false))));
-  }, [row]);
-  const shownWays = allWays ? ways : ways.slice(0, 3);
-  const chainsShown = shownWays.reduce((n, w) => n + w.chains, 0);
+  // Everything below describes this variant: its first reaching set (what Activate kicks) and the ways through it first.
+  const told = useMemo(() => detailOf(row), [row]);
+  const ways = [...told.lead, ...told.more];
+  const leadShown = told.lead.slice(0, 3);
+  const shownWays = allWays ? ways : leadShown;
+  const chainsShown = leadShown.reduce((n, w) => n + w.chains, 0);
   const lattice = useMemo(() => (steps && p.graph ? latticeChains(p.graph, row.key, 5) : null), [steps, p.graph, row.key]);
   const latticeCount = useMemo(() => (p.graph ? latticeChains(p.graph, row.key, 0).count : null), [p.graph, row.key]);
-  const sets = collapseTies(setsFor(row, p.ks).length > 0 ? setsFor(row, p.ks) : row.reach.sets);
+  const sets = collapseTies(row.reach.sets);
   const split = splitOf(row);
   const secondary = secondaryOf(row);
   const block = activateBlock(row, { busy: p.busy, modesInForce: p.modesInForce, canActivate: p.canActivate(row.action) });
@@ -219,7 +217,7 @@ export function SubgroupDetail(p: DetailProps): JSX.Element {
         {isActive ? <span style={{ fontSize: 11, color: color.primary, border: `1px solid ${color.primaryTintBorder}`, background: color.primaryTintBg, borderRadius: 999, padding: "0 7px" }}>active</span> : null}
       </div>
       <p style={{ margin: "0 0 4px", fontSize: fz.small, color: color.secondary }}>
-        <InfoBadge width={380} label={resultLine(row, p.ks)} ariaLabel={`About ${row.name}`} text={<span style={{ whiteSpace: "pre-line" }}>{row.detail}</span>} />
+        <InfoBadge width={380} label={resultLine(row)} ariaLabel={`About ${row.name}`} text={<span style={{ whiteSpace: "pre-line" }}>{row.detail}</span>} />
       </p>
 
       <div style={{ display: "flex", gap: "8px 22px", alignItems: "flex-start", flexWrap: "wrap", padding: "6px 0 8px" }}>
@@ -260,8 +258,11 @@ export function SubgroupDetail(p: DetailProps): JSX.Element {
           <>
             {shownWays.map((w, i) => {
               const names = w.steps.map((s) => shortName(s.name));
+              const firstMore = allWays && i === told.lead.length && told.more.length > 0;
               return (
-                <div key={i} data-way={w.steps.map((s) => s.cls).join(">")} style={{ fontFamily: mono, fontSize: fz.micro, color: color.ink, lineHeight: 1.7, display: "flex", flexWrap: "wrap", alignItems: "baseline", columnGap: 6 }}>
+                <Fragment key={i}>
+                {firstMore ? <p style={{ margin: "4px 0 0", ...sub }}>through its other {row.reach.kind === "coupled" ? "sets" : "irreps"}:</p> : null}
+                <div data-lead={i < told.lead.length ? "1" : "0"} data-way={w.steps.map((s) => s.cls).join(">")} style={{ fontFamily: mono, fontSize: fz.micro, color: color.ink, lineHeight: 1.7, display: "flex", flexWrap: "wrap", alignItems: "baseline", columnGap: 6 }}>
                   <span>{shortName(p.parent)}</span>
                   {w.steps.map((s, j) => (
                     <Fragment key={j}>
@@ -274,10 +275,11 @@ export function SubgroupDetail(p: DetailProps): JSX.Element {
                     </Fragment>
                   ))}
                 </div>
+                </Fragment>
               );
             })}
-            {row.ways.count > chainsShown || ways.length > 3 ? (
-              <button type="button" style={{ ...linkBtn, marginTop: 2 }} onClick={() => setAllWays(!allWays)} disabled={ways.length <= 3 && !allWays}>
+            {row.ways.count > chainsShown || ways.length > leadShown.length ? (
+              <button type="button" style={{ ...linkBtn, marginTop: 2 }} onClick={() => setAllWays(!allWays)} disabled={ways.length <= leadShown.length && !allWays}>
                 {allWays ? "fewer" : `${(row.ways.count - chainsShown).toLocaleString("en-US")} more way${row.ways.count - chainsShown === 1 ? "" : "s"}`}
               </button>
             ) : null}
@@ -307,7 +309,7 @@ export function SubgroupDetail(p: DetailProps): JSX.Element {
       {others.length > 0 ? (
         <Section title={`${plural(group.variants.length, "variant")} of ${name} · ${row.cell} · ${row.domains} domains`}>
           {group.variants.map((v, i) => {
-            const t = collapseTies(setsFor(v, p.ks).length > 0 ? setsFor(v, p.ks) : v.reach.sets)[0];
+            const t = collapseTies(v.reach.sets)[0];
             const vBlock = activateBlock(v, { busy: p.busy, modesInForce: p.modesInForce, canActivate: p.canActivate(v.action) });
             const kept = p.shown.includes(v);
             return (

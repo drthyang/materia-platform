@@ -164,6 +164,11 @@ describe("the subgroup list in a DOM", () => {
     const tilt = variants.find((v) => v.textContent!.includes("M irrep 3 or 5 + R irrep 8"))!;
     act(() => tilt.querySelector<HTMLButtonElement>("button[aria-pressed]")!.click());
     const t = text(h.querySelector("[data-detail]")!);
+    // The list's tag follows the variant picked; the first ways use only its lead set (R irrep 10, one of its other pairs, waits).
+    expect(text(rowOf(h, PNMA)!)).toContain("M·3/5+R·8");
+    const lead = [...h.querySelectorAll<HTMLElement>("[data-detail] [data-way]")];
+    expect(lead.length).toBeGreaterThan(0);
+    expect(lead.every((w) => w.dataset.lead === "1" && !/R irrep (7|10)|X irrep/.test(w.textContent!))).toBe(true);
     expect(t).toContain("Pnma in a 2×2×2 cell, from 2 irreps together: M irrep 3 or 5 and R irrep 8.");
     expect(t).toContain("Pm-3m→Imma(R irrep 8)→Pnma(+ M irrep 3 or 5)");
     expect(t).toContain("Pm-3m→P4/mbm(M irrep 3 or 5)→Pnma(+ R irrep 8)");

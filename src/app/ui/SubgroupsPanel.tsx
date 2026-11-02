@@ -44,7 +44,7 @@ import { DEFAULT_BOUND, SupercellBound, boundLabel, formatMatrix } from "@/app/u
 import { InfoBadge } from "@/app/ui/InfoBadge";
 import { chipName, kChips, sameCellGraph, sameCellListing, type LatticeCounts, type PickerAction, type SubgroupRow } from "@/app/ui/subgroupPicker";
 import {
-  DEFAULT_FILTERS, childrenOf, collapseTies, compactName, foldedFiltersSet, groupRows, rowPasses, setLine, setsFor, shortName, starShort, tagOf, visibleGroups,
+  DEFAULT_FILTERS, childrenOf, collapseTies, compactName, foldedFiltersSet, groupRows, rowPasses, setLine, shortName, starShort, tagOf, visibleGroups,
   type GraphNode, type ListFilters, type ReachKind, type RowGroup, type ShownGroup,
 } from "@/app/ui/subgroupList";
 import { SubgroupDetail } from "@/app/ui/SubgroupDetail";
@@ -347,11 +347,14 @@ function Segments<T extends string>({ value, options, onChange, label }: { value
   );
 }
 
-/** A merged row in the list (or a node in the tree): name #IT · cell · domains · tag, in one plain line. */
-function RowLine({ g, ks, selected, active, onPick, lead, trail, dim }: { g: ShownGroup; ks: readonly string[]; selected: boolean; active: boolean; onPick: () => void; lead?: ReactNode; trail?: ReactNode; dim?: boolean }): JSX.Element {
-  const first = g.shown[0]!;
-  const sets = setsFor(first, ks);
-  const tied = collapseTies(sets.length > 0 ? sets : first.reach.sets)[0];
+/**
+ * A merged row in the list (or a node in the tree): name #IT · cell · domains · tag, in one plain line. The tag
+ * names the irreps of one variant, its first reaching set (what its Activate kicks): the variant picked in the
+ * detail when this row is selected, else the first one the filters keep.
+ */
+function RowLine({ g, variant, selected, active, onPick, lead, trail, dim }: { g: ShownGroup; variant?: SubgroupRow; selected: boolean; active: boolean; onPick: () => void; lead?: ReactNode; trail?: ReactNode; dim?: boolean }): JSX.Element {
+  const first = variant ?? g.shown[0]!;
+  const tied = collapseTies(first.reach.sets)[0];
   const coupled = first.reach.kind === "coupled";
   return (
     <div
@@ -562,7 +565,7 @@ function Picker({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCel
   const kindLabel: Record<ReachKind, string> = { one: "one irrep", two: "up to two", all: `all ${total}` };
 
   const listBody = view === "list" ? (
-    <ListBody visible={visible} filters={filters} selected={selected?.group ?? null} activeKey={activeKey} onPick={(g) => pick(g.group, null)} />
+    <ListBody visible={visible} selected={selected?.group ?? null} selectedRow={selRow} activeKey={activeKey} onPick={(g) => pick(g.group, null)} />
   ) : (
     <TreeBody
       graph={graph}
@@ -695,7 +698,7 @@ function Picker({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCel
   );
 }
 
-function ListBody({ visible, filters, selected, activeKey, onPick }: { visible: readonly ShownGroup[]; filters: ListFilters; selected: string | null; activeKey: string | null; onPick: (g: ShownGroup) => void }): JSX.Element {
+function ListBody({ visible, selected, selectedRow, activeKey, onPick }: { visible: readonly ShownGroup[]; selected: string | null; selectedRow: SubgroupRow | null; activeKey: string | null; onPick: (g: ShownGroup) => void }): JSX.Element {
   if (visible.length === 0) return <p style={{ padding: 12, margin: 0, color: color.secondary, fontSize: fz.small }}>No subgroup matches. Loosen a filter or a chip.</p>;
   return (
     <div>
@@ -704,7 +707,7 @@ function ListBody({ visible, filters, selected, activeKey, onPick }: { visible: 
         return (
           <Fragment key={g.group.key}>
             {head ? <div style={{ ...uppercaseLabel, fontSize: 10, padding: "5px 10px 2px", background: color.muted2, borderTop: `1px solid ${color.subtle2}`, position: "sticky", top: 0, zIndex: 1 }}>index {g.group.index}</div> : null}
-            <RowLine g={g} ks={filters.ks} selected={selected === g.group.key} active={activeKey !== null && g.group.variants.some((v) => v.key === activeKey)} onPick={() => onPick(g)} />
+            <RowLine g={g} {...(selected === g.group.key && selectedRow ? { variant: selectedRow } : {})} selected={selected === g.group.key} active={activeKey !== null && g.group.variants.some((v) => v.key === activeKey)} onPick={() => onPick(g)} />
           </Fragment>
         );
       })}
@@ -775,7 +778,6 @@ function TreeBody(p: {
           <div key={path} data-tree={key}>
             <RowLine
               g={{ group: { ...group, variants: [row] }, shown: [row] }}
-              ks={p.filters.ks}
               selected={p.selectedRow === row.key}
               active={p.activeKey === row.key}
               onPick={() => p.onPick(row)}
