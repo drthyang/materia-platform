@@ -2,7 +2,7 @@
  * The Subgroups page's supercell bound (subgroup engine, Phase 2): the
  * supercell P a child's cell must fit (default 2×2×2 conventional; presets, or
  * any integer or centred P). The page lists the subgroups whose cell fits it
- * under "By subgroup" and offers its stars as k-point chips under "By irrep"
+ * in the subgroup list and offers its stars as the list's k-point chips
  * (subgroupPicker.ts). A large bound takes seconds.
  */
 
@@ -123,7 +123,7 @@ export function SupercellBound({ value, onChange, disabled = false }: { value: S
         width={300}
         align="right"
         ariaLabel="About the supercell"
-        text="The largest cell a child may have, as P (its columns are the supercell's axes in the parent's conventional basis). By subgroup lists the subgroups whose cell fits it (in some orientation); every k-point with k·t an integer on that cell enters By irrep as a chip: 2×2×2 holds a cubic perovskite's zone-boundary points X, M and R. A larger bound takes longer."
+        text="The largest cell a child may have, as P (its columns are the supercell's axes in the parent's conventional basis). The list keeps the subgroups whose cell fits it (in some orientation); every k-point with k·t an integer on that cell is a chip above the list: 2×2×2 holds a cubic perovskite's zone-boundary points X, M and R. A larger bound takes longer."
       />
       {error && <span style={{ fontSize: fz.micro, color: color.warnInk }}>{error}</span>}
     </span>

@@ -269,7 +269,7 @@ describe("By subgroup on SrTiO₃, 2×2×2: every subgroup that fits, each with 
     const tree = gammaIrrepTree(m.loaded)!;
     const branch = tree.find((b) => b.subgroups.some((s) => s.identity.number === 99))!;
     const sub = branch.subgroups.find((s) => s.identity.number === 99)!;
-    expect(p4mm.detail).toContain(`(Γ irrep 10 of 10 is ${branch.term.irrep.label} on the By irrep view's Γ chip.)`);
+    expect(p4mm.detail).toContain(`(Γ irrep 10 of 10 is ${branch.term.irrep.label} in the activated modes' labels.)`);
     expect(outcome(activate(m, p4mm.action))).toEqual(outcome(withActivatedMode(m, branch.term, sub).model));
     // The t-subgroups no displacive irrep reaches alone: the old t-lattice path, node for node.
     const nodes = subgroupClassRepresentatives(structuralSubgroupLattice(m.loaded));

@@ -366,7 +366,6 @@ function RowLine({ g, ks, selected, active, onPick, lead, trail, dim }: { g: Sho
           onPick();
         }
       }}
-      className="wb-sgrow"
       style={{
         display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", cursor: "pointer", minWidth: 0,
         background: selected ? color.primaryTintBg : "transparent", borderLeft: `3px solid ${selected ? color.primary : "transparent"}`,

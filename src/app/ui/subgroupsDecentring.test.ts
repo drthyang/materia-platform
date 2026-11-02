@@ -1,8 +1,8 @@
 /**
  * The Subgroups page's Phase-1 additions on the GaTa₄Se₈ demo (F-43m): the
  * decentring X irreps with their isotropy subgroups (the X chip), the
- * same-cell lattice's k- and general subgroups (By subgroup), the
- * cell-multiplying L and W chips, and both ways of lowering the symmetry to
+ * same-cell lattice's k- and general subgroups, the cell-multiplying L and W
+ * chips (the list's k-point filters), and both ways of lowering the symmetry to
  * P2₁3 in the parent's cell — the order parameter kicked, the modes by parent
  * irrep, and ISODISTORT's amplitudes in the report.
  */
@@ -36,7 +36,6 @@ describe("the Subgroups page at the decentring k-points", () => {
       onActivateSameCell: noop, onActivateSupercell: noop,
       modes: null, modeCount: null, busy: false,
       onActivateMode: noop, onActivateSubgroup: noop, onClear: noop, onOpenModel: noop,
-      initialView: "irrep",
     })).replace(/<!-- -->/g, "");
     for (const name of ["Γ, same cell", "X, same cell", "L, supercell", "W, supercell"]) expect(out).toContain(`aria-label="${name}"`);
     // The X chip's rows: the decentring tree's, generic labels, each child in one line.

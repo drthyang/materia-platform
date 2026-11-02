@@ -346,7 +346,7 @@ export function SubgroupDetail(p: DetailProps): JSX.Element {
         </p>
       </Section>
 
-      <div style={{ position: p.sheet ? "sticky" : "static", bottom: 0, background: color.surface, padding: "12px 0 4px" }}>
+      <div style={{ position: "sticky", bottom: 0, background: color.surface, padding: p.sheet ? "12px 0 12px" : "10px 0 2px", borderTop: `1px solid ${color.subtle2}` }}>
         <button
           type="button"
           onClick={() => p.onActivate(row)}

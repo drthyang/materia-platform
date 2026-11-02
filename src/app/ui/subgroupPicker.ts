@@ -380,7 +380,7 @@ function rowDetail(o: {
   } else {
     parts.push(`No irrep, or set of up to ${r.searchedUpTo}, reaches it in this bound.`);
   }
-  if (o.gammaAlias) parts.push(`(${o.gammaAlias} on the By irrep view's Γ chip.)`);
+  if (o.gammaAlias) parts.push(`(${o.gammaAlias} in the activated modes' labels.)`);
   const still = [...r.primary, ...(r.coupled ?? [])].filter((d) => o.moves && !o.moves(d.irrep));
   if (still.length > 0) parts.push(`${still.map((d) => d.irrep.irrep.label).join(", ")} ${still.length === 1 ? "moves" : "move"} no atom of this structure.`);
   parts.push(r.secondary.length > 0 ? `Secondary (allowed here, induced by coupling): ${r.secondary.map((s) => s.irrep.irrep.label).join(", ")}.` : "No secondary irrep.");
@@ -720,7 +720,7 @@ export function subgroupSummary(o: {
   /** The cell-multiplying part: its row count and lattice counts (latticeCounts), or null while it is not there. */
   readonly supercell: { readonly rows: number } & LatticeCounts | null;
 }): { readonly line: string; readonly detail: string } {
-  const how = `Each row names the irreps that lower ${o.parent} to it: a primary irrep, one of whose isotropy subgroups it is (the child By irrep lists), or, when there is none, the fewest irreps coupled whose joint isotropy subgroup it is. The other irreps it allows, the secondary ones, are behind the row's "?". The cell is the parent's ("same cell"), or the multiple of the parent's cell along its axes that repeats the child's. Irreps carry generic labels ("R irrep 8 of 10"), not ISODISTORT's.`;
+  const how = `Each row names the irreps that lower ${o.parent} to it: a primary irrep, one of whose isotropy subgroups it is (an isotropy subgroup of that irrep), or, when there is none, the fewest irreps coupled whose joint isotropy subgroup it is. The other irreps it allows, the secondary ones, are behind the row's "?". The cell is the parent's ("same cell"), or the multiple of the parent's cell along its axes that repeats the child's. Irreps carry generic labels ("R irrep 8 of 10"), not ISODISTORT's.`;
   if (!o.supercell) {
     return { line: `${plural(o.sameCell, "subgroup")} keep the cell`, detail: `The subgroups of ${o.parent} that keep its conventional cell, by index. ${how}` };
   }
