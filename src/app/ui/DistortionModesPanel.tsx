@@ -55,6 +55,8 @@ interface Props {
   /** The k-point and parent-site chips chosen (the page holds them for the 3D highlight); absent, the panel holds its own. */
   readonly filter?: ModeFilter;
   readonly onFilter?: (filter: ModeFilter) => void;
+  /** Keep each row on one line (a wide panel beside the 3D view); a narrow one wraps them. */
+  readonly oneLineRows?: boolean;
 }
 
 /** Import ▾: the two file loaders, opened inline (a popover would be clipped by the scrolling box). */
@@ -104,7 +106,7 @@ export function ImportMenu({ onLoadParentCif, onLoadModeCif, busy = false }: { o
   );
 }
 
-export function DistortionModesPanel({ modeSet, modes, params, result, spaceGroup, ownModes, shownModeId, onShowMode, onOpenSubgroups, onExportModeCif, onLoadParentCif, onLoadModeCif, busy = false, onParamChange, filter: heldFilter, onFilter }: Props): JSX.Element {
+export function DistortionModesPanel({ modeSet, modes, params, result, spaceGroup, ownModes, shownModeId, onShowMode, onOpenSubgroups, onExportModeCif, onLoadParentCif, onLoadModeCif, busy = false, onParamChange, filter: heldFilter, onFilter, oneLineRows = false }: Props): JSX.Element {
   const groups = useMemo(() => (modeSet ? modeGroups(modeSet) : null), [modeSet]);
   const [ownFilter, setOwnFilter] = useState<ModeFilter>(ALL_MODES);
   const setFilter = onFilter ?? setOwnFilter;
@@ -246,8 +248,8 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
               return [
                 header && irrepTotal ? (
                   <tr key={`${m.id}-irrep`} style={{ borderTop: `1px solid ${color.border}`, background: color.subtle }}>
-                    <td colSpan={6} style={{ padding: "3px 8px", color: color.secondary }} title={`The parent's irrep at k = (${header.k.map((x) => +x.toFixed(4)).join(", ")})${header.direction ? `, order-parameter direction ${header.direction} in MATERIA's basis of the irrep` : ""}: its modes below, its total amplitude added in quadrature, as ISODISTORT reports one per irrep`}>
-                      {header.label}{header.direction ? ` ${header.direction}` : ""} · k = ({header.k.map((x) => +x.toFixed(4)).join(", ")}) · total A_s {irrepTotal.as.toFixed(5)}, A_p {irrepTotal.ap.toFixed(5)}
+                    <td colSpan={6} style={{ padding: "3px 8px", color: color.secondary, ...(oneLineRows ? { whiteSpace: "nowrap" } : {}) }} title={`The parent's irrep at k = (${header.k.map((x) => +x.toFixed(4)).join(", ")})${header.direction ? `, order-parameter direction ${header.direction} in MATERIA's basis of the irrep` : ""}: its modes below, its total amplitude added in quadrature, as ISODISTORT reports one per irrep`}>
+                      {header.label}{header.direction ? ` ${header.direction}` : ""} · total A_s {irrepTotal.as.toFixed(5)}, A_p {irrepTotal.ap.toFixed(5)}
                       {sitePart && site ? ` · ${site.label} A_s ${sitePart.as.toFixed(5)}` : ""}
                     </td>
                   </tr>
@@ -262,7 +264,7 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
                     background: shown ? "rgba(22, 163, 74, 0.1)" : i === 0 ? "rgba(90, 130, 255, 0.06)" : "transparent",
                   }}
                 >
-                  <td style={{ padding: "3px 8px", color: shown ? "#15803d" : i === 0 ? color.primary : color.ink }}>
+                  <td style={{ padding: "3px 8px", ...(oneLineRows ? { whiteSpace: "nowrap" } : {}), color: shown ? "#15803d" : i === 0 ? color.primary : color.ink }}>
                     {shown ? "▸ " : ""}{m.label}
                   </td>
                   <td style={{ padding: "3px 8px", textAlign: "right" }}>{(p?.value ?? 0).toFixed(5)}</td>
@@ -361,7 +363,7 @@ function ModeChips({ groups, filter, kChip, site, rows, params, cells, busy, onC
                   disabled={empty}
                   label={<>{k.label}{n !== null && n > 1 ? <span style={{ color: color.secondary }}> ×{n}</span> : null}</>}
                   aria={`${k.label}, ${n === null ? "k-point" : n === 1 ? "same cell" : `supercell ×${n}`}`}
-                  title={`${k.label}: ${plural(k.modeIds.length, "mode")}, total A_s ${t.as.toFixed(5)} Å${n !== null && n > 1 ? ` · one arm's wave repeats over ${n} parent cells` : ""}${empty && site ? ` · none on ${site.label}` : ""}`}
+                  title={`${k.label}${k.k ? ` (k = (${k.k.map((x) => +x.toFixed(4)).join(", ")}))` : ""}: ${plural(k.modeIds.length, "mode")}, total A_s ${t.as.toFixed(5)} Å${n !== null && n > 1 ? ` · one arm's wave repeats over ${n} parent cells` : ""}${empty && site ? ` · none on ${site.label}` : ""}`}
                   onClick={() => onChoose({ ...filter, k: filter.k === k.id ? null : k.id })}
                 />
               );
@@ -393,8 +395,7 @@ function ModeChips({ groups, filter, kChip, site, rows, params, cells, busy, onC
         <span style={{ fontFamily: mono, color: color.ink }}>
           <ShortLineText text={`${scope}: A_s ${total.as.toFixed(5)} Å, A_p ${total.ap.toFixed(5)} Å · ${free}/${rows.length} free`} detail={detail} width={340} />
         </span>
-        {onParamChange && btn(false)}
-        {onParamChange && btn(true)}
+        {onParamChange && <span style={{ display: "inline-flex", gap: 6, whiteSpace: "nowrap" }}>{btn(false)}{btn(true)}</span>}
       </div>
       </div>
     </>

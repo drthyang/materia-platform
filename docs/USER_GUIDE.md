@@ -602,9 +602,10 @@ shows the modes being refined.
   free/fixed state, and names the parent or subgroup they lower to. Click a
   **Distortion modes** row to draw the mode as green arrows. Modes by parent
   irrep (a supercell child, a decomposition, a mode CIF) are grouped under
-  their irrep, each group headed by the irrep, its k-point, its
-  order-parameter direction and its total A_s and A_p, as ISODISTORT reports
-  one per irrep. **Mode CIF ↓** saves the child and these modes, at their
+  their irrep, each group headed by the irrep, its order-parameter direction
+  and its total A_s and A_p, as ISODISTORT reports one per irrep (its
+  k-point is in the header's tooltip and on the k-point chip). On a wide
+  desktop window the table sits beside the 3D view. **Mode CIF ↓** saves the child and these modes, at their
   current amplitudes, as an ISODISTORT mode CIF: ISODISTORT's tags, A_s
   values and normfactors, with MATERIA's generic irrep names. It reads back
   here exactly, and ISODISTORT-aware programs such as GSAS-II read its

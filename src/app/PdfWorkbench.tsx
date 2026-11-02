@@ -37,6 +37,7 @@ import {
 } from "@/app/pdfPage";
 import { SiteTotals } from "@/app/ui/SiteTotals";
 import { DistortionModesPanel } from "@/app/ui/DistortionModesPanel";
+import { useMediaQuery } from "@/app/ui/useMediaQuery";
 import { ALL_MODES, highlightedSites, modeGroups, type ModeFilter } from "@/app/ui/modeGroups";
 import { SubgroupsPanel, decentringIrrepTree, gammaIrrepTree, sameCellLattice, type IrrepSubgroup, type SameCellNode } from "@/app/ui/SubgroupsPanel";
 import { sharedSites, siteSumRangeWarnings } from "@/core/workflow/structureRefinement";
@@ -144,6 +145,9 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   // on the 3D model. Click the row to toggle; any mode-set change invalidates
   // the selection.
   const [shownModeId, setShownModeId] = useState<string | null>(null);
+  // A wide desktop window: the 3D view and the mode table side by side (the 3D Model view below).
+  const wideDesktop = useMediaQuery("(min-width: 1200px) and (min-height: 541px) and (pointer: fine)");
+  const modesBeside = wideDesktop && !multiPhase && modeSet !== null;
   // The table's k-point and parent-site chips (modeGroups.ts): the site's atoms are highlighted in 3D.
   const [modeFilter, setModeFilter] = useState<ModeFilter>(ALL_MODES);
   useEffect(() => {
@@ -1028,7 +1032,12 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                   internally. Before this, the wrapper shrank to its 360 px
                   minimum while the viewer's own chrome (toolbar, view row,
                   legend) overflowed it — painting over the modes table. */}
-              <div className="wb-3d-host" style={{ flex: "1 1 auto", minHeight: 320, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              {/* On a wide desktop, with modes in force, the viewer and the
+                  mode table sit side by side, so the table has the card's
+                  full height (stacked, the viewer's minimum left it a row or
+                  two). Elsewhere they stack as before. */}
+              <div style={modesBeside ? { flex: "1 1 auto", minHeight: 0, display: "flex", gap: 12 } : { display: "contents" }}>
+              <div className="wb-3d-host" style={{ flex: modesBeside ? "1 1 42%" : "1 1 auto", minWidth: 0, minHeight: 320, display: "flex", flexDirection: "column", overflow: "hidden" }}>
                 <Suspense fallback={<div style={{ flex: 1, display: "grid", placeItems: "center", color: color.secondary, fontSize: 13 }}>Loading 3D viewer…</div>}>
                   <StructureView
                     key={viewStructure.id + viewPhase}
@@ -1057,7 +1066,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
               {/* The modes being refined; the symmetry they lower to is
                   chosen (and cleared) on the Subgroups page. */}
               {!multiPhase && (
-                <div className="wb-grow-box" style={{ flex: "0 1 auto", minHeight: modeSet ? 90 : 0, maxHeight: 300, overflowY: "auto", marginTop: 6 }}>
+                <div className="wb-grow-box" style={modesBeside ? { flex: "1 1 58%", minWidth: 0, minHeight: 0, overflowY: "auto" } : { flex: "0 1 auto", minHeight: modeSet ? 90 : 0, maxHeight: 300, overflowY: "auto", marginTop: 6 }}>
                   <DistortionModesPanel
                     modeSet={modeSet}
                     modes={modes}
@@ -1075,9 +1084,11 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                     onParamChange={onParamChange}
                     filter={modeFilter}
                     onFilter={setModeFilter}
+                    oneLineRows={modesBeside}
                   />
                 </div>
               )}
+              </div>
               <p style={{ marginTop: 4, fontSize: 12, color: color.secondary }}>
                 {viewStructure.name || "Structure"}
                 {viewStructure.spaceGroup.hermannMauguin ? ` · ${viewStructure.spaceGroup.hermannMauguin}` : ""}

@@ -26,6 +26,9 @@ release fixes bugs.
     **Free all** frees the same rows as freeing each one by hand.
   - A site chip highlights its atoms in 3D: the others fade and its own get a
     halo. A row click's green arrows are kept to the chosen site.
+  - On a wide desktop window the mode table sits beside the 3D view, at the
+    card's full height. Each irrep header now fits on one line: its k-point
+    moved to the header's tooltip and the k chip.
   - Only the app's layer changed. Mode labels, the refinement, its parameters
     and everything the Agent or an MCP client reads are as they were.
 
