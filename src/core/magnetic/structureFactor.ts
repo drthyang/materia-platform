@@ -16,12 +16,13 @@ import type { Complex, Vec3 } from "@/core/math/types";
 import type { StructureModel, DisplacementParameters, SymmetryOperation } from "@/core/crystal/types";
 import type { MagneticModel } from "@/core/magnetic/types";
 import type { MagneticFormFactorTable } from "@/core/scattering/types";
-import { add, expι, scale as cscale, ZERO } from "@/core/math/complex";
-import { dSpacing } from "@/core/crystal/unitCell";
+import { ZERO } from "@/core/math/complex";
+import { reciprocalTensorA } from "@/core/crystal/unitCell";
 import { applyOperation, centringOffsets, centringTranslations, isReciprocalLatticeVector } from "@/core/crystal/symmetry";
 import { momentAnchorPosition } from "@/core/crystal/cellExpansion";
 import { magneticTable } from "@/core/scattering/magnetic";
-import { crystalComponentsToCartesian, perpendicularMoment, qCartesianFor } from "@/core/magnetic/moment";
+import { crystalComponentsToCartesian, qCartesianFor } from "@/core/magnetic/moment";
+import { norm, normalize } from "@/core/math/vec3";
 import { determinant } from "@/core/math/mat3";
 import { anisotropicDebyeWaller, debyeWaller } from "@/core/diffraction/structureFactor";
 import { rotateUAniso } from "@/core/crystal/adp";
@@ -369,8 +370,13 @@ export function magneticStructureFactorEvaluator(
     });
   }
 
+  // Reflection-independent geometry, once: the reciprocal tensor of 1/d²
+  // (inverseDSquared's coefficients, in its order).
+  const A = reciprocalTensorA(cell);
+
   return (h, k, l) => {
-    const d = dSpacing(cell, h, k, l);
+    const inv = A.a11 * h * h + A.a22 * k * k + A.a33 * l * l + A.a12 * h * k + A.a13 * h * l + A.a23 * k * l;
+    const d = inv <= 0 ? Infinity : 1 / Math.sqrt(inv);
     const s = d === Infinity ? 0 : 1 / (2 * d);
     const q = qFor(h, k, l);
 
@@ -388,50 +394,52 @@ export function magneticStructureFactorEvaluator(
     if (armSign === 0) return { vector: [ZERO, ZERO, ZERO], squared: 0 };
     const conjugate = arm === 0.5 && armSign === -1;
 
-    let fx = ZERO;
-    let fy = ZERO;
-    let fz = ZERO;
+    // M⊥ = M − q̂(M·q̂) (perpendicularMoment's arithmetic, q̂ formed once).
+    const qhat: Vec3 | null = norm(q) === 0 ? null : normalize(q);
+    const perp = (m: Vec3): Vec3 => {
+      if (!qhat) return m;
+      const dm = m[0] * qhat[0] + m[1] * qhat[1] + m[2] * qhat[2];
+      return [m[0] - qhat[0] * dm, m[1] - qhat[1] * dm, m[2] - qhat[2] * dm];
+    };
+
+    // F_M's three complex components, accumulated in the historical order.
+    let xr = 0, xi = 0, yr = 0, yi = 0, zr = 0, zi = 0;
     for (const pm of prepared) {
       const fMag = pm.hasFormFactor ? table.j0(pm.ffId, s) : 1;
       const isoDw = pm.bIso !== null ? debyeWaller(pm.bIso, s) : null;
       for (const im of pm.images) {
         const p = im.p;
-        const mPerp = perpendicularMoment(im.mCart, q);
+        const mPerp = perp(im.mCart);
         const phase = TWO_PI * (h * p[0] + k * p[1] + l * p[2] - armSign * im.kc);
-        const ph = expι(phase);
+        const cr = Math.cos(phase);
+        const ci = Math.sin(phase);
         const dw = isoDw ?? anisotropicDebyeWaller(cell, im.uAniso!, h, k, l);
         const w = MAGNETIC_PREFACTOR * pm.occupancy * fMag * dw * arm;
         if (!im.sCart) {
           // Real coefficient (k = 0, self-conjugate k, or no quadrature part):
           // the historical path, kept operation-for-operation so every k = 0
           // golden stays bit-identical.
-          fx = add(fx, cscale(ph, w * mPerp[0]));
-          fy = add(fy, cscale(ph, w * mPerp[1]));
-          fz = add(fz, cscale(ph, w * mPerp[2]));
+          const ax = w * mPerp[0], ay = w * mPerp[1], az = w * mPerp[2];
+          xr += cr * ax; xi += ci * ax;
+          yr += cr * ay; yi += ci * ay;
+          zr += cr * az; zi += ci * az;
           continue;
         }
         // Complex coefficient: (M⊥^cos + i·M⊥^sin)·e^{iφ}, the sine part
         // projected by the same q̂ (both linear).
         const sc = im.sCart;
-        const sPerp = perpendicularMoment(conjugate ? [-sc[0], -sc[1], -sc[2]] : sc, q);
-        const acc = [fx, fy, fz];
-        for (let a = 0; a < 3; a++) {
-          const cv = w * mPerp[a]!;
-          const sv = w * sPerp[a]!;
-          acc[a] = add(acc[a]!, { re: cv * ph.re - sv * ph.im, im: cv * ph.im + sv * ph.re });
-        }
-        fx = acc[0]!;
-        fy = acc[1]!;
-        fz = acc[2]!;
+        const sPerp = perp(conjugate ? [-sc[0], -sc[1], -sc[2]] : sc);
+        const cx = w * mPerp[0], sx = w * sPerp[0];
+        const cy = w * mPerp[1], sy = w * sPerp[1];
+        const cz = w * mPerp[2], sz = w * sPerp[2];
+        xr += cx * cr - sx * ci; xi += cx * ci + sx * cr;
+        yr += cy * cr - sy * ci; yi += cy * ci + sy * cr;
+        zr += cz * cr - sz * ci; zi += cz * ci + sz * cr;
       }
     }
 
-    const squared =
-      fx.re * fx.re + fx.im * fx.im +
-      fy.re * fy.re + fy.im * fy.im +
-      fz.re * fz.re + fz.im * fz.im;
-
-    return { vector: [fx, fy, fz], squared };
+    const squared = xr * xr + xi * xi + yr * yr + yi * yi + zr * zr + zi * zi;
+    return { vector: [{ re: xr, im: xi }, { re: yr, im: yi }, { re: zr, im: zi }], squared };
   };
 }
 

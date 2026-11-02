@@ -18,6 +18,7 @@ import { magneticStructureFactor, MAGNETIC_PREFACTOR } from "@/core/magnetic/str
 import { magneticSatellites } from "@/core/magnetic/satellites";
 import { satelliteIntensities } from "@/core/magnetic/powderAverage";
 import { magneticLines } from "@/core/magnetic/magneticLines";
+import { computeNormalizedMpdf } from "@/core/magnetic/mpdf";
 
 /**
  * The powder intensity of a magnetic line is |F_M⊥|² summed over every member
@@ -222,6 +223,7 @@ describe("every domain of a magnetic group gives the same powder lines (THY-58)"
       expect(base.filter((x) => x.squared > 0).length).toBeGreaterThan(5);
       let distinctDomains = 0;
       let readAtOneMember = 0;
+      let worst = 0;
       const seen = new Set<string>();
       for (const g of parentRotations(c.structure)) {
         const dom = domainOf(c.structure, c.magnetic, g);
@@ -236,10 +238,11 @@ describe("every domain of a magnetic group gives the same powder lines (THY-58)"
           }
         }
         const lines = satelliteIntensities(c.structure, dom, D_MIN, D_MAX);
-        expectSamePattern(base, byD(lines));
+        worst = Math.max(worst, expectSamePattern(base, byD(lines)));
         // How the domains differ: the old reading (one member × the count) differs from one domain to another.
         const old = byD(lines.map((s) => ({ d: s.d, squared: s.multiplicity * magneticStructureFactor(c.structure, dom, s.h, s.k, s.l).squared })));
-        const key = old.map((x) => x.squared.toPrecision(6)).join(",");
+        const oldMax = Math.max(...old.map((x) => x.squared));
+        const key = old.map((x) => Math.round((1e6 * x.squared) / oldMax)).join(",");
         if (!seen.has(key)) {
           seen.add(key);
           distinctDomains++;
@@ -249,6 +252,33 @@ describe("every domain of a magnetic group gives the same powder lines (THY-58)"
       // The old reading gave the orientations different patterns; the sum gives them one.
       expect(distinctDomains).toBeGreaterThan(1);
       expect(readAtOneMember).toBeGreaterThan(0);
+      console.log(`[THY-58 domains] ${c.name}: ${base.filter((x) => x.squared > 0).length} lines, worst relative difference ${worst.toExponential(1)} over ${parentRotations(c.structure).length} orientations (the one-member reading gave ${distinctDomains} different patterns)`);
+    }, 60000);
+  }
+});
+
+// ── the magnetic PDF: a real-space pair sum, domain-independent already ───
+
+describe("the magnetic PDF does not read satellites: every domain gives the same f(r)", () => {
+  /** f(r) of a model's spin box (the mPDF page's spin field), off-grid so no pair sits on a bin edge. */
+  const fOf = (structure: StructureModel, magnetic: MagneticModel): Float64Array => {
+    const box = expandSpinField(structure, magnetic);
+    const spins = box.atoms.filter((a) => a.moment).map((a) => ({ position: a.site.position, moment: crystalComponentsToCartesian(box.cell, a.moment!) }));
+    const grid = Array.from({ length: 1400 }, (_, i) => 0.5037 + 0.01 * i);
+    return computeNormalizedMpdf(box.cell, spins, grid, { psigma: 0.1 });
+  };
+  for (const i of [0, 2]) {
+    const c = CASES[i]!();
+    it(`${c.name}: all ${parentRotations(c.structure).length} orientations`, () => {
+      const base = fOf(c.structure, c.magnetic);
+      const top = Math.max(...base.map(Math.abs));
+      expect(top).toBeGreaterThan(0);
+      for (const g of parentRotations(c.structure)) {
+        const f = fOf(c.structure, domainOf(c.structure, c.magnetic, g));
+        let worst = 0;
+        for (let j = 0; j < base.length; j++) worst = Math.max(worst, Math.abs(f[j]! - base[j]!));
+        expect(worst).toBeLessThan(1e-9 * top);
+      }
     }, 60000);
   }
 });
@@ -305,7 +335,8 @@ describe("a brute-force sum over every Q matches the powder lines (THY-58)", () 
       const forward = byD(satelliteIntensities(c.structure, c.magnetic, D_MIN, D_MAX));
       const brute = bruteForce(c.structure, c.magnetic, D_MIN, D_MAX);
       expect(forward.filter((x) => x.squared > 0).length).toBeGreaterThan(5);
-      expectSamePattern(brute, forward);
+      const worst = expectSamePattern(brute, forward);
+      console.log(`[THY-58 brute force] ${c.name}: ${forward.filter((x) => x.squared > 0).length} lines, worst relative difference ${worst.toExponential(1)}`);
     }, 60000);
   }
 });
