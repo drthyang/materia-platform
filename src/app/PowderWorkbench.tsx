@@ -86,7 +86,7 @@ import { SummaryCards, type SummaryCardData } from "@/app/ui/SummaryCards";
 import { InfoBadge } from "@/app/ui/InfoBadge";
 import { WorkbenchPlot, type FitRangeSelection } from "@/app/ui/WorkbenchPlot";
 import { ParameterPanel } from "@/app/ui/ParameterPanel";
-import { color as theme, card as themeCard, uppercaseLabel as themeLabel, mono as themeMono, fz, toolbarBtn, resetRangeBtn, space } from "@/app/theme";
+import { color as theme, card as themeCard, uppercaseLabel as themeLabel, mono as themeMono, fz, toolbarBtn, resetRangeBtn, space, cardHeadRow, cardHeadLabel, plotToolbar } from "@/app/theme";
 import { SegmentedToggle } from "@/app/ui/SegmentedToggle";
 import { excludedPointMask } from "@/core/refinement/factors";
 import { secondLine, type InstrumentConstants, type InstrumentParameters } from "@/core/diffraction/instrument";
@@ -1372,18 +1372,18 @@ export function PowderWorkbench({
 
   function renderStep(which: number): JSX.Element {
     switch (which) {
-      case 0: // Setup & refinement: quality rail | plot | parameter panel.
+      case 0: { // Setup & refinement: quality rail | plot | parameter panel.
+        const cardTitle = plotMode === "structure" ? "Crystal structure — unit cell" : plotMode === "validation" ? "Validation" : plotMode === "posterior" ? "Bayesian posterior — free parameters" : "Powder pattern";
         return (
           <>
             <SummaryCards cards={summaryCards} />
             <div className="wb-work2">
               <div data-agent-card="pattern" style={{ ...themeCard, padding: space.inset, display: "flex", flexDirection: "column", height: "100%" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, rowGap: 6, marginBottom: 8, flexWrap: "wrap" }}>
-                  <span style={themeLabel}>
-                    {plotMode === "structure" ? "Crystal structure — unit cell" : plotMode === "validation" ? "Validation" : plotMode === "posterior" ? "Bayesian posterior — free parameters" : "Powder pattern"}
-                  </span>
+                {/* The title row: label, figures, view tabs — the tabs sit here on every tab. */}
+                <div className="wb-card-head" style={cardHeadRow}>
+                  <span style={{ ...themeLabel, ...cardHeadLabel }} title={cardTitle}>{cardTitle}</span>
                   {plotMode !== "structure" && (
-                    <span style={{ display: "flex", gap: 14, fontFamily: themeMono, fontSize: 12.5 }}>
+                    <span style={{ display: "flex", gap: 14, flex: "none", fontFamily: themeMono, fontSize: 12.5 }}>
                       <span style={{ color: theme.secondary }} title="Weighted profile R for the current parameters, colored by wR/R_exp (Toby 2006)">
                         wR <b style={{ color: qualityInk(liveGof ?? curvesGof) }}>{liveWr}%</b>
                       </span>
@@ -1392,17 +1392,13 @@ export function PowderWorkbench({
                       </span>
                     </span>
                   )}
-                  {plotMode === "curves" && !tofViewOnly && fitRangeActive && (
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 7, fontFamily: themeMono, fontSize: 12, color: theme.secondary }} title="The data range used for refinement (set with the blue handles)">
-                      fit {displayFitRange.min.toFixed(2)}–{displayFitRange.max.toFixed(2)} {axisShortLabel(effectiveUnit)}
-                      <button style={resetRangeBtn} onClick={() => setFitRange(null)} title="Refine over the full pattern again">Reset range</button>
-                    </span>
-                  )}
-                  <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, rowGap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                    {plotMode === "curves" && (
-                      <AxisUnitToggle units={displayUnits} value={effectiveUnit} onChange={setDisplayUnit} />
-                    )}
-                    {plotMode === "curves" && !tofViewOnly && (
+                  <ViewModeToggle value={plotMode} onChange={(m) => { setFocusPoint(null); setPlotMode(m); }} />
+                </div>
+                {/* The plot's own toolbar: what acts on the pattern view. */}
+                {plotMode === "curves" && (
+                  <div className="wb-plot-toolbar" style={plotToolbar}>
+                    <AxisUnitToggle units={displayUnits} value={effectiveUnit} onChange={setDisplayUnit} />
+                    {!tofViewOnly && (
                       <button
                         style={{ ...toolbarBtn, display: "inline-flex", alignItems: "center", gap: 5, ...(fitRangeActive ? {} : { opacity: 0.45, cursor: "default" }) }}
                         disabled={!fitRangeActive}
@@ -1418,9 +1414,14 @@ export function PowderWorkbench({
                         optimize view
                       </button>
                     )}
-                    <ViewModeToggle value={plotMode} onChange={(m) => { setFocusPoint(null); setPlotMode(m); }} />
+                    {!tofViewOnly && fitRangeActive && (
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 7, fontFamily: themeMono, fontSize: 12, color: theme.secondary }} title="The data range used for refinement (set with the blue handles)">
+                        fit {displayFitRange.min.toFixed(2)}–{displayFitRange.max.toFixed(2)} {axisShortLabel(effectiveUnit)}
+                        <button style={resetRangeBtn} onClick={() => setFitRange(null)} title="Refine over the full pattern again">Reset range</button>
+                      </span>
+                    )}
                   </div>
-                </div>
+                )}
                 {plotMode === "structure" ? (() => {
                   // Multi-phase: a phase picker chooses which unit cell to show.
                   // Use the REFINED phases (parameters applied: cell, positions,
@@ -1704,6 +1705,7 @@ export function PowderWorkbench({
             </div>
           </>
         );
+      }
       case 1:
         // Title row + working row (.wb-mag-page, workbench.css): the row gets
         // the leftover height so it fills the window and its two columns end

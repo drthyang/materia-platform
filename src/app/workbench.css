@@ -5,9 +5,9 @@
  * UI fills wide windows yet stays comfortable and readable on small ones.
  *
  * ALIGNMENT RULE (every page, every band): edges line up.
- *   1. One content column. The header, the notice/disclaimer bars, the footer
- *      and the page all pad with --wb-edge, so the brand mark, the banner text,
- *      the first card's border and the last menu button share one left and one
+ *   1. One content column. The header, the notice bars, the footer and the
+ *      page all pad with --wb-edge, so the brand mark, a notice's text, the
+ *      first card's border and the last menu button share one left and one
  *      right line at every window width.
  *   2. A card's border sits on that line; anything that lives outside a card
  *      (a page title row) sits flush on it too — no padding of its own.
@@ -82,8 +82,8 @@
    * Floor for the main working row. It does not set the height — the row FILLS
    * the window (see .wb-work2 / .wb-work3 / .wb-sc below), which is the only
    * way to fill a 16:9 screen without knowing how tall the chrome above it
-   * happens to be today: the beta banner wraps to two or three lines depending
-   * on width, and the summary row grows with phase badges. The previous
+   * happens to be today: the header takes one to three rows depending on
+   * width, and the summary row grows with phase badges. The previous
    * clamp(500px, 66vh, 900px) guessed instead, and was wrong at both ends of
    * the range it served — the 900px cap wasted ~290px on a 1440p screen while
    * the 500px floor pushed a 1366x768 laptop into scrolling its primary view.
@@ -841,7 +841,7 @@ html:has(.wb-run-bar) .wb-shell::after {
 
 /* ---- Whole-page scrolling on phones and short windows -----------------------
  * With fixed chrome, an iPhone in portrait spent ~40% of its height on the
- * header, the beta bar and the footer, and in landscape (~360px tall) more
+ * header and the footer, and in landscape (~360px tall) more
  * than half. Where the working rows stack anyway (and on any short window) the
  * page scrolls as one document instead: the chrome scrolls away with it, the
  * content gets the whole screen, and Safari can collapse its toolbars. A
@@ -987,11 +987,12 @@ html:has(.wb-run-bar) .wb-shell::after {
   }
 }
 
-/* Phones: tighter still. The sample-form indicator and the beta pill drop out —
- * the technique chip and the beta bar right below carry the same facts. The
- * four menus take a row of their own under the brand (they do not fit beside
- * it), so that row ends on the content edge and the History popover, which
- * hangs from its right end, spans the column. */
+/* Phones: tighter still. The sample-form indicator drops out (the technique
+ * chip says the same), and the beta pill stays beside the wordmark as a
+ * compact BETA (its version went at 820px): nothing else on a phone says the
+ * app is in beta. The four menus take a row of their own under the brand
+ * (they do not fit beside it), so that row ends on the content edge and the
+ * History popover, which hangs from its right end, spans the column. */
 @container shell (max-width: 700px) {
   .wb-header {
     padding: max(10px, var(--wb-safe-t)) var(--wb-edge) 10px !important;
@@ -1006,9 +1007,6 @@ html:has(.wb-run-bar) .wb-shell::after {
     width: 21px;
     height: 21px;
   }
-  .wb-header-wordmark {
-    margin-right: auto;
-  }
   .wb-header-title {
     font-size: 16px !important;
   }
@@ -1016,7 +1014,6 @@ html:has(.wb-run-bar) .wb-shell::after {
     font-size: 8.5px !important;
     letter-spacing: 0.32em !important;
   }
-  .wb-beta-badge,
   .wb-chips-form {
     display: none !important;
   }
@@ -1130,6 +1127,12 @@ html:has(.wb-run-bar) .wb-shell::after {
 .wb-history-nav-inline,
 .wb-history-icon {
   display: none;
+}
+
+/* The working card's view tabs end the title row (cardHeadRow in theme.ts). */
+.wb-card-head > .wb-seg {
+  margin-left: auto;
+  flex: none;
 }
 
 /* ---- Plot-card view switchers (Refinement | Validation | …) ---------------
@@ -1728,8 +1731,13 @@ html:has(.wb-run-bar) .wb-shell::after {
   outline: 2px solid #1f4fd8;
   outline-offset: -2px;
 }
+/* Pinned to its containing block's corner: one without a positioned ancestor
+ * otherwise sat at its place deep in the scrolling shell and extended the
+ * document past the app (a phone scrolled on into a blank screen). */
 .wb-sr-only {
   position: absolute;
+  top: 0;
+  left: 0;
   width: 1px;
   height: 1px;
   padding: 0;

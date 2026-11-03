@@ -12,7 +12,7 @@
 
 import type { HistoryBinding } from "@/app/historyBinding";
 import type { AgentLink } from "@/agent/link";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { EngineExportsRef } from "@/app/workbenchEngine";
 import type { PdfWorkspace } from "@/core/project/types";
 import { useOnChange } from "@/app/useOnChange";
@@ -52,6 +52,7 @@ import { BoxcarPanel, stepIndexFor, type BoxcarRun } from "@/app/ui/BoxcarPanel"
 import { boxcarPlanIssue, boxcarScannedMax, boxcarWindows, type BoxcarDirection } from "@/core/workflow/pdfBoxcar";
 import type { SampleResult } from "@/core/refinement/bayes/sampler";
 import { SummaryCards, type SummaryCardData } from "@/app/ui/SummaryCards";
+import { structureCardText } from "@/app/ui/structureCard";
 import { WorkbenchPlot } from "@/app/ui/WorkbenchPlot";
 import { SegmentedToggle } from "@/app/ui/SegmentedToggle";
 import { downloadBlob, downloadText } from "@/app/download";
@@ -60,7 +61,7 @@ import { structureToCif, magneticStructureToMcif } from "@/core/export/cif";
 import { reportHtml, type ReportInput } from "@/core/export/report";
 import type { MagneticExploration } from "@/app/reportInputs";
 import { esdsWithTies } from "@/core/refinement/constraints";
-import { card as themeCard, color, mono, secondaryButton, uppercaseLabel, fz, toolbarBtn, resetRangeBtn, space } from "@/app/theme";
+import { card as themeCard, color, mono, secondaryButton, uppercaseLabel, fz, toolbarBtn, resetRangeBtn, space, cardHeadRow, cardHeadLabel, plotToolbar } from "@/app/theme";
 
 const DATA_ACCEPT = ".gr,.sgr,.fgr,.sq,.fq,.dat,.txt,text/plain";
 const noop = (): void => {};
@@ -800,6 +801,19 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
     return () => { exportsRef.current = null; };
   }, [exportsRef]);
 
+  // The Structure card names the structure fitted: the child while one is in force (structureCard.ts).
+  const structureCard = structureCardText(structure, modes, modeSet, fitStructure);
+  const cardTitle = viewTab === "fit"
+    ? "PDF pattern — G(r)"
+    : viewTab === "reciprocal"
+      ? "Reduced data — S(Q) the G(r) was transformed from"
+      : viewTab === "model3d"
+        ? "Crystal structure — unit cell"
+        : viewTab === "posterior"
+          ? "Bayesian posterior — free parameters"
+          : viewTab === "boxcar"
+            ? "Boxcar scan — parameters vs box center r"
+            : "Lower the symmetry";
   const probeLabel = pattern.scatteringType === "neutron" ? "Neutron" : "X-ray";
   const summaryCards: SummaryCardData[] = [
     {
@@ -810,10 +824,23 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
       accept: ".cif,.mcif,.ins,.res,text/plain",
       onFile: (ownStructure && onAddPhase ? onAddPhase : onLoadCif) ?? noop,
       chip: multiPhase ? `✓ ${phases.length} phases` : "✓ parsed",
-      title: multiPhase
-        ? phases.map((p) => p.structure.name || p.id).join(" + ")
-        : `${structure.name || "structure"} · ${structure.spaceGroup.hermannMauguin ?? "—"}`,
-      meta: `a ${structure.cell.a.toFixed(4)} · b ${structure.cell.b.toFixed(4)} · c ${structure.cell.c.toFixed(4)} Å · ${structure.sites.length} sites`,
+      title: multiPhase ? phases.map((p) => p.structure.name || p.id).join(" + ") : structureCard.title,
+      meta: structureCard.meta,
+      ...(structureCard.childOf
+        ? {
+            note: (
+              <button
+                type="button"
+                className="wb-tight"
+                onClick={() => setViewTab("subgroups")}
+                title="The page fits this child. Open Subgroups: ✕ clear there returns to the parent."
+                style={childNote}
+              >
+                {structureCard.childOf}
+              </button>
+            ),
+          }
+        : {}),
       ...(multiPhase && onRemovePhase
         ? {
             phaseBadges: phases.map((p, i) => ({ id: p.id, label: p.structure.name || p.id, removable: i > 0 })),
@@ -925,35 +952,50 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
       <SummaryCards cards={summaryCards} />
       <div className="wb-work2">
         <div data-agent-card="pattern" style={{ ...themeCard, padding: space.inset, display: "flex", flexDirection: "column", height: "100%" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, rowGap: 6, marginBottom: 8, flexWrap: "wrap" }}>
-            <span style={uppercaseLabel}>
-              {viewTab === "fit"
-                ? "PDF pattern — G(r)"
-                : viewTab === "reciprocal"
-                  ? "Reduced data — S(Q) the G(r) was transformed from"
-                  : viewTab === "model3d"
-                  ? "Crystal structure — unit cell"
-                  : viewTab === "posterior"
-                    ? "Bayesian posterior — free parameters"
-                    : viewTab === "boxcar"
-                      ? "Boxcar scan — parameters vs box center r"
-                      : "Lower the symmetry"}
-            </span>
-            {viewTab === "fit" && (
-              <span style={{ display: "flex", gap: 14, fontFamily: mono, fontSize: 12.5 }}>
+          {/* The title row: label, Rw, view tabs — the tabs sit here on every tab. */}
+          <div className="wb-card-head" style={cardHeadRow}>
+            <span style={{ ...uppercaseLabel, ...cardHeadLabel }} title={cardTitle}>{cardTitle}</span>
+            {(viewTab === "fit" || viewTab === "posterior") && (
+              <span style={{ display: "flex", gap: 14, flex: "none", fontFamily: mono, fontSize: 12.5 }}>
                 <span style={{ color: color.secondary }} title="Rw over G(r) inside the fit window (uniform weights). G(r) point errors are correlated, so treat as a relative indicator.">
                   Rw <b style={{ color: rwInk(rw) }}>{Number.isFinite(rw) ? pct(rw) : "—"}</b>
                 </span>
               </span>
             )}
-            {viewTab === "fit" && (
+            <SegmentedToggle
+              options={[
+                { id: "fit", label: "Refinement", title: "Observed vs calculated G(r)" },
+                ...(hasReciprocal
+                  ? [{ id: "reciprocal" as const, label: "S(Q)", title: "The S(Q)/F(Q) this G(r) was transformed from, with its ±σ error ribbon, and what that error becomes in G(r) over the fit window" }]
+                  : []),
+                { id: "model3d", label: "3D Model", title: "3D crystal-structure model, with the distortion modes being refined — click a mode to draw its displacement pattern" },
+                { id: "subgroups", label: "Subgroups", title: "Lower the symmetry here: pick a subgroup that fits the supercell (or a k-point and one of its irreps' children), then Activate — the distortion modes it permits load into the Positions group" },
+                { id: "posterior", label: "Posterior", title: "Bayesian posterior of the free parameters (ensemble MCMC) — credible intervals, convergence diagnostics, and the posterior-vs-esd check" },
+                { id: "boxcar", label: "Boxcar", title: "Boxcar scan — refine inside a fixed-width r-window slid across G(r) and plot each parameter against the box center: how the structure changes with length scale" },
+              ] as const}
+              value={viewTab}
+              onChange={setViewTab}
+            />
+          </div>
+          {/* The plot's own toolbar: what acts on the G(r) view. */}
+          {viewTab === "fit" && (
+            <div className="wb-plot-toolbar" style={plotToolbar}>
+              <button
+                style={{ ...toolbarBtn, display: "inline-flex", alignItems: "center", gap: 5 }}
+                title="Zoom the plot onto the active fit window"
+                onClick={() => setFocusFitToken((t) => t + 1)}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+                optimize view
+              </button>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 7, fontFamily: mono, fontSize: fz.micro, color: color.secondary }} title="The r window used for refinement (set with the blue handles). Low r below r_poly is reduction artifact.">
                 fit {fitRange.min.toFixed(2)}–{fitRange.max.toFixed(2)} Å
                 <button style={resetRangeBtn} onClick={() => setModel((m) => withFitRange(m, null))} title="Reset to the default window">Reset range</button>
               </span>
-            )}
-            <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, rowGap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-              {viewTab === "fit" && gSigma && (
+              {gSigma && (
                 <label
                   style={{ display: "flex", gap: 5, alignItems: "center", fontSize: fz.micro, color: color.secondary, cursor: "pointer" }}
                   title={
@@ -966,41 +1008,14 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                   ±σ
                 </label>
               )}
-              {viewTab === "fit" && canOverlay && (
+              {canOverlay && (
                 <label style={{ display: "flex", gap: 5, alignItems: "center", fontSize: fz.micro, color: color.secondary, cursor: "pointer" }} title={multiPhase ? "Overlay each phase's G(r) contribution — they sum exactly to the calc curve" : "Overlay the element-pair (Faber–Ziman) partial PDFs — they sum exactly to the calc curve"}>
                   <input type="checkbox" checked={showPartials} onChange={(e) => setShowPartials(e.target.checked)} style={{ accentColor: color.primary }} />
                   {multiPhase ? "phases" : "partials"}
                 </label>
               )}
-              {viewTab === "fit" && (
-                <button
-                  style={{ ...toolbarBtn, display: "inline-flex", alignItems: "center", gap: 5 }}
-                  title="Zoom the plot onto the active fit window"
-                  onClick={() => setFocusFitToken((t) => t + 1)}
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                    <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
-                    <circle cx="12" cy="12" r="3" />
-                  </svg>
-                  optimize view
-                </button>
-              )}
-              <SegmentedToggle
-                options={[
-                  { id: "fit", label: "Refinement", title: "Observed vs calculated G(r)" },
-                  ...(hasReciprocal
-                    ? [{ id: "reciprocal" as const, label: "S(Q)", title: "The S(Q)/F(Q) this G(r) was transformed from, with its ±σ error ribbon, and what that error becomes in G(r) over the fit window" }]
-                    : []),
-                  { id: "model3d", label: "3D Model", title: "3D crystal-structure model, with the distortion modes being refined — click a mode to draw its displacement pattern" },
-                  { id: "subgroups", label: "Subgroups", title: "Lower the symmetry here: pick a subgroup that fits the supercell (or a k-point and one of its irreps' children), then Activate — the distortion modes it permits load into the Positions group" },
-                  { id: "posterior", label: "Posterior", title: "Bayesian posterior of the free parameters (ensemble MCMC) — credible intervals, convergence diagnostics, and the posterior-vs-esd check" },
-                  { id: "boxcar", label: "Boxcar", title: "Boxcar scan — refine inside a fixed-width r-window slid across G(r) and plot each parameter against the box center: how the structure changes with length scale" },
-                ] as const}
-                value={viewTab}
-                onChange={setViewTab}
-              />
             </div>
-          </div>
+          )}
           {viewTab === "fit" ? (
             <>
               <WorkbenchPlot
@@ -1348,3 +1363,9 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
     </>
   );
 }
+
+/** The Structure card's "child of …" line: a quiet link to the Subgroups tab. */
+const childNote: CSSProperties = {
+  alignSelf: "flex-start", border: "none", background: "none", padding: 0, cursor: "pointer",
+  fontSize: fz.micro, color: color.primary, textAlign: "left",
+};

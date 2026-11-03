@@ -139,6 +139,19 @@ export const toolbarBtn: CSSProperties = {
   cursor: "pointer",
 };
 
+/**
+ * The working card's title row (Rietveld and PDF): the card's label, its
+ * agreement figures and the view tabs. The label gives way first (it shrinks
+ * to an ellipsis rather than wrapping the row), so the tabs stay in this row
+ * on every tab; only a card too narrow for the figures and the tabs together
+ * (a phone) puts the tabs on a line of their own, on every tab alike.
+ */
+export const cardHeadRow: CSSProperties = { display: "flex", alignItems: "center", gap: 10, rowGap: 6, marginBottom: 8, flexWrap: "wrap" };
+/** The title row's label: shrinks from a zero basis, so it never wraps the row. */
+export const cardHeadLabel: CSSProperties = { flex: "1 1 0", minWidth: "8ch", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
+/** The plot's own toolbar, under the title row on the Refinement tab: axis unit, optimize view, the fit window, overlays. */
+export const plotToolbar: CSSProperties = { display: "flex", alignItems: "center", gap: 8, rowGap: 6, marginBottom: 8, flexWrap: "wrap" };
+
 /** Tiny inline reset chip next to the fit-range readout. */
 export const resetRangeBtn: CSSProperties = {
   border: `1px solid ${color.control}`,
