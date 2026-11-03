@@ -102,6 +102,11 @@ release fixes bugs.
 
 ### Changed
 
+- **No public-beta banner under the header.** The strip that asked you to
+  reproduce a result in GSAS-II / FullProf (powder), PDFgui / diffpy-CMI or
+  diffpy.mpdf (PDF) is gone from every page. The **BETA** badge in the header
+  stays, the report's footer still names the cross-check packages, and the
+  limitations are linked from the README (footer: **About & documentation**).
 - **Subgroups opens on the Tree.** The PDF page's Subgroups tab now shows the
   Tree first: the parent with its maximal subgroups one level down. **List** is
   one click away. The Find box shows in both views, and typing in it from the
