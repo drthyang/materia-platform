@@ -31,7 +31,7 @@ import { structuralSubgroupLattice, subgroupClassRepresentatives } from "@/core/
 import { computeGofR, makeRGrid } from "@/core/pdf/forwardModel";
 import { expandStructureAtoms } from "@/core/diffraction/structureFactor";
 import { gata4se8PdfExample } from "@/examples/gata4se8Pdf";
-import { pageView, pdfPage, withActivatedMode, withSameCellSubgroup, withSubgroup, withSupercellChild, type PdfPageModel, type SupercellChoice } from "@/app/pdfPage";
+import { pageView, pdfFit, pdfPage, withActivatedMode, withSameCellSubgroup, withSubgroup, withSupercellChild, type PdfPageModel, type SupercellChoice } from "@/app/pdfPage";
 import { decentringIrrepTree, gammaIrrepTree, modesCellNote, sameCellLattice } from "@/app/ui/SubgroupsPanel";
 import { DEFAULT_BOUND, PRESETS } from "@/app/ui/SupercellView";
 import {
@@ -39,7 +39,7 @@ import {
   type PickerAction, type PickerIrrep, type SubgroupRow,
 } from "@/app/ui/subgroupPicker";
 import {
-  DEFAULT_FILTERS, NO_FILTERS, SHORT_MAX, SHORT_MIN, collapseTies, detailOf, groupRows, indexLevels, nameMatches, searched, setLine, setsFor, shortList, tagOf, visibleGroups,
+  DEFAULT_FILTERS, NO_FILTERS, SHORT_MAX, SHORT_MIN, collapseTies, detailOf, groupRows, indexLevels, isRigid, nameMatches, searched, setLine, setsFor, shortList, tagOf, variantOrder, visibleGroups,
   type ListFilters, type RowGroup, type ShownGroup,
 } from "@/app/ui/subgroupList";
 import { boundIrreps } from "@/core/crystal/irreps/subgroupIrreps";
@@ -48,7 +48,9 @@ import { rnum } from "@/core/crystal/irreps/rational";
 import { cachedIrrepsOfStar } from "@/core/crystal/irreps/supercellModes";
 import { irrepEngine } from "@/core/crystal/isotropySubgroups";
 import type { SupercellLattice } from "@/core/crystal/irreps/supercellLattice";
-import { srtio3 } from "@/testSupport/perovskiteTilts";
+import { GLAZER, srtio3, tiltedBlock } from "@/testSupport/perovskiteTilts";
+import { ComputeClient } from "@/workers/computeClient";
+import { bondStretch } from "@/core/crystal/bondStretch";
 
 // Realising and splitting the supercell children takes seconds each, the bound's lattice and irreps more; more on a loaded CI runner.
 vi.setConfig({ testTimeout: 300_000 });
@@ -116,6 +118,30 @@ function listing(m: PdfPageModel, group: FactorGroup, bound: string): { readonly
   return { same, larger: supercellListing(group, s, bound).rows };
 }
 
+
+/**
+ * Two activations give the same child: its group, cell, sites (basis), the
+ * same modes (in any order: the kicked ones come first) and the same rows.
+ * Only which modes are kicked free may differ.
+ */
+function expectSameChild(a: PdfPageModel, b: PdfPageModel): void {
+  const x = outcome(a);
+  const y = outcome(b);
+  expect([x.group, x.nOps, x.cell, x.sites]).toEqual([y.group, y.nOps, y.cell, y.sites]);
+  // Each mode to rounding (the kicked ones are orthonormalised first, so the last digits move).
+  const round = (v: unknown): unknown => (typeof v === "number" ? Math.round(v * 1e9) / 1e9 + 0 : Array.isArray(v) ? v.map(round) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, w]) => [k, round(w)])) : v);
+  const byLabel = (ms: typeof x.modes) => [...ms].sort((p, q) => p.label.localeCompare(q.label)).map(round);
+  expect(byLabel(x.modes)).toEqual(byLabel(y.modes));
+  expect(x.params.map((p) => p.id).sort()).toEqual(y.params.map((p) => p.id).sort());
+}
+/** The mode labels refined free after an activation. */
+function freeModes(m: PdfPageModel): string[] {
+  const set = pageView(m).modeSet!;
+  const free = new Set(m.params.filter((p) => !p.fixed).map((p) => p.id));
+  return set.modes.filter((x) => free.has(x.id)).map((x) => x.label).sort();
+}
+/** An irrep of the 2×2×2 bound by its label: its characters. */
+const irrepChars = (label: string): readonly number[] => boundIrreps(STO_GROUP, boundStars(STO_GROUP)).find((b) => b.irrep.label === label)!.irrep.characters;
 
 /** The modes Activate loads (pageView.modeSet), for a row's count. */
 const modesAfter = (m: PdfPageModel): number => pageView(m).modeSet!.modes.length;
@@ -226,8 +252,9 @@ function expectShortList(visible: readonly ShownGroup[]): void {
  * first reaching set; every irrep of a lead way is in it; every irrep of any
  * way is in one of the row's reaching sets; and the activation's choice is
  * the row's own class, kicked by that lead set (a larger row's coupled or
- * primary characters; a same-cell row's irrep path through one of its
- * primary irreps, the first).
+ * primary characters, each member one of its tied alternatives on the lead
+ * line: the least-stretch one; a same-cell row's irrep path through one of
+ * its primary irreps, the first).
  */
 function expectDetailIsTheVariant(rows: readonly SubgroupRow[], o: { readonly lattice: SupercellLattice | null; readonly labelOf: (chars: readonly number[]) => string | undefined }): void {
   let checked = 0;
@@ -244,14 +271,60 @@ function expectDetailIsTheVariant(rows: readonly SubgroupRow[], o: { readonly la
     if (r.action.kind === "supercell") {
       const c = r.action.choice;
       expect(o.lattice!.classOf(c.elements), r.key).toBe(r.cls);
-      if (r.reach.kind === "coupled") expect(c.coupled!.map((ch) => o.labelOf(ch)), r.key).toEqual(first);
-      else expect(o.labelOf(c.primary!), r.key).toBe(first[0]);
+      const alts = d.set!.members.map((m) => m.map((x) => x.label));
+      const kicked = r.reach.kind === "coupled" ? c.coupled!.map((ch) => o.labelOf(ch)) : [o.labelOf(c.primary!)];
+      expect(kicked.length, r.key).toBe(alts.length);
+      kicked.forEach((label, i) => expect(alts[i], r.key).toContain(label));
+      // Untied, it is the first set itself.
+      kicked.forEach((label, i) => { if (alts[i]!.length === 1) expect(label, r.key).toBe(first[i]); });
     } else if (r.action.kind === "irrep") {
       expect(o.labelOf(r.action.term.irrep.characters.map((x) => x.re)), r.key).toBe(first[0]);
     }
     checked++;
   }
   expect(checked).toBeGreaterThan(rows.length / 2);
+}
+/** The rows whose Activate kicks a tied member other than the lead line's first, as "name|cell|domains: first → kicked". */
+function changedKicks(rows: readonly SubgroupRow[], labelOf: (chars: readonly number[]) => string | undefined): string[] {
+  const out: string[] = [];
+  for (const r of rows) {
+    if (r.action.kind !== "supercell") continue;
+    const lead = collapseTies(r.reach.sets)[0];
+    if (!lead) continue;
+    const c = r.action.choice;
+    const kicked = (c.coupled ?? (c.primary ? [c.primary] : [])).map((ch) => labelOf(ch)!);
+    const first = lead.members.map((alts) => alts[0]!.label);
+    if (kicked.join() !== first.join()) out.push(`${r.name}|${r.cell}|${r.domains}: ${first.join(" + ")} → ${kicked.join(" + ")}`);
+  }
+  return out.sort();
+}
+
+/**
+ * Every larger row's Activate kicks, of each tied member of its lead line, one
+ * with the least bond stretch in the row's class (to 1e-6): checked on the
+ * characters and the stretch alone, so whatever the irreps' numbers.
+ */
+function expectLeastStretchKicked(rows: readonly SubgroupRow[], group: FactorGroup, structure: StructureModel): void {
+  const stars = boundStars(group);
+  const irreps = boundIrreps(group, stars);
+  const labelOf = labelsByCharacters(irreps);
+  const lattice = cachedSupercellSubgroups(group);
+  const stretch = bondStretch(structure, group);
+  let tied = 0;
+  for (const r of rows) {
+    if (r.action.kind !== "supercell") continue;
+    const lead = collapseTies(r.reach.sets)[0];
+    if (!lead || lead.members.every((alts) => alts.length === 1)) continue;
+    tied++;
+    const c = r.action.choice;
+    const kicked = (c.coupled ?? (c.primary ? [c.primary] : [])).map((ch) => labelOf(ch)!);
+    const H = lattice.classes[r.cls]!.elements;
+    const of = (label: string): number => stretch(irreps.find((b) => b.irrep.label === label)!.irrep.characters, H) ?? Infinity;
+    lead.members.forEach((alts, i) => {
+      for (const x of alts) expect(of(kicked[i]!), `${r.key} ${kicked[i]} vs ${x.label}`).toBeLessThanOrEqual(of(x.label) + 1e-6);
+    });
+  }
+  expect(tied).toBeGreaterThan(0);
 }
 const labelsByCharacters = (irreps: ReturnType<typeof boundIrreps>) => (chars: readonly number[]): string | undefined =>
   irreps.find((b) => b.irrep.characters.every((x, i) => Math.abs(x - chars[i]!) < 1e-6))?.irrep.label;
@@ -473,9 +546,15 @@ describe("By subgroup on SrTiO₃, 2×2×2: every subgroup that fits, each with 
     const old = withSupercellChild(m, { group, elements: cls.elements, identity: cls.identity! });
     const now = withSupercellChild(m, pnma.action.choice);
     expect(now.label).toBe(old.label);
-    expect(now.message).toBe(old.message);
+    // The tied M member kicked is the in-phase tilt, M irrep 3 (no Ti–O bond stretched), not its twin M irrep 7: the kicked rows are the only free ones.
     expect(now.message).toContain("the order parameter (M irrep 3 of 10 + R irrep 8 of 10)");
-    expect(outcome(now.model)).toEqual(outcome(old.model));
+    expectSameChild(now.model, old.model);
+    expect(freeModes(now.model)).toEqual(["M irrep 3 of 10 · O", "R irrep 8 of 10 · O"]);
+    // Kicking the twin instead gives the same child: only which modes start free differs.
+    const twin = withSupercellChild(m, { ...pnma.action.choice, coupled: [irrepChars("M irrep 7 of 10"), irrepChars("R irrep 8 of 10")] });
+    expect(twin.message).toContain("the order parameter (M irrep 7 of 10 + R irrep 8 of 10)");
+    expectSameChild(twin.model, now.model);
+    expect(freeModes(twin.model)).toEqual(["M irrep 7 of 10 · O", "R irrep 8 of 10 · O"]);
     expect(modesAfter(now.model)).toBe(pnma.modes);
     expect(pnma.modes).toBe(7);
   });
@@ -501,6 +580,75 @@ describe("By subgroup on SrTiO₃, 2×2×2: every subgroup that fits, each with 
     expect(g.variants).toHaveLength(4);
     for (const text of ["R -3 c:H #167 · 2×2×2 · 8 domains · R irrep 8 of 10 (a,a,a)", "I 4/m c m #140 · 2×2×2 · 6 domains · R irrep 8 of 10 (a,0,0)"]) groupOf(groups, row(larger, text));
     groupOf(groups, row(same, "P 4 m m #99 · same cell · 6 domains · Γ irrep 10 of 10 (a,0,0)"));
+  });
+
+  it("a merged row's default variant is the rigid-unit one: the tilts of a⁻b⁺a⁻ Pnma, a⁰a⁰c⁻ I4/mcm, a⁻a⁻a⁻ R-3c, a⁰a⁰c⁺ P4/mbm", () => {
+    const { same, larger } = sto();
+    const groups = groupRows([...same, ...larger]);
+    const byKey = (key: string): RowGroup => groups.find((g) => g.key === key)!;
+    const pnma = row(larger, "P n m a #62 · 2×2×2 · 24 domains · M irrep 3 of 10 (a,0,0) + R irrep 8 of 10 (a,a,0), coupled (or 7 other pairs)");
+    const i4mcm = row(larger, "I 4/m c m #140 · 2×2×2 · 6 domains · R irrep 8 of 10 (a,0,0)");
+    const r3c = row(larger, "R -3 c:H #167 · 2×2×2 · 8 domains · R irrep 8 of 10 (a,a,a)");
+    const p4mbm = row(larger, "P 4/m b m #127 · 1×2×2 · 6 domains · M irrep 3 of 10 (a,0,0)");
+    // The tilts move O without stretching a Ti–O bond (stretch 0); each is its merged row's first variant, so its tag, its detail and the default Activate.
+    const shown = visibleGroups(groups, DEFAULT_FILTERS);
+    for (const [key, tilt, tag] of [
+      ["P n m a #62|2×2×2|24", pnma, "M·3/7+R·8"],
+      ["I 4/m c m #140|2×2×2|6", i4mcm, "R·8"],
+      ["R -3 c:H #167|2×2×2|8", r3c, "R·8"],
+      ["P 4/m b m #127|1×2×2|6", p4mbm, "M·3"],
+    ] as const) {
+      const g = byKey(key);
+      expect(g.variants[0], key).toBe(tilt);
+      expect(isRigid(tilt), key).toBe(true);
+      expect(tagOf(detailOf(tilt).set!), key).toBe(tag);
+      expect(shown.find((x) => x.group.key === key)!.shown[0], key).toBe(tilt);
+    }
+    expect(setLine(detailOf(pnma).set!)).toBe("M irrep 3 or 7 + R irrep 8");
+    // The others deform the octahedra or move a rattler alone: Pnma's other pairs move Ti (R irrep 7) or Sr (M irrep 8); I4/mcm's R irrep 6 (Jahn–Teller-like)
+    // moves O along its two Ti–O bonds, stretching both: K/⟨K⟩ = 2 (K counts each bond from both ends; ⟨K⟩ = 2 per coordinate); Sr alone is 1.
+    const stretchOf = (key: string): string[] => byKey(key).variants.map((v) => `${tagOf(detailOf(v).set!)}:${v.stretch === null ? "-" : v.stretch.toFixed(2)}`);
+    expect(stretchOf("P n m a #62|2×2×2|24")).toEqual(["M·3/7+R·8:0.00", "M·3/7+R·7:2.00", "M·8+R·8:1.00", "M·8+R·7:2.00"]);
+    expect(stretchOf("I 4/m c m #140|2×2×2|6")).toEqual(["R·8:0.00", "R·6:2.00", "R·9:-", "R·5:-"]);
+    expect(stretchOf("P 4/m b m #127|1×2×2|6")).toEqual(["M·3:0.00", "M·7:2.00"]);
+    // Only the order changed: every variant is still its own row (the same object, the same Activate), none lost; the order is variantOrder's.
+    expectNothingLost([...same, ...larger]);
+    for (const g of groups) for (let i = 1; i < g.variants.length; i++) expect(variantOrder(g.variants[i - 1]!, g.variants[i]!)).toBeLessThanOrEqual(0);
+  });
+
+  it("Activate kicks the least-stretch member of a tied pair, whatever the irreps' numbers: M irrep 3 (the in-phase tilt), not its twin M irrep 7", () => {
+    const { larger } = sto();
+    expectLeastStretchKicked(larger, group, PARENT);
+    // In this numbering the tilt comes first on every tied line, so no kick differs from the line's first member (before the irrep order of THY-64, 17 did: M irrep 5 for 3).
+    expect(changedKicks(larger, labelsByCharacters(boundIrreps(group, boundStars(group))))).toEqual([]);
+    const pnma = row(larger, "P n m a #62 · 2×2×2 · 24 domains · M irrep 3 of 10 (a,0,0) + R irrep 8 of 10 (a,a,0), coupled (or 7 other pairs)");
+    if (pnma.action.kind !== "supercell") throw new Error("Pnma activates in its own cell");
+    const labelOf = labelsByCharacters(boundIrreps(group, boundStars(group)));
+    expect(pnma.action.choice.coupled!.map((c) => labelOf(c))).toEqual(["M irrep 3 of 10", "R irrep 8 of 10"]);
+  });
+
+  it("a⁻b⁺a⁻ G(r): the Pnma row's Activate frees the two tilts (M irrep 3 + R irrep 8) and a refine of those reaches the tilt; kicking the twin M irrep 7 cannot", async () => {
+    const { larger } = sto();
+    const pnma = row(larger, "P n m a #62 · 2×2×2 · 24 domains · M irrep 3 of 10 (a,0,0) + R irrep 8 of 10 (a,a,0), coupled (or 7 other pairs)");
+    if (pnma.action.kind !== "supercell") throw new Error("Pnma activates in its own cell");
+    // The tilted crystal built geometrically (perovskiteTilts), every domain alike in a powder G(r).
+    const block = tiltedBlock(PARENT, GLAZER["a-b+a-"]!, 0.07, [0, 1, 2]);
+    const rGrid = makeRGrid(1.5, 10, 0.02);
+    const gr = computeGofR(block.cell, block.atoms, rGrid, { scatteringType: "neutron", scale: 1, qdamp: 0.03, qbroad: 0, delta1: 0, delta2: 0 });
+    const page = pdfPage(PARENT, { id: "tilt", name: "a-b+a-", scatteringType: "neutron", points: Array.from(rGrid, (r, i) => ({ r, gObs: gr[i]! })), qdamp: 0.03 }, { preset: { fitRange: { min: 1.5, max: 10 } } });
+    const client = new ComputeClient();
+    // Refine what Activate leaves free (the kicked modes) and the scale.
+    const refineKicked = async (m: PdfPageModel): Promise<{ rw: number; free: string[] }> => {
+      const free = freeModes(m);
+      const fit = await pdfFit(client, { ...m, params: m.params.map((p) => ({ ...p, fixed: p.id !== "pdfScale" && (p.kind !== "positionShift" || p.fixed) })) });
+      return { rw: fit.result.agreement.rWeighted!, free };
+    };
+    const now = await refineKicked(withSupercellChild(page, pnma.action.choice).model);
+    expect(now.free).toEqual(["M irrep 3 of 10 · O", "R irrep 8 of 10 · O"]);
+    expect(now.rw).toBeLessThan(1e-4);
+    const before = await refineKicked(withSupercellChild(page, { ...pnma.action.choice, coupled: [irrepChars("M irrep 7 of 10"), irrepChars("R irrep 8 of 10")] }).model);
+    expect(before.free).toEqual(["M irrep 7 of 10 · O", "R irrep 8 of 10 · O"]);
+    expect(before.rw).toBeGreaterThan(0.02);
   });
 
   it("the default list keeps Pnma (two irreps coupled) and every maximal subgroup; the chips keep what their irreps reach; the tie is written on one line", () => {
@@ -662,9 +810,8 @@ describe("By subgroup on SrTiO₃, 2×2×2: every subgroup that fits, each with 
     expect(rowOf.name).toBe("P n m a #62");
     const now = activated(m, rowOf.action);
     expect(now.label).toBe(old.label);
-    expect(outcome(now.model).group).toBe(outcome(old.model).group);
-    expect(outcome(now.model).sites).toEqual(outcome(old.model).sites);
-    expect(outcome(now.model).modes).toEqual(outcome(old.model).modes);
+    // The same child; only the kicked M member (and so the modes' order: the kicked first) can differ.
+    expectSameChild(now.model, old.model);
   });
 });
 
@@ -765,6 +912,28 @@ describe("By subgroup on GaTa₄Se₈, 1×1×2: P-42₁m in the bound's own cell
     expectDetailIsTheVariant(larger, { lattice: cachedSupercellSubgroups(group), labelOf: labelsByCharacters(boundIrreps(group, boundStars(group))) });
     const engine = irrepEngine(m.loaded.spaceGroup.operations);
     expectDetailIsTheVariant(same, { lattice: null, labelOf: labelsByCharacters(boundIrreps(engine.group, engine.stars)) });
+  });
+
+  it("no kicked member moves: where a lead member is tied, its alternatives are all rigid, so the first is kicked as before", () => {
+    const { m, group, larger } = gts();
+    expectLeastStretchKicked(larger, group, m.loaded);
+    expect(changedKicks(larger, labelsByCharacters(boundIrreps(group, boundStars(group))))).toEqual([]);
+  });
+
+  it("no default variant moves: every lead set can move the atoms without stretching the shortest bonds, so the order is reach, then moves atoms, then the lattice's", () => {
+    const { same, larger } = gts();
+    const rows = [...same, ...larger];
+    const groups = groupRows(rows);
+    const multi = groups.filter((g) => g.variants.length > 1);
+    expect(multi.length).toBeGreaterThan(20);
+    expect(multi.every((g) => g.variants.every((v) => isRigid(v)))).toBe(true);
+    // The order without the bonds: as before the rule (reach, then atoms moved, then the lattice's order).
+    const at = new Map(rows.map((r, i) => [r, i] as const));
+    const reach = (r: SubgroupRow): number => (r.reach.kind === "primary" ? 0 : r.reach.kind === "coupled" ? r.reach.sets[0]!.length : 9);
+    for (const g of multi) {
+      const before = [...g.variants].sort((a, b) => reach(a) - reach(b) || Number((b.modes ?? 1) > 0) - Number((a.modes ?? 1) > 0) || at.get(a)! - at.get(b)!);
+      expect(g.variants, g.key).toEqual(before);
+    }
   });
 
   it("the list: no class lost; the default keeps the four 1×1×2 P-42₁m and the two at X; the X chip keeps the X ones, X and W the 1×1×2 ones", () => {

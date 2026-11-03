@@ -102,6 +102,22 @@ release fixes bugs.
 
 ### Changed
 
+- **A merged Subgroups row defaults to its rigid-unit variant.** When classes
+  share a name, cell and domains, the row's tag, detail and Activate take the
+  variant whose irreps can move the atoms without stretching the shortest
+  bonds, after the earlier rules (one irrep before coupled, atoms moved before
+  strain only). SrTiO₃'s a⁻b⁺a⁻ Pnma now opens on the octahedral tilts (M
+  irrep 3 or 7 + R irrep 8, modes on O) instead of a pair that moves Ti, and
+  a⁰a⁰c⁻ I4/mcm on R irrep 8 instead of R irrep 6; R-3c is unchanged. 92 of
+  SrTiO₃'s 2×2×2 merged rows change default, none of GaTa₄Se₈'s (1×1×2,
+  2×2×2). The "?" by the variants says the order.
+- **Activate kicks the tilt of a tied pair.** Where a merged row's lead set
+  names a tied member ("M irrep 3 or 7"), Activate frees the alternative with
+  the least bond stretch, ties kept in the line's order: for SrTiO₃ the
+  in-phase tilt M irrep 3, not its Jahn–Teller-like twin M irrep 7, whatever
+  the irreps' numbering. The kicked modes are the only free position rows
+  after Activate: on an a⁻b⁺a⁻ G(r) a refine of the tilt pair reaches Rw 0,
+  of the twin pair 4.2%. The child (group, cell, sites, modes) is the same.
 - **No public-beta banner under the header.** The strip that asked you to
   reproduce a result in GSAS-II / FullProf (powder), PDFgui / diffpy-CMI or
   diffpy.mpdf (PDF) is gone from every page. The **BETA** badge in the header

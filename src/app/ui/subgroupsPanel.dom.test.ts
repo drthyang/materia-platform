@@ -19,6 +19,7 @@ import { structuralSubgroupLattice } from "@/core/crystal/subgroupTree";
 import { SubgroupsPanel, gammaIrrepTree, sameCellLattice } from "@/app/ui/SubgroupsPanel";
 import { ImportMenu } from "@/app/ui/DistortionModesPanel";
 import * as listingSteps from "@/app/ui/supercellListing";
+import { VARIANT_ORDER_NOTE } from "@/app/ui/subgroupList";
 import { srtio3 } from "@/testSupport/perovskiteTilts";
 
 vi.mock("@/app/ui/supercellListing", async (importOriginal) => {
@@ -134,12 +135,13 @@ describe("the subgroup list in a DOM", () => {
     await until(() => text(h).includes(ALL));
     expect(listing).toHaveBeenCalledTimes(2);
     expect(rows(h)).toHaveLength(26);
-    // The tilts: R-3c from the R irrep alone on the first screen; a⁻b⁺a⁻ Pnma (index 24) by name, among four Pnma classes (×4), its tied pair on one tag.
+    // The tilts: R-3c from the R irrep alone on the first screen; a⁻b⁺a⁻ Pnma (index 24) by name, among four Pnma classes (×4), its tied pair on one tag:
+    // the tilt pair is the row's default, the rigid-unit one (the other classes' pairs move Ti or Sr).
     // Its other class (R irrep 9) moves no atom: hidden with the strain-only rows, so no "×2".
     expect(text(rowOf(h, R3C)!)).toBe("R-3c:H #167· 2×2×2· 8 domR·8");
     expect(rowOf(h, PNMA)).toBeUndefined();
     find(h, "Pnma");
-    expect(text(rowOf(h, PNMA)!)).toMatch(/^Pnma #62· 2×2×2· 24 domM·3\/7\+R·7×4$/);
+    expect(text(rowOf(h, PNMA)!)).toMatch(/^Pnma #62· 2×2×2· 24 domM·3\/7\+R·8×4$/);
   });
 
   it("keeps the larger cells for the next visit; a row opens its detail, and Activate hands over that row's own action", async () => {
@@ -185,11 +187,17 @@ describe("the subgroup list in a DOM", () => {
     find(h, "62");
     pickRow(h, PNMA);
     const detail = h.querySelector<HTMLElement>("[data-detail]")!;
-    // The four classes, the a⁻b⁺a⁻ one (M irrep 3 or 7 + R irrep 8) among them.
+    // The four classes, the a⁻b⁺a⁻ one (M irrep 3 or 7 + R irrep 8) first and open: the default; the "?" says why.
     const variants = [...detail.querySelectorAll<HTMLElement>("[data-variant]")];
     expect(variants).toHaveLength(4);
-    const tilt = variants.find((v) => v.textContent!.includes("M irrep 3 or 7 + R irrep 8"))!;
-    act(() => tilt.querySelector<HTMLButtonElement>("button[aria-pressed]")!.click());
+    const tilt = variants[0]!;
+    expect(tilt.textContent).toContain("1. M irrep 3 or 7 + R irrep 8");
+    expect(tilt.querySelector<HTMLButtonElement>("button[aria-pressed]")!.getAttribute("aria-pressed")).toBe("true");
+    expect([...detail.querySelectorAll("[aria-label]")].some((x) => x.getAttribute("aria-label") === VARIANT_ORDER_NOTE)).toBe(true);
+    // Another variant opens on its own, and the tag follows it; back to the tilt.
+    act(() => variants[1]!.querySelector<HTMLButtonElement>("button[aria-pressed]")!.click());
+    expect(text(rowOf(h, PNMA)!)).not.toContain("M·3/7+R·8");
+    act(() => [...h.querySelectorAll<HTMLElement>("[data-detail] [data-variant]")][0]!.querySelector<HTMLButtonElement>("button[aria-pressed]")!.click());
     const t = text(h.querySelector("[data-detail]")!);
     // The list's tag follows the variant picked; the first ways use only its lead set (R irrep 10, one of its other pairs, waits).
     expect(text(rowOf(h, PNMA)!)).toContain("M·3/7+R·8");
@@ -227,7 +235,7 @@ describe("the subgroup list in a DOM", () => {
     // R and M: a short list again (index 2 to 8); show all brings Pnma with the M and R pair.
     expect(rowOf(h, PNMA)).toBeUndefined();
     act(() => buttonLike(h, /^show all \d+$/)!.click());
-    expect(text(rowOf(h, PNMA)!)).toContain("M·3/7+R·7");
+    expect(text(rowOf(h, PNMA)!)).toContain("M·3/7+R·8");
     act(() => chip(h, "any k-point").click());
     expect(text(h)).toContain(ALL);
     // Filters: one irrep only drops the coupled Pnma; all, with the strain-only rows, lists every one of the 559.

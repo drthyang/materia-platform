@@ -104,7 +104,7 @@ export interface SupercellModeBasis {
 
 // ── the parent's atoms modulo T″ and F's action on them ─────────────────────
 
-interface CoreCell {
+export interface CoreCell {
   readonly positions: Vec3[];
   readonly site: number[];
   /** The atom of parent site `site` at x modulo T″; −1 when none. Sites that share a point (mixed occupancy) are told apart by `site`. */
@@ -145,7 +145,7 @@ function periodicGap(a: Vec3, b: Vec3): number {
 }
 
 /** The parent's atoms modulo T″: each site's orbit modulo the parent lattice T, translated over T/T″. */
-function coreCell(parent: StructureModel, group: FactorGroup): CoreCell {
+export function coreCell(parent: StructureModel, group: FactorGroup): CoreCell {
   const { D, core } = group.bound;
   const shifts = cosets(group.bound.parent, core).map((v) => [v[0] / D, v[1] / D, v[2] / D] as Vec3);
   const centrings = group.centrings.map((c) => [rnum(c[0]), rnum(c[1]), rnum(c[2])] as Vec3);
@@ -206,7 +206,7 @@ function coreCell(parent: StructureModel, group: FactorGroup): CoreCell {
 }
 
 /** perm[f·N + a]: the atom element f takes atom a to. */
-function atomAction(group: FactorGroup, cell: CoreCell): Int32Array {
+export function atomAction(group: FactorGroup, cell: CoreCell): Int32Array {
   const N = cell.positions.length;
   const F = group.elements.length;
   const perm = new Int32Array(F * N);

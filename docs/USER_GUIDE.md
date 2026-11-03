@@ -531,7 +531,18 @@ shows the modes being refined.
       distortion is physics, not symmetry.
     - **×4**: four classes of conjugate subgroups share that name, cell and
       domains, reached by different irreps. They are one row; the detail
-      lists them as variants.
+      lists them as variants. The row's tag, its detail and **Activate**
+      take the first: reached by one irrep before coupled ones, atoms moved
+      before strain only, then a rigid-unit distortion, one whose irreps can
+      move the atoms without stretching the structure's shortest bonds (those
+      within 10% of the shortest; an atom no bond holds counts as stretched).
+      In SrTiO₃ that is the octahedral tilt: R irrep 8 for a⁰a⁰c⁻ I4/mcm (not
+      the Jahn–Teller-like R irrep 6, which moves O along its Ti–O bonds), the
+      M and R tilts for a⁻b⁺a⁻ Pnma (not the pairs that move Ti or Sr). Where
+      every variant can move rigidly (GaTa₄Se₈) the lattice's order stands.
+      Where the lead set has a tied member ("M irrep 3 or 7"), Activate kicks
+      the one with the least stretch: M irrep 3, the in-phase tilt (not M
+      irrep 7).
     - **strain only**: the child moves no atom of this structure (its irreps
       carry no displacement); only the cell can change, so there is nothing
       to Activate. These rows are hidden by default.
