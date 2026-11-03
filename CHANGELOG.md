@@ -134,7 +134,7 @@ release fixes bugs.
   gone; the group theory is unchanged.
   - The first screen holds the supercell, the k-point chips and the list.
     Rows run from high to low symmetry, one plain line each:
-    `Pnma #62 · 2×2×2 · 24 dom · M·3/5+R·7 ×4`. The tag names the irreps
+    `Pnma #62 · 2×2×2 · 24 dom · M·3/7+R·7 ×4`. The tag names the irreps
     (R·8 is R irrep 8; dashed when coupled), never ISODISTORT's "R4+". A row
     whose child moves no atom says **strain only**.
   - Rows with the same name, cell and domains merge into one (×4); the
@@ -147,12 +147,12 @@ release fixes bugs.
   - A k-point chip keeps the subgroups its irreps reach; picking two also
     keeps their coupled pairs (R and M: Pnma).
   - Sets that the group-theoretic counts cannot tell apart are written on one
-    line: "M irrep 3 or 5 + R irrep 8", tag M·3/5+R·8.
+    line: "M irrep 3 or 7 + R irrep 8", tag M·3/7+R·8.
   - The detail: the result in one line ("Pnma in a 2×2×2 cell, from 2 irreps
     together: …", details behind **?**); the parent's cell and the child's
     sketched; the domains and index; **How you get here**, one irrep
     switched on per step ("Pm-3m → Imma (R irrep 8) → Pnma (+ M irrep 3 or
-    5)"), three shown, then "N more ways"; the irreps with their directions, the other
+    7)"), three shown, then "N more ways"; the irreps with their directions, the other
     sets and the secondary irreps folded; the mode count Activate loads; one
     large **Activate**.
   - **List | Tree**: the tree opens from the parent one maximal step at a
@@ -277,6 +277,26 @@ release fixes bugs.
     from the lattice). The Agent's tools and their text are unchanged.
 
 ### Fixed
+
+- **Irrep numbers are the same on every computer and browser** (THY-64). The
+  number in "X irrep n of m" and the Γ chip's Γn came from the order the
+  irreps were built in, which a rounding error could change: SrTiO₃'s polar
+  irrep was Γ9 under Node on a Mac, Γ10 in Chrome and on Linux, and Safari's
+  engine numbered the silent one Γ8 where the others said Γ7. Every irrep is
+  now numbered by its dimension, reality and characters on a fixed list of
+  rotations (ADR 0004), and the Γ chip's Γn is "Γ irrep n of m".
+  - Labels that change: SrTiO₃'s (Pm-3m) M and X irreps 3, 4, 5, 6, 7 and 8
+    become 7, 8, 3, 4, 5 and 6 (the tilt M irrep is now M irrep 3, so
+    a⁻b⁺a⁻ Pnma's first coupled pair is the two tilts, "M irrep 3 or 7 + R
+    irrep 8"); the Γ chip's SrTiO₃ irreps read Γ8 (silent) and Γ10 (polar)
+    everywhere, so a Γ activation's modes read "Γ10 → P 4 m m". GaTa₄Se₈'s
+    (F-43m) "Γ irrep 4" and "5" swap, and its X irreps 2, 3, 4 and W irreps
+    2, 3, 4 become 4, 2, 3; its Γ chip (Γ3, Γ4, Γ5) and X irrep 5, W irrep 1
+    are unchanged. The magnetic page's Mn₃Ga k = (0, 0, ½) irreps 1 and 2
+    swap. SrTiO₃'s Γ and R labels (R irrep 8, Γ irrep 10) are unchanged.
+    The full list is in the report (docs/reports/2026-11-02-irrep-order.md).
+  - A saved project keeps the labels it was saved with: they are text in its
+    mode rows, read back as saved; Activate again to get the new numbers.
 
 - **A powder magnetic line is the sum of |F_M⊥|² over every member of its
   family** (THY-58). Each satellite family's |F_M|² was read at one member

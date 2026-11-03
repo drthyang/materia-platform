@@ -514,13 +514,13 @@ Conventions are pinned in
   atoms carry, then the most symmetric members, then the fewest modes), and
   the detail lists the rest: which pair drives a real distortion is the
   physics', not the group's. Sets that differ by one irrep that the counts
-  cannot tell apart (SrTiO₃'s M irrep 3 and 5) are written as one, "M irrep
-  3 or 5"; telling them apart needs physics (which mode is soft). The
+  cannot tell apart (SrTiO₃'s M irrep 3 and 7) are written as one, "M irrep
+  3 or 7"; telling them apart needs physics (which mode is soft). The
   coupled search stops at four irreps; no case tried needed more.
 - Rows with the same name, cell and domains are merged; the first variant
   (reached by one irrep before coupled ones, then those that move atoms,
   then the lattice's order) is the row's tag and default Activate. Among
-  SrTiO₃'s four a⁻b⁺a⁻-like Pnma classes that is the one by M irrep 3 or 5 +
+  SrTiO₃'s four a⁻b⁺a⁻-like Pnma classes that is the one by M irrep 3 or 7 +
   R irrep 7, not the tilts' R irrep 8: the tilt pair is the second variant.
 - The list opens on the top index levels only (26 rows for SrTiO₃ in
   2×2×2). A low-symmetry subgroup such as SrTiO₃'s Pnma (index 24) is three
@@ -533,12 +533,17 @@ Conventions are pinned in
 - The larger cells are worked out in a background worker: about 6 s for a
   cubic perovskite or GaTa₄Se₈ in 2×2×2, about a minute for an F-centred
   cubic parent (Fm-3m, Fd-3m) there. The tree's larger cells wait for it.
-- The activation's mode labels still name the Γ irreps Γ1, Γ2, … in the
-  point group's order, which differs from the generic "Γ irrep n of m" (and
-  from one operation list to another); the row's "?" says which is which.
-  Renaming them waits on the validation freeze.
+- The activation's mode labels name a Γ irrep Γn, the short form of the
+  generic "Γ irrep n of m" (the same n). Γn can read as a CDML label (Γ4⁻);
+  it is not one.
 - Irrep labels are generic (the k-point, "irrep n of m"): no CDML labels such
-  as X3⁺ ([ADR 0004](./adr/0004-generic-irrep-labels-in-the-app.md)).
+  as X3⁺ ([ADR 0004](./adr/0004-generic-irrep-labels-in-the-app.md)). The
+  number n is MATERIA's own order (dimension, reality, then the characters;
+  irrepOrder.ts), the same on every runtime and browser, but not ISOTROPY's
+  numbering, and, as any table's, it depends on the setting the operations are
+  written in and on the arm of the star. A project saved before THY-64 keeps
+  the labels it was saved with (text in its mode rows), which may number an
+  irrep differently from the page now; Activate again to get the new labels.
   Order-parameter directions are written in MATERIA's irrep basis and can
   differ from ISODISTORT's symbols for the same subgroup, for example (a,a)
   and (a,-a) where ISODISTORT writes (a,0) and (0,a). A few keep an
