@@ -39,7 +39,7 @@ import {
   type PickerAction, type PickerIrrep, type SubgroupRow,
 } from "@/app/ui/subgroupPicker";
 import {
-  DEFAULT_FILTERS, NO_FILTERS, SHORT_MAX, SHORT_MIN, collapseTies, detailOf, groupRows, indexLevels, nameMatches, searched, setLine, setsFor, shortList, tagOf, visibleGroups,
+  DEFAULT_FILTERS, NO_FILTERS, SHORT_MAX, SHORT_MIN, collapseTies, detailOf, groupRows, indexLevels, isRigid, nameMatches, searched, setLine, setsFor, shortList, tagOf, variantOrder, visibleGroups,
   type ListFilters, type RowGroup, type ShownGroup,
 } from "@/app/ui/subgroupList";
 import { boundIrreps } from "@/core/crystal/irreps/subgroupIrreps";
@@ -500,6 +500,40 @@ describe("By subgroup on SrTiO₃, 2×2×2: every subgroup that fits, each with 
     groupOf(groups, row(same, "P 4 m m #99 · same cell · 6 domains · Γ irrep 10 of 10 (a,0,0)"));
   });
 
+  it("a merged row's default variant is the rigid-unit one: the tilts of a⁻b⁺a⁻ Pnma, a⁰a⁰c⁻ I4/mcm, a⁻a⁻a⁻ R-3c, a⁰a⁰c⁺ P4/mbm", () => {
+    const { same, larger } = sto();
+    const groups = groupRows([...same, ...larger]);
+    const byKey = (key: string): RowGroup => groups.find((g) => g.key === key)!;
+    const pnma = row(larger, "P n m a #62 · 2×2×2 · 24 domains · M irrep 3 of 10 (a,0,0) + R irrep 8 of 10 (a,a,0), coupled (or 7 other pairs)");
+    const i4mcm = row(larger, "I 4/m c m #140 · 2×2×2 · 6 domains · R irrep 8 of 10 (a,0,0)");
+    const r3c = row(larger, "R -3 c:H #167 · 2×2×2 · 8 domains · R irrep 8 of 10 (a,a,a)");
+    const p4mbm = row(larger, "P 4/m b m #127 · 1×2×2 · 6 domains · M irrep 5 of 10 (a,0,0)");
+    // The tilts move O without stretching a Ti–O bond (stretch 0); each is its merged row's first variant, so its tag, its detail and the default Activate.
+    const shown = visibleGroups(groups, DEFAULT_FILTERS);
+    for (const [key, tilt, tag] of [
+      ["P n m a #62|2×2×2|24", pnma, "M·3/5+R·8"],
+      ["I 4/m c m #140|2×2×2|6", i4mcm, "R·8"],
+      ["R -3 c:H #167|2×2×2|8", r3c, "R·8"],
+      ["P 4/m b m #127|1×2×2|6", p4mbm, "M·5"],
+    ] as const) {
+      const g = byKey(key);
+      expect(g.variants[0], key).toBe(tilt);
+      expect(isRigid(tilt), key).toBe(true);
+      expect(tagOf(detailOf(tilt).set!), key).toBe(tag);
+      expect(shown.find((x) => x.group.key === key)!.shown[0], key).toBe(tilt);
+    }
+    expect(setLine(detailOf(pnma).set!)).toBe("M irrep 3 or 5 + R irrep 8");
+    // The others deform the octahedra or move a rattler alone: Pnma's other pairs move Ti (R irrep 7) or Sr (M irrep 4); I4/mcm's R irrep 6 (Jahn–Teller-like)
+    // moves O along its two Ti–O bonds, stretching both: K/⟨K⟩ = 2 (K counts each bond from both ends; ⟨K⟩ = 2 per coordinate); Sr alone is 1.
+    const stretchOf = (key: string): string[] => byKey(key).variants.map((v) => `${tagOf(detailOf(v).set!)}:${v.stretch === null ? "-" : v.stretch.toFixed(2)}`);
+    expect(stretchOf("P n m a #62|2×2×2|24")).toEqual(["M·3/5+R·8:0.00", "M·3/5+R·7:2.00", "M·4+R·8:1.00", "M·4+R·7:2.00"]);
+    expect(stretchOf("I 4/m c m #140|2×2×2|6")).toEqual(["R·8:0.00", "R·6:2.00", "R·9:-", "R·5:-"]);
+    expect(stretchOf("P 4/m b m #127|1×2×2|6")).toEqual(["M·5:0.00", "M·3:2.00"]);
+    // Only the order changed: every variant is still its own row (the same object, the same Activate), none lost; the order is variantOrder's.
+    expectNothingLost([...same, ...larger]);
+    for (const g of groups) for (let i = 1; i < g.variants.length; i++) expect(variantOrder(g.variants[i - 1]!, g.variants[i]!)).toBeLessThanOrEqual(0);
+  });
+
   it("the default list keeps Pnma (two irreps coupled) and every maximal subgroup; the chips keep what their irreps reach; the tie is written on one line", () => {
     const { same, larger } = sto();
     const groups = groupRows([...same, ...larger]);
@@ -762,6 +796,22 @@ describe("By subgroup on GaTa₄Se₈, 1×1×2: P-42₁m in the bound's own cell
     expectDetailIsTheVariant(larger, { lattice: cachedSupercellSubgroups(group), labelOf: labelsByCharacters(boundIrreps(group, boundStars(group))) });
     const engine = irrepEngine(m.loaded.spaceGroup.operations);
     expectDetailIsTheVariant(same, { lattice: null, labelOf: labelsByCharacters(boundIrreps(engine.group, engine.stars)) });
+  });
+
+  it("no default variant moves: every lead set can move the atoms without stretching the shortest bonds, so the order is reach, then moves atoms, then the lattice's", () => {
+    const { same, larger } = gts();
+    const rows = [...same, ...larger];
+    const groups = groupRows(rows);
+    const multi = groups.filter((g) => g.variants.length > 1);
+    expect(multi.length).toBeGreaterThan(20);
+    expect(multi.every((g) => g.variants.every((v) => isRigid(v)))).toBe(true);
+    // The order without the bonds: as before the rule (reach, then atoms moved, then the lattice's order).
+    const at = new Map(rows.map((r, i) => [r, i] as const));
+    const reach = (r: SubgroupRow): number => (r.reach.kind === "primary" ? 0 : r.reach.kind === "coupled" ? r.reach.sets[0]!.length : 9);
+    for (const g of multi) {
+      const before = [...g.variants].sort((a, b) => reach(a) - reach(b) || Number((b.modes ?? 1) > 0) - Number((a.modes ?? 1) > 0) || at.get(a)! - at.get(b)!);
+      expect(g.variants, g.key).toEqual(before);
+    }
   });
 
   it("the list: no class lost; the default keeps the four 1×1×2 P-42₁m and the two at X; the X chip keeps the X ones, X and W the 1×1×2 ones", () => {

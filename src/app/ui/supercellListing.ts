@@ -127,7 +127,7 @@ export function* supercellListingSteps(input: ListingInput, opts: { readonly gro
   const disp = displacementOf(input.structure, group);
   const m = disp?.multiplicity;
   const analysis = subgroupIrrepsAnalysis(group, irreps, lattice, m ? { multiplicity: m } : {});
-  const extras = rowExtras({ group, lattice, chipOf: chipsOfStars(group, ks, stars), ...(disp ? { multiplicity: disp.multiplicity, identityMultiplicity: disp.identity } : {}) });
+  const extras = rowExtras({ group, lattice, chipOf: chipsOfStars(group, ks, stars), ...(disp ? { multiplicity: disp.multiplicity, identityMultiplicity: disp.identity, stretch: disp.stretch } : {}) });
   const src = { group, lattice, bound: input.boundLabel, extras, ...(m ? { moves: (b: BoundIrrep) => m(b) > 0 } : {}) };
 
   // The row classes, each waiting on the irreps it needs.

@@ -69,11 +69,33 @@ export interface RowGroup {
   readonly domains: number;
   readonly index: number;
   readonly sameCell: boolean;
-  /** The classes, best first: reached by one irrep before coupled ones, then those that move atoms, then in the lattice's order. */
+  /** The classes, best first (variantOrder): the first is the row's tag, detail and default Activate. */
   readonly variants: readonly SubgroupRow[];
 }
 
 const reachRank = (r: SubgroupRow): number => (r.reach.kind === "primary" ? 0 : r.reach.kind === "coupled" ? r.reach.sets[0]!.length : 9);
+
+/** Below this a row's bond stretch is 0: a rigid-unit distortion (rigid ones come out at rounding, ~1e-15; the others at order 1). */
+export const RIGID_STRETCH = 1e-6;
+/** Whether the irreps a row leads with can move its atoms without stretching the shortest bonds (SubgroupRow.stretch). */
+export const isRigid = (r: SubgroupRow): boolean => r.stretch !== null && r.stretch < RIGID_STRETCH;
+
+/** What the variants' "?" says of their order. */
+export const VARIANT_ORDER_NOTE =
+  "The first is the default: one irrep before coupled ones, atoms moved before strain only, then a rigid-unit distortion (the shortest bonds kept, as octahedra tilt), then the lattice's order.";
+
+/**
+ * The variants' order, best first: reached by one irrep before coupled ones
+ * (fewer first); those that move atoms before strain-only ones; then those
+ * whose lead irreps make a rigid-unit distortion (isRigid: SrTiO₃'s tilts,
+ * a⁰a⁰c⁻ I4/mcm by R irrep 8 before the Jahn–Teller-like R irrep 6, a⁻b⁺a⁻
+ * Pnma by the M and R tilts before the pairs that move Ti or Sr); then the
+ * lattice's order. Symmetry alone does not order a tilt before a mode of
+ * the same subgroup that deforms the octahedra; the bonds do.
+ */
+export function variantOrder(a: SubgroupRow, b: SubgroupRow): number {
+  return reachRank(a) - reachRank(b) || Number((b.modes ?? 1) > 0) - Number((a.modes ?? 1) > 0) || Number(isRigid(b)) - Number(isRigid(a));
+}
 
 /** Merge rows with the same name, cell and domains; every row is one group's variant, none lost. */
 export function groupRows(rows: readonly SubgroupRow[]): RowGroup[] {
@@ -86,7 +108,7 @@ export function groupRows(rows: readonly SubgroupRow[]): RowGroup[] {
   });
   return [...groups.entries()].map(([key, g]) => {
     const variants = g.rows
-      .sort((a, b) => reachRank(a.row) - reachRank(b.row) || Number((b.row.modes ?? 1) > 0) - Number((a.row.modes ?? 1) > 0) || a.at - b.at)
+      .sort((a, b) => variantOrder(a.row, b.row) || a.at - b.at)
       .map((x) => x.row);
     const first = variants[0]!;
     return { key, name: first.name, cell: first.cell, domains: first.domains, index: first.index, sameCell: first.sameCell, variants };

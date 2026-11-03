@@ -46,7 +46,8 @@ import { cachedIrrepsOfStar, displacementCharacters, displacementMultiplicity } 
 import { cachedSupercellSubgroups, fitsBound, keepsSupercell, type SubgroupClass, type SupercellLattice } from "@/core/crystal/irreps/supercellLattice";
 import { boundIrreps, subgroupIrreps, type BoundIrrep, type IrrepDirection, type SubgroupIrreps } from "@/core/crystal/irreps/subgroupIrreps";
 import type { KStar } from "@/core/crystal/irreps/spaceGroupIrreps";
-import type { GraphNode } from "@/app/ui/subgroupList";
+import { collapseTies, type GraphNode } from "@/app/ui/subgroupList";
+import { bondStretch, type BondStretch } from "@/core/crystal/bondStretch";
 import type { DecentringBranch, IrrepBranch, IrrepSubgroup, SameCellNode } from "@/app/ui/SubgroupsPanel";
 import { formatBasis } from "@/core/crystal/standardSetting";
 
@@ -261,6 +262,14 @@ export interface SubgroupRow {
   readonly ways: RowWays;
   /** The displacive modes the child refines (every irrep's copies on the atoms times the dimension the child fixes, rigid shifts left out); null without a structure. */
   readonly modes: number | null;
+  /**
+   * How much the irreps the row leads with (its first tied set, detailOf's)
+   * must stretch the structure's shortest bonds (bondStretch): over the
+   * set's members the largest, over a member's tied alternatives the least.
+   * 0 for a rigid-unit distortion (SrTiO₃'s octahedral tilts); null without a
+   * structure, or when they move no atom of the child.
+   */
+  readonly stretch: number | null;
 }
 
 /** One irrep of a row's reaching set, as the list and the detail panel write it. */
@@ -419,13 +428,15 @@ export interface RowContext {
   readonly multiplicity?: (b: BoundIrrep) => number;
   /** The multiplicity of the identity irrep: the parent's free coordinates. */
   readonly identityMultiplicity?: number;
+  /** The structure's bond stretch of an irrep in a subgroup; undefined without a structure. */
+  readonly stretch?: BondStretch;
 }
 
 /**
  * The irreps, ways and mode count of rows of one lattice (see SubgroupRow),
  * with what they share cached: each irrep's isotropy subgroup types (for the ties).
  */
-export type RowExtras = (cls: SubgroupClass, r: SubgroupIrreps, name: string, cell: string) => Pick<SubgroupRow, "reach" | "ways" | "modes">;
+export type RowExtras = (cls: SubgroupClass, r: SubgroupIrreps, name: string, cell: string) => Pick<SubgroupRow, "reach" | "ways" | "modes" | "stretch">;
 export function rowExtras(ctx: RowContext): RowExtras {
   const { group, lattice } = ctx;
   // Each irrep's isotropy subgroups as types and orders (ITA number : order), for the ties.
@@ -510,7 +521,21 @@ export function rowExtras(ctx: RowContext): RowExtras {
       }, 0) / H.length);
       modes = Math.max(0, total - shifts);
     }
-    return { reach, ways, modes };
+    // The lead set's bond stretch: each member's least over its tied alternatives, the set's largest over its members.
+    let stretch: number | null = null;
+    if (ctx.stretch) {
+      const bound = new Map([...r.primary, ...(r.coupled ?? []), ...r.otherCoupled.flat()].map((d) => [d.irrep.irrep.label, d.irrep] as const));
+      for (const alts of collapseTies(reach.sets)[0]?.members ?? []) {
+        let least: number | null = null;
+        for (const x of alts) {
+          const b = bound.get(x.label);
+          const s = b ? ctx.stretch(b.irrep.characters, H) : null;
+          if (s !== null && (least === null || s < least)) least = s;
+        }
+        if (least !== null && (stretch === null || least > stretch)) stretch = least;
+      }
+    }
+    return { reach, ways, modes, stretch };
   };
 }
 
@@ -765,7 +790,7 @@ export function multiplicitiesOf(structure: StructureModel | undefined, group: F
 }
 
 /** The multiplicities of multiplicitiesOf, and the identity irrep's (the parent's free coordinates). */
-export function displacementOf(structure: StructureModel | undefined, group: FactorGroup): { readonly multiplicity: (b: BoundIrrep) => number; readonly identity: number } | undefined {
+export function displacementOf(structure: StructureModel | undefined, group: FactorGroup): { readonly multiplicity: (b: BoundIrrep) => number; readonly identity: number; readonly stretch: BondStretch } | undefined {
   if (!structure) return undefined;
   let chi: Float64Array;
   try {
@@ -773,7 +798,7 @@ export function displacementOf(structure: StructureModel | undefined, group: Fac
   } catch {
     return undefined;
   }
-  return { multiplicity: (b) => displacementMultiplicity(chi, b.irrep.characters), identity: displacementMultiplicity(chi, group.elements.map(() => 1)) };
+  return { multiplicity: (b) => displacementMultiplicity(chi, b.irrep.characters), identity: displacementMultiplicity(chi, group.elements.map(() => 1)), stretch: bondStretch(structure, group) };
 }
 
 /** The chips of a factor group's stars, from the stars as listed (starsInBound order): the same ids kChips gives. */
@@ -803,7 +828,7 @@ export function sameCellListing(o: {
   const disp = displacementOf(o.structure, group);
   const m = disp?.multiplicity;
   const analysis = subgroupIrreps(group, boundIrreps(group, engine.stars), lattice, m ? { multiplicity: m } : {});
-  const extras = rowExtras({ group, lattice, chipOf: (b) => starChipId(b.star.k, b.star.name), ...(disp ? { multiplicity: disp.multiplicity, identityMultiplicity: disp.identity } : {}) });
+  const extras = rowExtras({ group, lattice, chipOf: (b) => starChipId(b.star.k, b.star.name), ...(disp ? { multiplicity: disp.multiplicity, identityMultiplicity: disp.identity, stretch: disp.stretch } : {}) });
   return sameCellSubgroupRows({
     extras,
     group,
@@ -831,6 +856,6 @@ export function supercellListing(group: FactorGroup, structure: StructureModel |
   const disp = displacementOf(structure, group);
   const m = disp?.multiplicity;
   const analysis = subgroupIrreps(group, boundIrreps(group, stars), lattice, m ? { multiplicity: m } : {});
-  const extras = rowExtras({ group, lattice, chipOf: chipsOfStars(group, ks, stars), ...(disp ? { multiplicity: disp.multiplicity, identityMultiplicity: disp.identity } : {}) });
+  const extras = rowExtras({ group, lattice, chipOf: chipsOfStars(group, ks, stars), ...(disp ? { multiplicity: disp.multiplicity, identityMultiplicity: disp.identity, stretch: disp.stretch } : {}) });
   return { rows: supercellSubgroupRows({ group, lattice, analysis, bound, extras, ...(m ? { moves: (b: BoundIrrep) => m(b) > 0 } : {}) }), lattice };
 }

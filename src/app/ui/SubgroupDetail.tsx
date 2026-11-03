@@ -12,7 +12,7 @@ import { color, fz, mono, primaryButton, resetRangeBtn, uppercaseLabel } from "@
 import { InfoBadge } from "@/app/ui/InfoBadge";
 import type { PickerAction, SubgroupRow } from "@/app/ui/subgroupPicker";
 import {
-  collapseTies, compactName, detailOf, irrepsLineOf, setLine, shortName, tagOf,
+  VARIANT_ORDER_NOTE, collapseTies, compactName, detailOf, irrepsLineOf, setLine, shortName, tagOf,
   type RowGroup,
 } from "@/app/ui/subgroupList";
 
@@ -280,7 +280,10 @@ export function SubgroupDetail(p: DetailProps): JSX.Element {
       </Section>
 
       {others.length > 0 ? (
-        <Section title={`${plural(group.variants.length, "variant")} of ${name} · ${row.cell} · ${row.domains} domains`}>
+        <Section
+          title={`${plural(group.variants.length, "variant")} of ${name} · ${row.cell} · ${row.domains} domains`}
+          right={<InfoBadge align="right" width={300} text={VARIANT_ORDER_NOTE} />}
+        >
           {group.variants.map((v, i) => {
             const t = collapseTies(v.reach.sets)[0];
             const vBlock = activateBlock(v, { busy: p.busy, modesInForce: p.modesInForce, canActivate: p.canActivate(v.action) });

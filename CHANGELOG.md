@@ -102,6 +102,16 @@ release fixes bugs.
 
 ### Changed
 
+- **A merged Subgroups row defaults to its rigid-unit variant.** When classes
+  share a name, cell and domains, the row's tag, detail and Activate take the
+  variant whose irreps can move the atoms without stretching the shortest
+  bonds, after the earlier rules (one irrep before coupled, atoms moved before
+  strain only). SrTiO₃'s a⁻b⁺a⁻ Pnma now opens on the octahedral tilts (M
+  irrep 3 or 5 + R irrep 8, modes on O) instead of a pair that moves Ti, and
+  a⁰a⁰c⁻ I4/mcm on R irrep 8 instead of R irrep 6; R-3c is unchanged. 90 of
+  SrTiO₃'s 2×2×2 merged rows change default, none of GaTa₄Se₈'s (1×1×2,
+  2×2×2). Each variant activates as before; the "?" by the variants says
+  the order.
 - **Subgroups opens on the Tree.** The PDF page's Subgroups tab now shows the
   Tree first: the parent with its maximal subgroups one level down. **List** is
   one click away. The Find box shows in both views, and typing in it from the
