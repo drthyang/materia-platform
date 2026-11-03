@@ -1,10 +1,10 @@
 /**
  * bondStretch: how much an irrep's displacements must stretch the shortest
  * bonds. SrTiO₃ in its 2×2×2 cube, the bonds Ti–O (1.95 Å; Sr–O, 2.76 Å, is
- * not within 10% of it): the octahedral tilts (R irrep 8 antiphase, M irrep 5
+ * not within 10% of it): the octahedral tilts (R irrep 8 antiphase, M irrep 3
  * in phase) move O at right angles to its bonds, a rigid-unit mode, 0; the
- * Jahn–Teller-like R irrep 6 and M irrep 3 move O along them; R irrep 7 moves
- * Ti against its octahedron; M irrep 4 moves Sr, which no bond holds.
+ * Jahn–Teller-like R irrep 6 and M irrep 7 move O along them; R irrep 7 moves
+ * Ti against its octahedron; M irrep 8 moves Sr, which no bond holds.
  *
  * The values by hand: K = Σ (ê·Δu)² over the bonds, each counted from both
  * ends; its mean per coordinate on the bonded atoms is 2·96 / (3·32) = 2 (48
@@ -43,14 +43,14 @@ describe("bondStretch on SrTiO₃, 2×2×2", () => {
     expect(of("R irrep 8 of 10", iso("R irrep 8 of 10", 74, "(a,a,0)"))).toBeLessThan(1e-9);
   });
 
-  it("a⁰a⁰c⁺ P4/mbm: the in-phase tilt (M irrep 5) is rigid, its tied twin (M irrep 3) is not", () => {
-    expect(of("M irrep 5 of 10", iso("M irrep 5 of 10", 127, "(a,0,0)"))).toBeLessThan(1e-9);
-    expect(of("M irrep 3 of 10", iso("M irrep 3 of 10", 127, "(a,0,0)"))).toBeCloseTo(2, 9);
+  it("a⁰a⁰c⁺ P4/mbm: the in-phase tilt (M irrep 3) is rigid, its tied twin (M irrep 7) is not", () => {
+    expect(of("M irrep 3 of 10", iso("M irrep 3 of 10", 127, "(a,0,0)"))).toBeLessThan(1e-9);
+    expect(of("M irrep 7 of 10", iso("M irrep 7 of 10", 127, "(a,0,0)"))).toBeCloseTo(2, 9);
   });
 
   it("Ti against its octahedron stretches its bonds; Sr, held by none, counts as one; an irrep on no atom has none", () => {
     expect(of("R irrep 7 of 10", iso("R irrep 7 of 10", 74, "(a,a,0)"))).toBeCloseTo(2, 9);
-    expect(of("M irrep 4 of 10", iso("M irrep 4 of 10", 129, "(a,0,0)"))).toBeCloseTo(1, 9);
+    expect(of("M irrep 8 of 10", iso("M irrep 8 of 10", 129, "(a,0,0)"))).toBeCloseTo(1, 9);
     expect(of("R irrep 9 of 10", iso("R irrep 9 of 10", 140, "(a,0,0)"))).toBeNull();
     // A subgroup that keeps none of the irrep's displacements: R irreps under every translation of the cube.
     expect(of("R irrep 8 of 10", GROUP.translations)).toBeNull();

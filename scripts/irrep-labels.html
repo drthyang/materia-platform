@@ -1,0 +1,31 @@
+<!doctype html>
+<!--
+  The engine's irrep labels with their irreps' fingerprints, worked out in the
+  browser (THY-64): scripts/irrep-labels-check.mjs opens this page on a dev
+  server and compares window.irrepFingerprints with
+  src/core/crystal/irreps/irrepLabels.golden.json, which Node wrote.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<title>MATERIA · irrep labels</title>
+</head>
+<body>
+<pre id="out">working…</pre>
+<script type="module">
+  import { allFingerprints } from "/src/testSupport/irrepLabelFingerprints.ts";
+  import { srtio3 } from "/src/testSupport/perovskiteTilts.ts";
+  import { gata4se8PdfExample } from "/src/examples/gata4se8Pdf.ts";
+  const out = document.getElementById("out");
+  try {
+    const t0 = performance.now();
+    const fingerprints = allFingerprints({ SrTiO3: srtio3(), GaTa4Se8: gata4se8PdfExample().structure });
+    window.irrepFingerprints = fingerprints;
+    out.textContent = `${navigator.userAgent}\n${((performance.now() - t0) / 1000).toFixed(1)} s\n\n${JSON.stringify(fingerprints, null, 1)}`;
+  } catch (e) {
+    window.irrepFingerprintsError = String(e && e.stack ? e.stack : e);
+    out.textContent = window.irrepFingerprintsError;
+  }
+</script>
+</body>
+</html>

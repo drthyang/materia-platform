@@ -325,7 +325,7 @@ exposes powder-refinement failure modes that synthetic examples miss.
 - Every piece of work ends with passing tests, updated docs, a working local
   app, and no broken intermediate state.
 - **Layout: edges line up** (`src/app/workbench.css`, header comment).
-  - One content edge: the header, the notice and disclaimer bars, the footer
+  - One content edge: the header, the notice bars, the footer
     and the page all pad with `--wb-edge`. The brand mark, banner text, first
     card and last menu button share one left and one right line at every width.
   - Titles sit flush on that edge. A card's border sits on the same line, and a

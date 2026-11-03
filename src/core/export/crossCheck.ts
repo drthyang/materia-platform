@@ -1,8 +1,8 @@
 /**
  * The packages a result is reproduced in before it is published, per
  * technique, and what the Export menu writes for that cross-check: one source
- * for the page banner (App.tsx) and the report (report.ts FOOTER,
- * reportResult.ts), so neither names another technique's programs. A PDF user
+ * for the report (report.ts FOOTER, reportResult.ts), so it never names
+ * another technique's programs. A PDF user
  * told to check against GSAS-II learns nothing: the reference
  * implementations differ per technique.
  *

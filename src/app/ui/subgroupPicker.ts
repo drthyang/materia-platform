@@ -440,8 +440,9 @@ export type RowExtras = (cls: SubgroupClass, r: SubgroupIrreps, name: string, ce
   /**
    * The lead set's members as Activate kicks them, by label: of a member's
    * tied alternatives the one with the least bond stretch (rigid ones equal;
-   * ties to the earlier), so SrTiO₃'s "M irrep 3 or 5 + R irrep 8" kicks the
-   * in-phase tilt M irrep 5. Not a row field: the row's action carries it.
+   * ties to the earlier), so SrTiO₃'s "M irrep 3 or 7 + R irrep 8" kicks the
+   * in-phase tilt M irrep 3 whatever the irreps' order. Not a row field: the
+   * row's action carries it.
    */
   readonly kick: readonly string[];
 };

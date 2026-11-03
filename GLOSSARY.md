@@ -64,7 +64,7 @@ _Avoid_: real irrep
 The finite group of matrices an irrep forms acting on its order-parameter space.
 
 **Generic irrep label**:
-MATERIA's name for an irrep: its k-point (Γ, X, L, …, or the vector where the point has no standard name here) and its place among the star's irreps, ordered by dimension, "X irrep 2 of 4"; a complex pair reads "irreps 3⊕4". Miller–Love (CDML) labels such as X3⁺ are only read from imported ISODISTORT mode CIFs and matched in the opt-in ISOTROPY oracle (ADR 0004).
+MATERIA's name for an irrep: its k-point (Γ, X, L, …, or the vector where the point has no standard name here) and its place among the star's irreps, "X irrep 2 of 4"; a complex pair reads "irreps 3⊕4". The place is a total order of the irreps themselves (irrepOrder.ts): dimension, then reality, then the characters on a fixed list of the little co-group's rotations, so it is the same on every runtime; the Γ chip's Γn is "Γ irrep n of m". Miller–Love (CDML) labels such as X3⁺ are only read from imported ISODISTORT mode CIFs and matched in the opt-in ISOTROPY oracle (ADR 0004).
 _Avoid_: writing a generic label in CDML form (Γ1, X3); the magnetic page's old "Γ1, Γ2" at every k
 
 **Magnetic irrep**:

@@ -380,12 +380,13 @@ describe("the step's state, as the panel keeps it", () => {
     step.setFramework("irrep");
     const a = view(step).irrepAnalysis;
     if (!a || !a.available) throw new Error("no representation analysis");
+    // Numbered in irrepOrder's order (THY-64): the truth's irrep, once "irrep 2 of 3" in the chain's order, is irrep 1.
     expect(a.terms.map((t) => [t.label, t.multiplicity, t.dim])).toEqual([
-      ["k = (0, 0, 1/2) irrep 1 of 3", 2, 2], ["k = (0, 0, 1/2) irrep 2 of 3", 1, 2], ["k = (0, 0, 1/2) irrep 3 of 3", 3, 4],
+      ["k = (0, 0, 1/2) irrep 1 of 3", 1, 2], ["k = (0, 0, 1/2) irrep 2 of 3", 2, 2], ["k = (0, 0, 1/2) irrep 3 of 3", 3, 4],
     ]);
-    // Irrep 2 along (a,a): the truth's group, the list's G1.
-    const irrep2 = a.terms[1]!;
-    step.setIrrepDirection(irrep2.label, irrep2.directions.findIndex((d) => d.symbol === "(a,a)"));
+    // Irrep 1 along (a,a): the truth's group, the list's G1.
+    const irrep1 = a.terms[0]!;
+    step.setIrrepDirection(irrep1.label, irrep1.directions.findIndex((d) => d.symbol === "(a,a)"));
     const v = view(step);
     if (!v.combo || "failure" in v.combo) throw new Error("no isotropy subgroup");
     expect(v.combo.settingMatch?.identity.bnsNumber).toBe("164.90");

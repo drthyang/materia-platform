@@ -1,7 +1,7 @@
 /**
  * App shell: data loading (structure / pattern / instrument, with format
  * auto-detection), engine routing (powder, single crystal, PDF), and the fixed
- * chrome (header with mode-aware steps + exports, disclaimer, footer).
+ * chrome (header with mode-aware steps + exports, footer).
  *
  * The three refinement engines are peers behind the WorkbenchEngine contract
  * (see workbenchEngine.ts): `PowderWorkbench`, `SingleCrystalWorkbench` and
@@ -54,7 +54,6 @@ import { PdfWorkbench } from "@/app/PdfWorkbench";
 import { WorkbenchHeader, type Step, type ExportAction } from "@/app/ui/WorkbenchHeader";
 import { WorkbenchErrorBoundary } from "@/app/ui/WorkbenchErrorBoundary";
 import { color as theme, space } from "@/app/theme";
-import { CROSS_CHECK } from "@/core/export/crossCheck";
 import { newSession, loadedSession, emptySession, structureCarried, EMPTY_SOURCE } from "@/app/powderSession";
 import {
   changed, emptyPage, snapshotOf, specInstrumentOf, withInstrument, withInstrumentConstants, withPattern, withPhase, withPhases, withoutPhase, withStructure, type PowderPage,
@@ -1184,7 +1183,7 @@ export function App(): JSX.Element {
 
   // The workbench opens clean: until the user loads the demo or their own CIF
   // (which replaces the empty session), the shell shows the landing view and
-  // hides the workflow steps, exports, and disclaimer.
+  // hides the workflow steps and exports.
   const hasContent = session.powderSource !== EMPTY_SOURCE || scDataset !== null || pdfDataset !== null;
 
   // GPU acceleration preference, owned by the shell because the header chip is
@@ -1219,10 +1218,8 @@ export function App(): JSX.Element {
       )
     : IDLE_STEPS;
 
-  const crossCheck = crossCheckTargets(pdfDataset ? "pdf" : scDataset ? "sc" : "rietveld");
-
   return (
-    // The shell is exactly the window: header, disclaimer and footer are fixed
+    // The shell is exactly the window: header and footer are fixed
     // chrome and the content column between them takes the rest. That is what
     // lets a working row fill a 16:9 screen without anyone computing how tall
     // the chrome happens to be — and a page whose content genuinely exceeds the
@@ -1275,25 +1272,6 @@ export function App(): JSX.Element {
           </span>
           <button style={offerButton} onClick={() => { openProjectText(autosaveOffer.text, "the autosaved session", false); setAutosaveOffer(null); }}>Restore</button>
           <button style={offerButton} onClick={() => { void clearAutosave(); setAutosaveOffer(null); }}>Discard</button>
-        </div>
-      )}
-      {hasContent && (
-        <div className="wb-disclaimer" style={disclaimerBar}>
-          <b>Public beta</b> —{" "}
-          {/* The full sentence runs four lines on a phone; there the bar keeps
-              its point — reproduce before you publish — and the link. */}
-          <span className="wb-disclaimer-long">
-            validated against published reference fits for the cases in its docs, not for yours. Reproduce anything
-            you intend to publish in {crossCheck}; agreement
-            is the evidence. Unmodelled effects:{" "}
-          </span>
-          <span className="wb-disclaimer-short">
-            reproduce anything you intend to publish in {crossCheck}; see the{" "}
-          </span>
-          <a href={LIMITATIONS_URL} target="_blank" rel="noreferrer" style={disclaimerLink}>
-            limitations
-          </a>
-          .
         </div>
       )}
       {/* The powder engine stays mounted in single-crystal and PDF mode (hidden) so all
@@ -1380,35 +1358,11 @@ export function App(): JSX.Element {
   );
 }
 
-/**
- * The package a user should reproduce THIS technique's result in. Naming the
- * right one beats a generic "established tools": a PDF user told to check
- * against GSAS-II learns nothing, and the reference implementations differ per
- * technique (real space vs reciprocal space vs single crystal). The names are
- * the report's too (core/export/crossCheck.ts), so the two cannot drift.
- */
-function crossCheckTargets(technique: "rietveld" | "pdf" | "sc"): string {
-  switch (technique) {
-    case "pdf":
-      // The real-space references, including the magnetic term the PDF page can
-      // add — diffpy.mpdf is the only implementation of it worth checking against.
-      return `${CROSS_CHECK.pdf.packages}, or ${CROSS_CHECK.pdf.magnetic} for a magnetic PDF (Export ▸ PDFgui / diffpy-CMI bundle writes the files and a PDFfit2 script)`;
-    case "sc":
-      return CROSS_CHECK.singleCrystal.packages;
-    default:
-      return `${CROSS_CHECK.powder.packages} (Export ▸ bundle writes both decks)`;
-  }
-}
-
-const LIMITATIONS_URL = "https://github.com/drthyang/materia-platform/blob/main/docs/LIMITATIONS.md";
-
 const noticeBar: React.CSSProperties = { display: "flex", alignItems: "center", gap: 12, padding: `8px ${space.edge}`, fontSize: 12.5, background: theme.warnBg, borderBottom: `1px solid ${theme.warnBorder}`, color: theme.warnInk, lineHeight: 1.45 };
 const noticeAction: React.CSSProperties = { border: `1px solid ${theme.warnBorder}`, background: "transparent", color: theme.warnInk, cursor: "pointer", fontSize: 12, padding: "3px 8px", borderRadius: 4, whiteSpace: "nowrap" };
 const noticeClose: React.CSSProperties = { border: "none", background: "transparent", color: theme.warnInk, cursor: "pointer", fontSize: 13, padding: "0 4px" };
-const disclaimerBar: React.CSSProperties = { padding: `7px ${space.edge}`, fontSize: 11.5, background: theme.warnBg, borderBottom: `1px solid ${theme.warnBorder}`, color: theme.warnInk, lineHeight: 1.45 };
 const offerBar: React.CSSProperties = { display: "flex", alignItems: "center", gap: 10, padding: `8px ${space.edge}`, fontSize: 12.5, background: theme.noteBg, borderBottom: `1px solid ${theme.noteBorder}`, color: theme.noteInk, lineHeight: 1.45 };
 const offerButton: React.CSSProperties = { border: `1px solid ${theme.noteBorder}`, background: theme.surface, color: theme.ink, borderRadius: 7, padding: "3px 12px", fontSize: 12.5, cursor: "pointer" };
-const disclaimerLink: React.CSSProperties = { color: theme.warnInk, textDecoration: "underline" };
 const copyrightBar: React.CSSProperties = { display: "flex", justifyContent: "center", alignItems: "center", gap: 8, padding: `10px ${space.edge}`, fontSize: 11, color: theme.faint, borderTop: `1px solid ${theme.border}`, background: theme.raised };
 const footerLink: React.CSSProperties = { color: theme.secondary, textDecoration: "none" };
 
