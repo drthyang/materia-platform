@@ -13,7 +13,7 @@ import type { RefinementParameter, RefinementResult } from "@/core/refinement/ty
 import { card, color, mono, secondaryButton, space, uppercaseLabel } from "@/app/theme";
 import { InfoBadge } from "@/app/ui/InfoBadge";
 import { resolveTies } from "@/core/refinement/constraints";
-import { GROUP_ORDER, isLocked, parameterGroupOf } from "@/app/ui/parameterGroups";
+import { GROUP_ORDER, isLocked, openOnLoad, parameterGroupOf } from "@/app/ui/parameterGroups";
 import { PanelRunButtons, RUN_BAR_QUERY, RunBar, type RunActionsProps } from "@/app/ui/RunActions";
 import { useMediaQuery } from "@/app/ui/useMediaQuery";
 
@@ -109,8 +109,17 @@ export function ParameterPanel({ params, esd, onChange, onRefine, onThorough, th
     return names.map((g) => ({ name: g, rows: byGroup.get(g)! }));
   }, [params]);
 
-  // All parameter groups start collapsed; the user expands the ones they need.
-  const [open, setOpen] = useState<Record<string, boolean>>({});
+  // A parameter set opens with its groups that have free rows expanded (the
+  // values and esds being refined are on screen); the rest start collapsed.
+  // A new set (another load, an activated child) opens its groups with free
+  // rows the same way; groups the user opened or closed keep that state.
+  const [open, setOpen] = useState<Record<string, boolean>>(() => openOnLoad(params));
+  const loadKey = params.map((p) => p.id).join("\u0000");
+  const [openedFor, setOpenedFor] = useState(loadKey);
+  if (openedFor !== loadKey) {
+    setOpenedFor(loadKey);
+    setOpen((o) => openOnLoad(params, o));
+  }
   // A group the page asked to bring into view: opened, scrolled to, and marked.
   const listRef = useRef<HTMLDivElement | null>(null);
   const groupRefs = useRef(new Map<string, HTMLDivElement>());

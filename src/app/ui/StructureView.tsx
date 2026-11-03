@@ -18,8 +18,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { orthoHalfHeight, screenExtent } from "@/app/ui/structureFrame";
-import { useCoarsePointer } from "@/app/ui/touchInput";
+import { defaultEye, orthoHalfHeight, screenExtent } from "@/app/ui/structureFrame";
 import { GestureHintLine } from "@/app/ui/GestureHintLine";
 import type { StructureModel, SymmetryOperation } from "@/core/crystal/types";
 import type { Vec3 } from "@/core/math/types";
@@ -195,7 +194,6 @@ export function StructureView({
   highlightSites,
   exports,
   minCanvasHeight = 360,
-  fit = false,
 }: {
   structure: StructureModel;
   /** Magnetic moment entries to overlay as arrows (one per site — or per split
@@ -237,10 +235,6 @@ export function StructureView({
   /** Canvas minimum height (px) — hosts that stack panels below the viewer in
    *  a fixed-height card pass a smaller value so the layout can settle. */
   minCanvasHeight?: number;
-  /** Fit the cell to the canvas with a mouse too, as every touch screen does
-   *  (structureFrame.ts): a host whose canvas is far from square (a short card
-   *  beside a long column) would otherwise show a small model in a wide field. */
-  fit?: boolean;
 }): JSX.Element {
   const mountRef = useRef<HTMLDivElement | null>(null);
   // By value, so a host that rebuilds the list each render does not rebuild the scene.
@@ -257,10 +251,6 @@ export function StructureView({
   const { style: bondStyle, color: bondColor, hidden: bondHidden } = bondSettings;
   const [showAtomLabels, setShowAtomLabels] = useState(false);
   const [perspective, setPerspective] = useState(false);
-  // On a touch screen the orthographic frame fits the cell to the canvas (a
-  // phone's canvas is short and wide, or narrow); a desktop keeps its frame
-  // unless the host asks for the fit.
-  const fitToCanvas = useCoarsePointer() || fit;
   const [showAxes, setShowAxes] = useState(true);
   // Which unit cell to show — mutually exclusive, never two frames at once:
   //  "atomic"   the parent nuclear cell,
@@ -398,15 +388,12 @@ export function StructureView({
     const aspect = width / height;
 
     const scene = new THREE.Scene();
-    // On a touch screen the frame fits the cell as the default view below first
-    // sees it (screenExtent); elsewhere it is the desktop frame (null).
-    const extent = fitToCanvas
-      ? screenExtent(frame, center, [center[0] + span * 0.55, center[1] + span * 0.45, center[2] + span * 1.1 + 4])
-      : null;
+    // The frame fits the cell as the default view below first sees it, on every screen (structureFrame.ts).
+    const extent = screenExtent(frame, center, defaultEye(center, span));
     const camera: THREE.PerspectiveCamera | THREE.OrthographicCamera = perspective
       ? new THREE.PerspectiveCamera(45, aspect, 0.05, 8000)
       : (() => {
-          // Half-height of the ortho frustum, sized to the cell (fitted to the canvas on a touch screen).
+          // Half-height of the ortho frustum: the cell fitted to the canvas.
           const d = orthoHalfHeight(span, aspect, extent);
           return new THREE.OrthographicCamera(-d * aspect, d * aspect, d, -d, -8000, 8000);
         })();
@@ -752,7 +739,7 @@ export function StructureView({
       camera.updateProjectionMatrix();
       camera.lookAt(controls.target);
     } else {
-      camera.position.copy(centerV).add(new THREE.Vector3(span * 0.55, span * 0.45, span * 1.1 + 4));
+      camera.position.set(...defaultEye(center, span));
       camera.lookAt(centerV);
       controls.target.copy(centerV);
     }
@@ -817,7 +804,7 @@ export function StructureView({
     // lightLevel and finish are intentionally NOT dependencies: their knobs
     // mutate the live lights/materials below without rebuilding the scene.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [atoms, corners, center, span, showBondLengths, bondStyle, bondColor, bondHidden, showAtomLabels, perspective, showAxes, structure, moments, propagation, standardCell, showParentCell, showStandardCell, cellView, displacements, highlightKey, fitToCanvas, frame]);
+  }, [atoms, corners, center, span, showBondLengths, bondStyle, bondColor, bondHidden, showAtomLabels, perspective, showAxes, structure, moments, propagation, standardCell, showParentCell, showStandardCell, cellView, displacements, highlightKey, frame]);
 
   // Light knob → in-place intensity update, drawn on the next frame.
   useEffect(() => {

@@ -170,8 +170,13 @@ const FOUND_W = 5; // triangle half-width
 const LEGEND_Y = 24; // first legend row's centre line
 const LEGEND_ROW = 16; // extra legend rows (a narrow plot wraps its legend)
 
-/** Vertical layout for a plot `h` px tall (bottom-up; see the constants above). */
-function plotLayout(h: number) {
+/**
+ * Vertical layout for a plot `h` px tall (bottom-up; see the constants above).
+ * `ticks` false (no reflection rows: a G(r)) drops the tick band, and its
+ * height goes to the data; the difference band keeps its size, so it takes
+ * about a fifth of the plot instead of reading as a third.
+ */
+export function plotLayout(h: number, ticks = true) {
   // A plot under 300px tall — only a phone on its side makes one, fitting it to
   // the screen — tightens the fixed bands (difference, ticks, labels), which
   // otherwise took ~170px and left the pattern itself under 90px.
@@ -180,7 +185,7 @@ function plotLayout(h: number) {
   const diffA = Math.round(Math.min(110, short ? Math.max(14, h * 0.06) : Math.max(26, h * 0.082))); // difference half-height
   const diffY = capY - 6 - diffA; // difference-band zero line
   const tickMaxBot = diffY - diffA - 4; // tick band floor (just above the difference band)
-  const tickTop = tickMaxBot - (short ? 28 : 38); // Bragg tick band (below the x-axis labels)
+  const tickTop = tickMaxBot - (ticks ? (short ? 28 : 38) : 0); // Bragg tick band (below the x-axis labels)
   const base = tickTop - (short ? 22 : 26); // main-region baseline
   return { capY, diffA, diffY, tickMaxBot, tickTop, base, mainH: base - TOP - 6, xLabelY: base + (short ? 14 : 16), axisTitleY: h - (short ? 6 : 10) };
 }
@@ -307,7 +312,7 @@ export function WorkbenchPlot({
   }, []);
   const boxW = box.w;
   const VB_H = box.h;
-  const { capY: CAP_Y, diffA: DIFF_A, diffY: DIFF_Y, tickMaxBot: TICK_MAX_BOT, tickTop: TICK_TOP, base: BASE, mainH: MAINH, xLabelY: X_LABEL_Y, axisTitleY: AXIS_TITLE_Y } = plotLayout(VB_H);
+  const { capY: CAP_Y, diffA: DIFF_A, diffY: DIFF_Y, tickMaxBot: TICK_MAX_BOT, tickTop: TICK_TOP, base: BASE, mainH: MAINH, xLabelY: X_LABEL_Y, axisTitleY: AXIS_TITLE_Y } = plotLayout(VB_H, (phases?.length ?? 0) > 0);
   const ts = plotTypeScale();
   const fsTick = 10 * ts; // axis tick labels
   const fsLabel = 11 * ts; // axis titles, legend, spotlight label

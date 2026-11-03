@@ -7,8 +7,13 @@
 
 type V3 = readonly [number, number, number];
 
-/** The desktop frame: a half-height of 0.85 cell diagonals, whatever the canvas. */
-export const FRAME_DIAGONAL_SHARE = 0.85;
+/** The camera's first view: from the cell centre, this far along each axis per unit of the cell's diagonal (plus a fixed 4 Å back), looking slightly down the body diagonal. */
+export const VIEW_DIRECTION: V3 = [0.55, 0.45, 1.1];
+
+/** Where the camera first stands for a cell of diagonal `span` centred on `center` (the view the frame is fitted to). */
+export function defaultEye(center: V3, span: number): V3 {
+  return [center[0] + span * VIEW_DIRECTION[0], center[1] + span * VIEW_DIRECTION[1], center[2] + span * VIEW_DIRECTION[2] + 4];
+}
 
 /** The cell's half-extents across the screen (`halfW`) and up it (`halfH`), seen from `eye` towards `center` with `up` up. */
 export interface ScreenExtent {
@@ -40,17 +45,16 @@ export function screenExtent(points: readonly V3[], center: V3, eye: V3, up: V3 
 }
 
 /**
- * `extent` null: the desktop frame, sized from the full diagonal — on a short,
- * wide canvas (a phone on its side) the cell filled about half its height,
- * and on a canvas narrower than tall it ran off the sides.
- * `extent` given (touch screens): the cell as the camera first sees it, fitted
- * to whichever of the canvas's height and width is tighter, with a margin for
- * the atoms at its corners, their labels and the axis arrows (8% of the
- * diagonal plus 1 Å). Turning the model can take a corner past the edge; a
- * pinch brings it back.
+ * The cell as the camera first sees it (`extent`), fitted to whichever of the
+ * canvas's height and width is tighter, with a margin for the atoms at its
+ * corners, their labels and the axis arrows (8% of the diagonal plus 1 Å).
+ * Every screen frames this way: the fixed frame desktops had (0.85 cell
+ * diagonals of half-height, whatever the canvas) showed a 200 px cell in a
+ * 970×400 canvas, and on a short, wide canvas (a phone on its side) the cell
+ * filled about half its height. Turning the model can take a corner past the
+ * edge; the wheel or a pinch brings it back.
  */
-export function orthoHalfHeight(span: number, aspect: number, extent: ScreenExtent | null): number {
-  if (!extent) return span * FRAME_DIAGONAL_SHARE;
+export function orthoHalfHeight(span: number, aspect: number, extent: ScreenExtent): number {
   const pad = 0.08 * span + 1;
   const a = aspect > 0 && Number.isFinite(aspect) ? aspect : 1;
   return Math.max(extent.halfH + pad, (extent.halfW + pad) / a);

@@ -122,7 +122,44 @@ release fixes bugs.
   reproduce a result in GSAS-II / FullProf (powder), PDFgui / diffpy-CMI or
   diffpy.mpdf (PDF) is gone from every page. The **BETA** badge in the header
   stays, the report's footer still names the cross-check packages, and the
-  limitations are linked from the README (footer: **About & documentation**).
+  page footer links the limitations directly (**Limitations**, below).
+- **Layout pass for v0.5.0.** Only the app's layer changed: the fit, the
+  Agent's tools and everything it reads are as they were.
+  - **The 3D model fills its canvas on a desktop.** Every screen now frames
+    the cell as touch screens did: the cell as first seen, fitted to the
+    tighter side of the canvas with a margin for the corner atoms, labels and
+    axis arrows. A 970×400 card showed the cell at about a third of its
+    height; it now takes about two thirds. This covers the Rietveld and PDF
+    3D Model tabs, the magnetic page's moment preview and the single-crystal
+    view.
+  - **The view tabs stay in the card's title row** on the Rietveld and PDF
+    pages, on every tab (they moved down a row on Refinement). TOF / d / Q,
+    **optimize view**, the fit window with **Reset range**, ±σ and partials
+    sit on the plot's own toolbar row under it. A card too narrow for the
+    title, its figures and the tabs together (a phone, or 1280 px with the
+    Copilot open) puts the tabs on a row of their own on every tab alike.
+  - **Parameter groups with free rows open on load** (Scale, Background and
+    Lattice on the demos), so the values and esds being refined are on
+    screen; the others stay collapsed. A new parameter set (another load, an
+    activated child) opens its newly free groups, and a group you opened or
+    closed keeps that state.
+  - **The Posterior tab says why Sample posterior is held**, on one line
+    beside it: "Refine first: needs esds from a converged fit", or, while a
+    refinement runs, the run lock's reason (still the button's title). The
+    **?** sits right after it, and before a run the panel shows the table's
+    columns faintly instead of a blank card. The PDF Posterior header shows
+    Rw, as the powder one shows wR and GoF.
+  - **The G(r) plot has no reflection-tick band.** A plot with no tick rows
+    gives the band's height to the data, and the difference band is about a
+    fifth of the plot. The powder plot is unchanged.
+  - **The PDF Structure card names the child being fitted.** With a subgroup
+    or supercell child in force it shows the child's name, group, cell and
+    sites, with a "child of SrTiO3 · P m -3 m" line that opens the Subgroups
+    tab. ✕ clear returns it to the parent.
+  - **Footer: a Limitations link** to docs/LIMITATIONS.md, beside About &
+    documentation, on every page.
+  - **Phones show a compact BETA pill** beside the wordmark again (it was
+    hidden at 700 px and below for a banner that is gone).
 - **Subgroups opens on the Tree.** The PDF page's Subgroups tab now shows the
   Tree first: the parent with its maximal subgroups one level down. **List** is
   one click away. The Find box shows in both views, and typing in it from the
@@ -299,6 +336,10 @@ release fixes bugs.
 
 ### Fixed
 
+- **A phone no longer scrolls past the app into a blank screen** on the
+  Magnetic page. A screen-reader-only live region with no positioned
+  ancestor sat deep in the scrolling page and stretched the document to
+  about twice the app's height; it is now pinned to its container's corner.
 - **Irrep numbers are the same on every computer and browser** (THY-64). The
   number in "X irrep n of m" and the Γ chip's Γn came from the order the
   irreps were built in, which a rounding error could change: SrTiO₃'s polar
