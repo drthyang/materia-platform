@@ -540,6 +540,8 @@ shows the modes being refined.
       the Jahn–Teller-like R irrep 6, which moves O along its Ti–O bonds), the
       M and R tilts for a⁻b⁺a⁻ Pnma (not the pairs that move Ti or Sr). Where
       every variant can move rigidly (GaTa₄Se₈) the lattice's order stands.
+      Where the lead set has a tied member ("M irrep 3 or 5"), Activate kicks
+      the one with the least stretch: M irrep 5, the in-phase tilt.
     - **strain only**: the child moves no atom of this structure (its irreps
       carry no displacement); only the cell can change, so there is nothing
       to Activate. These rows are hidden by default.
