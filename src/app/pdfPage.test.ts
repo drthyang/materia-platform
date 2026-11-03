@@ -278,4 +278,25 @@ describe("the PDF page saved and reopened", () => {
     expect(back.boxcarRun?.series[0]?.result.steps.length).toBe(m.boxcarRun!.series[0]!.result.steps.length);
     expect(pageView(back).rw).toBeCloseTo(pageView(m).rw, 9);
   }, 120_000);
+
+  it("a project saved under another irrep numbering reopens as saved: its labels are text in its rows, never matched against the page's (THY-64)", () => {
+    const m = demoPage();
+    const structure = pageView(m).fitStructure;
+    const term = decomposeDisplacementRepresentation(structure).terms.find((t) => !t.trivial && t.multiplicity - t.acoustic > 0)!;
+    const sub = irrepIsotropySubgroups(structure, term)[0]!;
+    const { model, label } = withActivatedMode(m, term, sub);
+    expect(label.startsWith(`${term.irrep.label} → `)).toBe(true);
+    // The same project as a machine with the old numbering would have written it: another Γ number in every label.
+    const old = label.replace(/^Γ\d+/, "Γ9");
+    expect(old).not.toBe(label);
+    const saved = JSON.parse(JSON.stringify(workspaceOf(model)).split(label).join(old));
+    const back = pdfPage(model.loaded, model.pattern, { preset: model.preset, restore: saved });
+    expect(back.modes?.parentName).toBe(old);
+    expect(back.modes?.set.modes.filter((x) => x.label.includes(old)).length).toBe(model.modes!.set.modes.filter((x) => x.label.includes(label)).length);
+    const rows = (x: PdfPageModel) => x.params.map((p) => ({ id: p.id, value: p.value + 0, fixed: p.fixed }));
+    expect(rows(back)).toEqual(rows(model));
+    expect(pageView(back).rw).toBeCloseTo(pageView(model).rw, 9);
+    // The page's own tree still names the irrep by today's number.
+    expect(decomposeDisplacementRepresentation(pageView(back).fitStructure).terms.some((t) => t.irrep.label === term.irrep.label)).toBe(true);
+  });
 });

@@ -29,6 +29,10 @@
  * Labels are generic (ADR 0004): the k-point's name where it is a standard
  * cubic point (Γ, X, L, W; H, N, P; X, M, R), else its vector, then "irrep n
  * of m". CDML labels such as X3⁺ are not computable and are not invented.
+ * The number n is the irrep's place in irrepOrder.ts's total order
+ * (dimension, reality, the small representation's characters on a fixed list
+ * of elements), not the order the chain built it in, so it is the same on
+ * every runtime (THY-64).
  *
  * Every call checks its own output and throws rather than return a wrong
  * irrep: the representation property, unitarity, Σ dim² = |star|·|Ḡ| over the
@@ -50,6 +54,7 @@ import {
   compose, idet, ikey, imul, invert, itransMulVec, phase, rnum, vdot, vfrom, vsub, type IMat, type RVec,
 } from "@/core/crystal/irreps/rational";
 import { alignedToDirections } from "@/core/crystal/irreps/directionBasis";
+import { compareRotations, orderIrreps } from "@/core/crystal/irreps/irrepOrder";
 
 export type Reality = "real" | "pseudoreal" | "complex";
 
@@ -67,7 +72,7 @@ export interface KStar {
 
 /** One irrep of the whole group (complex), at one star. */
 export interface SpaceGroupIrrep {
-  /** 1-based position among the star's irreps, which are ordered by dimension. */
+  /** 1-based position among the star's irreps, in irrepOrder's order (dimension, reality, characters). */
   readonly index: number;
   readonly dim: number;
   /** The dimension of its small representation (dim = |star| · smallDim). */
@@ -440,13 +445,30 @@ export function complexIrrepsOfStar(group: FactorGroup, kIn: Vec3): Omit<StarIrr
     const reality: Reality = rounded === 1 ? "real" : rounded === -1 ? "pseudoreal" : "complex";
     return { dim: s * d, smallDim: d, reality, matrices, characters: matrices.map(ctrace) };
   });
-  // Ordered by dimension, then real before pseudoreal before complex (stable: the chain's order otherwise).
-  const rank: Record<Reality, number> = { real: 0, pseudoreal: 1, complex: 2 };
-  const ordered = built.map((b, i) => ({ b, i })).sort((x, y) => x.b.dim - y.b.dim || rank[x.b.reality] - rank[y.b.reality] || x.i - y.i).map(({ b }) => b);
+  // Numbered in irrepOrder's total order (ADR 0004): dimension, reality, then the small representation's
+  // character on each rotation of the little co-group, {W|w₀} with w₀ its smallest translation, the rotations
+  // in the fixed order of their matrices — the same on every runtime, whatever order the chain built them in.
+  const smallOrder = little.map((e, i) => ({ e, i })).sort((x, y) => compareRotations(group.elements[x.e]!.W, group.elements[y.e]!.W));
+  const ordered = orderIrreps(built, (b) => ({
+    dim: b.dim,
+    reality: b.reality,
+    characters: smallOrder.map(({ e }) => blockTrace(b.matrices[e]!, b.smallDim)),
+  }));
   const m = ordered.length;
   const irreps: SpaceGroupIrrep[] = ordered.map((b, i) => ({ ...b, index: i + 1, label: `${star.label} irrep ${i + 1} of ${m}` }));
   selfCheck(group, irreps, arms, rotations.length, star.label);
   return { star, littleCoGroupOrder: n, irreps };
+}
+
+/** The trace of the top-left d×d block: on an element of G_k, the character of the small representation at the arm k. */
+function blockTrace(m: CMat, d: number): Complex {
+  let re = 0;
+  let im = 0;
+  for (let i = 0; i < d; i++) {
+    re += m.re[i * m.n + i]!;
+    im += m.im[i * m.n + i]!;
+  }
+  return { re, im };
 }
 
 function trace(m: Float64Array, n: number): number {

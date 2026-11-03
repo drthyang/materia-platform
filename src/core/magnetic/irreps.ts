@@ -35,6 +35,8 @@ import { mulMat, determinant, IDENTITY3 } from "@/core/math/mat3";
 import { applyOperation, centringOffsets, centringTranslations, isLatticeVector, snapLatticeVector } from "@/core/crystal/symmetry";
 import { magneticRepresentationCharacter, irrepMultiplicity } from "@/core/magnetic/magneticRepresentation";
 import { pointGroupIrreps } from "@/core/magnetic/pointGroupIrreps";
+import type { IMat } from "@/core/crystal/irreps/rational";
+import { compareRotations, orderIrreps } from "@/core/crystal/irreps/irrepOrder";
 
 const matKey = (R: Mat3): string => R.flat().map((x) => Math.round(x)).join(",");
 const ID_KEY = matKey(IDENTITY3);
@@ -67,6 +69,8 @@ export interface Irrep {
 /**
  * The irreducible representations of the little group defined by `ops`, when its
  * co-group (the distinct rotation parts) is **abelian**; otherwise `null`.
+ * Labelled Γ1, Γ2, … in irrepOrder.ts's total order, as pointGroupIrreps labels
+ * them (the same numbers for every order of `ops` and on every runtime).
  *
  * Method: take the co-group, verify it is abelian, decompose it as a direct
  * product of cyclic groups ⟨g₁⟩ × … × ⟨gₘ⟩ by greedily choosing independent
@@ -149,17 +153,29 @@ export function abelianIrreps(ops: readonly SymmetryOperation[]): Irrep[] | null
   const enumerate = (idx: number, ps: number[]): void => {
     if (idx === m) {
       const characters = charFor(ps);
-      irreps.push({ label: `Γ${irreps.length + 1}`, characters, real: characters.every((c) => Math.abs(c.im) < 1e-9) });
+      irreps.push({ label: "", characters, real: characters.every((c) => Math.abs(c.im) < 1e-9) });
       return;
     }
     for (let p = 0; p < gens[idx]!.n; p++) enumerate(idx + 1, [...ps, p]);
   };
   if (m === 0) {
-    irreps.push({ label: "Γ1", characters: ops.map(() => ({ re: 1, im: 0 })), real: true });
+    irreps.push({ label: "", characters: ops.map(() => ({ re: 1, im: 0 })), real: true });
   } else {
     enumerate(0, []);
   }
-  return irreps;
+  // Numbered in irrepOrder's total order (THY-64), as pointGroupIrreps numbers them: reality, then the character
+  // on each rotation in the fixed order of their matrices — not the order of the generators found from `ops`.
+  const first = new Map<string, number>();
+  ops.forEach((op, i) => {
+    const key = matKey(op.rotation);
+    if (!first.has(key)) first.set(key, i);
+  });
+  const fixed = [...first.values()]
+    .map((i) => ({ i, W: ops[i]!.rotation.map((row) => row.map((x) => Math.round(x))) as unknown as IMat }))
+    .sort((a, b) => compareRotations(a.W, b.W))
+    .map(({ i }) => i);
+  return orderIrreps(irreps, (ir) => ({ dim: 1, reality: ir.real ? "real" : "complex", characters: fixed.map((i) => ir.characters[i]!) }))
+    .map((ir, n) => ({ ...ir, label: `Γ${n + 1}` }));
 }
 
 /**

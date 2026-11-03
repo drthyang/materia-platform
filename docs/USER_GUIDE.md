@@ -512,7 +512,7 @@ shows the modes being refined.
   - **The list** runs from high to low symmetry (by index). Each row is one
     line: the name in the standard setting (ADR 0003), the cell, the domain
     states, and a tag for the irreps that lower the parent to it:
-    `Pnma #62 · 2×2×2 · 24 dom · M·3/5+R·7 ×4`.
+    `Pnma #62 · 2×2×2 · 24 dom · M·3/7+R·7 ×4`.
     - The **cell** is **same cell** for a child that keeps the conventional
       cell (the t-subgroups, and for a centred parent the decentring
       k-subgroups and the general ones, such as F-43m's P-43m at X, refined
@@ -524,7 +524,7 @@ shows the modes being refined.
       8 ("R irrep 8 of 10" in the detail), **M·3+R·8** two irreps coupled
       (dashed). Irreps are named generically
       ([ADR 0004](./adr/0004-generic-irrep-labels-in-the-app.md)), not with
-      ISODISTORT's labels. **M·3/5** means M irrep 3 or M irrep 5 reach the
+      ISODISTORT's labels. **M·3/7** means M irrep 3 or M irrep 7 reach the
       subgroup alike: the same k-point, dimension, direction and copies on
       the atoms, the same isotropy subgroups by type and order, and alone
       the same one in this subgroup's domain. Which of the two drives a real
@@ -558,7 +558,7 @@ shows the modes being refined.
   - **The detail** of the row you pick (on a phone, a full-screen sheet with
     **‹ Back**):
     - The result in one line ("Pnma in a 2×2×2 cell, from 2 irreps together:
-      M irrep 3 or 5 and R irrep 8."); its **?** gives the kind of subgroup,
+      M irrep 3 or 7 and R irrep 8."); its **?** gives the kind of subgroup,
       the index split, orientations, the child basis (P_H, p_H) and every
       other set of irreps.
     - The parent's cell (shaded) and the child's box sketched, with its own
@@ -566,7 +566,7 @@ shows the modes being refined.
       when not); the cell, domains and index.
     - **How you get here**: the irreps switched on one per step, each step
       named by the subgroup it reaches ("Pm-3m → Imma (R irrep 8) → Pnma (+
-      M irrep 3 or 5)"); three, then **N more ways**. The chains of maximal
+      M irrep 3 or 7)"); three, then **N more ways**. The chains of maximal
       subgroups, strain-only ones included, are in the **Tree**.
     - The primary irrep, or the coupled irreps, each with its
       order-parameter direction and, coupled, the subgroup it gives alone;
