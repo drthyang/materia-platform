@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { loadedSession, type Session } from "@/app/powderSession";
+import { bundledSession, type Session } from "@/app/powderSession";
 import { executor, fakeHost, sessionPort } from "@/testSupport/agentHeadless";
 import { mn3gaPowgenExample } from "@/examples/mn3gaPowgen";
 import { fitDiagnosisView } from "@/core/diagnostics/fitDiagnosis";
@@ -22,7 +22,7 @@ function answer(text: string): Record<string, unknown> {
 /** The demo's page, with its fit window, optionally with some values changed. */
 function demoPort(change?: (s: Session) => Session): PowderAgentPort {
   const demo = mn3gaPowgenExample();
-  const start = loadedSession(demo.structure, demo.pattern, demo.instrument, demo.extraPhases, demo.refinedParams);
+  const start = bundledSession(demo);
   const { port } = sessionPort(change ? change(start) : start, demo.instrument, { instrumentOnPage: true });
   port.setFitRange(demo.fitRange);
   return port;
@@ -49,7 +49,7 @@ describe("the Validation view and the Agent read one fit alike", () => {
     const page = pageFitDiagnosis(port.state())!;
     // The demo's story: most of the misfit in the peak tails, the lines no phase explains next.
     expect(page.diagnosis.causes.map((c) => c.id)).toEqual(["peak-tails", "unexplained-peak"]);
-    expect(page.diagnosis.causes[0]!.share).toBeGreaterThan(0.8);
+    expect(page.diagnosis.causes[0]!.share).toBeGreaterThan(0.65);
     expect(page.magneticNeutron).toBeDefined();
   }, 120_000);
 

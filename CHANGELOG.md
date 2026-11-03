@@ -102,6 +102,14 @@ release fixes bugs.
 
 ### Changed
 
+- **The Mn₃Ga neutron TOF demo opens on a new converged fit.** It is a new
+  refinement of the same POWGEN 600 K data and fit window, made in the app: a
+  three-point log-interpolate background (the POWGEN default) in place of four
+  Chebyshev terms, and the B_iso of both phases, the Mn x and the mustrain
+  refined and then held. The demo opens at wR 4.24 %, GoF 3.23 (was 4.01 %,
+  3.05) with eight rows free (was nine): the scale, background and cell of
+  Mn₃Ga and MnO. Refine from it stays converged.
+
 - **A merged Subgroups row defaults to its rigid-unit variant.** When classes
   share a name, cell and domains, the row's tag, detail and Activate take the
   variant whose irreps can move the atoms without stretching the shortest

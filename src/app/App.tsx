@@ -54,7 +54,7 @@ import { PdfWorkbench } from "@/app/PdfWorkbench";
 import { WorkbenchHeader, type Step, type ExportAction } from "@/app/ui/WorkbenchHeader";
 import { WorkbenchErrorBoundary } from "@/app/ui/WorkbenchErrorBoundary";
 import { color as theme, space } from "@/app/theme";
-import { newSession, loadedSession, emptySession, structureCarried, EMPTY_SOURCE } from "@/app/powderSession";
+import { newSession, loadedSession, bundledSession, emptySession, structureCarried, EMPTY_SOURCE } from "@/app/powderSession";
 import {
   changed, emptyPage, snapshotOf, specInstrumentOf, withInstrument, withInstrumentConstants, withPattern, withPhase, withPhases, withoutPhase, withStructure, type PowderPage,
 } from "@/app/powderPage";
@@ -679,7 +679,7 @@ export function App(): JSX.Element {
     }
     if (kind === "rietveld") {
       const ex = mn3gaPowgenExample();
-      const session = loadedSession(ex.structure, ex.pattern, ex.instrument, ex.extraPhases, ex.refinedParams);
+      const session = bundledSession(ex);
       // It opens on a converged fit with no result of its own: the Validation view reads it as such.
       setPage({ session, instrument: ex.instrument, instrumentLoaded: true, result: null, snapshot: snapshotOf(session) });
       setOwnStructure(false);

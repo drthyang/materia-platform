@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { PowderValidationView, type PowderValidationProps } from "@/app/ui/PowderValidation";
-import { loadedSession, type Session } from "@/app/powderSession";
+import { bundledSession, loadedSession, type Session } from "@/app/powderSession";
 import { executor, fakeHost, sessionPort } from "@/testSupport/agentHeadless";
 import { mn3gaPowgenExample } from "@/examples/mn3gaPowgen";
 import { powderReflectionObsCalc } from "@/core/workflow/obsCalc";
@@ -19,7 +19,7 @@ import type { EvidenceSection } from "@/app/ui/fitCauses";
 
 function demoPort(start?: Session): PowderAgentPort {
   const demo = mn3gaPowgenExample();
-  const session = start ?? loadedSession(demo.structure, demo.pattern, demo.instrument, demo.extraPhases, demo.refinedParams);
+  const session = start ?? bundledSession(demo);
   const { port } = sessionPort(session, demo.instrument, { instrumentOnPage: true });
   port.setFitRange(demo.fitRange);
   return port;
@@ -80,7 +80,7 @@ describe("the powder Validation view", () => {
     expect(t).toContain("Acceptance bar");
     // The bar's three checks, in order, each with its tone.
     expect([...out.matchAll(/data-check="([^"]+)" data-tone="([^"]+)"/g)].map((m) => `${m[1]}:${m[2]}`)).toEqual(["gof:amber", "physical:green", "cross-check:grey"]);
-    expect(t).toContain("Goodness of fit GoF 3.05 · fair Above your bar (good ≤ 2.5)");
+    expect(t).toContain("Goodness of fit GoF 3.23 · fair Above your bar (good ≤ 2.5)");
     // The held occupancy 0.5 % over 1 is a note, not a blocker, and said once.
     expect(t).toContain("Physical sanity Nothing unphysical · 1 note note Mn3Ga: Ga1 occ held at 1.005 → set to 1");
     expect(t).not.toContain("Nothing the fit made unphysical");
@@ -94,12 +94,12 @@ describe("the powder Validation view", () => {
   it("keeps the longer account in tooltips: the why, the numbers, the method's order", () => {
     const out = html(props(demoPort(), { snapshot: true }));
     const hover = titles(out);
-    expect(hover).toContain("Not yet acceptable. Most of the misfit is in the peak tails (about 85% of χ²).");
+    expect(hover).toContain("Not yet acceptable. Most of the misfit is in the peak tails (about 70% of χ²).");
     expect(hover).toContain("The page opened on a converged fit, which carries no esds or correlations: refine once to get them.");
     expect(hover).toContain("The model misses systematic features.");
     expect(hover.some((h) => /^0\.5% over 1: an input the fit never moved\./.test(h))).toBe(true);
     expect(hover).toContain("Once the fit meets the bar: refine the same model in GSAS-II and FullProf, and compare the values and esds.");
-    expect(hover).toContain("The observed peaks have longer tails than the model's. (η 0.31 observed against 0.00 calculated · 12 isolated lines)");
+    expect(hover).toContain("The observed peaks have longer tails than the model's. (η 0.24 observed against 0.00 calculated · 12 isolated lines)");
     expect(hover).toContain("Refine the TOF peak shape: the widths σ and the decay β, with the rise α held at the instrument's value. After a quick pass on the atom positions (your method's order).");
     expect(hover.some((h) => h.startsWith("Not background: another phase (an impurity, the sample environment) or magnetic order."))).toBe(true);
     // Each cause and each check has a "?" too, for a touch screen, where a title never shows.
@@ -116,9 +116,9 @@ describe("the powder Validation view", () => {
     const out = html(props(demoPort(), { snapshot: true }));
     const t = text(out);
     expect([...out.matchAll(/data-cause="([^"]+)"/g)].map((m) => m[1])).toEqual(["peak-tails", "unexplained-peak"]);
-    expect(t).toContain("Peak tails 85%");
+    expect(t).toContain("Peak tails 70%");
     expect(t).toContain("Model's tails too short → Refine TOF σ and β (keep α), after the atom positions");
-    expect(t).toContain("7 excesses at d 0.468, 0.467, 2.149, … Å → Try the k-search, then another phase — not background");
+    expect(t).toContain("7 excesses at d 0.467, 0.468, 2.149, … Å → Try the k-search, then another phase — not background");
     expect(t).not.toContain("The observed peaks have longer tails");
     expect(t).toContain("Open Instrument / profile");
     expect(t).toContain("Show on pattern");
@@ -134,16 +134,16 @@ describe("the powder Validation view", () => {
     expect(closed).not.toContain("Normalized residual and cumulative chi-square");
     expect(closed).not.toMatch(/<th[^>]*>R_Bragg/);
     expect(text(closed)).toContain("Worst peaks 8 worst: 7% of χ²");
-    expect(text(closed)).toContain("Residual Δ/σ and cumulative χ² · DW 0.61");
+    expect(text(closed)).toContain("Residual Δ/σ and cumulative χ² · DW 0.56");
     expect(text(closed)).toMatch(/χ² by d-shell highest \d+\.\d\/point at d [\d.]+–[\d.]+ Å \(noise 1\)/);
-    expect(text(closed)).toContain("Agreement Rwp 4.01% · Rexp 1.31%");
+    expect(text(closed)).toContain("Agreement Rwp 4.24% · Rexp 1.31%");
     const open = html(props(demoPort(), { snapshot: true, open: ["residual", "shells", "worst", "agreement"] }));
     expect(open.match(/aria-expanded="true"/g)).toHaveLength(4);
     expect(open).toContain("Normalized residual and cumulative chi-square");
     const t = text(open);
     expect(open).toMatch(/<th[^>]*>R_Bragg/);
-    expect(t).toMatch(/Mn3Ga \d+\.\d\d% \d+\.\d\d% 183/);
-    expect(t).toMatch(/MnO \d+\.\d\d% \d+\.\d\d% 32/);
+    expect(t).toMatch(/Mn3Ga \d+\.\d\d% \d+\.\d\d% 184/);
+    expect(t).toMatch(/MnO \d+\.\d\d% \d+\.\d\d% 34/);
     expect(t).toContain("DW · Q_D 1.89");
     expect(t).toContain("Rwp′ bkg-sub");
     expect(t).toContain("(1 0 1)");
@@ -156,8 +156,8 @@ describe("the powder Validation view", () => {
     const out = html(props(port));
     const t = text(out);
     expect(t).toMatch(/Converged in \d cycles? · max shift [\d.]+ esd/);
-    expect(t).toContain("Esds likely too small: DW 0.61 < Q_D 1.89, GoF 3.05");
-    expect(titles(out)).toContain("The esds are likely too small: neighbouring points miss together (Durbin–Watson 0.61, below 1.89), and the model leaves systematic misfit (GoF 3.05).");
+    expect(t).toContain("Esds likely too small: DW 0.56 < Q_D 1.89, GoF 3.23");
+    expect(titles(out)).toContain("The esds are likely too small: neighbouring points miss together (Durbin–Watson 0.56, below 1.89), and the model leaves systematic misfit (GoF 3.23).");
     expect(words(topText(out))).toBeLessThanOrEqual(145);
     // Nothing to refine for: no Refine on the state line.
     expect(stateLine(out)).not.toContain("<button");
@@ -166,7 +166,7 @@ describe("the powder Validation view", () => {
 
   it("with the cell put off by hand: a poor fit, and the peak positions first, as the method orders them", () => {
     const demo = mn3gaPowgenExample();
-    const start = loadedSession(demo.structure, demo.pattern, demo.instrument, demo.extraPhases, demo.refinedParams);
+    const start = bundledSession(demo);
     const off = { ...start, powderParams: start.powderParams.map((p) => (p.id === "p0_cell_a" ? { ...p, value: p.value * 1.003 } : p)) };
     const out = html(props(demoPort(off)));
     const t = text(out);

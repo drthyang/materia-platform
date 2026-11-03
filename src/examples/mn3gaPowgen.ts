@@ -14,6 +14,7 @@ import patternText from "@/examples/datasets/mn3ga_powgen_600k.dat?raw";
 import type { StructureModel } from "@/core/crystal/types";
 import type { PowderPattern } from "@/core/diffraction/types";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
+import type { BackgroundType } from "@/core/diffraction/background";
 import { parsePowderData } from "@/parsers/powderData";
 import { parseCif } from "@/parsers/cif";
 import { exampleStructure } from "@/examples/mn3ga";
@@ -50,28 +51,37 @@ export interface Mn3GaPowgenExample {
   readonly extraPhases: StructureModel[];
   readonly pattern: PowderPattern;
   readonly instrument: InstrumentParameters;
-  /** Converged parameter values (id → value) from refining scale + background +
-   *  lattice inside `fitRange`. Applied on load so the demo opens on a finished
-   *  refinement rather than the raw starting model. */
+  /** Converged parameter values (id → value) inside `fitRange`, in the
+   *  `backgroundType`/`backgroundTerms` basis. Applied on load so the demo opens
+   *  on a finished refinement rather than the raw starting model. */
   readonly refinedParams: Record<string, number>;
   /** The refinement window the demo opens with (TOF, µs). */
   readonly fitRange: { readonly min: number; readonly max: number };
+  /** The background the snapshot was refined with: its basis and number of coefficients. */
+  readonly backgroundType: BackgroundType;
+  readonly backgroundTerms: number;
 }
 
 // TOF window, d ≈ 0.41–5.03 Å at this difC.
 const FIT_RANGE = { min: 9349.424134934858, max: 113673.10659380186 };
 
-// Snapshot of a converged two-phase refinement inside FIT_RANGE (wR ≈ 4.0 %;
-// SCALE + BACKGROUND + LATTICE free; profile/ADP/positions/occupancy fixed). Keyed by parameter id so it is
-// applied after the spec is (deterministically) rebuilt from the model.
+// The snapshot's background: GSAS-II "log interpolate" with three points.
+const BACKGROUND: { readonly type: BackgroundType; readonly terms: number } = { type: "logInterpolate", terms: 3 };
+
+// Snapshot of a converged two-phase refinement inside FIT_RANGE, made in the
+// app (MATERIA 0.5.0 project "Mn3Ga · Rietveld (powder)", 2026-11-03): wR 4.24 %,
+// GoF 3.23 with the eight free rows below. The B_iso of both phases and the Mn x
+// were refined in an earlier step, the Mn₃Ga mustrain in the last one, and then
+// held; the demo opens with the rows the spec frees (scale, background, cell of
+// both phases) free and the rest held at these values. Keyed by parameter id so
+// it is applied after the spec is (deterministically) rebuilt from the model.
 const REFINED_PARAMS: Record<string, number> = {
-  p0_scale: 1.3659027552210306,
-  bkg0: 35.77178325199655,
-  bkg1: -25.616674079674553,
-  bkg2: -16.147669950270995,
-  bkg3: -15.571626557441206,
-  p0_cell_a: 5.419644061314016,
-  p0_cell_c: 4.373657231376886,
+  p0_scale: 1.3795198657809256,
+  bkg0: 58.056311670165464,
+  bkg1: 41.71495972546248,
+  bkg2: 54.233644621199666,
+  p0_cell_a: 5.419643070348825,
+  p0_cell_c: 4.373665652217974,
   tof_difC: 22585.8,
   tof_difA: 0,
   tof_difB: 0,
@@ -79,19 +89,21 @@ const REFINED_PARAMS: Record<string, number> = {
   tof_alpha1: 200,
   tof_beta0: 0.7871359754574907,
   tof_beta1: 0.015683176112119435,
+  tof_betaQ: 0,
   tof_sig0: 0,
   tof_sig2: 559.4307113995054,
+  tof_sigQ: 0,
   zero: 0.10901248683627304,
-  p0_B_Mn1: 1.1388706447443406,
-  p0_B_Ga1: 0.9197364345553262,
-  p0_pos_Mn1_0: 0.005151140106987724,
+  p0_B_Mn1: 1.095888995939349,
+  p0_B_Ga1: 0.9610606861919474,
+  p0_pos_Mn1_0: 0.005046471995896179,
   p0_occ_Mn1: 0.978,
   p0_occ_Ga1: 1.005,
-  mustrainIso: 572.7488942595868,
-  p1_scale: 0.09771006047217336,
-  p1_cell_a: 4.456099693361676,
-  p1_B_Mn1: 0.6558506545847267,
-  p1_B_O1: 1.556512316996298,
+  mustrainIso: 588.135408384408,
+  p1_scale: 0.09746474228130754,
+  p1_cell_a: 4.456038493037522,
+  p1_B_Mn1: 1.1318502533554347,
+  p1_B_O1: 1.1595814122614099,
   p1_occ_Mn1: 1,
   p1_occ_O1: 1,
 };
@@ -109,6 +121,6 @@ export function mn3gaPowgenExample(): Mn3GaPowgenExample {
     xUnit: "tof",
     radiation: { kind: "neutron-tof" },
   });
-  cached = { structure, extraPhases: [mno], pattern, instrument: { kind: "tof", difC: DIF_C }, refinedParams: REFINED_PARAMS, fitRange: FIT_RANGE };
+  cached = { structure, extraPhases: [mno], pattern, instrument: { kind: "tof", difC: DIF_C }, refinedParams: REFINED_PARAMS, fitRange: FIT_RANGE, backgroundType: BACKGROUND.type, backgroundTerms: BACKGROUND.terms };
   return cached;
 }

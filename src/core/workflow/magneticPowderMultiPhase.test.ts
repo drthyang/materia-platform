@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { mn3gaPowgenExample } from "@/examples/mn3gaPowgen";
-import { loadedSession } from "@/app/powderSession";
+import { bundledSession } from "@/app/powderSession";
 import { multiPhaseCurves } from "@/core/workflow/multiPhase";
 import {
   buildMagneticPowderProblem,
@@ -25,13 +25,14 @@ import type { MagneticModel } from "@/core/magnetic/types";
  */
 describe("magnetic powder problem — multi-phase routing (Mn₃Ga + MnO demo)", () => {
   const ex = mn3gaPowgenExample();
-  const s = loadedSession(ex.structure, ex.pattern, ex.instrument, ex.extraPhases, ex.refinedParams);
+  const s = bundledSession(ex);
   const extra = s.extraPhases.map((ph) => ({ structure: ph, id: ph.id }));
   const phases = [{ structure: s.structure, id: s.structure.id }, ...extra];
   const values: Record<string, number> = Object.fromEntries(s.powderParams.map((p) => [p.id, p.value]));
   const profile = {
     shape: s.powderProfile.shape,
     ...(s.powderProfile.eta !== undefined ? { eta: s.powderProfile.eta } : {}),
+    ...(s.powderProfile.backgroundType !== undefined ? { backgroundType: s.powderProfile.backgroundType } : {}),
   };
   // A zero-moment magnetic model on the primary: the magnetic component is
   // exactly zero, so the combined problem must reproduce the plain two-phase
@@ -48,11 +49,11 @@ describe("magnetic powder problem — multi-phase routing (Mn₃Ga + MnO demo)",
     // Refined hexagonal Mn₃Ga cell — an unrouted apply would leave a = b = c =
     // 4.4561 (MnO's cubic constraint written across all three lengths).
     expect(applied.model.cell.a).toBeCloseTo(5.41964, 4);
-    expect(applied.model.cell.c).toBeCloseTo(4.37366, 4);
-    expect(applied.scale).toBeCloseTo(1.3659, 4);
+    expect(applied.model.cell.c).toBeCloseTo(4.37367, 4);
+    expect(applied.scale).toBeCloseTo(1.37952, 4);
     // MnO's own B/occ for the colliding "Mn1" label must not leak in.
     const mn1 = applied.model.sites.find((site) => site.label === "Mn1")!;
-    expect(mn1.adp.kind === "isotropic" ? mn1.adp.bIso : NaN).toBeCloseTo(1.13887, 4);
+    expect(mn1.adp.kind === "isotropic" ? mn1.adp.bIso : NaN).toBeCloseTo(1.09589, 4);
   });
 
   it("the magnetic problem reproduces the two-phase nuclear pattern (zero moments)", () => {
@@ -75,7 +76,7 @@ describe("magnetic powder problem — multi-phase routing (Mn₃Ga + MnO demo)",
     const yObs = Float64Array.from(s.pattern.points.map((p) => p.yObs));
     const weights = weightsFromSigma(s.pattern.points.map((p) => p.sigma ?? (p.yObs > 0 ? Math.sqrt(p.yObs) : 1)));
     const a = computeAgreementFactors(yObs, yCalc, weights, s.powderParams.length);
-    // Converged demo ≈ 3.9 %; the corrupted (unrouted) model gave ≈ 17 %.
+    // Converged demo ≈ 4.2 %; the corrupted (unrouted) model gave ≈ 17 %.
     expect(100 * (a.rWeighted ?? 1)).toBeLessThan(5);
   });
 
