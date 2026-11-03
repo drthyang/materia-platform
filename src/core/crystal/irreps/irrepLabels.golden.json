@@ -1,0 +1,495 @@
+{
+ "Pm-3m Γ": [
+  "Γ irrep 1 of 10 · 1r · 826e2fab",
+  "Γ irrep 2 of 10 · 1r · 0a0d2f6b",
+  "Γ irrep 3 of 10 · 1r · e3e77cc3",
+  "Γ irrep 4 of 10 · 1r · 08c3ffe3",
+  "Γ irrep 5 of 10 · 2r · 6f574b3b",
+  "Γ irrep 6 of 10 · 2r · 8c1e7cb7",
+  "Γ irrep 7 of 10 · 3r · 4120219b",
+  "Γ irrep 8 of 10 · 3r · 5cd14bf9",
+  "Γ irrep 9 of 10 · 3r · f3b56e4b",
+  "Γ irrep 10 of 10 · 3r · 63cf4da9"
+ ],
+ "Fm-3m Γ": [
+  "Γ irrep 1 of 10 · 1r · 90ed64db",
+  "Γ irrep 2 of 10 · 1r · 1d1c51db",
+  "Γ irrep 3 of 10 · 1r · c0106a3b",
+  "Γ irrep 4 of 10 · 1r · 75b1057b",
+  "Γ irrep 5 of 10 · 2r · c060c9ab",
+  "Γ irrep 6 of 10 · 2r · d12d4b7b",
+  "Γ irrep 7 of 10 · 3r · 63865323",
+  "Γ irrep 8 of 10 · 3r · 8f24964b",
+  "Γ irrep 9 of 10 · 3r · ce065683",
+  "Γ irrep 10 of 10 · 3r · 54d6804b"
+ ],
+ "Fm-3m X": [
+  "X irrep 1 of 10 · 3r · 19b11f43",
+  "X irrep 2 of 10 · 3r · 6ce8f5db",
+  "X irrep 3 of 10 · 3r · 8797c383",
+  "X irrep 4 of 10 · 3r · 28ee9a2b",
+  "X irrep 5 of 10 · 3r · b584d24f",
+  "X irrep 6 of 10 · 3r · 5d8d17c3",
+  "X irrep 7 of 10 · 3r · 8e6fa28f",
+  "X irrep 8 of 10 · 3r · eba05733",
+  "X irrep 9 of 10 · 6r · a0993db9",
+  "X irrep 10 of 10 · 6r · dea05fe7"
+ ],
+ "F-43m X": [
+  "X irrep 1 of 5 · 3r · 7039357b",
+  "X irrep 2 of 5 · 3r · d1a3dfc3",
+  "X irrep 3 of 5 · 3r · 00270a07",
+  "X irrep 4 of 5 · 3r · f6b4211f",
+  "X irrep 5 of 5 · 6r · 0150cf16"
+ ],
+ "Fd-3m X": [
+  "X irrep 1 of 4 · 6r · 29c22be2",
+  "X irrep 2 of 4 · 6r · 9eeafdca",
+  "X irrep 3 of 4 · 6r · 26b27dba",
+  "X irrep 4 of 4 · 6r · 691ca082"
+ ],
+ "Im-3m H": [
+  "H irrep 1 of 10 · 1r · eb059b7b",
+  "H irrep 2 of 10 · 1r · 841d6703",
+  "H irrep 3 of 10 · 1r · fcfc87b3",
+  "H irrep 4 of 10 · 1r · dbd8528b",
+  "H irrep 5 of 10 · 2r · 7eaec2bb",
+  "H irrep 6 of 10 · 2r · 0150a0ab",
+  "H irrep 7 of 10 · 3r · 12f5f30b",
+  "H irrep 8 of 10 · 3r · d0dab3ff",
+  "H irrep 9 of 10 · 3r · 61b13d03",
+  "H irrep 10 of 10 · 3r · 80dd6a07"
+ ],
+ "I4/mmm M": [
+  "k = (0, 0, 1) irrep 1 of 10 · 1r · c1c32323",
+  "k = (0, 0, 1) irrep 2 of 10 · 1r · f4048543",
+  "k = (0, 0, 1) irrep 3 of 10 · 1r · 88999743",
+  "k = (0, 0, 1) irrep 4 of 10 · 1r · 51b50b63",
+  "k = (0, 0, 1) irrep 5 of 10 · 1r · a38794a3",
+  "k = (0, 0, 1) irrep 6 of 10 · 1r · 826b0763",
+  "k = (0, 0, 1) irrep 7 of 10 · 1r · 03168c73",
+  "k = (0, 0, 1) irrep 8 of 10 · 1r · 874ef063",
+  "k = (0, 0, 1) irrep 9 of 10 · 2r · 1dfc987b",
+  "k = (0, 0, 1) irrep 10 of 10 · 2r · 9ed6301f"
+ ],
+ "Cmcm Y": [
+  "k = (0, 1, 0) irrep 1 of 8 · 1r · ea701cef",
+  "k = (0, 1, 0) irrep 2 of 8 · 1r · 5adf8fcb",
+  "k = (0, 1, 0) irrep 3 of 8 · 1r · 92f8fec3",
+  "k = (0, 1, 0) irrep 4 of 8 · 1r · 31b5aeef",
+  "k = (0, 1, 0) irrep 5 of 8 · 1r · ca10e0a3",
+  "k = (0, 1, 0) irrep 6 of 8 · 1r · b224c2a7",
+  "k = (0, 1, 0) irrep 7 of 8 · 1r · 470e2cb7",
+  "k = (0, 1, 0) irrep 8 of 8 · 1r · 8c0bc523"
+ ],
+ "Pm-3m X": [
+  "X irrep 1 of 10 · 3r · 34a395d3",
+  "X irrep 2 of 10 · 3r · d43fa063",
+  "X irrep 3 of 10 · 3r · d56ab473",
+  "X irrep 4 of 10 · 3r · 4333fd33",
+  "X irrep 5 of 10 · 3r · f267690b",
+  "X irrep 6 of 10 · 3r · 20a7f53b",
+  "X irrep 7 of 10 · 3r · 312797db",
+  "X irrep 8 of 10 · 3r · 8b78790b",
+  "X irrep 9 of 10 · 6r · 963ccfff",
+  "X irrep 10 of 10 · 6r · fade7a4b"
+ ],
+ "Pm-3m M": [
+  "M irrep 1 of 10 · 3r · 015021fb",
+  "M irrep 2 of 10 · 3r · ea9fb97b",
+  "M irrep 3 of 10 · 3r · 2ddd165b",
+  "M irrep 4 of 10 · 3r · 405fb5bb",
+  "M irrep 5 of 10 · 3r · 037694ab",
+  "M irrep 6 of 10 · 3r · 9c76019b",
+  "M irrep 7 of 10 · 3r · c9b7e08b",
+  "M irrep 8 of 10 · 3r · 086a169b",
+  "M irrep 9 of 10 · 6r · 835e4e93",
+  "M irrep 10 of 10 · 6r · 24062b23"
+ ],
+ "Pm-3m R": [
+  "R irrep 1 of 10 · 1r · c45b430b",
+  "R irrep 2 of 10 · 1r · dfb6733b",
+  "R irrep 3 of 10 · 1r · 96229dfb",
+  "R irrep 4 of 10 · 1r · 48b82e9b",
+  "R irrep 5 of 10 · 2r · 9b180133",
+  "R irrep 6 of 10 · 2r · b57eaf63",
+  "R irrep 7 of 10 · 3r · ed632a93",
+  "R irrep 8 of 10 · 3r · b51ef15b",
+  "R irrep 9 of 10 · 3r · 0f094d83",
+  "R irrep 10 of 10 · 3r · 14affa5b"
+ ],
+ "Fm-3m L": [
+  "L irrep 1 of 6 · 4r · 1942e673",
+  "L irrep 2 of 6 · 4r · 6be46d7b",
+  "L irrep 3 of 6 · 4r · 9ced01c3",
+  "L irrep 4 of 6 · 4r · c6edc9fb",
+  "L irrep 5 of 6 · 8r · 61f07283",
+  "L irrep 6 of 6 · 8r · c5629ecb"
+ ],
+ "Fm-3m W": [
+  "W irrep 1 of 5 · 6r · e180929b",
+  "W irrep 2 of 5 · 6r · 0d4861af",
+  "W irrep 3 of 5 · 6r · 4e6eef4f",
+  "W irrep 4 of 5 · 6r · 49b34beb",
+  "W irrep 5 of 5 · 12r · e0bcdb11"
+ ],
+ "P6₃/mmc A": [
+  "k = (0, 0, 1/2) irrep 1 of 3 · 2r · 02b451b3",
+  "k = (0, 0, 1/2) irrep 2 of 3 · 2r · cae82703",
+  "k = (0, 0, 1/2) irrep 3 of 3 · 4r · 1b83743b"
+ ],
+ "P4₂/mnm Z": [
+  "k = (0, 0, 1/2) irrep 1 of 4 · 2r · 31cf62bb",
+  "k = (0, 0, 1/2) irrep 2 of 4 · 2r · 6217602b",
+  "k = (0, 0, 1/2) irrep 3 of 4 · 2r · c2858f13",
+  "k = (0, 0, 1/2) irrep 4 of 4 · 2r · f0951ea3"
+ ],
+ "P4/mmm Z": [
+  "k = (0, 0, 1/2) irrep 1 of 10 · 1r · f63fd70b",
+  "k = (0, 0, 1/2) irrep 2 of 10 · 1r · cf13c22b",
+  "k = (0, 0, 1/2) irrep 3 of 10 · 1r · 3dd48bab",
+  "k = (0, 0, 1/2) irrep 4 of 10 · 1r · 7cc696fb",
+  "k = (0, 0, 1/2) irrep 5 of 10 · 1r · 66b6c76b",
+  "k = (0, 0, 1/2) irrep 6 of 10 · 1r · 093890cb",
+  "k = (0, 0, 1/2) irrep 7 of 10 · 1r · 53601eeb",
+  "k = (0, 0, 1/2) irrep 8 of 10 · 1r · 6f36d37b",
+  "k = (0, 0, 1/2) irrep 9 of 10 · 2r · 0cc65503",
+  "k = (0, 0, 1/2) irrep 10 of 10 · 2r · 754db043"
+ ],
+ "SrTiO₃ Pm-3m 2×2×2": [
+  "Γ irrep 1 of 10 · 1r · 76292bbb",
+  "Γ irrep 2 of 10 · 1r · 95052f8b",
+  "Γ irrep 3 of 10 · 1r · 3ac5580b",
+  "Γ irrep 4 of 10 · 1r · 562cefbb",
+  "Γ irrep 5 of 10 · 2r · a60069eb",
+  "Γ irrep 6 of 10 · 2r · e47ee233",
+  "Γ irrep 7 of 10 · 3r · 74696a2b",
+  "Γ irrep 8 of 10 · 3r · 970c9f73",
+  "Γ irrep 9 of 10 · 3r · fa2be27b",
+  "Γ irrep 10 of 10 · 3r · cb2fc303",
+  "X irrep 1 of 10 · 3r · 34a395d3",
+  "X irrep 2 of 10 · 3r · d43fa063",
+  "X irrep 3 of 10 · 3r · d56ab473",
+  "X irrep 4 of 10 · 3r · 4333fd33",
+  "X irrep 5 of 10 · 3r · f267690b",
+  "X irrep 6 of 10 · 3r · 20a7f53b",
+  "X irrep 7 of 10 · 3r · 312797db",
+  "X irrep 8 of 10 · 3r · 8b78790b",
+  "X irrep 9 of 10 · 6r · 963ccfff",
+  "X irrep 10 of 10 · 6r · fade7a4b",
+  "M irrep 1 of 10 · 3r · 015021fb",
+  "M irrep 2 of 10 · 3r · ea9fb97b",
+  "M irrep 3 of 10 · 3r · 2ddd165b",
+  "M irrep 4 of 10 · 3r · 405fb5bb",
+  "M irrep 5 of 10 · 3r · 037694ab",
+  "M irrep 6 of 10 · 3r · 9c76019b",
+  "M irrep 7 of 10 · 3r · c9b7e08b",
+  "M irrep 8 of 10 · 3r · 086a169b",
+  "M irrep 9 of 10 · 6r · 835e4e93",
+  "M irrep 10 of 10 · 6r · 24062b23",
+  "R irrep 1 of 10 · 1r · c45b430b",
+  "R irrep 2 of 10 · 1r · dfb6733b",
+  "R irrep 3 of 10 · 1r · 96229dfb",
+  "R irrep 4 of 10 · 1r · 48b82e9b",
+  "R irrep 5 of 10 · 2r · 9b180133",
+  "R irrep 6 of 10 · 2r · b57eaf63",
+  "R irrep 7 of 10 · 3r · ed632a93",
+  "R irrep 8 of 10 · 3r · b51ef15b",
+  "R irrep 9 of 10 · 3r · 0f094d83",
+  "R irrep 10 of 10 · 3r · 14affa5b"
+ ],
+ "GaTa₄Se₈ F-43m 1×1×2": [
+  "Γ irrep 1 of 5 · 1r · f16477db",
+  "Γ irrep 2 of 5 · 1r · f31cffcb",
+  "Γ irrep 3 of 5 · 2r · c152649b",
+  "Γ irrep 4 of 5 · 3r · 873ee993",
+  "Γ irrep 5 of 5 · 3r · 484114e3",
+  "k = (0, 0, 1/2) irrep 1 of 4 · 6r · 0d1809bb",
+  "k = (0, 0, 1/2) irrep 2 of 4 · 6r · cc5d834b",
+  "k = (0, 0, 1/2) irrep 3 of 4 · 6c · d298c06b",
+  "k = (0, 0, 1/2) irrep 4 of 4 · 6c · 347e07c3",
+  "X irrep 1 of 5 · 3r · 6733e15b",
+  "X irrep 2 of 5 · 3r · 7dc3fe9b",
+  "X irrep 3 of 5 · 3r · 1ee8d173",
+  "X irrep 4 of 5 · 3r · b410e7f3",
+  "X irrep 5 of 5 · 6r · 2e9f477b",
+  "W irrep 1 of 4 · 6r · 01e673bf",
+  "W irrep 2 of 4 · 6r · 17d80a7f",
+  "W irrep 3 of 4 · 6r · cfe1b98f",
+  "W irrep 4 of 4 · 6r · 7575c997"
+ ],
+ "GaTa₄Se₈ F-43m 2×2×2": [
+  "Γ irrep 1 of 5 · 1r · f16477db",
+  "Γ irrep 2 of 5 · 1r · f31cffcb",
+  "Γ irrep 3 of 5 · 2r · c152649b",
+  "Γ irrep 4 of 5 · 3r · 873ee993",
+  "Γ irrep 5 of 5 · 3r · 484114e3",
+  "k = (0, 0, 1/2) irrep 1 of 4 · 6r · 0d1809bb",
+  "k = (0, 0, 1/2) irrep 2 of 4 · 6r · cc5d834b",
+  "k = (0, 0, 1/2) irrep 3 of 4 · 6c · d298c06b",
+  "k = (0, 0, 1/2) irrep 4 of 4 · 6c · 347e07c3",
+  "X irrep 1 of 5 · 3r · 6733e15b",
+  "X irrep 2 of 5 · 3r · 7dc3fe9b",
+  "X irrep 3 of 5 · 3r · 1ee8d173",
+  "X irrep 4 of 5 · 3r · b410e7f3",
+  "X irrep 5 of 5 · 6r · 2e9f477b",
+  "k = (0, 1/2, 1/2) irrep 1 of 2 · 12r · f0c345db",
+  "k = (0, 1/2, 1/2) irrep 2 of 2 · 12r · 9ef5a993",
+  "W irrep 1 of 4 · 6r · 01e673bf",
+  "W irrep 2 of 4 · 6r · 17d80a7f",
+  "W irrep 3 of 4 · 6r · cfe1b98f",
+  "W irrep 4 of 4 · 6r · 7575c997",
+  "L irrep 1 of 3 · 4r · 2f304ac3",
+  "L irrep 2 of 3 · 4r · 04ff08c3",
+  "L irrep 3 of 3 · 8r · b5ae6793"
+ ],
+ "Γ chip #1": [
+  "Γ1 · 1r · 32f99406"
+ ],
+ "Γ chip #2": [
+  "Γ1 · 1r · 47850770",
+  "Γ2 · 1r · 83152e85"
+ ],
+ "Γ chip #3": [
+  "Γ1 · 1r · 89dcdeab",
+  "Γ2 · 1r · cb22824c"
+ ],
+ "Γ chip #6": [
+  "Γ1 · 1r · 27c71a52",
+  "Γ2 · 1r · 1450fa4b"
+ ],
+ "Γ chip #10": [
+  "Γ1 · 1r · 193ca0c9",
+  "Γ2 · 1r · e74c4b8b",
+  "Γ3 · 1r · b628b5e3",
+  "Γ4 · 1r · 257e749f"
+ ],
+ "Γ chip #16": [
+  "Γ1 · 1r · 383856d5",
+  "Γ2 · 1r · cf854927",
+  "Γ3 · 1r · 3fd9c1ff",
+  "Γ4 · 1r · dd621dfb"
+ ],
+ "Γ chip #25": [
+  "Γ1 · 1r · ad40683b",
+  "Γ2 · 1r · 2ea6aa0d",
+  "Γ3 · 1r · 0ebcdb5d",
+  "Γ4 · 1r · 685f58e1"
+ ],
+ "Γ chip #47": [
+  "Γ1 · 1r · 4209d473",
+  "Γ2 · 1r · 5f57d3fb",
+  "Γ3 · 1r · a455221b",
+  "Γ4 · 1r · a8b67627",
+  "Γ5 · 1r · bd128b03",
+  "Γ6 · 1r · f34661df",
+  "Γ7 · 1r · 2b2a20e7",
+  "Γ8 · 1r · 3918190b"
+ ],
+ "Γ chip #75": [
+  "Γ1 · 1r · e4c2cff3",
+  "Γ2 · 1r · 8d26d56d",
+  "Γ3 · 1c · 14769dad",
+  "Γ4 · 1c · dbd33ad1"
+ ],
+ "Γ chip #81": [
+  "Γ1 · 1r · 7612b2b5",
+  "Γ2 · 1r · 3cbc12c7",
+  "Γ3 · 1c · 1be8d5e7",
+  "Γ4 · 1c · 58b26273"
+ ],
+ "Γ chip #83": [
+  "Γ1 · 1r · ccb68ba3",
+  "Γ2 · 1r · 453dbbd7",
+  "Γ3 · 1r · 2e431693",
+  "Γ4 · 1r · a951e3bb",
+  "Γ5 · 1c · 329b05df",
+  "Γ6 · 1c · ff04d74f",
+  "Γ7 · 1c · 628f2963",
+  "Γ8 · 1c · 6158e803"
+ ],
+ "Γ chip #89": [
+  "Γ1 · 1r · a390d5ef",
+  "Γ2 · 1r · 0ed3ef5b",
+  "Γ3 · 1r · aebc342b",
+  "Γ4 · 1r · a948dde3",
+  "Γ5 · 2r · 0cd9ef88"
+ ],
+ "Γ chip #99": [
+  "Γ1 · 1r · ca2f877b",
+  "Γ2 · 1r · b07ab387",
+  "Γ3 · 1r · 3b5d6ea7",
+  "Γ4 · 1r · 254445c7",
+  "Γ5 · 2r · a64e8acc"
+ ],
+ "Γ chip #111": [
+  "Γ1 · 1r · 194ee56f",
+  "Γ2 · 1r · 6fc4fa83",
+  "Γ3 · 1r · 0dd09e93",
+  "Γ4 · 1r · 41e0a093",
+  "Γ5 · 2r · 17c646b0"
+ ],
+ "Γ chip #123": [
+  "Γ1 · 1r · ec26cef3",
+  "Γ2 · 1r · 923b9583",
+  "Γ3 · 1r · 8676433b",
+  "Γ4 · 1r · 25c577fb",
+  "Γ5 · 1r · cf283f9b",
+  "Γ6 · 1r · d7439683",
+  "Γ7 · 1r · 57b696f3",
+  "Γ8 · 1r · 7829c8f3",
+  "Γ9 · 2r · b67e1de7",
+  "Γ10 · 2r · d1b0f6f3"
+ ],
+ "Γ chip #143": [
+  "Γ1 · 1r · 15f4a4b6",
+  "Γ2 · 1c · 073e6991",
+  "Γ3 · 1c · 83cfb871"
+ ],
+ "Γ chip #147": [
+  "Γ1 · 1r · 756fcb32",
+  "Γ2 · 1r · a5b16817",
+  "Γ3 · 1c · b2e6ab90",
+  "Γ4 · 1c · 5f7bdfb7",
+  "Γ5 · 1c · 876bcb84",
+  "Γ6 · 1c · 6e692cab"
+ ],
+ "Γ chip #149": [
+  "Γ1 · 1r · e20cc10c",
+  "Γ2 · 1r · 11900eeb",
+  "Γ3 · 2r · c2b1d430"
+ ],
+ "Γ chip #156": [
+  "Γ1 · 1r · c80c96b9",
+  "Γ2 · 1r · 1249e43c",
+  "Γ3 · 2r · af9f7b3d"
+ ],
+ "Γ chip #162": [
+  "Γ1 · 1r · 7a1421ed",
+  "Γ2 · 1r · ede825ad",
+  "Γ3 · 1r · 21561499",
+  "Γ4 · 1r · bac87d03",
+  "Γ5 · 2r · 90411577",
+  "Γ6 · 2r · 1527afc4"
+ ],
+ "Γ chip #168": [
+  "Γ1 · 1r · 33dc62a1",
+  "Γ2 · 1r · 7687853a",
+  "Γ3 · 1c · e1b16a75",
+  "Γ4 · 1c · 23d4a981",
+  "Γ5 · 1c · 2a17d9d0",
+  "Γ6 · 1c · 2ac1dcec"
+ ],
+ "Γ chip #174": [
+  "Γ1 · 1r · 534b4790",
+  "Γ2 · 1r · 996f6cdf",
+  "Γ3 · 1c · 82e0ffd5",
+  "Γ4 · 1c · 034e5396",
+  "Γ5 · 1c · d6ee1355",
+  "Γ6 · 1c · a5f97c96"
+ ],
+ "Γ chip #175": [
+  "Γ1 · 1r · 47b99265",
+  "Γ2 · 1r · 83d327bf",
+  "Γ3 · 1r · 6cfda99b",
+  "Γ4 · 1r · 87db2563",
+  "Γ5 · 1c · 5877288d",
+  "Γ6 · 1c · b1b550a3",
+  "Γ7 · 1c · b9f737a9",
+  "Γ8 · 1c · 0eab6e1f",
+  "Γ9 · 1c · 9af558f7",
+  "Γ10 · 1c · de4148bb",
+  "Γ11 · 1c · 55ac4c4b",
+  "Γ12 · 1c · c15e34e7"
+ ],
+ "Γ chip #177": [
+  "Γ1 · 1r · 426b89af",
+  "Γ2 · 1r · 26ee909b",
+  "Γ3 · 1r · 8881921d",
+  "Γ4 · 1r · 3dec0eef",
+  "Γ5 · 2r · 4b6e4eb1",
+  "Γ6 · 2r · 76160ed2"
+ ],
+ "Γ chip #183": [
+  "Γ1 · 1r · 5c739ad1",
+  "Γ2 · 1r · cd0dd43f",
+  "Γ3 · 1r · dd90c205",
+  "Γ4 · 1r · 4ecf2931",
+  "Γ5 · 2r · 101fb9db",
+  "Γ6 · 2r · d7b74668"
+ ],
+ "Γ chip #187": [
+  "Γ1 · 1r · e16dbebd",
+  "Γ2 · 1r · a47d89cb",
+  "Γ3 · 1r · 2868d68b",
+  "Γ4 · 1r · 805db627",
+  "Γ5 · 2r · 8f3da4c0",
+  "Γ6 · 2r · 52b2e64d"
+ ],
+ "Γ chip #191": [
+  "Γ1 · 1r · 76b36cb7",
+  "Γ2 · 1r · ffcefc63",
+  "Γ3 · 1r · e803f2b3",
+  "Γ4 · 1r · aee1bb63",
+  "Γ5 · 1r · 630c713b",
+  "Γ6 · 1r · 5b60e9bb",
+  "Γ7 · 1r · 6ab1cbc3",
+  "Γ8 · 1r · e2a4127b",
+  "Γ9 · 2r · ec7e4cc3",
+  "Γ10 · 2r · dfd8a809",
+  "Γ11 · 2r · bd4a28e7",
+  "Γ12 · 2r · 57ee3bb7"
+ ],
+ "Γ chip #195": [
+  "Γ1 · 1r · 4b6e0219",
+  "Γ2 · 1c · d5c1e6a1",
+  "Γ3 · 1c · 7a9dae69",
+  "Γ4 · 3r · 5c6999d2"
+ ],
+ "Γ chip #200": [
+  "Γ1 · 1r · 7bf3ae63",
+  "Γ2 · 1r · 0621b7fb",
+  "Γ3 · 1c · 9da95363",
+  "Γ4 · 1c · ce81e88b",
+  "Γ5 · 1c · b2e4e923",
+  "Γ6 · 1c · 715e63db",
+  "Γ7 · 3r · 47f25e99",
+  "Γ8 · 3r · 21bc5943"
+ ],
+ "Γ chip #207": [
+  "Γ1 · 1r · de03dc6f",
+  "Γ2 · 1r · 0231b39b",
+  "Γ3 · 2r · b9f65b67",
+  "Γ4 · 3r · 748e84ae",
+  "Γ5 · 3r · 28bdac06"
+ ],
+ "Γ chip #215": [
+  "Γ1 · 1r · 1eaa6887",
+  "Γ2 · 1r · 4dd6e573",
+  "Γ3 · 2r · ef48418f",
+  "Γ4 · 3r · 643fc94e",
+  "Γ5 · 3r · a940e73e"
+ ],
+ "Γ chip #221": [
+  "Γ1 · 1r · b4fc1dfb",
+  "Γ2 · 1r · 6c544d7b",
+  "Γ3 · 1r · d729096b",
+  "Γ4 · 1r · 7a3ea743",
+  "Γ5 · 2r · d96b8b33",
+  "Γ6 · 2r · 9e1e2313",
+  "Γ7 · 3r · 57a2db7d",
+  "Γ8 · 3r · fe2f8d0b",
+  "Γ9 · 3r · 06e8d3a5",
+  "Γ10 · 3r · 8e7f94fb"
+ ],
+ "SrTiO3 displacive": [
+  "Γ8 · 3 · n 1 · acoustic 0 · fe2f8d0b",
+  "Γ10 · 3 · n 4 · acoustic 1 · 8e7f94fb"
+ ],
+ "GaTa4Se8 displacive": [
+  "Γ1 · 1 · n 3 · acoustic 0 · 1eaa6887",
+  "Γ3 · 2 · n 3 · acoustic 0 · ef48418f",
+  "Γ4 · 3 · n 3 · acoustic 0 · 643fc94e",
+  "Γ5 · 3 · n 7 · acoustic 1 · a940e73e"
+ ]
+}
