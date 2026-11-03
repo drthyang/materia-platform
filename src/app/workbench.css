@@ -839,29 +839,6 @@ html:has(.wb-run-bar) .wb-shell::after {
   }
 }
 
-/* ---- Disclaimer bar -------------------------------------------------------
- * The short form (phones) keeps the point — reproduce before you publish — and
- * the limitations link; the long form runs four lines at phone width. */
-.wb-disclaimer-short {
-  display: none;
-}
-@container shell (max-width: 700px) {
-  .wb-disclaimer-long {
-    display: none;
-  }
-  .wb-disclaimer-short {
-    display: inline;
-  }
-}
-@media (max-height: 540px) {
-  .wb-disclaimer-long {
-    display: none;
-  }
-  .wb-disclaimer-short {
-    display: inline;
-  }
-}
-
 /* ---- Whole-page scrolling on phones and short windows -----------------------
  * With fixed chrome, an iPhone in portrait spent ~40% of its height on the
  * header, the beta bar and the footer, and in landscape (~360px tall) more
