@@ -153,8 +153,13 @@ export const cardHeadRow: CSSProperties = { display: "flex", alignItems: "center
  * to wrap, and it grows to the tabs.
  */
 export const cardHeadLead: CSSProperties = { display: "flex", alignItems: "center", gap: 10, flex: "1 1 0" };
-/** The title row's label: gives way to an ellipsis before the row wraps. */
-export const cardHeadLabel: CSSProperties = { flex: "0 1 auto", minWidth: "8ch", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
+/**
+ * The title row's label: gives way to an ellipsis before the row wraps. One
+ * clamped line rather than `nowrap`, whose min-content width is the whole
+ * text: that held the lead at the label's full width, and the figures beside
+ * it ran off a phone-width card.
+ */
+export const cardHeadLabel: CSSProperties = { flex: "0 1 auto", minWidth: "8ch", overflow: "hidden", display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 1, wordBreak: "break-all" };
 /** The plot's own toolbar, under the title row on the Refinement tab: axis unit, optimize view, the fit window, overlays. */
 export const plotToolbar: CSSProperties = { display: "flex", alignItems: "center", gap: 8, rowGap: 6, marginBottom: 8, flexWrap: "wrap" };
 
