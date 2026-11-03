@@ -86,7 +86,7 @@ import { SummaryCards, type SummaryCardData } from "@/app/ui/SummaryCards";
 import { InfoBadge } from "@/app/ui/InfoBadge";
 import { WorkbenchPlot, type FitRangeSelection } from "@/app/ui/WorkbenchPlot";
 import { ParameterPanel } from "@/app/ui/ParameterPanel";
-import { color as theme, card as themeCard, uppercaseLabel as themeLabel, mono as themeMono, fz, toolbarBtn, resetRangeBtn, space, cardHeadRow, cardHeadLabel, plotToolbar } from "@/app/theme";
+import { color as theme, card as themeCard, uppercaseLabel as themeLabel, mono as themeMono, fz, toolbarBtn, resetRangeBtn, space, cardHeadRow, cardHeadLead, cardHeadLabel, plotToolbar } from "@/app/theme";
 import { SegmentedToggle } from "@/app/ui/SegmentedToggle";
 import { excludedPointMask } from "@/core/refinement/factors";
 import { secondLine, type InstrumentConstants, type InstrumentParameters } from "@/core/diffraction/instrument";
@@ -1381,17 +1381,19 @@ export function PowderWorkbench({
               <div data-agent-card="pattern" style={{ ...themeCard, padding: space.inset, display: "flex", flexDirection: "column", height: "100%" }}>
                 {/* The title row: label, figures, view tabs — the tabs sit here on every tab. */}
                 <div className="wb-card-head" style={cardHeadRow}>
-                  <span style={{ ...themeLabel, ...cardHeadLabel }} title={cardTitle}>{cardTitle}</span>
-                  {plotMode !== "structure" && (
-                    <span style={{ display: "flex", gap: 14, flex: "none", fontFamily: themeMono, fontSize: 12.5 }}>
-                      <span style={{ color: theme.secondary }} title="Weighted profile R for the current parameters, colored by wR/R_exp (Toby 2006)">
-                        wR <b style={{ color: qualityInk(liveGof ?? curvesGof) }}>{liveWr}%</b>
+                  <div style={cardHeadLead}>
+                    <span style={{ ...themeLabel, ...cardHeadLabel }} title={cardTitle}>{cardTitle}</span>
+                    {plotMode !== "structure" && (
+                      <span style={{ display: "flex", gap: 14, flex: "none", fontFamily: themeMono, fontSize: 12.5 }}>
+                        <span style={{ color: theme.secondary }} title="Weighted profile R for the current parameters, colored by wR/R_exp (Toby 2006)">
+                          wR <b style={{ color: qualityInk(liveGof ?? curvesGof) }}>{liveWr}%</b>
+                        </span>
+                        <span style={{ color: theme.secondary }} title={gofTitle}>
+                          GoF <b style={{ color: qualityInk(shownGof) }}>{shownGof !== null ? shownGof.toFixed(2) : "—"}</b>
+                        </span>
                       </span>
-                      <span style={{ color: theme.secondary }} title={gofTitle}>
-                        GoF <b style={{ color: qualityInk(shownGof) }}>{shownGof !== null ? shownGof.toFixed(2) : "—"}</b>
-                      </span>
-                    </span>
-                  )}
+                    )}
+                  </div>
                   <ViewModeToggle value={plotMode} onChange={(m) => { setFocusPoint(null); setPlotMode(m); }} />
                 </div>
                 {/* The plot's own toolbar: what acts on the pattern view. */}

@@ -61,7 +61,7 @@ import { structureToCif, magneticStructureToMcif } from "@/core/export/cif";
 import { reportHtml, type ReportInput } from "@/core/export/report";
 import type { MagneticExploration } from "@/app/reportInputs";
 import { esdsWithTies } from "@/core/refinement/constraints";
-import { card as themeCard, color, mono, secondaryButton, uppercaseLabel, fz, toolbarBtn, resetRangeBtn, space, cardHeadRow, cardHeadLabel, plotToolbar } from "@/app/theme";
+import { card as themeCard, color, mono, secondaryButton, uppercaseLabel, fz, toolbarBtn, resetRangeBtn, space, cardHeadRow, cardHeadLead, cardHeadLabel, plotToolbar } from "@/app/theme";
 
 const DATA_ACCEPT = ".gr,.sgr,.fgr,.sq,.fq,.dat,.txt,text/plain";
 const noop = (): void => {};
@@ -954,14 +954,16 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
         <div data-agent-card="pattern" style={{ ...themeCard, padding: space.inset, display: "flex", flexDirection: "column", height: "100%" }}>
           {/* The title row: label, Rw, view tabs — the tabs sit here on every tab. */}
           <div className="wb-card-head" style={cardHeadRow}>
-            <span style={{ ...uppercaseLabel, ...cardHeadLabel }} title={cardTitle}>{cardTitle}</span>
-            {(viewTab === "fit" || viewTab === "posterior") && (
-              <span style={{ display: "flex", gap: 14, flex: "none", fontFamily: mono, fontSize: 12.5 }}>
-                <span style={{ color: color.secondary }} title="Rw over G(r) inside the fit window (uniform weights). G(r) point errors are correlated, so treat as a relative indicator.">
-                  Rw <b style={{ color: rwInk(rw) }}>{Number.isFinite(rw) ? pct(rw) : "—"}</b>
+            <div style={cardHeadLead}>
+              <span style={{ ...uppercaseLabel, ...cardHeadLabel }} title={cardTitle}>{cardTitle}</span>
+              {(viewTab === "fit" || viewTab === "posterior") && (
+                <span style={{ display: "flex", gap: 14, flex: "none", fontFamily: mono, fontSize: 12.5 }}>
+                  <span style={{ color: color.secondary }} title="Rw over G(r) inside the fit window (uniform weights). G(r) point errors are correlated, so treat as a relative indicator.">
+                    Rw <b style={{ color: rwInk(rw) }}>{Number.isFinite(rw) ? pct(rw) : "—"}</b>
+                  </span>
                 </span>
-              </span>
-            )}
+              )}
+            </div>
             <SegmentedToggle
               options={[
                 { id: "fit", label: "Refinement", title: "Observed vs calculated G(r)" },

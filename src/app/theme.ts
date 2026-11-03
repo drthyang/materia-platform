@@ -147,8 +147,14 @@ export const toolbarBtn: CSSProperties = {
  * (a phone) puts the tabs on a line of their own, on every tab alike.
  */
 export const cardHeadRow: CSSProperties = { display: "flex", alignItems: "center", gap: 10, rowGap: 6, marginBottom: 8, flexWrap: "wrap" };
-/** The title row's label: shrinks from a zero basis, so it never wraps the row. */
-export const cardHeadLabel: CSSProperties = { flex: "1 1 0", minWidth: "8ch", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
+/**
+ * The title row's lead (the label and the figures beside it): from a zero
+ * basis, so only the label's 8ch and the figures count when the row decides
+ * to wrap, and it grows to the tabs.
+ */
+export const cardHeadLead: CSSProperties = { display: "flex", alignItems: "center", gap: 10, flex: "1 1 0" };
+/** The title row's label: gives way to an ellipsis before the row wraps. */
+export const cardHeadLabel: CSSProperties = { flex: "0 1 auto", minWidth: "8ch", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
 /** The plot's own toolbar, under the title row on the Refinement tab: axis unit, optimize view, the fit window, overlays. */
 export const plotToolbar: CSSProperties = { display: "flex", alignItems: "center", gap: 8, rowGap: 6, marginBottom: 8, flexWrap: "wrap" };
 
