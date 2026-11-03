@@ -47,6 +47,13 @@ function mount(el: ReturnType<typeof createElement>): HTMLDivElement {
   return host;
 }
 
+/** The panel opens on the Tree; most of these tests read the List. */
+function mountList(el: ReturnType<typeof createElement>): HTMLDivElement {
+  const h = mount(el);
+  act(() => button(h, "List")!.click());
+  return h;
+}
+
 const chip = (h: HTMLElement, name: string): HTMLButtonElement => h.querySelector<HTMLButtonElement>(`[role=group][aria-label="k-point"] button[aria-label="${name}"]`)!;
 const button = (h: ParentNode, text: string): HTMLButtonElement | undefined => [...h.querySelectorAll("button")].find((b) => b.textContent?.trim() === text);
 const until = async (ok: () => boolean, ms = 200_000): Promise<void> => {
@@ -105,7 +112,7 @@ describe("the subgroup list in a DOM", () => {
   it("shows the same-cell subgroups at once, then works out the larger cells: a progress line, the supercell held, rows streaming in, a stop heard, one run", async () => {
     const listing = vi.mocked(listingSteps.supercellListingSteps);
     listing.mockClear();
-    const h = mount(panel());
+    const h = mountList(panel());
     for (const gone of ["By subgroup", "By irrep"]) expect(button(h, gone)).toBeUndefined();
     // The same-cell rows are there before any work is done, in one line each.
     expect(text(rowOf(h, P4MM)!)).toBe("P4mm #99· same cell· 6 domΓ·10");
@@ -141,7 +148,7 @@ describe("the subgroup list in a DOM", () => {
     const onMode = vi.fn();
     const onSupercell = vi.fn();
     const onSubgroup = vi.fn();
-    const h = mount(panel({ onActivateMode: onMode, onActivateSupercell: onSupercell, onActivateSubgroup: onSubgroup }));
+    const h = mountList(panel({ onActivateMode: onMode, onActivateSupercell: onSupercell, onActivateSubgroup: onSubgroup }));
     await until(() => text(h).includes(ALL));
     expect(listing).not.toHaveBeenCalled();
     expect(text(h)).toContain("Pick a subgroup");
@@ -173,7 +180,7 @@ describe("the subgroup list in a DOM", () => {
 
   it("Pnma's detail: the result first, how you get here one irrep per step, the coupled pair with its tie, the four variants each with its own Activate, the modes", async () => {
     const onSupercell = vi.fn();
-    const h = mount(panel({ onActivateSupercell: onSupercell }));
+    const h = mountList(panel({ onActivateSupercell: onSupercell }));
     await until(() => text(h).includes(ALL));
     find(h, "62");
     pickRow(h, PNMA);
@@ -208,7 +215,7 @@ describe("the subgroup list in a DOM", () => {
   });
 
   it("filters: a k-point chip keeps the subgroups its irreps reach, two chips their coupled pairs; the folded filters set how a subgroup is reached, its cell and index", async () => {
-    const h = mount(panel());
+    const h = mountList(panel());
     await until(() => text(h).includes(ALL));
     expect(h.querySelector('[role=group][aria-label="Filters"]')).toBeNull();
     act(() => chip(h, "R, supercell").click());
@@ -242,7 +249,7 @@ describe("the subgroup list in a DOM", () => {
   });
 
   it("the short list: Show more adds the next index level, show all every row, show fewer goes back; the search lists every match and says when the filters hide one", async () => {
-    const h = mount(panel());
+    const h = mountList(panel());
     await until(() => text(h).includes(ALL));
     // The first screen: index 2 to 8; no strain-only row on it.
     expect([...h.querySelectorAll("[data-row]")].some((r) => r.textContent!.includes("strain only"))).toBe(false);
@@ -275,9 +282,9 @@ describe("the subgroup list in a DOM", () => {
   });
 
   it("the tree: from the parent one maximal step at a time, a subgroup under two parents says so, those the filters leave out dimmed", async () => {
+    // The Tree is the default view.
     const h = mount(panel());
-    await until(() => text(h).includes(ALL));
-    act(() => button(h, "Tree")!.click());
+    await until(() => !text(h).includes("so far"));
     const root = h.querySelector<HTMLElement>('[data-tree="p"]')!;
     expect(root.textContent).toMatch(/^▾Pm-3m· parent · \d+ maximal steps$/);
     const level1 = [...h.querySelectorAll<HTMLElement>("[data-tree]")].filter((n) => n.dataset.tree !== "p");
@@ -296,10 +303,17 @@ describe("the subgroup list in a DOM", () => {
     const rowIn = (re: RegExp): HTMLElement => [...h.querySelectorAll<HTMLElement>("[data-tree] [data-row]")].find((n) => re.test(n.textContent!))!;
     expect(rowIn(/^.P4\/mmm #123· same cell/).style.opacity).toBe("0.45");
     expect(rowIn(/^.I4\/mcm #140· 2×2×2.*R·8$/).style.opacity).toBe("1");
+    // Find lists its matches: typing in it from the Tree switches to the List; Tree goes back.
+    act(() => chip(h, "any k-point").click());
+    find(h, "Pnma");
+    expect(h.querySelector("[data-tree]")).toBeNull();
+    expect(rowOf(h, PNMA)).toBeDefined();
+    act(() => button(h, "Tree")!.click());
+    expect(h.querySelector('[data-tree="p"]')).not.toBeNull();
   });
 
   it("holds Activate while a fit runs", async () => {
-    const h = mount(panel({ busy: true }));
+    const h = mountList(panel({ busy: true }));
     pickRow(h, P4MM);
     const b = h.querySelector<HTMLButtonElement>('button[aria-label="Activate P 4 m m #99"]')!;
     expect(b.disabled).toBe(true);
@@ -312,7 +326,7 @@ describe("the subgroup list in a DOM", () => {
       return { width: 390, height: 800, top: 0, left: 0, right: 390, bottom: 800, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
     };
     try {
-      const h = mount(panel());
+      const h = mountList(panel());
       expect(document.querySelector('[role="dialog"]')).toBeNull();
       pickRow(h, P4MM);
       const sheet = document.querySelector<HTMLElement>('[role="dialog"]')!;

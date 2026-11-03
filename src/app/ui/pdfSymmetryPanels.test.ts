@@ -1,5 +1,7 @@
+// @vitest-environment happy-dom
 import { describe, it, expect } from "vitest";
-import { createElement } from "react";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { gata4se8PdfExample } from "@/examples/gata4se8Pdf";
 import { pageView, pdfPage, withActivatedMode, withPositionMode, type ModesInForce, type PdfPageModel } from "@/app/pdfPage";
@@ -54,6 +56,32 @@ function subgroups(m: PdfPageModel, opts: { busy?: boolean; modes?: ModesInForce
   }));
 }
 
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+/** The same page mounted, switched to the List (it opens on the Tree), as its markup; unmounted after. */
+function subgroupsList(m: PdfPageModel): string {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  act(() => root.render(createElement(SubgroupsPanel, {
+    spaceGroup: m.loaded.spaceGroup.hermannMauguin,
+    lattice: structuralSubgroupLattice(m.loaded),
+    irrepTree: gammaIrrepTree(m.loaded),
+    decentringTree: decentringIrrepTree(m.loaded),
+    sameCell: sameCellLattice(m.loaded),
+    operations: m.loaded.spaceGroup.operations,
+    structure: m.loaded,
+    onActivateSameCell: noop, onActivateSupercell: noop,
+    modes: null, modeCount: null, busy: false,
+    onActivateMode: noop, onActivateSubgroup: noop, onClear: noop, onOpenModel: noop,
+  })));
+  act(() => [...host.querySelectorAll("button")].find((b) => b.textContent?.trim() === "List")!.click());
+  const html = host.innerHTML;
+  act(() => root.unmount());
+  host.remove();
+  return html;
+}
+
 /** The 3D Model view's mode panel. */
 function modesPanel(m: PdfPageModel, opts: { shownModeId?: string; ownModes?: boolean; loaders?: boolean; busy?: boolean } = {}): string {
   const v = pageView(m);
@@ -73,7 +101,7 @@ const buttons = (html: string, text: string): string[] => [...html.matchAll(new 
 const textOf = (html: string): string => html.replace(/<!-- -->/g, "").replace(/<[^>]+>/g, "");
 
 describe("the Subgroups page", () => {
-  it("opens on one short line of controls and one list: the supercell, the k-point chips, the subgroups high to low symmetry, the filters folded — and no CIF loader", () => {
+  it("opens on one short line of controls and the Tree: the supercell, the k-point chips, the subgroups high to low symmetry, the filters folded — and no CIF loader", () => {
     const m = demoPage();
     const out = subgroups(m);
     for (const gone of ["Load parent CIF", "Load mode CIF", "type=\"file\"", "By irrep", "By subgroup"]) expect(out).not.toContain(gone);
@@ -87,14 +115,20 @@ describe("the Subgroups page", () => {
     expect(text).not.toContain("Reached by");
     expect(text).not.toContain("Strain only");
     expect(text).toContain("ListTree");
-    // A name search, and a short list: the top index levels, then Show more and show all.
+    // The Tree first: the parent with its maximal steps, one plain line each, the tag not ISODISTORT's label; Find beside it.
     expect(out).toContain('aria-label="find a subgroup"');
-    expect(text).toMatch(/Show more: index [\d–]+ \(\+\d+\)show all \d+/);
-    // Rows in one plain line, merged (×2), the tag not ISODISTORT's label; index headers from the top.
-    expect(text.indexOf("index 2")).toBeLessThan(text.indexOf("index 4"));
-    expect(text).toContain("P-42₁m #113· same cell· 12 domX·5×2");
-    expect(text).toContain("P2₁3 #198· same cell· 8 domX·5");
+    expect(text).toMatch(/▾F-43m· parent · 5 maximal steps/);
+    expect(text).toContain("I-4m2 #119· same cell· 3 dom· 7 belowΓ·3");
+    expect(text).toContain("P-43m #215· same cell· 4 dom· 3 belowX·1");
     expect(text).not.toMatch(/X5[+-]|R4\+/);
+    // The List: a short list, the top index levels, then Show more and show all.
+    const list = textOf(subgroupsList(m));
+    expect(list).toMatch(/Show more: index [\d–]+ \(\+\d+\)show all \d+/);
+    // Rows in one plain line, merged (×2), the tag not ISODISTORT's label; index headers from the top.
+    expect(list.indexOf("index 2")).toBeLessThan(list.indexOf("index 4"));
+    expect(list).toContain("P-42₁m #113· same cell· 12 domX·5×2");
+    expect(list).toContain("P2₁3 #198· same cell· 8 domX·5");
+    expect(list).not.toMatch(/X5[+-]|R4\+/);
     // Nothing chosen yet: the detail says what to do, and nothing is activated or in force.
     expect(text).toContain("Pick a subgroup: its cell, how you get there, then Activate.");
     expect(buttons(out, "Activate")).toEqual([]);
@@ -120,7 +154,7 @@ describe("the Subgroups page", () => {
     expect(buttons(out, "3D Model →")).toHaveLength(1);
     expect(out).toContain("✕ clear returns to the parent");
     // The parent's subgroups are still listed (from the parent's state), with nothing to activate over the choice.
-    expect(textOf(out)).toContain("P-42₁m #113· same cell· 12 dom");
+    expect(textOf(out)).toContain("I-4m2 #119· same cell· 3 dom");
     expect(buttons(out, "Activate")).toEqual([]);
   });
 

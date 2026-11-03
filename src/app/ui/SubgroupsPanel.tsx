@@ -390,7 +390,8 @@ function Picker({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCel
   const [query, setQuery] = useState("");
   // How many index levels show, for these filters and this supercell; the default (one step) otherwise.
   const [more, setMore] = useState<{ readonly filters: ListFilters; readonly bound: SupercellSpec; readonly levels: number | "all" } | null>(null);
-  const [view, setView] = useState<"list" | "tree">("list");
+  // Tree first: the parent with its maximal subgroups under it.
+  const [view, setView] = useState<"list" | "tree">("tree");
   const [selected, setSelected] = useState<{ readonly group: string; readonly row: string | null } | null>(null);
   const [sheet, setSheet] = useState(false);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set(["p"]));
@@ -628,16 +629,18 @@ function Picker({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCel
           </span>
         )}
         <span style={{ marginLeft: "auto", display: "inline-flex", gap: 8, alignItems: "center" }}>
-          {view === "list" ? (
-            <input
-              type="search"
-              aria-label="find a subgroup"
-              placeholder="Find: Pnma, 62"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              style={{ width: 132, fontSize: fz.micro, padding: "3px 8px", border: `1px solid ${color.control}`, borderRadius: 7, background: color.surface, color: color.ink, minWidth: 0 }}
-            />
-          ) : null}
+          {/* Find lists its matches, so typing in it from the Tree switches to the List. */}
+          <input
+            type="search"
+            aria-label="find a subgroup"
+            placeholder="Find: Pnma, 62"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              if (e.target.value.trim() !== "") setView("list");
+            }}
+            style={{ width: 132, fontSize: fz.micro, padding: "3px 8px", border: `1px solid ${color.control}`, borderRadius: 7, background: color.surface, color: color.ink, minWidth: 0 }}
+          />
           <button
             type="button"
             aria-expanded={filtersOpen}
