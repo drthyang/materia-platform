@@ -728,7 +728,6 @@ export function KSearchPanel({
             {...(momentEntries ? { moments: momentEntries } : {})}
             {...(standardCell ? { standardCell } : {})}
             minCanvasHeight={240}
-            fit
             exports={[viewerCifExport]}
           />
         </Suspense>
