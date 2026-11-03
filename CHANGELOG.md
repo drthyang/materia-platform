@@ -102,6 +102,11 @@ release fixes bugs.
 
 ### Changed
 
+- **Subgroups opens on the Tree.** The PDF page's Subgroups tab now shows the
+  Tree first: the parent with its maximal subgroups one level down. **List** is
+  one click away. The Find box shows in both views, and typing in it from the
+  Tree switches to the List, where the matches are listed. Activation is
+  unchanged.
 - **The Subgroups list opens short.** It shows the top index levels only:
   SrTiO₃ in 2×2×2 opens on 26 rows (index 2 to 8) instead of 444, GaTa₄Se₈
   in 1×1×2 on 26 (index 2 to 12) instead of 80.

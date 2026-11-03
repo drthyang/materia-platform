@@ -73,7 +73,7 @@ const buttons = (html: string, text: string): string[] => [...html.matchAll(new 
 const textOf = (html: string): string => html.replace(/<!-- -->/g, "").replace(/<[^>]+>/g, "");
 
 describe("the Subgroups page", () => {
-  it("opens on one short line of controls and one list: the supercell, the k-point chips, the subgroups high to low symmetry, the filters folded — and no CIF loader", () => {
+  it("opens on one short line of controls and the Tree: the supercell, the k-point chips, the subgroups high to low symmetry, the filters folded — and no CIF loader", () => {
     const m = demoPage();
     const out = subgroups(m);
     for (const gone of ["Load parent CIF", "Load mode CIF", "type=\"file\"", "By irrep", "By subgroup"]) expect(out).not.toContain(gone);
@@ -87,13 +87,12 @@ describe("the Subgroups page", () => {
     expect(text).not.toContain("Reached by");
     expect(text).not.toContain("Strain only");
     expect(text).toContain("ListTree");
-    // A name search, and a short list: the top index levels, then Show more and show all.
+    // The Tree first: the parent with its maximal steps, one plain line each, the tag not ISODISTORT's label; Find beside it.
+    // (The List, Show more and Find: subgroupsPanel.dom.test.ts.)
     expect(out).toContain('aria-label="find a subgroup"');
-    expect(text).toMatch(/Show more: index [\d–]+ \(\+\d+\)show all \d+/);
-    // Rows in one plain line, merged (×2), the tag not ISODISTORT's label; index headers from the top.
-    expect(text.indexOf("index 2")).toBeLessThan(text.indexOf("index 4"));
-    expect(text).toContain("P-42₁m #113· same cell· 12 domX·5×2");
-    expect(text).toContain("P2₁3 #198· same cell· 8 domX·5");
+    expect(text).toMatch(/▾F-43m· parent · 5 maximal steps/);
+    expect(text).toContain("I-4m2 #119· same cell· 3 dom· 7 belowΓ·3");
+    expect(text).toContain("P-43m #215· same cell· 4 dom· 3 belowX·1");
     expect(text).not.toMatch(/X5[+-]|R4\+/);
     // Nothing chosen yet: the detail says what to do, and nothing is activated or in force.
     expect(text).toContain("Pick a subgroup: its cell, how you get there, then Activate.");
@@ -120,7 +119,7 @@ describe("the Subgroups page", () => {
     expect(buttons(out, "3D Model →")).toHaveLength(1);
     expect(out).toContain("✕ clear returns to the parent");
     // The parent's subgroups are still listed (from the parent's state), with nothing to activate over the choice.
-    expect(textOf(out)).toContain("P-42₁m #113· same cell· 12 dom");
+    expect(textOf(out)).toContain("I-4m2 #119· same cell· 3 dom");
     expect(buttons(out, "Activate")).toEqual([]);
   });
 
