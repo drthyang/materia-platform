@@ -24,6 +24,8 @@ export interface SummaryCardData {
   readonly onRemovePhase?: (id: string) => void;
   /** The applied magnetic model as a chip (its k and group) with an × that removes it. */
   readonly magneticBadge?: { readonly label: string; readonly title: string; readonly onRemove: () => void };
+  /** A small line under the meta line (the PDF page's "child of …" while a subgroup child is fitted). */
+  readonly note?: ReactNode;
   /** Optional interactive control rendered under the meta line (e.g. the
    *  single-crystal X-ray/neutron probe toggle, which the data file can't carry). */
   readonly control?: ReactNode;
@@ -98,6 +100,7 @@ function SummaryCard({ data }: { data: SummaryCardData }): JSX.Element {
       )}
       <div style={{ fontSize: fz.large, fontWeight: data.muted ? 500 : 640, color: data.muted ? color.secondary : color.ink, lineHeight: 1.3, letterSpacing: data.muted ? 0 : "-0.005em" }}>{data.title}</div>
       {data.meta && <div style={{ fontSize: fz.small, color: data.muted ? color.faint : color.secondary, fontFamily: mono }}>{data.meta}</div>}
+      {data.note}
       {data.control && <div style={{ marginTop: 2 }}>{data.control}</div>}
     </div>
   );

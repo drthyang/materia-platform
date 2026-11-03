@@ -1331,6 +1331,10 @@ export function App(): JSX.Element {
         <a href="https://github.com/drthyang/materia-platform#readme" target="_blank" rel="noopener noreferrer" style={footerLink}>
           About &amp; documentation
         </a>
+        <span aria-hidden style={{ color: theme.faintest }}>·</span>
+        <a href="https://github.com/drthyang/materia-platform/blob/main/docs/LIMITATIONS.md" target="_blank" rel="noopener noreferrer" style={footerLink}>
+          Limitations
+        </a>
       </footer>
     </div>
     {closeAsk && (
@@ -1363,7 +1367,7 @@ const noticeAction: React.CSSProperties = { border: `1px solid ${theme.warnBorde
 const noticeClose: React.CSSProperties = { border: "none", background: "transparent", color: theme.warnInk, cursor: "pointer", fontSize: 13, padding: "0 4px" };
 const offerBar: React.CSSProperties = { display: "flex", alignItems: "center", gap: 10, padding: `8px ${space.edge}`, fontSize: 12.5, background: theme.noteBg, borderBottom: `1px solid ${theme.noteBorder}`, color: theme.noteInk, lineHeight: 1.45 };
 const offerButton: React.CSSProperties = { border: `1px solid ${theme.noteBorder}`, background: theme.surface, color: theme.ink, borderRadius: 7, padding: "3px 12px", fontSize: 12.5, cursor: "pointer" };
-const copyrightBar: React.CSSProperties = { display: "flex", justifyContent: "center", alignItems: "center", gap: 8, padding: `10px ${space.edge}`, fontSize: 11, color: theme.faint, borderTop: `1px solid ${theme.border}`, background: theme.raised };
+const copyrightBar: React.CSSProperties = { display: "flex", flexWrap: "wrap", justifyContent: "center", alignItems: "center", gap: "2px 8px", padding: `10px ${space.edge}`, fontSize: 11, color: theme.faint, borderTop: `1px solid ${theme.border}`, background: theme.raised };
 const footerLink: React.CSSProperties = { color: theme.secondary, textDecoration: "none" };
 
 /** The load message's note on a structure carried from the previous fit. */

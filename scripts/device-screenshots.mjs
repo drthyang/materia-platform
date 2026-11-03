@@ -48,13 +48,8 @@ async function main() {
     const context = await browser.newContext(cfg);
     const page = await preparePage(context);
 
-    if (name === "desktop") {
-      // Parameter groups start collapsed; expand Scale + Lattice so the
-      // README hero shot shows refined values with esds.
-      await page.getByText("Scale", { exact: true }).click();
-      await page.getByText("Lattice", { exact: true }).click();
-      await page.waitForTimeout(250);
-    }
+    // The groups with free rows (Scale, Background, Lattice) open on load,
+    // so the shot shows the refined values with esds without a click.
 
     // Frame from the top of the page (the refine-wait may have scrolled).
     await page.evaluate(() => window.scrollTo(0, 0));

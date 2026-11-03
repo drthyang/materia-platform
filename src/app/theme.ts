@@ -139,6 +139,30 @@ export const toolbarBtn: CSSProperties = {
   cursor: "pointer",
 };
 
+/**
+ * The working card's title row (Rietveld and PDF): the card's label, its
+ * agreement figures and the view tabs. The label gives way first (it shrinks
+ * to an ellipsis rather than wrapping the row), so the tabs stay in this row
+ * on every tab; only a card too narrow for the figures and the tabs together
+ * (a phone) puts the tabs on a line of their own, on every tab alike.
+ */
+export const cardHeadRow: CSSProperties = { display: "flex", alignItems: "center", gap: 10, rowGap: 6, marginBottom: 8, flexWrap: "wrap" };
+/**
+ * The title row's lead (the label and the figures beside it): from a zero
+ * basis, so only the label's 8ch and the figures count when the row decides
+ * to wrap, and it grows to the tabs.
+ */
+export const cardHeadLead: CSSProperties = { display: "flex", alignItems: "center", gap: 10, flex: "1 1 0" };
+/**
+ * The title row's label: gives way to an ellipsis before the row wraps. One
+ * clamped line rather than `nowrap`, whose min-content width is the whole
+ * text: that held the lead at the label's full width, and the figures beside
+ * it ran off a phone-width card.
+ */
+export const cardHeadLabel: CSSProperties = { flex: "0 1 auto", minWidth: "8ch", overflow: "hidden", display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 1, wordBreak: "break-all" };
+/** The plot's own toolbar, under the title row on the Refinement tab: axis unit, optimize view, the fit window, overlays. */
+export const plotToolbar: CSSProperties = { display: "flex", alignItems: "center", gap: 8, rowGap: 6, marginBottom: 8, flexWrap: "wrap" };
+
 /** Tiny inline reset chip next to the fit-range readout. */
 export const resetRangeBtn: CSSProperties = {
   border: `1px solid ${color.control}`,

@@ -92,3 +92,18 @@ export function parameterGroupOf(kind: ParameterKind): string {
  *  from others by a tie expression (their value follows the tie). The panel's
  *  toggles and the mode table's Free all / Fix all leave them alone. */
 export const isLocked = (p: RefinementParameter): boolean => p.kind === "tofCalibration" || !!p.expression;
+
+/**
+ * The groups open when a parameter set loads: those with a row free to refine
+ * (on the demos Scale, Background and Lattice), added to the groups already
+ * decided in `prior` (open or closed by the user, or opened at an earlier
+ * load), which keep their state. The rest stay collapsed.
+ */
+export function openOnLoad(params: readonly RefinementParameter[], prior: Readonly<Record<string, boolean>> = {}): Record<string, boolean> {
+  const next: Record<string, boolean> = { ...prior };
+  for (const p of params) {
+    const g = parameterGroupOf(p.kind);
+    if (!p.fixed && !isLocked(p) && !(g in next)) next[g] = true;
+  }
+  return next;
+}

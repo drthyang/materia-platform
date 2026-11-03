@@ -11,7 +11,7 @@ import { createRoot, type Root } from "react-dom/client";
 import type { RefinementParameter } from "@/core/refinement/types";
 import type { RefinementProblem } from "@/core/refinement/engine";
 import { samplePosterior, samplePosteriorParallel, type SampleResult } from "@/core/refinement/bayes/sampler";
-import { PosteriorPanel, type PosteriorPanelProps } from "@/app/ui/PosteriorPanel";
+import { NEEDS_REFINE, PosteriorPanel, type PosteriorPanelProps } from "@/app/ui/PosteriorPanel";
 import { CANCEL_ARM_MS } from "@/app/ui/RunActions";
 import { color } from "@/app/theme";
 import { REFINING_BLOCKS_SAMPLING, runLock } from "@/app/ui/runLock";
@@ -134,5 +134,52 @@ describe("the Posterior tab's Stop", () => {
     // Free again once it ends.
     act(() => root!.render(createElement(PosteriorPanel, { result: null, busy: false, progress: null, onRun, onStop: () => {}, hasRefined: true, labels: new Map(), blockedReason: runLock({ refining: false, sampling: false }).sample })));
     expect(button(el, "Sample posterior").disabled).toBe(false);
+  });
+});
+
+describe("the Posterior tab before a run", () => {
+  const held = (el: HTMLElement): string | null => el.querySelector("[data-testid=posterior-held]")?.textContent ?? null;
+  const placeholder = (el: HTMLElement): Element | null => el.querySelector("[data-testid=posterior-placeholder]");
+
+  it("no fit yet: Sample posterior is held, with the reason on one line beside it and the ? right after", () => {
+    const el = render({ hasRefined: false });
+    const sample = button(el, "Sample posterior");
+    expect(sample.disabled).toBe(true);
+    expect(held(el)).toBe(NEEDS_REFINE);
+    // The reason follows the button, and the ? follows the reason, in one row.
+    const row = sample.parentElement!;
+    const kids = [...row.children];
+    const reason = el.querySelector("[data-testid=posterior-held]")!;
+    expect(kids.indexOf(reason)).toBe(kids.indexOf(sample) + 1);
+    expect(reason.nextElementSibling?.textContent).toBe("?");
+  });
+
+  it("a refinement running: the run lock's reason is the line, and still the buttons' title (#150)", () => {
+    const el = render({ hasRefined: true, blockedReason: REFINING_BLOCKS_SAMPLING });
+    expect(held(el)).toBe(REFINING_BLOCKS_SAMPLING);
+    expect(button(el, "Sample posterior").title).toBe(REFINING_BLOCKS_SAMPLING);
+    expect(button(el, "Sample posterior").disabled).toBe(true);
+  });
+
+  it("free to sample: no reason line", () => {
+    const el = render({ hasRefined: true });
+    expect(held(el)).toBeNull();
+    expect(button(el, "Sample posterior").disabled).toBe(false);
+  });
+
+  it("while sampling: Stop, the progress, no reason line", () => {
+    const el = render({ busy: true, hasRefined: false, progress: { step: 3, total: 400 } });
+    expect(held(el)).toBeNull();
+  });
+
+  it("an empty panel shows the table's columns faintly until a run gives estimates", () => {
+    const el = render({ hasRefined: false });
+    const ph = placeholder(el)!;
+    expect(ph).not.toBeNull();
+    for (const col of ["median", "68% interval", "esd ratio", "R̂", "ESS"]) expect(ph.textContent).toContain(col);
+    const res = samplePosterior(problem, { nSteps: 30, nWalkers: 12, seed: 5, noiseModel: "fixed" });
+    const withRun = render({ result: res });
+    expect(placeholder(withRun)).toBeNull();
+    expect(withRun.querySelector("table")).not.toBeNull();
   });
 });
