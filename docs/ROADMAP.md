@@ -195,7 +195,7 @@ powder or single-crystal data.
 - Thompson–Cox–Hastings peaks with Finger–Cox–Jephcoat asymmetry for CW data,
   and back-to-back exponentials for TOF ([`profile.ts`](../src/core/diffraction/profile.ts)).
 - The two-phase Mn₃Ga + MnO POWGEN demo opens converged on a fit window
-  (d ≈ 0.41–5.03 Å) at wR ≈ 4.0%
+  (d ≈ 0.41–5.03 Å) at wR ≈ 4.2%, on a three-point log-interpolate background
   ([`mn3gaPowgen.ts`](../src/examples/mn3gaPowgen.ts)).
 - |F|² matches GSAS-II's relative Fc² on GaNb₄Se₈
   ([`sfDiagnostic.test.ts`](../src/core/diffraction/sfDiagnostic.test.ts)).

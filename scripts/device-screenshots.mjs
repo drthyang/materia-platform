@@ -32,7 +32,7 @@ async function preparePage(context) {
   const refine = page.getByRole("button", { name: "Refine", exact: true });
   await refine.waitFor({ timeout: 15000 });
   // Run the refinement so the parameter table shows final values with esds
-  // (converges in ~2 cycles from the seeded fit; wR ~3.9%).
+  // (converges in ~2 cycles from the seeded fit; wR ~4.2%).
   await refine.click();
   await page.waitForSelector("text=Result: converged", { timeout: 60000 });
   // Let the plot repaint with the final curves.

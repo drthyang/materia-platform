@@ -13,7 +13,7 @@ import { calls, runScenario } from "@/agent/evals/harness";
 import { scriptedModel } from "@/agent/evals/scripted";
 import { mn3ga30kPage, scPage } from "@/agent/evals/pages";
 import { pdfPort, sessionPort } from "@/testSupport/agentHeadless";
-import { loadedSession } from "@/app/powderSession";
+import { bundledSession } from "@/app/powderSession";
 import { mn3gaPowgenExample } from "@/examples/mn3gaPowgen";
 import { SETTINGS_KEY } from "@/agent/storage";
 
@@ -21,7 +21,7 @@ import { SETTINGS_KEY } from "@/agent/storage";
 const APP_PAGE = {
   rietveld: () => {
     const ex = mn3gaPowgenExample();
-    return sessionPort(loadedSession(ex.structure, ex.pattern, ex.instrument, ex.extraPhases, ex.refinedParams), ex.instrument).port;
+    return sessionPort(bundledSession(ex), ex.instrument).port;
   },
   pdf: () => pdfPort().port,
   "single-crystal": () => scPage(),

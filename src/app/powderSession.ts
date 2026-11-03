@@ -248,10 +248,11 @@ export function loadedSession(
   extraPhases: StructureModel[] = [],
   paramValues?: Record<string, number>,
   backgroundTerms = DEFAULT_BACKGROUND_TERMS,
+  backgroundType?: BackgroundType,
 ): Session {
   const spec = extraPhases.length > 0
-    ? buildMultiPhaseSpec([structure, ...extraPhases], pattern, instrument, backgroundTerms, DEFAULT_TIES)
-    : buildPowderSpec(structure, pattern, instrument, true, backgroundTerms, DEFAULT_TIES);
+    ? buildMultiPhaseSpec([structure, ...extraPhases], pattern, instrument, backgroundTerms, DEFAULT_TIES, "isotropic", undefined, backgroundType)
+    : buildPowderSpec(structure, pattern, instrument, true, backgroundTerms, DEFAULT_TIES, "isotropic", undefined, backgroundType);
   // Optionally seed converged values (the bundled demo opens on a finished
   // refinement). The value becomes the baseline too, so it reads as clean, not
   // "modified", and Reset returns to it.
@@ -273,4 +274,20 @@ export function loadedSession(
     powderOverlay: null,
     powderSource: pattern.name,
   };
+}
+
+/** A bundled demo's converged snapshot: its model, data and refined values, in the background basis it was refined with. */
+export interface BundledPowderExample {
+  readonly structure: StructureModel;
+  readonly extraPhases?: StructureModel[];
+  readonly pattern: PowderPattern;
+  readonly instrument: InstrumentParameters;
+  readonly refinedParams: Readonly<Record<string, number>>;
+  readonly backgroundTerms?: number;
+  readonly backgroundType?: BackgroundType;
+}
+
+/** The session a bundled demo opens with (`loadedSession` with the demo's own values and background). */
+export function bundledSession(ex: BundledPowderExample): Session {
+  return loadedSession(ex.structure, ex.pattern, ex.instrument, ex.extraPhases ?? [], { ...ex.refinedParams }, ex.backgroundTerms ?? DEFAULT_BACKGROUND_TERMS, ex.backgroundType);
 }

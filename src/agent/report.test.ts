@@ -10,7 +10,7 @@ import { buildSingleCrystalSpec } from "@/core/workflow/singleCrystalRefinement"
 import { withAdpModel } from "@/core/crystal/adp";
 import { emptyRecord } from "@/agent/method";
 import { parse_structure, simulate_pattern } from "@/mcp/tools";
-import { loadedSession } from "@/app/powderSession";
+import { bundledSession, loadedSession } from "@/app/powderSession";
 import { executor, fakeHost, headlessHistory, pdfPort, sessionPort, singleCrystalPort } from "@/testSupport/agentHeadless";
 import type { AgentPort } from "@/agent/port";
 import { mn3gaPowgenExample } from "@/examples/mn3gaPowgen";
@@ -385,7 +385,7 @@ describe("the bundled demos' reports: the summary first, the record in the appen
 
   it("the Mn₃Ga + MnO POWGEN demo: the phase fractions, the cells and the fit quality in the summary", async () => {
     const demo = mn3gaPowgenExample();
-    const { port } = sessionPort(loadedSession(demo.structure, demo.pattern, demo.instrument, demo.extraPhases, demo.refinedParams), demo.instrument, { instrumentOnPage: true });
+    const { port } = sessionPort(bundledSession(demo), demo.instrument, { instrumentOnPage: true });
     port.setFitRange(demo.fitRange);
     const r = await written(port, async (step) => {
       await step("set_free", { free: ["p0_B_Mn1", "p0_B_Ga1"] });
