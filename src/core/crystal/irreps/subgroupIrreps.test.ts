@@ -212,9 +212,10 @@ describe("known cases", () => {
     const i4mcm = tiltRow(c, "a0a0c-");
     expect(shown(i4mcm.row)).toBe("R irrep 8 of 10 (a,0,0)");
     const p4mbm = tiltRow(c, "a0a0c+");
-    expect(shown(p4mbm.row)).toBe("M irrep 5 of 10 (a,0,0)");
+    expect(shown(p4mbm.row)).toBe("M irrep 3 of 10 (a,0,0)");
     const pnma = tiltRow(c, "a-b+a-");
-    // No irrep alone: two coupled, an M irrep along its P4/mbm direction and an R irrep along its Imma one.
+    // No irrep alone: two coupled, an M irrep along its P4/mbm direction and an R irrep along its Imma one — the two
+    // tilts, a⁰a⁰c⁺'s M irrep and a⁻a⁻a⁻'s R irrep (since THY-64's numbering; before, M irrep 3 was the other M irrep).
     expect(shown(pnma.row)).toBe("M irrep 3 of 10 (a,0,0) + R irrep 8 of 10 (a,a,0) (coupled)");
     expect(pnma.row.coupled!.map((d) => d.subgroup.identity.number)).toEqual([127, 74]);
     // Eight pairs reach this Pnma (a trilinear coupling makes any two of R, M and X enough), so the row lists the
@@ -226,12 +227,13 @@ describe("known cases", () => {
     // The R tilt moves O only; Sr and Ti stay: its irrep is the one the atoms carry once.
     const chi = displacementCharacters(STO, c.group);
     expect(displacementMultiplicity(chi, r3c.row.primary[0]!.irrep.irrep.characters)).toBe(1);
-    // The tilts come second, tied with the first pair on every count: M irrep 3 and M irrep 5 have the same isotropy
+    // The tilts come first, tied with the second pair on every count: M irrep 3 and M irrep 7 have the same isotropy
     // subgroups (P4/mbm, Im-3, I4/mmm, Immm, of the same orders; ISODISTORT's M2+ and M3+), each alone gives P4/mbm here
     // (index 6) with R irrep 8's Imma (index 12), the atoms carry each once, and both are 3-dimensional: the earlier stays first.
-    expect(pairs[1]).toBe(`${p4mbm.row.primary[0]!.irrep.irrep.label} + ${r3c.row.primary[0]!.irrep.irrep.label}`);
+    expect(pairs[0]).toBe(`${p4mbm.row.primary[0]!.irrep.irrep.label} + ${r3c.row.primary[0]!.irrep.irrep.label}`);
+    expect(pairs[1]).toBe("M irrep 7 of 10 + R irrep 8 of 10");
     const sameOrders = (label: string): string => c.irreps.find((b) => b.irrep.label === label)!.subgroups.map((x) => `${x.identity.number}:${x.elements.length}`).join(" ");
-    expect(sameOrders("M irrep 3 of 10")).toBe(sameOrders("M irrep 5 of 10"));
+    expect(sameOrders("M irrep 3 of 10")).toBe(sameOrders("M irrep 7 of 10"));
     const index = (set: readonly { subgroup: { elements: readonly number[] } }[]): number => set.reduce((n, d) => n + c.group.elements.length / d.subgroup.elements.length, 0);
     expect(index(pnma.row.coupled!)).toBe(18);
     expect(index(pnma.row.otherCoupled[0]!)).toBe(18);

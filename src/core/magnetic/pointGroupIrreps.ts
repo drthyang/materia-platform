@@ -32,6 +32,8 @@
 import type { Complex, Mat3 } from "@/core/math/types";
 import type { SymmetryOperation } from "@/core/crystal/types";
 import { mulMat, IDENTITY3 } from "@/core/math/mat3";
+import type { IMat } from "@/core/crystal/irreps/rational";
+import { compareRotations, orderIrreps } from "@/core/crystal/irreps/irrepOrder";
 
 const TOL = 1e-8;
 
@@ -83,6 +85,7 @@ function matPow(A: CMat, n: number): CMat {
 // ---------------------------------------------------------------------------
 
 const matKey = (R: Mat3): string => R.flat().map((x) => Math.round(x)).join(",");
+const integerRotation = (R: Mat3): IMat => R.map((row) => row.map((x) => Math.round(x))) as unknown as IMat;
 
 interface GroupTable {
   readonly elements: readonly Mat3[];
@@ -313,9 +316,12 @@ export interface PointGroupIrrep {
 
 /**
  * The complete irrep set of the co-group of `ops` (any crystallographic point
- * group), with characters reported per input operation. Throws if the
- * verification (Σ dim² = |G|, character orthogonality) fails — a wrong table
- * is worse than none.
+ * group), with characters reported per input operation, labelled Γ1, Γ2, … in
+ * irrepOrder.ts's total order (dimension, reality, the characters on the
+ * rotations in a fixed order of their matrices): the same numbers on every
+ * runtime and for every order of `ops`, and those of "Γ irrep n of m". Throws
+ * if the verification (Σ dim² = |G|, character orthogonality) fails — a wrong
+ * table is worse than none.
  */
 export function pointGroupIrreps(ops: readonly SymmetryOperation[]): PointGroupIrrep[] {
   // Distinct rotations, identity first.
@@ -355,14 +361,15 @@ export function pointGroupIrreps(ops: readonly SymmetryOperation[]): PointGroupI
     }
   }
 
-  // Stable order: dimension, then rounded character string.
-  const order = chars
-    .map((ch, i) => ({
-      i,
-      dim: dims[i]!,
-      key: ch.map((x) => `${x.re.toFixed(4)},${x.im.toFixed(4)}`).join(";"),
-    }))
-    .sort((a, b) => a.dim - b.dim || a.key.localeCompare(b.key));
+  // Numbered in irrepOrder's total order (ADR 0004; THY-64): dimension, reality, then the character on each
+  // rotation, the rotations in the fixed order of their matrices — the order the generic labels use at Γ, so
+  // Γn here is "Γ irrep n of m". Not the order the induction built them in, nor the input operations' order.
+  const fixed = S.map((e) => ({ e, W: integerRotation(rotations[e]!) })).sort((a, b) => compareRotations(a.W, b.W)).map(({ e }) => e);
+  const order = orderIrreps(chars.map((ch, i) => ({ ch, i, dim: dims[i]! })), ({ ch, dim }) => ({
+    dim,
+    reality: ch.every((x) => Math.abs(x.im) < 1e-6) ? "real" : "complex",
+    characters: fixed.map((e) => ch[e]!),
+  }));
 
   const elementIndex = new Map<string, number>();
   rotations.forEach((R, i) => elementIndex.set(matKey(R), i));

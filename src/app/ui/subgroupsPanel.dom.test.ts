@@ -139,7 +139,7 @@ describe("the subgroup list in a DOM", () => {
     expect(text(rowOf(h, R3C)!)).toBe("R-3c:H #167· 2×2×2· 8 domR·8");
     expect(rowOf(h, PNMA)).toBeUndefined();
     find(h, "Pnma");
-    expect(text(rowOf(h, PNMA)!)).toMatch(/^Pnma #62· 2×2×2· 24 domM·3\/5\+R·7×4$/);
+    expect(text(rowOf(h, PNMA)!)).toMatch(/^Pnma #62· 2×2×2· 24 domM·3\/7\+R·7×4$/);
   });
 
   it("keeps the larger cells for the next visit; a row opens its detail, and Activate hands over that row's own action", async () => {
@@ -185,22 +185,22 @@ describe("the subgroup list in a DOM", () => {
     find(h, "62");
     pickRow(h, PNMA);
     const detail = h.querySelector<HTMLElement>("[data-detail]")!;
-    // The four classes, the a⁻b⁺a⁻ one (M irrep 3 or 5 + R irrep 8) among them.
+    // The four classes, the a⁻b⁺a⁻ one (M irrep 3 or 7 + R irrep 8) among them.
     const variants = [...detail.querySelectorAll<HTMLElement>("[data-variant]")];
     expect(variants).toHaveLength(4);
-    const tilt = variants.find((v) => v.textContent!.includes("M irrep 3 or 5 + R irrep 8"))!;
+    const tilt = variants.find((v) => v.textContent!.includes("M irrep 3 or 7 + R irrep 8"))!;
     act(() => tilt.querySelector<HTMLButtonElement>("button[aria-pressed]")!.click());
     const t = text(h.querySelector("[data-detail]")!);
     // The list's tag follows the variant picked; the first ways use only its lead set (R irrep 10, one of its other pairs, waits).
-    expect(text(rowOf(h, PNMA)!)).toContain("M·3/5+R·8");
+    expect(text(rowOf(h, PNMA)!)).toContain("M·3/7+R·8");
     const lead = [...h.querySelectorAll<HTMLElement>("[data-detail] [data-way]")];
     expect(lead.length).toBeGreaterThan(0);
     expect(lead.every((w) => w.dataset.lead === "1" && !/R irrep (7|10)|X irrep/.test(w.textContent!))).toBe(true);
-    expect(t).toContain("Pnma in a 2×2×2 cell, from 2 irreps together: M irrep 3 or 5 and R irrep 8.");
-    expect(t).toContain("Pm-3m→Imma(R irrep 8)→Pnma(+ M irrep 3 or 5)");
-    expect(t).toContain("Pm-3m→P4/mbm(M irrep 3 or 5)→Pnma(+ R irrep 8)");
+    expect(t).toContain("Pnma in a 2×2×2 cell, from 2 irreps together: M irrep 3 or 7 and R irrep 8.");
+    expect(t).toContain("Pm-3m→Imma(R irrep 8)→Pnma(+ M irrep 3 or 7)");
+    expect(t).toContain("Pm-3m→P4/mbm(M irrep 3 or 7)→Pnma(+ R irrep 8)");
     expect(t).toMatch(/\d+ more ways/);
-    expect(t).toContain("M irrep 3 or 5 (of 10)(a,0,0)alone → P4/mbm");
+    expect(t).toContain("M irrep 3 or 7 (of 10)(a,0,0)alone → P4/mbm");
     expect(t).toContain("R irrep 8 of 10(a,a,0)alone → Imma");
     expect(t).toContain("7 modes refine");
     // The literal lattice steps are gone (the Tree holds the same covering steps).
@@ -227,7 +227,7 @@ describe("the subgroup list in a DOM", () => {
     // R and M: a short list again (index 2 to 8); show all brings Pnma with the M and R pair.
     expect(rowOf(h, PNMA)).toBeUndefined();
     act(() => buttonLike(h, /^show all \d+$/)!.click());
-    expect(text(rowOf(h, PNMA)!)).toContain("M·3/5+R·7");
+    expect(text(rowOf(h, PNMA)!)).toContain("M·3/7+R·7");
     act(() => chip(h, "any k-point").click());
     expect(text(h)).toContain(ALL);
     // Filters: one irrep only drops the coupled Pnma; all, with the strain-only rows, lists every one of the 559.

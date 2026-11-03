@@ -410,7 +410,7 @@ describe("By subgroup on SrTiO₃, 2×2×2: every subgroup that fits, each with 
     expect(r3c.detail).toMatch(/Secondary \(allowed here, induced by coupling\): Γ irrep 7 of 10, R irrep 2 of 10\./);
     expect(i4mcm.detail).toContain("Secondary (allowed here, induced by coupling): Γ irrep 5 of 10.");
     expect(pnma.detail).toContain("No single irrep has it as an isotropy subgroup. Coupled: M irrep 3 of 10 (a,0,0) (alone, P 4/m b m #127) with R irrep 8 of 10 (a,a,0) (alone, I m m a #74)");
-    expect(pnma.detail).toContain("Also reached by M irrep 5 of 10 + R irrep 8 of 10;");
+    expect(pnma.detail).toContain("Also reached by M irrep 7 of 10 + R irrep 8 of 10;");
     // The strain-only tetragonal subgroup: its Γ irrep moves no atom of SrTiO₃.
     const p4mmm = row(sto().same, "P 4/m m m #123 · same cell · 3 domains · Γ irrep 5 of 10 (a,a)");
     expect(p4mmm.detail).toContain("Γ irrep 5 of 10 moves no atom of this structure.");
@@ -421,12 +421,15 @@ describe("By subgroup on SrTiO₃, 2×2×2: every subgroup that fits, each with 
     const { m, same } = sto();
     const p4mm = row(same, "P 4 m m #99 · same cell · 6 domains · Γ irrep 10 of 10 (a,0,0)");
     expect(p4mm.action.kind).toBe("irrep");
-    // The Γ tree's polar irrep (its children P4mm, R3m, Amm2, …), whatever the Γ chip calls it: its point-group
-    // numbering "Γn" is not the generic one, and is not even the same on every platform (Node 22 and 24 differ).
+    // The Γ tree's polar irrep (its children P4mm, R3m, Amm2, …): the Γ chip numbers it as the generic label does,
+    // Γ10, on every runtime (THY-64; before, it read Γ9 on one machine and Γ10 on another). The silent one is Γ8.
     const tree = gammaIrrepTree(m.loaded)!;
+    expect(tree.map((b) => b.term.irrep.label)).toEqual(["Γ8", "Γ10"]);
     const branch = tree.find((b) => b.subgroups.some((s) => s.identity.number === 99))!;
+    expect(branch.term.irrep.label).toBe("Γ10");
     const sub = branch.subgroups.find((s) => s.identity.number === 99)!;
-    expect(p4mm.detail).toContain(`(Γ irrep 10 of 10 is ${branch.term.irrep.label} in the activated modes' labels.)`);
+    expect(p4mm.detail).toContain("(Γ irrep 10 of 10 is Γ10 in the activated modes' labels.)");
+    expect(withActivatedMode(m, branch.term, sub).label).toBe("Γ10 → P 4 m m");
     const fromRow = activate(m, p4mm.action);
     expect(outcome(fromRow)).toEqual(outcome(withActivatedMode(m, branch.term, sub).model));
     expect(modesAfter(fromRow)).toBe(p4mm.modes);
@@ -529,8 +532,8 @@ describe("By subgroup on SrTiO₃, 2×2×2: every subgroup that fits, each with 
     const rm = { ...DEFAULT_FILTERS, ks: ["R", "M"] };
     expect(shownIn(groups, rm, PNMA)!.shown).toContain(pnma);
     const shownSet = collapseTies(setsFor(pnma, rm.ks))[0]!;
-    expect(tagOf(shownSet)).toBe("M·3/5+R·8");
-    expect(setLine(shownSet)).toBe("M irrep 3 or 5 + R irrep 8");
+    expect(tagOf(shownSet)).toBe("M·3/7+R·8");
+    expect(setLine(shownSet)).toBe("M irrep 3 or 7 + R irrep 8");
     // X and R alone: Pnma by an X irrep and R irrep 8 (a pair inside those two stars).
     expect(tagOf(collapseTies(setsFor(pnma, ["X", "R"]))[0]!)).toMatch(/^X·\d+\+R·\d+$/);
   });
@@ -563,7 +566,7 @@ describe("By subgroup on SrTiO₃, 2×2×2: every subgroup that fits, each with 
       expect(hit.map((g) => g.group.key), q).toContain(PNMA);
       expect(hit.every((g) => g.group.name === "P n m a #62"), q).toBe(true);
     }
-    expect(searched(def, "Pnma").find((g) => g.group.key === PNMA)!.shown.some((r) => collapseTies(r.reach.sets).some((t) => tagOf(t) === "M·3/5+R·8"))).toBe(true);
+    expect(searched(def, "Pnma").find((g) => g.group.key === PNMA)!.shown.some((r) => collapseTies(r.reach.sets).some((t) => tagOf(t) === "M·3/7+R·8"))).toBe(true);
     // Through the R and M chips it is three Show mores down (index 2–8, 12, 16, then 24).
     const rm = shortList(visibleGroups(groups, { ...DEFAULT_FILTERS, ks: ["R", "M"] }), null);
     let at = rm;
@@ -583,17 +586,17 @@ describe("By subgroup on SrTiO₃, 2×2×2: every subgroup that fits, each with 
     expectShortList(visibleGroups(groups, NO_FILTERS));
   });
 
-  it("the tie: M irrep 3 and 5 tie in a⁻b⁺a⁻ Pnma (same star, dimension, direction, multiplicity, isotropy subgroups by type and order, and alone the same P4/mbm); R irrep 8 and 10 do not (multiplicity 1 and 2)", () => {
+  it("the tie: M irrep 3 and 7 tie in a⁻b⁺a⁻ Pnma (same star, dimension, direction, multiplicity, isotropy subgroups by type and order, and alone the same P4/mbm); R irrep 8 and 10 do not (multiplicity 1 and 2)", () => {
     const { larger } = sto();
     const pnma = row(larger, "P n m a #62 · 2×2×2 · 24 domains · M irrep 3 of 10 (a,0,0) + R irrep 8 of 10 (a,a,0), coupled (or 7 other pairs)");
     const refs = pnma.reach.sets.flat();
     const ref = (label: string) => refs.find((x) => x.label === label)!;
-    expect(ref("M irrep 3 of 10").tie).toBe(ref("M irrep 5 of 10").tie);
+    expect(ref("M irrep 3 of 10").tie).toBe(ref("M irrep 7 of 10").tie);
     expect(ref("M irrep 3 of 10").tie).toBe("M|3|1|(a,0,0)|127:64,139:32,204:48,71:16|127:64");
     expect(ref("R irrep 8 of 10").tie).not.toBe(ref("R irrep 10 of 10").tie);
     // The first four sets: M3+R8, M5+R8 (tied: one line), M3+R10, M5+R10 (tied: another line).
     const tied = collapseTies(pnma.reach.sets);
-    expect(tied.slice(0, 2).map(setLine)).toEqual(["M irrep 3 or 5 + R irrep 8", "M irrep 3 or 5 + R irrep 10"]);
+    expect(tied.slice(0, 2).map(setLine)).toEqual(["M irrep 3 or 7 + R irrep 8", "M irrep 3 or 7 + R irrep 10"]);
     // Every set written on a tied line reaches the row: one place varies, and each combination is one of its sets.
     for (const t of tied) {
       const varying = t.members.filter((alts) => alts.length > 1);
@@ -618,10 +621,10 @@ describe("By subgroup on SrTiO₃, 2×2×2: every subgroup that fits, each with 
     expectDetailIsTheVariant(larger, { lattice: cachedSupercellSubgroups(group), labelOf: labelsByCharacters(boundIrreps(group, boundStars(group))) });
     const engine = irrepEngine(m.loaded.spaceGroup.operations);
     expectDetailIsTheVariant(same, { lattice: null, labelOf: labelsByCharacters(boundIrreps(engine.group, engine.stars)) });
-    // The a⁻b⁺a⁻ Pnma: it leads with M irrep 3 or 5 + R irrep 8, and its first ways name only those; R irrep 10 (one of its other pairs) waits behind "more ways".
+    // The a⁻b⁺a⁻ Pnma: it leads with M irrep 3 or 7 + R irrep 8, and its first ways name only those; R irrep 10 (one of its other pairs) waits behind "more ways".
     const pnma = row(larger, "P n m a #62 · 2×2×2 · 24 domains · M irrep 3 of 10 (a,0,0) + R irrep 8 of 10 (a,a,0), coupled (or 7 other pairs)");
     const d = detailOf(pnma);
-    expect(setLine(d.set!)).toBe("M irrep 3 or 5 + R irrep 8");
+    expect(setLine(d.set!)).toBe("M irrep 3 or 7 + R irrep 8");
     expect(d.lead.flatMap((w) => w.steps.flatMap((st) => st.irreps.map((x) => x.label)))).not.toContain("R irrep 10 of 10");
     expect(d.more.flatMap((w) => w.steps.flatMap((st) => st.irreps.map((x) => x.label)))).toContain("R irrep 10 of 10");
     expect(pnma.reach.sets.some((set) => set.some((x) => x.label === "R irrep 10 of 10"))).toBe(true);
