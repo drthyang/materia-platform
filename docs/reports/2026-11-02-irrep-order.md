@@ -136,7 +136,13 @@ keeps it.
   row's "?" reads "(Γ irrep 10 of 10 is Γ10 in the activated modes'
   labels.)", and Activate gives "Γ10 → P 4 m m". These are literals, no
   longer `${branch.term.irrep.label}`.
-- **ISOTROPY oracle on the branch** ([run 41578511400](https://github.com/drthyang/materia-platform/actions/runs/41578511400)): see Checks.
+- **ISOTROPY oracle on the branch** ([run 41578511400](https://github.com/drthyang/materia-platform/actions/runs/41578511400),
+  every step): isotropy subgroups 13/13, mode amplitudes 3/3, irrep labels
+  16/16. The log prints all 16 correspondences, and every renumbered generic
+  label still stands for exactly one ISOTROPY irrep by character. The one
+  `UNREAD` note (Fm-3m W: 1 of 40 characters that ISOTROPY prints as
+  asterisks) is the same as on #143's run. The correspondence stays in the CI
+  log (ADR 0005).
 
 ## What changes for users
 
@@ -249,8 +255,9 @@ the page's messages. After this change:
 
 ## Checks
 
-At the PR's head: `npm run typecheck` and `npm run lint` clean, and the full
-`npm test` passes (see the PR for the counts). `irrepOrder.test.ts` and
-`subgroupPicker.test.ts` also pass under Node 22.23.4. CI runs on the PR. The
-browser check was run as above. The ISOTROPY oracle ran on the branch: see the
-PR for the result.
+At d2347aa: `npm run typecheck` and `npm run lint` clean; `npm test`: 387
+files, 3406 tests passed, 315 skipped, 0 failed (macOS, Node 24.16.0).
+`irrepOrder.test.ts` and `subgroupPicker.test.ts` also pass under Node
+22.23.4. CI runs on the PR ([#154](https://github.com/drthyang/materia-platform/pull/154)).
+`scripts/irrep-labels-check.mjs` passes in Chrome 156, Chromium 149 and
+WebKit 26.5. The ISOTROPY oracle passed on the branch (above).
