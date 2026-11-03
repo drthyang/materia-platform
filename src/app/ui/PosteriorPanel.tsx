@@ -51,6 +51,32 @@ function essInk(ess: number, nFree: number): string {
   return ess >= essTarget(nFree) ? color.okInk : color.warnInk;
 }
 
+/** The line beside a held Sample posterior before any fit: the sampler starts from a converged fit. */
+export const NEEDS_REFINE = "Refine first: needs esds from a converged fit";
+
+/**
+ * The panel before any run: the table's columns, faint, over one line, so the
+ * tab shows where the result goes instead of a blank card.
+ */
+function PosteriorPlaceholder(): JSX.Element {
+  return (
+    <div
+      data-testid="posterior-placeholder"
+      aria-hidden
+      style={{ flex: 1, minHeight: 140, display: "flex", flexDirection: "column", border: `1px dashed ${color.border}`, borderRadius: 8, padding: "6px 8px", color: color.faintest }}
+    >
+      <div style={{ ...uppercaseLabel, color: color.faintest, display: "flex", gap: 16, flexWrap: "wrap", padding: "2px 0 6px", borderBottom: `1px solid ${color.subtle2}` }}>
+        {POSTERIOR_COLUMNS.map((c) => <span key={c}>{c}</span>)}
+      </div>
+      <div style={{ flex: 1, display: "grid", placeItems: "center", fontSize: fz.small, textAlign: "center", padding: 12 }}>
+        Each free parameter&rsquo;s posterior shows here after a run.
+      </div>
+    </div>
+  );
+}
+
+const POSTERIOR_COLUMNS = ["parameter", "marginal", "median", "68% interval", "esd ratio", "R̂", "ESS"] as const;
+
 const stopButton: CSSProperties = { ...secondaryButton, border: `1px solid ${color.warnBorder}`, background: color.warnBg, color: color.warnInk, fontWeight: 600 };
 
 /** Compact marginal histogram (SVG) from the flattened per-parameter draws. */
@@ -122,6 +148,8 @@ export function PosteriorPanel({ result, busy, progress, onRun, onStop, hasRefin
   // A run stopped before its first step left nothing to continue.
   const canContinue = result !== null && result.resume.logP.length === result.resume.q.length;
   const nFree = result?.freeIds.length ?? 0;
+  // Why Sample posterior is held, in one line beside it (the button's title says the same).
+  const held = busy ? null : blockedReason ?? (hasRefined ? null : NEEDS_REFINE);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, height: "100%", minHeight: 0 }}>
@@ -165,16 +193,19 @@ export function PosteriorPanel({ result, busy, progress, onRun, onStop, hasRefin
             {progress ? ` step ${progress.step}/${progress.total}` : ""}
           </span>
         ) : null}
-        <span style={{ flex: 1 }} />
+        {held ? (
+          <span data-testid="posterior-held" style={{ fontSize: fz.small, color: color.secondary }}>{held}</span>
+        ) : null}
         <InfoBadge
           width={300}
-          align="right"
           text={
             <span>
-              The ensemble MCMC posterior of the free parameters (uniform priors within
-              bounds; error scale marginalized because G(r) point errors are correlated).
-              Report the 68% credible interval with the convergence evidence — split-R̂
-              ≈ 1 and enough effective samples (ESS). <b>esd ratio</b> = posterior σ /
+              Sample after a converged refinement: the walkers start at the refined
+              values, and only the free parameters are sampled. The ensemble MCMC
+              posterior uses uniform priors within bounds, with the error scale
+              marginalized because G(r) point errors are correlated. Report the 68%
+              credible interval with the convergence evidence — split-R̂ ≈ 1 and
+              enough effective samples (ESS). <b>esd ratio</b> = posterior σ /
               least-squares esd: ≈ 1 validates the LM error bars, larger means the
               linearized esd was overconfident.
             </span>
@@ -243,12 +274,7 @@ export function PosteriorPanel({ result, busy, progress, onRun, onStop, hasRefin
           ) : null}
         </div>
       ) : (
-        <div style={{ color: color.secondary, fontSize: fz.small, lineHeight: 1.5 }}>
-          Sample the posterior <i>after</i> a converged refinement: walkers seed at the
-          refined values, and the posterior widths are compared against the linearized
-          esds (the <b>esd ratio</b> — ≈ 1 validates the least-squares error bars).
-          Only the currently <b>free</b> parameters are sampled.
-        </div>
+        <PosteriorPlaceholder />
       )}
 
       {/* Per-parameter table */}
