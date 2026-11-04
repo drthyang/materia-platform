@@ -182,6 +182,8 @@ interface Props {
   readonly onOpenModel: () => void;
   /** The supercell chosen, as it changes; null once the view closes (the Agent's default bound). */
   readonly onBound?: (bound: SupercellSpec | null) => void;
+  /** The supercell the view opens on (the one the Agent lowered in); default 2×2×2. */
+  readonly initialBound?: SupercellSpec;
 }
 
 const line: CSSProperties = { margin: 0, fontSize: fz.micro, color: color.secondary, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" };
@@ -324,9 +326,9 @@ function RowLine({ g, variant, selected, active, onPick, lead, trail, dim }: { g
 
 type PickerProps = Props & { readonly activeKey: string | null; readonly onActivated: (key: string) => void; readonly banner: ReactNode };
 
-function Picker({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCell = [], operations, structure, onActivateSameCell, onActivateSupercell, busy, onActivateMode, onActivateSubgroup, modes, activeKey, onActivated, banner, onBound }: PickerProps): JSX.Element {
+function Picker({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCell = [], operations, structure, onActivateSameCell, onActivateSupercell, busy, onActivateMode, onActivateSubgroup, modes, activeKey, onActivated, banner, onBound, initialBound }: PickerProps): JSX.Element {
   const ops = operations ?? structure?.spaceGroup.operations;
-  const [bound, setBound] = useState<SupercellSpec>(DEFAULT_BOUND);
+  const [bound, setBound] = useState<SupercellSpec>(initialBound ?? DEFAULT_BOUND);
   useEffect(() => {
     onBound?.(bound);
   }, [bound, onBound]);

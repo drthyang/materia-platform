@@ -187,8 +187,8 @@ export interface PdfSubgroupsHandle {
   readonly list: (bound: SupercellSpec) => Promise<SubgroupListing>;
   /** The supercell the view shows now; null while it is closed. */
   readonly bound: () => SupercellSpec | null;
-  /** Activate on a row, as the view's: the same child, modes and History step. Null once done, else why nothing changed. */
-  readonly activate: (row: SubgroupRow) => string | null;
+  /** Activate on a row of the `bound` listing, as the view's: the same child, modes and History step. Null once done, else why nothing changed. */
+  readonly activate: (row: SubgroupRow, bound: SupercellSpec) => string | null;
   /** The view's ✕ clear: back to the parent. */
   readonly clear: () => void;
 }

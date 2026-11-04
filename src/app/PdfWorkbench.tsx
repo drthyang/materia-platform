@@ -566,6 +566,8 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
 
   // The Subgroups view's supercell while it is open: the Agent's default bound.
   const subgroupBound = useRef<SupercellSpec | null>(null);
+  // The supercell the Agent last lowered to a larger cell in: the view opens on it, its row there.
+  const [agentBound, setAgentBound] = useState<SupercellSpec | null>(null);
   const onSubgroupBound = useCallback((bound: SupercellSpec | null): void => {
     subgroupBound.current = bound;
   }, []);
@@ -693,9 +695,12 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
       subgroups: {
         list: (bound) => listSubgroups(modelRef.current.loaded, bound, { waitMs: AGENT_LISTING_WAIT_MS }),
         bound: () => subgroupBound.current,
-        activate: (row) => {
+        activate: (row, bound) => {
           const why = activate(row.action);
-          if (why === null) setViewTab("subgroups");
+          if (why === null) {
+            if (!row.sameCell) setAgentBound(bound);
+            setViewTab("subgroups");
+          }
           return why;
         },
         clear: () => setModel((m) => withoutModes(m)),
@@ -1189,6 +1194,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                   onClear={() => setModel((m) => withoutModes(m))}
                   onOpenModel={() => setViewTab("model3d")}
                   onBound={onSubgroupBound}
+                  {...(agentBound ? { initialBound: agentBound } : {})}
                 />
               )}
             </>

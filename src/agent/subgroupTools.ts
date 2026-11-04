@@ -175,12 +175,13 @@ export async function lowerSymmetryPlan(input: InputOf<"lower_symmetry">, s: Pdf
     });
   }
   const { row, group, number } = found.pick;
+  const bound = found.bound;
   const name = compactName(row.name);
   if (row.action.kind === "elsewhere") throw new Error(`${name} is not offered on the Subgroups view (${row.action.note})`);
   if (row.modes === 0) throw new Error(`${name} (${row.cell}) is strain only: no atom moves, so there is nothing to refine`);
   const variant = group.variants.length > 1 ? `, variant ${number} of ${group.variants.length}` : "";
   return change(`Lower ${groupName(s.loaded)} to ${name} · ${row.cell} · ${row.domains} domains, from ${irrepsOf(row)}${variant}`, () => {
-    const why = view.activate(row);
+    const why = view.activate(row, bound);
     if (why) throw new Error(`nothing was changed: ${why}`);
     return undefined;
   });
