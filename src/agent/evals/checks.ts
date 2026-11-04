@@ -261,6 +261,63 @@ export function mentionsD(d: number, tol: number): Check {
   };
 }
 
+/** What a successful lower_symmetry call left on the page (its answer's `lowered`), in call order. */
+function lowerings(run: EvalRun): { readonly at: number; readonly to: string; readonly cell: string }[] {
+  return calls(run).flatMap((c, at) => {
+    const lowered = c.name === "lower_symmetry" && !c.isError ? json(c.text)?.lowered as { to?: string; cell?: string } | undefined : undefined;
+    return lowered?.to ? [{ at, to: lowered.to, cell: lowered.cell ?? "" }] : [];
+  });
+}
+
+/**
+ * The subgroup the user asked for, lowered to in the app (the owner's request,
+ * 2026-11-03: asked for P-42₁m in a 1×1×2 cell, the Agent said the PDF page
+ * had no tool for it).
+ */
+export function lowersTo(group: string, cell: string): Check {
+  return {
+    name: `lowers the symmetry to ${group}, ${cell}`,
+    grade: (run) => {
+      const done = lowerings(run);
+      const hit = done.find((l) => l.to === group && l.cell === cell);
+      return hit ? ok(`lowered to ${hit.to}, ${hit.cell}`) : fail(done.length ? `lowered to ${done.map((l) => `${l.to}, ${l.cell}`).join("; ")}` : "never lowered the symmetry");
+    },
+  };
+}
+
+/** The row picked from the Subgroups view's list: list_subgroups before the first lowering. */
+export const listsBeforeLowering: Check = {
+  name: "lists the subgroups before lowering",
+  grade: (run) => {
+    const first = lowerings(run)[0];
+    if (!first) return fail("never lowered the symmetry");
+    return calls(run).slice(0, first.at).some((c) => c.name === "list_subgroups" && !c.isError) ? ok("listed, then lowered") : fail("lowered without listing the subgroups");
+  },
+};
+
+/** The lowered model refined: a refinement that ran to its end after the first lowering. */
+export const refinesLowered: Check = {
+  name: "refines the lowered model",
+  grade: (run) => {
+    const first = lowerings(run)[0];
+    if (!first) return fail("never lowered the symmetry");
+    const done = calls(run).slice(first.at + 1).filter((c) => c.name === "refine" && !c.isError && json(c.text)?.refined === true);
+    return done.length > 0 ? ok(`${done.length} refinement${done.length === 1 ? "" : "s"} after lowering`) : fail("no refinement after lowering");
+  },
+};
+
+/** Asking the user for a CIF made elsewhere, or naming the programs to make it with. */
+const CIF_REQUEST = /\b(VESTA|ISODISTORT|TRANSTRU|Add CIF)\b|\b(load|upload|provide|send|make|build|generate|create|export|supply)\b[^.]{0,40}\bCIF\b/i;
+
+/** The subgroup is built in the app, never handed back to the user as a CIF to make elsewhere (the owner's request, 2026-11-03). */
+export const asksForNoCif: Check = {
+  name: "asks for no CIF of the subgroup",
+  grade: (run) => {
+    const said = replies(run).flatMap((r) => sentences(r)).filter((s) => CIF_REQUEST.test(s) && !NEGATION.test(s));
+    return said.length === 0 ? ok("asked for no CIF") : fail(`said: "${said[0]}"`);
+  },
+};
+
 /** The last reply does not end on a promise to act (the stall guard: local models ended turns on "Starting the gate now."). */
 export const noStall: Check = {
   name: "does not end on a promise to act",

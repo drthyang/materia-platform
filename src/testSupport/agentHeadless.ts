@@ -30,8 +30,9 @@ import { powderReportInput } from "@/app/reportInputs";
 import { powderJudgment } from "@/app/reportJudgment";
 import {
   agentBoxcarPlan, liveStateOf as liveStateOfPdf, pdfBoxcar, pdfFit, pdfPage, pdfPosterior, pdfProbe, pdfThorough, reportInputOf as reportInputOfPdf, withAdpModel as withPdfAdpModel,
-  withBoxcarPlan, withBoxcarRun, withFit as withPdfFit, withFitRange, withFixed as withPdfFixed, withPosterior, withReset as withPdfReset, type PdfCompute, type PdfPageModel,
+  withBoxcarPlan, withBoxcarRun, withFit as withPdfFit, withFitRange, withFixed as withPdfFixed, withoutModes, withPosterior, withReset as withPdfReset, type PdfCompute, type PdfPageModel,
 } from "@/app/pdfPage";
+import { activationOf, listSubgroups } from "@/app/pdfSubgroups";
 import type { SingleCrystalDataset } from "@/core/diffraction/types";
 import {
   liveStateOf, reportInputOf, singleCrystalFit, singleCrystalPage, singleCrystalProbe, singleCrystalThorough, withAdpModel as withScAdpModel, withExtinctionModel,
@@ -45,6 +46,13 @@ import {
  * Agent's go_to_step) returns to it, and a page registered here does the same.
  */
 const PAGE_STATE = new WeakMap<AgentPort, { readonly capture: () => unknown; readonly restore: (captured: unknown) => void }>();
+
+/**
+ * A headless page's own labelled steps, as the app's page requests them
+ * (requestStep): the Subgroups view's Activate names its step. Recorded as the
+ * Agent's by the History kept for the page (headlessHistory), when there is one.
+ */
+const PAGE_STEP = new WeakMap<AgentPort, (kind: StepKind, label: string) => void>();
 
 /**
  * A powder page without React: a session behind the page's own operations
@@ -319,6 +327,9 @@ export function headlessHistory(port: AgentPort): { history: () => ProjectHistor
     return { structures, workspace: { technique: port.technique, refinement, ...sc, ...(page ? { headlessPage: page.capture() } : {}) } as unknown as Workspace };
   };
   let h: ProjectHistory = recordStep(null, { ...snapshot(), kind: "load", label: "Start" });
+  PAGE_STEP.set(port, (kind, label) => {
+    h = recordStep(h, { ...snapshot(), kind, label, actor: "agent" });
+  });
   return {
     history: () => h,
     record: (kind, actor, label) => {
@@ -423,6 +434,23 @@ export function pdfPort(opts: { readonly client?: PdfCompute; readonly page?: Pd
     reset: (ids) => {
       calls.push(ids ? `reset ${ids.join(",")}` : "reset");
       m = withPdfReset(m, ids);
+    },
+    // The Subgroups view: the listing worked out to the end (no wait cap here), Activate and ✕ clear as the workbench's.
+    subgroups: {
+      list: (bound) => listSubgroups(m.loaded, bound),
+      bound: () => null,
+      activate: (row) => {
+        calls.push(`lower ${row.key}`);
+        const a = activationOf(m, row.action);
+        if (a.model === m) return a.message;
+        m = a.model;
+        PAGE_STEP.get(port)?.("settings", a.step);
+        return null;
+      },
+      clear: () => {
+        calls.push("clear subgroup");
+        m = withoutModes(m);
+      },
     },
   };
   PAGE_STATE.set(port, {

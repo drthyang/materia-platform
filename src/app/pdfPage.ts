@@ -1510,6 +1510,8 @@ export function liveStateOf(m: PdfPageModel, extra: { readonly busy: boolean; re
     warnings: [v.radiationWarning, v.motionConflict, v.adpWarning].filter((w): w is string => w !== null),
     source: m.pattern.name,
     restraints: v.spec.restraints,
+    loaded: m.loaded,
+    modes: m.modes,
   };
 }
 

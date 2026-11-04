@@ -53,6 +53,10 @@ import {
   reportsEngineNumbers,
   symmetryLast,
   tracksBonds,
+  lowersTo,
+  listsBeforeLowering,
+  refinesLowered,
+  asksForNoCif,
 } from "@/agent/evals/checks";
 import type { EvalScenario } from "@/agent/evals/harness";
 
@@ -242,6 +246,15 @@ export const SCENARIOS: readonly EvalScenario[] = [
     messages: ["Is the Ta coordination the same locally as on average? Write the report when you are done."],
     autonomy: "auto",
     checks: [ran("boxcar_scan"), tracksBonds, reportCarriesScan, reportsEngineNumbers, noStall],
+  },
+  {
+    id: "pdf-lower-symmetry",
+    title: "Lowers the symmetry to the subgroup asked for, then refines it",
+    origin: "The owner (2026-11-03): asked for P-42₁m in a 1×1×2 cell on the GaTa₄Se₈ demo, the Agent said the PDF page had no tool to change the space group and asked for a CIF made in VESTA, ISODISTORT or TRANSTRU.",
+    page: () => pdfPage(),
+    messages: ["Use P-42₁m in a 1×1×2 cell (c doubled): lower the symmetry to it and refine."],
+    autonomy: "ask",
+    checks: [readsMethodFirst, listsBeforeLowering, lowersTo("P -4 21 m #113", "in its own cell, 1×1×2"), refinesLowered, asksForNoCif, noStall],
   },
   {
     id: "sc-data-first",

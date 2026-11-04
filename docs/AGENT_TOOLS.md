@@ -564,6 +564,9 @@ is an MCP tool, and an MCP client asks its user in its own UI.
 | Tool | Runs | What it does |
 |---|---|---|
 | `boxcar_scan` | asks first | Boxcar scan |
+| `list_subgroups` | at once | List the subgroups |
+| `lower_symmetry` | asks first | Lower the symmetry |
+| `clear_subgroup` | asks first | Back to the parent's symmetry |
 
 **Single-crystal page**
 
@@ -748,6 +751,19 @@ current.
   perturbed starts as well, the seeded one kept (none unless asked). With
   `bonds`, each box's coordination shell in the structure it refined. The last
   scan goes into the report.
+- **Lowering the symmetry on the PDF page** is the Subgroups view's own work
+  ([`subgroupTools.ts`](../src/agent/subgroupTools.ts) over
+  [`pdfSubgroups.ts`](../src/app/pdfSubgroups.ts)). `list_subgroups` gives the
+  view's list for a supercell bound (the view's, else 2×2×2): its rows, merged
+  by name, cell and domains, with the view's filters and each row's default
+  variant, a page at a time. The larger cells are worked out in a Web Worker
+  and waited on for up to 30 s; a slower listing answers with the rows so far
+  and goes on. `lower_symmetry` takes a row's id (or a name and cell) and runs
+  Activate on it: the same child, modes, kick and History step. Several
+  classes and no id return the candidates and change nothing. It is a change
+  (the card, Ask or Auto, the run lock). `clear_subgroup` is ✕ clear. The
+  powder page has no activation: there the tools answer that they work on the
+  PDF page, and a lower group is loaded as its CIF.
 - **Units.** `get_state` lists the extent and fit window in each unit the
   pattern converts to (2θ, d, Q, TOF), with the full TOF calibration;
   `find_unexplained_peaks` gives each peak in d, Q and the data's own axis; and

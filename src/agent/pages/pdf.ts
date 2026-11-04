@@ -8,6 +8,7 @@ import { planFrom } from "@/agent/pages/plans";
 import { pdfAnalysis } from "@/agent/method";
 import type { PageAdapter } from "@/agent/pages/types";
 import { stampOf } from "@/agent/pages/stamp";
+import { subgroupOutcome } from "@/agent/subgroupTools";
 
 export const PDF_PAGE: PageAdapter<PdfAgentPort> = {
   page: "pdf",
@@ -25,4 +26,6 @@ export const PDF_PAGE: PageAdapter<PdfAgentPort> = {
   assemblies: () => new Map(),
   read: (name, input, port, host) => readPdfTool(name, input, port, host),
   plan: planFrom(PDF_PLANS),
+  // What lowering the symmetry (or clearing it) left on the page.
+  outcome: (name, port) => subgroupOutcome(name, port.state()),
 };

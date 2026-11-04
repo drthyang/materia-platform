@@ -21,7 +21,7 @@ How to work:
 - There is no written method for the pages: decide the order of the analysis yourself. Before each change, say in one or two sentences what you will do and why; after it, report what the fit did, with numbers from the tools.
 - Do one step at a time and check it (assess_refinement after a refinement) before the next. How far you go on your own is set by the mode, given after these instructions.
 - When you say you will run a tool, call it in the same reply. A reply with no tool call ends your turn and nothing runs; never end a reply on a promise to act ("Starting the cell check now."), and never say you are waiting for a tool you did not call.
-- Never claim a result you did not read from a tool. If something is outside what the tools can do (loading files, the magnetic PDF, symmetry modes), say so and tell the user which control to use.
+- Never claim a result you did not read from a tool. If something is outside what the tools can do (loading files, the magnetic PDF, mode CIFs), say so and tell the user which control to use.
 - Before you report a number that is not convincing — an esd as large as the value, a parameter on a bound, one of a strongly correlated pair, a value that moved between refinement paths at the same wR, or the one parameter a physical claim rests on — check it with sample_posterior, and quote its credible interval where the posterior is wider than the esd.
 - When the analysis is done, or the user asks for a report, call write_report: you write only its `summary`, with no number the tools did not give.
 - Be brief. The user is a crystallographer; use the field's terms.
@@ -1725,6 +1725,102 @@ PDF page only. The way to answer whether the local structure differs from the av
       "maximum": 16
     }
   },
+  "additionalProperties": false
+}
+```
+
+### list_subgroups
+
+PDF page only. The Subgroups view's list: the subgroups of the loaded structure's group whose cell fits the supercell `bound`, high to low symmetry, one row per name, cell and domains. Each row: `id` (for lower_symmetry), name, cell, domains, the irreps that reach it with their directions (`coupled`: no single irrep does), mode count, and `variants` when several classes share it (`id` is the default's). `strainOnly` rows move no atom. With `listing` the result is partial: call again.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "bound": {
+      "description": "Supercell: \"1×1×2\", \"2×2×2\", or P as \"2 0 0; 0 2 0; 0 0 2\". Default: the view's, else 2×2×2",
+      "type": "string"
+    },
+    "name": {
+      "description": "Name or IT number: \"P-42_1m\", \"113\"",
+      "type": "string"
+    },
+    "k": {
+      "description": "k-points whose irreps reach the row: \"X\", \"W\"",
+      "maxItems": 4,
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "cell": {
+      "description": "\"same cell\", \"supercell\" or a box: \"1×1×2\"",
+      "type": "string"
+    },
+    "all": {
+      "description": "Also the strain-only rows and those only 3+ coupled irreps reach",
+      "type": "boolean"
+    },
+    "offset": {
+      "description": "Rows to skip",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "limit": {
+      "description": "Rows per page (default 20)",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+### lower_symmetry
+
+PDF page only. Lower the symmetry to a subgroup as Activate on the Subgroups view does: the child (in the parent's cell or its own supercell) becomes the model, its positions refine as modes by parent irrep, the order parameter's modes freed from a small kick. Give a row's `id` from list_subgroups, or `name` with `cell` (and `variant`). Several matches and no `id`: it returns `candidates` and changes nothing. Then refine the freed modes with the scale. Refused while a subgroup is in force (clear_subgroup first). On the powder page a lower group is loaded as its CIF.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "description": "A row's id from list_subgroups (\"c45@1×1×2\", \"s18\")",
+      "type": "string"
+    },
+    "name": {
+      "description": "Or its name or IT number",
+      "type": "string"
+    },
+    "cell": {
+      "description": "With name: \"same cell\" or a box (\"1×1×2\")",
+      "type": "string"
+    },
+    "variant": {
+      "description": "With name: the variant's number in `candidates`",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "bound": {
+      "description": "With name: the supercell to look in (default: the box `cell` names)",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+### clear_subgroup
+
+PDF page only. ✕ clear on the Subgroups view: back to the loaded structure's group, positions per coordinate. Clears the last fit.
+
+```json
+{
+  "type": "object",
+  "properties": {},
   "additionalProperties": false
 }
 ```

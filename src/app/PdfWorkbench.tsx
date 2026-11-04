@@ -26,21 +26,23 @@ import type { MagneticModel } from "@/core/magnetic/types";
 import { isMomentParameterKind } from "@/core/refinement/types";
 import { KSearchPanel } from "@/components/KSearchPanel";
 import type { MagneticFit } from "@/app/magneticStep";
-import type { DisplaciveIrrepTerm } from "@/core/crystal/displaciveModes";
-import { structuralSubgroupLattice, type SubgroupNode } from "@/core/crystal/subgroupTree";
+import { structuralSubgroupLattice } from "@/core/crystal/subgroupTree";
 import { parseCif } from "@/parsers/cif";
 import { parseModeCif } from "@/parsers/modeCif";
 import {
   SAMPLE_STEPS, agentBoxcarPlan, boxcarDataRange, boxcarRangeOf, boxcarStartIsCurrent, boxcarStartRows, boxcarSummary, boxcarTabIssue, boxcarTabScanPlan, landsOn, liveStateOf, momentFit, pageView, pdfBoxcar, pdfFit, pdfguiBundleOf, pdfPage, pdfPosterior, pdfProbe, pdfThorough, reportInputOf, rwOf, specKeyOf,
-  withActivatedMode, withAdpModel, withBoxcarPlan, withBoxcarRange, withBoxcarRangeFromFit, withBoxcarRun, withBoxcarStart, withBoxcarStartReset, withBoxcarStep, withExtraPhases, withFit, withFitRange, withFixed, withLoadedStructure, withoutModes,
-  withParameter, withParentModes, withModeCif, modeCifOf, withPattern, withPositionMode, withPosterior, withReset, withSameCellSubgroup, withSiteTotal, withSpinModel, withSubgroup, withSupercellChild, workspaceOf, type AgentBoxcarPlan, type SupercellChoice,
+  withAdpModel, withBoxcarPlan, withBoxcarRange, withBoxcarRangeFromFit, withBoxcarRun, withBoxcarStart, withBoxcarStartReset, withBoxcarStep, withExtraPhases, withFit, withFitRange, withFixed, withLoadedStructure, withoutModes,
+  withParameter, withParentModes, withModeCif, modeCifOf, withPattern, withPositionMode, withPosterior, withReset, withSiteTotal, withSpinModel, workspaceOf, type AgentBoxcarPlan,
 } from "@/app/pdfPage";
 import { SiteTotals } from "@/app/ui/SiteTotals";
 import { DistortionModesPanel } from "@/app/ui/DistortionModesPanel";
 import { useMediaQuery } from "@/app/ui/useMediaQuery";
 import { ALL_MODES, highlightedSites, modeGroups, selectedModes, type ModeFilter } from "@/app/ui/modeGroups";
 import { arrowField, type ModeArrows } from "@/app/ui/modeFold";
-import { SubgroupsPanel, decentringIrrepTree, gammaIrrepTree, sameCellLattice, type IrrepSubgroup, type SameCellNode } from "@/app/ui/SubgroupsPanel";
+import { SubgroupsPanel, decentringIrrepTree, gammaIrrepTree, sameCellLattice } from "@/app/ui/SubgroupsPanel";
+import type { PickerAction } from "@/app/ui/subgroupPicker";
+import { AGENT_LISTING_WAIT_MS, activationOf, listSubgroups } from "@/app/pdfSubgroups";
+import type { SupercellSpec } from "@/core/crystal/irreps/supercell";
 import { sharedSites, siteSumRangeWarnings } from "@/core/workflow/structureRefinement";
 
 // Lazy so three.js stays out of the main bundle until the 3D view is opened.
@@ -559,65 +561,37 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
     [multiPhase, viewTab, structure, modes],
   );
 
-  // A k- or general subgroup of the same-cell lattice (withSameCellSubgroup).
-  function onActivateSameCell(node: SameCellNode): void {
-    const activated = withSameCellSubgroup(model, node);
-    if (activated.model === model) {
-      console.error(`[status] ${activated.message}`);
-      return;
-    }
-    setModel(activated.model);
-    setLive(null);
-    stepHistory?.requestStep("settings", `Distortion modes: ${activated.label}`);
-    console.info(`[status] ${activated.message}`);
-  }
+  // The Subgroups view's supercell while it is open: the Agent's default bound.
+  const subgroupBound = useRef<SupercellSpec | null>(null);
+  // The supercell the Agent last lowered to a larger cell in: the view opens on it, its row there.
+  const [agentBound, setAgentBound] = useState<SupercellSpec | null>(null);
+  const onSubgroupBound = useCallback((bound: SupercellSpec | null): void => {
+    subgroupBound.current = bound;
+  }, []);
 
-  // A cell-multiplying child from the supercell view (withSupercellChild): the
-  // child realised in its own cell and refined there, its symmetry-breaking
-  // displacements free from the starting kick.
-  function onActivateSupercell(choice: SupercellChoice): void {
-    const activated = withSupercellChild(model, choice);
-    if (activated.model === model) {
+  // Activate on a Subgroups row, the view's and the Agent's lower_symmetry
+  // alike (pdfSubgroups.ts, activationOf): a Γ or decentring irrep's child
+  // (withActivatedMode: the isotropy subgroup's child realized, the activated
+  // field the leading free amplitude with a small starting kick), a t-subgroup
+  // (withSubgroup) or a k- or general subgroup of the same-cell lattice
+  // (withSameCellSubgroup), each lowered in the parent's cell from the current
+  // refined geometry with the order parameter free at the starting kick (χ² is
+  // stationary along every symmetry-breaking mode at the parent's geometry);
+  // or a cell-multiplying child realised in its own cell and refined there
+  // (withSupercellChild). The History step is the view's. Returns null once
+  // done, else why nothing changed.
+  function activate(action: PickerAction): string | null {
+    const from = modelRef.current;
+    const activated = activationOf(from, action);
+    if (activated.model === from) {
       console.error(`[status] ${activated.message}`);
-      return;
+      return activated.message;
     }
     setModel(activated.model);
     setLive(null);
-    stepHistory?.requestStep("settings", `Supercell child: ${activated.label}`);
+    stepHistory?.requestStep("settings", activated.step);
     console.info(`[status] ${activated.message}`);
-  }
-
-  // Activate a chosen SUBGROUP (subgroup-driven, the inverse of the irrep-driven
-  // path; withSubgroup): the child realized from the current refined geometry,
-  // with every distortion it permits as an amplitude: the order parameter that
-  // lowers the parent to it free at the starting kick (χ² is stationary along
-  // every symmetry-breaking mode at the parent's geometry), the others at 0,
-  // fixed, for the user to free.
-  function onActivateSubgroup(node: SubgroupNode): void {
-    const activated = withSubgroup(model, node);
-    if (activated.model === model) {
-      console.error(`[status] ${activated.message}`);
-      return;
-    }
-    setModel(activated.model);
-    setLive(null);
-    stepHistory?.requestStep("settings", `Distortion modes: ${activated.label}`);
-    console.info(`[status] ${activated.message}`);
-  }
-
-  // Activate one symmetry-breaking mode (withActivatedMode): the isotropy
-  // subgroup's child realized, the activated field the leading free amplitude
-  // with a small starting kick.
-  function onActivateMode(term: DisplaciveIrrepTerm, sub: IrrepSubgroup): void {
-    const activated = withActivatedMode(model, term, sub);
-    if (activated.model === model) {
-      console.error(`[status] ${activated.message}`);
-      return;
-    }
-    setModel(activated.model);
-    setLive(null);
-    stepHistory?.requestStep("settings", `Distortion modes: ${activated.label}`);
-    console.info(`[status] ${activated.message}`);
+    return null;
   }
 
   // Decompose the current (child) structure against a HIGH-SYMMETRY parent CIF
@@ -714,6 +688,20 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
       probe: (options) => pdfProbe(client, model, options),
       cancel: cancelRefine,
       reset,
+      // The Subgroups view: the Agent lists, lowers and clears as the view does, and the view opens on what it lowered.
+      subgroups: {
+        list: (bound) => listSubgroups(modelRef.current.loaded, bound, { waitMs: AGENT_LISTING_WAIT_MS }),
+        bound: () => subgroupBound.current,
+        activate: (row, bound) => {
+          const why = activate(row.action);
+          if (why === null) {
+            if (!row.sameCell) setAgentBound(bound);
+            setViewTab("subgroups");
+          }
+          return why;
+        },
+        clear: () => setModel((m) => withoutModes(m)),
+      },
     });
   });
   useEffect(() => () => agentLink?.release("pdf"), [agentLink]);
@@ -1193,15 +1181,17 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                   sameCell={sameCell}
                   operations={structure.spaceGroup.operations}
                   structure={structure}
-                  onActivateSameCell={onActivateSameCell}
-                  onActivateSupercell={onActivateSupercell}
+                  onActivateSameCell={(node) => void activate({ kind: "sameCell", node })}
+                  onActivateSupercell={(choice) => void activate({ kind: "supercell", choice })}
                   modes={modes}
                   modeCount={modeSet ? modeSet.modes.length : null}
                   busy={busy}
-                  onActivateMode={onActivateMode}
-                  onActivateSubgroup={onActivateSubgroup}
+                  onActivateMode={(term, sub) => void activate({ kind: "irrep", term, sub })}
+                  onActivateSubgroup={(node) => void activate({ kind: "subgroup", node })}
                   onClear={() => setModel((m) => withoutModes(m))}
                   onOpenModel={() => setViewTab("model3d")}
+                  onBound={onSubgroupBound}
+                  {...(agentBound ? { initialBound: agentBound } : {})}
                 />
               )}
             </>
