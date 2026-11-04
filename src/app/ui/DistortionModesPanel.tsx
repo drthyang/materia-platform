@@ -386,6 +386,13 @@ function ShareChart({ shares, scope, byIrrep, openIds, arrows, onBar }: {
 }): JSX.Element {
   const what = byIrrep ? "irrep" : "mode";
   const zero = shares.every((s) => s.a2 === 0);
+  // The bars kept short beside the 3D view: the first few, the rest behind "+N more".
+  const [all, setAll] = useState(false);
+  const cut = all || shares.length <= CHART_BARS + 1 ? shares.length : CHART_BARS;
+  const rest = shares.slice(cut);
+  // The split by site under one open irrep's bar (Expand all leaves it to the table, so the chart stays short).
+  const opened = byIrrep ? shares.filter((s) => openIds.has(s.id)) : [];
+  const splitId = opened.length === 1 ? opened[0]!.id : null;
   const top = shares[0];
   const pct = (x: number): string => `${(100 * x).toFixed(x >= 0.995 || x === 0 ? 0 : 1)} %`;
   const line = zero
@@ -394,7 +401,7 @@ function ShareChart({ shares, scope, byIrrep, openIds, arrows, onBar }: {
   const detail = [
     `Each bar is one ${what}'s share of the distortion: A²/ΣA² over the ${what}s listed${scope ? ` (${scope})` : ""}. The modes are orthonormal, so the squared amplitudes add up to the total's square and the shares to 100 %.`,
     "A_s and A_p are A divided by a fixed √(cells) (the primitive child cell, the parent's), so A_s²/ΣA_s² and A_p²/ΣA_p² give the very same shares.",
-    "Signs drop out (|A|); the table keeps them. An open irrep shows its split by parent site under its bar. Click a bar to draw it on the 3D model.",
+    "Signs drop out (|A|); the table keeps them. With one irrep open, its split by parent site shows under its bar; a site chip charts that site's part alone. Click a bar to draw it on the 3D model.",
   ];
   // Rows share one label column, as wide as the longest label (the font is monospace), capped so the bars keep room.
   const labelCh = Math.min(24, Math.max(6, ...shares.map((s) => s.label.length)));
@@ -414,9 +421,9 @@ function ShareChart({ shares, scope, byIrrep, openIds, arrows, onBar }: {
       </div>
       {!zero && (
         <div role="list" aria-label={`share of the distortion by ${what}`} style={{ display: "flex", flexDirection: "column", gap: 1, marginTop: 3, maxWidth: 560 }}>
-          {shares.map((s) => {
+          {shares.slice(0, cut).map((s) => {
             const drawn = arrows !== null && arrows.kind !== "all" && arrows.id === s.id;
-            const open = byIrrep && openIds.has(s.id);
+            const open = s.id === splitId;
             return (
               <div role="listitem" key={s.id}>
                 <button
@@ -441,11 +448,23 @@ function ShareChart({ shares, scope, byIrrep, openIds, arrows, onBar }: {
               </div>
             );
           })}
+          {(rest.length > 0 || all) && shares.length > CHART_BARS + 1 && (
+            <button
+              type="button"
+              onClick={() => setAll((x) => !x)}
+              style={{ alignSelf: "flex-start", border: "none", background: "transparent", padding: "1px 0", cursor: "pointer", fontFamily: mono, fontSize: fz.micro, color: color.primary }}
+            >
+              {all ? "show fewer" : `+ ${rest.length} more · ${pct(rest.reduce((x, r) => x + r.share, 0))}`}
+            </button>
+          )}
         </div>
       )}
     </div>
   );
 }
+
+/** Bars the contribution chart shows before "+N more". */
+const CHART_BARS = 6;
 
 const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? "" : "s"}`;
 const chipRow = { display: "flex", gap: 6, alignItems: "center", flexWrap: "nowrap", overflowX: "auto", scrollbarWidth: "none", paddingBottom: 2, flex: "0 1 auto", minWidth: 0, maxWidth: "100%" } as const;

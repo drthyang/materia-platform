@@ -257,6 +257,9 @@ describe("the mode table folded by irrep", () => {
     expect(listItem(multi).children.length).toBe(1);
     click(disclosure(h, multi));
     expect(listItem(multi).children.length).toBe(1 + set.modes.filter((m) => m.irrep!.label === multi).length);
+    // Expand all leaves the split to the table, so the chart stays short beside the 3D view.
+    click(button(h, "Expand all"));
+    expect(listItem(multi).children.length).toBe(1);
   });
 });
 
