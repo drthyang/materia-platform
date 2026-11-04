@@ -29,6 +29,7 @@ import { covalentRadius, elementColor } from "@/app/ui/elementData";
 import { cssZoom } from "@/app/ui/cssZoom";
 import { buildCellAtoms, displayMoment, magneticSupercell, type MomentEntry } from "@/app/ui/cellModel";
 import { InfoBadge } from "@/app/ui/InfoBadge";
+import { atomArrows } from "@/app/ui/modeFold";
 import {
   BOND_COLORS,
   BOND_RADIUS,
@@ -215,7 +216,9 @@ export function StructureView({
    * distortion-mode eigenvector (`DistortionMode.axes`). Displacements are
    * POLAR vectors: each symmetry copy's arrow is the site vector rotated by
    * its placing operation, d′ = R·d (no det(R), no time reversal — unlike
-   * moments). Arrow lengths are relative (the pattern, not the amplitude).
+   * moments). Arrow lengths are relative: the longest is drawn about a bond
+   * long, the rest in proportion (a unit eigenvector, or an irrep's summed
+   * field at its amplitudes).
    */
   displacements?: readonly { readonly siteLabel: string; readonly axis: Vec3 }[];
   /**
@@ -551,20 +554,15 @@ export function StructureView({
         headRadius: longest * 0.165,
         headLength: longest * 0.28,
       });
-      for (const at of atoms) {
-        const ax = unit > 0 ? bySite.get(at.label) : undefined;
-        if (!ax) continue;
-        const df: Vec3 = [
-          at.rot[0]![0]! * ax[0]! + at.rot[0]![1]! * ax[1]! + at.rot[0]![2]! * ax[2]!,
-          at.rot[1]![0]! * ax[0]! + at.rot[1]![1]! * ax[1]! + at.rot[1]![2]! * ax[2]!,
-          at.rot[2]![0]! * ax[0]! + at.rot[2]![1]! * ax[1]! + at.rot[2]![2]! * ax[2]!,
-        ];
-        const cart = fractionalToCartesian(structure.cell, df);
+      // One arrow per atom the field moves (modeFold.atomArrows), linear in the
+      // field: an irrep drawn at once is the sum of its rows' arrows, and the
+      // one scale above keeps their relative lengths.
+      for (const { xyz, vec: cart } of unit > 0 ? atomArrows(atoms, structure.cell, displacements) : []) {
         const len = Math.hypot(cart[0]!, cart[1]!, cart[2]!);
         if (len < 1e-9) continue;
         const dir = new THREE.Vector3(cart[0]! / len, cart[1]! / len, cart[2]! / len);
         const L = len * unit;
-        const start = new THREE.Vector3(at.xyz[0], at.xyz[1], at.xyz[2]);
+        const start = new THREE.Vector3(xyz[0], xyz[1], xyz[2]);
         scene.add(arrow(dir, start, L));
       }
     }
