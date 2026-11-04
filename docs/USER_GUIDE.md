@@ -677,6 +677,14 @@ shows the modes being refined.
 
 These tools need a single phase.
 
+The Agent does the same on request ("lower it to P-42₁m in a 1×1×2 cell"). It
+reads the list with `list_subgroups` and runs Activate with `lower_symmetry`,
+so the child, its modes and the History step are the ones a click gives. When
+several classes share the name and cell, it lists them and waits for your
+pick. In Ask mode its card names the row before anything changes. The view
+then opens on the banner, and **✕ clear** (or its `clear_subgroup`) returns
+to the parent. On the powder page a lower group is still loaded as its CIF.
+
 A same-type subgroup in a larger cell holds the smaller child as a special
 case and fits as well with more parameters: of the children that reach the
 noise, keep the one of highest symmetry. For Rietveld, export the child's CIF

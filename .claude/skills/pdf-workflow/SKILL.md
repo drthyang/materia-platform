@@ -121,7 +121,16 @@ coordinate shifts.
 
 Only once the local fit is done: when its extra peaks or positions cannot be fitted within
 the average group, a lower symmetry is the next question — the user's, never yours to make.
-A lower group is a new model, refined again from Stage 1.
+In the app you lower it yourself, as the Subgroups view does; never ask for a CIF:
+
+1. `list_subgroups`: the supercell in `bound` ("1×1×2"), `name` or `k` to narrow it.
+2. Pick the row with the user (in Ask mode the card confirms it). Several classes share a
+   row's name: `lower_symmetry` lists them and changes nothing until you give an `id`.
+3. `lower_symmetry` with that `id`. The child becomes the model; its order parameter is
+   freed from a small kick, the other modes start fixed at 0.
+4. Refine the freed modes with the scale, the cell held; at the kick some pairs correlate,
+   and `refine` names them: fix one of each. Then free the other mode rows a block at a
+   time, by this method. `clear_subgroup` returns to the parent.
 
 ## Occupancies and particle size (general practice)
 

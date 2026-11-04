@@ -37,7 +37,8 @@ export type ToolInput = Record<string, unknown>;
  * moved meanwhile). A change that cannot run is refused here, before its card.
  */
 export type Plan =
-  | { readonly noOp: string }
+  /** `data`: what the answer carries beside the note (lower_symmetry's candidates). */
+  | { readonly noOp: string; readonly data?: Readonly<Record<string, unknown>> }
   | {
       readonly preview: string;
       /** `decision`: the user's picks on a card with options; absent when approved without one (auto mode, or a card with none). */
@@ -90,8 +91,8 @@ export interface PageAdapter<P extends AgentPort> {
   readonly magneticModel?: (s: StateOf<P>) => boolean;
   /** Run a read tool. */
   readonly read: (name: string, input: ToolInput, port: P, host: PageHost) => unknown;
-  /** A change's plan on the state the card is checked against: nothing to do, or the card's line and the change. */
-  readonly plan: (spec: LiveToolSpec, input: ToolInput, s: StateOf<P>, port: P) => Plan;
+  /** A change's plan on the state the card is checked against: nothing to do, or the card's line and the change (async where planning reads a listing). */
+  readonly plan: (spec: LiveToolSpec, input: ToolInput, s: StateOf<P>, port: P) => Plan | Promise<Plan>;
   /** What a change's answer adds from the page after it (the magnetic step's view). */
   readonly outcome?: (name: string, port: P) => Record<string, unknown>;
 }

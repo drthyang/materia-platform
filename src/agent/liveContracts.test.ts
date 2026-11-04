@@ -39,6 +39,8 @@ const CONTRACTS: Readonly<Record<AgentPage, Readonly<Record<string, readonly str
     structure_table: ["phases"],
     bond_geometry: ["bonds", "name", "phase", "shortest"],
     interpret_structure: ["findings", "summary"],
+    // The Subgroups view's list in its default 2×2×2 supercell: a page of it.
+    list_subgroups: ["bound", "count", "more", "parent", "rows"],
   },
   singleCrystal: {
     get_state: ["agreement", "busy", "data", "history", "lastRefinement", "magneticModel", "method", "parameterGroups", "parameterRows", "phase", "references", "source", "technique"],
