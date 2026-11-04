@@ -128,8 +128,9 @@ In the app you lower it yourself, as the Subgroups view does; never ask for a CI
    row's name: `lower_symmetry` lists them and changes nothing until you give an `id`.
 3. `lower_symmetry` with that `id`. The child becomes the model; its order parameter is
    freed from a small kick, the other modes start fixed at 0.
-4. Refine the freed modes with the scale, then free the other mode rows a block at a time,
-   by this method. `clear_subgroup` returns to the parent.
+4. Refine the freed modes with the scale, the cell held; at the kick some pairs correlate,
+   and `refine` names them: fix one of each. Then free the other mode rows a block at a
+   time, by this method. `clear_subgroup` returns to the parent.
 
 ## Occupancies and particle size (general practice)
 
