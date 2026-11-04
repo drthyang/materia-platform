@@ -219,6 +219,6 @@ export function subgroupOutcome(name: string, s: PdfLiveState): Record<string, u
       free: freed.map((m) => `${m.id}: ${m.label}`),
       kicked: [...new Set(freed.map((m) => m.irrep?.label ?? m.label))],
     },
-    next: "Refine the free modes with the scale, then free the other mode rows a block at a time.",
+    next: "Refine the free modes with the scale, the cell held (refine names the pairs that correlate at the kick: fix one of each); then free the other mode rows a block at a time.",
   };
 }

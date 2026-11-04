@@ -18,7 +18,7 @@ where one fit takes seconds).
 - **In CI**, every scenario is replayed with a scripted model twice: once as the
   Agent should behave (every check passes) and once as it did when the failure
   was found (the checks written against it must fail). That shows each of
-  those checks catches its failure: 55 of the suite's 62 checks so far; the
+  those checks catches its failure: 59 of the suite's 66 checks so far; the
   rest (`calls identify_peaks` among them) have no failing replay yet. The scripts are in
   [`src/agent/evals/evals.test.ts`](../src/agent/evals/evals.test.ts).
 - **On demand**, the same scenarios run against a real model
@@ -84,6 +84,7 @@ with a known answer, is a separate protocol:
 | `pdf-method` | refines a PDF by its method | the PDF page (v0.3) |
 | `pdf-local-structure` | compares local and average structure with a boxcar scan | boxcar scans (#40) |
 | `pdf-local-geometry` | answers a bond-length question box by box, and reports the scan | round 9 (LaMnO₃) |
+| `pdf-lower-symmetry` | lowers the symmetry to the subgroup asked for (P-42₁m in a 1×1×2 cell of the GaTa₄Se₈ demo) from the Subgroups list, refines the freed modes, and asks for no CIF | the owner: the Agent said the PDF page had no tool to change the space group and asked for a CIF made in VESTA, ISODISTORT or TRANSTRU |
 | `sc-data-first` | reads the reflection statistics before refining, and refines the extinction before the structure | single-crystal round 1 (sapphire, TOPAZ) |
 | `sc-failed-reflection` | compares a misfit reflection with its equivalents, and leaves out only the failed measurement | single-crystal round 1 (5 4 1 in batch 24) |
 | `sc-failed-measurements` | finds every failed measurement by its equivalents (the second shows once the first is out), not by a σ cutoff | single-crystal round 1 (3 4 2, also in batch 24) |
