@@ -429,10 +429,10 @@ export class AgentExecutor implements ToolRunner {
     // What the change is checked and approved against.
     const stamp = page.stamp(before, this.stepOf(page, port));
     // The change, planned on the state it is checked against: nothing to do, or the card's line and the change.
-    const plan = page.plan(spec, input, before, port);
+    const plan = await page.plan(spec, input, before, port);
     if ("noOp" in plan) {
       update({ status: "done", outcome: "No change" });
-      return { ...this.respond({ unchanged: true, note: plan.noOp }), status: "unchanged" };
+      return { ...this.respond({ unchanged: true, note: plan.noOp, ...plan.data }), status: "unchanged" };
     }
     let preview = plan.preview;
     // The method's firm rules, then its order (a note, not a refusal).

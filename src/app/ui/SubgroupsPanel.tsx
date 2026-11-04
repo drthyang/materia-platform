@@ -37,21 +37,22 @@ import type { StructuralSubgroupTree, SubgroupNode } from "@/core/crystal/subgro
 import { decentringTerms } from "@/core/crystal/decentringModes";
 import { identifySubgroup } from "@/core/crystal/isotropyTree";
 import { sameCellSubgroups, type SameCellSubgroup } from "@/core/crystal/irreps/sameCellLattice";
-import { factorGroup, type FactorGroup } from "@/core/crystal/irreps/factorGroup";
+import type { FactorGroup } from "@/core/crystal/irreps/factorGroup";
 import type { KStar } from "@/core/crystal/irreps/spaceGroupIrreps";
 import { boxOfVectors } from "@/core/crystal/irreps/childSetting";
 import type { SupercellSpec } from "@/core/crystal/irreps/supercell";
 import { color, fz, mono, resetRangeBtn, uppercaseLabel } from "@/app/theme";
 import { Chip } from "@/app/ui/Chip";
-import { DEFAULT_BOUND, SupercellBound, boundLabel, formatMatrix } from "@/app/ui/SupercellView";
+import { DEFAULT_BOUND, SupercellBound, boundLabel } from "@/app/ui/SupercellView";
 import { InfoBadge } from "@/app/ui/InfoBadge";
-import { chipName, kChips, sameCellGraph, sameCellListing, type LatticeCounts, type PickerAction, type SubgroupRow } from "@/app/ui/subgroupPicker";
+import { chipName, kChips, sameCellGraph, type PickerAction, type SubgroupRow } from "@/app/ui/subgroupPicker";
 import {
   DEFAULT_FILTERS, NO_FILTERS, childrenOf, collapseTies, compactName, foldedFiltersSet, groupRows, rowPasses, searched, setLine, shortList, shortName, starShort, tagOf, visibleGroups,
   type GraphNode, type ListFilters, type ReachKind, type RowGroup, type ShortList, type ShownGroup,
 } from "@/app/ui/subgroupList";
 import { SubgroupDetail } from "@/app/ui/SubgroupDetail";
 import { startSupercellListing, type ListingJob } from "@/app/ui/supercellListingClient";
+import { boundGroup, keepPart, partOf, sameCellPart } from "@/app/ui/subgroupCache";
 
 /** An isotropy subgroup of an irrep (one order-parameter direction, its conjugates counted), with a field that reaches it. */
 export type IrrepSubgroup = IsotropySubgroup & { readonly field: DisplacementField };
@@ -179,6 +180,8 @@ interface Props {
   readonly onClear: () => void;
   /** Open the 3D Model view, where the modes are inspected. */
   readonly onOpenModel: () => void;
+  /** The supercell chosen, as it changes; null once the view closes (the Agent's default bound). */
+  readonly onBound?: (bound: SupercellSpec | null) => void;
 }
 
 const line: CSSProperties = { margin: 0, fontSize: fz.micro, color: color.secondary, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" };
@@ -233,67 +236,6 @@ export function SubgroupsPanel(props: Props): JSX.Element {
       <Picker {...props} activeKey={activeKey} onActivated={setActiveKey} banner={banner} />
     </div>
   );
-}
-
-// ── what the views compute, kept across mounts ──────────────────────────────
-
-const boundGroups = new WeakMap<readonly SymmetryOperation[], Map<string, { group: FactorGroup | null; error: string | null }>>();
-const boundKey = (bound: SupercellSpec): string => `${formatMatrix(bound.P)}|${bound.centring ?? "P"}`;
-
-/** The bound's factor group G/T″, once per operation list and bound (so the caches keyed by it last). */
-function boundGroup(ops: readonly SymmetryOperation[] | undefined, bound: SupercellSpec): { group: FactorGroup | null; error: string | null } {
-  if (!ops || ops.length === 0) return { group: null, error: null };
-  let byBound = boundGroups.get(ops);
-  if (!byBound) {
-    byBound = new Map();
-    boundGroups.set(ops, byBound);
-  }
-  const key = boundKey(bound);
-  let hit = byBound.get(key);
-  if (!hit) {
-    try {
-      hit = { group: factorGroup(ops, bound), error: null };
-    } catch (e) {
-      hit = { group: null, error: e instanceof Error ? e.message : String(e) };
-    }
-    byBound.set(key, hit);
-  }
-  return hit;
-}
-
-/** The cell-multiplying part: its rows, what the summary says of the lattice and the lattice as a graph, or why there are none. */
-type SupercellPart = { readonly rows: readonly SubgroupRow[]; readonly counts: LatticeCounts; readonly graph: readonly GraphNode[] | null } | { readonly error: string };
-const supercellParts = new WeakMap<FactorGroup, WeakMap<object, SupercellPart>>();
-const NO_STRUCTURE = {};
-const partOf = (group: FactorGroup, structure: StructureModel | undefined): SupercellPart | undefined => supercellParts.get(group)?.get(structure ?? NO_STRUCTURE);
-function keepPart(group: FactorGroup, structure: StructureModel | undefined, part: SupercellPart): void {
-  let byStructure = supercellParts.get(group);
-  if (!byStructure) {
-    byStructure = new WeakMap();
-    supercellParts.set(group, byStructure);
-  }
-  byStructure.set(structure ?? NO_STRUCTURE, part);
-}
-
-/**
- * The same-cell rows (sameCellListing), or why there are none. Kept per
- * structure from the parent's own state (the Γ tree there): while a choice is
- * in force the page has no Γ tree, and the rows stay the ones the user picked
- * from.
- */
-const sameParts = new WeakMap<object, { readonly rows: readonly SubgroupRow[]; readonly error: string | null }>();
-function sameCellPart(o: Parameters<typeof sameCellListing>[0], pristine: boolean): { readonly rows: readonly SubgroupRow[]; readonly error: string | null } {
-  const key = o.structure ?? o.operations;
-  const kept = sameParts.get(key);
-  if (kept && !pristine) return kept;
-  let part: { rows: readonly SubgroupRow[]; error: string | null };
-  try {
-    part = { rows: sameCellListing(o), error: null };
-  } catch (e) {
-    part = { rows: [], error: e instanceof Error ? e.message : String(e) };
-  }
-  if (pristine || !kept) sameParts.set(key, part);
-  return part;
 }
 
 /** The panel's width, followed as it changes; 0 until measured (and where nothing measures, as in a test DOM). */
@@ -382,9 +324,13 @@ function RowLine({ g, variant, selected, active, onPick, lead, trail, dim }: { g
 
 type PickerProps = Props & { readonly activeKey: string | null; readonly onActivated: (key: string) => void; readonly banner: ReactNode };
 
-function Picker({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCell = [], operations, structure, onActivateSameCell, onActivateSupercell, busy, onActivateMode, onActivateSubgroup, modes, activeKey, onActivated, banner }: PickerProps): JSX.Element {
+function Picker({ spaceGroup, lattice, irrepTree, decentringTree = null, sameCell = [], operations, structure, onActivateSameCell, onActivateSupercell, busy, onActivateMode, onActivateSubgroup, modes, activeKey, onActivated, banner, onBound }: PickerProps): JSX.Element {
   const ops = operations ?? structure?.spaceGroup.operations;
   const [bound, setBound] = useState<SupercellSpec>(DEFAULT_BOUND);
+  useEffect(() => {
+    onBound?.(bound);
+  }, [bound, onBound]);
+  useEffect(() => () => onBound?.(null), [onBound]);
   const [filters, setFilters] = useState<ListFilters>(DEFAULT_FILTERS);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [query, setQuery] = useState("");

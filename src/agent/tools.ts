@@ -971,6 +971,51 @@ const TOOLS = [
     evidence: ["localStructure"],
   },
   {
+    name: "list_subgroups",
+    title: "List the subgroups",
+    description:
+      "PDF page only. The subgroups the Subgroups view lists: those of the loaded structure's group whose cell fits the supercell `bound`, high to low symmetry, one row per name, cell and domains. A row gives its `id` (for lower_symmetry), name and IT number, cell (\"same cell\", or the parent cells it repeats over), domains, the irreps that lower the parent to it with their directions (generic labels; `coupled` when no single irrep does), its mode count, and `variants` when several classes share the row (the `id` is the default one's). `strainOnly` rows move no atom. A result with `listing` is still partial: call again. Changes nothing.",
+    inputSchema: {
+      bound: z.string().optional().describe("The supercell: \"1×1×2\", \"2×2×2\", \"√2×√2×1\", or P as \"2 0 0; 0 2 0; 0 0 2\". Default: the Subgroups view's, else 2×2×2"),
+      name: z.string().optional().describe("Only this name or IT number: \"P-42_1m\", \"113\""),
+      k: z.array(z.string()).max(4).optional().describe("Only the rows these k-points' irreps reach: \"X\", \"W\" (two allow their coupled pairs)"),
+      cell: z.string().optional().describe("Only this cell: \"same cell\", \"supercell\", or a box such as \"1×1×2\""),
+      all: z.boolean().optional().describe("Also the strain-only rows and those only three or more coupled irreps reach (hidden by default, as in the view)"),
+      offset: z.number().int().min(0).optional().describe("Skip this many rows (paging)"),
+      limit: z.number().int().min(1).max(50).optional().describe("Rows per page (default 20)"),
+    },
+    effect: "read",
+    pages: ["pdf"],
+    cards: ["structure"],
+  },
+  {
+    name: "lower_symmetry",
+    title: "Lower the symmetry",
+    description:
+      "PDF page only. Lower the symmetry to a subgroup, exactly as Activate on the Subgroups view: the child (in the parent's cell, or in its own supercell) becomes the model, its positions refine as modes by parent irrep, and the order parameter's modes are freed from a small kick, the others fixed at 0. Give a row's `id` from list_subgroups, or `name` with `cell` (and `variant` when the row has several). When several subgroups match and no `id` is given, it returns them as `candidates` and changes nothing. Then refine the freed modes with the scale. Refused while a subgroup is in force (clear_subgroup first) or a fit runs. On the powder page a lower group is loaded as its CIF.",
+    inputSchema: {
+      id: z.string().optional().describe("A row's id from list_subgroups, e.g. \"c45@1×1×2\" or \"s18\""),
+      name: z.string().optional().describe("Or the subgroup's name or IT number: \"P-42_1m\", \"113\""),
+      cell: z.string().optional().describe("With name: \"same cell\", or a box such as \"1×1×2\""),
+      variant: z.number().int().min(1).optional().describe("With name: which of the row's variants, numbered as `candidates` lists them"),
+      bound: z.string().optional().describe("With name: the supercell to look in (default: the box `cell` names, else the Subgroups view's, else 2×2×2)"),
+    },
+    effect: "change",
+    pages: ["pdf"],
+    cards: ["structure", "parameters"],
+  },
+  {
+    name: "clear_subgroup",
+    title: "Back to the parent's symmetry",
+    description:
+      "PDF page only. ✕ clear on the Subgroups view: the subgroup or mode set in force is dropped and the loaded structure's group comes back, its positions per coordinate. Clears the last fit.",
+    inputSchema: {},
+    effect: "change",
+    pages: ["pdf"],
+    cards: ["structure", "parameters"],
+    historyStep: "settings",
+  },
+  {
     name: "reset_parameters",
     title: "Reset to starting values",
     description: "Put parameters back to their starting values (the values the model was loaded with) and clear the result: `parameters` (ids or globs) for only those — e.g. a profile term that refined to an unphysical value — or every parameter when omitted (the Reset control). Recorded as a step, so it can be undone. It sets no value of your choosing.",

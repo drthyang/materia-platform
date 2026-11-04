@@ -564,6 +564,9 @@ is an MCP tool, and an MCP client asks its user in its own UI.
 | Tool | Runs | What it does |
 |---|---|---|
 | `boxcar_scan` | asks first | Boxcar scan |
+| `list_subgroups` | at once | List the subgroups |
+| `lower_symmetry` | asks first | Lower the symmetry |
+| `clear_subgroup` | asks first | Back to the parent's symmetry |
 
 **Single-crystal page**
 

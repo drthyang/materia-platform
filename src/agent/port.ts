@@ -30,6 +30,10 @@ import type { CorrectionsUpdate, MustrainModel, SampleCorrections, SiteTies } fr
 import type { AxisContext } from "@/visualization/axisUnits";
 import type { BoxcarDirectionChoice, BoxcarRun } from "@/core/workflow/pdfBoxcar";
 import type { ReportInput } from "@/core/export/report";
+import type { ModesInForce } from "@/app/pdfPage";
+import type { SubgroupListing } from "@/app/pdfSubgroups";
+import type { SubgroupRow } from "@/app/ui/subgroupPicker";
+import type { SupercellSpec } from "@/core/crystal/irreps/supercell";
 
 /** The powder page as the Agent reads it — one render's state. */
 export interface PowderLiveState {
@@ -171,6 +175,22 @@ export interface PdfLiveState {
   readonly source: string;
   /** The restraints the fit runs with (a shared site's Σ occupancy is not one: its last occupancy row follows one minus the others'). */
   readonly restraints: readonly LinearRestraint[];
+  /** The primary phase as loaded: the parent the Subgroups view lowers. */
+  readonly loaded: StructureModel;
+  /** The subgroup or mode set in force (the Subgroups view's banner); null at the loaded structure's own symmetry. */
+  readonly modes: ModesInForce | null;
+}
+
+/** The PDF page's Subgroups view, for the Agent (app/pdfSubgroups.ts). */
+export interface PdfSubgroupsHandle {
+  /** The loaded structure's subgroups that fit `bound`, as the view lists them; the larger cells waited on for a while. Throws for a bound the search refuses. */
+  readonly list: (bound: SupercellSpec) => Promise<SubgroupListing>;
+  /** The supercell the view shows now; null while it is closed. */
+  readonly bound: () => SupercellSpec | null;
+  /** Activate on a row, as the view's: the same child, modes and History step. Null once done, else why nothing changed. */
+  readonly activate: (row: SubgroupRow) => string | null;
+  /** The view's ✕ clear: back to the parent. */
+  readonly clear: () => void;
 }
 
 /** What the PDF page lets the Agent do. Each call is the page's own handler. */
@@ -201,6 +221,8 @@ export interface PdfAgentPort {
   readonly cancel: () => void;
   /** Parameters back to their starting values: these ids, or every one. */
   readonly reset: (ids?: readonly string[]) => void;
+  /** The Subgroups view: its listing, its supercell, Activate and ✕ clear. */
+  readonly subgroups?: PdfSubgroupsHandle;
 }
 
 /** One reflection as the single-crystal page compares it: observed and calculated F², σ, and (Fo² − Fc²)/σ. */

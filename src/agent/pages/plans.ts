@@ -12,19 +12,19 @@ import { applyFree, describeFree, freeNoOp, goToStep, matchIds, type ChangeResul
 import type { PageHost, Plan, StateOf, ToolInput } from "@/agent/pages/types";
 import type { CardDecision, CardOptionGroup } from "@/agent/cardOptions";
 
-/** Nothing to do, and why. */
-export const nothing = (why: string): Plan => ({ noOp: why });
+/** Nothing to do, and why (with what the answer carries beside it). */
+export const nothing = (why: string, data?: Readonly<Record<string, unknown>>): Plan => ({ noOp: why, ...(data ? { data } : {}) });
 
 /** The card's line, and the change it asks for. */
 export const change = (preview: string, apply: (host: PageHost, decision?: CardDecision) => ChangeResult | Promise<ChangeResult>, options?: readonly CardOptionGroup[]): Plan => ({ preview, apply: async (host, decision) => apply(host, decision), ...(options ? { options } : {}) });
 
 /** One plan per change tool of the page, each on its tool's input as the schema parses it. */
-export type Plans<P extends AgentPort> = { readonly [N in PageChangeTool<P["technique"]>]: (input: InputOf<N>, s: StateOf<P>, port: P) => Plan };
+export type Plans<P extends AgentPort> = { readonly [N in PageChangeTool<P["technique"]>]: (input: InputOf<N>, s: StateOf<P>, port: P) => Plan | Promise<Plan> };
 
 /** A page's plan for a call, from its table. */
-export function planFrom<P extends AgentPort>(plans: Plans<P>): (spec: LiveToolSpec, input: ToolInput, s: StateOf<P>, port: P) => Plan {
+export function planFrom<P extends AgentPort>(plans: Plans<P>): (spec: LiveToolSpec, input: ToolInput, s: StateOf<P>, port: P) => Plan | Promise<Plan> {
   // The executor validated the input against this tool's schema, which is what types the table: read it by name.
-  const byName = plans as Readonly<Record<string, ((input: ToolInput, s: StateOf<P>, port: P) => Plan) | undefined>>;
+  const byName = plans as Readonly<Record<string, ((input: ToolInput, s: StateOf<P>, port: P) => Plan | Promise<Plan>) | undefined>>;
   return (spec, input, s, port) => {
     const plan = byName[spec.name];
     if (!plan) throw new Error(`${spec.name} is not a change on this page`);

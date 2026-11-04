@@ -25,6 +25,7 @@ import { pdfPhaseBindingsFor } from "@/core/workflow/pdf";
 import { esdsWithTies } from "@/core/refinement/constraints";
 import { CORRELATION_LISTED, bondValenceCheck, boundsCheck, convergenceCheck, correlationsCheck, findingChecks, noResultCheck, siteSumChecks } from "@/agent/reportChecks";
 import type { ReferenceEntry } from "@/agent/references";
+import { clearSubgroupPlan, inForceLine, listSubgroupsView, lowerSymmetryPlan } from "@/agent/subgroupTools";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- inputs are validated against the spec's zod schema before a handler runs */
 type Input = any;
@@ -55,6 +56,8 @@ export function readPdfTool(name: string, input: Input, port: PdfAgentPort, host
         ...(s.result ? { esd: { ...s.result.esd } } : {}),
         magnetic: null,
       });
+    case "list_subgroups":
+      return listSubgroupsView(input, s, port);
     default:
       throw new Error(`${name} is not a PDF read tool`);
   }
@@ -122,6 +125,9 @@ export const PDF_PLANS: Plans<PdfAgentPort> = {
   },
   reset_parameters: resetPlan,
   go_to_step: goToPlan,
+  // The Subgroups view's Activate and ✕ clear (subgroupTools.ts).
+  lower_symmetry: lowerSymmetryPlan,
+  clear_subgroup: (_input, s, port) => clearSubgroupPlan(s, port),
 };
 
 // ── state view ──────────────────────────────────────────────────────────────
@@ -147,6 +153,7 @@ function stateView(s: PdfLiveState, history: ProjectHistory | null, select: read
       ...(p.qmax !== undefined ? { qmax: p.qmax } : {}),
     },
     positions: s.positionMode === "irreps" ? "symmetry-mode amplitudes (irreps)" : "constrained atomic coordinates",
+    ...(s.modes ? { subgroup: `${inForceLine(s.modes)} (clear_subgroup returns to ${s.loaded.spaceGroup.hermannMauguin ?? "the parent"})` } : {}),
     adp: s.adpModel === "anisotropic" ? "anisotropic (U tensor per site)" : s.adpModel === "isotropic" ? "isotropic (one U per site)" : "mixed (isotropic and anisotropic sites)",
     spinModel: s.spinModel ? "applied: refine fits nuclear + magnetic G(r)" : null,
     ...occupancyConstraintsView(s.parameters),
