@@ -38,7 +38,8 @@ import {
 import { SiteTotals } from "@/app/ui/SiteTotals";
 import { DistortionModesPanel } from "@/app/ui/DistortionModesPanel";
 import { useMediaQuery } from "@/app/ui/useMediaQuery";
-import { ALL_MODES, highlightedSites, modeGroups, type ModeFilter } from "@/app/ui/modeGroups";
+import { ALL_MODES, highlightedSites, modeGroups, selectedModes, type ModeFilter } from "@/app/ui/modeGroups";
+import { arrowField, type ModeArrows } from "@/app/ui/modeFold";
 import { SubgroupsPanel, decentringIrrepTree, gammaIrrepTree, sameCellLattice, type IrrepSubgroup, type SameCellNode } from "@/app/ui/SubgroupsPanel";
 import { sharedSites, siteSumRangeWarnings } from "@/core/workflow/structureRefinement";
 
@@ -146,28 +147,24 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
   }, [model.loaded, model.extraPhases]);
   useOnChange(extraPhases, () => setModel((m) => withExtraPhases(m, extraPhases)));
   useOnChange(pattern, () => setModel((m) => withPattern(m, pattern)));
-  // Mode selected in the 3D card's table (DistortionModesPanel): its
-  // eigenvector (unit-amplitude displacement field) is drawn as green arrows
-  // on the 3D model. Click the row to toggle; any mode-set change invalidates
-  // the selection.
-  const [shownModeId, setShownModeId] = useState<string | null>(null);
+  // Green arrows chosen in the 3D card's table (DistortionModesPanel): one
+  // row's eigenvector (unit amplitude), one irrep's whole displacement field,
+  // or every listed mode's, at their current amplitudes (modeFold.ts). Click
+  // again to toggle; any mode-set change invalidates the choice.
+  const [arrows, setArrows] = useState<ModeArrows | null>(null);
   // A wide desktop window: the 3D view and the mode table side by side (the 3D Model view below).
   const wideDesktop = useMediaQuery("(min-width: 1200px) and (min-height: 541px) and (pointer: fine)");
   const modesBeside = wideDesktop && !multiPhase && modeSet !== null;
   // The table's k-point and parent-site chips (modeGroups.ts): the site's atoms are highlighted in 3D.
   const [modeFilter, setModeFilter] = useState<ModeFilter>(ALL_MODES);
   useEffect(() => {
-    setShownModeId(null);
+    setArrows(null);
     setModeFilter(ALL_MODES);
   }, [modeSet]);
-  const shownMode = (shownModeId !== null ? modeSet?.modes.find((m) => m.id === shownModeId) : undefined) ?? null;
+  const listedModes = useMemo(() => (modeSet ? selectedModes(modeSet, modeGroups(modeSet), modeFilter) : []), [modeSet, modeFilter]);
   const highlightSites = useMemo(() => (modeSet && modeFilter.site !== null ? highlightedSites(modeGroups(modeSet), modeFilter) : null), [modeSet, modeFilter]);
-  // The arrows of the row drawn, on the chosen site's atoms when a site chip is on (a mode by parent irrep moves one site anyway).
-  const shownDisplacements = useMemo(() => {
-    if (!shownMode) return null;
-    const kept = highlightSites ? shownMode.axes.filter((a) => highlightSites.includes(a.siteLabel)) : shownMode.axes;
-    return kept.length > 0 ? kept : shownMode.axes;
-  }, [shownMode, highlightSites]);
+  // The arrows drawn, from the rows the chips list (a row's on the chosen site's atoms when a site chip is on).
+  const shownDisplacements = useMemo(() => arrowField(arrows, listedModes, params, highlightSites), [arrows, listedModes, params, highlightSites]);
   // Modes by parent irrep (a supercell child, a decomposition, a mode CIF) can be saved as an ISODISTORT mode CIF.
   const modeCifAvailable = modeSet !== null && modeSet.parent !== undefined && modeSet.modes.length > 0 && modeSet.modes.every((m) => m.irrep !== undefined);
   const [busy, setBusy] = useState(false);
@@ -1117,8 +1114,8 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                     result={result}
                     spaceGroup={structure.spaceGroup.hermannMauguin}
                     ownModes={(symModes?.modes.length ?? 0) > 0}
-                    shownModeId={shownModeId}
-                    onShowMode={setShownModeId}
+                    arrows={arrows}
+                    onArrows={setArrows}
                     onOpenSubgroups={() => setViewTab("subgroups")}
                     {...(modeCifAvailable ? { onExportModeCif: exportModeCif } : {})}
                     onLoadParentCif={(file) => void onLoadParentCif(file)}

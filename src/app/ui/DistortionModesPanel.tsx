@@ -12,9 +12,9 @@
  * decomposed against (withParentModes) — the counterpart of Mode CIF ↓.
  */
 
-import { useMemo, useRef, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
 import type { ModesInForce } from "@/app/pdfPage";
-import { isodistortAmplitudes, type DistortionModeSet } from "@/core/crystal/distortionModes";
+import { isodistortAmplitudes, type DistortionMode, type DistortionModeSet } from "@/core/crystal/distortionModes";
 import { latticeCentring } from "@/core/crystal/standardSetting";
 import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import { color, fz, mono, resetRangeBtn, uppercaseLabel } from "@/app/theme";
@@ -22,6 +22,7 @@ import { ShortLineText } from "@/app/ui/lineInfo";
 import { InfoBadge } from "@/app/ui/InfoBadge";
 import { Chip } from "@/app/ui/Chip";
 import { ALL_MODES, bulkFixed, modeGroups, modesTotal, selectedModes, type ModeFilter, type ModeGroups } from "@/app/ui/modeGroups";
+import { arrowField, contributionShares, irrepFolds, largestShift, sameArrows, type ModeArrows, type Share } from "@/app/ui/modeFold";
 
 interface Props {
   /** The mode set in force (pageView.modeSet); null while positions refine per coordinate. */
@@ -34,8 +35,9 @@ interface Props {
   readonly spaceGroup: string | undefined;
   /** The loaded group has symmetry-conserving modes, so Positions → “Irreps (modes)” is offered. */
   readonly ownModes: boolean;
-  readonly shownModeId: string | null;
-  readonly onShowMode: (id: string | null) => void;
+  /** The green arrows drawn: one row's eigenvector, one irrep's field, or every listed mode's (modeFold.ts); null for none. */
+  readonly arrows: ModeArrows | null;
+  readonly onArrows: (arrows: ModeArrows | null) => void;
   /** Open the Subgroups page, where the symmetry is lowered. */
   readonly onOpenSubgroups: () => void;
   /** Save the modes as an ISODISTORT mode CIF (modeCifOf); absent when the set is not one by parent irrep. */
@@ -106,9 +108,11 @@ export function ImportMenu({ onLoadParentCif, onLoadModeCif, busy = false }: { o
   );
 }
 
-export function DistortionModesPanel({ modeSet, modes, params, result, spaceGroup, ownModes, shownModeId, onShowMode, onOpenSubgroups, onExportModeCif, onLoadParentCif, onLoadModeCif, busy = false, onParamChange, filter: heldFilter, onFilter, oneLineRows = false }: Props): JSX.Element {
+export function DistortionModesPanel({ modeSet, modes, params, result, spaceGroup, ownModes, arrows, onArrows, onOpenSubgroups, onExportModeCif, onLoadParentCif, onLoadModeCif, busy = false, onParamChange, filter: heldFilter, onFilter, oneLineRows = false }: Props): JSX.Element {
   const groups = useMemo(() => (modeSet ? modeGroups(modeSet) : null), [modeSet]);
   const [ownFilter, setOwnFilter] = useState<ModeFilter>(ALL_MODES);
+  // The irreps opened to their per-site rows (folded by default).
+  const [openIrreps, setOpenIrreps] = useState<ReadonlySet<string>>(() => new Set());
   const setFilter = onFilter ?? setOwnFilter;
   // A chip no longer offered (another mode set) reads as "all".
   const asked = heldFilter ?? ownFilter;
@@ -145,7 +149,6 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
       </div>
     );
   }
-  const shownMode = shownModeId !== null ? modeSet.modes.find((m) => m.id === shownModeId) ?? null : null;
   const totalAmplitude = Math.sqrt(
     modeSet.modes.reduce((s, m) => {
       const v = params.find((p) => p.id === m.id)?.value ?? 0;
@@ -172,17 +175,68 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
           ? "A is the whole-cell displacement norm; mode 1 is the frozen distortion, so its fitted amplitude is the order parameter."
           : "A is the whole-cell displacement norm of the structure's own symmetry-conserving Γ modes (rigid-translation gauge excluded). Free the rows you want in the parameter panel (Positions group), or Import ▾ → Parent CIF for the order-parameter decomposition of a structure loaded already distorted.",
     `A is over the conventional child cell (${cells.child} lattice point${cells.child === 1 ? "" : "s"}); ISODISTORT's A_s = A/√${cells.child} (primitive child cell) and A_p = A_s·√(V_p/V_s) = A/√${cells.parent} (parent).`,
-    "A row click draws the mode's eigenvector on the 3D model (green arrows, unit amplitude).",
+    ...(byIrrep
+      ? ["Each irrep is one row: its total |A|, A_s and A_p (added in quadrature, signs dropped) and how many of its modes are free; ▸ opens its rows, one per parent site, with their signed amplitudes. With a site chip, the row is that site's part."]
+      : []),
+    "A row click draws on the 3D model: an atom row its eigenvector (green arrows, unit amplitude); an irrep row the whole irrep's displacement field, every atom at once, from its modes at their current amplitudes. All in 3D draws every listed mode together. The longest arrow is drawn about a bond long, the rest in proportion; the line above gives the largest real shift.",
   ];
   const g = groups!;
   const rows = selectedModes(modeSet, g, filter);
+  const folds = irrepFolds(rows);
   const kChip = filter.k !== null ? g.ks.find((x) => x.id === filter.k) ?? null : null;
   const site = filter.site !== null ? g.sites.find((x) => x.id === filter.site) ?? null : null;
   const chips = g.ks.length > 0 || g.sites.length > 0;
-  // Clicking a chip again goes back to "all"; a row drawn as arrows that the new choice hides is put away.
+  const shares = contributionShares(rows, params);
+  // A choice the listed rows no longer have (a chip hid it) is put away.
+  const offers = (a: ModeArrows | null, listed: readonly DistortionMode[]): boolean =>
+    a === null || a.kind === "all" || (a.kind === "mode" ? listed.some((m) => m.id === a.id) : listed.some((m) => (m.irrep?.label ?? m.label) === a.id));
+  // Clicking a chip again goes back to "all"; arrows the new choice hides are put away.
   const choose = (next: ModeFilter): void => {
     setFilter(next);
-    if (shownModeId !== null && !selectedModes(modeSet, g, next).some((m) => m.id === shownModeId)) onShowMode(null);
+    if (!offers(arrows, selectedModes(modeSet, g, next))) onArrows(null);
+  };
+  const toggle = (a: ModeArrows): void => onArrows(sameArrows(arrows, a) ? null : a);
+  // What the arrows show, result first: the irrep (or all), how many sites move and the largest real shift.
+  const field = offers(arrows, rows) ? arrowField(arrows, rows, params) : null;
+  const drawnName = arrows === null ? null
+    : arrows.kind === "mode" ? modeSet.modes.find((m) => m.id === arrows.id)?.label ?? null
+    : arrows.kind === "irrep" ? arrows.id
+    : "all modes listed";
+  const arrowLine = arrows === null || drawnName === null ? null
+    : arrows.kind === "mode" ? `▸ green arrows: ${drawnName}`
+    : field ? `▸ green arrows: ${drawnName} · largest shift ${largestShift(field, modeSet.parentized.cell).toFixed(3)} Å`
+    : `${drawnName}: every A is 0, nothing to draw yet — refine first`;
+  const isOpen = (id: string): boolean => openIrreps.has(id);
+  const setOpen = (id: string, on: boolean): void => setOpenIrreps((s) => { const n = new Set(s); if (on) n.add(id); else n.delete(id); return n; });
+  const allOpen = folds !== null && folds.every((f) => isOpen(f.id));
+  const cell = { padding: "3px 8px" } as const;
+  const right = { ...cell, textAlign: "right" } as const;
+  const atomRow = (m: DistortionMode, indent: boolean): JSX.Element => {
+    const i = modeSet.modes.indexOf(m);
+    const p = params.find((q) => q.id === m.id);
+    const esd = result?.esd[m.id] ?? p?.esd;
+    const shown = arrows?.kind === "mode" && arrows.id === m.id;
+    return (
+      <tr
+        key={m.id}
+        onClick={() => toggle({ kind: "mode", id: m.id })}
+        title="Click to show/hide this mode's displacement pattern in the 3D model (green arrows, unit amplitude — the eigenvector, not the refined magnitude)"
+        style={{
+          borderTop: `1px solid ${color.border}`,
+          cursor: "pointer",
+          background: shown ? "rgba(22, 163, 74, 0.1)" : i === 0 && !indent ? "rgba(90, 130, 255, 0.06)" : "transparent",
+        }}
+      >
+        <td style={{ ...cell, ...(indent ? { paddingLeft: 26 } : {}), ...(oneLineRows ? { whiteSpace: "nowrap" } : {}), color: shown ? "#15803d" : i === 0 && !indent ? color.primary : color.ink }}>
+          {shown ? "▸ " : ""}{m.label}
+        </td>
+        <td style={right}>{(p?.value ?? 0).toFixed(5)}</td>
+        <td style={{ ...right, color: color.secondary }}>{isodistortAmplitudes(p?.value ?? 0, cells).as.toFixed(5)}</td>
+        <td style={{ ...right, color: color.secondary }}>{isodistortAmplitudes(p?.value ?? 0, cells).ap.toFixed(5)}</td>
+        <td style={{ ...right, color: color.secondary }}>{esd !== undefined ? esd.toFixed(5) : "—"}</td>
+        <td style={{ ...cell, color: color.secondary }}>{p?.fixed ? "fixed" : "free"}</td>
+      </tr>
+    );
   };
   return (
     <>
@@ -193,11 +247,6 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
           {` · total |A| = ${totalAmplitude.toFixed(4)} Å (A_s ${totals.as.toFixed(4)}, A_p ${totals.ap.toFixed(4)})`}
           {(modeSet.acousticExcluded ?? 0) > 0 ? ` · ${modeSet.acousticExcluded} acoustic excluded` : ""}
         </span>
-        {shownMode && (
-          <span style={{ fontFamily: mono, fontSize: fz.micro, color: "#15803d" }}>
-            ▸ green arrows: {shownMode.label}
-          </span>
-        )}
         {toSubgroups(modes ? "The symmetry these modes lower to is chosen on the Subgroups page — change or clear it there" : "Lower the symmetry on the Subgroups page: pick a subgroup there")}
         {importMenu}
         {onExportModeCif && (
@@ -220,12 +269,45 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
           {...(onParamChange ? { onParamChange } : {})}
         />
       )}
+      {rows.length > 0 && (
+        <ShareChart
+          shares={shares}
+          scope={[kChip?.label, site?.label].filter(Boolean).join(" · ")}
+          byIrrep={folds !== null}
+          openIds={openIrreps}
+          arrows={arrows}
+          onBar={(id) => toggle(folds ? { kind: "irrep", id } : { kind: "mode", id })}
+        />
+      )}
+      {/* The arrows on the 3D model: what they show, then All in 3D and Arrows off; Expand all / Collapse all for the irrep rows. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, rowGap: 4, flexWrap: "wrap", marginTop: 4, fontSize: fz.micro }}>
+        {folds && (
+          <button type="button" style={resetRangeBtn} onClick={() => setOpenIrreps(allOpen ? new Set() : new Set(folds.map((f) => f.id)))} title={allOpen ? "Fold every irrep to its one row" : "Open every irrep's rows, one per parent site"}>
+            {allOpen ? "Collapse all" : "Expand all"}
+          </button>
+        )}
+        <button
+          type="button"
+          aria-pressed={arrows?.kind === "all"}
+          style={{ ...resetRangeBtn, ...(arrows?.kind === "all" ? { borderColor: "#15803d", color: "#15803d" } : {}) }}
+          onClick={() => toggle({ kind: "all" })}
+          title="Draw every listed mode on the 3D model at once, at their current amplitudes (the summed displacement field)"
+        >
+          All in 3D
+        </button>
+        {arrows !== null && (
+          <button type="button" style={resetRangeBtn} onClick={() => onArrows(null)} title="Take the green arrows off the 3D model">
+            Arrows off
+          </button>
+        )}
+        {arrowLine && <span style={{ fontFamily: mono, color: field || arrows?.kind === "mode" ? "#15803d" : color.secondary }}>{arrowLine}</span>}
+      </div>
       <div style={{ marginTop: 4, border: `1px solid ${color.border}`, borderRadius: 6 }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: mono, fontSize: fz.micro }}>
           <thead>
             <tr style={{ color: color.secondary, textAlign: "left" }}>
               <th style={{ padding: "3px 8px", fontWeight: 500 }}>mode</th>
-              <th style={{ padding: "3px 8px", fontWeight: 500, textAlign: "right" }} title="MATERIA's refined amplitude: the displacement norm over the conventional child cell">A (Å)</th>
+              <th style={{ padding: "3px 8px", fontWeight: 500, textAlign: "right" }} title="MATERIA's refined amplitude: the displacement norm over the conventional child cell; an irrep row gives its |A|, added in quadrature">A (Å)</th>
               <th style={{ padding: "3px 8px", fontWeight: 500, textAlign: "right" }} title={`ISODISTORT's A_s, over the primitive child cell: A/√${cells.child}`}>A_s</th>
               <th style={{ padding: "3px 8px", fontWeight: 500, textAlign: "right" }} title={`ISODISTORT's A_p = A_s·√(V_p/V_s), normalized to the parent's primitive cell: A/√${cells.parent}`}>A_p</th>
               <th style={{ padding: "3px 8px", fontWeight: 500, textAlign: "right" }}>esd</th>
@@ -233,48 +315,51 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
             </tr>
           </thead>
           <tbody>
-            {rows.map((m, j) => {
-              const i = modeSet.modes.indexOf(m);
-              const p = params.find((q) => q.id === m.id);
-              const esd = result?.esd[m.id] ?? p?.esd;
-              const shown = m.id === shownModeId;
-              // Modes by parent irrep: a header row where the irrep changes, with the irrep's total A_s and A_p
-              // (over all its modes, whatever the site chip; the site's part follows when one is chosen).
-              const irrep = m.irrep;
-              const header = irrep && rows[j - 1]?.irrep?.label !== irrep.label ? irrep : null;
-              const members = header ? modeSet.modes.filter((x) => x.irrep?.label === header.label) : [];
-              const irrepTotal = header ? isodistortAmplitudes(Math.hypot(...members.map((x) => params.find((q) => q.id === x.id)?.value ?? 0)), cells) : null;
-              const sitePart = header && site && members.some((x) => !rows.includes(x)) ? modesTotal(rows.filter((x) => x.irrep?.label === header.label), params, cells) : null;
-              return [
-                header && irrepTotal ? (
-                  <tr key={`${m.id}-irrep`} style={{ borderTop: `1px solid ${color.border}`, background: color.subtle }}>
-                    <td colSpan={6} style={{ padding: "3px 8px", color: color.secondary, ...(oneLineRows ? { whiteSpace: "nowrap" } : {}) }} title={`The parent's irrep at k = (${header.k.map((x) => +x.toFixed(4)).join(", ")})${header.direction ? `, order-parameter direction ${header.direction} in MATERIA's basis of the irrep` : ""}: its modes below, its total amplitude added in quadrature, as ISODISTORT reports one per irrep`}>
-                      {header.label}{header.direction ? ` ${header.direction}` : ""} · total A_s {irrepTotal.as.toFixed(5)}, A_p {irrepTotal.ap.toFixed(5)}
-                      {sitePart && site ? ` · ${site.label} A_s ${sitePart.as.toFixed(5)}` : ""}
-                    </td>
-                  </tr>
-                ) : null,
-                <tr
-                  key={m.id}
-                  onClick={() => onShowMode(shown ? null : m.id)}
-                  title="Click to show/hide this mode's displacement pattern in the 3D model (green arrows, unit amplitude — the eigenvector, not the refined magnitude)"
-                  style={{
-                    borderTop: `1px solid ${color.border}`,
-                    cursor: "pointer",
-                    background: shown ? "rgba(22, 163, 74, 0.1)" : i === 0 ? "rgba(90, 130, 255, 0.06)" : "transparent",
-                  }}
-                >
-                  <td style={{ padding: "3px 8px", ...(oneLineRows ? { whiteSpace: "nowrap" } : {}), color: shown ? "#15803d" : i === 0 ? color.primary : color.ink }}>
-                    {shown ? "▸ " : ""}{m.label}
-                  </td>
-                  <td style={{ padding: "3px 8px", textAlign: "right" }}>{(p?.value ?? 0).toFixed(5)}</td>
-                  <td style={{ padding: "3px 8px", textAlign: "right", color: color.secondary }}>{isodistortAmplitudes(p?.value ?? 0, cells).as.toFixed(5)}</td>
-                  <td style={{ padding: "3px 8px", textAlign: "right", color: color.secondary }}>{isodistortAmplitudes(p?.value ?? 0, cells).ap.toFixed(5)}</td>
-                  <td style={{ padding: "3px 8px", textAlign: "right", color: color.secondary }}>{esd !== undefined ? esd.toFixed(5) : "—"}</td>
-                  <td style={{ padding: "3px 8px", color: color.secondary }}>{p?.fixed ? "fixed" : "free"}</td>
-                </tr>,
-              ];
-            })}
+            {folds === null
+              ? rows.map((m) => atomRow(m, false))
+              : folds.map((f) => {
+                  // The irrep's own row: its total over the rows listed (that site's part when a site chip is on).
+                  const t = modesTotal(f.modes, params, cells);
+                  const free = f.modes.filter((m) => params.find((p) => p.id === m.id)?.fixed === false).length;
+                  const opened = isOpen(f.id);
+                  const shown = arrows?.kind === "irrep" && arrows.id === f.id;
+                  const holdsShown = arrows?.kind === "mode" && f.modes.some((m) => m.id === arrows.id);
+                  const whole = modeSet.modes.filter((m) => m.irrep?.label === f.id);
+                  const part = site && whole.length > f.modes.length ? site.label : null;
+                  return (
+                    <Fragment key={`irrep:${f.id}`}>
+                      <tr
+                        data-irrep={f.id}
+                        onClick={() => toggle({ kind: "irrep", id: f.id })}
+                        title={`${f.label}${f.direction ? ` ${f.direction}` : ""} at k = (${f.k.map((x) => +x.toFixed(4)).join(", ")}): click to draw its whole displacement field on the 3D model, every atom at once, at the current amplitudes${part ? ` (its ${part} part)` : ""}`}
+                        style={{ borderTop: `1px solid ${color.border}`, cursor: "pointer", background: shown ? "rgba(22, 163, 74, 0.1)" : color.subtle2 }}
+                      >
+                        <td style={{ ...cell, ...(oneLineRows ? { whiteSpace: "nowrap" } : {}), color: shown ? "#15803d" : color.ink }}>
+                          <button
+                            type="button"
+                            aria-expanded={opened}
+                            aria-label={`${opened ? "fold" : "open"} ${f.label}`}
+                            title={opened ? "Fold its rows" : `Open its ${f.modes.length} row${f.modes.length === 1 ? "" : "s"}, one per parent site`}
+                            onClick={(e) => { e.stopPropagation(); setOpen(f.id, !opened); }}
+                            style={{ border: "none", background: "transparent", padding: "0 4px 0 0", margin: 0, cursor: "pointer", fontFamily: mono, fontSize: fz.micro, color: color.secondary }}
+                          >
+                            {opened ? "▾" : "▸"}
+                          </button>
+                          {f.label}
+                          {f.direction ? <span style={{ color: color.secondary }}> {f.direction}</span> : null}
+                          {part ? <span style={{ color: color.secondary }}> · {part}</span> : null}
+                          {holdsShown && !opened ? <span style={{ color: "#15803d" }}> · arrows on one row</span> : null}
+                        </td>
+                        <td style={right}>{t.a.toFixed(5)}</td>
+                        <td style={{ ...right, color: color.secondary }}>{t.as.toFixed(5)}</td>
+                        <td style={{ ...right, color: color.secondary }}>{t.ap.toFixed(5)}</td>
+                        <td style={{ ...right, color: color.secondary }}>—</td>
+                        <td style={{ ...cell, color: color.secondary, whiteSpace: "nowrap" }}>{free}/{f.modes.length} free</td>
+                      </tr>
+                      {opened && f.modes.map((m) => atomRow(m, true))}
+                    </Fragment>
+                  );
+                })}
           </tbody>
         </table>
       </div>
@@ -282,6 +367,83 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
         <ShortLineText text={captionLine} detail={captionDetail} width={340} />
       </p>
     </>
+  );
+}
+
+/**
+ * The contribution chart over the table: one bar per irrep (per mode for a
+ * set without irreps), its share of A² over the rows listed, dominant first,
+ * with its % at the bar's end. An open irrep shows its per-site split under
+ * its bar. A bar click draws that irrep on the 3D model, as its row does.
+ */
+function ShareChart({ shares, scope, byIrrep, openIds, arrows, onBar }: {
+  shares: readonly Share[];
+  scope: string;
+  byIrrep: boolean;
+  openIds: ReadonlySet<string>;
+  arrows: ModeArrows | null;
+  onBar: (id: string) => void;
+}): JSX.Element {
+  const what = byIrrep ? "irrep" : "mode";
+  const zero = shares.every((s) => s.a2 === 0);
+  const top = shares[0];
+  const pct = (x: number): string => `${(100 * x).toFixed(x >= 0.995 || x === 0 ? 0 : 1)} %`;
+  const line = zero
+    ? `Shares: every A is 0 — refine to see which ${what} dominates`
+    : `${top!.label} carries ${pct(top!.share)} of the distortion${scope ? ` on ${scope}` : ""}`;
+  const detail = [
+    `Each bar is one ${what}'s share of the distortion: A²/ΣA² over the ${what}s listed${scope ? ` (${scope})` : ""}. The modes are orthonormal, so the squared amplitudes add up to the total's square and the shares to 100 %.`,
+    "A_s and A_p are A divided by a fixed √(cells) (the primitive child cell, the parent's), so A_s²/ΣA_s² and A_p²/ΣA_p² give the very same shares.",
+    "Signs drop out (|A|); the table keeps them. An open irrep shows its split by parent site under its bar. Click a bar to draw it on the 3D model.",
+  ];
+  // Rows share one label column, as wide as the longest label (the font is monospace), capped so the bars keep room.
+  const labelCh = Math.min(24, Math.max(6, ...shares.map((s) => s.label.length)));
+  const rowGrid = { display: "grid", gridTemplateColumns: `${labelCh}ch minmax(48px, 1fr) 4.4em`, columnGap: 8, alignItems: "center", fontFamily: mono, fontSize: fz.micro } as const;
+  const labelCell = { fontFamily: mono, fontSize: fz.micro, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } as const;
+  const pctCell = { fontFamily: mono, fontSize: fz.micro, textAlign: "right" } as const;
+  const sub = (id: string, label: string): string => (label.startsWith(`${id} · `) ? label.slice(id.length + 3) : label);
+  const bar = (share: number, thick: number): JSX.Element => (
+    <span aria-hidden style={{ display: "block", height: thick, borderRadius: 2, background: color.muted, overflow: "hidden" }}>
+      <span style={{ display: "block", height: "100%", width: `${Math.max(0, Math.min(1, share)) * 100}%`, minWidth: share > 0 ? 2 : 0, background: color.primary, borderRadius: "0 4px 4px 0" }} />
+    </span>
+  );
+  return (
+    <div style={{ marginTop: 6 }} data-share-chart>
+      <div style={{ fontSize: fz.micro, color: color.ink, fontFamily: mono }}>
+        <ShortLineText text={line} detail={detail} width={340} />
+      </div>
+      {!zero && (
+        <div role="list" aria-label={`share of the distortion by ${what}`} style={{ display: "flex", flexDirection: "column", gap: 1, marginTop: 3, maxWidth: 560 }}>
+          {shares.map((s) => {
+            const drawn = arrows !== null && arrows.kind !== "all" && arrows.id === s.id;
+            const open = byIrrep && openIds.has(s.id);
+            return (
+              <div role="listitem" key={s.id}>
+                <button
+                  type="button"
+                  aria-label={`${s.label}: ${pct(s.share)}`}
+                  aria-pressed={drawn}
+                  onClick={() => onBar(s.id)}
+                  title={`${s.label}: ${pct(s.share)} of A² (A² = ${s.a2.toPrecision(3)} Å²)${byIrrep && s.parts.length > 1 ? ` · by site: ${s.parts.map((p) => `${sub(s.id, p.label)} ${pct(p.share)}`).join(", ")}` : ""} · click to draw it in 3D`}
+                  style={{ ...rowGrid, width: "100%", border: "none", background: "transparent", padding: "1px 0", margin: 0, cursor: "pointer", textAlign: "left" }}
+                >
+                  <span style={{ ...labelCell, color: drawn ? "#15803d" : color.ink }}>{s.label}</span>
+                  {bar(s.share, 8)}
+                  <span style={{ ...pctCell, color: color.secondary }}>{pct(s.share)}</span>
+                </button>
+                {open && s.parts.length > 1 && s.parts.map((p) => (
+                  <div key={p.id} style={{ ...rowGrid, padding: "1px 0" }} title={`${p.label}: ${pct(p.share)} of A² (A = ${p.value.toFixed(5)} Å)`}>
+                    <span style={{ ...labelCell, color: color.secondary, paddingLeft: "2ch" }}>{sub(s.id, p.label)}</span>
+                    {bar(p.share, 4)}
+                    <span style={{ ...pctCell, color: color.faint }}>{pct(p.share)}</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 

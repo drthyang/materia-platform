@@ -89,7 +89,7 @@ function modesPanel(m: PdfPageModel, opts: { shownModeId?: string; ownModes?: bo
     modeSet: v.modeSet, modes: m.modes, params: m.params, result: m.result,
     spaceGroup: m.loaded.spaceGroup.hermannMauguin,
     ownModes: opts.ownModes ?? (v.symModes?.modes.length ?? 0) > 0,
-    shownModeId: opts.shownModeId ?? null, onShowMode: noop, onOpenSubgroups: noop,
+    arrows: opts.shownModeId ? { kind: "mode", id: opts.shownModeId } : null, onArrows: noop, onOpenSubgroups: noop,
     ...(opts.loaders ? { onLoadParentCif: noop, onLoadModeCif: noop } : {}),
     busy: opts.busy ?? false,
   }));

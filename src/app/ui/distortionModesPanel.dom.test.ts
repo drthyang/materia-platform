@@ -16,6 +16,7 @@ import { realiseChild } from "@/core/crystal/irreps/realisation";
 import { allowedPositionShifts } from "@/core/crystal/siteConstraints";
 import { pageView, pdfPage, withParameter, withSupercellChild, type PdfPageModel } from "@/app/pdfPage";
 import { DistortionModesPanel } from "@/app/ui/DistortionModesPanel";
+import type { ModeArrows } from "@/app/ui/modeFold";
 import { srtio3 } from "@/testSupport/perovskiteTilts";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -39,17 +40,19 @@ afterEach(() => {
 });
 
 /** The panel over a live page model, its row edit the page's own (withParameter). */
-function mount(start: PdfPageModel, shown: { id: string | null } = { id: null }): { host: HTMLDivElement; model: () => PdfPageModel } {
+function mount(start: PdfPageModel, shown: { arrows: ModeArrows | null } = { arrows: null }, opts: { expand?: boolean } = {}): { host: HTMLDivElement; model: () => PdfPageModel; setModel: (m: PdfPageModel) => void } {
   let latest = start;
+  let set: (m: PdfPageModel) => void = () => undefined;
   function Host(): JSX.Element {
     const [m, setM] = useState(start);
-    const [shownId, setShown] = useState<string | null>(shown.id);
+    const [arrows, setArrows] = useState<ModeArrows | null>(shown.arrows);
     latest = m;
-    shown.id = shownId;
+    set = setM;
+    shown.arrows = arrows;
     const v = pageView(m);
     return createElement(DistortionModesPanel, {
       modeSet: v.modeSet, modes: m.modes, params: m.params, result: m.result, spaceGroup: m.loaded.spaceGroup.hermannMauguin, ownModes: false,
-      shownModeId: shownId, onShowMode: setShown, onOpenSubgroups: () => undefined,
+      arrows, onArrows: setArrows, onOpenSubgroups: () => undefined,
       onParamChange: (id, patch) => setM((x) => withParameter(x, id, patch)),
     });
   }
@@ -57,7 +60,9 @@ function mount(start: PdfPageModel, shown: { id: string | null } = { id: null })
   document.body.appendChild(host);
   root = createRoot(host);
   act(() => root!.render(createElement(Host)));
-  return { host, model: () => latest };
+  // The irreps open on one row each; most tests read the per-site rows.
+  if (opts.expand !== false) act(() => button(host!, "Expand all").click());
+  return { host, model: () => latest, setModel: (m) => act(() => set(m)) };
 }
 
 const chip = (h: HTMLElement, group: string, name: string): HTMLButtonElement => {
@@ -68,6 +73,11 @@ const chip = (h: HTMLElement, group: string, name: string): HTMLButtonElement =>
 const button = (h: ParentNode, text: string): HTMLButtonElement => [...h.querySelectorAll("button")].find((b) => b.textContent?.trim() === text)!;
 const modeRows = (h: HTMLElement): string[] => [...h.querySelectorAll<HTMLElement>('tr[title^="Click to show"]')].map((r) => r.querySelector("td")!.textContent!.replace(/^▸ /, ""));
 const click = (b: HTMLElement): void => act(() => b.click());
+const irrepRow = (h: HTMLElement, label: string): HTMLElement => {
+  const r = [...h.querySelectorAll<HTMLElement>("tr[data-irrep]")].find((x) => x.dataset.irrep === label);
+  if (!r) throw new Error(`no irrep row ${label}`);
+  return r;
+};
 const rows = (m: PdfPageModel) => m.params.map((p) => ({ id: p.id, value: p.value, fixed: p.fixed }));
 
 describe("the mode table's chips", () => {
@@ -118,9 +128,19 @@ describe("the mode table's chips", () => {
 
   it("puts the arrows away when the chips hide the row drawn", () => {
     const first = set.modes.find((m) => m.star !== "R")!;
-    const shown = { id: first.id as string | null };
+    const shown: { arrows: ModeArrows | null } = { arrows: { kind: "mode", id: first.id } };
     const { host: h } = mount(PNMA, shown);
     click(chip(h, "k-point", "R, supercell ×2"));
-    expect(shown.id).toBeNull();
+    expect(shown.arrows).toBeNull();
+    // An irrep the chips hide goes the same way; All in 3D stays.
+    click(chip(h, "k-point", "R, supercell ×2"));
+    shown.arrows = null;
+    click(irrepRow(h, first.irrep!.label));
+    expect(shown.arrows).toEqual({ kind: "irrep", id: first.irrep!.label });
+    click(chip(h, "k-point", "R, supercell ×2"));
+    expect(shown.arrows).toBeNull();
+    click(button(h, "All in 3D"));
+    click(chip(h, "k-point", "R, supercell ×2"));
+    expect(shown.arrows).toEqual({ kind: "all" });
   });
 });
