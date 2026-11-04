@@ -252,12 +252,19 @@ export const REPLAYS: Readonly<Record<string, Replay>> = {
     catches: ["reads the page's method before its first change", "runs at least 2 converged refinements"],
   },
   "pdf-local-structure": {
+    // Ask mode: one stage, a check-in, and the rest once the user says go on.
     good: [
-      { calls: [PDF, { name: "boxcar_scan", input: { width: 3, step: 1.5 } }] },
+      { calls: [PDF, { name: "refine" }] },
+      {
+        text: "The scale and cell are refined. I'll check the next stage with you.",
+        calls: [{ name: "ask_user", input: { question: "Go on to the boxcar scan over the low r?", options: [{ label: "Go on", message: "Yes, go on." }, { label: "Stop here", message: "Stop here." }] } }],
+      },
+      { calls: [{ name: "boxcar_scan", input: { width: 3, step: 1.5 } }] },
       { text: "The boxes agree within their spread: no sign that the local structure differs from the average one over this range." },
     ],
     bad: [
       { text: "They are the same." },
+      { text: "As I said, they are the same." },
     ],
     catches: ["calls boxcar_scan"],
   },

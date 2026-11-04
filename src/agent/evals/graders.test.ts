@@ -85,3 +85,66 @@ describe("magneticGroupIs", () => {
     expect(check.grade(run("G2", "G1", ["G3"])).pass).toBe(false);
   });
 });
+
+describe("doesNotRefuse", () => {
+  const refined = { kind: "call", name: "refine", input: {}, isError: false, text: JSON.stringify({ refined: true }), free: ["scale", "width"] };
+  const cellCheck = { kind: "call", name: "check_cell_symmetry", input: {}, isError: false, text: "{}" };
+  const run = (events: unknown[]): EvalRun => ({ events }) as unknown as EvalRun;
+  const reply = (text: string) => ({ kind: "reply", text });
+  // Sonnet's last reply on full-refinement, 2026-11-03 (v0.5.0 gate, run 1), after every stage had refined: its last bullets, verbatim.
+  const sonnet = [
+    "- **Corrections:** I added none, because the residual shows no signature for one.",
+    "- **Cross-check:** the method asks for a GSAS-II and FullProf cross-check, which I can't run. You can write both bundles from the Export menu.",
+  ].join("\n");
+
+  it("does not count an external cross-check it cannot run as a refusal, once the refinement ran", async () => {
+    const { doesNotRefuse } = await import("@/agent/evals/checks");
+    expect(doesNotRefuse.grade(run([refined, reply(sonnet)])).pass).toBe(true);
+    expect(doesNotRefuse.grade(run([refined, reply("I can't run TOPAS here, so the cross-check is yours.")])).pass).toBe(true);
+  });
+
+  it("still counts a refusal of the refinement, whatever external program it names", async () => {
+    const { doesNotRefuse } = await import("@/agent/evals/checks");
+    // No refinement ran: the explained limit is the whole answer.
+    expect(doesNotRefuse.grade(run([cellCheck, reply(sonnet)])).pass).toBe(false);
+    // The refusal the check was written against (user report, 2026-10-10).
+    expect(doesNotRefuse.grade(run([cellCheck, reply("The cell check flags an absence, so I can't run the full refinement yet.")])).pass).toBe(false);
+    // A refinement ran, but the reply refuses the next one, citing an external check or a gate.
+    expect(doesNotRefuse.grade(run([refined, reply("I can't refine the positions until a GSAS-II cross-check confirms the cell.")])).pass).toBe(false);
+    expect(doesNotRefuse.grade(run([refined, reply("I won't continue: the FullProf cross-check comes first.")])).pass).toBe(false);
+    expect(doesNotRefuse.grade(run([refined, reply("The Le Bail gate has not passed, so I cannot run the FullProf cross-check or refine further.")])).pass).toBe(false);
+  });
+});
+
+describe("noStall", () => {
+  const run = (events: unknown[]): EvalRun => ({ events }) as unknown as EvalRun;
+  const reply = (text: string) => ({ kind: "reply", text });
+  const asked = (isError = false) => ({
+    kind: "call", name: "ask_user", isError,
+    input: { question: "Apply the suggested fit window of 16.32–117.624° 2θ (trimming background-only low-angle points and the edge-cut high-angle end), and then run the cell check?" },
+    text: isError ? "Error: options: at least 2" : JSON.stringify({ ref: "#3", asked: true, options: 2, note: "Shown to the user; your turn ends here. Their answer comes as their next message: an option's message, or their own words." }),
+  });
+  // Haiku's reply on symmetry-last, 2026-11-03 (v0.5.0 gate, run 3): its last paragraph, verbatim, then ask_user.
+  const haiku = "Proposed window: 16.32–117.624° 2θ (d ≈ 5.43 to 0.90 Å). After that come the cell check, then the staged refinement. I'll refine each block to convergence and check it before moving on.";
+
+  it("accepts a reply that ends the turn with a question put to the user", async () => {
+    const { noStall } = await import("@/agent/evals/checks");
+    const v = noStall.grade(run([reply(haiku), asked()]));
+    expect(v.pass).toBe(true);
+    expect(v.detail).toBe("ended asking the user");
+    // An empty reply between them (the turn's last stream) changes nothing.
+    expect(noStall.grade(run([reply(haiku), asked(), reply("")])).pass).toBe(true);
+  });
+
+  it("still catches a turn that ends on a promise to act", async () => {
+    const { noStall } = await import("@/agent/evals/checks");
+    // The same reply with no question after it: a stall.
+    expect(noStall.grade(run([reply(haiku)])).pass).toBe(false);
+    // A question the app refused was never shown: the turn ended on the promise.
+    expect(noStall.grade(run([reply(haiku), asked(true)])).pass).toBe(false);
+    // A question asked earlier, answered, and a later reply that stalls.
+    expect(noStall.grade(run([reply("Trim the window?"), asked(), { kind: "user", text: "Yes." }, reply("Starting the Le Bail gate now. I will run check_cell_symmetry.")])).pass).toBe(false);
+    // The stall the check was written against (local models).
+    expect(noStall.grade(run([reply("According to your method, the cell check comes first. I will start by running check_cell_symmetry.\n\nStarting the Le Bail gate now.")])).pass).toBe(false);
+  });
+});

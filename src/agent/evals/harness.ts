@@ -22,6 +22,7 @@ import { liveTool } from "@/agent/tools";
 import { REFERENCE } from "@/agent/references";
 import { unverifiedNumbers } from "@/core/export/reportAudit";
 import { fakeHost, headlessHistory } from "@/testSupport/agentHeadless";
+import type { StepKind } from "@/core/project/history";
 
 /** One thing that happened in the conversation, in order. */
 export type EvalEvent =
@@ -104,6 +105,13 @@ export interface EvalScenario {
   readonly available?: () => boolean;
   /** The run fits real magnetic groups (a ranking with restarts): its scripted tests get four minutes, not one. */
   readonly slow?: boolean;
+  /**
+   * What the user did on the page before the conversation, when the messages
+   * say so ("the nuclear refinement is done"): run on the page as the app
+   * runs it, each step recorded in the History as the user's, so the page
+   * and the message agree.
+   */
+  readonly before?: (port: AgentPort, record: (kind: StepKind, label: string) => void) => Promise<void>;
   /** What the user says, one message per turn. */
   readonly messages: readonly string[];
   readonly autonomy: AgentAutonomy;
@@ -157,6 +165,7 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
   // The History as the app keeps it: the report lists the steps the analysis took.
   const history = headlessHistory(port);
   const { host, records } = fakeHost(port, history.history, (kind, agent) => history.record(kind, agent ? "agent" : undefined), history.goTo);
+  if (scenario.before) await scenario.before(port, (kind, label) => history.record(kind, undefined, label));
   const asked: ActivityEntry[] = [];
   const events: EvalEvent[] = [];
   const notices: string[] = [];
