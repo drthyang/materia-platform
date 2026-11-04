@@ -254,12 +254,12 @@ export const REPLAYS: Readonly<Record<string, Replay>> = {
   "pdf-local-structure": {
     // Ask mode: one stage, a check-in, and the rest once the user says go on.
     good: [
-      { calls: [PDF, { name: "set_fit_range", input: { min: 20, max: 30 } }, { name: "refine" }] },
+      { calls: [PDF, { name: "refine" }] },
       {
-        text: "The long-range baseline is refined. I'll check the next stage with you.",
+        text: "The scale and cell are refined. I'll check the next stage with you.",
         calls: [{ name: "ask_user", input: { question: "Go on to the boxcar scan over the low r?", options: [{ label: "Go on", message: "Yes, go on." }, { label: "Stop here", message: "Stop here." }] } }],
       },
-      { calls: [{ name: "set_fit_range", input: { min: 1.5, max: 30 } }, { name: "boxcar_scan", input: { width: 3, step: 1.5 } }] },
+      { calls: [{ name: "boxcar_scan", input: { width: 3, step: 1.5 } }] },
       { text: "The boxes agree within their spread: no sign that the local structure differs from the average one over this range." },
     ],
     bad: [
