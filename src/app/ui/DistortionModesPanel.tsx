@@ -22,7 +22,7 @@ import { ShortLineText } from "@/app/ui/lineInfo";
 import { InfoBadge } from "@/app/ui/InfoBadge";
 import { Chip } from "@/app/ui/Chip";
 import { ALL_MODES, bulkFixed, modeGroups, modesTotal, selectedModes, type ModeFilter, type ModeGroups } from "@/app/ui/modeGroups";
-import { arrowField, contributionShares, irrepFolds, largestShift, sameArrows, type ModeArrows, type Share } from "@/app/ui/modeFold";
+import { arrowField, contributionShares, foldIdOf, foldsByIrrep, irrepFolds, largestShift, sameArrows, type ModeArrows, type Share } from "@/app/ui/modeFold";
 
 interface Props {
   /** The mode set in force (pageView.modeSet); null while positions refine per coordinate. */
@@ -175,21 +175,21 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
           ? "A is the whole-cell displacement norm; mode 1 is the frozen distortion, so its fitted amplitude is the order parameter."
           : "A is the whole-cell displacement norm of the structure's own symmetry-conserving Γ modes (rigid-translation gauge excluded). Free the rows you want in the parameter panel (Positions group), or Import ▾ → Parent CIF for the order-parameter decomposition of a structure loaded already distorted.",
     `A is over the conventional child cell (${cells.child} lattice point${cells.child === 1 ? "" : "s"}); ISODISTORT's A_s = A/√${cells.child} (primitive child cell) and A_p = A_s·√(V_p/V_s) = A/√${cells.parent} (parent).`,
-    ...(byIrrep
+    ...(foldsByIrrep(modeSet.modes)
       ? ["Each irrep is one row: its total |A|, A_s and A_p (added in quadrature, signs dropped) and how many of its modes are free; ▸ opens its rows, one per parent site, with their signed amplitudes. With a site chip, the row is that site's part."]
       : []),
     "A row click draws on the 3D model: an atom row its eigenvector (green arrows, unit amplitude); an irrep row the whole irrep's displacement field, every atom at once, from its modes at their current amplitudes. All in 3D draws every listed mode together. The longest arrow is drawn about a bond long, the rest in proportion; the line above gives the largest real shift.",
   ];
   const g = groups!;
   const rows = selectedModes(modeSet, g, filter);
-  const folds = irrepFolds(rows);
+  const folds = irrepFolds(rows, modeSet.modes);
   const kChip = filter.k !== null ? g.ks.find((x) => x.id === filter.k) ?? null : null;
   const site = filter.site !== null ? g.sites.find((x) => x.id === filter.site) ?? null : null;
   const chips = g.ks.length > 0 || g.sites.length > 0;
-  const shares = contributionShares(rows, params);
+  const shares = contributionShares(rows, params, modeSet.modes);
   // A choice the listed rows no longer have (a chip hid it) is put away.
   const offers = (a: ModeArrows | null, listed: readonly DistortionMode[]): boolean =>
-    a === null || a.kind === "all" || (a.kind === "mode" ? listed.some((m) => m.id === a.id) : listed.some((m) => (m.irrep?.label ?? m.label) === a.id));
+    a === null || a.kind === "all" || (a.kind === "mode" ? listed.some((m) => m.id === a.id) : listed.some((m) => foldIdOf(m) === a.id));
   // Clicking a chip again goes back to "all"; arrows the new choice hides are put away.
   const choose = (next: ModeFilter): void => {
     setFilter(next);
@@ -324,14 +324,14 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
                   const opened = isOpen(f.id);
                   const shown = arrows?.kind === "irrep" && arrows.id === f.id;
                   const holdsShown = arrows?.kind === "mode" && f.modes.some((m) => m.id === arrows.id);
-                  const whole = modeSet.modes.filter((m) => m.irrep?.label === f.id);
+                  const whole = modeSet.modes.filter((m) => foldIdOf(m) === f.id);
                   const part = site && whole.length > f.modes.length ? site.label : null;
                   return (
                     <Fragment key={`irrep:${f.id}`}>
                       <tr
                         data-irrep={f.id}
                         onClick={() => toggle({ kind: "irrep", id: f.id })}
-                        title={`${f.label}${f.direction ? ` ${f.direction}` : ""} at k = (${f.k.map((x) => +x.toFixed(4)).join(", ")}): click to draw its whole displacement field on the 3D model, every atom at once, at the current amplitudes${part ? ` (its ${part} part)` : ""}`}
+                        title={`${f.label}${f.direction ? ` ${f.direction}` : ""}${f.k ? ` at k = (${f.k.map((x) => +x.toFixed(4)).join(", ")})` : ""}: click to draw its whole displacement field on the 3D model, every atom at once, at the current amplitudes${part ? ` (its ${part} part)` : ""}`}
                         style={{ borderTop: `1px solid ${color.border}`, cursor: "pointer", background: shown ? "rgba(22, 163, 74, 0.1)" : color.subtle2 }}
                       >
                         <td style={{ ...cell, ...(oneLineRows ? { whiteSpace: "nowrap" } : {}), color: shown ? "#15803d" : color.ink }}>

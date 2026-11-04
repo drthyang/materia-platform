@@ -4,8 +4,10 @@
  * and the green arrows of an irrep or of every mode listed, from these.
  *
  * - **Folds.** Modes by parent irrep (a supercell child, a decomposition, a
- *   mode CIF) fold under their irrep, in the set's order. A set without irreps
- *   (a same-cell activation, the structure's own modes) does not fold.
+ *   mode CIF) fold under their irrep, in the set's order; a same-cell
+ *   activation's, whose labels name the irrep ("X irrep 5 of 5 · Ta1 2"),
+ *   under the irrep its label names. Other sets (the structure's own modes)
+ *   do not fold.
  * - **Shares.** Each irrep's share of the distortion is A²/ΣA² over the rows
  *   listed. The modes are orthonormal, so the squared amplitudes add up to the
  *   total's square, and the shares sum to 1. A_s and A_p are A over a fixed
@@ -30,19 +32,47 @@ export interface IrrepFold {
   readonly id: string;
   readonly label: string;
   readonly direction: string | undefined;
-  readonly k: Vec3;
+  /** Its k, when the modes carry their irrep (not for a fold read off the labels). */
+  readonly k: Vec3 | null;
   /** Its modes listed, in the set's order. */
   readonly modes: readonly DistortionMode[];
 }
 
-/** The irreps of the rows listed, in the order they first appear; null when no row has an irrep (nothing folds). */
-export function irrepFolds(rows: readonly DistortionMode[]): IrrepFold[] | null {
-  if (!rows.some((m) => m.irrep)) return null;
-  const folds = new Map<string, { label: string; direction: string | undefined; k: Vec3; modes: DistortionMode[] }>();
+/**
+ * The fold a mode goes under: its irrep's label, or for a mode without one
+ * (a same-cell activation: "X irrep 5 of 5 · Ta1 2") the part of its label
+ * before " · ". A label without " · " (the order parameter "X irrep 5 of 5 →
+ * P-42₁m", "mode 3 @ Γ (O)") is a fold of its own.
+ */
+export function foldIdOf(mode: DistortionMode): string {
+  if (mode.irrep) return mode.irrep.label;
+  const cut = mode.label.indexOf(" · ");
+  return cut > 0 ? mode.label.slice(0, cut) : mode.label;
+}
+
+/** Whether a mode set folds: its modes carry their irreps, or their labels name one shared by two modes or more. */
+export function foldsByIrrep(modes: readonly DistortionMode[]): boolean {
+  if (modes.some((m) => m.irrep)) return true;
+  const seen = new Set<string>();
+  return modes.some((m) => {
+    const id = foldIdOf(m);
+    if (seen.has(id)) return true;
+    seen.add(id);
+    return false;
+  });
+}
+
+/**
+ * The irreps of the rows listed, in the order they first appear; null when
+ * the set does not fold (`all`, the whole set, decides, so a chip never
+ * unfolds the table).
+ */
+export function irrepFolds(rows: readonly DistortionMode[], all: readonly DistortionMode[] = rows): IrrepFold[] | null {
+  if (!foldsByIrrep(all)) return null;
+  const folds = new Map<string, { label: string; direction: string | undefined; k: Vec3 | null; modes: DistortionMode[] }>();
   for (const m of rows) {
-    // A row without an irrep in a set by irreps (not made today) stands as its own fold.
-    const id = m.irrep?.label ?? m.label;
-    const f = folds.get(id) ?? { label: id, direction: m.irrep?.direction, k: m.irrep?.k ?? [0, 0, 0], modes: [] };
+    const id = foldIdOf(m);
+    const f = folds.get(id) ?? { label: id, direction: m.irrep?.direction, k: m.irrep?.k ?? null, modes: [] };
     f.modes.push(m);
     folds.set(id, f);
   }
@@ -66,8 +96,8 @@ export interface Share {
  * The contribution chart's bars: one per irrep (or per mode, for a set
  * without irreps), dominant first. Signs drop out (A²); the table keeps them.
  */
-export function contributionShares(rows: readonly DistortionMode[], params: readonly RefinementParameter[]): Share[] {
-  const folds = irrepFolds(rows) ?? rows.map((m) => ({ id: m.id, label: m.label, direction: undefined, k: [0, 0, 0] as Vec3, modes: [m] }));
+export function contributionShares(rows: readonly DistortionMode[], params: readonly RefinementParameter[], all: readonly DistortionMode[] = rows): Share[] {
+  const folds = irrepFolds(rows, all) ?? rows.map((m) => ({ id: m.id, label: m.label, modes: [m] }));
   const total = rows.reduce((s, m) => s + valueOf(params, m.id) ** 2, 0);
   const of = (a2: number): number => (total > 0 ? a2 / total : 0);
   const bars = folds.map((f) => {
@@ -125,7 +155,7 @@ export function arrowField(
     const kept = highlightSites ? mode.axes.filter((a) => highlightSites.includes(a.siteLabel)) : mode.axes;
     return kept.length > 0 ? kept : mode.axes;
   }
-  const modes = arrows.kind === "all" ? rows : rows.filter((m) => (m.irrep?.label ?? m.label) === arrows.id);
+  const modes = arrows.kind === "all" ? rows : rows.filter((m) => foldIdOf(m) === arrows.id);
   if (modes.length === 0) return null;
   const field = summedField(modes, params).filter((d) => d.axis.some((x) => Math.abs(x) > 1e-12));
   return field.length > 0 ? field : null;

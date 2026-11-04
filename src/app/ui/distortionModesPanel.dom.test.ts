@@ -14,7 +14,9 @@ import { supercellSubgroups } from "@/core/crystal/irreps/supercellLattice";
 import { DEFAULT_SUPERCELL } from "@/core/crystal/irreps/supercell";
 import { realiseChild } from "@/core/crystal/irreps/realisation";
 import { allowedPositionShifts } from "@/core/crystal/siteConstraints";
-import { pageView, pdfPage, withParameter, withSupercellChild, type PdfPageModel } from "@/app/pdfPage";
+import { pageView, pdfPage, withParameter, withSameCellSubgroup, withSupercellChild, type PdfPageModel } from "@/app/pdfPage";
+import { gata4se8PdfExample } from "@/examples/gata4se8Pdf";
+import { sameCellLattice } from "@/app/ui/SubgroupsPanel";
 import { DistortionModesPanel } from "@/app/ui/DistortionModesPanel";
 import type { ModeArrows } from "@/app/ui/modeFold";
 import { srtio3 } from "@/testSupport/perovskiteTilts";
@@ -255,5 +257,25 @@ describe("the mode table folded by irrep", () => {
     expect(listItem(multi).children.length).toBe(1);
     click(disclosure(h, multi));
     expect(listItem(multi).children.length).toBe(1 + set.modes.filter((m) => m.irrep!.label === multi).length);
+  });
+});
+
+describe("a same-cell activation, folded by the irreps its labels name", () => {
+  it("GaTa₄Se₈ → P-42₁m: one row per irrep, the order parameter on its own, every row behind them", () => {
+    const demo = gata4se8PdfExample();
+    const start = pdfPage(demo.structure, demo.pattern, { preset: { values: demo.refinedParams } });
+    const node = sameCellLattice(start.loaded).find((n) => n.identity.number === 113)!;
+    const { model } = withSameCellSubgroup(start, node);
+    const set = pageView(model).modeSet!;
+    expect(set.modes.some((m) => m.irrep)).toBe(false);
+    const { host: h } = mount(model, undefined, { expand: false });
+    const folded = [...h.querySelectorAll<HTMLElement>("tr[data-irrep]")].map((r) => r.dataset.irrep!);
+    const named = [...new Set(set.modes.map((m) => (m.label.includes(" · ") ? m.label.slice(0, m.label.indexOf(" · ")) : m.label)))];
+    expect(folded).toEqual(named);
+    expect(folded.length).toBeLessThan(set.modes.length);
+    expect(folded.some((l) => l.includes("→"))).toBe(true);
+    expect(modeRows(h)).toEqual([]);
+    click(button(h, "Expand all"));
+    expect(modeRows(h).sort()).toEqual(set.modes.map((m) => m.label).sort());
   });
 });

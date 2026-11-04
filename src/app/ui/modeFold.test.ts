@@ -45,8 +45,21 @@ describe("folding by irrep", () => {
     expect(folds.some((f) => f.modes.length > 1)).toBe(true);
   });
 
-  it("does not fold a set without irreps", () => {
-    expect(irrepFolds(set.modes.map(({ irrep: _drop, ...m }) => m))).toBeNull();
+  it("folds a set without irreps by the irrep its labels name (a same-cell activation), the order parameter on its own", () => {
+    const bare = set.modes.map(({ irrep: _drop, ...m }) => m);
+    const op = { ...bare[0]!, id: "op", label: "X irrep 5 of 5 → P-42₁m" };
+    const folds = irrepFolds([op, ...bare])!;
+    expect(folds.map((f) => f.id)).toEqual(["X irrep 5 of 5 → P-42₁m", ...irrepFolds(set.modes)!.map((f) => f.id)]);
+    expect(folds.map((f) => f.modes.length)).toEqual([1, ...irrepFolds(set.modes)!.map((f) => f.modes.length)]);
+    expect(folds.every((f) => f.k === null)).toBe(true);
+    // A chip that leaves one row per irrep keeps the table folded: the whole set decides.
+    expect(irrepFolds([bare[0]!], bare)).toHaveLength(1);
+  });
+
+  it("does not fold a set whose labels name no shared irrep (the structure's own modes)", () => {
+    const own = set.modes.map(({ irrep: _drop, ...m }, i) => ({ ...m, label: `mode ${i + 1} @ Γ (O)` }));
+    expect(irrepFolds(own)).toBeNull();
+    expect(contributionShares(own, params).map((b) => b.id).sort()).toEqual(own.map((m) => m.id).sort());
   });
 });
 
