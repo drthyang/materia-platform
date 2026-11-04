@@ -42,7 +42,7 @@ afterEach(() => {
 });
 
 /** The panel over a live page model, its row edit the page's own (withParameter). */
-function mount(start: PdfPageModel, shown: { arrows: ModeArrows | null } = { arrows: null }, opts: { expand?: boolean } = {}): { host: HTMLDivElement; model: () => PdfPageModel; setModel: (m: PdfPageModel) => void } {
+function mount(start: PdfPageModel, shown: { arrows: ModeArrows | null } = { arrows: null }, opts: { expand?: boolean; oneLineRows?: boolean } = {}): { host: HTMLDivElement; model: () => PdfPageModel; setModel: (m: PdfPageModel) => void } {
   let latest = start;
   let set: (m: PdfPageModel) => void = () => undefined;
   function Host(): JSX.Element {
@@ -54,7 +54,7 @@ function mount(start: PdfPageModel, shown: { arrows: ModeArrows | null } = { arr
     const v = pageView(m);
     return createElement(DistortionModesPanel, {
       modeSet: v.modeSet, modes: m.modes, params: m.params, result: m.result, spaceGroup: m.loaded.spaceGroup.hermannMauguin, ownModes: false,
-      arrows, onArrows: setArrows, onOpenSubgroups: () => undefined,
+      arrows, onArrows: setArrows, onOpenSubgroups: () => undefined, oneLineRows: opts.oneLineRows ?? true,
       onParamChange: (id, patch) => setM((x) => withParameter(x, id, patch)),
     });
   }
@@ -177,6 +177,18 @@ describe("the mode table folded by irrep", () => {
     expect(modeRows(h)).toEqual(irreps.flatMap((l) => set.modes.filter((m) => m.irrep!.label === l).map((m) => m.label)));
     click(button(h, "Collapse all"));
     expect(modeRows(h)).toEqual([]);
+  });
+
+  it("on a narrow panel, puts each irrep's name on a line of its own over its numbers", () => {
+    const { host: h } = mount(PNMA, undefined, { expand: false, oneLineRows: false });
+    const heads = [...h.querySelectorAll<HTMLElement>("tr[data-irrep-head]")];
+    expect(heads.map((r) => r.dataset.irrepHead)).toEqual(irreps);
+    for (const r of heads) {
+      expect(r.nextElementSibling?.getAttribute("data-irrep")).toBe(r.dataset.irrepHead);
+      expect(r.querySelector("td")!.getAttribute("colspan")).toBe("6");
+    }
+    click(heads[0]!.querySelector<HTMLButtonElement>("button[aria-expanded]")!);
+    expect(modeRows(h)).toEqual(set.modes.filter((m) => m.irrep!.label === irreps[0]).map((m) => m.label));
   });
 
   it("with a site chip, folds to that site's part of each irrep", () => {

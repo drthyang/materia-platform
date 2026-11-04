@@ -12,7 +12,7 @@
  * decomposed against (withParentModes) — the counterpart of Mode CIF ↓.
  */
 
-import { Fragment, useMemo, useRef, useState } from "react";
+import { Fragment, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ModesInForce } from "@/app/pdfPage";
 import { isodistortAmplitudes, type DistortionMode, type DistortionModeSet } from "@/core/crystal/distortionModes";
 import { latticeCentring } from "@/core/crystal/standardSetting";
@@ -238,6 +238,29 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
       </tr>
     );
   };
+  const actions = (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+      {folds && (
+        <button type="button" style={resetRangeBtn} onClick={() => setOpenIrreps(allOpen ? new Set() : new Set(folds.map((f) => f.id)))} title={allOpen ? "Fold every irrep to its one row" : "Open every irrep's rows, one per parent site"}>
+          {allOpen ? "Collapse all" : "Expand all"}
+        </button>
+      )}
+      <button
+        type="button"
+        aria-pressed={arrows?.kind === "all"}
+        style={{ ...resetRangeBtn, ...(arrows?.kind === "all" ? { border: "1px solid #15803d", color: "#15803d" } : {}) }}
+        onClick={() => toggle({ kind: "all" })}
+        title="Draw every listed mode on the 3D model at once, at their current amplitudes (the summed displacement field)"
+      >
+        All in 3D
+      </button>
+      {arrows !== null && (
+        <button type="button" style={resetRangeBtn} onClick={() => onArrows(null)} title="Take the green arrows off the 3D model">
+          Arrows off
+        </button>
+      )}
+    </span>
+  );
   return (
     <>
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
@@ -247,6 +270,7 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
           {` · total |A| = ${totalAmplitude.toFixed(4)} Å (A_s ${totals.as.toFixed(4)}, A_p ${totals.ap.toFixed(4)})`}
           {(modeSet.acousticExcluded ?? 0) > 0 ? ` · ${modeSet.acousticExcluded} acoustic excluded` : ""}
         </span>
+        {arrowLine && <span style={{ fontFamily: mono, fontSize: fz.micro, color: field || arrows?.kind === "mode" ? "#15803d" : color.secondary }}>{arrowLine}</span>}
         {toSubgroups(modes ? "The symmetry these modes lower to is chosen on the Subgroups page — change or clear it there" : "Lower the symmetry on the Subgroups page: pick a subgroup there")}
         {importMenu}
         {onExportModeCif && (
@@ -269,7 +293,8 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
           {...(onParamChange ? { onParamChange } : {})}
         />
       )}
-      {rows.length > 0 && (
+      {/* The chart, its line carrying Expand all / Collapse all, All in 3D and Arrows off. */}
+      {rows.length > 0 ? (
         <ShareChart
           shares={shares}
           scope={[kChip?.label, site?.label].filter(Boolean).join(" · ")}
@@ -277,32 +302,12 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
           openIds={openIrreps}
           arrows={arrows}
           onBar={(id) => toggle(folds ? { kind: "irrep", id } : { kind: "mode", id })}
+          actions={actions}
         />
+      ) : (
+        <div style={{ marginTop: 4 }}>{actions}</div>
       )}
-      {/* The arrows on the 3D model: what they show, then All in 3D and Arrows off; Expand all / Collapse all for the irrep rows. */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, rowGap: 4, flexWrap: "wrap", marginTop: 4, fontSize: fz.micro }}>
-        {folds && (
-          <button type="button" style={resetRangeBtn} onClick={() => setOpenIrreps(allOpen ? new Set() : new Set(folds.map((f) => f.id)))} title={allOpen ? "Fold every irrep to its one row" : "Open every irrep's rows, one per parent site"}>
-            {allOpen ? "Collapse all" : "Expand all"}
-          </button>
-        )}
-        <button
-          type="button"
-          aria-pressed={arrows?.kind === "all"}
-          style={{ ...resetRangeBtn, ...(arrows?.kind === "all" ? { border: "1px solid #15803d", color: "#15803d" } : {}) }}
-          onClick={() => toggle({ kind: "all" })}
-          title="Draw every listed mode on the 3D model at once, at their current amplitudes (the summed displacement field)"
-        >
-          All in 3D
-        </button>
-        {arrows !== null && (
-          <button type="button" style={resetRangeBtn} onClick={() => onArrows(null)} title="Take the green arrows off the 3D model">
-            Arrows off
-          </button>
-        )}
-        {arrowLine && <span style={{ fontFamily: mono, color: field || arrows?.kind === "mode" ? "#15803d" : color.secondary }}>{arrowLine}</span>}
-      </div>
-      <div style={{ marginTop: 4, border: `1px solid ${color.border}`, borderRadius: 6 }}>
+      <div style={{ marginTop: 4, border: `1px solid ${color.border}`, borderRadius: 6, overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: mono, fontSize: fz.micro }}>
           <thead>
             <tr style={{ color: color.secondary, textAlign: "left" }}>
@@ -326,30 +331,40 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
                   const holdsShown = arrows?.kind === "mode" && f.modes.some((m) => m.id === arrows.id);
                   const whole = modeSet.modes.filter((m) => foldIdOf(m) === f.id);
                   const part = site && whole.length > f.modes.length ? site.label : null;
+                  const rowTitle = `${f.label}${f.direction ? ` ${f.direction}` : ""}${f.k ? ` at k = (${f.k.map((x) => +x.toFixed(4)).join(", ")})` : ""}: click to draw its whole displacement field on the 3D model, every atom at once, at the current amplitudes${part ? ` (its ${part} part; the whole irrep's A_s is ${modesTotal(whole, params, cells).as.toFixed(5)})` : ""}`;
+                  const name = (
+                    <>
+                      <button
+                        type="button"
+                        aria-expanded={opened}
+                        aria-label={`${opened ? "fold" : "open"} ${f.label}`}
+                        title={opened ? "Fold its rows" : `Open its ${f.modes.length} row${f.modes.length === 1 ? "" : "s"}, one per parent site`}
+                        onClick={(e) => { e.stopPropagation(); setOpen(f.id, !opened); }}
+                        style={{ border: "none", background: "transparent", padding: "0 4px 0 0", margin: 0, cursor: "pointer", fontFamily: mono, fontSize: fz.micro, color: color.secondary }}
+                      >
+                        {opened ? "▾" : "▸"}
+                      </button>
+                      {f.label}
+                      {f.direction ? <span style={{ color: color.secondary }}> {f.direction}</span> : null}
+                      {part ? <span style={{ color: color.secondary }}> · {part}</span> : null}
+                      {holdsShown && !opened ? <span style={{ color: "#15803d" }}> · arrows on one row</span> : null}
+                    </>
+                  );
                   return (
                     <Fragment key={`irrep:${f.id}`}>
+                      {/* Narrow (a phone, the stacked layout): the irrep's name on its own line, its numbers under it. */}
+                      {!oneLineRows && (
+                        <tr data-irrep-head={f.id} onClick={() => toggle({ kind: "irrep", id: f.id })} title={rowTitle} style={{ borderTop: `1px solid ${color.border}`, cursor: "pointer", background: shown ? "rgba(22, 163, 74, 0.1)" : color.subtle2 }}>
+                          <td colSpan={6} style={{ ...cell, paddingBottom: 0, color: shown ? "#15803d" : color.ink }}>{name}</td>
+                        </tr>
+                      )}
                       <tr
                         data-irrep={f.id}
                         onClick={() => toggle({ kind: "irrep", id: f.id })}
-                        title={`${f.label}${f.direction ? ` ${f.direction}` : ""}${f.k ? ` at k = (${f.k.map((x) => +x.toFixed(4)).join(", ")})` : ""}: click to draw its whole displacement field on the 3D model, every atom at once, at the current amplitudes${part ? ` (its ${part} part; the whole irrep's A_s is ${modesTotal(whole, params, cells).as.toFixed(5)})` : ""}`}
-                        style={{ borderTop: `1px solid ${color.border}`, cursor: "pointer", background: shown ? "rgba(22, 163, 74, 0.1)" : color.subtle2 }}
+                        title={rowTitle}
+                        style={{ ...(oneLineRows ? { borderTop: `1px solid ${color.border}` } : {}), cursor: "pointer", background: shown ? "rgba(22, 163, 74, 0.1)" : color.subtle2 }}
                       >
-                        <td style={{ ...cell, ...(oneLineRows ? { whiteSpace: "nowrap" } : {}), color: shown ? "#15803d" : color.ink }}>
-                          <button
-                            type="button"
-                            aria-expanded={opened}
-                            aria-label={`${opened ? "fold" : "open"} ${f.label}`}
-                            title={opened ? "Fold its rows" : `Open its ${f.modes.length} row${f.modes.length === 1 ? "" : "s"}, one per parent site`}
-                            onClick={(e) => { e.stopPropagation(); setOpen(f.id, !opened); }}
-                            style={{ border: "none", background: "transparent", padding: "0 4px 0 0", margin: 0, cursor: "pointer", fontFamily: mono, fontSize: fz.micro, color: color.secondary }}
-                          >
-                            {opened ? "▾" : "▸"}
-                          </button>
-                          {f.label}
-                          {f.direction ? <span style={{ color: color.secondary }}> {f.direction}</span> : null}
-                          {part ? <span style={{ color: color.secondary }}> · {part}</span> : null}
-                          {holdsShown && !opened ? <span style={{ color: "#15803d" }}> · arrows on one row</span> : null}
-                        </td>
+                        <td style={{ ...cell, ...(oneLineRows ? { whiteSpace: "nowrap" } : {}), color: shown ? "#15803d" : color.ink }}>{oneLineRows ? name : null}</td>
                         <td style={right}>{t.a.toFixed(5)}</td>
                         <td style={{ ...right, color: color.secondary }}>{t.as.toFixed(5)}</td>
                         <td style={{ ...right, color: color.secondary }}>{t.ap.toFixed(5)}</td>
@@ -376,8 +391,10 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
  * with its % at the bar's end. An open irrep shows its per-site split under
  * its bar. A bar click draws that irrep on the 3D model, as its row does.
  */
-function ShareChart({ shares, scope, byIrrep, openIds, arrows, onBar }: {
+function ShareChart({ shares, scope, byIrrep, openIds, arrows, onBar, actions }: {
   shares: readonly Share[];
+  /** The buttons the chart's line carries (Expand all, All in 3D, Arrows off). */
+  actions: ReactNode;
   scope: string;
   byIrrep: boolean;
   openIds: ReadonlySet<string>;
@@ -416,8 +433,11 @@ function ShareChart({ shares, scope, byIrrep, openIds, arrows, onBar }: {
   );
   return (
     <div style={{ marginTop: 6 }} data-share-chart>
-      <div style={{ fontSize: fz.micro, color: color.ink, fontFamily: mono }}>
-        <ShortLineText text={line} detail={detail} width={340} />
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, rowGap: 4, flexWrap: "wrap", fontSize: fz.micro, color: color.ink, fontFamily: mono }}>
+        <span>
+          <ShortLineText text={line} detail={detail} width={340} />
+        </span>
+        {actions}
       </div>
       {!zero && (
         <div role="list" aria-label={`share of the distortion by ${what}`} style={{ display: "flex", flexDirection: "column", gap: 1, marginTop: 3, maxWidth: 560 }}>
