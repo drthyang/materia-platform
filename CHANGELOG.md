@@ -9,6 +9,26 @@ release fixes bugs.
 
 ### Added
 
+- **The 3D Model's mode table folds by irrep and charts each irrep's share.**
+  - Each irrep is one row: its name and direction, its total |A|, A_s and A_p
+    (in quadrature, signs dropped) and how many of its modes are free. ▸ opens
+    its rows, one per parent site, with their signed amplitudes; **Expand
+    all** / **Collapse all** do every irrep. A same-cell activation, whose
+    modes carry the irrep only in their labels ("X irrep 5 of 5 · Ta1 2"),
+    folds the same way, its order parameter on a row of its own. With a site
+    chip on, each row is that site's part.
+  - An irrep row click draws the irrep's whole displacement field on the 3D
+    model, every atom at once: its modes summed at their current amplitudes.
+    **All in 3D** draws every listed mode together and **Arrows off** clears
+    them. A line gives the largest real shift. An atom row still draws its
+    own eigenvector.
+  - A bar chart over the table gives each irrep's share of the distortion,
+    A²/ΣA² (the same for A_s and A_p), dominant first with its %. It follows
+    every refine and the chips. With one irrep open, its split by site shows
+    under its bar. Six bars show, the rest behind "+N more".
+  - The k and site chips, Free all / Fix all and the Positions toggles work
+    as before. Only the app's layer changed: mode labels, the refinement and
+    everything the Agent or an MCP client reads are as they were.
 - **Stop for posterior sampling.** On the Posterior tab (PDF and powder pages)
   **Stop** takes the place of **Sample posterior** while a run goes, as Cancel
   does for Refine. The run stops within a second: the batch being evaluated is

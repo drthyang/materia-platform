@@ -331,7 +331,7 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
                       <tr
                         data-irrep={f.id}
                         onClick={() => toggle({ kind: "irrep", id: f.id })}
-                        title={`${f.label}${f.direction ? ` ${f.direction}` : ""}${f.k ? ` at k = (${f.k.map((x) => +x.toFixed(4)).join(", ")})` : ""}: click to draw its whole displacement field on the 3D model, every atom at once, at the current amplitudes${part ? ` (its ${part} part)` : ""}`}
+                        title={`${f.label}${f.direction ? ` ${f.direction}` : ""}${f.k ? ` at k = (${f.k.map((x) => +x.toFixed(4)).join(", ")})` : ""}: click to draw its whole displacement field on the 3D model, every atom at once, at the current amplitudes${part ? ` (its ${part} part; the whole irrep's A_s is ${modesTotal(whole, params, cells).as.toFixed(5)})` : ""}`}
                         style={{ borderTop: `1px solid ${color.border}`, cursor: "pointer", background: shown ? "rgba(22, 163, 74, 0.1)" : color.subtle2 }}
                       >
                         <td style={{ ...cell, ...(oneLineRows ? { whiteSpace: "nowrap" } : {}), color: shown ? "#15803d" : color.ink }}>

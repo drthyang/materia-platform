@@ -612,17 +612,31 @@ shows the modes being refined.
   scale and the instrument rows kept. **Constrained atomic** sets a choice
   aside, and **Irreps (modes)** brings it back at its starting values.
 - The **3D Model** view lists the modes with their amplitudes, esds and
-  free/fixed state, and names the parent or subgroup they lower to. Click a
-  **Distortion modes** row to draw the mode as green arrows. Modes by parent
-  irrep (a supercell child, a decomposition, a mode CIF) are grouped under
-  their irrep, each group headed by the irrep, its order-parameter direction
-  and its total A_s and A_p, as ISODISTORT reports one per irrep (its
-  k-point is in the header's tooltip and on the k-point chip). On a wide
-  desktop window the table sits beside the 3D view. **Mode CIF ↓** saves the child and these modes, at their
-  current amplitudes, as an ISODISTORT mode CIF: ISODISTORT's tags, A_s
-  values and normfactors, with MATERIA's generic irrep names. It reads back
-  here exactly, and ISODISTORT-aware programs such as GSAS-II read its
-  modes.
+  free/fixed state, and names the parent or subgroup they lower to. Modes by
+  parent irrep (a supercell child, a decomposition, a mode CIF, a same-cell
+  choice) fold under their irrep: one row each, with the irrep, its
+  order-parameter direction, its total |A|, A_s and A_p (added in quadrature,
+  as ISODISTORT reports one per irrep) and how many of its modes are free.
+  **▸** opens an irrep's rows, one per parent site, with their signed
+  amplitudes; **Expand all** / **Collapse all** do every irrep. (The k-point
+  is in the row's tooltip and on the k-point chip.)
+  - Click an irrep row to draw its whole displacement field as green arrows,
+    every atom at once: its modes summed at their current amplitudes. Click
+    an atom row to draw that mode alone (its eigenvector). **All in 3D**
+    draws every listed mode together, and **Arrows off** clears them. The
+    longest arrow is drawn about a bond long; the line beside the buttons
+    gives the largest real shift in Å.
+  - A bar chart over the table gives each irrep's share of the distortion,
+    A²/ΣA², dominant first. The modes are orthonormal, so the shares add up
+    to 100 %, and A_s and A_p (A over a fixed number of cells) give the same
+    shares. Signs drop out; the table keeps them. With one irrep open, its
+    split by site shows under its bar. It follows every refine and the chips.
+    Click a bar to draw that irrep.
+- On a wide desktop window the table sits beside the 3D view. **Mode CIF ↓**
+  saves the child and these modes, at their current amplitudes, as an
+  ISODISTORT mode CIF: ISODISTORT's tags, A_s values and normfactors, with
+  MATERIA's generic irrep names. It reads back here exactly, and
+  ISODISTORT-aware programs such as GSAS-II read its modes.
 - Chips above the mode table pick out the rows to work on:
   - **k-point chips**: **all k**, then one chip per k-point the modes in
     force sit at, named as on the Subgroups page (Γ, X, M, R…, or the
@@ -644,10 +658,10 @@ shows the modes being refined.
   - **Free all** / **Fix all** free or fix exactly the rows listed, as their
     toggles in the Positions group do. For example, pick R and O, then
     **Free all**, to refine only the R tilts on O.
-  - With a site chosen, an irrep row still shows the irrep's total over all
-    its sites, followed by the chosen site's part. A row click draws that
-    mode's arrows on the chosen site's atoms. If a chip hides the row whose
-    arrows are drawn, the arrows go away.
+  - With a site chosen, an irrep row shows the chosen site's part (the
+    whole irrep's total is in its tooltip), and the chart charts that site's
+    part. A row click draws its arrows on the chosen site's atoms. If a chip
+    hides the row or irrep whose arrows are drawn, the arrows go away.
 - With no choice in force, **Import ▾** on the same **Distortion modes** row
   loads one from a file:
   - **Mode CIF (ISODISTORT)…** reads an ISODISTORT mode CIF: ISODISTORT's
