@@ -4,7 +4,7 @@ import type { PdfPattern } from "@/core/diffraction/types";
 import { computeGofR, makeRGrid } from "@/core/pdf/forwardModel";
 import { expandStructureAtoms } from "@/core/diffraction/structureFactor";
 import { liveStateOf, pdfPage, withoutModes, type PdfPageModel } from "@/app/pdfPage";
-import { activationOf, cellKey, parseBound, parseRowId, rowId } from "@/app/pdfSubgroups";
+import { activationOf, cellKey, listSubgroups, parseBound, parseRowId, rowId } from "@/app/pdfSubgroups";
 import { newSession } from "@/app/powderSession";
 import { exampleStructure } from "@/examples/mn3ga";
 import { gata4se8PdfExample } from "@/examples/gata4se8Pdf";
@@ -200,6 +200,29 @@ describe("the bound, the cell and the ids as the Agent writes them", () => {
     expect(liveTool("lower_symmetry")!.effect).toBe("change");
     expect(liveTool("clear_subgroup")!.historyStep).toBe("settings");
     expect(liveTool("list_subgroups")!.effect).toBe("read");
+  });
+});
+
+describe("a listing slower than the wait", () => {
+  it("answers with the rows so far and says so, and goes on: the next call finds it done", async () => {
+    // A cold SrTiO₃ (a structure the caches have not seen), the larger cells' wait cut to nothing.
+    const parent = srtio3();
+    const { ex } = agentOn(pdfPage(parent, patternOf(parent), { preset: { fitRange: { min: 1.5, max: 10 } } }), (p) => ({
+      ...p,
+      subgroups: { ...p.subgroups!, list: (bound) => listSubgroups(parent, bound, { waitMs: 1 }) },
+    }));
+    const first = parsed((await ex.run("list_subgroups", { bound: "2×2×2", limit: 50 })).text) as { listing?: string; count: number; rows: { cell: string }[] };
+    expect(first.listing).toMatch(/^still working out the larger cells \(\d+ %\): the same-cell rows and any larger ones so far; call again shortly$/);
+    expect(first.rows.length).toBeGreaterThan(0);
+    // lower_symmetry by name does not pick from a partial list.
+    const early = await ex.run("lower_symmetry", { name: "Pnma", cell: "2×2×2" });
+    expect(early.text).toMatch(/the 2×2×2 cells are still being listed \(\d+ %\): call again shortly/);
+    // The work goes on without the caller: once it is done, the list is whole.
+    const done = await listSubgroups(parent, parseBound("2×2×2")!);
+    expect(done.larger.state).toBe("done");
+    const again = parsed((await ex.run("list_subgroups", { bound: "2×2×2", name: "Pnma", cell: "2×2×2" })).text) as { listing?: string; rows: { domains: number }[] };
+    expect(again.listing).toBeUndefined();
+    expect(again.rows.map((r) => r.domains)).toContain(24);
   });
 });
 
