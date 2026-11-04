@@ -1770,22 +1770,22 @@ PDF page only. The way to answer whether the local structure differs from the av
 
 ### list_subgroups
 
-PDF page only. The subgroups the Subgroups view lists: those of the loaded structure's group whose cell fits the supercell `bound`, high to low symmetry, one row per name, cell and domains. A row gives its `id` (for lower_symmetry), name and IT number, cell ("same cell", or the parent cells it repeats over), domains, the irreps that lower the parent to it with their directions (generic labels; `coupled` when no single irrep does), its mode count, and `variants` when several classes share the row (the `id` is the default one's). `strainOnly` rows move no atom. A result with `listing` is still partial: call again. Changes nothing.
+PDF page only. The Subgroups view's list: the subgroups of the loaded structure's group whose cell fits the supercell `bound`, high to low symmetry, one row per name, cell and domains. Each row: `id` (for lower_symmetry), name, cell, domains, the irreps that reach it with their directions (`coupled`: no single irrep does), mode count, and `variants` when several classes share it (`id` is the default's). `strainOnly` rows move no atom. With `listing` the result is partial: call again.
 
 ```json
 {
   "type": "object",
   "properties": {
     "bound": {
-      "description": "The supercell: \"1×1×2\", \"2×2×2\", \"√2×√2×1\", or P as \"2 0 0; 0 2 0; 0 0 2\". Default: the Subgroups view's, else 2×2×2",
+      "description": "Supercell: \"1×1×2\", \"2×2×2\", or P as \"2 0 0; 0 2 0; 0 0 2\". Default: the view's, else 2×2×2",
       "type": "string"
     },
     "name": {
-      "description": "Only this name or IT number: \"P-42_1m\", \"113\"",
+      "description": "Name or IT number: \"P-42_1m\", \"113\"",
       "type": "string"
     },
     "k": {
-      "description": "Only the rows these k-points' irreps reach: \"X\", \"W\" (two allow their coupled pairs)",
+      "description": "k-points whose irreps reach the row: \"X\", \"W\"",
       "maxItems": 4,
       "type": "array",
       "items": {
@@ -1793,15 +1793,15 @@ PDF page only. The subgroups the Subgroups view lists: those of the loaded struc
       }
     },
     "cell": {
-      "description": "Only this cell: \"same cell\", \"supercell\", or a box such as \"1×1×2\"",
+      "description": "\"same cell\", \"supercell\" or a box: \"1×1×2\"",
       "type": "string"
     },
     "all": {
-      "description": "Also the strain-only rows and those only three or more coupled irreps reach (hidden by default, as in the view)",
+      "description": "Also the strain-only rows and those only 3+ coupled irreps reach",
       "type": "boolean"
     },
     "offset": {
-      "description": "Skip this many rows (paging)",
+      "description": "Rows to skip",
       "type": "integer",
       "minimum": 0,
       "maximum": 9007199254740991
@@ -1819,32 +1819,32 @@ PDF page only. The subgroups the Subgroups view lists: those of the loaded struc
 
 ### lower_symmetry
 
-PDF page only. Lower the symmetry to a subgroup, exactly as Activate on the Subgroups view: the child (in the parent's cell, or in its own supercell) becomes the model, its positions refine as modes by parent irrep, and the order parameter's modes are freed from a small kick, the others fixed at 0. Give a row's `id` from list_subgroups, or `name` with `cell` (and `variant` when the row has several). When several subgroups match and no `id` is given, it returns them as `candidates` and changes nothing. Then refine the freed modes with the scale. Refused while a subgroup is in force (clear_subgroup first) or a fit runs. On the powder page a lower group is loaded as its CIF.
+PDF page only. Lower the symmetry to a subgroup as Activate on the Subgroups view does: the child (in the parent's cell or its own supercell) becomes the model, its positions refine as modes by parent irrep, the order parameter's modes freed from a small kick. Give a row's `id` from list_subgroups, or `name` with `cell` (and `variant`). Several matches and no `id`: it returns `candidates` and changes nothing. Then refine the freed modes with the scale. Refused while a subgroup is in force (clear_subgroup first). On the powder page a lower group is loaded as its CIF.
 
 ```json
 {
   "type": "object",
   "properties": {
     "id": {
-      "description": "A row's id from list_subgroups, e.g. \"c45@1×1×2\" or \"s18\"",
+      "description": "A row's id from list_subgroups (\"c45@1×1×2\", \"s18\")",
       "type": "string"
     },
     "name": {
-      "description": "Or the subgroup's name or IT number: \"P-42_1m\", \"113\"",
+      "description": "Or its name or IT number",
       "type": "string"
     },
     "cell": {
-      "description": "With name: \"same cell\", or a box such as \"1×1×2\"",
+      "description": "With name: \"same cell\" or a box (\"1×1×2\")",
       "type": "string"
     },
     "variant": {
-      "description": "With name: which of the row's variants, numbered as `candidates` lists them",
+      "description": "With name: the variant's number in `candidates`",
       "type": "integer",
       "minimum": 1,
       "maximum": 9007199254740991
     },
     "bound": {
-      "description": "With name: the supercell to look in (default: the box `cell` names, else the Subgroups view's, else 2×2×2)",
+      "description": "With name: the supercell to look in (default: the box `cell` names)",
       "type": "string"
     }
   },
@@ -1854,7 +1854,7 @@ PDF page only. Lower the symmetry to a subgroup, exactly as Activate on the Subg
 
 ### clear_subgroup
 
-PDF page only. ✕ clear on the Subgroups view: the subgroup or mode set in force is dropped and the loaded structure's group comes back, its positions per coordinate. Clears the last fit.
+PDF page only. ✕ clear on the Subgroups view: back to the loaded structure's group, positions per coordinate. Clears the last fit.
 
 ```json
 {

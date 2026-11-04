@@ -9,6 +9,27 @@ release fixes bugs.
 
 ### Added
 
+- **The Agent lowers the symmetry on the PDF page.** Before, asked for a
+  subgroup, it said the page had no tool for it and asked for a CIF made
+  elsewhere. Three tools now do what the Subgroups view does:
+  - `list_subgroups` gives the view's list for a supercell (the view's, else
+    2×2×2; "1×1×2", a preset or P): each row's id, name and IT number, cell,
+    domains, the irreps that reach it with their directions, its mode count
+    and how many classes share it. It narrows by name, k-point and cell, and
+    pages a long list. The larger cells are listed in a Web Worker, as in the
+    view; a listing that takes longer than 30 s answers with the rows so far.
+  - `lower_symmetry` runs Activate on a row: the same child, modes, kick and
+    History step as clicking it. When several classes match a name and cell
+    (GaTa₄Se₈'s four P-42₁m classes in 1×1×2), it lists them and changes
+    nothing until it gets an id. It asks first as every change does (none in
+    Auto), and waits while a fit or the sampler runs. The Subgroups view opens
+    on the child.
+  - `clear_subgroup` is the banner's ✕ clear.
+  - The `pdf-workflow` skill says to list, pick with the user, lower, then
+    refine the freed modes. A new eval scenario, `pdf-lower-symmetry`,
+    replays the request. The powder page has no activation: there the tools
+    say they work on the PDF page.
+
 - **Stop for posterior sampling.** On the Posterior tab (PDF and powder pages)
   **Stop** takes the place of **Sample posterior** while a run goes, as Cancel
   does for Refine. The run stops within a second: the batch being evaluated is
