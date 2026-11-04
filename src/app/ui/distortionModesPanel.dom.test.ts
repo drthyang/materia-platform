@@ -144,3 +144,116 @@ describe("the mode table's chips", () => {
     expect(shown.arrows).toEqual({ kind: "all" });
   });
 });
+
+describe("the mode table folded by irrep", () => {
+  const set = pageView(PNMA).modeSet!;
+  const irreps = [...new Set(set.modes.map((m) => m.irrep!.label))];
+  const irrepRows = (h: HTMLElement): string[] => [...h.querySelectorAll<HTMLElement>("tr[data-irrep]")].map((r) => r.dataset.irrep!);
+  const disclosure = (h: HTMLElement, label: string): HTMLButtonElement => irrepRow(h, label).querySelector<HTMLButtonElement>("button[aria-expanded]")!;
+  const cells = (r: HTMLElement): string[] => [...r.querySelectorAll("td")].map((c) => c.textContent!);
+
+  it("opens on one row per irrep: its total, its free count, and ▸ for its rows", () => {
+    const { host: h } = mount(PNMA, undefined, { expand: false });
+    expect(irrepRows(h)).toEqual(irreps);
+    expect(modeRows(h)).toEqual([]);
+    const first = set.modes.filter((m) => m.irrep!.label === irreps[0]);
+    const a = Math.hypot(...first.map((m) => PNMA.params.find((p) => p.id === m.id)!.value));
+    const row = cells(irrepRow(h, irreps[0]!));
+    expect(row[0]).toContain(irreps[0]);
+    expect(row[0]).toContain(first[0]!.irrep!.direction!);
+    expect(row[1]).toBe(a.toFixed(5));
+    const free = first.filter((m) => !PNMA.params.find((p) => p.id === m.id)!.fixed).length;
+    expect(row[5]).toBe(`${free}/${first.length} free`);
+    // ▸ opens that irrep only; ▾ folds it again.
+    click(disclosure(h, irreps[0]!));
+    expect(modeRows(h)).toEqual(first.map((m) => m.label));
+    expect(disclosure(h, irreps[0]!).getAttribute("aria-expanded")).toBe("true");
+    click(disclosure(h, irreps[0]!));
+    expect(modeRows(h)).toEqual([]);
+    // Expand all, then Collapse all.
+    click(button(h, "Expand all"));
+    expect(modeRows(h)).toEqual(irreps.flatMap((l) => set.modes.filter((m) => m.irrep!.label === l).map((m) => m.label)));
+    click(button(h, "Collapse all"));
+    expect(modeRows(h)).toEqual([]);
+  });
+
+  it("with a site chip, folds to that site's part of each irrep", () => {
+    const { host: h } = mount(PNMA, undefined, { expand: false });
+    click(chip(h, "parent site", "O"));
+    const onO = [...new Set(set.modes.filter((m) => m.irrep!.parentSite === "O").map((m) => m.irrep!.label))];
+    expect(irrepRows(h)).toEqual(onO);
+    for (const l of onO) {
+      const part = set.modes.filter((m) => m.irrep!.label === l && m.irrep!.parentSite === "O");
+      const whole = set.modes.filter((m) => m.irrep!.label === l);
+      const row = cells(irrepRow(h, l));
+      expect(row[1]).toBe(Math.hypot(...part.map((m) => PNMA.params.find((p) => p.id === m.id)!.value)).toFixed(5));
+      expect(row[0]!.includes("· O")).toBe(whole.length > part.length);
+    }
+  });
+
+  for (const [what, k, site] of [["R on O", "R, supercell ×2", "O"], ["all", null, null]] as const) {
+    it(`Free all / Fix all on ${what}, folded: the rows the per-row toggles give, and the folded free count follows`, () => {
+      const { host: h, model } = mount(PNMA, undefined, { expand: false });
+      if (k) click(chip(h, "k-point", k));
+      if (site) click(chip(h, "parent site", site));
+      const star = k ? k.split(",")[0] : null;
+      const ids = set.modes.filter((m) => (!star || m.star === star) && (!site || m.irrep!.parentSite === site)).map((m) => m.id);
+      click(button(h, "Free all"));
+      const freed = ids.reduce((x, id) => withParameter(x, id, { fixed: false }), PNMA);
+      expect(rows(model())).toEqual(rows(freed));
+      for (const l of irrepRows(h)) expect(cells(irrepRow(h, l))[5]).toMatch(/^(\d+)\/\1 free$/);
+      click(button(h, "Fix all"));
+      expect(rows(model())).toEqual(rows(ids.reduce((x, id) => withParameter(x, id, { fixed: true }), freed)));
+      for (const l of irrepRows(h)) expect(cells(irrepRow(h, l))[5]).toMatch(/^0\/\d+ free$/);
+    });
+  }
+
+  it("draws an irrep at once from its row, every listed mode from All in 3D, and nothing after Arrows off", () => {
+    const shown: { arrows: ModeArrows | null } = { arrows: null };
+    const { host: h } = mount(PNMA, shown, { expand: false });
+    // An irrep with a non-zero amplitude (the tilts the child is seeded with).
+    const live = irreps.find((l) => set.modes.some((m) => m.irrep!.label === l && PNMA.params.find((p) => p.id === m.id)!.value !== 0))!;
+    click(irrepRow(h, live));
+    expect(shown.arrows).toEqual({ kind: "irrep", id: live });
+    expect(h.textContent).toMatch(new RegExp(`▸ green arrows: ${live} · largest shift \\d\\.\\d{3} Å`));
+    // Its ▸ only opens it; the arrows stay.
+    click(disclosure(h, live));
+    expect(shown.arrows).toEqual({ kind: "irrep", id: live });
+    // A row at 0: nothing to draw, said so.
+    const dead = irreps.find((l) => set.modes.every((m) => m.irrep!.label !== l || PNMA.params.find((p) => p.id === m.id)!.value === 0))!;
+    click(irrepRow(h, dead));
+    expect(h.textContent).toContain(`${dead}: every A is 0, nothing to draw yet — refine first`);
+    click(button(h, "All in 3D"));
+    expect(shown.arrows).toEqual({ kind: "all" });
+    expect(h.textContent).toMatch(/▸ green arrows: all modes listed · largest shift/);
+    click(button(h, "Arrows off"));
+    expect(shown.arrows).toBeNull();
+    expect(button(h, "Arrows off")).toBeUndefined();
+  });
+
+  it("charts each irrep's share, dominant first, the % summing to 100, and follows a refine", () => {
+    const { host: h, setModel } = mount(PNMA, undefined, { expand: false });
+    const bars = (): { label: string; pct: number }[] => [...h.querySelectorAll<HTMLButtonElement>('[aria-label^="share of the distortion"] [role=listitem] > button')]
+      .map((b) => { const [label, pct] = b.getAttribute("aria-label")!.split(": "); return { label: label!, pct: parseFloat(pct!) }; });
+    const before = bars();
+    expect(before.map((b) => b.label).sort()).toEqual([...irreps].sort());
+    expect(before.reduce((s, b) => s + b.pct, 0)).toBeCloseTo(100, 0);
+    for (let i = 1; i < before.length; i++) expect(before[i - 1]!.pct).toBeGreaterThanOrEqual(before[i]!.pct);
+    expect(h.textContent).toContain(`${before[0]!.label} carries ${before[0]!.pct}`);
+    // A refine moves the amplitudes: the chart follows (here the last irrep becomes the dominant one).
+    const last = irreps[irreps.length - 1]!;
+    const bumped = set.modes.filter((m) => m.irrep!.label === last).reduce((x, m) => withParameter(x, m.id, { value: 1 }), PNMA);
+    setModel(bumped);
+    expect(bars()[0]!.label).toBe(last);
+    // A bar click draws that irrep, as its row does.
+    const shownBar = h.querySelector<HTMLButtonElement>(`[role=listitem] > button[aria-label^="${last}:"]`)!;
+    click(shownBar);
+    expect(shownBar.getAttribute("aria-pressed")).toBe("true");
+    // An irrep opened shows its split by site under its bar.
+    const multi = irreps.find((l) => set.modes.filter((m) => m.irrep!.label === l).length > 1)!;
+    const listItem = (l: string) => h.querySelector<HTMLButtonElement>(`[role=listitem] > button[aria-label^="${l}:"]`)!.parentElement!;
+    expect(listItem(multi).children.length).toBe(1);
+    click(disclosure(h, multi));
+    expect(listItem(multi).children.length).toBe(1 + set.modes.filter((m) => m.irrep!.label === multi).length);
+  });
+});

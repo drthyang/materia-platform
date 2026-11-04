@@ -289,7 +289,7 @@ export function DistortionModesPanel({ modeSet, modes, params, result, spaceGrou
         <button
           type="button"
           aria-pressed={arrows?.kind === "all"}
-          style={{ ...resetRangeBtn, ...(arrows?.kind === "all" ? { borderColor: "#15803d", color: "#15803d" } : {}) }}
+          style={{ ...resetRangeBtn, ...(arrows?.kind === "all" ? { border: "1px solid #15803d", color: "#15803d" } : {}) }}
           onClick={() => toggle({ kind: "all" })}
           title="Draw every listed mode on the 3D model at once, at their current amplitudes (the summed displacement field)"
         >
