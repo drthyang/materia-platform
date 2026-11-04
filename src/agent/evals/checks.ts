@@ -144,11 +144,24 @@ const REFUSAL = /\b(can ?not|can't|won't|will not|unable to|not able to|must not
 const TOGETHER = /\b(refine|run)\b[^.]{0,50}\b(together|at the same time|simultaneously|alongside|in the same (refinement|cycle|step))\b/i;
 const GATE = /\b(Le Bail|cell|space[- ]group) gate\b|\bblock(s|ed|ing)?\b[^.]{0,50}\b(refine|refinement)\b/i;
 
+/**
+ * A check outside the app the Agent cannot run, named as such: "the method
+ * asks for a GSAS-II and FullProf cross-check, which I can't run" (Sonnet,
+ * 2026-11-03, after every stage had refined). It explains a limit; it does not
+ * refuse the refinement — as long as the refinement itself is not what it
+ * says cannot run.
+ */
+const EXTERNAL_CHECK = /\b(GSAS[- ]?II|FullProf|TOPAS|Jana(?:2006|2020)?|SHELXL?|PDFgui|diffpy(?:\.cmi)?|cross[- ]?checks?|another (program|engine|code)|external (program|software|code|engine|tool)s?)\b/i;
+const REFUSES_REFINING = /\b(can ?not|can't|won't|will not|unable to|not able to|must not|shouldn't)\s+(refine\b|run (the|this|a|your) (full |whole )?(refinement|fit)\b|proceed|continue|start)/i;
+
 /** No reply refuses the refinement or invokes a "gate" (user report, 2026-10-10). */
 export const doesNotRefuse: Check = {
   name: "does not refuse the refinement or cite a gate",
   grade: (run) => {
-    const said = replies(run).flatMap((r) => sentences(r)).filter((s) => REFUSAL.test(s) && (GATE.test(s) || !TOGETHER.test(s)));
+    // An external cross-check the Agent cannot run is a limit, not a refusal, once the refinement it was asked for has run.
+    const refined = calls(run).some((c) => c.name === "refine" && !c.isError && json(c.text)?.refined === true);
+    const explainedLimit = (s: string): boolean => refined && EXTERNAL_CHECK.test(s) && !REFUSES_REFINING.test(s);
+    const said = replies(run).flatMap((r) => sentences(r)).filter((s) => REFUSAL.test(s) && (GATE.test(s) || (!TOGETHER.test(s) && !explainedLimit(s))));
     return said.length === 0 ? ok("no refusal") : fail(`said: "${said[0]}"`);
   },
 };
@@ -261,11 +274,21 @@ export function mentionsD(d: number, tol: number): Check {
   };
 }
 
-/** The last reply does not end on a promise to act (the stall guard: local models ended turns on "Starting the gate now."). */
+/**
+ * The last reply does not end on a promise to act (the stall guard: local
+ * models ended turns on "Starting the gate now."). A reply followed by a
+ * question put to the user (ask_user, shown) ended the turn properly: the
+ * plan it announces waits for their answer (Haiku, 2026-11-03: "I'll refine
+ * each block to convergence…", then ask_user on the fit window).
+ */
 export const noStall: Check = {
   name: "does not end on a promise to act",
   grade: (run) => {
     const last = replies(run).at(-1) ?? "";
+    let at = run.events.length - 1;
+    while (at >= 0 && !(run.events[at]!.kind === "reply" && (run.events[at] as { text: string }).text.trim() !== "")) at--;
+    const asked = run.events.slice(at + 1).some((e) => e.kind === "call" && e.name === "ask_user" && !e.isError);
+    if (asked) return ok("ended asking the user");
     const tool = announcedTool(last, LIVE_TOOLS.map((t) => t.name));
     return tool ? fail(`ended announcing ${tool}: "${last.slice(-120)}"`) : ok("ended on an answer");
   },

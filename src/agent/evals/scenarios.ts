@@ -4,7 +4,7 @@
  * own data, with the checks that say whether it got it right this time.
  */
 
-import { awo4UserFiles, awo4UserPage, BATCH_SCALES, BC_EXTINCTION, EDGE_STEP_AT, FAILED_PAIR, FAILED_REFLECTION, MAGNETIC_TRUTH, MN3GA_30K_TRUTH, impurityD, scChiralPage, scDisorderPage, scHydridePage, scInvertedHandPage, scOrganicPage, scPage, scTwinnedPage, mn3gaEdgeSession, mn3gaFluoriteSession, mn3gaImpuritySession, mn3gaMagneticSession, mn3gaMisfitSession, mn3gaSession, mn3gaSwappedUnitsSession, mn3gaWrongWavelengthSession, mn3ga30kPage, pdfPage, powderPage } from "@/agent/evals/pages";
+import { awo4UserFiles, awo4UserPage, BATCH_SCALES, BC_EXTINCTION, EDGE_STEP_AT, FAILED_PAIR, FAILED_REFLECTION, MAGNETIC_TRUTH, MN3GA_30K_TRUTH, impurityD, scChiralPage, scDisorderPage, scHydridePage, scInvertedHandPage, scOrganicPage, scPage, scTwinnedPage, mn3gaEdgeSession, mn3gaFluoriteSession, mn3gaImpuritySession, mn3gaMagneticSession, mn3gaMisfitSession, mn3gaSession, mn3gaSwappedUnitsSession, mn3gaWrongWavelengthSession, mn3ga30kPage, pdfPage, powderPage, refineNuclear } from "@/agent/evals/pages";
 import {
   mergesFirst,
   refinesFlack,
@@ -55,6 +55,7 @@ import {
   tracksBonds,
 } from "@/agent/evals/checks";
 import type { EvalScenario } from "@/agent/evals/harness";
+import type { PowderAgentPort } from "@/agent/port";
 
 export const SCENARIOS: readonly EvalScenario[] = [
   {
@@ -162,6 +163,8 @@ export const SCENARIOS: readonly EvalScenario[] = [
     title: "Solves a magnetic structure on the magnetic step",
     origin: "User report: the Agent could not act on the magnetic analysis step.",
     page: () => powderPage(mn3gaMagneticSession()),
+    // The user's nuclear refinement, on the page and in the History: what the message says.
+    before: (port, record) => refineNuclear(port as PowderAgentPort, record),
     messages: ["The nuclear structure is refined. Find the magnetic structure."],
     autonomy: "auto",
     checks: [readsMethodFirst, ran("search_propagation_vector"), magneticKIs([MAGNETIC_TRUTH.k[0], MAGNETIC_TRUTH.k[1], MAGNETIC_TRUTH.k[2]]), magneticGroupIs(MAGNETIC_TRUTH.id), ran("refine_moments"), noStall],
@@ -194,6 +197,7 @@ export const SCENARIOS: readonly EvalScenario[] = [
     title: "Follows the magnetic step's sequence, not the powder checklist",
     origin: "Track A2: Haiku's magnetic runs — the longer method read like a to-do list, and a model went back to the fit range and the stages before the k-search.",
     page: () => powderPage(mn3gaMagneticSession()),
+    before: (port, record) => refineNuclear(port as PowderAgentPort, record),
     messages: ["The nuclear refinement is done. Is there magnetic order? Find the magnetic structure."],
     autonomy: "auto",
     checks: [magneticSequenceFirst, ran("search_propagation_vector"), noStall],
@@ -230,7 +234,9 @@ export const SCENARIOS: readonly EvalScenario[] = [
     title: "Compares local and average structure with a boxcar scan",
     origin: "Boxcar scans on the PDF page (#40).",
     page: () => pdfPage(),
-    messages: ["Does the local structure differ from the average one?"],
+    // Ask mode: the Agent does one stage and checks in, as it is told to (2026-11-03: Haiku stopped after the
+    // baseline, 1/3). The user's answer lets it run the rest, so the scenario still reaches the scan.
+    messages: ["Does the local structure differ from the average one?", "Yes, go on: run the remaining stages without stopping until you can answer."],
     autonomy: "ask",
     checks: [ran("boxcar_scan"), noStall],
   },

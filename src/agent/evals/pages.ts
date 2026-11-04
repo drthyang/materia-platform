@@ -30,6 +30,7 @@ import { powderCurves } from "@/core/workflow/powder";
 import type { Vec3 } from "@/core/math/types";
 import { powderRestraints } from "@/app/powderSpec";
 import { minMax } from "@/core/math/extent";
+import type { StepKind } from "@/core/project/history";
 
 const WAVELENGTH = 1.54;
 const twoThetaOf = (d: number): number => (2 * Math.asin(WAVELENGTH / (2 * d)) * 180) / Math.PI;
@@ -236,6 +237,40 @@ export function mn3gaMagneticSession(): Session & { readonly truthGroup: string 
     return { ...p, yObs: y + sigma * noise(), sigma };
   });
   return { ...s0, powderParams: params, pattern: { ...s0.pattern, points }, truthGroup: latticeCandidateLabel(truth).symbol };
+}
+
+/** Record a step the user took on the page in its History, as theirs (EvalScenario.before). */
+export type RecordUserStep = (kind: StepKind, label: string) => void;
+
+/**
+ * The nuclear refinement the magnetic scenarios' user says is done, run on
+ * the page with its own refine, in my-rietveld-workflow's order: scale,
+ * background and cell; the Mn position; the peak width; then the B's with
+ * the width held (the instrument–thermal rule). Each fit is a History step,
+ * the user's, and the last one's result is the page's: get_state shows a
+ * converged nuclear refinement, not the start. The magnetic satellites stay
+ * in the residual (the nuclear model has nothing to put them in), so wR
+ * stays high. Throws if a stage does not converge: the page would then not
+ * be what the user's message says.
+ */
+export async function refineNuclear(port: PowderAgentPort, record: RecordUserStep): Promise<void> {
+  const stages: readonly { readonly label: string; readonly kinds: readonly string[]; readonly hold?: readonly string[] }[] = [
+    { label: "Refine scale, background, cell", kinds: ["scale", "background", "cellLength"] },
+    { label: "Refine positions", kinds: ["positionShift"] },
+    { label: "Refine profile", kinds: ["peakWidth"] },
+    { label: "Refine ADPs", kinds: ["bIso"], hold: ["peakWidth"] },
+  ];
+  const free = new Set<string>();
+  for (const stage of stages) {
+    const rows = port.state().parameters;
+    for (const p of rows) if (stage.kinds.includes(p.kind)) free.add(p.id);
+    for (const p of rows) if (stage.hold?.includes(p.kind)) free.delete(p.id);
+    port.setFixed(rows.filter((p) => !p.expression).map((p) => ({ id: p.id, fixed: !free.has(p.id) })));
+    await port.refine();
+    const result = port.state().result;
+    if (result?.status !== "converged") throw new Error(`the nuclear refinement's stage "${stage.label}" did not converge (${result?.status ?? "no result"})`);
+    record("refine", stage.label);
+  }
 }
 
 /** The magnetic structure the Mn₃Ga 30 K pattern was simulated from (examples/mcp/mn3ga_30k_sim.xye): k, its group's id on the page. */
