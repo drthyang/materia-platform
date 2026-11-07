@@ -22,6 +22,7 @@ import { cardsInReply, type AgentCard } from "@/agent/focus";
 import { MATH_SPAN_SOURCE, mathInside, texPieces } from "@/agent/ui/texText";
 import { DRAWER_MAX, DRAWER_MIN, KEY_STEP, SHEET_DEFAULT, SHEET_MAX, SHEET_MIN, SHEET_QUERY, SHORT_LANDSCAPE, clampDrawerWidth, clampSheet, readDrawerWidth, readSheet, sheetFor, writeDrawerWidth, writeSheet } from "@/agent/ui/drawerWidth";
 import { cssZoom } from "@/app/ui/cssZoom";
+import { ContextMeter, ContextWarning, meterView } from "@/agent/ui/ContextMeter";
 import { useMediaQuery } from "@/app/ui/useMediaQuery";
 
 interface Props {
@@ -1149,8 +1150,13 @@ function Composer({ agent, disabled, compact, text, setText, input, hint }: { ag
   };
   const { usage } = agent;
   const used = usage.input + usage.output > 0;
+  const tokens = `${fmtTokens(usage.input)} in · ${fmtTokens(usage.cacheRead)} cached · ${fmtTokens(usage.output)} out`;
+  // The context meter (ContextMeter.tsx): on a phone it stays collapsed until amber.
+  const view = meterView(agent.context, compact);
+  const meter = agent.context !== null && view !== null && view.shown;
   return (
     <div style={composer}>
+      {view?.actions && <ContextWarning view={view} busy={agent.thinking} onFresh={agent.clear} onSummarize={agent.summarize} />}
       <div className="wb-agent-input">
         <textarea
           ref={input}
@@ -1172,15 +1178,28 @@ function Composer({ agent, disabled, compact, text, setText, input, hint }: { ag
           : <button type="button" className="wb-agent-send" onClick={submit} disabled={disabled || !text.trim()} aria-label="Send" title="Send (Enter)"><ArrowGlyph /></button>}
       </div>
       <div className="wb-agent-foot">
-        <span className="wb-agent-hint" data-keys={used ? undefined : ""} title={used ? `${usage.input} input tokens (${usage.cacheRead} read from the cache) and ${usage.output} output tokens this session` : undefined}>
-          {used ? `${fmtTokens(usage.input)} in · ${fmtTokens(usage.cacheRead)} cached · ${fmtTokens(usage.output)} out` : "Enter to send · Shift+Enter for a new line"}
-        </span>
+        {meter ? (
+          <ContextMeter reading={agent.context!} view={view} cost={costKind(agent)} session={`This session: ${tokens}.`} />
+        ) : (
+          <span className="wb-agent-hint" data-keys={used ? undefined : ""} title={used ? `${usage.input} input tokens (${usage.cacheRead} read from the cache) and ${usage.output} output tokens this session` : undefined}>
+            {used ? tokens : "Enter to send · Shift+Enter for a new line"}
+          </span>
+        )}
         {agent.transcript.length > 0 && !agent.thinking && (
           <button type="button" className="wb-agent-link" onClick={agent.clear}>New conversation</button>
         )}
       </div>
     </div>
   );
+}
+
+/** What the session costs, as the meter's details say it: Anthropic's at list price, nothing on this machine, or not known. */
+function costKind(agent: AgentController): number | "local" | null {
+  const s = agent.settings;
+  if (s.replayOf) return null;
+  if (s.mode === "ollama" || s.mode === "lmstudio") return "local";
+  if (s.mode === "openai-compatible") return isMachineUrl(s.openaiUrl) ? "local" : null;
+  return agent.cost;
 }
 
 function ArrowGlyph(): JSX.Element {

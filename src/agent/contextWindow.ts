@@ -292,3 +292,20 @@ function keyValues(root: unknown, max: number): string {
   }
   return parts.join(" · ");
 }
+
+/**
+ * How many tool results a pruned copy sends shortened (a digest, a line, an
+ * outline): the blocks it replaced. The chat says so in the conversation, so
+ * a shortened history is never a silent one.
+ */
+export function shortenedResults(messages: readonly BetaMessageParam[], pruned: readonly BetaMessageParam[]): number {
+  let n = 0;
+  pruned.forEach((m, i) => {
+    const was = messages[i];
+    if (m === was || m.role !== "user" || typeof m.content === "string" || !was || typeof was.content === "string") return;
+    m.content.forEach((b, j) => {
+      if (b.type === "tool_result" && b !== was.content[j]) n++;
+    });
+  });
+  return n;
+}

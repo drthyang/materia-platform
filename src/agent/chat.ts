@@ -28,6 +28,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type {
   BetaContentBlock,
+  BetaContentBlockParam,
   BetaMessage,
   BetaMessageParam,
   BetaMessageStreamParams,
@@ -42,7 +43,7 @@ import { scopeNote, scopedTools } from "@/agent/toolScope";
 import { evidenceGate, gradeContradiction, type CallRecord } from "@/agent/evidence";
 import type { AgentSituation, ToolOutcome, ToolRunner } from "@/agent/executor";
 import { agentSystemPrompt, autonomyNote } from "@/agent/systemPrompt";
-import { CONTEXT_EDITING, CONTEXT_EDITING_BETA, pruneForLocal } from "@/agent/contextWindow";
+import { CONTEXT_EDITING, CONTEXT_EDITING_BETA, LOCAL_BATCH, historyChars, pruneForLocal, shortenedResults } from "@/agent/contextWindow";
 import { hasRefusalFallback } from "@/agent/chat-models";
 import { type OllamaPlan, ollamaWindow } from "@/agent/ollamaNative";
 import { DEFAULT_OPENAI_CONTEXT, openaiWindow } from "@/agent/openaiCompat";
@@ -50,7 +51,8 @@ import { ensureLmStudioContext } from "@/agent/lmstudio";
 import { MIN_AGENT_CONTEXT, contextAdvice } from "@/agent/localServer";
 import { clientFor, isLocal, isSized, type Backend, type ChatConfig } from "@/agent/chatTransport";
 import { ThinkingBinding, bindingKey, withoutSignedThinking } from "@/agent/thinkingBinding";
-import { PromptMeter, REPLY_RESERVE, fitWindow, runPolicy, temperatureOf, type RunPolicy } from "@/agent/chatBudget";
+import { MIN_REPLY, REPLY_CAP, PromptMeter, REPLY_RESERVE, fitWindow, runPolicy, temperatureOf, type RunPolicy } from "@/agent/chatBudget";
+import { claudeWindow, localReserve, promptTokens, rescaled, type ContextReading } from "@/agent/contextMeter";
 import { FROM_APP, LoopGuard, MAX_GATES, MAX_NUDGES, REFUSED_HINT, RepeatWatch, stalledReply } from "@/agent/chatGuards";
 
 export { NO_PROXY, PROXY_PATH, proxyStatus, type ProxyStatus } from "@/agent/proxyStatus";
@@ -65,10 +67,21 @@ export interface ChatCallbacks {
   /** Summarized reasoning, as it streams. */
   readonly onThinking: (delta: string) => void;
   readonly onNotice: (text: string, tone: "info" | "error") => void;
-  readonly onUsage: (usage: BetaUsage) => void;
+  /** A reply's token counts, and the model that wrote it (another one when a fallback answered). */
+  readonly onUsage: (usage: BetaUsage, model?: string) => void;
   /** The model's message is complete, before its tool calls run: its words can be read against the page as it stands. */
   readonly onAssistantEnd?: () => void;
+  /** How full the model's window is after a reply (contextMeter.ts); also after a summary, and when a request no longer fits. */
+  readonly onContext?: (reading: ContextReading) => void;
 }
+
+/**
+ * Summarize and continue (MODEL-VISIBLE): the request that asks the model for
+ * a summary of the conversation, appended to the history as it stands.
+ */
+export const SUMMARY_REQUEST = `${FROM_APP} The user asked to summarize this conversation and continue: your summary will replace the conversation so far in your context. Write it now, without calling tools, in plain text of at most about 400 words: the user's goal and requests; what was done, with the key results and values as the tools reported them (with their refs); where the analysis stands now; open questions and the next step.`;
+/** Summarize and continue (MODEL-VISIBLE): the message before the summary, once it has replaced the history. */
+export const SUMMARY_CARRIER = `${FROM_APP} At the user's request, the conversation so far was replaced by your summary of it (your next message), to free room in your context. The page is as it was: get_state reads it, and read_ref opens an earlier result by its ref.`;
 
 export class AgentChat {
   private readonly messages: BetaMessageParam[] = [];
@@ -93,11 +106,24 @@ export class AgentChat {
   private ollamaPlan: OllamaPlan | null = null;
   /** The system prompt and tools the history's Claude thinking is signed under (thinkingBinding.ts). */
   private readonly binding = new ThinkingBinding();
+  /** The last request's size in characters: its instructions and tools, and all of it (for a reading after a summary). */
+  private lastFixedChars = 0;
+  private lastChars = 0;
+  /** A local request that did not fit: its reading, shown before the refusal. */
+  private overflow: ContextReading | null = null;
+  /** Never a silent cut: the older tool results the user was told are shortened (local) or left out by the API (Claude). */
+  private shortenedNow = 0;
+  private shortenedTold = 0;
+  private clearedTold = 0;
 
   constructor(private readonly executor: ToolRunner) {}
 
-  /** Send one user message and run the turns it leads to. */
-  async send(text: string, asked: ChatConfig, cb: ChatCallbacks, signal: AbortSignal): Promise<void> {
+  /**
+   * The model a message goes to, and its window: the backend switch, and a
+   * local server's context (LM Studio loads the model with room, Ollama runs
+   * it at the context it asks for).
+   */
+  private async prepare(asked: ChatConfig, cb: ChatCallbacks, signal: AbortSignal): Promise<{ readonly config: ChatConfig; readonly client: Anthropic }> {
     // The mode is part of the system prompt Claude's thinking is signed under, so one message runs
     // under the mode it started with: a switch of Ask first / Auto reaches Claude at the next
     // message (the approval cards follow the switch at once), and a tool loop in flight keeps its
@@ -133,6 +159,57 @@ export class AgentChat {
       this.maxWindow = w.max;
       this.window = w.max !== null ? Math.min(want, w.max) : want;
     }
+    return { config, client };
+  }
+
+  /** One turn's request; a local request that cannot fit shows its reading before the refusal. */
+  private requestOrOverflow(config: ChatConfig, cb: ChatCallbacks): BetaMessageStreamParams {
+    this.overflow = null;
+    try {
+      return this.request(config);
+    } catch (e) {
+      if (this.overflow !== null) cb.onContext?.(this.overflow);
+      throw e;
+    }
+  }
+
+  /**
+   * After a reply: how full the window is (the API's counts for Claude, the
+   * app's estimate for a local model), and a word in the chat whenever the
+   * history the model sees has been shortened further since it was last said.
+   */
+  private afterReply(config: ChatConfig, message: BetaMessage, cb: ChatCallbacks): void {
+    const reading = this.readingFor(config, message.usage);
+    if (reading !== null) cb.onContext?.(reading);
+    if (isSized(config.transport)) {
+      // Said when it starts, then again each batch of results further: a long session is not a notice a turn.
+      if (this.shortenedNow > 0 && (this.shortenedTold === 0 ? true : this.shortenedNow >= this.shortenedTold + LOCAL_BATCH)) {
+        cb.onNotice(`To fit the model's window, the app now sends ${this.shortenedNow} older tool result${this.shortenedNow === 1 ? "" : "s"} as short digests, and shortens the replies around them. The full results stay here, and the model can reopen one by its ref.`, "info");
+        this.shortenedTold = this.shortenedNow;
+      }
+      return;
+    }
+    const cleared = (message.context_management?.applied_edits ?? []).reduce((sum, e) => sum + (e.type === "clear_tool_uses_20250919" ? e.cleared_tool_uses : 0), 0);
+    if (cleared > this.clearedTold) {
+      cb.onNotice(`To keep within the model's window, the API now leaves out ${cleared} older tool result${cleared === 1 ? "" : "s"} from what the model sees (method reads are kept). They stay here in the chat.`, "info");
+      this.clearedTold = cleared;
+    }
+  }
+
+  private readingFor(config: ChatConfig, usage: BetaUsage): ContextReading | null {
+    if (isSized(config.transport)) {
+      const sent = this.meter.sent;
+      if (this.window === null || sent === null) return null;
+      return { model: config.model, window: this.window, prompt: sent.estimate, reply: usage.output_tokens ?? 0, reserve: localReserve(this.window, sent.estimate, REPLY_RESERVE, MIN_REPLY), source: "app", serverCount: usage.input_tokens ?? null };
+    }
+    const window = claudeWindow(config.model);
+    if (window === null) return null;
+    return { model: config.model, window, prompt: promptTokens(usage), reply: usage.output_tokens ?? 0, reserve: REPLY_CAP, source: "provider" };
+  }
+
+  /** Send one user message and run the turns it leads to. */
+  async send(text: string, asked: ChatConfig, cb: ChatCallbacks, signal: AbortSignal): Promise<void> {
+    const { config, client } = await this.prepare(asked, cb, signal);
     this.messages.push({ role: "user", content: text });
     this.executor.heard?.(text);
     let parseRetries = 0;
@@ -152,7 +229,7 @@ export class AgentChat {
     for (let turn = 0; turn < maxTurns; turn++) {
       if (signal.aborted) return;
       // Sized before anything shows: a request that cannot fit is refused, not retried.
-      const params = this.request(config);
+      const params = this.requestOrOverflow(config, cb);
       cb.onAssistantStart();
       let message: BetaMessage;
       const watch = { text: new RepeatWatch(), thinking: new RepeatWatch() };
@@ -190,8 +267,9 @@ export class AgentChat {
         if (!(e instanceof Anthropic.APIError) && parseRetries++ < 2) continue;
         throw e;
       }
-      cb.onUsage(message.usage);
+      cb.onUsage(message.usage, message.model);
       this.messages.push({ role: "assistant", content: message.content });
+      this.afterReply(config, message, cb);
       const cut = isSized(config.transport) ? this.meter.read(message.usage, this.window) : null;
       cb.onAssistantEnd?.();
       // Never a silent switch: say which model answered when a fallback did.
@@ -221,6 +299,7 @@ export class AgentChat {
         const said = message.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("\n");
         const stall = nudges < MAX_NUDGES ? stalledReply(said, this.tools.map((t) => t.name), log.map((c) => c.name), config.skills !== false) : null;
         if (stall === null) {
+          if (message.stop_reason === "model_context_window_exceeded") cb.onNotice("The model's window filled up, so this reply was cut off. Start fresh, or summarize the conversation and continue.", "error");
           if (message.stop_reason === "max_tokens" && this.window !== null) cb.onNotice("The reply filled the room left in the model's window and was cut off. Ask it to go on, or clear the conversation to give it more room.", "error");
           if (!said.trim() && log.length > 0) cb.onNotice(`The model gave no reply after the ${log.at(-1)!.name} result.${isLocal(config.transport) ? " Local models do this when the conversation no longer fits their context: clear the conversation, or use a longer context." : ""}`, "error");
           // An answer without the evidence its question needs goes back once, with what to run.
@@ -323,6 +402,73 @@ export class AgentChat {
   }
 
   /**
+   * Summarize and continue (MODEL-VISIBLE): one request asks the model for a
+   * summary of the conversation (SUMMARY_REQUEST, after the history as it
+   * stands, on the same instructions and tools, so Claude's cached prompt
+   * holds); the summary then replaces the history the model sees: the app's
+   * note (SUMMARY_CARRIER) and the model's own summary. Nothing it asks to run
+   * is run. Any failure leaves the history as it was. Returns whether it did.
+   */
+  async summarize(asked: ChatConfig, cb: ChatCallbacks, signal: AbortSignal): Promise<boolean> {
+    if (!this.messages.some((m) => m.role === "assistant")) {
+      cb.onNotice("Nothing to summarize yet.", "info");
+      return false;
+    }
+    const { config, client } = await this.prepare(asked, cb, signal);
+    this.here = await this.situation();
+    // The ask after the history: a message of its own, or with the tool results a stopped turn ended on.
+    const last = this.messages.length - 1;
+    const ended = this.messages[last]!;
+    if (ended.role === "user") {
+      const blocks: BetaContentBlockParam[] = typeof ended.content === "string" ? [{ type: "text", text: ended.content }] : [...ended.content];
+      this.messages[last] = { role: "user", content: [...blocks, { type: "text", text: SUMMARY_REQUEST }] };
+    } else {
+      this.messages.push({ role: "user", content: SUMMARY_REQUEST });
+    }
+    let params: BetaMessageStreamParams;
+    try {
+      const built = this.requestOrOverflow(config, cb);
+      params = { ...built, messages: [...built.messages] };
+    } finally {
+      // The history is the conversation's again, whatever the request did (thinking it left out stays out).
+      if (ended.role === "user") this.messages[last] = ended;
+      else this.messages.pop();
+    }
+    cb.onAssistantStart();
+    let message: BetaMessage;
+    try {
+      const stream = client.beta.messages.stream(params, { signal });
+      stream.on("text", (delta) => cb.onText(delta));
+      stream.on("thinking", (delta) => cb.onThinking(delta));
+      message = await stream.finalMessage();
+    } catch (e) {
+      if (signal.aborted || e instanceof Anthropic.APIUserAbortError) return false;
+      throw e;
+    }
+    cb.onUsage(message.usage, message.model);
+    const cut = isSized(config.transport) ? this.meter.read(message.usage, this.window) : null;
+    const summary = message.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("\n").trim();
+    const unchanged = "The conversation is unchanged.";
+    if (cut !== null) {
+      cb.onNotice(`${cut} ${unchanged}`, "error");
+      return false;
+    }
+    if (message.stop_reason === "refusal" || message.stop_reason === "max_tokens" || message.stop_reason === "model_context_window_exceeded" || !summary) {
+      cb.onNotice(`${message.stop_reason === "refusal" ? "The model declined to summarize." : summary ? "The summary was cut off before it ended." : "The model wrote no summary."} ${unchanged} Try again, or start fresh.`, "error");
+      return false;
+    }
+    const before = this.readingFor(config, message.usage);
+    const charsBefore = this.lastChars;
+    this.messages.splice(0, this.messages.length, { role: "user", content: SUMMARY_CARRIER }, { role: "assistant", content: [{ type: "text", text: summary }] });
+    this.shortenedNow = 0;
+    this.shortenedTold = 0;
+    this.clearedTold = 0;
+    if (before !== null) cb.onContext?.(rescaled(before, charsBefore, this.lastFixedChars + historyChars(this.messages)));
+    cb.onNotice("Summarized: from here the model works from the summary above, in place of the earlier conversation, which stays here for you to read.", "info");
+    return true;
+  }
+
+  /**
    * A final answer the app sends back: a conclusion whose check did not run
    * for this message, or a grade of the fit that contradicts the engine's
    * verdict. Null for an answer that stands.
@@ -352,7 +498,9 @@ export class AgentChat {
       if (this.window === null) {
         // The window unknown: old tool results go from the copy it gets past a fixed budget.
         this.meter.sent = null;
-        return { model: config.model, max_tokens: 64000, system, tools, messages: pruneForLocal(this.messages), ...temperatureOf(config) };
+        const pruned = pruneForLocal(this.messages);
+        this.shortenedNow = Math.max(this.shortenedNow, shortenedResults(this.messages, pruned));
+        return { model: config.model, max_tokens: REPLY_CAP, system, tools, messages: pruned, ...temperatureOf(config) };
       }
       let fixed = system.length + JSON.stringify(tools).length;
       const cap = runPolicy(config, this.window).replyCap;
@@ -375,6 +523,7 @@ export class AgentChat {
         fit = wider;
       }
       if (fit.refusal !== null) {
+        this.overflow = { model: config.model, window: this.window, prompt: fit.estimate, reply: 0, reserve: MIN_REPLY, source: "app", overflow: true };
         // What the model could run with instead (LM Studio: a reload; Ollama: past its maximum, nothing).
         const advice = isLocal(config.transport)
           ? contextAdvice({ server: config.transport === "lmstudio" ? "LM Studio" : "Ollama", model: config.model, needed: fit.estimate + REPLY_RESERVE, current: this.window, max: this.maxWindow }).text
@@ -382,6 +531,9 @@ export class AgentChat {
         throw new Error(fit.refusal(config, advice));
       }
       this.meter.sent = { chars: fit.chars, sentChars: fit.sentChars, estimate: fit.estimate };
+      this.lastFixedChars = fixed;
+      this.lastChars = fit.chars;
+      this.shortenedNow = Math.max(this.shortenedNow, shortenedResults(this.messages, fit.messages));
       // fit was sized to this.window (grown when it had to be).
       this.ollamaPlan = config.transport === "ollama" ? { numCtx: this.window, numPredict: fit.maxTokens } : null;
       return { model: config.model, max_tokens: fit.maxTokens, system, tools, messages: fit.messages, ...temperatureOf(config) };
@@ -392,9 +544,11 @@ export class AgentChat {
     const tools = (this.offered(config) ?? this.allTools(config)).map((t) => ({ ...t, eager_input_streaming: true }));
     // Thinking written under another system prompt or tool list is refused by the API (thinkingBinding.ts).
     if (this.binding.moves(bindingKey(system, tools))) this.dropThinking();
+    this.lastFixedChars = JSON.stringify(system).length + JSON.stringify(tools).length;
+    this.lastChars = this.lastFixedChars + historyChars(this.messages);
     return {
       model: config.model,
-      max_tokens: 64000,
+      max_tokens: REPLY_CAP,
       system,
       tools,
       messages: this.messages,

@@ -8,7 +8,8 @@
 import type { CardDecision } from "@/agent/cardOptions";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ActivityEntry, AgentExecutor, AgentHost, ToolRunner } from "@/agent/executor";
-import type { ChatConfig, ChatEffort, AgentChat } from "@/agent/chat";
+import type { ChatCallbacks, ChatConfig, ChatEffort, AgentChat } from "@/agent/chat";
+import { responseCost, type ContextReading } from "@/agent/contextMeter";
 import { API_KEY_KEY, OPENAI_KEY_KEY, SETTINGS_KEY, migrateLegacyKeys } from "@/agent/storage";
 import { DEFAULT_OPENAI_CONTEXT, OPENAI_PRESETS, isMachineUrl, openaiBase, presetForUrl } from "@/agent/openaiCompat";
 import { DEFAULT_OLLAMA_URL } from "@/agent/ollama";
@@ -97,6 +98,16 @@ export interface AgentController {
   readonly stop: () => void;
   readonly clear: () => void;
   readonly usage: { readonly input: number; readonly output: number; readonly cacheRead: number };
+  /** How full the model's window is, as of the last reply (null before the first, and after a new conversation). */
+  readonly context: ContextReading | null;
+  /** The session's cost at Anthropic's list prices, US dollars (Anthropic's models only; null: not known). */
+  readonly cost: number | null;
+  /**
+   * Summarize and continue: the model writes a summary of the conversation,
+   * which then replaces the history it sees (AgentChat.summarize). Only
+   * between turns, in a conversation with a reply in it.
+   */
+  readonly summarize: () => void;
   /** The page cards the agent is on: a running tool's, the latest reply's, a hovered reply's. */
   readonly focus: readonly AgentCard[];
   /** A reply under the pointer (null when it leaves): its cards join the focus. */
@@ -142,6 +153,9 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
   const [activity, setActivity] = useState<Record<string, ActivityEntry>>({});
   const [thinking, setThinking] = useState(false);
   const [usage, setUsage] = useState({ input: 0, output: 0, cacheRead: 0 });
+  const [context, setContext] = useState<ContextReading | null>(null);
+  // The session's cost in US dollars at list price (null: a reply from a model without a known price).
+  const [cost, setCost] = useState<number | null>(0);
   const [report, setReport] = useState<AgentReport | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const approvals = useRef(new Map<string, (ok: boolean | CardDecision) => void>());
@@ -246,9 +260,13 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
   const chat = useRef<AgentChat | null>(null);
   const turn = useRef<AbortController | null>(null);
 
-  const send = useCallback((text: string) => {
-    const message = text.trim();
-    if (!message || turn.current) return;
+  /**
+   * One turn of the chat: a user message (`userText`, shown in the
+   * conversation), or an action on the conversation (Summarize and continue,
+   * null). The same callbacks and the same Stop for both.
+   */
+  const runTurn = useCallback((userText: string | null, act: (chat: AgentChat, config: ChatConfig, cb: ChatCallbacks, signal: AbortSignal) => Promise<unknown>) => {
+    if (turn.current) return;
     // The mode is read at every model turn, so switching Ask first / Auto
     // mid-run reaches a local model as it reaches the approval cards. Claude's
     // run pins the mode it started with (AgentChat.send): its thinking is
@@ -260,7 +278,7 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
     const ctrl = new AbortController();
     turn.current = ctrl;
     setThinking(true);
-    setTranscript((t) => [...t, { kind: "user", id: itemId(), text: message }]);
+    if (userText !== null) setTranscript((t) => [...t, { kind: "user", id: itemId(), text: userText }]);
     let current: string | null = null;
     // The reply as it streams, kept here too: its {{references}} are filled from the page when the message ends, before its tools run.
     let currentText = "";
@@ -276,8 +294,8 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
         // Inside the try: a chunk that fails to load must not leave the turn running.
         mod = await import("@/agent/chat");
         chat.current ??= new mod.AgentChat(executor);
-        await chat.current.send(
-          message,
+        await act(
+          chat.current,
           config,
           {
             onAssistantStart: () => {
@@ -297,12 +315,19 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
             },
             onThinking: (d) => patchAssistant((i) => ({ text: i.text, thinking: i.thinking + d })),
             onNotice: (msg, tone) => setTranscript((t) => [...t, { kind: "notice", id: itemId(), text: msg, tone }]),
-            onUsage: (u) =>
+            onUsage: (u, model) => {
               setUsage((x) => ({
                 input: x.input + (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0),
                 output: x.output + (u.output_tokens ?? 0),
                 cacheRead: x.cacheRead + (u.cache_read_input_tokens ?? 0),
-              })),
+              }));
+              // Anthropic's models at list price; a scripted replay costs nothing to anyone.
+              const s = settingsRef.current;
+              if (providerOf(s.mode) !== "anthropic" || s.replayOf) return;
+              const spent = responseCost(model ?? s.model, u);
+              setCost((c) => (c === null || spent === null ? null : c + spent));
+            },
+            onContext: setContext,
           },
           ctrl.signal,
         );
@@ -317,6 +342,18 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
       }
     })();
   }, [executor]);
+
+  const send = useCallback((text: string) => {
+    const message = text.trim();
+    if (!message) return;
+    runTurn(message, (c, config, cb, signal) => c.send(message, config, cb, signal));
+  }, [runTurn]);
+
+  const summarize = useCallback(() => {
+    if (!chat.current) return;
+    setTranscript((t) => [...t, { kind: "notice", id: itemId(), text: "Summarize and continue: the model is writing a summary of the conversation to continue from.", tone: "info" }]);
+    runTurn(null, (c, config, cb, signal) => c.summarize(config, cb, signal));
+  }, [runTurn]);
 
   // What a click is checked against, as it stands at the click (not at the last render).
   const transcriptRef = useRef(transcript);
@@ -359,6 +396,8 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
     setTranscript(waiting.map((e) => ({ kind: "tool", id: itemId(), entryId: e.id })));
     setActivity(Object.fromEntries(waiting.map((e) => [e.id, e])));
     setUsage({ input: 0, output: 0, cacheRead: 0 });
+    setContext(null);
+    setCost(0);
   }, [activity, executor]);
 
   const pending = Object.values(activity).filter((e) => e.status === "waiting");
@@ -396,7 +435,7 @@ export function useAgent(host: AgentHost, onAttention: () => void): AgentControl
   const openReport = useCallback(() => setReportOpen(true), []);
   const closeReport = useCallback(() => setReportOpen(false), []);
 
-  return { settings, updateSettings, apiKey, setApiKey, openaiKey, setOpenaiKey, transcript, activity, pending, decide, thinking, send, choose, choiceCurrent, stop, clear, usage, focus, hoverReply, report, reportOpen, openReport, closeReport };
+  return { settings, updateSettings, apiKey, setApiKey, openaiKey, setOpenaiKey, transcript, activity, pending, decide, thinking, send, choose, choiceCurrent, stop, clear, usage, context, cost, summarize, focus, hoverReply, report, reportOpen, openReport, closeReport };
 }
 
 /** The model and how it is reached, as a report names it. */
