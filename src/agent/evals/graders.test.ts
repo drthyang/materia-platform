@@ -209,3 +209,28 @@ describe("refinesMomentsAlone", () => {
     expect(refinesMomentsAlone.grade(run([])).pass).toBe(false);
   });
 });
+
+describe("symmetryLast", () => {
+  const run = (reply: string): EvalRun => ({ events: [{ kind: "reply", text: reply }] }) as unknown as EvalRun;
+
+  it("reads a lowering named for what it would hide as a reason to wait, not a proposal (symmetry-last, Haiku, 2026-11-07)", async () => {
+    const { symmetryLast } = await import("@/agent/evals/checks");
+    for (const said of [
+      "Lowering the symmetry now would hide that misfit behind extra parameters.",
+      "A subgroup at this stage could only add parameters that absorb the profile misfit.",
+      "Breaking the symmetry would just fit the noise the ADPs leave.",
+    ]) expect(symmetryLast.grade(run(said)), said).toMatchObject({ pass: true });
+  });
+
+  it("still catches a proposal, a lowering said to help included", async () => {
+    const { symmetryLast } = await import("@/agent/evals/checks");
+    for (const said of [
+      "Yes. The misfit says the symmetry is too high: we should lower the symmetry to P 63 m c, a subgroup of P 63/m m c.",
+      "Lowering the symmetry would fix that misfit.",
+      "Lowering the symmetry to P-42₁m would explain the extra intensity.",
+      "I'll lower the symmetry now; it will improve the fit.",
+      // The cost is the higher group's, in another clause: still a proposal.
+      "We should lower the symmetry to P 63 m c: the higher group would hide the splitting.",
+    ]) expect(symmetryLast.grade(run(said)), said).toMatchObject({ pass: false });
+  });
+});
