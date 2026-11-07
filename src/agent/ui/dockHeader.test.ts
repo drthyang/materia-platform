@@ -50,3 +50,13 @@ describe("the Copilot's rail, its only way in", () => {
     expect(railLabel(false, 3)).toBe("Open the Copilot: 3 changes waiting for your approval");
   });
 });
+
+describe("the Copilot's key fields", () => {
+  it("sit in a form that never submits, so the browser reports no password field outside a form", async () => {
+    const { createElement } = await import("react");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const { KeyForm } = await import("@/agent/ui/AgentDrawer");
+    const html = renderToStaticMarkup(createElement(KeyForm, null, createElement("input", { type: "password" })));
+    expect(html).toMatch(/^<form style="display:contents"><input type="password"\/><\/form>$/);
+  });
+});
