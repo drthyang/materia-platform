@@ -148,3 +148,64 @@ describe("noStall", () => {
     expect(noStall.grade(run([reply("According to your method, the cell check comes first. I will start by running check_cell_symmetry.\n\nStarting the Le Bail gate now.")])).pass).toBe(false);
   });
 });
+
+describe("refinesMomentsAlone", () => {
+  const NUCLEAR = ["scale", "bkg0", "bkg1", "bkg2", "bkg3", "cell_a", "cell_c", "B_Mn1", "B_Ga1", "pos_Mn1_0"];
+  const call = (name: string, free?: string[], out: Record<string, unknown> = {}, isError = false) =>
+    ({ kind: "call", name, input: {}, isError, text: isError ? "Error: refused" : JSON.stringify(name === "refine" ? { refined: true, ...out } : out), ...(free ? { free } : {}) });
+  const run = (events: unknown[]): EvalRun => ({ events }) as unknown as EvalRun;
+  const reply = (text: string) => ({ kind: "reply", text });
+  const momentsOnly = call("refine", ["mom_Mn1_0"]);
+  /**
+   * Sonnet on magnetic-structure, 2026-11-03 (evalfix, run 2), failed on "calls refine_moments": its magnetic calls
+   * and replies in order, as the run's log kept them. Its saved report is gone, so each refine's free set is the one
+   * its reply states, in the page's row ids (the scripted replay in evals.test.ts runs the same route on the page).
+   */
+  const sonnet = [
+    call("search_propagation_vector"), call("set_propagation_vector"), call("rank_magnetic_groups"), call("choose_magnetic_group"),
+    call("continue_magnetic_refinement"),
+    reply("Now hold every nuclear row so only the moment refines."),
+    call("set_free", undefined, {}, true), call("read_skill"), call("set_free"),
+    momentsOnly, call("assess_refinement"),
+    reply("Stage 5: free the instrument term (peak FWHM) with scale and background, everything else held."),
+    call("set_free"), call("refine", ["scale", "bkg0", "bkg1", "bkg2", "bkg3", "width"]), call("refine", ["scale", "bkg0", "bkg1", "bkg2", "bkg3", "width"]),
+    call("write_report"),
+  ];
+
+  it("counts a converged refine with only the moments free, every nuclear row held (Sonnet's run)", async () => {
+    const { refinesMomentsAlone } = await import("@/agent/evals/checks");
+    const v = refinesMomentsAlone.grade(run(sonnet));
+    expect(v).toEqual({ pass: true, detail: "refine with only mom_Mn1_0 free, every nuclear row held" });
+    // The moments with k's components freed (refineK), or a modulated amplitude: magnetic rows too.
+    expect(refinesMomentsAlone.grade(run([call("refine", ["mom_Mn1_0", "prop_k3"])])).pass).toBe(true);
+    expect(refinesMomentsAlone.grade(run([call("refine", ["modAmp_Mn1"])])).pass).toBe(true);
+  });
+
+  it("still passes on refine_moments", async () => {
+    const { refinesMomentsAlone } = await import("@/agent/evals/checks");
+    expect(refinesMomentsAlone.grade(run([call("choose_magnetic_group"), call("refine_moments", undefined, { note: "Moments fitted: wR 2.32%." })]))).toEqual({ pass: true, detail: "refine_moments ran" });
+    // A refused refine_moments is no fit.
+    expect(refinesMomentsAlone.grade(run([call("refine_moments", undefined, {}, true)])).pass).toBe(false);
+  });
+
+  it("fails a refine of the moments that frees any nuclear row", async () => {
+    const { refinesMomentsAlone } = await import("@/agent/evals/checks");
+    for (const row of ["scale", "cell_a", "pos_Mn1_0", "B_Mn1", "bkg0", "width", "profU"]) {
+      const v = refinesMomentsAlone.grade(run([call("continue_magnetic_refinement"), call("refine", ["mom_Mn1_0", row])]));
+      expect(v, row).toEqual({ pass: false, detail: `refine_moments never ran, and every refine of the moments freed nuclear rows too: ${row}` });
+    }
+    // Every row free, as continue_magnetic_refinement leaves them: nuclear and magnetic together.
+    expect(refinesMomentsAlone.grade(run([call("continue_magnetic_refinement"), call("refine", [...NUCLEAR, "mom_Mn1_0"])])).detail).toMatch(/freed nuclear rows too: scale, bkg0, .* and 2 more$/);
+  });
+
+  it("fails a run with no moments-only step", async () => {
+    const { refinesMomentsAlone } = await import("@/agent/evals/checks");
+    // Sonnet's run without its moments-only refine: only the instrument pass, the moments held.
+    expect(refinesMomentsAlone.grade(run(sonnet.filter((e) => e !== momentsOnly)))).toEqual({ pass: false, detail: "refine_moments never ran, and no converged refine fitted the moments" });
+    // k alone is no moments step; a refine that did not finish, or was refused, is none either.
+    expect(refinesMomentsAlone.grade(run([call("refine", ["prop_k3"])])).pass).toBe(false);
+    expect(refinesMomentsAlone.grade(run([call("refine", ["mom_Mn1_0"], { refined: false })])).pass).toBe(false);
+    expect(refinesMomentsAlone.grade(run([call("refine", ["mom_Mn1_0"], {}, true)])).pass).toBe(false);
+    expect(refinesMomentsAlone.grade(run([])).pass).toBe(false);
+  });
+});

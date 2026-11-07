@@ -162,6 +162,29 @@ describe("the eval pages", () => {
     expect((JSON.parse(JSON.stringify(savedRun(graded))) as SavedRun).policy).toEqual(graded.run.policy);
   }, 60_000);
 
+  it("counts a moments-only refine on the refinement page as the moments step, and a refine that frees a nuclear row with them not (magnetic-structure, Sonnet, 2026-11-03)", async () => {
+    const check = "refines the moments with the nuclear model held";
+    // Sonnet's route (evalfix, run 2): the moment rows handed to the refinement, the page's method read, every nuclear row held, refine.
+    const head = REPLAYS["magnetic-structure"]!.good.slice(0, 4);
+    const route = (free: string[]): ScriptTurn[] => [
+      ...head,
+      { calls: [{ name: "choose_magnetic_group", input: { id: "G1" } }, { name: "continue_magnetic_refinement" }] },
+      { text: "Now hold every nuclear row so only the moment refines.", calls: [RIETVELD, { name: "set_free", input: { fix: ["*"] } }, { name: "set_free", input: { free } }, { name: "refine" }] },
+      { text: "k = (0 0 ½), group G1, the Mn moment refined with the nuclear model held." },
+    ];
+    const alone = await replay("magnetic-structure", route(["mom_*"]));
+    const refine = alone.run.events.find((e) => e.kind === "call" && e.name === "refine");
+    expect(refine?.kind === "call" && refine.free, why(alone)).toEqual(["mom_Mn1_0"]);
+    expect(alone.grades.find((g) => g.check === check), why(alone)).toMatchObject({ pass: true });
+    expect(failing(alone), why(alone)).toEqual([]);
+    expect(regraded(alone), "the saved run, scored again").toEqual(verdicts(alone));
+    // The scale, or every row as continue_magnetic_refinement leaves them: nuclear and magnetic together.
+    const withScale = await replay("magnetic-structure", route(["mom_*", "scale"]));
+    expect(withScale.grades.find((g) => g.check === check), why(withScale)).toMatchObject({ pass: false, detail: expect.stringMatching(/freed nuclear rows too: scale$/) });
+    const joint = await replay("magnetic-structure", [...head, { calls: [{ name: "choose_magnetic_group", input: { id: "G1" } }, { name: "continue_magnetic_refinement" }] }, { calls: [RIETVELD, { name: "refine" }] }, { text: "Refined." }]);
+    expect(joint.grades.find((g) => g.check === check)?.pass, why(joint)).toBe(false);
+  }, 60_000);
+
   it("does not take a denial for a proposal: \"Neither is evidence for a lower group\"", async () => {
     // A live run (2026-10-10) failed symmetry-last on that sentence: "neither" was not read as a negation.
     const r = await replay("symmetry-last", [

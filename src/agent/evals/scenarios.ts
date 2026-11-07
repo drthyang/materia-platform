@@ -36,6 +36,7 @@ import {
   liftsNoRule,
   magneticGroupIs,
   magneticRefinesMomentsOnly,
+  refinesMomentsAlone,
   nuclearAtHighAngle,
   magneticSequenceFirst,
   questionsAxis,
@@ -171,7 +172,7 @@ export const SCENARIOS: readonly EvalScenario[] = [
     before: (port, record) => refineNuclear(port as PowderAgentPort, record),
     messages: ["The nuclear structure is refined. Find the magnetic structure."],
     autonomy: "auto",
-    checks: [readsMethodFirst, ran("search_propagation_vector"), magneticKIs([MAGNETIC_TRUTH.k[0], MAGNETIC_TRUTH.k[1], MAGNETIC_TRUTH.k[2]]), magneticGroupIs(MAGNETIC_TRUTH.id), ran("refine_moments"), noStall],
+    checks: [readsMethodFirst, ran("search_propagation_vector"), magneticKIs([MAGNETIC_TRUTH.k[0], MAGNETIC_TRUTH.k[1], MAGNETIC_TRUTH.k[2]]), magneticGroupIs(MAGNETIC_TRUTH.id), refinesMomentsAlone, noStall],
   },
   {
     id: "magnetic-30k",

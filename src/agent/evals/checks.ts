@@ -541,6 +541,34 @@ export const magneticRefinesMomentsOnly: Check = {
   },
 };
 
+/** A moment row on the refinement page: a moment-mode amplitude (mom_…), or a modulated amplitude (modAmp_…). */
+const isMomentRow = (id: string): boolean => /^(mom_|modAmp_)/.test(id);
+/** A magnetic row: a moment, or a component of k freed with it (continue_magnetic_refinement's refineK: prop_k1…3). */
+export const isMagneticRow = (id: string): boolean => isMomentRow(id) || /^prop_k\d$/.test(id);
+
+/**
+ * The moments refined against the nuclear model held (the user's rule: the
+ * last step refines the moments, never nuclear and magnetic together), by
+ * either route: refine_moments on the magnetic step, or a converged refine on
+ * the refinement page whose free set, as the call found it, holds a moment and
+ * nothing but magnetic rows (the moments, and k's components when they were
+ * freed). A refine that frees any nuclear row (scale, cell, positions, B,
+ * background, profile) is not that step.
+ */
+export const refinesMomentsAlone: Check = {
+  name: "refines the moments with the nuclear model held",
+  grade: (run) => {
+    const all = calls(run);
+    if (all.some((c) => c.name === "refine_moments" && !c.isError)) return ok("refine_moments ran");
+    const withMoments = all.filter((c) => c.name === "refine" && !c.isError && json(c.text)?.refined === true && (c.free ?? []).some(isMomentRow));
+    const alone = withMoments.find((c) => (c.free ?? []).every(isMagneticRow));
+    if (alone) return ok(`refine with only ${alone.free!.join(", ")} free, every nuclear row held`);
+    if (withMoments.length === 0) return fail("refine_moments never ran, and no converged refine fitted the moments");
+    const nuclear = [...new Set(withMoments.flatMap((c) => (c.free ?? []).filter((id) => !isMagneticRow(id))))];
+    return fail(`refine_moments never ran, and every refine of the moments freed nuclear rows too: ${nuclear.slice(0, 8).join(", ")}${nuclear.length > 8 ? ` and ${nuclear.length - 8} more` : ""}`);
+  },
+};
+
 /**
  * With k = 0 and no pattern above the ordering temperature, the nuclear model is
  * refined in a high-angle window (d at most `dMax` Å), where the magnetic form
