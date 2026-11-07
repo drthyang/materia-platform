@@ -177,6 +177,8 @@ export interface ReportContext {
   readonly skills: boolean;
   readonly posterior: SampledPosterior | null;
   readonly userText: readonly string[];
+  /** What the audited tools answered in the conversation (auditedToolText). */
+  readonly toolText: readonly string[];
   /** The model and how it is reached ("Claude Opus 5.5 · Anthropic API"). */
   readonly modelLabel?: () => string;
   readonly onReport?: (report: AgentReport) => void;
@@ -220,6 +222,7 @@ export async function writeReport<P extends AgentPort>(ctx: ReportContext, page:
     ...(!ctx.skills ? { method: false } : {}),
     narrative: summary,
     userText: ctx.userText.join("\n\n"),
+    toolText: ctx.toolText.join("\n\n"),
   });
   const report: AgentReport = {
     id: nextReportId++,

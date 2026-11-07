@@ -21,6 +21,7 @@ import type { AgentRecord } from "@/agent/method";
 import { liveTool } from "@/agent/tools";
 import { REFERENCE } from "@/agent/references";
 import { unverifiedNumbers } from "@/core/export/reportAudit";
+import { auditedToolText } from "@/agent/report";
 import { fakeHost, headlessHistory } from "@/testSupport/agentHeadless";
 import type { StepKind } from "@/core/project/history";
 
@@ -301,7 +302,8 @@ class StateNotSaved extends Error {}
 /**
  * Score a saved run again with the scenario's checks as they are now. The
  * number audit runs again on each report (the account against the text it
- * was checked against), so a change to the audit counts. A check that reads
+ * was checked against, and what the audited tools answered before it), so a
+ * change to the audit counts. A check that reads
  * the page's final state (the window set, the reflections left out) cannot
  * run on a saved run: it keeps the verdict the run had, marked as kept.
  */
@@ -310,13 +312,20 @@ export function regrade(saved: SavedRun, scenario: EvalScenario): EvalResult {
     throw new StateNotSaved("the page's state is not saved");
   };
   const port = { technique: saved.technique, state: refused, magnetic: refused } as unknown as AgentPort;
-  // Each write_report's answer with the audit run again, in order.
+  // Each write_report's answer with the audit run again, in order, against what the audited tools
+  // answered before it too (a run saved before the audit read them has none of it in `against`).
   let n = 0;
+  const toolText: string[] = [];
   const events = saved.events.map((e) => {
-    if (e.kind !== "call" || e.name !== "write_report" || e.isError) return e;
+    if (e.kind !== "call" || e.isError) return e;
+    if (e.name !== "write_report") {
+      const text = auditedToolText(e.name, e.text);
+      if (text && !toolText.includes(text)) toolText.push(text);
+      return e;
+    }
     const report = saved.reports[n++];
     if (!report) return e;
-    const unverified = unverifiedNumbers(report.audit.account, report.audit.against);
+    const unverified = unverifiedNumbers(report.audit.account, `${report.audit.against}${toolText.length ? `\n\n${toolText.join("\n\n")}` : ""}`);
     const out = JSON.parse(e.text) as Record<string, unknown>;
     const { unverifiedNumbers: _old, note: _note, ...rest } = out;
     return { ...e, text: JSON.stringify(unverified.length ? { ...rest, unverifiedNumbers: unverified } : rest) };

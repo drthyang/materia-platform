@@ -20,7 +20,7 @@ import { PAGE_LABEL, liveTool, type AgentPage, type LiveToolSpec, type ToolEffec
 import type { AgentPort } from "@/agent/port";
 import type { MagneticPanelState } from "@/agent/magneticPort";
 import { samplePosteriorTool } from "@/agent/posteriorTool";
-import { freeSummary, type AgentReport } from "@/agent/report";
+import { auditedToolText, freeSummary, type AgentReport } from "@/agent/report";
 import { pct, type LiveToolHost } from "@/agent/liveCommon";
 import { fillReferences, referenceCatalog, type ReferenceSource } from "@/agent/references";
 import { readSkill } from "@/agent/skills";
@@ -186,6 +186,7 @@ export class AgentExecutor implements ToolRunner {
   newConversation(): void {
     this.skillsRead.clear();
     this.userText = [];
+    this.toolText = [];
     this.asked = null;
     this.magneticUsed = false;
     this.answers.clear();
@@ -284,11 +285,20 @@ export class AgentExecutor implements ToolRunner {
   run(name: string, input: unknown, signal?: AbortSignal): Promise<ToolOutcome> {
     const spec = liveTool(name);
     if (!spec) return Promise.resolve(error(`no tool named ${name}`));
-    if (spec.effect !== "change") return this.execute(spec, input, signal);
+    if (spec.effect !== "change") return this.execute(spec, input, signal).then((out) => this.audited(name, out));
     // A change queued behind another still checks the Stop when its turn comes.
-    const run = this.changes.then(() => this.execute(spec, input, signal));
+    const run = this.changes.then(() => this.execute(spec, input, signal)).then((out) => this.audited(name, out));
     this.changes = run.catch(() => undefined);
     return run;
+  }
+
+  /** The engine's numbers an answer gave the Agent, kept for the report's audit (auditedToolText). */
+  private toolText: string[] = [];
+
+  private audited(name: string, out: ToolOutcome): ToolOutcome {
+    const text = out.isError ? null : auditedToolText(name, out.text);
+    if (text) this.toolText.push(text);
+    return out;
   }
 
   private async execute(spec: LiveToolSpec, raw: unknown, signal?: AbortSignal): Promise<ToolOutcome> {
@@ -388,7 +398,7 @@ export class AgentExecutor implements ToolRunner {
       // Let the drawer paint "running" before the checks run.
       await new Promise((r) => setTimeout(r, 0));
       const summary = this.fillOrRefuse((input as { summary: string }).summary, "write_report");
-      const context = { host: this.host, skills: this.skills, posterior: this.posterior, userText: this.userText, ...(this.opts.modelLabel ? { modelLabel: this.opts.modelLabel } : {}), ...(this.opts.onReport ? { onReport: this.opts.onReport } : {}) };
+      const context = { host: this.host, skills: this.skills, posterior: this.posterior, userText: this.userText, toolText: this.toolText, ...(this.opts.modelLabel ? { modelLabel: this.opts.modelLabel } : {}), ...(this.opts.onReport ? { onReport: this.opts.onReport } : {}) };
       return this.respond(await writeReport(context, page, port, summary, update));
     }
 
