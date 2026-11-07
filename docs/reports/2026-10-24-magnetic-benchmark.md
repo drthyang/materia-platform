@@ -1,9 +1,9 @@
 # A magnetic benchmark on unpublished data, checked against the owner's reference
 
 Pull request [#102](https://github.com/drthyang/materia-platform/pull/102),
-branches `claude/awo4-benchmark` (`356a6b5`) and `claude/awo4-reference`
-(`b10c97e`, `12ccbcd`, `054e3d3`), merged into `claude/materia-backlog`,
-2026-10-24. Backlog item M5: the owner's AWO₄ 8 K POWGEN data as a benchmark
+commits `356a6b5`, `b10c97e`, `12ccbcd` and `054e3d3`, merged into
+`claude/materia-backlog`, 2026-10-24. Backlog item M5: the owner's local
+magnetic POWGEN data as a benchmark
 of the app's magnetic refinement, followed by a check against the owner's own
 magnetic refinement of the same data.
 
@@ -16,7 +16,7 @@ number derived from them; the test prints its numbers to the local run only.
 
 | Change | Where |
 | --- | --- |
-| A data-gated benchmark that runs the app's own pipeline. It loads the data through the MCP loaders and refines the nuclear structure with the staged driver. Then come the magnetic page's own steps: residual peaks, k-search, candidate groups, ranking, ★ and within-noise. A joint nuclear + magnetic fit and `find_unexplained_peaks` follow. The file holds criteria only. Without `data/` every test skips, so CI and the public build are unaffected | `core/workflow/realAwo4Benchmark.test.ts` (new) |
+| A data-gated benchmark that runs the app's own pipeline. It loads the data through the MCP loaders and refines the nuclear structure with the staged driver. Then come the magnetic page's own steps: residual peaks, k-search, candidate groups, ranking, ★ and within-noise. A joint nuclear + magnetic fit and `find_unexplained_peaks` follow. The file holds criteria only. Without `data/` every test skips, so CI and the public build are unaffected | `core/workflow/realLocalMagneticBenchmark.test.ts` (new) |
 | A block against the owner's reference, read at runtime through the app's `parse_structure`: a complete read, the same basis and origin, the shared site treated alike, the same k, the same magnetic group operation by operation, the moment's direction and \|M\| per ion within 2σ combined | same |
 | **The one production change:** magCIF tags are matched with dots read as underscores, so the older spellings Jana2006 writes (`_space_group_symop.magn_operation_xyz`, `_space_group_symop.magn_centering_xyz`, `_atom_site_moment_label`, `_atom_site_moment_crystalaxis_x`) read like the DDLm ones | `parsers/cif.ts` `magTag` |
 | A Mantid `XYDATA` export is read as x y σ with its TOF unit from the `#` header. This needed no parser change; it is now covered by a synthetic case | `parsers/detectFormat.test.ts` |

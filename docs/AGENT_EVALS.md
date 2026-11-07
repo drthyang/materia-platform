@@ -103,7 +103,7 @@ with a known answer, is a separate protocol:
 | `sc-inverted-hand` | tests the hand, inverts a model of the wrong one (`invert_structure`), refines it again and says so | single-crystal round 4 (3a: SHELXL's P6₁ model is the other enantiomer, x = 1.08(6) by Parsons' quotients) |
 | `sc-twin-from-data` | reads the data, sets the merohedral twin law the H-test reads before refining the structure, and refines its fraction near the truth | single-crystal round 5 (2b: SHELXL's TWIN taken out; ⟨\|E²−1\|⟩ 0.652, the H-test's α 0.45 on k, h, −l, BASF 0.4965) |
 | `sc-weights-final-model` | sets the weighting scheme again after the last change of the model (the twin and the hand count), and refines with it | single-crystal round 4 (3a: the weights fitted to the P6₁ model kept for its inverse, GooF 0.889 where SHELXL's suggestion gives 0.977) |
-| `awo4-user-flow` | refines the user's own powder data to a converged fit, searches the magnetic k the user asked for, and writes the report (the data are unpublished and git-ignored: it runs only where they are) | the user, on qwen3.8-27b in LM Studio: the Agent re-read its method and the state 69 times each until the turn cap |
+| `local-data-user-flow` | refines the user's own powder data to a converged fit, searches the magnetic k the user asked for, and writes the report (the data are unpublished and git-ignored: it runs only where they are) | the user, on qwen3.8-27b in LM Studio: the Agent re-read its method and the state 69 times each until the turn cap |
 
 ## The local tier
 
@@ -137,7 +137,7 @@ each turn's prompt size in tokens, and the run's time.
 - no prompt is cut without a word (a refusal is said, not silent);
 - no chat error ends a run;
 - at least 80 % of the runs pass their checks across the scenarios;
-- `awo4-user-flow` reaches a converged fit with a report.
+- `local-data-user-flow` reaches a converged fit with a report.
 
 ```bash
 # LM Studio, the model loaded at 32k; MATERIA_DATA_DIR only if the data sit elsewhere
@@ -175,11 +175,11 @@ repos" session and relayed here.
 
 One stream at a time, on `fix/local-model-loops` (the runs span `af9710e` to
 `d24e5bb`; each scenario's latest run is counted). Not yet run: ten of the
-single-crystal scenarios, the before-sample on `main` beyond the AWO4 flow,
+single-crystal scenarios, the before-sample on `main` beyond the local-data flow,
 the OpenAI-compatible smoke test, and gemma4:26b (9/10 on `main` before
 these fixes; it needs its own slot).
 
-**The user's AWO4 flow** (`awo4-user-flow`):
+**The user's local-data flow** (`local-data-user-flow`):
 
 | | before (`main`) | after |
 | --- | --- | --- |
@@ -193,7 +193,7 @@ these fixes; it needs its own slot).
 | | pass | turn cap | loop stopped | refused (said) | cut silently | chat error |
 | --- | --- | --- | --- | --- | --- | --- |
 | powder (15) | 12 | 0 | 1 | 1 | 0 | 0 |
-| AWO4 (1) | 1 | 1 | 0 | 1 | 0 | 0 |
+| local data (1) | 1 | 1 | 0 | 1 | 0 | 0 |
 | PDF (3) | 2 | 0 | 0 | 0 | 0 | 0 |
 | single crystal (1 of 8 run) | 1 | 0 | 0 | 0 | 0 | 0 |
 
@@ -203,10 +203,10 @@ these fixes; it needs its own slot).
   refined the nuclear model before the k-search.
 - The loop stop: `magnetic-structure` sent the same report three times; the
   guard stopped it after the report was written (it passes).
-- The refusals: `full-refinement` (38 turns) and the AWO4 flow's second
+- The refusals: `full-refinement` (38 turns) and the local-data flow's second
   message no longer fitted the window; since then the method itself, and a
   long session's tools, shrink last (`d24e5bb`, `575a390`).
-- The turn cap: the AWO4 flow in auto mode refined, ran the magnetic step,
+- The turn cap: the local-data flow in auto mode refined, ran the magnetic step,
   sampled the posterior and rewrote its report for 80 turns, one call a
   turn; no call ran three times at the same state.
 - Four scenarios that ran while another job loaded a model on the same GPU

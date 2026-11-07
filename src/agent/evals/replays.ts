@@ -182,7 +182,7 @@ export const REPLAYS: Readonly<Record<string, Replay>> = {
     ],
     catches: ["calls search_propagation_vector", "sets k = (0, 0, 0.5) on the magnetic step", "chooses the magnetic group G1", "refines the moments with the nuclear model held"],
   },
-  "awo4-user-flow": {
+  "local-data-user-flow": {
     good: [
       { text: "Your method first.", calls: [RIETVELD, { name: "get_state" }] },
       { text: "The data's ends.", calls: [{ name: "check_fit_range" }] },

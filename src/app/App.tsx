@@ -42,7 +42,7 @@ import { looksLikeFgr, parseFgr, fgrToPattern } from "@/parsers/fgrData";
 import { parseInstrumentParameters } from "@/parsers/instrument";
 import { loadReflectionDataset, describeDrops } from "@/app/loadData";
 import { mn3gaPowgenExample } from "@/examples/mn3gaPowgen";
-import { awo4DemoParams, awo4MagneticDemoAvailable, loadAwo4MagneticExample } from "@/examples/awo4Magnetic";
+import { localMagneticDemoParams, localMagneticDemoAvailable, loadLocalMagneticExample } from "@/examples/localMagneticDemo";
 import { DEMOS, type DemoId } from "@/app/demos";
 import { hasUnsavedChanges, markOf, type ProjectMark } from "@/app/closeProject";
 import { CloseProjectDialog } from "@/app/ui/CloseProjectDialog";
@@ -213,7 +213,7 @@ export function App(): JSX.Element {
   const [localDemos, setLocalDemos] = useState<ReadonlySet<DemoId>>(new Set());
   useEffect(() => {
     let cancelled = false;
-    awo4MagneticDemoAvailable().then((ok) => {
+    localMagneticDemoAvailable().then((ok) => {
       if (!cancelled && ok) setLocalDemos(new Set<DemoId>(["magnetic"]));
     });
     return () => { cancelled = true; };
@@ -641,20 +641,20 @@ export function App(): JSX.Element {
     setDetection(null);
     setRestore((r) => ({ token: r.token }));
     if (kind === "magnetic") {
-      // LOCAL data (dev server + data folder only): 6 K POWGEN histogram with
-      // the solved k = (½,0,0) structure applied. The session carries the
+      // LOCAL data (dev server + data folder only): the ordered POWGEN histogram with
+      // the solved k ≠ 0 structure applied. The session carries the
       // refined nuclear values, held, and the magnetic model with its moment
       // rows free: the solve's last step, the moments refined against the
       // nuclear model as a fixed reference. The app opens on the magnetic page,
       // which recognizes the applied model and preselects its group. Fetched,
       // so nothing of it is in the bundle.
-      loadAwo4MagneticExample().then(
+      loadLocalMagneticExample().then(
         (ex) => {
           const base = loadedSession(ex.structure, ex.pattern, ex.instrument, [], ex.refinedParams, ex.backgroundTerms);
           const session = {
             ...base,
             magnetic: ex.magnetic,
-            powderParams: awo4DemoParams(base.powderParams, ex),
+            powderParams: localMagneticDemoParams(base.powderParams, ex),
             powderBindings: [...base.powderBindings, ...ex.momentBindings],
             rawData: ex.rawData,
             rawInstrument: ex.rawInstrument,
@@ -667,12 +667,12 @@ export function App(): JSX.Element {
           setStep(1);
           setDemo("magnetic");
           setNotice(null);
-          setMessage(`Loaded the local AWO₄ magnetic demo (POWGEN 6 K, k = (½ 0 0), ${ex.group}; the moments refined with the nuclear model held) — magnetic page.`);
+          setMessage(`Loaded the local magnetic demo (POWGEN, ${ex.group}; the moments refined with the nuclear model held) — magnetic page.`);
           requestStep("load", "AWO₄ 6 K magnetic demo", true, true);
         },
         (e: unknown) => {
           const msg = e instanceof Error ? e.message : String(e);
-          setNotice(`The AWO₄ demo needs the local data folder (data/AWO4/…) served by the dev server — ${msg}`);
+          setNotice(`The local magnetic demo needs its files in the local data folder, served by the dev server — ${msg}`);
         },
       );
       return;

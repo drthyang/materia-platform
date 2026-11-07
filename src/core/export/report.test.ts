@@ -304,7 +304,7 @@ describe("report tables: the cell and the atoms in crystallographic convention",
     expect(spaceGroupText("P 1 21/c 1")).toBe("P12₁/c1");
     expect(formulaHtml("Mn3Ga")).toBe("Mn<sub>3</sub>Ga");
     expect(formulaParts("Eu324")).toBeNull(); // a sample name, not a formula
-    expect(formulaParts("AWO4")).toBeNull();
+    expect(formulaParts("ABO4")).toBeNull();
     expect(formulasText("the Mn3Ga Ga1 occupancy")).toBe("the Mn₃Ga Ga1 occupancy"); // a site label is never a formula
     expect(symbolHtml("R_wp")).toBe("<i>R</i><sub>wp</sub>");
     expect(symbolHtml("GoF")).toBe("GoF");
@@ -451,7 +451,7 @@ describe("report helpers", () => {
 describe("report file name", () => {
   it("reduces the structure name to a safe token, falling back to the id", () => {
     const base = exampleStructure();
-    expect(reportFileName({ ...base, name: "(Co,Cu,Fe,Mn,Ni,Zn)WO₄" })).toBe("Co_Cu_Fe_Mn_Ni_Zn_WO4_report.html");
+    expect(reportFileName({ ...base, name: "(Co,Ni)Ti₂O₄" })).toBe("Co_Ni_Ti2O4_report.html");
     expect(reportFileName({ ...base, name: "Mn₃Ga" })).toBe("Mn3Ga_report.html");
     expect(reportFileName({ ...base, id: "s1", name: "☃" })).toBe("s1_report.html");
   });
@@ -489,7 +489,7 @@ describe("magnetic report section (reportInputs)", () => {
     const momentEsds = Object.fromEntries(params.map((p) => [p.id, 0.05]));
     const result = (esd: Record<string, number>): RefinementResult => ({ status: "converged", parameters: {}, esd, agreement: {}, history: [{}], diagnostics: { svdZeroCount: 0, highCorrelations: [] } }) as unknown as RefinementResult;
     const base = { structure, applied: magnetic, params: [scale, ...params], explored: null, against: "the powder pattern" } as const;
-    // The moments alone (the magnetic page's Refine moments, the AWO₄ demo's last step): every nuclear row held.
+    // The moments alone (the magnetic page's Refine moments, the local magnetic demo's last step): every nuclear row held.
     const held = magneticReportSection({ ...base, result: result(momentEsds) });
     expect(held.section?.provenance).toBe("Moments refined against the powder pattern with the nuclear model held; the moment esds come from that fit.");
     expect(held.sentence).toMatch(/, moments refined with the nuclear model held\.$/);

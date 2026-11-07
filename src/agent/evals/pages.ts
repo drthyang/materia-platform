@@ -15,6 +15,7 @@ import { parseInstrumentParameters } from "@/parsers/instrument";
 import { parseGsasHistogramPattern } from "@/parsers/gsasHistogram";
 import { parsePowderData } from "@/parsers/powderData";
 import { dataDir } from "@/testSupport/data";
+import { LOCAL_DATA } from "@/testSupport/localData";
 import { exampleStructure } from "@/examples/mn3ga";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { powderPeakIntensities } from "@/core/diffraction/intensity";
@@ -296,16 +297,16 @@ export function powderPage(session: Session): PowderAgentPort {
 }
 
 /**
- * The user's own AWO₄ powder data, where they are: the structure's CIF, a
+ * The user's own powder data (the local magnetic TOF dataset), where they are: the structure's CIF, a
  * POWGEN bank's GSAS histogram (TOF) and the instrument file of the same bank,
- * found in the git-ignored data/AWO4 folder under the generic names of
+ * found in its git-ignored data/ folder (`LOCAL_DATA.magneticTof`) under the generic names of
  * docs/VALIDATION.md (the ordered pattern, `PG3_powder_6K.gsa`, before any other
  * histogram; `instrument_bank<N>.instprm` for its bank). The data are
  * unpublished: the repository holds none of them, and the scenario on them
  * runs only on a machine that has the folder. Null when it is absent.
  */
-export function awo4UserFiles(): { readonly structure: string; readonly data: string; readonly instrument: string } | null {
-  const dir = dataDir("AWO4");
+export function localUserFiles(): { readonly structure: string; readonly data: string; readonly instrument: string } | null {
+  const dir = dataDir(LOCAL_DATA.magneticTof);
   if (!existsSync(dir)) return null;
   const files = readdirSync(dir).sort();
   const cif = files.find((f) => /\.cif$/i.test(f));
@@ -319,14 +320,14 @@ export function awo4UserFiles(): { readonly structure: string; readonly data: st
 }
 
 /**
- * The powder page as the app opens it on the user's AWO₄ files: the CIF, the
+ * The powder page as the app opens it on the user's local files: the CIF, the
  * histogram read as TOF, and the instrument's calibration and profile, the
  * page opened as the app opens the files (openedPage) and the instrument
  * shown on the page (the d axis needs it).
  */
-export function awo4UserPage(): PowderAgentPort {
-  const files = awo4UserFiles();
-  if (!files) throw new Error("the AWO4 data are not on this machine (data/AWO4)");
+export function localUserPage(): PowderAgentPort {
+  const files = localUserFiles();
+  if (!files) throw new Error("the local magnetic TOF data are not on this machine");
   const read = (path: string): string => readFileSync(path, "utf8");
   const structure = parseCif(read(files.structure), "awo4");
   const instrumentFile = { name: basename(files.instrument), text: read(files.instrument) };

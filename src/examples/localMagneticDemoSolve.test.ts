@@ -28,16 +28,17 @@ import { RANK_NOISE_ALPHA } from "@/core/diagnostics/thresholds";
 import { fCritical } from "@/core/math/fDistribution";
 import type { SymmetryOperation } from "@/core/crystal/types";
 import { dataExists, readData, DATA_DIR } from "@/testSupport/data";
+import { LOCAL_DATA } from "@/testSupport/localData";
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { AWO4_DEMO_FILES } from "@/examples/awo4Magnetic";
+import { LOCAL_MAGNETIC_DEMO_FILES } from "@/examples/localMagneticDemo";
 import type { Vec3 } from "@/core/math/types";
 
 /**
- * PROVENANCE of the LOCAL AWO₄ magnetic demo (`awo4Magnetic.ts`): the numbers
- * it opens on are produced HERE, by the app's own machinery, from the POWGEN
- * 6 K bank-3 histogram of the high-entropy tungstate — never typed in by hand.
- * The result is written to `data/AWO4/awo4_demo_solution.json`, which stays
+ * PROVENANCE of the LOCAL magnetic demo (`localMagneticDemo.ts`): the numbers
+ * it opens on are produced HERE, by the app's own machinery, from the ordered
+ * bank-3 POWGEN histogram of the local magnetic TOF dataset — never typed in by
+ * hand. The result is written to `data/` (`LOCAL_DATA.magneticTofSolution`), which stays
  * in the git-ignored data folder with the unpublished histogram it derives
  * from; the demo reads it from there at runtime.
  *
@@ -59,23 +60,23 @@ import type { Vec3 } from "@/core/math/types";
  *      solution file (and echoed as JSON).
  *
  * Slow (minutes) and needs the git-ignored data/ folder, so it runs only with
- * AWO4_SOLVE=1. Ordinary CI never executes it.
+ * LOCAL_MAGNETIC_SOLVE=1. Ordinary CI never executes it.
  */
 
-const CIF = "AWO4/structure_100K.cif";
-const INST = "AWO4/instrument_bank3.instprm";
-const GSA = "AWO4/PG3_powder_6K.gsa";
-const has = !!process.env.AWO4_SOLVE && dataExists(CIF) && dataExists(INST) && dataExists(GSA);
+const CIF = `${LOCAL_DATA.magneticTof}/structure_100K.cif`;
+const INST = `${LOCAL_DATA.magneticTof}/instrument_bank3.instprm`;
+const GSA = `${LOCAL_DATA.magneticTof}/PG3_powder_6K.gsa`;
+const has = !!process.env.LOCAL_MAGNETIC_SOLVE && dataExists(CIF) && dataExists(INST) && dataExists(GSA);
 const K: Vec3 = [0.5, 0, 0];
 
-describe.skipIf(!has)("AWO₄ magnetic demo — solve the 6 K magnetic structure with the app's own tools", () => {
+describe.skipIf(!has)("local magnetic demo — solve the magnetic structure with the app's own tools", () => {
   it("nuclear refinement → k-search → candidate ranking → magnetic refinement (moments only, nuclear held)", { timeout: 40 * 60 * 1000 }, async () => {
-    const structure = parseCif(readData(CIF), "awo4");
+    const structure = parseCif(readData(CIF), "local");
     const instrument = parseInstrumentParameters(readData(INST));
     if (instrument.kind !== "tof") throw new Error("bank-3 instprm should be TOF");
-    const pattern = parseGsasHistogramPattern(readData(GSA), "awo4-powder", "AWO4 6 K bank 3", { radiation: { kind: "neutron-tof" } });
+    const pattern = parseGsasHistogramPattern(readData(GSA), "local-powder", "ordered bank 3", { radiation: { kind: "neutron-tof" } });
     const dArr = pattern.points.map((p) => dFromTof(instrument, p.x));
-    console.log(`[awo4] ${pattern.points.length} pts · TOF ${pattern.points[0]!.x.toFixed(0)}–${pattern.points[pattern.points.length - 1]!.x.toFixed(0)} µs · d ${Math.min(...dArr).toFixed(3)}–${Math.max(...dArr).toFixed(3)} Å`);
+    console.log(`[local] ${pattern.points.length} pts · TOF ${pattern.points[0]!.x.toFixed(0)}–${pattern.points[pattern.points.length - 1]!.x.toFixed(0)} µs · d ${Math.min(...dArr).toFixed(3)}–${Math.max(...dArr).toFixed(3)} Å`);
 
     // 1. Nuclear staged refinement. The stage plan unlocks kind-groups in
     // order; every structural / profile / microstructure row is sent as
@@ -101,7 +102,7 @@ describe.skipIf(!has)("AWO₄ magnetic demo — solve the 6 K magnetic structure
     );
     const nuclear = staged.parameters;
     const nuclearWr = staged.final?.agreement.rWeighted ?? NaN;
-    console.log(`[awo4] nuclear staged: wR ${(100 * nuclearWr).toFixed(2)}% · ${staged.stages.map((s) => `${s.name} ${(100 * (s.result.agreement.rWeighted ?? 0)).toFixed(1)}%`).join(" → ")} · ${((Date.now() - t0) / 1000).toFixed(0)} s`);
+    console.log(`[local] nuclear staged: wR ${(100 * nuclearWr).toFixed(2)}% · ${staged.stages.map((s) => `${s.name} ${(100 * (s.result.agreement.rWeighted ?? 0)).toFixed(1)}%`).join(" → ")} · ${((Date.now() - t0) / 1000).toFixed(0)} s`);
     expect(Number.isFinite(nuclearWr)).toBe(true);
 
     // 2. Residual peaks → k-search, exactly as the magnetic page does it: peaks
@@ -111,17 +112,17 @@ describe.skipIf(!has)("AWO₄ magnetic demo — solve the 6 K magnetic structure
     const sigma = pattern.points.map((p) => p.sigma!);
     const detected = detectExtraPeaks(dArr, curves.yObs, curves.yCalc, { pointSigma: sigma, minSignificance: 3, limit: 24 });
     const applied = applyParameters(structure, spec.bindings, Object.fromEntries(nuclear.map((p) => [p.id, p.value]))).model;
-    const nuclearRefl = generateReflections(applied.cell, applied.spaceGroup, 0.9, 25).map((r) => ({ d: r.d, hkl: `${r.h} ${r.k} ${r.l}`, phaseLabel: "AWO4" }));
+    const nuclearRefl = generateReflections(applied.cell, applied.spaceGroup, 0.9, 25).map((r) => ({ d: r.d, hkl: `${r.h} ${r.k} ${r.l}`, phaseLabel: "nuclear" }));
     const peaks = annotateExtraPeaks(detected, nuclearRefl);
     const included = peaks.filter((p) => (p.significance ?? Infinity) >= 5 && !p.nearNuclear);
     const kCands = searchPropagationVector(structure.cell, included.map((p) => p.d), {
       tolerance: 0.02, maxQ: 0, weights: included.map((p) => Math.min(p.significance ?? 1, 20)),
     });
-    console.log(`[awo4] residual peaks: ${peaks.length} detected · ${included.length} included (I/σ ≥ 5, off nuclear) · ${peaks.filter((p) => p.nearNuclear).length} at nuclear positions`);
-    console.log(`[awo4] peaks d/Å (I/σ): ${peaks.map((p) => `${p.d.toFixed(3)}(${(p.significance ?? 0).toFixed(1)}${p.nearNuclear ? "·nuc" : ""})`).join(" ")}`);
-    console.log(`[awo4] top k: ${kCands.slice(0, 6).map((c) => `${c.label} ${c.matched}/${c.total} rmsd ${c.rmsd.toFixed(4)} score ${c.score.toFixed(3)}`).join(" | ")}`);
+    console.log(`[local] residual peaks: ${peaks.length} detected · ${included.length} included (I/σ ≥ 5, off nuclear) · ${peaks.filter((p) => p.nearNuclear).length} at nuclear positions`);
+    console.log(`[local] peaks d/Å (I/σ): ${peaks.map((p) => `${p.d.toFixed(3)}(${(p.significance ?? 0).toFixed(1)}${p.nearNuclear ? "·nuc" : ""})`).join(" ")}`);
+    console.log(`[local] top k: ${kCands.slice(0, 6).map((c) => `${c.label} ${c.matched}/${c.total} rmsd ${c.rmsd.toFixed(4)} score ${c.score.toFixed(3)}`).join(" | ")}`);
     const kRank = kCands.findIndex((c) => c.k[0] === K[0] && c.k[1] === K[1] && c.k[2] === K[2]);
-    console.log(`[awo4] k = (½ 0 0) ranks #${kRank + 1} from the nuclear-fit residual (the 6 K − 100 K difference analysis in realAwo4Magnetic.test.ts puts it first)`);
+    console.log(`[local] k = (½ 0 0) ranks #${kRank + 1} from the nuclear-fit residual (the 6 K − 100 K difference analysis in realLocalMagnetic.test.ts puts it first)`);
 
     // 3. Rank every candidate magnetic group at k against the data, the nuclear
     //    model held: the page's own ranking (rankCandidates — each group fitted
@@ -129,7 +130,7 @@ describe.skipIf(!has)("AWO₄ magnetic demo — solve the 6 K magnetic structure
     //    kept) of the page's moment model (buildFor: the co-located ions of the
     //    mixed site share one moment), through the page's in-thread fit.
     const ions = magneticIonCandidates(structure).map((i) => i.siteLabel);
-    console.log(`[awo4] magnetic ions: ${ions.join(", ")}`);
+    console.log(`[local] magnetic ions: ${ions.join(", ")}`);
     const reps = latticeRepresentatives(magneticSubgroupLattice(structure.spaceGroup.operations, K));
     const dims = momentParameters(structure, reps, ions, K, { sameSite: true, magnitudes: false, flippedUnits: [] });
     const buildOf = (ops: readonly SymmetryOperation[]) => buildFor(structure, K, ions, ops, { sameSite: true, magnitudes: false, flippedUnits: [] });
@@ -163,13 +164,13 @@ describe.skipIf(!has)("AWO₄ magnetic demo — solve the 6 K magnetic structure
         ops: rep.candidate.operations.map((o) => ({ xyz: o.xyz, timeReversal: (o.timeReversal ?? 1) as 1 | -1 })),
       });
     }
-    console.log(`[awo4] ranked ${ranked.length} groups (${RANK_RESTARTS} restarts each) in ${((Date.now() - t1) / 1000).toFixed(0)} s`);
+    console.log(`[local] ranked ${ranked.length} groups (${RANK_RESTARTS} restarts each) in ${((Date.now() - t1) / 1000).toFixed(0)} s`);
     const { chosen, equivalent, tests } = topDownGroup(ranked, RANK_NOISE_ALPHA);
     for (const r of [...ranked].sort((a, b) => a.chi2 - b.chi2)) {
       const t = tests.get(r.id);
-      console.log(`[awo4]   ${r.label} (index ${r.index}, m = ${r.parameters} moment parameters; the page counts ${dims[reps.findIndex((x) => x.candidate.id === r.id)]}): wR ${(100 * r.wR).toFixed(3)}% · χ² ${r.chi2.toFixed(1)}, ν = N − m = ${r.dof} · |M| ${r.moments}${t ? ` · vs the best: b = ${t.b}, F = ${t.F.toFixed(2)} (F_crit ${t.Fcrit.toFixed(2)}), R = ${t.R.toFixed(5)} (R_crit ${t.Rcrit.toFixed(5)}) → ${t.F > t.Fcrit ? "worse beyond the noise" : "within the noise"}` : " · the best χ²"}`);
+      console.log(`[local]   ${r.label} (index ${r.index}, m = ${r.parameters} moment parameters; the page counts ${dims[reps.findIndex((x) => x.candidate.id === r.id)]}): wR ${(100 * r.wR).toFixed(3)}% · χ² ${r.chi2.toFixed(1)}, ν = N − m = ${r.dof} · |M| ${r.moments}${t ? ` · vs the best: b = ${t.b}, F = ${t.F.toFixed(2)} (F_crit ${t.Fcrit.toFixed(2)}), R = ${t.R.toFixed(5)} (R_crit ${t.Rcrit.toFixed(5)}) → ${t.F > t.Fcrit ? "worse beyond the noise" : "within the noise"}` : " · the best χ²"}`);
     }
-    console.log(`[awo4] baseline nuclear wR ${(100 * nuclearWr).toFixed(2)}% · Hamilton at α = ${RANK_NOISE_ALPHA}, N = ${ranked[0]!.dof + ranked[0]!.parameters} points: ${equivalent.length} group(s) within the noise of the best (${equivalent.map((r) => r.label).join("; ")}) → top-down: ${chosen.label} (index ${chosen.index}, m = ${chosen.parameters})`);
+    console.log(`[local] baseline nuclear wR ${(100 * nuclearWr).toFixed(2)}% · Hamilton at α = ${RANK_NOISE_ALPHA}, N = ${ranked[0]!.dof + ranked[0]!.parameters} points: ${equivalent.length} group(s) within the noise of the best (${equivalent.map((r) => r.label).join("; ")}) → top-down: ${chosen.label} (index ${chosen.index}, m = ${chosen.parameters})`);
     const best = chosen;
 
     // 4. The magnetic refinement of the chosen candidate: only the magnetic
@@ -181,7 +182,7 @@ describe.skipIf(!has)("AWO₄ magnetic demo — solve the 6 K magnetic structure
     //    where the little group lets k move; k = (½,0,0) has none.
     const bestBuild = buildOf(best.ops.map((o) => ({ ...parseXyz(o.xyz), timeReversal: o.timeReversal })));
     const kRows = propagationKParameters(structure, bestBuild.magnetic);
-    console.log(`[awo4] k rows: ${kRows.params.length > 0 ? kRows.params.map((p) => p.id).join(", ") : `none — ${kRows.notes.join("; ")}`}`);
+    console.log(`[local] k rows: ${kRows.params.length > 0 ? kRows.params.map((p) => p.id).join(", ") : `none — ${kRows.notes.join("; ")}`}`);
     const magneticRows = [...fitRows(bestBuild, best.values), ...kRows.params.map((p) => ({ ...p, fixed: !!p.expression }))];
     const finalParams = [...nuclearFixed, ...magneticRows];
     const free = finalParams.filter((p) => !p.fixed).map((p) => p.id);
@@ -211,8 +212,8 @@ describe.skipIf(!has)("AWO₄ magnetic demo — solve the 6 K magnetic structure
     let sizeVar = 0;
     free.forEach((a, i) => free.forEach((b, j) => { sizeVar += grad[i]! * grad[j]! * (esd[a] ?? NaN) * (esd[b] ?? NaN) * rho(a, b); }));
     const sizeEsd = Math.sqrt(sizeVar);
-    console.log(`[awo4] magnetic refinement (free: ${free.join(", ")}; every nuclear row held): wR ${(100 * finalWr).toFixed(3)}% GoF ${(fitted.agreement.goodnessOfFit ?? NaN).toFixed(2)} (${fitted.status}) · ranked ${(100 * best.wR).toFixed(3)}% · |M| ${size.toFixed(3)}(${sizeEsd.toFixed(3)}) µB`);
-    console.log(`[awo4] moments: ${free.map((id) => `${id} ${finalValues[id]!.toFixed(3)}±${(esd[id] ?? NaN).toFixed(3)}`).join(" · ")} · components per site: ${finalMag.moments.map((m) => `${m.siteLabel} (${m.components.map((c) => c.toFixed(3)).join(", ")})`).join(" ")} · correlations reported: ${correlations.map((c) => `${c.parameterIdA}~${c.parameterIdB} ${c.coefficient.toFixed(2)}`).join(", ") || "none"}`);
+    console.log(`[local] magnetic refinement (free: ${free.join(", ")}; every nuclear row held): wR ${(100 * finalWr).toFixed(3)}% GoF ${(fitted.agreement.goodnessOfFit ?? NaN).toFixed(2)} (${fitted.status}) · ranked ${(100 * best.wR).toFixed(3)}% · |M| ${size.toFixed(3)}(${sizeEsd.toFixed(3)}) µB`);
+    console.log(`[local] moments: ${free.map((id) => `${id} ${finalValues[id]!.toFixed(3)}±${(esd[id] ?? NaN).toFixed(3)}`).join(" · ")} · components per site: ${finalMag.moments.map((m) => `${m.siteLabel} (${m.components.map((c) => c.toFixed(3)).join(", ")})`).join(" ")} · correlations reported: ${correlations.map((c) => `${c.parameterIdA}~${c.parameterIdB} ${c.coefficient.toFixed(2)}`).join(", ") || "none"}`);
     const solution = {
       k: K,
       group: best.label,
@@ -236,10 +237,10 @@ describe.skipIf(!has)("AWO₄ magnetic demo — solve the 6 K magnetic structure
       })),
       solvedAt: new Date().toISOString(),
     };
-    const out = resolve(DATA_DIR, AWO4_DEMO_FILES.solution);
+    const out = resolve(DATA_DIR, LOCAL_MAGNETIC_DEMO_FILES.solution);
     writeFileSync(out, JSON.stringify(solution, null, 2) + "\n");
-    console.log(`[awo4] solution written to ${out}`);
-    console.log("[awo4-json] " + JSON.stringify(solution));
+    console.log(`[local] solution written to ${out}`);
+    console.log("[local-json] " + JSON.stringify(solution));
     expect(finalWr).toBeLessThan(nuclearWr);
     // The ranking fitted the same free rows from the same nuclear model: the final step converges it, never above it.
     expect(finalWr).toBeLessThanOrEqual(best.wR * (1 + 1e-6));

@@ -28,8 +28,8 @@ export const DEMOS: readonly DemoEntry[] = [
     id: "magnetic",
     local: true,
     kicker: "Magnetic · k ≠ 0 antiferromagnet · local data",
-    title: "AWO₄ neutron TOF 6 K",
-    blurb: "High-entropy tungstate on POWGEN data from the local data folder · k = (½ 0 0), P2/c′ · opens on the magnetic page with the group selected · wR 7.5%",
+    title: "Local magnetic TOF dataset",
+    blurb: "POWGEN data from the local data folder · opens on the magnetic page with the group selected",
   },
   {
     id: "pdf",

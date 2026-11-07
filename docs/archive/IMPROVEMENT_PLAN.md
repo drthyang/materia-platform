@@ -42,7 +42,7 @@ pure numeric core in `src/core` (no UI imports); worker-pooled evaluators in
 - FullProf `.int` reader exists (`src/parsers/fullprofInt.ts`), Fortran-format-aware,
   tested. No propagation-vector header support, no writer. **GAP #3.**
 - Datasets: `data/Mn3Ga_POWGEN_350K` (published magnetic structure, GSAS-II-validated),
-  `data/GaNb4Se8_XRD`, `data/Eu324_fullprof/Str/` (single-crystal goldens:
+  the local X-ray dataset, `data/Eu324_fullprof/Str/` (single-crystal goldens:
   `*_nuc*.int` + `*_mag*.int` pairs, plus `gaussian_nuc/mag.int`, `analytical_nuc.int`).
   NOTE: the magnetic goldens index in the magnetic SUPERCELL (integer hkl, no k-vector
   header lines) — they do not exercise the propagation-vector file variant.

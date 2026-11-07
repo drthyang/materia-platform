@@ -27,6 +27,7 @@ import { parseCif } from "@/parsers/cif";
 import { classifyPointGroup } from "@/core/crystal/pointGroup";
 import { exampleStructure } from "@/examples/mn3ga";
 import { dataExists, readData } from "@/testSupport/data";
+import { LOCAL_DATA } from "@/testSupport/localData";
 import type { SpaceGroup } from "@/core/crystal/types";
 
 const keySet = (sg: SpaceGroup) => new Set(sg.operations.map(operationKey));
@@ -192,9 +193,9 @@ describe("discovery helpers", () => {
 });
 
 // Golden validation against real International Tables data: the built F-4̄3m must
-// reproduce the GaNb₄Se₈ CIF's 96 operations exactly (as a set, mod lattice).
-const CIF = "GaNb4Se8_XRD/GaNb4Se8_100K.cif";
-describe.skipIf(!dataExists(CIF))("golden: F-4̄3m vs GaNb₄Se₈ CIF", () => {
+// reproduce a local F-4̄3m CIF's 96 operations exactly (as a set, mod lattice).
+const CIF = `${LOCAL_DATA.xrd.dir}/${LOCAL_DATA.xrd.structure}`;
+describe.skipIf(!dataExists(CIF))("golden: F-4̄3m vs a local F-4̄3m CIF", () => {
   it("generators reproduce the CIF operation set exactly", () => {
     const parsed = parseCif(readData(CIF));
     expect(parsed.spaceGroup.number).toBe(216);

@@ -1,6 +1,7 @@
 /**
  * REAL-data external golden (data-gated; `data/` is git-ignored): RMCProfile's
- * StoG Fortran program run on the FeCoSn 199 K neutron S(Q), against MATERIA's
+ * StoG Fortran program run on the local hexagonal dataset's neutron S(Q)
+ * (`LOCAL_DATA.hexStog`, unpublished), against MATERIA's
  * operator with StoG's own settings.
  *
  * StoG's `.gr` output is g(r) (→ 1 at large r), so the comparison maps through
@@ -14,10 +15,11 @@
  */
 import { describe, it, expect } from "vitest";
 import { dataExists, readData } from "@/testSupport/data";
+import { LOCAL_DATA } from "@/testSupport/localData";
 import { parsePdfData } from "@/parsers/pdfData";
 import { sineTransform, sineTransformOperator, reducedStructureFunction } from "@/core/totalscattering/fourier";
 
-const DIR = "StoG/199K";
+const DIR = LOCAL_DATA.hexStog;
 const FILES = ["scale.fq", "scale.gr", "scale_ft.sq", "scale_ft.gr", "stog_input.dat"];
 
 /** Numeric rows of a StoG table (skips the count line and the text headers). */
@@ -28,7 +30,7 @@ function table(text: string): number[][] {
     .filter((t) => t.length >= 2 && t.every(Number.isFinite));
 }
 
-describe.skipIf(!FILES.every((f) => dataExists(`${DIR}/${f}`)))("REAL FeCoSn 199 K — RMCProfile StoG S(Q) → G(r)", () => {
+describe.skipIf(!FILES.every((f) => dataExists(`${DIR}/${f}`)))("REAL local neutron S(Q) — RMCProfile StoG S(Q) → G(r)", () => {
   it("reproduces StoG's g(r) for the unfiltered and the Fourier-filtered S(Q)", () => {
     // StoG input deck, by position: line 3 = "Qmin Qmax", line 11 = ρ₀ (Å⁻³).
     const deck = readData(`${DIR}/stog_input.dat`).split(/\r?\n/).map((l) => l.trim());

@@ -201,7 +201,7 @@ describe("assessRefinement — findings", () => {
   });
 
   it("notes the TOF peak-shape terms among themselves, and warns when one trades with anything else", () => {
-    // AWO₄ at 8 K on POWGEN, the profile freed with the moments held: the guard refines α, β, σ and the
+    // On a local POWGEN dataset, the profile freed with the moments held: the guard refines α, β, σ and the
     // zero together (correlationGuard.ts), so the assessment must not tell the model to split them.
     const diagnostics = (highCorrelations: NonNullable<RefinementResult["diagnostics"]>["highCorrelations"]): NonNullable<RefinementResult["diagnostics"]> => ({
       svdZeroCount: 0, singularParameterIds: [], conditionNumber: 100, maxLambda: 1, atBounds: [], maxShiftOverEsd: 0, highCorrelations,

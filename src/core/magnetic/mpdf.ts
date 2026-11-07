@@ -192,7 +192,7 @@ function convolveDirect(a: ArrayLike<number>, b: ArrayLike<number>): Float64Arra
  * transforms of the FFT path cost ≈ 5·N·log₂N flops. Measured on Node 22 /
  * Apple silicon the two run at close enough to the same rate that the crossover
  * sits at a ratio of ≈ 1 (at 0.98 the FFT is 1.28× faster; at 0.53 it is 0.66×,
- * i.e. the direct sum wins), which is what this compares. On the FeCoSn
+ * i.e. the direct sum wins), which is what this compares. On a neutron-PDF
  * workload (3401-point grid at Δr = 0.01 Å) that routes:
  *
  *   ordered term, 3401 × 2001 dense    ratio 12.8   direct 3.65 ms → FFT 0.31 ms

@@ -61,8 +61,8 @@ folder skip when it is absent (CI, fresh clones).
 | Magnetic groups of the lattice at k = 0 and zone-boundary k (15 single-arm cases: P2/c, Pnma, P4₂/mnm, P4/mmm, Immm, P6/mmm, P6₃/mmc, Fm-3m, P2₁/m): every candidate a group, every conjugacy class and domain count the oracle's, none missing, each class's BNS number and type, the allowed moments on every split orbit | oracle (independent construction + spglib 2.8, `scripts/magnetic-groups/oracle.py`; committed fixture, rebuilt by the opt-in `magnetic-oracle.yml` workflow) | ✅ `core/magnetic/magneticGroupsOracle.test.ts` |
 | Allowed moment directions per site | golden (a–c plane) | ✅ `core/magnetic/magneticGroups.test.ts` |
 | Candidate comparison ranks correct group best | integration (30 K) | ✅ `core/workflow/magneticCompare.test.ts` |
-| k-search recovers k=(½,0,0) (AWO₄ P2/c cell) | unit | ✅ `core/magnetic/kSearch.test.ts` |
-| k-search recovers k=(½,0,0) from **real** AWO₄ 6 K neutron data | integration (real POWGEN) | ✅ `core/workflow/realAwo4Magnetic.test.ts` |
+| k-search recovers k=(½,0,0) (a monoclinic P2/c cell, synthetic) | unit | ✅ `core/magnetic/kSearch.test.ts` |
+| k-search recovers the known k from **real** neutron data (the local magnetic TOF dataset) | integration (real POWGEN) | ✅ `core/workflow/realLocalMagnetic.test.ts` |
 | Antiferromagnetic \|F_M\|² ≠ 0 (magnetic-op orbit expansion, k≠0) | golden (Mn₃Ga 6h) | ✅ `core/magnetic/afmStructureFactor.test.ts` |
 | Abelian little-group irreps + Γ_mag decomposition + mode projection | golden (P1/C2/Ci/D2/C4) | ✅ `core/magnetic/irreps.test.ts` |
 | Representation analysis on the subgroup engine at any commensurate k (17 cases, non-abelian little co-groups at k ≠ 0 included): integral multiplicities that account for Γ_mag; every isotropy subgroup of every irrep and order-parameter direction a candidate group of the magnetic-space-group route, named with the BNS number and type spglib gives it | oracle (the THY-37 fixture, spglib 2.8) | ✅ `core/magnetic/representationAnalysis.test.ts` |
@@ -72,8 +72,8 @@ folder skip when it is absent (CI, fresh clones).
 | `review_symmetry` on the subgroup engine: standard names with their setting (I4₁/amd's Imma, R-3c's R-3, Cmcm's two Pnma classes), a line allowed through any member of its family | golden | ✅ `core/diagnostics/symmetryReview.test.ts` |
 | Mode amplitudes recovered from a model's moments (open-on-model, demo seeding) | round trip + the 30 K mCIF | ✅ `core/magnetic/amplitudeFit.test.ts` |
 | Strong k = 0 magnetic peaks on the nuclear lines (simulated Mn₃Ga 30 K, truth known): the nuclear-only ADP stage biases every B > 3σ at a good GoF; the Agent is routed to the magnetic step (k = 0 peaks to include, `diagnose_fit` and `refine` cautions); the guarded path (B's and positions held until the moments are in) puts all 16 parameters within 3σ of the truth, RMS z ≤ 1.5 | benchmark (synthetic, in-app Agent) | ✅ `core/workflow/k0MagneticBias.test.ts`, `agent/strongMagneticPeaks.test.ts` |
-| AWO₄ 8 K magnetic **benchmark** (the 8 K bank-3 POWGEN pattern, Mantid XYDATA, with its bank's calibration): k = (½,0,0) from the nuclear residual alone, the ★ group maximal, \|M\| within the spin-only bound, the magnetic lines fitted by the magnetic refinement (the moments alone, the staged nuclear model held). Checked against the magnetic content of the owner's own 8 K refinement (a Jana mCIF, read at runtime): the same k, the same magnetic group operation by operation in the doubled cell, the moment's axis and \|M\| within 2σ combined, with the reference's ⟨j0⟩ ions and the app's 8 K metric. No trusted 8 K cell exists: the cell is compared only with the 100 K CIF within thermal-contraction bounds. Criteria the app does not meet yet are kept as `it.fails` | data-gated (git-ignored data/) | ✅ `core/workflow/realAwo4Benchmark.test.ts` |
-| Local AWO₄ 6 K magnetic demo — k = (½,0,0), P_a2/c (BNS 13.70) is a maximal lattice candidate; the session reopens on the solve's last step, the magnetic refinement (the moments free, every nuclear row held at the nuclear stage's values), at the solved wR, and a refine from it moves nothing | data-gated (git-ignored data/) | ✅ `examples/awo4Magnetic.test.ts`; provenance `examples/awo4MagneticSolve.test.ts` (AWO4_SOLVE=1) |
+| Magnetic **benchmark** on the local magnetic TOF dataset (its ordered bank-3 POWGEN pattern, Mantid XYDATA, with its bank's calibration): k from the nuclear residual alone, the ★ group maximal, \|M\| within the spin-only bound, the magnetic lines fitted by the magnetic refinement (the moments alone, the staged nuclear model held). Checked against the magnetic content of the owner's own refinement of that pattern (a Jana mCIF, read at runtime): the same k, the same magnetic group operation by operation in the doubled cell, the moment's axis and \|M\| within 2σ combined, with the reference's ⟨j0⟩ ions and the app's refined metric. No trusted cell exists at that temperature: the cell is compared only with the paramagnetic CIF within thermal-contraction bounds. Criteria the app does not meet yet are kept as `it.fails` | data-gated (git-ignored data/) | ✅ `core/workflow/realLocalMagneticBenchmark.test.ts` |
+| Local magnetic demo — its group is a maximal lattice candidate; the session reopens on the solve's last step, the magnetic refinement (the moments free, every nuclear row held at the nuclear stage's values), at the solved wR, and a refine from it moves nothing | data-gated (git-ignored data/) | ✅ `examples/localMagneticDemo.test.ts`; provenance `examples/localMagneticDemoSolve.test.ts` (LOCAL_MAGNETIC_SOLVE=1) |
 | Moment-size restraint → physical magnitudes | integration | ✅ `core/workflow/magneticCompare.test.ts` |
 | TOF ↔ d conversion (POWGEN calibration) | golden (GSAS `.lst`) | ✅ `core/diffraction/instrument.test.ts` |
 | Instrument-file parsing | unit | ✅ `core/diffraction/instrument.test.ts` |
@@ -126,31 +126,33 @@ Golden inputs live in two places:
   and WinGX outputs), read through `src/testSupport`; these tests skip when
   the folder is absent.
 
-### The AWO₄ data folder
+### The local magnetic data folder
 
-The owner's AWO₄ ((Co,Cu,Fe,Mn,Ni,Zn)WO₄) POWGEN data are unpublished. They
-stay in the git-ignored `data/AWO4/`, and the repository refers to them only
-by the generic names below: no run number, original file name or calibration
-name. To run the AWO₄ tests, copy each file into `data/AWO4/` under its name
+The owner's local magnetic TOF dataset (POWGEN) is unpublished, as are the
+other local datasets the data-gated tests read. They stay in the git-ignored
+`data/`, and the repository refers to them only by generic names. Their folder
+names are kept in one place, `src/testSupport/localData.ts`; this folder is
+`LOCAL_DATA.magneticTof`. No run number, original file name or calibration
+name appears. To run its tests, copy each file into that folder under its name
 here (one flat folder). A test whose files are missing skips. The powder
 patterns keep the instrument's `PG3_` prefix (it names POWGEN, not a run), so
 the app's file-name hint opens them on the POWGEN background default.
 
 | File | What it holds | Read by |
 | --- | --- | --- |
-| `PG3_powder_8K.dat` | The magnetically ordered bank-3 POWGEN pattern, Mantid `XYDATA` export (focused TOF, y, σ): the measurement the owner's reference refinement (`magnetic_8K.mcif`) is of | `realAwo4Benchmark.test.ts` |
-| `PG3_powder_6K.gsa` | The same measurement as `PG3_powder_8K.dat`, as the GSAS `.gsa` histogram (magnetically ordered). The two temperatures in the names are one measurement's: 8 K its nominal temperature, 6 K the sample's reading | `realAwo4Magnetic.test.ts`, `realAwo4Tof.test.ts`, `awo4MagneticSolve.test.ts`, the local demo, the `awo4-user-flow` eval |
-| `PG3_powder_100K.gsa` | The 100 K bank-3 POWGEN histogram (paramagnetic), GSAS `.gsa`, on the same bank as `PG3_powder_6K.gsa` | `realAwo4Magnetic.test.ts` |
-| `PG3_powder_100K.dat` | The 100 K bank-3 POWGEN pattern, Mantid `XYDATA` export | `realPowderTOF.test.ts` |
-| `PG3_powder_bank1.gsa`, `PG3_powder_bank2.gsa` | A POWGEN histogram of bank 1 and of bank 2, GSAS `.gsa` | `realAwo4Tof.test.ts` |
-| `structure_100K.cif` | The refined 100 K nuclear structure (P2/c), the model also bundled in `examples/highEntropyWO4.ts` | every test above but the demo's |
-| `magnetic_8K.mcif` | The owner's refined magnetic structure of that measurement (Jana mCIF, doubled cell) | `realAwo4Benchmark.test.ts` (reference block) |
-| `instrument_bank1.instprm`, `instrument_bank2.instprm`, `instrument_bank3.instprm` | The GSAS-II TOF calibration of each bank's frame (bank 3 for the patterns above) | `realAwo4Benchmark.test.ts` (all three), the bank-3 file everywhere else |
+| `PG3_powder_8K.dat` | The magnetically ordered bank-3 POWGEN pattern, Mantid `XYDATA` export (focused TOF, y, σ): the measurement the owner's reference refinement (`magnetic_8K.mcif`) is of | `realLocalMagneticBenchmark.test.ts` |
+| `PG3_powder_6K.gsa` | The same measurement as `PG3_powder_8K.dat`, as the GSAS `.gsa` histogram (magnetically ordered). The two temperatures in the names are one measurement's | `realLocalMagnetic.test.ts`, `realLocalTofBanks.test.ts`, `localMagneticDemoSolve.test.ts`, the local demo, the `local-data-user-flow` eval |
+| `PG3_powder_100K.gsa` | The paramagnetic bank-3 POWGEN histogram, GSAS `.gsa`, on the same bank as `PG3_powder_6K.gsa` | `realLocalMagnetic.test.ts` |
+| `PG3_powder_100K.dat` | The paramagnetic bank-3 POWGEN pattern, Mantid `XYDATA` export | `realPowderTOF.test.ts` |
+| `PG3_powder_bank1.gsa`, `PG3_powder_bank2.gsa` | A POWGEN histogram of bank 1 and of bank 2, GSAS `.gsa` | `realLocalTofBanks.test.ts` |
+| `structure_100K.cif` | The refined paramagnetic nuclear structure (P2/c), the model also bundled in `examples/highEntropyWO4.ts` | every test above but the demo's |
+| `magnetic_8K.mcif` | The owner's refined magnetic structure of that measurement (Jana mCIF, doubled cell) | `realLocalMagneticBenchmark.test.ts` (reference block) |
+| `instrument_bank1.instprm`, `instrument_bank2.instprm`, `instrument_bank3.instprm` | The GSAS-II TOF calibration of each bank's frame (bank 3 for the patterns above) | `realLocalMagneticBenchmark.test.ts` (all three), the bank-3 file everywhere else |
 | `instrument_bank3_jana.instprm` | The same bank-3 calibration as written for JANA | `realPowderTOF.test.ts` |
-| `pdf.gr` | The neutron PDF G(r) | `realPdfLongRange.test.ts` (also found as a `.gr` file in `data/AWO4/pdf/`) |
-| `awo4_demo_solution.json` | Written by `awo4MagneticSolve.test.ts` (`AWO4_SOLVE=1`) from `PG3_powder_6K.gsa`: the nuclear stage's values and the moments of the magnetic refinement that follows it (the moments alone, the nuclear model held); not a measurement | the local demo, `awo4Magnetic.test.ts` |
+| `pdf.gr` | The neutron PDF G(r) | `realPdfLongRange.test.ts` (also found as a `.gr` file in the folder's `pdf/`) |
+| the solution file (`LOCAL_DATA.magneticTofSolution`) | Written by `localMagneticDemoSolve.test.ts` (`LOCAL_MAGNETIC_SOLVE=1`) from `PG3_powder_6K.gsa`: the nuclear stage's values and the moments of the magnetic refinement that follows it (the moments alone, the nuclear model held); not a measurement | the local demo, `localMagneticDemo.test.ts` |
 
-The dev server serves the folder under `/data/AWO4/…` for the local demo
+The dev server serves the `data/` folder under `/data/…` for the local demo
 (`vite.config.ts`, development only).
 
 ## External comparisons
@@ -200,8 +202,8 @@ magnetic-group oracles. None moved beyond 10⁻⁸ relative: the 350 K and 30 K
 structures are written in their own magnetic groups (Cm'cm', P2₁'/m'), whose
 families' members were already equal, and the mPDF reads no satellite. The
 per-reflection \|F_M\|² is bit-identical. The data-gated goldens (DyMn₆Ge₆
-against FullProf, FeCoSn 1.7 K and the Mn₃Ga 350 K reflection list against
-GSAS-II, the AWO₄ demo, the diffpy.mpdf tutorial data), run locally on `main`
+against FullProf, the local hexagonal dataset and the Mn₃Ga 350 K reflection
+list against GSAS-II, the local magnetic demo, the diffpy.mpdf tutorial data), run locally on `main`
 and on the branch, are unchanged ([report](./reports/2026-11-02-thy58-powder-magnetic-average.md)).
 
 ### Fits and workflows checked against external tools
@@ -212,7 +214,7 @@ folder.
 
 | Reference | Case | Compared | Result | Test |
 | --- | --- | --- | --- | --- |
-| GSAS-II | GaNb₄Se₈ 298.8 K synchrotron XRD (28-ID) | wR of our staged Rietveld fit vs GSAS-II's fit of the same data | 5.7% vs GSAS-II's 7.34% (gate: < 12%) | `core/workflow/realPowderXRD.test.ts` · *data* |
+| GSAS-II | A local synchrotron XRD dataset (28-ID, unpublished) | wR of our staged Rietveld fit vs GSAS-II's fit of the same data | below GSAS-II's on the same data (gate: < 12%) | `core/workflow/realPowderXRD.test.ts` · *data* |
 | GSAS-II | Mn₃Ga 350 K, POWGEN neutron | \|F_M\|² per reflection at GSAS-II's refined moments | all 82 reflections within ±5%; symmetry-forbidden ones ≈ 0 | `core/workflow/mn3ga350KGolden.test.ts` · *data* |
 | PDFfit2 1.6.0 | Ni and MnO X-ray G(r) | G_calc(r); cell, scale and ADPs refined from a perturbed start | corr ≈ 0.9998 (gate > 0.999); cell within 2 mÅ | `core/pdf/pdffit2Golden.test.ts` |
 | diffpy.mpdf | MnO, MAGNDATA 1.31 (32-Mn magnetic cell) | f(r) and D(r) for a fixed spin configuration | f(r) to 1e-11 of the peak away from r = 0; D(r) corr > 0.9999, κ within 0.5% | `core/magnetic/mnoGolden.test.ts` |
@@ -330,6 +332,71 @@ not do was fixed:
 | 8 | Cr₂WO₆, neutrons at 150 K and 4 K | `identify_peaks`, `tie_parameters`, bond valences, the Bayesian check, d with the zero shift taken out, k = 0 found on wide lines, the moments kept through a settings change; in-plane moments, 2.28(2) µB in Pn′nm |
 | 9 | LaMnO₃, NPDF neutron PDF (PDFgui tutorial) | PDFgetN files read as neutron data, and only their data; the PDF page's ADP model; bond lengths box by box in the boxcar scan and in the report; the Jahn–Teller distortion holds from the first box (1.5–6.5 Å) to the last |
 | 10 | NAC (Na₂Ca₃Al₂F₁₄), 11-BM synchrotron | fluorite found and added as a known phase (1.448(6) wt %); the instrument file's asymmetry read; size, strain and phase fractions in the report; the 2009 profile ~¼ too broad in its Gaussian part, the sample adding next to nothing |
+
+## The v0.5.0 eval gate (2026-11-07)
+
+Before the tag, eight live scenarios ran on Claude Haiku 5.5 and Claude Sonnet
+5.5: three runs each, four on Sonnet for `full-refinement` and
+`pdf-local-geometry` (50 runs). The fixes in
+[#162](https://github.com/drthyang/materia-platform/pull/162) followed, and
+the same saved runs were then re-scored for free (`regrade.test.ts`), and
+the two scenarios the fixes touched were run live again (below). The table
+gives the re-score.
+
+| Scenario | Haiku 5.5 | Sonnet 5.5 |
+| --- | --- | --- |
+| `full-refinement` | 3/3 | 3/4 |
+| `magnetic-step-first` | 3/3 | 3/3 |
+| `magnetic-structure` | 3/3 | 3/3 |
+| `pdf-local-geometry` | 3/3 (1/3 as run) | 3/4 (2/4 as run) |
+| `pdf-local-structure` | 3/3 | 3/3 |
+| `pdf-lower-symmetry` | 1/3 | 2/3 |
+| `pdf-method` | 3/3 | 3/3 |
+| `symmetry-last` | 3/3 (2/3 as run) | 3/3 |
+| **All** | **22/24** (19 as run) | **23/26** (22 as run) |
+
+Four runs went from fail to pass on re-scoring and none from pass to fail;
+each flip was checked against its transcript. The five still failing:
+
+- `pdf-lower-symmetry` (Haiku 2, Sonnet 1): the models stopped at the old
+  `lower_symmetry` answer, which listed the variants of one row. The tool now
+  lowers the row's default variant; the live re-run confirms it.
+- `full-refinement` (Sonnet 1): a re-refine at the minimum came back
+  "stalled". The engine now reports it converged; the live re-run confirms it.
+- `pdf-local-geometry` (Sonnet 1): the report quoted numbers the model derived
+  itself. The audit is right to flag them.
+
+**The live re-run after the fixes** (on `main` at `ea92156`, 2026-11-07,
+three runs each; $1.13, about $18.2 for the whole gate):
+
+| Scenario | Haiku 5.5 | Sonnet 5.5 |
+| --- | --- | --- |
+| `pdf-lower-symmetry` | 3/3 | 3/3 |
+| `full-refinement` | 2/3 | 3/3 |
+
+The one failure is the grader's, not the model's (see the limit below): the
+run converged at GoF 0.97, an excellent fit.
+
+**Grader fixes in this cycle.** Each replays the live sentence in CI.
+
+- The report's number audit reads what `bond_geometry`, `get_state` (the
+  engine's values) and a boxcar scan's note returned, as well as the report
+  and the user's words. It never reads `get_state`'s notes, the History's
+  labels or the bounds.
+- `symmetry-last` reads "Lowering the symmetry now would hide that misfit
+  behind extra parameters" as a reason to wait, not a proposal.
+- `magnetic-structure` accepts a converged moments-only `refine` (every
+  nuclear row held) as the moments step, not only `refine_moments`.
+- `does not refuse` no longer counts a sentence that names an external check
+  the Agent cannot run, once the refinement ran; `noStall` accepts a turn that
+  ends on an `ask_user` the user was shown.
+
+**Known grader limit.** "Does not refuse the refinement or cite a gate" can
+fire on a sentence that only restates the method's staging rule. In the live
+re-run it failed Haiku's `full-refinement` #3 on "The instrument's width must
+not refine with the positions, so I'll hold the width and free the Mn1
+position shift." That is a staging step, not a refusal. Such a fail is checked
+against its transcript before it counts.
 
 ## Does the Agent help?
 
@@ -590,7 +657,7 @@ transcript states the policy its run had, and `_TEMPERATURE` fixes the local
 models' temperature where the server's default should not stand.
 
 **Expected time on qwen3.8-27b.** This is an estimate, not a measurement. A
-full refinement on the local tier took about 40 turns, and only the long AWO₄
+full refinement on the local tier took about 40 turns, and only the long local-data
 flow reached the 80-turn cap. At the local tier's pace that is about 10 to 20
 minutes a run. Gemma4:26b took 2.2 minutes a scenario on the shorter eval
 scenarios.

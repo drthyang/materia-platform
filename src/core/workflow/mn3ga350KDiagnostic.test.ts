@@ -20,7 +20,7 @@ import { dataExists, readData } from "@/testSupport/data";
  * can be matched to the observed failure mode.
  *
  * It runs 24 full refinements (~3 min) so it is OPT-IN behind MAG_DIAGNOSTIC=1
- * (like the GANB4SE8 gate) rather than taxing every local `npm test`. Run with:
+ * (like the local X-ray gate) rather than taxing every local `npm test`. Run with:
  *
  *   npm run test:mag-diagnostic
  *

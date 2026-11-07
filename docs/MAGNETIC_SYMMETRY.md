@@ -183,11 +183,10 @@ order of its wR (THY-58). At k = 0 the ranking refines the nuclear scale with th
 the magnetic peaks sit on the nuclear ones, and a scale refined without them
 has taken part of their intensity.
 
-On unpublished AWO₄ 6 K data with k = (½, 0, 0), five candidates tie within the
-noise by Hamilton's test, with the nuclear model fixed: P_a2/c, P_S-1, P_ac, P_a2
-and P_S1 (type IV, named in the 2a × b × c magnetic cell). The rule picks P_a2/c
-(BNS 13.70), of index 2 with two moment parameters. Its moments are then refined
-alone, against the same nuclear model held. The magnetic page ranks candidates by
+On a local unpublished dataset, several candidates tie within the noise by
+Hamilton's test, with the nuclear model fixed. The rule picks the most symmetric
+of them, with the fewest moment parameters. Its moments are then refined alone,
+against the same nuclear model held. The magnetic page ranks candidates by
 this rule, as [USER_GUIDE.md](./USER_GUIDE.md) describes.
 
 ## BNS and OG labels
@@ -209,8 +208,8 @@ candidate is named from that group, written in the magnetic cell
 view use ([`magneticCell.ts`](../src/core/magnetic/magneticCell.ts)). Its
 setting is reported against the parent cell. For P2/c at k = (½,0,0), the
 candidate without time reversal in the parent cell (read alone, P2/c, 13.65)
-is P_a2/c, BNS 13.70, in (2a, b, c; 0, 0, 0); the AWO₄ ground state (read
-alone, the type-III P2/c′, 13.68) is P_a2/c too, in (2a, b, 2a+c; 3/4, 0, 0).
+is P_a2/c, BNS 13.70, in (2a, b, c; 0, 0, 0); the type-III candidate (read
+alone, P2/c′, 13.68) is P_a2/c too, in (2a, b, 2a+c; 3/4, 0, 0).
 The isotropy subgroups of Route B and the report are named the same way.
 
 [`gen_bns_og_table.py`](../scripts/gen_bns_og_table.py) generates the table:
@@ -438,7 +437,7 @@ The writer gives a BNS symbol only for a tabulated type-I or type-III match, and
 comment for a type-IV group. The candidate's own label would be wrong: for k ≠ 0
 it names the parent-cell group.
 
-For AWO₄ (P2/c, k = (½, 0, 0)), the group has 4 coset representatives, 2 centring
+For the bundled P2/c structure at k = (½, 0, 0), the group has 4 coset representatives, 2 centring
 translations and a 9-site asymmetric unit. The file re-expands through the app's
 parser to the arrangement on screen
 ([`supercellGroup.test.ts`](../src/core/magnetic/supercellGroup.test.ts)). For

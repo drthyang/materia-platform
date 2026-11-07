@@ -7,6 +7,7 @@ import type { PowderPattern } from "@/core/diffraction/types";
 import { MN3GA_CIF } from "@/examples/mn3ga";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { dataDir } from "@/testSupport/data";
+import { LOCAL_DATA } from "@/testSupport/localData";
 
 /**
  * The cell / space-group gate (core/workflow/cellSymmetryCheck.ts) on the
@@ -213,16 +214,16 @@ describe("check_cell_symmetry — real data", () => {
     expect(withMnO.cell.a).toBeCloseTo(5.4194, 2);
   }, 30_000);
 
-  const G = dataDir("GaNb4Se8_XRD");
-  describe.skipIf(!existsSync(resolve(G, "GaNb4Se8_100K.cif")))("GaNb₄Se₈ at 28-ID (local data)", () => {
+  const G = dataDir(LOCAL_DATA.xrd.dir);
+  describe.skipIf(!existsSync(resolve(G, LOCAL_DATA.xrd.structure)))("the local X-ray dataset at 28-ID", () => {
     // Read inside the tests: a skipped describe's body still runs at collection,
     // and the git-ignored data/ folder is absent on CI.
     const load = (): { structure: StructureModel; instrument: ReturnType<typeof parse_instrument>; pattern: PowderPattern } => {
       const read = (f: string): string => readFileSync(resolve(G, f), "utf8");
       const instrument = parse_instrument({ text: read("xrd_instrum.instprm") });
-      const raw = parse_powder_data({ text: read("GaNb4Se8_799_T_298.8K_gsas.dat"), filename: "g.dat" }).pattern;
+      const raw = parse_powder_data({ text: read(LOCAL_DATA.xrd.pattern), filename: "g.dat" }).pattern;
       const wavelength = instrument.kind === "constantWavelength" ? instrument.wavelength : 0;
-      return { structure: structureOf(read("GaNb4Se8_100K.cif")), instrument, pattern: { ...raw, radiation: { kind: "xray", wavelength }, wavelength } };
+      return { structure: structureOf(read(LOCAL_DATA.xrd.structure)), instrument, pattern: { ...raw, radiation: { kind: "xray", wavelength }, wavelength } };
     };
 
     it("the published F-43m passes: every peak indexes, no absence violated", () => {

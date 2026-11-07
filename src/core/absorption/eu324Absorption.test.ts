@@ -11,7 +11,7 @@
  * This exercises the whole pure-core stack — crystal habit → transmission
  * integral — against an external tool. It reads git-ignored data/, so it
  * self-skips when the dataset is absent (keeps CI/deploy green). Analogous to
- * the ganb4se8 powder regression.
+ * the local X-ray powder regression.
  *
  * Findings this pins:
  *  - the .int cosine convention (both stored pointing away from the crystal,

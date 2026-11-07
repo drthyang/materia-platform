@@ -137,7 +137,7 @@ export function nuclearStructureFactor(
     // Sum over the DISTINCT equivalent positions (the site's orbit), each once.
     // Summing over all space-group operations instead over-counts a special
     // position by its site-symmetry order — and since different sites have
-    // different site symmetries (e.g. Nb/Se on 3m vs Ga on -43m in GaNb4Se8),
+    // different site symmetries (e.g. 3m vs -43m sites in an F-43m structure),
     // that corrupts the *relative* structure factors, not just an overall scale.
     for (const op of distinctSiteOps(model.spaceGroup.operations, site.position)) {
       const dw = isoDw ?? anisotropicDebyeWaller(model.cell, rotateUAniso((site.adp as { uAniso: UAniso6 }).uAniso, op.rotation), h, k, l);

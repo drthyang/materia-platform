@@ -6,7 +6,7 @@ import { PEAK_CRITERIA, peakRows } from "@/app/magneticStep";
 /**
  * A dense nuclear pattern (Lorentzian lines, half-width 0.01 Å), and obs =
  * model + Gaussian bumps: misfits on strong lines, and magnetic lines within
- * 1 % of weak nuclear reflections, as on AWO4's monoclinic cell.
+ * 1 % of weak nuclear reflections, as on a dense monoclinic cell.
  */
 function pattern(lines: readonly { d: number; height: number }[], bumps: readonly { d: number; height: number }[]) {
   const d: number[] = [];
@@ -19,7 +19,7 @@ function pattern(lines: readonly { d: number; height: number }[], bumps: readonl
 
 describe("residual peaks near a nuclear reflection, for the k-search", () => {
   const lines = [{ d: 3.0, height: 2000 }, { d: 2.4, height: 20 }, { d: 1.827, height: 2000 }, { d: 1.6, height: 1500 }, { d: 4.0, height: 1800 }];
-  const refs = lines.map((l, i) => ({ d: l.d, hkl: `${i + 1} 0 0`, phaseLabel: "AWO4" }));
+  const refs = lines.map((l, i) => ({ d: l.d, hkl: `${i + 1} 0 0`, phaseLabel: "P2/c" }));
   // A misfit on a strong line, a magnetic line 0.6 % from a weak one, a bump 0.8 % beside a strong line's tail, one on no line,
   // and one on a weak line's own position (the k = 0 signature: left to the step's k = 0 reading).
   const bumps = [{ d: 3.0, height: 60 }, { d: 2.385, height: 100 }, { d: 4.0005, height: 300 }, { d: 1.812, height: 100 }, { d: 2.084, height: 80 }];

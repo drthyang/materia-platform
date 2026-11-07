@@ -3,7 +3,7 @@
  * zeroAdp.ts and the pages' short lines, zeroAdpLines.ts): Cr₂WO₆
  * (trirutile, P4₂/mnm), W1 and Cr1 both octahedral cations (6 O), O1 and O2
  * the two oxygens; the same with Fe sharing the Cr site and no oxidation
- * states (the AWO₄ demo's shape); the rows one B per site group, prefixed per
+ * states (the local magnetic demo's shape); the rows one B per site group, prefixed per
  * phase as the multi-phase spec does; and a result with exactly the bounds
  * and esds a case needs.
  */
@@ -32,7 +32,7 @@ O1 O2- 0.2985 0.2985 0 1${b ? " 0.0070" : ""}
 O2 O2- 0.3075 0.3075 0.3400 1${b ? " 0.0076" : ""}
 `;
 
-/** Cr₂WO₆ with Fe sharing the Cr site (one B for both) and no oxidation states: the AWO₄ demo's shape. */
+/** Cr₂WO₆ with Fe sharing the Cr site (one B for both) and no oxidation states: the local magnetic demo's shape. */
 export const SHARED_CIF = `data_shared
 _cell_length_a 4.5753
 _cell_length_b 4.5753

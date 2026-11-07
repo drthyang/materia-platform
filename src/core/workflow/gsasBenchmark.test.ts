@@ -6,13 +6,14 @@ import { refine } from "@/core/refinement/engine";
 import { computeAgreementFactors, weightsFromSigma } from "@/core/refinement/factors";
 import { optimalScale } from "@/app/loadData";
 import { dataExists, readData } from "@/testSupport/data";
+import { LOCAL_DATA } from "@/testSupport/localData";
 import type { PowderPattern } from "@/core/diffraction/types";
 import type { ParameterBinding, RefinementParameter } from "@/core/refinement/types";
 
 /**
- * Benchmark against a GSAS-II "good fit" of the *same* GaNb4Se8 298.8 K
- * synchrotron pattern. GSAS-II reaches wR ≈ 7.34% (from GaNb4Se8_goodfit.gpx,
- * extracted to GaNb4Se8_goodfit_298K.csv: x, yobs, ycalc, ybkg, sigma) by fixing
+ * Benchmark against a GSAS-II "good fit" of the *same* synchrotron pattern of
+ * the local X-ray dataset (`LOCAL_DATA.xrd`, unpublished). GSAS-II's fit (its
+ * .gpx, extracted to a CSV: x, yobs, ycalc, ybkg, sigma) is reached by fixing
  * the structure and using a Thompson-Cox-Hastings pseudo-Voigt — a Gaussian
  * Caglioti part (U/V/W) PLUS an independent Lorentzian size-strain part (X/Y) and
  * axial-divergence asymmetry (SH/L) — refining only scale + Chebyshev background.
@@ -23,9 +24,9 @@ import type { ParameterBinding, RefinementParameter } from "@/core/refinement/ty
  * (roadmap M1). Skips when the git-ignored data/ folder is absent.
  */
 
-const DIR = "GaNb4Se8_XRD";
-const CIF = `${DIR}/GaNb4Se8_100K.cif`;
-const REF = `${DIR}/GaNb4Se8_goodfit_298K.csv`;
+const DIR = LOCAL_DATA.xrd.dir;
+const CIF = `${DIR}/${LOCAL_DATA.xrd.structure}`;
+const REF = `${DIR}/${LOCAL_DATA.xrd.gsasFit}`;
 const has = dataExists(CIF) && dataExists(REF);
 
 interface Row { x: number; yobs: number; yc: number; yb: number; sig: number }
@@ -49,13 +50,15 @@ function wR(rows: { yobs: number; yc: number; sig: number }[]): number {
   return 100 * Math.sqrt(num / den);
 }
 
-describe.skipIf(!has)("benchmark vs GSAS-II good fit — GaNb4Se8 298.8 K", () => {
-  it("confirms GSAS-II reaches wR ≈ 7.34% on this data", () => {
-    const fit = loadRef().filter((r) => r.yc > 0); // GSAS fit region (0.354–15.86°)
-    const gsasWR = wR(fit);
-    expect(gsasWR).toBeGreaterThan(6);
-    expect(gsasWR).toBeLessThan(9);
-    expect(gsasWR).toBeCloseTo(7.34, 1);
+describe.skipIf(!has)("benchmark vs GSAS-II good fit — the local X-ray dataset", () => {
+  /** GSAS-II's wR over its own fit region, read from its fit (no number from the data is kept here). */
+  const gsasWR = (): number => wR(loadRef().filter((r) => r.yc > 0));
+
+  it("reads GSAS-II's wR from its fit", () => {
+    const value = gsasWR();
+    expect(Number.isFinite(value)).toBe(true);
+    expect(value).toBeGreaterThan(0);
+    expect(value).toBeLessThan(30);
   });
 
   it("measures OUR best wR on identical data with a fixed structure", () => {
@@ -64,14 +67,14 @@ describe.skipIf(!has)("benchmark vs GSAS-II good fit — GaNb4Se8 298.8 K", () =
     const structure = parseCif(readData(CIF), "gns");
     const pattern: PowderPattern = {
       id: "gns",
-      name: "GaNb4Se8 298.8K",
+      name: "local X-ray",
       xUnit: "twoTheta",
       radiation: { kind: "xray", wavelength: 0.1665 },
       wavelength: 0.1665,
       points: fit.map((r) => ({ x: r.x, yObs: r.yobs, sigma: r.sig })),
     };
     // Atom positions & ADP FIXED (as GSAS did). Refine scale + cubic cell a
-    // (the 100 K model is thermally contracted vs 298.8 K, so the cell must relax
+    // (the low-temperature model is thermally contracted vs the data, so the cell must relax
     // for peaks to align) + one pseudo-Voigt width + 7 Chebyshev background terms.
     // This isolates our peak-shape model on a fixed structure — no ADP/position
     // freedom to absorb profile error.
@@ -107,13 +110,13 @@ describe.skipIf(!has)("benchmark vs GSAS-II good fit — GaNb4Se8 298.8 K", () =
       params.length,
     );
     const ourWR = 100 * (agree.rWeighted ?? 0);
-    console.log(`BENCHMARK GaNb4Se8 298.8K — GSAS-II wR = 7.34% (TCH pseudo-Voigt) | OUR wR (fixed atoms, single pseudo-Voigt) = ${ourWR.toFixed(2)}%`);
+    console.log(`BENCHMARK local X-ray — GSAS-II wR = ${gsasWR().toFixed(2)}% (TCH pseudo-Voigt) | OUR wR (fixed atoms, single pseudo-Voigt) = ${ourWR.toFixed(2)}%`);
     expect(Number.isFinite(ourWR)).toBe(true);
     // With the structure-factor special-position fix and the Lorentz factor
-    // applied, even a single pseudo-Voigt reaches ~18% — down from ~66.7% when
-    // |F|² was wrong. The remaining gap to GSAS-II's 7.34% is the peak-shape model
+    // applied, even a single pseudo-Voigt comes far closer than when |F|² was
+    // wrong. The remaining gap to GSAS-II is the peak-shape model
     // (TCH Lorentzian X/Y + FCJ asymmetry), ADP, and polarization.
-    expect(ourWR).toBeGreaterThan(7.34);
+    expect(ourWR).toBeGreaterThan(gsasWR());
     expect(ourWR).toBeLessThan(30);
   });
 
@@ -125,7 +128,7 @@ describe.skipIf(!has)("benchmark vs GSAS-II good fit — GaNb4Se8 298.8 K", () =
     const structure = parseCif(readData(CIF), "gns");
     const pattern: PowderPattern = {
       id: "gns",
-      name: "GaNb4Se8 298.8K",
+      name: "local X-ray",
       xUnit: "twoTheta",
       radiation: { kind: "xray", wavelength: 0.1665 },
       wavelength: 0.1665,
@@ -162,12 +165,12 @@ describe.skipIf(!has)("benchmark vs GSAS-II good fit — GaNb4Se8 298.8 K", () =
       params.length,
     );
     const ourWR = 100 * (agree.rWeighted ?? 0);
-    console.log(`BENCHMARK GaNb4Se8 298.8K — GSAS-II wR = 7.34% | OUR TCH+FCJ wR (fixed atoms) = ${ourWR.toFixed(2)}%`);
+    console.log(`BENCHMARK local X-ray — GSAS-II wR = ${gsasWR().toFixed(2)}% | OUR TCH+FCJ wR (fixed atoms) = ${ourWR.toFixed(2)}%`);
     expect(Number.isFinite(ourWR)).toBe(true);
     // After the two computation fixes — the structure-factor special-position sum
     // and the Lorentz factor — the full profile (Gaussian U/V/W + Lorentzian X/Y +
-    // FCJ asymmetry) refines to ~23% on this coarse grid, from a ~63% floor when
-    // |F|² was wrong. The remaining gap to GSAS-II's 7.34% is ADP, polarization,
+    // FCJ asymmetry) refines far below the floor it had when |F|² was wrong, on
+    // this coarse grid. The remaining gap to GSAS-II is ADP, polarization,
     // and a tighter solve. (Earlier this test wrongly concluded the residual was
     // profile-limited; the benchmark itself exposed the real intensity bug.)
     expect(ourWR).toBeLessThan(35);

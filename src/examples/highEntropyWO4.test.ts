@@ -6,7 +6,7 @@ import { exampleStructure } from "@/examples/highEntropyWO4";
  * default when the git-ignored data/ folder (the POWGEN pattern) is absent —
  * e.g. on a fresh deploy. Not data-gated: it exercises the embedded CIF only.
  */
-describe("bundled default: high-entropy (Co,Cu,Fe,Mn,Ni,Zn)WO₄", () => {
+describe("bundled default: the six-cation P2/c structure", () => {
   it("parses to the monoclinic P2/c high-entropy tungstate", () => {
     const s = exampleStructure();
     expect(s.id).toBe("highentropy");

@@ -7,7 +7,7 @@
  * evaluation for every element; the only departure is Hf (7.77, not NIST's 7.7,
  * which contradicts its own σ_coh). The elements in
  * the GSAS-II validation data print the same values in its .lst output (fm):
- * Mn −3.73, O 5.80, Ga 7.29 (Mn₃Ga/MnO); Sn 6.23, Co 2.49, Fe 9.45 (FeCoSn).
+ * Mn −3.73, O 5.80, Ga 7.29 (Mn₃Ga/MnO); Sn 6.23, Co 2.49, Fe 9.45.
  * See neutronSfValidation.test.ts. This file holds only the lookup logic.
  */
 

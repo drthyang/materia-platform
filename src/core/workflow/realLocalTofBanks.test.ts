@@ -10,18 +10,19 @@ import {
 import { powderCurves } from "@/core/workflow/powder";
 import { siteMultiplicity } from "@/core/crystal/symmetry";
 import { dataExists, readData } from "@/testSupport/data";
+import { LOCAL_DATA } from "@/testSupport/localData";
 import type { RefinementParameter } from "@/core/refinement/types";
 
 /**
- * Real POWGEN time-of-flight neutron data on the high-entropy tungstate AWO₄
- * (wolframite-type, monoclinic P2/c; six 3d cations disordered on one site) —
+ * Real POWGEN time-of-flight neutron data, the local magnetic TOF dataset
+ * (`LOCAL_DATA.magneticTof`, unpublished; monoclinic P2/c) —
  * loaded from the raw GSAS `.gsa` histograms (BANK/SLOG/FXYE) the new parser
  * handles, across the three POWGEN detector banks (different frames → different
  * TOF ranges and channel counts). Skips when the git-ignored data/ folder is
  * absent.
  */
 
-const DIR = "AWO4";
+const DIR = LOCAL_DATA.magneticTof;
 const CIF = `${DIR}/structure_100K.cif`;
 const INSTPRM = `${DIR}/instrument_bank3.instprm`;
 const GSA = {
@@ -32,9 +33,9 @@ const GSA = {
 const has = dataExists(CIF) && dataExists(GSA.bank1);
 const CATIONS = ["Co1", "Fe1", "Ni1", "Mn1", "Cu8", "Zn1"];
 
-describe.skipIf(!has)("real AWO₄ — POWGEN neutron TOF, raw .gsa histograms", () => {
+describe.skipIf(!has)("real local TOF data — POWGEN neutron TOF, raw .gsa histograms", () => {
   it("parses the P2/c structure with six disordered cations on one 2f site", () => {
-    const s = parseCif(readData(CIF), "awo4");
+    const s = parseCif(readData(CIF), "local");
     expect(s.spaceGroup.hermannMauguin).toBe("P 2/c");
     expect(s.spaceGroup.operations.length).toBe(4);
     expect(s.cell.a).toBeCloseTo(4.6757, 3);
@@ -110,8 +111,8 @@ describe.skipIf(!has)("real AWO₄ — POWGEN neutron TOF, raw .gsa histograms",
   });
 
   it("loads a .gsa view-only: finite calculation, no NaN (TOF profile stage-gated)", () => {
-    const s = parseCif(readData(CIF), "awo4");
-    const pattern = parseGsasHistogramPattern(readData(GSA.bank3), "p", "AWO4 bank3");
+    const s = parseCif(readData(CIF), "local");
+    const pattern = parseGsasHistogramPattern(readData(GSA.bank3), "p", "bank3");
     const params: RefinementParameter[] = [
       { id: "scale", label: "s", kind: "scale", value: 1, initialValue: 1, fixed: false },
     ];

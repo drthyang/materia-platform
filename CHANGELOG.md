@@ -201,9 +201,9 @@ release fixes bugs.
     results.
   - Checked against spgrep (12 cases, by character), hand-derived counts
     (Im-3m's four and I4/mmm's eight index-2 k-subgroups), and an opt-in
-    ISOTROPY workflow. On real data, GaNb₄Se₈'s local P2₁3 is reached from
-    F-43m's X irrep and from the lattice. Its 13 modes refine to Rw 5.5 %
-    (r = 2–10 Å; the cubic average gives 9.19 %).
+    ISOTROPY workflow. On a local X-ray PDF dataset, a local P2₁3 is
+    reached from F-43m's X irrep and from the lattice, and its 13 modes
+    refine below the cubic average.
 - **The subgroup engine, Phase 2: a supercell bound, the subgroup lattice
   inside it, and irreps at cell-multiplying k-points** (PDF Subgroups page;
   [ADRs 0001–0005](docs/adr/)).
@@ -1122,15 +1122,15 @@ release fixes bugs.
 - **The magnetic step finds the weaker magnetic lines beside a strong
   misfit.** With the file's σ, its residual-peak detector now tests each
   peak against its own noise (5σ) with no floor at 8 % of the largest
-  residual, as the assessment's residual reader already did. On AWO₄ at
-  8 K a 130σ nuclear misfit at 1.424 Å had hidden the magnetic lines at
-  2.388, 2.084, 1.601 and 1.396 Å, so the k-search ran on two peaks.
+  residual, as the assessment's residual reader already did. On a local
+  POWGEN dataset one strong nuclear misfit had hidden the magnetic lines
+  beside it, so the k-search ran on two peaks.
 
 - **The microstrain refines on its own (a firm rule).** On the powder page
   the Agent's `refine` now refuses a free set with the microstrain (or any
   sample-broadening term) together with the instrument's terms or the B
   values, rule `broadening-alone`: they widen the lines alike and trade with
-  each other, below the correlation limit (σ₂² ↔ microstrain −0.90 on AWO₄).
+  each other, below the correlation limit.
   Only the user lifts it, with `allow_exception`. It is the atomic
   structure's, refined again with it: once refined, the microstrain is a
   third group in the alternation (instrument terms, B values, microstrain,
@@ -1150,9 +1150,9 @@ release fixes bugs.
   explains (an impurity, or magnetic order on neutron data),
   `check_fit_range` used to keep the whole stretch. It now keeps that peak
   and cuts the background beyond it: where the peak's tail is back at the
-  background, measured on the data, plus three of its own widths. On AWO₄ at
-  8 K on POWGEN (the 9.37 Å magnetic line at 211 244 µs) the window now ends
-  near 230 500 µs instead of the data's end at 462 823 µs.
+  background, measured on the data, plus three of its own widths. On a local
+  POWGEN dataset the window now ends just past the long-d magnetic line's
+  tail instead of at the data's end.
 
  Report: prose (the Result paragraph, notes, captions, caveats and the appendix text) is set justified with hyphenation, as in a journal; tables keep their alignment.
 - Plots: a plain mouse wheel over a plot now flashes the whole gesture line (zoom, pan, box-zoom, reset), not just the zoom shortcut.
@@ -1160,7 +1160,7 @@ release fixes bugs.
 - **The header's Demos menu is gone; Load is Open; a Close button returns to
   the start page.** The demos were offered twice, in a header menu and as
   cards on the start page, and the cards (Rietveld Mn₃Ga, PDF GaTa₄Se₈, and
-  the AWO₄ magnetic demo where its local data are reachable) stay as the one
+  the local magnetic demo where its local data are reachable) stay as the one
   way to them. The "Demo ✓" state and "Exit demo" go with the menu: the
   loaded-file chip says what is open, and Close replaces Exit.
   - **Open** is the old Load button under its new name (visible label "Open",
@@ -1233,24 +1233,24 @@ release fixes bugs.
   refine together, as GSAS-II refines an instrument's profile, and lists their
   correlations in the outcome instead of refusing them; `assess_refinement`
   notes them rather than warning. Each against anything else (the zero against
-  the cell, a σ against a B) still stops the refinement. On AWO₄ at 8 K the
-  guard had refused α₁ ↔ β₀ (0.997), and staging round it reached wR 9.53 %
-  where the joint fit reaches 8.57 %.
+  the cell, a σ against a B) still stops the refinement. On a local POWGEN
+  dataset the guard had refused α₁ ↔ β₀, and staging round it ended above
+  the joint fit.
 
-- **The local AWO₄ magnetic demo refines the moments alone, the nuclear model
-  held.** Its solve (`awo4MagneticSolve.test.ts`, `AWO4_SOLVE=1`) no longer
+- **The local magnetic demo refines the moments alone, the nuclear model
+  held.** Its solve (`localMagneticDemoSolve.test.ts`, `LOCAL_MAGNETIC_SOLVE=1`) no longer
   ends on a joint nuclear + magnetic fit. Its last step, the owner's rule for
   the magnetic refinement, frees only the magnetic parameters: the chosen
   group's moments, and k's components where the little group lets k move
-  (none for k = (½ 0 0)). The scale, background, cell, instrument terms,
+  (none for its k). The scale, background, cell, instrument terms,
   positions, ADPs and occupancies stay at the nuclear stage's values, and the
   solve checks that none moved. The group is chosen as before (Hamilton's
-  test, top-down: P2/c′). The demo opens on that step: the nuclear rows held,
+  test, top-down). The demo opens on that step: the nuclear rows held,
   the moment rows free, so Refine from it refines the moments only. The
   solution file records the free rows (`free`) and the wR of that step
   (`magneticWr`, which replaces `jointWr`). The demo refuses an older solution
-  file and asks for it to be regenerated. The data-gated 8 K benchmark
-  (`realAwo4Benchmark.test.ts`) follows the same rule: its last step refines
+  file and asks for it to be regenerated. The data-gated benchmark
+  (`realLocalMagneticBenchmark.test.ts`) follows the same rule: its last step refines
   the ★ group's moments with the staged nuclear model held, the B-at-0 checks
   read the nuclear fit, and C9 asks that step to hold every nuclear row and
   end no higher than the ranking's fit, where it asked a joint fit to end
@@ -1714,8 +1714,8 @@ release fixes bugs.
 - **Magnetic groups at k ≠ 0 carry their own BNS names** (THY-37). Every
   k ≠ 0 candidate was named by its parent-cell operations read as a k = 0
   group (type I or III), not by the group of the ordered structure, whose
-  anti-translations make it type IV: the AWO₄ demo's group showed as
-  "P2/c′, BNS 13.68" and is P_a2/c, BNS 13.70. The bundled table now holds all
+  anti-translations make it type IV: a P2/c parent's k = (½,0,0) group showed
+  as "P2/c′, BNS 13.68" and is P_a2/c, BNS 13.70. The bundled table now holds all
   1651 ISO-MAG groups (types I–IV, type II for completeness), each candidate is
   named from its group in the magnetic cell, with the setting against the
   parent cell ("(2a, b, c; 0, 0, 0)"), and the page shows its true type. The
@@ -1732,8 +1732,8 @@ release fixes bugs.
 - **The ranking counts the moment parameters each fit refines** (THY-37). Hamilton's
   test, the ★'s "fewest moment parameters" and the page's **moment dof** badge
   counted the allowed directions at a site's first orbit, summed over the
-  chosen ions: a mixed site's co-located ions counted once each (on the AWO₄
-  demo's site, where one shared moment is refined), and a moment on a
+  chosen ions: a mixed site's co-located ions counted once each (on the local
+  magnetic demo's site, where one shared moment is refined), and a moment on a
   later split orbit not at all, so such a group was shown as "moment forbidden"
   and never ranked (a kagome Co site under P6/mmm at (0,0,½)). The count is now
   the free rows of each group's moment model under the page's ties
@@ -1783,7 +1783,7 @@ release fixes bugs.
 - **A moments-only refinement no longer reads as a joint one in the report.**
   Any refinement that gave the moments esds was called "refined jointly with
   the atomic structure", even when only the moment rows were free (the
-  magnetic page's Refine moments, the AWO₄ demo's last step). The magnetic
+  magnetic page's Refine moments, the local magnetic demo's last step). The magnetic
   section and the Result paragraph now follow the last refinement's free set:
   "moments refined with the nuclear model held" when every nuclear row was
   fixed, and "refined jointly with the atomic structure" only when nuclear
@@ -1851,7 +1851,7 @@ release fixes bugs.
   with the peak shape grows the cell lengths' esds several-fold, as a pair the
   data cannot separate does, and the guard threw the peak shape (α, β, σ) away
   with it: every later stage fitted with the shape at its calibration, and the
-  local AWO₄ magnetic demo's solve ended far from its own earlier fit. The
+  local magnetic demo's solve ended far from its own earlier fit. The
   newcomer the inflated esd correlates with most strongly (|ρ| ≥ 0.8, here the
   zero) is now re-fixed and the stage re-run without it, as the singular and
   correlation rules already did; an inflation no newcomer accounts for still

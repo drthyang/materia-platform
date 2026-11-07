@@ -13,7 +13,7 @@ import type { PdfPattern } from "@/core/diffraction/types";
  * A mixed site's species (same position, same ADP) pair through one
  * representative carrying their summed weight. The pair term is bilinear in
  * the weights, so the sum is the per-atom one up to rounding: on the
- * high-entropy (Co,Cu,Fe,Mn,Ni,Zn)WO₄ A site, a third of the pairs.
+ * bundled structure's six-cation site, a third of the pairs.
  */
 
 const maxAbs = (a: ArrayLike<number>): number => {

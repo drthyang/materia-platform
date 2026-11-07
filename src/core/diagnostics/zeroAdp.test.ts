@@ -59,7 +59,7 @@ describe("the B-at-0 rule: which proposal", () => {
   const structure = parse_structure({ cif: cif(true), id: "cwo" }).structure;
   const bare = parse_structure({ cif: cif(false), id: "cwo" }).structure;
 
-  it("an AWO₄-like case (W1 and O2 both at 0): O2 → O1 is offered first and preferred; W1 → Cr1 only as a labelled alternative, beside the starting value", () => {
+  it("a tungstate-like case (W1 and O2 both at 0): O2 → O1 is offered first and preferred; W1 → Cr1 only as a labelled alternative, beside the starting value", () => {
     const v = { B_W1: 0, B_Cr1: 0.4, B_O1: 0.62, B_O2: 0 };
     const { params, bindings } = rows(structure, v);
     const ps = zeroAdpProposals({ parameters: params, bindings, result: result(v, { B_W1: 0.03, B_Cr1: 0.04, B_O1: 0.05, B_O2: 0.05 }, ["B_W1", "B_O2"]), structures: [structure] });

@@ -4,7 +4,7 @@ import { magneticIonCandidates, siteIonId } from "@/core/magnetic/magneticIons";
 import type { StructureModel } from "@/core/crystal/types";
 
 describe("magnetic-ion detection", () => {
-  it("selects the magnetic 3d cations of AWO4 and excludes Zn / W / O", () => {
+  it("selects the magnetic 3d cations of the bundled structure and excludes Zn / W / O", () => {
     const cands = magneticIonCandidates(exampleStructure());
     const labels = cands.map((c) => c.siteLabel).sort();
     // Co, Fe, Ni, Mn, Cu are magnetic (in the ⟨j0⟩ table); Zn²⁺ (d¹⁰), W, O are not.

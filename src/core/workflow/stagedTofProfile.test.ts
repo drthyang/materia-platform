@@ -57,7 +57,7 @@ describe("staged powder fit — a TOF profile stage with the zero free", () => {
       }),
     };
 
-    // The AWO₄ solve's free set: everything but the occupancies and the TOF
+    // The local magnetic demo solve's free set: everything but the occupancies and the TOF
     // calibration, sig-q held at its calibration.
     const spec = buildPowderSpec(structure, pattern, start, true, 6, { positions: true, adp: true });
     const unlock = new Set<ParameterKind>([

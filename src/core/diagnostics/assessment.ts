@@ -227,7 +227,7 @@ const PEAK_SHAPE: ReadonlySet<ParameterKind> = new Set<ParameterKind>(["tofProfi
  * Two TOF peak-shape terms (α, β, σ coefficients, or one of them and the zero).
  * They make one peak profile over d and are refined together, as GSAS-II
  * refines an instrument's profile: the rise and the decay trade almost exactly
- * (AWO₄ at 8 K on POWGEN: α₁ ↔ β₀ 0.997, β₀ ↔ zero 0.995) while the peak they
+ * (on POWGEN data α₁ ↔ β₀ and β₀ ↔ zero both pass 0.99) while the peak they
  * shape is determined. A pair with a tofProfile row is a TOF fit's, so a 2θ zero
  * never counts.
  */
@@ -335,8 +335,8 @@ function lineUnder(d: readonly number[], yCalc: readonly number[], at: number): 
  * curve carries under half the peak all the way to the reflection (a
  * shifted strong line is a cell or zero misfit, not a new peak). A dense cell
  * has a reflection within 1 % of nearly every d: by position alone the
- * k-search lost the magnetic lines (AWO4, k = (½ 0 0): four of six strong
- * satellites within 1 % of a weak nuclear line). A peak on the line itself
+ * k-search lost the magnetic lines (on a local monoclinic dataset most strong
+ * satellites lay within 1 % of a weak nuclear line). A peak on the line itself
  * stays its misfit, however strong: on neutron data that is the k = 0
  * signature, which the magnetic step reads on its own (k0MagneticHint).
  */

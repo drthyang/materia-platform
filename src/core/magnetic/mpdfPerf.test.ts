@@ -4,7 +4,7 @@
  *
  *   MPDF_BENCH=1 npx vitest run src/core/magnetic/mpdfPerf.test.ts
  *
- * The sizes mirror the FeCoSn_PDF workload that motivated the FFT convolution:
+ * The sizes mirror the local neutron-PDF workload that motivated the FFT convolution:
  * a 1.5–30 Å window reduced at Δr = 0.01 Å, so the magnetic grid is ~3.4 k
  * points and the form-factor envelope 2001 points. Measured on Node 22 / Apple
  * silicon, before → after the FFT swap in `mpdf.convolveFull`:

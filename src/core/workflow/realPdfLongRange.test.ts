@@ -10,6 +10,7 @@ import { expandStructureAtoms } from "@/core/diffraction/structureFactor";
 import { colocatedGroups, CompactPairs, PAIR_STORE_BUDGET_BYTES } from "@/core/pdf/pairEnumerator";
 import { PAIR_REACH_MARGIN } from "@/core/pdf/forwardModel";
 import { dataDir } from "@/testSupport/data";
+import { LOCAL_DATA } from "@/testSupport/localData";
 
 /**
  * The user's measured G(r) on the bundled multi-element-site model (six
@@ -23,9 +24,9 @@ import { dataDir } from "@/testSupport/data";
 
 /** `pdf.gr` in the data folder (docs/VALIDATION.md), or a `.gr` file in its `pdf/` subfolder. */
 function userPdf(): string | null {
-  const flat = join(dataDir("AWO4"), "pdf.gr");
+  const flat = join(dataDir(LOCAL_DATA.magneticTof), "pdf.gr");
   if (existsSync(flat)) return flat;
-  const dir = join(dataDir("AWO4"), "pdf");
+  const dir = join(dataDir(LOCAL_DATA.magneticTof), "pdf");
   if (!existsSync(dir)) return null;
   const gr = readdirSync(dir).sort().find((f) => /\.gr$/i.test(f));
   return gr ? join(dir, gr) : null;

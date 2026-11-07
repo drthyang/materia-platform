@@ -66,7 +66,7 @@ phase may quietly downgrade it to a silent approximation.
   identification against the 230-group table, `realizeSubgroup`, and an
   activation kick because an inversion-odd amplitude of 0 is an exact stationary
   point a gradient method cannot leave.
-- Real-data evidence: GaNb₄Se₈ at 5.8 K, F-43m → P2₁3, one mode amplitude
+- Real-data evidence: a local X-ray PDF dataset, F-43m → P2₁3, one mode amplitude
   beating the cubic average ([`realPdfData.test.ts`](../src/core/workflow/realPdfData.test.ts)).
 
 **The four hard limits, all deliberate and documented in code.**
@@ -306,8 +306,8 @@ and A-V are independent.
 >   free component strictly between the half-integers around k₀, so the basis is
 >   never recomputed mid-fit. Per-cycle step capped at 0.005 r.l.u.
 >   (`RefinementParameter.maxShift`, an engine-level absolute cap).
-> - **Validation (b) and (c) do not apply as written.** AWO₄'s k = (½,0,0) is
->   self-conjugate — it is the refusal case, not a refinement. Eu₃In₂Te₄ is
+> - **Validation (b) and (c) do not apply as written.** The local magnetic
+>   dataset's k is self-conjugate — it is the refusal case, not a refinement. Eu₃In₂Te₄ is
 >   single-crystal, where k stays fixed (step 7; the problem builder throws on a
 >   free k). The real-data gate is instead **DyMn₆Ge₆** (PSI DMC, a genuinely
 >   incommensurate spiral): γ refines to 0.1648(7) against FullProf's
@@ -350,7 +350,7 @@ app can only accept a typed value. The machinery to move it already exists.
    evaluation in the shared page's fit or state that SC keeps k fixed.
 
 **Validation.** (a) Synthetic: displace a known k by 0.02–0.05 r.l.u. and recover
-it, esd sane. (b) Real: the AWO₄ 6 K set refines k = (½,0,0) back to ½ within its
+it, esd sane. (b) Real: the local magnetic TOF set refines its k back within its
 esd (a self-conjugate k — also the guard case for step 5). (c) The Eu₃In₂Te₄
 k = (¼,0,¼) golden refines to ¼.
 

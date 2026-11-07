@@ -5,7 +5,7 @@ import { buildStructureRefinement, refinePowderStructure, siteGroups } from "@/c
 import { applyParameters } from "@/core/workflow/apply";
 
 /**
- * Occupancy-disorder refinement for the high-entropy tungstate (Co,Fe,Ni,Mn,Cu,Zn)WO₄:
+ * Occupancy-disorder refinement for the bundled six-cation structure:
  * six 3d cations share one 2f site. The same-site position/ADP ties and the
  * automatic Σ(occupancy) restraint keep the disordered site physical.
  */

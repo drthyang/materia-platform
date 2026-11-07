@@ -201,8 +201,8 @@ export function inspectDataRange(input: DataRangeInput): DataRangeReading {
           // outermost peak the stretch is background only, cut as the stretch before a first reflection is.
           // The cut clears the peak's own tail (a TOF line's decays far on its long side), measured on
           // the data, and MARGIN_WIDTHS of its own widths more; at least the margin a reflection gets.
-          // (AWO₄ at 8 K on POWGEN: the 9.37 Å magnetic line at 211 244 µs, its tail back at the
-          // background by 220 400 µs; the cut near 230 500 µs, where the scientist puts it, 230–253k.)
+          // (On a local POWGEN dataset the cut lands where the scientist puts it, past the long-d
+          // magnetic line's tail.)
           const outermost = end === "low" ? Math.min(...peaks.map((p) => p.x)) : Math.max(...peaks.map((p) => p.x));
           const kp = Array.from({ length: k }, (_, j) => j).reduce((best, j) => (Math.abs(pos(j) - outermost) < Math.abs(pos(best) - outermost) ? j : best), 0);
           const reach = peakReach(yObs, sigma, valid, at, pos, kp);

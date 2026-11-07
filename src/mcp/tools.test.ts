@@ -27,15 +27,16 @@ import { exampleStructure } from "@/examples/mn3ga";
 import { exampleMagnetic, magneticParameters, magneticBindings } from "@/examples/mn3gaMagnetic";
 import type { RefinementParameter } from "@/core/refinement/types";
 import { dataDir } from "@/testSupport/data";
+import { LOCAL_DATA } from "@/testSupport/localData";
 
-const DATA = dataDir("GaNb4Se8_XRD");
+const DATA = dataDir(LOCAL_DATA.xrd.dir);
 const read = (f: string): string => readFileSync(resolve(DATA, f), "utf8");
-// The GaNb4Se8 regression dataset lives in the git-ignored `data/` folder —
+// The local X-ray regression dataset lives in the git-ignored `data/` folder —
 // present in a local checkout, absent on CI / a fresh clone — so the file-backed
 // integration tests skip when it isn't there (the repo's convention for
 // data/-dependent tests). The judgment logic itself is covered without any data
 // files in src/core/diagnostics/*.test.ts.
-const HAVE_DATA = existsSync(resolve(DATA, "GaNb4Se8_100K.cif"));
+const HAVE_DATA = existsSync(resolve(DATA, LOCAL_DATA.xrd.structure));
 
 describe("MCP tool handlers", () => {
   it("parse_structure refuses to guess an origin choice, and takes spaceGroupSetting", () => {
@@ -66,18 +67,18 @@ Si1 Si 0.125 0.125 0.125
     expect(() => parse_powder_data({ text: hkl, filename: "x.hkl" })).toThrow(/single-crystal/i);
   });
 
-  // The full expert loop an agent would run, on the real GaNb4Se8 XRD dataset.
-  describe.skipIf(!HAVE_DATA)("expert loop on the GaNb4Se8 dataset", () => {
+  // The full expert loop an agent would run, on the real local X-ray dataset.
+  describe.skipIf(!HAVE_DATA)("expert loop on the local X-ray dataset", () => {
     it("parse_structure reads a CIF into a structure", () => {
-      const { structure } = parse_structure({ cif: read("GaNb4Se8_100K.cif") });
+      const { structure } = parse_structure({ cif: read(LOCAL_DATA.xrd.structure) });
       expect(structure.sites.length).toBeGreaterThan(0);
       expect(structure.spaceGroup.operations.length).toBeGreaterThan(0);
     });
 
     it("runs parse → build → refine → assess → suggest and produces an expert judgment", async () => {
-      const { structure } = parse_structure({ cif: read("GaNb4Se8_100K.cif") });
+      const { structure } = parse_structure({ cif: read(LOCAL_DATA.xrd.structure) });
       const instrument = parse_instrument({ text: read("xrd_instrum.instprm") });
-      const { pattern } = parse_powder_data({ text: read("GaNb4Se8_799_T_298.8K_gsas.dat"), filename: "GaNb4Se8.dat" });
+      const { pattern } = parse_powder_data({ text: read(LOCAL_DATA.xrd.pattern), filename: "local.dat" });
 
       const built = build_refinement({ structure, pattern, instrument });
       expect(built.parameters.length).toBeGreaterThan(0);
@@ -99,7 +100,7 @@ Si1 Si 0.125 0.125 0.125
     });
 
     it("interpret_structure returns a materials reading", () => {
-      const { structure } = parse_structure({ cif: read("GaNb4Se8_100K.cif") });
+      const { structure } = parse_structure({ cif: read(LOCAL_DATA.xrd.structure) });
       const interp = interpret_structure({ structure });
       expect(typeof interp.summary).toBe("string");
       expect(Array.isArray(interp.findings)).toBe(true);

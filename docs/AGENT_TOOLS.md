@@ -268,7 +268,7 @@ calls the same functions on the live page ([below](#the-in-app-agent)).
   the table above.
 - A simulate → evaluate loop checks the analysis tools without any data files
   ([`tools.test.ts`](../src/mcp/tools.test.ts)). The same file runs the whole
-  expert loop on the real GaNb₄Se₈ dataset when the git-ignored `data/` folder
+  expert loop on a real local X-ray dataset when the git-ignored `data/` folder
   is present.
 - End-to-end agent loops for PDF and magnetic PDF use the registry only
   ([`pdfAgentLoop.test.ts`](../src/mcp/pdfAgentLoop.test.ts),

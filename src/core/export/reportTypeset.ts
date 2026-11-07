@@ -31,7 +31,7 @@ const SUB_DIGITS: Record<string, string> = { "0": "₀", "1": "₁", "2": "₂",
 
 /**
  * A name that is a chemical formula, split into its elements and counts:
- * "Mn3Ga" → Mn 3, Ga. Null for anything else ("Eu324", "PG3_1", "AWO4",
+ * "Mn3Ga" → Mn 3, Ga. Null for anything else ("Eu324", "PG3_1", "ABO4",
  * "Mn3Ga 600 K"): every token must be an element and a count of at most two
  * digits (a decimal allowed), so a sample name is never read as a formula.
  */

@@ -182,7 +182,7 @@ describe("the method as code", () => {
 
   it("refines the microstrain on its own: never with the instrument's terms or the B values (the user's rule, 2026-10-28)", () => {
     const none = emptyRecord("k");
-    // AWO₄ at 8 K: σ₂² ↔ microstrain −0.90, under the correlation limit, so only the rule stops it.
+    // On a local POWGEN dataset σ₂² and the microstrain correlate below the correlation limit, so only the rule stops it.
     const withProfile = ruleRefusal("powder", [p("scale", "scale"), p("tof_sig2", "tofProfile"), p("mustrainIso", "mustrainIso")], [], none)!;
     expect(withProfile.rule).toBe("broadening-alone");
     expect(withProfile.line).toBe("Not run: microstrain (mustrainIso) free with instrument terms");

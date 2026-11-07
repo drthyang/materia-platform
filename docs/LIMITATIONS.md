@@ -185,6 +185,11 @@ approximate, however plausible its output looks.
 - Wyckoff letters beyond a curated set of groups. Multiplicities and site
   symmetries are available for all 230.
 
+**Known issues**
+- A k-point on a symmetry line, and any k-point of a non-cubic parent, is
+  shown by its coordinates, such as (0, 0, ½), not by a letter. The irreps and
+  subgroups at it are right; only the label is missing.
+
 ## Scattering tables
 
 **Supported**
@@ -571,6 +576,8 @@ Conventions are pinned in
 - A magnetic PDF with an incommensurate k, or a commensurate k whose
   denominator is above 12, is not rejected. The spin field is then built in the
   parent cell alone, so the magnetic G(r) is wrong.
+- A PDF refinement of a Pnma child with many modes free can run away instead
+  of converging. Free the leading modes first and the others a few at a time.
 
 ## Input and output
 
@@ -622,6 +629,14 @@ Conventions are pinned in
 - Saving and opening projects through the agent tools.
 - Saving posterior samples or the magnetic page's k-search exploration in a
   project. The applied magnetic model is saved; the exploration is re-run.
+
+## Agent evals
+
+**Known issues**
+- The live eval harness cannot time out a long moment fit. The fit runs on the
+  CPU without a break, so the per-run timeout fires only once it returns, and
+  one slow run can hold the whole eval past its cap. The scripted replays in CI
+  are not affected.
 
 ## Non-goals
 

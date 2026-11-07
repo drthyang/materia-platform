@@ -1,8 +1,8 @@
-# Generic names for the unpublished AWO₄ data
+# Generic names for the owner's unpublished magnetic data
 
 Pull request [#104](https://github.com/drthyang/materia-platform/pull/104),
 branch `claude/generic-data-names`, from `main`, 2026-10-24. The owner's
-decision: the public files refer to the owner's unpublished AWO₄ data by
+decision: the public files refer to the owner's unpublished local magnetic data by
 generic names only.
 
 ## What was wrong
@@ -10,11 +10,11 @@ generic names only.
 - **The public files named the measurement.** Tests, a demo module, a code
   comment and a VALIDATION row gave the POWGEN run numbers, the original data
   file names and the instrument calibration and frame names of the owner's
-  unpublished AWO₄ data. The data stay in the git-ignored `data/`; their
+  unpublished local magnetic data. The data stay in the git-ignored `data/`; their
   names did not.
 - **Two folders for one dataset.** The 100 K view-only test read its own
   folder, with its own file names, for the same sample, structure and bank-3
-  calibration the other AWO₄ tests read from `data/AWO4/`.
+  calibration the other tests of that dataset read from the dataset's folder (now `LOCAL_DATA.magneticTof`).
 - **One criterion read a number from a file name.** The benchmark's frame
   check (C2) took each bank's centre wavelength from its calibration file's
   name.
@@ -23,13 +23,13 @@ generic names only.
 
 | Change | Where |
 | --- | --- |
-| One flat layout, `data/AWO4/`, with generic names: `PG3_powder_<T>.dat` / `PG3_powder_<T>.gsa` for the bank-3 patterns, `PG3_powder_bank1.gsa` and `PG3_powder_bank2.gsa`, `structure_100K.cif`, `magnetic_8K.mcif`, `instrument_bank<N>.instprm`, `instrument_bank3_jana.instprm`, `pdf.gr`. The powder patterns keep the instrument prefix `PG3_` (it names POWGEN, not a run), so the file-name hint `PG3_…` → POWGEN still applies. "AWO4" stays: the compound class is public in the bundled `highEntropyWO4.ts` and the docs | `realAwo4Benchmark.test.ts`, `realAwo4Magnetic.test.ts`, `realAwo4Tof.test.ts`, `realPowderTOF.test.ts`, `awo4MagneticSolve.test.ts`, `examples/awo4Magnetic.ts` |
-| The 100 K view-only test reads `data/AWO4/` like the others | `realPowderTOF.test.ts` |
-| C2 takes each bank's centre wavelength from a table in the test, not from the file name. The criterion and its bounds are unchanged | `realAwo4Benchmark.test.ts` |
-| The `awo4-user-flow` eval takes `PG3_powder_6K.gsa` (the ordered pattern) before any other histogram, and finds the bank's calibration as `instrument_bank<N>` as well as the old `B<N>` | `agent/evals/pages.ts` |
-| The demo's pattern name, the comments and the VALIDATION row describe the data ("the 8 K bank-3 POWGEN pattern") instead of naming the run, frame or calibration | `awo4Magnetic.ts`, `highEntropyWO4.ts`, `docs/VALIDATION.md` |
+| One flat layout, the dataset's folder (now `LOCAL_DATA.magneticTof`), with generic names: `PG3_powder_<T>.dat` / `PG3_powder_<T>.gsa` for the bank-3 patterns, `PG3_powder_bank1.gsa` and `PG3_powder_bank2.gsa`, `structure_100K.cif`, `magnetic_8K.mcif`, `instrument_bank<N>.instprm`, `instrument_bank3_jana.instprm`, `pdf.gr`. The powder patterns keep the instrument prefix `PG3_` (it names POWGEN, not a run), so the file-name hint `PG3_…` → POWGEN still applies. | `realLocalMagneticBenchmark.test.ts`, `realLocalMagnetic.test.ts`, `realLocalTofBanks.test.ts`, `realPowderTOF.test.ts`, `localMagneticDemoSolve.test.ts`, `examples/localMagneticDemo.ts` |
+| The 100 K view-only test reads the dataset's folder (now `LOCAL_DATA.magneticTof`) like the others | `realPowderTOF.test.ts` |
+| C2 takes each bank's centre wavelength from a table in the test, not from the file name. The criterion and its bounds are unchanged | `realLocalMagneticBenchmark.test.ts` |
+| The `local-data-user-flow` eval takes `PG3_powder_6K.gsa` (the ordered pattern) before any other histogram, and finds the bank's calibration as `instrument_bank<N>` as well as the old `B<N>` | `agent/evals/pages.ts` |
+| The demo's pattern name, the comments and the VALIDATION row describe the data ("the 8 K bank-3 POWGEN pattern") instead of naming the run, frame or calibration | `localMagneticDemo.ts`, `highEntropyWO4.ts`, `docs/VALIDATION.md` |
 | The file-name hint's test uses made-up run numbers | `app/powgenBackground.test.ts` |
-| The layout, with what each file holds and which test reads it | `docs/VALIDATION.md`, "The AWO₄ data folder" |
+| The layout, with what each file holds and which test reads it | `docs/VALIDATION.md`, "The local magnetic data folder" |
 
 ## Evidence
 
@@ -39,18 +39,18 @@ generic names only.
   C13 as `it.fails`), and every number the benchmark prints (wR, GoF, cell,
   peaks, k ranking, groups, |M|, the reference comparison) is the same, line
   for line.
-- **The file-name hint.** The `awo4-user-flow` page opened (`openedPage`, the
+- **The file-name hint.** The `local-data-user-flow` page opened (`openedPage`, the
   bank-3 calibration) on a pattern named `PG3_powder_6K.gsa` starts on the
   POWGEN default, log interpolation with 3 points; named without the prefix
   it would start on 4 Chebyshev terms.
 - **The grep.** `git grep` for the run numbers, the original file names and
-  the calibration and frame names finds no reference to the AWO₄ data. What
+  the calibration and frame names finds no reference to those data. What
   it still finds is numbers inside other data files and golden arrays, and
   another sample's calibration file name.
 
 ## What changes for users
 
-Nothing in the public build. A local copy of the AWO₄ data has to be renamed
+Nothing in the public build. A local copy of the data has to be renamed
 to the layout in VALIDATION to keep its tests running; with the old names
 they skip.
 

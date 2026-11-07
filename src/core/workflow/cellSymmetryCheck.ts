@@ -191,7 +191,7 @@ export function checkCellSymmetry(
   options: CellSymmetryCheckOptions = {},
 ): CellSymmetryCheck {
   // Pseudo-Voigt for constant wavelength: a Gaussian misses the Lorentzian
-  // tails, whose shoulders then read as extra peaks (GaNb₄Se₈ at 28-ID). TOF
+  // tails, whose shoulders then read as extra peaks (synchrotron data at 28-ID). TOF
   // peaks are back-to-back exponentials whose widths grow with d; one Gaussian
   // width left their tails as false peaks (Mn₃Ga at POWGEN).
   const shape = options.shape ?? (fullPattern.xUnit === "tof" ? "tof" : "pseudoVoigt");

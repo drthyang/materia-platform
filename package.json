@@ -12,7 +12,7 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "test": "vitest run",
-    "test:ganb4se8": "GANB4SE8_REQUIRED=1 vitest run src/core/workflow/realPowderXRD.test.ts",
+    "test:local-xrd": "LOCAL_XRD_REQUIRED=1 vitest run src/core/workflow/realPowderXRD.test.ts",
     "test:mag-diagnostic": "MAG_DIAGNOSTIC=1 vitest run src/core/workflow/mn3ga350KDiagnostic.test.ts",
     "test:watch": "vitest",
     "eval:agent": "MATERIA_AGENT_EVAL=1 vitest run src/agent/evals/live.test.ts",

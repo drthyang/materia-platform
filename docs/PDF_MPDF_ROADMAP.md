@@ -197,7 +197,7 @@ validation gate.
 - The original S(Q)/F(Q) is kept on the pattern with its error column
   (`reciprocal`, saved in project files). σ_G(r) is propagated exactly onto every
   point, and the page shows S(Q)/F(Q) and G(r) with ±σ ribbons. External
-  gates: pystog (committed) and RMCProfile StoG on real FeCoSn 199 K data
+  gates: pystog (committed) and RMCProfile StoG on a local real neutron dataset
   (data-gated). See the knowledge base, §5.
 - PDFgui `.fgr` fits. `parse_pdf_data` can also take a fit's difference curve,
   the experimental mPDF of a nuclear fit.
@@ -219,7 +219,7 @@ validation gate.
   Qdamp and Qbroad stay at their calibrated values.
 
 **Validation gate** ✅
-- G_calc(r) matches PDFgui on measured POWGEN data for Fe₀.₁Co₀.₉Sn at 1.7 K
+- G_calc(r) matches PDFgui on a local measured POWGEN dataset
   (data-gated).
 - A perturbed model refines back to PDFfit2-generated data: cell within 2 mÅ,
   plus scale and per-element ADPs. δ1 is not gated.

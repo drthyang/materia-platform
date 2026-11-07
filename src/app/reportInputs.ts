@@ -230,8 +230,8 @@ const MAGNETIC_TERM_KINDS: ReadonlySet<ParameterKind> = new Set<ParameterKind>([
  * set of the last refinement, read off its esds: "refined jointly with the
  * atomic structure" only when nuclear rows were free beside the moments, "the
  * moments refined with the nuclear model held" when every nuclear row was
- * fixed — the user's rule for a magnetic refinement, and the AWO₄ demo's last
- * step.
+ * fixed — the user's rule for a magnetic refinement, and the local magnetic
+ * demo's last step.
  */
 export function magneticReportSection(o: {
   readonly structure: StructureModel;

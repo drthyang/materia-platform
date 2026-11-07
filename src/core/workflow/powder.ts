@@ -280,7 +280,7 @@ export function placePeaks(
   // TCH combination on the value instead made the peak shape discontinuous
   // there: Γ_L → 0 flipped a peak from the TCH η → 0 (pure Gaussian) to the
   // global fallback η = 0.5 (half Lorentzian), and the optimizer walked into a
-  // false basin (GaNb4Se8 benchmark: wR 23% → 53%).
+  // false basin (the local X-ray benchmark: wR more than doubled).
   const useLorentzModel = useTch || useUniaxial || useUniaxialStrain;
   const invariants = useStephens ? strainInvariantsFor(applied) : null;
   // A lab tube's Kα₂: each reflection again at λ₂, ratio × the intensity.
