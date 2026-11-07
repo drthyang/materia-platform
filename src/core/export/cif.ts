@@ -31,7 +31,7 @@ import { normalize } from "@/core/math/vec3";
 import type { Mat3, Vec3 } from "@/core/math/types";
 import { expandMagneticSupercell, momentAnchorPosition, type SupercellAtom } from "@/core/crystal/cellExpansion";
 import { magneticCellGroup, type MagneticCellGroup } from "@/core/magnetic/supercellGroup";
-import { identifyMagneticGroupAnySetting } from "@/core/magnetic/bnsOg";
+import { identifyMagneticGroupAnySetting, type TransformedIdentification } from "@/core/magnetic/bnsOg";
 import { magneticTypeOf } from "@/core/magnetic/magneticCell";
 import { classifyPropagation, describePropagation } from "@/core/magnetic/propagation";
 import { centringTranslations } from "@/core/crystal/symmetry";
@@ -70,7 +70,11 @@ export interface CifExportOptions {
   readonly refinement?: CifRefinementMeta;
   /** `data_` block name. Defaults to a sanitized structure name. */
   readonly blockName?: string;
-  /** Standard BNS symbol for the magnetic block (`_space_group_magn.name_bns`). */
+  /**
+   * Standard BNS symbol for the magnetic block (`_space_group_magn.name_BNS`).
+   * Absent, a k = 0 model's group is named from its operations when they match
+   * a tabulated group (BNS and OG name and number).
+   */
   readonly magneticLabel?: string;
 }
 
@@ -351,8 +355,28 @@ function momentLoop(structure: StructureModel, magnetic: MagneticModel): string 
   ].join("\n");
 }
 
-/** Magnetic (BNS) symmetry-operation loop, when the space group carries them. */
-function magneticSymopBlock(structure: StructureModel, magnetic: MagneticModel, label: string | undefined): string {
+/**
+ * The magCIF dictionary's names of an identified magnetic group: the BNS
+ * symbol and number of its standard setting, then the OG ones. When the
+ * operations are in another setting, a comment gives the transformation.
+ */
+function magneticGroupNames(id: TransformedIdentification): string[] {
+  return [
+    `_space_group_magn.name_BNS  "${id.identity.bnsSymbol}"`,
+    `_space_group_magn.number_BNS  ${id.identity.bnsNumber}`,
+    `_space_group_magn.name_OG  "${id.identity.ogSymbol}"`,
+    `_space_group_magn.number_OG  ${id.identity.ogNumber}`,
+    ...(id.direct ? [] : [`# standard BNS setting reached by the transformation ${id.transformation}`]),
+  ];
+}
+
+/**
+ * Magnetic (BNS) symmetry-operation loop, when the space group carries them.
+ * `name`: name the group from the operations when no label is given (k = 0:
+ * the operations are a magnetic space group of the parent cell; at an
+ * incommensurate k they are not, so it is left unnamed).
+ */
+function magneticSymopBlock(structure: StructureModel, magnetic: MagneticModel, label: string | undefined, name: boolean): string {
   // The magnetic operations are the model's own subgroup ops when it carries
   // them (an in-app model built by buildMagneticModel refines in a subgroup of
   // the parent nuclear group — writing the parent ops would claim the wrong
@@ -364,7 +388,9 @@ function magneticSymopBlock(structure: StructureModel, magnetic: MagneticModel, 
   // P1. Genuine −1 operations keep their sign; everything else defaults to +1.
   const ops = magnetic.operations ?? structure.spaceGroup.operations;
   const head: string[] = [];
-  if (label) head.push(`_space_group_magn.name_bns  "${label}"`);
+  const id = !label && name && ops.length > 0 ? identifyMagneticGroupAnySetting(ops) : null;
+  if (label) head.push(`_space_group_magn.name_BNS  "${label}"`);
+  else if (id) head.push(...magneticGroupNames(id));
   if (structure.spaceGroup.hermannMauguin && !label) head.push(`_parent_space_group.name_H-M_alt  "${structure.spaceGroup.hermannMauguin}"`);
   if (ops.length === 0) return head.join("\n");
   const opLoop = loop(
@@ -462,9 +488,7 @@ function magneticCellSymmetryBlock(group: MagneticCellGroup, n: readonly [number
   const head: string[] = [];
   const id = identifyMagneticGroupAnySetting(group.operations);
   if (id) {
-    head.push(`_space_group_magn.name_bns  "${id.identity.bnsSymbol}"`);
-    head.push(`_space_group_magn.number_bns  ${id.identity.bnsNumber}`);
-    if (!id.direct) head.push(`# standard BNS setting reached by the transformation ${id.transformation}`);
+    head.push(...magneticGroupNames(id));
   } else {
     // The type from the group itself: only anti-translations make it type IV (a two-arm k's group has none).
     const anti = group.centerings.filter((c) => (c.timeReversal ?? 1) === -1).length;
@@ -596,7 +620,7 @@ export function magneticStructureToMcif(
     `data_${block}`,
     `_pd_phase_name  '${structure.name}'`,
     cellBlock(structure, esd),
-    magneticSymopBlock(structure, magnetic, opts.magneticLabel),
+    magneticSymopBlock(structure, magnetic, opts.magneticLabel, cls.kind === "zero"),
     refinementBlock(opts.refinement),
     atomSiteBlocks(aug.structure, esd),
     momentLoop(structure, aug.magnetic),

@@ -11,6 +11,8 @@ import { expandStructureAtoms } from "@/core/diffraction/structureFactor";
 import { applyParameters } from "@/core/workflow/apply";
 import { ACTIVATION_KICK, pageView, pdfFit, pdfPage, withFit, withoutModes, withParameter, withPositionMode, withSupercellChild, workspaceOf, type PdfPageModel } from "@/app/pdfPage";
 import { validateSnapshot } from "@/core/project/validate";
+import { recordStep } from "@/core/project/history";
+import { activationOf, clearanceOf } from "@/app/pdfSubgroups";
 import { AXIS_ORDERS, GLAZER, TILT_SENSES, srtio3, tiltedChild, tiltIsInvariant, type Glazer } from "@/testSupport/perovskiteTilts";
 
 /**
@@ -141,6 +143,24 @@ describe("a supercell child activated on the PDF page", () => {
     expect(pageView(back).fitStructure).toBe(PARENT);
     expectParentRows(back, fitted.params.find((p) => p.id === "pdfScale")!.value);
   }, 120_000);
+
+  it("✕ clear records a step that names the parent, so the header's step chip leaves the child", () => {
+    const choice = { group, elements: cls.elements, identity: cls.identity! };
+    const activated = activationOf(page, { kind: "supercell", choice });
+    const cleared = clearanceOf(activated.model);
+    expect(cleared.model).toEqual(withoutModes(activated.model));
+    expect(cleared.model.modes).toBeNull();
+    expect(cleared.step).toBe("Back to P m -3 m #221");
+    // Nothing in force: the same page, so the view records nothing.
+    expect(clearanceOf(page).model).toBe(page);
+    // The header's chip is the current step's label (WorkbenchHeader, CurrentStep).
+    const snap = (m: PdfPageModel) => ({ structures: [PARENT], workspace: workspaceOf(m) });
+    let h = recordStep(null, { ...snap(page), kind: "load", label: "Loaded" });
+    h = recordStep(h, { ...snap(activated.model), kind: "settings", label: activated.step });
+    expect(h.steps.find((st) => st.id === h.current)!.label).toBe("Supercell child: R -3 c:H #167");
+    h = recordStep(h, { ...snap(cleared.model), kind: "settings", label: cleared.step });
+    expect(h.steps.find((st) => st.id === h.current)!.label).toBe("Back to P m -3 m #221");
+  });
 
   it("Constrained atomic sets the child aside for the parent, and Irreps (modes) brings the child back, each in its own cell", () => {
     const atomic = withPositionMode(withParameter(model, "pdfScale", { value: 0.8 }), "atomic");

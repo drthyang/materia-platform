@@ -400,7 +400,10 @@ async function step2(context, vp) {
     const report = await timed("Report export", () => download(page, () => exportMenu(page, "Report"), "Report"));
     const mcif = await timed("mCIF export", () => download(page, () => exportMenu(page, "mCIF"), "mCIF"));
     expect(readFileSync(mcif, "utf8").includes("_space_group_symop_magn_operation"), "the mCIF carries its magnetic operations");
-    note(`mCIF names its BNS group: ${readFileSync(mcif, "utf8").includes("_space_group_magn.name_bns")}`);
+    const bns = /^_space_group_magn\.name_BNS\s+"([^"]+)"/m.exec(readFileSync(mcif, "utf8"));
+    const bnsNumber = /^_space_group_magn\.number_BNS\s+(\S+)/m.exec(readFileSync(mcif, "utf8"));
+    expect(!!bns && !!bnsNumber, "the mCIF names its BNS group (name_BNS, number_BNS)");
+    if (bns) note(`mCIF: BNS ${bns[1]} (${bnsNumber?.[1] ?? "no number"})`);
     // The report renders without errors.
     const rp = await context.newPage();
     attach(rp);
@@ -539,6 +542,9 @@ async function step3and4(context, vp) {
     });
     await backFromSheet(page);
     expect(/GaTa4Se8 · F -4 3 m/.test(await bodyText(page)), "the Structure card is the parent again");
+    // The header's step chip is the clear's own History step, not the child's.
+    const chip = (await page.locator(".wb-step-current").first().textContent()) ?? "";
+    expect(/Back to F -4 3 m #216/.test(chip) && !/Supercell child/.test(chip), `the header's step chip names the parent (it reads "${chip.trim()}")`);
     await shot(page, vp, "4-cleared");
     // Boxcar on its own range.
     await tab(page, "Boxcar").click();

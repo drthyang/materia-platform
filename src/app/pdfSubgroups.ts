@@ -13,7 +13,9 @@
  *    variant: the first one the filters keep;
  *  - a row's activation: the child its action gives (withActivatedMode,
  *    withSubgroup, withSameCellSubgroup, withSupercellChild) and the History
- *    step the view records for it.
+ *    step the view records for it;
+ *  - ✕ clear on the view's banner (clearanceOf): the page back at the loaded
+ *    structure's own group, and the History step the view records for it.
  */
 
 import type { StructureModel } from "@/core/crystal/types";
@@ -21,7 +23,7 @@ import type { SupercellSpec, SupercellCentring } from "@/core/crystal/irreps/sup
 import { MAX_FACTOR_ORDER } from "@/core/crystal/irreps/supercellLattice";
 import type { FactorGroup } from "@/core/crystal/irreps/factorGroup";
 import { structuralSubgroupLattice, type StructuralSubgroupTree } from "@/core/crystal/subgroupTree";
-import { withActivatedMode, withSameCellSubgroup, withSubgroup, withSupercellChild, type PdfPageModel } from "@/app/pdfPage";
+import { withActivatedMode, withSameCellSubgroup, withSubgroup, withSupercellChild, withoutModes, type PdfPageModel } from "@/app/pdfPage";
 import { decentringIrrepTree, gammaIrrepTree, sameCellLattice, type DecentringBranch, type IrrepBranch, type SameCellNode } from "@/app/ui/SubgroupsPanel";
 import { DEFAULT_BOUND, PRESETS, boundLabel, parseSupercell } from "@/app/ui/SupercellView";
 import type { PickerAction, SubgroupRow } from "@/app/ui/subgroupPicker";
@@ -308,4 +310,11 @@ export function activationOf(m: PdfPageModel, action: PickerAction): Activation 
     return { ...a, step: `Supercell child: ${a.label}` };
   }
   return { model: m, label: "", message: `not offered here (${action.note})`, step: "" };
+}
+
+/** ✕ clear on the Subgroups view: the page without its modes (the same page when none are in force) and the History step it records. */
+export function clearanceOf(m: PdfPageModel): { readonly model: PdfPageModel; readonly step: string } {
+  const sg = m.loaded.spaceGroup;
+  const name = sg.hermannMauguin ?? "the parent's group";
+  return { model: withoutModes(m), step: `Back to ${sg.number !== undefined ? `${name} #${sg.number}` : name}` };
 }

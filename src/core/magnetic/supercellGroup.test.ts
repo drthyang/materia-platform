@@ -109,9 +109,9 @@ describe("mCIF of a k ≠ 0 structure is written in the magnetic cell's own grou
     expect(mcif).toContain("_space_group_symop_magn_operation.xyz");
     expect(mcif).toContain("_space_group_symop_magn_centering.xyz");
     // The black-and-white lattice is named as what it is (BNS type IV, THY-37), not by the parent-basis label.
-    expect(mcif).toContain('_space_group_magn.name_bns  "P_a2/c"');
-    expect(mcif).toContain("_space_group_magn.number_bns  13.70");
-    expect(mcif).not.toContain('_space_group_magn.name_bns  "P2/c');
+    expect(mcif).toContain('_space_group_magn.name_BNS  "P_a2/c"');
+    expect(mcif).toContain("_space_group_magn.number_BNS  13.70");
+    expect(mcif).not.toContain('_space_group_magn.name_BNS  "P2/c');
     // Atom loop holds the asymmetric unit only (7 rows), not the 2× expanded list.
     const back = parseMagneticCif(mcif);
     expect(back.structure.sites).toHaveLength(structure.sites.length);
@@ -132,8 +132,8 @@ describe("mCIF of a k ≠ 0 structure is written in the magnetic cell's own grou
     const values = Object.fromEntries(build.params.map((p, i) => [p.id, 1.3 + 0.7 * i]));
     const mcif = magneticStructureToMcif(structure, applyMagneticMoments(build.magnetic, build.bindings, values), {});
     expect(mcif).not.toContain("type IV");
-    expect(mcif).toContain('_space_group_magn.name_bns  "P-6m\'2\'"');
-    expect(mcif).toContain("_space_group_magn.number_bns  187.213");
+    expect(mcif).toContain('_space_group_magn.name_BNS  "P-6m\'2\'"');
+    expect(mcif).toContain("_space_group_magn.number_BNS  187.213");
   });
 });
 
