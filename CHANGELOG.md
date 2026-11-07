@@ -7,6 +7,8 @@ release fixes bugs.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-07
+
 ### Added
 
 - **The Copilot shows how full the model's window is** (THY-75).
@@ -162,337 +164,6 @@ release fixes bugs.
     gives it (MnO at L: C_c2/c, 15.90; Mn₃Ga at (0, 0, ½): P_c-3m1, 164.90;
     P2/c at (½, 0, 0): P_a2/c, 13.70). Where the old route applied, its
     irreps, multiplicities, modes and groups are unchanged.
-
-### Changed
-
-- **The Mn₃Ga neutron TOF demo opens on a new converged fit.** It is a new
-  refinement of the same POWGEN 600 K data and fit window, made in the app: a
-  three-point log-interpolate background (the POWGEN default) in place of four
-  Chebyshev terms, and the B_iso of both phases, the Mn x and the mustrain
-  refined and then held. The demo opens at wR 4.24 %, GoF 3.23 (was 4.01 %,
-  3.05) with eight rows free (was nine): the scale, background and cell of
-  Mn₃Ga and MnO. Refine from it stays converged.
-
-- **A merged Subgroups row defaults to its rigid-unit variant.** When classes
-  share a name, cell and domains, the row's tag, detail and Activate take the
-  variant whose irreps can move the atoms without stretching the shortest
-  bonds, after the earlier rules (one irrep before coupled, atoms moved before
-  strain only). SrTiO₃'s a⁻b⁺a⁻ Pnma now opens on the octahedral tilts (M
-  irrep 3 or 7 + R irrep 8, modes on O) instead of a pair that moves Ti, and
-  a⁰a⁰c⁻ I4/mcm on R irrep 8 instead of R irrep 6; R-3c is unchanged. 92 of
-  SrTiO₃'s 2×2×2 merged rows change default, none of GaTa₄Se₈'s (1×1×2,
-  2×2×2). The "?" by the variants says the order.
-- **Activate kicks the tilt of a tied pair.** Where a merged row's lead set
-  names a tied member ("M irrep 3 or 7"), Activate frees the alternative with
-  the least bond stretch, ties kept in the line's order: for SrTiO₃ the
-  in-phase tilt M irrep 3, not its Jahn–Teller-like twin M irrep 7, whatever
-  the irreps' numbering. The kicked modes are the only free position rows
-  after Activate: on an a⁻b⁺a⁻ G(r) a refine of the tilt pair reaches Rw 0,
-  of the twin pair 4.2%. The child (group, cell, sites, modes) is the same.
-- **No public-beta banner under the header.** The strip that asked you to
-  reproduce a result in GSAS-II / FullProf (powder), PDFgui / diffpy-CMI or
-  diffpy.mpdf (PDF) is gone from every page. The **BETA** badge in the header
-  stays, the report's footer still names the cross-check packages, and the
-  page footer links the limitations directly (**Limitations**, below).
-- **Layout pass for v0.5.0.** Only the app's layer changed: the fit, the
-  Agent's tools and everything it reads are as they were.
-  - **The 3D model fills its canvas on a desktop.** Every screen now frames
-    the cell as touch screens did: the cell as first seen, fitted to the
-    tighter side of the canvas with a margin for the corner atoms, labels and
-    axis arrows. A 970×400 card showed the cell at about a third of its
-    height; it now takes about two thirds. This covers the Rietveld and PDF
-    3D Model tabs, the magnetic page's moment preview and the single-crystal
-    view.
-  - **The view tabs stay in the card's title row** on the Rietveld and PDF
-    pages, on every tab (they moved down a row on Refinement). TOF / d / Q,
-    **optimize view**, the fit window with **Reset range**, ±σ and partials
-    sit on the plot's own toolbar row under it. A card too narrow for the
-    title, its figures and the tabs together (a phone, or 1280 px with the
-    Copilot open) puts the tabs on a row of their own on every tab alike.
-  - **Parameter groups with free rows open on load** (Scale, Background and
-    Lattice on the demos), so the values and esds being refined are on
-    screen; the others stay collapsed. A new parameter set (another load, an
-    activated child) opens its newly free groups, and a group you opened or
-    closed keeps that state.
-  - **The Posterior tab says why Sample posterior is held**, on one line
-    beside it: "Refine first: needs esds from a converged fit", or, while a
-    refinement runs, the run lock's reason (still the button's title). The
-    **?** sits right after it, and before a run the panel shows the table's
-    columns faintly instead of a blank card. The PDF Posterior header shows
-    Rw, as the powder one shows wR and GoF.
-  - **The G(r) plot has no reflection-tick band.** A plot with no tick rows
-    gives the band's height to the data, and the difference band is about a
-    fifth of the plot. The powder plot is unchanged.
-  - **The PDF Structure card names the child being fitted.** With a subgroup
-    or supercell child in force it shows the child's name, group, cell and
-    sites, with a "child of SrTiO3 · P m -3 m" line that opens the Subgroups
-    tab. ✕ clear returns it to the parent.
-  - **Footer: a Limitations link** to docs/LIMITATIONS.md, beside About &
-    documentation, on every page.
-  - **Phones show a compact BETA pill** beside the wordmark again (it was
-    hidden at 700 px and below for a banner that is gone).
-- **Subgroups opens on the Tree.** The PDF page's Subgroups tab now shows the
-  Tree first: the parent with its maximal subgroups one level down. **List** is
-  one click away. The Find box shows in both views, and typing in it from the
-  Tree switches to the List, where the matches are listed. Activation is
-  unchanged.
-- **The Subgroups list opens short.** It shows the top index levels only:
-  SrTiO₃ in 2×2×2 opens on 26 rows (index 2 to 8) instead of 444, GaTa₄Se₈
-  in 1×1×2 on 26 (index 2 to 12) instead of 80.
-  - **Show more** under the list adds the next levels ("Show more: index 12
-    (+78)"), **show all N** the rest the filters keep, **show fewer** goes
-    back. The list takes whole index levels from the top until at least 20
-    rows show, and adds no level that would take it past 40 (a first level
-    is taken whole).
-  - **Strain-only rows are hidden by default** (no atom moves; nothing to
-    Activate): 26 merged rows of SrTiO₃'s 444. **Filters › Strain only ›
-    show** brings them back. A merged row also drops a strain-only variant
-    from its count: R-3c reads R·8, not ×2 (its R irrep 9 class moves no
-    atom); the detail still lists every variant.
-  - **Find** (beside Filters) picks out a name or an ITA number at any level:
-    "Pnma" or "62" gives SrTiO₃'s two Pnma rows; "113" or "P-42_1m" gives
-    GaTa₄Se₈'s X and 1×1×2 P-42₁m. A name found only outside the filters
-    says so, with **show them**.
-  - The detail's **every lattice step** is gone: the Tree holds the same
-    covering steps, and the ways (one irrep per step) say how Activate gets
-    there.
-  - With every filter off and show all, every class is still listed (559
-    rows, 1426 classes for SrTiO₃). Activate is unchanged.
-- **The PDF page's Subgroups view is one list, with the picked subgroup's
-  detail beside it ("Lower the symmetry").** By subgroup and By irrep are
-  gone; the group theory is unchanged.
-  - The first screen holds the supercell, the k-point chips and the list.
-    Rows run from high to low symmetry, one plain line each:
-    `Pnma #62 · 2×2×2 · 24 dom · M·3/7+R·7 ×4`. The tag names the irreps
-    (R·8 is R irrep 8; dashed when coupled), never ISODISTORT's "R4+". A row
-    whose child moves no atom says **strain only**.
-  - Rows with the same name, cell and domains merge into one (×4); the
-    detail lists each class as a variant with its own Activate. SrTiO₃ in
-    2×2×2: 1426 classes in 559 rows.
-  - By default the list keeps the subgroups one irrep reaches, or two
-    coupled, and the maximal ones. **Filters** (folded) sets how a subgroup
-    is reached (one irrep · up to two · all), its cell (same cell ·
-    supercell) and the highest index.
-  - A k-point chip keeps the subgroups its irreps reach; picking two also
-    keeps their coupled pairs (R and M: Pnma).
-  - Sets that the group-theoretic counts cannot tell apart are written on one
-    line: "M irrep 3 or 7 + R irrep 8", tag M·3/7+R·8.
-  - The detail: the result in one line ("Pnma in a 2×2×2 cell, from 2 irreps
-    together: …", details behind **?**); the parent's cell and the child's
-    sketched; the domains and index; **How you get here**, one irrep
-    switched on per step ("Pm-3m → Imma (R irrep 8) → Pnma (+ M irrep 3 or
-    7)"), three shown, then "N more ways"; the irreps with their directions, the other
-    sets and the secondary irreps folded; the mode count Activate loads; one
-    large **Activate**.
-  - **List | Tree**: the tree opens from the parent one maximal step at a
-    time, says "also under …" where a subgroup has two parents, and dims the
-    ones the filters leave out.
-  - After Activate the banner states the child and its cell, with **3D Model
-    →** and **✕ clear**; the list and the detail stay, Activate waiting for
-    ✕ clear.
-  - On a phone a row opens its detail as a full-screen sheet with **‹ Back**;
-    the chips scroll in one row.
-- **Activate on a larger-cell row is fast again** (about 0.3 s for SrTiO₃'s
-  Pnma; 0.9 s after the listing moved to a worker): the worker hands every
-  star's irreps back to the page. The k-point chips no longer work anything
-  out: they filter the list.
-- **By subgroup lists the larger cells without freezing the page, and its
-  rows appear as they are worked out.** The supercell rows of the PDF page's
-  Subgroups view are worked out in a background worker.
-  - The same-cell rows show at once, as before. The larger cells follow,
-    each as soon as the irreps it needs are in, under one line:
-    "listing 2×2×2 subgroups… 60 % · 120 larger so far" with **stop**.
-  - The page stays responsive. On the GaTa₄Se₈ demo at 2×2×2 the old run
-    held the page for up to 1 s at a time, and for SrTiO₃ for 3 s; now no
-    pause is longer than 15 ms. The whole list takes the same time as before
-    (about 6 s for either).
-  - **stop** ends the worker. One run goes at a time, and the result is kept
-    for the structure and supercell. The rows are the same as before, in the
-    same order.
-- **A subgroup reached by several coupled sets shows the most symmetric set
-  first.** Of the smallest sets of irreps that lower the parent to it, the
-  row names first the set whose irreps, each alone, give the highest-symmetry
-  subgroups (the smallest total index). It still puts first the irreps the
-  structure's atoms carry, and the old order breaks ties. 58 rows change
-  their first set (55 of SrTiO₃'s 1217 coupled rows at 2×2×2, 3 of GaTa₄Se₈'s
-  227; none at 1×1×2). For example, SrTiO₃'s C2/c in 1×2×1 now shows
-  X irrep 2 (a,0,0) + X irrep 10 rather than Γ irrep 7 (a,a,b) + X irrep 10.
-  Activate seeds the order parameter from the set shown. The other sets
-  stay behind the row's **?**.
-
-- **The PDF page's Subgroups view opens on By subgroup: every subgroup that
-  fits the chosen supercell, with its cell and the irreps that activate it.**
-  - One row per class of conjugate subgroups, by index, in one line: the
-    name, the cell (**same cell**, or the multiple of the parent's cell that
-    repeats the child, **1×1×2**, **2×2×2**), the domain states, and the
-    primary irreps with their directions ("R irrep 8 of 10 (a,a,a)"). A
-    subgroup no single irrep reaches names the fewest irreps coupled, "M
-    irrep 3 of 10 (a,0,0) + R irrep 8 of 10 (a,a,0), coupled", and its
-    **?** lists the other sets of that size. The **?** also has the index
-    split, orientations, the child basis (P_H, p_H), the secondary irreps and
-    the irreps that move no atom of the structure.
-  - The list is filtered to the supercell: the parent's same-cell subgroups,
-    and the larger cells that fit the bound in some orientation. For
-    GaTa₄Se₈ in 1×1×2, P-42₁m appears in (a, a, 2c) and, from X, in the
-    parent's cell, and no longer in the (2a, 2a, c) that does not fit.
-  - The same-cell rows show at once; the larger cells are worked out after
-    the view shows (in a background worker, above), the supercell held,
-    **stop**, one run at a time, and the result kept.
-  - **Activate** gives the child the older paths gave: By irrep's child for a
-    primary irrep, the t-lattice's or the same-cell lattice's otherwise, and
-    for a larger cell the child realised in its own cell with the row's
-    irreps kicked. After it, the banner says where the child lives ("in its
-    own cell, 1×1×2", "in the parent's cell").
-  - **By irrep** stays as the second view. Each child says its cell; only
-    the children that fit the supercell are listed, and **show larger cells**
-    gives the whole list. The supercell view's **List supercell subgroups**
-    and its index limit are gone: By subgroup lists every index.
-  - Nothing the Agent or an MCP client reads changed.
-
-- **The PDF page's Boxcar tab is an analysis of its own.** Its settings are
-  grouped as Range, Boxes and Starting point, each with its detail behind a
-  **?**, over a one-line result (boxes and span, or what to fix).
-  - The tab has its own lower and upper r bounds. They start at the fit
-    window; once edited (or after the first scan) moving the fit window no
-    longer moves them, and **Use fit range** copies it again. Bounds off the
-    data, out of order or with no room for two boxes get a plain message.
-  - The scan starts from the current fit: its values and free rows. The
-    parameter list under Starting point lets a scan refine other rows or
-    start from other values; **Reset to current fit** drops those edits.
-  - The scan never writes to the main fit (Adopt stays the explicit way to
-    load a box's values). Saved projects keep the tab's range and edits;
-    older files open with the tab following the fit window. The Agent's
-    `boxcar_scan` is unchanged: the fit window, the rows as they are.
-
-- **`review_symmetry` lists the subgroup engine's subgroups, named in their
-  standard settings** (the Agent's tool and MCP's; THY-36). The candidates
-  and the subgroups that drop a centring vector come from the engine's
-  same-cell lattice, one per conjugacy class, named as the PDF Subgroups
-  page names them. A candidate named in another cell or origin gains
-  `setting`, its child basis from the parent's cell. Names change where the
-  old ones read a centred parent's subgroup as primitive or wrote a
-  non-standard setting: I4₁/amd's Pmna → Imma, Pmn2₁ → Imm2; R-3c's P-3 →
-  R-3, P3 → R3; Fd-3m's bare "-3m" → R-3m; Fddd's "2/m" → C2/c; Cmcm's
-  P2/m11 → C2/m; Pnma's Pnm2₁ → Pmn2₁ (b, a, −c; ¼, ¼, 0). A subgroup now
-  allows a powder line when it allows any reflection of the line's family,
-  so which of its orientations is listed no longer matters (Ia-3d's
-  I4₁/acd allowed one of the five lines its orientations allow).
-  Decentred subgroups are no longer merged by name: R-3m's and R-3c's
-  P-3m1 and P-3c1 read as one class of three domains (was one, beside an
-  unnamed two), and Cmcm's two Pnma classes stay two.
-
-- **The PDF page's Subgroups view has one path: pick a k-point, then a
-  child, then Activate.**
-  - The k-points are chips: Γ and a centred parent's decentring points
-    marked "same cell", the supercell bound's cell-multiplying stars marked
-    "supercell" and named where they have a name (X, M, R; L, W). The
-    default 2×2×2 bound is set when the view opens. A supercell chip works
-    out its irreps on request, shows "working…" meanwhile, and keeps them.
-    The supercell view's Set bound, Irreps/Lattice tabs, k-point menu and
-    Irreps → are gone.
-  - Each irrep (generic labels, ADR 0004) opens to its children, one line
-    each: name, order-parameter direction, domain states, and **Activate**.
-    The index split, orientations and basis are in the name's tooltip.
-  - **By subgroup** holds the same-cell subgroup lattice and, on request,
-    the bound's cell-multiplying classes, which the supercell view's Lattice
-    tab listed.
-  - While a choice is in force the view shows only it, with ✕ clear.
-  - The prose under each list moved behind **?**.
-  - **Load parent CIF…** and **Load mode CIF…** moved to the 3D Model view's
-    Distortion modes row, as **Import ▾** → **Parent CIF (decompose this
-    structure)…** and **Mode CIF (ISODISTORT)…**, beside **Mode CIF ↓**.
-  - What each Activate does is unchanged: the same child, basis and modes as
-    before (checked for Γ, a decentring point, R → R-3c and Imma, and Pnma
-    from the lattice). The Agent's tools and their text are unchanged.
-
-### Fixed
-
-- **lower_symmetry lowers the group and cell the user names** (2026-11-07 eval
-  gate). A name and cell that one merged row answers lower its default variant
-  (the rigid-unit order of #153); the answer gives the row's id, the bound and
-  which variant was used, with the other variants' ids, as a lowering by id now
-  does too. It returns candidates and changes nothing only when several rows
-  (other cells or domains) answer the name. `list_subgroups` and the name
-  lookup look in the same bound (the call's, else the box `cell` names, else
-  the view's) and both say which. Model-visible: the two tools' descriptions,
-  their answers, the pdf-workflow skill's step 2; snapshots re-baselined.
-- **A refinement run again at its minimum is converged, with no change.** No
-  step lowered χ², and it came back "stalled": the verdict turned "poor" at
-  GoF 0.97, and the method's stages already done came off the record. The
-  engine now also takes the undamped step from where the fit stands: a
-  remaining shift of at most 0.01 esd is the minimum. A value within 0.01 esd
-  of its refined one keeps its stage. Model-visible: refine's status and
-  message for such a run ("converged after 1 iteration(s), no change: already
-  at the minimum").
-- **The report's number audit reads bond_geometry, get_state and a boxcar
-  scan's note**, as well as the report and the user's words: a number quoted
-  from them, rounded, is the engine's. get_state's notes (the Agent's own),
-  the History's labels and the bounds are not read, and a number the Agent
-  derived itself is still underlined.
-- **Evals.** symmetry-last reads "Lowering the symmetry now would hide that
-  misfit behind extra parameters" as a reason to wait, not a proposal.
-  pdf-lower-symmetry answers a question asked before the lowering with the
-  user's "Use the default variant, and go on."
-- **A phone no longer scrolls past the app into a blank screen** on the
-  Magnetic page. A screen-reader-only live region with no positioned
-  ancestor sat deep in the scrolling page and stretched the document to
-  about twice the app's height; it is now pinned to its container's corner.
-- **Irrep numbers are the same on every computer and browser** (THY-64). The
-  number in "X irrep n of m" and the Γ chip's Γn came from the order the
-  irreps were built in, which a rounding error could change: SrTiO₃'s polar
-  irrep was Γ9 under Node on a Mac, Γ10 in Chrome and on Linux, and Safari's
-  engine numbered the silent one Γ8 where the others said Γ7. Every irrep is
-  now numbered by its dimension, reality and characters on a fixed list of
-  rotations (ADR 0004), and the Γ chip's Γn is "Γ irrep n of m".
-  - Labels that change: SrTiO₃'s (Pm-3m) M and X irreps 3, 4, 5, 6, 7 and 8
-    become 7, 8, 3, 4, 5 and 6 (the tilt M irrep is now M irrep 3, so
-    a⁻b⁺a⁻ Pnma's first coupled pair is the two tilts, "M irrep 3 or 7 + R
-    irrep 8"); the Γ chip's SrTiO₃ irreps read Γ8 (silent) and Γ10 (polar)
-    everywhere, so a Γ activation's modes read "Γ10 → P 4 m m". GaTa₄Se₈'s
-    (F-43m) "Γ irrep 4" and "5" swap, and its X irreps 2, 3, 4 and W irreps
-    2, 3, 4 become 4, 2, 3; its Γ chip (Γ3, Γ4, Γ5) and X irrep 5, W irrep 1
-    are unchanged. The magnetic page's Mn₃Ga k = (0, 0, ½) irreps 1 and 2
-    swap. SrTiO₃'s Γ and R labels (R irrep 8, Γ irrep 10) are unchanged.
-    The full list is in the report (docs/reports/2026-11-02-irrep-order.md).
-  - A saved project keeps the labels it was saved with: they are text in its
-    mode rows, read back as saved; Activate again to get the new numbers.
-
-- **A powder magnetic line is the sum of |F_M⊥|² over every member of its
-  family** (THY-58). Each satellite family's |F_M|² was read at one member
-  and multiplied by the count, which holds only when the magnetic group keeps
-  the parent's Laue symmetry. Two domains of one group could therefore fit
-  differently: on the synthetic Mn₃Ga page (P6₃/mmc, k = (0, 0, ½)) the two
-  P_c-3m1 domains fitted to wR 0.31 % and 29.6 %; both now fit to 0.289 %.
-  - Each member (both ±k, every equivalent reflection) is projected
-    perpendicular to its own Q. Checked against a brute-force sum over every
-    Q of the explicit magnetic supercell (10⁻¹³), and every orientation
-    domain gives one pattern (k = 0, MnO at L, a two-arm k).
-  - The satellite list missed whole lines for a k that the rotations carry to
-    ±k only up to a lattice vector (MnO at the arm (½, −½, ½): the line at
-    1.71 Å); such a k now expands every parent family.
-  - The fit, the F_obs/F_calc plot, the magnetic tick row and the residual
-    readings all use the sum. A line whose first member has no |F_M⊥|² but
-    whose family scatters now gets its tick.
-  - Moves results wherever the magnetic group is below the parent's Laue
-    class (a model built on the parent cell): the magnetic page's ranking,
-    `rank_magnetic_groups`, `refine_moments` and the MCP powder magnetic
-    tools. Structures read in their own magnetic group (the Mn₃Ga 350 K and
-    30 K goldens) do not move. On the synthetic Mn₃Ga page the truth P_c-3m1
-    and P_c-6m2 now give one pattern exactly.
-  - **Groups indistinguishable by powder.** When the ranking's top-down rule
-    cannot split two groups whose fits give the same calculated pattern and
-    wR (to 10⁻⁹), the ★ goes to the one with a moment on more of the chosen
-    ions, and the page and `rank_magnetic_groups` (new field
-    `indistinguishableByPowder`) name the other with its moments: P_c-3m1
-    (★) and P_c-6m2 "3.54 µB on 3 of the 6 Mn1 ions, none on the others". A
-    near-tie keeps its wR order. The eval check for the chosen group counts
-    such a twin as correct.
-  - The magnetic structure factor expands the moments once per model, so the
-    sum costs what the one-member reading did.
-
-## [0.5.0] - 2026-10-31
-
-### Added
 
 - **A live Agent run can be recorded and replayed (dev server).** With
   `MATERIA_RECORD=1`, the dev server's proxy writes each run through it to the
@@ -1198,6 +869,247 @@ release fixes bugs.
   lasts for the session, until a new structure is loaded.
 
 ### Changed
+
+- **The Mn₃Ga neutron TOF demo opens on a new converged fit.** It is a new
+  refinement of the same POWGEN 600 K data and fit window, made in the app: a
+  three-point log-interpolate background (the POWGEN default) in place of four
+  Chebyshev terms, and the B_iso of both phases, the Mn x and the mustrain
+  refined and then held. The demo opens at wR 4.24 %, GoF 3.23 (was 4.01 %,
+  3.05) with eight rows free (was nine): the scale, background and cell of
+  Mn₃Ga and MnO. Refine from it stays converged.
+
+- **A merged Subgroups row defaults to its rigid-unit variant.** When classes
+  share a name, cell and domains, the row's tag, detail and Activate take the
+  variant whose irreps can move the atoms without stretching the shortest
+  bonds, after the earlier rules (one irrep before coupled, atoms moved before
+  strain only). SrTiO₃'s a⁻b⁺a⁻ Pnma now opens on the octahedral tilts (M
+  irrep 3 or 7 + R irrep 8, modes on O) instead of a pair that moves Ti, and
+  a⁰a⁰c⁻ I4/mcm on R irrep 8 instead of R irrep 6; R-3c is unchanged. 92 of
+  SrTiO₃'s 2×2×2 merged rows change default, none of GaTa₄Se₈'s (1×1×2,
+  2×2×2). The "?" by the variants says the order.
+- **Activate kicks the tilt of a tied pair.** Where a merged row's lead set
+  names a tied member ("M irrep 3 or 7"), Activate frees the alternative with
+  the least bond stretch, ties kept in the line's order: for SrTiO₃ the
+  in-phase tilt M irrep 3, not its Jahn–Teller-like twin M irrep 7, whatever
+  the irreps' numbering. The kicked modes are the only free position rows
+  after Activate: on an a⁻b⁺a⁻ G(r) a refine of the tilt pair reaches Rw 0,
+  of the twin pair 4.2%. The child (group, cell, sites, modes) is the same.
+- **No public-beta banner under the header.** The strip that asked you to
+  reproduce a result in GSAS-II / FullProf (powder), PDFgui / diffpy-CMI or
+  diffpy.mpdf (PDF) is gone from every page. The **BETA** badge in the header
+  stays, the report's footer still names the cross-check packages, and the
+  page footer links the limitations directly (**Limitations**, below).
+- **Layout pass for v0.5.0.** Only the app's layer changed: the fit, the
+  Agent's tools and everything it reads are as they were.
+  - **The 3D model fills its canvas on a desktop.** Every screen now frames
+    the cell as touch screens did: the cell as first seen, fitted to the
+    tighter side of the canvas with a margin for the corner atoms, labels and
+    axis arrows. A 970×400 card showed the cell at about a third of its
+    height; it now takes about two thirds. This covers the Rietveld and PDF
+    3D Model tabs, the magnetic page's moment preview and the single-crystal
+    view.
+  - **The view tabs stay in the card's title row** on the Rietveld and PDF
+    pages, on every tab (they moved down a row on Refinement). TOF / d / Q,
+    **optimize view**, the fit window with **Reset range**, ±σ and partials
+    sit on the plot's own toolbar row under it. A card too narrow for the
+    title, its figures and the tabs together (a phone, or 1280 px with the
+    Copilot open) puts the tabs on a row of their own on every tab alike.
+  - **Parameter groups with free rows open on load** (Scale, Background and
+    Lattice on the demos), so the values and esds being refined are on
+    screen; the others stay collapsed. A new parameter set (another load, an
+    activated child) opens its newly free groups, and a group you opened or
+    closed keeps that state.
+  - **The Posterior tab says why Sample posterior is held**, on one line
+    beside it: "Refine first: needs esds from a converged fit", or, while a
+    refinement runs, the run lock's reason (still the button's title). The
+    **?** sits right after it, and before a run the panel shows the table's
+    columns faintly instead of a blank card. The PDF Posterior header shows
+    Rw, as the powder one shows wR and GoF.
+  - **The G(r) plot has no reflection-tick band.** A plot with no tick rows
+    gives the band's height to the data, and the difference band is about a
+    fifth of the plot. The powder plot is unchanged.
+  - **The PDF Structure card names the child being fitted.** With a subgroup
+    or supercell child in force it shows the child's name, group, cell and
+    sites, with a "child of SrTiO3 · P m -3 m" line that opens the Subgroups
+    tab. ✕ clear returns it to the parent.
+  - **Footer: a Limitations link** to docs/LIMITATIONS.md, beside About &
+    documentation, on every page.
+  - **Phones show a compact BETA pill** beside the wordmark again (it was
+    hidden at 700 px and below for a banner that is gone).
+- **Subgroups opens on the Tree.** The PDF page's Subgroups tab now shows the
+  Tree first: the parent with its maximal subgroups one level down. **List** is
+  one click away. The Find box shows in both views, and typing in it from the
+  Tree switches to the List, where the matches are listed. Activation is
+  unchanged.
+- **The Subgroups list opens short.** It shows the top index levels only:
+  SrTiO₃ in 2×2×2 opens on 26 rows (index 2 to 8) instead of 444, GaTa₄Se₈
+  in 1×1×2 on 26 (index 2 to 12) instead of 80.
+  - **Show more** under the list adds the next levels ("Show more: index 12
+    (+78)"), **show all N** the rest the filters keep, **show fewer** goes
+    back. The list takes whole index levels from the top until at least 20
+    rows show, and adds no level that would take it past 40 (a first level
+    is taken whole).
+  - **Strain-only rows are hidden by default** (no atom moves; nothing to
+    Activate): 26 merged rows of SrTiO₃'s 444. **Filters › Strain only ›
+    show** brings them back. A merged row also drops a strain-only variant
+    from its count: R-3c reads R·8, not ×2 (its R irrep 9 class moves no
+    atom); the detail still lists every variant.
+  - **Find** (beside Filters) picks out a name or an ITA number at any level:
+    "Pnma" or "62" gives SrTiO₃'s two Pnma rows; "113" or "P-42_1m" gives
+    GaTa₄Se₈'s X and 1×1×2 P-42₁m. A name found only outside the filters
+    says so, with **show them**.
+  - The detail's **every lattice step** is gone: the Tree holds the same
+    covering steps, and the ways (one irrep per step) say how Activate gets
+    there.
+  - With every filter off and show all, every class is still listed (559
+    rows, 1426 classes for SrTiO₃). Activate is unchanged.
+- **The PDF page's Subgroups view is one list, with the picked subgroup's
+  detail beside it ("Lower the symmetry").** By subgroup and By irrep are
+  gone; the group theory is unchanged.
+  - The first screen holds the supercell, the k-point chips and the list.
+    Rows run from high to low symmetry, one plain line each:
+    `Pnma #62 · 2×2×2 · 24 dom · M·3/7+R·7 ×4`. The tag names the irreps
+    (R·8 is R irrep 8; dashed when coupled), never ISODISTORT's "R4+". A row
+    whose child moves no atom says **strain only**.
+  - Rows with the same name, cell and domains merge into one (×4); the
+    detail lists each class as a variant with its own Activate. SrTiO₃ in
+    2×2×2: 1426 classes in 559 rows.
+  - By default the list keeps the subgroups one irrep reaches, or two
+    coupled, and the maximal ones. **Filters** (folded) sets how a subgroup
+    is reached (one irrep · up to two · all), its cell (same cell ·
+    supercell) and the highest index.
+  - A k-point chip keeps the subgroups its irreps reach; picking two also
+    keeps their coupled pairs (R and M: Pnma).
+  - Sets that the group-theoretic counts cannot tell apart are written on one
+    line: "M irrep 3 or 7 + R irrep 8", tag M·3/7+R·8.
+  - The detail: the result in one line ("Pnma in a 2×2×2 cell, from 2 irreps
+    together: …", details behind **?**); the parent's cell and the child's
+    sketched; the domains and index; **How you get here**, one irrep
+    switched on per step ("Pm-3m → Imma (R irrep 8) → Pnma (+ M irrep 3 or
+    7)"), three shown, then "N more ways"; the irreps with their directions, the other
+    sets and the secondary irreps folded; the mode count Activate loads; one
+    large **Activate**.
+  - **List | Tree**: the tree opens from the parent one maximal step at a
+    time, says "also under …" where a subgroup has two parents, and dims the
+    ones the filters leave out.
+  - After Activate the banner states the child and its cell, with **3D Model
+    →** and **✕ clear**; the list and the detail stay, Activate waiting for
+    ✕ clear.
+  - On a phone a row opens its detail as a full-screen sheet with **‹ Back**;
+    the chips scroll in one row.
+- **Activate on a larger-cell row is fast again** (about 0.3 s for SrTiO₃'s
+  Pnma; 0.9 s after the listing moved to a worker): the worker hands every
+  star's irreps back to the page. The k-point chips no longer work anything
+  out: they filter the list.
+- **By subgroup lists the larger cells without freezing the page, and its
+  rows appear as they are worked out.** The supercell rows of the PDF page's
+  Subgroups view are worked out in a background worker.
+  - The same-cell rows show at once, as before. The larger cells follow,
+    each as soon as the irreps it needs are in, under one line:
+    "listing 2×2×2 subgroups… 60 % · 120 larger so far" with **stop**.
+  - The page stays responsive. On the GaTa₄Se₈ demo at 2×2×2 the old run
+    held the page for up to 1 s at a time, and for SrTiO₃ for 3 s; now no
+    pause is longer than 15 ms. The whole list takes the same time as before
+    (about 6 s for either).
+  - **stop** ends the worker. One run goes at a time, and the result is kept
+    for the structure and supercell. The rows are the same as before, in the
+    same order.
+- **A subgroup reached by several coupled sets shows the most symmetric set
+  first.** Of the smallest sets of irreps that lower the parent to it, the
+  row names first the set whose irreps, each alone, give the highest-symmetry
+  subgroups (the smallest total index). It still puts first the irreps the
+  structure's atoms carry, and the old order breaks ties. 58 rows change
+  their first set (55 of SrTiO₃'s 1217 coupled rows at 2×2×2, 3 of GaTa₄Se₈'s
+  227; none at 1×1×2). For example, SrTiO₃'s C2/c in 1×2×1 now shows
+  X irrep 2 (a,0,0) + X irrep 10 rather than Γ irrep 7 (a,a,b) + X irrep 10.
+  Activate seeds the order parameter from the set shown. The other sets
+  stay behind the row's **?**.
+
+- **The PDF page's Subgroups view opens on By subgroup: every subgroup that
+  fits the chosen supercell, with its cell and the irreps that activate it.**
+  - One row per class of conjugate subgroups, by index, in one line: the
+    name, the cell (**same cell**, or the multiple of the parent's cell that
+    repeats the child, **1×1×2**, **2×2×2**), the domain states, and the
+    primary irreps with their directions ("R irrep 8 of 10 (a,a,a)"). A
+    subgroup no single irrep reaches names the fewest irreps coupled, "M
+    irrep 3 of 10 (a,0,0) + R irrep 8 of 10 (a,a,0), coupled", and its
+    **?** lists the other sets of that size. The **?** also has the index
+    split, orientations, the child basis (P_H, p_H), the secondary irreps and
+    the irreps that move no atom of the structure.
+  - The list is filtered to the supercell: the parent's same-cell subgroups,
+    and the larger cells that fit the bound in some orientation. For
+    GaTa₄Se₈ in 1×1×2, P-42₁m appears in (a, a, 2c) and, from X, in the
+    parent's cell, and no longer in the (2a, 2a, c) that does not fit.
+  - The same-cell rows show at once; the larger cells are worked out after
+    the view shows (in a background worker, above), the supercell held,
+    **stop**, one run at a time, and the result kept.
+  - **Activate** gives the child the older paths gave: By irrep's child for a
+    primary irrep, the t-lattice's or the same-cell lattice's otherwise, and
+    for a larger cell the child realised in its own cell with the row's
+    irreps kicked. After it, the banner says where the child lives ("in its
+    own cell, 1×1×2", "in the parent's cell").
+  - **By irrep** stays as the second view. Each child says its cell; only
+    the children that fit the supercell are listed, and **show larger cells**
+    gives the whole list. The supercell view's **List supercell subgroups**
+    and its index limit are gone: By subgroup lists every index.
+  - Nothing the Agent or an MCP client reads changed.
+
+- **The PDF page's Boxcar tab is an analysis of its own.** Its settings are
+  grouped as Range, Boxes and Starting point, each with its detail behind a
+  **?**, over a one-line result (boxes and span, or what to fix).
+  - The tab has its own lower and upper r bounds. They start at the fit
+    window; once edited (or after the first scan) moving the fit window no
+    longer moves them, and **Use fit range** copies it again. Bounds off the
+    data, out of order or with no room for two boxes get a plain message.
+  - The scan starts from the current fit: its values and free rows. The
+    parameter list under Starting point lets a scan refine other rows or
+    start from other values; **Reset to current fit** drops those edits.
+  - The scan never writes to the main fit (Adopt stays the explicit way to
+    load a box's values). Saved projects keep the tab's range and edits;
+    older files open with the tab following the fit window. The Agent's
+    `boxcar_scan` is unchanged: the fit window, the rows as they are.
+
+- **`review_symmetry` lists the subgroup engine's subgroups, named in their
+  standard settings** (the Agent's tool and MCP's; THY-36). The candidates
+  and the subgroups that drop a centring vector come from the engine's
+  same-cell lattice, one per conjugacy class, named as the PDF Subgroups
+  page names them. A candidate named in another cell or origin gains
+  `setting`, its child basis from the parent's cell. Names change where the
+  old ones read a centred parent's subgroup as primitive or wrote a
+  non-standard setting: I4₁/amd's Pmna → Imma, Pmn2₁ → Imm2; R-3c's P-3 →
+  R-3, P3 → R3; Fd-3m's bare "-3m" → R-3m; Fddd's "2/m" → C2/c; Cmcm's
+  P2/m11 → C2/m; Pnma's Pnm2₁ → Pmn2₁ (b, a, −c; ¼, ¼, 0). A subgroup now
+  allows a powder line when it allows any reflection of the line's family,
+  so which of its orientations is listed no longer matters (Ia-3d's
+  I4₁/acd allowed one of the five lines its orientations allow).
+  Decentred subgroups are no longer merged by name: R-3m's and R-3c's
+  P-3m1 and P-3c1 read as one class of three domains (was one, beside an
+  unnamed two), and Cmcm's two Pnma classes stay two.
+
+- **The PDF page's Subgroups view has one path: pick a k-point, then a
+  child, then Activate.**
+  - The k-points are chips: Γ and a centred parent's decentring points
+    marked "same cell", the supercell bound's cell-multiplying stars marked
+    "supercell" and named where they have a name (X, M, R; L, W). The
+    default 2×2×2 bound is set when the view opens. A supercell chip works
+    out its irreps on request, shows "working…" meanwhile, and keeps them.
+    The supercell view's Set bound, Irreps/Lattice tabs, k-point menu and
+    Irreps → are gone.
+  - Each irrep (generic labels, ADR 0004) opens to its children, one line
+    each: name, order-parameter direction, domain states, and **Activate**.
+    The index split, orientations and basis are in the name's tooltip.
+  - **By subgroup** holds the same-cell subgroup lattice and, on request,
+    the bound's cell-multiplying classes, which the supercell view's Lattice
+    tab listed.
+  - While a choice is in force the view shows only it, with ✕ clear.
+  - The prose under each list moved behind **?**.
+  - **Load parent CIF…** and **Load mode CIF…** moved to the 3D Model view's
+    Distortion modes row, as **Import ▾** → **Parent CIF (decompose this
+    structure)…** and **Mode CIF (ISODISTORT)…**, beside **Mode CIF ↓**.
+  - What each Activate does is unchanged: the same child, basis and modes as
+    before (checked for Γ, a decentring point, R → R-3c and Imma, and Pnma
+    from the lattice). The Agent's tools and their text are unchanged.
+
 - **On TOF the instrument's terms refine with the profile, not only at the
   end.** The Rietveld workflow skill used to hold the zero, α₁ and σ₀² at the
   instrument file's calibration until the final profile pass. Stage 3 (the
@@ -1628,6 +1540,89 @@ release fixes bugs.
   Enter does, and a key pressed on a row's check box or × stays that control's.
 
 ### Fixed
+
+- **lower_symmetry lowers the group and cell the user names** (2026-11-07 eval
+  gate). A name and cell that one merged row answers lower its default variant
+  (the rigid-unit order of #153); the answer gives the row's id, the bound and
+  which variant was used, with the other variants' ids, as a lowering by id now
+  does too. It returns candidates and changes nothing only when several rows
+  (other cells or domains) answer the name. `list_subgroups` and the name
+  lookup look in the same bound (the call's, else the box `cell` names, else
+  the view's) and both say which. Model-visible: the two tools' descriptions,
+  their answers, the pdf-workflow skill's step 2; snapshots re-baselined.
+- **A refinement run again at its minimum is converged, with no change.** No
+  step lowered χ², and it came back "stalled": the verdict turned "poor" at
+  GoF 0.97, and the method's stages already done came off the record. The
+  engine now also takes the undamped step from where the fit stands: a
+  remaining shift of at most 0.01 esd is the minimum. A value within 0.01 esd
+  of its refined one keeps its stage. Model-visible: refine's status and
+  message for such a run ("converged after 1 iteration(s), no change: already
+  at the minimum").
+- **The report's number audit reads bond_geometry, get_state and a boxcar
+  scan's note**, as well as the report and the user's words: a number quoted
+  from them, rounded, is the engine's. get_state's notes (the Agent's own),
+  the History's labels and the bounds are not read, and a number the Agent
+  derived itself is still underlined.
+- **Evals.** symmetry-last reads "Lowering the symmetry now would hide that
+  misfit behind extra parameters" as a reason to wait, not a proposal.
+  pdf-lower-symmetry answers a question asked before the lowering with the
+  user's "Use the default variant, and go on."
+- **A phone no longer scrolls past the app into a blank screen** on the
+  Magnetic page. A screen-reader-only live region with no positioned
+  ancestor sat deep in the scrolling page and stretched the document to
+  about twice the app's height; it is now pinned to its container's corner.
+- **Irrep numbers are the same on every computer and browser** (THY-64). The
+  number in "X irrep n of m" and the Γ chip's Γn came from the order the
+  irreps were built in, which a rounding error could change: SrTiO₃'s polar
+  irrep was Γ9 under Node on a Mac, Γ10 in Chrome and on Linux, and Safari's
+  engine numbered the silent one Γ8 where the others said Γ7. Every irrep is
+  now numbered by its dimension, reality and characters on a fixed list of
+  rotations (ADR 0004), and the Γ chip's Γn is "Γ irrep n of m".
+  - Labels that change: SrTiO₃'s (Pm-3m) M and X irreps 3, 4, 5, 6, 7 and 8
+    become 7, 8, 3, 4, 5 and 6 (the tilt M irrep is now M irrep 3, so
+    a⁻b⁺a⁻ Pnma's first coupled pair is the two tilts, "M irrep 3 or 7 + R
+    irrep 8"); the Γ chip's SrTiO₃ irreps read Γ8 (silent) and Γ10 (polar)
+    everywhere, so a Γ activation's modes read "Γ10 → P 4 m m". GaTa₄Se₈'s
+    (F-43m) "Γ irrep 4" and "5" swap, and its X irreps 2, 3, 4 and W irreps
+    2, 3, 4 become 4, 2, 3; its Γ chip (Γ3, Γ4, Γ5) and X irrep 5, W irrep 1
+    are unchanged. The magnetic page's Mn₃Ga k = (0, 0, ½) irreps 1 and 2
+    swap. SrTiO₃'s Γ and R labels (R irrep 8, Γ irrep 10) are unchanged.
+    The full list is in the report (docs/reports/2026-11-02-irrep-order.md).
+  - A saved project keeps the labels it was saved with: they are text in its
+    mode rows, read back as saved; Activate again to get the new numbers.
+
+- **A powder magnetic line is the sum of |F_M⊥|² over every member of its
+  family** (THY-58). Each satellite family's |F_M|² was read at one member
+  and multiplied by the count, which holds only when the magnetic group keeps
+  the parent's Laue symmetry. Two domains of one group could therefore fit
+  differently: on the synthetic Mn₃Ga page (P6₃/mmc, k = (0, 0, ½)) the two
+  P_c-3m1 domains fitted to wR 0.31 % and 29.6 %; both now fit to 0.289 %.
+  - Each member (both ±k, every equivalent reflection) is projected
+    perpendicular to its own Q. Checked against a brute-force sum over every
+    Q of the explicit magnetic supercell (10⁻¹³), and every orientation
+    domain gives one pattern (k = 0, MnO at L, a two-arm k).
+  - The satellite list missed whole lines for a k that the rotations carry to
+    ±k only up to a lattice vector (MnO at the arm (½, −½, ½): the line at
+    1.71 Å); such a k now expands every parent family.
+  - The fit, the F_obs/F_calc plot, the magnetic tick row and the residual
+    readings all use the sum. A line whose first member has no |F_M⊥|² but
+    whose family scatters now gets its tick.
+  - Moves results wherever the magnetic group is below the parent's Laue
+    class (a model built on the parent cell): the magnetic page's ranking,
+    `rank_magnetic_groups`, `refine_moments` and the MCP powder magnetic
+    tools. Structures read in their own magnetic group (the Mn₃Ga 350 K and
+    30 K goldens) do not move. On the synthetic Mn₃Ga page the truth P_c-3m1
+    and P_c-6m2 now give one pattern exactly.
+  - **Groups indistinguishable by powder.** When the ranking's top-down rule
+    cannot split two groups whose fits give the same calculated pattern and
+    wR (to 10⁻⁹), the ★ goes to the one with a moment on more of the chosen
+    ions, and the page and `rank_magnetic_groups` (new field
+    `indistinguishableByPowder`) name the other with its moments: P_c-3m1
+    (★) and P_c-6m2 "3.54 µB on 3 of the 6 Mn1 ions, none on the others". A
+    near-tie keeps its wR order. The eval check for the chosen group counts
+    such a twin as correct.
+  - The magnetic structure factor expands the moments once per model, so the
+    sum costs what the one-member reading did.
 
 - **Subgroups page: order-parameter directions read as ISODISTORT's.** A
   class of isotropy subgroups is shown by one of its conjugates. The engine
