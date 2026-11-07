@@ -339,8 +339,9 @@ Before the tag, eight live scenarios ran on Claude Haiku 5.5 and Claude Sonnet
 5.5: three runs each, four on Sonnet for `full-refinement` and
 `pdf-local-geometry` (50 runs). The fixes in
 [#162](https://github.com/drthyang/materia-platform/pull/162) followed, and
-the same saved runs were then re-scored for free (`regrade.test.ts`); no
-paid run was made after the fixes.
+the same saved runs were then re-scored for free (`regrade.test.ts`), and
+the two scenarios the fixes touched were run live again (below). The table
+gives the re-score.
 
 | Scenario | Haiku 5.5 | Sonnet 5.5 |
 | --- | --- | --- |
@@ -359,12 +360,22 @@ each flip was checked against its transcript. The five still failing:
 
 - `pdf-lower-symmetry` (Haiku 2, Sonnet 1): the models stopped at the old
   `lower_symmetry` answer, which listed the variants of one row. The tool now
-  lowers the row's default variant; a scripted replay shows the new path. A
-  live re-run is still owed.
+  lowers the row's default variant; the live re-run confirms it.
 - `full-refinement` (Sonnet 1): a re-refine at the minimum came back
-  "stalled". The engine now reports it converged.
+  "stalled". The engine now reports it converged; the live re-run confirms it.
 - `pdf-local-geometry` (Sonnet 1): the report quoted numbers the model derived
   itself. The audit is right to flag them.
+
+**The live re-run after the fixes** (on `main` at `ea92156`, 2026-11-07,
+three runs each; $1.13, about $18.2 for the whole gate):
+
+| Scenario | Haiku 5.5 | Sonnet 5.5 |
+| --- | --- | --- |
+| `pdf-lower-symmetry` | 3/3 | 3/3 |
+| `full-refinement` | 2/3 | 3/3 |
+
+The one failure is the grader's, not the model's (see the limit below): the
+run converged at GoF 0.97, an excellent fit.
 
 **Grader fixes in this cycle.** Each replays the live sentence in CI.
 
@@ -380,9 +391,12 @@ each flip was checked against its transcript. The five still failing:
   the Agent cannot run, once the refinement ran; `noStall` accepts a turn that
   ends on an `ask_user` the user was shown.
 
-**Known grader limit.** A sentence that only describes how a refinement is
-staged (what refines in which stage) can still be read as a refusal or a
-proposal. Such a fail is checked against its transcript before it counts.
+**Known grader limit.** "Does not refuse the refinement or cite a gate" can
+fire on a sentence that only restates the method's staging rule. In the live
+re-run it failed Haiku's `full-refinement` #3 on "The instrument's width must
+not refine with the positions, so I'll hold the width and free the Mn1
+position shift." That is a staging step, not a refusal. Such a fail is checked
+against its transcript before it counts.
 
 ## Does the Agent help?
 
