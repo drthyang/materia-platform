@@ -47,7 +47,10 @@ describe("a converged fit refined again", () => {
     // Run again twice at the minimum: converged with no change, the stages and the verdict kept.
     for (let n = 0; n < 2; n++) {
       const again = await run("refine");
-      expect(again).toMatchObject({ refined: true, status: "converged", maxShiftOverEsd: 0, message: "converged after 1 iteration(s), no change: already at the minimum" });
+      // Whether a round-off step is accepted first is the platform's (macOS arm64: none, "no change"; Linux x64: one, 4e-12 esd).
+      expect(again).toMatchObject({ refined: true, status: "converged" });
+      expect(again.maxShiftOverEsd as number).toBeLessThan(1e-6);
+      expect(again.message).toMatch(/^converged after (1 iteration\(s\), no change: already at the minimum|2 iteration\(s\))$/);
       await run("get_state");
       expect(stages()).toEqual(["adp", "base", "positions", "profile"]);
       expect(await band()).toBe(verdict);
