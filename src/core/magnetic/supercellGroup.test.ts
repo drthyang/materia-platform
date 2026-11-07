@@ -5,8 +5,8 @@ import type { Vec3 } from "@/core/math/types";
 import { expandMagneticSupercell, expandSpinField, type SupercellAtom } from "@/core/crystal/cellExpansion";
 import { magneticCellGroup } from "@/core/magnetic/supercellGroup";
 import { magneticStructureToMcif } from "@/core/export/cif";
-import { parseCif, parseMagneticCif } from "@/parsers/cif";
-import { HIGH_ENTROPY_CIF } from "@/examples/highEntropyWO4";
+import { parseMagneticCif } from "@/parsers/cif";
+import { sharedSiteWolframite } from "@/examples/mnwo4";
 import { MAGNETIC_ORACLE_CASES } from "@/testSupport/magneticOracleCases";
 import { magneticIonCandidates } from "@/core/magnetic/magneticIons";
 import { magneticSubgroupLattice, latticeRepresentatives } from "@/core/magnetic/subgroupLattice";
@@ -16,9 +16,9 @@ import { applyMagneticMoments } from "@/core/workflow/magnetic";
 const I3 = [[1, 0, 0], [0, 1, 0], [0, 0, 1]] as const;
 const INV = [[-1, 0, 0], [0, -1, 0], [0, 0, -1]] as const;
 
-/** Multiset key of an expanded atom: kind, position, moment (all rounded). */
+/** Multiset key of an expanded atom: kind, position, moment (all rounded; snapped to 1e-6 first, so a coordinate on a rounding boundary rounds the same way from either side). */
 const atomKey = (a: SupercellAtom): string => {
-  const r = (v: number): string => (Math.abs(v) < 5e-4 ? "0.000" : v.toFixed(3));
+  const r = (v: number): string => (Math.abs(v) < 5e-4 ? "0.000" : (Math.round(v * 1e6) / 1e6).toFixed(3));
   const p = a.site.position.map(r).join(",");
   const m = (a.moment ?? [0, 0, 0]).map(r).join(",");
   return `${a.site.element}|${p}|${m}`;
@@ -84,8 +84,8 @@ describe("magneticCellGroup — the Shubnikov group of an explicit magnetic supe
 });
 
 describe("mCIF of a k ≠ 0 structure is written in the magnetic cell's own group and round-trips", () => {
-  it("the bundled P2/c structure (k = ½ 0 0): 4 representatives × 2 centerings, 9-site asymmetric unit, identical re-expansion", () => {
-    const structure = parseCif(HIGH_ENTROPY_CIF, "bundled");
+  it("a shared-site P2/c wolframite (k = ½ 0 0): 4 representatives × 2 centerings, 7-site asymmetric unit, identical re-expansion", () => {
+    const structure = sharedSiteWolframite();
     const ions = magneticIonCandidates(structure).map((i) => i.siteLabel);
     const k: Vec3 = [0.5, 0, 0];
     const reps = latticeRepresentatives(magneticSubgroupLattice(structure.spaceGroup.operations, k));
@@ -102,7 +102,7 @@ describe("mCIF of a k ≠ 0 structure is written in the magnetic cell's own grou
     expect(g.representatives).toHaveLength(4);
     expect(g.centerings).toHaveLength(2);
     expect(g.hasAntiTranslations).toBe(true);
-    expect(g.asymmetricUnit).toHaveLength(structure.sites.length); // 9: the doubled group does not split any parent orbit
+    expect(g.asymmetricUnit).toHaveLength(structure.sites.length); // 7: the doubled group does not split any parent orbit
 
     const mcif = magneticStructureToMcif(structure, magnetic, {});
     expect(mcif).toContain("_parent_space_group.child_transform_Pp_abc  '2a,b,c;0,0,0'");
@@ -112,7 +112,7 @@ describe("mCIF of a k ≠ 0 structure is written in the magnetic cell's own grou
     expect(mcif).toContain('_space_group_magn.name_bns  "P_a2/c"');
     expect(mcif).toContain("_space_group_magn.number_bns  13.70");
     expect(mcif).not.toContain('_space_group_magn.name_bns  "P2/c');
-    // Atom loop holds the asymmetric unit only (9 rows), not the 2× expanded list.
+    // Atom loop holds the asymmetric unit only (7 rows), not the 2× expanded list.
     const back = parseMagneticCif(mcif);
     expect(back.structure.sites).toHaveLength(structure.sites.length);
     expect(back.structure.spaceGroup.operations).toHaveLength(8);

@@ -6,8 +6,7 @@ import type { StructureModel } from "@/core/crystal/types";
 import type { PowderPattern } from "@/core/diffraction/types";
 import { MN3GA_CIF } from "@/examples/mn3ga";
 import { generateReflections } from "@/core/diffraction/reflections";
-import { dataDir } from "@/testSupport/data";
-import { LOCAL_DATA } from "@/testSupport/localData";
+import { dataDir, LOCAL_DATA } from "@/testSupport/data";
 
 /**
  * The cell / space-group gate (core/workflow/cellSymmetryCheck.ts) on the

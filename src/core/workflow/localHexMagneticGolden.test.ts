@@ -11,8 +11,7 @@ import { buildPowderSpec } from "@/app/powderSpec";
 import { buildMagneticPowderProblem } from "@/core/workflow/magneticPowder";
 import { applyMagneticMoments } from "@/core/workflow/magnetic";
 import { refine } from "@/core/refinement/engine";
-import { dataExists, readData } from "@/testSupport/data";
-import { LOCAL_DATA } from "@/testSupport/localData";
+import { dataExists, readData, LOCAL_DATA, LOCAL_REFERENCES } from "@/testSupport/data";
 import type { RefinementParameter } from "@/core/refinement/types";
 import type { StructureModel } from "@/core/crystal/types";
 import type { MagneticModel } from "@/core/magnetic/types";
@@ -25,6 +24,8 @@ import type { MagneticModel } from "@/core/magnetic/types";
  *    group with an anti-translation (0,0,½)′, a CO-LOCATED pair of species on
  *    one site (occupancy disorder), both moments tied along c, plus the other
  *    sites and anisotropic ADPs.
+ *  - the reference values (the .gpx converged state, GSAS-II's reflection
+ *    counts and fit window, the site labels) in data/local-references.json.
  *  - `PWDR_1p7K_Bank2.fxye` + `.instprm` — the POWGEN histogram and its
  *    bank's calibration, extracted from the GSAS-II project; `gsas2_mag_refl.txt`
  *    — GSAS-II's magnetic reflection list at its converged state (metallic
@@ -36,31 +37,34 @@ import type { MagneticModel } from "@/core/magnetic/types";
  * `AMz` constraint), and anisotropic ADPs. Skips when data/ is absent.
  */
 const DIR = LOCAL_DATA.hexMagnetic.refinement;
-const hasCif = dataExists(`${DIR}/Pc6mcc_Mz.cif`);
+/** The reference values (data/local-references.json). */
+const REF = LOCAL_REFERENCES?.hexMagnetic;
+const hasCif = !!REF && dataExists(`${DIR}/Pc6mcc_Mz.cif`);
 const hasData = hasCif && dataExists(`${DIR}/PWDR_1p7K_Bank2.fxye`) && dataExists(`${DIR}/PWDR_1p7K_Bank2.instprm`);
 
 /** The .gpx converged state (differs slightly from the earlier-state mCIF). */
-const GPX = {
-  occ: { Co1_0: 0.5426784443188203, Fe1_1: 0.45732155568117977 } as Record<string, number>,
-  ff: { Co1_0: "Co0", Fe1_1: "Fe0" } as Record<string, string>,
-  moment: 0.547547294320169,
-};
+const GPX = (): { occ: Readonly<Record<string, number>>; ff: Readonly<Record<string, string>>; moment: number } =>
+  ({ occ: REF!.gpx.occupancies, ff: REF!.gpx.formFactors, moment: REF!.gpx.moment });
+/** The co-located magnetic species (one site), and the non-magnetic sites. */
+const MAGNETIC = (): string[] => [...REF!.magneticSites];
 
 /** mCIF structure+model shifted onto the .gpx converged state. */
 function loadGpxState(): { structure: StructureModel; magnetic: MagneticModel } {
   const { structure, magnetic } = parseMagneticCif(readData(`${DIR}/Pc6mcc_Mz.cif`), "hex");
+  const gpx = GPX();
+  const cell = REF!.gpx.cell;
   return {
     structure: {
       ...structure,
-      cell: { ...structure.cell, a: 5.27713, b: 5.27713, c: 8.71936 },
-      sites: structure.sites.map((s) => (GPX.occ[s.label] !== undefined ? { ...s, occupancy: GPX.occ[s.label]! } : s)),
+      cell: { ...structure.cell, a: cell.a, b: cell.a, c: cell.c },
+      sites: structure.sites.map((s) => (gpx.occ[s.label] !== undefined ? { ...s, occupancy: gpx.occ[s.label]! } : s)),
     },
     magnetic: {
       ...magnetic!,
       moments: magnetic!.moments.map((m) => ({
         ...m,
-        formFactorId: GPX.ff[m.siteLabel]!,
-        components: [0, 0, GPX.moment] as Vec3,
+        formFactorId: gpx.ff[m.siteLabel]!,
+        components: [0, 0, gpx.moment] as Vec3,
       })),
     },
   };
@@ -76,19 +80,18 @@ describe.skipIf(!hasCif)("local hexagonal golden — magnetic symmetry vs GSAS-I
     expect(ops.filter((o) => o.timeReversal === -1)).toHaveLength(24);
   });
 
-  it("reproduces GSAS-II's site multiplicities (FeCo: 6, Sn1: 2, Sn2: 4)", () => {
+  it("reproduces GSAS-II's site multiplicities", () => {
     const { structure } = load();
     const ops = structure.spaceGroup.operations;
     const site = (l: string) => structure.sites.find((s) => s.label === l)!;
-    expect(siteMultiplicity(ops, site("Co1_0").position)).toBe(6);
-    expect(siteMultiplicity(ops, site("Fe1_1").position)).toBe(6);
-    expect(siteMultiplicity(ops, site("Sn1").position)).toBe(2);
-    expect(siteMultiplicity(ops, site("Sn2").position)).toBe(4);
+    const entries = Object.entries(REF!.multiplicities);
+    expect(entries.length).toBeGreaterThan(0);
+    for (const [label, m] of entries) expect(siteMultiplicity(ops, site(label).position), label).toBe(m);
   });
 
   it("reproduces GSAS-II's site symmetry mm'm'(100) → moment ∥ c only", () => {
     const { structure } = load();
-    const pos = structure.sites.find((s) => s.label === "Co1_0")!.position;
+    const pos = structure.sites.find((s) => s.label === MAGNETIC()[0])!.position;
     const allowed = allowedMomentDirections(structure.spaceGroup.operations, pos, [0, 0, 0]);
     expect(allowed.dimension).toBe(1);
     const b = allowed.basis[0]!;
@@ -97,23 +100,21 @@ describe.skipIf(!hasCif)("local hexagonal golden — magnetic symmetry vs GSAS-I
     expect(Math.abs(b[2]!)).toBeGreaterThan(0.9);
   });
 
-  it("golden moments: tied (0,0,0.57) on Fe & Co; Sn dropped as non-magnetic", () => {
+  it("golden moments: the mCIF's tied moment along c on both co-located species; the other sites dropped as non-magnetic", () => {
     const { magnetic } = load();
     const byLabel = new Map(magnetic!.moments.map((m) => [m.siteLabel, m.components]));
-    expect(byLabel.get("Co1_0")).toEqual([0, 0, 0.57]);
-    expect(byLabel.get("Fe1_1")).toEqual([0, 0, 0.57]);
-    expect(byLabel.has("Sn1")).toBe(false);
-    expect(byLabel.has("Sn2")).toBe(false);
+    for (const label of MAGNETIC()) expect(byLabel.get(label), label).toEqual([0, 0, REF!.mcifMoment]);
+    for (const label of REF!.nonMagneticSites) expect(byLabel.has(label), label).toBe(false);
   });
 
-  it("buildMagneticModel ties the co-located Fe/Co to ONE moment parameter (GSAS AMz constraint)", () => {
+  it("buildMagneticModel ties the co-located species to ONE moment parameter (GSAS AMz constraint)", () => {
     const { structure } = load();
-    const build = buildMagneticModel(structure, [0, 0, 0], ["Co1_0", "Fe1_1"], structure.spaceGroup.operations);
+    const build = buildMagneticModel(structure, [0, 0, 0], MAGNETIC(), structure.spaceGroup.operations);
     const modes = build.params.filter((p) => p.kind === "momentMode");
     // tieSameSite (default): one shared Mz amplitude drives both species.
     expect(modes).toHaveLength(1);
     const bindings = build.bindings.filter((b) => b.parameterId === modes[0]!.id);
-    expect(bindings.map((b) => b.targetKey).sort()).toEqual(["Co1_0", "Fe1_1"]);
+    expect(bindings.map((b) => b.targetKey).sort()).toEqual(MAGNETIC().sort());
     expect(build.magnetic.moments).toHaveLength(2);
   });
 });
@@ -128,7 +129,8 @@ describe.skipIf(!dataExists(`${DIR}/gsas2_mag_refl.txt`) || !hasCif)("local hexa
   it("matches GSAS-II: every zero exact, the allowed reflections close in median", () => {
     const { structure, magnetic } = loadGpxState();
     const rows = readData(`${DIR}/gsas2_mag_refl.txt`).trim().split("\n").map((ln) => ln.trim().split(/\s+/).map(Number));
-    expect(rows).toHaveLength(68);
+    const counts = REF!.reflections;
+    expect(rows).toHaveLength(counts.total);
     let zeros = 0;
     const ratios: number[] = [];
     for (const [h, k, l, , , gsas] of rows) {
@@ -140,15 +142,16 @@ describe.skipIf(!dataExists(`${DIR}/gsas2_mag_refl.txt`) || !hasCif)("local hexa
         ratios.push(ours / gsas!);
       }
     }
-    expect(zeros).toBe(43);
-    expect(ratios).toHaveLength(25);
-    // 17, not 18: the per-image anisotropic-ADP rotation fix (U′ = R·U·Rᵀ,
-    // 2026-07-17) moved one borderline reflection from 1.076 to 1.083 — a
-    // 0.7 % shift that crossed this arbitrary ±8 % band. The distribution is
-    // otherwise unchanged (median and worst-case gates below are unaffected);
-    // The near-axial tensors are largely invariant under its hexagonal ops.
+    expect(zeros).toBe(counts.zeros);
+    expect(ratios).toHaveLength(counts.allowed);
+    // The reference's count, one below its first value: the per-image
+    // anisotropic-ADP rotation fix (U′ = R·U·Rᵀ, 2026-07-17) moved one
+    // borderline reflection across this arbitrary ±8 % band by a 0.7 % shift.
+    // The distribution is otherwise unchanged (median and worst-case gates
+    // below are unaffected); the near-axial tensors are largely invariant
+    // under its hexagonal ops.
     const within8 = ratios.filter((r) => r > 0.92 && r < 1.08).length;
-    expect(within8).toBeGreaterThanOrEqual(17);
+    expect(within8).toBeGreaterThanOrEqual(counts.within8);
     const median = [...ratios].sort((a, b) => a - b)[Math.floor(ratios.length / 2)]!;
     expect(median).toBeGreaterThan(0.95);
     expect(median).toBeLessThan(1.05);
@@ -158,8 +161,7 @@ describe.skipIf(!dataExists(`${DIR}/gsas2_mag_refl.txt`) || !hasCif)("local hexa
 
 describe.skipIf(!hasData)("local hexagonal golden — moment refinement against the POWGEN histogram", () => {
   // GSAS-II's fit window (µs) from the .gpx Limits.
-  const TOF_MIN = 17659.77;
-  const TOF_MAX = 108530.0;
+  const [TOF_MIN, TOF_MAX] = hasData ? REF!.tofWindow : [0, 0];
 
   it("refines the tied moment of the co-located site to the golden value ∥ c", { timeout: 120000 }, () => {
     const { structure } = loadGpxState();
@@ -169,11 +171,12 @@ describe.skipIf(!hasData)("local hexagonal golden — moment refinement against 
     expect(pattern.points.length).toBeGreaterThan(2000); // GSAS-II's fit has more
 
     const spec = buildPowderSpec(structure, pattern, inst, true, 6, {});
-    const build = buildMagneticModel(structure, [0, 0, 0], ["Co1_0", "Fe1_1"], structure.spaceGroup.operations);
+    const gpx = GPX();
+    const build = buildMagneticModel(structure, [0, 0, 0], MAGNETIC(), structure.spaceGroup.operations);
     // Metallic form factors, as in the GSAS-II refinement.
     const magnetic: MagneticModel = {
       ...build.magnetic,
-      moments: build.magnetic.moments.map((m) => ({ ...m, formFactorId: GPX.ff[m.siteLabel]! })),
+      moments: build.magnetic.moments.map((m) => ({ ...m, formFactorId: gpx.ff[m.siteLabel]! })),
     };
     const modes = build.params.filter((p) => p.kind === "momentMode");
     expect(modes).toHaveLength(1);
@@ -196,10 +199,12 @@ describe.skipIf(!hasData)("local hexagonal golden — moment refinement against 
       ...modes.map((p) => ({ ...p, value: from?.[p.id] ?? value, initialValue: value, fixed })),
     ];
 
-    // Stage the full fit from a deliberately wrong seed (about 3× the golden moment):
+    // Stage the full fit from a deliberately wrong seed (well above the golden moment):
     // the refinement must find the golden moment on its own.
-    const stage1 = wrOf(withMoment(1.5, true));
-    const fit = wrOf(withMoment(1.5, false, stage1.values));
+    const seed = 1.5;
+    expect(seed).toBeGreaterThan(2 * gpx.moment);
+    const stage1 = wrOf(withMoment(seed, true));
+    const fit = wrOf(withMoment(seed, false, stage1.values));
 
     // The magnetic signal is weak (a small moment on the mixed site) and the
     // whole-pattern wR is dominated by the unmodelled uniaxial size/mustrain +
@@ -216,24 +221,23 @@ describe.skipIf(!hasData)("local hexagonal golden — moment refinement against 
     const windowResidual = (yCalc: Float64Array): number => {
       let s = 0;
       pattern.points.forEach((p, i) => {
-        if (p.x < 48800 || p.x > 51000) return;
+        if (p.x < REF!.satelliteWindow[0] || p.x > REF!.satelliteWindow[1]) return;
         const sig = p.sigma ?? Math.sqrt(Math.max(p.yObs, 1));
         s += ((p.yObs - yCalc[i]!) / sig) ** 2;
       });
       return s;
     };
     const chiZero = windowResidual(calcWith(0));
-    const chiGolden = windowResidual(calcWith(GPX.moment));
+    const chiGolden = windowResidual(calcWith(gpx.moment));
     const chiFit = windowResidual(calcWith(fit.values[momentId]!));
 
-    console.log(`wR fit=${fit.wr.toFixed(2)}% | moment=${fit.values[momentId]?.toFixed(4)} ± ${fit.esd?.[momentId]?.toFixed(4)} µB | (201)-window χ²: zero=${chiZero.toFixed(0)} golden=${chiGolden.toFixed(0)} fit=${chiFit.toFixed(0)}`);
+    console.log(`wR fit=${fit.wr.toFixed(2)}% | moment=${fit.values[momentId]?.toFixed(4)} ± ${fit.esd?.[momentId]?.toFixed(4)} µB | satellite-window χ²: zero=${chiZero.toFixed(0)} golden=${chiGolden.toFixed(0)} fit=${chiFit.toFixed(0)}`);
 
     expect(fit.wr).toBeLessThan(30);
-    // The (201) magnetic peak is real and our |F_M|² explains it: the moment
-    // buys a statistically decisive χ² drop in the window (calibrated: zero
-    // ≈ 79k, golden ≈ 73k, fit ≈ 72k on a profile-misfit baseline — the ~6k
-    // improvement is ≫ the ~0.4k noise scale), and the free fit does at least
-    // as well as the golden moment.
+    // The magnetic satellite is real and our |F_M|² explains it: the moment
+    // buys a statistically decisive χ² drop in the window (calibrated on the
+    // data: a drop of more than ten times the noise scale, on a profile-misfit
+    // baseline), and the free fit does at least as well as the golden moment.
     expect(chiGolden).toBeLessThan(chiZero * 0.95);
     expect(chiFit).toBeLessThanOrEqual(chiGolden);
 
@@ -241,15 +245,14 @@ describe.skipIf(!hasData)("local hexagonal golden — moment refinement against 
     // moment and the mCIF's). A global sign flip is
     // diffraction-equivalent.
     const m = Math.abs(fit.values[momentId] ?? 0);
-    expect(m).toBeGreaterThan(0.40);
-    expect(m).toBeLessThan(0.75);
+    expect(m).toBeGreaterThan(REF!.momentRange[0]);
+    expect(m).toBeLessThan(REF!.momentRange[1]);
 
     // Both co-located species carry the same tied moment ∥ c.
     const refined = applyMagneticMoments(magnetic, build.bindings, fit.values);
-    const co = refined.moments.find((x) => x.siteLabel === "Co1_0")!.components;
-    const fe = refined.moments.find((x) => x.siteLabel === "Fe1_1")!.components;
-    expect(co).toEqual(fe);
-    expect(Math.abs(co[0]!)).toBeLessThan(1e-9);
-    expect(Math.abs(co[1]!)).toBeLessThan(1e-9);
+    const [first, second] = MAGNETIC().map((l) => refined.moments.find((x) => x.siteLabel === l)!.components);
+    expect(first).toEqual(second);
+    expect(Math.abs(first![0]!)).toBeLessThan(1e-9);
+    expect(Math.abs(first![1]!)).toBeLessThan(1e-9);
   });
 });

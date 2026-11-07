@@ -14,8 +14,7 @@
  * Also exercises the loader on StoG's naming: its S(Q) lives in `scale.fq`.
  */
 import { describe, it, expect } from "vitest";
-import { dataExists, readData } from "@/testSupport/data";
-import { LOCAL_DATA } from "@/testSupport/localData";
+import { dataExists, readData, LOCAL_DATA, LOCAL_REFERENCES } from "@/testSupport/data";
 import { parsePdfData } from "@/parsers/pdfData";
 import { sineTransform, sineTransformOperator, reducedStructureFunction } from "@/core/totalscattering/fourier";
 
@@ -30,13 +29,16 @@ function table(text: string): number[][] {
     .filter((t) => t.length >= 2 && t.every(Number.isFinite));
 }
 
-describe.skipIf(!FILES.every((f) => dataExists(`${DIR}/${f}`)))("REAL local neutron S(Q) — RMCProfile StoG S(Q) → G(r)", () => {
+/** The StoG deck's Q range and ρ₀ (data/local-references.json). */
+const REF = LOCAL_REFERENCES?.hexStog;
+
+describe.skipIf(!FILES.every((f) => dataExists(`${DIR}/${f}`)) || !REF)("REAL local neutron S(Q) — RMCProfile StoG S(Q) → G(r)", () => {
   it("reproduces StoG's g(r) for the unfiltered and the Fourier-filtered S(Q)", () => {
     // StoG input deck, by position: line 3 = "Qmin Qmax", line 11 = ρ₀ (Å⁻³).
     const deck = readData(`${DIR}/stog_input.dat`).split(/\r?\n/).map((l) => l.trim());
     const [qmin, qmax] = deck[2]!.split(/\s+/).map(Number) as [number, number];
     const rho0 = Number(deck[10]);
-    expect([qmin, qmax, rho0]).toEqual([0.5, 26, 0.057329]);
+    expect([qmin, qmax, rho0]).toEqual([REF!.qmin, REF!.qmax, REF!.rho0]);
 
     for (const [sqFile, grFile] of [["scale.fq", "scale.gr"], ["scale_ft.sq", "scale_ft.gr"]] as const) {
       const pattern = parsePdfData(readData(`${DIR}/${sqFile}`), { filename: sqFile });

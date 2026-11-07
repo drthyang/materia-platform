@@ -5,8 +5,7 @@ import { parseGsasHistogramPattern } from "@/parsers/gsasHistogram";
 import { dFromTof } from "@/core/diffraction/instrument";
 import { detectExtraPeaks } from "@/core/magnetic/extraPeaks";
 import { searchPropagationVector } from "@/core/magnetic/kSearch";
-import { dataExists, readData } from "@/testSupport/data";
-import { LOCAL_DATA } from "@/testSupport/localData";
+import { dataExists, readData, LOCAL_DATA, LOCAL_REFERENCES } from "@/testSupport/data";
 
 /**
  * End-to-end magnetic propagation-vector search on **real** POWGEN neutron data:
@@ -18,18 +17,20 @@ import { LOCAL_DATA } from "@/testSupport/localData";
  * paramagnetic reference pattern for the *same* detector bank (identical SLOG
  * TOF grid), scale the reference on the high-Q half where magnetism is
  * negligible, detect the extra (magnetic) peaks in the difference, convert their
- * TOF to d via the bank calibration, and rank candidate k. The known k tops
- * the ranking. Skips when the git-ignored data/ folder is absent.
+ * TOF to d via the bank calibration, and rank candidate k. The known k (the
+ * reference's, from data/local-references.json) tops the ranking. Skips when
+ * the git-ignored data/ folder is absent.
  */
 
 const CIF = `${LOCAL_DATA.magneticTof}/structure_100K.cif`;
 const INST = `${LOCAL_DATA.magneticTof}/instrument_bank3.instprm`;
 const LOW_6K = `${LOCAL_DATA.magneticTof}/PG3_powder_6K.gsa`; // 6 K, bank 3 — magnetically ordered
 const PARA_100K = `${LOCAL_DATA.magneticTof}/PG3_powder_100K.gsa`; // 100 K, bank 3 — paramagnetic reference
-const has = dataExists(CIF) && dataExists(INST) && dataExists(LOW_6K) && dataExists(PARA_100K);
+const K = LOCAL_REFERENCES?.magneticTof?.k;
+const has = !!K && dataExists(CIF) && dataExists(INST) && dataExists(LOW_6K) && dataExists(PARA_100K);
 
 describe.skipIf(!has)("real local magnetic TOF data — k-search from the ordered POWGEN pattern", () => {
-  it("recovers k = (½,0,0) from the 6 K − paramagnetic magnetic peaks", () => {
+  it("recovers the reference k from the 6 K − paramagnetic magnetic peaks", () => {
     const s = parseCif(readData(CIF), "local");
     const inst = parseInstrumentParameters(readData(INST));
     expect(inst.kind).toBe("tof");
@@ -64,12 +65,15 @@ describe.skipIf(!has)("real local magnetic TOF data — k-search from the ordere
 
     const candidates = searchPropagationVector(s.cell, peaks.map((p) => p.d), { tolerance: 0.03 });
     // The known propagation vector tops the ranking, explaining several satellites…
-    expect(candidates[0]!.k).toEqual([0.5, 0, 0]);
+    expect(candidates[0]!.k).toEqual(K);
     expect(candidates[0]!.matched).toBeGreaterThanOrEqual(3);
-    // …and beats the other two zone-boundary axes on matched-peak count.
-    const matchOf = (kx: number, ky: number, kz: number): number =>
-      candidates.find((c) => c.k[0] === kx && c.k[1] === ky && c.k[2] === kz)?.matched ?? 0;
-    expect(matchOf(0.5, 0, 0)).toBeGreaterThan(matchOf(0, 0.5, 0));
-    expect(matchOf(0.5, 0, 0)).toBeGreaterThan(matchOf(0, 0, 0.5));
+    // …and beats the same k along the other two axes on matched-peak count.
+    const matchOf = (k: readonly number[]): number =>
+      candidates.find((c) => c.k[0] === k[0] && c.k[1] === k[1] && c.k[2] === k[2])?.matched ?? 0;
+    const k = K!;
+    for (const other of [[k[1], k[2], k[0]], [k[2], k[0], k[1]]]) {
+      if (other.every((x, i) => x === k[i])) continue;
+      expect(matchOf(k)).toBeGreaterThan(matchOf(other));
+    }
   });
 });

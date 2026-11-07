@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { exampleStructure } from "@/examples/highEntropyWO4";
+import { SHARED_A_SITE, sharedSiteWolframite as exampleStructure } from "@/examples/mnwo4";
 import { gata4se8PdfExample } from "@/examples/gata4se8Pdf";
 import { expandStructureAtoms, expandStructureAtomsWithProvenance } from "@/core/diffraction/structureFactor";
 import { colocatedGroups, enumeratePairs } from "@/core/pdf/pairEnumerator";
@@ -12,8 +12,8 @@ import type { PdfPattern } from "@/core/diffraction/types";
 /**
  * A mixed site's species (same position, same ADP) pair through one
  * representative carrying their summed weight. The pair term is bilinear in
- * the weights, so the sum is the per-atom one up to rounding: on the
- * bundled structure's six-cation site, a third of the pairs.
+ * the weights, so the sum is the per-atom one up to rounding: on a
+ * wolframite's four-species A site, under half of the pairs.
  */
 
 const maxAbs = (a: ArrayLike<number>): number => {
@@ -30,24 +30,24 @@ const maxDiff = (a: ArrayLike<number>, b: ArrayLike<number>): number => {
 const NEUTRON: PdfModelParams = { scatteringType: "neutron", scale: 1, qdamp: 0.03, qbroad: 0.01, delta1: 0.5, delta2: 0 };
 
 describe("co-located species", () => {
-  it("groups the six cations of each A-site position, and nothing on an ordered structure", () => {
+  it("groups the four species of each A-site position, and nothing on an ordered structure", () => {
     const atoms = expandStructureAtoms(exampleStructure());
     const groups = colocatedGroups(atoms)!;
     expect(groups).not.toBeNull();
     const reps = new Set(groups.rep);
-    expect(atoms.length).toBe(22);
+    expect(atoms.length).toBe(18);
     expect(reps.size).toBe(12); // 2 A + 2 W + 4 + 4 O positions
     expect(colocatedGroups(expandStructureAtoms(gata4se8PdfExample().structure))).toBeNull();
   });
 
-  it("gives the per-atom G(r) up to rounding, from about a third of the pairs", () => {
+  it("gives the per-atom G(r) up to rounding, from under half of the pairs", () => {
     const st = exampleStructure();
     const atoms = expandStructureAtoms(st);
     const groups = colocatedGroups(atoms);
     const r = makeRGrid(0.5, 15, 0.01);
     const perAtom = enumeratePairs(st.cell, atoms, 16);
     const grouped = enumeratePairs(st.cell, atoms, 16, groups);
-    expect(grouped.length / perAtom.length).toBeLessThan(0.31);
+    expect(grouped.length / perAtom.length).toBeLessThan(0.46);
     for (const type of ["neutron", "xray"] as const) {
       const params = { ...NEUTRON, scatteringType: type };
       const ref = computeGofR(st.cell, atoms, r, params, perAtom);
@@ -66,7 +66,7 @@ describe("co-located species", () => {
       for (let a = 0; a < atoms.length; a++) if (labels.includes(st.sites[provenance[a]!.siteIndex]!.label)) out[a] = 1;
       return out;
     };
-    const aSite = ["Co1", "Fe1", "Ni1", "Mn1", "Cu8", "Zn1"];
+    const aSite: string[] = [...SHARED_A_SITE];
     const shared = onSites(aSite);
     const requests: PdfColumnRequest[] = [
       { kind: "occupancy", dOcc: onSites(["Mn1"]) },
@@ -101,7 +101,7 @@ describe("co-located species", () => {
     const fitRange = { min: 1.5, max: 10 };
     const page = pdfPage(st, pattern, { preset: { fitRange } });
     const v = pageView(page);
-    // Mn's own position row, at 0: Mn still sits with the other five, but its derivative moves it alone.
+    // Mn's own position row, at 0: Mn still sits with the other three, but its derivative moves it alone.
     const shared = v.bindings.find((b) => b.kind === "positionShift" && b.targetKey === "Mn1")!;
     const params = [...page.params.map((p) => ({ ...p, fixed: true })), { id: "pos_Mn_own", label: "Mn y", kind: "positionShift" as const, value: 0, initialValue: 0, fixed: false }];
     const bindings = [...v.bindings.filter((b) => b !== shared), { ...shared, parameterId: "pos_Mn_own" }];
