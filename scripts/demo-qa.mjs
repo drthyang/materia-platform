@@ -167,6 +167,15 @@ async function shot(page, vp, name) {
   current.screenshots.push(file);
 }
 
+/** The working card's title row: its figures (wR, GoF, Rw) are not cut by the view tabs. */
+async function headFits(page, where) {
+  const over = await page.locator(".wb-card-head").first().evaluate((e) => {
+    const lead = e.firstElementChild;
+    return lead ? lead.scrollWidth - lead.clientWidth : 0;
+  }).catch(() => 0);
+  expect(over <= 1, `${where}: the card's title row fits (its figures overflow by ${over}px)`);
+}
+
 /** On a phone a Subgroups row opens its detail as a sheet: its ‹ Back returns to the list. */
 async function backFromSheet(page) {
   const back = page.getByRole("button", { name: /^‹?\s*Back$/ }).filter({ visible: true });
@@ -343,6 +352,7 @@ async function step2(context, vp) {
     await refine(page);
     expect(await page.getByText(/converged · \d+ cycles?/).first().isVisible().catch(() => false) || /converged/.test(await bodyText(page)), "Refine converges");
     await shot(page, vp, "2-refined");
+    await headFits(page, "Rietveld");
     await timed("Validation tab", async () => {
       await tab(page, "Validation").click();
       expect(await until(page, async () => /acceptance bar/i.test(await bodyText(page)), 10_000), "Validation shows the acceptance bar");
@@ -420,6 +430,7 @@ async function step3and4(context, vp) {
     await openDemo(page, "pdf");
     await refine(page);
     await shot(page, vp, "3-refined");
+    await headFits(page, "PDF");
     await tab(page, "Subgroups").click();
     const sg = page.locator(".wb-subgroups");
     await timed("Subgroups listing (2×2×2, worker)", async () => expect(await listed(page, "2×2×2"), "the 2×2×2 listing finishes"), { background: true });
@@ -638,6 +649,7 @@ async function step5(browser, vp) {
     const waiting = await card.waitFor({ timeout: 30_000 }).then(() => true, () => false);
     expect(waiting, "the refine call waits on its approval card (Ask first)");
     await shot(page, vp, "5-approval-card");
+    await headFits(page, "Rietveld beside the Copilot");
     if (waiting) {
       await timed("Approve → refine → reply", async () => {
         await card.getByRole("button", { name: "Approve" }).click();

@@ -1384,7 +1384,7 @@ export function PowderWorkbench({
                   <div style={cardHeadLead}>
                     <span style={{ ...themeLabel, ...cardHeadLabel }} title={cardTitle}>{cardTitle}</span>
                     {plotMode !== "structure" && (
-                      <span style={{ display: "flex", gap: 14, flex: "none", fontFamily: themeMono, fontSize: 12.5 }}>
+                      <span style={{ display: "flex", gap: 14, flex: "none", whiteSpace: "nowrap", fontFamily: themeMono, fontSize: 12.5 }}>
                         <span style={{ color: theme.secondary }} title="Weighted profile R for the current parameters, colored by wR/R_exp (Toby 2006)">
                           wR <b style={{ color: qualityInk(liveGof ?? curvesGof) }}>{liveWr}%</b>
                         </span>
