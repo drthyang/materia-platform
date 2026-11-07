@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { parsePdfData, looksLikePdf, classifyReducedKind } from "@/parsers/pdfData";
-import { dataExists, readData } from "@/testSupport/data";
-import { LOCAL_DATA } from "@/testSupport/localData";
+import { dataExists, readData, LOCAL_DATA, LOCAL_REFERENCES } from "@/testSupport/data";
 import type { StructureModel, AtomSite, UnitCell } from "@/core/crystal/types";
 import { IDENTITY3 } from "@/core/math/mat3";
 import { expandStructureAtoms } from "@/core/diffraction/structureFactor";
@@ -14,10 +13,10 @@ const DIFFPY_XRAY = `[DEFAULT]
 version = diffpy.pdfgetx-2.2.1
 
 mode = xray
-composition = Ga Nb4 Se8
-qmaxinst = 34.2231
+composition = Ni
+qmaxinst = 33.5
 qmin = 0.5
-qmax = 28
+qmax = 27
 rmin = 0
 rmax = 100
 rstep = 0.01
@@ -27,18 +26,18 @@ rpoly = 0.8
 #S 1
 #L r(Å)  G(Å$^{-2}$)
 0 0
-0.01 0.382597
-0.02 0.731326
-0.03 1.01823
+0.01 0.251
+0.02 0.497
+0.03 0.736
 `;
 
-const MANTID_NEUTRON = `#Comment: neutron, Qmin=0.910607, Qmax=34.9906
+const MANTID_NEUTRON = `#Comment: neutron, Qmin=0.85, Qmax=31.25
 ##### start data
 #S 1 - PDF from Mantid 6.10.0.1
 #L r G(r) dr dG(r)
-  0.015  1166.69  0  0.0368321
-  0.025  2275.72  0  0.0713245
-  0.185  -407.453  0  0.124302
+  0.015  1012.5  0  0.0315
+  0.025  1987.25  0  0.0625
+  0.185  -385.5  0  0.1125
 `;
 
 // The layout of a PDFgetN file (LaMnO₃ at 300 K on NPDF, the PDFgui tutorial
@@ -101,8 +100,8 @@ describe("parsePdfData — diffpy PDFgetX3 (X-ray) dialect", () => {
   it("detects X-ray from mode= and reads composition + Q metadata", () => {
     expect(p.scatteringType).toBe("xray");
     expect(p.composition).toMatch(/\S/);
-    expect(p.qmax).toBe(28);
-    expect(p.qmaxInst).toBeCloseTo(34.2231, 4); // must NOT be swallowed by qmax
+    expect(p.qmax).toBe(27);
+    expect(p.qmaxInst).toBeCloseTo(33.5, 4); // must NOT be swallowed by qmax
     expect(p.qmin).toBe(0.5);
     expect(p.rpoly).toBe(0.8);
     expect(p.rstep).toBe(0.01);
@@ -112,7 +111,7 @@ describe("parsePdfData — diffpy PDFgetX3 (X-ray) dialect", () => {
     expect(p.points).toHaveLength(4);
     expect(p.points[0]).toEqual({ r: 0, gObs: 0 });
     expect(p.points[3]!.r).toBeCloseTo(0.03, 6);
-    expect(p.points[3]!.gObs).toBeCloseTo(1.01823, 5);
+    expect(p.points[3]!.gObs).toBeCloseTo(0.736, 5);
     expect(p.points[1]!.sigma).toBeUndefined();
   });
 });
@@ -122,15 +121,15 @@ describe("parsePdfData — Mantid (neutron) dialect", () => {
 
   it("detects neutron from the #Comment and reads Qmin/Qmax", () => {
     expect(p.scatteringType).toBe("neutron");
-    expect(p.qmin).toBeCloseTo(0.910607, 5);
-    expect(p.qmax).toBeCloseTo(34.9906, 4);
+    expect(p.qmin).toBeCloseTo(0.85, 5);
+    expect(p.qmax).toBeCloseTo(31.25, 4);
   });
 
   it("maps the 4-column #L header so sigma comes from dG(r), not dr", () => {
     expect(p.points).toHaveLength(3);
     expect(p.points[0]!.r).toBeCloseTo(0.015, 6);
-    expect(p.points[0]!.gObs).toBeCloseTo(1166.69, 2);
-    expect(p.points[0]!.sigma).toBeCloseTo(0.0368321, 6); // dG col, not the dr=0 col
+    expect(p.points[0]!.gObs).toBeCloseTo(1012.5, 2);
+    expect(p.points[0]!.sigma).toBeCloseTo(0.0315, 6); // dG col, not the dr=0 col
     expect(p.points[2]!.gObs).toBeLessThan(0); // signed ordinate preserved
   });
 });
@@ -314,19 +313,22 @@ describe("S(Q) with an error column — retained, transformed, σ propagated", (
   });
 });
 
-const GANB = LOCAL_DATA.xrayPdfRoomT;
+const XPDF_RT = LOCAL_DATA.xrayPdfRoomT;
 const POWGEN = LOCAL_DATA.hexPdfCopy;
+/** The two G(r) headers' values (data/local-references.json). */
+const XPDF_RT_REF = LOCAL_REFERENCES?.xrayPdf?.roomT;
+const POWGEN_REF = LOCAL_REFERENCES?.hexPdf;
 
-describe.skipIf(!dataExists(GANB))("real NSLS-II 28-ID synchrotron X-ray PDF (the local X-ray PDF dataset)", () => {
+describe.skipIf(!dataExists(XPDF_RT) || !XPDF_RT_REF)("real NSLS-II 28-ID synchrotron X-ray PDF (the local X-ray PDF dataset)", () => {
   // Read lazily inside the test: a skipped suite still executes this callback
   // at collection time, so a top-level readData would fail on machines/CI
   // without the git-ignored data/ folder (and break the deploy's test gate).
   it("parses composition, Q-range and a full G(r) with negative lobes", () => {
-    const p = parsePdfData(readData(GANB), { filename: "local_28ID.gr" });
+    const p = parsePdfData(readData(XPDF_RT), { filename: "local_28ID.gr" });
     expect(p.scatteringType).toBe("xray");
     expect(p.composition).toMatch(/\S/);
-    expect(p.qmax).toBe(28);
-    expect(p.qmaxInst).toBeCloseTo(34.2231, 3);
+    expect(p.qmax).toBe(XPDF_RT_REF!.qmax);
+    expect(p.qmaxInst).toBeCloseTo(XPDF_RT_REF!.qmaxInst, 3);
     expect(p.points.length).toBeGreaterThan(5000);
     expect(p.points[0]).toEqual({ r: 0, gObs: 0 });
     // r strictly increasing on the reduced grid
@@ -335,13 +337,13 @@ describe.skipIf(!dataExists(GANB))("real NSLS-II 28-ID synchrotron X-ray PDF (th
   });
 });
 
-describe.skipIf(!dataExists(POWGEN))("real POWGEN neutron PDF (the local hexagonal dataset)", () => {
-  it("detects neutron, reads Qmax≈29.99 and carries per-point sigma", () => {
+describe.skipIf(!dataExists(POWGEN) || !POWGEN_REF)("real POWGEN neutron PDF (the local hexagonal dataset)", () => {
+  it("detects neutron, reads Qmax and carries per-point sigma", () => {
     const p = parsePdfData(readData(POWGEN), { filename: "local_PG3.gr" });
     expect(p.scatteringType).toBe("neutron");
-    expect(p.qmax).toBeCloseTo(29.9866, 3);
+    expect(p.qmax).toBeCloseTo(POWGEN_REF!.qmax, 3);
     expect(p.points.length).toBeGreaterThan(1000);
-    expect(p.points[0]!.r).toBeCloseTo(0.015, 6);
+    expect(p.points[0]!.r).toBeCloseTo(POWGEN_REF!.r0, 6);
     expect(p.points.every((pt) => typeof pt.sigma === "number")).toBe(true);
   });
 });

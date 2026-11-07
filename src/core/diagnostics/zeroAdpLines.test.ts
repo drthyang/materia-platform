@@ -145,13 +145,13 @@ describe("a shared site and several phases", () => {
     const v = { B_W1: 0, B_Cr1: 0.6, B_O1: 0.62, B_O2: 0.5 };
     const { params, bindings } = rows([{ structure: shared, prefix: "", groups: [["W1"], ["Cr1", "Fe1"], ["O1"], ["O2"]] }], v);
     const [w1] = zeroAdpProposals({ parameters: params, bindings, result: result(v, { B_W1: 0.03, B_Cr1: 0.2, B_O1: 0.05, B_O2: 0.05 }, ["B_W1"]), structures: [shared] });
-    expect(zeroAdpProposalLine(w1!).text).toBe("B(W1) is at its 0 bound: tie it to B(Cr1/Fe1) (same coordination) or hold it at 1.453 Å²");
+    expect(zeroAdpProposalLine(w1!).text).toBe("B(W1) is at its 0 bound: tie it to B(Cr1/Fe1) (same coordination) or hold it at 1.184 Å²");
     const fix = zeroAdpFix(w1!, 0);
     const line = zeroAdpFixLine(fix);
     // The user's example, on a shared site of no oxidation states.
     expect(line.text).toBe("B(W1) hit 0 → tied to B(Cr1/Fe1) = 0.6(2) Å² (same 6-O coordination, different cation); not measured on its own");
     expect(line.caution).toBe("a different cation (W site vs Cr site/Fe site): check it is physically sensible");
-    expect(line.detail[0]).toBe("Other options: hold at 1.453 Å² (starting value).");
+    expect(line.detail[0]).toBe("Other options: hold at 1.184 Å² (starting value).");
     plain(line, zeroAdpFixText(fix));
   });
 

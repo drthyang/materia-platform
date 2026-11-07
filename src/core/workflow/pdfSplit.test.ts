@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { exampleStructure } from "@/examples/highEntropyWO4";
+import { sharedSiteWolframite as exampleStructure } from "@/examples/mnwo4";
 import { gata4se8PdfExample } from "@/examples/gata4se8Pdf";
 import { pdfPage, pageView } from "@/app/pdfPage";
 import { buildPdfProblem, joinBlocks, pairReachBound, type PdfRefinementProblem, type PdfShard } from "@/core/workflow/pdf";
@@ -74,7 +74,7 @@ function gataCase(): Case {
 }
 
 function mixedSiteCase(): Case {
-  // The bundled multi-element-site model on a synthetic neutron grid (Qmax 30, Δr 0.01: termination on).
+  // A multi-element-site wolframite (a test fixture) on a synthetic neutron grid (Qmax 30, Δr 0.01: termination on).
   const st = exampleStructure();
   const pattern: PdfPattern = { id: "he", name: "he", scatteringType: "neutron", qmax: 30, points: Array.from(makeRGrid(0.01, 17, 0.01), (r) => ({ r, gObs: Math.sin(r) / r })) };
   const fitRange = { min: 1.5, max: 15 };

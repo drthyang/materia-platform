@@ -27,7 +27,7 @@ generic names only.
 | The 100 K view-only test reads the dataset's folder (now `LOCAL_DATA.magneticTof`) like the others | `realPowderTOF.test.ts` |
 | C2 takes each bank's centre wavelength from a table in the test, not from the file name. The criterion and its bounds are unchanged | `realLocalMagneticBenchmark.test.ts` |
 | The `local-data-user-flow` eval takes `PG3_powder_6K.gsa` (the ordered pattern) before any other histogram, and finds the bank's calibration as `instrument_bank<N>` as well as the old `B<N>` | `agent/evals/pages.ts` |
-| The demo's pattern name, the comments and the VALIDATION row describe the data ("the 8 K bank-3 POWGEN pattern") instead of naming the run, frame or calibration | `localMagneticDemo.ts`, `highEntropyWO4.ts`, `docs/VALIDATION.md` |
+| The demo's pattern name, the comments and the VALIDATION row describe the data ("the 8 K bank-3 POWGEN pattern") instead of naming the run, frame or calibration | `localMagneticDemo.ts`, the bundled example (since removed), `docs/VALIDATION.md` |
 | The file-name hint's test uses made-up run numbers | `app/powgenBackground.test.ts` |
 | The layout, with what each file holds and which test reads it | `docs/VALIDATION.md`, "The local magnetic data folder" |
 

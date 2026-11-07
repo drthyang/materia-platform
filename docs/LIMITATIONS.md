@@ -294,8 +294,8 @@ approximate, however plausible its output looks.
 ## Disorder
 
 **Supported**
-- Atoms that share one site (mixed occupancy — for example the six 3d cations
-  of the high-entropy tungstate) refine with a tied position and ADP, and on
+- Atoms that share one site (mixed occupancy — for example several 3d cations
+  on one wolframite A site) refine with a tied position and ADP, and on
   the powder and PDF pages their occupancies sum to exactly the site's total
   by a constraint: the last occupancy (in file order) follows the total minus
   the others. The total is 1 unless the user sets a vacancy (Occupancy group;

@@ -29,8 +29,7 @@ import type { StructureModel, SymmetryOperation, UnitCell } from "@/core/crystal
 import type { PowderPattern } from "@/core/diffraction/types";
 import type { ParameterBinding, ParameterKind, RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import type { Vec3 } from "@/core/math/types";
-import { dataExists, readData } from "@/testSupport/data";
-import { LOCAL_DATA } from "@/testSupport/localData";
+import { dataExists, readData, LOCAL_DATA, LOCAL_REFERENCES } from "@/testSupport/data";
 import { withZeroAdpProposal, zeroAdpProposals } from "@/core/diagnostics/zeroAdp";
 
 /**
@@ -38,7 +37,8 @@ import { withZeroAdpProposal, zeroAdpProposals } from "@/core/diagnostics/zeroAd
  * (`LOCAL_DATA.magneticTof`) on its ordered bank-3 POWGEN pattern, read
  * from its Mantid XYDATA export (`PG3_powder_8K.dat`). The data are UNPUBLISHED:
  * they are read from the git-ignored data/ folder only, and this file holds no
- * number derived from them — only the criteria. Skips when the files are absent.
+ * number derived from them — only the criteria; the k and the site labels it
+ * needs are in data/local-references.json. Skips when the files are absent.
  *
  * Reference status. The nuclear model is checked against the user's GSAS-II
  * refinement at 100 K (trusted). The magnetic structure is checked against the
@@ -81,12 +81,14 @@ const INST = {
 } as const;
 /** Each bank's frame: its centre wavelength (Å). A .instprm does not carry it. */
 const BAND_CENTRE_A: Readonly<Record<keyof typeof INST, number>> = { B1: 0.8, B2: 1.5, B3: 2.665 };
-const has = dataExists(DATA) && dataExists(CIF) && Object.values(INST).every((f) => dataExists(f));
+const LOCAL_REF = LOCAL_REFERENCES?.magneticTof;
+const has = !!LOCAL_REF && dataExists(DATA) && dataExists(CIF) && Object.values(INST).every((f) => dataExists(f));
 /** The owner's refined 8 K magnetic structure (Jana mCIF, doubled cell). */
 const REF = `${DIR}/magnetic_8K.mcif`;
 const hasRef = has && dataExists(REF);
 
-const K: Vec3 = [0.5, 0, 0];
+/** The propagation vector, from the reference values. */
+const K: Vec3 = LOCAL_REF?.k ?? [0, 0, 0];
 /** Fit window's long-d end: a gap past the model's last line (nuclear d ≤ b, satellites d ≤ 2a). */
 const D_MAX = 10.5;
 /** 60 Hz source: one frame is 1/60 s wide. */
@@ -97,11 +99,11 @@ const THERMAL_PER_AXIS = 5e-4;
 const THERMAL_BETA = 0.01;
 /** Coordinates move ≪ 0.01 Å between 100 and 8 K without a transition; 0.02 Å allows for the CIF's unstated esds. */
 const POSITION_TOL_A = 0.02;
-/** Spin-only moments (µB) of the 2+ 3d ions of the A site (W⁶⁺O₄²⁻ fixes A²⁺). */
-const SPIN_ONLY: Readonly<Record<string, number>> = { Mn: 5, Fe: 4, Co: 3, Ni: 2, Cu: 1 };
+/** Spin-only moments (µB) of the 2+ 3d ions (g·S, high spin): the sites' oxidation states are 2+ (the app's default). */
+const SPIN_ONLY: Readonly<Record<string, number>> = { Ti: 2, V: 3, Cr: 4, Mn: 5, Fe: 4, Co: 3, Ni: 2, Cu: 1 };
 const LONG = 20 * 60 * 1000;
 
-/** A CIF number with its esd in parentheses, e.g. "4.6757(7)" → 4.6757 ± 0.0007. */
+/** A CIF number with its esd in parentheses, e.g. "4.830(5)" → 4.830 ± 0.005. */
 function cifValue(cif: string, tag: string): { value: number; esd: number } {
   const m = cif.match(new RegExp(`^${tag}\\s+([-\\d.]+)(?:\\((\\d+)\\))?`, "m"));
   if (!m) throw new Error(`${tag} missing from the CIF`);
@@ -215,7 +217,7 @@ async function runBenchmark(): Promise<Bench> {
   const tied = withinNoise(ranking, reps, dims);
 
   // The magnetic refinement (magnetic-analysis, Stage 4, the owner's rule): only
-  // the magnetic parameters free — the ★ group's moments; k = (½ 0 0) is
+  // the magnetic parameters free — the ★ group's moments; the reference k is
   // self-conjugate, so no k component refines — against the staged nuclear
   // model as a fixed reference. Freed, the nuclear rows trade with the moments.
   const build = buildFor(structure, K, ions, reps.find((r) => r.candidate.id === best.id)!.candidate.operations, ties);
@@ -402,16 +404,17 @@ describe.skipIf(!has)("local magnetic benchmark — nuclear vs the 100 K CIF, k,
 
   // The B-at-0 rule (M10): each B the nuclear fit leaves on its bound gets a proposal with a warning,
   // and nothing is applied behind the user's back — C5 above is read on the fit as refined.
-  // Read on the staged nuclear fit, whose B's the magnetic refinement holds: W1 and O2 both rail to 0
-  // there. (A joint nuclear + magnetic fit, which this benchmark ran before the moments-only rule, left
-  // O2 a hair above 0, far inside its esd, so only W1 was pinned.) W1 is pinned; O2's preferred tie to
-  // O1 is checked whenever O2 is on its bound, and on synthetic data in zeroAdp.test.ts. The
-  // criterion — every B on its bound gets a warned proposal, nothing applied — is unchanged.
+  // Read on the staged nuclear fit, whose B's the magnetic refinement holds. Two B's rail to 0 there
+  // (the reference values name them): one whose element has no other site, which is pinned, and one
+  // with a partner of its own element, whose preferred tie to that partner is checked whenever it is
+  // on its bound (and on synthetic data in zeroAdp.test.ts). The criterion — every B on its bound gets
+  // a warned proposal, nothing applied — is unchanged.
   it("C5b: each B on its lower bound gets a warned proposal, applied to nothing", () => {
     const rows = b.nuclear;
     const kind = new Map(rows.map((p) => [p.id, p.kind]));
     const bounded = (b.nuclearResult.diagnostics?.atBounds ?? []).filter((x) => x.bound === "min" && kind.get(x.parameterId) === "bIso").map((x) => x.parameterId).sort();
-    expect(bounded).toEqual(expect.arrayContaining(["B_W1"]));
+    const { lone, paired } = LOCAL_REF!.zeroAdp;
+    expect(bounded).toEqual(expect.arrayContaining([lone]));
     const proposals = zeroAdpProposals({ parameters: rows, bindings: b.bindings, result: b.nuclearResult, structures: [b.structure], refined: [b.model] });
     expect(proposals.map((p) => p.parameterId).sort()).toEqual(bounded);
     for (const p of proposals) {
@@ -420,14 +423,15 @@ describe.skipIf(!has)("local magnetic benchmark — nuclear vs the 100 K CIF, k,
       expect(p.warning).toMatch(/the Bayesian check on it \(sample_posterior\)/);
       expect(p.source.startsWith(`rule ${p.rule}`)).toBe(true);
     }
-    // O2 has a sensible partner of its own element (O1): that tie is offered first, as the preferred option.
-    const o2 = proposals.find((p) => p.parameterId === "B_O2");
-    if (o2) expect(o2.options[0]).toMatchObject({ rule: "A", rank: "preferred", leader: "B_O1" });
-    // W1 has no other W: any tie to another cation is only a labelled alternative, with its caution; nothing is preferred.
-    const w1 = proposals.find((p) => p.parameterId === "B_W1")!;
-    expect(w1.options.length).toBeGreaterThan(0);
-    expect(w1.options.every((o) => o.rank === "alternative")).toBe(true);
-    for (const o of w1.options.filter((x) => x.rule === "A")) expect(o.caution).toMatch(/^a different cation \(W.* vs .*\): check it is physically sensible$/);
+    // A B with a sensible partner of its own element: that tie is offered first, as the preferred option.
+    const withPartner = proposals.find((p) => p.parameterId === paired.id);
+    if (withPartner) expect(withPartner.options[0]).toMatchObject({ rule: "A", rank: "preferred", leader: paired.leader });
+    // A B whose element has no other site: any tie to another cation is only a labelled alternative, with its caution; nothing is preferred.
+    const alone = proposals.find((p) => p.parameterId === lone)!;
+    const element = b.structure.sites.find((x) => `B_${x.label}` === lone)!.element;
+    expect(alone.options.length).toBeGreaterThan(0);
+    expect(alone.options.every((o) => o.rank === "alternative")).toBe(true);
+    for (const o of alone.options.filter((x) => x.rule === "A")) expect(o.caution).toMatch(new RegExp(`^a different cation \\(${element}.* vs .*\\): check it is physically sensible$`));
     // Computing a proposal changes no row.
     expect(rows.filter((p) => p.kind === "bIso").every((p) => p.value === b.values[p.id])).toBe(true);
     console.log(`[local-bench] B at 0: ${proposals.map((p) => `${p.parameterId} → ${p.options.map((o, i) => `${i + 1}) ${o.rank} ${o.rule === "A" ? `tie ${o.leader}` : `hold ${o.value!.toFixed(3)}`} [${o.label}]`).join(" ")}`).join(" | ")}`);
@@ -469,7 +473,7 @@ describe.skipIf(!has)("local magnetic benchmark — nuclear vs the 100 K CIF, k,
     run((p) => (preferred(p) >= 0 ? preferred(p) : p.options.findIndex((o) => o.rule === "B")), "preferred tie, the rest at their starting value");
   }, LONG);
 
-  it("C6: k = (½ 0 0) from the nuclear-model residual alone: first, every included peak, a clear margin", () => {
+  it("C6: the reference k from the nuclear-model residual alone: first, every included peak, a clear margin", () => {
     const included = b.rows.filter((r) => r.included);
     expect(included.length).toBeGreaterThanOrEqual(3);
     const [top, next] = b.kRanking;

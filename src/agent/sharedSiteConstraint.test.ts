@@ -6,7 +6,7 @@ import { pdfReportChecks } from "@/agent/pdfTools";
 import { sessionPort } from "@/testSupport/agentHeadless";
 import { newSession } from "@/app/powderSession";
 import { withParameter } from "@/app/powderPage";
-import { exampleStructure as highEntropy } from "@/examples/highEntropyWO4";
+import { sharedSiteWolframite } from "@/examples/mnwo4";
 
 /**
  * What the Agent and the report say of a shared site on the PDF page: its
@@ -76,15 +76,15 @@ describe("a shared site's constraint, as the Agent and the report give it (PDF p
   });
 
   it("on the powder page: get_state and the checks state the constraint, and warn of a last occupancy outside [0, 1]", async () => {
-    const s = newSession(highEntropy());
+    const s = newSession(sharedSiteWolframite());
     const { port } = sessionPort(s);
     const { ex } = executor(fakeHost(port).host, true);
     const state = parse((await ex.run("get_state", {})).text);
-    expect(state.occupancyConstraints).toEqual(["occ_Zn1 = 1 − (occ_Co1 + occ_Fe1 + occ_Ni1 + occ_Mn1 + occ_Cu8): one site's occupancies, summing to exactly 1 (a constraint, not a restraint); the other 5 refine and occ_Zn1 follows, its esd from their covariance"]);
+    expect(state.occupancyConstraints).toEqual(["occ_Zn1 = 1 − (occ_Mn1 + occ_Fe1 + occ_Co1): one site's occupancies, summing to exactly 1 (a constraint, not a restraint); the other 3 refine and occ_Zn1 follows, its esd from their covariance"]);
     expect(state.occupancyWarnings).toBeUndefined();
-    const over = sessionPort(withParameter(s, "occ_Co1", { value: 0.4 }));
+    const over = sessionPort(withParameter(s, "occ_Mn1", { value: 0.6 }));
     const view = parse((await executor(fakeHost(over.port).host, true).ex.run("get_state", {})).text);
-    expect((view.occupancyWarnings as string[])[0]).toMatch(/^occ_Zn1 = -0\.0680 is outside \[0, 1\]/);
+    expect((view.occupancyWarnings as string[])[0]).toMatch(/^occ_Zn1 = -0\.1000 is outside \[0, 1\]/);
   });
 
   it("names a six-species site's sum, and says nothing on a page without a shared site", async () => {

@@ -4,8 +4,8 @@ import type { Vec3 } from "@/core/math/types";
 import { parseCif } from "@/parsers/cif";
 import { nuclearStructureFactorSquared } from "@/core/diffraction/structureFactor";
 import { dSpacing } from "@/core/crystal/unitCell";
-import { dataExists, readData } from "@/testSupport/data";
-import { LOCAL_DATA } from "@/testSupport/localData";
+import { dataExists, readData, LOCAL_DATA, LOCAL_REFERENCES } from "@/testSupport/data";
+import type { HexPhaseSite } from "@/testSupport/localReferences";
 
 /**
  * Validate the nuclear structure factor against GSAS-II reflection lists (Fc²)
@@ -24,9 +24,11 @@ import { LOCAL_DATA } from "@/testSupport/localData";
  *   • MnO 600 K   — cubic rocksalt Fm-3m, built inline as 8 atoms in P1.
  *   • Mn₃Ga 200 K — orthorhombic Cmcm and monoclinic P2₁/m, from CIF (a second
  *     temperature, plus C-centering and a monoclinic β≠90 metric).
- *   • The local hexagonal dataset (`LOCAL_DATA.hexPhases`) — three CoSn-type
- *     P6/mmm phases (the sample is compositionally inhomogeneous), built inline; tests 3-element scattering (Sn/Co/Fe) and a
- *     mixed Co/Fe occupancy on the 3f site. Reflection list from the .gpx.
+ *   • The local hexagonal dataset (`LOCAL_DATA.hexPhases`) — three P6/mmm
+ *     phases (the sample is compositionally inhomogeneous), built inline from
+ *     their Wyckoff orbits and the refined values in data/local-references.json;
+ *     tests several-element scattering and a mixed occupancy on one site.
+ *     Reflection list from the .gpx.
  *
  * GSAS reports neutron b in 10⁻¹² cm; our tables use fm (10× larger), so our
  * |F|² is ~100× GSAS Fc². That constant is absorbed by the scale factor in a real
@@ -138,36 +140,29 @@ describe.skipIf(!hasMnO)("neutron |F|² vs GSAS-II — MnO 600 K rocksalt (Fm-3m
   });
 });
 
-// ---- The local hexagonal dataset: three CoSn-type P6/mmm phases (built inline, orbits in P1) --
-// The CoSn (B35) structure: Sn on 1a (0,0,0) + 2d (⅓,⅔,½), (Co,Fe) on 3f
-// (½,0,0). Fe₁Co₉Sn is compositionally inhomogeneous, so the refinement models
-// three phases with slightly different c and Fe fraction. We expand each Wyckoff
-// orbit explicitly (P1) — the hexagonal special-position engine is already
-// covered by Mn₃Ga above; this isolates 3-element scattering + mixed occupancy.
-interface CoSnPhase {
-  readonly tag: string;
-  readonly a: number; readonly c: number;
-  readonly uSn1: number; readonly uSn2: number; readonly uM: number;
-  readonly occCo: number; readonly occFe: number;
-}
-function cosnModel(p: CoSnPhase): StructureModel {
-  const site = (label: string, element: string, pos: Vec3, occ: number, u: number) =>
-    ({ label, element, position: pos, occupancy: occ, adp: { kind: "isotropic" as const, bIso: U_TO_B * u } });
-  const third = 1 / 3;
-  const orbit1a: Vec3[] = [[0, 0, 0]];
-  const orbit2d: Vec3[] = [[third, 2 * third, 0.5], [2 * third, third, 0.5]];
-  const orbit3f: Vec3[] = [[0.5, 0, 0], [0, 0.5, 0], [0.5, 0.5, 0]];
-  const sites = [
-    ...orbit1a.map((pos, i) => site(`Sn1_${i}`, "Sn", pos, 1, p.uSn1)),
-    ...orbit2d.map((pos, i) => site(`Sn2_${i}`, "Sn", pos, 1, p.uSn2)),
-    ...orbit3f.flatMap((pos, i) => [
-      site(`Co_${i}`, "Co", pos, p.occCo, p.uM),
-      ...(p.occFe > 0 ? [site(`Fe_${i}`, "Fe", pos, p.occFe, p.uM)] : []),
-    ]),
-  ];
+// ---- The local hexagonal dataset: three P6/mmm phases (built inline, orbits in P1) --
+// Each phase's sites sit on the 1a (0,0,0), 2d (⅓,⅔,½) and 3f (½,0,0) orbits;
+// the refinement models three phases with slightly different c and site
+// fractions, their values in data/local-references.json. We expand each
+// Wyckoff orbit explicitly (P1) — the hexagonal special-position engine is
+// already covered by Mn₃Ga above; this isolates several-element scattering +
+// mixed occupancy.
+const THIRD = 1 / 3;
+const ORBITS: Readonly<Record<HexPhaseSite["wyckoff"], readonly Vec3[]>> = {
+  "1a": [[0, 0, 0]],
+  "2d": [[THIRD, 2 * THIRD, 0.5], [2 * THIRD, THIRD, 0.5]],
+  "3f": [[0.5, 0, 0], [0, 0.5, 0], [0.5, 0.5, 0]],
+};
+type HexPhase = NonNullable<NonNullable<typeof LOCAL_REFERENCES>["hexPhases"]>["phases"][number];
+function hexPhaseModel(p: HexPhase): StructureModel {
+  const sites = p.sites.filter((x) => x.occupancy > 0).flatMap((x) =>
+    ORBITS[x.wyckoff].map((pos, i) => ({
+      label: `${x.element}${x.wyckoff}_${i}`, element: x.element, position: pos, occupancy: x.occupancy,
+      adp: { kind: "isotropic" as const, bIso: U_TO_B * x.uIso },
+    })));
   return {
-    id: `cosn-${p.tag}`, name: `CoSn (${p.tag})`,
-    cell: { a: p.a, b: p.a, c: p.c, alpha: 90, beta: 90, gamma: 120 },
+    id: `hex-${p.tag}`, name: `local hexagonal (${p.tag})`,
+    cell: { a: p.cell.a, b: p.cell.a, c: p.cell.c, alpha: 90, beta: 90, gamma: 120 },
     spaceGroup: {
       hermannMauguin: "P 1",
       operations: [{ rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: [0, 0, 0], xyz: "x,y,z" }],
@@ -176,19 +171,16 @@ function cosnModel(p: CoSnPhase): StructureModel {
   };
 }
 
-const COSN_PHASES: readonly CoSnPhase[] = [
-  { tag: "CoSn_1", a: 5.27502, c: 4.29276, uSn1: 0.00885, uSn2: 0.00428, uM: 0.00579, occCo: 0.860, occFe: 0.140 },
-  { tag: "CoSn_2", a: 5.27591, c: 4.28106, uSn1: 0.02109, uSn2: 0.03113, uM: 0.03324, occCo: 0.950, occFe: 0.050 },
-  { tag: "CoSn", a: 5.27655, c: 4.24970, uSn1: 0.00159, uSn2: 0.00045, uM: 0.00585, occCo: 1.000, occFe: 0.000 },
-];
-const hasCoSn = COSN_PHASES.every((p) => dataExists(`${LOCAL_DATA.hexPhases.dir}/reflections_${p.tag}.csv`));
+/** Each phase local-paths.json names (its reflection file's tag), with its refined values from local-references.json. */
+const HEX_PHASES = LOCAL_DATA.hexPhases.tags.flatMap((tag) => LOCAL_REFERENCES?.hexPhases?.phases.filter((p) => p.tag === tag) ?? []);
+const hasHexPhases = HEX_PHASES.length > 0 && HEX_PHASES.every((p) => dataExists(`${LOCAL_DATA.hexPhases.dir}/reflections_${p.tag}.csv`));
 
-describe.skipIf(!hasCoSn)("neutron |F|² vs GSAS-II — the local hexagonal dataset (three CoSn-type P6/mmm phases)", () => {
-  for (const p of COSN_PHASES) {
-    it(`${p.tag} (Fe ${(p.occFe * 100).toFixed(0)}%): nuclear |F|² is a flat multiple of GSAS Fc²`, () => {
-      // Only 19 reflections per phase (POWGEN bank 3), so anchor on all
+describe.skipIf(!hasHexPhases)("neutron |F|² vs GSAS-II — the local hexagonal dataset (three P6/mmm phases)", () => {
+  for (const p of HEX_PHASES) {
+    it(`${p.tag}: nuclear |F|² is a flat multiple of GSAS Fc²`, () => {
+      // Few reflections per phase (POWGEN bank 3), so anchor on all
       // meaningfully-strong reflections rather than a fixed top-N.
-      assertFlatRatio(cosnModel(p), loadRefl(`${LOCAL_DATA.hexPhases.dir}/reflections_${p.tag}.csv`), `local ${p.tag}`);
+      assertFlatRatio(hexPhaseModel(p), loadRefl(`${LOCAL_DATA.hexPhases.dir}/reflections_${p.tag}.csv`), `local ${p.tag}`);
     });
   }
 });

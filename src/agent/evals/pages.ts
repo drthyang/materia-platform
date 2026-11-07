@@ -14,8 +14,7 @@ import { parseCif } from "@/parsers/cif";
 import { parseInstrumentParameters } from "@/parsers/instrument";
 import { parseGsasHistogramPattern } from "@/parsers/gsasHistogram";
 import { parsePowderData } from "@/parsers/powderData";
-import { dataDir } from "@/testSupport/data";
-import { LOCAL_DATA } from "@/testSupport/localData";
+import { dataDir, LOCAL_DATA } from "@/testSupport/data";
 import { exampleStructure } from "@/examples/mn3ga";
 import { generateReflections } from "@/core/diffraction/reflections";
 import { powderPeakIntensities } from "@/core/diffraction/intensity";
@@ -329,7 +328,7 @@ export function localUserPage(): PowderAgentPort {
   const files = localUserFiles();
   if (!files) throw new Error("the local magnetic TOF data are not on this machine");
   const read = (path: string): string => readFileSync(path, "utf8");
-  const structure = parseCif(read(files.structure), "awo4");
+  const structure = parseCif(read(files.structure), "local-magnetic");
   const instrumentFile = { name: basename(files.instrument), text: read(files.instrument) };
   const instrument = parseInstrumentParameters(instrumentFile.text);
   const data = { name: basename(files.data), text: read(files.data) };

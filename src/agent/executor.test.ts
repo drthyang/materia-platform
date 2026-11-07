@@ -8,7 +8,7 @@ import { freePlan } from "@/agent/liveCommon";
 import { LIVE_TOOLS, inputJsonSchema } from "@/agent/tools";
 import { newSession, type Session } from "@/app/powderSession";
 import { exampleStructure } from "@/examples/mn3ga";
-import { exampleStructure as highEntropy } from "@/examples/highEntropyWO4";
+import { sharedSiteWolframite } from "@/examples/mnwo4";
 import type { RefinementParameter } from "@/core/refinement/types";
 import { executor, fakeHost, pdfPort, sessionPort } from "@/testSupport/agentHeadless";
 import { shoulderReading } from "@/core/diagnostics/cellReading";
@@ -565,16 +565,16 @@ describe("AgentExecutor on a live powder fit", () => {
   });
 
   it("sets a shared site's total occupancy (vacancies) through set_site_ties, checked against the model's sites", async () => {
-    const { port, calls } = sessionPort(newSession(highEntropy()));
+    const { port, calls } = sessionPort(newSession(sharedSiteWolframite()));
     const { ex, asked } = executor(fakeHost(port).host, true);
-    expect((await ex.run("set_site_ties", { totals: { W1: 0.9 } })).text).toMatch(/W1 is not a shared site's key: the keys are Co1/);
-    await ex.run("set_site_ties", { totals: { Co1: 0.95 } });
-    expect(asked[0]!.preview).toBe("Σ occ of the Co1 site = 0.95 (5 % vacancies)");
-    expect(calls).toEqual(['ties {"totals":{"Co1":0.95}}']);
-    expect(port.state().settings.siteTies).toMatchObject({ totals: { Co1: 0.95 } });
-    expect(port.state().parameters.find((p) => p.id === "occ_Zn1")!.expression).toBe("= 0.95 - sum(occ_Co1, occ_Fe1, occ_Ni1, occ_Mn1, occ_Cu8)");
-    expect(parse((await ex.run("set_site_ties", { totals: { Co1: 0.95 } })).text).unchanged).toBe(true);
-    await ex.run("set_site_ties", { totals: { Co1: 1 } });
+    expect((await ex.run("set_site_ties", { totals: { W1: 0.9 } })).text).toMatch(/W1 is not a shared site's key: the keys are Mn1/);
+    await ex.run("set_site_ties", { totals: { Mn1: 0.95 } });
+    expect(asked[0]!.preview).toBe("Σ occ of the Mn1 site = 0.95 (5 % vacancies)");
+    expect(calls).toEqual(['ties {"totals":{"Mn1":0.95}}']);
+    expect(port.state().settings.siteTies).toMatchObject({ totals: { Mn1: 0.95 } });
+    expect(port.state().parameters.find((p) => p.id === "occ_Zn1")!.expression).toBe("= 0.95 - sum(occ_Mn1, occ_Fe1, occ_Co1)");
+    expect(parse((await ex.run("set_site_ties", { totals: { Mn1: 0.95 } })).text).unchanged).toBe(true);
+    await ex.run("set_site_ties", { totals: { Mn1: 1 } });
     expect(port.state().settings.siteTies.totals).toBeUndefined();
   });
 });

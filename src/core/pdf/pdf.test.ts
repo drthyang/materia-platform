@@ -5,8 +5,7 @@ import { expandStructureAtoms } from "@/core/diffraction/structureFactor";
 import { enumeratePairs, cartesianAdpTensor } from "@/core/pdf/pairEnumerator";
 import { computeGofR, makeRGrid, type PdfModelParams } from "@/core/pdf/forwardModel";
 import { uIsoFromBIso } from "@/core/crystal/adp";
-import { dataExists, readData } from "@/testSupport/data";
-import { LOCAL_DATA } from "@/testSupport/localData";
+import { dataExists, readData, LOCAL_DATA, LOCAL_REFERENCES } from "@/testSupport/data";
 
 const IDENTITY_OP = { rotation: IDENTITY3, translation: [0, 0, 0] as const, xyz: "x,y,z" };
 
@@ -103,20 +102,16 @@ describe("computeGofR — physics self-consistency", () => {
 // ---- Golden: reproduce PDFgui/PDFFIT-1.4.0 G_calc for the local hexagonal neutron PDF ----
 const GOLD = LOCAL_DATA.hexPdfGolden;
 
+/** PDFgui's refined model (data/local-references.json), in P1. */
+const GOLDEN = LOCAL_REFERENCES?.hexPdf?.golden;
+
 function hexRefined(): StructureModel {
-  const cell: UnitCell = { a: 5.272188, b: 5.272188, c: 4.267749, alpha: 90, beta: 90, gamma: 120 };
-  const aniso = (u: [number, number, number, number, number, number]) => ({ kind: "anisotropic" as const, uAniso: u });
-  const sites: AtomSite[] = [
-    { label: "Sn1", element: "Sn", position: [0, 0, 0], occupancy: 1, adp: aniso([0.00441401, 0.00441401, 0.00461738, 0.002207, 0, 0]) },
-    { label: "Sn2", element: "Sn", position: [1 / 3, 2 / 3, 0.5], occupancy: 1, adp: aniso([0.00345194, 0.00345194, 0.00485461, 0.00172597, 0, 0]) },
-    { label: "Sn3", element: "Sn", position: [2 / 3, 1 / 3, 0.5], occupancy: 1, adp: aniso([0.00345194, 0.00345194, 0.00485461, 0.00172597, 0, 0]) },
-    { label: "Co1", element: "Co", position: [0.5, 0, 0], occupancy: 0.925896, adp: aniso([0.00444038, 0.00413351, 0.00557496, 0.00206675, 0, 0]) },
-    { label: "Co2", element: "Co", position: [0, 0.5, 0], occupancy: 0.925896, adp: aniso([0.00413351, 0.00444038, 0.00557496, 0.00206675, 0, 0]) },
-    { label: "Co3", element: "Co", position: [0.5, 0.5, 0], occupancy: 0.925896, adp: aniso([0.00444038, 0.00444038, 0.00557496, 0.00237363, 0, 0]) },
-    { label: "Fe1", element: "Fe", position: [0.5, 0, 0], occupancy: 0.0741044, adp: aniso([0.00444038, 0.00413351, 0.00557496, 0.00206675, 0, 0]) },
-    { label: "Fe2", element: "Fe", position: [0, 0.5, 0], occupancy: 0.0741044, adp: aniso([0.00413351, 0.00444038, 0.00557496, 0.00206675, 0, 0]) },
-    { label: "Fe3", element: "Fe", position: [0.5, 0.5, 0], occupancy: 0.0741044, adp: aniso([0.00444038, 0.00444038, 0.00557496, 0.00237363, 0, 0]) },
-  ];
+  const g = GOLDEN!;
+  const cell: UnitCell = { a: g.cell.a, b: g.cell.a, c: g.cell.c, alpha: 90, beta: 90, gamma: 120 };
+  const sites: AtomSite[] = g.sites.map((x) => ({
+    label: x.label, element: x.element, position: x.position, occupancy: x.occupancy,
+    adp: { kind: "anisotropic" as const, uAniso: [...x.uAniso] as [number, number, number, number, number, number] },
+  }));
   return p1Structure(cell, sites);
 }
 
@@ -133,7 +128,7 @@ function pearson(a: number[], b: number[]): number {
   return num / Math.sqrt(da * db);
 }
 
-describe.skipIf(!dataExists(GOLD))("golden: PDFgui G_calc for the local hexagonal neutron PDF (Q30)", () => {
+describe.skipIf(!dataExists(GOLD) || !GOLDEN || !LOCAL_REFERENCES?.hexPdf)("golden: PDFgui G_calc for the local hexagonal neutron PDF (Q30)", () => {
   // Loaded lazily (memoized): a skipped suite still runs this callback at
   // collection time, so top-level readData/computeGofR would fail (and cost)
   // on machines/CI without the git-ignored data/ folder.
@@ -150,13 +145,14 @@ describe.skipIf(!dataExists(GOLD))("golden: PDFgui G_calc for the local hexagona
     const model = hexRefined();
     const atoms = expandStructureAtoms(model);
     const rGrid = Float64Array.from(goldR);
+    const ref = LOCAL_REFERENCES!.hexPdf!;
     const params: PdfModelParams = {
       scatteringType: "neutron",
-      scale: 17.6843,
-      qdamp: 0.0155299,
-      qbroad: 0.0120727,
-      delta1: 0.408599,
-      delta2: 0.417248,
+      scale: GOLDEN!.scale,
+      qdamp: ref.qdamp,
+      qbroad: ref.qbroad,
+      delta1: GOLDEN!.delta1,
+      delta2: GOLDEN!.delta2,
     };
     memo = { goldR, goldG, mine: Array.from(computeGofR(model.cell, atoms, rGrid, params)) };
     return memo;

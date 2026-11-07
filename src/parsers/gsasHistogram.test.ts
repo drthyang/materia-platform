@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { dataExists, readData } from "@/testSupport/data";
-import { LOCAL_DATA } from "@/testSupport/localData";
+import { dataExists, readData, LOCAL_DATA } from "@/testSupport/data";
 import {
   parseGsasHistogram,
   parseGsasHistogramPattern,

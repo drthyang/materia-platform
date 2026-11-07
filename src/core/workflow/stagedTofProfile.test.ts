@@ -5,7 +5,7 @@ import type { ParameterKind, RefinementParameter } from "@/core/refinement/types
 import { buildPowderProblem, powderCurves } from "@/core/workflow/powder";
 import { refineStaged } from "@/core/refinement/staged";
 import { DEFAULT_STAGE_KINDS, stagesFromKindGroups } from "@/core/workflow/structureRefinement";
-import { exampleStructure } from "@/examples/highEntropyWO4";
+import { mnwo4Structure as exampleStructure } from "@/examples/mnwo4";
 import type { PowderPattern } from "@/core/diffraction/types";
 import type { InstrumentParameters } from "@/core/diffraction/instrument";
 
@@ -21,8 +21,8 @@ import type { InstrumentParameters } from "@/core/diffraction/instrument";
  * the newcomer the inflated esd correlates with (the zero) and keeps the rest.
  *
  * Synthetic: a POWGEN-like bank (difC of the bundled Mn₃Ga example) simulated
- * from the bundled monoclinic tungstate model with a broader, slower peak shape
- * than the one the fit starts from, Poisson-like noise of a fixed seed.
+ * from published MnWO₄ (src/examples/mnwo4.ts) with a broader, slower peak
+ * shape than the one the fit starts from, Poisson-like noise of a fixed seed.
  */
 
 function seeded(seed: number): () => number {
@@ -37,7 +37,8 @@ describe("staged powder fit — a TOF profile stage with the zero free", () => {
   it("re-fixes the zero that trades with the cell and keeps the peak shape refined", { timeout: 120_000 }, () => {
     const structure = exampleStructure();
     const step = 0.0008; // Δt/t of a log-binned TOF histogram
-    const xs = Array.from({ length: Math.floor(Math.log(140000 / 25000) / step) }, (_, i) => 25000 * Math.exp(i * step));
+    // 30–110 ms: on MnWO₄ this window leaves the zero and the cell lengths entangled enough (esd(cell_a) ≈ 6× with the zero free) for the guard to act.
+    const xs = Array.from({ length: Math.floor(Math.log(110000 / 30000) / step) }, (_, i) => 30000 * Math.exp(i * step));
     const start: InstrumentParameters = {
       kind: "tof", difC: 22585.8, difA: -5, difB: 0, zero: 0,
       alpha: 0.13, beta0: 0.0128, beta1: -0.0065, betaQ: 0.0617, sig0: 40, sig1: 0, sig2: 465, sigQ: 0,

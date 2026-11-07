@@ -9,13 +9,13 @@ import {
 } from "@/parsers/gsasHistogram";
 import { powderCurves } from "@/core/workflow/powder";
 import { siteMultiplicity } from "@/core/crystal/symmetry";
-import { dataExists, readData } from "@/testSupport/data";
-import { LOCAL_DATA } from "@/testSupport/localData";
+import { dataExists, readData, LOCAL_DATA, LOCAL_REFERENCES } from "@/testSupport/data";
 import type { RefinementParameter } from "@/core/refinement/types";
 
 /**
  * Real POWGEN time-of-flight neutron data, the local magnetic TOF dataset
- * (`LOCAL_DATA.magneticTof`, unpublished; monoclinic P2/c) —
+ * (`LOCAL_DATA.magneticTof`, unpublished; monoclinic; reference values in
+ * data/local-references.json) —
  * loaded from the raw GSAS `.gsa` histograms (BANK/SLOG/FXYE) the new parser
  * handles, across the three POWGEN detector banks (different frames → different
  * TOF ranges and channel counts). Skips when the git-ignored data/ folder is
@@ -30,39 +30,40 @@ const GSA = {
   bank2: `${DIR}/PG3_powder_bank2.gsa`,
   bank3: `${DIR}/PG3_powder_6K.gsa`,
 };
-const has = dataExists(CIF) && dataExists(GSA.bank1);
-const CATIONS = ["Co1", "Fe1", "Ni1", "Mn1", "Cu8", "Zn1"];
+const REF = LOCAL_REFERENCES?.magneticTof;
+const has = !!REF && dataExists(CIF) && dataExists(GSA.bank1);
 
 describe.skipIf(!has)("real local TOF data — POWGEN neutron TOF, raw .gsa histograms", () => {
-  it("parses the P2/c structure with six disordered cations on one 2f site", () => {
+  it("parses the structure: the reference space group and cell, several cations disordered on one site", () => {
     const s = parseCif(readData(CIF), "local");
-    expect(s.spaceGroup.hermannMauguin).toBe("P 2/c");
-    expect(s.spaceGroup.operations.length).toBe(4);
-    expect(s.cell.a).toBeCloseTo(4.6757, 3);
-    expect(s.cell.b).toBeCloseTo(5.701, 3);
-    expect(s.cell.c).toBeCloseTo(4.9367, 3);
-    expect(s.cell.beta).toBeCloseTo(89.312, 3);
+    const ref = REF!.structure;
+    expect(s.spaceGroup.hermannMauguin).toBe(ref.spaceGroup);
+    expect(s.cell.a).toBeCloseTo(ref.cell.a, 3);
+    expect(s.cell.b).toBeCloseTo(ref.cell.b, 3);
+    expect(s.cell.c).toBeCloseTo(ref.cell.c, 3);
+    expect(s.cell.beta).toBeCloseTo(ref.cell.beta, 3);
 
-    const cations = CATIONS.map((l) => s.sites.find((x) => x.label === l));
+    const cations = ref.sharedSite.labels.map((l) => s.sites.find((x) => x.label === l));
     for (const c of cations) {
       expect(c).toBeDefined();
-      expect(c!.occupancy).toBeCloseTo(0.167, 3);
-      expect(siteMultiplicity(s.spaceGroup.operations, c!.position)).toBe(2);
+      expect(c!.occupancy).toBeCloseTo(ref.sharedSite.occupancy, 3);
+      expect(siteMultiplicity(s.spaceGroup.operations, c!.position)).toBe(siteMultiplicity(s.spaceGroup.operations, cations[0]!.position));
     }
+    // All of them share the same crystallographic position (the disordered site)…
     const p0 = cations[0]!.position;
     for (const c of cations) expect(c!.position).toEqual(p0);
-    expect(cations.reduce((a, c) => a + c!.occupancy, 0)).toBeCloseTo(1.002, 3);
-    expect(s.sites.find((x) => x.label === "W1")!.occupancy).toBe(1);
-    expect(s.sites.filter((x) => x.element === "O")).toHaveLength(2);
+    // …their occupancies summing to the reference's total; every other site is ordered.
+    expect(cations.reduce((a, c) => a + c!.occupancy, 0)).toBeCloseTo(ref.sharedSite.sum, 3);
+    for (const x of s.sites.filter((y) => !ref.sharedSite.labels.includes(y.label))) expect(x.occupancy, x.label).toBe(1);
   });
 
   it("reads the POWGEN TOF instrument calibration (.instprm)", () => {
     const g = parseInstrumentParameters(readData(INSTPRM));
     expect(g.kind).toBe("tof");
     if (g.kind === "tof") {
-      expect(g.difC).toBeCloseTo(22600, 0);
-      expect(g.difA).toBeCloseTo(-6.74, 2);
-      expect(g.difB).toBeCloseTo(-5.32, 2);
+      expect(g.difC).toBeCloseTo(REF!.calibration.difC, 0);
+      expect(g.difA).toBeCloseTo(REF!.calibration.difA, 2);
+      expect(g.difB).toBeCloseTo(REF!.calibration.difB, 2);
     }
   });
 

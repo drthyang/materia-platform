@@ -1,5 +1,5 @@
 import { beforeAll, describe, it, expect } from "vitest";
-import { exampleStructure } from "@/examples/highEntropyWO4";
+import { sharedSiteWolframite as exampleStructure } from "@/examples/mnwo4";
 import { gata4se8PdfExample } from "@/examples/gata4se8Pdf";
 import type { RefinementParameter, RefinementResult } from "@/core/refinement/types";
 import { cscl, maxAbs, simulateSharedSite as simulate, valuesOf } from "@/testSupport/sharedSite";
@@ -91,19 +91,19 @@ describe("a shared site's occupancies on the PDF page", () => {
     const blank = simulate(cscl({ Fe1: 0.5, Mn1: 0.5 }), "neutron", 0, 1);
     const he = buildPdfSpec(exampleStructure(), blank);
     const zn = he.params.find((p) => p.id === "occ_Zn1")!;
-    expect(zn.expression).toBe("= 1 - sum(occ_Co1, occ_Fe1, occ_Ni1, occ_Mn1, occ_Cu8)");
+    expect(zn.expression).toBe("= 1 - sum(occ_Mn1, occ_Fe1, occ_Co1)");
     expect(zn.fixed).toBe(true);
-    expect(zn.value).toBe(1 - [0.167, 0.167, 0.167, 0.167, 0.167].reduce((a, b) => a + b, 0));
+    expect(zn.value).toBe(1 - [0.25, 0.25, 0.25].reduce((a, b) => a + b, 0));
     expect(zn.initialValue).toBe(zn.value);
     expect(he.restraints).toEqual([]);
-    for (const id of ["occ_Co1", "occ_Cu8", "occ_W1", "occ_O1", "occ_O2"]) expect(he.params.find((p) => p.id === id)!.expression).toBeUndefined();
+    for (const id of ["occ_Mn1", "occ_Co1", "occ_W1", "occ_O1", "occ_O2"]) expect(he.params.find((p) => p.id === id)!.expression).toBeUndefined();
     const two = buildPdfSpec(cscl({ Fe1: 0.5, Mn1: 0.5 }), blank);
     expect(two.params.find((p) => p.id === "occ_Mn1")!.expression).toBe("= -1*occ_Fe1+1");
-    expect(siteSumConstraints(he.params)).toEqual([{ follower: "occ_Zn1", leaders: ["occ_Co1", "occ_Fe1", "occ_Ni1", "occ_Mn1", "occ_Cu8"], total: 1 }]);
+    expect(siteSumConstraints(he.params)).toEqual([{ follower: "occ_Zn1", leaders: ["occ_Mn1", "occ_Fe1", "occ_Co1"], total: 1 }]);
     // A multi-phase page's ties read the phase's own (prefixed) rows.
     const mp = buildMultiPhasePdfSpec([cscl({ Fe1: 0.5, Mn1: 0.5 }), exampleStructure()], blank);
     expect(mp.params.find((p) => p.id === "p0_occ_Mn1")!.expression).toBe("= -1*p0_occ_Fe1+1");
-    expect(mp.params.find((p) => p.id === "p1_occ_Zn1")!.expression).toBe("= 1 - sum(p1_occ_Co1, p1_occ_Fe1, p1_occ_Ni1, p1_occ_Mn1, p1_occ_Cu8)");
+    expect(mp.params.find((p) => p.id === "p1_occ_Zn1")!.expression).toBe("= 1 - sum(p1_occ_Mn1, p1_occ_Fe1, p1_occ_Co1)");
   });
 
   it("leave a structure with no shared site as it was: no tie, no restraint", () => {
@@ -184,31 +184,31 @@ describe("a shared site's occupancies on the PDF page", () => {
     }
   });
 
-  it("an old project's six free occupancies (the soft Σ) open tied: the last held at one minus the others, and it refines", () => {
+  it("an old project's four free occupancies (the soft Σ) open tied: the last held at one minus the others, and it refines", () => {
     const st = exampleStructure();
     const pattern = simulate(cscl({ Fe1: 0.5, Mn1: 0.5 }), "neutron", 0, 1);
     const fitted = pdfPage(st, { ...pattern, id: "he", name: "he" }, { preset: { fitRange: FIT } });
     const saved = workspaceOf(fitted);
-    const A = ["occ_Co1", "occ_Fe1", "occ_Ni1", "occ_Mn1", "occ_Cu8", "occ_Zn1"];
-    // As main saved it: no tie on any row, every occupancy of the shared site free at 0.167 (Σ 1.002).
+    const A = ["occ_Mn1", "occ_Fe1", "occ_Co1", "occ_Zn1"];
+    // As main saved it: no tie on any row, every occupancy of the shared site free at 0.2505 (Σ 1.002).
     const old = {
       ...saved,
       refinement: {
         ...saved.refinement,
         parameters: saved.refinement.parameters.map((p) => {
           const { expression: _e, ...rest } = p;
-          return A.includes(p.id) ? { ...rest, value: 0.167, initialValue: 0.167, fixed: false } : rest;
+          return A.includes(p.id) ? { ...rest, value: 0.2505, initialValue: 0.2505, fixed: false } : rest;
         }),
       },
     };
     expect(old.refinement.parameters.some((p) => "expression" in p)).toBe(false);
     const reopened = pdfPage(st, saved.pattern, { restore: old });
     const zn = reopened.params.find((p) => p.id === "occ_Zn1")!;
-    expect(zn.expression).toBe("= 1 - sum(occ_Co1, occ_Fe1, occ_Ni1, occ_Mn1, occ_Cu8)");
+    expect(zn.expression).toBe("= 1 - sum(occ_Mn1, occ_Fe1, occ_Co1)");
     expect(zn.fixed).toBe(true);
-    expect(zn.value).toBeCloseTo(0.165, 12);
+    expect(zn.value).toBeCloseTo(0.2485, 12);
     expect(zn.initialValue).toBe(zn.value);
-    expect(reopened.params.filter((p) => A.includes(p.id) && !p.fixed).map((p) => p.id)).toEqual(A.slice(0, 5));
+    expect(reopened.params.filter((p) => A.includes(p.id) && !p.fixed).map((p) => p.id)).toEqual(A.slice(0, 3));
     const v = pageView(reopened);
     const site = v.refinedPhases[0]!.sites.filter((s) => A.includes(`occ_${s.label}`));
     expect(Math.abs(site.reduce((acc, s) => acc + s.occupancy, 0) - 1)).toBeLessThan(1e-12);

@@ -26,8 +26,7 @@ import {
 import { parseCif } from "@/parsers/cif";
 import { classifyPointGroup } from "@/core/crystal/pointGroup";
 import { exampleStructure } from "@/examples/mn3ga";
-import { dataExists, readData } from "@/testSupport/data";
-import { LOCAL_DATA } from "@/testSupport/localData";
+import { dataExists, readData, LOCAL_DATA } from "@/testSupport/data";
 import type { SpaceGroup } from "@/core/crystal/types";
 
 const keySet = (sg: SpaceGroup) => new Set(sg.operations.map(operationKey));

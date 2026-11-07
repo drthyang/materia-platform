@@ -26,8 +26,7 @@ import {
 import { exampleStructure } from "@/examples/mn3ga";
 import { exampleMagnetic, magneticParameters, magneticBindings } from "@/examples/mn3gaMagnetic";
 import type { RefinementParameter } from "@/core/refinement/types";
-import { dataDir } from "@/testSupport/data";
-import { LOCAL_DATA } from "@/testSupport/localData";
+import { dataDir, LOCAL_DATA } from "@/testSupport/data";
 
 const DATA = dataDir(LOCAL_DATA.xrd.dir);
 const read = (f: string): string => readFileSync(resolve(DATA, f), "utf8");

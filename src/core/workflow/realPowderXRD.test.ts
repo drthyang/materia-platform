@@ -9,8 +9,7 @@ import { refine } from "@/core/refinement/engine";
 import { computeAgreementFactors, weightsFromSigma, excludedPointMask, applyExclusionMask } from "@/core/refinement/factors";
 import { parseInstrumentParameters } from "@/parsers/instrument";
 import { optimalScale } from "@/app/loadData";
-import { dataExists, readData } from "@/testSupport/data";
-import { LOCAL_DATA } from "@/testSupport/localData";
+import { dataExists, readData, LOCAL_DATA, LOCAL_REFERENCES } from "@/testSupport/data";
 
 /**
  * Real synchrotron XRD from NSLS-II 28ID: the local X-ray dataset
@@ -28,11 +27,13 @@ const DIR = LOCAL_DATA.xrd.dir;
 const CIF = `${DIR}/${LOCAL_DATA.xrd.structure}`;
 const DAT = `${DIR}/${LOCAL_DATA.xrd.pattern}`;
 const INSTPRM = `${DIR}/xrd_instrum.instprm`;
-const has = dataExists(CIF) && dataExists(DAT);
+/** The reference values (data/local-references.json): the wavelength, the CIF's cell and one site's ADP. */
+const XRD_REF = LOCAL_REFERENCES?.xrd;
+const has = !!XRD_REF && dataExists(CIF) && dataExists(DAT);
 const requiresLocalXrd = process.env.LOCAL_XRD_REQUIRED === "1";
 if (requiresLocalXrd && !has) {
   throw new Error(
-    `The local X-ray regression data are required. Expected data/${CIF} and data/${DAT}.`,
+    `The local X-ray regression data are required. Expected data/${CIF}, data/${DAT} and the xrd block of data/local-references.json.`,
   );
 }
 
@@ -45,7 +46,7 @@ function loadInstrument(): Extract<ReturnType<typeof parseInstrumentParameters>,
 
 function loadPattern(): { structure: ReturnType<typeof parseCif>; pattern: PowderPattern } {
   const structure = parseCif(readData(CIF), "gns");
-  const wl = dataExists(INSTPRM) ? loadInstrument().wavelength : 0.1665;
+  const wl = dataExists(INSTPRM) ? loadInstrument().wavelength : XRD_REF!.wavelength;
   const rows = readData(DAT).trim().split(/\r?\n/).map((l) => l.split(",").map(Number));
   const points = rows
     .filter((r) => Number.isFinite(r[0]) && Number.isFinite(r[1]))
@@ -124,12 +125,13 @@ describe.skipIf(!has)("real powder XRD — the local X-ray dataset (NSLS-II 28ID
   it("loads as X-ray 2θ-data on a large F-4̄3m cell with masked points", () => {
     const { structure, pattern } = loadPattern();
     expect(structure.spaceGroup.operations.length).toBe(96);
-    expect(structure.cell.a).toBeCloseTo(10.3951, 3);
-    const nb = structure.sites.find((s) => s.label === "Nb1")!;
-    expect(nb.adp.kind).toBe("anisotropic");
-    if (nb.adp.kind === "anisotropic") {
-      expect(nb.adp.uAniso[0]).toBeCloseTo(0.00226, 5);
-      expect(nb.adp.uAniso[3]).toBeCloseTo(0.00037, 5);
+    const ref = XRD_REF!;
+    expect(structure.cell.a).toBeCloseTo(ref.a, 3);
+    const aniso = structure.sites.find((s) => s.label === ref.uAniso.site)!;
+    expect(aniso.adp.kind).toBe("anisotropic");
+    if (aniso.adp.kind === "anisotropic") {
+      expect(aniso.adp.uAniso[0]).toBeCloseTo(ref.uAniso.u11, 5);
+      expect(aniso.adp.uAniso[3]).toBeCloseTo(ref.uAniso.u12, 5);
     }
     expect(pattern.points.length).toBeGreaterThan(3000);
     expect(excludedPointMask(pattern.points.map((p) => p.yObs)).filter(Boolean).length).toBeGreaterThan(100);
@@ -155,9 +157,8 @@ describe.skipIf(!has)("real powder XRD — the local X-ray dataset (NSLS-II 28ID
     expect(result.parameters.scale!).toBeGreaterThan(0);
     expect(wRend).toBeLessThan(50);
     expect(wRend).toBeLessThan(wRstart - 20);
-    // Refined cubic cell stays physical and near the reported value.
-    expect(result.parameters.acubic!).toBeGreaterThan(10.2);
-    expect(result.parameters.acubic!).toBeLessThan(10.6);
+    // Refined cubic cell stays physical and near the reported value (within 2 %).
+    expect(Math.abs(result.parameters.acubic! / XRD_REF!.a - 1)).toBeLessThan(0.02);
     // Speed guard (reflection caching): dense big-cell refinement in seconds.
     expect(elapsed).toBeLessThan(8000);
     // Remaining gap to <15% is profile (Caglioti U,V,W), zero-shift, and
@@ -199,8 +200,7 @@ describe.skipIf(!has)("real powder XRD — the local X-ray dataset (NSLS-II 28ID
     expect(out.parameters.every((p) => Number.isFinite(p.value))).toBe(true);
     expect(get("scale").value).toBeGreaterThan(0);
     const cellA = out.parameters.find((p) => p.kind === "cellLength")!;
-    expect(cellA.value).toBeGreaterThan(10.2);
-    expect(cellA.value).toBeLessThan(10.6);
+    expect(Math.abs(cellA.value / XRD_REF!.a - 1)).toBeLessThan(0.02);
 
     // Instrument profile refined: V/W move to absorb sample broadening; U stayed
     // fixed at the instrument value (degenerate over this narrow 2θ range).
@@ -208,7 +208,7 @@ describe.skipIf(!has)("real powder XRD — the local X-ray dataset (NSLS-II 28ID
     expect(get("profW").value).not.toBeCloseTo(inst.w ?? 1, 3);
 
     // Per-site ADPs refined to finite values: isotropic B for Uiso sites and
-    // symmetry-adapted U tensor modes for the Nb Uani site.
+    // symmetry-adapted U tensor modes for the one Uani site.
     const bs = out.parameters.filter((p) => p.kind === "bIso");
     expect(bs.length).toBe(structure.sites.filter((s) => s.adp.kind === "isotropic").length);
     expect(bs.every((p) => p.value >= 0 && Number.isFinite(p.value))).toBe(true);
@@ -218,14 +218,14 @@ describe.skipIf(!has)("real powder XRD — the local X-ray dataset (NSLS-II 28ID
 
     // All three general (x,x,x) sites contribute a positional mode; the fixed
     // (3/4,3/4,3/4) site contributes none. (Regression on the coord>0.5 bug that
-    // over-fixed Se17 at (0.8845,0.8845,0.8845).)
+    // over-fixed a general (x,x,x) site with x > 0.5.)
     const posModes = out.parameters.filter((p) => p.kind === "positionShift");
     expect(posModes.length).toBe(3);
 
     // Quality: with the structure-factor special-position fix, the Lorentz factor,
     // and a Thompson–Cox–Hastings pseudo-Voigt (Gaussian U/V/W + Lorentzian X/Y),
-    // this is a genuinely good Rietveld fit — wR ≈ 5.5%, below GSAS-II's 7.34% on
-    // the same data (GoF < 1 as the counting errors are generous).
+    // this is a genuinely good Rietveld fit — wR below GSAS-II's on the same
+    // data (GoF < 1 as the counting errors are generous).
     expect(wRend).toBeLessThan(wRstart);
     expect(wRend).toBeLessThan(12);
     expect(elapsed).toBeLessThan(15000);

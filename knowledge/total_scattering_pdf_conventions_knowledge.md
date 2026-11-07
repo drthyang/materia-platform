@@ -155,7 +155,7 @@ paper):
   So Nyquist-spaced points are uncorrelated ONLY for white F(Q) noise
   (exactly so on a discrete grid: DST-I orthogonality). Real σ_S tends to grow
   with Q, which pushes ρ(π/Qmax) further negative (−0.75 measured for
-  σ_S ∝ 1 + Q/8 on FeCoSn 199 K).
+  σ_S ∝ 1 + Q/8 on a real neutron S(Q)).
 - Independent points in a window: the sampling-theorem count
   (r_max − r_min)·Qmax/π (Farrow et al. 2011), and the participation ratio
   N*_ef = (Σλ)²/Σλ² of the correlation matrix (Bretherton et al. 1999, Eq. 3),

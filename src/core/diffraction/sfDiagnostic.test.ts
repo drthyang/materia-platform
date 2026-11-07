@@ -1,8 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { parseCif } from "@/parsers/cif";
 import { nuclearStructureFactorSquared } from "@/core/diffraction/structureFactor";
-import { dataExists, readData } from "@/testSupport/data";
-import { LOCAL_DATA } from "@/testSupport/localData";
+import { dataExists, readData, LOCAL_DATA, LOCAL_REFERENCES } from "@/testSupport/data";
 
 /**
  * Golden validation of our nuclear structure factor against GSAS-II's own
@@ -18,12 +17,14 @@ import { LOCAL_DATA } from "@/testSupport/localData";
 const DIR = LOCAL_DATA.xrd.dir;
 const CIF = `${DIR}/${LOCAL_DATA.xrd.structure}`;
 const REFL = `${DIR}/gsas_reflections.csv`;
-const has = dataExists(CIF) && dataExists(REFL);
+/** The dataset's wavelength (data/local-references.json). */
+const XRD_REF = LOCAL_REFERENCES?.xrd;
+const has = !!XRD_REF && dataExists(CIF) && dataExists(REFL);
 
 describe.skipIf(!has)("structure factor vs GSAS-II reflection list — the local X-ray dataset", () => {
   it("reproduces GSAS-II's relative Fc² across the strongest reflections", () => {
     const s = parseCif(readData(CIF), "gns");
-    const rad = { kind: "xray" as const, wavelength: 0.1665 };
+    const rad = { kind: "xray" as const, wavelength: XRD_REF!.wavelength };
     const rows = readData(REFL).trim().split(/\r?\n/).slice(1).map((l) => l.split(",").map(Number));
     const strong = rows
       .map((r) => ({ h: r[0]!, k: r[1]!, l: r[2]!, Fc2: r[7]! }))

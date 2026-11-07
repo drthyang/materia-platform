@@ -27,11 +27,10 @@ import { withinNoiseOfBest } from "@/core/diagnostics/hamilton";
 import { RANK_NOISE_ALPHA } from "@/core/diagnostics/thresholds";
 import { fCritical } from "@/core/math/fDistribution";
 import type { SymmetryOperation } from "@/core/crystal/types";
-import { dataExists, readData, DATA_DIR } from "@/testSupport/data";
-import { LOCAL_DATA } from "@/testSupport/localData";
+import { dataExists, readData, DATA_DIR, LOCAL_DATA, LOCAL_REFERENCES } from "@/testSupport/data";
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { LOCAL_MAGNETIC_DEMO_FILES } from "@/examples/localMagneticDemo";
+import { localMagneticDemoFiles } from "@/examples/localMagneticDemo";
 import type { Vec3 } from "@/core/math/types";
 
 /**
@@ -42,9 +41,10 @@ import type { Vec3 } from "@/core/math/types";
  * in the git-ignored data folder with the unpublished histogram it derives
  * from; the demo reads it from there at runtime.
  *
- *   1. nuclear staged refinement of the 100 K P2/c model against the 6 K data
+ *   1. nuclear staged refinement of the 100 K model against the 6 K data
  *      (scale → background → cell → TOF profile → ADP → positions);
- *   2. residual-peak detection + k-search (must find k = (½,0,0));
+ *   2. residual-peak detection + k-search (must find the reference k, from
+ *      data/local-references.json);
  *   3. every magnetic subgroup candidate of the little group of k is refined
  *      with the nuclear model held fixed — the magnetic page's own "Rank
  *      candidates" (rankCandidates, with its restarts) — and the group chosen
@@ -53,7 +53,7 @@ import type { Vec3 } from "@/core/math/types";
  *      (topDownGroup below states N, m and b);
  *   4. the magnetic refinement of the chosen candidate, with only the magnetic
  *      parameters free (magnetic-analysis, Stage 4): its moments, and k's
- *      components where the little group lets k move (none for k = (½,0,0)).
+ *      components where the little group lets k move.
  *      The nuclear model of step 1 is the fixed reference: the scale,
  *      background, cell, instrument terms, positions, ADPs and occupancies
  *      stay at their nuclear values. The converged values are written to the
@@ -66,8 +66,8 @@ import type { Vec3 } from "@/core/math/types";
 const CIF = `${LOCAL_DATA.magneticTof}/structure_100K.cif`;
 const INST = `${LOCAL_DATA.magneticTof}/instrument_bank3.instprm`;
 const GSA = `${LOCAL_DATA.magneticTof}/PG3_powder_6K.gsa`;
-const has = !!process.env.LOCAL_MAGNETIC_SOLVE && dataExists(CIF) && dataExists(INST) && dataExists(GSA);
-const K: Vec3 = [0.5, 0, 0];
+const has = !!process.env.LOCAL_MAGNETIC_SOLVE && !!LOCAL_REFERENCES?.magneticTof && dataExists(CIF) && dataExists(INST) && dataExists(GSA);
+const K: Vec3 = LOCAL_REFERENCES?.magneticTof?.k ?? [0, 0, 0];
 
 describe.skipIf(!has)("local magnetic demo — solve the magnetic structure with the app's own tools", () => {
   it("nuclear refinement → k-search → candidate ranking → magnetic refinement (moments only, nuclear held)", { timeout: 40 * 60 * 1000 }, async () => {
@@ -122,7 +122,7 @@ describe.skipIf(!has)("local magnetic demo — solve the magnetic structure with
     console.log(`[local] peaks d/Å (I/σ): ${peaks.map((p) => `${p.d.toFixed(3)}(${(p.significance ?? 0).toFixed(1)}${p.nearNuclear ? "·nuc" : ""})`).join(" ")}`);
     console.log(`[local] top k: ${kCands.slice(0, 6).map((c) => `${c.label} ${c.matched}/${c.total} rmsd ${c.rmsd.toFixed(4)} score ${c.score.toFixed(3)}`).join(" | ")}`);
     const kRank = kCands.findIndex((c) => c.k[0] === K[0] && c.k[1] === K[1] && c.k[2] === K[2]);
-    console.log(`[local] k = (½ 0 0) ranks #${kRank + 1} from the nuclear-fit residual (the 6 K − 100 K difference analysis in realLocalMagnetic.test.ts puts it first)`);
+    console.log(`[local] k = (${K.join(" ")}) ranks #${kRank + 1} from the nuclear-fit residual (the 6 K − 100 K difference analysis in realLocalMagnetic.test.ts puts it first)`);
 
     // 3. Rank every candidate magnetic group at k against the data, the nuclear
     //    model held: the page's own ranking (rankCandidates — each group fitted
@@ -179,7 +179,7 @@ describe.skipIf(!has)("local magnetic demo — solve the magnetic structure with
     //    nuclear row (scale, background, cell, instrument terms, positions,
     //    ADPs, occupancies) stays at its nuclear value — freed, they trade with
     //    the moments, and the esds hide it. k's free components refine too
-    //    where the little group lets k move; k = (½,0,0) has none.
+    //    where the little group lets k move (a k at a zone-boundary point has none).
     const bestBuild = buildOf(best.ops.map((o) => ({ ...parseXyz(o.xyz), timeReversal: o.timeReversal })));
     const kRows = propagationKParameters(structure, bestBuild.magnetic);
     console.log(`[local] k rows: ${kRows.params.length > 0 ? kRows.params.map((p) => p.id).join(", ") : `none — ${kRows.notes.join("; ")}`}`);
@@ -237,7 +237,7 @@ describe.skipIf(!has)("local magnetic demo — solve the magnetic structure with
       })),
       solvedAt: new Date().toISOString(),
     };
-    const out = resolve(DATA_DIR, LOCAL_MAGNETIC_DEMO_FILES.solution);
+    const out = resolve(DATA_DIR, localMagneticDemoFiles(LOCAL_DATA).solution);
     writeFileSync(out, JSON.stringify(solution, null, 2) + "\n");
     console.log(`[local] solution written to ${out}`);
     console.log("[local-json] " + JSON.stringify(solution));
