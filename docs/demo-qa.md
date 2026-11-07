@@ -61,22 +61,23 @@ All in this branch (PR from `demo-qa`).
 | The posterior table's R̂ header drew its hat beside the R (the sans header face) | `src/app/ui/PosteriorPanel.tsx` | The header cell in the mono face, as R̂max above the table | `73dce5c` |
 | At 1280 px with the Copilot open, the Rietveld card's GoF ran under its view tabs (the title row measured its figures as if they could wrap) | `src/app/PowderWorkbench.tsx`, `src/app/PdfWorkbench.tsx` | The figures do not wrap, so the tabs take their own line when both do not fit, as the row was designed to; the QA script checks the row fits | `9727bd2` |
 
+### Follow-up (branch `fix/demo-polish`)
+
+| Issue | Where | Fix |
+| --- | --- | --- |
+| After ✕ clear the header's step chip still read "Supercell child: …", and History had no step for the clear | `src/app/pdfSubgroups.ts` (`clearanceOf`), `src/app/PdfWorkbench.tsx` | ✕ clear records a "settings" step, "Back to F -4 3 m #216", as Activate records its own; test in `pdfSupercellChild.test.ts`, and step 4 checks the chip. The Copilot's `clear_subgroup` is unchanged (it already recorded a step) |
+| The exported mCIF did not name its magnetic group | `src/core/export/cif.ts` | A k = 0 model's group is identified from its operations and written as `_space_group_magn.name_BNS`, `number_BNS`, `name_OG`, `number_OG` (the supercell path uses the same tags); round-trip test in `cif.test.ts`. On the Mn₃Ga demo: `P6_3'/m'm'c`, BNS 194.268, OG 194.6.1499; step 2 checks it |
+| `scripts/device-screenshots.mjs` waited for "Result: converged" and timed out | `scripts/device-screenshots.mjs` | Waits for "converged · N cycles" and Refine back, checks the public demo opened, keeps the © line (pinned when the footer is out of view); `--out=dir` |
+
 ## Known remaining issues
 
 Listed, not fixed: each is a feature, a larger change, or touches what the
 Copilot's model reads.
 
-- **✕ clear records no History step.** After ✕ clear the page is the parent
-  again, but the header's last-step chip still names the child ("Supercell
-  child: …") and History has no "back to the parent" step; Back from there
-  skips to the step before the activation. The Copilot's `clear_subgroup`
-  shares the handler. Recording a step would add a History entry the model
-  reads in `get_state`, so it waits for the freeze to lift.
-- **The exported mCIF does not name its BNS group.** The header's mCIF (and
-  the 3D card's) writes the magnetic operations, complete, and the parent
-  group, but not `_space_group_magn.name_bns`: the label is not passed to
-  `magneticStructureToMcif`. Readers identify the group from the operations.
-  Belongs with the mCIF work already queued.
+- **The Copilot's clear_subgroup names its History step differently** from
+  ✕ clear: its step keeps the generated label ("Position mode, distortion
+  modes · …"), not "Back to F -4 3 m #216". Matching it changes a label the
+  model reads in `get_state`, so it waits for the freeze to lift.
 - **Ranking magnetic candidates takes 18–29 s** for the 14 maximal
   candidates (one refinement each). It runs with progress and Cancel and the
   page stays usable. Speed work is parked (correctness first).
@@ -87,8 +88,6 @@ Copilot's model reads.
 - **Narrow panels scroll sideways:** on the 3D Model view the site chips and
   the mode table (A_p, esd columns) scroll inside their boxes at 1280 px and
   on a supercell child at 1600 px. By design, but nothing hints at the scroll.
-- `scripts/device-screenshots.mjs` waits for "Result: converged", which the
-  page no longer shows (it says "converged · 2 cycles"); it times out.
 
 ## Re-running
 

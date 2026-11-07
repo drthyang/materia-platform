@@ -400,7 +400,10 @@ async function step2(context, vp) {
     const report = await timed("Report export", () => download(page, () => exportMenu(page, "Report"), "Report"));
     const mcif = await timed("mCIF export", () => download(page, () => exportMenu(page, "mCIF"), "mCIF"));
     expect(readFileSync(mcif, "utf8").includes("_space_group_symop_magn_operation"), "the mCIF carries its magnetic operations");
-    note(`mCIF names its BNS group: ${readFileSync(mcif, "utf8").includes("_space_group_magn.name_bns")}`);
+    const bns = /^_space_group_magn\.name_BNS\s+"([^"]+)"/m.exec(readFileSync(mcif, "utf8"));
+    const bnsNumber = /^_space_group_magn\.number_BNS\s+(\S+)/m.exec(readFileSync(mcif, "utf8"));
+    expect(!!bns && !!bnsNumber, "the mCIF names its BNS group (name_BNS, number_BNS)");
+    if (bns) note(`mCIF: BNS ${bns[1]} (${bnsNumber?.[1] ?? "no number"})`);
     // The report renders without errors.
     const rp = await context.newPage();
     attach(rp);
