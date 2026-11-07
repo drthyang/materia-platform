@@ -92,6 +92,26 @@ describe("the method as code", () => {
     expect(stagesOnPath("powder", null, positions)).toBeNull();
   });
 
+  it("takes no stage back for a value moved by a hundredth of its esd or less (a refinement run again at its minimum)", () => {
+    const start = [p("scale", "scale"), p("a", "cellLength"), p("B", "bIso")];
+    const at = (values: Record<string, number>, free: readonly string[], status: string): { parameters: RefinementParameter[]; result: RefinementResult } => ({
+      parameters: start.map((q) => ({ ...q, value: values[q.id] ?? q.value, fixed: !free.includes(q.id) })),
+      result: { status, agreement: { rWeighted: 0.1 }, esd: Object.fromEntries(free.map((id) => [id, 0.01])) } as unknown as RefinementResult,
+    });
+    let h: ProjectHistory | null = null;
+    const step = (kind: StepKind, s: { parameters: RefinementParameter[]; result?: RefinementResult }): void => {
+      h = recordStep(h, { structures: [], workspace: { technique: "powder", refinement: { parameters: s.parameters, ...(s.result ? { lastResult: s.result } : {}) } } as unknown as Workspace, kind, label: kind });
+    };
+    step("load", { parameters: start });
+    step("refine", at({ scale: 2, a: 4.1 }, ["scale", "a"], "converged"));
+    step("refine", at({ scale: 2, a: 4.1, B: 0.5 }, ["scale", "B"], "converged"));
+    // Run again, it stopped short of "converged" with the scale 0.00005 off (0.005 esd): every stage stands
+    // (the positions and the profile have no parameter here: passed).
+    expect(stagesOnPath("powder", h, at({ scale: 2.00005, a: 4.1, B: 0.5 }, ["scale", "B"], "stalled"))).toEqual(["base", "positions", "profile", "adp"]);
+    // 0.5 esd off is a move: the scale's stage goes back.
+    expect(stagesOnPath("powder", h, at({ scale: 2.005, a: 4.1, B: 0.5 }, ["scale", "B"], "stalled"))).toEqual(["positions", "profile", "adp"]);
+  });
+
   it("lists the refinement stages left before the space group may be questioned", () => {
     expect(stagesLeft("powder", emptyRecord("k"))).toEqual(["Scale, background, cell", "Positions", "Profile", "ADPs"]);
     // The cell check is not among them: it never holds anything up.

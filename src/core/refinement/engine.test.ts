@@ -659,5 +659,38 @@ describe("no downhill step", () => {
     // A real stall: χ² well above the floor, the last step still large.
     expect(noDescentStatus({ gradNorm: 40, chi: 812, rWeighted: 0.08, lastShiftOverEsd: 3.2, shiftTolerance: 0.05 })).toBe("stalled");
     expect(noDescentStatus({ gradNorm: 1e-9, chi: 812 })).toBe("converged");
+    // The undamped step from where the fit stands: a hundredth of an esd is the minimum, more a stall.
+    expect(noDescentStatus({ gradNorm: 40, chi: 812, rWeighted: 0.08, remainingShiftOverEsd: 0.004 })).toBe("converged");
+    expect(noDescentStatus({ gradNorm: 40, chi: 812, rWeighted: 0.08, remainingShiftOverEsd: 0.5 })).toBe("stalled");
+  });
+
+  it("is converged with no change when a fit is run again at its minimum, and a stall away from it (full-refinement, 2026-11-07)", () => {
+    // y = a against data of mean 0, minimum at a = 0 with χ² 4: every evaluation after the first adds an
+    // offset that grows with the call count, so no trial step lowers χ² (as round-off at a minimum does).
+    // The derivative is analytic: no evaluation goes to the Jacobian.
+    const obs = Float64Array.from([1, -1, 1, -1]);
+    const problem = (a: number): RefinementProblem => {
+      let calls = 0;
+      return {
+        parameters: [{ id: "a", label: "a", kind: "atomX", value: a, initialValue: a, fixed: false }],
+        observations: obs,
+        weights: new Float64Array(4).fill(1),
+        calculate: (v) => {
+          const offset = 10 * calls++;
+          return Float64Array.from(obs, () => v.a! + offset);
+        },
+        analyticColumns: () => [new Float64Array(4).fill(1)],
+      };
+    };
+    // a = 0.001 against an esd of 0.58: the minimum is 0.002 esd away.
+    const at = refine(problem(1e-3), { maxIterations: 20, convergenceTolerance: 1e-12 });
+    expect(at.status).toBe("converged");
+    expect(at.history.length).toBe(1);
+    expect(at.parameters.a).toBe(1e-3);
+    expect(at.message).toBe("converged after 1 iteration(s), no change: already at the minimum");
+    // a = 1: the minimum 1.7 esd away and no step taken is a stall.
+    const away = refine(problem(1), { maxIterations: 20, convergenceTolerance: 1e-12 });
+    expect(away.status).toBe("stalled");
+    expect(away.message).toBe("stalled after 1 iteration(s)");
   });
 });
