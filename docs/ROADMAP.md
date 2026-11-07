@@ -40,7 +40,7 @@ what is missing. [VALIDATION.md](./VALIDATION.md) records the evidence.
 | --- | --- | --- | --- |
 | [F1 Robust engine](#f1--robust-refinement-algorithm-) | 🚧 | LM with esds, staged guards and multi-start; analytic derivatives are partial | [REFINEMENT_ENGINE.md](./REFINEMENT_ENGINE.md) |
 | [F2 Symmetry constraints](#f2--symmetry-constrained-parameterization-) | 🚧 | All 230 space groups; Wyckoff letters for a curated set only | [LIMITATIONS.md](./LIMITATIONS.md#symmetry) |
-| [M1 Atomic refinement](#m1--atomic-structure-refinement-) | 🚧 | Staged CW and TOF Rietveld; GaNb₄Se₈ wR below GSAS-II's | [LIMITATIONS.md](./LIMITATIONS.md#powder-diffraction) |
+| [M1 Atomic refinement](#m1--atomic-structure-refinement-) | 🚧 | Staged CW and TOF Rietveld; on a local synchrotron dataset, wR below GSAS-II's | [LIMITATIONS.md](./LIMITATIONS.md#powder-diffraction) |
 | [M2 k-vector search](#m2--magnetic-k-vector-search-) | 🚧 | Commensurate single-k search by peak position | [LIMITATIONS.md](./LIMITATIONS.md#magnetic-structures) |
 | [M3 Magnetic symmetry](#m3--magnetic-space-group-and-symmetry-analysis-) | 🚧 | Subgroup lattice, BNS/OG labels (type IV in the magnetic cell), irreps at any commensurate k; no groups for a two-arm k | [MAGNETIC_SYMMETRY.md](./MAGNETIC_SYMMETRY.md) |
 | [M4 Magnetic refinement](#m4--magnetic-structure-refinement-) | 🚧 | One k, commensurate or incommensurate; candidates ranked on the data | [Track B plan](./PLAN_SUBGROUPS_AND_INCOMMENSURATE.md) |
@@ -49,9 +49,21 @@ what is missing. [VALIDATION.md](./VALIDATION.md) records the evidence.
 | [M7 Single crystal](#m7--single-crystal-refinement-) | 🚧 | F² refinement and the magnetic supercell merge; no twinning | [SINGLE_CRYSTAL.md](./SINGLE_CRYSTAL.md) |
 | PDF and mPDF | 🚧 | Nuclear and magnetic PDF, boxcar fits, posteriors; local spin model open | [PDF_MPDF_ROADMAP.md](./PDF_MPDF_ROADMAP.md) |
 | PDF symmetry modes | ✅ | Γ distortion modes and the translationengleiche subgroup tree | [Track A plan](./PLAN_SUBGROUPS_AND_INCOMMENSURATE.md) |
-| Track A: PDF supercells | ⬜ | Klassengleiche subgroups, zone-boundary modes, child-cell PDF model | [Track A plan](./PLAN_SUBGROUPS_AND_INCOMMENSURATE.md) |
+| Subgroup engine | ✅ | Phases 1–5 done in 0.5.0: irreps at the decentring k (1), a supercell bound and the subgroup lattice in it (2), a supercell child refined in its own cell (3), modes by parent irrep and ISODISTORT mode CIFs (4), magnetic representation analysis at any commensurate k (5) | [ADRs 0001–0005](./adr/) |
+| Track A: PDF supercells | ✅ | Klassengleiche subgroups, zone-boundary modes and the child-cell PDF and Rietveld model, on the subgroup engine (Phases 2–4) | [Track A plan](./PLAN_SUBGROUPS_AND_INCOMMENSURATE.md) |
 | Track B: incommensurate | 🚧 | Refine k ✅ (powder; FullProf golden on DyMn₆Ge₆); Fourier-loop mCIF, star of k, harmonics open | [Track B plan](./PLAN_SUBGROUPS_AND_INCOMMENSURATE.md) |
 | [Agent layer](#5-agent-tools-skills-and-llm-guided-refinement) | 🚧 | MCP tools per milestone; five method skills read on demand; the in-app Agent (powder, magnetic step and PDF pages) with rules in code and an eval suite; single crystal open | [AGENT_TOOLS.md](./AGENT_TOOLS.md) |
+
+**Next, after 0.5.0**
+1. A second layout pass over the app.
+2. Letter labels for k-points on symmetry lines and in non-cubic parents
+   (they show as coordinates now).
+3. A refinement that does not run away with many modes free (seen on a Pnma
+   child on the PDF page).
+4. Live eval runs that can be interrupted, so a long moment fit cannot hold
+   a run past its cap.
+5. A layer-by-layer subgroup search for the Agent.
+6. A tiered regression suite for the subgroup engine.
 
 ## 3. Foundations
 
@@ -96,7 +108,7 @@ numbered order.
 4. 🚧 **F1.8** Faster posterior sampling and a corner plot (below).
 
 **Validation gate**
-- ✅ Staged GaNb₄Se₈ fit: wR ≈ 5.7%, below GSAS-II's 7.34% on the same data
+- ✅ Staged fit of a local synchrotron X-ray dataset: wR below GSAS-II's on the same data
   ([`realPowderXRD.test.ts`](../src/core/workflow/realPowderXRD.test.ts)).
 - ✅ Analytic columns match finite differences for powder
   ([`analyticJacobian.test.ts`](../src/core/workflow/analyticJacobian.test.ts))
@@ -127,7 +139,7 @@ L-BFGS gives no valid covariance, so a gradient-only driver still needs a final
 LM pass for the esds.
 
 **Validation gate**
-- ⬜ Each alternative reaches LM's minimum on GaNb₄Se₈ and the PDF golden.
+- ⬜ Each alternative reaches LM's minimum on the local X-ray dataset and the PDF golden.
 - ⬜ A benchmark across problem sizes shows where each one beats LM.
 - ⬜ Gradient-only methods match the LM esds after the final pass.
 
@@ -197,7 +209,7 @@ powder or single-crystal data.
 - The two-phase Mn₃Ga + MnO POWGEN demo opens converged on a fit window
   (d ≈ 0.41–5.03 Å) at wR ≈ 4.2%, on a three-point log-interpolate background
   ([`mn3gaPowgen.ts`](../src/examples/mn3gaPowgen.ts)).
-- |F|² matches GSAS-II's relative Fc² on GaNb₄Se₈
+- |F|² matches GSAS-II's relative Fc² on a local X-ray dataset
   ([`sfDiagnostic.test.ts`](../src/core/diffraction/sfDiagnostic.test.ts)).
 
 **Next**
@@ -224,8 +236,8 @@ planned.
 **Done**
 - A commensurate single-k search that ranks candidates by matched satellite
   positions ([`kSearch.ts`](../src/core/magnetic/kSearch.ts)).
-- On real AWO₄ 6 K neutron data, the difference from the paramagnetic pattern
-  yields k = (½,0,0) ([`realLocalMagnetic.test.ts`](../src/core/workflow/realLocalMagnetic.test.ts)).
+- On a local real neutron dataset, the difference from the paramagnetic pattern
+  yields the known k ([`realLocalMagnetic.test.ts`](../src/core/workflow/realLocalMagnetic.test.ts)).
 - Each k is classed as zero, self-conjugate or two-arm; an irrational k runs
   through the whole M4 path ([`propagation.ts`](../src/core/magnetic/propagation.ts)).
 
@@ -235,7 +247,7 @@ planned.
 3. Multi-k structures.
 
 **Validation gate**
-- ✅ The search recovers a zone-boundary k on synthetic and real AWO₄ data and
+- ✅ The search recovers a zone-boundary k on synthetic and real data and
   does not prefer Γ for magnetic peaks ([`kSearch.test.ts`](../src/core/magnetic/kSearch.test.ts)).
 - ⬜ An intensity-scored search passes the same checks.
 
@@ -289,8 +301,8 @@ each M3 candidate, then rank candidates by fit and physical plausibility.
   ([`KSearchPanel.tsx`](../src/components/KSearchPanel.tsx)).
 - The page draws the chosen candidate on the pattern, opens on an applied model
   and explains a residual on nuclear positions as k = 0.
-- **AWO₄ 6 K demo (LOCAL ONLY):** opens on the solved k = (½,0,0), P2/c′
-  structure, its moments refined with the nuclear model held. Its data are unpublished, stay in the git-ignored `data/` folder
+- **Local magnetic demo (LOCAL ONLY):** opens on the solved structure, its
+  moments refined with the nuclear model held. Its data are unpublished, stay in the git-ignored `data/` folder
   and never enter the public build ([`localMagneticDemo.ts`](../src/examples/localMagneticDemo.ts)).
 
 **Next** (items 1–4 are Track B phases in
@@ -436,7 +448,7 @@ the design and the generated tool list.
   [`.claude/skills/`](../.claude/skills), read on demand by the in-app Agent
   and by Claude Code; the method's firm rules are code
   ([`src/agent/method.ts`](../src/agent/method.ts)).
-- **Evals:** ten scenarios, each against a failure a user or a researcher round
+- **Evals:** 38 scenarios, each against a failure a user or a researcher round
   found, replayed in CI through the real chat loop and tools
   ([`src/agent/evals/`](../src/agent/evals)).
 - **Agent in the loop:** the LLM plans and sequences, and the LM engine does
@@ -481,7 +493,7 @@ state. A capability counts as validated only when
 - **Check k ≠ 0 against the supercell.** Gate k ≠ 0 conventions with a
   brute-force supercell sum; round-trip tests missed three errors it caught.
 - **Compare intensities before profiles.** When a fit trails a reference
-  program, compare per-reflection |F|² first. The GaNb₄Se₈ gap came from |F|²
+  program, compare per-reflection |F|² first. The local X-ray benchmark's gap came from |F|²
   and Lorentz-factor errors, not the profile.
 - **Match Wyckoff positions by orbit.** A site belongs to a position when a
   symmetry image lies on its locus. Stabilizer conjugacy fails, because

@@ -1,9 +1,9 @@
 # A magnetic benchmark on unpublished data, checked against the owner's reference
 
 Pull request [#102](https://github.com/drthyang/materia-platform/pull/102),
-branches `claude/awo4-benchmark` (`356a6b5`) and `claude/awo4-reference`
-(`b10c97e`, `12ccbcd`, `054e3d3`), merged into `claude/materia-backlog`,
-2026-10-24. Backlog item M5: the owner's AWO₄ 8 K POWGEN data as a benchmark
+commits `356a6b5`, `b10c97e`, `12ccbcd` and `054e3d3`, merged into
+`claude/materia-backlog`, 2026-10-24. Backlog item M5: the owner's local
+magnetic POWGEN data as a benchmark
 of the app's magnetic refinement, followed by a check against the owner's own
 magnetic refinement of the same data.
 

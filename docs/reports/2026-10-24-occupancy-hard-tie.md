@@ -15,7 +15,7 @@ member stays the last in file order.
   occupancy row and held their sum by a pseudo-observation (`occ_sum_<site>`,
   σ 0.01). On the PDF page its weight was 10⁴ against G(r)'s unit weights, so
   its stiffness depended on the scale of G(r), and its target was the
-  starting sum: the bundled (Co,Cu,Fe,Mn,Ni,Zn)WO₄ (6 × 0.167) was held at
+  starting sum: the bundled six-cation structure (6 × 0.167) was held at
   1.002. The powder page did the same unless "Σ occ = 1" was switched on, and
   applied it only while one of the occupancies was free. Position and ADP
   were already one parameter each.
@@ -88,7 +88,7 @@ project round trip. All identical. A test pins that a structure without a
 shared site gets the same rows and refinement with the tie as without it.
 
 **Goldens and the data-gated benchmark.** The PDFfit2, diffpy.mpdf and powder
-goldens pass unchanged; none was re-pinned. The AWO₄ powder benchmark (25
+goldens pass unchanged; none was re-pinned. The local magnetic benchmark (25
 tests since M10) passes with its criteria and its `it.fails` as written; one
 observation in C5b is re-pinned, below. Its numbers moved: the model's last
 cation now starts at one minus the five others (Σ 1, not 1.002). With the tie
@@ -180,7 +180,7 @@ constraints.
 - `npm run lint`, `tsc -b --noEmit`, `npm run build` and `npm run build:mcp`
   pass.
 - `npm test` (`--minWorkers=1 --maxWorkers=2`): 348 files, 319 passed and 29
-  skipped; 2701 tests passed, 254 skipped, none failed. It includes the AWO₄
+  skipped; 2701 tests passed, 254 skipped, none failed. It includes the local magnetic
   benchmark (25 tests) with the local data in the new layout.
 - No shared site, bit-identical to the merged `main`, re-checked after the
   merge on both pages (the cases above).

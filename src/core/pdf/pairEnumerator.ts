@@ -85,8 +85,8 @@ function dotv(a: Vec3, b: Vec3): number {
  * a mixed or shared site, such as the six cations on one wolframite A site.
  * Their pairs differ only in the species weight, and the pair term is bilinear
  * in the weights, so a pair sum may run over one representative per group
- * carrying the group's summed weight (`groupedWeights`) — for (Co,Cu,Fe,Mn,Ni,Zn)WO₄
- * a third of the pairs. `rep[a]` is atom a's representative, the group's first
+ * carrying the group's summed weight (`groupedWeights`) — for a site shared by six
+ * cations, a third of the pairs. `rep[a]` is atom a's representative, the group's first
  * atom.
  */
 export interface ColocatedGroups {

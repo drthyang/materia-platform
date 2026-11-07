@@ -135,9 +135,9 @@ Every magnetic golden and validated fit that runs without the git-ignored
 | Scale equivalence, parent + k against the explicit supercell | itself | mag/nuc 0.201841 | 0.201841 | equal |
 
 **Run locally on the git-ignored `data/`**, on `main` and on this branch
-(not in CI): DyMn₆Ge₆ against FullProf, FeCoSn 1.7 K against GSAS-II, the
-Mn₃Ga 350 K per-reflection |F_M|² against GSAS-II, the AWO₄ demo and the
-diffpy.mpdf tutorial data: **unchanged**. (The AWO₄ k-search and 8 K benchmark
+(not in CI): DyMn₆Ge₆ against FullProf, the local hexagonal dataset against GSAS-II, the
+Mn₃Ga 350 K per-reflection |F_M|² against GSAS-II, the local magnetic demo and the
+diffpy.mpdf tutorial data: **unchanged**. (The local k-search and magnetic benchmark
 tests skip on both: the local folder holds their files under other names.)
 
 No golden was re-baselined: none that ran moved.

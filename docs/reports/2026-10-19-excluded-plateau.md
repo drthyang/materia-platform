@@ -79,7 +79,7 @@ pattern have no repeated non-positive value (0 of 4613 and 0 of 6251
 points). So arm A's pinned results do not move, and arms B and C measure the
 same.
 
-The user's AWO₄ data (git-ignored, not here) were not checked. If their
+The user's local magnetic data (git-ignored, not here) were not checked. If their
 histogram has a plateau, a magnetic or multi-phase fit on them now leaves it
 out.
 

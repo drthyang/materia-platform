@@ -18,7 +18,7 @@ Web resources accessed **2026-07-08**; DOIs verified against Crossref **2026-07-
   - Golden-value tests — reciprocal metric tensor, site multiplicities, nuclear
     structure factors, neutron `b`/magnetic ⟨j0⟩ — check our numbers against
     GSAS-II output ([`VALIDATION.md`](./VALIDATION.md)).
-  - The real GaNb₄Se₈ benchmark compares our staged fit against GSAS-II's
+  - The real local X-ray benchmark compares our staged fit against GSAS-II's
     extracted calc + reflection list ([`gsasBenchmark.test.ts`](../src/core/workflow/gsasBenchmark.test.ts)).
   - Its `.lst` printed neutron scattering lengths and its `atmdata` magnetic
     conventions were **inspected** when building the scattering tables.
@@ -347,7 +347,7 @@ and the build plan in [`PDF_MPDF_ROADMAP.md`](./PDF_MPDF_ROADMAP.md).
   Goodwin, A. L. & Hui, Q. (2007). "RMCProfile: reverse Monte Carlo for
   polycrystalline materials." *J. Phys.: Condens. Matter* **19**, 335218.
   doi:[10.1088/0953-8984/19/33/335218](https://doi.org/10.1088/0953-8984/19/33/335218)
-  — real-data gate on FeCoSn 199 K (data-gated,
+  — real-data gate on a local neutron S(Q) (data-gated,
   [`stogGolden.test.ts`](../src/core/totalscattering/stogGolden.test.ts)).
 - **Magnetic diffuse-scattering refinement (context, not implemented)** —
   Paddison, J. A. M., Ross Stewart, J. & Goodwin, A. L. (2013). "SPINVERT: a

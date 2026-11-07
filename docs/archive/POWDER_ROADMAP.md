@@ -1,8 +1,8 @@
 # Powder Refinement Roadmap
 
 > **Archived.** Superseded by the consolidated [`../ROADMAP.md`](../ROADMAP.md).
-> Kept for its granular powder detail — per-workstream status, the GaNb₄Se₈
-> failure modes, and the validated real-data numbers — which the main roadmap
+> Kept for its granular powder detail — per-workstream status and the local
+> X-ray dataset's failure modes — which the main roadmap
 > references rather than repeats.
 
 Focused plan to make **powder** refinement production-grade: a robust engine,
@@ -67,7 +67,7 @@ Status legend: ✅ done · 🚧 in progress · ⬜ not started
    symmetry-adapted `uAniso` modes; apply them back to the full U tensor consumed
    by `anisotropicDebyeWaller`.
 3. **Site-symmetry constraints on Uij** ✅ — allowed ADP modes are the null space
-   of `U = R U Rᵀ` over the site stabilizer. On the GaNb₄Se₈ Nb 16e site this
+   of `U = R U Rᵀ` over the site stabilizer. On an F-43m 16e site this
    correctly gives two modes: `U11=U22=U33` and `U12=U13=U23`.
 4. **Report Ueq** from Uani ⬜.
 
@@ -80,7 +80,7 @@ Status legend: ✅ done · 🚧 in progress · ⬜ not started
    special-position atom like Se at 16e (x,x,x) refines its single free x with
    y,z tied — it cannot drift off its site. General positions get three modes.
    Validated by a synthetic recovery test (displace Mn1 along its mode, refine it
-   back, wR→0) and the real GaNb4Se8 staged test.
+   back, wR→0) and the real local X-ray staged test.
 2. **Occupancy refinement** ⬜ — `occupancy` kind is wired end to end and emitted
    by the builder behind `refineOccupancy` (off by default: correlates with
    scale/ADP); needs damping/constraints before it's on by default.
@@ -96,7 +96,7 @@ Status legend: ✅ done · 🚧 in progress · ⬜ not started
 4. **Export refined CIF** ⬜ — cell, positions, occ, ADPs + esds.
 
 ## Testing example
-Validation uses the **real GaNb4Se8 28ID synchrotron XRD** dataset, not the
+Validation uses a **real local 28ID synchrotron XRD** dataset, not the
 self-consistent synthetic demo (which trivially converges to wR≈0 and proves
 nothing). See `src/core/workflow/realPowderXRD.test.ts` (skips when `data/` is
 absent). A genuine hard case: X-ray, F-4̄3m (96 ops), masked points, 100 K model
@@ -148,27 +148,25 @@ Mn₃Ga example converges to wR ≈ 5.9% via Guided.
 - Still ⬜: spherical-harmonic texture, flat-plate / other absorption geometries,
   microabsorption, extinction.
 
-## Validated real-data status (GaNb4Se8, 298.8 K vs 100 K model)
+## Validated real-data status (the local X-ray dataset)
 Staged refinement (scale → bkg → cell → profile → ADP → positions) with the real
-`.instprm` reaches **wR ≈ 36.5%, Rp ≈ 22.7%, Rexp ≈ 12.8%, GoF ≈ 8** — a genuine
-fit (a=10.414, W 1.2→6.2, three refined (x,x,x) positions incl. Se17, per-site B).
-The **high-angle region already fits ≈14%**; the residual floor is the strongest
-low-angle reflection (400) under-predicted ~3× in integrated intensity.
-**Diagnosed** (not corrections): March–Dollase PO barely helps (refined r≈1),
-absorption is smooth, and the X-ray form factors are already correct Cromer-Mann —
-so it is **structural**. Freeing site occupancies drops wR to **23.4%** and fixes
-(400), but drives chemically impossible values (Nb 0.57, Ga 0.12): the classic
-occupancy↔scale↔ADP correlation on X-ray-only data. Soft linear occupancy
-restraints are now wired as least-squares pseudo-observations; the real-data
-regression keeps restrained occupancies plausible (Nb/Se = 1.000, Ga ≈ 0.983).
-Complementary neutron data remains the stronger physical way to break this
-correlation.
+`.instprm` reaches a genuine fit, with refined (x,x,x) positions and per-site B.
+The high-angle region fits well; the residual floor is the strongest low-angle
+reflection, under-predicted in integrated intensity.
+**Diagnosed** (not corrections): March–Dollase PO barely helps, absorption is
+smooth, and the X-ray form factors are already correct Cromer-Mann — so it is
+**structural**. Freeing site occupancies lowers wR and fixes that reflection,
+but drives chemically impossible values: the classic occupancy↔scale↔ADP
+correlation on X-ray-only data. Soft linear occupancy restraints are now wired
+as least-squares pseudo-observations; the real-data regression keeps restrained
+occupancies plausible. Complementary neutron data remains the stronger physical
+way to break this correlation.
 
 ## Physics / intensity model (gates real-data fit quality)
 - **Lorentz handling — selectable** ✅ (`applyLorentz` on `powderPeakIntensities`
   / `PowderProfile.lorentz`). Pre-reduced synchrotron I(Q) from a PDF beamline
   (28ID) is already Lorentz-corrected; re-applying the 2θ factor over-amplifies
-  low angle. Confirmed on GaNb4Se8: Lorentz-on wR≈53%, **off wR≈40%**. Still
+  low angle. Confirmed on the local X-ray dataset: wR is clearly lower with it off. Still
   ⬜ in the UI (auto-default by data source + toggle).
 - **Zero-shift** ✅ — wired in `apply.ts` + `buildPeaks` and refined in the
   profile stage (see workstream E).
@@ -177,7 +175,7 @@ correlation.
 
 ## Cross-cutting prerequisite
 - **Reader UI: Q / X-ray override** ⬜ — so real synchrotron patterns (e.g.
-  `GaNb4Se8_XRD_28ID`) load with the correct unit and radiation for testing.
+  the local X-ray dataset) load with the correct unit and radiation for testing.
 
 ## Build order
 **A → B → C → D.** Landed: **A1 + A3** (engine conditioning + shift limiting),

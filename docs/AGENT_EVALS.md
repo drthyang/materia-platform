@@ -175,11 +175,11 @@ repos" session and relayed here.
 
 One stream at a time, on `fix/local-model-loops` (the runs span `af9710e` to
 `d24e5bb`; each scenario's latest run is counted). Not yet run: ten of the
-single-crystal scenarios, the before-sample on `main` beyond the AWO4 flow,
+single-crystal scenarios, the before-sample on `main` beyond the local-data flow,
 the OpenAI-compatible smoke test, and gemma4:26b (9/10 on `main` before
 these fixes; it needs its own slot).
 
-**The user's AWO4 flow** (`local-data-user-flow`):
+**The user's local-data flow** (`local-data-user-flow`):
 
 | | before (`main`) | after |
 | --- | --- | --- |
@@ -193,7 +193,7 @@ these fixes; it needs its own slot).
 | | pass | turn cap | loop stopped | refused (said) | cut silently | chat error |
 | --- | --- | --- | --- | --- | --- | --- |
 | powder (15) | 12 | 0 | 1 | 1 | 0 | 0 |
-| AWO4 (1) | 1 | 1 | 0 | 1 | 0 | 0 |
+| local data (1) | 1 | 1 | 0 | 1 | 0 | 0 |
 | PDF (3) | 2 | 0 | 0 | 0 | 0 | 0 |
 | single crystal (1 of 8 run) | 1 | 0 | 0 | 0 | 0 | 0 |
 
@@ -203,10 +203,10 @@ these fixes; it needs its own slot).
   refined the nuclear model before the k-search.
 - The loop stop: `magnetic-structure` sent the same report three times; the
   guard stopped it after the report was written (it passes).
-- The refusals: `full-refinement` (38 turns) and the AWO4 flow's second
+- The refusals: `full-refinement` (38 turns) and the local-data flow's second
   message no longer fitted the window; since then the method itself, and a
   long session's tools, shrink last (`d24e5bb`, `575a390`).
-- The turn cap: the AWO4 flow in auto mode refined, ran the magnetic step,
+- The turn cap: the local-data flow in auto mode refined, ran the magnetic step,
   sampled the posterior and rewrote its report for 80 turns, one call a
   turn; no call ran three times at the same state.
 - Four scenarios that ran while another job loaded a model on the same GPU
