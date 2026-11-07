@@ -41,7 +41,7 @@ import { ALL_MODES, highlightedSites, modeGroups, selectedModes, type ModeFilter
 import { arrowField, type ModeArrows } from "@/app/ui/modeFold";
 import { SubgroupsPanel, decentringIrrepTree, gammaIrrepTree, sameCellLattice } from "@/app/ui/SubgroupsPanel";
 import type { PickerAction } from "@/app/ui/subgroupPicker";
-import { AGENT_LISTING_WAIT_MS, activationOf, listSubgroups } from "@/app/pdfSubgroups";
+import { AGENT_LISTING_WAIT_MS, activationOf, clearanceOf, listSubgroups } from "@/app/pdfSubgroups";
 import type { SupercellSpec } from "@/core/crystal/irreps/supercell";
 import { sharedSites, siteSumRangeWarnings } from "@/core/workflow/structureRefinement";
 
@@ -592,6 +592,19 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
     stepHistory?.requestStep("settings", activated.step);
     console.info(`[status] ${activated.message}`);
     return null;
+  }
+
+  // ✕ clear on the Subgroups view's banner (clearanceOf): back to the loaded
+  // structure's own group and per-coordinate positions, recorded as a History
+  // step so the header's step chip names the parent, not the child. The
+  // Agent's clear_subgroup records its own step (its tool's historyStep).
+  function clearModes(): void {
+    const from = modelRef.current;
+    const cleared = clearanceOf(from);
+    if (cleared.model === from) return;
+    setModel(cleared.model);
+    setLive(null);
+    stepHistory?.requestStep("settings", cleared.step);
   }
 
   // Decompose the current (child) structure against a HIGH-SYMMETRY parent CIF
@@ -1188,7 +1201,7 @@ export function PdfWorkbench({ structure, pattern, extraPhases = [], ownStructur
                   busy={busy}
                   onActivateMode={(term, sub) => void activate({ kind: "irrep", term, sub })}
                   onActivateSubgroup={(node) => void activate({ kind: "subgroup", node })}
-                  onClear={() => setModel((m) => withoutModes(m))}
+                  onClear={clearModes}
                   onOpenModel={() => setViewTab("model3d")}
                   onBound={onSubgroupBound}
                   {...(agentBound ? { initialBound: agentBound } : {})}

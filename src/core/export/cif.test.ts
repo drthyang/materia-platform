@@ -161,6 +161,18 @@ describe("magneticStructureToMcif — round-trips through parseMagneticCif", () 
     expect(ops.some((o) => o.timeReversal === -1)).toBe(true);
   });
 
+  it("names a k = 0 group from its operations (BNS and OG, the magCIF tags), and the parser reads the name back", () => {
+    const named = magneticStructureToMcif(magStructure, magnetic, {});
+    expect(named).toContain('_space_group_magn.name_BNS  "P-1\'"');
+    expect(named).toContain("_space_group_magn.number_BNS  2.6");
+    expect(named).toMatch(/^_space_group_magn\.name_OG {2}"P-1'"$/m);
+    expect(named).toMatch(/^_space_group_magn\.number_OG {2}2\.\d+\.\d+$/m);
+    expect(parseMagneticCif(named).structure.spaceGroup.hermannMauguin).toBe("P-1'");
+    // A label given is the name written, as before.
+    expect(mcif).toContain('_space_group_magn.name_BNS  "P6_3/mm\'c\'"');
+    expect(back.structure.spaceGroup.hermannMauguin).toBe("P6_3/mm'c'");
+  });
+
   it("re-exporting a parsed mCIF does not double the time-reversal flag", () => {
     // Regression: parsed magnetic ops stored the 4-field string in xyz, so a
     // parse → export cycle emitted "x,y,z,+1,+1" (and every further cycle
