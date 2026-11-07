@@ -539,6 +539,9 @@ async function step3and4(context, vp) {
     });
     await backFromSheet(page);
     expect(/GaTa4Se8 · F -4 3 m/.test(await bodyText(page)), "the Structure card is the parent again");
+    // The header's step chip is the clear's own History step, not the child's.
+    const chip = (await page.locator(".wb-step-current").first().textContent()) ?? "";
+    expect(/Back to F -4 3 m #216/.test(chip) && !/Supercell child/.test(chip), `the header's step chip names the parent (it reads "${chip.trim()}")`);
     await shot(page, vp, "4-cleared");
     // Boxcar on its own range.
     await tab(page, "Boxcar").click();
