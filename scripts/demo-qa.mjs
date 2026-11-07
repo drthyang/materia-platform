@@ -545,14 +545,18 @@ async function step3and4(context, vp) {
     await shot(page, vp, "4-boxcar");
     const runText = await bodyText(page);
     expect(/box/i.test(runText), "the boxcar run shows its track");
+    // After a run the plan folds into its one-line summary: open it, then reset the range to the fit window.
     const useFit = page.getByRole("button", { name: /^Use fit range/ });
+    if (!(await useFit.count())) await page.getByRole("button", { name: /^plan / }).first().click().catch(() => {});
+    await page.waitForTimeout(300);
+    expect(await useFit.count() > 0, "the opened plan offers Use fit range");
     if (await useFit.count()) {
       await useFit.first().click();
       await page.waitForTimeout(300);
       expect(await page.getByLabel("Lower r bound (Å)").inputValue() === "1.5", "Use fit range resets the range to the fit window");
     }
     const resetStart = page.getByRole("button", { name: "Reset to current fit" });
-    note(`Reset to current fit enabled: ${await resetStart.isEnabled().catch(() => false)}`);
+    note(`Reset to current fit: ${(await resetStart.count()) ? ((await resetStart.isEnabled()) ? "enabled" : "disabled (no edits on this tab)") : "not shown"}`);
     await shot(page, vp, "4-boxcar-reset");
     const zip = await timed("PDFgui export", () => download(page, () => exportMenu(page, "PDFgui / diffpy-CMI bundle (.zip)"), "PDFgui bundle"));
     expect(readFileSync(zip).subarray(0, 2).toString() === "PK", "the PDFgui bundle is a zip");
@@ -751,6 +755,13 @@ async function step7(context, vp) {
     note(`History steps: ${steps.filter((s) => s.trim() && s !== "✎").length}`);
     expect(steps.length > 2, "History lists the steps");
     await shot(page, vp, "7-history");
+    // Click a step to go back to it: the Refine step, whose wR the page then shows.
+    await timed("History: go back to the Refine step", async () => {
+      await page.locator(".wb-history-popover").getByRole("button", { name: /^▶?\s*Refine/ }).first().click();
+      await page.waitForTimeout(500);
+    });
+    const wr3 = (await bodyText(page)).match(/wR\s+([\d.]+)%/)?.[1];
+    expect(wr3 === wr, `the Refine step restores its wR (${wr3})`);
     await page.keyboard.press("Escape");
     await histBtn.click().catch(() => {});
     await page.waitForTimeout(200);
