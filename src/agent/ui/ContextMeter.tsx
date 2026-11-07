@@ -63,7 +63,7 @@ export function ContextMeter({ reading, view, cost, session }: { reading: Contex
         <span style={{ width: `${Math.min(100, view.percent)}%` }} />
       </span>
       <span className="wb-agent-ctx-label">{meterLabel(reading)}</span>
-      <button type="button" className="wb-agent-ctx-help" aria-expanded={open} aria-label="How full the model's window is: details" title="Details" onClick={() => setOpen((v) => !v)}>?</button>
+      <button type="button" className="wb-agent-ctx-help wb-tight" aria-expanded={open} aria-label="How full the model's window is: details" title="Details" onClick={() => setOpen((v) => !v)}>?</button>
       {open && (
         <span className="wb-agent-ctx-details" role="dialog" aria-label="Context details">
           {meterDetails(reading, cost).map((line) => <span key={line}>{line}</span>)}

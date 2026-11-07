@@ -1998,4 +1998,37 @@ html:has(.wb-run-bar) .wb-shell::after {
     display: none;
   }
 }
+/* The context meter's "?" on a touch screen (.wb-tight, out of the 44px
+ * rule): a 44px hit area that overhangs the small circle instead of growing
+ * it into a tall oval. */
+@media (pointer: coarse) {
+  .wb-agent-ctx-help {
+    position: relative;
+    width: 18px;
+    height: 18px;
+  }
+  .wb-agent-ctx-help::before {
+    content: "";
+    position: absolute;
+    inset: -13px;
+  }
+}
+/* In the phone's sheet the conversation keeps its height: from amber the two
+ * actions take one row, and the meter under the box says how full (the
+ * sentence stays for screen readers). */
+.wb-agent[data-mode="sheet"] .wb-agent-ctxwarn {
+  padding: 5px 6px;
+  justify-content: center;
+}
+.wb-agent[data-mode="sheet"] .wb-agent-ctxwarn-text {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.wb-agent[data-mode="sheet"] .wb-agent-ctxwarn-actions {
+  flex-wrap: nowrap;
+}
 

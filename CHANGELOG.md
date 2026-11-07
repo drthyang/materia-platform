@@ -9,6 +9,28 @@ release fixes bugs.
 
 ### Added
 
+- **The Copilot shows how full the model's window is** (THY-75).
+  - A meter by the message box, "Context 62%": the last prompt, its reply and
+    the room kept for the next reply, against the active model's own window
+    (Claude's 1M tokens, or the context a local server runs the model with).
+    Claude is counted by the API's reported usage; a local model by the app's
+    own estimate, the one each request is sized by.
+  - Neutral below 70 %, amber from 70 %, red above 90 %. From amber the box
+    offers **Start fresh** (a new conversation; the page is kept) and
+    **Summarize and continue**: the model writes a summary of the
+    conversation, and from then on works from it in place of the earlier
+    messages, which stay on screen.
+  - "?" gives the tokens in use and the window, the reply reserve, who
+    counted, and for Anthropic's models the session's cost at list price.
+  - On a phone the meter stays folded until amber.
+  - Nothing is cut silently: the chat says when the app starts sending older
+    tool results to a local model as digests, when the API leaves older
+    results out of what Claude sees, and when a reply stops because the
+    window filled up.
+  - Model-visible: Summarize and continue sends the model a short request for
+    the summary, and replaces the history it sees with an app note and that
+    summary. No existing instruction or tool text changed.
+
 - **The 3D Model's mode table folds by irrep and charts each irrep's share.**
   - Each irrep is one row: its name and direction, its total |A|, A_s and A_p
     (in quadrature, signs dropped) and how many of its modes are free. ▸ opens
