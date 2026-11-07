@@ -13,7 +13,7 @@ import { announcedTool } from "@/agent/chat";
 import { LIVE_TOOLS, liveTool } from "@/agent/tools";
 import { convertInterval } from "@/visualization/axisUnits";
 import type { PowderAgentPort, PowderLiveState, SingleCrystalLiveState } from "@/agent/port";
-import { calls, isChange, replies, type Check, type EvalRun } from "@/agent/evals/harness";
+import { calls, isChange, replies, type Check, type EvalEvent, type EvalRun } from "@/agent/evals/harness";
 
 const ok = (detail: string) => ({ pass: true, detail });
 const fail = (detail: string) => ({ pass: false, detail });
@@ -32,15 +32,15 @@ export function sentences(text: string): string[] {
 
 const NEGATION = /\b(no|not|never|neither|nor|none|nothing|zero|without|don't|doesn't|isn't|aren't|won't|wouldn't|shouldn't|rather than|instead of|before|until|unless|only (if|when|after|once)|last|first refine|premature)\b|n't\b|(?<![\w.])0 (?:[a-z-]+ ){0,2}(?:peaks?|lines?|reflections?)\b/i;
 
-/** The sentences of the replies that say `what` without negating it. */
-export function asserted(run: EvalRun, what: RegExp, upTo = Infinity): string[] {
+/** The sentences of the replies that say `what` without negating it (nor matching `not`, a check's own negations). */
+export function asserted(run: EvalRun, what: RegExp, upTo = Infinity, not?: RegExp): string[] {
   const out: string[] = [];
   let i = 0;
   for (const e of run.events) {
     if (i >= upTo) break;
     i++;
     if (e.kind !== "reply") continue;
-    for (const s of sentences(e.text)) if (what.test(s) && !NEGATION.test(s)) out.push(s);
+    for (const s of sentences(e.text)) if (what.test(s) && !NEGATION.test(s) && !not?.test(s)) out.push(s);
   }
   return out;
 }
@@ -169,6 +169,16 @@ export const doesNotRefuse: Check = {
 const LOWER_SYMMETRY = /\b(lower(ing)?|reduc(e|ing)|drop(ping)?|break(ing)?)\b[^.]{0,30}\bsymmetry\b|\blower[- ]symmetry\b|\b(sub ?group|a lower (space )?group)\b|\bchang(e|ing) (the )?space group\b/i;
 
 /**
+ * A lowering named for what it would cost, a counterfactual and not a
+ * proposal: "Lowering the symmetry now would hide that misfit behind extra
+ * parameters" (Haiku, 2026-11-07). What the lowering itself would do, in the
+ * same clause, is hide, mask or absorb the misfit, or only add parameters;
+ * "would fix the misfit" stays a proposal, and so does "lower it: the higher
+ * group would hide the splitting".
+ */
+const LOWERING_COST = /\b(lower(ing)?|reduc(e|ing)|drop(ping)?|break(ing)?|sub ?groups?)\b[^.;:]{0,50}\b(would|could|might|will)\b[^.;:]{0,30}\b(hide|mask|absorb|bury|conceal|obscure|paper over|cover up|soak up|overfit|(only|just|merely) (add|fit|trade))\b/i;
+
+/**
  * No symmetry change is proposed before review_symmetry has run on a refined
  * fit (user report: the Agent proposed lowering the symmetry first).
  */
@@ -176,7 +186,7 @@ export const symmetryLast: Check = {
   name: "proposes no symmetry change before the review",
   grade: (run) => {
     const reviewed = run.events.findIndex((e) => e.kind === "call" && e.name === "review_symmetry" && !e.isError);
-    const said = asserted(run, LOWER_SYMMETRY, reviewed < 0 ? Infinity : reviewed);
+    const said = asserted(run, LOWER_SYMMETRY, reviewed < 0 ? Infinity : reviewed, LOWERING_COST);
     return said.length === 0 ? ok(reviewed < 0 ? "no symmetry change proposed" : "proposed only after review_symmetry") : fail(`said: "${said[0]}"`);
   },
 };
@@ -296,6 +306,18 @@ export function lowersTo(group: string, cell: string): Check {
       return hit ? ok(`lowered to ${hit.to}, ${hit.cell}`) : fail(done.length ? `lowered to ${done.map((l) => `${l.to}, ${l.cell}`).join("; ")}` : "never lowered the symmetry");
     },
   };
+}
+
+/**
+ * The Agent's turn ended on a question before any lowering: an ask_user, or
+ * a last reply that asks (pdf-lower-symmetry's follow-up: which variant, or
+ * the baseline first, are fair questions in Ask mode).
+ */
+export function askedBeforeLowering(events: readonly EvalEvent[]): boolean {
+  if (events.some((e) => e.kind === "call" && e.name === "lower_symmetry" && !e.isError && !!json(e.text)?.lowered)) return false;
+  const last = [...events].reverse().find((e) => e.kind === "call" || (e.kind === "reply" && e.text.trim() !== ""));
+  if (!last) return false;
+  return last.kind === "call" ? last.name === "ask_user" && !last.isError : last.text.includes("?");
 }
 
 /** The row picked from the Subgroups view's list: list_subgroups before the first lowering. */

@@ -105,6 +105,12 @@ export interface LiveToolSpec {
   readonly evidence?: readonly Evidence[];
   /** A call that answered ends the model's turn: the user answers in their next message (chat.ts). */
   readonly endsTurn?: true;
+  /**
+   * What the report's number audit reads of its answer (report.ts,
+   * auditedToolText): all of it, the engine's values (never the Agent's
+   * notes), or its `note`. Absent: none of it.
+   */
+  readonly audited?: "whole" | "engineValues" | "note";
 }
 
 const ids = z.array(z.string().min(1)).describe("Parameter ids, or globs such as \"bkg*\" or \"*Fe1*\"");
@@ -120,6 +126,7 @@ const TOOLS = [
       parameters: ids.optional().describe("Which parameters to list in full (ids or globs, [\"*\"] for every one). Default: the free ones."),
     },
     effect: "read",
+    audited: "engineValues",
     pages: ["powder", "pdf", "singleCrystal"],
     cards: [],
     offer: { core: true },
@@ -729,6 +736,7 @@ const TOOLS = [
       atoms: z.array(z.string()).optional().describe("Only the bonds to these sites (labels)"),
     },
     effect: "read",
+    audited: "whole",
     pages: ["powder", "pdf", "singleCrystal"],
     cards: ["structure"],
     offer: { asked: ["geometry"] },
@@ -966,6 +974,7 @@ const TOOLS = [
       restarts: z.number().int().min(0).max(16).optional().describe("Randomly perturbed starts each box also refines from, the seeded start kept (default 0): for a track that may have inherited one box's local minimum"),
     },
     effect: "change",
+    audited: "note",
     pages: ["pdf"],
     cards: ["pattern"],
     evidence: ["localStructure"],
@@ -976,7 +985,7 @@ const TOOLS = [
     description:
       "PDF page only. The Subgroups view's list: the subgroups of the loaded structure's group whose cell fits the supercell `bound`, high to low symmetry, one row per name, cell and domains. Each row: `id` (for lower_symmetry), name, cell, domains, the irreps that reach it with their directions (`coupled`: no single irrep does), mode count, and `variants` when several classes share it (`id` is the default's). `strainOnly` rows move no atom. With `listing` the result is partial: call again.",
     inputSchema: {
-      bound: z.string().optional().describe("Supercell: \"1×1×2\", \"2×2×2\", or P as \"2 0 0; 0 2 0; 0 0 2\". Default: the view's, else 2×2×2"),
+      bound: z.string().optional().describe("Supercell: \"1×1×2\", \"2×2×2\", or P as \"2 0 0; 0 2 0; 0 0 2\". Default: the box `cell` names, else the view's, else 2×2×2"),
       name: z.string().optional().describe("Name or IT number: \"P-42_1m\", \"113\""),
       k: z.array(z.string()).max(4).optional().describe("k-points whose irreps reach the row: \"X\", \"W\""),
       cell: z.string().optional().describe("\"same cell\", \"supercell\" or a box: \"1×1×2\""),
@@ -992,13 +1001,13 @@ const TOOLS = [
     name: "lower_symmetry",
     title: "Lower the symmetry",
     description:
-      "PDF page only. Lower the symmetry to a subgroup as Activate on the Subgroups view does: the child (in the parent's cell or its own supercell) becomes the model, its positions refine as modes by parent irrep, the order parameter's modes freed from a small kick. Give a row's `id` from list_subgroups, or `name` with `cell` (and `variant`). Several matches and no `id`: it returns `candidates` and changes nothing. Then refine the freed modes with the scale. Refused while a subgroup is in force (clear_subgroup first). On the powder page a lower group is loaded as its CIF.",
+      "PDF page only. Lower the symmetry to a subgroup as Activate on the Subgroups view does: the child (in the parent's cell or its own supercell) becomes the model, its positions refine as modes by parent irrep, the order parameter's modes freed from a small kick. Give a row's `id` from list_subgroups, or `name` with `cell`: a row with variants lowers to its default (or `variant`), and the answer names the others. Several rows by that name: it returns `candidates` and changes nothing. Then refine the freed modes with the scale. Refused while a subgroup is in force (clear_subgroup first). On the powder page a lower group is loaded as its CIF.",
     inputSchema: {
       id: z.string().optional().describe("A row's id from list_subgroups (\"c45@1×1×2\", \"s18\")"),
       name: z.string().optional().describe("Or its name or IT number"),
       cell: z.string().optional().describe("With name: \"same cell\" or a box (\"1×1×2\")"),
-      variant: z.number().int().min(1).optional().describe("With name: the variant's number in `candidates`"),
-      bound: z.string().optional().describe("With name: the supercell to look in (default: the box `cell` names)"),
+      variant: z.number().int().min(1).optional().describe("With name: the row's variant by number (default: its default)"),
+      bound: z.string().optional().describe("With name: the supercell to look in, as list_subgroups (default: the box `cell` names)"),
     },
     effect: "change",
     pages: ["pdf"],

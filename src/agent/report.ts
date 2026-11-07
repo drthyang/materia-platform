@@ -24,7 +24,7 @@ import { frozenReportMarkdown } from "@/core/export/reportMarkdownFrozen";
 import { unverifiedNumbers } from "@/core/export/reportAudit";
 import { lineage, type HistoryStep, type ProjectHistory } from "@/core/project/history";
 import type { ParameterBinding, ParameterKind, RefinementParameter, RefinementResult } from "@/core/refinement/types";
-import type { AgentPage } from "@/agent/tools";
+import { liveTool, type AgentPage } from "@/agent/tools";
 import { RULES, methodProgress, stagesCovered, stagesFor, stagesLeft, type AgentRecord } from "@/agent/method";
 import { PAGES } from "@/agent/pages";
 import type { PosteriorRun } from "@/agent/posteriorTool";
@@ -355,6 +355,33 @@ export function reportPosterior(p: PosteriorRun, since: { readonly where: string
   };
 }
 
+/** The values of get_state's answer the engine computed: never the Agent's notes (its `method`), the History's labels or the bounds. */
+const STATE_KEYS = ["phases", "data", "instrument", "settings", "magneticModel", "wR", "Rw", "lastRefinement"] as const;
+
+/**
+ * What the number audit reads of a tool's answer (as the model read it), or
+ * null for a tool it does not read, by the tool's `audited`: bond_geometry
+ * whole; get_state's engine values (the structure, the data, the fit, each
+ * parameter's value and esd); boxcar_scan's note (its table is the report's
+ * own). A number the
+ * Agent quotes from them, rounded as from the report, is the engine's; one it
+ * derived itself (a difference, a ratio) is still its own.
+ */
+export function auditedToolText(name: string, text: string): string | null {
+  const audited = liveTool(name)?.audited;
+  if (!audited) return null;
+  if (audited === "whole") return text;
+  let out: Record<string, unknown>;
+  try {
+    out = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  if (audited === "note") return typeof out.note === "string" ? out.note : null;
+  const rows = Array.isArray(out.parameterRows) ? (out.parameterRows as { id?: unknown; value?: unknown; esd?: unknown }[]).map((r) => ({ id: r.id, value: r.value, ...(r.esd !== undefined ? { esd: r.esd } : {}) })) : [];
+  return JSON.stringify({ ...Object.fromEntries(STATE_KEYS.filter((k) => out[k] !== undefined).map((k) => [k, out[k]])), parameterRows: rows });
+}
+
 export interface AgentReportArgs {
   readonly page: AgentPage;
   /** The page's own report (powderReportInput / pdfReportInput). */
@@ -374,6 +401,8 @@ export interface AgentReportArgs {
   readonly narrative: string;
   /** What the user said in the conversation: the numbers they gave may be quoted. */
   readonly userText?: string;
+  /** What the audited tools gave in the conversation (auditedToolText): their numbers may be quoted too. */
+  readonly toolText?: string;
   readonly date?: Date;
   /**
    * The page's written method was in play (default). False without the skills
@@ -421,8 +450,9 @@ export function buildAgentReport(a: AgentReportArgs): { input: ReportInput; agen
   // In the frozen layout: the audit's verdicts must not move with the report's design.
   const engineText = frozenReportMarkdown({ ...a.input, date, figure: null, agent: { ...base, notes: [], checks: checks.filter((c) => c.name !== "Method exception") } });
   const narrative = a.narrative.trim();
-  // The numbers the user gave (a published refinement's, a reference) are quoted, not the Agent's own.
-  const audit = { account: [narrative, ...base.notes].join("\n\n"), against: `${engineText}\n\n${a.userText ?? ""}` };
+  // The numbers the user gave (a published refinement's, a reference) are quoted, not the Agent's own;
+  // so are those the engine gave it on the way (bond_geometry, get_state, a boxcar scan's note).
+  const audit = { account: [narrative, ...base.notes].join("\n\n"), against: `${engineText}\n\n${a.userText ?? ""}${a.toolText ? `\n\n${a.toolText}` : ""}` };
   const unverified = unverifiedNumbers(audit.account, audit.against);
   const agent: ReportAgent = { ...base, narrative, unverified };
   const input: ReportInput = { ...a.input, date, agent };

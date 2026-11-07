@@ -297,8 +297,9 @@ export const REPLAYS: Readonly<Record<string, Replay>> = {
   },
   "pdf-lower-symmetry": {
     good: [
-      { text: "Your method first, then the Subgroups view's list for the 1×1×2 cell.", calls: [PDF, { name: "list_subgroups", input: { bound: "1×1×2", name: "P-42_1m", cell: "1×1×2" } }] },
-      { text: "One row: P-42₁m #113 in 1×1×2, four classes; its default is reached by X irrep 5 with W irrep 1. Lowering to it: the card shows the choice.", calls: [{ name: "lower_symmetry", input: { id: "c45@1×1×2" } }] },
+      { text: "Your method first, then the Subgroups view's list for the 1×1×2 cell.", calls: [PDF, { name: "list_subgroups", input: { name: "P-42_1m", cell: "1×1×2" } }] },
+      // The group and cell the user named: one row of four classes, lowered at its default (2026-11-07: this returned the four and changed nothing).
+      { text: "One row: P-42₁m #113 in 1×1×2, four classes; its default is reached by X irrep 5 with W irrep 1. Lowering to it: the card shows the choice.", calls: [{ name: "lower_symmetry", input: { name: "P-42_1m", cell: "1×1×2" } }] },
       { text: "The order parameter's modes are free from a small kick. The cell held, they refine with the scale.", calls: [{ name: "set_free", input: { fix: ["cell_*"] } }, { name: "refine" }] },
       { text: "Two pairs of modes correlate at the kick: one of each fixed for now.", calls: [{ name: "set_free", input: { fix: ["mode_16", "mode_17"] } }, { name: "refine" }] },
       { text: "F-43m is lowered to P-42₁m #113 in its own 1×1×2 cell, and the order parameter's modes are refined with the scale: Rw {{Rw}}. The two modes held and the other mode rows come next, a block at a time." },

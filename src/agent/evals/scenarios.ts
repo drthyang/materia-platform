@@ -6,6 +6,7 @@
 
 import { awo4UserFiles, awo4UserPage, BATCH_SCALES, BC_EXTINCTION, EDGE_STEP_AT, FAILED_PAIR, FAILED_REFLECTION, MAGNETIC_TRUTH, MN3GA_30K_TRUTH, impurityD, scChiralPage, scDisorderPage, scHydridePage, scInvertedHandPage, scOrganicPage, scPage, scTwinnedPage, mn3gaEdgeSession, mn3gaFluoriteSession, mn3gaImpuritySession, mn3gaMagneticSession, mn3gaMisfitSession, mn3gaSession, mn3gaSwappedUnitsSession, mn3gaWrongWavelengthSession, mn3ga30kPage, pdfPage, powderPage, refineNuclear } from "@/agent/evals/pages";
 import {
+  askedBeforeLowering,
   mergesFirst,
   refinesFlack,
   invertsWrongHand,
@@ -260,6 +261,9 @@ export const SCENARIOS: readonly EvalScenario[] = [
     origin: "The owner (2026-11-03): asked for P-42₁m in a 1×1×2 cell on the GaTa₄Se₈ demo, the Agent said the PDF page had no tool to change the space group and asked for a CIF made in VESTA, ISODISTORT or TRANSTRU.",
     page: () => pdfPage(),
     messages: ["Use P-42₁m in a 1×1×2 cell (c doubled): lower the symmetry to it and refine."],
+    // A question before lowering (which variant, or the baseline first: 2026-11-07, three runs of six) is fair
+    // in Ask mode; the user answers it, and the run goes on.
+    followUp: { text: "Use the default variant, and go on.", when: askedBeforeLowering },
     autonomy: "ask",
     checks: [readsMethodFirst, listsBeforeLowering, lowersTo("P -4 21 m #113", "in its own cell, 1×1×2"), refinesLowered, asksForNoCif, noStall],
   },

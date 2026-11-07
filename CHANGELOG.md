@@ -407,6 +407,32 @@ release fixes bugs.
 
 ### Fixed
 
+- **lower_symmetry lowers the group and cell the user names** (2026-11-07 eval
+  gate). A name and cell that one merged row answers lower its default variant
+  (the rigid-unit order of #153); the answer gives the row's id, the bound and
+  which variant was used, with the other variants' ids, as a lowering by id now
+  does too. It returns candidates and changes nothing only when several rows
+  (other cells or domains) answer the name. `list_subgroups` and the name
+  lookup look in the same bound (the call's, else the box `cell` names, else
+  the view's) and both say which. Model-visible: the two tools' descriptions,
+  their answers, the pdf-workflow skill's step 2; snapshots re-baselined.
+- **A refinement run again at its minimum is converged, with no change.** No
+  step lowered χ², and it came back "stalled": the verdict turned "poor" at
+  GoF 0.97, and the method's stages already done came off the record. The
+  engine now also takes the undamped step from where the fit stands: a
+  remaining shift of at most 0.01 esd is the minimum. A value within 0.01 esd
+  of its refined one keeps its stage. Model-visible: refine's status and
+  message for such a run ("converged after 1 iteration(s), no change: already
+  at the minimum").
+- **The report's number audit reads bond_geometry, get_state and a boxcar
+  scan's note**, as well as the report and the user's words: a number quoted
+  from them, rounded, is the engine's. get_state's notes (the Agent's own),
+  the History's labels and the bounds are not read, and a number the Agent
+  derived itself is still underlined.
+- **Evals.** symmetry-last reads "Lowering the symmetry now would hide that
+  misfit behind extra parameters" as a reason to wait, not a proposal.
+  pdf-lower-symmetry answers a question asked before the lowering with the
+  user's "Use the default variant, and go on."
 - **A phone no longer scrolls past the app into a blank screen** on the
   Magnetic page. A screen-reader-only live region with no positioned
   ancestor sat deep in the scrolling page and stretched the document to

@@ -34,6 +34,7 @@ import type { AgentPage } from "@/agent/tools";
 import type { PdfLiveState, PowderLiveState, SingleCrystalLiveState } from "@/agent/port";
 import { PAGE_METHOD } from "@/agent/skills";
 import { parseTie } from "@/core/refinement/constraints";
+import { AT_MINIMUM_SHIFT_OVER_ESD } from "@/core/refinement/engine";
 import { lineage, type ProjectHistory } from "@/core/project/history";
 import { listOf } from "@/agent/liveCommon";
 
@@ -208,20 +209,23 @@ export function stagesOnPath(page: AgentPage, history: ProjectHistory | null, no
     return { parameters: r?.parameters ?? [], result: r?.lastResult ?? null };
   });
   const covered = new Set<string>();
-  // Each parameter's value at the end of the last converged refinement that refined it.
-  const refinedValue = new Map<string, number>();
+  // Each parameter's value at the end of the last converged refinement that refined it, and its esd there.
+  const refinedValue = new Map<string, { readonly value: number; readonly esd: number }>();
   for (const fit of [...fits, now]) {
     if (fit.result?.status !== "converged") continue;
     const refined = new Set(Object.keys(fit.result.esd));
     const free = fit.parameters.filter((p) => refined.has(p.id));
     for (const id of stagesCovered(page, free, fit.parameters)) covered.add(id);
-    for (const p of free) refinedValue.set(p.id, p.value);
+    for (const p of free) refinedValue.set(p.id, { value: p.value, esd: fit.result.esd[p.id] ?? 0 });
   }
   const value = new Map(now.parameters.map((p) => [p.id, p.value]));
+  // A value within a hundredth of its esd of the refined one is that value: a refinement run again at the
+  // minimum that moved it by round-off (and stopped short of "converged") takes no stage back.
+  const held = (was: { readonly value: number; readonly esd: number }, v: number): boolean => sameValue(was.value, v) || Math.abs(was.value - v) <= AT_MINIMUM_SHIFT_OVER_ESD * was.esd;
   return stagesFor(page).filter((st) => covered.has(st.id) && now.parameters.every((p) => {
     if (!st.kinds.includes(p.kind)) return true;
     const was = refinedValue.get(p.id);
-    return was === undefined || sameValue(was, value.get(p.id)!);
+    return was === undefined || held(was, value.get(p.id)!);
   })).map((st) => st.id);
 }
 

@@ -13,7 +13,7 @@ import type { Plan } from "@/agent/pages/types";
 import type { InputOf } from "@/agent/tools";
 import type { ModesInForce } from "@/app/pdfPage";
 import { boundName, boundOr, cellKey, parseBound, parseRowId, queryGroups, rowId, type SubgroupListing } from "@/app/pdfSubgroups";
-import { collapseTies, compactName, groupRows, shortLabel, type RowGroup, type ShownGroup } from "@/app/ui/subgroupList";
+import { DEFAULT_FILTERS, collapseTies, compactName, groupRows, rowPasses, shortLabel, type RowGroup } from "@/app/ui/subgroupList";
 import type { SubgroupRow } from "@/app/ui/subgroupPicker";
 import { modesCellNote } from "@/app/ui/SubgroupsPanel";
 import type { StructureModel } from "@/core/crystal/types";
@@ -41,11 +41,27 @@ function viewOf(s: PdfLiveState, port: PdfAgentPort): PdfSubgroupsHandle {
   return port.subgroups;
 }
 
-function boundFrom(text: string | undefined, view: PdfSubgroupsHandle): SupercellSpec {
-  if (text === undefined) return boundOr(view.bound());
+function boundFrom(text: string): SupercellSpec {
   const bound = parseBound(text);
   if (!bound) throw new Error(`"${text}" is no supercell: give a box such as "1×1×2", or P as "2 0 0; 0 2 0; 0 0 2"`);
   return bound;
+}
+
+/**
+ * The bound list_subgroups and lower_symmetry by name look in, the same for
+ * both (so a name finds the rows, and the ids, the list gave): the call's
+ * own, else the box its `cell` names (the conventional cell for "same
+ * cell"), else the view's (2×2×2 by default).
+ */
+function queryBound(input: { readonly bound?: string | undefined; readonly cell?: string | undefined }, view: PdfSubgroupsHandle): SupercellSpec {
+  if (input.bound !== undefined) return boundFrom(input.bound);
+  if (input.cell !== undefined) {
+    const cell = cellKey(input.cell);
+    if (cell === "same cell") return SAME_CELL_BOUND;
+    const box = parseBound(cell);
+    if (box) return box;
+  }
+  return boundOr(view.bound());
 }
 
 /** The irreps a row's Activate kicks, with their directions: "X irrep 5 (0,0,a,-a,-a,a) + W irrep 1 (a,0,0,a,0,0)". */
@@ -82,7 +98,7 @@ function listingNote(listing: SubgroupListing): Record<string, unknown> {
 /** list_subgroups: the view's list for the query, a page of it. */
 export async function listSubgroupsView(input: InputOf<"list_subgroups">, s: PdfLiveState, port: PdfAgentPort): Promise<Record<string, unknown>> {
   const view = viewOf(s, port);
-  const bound = boundFrom(input.bound, view);
+  const bound = queryBound(input, view);
   const listing = await view.list(bound);
   const groups = queryGroups(listing.rows, {
     ...(input.name !== undefined ? { name: input.name } : {}),
@@ -112,28 +128,17 @@ interface Variant {
   readonly number: number;
 }
 
-/** The bound a lower_symmetry call looks in: its own, the id's, the box its cell names, else the view's. */
-function boundFor(input: InputOf<"lower_symmetry">, view: PdfSubgroupsHandle, idBound: SupercellSpec | null | undefined): SupercellSpec {
-  if (input.bound !== undefined) return boundFrom(input.bound, view);
-  if (idBound) return idBound;
-  if (idBound === null) return SAME_CELL_BOUND;
-  if (input.cell !== undefined) {
-    const cell = cellKey(input.cell);
-    if (cell === "same cell") return SAME_CELL_BOUND;
-    const box = parseBound(cell);
-    if (box) return box;
-  }
-  return boundOr(view.bound());
-}
+/** A merged row's default variant, the view's: the first its filters keep (the #153 order puts a rigid-unit one first), else its first. */
+const defaultOf = (group: RowGroup): SubgroupRow => group.variants.find((r) => rowPasses(r, DEFAULT_FILTERS)) ?? group.variants[0]!;
 
-/** Which row a lower_symmetry call names: one, or the candidates. */
-async function resolve(input: InputOf<"lower_symmetry">, view: PdfSubgroupsHandle): Promise<{ readonly pick: Variant; readonly bound: SupercellSpec } | { readonly candidates: readonly Variant[]; readonly defaults: ReadonlySet<SubgroupRow>; readonly bound: SupercellSpec }> {
+/** Which row a lower_symmetry call names: one variant of one row, or the rows (each at its default) to pick from. */
+async function resolve(input: InputOf<"lower_symmetry">, view: PdfSubgroupsHandle): Promise<{ readonly pick: Variant; readonly bound: SupercellSpec } | { readonly candidates: readonly RowGroup[]; readonly bound: SupercellSpec }> {
   const still = (listing: SubgroupListing): string | null =>
     listing.larger.state === "listing" ? `the ${boundName(listing.bound)} cells are still being listed (${listing.larger.percent} %): call again shortly` : null;
   if (input.id !== undefined) {
     const parsed = parseRowId(input.id);
     if (!parsed) throw new Error(`"${input.id}" is no row id: use one list_subgroups gave`);
-    const bound = boundFor(input, view, parsed.bound);
+    const bound = input.bound !== undefined ? boundFrom(input.bound) : parsed.bound ?? SAME_CELL_BOUND;
     const listing = await view.list(bound);
     const row = listing.rows.find((r) => r.key === parsed.key);
     if (!row) throw new Error(still(listing) ?? `no subgroup ${input.id} in the ${boundName(bound)} list: use an id list_subgroups gave`);
@@ -141,49 +146,58 @@ async function resolve(input: InputOf<"lower_symmetry">, view: PdfSubgroupsHandl
     return { pick: { row, group, number: group.variants.indexOf(row) + 1 }, bound };
   }
   if (input.name === undefined) throw new Error("give a row's `id` from list_subgroups, or the subgroup's `name` (with its `cell`)");
-  const bound = boundFor(input, view, undefined);
+  const bound = queryBound(input, view);
   const listing = await view.list(bound);
   const wait = still(listing);
   if (wait) throw new Error(wait);
   const query = { name: input.name, ...(input.cell !== undefined ? { cell: input.cell } : {}) };
-  // Every subgroup by that name, whatever the view's filters hide; the default variants are the view's.
-  const groups = queryGroups(listing.rows, { ...query, all: true });
-  const defaults = new Set(queryGroups(listing.rows, query).map((g: ShownGroup) => g.shown[0]!));
-  const all = groups.flatMap((g) => g.group.variants.map((row, i) => ({ row, group: g.group, number: i + 1 })));
-  const matching = input.variant === undefined ? all : all.filter((v) => v.number === input.variant);
-  if (matching.length === 0) {
-    const what = `${input.name}${input.cell !== undefined ? ` in ${cellKey(input.cell)}` : ""}${input.variant !== undefined ? `, variant ${input.variant}` : ""}`;
-    throw new Error(`no subgroup ${what} fits the ${boundName(bound)} cell${all.length > 0 ? ` (${all.length} variant${all.length === 1 ? "" : "s"} by that name)` : ""}: list_subgroups lists them`);
+  // The rows list_subgroups lists for the name (merged by name, cell and domains); those its filters hide only when it lists none.
+  const shown = queryGroups(listing.rows, query);
+  const rows = (shown.length > 0 ? shown : queryGroups(listing.rows, { ...query, all: true })).map((g) => g.group);
+  const what = `${input.name}${input.cell !== undefined ? ` in ${cellKey(input.cell)}` : ""}`;
+  if (rows.length === 0) throw new Error(`no subgroup ${what} fits the ${boundName(bound)} cell: list_subgroups lists them`);
+  if (rows.length > 1) return { candidates: rows, bound };
+  // One row: its default variant, or the one asked for.
+  const group = rows[0]!;
+  if (input.variant !== undefined && input.variant > group.variants.length) {
+    throw new Error(`${compactName(group.name)} in ${group.cell} has ${group.variants.length} variant${group.variants.length === 1 ? "" : "s"}, not ${input.variant}`);
   }
-  return matching.length === 1 ? { pick: matching[0]!, bound } : { candidates: matching, defaults, bound };
+  const row = input.variant !== undefined ? group.variants[input.variant - 1]! : defaultOf(group);
+  return { pick: { row, group, number: group.variants.indexOf(row) + 1 }, bound };
 }
 
-/** lower_symmetry: one row, activated as the view's Activate does; several, the candidates and no change. */
+/** Which variant of its row a lowering used, and the others' ids: "1 of 4, the default; the others: c47@1×1×2, …". */
+function variantLine(v: Variant, bound: SupercellSpec): string | null {
+  const n = v.group.variants.length;
+  if (n === 1) return null;
+  const preferred = defaultOf(v.group);
+  const others = v.group.variants.filter((r) => r !== v.row).map((r) => `${rowId(r, bound)}${r === preferred ? " (the default)" : ""}`);
+  return `${v.number} of ${n}${v.row === preferred ? ", the default" : ""}; the others: ${others.join(", ")}`;
+}
+
+/** lower_symmetry: one row, activated as the view's Activate does (a merged row at its default variant); several rows, the candidates and no change. */
 export async function lowerSymmetryPlan(input: InputOf<"lower_symmetry">, s: PdfLiveState, port: PdfAgentPort): Promise<Plan> {
   const view = viewOf(s, port);
   if (s.modes) throw new Error(`a subgroup is in force (${inForceLine(s.modes)}): call clear_subgroup first, then lower again`);
   const found = await resolve(input, view);
   if ("candidates" in found) {
-    const candidates = found.candidates.slice(0, MAX_CANDIDATES).map((v) => ({
-      ...rowFacts(v.row, found.bound),
-      variant: v.number,
-      ...(found.defaults.has(v.row) ? { default: true } : {}),
-    }));
-    return nothing(`${found.candidates.length} subgroups match: nothing was changed. Pick one with the user, then call again with its id`, {
+    const candidates = found.candidates.slice(0, MAX_CANDIDATES).map((g) => ({ ...rowFacts(defaultOf(g), found.bound), ...(g.variants.length > 1 ? { variants: g.variants.length } : {}) }));
+    return nothing(`${found.candidates.length} subgroups match, in different cells or domains: nothing was changed. Pick one with the user, then call again with its id`, {
+      bound: boundName(found.bound),
       count: found.candidates.length,
       candidates,
     });
   }
-  const { row, group, number } = found.pick;
+  const { row } = found.pick;
   const bound = found.bound;
   const name = compactName(row.name);
   if (row.action.kind === "elsewhere") throw new Error(`${name} is not offered on the Subgroups view (${row.action.note})`);
   if (row.modes === 0) throw new Error(`${name} (${row.cell}) is strain only: no atom moves, so there is nothing to refine`);
-  const variant = group.variants.length > 1 ? `, variant ${number} of ${group.variants.length}` : "";
-  return change(`Lower ${groupName(s.loaded)} to ${name} · ${row.cell} · ${row.domains} domains, from ${irrepsOf(row)}${variant}`, () => {
+  const variant = variantLine(found.pick, bound);
+  return change(`Lower ${groupName(s.loaded)} to ${name} · ${row.cell} · ${row.domains} domains, from ${irrepsOf(row)}${variant ? `, variant ${found.pick.number} of ${found.pick.group.variants.length}` : ""}`, () => {
     const why = view.activate(row, bound);
     if (why) throw new Error(`nothing was changed: ${why}`);
-    return undefined;
+    return { data: { row: rowId(row, bound), bound: boundName(bound), ...(variant ? { variant } : {}) } };
   });
 }
 

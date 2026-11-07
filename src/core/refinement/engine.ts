@@ -459,13 +459,24 @@ function normalizedPseudoInverse(
 const EXACT_FIT_RWP = 1e-6;
 
 /**
+ * The largest shift/esd the Gauss–Newton step still predicts at which a fit
+ * with no downhill step is at its minimum: the remaining distance is a
+ * hundredth of an esd, far below any shift the fit could report, and the χ²
+ * it would gain is round-off, which is why no trial step lowered it.
+ */
+export const AT_MINIMUM_SHIFT_OVER_ESD = 0.01;
+
+/**
  * The status when no downhill step exists. A zero gradient is a minimum; so
  * is an exact fit (its χ² at the round-off floor, where no step can lower
- * it), and a fit whose last accepted step moved nothing by more than the
- * shift tolerance in esds. Only with shifts still large and χ² refusing to
- * fall is it a stall. (macOS arm64 reached χ² 1.2e-21 on the polar-origin
- * fit and found no step below it: "stalled", where Linux's round-off had
- * let the relative-χ² test fire first.)
+ * it), a fit whose last accepted step moved nothing by more than the
+ * shift tolerance in esds, and a fit where the undamped (Gauss–Newton) step
+ * predicts no shift above AT_MINIMUM_SHIFT_OVER_ESD: a refinement run again
+ * at its minimum (full-refinement, 2026-11-07: "stalled" with every shift 0,
+ * GoF 0.97, and its stages taken off the record). Only with shifts still
+ * large and χ² refusing to fall is it a stall. (macOS arm64 reached χ²
+ * 1.2e-21 on the polar-origin fit and found no step below it: "stalled",
+ * where Linux's round-off had let the relative-χ² test fire first.)
  */
 export function noDescentStatus(at: {
   readonly gradNorm: number;
@@ -474,10 +485,13 @@ export function noDescentStatus(at: {
   readonly rWeighted?: number;
   readonly lastShiftOverEsd?: number;
   readonly shiftTolerance?: number;
+  /** The largest shift/esd of the undamped step from where the fit stands: how far the minimum still is. */
+  readonly remainingShiftOverEsd?: number;
 }): "converged" | "stalled" {
   if (at.gradNorm < 1e-6 * (1 + at.chi)) return "converged";
   if (at.rWeighted !== undefined && at.rWeighted < EXACT_FIT_RWP) return "converged";
   if (at.lastShiftOverEsd !== undefined && at.shiftTolerance !== undefined && at.lastShiftOverEsd < at.shiftTolerance) return "converged";
+  if (at.remainingShiftOverEsd !== undefined && at.remainingShiftOverEsd <= AT_MINIMUM_SHIFT_OVER_ESD) return "converged";
   return "stalled";
 }
 
@@ -645,6 +659,8 @@ function* refineCore(
   // Trial steps that left the model's domain (ModelDomainError), and the first one's reason.
   let outsideDomain = 0;
   let outsideDomainReason = "";
+  // No step was ever accepted, and the fit stood at its minimum: the values are those it started from.
+  let atMinimumUnchanged = false;
 
   for (let iter = 0; iter < opts.maxIterations; iter++) {
     const r = weightedResiduals(problem.observations, current.yCalc, problem.weights);
@@ -735,15 +751,19 @@ function* refineCore(
 
     if (!stepAccepted) {
       const shiftTolerance = opts.shiftTolerance ?? 0;
-      const lastShiftOverEsd = shiftTolerance > 0 && lastStep
-        ? maxShiftOverEsd(lastStep, esdsFrom(normalizedPseudoInverse(jtj, opts.svdTolerance ?? 1e-6, floors).covarianceBase, current.chi / dof)).value
-        : undefined;
+      const stepEsds = esdsFrom(normalizedPseudoInverse(jtj, opts.svdTolerance ?? 1e-6, floors).covarianceBase, current.chi / dof);
+      const lastShiftOverEsd = shiftTolerance > 0 && lastStep ? maxShiftOverEsd(lastStep, stepEsds).value : undefined;
+      // The undamped step from here, against the same esds: how far the minimum still is.
+      const remaining = solveDamped(0, minusB).x.map((yj, j) => (dead[j]! ? 0 : yj / sc[j]!));
+      const remainingShiftOverEsd = remaining.every(Number.isFinite) ? maxShiftOverEsd(remaining, stepEsds).value : undefined;
       status = noDescentStatus({
         gradNorm,
         chi: current.chi,
         ...(dataScale > 0 && agreement.rWeighted !== undefined ? { rWeighted: agreement.rWeighted } : {}),
         ...(lastShiftOverEsd !== undefined ? { lastShiftOverEsd, shiftTolerance } : {}),
+        ...(remainingShiftOverEsd !== undefined ? { remainingShiftOverEsd } : {}),
       });
+      atMinimumUnchanged = status === "converged" && lastStep === undefined;
       break;
     }
     // An exact fit (noise-free, simulated data) is converged: past it χ² and
@@ -863,7 +883,7 @@ function* refineCore(
     agreement,
     history,
     diagnostics,
-    message: `${status} after ${history.length} iteration(s)${
+    message: `${status} after ${history.length} iteration(s)${atMinimumUnchanged ? ", no change: already at the minimum" : ""}${
       diagnostics.svdZeroCount > 0 ? `; SVD dropped ${diagnostics.svdZeroCount} near-null direction(s)` : ""
     }${outsideDomain > 0 ? `; ${outsideDomain} trial step(s) rejected outside the model's domain (${outsideDomainReason})` : ""}`,
   };

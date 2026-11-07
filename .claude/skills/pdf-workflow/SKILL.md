@@ -124,10 +124,12 @@ the average group, a lower symmetry is the next question — the user's, never y
 In the app you lower it yourself, as the Subgroups view does; never ask for a CIF:
 
 1. `list_subgroups`: the supercell in `bound` ("1×1×2"), `name` or `k` to narrow it.
-2. Pick the row with the user (in Ask mode the card confirms it). Several classes share a
-   row's name: `lower_symmetry` lists them and changes nothing until you give an `id`.
-3. `lower_symmetry` with that `id`. The child becomes the model; its order parameter is
-   freed from a small kick, the other modes start fixed at 0.
+2. Pick the row with the user (in Ask mode the card confirms it). A row's `variants` lower
+   at its default, and the answer names the others. A name several rows share (other cells
+   or domains): `lower_symmetry` lists them and changes nothing until you give an `id`.
+3. `lower_symmetry` with that `id`, or the `name` and `cell` the user gave. The child
+   becomes the model; its order parameter is freed from a small kick, the other modes
+   start fixed at 0.
 4. Refine the freed modes with the scale, the cell held; at the kick some pairs correlate,
    and `refine` names them: fix one of each. Then free the other mode rows a block at a
    time, by this method. `clear_subgroup` returns to the parent.

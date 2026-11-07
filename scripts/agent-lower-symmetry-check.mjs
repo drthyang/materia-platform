@@ -7,8 +7,9 @@
  * for its card in Ask mode and then leaves the page the view's Activate
  * leaves (the Subgroups banner, the child in the 3D model and the Structure
  * card), that clear_subgroup and the banner's ✕ clear go back to the parent,
- * and that a name several classes share returns the candidates and changes
- * nothing.
+ * that the group and cell the user names lower the row's default variant and
+ * say so, and that a name several rows share returns the candidates and
+ * changes nothing.
  *
  * Usage:  npm run dev   (in another terminal)
  *         node scripts/agent-lower-symmetry-check.mjs [baseUrl] [outDir] [inputsDir]
@@ -91,7 +92,7 @@ const parse = (t) => {
 };
 
 const ASK_GATA = "Use P-42₁m in a 1×1×2 cell (c doubled): lower the symmetry to it.";
-const ASK_AMBIGUOUS = "Lower it to P-42₁m in the 1×1×2 cell, any of them.";
+const ASK_AMBIGUOUS = "Lower it to P-42₁m.";
 const ASK_CLEAR = "Back to the parent, please.";
 const ASK_X = "Now lower it to P-42₁m at X, in the parent's cell.";
 const ASK_STO = "Lower SrTiO3 to Pnma in the 2×2×2 cell (a⁻b⁺a⁻).";
@@ -107,7 +108,8 @@ function script(body) {
     if (got.list_subgroups) {
       seen.list = parse(got.list_subgroups.text);
       const id = seen.list?.rows?.[0]?.id;
-      return { text: "One row, four classes: lowering to its default.", calls: [{ name: "lower_symmetry", input: { id } }] };
+      seen.listedId = id;
+      return { text: "One row, four classes: lowering to its default.", calls: [{ name: "lower_symmetry", input: { name: "P-42_1m", cell: "1×1×2" } }] };
     }
     if (got.lower_symmetry) {
       seen.lower = parse(got.lower_symmetry.text);
@@ -120,9 +122,9 @@ function script(body) {
     return { text: "Back to F-43m." };
   }
   if (said === ASK_AMBIGUOUS) {
-    if (!got) return { calls: [{ name: "lower_symmetry", input: { name: "P-42_1m", cell: "1×1×2" } }] };
+    if (!got) return { calls: [{ name: "lower_symmetry", input: { name: "P-42_1m", bound: "1×1×2" } }] };
     seen.ambiguous = parse(got.lower_symmetry?.text ?? "");
-    return { text: "Four classes match; which one?" };
+    return { text: "Two rows match, in the parent's cell and in 1×1×2; which one?" };
   }
   if (said === ASK_X) {
     if (!got) return { calls: [{ name: "lower_symmetry", input: { name: "P-42_1m", cell: "same cell", variant: 1 } }] };
@@ -211,6 +213,7 @@ const cardLine = await approve("lower_symmetry", "gata-1x1x2-card.png");
 await idle();
 check("list_subgroups gives the 1×1×2 P-42₁m row, four classes, its default's id", seen.list?.rows?.length === 1 && seen.list.rows[0].cell === "1×1×2" && seen.list.rows[0].variants === 4 && /^c\d+@1×1×2$/.test(seen.list.rows[0].id), JSON.stringify(seen.list?.rows));
 check("the card names the row before anything changes", /Lower F-43m #216 to P-42₁m #113 · 1×1×2 · 24 domains/.test(cardLine), cardLine.slice(0, 200));
+check("lower_symmetry by name and cell lowers the listed row's default variant, and names the others", seen.lower?.row === seen.listedId && seen.lower?.bound === "1×1×2" && /^1 of 4, the default; the others: c\d+@1×1×2, c\d+@1×1×2, c\d+@1×1×2$/.test(seen.lower?.variant ?? ""), JSON.stringify({ row: seen.lower?.row, bound: seen.lower?.bound, variant: seen.lower?.variant }));
 check("lower_symmetry answers with the child, its cell, sites, free modes and kicked irreps", seen.lower?.lowered?.to === "P -4 21 m #113" && seen.lower.lowered.cell === "in its own cell, 1×1×2" && seen.lower.lowered.atoms === 104 && seen.lower.lowered.kicked?.length === 2, JSON.stringify(seen.lower?.lowered ?? seen.lower)?.slice(0, 300));
 await page.waitForTimeout(800);
 const b1 = await bannerText();
@@ -224,7 +227,7 @@ await page.screenshot({ path: `${OUT}gata-1x1x2-3d.png` });
 const model3d = (await page.locator("body").innerText()).replace(/\s+/g, " ");
 check("the 3D Model view shows the child's modes", /lowered to P -4 21 m|P -4 21 m #113|P-42₁m/.test(model3d) && /X irrep 5 of 5/.test(model3d), model3d.match(/.{0,60}X irrep 5 of 5.{0,40}/)?.[0] ?? "");
 
-// 2. A name four classes share: the candidates, nothing changed (a subgroup is in force, so first back to the parent).
+// 2. A name two rows share (the parent's cell, 1×1×2): the candidates, nothing changed (a subgroup is in force, so first back to the parent).
 await send(ASK_CLEAR);
 const clearLine = await approve("clear_subgroup");
 await idle();
@@ -238,7 +241,7 @@ await page.screenshot({ path: `${OUT}gata-cleared.png` });
 const requestsBefore = bodies.length;
 await send(ASK_AMBIGUOUS);
 await idle();
-check("a name and cell four classes share: the candidates, no card, nothing changed", seen.ambiguous?.unchanged === true && seen.ambiguous.count === 4 && (await bannerText()) === "" && (await drawer.locator('.wb-agent-step[data-tool="lower_symmetry"][data-status="waiting"]').count()) === 0, JSON.stringify(seen.ambiguous)?.slice(0, 240));
+check("a name two rows share: the candidates, no card, nothing changed", seen.ambiguous?.unchanged === true && seen.ambiguous.count === 2 && (await bannerText()) === "" && (await drawer.locator('.wb-agent-step[data-tool="lower_symmetry"][data-status="waiting"]').count()) === 0, JSON.stringify(seen.ambiguous)?.slice(0, 240));
 check("the ambiguous call took one model turn and an answer", bodies.length === requestsBefore + 2, `${bodies.length - requestsBefore} requests`);
 
 // 3. P-42₁m at X in the parent's cell, then the banner's own ✕ clear.
