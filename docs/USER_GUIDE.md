@@ -963,8 +963,10 @@ nuclear part only.
 - **CIF**: the nuclear structure in its space group, with esds.
 - **mCIF** for k = 0: the parent cell in the magnetic subgroup.
 - **mCIF** for a commensurate k ≠ 0: the magnetic supercell in its own magnetic
-  space group, not a P1 atom list. Its atoms carry no esds. A comment marks a
-  type-IV group, whose symbol the app does not tabulate.
+  space group, not a P1 atom list. Its atoms carry no esds.
+- An mCIF of an identified group names it: `_space_group_magn.name_BNS` and
+  `number_BNS`, with a comment giving the transformation when its operations
+  are in another setting than the standard one.
 - **mCIF** for an incommensurate k: the parent cell with the Fourier amplitudes.
 - The single-crystal page has no mCIF export. On the PDF page, **CIF** writes
   an mCIF for a phase with a spin model.

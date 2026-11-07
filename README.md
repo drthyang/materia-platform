@@ -19,7 +19,7 @@ reads the live page, follows your written method, and changes things only throug
 controls, asking first. One TypeScript engine backs the app, the Copilot and an MCP server.
 
 <p align="center">
-  <img src="docs/screenshots/desktop.png" alt="The Rietveld page: a two-phase Mn₃Ga and MnO fit of POWGEN time-of-flight neutron data, with observed, calculated and difference curves, a row of Bragg ticks for each phase, and the symmetry-allowed parameter table with esds" width="100%" />
+  <img src="docs/media/desktop.webp" alt="The Rietveld page: a two-phase Mn₃Ga and MnO fit of POWGEN time-of-flight neutron data, with observed, calculated and difference curves, a row of Bragg ticks for each phase, and the symmetry-allowed parameter table with esds" width="100%" />
 </p>
 
 ## Quick start
