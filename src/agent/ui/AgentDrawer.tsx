@@ -32,6 +32,19 @@ interface Props {
   readonly onClose: () => void;
 }
 
+/**
+ * A key field's own form: a password input outside a form is a DOM issue in
+ * the browser's console. It never submits (Enter in the key stays put), and
+ * `display: contents` keeps the settings' layout as it was.
+ */
+export function KeyForm({ children }: { children: ReactNode }): JSX.Element {
+  return (
+    <form style={{ display: "contents" }} onSubmit={(e) => e.preventDefault()}>
+      {children}
+    </form>
+  );
+}
+
 const MODE_LABEL: Record<AgentMode, string> = { "api-key": "API key", proxy: "Local proxy", ollama: "Ollama", lmstudio: "LM Studio", "openai-compatible": "OpenAI-compatible" };
 
 /**
@@ -447,10 +460,12 @@ function Settings({ agent }: { agent: AgentController }): JSX.Element {
           </div>
           {settings.mode === "api-key" && (
             <>
-              <label style={field}>
-                <span style={fieldLabel}>Anthropic API key</span>
-                <input style={input} type="password" autoComplete="off" placeholder="sk-ant-…" value={agent.apiKey} onChange={(e) => agent.setApiKey(e.target.value.trim())} spellCheck={false} />
-              </label>
+              <KeyForm>
+                <label style={field}>
+                  <span style={fieldLabel}>Anthropic API key</span>
+                  <input style={input} type="password" autoComplete="off" placeholder="sk-ant-…" value={agent.apiKey} onChange={(e) => agent.setApiKey(e.target.value.trim())} spellCheck={false} />
+                </label>
+              </KeyForm>
               <label style={{ ...field, flexDirection: "row", alignItems: "center", gap: 6 }}>
                 <input type="checkbox" checked={settings.rememberKey} onChange={(e) => updateSettings({ rememberKey: e.target.checked })} />
                 <span style={{ fontSize: 12.5 }}>Remember on this device</span>
@@ -719,10 +734,12 @@ export function OpenAICompatSettings({ agent }: { agent: AgentController }): JSX
         <span style={fieldLabel}>Base URL</span>
         <input style={input} value={settings.openaiUrl} onChange={(e) => updateSettings({ openaiUrl: e.target.value.trim(), openaiPreset: presetForUrl(e.target.value)?.id ?? "custom" })} spellCheck={false} placeholder="https://api.openai.com/v1" />
       </label>
-      <label style={field}>
-        <span style={fieldLabel}>API key{preset?.needsKey ? "" : " (if the server needs one)"}</span>
-        <input style={input} type="password" autoComplete="off" placeholder={preset?.needsKey ? "sk-…" : "none"} value={agent.openaiKey} onChange={(e) => agent.setOpenaiKey(e.target.value.trim())} spellCheck={false} />
-      </label>
+      <KeyForm>
+        <label style={field}>
+          <span style={fieldLabel}>API key{preset?.needsKey ? "" : " (if the server needs one)"}</span>
+          <input style={input} type="password" autoComplete="off" placeholder={preset?.needsKey ? "sk-…" : "none"} value={agent.openaiKey} onChange={(e) => agent.setOpenaiKey(e.target.value.trim())} spellCheck={false} />
+        </label>
+      </KeyForm>
       {agent.openaiKey && (
         <label style={{ ...field, flexDirection: "row", alignItems: "center", gap: 6 }}>
           <input type="checkbox" checked={settings.rememberKey} onChange={(e) => updateSettings({ rememberKey: e.target.checked })} />

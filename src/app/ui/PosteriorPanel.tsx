@@ -290,7 +290,8 @@ export function PosteriorPanel({ result, busy, progress, onRun, onStop, hasRefin
                 <th style={{ padding: "4px 8px", textAlign: "right" }}>
                   esd ratio
                 </th>
-                <th style={{ padding: "4px 8px", textAlign: "right" }}>R̂</th>
+                {/* In the mono face, as R̂max above: the sans face sets the combining hat off its R. */}
+                <th style={{ padding: "4px 8px", textAlign: "right", fontFamily: mono, letterSpacing: 0 }}>R̂</th>
                 <th style={{ padding: "4px 8px", textAlign: "right" }}>ESS</th>
               </tr>
             </thead>
