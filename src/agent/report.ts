@@ -24,7 +24,7 @@ import { frozenReportMarkdown } from "@/core/export/reportMarkdownFrozen";
 import { unverifiedNumbers } from "@/core/export/reportAudit";
 import { lineage, type HistoryStep, type ProjectHistory } from "@/core/project/history";
 import type { ParameterBinding, ParameterKind, RefinementParameter, RefinementResult } from "@/core/refinement/types";
-import type { AgentPage } from "@/agent/tools";
+import { liveTool, type AgentPage } from "@/agent/tools";
 import { RULES, methodProgress, stagesCovered, stagesFor, stagesLeft, type AgentRecord } from "@/agent/method";
 import { PAGES } from "@/agent/pages";
 import type { PosteriorRun } from "@/agent/posteriorTool";
@@ -355,30 +355,29 @@ export function reportPosterior(p: PosteriorRun, since: { readonly where: string
   };
 }
 
-/** The tools whose answers the number audit reads besides the report: what the engine gave the Agent on the way. */
-export const AUDITED_TOOLS: ReadonlySet<string> = new Set(["bond_geometry", "get_state", "boxcar_scan"]);
-
 /** The values of get_state's answer the engine computed: never the Agent's notes (its `method`), the History's labels or the bounds. */
 const STATE_KEYS = ["phases", "data", "instrument", "settings", "magneticModel", "wR", "Rw", "lastRefinement"] as const;
 
 /**
  * What the number audit reads of a tool's answer (as the model read it), or
- * null for a tool it does not read: bond_geometry whole; get_state's
- * engine values (the structure, the data, the fit, each parameter's value
- * and esd); boxcar_scan's note (its table is the report's own). A number the
+ * null for a tool it does not read, by the tool's `audited`: bond_geometry
+ * whole; get_state's engine values (the structure, the data, the fit, each
+ * parameter's value and esd); boxcar_scan's note (its table is the report's
+ * own). A number the
  * Agent quotes from them, rounded as from the report, is the engine's; one it
  * derived itself (a difference, a ratio) is still its own.
  */
 export function auditedToolText(name: string, text: string): string | null {
-  if (!AUDITED_TOOLS.has(name)) return null;
-  if (name === "bond_geometry") return text;
+  const audited = liveTool(name)?.audited;
+  if (!audited) return null;
+  if (audited === "whole") return text;
   let out: Record<string, unknown>;
   try {
     out = JSON.parse(text) as Record<string, unknown>;
   } catch {
     return null;
   }
-  if (name === "boxcar_scan") return typeof out.note === "string" ? out.note : null;
+  if (audited === "note") return typeof out.note === "string" ? out.note : null;
   const rows = Array.isArray(out.parameterRows) ? (out.parameterRows as { id?: unknown; value?: unknown; esd?: unknown }[]).map((r) => ({ id: r.id, value: r.value, ...(r.esd !== undefined ? { esd: r.esd } : {}) })) : [];
   return JSON.stringify({ ...Object.fromEntries(STATE_KEYS.filter((k) => out[k] !== undefined).map((k) => [k, out[k]])), parameterRows: rows });
 }

@@ -105,6 +105,12 @@ export interface LiveToolSpec {
   readonly evidence?: readonly Evidence[];
   /** A call that answered ends the model's turn: the user answers in their next message (chat.ts). */
   readonly endsTurn?: true;
+  /**
+   * What the report's number audit reads of its answer (report.ts,
+   * auditedToolText): all of it, the engine's values (never the Agent's
+   * notes), or its `note`. Absent: none of it.
+   */
+  readonly audited?: "whole" | "engineValues" | "note";
 }
 
 const ids = z.array(z.string().min(1)).describe("Parameter ids, or globs such as \"bkg*\" or \"*Fe1*\"");
@@ -120,6 +126,7 @@ const TOOLS = [
       parameters: ids.optional().describe("Which parameters to list in full (ids or globs, [\"*\"] for every one). Default: the free ones."),
     },
     effect: "read",
+    audited: "engineValues",
     pages: ["powder", "pdf", "singleCrystal"],
     cards: [],
     offer: { core: true },
@@ -729,6 +736,7 @@ const TOOLS = [
       atoms: z.array(z.string()).optional().describe("Only the bonds to these sites (labels)"),
     },
     effect: "read",
+    audited: "whole",
     pages: ["powder", "pdf", "singleCrystal"],
     cards: ["structure"],
     offer: { asked: ["geometry"] },
@@ -966,6 +974,7 @@ const TOOLS = [
       restarts: z.number().int().min(0).max(16).optional().describe("Randomly perturbed starts each box also refines from, the seeded start kept (default 0): for a track that may have inherited one box's local minimum"),
     },
     effect: "change",
+    audited: "note",
     pages: ["pdf"],
     cards: ["pattern"],
     evidence: ["localStructure"],
