@@ -16,7 +16,8 @@ import { inputJsonSchema, liveTool } from "@/agent/tools";
 /**
  * The Agent's subgroup tools on the PDF page (subgroupTools.ts) beyond the
  * equivalence with the view's Activate (lowerSymmetry.dom.test.ts): a name
- * that several classes answer returns them and changes nothing; the refusals
+ * and cell lower their row's default variant and say so, a name several rows
+ * answer returns them and changes nothing; the refusals
  * (another page, a fit running, an id no list gave, a bound too large, a
  * subgroup already in force, a strain-only row); clear_subgroup is the view's
  * ✕ clear; and the bound and id syntax.
@@ -38,30 +39,60 @@ function agentOn(start: PdfPageModel = demoPage(), wrap: (port: PdfAgentPort) =>
 
 const parsed = (text: string): Record<string, unknown> => JSON.parse(text) as Record<string, unknown>;
 
-describe("lower_symmetry with several matches", () => {
-  it("returns the four P-42₁m classes of 1×1×2 as candidates and changes nothing; a variant or an id picks one", async () => {
+describe("lower_symmetry by name", () => {
+  it("lowers the one P-42₁m row of 1×1×2 at its default variant and names the others; list_subgroups gives the same row in the same bound", async () => {
+    const { ex, calls } = agentOn();
+    // The bound both look in: the box the cell names (2026-11-07: the list looked in the view's 2×2×2, the name in 1×1×2).
+    const listed = parsed((await ex.run("list_subgroups", { name: "P-42_1m", cell: "1×1×2" })).text) as { bound: string; count: number; rows: { id: string; variants?: number }[] };
+    expect([listed.bound, listed.count, listed.rows[0]!.id, listed.rows[0]!.variants]).toEqual(["1×1×2", 1, "c45@1×1×2", 4]);
+    const out = await ex.run("lower_symmetry", { name: "P-42_1m", cell: "1×1×2" });
+    expect(out.status, out.text).toBe("ok");
+    expect(parsed(out.text)).toMatchObject({ row: "c45@1×1×2", bound: "1×1×2", variant: "1 of 4, the default; the others: c47@1×1×2, c73@1×1×2, c77@1×1×2", lowered: { to: "P -4 21 m #113", cell: "in its own cell, 1×1×2" } });
+    expect(calls).toEqual(["lower c45"]);
+  });
+
+  it("takes another variant by number or id, and says which it used and which is the default", async () => {
+    const byNumber = agentOn();
+    const third = await byNumber.ex.run("lower_symmetry", { name: "P-42_1m", cell: "1×1×2", variant: 3 });
+    expect(third.status, third.text).toBe("ok");
+    expect(parsed(third.text)).toMatchObject({ row: "c73@1×1×2", variant: "3 of 4; the others: c45@1×1×2 (the default), c47@1×1×2, c77@1×1×2" });
+    expect(byNumber.calls).toEqual(["lower c73"]);
+    // A row id lowers that variant, and says so (it lowered silently before).
+    const byId = agentOn();
+    expect(parsed((await byId.ex.run("lower_symmetry", { id: "c47@1×1×2" })).text)).toMatchObject({ row: "c47@1×1×2", bound: "1×1×2", variant: "2 of 4; the others: c45@1×1×2 (the default), c73@1×1×2, c77@1×1×2" });
+    // The default's id in the view's 2×2×2 bound: the same row, its ids in that bound.
+    const wide = agentOn();
+    expect(parsed((await wide.ex.run("lower_symmetry", { id: "c59@2×2×2" })).text)).toMatchObject({ row: "c59@2×2×2", bound: "2×2×2", variant: "1 of 4, the default; the others: c62@2×2×2, c96@2×2×2, c102@2×2×2" });
+    // In the parent's cell: the conventional cell's bound, the row's two variants.
+    const same = agentOn();
+    expect(parsed((await same.ex.run("lower_symmetry", { name: "P-42_1m", cell: "same cell", variant: 1 })).text)).toMatchObject({ row: "s18", bound: "1×1×1", variant: "1 of 2, the default; the others: s29" });
+    // A row of one class has no variant to name.
+    const single = agentOn();
+    const one = parsed((await single.ex.run("lower_symmetry", { id: "c161@2×2×2" })).text);
+    expect(one).toMatchObject({ row: "c161@2×2×2", bound: "2×2×2", lowered: { to: "P -4 21 m #113" } });
+    expect(one).not.toHaveProperty("variant");
+    const none = agentOn();
+    expect((await none.ex.run("lower_symmetry", { name: "P-42_1m", cell: "1×1×2", variant: 5 })).text).toMatch(/P-42₁m #113 in 1×1×2 has 4 variants, not 5/);
+    expect(none.calls).toEqual([]);
+  });
+
+  it("returns the rows and changes nothing when the name answers several (other cells or domains)", async () => {
     const { ex, port, calls, history } = agentOn();
     const before = port.state();
     const steps = history.history()!.steps.length;
-    const out = await ex.run("lower_symmetry", { name: "P-42_1m", cell: "1×1×2" });
+    // In 1×1×2, P-42₁m in the parent's cell (at X) and in its own 1×1×2 cell: two rows.
+    const out = await ex.run("lower_symmetry", { name: "113", bound: "1x1x2" });
     expect(out.status, out.text).toBe("unchanged");
-    const body = parsed(out.text) as { unchanged: boolean; count: number; candidates: { id: string; variant: number; default?: boolean; irreps: string; cell: string }[]; note: string };
-    expect(body.unchanged).toBe(true);
-    expect(body.count).toBe(4);
-    expect(body.candidates.map((c) => [c.id, c.variant, c.default ?? false])).toEqual([["c45@1×1×2", 1, true], ["c47@1×1×2", 2, false], ["c73@1×1×2", 3, false], ["c77@1×1×2", 4, false]]);
-    expect(body.candidates.every((c) => c.cell === "1×1×2" && /^X irrep 5 \(.*\) \+ W irrep \d \(.*\)$/.test(c.irreps))).toBe(true);
-    expect(body.note).toMatch(/nothing was changed/);
+    const body = parsed(out.text) as { unchanged: boolean; bound: string; count: number; candidates: { id: string; cell: string; variants?: number }[]; note: string };
+    expect([body.unchanged, body.bound, body.count]).toEqual([true, "1×1×2", 2]);
+    expect(body.candidates.map((c) => [c.id, c.cell, c.variants])).toEqual([["s18", "same cell", 2], ["c45@1×1×2", "1×1×2", 4]]);
+    expect(body.note).toBe("2 subgroups match, in different cells or domains: nothing was changed. Pick one with the user, then call again with its id");
+    // A variant does not pick among rows.
+    expect(parsed((await ex.run("lower_symmetry", { name: "113", bound: "1x1x2", variant: 1 })).text)).toMatchObject({ unchanged: true, count: 2 });
     // Nothing on the page moved, nothing was activated, no step.
     expect(port.state()).toEqual(before);
     expect(calls).toEqual([]);
     expect(history.history()!.steps).toHaveLength(steps);
-    // A name alone, in 1×1×2: the two same-cell classes at X and the four larger ones.
-    const both = parsed((await ex.run("lower_symmetry", { name: "113", bound: "1x1x2" })).text) as { count: number; candidates: { cell: string }[] };
-    expect([both.count, both.candidates.filter((c) => c.cell === "same cell").length]).toEqual([6, 2]);
-    // The variant names one: the third class.
-    const third = await ex.run("lower_symmetry", { name: "P-42_1m", cell: "1×1×2", variant: 3 });
-    expect(third.status, third.text).toBe("ok");
-    expect(calls).toEqual(["lower c73"]);
   });
 });
 

@@ -115,6 +115,12 @@ export interface EvalScenario {
   readonly before?: (port: AgentPort, record: (kind: StepKind, label: string) => void) => Promise<void>;
   /** What the user says, one message per turn. */
   readonly messages: readonly string[];
+  /**
+   * What the user says next when the Agent's last turn ended on a question
+   * their request already answers (`when` reads the run so far): sent once,
+   * after the messages, so a fair question does not end the run.
+   */
+  readonly followUp?: { readonly text: string; readonly when: (events: readonly EvalEvent[]) => boolean };
   readonly autonomy: AgentAutonomy;
   /**
    * What the stand-in user approves: every change (default) or none. A change
@@ -214,7 +220,14 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
       return [m[1]!, filled.includes("{{") ? null : filled];
     }));
   };
-  for (const text of scenario.messages) {
+  const followUp = scenario.followUp;
+  for (const text of scenario.messages) await say(text);
+  if (followUp && followUp.when(events)) await say(followUp.text);
+  const run: EvalRun = { events, port, records, asked, notices, usage, reports, turns, seconds: (Date.now() - started) / 1000, policy: chat.policyFor({ ...model, autonomy: scenario.autonomy }) };
+  const grades = scenario.checks.map((c) => ({ check: c.name, ...c.grade(run) }));
+  return { scenario: scenario.id, run, grades, passed: grades.every((g) => g.pass) };
+
+  async function say(text: string): Promise<void> {
     events.push({ kind: "user", text });
     try {
       await chat.send(text, { ...model, autonomy: scenario.autonomy }, {
@@ -245,9 +258,6 @@ export async function runScenario(scenario: EvalScenario, model: EvalModel, sign
     }
     settle();
   }
-  const run: EvalRun = { events, port, records, asked, notices, usage, reports, turns, seconds: (Date.now() - started) / 1000, policy: chat.policyFor({ ...model, autonomy: scenario.autonomy }) };
-  const grades = scenario.checks.map((c) => ({ check: c.name, ...c.grade(run) }));
-  return { scenario: scenario.id, run, grades, passed: grades.every((g) => g.pass) };
 }
 
 /** A report's Markdown without its figures (data URIs of a few hundred kB each). */

@@ -13,7 +13,7 @@ import { announcedTool } from "@/agent/chat";
 import { LIVE_TOOLS, liveTool } from "@/agent/tools";
 import { convertInterval } from "@/visualization/axisUnits";
 import type { PowderAgentPort, PowderLiveState, SingleCrystalLiveState } from "@/agent/port";
-import { calls, isChange, replies, type Check, type EvalRun } from "@/agent/evals/harness";
+import { calls, isChange, replies, type Check, type EvalEvent, type EvalRun } from "@/agent/evals/harness";
 
 const ok = (detail: string) => ({ pass: true, detail });
 const fail = (detail: string) => ({ pass: false, detail });
@@ -306,6 +306,18 @@ export function lowersTo(group: string, cell: string): Check {
       return hit ? ok(`lowered to ${hit.to}, ${hit.cell}`) : fail(done.length ? `lowered to ${done.map((l) => `${l.to}, ${l.cell}`).join("; ")}` : "never lowered the symmetry");
     },
   };
+}
+
+/**
+ * The Agent's turn ended on a question before any lowering: an ask_user, or
+ * a last reply that asks (pdf-lower-symmetry's follow-up: which variant, or
+ * the baseline first, are fair questions in Ask mode).
+ */
+export function askedBeforeLowering(events: readonly EvalEvent[]): boolean {
+  if (events.some((e) => e.kind === "call" && e.name === "lower_symmetry" && !e.isError && !!json(e.text)?.lowered)) return false;
+  const last = [...events].reverse().find((e) => e.kind === "call" || (e.kind === "reply" && e.text.trim() !== ""));
+  if (!last) return false;
+  return last.kind === "call" ? last.name === "ask_user" && !last.isError : last.text.includes("?");
 }
 
 /** The row picked from the Subgroups view's list: list_subgroups before the first lowering. */

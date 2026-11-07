@@ -976,7 +976,7 @@ const TOOLS = [
     description:
       "PDF page only. The Subgroups view's list: the subgroups of the loaded structure's group whose cell fits the supercell `bound`, high to low symmetry, one row per name, cell and domains. Each row: `id` (for lower_symmetry), name, cell, domains, the irreps that reach it with their directions (`coupled`: no single irrep does), mode count, and `variants` when several classes share it (`id` is the default's). `strainOnly` rows move no atom. With `listing` the result is partial: call again.",
     inputSchema: {
-      bound: z.string().optional().describe("Supercell: \"1×1×2\", \"2×2×2\", or P as \"2 0 0; 0 2 0; 0 0 2\". Default: the view's, else 2×2×2"),
+      bound: z.string().optional().describe("Supercell: \"1×1×2\", \"2×2×2\", or P as \"2 0 0; 0 2 0; 0 0 2\". Default: the box `cell` names, else the view's, else 2×2×2"),
       name: z.string().optional().describe("Name or IT number: \"P-42_1m\", \"113\""),
       k: z.array(z.string()).max(4).optional().describe("k-points whose irreps reach the row: \"X\", \"W\""),
       cell: z.string().optional().describe("\"same cell\", \"supercell\" or a box: \"1×1×2\""),
@@ -992,13 +992,13 @@ const TOOLS = [
     name: "lower_symmetry",
     title: "Lower the symmetry",
     description:
-      "PDF page only. Lower the symmetry to a subgroup as Activate on the Subgroups view does: the child (in the parent's cell or its own supercell) becomes the model, its positions refine as modes by parent irrep, the order parameter's modes freed from a small kick. Give a row's `id` from list_subgroups, or `name` with `cell` (and `variant`). Several matches and no `id`: it returns `candidates` and changes nothing. Then refine the freed modes with the scale. Refused while a subgroup is in force (clear_subgroup first). On the powder page a lower group is loaded as its CIF.",
+      "PDF page only. Lower the symmetry to a subgroup as Activate on the Subgroups view does: the child (in the parent's cell or its own supercell) becomes the model, its positions refine as modes by parent irrep, the order parameter's modes freed from a small kick. Give a row's `id` from list_subgroups, or `name` with `cell`: a row with variants lowers to its default (or `variant`), and the answer names the others. Several rows by that name: it returns `candidates` and changes nothing. Then refine the freed modes with the scale. Refused while a subgroup is in force (clear_subgroup first). On the powder page a lower group is loaded as its CIF.",
     inputSchema: {
       id: z.string().optional().describe("A row's id from list_subgroups (\"c45@1×1×2\", \"s18\")"),
       name: z.string().optional().describe("Or its name or IT number"),
       cell: z.string().optional().describe("With name: \"same cell\" or a box (\"1×1×2\")"),
-      variant: z.number().int().min(1).optional().describe("With name: the variant's number in `candidates`"),
-      bound: z.string().optional().describe("With name: the supercell to look in (default: the box `cell` names)"),
+      variant: z.number().int().min(1).optional().describe("With name: the row's variant by number (default: its default)"),
+      bound: z.string().optional().describe("With name: the supercell to look in, as list_subgroups (default: the box `cell` names)"),
     },
     effect: "change",
     pages: ["pdf"],

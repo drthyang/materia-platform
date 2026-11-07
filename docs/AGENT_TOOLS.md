@@ -754,14 +754,19 @@ current.
 - **Lowering the symmetry on the PDF page** is the Subgroups view's own work
   ([`subgroupTools.ts`](../src/agent/subgroupTools.ts) over
   [`pdfSubgroups.ts`](../src/app/pdfSubgroups.ts)). `list_subgroups` gives the
-  view's list for a supercell bound (the view's, else 2×2×2): its rows, merged
-  by name, cell and domains, with the view's filters and each row's default
-  variant, a page at a time. The larger cells are worked out in a Web Worker
-  and waited on for up to 30 s; a slower listing answers with the rows so far
-  and goes on. `lower_symmetry` takes a row's id (or a name and cell) and runs
-  Activate on it: the same child, modes, kick and History step. Several
-  classes and no id return the candidates and change nothing. It is a change
-  (the card, Ask or Auto, the run lock). `clear_subgroup` is ✕ clear. The
+  view's list for a supercell bound (the call's, else the box its `cell`
+  names, else the view's, else 2×2×2): its rows, merged by name, cell and
+  domains, with the view's filters and each row's default variant, a page at
+  a time. The larger cells are worked out in a Web Worker and waited on for up
+  to 30 s; a slower listing answers with the rows so far and goes on.
+  `lower_symmetry` takes a row's id (or a name and cell, looked up in the same
+  bound and merging) and runs Activate on it: the same child, modes, kick and
+  History step. A row with variants lowers at its default (the rigid-unit
+  order of #153) unless `variant` names another, and the answer gives the
+  row's id, the bound and which variant it used, with the others' ids. A name
+  that several rows answer (other cells or domains) returns them as
+  candidates and changes nothing. It is a change (the card, Ask or Auto, the
+  run lock). `clear_subgroup` is ✕ clear. The
   powder page has no activation: there the tools answer that they work on the
   PDF page, and a lower group is loaded as its CIF.
 - **Units.** `get_state` lists the extent and fit window in each unit the

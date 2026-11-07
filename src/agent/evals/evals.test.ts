@@ -185,6 +185,26 @@ describe("the eval pages", () => {
     expect(joint.grades.find((g) => g.check === check)?.pass, why(joint)).toBe(false);
   }, 60_000);
 
+  it("answers a question before lowering with the user's follow-up, and the run goes on (pdf-lower-symmetry, 2026-11-07)", async () => {
+    const PDF_SKILL = { name: "read_skill", input: { name: "pdf-workflow" } };
+    const good = REPLAYS["pdf-lower-symmetry"]!.good;
+    // Asked which variant (Haiku #2, Sonnet #1): the user's follow-up answers, and the lowering and the refinement follow.
+    const asked = await replay("pdf-lower-symmetry", [
+      { calls: [PDF_SKILL, { name: "list_subgroups", input: { name: "P-42_1m", cell: "1×1×2" } }] },
+      { text: "One row of four classes.", calls: [{ name: "ask_user", input: { question: "Lower to the row's default variant, or another?", options: [{ label: "The default", message: "Lower to the default variant." }, { label: "Another", message: "Show me the other variants." }] } }] },
+      ...good.slice(1),
+    ]);
+    expect(asked.run.events.filter((e) => e.kind === "user").map((e) => (e as { text: string }).text), why(asked)).toEqual([scenario("pdf-lower-symmetry").messages[0], "Use the default variant, and go on."]);
+    expect(asked.overrun, why(asked)).toBe(0);
+    expect(failing(asked), why(asked)).toEqual([]);
+    // A run that lowered sends no follow-up, and neither does one that ended without a question.
+    const lowered = await replay("pdf-lower-symmetry", good);
+    expect(lowered.run.events.filter((e) => e.kind === "user"), why(lowered)).toHaveLength(1);
+    const silent = await replay("pdf-lower-symmetry", [{ calls: [PDF_SKILL, { name: "list_subgroups", input: { name: "P-42_1m", cell: "1×1×2" } }] }, { text: "That is the row." }]);
+    expect(silent.run.events.filter((e) => e.kind === "user"), why(silent)).toHaveLength(1);
+    expect(failing(silent), why(silent)).toContain("lowers the symmetry to P -4 21 m #113, in its own cell, 1×1×2");
+  }, 120_000);
+
   it("does not take a denial for a proposal: \"Neither is evidence for a lower group\"", async () => {
     // A live run (2026-10-10) failed symmetry-last on that sentence: "neither" was not read as a negation.
     const r = await replay("symmetry-last", [

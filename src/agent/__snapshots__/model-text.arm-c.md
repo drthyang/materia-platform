@@ -1738,7 +1738,7 @@ PDF page only. The Subgroups view's list: the subgroups of the loaded structure'
   "type": "object",
   "properties": {
     "bound": {
-      "description": "Supercell: \"1×1×2\", \"2×2×2\", or P as \"2 0 0; 0 2 0; 0 0 2\". Default: the view's, else 2×2×2",
+      "description": "Supercell: \"1×1×2\", \"2×2×2\", or P as \"2 0 0; 0 2 0; 0 0 2\". Default: the box `cell` names, else the view's, else 2×2×2",
       "type": "string"
     },
     "name": {
@@ -1780,7 +1780,7 @@ PDF page only. The Subgroups view's list: the subgroups of the loaded structure'
 
 ### lower_symmetry
 
-PDF page only. Lower the symmetry to a subgroup as Activate on the Subgroups view does: the child (in the parent's cell or its own supercell) becomes the model, its positions refine as modes by parent irrep, the order parameter's modes freed from a small kick. Give a row's `id` from list_subgroups, or `name` with `cell` (and `variant`). Several matches and no `id`: it returns `candidates` and changes nothing. Then refine the freed modes with the scale. Refused while a subgroup is in force (clear_subgroup first). On the powder page a lower group is loaded as its CIF.
+PDF page only. Lower the symmetry to a subgroup as Activate on the Subgroups view does: the child (in the parent's cell or its own supercell) becomes the model, its positions refine as modes by parent irrep, the order parameter's modes freed from a small kick. Give a row's `id` from list_subgroups, or `name` with `cell`: a row with variants lowers to its default (or `variant`), and the answer names the others. Several rows by that name: it returns `candidates` and changes nothing. Then refine the freed modes with the scale. Refused while a subgroup is in force (clear_subgroup first). On the powder page a lower group is loaded as its CIF.
 
 ```json
 {
@@ -1799,13 +1799,13 @@ PDF page only. Lower the symmetry to a subgroup as Activate on the Subgroups vie
       "type": "string"
     },
     "variant": {
-      "description": "With name: the variant's number in `candidates`",
+      "description": "With name: the row's variant by number (default: its default)",
       "type": "integer",
       "minimum": 1,
       "maximum": 9007199254740991
     },
     "bound": {
-      "description": "With name: the supercell to look in (default: the box `cell` names)",
+      "description": "With name: the supercell to look in, as list_subgroups (default: the box `cell` names)",
       "type": "string"
     }
   },
