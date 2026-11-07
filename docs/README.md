@@ -8,7 +8,8 @@ workbench? Start with the [user guide](./USER_GUIDE.md), and read
 
 | Document | Read it to learn |
 | --- | --- |
-| [USER_GUIDE.md](./USER_GUIDE.md) | How to run a refinement in the app, task by task: powder, magnetic, single crystal, PDF |
+| [USER_GUIDE.md](./USER_GUIDE.md) | How to run a refinement in the app, task by task: powder, magnetic, single crystal, PDF, the Copilot |
+| [DEMO_SCRIPT.md](./DEMO_SCRIPT.md) | A 5–10 minute walk through the public demos, with timings, what to say and fallbacks |
 | [LIMITATIONS.md](./LIMITATIONS.md) | What is supported, what is approximate, what is missing, and the known issues |
 | [COMPARISON.md](./COMPARISON.md) | How the workbench compares with GSAS-II, Jana2020 and FullProf |
 | [PROJECT_FORMAT.md](./PROJECT_FORMAT.md) | How a session is saved and reopened (`.materia.json`) |
