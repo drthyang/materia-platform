@@ -3,7 +3,22 @@
 This guide shows you how to run a refinement in MATERIA Workbench, one task at
 a time. It names each control as the app labels it; some labels appear in
 capitals on screen. The science docs are linked where you need them. What the
-app does not do is in [LIMITATIONS.md](./LIMITATIONS.md).
+app does not do is in [LIMITATIONS.md](./LIMITATIONS.md). For a guided
+5–10 minute tour, follow [DEMO_SCRIPT.md](./DEMO_SCRIPT.md).
+
+**Contents**
+
+1. [Before you start](#1-before-you-start)
+2. [Open the app and try a demo](#2-open-the-app-and-try-a-demo) · [On a phone](#on-a-phone)
+3. [Files you can load](#3-files-you-can-load)
+4. [Powder (Rietveld) refinement](#4-powder-rietveld-refinement)
+5. [Magnetic structures](#5-magnetic-structures)
+6. [Single-crystal refinement](#6-single-crystal-refinement)
+7. [PDF and magnetic PDF](#7-pdf-and-magnetic-pdf) · [Subgroups](#symmetry-modes-and-subgroups) · [The 3D Model's modes](#the-3d-models-modes) · [Boxcar scan](#boxcar-scan)
+8. [Judge a fit](#8-judge-a-fit) · [Posterior](#posterior-sampling)
+9. [Save and export](#9-save-and-export)
+10. [The Copilot](#10-the-copilot)
+11. [Where to go next](#11-where-to-go-next)
 
 ## 1. Before you start
 
@@ -46,6 +61,28 @@ The start page shows the **Structure**, **Data** and **Instrument** cards above
 
 The data you load pick the page. A reflection list opens the single-crystal
 page, a G(r) file the PDF page, and any other pattern the powder page.
+
+### On a phone
+
+The app works on a phone, upright or sideways. Up to 640 px wide (or on a
+phone held sideways):
+
+- **Prefit ↻** (or **Escape min ↻** once a fit exists), **Refine** and
+  **Cancel** sit in a bar fixed to the bottom of the screen on the Rietveld,
+  PDF and single-crystal pages, so a long parameter list never scrolls them
+  away. While a fit runs the bar reads "Refining…" and **Cancel** takes
+  **Refine**'s place. The bar hides while the Copilot is open or you type in a
+  field.
+- The cards stack in one column. **History** is the clock icon in the header,
+  and back and forward are in its list.
+- The **Copilot** bar sits under the action bar; tap it to open the Copilot as
+  a sheet over the lower part of the screen. Its context meter stays folded
+  until the window is 70 % full.
+- On the Subgroups view, a row's detail opens as a full-screen sheet with
+  **‹ Back** and **Activate** on screen. Chip rows (k-points, sites) scroll
+  sideways.
+
+Tablets and desktops keep the buttons in the parameter card.
 
 ## 3. Files you can load
 
@@ -421,8 +458,10 @@ The single-crystal and PDF magnetic pages run the same steps, except:
 - The page does not open on a model the session already holds.
 - The single-crystal page has no **Show on refinement pattern**.
 
-The list labels candidates type I or type III. It does not enumerate type-IV
-(anti-translation) groups or the star of k, so
+The candidates carry their type (I to IV; at k ≠ 0 a type-IV group in its
+magnetic cell) and BNS/OG labels, as on the powder page. Only one arm of k is
+modelled: the star of k and multi-k structures are not
+([LIMITATIONS.md](./LIMITATIONS.md#magnetic-structures)), so
 [cross-check](#cross-check-before-you-publish) before you publish.
 
 ## 6. Single-crystal refinement
@@ -494,9 +533,11 @@ shows the modes being refined.
 - To keep the structure's symmetry, switch **Constrained atomic** to
   **Irreps (modes)** under **Parameterization**. The mode amplitudes come from
   the structure's own space group and start at 0.
-- To lower it, open the **Subgroups** view ("Lower the symmetry"): pick a
-  subgroup in the list, then **Activate** in its detail. The child's
-  distortion modes load into **Positions**. Details are behind each **?**.
+- To lower it, open the **Subgroups** view ("Lower the symmetry"). It opens on
+  the **Tree** of maximal subgroups; **List** shows every subgroup at once,
+  and **Find** looks one up by name or number. Pick a subgroup, then
+  **Activate** in its detail. The child's distortion modes load into
+  **Positions**. Details are behind each **?**.
   - **Supercell** (top left) sets the largest cell a child may have: 2×2×2
     by default, a preset (1×1×2, √2×√2×1, …), or **custom P…** (type P and
     its centring, then **Apply**). The list holds every subgroup whose cell
@@ -565,9 +606,11 @@ shows the modes being refined.
       the background (seconds; a minute for an F-centred cubic parent in
       2×2×2): "listing 2×2×2 subgroups… 60 %" with **stop**, the supercell
       held. The result is kept until the structure or the bound changes.
-    - **List | Tree**: the tree opens from the parent one maximal step at a
-      time (▸ to open). A subgroup under two parents says "also under …";
-      the ones the filters leave out are dimmed.
+    - **List | Tree**: the view opens on the **Tree**, which starts from the
+      parent and opens one maximal step at a time (▸ to open). Each row is
+      one line, as in the list, with how many subgroups lie below it. A
+      subgroup under two parents says "also under …"; the ones the filters
+      leave out are dimmed. **List** gives the merged list described above.
   - **The detail** of the row you pick (on a phone, a full-screen sheet with
     **‹ Back**):
     - The result in one line ("Pnma in a 2×2×2 cell, from 2 irreps together:
@@ -611,6 +654,8 @@ shows the modes being refined.
   parent: its cell, ADP and position rows come back as loaded, with the
   scale and the instrument rows kept. **Constrained atomic** sets a choice
   aside, and **Irreps (modes)** brings it back at its starting values.
+#### The 3D Model's modes
+
 - The **3D Model** view lists the modes with their amplitudes, esds and
   free/fixed state, and names the parent or subgroup they lower to. Modes by
   parent irrep (a supercell child, a decomposition, a mode CIF, a same-cell
@@ -691,7 +736,8 @@ shows the modes being refined.
 
 These tools need a single phase.
 
-The Agent does the same on request ("lower it to P-42₁m in a 1×1×2 cell"). It
+The Copilot does the same on request ("lower it to P-42₁m in a 1×1×2 cell";
+see [The Copilot](#10-the-copilot)). It
 reads the list with `list_subgroups` and runs Activate with `lower_symmetry`,
 so the child, its modes and the History step are the ones a click gives. When
 several classes share the name and cell, it lists them and waits for your
@@ -832,11 +878,24 @@ Never judge a fit by its R value alone. The definitions are in
   **Hide bonds** leaves only the atoms, the cell and the arrows. Both are kept
   for the browser session.
 
-The **Posterior** view samples the free parameters around a converged fit. It
-is a prototype ([LIMITATIONS.md](./LIMITATIONS.md#uncertainty-and-posterior-sampling)).
-Refine, then click **Sample posterior**. If the banner reads
-**Not converged — continue the chain**, click **Continue ↻**. An **esd ratio**
-near 1 supports the least-squares esds.
+### Posterior sampling
+
+The **Posterior** view (powder and PDF pages) samples the free parameters
+around a converged fit. It is a prototype
+([LIMITATIONS.md](./LIMITATIONS.md#uncertainty-and-posterior-sampling)).
+
+1. Refine, then click **Sample posterior**. While it runs, **Stop** takes its
+   place, as **Cancel** does for **Refine**.
+2. If the banner reads **Not converged — continue the chain**, click
+   **Continue ↻**. An **esd ratio** near 1 supports the least-squares esds.
+3. **Stop** ends the run within a second and keeps the steps taken, labelled
+   "Stopped early · N of M samples". A stopped run is never called converged
+   and never goes into the report. **Continue ↻** picks it up from its last
+   whole step; **Sample posterior** starts afresh.
+
+Refinement and sampling share the compute workers, so they never run at the
+same time: while the sampler runs, **Refine** and **Prefit** / **Escape min**
+are disabled ("Sampling the posterior; stop it first").
 
 ### Cross-check before you publish
 
@@ -850,7 +909,7 @@ near 1 supports the least-squares esds.
 ## 9. Save and export
 
 **Save** in the header downloads the session as a `.materia.json` file (it
-appears once something is loaded). **Load**, or **… or open a saved project
+appears once something is loaded). **Open** in the header, or **… or open a saved project
 (.materia.json)** on the start page, reopens it on the page you saved from.
 
 A project keeps the phases, data, parameters, model settings, last result,
@@ -958,7 +1017,113 @@ the model came from:
   candidate selected on the magnetic page, until you continue with it. The
   powder, single-crystal and PDF reports all carry it.
 
-## 10. Where to go next
+## 10. The Copilot
+
+The **MATERIA Copilot** runs a language model beside the analysis. It reads
+the page, judges the fit with the app's own diagnostics, and changes things
+through the page's own controls, so each change is the one a click would make.
+It works on the powder page and its magnetic step, the single-crystal page and
+the PDF page. How it is built, and every tool it has:
+[AGENT_TOOLS.md](./AGENT_TOOLS.md).
+
+### Connect a model
+
+1. Open it from the **Copilot** rail at the page's side (on a phone, the
+   **Copilot** bar at the bottom).
+2. In its settings (⚙), pick a provider: **Anthropic** (with **API key** or
+   **Local proxy**), **Ollama**, **LM Studio** or **OpenAI API** (any server
+   that speaks OpenAI's API). **? How to connect a model** says what each
+   needs. Pick the model from the **Model** menu at the top of the panel.
+   - **API key** works on the published site. The key goes only from this
+     browser to the provider and is kept for the tab, unless you tick
+     **Remember on this device**. It is never written to a project or report.
+   - **Local proxy** works with `npm run dev` or `npm run preview`: the server
+     adds `ANTHROPIC_API_KEY` from its environment or `.env.local`, so the key
+     never reaches the browser.
+   - **Ollama** and **LM Studio** run a model on your machine, with no key.
+3. Type a request in **Ask anything, or ask it to run the analysis…** and press
+   Enter. **Stop** (■) ends the turn and cancels a running fit.
+
+Without a key or a model the message box says what to add, and stays
+disabled.
+
+### Ask first or Auto
+
+- **Ask first** (the default): a tool that only reads runs at once. A tool that
+  changes the analysis shows a card naming the change ("Refine 8 free
+  parameters · no correlation above 0.5"), marked **Needs approval**. Click
+  **Approve** to run it or **Decline** to refuse it; the Copilot is told you
+  declined.
+- **Auto** runs changes without a card, and goes back to **Ask first** when
+  you reload. Some changes always ask, even in Auto: lifting one of your
+  method's firm rules (`allow_exception`) and setting an instrument constant.
+- Every change is a step in **History**, tagged as the Copilot's: ⌘Z or a
+  click in History undoes it.
+- Where your method leaves a decision to you (which k, which magnetic group,
+  which next step), the options show as buttons under the Copilot's reply. A
+  click sends that option as your message; a change it leads to still asks
+  first.
+
+### Your method, and what it will not do
+
+The **Method** line at the top lists the page's stages, ticked as they are
+done, with the next one named. Before it changes anything the Copilot reads
+the page's method (a skill, such as `my-rietveld-workflow` or
+`pdf-workflow`). Some rules are enforced by the app whatever the model says,
+and the Copilot gets a refusal that names the reason:
+
+- no refinement with two free parameters correlated at |ρ| ≥ 0.95, or a
+  combination the data cannot determine;
+- no occupancy freed with only the scale to determine it; the instrument's
+  terms never with the thermal parameters or (on powder) the positions; the
+  microstrain on its own. You can lift one of these for a stated reason,
+  through a card that always asks;
+- the space group is questioned last, on a converged fit;
+- in the magnetic step the moments are fitted against the nuclear model held
+  fixed, and the report waits for the final instrument pass;
+- nothing runs while a refinement or the posterior sampler is running.
+
+### Lower the symmetry
+
+On the PDF page, ask for a subgroup by name and cell ("Lower the symmetry to
+P-42₁m in a 1×1×2 cell"). The Copilot reads the Subgroups list
+(`list_subgroups`) and, after your approval, activates the row
+(`lower_symmetry`): the child, its modes and the History step are the ones
+**Activate** gives, and the card names the row before anything changes
+("Lower F-43m #216 to P-42₁m #113 · 1×1×2 · 24 domains …"). If several rows
+match the name, it lists them and changes nothing until you pick. "Back to the
+parent" runs **✕ clear** (`clear_subgroup`). On the powder page it says these
+tools work on the PDF page.
+
+### The context meter
+
+The meter under the message box, **Context 19%**, shows how full the model's
+window is: the last prompt, its reply and the room kept for the next reply.
+Claude's use is counted from the API's reported usage, a local model's by the
+app's own estimate.
+
+- Neutral below 70 %, amber from 70 %, red above 90 %. From amber the box
+  offers **Start fresh** (a new conversation; the page and its History stay)
+  and **Summarize and continue** (the model writes a summary and works from it
+  in place of the earlier messages, which stay on screen for you).
+- **?** beside the meter gives the tokens in use and the window, the reply
+  reserve, who counted, and for Anthropic's models the session's cost at list
+  price.
+- Nothing is cut silently: the chat says when older tool results go to a local
+  model as digests, when the API leaves older results out, and when a reply
+  stops because the window filled.
+- **New conversation** clears the chat at any time.
+
+### Its report
+
+Asked for a report, the Copilot writes only the summary; the rest is the
+page's own report (see [The report](#the-report)). Each decimal number in its
+summary is checked against the numbers the report computed. One that matches
+none is underlined (HTML) or marked † (Markdown) and sent back, so the Copilot
+corrects it. The report opens in a viewer with **Save HTML**, **Markdown**,
+**Print / PDF** and **CIF**, and again from the drawer.
+
+## 11. Where to go next
 
 | Document | Read it to learn |
 | --- | --- |
@@ -970,4 +1135,6 @@ the model came from:
 | [PDF_MPDF_ROADMAP.md](./PDF_MPDF_ROADMAP.md) | The PDF and magnetic PDF models and their caveats |
 | [VALIDATION.md](./VALIDATION.md) | What is tested, and against which programs |
 | [COMPARISON.md](./COMPARISON.md) | How the workbench compares with GSAS-II, Jana2020 and FullProf |
-| [AGENT_TOOLS.md](./AGENT_TOOLS.md) | How an AI agent drives the same engine |
+| [AGENT_TOOLS.md](./AGENT_TOOLS.md) | How the Copilot and other AI agents drive the same engine |
+| [AGENT_EVALS.md](./AGENT_EVALS.md) | The Copilot's eval scenarios and their results |
+| [DEMO_SCRIPT.md](./DEMO_SCRIPT.md) | A 5–10 minute guided tour of the demos |
