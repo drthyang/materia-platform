@@ -31,6 +31,7 @@ workbench? Start with the [user guide](./USER_GUIDE.md), and read
 | Document | Read it to learn |
 | --- | --- |
 | [VALIDATION.md](./VALIDATION.md) | What is tested, and which results are checked against external tools |
+| [demo-qa.md](./demo-qa.md) | The public demos run end to end in a browser at three viewports: the checklist, what was fixed, what remains, and how to re-run it |
 
 ## Working on the code
 
